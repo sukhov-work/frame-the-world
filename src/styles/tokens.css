@@ -1,0 +1,20 @@
+/* Design tokens — SOURCE OF TRUTH (ADR D14).
+   Seeded from the Claude Design brief (dark space-neutral, single cyan-teal accent).
+   Replace via a Claude Design import; after ANY change here, regenerate the GL bridge
+   `src/lib/theme/tokens.ts` so the WebGL scene stays in sync. */
+:root {
+  --color-bg: #05070b;
+  --color-surface: #12161c;
+  --color-border: #232935;
+  --color-text: #e8ecf2;
+  --color-text-secondary: #9aa4b2;
+  --color-text-muted: #5b6472;
+  --color-accent: #38e1d0;
+  --color-land: #2e3a44;
+  --color-land-hi: #3c4a57;
+  --color-water: #0c141c;
+  --color-golden-hour: #ffb865;
+
+  --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Menlo", monospace;
+}

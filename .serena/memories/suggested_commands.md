@@ -1,5 +1,6 @@
 # mem:suggested_commands — Frame the World
-> Live **after Phase 1** scaffolds the Astro app. Until then only the scaffold + CLI-auth commands apply.
+> App scaffolded (Phase 1, 2026-07-09) — all commands below are live. `three`+`3d-tiles-renderer` installed.
+> For the real OSM-buildings globe, add `PUBLIC_CESIUM_ION_TOKEN=<token>` to `.env.local` (gitignored).
 
 ## Wix CLI auth / provisioning
 - `npx @wix/cli@latest whoami`                       # exit 0 = logged in

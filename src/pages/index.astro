@@ -1,0 +1,77 @@
+---
+import Layout from "../layouts/Layout.astro";
+import GlobeCanvas from "../components/globe/GlobeCanvas";
+---
+
+<Layout title="Frame the World">
+  <!-- client:only="react" — the WebGL globe is NEVER server-rendered (constraint C4) -->
+  <GlobeCanvas client:only="react" />
+
+  <header class="topnav">
+    <span class="logo">Frame&nbsp;the&nbsp;World</span>
+    <nav>
+      <!-- routes arrive in later phases (upload=P2, explore=P3, sign-in=P5) -->
+      <a href="#">Explore</a>
+      <a href="#">Upload</a>
+      <a href="#">Sign in</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1>See where your photograph lives in the world.</h1>
+    <p>Upload a RAW. Watch it project onto the planet.</p>
+  </section>
+</Layout>
+
+<style>
+  .topnav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.1rem 1.6rem;
+  }
+  .logo {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--color-text);
+  }
+  .topnav nav {
+    display: flex;
+    gap: 1.4rem;
+  }
+  .topnav a {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    letter-spacing: 0.03em;
+    transition: color 0.2s ease;
+  }
+  .topnav a:hover {
+    color: var(--color-accent);
+  }
+  .hero {
+    position: fixed;
+    left: 1.6rem;
+    bottom: 2.2rem;
+    z-index: 10;
+    max-width: 30rem;
+    pointer-events: none;
+  }
+  .hero h1 {
+    margin: 0 0 0.5rem;
+    font-weight: 500;
+    font-size: 1.9rem;
+    line-height: 1.15;
+    color: var(--color-text);
+  }
+  .hero p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 0.95rem;
+  }
+</style>

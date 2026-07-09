@@ -9,9 +9,13 @@ render + projection math all in-browser); Wix is a thin backend (auth/Data/Media
 Owner: Yevhen. Hackathon build. Language: TypeScript + Astro. No SSH/prod box — "prod" is Wix cloud via `wix release`.
 
 ## Status
-**Bootstrapped, pre-implementation (2026-07-09).** Operating environment + design docs + `/frame` skill in
-place; **no app code yet**. Next step is **IMPLEMENTATION_PLAN Phase 1 — scaffold + deploy "hello globe"**
-(`npm create @wix/new` → three.js + 3d-tiles-renderer globe in a client:only island). See `NEXT_SESSION_PROMPT.md`.
+**Phase 1 in progress (2026-07-09).** App scaffolded (Astro 5 + `@wix/astro`), merged into the repo (one
+`.git`). Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
+appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`). `GlobeCanvas.tsx` procedural stylized
+globe renders; `three@0.185.0` + `3d-tiles-renderer@0.4.28`; `astro check` + `wix build` green.
+**Next step:** add a Cesium **ion token** (`.env.local` → `PUBLIC_CESIUM_ION_TOKEN`) to light up real OSM
+buildings (`StylizedTiles.ts`, ion 96188) over Dnipro, visual-smoke in `wix dev`, `wix release`, then **Phase 2
+(EXIF + decode)**. See `NEXT_SESSION_PROMPT.md`.
 
 ## Source layout (target, post-Phase-1 — nothing built yet)
 - `src/components/globe/` — client:only three.js scene (GlobeCanvas, StylizedTiles, Frustum, Sky, Pins). Design imports NEVER touch.
@@ -35,6 +39,7 @@ are the execution source of truth (distilled from `DEEP_RESEARCH.md` = provenanc
 ## Related memories
 - `mem:tech_stack` — runtime/deps/tooling · `mem:suggested_commands` — build/test/dev/release
 - `mem:task_completion` — quality gate before done · `mem:project/dev_environment` — what can't be tested locally
-- `mem:project/wix-platform` — Wix mechanics + gotchas + TODO-VERIFY · `mem:architecture/system-overview` — the engine + pipelines
+- `mem:project/wix-platform` — Wix mechanics + gotchas + TODO-VERIFY · `mem:project/wix-site` — live URL + siteId/appId
+- `mem:architecture/system-overview` — the engine + pipelines
 - `mem:decisions/adr-000-locked-stack` — the 15 locked ADRs · `mem:decisions/session_workflow` — persistence loop
 - `mem:memory_maintenance` — how to maintain this graph
