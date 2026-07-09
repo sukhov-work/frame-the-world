@@ -9,13 +9,17 @@ render + projection math all in-browser); Wix is a thin backend (auth/Data/Media
 Owner: Yevhen. Hackathon build. Language: TypeScript + Astro. No SSH/prod box — "prod" is Wix cloud via `wix release`.
 
 ## Status
-**Phase 1 in progress (2026-07-09).** App scaffolded (Astro 5 + `@wix/astro`), merged into the repo (one
-`.git`). Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
-appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`). `GlobeCanvas.tsx` procedural stylized
-globe renders; `three@0.185.0` + `3d-tiles-renderer@0.4.28`; `astro check` + `wix build` green.
-**Next step:** add a Cesium **ion token** (`.env.local` → `PUBLIC_CESIUM_ION_TOKEN`) to light up real OSM
-buildings (`StylizedTiles.ts`, ion 96188) over Dnipro, visual-smoke in `wix dev`, `wix release`, then **Phase 2
-(EXIF + decode)**. See `NEXT_SESSION_PROMPT.md`.
+**Phase 1 DONE (2026-07-09, browser-verified by the user).** Cesium OSM Buildings globe live in `wix dev`
+over Dnipro (ion asset 96188), with the "premium instrument" backdrop: stylized ECEF base ellipsoid textured
+with grayscale world topology (`public/textures/earth-topology.png` — continents readable so the user knows
+where to zoom), accent-tinted atmosphere rim, ECEF star-field, firmer lat/lon graticule, `zoomSpeed = 5`
+(trackpad pinch usable), guarded render loop. Non-deprecated APIs (`CesiumIonAuthPlugin` from
+`core/plugins`; `GlobeControls.setEllipsoid`). `three@0.185.0` + `3d-tiles-renderer@0.4.28`; `astro check` +
+`wix build` green. Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
+appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
+**Next step: Phase 2 — EXIF + decode pipeline** (`exifr` metadata + embedded-JPEG preview + `libraw-wasm`
+Worker demosaic + HEIC feature-detect + FOV/geohash unit tests). See `NEXT_SESSION_PROMPT.md`. `wix release`
+still pending user greenlight.
 
 ## Source layout (target, post-Phase-1 — nothing built yet)
 - `src/components/globe/` — client:only three.js scene (GlobeCanvas, StylizedTiles, Frustum, Sky, Pins). Design imports NEVER touch.

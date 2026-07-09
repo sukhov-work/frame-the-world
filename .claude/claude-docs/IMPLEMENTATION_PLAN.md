@@ -11,11 +11,11 @@ where required, least-privilege · commit the sensor dataset + unit-test FOV/geo
 
 ---
 
-## Phase 1 — Scaffold + deploy "hello globe"  ◐ (2026-07-09: scaffold + procedural globe + build DONE; OSM buildings + `wix release` pending)
-**Status:** App scaffolded & merged into the repo; `GlobeCanvas` (procedural stylized globe) renders and
-`wix build`/`astro check` pass. Remaining to close the DoD: (1) add a Cesium **ion token** to `.env.local`
-(`PUBLIC_CESIUM_ION_TOKEN`) so `StylizedTiles.ts` loads OSM buildings over Dnipro; (2) visual smoke in `wix dev`;
-(3) `wix release`. Then Phase 2.
+## Phase 1 — Scaffold + deploy "hello globe"  ☑ DONE 2026-07-09 (browser-verified; `wix release` pending greenlight)
+**Status (2026-07-09):** App scaffolded & merged; Cesium OSM Buildings globe live in browser over Dnipro,
+with a stylized base ellipsoid (continent topology), lat/lon graticule, accent atmosphere rim, and a
+restrained ECEF star-field; ion token in `.env.local` (gitignored); zoomSpeed = 5 makes trackpad pinch
+usable; `astro check` + `wix build` green. **`wix release` deferred pending user greenlight.** → **Phase 2.**
 **Scope:** scaffold Wix headless Astro into this repo (preserve the existing `.git` — scaffold to a temp
 subdir, move files up, keep one repo); add `three` + `3d-tiles-renderer`; render Cesium OSM Buildings globe
 with `GlobeControls` in a `client:only` island; deploy to Wix.

@@ -9,5 +9,7 @@ The live Wix project this repo is bound to (provisioned by `npm create @wix/new`
 - `wix.config.json` at repo root holds siteId+appId. `.env.local` (gitignored) holds `WIX_CLIENT_ID` (+ `PUBLIC_CESIUM_ION_TOKEN` slot).
 
 ## Deploy
-`npx @wix/cli@latest build` → `release`. As of 2026-07-09 the published site is still the **blank scaffold** —
-the globe island has NOT been released yet (pending a `wix dev` visual smoke). No SSH; Wix cloud is prod.
+`npx @wix/cli@latest build` → `release`. As of 2026-07-09 the published live URL is still the **blank
+scaffold** — Phase 1 globe is **browser-verified locally** in `wix dev` (stylized base ellipsoid + real OSM
+buildings over Dnipro + atmosphere + starfield + graticule + snappier zoom), but **not `wix release`d yet**
+(pending user greenlight; runs to `release` publish the globe to the live URL). No SSH; Wix cloud is prod.

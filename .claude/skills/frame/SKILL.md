@@ -15,7 +15,7 @@ Implementing, designing, investigating, and fixing code for **Frame the World** 
 (Astro 5) app that projects camera photos onto a stylized 3D globe with real OSM buildings; client-heavy
 (WASM decode + three.js), Wix as the backend. Design docs: `.claude/claude-docs/ARCHITECTURE.md` (canonical
 map), `.claude/claude-docs/IMPLEMENTATION_PLAN.md` (7-phase build). Conventions: `.claude/conventions/`
-(especially `wix-headless.md`). Heavy design/migration → reach for `investigate-design-v3` instead.
+(especially `wix-headless.md`). Heavy design/migration → reach for `investigate-design-v3` skill (/Users/yevhens/Projects/wix-private/ecom/ecom/.claude/ecom-grill-agent-kb/skills/investigate-design-v3) instead.
 
 ## Workflow
 ```
