@@ -25,6 +25,9 @@ test/fixtures/**/*.heic
 # public/wasm/*.wasm is intentionally tracked; ignore any scratch build dirs:
 /wasm-build/
 
+# --- Playwright MCP scratch (screenshots / console / snapshot logs) ---
+.playwright-mcp/
+
 # --- OS / editor ---
 .DS_Store
 *.log

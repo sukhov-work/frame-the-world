@@ -25,6 +25,15 @@ export default function GlobeCanvas() {
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(new THREE.Color(tokens.bg), 1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Neutral (Khronos PBR-Neutral) tames the key light's highlight clipping WITHOUT desaturating the
+    // cyan accent + additive atmosphere rim the way ACES/AgX would.
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1.0;
+
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
@@ -103,11 +112,21 @@ export default function GlobeCanvas() {
     );
     scene.add(stars);
 
-    // --- lighting: sun-like key + soft fill ---
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    // --- lighting: sun-like key + hemisphere fill ---
+    // NOTE: the real-Earth base ellipsoid is a self-lit ShaderMaterial (StylizedTiles) and ignores these
+    // lights; they exist to light the OSM building tiles. Keep sun.position == StylizedTiles SUN_DIR so
+    // the building shading agrees with the earth's terminator.
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
     sun.position.set(5, 2, 4);
     scene.add(sun);
-    scene.add(new THREE.AmbientLight(new THREE.Color(tokens.water), 0.6));
+    // Hemisphere fill so night-side buildings aren't pure black (AmbientLight(water) was ~0).
+    scene.add(
+      new THREE.HemisphereLight(
+        new THREE.Color(tokens.landHi),
+        new THREE.Color(tokens.water),
+        0.4,
+      ),
+    );
 
     // --- optional real OSM-buildings globe (ion token gated; dynamic import) ---
     let tilesHandle: { update: () => void; dispose: () => void } | null = null;
@@ -118,7 +137,13 @@ export default function GlobeCanvas() {
           // the real Earth replaces the procedural placeholder (different world scale)
           globe.visible = false;
           stars.visible = false;
-          tilesHandle = attachStylizedTiles({ scene, camera, renderer, ionToken });
+          tilesHandle = attachStylizedTiles({
+            scene,
+            camera,
+            renderer,
+            ionToken,
+            reduceMotion,
+          });
         })
         .catch((e) => console.warn("[globe] tiles disabled:", e));
     }
@@ -133,9 +158,6 @@ export default function GlobeCanvas() {
     window.addEventListener("resize", onResize);
 
     // --- animation loop: slow cinematic auto-rotation (respects reduced motion) ---
-    const reduceMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
     let raf = 0;
     const tick = () => {
       raf = requestAnimationFrame(tick);

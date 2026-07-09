@@ -21,6 +21,13 @@ import GlobeCanvas from "../components/globe/GlobeCanvas";
     <h1>See where your photograph lives in the world.</h1>
     <p>Upload a RAW. Watch it project onto the planet.</p>
   </section>
+
+  <!-- Map-tile attribution (required by the CARTO + OpenStreetMap terms for the close-zoom basemap). -->
+  <a
+    class="map-credit"
+    href="https://carto.com/attributions"
+    target="_blank"
+    rel="noopener noreferrer">© OpenStreetMap contributors © CARTO</a>
 </Layout>
 
 <style>
@@ -73,5 +80,22 @@ import GlobeCanvas from "../components/globe/GlobeCanvas";
     margin: 0;
     color: var(--color-text-secondary);
     font-size: 0.95rem;
+  }
+  .map-credit {
+    position: fixed;
+    right: 0.5rem;
+    bottom: 0.35rem;
+    z-index: 10;
+    font-size: 0.62rem;
+    letter-spacing: 0.01em;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+    transition: color 0.2s ease;
+  }
+  .map-credit:hover {
+    color: var(--color-text-secondary);
   }
 </style>

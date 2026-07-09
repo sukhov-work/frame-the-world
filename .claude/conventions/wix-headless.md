@@ -137,7 +137,7 @@ hitting a token-secured HTTP endpoint (ADR D11). None in v1.
 | 30-day download expiry | message buyers; not shortenable |
 
 ## Provenance — what we borrowed vs dropped from the internal `wix-headless` skill
-Source (read-only reference): `…/ecom/ecom/.claude/claude-docs/frame-the-world/wix-headless/` (SKILL.md +
+Source (read-only reference): `/Users/yevhens/Projects/wix-private/ecom/ecom/.claude/claude-docs/frame-the-world/wix-headless/` (SKILL.md +
 `references/SETUP.md`, `references/shared/AUTHENTICATION.md`, `references/custom/*/WIRING.md`, …).
 - **Borrowed (this doc):** CLI+token+`curl` auth shape & recovery ladder, scaffold command + single-folder
   caveat, `env pull --json`, `--legacy-peer-deps`, elevate, resumable upload, no-geo-query, no-split-payment,
