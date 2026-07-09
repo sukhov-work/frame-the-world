@@ -1,0 +1,32 @@
+# --- Claude Code local session state ---
+/.claude/.env
+/.claude/claude-docs/NEXT_SESSION_PROMPT.md
+
+# --- Node / Astro / Wix (populated after Phase 1 scaffold) ---
+node_modules/
+dist/
+.astro/
+.wix/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+
+# --- Large binary test fixtures (RAW/HEIC samples) ---
+# Keep the repo light; store sample RAWs outside git or via LFS if needed.
+test/fixtures/**/*.arw
+test/fixtures/**/*.dng
+test/fixtures/**/*.cr3
+test/fixtures/**/*.nef
+test/fixtures/**/*.raf
+test/fixtures/**/*.heic
+
+# --- WASM build artifacts (committed copies live under public/wasm/) ---
+# public/wasm/*.wasm is intentionally tracked; ignore any scratch build dirs:
+/wasm-build/
+
+# --- OS / editor ---
+.DS_Store
+*.log
+.idea/
+.vscode/

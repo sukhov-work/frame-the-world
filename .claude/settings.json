@@ -1,0 +1,60 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(wix *)",
+      "Bash(astro *)",
+      "Bash(vitest *)",
+      "Bash(curl *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(cat *)",
+      "Read(**)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Edit(test/**)",
+      "Write(test/**)",
+      "Edit(public/**)",
+      "Write(public/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Edit(.serena/**)",
+      "Write(.serena/**)",
+      "mcp__serena__*",
+      "mcp__claude-design__*",
+      "mcp__intellij-idea-mcp__*"
+    ],
+    "deny": [
+      "Bash(rm -rf *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/yevhens/Projects/wix-private/headless-frame-the-world/.claude/hooks/activate-serena.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/yevhens/Projects/wix-private/headless-frame-the-world/.claude/hooks/session-end.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
