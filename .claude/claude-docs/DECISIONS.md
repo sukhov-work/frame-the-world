@@ -10,6 +10,30 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — "My pins" rudimentary owner list in the top nav (browser-VERIFIED as the test member; gallery phase replaces it).**
+  Photos is ADMIN-read by design (quota integrity) → new `GET /api/photos` (elevated, owner-filtered `eq(ownerMemberId)`,
+  newest-first, limit 50) returns slim `photoListItem` rows (title/previewUrl/capturedAt/lat/lon/isPublic/precision/createdAt —
+  owner sees own exact data; C6 governs public records only). Nav gains a members-only `MyPins` island (panels/MyPins.tsx +
+  styles/my-pins.css): toggle styled as a nav link → fixed dropdown top-right (fetches fresh on every open; Escape/× closes;
+  48px thumbs, PUBLIC-tier accent badge / PRIVATE). Files: api/photos.ts (GET), lib/wix/pinRecords.ts (photoListItem),
+  MyPins.tsx, my-pins.css, index.astro. **192 vitest (+2) · astro check 0**; shot verify-shots/phase5-09-my-pins.jpeg.
+  Session note: a STALE member cookie gets silently replaced by a visitor cookie on the next HTML response — re-mint
+  tokens before browser-verifying member flows.
+- **2026-07-10 — UI fix: PhotoDetailPanel docked LEFT (browser-VERIFIED).** The placed-photo panel grew with the Phase-5 SAVE PIN
+  section and overlapped the camera controls at bottom-right → `.pd` right:24px → left:24px (+ enter animation flips to slide from
+  the left). CSS-only (`styles/photo-detail.css`); shot verify-shots/phase5-08-panel-left.jpeg.
+- **2026-07-10 — RELEASED to the live URL (owner greenlight: Esri ToS + no-moderation accepted for POC) + production canaries ALL GREEN.**
+  `wix release` (minor, "phase 5 - members, save pins, quota, public pins") → https://frame-the-a173087b-yevhens.wix-site-host.com.
+  Owner had committed everything as PR #2 "Membership support" (+ #1 Codeowners) before release — tree clean at 890aa1d.
+  **The production-403 POST risk is DEAD:** `POST /api/ping` → 200 on the released URL; authed `POST /api/photos` with a real member
+  cookie → 200 {photoId, quota 2/10} (elevate() + Wix Data writes work in the released runtime; canary row deleted). Anon POST → clean 401.
+  **Login on prod:** works from a browser — TRAP: behind the TLS proxy the app builds an http:// callback and repairs the protocol FROM THE
+  REFERER header (astro-auth login.mjs:13); referer-less requests (curl) get http:// → authorize rejects "Invalid redirect URI" (http is only
+  tolerated for localhost — the http:// prod allowlist entries I added are inert; harmless, left in). Hosted Log In/Sign Up page renders with
+  the https callback. **Live page:** globe + panels render, 0 console errors; member badge shows a REAL session ("Yevhen Sukhov" — the owner's
+  browser was already signed in on the site domain) with SIGN OUT (shot verify-shots/phase5-07-released-live.jpeg). Site now serves the Phase-5
+  app (was the blank scaffold since 2026-07-09). Carried: Esri ToS + moderation gate = accepted POC risks (owner 2026-07-10) · mobile memory
+  pass still pending · visitor-pin marker on the live page not re-screenshotted at close range (verified in dev; same backend).
 - **2026-07-10 — Phase 5 SHIPPED: members + save pins + 10-pin quota + public pins on the globe (wix-cloud-VERIFIED in wix dev — the first Wix-load-bearing phase).**
   **SDK scout first** (3 parallel agents; signatures from installed .d.ts, never fabricated): data 1.0.486 / members 1.0.485 / media 1.0.264 /
   pricing-plans 1.0.346 / astro 2.63 — verified table in `mem:project/wip-2026-07-10-phase5-members-pins`. **Re-scopes locked by falsification:**

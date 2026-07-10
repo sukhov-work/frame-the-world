@@ -13,9 +13,11 @@ import { members } from "@wix/members";
 import { orders } from "@wix/pricing-plans";
 import {
   parseSavePinBody,
+  photoListItem,
   photoRecord,
   PIN_QUOTA_FREE,
   publicPinRecord,
+  type PhotoListItem,
 } from "../../lib/wix/pinRecords";
 
 const json = (body: unknown, status = 200) =>
@@ -35,6 +37,34 @@ async function hasActivePlan(): Promise<boolean> {
     return false;
   }
 }
+
+// GET /api/photos — the member's own saved pins, newest first (the rudimentary "My pins"
+// list until a proper gallery phase). Photos is ADMIN-only on the platform, so the owner's
+// view goes through this elevated, owner-filtered query — never a client-side collection read.
+export const GET: APIRoute = async () => {
+  let member;
+  try {
+    ({ member } = await members.getCurrentMember());
+  } catch {
+    member = undefined;
+  }
+  if (!member?._id) return json({ error: "SIGNED_OUT", message: "sign in to list pins" }, 401);
+
+  try {
+    const res = await auth.elevate(items.query)("Photos")
+      .eq("ownerMemberId", member._id)
+      .descending("_createdDate")
+      .limit(50)
+      .find();
+    const photos = (res.items as Record<string, unknown>[])
+      .map(photoListItem)
+      .filter((p): p is PhotoListItem => p !== null);
+    return json({ photos, quota: { used: photos.length, limit: PIN_QUOTA_FREE } });
+  } catch (e) {
+    console.error("[photos:list]", e);
+    return json({ error: "LIST_FAILED", message: "could not list pins" }, 502);
+  }
+};
 
 export const POST: APIRoute = async ({ request }) => {
   let member;

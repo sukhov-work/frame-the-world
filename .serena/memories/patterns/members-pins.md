@@ -53,8 +53,13 @@ PublicPins rows — client-supplied "reduced" fields can't leak. Verified live: 
 - Verified live: save → 200 {photoId, publicPinId, quota 1/10}; #2..#10 → 200; **#11 → 402 QUOTA_EXCEEDED**; media both uploaded.
 - **UNVERIFIED: paid path** — Pricing Plans app NOT installed on the site (appDefId 1522827f-c56c-a5c9-2ac9-00f9e6ae12d3,
   install via apps-installer-service curl) → memberListOrders currently throws → treated as free. Wire + test when marketplace lands.
-- **PRE-RELEASE GATE: app-defined POST routes returned 403 IN PRODUCTION in an official-skill trial** (BACK_IN_STOCK.md).
-  wix dev verified fine. Before `wix release`: hit /api/ping (kept as canary) with POST on the released URL.
+- **RESOLVED 2026-07-10 (post-release): the official-skill "POST routes 403 in production" trial report does NOT
+  reproduce here.** Released URL: POST /api/ping → 200; authed POST /api/photos → 200 (elevate + Data writes fine
+  in the released runtime). /api/ping stays as a cheap diagnostic.
+- **TRAP (prod login): behind the TLS proxy the login route builds an http:// callback and repairs the protocol
+  from the REFERER header** (astro-auth login.mjs:13). Browser flows work (https callback, allowlisted); referer-less
+  requests (curl, some privacy setups?) get http:// → authorize rejects "Invalid redirect URI" — http:// is only
+  tolerated for localhost, so the http-prod allowlist entries are inert (left in, harmless).
 
 ## Globe pins (globe/Pins.ts + store/pins.ts + StylizedTiles wiring)
 - attach-module: InstancedMesh (SphereGeometry(1,12,8) ×1000 cap), MeshBasicMaterial tokens.accent, **depthWrite:false**,
@@ -75,6 +80,13 @@ PublicPins rows — client-supplied "reduced" fields can't leak. Verified live: 
   camera (observed 2700 m → 587 m creep) and the pick ray/matrixWorld disagree with the visible frame during the creep;
   the same probe hits reliably once settled. Cosmetic for v1; revisit if users report dead clicks after flights.
 - Post-save: save store lazy-imports pins store → refresh() → new pin appears immediately.
+
+## "My pins" owner list (2026-07-10, rudimentary — gallery phase replaces it)
+`GET /api/photos` (same file as POST): elevated owner-filtered query → slim `photoListItem` rows (pinRecords.ts).
+Nav island `panels/MyPins.tsx` (members-only, fetches fresh per open, Escape closes) + `styles/my-pins.css`
+(dropdown top-right — the photo detail panel is top-LEFT since the same-day dock fix, camera controls bottom-right).
+TRAP: a stale member wixSession cookie is silently REPLACED with a visitor cookie on the next HTML response —
+always re-mint tokens (register-test-member recipe above) before browser-verifying member flows.
 
 ## Verification & env notes
 - Vite dev serves node_modules to the page: `import('/node_modules/.vite/deps/three.js')` (page's own instance) and

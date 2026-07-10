@@ -6,6 +6,7 @@ import TimeReadout from "../components/panels/TimeReadout";
 import CameraTiltPanel from "../components/panels/CameraTiltPanel";
 import TimeScrubber from "../components/panels/TimeScrubber";
 import MemberBadge from "../components/panels/MemberBadge";
+import MyPins from "../components/panels/MyPins";
 ---
 
 <Layout title="Frame the World">
@@ -30,6 +31,8 @@ import MemberBadge from "../components/panels/MemberBadge";
       <!-- routes arrive in later phases (explore=P3) -->
       <a href="#">Explore</a>
       <a href="#upload" data-open-upload>Upload</a>
+      <!-- Phase 5.1: rudimentary owner pin list (members only; gallery phase replaces it) -->
+      <MyPins client:only="react" />
       <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->
       <MemberBadge client:only="react" />
     </nav>

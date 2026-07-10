@@ -1,0 +1,173 @@
+/* MY PINS — rudimentary owner list dropped from the top nav (stand-in for the gallery phase).
+   Toggle mirrors the static nav-link styling (island DOM can't receive the page's scoped
+   styles); the panel docks top-right under the nav — the photo detail panel lives top-LEFT
+   and the camera controls bottom-right, so this column is free. */
+
+.mp {
+  display: inline-flex;
+}
+
+.mp-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  transition: color 0.2s ease;
+}
+
+.mp-toggle:hover,
+.mp-toggle[aria-expanded="true"] {
+  color: var(--color-accent);
+}
+
+.mp-panel {
+  position: fixed;
+  top: 64px;
+  right: 24px;
+  z-index: 40;
+  width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: rgba(11, 15, 20, 0.88);
+  backdrop-filter: blur(10px);
+  color: var(--color-text);
+  animation: mp-enter 300ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@keyframes mp-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-panel {
+    animation: none;
+  }
+}
+
+.mp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mp-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+}
+
+.mp-close {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  transition: color 0.2s ease;
+}
+
+.mp-close:hover {
+  color: var(--color-text);
+}
+
+.mp-note {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  padding: 6px 0;
+}
+
+.mp-note--warn {
+  color: var(--color-warn, #e8b465);
+}
+
+.mp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mp-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+.mp-thumb {
+  width: 48px;
+  height: 36px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mp-thumb--empty {
+  display: inline-block;
+  border: 1px dashed var(--color-border);
+}
+
+.mp-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mp-name {
+  font-size: 0.82rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-sub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.mp-badge {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.mp-badge.is-public {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}

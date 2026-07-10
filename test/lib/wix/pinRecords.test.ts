@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseSavePinBody,
+  photoListItem,
   photoRecord,
   PIN_QUOTA_FREE,
   publicPinRecord,
@@ -139,5 +140,44 @@ describe("publicPinRecord (C6 — BINDING)", () => {
 describe("quota constant", () => {
   it("free tier is 10 pins (plan §Phase 5)", () => {
     expect(PIN_QUOTA_FREE).toBe(10);
+  });
+});
+
+describe("photoListItem (GET /api/photos rows)", () => {
+  it("maps a stored Photos item to the slim owner list row", () => {
+    const row = photoListItem({
+      _id: "p1",
+      _createdDate: new Date("2026-07-10T15:43:00.737Z"),
+      title: "gps-heading",
+      previewUrl: "https://static.wixstatic.com/media/x.jpg",
+      capturedAt: "2026-05-03T07:15:02",
+      lat: 48.4647,
+      lon: 35.0462,
+      isPublic: true,
+      publicPrecision: "1km",
+    });
+    expect(row).toEqual({
+      id: "p1",
+      title: "gps-heading",
+      previewUrl: "https://static.wixstatic.com/media/x.jpg",
+      capturedAt: "2026-05-03T07:15:02",
+      lat: 48.4647,
+      lon: 35.0462,
+      isPublic: true,
+      publicPrecision: "1km",
+      createdAt: "2026-07-10T15:43:00.737Z",
+    });
+  });
+
+  it("defaults missing fields and drops id-less rows", () => {
+    const row = photoListItem({ _id: "p2" });
+    expect(row).toMatchObject({
+      title: "Untitled",
+      previewUrl: null,
+      isPublic: false,
+      publicPrecision: null,
+      createdAt: null,
+    });
+    expect(photoListItem({ title: "no id" })).toBeNull();
   });
 });
