@@ -66,6 +66,11 @@ export function attachPhotoFrustum(
   const planeMat = new THREE.MeshBasicMaterial({
     side: THREE.DoubleSide,
     toneMapped: false, // the photo shows its own colours, not the scene grade
+    // Preview transparency (owner 2026-07-10): the placed photo superimposes on the real
+    // landscape behind it while parameters are tuned. Store override wins; FRUSTUM.planeOpacity
+    // is the default (~30% transparent).
+    transparent: true,
+    opacity: FRUSTUM.planeOpacity,
   });
   const plane = new THREE.Mesh(planeGeo, planeMat);
   plane.raycast = () => {};
@@ -163,6 +168,7 @@ export function attachPhotoFrustum(
     planeGeo.attributes.position.needsUpdate = true;
     lineGeo.computeBoundingSphere();
     planeGeo.computeBoundingSphere();
+    planeMat.opacity = s.planeOpacity ?? FRUSTUM.planeOpacity;
     setTexture(s.previewUrl);
     group.visible = true;
   }
@@ -177,7 +183,8 @@ export function attachPhotoFrustum(
       s.params !== prev.params ||
       s.previewUrl !== prev.previewUrl ||
       s.textureWidth !== prev.textureWidth ||
-      s.textureHeight !== prev.textureHeight
+      s.textureHeight !== prev.textureHeight ||
+      s.planeOpacity !== prev.planeOpacity
     ) {
       rebuild();
     }

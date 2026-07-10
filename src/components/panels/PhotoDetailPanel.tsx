@@ -23,6 +23,7 @@ import {
   formatAltitude,
 } from "../../lib/format/readout";
 import Slider, { type BadgeTone } from "../ui/Slider";
+import { FRUSTUM } from "../globe/tuning";
 import "../../styles/photo-detail.css";
 
 const PARAM_LABEL: Record<AdjustableKey, string> = {
@@ -112,6 +113,16 @@ export default function PhotoDetailPanel() {
           onChange={(v) => useUploadStore.getState().setParam("altitudeM", v)}
           onReset={() => useUploadStore.getState().resetParam("altitudeM")}
           badge={provenanceBadge("altitudeM")}
+        />
+        <Slider
+          label="PLANE ALPHA"
+          formatted={`${Math.round((store.planeOpacity ?? FRUSTUM.planeOpacity) * 100)}%`}
+          value={Math.round((store.planeOpacity ?? FRUSTUM.planeOpacity) * 100)}
+          min={10}
+          max={100}
+          step={5}
+          onChange={(v) => useUploadStore.getState().setPlaneOpacity(v / 100)}
+          onReset={() => useUploadStore.getState().setPlaneOpacity(undefined)}
         />
         <div className="pd-fov">
           <span className="uf-mono">

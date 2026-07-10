@@ -144,6 +144,7 @@ export function attachImageryGround(
 
   const uniforms = {
     uFtwFade: { value: 0 }, // 0 = invisible (all fragments discarded) … 1 = fully present
+    uFtwHiAlt: { value: 0 }, // 1 − altFade: high-altitude grade harmonizer (mixed Esri zooms)
     uFtwSun: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uFtwMoonDir: { value: new THREE.Vector3(0, 0, 1) },
     uFtwMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
@@ -171,6 +172,7 @@ export function attachImageryGround(
         varying vec3 vFtwW;
         varying vec3 vFtwN;
         uniform float uFtwFade;
+        uniform float uFtwHiAlt;
         uniform vec3 uFtwSun;
         uniform vec3 uFtwMoonDir;
         uniform float uFtwMoonGlow;
@@ -193,25 +195,30 @@ export function attachImageryGround(
       /#include <alphamap_fragment>/,
       (v: string) => /* glsl */ `${v}
         {
-          // palette grade + half-lambert off the REAL surface normal: slopes shade (mountains
-          // read as 3D) and the terminator stays continuous with the stylized base earth.
+          // palette grade + NARROW terminator off the REAL surface normal (EARTH.termBand twin of
+          // baseEarth — keep in sync): slopes shade (mountains read as 3D) and the day/night
+          // transition stays continuous with the stylized base.
           vec3 nS = normalize(vFtwN);
-          float wrap = dot(nS, normalize(uFtwSun)) * 0.5 + 0.5;
-          float shade = mix(uFtwNightFloor, 1.0, wrap * wrap);
+          float sunDot = dot(nS, normalize(uFtwSun));
+          float dayK = smoothstep(${glf(EARTH.termBand[0])}, ${glf(EARTH.termBand[1])}, sunDot);
+          float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
+          float shade = mix(uFtwNightFloor, dayShade, dayK);
           float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-          vec3 graded = mix(diffuseColor.rgb, vec3(lum), uFtwDesat) * uFtwGain * uFtwCast;
+          // high-altitude harmonizer: extra desaturation converges mixed Esri source zooms
+          // (washed low-zoom mosaic vs crisp high-zoom texture) so they stop reading as patches
+          float desatEff = mix(uFtwDesat, ${glf(GROUND.hiAltDesat)}, uFtwHiAlt);
+          vec3 graded = mix(diffuseColor.rgb, vec3(lum), desatEff) * uFtwGain * uFtwCast;
           // blue-dominant pixels = water -> pull toward the instrument's near-black ocean so the
           // imagery's bright seas never punch through the dark palette (rivers/lakes stay slate too)
           float waterness = smoothstep(0.0, ${glf(GROUND.waterThreshold)}, diffuseColor.b - max(diffuseColor.r, diffuseColor.g));
           graded *= mix(1.0, ${glf(GROUND.waterDarken)}, waterness);
           // golden-hour cast where the sun grazes the local horizon (bell over sin(elevation);
           // GLSL twin of lib/ephemeris/golden.ts — keep in sync with tuning.GOLDEN + baseEarth)
-          float gSin = dot(nS, normalize(uFtwSun));
-          float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, gSin)
-                     * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, gSin));
+          float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunDot)
+                     * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunDot));
           graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.groundStrength)});
           // cool moonlight lifts the night side by phase (the day side term is negligible vs sun)
-          float night = 1.0 - smoothstep(${glf(EARTH.nightBand[0])}, ${glf(EARTH.nightBand[1])}, wrap);
+          float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunDot);
           vec3 moonlit = graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night);
           diffuseColor.rgb = graded * shade + moonlit;
         }`,
@@ -228,7 +235,10 @@ export function attachImageryGround(
 
   // Shadow twins: ShadowMaterial renders alpha 0 where unshadowed, so the twin is invisible until
   // the sun shadow pass is active; still costs a draw, so update() hides them above SHADOWS.maxAltM.
+  // Tinted toward the palette's deep water rather than pure black — real shadows are sky-lit cool,
+  // and the cool cast reads on the dark graded ground where a black multiply melts in.
   const shadowMat = new THREE.ShadowMaterial({
+    color: new THREE.Color(tokens.water),
     opacity: SHADOWS.groundOpacity,
     depthWrite: false,
   });
@@ -319,6 +329,7 @@ export function attachImageryGround(
       lastRevealMs = now;
       const k = 1 - Math.exp(-dtMs / GROUND.revealTauMs);
       uniforms.uFtwFade.value += (altFade * readiness - uniforms.uFtwFade.value) * k;
+      uniforms.uFtwHiAlt.value = 1 - altFade; // harmonize the grade while the base shows through
       // Keep refinement ticking through the initial load even if the camera is static (reduced
       // motion disables the drift; UpdateOnChangePlugin would otherwise stall until a zoom).
       if (!initialLoadEnded) (uocPlugin as any).needsUpdate = true;

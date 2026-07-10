@@ -1,6 +1,10 @@
-/* CameraTiltPanel — manual camera declination (0° nadir … 88° horizon). Instrument idiom:
-   compact docked card sitting above the scene clock (time-readout), mono readout, accent
-   reserved for the slider fill. Colour via tokens.css vars only. */
+/* Camera panel — manual tilt / rotate / zoom (2026-07-10). Instrument idiom: compact docked
+   card sitting above the scene clock (time-readout), mono readouts, accent reserved for the
+   slider fills. Colour via tokens.css vars only. */
+
+.ct .uf-slider + .uf-slider {
+  margin-top: 0.5rem;
+}
 
 .ct {
   position: fixed;

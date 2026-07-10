@@ -20,8 +20,11 @@ import { DITHER_GLSL, glf } from "./glsl";
 export interface AtmosphereHandle {
   mesh: THREE.Mesh;
   uniforms: Record<string, THREE.IUniform>;
-  /** Per-frame: pick the visible hemisphere + thin the halo toward outer orbit. */
-  update(camDistToCentre: number, alt: number): void;
+  /** Per-frame: pick the visible hemisphere, thin the halo toward outer orbit, and below
+   *  ATMOSPHERE.domeMaxAlt re-anchor the shell to the camera (sky-dome mode — the earth-centred
+   *  shell would be far-plane-clipped at street level; the shader only uses ray DIRECTIONS, so
+   *  the geometry swap is invisible). */
+  update(camera: THREE.PerspectiveCamera, alt: number): void;
   dispose(): void;
 }
 
@@ -33,6 +36,9 @@ export function attachAtmosphere(
     uColor: { value: new THREE.Color(tokens.atmosphere) },
     uColorDeep: { value: new THREE.Color(tokens.atmosphereDeep) },
     uGoldenCol: { value: new THREE.Color(tokens.goldenHour) },
+    uSkyDay: { value: new THREE.Color(tokens.skyDay) },
+    uSkyHorizon: { value: new THREE.Color(tokens.skyHorizon) },
+    uCamAlt: { value: 1e7 }, // camera altitude (m) — drives the low-altitude sky regime
     uSunDir: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uIntensity: { value: ATMOSPHERE.intensity },
     uRe: { value: WGS84_A }, // limb reference radius
@@ -61,6 +67,9 @@ export function attachAtmosphere(
       uniform vec3 uColor;
       uniform vec3 uColorDeep;
       uniform vec3 uGoldenCol;
+      uniform vec3 uSkyDay;
+      uniform vec3 uSkyHorizon;
+      uniform float uCamAlt;
       uniform vec3 uSunDir;
       uniform float uIntensity;
       uniform float uRe;
@@ -99,6 +108,26 @@ export function attachAtmosphere(
         limbCol *= mix(vec3(1.0), uGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.atmStrength)});
         vec3 washCol = uColorDeep * ${glf(ATMOSPHERE.groundWashGain)};
         vec3 color = mix(limbCol, washCol, hitsGround) * uIntensity * mix(${glf(ATMOSPHERE.sunFloor)}, 1.0, sun);
+        // --- Low-altitude sky regime: the orbital limb model blends into a proper sky at city
+        //     zooms — light-blue zenith, near-white horizon haze (aerial perspective over the
+        //     distant terrain the dome overdraws), warmed through the golden band at dawn/dusk,
+        //     black at night so the stars own it. -------------------------------------------------
+        float skyK = 1.0 - smoothstep(${glf(ATMOSPHERE.skyFullAlt)}, ${glf(ATMOSPHERE.skyGoneAlt)}, uCamAlt);
+        if (skyK > 0.001) {
+          vec3 upC = normalize(O);
+          float sinEl = dot(D, upC);                  // view-ray elevation sine at the camera
+          float sunEl = dot(normalize(uSunDir), upC); // sun elevation sine at the camera
+          float dayK = smoothstep(${glf(ATMOSPHERE.skyDawnLo)}, ${glf(ATMOSPHERE.skyDawnHi)}, sunEl);
+          vec3 zenithCol = mix(uSkyHorizon, uSkyDay, pow(clamp(sinEl, 0.0, 1.0), ${glf(ATMOSPHERE.skyZenithPow)}));
+          float haze = exp(-max(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeFalloff)})
+                     * exp(min(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeBelow)});
+          float hGold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunEl)
+                      * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunEl));
+          vec3 hazeCol = mix(uSkyHorizon, uGoldenCol * ${glf(GOLDEN.castGain)}, hGold * ${glf(ATMOSPHERE.skyGoldStrength)});
+          vec3 skyCol = zenithCol * ${glf(ATMOSPHERE.skyDayGain)} * dayK
+                      + hazeCol * haze * ${glf(ATMOSPHERE.skyHorizonGain)} * max(dayK, hGold);
+          color = mix(color, skyCol, skyK);
+        }
         ${DITHER_GLSL}
         gl_FragColor = vec4(max(color, vec3(0.0)), 1.0); // additive multiplies by src alpha -> keep alpha 1
         #include <colorspace_fragment>
@@ -108,7 +137,8 @@ export function attachAtmosphere(
     new THREE.SphereGeometry(1, ATMOSPHERE.segments, ATMOSPHERE.segments),
     material,
   );
-  mesh.scale.copy(opts.baseScale).multiplyScalar(ATMOSPHERE.shellScale); // shell high enough for the haze to decay inside it
+  const shellScaleVec = opts.baseScale.clone().multiplyScalar(ATMOSPHERE.shellScale);
+  mesh.scale.copy(shellScaleVec); // shell high enough for the haze to decay inside it
   mesh.rotation.x = Math.PI / 2;
   mesh.raycast = () => {};
   scene.add(mesh);
@@ -116,14 +146,27 @@ export function attachAtmosphere(
   return {
     mesh,
     uniforms,
-    update(camDistToCentre, alt) {
-      uniforms.uInside.value = camDistToCentre < mesh.scale.y ? 1 : 0; // scale.y = smallest shell axis
+    update(camera, alt) {
+      uniforms.uCamAlt.value = alt;
       // LEO keeps the thick horizon haze; pulling out to outer orbit thins the halo.
       uniforms.uOrbit.value = THREE.MathUtils.clamp(
         (alt - ATMOSPHERE.orbitStartAlt) / ATMOSPHERE.orbitSpanAlt,
         0,
         1,
       );
+      if (alt < ATMOSPHERE.domeMaxAlt) {
+        // Sky-dome mode: re-anchor the shell to the camera, sized inside the dynamic far plane.
+        // The earth-centred shell's visible (far) hemisphere sits up to ~640 km overhead — past
+        // GlobeControls' tightly-fitted far plane at street level. The shader shades by ray
+        // DIRECTION only, so this swap changes nothing visually; the camera is always inside.
+        mesh.position.copy(camera.position);
+        mesh.scale.setScalar(camera.far * ATMOSPHERE.domeFarFrac);
+        uniforms.uInside.value = 1;
+      } else {
+        mesh.position.set(0, 0, 0);
+        mesh.scale.copy(shellScaleVec);
+        uniforms.uInside.value = camera.position.length() < mesh.scale.y ? 1 : 0; // scale.y = smallest shell axis
+      }
     },
     dispose() {
       mesh.geometry.dispose();

@@ -106,6 +106,10 @@ interface UploadStore {
   /** Pixel dimensions of the decoded display texture — the frustum's aspect ratio source. */
   textureWidth?: number;
   textureHeight?: number;
+  /** Placed image-plane opacity override (0..1). Undefined = the FRUSTUM.planeOpacity default
+   *  (~30% transparent) — a VIEW preference for superimposing the photo on the landscape while
+   *  tuning, not an EXIF param (no provenance badge). */
+  planeOpacity?: number;
   /** Set when the file could not be ingested at all (back on the dropzone). */
   loadError?: string;
   /** Set when metadata arrived but the full WASM decode failed (review still shows). */
@@ -119,6 +123,8 @@ interface UploadStore {
   setParam(key: AdjustableKey, value: number): void;
   resetParam(key: AdjustableKey): void;
   resetAll(): void;
+  /** Preview plane opacity (0..1); undefined returns to the tuning default. */
+  setPlaneOpacity(opacity: number | undefined): void;
   /** PLACE ON GLOBE: review → placed when a location exists; review → placing (awaiting a globe
    *  click) when the file has no GPS. Closes the overlay either way — the globe takes over. */
   place(): void;
@@ -243,6 +249,8 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
 
   resetAll: () => set((s) => ({ params: s.exif ? exifBaselineParams(s.exif) : {} })),
 
+  setPlaneOpacity: (planeOpacity) => set({ planeOpacity }),
+
   place: () =>
     set((s) => {
       if (s.phase !== "review" && s.phase !== "placed") return {};
@@ -280,6 +288,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       placement: undefined,
       textureWidth: undefined,
       textureHeight: undefined,
+      planeOpacity: undefined,
       loadError: undefined,
       decodeError: undefined,
     });

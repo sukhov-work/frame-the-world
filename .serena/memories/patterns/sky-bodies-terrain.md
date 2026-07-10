@@ -155,6 +155,62 @@ Tokens added: sunCore #FFF3D9 · sunGlow #FFD9A0 · moonlight #BFD0E8 (tokens.cs
   — round-trip unit test). `bodyStatesAt` now returns `gastRad` (almanac test: 280.46° @ J2000).
   B-V colour tint NOT used yet (baked for later).
 
+## Pre-Phase-5 fix batch (2026-07-10, browser-VERIFIED — shots prephase5-01..11)
+- **Narrow terminator**: half-lambert `wrap²` shading REPLACED in baseEarth + ground grade (GLSL
+  twins — keep in sync): `dayK = smoothstep(EARTH.termBand[0], [1], sunDot)` over sin(sun elev)
+  [−6°, +3.2°] ≈ the real ~9° twilight zone; day side keeps `mix(EARTH.dayGradMin 0.78, 1,
+  sqrt(sunDot))` so the sphere stays dimensional; city lights + moon night term use
+  `EARTH.lightsBand` over the SAME sine (nightBand deleted). Earth rim scattering now × mix(0.25,1,dayK).
+- **High-alt patchwork (owner screenshot)**: mixed Esri source zooms (washed low-zoom mosaic vs
+  crisp z-detail) read as patches once imagery fully owned the frame. GATES fade band 2.6e6/1.4e6 →
+  1.6e6/650e3 (Blue Marble owns high orbit; LEO 1100 km = ~0.53 dither mix) + `uFtwHiAlt = 1−altFade`
+  lerps desat → GROUND.hiAltDesat 0.88 (tone convergence). Residual contrast settles as tiles refine.
+- **Low-altitude sky regime** (tokens skyDay/skyHorizon; ATMOSPHERE.sky*): in the SAME atmosphere
+  shader, `skyK = 1−smoothstep(skyFullAlt 12 km, skyGoneAlt 120 km, uCamAlt)` blends the limb model
+  into: zenith mix(skyHorizon→skyDay, pow(sinEl, 0.55))·0.85·dayK + horizon haze `exp(−sinEl/0.1)`
+  (+ `exp(sinEl/0.08)` below horizon = aerial perspective over DISTANT terrain — near geometry
+  depth-occludes the dome) golden-warmed by the GOLDEN bell over sun elev; black at night. dayK =
+  smoothstep(−0.12, 0.12, sinSunElev).
+- **TRAP — dome re-anchor**: below ATMOSPHERE.domeMaxAlt (350 km) the earth-centred shell's visible
+  hemisphere is PAST GlobeControls' tight far plane (street level far ≈ 300 km, shell overhead ≈
+  630 km). The shader shades by ray DIRECTION only ⇒ update() re-anchors the SAME mesh to
+  camera.position at scale 0.45·camera.far, uInside forced 1 — swap is pixel-identical. Atmosphere
+  is no longer gated by GATES.decorMinAlt (graticule still is); update signature is (camera, alt).
+- **Stars at night at any altitude**: stars.update takes `sunDir`; fade = max(altFade,
+  nightFade) where nightFade ramps over sin(sun elev) STARS.nightVisStartSin −0.02 → nightVisFullSin
+  −0.14. Verified at 5.7 km w/ sun −10°: stars + city lights.
+- **Milky Way (real coords)**: `lib/ephemeris/stars.ts galacticToEquatorial(l, b)` — IAU J2000 NGP
+  (RA 192.85948°, Dec 27.12825°) + GC (266.405°, −28.93617°), Gram-Schmidt basis, unit-tested vs
+  both anchors; `milkyWayField(MILKYWAY)` = 14k points, gaussian σb 8.5° + 20%×2.5σ halo, Sagittarius
+  bulge via rejection sampling. Rendered as a CHILD Points of the star sphere (inherits −GAST
+  rotation + camera-follow + scale); star shader extracted to `makeStarMaterial` factory.
+  **TRAP (2nd time — see STARS.brightMin)**: sub-pixel points (0.6–1.7 px @ DPR 1) often cover NO
+  pixel centre → rendered literally nothing; MILKYWAY sizeBase/spread 2.2 + alpha 0.25 = subtle veil.
+  Live-tune trick: uFade is overwritten per frame — tune via uColor/uDpr uniforms instead.
+- **Photo plane preview transparency**: planeMat transparent, opacity = store/upload.planeOpacity ??
+  FRUSTUM.planeOpacity (0.7); PLANE ALPHA slider in PhotoDetailPanel (setPlaneOpacity(undefined) =
+  back to default; cleared on `clear()`). FLIGHT arrival retuned backFactor 4.2 / liftFactor 0.45
+  (~5° depression — near-horizontal, landscape behind the photo reads).
+
+## Owner batch #2 (2026-07-10, browser-VERIFIED — shots prephase5b-01..10)
+- **Multiday scrubber**: `store/time.ts` `localDateStr(ms)` + `withLocalDate(ms, "YYYY-MM-DD")`
+  (LOCAL time-of-day preserved; null on malformed input) + `<input type="date">` in the
+  TimeScrubber header (`.ts-date`, `color-scheme: dark` for the native popover). Picking a date
+  pins + recentres the ±12 h rail. Ephemeris exact at any epoch — verified subsolar lat −23.44°
+  on a 2026-12-21 jump, moon phase 21%→91%. offsetLabel: round minutes FIRST then carry (old
+  per-unit rounding printed "+3936 h 60 m"); ≥1 day shows "±N d H h".
+- **Shadows "crisper"**: mapSize 4096 · boundsM 1600 (0.78 m/texel) · radius 2 · groundOpacity
+  0.75 · ShadowMaterial tinted tokens.water (cool shadow reads on the dark grade; pure black
+  melts). LESSON (2nd time): the mask is always correct — debug CONTRAST first (red-mask trick:
+  set ShadowMaterial color red / opacity 1 via scene.traverse). Hard ceiling: shadow contrast ≤
+  the graded ground's own luminance (dark palette) — further "crisper" asks need a brighter
+  day-ground grade, not shadow-rig work.
+- **Esri patchwork ROOT CAUSE (owner screenshot #2 — persistent ⇒ not loading)**: the blobs are
+  regional mosaic seams + atmospheric haze baked into Esri World Imagery's low/mid-zoom levels.
+  No retry/harmonizer fixes that. Kill: fade band 750e3/380e3 + errorFarAlt 750e3 — Blue Marble
+  owns >750 km (default LEO = zero Esri, spotless), Esri only below where source zooms are
+  detailed. 517 km mid-band verified coherent.
+
 ## UNVERIFIED / carried
 - Moonlight visual on night buildings (code-wired; not isolated in a shot — moon was 22%).
 - Terrain memory/perf at street level (CWT errorTarget 2 + z19 overlay splitting) — profile later.

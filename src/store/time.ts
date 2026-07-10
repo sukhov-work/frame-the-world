@@ -53,3 +53,25 @@ export function timeToFraction(ms: number, anchorMs: number, windowMs: number): 
 export function fractionToTime(fraction: number, anchorMs: number, windowMs: number): number {
   return Math.round(anchorMs + (clamp01(fraction) - 0.5) * windowMs);
 }
+
+// --- Date jump (multiday scrubber, 2026-07-10). The rail stays a ±12 h window; the date picker
+//     moves the whole window to another calendar day, preserving the local time-of-day. The
+//     ephemeris takes any UTC instant, so sun/moon/star positions stay exact on any date. -------
+
+/** Scene instant → "YYYY-MM-DD" in the browser's local timezone (the `<input type="date">` value). */
+export function localDateStr(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** The same LOCAL time-of-day moved to another calendar date ("YYYY-MM-DD", browser timezone).
+ *  Null for a malformed string (a cleared/partial date input must not scrub the scene). A DST
+ *  boundary can shift the instant by the offset difference — inherent to local-clock semantics. */
+export function withLocalDate(ms: number, dateStr: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return null;
+  const next = new Date(ms);
+  next.setFullYear(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(next.getTime()) ? null : next.getTime();
+}

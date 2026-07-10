@@ -1,7 +1,12 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { GATES, STARS, WGS84_A } from "../tuning";
-import { magToBright, magToSize, parseStarCatalog } from "../../../lib/ephemeris/stars";
+import { GATES, MILKYWAY, STARS, WGS84_A } from "../tuning";
+import {
+  magToBright,
+  magToSize,
+  milkyWayField,
+  parseStarCatalog,
+} from "../../../lib/ephemeris/stars";
 import { glf } from "./glsl";
 
 /**
@@ -28,6 +33,8 @@ export interface StarsHandle {
     reduceMotion: boolean;
     /** Greenwich apparent sidereal time (rad) from the current ephemeris sample. */
     gastRad: number;
+    /** Sun direction (ECEF, unit) from the current ephemeris sample — gates the night sky. */
+    sunDir: THREE.Vector3;
   }): void;
   dispose(): void;
 }
@@ -65,17 +72,24 @@ function buildGeometry(
   return geometry;
 }
 
-export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHandle {
-  let geometry = proceduralGeometry();
-  const material = new THREE.ShaderMaterial({
+/** Additive round-point star material (shared shape for the catalog stars + the Milky Way band —
+ *  look constants are baked per-instance via glf). */
+function makeStarMaterial(opts: {
+  color: string;
+  alpha: number;
+  twinkleBase: number;
+  twinkleAmp: number;
+  dpr: number;
+}): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      uColor: { value: new THREE.Color(tokens.star) },
+      uColor: { value: new THREE.Color(opts.color) },
       uTime: { value: 0 },
       uDpr: { value: opts.dpr },
-      uFade: { value: 1 }, // altitude fade so stars leave cleanly on descent (no bleed over the ground)
+      uFade: { value: 1 }, // altitude/night fade so stars leave cleanly (no bleed over the ground)
     },
     vertexShader: /* glsl */ `
       attribute float aSize;
@@ -87,7 +101,7 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mv;
-        vB = (${glf(STARS.twinkleBase)} + ${glf(STARS.twinkleAmp)} * sin(uTime * ${glf(STARS.twinkleSpeed)} + aPhase)) * aBright;   // subtle twinkle × magnitude
+        vB = (${glf(opts.twinkleBase)} + ${glf(opts.twinkleAmp)} * sin(uTime * ${glf(STARS.twinkleSpeed)} + aPhase)) * aBright;   // subtle twinkle × magnitude
         gl_PointSize = aSize * uDpr;                  // screen-space (no attenuation)
       }`,
     fragmentShader: /* glsl */ `
@@ -98,14 +112,42 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
         vec2 uv = gl_PointCoord - 0.5;
         float d = dot(uv, uv);
         if (d > 0.25) discard;
-        float a = smoothstep(0.25, 0.0, d) * vB * ${glf(STARS.alpha)} * uFade;
+        float a = smoothstep(0.25, 0.0, d) * vB * ${glf(opts.alpha)} * uFade;
         gl_FragColor = vec4(uColor * a, a);
         #include <colorspace_fragment>
       }`,
   });
+}
+
+export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHandle {
+  let geometry = proceduralGeometry();
+  const material = makeStarMaterial({
+    color: tokens.star,
+    alpha: STARS.alpha,
+    twinkleBase: STARS.twinkleBase,
+    twinkleAmp: STARS.twinkleAmp,
+    dpr: opts.dpr,
+  });
   const points = new THREE.Points(geometry, material);
   points.raycast = () => {};
   scene.add(points);
+
+  // Milky Way — a faint procedural band about the REAL galactic plane (J2000), added as a CHILD
+  // of the star sphere so the −GAST sidereal rotation + camera-follow + scale apply for free.
+  const mw = milkyWayField(MILKYWAY);
+  const mwPhase = new Float32Array(MILKYWAY.count);
+  for (let i = 0; i < MILKYWAY.count; i++) mwPhase[i] = Math.random() * Math.PI * 2;
+  const mwGeometry = buildGeometry(mw.positions, mw.size, mwPhase, mw.bright);
+  const mwMaterial = makeStarMaterial({
+    color: tokens.milkyWay,
+    alpha: MILKYWAY.alpha,
+    twinkleBase: 1 - MILKYWAY.twinkleAmp,
+    twinkleAmp: MILKYWAY.twinkleAmp,
+    dpr: opts.dpr,
+  });
+  const mwPoints = new THREE.Points(mwGeometry, mwMaterial);
+  mwPoints.raycast = () => {};
+  points.add(mwPoints);
 
   // Real catalog swap — async; the procedural field covers the gap. A failed fetch (offline dev)
   // just keeps the fallback and says so once.
@@ -133,12 +175,28 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
     })
     .catch((e) => console.warn("[globe] star catalog unavailable — procedural fallback:", e));
 
+  const _camUp = new THREE.Vector3();
+
   return {
     points,
-    update({ alt, camera, elapsedS, reduceMotion, gastRad }) {
-      // Stars are the high-altitude backdrop; visible from LEO, fading out on final descent so
-      // they leave cleanly before the ground fills the view (no bleed over the near surface).
-      const visible = alt > GATES.starFadeBottom;
+    update({ alt, camera, elapsedS, reduceMotion, gastRad, sunDir }) {
+      // Two ways in: the high-altitude backdrop (space always has stars), OR a night sky at any
+      // altitude — below the altitude band the stars now fade in as the sun sets at the camera
+      // (owner 2026-07-10: "at night stars must be visible at low altitudes").
+      const altFade = THREE.MathUtils.clamp(
+        (alt - GATES.starFadeBottom) / GATES.starFadeSpan,
+        0,
+        1,
+      );
+      _camUp.copy(camera.position).normalize();
+      const sunEl = sunDir.dot(_camUp); // sin(sun elevation) at the camera
+      const nightFade = THREE.MathUtils.clamp(
+        (STARS.nightVisStartSin - sunEl) / (STARS.nightVisStartSin - STARS.nightVisFullSin),
+        0,
+        1,
+      );
+      const fade = Math.max(altFade, nightFade);
+      const visible = fade > 0.01;
       points.visible = visible;
       if (!visible) return;
       // Sidereal orientation: catalog positions are equatorial (x → RA 0h); −GAST about +Z maps
@@ -152,13 +210,19 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       const limbDist = Math.sqrt(alt * (2 * WGS84_A + alt));
       points.position.copy(camera.position);
       points.scale.setScalar(Math.min(STARS.limbMargin * limbDist, camera.far * STARS.farClamp));
-      material.uniforms.uFade.value = Math.min(1, (alt - GATES.starFadeBottom) / GATES.starFadeSpan);
-      if (!reduceMotion) material.uniforms.uTime.value = elapsedS;
+      material.uniforms.uFade.value = fade;
+      mwMaterial.uniforms.uFade.value = fade;
+      if (!reduceMotion) {
+        material.uniforms.uTime.value = elapsedS;
+        mwMaterial.uniforms.uTime.value = elapsedS;
+      }
     },
     dispose() {
       disposed = true;
       geometry.dispose();
       material.dispose();
+      mwGeometry.dispose();
+      mwMaterial.dispose();
       scene.remove(points);
     },
   };

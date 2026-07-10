@@ -1,36 +1,75 @@
 import Slider from "../ui/Slider";
-import { useCameraStore } from "../../store/camera";
+import {
+  altMToSlider,
+  sliderToAltM,
+  useCameraStore,
+  wrapHeadingDeg,
+} from "../../store/camera";
 import { CONTROLS } from "../globe/tuning";
 import "../../styles/camera-tilt.css";
 
 /**
- * CameraTiltPanel — manual camera declination control (2026-07-10 owner ask). A single
- * board-04 instrument slider docked above the scene clock: 0° looks straight down, 90° looks
- * at the horizon. Dragging asks the globe orchestrator to GLIDE the camera to that pitch
- * (store/camera seam); the readout tracks the live pitch when the user steers the globe
- * directly. Double-click/Backspace = release any in-progress glide (free camera).
+ * Camera panel — manual global camera controls (2026-07-10 owner asks). Board-04 instrument
+ * sliders docked above the scene clock:
+ *  • CAM TILT — declination: 0° looks straight down, 88° at the horizon.
+ *  • ROTATE — compass heading of the view (0° N, 90° E); orbits the view focus about its local
+ *    up, preserving the current tilt exactly.
+ *  • ZOOM — camera altitude, log-mapped (the wheel/pinch alternative).
+ * Dragging asks the globe orchestrator to GLIDE the camera (store/camera seam); the readouts
+ * track the live pose when the user steers the globe directly. Double-click/Backspace releases
+ * an in-progress glide (free camera).
  */
-export default function CameraTiltPanel() {
-  const tiltDeg = useCameraStore((s) => s.tiltDeg);
-  const targetTiltDeg = useCameraStore((s) => s.targetTiltDeg);
-  const setTargetTilt = useCameraStore((s) => s.setTargetTilt);
-  const clearTargetTilt = useCameraStore((s) => s.clearTargetTilt);
 
-  // While a glide is pending, the knob shows the REQUEST (stable under the finger); otherwise
-  // it mirrors the live camera pitch.
-  const shown = targetTiltDeg ?? tiltDeg;
+function formatAltM(altM: number): string {
+  if (altM < 1_000) return `${Math.round(altM)} m`;
+  if (altM < 100_000) return `${(altM / 1000).toFixed(1)} km`;
+  return `${Math.round(altM / 1000)} km`;
+}
+
+export default function CameraTiltPanel() {
+  const s = useCameraStore();
+
+  // While a glide is pending, each knob shows the REQUEST (stable under the finger); otherwise
+  // it mirrors the live camera pose.
+  const shownTilt = s.targetTiltDeg ?? s.tiltDeg;
+  const shownHeading = wrapHeadingDeg(s.targetHeadingDeg ?? s.headingDeg);
+  const shownAltM = s.targetZoomAltM ?? s.zoomAltM;
+  const zoomSlider = altMToSlider(shownAltM, CONTROLS.zoomMinAltM, CONTROLS.zoomMaxAltM);
 
   return (
-    <aside className="ct" aria-label="Camera tilt control">
+    <aside className="ct" aria-label="Camera controls">
       <Slider
         label="CAM TILT"
-        formatted={`${Math.round(shown)}°`}
-        value={Math.round(shown)}
+        formatted={`${Math.round(shownTilt)}°`}
+        value={Math.round(shownTilt)}
         min={CONTROLS.tiltMinDeg}
         max={CONTROLS.tiltMaxDeg}
         step={1}
-        onChange={setTargetTilt}
-        onReset={clearTargetTilt}
+        onChange={s.setTargetTilt}
+        onReset={s.clearTargetTilt}
+      />
+      <Slider
+        label="ROTATE"
+        formatted={`${Math.round(shownHeading)}°`}
+        value={Math.round(shownHeading)}
+        min={0}
+        max={360}
+        step={1}
+        onChange={(v) => s.setTargetHeading(wrapHeadingDeg(v))}
+        onReset={s.clearTargetHeading}
+      />
+      <Slider
+        label="ZOOM"
+        formatted={formatAltM(shownAltM)}
+        // photographic convention: right = zoom IN (lower altitude) — hence the inversion
+        value={Number(((1 - zoomSlider) * 100).toFixed(1))}
+        min={0}
+        max={100}
+        step={0.5}
+        onChange={(v) =>
+          s.setTargetZoom(sliderToAltM(1 - v / 100, CONTROLS.zoomMinAltM, CONTROLS.zoomMaxAltM))
+        }
+        onReset={s.clearTargetZoom}
       />
     </aside>
   );

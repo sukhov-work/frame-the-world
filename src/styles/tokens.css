@@ -43,6 +43,9 @@
   --color-sun-core: #fff3d9; /* solar disc — warm white (bloom carries the blowout) */
   --color-sun-glow: #ffd9a0; /* solar halo / corona falloff — warmer than the disc */
   --color-moonlight: #bfd0e8; /* cool moonlight fill on the night side (intensity by phase) */
+  --color-sky-day: #7fb8e8; /* low-altitude day-sky zenith — light blue dome at city zooms */
+  --color-sky-horizon: #d8e6f2; /* low-altitude horizon haze — near-white aerial perspective */
+  --color-milky-way: #e7e3d8; /* faint warm-white galactic band (subtle, near --color-star) */
 
   /* Type (design board 02) — Space Grotesk for UI, IBM Plex Mono for readouts */
   --font-ui: "Space Grotesk", system-ui, -apple-system, "Helvetica Neue", sans-serif;

@@ -12,7 +12,7 @@ import { goldenFactor } from "../../lib/ephemeris/golden";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
-import { useCameraStore } from "../../store/camera";
+import { headingDeltaDeg, useCameraStore, wrapHeadingDeg } from "../../store/camera";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
 import { attachAtmosphere } from "./scene/atmosphere";
@@ -185,7 +185,7 @@ export function attachStylizedTiles(opts: {
   const noteInteract = () => {
     lastInteract = performance.now();
     flight.cancel(); // grabbing the globe aborts a flight — the user takes over
-    useCameraStore.getState().clearTargetTilt(); // …and over a slider-set tilt glide
+    useCameraStore.getState().clearAllTargets(); // …and over any slider glide (tilt/heading/zoom)
   };
   const dom = renderer.domElement;
   dom.addEventListener("pointerdown", noteInteract);
@@ -250,6 +250,24 @@ export function attachStylizedTiles(opts: {
   const _camBack = new THREE.Vector3();
   const _qFull = new THREE.Quaternion();
   const _qCounter = new THREE.Quaternion();
+  const _Z = new THREE.Vector3(0, 0, 1);
+  const _east = new THREE.Vector3();
+  const _north = new THREE.Vector3();
+  const _fh = new THREE.Vector3();
+  const _qHead = new THREE.Quaternion();
+
+  // Compass heading (deg; 0 = north, 90 = east) of the camera view projected on the horizon
+  // plane at `up`. NaN when degenerate (pole, or looking straight down — heading undefined).
+  const viewHeadingDeg = (up: THREE.Vector3): number => {
+    _east.crossVectors(_Z, up);
+    if (_east.lengthSq() < 1e-12) return NaN; // at a pole east/north degenerate
+    _east.normalize();
+    _north.crossVectors(up, _east);
+    camera.getWorldDirection(_camFwd);
+    _fh.copy(_camFwd).addScaledVector(up, -_camFwd.dot(up));
+    if (_fh.lengthSq() < 1e-10) return NaN; // nadir view
+    return THREE.MathUtils.radToDeg(Math.atan2(_fh.dot(_east), _fh.dot(_north)));
+  };
 
   // Dev-only introspection so browser verification (Playwright) can read camera altitude and tile
   // state without reaching into the closure. No secrets, no behaviour change.
@@ -334,8 +352,24 @@ export function attachStylizedTiles(opts: {
 
         // True geodetic altitude above the WGS84 ellipsoid. (position.length() - WGS84_A is up to
         // ~21 km off at mid-latitudes — enough to mis-time the low-altitude gates.)
-        const dist = camera.position.length();
         const alt = WGS84_ELLIPSOID.getPositionElevation(camera.position);
+
+        // View focus: camera-forward ray → ellipsoid (past-the-limb views fall back to the
+        // sub-camera point). ONE shared frame for the heading/zoom glides, their live mirrors,
+        // the shadow rig and the golden-hour key-light signal. (controls.getPivotPoint is NOT
+        // usable here — it is degenerate before the first user interaction.)
+        camera.getWorldDirection(_camFwd);
+        const focusHit = rayEllipsoidIntersect(
+          [camera.position.x, camera.position.y, camera.position.z],
+          [_camFwd.x, _camFwd.y, _camFwd.z],
+        );
+        if (focusHit) {
+          _focus.set(focusHit[0], focusHit[1], focusHit[2]);
+          _focusUp.copy(_focus).normalize();
+        } else {
+          _focus.copy(camera.position);
+          _focusUp.copy(camera.position).normalize();
+        }
         lastAlt = alt;
 
         // Idle orbital drift (LEO spacecraft feel) — orbit only, paused after interaction.
@@ -356,7 +390,11 @@ export function attachStylizedTiles(opts: {
         // pitch convention 0 = straight down, π/2 = horizon; clamps are applied inside.
         const camStore = useCameraStore.getState();
         if (camStore.targetTiltDeg !== null && !flight.active()) {
-          controls.getPivotPoint(_pivot);
+          // getPivotPoint returns null when the centre-screen ray misses the planet (horizon
+          // views) and leaves the target STALE — rotating around that garbage pivot flew the
+          // camera 8 km → 128 km in verification. Fall back to the view focus (which itself
+          // falls back to the camera position — a pure look-rotation, no translation).
+          if (controls.getPivotPoint(_pivot) === null) _pivot.copy(_focus);
           zc.getUpDirection(_pivot, _pivotUp);
           _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld); // camera +Z = backward
           const pitchRad = _pivotUp.angleTo(_camBack);
@@ -376,13 +414,74 @@ export function attachStylizedTiles(opts: {
             camera.updateMatrixWorld();
           }
         }
-        // Mirror the live pitch into the store at low cadence for the panel readout (never at
-        // 60 fps — same discipline as store/time).
+
+        // Manual heading (slider): glide the camera AROUND the view focus about its local up —
+        // a rigid rotation about the up axis, so the current tilt is preserved exactly. Uses the
+        // SAME focus frame as the live mirror, so the knob and the readout always agree.
+        // Sign: rotating the camera by +θ about local up DECREASES the view heading (RH rule
+        // with heading measured clockwise from north) — hence the negation.
+        if (camStore.targetHeadingDeg !== null && !flight.active()) {
+          const liveH = viewHeadingDeg(_focusUp);
+          if (Number.isNaN(liveH)) {
+            camStore.clearTargetHeading(); // heading undefined here (pole / nadir view)
+          } else {
+            const deltaH = headingDeltaDeg(liveH, camStore.targetHeadingDeg);
+            if (Math.abs(deltaH) < 0.08) {
+              camStore.clearTargetHeading(); // arrived — hand the camera back
+            } else {
+              const kh = 1 - Math.exp(-dtMs / CONTROLS.headingEaseTauMs);
+              _qHead.setFromAxisAngle(_focusUp, -THREE.MathUtils.degToRad(deltaH * kh));
+              camera.position.sub(_focus).applyQuaternion(_qHead).add(_focus);
+              camera.up.applyQuaternion(_qHead);
+              camera.quaternion.premultiply(_qHead);
+              camera.updateMatrixWorld();
+            }
+          }
+        }
+
+        // Manual zoom (slider): log-space exponential approach to the target altitude, dollying
+        // along the camera→focus ray (radially past the limb) — the wheel/pinch alternative.
+        if (camStore.targetZoomAltM !== null && !flight.active()) {
+          const targetAlt = THREE.MathUtils.clamp(
+            camStore.targetZoomAltM,
+            CONTROLS.zoomMinAltM,
+            CONTROLS.zoomMaxAltM,
+          );
+          const errLog = Math.log((targetAlt + 1) / (alt + 1));
+          if (Math.abs(errLog) < 0.005) {
+            camStore.clearTargetZoom(); // arrived — hand the camera back
+          } else {
+            const kzm = 1 - Math.exp(-dtMs / CONTROLS.zoomEaseTauMs);
+            const s = Math.exp(errLog * kzm); // multiplicative altitude step this frame
+            if (focusHit) {
+              // dolly along camera→focus: altitude scales ≈ with the focus distance
+              camera.position.sub(_focus).multiplyScalar(s).add(_focus);
+            } else {
+              // looking past the limb: move radially instead
+              const centreDist = camera.position.length();
+              camera.position.multiplyScalar((centreDist - alt + alt * s) / centreDist);
+            }
+            camera.updateMatrixWorld();
+          }
+        }
+
+        // Mirror the live pose (pitch / heading / altitude) into the store at low cadence for
+        // the panel readouts (never at 60 fps — same discipline as store/time).
         if (frameCount % 12 === 0) {
           zc.getUpDirection(camera.position, _pivotUp);
           _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
           const liveTiltDeg = THREE.MathUtils.radToDeg(_pivotUp.angleTo(_camBack));
           if (Math.abs(liveTiltDeg - camStore.tiltDeg) > 0.25) camStore._syncTilt(liveTiltDeg);
+          const liveHeadingDeg = viewHeadingDeg(_focusUp); // same frame as the heading glide
+          if (!Number.isNaN(liveHeadingDeg)) {
+            const wrapped = wrapHeadingDeg(liveHeadingDeg);
+            if (Math.abs(headingDeltaDeg(camStore.headingDeg, wrapped)) > 0.5) {
+              camStore._syncHeading(wrapped);
+            }
+          }
+          if (Math.abs(alt - camStore.zoomAltM) / Math.max(alt, 1) > 0.005) {
+            camStore._syncZoom(alt);
+          }
         }
 
         ground.update(alt);
@@ -390,20 +489,6 @@ export function attachStylizedTiles(opts: {
         // Ephemeris: re-sample when scene time moved enough (live clock or a pinned scrub).
         const tMs = sceneTimeMs();
         if (Math.abs(tMs - lastSampleMs) > SKY.sampleIntervalMs) sampleEphemeris(tMs);
-
-        // View focus: camera-forward ray → ellipsoid (past-the-limb views fall back to the
-        // sub-camera point). Drives the shadow rig AND the golden-hour key-light signal.
-        camera.getWorldDirection(_camFwd);
-        const focusHit = rayEllipsoidIntersect(
-          [camera.position.x, camera.position.y, camera.position.z],
-          [_camFwd.x, _camFwd.y, _camFwd.z],
-        );
-        if (focusHit) {
-          _focus.set(focusHit[0], focusHit[1], focusHit[2]);
-          _focusUp.copy(_focus).normalize();
-        } else {
-          _focusUp.copy(camera.position).normalize();
-        }
 
         // Sun key light: ephemeris direction always; colour warms through the golden band as the
         // sun grazes the horizon AT THE FOCUS (same bell as the shader grades — buildings relight
@@ -440,12 +525,12 @@ export function attachStylizedTiles(opts: {
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
         if (++frameCount % 120 === 0) frustum.resnap();
 
-        // Orbit-only decoration: hide the graticule + atmosphere once we dive toward the city
-        // (no "wire cage" up-view, no shell overdraw over the buildings).
-        const orbital = alt > GATES.decorMinAlt;
-        graticule.lines.visible = orbital;
-        atmosphere.mesh.visible = orbital;
-        atmosphere.update(dist, alt);
+        // Orbit-only decoration: hide the graticule once we dive toward the city (no "wire
+        // cage" up-view). The atmosphere now stays on at EVERY altitude — below the old decor
+        // gate it re-anchors to the camera and becomes the low-altitude sky dome (day-blue +
+        // horizon haze; black at night so the stars own the sky).
+        graticule.lines.visible = alt > GATES.decorMinAlt;
+        atmosphere.update(camera, alt);
 
         stars.update({
           alt,
@@ -453,6 +538,7 @@ export function attachStylizedTiles(opts: {
           elapsedS: (performance.now() - t0) / 1000,
           reduceMotion,
           gastRad,
+          sunDir: sunDirW,
         });
       } catch (err) {
         console.error("[globe] tiles/controls update error:", err);

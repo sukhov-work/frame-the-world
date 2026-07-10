@@ -10,6 +10,52 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Owner batch #2 SHIPPED: multiday date-jump scrubber + crisper building shadows + Esri patchwork KILLED at altitude (browser-VERIFIED via Playwright MCP on wix dev).**
+  **Multiday scrubber:** rail stays the ±12 h fine control; a native `<input type="date">` in the header (`.ts-date`, dark color-scheme)
+  jumps the window to ANY calendar date preserving the LOCAL time-of-day — pure helpers `localDateStr`/`withLocalDate` in `store/time.ts`
+  (+4 tests; malformed input → null so a cleared field never scrubs). Astronomy verified in-browser: pick 2026-12-21 → subsolar latitude
+  −23.44° (Tropic of Capricorn ✓), moon 21%→91%, Ukraine dark at 16:00 with December city lights. offsetLabel minute-carry bug fixed
+  ("+3936 h 60 m" → "+164 d 2 h" style). **Shadows:** SHADOWS.mapSize 2048→4096 · boundsM 2500→1600 (2.4→0.78 m/texel) · radius 3→2 ·
+  groundOpacity 0.55→0.75 + ShadowMaterial tinted tokens.water (cool sky-lit shadow reads on the dark grade where pure black melts).
+  Red-mask re-check: mask was pixel-crisp all along — presence (contrast over the dark palette) was the limiter, now recorded as the
+  design ceiling. **Patchwork (owner screenshot #2 — persistent, so NOT loading):** the blobs are regional mosaic seams/haze baked in
+  Esri's low/mid-zoom source imagery. GATES fade band 1.6e6/650e3 → **750e3/380e3** + GROUND.errorFarAlt 1.2e6→750e3: Blue Marble owns
+  everything above ~750 km (default LEO 1100 km = ZERO Esri, verified spotless), Esri dissolves in only where its source zooms are
+  detailed/consistent (517 km mid-band verified coherent). Files: `tuning.ts` (SHADOWS/GATES/GROUND), `scene/imageryGround.ts`,
+  `store/time.ts`, `panels/TimeScrubber.tsx`, `styles/time-scrubber.css`, `test/store/time.test.ts`. **149 vitest (+4) · astro check 0 ·
+  wix build green** (shots verify-shots/prephase5b-01..10). Carried: shadow contrast is palette-limited (dark graded ground) — knobs
+  groundOpacity/mapSize; date picker uses the BROWSER timezone for day boundaries (v1 choice, same as the local-clock readout).
+- **2026-07-10 — Pre-Phase-5 owner fix batch SHIPPED: narrow terminator + camera rotate/zoom sliders + high-alt patchwork fix + horizontal projection arrival + transparent photo plane + low-altitude day sky/haze + night stars at street level + real-coords Milky Way (browser-VERIFIED via Playwright MCP on wix dev).**
+  **Terminator** (was half-lambert `wrap²` = dusk smeared across the whole sphere): day/night now switches across `EARTH.termBand`
+  [sin −6°, sin +3.2°] (~9.2° ≈ the real twilight zone) in BOTH baseEarth + ground grade (twins — keep in sync); day side keeps a
+  `dayGradMin 0.78 → 1` subsolar gradient for dimensionality; city lights + moon night term ride the same sine (`EARTH.lightsBand`
+  replaces nightBand). **Patchwork at altitude** (owner screenshot = mixed Esri source zooms, washed vs textured): GATES fade band
+  2.6e6/1.4e6 → **1.6e6/650e3** (Blue Marble owns high orbit; at 1100 km LEO uFtwFade ≈ 0.53 dither instead of full imagery) + new
+  `uFtwHiAlt = 1 − altFade` drives desat → `GROUND.hiAltDesat 0.88` so mixed zooms converge in tone. **Sliders** (`store/camera.ts` +
+  `panels/CameraTiltPanel.tsx` now 3 sliders): ROTATE = compass heading glide (rigid rotation about the view-focus up — tilt preserved
+  EXACTLY; verified 47°→119.4° with tilt frozen 51.21°) + ZOOM = log-mapped altitude glide (dolly along camera→focus; verified 1100 km→8 km,
+  right = zoom in); pure helpers `wrapHeadingDeg/headingDeltaDeg/sliderToAltM/altMToSlider` unit-tested. TRAPS fixed: glide + mirror MUST
+  share one frame (view-focus up — pivot-frame vs camera-frame heading disagreed by 25°); `controls.getPivotPoint` returns NULL on horizon
+  views leaving the out-arg STALE — the tilt glide orbited garbage and flew 8→128 km; both glides now fall back to the per-frame focus.
+  **Projection pose:** FLIGHT backFactor 2.8→4.2, liftFactor 1.1→0.45 (~5° depression — landscape reads behind the photo); plane =
+  `transparent, FRUSTUM.planeOpacity 0.7` default + live `store/upload.planeOpacity` + PLANE ALPHA slider in PhotoDetailPanel (verified 0.3
+  reaches the material). **Low-altitude sky** (tokens skyDay #7FB8E8 / skyHorizon #D8E6F2): atmosphere shader gets a sky regime —
+  `skyK` blends in below 120 km → light-blue zenith + horizon haze `exp(−sinEl/0.1)` (aerial perspective over distant terrain), golden-warmed
+  at dawn/dusk, black at night; below `ATMOSPHERE.domeMaxAlt 350 km` the SAME mesh re-anchors to the camera at 0.45·far (the earth-centred
+  shell's far hemisphere is past the tight dynamic far plane at street level — shader shades by ray DIRECTION only, so the swap is invisible);
+  atmosphere no longer gated by decorMinAlt (graticule still is). Verified: light-blue sky + white haze band at 5.4 km AND at 106 m street level.
+  **Stars at night:** `stars.update` takes sunDir; fade = max(altitude fade, night fade over sin(sun elev) −0.02→−0.14) — stars at any altitude
+  after dusk (verified at 5.7 km, sun −10°). **Milky Way (D6-adjacent):** `lib/ephemeris/stars.ts galacticToEquatorial` (IAU J2000 NGP RA
+  192.859°/Dec 27.128°, GC RA 266.405°/Dec −28.936°, Gram-Schmidt basis; unit-tested vs both anchors) + `milkyWayField` (14k points, gaussian
+  σb 8.5° + 20% halo, Sagittarius bulge rejection-sampled) rendered as a CHILD of the star sphere (inherits −GAST + camera-follow); shared
+  star material factory. TRAP (same as brightMin): 0.6–1.7 px points at DPR 1 render NOTHING — sub-pixel points often cover no pixel centre;
+  live-tuned to sizeBase/spread 2.2 + alpha 0.25 = subtle veil. Files: `tuning.ts` (termBand/lightsBand/hiAltDesat/sky*/dome*/nightVis*/
+  MILKYWAY/planeOpacity/heading+zoom CONTROLS/FLIGHT/GATES), `scene/{baseEarth,imageryGround,atmosphere,stars}.ts`, `StylizedTiles.ts`,
+  `PhotoFrustum.ts`, `store/{camera,upload}.ts`, `panels/{CameraTiltPanel,PhotoDetailPanel}.tsx`, `styles/{tokens,camera-tilt}.css`,
+  `lib/theme/tokens.ts`, `lib/ephemeris/stars.ts`, tests `test/store/camera.test.ts` + galactic/milky-way suites. **145 vitest (+11) ·
+  astro check 0 · wix build green · browser-VERIFIED** (shots verify-shots/prephase5-01..11). Carried: residual band-zone patch contrast
+  settles as tiles refine (taste knob hiAltDesat); zoom-slider direction (right = in) owner taste-check; slate quad seen once at 8 km
+  (failed Esri overlay pre-retry — watch); night-sky navy floor source unidentified (looks good, cosmetic).
 - **2026-07-10 — Phase 4 remainder SHIPPED: time-scrubber UI + golden-hour grade + real BSC5 star catalog (browser-VERIFIED via Playwright MCP on wix dev).**
   **Scrubber:** `panels/TimeScrubber.tsx` + `styles/time-scrubber.css` — bottom-centre rail (fluid middle band: `left:32rem; right:16rem;
   margin-inline:auto` so it never overlaps the hero or the readout column) spanning ±12 h (SCRUB.windowHours) around an anchor; drag →

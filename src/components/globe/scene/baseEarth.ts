@@ -112,9 +112,13 @@ export function attachBaseEarth(
         vec3 nT = texture2D(uNormal, vUv).xyz * 2.0 - 1.0;
         nT.xy *= uRelief * land;
         vec3 Np = normalize(T * nT.x + B * nT.y + N * nT.z);
-        // half-lambert off the relief normal; night floor keeps the map readable on the unlit side
-        float wrap = dot(Np, normalize(uSunDir)) * 0.5 + 0.5;
-        float shade = mix(uNightFloor, 1.0, wrap * wrap);
+        // Narrow terminator (owner 2026-07-10: the old half-lambert wrap² spread dusk across the
+        // whole sphere). Day/night switches across EARTH.termBand over sin(solar elevation) at
+        // the relief normal; the day side keeps a soft subsolar gradient for dimensionality.
+        float sunDot = dot(Np, normalize(uSunDir));
+        float dayK = smoothstep(${glf(EARTH.termBand[0])}, ${glf(EARTH.termBand[1])}, sunDot);
+        float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
+        float shade = mix(uNightFloor, dayShade, dayK);
         vec3 color = albedo * shade;
         // Golden-hour cast (Phase 4, D6/D14): warm band where the sun grazes the LOCAL horizon —
         // a bell over sin(elevation) = dot(geographic normal, sun), so the warmth hugs the
@@ -124,7 +128,8 @@ export function attachBaseEarth(
                    * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, gSin));
         color *= mix(vec3(1.0), uGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.earthStrength)});
         // Geographically correct night-side city lights (VIIRS). li^2 kills haze, keeps real cities.
-        float night = 1.0 - smoothstep(${glf(EARTH.nightBand[0])}, ${glf(EARTH.nightBand[1])}, wrap);
+        // Lights ride the same solar-elevation sine as the terminator: on through dusk, off by sunrise.
+        float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunDot);
         float li = dot(texture2D(uNight, vUv).rgb, vec3(0.333));
         color += uCityLights * (li * li * ${glf(EARTH.cityLightGain)}) * night * land;
         // Cool moonlight lifts the dark side by lunar phase (astronomically-driven, like the sun).
@@ -132,7 +137,7 @@ export function attachBaseEarth(
         // In-shader limb scattering (day side): the disc brightens toward the grazing edge so the
         // sphere melts into the halo instead of meeting a stuck-on ring.
         float rim = pow(1.0 - max(dot(normalize(cameraPosition - vDir), N), 0.0), ${glf(EARTH.rimPow)});
-        color += uAtmTint * rim * ${glf(EARTH.rimGain)} * wrap;
+        color += uAtmTint * rim * ${glf(EARTH.rimGain)} * mix(0.25, 1.0, dayK);
         ${DITHER_GLSL}
         gl_FragColor = vec4(color, 1.0);
         #include <tonemapping_fragment>

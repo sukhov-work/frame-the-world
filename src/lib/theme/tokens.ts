@@ -28,6 +28,9 @@ export const tokens = {
   sunCore: '#FFF3D9', // solar disc — warm white (bloom carries the blowout)
   sunGlow: '#FFD9A0', // solar halo / corona falloff — warmer than the disc
   moonlight: '#BFD0E8', // cool moonlight fill on the night side (intensity by phase)
+  skyDay: '#7FB8E8', // low-altitude day-sky zenith — light blue dome at city zooms
+  skyHorizon: '#D8E6F2', // low-altitude horizon haze — near-white aerial perspective
+  milkyWay: '#E7E3D8', // faint warm-white galactic band (subtle, near tokens.star)
 } as const;
 
 export type ThemeTokens = typeof tokens;

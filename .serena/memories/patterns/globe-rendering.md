@@ -135,4 +135,22 @@ Root causes from GlobeControls 0.4.28 SOURCE (node_modules/3d-tiles-renderer/src
 - Verified (scripted Chrome): zoom 1100 km→1.7 km pitch 51→60° no snap, eased tail; slider
   20°→19.9°/70°→69.8°; fling coast 10.6°/6.2°/2.1° per 0.3/0.5/0.8 s.
 
+## Manual heading/zoom sliders (2026-07-10 pre-Phase-5 batch)
+- `store/camera.ts` now carries THREE live-mirror/target pairs (tilt / heading / zoom) + pure
+  helpers `wrapHeadingDeg`, `headingDeltaDeg` (shortest arc), `sliderToAltM`/`altMToSlider`
+  (log-mapped, CONTROLS.zoomMinAltM 120 → zoomMaxAltM 12e6); `clearAllTargets()` is what
+  noteInteract calls (direct manipulation wins). Panel = CameraTiltPanel.tsx (3 board-04 sliders;
+  ZOOM inverted: right = zoom IN).
+- **Heading glide** = rigid rotation about the view-focus local up through the focus point —
+  preserves tilt EXACTLY (verified 47°→119.4°, tilt frozen 51.21°). Sign: rotating the camera +θ
+  about local up DECREASES compass heading → negate. **Zoom glide** = log-space exp approach,
+  dolly along camera→focus (radial past the limb).
+- **TRAP — one frame for glide + mirror**: heading measured at the controls pivot's up vs the
+  camera-position up disagreed by 25° at LEO tilt (knob landed ≠ readout). Orchestrator now
+  computes the view focus (forward ray → ellipsoid, fallback sub-camera point) ONCE per frame
+  early; heading glide, its mirror, zoom dolly, shadow rig and golden key all share it.
+- **TRAP — `controls.getPivotPoint()` returns NULL** when the centre-screen ray misses the planet
+  (horizon views) and LEAVES THE OUT-ARG STALE — the tilt glide orbited a garbage pivot and flew
+  the camera 8 km → 128 km. Always check the return value; fall back to the shared focus.
+
 Related: [[architecture/system-overview]] [[decisions/adr-000-locked-stack]] [[patterns/design-system]]

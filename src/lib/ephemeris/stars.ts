@@ -83,3 +83,97 @@ export function magToBright(v: number, m: MagMapping): number {
   const flux = Math.pow(10, -0.4 * (v - m.magRef) * m.brightGamma);
   return Math.min(1, Math.max(m.brightMin, flux));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Milky Way — the galactic plane at its REAL celestial coordinates. IAU J2000 galactic frame:
+// north galactic pole RA 12h51m26.28s / Dec +27°07'42.0", galactic centre (l=0, b=0) at
+// RA 17h45m37.2s / Dec −28°56'10" (Sgr A* direction). The band renders as a child of the BSC5
+// star sphere, so the same −GAST rotation places it correctly over the earth for the scene time.
+// ---------------------------------------------------------------------------------------------
+
+/** North galactic pole, J2000 equatorial (RA 192.85948°, Dec +27.12825°). */
+export const GALACTIC_NORTH_POLE = { raHours: 192.85948 / 15, decDeg: 27.12825 } as const;
+/** Galactic centre (l=0, b=0), J2000 equatorial (RA 266.405°, Dec −28.93617°). */
+export const GALACTIC_CENTER = { raHours: 266.405 / 15, decDeg: -28.93617 } as const;
+
+/** Galactic (l, b) degrees → J2000 equatorial unit vector (same frame as the star catalog). */
+export function galacticToEquatorial(lDeg: number, bDeg: number): [number, number, number] {
+  // Orthonormal galactic basis in the equatorial frame: z = NGP, x = towards the galactic
+  // centre (Gram-Schmidt against z — the published values are ~0.005° from orthogonal), y = z×x.
+  const z = raDecToUnit(GALACTIC_NORTH_POLE.raHours, GALACTIC_NORTH_POLE.decDeg);
+  const c0 = raDecToUnit(GALACTIC_CENTER.raHours, GALACTIC_CENTER.decDeg);
+  const dzc = z[0] * c0[0] + z[1] * c0[1] + z[2] * c0[2];
+  const xr: [number, number, number] = [c0[0] - dzc * z[0], c0[1] - dzc * z[1], c0[2] - dzc * z[2]];
+  const xl = Math.hypot(xr[0], xr[1], xr[2]);
+  const x: [number, number, number] = [xr[0] / xl, xr[1] / xl, xr[2] / xl];
+  const y: [number, number, number] = [
+    z[1] * x[2] - z[2] * x[1],
+    z[2] * x[0] - z[0] * x[2],
+    z[0] * x[1] - z[1] * x[0],
+  ];
+  const l = (lDeg * Math.PI) / 180;
+  const b = (bDeg * Math.PI) / 180;
+  const cb = Math.cos(b);
+  const gx = cb * Math.cos(l);
+  const gy = cb * Math.sin(l);
+  const gz = Math.sin(b);
+  return [
+    gx * x[0] + gy * y[0] + gz * z[0],
+    gx * x[1] + gy * y[1] + gz * z[1],
+    gx * x[2] + gy * y[2] + gz * z[2],
+  ];
+}
+
+export interface MilkyWayOptions {
+  count: number;
+  /** Gaussian half-thickness across galactic latitude (deg). */
+  sigmaBDeg: number;
+  /** Fraction of points drawn from a 2.5× wider gaussian (soft halo — no hard band edge). */
+  haloFrac: number;
+  /** Brightness bulge toward the galactic centre: w = base + (1−base)·exp(−½(l/σ)²). */
+  bulgeSigmaLDeg: number;
+  baseWeight: number;
+  sizeBase: number;
+  sizeSpread: number;
+}
+
+export interface MilkyWayField {
+  /** J2000 equatorial unit directions (3 floats per point). */
+  positions: Float32Array;
+  /** Point size (px, pre-DPR) per point. */
+  size: Float32Array;
+  /** Brightness weight (0..1) per point — bulges toward the galactic centre. */
+  bright: Float32Array;
+}
+
+/** Procedural Milky Way band: points scattered about the galactic plane, denser & brighter
+ *  toward the galactic centre. `rand` is injectable for deterministic tests. */
+export function milkyWayField(opts: MilkyWayOptions, rand: () => number = Math.random): MilkyWayField {
+  const positions = new Float32Array(opts.count * 3);
+  const size = new Float32Array(opts.count);
+  const bright = new Float32Array(opts.count);
+  for (let i = 0; i < opts.count; i++) {
+    // Galactic longitude weighted toward the centre by rejection sampling on the bulge weight.
+    let lDeg = 0;
+    let w = 0;
+    do {
+      lDeg = rand() * 360;
+      const lWrap = lDeg > 180 ? lDeg - 360 : lDeg; // distance from the galactic centre (l=0)
+      w = opts.baseWeight + (1 - opts.baseWeight) * Math.exp(-0.5 * (lWrap / opts.bulgeSigmaLDeg) ** 2);
+    } while (rand() > w);
+    // Gaussian galactic latitude (Box-Muller); a slice of points from a wider gaussian softens
+    // the band edge into a halo.
+    const u1 = Math.max(rand(), 1e-12);
+    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * rand());
+    const sigma = rand() < opts.haloFrac ? opts.sigmaBDeg * 2.5 : opts.sigmaBDeg;
+    const bDeg = Math.max(-89, Math.min(89, gauss * sigma));
+    const p = galacticToEquatorial(lDeg, bDeg);
+    positions[i * 3] = p[0];
+    positions[i * 3 + 1] = p[1];
+    positions[i * 3 + 2] = p[2];
+    const r = rand();
+    size[i] = opts.sizeBase + r * r * opts.sizeSpread;
+    bright[i] = w * (0.6 + 0.4 * rand());
+  }
+  return { positions, size, bright };
+}

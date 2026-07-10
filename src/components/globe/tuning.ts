@@ -128,10 +128,12 @@ export const BLOOM = {
 export const SHADOWS = {
   /** Shadows render only below this camera altitude (nothing to see from orbit; big perf win). */
   maxAltM: 30_000,
-  /** Shadow map resolution (2048² ≈ 1.2 m/texel over a 2.5 km half-extent). */
-  mapSize: 2048,
-  /** Orthographic half-extent (m) around the view focus. */
-  boundsM: 2_500,
+  /** Shadow map resolution (4096² ≈ 0.78 m/texel over a 1.6 km half-extent — owner 2026-07-10
+   *  "crisper"; was 2048²/2.5 km ≈ 2.4 m/texel). ~67 MB depth target — desktop-fine; drop to
+   *  2048 if a mobile memory pass complains. */
+  mapSize: 4096,
+  /** Orthographic half-extent (m) around the view focus (tighter = more texels per metre). */
+  boundsM: 1_600,
   /** Light sits this far (m) from the focus toward the sun. */
   lightDistM: 8_000,
   /** Shadow camera near/far margin (m) around the focus distance. */
@@ -140,14 +142,16 @@ export const SHADOWS = {
   bias: -2e-4,
   /** World-space normal offset (m) — the large-coordinate acne killer. */
   normalBias: 1.0,
-  /** PCF blur radius (texels) — soft penumbra edge. */
-  radius: 3,
+  /** PCF blur radius (texels) — soft penumbra edge (3 → 2: crisper contact, still not aliased). */
+  radius: 2,
   /** Sun must be at least this high over the focus (dot with up ≈ sin(elev)) — ~2°. */
   minSunElevSin: 0.03,
   /** Ground shadow overlay darkness (ShadowMaterial opacity — invisible where unshadowed).
    *  The graded ground is dark: below ~0.5 the darkening is imperceptible (verified with a
-   *  red-mask debug pass 2026-07-10 — the mask itself was always correct). */
-  groundOpacity: 0.55,
+   *  red-mask debug pass 2026-07-10 — the mask itself was always correct; re-verified for the
+   *  "crisper" pass: 4096² edges are clean, presence was the limiter → 0.55 → 0.75 + a cool
+   *  tokens.water tint instead of pure black). */
+  groundOpacity: 0.75,
 } as const;
 
 /** Renderer-level knobs (GlobeCanvas). */
@@ -178,11 +182,16 @@ export const POSE = {
 export const GATES = {
   /** Imagery TilesRenderer updates below this — above it the stylized base owns the ground. */
   groundActiveAlt: 3_000_000,
-  /** Screen-door fade starts here (imagery invisible above)… */
-  groundFadeTop: 2_600_000,
+  /** Screen-door fade starts here (imagery invisible above). History: 2.6e6/1.4e6 put full Esri
+   *  imagery at LEO → patchwork; 1.6e6/650e3 halved it but the patches PERSISTED (owner screenshot
+   *  #2, 2026-07-10) — they are regional mosaic seams and haze baked into Esri's low/mid-zoom
+   *  source imagery itself, not a loading state. The Blue Marble base (which has no seams) now
+   *  owns everything above ~750 km; Esri only dissolves in below, where its source zooms are
+   *  detailed and consistent. */
+  groundFadeTop: 750_000,
   /** …and completes here (imagery fully owns the ground below). Overlaps the base's resolution
    *  limit so the handoff is a dissolve, never a switch. */
-  groundFadeBottom: 1_400_000,
+  groundFadeBottom: 380_000,
   /** Graticule + atmosphere hidden below (no wire cage / shell overdraw at street level). */
   decorMinAlt: 150_000,
   /** Stars fully gone below this… */
@@ -234,6 +243,15 @@ export const CONTROLS = {
    *  so the per-frame clamp never fights the eased approach. */
   tiltMinDeg: 0,
   tiltMaxDeg: 88,
+  /** Heading-slider easing time-constant (ms) — camera orbits the view focus about its local up,
+   *  preserving the current tilt exactly (rigid rotation about the up axis). */
+  headingEaseTauMs: 260,
+  /** Zoom-slider easing time-constant (ms) — log-space exponential approach to the target
+   *  altitude (the manual alternative to wheel/pinch zoom). */
+  zoomEaseTauMs: 320,
+  /** Zoom-slider altitude range (m) — log-mapped across the slider track. */
+  zoomMinAltM: 120,
+  zoomMaxAltM: 12_000_000,
 } as const;
 
 /** Phase-1 test city (Dnipro, UA). The old `buildingSinkM` float workaround was REMOVED
@@ -304,8 +322,16 @@ export const EARTH = {
   landRamp: [0.02, 0.14],
   /** Elevation ramp →peak. */
   peakRamp: [0.22, 0.58],
-  /** Night-side band over the half-lambert wrap term: lights fade in as wrap crosses lo→hi. */
-  nightBand: [0.3, 0.52],
+  /** Terminator band over the SINE of solar elevation (smoothstep lo→hi). The old half-lambert
+   *  wrap² spread day→night across the whole sphere ("dusk line very wide and unnatural" — owner
+   *  2026-07-10); this narrows the transition to ~9.2°: lo ≈ sin(−6°) — dark by civil dusk;
+   *  hi ≈ sin(+3.2°) — fully lit just after sunrise. */
+  termBand: [-0.105, 0.055],
+  /** Day-side shading floor: the lit hemisphere still grades from this at the terminator up to 1
+   *  at the subsolar point — a flat day side would kill the sphere's dimensionality. */
+  dayGradMin: 0.78,
+  /** City-lights band over the same sine: fully on below sin(−6.9°), fading out by sunset. */
+  lightsBand: [-0.12, -0.005],
   /** VIIRS emissive boost — li²·this (the square kills haze, keeps real cities). */
   cityLightGain: 2.1,
   /** Day-side limb scattering: rim = (1-N·V)^pow · gain — melts the disc into the halo. */
@@ -360,6 +386,37 @@ export const ATMOSPHERE = {
   /** Ground-hit detection band around Re (m below / above) for the wash blend. */
   groundBandBelowM: 60_000,
   groundBandAboveM: 10_000,
+  // --- Low-altitude sky regime (owner 2026-07-10: "day sky on close zooms … quite dark and
+  //     ugly" + "realistic haze on horizon"). Below skyGoneAlt the same shell blends from the
+  //     orbital limb model into a proper sky: light-blue day dome + bright horizon haze, warmed
+  //     through the golden band at dawn/dusk, black at night (stars own it). --------------------
+  /** Sky regime fully in at/below this camera altitude (m)… */
+  skyFullAlt: 12_000,
+  /** …blended out by this altitude (back to the pure orbital limb model). */
+  skyGoneAlt: 120_000,
+  /** Below this altitude the shell re-anchors to the CAMERA (radius = far × domeFarFrac): the
+   *  earth-centred shell's visible hemisphere would be clipped by GlobeControls' tightly-fitted
+   *  far plane at street level. The shader only uses the fragment DIRECTION, so swapping the
+   *  geometry is seamless — skyGoneAlt < domeMaxAlt keeps both regimes identical at the swap. */
+  domeMaxAlt: 350_000,
+  domeFarFrac: 0.45,
+  /** Zenith sky brightness (multiplies tokens.skyDay). */
+  skyDayGain: 0.85,
+  /** Horizon haze brightness (multiplies tokens.skyHorizon). Horizon total ≈ 1.05 — a whisker
+   *  over BLOOM.threshold, so the haze picks up a soft glow without blowing out. */
+  skyHorizonGain: 0.35,
+  /** Haze falloff over sin(view elevation) above the horizon — smaller hugs the horizon tighter. */
+  skyHazeFalloff: 0.1,
+  /** Haze falloff BELOW the horizon (aerial perspective over distant terrain, decaying fast so
+   *  near-ground rays stay clean — near geometry depth-occludes the dome anyway). */
+  skyHazeBelow: 0.08,
+  /** Day factor ramp over sin(sun elevation): night → full day across this band. */
+  skyDawnLo: -0.12,
+  skyDawnHi: 0.12,
+  /** How strongly the golden band warms the horizon haze at dawn/dusk. */
+  skyGoldStrength: 0.55,
+  /** Zenith→horizon mix exponent over sin(view elevation) (lower = more zenith colour). */
+  skyZenithPow: 0.55,
 } as const;
 
 /** Camera-centred starfield. Scaled per-frame to sit beyond the farthest visible terrain (limb
@@ -398,6 +455,38 @@ export const STARS = {
   limbMargin: 1.05,
   /** …clamped to camera.far·this (inside the dynamic far plane, or it gets culled). */
   farClamp: 0.9,
+  /** Night visibility at LOW altitude (owner 2026-07-10: "at night stars must be visible at low
+   *  altitudes"): below the altitude fade band the stars now also fade in as the sun sets at the
+   *  camera — in at sin(elev) = nightVisStartSin, fully on by nightVisFullSin (~ −8°, nautical
+   *  dusk). Fade = max(altitude fade, night fade). */
+  nightVisStartSin: -0.02,
+  nightVisFullSin: -0.14,
+} as const;
+
+/** Procedural Milky Way band (owner 2026-07-10: "very subtle milkyway at realistic space
+ *  coords"). Points scattered about the REAL galactic plane (IAU J2000 pole/centre —
+ *  `lib/ephemeris/stars.ts galacticToEquatorial`), rendered as a child of the BSC5 star sphere so
+ *  the −GAST sidereal rotation places the band correctly over the earth for the scene time.
+ *  Density/brightness bulge toward the galactic centre (Sagittarius). Kept FAINT — it reads as a
+ *  texture of the night sky, not a feature. */
+export const MILKYWAY = {
+  count: 14_000,
+  /** Peak point alpha (≪ STARS.alpha — subtlety is the spec; live-tuned 2026-07-10). */
+  alpha: 0.25,
+  /** Point sizes (px, pre-DPR): sizeBase + rand²·sizeSpread. Below ~1 px a point often covers
+   *  no pixel centre at DPR 1 and simply vanishes (verified live — the 0.6 px first cut rendered
+   *  NOTHING); ~2-4.5 px + low alpha reads as the intended soft veil. */
+  sizeBase: 2.2,
+  sizeSpread: 2.2,
+  /** Gaussian half-thickness of the band across galactic latitude (deg). */
+  sigmaBDeg: 8.5,
+  /** Fraction of points drawn from a 2.5× wider gaussian (soft halo, no hard band edge). */
+  haloFrac: 0.2,
+  /** Brightness bulge toward the galactic centre: weight = base + (1−base)·exp(−½(l/σ)²). */
+  bulgeSigmaLDeg: 55,
+  baseWeight: 0.35,
+  /** Twinkle amplitude on the band (near-static — it's diffuse light, not point stars). */
+  twinkleAmp: 0.05,
 } as const;
 
 /** OSM building style — design idiom "dark mass, lit edges" (canvas ftw-scene). Colours: fill =
@@ -431,6 +520,10 @@ export const GROUND = {
   waterThreshold: 0.12,
   /** Water pixels darken to this fraction (Esri's bright seas → near-black palette ocean). */
   waterDarken: 0.35,
+  /** High-altitude harmonizer: as the camera climbs through the fade band the grade desaturates
+   *  toward this value, so mixed Esri source zooms (washed low-zoom mosaic vs crisp agricultural
+   *  texture) converge in tone instead of reading as patches. 1 − altFade drives it. */
+  hiAltDesat: 0.88,
   /** Screen-door bayer offset (px) vs TilesFadePlugin's grid so the two dithers don't collide. */
   bayerOffsetPx: 2.0,
   /** Imagery sits behind building footprints (bases win ties). */
@@ -452,7 +545,9 @@ export const GROUND = {
   errorTargetNear: 2,
   errorTargetFar: 12,
   errorNearAlt: 60_000,
-  errorFarAlt: 1_200_000,
+  /** Matches the fade band top — the imagery is never visible above it, so the coarse end of the
+   *  error ramp should land there (finer tiles inside the band = more consistent Esri zooms). */
+  errorFarAlt: 750_000,
   /** Initial-reveal ease time-constant (ms): uFtwFade low-passes toward its altitude target ×
    *  load-readiness, so the layer dissolves in only once tiles actually exist (page open shows
    *  the clean stylized base, then terrain grows out of it — never a patchwork). */
@@ -479,6 +574,10 @@ export const FRUSTUM = {
   lineOpacity: 0.85,
   /** Aspect fallback when neither a decoded texture nor EXIF dimensions exist (classic 3:2). */
   fallbackAspect: 1.5,
+  /** Image-plane opacity DEFAULT (~30% transparent — owner 2026-07-10: superimpose the photo on
+   *  the real landscape while tuning). Live-adjustable per photo via the PLANE ALPHA slider
+   *  (PhotoDetailPanel → store/upload.planeOpacity); this is the value it resets to. */
+  planeOpacity: 0.7,
 } as const;
 
 /** Cinematic flight to a placed photo (design board motion spec: desktop 2200 ms,
@@ -487,10 +586,13 @@ export const FLIGHT = {
   durationMs: 2200,
   /** Bezier control points (x1, y1, x2, y2) — the design system's master easing. */
   easing: [0.65, 0, 0.35, 1] as const,
-  /** Viewing pose: camera sits planeDist·backFactor behind the apex along −forward… */
-  backFactor: 2.8,
-  /** …lifted planeDist·liftFactor along local up, looking at the image-plane centre. */
-  liftFactor: 1.1,
+  /** Viewing pose: camera sits planeDist·backFactor behind the apex along −forward…
+   *  (2.8 → 4.2 owner 2026-07-10: further back so the landscape around the photo reads). */
+  backFactor: 4.2,
+  /** …lifted planeDist·liftFactor along local up, looking at the image-plane centre.
+   *  (1.1 → 0.45: a near-horizontal arrival — ~5° depression instead of ~16° — so the photo
+   *  superimposes on the real landscape behind it instead of being viewed from above.) */
+  liftFactor: 0.45,
   /** Mid-flight altitude bump = min(arc·groundDistance, max) — short hops rise a little, long
    *  hauls get a proper ballistic arc (matters for Phase-5 pin→pin jumps). */
   arcBumpFactor: 0.35,

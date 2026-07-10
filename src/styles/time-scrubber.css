@@ -44,6 +44,30 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Date jump — native picker skinned to the instrument idiom (mono, dark, subtle border). */
+.ts-date {
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 6px;
+  padding: 1px 5px;
+  color-scheme: dark; /* native calendar popover follows the dark chrome */
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+.ts-date:hover,
+.ts-date:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline: none;
+}
+.ts-date::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
 .ts-now {
   font-family: inherit;
   font-size: 9px;

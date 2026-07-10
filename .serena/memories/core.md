@@ -75,9 +75,25 @@ sin-elevation curve: earth/ground/atmosphere GLSL twins + key light lerp to toke
 `lib/ephemeris/golden.ts`, focus ray hoisted out of the shadow gate); REAL BSC5 star field
 (`public/data/bsc5.bin` 9,096×[x,y,z,vmag,bv] via `scripts/build-star-catalog.mjs`, star sphere
 `rotation.z = −GAST`, `bodyStatesAt` returns `gastRad`). IMPLEMENTATION_PLAN §Phase 4 ☑ (planets
-not rendered). 134 vitest · astro check 0 · wix build green. Mechanics + traps:
-`mem:patterns/sky-bodies-terrain` §Phase-4 remainder. **Next step: Phase 5 — members + quota +
-save/public pins** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
+not rendered). Mechanics + traps: `mem:patterns/sky-bodies-terrain` §Phase-4 remainder.
+**Pre-Phase-5 owner fix batch SHIPPED (2026-07-10, browser-VERIFIED via Playwright MCP):** narrow
+~9° terminator (EARTH.termBand twins in baseEarth+ground; lightsBand replaces nightBand); ROTATE +
+ZOOM global sliders (store/camera 3 target/mirror pairs; glides share ONE view-focus frame —
+getPivotPoint returns null on horizon views, trap); high-alt Esri patchwork fixed (fade band →
+1.6e6/650e3 + uFtwHiAlt desat harmonizer); projection arrival near-horizontal (FLIGHT 4.2/0.45) +
+photo plane 70% opacity default + PLANE ALPHA slider (store/upload.planeOpacity); low-altitude
+light-blue day sky + horizon haze in the atmosphere shader (camera-anchored dome below 350 km —
+far-plane trap) + stars gated by sun elevation at low alt + 14k-point Milky Way at real galactic
+coords as a star-sphere child (sub-pixel points render NOTHING — sizes ≥2 px). Tokens skyDay/
+skyHorizon/milkyWay added. Mechanics: `mem:patterns/sky-bodies-terrain` §Pre-Phase-5 +
+`mem:patterns/globe-rendering` §Manual sliders. **Owner batch #2 same day (browser-VERIFIED):**
+multiday scrubber (date `<input>` in the rail; `withLocalDate`/`localDateStr` in store/time;
+Dec-21 jump verified subsolar −23.44°); shadows 4096²/1600 m/radius 2/opacity 0.75 + tokens.water
+tint (mask always crisp — CONTRAST is the dark-palette ceiling); Esri patchwork root cause =
+mosaic seams baked in the low/mid-zoom SOURCE imagery → fade band 750e3/380e3 + errorFarAlt
+750e3 (Blue Marble owns >750 km; default LEO spotless). 149 vitest · astro check 0 · wix build
+green. Mechanics: `mem:patterns/sky-bodies-terrain` §Owner batch #2.
+**Next step: Phase 5 — members + quota + save/public pins** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 
