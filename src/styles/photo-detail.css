@@ -168,3 +168,91 @@
 .pd-hint__cancel:hover {
   color: var(--color-text);
 }
+
+/* ── Phase 5: SAVE PIN section (between the FOV readout and the nav actions) ── */
+.pd-save {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+  margin-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+.pd-save__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pd-save__pub {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.pd-save__pub input {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.pd-save__tiers {
+  display: inline-flex;
+  gap: 6px;
+}
+.pd-tier {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.pd-tier:hover:not(:disabled) {
+  color: var(--color-text);
+}
+.pd-tier.is-active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.pd-tier:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.pd-save__c6 {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-warn, #e8b465);
+}
+.pd-save__act {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pd-save__act .uf-btn {
+  padding: 10px 16px;
+  font-size: 11px;
+}
+.pd-save__signin {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.pd-save__status {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+}
+.pd-save__status.is-warn {
+  color: var(--color-warn, #e8b465);
+}
+.pd-save__status.is-ok {
+  color: var(--color-accent);
+}

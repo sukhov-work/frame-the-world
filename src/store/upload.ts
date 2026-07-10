@@ -91,6 +91,9 @@ interface UploadStore {
   phase: UploadPhase;
   fileName?: string;
   fileSizeBytes?: number;
+  /** The original File handle (Phase 5: uploaded as the private original on SAVE PIN — decode
+   *  never retained it, so the save flow needs it kept here). Cleared with the flow. */
+  file?: File;
   previewUrl?: string;
   previewSource: PreviewSource;
   /** 0..1 — trickles toward the latest REAL worker stage target (see loadFile). */
@@ -166,6 +169,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       phase: "decoding",
       fileName: file.name,
       fileSizeBytes: file.size,
+      file,
       previewUrl: undefined,
       previewSource: "none",
       decodeProgress: 0,
@@ -279,6 +283,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       phase: "idle",
       fileName: undefined,
       fileSizeBytes: undefined,
+      file: undefined,
       previewUrl: undefined,
       previewSource: "none",
       decodeProgress: 0,

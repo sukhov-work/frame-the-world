@@ -8,6 +8,7 @@
  * Also exports PlacementHint — the "click the globe" pill for the missing-GPS placing mode.
  */
 
+import { useEffect } from "react";
 import {
   useUploadStore,
   paramSource,
@@ -15,6 +16,9 @@ import {
   derivedFov,
   type AdjustableKey,
 } from "../../store/upload";
+import { useSaveStore, type SavePhase } from "../../store/save";
+import { loginUrl, useMemberStore } from "../../store/member";
+import type { PrecisionTier } from "../../lib/geo/precision";
 import {
   formatLatLon,
   formatFocal,
@@ -33,10 +37,62 @@ const PARAM_LABEL: Record<AdjustableKey, string> = {
   altitudeM: "ALTITUDE",
 };
 
+/** C6: the tier chips — default is the reduced ~1 km cell; EXACT is a deliberate opt-in. */
+const TIERS: ReadonlyArray<{ id: PrecisionTier; label: string }> = [
+  { id: "exact", label: "EXACT" },
+  { id: "1km", label: "~1 KM" },
+  { id: "city", label: "CITY" },
+];
+
+const BUSY_LABEL: Partial<Record<SavePhase, string>> = {
+  "uploading-original": "UPLOADING RAW…",
+  "uploading-preview": "PREVIEW…",
+  saving: "SAVING…",
+};
+
 export default function PhotoDetailPanel() {
   const store = useUploadStore();
+  const save = useSaveStore();
+  const memberPhase = useMemberStore((s) => s.phase);
+  const memberRefresh = useMemberStore((s) => s.refresh);
+
+  // Session state for the SAVE PIN gate (the nav badge usually resolved it already).
+  useEffect(() => {
+    if (memberPhase === "unknown") void memberRefresh();
+  }, [memberPhase, memberRefresh]);
+
+  // A different file or a re-placed photo is a NEW pin — drop any previous save result.
+  const placeKey = `${store.fileName}|${store.placement?.latDeg}|${store.placement?.lonDeg}`;
+  useEffect(() => {
+    useSaveStore.getState().reset();
+  }, [placeKey]);
+
   const exif = store.exif;
   if (!exif || store.phase !== "placed") return null;
+
+  const busy =
+    save.phase === "uploading-original" ||
+    save.phase === "uploading-preview" ||
+    save.phase === "saving";
+
+  const statusLine = (): { text: string; tone: "" | "warn" | "ok" } => {
+    if (save.phase === "uploading-original")
+      return { text: `UPLOADING RAW ${Math.round(save.progress * 100)}%`, tone: "" };
+    if (save.phase === "uploading-preview") return { text: "PREVIEW…", tone: "" };
+    if (save.phase === "saving") return { text: "SAVING…", tone: "" };
+    if (save.phase === "saved") {
+      const quota =
+        save.quotaUsed !== undefined ? `PIN ${save.quotaUsed}/${save.quotaLimit}` : "PINNED";
+      return { text: save.warning ? `${quota} · ${save.warning.toUpperCase()}` : quota, tone: "ok" };
+    }
+    if (save.phase === "error") {
+      if (save.errorCode === "QUOTA_EXCEEDED")
+        return { text: "FREE PLAN FULL (10/10) — UPGRADE FOR UNLIMITED", tone: "warn" };
+      return { text: (save.error ?? "SAVE FAILED").toUpperCase(), tone: "warn" };
+    }
+    return { text: "", tone: "" };
+  };
+  const status = statusLine();
 
   const dirty = isDirty(exif, store.params);
   const fov = derivedFov(exif, store.params);
@@ -129,6 +185,62 @@ export default function PhotoDetailPanel() {
             H-FOV · {fov.hFovDeg.toFixed(1)}°{fov.estimated ? " · EST" : ""}
           </span>
           <span className="pd-fov__hint">Double-click a slider to reset it.</span>
+        </div>
+      </div>
+
+      {/* Phase 5 — save the placed photo as a pin (C6: public defaults to REDUCED precision) */}
+      <div className="pd-save">
+        <div className="pd-save__head">
+          <label className="pd-save__pub">
+            <input
+              type="checkbox"
+              checked={save.isPublic}
+              disabled={busy}
+              onChange={(e) => save.setIsPublic(e.target.checked)}
+            />
+            PUBLIC PIN
+          </label>
+          {save.isPublic && (
+            <div className="pd-save__tiers" role="radiogroup" aria-label="Public location precision">
+              {TIERS.map((t) => (
+                <button
+                  key={t.id}
+                  role="radio"
+                  aria-checked={save.precision === t.id}
+                  className={`pd-tier${save.precision === t.id ? " is-active" : ""}`}
+                  disabled={busy}
+                  onClick={() => save.setPrecision(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {save.isPublic && save.precision === "exact" && (
+          <div className="pd-save__c6" role="note">
+            EXACT PUBLISHES YOUR PRECISE LOCATION — DEFAULT IS ~1 KM
+          </div>
+        )}
+        <div className="pd-save__act">
+          {memberPhase === "member" ? (
+            <button
+              className="uf-btn uf-btn--primary"
+              disabled={busy || save.phase === "saved"}
+              onClick={() => void save.savePin()}
+            >
+              {save.phase === "saved" ? "PINNED ✓" : (BUSY_LABEL[save.phase] ?? "SAVE PIN")}
+            </button>
+          ) : (
+            <a className="uf-btn uf-btn--primary pd-save__signin" href={loginUrl("/")}>
+              SIGN IN TO SAVE
+            </a>
+          )}
+          {status.text && (
+            <span className={`uf-mono pd-save__status${status.tone ? ` is-${status.tone}` : ""}`}>
+              {status.text}
+            </span>
+          )}
         </div>
       </div>
 

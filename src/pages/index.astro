@@ -5,6 +5,7 @@ import UploadFlow from "../components/panels/UploadFlow";
 import TimeReadout from "../components/panels/TimeReadout";
 import CameraTiltPanel from "../components/panels/CameraTiltPanel";
 import TimeScrubber from "../components/panels/TimeScrubber";
+import MemberBadge from "../components/panels/MemberBadge";
 ---
 
 <Layout title="Frame the World">
@@ -26,10 +27,11 @@ import TimeScrubber from "../components/panels/TimeScrubber";
   <header class="topnav">
     <span class="logo">Frame&nbsp;the&nbsp;World</span>
     <nav>
-      <!-- routes arrive in later phases (explore=P3, sign-in=P5) -->
+      <!-- routes arrive in later phases (explore=P3) -->
       <a href="#">Explore</a>
       <a href="#upload" data-open-upload>Upload</a>
-      <a href="#">Sign in</a>
+      <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->
+      <MemberBadge client:only="react" />
     </nav>
   </header>
 
