@@ -53,6 +53,28 @@ export function missingParamKeys(exif: PhotoExif): AdjustableKey[] {
   return D4_KEYS.filter((k) => baseline[k] === undefined);
 }
 
+/** A saved pin re-opened as the camera view (globe pin click / My-pins click, Phase 5.1).
+ *  Carries whatever the record kept — missing pose fields fall back to the D4 manual path. */
+export interface SavedPinView {
+  pinId: string;
+  title: string;
+  lat: number;
+  lon: number;
+  previewUrl: string | null;
+  capturedAt: string | null;
+  altitudeM?: number | null;
+  headingDeg?: number | null;
+  pitchDeg?: number | null;
+  rollDeg?: number | null;
+  focalLengthMm?: number | null;
+  hFovDeg?: number | null;
+  textureWidth?: number | null;
+  textureHeight?: number | null;
+  cameraMake?: string | null;
+  cameraModel?: string | null;
+  lensModel?: string | null;
+}
+
 export type ParamSource = "exif" | "manual" | "missing";
 
 /** Provenance of the current value of one param — drives the EXIF / MANUAL / MISSING badges. */
@@ -117,6 +139,9 @@ interface UploadStore {
   loadError?: string;
   /** Set when metadata arrived but the full WASM decode failed (review still shows). */
   decodeError?: string;
+  /** Set when the placed state is a RE-OPENED saved pin (globe/My-pins click) — the panel
+   *  hides SAVE PIN (re-saving would duplicate) and no original File exists. */
+  viewingPinId?: string;
 
   openPanel(): void;
   closePanel(): void;
@@ -135,6 +160,9 @@ interface UploadStore {
   setPlacement(latDeg: number, lonDeg: number): void;
   /** Reopen the review overlay from the globe (placed/placing). */
   backToReview(): void;
+  /** Open a SAVED pin as the placed camera view (frustum + detail panel + flight) —
+   *  synthesizes the EXIF baseline from the stored record. */
+  openSavedPin(view: SavedPinView): void;
   /** Back to the empty dropzone (revokes the preview object URL). */
   clear(): void;
 }
@@ -181,6 +209,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       textureHeight: undefined,
       loadError: undefined,
       decodeError: undefined,
+      viewingPinId: undefined,
     });
 
     // The worker reports REAL stage boundaries (wasm-load / unpack / demosaic / encode) but no
@@ -241,6 +270,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       textureHeight: extracted.textureHeight ?? extracted.exif.height,
       loadError: undefined,
       decodeError: extracted.decodeError,
+      viewingPinId: undefined,
     }),
 
   setParam: (key, value) => set((s) => ({ params: { ...s.params, [key]: value } })),
@@ -274,6 +304,55 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
         : {},
     ),
 
+  openSavedPin: (view) => {
+    loadSeq++; // supersede any in-flight decode
+    activeAbort?.abort();
+    clearInterval(trickleTimer);
+    revokePreview(get().previewUrl); // remote wixstatic URLs are not blob: — revoke is a no-op there
+    // Reproduce the stored H-FOV exactly through the focal35 shortcut in derivedFov:
+    // hFov = 2·atan(36 / (2·f35))  ⇒  f35 = 18 / tan(hFov/2).
+    const focal35 =
+      view.hFovDeg != null && view.hFovDeg > 0 && view.hFovDeg < 180
+        ? 18 / Math.tan(((view.hFovDeg * Math.PI) / 180) / 2)
+        : undefined;
+    const exif: PhotoExif = {
+      make: view.cameraMake ?? undefined,
+      model: view.cameraModel ?? undefined,
+      lensModel: view.lensModel ?? undefined,
+      focalLengthMm: view.focalLengthMm ?? undefined,
+      focalLengthIn35mmMm: focal35,
+      capturedAt: view.capturedAt ?? undefined,
+      width: view.textureWidth ?? undefined,
+      height: view.textureHeight ?? undefined,
+      gpsLat: view.lat,
+      gpsLon: view.lon,
+      gpsAltitudeM: view.altitudeM ?? undefined,
+      headingDeg: view.headingDeg ?? undefined,
+      pitchDeg: view.pitchDeg ?? undefined,
+      rollDeg: view.rollDeg ?? undefined,
+    };
+    set({
+      open: false,
+      phase: "placed",
+      fileName: view.title,
+      fileSizeBytes: undefined,
+      file: undefined,
+      previewUrl: view.previewUrl ?? undefined,
+      previewSource: view.previewUrl ? "decoded" : "none",
+      decodeProgress: 1,
+      decodeMs: undefined,
+      exif,
+      params: exifBaselineParams(exif),
+      placement: { latDeg: view.lat, lonDeg: view.lon },
+      textureWidth: view.textureWidth ?? undefined,
+      textureHeight: view.textureHeight ?? undefined,
+      planeOpacity: undefined,
+      loadError: undefined,
+      decodeError: undefined,
+      viewingPinId: view.pinId,
+    });
+  },
+
   clear: () => {
     loadSeq++;
     activeAbort?.abort();
@@ -296,6 +375,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       planeOpacity: undefined,
       loadError: undefined,
       decodeError: undefined,
+      viewingPinId: undefined,
     });
   },
 }));

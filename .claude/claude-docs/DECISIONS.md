@@ -10,6 +10,24 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Pin click → full CAMERA VIEW (frustum + metadata panel + flight), from the globe AND from "My pins" (browser-VERIFIED both paths).**
+  New `upload.openSavedPin(SavedPinView)`: synthesizes the EXIF baseline from a stored record (stored hFov reproduced EXACTLY via
+  focal35 = 18/tan(hFov/2) through the derivedFov shortcut) and lands the store atomically in "placed" — the whole existing pipeline
+  (PhotoFrustum rebuild + onPlaced flight + PhotoDetailPanel) fires from the one transition. `viewingPinId` marks the re-opened state:
+  panel HIDES the SAVE section (re-saving would duplicate); loadFile/ingest/clear reset it. **PublicPins gained camera-POSE fields**
+  (altitudeM/heading/pitch/roll/focal/hFov/textureWH/make/model/lens — orientation & optics, NOT location; C6 governs coordinates):
+  publicPinRecord + provision script + live create-field ×11 + back-fill of all 3 existing pins from their photoRef (first back-fill
+  attempt patched dataItems[0] — the WRONG pin, the owner's live PXL save; fixed by keying on photoRef). GET /api/photos rows carry
+  pose too (owner re-opens at EXACT coords; globe pins open at REDUCED coords). My-pins rows are now buttons → openSavedPin + close.
+  **SUPERSEDES the "transient post-flight pick miss" story: the real bug was a STALE InstancedMesh.boundingSphere** — GlobeControls
+  raycasts the scene before pins load (this is why decorations null their raycast), three caches the EMPTY sphere from count=0, and
+  every later pick fails its early-out forever. Fix: `mesh.boundingSphere = null` whenever instances change (Pins.setPins/update).
+  A small genuine arrival-window miss remains (camera creeps ~2 s after a flight) — cosmetic. Verified: globe click on the owner's
+  live PXL pin → camera view heading 46°/31 mm/pitch 16.5° with dusk photo texture (wixstatic CORS fine, no errors); My-pins click →
+  gps-heading at exact coords heading 214°. Files: store/upload.ts (SavedPinView/openSavedPin/viewingPinId), store/pins.ts +
+  globe/Pins.ts (pose fields + sphere fix), StylizedTiles (click → openSavedPin; flyToPin removed), lib/wix/pinRecords.ts,
+  api/photos.ts, MyPins.tsx (+CSS), PhotoDetailPanel.tsx, provision script. **193 vitest (+1 net) · astro check 0 · wix build green**;
+  shots verify-shots/phase5-10/11. Live-site note: the owner saved a real PXL RAW twice on the released URL (duplicate pin left as-is).
 - **2026-07-10 — "My pins" rudimentary owner list in the top nav (browser-VERIFIED as the test member; gallery phase replaces it).**
   Photos is ADMIN-read by design (quota integrity) → new `GET /api/photos` (elevated, owner-filtered `eq(ownerMemberId)`,
   newest-first, limit 50) returns slim `photoListItem` rows (title/previewUrl/capturedAt/lat/lon/isPublic/precision/createdAt —

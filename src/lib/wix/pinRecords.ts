@@ -130,7 +130,22 @@ export interface PhotoListItem {
   isPublic: boolean;
   publicPrecision: string | null;
   createdAt: string | null;
+  // pose — lets a list row re-open as the full camera view (owner sees own exact data)
+  altitudeM: number | null;
+  headingDeg: number | null;
+  pitchDeg: number | null;
+  rollDeg: number | null;
+  focalLengthMm: number | null;
+  hFovDeg: number | null;
+  textureWidth: number | null;
+  textureHeight: number | null;
+  cameraMake: string | null;
+  cameraModel: string | null;
+  lensModel: string | null;
 }
+
+const numOrNull = (v: unknown): number | null => (typeof v === "number" ? v : null);
+const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
 
 export function photoListItem(item: Record<string, unknown>): PhotoListItem | null {
   if (typeof item._id !== "string") return null;
@@ -138,18 +153,29 @@ export function photoListItem(item: Record<string, unknown>): PhotoListItem | nu
   return {
     id: item._id,
     title: typeof item.title === "string" ? item.title : "Untitled",
-    previewUrl: typeof item.previewUrl === "string" ? item.previewUrl : null,
-    capturedAt: typeof item.capturedAt === "string" ? item.capturedAt : null,
-    lat: typeof item.lat === "number" ? item.lat : null,
-    lon: typeof item.lon === "number" ? item.lon : null,
+    previewUrl: strOrNull(item.previewUrl),
+    capturedAt: strOrNull(item.capturedAt),
+    lat: numOrNull(item.lat),
+    lon: numOrNull(item.lon),
     isPublic: item.isPublic === true,
-    publicPrecision: typeof item.publicPrecision === "string" ? item.publicPrecision : null,
+    publicPrecision: strOrNull(item.publicPrecision),
     createdAt:
       created instanceof Date
         ? created.toISOString()
         : typeof created === "string"
           ? created
           : null,
+    altitudeM: numOrNull(item.altitudeM),
+    headingDeg: numOrNull(item.headingDeg),
+    pitchDeg: numOrNull(item.pitchDeg),
+    rollDeg: numOrNull(item.rollDeg),
+    focalLengthMm: numOrNull(item.focalLengthMm),
+    hFovDeg: numOrNull(item.hFovDeg),
+    textureWidth: numOrNull(item.textureWidth),
+    textureHeight: numOrNull(item.textureHeight),
+    cameraMake: strOrNull(item.cameraMake),
+    cameraModel: strOrNull(item.cameraModel),
+    lensModel: strOrNull(item.lensModel),
   };
 }
 
@@ -171,5 +197,18 @@ export function publicPinRecord(body: SavePinBody, photoRef: string): Record<str
     precision: reduced.precision,
     previewUrl: body.previewUrl,
     capturedAt: body.capturedAt,
+    // Camera POSE (not location) — powers the "open pin as camera view" experience for
+    // everyone. C6 governs the coordinates; orientation/optics reveal nothing about where.
+    altitudeM: body.altitudeM,
+    headingDeg: body.headingDeg,
+    pitchDeg: body.pitchDeg,
+    rollDeg: body.rollDeg,
+    focalLengthMm: body.focalLengthMm,
+    hFovDeg: body.hFovDeg,
+    textureWidth: body.textureWidth,
+    textureHeight: body.textureHeight,
+    cameraMake: body.cameraMake,
+    cameraModel: body.cameraModel,
+    lensModel: body.lensModel,
   };
 }

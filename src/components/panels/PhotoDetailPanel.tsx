@@ -188,7 +188,9 @@ export default function PhotoDetailPanel() {
         </div>
       </div>
 
-      {/* Phase 5 — save the placed photo as a pin (C6: public defaults to REDUCED precision) */}
+      {/* Phase 5 — save the placed photo as a pin (C6: public defaults to REDUCED precision).
+          Hidden while VIEWING an already-saved pin (re-saving would just duplicate it). */}
+      {!store.viewingPinId && (
       <div className="pd-save">
         <div className="pd-save__head">
           <label className="pd-save__pub">
@@ -243,6 +245,7 @@ export default function PhotoDetailPanel() {
           )}
         </div>
       </div>
+      )}
 
       <div className="pd-actions">
         <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().backToReview()}>

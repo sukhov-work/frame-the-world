@@ -144,7 +144,7 @@ describe("quota constant", () => {
 });
 
 describe("photoListItem (GET /api/photos rows)", () => {
-  it("maps a stored Photos item to the slim owner list row", () => {
+  it("maps a stored Photos item to the owner list row (incl. pose for re-opening)", () => {
     const row = photoListItem({
       _id: "p1",
       _createdDate: new Date("2026-07-10T15:43:00.737Z"),
@@ -155,8 +155,11 @@ describe("photoListItem (GET /api/photos rows)", () => {
       lon: 35.0462,
       isPublic: true,
       publicPrecision: "1km",
+      headingDeg: 214,
+      hFovDeg: 73.7,
+      textureWidth: 4032,
     });
-    expect(row).toEqual({
+    expect(row).toMatchObject({
       id: "p1",
       title: "gps-heading",
       previewUrl: "https://static.wixstatic.com/media/x.jpg",
@@ -166,7 +169,20 @@ describe("photoListItem (GET /api/photos rows)", () => {
       isPublic: true,
       publicPrecision: "1km",
       createdAt: "2026-07-10T15:43:00.737Z",
+      headingDeg: 214,
+      hFovDeg: 73.7,
+      textureWidth: 4032,
+      pitchDeg: null,
+      cameraMake: null,
     });
+  });
+
+  it("publicPinRecord carries pose (orientation, never exact coordinates)", () => {
+    const rec = publicPinRecord(valid(), "photo-1");
+    expect(rec.headingDeg).toBe(214);
+    expect(rec.hFovDeg).toBe(73.7);
+    expect(rec.textureWidth).toBe(3136);
+    expect(rec.cameraModel).toBe("iPhone 15 Pro");
   });
 
   it("defaults missing fields and drops id-less rows", () => {

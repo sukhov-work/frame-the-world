@@ -76,9 +76,9 @@ describe("needsRequery", () => {
 });
 
 describe("pinFromItem", () => {
-  it("maps a well-formed item and defaults display fields", () => {
-    const pin = pinFromItem({ _id: "p1", latReduced: 48.46, lonReduced: 35.04 });
-    expect(pin).toEqual({
+  it("maps a well-formed item and defaults display + pose fields", () => {
+    const pin = pinFromItem({ _id: "p1", latReduced: 48.46, lonReduced: 35.04, headingDeg: 214 });
+    expect(pin).toMatchObject({
       id: "p1",
       title: "Untitled",
       lat: 48.46,
@@ -86,6 +86,10 @@ describe("pinFromItem", () => {
       precision: "1km",
       previewUrl: null,
       capturedAt: null,
+      headingDeg: 214,
+      pitchDeg: null,
+      hFovDeg: null,
+      cameraMake: null,
     });
   });
 

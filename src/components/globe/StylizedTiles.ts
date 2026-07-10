@@ -7,7 +7,7 @@ import {
   MOON_RADIUS_KM,
   SUN_RADIUS_KM,
 } from "../../lib/ephemeris/bodies";
-import { ecefToGeodetic, geodeticToEcef, rayEllipsoidIntersect } from "../../lib/geo/projection";
+import { ecefToGeodetic, rayEllipsoidIntersect } from "../../lib/geo/projection";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore } from "../../store/upload";
@@ -182,34 +182,16 @@ export function attachStylizedTiles(opts: {
   });
 
   // --- Public pins (Phase 5): accent markers fed by store/pins (viewport-queried Wix Data);
-  //     clicking one flies to it. The orchestrator mirrors its view focus into the store at
-  //     the same low cadence as the camera mirrors — the store debounces the actual query. --
+  //     clicking one re-opens it as the placed CAMERA VIEW (upload-store openSavedPin → the
+  //     frustum rebuilds + PhotoDetailPanel shows + the onPlaced flight frames the photo).
+  //     The orchestrator mirrors its view focus into the store at the same low cadence as
+  //     the camera mirrors — the store debounces the actual query. -------------------------
   const pins = attachPins(scene, {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
   });
   pins.setPins(usePinsStore.getState().pins);
   const unsubPins = usePinsStore.subscribe((s) => pins.setPins(s.pins));
   const _pinRay = new THREE.Raycaster();
-  const _pinPos = new THREE.Vector3();
-  const _pinUp = new THREE.Vector3();
-  const _pinBack = new THREE.Vector3();
-  const flyToPin = (pin: { lat: number; lon: number }) => {
-    const groundH = ground.heightAt(pin.lat, pin.lon) ?? PINS.fallbackGroundM;
-    const [px, py, pz] = geodeticToEcef(pin.lat, pin.lon, groundH);
-    _pinPos.set(px, py, pz);
-    _pinUp.copy(_pinPos).normalize();
-    // Approach along the current azimuth (horizontal component of pin→camera), so the flight
-    // keeps the user's orientation instead of snapping to a fixed compass bearing.
-    _pinBack.copy(camera.position).sub(_pinPos);
-    _pinBack.addScaledVector(_pinUp, -_pinBack.dot(_pinUp));
-    if (_pinBack.lengthSq() < 1) _pinBack.set(0, 0, 1).cross(_pinUp); // overhead → any horizontal
-    _pinBack.normalize();
-    const position = _pinPos
-      .clone()
-      .addScaledVector(_pinUp, PINS.flyAltM)
-      .addScaledVector(_pinBack, PINS.flyBackM);
-    flight.start({ position, lookAt: _pinPos.clone() });
-  };
 
   // --- Idle orbital drift — the "spacecraft in LEO" feel (seed: "slightly rotating by default").
   //     Rotates the camera around Earth's axis at ISS-like angular speed; pauses the moment the
@@ -253,10 +235,11 @@ export function attachStylizedTiles(opts: {
       useUploadStore.getState().setPlacement(g.latDeg, g.lonDeg);
       return;
     }
-    // Otherwise: a click on a public pin flies to it (Phase 5).
+    // Otherwise: a click on a public pin opens it as the placed camera view (Phase 5.1) —
+    // the store transition triggers the frustum rebuild, the detail panel, and the flight.
     _pinRay.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
     const pin = pins.pick(_pinRay);
-    if (pin) flyToPin(pin);
+    if (pin) useUploadStore.getState().openSavedPin({ ...pin, pinId: pin.id });
   };
   dom.addEventListener("pointerdown", notePointerDown);
   dom.addEventListener("pointerup", onPointerUp);
