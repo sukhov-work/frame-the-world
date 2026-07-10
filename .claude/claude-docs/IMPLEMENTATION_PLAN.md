@@ -52,7 +52,7 @@ time scrubber drives lighting; golden-hour tint bound to `tokens.ts`.
 **DoD:** dragging time moves sun/moon, changes lighting + star visibility; golden hour appears at correct times.
 **Test:** spot-check sun azimuth/altitude against an almanac for a known date+location.
 
-## Phase 5 — Members + quota + save/public pins  ☐
+## Phase 5 — Members + quota + save/public pins  ☑ *(DONE 2026-07-10, wix-cloud-VERIFIED in wix dev: managed auth (@wix/astro routes + hosted login), Photos/PublicPins provisioned via REST (`scripts/provision-collections.mjs` — NO data hooks on headless CLI, quota lives in the elevated POST /api/photos, member-session writes platform-refused), save flow with TUS original + preview derivative, #11 → 402 QUOTA_EXCEEDED, C6 reduced-precision public pins (1km default, cell-center published), signed-out visitor sees accent pins via client-side hasSome query + click→fly; paid-unlimited path UNVERIFIED (Pricing Plans app not installed — degrades to free); see `mem:patterns/members-pins` + DECISIONS)*
 **Scope:** auth (`@wix/astro` auto-auth); Data Collections (`Photos`, `PublicPins`); Media upload (resumable
 >10MB, private originals + public previews); quota (Pricing Plans + `beforeInsert` hook: 10 free / unlimited
 paid); public pins on shared globe via geohash viewport query; default reduced public-pin precision (C6).
