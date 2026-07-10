@@ -7,7 +7,7 @@ import {
   MOON_RADIUS_KM,
   SUN_RADIUS_KM,
 } from "../../lib/ephemeris/bodies";
-import { ecefToGeodetic, rayEllipsoidIntersect } from "../../lib/geo/projection";
+import { ecefToGeodetic, geodeticToEcef, rayEllipsoidIntersect } from "../../lib/geo/projection";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore } from "../../store/upload";
@@ -21,6 +21,8 @@ import { attachBuildings } from "./scene/buildings";
 import { attachImageryGround } from "./scene/imageryGround";
 import { attachSky } from "./scene/sky";
 import { attachPhotoFrustum } from "./PhotoFrustum";
+import { attachPins } from "./Pins";
+import { usePinsStore } from "../../store/pins";
 import { createFlight } from "./flight";
 import {
   CONTROLS,
@@ -30,6 +32,7 @@ import {
   FRUSTUM,
   GATES,
   GOLDEN,
+  PINS,
   POSE,
   SHADOWS,
   SKY,
@@ -178,6 +181,36 @@ export function attachStylizedTiles(opts: {
     },
   });
 
+  // --- Public pins (Phase 5): accent markers fed by store/pins (viewport-queried Wix Data);
+  //     clicking one flies to it. The orchestrator mirrors its view focus into the store at
+  //     the same low cadence as the camera mirrors — the store debounces the actual query. --
+  const pins = attachPins(scene, {
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+  });
+  pins.setPins(usePinsStore.getState().pins);
+  const unsubPins = usePinsStore.subscribe((s) => pins.setPins(s.pins));
+  const _pinRay = new THREE.Raycaster();
+  const _pinPos = new THREE.Vector3();
+  const _pinUp = new THREE.Vector3();
+  const _pinBack = new THREE.Vector3();
+  const flyToPin = (pin: { lat: number; lon: number }) => {
+    const groundH = ground.heightAt(pin.lat, pin.lon) ?? PINS.fallbackGroundM;
+    const [px, py, pz] = geodeticToEcef(pin.lat, pin.lon, groundH);
+    _pinPos.set(px, py, pz);
+    _pinUp.copy(_pinPos).normalize();
+    // Approach along the current azimuth (horizontal component of pin→camera), so the flight
+    // keeps the user's orientation instead of snapping to a fixed compass bearing.
+    _pinBack.copy(camera.position).sub(_pinPos);
+    _pinBack.addScaledVector(_pinUp, -_pinBack.dot(_pinUp));
+    if (_pinBack.lengthSq() < 1) _pinBack.set(0, 0, 1).cross(_pinUp); // overhead → any horizontal
+    _pinBack.normalize();
+    const position = _pinPos
+      .clone()
+      .addScaledVector(_pinUp, PINS.flyAltM)
+      .addScaledVector(_pinBack, PINS.flyBackM);
+    flight.start({ position, lookAt: _pinPos.clone() });
+  };
+
   // --- Idle orbital drift — the "spacecraft in LEO" feel (seed: "slightly rotating by default").
   //     Rotates the camera around Earth's axis at ISS-like angular speed; pauses the moment the
   //     user touches the scene and resumes after DRIFT.resumeMs. Skipped for reduced motion. ----
@@ -203,22 +236,27 @@ export function attachStylizedTiles(opts: {
     downY = e.clientY;
   };
   const onPointerUp = (e: PointerEvent) => {
-    if (useUploadStore.getState().phase !== "placing") return;
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // a drag, not a click
     const rect = dom.getBoundingClientRect();
-    const ndc = new THREE.Vector3(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
-      0.5,
-    );
-    const dir = ndc.unproject(camera).sub(camera.position).normalize();
-    const hit = rayEllipsoidIntersect(
-      [camera.position.x, camera.position.y, camera.position.z],
-      [dir.x, dir.y, dir.z],
-    );
-    if (!hit) return; // clicked past the limb — stay in placing mode
-    const g = ecefToGeodetic(hit);
-    useUploadStore.getState().setPlacement(g.latDeg, g.lonDeg);
+    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    if (useUploadStore.getState().phase === "placing") {
+      // Placing wins the click: cast at the ellipsoid and drop the photo there.
+      const ndc = new THREE.Vector3(ndcX, ndcY, 0.5);
+      const dir = ndc.unproject(camera).sub(camera.position).normalize();
+      const hit = rayEllipsoidIntersect(
+        [camera.position.x, camera.position.y, camera.position.z],
+        [dir.x, dir.y, dir.z],
+      );
+      if (!hit) return; // clicked past the limb — stay in placing mode
+      const g = ecefToGeodetic(hit);
+      useUploadStore.getState().setPlacement(g.latDeg, g.lonDeg);
+      return;
+    }
+    // Otherwise: a click on a public pin flies to it (Phase 5).
+    _pinRay.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+    const pin = pins.pick(_pinRay);
+    if (pin) flyToPin(pin);
   };
   dom.addEventListener("pointerdown", notePointerDown);
   dom.addEventListener("pointerup", onPointerUp);
@@ -482,6 +520,11 @@ export function attachStylizedTiles(opts: {
           if (Math.abs(alt - camStore.zoomAltM) / Math.max(alt, 1) > 0.005) {
             camStore._syncZoom(alt);
           }
+          // Viewport mirror for the public-pin query (Phase 5) — same cadence as the camera
+          // mirrors; the pins store debounces + thresholds the actual Wix Data query, so the
+          // perpetual LEO idle drift never spams it.
+          const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
+          usePinsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
         }
 
         ground.update(alt);
@@ -525,6 +568,10 @@ export function attachStylizedTiles(opts: {
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
         if (++frameCount % 120 === 0) frustum.resnap();
 
+        // Public pins: distance-scaled markers + lazy terrain grounding (Phase 5).
+        pins.update(camera);
+        if (frameCount % PINS.resnapEveryFrames === 0) pins.resnap();
+
         // Orbit-only decoration: hide the graticule once we dive toward the city (no "wire
         // cage" up-view). The atmosphere now stays on at EVERY altitude — below the old decor
         // gate it re-anchors to the camera and becomes the low-altitude sky dome (day-blue +
@@ -552,6 +599,8 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("pointerup", onPointerUp);
       dom.style.cursor = "";
       unsubCursor();
+      unsubPins();
+      pins.dispose();
       frustum.dispose();
       controls.dispose();
       buildings.dispose();

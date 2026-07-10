@@ -598,3 +598,43 @@ export const FLIGHT = {
   arcBumpFactor: 0.35,
   arcBumpMaxM: 2_500_000,
 } as const;
+
+/** Public pins on the shared globe (Phase 5). Markers are accent-colored instanced spheres
+ *  scaled with camera distance (≈ constant screen size); the viewport query tier maps camera
+ *  altitude → geohash precision (Wix Data has NO geo query — D7 hasSome over cell prefixes).
+ *  Colors come from lib/theme/tokens (accent/accent600) — never from here. */
+export const PINS = {
+  /** Marker centre height above the local ground (m) — clears rooftops without floating. */
+  liftM: 40,
+  /** Fallback ground height (m, above ellipsoid) before terrain tiles answer heightAt. */
+  fallbackGroundM: 120,
+  /** Marker world radius = camera distance × this (angular-constant size)… */
+  angularSize: 0.008,
+  /** …clamped so pins neither vanish at street level nor balloon in orbit. */
+  minSizeM: 6,
+  maxSizeM: 45_000,
+  /** Marker fill opacity (accent reads as a signal; bloom picks up the rest). */
+  opacity: 0.92,
+  /** Instanced-mesh capacity — also the query page cap. */
+  maxRender: 1000,
+  /** Above this altitude the query drops geo filtering and fetches the newest pins globally
+   *  (a LEO view sees a whole hemisphere — cell cover would need thousands of hasSome values). */
+  queryGlobalAltM: 120_000,
+  /** Below this altitude the cell query upgrades gh4 → gh6 (street-level precision). */
+  queryFineAltM: 3_000,
+  /** Viewport half-span (deg) ≈ altitude(km) × this — the geohash cover window. */
+  spanDegPerKm: 0.011,
+  spanMinDeg: 0.03,
+  spanMaxDeg: 50,
+  /** Re-query when the focus moved >25% of the span, alt changed >30%, or the tier flipped. */
+  requeryMoveFrac: 0.25,
+  requeryAltFrac: 0.3,
+  /** Debounce between viewport reports and the actual Wix Data query (ms). */
+  queryDebounceMs: 450,
+  /** Pin resnap cadence (frames) — re-ask the terrain for ground height under nearby pins. */
+  resnapEveryFrames: 120,
+  /** Click→fly arrival: camera ends flyAltM above the pin, backed off flyBackM horizontally
+   *  along the current approach azimuth, looking at the pin (≈45° depression). */
+  flyAltM: 2_600,
+  flyBackM: 2_400,
+} as const;

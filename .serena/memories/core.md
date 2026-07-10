@@ -93,7 +93,20 @@ tint (mask always crisp — CONTRAST is the dark-palette ceiling); Esri patchwor
 mosaic seams baked in the low/mid-zoom SOURCE imagery → fade band 750e3/380e3 + errorFarAlt
 750e3 (Blue Marble owns >750 km; default LEO spotless). 149 vitest · astro check 0 · wix build
 green. Mechanics: `mem:patterns/sky-bodies-terrain` §Owner batch #2.
-**Next step: Phase 5 — members + quota + save/public pins** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
+**Phase 5 SHIPPED (2026-07-10, wix-cloud-VERIFIED in wix dev — first Wix-load-bearing phase):** managed
+member auth (@wix/astro auto-routes + hosted login; OAuth-app allowlist is PORT-EXACT — 4322 PATCHed in);
+Photos (exact GPS, ADMIN-only, ownerMemberId explicit) + PublicPins (read ANYONE, reduced-only fields)
+provisioned via REST `scripts/provision-collections.mjs` (CLI dataCollections extension does NOT provision
+from wix dev — falsified); NO data hooks on headless → 10-pin quota enforced in elevated POST /api/photos
+(unbypassable: member-session insert platform-refused WDE0027; #11 → 402 verified live); save flow = retained
+original File → TUS upload (degrades to warning) → ≤1280px preview JPEG → thin endpoints (C1); C6 structural:
+server-only publicPinRecord publishes the geohash CELL CENTER (1km/p6 DEFAULT, exact = opt-in, verified ~150 m
+offset live); globe/Pins.ts accent InstancedMesh + viewport query (≥120km global / gh4 / gh6 <3km; THROTTLE
+not debounce — %12-frame reports starve a debounce timer, real bug fixed) + click→fly (verified). 190 vitest ·
+astro check 0 · wix build green. Test member frame-p5-tester@example.com (1/10). UNVERIFIED: paid-unlimited
+(Pricing Plans app not installed → degrades to free) · production POST routes (403 trial report — /api/ping =
+released-URL canary, PRE-RELEASE GATE). Mechanics + traps: `mem:patterns/members-pins`.
+**Next step: Phase 6 — marketplace-light** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

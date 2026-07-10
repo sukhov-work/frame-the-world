@@ -1,0 +1,52 @@
+/* Member badge — lives inside .topnav nav; mirrors the static nav link styling
+   (island DOM can't receive the page's scoped styles). */
+
+.mb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.mb-in {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  transition: color 0.2s ease;
+}
+
+.mb-in:hover {
+  color: var(--color-accent);
+}
+
+.mb-name {
+  color: var(--color-text);
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mb-form {
+  display: inline;
+  margin: 0;
+}
+
+.mb-out {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: color 0.2s ease;
+}
+
+.mb-out:hover {
+  color: var(--color-accent);
+}

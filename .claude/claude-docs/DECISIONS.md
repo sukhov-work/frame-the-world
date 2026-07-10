@@ -10,6 +10,34 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Phase 5 SHIPPED: members + save pins + 10-pin quota + public pins on the globe (wix-cloud-VERIFIED in wix dev — the first Wix-load-bearing phase).**
+  **SDK scout first** (3 parallel agents; signatures from installed .d.ts, never fabricated): data 1.0.486 / members 1.0.485 / media 1.0.264 /
+  pricing-plans 1.0.346 / astro 2.63 — verified table in `mem:project/wip-2026-07-10-phase5-members-pins`. **Re-scopes locked by falsification:**
+  (1) NO data hooks on headless CLI (`beforeInsert` is Velo-only; service-plugins = externalDatabase only) → quota enforced in the elevated
+  `POST /api/photos` endpoint, matching ARCHITECTURE §6; unbypassable because BOTH collections are ADMIN-only-write — a member-session
+  `items.insert('Photos')` is refused by the platform (verified WDE0027). (2) `extensions.dataCollections` does NOT provision from wix dev →
+  collections created via REST (`scripts/provision-collections.mjs`, idempotent, = schema source of truth): **Photos** (26 fields, exact GPS,
+  `ownerMemberId` explicit — elevated inserts run as APP identity so `_owner`/SITE_MEMBER_AUTHOR can't own) + **PublicPins** (read ANYONE;
+  ONLY reduced-derived fields). (3) Hosted signup is reCAPTCHA-gated → test members via `OAuthStrategy.register/login` (NO captcha demanded) +
+  manual `authorize?prompt=none&sessionToken=` hop → wixSession cookie (recipe in `mem:patterns/members-pins`). **Auth:** @wix/astro auto-routes
+  (`/api/auth/login` 302 → hosted page); OAuth-app allowlist is PORT-EXACT (4321 only — dev on 4322 died "Invalid redirect URI") → PATCHed
+  oauth-app/v1 allowlist with :4322. **C6 (BINDING) enforced structurally:** `lib/geo/precision.ts` tiers exact→p9 (opt-in) / **1km→p6 DEFAULT** /
+  city→p4; server-side `publicPinRecord` is the only PublicPins writer, publishes the CELL CENTER (verified live: 48.4647/35.0462 →
+  48.46344/35.04089, ~150 m; anonymity-set property unit-tested). **Save flow:** upload store now RETAINS the original `File`; TUS original
+  (tus-js-client + finalize PUT; failure degrades to warning) → ≤1280px preview JPEG → thin endpoints (C1). **Verified live:** save → 200
+  photoId+publicPinId+quota 1/10 with both media on Wix (static.wixstatic.com preview); saves #2–#10 → 200; **#11 → 402 QUOTA_EXCEEDED**;
+  signed-out visitor sees the pin at reduced coords via client-side `hasSome('gh4')` query (read ANYONE, no endpoint — C1); accent marker
+  (tokens.accent, distance-scaled InstancedMesh) renders at 2.7 km over Dnipro; synthetic click at its pixel picks + flies (flight.active true).
+  **Bug found by live verify + fixed:** pins viewport query = THROTTLE not debounce — %12-frame reports reset the timer forever while
+  needsRequery stayed true pre-first-query (organic queries never fired; only post-save refresh worked). Query tiers: ≥120 km global
+  newest-1000 · <120 km gh4 cells · <3 km gh6 (span = alt·0.011°/km, >120 cells → global). Files: stores member/save/pins ·
+  lib/geo/precision · lib/wix/pinRecords · lib/save/{pinBody,uploadMedia} · api/{upload-url,photos,ping} · globe/Pins.ts + StylizedTiles wiring
+  (click gate: placing wins → pin pick) · MemberBadge + .pd-save UI (PUBLIC PIN + tier chips + exact-warning) · tuning.PINS ·
+  provision script. Deps += @wix/{data,members,media,pricing-plans}, tus-js-client. **190 vitest (+41) · astro check 0 · wix build green ·
+  shots verify-shots/phase5-01..06.** Carried/UNVERIFIED: paid-unlimited path (Pricing Plans app NOT installed; `hasActivePlan` catch→free —
+  never unlimited); **PRE-RELEASE GATE: app-defined POST routes 403'd in production in an official-skill trial — /api/ping kept as the
+  released-URL canary**; transient pick-miss for a few seconds after flight arrival (controls keep creeping the camera — cosmetic);
+  test member frame-p5-tester@example.com stays on the site (1/10 used). Mechanics + traps: `mem:patterns/members-pins`.
 - **2026-07-10 — Owner batch #2 SHIPPED: multiday date-jump scrubber + crisper building shadows + Esri patchwork KILLED at altitude (browser-VERIFIED via Playwright MCP on wix dev).**
   **Multiday scrubber:** rail stays the ±12 h fine control; a native `<input type="date">` in the header (`.ts-date`, dark color-scheme)
   jumps the window to ANY calendar date preserving the LOCAL time-of-day — pure helpers `localDateStr`/`withLocalDate` in `store/time.ts`
