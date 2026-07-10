@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMemberStore } from "../../store/member";
+import { useUploadStore } from "../../store/upload";
 import type { PhotoListItem } from "../../lib/wix/pinRecords";
 import "../../styles/my-pins.css";
 
@@ -48,6 +49,14 @@ export default function MyPins() {
     return stamp ? stamp.slice(0, 16).replace("T", " · ") : "";
   };
 
+  // Re-open a saved pin as the placed camera view (frustum + detail panel + flight). The
+  // owner's own record carries the EXACT location + full pose.
+  const openPin = (p: PhotoListItem) => {
+    if (p.lat === null || p.lon === null) return; // nothing to place without a location
+    useUploadStore.getState().openSavedPin({ ...p, pinId: p.id, lat: p.lat, lon: p.lon });
+    setOpen(false);
+  };
+
   return (
     <span className="mp">
       <button className="mp-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -71,21 +80,27 @@ export default function MyPins() {
           {!error && photos && photos.length > 0 && (
             <ul className="mp-list">
               {photos.map((p) => (
-                <li key={p.id} className="mp-item">
-                  {p.previewUrl ? (
-                    <img className="mp-thumb" src={p.previewUrl} alt="" loading="lazy" />
-                  ) : (
-                    <span className="mp-thumb mp-thumb--empty" aria-hidden="true" />
-                  )}
-                  <span className="mp-meta">
-                    <span className="mp-name" title={p.title}>
-                      {p.title}
+                <li key={p.id}>
+                  <button
+                    className="mp-item"
+                    title="Open on the globe"
+                    onClick={() => openPin(p)}
+                  >
+                    {p.previewUrl ? (
+                      <img className="mp-thumb" src={p.previewUrl} alt="" loading="lazy" />
+                    ) : (
+                      <span className="mp-thumb mp-thumb--empty" aria-hidden="true" />
+                    )}
+                    <span className="mp-meta">
+                      <span className="mp-name" title={p.title}>
+                        {p.title}
+                      </span>
+                      <span className="mp-sub">{captureLabel(p)}</span>
                     </span>
-                    <span className="mp-sub">{captureLabel(p)}</span>
-                  </span>
-                  <span className={`mp-badge${p.isPublic ? " is-public" : ""}`}>
-                    {p.isPublic ? (p.publicPrecision ?? "public").toUpperCase() : "PRIVATE"}
-                  </span>
+                    <span className={`mp-badge${p.isPublic ? " is-public" : ""}`}>
+                      {p.isPublic ? (p.publicPrecision ?? "public").toUpperCase() : "PRIVATE"}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>

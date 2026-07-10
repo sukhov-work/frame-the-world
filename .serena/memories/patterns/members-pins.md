@@ -76,9 +76,17 @@ PublicPins rows — client-supplied "reduced" fields can't leak. Verified live: 
 - Click→fly: pointerup gate (≤6px) — placing wins, else Raycaster.setFromCamera → pins.pick → flyToPin (ground+2600m up,
   2400m back along current approach azimuth, lookAt pin). Verified via synthetic PointerEvents (pointerId must be fake-ok:
   no setPointerCapture in OUR handler; GlobeControls' capture throw doesn't block sibling listeners).
-- **TRAP (transient): picks can miss for a few seconds right after a flight arrives** — the controls keep adjusting the
-  camera (observed 2700 m → 587 m creep) and the pick ray/matrixWorld disagree with the visible frame during the creep;
-  the same probe hits reliably once settled. Cosmetic for v1; revisit if users report dead clicks after flights.
+- **TRAP (ROOT CAUSE, fixed 2026-07-10 — supersedes the earlier "transient" story): STALE InstancedMesh.boundingSphere
+  killed ALL picks.** GlobeControls raycasts the whole scene on pointer events (this is exactly why decorations null
+  their raycast) — it hits the pins mesh BEFORE pins load, three caches the EMPTY count=0 sphere, and every later
+  raycast fails the sphere early-out forever. Fix: `mesh.boundingSphere = null` whenever instances change
+  (setPins + the update recompose). A small genuine arrival-window miss remains (~2 s of post-flight camera creep).
+- **Pin click → CAMERA VIEW (Phase 5.1):** `upload.openSavedPin(SavedPinView)` synthesizes the EXIF baseline from the
+  record and atomically sets "placed" → frustum + onPlaced flight + panel all fire from the one transition. Stored hFov
+  reproduced exactly via focal35 = 18/tan(hFov/2) (derivedFov's focal35 shortcut). `viewingPinId` hides the SAVE section
+  (re-save would duplicate); reset by loadFile/ingest/clear. PublicPins + GET /api/photos rows both carry camera-POSE
+  fields (orientation/optics — NOT location); pose back-fill MUST key on photoRef (patching dataItems[0] hit the wrong
+  pin once). wixstatic preview textures load fine as three textures (CORS ok).
 - Post-save: save store lazy-imports pins store → refresh() → new pin appears immediately.
 
 ## "My pins" owner list (2026-07-10, rudimentary — gallery phase replaces it)

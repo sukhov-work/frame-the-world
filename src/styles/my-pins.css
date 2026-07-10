@@ -111,12 +111,24 @@
 }
 
 .mp-item {
+  /* a full-row button: re-opens the pin as the placed camera view */
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 6px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.mp-item:hover {
+  border-color: var(--color-accent);
 }
 
 .mp-thumb {

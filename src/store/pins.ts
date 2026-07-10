@@ -25,6 +25,19 @@ export interface PublicPin {
   precision: string;
   previewUrl: string | null;
   capturedAt: string | null;
+  /** Camera pose (orientation/optics — NOT location; C6 governs coordinates only). Null on
+   *  pins saved before the pose fields existed — the camera view falls back to defaults. */
+  altitudeM: number | null;
+  headingDeg: number | null;
+  pitchDeg: number | null;
+  rollDeg: number | null;
+  focalLengthMm: number | null;
+  hFovDeg: number | null;
+  textureWidth: number | null;
+  textureHeight: number | null;
+  cameraMake: string | null;
+  cameraModel: string | null;
+  lensModel: string | null;
 }
 
 export interface Viewport {
@@ -87,14 +100,27 @@ export function pinFromItem(item: Record<string, unknown>): PublicPin | null {
   const lon = item.lonReduced;
   const id = item._id;
   if (typeof lat !== "number" || typeof lon !== "number" || typeof id !== "string") return null;
+  const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
+  const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
   return {
     id,
     title: typeof item.title === "string" ? item.title : "Untitled",
     lat,
     lon,
     precision: typeof item.precision === "string" ? item.precision : "1km",
-    previewUrl: typeof item.previewUrl === "string" ? item.previewUrl : null,
-    capturedAt: typeof item.capturedAt === "string" ? item.capturedAt : null,
+    previewUrl: str(item.previewUrl),
+    capturedAt: str(item.capturedAt),
+    altitudeM: num(item.altitudeM),
+    headingDeg: num(item.headingDeg),
+    pitchDeg: num(item.pitchDeg),
+    rollDeg: num(item.rollDeg),
+    focalLengthMm: num(item.focalLengthMm),
+    hFovDeg: num(item.hFovDeg),
+    textureWidth: num(item.textureWidth),
+    textureHeight: num(item.textureHeight),
+    cameraMake: str(item.cameraMake),
+    cameraModel: str(item.cameraModel),
+    lensModel: str(item.lensModel),
   };
 }
 

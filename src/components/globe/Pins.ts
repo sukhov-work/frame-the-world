@@ -80,6 +80,10 @@ export function attachPins(
       for (let i = 0; i < pins.length; i++) placePin(i);
       mesh.count = pins.length;
       dirty = true;
+      // TRAP: three caches InstancedMesh.boundingSphere on first raycast — GlobeControls
+      // raycasts the scene BEFORE pins load (count 0 → EMPTY sphere), and a stale empty
+      // sphere makes every later pick return nothing. Invalidate whenever instances change.
+      mesh.boundingSphere = null;
     },
 
     update(camera: THREE.PerspectiveCamera) {
@@ -106,6 +110,7 @@ export function attachPins(
         mesh.setMatrixAt(i, _m);
       }
       mesh.instanceMatrix.needsUpdate = true;
+      mesh.boundingSphere = null; // scales changed — see the setPins trap note
     },
 
     resnap() {
