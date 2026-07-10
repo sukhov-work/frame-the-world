@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { ATMOSPHERE, SUN, WGS84_A } from "../tuning";
+import { ATMOSPHERE, GOLDEN, SUN, WGS84_A } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
 
 /**
@@ -32,6 +32,7 @@ export function attachAtmosphere(
   const uniforms = {
     uColor: { value: new THREE.Color(tokens.atmosphere) },
     uColorDeep: { value: new THREE.Color(tokens.atmosphereDeep) },
+    uGoldenCol: { value: new THREE.Color(tokens.goldenHour) },
     uSunDir: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uIntensity: { value: ATMOSPHERE.intensity },
     uRe: { value: WGS84_A }, // limb reference radius
@@ -59,6 +60,7 @@ export function attachAtmosphere(
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
       uniform vec3 uColorDeep;
+      uniform vec3 uGoldenCol;
       uniform vec3 uSunDir;
       uniform float uIntensity;
       uniform float uRe;
@@ -89,6 +91,12 @@ export function attachAtmosphere(
         float hitsGround = 1.0 - smoothstep(uRe - ${glf(ATMOSPHERE.groundBandBelowM)}, uRe + ${glf(ATMOSPHERE.groundBandAboveM)}, dmin);
         vec3 lineCol = mix(uColor, uColorDeep, ${glf(ATMOSPHERE.lineBlueBase)} + ${glf(ATMOSPHERE.lineBlueByOrbit)} * uOrbit); // bluer as we pull away
         vec3 limbCol = lineCol * g1 * ${glf(ATMOSPHERE.lineGain)} + uColorDeep * g2 * ${glf(ATMOSPHERE.hazeGain)};
+        // golden-hour limb: warm the glow where the sun grazes the ray's closest-approach point
+        // (2·sun−1 = sin of solar elevation there — same bell as the earth/ground grades)
+        float gSin = 2.0 * sun - 1.0;
+        float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, gSin)
+                   * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, gSin));
+        limbCol *= mix(vec3(1.0), uGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.atmStrength)});
         vec3 washCol = uColorDeep * ${glf(ATMOSPHERE.groundWashGain)};
         vec3 color = mix(limbCol, washCol, hitsGround) * uIntensity * mix(${glf(ATMOSPHERE.sunFloor)}, 1.0, sun);
         ${DITHER_GLSL}

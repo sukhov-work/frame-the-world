@@ -1,0 +1,137 @@
+/* TimeScrubber — the scene-time rail (Phase 4). Instrument idiom: docked translucent card,
+   mono labels, accent reserved for the LIVE state; the pinned knob goes warn-amber like the
+   TimeReadout dot. Colour via tokens.css vars only; motion: micro 180ms. */
+
+.ts {
+  /* Fluid middle band: the hero owns the left ~31rem, the readout/tilt column the right ~15rem —
+     pinning both edges (+ margin auto with a max-width) keeps the rail clear of both at any
+     viewport instead of a centred fixed width that would overlap the hero on laptops. */
+  position: fixed;
+  left: 32rem;
+  right: 16rem;
+  bottom: 2.2rem;
+  margin-inline: auto;
+  z-index: 10;
+  max-width: 38rem;
+  padding: 0.55rem 0.95rem 0.5rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.ts-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.ts-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--color-text-secondary);
+}
+
+.ts-offset {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ts-now {
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease;
+}
+.ts-now:hover {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.ts-rail {
+  position: relative;
+  height: 22px;
+  cursor: ew-resize;
+  touch-action: none;
+  outline: none;
+}
+.ts-rail:focus-visible .ts-track {
+  background: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+}
+
+.ts-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--color-border);
+  border-radius: 1px;
+}
+
+.ts-ticks {
+  position: absolute;
+  inset: 0 0 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+}
+.ts-tick {
+  width: 1px;
+  height: 6px;
+  background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+}
+.ts-tick--major {
+  height: 11px;
+  background: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
+}
+
+.ts-knob {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--color-accent);
+  box-shadow: 0 0 8px rgba(56, 225, 208, 0.7);
+  pointer-events: none;
+}
+.ts-knob--pinned {
+  background: var(--color-warn);
+  box-shadow: 0 0 8px rgba(232, 162, 104, 0.7);
+}
+
+.ts-span {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+
+/* Narrow viewports: the middle band vanishes — the rail rises above the hero/readout bottom
+   row and goes near-full-bleed. */
+@media (max-width: 900px) {
+  .ts {
+    left: 1rem;
+    right: 1rem;
+    max-width: none;
+    bottom: 9.2rem;
+  }
+}

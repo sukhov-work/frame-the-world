@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { EARTH, SUN } from "../tuning";
+import { EARTH, GOLDEN, SUN } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
 
 /**
@@ -51,6 +51,7 @@ export function attachBaseEarth(
     uPeak: { value: new THREE.Color(tokens.peak) },
     uCityLights: { value: new THREE.Color(tokens.cityLights) },
     uAtmTint: { value: new THREE.Color(tokens.atmosphereDeep) },
+    uGoldenCol: { value: new THREE.Color(tokens.goldenHour) },
     uSunDir: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uMoonDir: { value: new THREE.Vector3(0, 0, 1) },
     uMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
@@ -78,7 +79,7 @@ export function attachBaseEarth(
       uniform sampler2D uNormal;
       uniform sampler2D uColor;
       uniform sampler2D uNight;
-      uniform vec3 uWater, uLand, uLandHi, uPeak, uCityLights, uAtmTint, uSunDir;
+      uniform vec3 uWater, uLand, uLandHi, uPeak, uCityLights, uAtmTint, uGoldenCol, uSunDir;
       uniform vec3 uMoonDir, uMoonCol;
       uniform float uMoonGlow;
       uniform float uNightFloor;
@@ -115,6 +116,13 @@ export function attachBaseEarth(
         float wrap = dot(Np, normalize(uSunDir)) * 0.5 + 0.5;
         float shade = mix(uNightFloor, 1.0, wrap * wrap);
         vec3 color = albedo * shade;
+        // Golden-hour cast (Phase 4, D6/D14): warm band where the sun grazes the LOCAL horizon —
+        // a bell over sin(elevation) = dot(geographic normal, sun), so the warmth hugs the
+        // terminator and appears at the correct local times. GLSL twin of lib/ephemeris/golden.ts.
+        float gSin = dot(N, normalize(uSunDir));
+        float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, gSin)
+                   * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, gSin));
+        color *= mix(vec3(1.0), uGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.earthStrength)});
         // Geographically correct night-side city lights (VIIRS). li^2 kills haze, keeps real cities.
         float night = 1.0 - smoothstep(${glf(EARTH.nightBand[0])}, ${glf(EARTH.nightBand[1])}, wrap);
         float li = dot(texture2D(uNight, vUv).rgb, vec3(0.333));

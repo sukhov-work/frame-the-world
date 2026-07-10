@@ -10,6 +10,32 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Phase 4 remainder SHIPPED: time-scrubber UI + golden-hour grade + real BSC5 star catalog (browser-VERIFIED via Playwright MCP on wix dev).**
+  **Scrubber:** `panels/TimeScrubber.tsx` + `styles/time-scrubber.css` — bottom-centre rail (fluid middle band: `left:32rem; right:16rem;
+  margin-inline:auto` so it never overlaps the hero or the readout column) spanning ±12 h (SCRUB.windowHours) around an anchor; drag →
+  `useTimeStore.setTime` (UI-drag-verified: −4 h pin moved sunDir by the expected 60° chord 0.936); NOW chip + double-click + Backspace →
+  `goLive`; release at a rail end recentres the window (multi-day walks); keyboard slider (± SCRUB.keyStepMin). Window math = pure exports in
+  `store/time.ts` (`timeToFraction`/`fractionToTime`, upload.ts precedent). TRAPS: drag flag must be a REF (React state doesn't flip between
+  same-tick pointer events — synthetic drags scrub nothing) and `setPointerCapture` needs try/catch (throws on synthetic pointerIds).
+  **capturedAt seeding:** placing a photo pins the scene to `lib/ephemeris/captureTime.ts capturedAtToUtcMs` — the TZ-naive EXIF stamp read as
+  SOLAR time at the placement longitude (offset = round(lon/15) h; documented v1 choice, ≤1 h off civil DST vs up-to-12 h for plain UTC).
+  Browser-verified exact: 18:42:17 @ lon 35.05 → 16:42:17Z pin + rail recentred (knob 50%). **Golden hour (D6/D14):** per-fragment bell over
+  sin(sun elevation) = dot(N, sunDir) — tuning.GOLDEN (fade −8°→−1°, hold →+7°, gone +16°) — tints baseEarth + ground grade (`×
+  mix(1, goldenHour·1.15, bell·strength)`) and the atmosphere limb line (2·sun−1 in the shader IS the same sine); building key light lerps
+  white→tokens.goldenHour by `goldenFactor` (lib/ephemeris/golden.ts, the JS twin) × bell(sunDir·focusUp) — focus ray HOISTED out of the shadow
+  gate (computed every frame, falls back to sub-camera up past the limb). Verified: sunset pin = warm band hugging the dusk terminator +
+  city-scale key light #ffc790 at 18:42 solar; high sun + night stay cold (no false fire). **BSC5 stars (D6):** `scripts/build-star-catalog.mjs`
+  bakes brettonw/YaleBrightStarCatalog bsc5.json (MIT; SIMBAD-cross-checked Sirius/Polaris) → `public/data/bsc5.bin` LE float32 [x,y,z,vmag,bv]
+  ×9,096 (177.7 KB; BV_SENTINEL 9.99 on the 310 B-V gaps); `lib/ephemeris/stars.ts` = parse + raDec→unit + Pogson size/alpha maps (softened;
+  STARS.magRef/sizeGamma/brightGamma); `scene/stars.ts` fetches async (procedural field = pre-load/offline fallback), swaps geometry, and sets
+  `points.rotation.z = −GAST` per ephemeris sample (`bodyStatesAt` now returns `gastRad`; almanac test 280.46° @ J2000, star-at-GAST→lon-0
+  round-trip test). Browser: 9,096 loaded, rotation ≡ −GAST (1e-9), GAST 102.107° hand-checked for 11:34Z Jul 10. STARS.brightMin 0.18→0.55
+  across two shots — a ~1.5 px point below ~0.5 alpha weight is invisible at DPR 1 (phase4-04/05/06). Files: `tuning.ts` (GOLDEN/SCRUB/STARS
+  groups), `scene/{baseEarth,imageryGround,atmosphere,stars}.ts`, `StylizedTiles.ts`, `store/time.ts`, `lib/ephemeris/{bodies,captureTime,golden,
+  stars}.ts`, `panels/TimeScrubber.tsx`, `styles/time-scrubber.css`, `pages/index.astro`, `scripts/build-star-catalog.mjs`, `public/data/bsc5.bin`.
+  **134 vitest (+21) · astro check 0 · wix build green · browser-VERIFIED** (shots verify-shots/phase4-01..07; Playwright MCP healthy again).
+  UNVERIFIED/carried: placeholder (texture-less) image plane blooms to white at point-blank (clamp below BLOOM.threshold later); star
+  brightMin/golden strengths = owner taste-tune; planets (Phase-4 scope mentions them) not rendered — sun/moon/stars only.
 - **2026-07-10 — Owner UX pass SHIPPED: camera feel (gradual verticality + eased zoom + inertia + tilt slider) + moon occlusion/brightness + soft adaptive tile loading (browser-VERIFIED via scripted Chrome on wix dev).**
   **Camera** (root cause from GlobeControls **0.4.28 source**): "snaps vertical on zoom-in" = `EnvironmentControls._setFrame`
   rotating the camera around the zoom point at FULL strength while zooming in (the library's edge-damping is forced OFF on

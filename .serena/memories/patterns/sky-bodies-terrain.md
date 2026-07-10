@@ -125,6 +125,36 @@ Tokens added: sunCore #FFF3D9 · sunGlow #FFD9A0 · moonlight #BFD0E8 (tokens.cs
   material) — needs per-tile material clones if ever faded. Playwright MCP wedged this session →
   scripted verification via scratchpad `playwright-core` + system Chrome (channel:"chrome").
 
+## Phase-4 remainder: scrubber + golden hour + BSC5 stars (2026-07-10, browser-VERIFIED)
+- **TimeScrubber** (`panels/TimeScrubber.tsx` + `styles/time-scrubber.css`): ±12 h rail around an
+  anchor; drag → `setTime`; NOW/dblclick/Backspace → `goLive`; release at a rail end recentres
+  (multi-day walks). Pure window math (`timeToFraction`/`fractionToTime`) exported from
+  `store/time.ts`. Layout: fluid middle band (`left:32rem; right:16rem; margin-inline:auto`) —
+  never overlaps hero/readout. TRAPS: the drag flag MUST be a useRef (React state doesn't flip
+  between same-tick pointer events — synthetic/fast drags scrub nothing) and wrap
+  set/releasePointerCapture in try/catch (synthetic pointerIds throw).
+- **capturedAt seeding**: on upload phase → "placed", pin scene time via
+  `lib/ephemeris/captureTime.ts capturedAtToUtcMs(stamp, lonDeg)` — TZ-naive EXIF read as SOLAR
+  time at placement longitude (offset = round(lon/15) h; v1 choice, ≤1 h vs civil DST). Verified
+  exact in-browser: 18:42:17 @ 35.05°E → 16:42:17Z.
+- **Golden hour (D6/D14)**: ONE bell over sin(sun elevation), knobs in `tuning.GOLDEN`
+  (−8°→−1° in, hold →+7°, out by +16°; castGain 1.15). Per-fragment GLSL twins in
+  baseEarth (dot(N,sunDir)) + ground grade (dot(nS,uFtwSun)) + atmosphere line (2·sun−1 IS the
+  same sine at the ray's closest approach); JS twin `lib/ephemeris/golden.ts goldenFactor` drives
+  the building key light: `sunLight.color.lerpColors(white, tokens.goldenHour, bell(sunDir·focusUp)
+  × keyStrength)`. Focus ray HOISTED out of the shadow gate in StylizedTiles — computed every
+  frame, falls back to sub-camera up when the forward ray misses the planet. Verified: warm band
+  hugs the dusk terminator at LEO; key light #ffc790 at 18:42 solar city view; cold at noon/night.
+- **BSC5 stars (D6)**: `scripts/build-star-catalog.mjs` (run once, needs network) bakes
+  brettonw/YaleBrightStarCatalog bsc5.json (MIT, SIMBAD-checked) → `public/data/bsc5.bin` —
+  LE float32 [x,y,z,vmag,bv]×9,096 (177.7 KB; BV_SENTINEL 9.99 × 310). `lib/ephemeris/stars.ts` =
+  parse/raDecToUnit/magToSize/magToBright (Pogson softened: sizeGamma 0.35, brightGamma 0.6,
+  brightMin 0.55 — below ~0.5 a 1.5 px point is INVISIBLE at DPR 1, tuned across 3 shots).
+  `scene/stars.ts` fetches async (procedural field stays as pre-load/offline fallback), swaps
+  geometry, sets `points.rotation.z = −gastRad` (equatorial → ECEF; star at RA=GAST lands on lon 0
+  — round-trip unit test). `bodyStatesAt` now returns `gastRad` (almanac test: 280.46° @ J2000).
+  B-V colour tint NOT used yet (baked for later).
+
 ## UNVERIFIED / carried
 - Moonlight visual on night buildings (code-wired; not isolated in a shot — moon was 22%).
 - Terrain memory/perf at street level (CWT errorTarget 2 + z19 overlay splitting) — profile later.

@@ -71,6 +71,46 @@ export const SKY = {
   moonSceneGlow: 0.35,
 } as const;
 
+/** Golden-hour grade (Phase 4, ADR D6/D14). The signal is the SINE of the sun's elevation —
+ *  per-fragment `dot(surfaceNormal, sunDir)` in the earth/ground/atmosphere shaders (so the warm
+ *  band hugs the terminator and appears at the correct LOCAL times everywhere at once), and
+ *  `dot(sunDir, focusUp)` on the CPU for the building key light. The band is a bell built from two
+ *  smoothsteps over that sine; colour is tokens.goldenHour only (D14). Curve shape is shader-baked
+ *  (glf) — retune needs a reload; strengths are baked too (they're look, not animation). */
+export const GOLDEN = {
+  /** Bell fade-in over sin(sun elevation): starts in civil twilight… (sin −8°) */
+  fadeInLo: -0.139,
+  /** …fully warm with the sun on the horizon. (sin −1°) */
+  fadeInHi: -0.0175,
+  /** Still fully warm at +7° elevation… (sin +7°) */
+  fadeOutLo: 0.122,
+  /** …gone by +16° — the classic "first/last hour" span. (sin +16°) */
+  fadeOutHi: 0.276,
+  /** Multiplier on tokens.goldenHour in the multiplicative cast (>1 compensates the luminance the
+   *  warm multiply removes from G/B). */
+  castGain: 1.15,
+  /** Cast strength on the stylized base earth (orbit view). */
+  earthStrength: 0.7,
+  /** Cast strength on the graded imagery ground (city/mid view — where golden hour is felt). */
+  groundStrength: 0.8,
+  /** Warm mix on the atmosphere limb line where the sun grazes it. */
+  atmStrength: 0.6,
+  /** Building key light: lerp(white → goldenHour) by bell(focus sun elevation) × this. */
+  keyStrength: 0.85,
+} as const;
+
+/** Time scrubber UI (panels/TimeScrubber). The rail spans a window centred on an anchor instant;
+ *  dragging pins scene time via store/time.setTime — the ephemeris relights everything. */
+export const SCRUB = {
+  /** Rail span (hours) — ±12 h covers a full terminator sweep + both golden hours. */
+  windowHours: 24,
+  /** Keyboard arrow step (minutes). */
+  keyStepMin: 10,
+  /** Releasing the knob in this outer fraction of the rail recentres the window on the pinned
+   *  time — repeated edge drags walk multiple days without a date picker. */
+  edgeRecenterFrac: 0.02,
+} as const;
+
 /** Soft bloom post (GlobeCanvas composer): sun/moon/city-lights glow; earth catches it very
  *  slightly. Threshold sits just under 1.0 so only HDR/near-white pixels bloom (the scene is dark). */
 export const BLOOM = {
@@ -323,9 +363,28 @@ export const ATMOSPHERE = {
 } as const;
 
 /** Camera-centred starfield. Scaled per-frame to sit beyond the farthest visible terrain (limb
- *  tangent distance — NOT nadir altitude) yet inside GlobeControls' dynamic far plane. */
+ *  tangent distance — NOT nadir altitude) yet inside GlobeControls' dynamic far plane.
+ *  Phase 4 (D6): positions come from the REAL Yale Bright Star Catalog (packed binary asset,
+ *  `scripts/build-star-catalog.mjs`); the star sphere is rotated by −GAST about +Z each ephemeris
+ *  sample so constellations sit correctly over the earth for the scene time. The procedural
+ *  random field remains as the pre-load / fetch-failure fallback. */
 export const STARS = {
+  /** Packed catalog asset (Float32 records; see lib/ephemeris/stars.ts for the layout). */
+  catalogUrl: "/data/bsc5.bin",
+  /** FALLBACK-ONLY procedural star count (until the catalog loads, or if the fetch fails). */
   count: 5000,
+  /** Catalog magnitude → point size: size = sizeBase + sizeSpread·10^(−0.4·(V − magRef)·sizeGamma),
+   *  clamped to sizeMax. magRef ≈ the naked-eye median keeps most stars near sizeBase. */
+  magRef: 2.0,
+  /** Exponent softener on the flux law for SIZE (pure flux would make Sirius a golf ball). */
+  sizeGamma: 0.35,
+  sizeMax: 5.0,
+  /** Catalog magnitude → brightness attribute (multiplies alpha): 10^(−0.4·(V − magRef)·brightGamma).
+   *  Floor raised 0.18 → 0.3 → 0.55 across browser passes (phase4-04/05): a ~1.5 px point below
+   *  ~0.5 alpha weight simply vanishes at DPR 1 — the mag-4+ tail (most of BSC5) went invisible.
+   *  Brightness hierarchy still reads through SIZE; the floor keeps the sky populated. */
+  brightGamma: 0.6,
+  brightMin: 0.55,
   /** Point size = rand²·sizeSpread + sizeBase (px, pre-DPR) — a few bright, many faint. */
   sizeBase: 0.8,
   sizeSpread: 2.0,

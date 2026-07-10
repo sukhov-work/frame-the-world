@@ -8,6 +8,8 @@ import {
   SUN_RADIUS_KM,
 } from "../../lib/ephemeris/bodies";
 import { ecefToGeodetic, rayEllipsoidIntersect } from "../../lib/geo/projection";
+import { goldenFactor } from "../../lib/ephemeris/golden";
+import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
@@ -27,6 +29,7 @@ import {
   FLIGHT,
   FRUSTUM,
   GATES,
+  GOLDEN,
   POSE,
   SHADOWS,
   SKY,
@@ -97,10 +100,12 @@ export function attachStylizedTiles(opts: {
   const moonPosW = new THREE.Vector3(0, 0, 3.8e8);
   let sunAngRad = 0.00465;
   let moonIllum = 0.5;
+  let gastRad = 0; // sidereal angle for the star sphere (−GAST about +Z = equatorial → ECEF)
   let lastSampleMs = -Infinity;
   const sampleEphemeris = (tMs: number) => {
     lastSampleMs = tMs;
     const s = bodyStatesAt(tMs);
+    gastRad = s.gastRad;
     sunDirW.set(s.sunDir[0], s.sunDir[1], s.sunDir[2]);
     moonDirW.set(s.moonDir[0], s.moonDir[1], s.moonDir[2]);
     moonPosW.copy(moonDirW).multiplyScalar(s.moonDistanceKm * 1000);
@@ -227,6 +232,8 @@ export function attachStylizedTiles(opts: {
   const _camFwd = new THREE.Vector3();
   const _focus = new THREE.Vector3();
   const _focusUp = new THREE.Vector3();
+  const _keyWhite = new THREE.Color(0xffffff);
+  const _goldenCol = new THREE.Color(tokens.goldenHour);
   let frameCount = 0;
 
   // --- Camera feel (2026-07-10 owner pass) — temporal zoom easing, damped auto-verticality and
@@ -262,6 +269,7 @@ export function attachStylizedTiles(opts: {
         sunDir: sunDirW.toArray(),
         moonDir: moonDirW.toArray(),
         moonIllumination: moonIllum,
+        gastRad,
         sampleMs: lastSampleMs,
       }),
       terrainHeightAt: (lat: number, lon: number) => ground.heightAt(lat, lon),
@@ -383,26 +391,32 @@ export function attachStylizedTiles(opts: {
         const tMs = sceneTimeMs();
         if (Math.abs(tMs - lastSampleMs) > SKY.sampleIntervalMs) sampleEphemeris(tMs);
 
-        // Sun key light: ephemeris direction always; the shadow rig follows the view focus at
-        // city altitudes AND only while the sun is actually up there (a below-horizon sun would
-        // project garbage through the planet).
+        // View focus: camera-forward ray → ellipsoid (past-the-limb views fall back to the
+        // sub-camera point). Drives the shadow rig AND the golden-hour key-light signal.
+        camera.getWorldDirection(_camFwd);
+        const focusHit = rayEllipsoidIntersect(
+          [camera.position.x, camera.position.y, camera.position.z],
+          [_camFwd.x, _camFwd.y, _camFwd.z],
+        );
+        if (focusHit) {
+          _focus.set(focusHit[0], focusHit[1], focusHit[2]);
+          _focusUp.copy(_focus).normalize();
+        } else {
+          _focusUp.copy(camera.position).normalize();
+        }
+
+        // Sun key light: ephemeris direction always; colour warms through the golden band as the
+        // sun grazes the horizon AT THE FOCUS (same bell as the shader grades — buildings relight
+        // in step with the ground); the shadow rig follows the focus at city altitudes AND only
+        // while the sun is actually up there (a below-horizon sun would project garbage).
         if (sunLight) {
+          const goldenK = goldenFactor(sunDirW.dot(_focusUp), GOLDEN);
+          sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
           let shadowsOn = false;
-          if (alt < SHADOWS.maxAltM) {
-            camera.getWorldDirection(_camFwd);
-            const hit = rayEllipsoidIntersect(
-              [camera.position.x, camera.position.y, camera.position.z],
-              [_camFwd.x, _camFwd.y, _camFwd.z],
-            );
-            if (hit) {
-              _focus.set(hit[0], hit[1], hit[2]);
-              _focusUp.copy(_focus).normalize();
-              if (sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin) {
-                shadowsOn = true;
-                sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
-                sunLight.target.position.copy(_focus);
-              }
-            }
+          if (alt < SHADOWS.maxAltM && focusHit && sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin) {
+            shadowsOn = true;
+            sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
+            sunLight.target.position.copy(_focus);
           }
           if (!shadowsOn) {
             // direction-only mode: keep the terminator agreement for building shading everywhere
@@ -438,6 +452,7 @@ export function attachStylizedTiles(opts: {
           camera,
           elapsedS: (performance.now() - t0) / 1000,
           reduceMotion,
+          gastRad,
         });
       } catch (err) {
         console.error("[globe] tiles/controls update error:", err);

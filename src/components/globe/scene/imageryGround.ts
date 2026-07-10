@@ -9,7 +9,7 @@ import {
   XYZTilesOverlay,
 } from "3d-tiles-renderer/three/plugins";
 import { tokens } from "../../../lib/theme/tokens";
-import { EARTH, GATES, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
+import { EARTH, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
 import { glf } from "./glsl";
 
 /**
@@ -148,6 +148,7 @@ export function attachImageryGround(
     uFtwMoonDir: { value: new THREE.Vector3(0, 0, 1) },
     uFtwMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
     uFtwMoonCol: { value: new THREE.Color(tokens.moonlight) },
+    uFtwGoldenCol: { value: new THREE.Color(tokens.goldenHour) },
     uFtwNightFloor: { value: GROUND.nightFloor },
     uFtwDesat: { value: GROUND.desat },
     uFtwGain: { value: GROUND.gain },
@@ -174,6 +175,7 @@ export function attachImageryGround(
         uniform vec3 uFtwMoonDir;
         uniform float uFtwMoonGlow;
         uniform vec3 uFtwMoonCol;
+        uniform vec3 uFtwGoldenCol;
         uniform float uFtwNightFloor;
         uniform float uFtwDesat;
         uniform float uFtwGain;
@@ -202,6 +204,12 @@ export function attachImageryGround(
           // imagery's bright seas never punch through the dark palette (rivers/lakes stay slate too)
           float waterness = smoothstep(0.0, ${glf(GROUND.waterThreshold)}, diffuseColor.b - max(diffuseColor.r, diffuseColor.g));
           graded *= mix(1.0, ${glf(GROUND.waterDarken)}, waterness);
+          // golden-hour cast where the sun grazes the local horizon (bell over sin(elevation);
+          // GLSL twin of lib/ephemeris/golden.ts — keep in sync with tuning.GOLDEN + baseEarth)
+          float gSin = dot(nS, normalize(uFtwSun));
+          float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, gSin)
+                     * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, gSin));
+          graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.groundStrength)});
           // cool moonlight lifts the night side by phase (the day side term is negligible vs sun)
           float night = 1.0 - smoothstep(${glf(EARTH.nightBand[0])}, ${glf(EARTH.nightBand[1])}, wrap);
           vec3 moonlit = graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night);

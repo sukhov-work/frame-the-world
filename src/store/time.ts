@@ -35,3 +35,21 @@ export function sceneTimeMs(): number {
   const s = useTimeStore.getState();
   return s.live ? Date.now() : s.timeMs;
 }
+
+// --- Scrubber window math (pure — exported for the TimeScrubber panel + unit tests, the
+//     upload.ts pure-helper pattern). The rail maps a window of `windowMs` centred on `anchorMs`
+//     onto [0,1]; the knob clamps at the rail ends (the panel recentres the anchor on release). --
+
+function clamp01(t: number): number {
+  return Math.min(1, Math.max(0, t));
+}
+
+/** Rail fraction [0,1] for an instant inside a window centred on `anchorMs`. */
+export function timeToFraction(ms: number, anchorMs: number, windowMs: number): number {
+  return clamp01((ms - anchorMs) / windowMs + 0.5);
+}
+
+/** Instant (UTC ms) for a rail fraction — inverse of `timeToFraction` inside the window. */
+export function fractionToTime(fraction: number, anchorMs: number, windowMs: number): number {
+  return Math.round(anchorMs + (clamp01(fraction) - 0.5) * windowMs);
+}

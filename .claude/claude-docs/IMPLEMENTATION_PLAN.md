@@ -46,7 +46,7 @@ ease-in-out; reduced-motion cross-fade variant). *(Import the Photo-Detail scree
 updates the projection in real time; pin selection triggers the flight.
 **Test:** projection matches a known reference (photo with real `GPSImgDirection`); reduced-motion path works.
 
-## Phase 4 — Ephemeris sky  ☐
+## Phase 4 — Ephemeris sky  ☑ *(DONE 2026-07-10, browser-VERIFIED: sun/moon/terminator/shadows from scene time (pre-Phase-4 pass) + TimeScrubber rail (drag pins, NOW resumes, capturedAt seeds at placement longitude) + golden-hour bell tint via tokens.goldenHour (earth/ground/atmosphere/key light) + real BSC5 star catalog rotated by −GAST; planets not rendered (sun/moon/stars only); see `mem:patterns/sky-bodies-terrain` + DECISIONS)*
 **Scope:** `astronomy-engine` sun/moon/planet positions from time+location; procedural sky + star field;
 time scrubber drives lighting; golden-hour tint bound to `tokens.ts`.
 **DoD:** dragging time moves sun/moon, changes lighting + star visibility; golden hour appears at correct times.

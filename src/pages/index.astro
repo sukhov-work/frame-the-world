@@ -4,6 +4,7 @@ import GlobeCanvas from "../components/globe/GlobeCanvas";
 import UploadFlow from "../components/panels/UploadFlow";
 import TimeReadout from "../components/panels/TimeReadout";
 import CameraTiltPanel from "../components/panels/CameraTiltPanel";
+import TimeScrubber from "../components/panels/TimeScrubber";
 ---
 
 <Layout title="Frame the World">
@@ -18,6 +19,9 @@ import CameraTiltPanel from "../components/panels/CameraTiltPanel";
 
   <!-- Manual camera declination (0° nadir … 88° horizon) — glides the globe camera -->
   <CameraTiltPanel client:only="react" />
+
+  <!-- Scene-time scrubber (Phase 4) — drag to relight the globe; NOW resumes the wall clock -->
+  <TimeScrubber client:only="react" />
 
   <header class="topnav">
     <span class="logo">Frame&nbsp;the&nbsp;World</span>

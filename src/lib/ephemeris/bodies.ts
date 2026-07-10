@@ -48,6 +48,9 @@ export interface BodyStates {
   moonPhaseDeg: number;
   /** Illuminated fraction of the lunar disc, 0..1 (geocentric). */
   moonIllumination: number;
+  /** Greenwich apparent sidereal time (rad) — rotating the J2000-equatorial star sphere by −this
+   *  about +Z puts every star over its correct earth longitude (Phase 4 BSC5 star field). */
+  gastRad: number;
 }
 
 /** Sun + moon state at a UTC instant — ONE call drives lighting, bodies and readouts. */
@@ -76,6 +79,7 @@ export function bodyStatesAt(utcMs: number): BodyStates {
     moonDistanceKm: moon.distAu * KM_PER_AU,
     moonPhaseDeg: MoonPhase(time),
     moonIllumination: Illumination(Body.Moon, time).phase_fraction,
+    gastRad,
   };
 }
 

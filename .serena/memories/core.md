@@ -67,9 +67,17 @@ declination slider (`store/camera.ts` + `panels/CameraTiltPanel.tsx`); moon/sun 
 analytic horizon-occlusion fade (was clipping through the planet) + moonBrightness 1.8; soft
 adaptive tile loading (fadeRootTiles/700 ms/300 cap + loadProgress-gated reveal + adaptive
 errorTarget 2↔12 + overlay retry). Camera mechanics: `mem:patterns/globe-rendering`; sky/loading:
-`mem:patterns/sky-bodies-terrain`. **Next step: Phase 4 remainder — time
-scrubber UI + golden-hour grade + BSC5 stars** (see `NEXT_SESSION_PROMPT.md`). `wix release`
-still pending user greenlight.
+`mem:patterns/sky-bodies-terrain`.
+**Phase 4 remainder SHIPPED (2026-07-10, browser-VERIFIED via Playwright MCP):** TimeScrubber
+±12 h rail (drag pins via `setTime`, NOW resumes, EXIF `capturedAt` seeds the pin as SOLAR time at
+placement longitude — `lib/ephemeris/captureTime.ts`); golden-hour bell grade (tuning.GOLDEN, one
+sin-elevation curve: earth/ground/atmosphere GLSL twins + key light lerp to tokens.goldenHour via
+`lib/ephemeris/golden.ts`, focus ray hoisted out of the shadow gate); REAL BSC5 star field
+(`public/data/bsc5.bin` 9,096×[x,y,z,vmag,bv] via `scripts/build-star-catalog.mjs`, star sphere
+`rotation.z = −GAST`, `bodyStatesAt` returns `gastRad`). IMPLEMENTATION_PLAN §Phase 4 ☑ (planets
+not rendered). 134 vitest · astro check 0 · wix build green. Mechanics + traps:
+`mem:patterns/sky-bodies-terrain` §Phase-4 remainder. **Next step: Phase 5 — members + quota +
+save/public pins** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 
