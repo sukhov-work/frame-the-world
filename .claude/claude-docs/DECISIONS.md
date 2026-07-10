@@ -10,6 +10,124 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Phase 2 decode SHIPPED: exifr + libraw-wasm@1.0.5 (pinned) + libheif-js in a disposable Worker (browser-VERIFIED via Playwright on wix dev).**
+  The stub is gone — `extractMetadata` is the real pipeline. **Key discovery:** libraw-wasm 1.1.2+ are ALL
+  pthread builds (`WebAssembly.Memory({shared:true})`, spawns `em-pthread` workers; their own integration
+  test serves COOP/COEP) → hard-require cross-origin isolation, UNVERIFIED on Wix hosting (TODO-VERIFY #2)
+  and would force CORP onto Esri/ion/font subresources. **Pinned 1.0.5 — the last single-threaded build**
+  (probed empirically in Node: no worker.js, runs on the calling thread; metadata HAS width/height +
+  camera_make/model but NO GPS — exifr owns metadata; imageData → {width,height,colors,bits,data}) →
+  imported inside OUR module worker (`lib/decode/worker.ts` + `workerClient.ts`), which resolves
+  TODO-VERIFY #2's decode half permanently (threads stay an optional future upgrade). 1.0.5 fetches
+  `libraw.wasm` as a runtime sibling URL (not Vite's static `new URL` pattern) → the worker patches
+  `self.fetch` to redirect that one request to the `?url`-imported asset; `optimizeDeps.exclude
+  ["libraw-wasm"]` + `include ["libheif-js/…bundle.mjs"]` (else Vite's mid-session dep discovery on first
+  worker spawn RELOADS the page — hit it live) + `worker.format "es"` in astro.config. **Decode settings**
+  `{useCameraWb, halfSize, outputBps:8}` — halfSize skips demosaic (26 MP: 4.2 s total in Node vs 11.1 s
+  full-AHD; browser 4.8 s) → 3136×2084 display texture via OffscreenCanvas → JPEG blob q0.92 (main-thread
+  pixel fallback kept). Worker is TERMINATED after each decode — emscripten heap never shrinks (Node RSS
+  337→814 MB across 3 decodes in one process) so disposable workers ARE the memory strategy. **exifr**
+  (`exif.ts`): `reviveValues:false` keeps EXIF dates as TZ-naive strings (a revived Date shifts the wall
+  clock by machine TZ — caught live: fixture reads 00:01:20, Date-serialized showed 21:01Z); rationals
+  stay numeric, signed `latitude/longitude` still computed; `GPSAltitudeRef` arrives as byte-wrapper
+  `{0:0}` (handled). ARW/NEF/DNG = TIFF-based → full metadata (2 ms on 31 MB); CR3/RAF → {} → D4 manual
+  path. **HEIC**: native probe (`createImageBitmap` on the actual file, Safari) → else libheif-js wasm
+  bundle in the same worker (0.4 s fixture). **Store**: real stage boundaries (wasm/unpack/demosaic/encode
+  — libraw-wasm has NO intra-stage progress) + trickle easing; AbortController + seq guard (mid-decode
+  re-drop cleanly supersedes — browser-verified); `stub` field REMOVED; new `loadError`/`decodeError`
+  (decode failure keeps metadata + embedded preview + warn badge). **Fixtures**: `example-sony.arw` 31 MB
+  ILME-FX30 (libraw-wasm's own, gitignored, README regen instructions) + generated `gps-heading.jpg`
+  (committed, 2.5 KB, exiftool: GPS Dnipro + GPSImgDirection 214 + focal35 24) + `.heic` twin (sips,
+  gitignored). Sensor DB += ILCE-7RM4 35.7 / ILME-FX30 23.3 / iPhone 15 Pro (+Max) 9.8; 7RM5 corrected
+  35.9→35.7. Files: `lib/decode/{exif,worker,workerClient,convert,extract,wasm-modules.d.ts,sensors}.ts`,
+  `store/upload.ts`, `panels/UploadFlow.tsx` (decoding-step thumb, decode-error badge), `upload-flow.css`,
+  `astro.config.mjs`, `THIRD_PARTY.md`, tests `test/lib/decode/{exif,convert}.test.ts` (real fixtures,
+  skip-if-missing). **76 vitest green (was 61) · astro check 0 · wix build green** (worker chunk +
+  `libraw-*.wasm` asset + code-split libheif in dist). **browser-VERIFIED**: ARW → embedded preview
+  ~120 ms → review 4.8 s w/ decoded 3136×2084 blob, full FX30 EXIF, 3× MISSING—ADD, H-FOV 45.4° (exact
+  for focal35 43); HEIC via libheif 0.4 s w/ GPS 48.4647N + heading 214 EXIF-badged, pitch-only flag;
+  JPEG native 0.1 s; slider ArrowRight→MANUAL+dot, dblclick→EXIF; Escape/reopen retention; globe island
+  untouched; console clean (only pre-existing frog beacon). Screenshots decode-0{1,2}-*.png. UNVERIFIED:
+  mobile decode ms/heap on a real device (26 MP halfSize ≈ 30 MB RGBA + wasm heap — DoD bench carried);
+  Safari native-HEIC branch; `wix release` asset serving. Mechanics: `mem:patterns/upload-flow`.
+- **2026-07-10 — UploadFlow UI shipped (board 05 + board-04 sliders) + zustand ingest spine + canvas push-back (browser-VERIFIED; decode STUBBED).**
+  Owner priority 1 executed: full-screen upload overlay (`src/components/panels/UploadFlow.tsx`, opened by
+  `[data-open-upload]` nav link / closed by Escape + ← GLOBE pill) with drop step (dropzone, format chips,
+  simulated decode progress, privacy line) → review step (preview slot, metadata grid w/ EXIF badges, D4
+  fields flagged **MISSING — ADD** in warn, notice row, disabled PLACE-ON-GLOBE til Phase 3, START OVER).
+  **Store** `src/store/upload.ts` (zustand@5.0.14): immutable EXIF baseline + adjustable
+  focal/heading/pitch/altitude params; provenance `exif|manual|missing` drives badges; double-click slider =
+  reset to EXIF (or back to unset when the file never had it); RESET TO EXIF + changed-dot. **Slider**
+  `src/components/ui/Slider.tsx` (board-04 idiom, pointer-capture + keyboard). **Decode contract**
+  `src/lib/decode/extract.ts` — STUB (canned α7R IV / iPhone EXIF, `stub:true` + visible "DECODE STUBBED"
+  badge; real object-URL preview for JPEG/PNG); Phase 2 swaps only `extractMetadata`'s body. **Derived H-FOV**
+  readout wires `computeHorizontalFov` live (focal35 shortcut only while focal untouched). Formatters in
+  `src/lib/format/readout.ts`. Files: + `src/styles/upload-flow.css`, `src/pages/index.astro` (island + nav),
+  tests `test/store/upload.test.ts` + `test/lib/format/readout.test.ts`. **61 vitest green** (was 35) ·
+  `astro check` 0 (no lint script exists in this scaffold). **browser-VERIFIED** (Playwright, wix dev): fake
+  ARW → 3× D4 flags + H-FOV 54.4°; slider set→MANUAL/dot, dbl-click→missing, reset-all; real JPEG → native
+  preview + heading 214° EXIF + pitch-only flag + H-FOV 73.7°; Escape/reopen state retention; globe island
+  unaffected (only pre-existing console noise). **Canvas push-back DONE** (the deferred design step-4):
+  `Shipped - Upload Flow.dc.html` (3 frames incl. divergence notes: adjust panel merged into review, ALTITUDE
+  = 3rd D4 flag, SAVE DRAFT → START OVER) written to design project fb0d7afa + render-verified. Screenshots
+  uploadflow-0{1..4}.png at repo root. UNVERIFIED: mobile layout on a real device; fonts under wix release.
+  Mechanics: `mem:patterns/upload-flow`.
+- **2026-07-10 — Globe fixes ×4: design-idiom buildings · adaptive halo · terrain-float sink · darker night (browser-VERIFIED).**
+  Owner follow-ups after the overhaul. (1) **Buildings → design idiom** (canvas ftw-scene: dark mass, lighter
+  stroked edges): styleMat now `tokens.surface` dark slate + roughness 0.85 + emissive land×0.10, plus per-tile
+  **`EdgesGeometry(geometry, 30°)` LineSegments** in shared `edgeMat` (`tokens.landHi` @ 0.4, raycast-disabled);
+  styleMat gets polygonOffset 0.5/0.5 so its own edge lines win the depth tie while bases still beat the ground's
+  1/1; `dispose-model` disposes per-tile edge geometry only (shared materials disposed once). Edge-perf on dense
+  metros UNVERIFIED (Dnipro fine). (2) **Orbit halo 1/10 width + bluer**: new `uOrbit` uniform (0 at ≤2,500 km →
+  1 at ≥9,000 km) scales both scale heights by `mix(1, 0.1, uOrbit)` and shifts the line colour
+  `mix(atmosphere, atmosphereDeep, 0.2 + 0.5·uOrbit)` — outer orbit gets a thin elegant blue rim, LEO keeps the
+  thick horizon haze. (3) **Building float fixed**: Cesium OSM Buildings are clamped to Cesium World Terrain, so
+  bases sat ~60–150 m above our ellipsoid-draped imagery — `tiles.group` sunk 90 m along the Dnipro up-normal
+  (`TERRAIN_SINK_M`, city-specific Phase-1 interim until real terrain; street-level check shows planted, not
+  buried). (4) **Night darker**: base `uNightFloor` 0.42→0.32, ground `uFtwNightFloor` 0.5→0.45 — city lights now
+  pop against a moodier dark side. Files: `src/components/globe/StylizedTiles.ts`. `astro check` 0 · 35 tests
+  green · **browser-VERIFIED** (Playwright): 1,400 m + 350 m Dnipro obliques (dark edged buildings planted on
+  streets), 15,000 km orbit (thin blue halo; darker Americas night w/ brighter-reading VIIRS lights), LEO default
+  unchanged (uOrbit=0).
+- **2026-07-10 — Globe overhaul: organic LEO instrument (browser-VERIFIED via Playwright at LEO/orbit/night/mid/city).**
+  Owner: "earth looks junky… ugly zoom into texture then a black vector switch… default should feel like flying a
+  spacecraft in LEO… halo crude… night side needs geographically correct lights… geological features visible."
+  Re-read the FULL design canvas (all 1238 lines + `globe-scene.js`) — key concepts beyond colors: halo peaks at
+  ~5% alpha (restraint IS the look), oblique off-center framing, idle drift 0.035°/frame pause-on-interaction
+  resume-8s, "terrain resolves" during descent. PROJECT_SEED §2 confirmed the complaints are the founding spec
+  ("cinematic low-earth-orbit angle… NOT messy half-baked semi-realistic textures"). Rebuilt `StylizedTiles.ts`:
+  (a) **base earth = NASA Blue Marble July topo+bathy 5400²** (`earth-color.jpg`, public domain, record 73751)
+  mixed 58% organic over the sage duotone ramp (deserts/ice/bathymetry READ, stylized tone kept) + **VIIRS night
+  lights 3600²** (`earth-night.jpg`) as warm `cityLights` emissive on the dark side (li² contrast, land-masked);
+  colour maps are `SRGBColorSpace` (real imagery), data maps stay `NoColorSpace`; hash dither kills banding.
+  (b) **atmosphere = ray-based exponential falloff** (`exp(-h/H)` off the view ray's closest-approach altitude;
+  H=60 km teal line + 240 km Rayleigh-blue haze + faint air-wash on ground-hitting rays) — a fresnel rim peaks at
+  the SHELL silhouette which detaches from the limb at LEO (the "crude halo"); CRITICAL: render the shell's NEAR
+  hemisphere (DoubleSide + gl_FrontFacing + uInside) because GlobeControls' dynamic far plane (3.9e6 m at LEO)
+  clips the far hemisphere (same trap that once hid the starfield — glow was invisible even at intensity 3).
+  (c) **default POV = LEO spacecraft**: cam (46.0N, 31.3E, 1100 km) → target (53.2N, 41.3E, 0) via
+  `getCartographicToPosition`, up = radial (limb + halo in top quarter), + **idle orbital drift** at ISS pace
+  (0.0011°/frame about ECEF +Z, pause on pointer/wheel/touch, resume after 8 s, off for reduceMotion, gated
+  >400 km). (d) **ground = Esri World Imagery z19** (swapped from Carto dark_all) via XYZTilesOverlay; each tile's
+  MeshBasicMaterial gets a CHAINED onBeforeCompile (never assign — TilesFadePlugin already wrapped it): palette
+  grade (desat 0.52 · gain 0.56 · cool cast) + SAME half-lambert sun shading as the base (continuous terminator) +
+  blue-dominance water darkening ×0.35 (Esri's bright seas stay near-black per palette) + **global screen-door
+  bayer dissolve** `uFtwFade` 0→1 over 2600→1400 km (active <3000 km) — detail grows organically out of the
+  stylized earth, NO switch. (e) **stars sized by limb tangent distance** `sqrt(alt·(2R+alt))` not 1.05·alt
+  (oblique POV put star specks IN FRONT of far terrain), clamped ≤0.9·camera.far; fade 250–700 km. (f) altitude
+  gates now use `WGS84_ELLIPSOID.getPositionElevation` (spherical `length()-a` is ~21 km off at mid-lat).
+  (g) tokens: +`atmosphereDeep #4A93D4`, +`cityLights #FFC36E` (tokens.css + regenerated bridge); attribution
+  swapped to `© Esri · Maxar · Earthstar Geographics · © OpenStreetMap contributors` (index.astro). Files:
+  `src/components/globe/StylizedTiles.ts`, `src/styles/tokens.css`, `src/lib/theme/tokens.ts`,
+  `src/pages/index.astro`, `public/textures/earth-color.jpg` (+2.5 MB), `public/textures/earth-night.jpg`
+  (+0.8 MB). `astro check` 0 · 35 tests green · **browser-VERIFIED**: LEO default reads as ISS-photo instrument;
+  orbit hero (July geology, dark seas, crisp halo, stars); night side shows real city lights (Mexico City/Texas/
+  California); 4 km + 2.2 km Dnipro oblique = thousands of grounded sage buildings over graded streets, near-black
+  river; b3dm + Esri tiles 200 OK. **UNVERIFIED:** drift pause/resume via real pointer events; crossfade feel
+  during a continuous live dive (checked at static altitudes; 50% bayer pattern visible at 1:1 mid-band); Esri
+  tile ToS for production (hackathon-standard endpoint — revisit before `wix release`); mobile memory (2
+  TilesRenderers + 5400² textures); CORS under `wix release`. Old uncommitted sage-palette retune kept as the
+  duotone skeleton under the organic layer.
 - **2026-07-10 — Claude Design round-trip CONFIRMED + token reconciliation imported (local-VERIFIED).**
   Post-restart, `/design consent` granted and `mcp__claude-design__list_projects` now returns "Frame the World"
   (`fb0d7afa-…`) — the killswitch fix is proven end-to-end (this was the reason for the restart). Read the design

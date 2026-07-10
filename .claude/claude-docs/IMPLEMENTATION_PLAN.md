@@ -12,10 +12,15 @@ where required, least-privilege · commit the sensor dataset + unit-test FOV/geo
 ---
 
 ## Phase 1 — Scaffold + deploy "hello globe"  ☑ DONE 2026-07-09 (browser-verified; `wix release` pending greenlight)
-**Status (2026-07-09):** App scaffolded & merged; Cesium OSM Buildings globe live in browser over Dnipro,
-with a stylized base ellipsoid (continent topology), lat/lon graticule, accent atmosphere rim, and a
-restrained ECEF star-field; ion token in `.env.local` (gitignored); zoomSpeed = 5 makes trackpad pinch
-usable; `astro check` + `wix build` green. **`wix release` deferred pending user greenlight.** → **Phase 2.**
+**Status (2026-07-09):** App scaffolded & merged; Cesium OSM Buildings globe live in browser over Dnipro;
+ion token in `.env.local` (gitignored); `astro check` + `wix build` green. **`wix release` deferred pending
+user greenlight.** → **Phase 2.**
+**Amendment (2026-07-10, owner-directed globe overhaul — browser-VERIFIED):** the Phase-1 globe was rebuilt
+to the seed's signature scene: LEO default POV + idle orbital drift; organic base (NASA Blue Marble July
+graded into the palette + VIIRS night lights + relief); ray-based altitude-adaptive atmosphere; a SECOND
+TilesRenderer draping palette-graded Esri World Imagery (z19) that dissolves in 2600→1400 km (progressive
+detail, no hard switch); dark edge-stroked buildings sunk 90 m (terrain-clamp offset, Dnipro-specific until
+real terrain). Details: DECISIONS 2026-07-10 · `mem:patterns/globe-rendering`.
 **Scope:** scaffold Wix headless Astro into this repo (preserve the existing `.git` — scaffold to a temp
 subdir, move files up, keep one repo); add `three` + `3d-tiles-renderer`; render Cesium OSM Buildings globe
 with `GlobeControls` in a `client:only` island; deploy to Wix.
@@ -26,7 +31,7 @@ zoom over a test city (try **Dnipro**); ion token loads asset 96188.
 --site-template`; `npm install --legacy-peer-deps`; `env pull --json` writes `WIX_CLIENT_ID`; put a Cesium
 ion API token in env (not committed).
 
-## Phase 2 — EXIF + decode pipeline  ☐
+## Phase 2 — EXIF + decode pipeline  ☑ *(DONE 2026-07-10, browser-VERIFIED: exifr + libraw-wasm@1.0.5 pinned single-threaded + libheif-js in a disposable Worker; ARW 4.8 s → 3136×2084 texture, HEIC 0.4 s, embedded preview ~120 ms; mobile benchmark carried below; see `mem:patterns/upload-flow` + DECISIONS)*
 **Scope:** upload dropzone; `exifr` metadata + embedded-JPEG instant preview; `libraw-wasm` full decode in a
 Worker; HEIC feature-detect + `libheif-js` fallback; sensor DB + FOV computation; WASM assets in `public/wasm/`.
 **DoD:** a Sony ARW and an iPhone HEIC both yield metadata + a decoded display texture; missing heading/pitch

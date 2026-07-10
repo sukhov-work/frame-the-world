@@ -26,15 +26,19 @@
   --color-warn: #e8a268;
 
   /* Globe — FENCED (D14): browser-tuned in-scene values, NOT owned by the design canvas.
-     The design board's globe/land #7A8E84 + globe/water #0A1118 are designer approximations;
-     the values below are the Playwright-verified render palette (Phase 1 polish take-2). */
-  --color-land: #38495b; /* cool slate continents (land fill) */
-  --color-land-hi: #4e6072; /* rolling-terrain relief + OSM building tint */
-  --color-peak: #7c8ea0; /* high-terrain sheen (Himalaya/Andes/ice), cartographic not blown-out */
-  --color-water: #0f2233; /* deep blue-slate ocean — reads as a sphere against space */
-  --color-atmosphere: #38e1d0; /* limb halo — cyan-teal per brief; swap to Rayleigh blue (#4a93d4) to reserve the accent for signal only */
-  --color-graticule: #2a3e4e; /* neutral cool lat/lon grid line (not the accent, so pins still pop) */
+     2026-07-10 owner-authorized retune TOWARD the design board's sage-grey/near-black intent
+     (globe/land #7A8E84 · globe/water #0A1118): land ramp adopts the sage hue but stays darker
+     than the raw swatch (elevation-ramp headroom + night-floor legibility), water darkens to the
+     midpoint (near-black reads as space; ocean must still separate from bg #05070B). */
+  --color-land: #53655c; /* sage-slate continents (design hue, cartographic lightness) */
+  --color-land-hi: #687d73; /* rolling-terrain relief + OSM building emissive tint */
+  --color-peak: #8fa097; /* high-terrain sheen + OSM building fill — light sage, not blown-out */
+  --color-water: #0c1822; /* deep near-black ocean — darker per design, still reads against space */
+  --color-atmosphere: #38e1d0; /* limb halo, tight bright lobe — cyan-teal per brief */
+  --color-atmosphere-deep: #4a93d4; /* limb halo, broad soft lobe — Rayleigh blue (also day-side limb scattering) */
+  --color-graticule: #2f4045; /* neutral teal-grey lat/lon grid line (not the accent, so pins still pop) */
   --color-star: #dde6f2; /* cool near-white starfield */
+  --color-city-lights: #ffc36e; /* night-side VIIRS city lights — warm sodium, geographically real */
   --color-golden-hour: #ffb865; /* design: golden tint — appears only in-scene at golden hour */
 
   /* Type (design board 02) — Space Grotesk for UI, IBM Plex Mono for readouts */

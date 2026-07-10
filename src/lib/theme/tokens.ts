@@ -15,13 +15,15 @@ export const tokens = {
   textMuted: '#5B6472',
   accent: '#38E1D0', // luminous cyan-teal — pin emissive / frustum / active states (RESERVED for signal)
   accent600: '#2FD1C4', // accent hover / pressed — pin focus, active frustum edge
-  land: '#38495B', // cool slate — continent fill on the stylized globe
-  landHi: '#4E6072', // rolling-terrain relief + OSM building tint
-  peak: '#7C8EA0', // high-terrain sheen (Himalaya/Andes/ice)
-  water: '#0F2233', // deep blue-slate ocean (reads as a sphere against deep space)
-  atmosphere: '#38E1D0', // limb-glow halo — cyan-teal per brief (swap to #4A93D4 Rayleigh blue to free the accent)
-  graticule: '#2A3E4E', // neutral cool lat/lon grid line
+  land: '#53655C', // sage-slate — continent fill (design hue #7A8E84 at cartographic lightness)
+  landHi: '#687D73', // rolling-terrain relief + OSM building emissive tint
+  peak: '#8FA097', // high-terrain sheen + OSM building fill (light sage, not blown-out)
+  water: '#0C1822', // deep near-black ocean (design-darkened; still separates from bg in space)
+  atmosphere: '#38E1D0', // limb halo, tight bright lobe — cyan-teal per brief
+  atmosphereDeep: '#4A93D4', // limb halo, broad soft lobe — Rayleigh blue + day-side limb scattering
+  graticule: '#2F4045', // neutral teal-grey lat/lon grid line
   star: '#DDE6F2', // cool near-white starfield
+  cityLights: '#FFC36E', // night-side VIIRS city lights — warm sodium, geographically real
   goldenHour: '#FFB865', // warm sun-driven tint
 } as const;
 

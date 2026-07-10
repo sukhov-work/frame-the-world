@@ -1,18 +1,22 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import GlobeCanvas from "../components/globe/GlobeCanvas";
+import UploadFlow from "../components/panels/UploadFlow";
 ---
 
 <Layout title="Frame the World">
   <!-- client:only="react" — the WebGL globe is NEVER server-rendered (constraint C4) -->
   <GlobeCanvas client:only="react" />
 
+  <!-- Upload flow overlay (design board 05) — opened by any [data-open-upload] element -->
+  <UploadFlow client:only="react" />
+
   <header class="topnav">
     <span class="logo">Frame&nbsp;the&nbsp;World</span>
     <nav>
-      <!-- routes arrive in later phases (upload=P2, explore=P3, sign-in=P5) -->
+      <!-- routes arrive in later phases (explore=P3, sign-in=P5) -->
       <a href="#">Explore</a>
-      <a href="#">Upload</a>
+      <a href="#upload" data-open-upload>Upload</a>
       <a href="#">Sign in</a>
     </nav>
   </header>
@@ -22,12 +26,12 @@ import GlobeCanvas from "../components/globe/GlobeCanvas";
     <p>Upload a RAW. Watch it project onto the planet.</p>
   </section>
 
-  <!-- Map-tile attribution (required by the CARTO + OpenStreetMap terms for the close-zoom basemap). -->
+  <!-- Map-tile attribution: Esri World Imagery (close-zoom ground) + OpenStreetMap (3D buildings). -->
   <a
     class="map-credit"
-    href="https://carto.com/attributions"
+    href="https://www.esri.com/"
     target="_blank"
-    rel="noopener noreferrer">© OpenStreetMap contributors © CARTO</a>
+    rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · © OpenStreetMap contributors</a>
 </Layout>
 
 <style>

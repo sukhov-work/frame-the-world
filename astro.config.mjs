@@ -18,4 +18,17 @@ export default defineConfig({
   },
 
   output: "server",
+
+  vite: {
+    // libraw-wasm resolves its .wasm sibling off import.meta.url at runtime; esbuild pre-bundling
+    // would relocate the module and break that path in dev. The libheif bundle is only imported
+    // inside the decode worker, which Vite's startup scanner never crawls — pre-bundle it here or
+    // its first use mid-session triggers "optimized dependencies changed" and a full page reload.
+    optimizeDeps: {
+      exclude: ["libraw-wasm"],
+      include: ["libheif-js/libheif-wasm/libheif-bundle.mjs"],
+    },
+    // The decode worker dynamic-imports its wasm decoders (code-split), which iife workers can't do.
+    worker: { format: "es" },
+  },
 });

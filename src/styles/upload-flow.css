@@ -1,0 +1,597 @@
+/* UploadFlow — design boards 05 (drop → review → place) + 04 (slider idiom).
+   All colour flows through tokens.css vars; spacing on the 4px base; radii 8/10/14/pill;
+   motion: panels 400ms · micro 180ms · easing cubic-bezier(.65,0,.35,1) — no springs. */
+
+.uf {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  animation: uf-enter 400ms cubic-bezier(0.65, 0, 0.35, 1);
+  overflow-y: auto;
+}
+@keyframes uf-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .uf {
+    animation: none;
+  }
+}
+
+.uf-mono {
+  font-family: var(--font-mono);
+}
+.uf-accent {
+  color: var(--color-accent);
+}
+.uf-link {
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* ── Top bar: ← GLOBE pill · brand · step indicator ─────────────────────────── */
+.uf-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 28px 40px;
+  flex: none;
+}
+.uf-top__left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.uf-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: rgba(11, 15, 20, 0.75);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease;
+}
+.uf-pill:hover {
+  border-color: var(--color-accent);
+}
+.uf-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.uf-brand__mark {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.uf-brand__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgba(56, 225, 208, 0.9);
+}
+.uf-brand__name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+}
+.uf-steps {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+.uf-steps__group {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.uf-steps__dash {
+  color: var(--color-border);
+}
+.uf-steps__step {
+  color: var(--color-text-muted);
+}
+.uf-steps__step--active {
+  color: var(--color-accent);
+}
+
+/* ── Drop step ───────────────────────────────────────────────────────────────── */
+.uf-dropstep {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 40px 44px;
+  box-sizing: border-box;
+  gap: 28px;
+}
+.uf-dropzone {
+  flex: 1;
+  min-height: 320px;
+  border: 1px dashed #2a3140;
+  border-radius: 16px;
+  background: rgba(11, 15, 20, 0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+.uf-dropzone--over,
+.uf-dropzone:hover {
+  border-color: var(--color-accent);
+}
+.uf-dropzone--over {
+  background: rgba(11, 15, 20, 0.8);
+}
+.uf-dropzone__icon {
+  width: 52px;
+  height: 52px;
+  border: 1.5px solid var(--color-accent);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent);
+  font-size: 22px;
+  box-shadow: 0 0 20px rgba(56, 225, 208, 0.25);
+}
+.uf-dropzone__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.uf-dropzone__title {
+  font-size: 22px;
+  font-weight: 500;
+}
+.uf-dropzone__sub {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+.uf-chips {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.uf-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 5px 10px;
+}
+.uf-privacy {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+
+/* ── Progress (shared: drop step + review file row) ─────────────────────────── */
+.uf-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.uf-progress__row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.uf-bar {
+  height: 2px;
+  background: var(--color-border);
+  border-radius: 1px;
+  position: relative;
+}
+.uf-bar__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 2px;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px rgba(56, 225, 208, 0.55);
+}
+.uf-progress__hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+/* Embedded-JPEG instant preview shown while the WASM decode runs. */
+.uf-progress__thumb {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  opacity: 0.85;
+}
+
+/* ── Review step ────────────────────────────────────────────────────────────── */
+.uf-review {
+  display: flex;
+  gap: 56px;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 12px 64px 48px;
+  box-sizing: border-box;
+  align-items: flex-start;
+}
+.uf-review__left {
+  flex: none;
+  width: 560px;
+  max-width: 46vw;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.uf-review__right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.uf-h2 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 500;
+}
+.uf-body {
+  margin: 0;
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+.uf-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 14 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-raise);
+}
+.uf-preview__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.uf-preview__placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 14px,
+    rgba(35, 41, 53, 0.35) 14px 15px
+  );
+}
+.uf-preview__note {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.uf-filerow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Metadata grid (board 05 right column) */
+.uf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.uf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.uf-field__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.uf-field__label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+}
+.uf-field__label--hot {
+  color: var(--color-text);
+}
+.uf-field__value {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--color-bg-raise);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.uf-field__value--empty {
+  color: var(--color-text-muted);
+}
+
+.uf-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.uf-badge--accent {
+  color: var(--color-accent);
+}
+.uf-badge--warn {
+  color: var(--color-warn);
+}
+.uf-badge--dim {
+  color: var(--color-text-secondary);
+}
+
+/* Adjust section (board 04 idiom) */
+.uf-adjust {
+  background: rgba(18, 22, 28, 0.93);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 18px 24px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.uf-adjust__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #1a202a;
+}
+.uf-adjust__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+}
+.uf-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgba(56, 225, 208, 0.9);
+}
+.uf-reset {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.uf-reset:hover {
+  color: var(--color-accent-600);
+}
+
+.uf-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid #14181f;
+}
+.uf-slider__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.uf-slider__label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+}
+.uf-slider__value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-text);
+}
+.uf-slider__track {
+  position: relative;
+  height: 16px;
+  cursor: ew-resize;
+  touch-action: none;
+  outline-offset: 4px;
+}
+.uf-slider__rail {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-border);
+  border-radius: 1px;
+}
+.uf-slider__fill {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  height: 2px;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px rgba(56, 225, 208, 0.55);
+}
+.uf-slider__knob {
+  position: absolute;
+  top: 2px;
+  margin-left: -6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text);
+  border: 2px solid var(--color-accent);
+  box-sizing: border-box;
+}
+.uf-slider--unset .uf-slider__fill {
+  display: none;
+}
+.uf-slider--unset .uf-slider__knob {
+  opacity: 0.35;
+  border-color: var(--color-text-muted);
+}
+
+.uf-fov {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding-top: 14px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+}
+.uf-fov__hint {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+/* Notice + actions */
+.uf-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: rgba(11, 15, 20, 0.6);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+.uf-notice__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-warn);
+}
+.uf-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+.uf-btn {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  padding: 14px 26px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  transition: filter 180ms ease, border-color 180ms ease;
+}
+.uf-btn--primary {
+  background: var(--color-accent);
+  color: #04211d;
+  font-weight: 600;
+}
+.uf-btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-600);
+}
+.uf-btn--primary:disabled {
+  filter: saturate(0.35) brightness(0.6);
+  cursor: not-allowed;
+}
+.uf-btn--ghost {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+.uf-btn--ghost:hover {
+  border-color: var(--color-text-secondary);
+}
+.uf-actions__hint {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+}
+
+/* Narrow screens: single column, review scrolls */
+@media (max-width: 1100px) {
+  .uf-review {
+    flex-direction: column;
+    padding: 12px 24px 48px;
+    gap: 32px;
+  }
+  .uf-review__left {
+    width: 100%;
+    max-width: none;
+  }
+  .uf-top {
+    padding: 20px 24px;
+  }
+  .uf-steps {
+    display: none;
+  }
+}
