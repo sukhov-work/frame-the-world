@@ -5,7 +5,9 @@
 .pd {
   position: fixed;
   top: 84px;
-  right: 24px;
+  /* left-docked: the right column belongs to the camera controls (CAM TILT/ROTATE/ZOOM) —
+     the grown Phase-5 panel (SAVE PIN section) was overlapping them */
+  left: 24px;
   z-index: 30;
   width: 360px;
   max-height: calc(100vh - 120px);
@@ -25,7 +27,7 @@
 @keyframes pd-enter {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateX(-16px);
   }
   to {
     opacity: 1;

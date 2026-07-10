@@ -118,6 +118,41 @@ export function photoRecord(body: SavePinBody, ownerMemberId: string): Record<st
   };
 }
 
+/** Slim owner-facing list row for GET /api/photos (the rudimentary "My pins" list). The
+ *  owner sees their own exact data — C6 governs PUBLIC records, not this member-only view. */
+export interface PhotoListItem {
+  id: string;
+  title: string;
+  previewUrl: string | null;
+  capturedAt: string | null;
+  lat: number | null;
+  lon: number | null;
+  isPublic: boolean;
+  publicPrecision: string | null;
+  createdAt: string | null;
+}
+
+export function photoListItem(item: Record<string, unknown>): PhotoListItem | null {
+  if (typeof item._id !== "string") return null;
+  const created = item._createdDate;
+  return {
+    id: item._id,
+    title: typeof item.title === "string" ? item.title : "Untitled",
+    previewUrl: typeof item.previewUrl === "string" ? item.previewUrl : null,
+    capturedAt: typeof item.capturedAt === "string" ? item.capturedAt : null,
+    lat: typeof item.lat === "number" ? item.lat : null,
+    lon: typeof item.lon === "number" ? item.lon : null,
+    isPublic: item.isPublic === true,
+    publicPrecision: typeof item.publicPrecision === "string" ? item.publicPrecision : null,
+    createdAt:
+      created instanceof Date
+        ? created.toISOString()
+        : typeof created === "string"
+          ? created
+          : null,
+  };
+}
+
 /**
  * The world-readable PublicPins row (C6). Location fields derive exclusively from
  * `reduceLocation(exact, tier)` — for reduced tiers that is the geohash cell CENTER, so the
