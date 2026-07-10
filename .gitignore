@@ -28,6 +28,9 @@ test/fixtures/**/*.heic
 # --- Playwright MCP scratch (screenshots / console / snapshot logs) ---
 .playwright-mcp/
 
+# --- Browser-verification screenshots (every session writes here — NEVER the repo root) ---
+/verify-shots/
+
 # --- OS / editor ---
 .DS_Store
 *.log

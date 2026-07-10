@@ -20,6 +20,14 @@ Apache-2.0) + **Cesium OSM Buildings (ion asset 96188)** via `CesiumIonAuthPlugi
 + `GlobeControls`. Stylization = `load-model` traverse + material swap (`dispose-model` cleanup); **not**
 `BatchedTilesPlugin`. Precision = re-center tiles group near origin (ReorientationPlugin / CESIUM_RTC) +
 `GlobeControls` dynamic near/far. Google Photorealistic 3D Tiles = optional unmodified "realistic mode" only (C5).
+**2026-07-10 addition (browser-VERIFIED):** the visual layer is three co-registered elements on WGS84 —
+(1) a self-lit base-earth ShaderMaterial (NASA Blue Marble July + VIIRS night lights + relief, graded via GL
+tokens), (2) a **second `TilesRenderer`** draping palette-graded **Esri World Imagery** (z19) via
+`GeneratedSurfacePlugin` + `XYZTilesOverlay`, screen-door-dissolved in by altitude (progressive detail, no
+LOD switch; Esri production ToS = TODO-VERIFY before release), (3) the OSM building tiles (dark slate +
+`EdgesGeometry` strokes), sunk 90 m to cancel their Cesium-World-Terrain clamp until real terrain lands.
+Default camera = LEO oblique + idle orbital drift (the seed's signature scene). Mechanics:
+`mem:patterns/globe-rendering`.
 
 ## 3. Decode pipeline (ADR D3) [VERIFIED pipeline; UNVERIFIED threads]
 `exifr` embedded-JPEG instant preview (<100ms target) → `libraw-wasm` full demosaic in a **Web Worker**

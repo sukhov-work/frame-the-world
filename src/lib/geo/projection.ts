@@ -94,9 +94,77 @@ export function frustumPose(
   };
 }
 
+/** Geodetic point (degrees / metres above the ellipsoid). */
+export interface Geodetic {
+  latDeg: number;
+  lonDeg: number;
+  altM: number;
+}
+
+/**
+ * ECEF metres → geodetic. Bowring's method seeds the latitude (exact on the surface), then two
+ * fixed-point refinements (tanφ = (z + e²·N·sinφ)/ρ) tighten it for high-altitude points — the
+ * camera flight converts poses at up to LEO altitude, where one-step Bowring is ~6e-8° off.
+ * Pole-guarded.
+ */
+export function ecefToGeodetic(p: Vec3): Geodetic {
+  const [x, y, z] = p;
+  const rho = Math.hypot(x, y); // distance from the polar axis
+  if (rho < 1e-6) {
+    // On the polar axis the longitude is undefined — return 0 by convention.
+    return { latDeg: z >= 0 ? 90 : -90, lonDeg: 0, altM: Math.abs(z) - WGS84_B };
+  }
+  const ePrime2 = (WGS84_A * WGS84_A - WGS84_B * WGS84_B) / (WGS84_B * WGS84_B);
+  const theta = Math.atan2(z * WGS84_A, rho * WGS84_B);
+  const sinT = Math.sin(theta);
+  const cosT = Math.cos(theta);
+  let lat = Math.atan2(
+    z + ePrime2 * WGS84_B * sinT * sinT * sinT,
+    rho - WGS84_E2 * WGS84_A * cosT * cosT * cosT,
+  );
+  let n = WGS84_A;
+  for (let i = 0; i < 2; i++) {
+    const sinLat = Math.sin(lat);
+    n = WGS84_A / Math.sqrt(1 - WGS84_E2 * sinLat * sinLat);
+    lat = Math.atan2(z + WGS84_E2 * n * sinLat, rho);
+  }
+  const altM = rho / Math.cos(lat) - n;
+  return { latDeg: lat / DEG, lonDeg: Math.atan2(y, x) / DEG, altM };
+}
+
+/**
+ * First intersection of a ray with the WGS84 ellipsoid surface, or null when the ray misses.
+ * Used by click-to-place: camera origin + pointer ray → geodetic location (via `ecefToGeodetic`).
+ * Solved in scaled space (z·a/b) where the ellipsoid becomes a sphere of radius a.
+ */
+export function rayEllipsoidIntersect(origin: Vec3, dir: Vec3): Vec3 | null {
+  const s = WGS84_A / WGS84_B;
+  const ox = origin[0], oy = origin[1], oz = origin[2] * s;
+  const dx = dir[0], dy = dir[1], dz = dir[2] * s;
+  const a = dx * dx + dy * dy + dz * dz;
+  const b = 2 * (ox * dx + oy * dy + oz * dz);
+  const c = ox * ox + oy * oy + oz * oz - WGS84_A * WGS84_A;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const sq = Math.sqrt(disc);
+  // smallest positive root = the near surface (the far root is the back of the planet)
+  const t0 = (-b - sq) / (2 * a);
+  const t1 = (-b + sq) / (2 * a);
+  const t = t0 > 0 ? t0 : t1 > 0 ? t1 : NaN;
+  if (!Number.isFinite(t)) return null; // ellipsoid entirely behind the origin
+  return [origin[0] + t * dir[0], origin[1] + t * dir[1], origin[2] + t * dir[2]];
+}
+
 // --- tiny vec3 helpers (kept local so this module stays three-free) ---------------------------------------
 export function add(a: Vec3, b: Vec3): Vec3 {
   return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+export function cross(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
 }
 export function scale(a: Vec3, s: number): Vec3 {
   return [a[0] * s, a[1] * s, a[2] * s];

@@ -9,41 +9,112 @@ render + projection math all in-browser); Wix is a thin backend (auth/Data/Media
 Owner: Yevhen. Hackathon build. Language: TypeScript + Astro. No SSH/prod box — "prod" is Wix cloud via `wix release`.
 
 ## Status
-**Phase 1 DONE + globe polish take-2 (2026-07-09, browser-VERIFIED via Playwright).** Cesium OSM Buildings
-globe live in `wix dev` over Dnipro (ion asset 96188). The first "closed" pass rendered near-black; it was
-diagnosed + rebuilt (5-agent research workflow) into a real "premium instrument" backdrop: a **mask-driven
-land/ocean ShaderMaterial** base (continents read + are geo-correct — `public/textures/earth-landmask.png`
-derived from the topology by threshold-0; peaks brighter via the elevation channel; `uNightFloor` keeps the
-dark side readable), a **fresnel cyan-teal atmosphere** rim, a **camera-following star-field** (fixed the
-far-plane clipping that hid it), a **real lat/lon LineSegments graticule** (hemisphere-discard so it vanishes
-inside), the base at **exact WGS84 + polygonOffset** so OSM buildings sit on the ground (was floating 3.2 km),
-`NeutralToneMapping`, a **150 km altitude gate** that hides orbit-only decoration at city zoom, and
-`zoomSpeed = 5`. Data textures are `NoColorSpace` (the sRGB tag was a bug). New GL tokens (peak/atmosphere/
-graticule/star; retuned water/land/landHi). `three@0.185.0` + `3d-tiles-renderer@0.4.28`; `astro check` 0
-errors. Full mechanics + gotchas in **`mem:patterns/globe-rendering`**. Live site:
-`frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
+**Phase 1 DONE + globe OVERHAUL (2026-07-10, browser-VERIFIED via Playwright at LEO/orbit/night/mid/city).**
+The globe is now the seed's signature scene: **default POV = spacecraft in LEO** (1,100 km oblique over
+Dnipro, limb + halo in top quarter, ISS-pace idle drift w/ pause-on-interaction resume-8s), base earth =
+**NASA Blue Marble July (organic geology) graded into the sage duotone** + **VIIRS night-side city lights**
++ normal relief, atmosphere = **ray-based exp-falloff limb glow** (near-hemisphere shell — the dynamic far
+plane clips the far one), ground = **Esri World Imagery z19** palette-graded + sun-shaded + water-darkened,
+screen-door-dissolving in 2600→1400 km so detail grows organically (no hard switch) under the OSM buildings.
+Four owner fixes same day (browser-VERIFIED): buildings = dark `surface` slate + per-tile EdgesGeometry lit
+strokes (design idiom); halo altitude-adaptive (`uOrbit`: outer orbit 1/10 width + bluer); `tiles.group` sunk
+90 m (OSM buildings are Cesium-World-Terrain-clamped → floated above the ellipsoid drape; Dnipro-specific
+interim); night floors 0.32/0.45.
+Textures: `earth-color.jpg` (5400², July topo+bathy) + `earth-night.jpg` (VIIRS) — colour maps sRGB, data
+maps NoColorSpace. New tokens `atmosphereDeep`/`cityLights`. Full mechanics + traps (far-plane clip, chained
+onBeforeCompile, geodetic-vs-spherical altitude): **`mem:patterns/globe-rendering`**. `astro check` 0 ·
+35 tests green. UNVERIFIED: Esri ToS for production, mobile memory, live-dive crossfade feel, `wix release` CORS.
+**Design system imported (2026-07-10)** — chrome tokens + fonts in `tokens.css` + GL bridge
+(`mem:patterns/design-system`). **UploadFlow UI SHIPPED (2026-07-10, browser-VERIFIED)** — board-05 overlay
+(`panels/UploadFlow.tsx` + `ui/Slider.tsx` + `store/upload.ts` zustand ingest spine + `lib/decode/extract.ts`
+STUB contract + `lib/format/readout.ts`), D4 provenance badges, double-click-reset sliders, derived H-FOV;
+canvas push-back done (`Shipped - Upload Flow.dc.html`); 61 tests green; `mem:patterns/upload-flow`.
+**Phase 2 decode SHIPPED (2026-07-10, browser-VERIFIED)** — exifr metadata (2 ms, TZ-naive dates) +
+embedded-thumb instant preview + **libraw-wasm@1.0.5 EXACT-pinned** (1.1.2+ = pthreads/SAB = COOP/COEP —
+unusable on unverified Wix hosting) in a disposable per-file Worker (halfSize decode 26 MP ≈ 4.8 s →
+3136×2084 texture; worker terminated = memory freed) + libheif-js HEIC fallback. 76 tests · build green.
+Mechanics + Vite traps: `mem:patterns/upload-flow`.
+**Globe REFACTORED + Phase 3 SHIPPED (2026-07-10, browser-VERIFIED via Playwright on wix dev).**
+Refactor: every tunable → `globe/tuning.ts` (documented groups); scene split into
+`globe/scene/{baseEarth,graticule,atmosphere,stars,buildings,imageryGround}.ts` attach-modules +
+`scene/glsl.ts` (`glf` GLSL-literal injection); StylizedTiles = ~230-line orchestrator; new
+convention `.claude/conventions/globe-tuning.md`; WGS84 + SUN constants deduped. Phase 3:
+`lib/geo/frustum.ts` (pure, 20 tests) + `ecefToGeodetic`/`rayEllipsoidIntersect` in projection.ts;
+`globe/PhotoFrustum.ts` (apex-relative float32-safe geometry, vanilla zustand) + `globe/flight.ts`
+(2.2 s bezier flight, reduced-motion cut) + click-to-place (crosshair + ray-pick); store placement
+machine (review→placed | placing→placed) + `derivedFov` (ONE H-FOV derivation for UI + frustum);
+`panels/PhotoDetailPanel.tsx` docked tweak panel (light board-04; full design import deferred).
+Verified: fixture heading 214°/H-FOV 73.7° at Dnipro; re-projection 0.018 ms/update; ARW
+click-to-place with decoded texture; Escape/placing; **104 vitest · astro check 0 · wix build
+green**. Mechanics: `mem:patterns/photo-frustum`.
+**Pre-Phase-4 sky+terrain SHIPPED (2026-07-10, browser-VERIFIED via Playwright).** Ephemeris
+(astronomy-engine 2.1.19 EXACT, JPL-Horizons-tested ±0.05°) now drives EVERYTHING from scene time
+(`store/time.ts` LIVE/PINNED + `panels/TimeReadout` HUD): real sun/moon ECEF directions →
+terminator + building key light + atmosphere + moonlight (phase-scaled); sun + moon render as
+camera-anchored true-angular-size impostors (`scene/sky.ts` — impostor dist MUST clamp ≥1.2·near);
+soft bloom (EffectComposer HalfFloat+MSAA4 → UnrealBloom 0.4/0.5/0.9 → OutputPass; night floors
+0.22/0.38); sun shadows at city zoom (PCF 2048², ortho follows view focus, buildings cast+receive,
+terrain gets ShadowMaterial twins — shadow contrast, not the pipeline, is the usual "bug");
+**real 3D terrain** = Cesium World Terrain (ion asset 1, QuantizedMeshPlugin via assetTypeHandler)
++ Esri via ImageOverlayPlugin — 90 m building sink REMOVED, `terrainHeightAt()` raycast + frustum
+`resnap()` (EXIF altitude = absolute, clamped above ground; manual = above rendered ground).
+Rule: browser screenshots → `verify-shots/` (git-ignored). 113 vitest · astro check 0.
+Mechanics + traps: `mem:patterns/sky-bodies-terrain`.
+**Owner UX pass SHIPPED (2026-07-10, browser-VERIFIED via scripted Chrome — Playwright MCP was
+wedged):** gradual zoom verticality (zoomTiltKeep 0.35 counter-rotation) + banked/eased zoomDelta
++ altitude zoom braking + dampingFactor 0.28 inertia + POSE 38° depression (more horizon) + NEW
+declination slider (`store/camera.ts` + `panels/CameraTiltPanel.tsx`); moon/sun per-fragment
+analytic horizon-occlusion fade (was clipping through the planet) + moonBrightness 1.8; soft
+adaptive tile loading (fadeRootTiles/700 ms/300 cap + loadProgress-gated reveal + adaptive
+errorTarget 2↔12 + overlay retry). Camera mechanics: `mem:patterns/globe-rendering`; sky/loading:
+`mem:patterns/sky-bodies-terrain`.
+**Phase 4 remainder SHIPPED (2026-07-10, browser-VERIFIED via Playwright MCP):** TimeScrubber
+±12 h rail (drag pins via `setTime`, NOW resumes, EXIF `capturedAt` seeds the pin as SOLAR time at
+placement longitude — `lib/ephemeris/captureTime.ts`); golden-hour bell grade (tuning.GOLDEN, one
+sin-elevation curve: earth/ground/atmosphere GLSL twins + key light lerp to tokens.goldenHour via
+`lib/ephemeris/golden.ts`, focus ray hoisted out of the shadow gate); REAL BSC5 star field
+(`public/data/bsc5.bin` 9,096×[x,y,z,vmag,bv] via `scripts/build-star-catalog.mjs`, star sphere
+`rotation.z = −GAST`, `bodyStatesAt` returns `gastRad`). IMPLEMENTATION_PLAN §Phase 4 ☑ (planets
+not rendered). Mechanics + traps: `mem:patterns/sky-bodies-terrain` §Phase-4 remainder.
+**Pre-Phase-5 owner fix batch SHIPPED (2026-07-10, browser-VERIFIED via Playwright MCP):** narrow
+~9° terminator (EARTH.termBand twins in baseEarth+ground; lightsBand replaces nightBand); ROTATE +
+ZOOM global sliders (store/camera 3 target/mirror pairs; glides share ONE view-focus frame —
+getPivotPoint returns null on horizon views, trap); high-alt Esri patchwork fixed (fade band →
+1.6e6/650e3 + uFtwHiAlt desat harmonizer); projection arrival near-horizontal (FLIGHT 4.2/0.45) +
+photo plane 70% opacity default + PLANE ALPHA slider (store/upload.planeOpacity); low-altitude
+light-blue day sky + horizon haze in the atmosphere shader (camera-anchored dome below 350 km —
+far-plane trap) + stars gated by sun elevation at low alt + 14k-point Milky Way at real galactic
+coords as a star-sphere child (sub-pixel points render NOTHING — sizes ≥2 px). Tokens skyDay/
+skyHorizon/milkyWay added. Mechanics: `mem:patterns/sky-bodies-terrain` §Pre-Phase-5 +
+`mem:patterns/globe-rendering` §Manual sliders. **Owner batch #2 same day (browser-VERIFIED):**
+multiday scrubber (date `<input>` in the rail; `withLocalDate`/`localDateStr` in store/time;
+Dec-21 jump verified subsolar −23.44°); shadows 4096²/1600 m/radius 2/opacity 0.75 + tokens.water
+tint (mask always crisp — CONTRAST is the dark-palette ceiling); Esri patchwork root cause =
+mosaic seams baked in the low/mid-zoom SOURCE imagery → fade band 750e3/380e3 + errorFarAlt
+750e3 (Blue Marble owns >750 km; default LEO spotless). 149 vitest · astro check 0 · wix build
+green. Mechanics: `mem:patterns/sky-bodies-terrain` §Owner batch #2.
+**Next step: Phase 5 — members + quota + save/public pins** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
+Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
-**Design system imported (2026-07-10)** — Claude Design round-trip confirmed; chrome tokens + Space Grotesk/
-IBM Plex Mono reconciled into `tokens.css` + GL bridge (`mem:patterns/design-system`). **Next step (owner-set
-order): (1) globe retune** — reconcile the design's sage-grey land / near-black water swatches against the
-browser-verified cartographic palette, finding the realism↔usability↔design boundary (owner-authorized globe
-change; Playwright-verify); **(2) UploadFlow UI** against design board 04 + zustand; **(3) Phase 2 decode**
-(`exifr` + `libraw-wasm` Worker + HEIC — needs fixtures + browser, do last). See `NEXT_SESSION_PROMPT.md`.
-`wix release` still pending user greenlight. UNVERIFIED: close-up oblique cityscape aesthetic (buildings load + are grounded
-by construction, but no street-level shot captured).
 
-## Source layout (target — globe + tokens built; decode/geo/ephemeris/wix/store/backend still to come)
-- `src/components/globe/` — client:only three.js scene (GlobeCanvas, StylizedTiles built; Frustum, Sky, Pins TBD). Design imports NEVER touch.
-- `src/components/panels|ui/` — EXIF panel, time scrubber, upload, AI. Design imports allowed.
-- `src/lib/{decode,geo,ephemeris,theme,wix}/` — worker decode, projection, geohash, GL token bridge (built), SDK clients.
-- `src/store/` — zustand reactive EXIF params (spine of real-time re-projection). `src/backend/` — thin HTTP endpoints.
-- `public/wasm/` — libraw/libheif assets. `public/textures/` — earth-topology (elevation) + earth-landmask. `test/` — vitest (FOV/geohash/projection).
+## Source layout (globe+frustum+upload built; ephemeris/wix/backend still to come)
+- `src/components/globe/` — client:only three.js scene. `tuning.ts` (ALL tunables, documented) ·
+  `scene/*` attach-modules (baseEarth/graticule/atmosphere/stars/buildings/imageryGround + glsl) ·
+  `StylizedTiles.ts` orchestrator · `PhotoFrustum.ts` + `flight.ts` (Phase 3) · GlobeCanvas. Sky,
+  Pins TBD. Design imports NEVER touch. Convention: `.claude/conventions/globe-tuning.md`.
+- `src/components/panels|ui/` — UploadFlow + PhotoDetailPanel + ui/Slider BUILT; time scrubber, AI TBD. Design imports allowed.
+- `src/lib/{decode,geo,format,ephemeris,theme,wix}/` — decode REAL (extract/exif/worker/workerClient/convert + sensors; libraw-wasm@1.0.5 pinned); geo REAL (projection incl. ecefToGeodetic + rayEllipsoidIntersect, frustum, geohash); readout formatters; GL token bridge; ephemeris + SDK clients TBD.
+- `src/store/` — zustand reactive EXIF params + placement machine (spine of real-time re-projection); `upload.ts` BUILT. `src/backend/` — thin HTTP endpoints (TBD).
+- (no `public/wasm/` — Vite emits `libraw-*.wasm` as a hashed asset; libheif wasm is inlined). `public/textures/` — earth-color (July topo+bathy) + earth-night
+  (VIIRS) + earth-topology (elevation) + earth-landmask + earth-normal. `test/` — vitest (FOV/geohash/projection).
 
 ## Key invariants (violations = bugs)
 - Globe is `client:only` — **never SSR WebGL**. Decode runs in a **Web Worker**; free RAW buffers immediately.
 - **Never fabricate a Wix API signature** — verify via Wix MCP. Keep endpoints thin (heavy compute client-side, C1).
-- Stylize tiles via `load-model` material swap, **not** `BatchedTilesPlugin`. Astro **5** only (not 6).
-- Globe/GL colour flows through `lib/theme/tokens.ts` (D14). Data textures = `NoColorSpace`. Fence design imports to panels/ui/styles.
+- Stylize tiles via `load-model` material swap, **not** `BatchedTilesPlugin`. On ground-imagery tiles,
+  **chain** onBeforeCompile (TilesFadePlugin already wrapped it). Astro **5** only (not 6).
+- Globe/GL colour flows through `lib/theme/tokens.ts` (D14). Colour textures = sRGB; data textures =
+  `NoColorSpace`. Fence design imports to panels/ui/styles.
 - **C6 privacy:** never expose exact GPS on a public pin (reduced precision: exact/1km/city).
 - No split payments → owner-mediated payout. Claude vision → JPEG only, never RAW. Wix Data → geohash, no geo query.
 
@@ -57,7 +128,8 @@ are the execution source of truth (distilled from `DEEP_RESEARCH.md` = provenanc
 - `mem:task_completion` — quality gate before done · `mem:project/dev_environment` — what can't be tested locally
 - `mem:project/wix-platform` — Wix mechanics + gotchas + TODO-VERIFY · `mem:project/wix-site` — live URL + siteId/appId
 - `mem:architecture/system-overview` — the engine + pipelines
-- `mem:patterns/globe-rendering` — how the stylized globe is built (land/ocean shader, decorations, grounding, gotchas)
+- `mem:patterns/globe-rendering` — how the organic LEO globe is built (bands, atmosphere, ground grade, traps)
+- `mem:patterns/sky-bodies-terrain` — ephemeris sun/moon, scene time, bloom, shadows, REAL terrain (current ground pipeline)
 - `mem:patterns/design-system` — imported Claude Design tokens/type/motion/screen boards (chrome; globe stays fenced)
 - `mem:decisions/adr-000-locked-stack` — the 15 locked ADRs · `mem:decisions/session_workflow` — persistence loop
 - `mem:memory_maintenance` — how to maintain this graph

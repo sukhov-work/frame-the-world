@@ -23,13 +23,18 @@ export const DEFAULT_SENSOR_WIDTH_MM = 23.5;
  * grouped by format at the bottom via `SENSOR_FORMAT_WIDTH_MM` used as a coarse fallback by make.
  */
 export const SENSOR_WIDTH_DB_MM: Readonly<Record<string, number>> = {
-  // Sony full-frame (Exmor 35.9 mm)
+  // Sony full-frame (Exmor 35.9 mm; 7R bodies 35.7 mm)
   "SONY ILCE-7M4": 35.9,
-  "SONY ILCE-7RM5": 35.9,
+  "SONY ILCE-7RM4": 35.7,
+  "SONY ILCE-7RM5": 35.7,
   "SONY ILCE-7CM2": 35.9,
-  // Sony APS-C (23.5 mm)
+  // Sony APS-C (23.5 mm; FX30 cine body 23.3 mm — the repo's ARW test fixture)
   "SONY ILCE-6700": 23.5,
   "SONY ILCE-6400": 23.5,
+  "SONY ILME-FX30": 23.3,
+  // Phones (main camera; phones also write FocalLengthIn35mmFormat so this is the manual-focal path)
+  "APPLE IPHONE 15 PRO": 9.8,
+  "APPLE IPHONE 15 PRO MAX": 9.8,
   // Canon
   "CANON EOS R5": 36.0,
   "CANON EOS R6M2": 35.9,

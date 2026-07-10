@@ -12,7 +12,7 @@ backend (auth, Data, Media, Pricing Plans, eCommerce, AI proxy).
 2. **`.claude/claude-docs/`** — `DECISIONS.md` (recent state, top-first) · `ARCHITECTURE.md` +
    `IMPLEMENTATION_PLAN.md` (repo-native working docs) · `PROJECT_SEED.md` + `DEEP_RESEARCH.md`
    (canonical provenance — intent & research) · `CLAUDE_DESIGN_MEMO.md` (design workflow).
-3. **`.claude/conventions/`** — `wix-headless.md` (the distilled Wix mechanics) · architecture · testing · naming · errors.
+3. **`.claude/conventions/`** — `wix-headless.md` (the distilled Wix mechanics) · architecture · testing · naming · errors · `globe-tuning.md` (globe scene modules + tunables contract).
 4. **Codebase**: Serena semantic tools → `Grep` → `Read`.
 5. **External**: Wix MCP / Wix Skills (framework APIs — never fabricate signatures), `gh` CLI, web.
 
@@ -42,6 +42,8 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - Release: `npx @wix/cli@latest build` → `npx @wix/cli@latest release`  (no SSH — "prod" is Wix cloud)
 - Auth: `npx @wix/cli@latest token --site "$SITE_ID"` (site-scoped REST; mint once, cache). `whoami` to check.
 - **Never claim done with failing tests or `astro check` errors.** Never fabricate a Wix API signature.
+- **Browser-verification screenshots go in `verify-shots/` (git-ignored) — NEVER the repo root.**
+  Pass the folder in the screenshot filename (e.g. `verify-shots/phase4-01-terminator.jpeg`).
 
 ## Hard Constraints (from PROJECT_SEED §3 — violations = bugs)
 - **C1 Client-heavy.** WASM RAW decode is the primary path; offload to the client. Server-side decode

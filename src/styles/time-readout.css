@@ -1,0 +1,92 @@
+/* TimeReadout — the scene-clock HUD (pre-Phase-4). Instrument idiom: IBM Plex Mono readout,
+   restrained glow (accent stays reserved for signal), sits bottom-right mirroring the hero.
+   All colour via tokens.css vars; motion: micro 180ms. */
+
+.tr {
+  position: fixed;
+  right: 1.6rem;
+  bottom: 2.2rem;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  text-align: right;
+  user-select: none;
+}
+
+.tr-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgba(56, 225, 208, 0.8);
+  animation: tr-breathe 3.2s ease-in-out infinite;
+}
+.tr-dot--pinned {
+  background: var(--color-warn);
+  box-shadow: 0 0 6px rgba(232, 162, 104, 0.8);
+  animation: none;
+}
+@keyframes tr-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tr-dot {
+    animation: none;
+  }
+}
+
+.tr-clock {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tr-mode {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--color-text-secondary);
+  padding: 2px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+}
+
+.tr-sub {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tr-phase {
+  color: var(--color-text-muted);
+  letter-spacing: 0.16em;
+}
+
+/* Keep clear of the hero on narrow viewports — readout wins the corner, hero wraps under it. */
+@media (max-width: 720px) {
+  .tr {
+    right: 1rem;
+    bottom: 4.4rem;
+  }
+  .tr-clock {
+    font-size: 16px;
+  }
+}
