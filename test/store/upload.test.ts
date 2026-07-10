@@ -140,3 +140,79 @@ describe("store ingest → adjust → reset", () => {
     expect(s.decodeProgress).toBe(0);
   });
 });
+
+describe("placement machine (Phase 3 — PLACE / SET ON GLOBE)", () => {
+  it("ingest seeds placement from GPS and carries the texture dimensions", () => {
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE, { textureWidth: 3136, textureHeight: 2084 }));
+    const s = useUploadStore.getState();
+    expect(s.placement).toEqual({ latDeg: 48.4647, lonDeg: 35.0462 });
+    expect(s.textureWidth).toBe(3136);
+    expect(s.textureHeight).toBe(2084);
+  });
+
+  it("falls back to EXIF pixel dimensions when no decoded texture exists", () => {
+    useUploadStore.getState().ingest(extracted({ ...EXIF_RAW, width: 9504, height: 6336 }));
+    const s = useUploadStore.getState();
+    expect(s.textureWidth).toBe(9504);
+    expect(s.textureHeight).toBe(6336);
+  });
+
+  it("place() with GPS goes straight to placed and closes the overlay", () => {
+    useUploadStore.setState({ open: true });
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE));
+    useUploadStore.getState().place();
+    const s = useUploadStore.getState();
+    expect(s.phase).toBe("placed");
+    expect(s.open).toBe(false);
+    expect(s.placement).toEqual({ latDeg: 48.4647, lonDeg: 35.0462 });
+  });
+
+  it("place() without GPS enters placing mode and waits for a globe click", () => {
+    const noGps: PhotoExif = { ...EXIF_RAW, gpsLat: undefined, gpsLon: undefined };
+    useUploadStore.getState().ingest(extracted(noGps));
+    useUploadStore.getState().place();
+    let s = useUploadStore.getState();
+    expect(s.phase).toBe("placing");
+    expect(s.placement).toBeUndefined();
+
+    useUploadStore.getState().setPlacement(48.47, 35.05);
+    s = useUploadStore.getState();
+    expect(s.phase).toBe("placed");
+    expect(s.placement).toEqual({ latDeg: 48.47, lonDeg: 35.05 });
+  });
+
+  it("place() is a no-op before review", () => {
+    useUploadStore.getState().place();
+    expect(useUploadStore.getState().phase).toBe("idle");
+  });
+
+  it("setPlacement while placed moves the pin (re-place)", () => {
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE));
+    useUploadStore.getState().place();
+    useUploadStore.getState().setPlacement(50.45, 30.52);
+    expect(useUploadStore.getState().placement).toEqual({ latDeg: 50.45, lonDeg: 30.52 });
+    expect(useUploadStore.getState().phase).toBe("placed");
+  });
+
+  it("backToReview reopens the overlay; params + placement survive", () => {
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE));
+    useUploadStore.getState().setParam("headingDeg", 300);
+    useUploadStore.getState().place();
+    useUploadStore.getState().backToReview();
+    const s = useUploadStore.getState();
+    expect(s.phase).toBe("review");
+    expect(s.open).toBe(true);
+    expect(s.params.headingDeg).toBe(300);
+    expect(s.placement).toEqual({ latDeg: 48.4647, lonDeg: 35.0462 });
+  });
+
+  it("clear wipes placement + texture dims", () => {
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE, { textureWidth: 100, textureHeight: 50 }));
+    useUploadStore.getState().place();
+    useUploadStore.getState().clear();
+    const s = useUploadStore.getState();
+    expect(s.placement).toBeUndefined();
+    expect(s.textureWidth).toBeUndefined();
+    expect(s.phase).toBe("idle");
+  });
+});

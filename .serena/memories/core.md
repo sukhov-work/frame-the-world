@@ -33,16 +33,33 @@ canvas push-back done (`Shipped - Upload Flow.dc.html`); 61 tests green; `mem:pa
 embedded-thumb instant preview + **libraw-wasm@1.0.5 EXACT-pinned** (1.1.2+ = pthreads/SAB = COOP/COEP —
 unusable on unverified Wix hosting) in a disposable per-file Worker (halfSize decode 26 MP ≈ 4.8 s →
 3136×2084 texture; worker terminated = memory freed) + libheif-js HEIC fallback. 76 tests · build green.
-Mechanics + Vite traps: `mem:patterns/upload-flow`. **Next step: Phase 3 — frustum + projection + place
-on globe** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
+Mechanics + Vite traps: `mem:patterns/upload-flow`.
+**Globe REFACTORED + Phase 3 SHIPPED (2026-07-10, browser-VERIFIED via Playwright on wix dev).**
+Refactor: every tunable → `globe/tuning.ts` (documented groups); scene split into
+`globe/scene/{baseEarth,graticule,atmosphere,stars,buildings,imageryGround}.ts` attach-modules +
+`scene/glsl.ts` (`glf` GLSL-literal injection); StylizedTiles = ~230-line orchestrator; new
+convention `.claude/conventions/globe-tuning.md`; WGS84 + SUN constants deduped. Phase 3:
+`lib/geo/frustum.ts` (pure, 20 tests) + `ecefToGeodetic`/`rayEllipsoidIntersect` in projection.ts;
+`globe/PhotoFrustum.ts` (apex-relative float32-safe geometry, vanilla zustand) + `globe/flight.ts`
+(2.2 s bezier flight, reduced-motion cut) + click-to-place (crosshair + ray-pick); store placement
+machine (review→placed | placing→placed) + `derivedFov` (ONE H-FOV derivation for UI + frustum);
+`panels/PhotoDetailPanel.tsx` docked tweak panel (light board-04; full design import deferred).
+Verified: fixture heading 214°/H-FOV 73.7° at Dnipro; re-projection 0.018 ms/update; ARW
+click-to-place with decoded texture; Escape/placing; **104 vitest · astro check 0 · wix build
+green**. Mechanics: `mem:patterns/photo-frustum`. **Next step: Phase 4 — ephemeris sky** (see
+`NEXT_SESSION_PROMPT.md`); ephemeris replaces `tuning.SUN.direction`. `wix release` still pending
+user greenlight.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 
-## Source layout (globe+tokens+upload-UI built; real decode/ephemeris/wix/backend still to come)
-- `src/components/globe/` — client:only three.js scene (GlobeCanvas, StylizedTiles built; Frustum, Sky, Pins TBD). Design imports NEVER touch.
-- `src/components/panels|ui/` — UploadFlow + ui/Slider BUILT (2026-07-10); EXIF panel, time scrubber, AI TBD. Design imports allowed.
-- `src/lib/{decode,geo,format,ephemeris,theme,wix}/` — decode REAL (extract/exif/worker/workerClient/convert + sensors; libraw-wasm@1.0.5 pinned) + projection, geohash, readout formatters, GL token bridge (built); ephemeris + SDK clients TBD.
-- `src/store/` — zustand reactive EXIF params (spine of real-time re-projection); `upload.ts` BUILT. `src/backend/` — thin HTTP endpoints (TBD).
+## Source layout (globe+frustum+upload built; ephemeris/wix/backend still to come)
+- `src/components/globe/` — client:only three.js scene. `tuning.ts` (ALL tunables, documented) ·
+  `scene/*` attach-modules (baseEarth/graticule/atmosphere/stars/buildings/imageryGround + glsl) ·
+  `StylizedTiles.ts` orchestrator · `PhotoFrustum.ts` + `flight.ts` (Phase 3) · GlobeCanvas. Sky,
+  Pins TBD. Design imports NEVER touch. Convention: `.claude/conventions/globe-tuning.md`.
+- `src/components/panels|ui/` — UploadFlow + PhotoDetailPanel + ui/Slider BUILT; time scrubber, AI TBD. Design imports allowed.
+- `src/lib/{decode,geo,format,ephemeris,theme,wix}/` — decode REAL (extract/exif/worker/workerClient/convert + sensors; libraw-wasm@1.0.5 pinned); geo REAL (projection incl. ecefToGeodetic + rayEllipsoidIntersect, frustum, geohash); readout formatters; GL token bridge; ephemeris + SDK clients TBD.
+- `src/store/` — zustand reactive EXIF params + placement machine (spine of real-time re-projection); `upload.ts` BUILT. `src/backend/` — thin HTTP endpoints (TBD).
 - (no `public/wasm/` — Vite emits `libraw-*.wasm` as a hashed asset; libheif wasm is inlined). `public/textures/` — earth-color (July topo+bathy) + earth-night
   (VIIRS) + earth-topology (elevation) + earth-landmask + earth-normal. `test/` — vitest (FOV/geohash/projection).
 

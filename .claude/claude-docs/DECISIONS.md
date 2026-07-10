@@ -10,6 +10,60 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Phase 3 SHIPPED: frustum + projection + PLACE ON GLOBE + cinematic flight (browser-VERIFIED via Playwright on wix dev).**
+  A placed photo now renders as an accent-lined **camera frustum + image plane** at its capture location and
+  re-projects **live** from the sliders. **Math** (pure, three-free): `lib/geo/frustum.ts` `frustumGeometry`
+  (ENU basis → far-face corners; EXIF roll via Rodrigues about forward; nadir-degenerate guard) +
+  `projection.ts` gains `ecefToGeodetic` (Bowring seed + 2 fixed-point iterations — one-step is ~6e-8° off at
+  LEO altitude, matters for flight poses) and `rayEllipsoidIntersect` (scaled-space sphere, near root) —
+  **+28 vitest (104 total)** incl. the fixture reference (Dnipro 48.4647/35.0462, heading 214°, H-FOV 73.7°).
+  **Store** (`store/upload.ts`): placement machine `review→placed` (GPS) | `review→placing→placed` (no GPS →
+  "SET ON GLOBE" → globe click); `placement` is GPS-seeded, NOT a slider param; `textureWidth/Height` carried
+  for aspect; **`derivedFov`** extracted as the ONE H-FOV derivation shared by review readout, detail panel and
+  the rendered frustum (they can never disagree); DEV `window.__uploadStore`. **Scene**: `globe/PhotoFrustum.ts`
+  (attach-module; group at apex + apex-relative vertices = float32-safe at ECEF scale; zustand VANILLA subscribe;
+  photo texture sRGB + `toneMapped:false`) + `globe/flight.ts` (geocentric-direction slerp + altitude blend +
+  ballistic bump `min(0.35·groundDist, 2500 km)·sin(πe)`; cubic-bezier(.65,0,.35,1) Newton solver; endpoints
+  exact; runs after `controls.update()` like the drift; flight counts as interaction → drift paused through +
+  8 s after; pointerdown cancels; **reduced-motion = instant cut**) + click-to-place in the orchestrator
+  (pointerup <6 px travel → NDC unproject → ray-ellipsoid → `setPlacement`; crosshair cursor; Escape →
+  backToReview). **UI**: PLACE/SET ON GLOBE button live (label by GPS presence); `panels/PhotoDetailPanel.tsx`
+  + `styles/photo-detail.css` — docked tweak panel while placed (board-04 Slider reuse; full 04-board Claude
+  Design import DEFERRED); PlacementHint pill while placing. **Semantics**: altitude slider = metres above the
+  rendered (ellipsoid) ground; EXIF gpsAltitude seeds it so sea-level values float (fixture's 96 m does) until
+  real terrain lands (D4 terrain-snap carried); missing heading/pitch default 0. Tunables in `tuning.ts`
+  FRUSTUM (planeDist 120 m, eyeHeight 1.7 m) + FLIGHT (2200 ms, back 2.8×, lift 1.1×). Files:
+  `lib/geo/{frustum,projection}.ts`, `store/upload.ts`, `components/globe/{PhotoFrustum,flight,StylizedTiles,tuning}.ts`,
+  `components/panels/{UploadFlow,PhotoDetailPanel}.tsx`, `styles/photo-detail.css`, tests
+  `test/lib/geo/frustum.test.ts` + `test/store/upload.test.ts`. **104 vitest · astro check 0 · wix build green ·
+  browser-VERIFIED**: GPS JPEG → PLACE → 2.2 s flight lands at 228 m framing the frustum (heading 214°, H-FOV
+  73.7° exact); heading slider → MANUAL badge + visible swing (re-projection measured **0.018 ms/update**);
+  ARW (no GPS) → SET ON GLOBE → crosshair → street click → decoded texture placed at 48.4630/35.0457; Escape
+  exits placing; reduced-motion emulation cuts 1100 km→228 m in one frame; console clean (frog beacon only).
+  Screenshots `phase3-0{1..4}-*.jpeg` at repo root (owner: commit-or-delete). UNVERIFIED: portrait aspect
+  visual, antipodal flights, mobile. Mechanics: `mem:patterns/photo-frustum`.
+- **2026-07-10 — Globe refactor: tuning.ts (every tunable, documented) + scene/* modules + globe-tuning convention (browser-VERIFIED smoke at LEO + orbit/night).**
+  StylizedTiles.ts had grown to a 783-line single function with magic numbers inline — refactored ahead of
+  Phase 3 (owner ask: "extract all hardcoded settings/apis/magic constants with documentation, tunable later").
+  (a) **`globe/tuning.ts`** — every number an art pass may touch, grouped per concern (SUN · RENDERER · POSE ·
+  GATES · DRIFT · CONTROLS · TERRAIN · TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · BUILDINGS · GROUND,
+  later + FRUSTUM/FLIGHT), each entry doc'd with meaning/unit/range + verified-baseline provenance; pure TS,
+  no three, NO colour literals (colour stays in `lib/theme/tokens.ts`, D14); `WGS84_A/B` re-exported from
+  `lib/geo/projection` — killed a drifted duplicate (6356752.3 vs .314245); `SUN.direction` now feeds the
+  earth shader + ground grade + GlobeCanvas DirectionalLight from ONE constant (the "must match" comment trap
+  is gone). (b) **`globe/scene/{baseEarth,graticule,atmosphere,stars,buildings,imageryGround}.ts`** — one
+  concern per module, idiom `attachX(scene, opts) → { objects/uniforms, update?(plain values), dispose() }`;
+  orchestrator computes alt/dist once per frame; modules own their full lifecycle. (c) **`scene/glsl.ts`**:
+  `glf()` formats JS numbers as GLSL float literals (GLSL ES rejects `float x = 2`) so tuning constants bake
+  into shader templates; runtime-animated values stay uniforms seeded from tuning (`__globe.*Uniforms` still
+  live-tweakable). (d) `StylizedTiles.ts` → ~230-line orchestrator (pose, controls, drift, gates, DEV
+  introspection, try/catch frame). (e) New convention **`.claude/conventions/globe-tuning.md`** (two-file rule,
+  tuning purity, glf pattern, module idiom, recurring traps) + pointer in `.claude/CLAUDE.md`. Files:
+  `components/globe/{tuning,StylizedTiles}.ts`, `components/globe/scene/*` (7 new), `GlobeCanvas.tsx`,
+  `.claude/conventions/globe-tuning.md`, `.claude/CLAUDE.md`. Behaviour-identical: `astro check` 0 · 76 tests
+  green · **browser smoke**: LEO default pixel-familiar (alt exactly 1100 km, uFtwFade 1, 131 Esri + 7 b3dm
+  tiles), orbit night side shows VIIRS lights (glf-injected shader paths exercised). Screenshots
+  `refactor-smoke-{leo,orbit}.jpeg` at repo root.
 - **2026-07-10 — Phase 2 decode SHIPPED: exifr + libraw-wasm@1.0.5 (pinned) + libheif-js in a disposable Worker (browser-VERIFIED via Playwright on wix dev).**
   The stub is gone — `extractMetadata` is the real pipeline. **Key discovery:** libraw-wasm 1.1.2+ are ALL
   pthread builds (`WebAssembly.Memory({shared:true})`, spawns `em-pthread` workers; their own integration

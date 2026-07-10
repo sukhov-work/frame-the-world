@@ -12,7 +12,7 @@ backend (auth, Data, Media, Pricing Plans, eCommerce, AI proxy).
 2. **`.claude/claude-docs/`** — `DECISIONS.md` (recent state, top-first) · `ARCHITECTURE.md` +
    `IMPLEMENTATION_PLAN.md` (repo-native working docs) · `PROJECT_SEED.md` + `DEEP_RESEARCH.md`
    (canonical provenance — intent & research) · `CLAUDE_DESIGN_MEMO.md` (design workflow).
-3. **`.claude/conventions/`** — `wix-headless.md` (the distilled Wix mechanics) · architecture · testing · naming · errors.
+3. **`.claude/conventions/`** — `wix-headless.md` (the distilled Wix mechanics) · architecture · testing · naming · errors · `globe-tuning.md` (globe scene modules + tunables contract).
 4. **Codebase**: Serena semantic tools → `Grep` → `Read`.
 5. **External**: Wix MCP / Wix Skills (framework APIs — never fabricate signatures), `gh` CLI, web.
 

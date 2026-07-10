@@ -11,8 +11,19 @@
 
 import { create } from "zustand";
 import { extractMetadata, type ExtractedPhoto, type PhotoExif, type PreviewSource } from "../lib/decode/extract";
+import { computeHorizontalFov, type FovResult } from "../lib/decode/sensors";
 
-export type UploadPhase = "idle" | "decoding" | "review";
+/**
+ * idle → decoding → review → placed (GPS present)
+ *                          ↘ placing (no GPS: "SET ON GLOBE" → user clicks the globe) → placed
+ */
+export type UploadPhase = "idle" | "decoding" | "review" | "placing" | "placed";
+
+/** Capture location driving the frustum — GPS-seeded at ingest, or set by clicking the globe. */
+export interface Placement {
+  latDeg: number;
+  lonDeg: number;
+}
 
 /** The EXIF-seeded values the user can adjust before placing (Phase 3 wires these into the frustum). */
 export interface AdjustableParams {
@@ -59,6 +70,21 @@ export function isDirty(exif: PhotoExif, params: AdjustableParams): boolean {
   return keys.some((k) => paramSource(exif, params, k) === "manual");
 }
 
+/**
+ * The live H-FOV for the CURRENT params — the ONE derivation both the review readout and the
+ * rendered frustum use (they must never disagree). The focal35 shortcut only holds while focal is
+ * untouched from EXIF; a manual focal recomputes via the Make/Model sensor lookup (D4).
+ */
+export function derivedFov(exif: PhotoExif, params: AdjustableParams): FovResult {
+  const focalUntouched = params.focalLengthMm === exif.focalLengthMm;
+  return computeHorizontalFov({
+    focalLengthMm: params.focalLengthMm,
+    focalLengthIn35mmMm: focalUntouched ? exif.focalLengthIn35mmMm : undefined,
+    make: exif.make,
+    model: exif.model,
+  });
+}
+
 interface UploadStore {
   /** Panel visibility — toggled by the nav "Upload" link / Escape. */
   open: boolean;
@@ -74,6 +100,12 @@ interface UploadStore {
   /** Immutable EXIF baseline; undefined until a file is ingested. */
   exif?: PhotoExif;
   params: AdjustableParams;
+  /** Capture location (GPS-seeded at ingest; manual via `setPlacement`). Position is NOT a slider
+   *  param — it changes via EXIF or the click-to-place path only. */
+  placement?: Placement;
+  /** Pixel dimensions of the decoded display texture — the frustum's aspect ratio source. */
+  textureWidth?: number;
+  textureHeight?: number;
   /** Set when the file could not be ingested at all (back on the dropzone). */
   loadError?: string;
   /** Set when metadata arrived but the full WASM decode failed (review still shows). */
@@ -87,6 +119,13 @@ interface UploadStore {
   setParam(key: AdjustableKey, value: number): void;
   resetParam(key: AdjustableKey): void;
   resetAll(): void;
+  /** PLACE ON GLOBE: review → placed when a location exists; review → placing (awaiting a globe
+   *  click) when the file has no GPS. Closes the overlay either way — the globe takes over. */
+  place(): void;
+  /** Click-to-place result (the globe's pointer ray → ellipsoid). Completes the placing path. */
+  setPlacement(latDeg: number, lonDeg: number): void;
+  /** Reopen the review overlay from the globe (placed/placing). */
+  backToReview(): void;
   /** Back to the empty dropzone (revokes the preview object URL). */
   clear(): void;
 }
@@ -127,6 +166,9 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       decodeMs: undefined,
       exif: undefined,
       params: {},
+      placement: undefined,
+      textureWidth: undefined,
+      textureHeight: undefined,
       loadError: undefined,
       decodeError: undefined,
     });
@@ -181,6 +223,12 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       decodeMs,
       exif: extracted.exif,
       params: exifBaselineParams(extracted.exif),
+      placement:
+        extracted.exif.gpsLat !== undefined && extracted.exif.gpsLon !== undefined
+          ? { latDeg: extracted.exif.gpsLat, lonDeg: extracted.exif.gpsLon }
+          : undefined,
+      textureWidth: extracted.textureWidth ?? extracted.exif.width,
+      textureHeight: extracted.textureHeight ?? extracted.exif.height,
       loadError: undefined,
       decodeError: extracted.decodeError,
     }),
@@ -194,6 +242,25 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
     }),
 
   resetAll: () => set((s) => ({ params: s.exif ? exifBaselineParams(s.exif) : {} })),
+
+  place: () =>
+    set((s) => {
+      if (s.phase !== "review" && s.phase !== "placed") return {};
+      if (!s.placement) return { phase: "placing", open: false }; // SET ON GLOBE — await a globe click
+      return { phase: "placed", open: false };
+    }),
+
+  setPlacement: (latDeg, lonDeg) =>
+    set((s) =>
+      s.exif ? { placement: { latDeg, lonDeg }, phase: "placed" as const, open: false } : {},
+    ),
+
+  backToReview: () =>
+    set((s) =>
+      s.phase === "placed" || s.phase === "placing"
+        ? { phase: "review" as const, open: true }
+        : {},
+    ),
 
   clear: () => {
     loadSeq++;
@@ -210,8 +277,17 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       decodeMs: undefined,
       exif: undefined,
       params: {},
+      placement: undefined,
+      textureWidth: undefined,
+      textureHeight: undefined,
       loadError: undefined,
       decodeError: undefined,
     });
   },
 }));
+
+// Dev-only introspection (mirrors window.__globe) so browser verification can drive the store
+// without reaching through the UI. No secrets, no behaviour change.
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  (window as unknown as { __uploadStore: typeof useUploadStore }).__uploadStore = useUploadStore;
+}

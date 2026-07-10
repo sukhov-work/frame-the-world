@@ -38,7 +38,7 @@ Worker; HEIC feature-detect + `libheif-js` fallback; sensor DB + FOV computation
 flagged for manual entry.
 **Test:** unit-test FOV math + geohash (**vitest**); integration-decode a sample ARW in headless Chromium.
 
-## Phase 3 — Projection + tweak UX  ☐
+## Phase 3 — Projection + tweak UX  ☑ *(DONE 2026-07-10, browser-VERIFIED: frustum + image plane from EXIF at capture location; live slider re-projection 0.018 ms/update; 2.2 s bezier flight + reduced-motion cut; SET ON GLOBE click-to-place for missing GPS; Photo-Detail board import deferred — light PhotoDetailPanel shipped instead; see `mem:patterns/photo-frustum` + DECISIONS)*
 **Scope:** build frustum from EXIF (GPS position, heading/pitch/roll, FOV); render image plane at frustum far
 face; reactive zustand params; live re-projection on slider change; cinematic pin→detail camera flight (~2.2s
 ease-in-out; reduced-motion cross-fade variant). *(Import the Photo-Detail screen from Claude Design here.)*

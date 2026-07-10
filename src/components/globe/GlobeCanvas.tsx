@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { tokens } from "../../lib/theme/tokens";
+import { POSE, RENDERER, SUN } from "./tuning";
 
 /**
  * GlobeCanvas — the signature scene (PROJECT_SEED §2; ADR D1/D12).
@@ -23,13 +24,13 @@ export default function GlobeCanvas() {
     if (!canvas) return;
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, RENDERER.maxPixelRatio));
     renderer.setClearColor(new THREE.Color(tokens.bg), 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Neutral (Khronos PBR-Neutral) tames the key light's highlight clipping WITHOUT desaturating the
     // cyan accent + additive atmosphere rim the way ACES/AgX would.
     renderer.toneMapping = THREE.NeutralToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = RENDERER.toneMappingExposure;
 
     const reduceMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -37,7 +38,7 @@ export default function GlobeCanvas() {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
-      38,
+      POSE.fovDeg,
       window.innerWidth / window.innerHeight,
       0.1,
       100,
@@ -113,18 +114,18 @@ export default function GlobeCanvas() {
     scene.add(stars);
 
     // --- lighting: sun-like key + hemisphere fill ---
-    // NOTE: the real-Earth base ellipsoid is a self-lit ShaderMaterial (StylizedTiles) and ignores these
-    // lights; they exist to light the OSM building tiles. Keep sun.position == StylizedTiles SUN_DIR so
-    // the building shading agrees with the earth's terminator.
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-    sun.position.set(5, 2, 4);
+    // NOTE: the real-Earth base ellipsoid is a self-lit ShaderMaterial (scene/baseEarth) and ignores
+    // these lights; they exist to light the OSM building tiles. SUN.direction is the ONE sun constant
+    // shared with the earth/ground shaders, so the building shading always agrees with the terminator.
+    const sun = new THREE.DirectionalLight(0xffffff, SUN.keyIntensity);
+    sun.position.set(...SUN.direction);
     scene.add(sun);
     // Hemisphere fill so night-side buildings aren't pure black (AmbientLight(water) was ~0).
     scene.add(
       new THREE.HemisphereLight(
         new THREE.Color(tokens.landHi),
         new THREE.Color(tokens.water),
-        0.4,
+        SUN.hemiIntensity,
       ),
     );
 

@@ -1,7 +1,23 @@
-# mem:patterns/globe-rendering — the organic LEO instrument (2026-07-10 overhaul)
+# mem:patterns/globe-rendering — the organic LEO instrument (2026-07-10 overhaul + refactor)
 
-How the globe is built (`src/components/globe/StylizedTiles.ts` + `GlobeCanvas.tsx`). Browser-VERIFIED
-at LEO / orbit / night / mid-fade / city (Playwright). All colour flows through `lib/theme/tokens.ts` (D14).
+How the globe is built. Browser-VERIFIED at LEO / orbit / night / mid-fade / city (Playwright).
+All colour flows through `lib/theme/tokens.ts` (D14).
+
+## Layout (2026-07-10 refactor — convention: `.claude/conventions/globe-tuning.md`)
+- **`tuning.ts`** — EVERY tunable number, grouped + documented (SUN/RENDERER/POSE/GATES/DRIFT/
+  CONTROLS/TERRAIN/TILESETS/EARTH/GRATICULE/ATMOSPHERE/STARS/BUILDINGS/GROUND/FRUSTUM/FLIGHT).
+  Pure TS, no three, NO colours; re-exports WGS84_A/B from `lib/geo/projection` (the drifted
+  duplicate is gone). `SUN.direction` is the ONE sun constant — earth shader + ground grade +
+  GlobeCanvas's DirectionalLight all read it (the "must match" trap is dead).
+- **`scene/{baseEarth,graticule,atmosphere,stars,buildings,imageryGround}.ts`** — one concern per
+  module, idiom `attachX(scene, opts) → { objects/uniforms, update?(plainValues), dispose() }`.
+  Modules own their full lifecycle; the orchestrator computes alt/dist ONCE per frame.
+- **`scene/glsl.ts`** — `glf()` (JS number → GLSL float literal; GLSL ES rejects `float x = 2`)
+  for baking tuning constants into shader templates, + the shared dither snippet. Runtime-animated
+  values stay uniforms (defaults seeded from tuning; live-tweakable via `__globe.*Uniforms`).
+- **`StylizedTiles.ts`** (~230 lines) — orchestrator only: camera pose, GlobeControls, idle drift,
+  per-frame gates, flight + click-to-place wiring, `__globe` DEV introspection, try/catch frame.
+- **`PhotoFrustum.ts` + `flight.ts`** — Phase 3 (see `mem:patterns/photo-frustum`).
 Seed authority: PROJECT_SEED §2 — "cinematic low-earth-orbit angle… NOT messy half-baked semi-realistic
 textures… stylized and adaptive with zoom". Design-canvas concepts that bind: halo ≈5% alpha (restraint),
 oblique framing, idle drift pause-on-interaction resume-8s, "terrain resolves" on descent.

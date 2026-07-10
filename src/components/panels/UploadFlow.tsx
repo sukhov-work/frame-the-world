@@ -14,9 +14,10 @@ import {
   missingParamKeys,
   paramSource,
   isDirty,
+  derivedFov,
   type AdjustableKey,
 } from "../../store/upload";
-import { computeHorizontalFov } from "../../lib/decode/sensors";
+import PhotoDetailPanel, { PlacementHint } from "./PhotoDetailPanel";
 import {
   formatLatLon,
   formatFocal,
@@ -58,7 +59,10 @@ export default function UploadFlow() {
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") useUploadStore.getState().closePanel();
+      if (e.key !== "Escape") return;
+      const s = useUploadStore.getState();
+      if (s.phase === "placing") s.backToReview(); // cancel click-to-place, back to the overlay
+      else s.closePanel();
     };
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", onKey);
@@ -68,7 +72,13 @@ export default function UploadFlow() {
     };
   }, []);
 
-  if (!open) return null;
+  if (!open) {
+    // The overlay is closed but the flow may live on the globe: the docked tweak panel while
+    // placed, the click-to-place hint while placing (both render over the visible globe).
+    if (phase === "placed") return <PhotoDetailPanel />;
+    if (phase === "placing") return <PlacementHint />;
+    return null;
+  }
 
   const step = phase === "review" ? 1 : 0;
 
@@ -201,15 +211,9 @@ function ReviewStep() {
     return { text: "EXIF", tone: "accent" };
   };
 
-  // Derived FOV — the load-bearing D4 math wired live into the instrument. The focal35 shortcut only
-  // holds while focal is untouched from EXIF; a manual focal recomputes via Make/Model sensor lookup.
-  const focalUntouched = store.params.focalLengthMm === exif.focalLengthMm;
-  const fov = computeHorizontalFov({
-    focalLengthMm: store.params.focalLengthMm,
-    focalLengthIn35mmMm: focalUntouched ? exif.focalLengthIn35mmMm : undefined,
-    make: exif.make,
-    model: exif.model,
-  });
+  // Derived FOV — the load-bearing D4 math wired live into the instrument. ONE derivation shared
+  // with the rendered frustum (store.derivedFov) so the readout and the globe can never disagree.
+  const fov = derivedFov(exif, store.params);
 
   const missingCopy =
     missing.length > 0
@@ -354,14 +358,18 @@ function ReviewStep() {
         )}
 
         <div className="uf-actions">
-          <button className="uf-btn uf-btn--primary" disabled title="Arrives with Phase 3 — projection">
-            PLACE ON GLOBE&nbsp;&nbsp;→
+          <button className="uf-btn uf-btn--primary" onClick={() => useUploadStore.getState().place()}>
+            {store.placement ? "PLACE ON GLOBE" : "SET ON GLOBE"}&nbsp;&nbsp;→
           </button>
           <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().clear()}>
             START OVER
           </button>
         </div>
-        <span className="uf-actions__hint">PLACE ON GLOBE ARRIVES WITH PHASE 3 · PROJECTION</span>
+        <span className="uf-actions__hint">
+          {store.placement
+            ? "THE GLOBE FLIES TO YOUR CAPTURE POINT"
+            : "NO GPS IN THIS FILE — CLICK THE CAPTURE LOCATION ON THE GLOBE NEXT"}
+        </span>
       </div>
     </section>
   );
