@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { SKY } from "../tuning";
+import { SKY, WGS84_A } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
 
 /**
@@ -40,6 +40,31 @@ export interface SkyHandle {
   dispose(): void;
 }
 
+// Horizon occlusion — the impostors sit at a FAKE camera-anchored distance, so the depth buffer
+// CANNOT occlude them against the planet (the limb is usually farther than the impostor; that was
+// the "moon clipping through the earth" bug). Instead each fragment tests its view ray against the
+// earth analytically (same closest-approach math as scene/atmosphere) and fades across
+// SKY.horizonFadeBandM — the body melts into the horizon haze instead of popping. `cameraPosition`
+// is a three-provided fragment uniform. Rays whose closest approach lies behind the camera
+// (tc <= 0) open away from the planet — nothing to occlude, e.g. a zenith moon at street level.
+const HORIZON_FADE_GLSL = /* glsl */ `
+      float horizonFade(vec3 worldPos) {
+        vec3 D = normalize(worldPos - cameraPosition);
+        float tc = -dot(cameraPosition, D);
+        if (tc <= 0.0) return 1.0;
+        float dmin = length(cameraPosition + D * tc);
+        return smoothstep(0.0, ${glf(SKY.horizonFadeBandM)}, dmin - ${glf(WGS84_A)});
+      }`;
+
+const IMPOSTOR_VERTEX_GLSL = /* glsl */ `
+      varying vec2 vUv;
+      varying vec3 vW;
+      void main() {
+        vUv = uv;
+        vW = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`;
+
 export function attachSky(scene: THREE.Scene): SkyHandle {
   // --- Sun: billboarded plane, additive; UV distance drives core disc + exp halo. -------------
   const sunUniforms = {
@@ -52,17 +77,14 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
+    vertexShader: IMPOSTOR_VERTEX_GLSL,
     fragmentShader: /* glsl */ `
       uniform vec3 uCore;
       uniform vec3 uGlow;
       uniform float uIntensity;
       varying vec2 vUv;
+      varying vec3 vW;
+      ${HORIZON_FADE_GLSL}
       void main() {
         // r in disc-radius units: the plane spans sunGlowExtent disc radii.
         float r = length(vUv - 0.5) * 2.0 * ${glf(SKY.sunGlowExtent)};
@@ -71,7 +93,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         float limb = mix(1.0, 0.7, smoothstep(0.0, 1.0, r));
         // tight shader halo — the WIDE glow is the bloom pass's job
         float halo = exp(-(max(r - 1.0, 0.0)) * 1.6) * ${glf(SKY.sunGlowGain)};
-        vec3 color = uCore * disc * limb * uIntensity + uGlow * halo;
+        vec3 color = (uCore * disc * limb * uIntensity + uGlow * halo) * horizonFade(vW);
         ${DITHER_GLSL}
         gl_FragColor = vec4(color, 1.0); // additive: rgb carries everything
         #include <colorspace_fragment>
@@ -94,12 +116,18 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   };
   const moonMat = new THREE.ShaderMaterial({
     uniforms: moonUniforms,
+    // Transparent so the horizon fade can dissolve the disc; depthWrite stays ON — the moon BODY
+    // occludes stars behind it regardless of phase. Fully-occluded fragments discard instead
+    // (no depth hole punched into the starfield by an invisible disc).
+    transparent: true,
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       varying vec3 vNw;
+      varying vec3 vW;
       void main() {
         vUv = uv;
         vNw = normalize(mat3(modelMatrix) * normal); // uniform scale — no normal-matrix needed
+        vW = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
@@ -109,14 +137,18 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       uniform float uEarthshine;
       varying vec2 vUv;
       varying vec3 vNw;
+      varying vec3 vW;
+      ${HORIZON_FADE_GLSL}
       void main() {
+        float fade = horizonFade(vW);
+        if (fade < 0.004) discard; // behind the planet — write no depth, hide no stars
         vec3 albedo = texture2D(uMap, vUv).rgb;
         float lit = max(dot(normalize(vNw), normalize(uSunDir)), 0.0);
         // soften the terminator a touch (regolith scattering reads better than a hard lambert)
         lit = pow(lit, 0.8);
         vec3 color = albedo * (uEarthshine + lit * uBrightness);
         ${DITHER_GLSL}
-        gl_FragColor = vec4(color, 1.0);
+        gl_FragColor = vec4(color, fade);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,

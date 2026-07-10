@@ -1,0 +1,25 @@
+/* CameraTiltPanel — manual camera declination (0° nadir … 88° horizon). Instrument idiom:
+   compact docked card sitting above the scene clock (time-readout), mono readout, accent
+   reserved for the slider fill. Colour via tokens.css vars only. */
+
+.ct {
+  position: fixed;
+  right: 1.6rem;
+  bottom: 7.4rem;
+  z-index: 10;
+  width: 13rem;
+  padding: 0.55rem 0.85rem 0.7rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+@media (max-width: 720px) {
+  .ct {
+    right: 1rem;
+    bottom: 6.4rem;
+    width: 11rem;
+  }
+}

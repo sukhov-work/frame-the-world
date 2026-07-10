@@ -55,10 +55,16 @@ export const SKY = {
   sunIntensity: 5,
   /** Halo gain inside the impostor shader (kept low — UnrealBloom carries the wide glow). */
   sunGlowGain: 0.5,
-  /** Moon albedo multiplier (slightly >1 so the lit limb just tips into bloom). */
-  moonBrightness: 1.25,
+  /** Moon albedo multiplier (>1 pushes the lit limb into bloom; raised 2026-07-10 "moon brighter"). */
+  moonBrightness: 1.8,
   /** Earthshine floor on the moon's dark side (0 = pitch black new moon). */
-  moonEarthshine: 0.08,
+  moonEarthshine: 0.1,
+  /** Horizon occlusion fade band (m). The impostors sit at a FAKE camera-anchored distance, so the
+   *  depth buffer cannot occlude them against the planet (the limb is farther than the impostor) —
+   *  each fragment instead tests its view ray against the ellipsoid analytically and fades out as
+   *  the ray's closest-approach altitude drops through this band. ~the atmosphere line scale height
+   *  reads as the body melting into the horizon haze rather than popping. */
+  horizonFadeBandM: 40_000,
   /** Max DirectionalLight intensity of moonlight on buildings (scaled by illuminated fraction). */
   moonKeyIntensity: 0.3,
   /** Max moonlight term inside the earth/ground shaders (scaled by illuminated fraction). */
@@ -113,7 +119,9 @@ export const RENDERER = {
 } as const;
 
 /** Default "spacecraft in LEO" pose (PROJECT_SEED §2) — camera SW of Dnipro aimed past it toward
- *  the NE horizon so the limb + halo sit in the top quarter of frame. Geodetic degrees / metres. */
+ *  the NE horizon so the limb + halo read prominently. Geodetic degrees / metres.
+ *  2026-07-10 owner pass: target pushed further NE (~38° depression vs the old ~47°) so the camera
+ *  starts MORE tilted — the horizon band sits lower in frame and more of the curve is visible. */
 export const POSE = {
   /** Perspective FOV (deg). 38 = the cinematic long-lens look the framing was verified at. */
   fovDeg: 38,
@@ -122,7 +130,7 @@ export const POSE = {
   /** Camera far plane (m) at init. */
   far: 1e9,
   cam: { latDeg: 46.0, lonDeg: 31.3, altM: 1_100_000 },
-  target: { latDeg: 53.2, lonDeg: 41.3, altM: 0 },
+  target: { latDeg: 57.3, lonDeg: 46.9, altM: 0 },
 } as const;
 
 /** Altitude gates (m above the WGS84 ellipsoid — ALWAYS via `getPositionElevation`; spherical
@@ -153,16 +161,39 @@ export const DRIFT = {
   degPerFrame: 0.0011,
 } as const;
 
-/** GlobeControls feel. */
+/** GlobeControls feel (2026-07-10 owner pass: gradual verticality, eased zoom, longer inertia). */
 export const CONTROLS = {
-  /** Inertia — the single biggest "premium" interaction win. */
-  dampingFactor: 0.15,
+  /** Inertia decay time-constant (s-ish; library: 2^(-dt/factor)). Raised 0.15 → 0.28 for a
+   *  longer, more premium coast after a globe fling. */
+  dampingFactor: 0.28,
   /** Max tilt (rad) — π/2 allows pitching to the true horizon. */
   maxAltitudeRad: Math.PI / 2,
   /** Keep the camera this far (m) above surfaces via adjustHeight. */
   cameraRadius: 8,
   /** Trackpad-pinch zoom rate (library default 1 is painfully slow; verified 5). */
   zoomSpeed: 5,
+  /** GlobeControls pitches the camera toward nadir while zooming in (it rotates the camera around
+   *  the zoom point as the local up changes — EnvironmentControls._setFrame, applied at FULL
+   *  strength on zoom-in). This keeps only this fraction of that auto-verticalization per zoom
+   *  step: 1 = library behaviour (snaps overhead), 0 = camera keeps its oblique tilt entirely.
+   *  The orchestrator counter-rotates after controls.update() — no library fork. */
+  zoomTiltKeep: 0.35,
+  /** Temporal zoom easing (ms). The library consumes the whole wheel delta in ONE frame; the
+   *  orchestrator instead banks deltas and releases exp(-dt/tau) per frame — gradual, eased
+   *  camera movement instead of stepping. 0 disables. */
+  zoomSmoothTauMs: 160,
+  /** Altitude-scaled zoom braking: at/below `zoomSlowAltM` the effective zoomSpeed shrinks to
+   *  `zoomSlowFrac × zoomSpeed`, ramping smoothly back to full above it. The library step is
+   *  already ∝ distance-to-surface; this adds the extra "ease in and slow close to ground". */
+  zoomSlowAltM: 30_000,
+  zoomSlowFrac: 0.35,
+  /** Declination-slider easing time-constant (ms) — how fast the camera glides to a slider-set
+   *  tilt (0° = straight down, 90° = horizon). */
+  tiltEaseTauMs: 240,
+  /** Slider range (deg). Max stays inside GlobeControls' maxAltitude clamp (π/2) minus a hair
+   *  so the per-frame clamp never fights the eased approach. */
+  tiltMinDeg: 0,
+  tiltMaxDeg: 88,
 } as const;
 
 /** Phase-1 test city (Dnipro, UA). The old `buildingSinkM` float workaround was REMOVED
@@ -348,6 +379,31 @@ export const GROUND = {
   /** ImageOverlayPlugin per-tile composite texture resolution (px). 256 = plugin default;
    *  raise if grazing-angle imagery reads soft (memory: ~res²·4 B per tile per overlay). */
   overlayResolution: 256,
+  // --- soft adaptive loading (2026-07-10 owner pass: no patchy pop-in on page open) -----------
+  /** TilesFadePlugin per-tile dissolve duration (ms). Library default 250 reads as popping;
+   *  700 lets refinement breathe. */
+  fadeDurationMs: 700,
+  /** TilesFadePlugin fade-out budget before it snaps all fades on a moving camera. The idle
+   *  drift moves the camera every frame, so the library default (50) snapped constantly. */
+  maxFadeOutTiles: 300,
+  /** Adaptive screen-space error target (px): coarse at orbit → fine near the ground, lerped
+   *  across [errorNearAlt, errorFarAlt]. QuantizedMeshPlugin pins errorTarget=2 at init, which
+   *  forces DEEP refinement even at LEO — the long patchy first load. Coarser orbit tiles reach
+   *  full coverage far sooner; diving refines them progressively (per-tile fades cover it). */
+  errorTargetNear: 2,
+  errorTargetFar: 12,
+  errorNearAlt: 60_000,
+  errorFarAlt: 1_200_000,
+  /** Initial-reveal ease time-constant (ms): uFtwFade low-passes toward its altitude target ×
+   *  load-readiness, so the layer dissolves in only once tiles actually exist (page open shows
+   *  the clean stylized base, then terrain grows out of it — never a patchwork). */
+  revealTauMs: 600,
+  /** Until the first tiles-load-end, readiness = loadProgress × this cap (never fully in while
+   *  the initial wave is still downloading). */
+  revealProgressCap: 0.85,
+  /** Failed Esri overlay fetches leave permanently blank tiles unless retried — debounce (ms)
+   *  for calling resetFailedOverlays() after a load-error burst. */
+  overlayRetryMs: 8_000,
 } as const;
 
 /** Placed-photo frustum + image plane (Phase 3, ADR D5 v1: textured plane at the far face).

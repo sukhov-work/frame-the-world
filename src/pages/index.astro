@@ -3,6 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import GlobeCanvas from "../components/globe/GlobeCanvas";
 import UploadFlow from "../components/panels/UploadFlow";
 import TimeReadout from "../components/panels/TimeReadout";
+import CameraTiltPanel from "../components/panels/CameraTiltPanel";
 ---
 
 <Layout title="Frame the World">
@@ -14,6 +15,9 @@ import TimeReadout from "../components/panels/TimeReadout";
 
   <!-- Scene clock — the exact instant the ephemeris lights the globe with (pre-Phase-4) -->
   <TimeReadout client:only="react" />
+
+  <!-- Manual camera declination (0° nadir … 88° horizon) — glides the globe camera -->
+  <CameraTiltPanel client:only="react" />
 
   <header class="topnav">
     <span class="logo">Frame&nbsp;the&nbsp;World</span>

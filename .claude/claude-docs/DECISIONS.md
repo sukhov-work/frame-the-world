@@ -10,6 +10,42 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Owner UX pass SHIPPED: camera feel (gradual verticality + eased zoom + inertia + tilt slider) + moon occlusion/brightness + soft adaptive tile loading (browser-VERIFIED via scripted Chrome on wix dev).**
+  **Camera** (root cause from GlobeControls **0.4.28 source**): "snaps vertical on zoom-in" = `EnvironmentControls._setFrame`
+  rotating the camera around the zoom point at FULL strength while zooming in (the library's edge-damping is forced OFF on
+  zoom-in) + the whole wheel delta consumed in ONE frame (the class has no zoom inertia at all). Fixed in the ORCHESTRATOR —
+  no library fork: (1) bank `zoomDelta`, release `exp(-dt/τ)` per frame (CONTROLS.zoomSmoothTauMs 160); (2) counter-rotate
+  the unwanted fraction of the up-frame swing around `getPivotPoint()` after `controls.update()` — CONTROLS.zoomTiltKeep
+  **0.35** (1 = library snap, 0 = tilt never auto-changes), zoom-IN only (zoom-out keeps `_tiltTowardsCenter`); (3) zoomSpeed
+  altitude-braked ×0.35 below 30 km (zoomSlow*); (4) dampingFactor 0.15→**0.28** — fling coast measured **10.6°/6.2°/2.1°**
+  over 0.3/0.5/0.8 s windows. POSE.target (53.2,41.3)→(57.3,46.9) ≈ 47°→**38° depression** — more horizon at open (pitch 51°,
+  zoom trace 51→60° across a 1100 km→1.7 km dive, no vertical snap). **NEW declination slider**: `store/camera.ts` (live
+  `tiltDeg` mirror ≤5 Hz + `targetTiltDeg` request) + `panels/CameraTiltPanel.tsx` + `styles/camera-tilt.css` (docked above
+  TimeReadout); orchestrator glides via `controls._applyRotation(0, (pitch−target)·k, pivot)` — **source-verified sign:
+  +y pitches toward nadir; angle 0 = nadir, π/2 = horizon; clamps internal**; glide cleared on arrival/globe-grab. Verified
+  20°→19.9°, 70°→69.8°. **Moon/sun horizon occlusion:** impostors sit at a FAKE camera-anchored distance (0.5·far) so the
+  depth buffer cannot occlude them against the planet (the limb is usually FARTHER than the impostor) — that was "moon
+  clipping through earth". Fix (`scene/sky.ts`): per-fragment analytic ray-vs-earth closest-approach fade in BOTH impostor
+  shaders (same math as the atmosphere; `tc<=0 → visible` guards the street-level zenith case), SKY.horizonFadeBandM 40 km;
+  moon material transparent (alpha = fade, `discard` <0.004 so a hidden disc writes no depth over the stars);
+  moonBrightness 1.25→**1.8**, earthshine 0.08→0.1. Verified at three pinned scene-times found by scrubbing the clock:
+  h=+614 km bright disc · h=+18 km melting into the horizon haze · h=−1469 km **no disc** (uifix-07/08/09). **Soft loading**
+  (3d-tiles-renderer 0.4.28 — every knob was at library default): page open at 1100 km sits BELOW the fade band → uFtwFade
+  snapped to 1 on frame 1 over ZERO loaded tiles; root tiles were fade-EXEMPT (fadeRootTiles=false); TilesFadePlugin
+  SNAP-completes all fades when >50 fade-outs while the camera moves >0.1 u/frame — the idle drift moves ~140 m/frame so it
+  snapped constantly; failed Esri overlay fetches were never retried (permanent blank tiles). Fixes
+  (`scene/imageryGround.ts` + GROUND tunables): TilesFadePlugin{fadeRootTiles:true, fadeDuration **700**, maximumFadeOutTiles
+  **300**}; reveal = altFade × readiness, low-passed τ 600 ms — readiness = `tiles.loadProgress`×0.85 until the first
+  `tiles-load-end` then 1, gated on `tiles-load-start` (loadProgress reads 1 before any request!); **adaptive errorTarget
+  2↔12** lerped across 60 km↔1200 km alt (QuantizedMeshPlugin pins 2 at init = the long patchy window at LEO; measured 11.1
+  at open); UpdateOnChangePlugin.needsUpdate forced until initial load ends (reduced-motion stall); `resetFailedOverlays()`
+  debounced 8 s on load-error. Verified: 1 s clean stylized base → 3 s single soft dissolve → settled by ~6 s, no patch
+  mosaics (uifix-01..04). Files: `globe/{tuning,StylizedTiles}.ts`, `globe/scene/{sky,imageryGround}.ts`, `store/camera.ts`
+  (new), `panels/CameraTiltPanel.tsx` (new), `styles/camera-tilt.css` (new), `pages/index.astro`. **113 vitest · astro
+  check 0 · wix build green · browser-VERIFIED** (shots verify-shots/uifix-01..09; the Playwright MCP was wedged — used
+  scratchpad `playwright-core` + system Chrome instead). UNVERIFIED/carried: buildings still hard-pop (shared styleMat
+  can't ride TilesFadePlugin — needs per-tile materials), zoomTiltKeep/fade-duration owner taste-tune, telephoto
+  grazing-angle LOD seams (visible in uifix-09), repo has no lint script (skill text says `npm run lint`).
 - **2026-07-10 — Pre-Phase-4 SHIPPED: ephemeris sun+moon + real 3D terrain + bloom + sun shadows + scene clock (browser-VERIFIED via Playwright on wix dev).**
   Owner pass before Phase 4: "sun and moon in correct space positions… truthful source of light… night more
   pronounced… moon emits light… soft bloom… physical shadows… 3D terrain… sleek current time… screenshots folder."

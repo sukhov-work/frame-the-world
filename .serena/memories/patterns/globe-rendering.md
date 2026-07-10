@@ -112,4 +112,27 @@ Night side: put camera over the Americas (sun (5,2,4) → day centered ~22E/37N)
 in `index.astro` (`© Esri · Maxar · Earthstar Geographics · © OpenStreetMap contributors`).
 UNVERIFIED: drift pause via real pointer events; live-dive crossfade feel; mobile memory (2 renderers +
 5400² textures); CORS/ToS under `wix release`.
+## Camera feel (2026-07-10 owner pass — gradual verticality, eased zoom, inertia, tilt slider)
+Root causes from GlobeControls 0.4.28 SOURCE (node_modules/3d-tiles-renderer/src/three/renderer/controls):
+- "Snaps vertical on zoom-in" = `EnvironmentControls._setFrame` rotates the camera around the zoom
+  point at FULL strength as the local up changes (GlobeControls forces `scaleZoomOrientationAtEdges`
+  OFF while zooming in), and the whole wheel delta is consumed in ONE frame (`zoomDelta` reset each
+  update — the class has NO zoom inertia; drag inertia exists via enableDamping/dampingFactor).
+- All fixes live in the ORCHESTRATOR (StylizedTiles), no fork: (1) bank `controls.zoomDelta`, hand
+  back `pending·(1-exp(-dt/CONTROLS.zoomSmoothTauMs))` per frame before `controls.update()`;
+  (2) after update, if zoomStep>0, counter-rotate camera around `getPivotPoint()` by
+  `slerp(identity, qUpSwing⁻¹, 1-CONTROLS.zoomTiltKeep)` (0.35 — keeps the approach oblique;
+  zoom-out untouched, it runs `_tiltTowardsCenter`); (3) `controls.zoomSpeed` is re-read every
+  update → altitude-brake it per frame (×zoomSlowFrac below zoomSlowAltM); (4) dampingFactor 0.28.
+- POSE.target (57.3,46.9) ≈ 38° depression (was 47°) — more horizon/limb in the default frame.
+- **Declination slider seam**: `store/camera.ts` (tiltDeg live mirror ≤5 Hz; targetTiltDeg request)
+  + `panels/CameraTiltPanel.tsx` (board-04 Slider, docked above TimeReadout). Orchestrator glides
+  with `controls._applyRotation(0, (pitch−target)·(1-exp(-dt/tiltEaseTauMs)), pivot)`.
+  **Source-verified conventions:** pitch angle 0 = nadir, π/2 = horizon; `_applyRotation`'s +y
+  pitches TOWARD nadir (newPitch = pitch − y); min/maxAltitude clamps applied inside; pitch =
+  angle(localUp, camera +Z world) — camera +Z is BACKWARD. Glide cleared on arrival or canvas
+  pointerdown (direct manipulation wins). DEV: `window.__cameraStore`.
+- Verified (scripted Chrome): zoom 1100 km→1.7 km pitch 51→60° no snap, eased tail; slider
+  20°→19.9°/70°→69.8°; fling coast 10.6°/6.2°/2.1° per 0.3/0.5/0.8 s.
+
 Related: [[architecture/system-overview]] [[decisions/adr-000-locked-stack]] [[patterns/design-system]]

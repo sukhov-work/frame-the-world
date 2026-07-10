@@ -10,6 +10,7 @@ import {
 import { ecefToGeodetic, rayEllipsoidIntersect } from "../../lib/geo/projection";
 import { useUploadStore } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
+import { useCameraStore } from "../../store/camera";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
 import { attachAtmosphere } from "./scene/atmosphere";
@@ -179,6 +180,7 @@ export function attachStylizedTiles(opts: {
   const noteInteract = () => {
     lastInteract = performance.now();
     flight.cancel(); // grabbing the globe aborts a flight — the user takes over
+    useCameraStore.getState().clearTargetTilt(); // …and over a slider-set tilt glide
   };
   const dom = renderer.domElement;
   dom.addEventListener("pointerdown", noteInteract);
@@ -227,6 +229,21 @@ export function attachStylizedTiles(opts: {
   const _focusUp = new THREE.Vector3();
   let frameCount = 0;
 
+  // --- Camera feel (2026-07-10 owner pass) — temporal zoom easing, damped auto-verticality and
+  //     the declination glide. Mechanics verified against the GlobeControls source (0.4.28):
+  //     the library consumes the whole wheel delta in one frame and, while zooming IN, rotates
+  //     the camera around the zoom point at FULL strength as the local up changes
+  //     (EnvironmentControls._setFrame) — that pair is what read as "snaps to vertical". --------
+  let pendingZoom = 0; // banked wheel/pinch delta, released exp(-dt/tau) per frame
+  let lastAlt: number = POSE.cam.altM; // previous frame's altitude (zoom braking runs pre-update)
+  let lastFrameMs = performance.now();
+  const _upBefore = new THREE.Vector3();
+  const _pivot = new THREE.Vector3();
+  const _pivotUp = new THREE.Vector3();
+  const _camBack = new THREE.Vector3();
+  const _qFull = new THREE.Quaternion();
+  const _qCounter = new THREE.Quaternion();
+
   // Dev-only introspection so browser verification (Playwright) can read camera altitude and tile
   // state without reaching into the closure. No secrets, no behaviour change.
   if (import.meta.env.DEV) {
@@ -251,25 +268,67 @@ export function attachStylizedTiles(opts: {
       alt: () => WGS84_ELLIPSOID.getPositionElevation(camera.position),
     };
     (window as any).__timeStore = useTimeStore; // scrub scene time from the console / Playwright
+    (window as any).__cameraStore = useCameraStore; // drive/read the tilt glide from Playwright
   }
 
   return {
     update() {
       // A single bad frame (transient tiles error, WebGL glitch) MUST NOT freeze the canvas.
       try {
+        const now = performance.now();
+        const dtMs = Math.min(now - lastFrameMs, 100);
+        lastFrameMs = now;
+
+        // Zoom braking near the ground: the library step is already ∝ distance-to-surface, but
+        // the last kilometres still read fast — shrink the effective speed below zoomSlowAltM.
+        controls.zoomSpeed =
+          CONTROLS.zoomSpeed *
+          THREE.MathUtils.lerp(
+            CONTROLS.zoomSlowFrac,
+            1,
+            THREE.MathUtils.smoothstep(lastAlt, 0, CONTROLS.zoomSlowAltM),
+          );
+
+        // Temporal zoom easing: bank the accumulated wheel/pinch delta and hand the controls an
+        // exp-eased slice each frame — gradual, settling movement instead of one-frame steps.
+        const zc = controls as any;
+        if (CONTROLS.zoomSmoothTauMs > 0) {
+          pendingZoom += zc.zoomDelta;
+          const kz = 1 - Math.exp(-dtMs / CONTROLS.zoomSmoothTauMs);
+          let step = pendingZoom * kz;
+          if (Math.abs(pendingZoom - step) < 1e-3) step = pendingZoom; // snap the tail
+          zc.zoomDelta = step;
+          pendingZoom -= step;
+        }
+        const zoomStep = zc.zoomDelta as number;
+        _upBefore.copy(zc.up);
+
         controls.update();
+
+        // Damped auto-verticality: counter-rotate the unwanted fraction of the library's
+        // "walk the camera overhead" rotation (zoom-in only — zoom-out keeps its own tilt
+        // handling, incl. _tiltTowardsCenter at high altitude).
+        if (zoomStep > 0 && CONTROLS.zoomTiltKeep < 1 && _upBefore.angleTo(zc.up) > 1e-9) {
+          _qFull.setFromUnitVectors(_upBefore, zc.up);
+          _qCounter.identity().slerp(_qFull.invert(), 1 - CONTROLS.zoomTiltKeep);
+          controls.getPivotPoint(_pivot);
+          camera.position.sub(_pivot).applyQuaternion(_qCounter).add(_pivot);
+          camera.quaternion.premultiply(_qCounter);
+          camera.up.applyQuaternion(_qCounter);
+        }
+
         camera.updateMatrixWorld();
         buildings.update();
 
         // Cinematic flight overrides the pose after controls (the drift pattern); an active
         // flight counts as interaction so the drift stays paused through it + resumeMs after.
-        const now = performance.now();
         if (flight.update(now)) lastInteract = now;
 
         // True geodetic altitude above the WGS84 ellipsoid. (position.length() - WGS84_A is up to
         // ~21 km off at mid-latitudes — enough to mis-time the low-altitude gates.)
         const dist = camera.position.length();
         const alt = WGS84_ELLIPSOID.getPositionElevation(camera.position);
+        lastAlt = alt;
 
         // Idle orbital drift (LEO spacecraft feel) — orbit only, paused after interaction.
         if (
@@ -281,6 +340,41 @@ export function attachStylizedTiles(opts: {
           camera.position.applyQuaternion(_driftQ);
           camera.up.applyQuaternion(_driftQ);
           camera.quaternion.premultiply(_driftQ);
+        }
+
+        // Manual declination (slider): glide the pitch toward the requested tilt around the view
+        // focus. Grabbing the globe (noteInteract) or a flight cancels the glide. Sign verified
+        // against the source: _applyRotation's +y pitches TOWARD nadir (newPitch = pitch − y);
+        // pitch convention 0 = straight down, π/2 = horizon; clamps are applied inside.
+        const camStore = useCameraStore.getState();
+        if (camStore.targetTiltDeg !== null && !flight.active()) {
+          controls.getPivotPoint(_pivot);
+          zc.getUpDirection(_pivot, _pivotUp);
+          _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld); // camera +Z = backward
+          const pitchRad = _pivotUp.angleTo(_camBack);
+          const targetRad = THREE.MathUtils.degToRad(
+            THREE.MathUtils.clamp(
+              camStore.targetTiltDeg,
+              CONTROLS.tiltMinDeg,
+              CONTROLS.tiltMaxDeg,
+            ),
+          );
+          const delta = pitchRad - targetRad;
+          if (Math.abs(delta) < 8e-4) {
+            camStore.clearTargetTilt(); // arrived — hand the camera back
+          } else {
+            const kt = 1 - Math.exp(-dtMs / CONTROLS.tiltEaseTauMs);
+            zc._applyRotation(0, delta * kt, _pivot);
+            camera.updateMatrixWorld();
+          }
+        }
+        // Mirror the live pitch into the store at low cadence for the panel readout (never at
+        // 60 fps — same discipline as store/time).
+        if (frameCount % 12 === 0) {
+          zc.getUpDirection(camera.position, _pivotUp);
+          _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
+          const liveTiltDeg = THREE.MathUtils.radToDeg(_pivotUp.angleTo(_camBack));
+          if (Math.abs(liveTiltDeg - camStore.tiltDeg) > 0.25) camStore._syncTilt(liveTiltDeg);
         }
 
         ground.update(alt);

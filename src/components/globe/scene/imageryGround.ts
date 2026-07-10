@@ -89,24 +89,58 @@ export function attachImageryGround(
       });
     },
   } as any);
-  tiles.registerPlugin(new TilesFadePlugin()); // per-tile fade-in (the gradual reveal), no popping
-  tiles.registerPlugin(new UpdateOnChangePlugin()); // only re-tile when the camera actually moves
+  // Per-tile dissolve. Options are load-bearing (2026-07-10 soft-loading pass): the library
+  // defaults hard-pop root tiles (fadeRootTiles=false) and SNAP-complete all fades whenever >50
+  // tiles fade out on a moving camera — and the idle drift moves the camera every frame, so the
+  // initial load read as a patchwork of pops instead of dissolves.
   tiles.registerPlugin(
-    new ImageOverlayPlugin({
-      renderer: opts.renderer,
-      resolution: GROUND.overlayResolution,
-      overlays: [
-        new XYZTilesOverlay({
-          url: TILESETS.esriImageryUrl,
-          levels: TILESETS.esriMaxLevel,
-        }),
-      ],
+    new TilesFadePlugin({
+      fadeRootTiles: true,
+      fadeDuration: GROUND.fadeDurationMs,
+      maximumFadeOutTiles: GROUND.maxFadeOutTiles,
     }),
   );
+  const uocPlugin = new UpdateOnChangePlugin(); // only re-tile when the camera actually moves
+  tiles.registerPlugin(uocPlugin);
+  const overlayPlugin = new ImageOverlayPlugin({
+    renderer: opts.renderer,
+    resolution: GROUND.overlayResolution,
+    overlays: [
+      new XYZTilesOverlay({
+        url: TILESETS.esriImageryUrl,
+        levels: TILESETS.esriMaxLevel,
+      }),
+    ],
+  });
+  tiles.registerPlugin(overlayPlugin);
   tiles.setCamera(opts.camera);
   tiles.setResolutionFromRenderer(opts.camera, opts.renderer);
   tiles.group.visible = false; // revealed by altitude in update()
   scene.add(tiles.group);
+
+  // --- Initial-load readiness: the layer must not reveal before tiles exist (page open at LEO is
+  //     already below the fade band → uFtwFade used to snap to 1 on frame 1 over ZERO loaded
+  //     tiles — the ugly patchwork). loadProgress gates the reveal until the first full drain. --
+  let initialLoadStarted = false;
+  let initialLoadEnded = false;
+  tiles.addEventListener("tiles-load-start", () => {
+    initialLoadStarted = true;
+  });
+  tiles.addEventListener("tiles-load-end", () => {
+    initialLoadEnded = true;
+  });
+  // Failed Esri fetches otherwise leave PERMANENTLY blank (ungraded slate) tiles — the plugin
+  // never retries unless resetFailedOverlays() is called. Debounced so an offline burst retries
+  // once, not per-tile.
+  let overlayRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  const onLoadError = () => {
+    if (overlayRetryTimer !== null) return;
+    overlayRetryTimer = setTimeout(() => {
+      overlayRetryTimer = null;
+      (overlayPlugin as any).resetFailedOverlays?.();
+    }, GROUND.overlayRetryMs);
+  };
+  tiles.addEventListener("load-error", onLoadError);
 
   const uniforms = {
     uFtwFade: { value: 0 }, // 0 = invisible (all fragments discarded) … 1 = fully present
@@ -228,6 +262,7 @@ export function attachImageryGround(
   const _rayOrigin = new THREE.Vector3();
   const _rayDir = new THREE.Vector3();
   const _raycaster = new THREE.Raycaster();
+  let lastRevealMs = performance.now();
 
   return {
     tiles,
@@ -250,11 +285,35 @@ export function attachImageryGround(
       const on = alt < GATES.groundActiveAlt;
       tiles.group.visible = on;
       if (!on) return;
-      uniforms.uFtwFade.value = THREE.MathUtils.clamp(
+      // Adaptive screen-space error: coarse tiles at orbit reach full coverage fast; diving
+      // ramps the target back down to QuantizedMeshPlugin's fine default so cities stay sharp.
+      tiles.errorTarget = THREE.MathUtils.mapLinear(
+        THREE.MathUtils.clamp(alt, GROUND.errorNearAlt, GROUND.errorFarAlt),
+        GROUND.errorNearAlt,
+        GROUND.errorFarAlt,
+        GROUND.errorTargetNear,
+        GROUND.errorTargetFar,
+      );
+      // Reveal = altitude dissolve × initial-load readiness, low-passed (frame-rate independent)
+      // so the layer grows out of the stylized base once tiles actually exist — never a snap.
+      const altFade = THREE.MathUtils.clamp(
         (GATES.groundFadeTop - alt) / (GATES.groundFadeTop - GATES.groundFadeBottom),
         0,
         1,
       );
+      const readiness = initialLoadEnded
+        ? 1
+        : initialLoadStarted
+          ? THREE.MathUtils.clamp(tiles.loadProgress, 0, 1) * GROUND.revealProgressCap
+          : 0;
+      const now = performance.now();
+      const dtMs = Math.min(now - lastRevealMs, 100);
+      lastRevealMs = now;
+      const k = 1 - Math.exp(-dtMs / GROUND.revealTauMs);
+      uniforms.uFtwFade.value += (altFade * readiness - uniforms.uFtwFade.value) * k;
+      // Keep refinement ticking through the initial load even if the camera is static (reduced
+      // motion disables the drift; UpdateOnChangePlugin would otherwise stall until a zoom).
+      if (!initialLoadEnded) (uocPlugin as any).needsUpdate = true;
       const wantShadows = alt < SHADOWS.maxAltM;
       if (wantShadows !== shadowsActive) {
         shadowsActive = wantShadows;
@@ -263,6 +322,8 @@ export function attachImageryGround(
       tiles.update();
     },
     dispose() {
+      if (overlayRetryTimer !== null) clearTimeout(overlayRetryTimer);
+      tiles.removeEventListener("load-error", onLoadError);
       shadowMat.dispose();
       shadowTwins.clear();
       tiles.dispose();

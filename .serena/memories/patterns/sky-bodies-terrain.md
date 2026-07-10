@@ -98,6 +98,33 @@ msaaSamples) · SHADOWS (maxAltM/mapSize/boundsM/lightDistM/depthMarginM/bias/no
 minSunElevSin/groundOpacity) · TILESETS.terrainAssetId "1" · GROUND.overlayResolution 256.
 Tokens added: sunCore #FFF3D9 · sunGlow #FFD9A0 · moonlight #BFD0E8 (tokens.css + bridge).
 
+## Moon/sun horizon occlusion + soft adaptive loading (2026-07-10 owner pass)
+- **Impostor occlusion is ANALYTIC, not depth.** The camera-anchored impostors sit at a FAKE
+  distance (0.5·far) — the earth's limb is usually FARTHER, so the depth buffer drew the moon
+  THROUGH the planet. Both impostor shaders (scene/sky.ts) now compute per-fragment the view ray's
+  closest-approach altitude vs the earth (atmosphere math; `tc<=0 → visible` guards zenith-at-street
+  -level) and fade across SKY.horizonFadeBandM (40 km) — bodies melt into the horizon haze. Moon
+  material transparent (alpha=fade) with `discard` at fade<0.004 (a hidden disc must write NO depth
+  or it punches a hole in the starfield — depthWrite stays on otherwise: the moon BODY occludes
+  stars). moonBrightness 1.8, earthshine 0.1. Verified at scrubbed pinned times: h=+614 km disc,
+  +18 km ghost in haze, −1469 km gone (verify-shots/uifix-07..09).
+- **Soft loading (imageryGround)** — the 0.4.28 defaults that caused the patchy first load:
+  fadeRootTiles=false (coarse tiles POP), maximumFadeOutTiles=50 + camera moving >0.1 u/frame →
+  `completeAllFades()` SNAP (idle drift moves ~140 m/frame → always "moving"), QuantizedMeshPlugin
+  pins errorTarget=2 at init (deep refinement = long patchy window at LEO), failed Esri overlay
+  fetches never retried, and uFtwFade snapped to 1 on frame 1 (page open alt 1100 km < fadeBottom)
+  over ZERO loaded tiles. Now: TilesFadePlugin{fadeRootTiles:true, 700 ms, max 300}; reveal =
+  altFade × readiness low-passed (τ 600 ms), readiness = loadProgress×0.85 until first
+  `tiles-load-end` then 1, gated on `tiles-load-start` (**loadProgress reads 1 BEFORE any
+  request**); adaptive `tiles.errorTarget` 2↔12 across 60 km↔1200 km alt (set per-frame in
+  ground.update, AFTER QuantizedMeshPlugin's init); `uocPlugin.needsUpdate=true` until initial
+  load ends (reduced-motion would stall refinement — UpdateOnChangePlugin short-circuits static
+  cameras); `resetFailedOverlays()` debounced 8 s on `load-error`. All knobs in GROUND.
+  Page open verified: 1 s clean base → 3 s one soft dissolve → settled ~6 s (uifix-01..04).
+- Buildings still hard-pop: ONE shared styleMat can't ride TilesFadePlugin (fades are per-tile
+  material) — needs per-tile material clones if ever faded. Playwright MCP wedged this session →
+  scripted verification via scratchpad `playwright-core` + system Chrome (channel:"chrome").
+
 ## UNVERIFIED / carried
 - Moonlight visual on night buildings (code-wired; not isolated in a shot — moon was 22%).
 - Terrain memory/perf at street level (CWT errorTarget 2 + z19 overlay splitting) — profile later.

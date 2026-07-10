@@ -59,7 +59,15 @@ terrain gets ShadowMaterial twins — shadow contrast, not the pipeline, is the 
 + Esri via ImageOverlayPlugin — 90 m building sink REMOVED, `terrainHeightAt()` raycast + frustum
 `resnap()` (EXIF altitude = absolute, clamped above ground; manual = above rendered ground).
 Rule: browser screenshots → `verify-shots/` (git-ignored). 113 vitest · astro check 0.
-Mechanics + traps: `mem:patterns/sky-bodies-terrain`. **Next step: Phase 4 remainder — time
+Mechanics + traps: `mem:patterns/sky-bodies-terrain`.
+**Owner UX pass SHIPPED (2026-07-10, browser-VERIFIED via scripted Chrome — Playwright MCP was
+wedged):** gradual zoom verticality (zoomTiltKeep 0.35 counter-rotation) + banked/eased zoomDelta
++ altitude zoom braking + dampingFactor 0.28 inertia + POSE 38° depression (more horizon) + NEW
+declination slider (`store/camera.ts` + `panels/CameraTiltPanel.tsx`); moon/sun per-fragment
+analytic horizon-occlusion fade (was clipping through the planet) + moonBrightness 1.8; soft
+adaptive tile loading (fadeRootTiles/700 ms/300 cap + loadProgress-gated reveal + adaptive
+errorTarget 2↔12 + overlay retry). Camera mechanics: `mem:patterns/globe-rendering`; sky/loading:
+`mem:patterns/sky-bodies-terrain`. **Next step: Phase 4 remainder — time
 scrubber UI + golden-hour grade + BSC5 stars** (see `NEXT_SESSION_PROMPT.md`). `wix release`
 still pending user greenlight.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
