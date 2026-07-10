@@ -2,6 +2,7 @@
 import Layout from "../layouts/Layout.astro";
 import GlobeCanvas from "../components/globe/GlobeCanvas";
 import UploadFlow from "../components/panels/UploadFlow";
+import TimeReadout from "../components/panels/TimeReadout";
 ---
 
 <Layout title="Frame the World">
@@ -10,6 +11,9 @@ import UploadFlow from "../components/panels/UploadFlow";
 
   <!-- Upload flow overlay (design board 05) — opened by any [data-open-upload] element -->
   <UploadFlow client:only="react" />
+
+  <!-- Scene clock — the exact instant the ephemeris lights the globe with (pre-Phase-4) -->
+  <TimeReadout client:only="react" />
 
   <header class="topnav">
     <span class="logo">Frame&nbsp;the&nbsp;World</span>
@@ -26,12 +30,13 @@ import UploadFlow from "../components/panels/UploadFlow";
     <p>Upload a RAW. Watch it project onto the planet.</p>
   </section>
 
-  <!-- Map-tile attribution: Esri World Imagery (close-zoom ground) + OpenStreetMap (3D buildings). -->
+  <!-- Attribution: Esri World Imagery (draped ground) + Cesium ion (World Terrain + OSM
+       Buildings, D13 manual attribution) + OpenStreetMap (building data). -->
   <a
     class="map-credit"
     href="https://www.esri.com/"
     target="_blank"
-    rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · © OpenStreetMap contributors</a>
+    rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · Cesium ion · © OpenStreetMap contributors</a>
 </Layout>
 
 <style>

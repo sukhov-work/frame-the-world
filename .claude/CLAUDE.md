@@ -42,6 +42,8 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - Release: `npx @wix/cli@latest build` → `npx @wix/cli@latest release`  (no SSH — "prod" is Wix cloud)
 - Auth: `npx @wix/cli@latest token --site "$SITE_ID"` (site-scoped REST; mint once, cache). `whoami` to check.
 - **Never claim done with failing tests or `astro check` errors.** Never fabricate a Wix API signature.
+- **Browser-verification screenshots go in `verify-shots/` (git-ignored) — NEVER the repo root.**
+  Pass the folder in the screenshot filename (e.g. `verify-shots/phase4-01-terminator.jpeg`).
 
 ## Hard Constraints (from PROJECT_SEED §3 — violations = bugs)
 - **C1 Client-heavy.** WASM RAW decode is the primary path; offload to the client. Server-side decode

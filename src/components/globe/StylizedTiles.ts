@@ -1,16 +1,37 @@
 import * as THREE from "three";
 import { GlobeControls, WGS84_ELLIPSOID } from "3d-tiles-renderer";
+import {
+  angularRadiusRad,
+  bodyStatesAt,
+  KM_PER_AU,
+  MOON_RADIUS_KM,
+  SUN_RADIUS_KM,
+} from "../../lib/ephemeris/bodies";
 import { ecefToGeodetic, rayEllipsoidIntersect } from "../../lib/geo/projection";
 import { useUploadStore } from "../../store/upload";
+import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
 import { attachAtmosphere } from "./scene/atmosphere";
 import { attachStars } from "./scene/stars";
 import { attachBuildings } from "./scene/buildings";
 import { attachImageryGround } from "./scene/imageryGround";
+import { attachSky } from "./scene/sky";
 import { attachPhotoFrustum } from "./PhotoFrustum";
 import { createFlight } from "./flight";
-import { CONTROLS, DRIFT, EARTH, FLIGHT, FRUSTUM, GATES, POSE, WGS84_A, WGS84_B } from "./tuning";
+import {
+  CONTROLS,
+  DRIFT,
+  EARTH,
+  FLIGHT,
+  FRUSTUM,
+  GATES,
+  POSE,
+  SHADOWS,
+  SKY,
+  WGS84_A,
+  WGS84_B,
+} from "./tuning";
 
 /**
  * StylizedTiles — the real, geo-accurate globe (ADR D1), built to the PROJECT_SEED §2 signature
@@ -44,8 +65,11 @@ export function attachStylizedTiles(opts: {
   renderer: THREE.WebGLRenderer;
   ionToken: string;
   reduceMotion?: boolean;
+  /** GlobeCanvas's DirectionalLight (buildings key + shadow caster) — the orchestrator drives its
+   *  direction from the ephemeris and its shadow rig from the view focus. */
+  sunLight?: THREE.DirectionalLight;
 }): TilesHandle {
-  const { scene, camera, renderer, ionToken, reduceMotion = false } = opts;
+  const { scene, camera, renderer, ionToken, reduceMotion = false, sunLight } = opts;
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
   // Base ellipsoid scale: WGS84 shrunk a hair (EARTH.shrink) so the imagery ground at exact WGS84
@@ -61,7 +85,36 @@ export function attachStylizedTiles(opts: {
   const atmosphere = attachAtmosphere(scene, { baseScale });
   const stars = attachStars(scene, { dpr: renderer.getPixelRatio() });
   const buildings = attachBuildings(scene, { camera, renderer, ionToken });
-  const ground = attachImageryGround(scene, { camera, renderer, maxAniso });
+  const ground = attachImageryGround(scene, { camera, renderer, ionToken });
+  const sky = attachSky(scene);
+
+  // --- Ephemeris: ONE astronomical sample drives every light in the scene (terminator, ground
+  //     grade, atmosphere, sun/moon bodies, building key light, moonlight). Re-sampled when scene
+  //     time moves >SKY.sampleIntervalMs — the sun drifts 0.004°/s, so 1 s is sub-pixel. ---------
+  const sunDirW = new THREE.Vector3(5, 2, 4).normalize(); // overwritten by the first sample
+  const moonDirW = new THREE.Vector3(0, 0, 1);
+  const moonPosW = new THREE.Vector3(0, 0, 3.8e8);
+  let sunAngRad = 0.00465;
+  let moonIllum = 0.5;
+  let lastSampleMs = -Infinity;
+  const sampleEphemeris = (tMs: number) => {
+    lastSampleMs = tMs;
+    const s = bodyStatesAt(tMs);
+    sunDirW.set(s.sunDir[0], s.sunDir[1], s.sunDir[2]);
+    moonDirW.set(s.moonDir[0], s.moonDir[1], s.moonDir[2]);
+    moonPosW.copy(moonDirW).multiplyScalar(s.moonDistanceKm * 1000);
+    sunAngRad = angularRadiusRad(SUN_RADIUS_KM, s.sunDistanceAu * KM_PER_AU);
+    moonIllum = s.moonIllumination;
+    const moonGlow = SKY.moonSceneGlow * moonIllum;
+    (earth.uniforms.uSunDir.value as THREE.Vector3).copy(sunDirW);
+    (earth.uniforms.uMoonDir.value as THREE.Vector3).copy(moonDirW);
+    earth.uniforms.uMoonGlow.value = moonGlow;
+    (ground.uniforms.uFtwSun.value as THREE.Vector3).copy(sunDirW);
+    (ground.uniforms.uFtwMoonDir.value as THREE.Vector3).copy(moonDirW);
+    ground.uniforms.uFtwMoonGlow.value = moonGlow;
+    (atmosphere.uniforms.uSunDir.value as THREE.Vector3).copy(sunDirW);
+  };
+  sampleEphemeris(sceneTimeMs());
 
   // --- Camera framing: globe-scale near/far (GlobeControls refines them each frame), then the
   //     signature LEO pose — oblique toward the horizon, NOT nadir (PROJECT_SEED §2). -----------
@@ -105,6 +158,7 @@ export function attachStylizedTiles(opts: {
   //     fly to a pose framing it: behind the apex along −forward, lifted, looking at the plane. --
   const flight = createFlight(camera, { reduceMotion, wgs84A: WGS84_A, wgs84B: WGS84_B });
   const frustum = attachPhotoFrustum(scene, {
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
     onPlaced(geom) {
       const apex = new THREE.Vector3(...geom.apex);
       const fwd = new THREE.Vector3(...geom.forward);
@@ -167,6 +221,12 @@ export function attachStylizedTiles(opts: {
   });
   const driftRadPerFrame = (DRIFT.degPerFrame * Math.PI) / 180;
 
+  // Scratch vectors for the per-frame sun/shadow/sky work (no allocation on the hot path).
+  const _camFwd = new THREE.Vector3();
+  const _focus = new THREE.Vector3();
+  const _focusUp = new THREE.Vector3();
+  let frameCount = 0;
+
   // Dev-only introspection so browser verification (Playwright) can read camera altitude and tile
   // state without reaching into the closure. No secrets, no behaviour change.
   if (import.meta.env.DEV) {
@@ -179,8 +239,18 @@ export function attachStylizedTiles(opts: {
       earthUniforms: earth.uniforms,
       frustum,
       flight,
+      sky,
+      sunLight,
+      bodies: () => ({
+        sunDir: sunDirW.toArray(),
+        moonDir: moonDirW.toArray(),
+        moonIllumination: moonIllum,
+        sampleMs: lastSampleMs,
+      }),
+      terrainHeightAt: (lat: number, lon: number) => ground.heightAt(lat, lon),
       alt: () => WGS84_ELLIPSOID.getPositionElevation(camera.position),
     };
+    (window as any).__timeStore = useTimeStore; // scrub scene time from the console / Playwright
   }
 
   return {
@@ -215,6 +285,53 @@ export function attachStylizedTiles(opts: {
 
         ground.update(alt);
 
+        // Ephemeris: re-sample when scene time moved enough (live clock or a pinned scrub).
+        const tMs = sceneTimeMs();
+        if (Math.abs(tMs - lastSampleMs) > SKY.sampleIntervalMs) sampleEphemeris(tMs);
+
+        // Sun key light: ephemeris direction always; the shadow rig follows the view focus at
+        // city altitudes AND only while the sun is actually up there (a below-horizon sun would
+        // project garbage through the planet).
+        if (sunLight) {
+          let shadowsOn = false;
+          if (alt < SHADOWS.maxAltM) {
+            camera.getWorldDirection(_camFwd);
+            const hit = rayEllipsoidIntersect(
+              [camera.position.x, camera.position.y, camera.position.z],
+              [_camFwd.x, _camFwd.y, _camFwd.z],
+            );
+            if (hit) {
+              _focus.set(hit[0], hit[1], hit[2]);
+              _focusUp.copy(_focus).normalize();
+              if (sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin) {
+                shadowsOn = true;
+                sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
+                sunLight.target.position.copy(_focus);
+              }
+            }
+          }
+          if (!shadowsOn) {
+            // direction-only mode: keep the terminator agreement for building shading everywhere
+            sunLight.position.copy(sunDirW).multiplyScalar(1e7);
+            sunLight.target.position.set(0, 0, 0);
+          }
+          sunLight.castShadow = shadowsOn;
+        }
+
+        // Sun + moon bodies (camera-anchored, true apparent size; moon angular size uses the
+        // camera→moon distance — it varies ±2% across an orbit swing).
+        sky.update({
+          camera,
+          sunDir: sunDirW,
+          moonPos: moonPosW,
+          sunAngRad,
+          moonAngRad: angularRadiusRad(MOON_RADIUS_KM * 1000, moonPosW.distanceTo(camera.position)),
+          moonIllumination: moonIllum,
+        });
+
+        // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
+        if (++frameCount % 120 === 0) frustum.resnap();
+
         // Orbit-only decoration: hide the graticule + atmosphere once we dive toward the city
         // (no "wire cage" up-view, no shell overdraw over the buildings).
         const orbital = alt > GATES.decorMinAlt;
@@ -244,6 +361,7 @@ export function attachStylizedTiles(opts: {
       controls.dispose();
       buildings.dispose();
       ground.dispose();
+      sky.dispose();
       earth.dispose();
       graticule.dispose();
       atmosphere.dispose();

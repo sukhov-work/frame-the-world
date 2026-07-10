@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { frustumGeometry, type FrustumGeometry } from "../../lib/geo/frustum";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import { tokens } from "../../lib/theme/tokens";
-import { derivedFov, useUploadStore } from "../../store/upload";
+import { derivedFov, paramSource, useUploadStore } from "../../store/upload";
 import { FRUSTUM } from "./tuning";
 
 /**
@@ -20,6 +20,9 @@ import { FRUSTUM } from "./tuning";
 export interface PhotoFrustumHandle {
   /** Current geometry, or null while nothing is placed. */
   current(): FrustumGeometry | null;
+  /** Re-seat on the rendered terrain if its height changed (tiles refine over time). Cheap when
+   *  nothing is placed or the height is stable — the orchestrator calls it at a low cadence. */
+  resnap(): void;
   dispose(): void;
 }
 
@@ -28,6 +31,10 @@ export function attachPhotoFrustum(
   opts: {
     /** Fired when a photo lands (place / click-to-place / re-place) — the orchestrator flies to it. */
     onPlaced?: (geom: FrustumGeometry) => void;
+    /** Rendered-terrain height (m above the ellipsoid) at a location, or null while unloaded.
+     *  The altitude param means "metres above the rendered ground" (D4) — the ground is now REAL
+     *  terrain, so the frustum must ride on top of it or it buries at any uphill city. */
+    terrainHeightAt?: (latDeg: number, lonDeg: number) => number | null;
   } = {},
 ): PhotoFrustumHandle {
   const group = new THREE.Group();
@@ -67,6 +74,10 @@ export function attachPhotoFrustum(
   let texture: THREE.Texture | undefined;
   let textureUrl: string | undefined;
   let geom: FrustumGeometry | null = null;
+  // Terrain base under the CURRENT placement (0 until a tile covers it; keyed so a re-place
+  // never inherits the previous location's height).
+  let terrainH = 0;
+  let terrainKey = "";
 
   function setTexture(url: string | undefined): void {
     if (url === textureUrl) return;
@@ -99,10 +110,28 @@ export function attachPhotoFrustum(
         ? s.textureWidth / s.textureHeight
         : FRUSTUM.fallbackAspect;
     const hFovDeg = derivedFov(s.exif, s.params).hFovDeg;
+    const key = `${s.placement.latDeg},${s.placement.lonDeg}`;
+    const th = opts.terrainHeightAt?.(s.placement.latDeg, s.placement.lonDeg) ?? null;
+    if (key !== terrainKey) {
+      terrainKey = key;
+      terrainH = th ?? 0;
+    } else if (th !== null) {
+      terrainH = th;
+    }
+    // Altitude semantics with REAL terrain (D4): an untouched EXIF GPS altitude is an ABSOLUTE
+    // (ellipsoidal-ish) height — adding terrain under it would double-count (the fixture floated
+    // 96 m when it did). Clamp it above the rendered ground: geoid offset / GPS noise routinely
+    // lands EXIF values inside hills. A MANUAL or MISSING altitude means "metres above the
+    // rendered ground" (slider semantics, eye height default).
+    const sliderAlt = s.params.altitudeM ?? FRUSTUM.eyeHeightM;
+    const altM =
+      paramSource(s.exif, s.params, "altitudeM") === "exif"
+        ? Math.max(sliderAlt, terrainH + FRUSTUM.eyeHeightM)
+        : terrainH + sliderAlt;
     geom = frustumGeometry({
       latDeg: s.placement.latDeg,
       lonDeg: s.placement.lonDeg,
-      altM: s.params.altitudeM ?? FRUSTUM.eyeHeightM,
+      altM,
       headingDeg: s.params.headingDeg ?? 0,
       pitchDeg: s.params.pitchDeg ?? 0,
       rollDeg: s.exif.rollDeg ?? 0,
@@ -158,6 +187,12 @@ export function attachPhotoFrustum(
 
   return {
     current: () => geom,
+    resnap() {
+      const s = useUploadStore.getState();
+      if (s.phase !== "placed" || !s.placement) return;
+      const th = opts.terrainHeightAt?.(s.placement.latDeg, s.placement.lonDeg);
+      if (th != null && Math.abs(th - terrainH) > 0.5) rebuild();
+    },
     dispose() {
       unsubscribe();
       texture?.dispose();

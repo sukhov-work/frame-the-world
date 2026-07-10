@@ -10,6 +10,53 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
+- **2026-07-10 — Pre-Phase-4 SHIPPED: ephemeris sun+moon + real 3D terrain + bloom + sun shadows + scene clock (browser-VERIFIED via Playwright on wix dev).**
+  Owner pass before Phase 4: "sun and moon in correct space positions… truthful source of light… night more
+  pronounced… moon emits light… soft bloom… physical shadows… 3D terrain… sleek current time… screenshots folder."
+  **Ephemeris (D6):** `astronomy-engine@2.1.19` EXACT-pinned; `lib/ephemeris/bodies.ts` (pure) —
+  `bodyStatesAt(utcMs)` → sun/moon ECEF dirs + distances + phase/illumination via GeoVector/GeoMoon →
+  `Rotation_EQJ_EQD` → −GAST rotation (sign verified 3 ways; **JPL Horizons agreement ≤0.0007°**, tests assert
+  ±0.05° — 10× tighter than the plan's gate; TRAP: `MakeTime(number)`=J2000 days, always wrap in `new Date`).
+  **+9 vitest (113 total)** incl. solstice subsolar-latitude check. **Scene time:** `store/time.ts` (LIVE follows
+  wall clock without 60 fps store writes; `setTime` pins — the Phase-4 scrubber seam) + `panels/TimeReadout.tsx`
+  bottom-right mono HUD (local clock · LIVE/PINNED · date · UTC · moon glyph+% — live-verified ticking + PINNED
+  amber on scrub). **Orchestrator** samples ephemeris at 1 Hz of scene time and pushes ONE sun/moon state into
+  earth/ground/atmosphere shaders, GlobeCanvas key light, moonlight and sky bodies (browser check: subsolar
+  22.2N/43.1E at 09:12Z ✓; night Americas at 3 AM local with blooming VIIRS lights ✓). **Sky bodies**
+  (`scene/sky.ts`): camera-anchored impostors at TRUE angular size; **impostor distance must clamp ≥1.2·near**
+  (GlobeControls fits near to ~13,000 km when looking away from earth — unclamped bodies near-plane-clip; found
+  live); sun = limb-darkened HDR disc (bloom carries the glow), moon = NASA CGI Moon Kit LROC 1k on a sphere
+  phase-lit in-shader by the real sun dir (22% waning crescent verified telephoto) + earthshine; moonlight =
+  DirectionalLight × illumination + matching night term in earth/ground grades (moonSceneGlow). **Bloom:**
+  EffectComposer w/ HalfFloat+**samples:4** RT (default 0 aliases edge lines) → UnrealBloom (0.4/0.5/0.9) →
+  OutputPass (tonemap+sRGB move there; renderer settings untouched); night floors 0.22/0.38 (was 0.32/0.45),
+  hemi 0.4→0.25. CAVEAT: frustum photo `toneMapped:false` is a no-op under the composer (Neutral ≈ identity <0.8).
+  **Terrain:** imageryGround REWRITTEN — Cesium World Terrain (ion asset **1**) via QuantizedMeshPlugin
+  registered inside `CesiumIonAuthPlugin.assetTypeHandler` (**never up-front** — priority −1000 fetches
+  layer.json before the endpoint resolves) + ImageOverlayPlugin/XYZTilesOverlay (Esri z19, 256² per-tile
+  composites) + unlit-swap plugin (priority −100: Standard→per-tile Basic keeps the stylized self-lit look) +
+  TilesFade/UpdateOnChange; grade re-anchored map_fragment→**alphamap_fragment** (after overlay composite) and
+  half-lambert now shades off the REAL surface normal (mountains read — Matterhorn/Alps verified); **90 m
+  building sink REMOVED** (OSM Buildings clamp to CWT = the terrain now rendered; Dnipro bases verified seated;
+  `terrainHeightAt` raycast reads 93.8 m fine-LOD ≈ the old hand-tuned 90 — but −453 m at coarse LOD, consumers
+  must tolerate refinement). **Shadows:** PCF 2048² (PCFSoft deprecated r185), ortho ±2.5 km follows the
+  camera-forward→ellipsoid focus, gated alt<30 km AND sun-up-at-focus; normalBias 1.0 world-m absorbs
+  float32@6.4e6 acne; buildings cast+receive; terrain receives via per-tile ShadowMaterial twins (alpha-0 when
+  unshadowed, altitude-gated). **Debug lesson:** the shadow pipeline worked from the first frame — black@0.35
+  over the near-black graded ground is imperceptible; proven by an opaque getShadowMask() viz + red mask overlay
+  (verify-shots/prephase4-14/16); groundOpacity → 0.55. **Frustum altitude semantics fixed** (regression found
+  live: fixture floated 96 m over terrain): EXIF-provenance altitude = ABSOLUTE height clamped ≥ terrain+eye;
+  MANUAL/MISSING = above rendered ground; + `resnap()` re-seats every ~2 s as tiles refine (apex 96 m ell ≈
+  2.2 m above terrain verified). **Rule:** all browser-verification screenshots → `verify-shots/` (git-ignored;
+  .claude/CLAUDE.md). Tokens += sunCore/sunGlow/moonlight (css+bridge). Attribution += Cesium ion. THIRD_PARTY +=
+  astronomy-engine (MIT) + Moon Kit (NASA PD) + CWT. Files: `lib/ephemeris/bodies.ts`, `store/time.ts`,
+  `components/globe/{tuning,StylizedTiles,GlobeCanvas,PhotoFrustum}.{ts,tsx}`, `components/globe/scene/{sky,imageryGround,buildings,baseEarth}.ts`,
+  `components/panels/TimeReadout.tsx`, `styles/{time-readout.css,tokens.css}`, `lib/theme/tokens.ts`,
+  `pages/index.astro`, `.gitignore`, `.claude/CLAUDE.md`, `THIRD_PARTY.md`, `public/textures/moon-color.jpg`,
+  tests `test/lib/ephemeris/bodies.test.ts`. **113 vitest · astro check 0 · browser-VERIFIED** (shots
+  verify-shots/prephase4-01..18). UNVERIFIED: moonlight visual isolated (22% moon), terrain street-level
+  memory/perf, overlay sharpness at grazing angles (knob GROUND.overlayResolution), `wix release` bundle.
+  Mechanics: `mem:patterns/sky-bodies-terrain`.
 - **2026-07-10 — Phase 3 SHIPPED: frustum + projection + PLACE ON GLOBE + cinematic flight (browser-VERIFIED via Playwright on wix dev).**
   A placed photo now renders as an accent-lined **camera frustum + image plane** at its capture location and
   re-projects **live** from the sliders. **Math** (pure, three-free): `lib/geo/frustum.ts` `frustumGeometry`

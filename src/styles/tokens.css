@@ -40,6 +40,9 @@
   --color-star: #dde6f2; /* cool near-white starfield */
   --color-city-lights: #ffc36e; /* night-side VIIRS city lights — warm sodium, geographically real */
   --color-golden-hour: #ffb865; /* design: golden tint — appears only in-scene at golden hour */
+  --color-sun-core: #fff3d9; /* solar disc — warm white (bloom carries the blowout) */
+  --color-sun-glow: #ffd9a0; /* solar halo / corona falloff — warmer than the disc */
+  --color-moonlight: #bfd0e8; /* cool moonlight fill on the night side (intensity by phase) */
 
   /* Type (design board 02) — Space Grotesk for UI, IBM Plex Mono for readouts */
   --font-ui: "Space Grotesk", system-ui, -apple-system, "Helvetica Neue", sans-serif;

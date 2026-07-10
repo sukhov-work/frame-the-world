@@ -1,10 +1,10 @@
 import * as THREE from "three";
-import { TilesRenderer, WGS84_ELLIPSOID } from "3d-tiles-renderer";
+import { TilesRenderer } from "3d-tiles-renderer";
 import { CesiumIonAuthPlugin } from "3d-tiles-renderer/core/plugins";
 import { GLTFExtensionsPlugin } from "3d-tiles-renderer/three/plugins";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { tokens } from "../../../lib/theme/tokens";
-import { BUILDINGS, TERRAIN, TILESETS } from "../tuning";
+import { BUILDINGS, TILESETS } from "../tuning";
 
 /**
  * OSM building tiles (Cesium ion, TILESETS.ionAssetId) restyled to the design-board building idiom
@@ -37,17 +37,8 @@ export function attachBuildings(
   tiles.setResolutionFromRenderer(opts.camera, opts.renderer);
   scene.add(tiles.group);
 
-  // Cesium OSM Buildings are clamped to Cesium World Terrain, so building bases sit at terrain
-  // elevation ABOVE the ellipsoid our imagery ground drapes on — they read as floating. Sink the
-  // whole layer by the test city's mean terrain height (TERRAIN.buildingSinkM; city-specific
-  // interim until real terrain lands).
-  const cityUp = new THREE.Vector3();
-  WGS84_ELLIPSOID.getCartographicToNormal(
-    (TERRAIN.cityLatDeg * Math.PI) / 180,
-    (TERRAIN.cityLonDeg * Math.PI) / 180,
-    cityUp,
-  );
-  tiles.group.position.addScaledVector(cityUp, -TERRAIN.buildingSinkM);
+  // (The old 90 m TERRAIN.buildingSinkM hack is gone: the ground now RENDERS Cesium World
+  // Terrain — the same terrain OSM Buildings are height-clamped to — so bases seat naturally.)
 
   const styleMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(tokens.surface), // dark slate mass (design building front #0F151D–#12161C)
@@ -74,6 +65,10 @@ export function attachBuildings(
         const orig = c.material;
         c.material = styleMat; // ONE shared material is safe (disposed once, in dispose())
         if (orig && orig !== styleMat) orig.dispose(); // don't leak the original GLTF material per tile
+        // Sun shadows (city scale): buildings cast onto the ground twins and onto each other.
+        // Tiles arrive with both flags false — the shadow pass skips everything otherwise.
+        c.castShadow = true;
+        c.receiveShadow = true;
         // Pronounced edges: hard creases as line segments riding the mesh. The added child is
         // a LineSegments, so the isMesh branch skips it when traverse reaches it.
         const edges = new THREE.LineSegments(

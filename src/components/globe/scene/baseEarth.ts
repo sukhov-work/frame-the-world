@@ -52,6 +52,9 @@ export function attachBaseEarth(
     uCityLights: { value: new THREE.Color(tokens.cityLights) },
     uAtmTint: { value: new THREE.Color(tokens.atmosphereDeep) },
     uSunDir: { value: new THREE.Vector3(...SUN.direction).normalize() },
+    uMoonDir: { value: new THREE.Vector3(0, 0, 1) },
+    uMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
+    uMoonCol: { value: new THREE.Color(tokens.moonlight) },
     uNightFloor: { value: EARTH.nightFloor },
     uRelief: { value: EARTH.relief },
     uOrganic: { value: EARTH.organic },
@@ -76,6 +79,8 @@ export function attachBaseEarth(
       uniform sampler2D uColor;
       uniform sampler2D uNight;
       uniform vec3 uWater, uLand, uLandHi, uPeak, uCityLights, uAtmTint, uSunDir;
+      uniform vec3 uMoonDir, uMoonCol;
+      uniform float uMoonGlow;
       uniform float uNightFloor;
       uniform float uRelief;
       uniform float uOrganic;
@@ -114,6 +119,8 @@ export function attachBaseEarth(
         float night = 1.0 - smoothstep(${glf(EARTH.nightBand[0])}, ${glf(EARTH.nightBand[1])}, wrap);
         float li = dot(texture2D(uNight, vUv).rgb, vec3(0.333));
         color += uCityLights * (li * li * ${glf(EARTH.cityLightGain)}) * night * land;
+        // Cool moonlight lifts the dark side by lunar phase (astronomically-driven, like the sun).
+        color += albedo * uMoonCol * (max(dot(Np, normalize(uMoonDir)), 0.0) * uMoonGlow * night);
         // In-shader limb scattering (day side): the disc brightens toward the grazing edge so the
         // sphere melts into the halo instead of meeting a stuck-on ring.
         float rim = pow(1.0 - max(dot(normalize(cameraPosition - vDir), N), 0.0), ${glf(EARTH.rimPow)});

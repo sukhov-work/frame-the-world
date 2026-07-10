@@ -25,6 +25,9 @@ export const tokens = {
   star: '#DDE6F2', // cool near-white starfield
   cityLights: '#FFC36E', // night-side VIIRS city lights — warm sodium, geographically real
   goldenHour: '#FFB865', // warm sun-driven tint
+  sunCore: '#FFF3D9', // solar disc — warm white (bloom carries the blowout)
+  sunGlow: '#FFD9A0', // solar halo / corona falloff — warmer than the disc
+  moonlight: '#BFD0E8', // cool moonlight fill on the night side (intensity by phase)
 } as const;
 
 export type ThemeTokens = typeof tokens;

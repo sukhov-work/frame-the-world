@@ -36,7 +36,13 @@ oblique framing, idle drift pause-on-interaction resume-8s, "terrain resolves" o
    growing out of the earth".
 3. **CITY** — Esri imagery keeps refining to z19 under Cesium OSM Buildings (ion 96188).
 
-## Imagery ground (2nd TilesRenderer)
+## Imagery ground (2nd TilesRenderer) — SUPERSEDED 2026-07-10 (pre-Phase-4)
+**The GeneratedSurfacePlugin ellipsoid drape below was REPLACED by real Cesium World Terrain
+(quantized-mesh, ion asset 1) + ImageOverlayPlugin — see `mem:patterns/sky-bodies-terrain` for the
+current pipeline (plugin order, unlit swap, grade re-anchor, shadow twins, 90 m sink removal).
+Ephemeris now drives SUN.direction (static constant = first-frame fallback only). Historical notes:**
+
+## Imagery ground (2nd TilesRenderer) [historical]
 - `XYZTilesOverlay({ url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", levels: 19 })`
   + `GeneratedSurfacePlugin({shape:'ellipsoid', applyOverlayTexture:true})` + TilesFadePlugin +
   UpdateOnChangePlugin. Esri ToS for production = UNVERIFIED (hackathon-standard; revisit pre-release).

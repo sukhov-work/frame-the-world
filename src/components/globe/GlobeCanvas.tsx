@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { tokens } from "../../lib/theme/tokens";
-import { POSE, RENDERER, SUN } from "./tuning";
+import { BLOOM, POSE, RENDERER, SHADOWS, SUN } from "./tuning";
 
 /**
  * GlobeCanvas — the signature scene (PROJECT_SEED §2; ADR D1/D12).
@@ -31,10 +35,14 @@ export default function GlobeCanvas() {
     // cyan accent + additive atmosphere rim the way ACES/AgX would.
     renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.toneMappingExposure = RENDERER.toneMappingExposure;
+    // Sun shadows (city scale). Default PCFShadowMap — r185 deprecated PCFSoft (hardware PCF is
+    // already 4-tap), and VSM would drag the huge receiver tile meshes into the depth pass.
+    renderer.shadowMap.enabled = true;
 
     const reduceMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
+    if (import.meta.env.DEV) (window as any).__renderer = renderer;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
@@ -120,6 +128,21 @@ export default function GlobeCanvas() {
     const sun = new THREE.DirectionalLight(0xffffff, SUN.keyIntensity);
     sun.position.set(...SUN.direction);
     scene.add(sun);
+    scene.add(sun.target); // target must live in the scene for its matrixWorld to update (three docs)
+    // Tight orthographic shadow camera — refit to the view focus each frame by the orchestrator.
+    // castShadow stays OFF until the orchestrator gates it on (low altitude + sun above horizon).
+    sun.castShadow = false;
+    sun.shadow.mapSize.set(SHADOWS.mapSize, SHADOWS.mapSize);
+    sun.shadow.camera.left = -SHADOWS.boundsM;
+    sun.shadow.camera.right = SHADOWS.boundsM;
+    sun.shadow.camera.top = SHADOWS.boundsM;
+    sun.shadow.camera.bottom = -SHADOWS.boundsM;
+    sun.shadow.camera.near = SHADOWS.lightDistM - SHADOWS.depthMarginM;
+    sun.shadow.camera.far = SHADOWS.lightDistM + SHADOWS.depthMarginM;
+    sun.shadow.bias = SHADOWS.bias;
+    sun.shadow.normalBias = SHADOWS.normalBias; // world-metres — absorbs float32 quantisation at ECEF scale
+    sun.shadow.radius = SHADOWS.radius;
+    sun.shadow.camera.updateProjectionMatrix();
     // Hemisphere fill so night-side buildings aren't pure black (AmbientLight(water) was ~0).
     scene.add(
       new THREE.HemisphereLight(
@@ -128,6 +151,26 @@ export default function GlobeCanvas() {
         SUN.hemiIntensity,
       ),
     );
+
+    // --- soft bloom composer: RenderPass → UnrealBloom → OutputPass (tone map + sRGB move to the
+    //     OutputPass; the renderer's own settings are read by it, so they stay untouched above).
+    //     Custom HalfFloat target keeps HDR (sun disc >1 blooms) + MSAA (edge lines would alias). --
+    const rtSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+    const composeTarget = new THREE.WebGLRenderTarget(rtSize.x, rtSize.y, {
+      type: THREE.HalfFloatType,
+      samples: BLOOM.msaaSamples,
+    });
+    const composer = new EffectComposer(renderer, composeTarget);
+    composer.setPixelRatio(renderer.getPixelRatio());
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      BLOOM.strength,
+      BLOOM.radius,
+      BLOOM.threshold,
+    );
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
 
     // --- optional real OSM-buildings globe (ion token gated; dynamic import) ---
     let tilesHandle: { update: () => void; dispose: () => void } | null = null;
@@ -144,6 +187,7 @@ export default function GlobeCanvas() {
             renderer,
             ionToken,
             reduceMotion,
+            sunLight: sun,
           });
         })
         .catch((e) => console.warn("[globe] tiles disabled:", e));
@@ -154,6 +198,7 @@ export default function GlobeCanvas() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight, false);
+      composer.setSize(window.innerWidth, window.innerHeight); // logical px — composer applies DPR
     };
     onResize();
     window.addEventListener("resize", onResize);
@@ -167,7 +212,7 @@ export default function GlobeCanvas() {
       } else if (!reduceMotion) {
         globe.rotation.y += 0.0006; // ~0.03 deg/frame idle rotation
       }
-      renderer.render(scene, camera);
+      composer.render();
     };
     tick();
 
@@ -183,6 +228,9 @@ export default function GlobeCanvas() {
       (atmosphere.material as THREE.Material).dispose();
       starGeo.dispose();
       (stars.material as THREE.Material).dispose();
+      bloomPass.dispose();
+      composer.dispose();
+      composeTarget.dispose();
       renderer.dispose();
     };
   }, []);

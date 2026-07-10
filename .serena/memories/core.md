@@ -46,9 +46,22 @@ machine (review→placed | placing→placed) + `derivedFov` (ONE H-FOV derivatio
 `panels/PhotoDetailPanel.tsx` docked tweak panel (light board-04; full design import deferred).
 Verified: fixture heading 214°/H-FOV 73.7° at Dnipro; re-projection 0.018 ms/update; ARW
 click-to-place with decoded texture; Escape/placing; **104 vitest · astro check 0 · wix build
-green**. Mechanics: `mem:patterns/photo-frustum`. **Next step: Phase 4 — ephemeris sky** (see
-`NEXT_SESSION_PROMPT.md`); ephemeris replaces `tuning.SUN.direction`. `wix release` still pending
-user greenlight.
+green**. Mechanics: `mem:patterns/photo-frustum`.
+**Pre-Phase-4 sky+terrain SHIPPED (2026-07-10, browser-VERIFIED via Playwright).** Ephemeris
+(astronomy-engine 2.1.19 EXACT, JPL-Horizons-tested ±0.05°) now drives EVERYTHING from scene time
+(`store/time.ts` LIVE/PINNED + `panels/TimeReadout` HUD): real sun/moon ECEF directions →
+terminator + building key light + atmosphere + moonlight (phase-scaled); sun + moon render as
+camera-anchored true-angular-size impostors (`scene/sky.ts` — impostor dist MUST clamp ≥1.2·near);
+soft bloom (EffectComposer HalfFloat+MSAA4 → UnrealBloom 0.4/0.5/0.9 → OutputPass; night floors
+0.22/0.38); sun shadows at city zoom (PCF 2048², ortho follows view focus, buildings cast+receive,
+terrain gets ShadowMaterial twins — shadow contrast, not the pipeline, is the usual "bug");
+**real 3D terrain** = Cesium World Terrain (ion asset 1, QuantizedMeshPlugin via assetTypeHandler)
++ Esri via ImageOverlayPlugin — 90 m building sink REMOVED, `terrainHeightAt()` raycast + frustum
+`resnap()` (EXIF altitude = absolute, clamped above ground; manual = above rendered ground).
+Rule: browser screenshots → `verify-shots/` (git-ignored). 113 vitest · astro check 0.
+Mechanics + traps: `mem:patterns/sky-bodies-terrain`. **Next step: Phase 4 remainder — time
+scrubber UI + golden-hour grade + BSC5 stars** (see `NEXT_SESSION_PROMPT.md`). `wix release`
+still pending user greenlight.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 
@@ -84,6 +97,7 @@ are the execution source of truth (distilled from `DEEP_RESEARCH.md` = provenanc
 - `mem:project/wix-platform` — Wix mechanics + gotchas + TODO-VERIFY · `mem:project/wix-site` — live URL + siteId/appId
 - `mem:architecture/system-overview` — the engine + pipelines
 - `mem:patterns/globe-rendering` — how the organic LEO globe is built (bands, atmosphere, ground grade, traps)
+- `mem:patterns/sky-bodies-terrain` — ephemeris sun/moon, scene time, bloom, shadows, REAL terrain (current ground pipeline)
 - `mem:patterns/design-system` — imported Claude Design tokens/type/motion/screen boards (chrome; globe stays fenced)
 - `mem:decisions/adr-000-locked-stack` — the 15 locked ADRs · `mem:decisions/session_workflow` — persistence loop
 - `mem:memory_maintenance` — how to maintain this graph

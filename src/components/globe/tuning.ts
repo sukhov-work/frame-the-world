@@ -22,16 +22,86 @@ export { WGS84_A, WGS84_B } from "../../lib/geo/projection";
 
 export type Tuple3 = readonly [number, number, number];
 
-/** Fixed Phase-1 sun (ECEF, will be normalised). Drives BOTH the self-lit earth shaders and the
- *  scene's DirectionalLight that lights the OSM buildings — one constant, terminator always agrees.
- *  Replaced by the ephemeris in Phase 4 (ADR D6). Day side currently centres ~22E/37N. */
+/** Sun lighting. `direction` is only the FIRST-FRAME fallback — since the pre-Phase-4 ephemeris
+ *  pass (2026-07-10) the real sun direction is computed from scene time (`lib/ephemeris`, ADR D6)
+ *  and written per-sample into every consumer (earth shader, ground grade, atmosphere, sky bodies,
+ *  GlobeCanvas DirectionalLight) by the orchestrator — one source, terminator always agrees. */
 export const SUN = {
-  /** Direction TO the sun in ECEF (unitless; normalised at use). */
+  /** Fallback direction TO the sun in ECEF before the first ephemeris sample (normalised at use). */
   direction: [5, 2, 4] as Tuple3,
   /** DirectionalLight intensity on the building tiles (verified 1.5; 2.2 clipped highlights). */
   keyIntensity: 1.5,
-  /** HemisphereLight fill so night-side buildings never go pure black (AmbientLight(water) was ~0). */
-  hemiIntensity: 0.4,
+  /** HemisphereLight fill so night-side buildings never go pure black (AmbientLight(water) was ~0).
+   *  (was 0.4; lowered when moonlight landed — the moon now carries part of the night fill). */
+  hemiIntensity: 0.25,
+} as const;
+
+/** Ephemeris-driven sky bodies (pre-Phase-4). Positions are astronomically correct (astronomy-
+ *  engine, JPL-Horizons-verified ≤0.0007°); both bodies render as camera-anchored impostors at a
+ *  fraction of the DYNAMIC far plane with their TRUE apparent angular size, so they read correctly
+ *  at any altitude and can never be far-plane-clipped. */
+export const SKY = {
+  /** NASA CGI Moon Kit LROC colour map (public domain; svs.gsfc.nasa.gov/4720; 1k is plenty for
+   *  a ~0.5° disc). Map centre (lon 0) = the near side — the renderer aims it at Earth. */
+  moonTexture: "/textures/moon-color.jpg",
+  /** Re-sample the ephemeris when scene time moved this much (sun drifts 0.004°/s — 1 s ≪ 1 px). */
+  sampleIntervalMs: 1_000,
+  /** Impostor distance = camera.far × this (behind all terrain at 0.5? No — in front of the far
+   *  plane, behind most geometry; depth-tested so the earth/buildings occlude correctly). */
+  impostorFarFrac: 0.5,
+  /** Sun halo plane radius = disc radius × this (room for the shader falloff; bloom adds the rest). */
+  sunGlowExtent: 7,
+  /** HDR multiplier on the sun core (>1 pushes it over BLOOM.threshold — the glow driver). */
+  sunIntensity: 5,
+  /** Halo gain inside the impostor shader (kept low — UnrealBloom carries the wide glow). */
+  sunGlowGain: 0.5,
+  /** Moon albedo multiplier (slightly >1 so the lit limb just tips into bloom). */
+  moonBrightness: 1.25,
+  /** Earthshine floor on the moon's dark side (0 = pitch black new moon). */
+  moonEarthshine: 0.08,
+  /** Max DirectionalLight intensity of moonlight on buildings (scaled by illuminated fraction). */
+  moonKeyIntensity: 0.3,
+  /** Max moonlight term inside the earth/ground shaders (scaled by illuminated fraction). */
+  moonSceneGlow: 0.35,
+} as const;
+
+/** Soft bloom post (GlobeCanvas composer): sun/moon/city-lights glow; earth catches it very
+ *  slightly. Threshold sits just under 1.0 so only HDR/near-white pixels bloom (the scene is dark). */
+export const BLOOM = {
+  strength: 0.4,
+  radius: 0.5,
+  threshold: 0.9,
+  /** MSAA samples on the composer's HalfFloat target (the default 0 would alias building edges). */
+  msaaSamples: 4,
+} as const;
+
+/** Real-time sun shadows (city scale). One tight orthographic shadow camera follows the view
+ *  focus; enabled only near the ground AND while the sun is up there (a below-horizon sun would
+ *  project garbage). World coords are ~6.4e6 m → float32 quantises at ~0.5 m: normalBias absorbs
+ *  the acne (three docs: normalBias is world-units, made for exactly this). */
+export const SHADOWS = {
+  /** Shadows render only below this camera altitude (nothing to see from orbit; big perf win). */
+  maxAltM: 30_000,
+  /** Shadow map resolution (2048² ≈ 1.2 m/texel over a 2.5 km half-extent). */
+  mapSize: 2048,
+  /** Orthographic half-extent (m) around the view focus. */
+  boundsM: 2_500,
+  /** Light sits this far (m) from the focus toward the sun. */
+  lightDistM: 8_000,
+  /** Shadow camera near/far margin (m) around the focus distance. */
+  depthMarginM: 3_500,
+  /** Depth bias (negative pulls surfaces toward the light — kill acne, keep contact). */
+  bias: -2e-4,
+  /** World-space normal offset (m) — the large-coordinate acne killer. */
+  normalBias: 1.0,
+  /** PCF blur radius (texels) — soft penumbra edge. */
+  radius: 3,
+  /** Sun must be at least this high over the focus (dot with up ≈ sin(elev)) — ~2°. */
+  minSunElevSin: 0.03,
+  /** Ground shadow overlay darkness (ShadowMaterial opacity — invisible where unshadowed).
+   *  The graded ground is dark: below ~0.5 the darkening is imperceptible (verified with a
+   *  red-mask debug pass 2026-07-10 — the mask itself was always correct). */
+  groundOpacity: 0.55,
 } as const;
 
 /** Renderer-level knobs (GlobeCanvas). */
@@ -95,14 +165,12 @@ export const CONTROLS = {
   zoomSpeed: 5,
 } as const;
 
-/** Phase-1 test city (Dnipro, UA) + the terrain-float workaround. */
+/** Phase-1 test city (Dnipro, UA). The old `buildingSinkM` float workaround was REMOVED
+ *  2026-07-10: the ground now renders Cesium World Terrain — the same terrain the OSM buildings
+ *  are clamped to — so bases seat without a hack. */
 export const TERRAIN = {
   cityLatDeg: 48.4647,
   cityLonDeg: 35.0462,
-  /** Cesium OSM Buildings are clamped to Cesium World Terrain, so bases sit ~60–150 m ABOVE the
-   *  ellipsoid our imagery drapes on. Sink the buildings layer by the test city's mean terrain
-   *  height until real terrain (QuantizedMeshPlugin) lands. City-specific by design. */
-  buildingSinkM: 90,
 } as const;
 
 /** External tile sources. ToS: Esri World Imagery is hackathon-standard but UNVERIFIED for
@@ -110,6 +178,9 @@ export const TERRAIN = {
 export const TILESETS = {
   /** Cesium OSM Buildings (buildings-only worldwide 3D tiles). */
   ionAssetId: "96188",
+  /** Cesium World Terrain (quantized-mesh; the SAME terrain OSM Buildings are clamped to —
+   *  rendering it seats building bases without the old 90 m sink hack). */
+  terrainAssetId: "1",
   /** b3dm meshes are Draco-compressed; decoder fetched from Google's CDN. */
   dracoDecoderPath: "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
   /** Esri World Imagery XYZ endpoint ({z}/{y}/{x} order!). */
@@ -143,8 +214,9 @@ export const EARTH = {
   /** polygonOffset (factor=units) keeping buildings above the base before imagery loads. */
   polygonOffset: 1,
   // --- uniform defaults (runtime-tunable via __globe.earthUniforms in DEV) --------------------
-  /** Dark-side floor — just enough to navigate; city lights carry the rest (verified 0.32). */
-  nightFloor: 0.32,
+  /** Dark-side floor — just enough to navigate; city lights + moonlight carry the rest.
+   *  (was 0.32; dropped 2026-07-10 "night side more pronounced" owner pass). */
+  nightFloor: 0.22,
   /** Normal-map strength: 0 = flat, 1 = full 3D relief. */
   relief: 0.75,
   /** 0 = pure palette duotone, 1 = pure (graded) NASA colour (verified 0.58 — geology reads,
@@ -256,8 +328,9 @@ export const BUILDINGS = {
  *  satellite imagery into the instrument's tonal range + the SAME sun shading as the base so the
  *  terminator is continuous across LODs. Runtime-tunable via __globe.groundUniforms in DEV. */
 export const GROUND = {
-  /** Dark-side floor — slightly above the base's: close-zoom ground must stay navigable. */
-  nightFloor: 0.45,
+  /** Dark-side floor — slightly above the base's: close-zoom ground must stay navigable.
+   *  (was 0.45; dropped 2026-07-10 "night side more pronounced" owner pass). */
+  nightFloor: 0.38,
   /** Pull satellite chroma toward the instrument (0 = untouched, 1 = grayscale). */
   desat: 0.52,
   /** Sit the imagery in the dark scene's tonal range. */
@@ -272,6 +345,9 @@ export const GROUND = {
   bayerOffsetPx: 2.0,
   /** Imagery sits behind building footprints (bases win ties). */
   polygonOffset: 1,
+  /** ImageOverlayPlugin per-tile composite texture resolution (px). 256 = plugin default;
+   *  raise if grazing-angle imagery reads soft (memory: ~res²·4 B per tile per overlay). */
+  overlayResolution: 256,
 } as const;
 
 /** Placed-photo frustum + image plane (Phase 3, ADR D5 v1: textured plane at the far face).
