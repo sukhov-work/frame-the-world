@@ -1,0 +1,116 @@
+/* FPV HUD (Phase 5.5 S6) — left-side bearings/focal instrument card + off-frame sun/moon edge
+   chips, visible only while an FPV mode is active (unmounts on fpvHud null). Instrument idiom:
+   IBM Plex Mono, tabular numerals, restrained glow; all colour via tokens.css vars.
+   Everything is pointer-events:none — the HUD annotates the look, never intercepts it.
+   Both roots are top-level islands (index.astro): position:fixed must never sit inside a
+   backdrop-filtered card (the S2 containing-block trap). */
+
+.fh {
+  position: fixed;
+  left: 1.6rem;
+  /* True bottom-left corner: in photo FPV the PhotoDetailPanel owns the left column from the
+     top — a higher dock slid under it (browser-caught overlap at 900px height). */
+  bottom: 2.4rem;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 13rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  pointer-events: none;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.fh-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.fh-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.fh-value {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fh-sub {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+/* Sun warm / moon cool — the PhotoPills colour grammar the day-arcs share. */
+.fh-row--sun .fh-label {
+  color: color-mix(in srgb, var(--color-sun-glow) 75%, var(--color-text-muted));
+}
+.fh-row--moon .fh-label {
+  color: color-mix(in srgb, var(--color-moonlight) 75%, var(--color-text-muted));
+}
+
+/* Off-frame direction chips — float at the frame edge pointing toward the body. */
+.fh-chip {
+  position: fixed;
+  z-index: 10;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  user-select: none;
+}
+
+.fh-chip__glyph {
+  line-height: 1;
+}
+.fh-chip__arrow {
+  display: inline-block;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+}
+
+.fh-chip--sun .fh-chip__glyph {
+  color: var(--color-sun-glow);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-sun-glow) 55%, transparent);
+}
+.fh-chip--moon .fh-chip__glyph {
+  color: var(--color-moonlight);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-moonlight) 45%, transparent);
+}
+
+/* The chips now render in every mode (S6 follow-up) — keep the welcome landing clean. */
+body.welcome-active .fh-chip,
+body.welcome-active .fh {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .fh {
+    left: 1rem;
+    bottom: 5rem; /* clear the narrow-viewport scrubber band */
+    min-width: 0;
+    padding: 0.7rem 0.8rem;
+  }
+  .fh-value {
+    font-size: 11px;
+  }
+}

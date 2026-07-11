@@ -114,10 +114,33 @@ describe("encoder rate seams (Phase 5.5 S2)", () => {
     s.setHeadingRate(10);
     s.setZoomRate(0.5);
     s.setTargetTilt(30);
+    s.setFovRate(0.4);
     useCameraStore.getState().clearAllTargets();
     expect(useCameraStore.getState().headingRateDegPerS).toBeNull();
     expect(useCameraStore.getState().zoomRatePerS).toBeNull();
     expect(useCameraStore.getState().targetTiltDeg).toBeNull();
+    expect(useCameraStore.getState().fovRatePerS).toBeNull();
+  });
+});
+
+describe("sky guides seam (Phase 5.5 S6 follow-up)", () => {
+  it("defaults ON and toggles; the marker mirror is orchestrator-fed and nullable", () => {
+    expect(useCameraStore.getState().skyGuides).toBe(true);
+    useCameraStore.getState().setSkyGuides(false);
+    expect(useCameraStore.getState().skyGuides).toBe(false);
+    useCameraStore.getState().setSkyGuides(true);
+    const marker = {
+      inFrame: false,
+      dirX: 0,
+      dirY: 1,
+      azDeg: 214,
+      altDeg: 60,
+      up: true,
+    };
+    useCameraStore.getState()._syncSkyMarkers({ sun: marker, moon: marker });
+    expect(useCameraStore.getState().skyMarkers?.sun.azDeg).toBe(214);
+    useCameraStore.getState()._syncSkyMarkers(null);
+    expect(useCameraStore.getState().skyMarkers).toBeNull();
   });
 });
 

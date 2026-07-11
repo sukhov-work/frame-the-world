@@ -176,9 +176,25 @@ sky pixel; FIX = `scene.background` (per-target conversion) + atmosphere Chapman
 near-black (2,5.9,10.7). DEV add: `window.__composer`. 280 vitest · astro check 0 · wix build
 green. Mechanics + debug traps (elementsFromPoint skips pointer-events:none · hidden tiles groups
 kill the rAF tick → stale-frame measurements · stars re-show per frame): `mem:project/wip-2026-07-11-phase5.5-s5`.
-**Next step: Phase 5.5 S6 — FPV planning overlays (sun/moon day-arc polylines + ~20 d3-celestial
-asterisms)** (see `NEXT_SESSION_PROMPT.md`); then S7 ground rework; Phase 6 marketplace after.
-S1–S5 not yet released to the live URL.
+**Phase 5.5 S6 SHIPPED (2026-07-11, browser-VERIFIED via Playwright MCP):** FPV planning
+overlays — sun/moon **day-arcs** (`lib/ephemeris/dayArc.ts` pure solar-day sampling +
+`scene/dayArcs.ts` camera-anchored at the sky-impostor distance so the discs sit ON their arcs;
+alpha-blended NOT additive — additive vanishes against the day sky; past/future =
+step(uNow01, aT01), no rebuild on scrub; renderOrder is per-OBJECT, never Group) + **26
+asterisms** (baked d3-celestial, RA in DEGREES ÷15 at load, LineSegments child of the star
+sphere) + the owner FPV batch: **left-side HUD** (`panels/FpvHud.tsx` + `camera.fpvHud` mirror —
+focal-equiv via focalFromVerticalFov, bearings, off-frame ☀/☾ edge chips via
+`lib/geo/offscreen.ts`) · **ALTITUDE/FOCAL ZOOM encoders** (photo FPV unlocked: ROTATE = look,
+ALTITUDE = fpvLiftM vertical lift off the apex 0–400 m, FOCAL ZOOM = camera.fovRatePerS →
+the wheel's fovTargetDeg) · **building opacity curve** (shared-material onBeforeCompile:
+transparent ≤60 m → ghost 0.3 by 260 m; setGhostSolid altitude blend 40→180 m, depthWrite
+re-engages >0.6) · moon brighter (SKY.moonBrightness 3.2/earthshine 0.12). Same-day follow-up:
+**sky guides gated** — arcs/asterisms FPV-only, other modes get ☀/☾ direction chips, ONE
+right-panel `☀☾` toggle (`camera.skyGuides` + `skyMarkers` mirror) enables/disables all of it.
+304 vitest · astro check 0 · wix build green. Mechanics: `mem:project/wip-2026-07-11-phase5.5-s6`.
+**Next step: Phase 5.5 S7 — ground rework (CARTO dark drape · Natural Earth labels ·
+building grow-on-zoom)** (see `NEXT_SESSION_PROMPT.md`); Phase 6 marketplace after.
+S1–S6 not yet released to the live URL.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

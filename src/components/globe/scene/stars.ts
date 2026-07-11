@@ -1,12 +1,16 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { GATES, MILKYWAY, STARS, WGS84_A } from "../tuning";
+import { ASTERISMS, GATES, MILKYWAY, STARS, WGS84_A } from "../tuning";
 import {
   magToBright,
   magToSize,
   milkyWayField,
   parseStarCatalog,
 } from "../../../lib/ephemeris/stars";
+import {
+  asterismSegments,
+  type AsterismsAsset,
+} from "../../../lib/ephemeris/asterisms";
 import { glf } from "./glsl";
 
 /**
@@ -35,6 +39,9 @@ export interface StarsHandle {
     gastRad: number;
     /** Sun direction (ECEF, unit) from the current ephemeris sample — gates the night sky. */
     sunDir: THREE.Vector3;
+    /** Show the asterism figures (S6 follow-up: an FPV planning layer — the caller gates it
+     *  by FPV + the SKY toggle; the stars' own altitude/night fade still applies on top). */
+    asterisms?: boolean;
   }): void;
   dispose(): void;
 }
@@ -149,9 +156,41 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
   mwPoints.raycast = () => {};
   points.add(mwPoints);
 
+  // Asterism figures (Phase 5.5 S6, §Item 4) — ~20 famous d3-celestial figures as another CHILD
+  // of the star sphere: unit J2000 directions inherit −GAST + camera-follow + scale + the
+  // visibility gate for free. Fetched async like the catalog; absent until (unless) it lands.
+  const asterismGeometry = new THREE.BufferGeometry();
+  const asterismMaterial = new THREE.LineBasicMaterial({
+    color: new THREE.Color(tokens.star),
+    transparent: true,
+    opacity: 0, // driven per-frame: fade × ASTERISMS.alpha
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const asterismLines = new THREE.LineSegments(asterismGeometry, asterismMaterial);
+  asterismLines.raycast = () => {};
+  asterismLines.visible = false; // gated per-frame: asset loaded AND the caller wants them
+  let asterismsLoaded = false;
+  points.add(asterismLines);
+
   // Real catalog swap — async; the procedural field covers the gap. A failed fetch (offline dev)
   // just keeps the fallback and says so once.
   let disposed = false;
+  fetch(ASTERISMS.url)
+    .then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    })
+    .then((asset: AsterismsAsset) => {
+      if (disposed) return;
+      const segs = asterismSegments(asset);
+      asterismGeometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(segs.positions, 3),
+      );
+      asterismsLoaded = true;
+    })
+    .catch((e) => console.warn("[globe] asterisms unavailable — stars only:", e));
   fetch(STARS.catalogUrl)
     .then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -179,7 +218,7 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
 
   return {
     points,
-    update({ alt, camera, elapsedS, reduceMotion, gastRad, sunDir }) {
+    update({ alt, camera, elapsedS, reduceMotion, gastRad, sunDir, asterisms = false }) {
       // Two ways in: the high-altitude backdrop (space always has stars), OR a night sky at any
       // altitude — below the altitude band the stars now fade in as the sun sets at the camera
       // (owner 2026-07-10: "at night stars must be visible at low altitudes").
@@ -212,6 +251,8 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       points.scale.setScalar(Math.min(STARS.limbMargin * limbDist, camera.far * STARS.farClamp));
       material.uniforms.uFade.value = fade;
       mwMaterial.uniforms.uFade.value = fade;
+      asterismLines.visible = asterismsLoaded && asterisms;
+      asterismMaterial.opacity = fade * ASTERISMS.alpha;
       if (!reduceMotion) {
         material.uniforms.uTime.value = elapsedS;
         mwMaterial.uniforms.uTime.value = elapsedS;
@@ -223,6 +264,8 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       material.dispose();
       mwGeometry.dispose();
       mwMaterial.dispose();
+      asterismGeometry.dispose();
+      asterismMaterial.dispose();
       scene.remove(points);
     },
   };

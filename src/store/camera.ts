@@ -27,6 +27,35 @@ export interface FlyRequest {
   altM: number;
 }
 
+/** Screen-space info for one sky body while FPV is active (Phase 5.5 S6 HUD markers). */
+export interface FpvBodyMarker {
+  /** True when the body sits inside the current FPV frame (no edge chip needed). */
+  inFrame: boolean;
+  /** Normalized screen-plane direction from the frame centre toward the body (x = right,
+   *  y = up) — aims the off-frame edge chip; meaningful while !inFrame. */
+  dirX: number;
+  dirY: number;
+  /** Topocentric bearings at the FPV anchor (deg; az compass, alt above horizon). */
+  azDeg: number;
+  altDeg: number;
+  /** Above the marker gate (FPV.bodyMarkerMinAltDeg) — below it the chip hides. */
+  up: boolean;
+}
+
+/** FPV HUD mirror — camera-view bearings + focal state + sky-body markers. */
+export interface FpvHud {
+  /** Compass azimuth of the view centre (deg; 0 = north, 90 = east). */
+  headingDeg: number;
+  /** Elevation of the view centre (deg; + = up). */
+  pitchDeg: number;
+  /** Live camera vertical FOV (deg) — the HUD derives the 35mm-equivalent focal length. */
+  fovDeg: number;
+  /** Eye height above the local ground (m) — the ALTITUDE encoder readout. */
+  eyeAboveGroundM: number;
+  sun: FpvBodyMarker;
+  moon: FpvBodyMarker;
+}
+
 export interface CameraState {
   /** Live camera pitch (deg; 0 = nadir, 90 = horizon). Display-only for the UI. */
   tiltDeg: number;
@@ -67,6 +96,22 @@ export interface CameraState {
    *  (compass heading increases); positive zoom rate = zoom IN (altitude shrinks). */
   headingRateDegPerS: number | null;
   zoomRatePerS: number | null;
+  /** FOCAL ZOOM encoder (Phase 5.5 S6, FPV only): log-space rate on the camera FOV — the panel
+   *  twin of the FPV wheel zoom. Positive = zoom IN (FOV narrows / focal length grows). */
+  fovRatePerS: number | null;
+  /** FPV HUD mirror (Phase 5.5 S6) — the orchestrator writes it at low cadence while ANY FPV
+   *  is active, null otherwise (the HUD unmounts on null). Bearings are the CAMERA VIEW's
+   *  topocentric az/alt at the FPV anchor; sun/moon carry screen-space info for the off-frame
+   *  edge markers. */
+  fpvHud: FpvHud | null;
+  /** Sky guides master toggle (S6 follow-up, right-hand SKY chip): ON (default) = day-arcs +
+   *  asterisms while in FPV, sun/moon direction chips otherwise; OFF = none of them anywhere
+   *  (the FPV HUD card itself stays — it is an instrument readout, not a sky decoration). */
+  skyGuides: boolean;
+  setSkyGuides: (on: boolean) => void;
+  /** Sun/moon direction markers (every mode, gated by skyGuides) — feeds the ☀/☾ edge chips;
+   *  outside FPV the bearings reference is the camera's own geodetic position. */
+  skyMarkers: { sun: FpvBodyMarker; moon: FpvBodyMarker } | null;
   /** Explore ambient pin journey (Phase 5.5 S4): the nav toggle arms it; the orchestrator's
    *  cruise (globe/explore.ts) owns the camera while set. ANY direct interaction (canvas
    *  pointer/wheel, Escape, encoder deflection, slider glide) clears it — never fight the user. */
@@ -84,6 +129,11 @@ export interface CameraState {
   /** Rate-control writers — null = stick released (motion eases out in the orchestrator). */
   setHeadingRate: (degPerS: number | null) => void;
   setZoomRate: (perS: number | null) => void;
+  setFovRate: (perS: number | null) => void;
+  /** Orchestrator-only: mirror the FPV HUD state (low cadence; null = FPV inactive). */
+  _syncFpvHud: (hud: FpvHud | null) => void;
+  /** Orchestrator-only: mirror the sky-body markers (low cadence; null = guides off). */
+  _syncSkyMarkers: (m: { sun: FpvBodyMarker; moon: FpvBodyMarker } | null) => void;
   /** Direct manipulation (pointer/wheel/touch on the globe) cancels every slider glide. */
   clearAllTargets: () => void;
   /** Orchestrator-only: mirror the live pose into the store (low cadence). */
@@ -105,6 +155,11 @@ export const useCameraStore = create<CameraState>((set) => ({
   flyRequest: null,
   headingRateDegPerS: null,
   zoomRatePerS: null,
+  fovRatePerS: null,
+  fpvHud: null,
+  skyGuides: true,
+  setSkyGuides: (on) => set({ skyGuides: on }),
+  skyMarkers: null,
   exploreActive: false,
   setExplore: (on) => set({ exploreActive: on }),
   tempPin: null,
@@ -128,6 +183,9 @@ export const useCameraStore = create<CameraState>((set) => ({
   clearTargetZoom: () => set({ targetZoomAltM: null }),
   setHeadingRate: (degPerS) => set({ headingRateDegPerS: degPerS }),
   setZoomRate: (perS) => set({ zoomRatePerS: perS }),
+  setFovRate: (perS) => set({ fovRatePerS: perS }),
+  _syncFpvHud: (hud) => set({ fpvHud: hud }),
+  _syncSkyMarkers: (m) => set({ skyMarkers: m }),
   clearAllTargets: () =>
     set({
       targetTiltDeg: null,
@@ -135,6 +193,7 @@ export const useCameraStore = create<CameraState>((set) => ({
       targetZoomAltM: null,
       headingRateDegPerS: null,
       zoomRatePerS: null,
+      fovRatePerS: null,
     }),
   _syncTilt: (deg) => set({ tiltDeg: deg }),
   _syncHeading: (deg) => set({ headingDeg: deg }),
