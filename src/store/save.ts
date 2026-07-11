@@ -57,6 +57,25 @@ export interface SaveState {
   reset: () => void;
 }
 
+/** Any in-flight write phase — starting another operation while one runs is refused (B15). Used
+ *  by all three writers; slightly stricter than the old per-method lists (also blocks an update /
+ *  delete during a concurrent save's media upload), which is the correct invariant. */
+const BUSY_PHASES: readonly SavePhase[] = [
+  "uploading-original",
+  "uploading-preview",
+  "saving",
+  "updating",
+  "deleting",
+];
+const isBusy = (phase: SavePhase): boolean => BUSY_PHASES.includes(phase);
+
+/** Normalize a thrown API error into the store's `{ error, errorCode }` fields (B15). The client
+ *  fetch wrapper (lib/save/uploadMedia) attaches `.code` from the endpoint's error field. */
+function toApiError(e: unknown, fallback: string): { error: string; errorCode?: string } {
+  const err = e as Error & { code?: string };
+  return { error: err.message || fallback, errorCode: err.code };
+}
+
 export const useSaveStore = create<SaveState>((set, get) => ({
   phase: "idle",
   progress: 0,
@@ -69,16 +88,7 @@ export const useSaveStore = create<SaveState>((set, get) => ({
   setTitle: (title) => set({ title }),
 
   savePin: async () => {
-    const phase = get().phase;
-    if (
-      phase === "uploading-original" ||
-      phase === "uploading-preview" ||
-      phase === "saving" ||
-      phase === "updating" ||
-      phase === "deleting"
-    ) {
-      return;
-    }
+    if (isBusy(get().phase)) return;
     const u = useUploadStore.getState();
     if (!u.exif || !u.placement || u.phase !== "placed") {
       set({ phase: "error", error: "place the photo on the globe first", errorCode: "NOT_PLACED" });
@@ -159,18 +169,12 @@ export const useSaveStore = create<SaveState>((set, get) => ({
         usePinsStore.getState().highlight(res.publicPinId);
       }
     } catch (e) {
-      const err = e as Error & { code?: string; status?: number };
-      set({
-        phase: "error",
-        error: err.message || "save failed",
-        errorCode: err.code,
-      });
+      set({ phase: "error", ...toApiError(e, "save failed") });
     }
   },
 
   updatePin: async () => {
-    const phase = get().phase;
-    if (phase === "updating" || phase === "deleting" || phase === "saving") return;
+    if (isBusy(get().phase)) return;
     const u = useUploadStore.getState();
     if (!u.exif || !u.placement || u.phase !== "placed" || !u.ownPhotoId) {
       set({ phase: "error", error: "no own pin in view to update", errorCode: "NOT_OWN_PIN" });
@@ -204,14 +208,12 @@ export const useSaveStore = create<SaveState>((set, get) => ({
       const { usePinsStore } = await import("./pins");
       usePinsStore.getState().refresh();
     } catch (e) {
-      const err = e as Error & { code?: string; status?: number };
-      set({ phase: "error", error: err.message || "update failed", errorCode: err.code });
+      set({ phase: "error", ...toApiError(e, "update failed") });
     }
   },
 
   deletePin: async () => {
-    const phase = get().phase;
-    if (phase === "updating" || phase === "deleting" || phase === "saving") return;
+    if (isBusy(get().phase)) return;
     const u = useUploadStore.getState();
     if (!u.ownPhotoId) {
       set({ phase: "error", error: "no own pin in view to delete", errorCode: "NOT_OWN_PIN" });
@@ -230,8 +232,7 @@ export const useSaveStore = create<SaveState>((set, get) => ({
         quotaLimit: res.quota?.limit,
       });
     } catch (e) {
-      const err = e as Error & { code?: string; status?: number };
-      set({ phase: "error", error: err.message || "delete failed", errorCode: err.code });
+      set({ phase: "error", ...toApiError(e, "delete failed") });
     }
   },
 
@@ -251,5 +252,5 @@ export const useSaveStore = create<SaveState>((set, get) => ({
 
 // DEV convenience (mirrors store/upload.ts).
 if (typeof window !== "undefined" && import.meta.env?.DEV) {
-  (window as unknown as { __saveStore: typeof useSaveStore }).__saveStore = useSaveStore;
+  window.__saveStore = useSaveStore;
 }

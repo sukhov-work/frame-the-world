@@ -10,8 +10,8 @@ import type { APIRoute } from "astro";
 import { items } from "@wix/data";
 import { auth } from "@wix/essentials";
 import { files } from "@wix/media";
-import { members } from "@wix/members";
 import { orders } from "@wix/pricing-plans";
+import { json, requireMember } from "../../lib/api/http";
 import {
   applyPinUpdate,
   authorLabel,
@@ -23,23 +23,6 @@ import {
   publicPinRecord,
   type PhotoListItem,
 } from "../../lib/wix/pinRecords";
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-
-/** The calling member with profile fields (nickname/loginEmail feed authorName), or null. */
-async function currentMember() {
-  try {
-    const { member } = await members.getCurrentMember({ fieldsets: ["FULL"] });
-    // Spread to pin _id as a definite string — the SDK types it optional.
-    return member?._id ? { ...member, _id: member._id } : null;
-  } catch {
-    return null; // anonymous visitors reject getCurrentMember
-  }
-}
 
 /** The member's own Photos row, or null when it doesn't exist / belongs to someone else. */
 async function ownedPhoto(photoId: string, memberId: string) {
@@ -63,13 +46,8 @@ async function hasActivePlan(): Promise<boolean> {
 // list until a proper gallery phase). Photos is ADMIN-only on the platform, so the owner's
 // view goes through this elevated, owner-filtered query — never a client-side collection read.
 export const GET: APIRoute = async () => {
-  let member;
-  try {
-    ({ member } = await members.getCurrentMember());
-  } catch {
-    member = undefined;
-  }
-  if (!member?._id) return json({ error: "SIGNED_OUT", message: "sign in to list pins" }, 401);
+  const member = await requireMember();
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to list pins" }, 401);
 
   try {
     const res = await auth.elevate(items.query)("Photos")
@@ -88,7 +66,7 @@ export const GET: APIRoute = async () => {
 };
 
 export const POST: APIRoute = async ({ request }) => {
-  const member = await currentMember();
+  const member = await requireMember({ full: true });
   if (!member) return json({ error: "SIGNED_OUT", message: "sign in to save pins" }, 401);
 
   const parsed = parseSavePinBody(await request.json().catch(() => null));
@@ -138,7 +116,7 @@ export const POST: APIRoute = async ({ request }) => {
 // re-derived through the same server-only publicPinRecord (C6 stays structural: a location
 // edit publishes only the new cell centre); toggling isPublic creates/removes the public row.
 export const PATCH: APIRoute = async ({ request }) => {
-  const member = await currentMember();
+  const member = await requireMember({ full: true });
   if (!member) return json({ error: "SIGNED_OUT", message: "sign in to edit pins" }, 401);
 
   const parsed = parseUpdatePinBody(await request.json().catch(() => null));
@@ -184,7 +162,7 @@ export const PATCH: APIRoute = async ({ request }) => {
 // photoRef lookup), the Photos row, then the media files best-effort (a stuck file must never
 // leave a ghost pin). Frees a quota slot — the response carries the fresh count.
 export const DELETE: APIRoute = async ({ url }) => {
-  const member = await currentMember();
+  const member = await requireMember();
   if (!member) return json({ error: "SIGNED_OUT", message: "sign in to delete pins" }, 401);
 
   const photoId = url.searchParams.get("id");

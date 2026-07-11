@@ -3,6 +3,7 @@ import {
   fovFromFocalAndSensor,
   computeHorizontalFov,
   focalFromVerticalFov,
+  focalFromHorizontalFov,
   lookupSensorWidthMm,
   normaliseKey,
   verticalFovDeg,
@@ -90,5 +91,22 @@ describe("focalFromVerticalFov (S6 FPV HUD readout)", () => {
   it("rejects degenerate FOVs", () => {
     expect(() => focalFromVerticalFov(0)).toThrow();
     expect(() => focalFromVerticalFov(180)).toThrow();
+  });
+});
+
+describe("focalFromHorizontalFov (openSavedPin hFov reproduction)", () => {
+  it("is the exact inverse of the focal35 hFov derivation", () => {
+    for (const f35 of [16, 24, 35, 50, 85]) {
+      const hFov = fovFromFocalAndSensor(f35, FULL_FRAME_WIDTH_MM);
+      expect(focalFromHorizontalFov(hFov)).toBeCloseTo(f35, 6);
+    }
+  });
+  it("matches the old inline 18/tan(hFov/2) formula", () => {
+    const hFov = 73.7;
+    expect(focalFromHorizontalFov(hFov)).toBeCloseTo(18 / Math.tan((hFov * Math.PI) / 360), 9);
+  });
+  it("rejects degenerate FOVs", () => {
+    expect(() => focalFromHorizontalFov(0)).toThrow();
+    expect(() => focalFromHorizontalFov(180)).toThrow();
   });
 });

@@ -5,22 +5,11 @@
 import type { APIRoute } from "astro";
 import { auth } from "@wix/essentials";
 import { files } from "@wix/media";
-import { members } from "@wix/members";
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+import { json, requireMember } from "../../lib/api/http";
 
 export const POST: APIRoute = async ({ request }) => {
-  let member;
-  try {
-    ({ member } = await members.getCurrentMember());
-  } catch {
-    member = undefined;
-  }
-  if (!member?._id) return json({ error: "SIGNED_OUT", message: "sign in to save pins" }, 401);
+  const member = await requireMember();
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to save pins" }, 401);
 
   const raw = await request.json().catch(() => null);
   const kind = raw?.kind === "original" ? "original" : raw?.kind === "preview" ? "preview" : null;

@@ -16,6 +16,12 @@
  *  • Units in the name or the doc line. Metres unless stated otherwise.
  */
 
+// ── Sections (in file order) ─────────────────────────────────────────────────────────────────
+//   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
+//   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · GROUND · FRUSTUM ·
+//   FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC · ASTERISMS · TEMPPIN · SEARCH · ORCH
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
 // and guaranteed to match three's WGS84_ELLIPSOID, which the OSM building tiles extrude from).
 export { WGS84_A, WGS84_B } from "../../lib/geo/projection";
@@ -34,6 +40,9 @@ export const SUN = {
   /** HemisphereLight fill so night-side buildings never go pure black (AmbientLight(water) was ~0).
    *  (was 0.4; lowered when moonlight landed — the moon now carries part of the night fill). */
   hemiIntensity: 0.25,
+  /** Distance (m) the directional key light sits from the origin in DIRECTION-ONLY mode (sun up
+   *  but no city-scale shadows) — far enough to read as parallel sun rays. */
+  keyLightFarM: 1e7,
 } as const;
 
 /** Ephemeris-driven sky bodies (pre-Phase-4). Positions are astronomically correct (astronomy-
@@ -293,6 +302,19 @@ export const CONTROLS = {
   rateExpoGamma: 2.2,
   /** Applied-rate low-pass (ms): eases rate changes in AND lets motion coast out on release. */
   rateEaseTauMs: 140,
+  // --- Glide arrival epsilons + rate deadbands (B13 — were inline in the orchestrator loop) ---
+  /** Tilt glide has arrived when |pitch − target| drops under this (rad). */
+  tiltArriveRad: 8e-4,
+  /** Heading glide has arrived when the signed arc to target drops under this (deg). */
+  headingArriveDeg: 0.08,
+  /** Zoom glide has arrived when |log(target/alt)| drops under this. */
+  zoomArriveLog: 0.005,
+  /** Altitude change (m) below which a zoom glide counts as "stalled" (resting on terrain). */
+  zoomStallAltEpsM: 0.05,
+  /** Applied heading rate below this (deg/s) reads as centred — no rotation this frame. */
+  headingRateDeadbandDegPerS: 0.01,
+  /** Applied zoom / FOV log-rate below this reads as centred — no motion this frame. */
+  rateDeadbandLog: 1e-3,
 } as const;
 
 /** External tile sources. ToS: Esri World Imagery is hackathon-standard but UNVERIFIED for
@@ -644,6 +666,8 @@ export const FRUSTUM = {
    *  the real landscape while tuning). Live-adjustable per photo via the PLANE ALPHA slider
    *  (PhotoDetailPanel → store/upload.planeOpacity); this is the value it resets to. */
   planeOpacity: 0.7,
+  /** Re-seat the placed photo on the terrain every N frames as tiles refine (a raycast). */
+  resnapEveryFrames: 120,
 } as const;
 
 /** Cinematic flight to a placed photo / searched place (design board motion spec: desktop
@@ -900,6 +924,16 @@ export const FPV = {
   /** Sun/moon edge markers hide when the body sits below this altitude at the anchor (deg) —
    *  −6° keeps a about-to-rise / just-set body plannable through civil twilight. */
   bodyMarkerMinAltDeg: -6,
+  // --- Per-frame loop constants (B13 — were inline in the orchestrator FPV paths) --------------
+  /** The FOV glide has arrived (and snaps) when |fov − target| drops under this (deg). */
+  fovArriveDeg: 0.01,
+  /** Photo-FPV anchor ground re-sample cadence (frames) as terrain refines under the pin. */
+  anchorGroundEveryFrames: 30,
+  /** Proportional-speed floor base (m) for the vertical ALTITUDE encoder — a pure exponential
+   *  from a 1.7 m eye barely gets airborne, so the step scales with max(height, this). */
+  vertEncoderBaseM: 8,
+  /** Temp-pin FPV entry looks at a point this far (m) ahead along the horizontal facing. */
+  tempLookAheadM: 50,
 } as const;
 
 /** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's
@@ -951,6 +985,10 @@ export const TEMPPIN = {
   markerMinM: 1.5,
   markerMaxM: 20_000,
   markerOpacity: 0.9,
+  /** Screen-position mirror cadence (frames) for the "look from here" popup. */
+  screenSyncEveryFrames: 6,
+  /** NDC on-screen margin — the popup shows while |ndc| < this (a hair past the edge). */
+  onScreenMargin: 1.02,
 } as const;
 
 /** Location finder (Phase 5.5 S1) — free geocoding behind a swap-friendly adapter
@@ -978,4 +1016,27 @@ export const SEARCH = {
   altMaxM: 1_200_000,
   /** Arrival altitude when the result has no extent (addresses, small POIs). */
   altDefaultM: 4_000,
+} as const;
+
+/** Orchestrator per-frame loop constants (StylizedTiles.update) — cadences, mirror deadbands and
+ *  guards that were inline magic numbers before the pre-S7 refactor (B13). Grouped here so the hot
+ *  loop reads as intent; the delicate per-frame ORDER still lives in StylizedTiles.ts. */
+export const ORCH = {
+  /** Per-frame dt is clamped to this (ms) so a tab-switch stall can't teleport the camera. */
+  maxFrameDtMs: 100,
+  /** Pointer travel (px) above which a press is a drag, not a click / double-click. */
+  clickDragPx: 6,
+  /** The low-altitude terrain guard runs only below this camera altitude (m). */
+  groundGuardMaxAltM: 50_000,
+  /** Live-pose → store mirror cadence (frames) for the panel readouts (never 60 fps). */
+  mirrorEveryFrames: 12,
+  /** Mirror deadbands — only sync when the live value moved at least this much. */
+  tiltMirrorMinDeg: 0.25,
+  headingMirrorMinDeg: 0.5,
+  zoomMirrorMinFrac: 0.005,
+  /** Projected-screen mirrors (hover card, temp-pin popup) re-sync past this move (px). */
+  screenMoveMinPx: 2,
+  /** Per-frame update() error log throttle (ms): log the first, then at most once per window
+   *  with a rolling count — a persistent error must not flood the console at 60 fps (B26). */
+  errorLogThrottleMs: 2_000,
 } as const;

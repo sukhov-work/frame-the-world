@@ -19,7 +19,10 @@ import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
-import { headingDeltaDeg, useCameraStore, wrapHeadingDeg } from "../../store/camera";
+import { useCameraStore } from "../../store/camera";
+import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
+import { clampGroundM } from "../../lib/geo/terrain";
+import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
 import { attachAtmosphere } from "./scene/atmosphere";
@@ -43,6 +46,7 @@ import {
   FRUSTUM,
   GATES,
   GOLDEN,
+  ORCH,
   PINS,
   PLACING,
   POSE,
@@ -79,6 +83,20 @@ import {
 export interface TilesHandle {
   update: () => void;
   dispose: () => void;
+}
+
+/** The private GlobeControls members the orchestrator drives (B12) — 3d-tiles-renderer types them
+ *  as internal, so cast ONCE through this shim instead of scattering `as any`. Behaviour verified
+ *  against the library source (0.4.28); the names are load-bearing (see the camera-feel comments). */
+interface GlobeControlsInternal {
+  /** Per-frame zoom delta the library accumulates; the orchestrator banks + eases it (zoom smoothing). */
+  zoomDelta: number;
+  /** The library's current up vector (read pre-update to measure the auto-verticality it applied). */
+  up: THREE.Vector3;
+  /** Ellipsoid-surface up at a point (used for the tilt-glide pivot + the live tilt mirror). */
+  getUpDirection(point: THREE.Vector3, target: THREE.Vector3): void;
+  /** Rotate the camera about a pivot (azimuth, altitude) — the declination glide's rotation path. */
+  _applyRotation(azimuth: number, altitude: number, pivot?: THREE.Vector3): void;
 }
 
 export function attachStylizedTiles(opts: {
@@ -175,7 +193,8 @@ export function attachStylizedTiles(opts: {
   // --- GlobeControls — documented ellipsoid binding, damping for a premium feel, snappy zoom. --
   const controls = new GlobeControls(scene, camera, renderer.domElement);
   controls.setEllipsoid(
-    (buildings.tiles as any).ellipsoid ?? WGS84_ELLIPSOID,
+    (buildings.tiles as unknown as { ellipsoid?: typeof WGS84_ELLIPSOID }).ellipsoid ??
+      WGS84_ELLIPSOID,
     buildings.tiles.group,
   );
   controls.enableDamping = true; // globe inertia — the single biggest "premium" interaction win
@@ -200,7 +219,7 @@ export function attachStylizedTiles(opts: {
     const gT = ecefToGeodetic([targetPos.x, targetPos.y, targetPos.z]);
     const hS = ground.heightAt(gS.latDeg, gS.lonDeg) ?? 0;
     const hT = ground.heightAt(gT.latDeg, gT.lonDeg) ?? 0;
-    return Math.min(Math.max(hS, hT, 0), 9_000) + FLIGHT.floorClearM;
+    return clampGroundM(Math.max(hS, hT)) + FLIGHT.floorClearM;
   };
 
   // The ONE arrival pose for a placed photo (onPlaced flights AND FPV exits): looks at the
@@ -222,7 +241,7 @@ export function attachStylizedTiles(opts: {
     const sampled = p ? ground.heightAt(p.latDeg, p.lonDeg) : null;
     const groundAltM =
       sampled != null
-        ? Math.min(Math.max(sampled, 0), 9_000)
+        ? clampGroundM(sampled)
         : Math.max(0, WGS84_ELLIPSOID.getPositionElevation(apex) - FRUSTUM.eyeHeightM);
     return arrivalPose({
       lookAt,
@@ -305,7 +324,7 @@ export function attachStylizedTiles(opts: {
       tempPinGroundM = 0;
     }
     const th = ground.heightAt(pin.latDeg, pin.lonDeg);
-    if (th != null) tempPinGroundM = Math.min(Math.max(th, 0), 9_000);
+    if (th != null) tempPinGroundM = clampGroundM(th);
     return _tempPinEcef.fromArray(geodeticToEcef(pin.latDeg, pin.lonDeg, tempPinGroundM));
   };
 
@@ -376,10 +395,9 @@ export function attachStylizedTiles(opts: {
   };
   const onPointerUp = (e: PointerEvent) => {
     if (fpvActive) return; // FPV owns the pointer (look-around) — no placing, no pin-picking
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // a drag, not a click
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a click
     const rect = dom.getBoundingClientRect();
-    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
     if (useUploadStore.getState().phase === "placing") {
       // Placing wins the click: cast at the rendered ground and drop the photo there.
       const hit = pickGround(ndcX, ndcY);
@@ -505,15 +523,13 @@ export function attachStylizedTiles(opts: {
   // gesture means "focus here"). Ignored while placing and while editing an own unsaved upload.
   const onDblClick = (e: MouseEvent) => {
     if (fpvActive) return;
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // a drag, not a dblclick
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a dblclick
     const up = useUploadStore.getState();
     if (up.phase === "placing") return;
     if (up.phase === "placed" && !up.viewingPinId) return; // don't disturb an editing session
     const rect = dom.getBoundingClientRect();
-    const hit = pickGround(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
-    );
+    const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+    const hit = pickGround(ndcX, ndcY);
     if (!hit) return; // clicked past the limb
     if (up.phase === "placed" && up.viewingPinId) up.clear(); // deselect the viewed pin first
     const g = ecefToGeodetic(hit);
@@ -597,7 +613,7 @@ export function attachStylizedTiles(opts: {
   // Dev-only introspection so browser verification (Playwright) can read camera altitude and tile
   // state without reaching into the closure. No secrets, no behaviour change.
   if (import.meta.env.DEV) {
-    (window as any).__globe = {
+    window.__globe = {
       camera,
       controls,
       tiles: buildings.tiles,
@@ -643,16 +659,21 @@ export function attachStylizedTiles(opts: {
       }),
       pins,
     };
-    (window as any).__timeStore = useTimeStore; // scrub scene time from the console / Playwright
-    (window as any).__cameraStore = useCameraStore; // drive/read the tilt glide from Playwright
+    window.__timeStore = useTimeStore; // scrub scene time from the console / Playwright
+    window.__cameraStore = useCameraStore; // drive/read the tilt glide from Playwright
   }
+
+  // Per-frame update() error throttle (B26): a persistent error must not flood the console at
+  // 60 fps — log the first, then at most once per ORCH.errorLogThrottleMs with a rolling count.
+  let updateErrCount = 0;
+  let lastUpdateErrLogMs = -Infinity;
 
   return {
     update() {
       // A single bad frame (transient tiles error, WebGL glitch) MUST NOT freeze the canvas.
       try {
         const now = performance.now();
-        const dtMs = Math.min(now - lastFrameMs, 100);
+        const dtMs = Math.min(now - lastFrameMs, ORCH.maxFrameDtMs);
         lastFrameMs = now;
 
         // Zoom braking near the ground: the library step is already ∝ distance-to-surface, but
@@ -667,7 +688,7 @@ export function attachStylizedTiles(opts: {
 
         // Temporal zoom easing: bank the accumulated wheel/pinch delta and hand the controls an
         // exp-eased slice each frame — gradual, settling movement instead of one-frame steps.
-        const zc = controls as any;
+        const zc = controls as unknown as GlobeControlsInternal;
         if (CONTROLS.zoomSmoothTauMs > 0) {
           pendingZoom += zc.zoomDelta;
           const kz = 1 - Math.exp(-dtMs / CONTROLS.zoomSmoothTauMs);
@@ -792,7 +813,7 @@ export function attachStylizedTiles(opts: {
               const sampledG = pl ? ground.heightAt(pl.latDeg, pl.lonDeg) : null;
               fpvAnchorGroundM =
                 sampledG != null
-                  ? Math.min(Math.max(sampledG, 0), 9_000)
+                  ? clampGroundM(sampledG)
                   : Math.max(
                       0,
                       WGS84_ELLIPSOID.getPositionElevation(apex) - FRUSTUM.eyeHeightM,
@@ -842,7 +863,7 @@ export function attachStylizedTiles(opts: {
               const eye = pinP.clone().addScaledVector(_tempUp0, fpvEyeM);
               flight.start({
                 position: eye,
-                lookAt: eye.clone().addScaledVector(_tempFwd0, 50),
+                lookAt: eye.clone().addScaledVector(_tempFwd0, FPV.tempLookAheadM),
               });
               fovTargetDeg = FPV.tempFovDeg;
               lastInteract = now;
@@ -902,9 +923,9 @@ export function attachStylizedTiles(opts: {
           controls.adjustCamera(camera); // controls disabled: keep the near/far fit alive
         }
         // FOV glide (FPV wheel zoom + the entry/exit FOV changes) — never a snap.
-        if (Math.abs(camera.fov - fovTargetDeg) > 0.01) {
+        if (Math.abs(camera.fov - fovTargetDeg) > FPV.fovArriveDeg) {
           camera.fov += (fovTargetDeg - camera.fov) * (1 - Math.exp(-dtMs / FPV.fovEaseTauMs));
-          if (Math.abs(camera.fov - fovTargetDeg) < 0.01) camera.fov = fovTargetDeg;
+          if (Math.abs(camera.fov - fovTargetDeg) < FPV.fovArriveDeg) camera.fov = fovTargetDeg;
           camera.updateProjectionMatrix();
         }
 
@@ -985,7 +1006,7 @@ export function attachStylizedTiles(opts: {
             ),
           );
           const delta = pitchRad - targetRad;
-          if (Math.abs(delta) < 8e-4) {
+          if (Math.abs(delta) < CONTROLS.tiltArriveRad) {
             camStore.clearTargetTilt(); // arrived — hand the camera back
           } else {
             const kt = 1 - Math.exp(-dtMs / CONTROLS.tiltEaseTauMs);
@@ -1005,7 +1026,7 @@ export function attachStylizedTiles(opts: {
             camStore.clearTargetHeading(); // heading undefined here (pole / nadir view)
           } else {
             const deltaH = headingDeltaDeg(liveH, camStore.targetHeadingDeg);
-            if (Math.abs(deltaH) < 0.08) {
+            if (Math.abs(deltaH) < CONTROLS.headingArriveDeg) {
               camStore.clearTargetHeading(); // arrived — hand the camera back
             } else {
               const kh = 1 - Math.exp(-dtMs / CONTROLS.headingEaseTauMs);
@@ -1030,10 +1051,10 @@ export function attachStylizedTiles(opts: {
             CONTROLS.zoomMaxAltM,
           );
           const errLog = Math.log((targetAlt + 1) / (alt + 1));
-          if (Math.abs(errLog) < 0.005) {
+          if (Math.abs(errLog) < CONTROLS.zoomArriveLog) {
             camStore.clearTargetZoom(); // arrived — hand the camera back
           } else if (
-            Math.abs(alt - zoomGlideLastAlt) < 0.05 &&
+            Math.abs(alt - zoomGlideLastAlt) < CONTROLS.zoomStallAltEpsM &&
             ++zoomStallCount >= CONTROLS.zoomStallFrames
           ) {
             // Resting on terrain/cameraRadius (the 2 m floor is ellipsoid-relative — under a
@@ -1041,7 +1062,7 @@ export function attachStylizedTiles(opts: {
             camStore.clearTargetZoom();
             zoomStallCount = 0;
           } else {
-            if (Math.abs(alt - zoomGlideLastAlt) >= 0.05) zoomStallCount = 0;
+            if (Math.abs(alt - zoomGlideLastAlt) >= CONTROLS.zoomStallAltEpsM) zoomStallCount = 0;
             const kzm = 1 - Math.exp(-dtMs / CONTROLS.zoomEaseTauMs);
             const s = Math.exp(errLog * kzm); // multiplicative altitude step this frame
             if (hasFocus) {
@@ -1069,7 +1090,7 @@ export function attachStylizedTiles(opts: {
         const rateAllowed = !flight.active();
         const stickH = (rateAllowed && camStore.headingRateDegPerS) || 0;
         appliedHeadingRate += (stickH - appliedHeadingRate) * kRate;
-        if (Math.abs(appliedHeadingRate) > 0.01) {
+        if (Math.abs(appliedHeadingRate) > CONTROLS.headingRateDeadbandDegPerS) {
           if (fpvActive) {
             // + rate = compass-clockwise = look right (matches the fpvYaw convention)
             fpvYaw += THREE.MathUtils.degToRad((appliedHeadingRate * dtMs) / 1000);
@@ -1089,13 +1110,13 @@ export function attachStylizedTiles(opts: {
         }
         const stickZ = (rateAllowed && camStore.zoomRatePerS) || 0;
         appliedZoomRate += (stickZ - appliedZoomRate) * kRate;
-        if (Math.abs(appliedZoomRate) > 1e-3) {
+        if (Math.abs(appliedZoomRate) > CONTROLS.rateDeadbandLog) {
           if (fpvActive) {
             // + rate = "zoom in" = descend; strictly vertical elevation. Proportional speed
             // with a floor base — a pure exponential from a 1.7 m eye barely gets airborne.
             if (fpvKind === "temp") {
               fpvEyeM = THREE.MathUtils.clamp(
-                fpvEyeM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvEyeM, 8),
+                fpvEyeM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvEyeM, FPV.vertEncoderBaseM),
                 FRUSTUM.eyeHeightM,
                 FPV.tempEyeMaxM,
               );
@@ -1103,7 +1124,7 @@ export function attachStylizedTiles(opts: {
               // Photo FPV (S6): the same vertical elevation as a LIFT off the apex — floor 0
               // is the photographer's exact eye, never below it.
               fpvLiftM = THREE.MathUtils.clamp(
-                fpvLiftM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvLiftM, 8),
+                fpvLiftM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvLiftM, FPV.vertEncoderBaseM),
                 0,
                 FPV.tempEyeMaxM,
               );
@@ -1134,7 +1155,7 @@ export function attachStylizedTiles(opts: {
         // same eased fovTargetDeg inside the same clamp. + rate = zoom IN = the FOV narrows.
         const stickF = (rateAllowed && fpvActive && camStore.fovRatePerS) || 0;
         appliedFovRate += (stickF - appliedFovRate) * kRate;
-        if (fpvActive && Math.abs(appliedFovRate) > 1e-3) {
+        if (fpvActive && Math.abs(appliedFovRate) > CONTROLS.rateDeadbandLog) {
           fovTargetDeg = THREE.MathUtils.clamp(
             fovTargetDeg * Math.exp((-appliedFovRate * dtMs) / 1000),
             FPV.minFovDeg,
@@ -1150,14 +1171,14 @@ export function attachStylizedTiles(opts: {
         // Sample terrain under the camera every frame below 50 km, remember the last answer,
         // and clamp the camera to lastGround + zoomMinAltM BEFORE it ever crosses under; the
         // zoom glide then stalls against the clamp and releases itself.
-        if (!fpvActive && !flight.active() && alt < 50_000) {
+        if (!fpvActive && !flight.active() && alt < ORCH.groundGuardMaxAltM) {
           // Sample at the VIEW FOCUS, not the camera footprint: tiles load inside the frustum,
           // and at oblique tilt there is often NO tile directly beneath the camera (verified —
           // the footprint sample stayed null through a whole 6 km→street dive).
           if (hasFocus) {
             const fg = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
             const th = ground.heightAt(fg.latDeg, fg.lonDeg);
-            if (th != null) lastGroundM = Math.min(Math.max(th, 0), 9_000);
+            if (th != null) lastGroundM = clampGroundM(th);
           }
           if (lastGroundM !== null) {
             const minAlt = lastGroundM + CONTROLS.zoomMinAltM;
@@ -1180,10 +1201,7 @@ export function attachStylizedTiles(opts: {
           // Terrain-aware since S2: the S1 arrival sat req.altM above the ELLIPSOID, which is
           // underground at high-plateau cities (La Paz ~3.6 km). Same extent-sized altitude,
           // now above the rendered ground, through the shared arrival-pose derivation.
-          const groundT = Math.min(
-            Math.max(ground.heightAt(req.latDeg, req.lonDeg) ?? 0, 0),
-            9_000,
-          );
+          const groundT = clampGroundM(ground.heightAt(req.latDeg, req.lonDeg) ?? 0);
           const target = new THREE.Vector3(...geodeticToEcef(req.latDeg, req.lonDeg, groundT));
           const upT = target.clone().normalize();
           // Horizontal approach direction: camera bearing projected on the target's horizon
@@ -1214,10 +1232,10 @@ export function attachStylizedTiles(opts: {
           if (fpvKind === "photo") {
             // Refresh the sticky anchor ground at low cadence as terrain refines under the
             // pin (heightAt: null while loading, negative garbage on coarse tiles — S2 clamp).
-            if (frameCount % 30 === 0) {
+            if (frameCount % FPV.anchorGroundEveryFrames === 0) {
               const pl = upNow.placement;
               const th = pl ? ground.heightAt(pl.latDeg, pl.lonDeg) : null;
-              if (th != null) fpvAnchorGroundM = Math.min(Math.max(th, 0), 9_000);
+              if (th != null) fpvAnchorGroundM = clampGroundM(th);
             }
             fpvEyeAboveGroundM = Math.max(0, alt - fpvAnchorGroundM);
           } else {
@@ -1317,19 +1335,19 @@ export function attachStylizedTiles(opts: {
 
         // Mirror the live pose (pitch / heading / altitude) into the store at low cadence for
         // the panel readouts (never at 60 fps — same discipline as store/time).
-        if (frameCount % 12 === 0) {
+        if (frameCount % ORCH.mirrorEveryFrames === 0) {
           zc.getUpDirection(camera.position, _pivotUp);
           _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
           const liveTiltDeg = THREE.MathUtils.radToDeg(_pivotUp.angleTo(_camBack));
-          if (Math.abs(liveTiltDeg - camStore.tiltDeg) > 0.25) camStore._syncTilt(liveTiltDeg);
+          if (Math.abs(liveTiltDeg - camStore.tiltDeg) > ORCH.tiltMirrorMinDeg) camStore._syncTilt(liveTiltDeg);
           const liveHeadingDeg = viewHeadingDeg(_focusUp); // same frame as the heading glide
           if (!Number.isNaN(liveHeadingDeg)) {
             const wrapped = wrapHeadingDeg(liveHeadingDeg);
-            if (Math.abs(headingDeltaDeg(camStore.headingDeg, wrapped)) > 0.5) {
+            if (Math.abs(headingDeltaDeg(camStore.headingDeg, wrapped)) > ORCH.headingMirrorMinDeg) {
               camStore._syncHeading(wrapped);
             }
           }
-          if (Math.abs(alt - camStore.zoomAltM) / Math.max(alt, 1) > 0.005) {
+          if (Math.abs(alt - camStore.zoomAltM) / Math.max(alt, 1) > ORCH.zoomMirrorMinFrac) {
             camStore._syncZoom(alt);
           }
           // Viewport mirror for the public-pin query (Phase 5) — same cadence as the camera
@@ -1379,7 +1397,7 @@ export function attachStylizedTiles(opts: {
               ground.setShadowStrength(SHADOWS.groundOpacity);
             } else {
               // direction-only mode: keep the terminator agreement for building shading everywhere
-              sunLight.position.copy(sunDirW).multiplyScalar(1e7);
+              sunLight.position.copy(sunDirW).multiplyScalar(SUN.keyLightFarM);
               sunLight.target.position.set(0, 0, 0);
             }
           }
@@ -1398,7 +1416,7 @@ export function attachStylizedTiles(opts: {
         });
 
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
-        if (++frameCount % 120 === 0) frustum.resnap();
+        if (++frameCount % FRUSTUM.resnapEveryFrames === 0) frustum.resnap();
 
         // Public pins: distance-scaled markers + lazy terrain grounding (Phase 5). The
         // selection mirror lets the adaptive de-cluster walk an OPEN pin to its truth.
@@ -1421,13 +1439,8 @@ export function attachStylizedTiles(opts: {
             }
           } else if (frameCount % PINS.hoverEveryFrames === 0) {
             const rect = dom.getBoundingClientRect();
-            _pinRay.setFromCamera(
-              _pickNdc.set(
-                ((hoverX - rect.left) / rect.width) * 2 - 1,
-                -((hoverY - rect.top) / rect.height) * 2 + 1,
-              ),
-              camera,
-            );
+            const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
+            _pinRay.setFromCamera(_pickNdc.set(nx, ny), camera);
             const hp = pins.pick(_pinRay);
             pins.setHover(hp?.id ?? null);
             if (hp) {
@@ -1437,15 +1450,14 @@ export function attachStylizedTiles(opts: {
                 const cs = pins.clusterState(hp.id);
                 const hoverCount = cs && cs.collapsed ? cs.count : 1;
                 _fpvLook.copy(anchor).project(camera);
-                const x = Math.round(rect.left + ((_fpvLook.x + 1) / 2) * rect.width);
-                const y = Math.round(rect.top + ((1 - _fpvLook.y) / 2) * rect.height);
+                const { x, y } = ndcToClient(_fpvLook.x, _fpvLook.y, rect);
                 const prev = pinsStore.hoverScreen;
                 if (
                   pinsStore.hoverPin?.id !== hp.id ||
                   pinsStore.hoverCount !== hoverCount ||
                   !prev ||
-                  Math.abs(prev.x - x) > 2 ||
-                  Math.abs(prev.y - y) > 2
+                  Math.abs(prev.x - x) > ORCH.screenMoveMinPx ||
+                  Math.abs(prev.y - y) > ORCH.screenMoveMinPx
                 ) {
                   pinsStore._syncHover(hp, { x, y }, hoverCount);
                 }
@@ -1474,7 +1486,7 @@ export function attachStylizedTiles(opts: {
               ),
             );
             tempPinMarker.visible = !fpvActive; // never block the first-person view itself
-            if (frameCount % 6 === 0) {
+            if (frameCount % TEMPPIN.screenSyncEveryFrames === 0) {
               const st = useCameraStore.getState();
               camera.getWorldDirection(_camFwd);
               const inFront = _pivot.subVectors(pinP, camera.position).dot(_camFwd) > 0;
@@ -1482,14 +1494,13 @@ export function attachStylizedTiles(opts: {
               if (
                 !fpvActive &&
                 inFront &&
-                Math.abs(_fpvLook.x) < 1.02 &&
-                Math.abs(_fpvLook.y) < 1.02
+                Math.abs(_fpvLook.x) < TEMPPIN.onScreenMargin &&
+                Math.abs(_fpvLook.y) < TEMPPIN.onScreenMargin
               ) {
                 const rect = dom.getBoundingClientRect();
-                const x = Math.round(rect.left + ((_fpvLook.x + 1) / 2) * rect.width);
-                const y = Math.round(rect.top + ((1 - _fpvLook.y) / 2) * rect.height);
+                const { x, y } = ndcToClient(_fpvLook.x, _fpvLook.y, rect);
                 const prev = st.tempPinScreen;
-                if (!prev || Math.abs(prev.x - x) > 2 || Math.abs(prev.y - y) > 2) {
+                if (!prev || Math.abs(prev.x - x) > ORCH.screenMoveMinPx || Math.abs(prev.y - y) > ORCH.screenMoveMinPx) {
                   st._syncTempPinScreen({ x, y });
                 }
               } else if (st.tempPinScreen) {
@@ -1507,10 +1518,8 @@ export function attachStylizedTiles(opts: {
         if (upNow.phase === "placing" && !fpvActive) {
           if (frameCount % PLACING.repickEveryFrames === 0 && Number.isFinite(hoverX)) {
             const rect = dom.getBoundingClientRect();
-            const hit = pickGround(
-              ((hoverX - rect.left) / rect.width) * 2 - 1,
-              -((hoverY - rect.top) / rect.height) * 2 + 1,
-            );
+            const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
+            const hit = pickGround(nx, ny);
             if (hit) {
               placingMarker.position.set(hit[0], hit[1], hit[2]);
               const dist = camera.position.distanceTo(placingMarker.position);
@@ -1562,7 +1571,12 @@ export function attachStylizedTiles(opts: {
           dtMs,
         });
       } catch (err) {
-        console.error("[globe] tiles/controls update error:", err);
+        updateErrCount++;
+        const tErr = performance.now();
+        if (tErr - lastUpdateErrLogMs > ORCH.errorLogThrottleMs) {
+          console.error(`[globe] tiles/controls update error (#${updateErrCount}):`, err);
+          lastUpdateErrLogMs = tErr;
+        }
       }
     },
     dispose() {

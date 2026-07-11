@@ -16,7 +16,8 @@ import {
   derivedFov,
   type AdjustableKey,
 } from "../../store/upload";
-import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
+import { useCameraStore } from "../../store/camera";
+import { wrapHeadingDeg } from "../../lib/geo/heading";
 import { useSaveStore, type SavePhase } from "../../store/save";
 import { loginUrl, memberLabel, useMemberStore } from "../../store/member";
 import { pinHueIndex } from "../../lib/pins/appearance";

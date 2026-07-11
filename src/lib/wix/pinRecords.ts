@@ -8,7 +8,9 @@
  */
 
 import { encodeGeohash } from "../geo/geohash";
+import { numOrNull, strOrNull } from "../geo/coerce";
 import { isPrecisionTier, reduceLocation, type PrecisionTier } from "../geo/precision";
+import type { CameraPoseOptics } from "../pins/fields";
 
 /** Free-tier pin quota (IMPLEMENTATION_PLAN §Phase 5): the 11th save is refused. */
 export const PIN_QUOTA_FREE = 10;
@@ -25,24 +27,13 @@ export function authorLabel(nickname?: string | null, loginEmail?: string | null
   return "Member";
 }
 
-export interface SavePinBody {
+export interface SavePinBody extends CameraPoseOptics {
   title: string;
   lat: number;
   lon: number;
-  altitudeM: number | null;
-  headingDeg: number | null;
-  pitchDeg: number | null;
-  rollDeg: number | null;
-  focalLengthMm: number | null;
-  hFovDeg: number | null;
   fovEstimated: boolean;
   /** TZ-naive EXIF local ISO string, stored verbatim (mem:patterns/upload-flow). */
   capturedAt: string | null;
-  cameraMake: string | null;
-  cameraModel: string | null;
-  lensModel: string | null;
-  textureWidth: number | null;
-  textureHeight: number | null;
   fileName: string | null;
   fileSizeBytes: number | null;
   originalFileId: string | null;
@@ -178,7 +169,9 @@ export function photoRecord(body: SavePinBody, ownerMemberId: string): Record<st
 
 /** Slim owner-facing list row for GET /api/photos (the rudimentary "My pins" list). The
  *  owner sees their own exact data — C6 governs PUBLIC records, not this member-only view. */
-export interface PhotoListItem {
+// The pose fields (altitudeM … lensModel) let a list row re-open as the full camera view — the
+// owner sees their own exact data (C6 governs PUBLIC records, not this member-only view).
+export interface PhotoListItem extends CameraPoseOptics {
   id: string;
   title: string;
   previewUrl: string | null;
@@ -188,22 +181,7 @@ export interface PhotoListItem {
   isPublic: boolean;
   publicPrecision: string | null;
   createdAt: string | null;
-  // pose — lets a list row re-open as the full camera view (owner sees own exact data)
-  altitudeM: number | null;
-  headingDeg: number | null;
-  pitchDeg: number | null;
-  rollDeg: number | null;
-  focalLengthMm: number | null;
-  hFovDeg: number | null;
-  textureWidth: number | null;
-  textureHeight: number | null;
-  cameraMake: string | null;
-  cameraModel: string | null;
-  lensModel: string | null;
 }
-
-const numOrNull = (v: unknown): number | null => (typeof v === "number" ? v : null);
-const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
 
 export function photoListItem(item: Record<string, unknown>): PhotoListItem | null {
   if (typeof item._id !== "string") return null;
