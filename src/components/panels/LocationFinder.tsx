@@ -15,6 +15,7 @@ import { arrivalAltM, nominatimSearch, photonSearch, type GeocodeHit } from "../
 import { useCameraStore } from "../../store/camera";
 import { SEARCH } from "../globe/tuning";
 import "../../styles/location-finder.css";
+import "../../styles/tips.css";
 
 type Status = "idle" | "loading" | "ready" | "error";
 
@@ -129,19 +130,26 @@ export default function LocationFinder() {
 
   return (
     <div className="lf" ref={rootRef} role="search" aria-label="Find a location on the globe">
-      <input
-        className="lf-input"
-        type="text"
-        placeholder="FIND A PLACE — city · street · sight · zip"
-        value={query}
-        spellCheck={false}
-        autoComplete="off"
-        aria-label="Search for a place"
-        aria-expanded={open}
-        onChange={(e) => onInput(e.target.value)}
-        onKeyDown={onKeyDown}
-        onFocus={() => hits.length > 0 && setOpen(true)}
-      />
+      {/* Inputs render no ::after — the wrapper span anchors the hover tip (tips.css). */}
+      <span
+        className="tip tip-wrap"
+        data-tip="SEARCH ANY PLACE — ENTER FLIES THERE. RESULTS AS YOU TYPE."
+        data-tip-pos="down"
+      >
+        <input
+          className="lf-input"
+          type="text"
+          placeholder="FIND A PLACE — city · street · sight · zip"
+          value={query}
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Search for a place"
+          aria-expanded={open}
+          onChange={(e) => onInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          onFocus={() => hits.length > 0 && setOpen(true)}
+        />
+      </span>
       {open && (
         <div className="lf-drop" role="listbox" aria-label="Search results">
           {status === "loading" && <div className="lf-note">SEARCHING…</div>}

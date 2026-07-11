@@ -5,6 +5,7 @@ import { usePinsStore } from "../../store/pins";
 import { deletePhotoRecord } from "../../lib/save/uploadMedia";
 import type { PhotoListItem } from "../../lib/wix/pinRecords";
 import "../../styles/my-pins.css";
+import "../../styles/tips.css";
 
 /**
  * MY PINS — the rudimentary owner list in the top nav (Phase 5.1), a stand-in until the
@@ -93,7 +94,13 @@ export default function MyPins() {
 
   return (
     <span className="mp">
-      <button className="mp-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button
+        className="mp-toggle tip"
+        aria-expanded={open}
+        data-tip="YOUR SAVED PINS — CLICK ONE TO FLY THERE."
+        data-tip-pos="down"
+        onClick={() => setOpen((o) => !o)}
+      >
         My pins
       </button>
       {open && (

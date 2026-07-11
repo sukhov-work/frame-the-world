@@ -282,6 +282,31 @@ Way — the point of a darker sky is more contrast for them.
   colour-space conversion inside renderer.render). Companion: atmosphere Chapman-obliquity factor
   (up-looking rays no longer glow like limb rays at 20–350 km). Evidence: RT pixel readback +
   hand-computed OutputPass reproduction, DECISIONS 2026-07-11 S5.
+- 2026-07-11 (S7) · **Label window ships 100–900 km, not 100–2000 km** — the DoD's "labels gone
+  at LEO" contradicts the 2000 km top (default LEO pose = 1,100 km); the felt requirement wins,
+  `LABELS.maxAltM` is the tunable. 900 km also keeps the Explore cruise label-free.
+- 2026-07-11 (S7) · **Re:Earth Overture trial NEGATIVE** — tileset.json parses (3D Tiles 1.1,
+  meshopt wired via GLTFExtensionsPlugin) but every glb content tile (`/v5-add/{z}/{x}/{y}.glb`)
+  returned HTTP 500 over Dnipro. The no-SLA risk realized; `TILESETS.overtureBuildings` ships
+  OFF; fallback = Cesium OSM Buildings; last resort = self-hosted Overture Ukraine extract.
+  [was OPEN: in-renderer trial — now CLOSED, negative]
+- 2026-07-11 (S7) · **Crossfade mechanics** — ImageOverlayPlugin `overlay.opacity` is a LIVE
+  per-frame uniform (layerInfo struct holds the overlay object itself) → the dark↔Esri crossfade
+  and the street-label reveal are plain eased writes, no re-composite, no tile churn. Street
+  names v1 (draped `dark_only_labels` raster) verified legible at street zoom; big city-name
+  text smears at oblique mid-zoom — v2 (MVT billboards) stays on the shelf per the design.
+- 2026-07-11 (S7 rework) · **Street names v1 raster DROPPED same day — v2 vector SHIPPED**
+  (owner: blurry, too late, can't scale). scene/streetNames.ts: OpenFreeMap MVT (keyless,
+  maxzoom 14 — z15 = empty 200s) 3×3 z14 ring around the focus, `transportation_name` →
+  DOM labels rotated along their street, terrain-seated, reveal 2.5→2.1 km, type scales
+  9→19 px with zoom (STREETS tuning). Deps: pbf@5 (`PbfReader`, no default) +
+  @mapbox/vector-tile@3. TileJSON resolved at attach (dated tile path rotates). The full
+  "1–2 wk MVT billboard pipeline" estimate collapsed to one module by reusing the geoLabels
+  DOM-pool idiom.
+- 2026-07-11 (S7 rework) · **Building grow-on-zoom REMOVED** (owner: unreliable) — the
+  per-tile inner-Group scale + lazy bbox anchors are gone (growMatrix.ts deleted); buildings
+  render full height whenever tiles load. §Item 2c's grow line is CLOSED-NEGATIVE; the
+  Overture flag + meshopt wiring stay.
 
 ## Session-checklist twin
 

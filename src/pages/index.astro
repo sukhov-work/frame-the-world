@@ -12,6 +12,9 @@ import PinHoverCard from "../components/panels/PinHoverCard";
 import ExploreMode from "../components/panels/ExploreMode";
 import Welcome from "../components/panels/Welcome";
 import FpvHud from "../components/panels/FpvHud";
+// Hover tips (tips batch 2026-07-11) — imported here so the Astro-rendered nav links get
+// the same glass tip pills the React panels use.
+import "../styles/tips.css";
 ---
 
 <Layout title="Frame the World">
@@ -52,8 +55,8 @@ import FpvHud from "../components/panels/FpvHud";
     <span class="logo">Frame&nbsp;the&nbsp;World</span>
     <nav>
       <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
-      <a href="#explore" data-explore>Explore</a>
-      <a href="#upload" class="nav-upload" data-open-upload>Upload</a>
+      <a href="#explore" data-explore class="tip" data-tip="AMBIENT TOUR OF PUBLIC PINS." data-tip-pos="down">Explore</a>
+      <a href="#upload" class="nav-upload tip" data-open-upload data-tip="ADD A PHOTO TO THE GLOBE." data-tip-pos="down">Upload</a>
       <!-- Phase 5.1: rudimentary owner pin list (members only; gallery phase replaces it) -->
       <MyPins client:only="react" />
       <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->
@@ -61,14 +64,15 @@ import FpvHud from "../components/panels/FpvHud";
     </nav>
   </header>
 
-  <!-- Attribution: Esri World Imagery (draped ground) + Cesium ion (World Terrain + OSM
-       Buildings, D13 manual attribution) + OpenStreetMap (building data) + NASA Black Marble
-       night lights (S5 §Item 8 credit). -->
+  <!-- Attribution: Esri World Imagery (draped ground) + CARTO dark basemap (S7a drape) +
+       Cesium ion (World Terrain + OSM Buildings, D13 manual attribution) + OpenStreetMap
+       (building/basemap data) + OpenMapTiles/OpenFreeMap (S7b vector street names) + NASA
+       Black Marble night lights (S5 §Item 8) + Natural Earth (S7b labels, public domain). -->
   <a
     class="map-credit"
     href="https://www.esri.com/"
     target="_blank"
-    rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · Cesium ion · © OpenStreetMap contributors · NASA Earth Observatory (Suomi NPP VIIRS)</a>
+    rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · © CARTO · Cesium ion · © OpenStreetMap contributors · © OpenMapTiles · NASA Earth Observatory (Suomi NPP VIIRS) · Natural Earth</a>
 </Layout>
 
 <style>

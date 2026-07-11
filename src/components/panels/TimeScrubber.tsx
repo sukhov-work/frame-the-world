@@ -30,7 +30,9 @@ import {
 import { useUploadStore } from "../../store/upload";
 import { capturedAtToUtcMs } from "../../lib/ephemeris/captureTime";
 import { SCRUB } from "../globe/tuning";
+import InfoDot from "../ui/InfoDot";
 import "../../styles/time-scrubber.css";
+import "../../styles/tips.css";
 
 const WINDOW_MS = SCRUB.windowHours * 3_600_000;
 
@@ -154,39 +156,57 @@ export default function TimeScrubber() {
         <span className="ts-label">TIME SCRUB</span>
         <button
           type="button"
-          className="ts-day"
+          className="ts-day tip"
           aria-label="Previous day (same time)"
+          data-tip="PREVIOUS DAY, SAME TIME"
           onClick={() => stepDay(-1)}
         >
           ◀
         </button>
-        <input
-          type="date"
-          className="ts-date"
-          aria-label="Scene date — jump the window to another day"
-          value={localDateStr(nowMs)}
-          onChange={(e) => onDateChange(e.target.value)}
-        />
+        {/* Inputs render no ::after — the wrapper span anchors the tip (tips.css). */}
+        <span
+          className="tip tip-wrap"
+          data-tip="JUMP THE 24H WINDOW TO ANY DATE — SUN, MOON AND STARS FOLLOW."
+        >
+          <input
+            type="date"
+            className="ts-date"
+            aria-label="Scene date — jump the window to another day"
+            value={localDateStr(nowMs)}
+            onChange={(e) => onDateChange(e.target.value)}
+          />
+        </span>
         <button
           type="button"
-          className="ts-day"
+          className="ts-day tip"
           aria-label="Next day (same time)"
+          data-tip="NEXT DAY, SAME TIME"
           onClick={() => stepDay(1)}
         >
           ▶
         </button>
         <span className="ts-offset">{live ? "LIVE" : offsetLabel(nowMs - Date.now())}</span>
+        <InfoDot
+          label="About scene time"
+          tip="Scene time drives the whole planet: sun, shadows, moon phase, stars. Scrub to plan golden hour at your pin's location."
+        />
         {!live && (
-          <button type="button" className="ts-now" onClick={() => { goLive(); setAnchorMs(Date.now()); }}>
+          <button
+            type="button"
+            className="ts-now tip"
+            data-tip="RESUME THE LIVE WALL CLOCK."
+            onClick={() => { goLive(); setAnchorMs(Date.now()); }}
+          >
             NOW
           </button>
         )}
       </div>
       <div
         ref={railRef}
-        className="ts-rail"
+        className="ts-rail tip"
         role="slider"
         tabIndex={0}
+        data-tip="SCRUB ±12H — LIGHT, SHADOWS AND SKY FOLLOW SCENE TIME. DOUBLE-CLICK FOR NOW."
         aria-label="Scene time offset from the real clock"
         aria-valuemin={-SCRUB.windowHours * 30}
         aria-valuemax={SCRUB.windowHours * 30}

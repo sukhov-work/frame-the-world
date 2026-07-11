@@ -1,0 +1,128 @@
+/* Tips + info badges (2026-07-11 owner ask) — CSS-anchored hover tips for every panel.
+   WHY pseudo-elements, NOT a global fixed layer: backdrop-filter on the panel cards creates
+   a CSS containing block (camera-tilt.css §.ct-stack, pin-hover.css), so position:fixed
+   descendants become panel-relative. ::after with position:absolute anchors correctly
+   inside every filtered card.
+   Usage: class="tip" + data-tip="…" (+ optional data-tip-pos="up|down|left|right"; up is
+   the default). Inputs render no pseudo-elements — wrap them in <span class="tip tip-wrap">.
+   Copy idiom: SHORT ALL-CAPS mono for control tips; sentence case for InfoDot flow notes. */
+
+.tip {
+  position: relative;
+}
+
+/* The tip pill — glass chip in the instrument idiom. Hidden until hover/focus-visible. */
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 60;
+  width: max-content;
+  max-width: 200px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 8px;
+  /* NO backdrop-filter on pseudo-elements (inconsistent) — the 78% fill is opaque enough. */
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+  color: var(--color-text-secondary);
+  font: 500 9.5px/1.5 var(--font-mono, monospace);
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  /* Hide fast and undelayed; the .38s reveal delay lives on the shown state below. */
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.14s;
+  /* Default placement: up (above the element, centred). */
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translate(-50%, 2px);
+}
+
+.tip[data-tip-pos="down"]::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+  transform: translate(-50%, -2px);
+}
+
+.tip[data-tip-pos="left"]::after {
+  bottom: auto;
+  left: auto;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translate(2px, -50%);
+}
+
+.tip[data-tip-pos="right"]::after {
+  bottom: auto;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translate(-2px, -50%);
+}
+
+/* Reveal — the .38s delay keeps pass-over hovers silent (no flicker). */
+.tip:hover::after,
+.tip:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition: opacity 0.18s ease 0.38s, transform 0.18s ease 0.38s, visibility 0s linear 0.38s;
+}
+
+.tip[data-tip-pos="left"]:hover::after,
+.tip[data-tip-pos="left"]:focus-visible::after,
+.tip[data-tip-pos="right"]:hover::after,
+.tip[data-tip-pos="right"]:focus-visible::after {
+  transform: translate(0, -50%);
+}
+
+/* While the control is actively being used (drag/press) the tip gets out of the way. */
+.tip:active::after {
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip::after {
+    transition: opacity 0.14s ease, visibility 0s linear 0.14s;
+  }
+  .tip:hover::after,
+  .tip:focus-visible::after {
+    transition: opacity 0.18s ease 0.38s, visibility 0s linear 0.38s;
+  }
+}
+
+/* Wrapper for replaced elements (inputs) — they render no ::after, the span anchors it. */
+.tip-wrap {
+  display: block;
+}
+
+/* ── InfoDot — the dedicated 13px "i" badge for flow-level explanations ─────────────── */
+.infodot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 60%, transparent);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+
+.infodot:hover,
+.infodot:focus-visible {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+  outline: none;
+}

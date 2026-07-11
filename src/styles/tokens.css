@@ -47,6 +47,15 @@
   --color-sky-horizon: #d8e6f2; /* low-altitude horizon haze — near-white aerial perspective */
   --color-milky-way: #e7e3d8; /* faint warm-white galactic band (subtle, near --color-star) */
 
+  /* Vector map ink (S7 feedback batch) — the close-zoom street/water/terrain web drawn as GL
+     geometry over the dark drape. Map INK, not signal: steel greys + a desaturated steel blue,
+     bridges brightest so crossings read. Same restraint family as the building edge strokes. */
+  --color-vec-road-major: #a7b4c4; /* motorway/trunk/primary — bright steel strokes */
+  --color-vec-road-minor: #5f6b7a; /* residential/service web — dim slate */
+  --color-vec-water: #3e6e96; /* rivers/lakes fill + waterway lines — steel blue, reads on near-black */
+  --color-vec-green: #2e4a3a; /* parks/grass/wood fill — muted sage, barely-there */
+  --color-vec-bridge: #c6d2de; /* bridges — brightest ink + a lift, crossings pop */
+
   /* Per-author pin hues (Phase 5.5 S4, §Item 6) — a restrained cool family around the accent.
      hash(authorName) picks one (teal-weighted, warm rare — weights live in globe tuning);
      anonymous / pre-S3 pins fall back to the teal anchor. Signal colours: they may glow. */

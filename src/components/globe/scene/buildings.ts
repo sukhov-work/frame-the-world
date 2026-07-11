@@ -3,6 +3,7 @@ import { TilesRenderer } from "3d-tiles-renderer";
 import { CesiumIonAuthPlugin } from "3d-tiles-renderer/core/plugins";
 import { GLTFExtensionsPlugin } from "3d-tiles-renderer/three/plugins";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { tokens } from "../../../lib/theme/tokens";
 import { BUILDINGS, FPV, TILESETS } from "../tuning";
 import { glf } from "./glsl";
@@ -38,12 +39,21 @@ export function attachBuildings(
   scene: THREE.Scene,
   opts: { camera: THREE.PerspectiveCamera; renderer: THREE.WebGLRenderer; ionToken: string },
 ): BuildingsHandle {
-  const tiles = new TilesRenderer();
-  tiles.registerPlugin(
-    new CesiumIonAuthPlugin({ apiToken: opts.ionToken, assetId: TILESETS.ionAssetId }),
-  );
+  // S7d trial flag: Re:Earth Overture buildings (hosted 3D Tiles 1.1, meshopt-compressed glTF)
+  // instead of Cesium OSM Buildings — same renderer, same styling, different source. Default OFF.
+  const useOverture: boolean = TILESETS.overtureBuildings;
+  const tiles = useOverture
+    ? new TilesRenderer(TILESETS.overtureTilesetUrl)
+    : new TilesRenderer();
+  if (!useOverture) {
+    tiles.registerPlugin(
+      new CesiumIonAuthPlugin({ apiToken: opts.ionToken, assetId: TILESETS.ionAssetId }),
+    );
+  }
   const draco = new DRACOLoader().setDecoderPath(TILESETS.dracoDecoderPath);
-  tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader: draco }));
+  tiles.registerPlugin(
+    new GLTFExtensionsPlugin({ dracoLoader: draco, meshoptDecoder: MeshoptDecoder }),
+  );
 
   tiles.setCamera(opts.camera);
   tiles.setResolutionFromRenderer(opts.camera, opts.renderer);
@@ -104,6 +114,8 @@ export function attachBuildings(
   // has no distance falloff worth a custom shader); setGhostSolid blends it back toward the
   // normal stroke as the viewpoint climbs.
   let ghostEdgeOpacity: number = BUILDINGS.edgeOpacity;
+  // (S7c grow-on-zoom REMOVED 2026-07-11 same day — owner: unreliable. Buildings render at
+  // full height whenever their tiles load; see DECISIONS for the reverted mechanics.)
   tiles.addEventListener("load-model", (e: any) => {
     e.scene.traverse((c: any) => {
       if (c.isMesh) {

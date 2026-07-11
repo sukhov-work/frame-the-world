@@ -8,6 +8,8 @@
 
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { BadgeTone } from "./Slider";
+import type { TipPos } from "./InfoDot";
+import "../../styles/tips.css";
 
 export interface EncoderProps {
   label: string;
@@ -22,6 +24,10 @@ export interface EncoderProps {
   /** Double-click / Backspace reset (e.g. back to the EXIF baseline) — optional. */
   onReset?: () => void;
   badge?: { text: string; tone: BadgeTone };
+  /** Hover tip on the whole row (tips.css — delayed glass pill). */
+  tip?: string;
+  /** Tip placement — default up. */
+  tipPos?: TipPos;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -36,6 +42,8 @@ export default function Encoder({
   onRate,
   onReset,
   badge,
+  tip,
+  tipPos,
 }: EncoderProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [deflection, setDeflection] = useState(0); // −1..1, 0 = at rest
@@ -79,7 +87,11 @@ export default function Encoder({
   const fillWidth = Math.abs(knobPct - 50);
 
   return (
-    <div className={`uf-slider ct-enc${dragging ? " is-live" : ""}`}>
+    <div
+      className={`uf-slider ct-enc${dragging ? " is-live" : ""}${tip ? " tip" : ""}`}
+      data-tip={tip}
+      data-tip-pos={tip ? tipPos : undefined}
+    >
       <div className="uf-slider__head">
         <span className="uf-slider__label">
           {label}

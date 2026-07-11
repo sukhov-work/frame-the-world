@@ -1,5 +1,6 @@
 import Slider from "../ui/Slider";
 import Encoder from "../ui/Encoder";
+import InfoDot from "../ui/InfoDot";
 import { useCameraStore } from "../../store/camera";
 import { wrapHeadingDeg } from "../../lib/geo/heading";
 import { useUploadStore } from "../../store/upload";
@@ -7,6 +8,7 @@ import { CONTROLS, FPV } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal, formatAltM, formatEyeM } from "../../lib/format/readout";
 import "../../styles/camera-tilt.css";
+import "../../styles/tips.css";
 
 /**
  * Camera panel — manual global camera controls (2026-07-10 owner asks; encoder rework + compass
@@ -54,6 +56,16 @@ export default function CameraTiltPanel() {
       </div>
     )}
     <aside className="ct" aria-label="Camera controls">
+      {/* Panel header (tips batch): quiet label + the one flow-level InfoDot (right-docked
+          panel → tips slide out to the LEFT so they never leave the viewport). */}
+      <div className="ct-head">
+        <span className="ct-head__label">CAMERA</span>
+        <InfoDot
+          pos="left"
+          label="About the camera deck"
+          tip="Camera deck — aim, tilt and zoom the globe camera. Double-click the globe to drop a temporary pin and look from there."
+        />
+      </div>
       {/* Temp-pin look-around active: the exit affordance sits ABOVE the controls it retargets
           (ROTATE = look, ZOOM = vertical elevation while in this mode). */}
       {s.tempFpv && (
@@ -70,14 +82,17 @@ export default function CameraTiltPanel() {
         step={1}
         onChange={s.setTargetTilt}
         onReset={s.clearTargetTilt}
+        tip="CAMERA PITCH — 0° LOOKS STRAIGHT DOWN, 88° AT THE HORIZON."
+        tipPos="left"
       />
       <div className="ct-row">
         <button
           type="button"
-          className="ct-compass"
+          className="ct-compass tip"
           onClick={() => s.setTargetHeading(0)}
           aria-label={`Compass — heading ${Math.round(liveHeading)}°, click to face north`}
-          title="Face north"
+          data-tip="COMPASS — CLICK TO FACE NORTH. NEEDLE TRACKS YOUR HEADING."
+          data-tip-pos="left"
         >
           <svg viewBox="0 0 36 36" aria-hidden="true">
             <circle className="ct-compass__ring" cx="18" cy="18" r="15.5" />
@@ -93,9 +108,11 @@ export default function CameraTiltPanel() {
         </button>
         <button
           type="button"
-          className={`ct-mode${is2D ? "" : " is-3d"}`}
+          className={`ct-mode tip${is2D ? "" : " is-3d"}`}
           onClick={() => s.setTargetTilt(is2D ? CONTROLS.toggle3dTiltDeg : 0)}
           aria-label={is2D ? "Switch to 3D perspective view" : "Switch to 2D top-down view"}
+          data-tip="SWITCH TOP-DOWN MAP VIEW ↔ FREE 3D ORBIT."
+          data-tip-pos="left"
         >
           {is2D ? "3D" : "2D"}
         </button>
@@ -103,13 +120,33 @@ export default function CameraTiltPanel() {
             direction chips elsewhere; OFF = none of them. */}
         <button
           type="button"
-          className={`ct-mode ct-sky${s.skyGuides ? " is-on" : ""}`}
+          className={`ct-mode ct-sky tip${s.skyGuides ? " is-on" : ""}`}
           onClick={() => s.setSkyGuides(!s.skyGuides)}
           aria-pressed={s.skyGuides}
           aria-label={s.skyGuides ? "Hide sun/moon sky guides" : "Show sun/moon sky guides"}
-          title="Sun & moon guides — arcs and asterisms in camera view, direction markers elsewhere"
+          data-tip="SUN & MOON GUIDES — DIRECTION CHIPS; FULL SKY ARCS IN CAMERA VIEW."
+          data-tip-pos="left"
         >
           ☀☾
+        </button>
+        {/* Ground mode (S7a): the dark drape is the default below ~7 km; SAT opts back into
+            the satellite imagery look at every altitude. */}
+        <button
+          type="button"
+          className={`ct-mode ct-sat tip${s.groundMode === "satellite" ? " is-on" : ""}`}
+          onClick={() =>
+            s.setGroundMode(s.groundMode === "satellite" ? "dark" : "satellite")
+          }
+          aria-pressed={s.groundMode === "satellite"}
+          aria-label={
+            s.groundMode === "satellite"
+              ? "Switch the ground to the dark map"
+              : "Switch the ground to satellite imagery"
+          }
+          data-tip="GROUND STYLE — STYLIZED DARK MAP ↔ SATELLITE IMAGERY."
+          data-tip-pos="left"
+        >
+          SAT
         </button>
       </div>
       <Encoder
@@ -118,6 +155,8 @@ export default function CameraTiltPanel() {
         maxRate={CONTROLS.headingRateMaxDegPerS}
         expoGamma={CONTROLS.rateExpoGamma}
         onRate={s.setHeadingRate}
+        tip="DRAG SIDEWAYS TO SPIN THE VIEW — FURTHER IS FASTER; RELEASE STOPS."
+        tipPos="left"
       />
       {/* In FPV the same stick elevates the viewpoint vertically — the label says what it
           does; the readout swaps to the eye height above the local ground (FpvHud mirror). */}
@@ -129,6 +168,12 @@ export default function CameraTiltPanel() {
         maxRate={CONTROLS.zoomRateMaxPerS}
         expoGamma={CONTROLS.rateExpoGamma}
         onRate={s.setZoomRate}
+        tip={
+          fpvMode
+            ? "DRAG TO CHANGE EYE HEIGHT — LIFTS YOU STRAIGHT OFF THE PIN."
+            : "DRAG TO GLIDE ALTITUDE — IN CAMERA VIEW IT BECOMES EYE HEIGHT."
+        }
+        tipPos="left"
       />
       {/* FOCAL ZOOM (S6): the panel twin of the FPV wheel zoom — right = zoom in (focal
           grows, FOV narrows). Only meaningful while standing in a viewpoint. */}
@@ -139,6 +184,8 @@ export default function CameraTiltPanel() {
           maxRate={FPV.fovRateMaxPerS}
           expoGamma={CONTROLS.rateExpoGamma}
           onRate={s.setFovRate}
+          tip="ZOOM THE CAMERA'S FOCAL LENGTH — THE WHEEL DOES THE SAME."
+          tipPos="left"
         />
       )}
     </aside>

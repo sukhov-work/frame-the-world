@@ -109,6 +109,7 @@ body.welcome-active .ts,
 body.welcome-active .tr,
 body.welcome-active .ct-stack,
 body.welcome-active .lf,
+body.welcome-active .geo-labels,
 body.welcome-active .explore-chip {
   display: none !important;
 }

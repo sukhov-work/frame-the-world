@@ -31,6 +31,12 @@ export const tokens = {
   skyDay: '#7FB8E8', // low-altitude day-sky zenith — light blue dome at city zooms
   skyHorizon: '#D8E6F2', // low-altitude horizon haze — near-white aerial perspective
   milkyWay: '#E7E3D8', // faint warm-white galactic band (subtle, near tokens.star)
+  // Vector map ink (S7 feedback batch) — the close-zoom street/water web (map ink, not signal)
+  vecRoadMajor: '#A7B4C4', // motorway/trunk/primary — bright steel strokes
+  vecRoadMinor: '#5F6B7A', // residential/service web — dim slate
+  vecWater: '#3E6E96', // rivers/lakes fill + waterway lines — steel blue on near-black
+  vecGreen: '#2E4A3A', // parks/grass/wood fill — muted sage
+  vecBridge: '#C6D2DE', // bridges — brightest ink + a lift
   // Per-author pin hues (Phase 5.5 S4) — restrained cool family; hash(authorName) picks one
   // (weights live in globe tuning — tuning names tokens, tokens name colours, D14).
   pinTeal: '#38E1D0', // the anchor — accent hue (pins ARE signal; anonymous fallback)
