@@ -45,6 +45,16 @@ export default function GlobeCanvas() {
     if (import.meta.env.DEV) (window as any).__renderer = renderer;
 
     const scene = new THREE.Scene();
+    // The space backdrop MUST be scene.background, not the renderer clear color (S5 §Item 15 —
+    // THE "navy night sky" root cause): setClearColor converts to the renderer's OUTPUT space
+    // (sRGB) because no render target is bound at setup, and EffectComposer runs autoClear-off,
+    // so RenderPass's raw renderer.clear() dumped those sRGB-encoded values into the LINEAR
+    // HalfFloat buffer. OutputPass then treated them as linear — PBR-Neutral's black offset ate
+    // the red channel and the sRGB encode boosted the rest: #05070B rendered as (8,26,45) navy
+    // across every empty sky pixel (measured; the math reproduces it exactly). scene.background
+    // is converted per-render-target inside renderer.render (linear into the composer's buffer,
+    // sRGB when rendering direct) and force-clears over the stale GL state in both paths.
+    scene.background = new THREE.Color(tokens.bg);
     const camera = new THREE.PerspectiveCamera(
       POSE.fovDeg,
       window.innerWidth / window.innerHeight,
@@ -171,6 +181,9 @@ export default function GlobeCanvas() {
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
+    // DEV-only introspection (same pattern as __renderer/__globe): browser verification can
+    // toggle passes / read bloom uniforms without reaching into this closure.
+    if (import.meta.env.DEV) (window as any).__composer = composer;
 
     // --- optional real OSM-buildings globe (ion token gated; dynamic import) ---
     let tilesHandle: { update: () => void; dispose: () => void } | null = null;

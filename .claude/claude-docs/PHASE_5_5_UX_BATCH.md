@@ -275,6 +275,13 @@ Way — the point of a darker sky is more contrast for them.
 - 2026-07-11 (later) · Owner added items 11–15 (Explore pin journey · salient upload CTA ·
   compass + 2D/3D toggle · encoder-style rotate/zoom · darker night sky) — folded into S2/S3/S4/S5
   as sectioned above; no new sessions, S2 may split into S2b if the control rework runs long.
+- 2026-07-11 (S5) · **Navy night sky ROOT-CAUSED** — none of §Item 15's suspects: the composer's
+  RenderPass cleared the LINEAR HalfFloat buffer with the sRGB-ENCODED clear colour
+  (setClearColor converts to the OUTPUT space when no render target is bound; EffectComposer runs
+  autoClear-off so that stale GL state was the only clear). Fix = `scene.background` (per-target
+  colour-space conversion inside renderer.render). Companion: atmosphere Chapman-obliquity factor
+  (up-looking rays no longer glow like limb rays at 20–350 km). Evidence: RT pixel readback +
+  hand-computed OutputPass reproduction, DECISIONS 2026-07-11 S5.
 
 ## Session-checklist twin
 

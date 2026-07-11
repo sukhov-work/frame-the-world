@@ -48,6 +48,9 @@ export interface BodyStates {
   moonPhaseDeg: number;
   /** Illuminated fraction of the lunar disc, 0..1 (geocentric). */
   moonIllumination: number;
+  /** Sun–moon–earth phase angle, deg (0 = full, 90 = quarter, 180 = new) — feeds the K&S-1991
+   *  brightness curve (`lib/ephemeris/moonlight.ts`); phase_fraction = (1 + cos α)/2. */
+  moonPhaseAngleDeg: number;
   /** Greenwich apparent sidereal time (rad) — rotating the J2000-equatorial star sphere by −this
    *  about +Z puts every star over its correct earth longitude (Phase 4 BSC5 star field). */
   gastRad: number;
@@ -72,13 +75,15 @@ export function bodyStatesAt(utcMs: number): BodyStates {
   };
   const sun = toEcef(GeoVector(Body.Sun, time, true));
   const moon = toEcef(GeoMoon(time)); // GeoVector(Moon) ignores aberration anyway — call GeoMoon directly
+  const illum = Illumination(Body.Moon, time);
   return {
     sunDir: sun.dir,
     sunDistanceAu: sun.distAu,
     moonDir: moon.dir,
     moonDistanceKm: moon.distAu * KM_PER_AU,
     moonPhaseDeg: MoonPhase(time),
-    moonIllumination: Illumination(Body.Moon, time).phase_fraction,
+    moonIllumination: illum.phase_fraction,
+    moonPhaseAngleDeg: illum.phase_angle,
     gastRad,
   };
 }

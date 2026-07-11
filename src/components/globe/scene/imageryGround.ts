@@ -43,6 +43,9 @@ export interface ImageryGroundHandle {
   /** Terrain height (m above the WGS84 ellipsoid) at a location, from loaded tiles; null while
    *  no tile covers it yet. Used to seat the photo frustum on the rendered ground. */
   heightAt(latDeg: number, lonDeg: number): number | null;
+  /** Ground shadow darkness for the CURRENT shadow source (S5): the sun keeps
+   *  SHADOWS.groundOpacity; moon-driven frames pass moonGroundOpacity × K&S intensity. */
+  setShadowStrength(opacity: number): void;
   /** Per-frame: altitude gate + screen-door fade + shadow-overlay gate + tile refinement. */
   update(alt: number): void;
   dispose(): void;
@@ -295,6 +298,9 @@ export function attachImageryGround(
       const hit = _raycaster.intersectObjects(tiles.group.children, true)[0];
       if (!hit) return null;
       return WGS84_ELLIPSOID.getPositionElevation(hit.point);
+    },
+    setShadowStrength(opacity) {
+      shadowMat.opacity = opacity; // ONE shared material — every twin follows
     },
     update(alt) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band

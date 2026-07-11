@@ -28,6 +28,12 @@ export interface AtmosphereHandle {
   dispose(): void;
 }
 
+// Chapman-obliquity saturation sines (S5 §Item 15 — the navy-night-sky root cause, see
+// ATMOSPHERE.obliquityK): a grazing ray saturates at ~√(π·Re·H/2) of air; an up-looking ray at
+// elevation sine s traverses only ~H/s. Below sinLimit = √(2H/(π·Re)) the two regimes meet.
+const OBLIQ_SIN_LINE = Math.sqrt((2 * ATMOSPHERE.lineScaleHeightM) / (Math.PI * WGS84_A));
+const OBLIQ_SIN_HAZE = Math.sqrt((2 * ATMOSPHERE.hazeScaleHeightM) / (Math.PI * WGS84_A));
+
 export function attachAtmosphere(
   scene: THREE.Scene,
   opts: { baseScale: THREE.Vector3 },
@@ -92,8 +98,16 @@ export function attachAtmosphere(
         float dmin = length(closest);
         float h = max(dmin - uRe, 0.0);
         float hs = mix(1.0, ${glf(ATMOSPHERE.orbitWidthShrink)}, uOrbit);
-        float g1 = exp(-h / (uH1 * hs));    // bright limb line
-        float g2 = exp(-h / (uH2 * hs));    // broad haze
+        // Chapman obliquity (S5): exp(-h/H) alone weights a ray only by the density at its
+        // closest approach — for UP-looking rays that point is the camera itself, so a zenith
+        // ray rendered as bright as a grazing one (~30× the air) and the whole night sky
+        // glowed navy at 20–350 km. Rays with their closest approach at the camera (sinEl > 0)
+        // dim by sinLimit/max(sinEl, sinLimit); limb-passing rays (sinEl = 0) are untouched.
+        float sinEl = max(dot(D, normalize(O)), 0.0);
+        float pk1 = mix(1.0, ${glf(OBLIQ_SIN_LINE)} / max(sinEl, ${glf(OBLIQ_SIN_LINE)}), ${glf(ATMOSPHERE.obliquityK)});
+        float pk2 = mix(1.0, ${glf(OBLIQ_SIN_HAZE)} / max(sinEl, ${glf(OBLIQ_SIN_HAZE)}), ${glf(ATMOSPHERE.obliquityK)});
+        float g1 = exp(-h / (uH1 * hs)) * pk1;    // bright limb line
+        float g2 = exp(-h / (uH2 * hs)) * pk2;    // broad haze
         float sun = clamp(dot(normalize(closest), normalize(uSunDir)) * 0.5 + 0.5, 0.0, 1.0);
         // rays that strike the planet get a faint blue air-wash (atmosphere between craft and
         // ground) instead of the limb line — the near shell is NOT depth-occluded by the disc

@@ -86,9 +86,12 @@ paid); public pins on shared globe via geohash viewport query; default reduced p
   de-cluster, float32 flicker fix (camera-anchored pins + MV shaders), ADD-PHOTO pill retired,
   **Welcome landing page** w/ auto-Explore backdrop, time scrub centred + readout axis-aligned.
   See DECISIONS)*
-- [ ] **S5 — Night-sky physics:** K&S-1991 phase-scaled moonlight + moon-driven shadow rig at night,
+- [x] **S5 — Night-sky physics:** K&S-1991 phase-scaled moonlight + moon-driven shadow rig at night,
   brighter stars/Milky Way (tuning), Black Marble 2016 gray 8k single-channel city lights.
   *Owner add:* **darker night sky** (lower night floors + root-cause the carried navy-floor mystery).
+  *(S5 shipped 2026-07-11 — browser-VERIFIED via scripted CDP: quarter/full moonlight 10.3%, moon
+  shadows live at the full-moon Dnipro night, 8k R8 lights, navy floor ROOT-CAUSED = composer
+  clear-colour colour-space bug → scene.background fix + atmosphere Chapman obliquity. See DECISIONS)*
 - [ ] **S6 — FPV planning overlays:** sun/moon day-arc polylines (10-min sampling, hour ticks,
   past/future split) + ~20 main asterisms from d3-celestial asterisms.json (BSD-3).
 - [ ] **S7 — Ground rework:** (a) dark uniform "vaporwave" drape <7 km (**CARTO dark_nolabels —
