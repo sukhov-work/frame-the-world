@@ -1,5 +1,19 @@
 # B19 — Orchestrator `update()` split · Handoff
 
+> ## ✅ DONE 2026-07-11 — provably behavior-identical, all tiers green.
+> `update()` is now a flat ordered dispatch of **36 named step-closures** (`stepFrameTiming … stepDayArcs`,
+> `stepArrivalReframing` = #29) at factory scope. Frame-locals live in a factory "per-frame hub" of bare
+> `let`s (the FrameContext below, realized as bare lets — the optional ctx-object phase-4 skipped for lower
+> risk; `zc`→factory const; 14 producers `const/let X=`→`X=`). Verified: line-for-line + order-exact
+> partition (extracted step bodies in def order == pre-split body, 771==771; call order == def order) ·
+> whole-file multiset diff 0 unexplained · trap-site code counts unchanged (matrix flushes 8/2, `++frameCount`
+> 1, adjustCamera 1, `performance.now` 8) · astro check 0 · 325 vitest · wix build · browser Flow-0 CLEAN
+> (0 [globe] errors) · `verify-s5-night.mjs` GOLDEN GATE PASS. Mechanics + the reusable verification-proof
+> technique: `mem:project/wip-2026-07-11-b19-split`. **The map/traps below are retained as the record of the
+> contract that was preserved.** Cosmetic-only follow-up: step bodies kept 8-space indent (no prettier/lint
+> in repo → left; S7 may dedent). B20–B25 fold into S7.
+
+
 > **Provenance.** Built 2026-07-11 (pre-S7 refactor session 2) from a 4-analyst + 1-synthesizer workflow that
 > read the CURRENT `StylizedTiles.ts` (post-safe-tier: B6 helpers · B12 `GlobeControlsInternal` · B13 `ORCH`
 > constants · B26 throttled catch all already landed). **Line numbers are as-of that session** — expect ±a few
@@ -9,8 +23,16 @@
 > `scripts/verify-s5-night.mjs`'s ASSERTIONS but should write to FRESH shot names (`verify-shots/b19-*`) so it
 > doesn't clobber the S5 baseline.
 
+> **⚠ 2026-07-11 drift — one NEW step added after this map was built.** The pin-reframe bugfix added a
+> **self-contained arrival re-framing block right AFTER the `frustum.resnap()` step** (`if (framingActive) {…}`)
+> plus closure state (`framingActive`/`framingLookAt`/`framingParams`/`framingStableFrames`/`framingReframes`/
+> `framingDeadlineMs` + scratch vecs + the `beginFraming(pose)` helper, all declared just before
+> `attachPhotoFrustum`) and disarm calls in `noteInteract` + `onPlaced` + the placed-photo FPV-exit. When
+> splitting, add a `stepArrivalReframing(ctx)` immediately after the resnap step; the framing state joins the
+> "closure-state-that-STAYS-closure" list. See `mem:bugs/pin-arrival-reframe`.
+
 **File:** `src/components/globe/StylizedTiles.ts`
-**Target:** the per-frame `update()` loop — one `try` at **L674**, one `catch` at **L1573–1580**, 36 ordered work-steps in between (**L675–1572**).
+**Target:** the per-frame `update()` loop — one `try` at **L674**, one `catch` at **L1573–1580**, 36 ordered work-steps in between (**L675–1572**) — **+1 new step** (arrival re-framing, after resnap; see the drift note above).
 **Nature of B19:** pure readability restructuring — carve the ~900-line frame body into named step-functions with **zero behavioral change**.
 
 ---

@@ -3,6 +3,7 @@ import { frustumGeometry, type FrustumGeometry } from "../../lib/geo/frustum";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import { tokens } from "../../lib/theme/tokens";
 import { derivedFov, paramSource, useUploadStore } from "../../store/upload";
+import { clampGroundM } from "../../lib/geo/terrain";
 import { FRUSTUM } from "./tuning";
 
 /**
@@ -117,11 +118,14 @@ export function attachPhotoFrustum(
     const hFovDeg = derivedFov(s.exif, s.params).hFovDeg;
     const key = `${s.placement.latDeg},${s.placement.lonDeg}`;
     const th = opts.terrainHeightAt?.(s.placement.latDeg, s.placement.lonDeg) ?? null;
+    // Clamp-only-upward (the S2 discipline every other terrain consumer follows): coarse/unloaded
+    // quantized-mesh tiles return NEGATIVE garbage, which would seat the apex BELOW the ellipsoid
+    // and enlarge the later resnap correction. clampGroundM keeps it in [0, 9000].
     if (key !== terrainKey) {
       terrainKey = key;
-      terrainH = th ?? 0;
+      terrainH = th != null ? clampGroundM(th) : 0;
     } else if (th !== null) {
-      terrainH = th;
+      terrainH = clampGroundM(th);
     }
     // Altitude semantics with REAL terrain (D4): an untouched EXIF GPS altitude is an ABSOLUTE
     // (ellipsoidal-ish) height — adding terrain under it would double-count (the fixture floated
@@ -198,7 +202,7 @@ export function attachPhotoFrustum(
       const s = useUploadStore.getState();
       if (s.phase !== "placed" || !s.placement) return;
       const th = opts.terrainHeightAt?.(s.placement.latDeg, s.placement.lonDeg);
-      if (th != null && Math.abs(th - terrainH) > 0.5) rebuild();
+      if (th != null && Math.abs(clampGroundM(th) - terrainH) > 0.5) rebuild();
     },
     dispose() {
       unsubscribe();

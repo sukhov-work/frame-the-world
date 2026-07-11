@@ -704,6 +704,28 @@ export const FLIGHT = {
   /** …at this tilt (deg from nadir; ~80° = near-horizontal, the photo superimposed on its
    *  landscape) looking at the image-plane centre. */
   arrivalTiltDeg: 80,
+  // --- Arrival re-framing (bug fix 2026-07-11): a photo selected from HIGH altitude / oblique
+  //     tilt places its frustum on terrain the tiles have not loaded yet (terrainH≈0), so the
+  //     onPlaced flight commits a lookAt below the real ground. As tiles refine, frustum.resnap()
+  //     lifts the frustum but the flight target stayed low → the photo lands SHIFTED (grows with
+  //     the selection altitude/tilt; nil at city scale where terrain is already loaded). While
+  //     framing a fresh selection the orchestrator resnaps every frame and, once the frustum
+  //     SETTLES, re-flies a short glide onto the LIVE arrival pose — the live-terrain correctness
+  //     FPV/focus-lock already have. Disarmed by any user action so it never fights direct control.
+  /** Duration (ms) of the corrective re-frame glide (short — not the full cinematic arrival). */
+  reframeDurationMs: 800,
+  /** Only correct when the live plane-centre has drifted from the committed target by > this (m). */
+  reframeMinMoveM: 10,
+  /** The live plane-centre counts as "still" for the settle detector when it moved < this (m)
+   *  between frames (below the frustum's own 0.5 m resnap threshold rounding). */
+  reframeSettleEpsM: 1,
+  /** …and must stay still for this many consecutive frames (terrain done refining) before the
+   *  single corrective glide commits — avoids chasing each quantized-mesh LOD step. */
+  reframeSettleFrames: 12,
+  /** Hard cap on corrective re-frames per selection (bounds any residual LOD thrash). */
+  reframeMaxCount: 3,
+  /** Give up framing this long (ms) after the selection regardless (2.2 s flight + terrain settle). */
+  reframeDeadlineMs: 6500,
 } as const;
 
 /** Public pins on the shared globe (Phase 5; look reworked Phase 5.5 S4 §Item 6). Each pin is

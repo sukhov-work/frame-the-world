@@ -34,6 +34,10 @@ export interface FlightStartOpts {
    *  endpoints) + FLIGHT.floorClearM. Enforced mid-flight, ramped near the endpoints so the
    *  start/end poses stay exact. null/undefined = no floor (pure ellipsoid blend). */
   floorM?: number | null;
+  /** Override the flight duration (ms). Defaults to FLIGHT.durationMs — used for the full
+   *  cinematic arrival; a short value gives a quick corrective re-frame (e.g. the arrival
+   *  re-framing after a pin's terrain settles). */
+  durationMs?: number | null;
 }
 
 export interface FlightHandle {
@@ -175,6 +179,7 @@ export function createFlight(
   let h1 = 0;
   let bump = 0;
   let floorM: number | null = null;
+  let durationMs: number = FLIGHT.durationMs; // per-flight (default = the full cinematic arrival)
   let followW = 0; // path-following orientation weight for THIS flight (by ground distance)
   let q0 = new THREE.Quaternion();
   const q1 = new THREE.Quaternion();
@@ -219,6 +224,7 @@ export function createFlight(
       const groundDist = d0.angleTo(d1) * a;
       bump = Math.min(FLIGHT.arcBumpFactor * groundDist, FLIGHT.arcBumpMaxM);
       floorM = o?.floorM ?? null;
+      durationMs = o?.durationMs ?? FLIGHT.durationMs;
       followW = pathFollowWeight(groundDist, FLIGHT.pathFollowLoM, FLIGHT.pathFollowHiM);
       q0 = camera.quaternion.clone();
       _m.lookAt(t.position, t.lookAt, d1); // end orientation (radial up)
@@ -231,7 +237,7 @@ export function createFlight(
     },
     update(nowMs) {
       if (!flying || !target) return false;
-      const x = (nowMs - startMs) / FLIGHT.durationMs;
+      const x = (nowMs - startMs) / durationMs;
       if (x >= 1) {
         finalPose(target);
         flying = false;

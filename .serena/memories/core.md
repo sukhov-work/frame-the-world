@@ -192,7 +192,7 @@ re-engages >0.6) · moon brighter (SKY.moonBrightness 3.2/earthshine 0.12). Same
 **sky guides gated** — arcs/asterisms FPV-only, other modes get ☀/☾ direction chips, ONE
 right-panel `☀☾` toggle (`camera.skyGuides` + `skyMarkers` mirror) enables/disables all of it.
 304 vitest · astro check 0 · wix build green. Mechanics: `mem:project/wip-2026-07-11-phase5.5-s6`.
-**Next step: B19 orchestrator split (browser-verified), THEN Phase 5.5 S7.** The pre-S7 architecture-review
+**Next step: Phase 5.5 S7 (ground rework) — the pre-S7 refactor tier is COMPLETE.** B19 DONE 2026-07-11 (`StylizedTiles.update()` split into 36 named step-closures — provably behavior-identical; astro check 0 · 325 vitest · wix build · browser Flow-0 CLEAN · night-shadow golden gate PASS; `mem:project/wip-2026-07-11-b19-split`). Also this session: the high-altitude pin-jump-shift BUGFIX (`mem:bugs/pin-arrival-reframe`). The pre-S7 architecture-review
 SAFE tier is DONE (2026-07-11, two sessions): session 1 = B1–B5/B7/B14/B18 (DECISIONS.md compacted 709→334 +
 `DECISIONS_ARCHIVE.md`, conventions, dead code, format dedup); session 2 = the dedup follow-up B6/B8/B9/B10/
 B11/B12/B13/B15/B26 + B14 index (shared geo/math → `lib/geo/{terrain,screen,heading}.ts`; param layer →
