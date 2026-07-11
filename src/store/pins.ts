@@ -133,11 +133,24 @@ export interface PinsState {
   /** Pin to pulse-highlight on the globe (post-save landing beacon, Phase 5.5 S3). The globe
    *  layer owns the pulse duration; setting the same id again restarts it. */
   highlightId: string | null;
+  /** Hovered pin (Phase 5.5 S4) + its head's screen position (px) — orchestrator-mirrored at
+   *  low cadence so panels/PinHoverCard can float the details card next to the pin. */
+  hoverPin: PublicPin | null;
+  hoverScreen: { x: number; y: number } | null;
+  /** Cluster size when the hovered marker is a COLLAPSED cluster (adaptive de-cluster, far
+   *  range) — the card shows "N photos here · click to zoom" instead of one pin's details. */
+  hoverCount: number;
   /** Orchestrator-only: low-cadence view focus mirror; triggers the debounced query. */
   reportViewport: (latDeg: number, lonDeg: number, altM: number) => void;
   /** Force a re-query of the last viewport (e.g. right after saving a public pin). */
   refresh: () => void;
   highlight: (pinId: string | null) => void;
+  /** Orchestrator-only: mirror the hover state (pin + projected head position + cluster size). */
+  _syncHover: (
+    pin: PublicPin | null,
+    screen: { x: number; y: number } | null,
+    count?: number,
+  ) => void;
 }
 
 let lastQueried: Viewport | null = null;
@@ -176,8 +189,14 @@ export const usePinsStore = create<PinsState>((set) => ({
   pins: [],
   status: "idle",
   highlightId: null,
+  hoverPin: null,
+  hoverScreen: null,
+  hoverCount: 1,
 
   highlight: (pinId) => set({ highlightId: pinId }),
+
+  _syncHover: (pin, screen, count = 1) =>
+    set({ hoverPin: pin, hoverScreen: screen, hoverCount: count }),
 
   reportViewport: (latDeg, lonDeg, altM) => {
     const v: Viewport = { latDeg, lonDeg, altM };

@@ -139,3 +139,13 @@ describe("temporary pin seam (Phase 5.5 S2 follow-up)", () => {
     expect(useCameraStore.getState().tempFpv).toBe(false);
   });
 });
+
+describe("explore seam (Phase 5.5 S4)", () => {
+  it("arms and disarms the ambient journey", () => {
+    expect(useCameraStore.getState().exploreActive).toBe(false);
+    useCameraStore.getState().setExplore(true);
+    expect(useCameraStore.getState().exploreActive).toBe(true);
+    useCameraStore.getState().setExplore(false);
+    expect(useCameraStore.getState().exploreActive).toBe(false);
+  });
+});

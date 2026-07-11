@@ -233,6 +233,23 @@
   letter-spacing: 0.1em;
   color: var(--color-warn, #e8b465);
 }
+/* Per-author hue legend (Phase 5.5 S4): the swatch previews the exact hue the member's public
+   pins get on the shared globe (hash of the author label — lib/pins/appearance). */
+.pd-save__hue {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}
+.pd-save__huedot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none; /* the hue + its soft glow arrive inline (the colour is member-derived) */
+}
 .pd-save__act {
   display: flex;
   align-items: center;

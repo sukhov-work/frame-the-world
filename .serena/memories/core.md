@@ -140,9 +140,28 @@ one-time glow, "+ ADD PHOTO" pill for zero-pin/anon); owner adds: `.ct-stack` db
 the camera controls + temp-pin popup **"↑ UPLOAD HERE"** (`upload.uploadAt` → `pendingPlacement`,
 applied at ingest only when the file has no GPS; FROM PIN badge in review). 243 vitest ·
 astro check 0 · wix build green. Mechanics: `mem:project/wip-2026-07-11-phase5.5-s3`.
-**Next step: Phase 5.5 S4 — pin visual rework (stems/heads/hues from authorName) + Explore
-ambient journey** (see `NEXT_SESSION_PROMPT.md`); then S5–S7; Phase 6 marketplace after.
-S1–S3 not yet released to the live URL.
+**Phase 5.5 S4 SHIPPED (2026-07-11, browser-VERIFIED via Playwright MCP; absorbed a same-day
+owner batch):** pin rework — `globe/Pins.ts` = THREE instanced draws (vertex-alpha stems ·
+fresnel/shimmer shader heads · additive cross-flares at twinkle peaks only) with per-author
+hues (`lib/pins/appearance.ts` hash → new pin tokens; `hueSalt "pin:"` keeps the 3 live
+authors distinct) and gh6 de-clustering (height slots + 140 m ENU ring — C6-honest);
+**instanced-ECEF PRECISION TRAP solved** (f32 large×large cancellation flickered at close
+zoom → pins render camera-anchored: mesh.position = camera, camera-relative instances,
+modelViewMatrix-ONLY shaders — reuse this for ANY future instanced ECEF layer); hover =
+throttled head raycast → eased ×1.55 enlarge + `PinHoverCard` (title/author/date/thumb);
+highlight-pulse seam kept. **Explore ambient journey** (`globe/explore.ts` + EXPLORE tuning +
+`camera.exploreActive`): NN-ordered constant-ω great-circle legs at 900 km/50° (look-ahead
+γ = asin((R+h)/R·sinα)−α, pure+tested), 6 s dwells w/ 0.12°/s pin orbit, <2-pin fallback that
+re-begins when pins land; exits on ANY interaction/Escape/steering. **Welcome landing**
+(`panels/Welcome.tsx`, owner mockup) replaced the hero: CTAs (UPLOAD/EXPLORE), chrome hidden
+via `body.welcome-active`, Explore journey auto-armed as the backdrop, any globe click
+dismisses; "+ ADD PHOTO" pill retired; time scrub centred + TimeReadout on its axis.
+267 vitest · astro check 0 · wix build green. VERIFY-TRAP: occluded Chrome throttles rAF —
+`page.bringToFront()` before timed Playwright runs. Mechanics:
+`mem:project/wip-2026-07-11-phase5.5-s4`.
+**Next step: Phase 5.5 S5 — night-sky physics (K&S moonlight · moon shadows · Black Marble 8k
+gray · darker sky + navy-floor root cause)** (see `NEXT_SESSION_PROMPT.md`); then S6–S7;
+Phase 6 marketplace after. S1–S4 not yet released to the live URL.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

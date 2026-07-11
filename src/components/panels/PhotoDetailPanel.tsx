@@ -18,7 +18,9 @@ import {
 } from "../../store/upload";
 import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
 import { useSaveStore, type SavePhase } from "../../store/save";
-import { loginUrl, useMemberStore } from "../../store/member";
+import { loginUrl, memberLabel, useMemberStore } from "../../store/member";
+import { pinHueIndex } from "../../lib/pins/appearance";
+import { tokens } from "../../lib/theme/tokens";
 import { isPrecisionTier, type PrecisionTier } from "../../lib/geo/precision";
 import { titleFromFileName } from "../../lib/save/pinBody";
 import {
@@ -61,35 +63,58 @@ export default function PhotoDetailPanel() {
   const save = useSaveStore();
   const memberPhase = useMemberStore((s) => s.phase);
   const memberRefresh = useMemberStore((s) => s.refresh);
+  const member = useMemberStore((s) => s.member);
+  // Legend swatch (Phase 5.5 S4): client twin of the server's authorLabel — the same label the
+  // public row will carry as authorName, so this previews the EXACT hue hash(authorName) picks.
+  const myPinHue =
+    tokens[
+      PINS.hueTokens[
+        pinHueIndex(member ? memberLabel(member) : null, PINS.hueWeights, PINS.hueSalt)
+      ] as keyof typeof tokens
+    ];
   // Two-step DELETE guard (own pins): first press arms, second confirms.
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // HEADING is an encoder (owner follow-up 2026-07-11): the rate loop nudges the param per
-  // frame while the stick is deflected — fine absolute control over a 0–360° range that a
-  // positional slider can't give. Ref'd so the rAF loop always reads the live rate.
-  const headingRateRef = useRef<number | null>(null);
-  const headingRaf = useRef(0);
-  const onHeadingRate = (rate: number | null) => {
-    headingRateRef.current = rate;
+  // HEADING + PITCH are encoders (owner follow-ups 2026-07-11): a rate loop nudges the param
+  // per frame while the stick is deflected — fine absolute control a positional slider can't
+  // give. Heading wraps 0–360°; pitch clamps ±90°. Refs so the rAF loops read live rates.
+  const rateRef = useRef<{ heading: number | null; pitch: number | null }>({
+    heading: null,
+    pitch: null,
+  });
+  const rateRaf = useRef({ heading: 0, pitch: 0 });
+  const onParamRate = (kind: "heading" | "pitch") => (rate: number | null) => {
+    rateRef.current[kind] = rate;
     if (rate === null) return; // loop exits itself; params keep their last value
-    if (headingRaf.current) return; // already running
+    if (rateRaf.current[kind]) return; // already running
     let last = performance.now();
     const step = (now: number) => {
-      const r = headingRateRef.current;
+      const r = rateRef.current[kind];
       if (r === null) {
-        headingRaf.current = 0;
+        rateRaf.current[kind] = 0;
         return;
       }
       const dtS = Math.min(now - last, 100) / 1000;
       last = now;
       const s = useUploadStore.getState();
-      const current = s.params.headingDeg ?? s.exif?.headingDeg ?? 0;
-      s.setParam("headingDeg", wrapHeadingDeg(current + r * dtS));
-      headingRaf.current = requestAnimationFrame(step);
+      if (kind === "heading") {
+        const current = s.params.headingDeg ?? s.exif?.headingDeg ?? 0;
+        s.setParam("headingDeg", wrapHeadingDeg(current + r * dtS));
+      } else {
+        const current = s.params.pitchDeg ?? s.exif?.pitchDeg ?? 0;
+        s.setParam("pitchDeg", Math.min(90, Math.max(-90, current + r * dtS)));
+      }
+      rateRaf.current[kind] = requestAnimationFrame(step);
     };
-    headingRaf.current = requestAnimationFrame(step);
+    rateRaf.current[kind] = requestAnimationFrame(step);
   };
-  useEffect(() => () => cancelAnimationFrame(headingRaf.current), []);
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(rateRaf.current.heading);
+      cancelAnimationFrame(rateRaf.current.pitch);
+    },
+    [],
+  );
 
   // Session state for the SAVE PIN gate (the nav badge usually resolved it already).
   useEffect(() => {
@@ -234,18 +259,16 @@ export default function PhotoDetailPanel() {
           formatted={formatHeading(store.params.headingDeg)}
           maxRate={CONTROLS.headingRateMaxDegPerS}
           expoGamma={CONTROLS.rateExpoGamma}
-          onRate={onHeadingRate}
+          onRate={onParamRate("heading")}
           onReset={() => useUploadStore.getState().resetParam("headingDeg")}
           badge={provenanceBadge("headingDeg")}
         />
-        <Slider
+        <Encoder
           label={PARAM_LABEL.pitchDeg}
           formatted={formatPitch(store.params.pitchDeg)}
-          value={store.params.pitchDeg}
-          min={-90}
-          max={90}
-          step={0.5}
-          onChange={(v) => useUploadStore.getState().setParam("pitchDeg", v)}
+          maxRate={CONTROLS.pitchRateMaxDegPerS}
+          expoGamma={CONTROLS.rateExpoGamma}
+          onRate={onParamRate("pitch")}
           onReset={() => useUploadStore.getState().resetParam("pitchDeg")}
           badge={provenanceBadge("pitchDeg")}
         />
@@ -335,6 +358,16 @@ export default function PhotoDetailPanel() {
         {save.isPublic && save.precision === "exact" && (
           <div className="pd-save__c6" role="note">
             EXACT PUBLISHES YOUR PRECISE LOCATION — DEFAULT IS ~1 KM
+          </div>
+        )}
+        {save.isPublic && memberPhase === "member" && (
+          <div className="pd-save__hue" role="note">
+            <span
+              className="pd-save__huedot"
+              style={{ background: myPinHue, boxShadow: `0 0 6px ${myPinHue}` }}
+              aria-hidden="true"
+            />
+            YOUR PINS GLOW THIS HUE ON THE SHARED GLOBE
           </div>
         )}
         <div className="pd-save__act">

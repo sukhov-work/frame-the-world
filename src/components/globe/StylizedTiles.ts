@@ -24,6 +24,7 @@ import { attachPhotoFrustum } from "./PhotoFrustum";
 import { attachPins } from "./Pins";
 import { usePinsStore } from "../../store/pins";
 import { arrivalPose, createFlight, type FlightTarget } from "./flight";
+import { createExplore } from "./explore";
 import type { FrustumGeometry } from "../../lib/geo/frustum";
 import {
   CONTROLS,
@@ -244,6 +245,21 @@ export function attachStylizedTiles(opts: {
     pins.setHighlight(s.highlightId); // no-ops while unchanged
   });
   const _pinRay = new THREE.Raycaster();
+  const _hoverAnchor = new THREE.Vector3();
+
+  // --- Explore ambient pin journey (Phase 5.5 S4, §Item 11): armed by the nav toggle via
+  //     camera.exploreActive; the controller owns the camera while cruising (drift + glides
+  //     stand down) and ANY direct interaction exits — it never fights the user. ------------
+  const explore = createExplore({
+    camera,
+    flight,
+    reduceMotion,
+    getPins: () => usePinsStore.getState().pins,
+    getFocus: () => {
+      const s = useCameraStore.getState();
+      return { latDeg: s.focusLatDeg, lonDeg: s.focusLonDeg };
+    },
+  });
 
   // --- Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops an accent
   //     marker; it becomes the rotate/zoom pivot (focus lock) and FPV can be entered on it just
@@ -283,7 +299,9 @@ export function attachStylizedTiles(opts: {
   const noteInteract = () => {
     lastInteract = performance.now();
     flight.cancel(); // grabbing the globe aborts a flight — the user takes over
-    useCameraStore.getState().clearAllTargets(); // …and over any slider glide (tilt/heading/zoom)
+    const camS = useCameraStore.getState();
+    if (camS.exploreActive) camS.setExplore(false); // …and exits the ambient journey
+    camS.clearAllTargets(); // …and over any slider glide (tilt/heading/zoom)
   };
   const dom = renderer.domElement;
   dom.addEventListener("pointerdown", noteInteract);
@@ -329,6 +347,10 @@ export function attachStylizedTiles(opts: {
     hoverX = e.clientX;
     hoverY = e.clientY;
   };
+  const noteLeave = () => {
+    hoverX = Number.NaN; // pointer off the canvas — placing marker + pin hover stand down
+    hoverY = Number.NaN;
+  };
   let downX = 0;
   let downY = 0;
   const notePointerDown = (e: PointerEvent) => {
@@ -351,9 +373,20 @@ export function attachStylizedTiles(opts: {
     }
     // Otherwise: a click on a public pin opens it as the placed camera view (Phase 5.1) —
     // the store transition triggers the frustum rebuild, the detail panel, and the flight.
+    // A COLLAPSED cluster marker (adaptive de-cluster, far range) dives to differentiation
+    // range instead — its members can't be told apart from up here.
     _pinRay.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
     const pin = pins.pick(_pinRay);
     if (pin) {
+      const cs = pins.clusterState(pin.id);
+      if (cs && cs.count > 1 && cs.collapsed) {
+        useCameraStore.getState().requestFly({
+          latDeg: pin.lat,
+          lonDeg: pin.lon,
+          altM: PINS.clusterDiveAltM,
+        });
+        return;
+      }
       useCameraStore.getState().setTempPin(null); // a real pin supersedes the temp one
       useUploadStore.getState().openSavedPin({ ...pin, pinId: pin.id });
       return;
@@ -371,6 +404,7 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("pointerdown", notePointerDown);
   dom.addEventListener("pointerup", onPointerUp);
   dom.addEventListener("pointermove", noteHover);
+  dom.addEventListener("pointerleave", noteLeave);
   // Crosshair while the globe waits for the placement click.
   const unsubCursor = useUploadStore.subscribe((s) => {
     dom.style.cursor = s.phase === "placing" ? "crosshair" : "";
@@ -429,14 +463,15 @@ export function attachStylizedTiles(opts: {
       FPV.maxFovDeg,
     );
   };
-  // Escape unwinds the interaction stack one level at a time: photo FPV → temp-pin FPV →
-  // temp pin → a viewed saved pin (deselect). Own unsaved uploads keep their UploadFlow
-  // Escape semantics (never discarded from here).
+  // Escape unwinds the interaction stack one level at a time: explore → photo FPV →
+  // temp-pin FPV → temp pin → a viewed saved pin (deselect). Own unsaved uploads keep their
+  // UploadFlow Escape semantics (never discarded from here).
   const onFpvKey = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
     const up = useUploadStore.getState();
     const camS = useCameraStore.getState();
-    if (up.viewMode === "fpv") up.setViewMode("orbit");
+    if (camS.exploreActive) camS.setExplore(false);
+    else if (up.viewMode === "fpv") up.setViewMode("orbit");
     else if (camS.tempFpv) camS.setTempFpv(false);
     else if (camS.tempPin) camS.setTempPin(null);
     else if (up.phase === "placed" && up.viewingPinId) up.clear();
@@ -564,6 +599,12 @@ export function attachStylizedTiles(opts: {
         groundM: tempPinGroundM,
         markerVisible: tempPinMarker.visible,
       }),
+      explore: () => ({
+        active: useCameraStore.getState().exploreActive,
+        state: explore.state(),
+        legs: explore.legsFlown(),
+      }),
+      pins,
     };
     (window as any).__timeStore = useTimeStore; // scrub scene time from the console / Playwright
     (window as any).__cameraStore = useCameraStore; // drive/read the tilt glide from Playwright
@@ -621,6 +662,26 @@ export function attachStylizedTiles(opts: {
         // Cinematic flight overrides the pose after controls (the drift pattern); an active
         // flight counts as interaction so the drift stays paused through it + resumeMs after.
         if (flight.update(now)) lastInteract = now;
+
+        // Explore ambient journey (Phase 5.5 S4): competing steering (encoder deflection,
+        // slider glides, FPV entry) exits the mode — the store flag then drives the
+        // controller, which owns the camera while cruising/dwelling (drift stands down).
+        {
+          const camS = useCameraStore.getState();
+          if (
+            camS.exploreActive &&
+            (fpvActive ||
+              camS.headingRateDegPerS !== null ||
+              camS.zoomRatePerS !== null ||
+              camS.targetTiltDeg !== null ||
+              camS.targetHeadingDeg !== null ||
+              camS.targetZoomAltM !== null)
+          ) {
+            camS.setExplore(false);
+          }
+          explore.setActive(useCameraStore.getState().exploreActive);
+          if (explore.update(now, dtMs)) lastInteract = now;
+        }
 
         // --- FPV modes: transitions + the per-frame pose (Phase 5.5 S2 + follow-up). Two
         //     anchors share one controller: a placed PHOTO's frustum apex (pose re-read every
@@ -1043,6 +1104,7 @@ export function attachStylizedTiles(opts: {
         if (camStore.flyRequest && !fpvActive) {
           const req = camStore.flyRequest;
           camStore._consumeFlyRequest();
+          if (camStore.exploreActive) camStore.setExplore(false); // a search beats the cruise
           // Terrain-aware since S2: the S1 arrival sat req.altM above the ELLIPSOID, which is
           // underground at high-plateau cities (La Paz ~3.6 km). Same extent-sized altitude,
           // now above the rendered ground, through the shared arrival-pose derivation.
@@ -1140,9 +1202,63 @@ export function attachStylizedTiles(opts: {
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
         if (++frameCount % 120 === 0) frustum.resnap();
 
-        // Public pins: distance-scaled markers + lazy terrain grounding (Phase 5).
+        // Public pins: distance-scaled markers + lazy terrain grounding (Phase 5). The
+        // selection mirror lets the adaptive de-cluster walk an OPEN pin to its truth.
+        pins.setSelected(upNow.viewingPinId ?? null);
         pins.update(camera);
         if (frameCount % PINS.resnapEveryFrames === 0) pins.resnap();
+
+        // Pin hover (Phase 5.5 S4): a throttled head raycast under the pointer — the hovered
+        // pin eases up + glows (globe side) and its projected head position is mirrored into
+        // the pins store so the HTML details card floats next to it (PinHoverCard). Stands
+        // down in FPV and while placing (the drop point owns the pointer there).
+        {
+          const hoverEligible = !fpvActive && upNow.phase !== "placing" && Number.isFinite(hoverX);
+          const pinsStore = usePinsStore.getState();
+          if (!hoverEligible) {
+            if (pinsStore.hoverPin) {
+              pins.setHover(null);
+              pinsStore._syncHover(null, null);
+              if (dom.style.cursor === "pointer") dom.style.cursor = "";
+            }
+          } else if (frameCount % PINS.hoverEveryFrames === 0) {
+            const rect = dom.getBoundingClientRect();
+            _pinRay.setFromCamera(
+              _pickNdc.set(
+                ((hoverX - rect.left) / rect.width) * 2 - 1,
+                -((hoverY - rect.top) / rect.height) * 2 + 1,
+              ),
+              camera,
+            );
+            const hp = pins.pick(_pinRay);
+            pins.setHover(hp?.id ?? null);
+            if (hp) {
+              const anchor = pins.hoverAnchor(_hoverAnchor);
+              if (anchor) {
+                // A collapsed cluster hovers as "N photos here" (the card names the count).
+                const cs = pins.clusterState(hp.id);
+                const hoverCount = cs && cs.collapsed ? cs.count : 1;
+                _fpvLook.copy(anchor).project(camera);
+                const x = Math.round(rect.left + ((_fpvLook.x + 1) / 2) * rect.width);
+                const y = Math.round(rect.top + ((1 - _fpvLook.y) / 2) * rect.height);
+                const prev = pinsStore.hoverScreen;
+                if (
+                  pinsStore.hoverPin?.id !== hp.id ||
+                  pinsStore.hoverCount !== hoverCount ||
+                  !prev ||
+                  Math.abs(prev.x - x) > 2 ||
+                  Math.abs(prev.y - y) > 2
+                ) {
+                  pinsStore._syncHover(hp, { x, y }, hoverCount);
+                }
+              }
+              dom.style.cursor = "pointer";
+            } else {
+              if (pinsStore.hoverPin) pinsStore._syncHover(null, null);
+              if (dom.style.cursor === "pointer") dom.style.cursor = "";
+            }
+          }
+        }
 
         // Temporary pin marker: accent dot at the double-clicked spot, angular-constant size.
         // Its projected screen position is mirrored (low cadence) so the "look from here"
@@ -1242,6 +1358,7 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("pointerdown", notePointerDown);
       dom.removeEventListener("pointerup", onPointerUp);
       dom.removeEventListener("pointermove", noteHover);
+      dom.removeEventListener("pointerleave", noteLeave);
       dom.removeEventListener("pointerdown", onFpvPointerDown);
       dom.removeEventListener("pointermove", onFpvPointerMove);
       dom.removeEventListener("pointerup", onFpvPointerEnd);

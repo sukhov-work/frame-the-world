@@ -31,6 +31,13 @@ export const tokens = {
   skyDay: '#7FB8E8', // low-altitude day-sky zenith — light blue dome at city zooms
   skyHorizon: '#D8E6F2', // low-altitude horizon haze — near-white aerial perspective
   milkyWay: '#E7E3D8', // faint warm-white galactic band (subtle, near tokens.star)
+  // Per-author pin hues (Phase 5.5 S4) — restrained cool family; hash(authorName) picks one
+  // (weights live in globe tuning — tuning names tokens, tokens name colours, D14).
+  pinTeal: '#38E1D0', // the anchor — accent hue (pins ARE signal; anonymous fallback)
+  pinIce: '#7CC4F2', // ice blue
+  pinMint: '#7FE8B4', // mint
+  pinLavender: '#B0A6F0', // lavender
+  pinWarm: '#E8BC7A', // the rare warm voice (near warn, softened)
 } as const;
 
 export type ThemeTokens = typeof tokens;

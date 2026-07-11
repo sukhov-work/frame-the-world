@@ -120,3 +120,15 @@ describe("Phase 5.5 S3 — authorName + highlight seam", () => {
     expect(usePinsStore.getState().highlightId).toBeNull();
   });
 });
+
+describe("hover mirror (Phase 5.5 S4)", () => {
+  it("mirrors the hovered pin + screen anchor and clears together", () => {
+    const pin = pinFromItem({ _id: "h1", latReduced: 48.46, lonReduced: 35.04 });
+    usePinsStore.getState()._syncHover(pin, { x: 320, y: 200 });
+    expect(usePinsStore.getState().hoverPin?.id).toBe("h1");
+    expect(usePinsStore.getState().hoverScreen).toEqual({ x: 320, y: 200 });
+    usePinsStore.getState()._syncHover(null, null);
+    expect(usePinsStore.getState().hoverPin).toBeNull();
+    expect(usePinsStore.getState().hoverScreen).toBeNull();
+  });
+});

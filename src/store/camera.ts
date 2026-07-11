@@ -67,6 +67,11 @@ export interface CameraState {
    *  (compass heading increases); positive zoom rate = zoom IN (altitude shrinks). */
   headingRateDegPerS: number | null;
   zoomRatePerS: number | null;
+  /** Explore ambient pin journey (Phase 5.5 S4): the nav toggle arms it; the orchestrator's
+   *  cruise (globe/explore.ts) owns the camera while set. ANY direct interaction (canvas
+   *  pointer/wheel, Escape, encoder deflection, slider glide) clears it — never fight the user. */
+  exploreActive: boolean;
+  setExplore: (on: boolean) => void;
   requestFly: (req: FlyRequest) => void;
   /** Orchestrator-only: mark the pending fly request consumed. */
   _consumeFlyRequest: () => void;
@@ -100,6 +105,8 @@ export const useCameraStore = create<CameraState>((set) => ({
   flyRequest: null,
   headingRateDegPerS: null,
   zoomRatePerS: null,
+  exploreActive: false,
+  setExplore: (on) => set({ exploreActive: on }),
   tempPin: null,
   tempFpv: false,
   tempPinScreen: null,
