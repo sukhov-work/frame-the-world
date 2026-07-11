@@ -238,7 +238,10 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: Phase 6 (marketplace-light) — see NEXT_SESSION_PROMPT.md.** The pre-S7 refactor tier was COMPLETE before S7. B19 DONE 2026-07-11 (`StylizedTiles.update()` split into 36 named step-closures — provably behavior-identical; astro check 0 · 325 vitest · wix build · browser Flow-0 CLEAN · night-shadow golden gate PASS; `mem:project/wip-2026-07-11-b19-split`). Also this session: the high-altitude pin-jump-shift BUGFIX (`mem:bugs/pin-arrival-reframe`). The pre-S7 architecture-review
+**Next step: Phase 6 (marketplace-light) — see NEXT_SESSION_PROMPT.md.** (2026-07-12: root README
+rewritten for the internal Wix contest — canonical framing = Wix-headless stress test first, hobby
+3D layer second, AI-agent-built stated openly; 5 shots committed in `docs/media/`; live URL omitted
+until the next release — `mem:project/wip-2026-07-12-readme-rewrite`.) The pre-S7 refactor tier was COMPLETE before S7. B19 DONE 2026-07-11 (`StylizedTiles.update()` split into 36 named step-closures — provably behavior-identical; astro check 0 · 325 vitest · wix build · browser Flow-0 CLEAN · night-shadow golden gate PASS; `mem:project/wip-2026-07-11-b19-split`). Also this session: the high-altitude pin-jump-shift BUGFIX (`mem:bugs/pin-arrival-reframe`). The pre-S7 architecture-review
 SAFE tier is DONE (2026-07-11, two sessions): session 1 = B1–B5/B7/B14/B18 (DECISIONS.md compacted 709→334 +
 `DECISIONS_ARCHIVE.md`, conventions, dead code, format dedup); session 2 = the dedup follow-up B6/B8/B9/B10/
 B11/B12/B13/B15/B26 + B14 index (shared geo/math → `lib/geo/{terrain,screen,heading}.ts`; param layer →
