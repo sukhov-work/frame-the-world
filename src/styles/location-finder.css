@@ -1,0 +1,100 @@
+/* LocationFinder — top-centre "fly me there" search. Instrument idiom: translucent docked
+   card, mono labels, accent only as the active-row signal. Colour via tokens.css vars only. */
+
+.lf {
+  position: fixed;
+  top: 1.05rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 11; /* above the canvas + hero, below nothing that matters */
+  width: min(21rem, calc(100vw - 26rem)); /* leave the logo + nav clusters room */
+  font-family: var(--font-mono);
+}
+
+.lf-input {
+  width: 100%;
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  outline: none;
+  transition: border-color 180ms ease;
+}
+
+.lf-input::placeholder {
+  color: var(--color-text-muted);
+  letter-spacing: 0.14em;
+  font-size: 9.5px;
+}
+
+.lf-input:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.lf-drop {
+  margin-top: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.lf-note {
+  padding: 0.55rem 0.75rem;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+}
+
+.lf-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 0.45rem 0.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.lf-hit--active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.lf-hit-name {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+}
+
+.lf-hit-detail {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+}
+
+.lf-credit {
+  padding: 0.35rem 0.75rem 0.45rem;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  border-top: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+
+/* Narrow viewports: the nav wraps anyway — give the search the full width under it. */
+@media (max-width: 760px) {
+  .lf {
+    top: 4.4rem;
+    width: calc(100vw - 2.4rem);
+  }
+}
