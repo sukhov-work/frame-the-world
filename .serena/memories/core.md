@@ -192,7 +192,53 @@ re-engages >0.6) · moon brighter (SKY.moonBrightness 3.2/earthshine 0.12). Same
 **sky guides gated** — arcs/asterisms FPV-only, other modes get ☀/☾ direction chips, ONE
 right-panel `☀☾` toggle (`camera.skyGuides` + `skyMarkers` mirror) enables/disables all of it.
 304 vitest · astro check 0 · wix build green. Mechanics: `mem:project/wip-2026-07-11-phase5.5-s6`.
-**Next step: Phase 5.5 S7 (ground rework) — the pre-S7 refactor tier is COMPLETE.** B19 DONE 2026-07-11 (`StylizedTiles.update()` split into 36 named step-closures — provably behavior-identical; astro check 0 · 325 vitest · wix build · browser Flow-0 CLEAN · night-shadow golden gate PASS; `mem:project/wip-2026-07-11-b19-split`). Also this session: the high-altitude pin-jump-shift BUGFIX (`mem:bugs/pin-arrival-reframe`). The pre-S7 architecture-review
+**Phase 5.5 S7 SHIPPED (2026-07-11, browser-VERIFIED via Playwright MCP + S5 night golden gate
+PASS) — Phase 5.5 is COMPLETE (S1–S7).** Ground rework: (a) CARTO dark_nolabels drape crossfading
+in below 7→5 km (ImageOverlayPlugin overlay.opacity is a LIVE uniform — crossfade = one eased
+write, no re-composite; `uFtwDark` blends the Esri-specific colorimetry out of the grade; per-mode
+shadow contrast; satellite = opt-in `camera.groundMode` + SAT chip); (b) Natural Earth boundaries
+(one LineSegments, 9 km lift) + city labels (module-owned DOM pool, rank gate in log-altitude,
+min-sep de-clutter) at 100–900 km (DoD "gone at LEO" beat the design's 2000 km top) + CARTO
+dark_only_labels street names ≤5 km in dark mode (oblique big-text smear = accepted v1); (c)
+building grow-on-zoom 2 km→600 m via per-tile inner-Group vertical scale about a LAZY min-bbox
+ground anchor (`scene/growMatrix.ts` pure+tested; growMinK 0.004 — k=0 singular; ONE-shared-
+material invariant intact; buildings now flat above 2 km in both modes); (d) Re:Earth Overture
+trial NEGATIVE (tileset parses, every glb content tile 500s server-side) → `TILESETS.
+overtureBuildings` ships OFF. SAME-DAY OWNER REWORK: street names went VECTOR — raster was
+blurry/late/unscalable → `scene/streetNames.ts` (OpenFreeMap MVT, maxzoom 14, pbf@5 `PbfReader` +
+@mapbox/vector-tile@3, 3×3 z14 ring around the focus, one DOM label per street name ROTATED along
+its street, terrain-seated, reveal 2.5→2.1 km, type scales 9→19 px with zoom, STREETS tuning,
+step 38, FPV-hidden); grow-on-zoom REMOVED (owner: unreliable — buildings full-height again,
+growMatrix.ts deleted). New tuning groups DRAPE/LABELS (+BUILDINGS.grow*, TILESETS carto/
+overture); bake script `scripts/build-ne-labels.mjs` → public/data/ne-{boundaries.bin,places.json};
+step 37 `stepGeoLabels`. 337 vitest · astro check 0 · wix build green; shots phase55-49..56.
+Mechanics + verify traps (welcome needs a REAL click — synthetic PointerEvents don't dismiss and
+Explore eats flyRequests; golden-gate Chrome launch recipe): `mem:project/wip-2026-07-11-phase5.5-s7`.
+
+**S7 owner-feedback batch SHIPPED (2026-07-11, browser-VERIFIED via Playwright MCP + S5 night
+golden gate PASS — 356 vitest · astro check 0 · wix build green):** (1) street names v3 = GL
+canvas-texture quads PINNED to the terrain in the street's tangent direction (v2 DOM @20 Hz
+lagged/jumped structurally — deleted; world-metre type, hysteresis upright-flip, eased terrain
+seat; TRAP: a stored basis vector aliased a module temp Vector3 → 1.1e9-scale matrices — entry
+vectors must be fresh); (2) NEW shared `scene/vectorTiles.ts` (parse retains geometry, one fetch
+feeds two layers) + `scene/vectorFeatures.ts` step 39 — roads as metre-width ribbons (class-tiered)
++ waterways + water/green fills on a lazy 6×6 terrain lattice, bridges lifted+bright, night-dimmed;
+5 new vec* tokens; (3) ground grade: day/night/golden gates now read GEODETIC up (solar elevation,
+not slope) + additive ambient (uFtwAmbDay/uFtwAmbNight) + non-albedo moon fill — black-pit ground
+GONE day and night; DRAPE shadows softened 0.9→0.62; (4) low-alt haze: horizon anchor tinted
+(whiteness 0.55), horizonGain 0.16, low-alt dim ramp — horizon budget < BLOOM.threshold enforced
+by NEW `skyBudget.test.ts` guard; (5) tips system `styles/tips.css` (CSS-anchored ::after pills —
+immune to the backdrop-filter fixed-position trap) + `ui/InfoDot.tsx`: 32 tips + 5 InfoDots across
+all panels/nav. Mechanics + traps: `mem:project/wip-2026-07-11-s7-feedback-batch`.
+**Feedback batch #2 SHIPPED (2026-07-12, browser-VERIFIED; 377 vitest · astro check 0 · wix build):**
+river-tile flicker killed structurally (MVT buffer CLIPPED at parse — Sutherland–Hodgman rings +
+Liang–Barsky lines; builds PERSIST past the ring w/ distance eviction; build only after TWO lattice
+passes agree within 3 m — frustum-outside knots NaN-skip + mean-fill, the S2 in-frustum lesson) +
+camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step-23 replaceState
+~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
+share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
+
+**Next step: Phase 6 (marketplace-light) — see NEXT_SESSION_PROMPT.md.** The pre-S7 refactor tier was COMPLETE before S7. B19 DONE 2026-07-11 (`StylizedTiles.update()` split into 36 named step-closures — provably behavior-identical; astro check 0 · 325 vitest · wix build · browser Flow-0 CLEAN · night-shadow golden gate PASS; `mem:project/wip-2026-07-11-b19-split`). Also this session: the high-altitude pin-jump-shift BUGFIX (`mem:bugs/pin-arrival-reframe`). The pre-S7 architecture-review
 SAFE tier is DONE (2026-07-11, two sessions): session 1 = B1–B5/B7/B14/B18 (DECISIONS.md compacted 709→334 +
 `DECISIONS_ARCHIVE.md`, conventions, dead code, format dedup); session 2 = the dedup follow-up B6/B8/B9/B10/
 B11/B12/B13/B15/B26 + B14 index (shared geo/math → `lib/geo/{terrain,screen,heading}.ts`; param layer →
@@ -200,9 +246,8 @@ B11/B12/B13/B15/B26 + B14 index (shared geo/math → `lib/geo/{terrain,screen,he
 `lib/api/http.ts`; typed `src/global.d.ts` seams; `GlobeControlsInternal`; `ORCH` tuning group; throttled
 catch). Verified 323 vitest · astro check 0 · a 3-reviewer adversarial workflow → 0 findings. Remaining before
 S7: **B19** — split `StylizedTiles.update()` into named step-fns (browser-verified; scaffolding now in place).
-See `ARCHITECTURE_REVIEW.md` + `NEXT_SESSION_PROMPT.md` + `mem:project/wip-2026-07-11-pre-s7-refactor-s2`. THEN
-**Phase 5.5 S7** — ground rework (CARTO dark drape · Natural Earth labels · building grow-on-zoom); Phase 6
-marketplace after. S1–S6 not yet released to the live URL.
+See `ARCHITECTURE_REVIEW.md` + `NEXT_SESSION_PROMPT.md` + `mem:project/wip-2026-07-11-pre-s7-refactor-s2`.
+S7 landed 2026-07-11 (block above) — **Phase 6 marketplace is next. S1–S7 not yet released to the live URL.**
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

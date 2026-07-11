@@ -9,8 +9,8 @@ import {
   XYZTilesOverlay,
 } from "3d-tiles-renderer/three/plugins";
 import { tokens } from "../../../lib/theme/tokens";
-import { EARTH, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
-import { glf } from "./glsl";
+import { DRAPE, EARTH, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
+import { glf, glf3 } from "./glsl";
 
 /**
  * Terrain ground — REAL elevation (Cesium World Terrain, ion asset 1, quantized-mesh) with Esri
@@ -44,10 +44,15 @@ export interface ImageryGroundHandle {
    *  no tile covers it yet. Used to seat the photo frustum on the rendered ground. */
   heightAt(latDeg: number, lonDeg: number): number | null;
   /** Ground shadow darkness for the CURRENT shadow source (S5): the sun keeps
-   *  SHADOWS.groundOpacity; moon-driven frames pass moonGroundOpacity × K&S intensity. */
+   *  SHADOWS.groundOpacity; moon-driven frames pass moonGroundOpacity × K&S intensity.
+   *  S7a: the orchestrator blends sun/moon opacity toward the DRAPE.*shadowOpacity knobs
+   *  by darkBlend() before passing it in — per-mode shadow contrast. */
   setShadowStrength(opacity: number): void;
-  /** Per-frame: altitude gate + screen-door fade + shadow-overlay gate + tile refinement. */
-  update(alt: number): void;
+  /** Live dark-drape fraction (0 = Esri look, 1 = CARTO dark) — eased inside update(). */
+  darkBlend(): number;
+  /** Per-frame: altitude gate + screen-door fade + dark-drape crossfade + shadow-overlay gate
+   *  + tile refinement. `darkGround` = camera.groundMode !== 'satellite'. */
+  update(alt: number, darkGround: boolean): void;
   dispose(): void;
 }
 
@@ -105,6 +110,16 @@ export function attachImageryGround(
   );
   const uocPlugin = new UpdateOnChangePlugin(); // only re-tile when the camera actually moves
   tiles.registerPlugin(uocPlugin);
+  // S7a overlay stack (composited bottom-up per tile; each `opacity` is a LIVE uniform — the
+  // wrap shader reads layerInfo[i].opacity every frame, so the dark↔Esri crossfade is a plain
+  // per-frame write, no re-composite): Esri imagery → CARTO dark drape. (Street names are the
+  // VECTOR layer scene/streetNames.ts — a draped raster label overlay was tried and dropped:
+  // blurry, and raster text cannot scale with zoom.)
+  const cartoDark = new XYZTilesOverlay({
+    url: TILESETS.cartoDarkUrl,
+    levels: TILESETS.cartoMaxLevel,
+    opacity: 0,
+  });
   const overlayPlugin = new ImageOverlayPlugin({
     renderer: opts.renderer,
     resolution: GROUND.overlayResolution,
@@ -113,6 +128,7 @@ export function attachImageryGround(
         url: TILESETS.esriImageryUrl,
         levels: TILESETS.esriMaxLevel,
       }),
+      cartoDark,
     ],
   });
   tiles.registerPlugin(overlayPlugin);
@@ -148,6 +164,7 @@ export function attachImageryGround(
   const uniforms = {
     uFtwFade: { value: 0 }, // 0 = invisible (all fragments discarded) … 1 = fully present
     uFtwHiAlt: { value: 0 }, // 1 − altFade: high-altitude grade harmonizer (mixed Esri zooms)
+    uFtwDark: { value: 0 }, // S7a dark-drape fraction: 0 = Esri grade … 1 = flat dark grade
     uFtwSun: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uFtwMoonDir: { value: new THREE.Vector3(0, 0, 1) },
     uFtwMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
@@ -157,6 +174,13 @@ export function attachImageryGround(
     uFtwDesat: { value: GROUND.desat },
     uFtwGain: { value: GROUND.gain },
     uFtwCast: { value: new THREE.Vector3(...GROUND.cast) },
+    // S7 feedback ("ground jarringly black"): additive ambient floors — cool skylight by day,
+    // faint moonlight by night — so a dark source pixel can never multiply to pitch black.
+    // Live-tunable via __globe.groundUniforms in DEV.
+    uFtwAmbDay: {
+      value: new THREE.Color(tokens.skyHorizon).multiplyScalar(GROUND.ambientDayK),
+    },
+    uFtwAmbNight: { value: GROUND.ambientNightK },
   };
   const gradeGround = (shader: any) => {
     shader.uniforms = { ...shader.uniforms, ...uniforms };
@@ -176,6 +200,7 @@ export function attachImageryGround(
         varying vec3 vFtwN;
         uniform float uFtwFade;
         uniform float uFtwHiAlt;
+        uniform float uFtwDark;
         uniform vec3 uFtwSun;
         uniform vec3 uFtwMoonDir;
         uniform float uFtwMoonGlow;
@@ -185,6 +210,8 @@ export function attachImageryGround(
         uniform float uFtwDesat;
         uniform float uFtwGain;
         uniform vec3 uFtwCast;
+        uniform vec3 uFtwAmbDay;
+        uniform float uFtwAmbNight;
         float ftwBayer2(vec2 v) { return mod(3.0 * v.y + 2.0 * v.x, 4.0); }
         float ftwBayer4(vec2 v) {
           vec2 P1 = mod(v, 2.0);
@@ -198,32 +225,54 @@ export function attachImageryGround(
       /#include <alphamap_fragment>/,
       (v: string) => /* glsl */ `${v}
         {
-          // palette grade + NARROW terminator off the REAL surface normal (EARTH.termBand twin of
-          // baseEarth — keep in sync): slopes shade (mountains read as 3D) and the day/night
-          // transition stays continuous with the stylized base.
+          // palette grade + NARROW terminator (EARTH.termBand twin of baseEarth — keep in sync).
+          // S7 feedback ("uniform illumination"): the day/night gate now reads the GEODETIC up
+          // (solar elevation — is it daytime HERE?), not the surface normal — a noon hillside
+          // facing away from the sun used to fall to the night floor. Slope relief stays via
+          // dayShade off the REAL normal, bounded at dayGradMin, never plunging to night.
           vec3 nS = normalize(vFtwN);
+          vec3 nUp = normalize(vFtwW);
           float sunDot = dot(nS, normalize(uFtwSun));
-          float dayK = smoothstep(${glf(EARTH.termBand[0])}, ${glf(EARTH.termBand[1])}, sunDot);
+          float sunUpDot = dot(nUp, normalize(uFtwSun));
+          float dayK = smoothstep(${glf(EARTH.termBand[0])}, ${glf(EARTH.termBand[1])}, sunUpDot);
           float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
-          float shade = mix(uFtwNightFloor, dayShade, dayK);
+          // S7a dark drape: the Esri grade blends OUT and a UNIFORM flat shade blends IN as
+          // uFtwDark rises (the CARTO overlay already owns diffuseColor by then) — the water
+          // detection / desat / hiAlt harmonizer are Esri-colorimetry-specific and go with it.
+          float shade = mix(
+            mix(uFtwNightFloor, dayShade, dayK),
+            mix(${glf(DRAPE.nightFloor)}, ${glf(DRAPE.dayShade)}, dayK),
+            uFtwDark);
           float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
           // high-altitude harmonizer: extra desaturation converges mixed Esri source zooms
           // (washed low-zoom mosaic vs crisp high-zoom texture) so they stop reading as patches
-          float desatEff = mix(uFtwDesat, ${glf(GROUND.hiAltDesat)}, uFtwHiAlt);
-          vec3 graded = mix(diffuseColor.rgb, vec3(lum), desatEff) * uFtwGain * uFtwCast;
+          float desatEff = mix(uFtwDesat, ${glf(GROUND.hiAltDesat)}, uFtwHiAlt) * (1.0 - uFtwDark);
+          vec3 graded = mix(diffuseColor.rgb, vec3(lum), desatEff)
+            * mix(uFtwGain, ${glf(DRAPE.gain)}, uFtwDark)
+            * mix(uFtwCast, ${glf3(DRAPE.cast)}, uFtwDark);
           // blue-dominant pixels = water -> pull toward the instrument's near-black ocean so the
           // imagery's bright seas never punch through the dark palette (rivers/lakes stay slate too)
-          float waterness = smoothstep(0.0, ${glf(GROUND.waterThreshold)}, diffuseColor.b - max(diffuseColor.r, diffuseColor.g));
+          float waterness = smoothstep(0.0, ${glf(GROUND.waterThreshold)}, diffuseColor.b - max(diffuseColor.r, diffuseColor.g))
+            * (1.0 - uFtwDark);
           graded *= mix(1.0, ${glf(GROUND.waterDarken)}, waterness);
           // golden-hour cast where the sun grazes the local horizon (bell over sin(elevation);
-          // GLSL twin of lib/ephemeris/golden.ts — keep in sync with tuning.GOLDEN + baseEarth)
-          float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunDot)
-                     * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunDot));
+          // GLSL twin of lib/ephemeris/golden.ts — keep in sync with tuning.GOLDEN + baseEarth).
+          // Over SOLAR elevation (sunUpDot) — golden hour is a time of day, not a slope angle.
+          float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunUpDot)
+                     * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunUpDot));
           graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.groundStrength)});
-          // cool moonlight lifts the night side by phase (the day side term is negligible vs sun)
-          float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunDot);
-          vec3 moonlit = graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night);
-          diffuseColor.rgb = graded * shade + moonlit;
+          // Night gate over solar elevation (twin of EARTH.lightsBand).
+          float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunUpDot);
+          float moonUp = max(dot(nUp, uFtwMoonDir), 0.0);
+          // Moonlight, two terms (S7 feedback): the albedo-scaled sheen (graded×moon — black
+          // stays black) + a small NON-albedo fill so the moon actually LIFTS the dark ground.
+          vec3 moonlit = graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night)
+            + uFtwMoonCol * (uFtwMoonGlow * ${glf(GROUND.moonFillK)} * moonUp * night);
+          // Ambient sky fill — additive, so dark source pixels never multiply to black. Scaled
+          // out through the orbital fade band (uFtwHiAlt→1) to stay continuous with the base.
+          vec3 ambient = (uFtwAmbDay * dayK + uFtwMoonCol * (uFtwAmbNight * night))
+            * (1.0 - uFtwHiAlt);
+          diffuseColor.rgb = graded * shade + moonlit + ambient;
         }`,
     ).replace(
       /#include <dithering_fragment>/,
@@ -302,7 +351,10 @@ export function attachImageryGround(
     setShadowStrength(opacity) {
       shadowMat.opacity = opacity; // ONE shared material — every twin follows
     },
-    update(alt) {
+    darkBlend() {
+      return uniforms.uFtwDark.value;
+    },
+    update(alt, darkGround) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band
       // so real terrain grows organically out of the stylized base (no switch), then keeps
       // LOD-refining (Esri z19 overlay + TilesFadePlugin) all the way to street level.
@@ -336,6 +388,19 @@ export function attachImageryGround(
       const k = 1 - Math.exp(-dtMs / GROUND.revealTauMs);
       uniforms.uFtwFade.value += (altFade * readiness - uniforms.uFtwFade.value) * k;
       uniforms.uFtwHiAlt.value = 1 - altFade; // harmonize the grade while the base shows through
+      // S7a dark-drape crossfade: altitude band × mode, eased so mode flips + descents dissolve.
+      // The CARTO overlay's opacity is a LIVE uniform (layerInfo struct) — a plain write is the
+      // whole crossfade; the grade blend (uFtwDark) rides the same eased value.
+      const darkTarget = darkGround
+        ? THREE.MathUtils.clamp(
+            (DRAPE.fadeTopAltM - alt) / (DRAPE.fadeTopAltM - DRAPE.fadeBottomAltM),
+            0,
+            1,
+          )
+        : 0;
+      const kDark = 1 - Math.exp(-dtMs / DRAPE.easeTauMs);
+      uniforms.uFtwDark.value += (darkTarget - uniforms.uFtwDark.value) * kDark;
+      cartoDark.opacity = uniforms.uFtwDark.value;
       // Keep refinement ticking through the initial load even if the camera is static (reduced
       // motion disables the drift; UpdateOnChangePlugin would otherwise stall until a zoom).
       if (!initialLoadEnded) (uocPlugin as any).needsUpdate = true;

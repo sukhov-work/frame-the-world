@@ -33,8 +33,10 @@ import {
 } from "../../lib/format/readout";
 import Slider, { type BadgeTone } from "../ui/Slider";
 import Encoder from "../ui/Encoder";
+import InfoDot from "../ui/InfoDot";
 import { CONTROLS, FRUSTUM, PINS } from "../globe/tuning";
 import "../../styles/photo-detail.css";
+import "../../styles/tips.css";
 
 const PARAM_LABEL: Record<AdjustableKey, string> = {
   focalLengthMm: "FOCAL LENGTH",
@@ -222,7 +224,9 @@ export default function PhotoDetailPanel() {
       <div className="pd-fpv">
         <button
           type="button"
-          className={`uf-btn ${store.viewMode === "fpv" ? "uf-btn--primary" : "uf-btn--ghost"} pd-fpv__btn`}
+          className={`uf-btn ${store.viewMode === "fpv" ? "uf-btn--primary" : "uf-btn--ghost"} pd-fpv__btn tip`}
+          data-tip="STAND AT THE PHOTO'S LENS — SEE EXACTLY WHAT THE CAMERA SAW."
+          data-tip-pos="down"
           onClick={() =>
             useUploadStore.getState().setViewMode(store.viewMode === "fpv" ? "orbit" : "fpv")
           }
@@ -239,6 +243,11 @@ export default function PhotoDetailPanel() {
           <span className="pd-adjust__title">
             LIVE PROJECTION
             {dirty && <span className="uf-dot" aria-label="changed from EXIF" />}
+            <InfoDot
+              pos="down"
+              label="About the provenance badges"
+              tip="EXIF = read from the file · MANUAL = you set it · MISSING = no data, using a default."
+            />
           </span>
           <button className="uf-reset" onClick={() => useUploadStore.getState().resetAll()}>
             RESET TO EXIF
@@ -254,6 +263,7 @@ export default function PhotoDetailPanel() {
           onChange={(v) => useUploadStore.getState().setParam("focalLengthMm", v)}
           onReset={() => useUploadStore.getState().resetParam("focalLengthMm")}
           badge={provenanceBadge("focalLengthMm")}
+          tip="LENS FOCAL LENGTH — SETS THE FRUSTUM'S FIELD OF VIEW."
         />
         <Encoder
           label={PARAM_LABEL.headingDeg}
@@ -263,6 +273,7 @@ export default function PhotoDetailPanel() {
           onRate={onParamRate("heading")}
           onReset={() => useUploadStore.getState().resetParam("headingDeg")}
           badge={provenanceBadge("headingDeg")}
+          tip="COMPASS DIRECTION THE LENS FACES."
         />
         <Encoder
           label={PARAM_LABEL.pitchDeg}
@@ -272,6 +283,7 @@ export default function PhotoDetailPanel() {
           onRate={onParamRate("pitch")}
           onReset={() => useUploadStore.getState().resetParam("pitchDeg")}
           badge={provenanceBadge("pitchDeg")}
+          tip="LENS TILT — NEGATIVE LOOKS DOWN, POSITIVE UP."
         />
         <Slider
           label={PARAM_LABEL.altitudeM}
@@ -283,6 +295,7 @@ export default function PhotoDetailPanel() {
           onChange={(v) => useUploadStore.getState().setParam("altitudeM", v)}
           onReset={() => useUploadStore.getState().resetParam("altitudeM")}
           badge={provenanceBadge("altitudeM")}
+          tip="CAMERA HEIGHT — EXIF IS ABSOLUTE; MANUAL IS METERS ABOVE GROUND."
         />
         <Slider
           label="PLANE ALPHA"
@@ -293,6 +306,7 @@ export default function PhotoDetailPanel() {
           step={5}
           onChange={(v) => useUploadStore.getState().setPlaneOpacity(v / 100)}
           onReset={() => useUploadStore.getState().setPlaneOpacity(undefined)}
+          tip="PHOTO TRANSPARENCY ON THE 3D FRAME."
         />
         <div className="pd-fov">
           <span className="uf-mono">
@@ -330,7 +344,10 @@ export default function PhotoDetailPanel() {
           />
         </label>
         <div className="pd-save__head">
-          <label className="pd-save__pub">
+          <label
+            className="pd-save__pub tip"
+            data-tip="PUBLISH TO THE SHARED GLOBE — YOU CHOOSE THE LOCATION PRECISION."
+          >
             <input
               type="checkbox"
               checked={save.isPublic}
@@ -340,7 +357,12 @@ export default function PhotoDetailPanel() {
             PUBLIC PIN
           </label>
           {save.isPublic && (
-            <div className="pd-save__tiers" role="radiogroup" aria-label="Public location precision">
+            <div
+              className="pd-save__tiers tip"
+              role="radiogroup"
+              aria-label="Public location precision"
+              data-tip="HOW PRECISELY THE PUBLIC PIN SHOWS YOUR SPOT. ~1KM IS THE SAFE DEFAULT."
+            >
               {TIERS.map((t) => (
                 <button
                   key={t.id}
@@ -386,15 +408,16 @@ export default function PhotoDetailPanel() {
                 {save.phase === "updating" ? "UPDATING…" : "UPDATE PIN"}
               </button>
               <button
-                className="uf-btn uf-btn--ghost"
+                className="uf-btn uf-btn--ghost tip"
                 disabled={busy}
                 onClick={() => useUploadStore.getState().rePlace()}
-                title="Pick a new location on the globe"
+                data-tip="PICK A NEW SPOT ON THE GLOBE FOR THIS PIN."
               >
                 ⌖ RE-PLACE
               </button>
               <button
-                className={`uf-btn uf-btn--ghost pd-del${confirmDelete ? " is-armed" : ""}`}
+                className={`uf-btn uf-btn--ghost pd-del tip${confirmDelete ? " is-armed" : ""}`}
+                data-tip="REMOVES THE PIN AND FREES A SLOT — CLICK TWICE TO CONFIRM."
                 disabled={busy}
                 onClick={() => {
                   if (!confirmDelete) return setConfirmDelete(true);

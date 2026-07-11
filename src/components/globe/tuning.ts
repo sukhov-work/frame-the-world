@@ -18,8 +18,9 @@
 
 // ── Sections (in file order) ─────────────────────────────────────────────────────────────────
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
-//   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · GROUND · FRUSTUM ·
-//   FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC · ASTERISMS · TEMPPIN · SEARCH · ORCH
+//   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · GROUND · DRAPE ·
+//   LABELS · STREETS · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC · ASTERISMS ·
+//   TEMPPIN · SEARCH · ORCH
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
@@ -332,6 +333,22 @@ export const TILESETS = {
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   /** Esri refines to ~z19 (sub-metre in cities). */
   esriMaxLevel: 19,
+  /** CARTO dark_nolabels raster (Phase 5.5 S7a, owner-approved 2026-07-11) — the dark uniform
+   *  drape below DRAPE.fadeTopAltM. Keyless + CORS * (live-verified); standard {z}/{x}/{y}.
+   *  (The dark_only_labels street-name raster was TRIED and dropped same day — draped raster
+   *  text is blurry and cannot scale with zoom; street names are now vector, see STREETS.) */
+  cartoDarkUrl: "https://basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}.png",
+  /** CARTO rasters serve real content through z20 (probe-verified NYC + Dnipro 2026-07-11). */
+  cartoMaxLevel: 20,
+  /** Re:Earth Buildings — hosted Overture (OSM + Microsoft ML + Google) 3D Tiles 1.1, ODbL
+   *  (S7d trial; needs meshopt — see scene/buildings.ts). Coverage where OSM is sparse (UA). */
+  overtureTilesetUrl: "https://buildings.reearth.land/tileset.json",
+  /** Feature flag (S7d): swap the buildings source Cesium OSM → Re:Earth Overture. Default OFF.
+   *  TRIALED 2026-07-11: tileset.json + wiring OK (meshopt registered), but every glb content
+   *  tile (/v5-add/{z}/{x}/{y}.glb) returned HTTP 500 over Dnipro — the no-SLA risk realized.
+   *  Keep OFF until the service recovers; fallback = Cesium OSM; last resort = self-host an
+   *  Overture Ukraine extract (PHASE_5_5_UX_BATCH §Item 2c). */
+  overtureBuildings: false,
 } as const;
 
 /** Base ellipsoid — the orbit instrument (NASA Blue Marble graded into the palette + VIIRS night
@@ -489,11 +506,23 @@ export const ATMOSPHERE = {
   domeFarFrac: 0.45,
   /** Zenith sky brightness (multiplies tokens.skyDay). */
   skyDayGain: 0.85,
-  /** Horizon haze brightness (multiplies tokens.skyHorizon). Horizon total ≈ 1.05 — a whisker
-   *  over BLOOM.threshold, so the haze picks up a soft glow without blowing out. */
-  skyHorizonGain: 0.35,
+  /** Horizon haze brightness (multiplies the haze colour). S7 feedback: with the old 0.35 the
+   *  horizon total ran ~1.2 — past BLOOM.threshold, so bloom spread the near-white band across
+   *  the frame at strong tilt ("white mess"). The whole horizon budget now stays UNDER the bloom
+   *  threshold — see the unit-tested horizon-budget guard (test/…/skyBudget.test.ts). */
+  skyHorizonGain: 0.16,
+  /** Zenith ramp's horizon anchor: 0 = pure skyDay (blue) at the horizon, 1 = pure skyHorizon
+   *  (near-white). Sub-1 keeps the horizon tinted, not white — the S7 white-out fix. */
+  skyHorizonWhiteness: 0.55,
+  /** Haze colour pulls this far toward skyDay (bluer haze — aerial perspective, not fog). */
+  skyHazeBlue: 0.35,
+  /** Very-low-altitude haze dim: haze × mix(hazeLowAltK, 1, smoothstep(lo, hi, camAlt)) — at
+   *  street/drone heights the air column is thin, and the owner wants the horizon READABLE. */
+  hazeLowAltK: 0.45,
+  hazeLowAltLo: 300,
+  hazeLowAltHi: 6_000,
   /** Haze falloff over sin(view elevation) above the horizon — smaller hugs the horizon tighter. */
-  skyHazeFalloff: 0.1,
+  skyHazeFalloff: 0.075,
   /** Haze falloff BELOW the horizon (aerial perspective over distant terrain, decaying fast so
    *  near-ground rays stay clean — near geometry depth-occludes the dome anyway). */
   skyHazeBelow: 0.08,
@@ -612,6 +641,16 @@ export const GROUND = {
    *  toward this value, so mixed Esri source zooms (washed low-zoom mosaic vs crisp agricultural
    *  texture) converge in tone instead of reading as patches. 1 − altFade drives it. */
   hiAltDesat: 0.88,
+  /** Ambient sky fill (S7 feedback: "ground jarringly black") — a small ADDITIVE term in the
+   *  grade so dark source pixels can never multiply to pitch black. Day side adds
+   *  ambientDayK × tokens.skyHorizon (cool skylight); night side adds
+   *  ambientNightK × tokens.moonlight plus the moon fill below. Scaled down by uFtwHiAlt so the
+   *  orbital fade band stays tonally continuous with the self-lit base. */
+  ambientDayK: 0.1,
+  ambientNightK: 0.012,
+  /** Moon fill that does NOT multiply by albedo (the old moonlit term is graded×moon — black
+   *  stays black): fill = moonFillK × moonGlow × max(moonDir·up, 0) on the night side. */
+  moonFillK: 0.5,
   /** Screen-door bayer offset (px) vs TilesFadePlugin's grid so the two dithers don't collide. */
   bayerOffsetPx: 2.0,
   /** Imagery sits behind building footprints (bases win ties). */
@@ -646,6 +685,188 @@ export const GROUND = {
   /** Failed Esri overlay fetches leave permanently blank tiles unless retried — debounce (ms)
    *  for calling resetFailedOverlays() after a load-error burst. */
   overlayRetryMs: 8_000,
+} as const;
+
+/** Dark uniform "vaporwave" drape (Phase 5.5 S7a, §Item 2a — owner-approved CARTO dark_nolabels).
+ *  Below a tunable altitude band the dark raster owns the ground with UNIFORM lighting: the
+ *  Esri-colorimetry grade (water detection / desat / hiAlt harmonizer) blends OUT and a flat
+ *  shade with its own gain/cast blends IN. The crossfade rides the CARTO overlay's live opacity
+ *  uniform + the uFtwDark shader blend — same screen-door-free dissolve idiom as the glides.
+ *  Satellite texture becomes OPT-IN (camera.groundMode === 'satellite' pins the Esri look). */
+export const DRAPE = {
+  /** Crossfade band (m): pure Esri at/above the top… */
+  fadeTopAltM: 7_000,
+  /** …pure dark drape at/below the bottom. */
+  fadeBottomAltM: 5_000,
+  /** Crossfade ease time-constant (ms) — mode/altitude changes dissolve, never snap. */
+  easeTauMs: 350,
+  /** Albedo lift on the CARTO raster (screen-designed dark → the instrument's tonal range;
+   *  >1 also gives the shadow overlay contrast headroom — the twice-learned lesson: CONTRAST,
+   *  not map size, is the dark-palette shadow ceiling). */
+  gain: 1.3,
+  /** Faint cool cast (per-channel multiplier) so the drape sits in the palette family. */
+  cast: [0.97, 1.0, 1.05] as Tuple3,
+  /** FLAT day-side shade — uniform look, no slope grade (terrain relief stays geometry-only). */
+  dayShade: 1.0,
+  /** Night floor on the drape (brighter than GROUND.nightFloor — the raster is already dark).
+   *  0.45 → 0.52 S7 feedback ("uniform illumination" — night ground was reading pitch black). */
+  nightFloor: 0.52,
+  /** Dedicated ground-shadow opacity in dark mode (sun); blended vs SHADOWS.groundOpacity by
+   *  the dark fraction. 0.9 → 0.62 S7 feedback: near-black 0.9 footprints were a big part of
+   *  the "jarringly black ground" read — shadows now shade instead of erasing. */
+  shadowOpacity: 0.62,
+  /** …and under a full moon (× the K&S phase intensity, vs SHADOWS.moonGroundOpacity). */
+  moonShadowOpacity: 0.5,
+} as const;
+
+/** Geo labels + boundaries (Phase 5.5 S7b, §Item 2b). Natural Earth 50m public-domain data baked
+ *  by scripts/build-ne-labels.mjs into public/data: country boundary polylines (GL, softly glowing
+ *  graticule-family lines on the ellipsoid) + populated-place labels (screen-anchored DOM layer,
+ *  scalerank-culled by altitude). Street names are the separate GL layer (STREETS). All altitude
+ *  gates in metres above the ellipsoid. */
+export const LABELS = {
+  /** Baked assets. */
+  boundariesUrl: "/data/ne-boundaries.bin",
+  placesUrl: "/data/ne-places.json",
+  /** City labels + boundaries live inside this altitude window. The design range read
+   *  "100–2000 km", but the DoD says gone at LEO — and the default LEO pose is 1,100 km, so
+   *  the top sits below it (also keeps the 900 km Explore cruise label-free; retune freely). */
+  minAltM: 100_000,
+  maxAltM: 900_000,
+  /** …fading in/out across this span at each edge (opacity ramp, never a pop). */
+  fadeSpanM: 150_000,
+  /** Boundary polyline opacity at full presence (graticule-family restraint). */
+  boundaryOpacity: 0.28,
+  /** Boundary lines lift this far (m) above the ellipsoid so terrain never z-eats them. */
+  boundaryLiftM: 9_000,
+  /** Label layer sync cadence (frames). 1 = every frame (S7 feedback: any DOM throttle reads as
+   *  labels lagging the 60 Hz mesh — ≤28 direct style writes per frame are cheap). */
+  syncEveryFrames: 1,
+  /** Visible label budget (best scalerank first) — a screen of type is a map, not an instrument. */
+  maxVisible: 28,
+  /** Screen-space min separation (px) between labels — accepted in rank order, so a megacity
+   *  shades out the towns around it instead of colliding with them. */
+  minSepPx: 76,
+  /** Scalerank gate: at maxAltM only ranks ≤ rankAtMax show; by rankFullAltM every rank shows
+   *  (linear in log-altitude between them). NE scaleranks: 0–1 megacities … 8+ towns. */
+  rankAtMax: 2,
+  rankFullAltM: 220_000,
+  /** Screen-edge margin (NDC) — labels cull just past the frame so pans don't pop them. */
+  ndcMargin: 1.05,
+} as const;
+
+/** Vector street names (S7 feedback batch, v3 — GL). The v2 DOM labels were repositioned at
+ *  ~20 Hz against a 60 Hz mesh and re-selected in screen space every sync — the owner read that
+ *  as "laggy, jumping around". v3 pins each name ON the ground mesh: a canvas-textured quad
+ *  lying in the terrain's tangent plane, rotated along its street (scene/streetNames.ts) —
+ *  rendered by the same composer frame as the terrain, so it CANNOT lag. Type size is now WORLD
+ *  metres (paint on the road): it scales with zoom optically, like the buildings do.
+ *  Names show in both ground modes; hidden in FPV (photo view stays clean). */
+export const STREETS = {
+  /** TileJSON entry — resolved ONCE at attach for the current versioned tile template (the
+   *  dated path segment rotates with OpenFreeMap's builds; never hardcode it). */
+  tileJsonUrl: "https://tiles.openfreemap.org/planet",
+  /** Fetch zoom — the schema's maxzoom (deeper tiles do not exist; z14 ≈ 2.4 km at 48°N). */
+  tileZ: 14,
+  /** Neighborhood ring around the focus tile (1 = 3×3 ≈ 7 km — covers the visible street web). */
+  ring: 1,
+  /** Names fade in below this camera altitude (owner: appear at ~2–2.5 km)… */
+  topAltM: 2_500,
+  /** …fully present at/below this one; they stay to street level. */
+  fullAltM: 2_100,
+  /** Visible label budget + WORLD-space min separation (m) between anchors — priority order
+   *  wins (the v2 screen-space declutter reshuffled labels on every sync — the "jump"). */
+  maxVisible: 40,
+  minSepM: 130,
+  /** Painted text cap height (m) by class tier: [majors ≤ rank 2, mid ≤ rank 4, the rest].
+   *  World-sized text reads like road paint: distant names small, street-level names large. */
+  textHeightM: [22, 15, 11],
+  /** Label quads float this far above the sampled terrain (z-fight clearance vs the drape). */
+  liftM: 2.2,
+  /** Canvas raster cap height (px) — one texture per name, mipmapped; 44 px stays crisp
+   *  across the whole 2.5 km→street window without troika/SDF machinery. */
+  canvasPx: 44,
+  /** Re-sample the rendered terrain under each label every N frames (tiles refine under it);
+   *  re-seat eases (never snaps) when the sample moves ≥ reseatEpsM. */
+  reseatEveryFrames: 240,
+  reseatEpsM: 2.5,
+  /** Upright-flip hysteresis (dot of text-up vs camera tangent) — labels flip to stay readable
+   *  when the camera crosses the street axis, with a dead band so they never flicker. */
+  flipHysteresis: 0.08,
+  /** Selection re-runs at this cadence (frames) OR on a tile-cache change — selection is
+   *  bookkeeping only; the quads themselves are glued to the mesh every frame by the GPU. */
+  selectEveryFrames: 20,
+  /** Class priority for de-clutter (OpenMapTiles transportation classes, majors first). */
+  classPriority: ["motorway", "trunk", "primary", "secondary", "tertiary", "minor", "service", "path"],
+} as const;
+
+/** Vector feature web (S7 feedback batch) — roads / rivers / water / green drawn as GL geometry
+ *  from the SAME OpenFreeMap z14 tiles the street names parse (scene/vectorTiles.ts fetches
+ *  once, both layers consume). Ribbons are real widths in metres seated on the rendered terrain
+ *  (a bilinear height lattice per tile), so streets vs rivers vs bridges finally read at close
+ *  zoom over the dark drape. Colours: tokens.vec* (map ink, not signal). */
+export const VECTOR = {
+  /** The web fades in below this camera altitude… */
+  topAltM: 15_000,
+  /** …and is fully present at/below this one. */
+  fullAltM: 8_000,
+  /** Focus ring: near ring below ringFarAltM, wider ring above it (higher camera sees more). */
+  ringNear: 1,
+  ringFar: 2,
+  ringFarAltM: 4_000,
+  /** Parsed-tile cache budget (shared with street names — a parsed tile is ~100 KB). Kept
+   *  above maxBuilds so a built tile's source data usually survives for its refresh rebuild. */
+  tileCacheMax: 56,
+  /** Built-tile budget. Builds PERSIST when they leave the focus ring (S7 feedback #2: dropping
+   *  them on ring exit popped river tiles in and out on every pan/focus wobble) — eviction is
+   *  by distance from the focus, only past this cap, never inside the active ring. */
+  maxBuilds: 48,
+  /** Every N frames ONE built tile re-samples its height lattice against the (refining)
+   *  terrain; it rebuilds only when the lattice moved ≥ refreshEpsM — otherwise a fill built
+   *  over coarse LOD ends up UNDER the refined terrain and its patches flicker out. The same
+   *  eps gates the PRE-build verification pass (two consecutive lattices must agree). */
+  refreshEveryFrames: 240,
+  refreshEpsM: 3,
+  /** Road ribbon width (m) by OpenMapTiles class — presence in this map is ALSO the render
+   *  filter (transit/aerialway/construction classes stay out of the web). */
+  roadWidthM: {
+    motorway: 22,
+    trunk: 20,
+    primary: 16,
+    secondary: 12,
+    tertiary: 10,
+    minor: 7,
+    service: 4.5,
+    pier: 5,
+    raceway: 8,
+    busway: 7,
+    path: 2,
+    track: 2.5,
+    rail: 2.5,
+    transit: 0, // present-but-zero: parsed for completeness, never built
+  } as Record<string, number>,
+  /** Waterway line width (m) by class. */
+  waterwayWidthM: { river: 12, stream: 4, canal: 8, drain: 2, ditch: 2 } as Record<string, number>,
+  /** Fills sit lowest, ribbons above them, bridges highest (m above the sampled terrain).
+   *  Water rides HIGHER than green: the 6×6 lattice can't track riverbank slopes between
+   *  knots, and a low water fill dips under the refined terrain (part of the flicker). */
+  liftFillM: 0.6,
+  liftWaterM: 3.5,
+  liftRoadM: 1.5,
+  bridgeLiftM: 6,
+  /** Layer opacities (× presence × night dim). Fills stay translucent — the drape's own
+   *  colorimetry shows through; ribbons are the readable ink. */
+  fillOpacity: 0.5,
+  lineOpacity: 0.85,
+  /** Night dim: map ink is unlit, so it would glow at night — dim toward this floor as the sun
+   *  sets (smoothstep over sin(sun elevation) at the view focus, twin of EARTH.lightsBand). */
+  nightDim: 0.45,
+  /** Terrain height lattice per tile (N×N heightAt samples, bilinear between) + the per-frame
+   *  sampling budget shared across tiles (raycasts — keep small). */
+  latticeN: 6,
+  latticeBudgetPerFrame: 8,
+  /** Tile geometry builds per frame (a build is a few ms — never burst the frame budget). */
+  buildBudgetPerFrame: 1,
 } as const;
 
 /** Placed-photo frustum + image plane (Phase 3, ADR D5 v1: textured plane at the far face).
@@ -1052,6 +1273,10 @@ export const ORCH = {
   groundGuardMaxAltM: 50_000,
   /** Live-pose → store mirror cadence (frames) for the panel readouts (never 60 fps). */
   mirrorEveryFrames: 12,
+  /** URL-hash pose mirror cadence (frames; a MULTIPLE of mirrorEveryFrames — it rides the same
+   *  block). ~1.6 s between replaceState writes: Safari rate-limits history calls, and the
+   *  address bar only needs the SETTLED pose (S7 feedback #2 — shareable/reload-safe URLs). */
+  urlPoseEveryFrames: 96,
   /** Mirror deadbands — only sync when the live value moved at least this much. */
   tiltMirrorMinDeg: 0.25,
   headingMirrorMinDeg: 0.5,

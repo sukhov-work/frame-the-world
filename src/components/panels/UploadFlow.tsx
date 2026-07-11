@@ -33,7 +33,9 @@ import {
   EM_DASH,
 } from "../../lib/format/readout";
 import Slider, { type BadgeTone } from "../ui/Slider";
+import InfoDot from "../ui/InfoDot";
 import "../../styles/upload-flow.css";
+import "../../styles/tips.css";
 
 const FORMAT_CHIPS = ["DNG", "ARW", "CR3", "NEF", "RAF", "JPG · PNG · HEIC"];
 const ACCEPT = ".arw,.dng,.cr3,.nef,.raf,.jpg,.jpeg,.png,.webp,.heic,.heif";
@@ -88,7 +90,12 @@ export default function UploadFlow() {
     <div className="uf" role="dialog" aria-modal="true" aria-label="Upload a photo">
       <header className="uf-top">
         <div className="uf-top__left">
-          <button className="uf-pill" onClick={() => useUploadStore.getState().closePanel()}>
+          <button
+            className="uf-pill tip"
+            data-tip="BACK TO THE GLOBE — YOUR PHOTO STAYS LOADED."
+            data-tip-pos="down"
+            onClick={() => useUploadStore.getState().closePanel()}
+          >
             <span aria-hidden="true">←</span> GLOBE
           </button>
           <div className="uf-brand">
@@ -97,6 +104,11 @@ export default function UploadFlow() {
             </div>
             <span className="uf-brand__name">FRAME THE WORLD</span>
           </div>
+          <InfoDot
+            pos="down"
+            label="About the upload flow"
+            tip="Drop a photo → we read its EXIF (location, lens, time) → place it as a real camera frustum on the globe. RAW files decode right in your browser."
+          />
         </div>
         <div className="uf-steps">
           {["1 UPLOAD", "2 REVIEW", "3 PLACE"].map((s, i) => (
@@ -298,6 +310,11 @@ function ReviewStep() {
             <span className="uf-adjust__title">
               ADJUST PROJECTION
               {dirty && <span className="uf-dot" aria-label="changed from EXIF" />}
+              <InfoDot
+                pos="down"
+                label="About the provenance badges"
+                tip="EXIF = read from the file · MANUAL = you set it · MISSING = no data, using a default."
+              />
             </span>
             <button className="uf-reset" onClick={() => useUploadStore.getState().resetAll()}>
               RESET TO EXIF
@@ -313,6 +330,7 @@ function ReviewStep() {
             onChange={(v) => useUploadStore.getState().setParam("focalLengthMm", v)}
             onReset={() => useUploadStore.getState().resetParam("focalLengthMm")}
             badge={provenanceBadge("focalLengthMm")}
+            tip="LENS FOCAL LENGTH — SETS THE FRUSTUM'S FIELD OF VIEW."
           />
           <Slider
             label={PARAM_LABEL.headingDeg}
@@ -324,6 +342,7 @@ function ReviewStep() {
             onChange={(v) => useUploadStore.getState().setParam("headingDeg", v)}
             onReset={() => useUploadStore.getState().resetParam("headingDeg")}
             badge={provenanceBadge("headingDeg")}
+            tip="COMPASS DIRECTION THE LENS FACES."
           />
           <Slider
             label={PARAM_LABEL.pitchDeg}
@@ -335,6 +354,7 @@ function ReviewStep() {
             onChange={(v) => useUploadStore.getState().setParam("pitchDeg", v)}
             onReset={() => useUploadStore.getState().resetParam("pitchDeg")}
             badge={provenanceBadge("pitchDeg")}
+            tip="LENS TILT — NEGATIVE LOOKS DOWN, POSITIVE UP."
           />
           <Slider
             label={PARAM_LABEL.altitudeM}
@@ -346,6 +366,7 @@ function ReviewStep() {
             onChange={(v) => useUploadStore.getState().setParam("altitudeM", v)}
             onReset={() => useUploadStore.getState().resetParam("altitudeM")}
             badge={provenanceBadge("altitudeM")}
+            tip="CAMERA HEIGHT — EXIF IS ABSOLUTE; MANUAL IS METERS ABOVE GROUND."
           />
           <div className="uf-fov">
             <span className="uf-mono">

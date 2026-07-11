@@ -31,6 +31,21 @@
   -webkit-backdrop-filter: blur(6px);
 }
 
+/* Panel header (tips batch 2026-07-11): quiet mono label + the flow-level InfoDot. */
+.ct-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0.05rem 0 0.3rem;
+}
+
+.ct-head__label {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--color-text-secondary);
+}
+
 /* Dblclick gesture memo — a quiet note above the controls; retires once the user drops
    their first temp pin. Accent only on the glyph (instrument restraint). */
 .ct-memo {
@@ -137,10 +152,17 @@
 .ct-sky {
   letter-spacing: 0;
 }
-.ct-sky.is-on {
+.ct-sky.is-on,
+.ct-sat.is-on {
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+/* Ground-mode toggle (S7a) — narrower chip so the four-chip row stays inside the card. */
+.ct-sat {
+  min-width: 2.1rem;
+  padding: 0 0.35rem;
 }
 
 /* Encoder (spring-centred rate control) — centre tick over the shared slider rail. */

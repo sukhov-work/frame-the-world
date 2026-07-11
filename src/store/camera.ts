@@ -109,6 +109,11 @@ export interface CameraState {
    *  (the FPV HUD card itself stays — it is an instrument readout, not a sky decoration). */
   skyGuides: boolean;
   setSkyGuides: (on: boolean) => void;
+  /** Ground surface mode (Phase 5.5 S7a): 'dark' (default) = the CARTO dark drape owns the
+   *  ground below DRAPE.fadeTopAltM; 'satellite' = the Esri imagery look at every altitude
+   *  (textures are opt-in — the SAT chip on the camera panel). */
+  groundMode: "dark" | "satellite";
+  setGroundMode: (mode: "dark" | "satellite") => void;
   /** Sun/moon direction markers (every mode, gated by skyGuides) — feeds the ☀/☾ edge chips;
    *  outside FPV the bearings reference is the camera's own geodetic position. */
   skyMarkers: { sun: FpvBodyMarker; moon: FpvBodyMarker } | null;
@@ -159,6 +164,8 @@ export const useCameraStore = create<CameraState>((set) => ({
   fpvHud: null,
   skyGuides: true,
   setSkyGuides: (on) => set({ skyGuides: on }),
+  groundMode: "dark",
+  setGroundMode: (mode) => set({ groundMode: mode }),
   skyMarkers: null,
   exploreActive: false,
   setExplore: (on) => set({ exploreActive: on }),

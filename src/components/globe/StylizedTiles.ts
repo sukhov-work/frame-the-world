@@ -31,14 +31,20 @@ import { attachBuildings } from "./scene/buildings";
 import { attachImageryGround } from "./scene/imageryGround";
 import { attachSky } from "./scene/sky";
 import { attachDayArcs } from "./scene/dayArcs";
+import { attachGeoLabels } from "./scene/geoLabels";
+import { attachStreetNames } from "./scene/streetNames";
+import { attachVectorFeatures } from "./scene/vectorFeatures";
+import { attachVectorTiles } from "./scene/vectorTiles";
 import { attachPhotoFrustum } from "./PhotoFrustum";
 import { attachPins } from "./Pins";
 import { usePinsStore } from "../../store/pins";
 import { arrivalPose, createFlight, type FlightTarget } from "./flight";
 import { createExplore } from "./explore";
 import type { FrustumGeometry } from "../../lib/geo/frustum";
+import { formatPoseHash, parsePoseHash } from "../../lib/geo/urlPose";
 import {
   CONTROLS,
+  DRAPE,
   DRIFT,
   EARTH,
   FLIGHT,
@@ -53,6 +59,7 @@ import {
   SEARCH,
   SHADOWS,
   SKY,
+  STREETS,
   SUN,
   TEMPPIN,
   WGS84_A,
@@ -132,6 +139,22 @@ export function attachStylizedTiles(opts: {
   const ground = attachImageryGround(scene, { camera, renderer, ionToken });
   const sky = attachSky(scene);
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
+  const geoLabels = attachGeoLabels(scene); // NE labels + boundaries (S7b) — mid-zoom window only
+  // Shared MVT source (S7 feedback batch): ONE fetch/parse per z14 tile feeds the GL street
+  // names AND the vector feature web. Both seat on the RENDERED terrain, not the ellipsoid.
+  const vtiles = attachVectorTiles();
+  const streetNames = attachStreetNames({
+    scene,
+    vtiles,
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    maxAniso,
+  });
+  const vectorFeatures = attachVectorFeatures({
+    scene,
+    vtiles,
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    tileZ: STREETS.tileZ,
+  });
 
   // --- Ephemeris: ONE astronomical sample drives every light in the scene (terminator, ground
   //     grade, atmosphere, sun/moon bodies, building key light, moonlight). Re-sampled when scene
@@ -189,6 +212,41 @@ export function attachStylizedTiles(opts: {
   camera.up.copy(camPos).normalize(); // local "up" = away from Earth centre (spacecraft POV, no roll)
   camera.lookAt(targetPos);
   camera.updateProjectionMatrix();
+
+  // --- URL pose restore (S7 feedback #2): a shared/reloaded `#p=` hash overrides the LEO
+  //     default — the camera BOOTS at the shared view (no flight), welcome stays skipped
+  //     (Welcome.tsx checks the same hash). Reconstructed through the ONE arrival derivation
+  //     (arrivalPose) from the stored view focus + camera alt/heading/tilt. ------------------
+  const urlPose = parsePoseHash(typeof location === "undefined" ? "" : location.hash);
+  if (urlPose) {
+    const lookAt = new THREE.Vector3();
+    const latRad = (urlPose.latDeg * Math.PI) / 180;
+    const lonRad = (urlPose.lonDeg * Math.PI) / 180;
+    WGS84_ELLIPSOID.getCartographicToPosition(latRad, lonRad, 0, lookAt);
+    const upT = lookAt.clone().normalize();
+    const east = new THREE.Vector3(-Math.sin(lonRad), Math.cos(lonRad), 0);
+    const north = new THREE.Vector3().crossVectors(upT, east).normalize();
+    // The camera sits OPPOSITE the view heading: approach = −(sin·east + cos·north).
+    const h = (urlPose.headingDeg * Math.PI) / 180;
+    const approachHoriz = east
+      .clone()
+      .multiplyScalar(-Math.sin(h))
+      .addScaledVector(north, -Math.cos(h))
+      .normalize();
+    const pose = arrivalPose({
+      lookAt,
+      approachHoriz,
+      groundAltM: 0, // terrain hasn't loaded at boot; altM is the camera's ellipsoidal altitude
+      altAboveGroundM: urlPose.altM,
+      tiltDeg: urlPose.tiltDeg,
+      wgs84A: WGS84_A,
+      wgs84B: WGS84_B,
+    });
+    camera.position.copy(pose.position);
+    camera.up.copy(pose.position).normalize();
+    camera.lookAt(pose.lookAt);
+    camera.updateProjectionMatrix();
+  }
 
   // --- GlobeControls — documented ellipsoid binding, damping for a premium feel, snappy zoom. --
   const controls = new GlobeControls(scene, camera, renderer.domElement);
@@ -1443,6 +1501,7 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  let lastUrlPoseHash = "";
   const stepPoseMirrorAndViewport = () => {
         // Mirror the live pose (pitch / heading / altitude) into the store at low cadence for
         // the panel readouts (never at 60 fps — same discipline as store/time).
@@ -1468,12 +1527,37 @@ export function attachStylizedTiles(opts: {
           const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
           usePinsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
+          // URL pose (S7 feedback #2): mirror the SETTLED pose into the hash — the address bar
+          // is always a shareable link and a reload lands here, not on the welcome. Skipped
+          // while something else owns the camera (welcome/explore/FPV/flight); replaceState
+          // only (no history spam), written only on change, ~1.6 s cadence (Safari rate-limits
+          // history calls).
+          if (
+            frameCount % ORCH.urlPoseEveryFrames === 0 &&
+            !camStore.exploreActive &&
+            !fpvActive &&
+            !flight.active() &&
+            !document.body.classList.contains("welcome-active")
+          ) {
+            const hash = formatPoseHash({
+              latDeg: focusGeo.latDeg,
+              lonDeg: focusGeo.lonDeg,
+              altM: alt,
+              headingDeg: Number.isNaN(liveHeadingDeg) ? camStore.headingDeg : liveHeadingDeg,
+              tiltDeg: liveTiltDeg,
+            });
+            if (hash !== lastUrlPoseHash) {
+              lastUrlPoseHash = hash;
+              history.replaceState(null, "", hash);
+            }
+          }
         }
 
   };
 
   const stepGroundUpdate = () => {
-        ground.update(alt);
+        // S7a: dark drape unless the user opted into the satellite look (SAT chip).
+        ground.update(alt, camStore.groundMode !== "satellite");
 
   };
 
@@ -1501,12 +1585,18 @@ export function attachStylizedTiles(opts: {
             !sunUp &&
             moonDirW.dot(_focusUp) > SHADOWS.minSunElevSin &&
             moonIllum >= SHADOWS.moonMinIllum;
+          // Per-mode shadow contrast (S7a): the flat dark drape carries a stronger overlay —
+          // blended by the live dark fraction so the crossfade never steps the shadows.
+          const dark01 = ground.darkBlend();
           if (moonShadows) {
             sunLight.color.copy(_moonKeyCol);
             sunLight.intensity = SKY.moonKeyIntensity * moonKs;
             sunLight.position.copy(_focus).addScaledVector(moonDirW, SHADOWS.lightDistM);
             sunLight.target.position.copy(_focus);
-            ground.setShadowStrength(SHADOWS.moonGroundOpacity * moonKs);
+            ground.setShadowStrength(
+              THREE.MathUtils.lerp(SHADOWS.moonGroundOpacity, DRAPE.moonShadowOpacity, dark01) *
+                moonKs,
+            );
           } else {
             const goldenK = goldenFactor(sunDirW.dot(_focusUp), GOLDEN);
             sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
@@ -1514,7 +1604,9 @@ export function attachStylizedTiles(opts: {
             if (sunShadows) {
               sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
               sunLight.target.position.copy(_focus);
-              ground.setShadowStrength(SHADOWS.groundOpacity);
+              ground.setShadowStrength(
+                THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01),
+              );
             } else {
               // direction-only mode: keep the terminator agreement for building shading everywhere
               sunLight.position.copy(sunDirW).multiplyScalar(SUN.keyLightFarM);
@@ -1776,16 +1868,49 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  const stepGeoLabels = () => {
+        // Geo labels (S7b): country boundaries + populated-place labels inside their
+        // 100–2000 km altitude window (module-internal fades + rank gate + DOM cadence).
+        geoLabels.update({ camera, alt });
+  };
+
+  const stepStreetNames = () => {
+        // Street names v3 (S7 feedback): GL quads PINNED to the ground mesh below
+        // STREETS.topAltM — same composer frame as the terrain, so they cannot lag or jump.
+        // Off in FPV — the viewfinder stays clean.
+        streetNames.update({
+          camera,
+          alt,
+          focusLatDeg: camStore.focusLatDeg,
+          focusLonDeg: camStore.focusLonDeg,
+          enabled: !fpvActive,
+        });
+  };
+
+  const stepVectorFeatures = () => {
+        // Vector feature web (S7 feedback): roads / rivers / water / green from the SAME parsed
+        // tiles, ribbons + fills on the rendered terrain below VECTOR.topAltM. Night-dimmed by
+        // solar elevation at the view focus (map ink is unlit). Off in FPV, like the names.
+        vectorFeatures.update({
+          alt,
+          focusLatDeg: camStore.focusLatDeg,
+          focusLonDeg: camStore.focusLonDeg,
+          sunElevSin: sunDirW.dot(_focusUp),
+          enabled: !fpvActive,
+        });
+  };
+
   return {
     update() {
-      // ── B19 · per-frame orchestrator: 36 ordered step-closures (each stepX carries its doc) ──
+      // ── B19 · per-frame orchestrator: 38 ordered step-closures (each stepX carries its doc) ──
       //  1 FrameTiming 2 ZoomBrakeAndEase 3 ControlsUpdate 4 DampedVerticality 5 BuildingsUpdate
       //  6 FlightUpdate 7 ExploreJourney 8 FpvTransitions 9 FpvPose 10 FovGlide 11 GeodeticAltitude
       // 12 ViewFocus 13 IdleDrift 14 TiltGlide 15 HeadingGlide 16 ZoomGlide 17 EncoderRates
       // 18 FocalEncoder 19 StreetFloorGuard 20 LocationFinderFlyTo 21 FpvSolidity 22 FpvHudAndSkyMarkers
       // 23 PoseMirrorAndViewport 24 GroundUpdate 25 EphemerisResample 26 KeyLightAndShadow 27 SkyBodies
       // 28 FrustumResnapAndTick 29 ArrivalReframing 30 PinsUpdate 31 PinHover 32 TempPinMarker
-      // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs
+      // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs 37 GeoLabels 38 StreetNames (S7b)
+      // 39 VectorFeatures (S7 feedback — roads/water web from the shared MVT source)
       //
       // ORDER IS THE CONTRACT — the sequence is load-bearing, not incidental:
       //   (a) ++frameCount lives INSIDE step 28 and splits every cadence gate into pre/post groups —
@@ -1834,6 +1959,9 @@ export function attachStylizedTiles(opts: {
         stepGraticuleAndAtmosphere();
         stepStars();
         stepDayArcs();
+        stepGeoLabels();
+        stepStreetNames();
+        stepVectorFeatures();
       } catch (err) {
         updateErrCount++;
         const tErr = performance.now();
@@ -1874,6 +2002,10 @@ export function attachStylizedTiles(opts: {
       ground.dispose();
       sky.dispose();
       dayArcs.dispose();
+      geoLabels.dispose();
+      streetNames.dispose();
+      vectorFeatures.dispose();
+      vtiles.dispose();
       earth.dispose();
       graticule.dispose();
       atmosphere.dispose();

@@ -6,6 +6,8 @@
  */
 
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import type { TipPos } from "./InfoDot";
+import "../../styles/tips.css";
 
 export type BadgeTone = "accent" | "warn" | "dim";
 
@@ -22,13 +24,17 @@ export interface SliderProps {
   /** Double-click / Backspace — return to the EXIF baseline (or back to unset). */
   onReset: () => void;
   badge?: { text: string; tone: BadgeTone };
+  /** Hover tip on the whole row (tips.css — delayed glass pill). */
+  tip?: string;
+  /** Tip placement — default up. */
+  tipPos?: TipPos;
 }
 
 function clamp01(t: number): number {
   return Math.min(1, Math.max(0, t));
 }
 
-export default function Slider({ label, formatted, value, min, max, step = 1, onChange, onReset, badge }: SliderProps) {
+export default function Slider({ label, formatted, value, min, max, step = 1, onChange, onReset, badge, tip, tipPos }: SliderProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -65,7 +71,11 @@ export default function Slider({ label, formatted, value, min, max, step = 1, on
   };
 
   return (
-    <div className={`uf-slider${value === undefined ? " uf-slider--unset" : ""}`}>
+    <div
+      className={`uf-slider${value === undefined ? " uf-slider--unset" : ""}${tip ? " tip" : ""}`}
+      data-tip={tip}
+      data-tip-pos={tip ? tipPos : undefined}
+    >
       <div className="uf-slider__head">
         <span className="uf-slider__label">
           {label}

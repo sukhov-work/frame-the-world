@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useCameraStore } from "../../store/camera";
 import { usePinsStore } from "../../store/pins";
+import { parsePoseHash } from "../../lib/geo/urlPose";
 import "../../styles/welcome.css";
 
 /**
@@ -14,7 +15,11 @@ import "../../styles/welcome.css";
  * journey keep flying.
  */
 export default function Welcome() {
-  const [visible, setVisible] = useState(true);
+  // A shared/reloaded `#p=` pose skips the landing entirely — the globe boots AT that view
+  // (StylizedTiles reads the same hash); showing the welcome would arm Explore over it.
+  const [visible, setVisible] = useState(
+    () => typeof location === "undefined" || parsePoseHash(location.hash) === null,
+  );
   const pinCount = usePinsStore((s) => s.pins.length);
 
   // The journey backdrop: armed on mount, and the body class hides the working chrome.

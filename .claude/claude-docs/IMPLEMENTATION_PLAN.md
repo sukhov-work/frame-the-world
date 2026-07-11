@@ -97,11 +97,15 @@ paid); public pins on shared globe via geohash viewport query; default reduced p
   *(SHIPPED 2026-07-11, browser-VERIFIED — absorbed the owner FPV batch: HUD (focal/bearings/
   off-frame sun-moon chips), ALTITUDE+FOCAL ZOOM encoders, building distance/altitude opacity
   curve, brighter moon. See DECISIONS)*
-- [ ] **S7 — Ground rework:** (a) dark uniform "vaporwave" drape <7 km (**CARTO dark_nolabels —
+- [x] **S7 — Ground rework:** (a) dark uniform "vaporwave" drape <7 km (**CARTO dark_nolabels —
   owner-approved 2026-07-11**; textures opt-in; crossfade band tunable; per-mode shadow contrast),
   (b) Natural Earth city labels + country boundaries 100–2000 km tunable + street-name overlay,
   (c) building grow-on-zoom 2 km→600 m + Re:Earth Overture Ukraine-buildings trial (Mapbox rejected
-  on ToS).
+  on ToS). *(SHIPPED 2026-07-11, browser-VERIFIED + S5 night golden gate PASS; label window
+  defaults 100–900 km — the DoD's "gone at LEO" beat the design's 2000 km top; Overture trial
+  NEGATIVE: content tiles 500 server-side → flag stays OFF. Same-day owner rework: street
+  names went VECTOR (OpenFreeMap MVT → rotated zoom-scaled DOM labels, reveal ~2.5 km — the
+  raster overlay was blurry) and grow-on-zoom was REMOVED (unreliable). See DECISIONS)*
 **Test:** per-session `npm test` + `astro check` + `wix build`; browser verify on wix dev
 (`verify-shots/phase55-*`); S3 wix-cloud-verified with a member cookie.
 

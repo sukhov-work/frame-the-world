@@ -11,6 +11,11 @@ export function glf(n: number): string {
   return /[.e]/i.test(s) ? s : `${s}.0`;
 }
 
+/** Format a 3-tuple tunable as a GLSL `vec3(...)` literal (same float rules as glf). */
+export function glf3(v: readonly [number, number, number]): string {
+  return `vec3(${glf(v[0])}, ${glf(v[1])}, ${glf(v[2])})`;
+}
+
 /**
  * Hash dither, ±1/256 — additive gradients on a near-black background band badly without it.
  * Appends to a `vec3 color` in scope. Structural (not a tunable).

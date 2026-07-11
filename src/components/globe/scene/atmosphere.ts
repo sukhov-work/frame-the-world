@@ -132,12 +132,21 @@ export function attachAtmosphere(
           float sinEl = dot(D, upC);                  // view-ray elevation sine at the camera
           float sunEl = dot(normalize(uSunDir), upC); // sun elevation sine at the camera
           float dayK = smoothstep(${glf(ATMOSPHERE.skyDawnLo)}, ${glf(ATMOSPHERE.skyDawnHi)}, sunEl);
-          vec3 zenithCol = mix(uSkyHorizon, uSkyDay, pow(clamp(sinEl, 0.0, 1.0), ${glf(ATMOSPHERE.skyZenithPow)}));
-          float haze = exp(-max(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeFalloff)})
-                     * exp(min(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeBelow)});
+          // S7 feedback ("white mess at strong tilt"): the horizon anchor is no longer pure
+          // near-white skyHorizon — it mixes toward the blue skyDay (skyHorizonWhiteness), the
+          // haze itself pulls blue (skyHazeBlue), the very-low-altitude haze is dimmed
+          // (hazeLowAltK ramp — thin air column at drone heights), and the summed horizon budget
+          // stays UNDER BLOOM.threshold so bloom never spreads it (unit-tested guard).
+          vec3 horizonAnchor = mix(uSkyDay, uSkyHorizon, ${glf(ATMOSPHERE.skyHorizonWhiteness)});
+          vec3 zenithCol = mix(horizonAnchor, uSkyDay, pow(clamp(sinEl, 0.0, 1.0), ${glf(ATMOSPHERE.skyZenithPow)}));
+          float hazeAltK = mix(${glf(ATMOSPHERE.hazeLowAltK)}, 1.0,
+            smoothstep(${glf(ATMOSPHERE.hazeLowAltLo)}, ${glf(ATMOSPHERE.hazeLowAltHi)}, uCamAlt));
+          float haze = (exp(-max(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeFalloff)})
+                     * exp(min(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeBelow)})) * hazeAltK;
           float hGold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunEl)
                       * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunEl));
-          vec3 hazeCol = mix(uSkyHorizon, uGoldenCol * ${glf(GOLDEN.castGain)}, hGold * ${glf(ATMOSPHERE.skyGoldStrength)});
+          vec3 hazeBase = mix(uSkyHorizon, uSkyDay, ${glf(ATMOSPHERE.skyHazeBlue)});
+          vec3 hazeCol = mix(hazeBase, uGoldenCol * ${glf(GOLDEN.castGain)}, hGold * ${glf(ATMOSPHERE.skyGoldStrength)});
           vec3 skyCol = zenithCol * ${glf(ATMOSPHERE.skyDayGain)} * dayK
                       + hazeCol * haze * ${glf(ATMOSPHERE.skyHorizonGain)} * max(dayK, hGold);
           color = mix(color, skyCol, skyK);
