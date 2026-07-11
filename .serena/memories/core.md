@@ -159,9 +159,26 @@ dismisses; "+ ADD PHOTO" pill retired; time scrub centred + TimeReadout on its a
 267 vitest · astro check 0 · wix build green. VERIFY-TRAP: occluded Chrome throttles rAF —
 `page.bringToFront()` before timed Playwright runs. Mechanics:
 `mem:project/wip-2026-07-11-phase5.5-s4`.
-**Next step: Phase 5.5 S5 — night-sky physics (K&S moonlight · moon shadows · Black Marble 8k
-gray · darker sky + navy-floor root cause)** (see `NEXT_SESSION_PROMPT.md`); then S6–S7;
-Phase 6 marketplace after. S1–S4 not yet released to the live URL.
+**Phase 5.5 S5 SHIPPED (2026-07-11, browser-VERIFIED via scripted headless-Chrome CDP —
+`scripts/verify-s5-night.mjs` is the reusable harness):** night-sky physics — **K&S-1991
+moonlight** (`lib/ephemeris/moonlight.ts` + `bodies.moonPhaseAngleDeg`; quarter = 10.3% of full
+live-verified; SKY.moonKeyIntensity/moonSceneGlow = full-moon anchors) · **moon shadows** via
+ONE-rig source switch (sun key impersonates the moon at tokens.moonlight × 0.3×ks when sun down
++ moon up + illum ≥ 0.85; moonLight stands down; ground twins setShadowStrength(0.55×ks)) ·
+**Black Marble 8k** single-channel city lights (async R8 DataTexture upgrade in baseEarth,
+uNightGamma 2.2, boot VIIRS fallback; TRAPS: flipY in the DATA — UNPACK_FLIP_Y ignores typed
+arrays; no single-channel sRGB format exists) · stars/MW brighter + night floors 0.19/0.35 ·
+**navy night sky ROOT-CAUSED**: the composer cleared its LINEAR HalfFloat buffer with the
+sRGB-ENCODED clear colour (setClearColor converts to OUTPUT space when no RT is bound;
+EffectComposer runs autoClear-off) → OutputPass re-encoded it into (8,26,45) navy on every empty
+sky pixel; FIX = `scene.background` (per-target conversion) + atmosphere Chapman-obliquity factor
+(zenith rays no longer glow like limb rays at 20–350 km; ATMOSPHERE.obliquityK). Night sky now
+near-black (2,5.9,10.7). DEV add: `window.__composer`. 280 vitest · astro check 0 · wix build
+green. Mechanics + debug traps (elementsFromPoint skips pointer-events:none · hidden tiles groups
+kill the rAF tick → stale-frame measurements · stars re-show per frame): `mem:project/wip-2026-07-11-phase5.5-s5`.
+**Next step: Phase 5.5 S6 — FPV planning overlays (sun/moon day-arc polylines + ~20 d3-celestial
+asterisms)** (see `NEXT_SESSION_PROMPT.md`); then S7 ground rework; Phase 6 marketplace after.
+S1–S5 not yet released to the live URL.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

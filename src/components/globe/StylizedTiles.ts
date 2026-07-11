@@ -9,6 +9,7 @@ import {
 } from "../../lib/ephemeris/bodies";
 import { ecefToGeodetic, geodeticToEcef, rayEllipsoidIntersect } from "../../lib/geo/projection";
 import { goldenFactor } from "../../lib/ephemeris/golden";
+import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
@@ -41,6 +42,7 @@ import {
   SEARCH,
   SHADOWS,
   SKY,
+  SUN,
   TEMPPIN,
   WGS84_A,
   WGS84_B,
@@ -93,7 +95,11 @@ export function attachStylizedTiles(opts: {
     WGS84_A * EARTH.shrink,
   );
 
-  const earth = attachBaseEarth(scene, { baseScale, maxAniso });
+  const earth = attachBaseEarth(scene, {
+    baseScale,
+    maxAniso,
+    maxTextureSize: renderer.capabilities.maxTextureSize,
+  });
   const graticule = attachGraticule(scene, { baseScale });
   const atmosphere = attachAtmosphere(scene, { baseScale });
   const stars = attachStars(scene, { dpr: renderer.getPixelRatio() });
@@ -108,7 +114,8 @@ export function attachStylizedTiles(opts: {
   const moonDirW = new THREE.Vector3(0, 0, 1);
   const moonPosW = new THREE.Vector3(0, 0, 3.8e8);
   let sunAngRad = 0.00465;
-  let moonIllum = 0.5;
+  let moonIllum = 0.5; // illuminated fraction (the moon-shadow GATE reads this)
+  let moonKs = 0.05; // K&S-1991 phase intensity, 1 = full (every moonlight STRENGTH reads this)
   let gastRad = 0; // sidereal angle for the star sphere (−GAST about +Z = equatorial → ECEF)
   let lastSampleMs = -Infinity;
   const sampleEphemeris = (tMs: number) => {
@@ -120,7 +127,9 @@ export function attachStylizedTiles(opts: {
     moonPosW.copy(moonDirW).multiplyScalar(s.moonDistanceKm * 1000);
     sunAngRad = angularRadiusRad(SUN_RADIUS_KM, s.sunDistanceAu * KM_PER_AU);
     moonIllum = s.moonIllumination;
-    const moonGlow = SKY.moonSceneGlow * moonIllum;
+    // Physical relative moonlight (S5 §Item 7): quarter ≈ 9% of full, not the linear 50%.
+    moonKs = moonPhaseIntensity(s.moonPhaseAngleDeg);
+    const moonGlow = SKY.moonSceneGlow * moonKs;
     (earth.uniforms.uSunDir.value as THREE.Vector3).copy(sunDirW);
     (earth.uniforms.uMoonDir.value as THREE.Vector3).copy(moonDirW);
     earth.uniforms.uMoonGlow.value = moonGlow;
@@ -528,6 +537,7 @@ export function attachStylizedTiles(opts: {
   const _focusUp = new THREE.Vector3();
   const _keyWhite = new THREE.Color(0xffffff);
   const _goldenCol = new THREE.Color(tokens.goldenHour);
+  const _moonKeyCol = new THREE.Color(tokens.moonlight); // the key light's moon-shadow disguise
   let frameCount = 0;
 
   // --- Camera feel (2026-07-10 owner pass) — temporal zoom easing, damped auto-verticality and
@@ -581,6 +591,7 @@ export function attachStylizedTiles(opts: {
         sunDir: sunDirW.toArray(),
         moonDir: moonDirW.toArray(),
         moonIllumination: moonIllum,
+        moonKs, // K&S-1991 phase intensity (S5 — 1 = full moon)
         gastRad,
         sampleMs: lastSampleMs,
       }),
@@ -1167,25 +1178,43 @@ export function attachStylizedTiles(opts: {
         const tMs = sceneTimeMs();
         if (Math.abs(tMs - lastSampleMs) > SKY.sampleIntervalMs) sampleEphemeris(tMs);
 
-        // Sun key light: ephemeris direction always; colour warms through the golden band as the
-        // sun grazes the horizon AT THE FOCUS (same bell as the shader grades — buildings relight
-        // in step with the ground); the shadow rig follows the focus at city altitudes AND only
-        // while the sun is actually up there (a below-horizon sun would project garbage).
+        // Key light + the ONE shadow rig (S5 §Item 7: source switch, never a second rig).
+        // Sun mode: ephemeris direction; colour warms through the golden band at the focus;
+        // shadows at city altitudes while the sun is up there (a below-horizon sun would
+        // project garbage). Moon mode: sun down + bright-enough moon up → the SAME light
+        // impersonates the moon (direction, cool colour, K&S phase intensity) and the
+        // dedicated moonLight stands down so the night key is never doubled.
+        let moonShadows = false;
         if (sunLight) {
-          const goldenK = goldenFactor(sunDirW.dot(_focusUp), GOLDEN);
-          sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
-          let shadowsOn = false;
-          if (alt < SHADOWS.maxAltM && focusHit && sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin) {
-            shadowsOn = true;
-            sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
+          const shadowEligible = alt < SHADOWS.maxAltM && !!focusHit;
+          const sunUp = sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin;
+          const sunShadows = shadowEligible && sunUp;
+          moonShadows =
+            shadowEligible &&
+            !sunUp &&
+            moonDirW.dot(_focusUp) > SHADOWS.minSunElevSin &&
+            moonIllum >= SHADOWS.moonMinIllum;
+          if (moonShadows) {
+            sunLight.color.copy(_moonKeyCol);
+            sunLight.intensity = SKY.moonKeyIntensity * moonKs;
+            sunLight.position.copy(_focus).addScaledVector(moonDirW, SHADOWS.lightDistM);
             sunLight.target.position.copy(_focus);
+            ground.setShadowStrength(SHADOWS.moonGroundOpacity * moonKs);
+          } else {
+            const goldenK = goldenFactor(sunDirW.dot(_focusUp), GOLDEN);
+            sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
+            sunLight.intensity = SUN.keyIntensity;
+            if (sunShadows) {
+              sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
+              sunLight.target.position.copy(_focus);
+              ground.setShadowStrength(SHADOWS.groundOpacity);
+            } else {
+              // direction-only mode: keep the terminator agreement for building shading everywhere
+              sunLight.position.copy(sunDirW).multiplyScalar(1e7);
+              sunLight.target.position.set(0, 0, 0);
+            }
           }
-          if (!shadowsOn) {
-            // direction-only mode: keep the terminator agreement for building shading everywhere
-            sunLight.position.copy(sunDirW).multiplyScalar(1e7);
-            sunLight.target.position.set(0, 0, 0);
-          }
-          sunLight.castShadow = shadowsOn;
+          sunLight.castShadow = sunShadows || moonShadows;
         }
 
         // Sun + moon bodies (camera-anchored, true apparent size; moon angular size uses the
@@ -1196,7 +1225,7 @@ export function attachStylizedTiles(opts: {
           moonPos: moonPosW,
           sunAngRad,
           moonAngRad: angularRadiusRad(MOON_RADIUS_KM * 1000, moonPosW.distanceTo(camera.position)),
-          moonIllumination: moonIllum,
+          moonIntensity: moonShadows ? 0 : moonKs, // the rig carries the key in moon-shadow mode
         });
 
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).

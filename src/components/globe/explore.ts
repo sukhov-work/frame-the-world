@@ -5,11 +5,13 @@ import { EXPLORE, WGS84_A, WGS84_B } from "./tuning";
 
 /**
  * Explore ambient pin journey (Phase 5.5 S4, §Item 11) — the meditative auto-cruise behind the
- * Explore nav item. The camera settles to EXPLORE.altM / EXPLORE.tiltDeg and glides from public
- * pin to public pin in nearest-neighbour order: each leg is a constant-angular-velocity
- * great-circle rotation (DRIFT pacing × a few — deliberately NOT the 2.2 s cinematic bezier)
- * with a soft speed ramp at both ends and a dwell at each pin. Entry and the <2-pins fallback
- * ride the normal cinematic flight; reduced motion turns every leg into the flight's instant cut.
+ * Explore nav item and the Welcome backdrop. The journey begins CRUISING from whatever pose the
+ * camera already holds (owner: no entry flight — the welcome screen must open already gliding,
+ * never jump toward a pin) and glides from public pin to public pin in nearest-neighbour order:
+ * each leg is a constant-angular-velocity great-circle rotation (deliberately NOT the 2.2 s
+ * cinematic bezier) with a soft speed ramp at both ends and a dwell at each pin. Altitude and
+ * the look point ease in over the first leg, so any starting pose blends into the cruise.
+ * Reduced motion turns every leg into the flight's instant cut.
  *
  * The controller OWNS the camera while cruising (`update` returns true) — the orchestrator
  * skips the idle drift and the store glides for those frames, and exits the mode on ANY direct
@@ -127,7 +129,7 @@ export interface ExploreHandle {
 
 export function createExplore(deps: ExploreDeps): ExploreHandle {
   const { camera, flight } = deps;
-  type State = "inactive" | "entering" | "cruising" | "dwelling" | "fallback";
+  type State = "inactive" | "arming" | "cruising" | "dwelling" | "fallback";
   let state: State = "inactive";
   let order: ExplorePoint[] = []; // remaining journey, front = current target
   let legs = 0;
@@ -146,6 +148,61 @@ export function createExplore(deps: ExploreDeps): ExploreHandle {
   const _look = new THREE.Vector3();
   const _q = new THREE.Quaternion();
   const _dwellPin = new THREE.Vector3(); // unit dir of the pin we're dwelling at (orbit axis)
+  const _up = new THREE.Vector3(); // local ENU basis at the camera (per easeLookToward call)
+  const _east = new THREE.Vector3();
+  const _north = new THREE.Vector3();
+  const _ray = new THREE.Vector3();
+  const _Z = new THREE.Vector3(0, 0, 1);
+  let easeTilt = 0; // eased view ray, as (tilt from nadir, heading) at the camera — the
+  let easeHead = 0; // anti-snap low-pass lives in ANGLE space (see easeLookToward)
+
+  const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+  /** Local ENU basis at the current camera position (fills _up/_east/_north). */
+  const localBasis = () => {
+    _up.copy(camera.position).normalize();
+    _east.crossVectors(_Z, _up);
+    if (_east.lengthSq() < 1e-12) _east.set(1, 0, 0); // pole guard
+    _east.normalize();
+    _north.crossVectors(_up, _east);
+  };
+
+  /** (tilt from nadir, heading) of a world-space unit ray at the current camera position. */
+  const rayAngles = (ray: THREE.Vector3): [number, number] => {
+    const tilt = Math.acos(THREE.MathUtils.clamp(-ray.dot(_up), -1, 1));
+    const e = ray.dot(_east);
+    const n = ray.dot(_north);
+    const head = Math.abs(e) + Math.abs(n) < 1e-9 ? easeHead : Math.atan2(e, n);
+    return [tilt, head];
+  };
+
+  /** Clamped low-pass of the rendered view ray toward "look at `target` (unit surface dir)":
+   *  exponential approach (τ poseEaseTauMs) in TILT/HEADING space, capped at
+   *  lookMaxRateDegPerS. Angle space matters twice over: err/τ on a large entry error would
+   *  be a >90°/s whip pan (measured), and easing the look POINT along the surface drags the
+   *  gaze through a nadir stare mid-pan (measured too) — here the tilt stays oblique while
+   *  the heading pans around. Leaves the eased look point in `_look` for camera.lookAt. */
+  const easeLookToward = (target: THREE.Vector3, dtMs: number) => {
+    localBasis();
+    _ray.copy(target).multiplyScalar(radiusAlong(target)).sub(camera.position);
+    if (_ray.lengthSq() < 1) {
+      _look.copy(target).multiplyScalar(radiusAlong(target)); // degenerate: camera at target
+      return;
+    }
+    _ray.normalize();
+    const [tTilt, tHead] = rayAngles(_ray);
+    const k = 1 - Math.exp(-dtMs / EXPLORE.poseEaseTauMs);
+    const cap = THREE.MathUtils.degToRad(EXPLORE.lookMaxRateDegPerS) * (dtMs / 1000);
+    easeTilt += THREE.MathUtils.clamp((tTilt - easeTilt) * k, -cap, cap);
+    easeHead = wrapPi(easeHead + THREE.MathUtils.clamp(wrapPi(tHead - easeHead) * k, -cap, cap));
+    const sinT = Math.sin(easeTilt);
+    _ray
+      .copy(_up)
+      .multiplyScalar(-Math.cos(easeTilt))
+      .addScaledVector(_north, sinT * Math.cos(easeHead))
+      .addScaledVector(_east, sinT * Math.sin(easeHead));
+    _look.copy(camera.position).addScaledVector(_ray, WGS84_A); // any point along the ray
+  };
 
   /** Ellipsoid radius along a unit direction (flight.ts's metric). */
   const radiusAlong = (d: THREE.Vector3): number => {
@@ -154,7 +211,7 @@ export function createExplore(deps: ExploreDeps): ExploreHandle {
   };
 
   /** The explore pose framing a point: EXPLORE.altM above it at EXPLORE.tiltDeg, approached
-   *  from the camera's current side (no corkscrew). */
+   *  from the camera's current side (no corkscrew). Reduced-motion legs cut to this pose. */
   const poseFor = (p: ExplorePoint): FlightTarget => {
     const target = new THREE.Vector3(...geodeticToEcef(p.lat, p.lon, 0));
     const upT = target.clone().normalize();
@@ -173,24 +230,33 @@ export function createExplore(deps: ExploreDeps): ExploreHandle {
     });
   };
 
-  /** Begin the journey: NN order from the focus, cinematic entry flight to the first pin. */
-  const begin = () => {
+  /** Seed the look low-pass from the camera's ACTUAL forward ray — the first cruise frame
+   *  then renders the exact pose the user already sees (zero initial error by construction)
+   *  and eases toward the leg's tangent look instead of snapping to it. */
+  const seedLook = () => {
+    localBasis();
+    camera.getWorldDirection(_ray);
+    [easeTilt, easeHead] = rayAngles(_ray);
+  };
+
+  /** Begin the journey: NN order from the focus, then cruise straight from the CURRENT pose —
+   *  no entry flight (the welcome backdrop must open already gliding, never lunge at a pin);
+   *  the altitude + look low-passes absorb the starting pose over the first leg. Returns
+   *  whether the journey owns the camera (false = <2-pins fallback, drift keeps flying). */
+  const begin = (nowMs: number): boolean => {
     const pins = deps.getPins();
     const focus = deps.getFocus();
     legs = 0;
     if (pins.length < 2) {
-      // Graceful fallback: settle to the Explore pose over the current focus; the idle drift
-      // owns the motion from there (update() returns false in this state).
+      // Graceful fallback: the idle drift owns the motion (update() returns false in this
+      // state); the journey begins as soon as the viewport query lands ≥2 pins.
       state = "fallback";
-      const pose = poseFor(
-        pins.length === 1 ? pins[0] : { lat: focus.latDeg, lon: focus.lonDeg },
-      );
-      flight.start(pose);
-      return;
+      return false;
     }
     order = orderByNearestNeighbour(pins, focus.latDeg, focus.lonDeg).map((i) => pins[i]);
-    state = "entering";
-    flight.start(poseFor(order[0]));
+    seedLook();
+    startLeg(nowMs);
+    return true;
   };
 
   /** Arm the next leg toward order[0] (called with the camera settled at the previous pin). */
@@ -251,11 +317,12 @@ export function createExplore(deps: ExploreDeps): ExploreHandle {
 
   return {
     setActive(on: boolean) {
-      if (on && state === "inactive") begin();
+      // Arming defers to the next update() — begin() needs the frame clock for the first leg.
+      if (on && state === "inactive") state = "arming";
       else if (!on && state !== "inactive") {
         state = "inactive";
         order = [];
-        if (flight.active()) flight.cancel(); // a user exit mid-entry hands the camera back
+        if (flight.active()) flight.cancel(); // a user exit mid-cut hands the camera back
       }
     },
 
@@ -263,20 +330,13 @@ export function createExplore(deps: ExploreDeps): ExploreHandle {
       switch (state) {
         case "inactive":
           return false;
+        case "arming":
+          return begin(nowMs); // cruising/dwelling own the camera from frame one
         case "fallback": {
           // The idle drift owns the camera here — but if pins arrive late (the welcome page
           // arms the journey before the first viewport query lands), begin the real journey.
-          if (deps.getPins().length >= 2) begin();
+          if (deps.getPins().length >= 2) begin(nowMs);
           return false;
-        }
-        case "entering": {
-          if (flight.active()) return false; // the flight steers this frame
-          state = "dwelling";
-          legs++; // arriving at the first pin counts — DoD counts legs flown
-          if (order.length > 0) _dwellPin.copy(dirOf(order[0]));
-          order.shift();
-          dwellUntil = nowMs + EXPLORE.dwellMs;
-          return true;
         }
         case "dwelling": {
           if (flight.active()) return false; // reduced-motion legs ride the flight (a cut)
@@ -290,7 +350,7 @@ export function createExplore(deps: ExploreDeps): ExploreHandle {
             const ang = THREE.MathUtils.degToRad(EXPLORE.dwellOrbitDegPerS) * (dtMs / 1000);
             _q.setFromAxisAngle(_dwellPin, ang);
             camera.position.applyQuaternion(_q);
-            _look.copy(_dwellPin).multiplyScalar(radiusAlong(_dwellPin));
+            easeLookToward(_dwellPin, dtMs);
             camera.up.copy(camera.position).normalize();
             camera.lookAt(_look);
             camera.updateMatrixWorld();
@@ -329,7 +389,10 @@ export function createExplore(deps: ExploreDeps): ExploreHandle {
             const g = gamma();
             _lookDir.copy(_dir).multiplyScalar(Math.cos(g)).addScaledVector(_tangent, Math.sin(g));
           }
-          _look.copy(_lookDir).multiplyScalar(radiusAlong(_lookDir));
+          // Low-pass the view ray (anti-snap): absorbs the arbitrary entry pose on the
+          // first leg and the heading change at every dwell→leg handover. The steady-state
+          // lag at cruise ω is a fraction of a degree — invisible, and the dwell converges it.
+          easeLookToward(_lookDir, dtMs);
           camera.up.copy(_dir);
           camera.lookAt(_look);
           camera.updateMatrixWorld();

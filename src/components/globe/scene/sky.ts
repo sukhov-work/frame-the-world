@@ -15,8 +15,9 @@ import { DITHER_GLSL, glf } from "./glsl";
  *  • Moon — NASA LROC colour map on a sphere lit IN-SHADER by the real sun direction, so the
  *    phase (terminator on the lunar disc) is astronomically correct for free. A faint earthshine
  *    floor keeps the dark limb readable. Texture centre (lon 0 = near side) is aimed at Earth.
- *  • Moonlight — a cool DirectionalLight whose intensity follows the illuminated fraction, so
- *    full-moon nights light the buildings and new-moon nights go dark.
+ *  • Moonlight — a cool DirectionalLight whose intensity follows the K&S-1991 phase curve
+ *    (lib/ephemeris/moonlight: quarter ≈ 9% of full), so full-moon nights light the buildings
+ *    and everything dimmer than gibbous reads honestly faint.
  *
  * Tunables: SKY. Colours: tokens.sunCore / sunGlow / moonlight (D14).
  */
@@ -34,8 +35,10 @@ export interface SkyHandle {
     /** True apparent angular radii (rad) from the ephemeris distances. */
     sunAngRad: number;
     moonAngRad: number;
-    /** Illuminated fraction 0..1 — drives the moonlight intensity. */
-    moonIllumination: number;
+    /** K&S-1991 phase-scaled lunar intensity 0..1 (`lib/ephemeris/moonlight`, 1 = full moon) —
+     *  drives the moonlight key. The orchestrator passes 0 while the shadow rig impersonates
+     *  the moon (S5 source switch), so the night key is never doubled. */
+    moonIntensity: number;
   }): void;
   dispose(): void;
 }
@@ -177,7 +180,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     sunMesh,
     moonMesh,
     moonLight,
-    update({ camera, sunDir, moonPos, sunAngRad, moonAngRad, moonIllumination }) {
+    update({ camera, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity }) {
       // GlobeControls refits near/far per frame — looking AWAY from the earth pushes near out to
       // thousands of km (it fits the terrain BEHIND the camera), so the impostor distance must be
       // clamped into the live [near, far] band or the bodies near-plane-clip out of the sky.
@@ -206,10 +209,11 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       moonMesh.quaternion.setFromRotationMatrix(_m);
       moonUniforms.uSunDir.value.copy(sunDir);
 
-      // Moonlight follows the moon; intensity follows the phase.
+      // Moonlight follows the moon; intensity follows the K&S phase curve (quarter ≈ 9% of
+      // full — physical relative scaling, calibrated at full moon by moonKeyIntensity).
       moonLight.position.copy(_dir).multiplyScalar(1e7);
       moonLight.target.position.set(0, 0, 0);
-      moonLight.intensity = SKY.moonKeyIntensity * moonIllumination;
+      moonLight.intensity = SKY.moonKeyIntensity * moonIntensity;
     },
     dispose() {
       moonTex.dispose();

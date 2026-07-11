@@ -55,8 +55,9 @@ export const SKY = {
   sunIntensity: 5,
   /** Halo gain inside the impostor shader (kept low — UnrealBloom carries the wide glow). */
   sunGlowGain: 0.5,
-  /** Moon albedo multiplier (>1 pushes the lit limb into bloom; raised 2026-07-10 "moon brighter"). */
-  moonBrightness: 1.8,
+  /** Moon albedo multiplier (>1 pushes the lit limb into bloom; raised 2026-07-10 "moon
+   *  brighter", again for the S5 night pass — the horizon-fade keeps the disc melting cleanly). */
+  moonBrightness: 2.4,
   /** Earthshine floor on the moon's dark side (0 = pitch black new moon). */
   moonEarthshine: 0.1,
   /** Horizon occlusion fade band (m). The impostors sit at a FAKE camera-anchored distance, so the
@@ -65,9 +66,11 @@ export const SKY = {
    *  the ray's closest-approach altitude drops through this band. ~the atmosphere line scale height
    *  reads as the body melting into the horizon haze rather than popping. */
   horizonFadeBandM: 40_000,
-  /** Max DirectionalLight intensity of moonlight on buildings (scaled by illuminated fraction). */
+  /** FULL-MOON DirectionalLight intensity of moonlight on buildings. S5: scaled by the
+   *  K&S-1991 phase curve (`lib/ephemeris/moonlight.ts` — quarter ≈ 9% of full, NOT the
+   *  linear illuminated fraction), so this number is the full-moon calibration anchor. */
   moonKeyIntensity: 0.3,
-  /** Max moonlight term inside the earth/ground shaders (scaled by illuminated fraction). */
+  /** FULL-MOON moonlight term inside the earth/ground shaders (same K&S phase scaling). */
   moonSceneGlow: 0.35,
 } as const;
 
@@ -152,6 +155,15 @@ export const SHADOWS = {
    *  "crisper" pass: 4096² edges are clean, presence was the limiter → 0.55 → 0.75 + a cool
    *  tokens.water tint instead of pure black). */
   groundOpacity: 0.75,
+  // --- Moon shadows (Phase 5.5 S5, §Item 7): ONE rig, source switch — when the sun is below
+  //     minSunElevSin and a bright-enough moon is up, the same shadow light is driven from the
+  //     moon direction (impersonating the moon key: tokens.moonlight colour, K&S intensity). ---
+  /** Moon shadows engage at/above this illuminated fraction (≈ gibbous 0.85 → K&S ~33% of
+   *  full-moon light — the shadow fades in from ~1/3 strength, never pops). */
+  moonMinIllum: 0.85,
+  /** Ground shadow opacity under a FULL moon (× the K&S phase intensity per frame) — softer
+   *  than the sun's 0.75: moonlight shadows read as presence, not contrast. */
+  moonGroundOpacity: 0.55,
 } as const;
 
 /** Renderer-level knobs (GlobeCanvas). */
@@ -315,10 +327,28 @@ export const EARTH = {
     elevation: "/textures/earth-topology.png",
     /** tangent-space relief normals (data). */
     normal: "/textures/earth-normal.jpg",
-    /** NASA Blue Marble JULY topo+bathy 5400² (sRGB; record 73751 — December has a snow blanket). */
+    /** NASA Blue Marble JULY topo+bathy 5400² (sRGB; record 73751 — December has a snow blanket).
+     *  BOOT texture — the 8k below swaps in async. */
     color: "/textures/earth-color.jpg",
-    /** NASA VIIRS city lights 3600² (sRGB; record 79765). */
+    /** 8192×4096 downscale of the SAME BMNG July at 21600×10800 (owner 2026-07-11: continental
+     *  imagery read blocky next to the crisp 8k night lights). Async upgrade, boot stays. */
+    color8k: "/textures/earth-color-8k.jpg",
+    /** 8k land/water mask DERIVED from color8k itself (headless-canvas classifier: BMNG bathy
+     *  blue-dominance + near-black-lake rule + ice/gray guards) — registration-PERFECT with the
+     *  rendered coastlines, unlike any external mask. land=white/ocean=black like the boot mask;
+     *  single-channel → R8 DataTexture at runtime. The old 2048² mask (~20 km/texel) was the
+     *  blocky-coast artifact at mid zoom. */
+    landMask8k: "/textures/earth-landmask-8k.png",
+    /** NASA VIIRS city lights 3600² (sRGB; record 79765) — the BOOT texture only: it paints
+     *  the first frames while the 8k Black Marble below fetches (same idiom as the BSC5 star
+     *  catalog's procedural fallback), and stays if the fetch/GPU-size check fails. */
     night: "/textures/earth-night.jpg",
+    /** NASA Black Marble 2016 grayscale 8192×4096 (S5 §Item 8; downscaled from the 13500×6750
+     *  BlackMarble_2016_3km_gray source, eoimages.gsfc.nasa.gov record 144897). Decoded
+     *  client-side into a SINGLE-CHANNEL RedFormat DataTexture (~34 MB GPU vs ~134 RGBA);
+     *  gamma-encoded gray → shader linearizes via uNightGamma. Skipped when the GPU's
+     *  MAX_TEXTURE_SIZE is under 8192 (the mobile floor per the design research). */
+    night8k: "/textures/earth-night-8k.jpg",
   },
   /** Sphere tessellation (384² segments ≈ smooth limb at LEO). */
   segments: 384,
@@ -329,8 +359,8 @@ export const EARTH = {
   polygonOffset: 1,
   // --- uniform defaults (runtime-tunable via __globe.earthUniforms in DEV) --------------------
   /** Dark-side floor — just enough to navigate; city lights + moonlight carry the rest.
-   *  (was 0.32; dropped 2026-07-10 "night side more pronounced" owner pass). */
-  nightFloor: 0.22,
+   *  (0.32 → 0.22 2026-07-10 "night side more pronounced"; → 0.19 S5 darker-night pass). */
+  nightFloor: 0.19,
   /** Normal-map strength: 0 = flat, 1 = full 3D relief. */
   relief: 0.75,
   /** 0 = pure palette duotone, 1 = pure (graded) NASA colour (verified 0.58 — geology reads,
@@ -359,6 +389,10 @@ export const EARTH = {
   lightsBand: [-0.12, -0.005],
   /** VIIRS emissive boost — li²·this (the square kills haze, keeps real cities). */
   cityLightGain: 2.1,
+  /** Linearization exponent for the RAW 8k Black Marble gray (uNightGamma after the swap —
+   *  no single-channel sRGB texture format exists, so the shader does the decode; the boot
+   *  sRGB texture runs at 1.0 because the GPU already decoded it). */
+  night8kGamma: 2.2,
   /** Day-side limb scattering: rim = (1-N·V)^pow · gain — melts the disc into the halo. */
   rimPow: 3.0,
   rimGain: 0.12,
@@ -406,8 +440,18 @@ export const ATMOSPHERE = {
   hazeGain: 0.3,
   /** Rays that strike the planet get this faint blue air-wash instead of the limb line. */
   groundWashGain: 0.045,
-  /** Night-side glow floor (sun-modulation lower bound). */
+  /** Night-side glow floor (sun-modulation lower bound) — the night LIMB keeps this fraction
+   *  of the day glow ("just enough to navigate"). NOTE: before the S5 obliquity fix this floor
+   *  also painted the whole up-looking sky navy at 20–350 km; it is now horizon-only. */
   sunFloor: 0.25,
+  /** Chapman-style path-length obliquity (S5 §Item 15 — THE navy-night-sky root cause): the
+   *  glow model weighted every ray by density at its closest approach ONLY. For up-looking
+   *  rays that point is the CAMERA, so a zenith ray (≈H of air) rendered as bright as a
+   *  grazing horizon ray (≈√(π·Re·H/2) ≈ 25–35× more air) — at 20–350 km altitude the entire
+   *  night sky glowed a uniform navy at intensity·sunFloor. Each scale height now dims by
+   *  sinLimit/max(sin elev, sinLimit), sinLimit = √(2H/(π·Re)) (zenith ≈ ×0.08 line / ×0.15
+   *  haze; horizon and limb-passing rays unchanged). 1 = physical, 0 = legacy dome. */
+  obliquityK: 1,
   /** Ground-hit detection band around Re (m below / above) for the wash blend. */
   groundBandBelowM: 60_000,
   groundBandAboveM: 10_000,
@@ -466,7 +510,8 @@ export const STARS = {
    *  ~0.5 alpha weight simply vanishes at DPR 1 — the mag-4+ tail (most of BSC5) went invisible.
    *  Brightness hierarchy still reads through SIZE; the floor keeps the sky populated. */
   brightGamma: 0.6,
-  brightMin: 0.55,
+  /** (0.55 → 0.65 S5 night pass: richer faint-star field against the fixed near-black sky.) */
+  brightMin: 0.65,
   /** Point size = rand²·sizeSpread + sizeBase (px, pre-DPR) — a few bright, many faint. */
   sizeBase: 0.8,
   sizeSpread: 2.0,
@@ -474,8 +519,8 @@ export const STARS = {
   twinkleBase: 0.7,
   twinkleAmp: 0.3,
   twinkleSpeed: 1.5,
-  /** Peak star alpha. */
-  alpha: 0.8,
+  /** Peak star alpha (0.8 → 0.9 S5 — brighter stars are half the point of the darker sky). */
+  alpha: 0.9,
   /** Sphere radius = limbDistance·this (just beyond the farthest terrain)… */
   limbMargin: 1.05,
   /** …clamped to camera.far·this (inside the dynamic far plane, or it gets culled). */
@@ -496,12 +541,12 @@ export const STARS = {
  *  texture of the night sky, not a feature. */
 export const MILKYWAY = {
   count: 14_000,
-  /** Peak point alpha (≪ STARS.alpha — subtlety is the spec; live-tuned 2026-07-10). */
-  alpha: 0.25,
+  /** Peak point alpha (≪ STARS.alpha — subtlety is the spec; 0.25 → 0.35 S5 night pass). */
+  alpha: 0.35,
   /** Point sizes (px, pre-DPR): sizeBase + rand²·sizeSpread. Below ~1 px a point often covers
    *  no pixel centre at DPR 1 and simply vanishes (verified live — the 0.6 px first cut rendered
-   *  NOTHING); ~2-4.5 px + low alpha reads as the intended soft veil. */
-  sizeBase: 2.2,
+   *  NOTHING); ~2.6-5 px + low alpha reads as the intended soft veil (sizeBase up S5). */
+  sizeBase: 2.6,
   sizeSpread: 2.2,
   /** Gaussian half-thickness of the band across galactic latitude (deg). */
   sigmaBDeg: 8.5,
@@ -533,8 +578,8 @@ export const BUILDINGS = {
  *  terminator is continuous across LODs. Runtime-tunable via __globe.groundUniforms in DEV. */
 export const GROUND = {
   /** Dark-side floor — slightly above the base's: close-zoom ground must stay navigable.
-   *  (was 0.45; dropped 2026-07-10 "night side more pronounced" owner pass). */
-  nightFloor: 0.38,
+   *  (0.45 → 0.38 2026-07-10 "night side more pronounced"; → 0.35 S5 darker-night pass). */
+  nightFloor: 0.35,
   /** Pull satellite chroma toward the instrument (0 = untouched, 1 = grayscale). */
   desat: 0.52,
   /** Sit the imagery in the dark scene's tonal range. */
@@ -753,22 +798,23 @@ export const PINS = {
 } as const;
 
 /** Explore ambient pin journey (Phase 5.5 S4, §Item 11): the Explore nav item becomes a
- *  meditative auto-cruise — settle to ~900 km / ~50° tilt, then glide public pin → public pin
- *  (nearest-neighbour order) at constant angular velocity with a dwell at each. ANY pointer /
- *  wheel / Escape / encoder input exits and never fights the user; <2 loaded pins falls back
- *  to the idle drift at the Explore pose. Legs are DRIFT-pacing × a few — NOT the 2.2 s
- *  flight easing (globe/explore.ts owns the motion; entry/fallback ride the normal flight). */
+ *  meditative auto-cruise — glide public pin → public pin (nearest-neighbour order) at
+ *  constant angular velocity with a dwell at each, easing toward ~900 km / ~50° tilt. The
+ *  journey starts CRUISING from the current pose — no entry flight, no lunge at the first pin
+ *  (owner 2026-07-11: the welcome backdrop must open already gliding). ANY pointer / wheel /
+ *  Escape / encoder input exits and never fights the user; <2 loaded pins falls back to the
+ *  idle drift until pins land (globe/explore.ts owns the motion). */
 export const EXPLORE = {
   /** Cruise altitude (m above the ellipsoid). */
   altM: 900_000,
   /** Cruise tilt (deg from nadir) — oblique enough that the landscape reads. */
   tiltDeg: 50,
   /** Target leg duration (s): angular speed = leg arc / this, clamped below. */
-  legTargetS: 28,
+  legTargetS: 14,
   /** Angular-speed clamp (deg/s): floor keeps micro-legs from crawling; cap keeps far legs
-   *  meditative (ISS drift is 0.066°/s — this is "DRIFT pacing × a few"). */
-  omegaMinDegPerS: 0.06,
-  omegaMaxDegPerS: 0.55,
+   *  ambient (ISS drift is 0.066°/s). Band doubled 2026-07-11 — owner: cruise 2× faster. */
+  omegaMinDegPerS: 0.12,
+  omegaMaxDegPerS: 1.1,
   /** Smooth speed ramp over this fraction of the leg at each end (no jerk at start/stop)… */
   edgeRampFrac: 0.18,
   /** …with this floor so the eased ends still make progress (a pure ramp never finishes). */
@@ -780,6 +826,13 @@ export const EXPLORE = {
   dwellOrbitDegPerS: 0.12,
   /** Altitude low-pass toward altM while cruising (ms) — legs absorb entry-altitude error. */
   altEaseTauMs: 2_600,
+  /** Look-point low-pass (ms) — blends the arbitrary starting pose into the first leg and
+   *  smooths the heading change at every dwell→leg handover (no snap, no entry flight). */
+  poseEaseTauMs: 1_200,
+  /** Ceiling on that low-pass, in deg/s of view-ray tilt/heading change (what the eye
+   *  sees): a large entry error (~120° of heading when the default pose faces away from
+   *  the first leg) pans around slowly at constant tilt — never whips, never dips to nadir. */
+  lookMaxRateDegPerS: 12,
   /** Legs shorter than this arc (deg) count as arrived (colocated pins → dwell only). */
   minLegDeg: 0.05,
 } as const;

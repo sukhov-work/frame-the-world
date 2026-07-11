@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
+import { extractRedChannel } from "../../../lib/textures/redChannel";
 import { EARTH, GOLDEN, SUN } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
 
@@ -20,7 +21,7 @@ export interface BaseEarthHandle {
 
 export function attachBaseEarth(
   scene: THREE.Scene,
-  opts: { baseScale: THREE.Vector3; maxAniso: number },
+  opts: { baseScale: THREE.Vector3; maxAniso: number; maxTextureSize: number },
 ): BaseEarthHandle {
   const loader = new THREE.TextureLoader();
   const landMaskTex = loader.load(EARTH.textures.landMask);
@@ -40,11 +41,11 @@ export function attachBaseEarth(
   nightTex.colorSpace = THREE.SRGBColorSpace;
 
   const uniforms = {
-    uLandMask: { value: landMaskTex },
+    uLandMask: { value: landMaskTex as THREE.Texture }, // widened — the 8k swap is a DataTexture
     uElevation: { value: elevationTex },
     uNormal: { value: normalTex },
     uColor: { value: colorTex },
-    uNight: { value: nightTex },
+    uNight: { value: nightTex as THREE.Texture }, // widened — the 8k swap is a DataTexture
     uWater: { value: new THREE.Color(tokens.water) }, // THREE.Color => LINEAR uniform
     uLand: { value: new THREE.Color(tokens.land) },
     uLandHi: { value: new THREE.Color(tokens.landHi) },
@@ -54,7 +55,11 @@ export function attachBaseEarth(
     uGoldenCol: { value: new THREE.Color(tokens.goldenHour) },
     uSunDir: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uMoonDir: { value: new THREE.Vector3(0, 0, 1) },
-    uMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
+    uMoonGlow: { value: 0 }, // SKY.moonSceneGlow × K&S phase intensity (per ephemeris sample)
+    // City-lights linearization exponent: the boot texture is sRGB (hardware-decoded → 1.0);
+    // the 8k Black Marble swaps in as RAW gamma-encoded R8 data (no single-channel sRGB format
+    // exists in WebGL2), so the shader linearizes with EARTH.night8kGamma after the swap.
+    uNightGamma: { value: 1 },
     uMoonCol: { value: new THREE.Color(tokens.moonlight) },
     uNightFloor: { value: EARTH.nightFloor },
     uRelief: { value: EARTH.relief },
@@ -82,6 +87,7 @@ export function attachBaseEarth(
       uniform vec3 uWater, uLand, uLandHi, uPeak, uCityLights, uAtmTint, uGoldenCol, uSunDir;
       uniform vec3 uMoonDir, uMoonCol;
       uniform float uMoonGlow;
+      uniform float uNightGamma;
       uniform float uNightFloor;
       uniform float uRelief;
       uniform float uOrganic;
@@ -127,10 +133,12 @@ export function attachBaseEarth(
         float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, gSin)
                    * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, gSin));
         color *= mix(vec3(1.0), uGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.earthStrength)});
-        // Geographically correct night-side city lights (VIIRS). li^2 kills haze, keeps real cities.
+        // Geographically correct night-side city lights (VIIRS Black Marble). SINGLE-CHANNEL
+        // sample (S5 §Item 8 — the 8k upgrade ships as R8); uNightGamma linearizes the raw
+        // gray (1.0 for the hardware-decoded sRGB boot texture). li^2 kills haze, keeps cities.
         // Lights ride the same solar-elevation sine as the terminator: on through dusk, off by sunrise.
         float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunDot);
-        float li = dot(texture2D(uNight, vUv).rgb, vec3(0.333));
+        float li = pow(texture2D(uNight, vUv).r, uNightGamma);
         color += uCityLights * (li * li * ${glf(EARTH.cityLightGain)}) * night * land;
         // Cool moonlight lifts the dark side by lunar phase (astronomically-driven, like the sun).
         color += albedo * uMoonCol * (max(dot(Np, normalize(uMoonDir)), 0.0) * uMoonGlow * night);
@@ -158,11 +166,98 @@ export function attachBaseEarth(
   mesh.rotation.x = Math.PI / 2; // sphere UV poles (+Y) -> ECEF +Z
   scene.add(mesh);
 
+  // --- S5 8k upgrades (§Item 8 night lights + the owner's continental/ocean follow-up): the
+  //     boot textures paint the first frames; the 8192×4096 versions fetch in the background
+  //     and swap in — same fallback idiom as the BSC5 star catalog. Single-channel maps (night,
+  //     land/water mask) become R8 DataTextures (~34 MB GPU + mips vs ~134 MB as RGBA each);
+  //     the colour map stays a plain sRGB texture. Skipped when the GPU can't take 8k. --------
+  let disposed = false;
+  /** Fetch + rasterize an image URL to ImageData (the ~134 MB RGBA store is freed promptly). */
+  const rasterize = async (url: string): Promise<ImageData> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const bitmap = await createImageBitmap(await res.blob());
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) throw new Error("2d context unavailable");
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.width = canvas.height = 0;
+    return img;
+  };
+  /** Single-channel R8 texture from ImageData. flipY happens IN THE DATA — WebGL's
+   *  UNPACK_FLIP_Y does not apply to typed-array uploads. R8 is color-renderable → GPU mips. */
+  const makeR8 = (img: ImageData): THREE.DataTexture => {
+    const red = extractRedChannel(img.data, img.width, img.height, { flipY: true });
+    const tex = new THREE.DataTexture(red, img.width, img.height, THREE.RedFormat, THREE.UnsignedByteType);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.anisotropy = opts.maxAniso;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.colorSpace = THREE.NoColorSpace; // raw data — night linearizes in-shader, mask is linear
+    tex.needsUpdate = true;
+    return tex;
+  };
+  const swapUniformTex = (u: THREE.IUniform, tex: THREE.Texture) => {
+    (u.value as THREE.Texture).dispose();
+    u.value = tex;
+  };
+  const upgradeNight = async () => {
+    try {
+      const img = await rasterize(EARTH.textures.night8k);
+      if (disposed) return;
+      swapUniformTex(uniforms.uNight, makeR8(img));
+      uniforms.uNightGamma.value = EARTH.night8kGamma; // gamma-encoded gray → shader decode
+    } catch (e) {
+      console.warn("[globe] Black Marble 8k unavailable — keeping the boot night texture:", e);
+    }
+  };
+  const upgradeLandMask = async () => {
+    try {
+      const img = await rasterize(EARTH.textures.landMask8k);
+      if (disposed) return;
+      swapUniformTex(uniforms.uLandMask, makeR8(img)); // mask is linear data — no gamma
+    } catch (e) {
+      console.warn("[globe] 8k land mask unavailable — keeping the boot mask:", e);
+    }
+  };
+  const upgradeColor = () => {
+    new THREE.TextureLoader().load(
+      EARTH.textures.color8k,
+      (tex) => {
+        if (disposed) {
+          tex.dispose();
+          return;
+        }
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.anisotropy = opts.maxAniso;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        swapUniformTex(uniforms.uColor, tex);
+      },
+      undefined,
+      (e) => console.warn("[globe] 8k colour map unavailable — keeping the boot colour:", e),
+    );
+  };
+  if (opts.maxTextureSize >= 8192) {
+    void upgradeNight();
+    void upgradeLandMask();
+    upgradeColor();
+  }
+
   return {
     mesh,
     uniforms,
     dispose() {
+      disposed = true;
       for (const t of allTex) t.dispose();
+      // the 8k swaps, where they landed (double-dispose of boot textures is harmless)
+      (uniforms.uNight.value as THREE.Texture).dispose();
+      (uniforms.uLandMask.value as THREE.Texture).dispose();
+      (uniforms.uColor.value as THREE.Texture).dispose();
       mesh.geometry.dispose();
       material.dispose();
       scene.remove(mesh);
