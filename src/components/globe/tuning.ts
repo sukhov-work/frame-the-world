@@ -672,6 +672,28 @@ export const PINS = {
   queryDebounceMs: 450,
   /** Pin resnap cadence (frames) — re-ask the terrain for ground height under nearby pins. */
   resnapEveryFrames: 120,
+  /** Post-save pulse-highlight (Phase 5.5 S3): the freshly saved pin breathes for this long
+   *  so the fly-out has a landing beacon. Scale swings ±pulseAmp around the normal size. */
+  highlightMs: 8_000,
+  highlightPulseAmp: 0.45,
+  highlightPeriodMs: 1_100,
+  /** Post-save fly-out altitude (m above ground) — far enough that the pin reads in context. */
+  savedFlyOutAltM: 3_800,
+} as const;
+
+/** Click-to-place live marker (Phase 5.5 S3): while the store is `placing`, an accent dot
+ *  hugs the rendered ground under the pointer so the drop point is visible before the click
+ *  (the crosshair cursor alone hid exactly the pixel that mattered). */
+export const PLACING = {
+  /** Marker world radius = camera distance × this… */
+  markerAngular: 0.005,
+  /** …clamped (m). */
+  markerMinM: 1.2,
+  markerMaxM: 15_000,
+  /** Dimmer than a real pin — it is a preview, not a commitment. */
+  markerOpacity: 0.55,
+  /** Ground re-pick cadence (frames) while the pointer rests — picking raycasts the tile set. */
+  repickEveryFrames: 2,
 } as const;
 
 /** FPV photographer mode (Phase 5.5 S2): the camera sits EXACTLY at the placed photo's frustum

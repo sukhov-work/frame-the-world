@@ -1,18 +1,22 @@
-// POST /api/photos — save a placed photo as a pin (ARCHITECTURE §6).
-// Thin per C1: validate → auth → quota → insert. This endpoint is the ONLY writer of the
-// Photos and PublicPins collections (both are ADMIN-only on the platform side), which makes
-// two invariants structural:
+// /api/photos — the pin lifecycle endpoint (ARCHITECTURE §6): GET list · POST save ·
+// PATCH update · DELETE remove. Thin per C1: validate → auth → quota/owner gate → write.
+// This endpoint is the ONLY writer of the Photos and PublicPins collections (both are
+// ADMIN-only on the platform side), which makes two invariants structural:
 //   • quota — a free member's 11th photo is refused HERE, and the collections refuse direct
 //     member-session writes, so the wall cannot be bypassed from the client;
 //   • C6 — the PublicPins row is built by publicPinRecord (reduced-precision derivation only);
-//     exact GPS is never written to a public record.
+//     exact GPS is never written to a public record — location EDITS re-reduce the same way.
 import type { APIRoute } from "astro";
 import { items } from "@wix/data";
 import { auth } from "@wix/essentials";
+import { files } from "@wix/media";
 import { members } from "@wix/members";
 import { orders } from "@wix/pricing-plans";
 import {
+  applyPinUpdate,
+  authorLabel,
   parseSavePinBody,
+  parseUpdatePinBody,
   photoListItem,
   photoRecord,
   PIN_QUOTA_FREE,
@@ -25,6 +29,23 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { "Content-Type": "application/json" },
   });
+
+/** The calling member with profile fields (nickname/loginEmail feed authorName), or null. */
+async function currentMember() {
+  try {
+    const { member } = await members.getCurrentMember({ fieldsets: ["FULL"] });
+    // Spread to pin _id as a definite string — the SDK types it optional.
+    return member?._id ? { ...member, _id: member._id } : null;
+  } catch {
+    return null; // anonymous visitors reject getCurrentMember
+  }
+}
+
+/** The member's own Photos row, or null when it doesn't exist / belongs to someone else. */
+async function ownedPhoto(photoId: string, memberId: string) {
+  const row = await auth.elevate(items.get)("Photos", photoId).catch(() => null);
+  return row && row.ownerMemberId === memberId ? row : null;
+}
 
 /** Paid = any ACTIVE pricing-plan order for the calling member (member context, not elevated). */
 async function hasActivePlan(): Promise<boolean> {
@@ -67,13 +88,8 @@ export const GET: APIRoute = async () => {
 };
 
 export const POST: APIRoute = async ({ request }) => {
-  let member;
-  try {
-    ({ member } = await members.getCurrentMember());
-  } catch {
-    member = undefined;
-  }
-  if (!member?._id) return json({ error: "SIGNED_OUT", message: "sign in to save pins" }, 401);
+  const member = await currentMember();
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to save pins" }, 401);
 
   const parsed = parseSavePinBody(await request.json().catch(() => null));
   if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
@@ -101,7 +117,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (body.isPublic) {
       const pin = await auth.elevate(items.insert)(
         "PublicPins",
-        publicPinRecord(body, photo._id),
+        publicPinRecord(body, photo._id, authorLabel(member.profile?.nickname, member.loginEmail)),
       );
       publicPinId = pin._id;
       await auth.elevate(items.update)("Photos", { ...photo, publicPinId });
@@ -115,5 +131,95 @@ export const POST: APIRoute = async ({ request }) => {
   } catch (e) {
     console.error("[photos]", e);
     return json({ error: "SAVE_FAILED", message: "could not save the pin" }, 502);
+  }
+};
+
+// PATCH /api/photos {photoId, …SavePinBody} — owner-gated update. The PublicPins row is
+// re-derived through the same server-only publicPinRecord (C6 stays structural: a location
+// edit publishes only the new cell centre); toggling isPublic creates/removes the public row.
+export const PATCH: APIRoute = async ({ request }) => {
+  const member = await currentMember();
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to edit pins" }, 401);
+
+  const parsed = parseUpdatePinBody(await request.json().catch(() => null));
+  if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
+  const { photoId, body } = parsed;
+
+  try {
+    const existing = await ownedPhoto(photoId, member._id);
+    if (!existing) return json({ error: "NOT_FOUND", message: "no such pin of yours" }, 404);
+
+    const { record, effective } = applyPinUpdate(existing, body);
+    const prevPinId = typeof existing.publicPinId === "string" ? existing.publicPinId : null;
+    let publicPinId = prevPinId;
+
+    if (effective.isPublic) {
+      const pinRow = publicPinRecord(
+        effective,
+        photoId,
+        authorLabel(member.profile?.nickname, member.loginEmail),
+      );
+      if (prevPinId) {
+        await auth.elevate(items.update)("PublicPins", { ...pinRow, _id: prevPinId });
+      } else {
+        const pin = await auth.elevate(items.insert)("PublicPins", pinRow);
+        publicPinId = pin._id;
+      }
+    } else if (prevPinId) {
+      await auth.elevate(items.remove)("PublicPins", prevPinId);
+      publicPinId = null;
+    }
+
+    record.publicPinId = publicPinId;
+    await auth.elevate(items.update)("Photos", record as { _id: string });
+
+    return json({ photoId, publicPinId });
+  } catch (e) {
+    console.error("[photos:update]", e);
+    return json({ error: "UPDATE_FAILED", message: "could not update the pin" }, 502);
+  }
+};
+
+// DELETE /api/photos?id= — owner-gated removal: PublicPins row (linked id, else a defensive
+// photoRef lookup), the Photos row, then the media files best-effort (a stuck file must never
+// leave a ghost pin). Frees a quota slot — the response carries the fresh count.
+export const DELETE: APIRoute = async ({ url }) => {
+  const member = await currentMember();
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to delete pins" }, 401);
+
+  const photoId = url.searchParams.get("id");
+  if (!photoId) return json({ error: "BAD_REQUEST", message: "id query param required" }, 400);
+
+  try {
+    const existing = await ownedPhoto(photoId, member._id);
+    if (!existing) return json({ error: "NOT_FOUND", message: "no such pin of yours" }, 404);
+
+    let pinId = typeof existing.publicPinId === "string" ? existing.publicPinId : null;
+    if (!pinId) {
+      const res = await auth.elevate(items.query)("PublicPins").eq("photoRef", photoId).find();
+      pinId = (res.items[0]?._id as string | undefined) ?? null;
+    }
+    if (pinId) await auth.elevate(items.remove)("PublicPins", pinId).catch(() => null);
+
+    await auth.elevate(items.remove)("Photos", photoId);
+
+    const fileIds = [existing.originalFileId, existing.previewFileId].filter(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    );
+    if (fileIds.length > 0) {
+      try {
+        await auth.elevate(files.bulkDeleteFiles)(fileIds);
+      } catch (e) {
+        console.warn("[photos:delete] media cleanup failed — records removed anyway", e);
+      }
+    }
+
+    const used = await auth.elevate(items.query)("Photos")
+      .eq("ownerMemberId", member._id)
+      .count();
+    return json({ deleted: true, quota: { used, limit: PIN_QUOTA_FREE } });
+  } catch (e) {
+    console.error("[photos:delete]", e);
+    return json({ error: "DELETE_FAILED", message: "could not delete the pin" }, 502);
   }
 };

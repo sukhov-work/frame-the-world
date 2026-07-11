@@ -276,3 +276,61 @@
   letter-spacing: 0.1em;
   color: var(--color-text-muted);
 }
+
+/* ── Phase 5.5 S3: staged progress · pin name · own-pin edit actions ─────────────────── */
+
+/* PLACED → TUNED → SAVED stepper: quiet mono chips; done = accent. */
+.pd-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pd-step {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+.pd-step.is-done {
+  color: var(--color-accent);
+}
+.pd-steps__dash {
+  flex: 0 0 14px;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+}
+
+/* Custom pin name (defaults to the file-name title). */
+.pd-save__name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pd-save__namelabel {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.pd-save__nameinput {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  outline: none;
+}
+.pd-save__nameinput:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+/* Two-step DELETE: armed state escalates to the warn tone, never a modal. */
+.pd-del.is-armed {
+  color: var(--color-warn, #e8b465);
+  border-color: color-mix(in srgb, var(--color-warn, #e8b465) 55%, transparent);
+}

@@ -249,3 +249,115 @@ describe("FPV view mode (Phase 5.5 S2)", () => {
     expect(useUploadStore.getState().viewMode).toBe("orbit");
   });
 });
+
+describe("Phase 5.5 S3 — uploadAt / pendingPlacement (temp-pin UPLOAD HERE)", () => {
+  const NO_GPS: PhotoExif = { make: "SONY", model: "ILCE-7RM4", focalLengthMm: 35 };
+
+  it("uploadAt opens the overlay and stores the seed", () => {
+    useUploadStore.getState().uploadAt(48.46, 35.05);
+    const s = useUploadStore.getState();
+    expect(s.open).toBe(true);
+    expect(s.pendingPlacement).toEqual({ latDeg: 48.46, lonDeg: 35.05 });
+  });
+
+  it("a GPS-less file ingests placed at the seed (and consumes it)", () => {
+    useUploadStore.getState().uploadAt(48.46, 35.05);
+    useUploadStore.getState().ingest(extracted(NO_GPS));
+    const s = useUploadStore.getState();
+    expect(s.placement).toEqual({ latDeg: 48.46, lonDeg: 35.05 });
+    expect(s.pendingPlacement).toBeUndefined();
+  });
+
+  it("EXIF GPS wins over the seed — it is the real capture location", () => {
+    useUploadStore.getState().uploadAt(10, 20);
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE));
+    const s = useUploadStore.getState();
+    expect(s.placement).toEqual({ latDeg: EXIF_PHONE.gpsLat, lonDeg: EXIF_PHONE.gpsLon });
+    expect(s.pendingPlacement).toBeUndefined();
+  });
+
+  it("closing the overlay without a file abandons the seed", () => {
+    useUploadStore.getState().uploadAt(48.46, 35.05);
+    useUploadStore.getState().closePanel();
+    expect(useUploadStore.getState().pendingPlacement).toBeUndefined();
+  });
+});
+
+describe("Phase 5.5 S3 — own-pin identity + re-place path", () => {
+  const OWN_VIEW = {
+    pinId: "photo-1",
+    ownPhotoId: "photo-1",
+    title: "Dnipro rooftop",
+    lat: 48.4647,
+    lon: 35.0462,
+    previewUrl: null,
+    capturedAt: null,
+    isPublic: true,
+    publicPrecision: "1km",
+    headingDeg: 214,
+    hFovDeg: 73.7,
+  };
+
+  it("openSavedPin from MY PINS carries ownPhotoId + save-time choices", () => {
+    useUploadStore.getState().openSavedPin(OWN_VIEW);
+    const s = useUploadStore.getState();
+    expect(s.ownPhotoId).toBe("photo-1");
+    expect(s.ownPinMeta).toEqual({ isPublic: true, precision: "1km" });
+  });
+
+  it("a globe pin click (no ownPhotoId) stays a foreign view", () => {
+    useUploadStore.getState().openSavedPin({ ...OWN_VIEW, ownPhotoId: undefined });
+    const s = useUploadStore.getState();
+    expect(s.viewingPinId).toBe("photo-1");
+    expect(s.ownPhotoId).toBeUndefined();
+    expect(s.ownPinMeta).toBeUndefined();
+  });
+
+  it("rePlace enters placing only for a viewed pin and keeps the old placement", () => {
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE)); // fresh upload, not a viewed pin
+    useUploadStore.getState().place();
+    useUploadStore.getState().rePlace();
+    expect(useUploadStore.getState().phase).toBe("placed"); // refused — not a viewed pin
+
+    useUploadStore.getState().openSavedPin(OWN_VIEW);
+    useUploadStore.getState().rePlace();
+    const s = useUploadStore.getState();
+    expect(s.phase).toBe("placing");
+    expect(s.placement).toEqual({ latDeg: OWN_VIEW.lat, lonDeg: OWN_VIEW.lon });
+  });
+
+  it("cancelPlacing returns a viewed pin to placed and a fresh upload to review", () => {
+    useUploadStore.getState().openSavedPin(OWN_VIEW);
+    useUploadStore.getState().rePlace();
+    useUploadStore.getState().cancelPlacing();
+    expect(useUploadStore.getState().phase).toBe("placed");
+
+    const noGps: PhotoExif = { make: "SONY", model: "ILCE-7RM4", focalLengthMm: 35 };
+    useUploadStore.getState().ingest(extracted(noGps));
+    useUploadStore.getState().place(); // no GPS → placing
+    expect(useUploadStore.getState().phase).toBe("placing");
+    useUploadStore.getState().cancelPlacing();
+    const s = useUploadStore.getState();
+    expect(s.phase).toBe("review");
+    expect(s.open).toBe(true);
+  });
+
+  it("setPlacement completes a re-place with the new location", () => {
+    useUploadStore.getState().openSavedPin(OWN_VIEW);
+    useUploadStore.getState().rePlace();
+    useUploadStore.getState().setPlacement(50.45, 30.52);
+    const s = useUploadStore.getState();
+    expect(s.phase).toBe("placed");
+    expect(s.placement).toEqual({ latDeg: 50.45, lonDeg: 30.52 });
+    expect(s.ownPhotoId).toBe("photo-1"); // still the same pin being edited
+  });
+
+  it("clear() drops the S3 fields", () => {
+    useUploadStore.getState().openSavedPin(OWN_VIEW);
+    useUploadStore.getState().clear();
+    const s = useUploadStore.getState();
+    expect(s.ownPhotoId).toBeUndefined();
+    expect(s.ownPinMeta).toBeUndefined();
+    expect(s.pendingPlacement).toBeUndefined();
+  });
+});

@@ -17,11 +17,12 @@ export interface UploadedFile {
   url: string | null;
 }
 
-async function postJson(path: string, body: unknown): Promise<any> {
+async function requestJson(path: string, method: string, body?: unknown): Promise<any> {
   const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    method,
+    ...(body !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {}),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -32,6 +33,8 @@ async function postJson(path: string, body: unknown): Promise<any> {
   }
   return json;
 }
+
+const postJson = (path: string, body: unknown) => requestJson(path, "POST", body);
 
 /** Downscale the decoded display texture to a public preview JPEG (longest edge ≤ maxEdgePx). */
 export async function downscaleToJpeg(
@@ -117,4 +120,20 @@ export async function postPhotoRecord(body: Record<string, unknown>): Promise<{
   quota: { used: number; limit: number };
 }> {
   return postJson("/api/photos", body);
+}
+
+/** PATCH an owned pin (Phase 5.5 S3) — body is {photoId, …save-pin fields}. */
+export async function patchPhotoRecord(body: Record<string, unknown>): Promise<{
+  photoId: string;
+  publicPinId: string | null;
+}> {
+  return requestJson("/api/photos", "PATCH", body);
+}
+
+/** DELETE an owned pin; the response carries the freed quota count. */
+export async function deletePhotoRecord(photoId: string): Promise<{
+  deleted: boolean;
+  quota: { used: number; limit: number };
+}> {
+  return requestJson(`/api/photos?id=${encodeURIComponent(photoId)}`, "DELETE");
 }

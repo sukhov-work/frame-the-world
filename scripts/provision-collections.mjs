@@ -69,6 +69,8 @@ const COLLECTIONS = [
     fields: [
       text("title", "Title"),
       text("photoRef", "Photo Ref"),
+      // denormalized member display label (Phase 5.5 S3) — identity, not location (C6-ok)
+      text("authorName", "Author Name"),
       num("latReduced", "Latitude (reduced)"),
       num("lonReduced", "Longitude (reduced)"),
       text("geohash", "Geohash (tier cell)"),
@@ -120,7 +122,37 @@ const have = new Set((existing.body.collections ?? []).map((c) => c.id));
 
 for (const collection of COLLECTIONS) {
   if (have.has(collection.id)) {
-    console.log(`= ${collection.id} already exists — skipped`);
+    // Incremental schema evolution: diff this script's fields against the live schema and
+    // create any that are missing (create-field per the same wix-manage recipe). Never
+    // deletes or retypes — destructive changes stay manual.
+    const live = await api(`/wix-data/v2/collections/${collection.id}`);
+    if (live.status !== 200) {
+      console.error(`! ${collection.id} schema fetch failed:`, live.status);
+      process.exitCode = 1;
+      continue;
+    }
+    const liveKeys = new Set((live.body.collection?.fields ?? []).map((f) => f.key));
+    const missing = collection.fields.filter((f) => !liveKeys.has(f.key));
+    if (missing.length === 0) {
+      console.log(`= ${collection.id} up to date — skipped`);
+      continue;
+    }
+    for (const field of missing) {
+      const { status, body } = await api("/wix-data/v2/collections/create-field", {
+        method: "POST",
+        body: JSON.stringify({ dataCollectionId: collection.id, field }),
+      });
+      if (status === 200) {
+        console.log(`+ ${collection.id}.${field.key} field added`);
+      } else {
+        console.error(
+          `! ${collection.id}.${field.key} add failed:`,
+          status,
+          JSON.stringify(body).slice(0, 300),
+        );
+        process.exitCode = 1;
+      }
+    }
     continue;
   }
   const { status, body } = await api("/wix-data/v2/collections", {

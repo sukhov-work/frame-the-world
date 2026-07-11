@@ -19,6 +19,8 @@ import { PINS } from "../components/globe/tuning";
 export interface PublicPin {
   id: string;
   title: string;
+  /** Denormalized member display label (Phase 5.5 S3); null on pre-S3 rows until back-fill. */
+  authorName: string | null;
   /** REDUCED coordinates — all a public record ever carries (C6). */
   lat: number;
   lon: number;
@@ -105,6 +107,7 @@ export function pinFromItem(item: Record<string, unknown>): PublicPin | null {
   return {
     id,
     title: typeof item.title === "string" ? item.title : "Untitled",
+    authorName: str(item.authorName),
     lat,
     lon,
     precision: typeof item.precision === "string" ? item.precision : "1km",
@@ -127,10 +130,14 @@ export function pinFromItem(item: Record<string, unknown>): PublicPin | null {
 export interface PinsState {
   pins: PublicPin[];
   status: "idle" | "loading" | "ready" | "error";
+  /** Pin to pulse-highlight on the globe (post-save landing beacon, Phase 5.5 S3). The globe
+   *  layer owns the pulse duration; setting the same id again restarts it. */
+  highlightId: string | null;
   /** Orchestrator-only: low-cadence view focus mirror; triggers the debounced query. */
   reportViewport: (latDeg: number, lonDeg: number, altM: number) => void;
   /** Force a re-query of the last viewport (e.g. right after saving a public pin). */
   refresh: () => void;
+  highlight: (pinId: string | null) => void;
 }
 
 let lastQueried: Viewport | null = null;
@@ -168,6 +175,9 @@ async function runQuery(v: Viewport, set: (partial: Partial<PinsState>) => void)
 export const usePinsStore = create<PinsState>((set) => ({
   pins: [],
   status: "idle",
+  highlightId: null,
+
+  highlight: (pinId) => set({ highlightId: pinId }),
 
   reportViewport: (latDeg, lonDeg, altM) => {
     const v: Viewport = { latDeg, lonDeg, altM };

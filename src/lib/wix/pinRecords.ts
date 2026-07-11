@@ -13,6 +13,18 @@ import { isPrecisionTier, reduceLocation, type PrecisionTier } from "../geo/prec
 /** Free-tier pin quota (IMPLEMENTATION_PLAN §Phase 5): the 11th save is refused. */
 export const PIN_QUOTA_FREE = 10;
 
+/**
+ * Public display label for a member: nickname → login-email user part → "Member".
+ * Server-side twin of `memberLabel` in store/member.ts (kept separate so the endpoint never
+ * imports a client store). A display name is NOT location data — C6 governs coordinates only;
+ * the owner explicitly wants authorship on public pins (Phase 5.5 S3).
+ */
+export function authorLabel(nickname?: string | null, loginEmail?: string | null): string {
+  if (nickname) return nickname;
+  if (loginEmail) return loginEmail.split("@")[0];
+  return "Member";
+}
+
 export interface SavePinBody {
   title: string;
   lat: number;
@@ -84,6 +96,52 @@ export function parseSavePinBody(raw: unknown): { body: SavePinBody } | { error:
       precision: r.precision,
     },
   };
+}
+
+/**
+ * Validate an untrusted UPDATE body (PATCH /api/photos): `photoId` + the same pin fields a
+ * save carries. Media/file fields are typically absent on updates (they were minted at save
+ * time) — `applyPinUpdate` keeps the stored values for any that arrive null.
+ */
+export function parseUpdatePinBody(
+  raw: unknown,
+): { photoId: string; body: SavePinBody } | { error: string } {
+  if (typeof raw !== "object" || raw === null) return { error: "body must be a JSON object" };
+  const photoId = str((raw as Record<string, unknown>).photoId, 64);
+  if (!photoId) return { error: "photoId is required" };
+  const parsed = parseSavePinBody(raw);
+  if ("error" in parsed) return parsed;
+  return { photoId, body: parsed.body };
+}
+
+/**
+ * Merge an update into the existing Photos row (pure core of PATCH /api/photos).
+ * Null media/file fields in the patch KEEP the stored values — the client edit flow never
+ * re-uploads media. Returns the full Photos row to write plus the effective SavePinBody that
+ * drives the PublicPins re-derivation (C6: a location edit re-reduces to the cell centre
+ * because `publicPinRecord` remains the only builder of public rows).
+ */
+export function applyPinUpdate(
+  existing: Record<string, unknown>,
+  body: SavePinBody,
+): { record: Record<string, unknown>; effective: SavePinBody } {
+  const effective: SavePinBody = {
+    ...body,
+    fileName: body.fileName ?? strOrNull(existing.fileName),
+    fileSizeBytes: body.fileSizeBytes ?? numOrNull(existing.fileSizeBytes),
+    originalFileId: body.originalFileId ?? strOrNull(existing.originalFileId),
+    previewFileId: body.previewFileId ?? strOrNull(existing.previewFileId),
+    previewUrl: body.previewUrl ?? strOrNull(existing.previewUrl),
+  };
+  const record = {
+    ...existing,
+    ...photoRecord(effective, String(existing.ownerMemberId ?? "")),
+    _id: existing._id,
+    // photoRecord() nulls the link for fresh saves — an update must keep it (the caller
+    // reconciles it after the PublicPins insert/remove).
+    publicPinId: existing.publicPinId ?? null,
+  };
+  return { record, effective };
 }
 
 /** The owner-private Photos row — exact GPS lives here and only here. */
@@ -184,11 +242,17 @@ export function photoListItem(item: Record<string, unknown>): PhotoListItem | nu
  * `reduceLocation(exact, tier)` — for reduced tiers that is the geohash cell CENTER, so the
  * published coordinates carry no more than the tier's cell-size information.
  */
-export function publicPinRecord(body: SavePinBody, photoRef: string): Record<string, unknown> {
+export function publicPinRecord(
+  body: SavePinBody,
+  photoRef: string,
+  authorName: string | null = null,
+): Record<string, unknown> {
   const reduced = reduceLocation(body.lat, body.lon, body.precision);
   return {
     title: body.title,
     photoRef,
+    // Denormalized display label (Phase 5.5 S3) — identity, not location; C6-compatible.
+    authorName,
     latReduced: reduced.latReduced,
     lonReduced: reduced.lonReduced,
     geohash: reduced.geohash,

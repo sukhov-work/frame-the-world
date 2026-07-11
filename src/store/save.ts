@@ -20,6 +20,9 @@ export type SavePhase =
   | "uploading-preview"
   | "saving"
   | "saved"
+  | "updating"
+  | "updated"
+  | "deleting"
   | "error";
 
 export interface SaveState {
@@ -38,9 +41,18 @@ export interface SaveState {
   /** UI choices — C6: public defaults ON at REDUCED precision. */
   isPublic: boolean;
   precision: PrecisionTier;
+  /** Custom pin name (Phase 5.5 S3); null = default to the file-name title. */
+  title: string | null;
   setIsPublic: (v: boolean) => void;
   setPrecision: (tier: PrecisionTier) => void;
+  setTitle: (title: string | null) => void;
   savePin: () => Promise<void>;
+  /** PATCH the viewed OWN pin with the current tweak-panel state (Phase 5.5 S3) — location
+   *  included (the endpoint re-reduces the public row, C6). No media re-upload. */
+  updatePin: () => Promise<void>;
+  /** DELETE the viewed OWN pin: records + media server-side, then the globe refreshes and
+   *  the placed state clears. */
+  deletePin: () => Promise<void>;
   /** Back to idle (new file / start over). */
   reset: () => void;
 }
@@ -50,13 +62,21 @@ export const useSaveStore = create<SaveState>((set, get) => ({
   progress: 0,
   isPublic: true,
   precision: DEFAULT_PRECISION_TIER,
+  title: null,
 
   setIsPublic: (isPublic) => set({ isPublic }),
   setPrecision: (precision) => set({ precision }),
+  setTitle: (title) => set({ title }),
 
   savePin: async () => {
     const phase = get().phase;
-    if (phase === "uploading-original" || phase === "uploading-preview" || phase === "saving") {
+    if (
+      phase === "uploading-original" ||
+      phase === "uploading-preview" ||
+      phase === "saving" ||
+      phase === "updating" ||
+      phase === "deleting"
+    ) {
       return;
     }
     const u = useUploadStore.getState();
@@ -120,6 +140,7 @@ export const useSaveStore = create<SaveState>((set, get) => ({
         originalFileId,
         previewFileId,
         previewUrl,
+        title: get().title,
       });
       const res = await media.postPhotoRecord(body);
       set({
@@ -131,9 +152,11 @@ export const useSaveStore = create<SaveState>((set, get) => ({
         warning,
       });
       if (res.publicPinId) {
-        // The new public pin should appear on the globe right away.
+        // The new public pin should appear on the globe right away — pulse-highlighted so
+        // the post-save fly-out has something to land the eye on (Phase 5.5 S3).
         const { usePinsStore } = await import("./pins");
         usePinsStore.getState().refresh();
+        usePinsStore.getState().highlight(res.publicPinId);
       }
     } catch (e) {
       const err = e as Error & { code?: string; status?: number };
@@ -142,6 +165,73 @@ export const useSaveStore = create<SaveState>((set, get) => ({
         error: err.message || "save failed",
         errorCode: err.code,
       });
+    }
+  },
+
+  updatePin: async () => {
+    const phase = get().phase;
+    if (phase === "updating" || phase === "deleting" || phase === "saving") return;
+    const u = useUploadStore.getState();
+    if (!u.exif || !u.placement || u.phase !== "placed" || !u.ownPhotoId) {
+      set({ phase: "error", error: "no own pin in view to update", errorCode: "NOT_OWN_PIN" });
+      return;
+    }
+    set({ phase: "updating", error: undefined, errorCode: undefined, warning: undefined });
+    try {
+      const media = await import("../lib/save/uploadMedia");
+      const body = buildSavePinBody(
+        {
+          exif: u.exif,
+          params: u.params,
+          placement: u.placement,
+          textureWidth: u.textureWidth,
+          textureHeight: u.textureHeight,
+          // A viewed pin's fileName IS its stored title — media fields stay server-side.
+          fileName: u.fileName,
+          fileSizeBytes: undefined,
+        },
+        {
+          isPublic: get().isPublic,
+          precision: get().precision,
+          originalFileId: null,
+          previewFileId: null,
+          previewUrl: null,
+          title: get().title ?? u.fileName ?? null,
+        },
+      );
+      const res = await media.patchPhotoRecord({ ...body, photoId: u.ownPhotoId });
+      set({ phase: "updated", photoId: res.photoId, publicPinId: res.publicPinId });
+      const { usePinsStore } = await import("./pins");
+      usePinsStore.getState().refresh();
+    } catch (e) {
+      const err = e as Error & { code?: string; status?: number };
+      set({ phase: "error", error: err.message || "update failed", errorCode: err.code });
+    }
+  },
+
+  deletePin: async () => {
+    const phase = get().phase;
+    if (phase === "updating" || phase === "deleting" || phase === "saving") return;
+    const u = useUploadStore.getState();
+    if (!u.ownPhotoId) {
+      set({ phase: "error", error: "no own pin in view to delete", errorCode: "NOT_OWN_PIN" });
+      return;
+    }
+    set({ phase: "deleting", error: undefined, errorCode: undefined, warning: undefined });
+    try {
+      const media = await import("../lib/save/uploadMedia");
+      const res = await media.deletePhotoRecord(u.ownPhotoId);
+      const { usePinsStore } = await import("./pins");
+      usePinsStore.getState().refresh();
+      useUploadStore.getState().clear(); // the viewed pin no longer exists
+      set({
+        phase: "idle",
+        quotaUsed: res.quota?.used,
+        quotaLimit: res.quota?.limit,
+      });
+    } catch (e) {
+      const err = e as Error & { code?: string; status?: number };
+      set({ phase: "error", error: err.message || "delete failed", errorCode: err.code });
     }
   },
 

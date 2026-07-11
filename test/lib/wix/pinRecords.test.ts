@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyPinUpdate,
+  authorLabel,
   parseSavePinBody,
+  parseUpdatePinBody,
   photoListItem,
   photoRecord,
   PIN_QUOTA_FREE,
@@ -195,5 +198,102 @@ describe("photoListItem (GET /api/photos rows)", () => {
       createdAt: null,
     });
     expect(photoListItem({ title: "no id" })).toBeNull();
+  });
+});
+
+describe("authorLabel (Phase 5.5 S3)", () => {
+  it("prefers nickname, then the email user part, then the generic label", () => {
+    expect(authorLabel("Yevhen", "y@example.com")).toBe("Yevhen");
+    expect(authorLabel(null, "frame-p5-tester@example.com")).toBe("frame-p5-tester");
+    expect(authorLabel(undefined, undefined)).toBe("Member");
+    expect(authorLabel("", "")).toBe("Member");
+  });
+
+  it("publicPinRecord denormalizes it (and defaults to null)", () => {
+    expect(publicPinRecord(valid(), "photo-1", "Yevhen").authorName).toBe("Yevhen");
+    expect(publicPinRecord(valid(), "photo-1").authorName).toBeNull();
+  });
+});
+
+describe("parseUpdatePinBody (PATCH /api/photos)", () => {
+  it("requires photoId on top of a valid save body", () => {
+    expect(parseUpdatePinBody({ ...validRaw })).toHaveProperty("error");
+    expect(parseUpdatePinBody(null)).toHaveProperty("error");
+    const parsed = parseUpdatePinBody({ ...validRaw, photoId: "p1" });
+    if ("error" in parsed) throw new Error(parsed.error);
+    expect(parsed.photoId).toBe("p1");
+    expect(parsed.body.lat).toBe(LAT);
+  });
+
+  it("still rejects invalid pin fields", () => {
+    expect(parseUpdatePinBody({ ...validRaw, photoId: "p1", lat: 91 })).toHaveProperty("error");
+  });
+});
+
+describe("applyPinUpdate (PATCH merge — media continuity + C6 re-reduction)", () => {
+  const existing = {
+    _id: "p1",
+    _createdDate: "2026-07-10T15:43:00.737Z",
+    ownerMemberId: "member-1",
+    title: "old name",
+    lat: 48.0,
+    lon: 35.0,
+    fileName: "gps-heading.jpg",
+    fileSizeBytes: 2500,
+    originalFileId: "orig-stored",
+    previewFileId: "prev-stored",
+    previewUrl: "https://static.wixstatic.com/media/stored.jpg",
+    isPublic: true,
+    publicPrecision: "1km",
+    publicPinId: "pin-1",
+  };
+
+  function updateBody(overrides: Record<string, unknown> = {}): SavePinBody {
+    // The client edit flow sends no media fields — they arrive null from the parser.
+    const parsed = parseSavePinBody({
+      ...validRaw,
+      originalFileId: undefined,
+      previewFileId: undefined,
+      previewUrl: undefined,
+      fileName: undefined,
+      fileSizeBytes: undefined,
+      ...overrides,
+    });
+    if ("error" in parsed) throw new Error(parsed.error);
+    return parsed.body;
+  }
+
+  it("keeps stored media/file fields when the patch carries none", () => {
+    const { record, effective } = applyPinUpdate(existing, updateBody());
+    expect(record.originalFileId).toBe("orig-stored");
+    expect(record.previewFileId).toBe("prev-stored");
+    expect(record.previewUrl).toBe("https://static.wixstatic.com/media/stored.jpg");
+    expect(record.fileName).toBe("gps-heading.jpg");
+    expect(record.fileSizeBytes).toBe(2500);
+    expect(effective.previewUrl).toBe("https://static.wixstatic.com/media/stored.jpg");
+  });
+
+  it("keeps identity (_id, owner, publicPinId) while applying edits", () => {
+    const { record } = applyPinUpdate(existing, updateBody({ title: "new name" }));
+    expect(record._id).toBe("p1");
+    expect(record.ownerMemberId).toBe("member-1");
+    expect(record.publicPinId).toBe("pin-1");
+    expect(record.title).toBe("new name");
+    expect(record.lat).toBe(LAT); // the moved location lands in the private row
+  });
+
+  it("a location edit re-reduces the public row to the new cell centre (C6)", () => {
+    const { effective } = applyPinUpdate(existing, updateBody());
+    const rec = publicPinRecord(effective, "p1", "Yevhen");
+    const reduced = reduceLocation(LAT, LON, "1km");
+    expect(rec.latReduced).toBe(reduced.latReduced);
+    expect(rec.lonReduced).toBe(reduced.lonReduced);
+    expect(JSON.stringify(rec)).not.toContain(String(LAT));
+  });
+
+  it("going private clears publicPrecision on the row", () => {
+    const { record } = applyPinUpdate(existing, updateBody({ isPublic: false }));
+    expect(record.publicPrecision).toBeNull();
+    expect(record.isPublic).toBe(false);
   });
 });

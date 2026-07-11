@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import { extractMetadata, type ExtractedPhoto, type PhotoExif, type PreviewSource } from "../lib/decode/extract";
 import { computeHorizontalFov, type FovResult } from "../lib/decode/sensors";
+import { useCameraStore } from "./camera";
 
 /**
  * idle → decoding → review → placed (GPS present)
@@ -62,6 +63,11 @@ export interface SavedPinView {
   lon: number;
   previewUrl: string | null;
   capturedAt: string | null;
+  /** Set when the record is the member's OWN Photos row (My-pins path) — unlocks the
+   *  UPDATE / RE-PLACE / DELETE actions in the detail panel (Phase 5.5 S3). */
+  ownPhotoId?: string | null;
+  isPublic?: boolean;
+  publicPrecision?: string | null;
   altitudeM?: number | null;
   headingDeg?: number | null;
   pitchDeg?: number | null;
@@ -142,6 +148,14 @@ interface UploadStore {
   /** Set when the placed state is a RE-OPENED saved pin (globe/My-pins click) — the panel
    *  hides SAVE PIN (re-saving would duplicate) and no original File exists. */
   viewingPinId?: string;
+  /** The member's own Photos row id when the viewed pin came from MY PINS — gates the
+   *  UPDATE / RE-PLACE / DELETE actions (a globe click on a foreign pin never sets this). */
+  ownPhotoId?: string;
+  /** Save-time choices of the own viewed pin — seeds the edit section's controls. */
+  ownPinMeta?: { isPublic: boolean; precision: string | null };
+  /** One-shot location seed from the temp-pin "UPLOAD HERE" action: applied at ingest when
+   *  the file carries no GPS (EXIF wins when present — it is the real capture location). */
+  pendingPlacement?: Placement;
   /** How the globe camera relates to the placed photo (Phase 5.5 S2): 'orbit' = the default
    *  free camera framing the frustum from behind; 'fpv' = photographer mode — the camera sits
    *  EXACTLY at the frustum apex with the photo's pose (drag = look around, wheel = FOV zoom).
@@ -165,6 +179,15 @@ interface UploadStore {
   setPlacement(latDeg: number, lonDeg: number): void;
   /** Reopen the review overlay from the globe (placed/placing). */
   backToReview(): void;
+  /** Edit-location for a viewed OWN pin: placed → placing (the same click-to-place path);
+   *  the previous placement is kept so Escape can fall back to it. */
+  rePlace(): void;
+  /** Abort the placing mode: an own viewed pin returns to its (kept) placement; a fresh
+   *  upload goes back to the review overlay. */
+  cancelPlacing(): void;
+  /** Temp-pin "UPLOAD HERE": open the upload overlay with a location seed for GPS-less
+   *  files (consumed at ingest; dropped when the overlay closes without a file). */
+  uploadAt(latDeg: number, lonDeg: number): void;
   /** Open a SAVED pin as the placed camera view (frustum + detail panel + flight) —
    *  synthesizes the EXIF baseline from the stored record. */
   openSavedPin(view: SavedPinView): void;
@@ -193,7 +216,11 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
 
   openPanel: () => set({ open: true }),
 
-  closePanel: () => set({ open: false }),
+  // Closing the overlay without a file also abandons a pending "UPLOAD HERE" seed.
+  closePanel: () => set({ open: false, pendingPlacement: undefined }),
+
+  uploadAt: (latDeg, lonDeg) =>
+    set({ open: true, pendingPlacement: { latDeg, lonDeg } }),
 
   loadFile: async (file: File) => {
     const seq = ++loadSeq;
@@ -218,6 +245,8 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       loadError: undefined,
       decodeError: undefined,
       viewingPinId: undefined,
+      ownPhotoId: undefined,
+      ownPinMeta: undefined,
       viewMode: "orbit",
     });
 
@@ -261,26 +290,36 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
   },
 
   ingest: (extracted, decodeMs) =>
-    set({
-      phase: "review",
-      fileName: extracted.fileName,
-      fileSizeBytes: extracted.fileSizeBytes,
-      previewUrl: extracted.previewUrl,
-      previewSource: extracted.previewSource,
-      decodeProgress: 1,
-      decodeMs,
-      exif: extracted.exif,
-      params: exifBaselineParams(extracted.exif),
-      placement:
+    set((s) => {
+      // GPS is the real capture location and always wins; the temp-pin seed covers GPS-less
+      // files ("UPLOAD HERE"). Applying the seed retires the temp pin — its job is done.
+      const gps =
         extracted.exif.gpsLat !== undefined && extracted.exif.gpsLon !== undefined
           ? { latDeg: extracted.exif.gpsLat, lonDeg: extracted.exif.gpsLon }
-          : undefined,
-      textureWidth: extracted.textureWidth ?? extracted.exif.width,
-      textureHeight: extracted.textureHeight ?? extracted.exif.height,
-      loadError: undefined,
-      decodeError: extracted.decodeError,
-      viewingPinId: undefined,
-      viewMode: "orbit",
+          : undefined;
+      const seeded = !gps && s.pendingPlacement ? s.pendingPlacement : undefined;
+      if (seeded) useCameraStore.getState().setTempPin(null);
+      return {
+        phase: "review",
+        fileName: extracted.fileName,
+        fileSizeBytes: extracted.fileSizeBytes,
+        previewUrl: extracted.previewUrl,
+        previewSource: extracted.previewSource,
+        decodeProgress: 1,
+        decodeMs,
+        exif: extracted.exif,
+        params: exifBaselineParams(extracted.exif),
+        placement: gps ?? seeded,
+        pendingPlacement: undefined,
+        textureWidth: extracted.textureWidth ?? extracted.exif.width,
+        textureHeight: extracted.textureHeight ?? extracted.exif.height,
+        loadError: undefined,
+        decodeError: extracted.decodeError,
+        viewingPinId: undefined,
+        ownPhotoId: undefined,
+        ownPinMeta: undefined,
+        viewMode: "orbit",
+      };
     }),
 
   setParam: (key, value) => set((s) => ({ params: { ...s.params, [key]: value } })),
@@ -313,6 +352,22 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
         ? { phase: "review" as const, open: true, viewMode: "orbit" as const }
         : {},
     ),
+
+  rePlace: () =>
+    set((s) =>
+      s.phase === "placed" && s.viewingPinId
+        ? { phase: "placing" as const, open: false, viewMode: "orbit" as const }
+        : {},
+    ),
+
+  cancelPlacing: () =>
+    set((s) => {
+      if (s.phase !== "placing") return {};
+      // An own viewed pin kept its placement — just stand back on it. A fresh upload
+      // returns to the review overlay (the pre-S3 Escape behaviour).
+      if (s.viewingPinId && s.placement) return { phase: "placed" as const, open: false };
+      return { phase: "review" as const, open: true };
+    }),
 
   setViewMode: (mode) =>
     set((s) => (mode === "fpv" && s.phase !== "placed" ? {} : { viewMode: mode })),
@@ -363,6 +418,12 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       loadError: undefined,
       decodeError: undefined,
       viewingPinId: view.pinId,
+      ownPhotoId: view.ownPhotoId ?? undefined,
+      ownPinMeta:
+        view.ownPhotoId != null
+          ? { isPublic: view.isPublic === true, precision: view.publicPrecision ?? null }
+          : undefined,
+      pendingPlacement: undefined,
       viewMode: "orbit",
     });
   },
@@ -390,6 +451,9 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       loadError: undefined,
       decodeError: undefined,
       viewingPinId: undefined,
+      ownPhotoId: undefined,
+      ownPinMeta: undefined,
+      pendingPlacement: undefined,
       viewMode: "orbit",
     });
   },
