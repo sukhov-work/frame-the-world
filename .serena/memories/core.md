@@ -106,7 +106,29 @@ not debounce — %12-frame reports starve a debounce timer, real bug fixed) + cl
 astro check 0 · wix build green. Test member frame-p5-tester@example.com (1/10). UNVERIFIED: paid-unlimited
 (Pricing Plans app not installed → degrades to free) · production POST routes (403 trial report — /api/ping =
 released-URL canary, PRE-RELEASE GATE). Mechanics + traps: `mem:patterns/members-pins`.
-**Next step: Phase 6 — marketplace-light** (see `NEXT_SESSION_PROMPT.md`). `wix release` still pending user greenlight.
+**Phase 5.5 DESIGNED + S1 SHIPPED (2026-07-11, browser-VERIFIED):** the 10-item pre-marketplace
+UX batch is mapped into sessions S1–S7 in `.claude/claude-docs/PHASE_5_5_UX_BATCH.md` (canonical;
+plan twin IMPLEMENTATION_PLAN §5.5; details `mem:project/wip-2026-07-11-phase5.5-ux-batch`).
+S1 = LocationFinder (Photon autocomplete + Nominatim-on-Enter via `lib/geo/geocode.ts` adapter;
+`store/camera.ts` flyRequest seam + focus mirrors; tuning.SEARCH; extent-sized arrivals, 3 km
+terrain-safe floor) + TimeScrubber day ◀ ▶ steppers. 206 vitest · astro check 0 · wix build green.
+**Phase 5.5 S2 SHIPPED (2026-07-11, browser-VERIFIED via Playwright MCP; absorbed owner items
+13+14 — no S2b):** flight.ts rework — terrain path floor (`pathAltitude`, endpoints exact) +
+path-tangent orientation (spin killed; smooth rate profile) + **`arrivalPose()` = the ONE arrival
+derivation** (pins 200 m/80° verified 203.2 m/79.9°; search 52° now terrain-aware); street-level
+camera (zoomMinAltM 2, cameraRadius 2.5, sticky-lastGroundM street-floor guard — verified resting
+2.5 m above the Kyiv street); **FPV photographer mode** (`upload.viewMode`, camera EXACTLY at the
+frustum apex at the photo's own FOV — NDC-verified; drag-look + wheel-FOV + Escape; gates S6);
+CameraTiltPanel rework: compass (fluid north), 2D/3D toggle, encoder-style ROTATE/ZOOM rate
+controls (`ui/Encoder.tsx`, headingRateDegPerS/zoomRatePerS seams). TRAPS (load-bearing): heightAt
+returns NEGATIVE garbage on coarse tiles → clamp [0,9000] everywhere; an underground camera
+UNLOADS the whole tileset (prevention only); terrain samples must come from the VIEW FOCUS (tiles
+exist only in-frustum); GlobeControls.update() skips the near/far fit when disabled → FPV calls
+adjustCamera manually. 221 vitest · astro check 0 · wix build green. Mechanics:
+`mem:project/wip-2026-07-11-phase5.5-s2`.
+**Next step: Phase 5.5 S3 — pin lifecycle + placement UX + upload CTA** (see
+`NEXT_SESSION_PROMPT.md`; Wix-load-bearing — member cookie needed); Phase 6 marketplace only after
+S3–S7. S1+S2 not yet released to the live URL.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

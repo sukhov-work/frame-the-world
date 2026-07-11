@@ -258,3 +258,21 @@
 .pd-save__status.is-ok {
   color: var(--color-accent);
 }
+
+/* FPV photographer mode row (Phase 5.5 S2). */
+.pd-fpv {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 0;
+}
+.pd-fpv__btn {
+  padding: 8px 14px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+.pd-fpv__hint {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+}

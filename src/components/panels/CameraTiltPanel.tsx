@@ -1,23 +1,19 @@
 import Slider from "../ui/Slider";
-import {
-  altMToSlider,
-  sliderToAltM,
-  useCameraStore,
-  wrapHeadingDeg,
-} from "../../store/camera";
+import Encoder from "../ui/Encoder";
+import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
 import { CONTROLS } from "../globe/tuning";
 import "../../styles/camera-tilt.css";
 
 /**
- * Camera panel — manual global camera controls (2026-07-10 owner asks). Board-04 instrument
- * sliders docked above the scene clock:
- *  • CAM TILT — declination: 0° looks straight down, 88° at the horizon.
- *  • ROTATE — compass heading of the view (0° N, 90° E); orbits the view focus about its local
- *    up, preserving the current tilt exactly.
- *  • ZOOM — camera altitude, log-mapped (the wheel/pinch alternative).
- * Dragging asks the globe orchestrator to GLIDE the camera (store/camera seam); the readouts
- * track the live pose when the user steers the globe directly. Double-click/Backspace releases
- * an in-progress glide (free camera).
+ * Camera panel — manual global camera controls (2026-07-10 owner asks; encoder rework + compass
+ * + 2D/3D toggle in Phase 5.5 S2). Docked above the scene clock:
+ *  • CAM TILT — absolute declination slider: 0° looks straight down, 88° at the horizon.
+ *  • Compass — needle shows where north is; CLICK glides the view fluidly back to north
+ *    (shortest arc, tilt preserved — the existing heading glide, never a snap).
+ *  • 2D/3D — glides tilt to nadir (2D) or back to CONTROLS.toggle3dTiltDeg (3D).
+ *  • ROTATE / ZOOM — spring-centred ENCODERS (velocity, not position): deflection = rate with
+ *    an expo curve, release springs back and the motion eases out. Readouts stay live mirrors.
+ * Grabbing the globe releases every pending glide (direct manipulation wins).
  */
 
 function formatAltM(altM: number): string {
@@ -29,15 +25,22 @@ function formatAltM(altM: number): string {
 export default function CameraTiltPanel() {
   const s = useCameraStore();
 
-  // While a glide is pending, each knob shows the REQUEST (stable under the finger); otherwise
-  // it mirrors the live camera pose.
+  // The tilt knob shows the REQUEST while a glide is pending (stable under the finger);
+  // otherwise it mirrors the live camera pose. The encoders always show the live mirrors.
   const shownTilt = s.targetTiltDeg ?? s.tiltDeg;
-  const shownHeading = wrapHeadingDeg(s.targetHeadingDeg ?? s.headingDeg);
-  const shownAltM = s.targetZoomAltM ?? s.zoomAltM;
-  const zoomSlider = altMToSlider(shownAltM, CONTROLS.zoomMinAltM, CONTROLS.zoomMaxAltM);
+  const liveHeading = wrapHeadingDeg(s.headingDeg);
+  const is2D = shownTilt < CONTROLS.twoDMaxTiltDeg;
 
   return (
+    <>
     <aside className="ct" aria-label="Camera controls">
+      {/* Temp-pin look-around active: the exit affordance sits ABOVE the controls it retargets
+          (ROTATE = look, ZOOM = vertical elevation while in this mode). */}
+      {s.tempFpv && (
+        <button type="button" className="ct-exitlook" onClick={() => s.setTempFpv(false)}>
+          EXIT LOOK · ESC
+        </button>
+      )}
       <Slider
         label="CAM TILT"
         formatted={`${Math.round(shownTilt)}°`}
@@ -48,29 +51,72 @@ export default function CameraTiltPanel() {
         onChange={s.setTargetTilt}
         onReset={s.clearTargetTilt}
       />
-      <Slider
+      <div className="ct-row">
+        <button
+          type="button"
+          className="ct-compass"
+          onClick={() => s.setTargetHeading(0)}
+          aria-label={`Compass — heading ${Math.round(liveHeading)}°, click to face north`}
+          title="Face north"
+        >
+          <svg viewBox="0 0 36 36" aria-hidden="true">
+            <circle className="ct-compass__ring" cx="18" cy="18" r="15.5" />
+            <g className="ct-compass__rose" style={{ transform: `rotate(${-liveHeading}deg)` }}>
+              <polygon className="ct-compass__north" points="18,5 21,18 15,18" />
+              <polygon className="ct-compass__south" points="18,31 21,18 15,18" />
+              <text className="ct-compass__n" x="18" y="12.5">
+                N
+              </text>
+            </g>
+            <circle className="ct-compass__pin" cx="18" cy="18" r="1.4" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={`ct-mode${is2D ? "" : " is-3d"}`}
+          onClick={() => s.setTargetTilt(is2D ? CONTROLS.toggle3dTiltDeg : 0)}
+          aria-label={is2D ? "Switch to 3D perspective view" : "Switch to 2D top-down view"}
+        >
+          {is2D ? "3D" : "2D"}
+        </button>
+      </div>
+      <Encoder
         label="ROTATE"
-        formatted={`${Math.round(shownHeading)}°`}
-        value={Math.round(shownHeading)}
-        min={0}
-        max={360}
-        step={1}
-        onChange={(v) => s.setTargetHeading(wrapHeadingDeg(v))}
-        onReset={s.clearTargetHeading}
+        formatted={`${Math.round(liveHeading)}°`}
+        maxRate={CONTROLS.headingRateMaxDegPerS}
+        expoGamma={CONTROLS.rateExpoGamma}
+        onRate={s.setHeadingRate}
       />
-      <Slider
+      <Encoder
         label="ZOOM"
-        formatted={formatAltM(shownAltM)}
-        // photographic convention: right = zoom IN (lower altitude) — hence the inversion
-        value={Number(((1 - zoomSlider) * 100).toFixed(1))}
-        min={0}
-        max={100}
-        step={0.5}
-        onChange={(v) =>
-          s.setTargetZoom(sliderToAltM(1 - v / 100, CONTROLS.zoomMinAltM, CONTROLS.zoomMaxAltM))
-        }
-        onReset={s.clearTargetZoom}
+        formatted={formatAltM(s.zoomAltM)}
+        maxRate={CONTROLS.zoomRateMaxPerS}
+        expoGamma={CONTROLS.rateExpoGamma}
+        onRate={s.setZoomRate}
       />
     </aside>
+    {/* Temporary pin (double-click the ground): contextual popup floating NEXT TO the pin.
+        Rendered OUTSIDE the panel — its backdrop-filter turns position:fixed descendants
+        panel-relative (the original overlap bug). */}
+    {s.tempPin && !s.tempFpv && s.tempPinScreen && (
+      <div
+        className="ct-pinpop"
+        role="status"
+        style={{ left: s.tempPinScreen.x, top: s.tempPinScreen.y }}
+      >
+        <button type="button" className="ct-pinpop__btn" onClick={() => s.setTempFpv(true)}>
+          ◎ LOOK FROM HERE
+        </button>
+        <button
+          type="button"
+          className="ct-pinpop__x"
+          aria-label="Clear the temporary pin"
+          onClick={() => s.setTempPin(null)}
+        >
+          ✕
+        </button>
+      </div>
+    )}
+    </>
   );
 }

@@ -71,7 +71,7 @@ publicPrecision(str: exact|1km|city), forSale(bool), price(num), createdAt`
   `Frustum` (EXIF→camera proxy + image plane), `Sky` (procedural + ephemeris), `Pins` (public pins, cluster, hover).
   **Design imports never write here.**
 - `components/panels/`: `ExifTweakPanel` (sliders → zustand), `TimeScrubber` (time → ephemeris), `UploadFlow`
-  (dropzone → worker), `AiPanel` (premium). Design imports allowed.
+  (dropzone → worker), `LocationFinder` (free geocode → fly-to, Phase 5.5), `AiPanel` (premium). Design imports allowed.
 - `lib/`: `decode/`, `geo/`, `ephemeris/`, `theme/` (GL token bridge), `wix/` (SDK clients, quota, media, ai).
 - `store/`: zustand reactive EXIF params — the spine of real-time re-projection.
 

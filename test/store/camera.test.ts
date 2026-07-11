@@ -73,3 +73,69 @@ describe("camera store glide targets", () => {
     expect(useCameraStore.getState().targetZoomAltM).toBeNull();
   });
 });
+
+describe("fly request seam (location finder, Phase 5.5 S1)", () => {
+  it("posts a one-shot request and the orchestrator consume clears it", () => {
+    const s = useCameraStore.getState();
+    s.requestFly({ latDeg: 48.4647, lonDeg: 35.0462, altM: 41_000 });
+    expect(useCameraStore.getState().flyRequest).toEqual({
+      latDeg: 48.4647,
+      lonDeg: 35.0462,
+      altM: 41_000,
+    });
+    useCameraStore.getState()._consumeFlyRequest();
+    expect(useCameraStore.getState().flyRequest).toBeNull();
+  });
+
+  it("keeps the geocoding-bias focus mirror independent of the fly request", () => {
+    const s = useCameraStore.getState();
+    s._syncFocus(50.45, 30.52);
+    expect(useCameraStore.getState().focusLatDeg).toBeCloseTo(50.45);
+    expect(useCameraStore.getState().focusLonDeg).toBeCloseTo(30.52);
+    expect(useCameraStore.getState().flyRequest).toBeNull();
+  });
+});
+
+describe("encoder rate seams (Phase 5.5 S2)", () => {
+  it("stores a rate while deflected and null on release", () => {
+    const s = useCameraStore.getState();
+    s.setHeadingRate(22.5);
+    s.setZoomRate(-0.8);
+    expect(useCameraStore.getState().headingRateDegPerS).toBe(22.5);
+    expect(useCameraStore.getState().zoomRatePerS).toBe(-0.8);
+    useCameraStore.getState().setHeadingRate(null);
+    useCameraStore.getState().setZoomRate(null);
+    expect(useCameraStore.getState().headingRateDegPerS).toBeNull();
+    expect(useCameraStore.getState().zoomRatePerS).toBeNull();
+  });
+
+  it("clearAllTargets releases the rates too (grabbing the globe wins)", () => {
+    const s = useCameraStore.getState();
+    s.setHeadingRate(10);
+    s.setZoomRate(0.5);
+    s.setTargetTilt(30);
+    useCameraStore.getState().clearAllTargets();
+    expect(useCameraStore.getState().headingRateDegPerS).toBeNull();
+    expect(useCameraStore.getState().zoomRatePerS).toBeNull();
+    expect(useCameraStore.getState().targetTiltDeg).toBeNull();
+  });
+});
+
+describe("temporary pin seam (Phase 5.5 S2 follow-up)", () => {
+  it("sets and clears the pin; clearing also exits its FPV", () => {
+    const s = useCameraStore.getState();
+    s.setTempPin({ latDeg: 48.46, lonDeg: 35.05 });
+    expect(useCameraStore.getState().tempPin).toEqual({ latDeg: 48.46, lonDeg: 35.05 });
+    useCameraStore.getState().setTempFpv(true);
+    expect(useCameraStore.getState().tempFpv).toBe(true);
+    useCameraStore.getState().setTempPin(null);
+    expect(useCameraStore.getState().tempPin).toBeNull();
+    expect(useCameraStore.getState().tempFpv).toBe(false);
+  });
+
+  it("refuses look-around FPV without a pin to stand on", () => {
+    useCameraStore.getState().setTempPin(null);
+    useCameraStore.getState().setTempFpv(true);
+    expect(useCameraStore.getState().tempFpv).toBe(false);
+  });
+});

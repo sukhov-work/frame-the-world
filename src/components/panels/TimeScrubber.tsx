@@ -139,10 +139,27 @@ export default function TimeScrubber() {
     setAnchorMs(ms);
   };
 
+  // Quick day traversal (Phase 5.5 S1): ±24 h keeping the time-of-day — pins even from LIVE,
+  // exactly like picking the neighbouring date. Holds up across DST because the ephemeris is
+  // exact at any epoch and the scrubber's day boundary is the browser TZ by design (v1 choice).
+  const stepDay = (dir: 1 | -1) => {
+    const ms = sceneTimeMs() + dir * 86_400_000;
+    setTime(ms);
+    setAnchorMs(ms);
+  };
+
   return (
     <aside className="ts" aria-label="Scene time scrubber — relights the globe">
       <div className="ts-head">
         <span className="ts-label">TIME SCRUB</span>
+        <button
+          type="button"
+          className="ts-day"
+          aria-label="Previous day (same time)"
+          onClick={() => stepDay(-1)}
+        >
+          ◀
+        </button>
         <input
           type="date"
           className="ts-date"
@@ -150,6 +167,14 @@ export default function TimeScrubber() {
           value={localDateStr(nowMs)}
           onChange={(e) => onDateChange(e.target.value)}
         />
+        <button
+          type="button"
+          className="ts-day"
+          aria-label="Next day (same time)"
+          onClick={() => stepDay(1)}
+        >
+          ▶
+        </button>
         <span className="ts-offset">{live ? "LIVE" : offsetLabel(nowMs - Date.now())}</span>
         {!live && (
           <button type="button" className="ts-now" onClick={() => { goLive(); setAnchorMs(Date.now()); }}>
