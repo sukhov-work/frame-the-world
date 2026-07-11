@@ -2,7 +2,9 @@ import Slider from "../ui/Slider";
 import Encoder from "../ui/Encoder";
 import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
 import { useUploadStore } from "../../store/upload";
-import { CONTROLS } from "../globe/tuning";
+import { CONTROLS, FPV } from "../globe/tuning";
+import { focalFromVerticalFov } from "../../lib/decode/sensors";
+import { formatFocal } from "../../lib/format/readout";
 import "../../styles/camera-tilt.css";
 
 /**
@@ -14,6 +16,9 @@ import "../../styles/camera-tilt.css";
  *  • 2D/3D — glides tilt to nadir (2D) or back to CONTROLS.toggle3dTiltDeg (3D).
  *  • ROTATE / ZOOM — spring-centred ENCODERS (velocity, not position): deflection = rate with
  *    an expo curve, release springs back and the motion eases out. Readouts stay live mirrors.
+ * In ANY FPV (S6): the ZOOM encoder becomes ALTITUDE (it elevates the viewpoint vertically —
+ * that is what it does there) and a FOCAL ZOOM encoder appears — the panel twin of the wheel
+ * FOV zoom. The bearings themselves read on the LEFT-side FpvHud.
  * Grabbing the globe releases every pending glide (direct manipulation wins).
  */
 
@@ -23,14 +28,22 @@ function formatAltM(altM: number): string {
   return `${Math.round(altM / 1000)} km`;
 }
 
+function formatEyeM(m: number): string {
+  return m < 1_000 ? `${m < 10 ? m.toFixed(1) : Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
 export default function CameraTiltPanel() {
   const s = useCameraStore();
   const uploadPhase = useUploadStore((st) => st.phase);
+  const viewMode = useUploadStore((st) => st.viewMode);
+  // ANY FPV re-identifies the encoders (photo FPV via upload.viewMode, temp via camera.tempFpv).
+  const fpvMode = viewMode === "fpv" || s.tempFpv;
 
   // The tilt knob shows the REQUEST while a glide is pending (stable under the finger);
   // otherwise it mirrors the live camera pose. The encoders always show the live mirrors.
   const shownTilt = s.targetTiltDeg ?? s.tiltDeg;
-  const liveHeading = wrapHeadingDeg(s.headingDeg);
+  const liveHeading =
+    fpvMode && s.fpvHud ? wrapHeadingDeg(s.fpvHud.headingDeg) : wrapHeadingDeg(s.headingDeg);
   const is2D = shownTilt < CONTROLS.twoDMaxTiltDeg;
   // The dblclick memo retires the moment the user demonstrates the gesture (a temp pin
   // exists) and stays out of the way while the upload flow owns the globe.
@@ -95,6 +108,18 @@ export default function CameraTiltPanel() {
         >
           {is2D ? "3D" : "2D"}
         </button>
+        {/* Sky guides (S6 follow-up): ON = sun/moon day-arcs + asterisms in FPV, ☀/☾
+            direction chips elsewhere; OFF = none of them. */}
+        <button
+          type="button"
+          className={`ct-mode ct-sky${s.skyGuides ? " is-on" : ""}`}
+          onClick={() => s.setSkyGuides(!s.skyGuides)}
+          aria-pressed={s.skyGuides}
+          aria-label={s.skyGuides ? "Hide sun/moon sky guides" : "Show sun/moon sky guides"}
+          title="Sun & moon guides — arcs and asterisms in camera view, direction markers elsewhere"
+        >
+          ☀☾
+        </button>
       </div>
       <Encoder
         label="ROTATE"
@@ -103,13 +128,28 @@ export default function CameraTiltPanel() {
         expoGamma={CONTROLS.rateExpoGamma}
         onRate={s.setHeadingRate}
       />
+      {/* In FPV the same stick elevates the viewpoint vertically — the label says what it
+          does; the readout swaps to the eye height above the local ground (FpvHud mirror). */}
       <Encoder
-        label="ZOOM"
-        formatted={formatAltM(s.zoomAltM)}
+        label={fpvMode ? "ALTITUDE" : "ZOOM"}
+        formatted={
+          fpvMode && s.fpvHud ? formatEyeM(s.fpvHud.eyeAboveGroundM) : formatAltM(s.zoomAltM)
+        }
         maxRate={CONTROLS.zoomRateMaxPerS}
         expoGamma={CONTROLS.rateExpoGamma}
         onRate={s.setZoomRate}
       />
+      {/* FOCAL ZOOM (S6): the panel twin of the FPV wheel zoom — right = zoom in (focal
+          grows, FOV narrows). Only meaningful while standing in a viewpoint. */}
+      {fpvMode && (
+        <Encoder
+          label="FOCAL ZOOM"
+          formatted={s.fpvHud ? formatFocal(focalFromVerticalFov(s.fpvHud.fovDeg)) : "—"}
+          maxRate={FPV.fovRateMaxPerS}
+          expoGamma={CONTROLS.rateExpoGamma}
+          onRate={s.setFovRate}
+        />
+      )}
     </aside>
     </div>
     <TempPinPopup />

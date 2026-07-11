@@ -7,7 +7,13 @@ import {
   MOON_RADIUS_KM,
   SUN_RADIUS_KM,
 } from "../../lib/ephemeris/bodies";
-import { ecefToGeodetic, geodeticToEcef, rayEllipsoidIntersect } from "../../lib/geo/projection";
+import {
+  ecefToGeodetic,
+  enuBasis,
+  geodeticToEcef,
+  rayEllipsoidIntersect,
+} from "../../lib/geo/projection";
+import { frameMarker } from "../../lib/geo/offscreen";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import { tokens } from "../../lib/theme/tokens";
@@ -21,6 +27,7 @@ import { attachStars } from "./scene/stars";
 import { attachBuildings } from "./scene/buildings";
 import { attachImageryGround } from "./scene/imageryGround";
 import { attachSky } from "./scene/sky";
+import { attachDayArcs } from "./scene/dayArcs";
 import { attachPhotoFrustum } from "./PhotoFrustum";
 import { attachPins } from "./Pins";
 import { usePinsStore } from "../../store/pins";
@@ -106,6 +113,7 @@ export function attachStylizedTiles(opts: {
   const buildings = attachBuildings(scene, { camera, renderer, ionToken });
   const ground = attachImageryGround(scene, { camera, renderer, ionToken });
   const sky = attachSky(scene);
+  const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
 
   // --- Ephemeris: ONE astronomical sample drives every light in the scene (terminator, ground
   //     grade, atmosphere, sun/moon bodies, building key light, moonlight). Re-sampled when scene
@@ -441,9 +449,17 @@ export function attachStylizedTiles(opts: {
   const _tempFwd0 = new THREE.Vector3();
   const _tempUp0 = new THREE.Vector3();
   const _tempRight0 = new THREE.Vector3();
-  // Temp-FPV eye height above the pin's ground (m): the ZOOM encoder elevates the viewpoint
+  // Temp-FPV eye height above the pin's ground (m): the ALTITUDE encoder elevates the viewpoint
   // STRICTLY vertically in this mode (owner follow-up). Reset to eye height on entry.
   let fpvEyeM: number = FRUSTUM.eyeHeightM;
+  // Photo-FPV vertical LIFT off the frustum apex (m, S6): the ALTITUDE encoder's photo identity.
+  // 0 = the photographer's exact eye (the entry state, and what the photo alignment means).
+  let fpvLiftM = 0;
+  // Sticky ground height under the photo-FPV anchor (m above ellipsoid) — feeds the eye-height
+  // readout + the building solidity curve; heightAt-null/garbage tolerant (S2 discipline).
+  let fpvAnchorGroundM = 0;
+  // Live eye height above the local ground while ANY FPV is active (m).
+  let fpvEyeAboveGroundM = 0;
   const onFpvPointerDown = (e: PointerEvent) => {
     if (!fpvActive || !e.isPrimary) return;
     fpvDragId = e.pointerId;
@@ -516,11 +532,16 @@ export function attachStylizedTiles(opts: {
   const _fpvRight = new THREE.Vector3();
   const _fpvUpGeo = new THREE.Vector3();
   const _fpvLook = new THREE.Vector3();
+  // FPV HUD scratch (S6): camera-space body directions + the inverse camera rotation.
+  const _hudQ = new THREE.Quaternion();
+  const _hudDir = new THREE.Vector3();
+  const _hudDir2 = new THREE.Vector3();
 
   // Encoder-style rate controls (Phase 5.5 S2): the applied rates ease toward the stick so
   // deflection ramps in and release coasts out (CONTROLS.rateEaseTauMs).
   let appliedHeadingRate = 0; // deg/s
   let appliedZoomRate = 0; // log-space 1/s
+  let appliedFovRate = 0; // log-space 1/s (FOCAL ZOOM encoder, FPV only — S6)
   // Zoom-glide stall release: the slider floor is ellipsoid-relative, so over real terrain the
   // glide can rest on cameraRadius/terrain forever — release it instead of fighting.
   let zoomGlideLastAlt = -1;
@@ -603,8 +624,13 @@ export function attachStylizedTiles(opts: {
         yawDeg: THREE.MathUtils.radToDeg(fpvYaw),
         pitchDeg: THREE.MathUtils.radToDeg(fpvPitch),
         fovDeg: camera.fov,
+        fovTargetDeg,
+        liftM: fpvLiftM,
+        eyeM: fpvEyeM,
+        eyeAboveGroundM: fpvEyeAboveGroundM,
         controlsEnabled: controls.enabled,
       }),
+      dayArcs,
       tempPin: () => ({
         pin: useCameraStore.getState().tempPin,
         groundM: tempPinGroundM,
@@ -713,6 +739,7 @@ export function attachStylizedTiles(opts: {
             fpvActive = false;
             controls.adjustHeight = true;
             controls.enabled = true;
+            buildings.setGhostSolid(0); // next FPV entry starts on the ghost curve again
             buildings.setGhost(null);
             camNow.clearAllTargets(); // targets set during FPV must not fire now
             fovTargetDeg = POSE.fovDeg;
@@ -749,6 +776,7 @@ export function attachStylizedTiles(opts: {
               fpvActive = true;
               fpvYaw = 0;
               fpvPitch = 0;
+              fpvLiftM = 0; // the photographer's exact eye — ALTITUDE lifts from here
               fpvDragId = null;
               controls.enabled = false;
               controls.adjustHeight = false; // cameraRadius would push us off the apex
@@ -758,6 +786,17 @@ export function attachStylizedTiles(opts: {
               });
               camNow.clearAllTargets();
               const apex = new THREE.Vector3(...g.apex);
+              // Anchor ground for the eye-height readout + building solidity: terrain sample,
+              // apex-derived fallback (the frameArrivalPose clamp discipline).
+              const pl = upNow.placement;
+              const sampledG = pl ? ground.heightAt(pl.latDeg, pl.lonDeg) : null;
+              fpvAnchorGroundM =
+                sampledG != null
+                  ? Math.min(Math.max(sampledG, 0), 9_000)
+                  : Math.max(
+                      0,
+                      WGS84_ELLIPSOID.getPositionElevation(apex) - FRUSTUM.eyeHeightM,
+                    );
               const lookAt = apex
                 .clone()
                 .addScaledVector(new THREE.Vector3(...g.forward), FRUSTUM.planeDistM);
@@ -818,6 +857,8 @@ export function attachStylizedTiles(opts: {
               if (g) {
                 camera.position.set(g.apex[0], g.apex[1], g.apex[2]);
                 _fpvUpGeo.copy(camera.position).normalize();
+                // S6 ALTITUDE lift: strictly vertical off the apex; 0 = exact photo alignment.
+                if (fpvLiftM > 0) camera.position.addScaledVector(_fpvUpGeo, fpvLiftM);
                 _fpvFwd.set(g.forward[0], g.forward[1], g.forward[2]);
                 _fpvUp.set(g.up[0], g.up[1], g.up[2]);
                 _fpvRight.set(g.right[0], g.right[1], g.right[2]);
@@ -1021,19 +1062,18 @@ export function attachStylizedTiles(opts: {
         // Encoder-style rate controls (Phase 5.5 S2): per-frame velocities through the SAME
         // rotation/dolly paths as the glides. The applied rate low-passes toward the stick, so
         // deflection ramps in and release coasts out; heading wraps freely, zoom clamps hard.
-        // In TEMP-pin FPV (owner follow-up) the sticks re-target: ROTATE turns the look itself
-        // and ZOOM elevates the viewpoint strictly vertically. Photo FPV stays locked.
+        // In ANY FPV (S6 — photo FPV unlocked with the ALTITUDE/FOCAL ZOOM rework) the sticks
+        // re-target: ROTATE turns the look itself, ALTITUDE (the ZOOM encoder's FPV identity)
+        // elevates the viewpoint strictly vertically, FOCAL ZOOM drives the camera FOV.
         const kRate = 1 - Math.exp(-dtMs / CONTROLS.rateEaseTauMs);
-        const rateAllowed = !flight.active() && (!fpvActive || fpvKind === "temp");
+        const rateAllowed = !flight.active();
         const stickH = (rateAllowed && camStore.headingRateDegPerS) || 0;
         appliedHeadingRate += (stickH - appliedHeadingRate) * kRate;
         if (Math.abs(appliedHeadingRate) > 0.01) {
           if (fpvActive) {
-            if (fpvKind === "temp") {
-              // + rate = compass-clockwise = look right (matches the fpvYaw convention)
-              fpvYaw += THREE.MathUtils.degToRad((appliedHeadingRate * dtMs) / 1000);
-              lastInteract = now;
-            }
+            // + rate = compass-clockwise = look right (matches the fpvYaw convention)
+            fpvYaw += THREE.MathUtils.degToRad((appliedHeadingRate * dtMs) / 1000);
+            lastInteract = now;
           } else {
             // + rate = compass-clockwise = heading increases → rotate camera by −θ about local up
             _qHead.setFromAxisAngle(
@@ -1051,16 +1091,24 @@ export function attachStylizedTiles(opts: {
         appliedZoomRate += (stickZ - appliedZoomRate) * kRate;
         if (Math.abs(appliedZoomRate) > 1e-3) {
           if (fpvActive) {
+            // + rate = "zoom in" = descend; strictly vertical elevation. Proportional speed
+            // with a floor base — a pure exponential from a 1.7 m eye barely gets airborne.
             if (fpvKind === "temp") {
-              // + rate = "zoom in" = descend; strictly vertical elevation. Proportional speed
-              // with a floor base — a pure exponential from a 1.7 m eye barely gets airborne.
               fpvEyeM = THREE.MathUtils.clamp(
                 fpvEyeM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvEyeM, 8),
                 FRUSTUM.eyeHeightM,
                 FPV.tempEyeMaxM,
               );
-              lastInteract = now;
+            } else {
+              // Photo FPV (S6): the same vertical elevation as a LIFT off the apex — floor 0
+              // is the photographer's exact eye, never below it.
+              fpvLiftM = THREE.MathUtils.clamp(
+                fpvLiftM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvLiftM, 8),
+                0,
+                FPV.tempEyeMaxM,
+              );
             }
+            lastInteract = now;
           } else {
             // + rate = zoom IN: altitude shrinks exponentially, clamped to the slider range.
             const nextAlt = THREE.MathUtils.clamp(
@@ -1080,6 +1128,19 @@ export function attachStylizedTiles(opts: {
               lastInteract = now;
             }
           }
+        }
+
+        // FOCAL ZOOM encoder (S6, FPV only): the panel twin of the wheel-FOV zoom — nudges the
+        // same eased fovTargetDeg inside the same clamp. + rate = zoom IN = the FOV narrows.
+        const stickF = (rateAllowed && fpvActive && camStore.fovRatePerS) || 0;
+        appliedFovRate += (stickF - appliedFovRate) * kRate;
+        if (fpvActive && Math.abs(appliedFovRate) > 1e-3) {
+          fovTargetDeg = THREE.MathUtils.clamp(
+            fovTargetDeg * Math.exp((-appliedFovRate * dtMs) / 1000),
+            FPV.minFovDeg,
+            FPV.maxFovDeg,
+          );
+          lastInteract = now;
         }
 
         // Street-floor / underground guard (Phase 5.5 S2, found in browser verification): the
@@ -1144,6 +1205,114 @@ export function attachStylizedTiles(opts: {
           });
           flight.start(pose, { floorM: flightFloorM(pose.position) });
           lastInteract = now; // pause the idle drift through the flight, like any interaction
+        }
+
+        // --- S6 FPV instruments: the eye height above ground drives the building solidity
+        //     curve (risen over the rooftops → nothing left to see through), and the HUD
+        //     mirror feeds the left-side bearings panel + the off-frame sun/moon edge chips. --
+        if (fpvActive) {
+          if (fpvKind === "photo") {
+            // Refresh the sticky anchor ground at low cadence as terrain refines under the
+            // pin (heightAt: null while loading, negative garbage on coarse tiles — S2 clamp).
+            if (frameCount % 30 === 0) {
+              const pl = upNow.placement;
+              const th = pl ? ground.heightAt(pl.latDeg, pl.lonDeg) : null;
+              if (th != null) fpvAnchorGroundM = Math.min(Math.max(th, 0), 9_000);
+            }
+            fpvEyeAboveGroundM = Math.max(0, alt - fpvAnchorGroundM);
+          } else {
+            fpvEyeAboveGroundM = fpvEyeM;
+          }
+          const st = THREE.MathUtils.clamp(
+            (fpvEyeAboveGroundM - FPV.buildingSolidLoM) /
+              (FPV.buildingSolidHiM - FPV.buildingSolidLoM),
+            0,
+            1,
+          );
+          buildings.setGhostSolid(st * st * (3 - 2 * st));
+        }
+        if (frameCount % FPV.hudSyncEveryFrames === 0) {
+          // Bearings reference: the FPV anchor while standing in a viewpoint, else the
+          // camera's own geodetic position (S6 follow-up — direction chips in every mode).
+          const anchorGeo = fpvActive
+            ? ((fpvKind === "photo" ? upNow.placement : camNow.tempPin) ?? null)
+            : null;
+          const refGeo =
+            anchorGeo ??
+            (camNow.skyGuides
+              ? ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z])
+              : null);
+          if (refGeo) {
+            const basis = enuBasis(refGeo.latDeg, refGeo.lonDeg);
+            const azAltOf = (d: THREE.Vector3) => ({
+              azDeg: wrapHeadingDeg(
+                THREE.MathUtils.radToDeg(
+                  Math.atan2(
+                    d.x * basis.east[0] + d.y * basis.east[1] + d.z * basis.east[2],
+                    d.x * basis.north[0] + d.y * basis.north[1] + d.z * basis.north[2],
+                  ),
+                ),
+              ),
+              altDeg: THREE.MathUtils.radToDeg(
+                Math.asin(
+                  THREE.MathUtils.clamp(
+                    d.x * basis.up[0] + d.y * basis.up[1] + d.z * basis.up[2],
+                    -1,
+                    1,
+                  ),
+                ),
+              ),
+            });
+            _hudQ.copy(camera.quaternion).invert();
+            const tanHalfV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+            const bodyMarker = (dirW: THREE.Vector3) => {
+              const bearings = azAltOf(dirW);
+              _hudDir.copy(dirW).applyQuaternion(_hudQ); // world → camera space
+              const fm = frameMarker(
+                _hudDir.x,
+                _hudDir.y,
+                _hudDir.z,
+                tanHalfV,
+                camera.aspect,
+              );
+              return {
+                inFrame: fm.inFrame,
+                dirX: fm.dirX,
+                dirY: fm.dirY,
+                azDeg: bearings.azDeg,
+                altDeg: bearings.altDeg,
+                up: bearings.altDeg > FPV.bodyMarkerMinAltDeg,
+              };
+            };
+            const sunM = bodyMarker(sunDirW);
+            // The moon is close enough that the direction must be camera-relative
+            // (the sky impostor does the same — the arc/disc/marker all agree).
+            const moonM = bodyMarker(
+              _hudDir2.subVectors(moonPosW, camera.position).normalize(),
+            );
+            if (camNow.skyGuides) {
+              camNow._syncSkyMarkers({ sun: sunM, moon: moonM });
+            } else if (camNow.skyMarkers) {
+              camNow._syncSkyMarkers(null);
+            }
+            if (fpvActive) {
+              camera.getWorldDirection(_camFwd);
+              const view = azAltOf(_camFwd);
+              camNow._syncFpvHud({
+                headingDeg: view.azDeg,
+                pitchDeg: view.altDeg,
+                fovDeg: camera.fov,
+                eyeAboveGroundM: fpvEyeAboveGroundM,
+                sun: sunM,
+                moon: moonM,
+              });
+            } else if (camNow.fpvHud) {
+              camNow._syncFpvHud(null);
+            }
+          } else {
+            if (camNow.fpvHud) camNow._syncFpvHud(null);
+            if (camNow.skyMarkers) camNow._syncSkyMarkers(null);
+          }
         }
 
         // Mirror the live pose (pitch / heading / altitude) into the store at low cadence for
@@ -1375,6 +1544,22 @@ export function attachStylizedTiles(opts: {
           reduceMotion,
           gastRad,
           sunDir: sunDirW,
+          // S6 follow-up: asterisms are an FPV planning layer, not ambient decoration —
+          // shown only while standing in a viewpoint, and only with the SKY guides on.
+          asterisms: fpvActive && camNow.skyGuides,
+        });
+
+        // FPV planning overlays (S6): sun/moon day-arcs for the FPV anchor — the module
+        // rebuilds only on anchor/day change; scene time just moves the past/future split.
+        // Gated by the SKY guides toggle (S6 follow-up).
+        dayArcs.update({
+          camera,
+          sceneMs: tMs,
+          anchor:
+            fpvActive && camNow.skyGuides
+              ? ((fpvKind === "photo" ? upNow.placement : camNow.tempPin) ?? null)
+              : null,
+          dtMs,
         });
       } catch (err) {
         console.error("[globe] tiles/controls update error:", err);
@@ -1410,6 +1595,7 @@ export function attachStylizedTiles(opts: {
       buildings.dispose();
       ground.dispose();
       sky.dispose();
+      dayArcs.dispose();
       earth.dispose();
       graticule.dispose();
       atmosphere.dispose();

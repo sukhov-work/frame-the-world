@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   fovFromFocalAndSensor,
   computeHorizontalFov,
+  focalFromVerticalFov,
   lookupSensorWidthMm,
   normaliseKey,
   verticalFovDeg,
@@ -73,5 +74,21 @@ describe("verticalFovDeg", () => {
   });
   it("is narrower than horizontal for a landscape 3:2 frame", () => {
     expect(verticalFovDeg(50, 1.5)).toBeLessThan(50);
+  });
+});
+
+describe("focalFromVerticalFov (S6 FPV HUD readout)", () => {
+  it("round-trips a full-frame 35 mm shot through its vertical FOV", () => {
+    // 35 mm FF landscape: hFov(36mm) → vFov at 3:2 → back to 35 mm off the 24 mm height.
+    const hFov = fovFromFocalAndSensor(35, FULL_FRAME_WIDTH_MM);
+    const vFov = verticalFovDeg(hFov, 36 / 24);
+    expect(focalFromVerticalFov(vFov)).toBeCloseTo(35, 6);
+  });
+  it("longer focal ⇒ narrower FOV, monotonic", () => {
+    expect(focalFromVerticalFov(10)).toBeGreaterThan(focalFromVerticalFov(40));
+  });
+  it("rejects degenerate FOVs", () => {
+    expect(() => focalFromVerticalFov(0)).toThrow();
+    expect(() => focalFromVerticalFov(180)).toThrow();
   });
 });

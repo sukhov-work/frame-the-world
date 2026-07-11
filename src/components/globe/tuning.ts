@@ -56,10 +56,14 @@ export const SKY = {
   /** Halo gain inside the impostor shader (kept low — UnrealBloom carries the wide glow). */
   sunGlowGain: 0.5,
   /** Moon albedo multiplier (>1 pushes the lit limb into bloom; raised 2026-07-10 "moon
-   *  brighter", again for the S5 night pass — the horizon-fade keeps the disc melting cleanly). */
-  moonBrightness: 2.4,
-  /** Earthshine floor on the moon's dark side (0 = pitch black new moon). */
-  moonEarthshine: 0.1,
+   *  brighter", again for the S5 night pass, again S6 (owner: "brighter, organically") — the
+   *  gain rides the existing albedo·(N·sun)^0.8 curve so maria contrast and the phase shape
+   *  survive; the lit limb pushes further over BLOOM.threshold, so the extra brightness reads
+   *  as glow, not clipping. Horizon-fade keeps the disc melting cleanly. */
+  moonBrightness: 3.2,
+  /** Earthshine floor on the moon's dark side (0 = pitch black new moon; nudged 0.1 → 0.12
+   *  S6 with the brightness raise — a faintly fuller dark limb reads "brighter" organically). */
+  moonEarthshine: 0.12,
   /** Horizon occlusion fade band (m). The impostors sit at a FAKE camera-anchored distance, so the
    *  depth buffer cannot occlude them against the planet (the limb is farther than the impostor) —
    *  each fragment instead tests its view ray against the ellipsoid analytically and fades out as
@@ -870,15 +874,79 @@ export const FPV = {
   /** Pitch offset clamp (deg) around the photo's own pitch — never flip over the poles. */
   pitchClampDeg: 80,
   /** Building ghosting while in ANY FPV: buildings inside the view would otherwise swallow the
-   *  camera — fade the shared fill/edge materials so the view is never lost inside a mesh. */
-  buildingGhostOpacity: 0.2,
-  buildingGhostEdgeOpacity: 0.12,
+   *  camera — fade the shared fill/edge materials so the view is never lost inside a mesh.
+   *  S6 (owner): base fill 0.2 → 0.3 ("a little more opaque, still transparent") and the fill
+   *  gains a per-fragment CAMERA-DISTANCE falloff — fully transparent up close, easing to this
+   *  opacity by buildingGhostFarM (see scene/buildings.ts; the shared-material invariant holds:
+   *  distance-from-camera is global, so it lives in uniforms, not per-tile state). */
+  buildingGhostOpacity: 0.3,
+  buildingGhostEdgeOpacity: 0.18,
+  /** Distance falloff band (m from the camera): fill alpha is 0 inside nearM, full ghost
+   *  opacity beyond farM — the street around the viewpoint stays readable, the skyline keeps
+   *  its mass. */
+  buildingGhostNearM: 60,
+  buildingGhostFarM: 260,
+  /** Eye height above the local ground (m) across which the ghost blends back to FULL opacity
+   *  (owner: "with added altitude can gain full opaqueness") — once the viewpoint rises over
+   *  the rooftops there is nothing to see through any more. */
+  buildingSolidLoM: 40,
+  buildingSolidHiM: 180,
   /** Camera FOV (deg) for the temporary-pin "look around" FPV (no photo to inherit from;
    *  wider than the cinematic POSE 38° — it's a street-level look, not a framing). */
   tempFovDeg: 55,
-  /** Temp-FPV eye elevation ceiling (m above the pin's ground): the ZOOM encoder raises/lowers
-   *  the viewpoint STRICTLY vertically in this mode; floor = FRUSTUM.eyeHeightM. */
+  /** Temp-FPV eye elevation ceiling (m above the pin's ground): the ALTITUDE encoder (the
+   *  ZOOM encoder's FPV identity) raises/lowers the viewpoint STRICTLY vertically in this
+   *  mode; floor = FRUSTUM.eyeHeightM. Photo FPV uses the same ceiling for its vertical LIFT
+   *  off the frustum apex (lift 0 = the photographer's exact eye, the entry state). */
   tempEyeMaxM: 400,
+  /** FOCAL ZOOM encoder (S6): log-space FOV rate at full deflection (per s) — the panel twin
+   *  of the wheel zoom; fov ×= exp(∓rate·dt), same 8–80° clamp. 0.9 ≈ ×2.5 focal per second. */
+  fovRateMaxPerS: 0.9,
+  /** FPV HUD sync cadence (frames) — bearings/markers mirror at ~20 Hz; smooth enough for the
+   *  edge chips to track a drag-look, far below any store-churn concern. */
+  hudSyncEveryFrames: 3,
+  /** Sun/moon edge markers hide when the body sits below this altitude at the anchor (deg) —
+   *  −6° keeps a about-to-rise / just-set body plannable through civil twilight. */
+  bodyMarkerMinAltDeg: -6,
+} as const;
+
+/** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's
+ *  path across the scene-local solar day at the FPV anchor (lib/ephemeris/dayArc), drawn
+ *  camera-anchored at the sky-impostor distance so the discs sit exactly ON their arcs.
+ *  Occlusion is ANALYTIC (per-vertex altitude fade through the horizon band — same reasoning
+ *  as the impostors' closest-approach fade; the arc's own az/alt IS the horizon test at the
+ *  anchor), never the depth buffer. Colours: sun = tokens.sunGlow, moon = tokens.moonlight,
+ *  per D14 — this file names no colour. */
+export const DAYARC = {
+  /** Ephemeris sampling step across the day (min) — 10 min ≈ 145 pts, sub-pixel kinks. */
+  stepMin: 10,
+  /** Hour-tick cadence (h). */
+  tickEveryH: 1,
+  /** Tick half-length (deg of sky) — drawn along the local vertical through the arc point. */
+  tickHalfDeg: 0.45,
+  /** Line alpha ahead of scene time (the plannable half of the day)… */
+  alphaFuture: 0.6,
+  /** …and behind it (already happened — kept readable but clearly secondary). */
+  alphaPast: 0.22,
+  /** Ticks render slightly brighter than the line so the hours read as instrument marks. */
+  tickAlphaGain: 1.25,
+  /** Per-vertex horizon melt over the point's altitude (deg): gone by lo, full above hi —
+   *  the arc dives visibly through rise/set instead of being cut at the horizon line. */
+  horizonFadeLoDeg: -6,
+  horizonFadeHiDeg: -1,
+  /** Whole-overlay fade ease (ms) on FPV enter/exit. */
+  fadeTauMs: 250,
+} as const;
+
+/** Night-sky asterism figures (Phase 5.5 S6, §Item 4) — ~20 famous d3-celestial figures as a
+ *  LineSegments CHILD of the BSC5 star sphere (inherits −GAST + camera-follow + scale + the
+ *  stars' own altitude/night fade gating). Subtle by design: the figures annotate the stars,
+ *  never wash them. Colour = tokens.star. */
+export const ASTERISMS = {
+  /** Baked asset (scripts/build-asterisms.mjs; RA stored in DEGREES — loader converts). */
+  url: "/data/asterisms.json",
+  /** Peak line alpha (× the star fade) — a faint constellation tracery. */
+  alpha: 0.15,
 } as const;
 
 /** Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops it, it becomes

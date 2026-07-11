@@ -133,6 +133,16 @@
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
 }
 
+/* Sky-guides toggle (S6 follow-up) — lit while the guides are on, muted when off. */
+.ct-sky {
+  letter-spacing: 0;
+}
+.ct-sky.is-on {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
 /* Encoder (spring-centred rate control) — centre tick over the shared slider rail. */
 .ct-enc .uf-slider__fill {
   transition: left 0.18s ease-out, width 0.18s ease-out;

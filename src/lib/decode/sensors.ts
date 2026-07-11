@@ -151,3 +151,16 @@ export function verticalFovDeg(hFovDeg: number, aspect: number): number {
   const hRad = (hFovDeg * Math.PI) / 180;
   return 2 * Math.atan(Math.tan(hRad / 2) / aspect) * (180 / Math.PI);
 }
+
+/** Full-frame sensor HEIGHT (mm) — the vertical twin of FULL_FRAME_WIDTH_MM (36×24). */
+export const FULL_FRAME_HEIGHT_MM = 24;
+
+/** 35mm-equivalent focal length (mm) for a VERTICAL FOV — inverse of the FOV derivation
+ *  against the full-frame 24 mm height. The FPV HUD reads the live camera.fov (vertical)
+ *  through this: a 35 mm-equiv shot (vFov 37.8°) reads back as 35 mm. */
+export function focalFromVerticalFov(vFovDeg: number): number {
+  if (vFovDeg <= 0 || vFovDeg >= 180) {
+    throw new Error(`focalFromVerticalFov: vFov must be in (0, 180) (got ${vFovDeg})`);
+  }
+  return FULL_FRAME_HEIGHT_MM / 2 / Math.tan((vFovDeg * Math.PI) / 360);
+}

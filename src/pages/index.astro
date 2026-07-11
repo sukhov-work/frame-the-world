@@ -11,6 +11,7 @@ import LocationFinder from "../components/panels/LocationFinder";
 import PinHoverCard from "../components/panels/PinHoverCard";
 import ExploreMode from "../components/panels/ExploreMode";
 import Welcome from "../components/panels/Welcome";
+import FpvHud from "../components/panels/FpvHud";
 ---
 
 <Layout title="Frame the World">
@@ -37,6 +38,11 @@ import Welcome from "../components/panels/Welcome";
 
   <!-- Explore ambient pin journey (Phase 5.5 S4) — nav toggle + status chip -->
   <ExploreMode client:only="react" />
+
+  <!-- FPV HUD (Phase 5.5 S6) — left-side bearings/focal card + off-frame sun/moon edge chips;
+       renders only while an FPV mode is active. Top-level island: position:fixed must never
+       live inside a backdrop-filtered card (the S2 containing-block trap). -->
+  <FpvHud client:only="react" />
 
   <!-- Welcome landing (owner mockup 2026-07-11): journey backdrop, chrome hidden, any globe
        click / the two CTAs dismiss into the full UI -->

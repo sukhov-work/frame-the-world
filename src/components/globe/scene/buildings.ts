@@ -4,7 +4,8 @@ import { CesiumIonAuthPlugin } from "3d-tiles-renderer/core/plugins";
 import { GLTFExtensionsPlugin } from "3d-tiles-renderer/three/plugins";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { tokens } from "../../../lib/theme/tokens";
-import { BUILDINGS, TILESETS } from "../tuning";
+import { BUILDINGS, FPV, TILESETS } from "../tuning";
+import { glf } from "./glsl";
 
 /**
  * OSM building tiles (Cesium ion, TILESETS.ionAssetId) restyled to the design-board building idiom
@@ -22,8 +23,14 @@ export interface BuildingsHandle {
   /** FPV ghost mode (Phase 5.5 S2 follow-up): fade ALL buildings so the first-person view is
    *  never lost inside a mesh. Both materials are shared, so this is two uniform writes —
    *  per-tile obstruction testing is impossible without breaking the one-material invariant.
-   *  Pass null to restore the normal look. */
+   *  Pass null to restore the normal look. S6: the fill fades per-fragment by CAMERA DISTANCE
+   *  (fully transparent inside FPV.buildingGhostNearM, `fillOpacity` beyond buildingGhostFarM)
+   *  — distance-from-camera is global, so the falloff rides the shared material's uniforms. */
   setGhost(ghost: { fillOpacity: number; edgeOpacity: number } | null): void;
+  /** S6 (owner): 0 = pure ghost curve, 1 = full opacity — the orchestrator drives it from the
+   *  FPV eye height above ground (FPV.buildingSolidLoM/HiM): risen over the rooftops, there is
+   *  nothing left to see through. Per-frame safe (uniform + two cheap material writes). */
+  setGhostSolid(k: number): void;
   dispose(): void;
 }
 
@@ -59,11 +66,44 @@ export function attachBuildings(
   styleMat.polygonOffset = true;
   styleMat.polygonOffsetFactor = BUILDINGS.polygonOffset;
   styleMat.polygonOffsetUnits = BUILDINGS.polygonOffset;
+  // FPV ghost curve (S6): persistent uniform holders — onBeforeCompile re-binds them across
+  // the transparent-toggle recompile, so state survives. uGhostK gates the whole effect (0 in
+  // the normal look — the injected math multiplies alpha by exactly 1.0).
+  const uGhostK = { value: 0 };
+  const uSolidK = { value: 0 };
+  const uGhostAlpha = { value: FPV.buildingGhostOpacity as number };
+  styleMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uGhostK = uGhostK;
+    shader.uniforms.uSolidK = uSolidK;
+    shader.uniforms.uGhostAlpha = uGhostAlpha;
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nuniform float uGhostK;\nuniform float uSolidK;\nuniform float uGhostAlpha;",
+      )
+      .replace(
+        "#include <color_fragment>",
+        /* glsl */ `#include <color_fragment>
+        {
+          // FPV ghost: near the camera the mass melts away entirely (the street stays
+          // readable), easing to the ghost opacity with distance; uSolidK lifts the whole
+          // curve back to solid as the viewpoint climbs over the rooftops.
+          float ftwD = length(vViewPosition);
+          float ftwGhostA = uGhostAlpha *
+            smoothstep(${glf(FPV.buildingGhostNearM)}, ${glf(FPV.buildingGhostFarM)}, ftwD);
+          diffuseColor.a *= mix(1.0, mix(ftwGhostA, 1.0, uSolidK), uGhostK);
+        }`,
+      );
+  };
   const edgeMat = new THREE.LineBasicMaterial({
     color: new THREE.Color(tokens.landHi), // lighter than the fill -> pronounced lit edges (design stroke)
     transparent: true,
     opacity: BUILDINGS.edgeOpacity,
   });
+  // Ghost-mode edge opacity (lines can't ride the per-fragment fill curve — LineBasicMaterial
+  // has no distance falloff worth a custom shader); setGhostSolid blends it back toward the
+  // normal stroke as the viewpoint climbs.
+  let ghostEdgeOpacity: number = BUILDINGS.edgeOpacity;
   tiles.addEventListener("load-model", (e: any) => {
     e.scene.traverse((c: any) => {
       if (c.isMesh) {
@@ -100,10 +140,26 @@ export function attachBuildings(
     setGhost(ghost) {
       const wasTransparent = styleMat.transparent;
       styleMat.transparent = ghost !== null;
-      styleMat.opacity = ghost ? ghost.fillOpacity : 1;
-      styleMat.depthWrite = ghost === null; // ghosts must not occlude each other into solidity
+      // Alpha now lives entirely in the injected distance curve — opacity stays 1 so the
+      // shader's mix() is the one source (uGhostK 0 renders identical to the pre-S6 look).
+      uGhostK.value = ghost ? 1 : 0;
+      if (ghost) uGhostAlpha.value = ghost.fillOpacity;
+      ghostEdgeOpacity = ghost ? ghost.edgeOpacity : BUILDINGS.edgeOpacity;
+      styleMat.depthWrite = ghost === null || uSolidK.value > 0.6; // ghosts must not occlude each other into solidity
       if (wasTransparent !== styleMat.transparent) styleMat.needsUpdate = true; // shader recompile
-      edgeMat.opacity = ghost ? ghost.edgeOpacity : BUILDINGS.edgeOpacity;
+      edgeMat.opacity = ghost
+        ? ghost.edgeOpacity + (BUILDINGS.edgeOpacity - ghost.edgeOpacity) * uSolidK.value
+        : BUILDINGS.edgeOpacity;
+    },
+    setGhostSolid(k) {
+      uSolidK.value = THREE.MathUtils.clamp(k, 0, 1);
+      if (uGhostK.value > 0) {
+        // Near-solid ghosts write depth again — a ~1.0-alpha transparent surface with
+        // depthWrite off would show its own back faces through the front.
+        styleMat.depthWrite = uSolidK.value > 0.6;
+        edgeMat.opacity =
+          ghostEdgeOpacity + (BUILDINGS.edgeOpacity - ghostEdgeOpacity) * uSolidK.value;
+      }
     },
     dispose() {
       tiles.dispose();
