@@ -70,8 +70,7 @@ conventions to catch deviations early), **Library-research** (verify external li
 ### Local-runnable (every time)
 ```
 npm test            # vitest — FOV / geohash / projection / ephemeris math green (or the focused module)
-npx astro check     # types
-npm run lint        # lint clean
+npx astro check     # types   (no lint script in this repo — test + check are the only gates)
 ```
 Fix all failures before claiming success.
 ### Browser / Wix-cloud-only (mark UNVERIFIED until actually run there — see mem:project/dev_environment)

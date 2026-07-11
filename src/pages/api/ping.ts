@@ -1,6 +1,7 @@
-// Spike route: falsifies the "app-defined POST routes 403 through the cloud adapter" risk
-// reported in the official wix-headless skill (BACK_IN_STOCK.md) before the save flow is
-// built on POST endpoints. GET is the control probe.
+// Release canary / health gate — the smallest app-defined route. Originally a spike that falsified the
+// "app-defined POST routes 403 through the cloud adapter" fear; RETAINED as the pre-release gate: after
+// `wix release`, `GET/POST /api/ping` must both 200 on the live URL before the save flow is trusted in
+// production (see DECISIONS § Traps & Gotchas / Wix). GET is the control probe. Do NOT delete.
 import type { APIRoute } from "astro";
 
 const json = (body: unknown, status = 200) =>

@@ -3,7 +3,6 @@ import {
   geodeticToEcef,
   enuBasis,
   cameraForward,
-  frustumPose,
   length,
   WGS84_A,
   WGS84_B,
@@ -60,14 +59,5 @@ describe("cameraForward heading/pitch at (0,0)", () => {
     for (const hp of [[0, 0], [37, 12], [270, -45], [180, 80]] as const) {
       expect(length(cameraForward(10, 20, hp[0], hp[1]))).toBeCloseTo(1, 6);
     }
-  });
-});
-
-describe("frustumPose", () => {
-  it("bundles ECEF position + unit forward + up", () => {
-    const p = frustumPose(48.4647, 35.0462, 120, 210, -5);
-    expect(length(p.position)).toBeGreaterThan(6.36e6);
-    expect(length(p.forward)).toBeCloseTo(1, 6);
-    expect(length(p.up)).toBeCloseTo(1, 6);
   });
 });

@@ -86,9 +86,10 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
 - **No geospatial operator.** Query language: `$eq/$ne/$hasSome/$hasAll/$in/$gt/$lt/$exists/$and/$or/$not`.
   Viewport query pattern: store a **geohash** string per photo → compute covering prefixes client-side →
   `hasSome(geohashPrefix, [...])` → refine client-side. (Denormalize hot fields into `PublicPins`.)
-- **Quota (10 free / unlimited paid):** enforce server-side — Pricing Plans check + a `beforeInsert`
-  data hook / service plugin that counts the member's photos and rejects insert #11 for free members.
-  UI-only enforcement is a bug.
+- **Quota (10 free / unlimited paid):** enforce server-side. *(As built, Phase 5 — SUPERSEDES the
+  `beforeInsert`-hook plan (D8): the headless CLI provisions **no Wix Data hooks**, and a member-session
+  insert is platform-refused, so the count-and-reject lives in the elevated `POST /api/photos` handler
+  (#11 → 402). Pricing Plans gates unlimited.)* UI-only enforcement is a bug.
 
 ## 9. Media Manager (RAW originals + previews)
 - **Files >10MB MUST use `generateFileResumableUploadUrl` (TUS)** — RAW is 25–80MB. `generateFileUploadUrl`
@@ -112,10 +113,11 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
 
 ## 12. Islands / SSR
 - The globe is `client:only="react"` — **never SSR WebGL**. WASM decode runs in a **Web Worker**
-  (`OffscreenCanvas`, transfer `ArrayBuffer` zero-copy). WASM assets live under `public/wasm/` (CDN-cached).
+  (`OffscreenCanvas`, transfer `ArrayBuffer` zero-copy). WASM is emitted as hashed Vite build assets (libraw)
+  / inlined in the bundle (libheif) — **no `public/wasm/`** (falsified in Phase 2).
 - WASM **threads** need `SharedArrayBuffer` → cross-origin isolation (COOP `same-origin` + COEP `require-corp`).
-  Whether managed headless lets you set those page headers is **TODO-VERIFY** → ship **single-threaded SIMD**
-  decode by default (works without isolation).
+  *(RESOLVED by sidestep, Phase 2: we ship **single-threaded** `libraw-wasm@1.0.5` in a disposable Worker —
+  no isolation, no COOP/COEP; the header question stayed moot because we never needed threads.)*
 
 ## 13. No cron
 Headless has no scheduler. If ever needed (e.g. expiring listings): external trigger (GitHub Actions cron)

@@ -11,7 +11,7 @@ import { glf } from "./glsl";
  * OSM building tiles (Cesium ion, TILESETS.ionAssetId) restyled to the design-board building idiom
  * (canvas ftw-scene): DARK slate mass with lighter edge strokes that catch the light — not a light
  * fill. Flat shading keeps per-facet silhouettes; a faint sage emissive stops the night side going
- * pure black. Accent stays reserved for signal (pins). Tunables: BUILDINGS + TERRAIN + TILESETS.
+ * pure black. Accent stays reserved for signal (pins). Tunables: BUILDINGS + TILESETS.
  *
  * Style is applied by material swap on `load-model` (NOT BatchedTilesPlugin — locked invariant).
  * ONE shared fill material + ONE shared edge material (disposed once, here); edge GEOMETRY is

@@ -25,7 +25,7 @@ Apache-2.0) + **Cesium OSM Buildings (ion asset 96188)** via `CesiumIonAuthPlugi
 tokens), (2) a **second `TilesRenderer`** draping palette-graded **Esri World Imagery** (z19) via
 `GeneratedSurfacePlugin` + `XYZTilesOverlay`, screen-door-dissolved in by altitude (progressive detail, no
 LOD switch; Esri production ToS = TODO-VERIFY before release), (3) the OSM building tiles (dark slate +
-`EdgesGeometry` strokes), sunk 90 m to cancel their Cesium-World-Terrain clamp until real terrain lands.
+`EdgesGeometry` strokes). *(2026-07-10 the buildings were sunk 90 m as a terrain-clamp offset; Phase 4 landed real Cesium World Terrain and REMOVED the sink.)*
 Default camera = LEO oblique + idle orbital drift (the seed's signature scene). Mechanics:
 `mem:patterns/globe-rendering`.
 
@@ -61,19 +61,27 @@ publicPrecision(str: exact|1km|city), forSale(bool), price(num), createdAt`
 ## 6. Endpoint contracts (Astro backend — thin; heavy compute stays client-side per C1)
 | Endpoint | Does | Notes |
 |---|---|---|
-| `POST /api/upload-url` | `elevate()` → `generateFileResumableUploadUrl` for RAW >10MB → return url/token | TUS; async ready |
-| `POST /api/photos` | `elevate()` → validate → **enforce quota** → insert `Photos` (+`PublicPins` if public) | quota hook rejects #11 free |
-| `POST /api/analyze` | premium-gate → Wix AI (Claude) with **downsized JPEG** + desired-condition prompt → suggestions | ~1 credit; never RAW |
-| `POST /api/moderate` | Claude moderation pass on a preview before publishing a public pin | C6 gate |
+| `POST /api/upload-url` | `elevate()` → `generateFileResumableUploadUrl` for RAW >10MB → url/token | TUS; async. **BUILT** |
+| `/api/photos` GET·POST·PATCH·DELETE | `elevate()` → owner-gate → **endpoint-enforced quota** → CRUD `Photos` (+`PublicPins` if public, C6-reduced) | #11 → 402 (SUPERSEDES D8's hook). **BUILT** |
+| `GET·POST /api/ping` | released-URL POST-403 canary / pre-release health gate | **BUILT** |
+| `POST /api/analyze` | premium-gate → Wix AI (Claude) + **downsized JPEG** + desired-condition prompt → suggestions | ~1 credit; never RAW. **PLANNED — Phase 7** |
+| `POST /api/moderate` | Claude moderation pass on a preview before publishing a public pin | C6 gate. **PLANNED — Phase 7** |
 
 ## 7. Component responsibilities (target `src/`)
-- `components/globe/` (`client:only`): `GlobeCanvas` (scene lifecycle), `StylizedTiles` (load-model override),
-  `Frustum` (EXIF→camera proxy + image plane), `Sky` (procedural + ephemeris), `Pins` (public pins, cluster, hover).
-  **Design imports never write here.**
-- `components/panels/`: `ExifTweakPanel` (sliders → zustand), `TimeScrubber` (time → ephemeris), `UploadFlow`
-  (dropzone → worker), `LocationFinder` (free geocode → fly-to, Phase 5.5), `AiPanel` (premium). Design imports allowed.
-- `lib/`: `decode/`, `geo/`, `ephemeris/`, `theme/` (GL token bridge), `wix/` (SDK clients, quota, media, ai).
-- `store/`: zustand reactive EXIF params — the spine of real-time re-projection.
+- `components/globe/` (`client:only`, **design imports never write here**): `GlobeCanvas` (renderer/composer/
+  bloom + procedural fallback), `StylizedTiles` (orchestrator: camera, controls, per-frame loop, FPV, glides,
+  pins/sky sync — the `load-model` material override lives in `scene/imageryGround`+`scene/buildings`),
+  `PhotoFrustum` (EXIF→camera + image plane), `flight`/`explore` (camera controllers), `Pins` (public pins,
+  cluster, hover), `tuning.ts` (every tunable), and `scene/*` (baseEarth, atmosphere, stars, buildings,
+  imageryGround, sky, dayArcs, graticule, glsl).
+- `components/panels/` (design imports allowed): `UploadFlow` (dropzone→worker), `PhotoDetailPanel` (EXIF
+  sliders/encoders + save/update/delete), `TimeScrubber`+`TimeReadout`, `LocationFinder` (geocode→fly-to),
+  `CameraTiltPanel` (compass/2D-3D/encoders), `MyPins`, `MemberBadge`, `Welcome`, `ExploreMode`, `FpvHud`,
+  `PinHoverCard`. `components/ui/`: `Slider`, `Encoder`. *(`AiPanel` = Phase 7, not built.)*
+- `lib/`: `decode/`, `geo/` (projection, frustum, geohash, precision, geocode, offscreen), `ephemeris/`,
+  `pins/`, `save/`, `wix/` (`pinRecords`), `format/`, `textures/`, `theme/` (GL token bridge).
+- `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member` — the reactive spine +
+  the globe⇆React seam/mirror contract (see `conventions/architecture-and-patterns.md`).
 
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to

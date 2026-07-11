@@ -58,6 +58,29 @@ export function formatAltitude(m?: number): string {
   return m === undefined ? EM_DASH : `${Math.round(m)} M`;
 }
 
+/** Camera-altitude readout with a unit switch: `500 m` / `12.3 km` / `150 km`. */
+export function formatAltM(altM: number): string {
+  if (altM < 1_000) return `${Math.round(altM)} m`;
+  if (altM < 100_000) return `${(altM / 1000).toFixed(1)} km`;
+  return `${Math.round(altM / 1000)} km`;
+}
+
+/** Eye / ground height: sub-10 m keeps one decimal (`1.7 m`), then `115 m` / `1.2 km`. */
+export function formatEyeM(m: number): string {
+  return m < 1_000 ? `${m < 10 ? m.toFixed(1) : Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+const CARDINALS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+/** 8-point compass label for a heading in degrees (`N`, `NE`, …); wraps negatives. */
+export function cardinal(azDeg: number): string {
+  return CARDINALS[Math.round((((azDeg % 360) + 360) % 360) / 45) % 8];
+}
+
+/** `+4.0°` / `−4.0°` — always signed, one decimal, typographic minus. */
+export function formatSigned(deg: number): string {
+  return `${deg >= 0 ? "+" : MINUS}${Math.abs(deg).toFixed(1)}°`;
+}
+
 /** `60.2 MP` */
 export function formatMegapixels(width?: number, height?: number): string {
   if (!width || !height) return EM_DASH;

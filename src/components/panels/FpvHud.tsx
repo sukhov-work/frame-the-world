@@ -1,6 +1,6 @@
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
-import { formatFocal } from "../../lib/format/readout";
+import { formatFocal, formatEyeM, cardinal, formatSigned } from "../../lib/format/readout";
 import "../../styles/fpv-hud.css";
 
 /**
@@ -16,20 +16,6 @@ import "../../styles/fpv-hud.css";
  * a backdrop-filtered card (the S2 containing-block trap). Everything is pointer-events:none —
  * the HUD annotates the view, it never intercepts the look-drag.
  */
-
-const CARDINALS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
-
-function cardinal(azDeg: number): string {
-  return CARDINALS[Math.round(azDeg / 45) % 8];
-}
-
-function formatSigned(deg: number): string {
-  return `${deg >= 0 ? "+" : "−"}${Math.abs(deg).toFixed(1)}°`;
-}
-
-function formatEyeM(m: number): string {
-  return m < 1_000 ? `${m < 10 ? m.toFixed(1) : Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
-}
 
 function bodyReadout(marker: FpvBodyMarker): string {
   if (!marker.up && marker.altDeg < -6) return "BELOW HORIZON";

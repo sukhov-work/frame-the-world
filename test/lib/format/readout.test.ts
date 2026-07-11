@@ -11,8 +11,40 @@ import {
   formatMegapixels,
   formatBytes,
   formatCaptureDateTime,
+  formatAltM,
+  formatEyeM,
+  cardinal,
+  formatSigned,
   EM_DASH,
 } from "../../../src/lib/format/readout";
+
+describe("formatAltM / formatEyeM — unit-switching height readouts", () => {
+  it("formatAltM switches m → km with the right precision", () => {
+    expect(formatAltM(500)).toBe("500 m");
+    expect(formatAltM(12_340)).toBe("12.3 km");
+    expect(formatAltM(150_000)).toBe("150 km");
+  });
+  it("formatEyeM keeps a decimal under 10 m", () => {
+    expect(formatEyeM(1.7)).toBe("1.7 m");
+    expect(formatEyeM(115)).toBe("115 m");
+    expect(formatEyeM(1_200)).toBe("1.2 km");
+  });
+});
+
+describe("cardinal / formatSigned", () => {
+  it("maps headings to the 8-point compass and wraps negatives", () => {
+    expect(cardinal(0)).toBe("N");
+    expect(cardinal(90)).toBe("E");
+    expect(cardinal(225)).toBe("SW");
+    expect(cardinal(359)).toBe("N");
+    expect(cardinal(-90)).toBe("W");
+  });
+  it("formatSigned always shows a sign with a typographic minus", () => {
+    expect(formatSigned(4)).toBe("+4.0°");
+    expect(formatSigned(-4)).toBe("−4.0°");
+    expect(formatSigned(0)).toBe("+0.0°");
+  });
+});
 
 describe("formatLatLon", () => {
   it("renders the board-05 Paris readout", () => {

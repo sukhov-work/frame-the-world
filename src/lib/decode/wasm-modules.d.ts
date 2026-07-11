@@ -3,8 +3,9 @@
  *
  * `libraw-wasm` is pinned to 1.0.5 — the last SINGLE-THREADED build. Every later version (1.1.2+)
  * is compiled with pthreads + SharedArrayBuffer and hard-requires COOP/COEP cross-origin isolation,
- * which is unverified on Wix managed hosting (IMPLEMENTATION_PLAN TODO-VERIFY #2) and would force
- * CORP requirements onto the globe's tile/font subresources. 1.0.5 ships no .d.ts, so the surface
+ * which Wix managed hosting is not confirmed to allow, and would force CORP requirements onto the globe's
+ * tile/font subresources. Phases 2–5 shipped this single-threaded path in a disposable Worker, so the pin
+ * stays (resolves IMPLEMENTATION_PLAN TODO-VERIFY #2 by sidestep — threads never needed). 1.0.5 ships no .d.ts, so the surface
  * below is the empirically-probed shape of that exact version (see DECISIONS 2026-07-10): no GPS
  * block, no thumbnailData()/dispose(), metadata DOES include width/height + camera_make/camera_model.
  */

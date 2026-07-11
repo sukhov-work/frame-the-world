@@ -38,7 +38,7 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 > Commands below become live **after Phase 1 scaffolds the Astro app** (`npm create @wix/new`). See
 > `mem:suggested_commands` for the full list and `conventions/wix-headless.md` for auth/build/release.
 - Deps: `npm install --legacy-peer-deps`  (pnpm **fails** against the `@wix/cli` template)
-- Dev: `wix dev`  ·  Types: `npx astro check`  ·  Test: `npm test` (vitest)  ·  Lint: `npm run lint`
+- Dev: `wix dev`  ·  Types: `npx astro check`  ·  Test: `npm test` (vitest). **No lint script** — `astro check` + `npm test` are the done-gates.
 - Release: `npx @wix/cli@latest build` → `npx @wix/cli@latest release`  (no SSH — "prod" is Wix cloud)
 - Auth: `npx @wix/cli@latest token --site "$SITE_ID"` (site-scoped REST; mint once, cache). `whoami` to check.
 - **Never claim done with failing tests or `astro check` errors.** Never fabricate a Wix API signature.
@@ -67,6 +67,6 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - Digital download links expire after 30 days (not shortenable) → message buyers.
 
 ## Design workflow (Claude Design — see CLAUDE_DESIGN_MEMO.md)
-Tokens source of truth = `src/styles/tokens.css` (+ Tailwind). After any design import, regenerate the
+Tokens source of truth = `src/styles/tokens.css` (plain CSS custom properties — **no Tailwind** in this repo). After any design import, regenerate the
 GL bridge `src/lib/theme/tokens.ts`. Design imports write ONLY under `src/components/panels|ui/**` +
 `src/styles/**` — **NEVER** `src/components/globe/**` or `src/lib/**` (the canvas globe is motion-spec only).

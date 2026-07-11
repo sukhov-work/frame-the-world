@@ -295,14 +295,6 @@ export const CONTROLS = {
   rateEaseTauMs: 140,
 } as const;
 
-/** Phase-1 test city (Dnipro, UA). The old `buildingSinkM` float workaround was REMOVED
- *  2026-07-10: the ground now renders Cesium World Terrain — the same terrain the OSM buildings
- *  are clamped to — so bases seat without a hack. */
-export const TERRAIN = {
-  cityLatDeg: 48.4647,
-  cityLonDeg: 35.0462,
-} as const;
-
 /** External tile sources. ToS: Esri World Imagery is hackathon-standard but UNVERIFIED for
  *  production; attribution for Esri + OSM lives in the DOM (src/pages/index.astro). */
 export const TILESETS = {
