@@ -3,16 +3,15 @@
    TimeReadout dot. Colour via tokens.css vars only; motion: micro 180ms. */
 
 .ts {
-  /* Fluid middle band: the hero owns the left ~31rem, the readout/tilt column the right ~15rem —
-     pinning both edges (+ margin auto with a max-width) keeps the rail clear of both at any
-     viewport instead of a centred fixed width that would overlap the hero on laptops. */
+  /* Properly centred (owner 2026-07-11 — the hero it used to dodge is gone; the welcome page
+     hides the rail entirely). Width backs off enough to stay clear of the right readout/tilt
+     column on laptop viewports. */
   position: fixed;
-  left: 32rem;
-  right: 16rem;
+  left: 50%;
+  transform: translateX(-50%);
   bottom: 2.2rem;
-  margin-inline: auto;
   z-index: 10;
-  max-width: 38rem;
+  width: min(38rem, calc(100vw - 34rem));
   padding: 0.55rem 0.95rem 0.5rem;
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-bg) 62%, transparent);

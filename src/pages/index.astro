@@ -8,6 +8,9 @@ import TimeScrubber from "../components/panels/TimeScrubber";
 import MemberBadge from "../components/panels/MemberBadge";
 import MyPins from "../components/panels/MyPins";
 import LocationFinder from "../components/panels/LocationFinder";
+import PinHoverCard from "../components/panels/PinHoverCard";
+import ExploreMode from "../components/panels/ExploreMode";
+import Welcome from "../components/panels/Welcome";
 ---
 
 <Layout title="Frame the World">
@@ -29,11 +32,21 @@ import LocationFinder from "../components/panels/LocationFinder";
   <!-- Location finder (Phase 5.5 S1) — free geocoding (Photon / Nominatim) → cinematic fly-to -->
   <LocationFinder client:only="react" />
 
+  <!-- Hover details card over a public pin (Phase 5.5 S4) -->
+  <PinHoverCard client:only="react" />
+
+  <!-- Explore ambient pin journey (Phase 5.5 S4) — nav toggle + status chip -->
+  <ExploreMode client:only="react" />
+
+  <!-- Welcome landing (owner mockup 2026-07-11): journey backdrop, chrome hidden, any globe
+       click / the two CTAs dismiss into the full UI -->
+  <Welcome client:only="react" />
+
   <header class="topnav">
     <span class="logo">Frame&nbsp;the&nbsp;World</span>
     <nav>
-      <!-- routes arrive in later phases (explore=P3) -->
-      <a href="#">Explore</a>
+      <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
+      <a href="#explore" data-explore>Explore</a>
       <a href="#upload" class="nav-upload" data-open-upload>Upload</a>
       <!-- Phase 5.1: rudimentary owner pin list (members only; gallery phase replaces it) -->
       <MyPins client:only="react" />
@@ -41,11 +54,6 @@ import LocationFinder from "../components/panels/LocationFinder";
       <MemberBadge client:only="react" />
     </nav>
   </header>
-
-  <section class="hero">
-    <h1>See where your photograph lives in the world.</h1>
-    <p>Upload a RAW. Watch it project onto the planet.</p>
-  </section>
 
   <!-- Attribution: Esri World Imagery (draped ground) + Cesium ion (World Terrain + OSM
        Buildings, D13 manual attribution) + OpenStreetMap (building data). -->
@@ -117,26 +125,6 @@ import LocationFinder from "../components/panels/LocationFinder";
     .topnav a.nav-upload {
       animation: none;
     }
-  }
-  .hero {
-    position: fixed;
-    left: 1.6rem;
-    bottom: 2.2rem;
-    z-index: 10;
-    max-width: 30rem;
-    pointer-events: none;
-  }
-  .hero h1 {
-    margin: 0 0 0.5rem;
-    font-weight: 500;
-    font-size: 1.9rem;
-    line-height: 1.15;
-    color: var(--color-text);
-  }
-  .hero p {
-    margin: 0;
-    color: var(--color-text-secondary);
-    font-size: 0.95rem;
   }
   .map-credit {
     position: fixed;

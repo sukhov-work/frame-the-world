@@ -1,0 +1,37 @@
+/* Explore ambient journey chrome (Phase 5.5 S4, §Item 11). One quiet chip under the nav is
+   the only indicator — the journey itself is the show (instrument restraint, D14: accent may
+   glow, nothing loops). */
+.explore-chip {
+  position: fixed;
+  top: 3.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  padding: 0.4rem 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.explore-chip:hover {
+  border-color: var(--color-accent);
+}
+
+.explore-chip__hint {
+  color: var(--color-text-secondary);
+  letter-spacing: 0.06em;
+}
+
+/* The nav link mirrors the mode (ExploreMode toggles the class; wins over the scoped
+   .topnav a colour via the extra class). */
+.topnav a.is-exploring {
+  color: var(--color-accent);
+}

@@ -5,7 +5,9 @@
 .tr {
   position: fixed;
   right: 1.6rem;
-  bottom: 2.2rem;
+  /* Vertically centred on the time-scrub rail's axis (owner 2026-07-11 — it sat glued to the
+     viewport bottom while the scrub card's centre line runs ~4.1rem up). */
+  bottom: 2.85rem;
   z-index: 10;
   display: flex;
   flex-direction: column;

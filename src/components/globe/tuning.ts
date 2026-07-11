@@ -267,6 +267,9 @@ export const CONTROLS = {
   /** Encoder-style rate controls (Phase 5.5 S2 — spring-centred ROTATE/ZOOM): max rates at
    *  full deflection. Heading in deg/s (compass-clockwise positive)… */
   headingRateMaxDegPerS: 45,
+  /** …photo PITCH encoder (PhotoDetailPanel, owner 2026-07-11): half the heading rate — the
+   *  range is ±90° vs 0–360°, so the full-stick sweep time stays comparable. */
+  pitchRateMaxDegPerS: 25,
   /** …zoom as a log-space rate (per s): altitude ×= exp(−rate·dt); 1.1 ≈ 3×/s at full stick. */
   zoomRateMaxPerS: 1.1,
   /** Expo response curve on stick deflection (rate = max·sign·|d|^gamma) — fine control near
@@ -638,22 +641,90 @@ export const FLIGHT = {
   arrivalTiltDeg: 80,
 } as const;
 
-/** Public pins on the shared globe (Phase 5). Markers are accent-colored instanced spheres
- *  scaled with camera distance (≈ constant screen size); the viewport query tier maps camera
- *  altitude → geohash precision (Wix Data has NO geo query — D7 hasSome over cell prefixes).
- *  Colors come from lib/theme/tokens (accent/accent600) — never from here. */
+/** Public pins on the shared globe (Phase 5; look reworked Phase 5.5 S4 §Item 6). Each pin is
+ *  a thin STEM (vertex-alpha fade to the base) + a floating shader HEAD (semi-transparent core,
+ *  fresnel rim, per-instance shimmer) + an additive cross-FLARE that appears only at twinkle
+ *  peaks — three instanced draws, sizes derived from ONE angular-constant head radius so the
+ *  pin keeps its shape at any zoom. The viewport query tier maps camera altitude → geohash
+ *  precision (Wix Data has NO geo query — D7 hasSome over cell prefixes).
+ *  Colors come from lib/theme/tokens (pin palette) — never from here. */
 export const PINS = {
-  /** Marker centre height above the local ground (m) — clears rooftops without floating. */
-  liftM: 40,
+  /** Stem-base height above the local ground (m) — just clears the drape, buildings may
+   *  occlude the stem naturally (the head floats above). */
+  liftM: 1,
   /** Fallback ground height (m, above ellipsoid) before terrain tiles answer heightAt. */
   fallbackGroundM: 120,
-  /** Marker world radius = camera distance × this (angular-constant size)… */
+  /** Head world radius = camera distance × this (angular-constant size)… */
   angularSize: 0.008,
   /** …clamped so pins neither vanish at street level nor balloon in orbit. */
   minSizeM: 6,
   maxSizeM: 45_000,
-  /** Marker fill opacity (accent reads as a signal; bloom picks up the rest). */
-  opacity: 0.92,
+  // --- S4 pin anatomy (all × the head radius `size` unless marked in metres) -----------------
+  /** Stem height = size × (this + stemSpreadFactor × stagger01)… (raised 2.4/1.8 → 3.6/2.8,
+   *  owner 2026-07-11: "make pin stems higher"). */
+  stemBaseFactor: 3.6,
+  /** …stagger01 from lib/pins/appearance clusterLayout (gh6 neighbor de-leveling). */
+  stemSpreadFactor: 2.8,
+  /** Stem world-height clamp (m): the floor keeps heads over typical rooftops at street zoom;
+   *  the cap tucks stems under the clamped head from orbit — the LEO dot look is preserved. */
+  stemMinM: 30,
+  stemMaxM: 3_600,
+  /** Adaptive de-clustering (owner 2026-07-11 — no skew/lean; replaces the scatter cuts).
+   *  Every gate is camera→cluster DISTANCE (≈ zoom altitude when looking at the pins):
+   *  FAR (≥ singleDist) a cluster renders as ONE marker — hover names the member count,
+   *  click DIVES to differentiation range instead of opening a pin; MID members spread on a
+   *  min-separation ring (screen-constant; the world radius shrinks as you zoom) and blend
+   *  toward their TRUE coordinates once real separation suffices; NEAR (≤ mergeDist) the
+   *  ring folds onto the truthful coordinates — the stem-height stagger keeps identical-spot
+   *  pins selectable. A SELECTED pin always eases to its truth. */
+  clusterSingleDistM: 300_000,
+  clusterSpreadFullDistM: 250_000,
+  /** Min separation between spread heads (× head radius; 2 = one full head diameter). */
+  clusterSepFrac: 2.4,
+  /** The ring folds back to truthful coordinates across this distance band. */
+  clusterMergeStartDistM: 2_000,
+  clusterMergeDistM: 1_000,
+  /** Clicking a COLLAPSED cluster flies to this arrival altitude (m) instead of opening. */
+  clusterDiveAltM: 60_000,
+  /** Selected-pin ease toward its true location (ms). */
+  selectEaseTauMs: 350,
+  /** Stem radius = size × this (a thin needle). */
+  stemWidthFrac: 0.07,
+  /** Stem alpha at the TOP (fades to 0 at the base — vertex gradient). */
+  stemTopAlpha: 0.55,
+  /** The head floats this × size above the stem top. */
+  headGapFrac: 0.35,
+  /** Head core alpha at REST (more transparent by default — owner 2026-07-11)… */
+  headCoreAlpha: 0.22,
+  /** …rising to this while hovered (the old default — hover "solidifies" the pin). */
+  headCoreAlphaHover: 0.38,
+  /** Hover brighten: head colour × (1 + this × hover) on top of the alpha rise. */
+  hoverBrighten: 0.45,
+  /** Fresnel rim: pow(1 − |N·V|, pow) × gain (the fine bright edge; bloom picks it up). */
+  headRimPow: 2.6,
+  headRimGain: 1.6,
+  /** Per-instance shimmer: brightness swings ±amp around 1 at ~speed rad/s, phase + rate from
+   *  hash(id) — a slow breathing glint, never a blink (calm is the spec). */
+  shimmerAmp: 0.28,
+  shimmerSpeed: 1.1,
+  /** Cross-flare gates on the shimmer peak: visible only above this fraction of the swing… */
+  flareThreshold: 0.86,
+  /** …drawn additively at size × this, with this overall alpha gain. */
+  flareSizeFactor: 3.6,
+  flareGain: 0.8,
+  /** Hover (pointer over the head): the head + flare enlarge to × this IN PLACE — the stem
+   *  and the head's CENTRE never move (an early cut scaled the whole pin, which raised the
+   *  head out from under the cursor → hover dropped → it fell back → oscillation)… */
+  hoverScale: 1.55,
+  /** …with this ease time-constant (ms), and the pick raycast runs every N frames. */
+  hoverEaseTauMs: 130,
+  hoverEveryFrames: 4,
+  /** Per-author hue palette (D14: tuning names TOKENS; colours live in lib/theme/tokens).
+   *  hash(hueSalt + authorName) picks by weight — teal-heavy, warm rare; the salt is the
+   *  palette seed, tuned so the launch authors read distinct (see appearance.test.ts). */
+  hueTokens: ["pinTeal", "pinIce", "pinMint", "pinLavender", "pinWarm"],
+  hueWeights: [3.5, 2, 2, 2, 0.5],
+  hueSalt: "pin:",
   /** Instanced-mesh capacity — also the query page cap. */
   maxRender: 1000,
   /** Above this altitude the query drops geo filtering and fetches the newest pins globally
@@ -679,6 +750,38 @@ export const PINS = {
   highlightPeriodMs: 1_100,
   /** Post-save fly-out altitude (m above ground) — far enough that the pin reads in context. */
   savedFlyOutAltM: 3_800,
+} as const;
+
+/** Explore ambient pin journey (Phase 5.5 S4, §Item 11): the Explore nav item becomes a
+ *  meditative auto-cruise — settle to ~900 km / ~50° tilt, then glide public pin → public pin
+ *  (nearest-neighbour order) at constant angular velocity with a dwell at each. ANY pointer /
+ *  wheel / Escape / encoder input exits and never fights the user; <2 loaded pins falls back
+ *  to the idle drift at the Explore pose. Legs are DRIFT-pacing × a few — NOT the 2.2 s
+ *  flight easing (globe/explore.ts owns the motion; entry/fallback ride the normal flight). */
+export const EXPLORE = {
+  /** Cruise altitude (m above the ellipsoid). */
+  altM: 900_000,
+  /** Cruise tilt (deg from nadir) — oblique enough that the landscape reads. */
+  tiltDeg: 50,
+  /** Target leg duration (s): angular speed = leg arc / this, clamped below. */
+  legTargetS: 28,
+  /** Angular-speed clamp (deg/s): floor keeps micro-legs from crawling; cap keeps far legs
+   *  meditative (ISS drift is 0.066°/s — this is "DRIFT pacing × a few"). */
+  omegaMinDegPerS: 0.06,
+  omegaMaxDegPerS: 0.55,
+  /** Smooth speed ramp over this fraction of the leg at each end (no jerk at start/stop)… */
+  edgeRampFrac: 0.18,
+  /** …with this floor so the eased ends still make progress (a pure ramp never finishes). */
+  edgeRampFloor: 0.12,
+  /** Dwell at each pin (ms) before the next leg begins. */
+  dwellMs: 6_000,
+  /** Slow orbit around the pin while dwelling (deg/s about the pin's up axis) — the journey
+   *  never freezes, even when every loaded pin shares one city (rest poses coincide). */
+  dwellOrbitDegPerS: 0.12,
+  /** Altitude low-pass toward altM while cruising (ms) — legs absorb entry-altitude error. */
+  altEaseTauMs: 2_600,
+  /** Legs shorter than this arc (deg) count as arrived (colocated pins → dwell only). */
+  minLegDeg: 0.05,
 } as const;
 
 /** Click-to-place live marker (Phase 5.5 S3): while the store is `placing`, an accent dot

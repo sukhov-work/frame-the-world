@@ -17,7 +17,6 @@ import {
   derivedFov,
   type AdjustableKey,
 } from "../../store/upload";
-import { useMemberStore } from "../../store/member";
 import PhotoDetailPanel, { PlacementHint } from "./PhotoDetailPanel";
 import {
   formatLatLon,
@@ -78,9 +77,9 @@ export default function UploadFlow() {
     // placed, the click-to-place hint while placing (both render over the visible globe).
     if (phase === "placed") return <PhotoDetailPanel />;
     if (phase === "placing") return <PlacementHint />;
-    // Idle globe: the first-pin call to action (Phase 5.5 S3, item 12) — only while the
-    // member owns no pins yet (or isn't signed in at all).
-    return <AddPhotoPill />;
+    // Idle globe: nothing — the nav Upload chip + the temp-pin "UPLOAD HERE" + the welcome
+    // page carry the call to action (the old "+ ADD PHOTO" pill retired, owner 2026-07-11).
+    return null;
   }
 
   const step = phase === "review" ? 1 : 0;
@@ -411,43 +410,3 @@ function Field({
   );
 }
 
-// The member's own-pin count survives re-mounts of the pill (one fetch per page load).
-let ownPinsProbe: Promise<number | null> | null = null;
-
-/** "+ ADD PHOTO" — a compact call-to-action floating over the idle globe while the member
- *  owns no pins yet (Phase 5.5 S3, item 12). Anonymous visitors see it too — the flow itself
- *  invites sign-in at save time. One subtle entrance; no pulsing loops (instrument restraint). */
-function AddPhotoPill() {
-  const memberPhase = useMemberStore((s) => s.phase);
-  const memberRefresh = useMemberStore((s) => s.refresh);
-  const [ownCount, setOwnCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (memberPhase === "unknown") void memberRefresh();
-    if (memberPhase !== "member") return;
-    ownPinsProbe ??= fetch("/api/photos")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => (j ? (j.photos?.length ?? 0) : null))
-      .catch(() => null);
-    let stale = false;
-    void ownPinsProbe.then((n) => {
-      if (!stale) setOwnCount(n);
-    });
-    return () => {
-      stale = true;
-    };
-  }, [memberPhase, memberRefresh]);
-
-  const show = memberPhase === "anonymous" || (memberPhase === "member" && ownCount === 0);
-  if (!show) return null;
-
-  return (
-    <button
-      type="button"
-      className="uf-addpill"
-      onClick={() => useUploadStore.getState().openPanel()}
-    >
-      <span aria-hidden="true">+</span> ADD PHOTO
-    </button>
-  );
-}

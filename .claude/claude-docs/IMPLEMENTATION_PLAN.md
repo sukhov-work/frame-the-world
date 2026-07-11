@@ -78,10 +78,14 @@ paid); public pins on shared globe via geohash viewport query; default reduced p
   dblclick-gesture memo above the camera controls + **"UPLOAD HERE"** in the temp-pin popup
   (location seed for GPS-less files). *(S3 shipped 2026-07-11 — wix-cloud-VERIFIED with a member
   cookie; see DECISIONS)*
-- [ ] **S4 — Pin visual rework:** stem + floating semi-transparent head (rim/core/shimmer, cross-flare
+- [x] **S4 — Pin visual rework:** stem + floating semi-transparent head (rim/core/shimmer, cross-flare
   at twinkle peaks), neighbor-staggered stem heights, per-user cool-family hues via instanceColor,
   hover enlarge/glow/details card. *Owner add:* **Explore ambient pin journey** (900 km / 50° tilt,
   slow nearest-neighbour cruise through pins, any interaction exits; EXPLORE tuning group).
+  *(S4 shipped 2026-07-11 — browser-VERIFIED; same-day owner batch: taller stems, gh6 ring
+  de-cluster, float32 flicker fix (camera-anchored pins + MV shaders), ADD-PHOTO pill retired,
+  **Welcome landing page** w/ auto-Explore backdrop, time scrub centred + readout axis-aligned.
+  See DECISIONS)*
 - [ ] **S5 — Night-sky physics:** K&S-1991 phase-scaled moonlight + moon-driven shadow rig at night,
   brighter stars/Milky Way (tuning), Black Marble 2016 gray 8k single-channel city lights.
   *Owner add:* **darker night sky** (lower night floors + root-cause the carried navy-floor mystery).
