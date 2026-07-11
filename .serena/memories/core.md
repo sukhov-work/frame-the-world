@@ -192,13 +192,17 @@ re-engages >0.6) · moon brighter (SKY.moonBrightness 3.2/earthshine 0.12). Same
 **sky guides gated** — arcs/asterisms FPV-only, other modes get ☀/☾ direction chips, ONE
 right-panel `☀☾` toggle (`camera.skyGuides` + `skyMarkers` mirror) enables/disables all of it.
 304 vitest · astro check 0 · wix build green. Mechanics: `mem:project/wip-2026-07-11-phase5.5-s6`.
-**Next step: finish the pre-S7 refactor, THEN Phase 5.5 S7.** 2026-07-11 architecture review shipped the
-safe cleanup tier (B1–B5/B7/B14/B18 — DECISIONS.md compacted 709→334 + `DECISIONS_ARCHIVE.md`, conventions
-codified, dead code removed, format dedup; 314 vitest · astro check 0). Remaining before S7: safe dedup
-B6/B8–B13/B15 + **B19 orchestrator split** (browser-verified). See `ARCHITECTURE_REVIEW.md` +
-`NEXT_SESSION_PROMPT.md` + `mem:project/wip-2026-07-11-pre-s7-refactor`. THEN **Phase 5.5 S7** — ground
-rework (CARTO dark drape · Natural Earth labels · building grow-on-zoom); Phase 6 marketplace after.
-S1–S6 not yet released to the live URL.
+**Next step: B19 orchestrator split (browser-verified), THEN Phase 5.5 S7.** The pre-S7 architecture-review
+SAFE tier is DONE (2026-07-11, two sessions): session 1 = B1–B5/B7/B14/B18 (DECISIONS.md compacted 709→334 +
+`DECISIONS_ARCHIVE.md`, conventions, dead code, format dedup); session 2 = the dedup follow-up B6/B8/B9/B10/
+B11/B12/B13/B15/B26 + B14 index (shared geo/math → `lib/geo/{terrain,screen,heading}.ts`; param layer →
+`lib/decode/params.ts` killing the lib→store edge; `lib/geo/coerce.ts` + `lib/pins/fields.ts CameraPoseOptics`;
+`lib/api/http.ts`; typed `src/global.d.ts` seams; `GlobeControlsInternal`; `ORCH` tuning group; throttled
+catch). Verified 323 vitest · astro check 0 · a 3-reviewer adversarial workflow → 0 findings. Remaining before
+S7: **B19** — split `StylizedTiles.update()` into named step-fns (browser-verified; scaffolding now in place).
+See `ARCHITECTURE_REVIEW.md` + `NEXT_SESSION_PROMPT.md` + `mem:project/wip-2026-07-11-pre-s7-refactor-s2`. THEN
+**Phase 5.5 S7** — ground rework (CARTO dark drape · Natural Earth labels · building grow-on-zoom); Phase 6
+marketplace after. S1–S6 not yet released to the live URL.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

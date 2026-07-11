@@ -42,7 +42,7 @@ export default function GlobeCanvas() {
     const reduceMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    if (import.meta.env.DEV) (window as any).__renderer = renderer;
+    if (import.meta.env.DEV) window.__renderer = renderer;
 
     const scene = new THREE.Scene();
     // The space backdrop MUST be scene.background, not the renderer clear color (S5 §Item 15 —
@@ -183,7 +183,7 @@ export default function GlobeCanvas() {
     composer.addPass(new OutputPass());
     // DEV-only introspection (same pattern as __renderer/__globe): browser verification can
     // toggle passes / read bloom uniforms without reaching into this closure.
-    if (import.meta.env.DEV) (window as any).__composer = composer;
+    if (import.meta.env.DEV) window.__composer = composer;
 
     // --- optional real OSM-buildings globe (ion token gated; dynamic import) ---
     let tilesHandle: { update: () => void; dispose: () => void } | null = null;

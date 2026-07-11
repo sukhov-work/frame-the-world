@@ -50,34 +50,41 @@ store **seam + mirror** pattern (window.__* dev seams deliberate). Full list →
 
 ## Backlog (risk-classified) & status
 
-**Done 2026-07-11 (session 1), all verified (314 vitest · astro check 0):** B1, B2, B3, B4, B5, B7, B14, B18.
-**Next:** B6 / B8–B13 / B15 (safe local-verified follow-up) · **B19** (orchestrator split — browser-verified,
-the pre-S7 ask) · B20–B25 (fold into S7).
+**Done 2026-07-11 session 1** (314 vitest · astro check 0): B1, B2, B3, B4, B5, B7, B14 (dead-const), B18.
+**Done 2026-07-11 session 2** (323 vitest · astro check 0 · a 3-reviewer adversarial workflow → 0 findings):
+B6, B8, B9, B10, B11, B12, B13, B14 (section index), B15, B26. Two sub-scopes assessed and **declined** with
+rationale (falsification gate): B6's `projectOntoTangent`/`horizontalApproach` (each call site's degenerate
+fallback differs — forcing one helper would be lossy; left inline) and B12's `generic requestJson` (uploadMedia's
+is the ONLY real instance; geocode's error contract differs). B9's `PRECISION_TIERS` applied to the pins
+bad-data fallback (`DEFAULT_PRECISION_TIER`); the PhotoDetailPanel tier LABELS stay (presentational).
+**Remaining:** **B19** (orchestrator `update()` split — browser-verified, the owner's pre-S7 ask; the
+B6/B12/B13/B26 scaffolding it needs is now in place) · **B16/B17** (owner-declined moderate splits) + **B20–B25**
+(fold into S7).
 
 Risk: `SM` safe-mechanical · `MOD` moderate · `RISK` risky-loadbearing. Verify: `rev` review · `ac` astro-check
 · `ut` unit-test · `br` browser/wix-only.
 
 | ID | Pri | Risk | V | Title | Status |
 |----|-----|------|---|-------|--------|
-| B1 | P0 | SM | rev | Compact DECISIONS.md (ADRs hoisted · Traps · digests · archive) | ✅ done |
-| B2 | P0 | SM | rev | Fix doc-drift (lint gate · repo layout · ARCH §7 · store names · orchestrator claim · wasm TODO) | ☐ |
-| B3 | P0 | SM | rev | Codify 4 conventions (seam+mirror · ECEF anchoring · shared-material · verify-harness+seam registry) | ☐ |
-| B4 | P0 | SM | ac | Delete Welcome.astro + 3 orphaned SVGs (KEEP ping.ts, refresh header) | ☐ |
-| B5 | P1 | MOD | ut | Resolve dead exports (frustumPose · altMToSlider · neighbourGeohashes · extract classifiers) | ☐ |
-| B6 | P1 | SM | ut | Extract shared geo/math helpers to lib (clampGroundM · projectOntoTangent · ndc↔client · focalFromHFov · wrapHeadingDeg) | ☐ |
-| B7 | P1 | SM | ut | Consolidate format helpers into lib/format/readout.ts (formatEyeM/AltM · cardinal · formatSigned) | ☐ |
-| B8 | P1 | SM | ut | Fix lib→store layering (derivedFov → sensors.ts; param types → lib types) | ☐ |
-| B9 | P2 | SM | ac | Single-source shapes (coerce.ts numOrNull/strOrNull · CameraPoseOptics · PRECISION_TIERS) | ☐ |
-| B10 | P1 | SM | ac | Extract lib/api/http.ts (json() + requireMember()) | ☐ |
-| B11 | P1 | SM | ac | Standardize DEV window seams on typed `declare global` (keep all) | ☐ |
-| B12 | P1 | SM | ac | Type-safety at boundaries (GlobeControlsInternal · generic requestJson) | ☐ |
-| B13 | P1 | SM | ac | Promote ~20 orchestrator magic numbers to tuning.ts | ☐ |
-| B14 | P2 | SM | ac | tuning.ts hygiene (section-banner index · delete dead TERRAIN const) | ☐ |
-| B15 | P2 | MOD | ut | Dedup save-flow guards (guardBusy + toApiError) | ☐ |
-| B16 | P2 | MOD | ut | Split store/upload.ts (savedPinToExif adapter + decode-timer isolation) | ☐ |
-| B17 | P2 | MOD | ut | Panel dedup + splits (ProjectionSlider · provenanceBadge · SavePinSection · useParamRate) | ☐ |
-| B18 | P2 | SM | ut | Add extract.test.ts (fileExtension/isRawFile/isHeicFile/isBrowserDisplayable) | ☐ |
-| B26 | P3 | SM | rev | Throttle the per-frame catch (log-once-then-count) | ☐ |
+| B1 | P0 | SM | rev | Compact DECISIONS.md (ADRs hoisted · Traps · digests · archive) | ✅ s1 |
+| B2 | P0 | SM | rev | Fix doc-drift (lint gate · repo layout · ARCH §7 · store names · orchestrator claim · wasm TODO) | ✅ s1 |
+| B3 | P0 | SM | rev | Codify 4 conventions (seam+mirror · ECEF anchoring · shared-material · verify-harness+seam registry) | ✅ s1 |
+| B4 | P0 | SM | ac | Delete Welcome.astro + 3 orphaned SVGs (KEEP ping.ts, refresh header) | ✅ s1 |
+| B5 | P1 | MOD | ut | Resolve dead exports (frustumPose · altMToSlider · neighbourGeohashes · extract classifiers) | ✅ s1 |
+| B6 | P1 | SM | ut | Extract shared geo/math helpers to lib (clampGroundM · ndc↔client · focalFromHFov · wrapHeadingDeg; projectOntoTangent declined) | ✅ s2 |
+| B7 | P1 | SM | ut | Consolidate format helpers into lib/format/readout.ts (formatEyeM/AltM · cardinal · formatSigned) | ✅ s1 |
+| B8 | P1 | SM | ut | Fix lib→store layering (param layer → lib/decode/params.ts; pinBody imports lib) | ✅ s2 |
+| B9 | P2 | SM | ac | Single-source shapes (coerce.ts numOrNull/strOrNull · CameraPoseOptics · DEFAULT_PRECISION_TIER) | ✅ s2 |
+| B10 | P1 | SM | ac | Extract lib/api/http.ts (json() + requireMember()) | ✅ s2 |
+| B11 | P1 | SM | ac | Standardize DEV window seams on typed `declare global` (keep all) | ✅ s2 |
+| B12 | P1 | SM | ac | Type-safety at boundaries (GlobeControlsInternal; generic requestJson declined — no 2nd consumer) | ✅ s2 |
+| B13 | P1 | SM | ac | Promote ~20 orchestrator magic numbers to tuning.ts (new ORCH group) | ✅ s2 |
+| B14 | P2 | SM | ac | tuning.ts hygiene (section-banner index [s2] · delete dead TERRAIN const [s1]) | ✅ s1+s2 |
+| B15 | P2 | MOD | ut | Dedup save-flow guards (BUSY_PHASES/isBusy + toApiError) | ✅ s2 |
+| B16 | P2 | MOD | ut | Split store/upload.ts (savedPinToExif adapter + decode-timer isolation) | ⏸ S7 (owner-declined) |
+| B17 | P2 | MOD | ut | Panel dedup + splits (ProjectionSlider · provenanceBadge · SavePinSection · useParamRate) | ⏸ S7 (owner-declined) |
+| B18 | P2 | SM | ut | Add extract.test.ts (fileExtension/isRawFile/isHeicFile/isBrowserDisplayable) | ✅ s1 |
+| B26 | P3 | SM | rev | Throttle the per-frame catch (log-once-then-count) | ✅ s2 |
 | B19 | P1 | RISK | br | Orchestrator readability: update() → named step-functions (order preserved) + header rewrite | ☐ pre-S7 |
 | B20 | P3 | RISK | br | Extract StylizedTiles subsystems to createX factories | ⏸ S7 |
 | B21 | P3 | RISK | br | Dedup terminator/golden shader GLSL into scene/glsl.ts | ⏸ S7 |

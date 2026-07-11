@@ -14,9 +14,15 @@ import { create } from "zustand";
  */
 
 import { geohashesForViewport, type GeohashBounds } from "../lib/geo/geohash";
+import { numOrNull, strOrNull } from "../lib/geo/coerce";
+import { DEFAULT_PRECISION_TIER } from "../lib/geo/precision";
+import type { CameraPoseOptics } from "../lib/pins/fields";
 import { PINS } from "../components/globe/tuning";
 
-export interface PublicPin {
+/** Camera pose (orientation/optics — NOT location; C6 governs coordinates only) rides on the
+ *  public record via CameraPoseOptics. Fields are null on pins saved before the pose fields
+ *  existed — the camera view falls back to defaults. */
+export interface PublicPin extends CameraPoseOptics {
   id: string;
   title: string;
   /** Denormalized member display label (Phase 5.5 S3); null on pre-S3 rows until back-fill. */
@@ -27,19 +33,6 @@ export interface PublicPin {
   precision: string;
   previewUrl: string | null;
   capturedAt: string | null;
-  /** Camera pose (orientation/optics — NOT location; C6 governs coordinates only). Null on
-   *  pins saved before the pose fields existed — the camera view falls back to defaults. */
-  altitudeM: number | null;
-  headingDeg: number | null;
-  pitchDeg: number | null;
-  rollDeg: number | null;
-  focalLengthMm: number | null;
-  hFovDeg: number | null;
-  textureWidth: number | null;
-  textureHeight: number | null;
-  cameraMake: string | null;
-  cameraModel: string | null;
-  lensModel: string | null;
 }
 
 export interface Viewport {
@@ -102,28 +95,26 @@ export function pinFromItem(item: Record<string, unknown>): PublicPin | null {
   const lon = item.lonReduced;
   const id = item._id;
   if (typeof lat !== "number" || typeof lon !== "number" || typeof id !== "string") return null;
-  const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
-  const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
   return {
     id,
     title: typeof item.title === "string" ? item.title : "Untitled",
-    authorName: str(item.authorName),
+    authorName: strOrNull(item.authorName),
     lat,
     lon,
-    precision: typeof item.precision === "string" ? item.precision : "1km",
-    previewUrl: str(item.previewUrl),
-    capturedAt: str(item.capturedAt),
-    altitudeM: num(item.altitudeM),
-    headingDeg: num(item.headingDeg),
-    pitchDeg: num(item.pitchDeg),
-    rollDeg: num(item.rollDeg),
-    focalLengthMm: num(item.focalLengthMm),
-    hFovDeg: num(item.hFovDeg),
-    textureWidth: num(item.textureWidth),
-    textureHeight: num(item.textureHeight),
-    cameraMake: str(item.cameraMake),
-    cameraModel: str(item.cameraModel),
-    lensModel: str(item.lensModel),
+    precision: typeof item.precision === "string" ? item.precision : DEFAULT_PRECISION_TIER,
+    previewUrl: strOrNull(item.previewUrl),
+    capturedAt: strOrNull(item.capturedAt),
+    altitudeM: numOrNull(item.altitudeM),
+    headingDeg: numOrNull(item.headingDeg),
+    pitchDeg: numOrNull(item.pitchDeg),
+    rollDeg: numOrNull(item.rollDeg),
+    focalLengthMm: numOrNull(item.focalLengthMm),
+    hFovDeg: numOrNull(item.hFovDeg),
+    textureWidth: numOrNull(item.textureWidth),
+    textureHeight: numOrNull(item.textureHeight),
+    cameraMake: strOrNull(item.cameraMake),
+    cameraModel: strOrNull(item.cameraModel),
+    lensModel: strOrNull(item.lensModel),
   };
 }
 
@@ -226,5 +217,5 @@ export const usePinsStore = create<PinsState>((set) => ({
 
 // DEV convenience (mirrors the other stores).
 if (typeof window !== "undefined" && import.meta.env?.DEV) {
-  (window as unknown as { __pinsStore: typeof usePinsStore }).__pinsStore = usePinsStore;
+  window.__pinsStore = usePinsStore;
 }

@@ -3,12 +3,7 @@
 // `wix release`, `GET/POST /api/ping` must both 200 on the live URL before the save flow is trusted in
 // production (see DECISIONS § Traps & Gotchas / Wix). GET is the control probe. Do NOT delete.
 import type { APIRoute } from "astro";
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+import { json } from "../../lib/api/http";
 
 export const GET: APIRoute = async () => json({ ok: true, method: "GET" });
 

@@ -164,3 +164,13 @@ export function focalFromVerticalFov(vFovDeg: number): number {
   }
   return FULL_FRAME_HEIGHT_MM / 2 / Math.tan((vFovDeg * Math.PI) / 360);
 }
+
+/** 35mm-equivalent focal length (mm) for a HORIZONTAL FOV — inverse of the focal35 path against
+ *  the full-frame 36 mm width (hFov = 2·atan(36 / (2·f)) ⇒ f = 18 / tan(hFov/2)). Reproduces a
+ *  stored pin's exact hFov when re-opening it as a camera view (store/upload.openSavedPin). */
+export function focalFromHorizontalFov(hFovDeg: number): number {
+  if (hFovDeg <= 0 || hFovDeg >= 180) {
+    throw new Error(`focalFromHorizontalFov: hFov must be in (0, 180) (got ${hFovDeg})`);
+  }
+  return FULL_FRAME_WIDTH_MM / 2 / Math.tan((hFovDeg * Math.PI) / 360);
+}

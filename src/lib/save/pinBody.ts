@@ -8,7 +8,7 @@
 
 import type { PhotoExif } from "../decode/extract";
 import type { PrecisionTier } from "../geo/precision";
-import { derivedFov, type AdjustableParams, type Placement } from "../../store/upload";
+import { derivedFov, type AdjustableParams, type Placement } from "../decode/params";
 
 export interface UploadSnapshot {
   exif: PhotoExif;

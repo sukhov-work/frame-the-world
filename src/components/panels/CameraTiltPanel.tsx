@@ -1,6 +1,7 @@
 import Slider from "../ui/Slider";
 import Encoder from "../ui/Encoder";
-import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
+import { useCameraStore } from "../../store/camera";
+import { wrapHeadingDeg } from "../../lib/geo/heading";
 import { useUploadStore } from "../../store/upload";
 import { CONTROLS, FPV } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";

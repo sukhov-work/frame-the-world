@@ -201,20 +201,6 @@ export const useCameraStore = create<CameraState>((set) => ({
   _syncFocus: (latDeg, lonDeg) => set({ focusLatDeg: latDeg, focusLonDeg: lonDeg }),
 }));
 
-/** Normalize a heading to [0, 360). */
-export function wrapHeadingDeg(deg: number): number {
-  const w = deg % 360;
-  return w < 0 ? w + 360 : w;
-}
-
-/** Shortest signed arc from `fromDeg` to `toDeg` (−180..180] — the glide direction. */
-export function headingDeltaDeg(fromDeg: number, toDeg: number): number {
-  let d = (toDeg - fromDeg) % 360;
-  if (d > 180) d -= 360;
-  if (d <= -180) d += 360;
-  return d;
-}
-
 /** Zoom slider (0..1) → altitude (m), log-mapped so metres and megametres both get travel. */
 export function sliderToAltM(t: number, minAltM: number, maxAltM: number): number {
   const clamped = Math.min(1, Math.max(0, t));

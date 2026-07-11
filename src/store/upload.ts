@@ -5,14 +5,21 @@
  * "RESET TO EXIF") returns a param to its EXIF baseline — or back to unset when the file never had it
  * (the D4 manual-entry fields).
  *
- * Pure helpers (`missingParamKeys`, `paramSource`, `isDirty`, `exifBaselineParams`) are exported for
- * unit tests and for render-time derivation — they never touch the store.
+ * The pure param helpers (`exifBaselineParams`, `missingParamKeys`, `paramSource`, `isDirty`,
+ * `derivedFov`) live in `lib/decode/params` (B8) and are re-exported here for back-compat.
  */
 
 import { create } from "zustand";
 import { extractMetadata, type ExtractedPhoto, type PhotoExif, type PreviewSource } from "../lib/decode/extract";
-import { computeHorizontalFov, type FovResult } from "../lib/decode/sensors";
+import { focalFromHorizontalFov } from "../lib/decode/sensors";
+import { exifBaselineParams, type AdjustableKey, type AdjustableParams, type Placement } from "../lib/decode/params";
+import type { CameraPoseOptics } from "../lib/pins/fields";
 import { useCameraStore } from "./camera";
+
+// The pure param layer moved to lib/decode/params (B8 — lib/save/pinBody.ts must not import UP into
+// the store). Re-exported here so existing consumers (panels, tests) keep their import path.
+export { exifBaselineParams, missingParamKeys, paramSource, isDirty, derivedFov } from "../lib/decode/params";
+export type { Placement, AdjustableParams, AdjustableKey, ParamSource } from "../lib/decode/params";
 
 /**
  * idle → decoding → review → placed (GPS present)
@@ -20,43 +27,10 @@ import { useCameraStore } from "./camera";
  */
 export type UploadPhase = "idle" | "decoding" | "review" | "placing" | "placed";
 
-/** Capture location driving the frustum — GPS-seeded at ingest, or set by clicking the globe. */
-export interface Placement {
-  latDeg: number;
-  lonDeg: number;
-}
-
-/** The EXIF-seeded values the user can adjust before placing (Phase 3 wires these into the frustum). */
-export interface AdjustableParams {
-  focalLengthMm?: number;
-  headingDeg?: number;
-  pitchDeg?: number;
-  altitudeM?: number;
-}
-
-export type AdjustableKey = keyof AdjustableParams;
-
-/** D4 nudge order — the fields worth flagging when EXIF is thin (focal falls back via the sensor DB). */
-const D4_KEYS: readonly AdjustableKey[] = ["headingDeg", "pitchDeg", "altitudeM"];
-
-export function exifBaselineParams(exif: PhotoExif): AdjustableParams {
-  return {
-    focalLengthMm: exif.focalLengthMm,
-    headingDeg: exif.headingDeg,
-    pitchDeg: exif.pitchDeg,
-    altitudeM: exif.gpsAltitudeM,
-  };
-}
-
-/** The D4 fields absent from the file's EXIF — the UI must visibly invite manual entry for these. */
-export function missingParamKeys(exif: PhotoExif): AdjustableKey[] {
-  const baseline = exifBaselineParams(exif);
-  return D4_KEYS.filter((k) => baseline[k] === undefined);
-}
-
 /** A saved pin re-opened as the camera view (globe pin click / My-pins click, Phase 5.1).
- *  Carries whatever the record kept — missing pose fields fall back to the D4 manual path. */
-export interface SavedPinView {
+ *  Carries whatever the record kept — the pose/optics are `Partial<CameraPoseOptics>` (any
+ *  missing field falls back to the D4 manual path). */
+export interface SavedPinView extends Partial<CameraPoseOptics> {
   pinId: string;
   title: string;
   lat: number;
@@ -68,49 +42,6 @@ export interface SavedPinView {
   ownPhotoId?: string | null;
   isPublic?: boolean;
   publicPrecision?: string | null;
-  altitudeM?: number | null;
-  headingDeg?: number | null;
-  pitchDeg?: number | null;
-  rollDeg?: number | null;
-  focalLengthMm?: number | null;
-  hFovDeg?: number | null;
-  textureWidth?: number | null;
-  textureHeight?: number | null;
-  cameraMake?: string | null;
-  cameraModel?: string | null;
-  lensModel?: string | null;
-}
-
-export type ParamSource = "exif" | "manual" | "missing";
-
-/** Provenance of the current value of one param — drives the EXIF / MANUAL / MISSING badges. */
-export function paramSource(exif: PhotoExif, params: AdjustableParams, key: AdjustableKey): ParamSource {
-  const baseline = exifBaselineParams(exif)[key];
-  const current = params[key];
-  if (current === undefined) return baseline === undefined ? "missing" : "exif";
-  if (baseline !== undefined && current === baseline) return "exif";
-  return "manual";
-}
-
-/** True when any param departs from the EXIF baseline — lights the changed dot + "RESET TO EXIF". */
-export function isDirty(exif: PhotoExif, params: AdjustableParams): boolean {
-  const keys: AdjustableKey[] = ["focalLengthMm", ...D4_KEYS];
-  return keys.some((k) => paramSource(exif, params, k) === "manual");
-}
-
-/**
- * The live H-FOV for the CURRENT params — the ONE derivation both the review readout and the
- * rendered frustum use (they must never disagree). The focal35 shortcut only holds while focal is
- * untouched from EXIF; a manual focal recomputes via the Make/Model sensor lookup (D4).
- */
-export function derivedFov(exif: PhotoExif, params: AdjustableParams): FovResult {
-  const focalUntouched = params.focalLengthMm === exif.focalLengthMm;
-  return computeHorizontalFov({
-    focalLengthMm: params.focalLengthMm,
-    focalLengthIn35mmMm: focalUntouched ? exif.focalLengthIn35mmMm : undefined,
-    make: exif.make,
-    model: exif.model,
-  });
 }
 
 interface UploadStore {
@@ -377,11 +308,10 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
     activeAbort?.abort();
     clearInterval(trickleTimer);
     revokePreview(get().previewUrl); // remote wixstatic URLs are not blob: — revoke is a no-op there
-    // Reproduce the stored H-FOV exactly through the focal35 shortcut in derivedFov:
-    // hFov = 2·atan(36 / (2·f35))  ⇒  f35 = 18 / tan(hFov/2).
+    // Reproduce the stored H-FOV exactly through the focal35 shortcut in derivedFov.
     const focal35 =
       view.hFovDeg != null && view.hFovDeg > 0 && view.hFovDeg < 180
-        ? 18 / Math.tan(((view.hFovDeg * Math.PI) / 180) / 2)
+        ? focalFromHorizontalFov(view.hFovDeg)
         : undefined;
     const exif: PhotoExif = {
       make: view.cameraMake ?? undefined,
@@ -462,5 +392,5 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
 // Dev-only introspection (mirrors window.__globe) so browser verification can drive the store
 // without reaching through the UI. No secrets, no behaviour change.
 if (import.meta.env.DEV && typeof window !== "undefined") {
-  (window as unknown as { __uploadStore: typeof useUploadStore }).__uploadStore = useUploadStore;
+  window.__uploadStore = useUploadStore;
 }
