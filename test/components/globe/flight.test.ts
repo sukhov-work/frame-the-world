@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
   arrivalPose,
+  createFlight,
   pathAltitude,
   pathFollowWeight,
   pathFrameWeight,
@@ -146,5 +147,46 @@ describe("arrivalPose (the ONE shared arrival derivation)", () => {
       wgs84B: WGS84_B,
     });
     expect(pose.lookAt.distanceTo(lookAt)).toBe(0);
+  });
+});
+
+describe("createFlight durationMs override (Phase 5.5 arrival re-framing)", () => {
+  const opts = { reduceMotion: false, wgs84A: WGS84_A, wgs84B: WGS84_B };
+  const makeCamera = () => {
+    const cam = new THREE.PerspectiveCamera(60, 1, 1, 1e9);
+    cam.position.set(WGS84_A + 1_000_000, 0, 0);
+    cam.lookAt(0, 0, 0);
+    return cam;
+  };
+  const target = () => ({
+    position: new THREE.Vector3(WGS84_A + 500, 1000, 0),
+    lookAt: new THREE.Vector3(WGS84_A, 0, 0),
+  });
+
+  it("a short-duration flight lands within its own window; the default is still mid-flight", () => {
+    // The corrective re-frame passes durationMs: FLIGHT.reframeDurationMs (~800 ms) so it settles
+    // quickly instead of running the full 2200 ms cinematic arrival.
+    const short = createFlight(makeCamera(), opts);
+    const t0 = performance.now();
+    short.start(target(), { durationMs: 800 });
+    short.update(t0 + 900); // 900 ms > 800 ms → landing frame runs finalPose
+    expect(short.active()).toBe(false);
+
+    const full = createFlight(makeCamera(), opts);
+    const t1 = performance.now();
+    full.start(target()); // no override → default FLIGHT.durationMs (2200 ms)
+    full.update(t1 + 900); // 900 ms of 2200 ms → still en route
+    expect(full.active()).toBe(true);
+  });
+
+  it("lands exactly on the target position when the window elapses", () => {
+    const cam = makeCamera();
+    const flight = createFlight(cam, opts);
+    const tgt = target();
+    const t0 = performance.now();
+    flight.start(tgt, { durationMs: 800 });
+    flight.update(t0 + 5000); // well past the window → finalPose snaps to the target
+    expect(flight.active()).toBe(false);
+    expect(cam.position.distanceTo(tgt.position)).toBeCloseTo(0, 6);
   });
 });

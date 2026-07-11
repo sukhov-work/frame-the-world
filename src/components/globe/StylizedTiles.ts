@@ -17,7 +17,7 @@ import { frameMarker } from "../../lib/geo/offscreen";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import { tokens } from "../../lib/theme/tokens";
-import { useUploadStore } from "../../store/upload";
+import { useUploadStore, type AdjustableParams } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
@@ -254,11 +254,39 @@ export function attachStylizedTiles(opts: {
     });
   };
 
+  // --- Arrival re-framing (bug fix 2026-07-11): a photo selected from HIGH altitude / oblique
+  //     tilt lands its onPlaced flight on terrain the tiles have not loaded yet (terrainH≈0), so
+  //     the committed lookAt sits below the real ground; as tiles refine, frustum.resnap() lifts
+  //     the frustum but the flight target stayed low → the photo lands SHIFTED (grows with the
+  //     selection altitude/tilt; nil at city scale where terrain is already loaded). While framing
+  //     a fresh selection we resnap every frame and, once the frustum SETTLES, re-fly a short glide
+  //     onto the LIVE arrival pose — the live-terrain correctness FPV/focus-lock already have. Any
+  //     user action (grab, glide, encoder, photo-param edit, FPV, deselect) disarms it (below). --
+  let framingActive = false;
+  let framingParams: AdjustableParams | null = null; // params identity at arming (photo-edit gate)
+  let framingReframes = 0;
+  let framingStableFrames = 0;
+  let framingDeadlineMs = 0;
+  const framingLookAt = new THREE.Vector3(); // committed arrival plane-centre
+  const _reframeLook = new THREE.Vector3(); // live plane-centre this frame (scratch)
+  const _reframePrevLook = new THREE.Vector3(); // …last frame (settle detection)
+  const _reframeFwd = new THREE.Vector3();
+  const beginFraming = (pose: FlightTarget): void => {
+    framingActive = true;
+    framingReframes = 0;
+    framingStableFrames = 0;
+    framingDeadlineMs = performance.now() + FLIGHT.reframeDeadlineMs;
+    framingParams = useUploadStore.getState().params;
+    framingLookAt.copy(pose.lookAt);
+    _reframePrevLook.copy(pose.lookAt);
+  };
+
   const frustum = attachPhotoFrustum(scene, {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
     onPlaced(geom) {
       const pose = frameArrivalPose(geom);
       flight.start(pose, { floorM: flightFloorM(pose.position) });
+      beginFraming(pose); // track the pin's terrain and re-frame once it settles
     },
   });
 
@@ -335,6 +363,7 @@ export function attachStylizedTiles(opts: {
   const noteInteract = () => {
     lastInteract = performance.now();
     flight.cancel(); // grabbing the globe aborts a flight — the user takes over
+    framingActive = false; // …and abandons the arrival re-framing (direct control wins)
     const camS = useCameraStore.getState();
     if (camS.exploreActive) camS.setExplore(false); // …and exits the ambient journey
     camS.clearAllTargets(); // …and over any slider glide (tilt/heading/zoom)
@@ -597,6 +626,25 @@ export function attachStylizedTiles(opts: {
   const _fh = new THREE.Vector3();
   const _qHead = new THREE.Quaternion();
 
+  // ── Per-frame hub (frame-locals; the B19_HANDOFF FrameContext) ── established each frame by the
+  //    producer steps below and read by many later steps; NONE persist across frames. The step
+  //    closures read/write these directly by name (that is why they are hoisted to this scope).
+  let now = 0;
+  let dtMs = 0;
+  let zoomStep = 0;
+  let alt = 0;
+  let kRate = 0;
+  let tMs = 0;
+  let rateAllowed = false;
+  let focusLocked = false;
+  let hasFocus = false;
+  let moonShadows = false;
+  let focusHit: ReturnType<typeof rayEllipsoidIntersect> = null;
+  let upNow = useUploadStore.getState();
+  let camNow = useCameraStore.getState();
+  let camStore = useCameraStore.getState();
+  const zc = controls as unknown as GlobeControlsInternal;
+
   // Compass heading (deg; 0 = north, 90 = east) of the camera view projected on the horizon
   // plane at `up`. NaN when degenerate (pole, or looking straight down — heading undefined).
   const viewHeadingDeg = (up: THREE.Vector3): number => {
@@ -668,14 +716,14 @@ export function attachStylizedTiles(opts: {
   let updateErrCount = 0;
   let lastUpdateErrLogMs = -Infinity;
 
-  return {
-    update() {
-      // A single bad frame (transient tiles error, WebGL glitch) MUST NOT freeze the canvas.
-      try {
-        const now = performance.now();
-        const dtMs = Math.min(now - lastFrameMs, ORCH.maxFrameDtMs);
+  const stepFrameTiming = () => {
+        now = performance.now();
+        dtMs = Math.min(now - lastFrameMs, ORCH.maxFrameDtMs);
         lastFrameMs = now;
 
+  };
+
+  const stepZoomBrakeAndEase = () => {
         // Zoom braking near the ground: the library step is already ∝ distance-to-surface, but
         // the last kilometres still read fast — shrink the effective speed below zoomSlowAltM.
         controls.zoomSpeed =
@@ -688,7 +736,6 @@ export function attachStylizedTiles(opts: {
 
         // Temporal zoom easing: bank the accumulated wheel/pinch delta and hand the controls an
         // exp-eased slice each frame — gradual, settling movement instead of one-frame steps.
-        const zc = controls as unknown as GlobeControlsInternal;
         if (CONTROLS.zoomSmoothTauMs > 0) {
           pendingZoom += zc.zoomDelta;
           const kz = 1 - Math.exp(-dtMs / CONTROLS.zoomSmoothTauMs);
@@ -697,11 +744,17 @@ export function attachStylizedTiles(opts: {
           zc.zoomDelta = step;
           pendingZoom -= step;
         }
-        const zoomStep = zc.zoomDelta as number;
+        zoomStep = zc.zoomDelta as number;
         _upBefore.copy(zc.up);
 
+  };
+
+  const stepControlsUpdate = () => {
         controls.update();
 
+  };
+
+  const stepDampedVerticality = () => {
         // Damped auto-verticality: counter-rotate the unwanted fraction of the library's
         // "walk the camera overhead" rotation (zoom-in only — zoom-out keeps its own tilt
         // handling, incl. _tiltTowardsCenter at high altitude).
@@ -715,12 +768,21 @@ export function attachStylizedTiles(opts: {
         }
 
         camera.updateMatrixWorld();
+  };
+
+  const stepBuildingsUpdate = () => {
         buildings.update();
 
+  };
+
+  const stepFlightUpdate = () => {
         // Cinematic flight overrides the pose after controls (the drift pattern); an active
         // flight counts as interaction so the drift stays paused through it + resumeMs after.
         if (flight.update(now)) lastInteract = now;
 
+  };
+
+  const stepExploreJourney = () => {
         // Explore ambient journey (Phase 5.5 S4): competing steering (encoder deflection,
         // slider glides, FPV entry) exits the mode — the store flag then drives the
         // controller, which owns the camera while cruising/dwelling (drift stands down).
@@ -741,13 +803,16 @@ export function attachStylizedTiles(opts: {
           if (explore.update(now, dtMs)) lastInteract = now;
         }
 
+  };
+
+  const stepFpvTransitions = () => {
         // --- FPV modes: transitions + the per-frame pose (Phase 5.5 S2 + follow-up). Two
         //     anchors share one controller: a placed PHOTO's frustum apex (pose re-read every
         //     frame — the photo sliders steer the view live) and the TEMP pin (eye height on
         //     the ground, basis captured at entry). Entry/exit ride the same cinematic flight;
         //     buildings ghost to FPV.buildingGhostOpacity so the view is never lost in a mesh.
-        const upNow = useUploadStore.getState();
-        const camNow = useCameraStore.getState();
+        upNow = useUploadStore.getState();
+        camNow = useCameraStore.getState();
         const wantKind: "photo" | "temp" | null =
           upNow.viewMode === "fpv"
             ? "photo"
@@ -769,6 +834,7 @@ export function attachStylizedTiles(opts: {
             if (geomOut) {
               const pose = frameArrivalPose(geomOut);
               flight.start(pose, { floorM: flightFloorM(pose.position) });
+              beginFraming(pose); // same live-terrain settle the pin selection gets
             } else if (pinOut) {
               // Fly back out to the standard arrival pose around the temp pin.
               const upT = pinOut.clone().normalize();
@@ -870,6 +936,9 @@ export function attachStylizedTiles(opts: {
             }
           }
         }
+  };
+
+  const stepFpvPose = () => {
         if (fpvActive) {
           if (!flight.active()) {
             let posed = false;
@@ -922,6 +991,9 @@ export function attachStylizedTiles(opts: {
           }
           controls.adjustCamera(camera); // controls disabled: keep the near/far fit alive
         }
+  };
+
+  const stepFovGlide = () => {
         // FOV glide (FPV wheel zoom + the entry/exit FOV changes) — never a snap.
         if (Math.abs(camera.fov - fovTargetDeg) > FPV.fovArriveDeg) {
           camera.fov += (fovTargetDeg - camera.fov) * (1 - Math.exp(-dtMs / FPV.fovEaseTauMs));
@@ -929,16 +1001,22 @@ export function attachStylizedTiles(opts: {
           camera.updateProjectionMatrix();
         }
 
+  };
+
+  const stepGeodeticAltitude = () => {
         // True geodetic altitude above the WGS84 ellipsoid. (position.length() - WGS84_A is up to
         // ~21 km off at mid-latitudes — enough to mis-time the low-altitude gates.)
-        const alt = WGS84_ELLIPSOID.getPositionElevation(camera.position);
+        alt = WGS84_ELLIPSOID.getPositionElevation(camera.position);
 
+  };
+
+  const stepViewFocus = () => {
         // View focus: camera-forward ray → ellipsoid (past-the-limb views fall back to the
         // sub-camera point). ONE shared frame for the heading/zoom glides, their live mirrors,
         // the shadow rig and the golden-hour key-light signal. (controls.getPivotPoint is NOT
         // usable here — it is degenerate before the first user interaction.)
         camera.getWorldDirection(_camFwd);
-        const focusHit = rayEllipsoidIntersect(
+        focusHit = rayEllipsoidIntersect(
           [camera.position.x, camera.position.y, camera.position.z],
           [_camFwd.x, _camFwd.y, _camFwd.z],
         );
@@ -953,7 +1031,7 @@ export function attachStylizedTiles(opts: {
         // or a temp pin is set, the heading/zoom glides + encoder rates pivot around the PIN —
         // the controls relate to the pin the way FPV relates to the apex. Library drag/wheel
         // keep their own pointer-based pivots; a map click / Escape clears the selection.
-        let focusLocked = false;
+        focusLocked = false;
         if (!fpvActive) {
           const gSel = upNow.phase === "placed" ? frustum.current() : null;
           if (gSel) {
@@ -969,9 +1047,12 @@ export function attachStylizedTiles(opts: {
             }
           }
         }
-        const hasFocus = focusHit !== null || focusLocked;
+        hasFocus = focusHit !== null || focusLocked;
         lastAlt = alt;
 
+  };
+
+  const stepIdleDrift = () => {
         // Idle orbital drift (LEO spacecraft feel) — orbit only, paused after interaction.
         if (
           !reduceMotion &&
@@ -984,11 +1065,14 @@ export function attachStylizedTiles(opts: {
           camera.quaternion.premultiply(_driftQ);
         }
 
+  };
+
+  const stepTiltGlide = () => {
         // Manual declination (slider): glide the pitch toward the requested tilt around the view
         // focus. Grabbing the globe (noteInteract) or a flight cancels the glide. Sign verified
         // against the source: _applyRotation's +y pitches TOWARD nadir (newPitch = pitch − y);
         // pitch convention 0 = straight down, π/2 = horizon; clamps are applied inside.
-        const camStore = useCameraStore.getState();
+        camStore = useCameraStore.getState();
         if (camStore.targetTiltDeg !== null && !flight.active() && !fpvActive) {
           // getPivotPoint returns null when the centre-screen ray misses the planet (horizon
           // views) and leaves the target STALE — rotating around that garbage pivot flew the
@@ -1015,6 +1099,9 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepHeadingGlide = () => {
         // Manual heading (slider): glide the camera AROUND the view focus about its local up —
         // a rigid rotation about the up axis, so the current tilt is preserved exactly. Uses the
         // SAME focus frame as the live mirror, so the knob and the readout always agree.
@@ -1039,6 +1126,9 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepZoomGlide = () => {
         // Manual zoom (slider): log-space exponential approach to the target altitude, dollying
         // along the camera→focus ray (radially past the limb) — the wheel/pinch alternative.
         if (camStore.targetZoomAltM !== null && !flight.active() && !fpvActive) {
@@ -1080,14 +1170,17 @@ export function attachStylizedTiles(opts: {
           zoomStallCount = 0;
         }
 
+  };
+
+  const stepEncoderRates = () => {
         // Encoder-style rate controls (Phase 5.5 S2): per-frame velocities through the SAME
         // rotation/dolly paths as the glides. The applied rate low-passes toward the stick, so
         // deflection ramps in and release coasts out; heading wraps freely, zoom clamps hard.
         // In ANY FPV (S6 — photo FPV unlocked with the ALTITUDE/FOCAL ZOOM rework) the sticks
         // re-target: ROTATE turns the look itself, ALTITUDE (the ZOOM encoder's FPV identity)
         // elevates the viewpoint strictly vertically, FOCAL ZOOM drives the camera FOV.
-        const kRate = 1 - Math.exp(-dtMs / CONTROLS.rateEaseTauMs);
-        const rateAllowed = !flight.active();
+        kRate = 1 - Math.exp(-dtMs / CONTROLS.rateEaseTauMs);
+        rateAllowed = !flight.active();
         const stickH = (rateAllowed && camStore.headingRateDegPerS) || 0;
         appliedHeadingRate += (stickH - appliedHeadingRate) * kRate;
         if (Math.abs(appliedHeadingRate) > CONTROLS.headingRateDeadbandDegPerS) {
@@ -1151,6 +1244,9 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepFocalEncoder = () => {
         // FOCAL ZOOM encoder (S6, FPV only): the panel twin of the wheel-FOV zoom — nudges the
         // same eased fovTargetDeg inside the same clamp. + rate = zoom IN = the FOV narrows.
         const stickF = (rateAllowed && fpvActive && camStore.fovRatePerS) || 0;
@@ -1164,6 +1260,9 @@ export function attachStylizedTiles(opts: {
           lastInteract = now;
         }
 
+  };
+
+  const stepStreetFloorGuard = () => {
         // Street-floor / underground guard (Phase 5.5 S2, found in browser verification): the
         // manual zoom paths target ELLIPSOID altitude, so a 2 m request over a 150 m-high city
         // dives under the street — and once underground the ground tileset fully unloads, so
@@ -1190,6 +1289,9 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepLocationFinderFlyTo = () => {
         // Location-finder fly-to (Phase 5.5 S1): consume a pending one-shot request — geodetic
         // target → arrival pose along the CURRENT approach azimuth (no corkscrew: the flight's
         // orientation slerp stays short when the end pose faces the way we already face), then
@@ -1225,6 +1327,9 @@ export function attachStylizedTiles(opts: {
           lastInteract = now; // pause the idle drift through the flight, like any interaction
         }
 
+  };
+
+  const stepFpvSolidity = () => {
         // --- S6 FPV instruments: the eye height above ground drives the building solidity
         //     curve (risen over the rooftops → nothing left to see through), and the HUD
         //     mirror feeds the left-side bearings panel + the off-frame sun/moon edge chips. --
@@ -1249,6 +1354,9 @@ export function attachStylizedTiles(opts: {
           );
           buildings.setGhostSolid(st * st * (3 - 2 * st));
         }
+  };
+
+  const stepFpvHudAndSkyMarkers = () => {
         if (frameCount % FPV.hudSyncEveryFrames === 0) {
           // Bearings reference: the FPV anchor while standing in a viewpoint, else the
           // camera's own geodetic position (S6 follow-up — direction chips in every mode).
@@ -1333,6 +1441,9 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepPoseMirrorAndViewport = () => {
         // Mirror the live pose (pitch / heading / altitude) into the store at low cadence for
         // the panel readouts (never at 60 fps — same discipline as store/time).
         if (frameCount % ORCH.mirrorEveryFrames === 0) {
@@ -1359,19 +1470,28 @@ export function attachStylizedTiles(opts: {
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
         }
 
+  };
+
+  const stepGroundUpdate = () => {
         ground.update(alt);
 
+  };
+
+  const stepEphemerisResample = () => {
         // Ephemeris: re-sample when scene time moved enough (live clock or a pinned scrub).
-        const tMs = sceneTimeMs();
+        tMs = sceneTimeMs();
         if (Math.abs(tMs - lastSampleMs) > SKY.sampleIntervalMs) sampleEphemeris(tMs);
 
+  };
+
+  const stepKeyLightAndShadow = () => {
         // Key light + the ONE shadow rig (S5 §Item 7: source switch, never a second rig).
         // Sun mode: ephemeris direction; colour warms through the golden band at the focus;
         // shadows at city altitudes while the sun is up there (a below-horizon sun would
         // project garbage). Moon mode: sun down + bright-enough moon up → the SAME light
         // impersonates the moon (direction, cool colour, K&S phase intensity) and the
         // dedicated moonLight stands down so the night key is never doubled.
-        let moonShadows = false;
+        moonShadows = false;
         if (sunLight) {
           const shadowEligible = alt < SHADOWS.maxAltM && !!focusHit;
           const sunUp = sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin;
@@ -1404,6 +1524,9 @@ export function attachStylizedTiles(opts: {
           sunLight.castShadow = sunShadows || moonShadows;
         }
 
+  };
+
+  const stepSkyBodies = () => {
         // Sun + moon bodies (camera-anchored, true apparent size; moon angular size uses the
         // camera→moon distance — it varies ±2% across an orbit swing).
         sky.update({
@@ -1415,15 +1538,81 @@ export function attachStylizedTiles(opts: {
           moonIntensity: moonShadows ? 0 : moonKs, // the rig carries the key in moon-shadow mode
         });
 
+  };
+
+  const stepFrustumResnapAndTick = () => {
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
         if (++frameCount % FRUSTUM.resnapEveryFrames === 0) frustum.resnap();
 
+  };
+
+  const stepArrivalReframing = () => {
+        // Arrival re-framing: correct the onPlaced jump once the pin's terrain has SETTLED (see
+        // the `framingActive` declaration for the full why — the committed flight target was
+        // captured before the pin's tiles loaded, so the photo lands shifted from high/oblique
+        // selections). Any user action already disarmed it via noteInteract; here we also bail on
+        // a photo-param edit (moves the plane-centre like a resnap, but it's the user tuning),
+        // a manual glide/rate, FPV, deselect, the reframe budget, or the settle deadline.
+        if (framingActive) {
+          const gLive = !fpvActive && upNow.phase === "placed" ? frustum.current() : null;
+          if (
+            !gLive ||
+            upNow.params !== framingParams ||
+            camStore.targetTiltDeg !== null ||
+            camStore.targetHeadingDeg !== null ||
+            camStore.targetZoomAltM !== null ||
+            camStore.headingRateDegPerS !== null ||
+            camStore.zoomRatePerS !== null ||
+            camStore.exploreActive ||
+            now > framingDeadlineMs ||
+            framingReframes >= FLIGHT.reframeMaxCount
+          ) {
+            framingActive = false;
+          } else {
+            frustum.resnap(); // ride the loading terrain promptly (the 120-frame cadence lags ~2 s)
+            _reframeLook
+              .set(gLive.apex[0], gLive.apex[1], gLive.apex[2])
+              .addScaledVector(
+                _reframeFwd.set(gLive.forward[0], gLive.forward[1], gLive.forward[2]),
+                FRUSTUM.planeDistM,
+              );
+            framingStableFrames =
+              _reframeLook.distanceTo(_reframePrevLook) > FLIGHT.reframeSettleEpsM
+                ? 0
+                : framingStableFrames + 1;
+            _reframePrevLook.copy(_reframeLook);
+            // One corrective glide once the frustum has stopped stepping (terrain done refining)
+            // AND it drifted meaningfully from the committed target — never mid-cinematic-flight.
+            if (
+              !flight.active() &&
+              framingStableFrames >= FLIGHT.reframeSettleFrames &&
+              _reframeLook.distanceTo(framingLookAt) > FLIGHT.reframeMinMoveM
+            ) {
+              const pose = frameArrivalPose(gLive);
+              flight.start(pose, {
+                floorM: flightFloorM(pose.position),
+                durationMs: FLIGHT.reframeDurationMs,
+              });
+              framingLookAt.copy(pose.lookAt);
+              framingReframes++;
+              framingStableFrames = 0;
+              lastInteract = now; // the correction is a flight — keep the idle drift paused
+            }
+          }
+        }
+
+  };
+
+  const stepPinsUpdate = () => {
         // Public pins: distance-scaled markers + lazy terrain grounding (Phase 5). The
         // selection mirror lets the adaptive de-cluster walk an OPEN pin to its truth.
         pins.setSelected(upNow.viewingPinId ?? null);
         pins.update(camera);
         if (frameCount % PINS.resnapEveryFrames === 0) pins.resnap();
 
+  };
+
+  const stepPinHover = () => {
         // Pin hover (Phase 5.5 S4): a throttled head raycast under the pointer — the hovered
         // pin eases up + glows (globe side) and its projected head position is mirrored into
         // the pins store so the HTML details card floats next to it (PinHoverCard). Stands
@@ -1470,6 +1659,9 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepTempPinMarker = () => {
         // Temporary pin marker: accent dot at the double-clicked spot, angular-constant size.
         // Its projected screen position is mirrored (low cadence) so the "look from here"
         // popup floats NEXT TO the pin instead of a fixed chrome slot.
@@ -1512,6 +1704,9 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepPlacementMarker = () => {
         // Live placement marker (Phase 5.5 S3): while the store is `placing`, an accent dot
         // hugs the rendered ground under the pointer — the user sees the drop point before
         // committing the click. Re-picked at low cadence (picking raycasts the tile set).
@@ -1539,6 +1734,9 @@ export function attachStylizedTiles(opts: {
           placingMarker.visible = false;
         }
 
+  };
+
+  const stepGraticuleAndAtmosphere = () => {
         // Orbit-only decoration: hide the graticule once we dive toward the city (no "wire
         // cage" up-view). The atmosphere now stays on at EVERY altitude — below the old decor
         // gate it re-anchors to the camera and becomes the low-altitude sky dome (day-blue +
@@ -1546,6 +1744,9 @@ export function attachStylizedTiles(opts: {
         graticule.lines.visible = alt > GATES.decorMinAlt;
         atmosphere.update(camera, alt);
 
+  };
+
+  const stepStars = () => {
         stars.update({
           alt,
           camera,
@@ -1558,6 +1759,9 @@ export function attachStylizedTiles(opts: {
           asterisms: fpvActive && camNow.skyGuides,
         });
 
+  };
+
+  const stepDayArcs = () => {
         // FPV planning overlays (S6): sun/moon day-arcs for the FPV anchor — the module
         // rebuilds only on anchor/day change; scene time just moves the past/future split.
         // Gated by the SKY guides toggle (S6 follow-up).
@@ -1570,6 +1774,66 @@ export function attachStylizedTiles(opts: {
               : null,
           dtMs,
         });
+  };
+
+  return {
+    update() {
+      // ── B19 · per-frame orchestrator: 36 ordered step-closures (each stepX carries its doc) ──
+      //  1 FrameTiming 2 ZoomBrakeAndEase 3 ControlsUpdate 4 DampedVerticality 5 BuildingsUpdate
+      //  6 FlightUpdate 7 ExploreJourney 8 FpvTransitions 9 FpvPose 10 FovGlide 11 GeodeticAltitude
+      // 12 ViewFocus 13 IdleDrift 14 TiltGlide 15 HeadingGlide 16 ZoomGlide 17 EncoderRates
+      // 18 FocalEncoder 19 StreetFloorGuard 20 LocationFinderFlyTo 21 FpvSolidity 22 FpvHudAndSkyMarkers
+      // 23 PoseMirrorAndViewport 24 GroundUpdate 25 EphemerisResample 26 KeyLightAndShadow 27 SkyBodies
+      // 28 FrustumResnapAndTick 29 ArrivalReframing 30 PinsUpdate 31 PinHover 32 TempPinMarker
+      // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs
+      //
+      // ORDER IS THE CONTRACT — the sequence is load-bearing, not incidental:
+      //   (a) ++frameCount lives INSIDE step 28 and splits every cadence gate into pre/post groups —
+      //       steps 21/22/23 read the PRE-increment count (fire on frame 0); steps 30/31/32/33 read POST.
+      //   (c) idle-drift (13) runs AFTER flight/explore/FPV writes but BEFORE the encoders (lastInteract).
+      //   (f) each updateMatrixWorld()/updateProjectionMatrix() flush is bound to its mutation —
+      //       idle-drift (13) intentionally has NO flush; add/remove none.
+      //   (h) FPV pose (9) runs BEFORE the encoders (17/18) — steering applies one frame later.
+      // Snapshots (trap b): camNow (step 8) and camStore (step 14) are TWO deliberate store reads with
+      //   store mutations between them — the glide/encoder/fly-to region (14-20) reads camStore; never merged.
+      // One try wraps all 36 steps; the throttled catch keeps a single bad frame from freezing the canvas.
+      try {
+        stepFrameTiming();
+        stepZoomBrakeAndEase();
+        stepControlsUpdate();
+        stepDampedVerticality();
+        stepBuildingsUpdate();
+        stepFlightUpdate();
+        stepExploreJourney();
+        stepFpvTransitions();
+        stepFpvPose();
+        stepFovGlide();
+        stepGeodeticAltitude();
+        stepViewFocus();
+        stepIdleDrift();
+        stepTiltGlide();
+        stepHeadingGlide();
+        stepZoomGlide();
+        stepEncoderRates();
+        stepFocalEncoder();
+        stepStreetFloorGuard();
+        stepLocationFinderFlyTo();
+        stepFpvSolidity();
+        stepFpvHudAndSkyMarkers();
+        stepPoseMirrorAndViewport();
+        stepGroundUpdate();
+        stepEphemerisResample();
+        stepKeyLightAndShadow();
+        stepSkyBodies();
+        stepFrustumResnapAndTick();
+        stepArrivalReframing();
+        stepPinsUpdate();
+        stepPinHover();
+        stepTempPinMarker();
+        stepPlacementMarker();
+        stepGraticuleAndAtmosphere();
+        stepStars();
+        stepDayArcs();
       } catch (err) {
         updateErrCount++;
         const tErr = performance.now();
