@@ -126,9 +126,23 @@ UNLOADS the whole tileset (prevention only); terrain samples must come from the 
 exist only in-frustum); GlobeControls.update() skips the near/far fit when disabled → FPV calls
 adjustCamera manually. 221 vitest · astro check 0 · wix build green. Mechanics:
 `mem:project/wip-2026-07-11-phase5.5-s2`.
-**Next step: Phase 5.5 S3 — pin lifecycle + placement UX + upload CTA** (see
-`NEXT_SESSION_PROMPT.md`; Wix-load-bearing — member cookie needed); Phase 6 marketplace only after
-S3–S7. S1+S2 not yet released to the live URL.
+**Phase 5.5 S3 SHIPPED (2026-07-11, wix-cloud-VERIFIED in wix dev with a member cookie):** pin
+lifecycle — PATCH/DELETE /api/photos (owner-gated `items.get` check; `applyPinUpdate` keeps stored
+media on null patch fields; C6 re-reduces edited locations to the NEW cell centre — live-verified;
+isPublic toggle creates/removes the public row; DELETE frees a quota slot 2/10→1/10 live + media
+best-effort `bulkDeleteFiles`); **authorName** denormalized on PublicPins (provision gained a
+create-field diff pass; 5/5 live pins back-filled keyed on photoRef; `PublicPin.authorName` feeds
+S4 hues); custom pin name (`save.title` + input); own-pin UPDATE/⌖ RE-PLACE/DELETE panel actions
+(MY PINS passes `ownPhotoId`; armed two-step delete); placement flow completed (live ground marker
+under the pointer while placing · PLACED→TUNED→SAVED stepper · save beat → auto-close → fly-out
+3.8 km → pins-store `highlightId` → `Pins.setHighlight` 8 s pulse); upload CTA (nav accent chip +
+one-time glow, "+ ADD PHOTO" pill for zero-pin/anon); owner adds: `.ct-stack` dblclick memo above
+the camera controls + temp-pin popup **"↑ UPLOAD HERE"** (`upload.uploadAt` → `pendingPlacement`,
+applied at ingest only when the file has no GPS; FROM PIN badge in review). 243 vitest ·
+astro check 0 · wix build green. Mechanics: `mem:project/wip-2026-07-11-phase5.5-s3`.
+**Next step: Phase 5.5 S4 — pin visual rework (stems/heads/hues from authorName) + Explore
+ambient journey** (see `NEXT_SESSION_PROMPT.md`); then S5–S7; Phase 6 marketplace after.
+S1–S3 not yet released to the live URL.
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 

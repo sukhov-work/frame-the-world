@@ -183,3 +183,36 @@
   color: var(--color-accent);
   border-color: var(--color-accent);
 }
+
+/* Row wrapper + delete (Phase 5.5 S3): the open button keeps the row; delete is a quiet
+   trailing control that arms on first press (SURE?) instead of a modal. */
+.mp-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.mp-row .mp-item {
+  flex: 1;
+  min-width: 0;
+}
+.mp-del {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.mp-del:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+.mp-del.is-armed {
+  color: var(--color-warn, #e8b465);
+  border-color: color-mix(in srgb, var(--color-warn, #e8b465) 55%, transparent);
+}

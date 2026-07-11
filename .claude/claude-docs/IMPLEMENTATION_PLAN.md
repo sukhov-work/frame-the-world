@@ -71,10 +71,13 @@ paid); public pins on shared globe via geohash viewport query; default reduced p
   (tilt 0↔55 via existing glide) + **encoder-style ROTATE/ZOOM** (spring-centred rate controls,
   deflection = speed; zoom keeps hard alt limits). *(S2 shipped 2026-07-11 incl. items 13+14 —
   no S2b needed; browser-VERIFIED via Playwright MCP; see DECISIONS)*
-- [ ] **S3 — Pin lifecycle + placement UX:** PATCH/DELETE /api/photos (owner-gated, elevated, C6
+- [x] **S3 — Pin lifecycle + placement UX:** PATCH/DELETE /api/photos (owner-gated, elevated, C6
   re-derivation), custom pin name input (title), **authorName** on PublicPins (+provision+back-fill),
   placement selection marker, staged progress, auto-close on save, zoom-out + highlight new pin.
-  *Owner add:* more salient (still subtle) **upload CTA** in the chrome.
+  *Owner add:* more salient (still subtle) **upload CTA** in the chrome. *Owner adds in-session:*
+  dblclick-gesture memo above the camera controls + **"UPLOAD HERE"** in the temp-pin popup
+  (location seed for GPS-less files). *(S3 shipped 2026-07-11 — wix-cloud-VERIFIED with a member
+  cookie; see DECISIONS)*
 - [ ] **S4 — Pin visual rework:** stem + floating semi-transparent head (rim/core/shimmer, cross-flare
   at twinkle peaks), neighbor-staggered stem heights, per-user cool-family hues via instanceColor,
   hover enlarge/glow/details card. *Owner add:* **Explore ambient pin journey** (900 km / 50° tilt,

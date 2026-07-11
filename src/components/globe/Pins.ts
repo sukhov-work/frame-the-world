@@ -24,6 +24,8 @@ export interface PinsHandle {
   resnap(): void;
   /** The pin under the pointer ray, or null. */
   pick(raycaster: THREE.Raycaster): PublicPin | null;
+  /** Pulse-highlight one pin for PINS.highlightMs (post-save landing beacon); null clears. */
+  setHighlight(pinId: string | null): void;
   dispose(): void;
 }
 
@@ -56,6 +58,17 @@ export function attachPins(
   const _camLast = new THREE.Vector3(Infinity, Infinity, Infinity);
   let dirty = true;
 
+  // Post-save pulse (Phase 5.5 S3): the highlighted pin breathes for PINS.highlightMs.
+  let highlightId: string | null = null;
+  let highlightIdx = -1;
+  let highlightUntil = 0;
+  const highlightScale = (now: number): number => {
+    if (highlightIdx < 0 || now >= highlightUntil) return 1;
+    const fade = Math.min(1, (highlightUntil - now) / 1500); // ease the pulse out, not a cut
+    const wave = Math.sin((now / PINS.highlightPeriodMs) * Math.PI * 2);
+    return 1 + PINS.highlightPulseAmp * fade * (0.5 + 0.5 * wave);
+  };
+
   const groundHeight = (pin: PublicPin): { h: number; real: boolean } => {
     const h = opts.terrainHeightAt?.(pin.lat, pin.lon);
     if (h !== null && h !== undefined && Number.isFinite(h)) return { h, real: true };
@@ -79,6 +92,7 @@ export function attachPins(
       grounded.length = pins.length;
       for (let i = 0; i < pins.length; i++) placePin(i);
       mesh.count = pins.length;
+      highlightIdx = highlightId ? pins.findIndex((p) => p.id === highlightId) : -1;
       dirty = true;
       // TRAP: three caches InstancedMesh.boundingSphere on first raycast — GlobeControls
       // raycasts the scene BEFORE pins load (count 0 → EMPTY sphere), and a stale empty
@@ -92,19 +106,23 @@ export function attachPins(
         return;
       }
       mesh.visible = true;
+      const now = performance.now();
+      const pulsing = highlightIdx >= 0 && now < highlightUntil;
       // Matrices only rebuild when the camera actually moved (or the pin set changed) — the
-      // scale is distance-dependent, so a static camera needs no per-frame work.
+      // scale is distance-dependent, so a static camera needs no per-frame work. An active
+      // pulse animates a scale, so it keeps the rebuild running until it expires.
       const camMoved = _camLast.distanceToSquared(camera.position) > 1;
-      if (!dirty && !camMoved) return;
+      if (!dirty && !camMoved && !pulsing) return;
       _camLast.copy(camera.position);
-      dirty = false;
+      dirty = pulsing; // one more pass after the pulse's last frame restores the base scale
       for (let i = 0; i < pins.length; i++) {
         const p = positions[i];
-        const size = THREE.MathUtils.clamp(
+        let size = THREE.MathUtils.clamp(
           camera.position.distanceTo(p) * PINS.angularSize,
           PINS.minSizeM,
           PINS.maxSizeM,
         );
+        if (i === highlightIdx) size *= highlightScale(now);
         _s.setScalar(size);
         _m.compose(p, _q, _s);
         mesh.setMatrixAt(i, _m);
@@ -131,6 +149,14 @@ export function attachPins(
       const hits = raycaster.intersectObject(mesh, false);
       const id = hits[0]?.instanceId;
       return id !== undefined && id < pins.length ? pins[id] : null;
+    },
+
+    setHighlight(pinId: string | null) {
+      if (pinId === highlightId && pinId !== null) return; // already pulsing this pin
+      highlightId = pinId;
+      highlightIdx = pinId ? pins.findIndex((p) => p.id === pinId) : -1;
+      highlightUntil = pinId ? performance.now() + PINS.highlightMs : 0;
+      dirty = true;
     },
 
     dispose() {

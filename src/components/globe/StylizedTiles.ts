@@ -35,6 +35,7 @@ import {
   GATES,
   GOLDEN,
   PINS,
+  PLACING,
   POSE,
   SEARCH,
   SHADOWS,
@@ -233,7 +234,15 @@ export function attachStylizedTiles(opts: {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
   });
   pins.setPins(usePinsStore.getState().pins);
-  const unsubPins = usePinsStore.subscribe((s) => pins.setPins(s.pins));
+  pins.setHighlight(usePinsStore.getState().highlightId);
+  let _prevPinsList = usePinsStore.getState().pins;
+  const unsubPins = usePinsStore.subscribe((s) => {
+    if (s.pins !== _prevPinsList) {
+      _prevPinsList = s.pins;
+      pins.setPins(s.pins);
+    }
+    pins.setHighlight(s.highlightId); // no-ops while unchanged
+  });
   const _pinRay = new THREE.Raycaster();
 
   // --- Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops an accent
@@ -301,7 +310,25 @@ export function attachStylizedTiles(opts: {
   };
 
   // --- Click-to-place (the missing-GPS path): while the store is in "placing", a CLICK (not a
-  //     drag) casts the pointer ray at the ground and drops the photo there. ------------------
+  //     drag) casts the pointer ray at the ground and drops the photo there. A live accent
+  //     marker hugs the rendered ground under the pointer (Phase 5.5 S3) so the drop point is
+  //     visible BEFORE the click — the crosshair alone hid exactly the pixel that mattered. --
+  const placingMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(tokens.accent),
+    transparent: true,
+    opacity: PLACING.markerOpacity,
+    depthWrite: false,
+  });
+  const placingMarker = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), placingMat);
+  placingMarker.visible = false;
+  placingMarker.raycast = () => {};
+  scene.add(placingMarker);
+  let hoverX = Number.NaN; // last pointer position over the canvas (client px)
+  let hoverY = Number.NaN;
+  const noteHover = (e: PointerEvent) => {
+    hoverX = e.clientX;
+    hoverY = e.clientY;
+  };
   let downX = 0;
   let downY = 0;
   const notePointerDown = (e: PointerEvent) => {
@@ -343,9 +370,11 @@ export function attachStylizedTiles(opts: {
   };
   dom.addEventListener("pointerdown", notePointerDown);
   dom.addEventListener("pointerup", onPointerUp);
+  dom.addEventListener("pointermove", noteHover);
   // Crosshair while the globe waits for the placement click.
   const unsubCursor = useUploadStore.subscribe((s) => {
     dom.style.cursor = s.phase === "placing" ? "crosshair" : "";
+    if (s.phase !== "placing") placingMarker.visible = false;
   });
   const driftRadPerFrame = (DRIFT.degPerFrame * Math.PI) / 180;
 
@@ -1158,6 +1187,35 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+        // Live placement marker (Phase 5.5 S3): while the store is `placing`, an accent dot
+        // hugs the rendered ground under the pointer — the user sees the drop point before
+        // committing the click. Re-picked at low cadence (picking raycasts the tile set).
+        if (upNow.phase === "placing" && !fpvActive) {
+          if (frameCount % PLACING.repickEveryFrames === 0 && Number.isFinite(hoverX)) {
+            const rect = dom.getBoundingClientRect();
+            const hit = pickGround(
+              ((hoverX - rect.left) / rect.width) * 2 - 1,
+              -((hoverY - rect.top) / rect.height) * 2 + 1,
+            );
+            if (hit) {
+              placingMarker.position.set(hit[0], hit[1], hit[2]);
+              const dist = camera.position.distanceTo(placingMarker.position);
+              placingMarker.scale.setScalar(
+                THREE.MathUtils.clamp(
+                  dist * PLACING.markerAngular,
+                  PLACING.markerMinM,
+                  PLACING.markerMaxM,
+                ),
+              );
+              placingMarker.visible = true;
+            } else {
+              placingMarker.visible = false; // pointer past the limb
+            }
+          }
+        } else if (placingMarker.visible) {
+          placingMarker.visible = false;
+        }
+
         // Orbit-only decoration: hide the graticule once we dive toward the city (no "wire
         // cage" up-view). The atmosphere now stays on at EVERY altitude — below the old decor
         // gate it re-anchors to the camera and becomes the low-altitude sky dome (day-blue +
@@ -1183,6 +1241,7 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("touchstart", noteInteract);
       dom.removeEventListener("pointerdown", notePointerDown);
       dom.removeEventListener("pointerup", onPointerUp);
+      dom.removeEventListener("pointermove", noteHover);
       dom.removeEventListener("pointerdown", onFpvPointerDown);
       dom.removeEventListener("pointermove", onFpvPointerMove);
       dom.removeEventListener("pointerup", onFpvPointerEnd);
@@ -1193,6 +1252,9 @@ export function attachStylizedTiles(opts: {
       tempPinMarker.geometry.dispose();
       tempPinMat.dispose();
       scene.remove(tempPinMarker);
+      placingMarker.geometry.dispose();
+      placingMat.dispose();
+      scene.remove(placingMarker);
       dom.style.cursor = "";
       unsubCursor();
       unsubPins();

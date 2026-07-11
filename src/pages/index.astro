@@ -34,7 +34,7 @@ import LocationFinder from "../components/panels/LocationFinder";
     <nav>
       <!-- routes arrive in later phases (explore=P3) -->
       <a href="#">Explore</a>
-      <a href="#upload" data-open-upload>Upload</a>
+      <a href="#upload" class="nav-upload" data-open-upload>Upload</a>
       <!-- Phase 5.1: rudimentary owner pin list (members only; gallery phase replaces it) -->
       <MyPins client:only="react" />
       <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->
@@ -86,6 +86,37 @@ import LocationFinder from "../components/panels/LocationFinder";
   }
   .topnav a:hover {
     color: var(--color-accent);
+  }
+  /* Upload CTA (Phase 5.5 S3, item 12): the one accent-outlined chip in the nav, with a
+     single slow glow ease-in on first load — no pulsing loops (instrument restraint). */
+  .topnav a.nav-upload {
+    color: var(--color-accent);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+    border-radius: 999px;
+    padding: 0.3rem 0.85rem;
+    margin: -0.3rem 0;
+    animation: nav-upload-hello 2.6s ease-out 0.9s 1 backwards;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+  }
+  .topnav a.nav-upload:hover {
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+  @keyframes nav-upload-hello {
+    from {
+      box-shadow: 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent);
+    }
+    40% {
+      box-shadow: 0 0 16px color-mix(in srgb, var(--color-accent) 38%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .topnav a.nav-upload {
+      animation: none;
+    }
   }
   .hero {
     position: fixed;

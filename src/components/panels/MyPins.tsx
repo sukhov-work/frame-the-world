@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMemberStore } from "../../store/member";
 import { useUploadStore } from "../../store/upload";
+import { usePinsStore } from "../../store/pins";
+import { deletePhotoRecord } from "../../lib/save/uploadMedia";
 import type { PhotoListItem } from "../../lib/wix/pinRecords";
 import "../../styles/my-pins.css";
 
@@ -14,11 +16,14 @@ export default function MyPins() {
   const [open, setOpen] = useState(false);
   const [photos, setPhotos] = useState<PhotoListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setPhotos(null);
     setError(null);
+    setArmedDeleteId(null);
     let stale = false;
     fetch("/api/photos")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -50,11 +55,40 @@ export default function MyPins() {
   };
 
   // Re-open a saved pin as the placed camera view (frustum + detail panel + flight). The
-  // owner's own record carries the EXACT location + full pose.
+  // owner's own record carries the EXACT location + full pose; ownPhotoId unlocks the
+  // UPDATE / RE-PLACE / DELETE actions in the panel (Phase 5.5 S3).
   const openPin = (p: PhotoListItem) => {
     if (p.lat === null || p.lon === null) return; // nothing to place without a location
-    useUploadStore.getState().openSavedPin({ ...p, pinId: p.id, lat: p.lat, lon: p.lon });
+    useUploadStore.getState().openSavedPin({
+      ...p,
+      pinId: p.id,
+      lat: p.lat,
+      lon: p.lon,
+      ownPhotoId: p.id,
+    });
     setOpen(false);
+  };
+
+  // Row delete: first press arms ("SURE?"), second deletes — records + media server-side,
+  // then the local list and the globe pins refresh (the carried re-query follow-up).
+  const deletePin = async (p: PhotoListItem) => {
+    if (armedDeleteId !== p.id) {
+      setArmedDeleteId(p.id);
+      return;
+    }
+    setArmedDeleteId(null);
+    setDeletingId(p.id);
+    try {
+      await deletePhotoRecord(p.id);
+      setPhotos((list) => (list ? list.filter((x) => x.id !== p.id) : list));
+      usePinsStore.getState().refresh();
+      const u = useUploadStore.getState();
+      if (u.ownPhotoId === p.id) u.clear(); // the deleted pin was in view
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -80,7 +114,7 @@ export default function MyPins() {
           {!error && photos && photos.length > 0 && (
             <ul className="mp-list">
               {photos.map((p) => (
-                <li key={p.id}>
+                <li key={p.id} className="mp-row">
                   <button
                     className="mp-item"
                     title="Open on the globe"
@@ -100,6 +134,15 @@ export default function MyPins() {
                     <span className={`mp-badge${p.isPublic ? " is-public" : ""}`}>
                       {p.isPublic ? (p.publicPrecision ?? "public").toUpperCase() : "PRIVATE"}
                     </span>
+                  </button>
+                  <button
+                    className={`mp-del${armedDeleteId === p.id ? " is-armed" : ""}`}
+                    title={armedDeleteId === p.id ? "Press again to delete" : "Delete this pin"}
+                    aria-label={`Delete pin ${p.title}`}
+                    disabled={deletingId !== null}
+                    onClick={() => void deletePin(p)}
+                  >
+                    {deletingId === p.id ? "…" : armedDeleteId === p.id ? "SURE?" : "✕"}
                   </button>
                 </li>
               ))}

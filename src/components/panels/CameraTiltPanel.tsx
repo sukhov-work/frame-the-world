@@ -1,6 +1,7 @@
 import Slider from "../ui/Slider";
 import Encoder from "../ui/Encoder";
 import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
+import { useUploadStore } from "../../store/upload";
 import { CONTROLS } from "../globe/tuning";
 import "../../styles/camera-tilt.css";
 
@@ -24,15 +25,30 @@ function formatAltM(altM: number): string {
 
 export default function CameraTiltPanel() {
   const s = useCameraStore();
+  const uploadPhase = useUploadStore((st) => st.phase);
 
   // The tilt knob shows the REQUEST while a glide is pending (stable under the finger);
   // otherwise it mirrors the live camera pose. The encoders always show the live mirrors.
   const shownTilt = s.targetTiltDeg ?? s.tiltDeg;
   const liveHeading = wrapHeadingDeg(s.headingDeg);
   const is2D = shownTilt < CONTROLS.twoDMaxTiltDeg;
+  // The dblclick memo retires the moment the user demonstrates the gesture (a temp pin
+  // exists) and stays out of the way while the upload flow owns the globe.
+  const showMemo = !s.tempPin && !s.tempFpv && uploadPhase === "idle";
 
   return (
     <>
+    <div className="ct-stack">
+    {showMemo && (
+      <div className="ct-memo" role="note">
+        <span className="ct-memo__glyph" aria-hidden="true">◎</span>
+        <span>
+          DOUBLE-CLICK ANYWHERE TO
+          <br />
+          DROP A PIN &amp; LOOK FROM THERE
+        </span>
+      </div>
+    )}
     <aside className="ct" aria-label="Camera controls">
       {/* Temp-pin look-around active: the exit affordance sits ABOVE the controls it retargets
           (ROTATE = look, ZOOM = vertical elevation while in this mode). */}
@@ -95,28 +111,46 @@ export default function CameraTiltPanel() {
         onRate={s.setZoomRate}
       />
     </aside>
-    {/* Temporary pin (double-click the ground): contextual popup floating NEXT TO the pin.
-        Rendered OUTSIDE the panel — its backdrop-filter turns position:fixed descendants
-        panel-relative (the original overlap bug). */}
-    {s.tempPin && !s.tempFpv && s.tempPinScreen && (
-      <div
-        className="ct-pinpop"
-        role="status"
-        style={{ left: s.tempPinScreen.x, top: s.tempPinScreen.y }}
-      >
-        <button type="button" className="ct-pinpop__btn" onClick={() => s.setTempFpv(true)}>
-          ◎ LOOK FROM HERE
-        </button>
-        <button
-          type="button"
-          className="ct-pinpop__x"
-          aria-label="Clear the temporary pin"
-          onClick={() => s.setTempPin(null)}
-        >
-          ✕
-        </button>
-      </div>
-    )}
+    </div>
+    <TempPinPopup />
     </>
+  );
+}
+
+/** Temporary pin (double-click the ground): contextual popup floating NEXT TO the pin.
+ *  Rendered as its own island slot OUTSIDE the controls card — a backdrop-filter turns
+ *  position:fixed descendants panel-relative (the original overlap bug). "LOOK FROM HERE"
+ *  enters the spectator FPV; "UPLOAD HERE" (Phase 5.5 S3) opens the upload flow with the
+ *  pin as the location seed for GPS-less files. */
+function TempPinPopup() {
+  const s = useCameraStore();
+  if (!s.tempPin || s.tempFpv || !s.tempPinScreen) return null;
+  const pin = s.tempPin;
+  return (
+    <div
+      className="ct-pinpop"
+      role="status"
+      style={{ left: s.tempPinScreen.x, top: s.tempPinScreen.y }}
+    >
+      <button type="button" className="ct-pinpop__btn" onClick={() => s.setTempFpv(true)}>
+        ◎ LOOK FROM HERE
+      </button>
+      <span className="ct-pinpop__sep" aria-hidden="true" />
+      <button
+        type="button"
+        className="ct-pinpop__btn"
+        onClick={() => useUploadStore.getState().uploadAt(pin.latDeg, pin.lonDeg)}
+      >
+        ↑ UPLOAD HERE
+      </button>
+      <button
+        type="button"
+        className="ct-pinpop__x"
+        aria-label="Clear the temporary pin"
+        onClick={() => s.setTempPin(null)}
+      >
+        ✕
+      </button>
+    </div>
   );
 }

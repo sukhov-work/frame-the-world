@@ -8,7 +8,7 @@
  * Also exports PlacementHint — the "click the globe" pill for the missing-GPS placing mode.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useUploadStore,
   paramSource,
@@ -16,10 +16,11 @@ import {
   derivedFov,
   type AdjustableKey,
 } from "../../store/upload";
-import { wrapHeadingDeg } from "../../store/camera";
+import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
 import { useSaveStore, type SavePhase } from "../../store/save";
 import { loginUrl, useMemberStore } from "../../store/member";
-import type { PrecisionTier } from "../../lib/geo/precision";
+import { isPrecisionTier, type PrecisionTier } from "../../lib/geo/precision";
+import { titleFromFileName } from "../../lib/save/pinBody";
 import {
   formatLatLon,
   formatFocal,
@@ -29,7 +30,7 @@ import {
 } from "../../lib/format/readout";
 import Slider, { type BadgeTone } from "../ui/Slider";
 import Encoder from "../ui/Encoder";
-import { CONTROLS, FRUSTUM } from "../globe/tuning";
+import { CONTROLS, FRUSTUM, PINS } from "../globe/tuning";
 import "../../styles/photo-detail.css";
 
 const PARAM_LABEL: Record<AdjustableKey, string> = {
@@ -52,11 +53,16 @@ const BUSY_LABEL: Partial<Record<SavePhase, string>> = {
   saving: "SAVING…",
 };
 
+/** Post-save beat: how long "PINNED ✓" stays before the panel closes and the fly-out starts. */
+const SAVED_CLOSE_MS = 1600;
+
 export default function PhotoDetailPanel() {
   const store = useUploadStore();
   const save = useSaveStore();
   const memberPhase = useMemberStore((s) => s.phase);
   const memberRefresh = useMemberStore((s) => s.refresh);
+  // Two-step DELETE guard (own pins): first press arms, second confirms.
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // HEADING is an encoder (owner follow-up 2026-07-11): the rate loop nudges the param per
   // frame while the stick is deflected — fine absolute control over a 0–360° range that a
@@ -96,19 +102,60 @@ export default function PhotoDetailPanel() {
     useSaveStore.getState().reset();
   }, [placeKey]);
 
+  // Seed the pin-name input + the edit section's choices when the viewed identity changes
+  // (a fresh upload defaults from the file name; an own pin from its stored record).
+  const identityKey = store.viewingPinId ?? store.fileName ?? "";
+  useEffect(() => {
+    const s = useSaveStore.getState();
+    s.setTitle(null);
+    setConfirmDelete(false);
+    const meta = useUploadStore.getState().ownPinMeta;
+    if (meta) {
+      s.setIsPublic(meta.isPublic);
+      if (isPrecisionTier(meta.precision)) s.setPrecision(meta.precision);
+    }
+  }, [identityKey]);
+
+  // Post-save completion beat (Phase 5.5 S3): "PINNED ✓" → auto-close → fly out to a few km
+  // above the new pin (the pulse-highlight was armed by the save store). New saves only —
+  // an UPDATE keeps the panel open for further tweaks.
+  const savedBeat = save.phase === "saved" && !store.viewingPinId;
+  useEffect(() => {
+    if (!savedBeat) return;
+    const t = setTimeout(() => {
+      const u = useUploadStore.getState();
+      if (u.phase !== "placed" || useSaveStore.getState().phase !== "saved") return;
+      const p = u.placement;
+      if (p) {
+        useCameraStore.getState().requestFly({
+          latDeg: p.latDeg,
+          lonDeg: p.lonDeg,
+          altM: PINS.savedFlyOutAltM,
+        });
+      }
+      u.clear();
+    }, SAVED_CLOSE_MS);
+    return () => clearTimeout(t);
+  }, [savedBeat]);
+
   const exif = store.exif;
   if (!exif || store.phase !== "placed") return null;
 
   const busy =
     save.phase === "uploading-original" ||
     save.phase === "uploading-preview" ||
-    save.phase === "saving";
+    save.phase === "saving" ||
+    save.phase === "updating" ||
+    save.phase === "deleting";
 
   const statusLine = (): { text: string; tone: "" | "warn" | "ok" } => {
     if (save.phase === "uploading-original")
       return { text: `UPLOADING RAW ${Math.round(save.progress * 100)}%`, tone: "" };
     if (save.phase === "uploading-preview") return { text: "PREVIEW…", tone: "" };
     if (save.phase === "saving") return { text: "SAVING…", tone: "" };
+    if (save.phase === "updating") return { text: "UPDATING…", tone: "" };
+    if (save.phase === "deleting") return { text: "DELETING…", tone: "" };
+    if (save.phase === "updated") return { text: "UPDATED ✓", tone: "ok" };
     if (save.phase === "saved") {
       const quota =
         save.quotaUsed !== undefined ? `PIN ${save.quotaUsed}/${save.quotaLimit}` : "PINNED";
@@ -232,9 +279,32 @@ export default function PhotoDetailPanel() {
       </div>
 
       {/* Phase 5 — save the placed photo as a pin (C6: public defaults to REDUCED precision).
-          Hidden while VIEWING an already-saved pin (re-saving would just duplicate it). */}
-      {!store.viewingPinId && (
+          Phase 5.5 S3 — an OWN saved pin (My-pins path) gets UPDATE / RE-PLACE / DELETE here
+          instead; a foreign viewed pin gets neither (re-saving would just duplicate it). */}
+      {(!store.viewingPinId || store.ownPhotoId) && (
       <div className="pd-save">
+        {!store.viewingPinId && (
+          <div className="pd-steps" aria-label="Pin progress">
+            <span className="pd-step is-done">PLACED ✓</span>
+            <span className="pd-steps__dash" aria-hidden="true" />
+            <span className={`pd-step${dirty ? " is-done" : ""}`}>TUNED</span>
+            <span className="pd-steps__dash" aria-hidden="true" />
+            <span className={`pd-step${save.phase === "saved" ? " is-done" : ""}`}>
+              {save.phase === "saved" ? "SAVED ✓" : "SAVED"}
+            </span>
+          </div>
+        )}
+        <label className="pd-save__name">
+          <span className="pd-save__namelabel">PIN NAME</span>
+          <input
+            type="text"
+            className="pd-save__nameinput uf-mono"
+            maxLength={120}
+            value={save.title ?? (store.viewingPinId ? (store.fileName ?? "") : titleFromFileName(store.fileName))}
+            disabled={busy}
+            onChange={(e) => save.setTitle(e.target.value)}
+          />
+        </label>
         <div className="pd-save__head">
           <label className="pd-save__pub">
             <input
@@ -268,7 +338,40 @@ export default function PhotoDetailPanel() {
           </div>
         )}
         <div className="pd-save__act">
-          {memberPhase === "member" ? (
+          {memberPhase !== "member" ? (
+            <a className="uf-btn uf-btn--primary pd-save__signin" href={loginUrl("/")}>
+              SIGN IN TO SAVE
+            </a>
+          ) : store.ownPhotoId ? (
+            <>
+              <button
+                className="uf-btn uf-btn--primary"
+                disabled={busy}
+                onClick={() => void save.updatePin()}
+              >
+                {save.phase === "updating" ? "UPDATING…" : "UPDATE PIN"}
+              </button>
+              <button
+                className="uf-btn uf-btn--ghost"
+                disabled={busy}
+                onClick={() => useUploadStore.getState().rePlace()}
+                title="Pick a new location on the globe"
+              >
+                ⌖ RE-PLACE
+              </button>
+              <button
+                className={`uf-btn uf-btn--ghost pd-del${confirmDelete ? " is-armed" : ""}`}
+                disabled={busy}
+                onClick={() => {
+                  if (!confirmDelete) return setConfirmDelete(true);
+                  setConfirmDelete(false);
+                  void save.deletePin();
+                }}
+              >
+                {confirmDelete ? "SURE? DELETE" : "DELETE"}
+              </button>
+            </>
+          ) : (
             <button
               className="uf-btn uf-btn--primary"
               disabled={busy || save.phase === "saved"}
@@ -276,10 +379,6 @@ export default function PhotoDetailPanel() {
             >
               {save.phase === "saved" ? "PINNED ✓" : (BUSY_LABEL[save.phase] ?? "SAVE PIN")}
             </button>
-          ) : (
-            <a className="uf-btn uf-btn--primary pd-save__signin" href={loginUrl("/")}>
-              SIGN IN TO SAVE
-            </a>
           )}
           {status.text && (
             <span className={`uf-mono pd-save__status${status.tone ? ` is-${status.tone}` : ""}`}>
@@ -302,13 +401,18 @@ export default function PhotoDetailPanel() {
   );
 }
 
-/** The placing-mode pill: the globe is waiting for a click to set the capture location. */
+/** The placing-mode pill: the globe is waiting for a click to set the capture location.
+ *  Serves both the missing-GPS path and the own-pin RE-PLACE path (Phase 5.5 S3) — cancel
+ *  returns wherever the placing started (review overlay / the viewed pin). */
 export function PlacementHint() {
+  const rePlacing = useUploadStore((s) => !!s.viewingPinId);
   return (
     <div className="pd-hint" role="status">
       <span className="pd-hint__pulse" aria-hidden="true" />
-      <span className="uf-mono">CLICK THE GLOBE TO SET THE CAPTURE LOCATION</span>
-      <button className="pd-hint__cancel" onClick={() => useUploadStore.getState().backToReview()}>
+      <span className="uf-mono">
+        {rePlacing ? "CLICK THE GLOBE TO MOVE THIS PIN" : "CLICK THE GLOBE TO SET THE CAPTURE LOCATION"}
+      </span>
+      <button className="pd-hint__cancel" onClick={() => useUploadStore.getState().cancelPlacing()}>
         ESC · CANCEL
       </button>
     </div>

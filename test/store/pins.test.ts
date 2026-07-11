@@ -3,6 +3,7 @@ import {
   needsRequery,
   pinFromItem,
   planPinsQuery,
+  usePinsStore,
   viewportBounds,
   viewportSpanDeg,
   type Viewport,
@@ -96,5 +97,26 @@ describe("pinFromItem", () => {
   it("drops rows without coordinates or id", () => {
     expect(pinFromItem({ _id: "p1", latReduced: "48" })).toBeNull();
     expect(pinFromItem({ latReduced: 1, lonReduced: 2 })).toBeNull();
+  });
+});
+
+describe("Phase 5.5 S3 — authorName + highlight seam", () => {
+  it("pinFromItem carries authorName (null on pre-S3 rows)", () => {
+    const pin = pinFromItem({
+      _id: "p1",
+      latReduced: 48.46,
+      lonReduced: 35.04,
+      authorName: "Yevhen",
+    });
+    expect(pin?.authorName).toBe("Yevhen");
+    const old = pinFromItem({ _id: "p2", latReduced: 48.46, lonReduced: 35.04 });
+    expect(old?.authorName).toBeNull();
+  });
+
+  it("highlight() mirrors the pin id for the globe layer and clears with null", () => {
+    usePinsStore.getState().highlight("pin-9");
+    expect(usePinsStore.getState().highlightId).toBe("pin-9");
+    usePinsStore.getState().highlight(null);
+    expect(usePinsStore.getState().highlightId).toBeNull();
   });
 });

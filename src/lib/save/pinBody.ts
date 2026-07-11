@@ -26,6 +26,8 @@ export interface SaveOptions {
   originalFileId: string | null;
   previewFileId: string | null;
   previewUrl: string | null;
+  /** Custom pin name (Phase 5.5 S3) — blank/absent falls back to the file-name title. */
+  title?: string | null;
 }
 
 /** Strip the extension for a humane default pin title. */
@@ -38,8 +40,9 @@ export function titleFromFileName(fileName: string | undefined): string {
 
 export function buildSavePinBody(u: UploadSnapshot, opts: SaveOptions): Record<string, unknown> {
   const fov = derivedFov(u.exif, u.params);
+  const customTitle = opts.title?.trim();
   return {
-    title: titleFromFileName(u.fileName),
+    title: customTitle || titleFromFileName(u.fileName),
     lat: u.placement.latDeg,
     lon: u.placement.lonDeg,
     altitudeM: u.params.altitudeM ?? null,
