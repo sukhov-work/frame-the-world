@@ -69,31 +69,6 @@ export function cameraForward(latDeg: number, lonDeg: number, headingDeg: number
   return normalise(add(scale(horiz, cp), scale(up, Math.sin(p))));
 }
 
-/**
- * A frustum pose ready to drive a three.js camera/mesh in the ECEF globe: its ECEF position, a forward
- * (look) direction, and an up vector (local geodetic up, good enough for a levelled camera; roll is applied
- * separately when EXIF provides it).
- */
-export interface FrustumPose {
-  position: Vec3;
-  forward: Vec3;
-  up: Vec3;
-}
-
-export function frustumPose(
-  latDeg: number,
-  lonDeg: number,
-  altM: number,
-  headingDeg: number,
-  pitchDeg = 0,
-): FrustumPose {
-  return {
-    position: geodeticToEcef(latDeg, lonDeg, altM),
-    forward: cameraForward(latDeg, lonDeg, headingDeg, pitchDeg),
-    up: enuBasis(latDeg, lonDeg).up,
-  };
-}
-
 /** Geodetic point (degrees / metres above the ellipsoid). */
 export interface Geodetic {
   latDeg: number;

@@ -22,6 +22,22 @@
 ## Discipline
 - Commit the **sensor-size dataset** and unit-test the FOV/geohash math (they're the load-bearing math).
 - Never delete a failing test and replace it with a comment. Fix the cause.
-- `npx astro check` (types) + `npm run lint` must be clean before "done" (see `mem:task_completion`).
+- `npx astro check` (types) must be clean before "done" (see `mem:task_completion`). **There is no lint
+  script** in this repo — `npm test` + `astro check` are the only automated gates.
 - Mark browser/Wix-cloud-only claims **UNVERIFIED** until actually run there — a passing unit test ≠ a
   working globe (see `mem:project/dev_environment`).
+
+## Browser / Wix-cloud verification harness (the globe is not unit-testable)
+Three fallback tiers, in order (each was needed this project when the prior wedged):
+1. **Playwright MCP** — drive `wix dev` on desktop Chrome; screenshots → `verify-shots/` (git-ignored, NEVER repo root).
+2. **Chrome-extension bridge** — when Playwright MCP is wedged.
+3. **Scripted headless-Chrome CDP** — `scripts/verify-*.mjs` (reusable harness: `verify-s5-night.mjs`) for
+   timed pose/pixel assertions.
+
+Load-bearing verification traps (full list → `DECISIONS.md § Traps & Gotchas / Verification`):
+- Occluded Chrome throttles rAF to ~1 frame/several-s → `page.bringToFront()` before any timed check.
+- Hidden tiles groups crash the rAF tick → the canvas shows the last good frame; guard with a
+  `renderer.info.render.frame` advance check before trusting a "hidden" measurement.
+- `document.elementsFromPoint` skips `pointer-events:none` nodes; synthetic dblclicks need a preceding down/up pair.
+- DEV seams for scripts: `window.__globe __composer __cameraStore __timeStore __uploadStore __pinsStore __memberStore`.
+- Re-mint the member token before verifying member flows (a stale member cookie is silently swapped for a visitor cookie).

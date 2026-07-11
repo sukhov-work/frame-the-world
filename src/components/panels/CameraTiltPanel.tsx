@@ -4,7 +4,7 @@ import { useCameraStore, wrapHeadingDeg } from "../../store/camera";
 import { useUploadStore } from "../../store/upload";
 import { CONTROLS, FPV } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
-import { formatFocal } from "../../lib/format/readout";
+import { formatFocal, formatAltM, formatEyeM } from "../../lib/format/readout";
 import "../../styles/camera-tilt.css";
 
 /**
@@ -21,16 +21,6 @@ import "../../styles/camera-tilt.css";
  * FOV zoom. The bearings themselves read on the LEFT-side FpvHud.
  * Grabbing the globe releases every pending glide (direct manipulation wins).
  */
-
-function formatAltM(altM: number): string {
-  if (altM < 1_000) return `${Math.round(altM)} m`;
-  if (altM < 100_000) return `${(altM / 1000).toFixed(1)} km`;
-  return `${Math.round(altM / 1000)} km`;
-}
-
-function formatEyeM(m: number): string {
-  return m < 1_000 ? `${m < 10 ? m.toFixed(1) : Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
-}
 
 export default function CameraTiltPanel() {
   const s = useCameraStore();

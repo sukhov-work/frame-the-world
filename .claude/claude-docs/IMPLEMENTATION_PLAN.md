@@ -20,7 +20,7 @@ to the seed's signature scene: LEO default POV + idle orbital drift; organic bas
 graded into the palette + VIIRS night lights + relief); ray-based altitude-adaptive atmosphere; a SECOND
 TilesRenderer draping palette-graded Esri World Imagery (z19) that dissolves in 2600→1400 km (progressive
 detail, no hard switch); dark edge-stroked buildings sunk 90 m (terrain-clamp offset, Dnipro-specific until
-real terrain). Details: DECISIONS 2026-07-10 · `mem:patterns/globe-rendering`.
+real terrain — SUPERSEDED Phase 4: real Cesium World Terrain landed, the 90 m sink was removed). Details: DECISIONS 2026-07-10 · `mem:patterns/globe-rendering`.
 **Scope:** scaffold Wix headless Astro into this repo (preserve the existing `.git` — scaffold to a temp
 subdir, move files up, keep one repo); add `three` + `3d-tiles-renderer`; render Cesium OSM Buildings globe
 with `GlobeControls` in a `client:only` island; deploy to Wix.
@@ -33,7 +33,7 @@ ion API token in env (not committed).
 
 ## Phase 2 — EXIF + decode pipeline  ☑ *(DONE 2026-07-10, browser-VERIFIED: exifr + libraw-wasm@1.0.5 pinned single-threaded + libheif-js in a disposable Worker; ARW 4.8 s → 3136×2084 texture, HEIC 0.4 s, embedded preview ~120 ms; mobile benchmark carried below; see `mem:patterns/upload-flow` + DECISIONS)*
 **Scope:** upload dropzone; `exifr` metadata + embedded-JPEG instant preview; `libraw-wasm` full decode in a
-Worker; HEIC feature-detect + `libheif-js` fallback; sensor DB + FOV computation; WASM assets in `public/wasm/`.
+Worker; HEIC feature-detect + `libheif-js` fallback; sensor DB + FOV computation. *(As built: WASM is emitted as hashed Vite build assets — no `public/wasm/`.)*
 **DoD:** a Sony ARW and an iPhone HEIC both yield metadata + a decoded display texture; missing heading/pitch
 flagged for manual entry.
 **Test:** unit-test FOV math + geohash (**vitest**); integration-decode a sample ARW in headless Chromium.
@@ -123,7 +123,7 @@ prompt; moderation pass on public previews; perf polish (KTX2, OPFS cache, mobil
 | # | Question | Safe default until verified | Status |
 |---|---|---|---|
 | 1 | Exact per-file MB cap for RAW uploads to Wix Media | resumable path for all >10MB; downscale-before-upload for previews | ☐ |
-| 2 | Can managed headless set COOP/COEP page headers? (WASM threads) | single-threaded SIMD decode | ☐ |
+| 2 | Can managed headless set COOP/COEP page headers? (WASM threads) | single-threaded SIMD decode | ✅ moot (single-threaded shipped Phase 2–5; threads never needed) |
 | 3 | Wix HTTP-endpoint execution-time + max request/response size | keep endpoints thin; all decode client-side | ☐ |
 | 4 | Which Claude models are exposed by Wix AI + is vision enabled? | send JPEG; Opus 4.6 assumed; direct-Anthropic fallback ready | ☐ |
 | 5 | Wix AI credit cost per vision call at realistic preview sizes | premium-gate; downsize aggressively | ☐ |
