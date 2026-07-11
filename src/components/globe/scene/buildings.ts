@@ -19,6 +19,11 @@ import { BUILDINGS, TILESETS } from "../tuning";
 export interface BuildingsHandle {
   tiles: TilesRenderer;
   update(): void;
+  /** FPV ghost mode (Phase 5.5 S2 follow-up): fade ALL buildings so the first-person view is
+   *  never lost inside a mesh. Both materials are shared, so this is two uniform writes —
+   *  per-tile obstruction testing is impossible without breaking the one-material invariant.
+   *  Pass null to restore the normal look. */
+  setGhost(ghost: { fillOpacity: number; edgeOpacity: number } | null): void;
   dispose(): void;
 }
 
@@ -91,6 +96,14 @@ export function attachBuildings(
     tiles,
     update() {
       tiles.update();
+    },
+    setGhost(ghost) {
+      const wasTransparent = styleMat.transparent;
+      styleMat.transparent = ghost !== null;
+      styleMat.opacity = ghost ? ghost.fillOpacity : 1;
+      styleMat.depthWrite = ghost === null; // ghosts must not occlude each other into solidity
+      if (wasTransparent !== styleMat.transparent) styleMat.needsUpdate = true; // shader recompile
+      edgeMat.opacity = ghost ? ghost.edgeOpacity : BUILDINGS.edgeOpacity;
     },
     dispose() {
       tiles.dispose();

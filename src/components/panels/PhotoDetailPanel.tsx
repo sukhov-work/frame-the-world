@@ -8,7 +8,7 @@
  * Also exports PlacementHint — the "click the globe" pill for the missing-GPS placing mode.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   useUploadStore,
   paramSource,
@@ -16,6 +16,7 @@ import {
   derivedFov,
   type AdjustableKey,
 } from "../../store/upload";
+import { wrapHeadingDeg } from "../../store/camera";
 import { useSaveStore, type SavePhase } from "../../store/save";
 import { loginUrl, useMemberStore } from "../../store/member";
 import type { PrecisionTier } from "../../lib/geo/precision";
@@ -27,7 +28,8 @@ import {
   formatAltitude,
 } from "../../lib/format/readout";
 import Slider, { type BadgeTone } from "../ui/Slider";
-import { FRUSTUM } from "../globe/tuning";
+import Encoder from "../ui/Encoder";
+import { CONTROLS, FRUSTUM } from "../globe/tuning";
 import "../../styles/photo-detail.css";
 
 const PARAM_LABEL: Record<AdjustableKey, string> = {
@@ -55,6 +57,33 @@ export default function PhotoDetailPanel() {
   const save = useSaveStore();
   const memberPhase = useMemberStore((s) => s.phase);
   const memberRefresh = useMemberStore((s) => s.refresh);
+
+  // HEADING is an encoder (owner follow-up 2026-07-11): the rate loop nudges the param per
+  // frame while the stick is deflected — fine absolute control over a 0–360° range that a
+  // positional slider can't give. Ref'd so the rAF loop always reads the live rate.
+  const headingRateRef = useRef<number | null>(null);
+  const headingRaf = useRef(0);
+  const onHeadingRate = (rate: number | null) => {
+    headingRateRef.current = rate;
+    if (rate === null) return; // loop exits itself; params keep their last value
+    if (headingRaf.current) return; // already running
+    let last = performance.now();
+    const step = (now: number) => {
+      const r = headingRateRef.current;
+      if (r === null) {
+        headingRaf.current = 0;
+        return;
+      }
+      const dtS = Math.min(now - last, 100) / 1000;
+      last = now;
+      const s = useUploadStore.getState();
+      const current = s.params.headingDeg ?? s.exif?.headingDeg ?? 0;
+      s.setParam("headingDeg", wrapHeadingDeg(current + r * dtS));
+      headingRaf.current = requestAnimationFrame(step);
+    };
+    headingRaf.current = requestAnimationFrame(step);
+  };
+  useEffect(() => () => cancelAnimationFrame(headingRaf.current), []);
 
   // Session state for the SAVE PIN gate (the nav badge usually resolved it already).
   useEffect(() => {
@@ -116,6 +145,22 @@ export default function PhotoDetailPanel() {
         </span>
       </header>
 
+      {/* FPV photographer mode (Phase 5.5 S2): stand exactly where the camera stood. */}
+      <div className="pd-fpv">
+        <button
+          type="button"
+          className={`uf-btn ${store.viewMode === "fpv" ? "uf-btn--primary" : "uf-btn--ghost"} pd-fpv__btn`}
+          onClick={() =>
+            useUploadStore.getState().setViewMode(store.viewMode === "fpv" ? "orbit" : "fpv")
+          }
+        >
+          {store.viewMode === "fpv" ? "EXIT CAMERA VIEW · ESC" : "◎ VIEW FROM CAMERA"}
+        </button>
+        {store.viewMode === "fpv" && (
+          <span className="uf-mono pd-fpv__hint">DRAG TO LOOK · WHEEL ZOOMS FOV</span>
+        )}
+      </div>
+
       <div className="pd-adjust">
         <div className="pd-adjust__head">
           <span className="pd-adjust__title">
@@ -137,14 +182,12 @@ export default function PhotoDetailPanel() {
           onReset={() => useUploadStore.getState().resetParam("focalLengthMm")}
           badge={provenanceBadge("focalLengthMm")}
         />
-        <Slider
+        <Encoder
           label={PARAM_LABEL.headingDeg}
           formatted={formatHeading(store.params.headingDeg)}
-          value={store.params.headingDeg}
-          min={0}
-          max={360}
-          step={1}
-          onChange={(v) => useUploadStore.getState().setParam("headingDeg", v)}
+          maxRate={CONTROLS.headingRateMaxDegPerS}
+          expoGamma={CONTROLS.rateExpoGamma}
+          onRate={onHeadingRate}
           onReset={() => useUploadStore.getState().resetParam("headingDeg")}
           badge={provenanceBadge("headingDeg")}
         />

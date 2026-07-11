@@ -17,6 +17,16 @@ import { create } from "zustand";
  * camera toward it each frame and clears it on arrival. Grabbing the globe clears every target:
  * direct manipulation always wins over the sliders.
  */
+/** A one-shot "fly the camera here" request (location finder → orchestrator). The orchestrator
+ *  consumes it on the next frame: geodetic target → ECEF arrival pose along the current approach
+ *  azimuth → the same cinematic flight a placed photo uses. */
+export interface FlyRequest {
+  latDeg: number;
+  lonDeg: number;
+  /** Arrival camera altitude above the ellipsoid (m). */
+  altM: number;
+}
+
 export interface CameraState {
   /** Live camera pitch (deg; 0 = nadir, 90 = horizon). Display-only for the UI. */
   tiltDeg: number;
@@ -30,18 +40,52 @@ export interface CameraState {
   zoomAltM: number;
   /** Requested altitude (m) — log-space glide toward it (manual zoom slider). */
   targetZoomAltM: number | null;
+  /** Live view-focus geodetic position (deg) — the point the camera looks at on the globe.
+   *  Low-cadence mirror; the location finder uses it as the geocoding bias. */
+  focusLatDeg: number;
+  focusLonDeg: number;
+  /** Pending one-shot fly-to (location finder); the orchestrator consumes + clears it. */
+  flyRequest: FlyRequest | null;
+  /** Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops it; while
+   *  set it is the rotate/zoom pivot and FPV can be entered on it ("look around"). A single
+   *  click elsewhere / Escape clears it (clearing also exits its FPV). */
+  tempPin: { latDeg: number; lonDeg: number } | null;
+  /** FPV look-around anchored at the temp pin (parallel to upload.viewMode==='fpv', which is
+   *  anchored at a placed photo's frustum apex and takes precedence). */
+  tempFpv: boolean;
+  /** Screen position (px) of the temp pin marker — low-cadence mirror so the "look from here"
+   *  popup can float NEXT TO the pin; null while the pin is off-screen / behind the camera. */
+  tempPinScreen: { x: number; y: number } | null;
+  setTempPin: (pin: { latDeg: number; lonDeg: number } | null) => void;
+  setTempFpv: (on: boolean) => void;
+  /** Orchestrator-only: mirror the marker's projected screen position. */
+  _syncTempPinScreen: (pos: { x: number; y: number } | null) => void;
+  /** Encoder-style rate controls (Phase 5.5 S2): the spring-centred ROTATE/ZOOM panel knobs
+   *  write a VELOCITY while deflected and null on release; the orchestrator applies it
+   *  per-frame through the same rotation/dolly paths as the glides (heading wraps freely,
+   *  zoom clamps at CONTROLS.zoomMinAltM/zoomMaxAltM). Positive heading rate = clockwise
+   *  (compass heading increases); positive zoom rate = zoom IN (altitude shrinks). */
+  headingRateDegPerS: number | null;
+  zoomRatePerS: number | null;
+  requestFly: (req: FlyRequest) => void;
+  /** Orchestrator-only: mark the pending fly request consumed. */
+  _consumeFlyRequest: () => void;
   setTargetTilt: (deg: number) => void;
   clearTargetTilt: () => void;
   setTargetHeading: (deg: number) => void;
   clearTargetHeading: () => void;
   setTargetZoom: (altM: number) => void;
   clearTargetZoom: () => void;
+  /** Rate-control writers — null = stick released (motion eases out in the orchestrator). */
+  setHeadingRate: (degPerS: number | null) => void;
+  setZoomRate: (perS: number | null) => void;
   /** Direct manipulation (pointer/wheel/touch on the globe) cancels every slider glide. */
   clearAllTargets: () => void;
   /** Orchestrator-only: mirror the live pose into the store (low cadence). */
   _syncTilt: (deg: number) => void;
   _syncHeading: (deg: number) => void;
   _syncZoom: (altM: number) => void;
+  _syncFocus: (latDeg: number, lonDeg: number) => void;
 }
 
 export const useCameraStore = create<CameraState>((set) => ({
@@ -51,17 +95,44 @@ export const useCameraStore = create<CameraState>((set) => ({
   targetHeadingDeg: null,
   zoomAltM: 1_100_000, // mirrors POSE.cam.altM until the first live sync lands
   targetZoomAltM: null,
+  focusLatDeg: 48.46, // Dnipro-ish until the first live sync lands (POSE default view)
+  focusLonDeg: 35.05,
+  flyRequest: null,
+  headingRateDegPerS: null,
+  zoomRatePerS: null,
+  tempPin: null,
+  tempFpv: false,
+  tempPinScreen: null,
+  setTempPin: (pin) =>
+    set(
+      pin === null
+        ? { tempPin: null, tempFpv: false, tempPinScreen: null }
+        : { tempPin: pin },
+    ),
+  setTempFpv: (on) => set((s) => (on && s.tempPin === null ? {} : { tempFpv: on })),
+  _syncTempPinScreen: (pos) => set({ tempPinScreen: pos }),
+  requestFly: (req) => set({ flyRequest: req }),
+  _consumeFlyRequest: () => set({ flyRequest: null }),
   setTargetTilt: (deg) => set({ targetTiltDeg: deg }),
   clearTargetTilt: () => set({ targetTiltDeg: null }),
   setTargetHeading: (deg) => set({ targetHeadingDeg: deg }),
   clearTargetHeading: () => set({ targetHeadingDeg: null }),
   setTargetZoom: (altM) => set({ targetZoomAltM: altM }),
   clearTargetZoom: () => set({ targetZoomAltM: null }),
+  setHeadingRate: (degPerS) => set({ headingRateDegPerS: degPerS }),
+  setZoomRate: (perS) => set({ zoomRatePerS: perS }),
   clearAllTargets: () =>
-    set({ targetTiltDeg: null, targetHeadingDeg: null, targetZoomAltM: null }),
+    set({
+      targetTiltDeg: null,
+      targetHeadingDeg: null,
+      targetZoomAltM: null,
+      headingRateDegPerS: null,
+      zoomRatePerS: null,
+    }),
   _syncTilt: (deg) => set({ tiltDeg: deg }),
   _syncHeading: (deg) => set({ headingDeg: deg }),
   _syncZoom: (altM) => set({ zoomAltM: altM }),
+  _syncFocus: (latDeg, lonDeg) => set({ focusLatDeg: latDeg, focusLonDeg: lonDeg }),
 }));
 
 /** Normalize a heading to [0, 360). */

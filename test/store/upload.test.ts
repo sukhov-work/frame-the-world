@@ -216,3 +216,36 @@ describe("placement machine (Phase 3 — PLACE / SET ON GLOBE)", () => {
     expect(s.phase).toBe("idle");
   });
 });
+
+describe("FPV view mode (Phase 5.5 S2)", () => {
+  it("defaults to orbit and refuses fpv unless a photo is placed", () => {
+    expect(useUploadStore.getState().viewMode).toBe("orbit");
+    useUploadStore.getState().setViewMode("fpv"); // idle — refused
+    expect(useUploadStore.getState().viewMode).toBe("orbit");
+    useUploadStore.getState().ingest(extracted(EXIF_PHONE));
+    useUploadStore.getState().setViewMode("fpv"); // review — still refused
+    expect(useUploadStore.getState().viewMode).toBe("orbit");
+    useUploadStore.getState().place();
+    expect(useUploadStore.getState().phase).toBe("placed");
+    useUploadStore.getState().setViewMode("fpv");
+    expect(useUploadStore.getState().viewMode).toBe("fpv");
+  });
+
+  it("every exit from the placed state drops back to orbit", () => {
+    const enterFpv = () => {
+      useUploadStore.getState().ingest(extracted(EXIF_PHONE));
+      useUploadStore.getState().place();
+      useUploadStore.getState().setViewMode("fpv");
+      expect(useUploadStore.getState().viewMode).toBe("fpv");
+    };
+    enterFpv();
+    useUploadStore.getState().backToReview();
+    expect(useUploadStore.getState().viewMode).toBe("orbit");
+    enterFpv();
+    useUploadStore.getState().clear();
+    expect(useUploadStore.getState().viewMode).toBe("orbit");
+    enterFpv();
+    useUploadStore.getState().ingest(extracted(EXIF_RAW)); // a new file supersedes the view
+    expect(useUploadStore.getState().viewMode).toBe("orbit");
+  });
+});

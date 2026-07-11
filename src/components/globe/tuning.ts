@@ -217,8 +217,10 @@ export const CONTROLS = {
   dampingFactor: 0.28,
   /** Max tilt (rad) — π/2 allows pitching to the true horizon. */
   maxAltitudeRad: Math.PI / 2,
-  /** Keep the camera this far (m) above surfaces via adjustHeight. */
-  cameraRadius: 8,
+  /** Keep the camera this far (m) above surfaces via adjustHeight (8 → 2.5 in Phase 5.5 S2:
+   *  street level is the instrument's point — the orchestrator's terrain guard owns the
+   *  underground case, this only cushions rooftop grazes). */
+  cameraRadius: 2.5,
   /** Trackpad-pinch zoom rate (library default 1 is painfully slow; verified 5). */
   zoomSpeed: 5,
   /** GlobeControls pitches the camera toward nadir while zooming in (it rotates the camera around
@@ -249,9 +251,29 @@ export const CONTROLS = {
   /** Zoom-slider easing time-constant (ms) — log-space exponential approach to the target
    *  altitude (the manual alternative to wheel/pinch zoom). */
   zoomEaseTauMs: 320,
-  /** Zoom-slider altitude range (m) — log-mapped across the slider track. */
-  zoomMinAltM: 120,
+  /** Zoom-slider altitude range (m) — log-mapped across the slider track. Floor lifted
+   *  120 → 2 (Phase 5.5 S2): street level is the point of the instrument. The value is metres
+   *  above the ELLIPSOID — over real terrain the glide stalls against cameraRadius/terrain and
+   *  the orchestrator releases it (stall detection), so a sub-terrain floor is safe. */
+  zoomMinAltM: 2,
   zoomMaxAltM: 12_000_000,
+  /** Consecutive stalled frames (glide requested, altitude unchanged) before a zoom glide is
+   *  released — the camera is resting on terrain/cameraRadius and will never "arrive". */
+  zoomStallFrames: 6,
+  /** 2D/3D quick toggle (Phase 5.5 S2): 3D restores this tilt; 2D glides to 0 (nadir). */
+  toggle3dTiltDeg: 55,
+  /** The toggle reads "2D" while the live tilt is under this (deg). */
+  twoDMaxTiltDeg: 10,
+  /** Encoder-style rate controls (Phase 5.5 S2 — spring-centred ROTATE/ZOOM): max rates at
+   *  full deflection. Heading in deg/s (compass-clockwise positive)… */
+  headingRateMaxDegPerS: 45,
+  /** …zoom as a log-space rate (per s): altitude ×= exp(−rate·dt); 1.1 ≈ 3×/s at full stick. */
+  zoomRateMaxPerS: 1.1,
+  /** Expo response curve on stick deflection (rate = max·sign·|d|^gamma) — fine control near
+   *  centre, speed at the ends. */
+  rateExpoGamma: 2.2,
+  /** Applied-rate low-pass (ms): eases rate changes in AND lets motion coast out on release. */
+  rateEaseTauMs: 140,
 } as const;
 
 /** Phase-1 test city (Dnipro, UA). The old `buildingSinkM` float workaround was REMOVED
@@ -580,23 +602,40 @@ export const FRUSTUM = {
   planeOpacity: 0.7,
 } as const;
 
-/** Cinematic flight to a placed photo (design board motion spec: desktop 2200 ms,
- *  cubic-bezier(.65, 0, .35, 1); reduced-motion = instant cut). */
+/** Cinematic flight to a placed photo / searched place (design board motion spec: desktop
+ *  2200 ms, cubic-bezier(.65, 0, .35, 1); reduced-motion = instant cut). Phase 5.5 S2: terrain
+ *  path floor + path-following orientation + the shared explicit arrival pose (the old
+ *  planeDist·backFactor/liftFactor multiples are gone — `flight.arrivalPose` is the one source). */
 export const FLIGHT = {
   durationMs: 2200,
   /** Bezier control points (x1, y1, x2, y2) — the design system's master easing. */
   easing: [0.65, 0, 0.35, 1] as const,
-  /** Viewing pose: camera sits planeDist·backFactor behind the apex along −forward…
-   *  (2.8 → 4.2 owner 2026-07-10: further back so the landscape around the photo reads). */
-  backFactor: 4.2,
-  /** …lifted planeDist·liftFactor along local up, looking at the image-plane centre.
-   *  (1.1 → 0.45: a near-horizontal arrival — ~5° depression instead of ~16° — so the photo
-   *  superimposes on the real landscape behind it instead of being viewed from above.) */
-  liftFactor: 0.45,
   /** Mid-flight altitude bump = min(arc·groundDistance, max) — short hops rise a little, long
    *  hauls get a proper ballistic arc (matters for Phase-5 pin→pin jumps). */
   arcBumpFactor: 0.35,
   arcBumpMaxM: 2_500_000,
+  /** Path floor clearance (m) over the rendered terrain sampled at the flight's endpoints —
+   *  the mid-path may never dip closer to that terrain (the blend itself is ellipsoid-only). */
+  floorClearM: 250,
+  /** Fraction of the path over which the floor ramps in/out so the endpoint poses stay exact. */
+  floorRampFrac: 0.2,
+  /** Orientation blends OUT of the start pose across this leading fraction (0.15 → 0.3
+   *  browser-tuned 2026-07-11: the tighter window swung the view at ~330°/s aligning to the
+   *  track from a rotated LEO pose; 0.3 spreads the alignment over the slow bezier head). */
+  orientInFrac: 0.3,
+  /** …and INTO the final pose across this trailing fraction (design: "last ~25%"). */
+  orientOutFrac: 0.25,
+  /** Look-ahead (eased-progress units) for the path-tangent frame. */
+  lookAheadE: 0.03,
+  /** Path-following orientation ramps in across this ground-distance band (m): short hops keep
+   *  the plain q0→q1 slerp (their orientation change IS the point), long hauls follow the path. */
+  pathFollowLoM: 100_000,
+  pathFollowHiM: 600_000,
+  /** Default pin/photo arrival: camera this high above the rendered ground… */
+  arrivalAltAboveGroundM: 200,
+  /** …at this tilt (deg from nadir; ~80° = near-horizontal, the photo superimposed on its
+   *  landscape) looking at the image-plane centre. */
+  arrivalTiltDeg: 80,
 } as const;
 
 /** Public pins on the shared globe (Phase 5). Markers are accent-colored instanced spheres
@@ -633,8 +672,72 @@ export const PINS = {
   queryDebounceMs: 450,
   /** Pin resnap cadence (frames) — re-ask the terrain for ground height under nearby pins. */
   resnapEveryFrames: 120,
-  /** Click→fly arrival: camera ends flyAltM above the pin, backed off flyBackM horizontally
-   *  along the current approach azimuth, looking at the pin (≈45° depression). */
-  flyAltM: 2_600,
-  flyBackM: 2_400,
+} as const;
+
+/** FPV photographer mode (Phase 5.5 S2): the camera sits EXACTLY at the placed photo's frustum
+ *  apex with the photo's heading/pitch/roll; GlobeControls are disabled — drag looks around,
+ *  wheel zooms the camera FOV (not a dolly), Escape / the panel button exits. Gates S6 (sun/moon
+ *  day-arcs are drawn for this viewpoint). */
+export const FPV = {
+  /** Look-around sensitivity (deg per px) at the DEFAULT scene FOV — scaled down as the FOV
+   *  narrows so a zoomed-in look stays controllable. */
+  lookDegPerPx: 0.12,
+  /** Camera-FOV zoom range (deg, vertical). Entry FOV = the photo's own vertical FOV. */
+  minFovDeg: 8,
+  maxFovDeg: 80,
+  /** Wheel deltaY → FOV multiplier exponent: fov ×= exp(deltaY · this). */
+  wheelFovFactor: 0.0012,
+  /** FOV ease time-constant (ms) — entry/exit FOV changes glide instead of snapping. */
+  fovEaseTauMs: 180,
+  /** Pitch offset clamp (deg) around the photo's own pitch — never flip over the poles. */
+  pitchClampDeg: 80,
+  /** Building ghosting while in ANY FPV: buildings inside the view would otherwise swallow the
+   *  camera — fade the shared fill/edge materials so the view is never lost inside a mesh. */
+  buildingGhostOpacity: 0.2,
+  buildingGhostEdgeOpacity: 0.12,
+  /** Camera FOV (deg) for the temporary-pin "look around" FPV (no photo to inherit from;
+   *  wider than the cinematic POSE 38° — it's a street-level look, not a framing). */
+  tempFovDeg: 55,
+  /** Temp-FPV eye elevation ceiling (m above the pin's ground): the ZOOM encoder raises/lowers
+   *  the viewpoint STRICTLY vertically in this mode; floor = FRUSTUM.eyeHeightM. */
+  tempEyeMaxM: 400,
+} as const;
+
+/** Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops it, it becomes
+ *  the rotate/zoom pivot, and FPV can be entered on it just to look around. Cleared by a single
+ *  click elsewhere / Escape. Accent marker, angular-constant size like the public pins. */
+export const TEMPPIN = {
+  /** Marker world radius = camera distance × this… */
+  markerAngular: 0.006,
+  /** …clamped (m). */
+  markerMinM: 1.5,
+  markerMaxM: 20_000,
+  markerOpacity: 0.9,
+} as const;
+
+/** Location finder (Phase 5.5 S1) — free geocoding behind a swap-friendly adapter
+ *  (lib/geo/geocode). Providers: Photon (komoot) for search-as-you-type (keyless, CORS *,
+ *  fair-use — MUST debounce and pass a camera-position bias or POI ranking is garbage) and
+ *  Nominatim on explicit Enter only (its usage policy FORBIDS autocomplete; ≤1 req/s; results
+ *  cached). Both are ODbL — the results dropdown carries "© OpenStreetMap contributors". */
+export const SEARCH = {
+  photonUrl: "https://photon.komoot.io/api/",
+  nominatimUrl: "https://nominatim.openstreetmap.org/search",
+  /** Keystroke → Photon request debounce (ms). Fair-use floor ~300 ms; still feels live. */
+  debounceMs: 320,
+  /** Results requested and rendered. */
+  limit: 6,
+  /** Autocomplete only fires at this query length (shorter = noise + wasted requests). */
+  minQueryLen: 3,
+  /** Fly-to arrival tilt (deg from nadir) — oblique enough that the landscape reads. */
+  arrivalTiltDeg: 52,
+  /** Arrival altitude = result extent span (m) × this… */
+  extentAltFactor: 1.1,
+  /** …clamped. Floor keeps arrivals terrain-safe: the flight path is TERRAIN-BLIND until the
+   *  S2 flight fix (ellipsoid-only altitude blend), so never arrive hugging the ground. Cap
+   *  keeps whole-country hits below orbit. */
+  altMinM: 3_000,
+  altMaxM: 1_200_000,
+  /** Arrival altitude when the result has no extent (addresses, small POIs). */
+  altDefaultM: 4_000,
 } as const;

@@ -44,6 +44,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Day step — quick ±24 h traversal flanking the date picker (same time-of-day). */
+.ts-day {
+  font-family: inherit;
+  font-size: 8px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease;
+}
+
+.ts-day:hover {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+}
+
 /* Date jump — native picker skinned to the instrument idiom (mono, dark, subtle border). */
 .ts-date {
   font-family: inherit;

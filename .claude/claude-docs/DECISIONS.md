@@ -10,7 +10,112 @@ they are **binding** and were research-verified before this repo existed. New wo
 
 ---
 
-- **2026-07-10 — Pin click → full CAMERA VIEW (frustum + metadata panel + flight), from the globe AND from "My pins" (browser-VERIFIED both paths).**
+- **2026-07-11 — Phase 5.5 S2 follow-ups round 2 SHIPPED (owner): terrain-first pick accuracy · pin-anchored popup · temp-FPV rotate/elevate controls (browser-VERIFIED via Playwright MCP; 223 vitest · astro check 0 · wix build green).**
+  **(a) Placement accuracy ROOT-CAUSED + fixed:** click-to-place AND the temp-pin dblclick rays hit the bare ELLIPSOID — 100–190 m
+  BELOW the rendered terrain — so oblique rays landed 100 m+ PAST the visible ground (drift grows off-centre and with tilt, exactly the
+  reported "gravitates outward / away from viewer"). New `pickGround(ndc)` raycasts the rendered terrain tiles first (shadow twins are
+  already raycast-noop), ellipsoid only past-the-limb; used by photo placement + temp pin. Verified: dblclick 320 px off-centre at 52°
+  tilt → the pin re-projects **1 px** from the click. **(b) Popup placement bug:** the pill was rendered INSIDE `.ct` whose
+  `backdrop-filter` creates a CONTAINING BLOCK — `position:fixed` descendants become panel-relative (that's why it sat on the ROTATE/ZOOM
+  encoders). TRAP recorded. Now: `camera.tempPinScreen` mirror (%6 frames, projected marker, hidden off-screen/behind) → `.ct-pinpop`
+  floats just above the pin (10 px house corners, instrument-card chrome — no more rounded pill); "EXIT LOOK · ESC" renders INSIDE the
+  controls card above the sliders (`.ct-exitlook`). **(c) Temp-FPV control retargeting:** ROTATE encoder turns the look itself
+  (fpvYaw; verified 42° for a 1.5 s stick) and ZOOM elevates the viewpoint STRICTLY vertically (fpvEyeM, proportional speed with an
+  8 m floor base — pure exponential from a 1.7 m eye barely got airborne; clamp eye 1.7–`FPV.tempEyeMaxM 400`; verified climb with
+  **0.00 m horizontal drift**); photo FPV stays locked at the apex. Files: `globe/StylizedTiles.ts` · `store/camera.ts`
+  (tempPinScreen) · `panels/CameraTiltPanel.tsx` · `styles/camera-tilt.css` · `globe/tuning.ts` (FPV.tempEyeMaxM). Shots
+  `verify-shots/phase55-09/10`. Memory: `mem:project/wip-2026-07-11-phase5.5-s2` §Follow-ups.
+- **2026-07-11 — Phase 5.5 S2 follow-ups SHIPPED (owner, same day): photo-HEADING encoder · FPV building ghosting · pin pivot lock · temp virtual pin + look-around FPV (browser-VERIFIED via Playwright MCP; 223 vitest · astro check 0 · wix build green).**
+  **(1) Photo HEADING = encoder** (PhotoDetailPanel): the 0–360° positional slider became a spring-centred rate control (`ui/Encoder.tsx`
+  gained optional `badge`/`onReset`); a rAF loop nudges `params.headingDeg` per frame while deflected (same CONTROLS.headingRateMax/expo);
+  double-click still resets to EXIF (verified 214→239 on a 1.2 s hold→214 on reset). **(2) FPV building ghosting**: `buildings.setGhost()`
+  (two shared-material writes — per-tile obstruction testing would break the one-material invariant) fades fill to `FPV.buildingGhostOpacity
+  0.2` + edges 0.12 + depthWrite off while ANY FPV is active; restored on exit (verified 0.2 in / 1.0 out). **(3) Pin pivot lock**: while a
+  photo is placed OR a temp pin is set, the heading/zoom glides + encoder rates pivot on the PIN (the orchestrator overrides the view-focus
+  frame; `hasFocus` keeps the dolly path). Verified: camera–apex distance 481 m → 481 m through a rotation burst. Empty-map click / Escape
+  deselects a VIEWED saved pin (`clear()`); an own unsaved upload is never discarded by a stray click (deliberate deviation — losing an
+  untweaked upload to a misclick is hostile). **(4) Temp virtual pin** (`camera.tempPin`/`tempFpv` seams + `TEMPPIN` tuning + accent marker):
+  double-click the ground drops it (deselecting any viewed pin first — the gesture means "focus here"; ignored while placing/editing an own
+  upload), it becomes the rotate/zoom pivot, single click elsewhere or Escape clears it; a centre pill (CameraTiltPanel) offers "◎ LOOK FROM
+  HERE" → FPV generalised to two anchors (`fpvKind 'photo'|'temp'`): temp FPV stands at ground+eye 1.7 m (verified 184.2 = 182.5 ground +
+  1.7) at `FPV.tempFovDeg 55`, basis captured at entry (camera azimuth), exits fly to the standard arrival pose around the pin. Escape
+  unwinds one level: photo FPV → temp FPV → temp pin → viewed pin. Note: the dblclick drag-guard compares against the last pointerdown —
+  synthetic dblclicks without a preceding down are rejected (test scripts must send down/up pairs first). Files: `ui/Encoder.tsx` ·
+  `panels/PhotoDetailPanel.tsx` · `panels/CameraTiltPanel.tsx` · `scene/buildings.ts` · `globe/StylizedTiles.ts` · `globe/tuning.ts`
+  (FPV ghost/tempFov + TEMPPIN) · `store/camera.ts` · `styles/camera-tilt.css` · tests → 223. Shot `verify-shots/phase55-08`.
+  Memory: `mem:project/wip-2026-07-11-phase5.5-s2` §Follow-ups.
+- **2026-07-11 — Phase 5.5 S2 SHIPPED: flight fixes + street-level camera + shared arrival pose + FPV photographer mode + compass/2D-3D + encoder controls (browser-VERIFIED via Playwright MCP on wix dev; 221 vitest · astro check 0 · wix build green).**
+  **Flight** (`globe/flight.ts` rework): terrain path floor — `pathAltitude()` clamps the ellipsoid-only blend from below by
+  max(terrain at both endpoints)+`FLIGHT.floorClearM 250`, ramped over `floorRampFrac 0.2` so endpoints stay EXACT; orientation now
+  follows the path tangent + radial up through long flights (`pathFrameWeight` in 0.3/out 0.25 of eased progress; `pathFollowWeight`
+  gates by ground distance 100→600 km so short hops keep the plain q0→q1 slerp), killing the rotated-start spin (measured: smooth
+  single-hump rotation profile decaying to ~1°/s at landing; orientInFrac 0.15→0.3 browser-tuned, 334→257°/s peak). **Shared arrival
+  pose** `arrivalPose()` (ONE derivation for pin flights, FPV exits AND search fly-tos): camera altAboveGround over the RENDERED ground,
+  horizontal back-off drop·tan(tilt); pins land `FLIGHT.arrivalAltAboveGroundM 200`/`arrivalTiltDeg 80` (verified 203.2 m / 79.9° at the
+  Dnipro fixture; backFactor/liftFactor + orphaned PINS.fly* tunables REMOVED); search keeps S1's 52° but is now terrain-aware (La
+  Paz-class plateau arrivals fixed). **TRAP found live: `ground.heightAt` can return NEGATIVE garbage on unloaded/coarse quantized-mesh
+  tiles — every consumer must clamp [0, 9000] (clamp-only-upward)**; unclamped, the Dnipro arrival sank to its lookAt safety floor.
+  **Street camera:** `CONTROLS.zoomMinAltM 120→2`, `cameraRadius 8→2.5`; **TRAP: a descending zoom glide targets ELLIPSOID altitude and
+  outruns tile loading — once under the surface the ENTIRE ground tileset unloads (0 meshes, verified) and neither adjustHeight
+  (down-ray from the camera) nor live heightAt can recover.** Fix = sticky `lastGroundM` sampled every frame at the VIEW FOCUS (tiles
+  only exist inside the frustum — the camera-footprint sample stayed null through a whole dive, also verified) + a street-floor guard
+  clamping the camera to lastGround+2 m below 50 km + glide stall-release (`zoomStallFrames 6`). Verified: floor dive rests 2.5 m above
+  the Kyiv street, 144 tile meshes alive, glide releases. **FPV** (`upload.viewMode 'orbit'|'fpv'` + orchestrator controller + `FPV`
+  tuning group): entry flight to the frustum apex, camera FOV eases to the PHOTO's vFov (verified 50.23°, plane corners at NDC y=±1.0 —
+  the photographer's exact frame; exit restores POSE 38°); GlobeControls disabled + `adjustHeight` OFF (cameraRadius would push off the
+  apex) while `controls.adjustCamera()` is called manually each FPV frame (**GlobeControls.update() skips the near/far fit entirely when
+  disabled** — frozen planes would black-screen at street level); drag = grab-world look (yaw/pitch on the frustum basis, ±80° elevation
+  clamp, sensitivity scales with FOV), wheel = FOV zoom 8–80°, Escape/panel button exits → flight back to the arrival pose; pin-picks,
+  placing clicks, glides and rates all gated during FPV. Verified: apex distance 0.00 m, drag → yaw 31.7°/pitch 12.7°, wheel 50.2→24.7°,
+  Escape → orbit/38°/controls re-enabled. **Compass + 2D/3D** (CameraTiltPanel rework): needle = −headingDeg live mirror, click →
+  `setTargetHeading(0)` fluid north glide (verified 214→359.9°, tilt preserved); 2D/3D = `setTargetTilt(0 ↔ toggle3dTiltDeg 55)`
+  (verified 0.1°/55.0°, labels flip). **Encoders** (`ui/Encoder.tsx` replaces the absolute ROTATE/ZOOM sliders): spring-centred RATE
+  controls → `camera.headingRateDegPerS`/`zoomRatePerS` seams (null on release; `clearAllTargets` clears them — grabbing the globe wins),
+  applied per-frame through the SAME rotation/dolly paths with a `rateEaseTauMs 140` low-pass (ease-in + coast-out), expo
+  `rateExpoGamma 2.2` (verified: 80 % deflection = 27.5°/s = 45·0.8^2.2 exactly; zoom −1.0/s → ×3.4 altitude in 1.2 s); readouts stay
+  live mirrors; TILT stays absolute; absolute target seams kept for compass/2D-3D/FPV. Items 13+14 landed in-session — **no S2b needed**.
+  Files: `globe/flight.ts` · `globe/StylizedTiles.ts` · `globe/tuning.ts` (FLIGHT/CONTROLS/FPV) · `store/camera.ts` · `store/upload.ts` ·
+  `panels/CameraTiltPanel.tsx` · `panels/PhotoDetailPanel.tsx` · `ui/Encoder.tsx` · `styles/camera-tilt|photo-detail.css` · tests
+  `test/components/globe/flight.test.ts` (new) + store tests → 221 total. Shots `verify-shots/phase55-03..07`. Mechanics:
+  `mem:project/wip-2026-07-11-phase5.5-s2`. NOT released to live. Next: **S3 pin lifecycle** (NEXT_SESSION_PROMPT).
+- **2026-07-11 — Phase 5.5 amended (owner): CARTO dark_nolabels APPROVED for S7a + five items added (11–15), folded into existing sessions — no new session count.**
+  Owner accepted the CARTO license risk ("absolutely ok" — Esri-class POC posture, © OSM © CARTO attribution; Stadia/MapTiler stay as
+  documented fallbacks) → S7a source LOCKED. New items: **11** Explore = ambient pin journey (900 km alt / 50° tilt, slow nearest-neighbour
+  great-circle cruise through public pins, interaction exits, reduced-motion respected; EXPLORE tuning group) → S4; **12** more salient
+  (still subtle) upload CTA → S3; **13** compass (headingDeg needle, click→north) + 2D/3D toggle (targetTilt 0↔55, existing glide seams)
+  → S2; **14** encoder-style ROTATE/ZOOM — spring-centred RATE controls (deflection = speed, expo curve, release springs back; new
+  headingRateDegPerS/zoomRatePerS store seams through the SAME rotation/dolly code paths; heading infinite, zoom hard-clamped; absolute
+  target seams kept for compass/2D-3D/FPV) → S2 (S2b if heavy — flight fixes keep priority); **15** darker night sky (lower night floors +
+  root-cause the carried navy-floor mystery) → S5. Docs updated: PHASE_5_5_UX_BATCH.md (items 11–15 sections + decision log),
+  IMPLEMENTATION_PLAN §5.5 bullets, NEXT_SESSION_PROMPT S2 steps 6–7. Design-only (no code).
+- **2026-07-11 — Phase 5.5 S1 SHIPPED: location finder (free geocoding → cinematic fly-to) + day ◀ ▶ steppers (browser-VERIFIED via Playwright MCP on wix dev).**
+  **LocationFinder** (`panels/LocationFinder.tsx` + `styles/location-finder.css`, top-centre instrument card): Photon autocomplete
+  (320 ms debounce, ≥3 chars, camera-focus bias — verified live: "dnipro" ranks Dnipro city #1 over Chernihiv/Kyiv namesakes) with
+  Nominatim on explicit Enter (its policy forbids autocomplete; zips/global ranking better — verified "10001 new york usa" → Manhattan
+  centroid); both keyless, session-cached (Nominatim policy REQUIRES caching), "© OpenStreetMap contributors" in the dropdown; provider
+  adapter `lib/geo/geocode.ts` (pure parsers exported; LocationIQ = documented keyed fallback). **Fly-to seam:** `store/camera.ts` gains
+  one-shot `flyRequest` + `requestFly`/`_consumeFlyRequest` + `focusLatDeg/focusLonDeg` mirrors (synced in the existing %12-frame block);
+  orchestrator consumes → arrival pose along the CURRENT approach azimuth (no corkscrew) at `arrivalAltM(extent)` (extent-sized:
+  Dnipro bbox → 40.1 km verified; floor 3 km because flight is TERRAIN-BLIND until S2; cap 1200 km) with SEARCH.arrivalTiltDeg 52°
+  (verified 51.5° on arrival) → existing `flight.start`. New `tuning.SEARCH` group. **Day steppers:** ◀ ▶ flanking the TimeScrubber date
+  input — `setTime(sceneTimeMs() ± 86 400 000)` + re-anchor (verified: LIVE Jul-11 → PINNED Jul-12 same time-of-day). Transatlantic
+  Dnipro→NYC flight clean; consoles carry only known-benign errors (frog telemetry blocked, visitor members/my 403). Files: geocode.ts,
+  LocationFinder.tsx, location-finder.css, camera.ts, StylizedTiles.ts (fly consume + focus mirror), tuning.ts (SEARCH), TimeScrubber.tsx,
+  time-scrubber.css, index.astro, ARCHITECTURE §7. **206 vitest (+16: geocode parsers/arrivalAltM/fly seam) · astro check 0 · wix build
+  green**; shots verify-shots/phase55-01 (Dnipro 40 km/52°) + phase55-02 (Manhattan 11.1 km). Next: S2 flight/camera core (NEXT_SESSION_PROMPT).
+- **2026-07-11 — Phase 5.5 DESIGNED: pre-marketplace UX/quality batch (10 owner items → 7 ordered sessions; blocks Phase 6).**
+  4-track parallel research (codebase map w/ file:line · geocoding policies · basemap/buildings ToS · astronomy datasets) consolidated into
+  `.claude/claude-docs/PHASE_5_5_UX_BATCH.md` (canonical) + IMPLEMENTATION_PLAN §Phase 5.5. Locked: geocoding = Photon autocomplete +
+  Nominatim-on-Enter (keyless, CORS-verified; Nominatim bans autocomplete; OSM attribution); flight bugs root-caused in code (terrain-blind
+  altitude blend flight.ts:124 + decoupled orientation slerp :126); felt 100 m floor = CONTROLS.zoomMinAltM 120 (slider clamp; lib floors are
+  10/8 m); moonlight = Krisciunas&Schaefer-1991 phase curve on the EXISTING rig + rig-source switch for full-moon shadows (no 2nd shadow map;
+  moon:sun ≈ 1:400,000 — relative scaling only); night lights = Black Marble 2016 gray 13.5k (URL HEAD-verified) shipped as 8k single-channel;
+  asterisms = d3-celestial asterisms.json (BSD-3 coordinate polylines, no HIP mapping); labels = Natural Earth 50m places+boundaries (public
+  domain); Ukraine buildings: Mapbox REJECTED (Product Terms 2026-06-17 — custom renderer per-request billed, no caching/deriving §1.9/§1.6),
+  trial = Re:Earth hosted Overture 3D Tiles (endpoint 200-verified, in-renderer UNVERIFIED); dark ground = CARTO dark_nolabels PENDING owner
+  license-risk call (enterprise-only LICENSE.md vs keyless de-facto; Esri-class POC risk; Stadia/MapTiler fallbacks). Schema deltas queued for
+  S3: authorName on PublicPins + PATCH/DELETE /api/photos. Order: S1 location finder+day buttons · S2 flight/FPV core · S3 pin lifecycle+
+  placement UX · S4 pin visuals · S5 night-sky physics · S6 FPV arcs+asterisms · S7 ground rework. Verification: design-only (no code yet).
   New `upload.openSavedPin(SavedPinView)`: synthesizes the EXIF baseline from a stored record (stored hFov reproduced EXACTLY via
   focal35 = 18/tan(hFov/2) through the derivedFov shortcut) and lands the store atomically in "placed" — the whole existing pipeline
   (PhotoFrustum rebuild + onPlaced flight + PhotoDetailPanel) fires from the one transition. `viewingPinId` marks the re-opened state:

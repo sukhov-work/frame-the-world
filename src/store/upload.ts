@@ -142,6 +142,11 @@ interface UploadStore {
   /** Set when the placed state is a RE-OPENED saved pin (globe/My-pins click) — the panel
    *  hides SAVE PIN (re-saving would duplicate) and no original File exists. */
   viewingPinId?: string;
+  /** How the globe camera relates to the placed photo (Phase 5.5 S2): 'orbit' = the default
+   *  free camera framing the frustum from behind; 'fpv' = photographer mode — the camera sits
+   *  EXACTLY at the frustum apex with the photo's pose (drag = look around, wheel = FOV zoom).
+   *  Only meaningful while placed; every phase change resets it to 'orbit'. */
+  viewMode: "orbit" | "fpv";
 
   openPanel(): void;
   closePanel(): void;
@@ -163,6 +168,8 @@ interface UploadStore {
   /** Open a SAVED pin as the placed camera view (frustum + detail panel + flight) —
    *  synthesizes the EXIF baseline from the stored record. */
   openSavedPin(view: SavedPinView): void;
+  /** Enter/exit FPV photographer mode (no-op entering fpv unless a photo is placed). */
+  setViewMode(mode: "orbit" | "fpv"): void;
   /** Back to the empty dropzone (revokes the preview object URL). */
   clear(): void;
 }
@@ -182,6 +189,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
   previewSource: "none",
   decodeProgress: 0,
   params: {},
+  viewMode: "orbit",
 
   openPanel: () => set({ open: true }),
 
@@ -210,6 +218,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       loadError: undefined,
       decodeError: undefined,
       viewingPinId: undefined,
+      viewMode: "orbit",
     });
 
     // The worker reports REAL stage boundaries (wasm-load / unpack / demosaic / encode) but no
@@ -271,6 +280,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       loadError: undefined,
       decodeError: extracted.decodeError,
       viewingPinId: undefined,
+      viewMode: "orbit",
     }),
 
   setParam: (key, value) => set((s) => ({ params: { ...s.params, [key]: value } })),
@@ -288,8 +298,8 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
   place: () =>
     set((s) => {
       if (s.phase !== "review" && s.phase !== "placed") return {};
-      if (!s.placement) return { phase: "placing", open: false }; // SET ON GLOBE — await a globe click
-      return { phase: "placed", open: false };
+      if (!s.placement) return { phase: "placing", open: false, viewMode: "orbit" }; // SET ON GLOBE — await a globe click
+      return { phase: "placed", open: false, viewMode: "orbit" };
     }),
 
   setPlacement: (latDeg, lonDeg) =>
@@ -300,9 +310,12 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
   backToReview: () =>
     set((s) =>
       s.phase === "placed" || s.phase === "placing"
-        ? { phase: "review" as const, open: true }
+        ? { phase: "review" as const, open: true, viewMode: "orbit" as const }
         : {},
     ),
+
+  setViewMode: (mode) =>
+    set((s) => (mode === "fpv" && s.phase !== "placed" ? {} : { viewMode: mode })),
 
   openSavedPin: (view) => {
     loadSeq++; // supersede any in-flight decode
@@ -350,6 +363,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       loadError: undefined,
       decodeError: undefined,
       viewingPinId: view.pinId,
+      viewMode: "orbit",
     });
   },
 
@@ -376,6 +390,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       loadError: undefined,
       decodeError: undefined,
       viewingPinId: undefined,
+      viewMode: "orbit",
     });
   },
 }));

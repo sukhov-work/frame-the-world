@@ -60,6 +60,38 @@ paid); public pins on shared globe via geohash viewport query; default reduced p
 **DoD:** free member saves ≤10, blocked on #11; paid unlimited; public pins render for all at reduced precision.
 **Test:** quota hook rejects #11; viewport geohash query returns only in-view pins; no exact GPS on public pins.
 
+## Phase 5.5 — Pre-marketplace UX/quality batch  ☐ *(designed 2026-07-11 — canonical doc: `PHASE_5_5_UX_BATCH.md`; owner's 10 items ordered into 7 sessions; blocks Phase 6)*
+**Scope + order (S1→S7; each = one verified increment, DoD in the design doc):**
+- [x] **S1 — Location finder** (Photon autocomplete + Nominatim-on-Enter, OSM attribution, fly-to seam
+  in store/camera + orchestrator) **+ day prev/next buttons** in TimeScrubber. *(S1 shipped 2026-07-11 — see DECISIONS)*
+- [x] **S2 — Flight & camera core:** terrain-aware flight path floor + tangent-aligned orientation
+  (fixes underground/spin fly-ins), zoomMinAltM 120→~2 m, default pin arrival ~200 m/80° tilt,
+  **FPV photographer mode** (camera at frustum apex, look-around + FOV zoom, opt-in/out).
+  *Owner adds 2026-07-11:* **compass** (headingDeg needle, click → FLUID eased rotation to north) + **2D/3D toggle**
+  (tilt 0↔55 via existing glide) + **encoder-style ROTATE/ZOOM** (spring-centred rate controls,
+  deflection = speed; zoom keeps hard alt limits). *(S2 shipped 2026-07-11 incl. items 13+14 —
+  no S2b needed; browser-VERIFIED via Playwright MCP; see DECISIONS)*
+- [ ] **S3 — Pin lifecycle + placement UX:** PATCH/DELETE /api/photos (owner-gated, elevated, C6
+  re-derivation), custom pin name input (title), **authorName** on PublicPins (+provision+back-fill),
+  placement selection marker, staged progress, auto-close on save, zoom-out + highlight new pin.
+  *Owner add:* more salient (still subtle) **upload CTA** in the chrome.
+- [ ] **S4 — Pin visual rework:** stem + floating semi-transparent head (rim/core/shimmer, cross-flare
+  at twinkle peaks), neighbor-staggered stem heights, per-user cool-family hues via instanceColor,
+  hover enlarge/glow/details card. *Owner add:* **Explore ambient pin journey** (900 km / 50° tilt,
+  slow nearest-neighbour cruise through pins, any interaction exits; EXPLORE tuning group).
+- [ ] **S5 — Night-sky physics:** K&S-1991 phase-scaled moonlight + moon-driven shadow rig at night,
+  brighter stars/Milky Way (tuning), Black Marble 2016 gray 8k single-channel city lights.
+  *Owner add:* **darker night sky** (lower night floors + root-cause the carried navy-floor mystery).
+- [ ] **S6 — FPV planning overlays:** sun/moon day-arc polylines (10-min sampling, hour ticks,
+  past/future split) + ~20 main asterisms from d3-celestial asterisms.json (BSD-3).
+- [ ] **S7 — Ground rework:** (a) dark uniform "vaporwave" drape <7 km (**CARTO dark_nolabels —
+  owner-approved 2026-07-11**; textures opt-in; crossfade band tunable; per-mode shadow contrast),
+  (b) Natural Earth city labels + country boundaries 100–2000 km tunable + street-name overlay,
+  (c) building grow-on-zoom 2 km→600 m + Re:Earth Overture Ukraine-buildings trial (Mapbox rejected
+  on ToS).
+**Test:** per-session `npm test` + `astro check` + `wix build`; browser verify on wix dev
+(`verify-shots/phase55-*`); S3 wix-cloud-verified with a member cookie.
+
 ## Phase 6 — Marketplace-light  ☐
 **Scope:** list a photo as a digital product (`itemType.preset: DIGITAL` + `digitalFile` = full-res RAW); buy
 flow; owner-mediated payout note; 30-day download-link messaging. *(Import marketplace screens.)*

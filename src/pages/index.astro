@@ -7,6 +7,7 @@ import CameraTiltPanel from "../components/panels/CameraTiltPanel";
 import TimeScrubber from "../components/panels/TimeScrubber";
 import MemberBadge from "../components/panels/MemberBadge";
 import MyPins from "../components/panels/MyPins";
+import LocationFinder from "../components/panels/LocationFinder";
 ---
 
 <Layout title="Frame the World">
@@ -24,6 +25,9 @@ import MyPins from "../components/panels/MyPins";
 
   <!-- Scene-time scrubber (Phase 4) — drag to relight the globe; NOW resumes the wall clock -->
   <TimeScrubber client:only="react" />
+
+  <!-- Location finder (Phase 5.5 S1) — free geocoding (Photon / Nominatim) → cinematic fly-to -->
+  <LocationFinder client:only="react" />
 
   <header class="topnav">
     <span class="logo">Frame&nbsp;the&nbsp;World</span>
