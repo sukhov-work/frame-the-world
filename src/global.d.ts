@@ -19,6 +19,7 @@ declare global {
     __globe?: unknown;
     __renderer?: unknown;
     __composer?: unknown;
+    __quality?: unknown;
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;
     __pinsStore?: typeof usePinsStore;

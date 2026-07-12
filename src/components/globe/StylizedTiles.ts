@@ -42,7 +42,10 @@ import { arrivalPose, createFlight, type FlightTarget } from "./flight";
 import { createExplore } from "./explore";
 import type { FrustumGeometry } from "../../lib/geo/frustum";
 import { formatPoseHash, parsePoseHash } from "../../lib/geo/urlPose";
+import { driftRadiansForDt } from "../../lib/globe/drift";
+import { lruCapBytesForTier, type QualityTier } from "../../lib/globe/quality";
 import {
+  AO,
   CONTROLS,
   DRAPE,
   DRIFT,
@@ -50,12 +53,13 @@ import {
   FLIGHT,
   FPV,
   FRUSTUM,
-  GATES,
   GOLDEN,
+  GRATICULE,
   ORCH,
   PINS,
   PLACING,
   POSE,
+  QUALITY,
   SEARCH,
   SHADOWS,
   SKY,
@@ -89,6 +93,11 @@ import {
 
 export interface TilesHandle {
   update: () => void;
+  /** Adaptive quality (RENDERING_QUALITY_PASS WS1): push a device/governor tier's TILE knobs into
+   *  every module (building + ground error targets, per-renderer LRU byte caps, street-name +
+   *  vector-lattice budgets). GlobeCanvas owns the renderer-level levers (DPR/bloom/shadows) and
+   *  calls this on each tier change. `high` restores every library default → byte-identical. */
+  setQualityTier: (tier: QualityTier) => void;
   dispose: () => void;
 }
 
@@ -115,8 +124,24 @@ export function attachStylizedTiles(opts: {
   /** GlobeCanvas's DirectionalLight (buildings key + shadow caster) — the orchestrator drives its
    *  direction from the ephemeris and its shadow rig from the view focus. */
   sunLight?: THREE.DirectionalLight;
+  /** Initial device quality tier (RENDERING_QUALITY_PASS WS1) — the tile knobs start here so a
+   *  weak device isn't briefly over-committed before the first governor correction. Default high. */
+  qualityTier?: QualityTier;
+  /** AO altitude gate (RENDERING_QUALITY_PASS R1): the orchestrator knows the camera altitude, so
+   *  it tells GlobeCanvas (which owns the GTAOPass + the tier gate) whether the camera is low
+   *  enough for AO. Only present when AO.enabled — undefined otherwise (zero cost). */
+  aoControl?: { setAltActive(active: boolean): void };
 }): TilesHandle {
-  const { scene, camera, renderer, ionToken, reduceMotion = false, sunLight } = opts;
+  const {
+    scene,
+    camera,
+    renderer,
+    ionToken,
+    reduceMotion = false,
+    sunLight,
+    qualityTier = "high",
+    aoControl,
+  } = opts;
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
   // Base ellipsoid scale: WGS84 shrunk a hair (EARTH.shrink) so the imagery ground at exact WGS84
@@ -155,6 +180,21 @@ export function attachStylizedTiles(opts: {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
     tileZ: STREETS.tileZ,
   });
+
+  // --- Adaptive quality fan-out (RENDERING_QUALITY_PASS WS1): GlobeCanvas owns the device tier +
+  //     governor + the renderer levers (DPR/bloom/shadows); here we push the tier's TILE knobs into
+  //     each module. On `high` every renderer restores its captured library default (null LRU), so a
+  //     capable machine is byte-identical to before the quality pass. Called once now (the device
+  //     tier) + on every governor change (via the returned setQualityTier). -----------------------
+  const applyQualityTier = (tier: QualityTier) => {
+    const q = QUALITY.tiers[tier];
+    const lru = lruCapBytesForTier(tier, q.lruBytesMB); // null on high → each renderer's captured default
+    buildings.setQualityTier(q.buildingErrorTarget, lru);
+    ground.setQualityTier(q.groundErrorNear, lru);
+    streetNames.setMaxVisible(q.maxStreetNames);
+    vectorFeatures.setLatticeBudget(q.vectorLatticeBudget);
+  };
+  applyQualityTier(qualityTier);
 
   // --- Ephemeris: ONE astronomical sample drives every light in the scene (terminator, ground
   //     grade, atmosphere, sun/moon bodies, building key light, moonlight). Re-sampled when scene
@@ -532,7 +572,7 @@ export function attachStylizedTiles(opts: {
     dom.style.cursor = s.phase === "placing" ? "crosshair" : "";
     if (s.phase !== "placing") placingMarker.visible = false;
   });
-  const driftRadPerFrame = (DRIFT.degPerFrame * Math.PI) / 180;
+  // (Idle drift is now dt-normalized — driftRadiansForDt(DRIFT.degPerSec, dtMs) per frame, F5.)
 
   // --- FPV photographer mode (Phase 5.5 S2): the camera sits EXACTLY at the frustum apex with
   //     the photo's pose. GlobeControls are disabled (and adjustHeight off — cameraRadius would
@@ -1117,7 +1157,7 @@ export function attachStylizedTiles(opts: {
           alt > DRIFT.minAlt &&
           performance.now() - lastInteract > DRIFT.resumeMs
         ) {
-          _driftQ.setFromAxisAngle(_driftAxis, driftRadPerFrame);
+          _driftQ.setFromAxisAngle(_driftAxis, driftRadiansForDt(DRIFT.degPerSec, dtMs));
           camera.position.applyQuaternion(_driftQ);
           camera.up.applyQuaternion(_driftQ);
           camera.quaternion.premultiply(_driftQ);
@@ -1615,7 +1655,10 @@ export function attachStylizedTiles(opts: {
           }
           sunLight.castShadow = sunShadows || moonShadows;
         }
-
+        // Pass 2 R3 (Dnipro identity): the night-side building facade emissive tracks the SAME
+        // terminator at the view focus (sine of the sun's elevation → night factor) and lights only
+        // walls perpendicular to the focus up (roofs stay dark).
+        buildings.setNight(sunDirW.dot(_focusUp), _focusUp);
   };
 
   const stepSkyBodies = () => {
@@ -1829,12 +1872,18 @@ export function attachStylizedTiles(opts: {
   };
 
   const stepGraticuleAndAtmosphere = () => {
-        // Orbit-only decoration: hide the graticule once we dive toward the city (no "wire
-        // cage" up-view). The atmosphere now stays on at EVERY altitude — below the old decor
-        // gate it re-anchors to the camera and becomes the low-altitude sky dome (day-blue +
-        // horizon haze; black at night so the stars own the sky).
-        graticule.lines.visible = alt > GATES.decorMinAlt;
+        // Orbit-only decoration: fade the graticule out as we dive toward the city (no "wire
+        // cage" up-view). F7: an OPACITY ramp across [fadeBottom, fadeTop] instead of the old
+        // hard `visible` toggle at GATES.decorMinAlt (a visible pop). The atmosphere now stays on
+        // at EVERY altitude — below the old decor gate it re-anchors to the camera and becomes the
+        // low-altitude sky dome (day-blue + horizon haze; black at night so the stars own the sky).
+        graticule.setPresence(
+          (alt - GRATICULE.fadeBottomAltM) / (GRATICULE.fadeTopAltM - GRATICULE.fadeBottomAltM),
+        );
         atmosphere.update(camera, alt);
+        // R1 AO altitude gate: tell GlobeCanvas (which owns the GTAOPass + tier gate) whether the
+        // camera is low enough for ambient occlusion (city/street only). No-op unless AO.enabled.
+        aoControl?.setAltActive(alt < AO.maxAltM);
 
   };
 
@@ -1971,6 +2020,7 @@ export function attachStylizedTiles(opts: {
         }
       }
     },
+    setQualityTier: applyQualityTier,
     dispose() {
       dom.removeEventListener("pointerdown", noteInteract);
       dom.removeEventListener("wheel", noteInteract);

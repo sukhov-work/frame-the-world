@@ -138,6 +138,37 @@ export const BLOOM = {
   msaaSamples: 4,
 } as const;
 
+/** Ambient occlusion (RENDERING_QUALITY_PASS R1 — the highest-ROI aesthetic move: turns the flat
+ *  gray building slabs into massing with depth). `GTAOPass` is built into three 0.185
+ *  (three/addons/postprocessing/GTAOPass.js — NO new dep), inserted after RenderPass, before bloom.
+ *  DEFAULT OFF (`enabled: false`): the look (radius / intensity / tint at city scale) genuinely
+ *  needs a rendered frame to tune, and it alters the browser-VERIFIED M3/high hero view — so it
+ *  ships fully WIRED but dark. To enable + tune: set `enabled: true`, reload, then A/B via
+ *  `window.__quality.ao` (the live GTAOPass — `.blendIntensity`, `.updateGtaoMaterial({radius,…})`).
+ *  When on it is STILL tier-gated (high only — an extra full-scene GBuffer render) AND altitude-
+ *  gated (city/street only — the self-lit earth at orbit has no use for screen-space AO). */
+export const AO = {
+  /** Master switch. false = the GTAOPass is never constructed (zero VRAM/cost on every machine);
+   *  true = created at init, then gated by tier + altitude each frame. */
+  enabled: false,
+  /** Active only below this camera altitude (m) — buildings read as massing at city/street scale. */
+  maxAltM: 12_000,
+  /** Occlusion radius (WORLD/view metres — `screenSpaceRadius` stays false so AO is a fixed
+   *  physical size, not a zoom-varying pixel count). ~building-contact scale; TUNE in-browser. */
+  radiusM: 10,
+  /** AO contrast power (`ao = pow(ao, scale)` in the shader) — >1 deepens the creases. */
+  scale: 1.0,
+  /** Composite strength (`blendIntensity`) — how strongly AO multiplies into the scene. Kept
+   *  conservative so the first enabled frame is subtle, not a smear. */
+  intensity: 0.6,
+  /** GBuffer sample count (shader define SAMPLES) — 16 is the three default; lower is cheaper. */
+  samples: 16,
+  /** Crude skylight tint: occluded pixels lerp toward tokens.skyHorizon (a monkey-patch of the
+   *  GTAOBlendShader — three ships no AO-colour setter; the composite multiply can only DARKEN
+   *  toward it). 0 = neutral gray AO. Kept low — a hint of cool sky in the creases. */
+  horizonTint: 0.35,
+} as const;
+
 /** Real-time sun shadows (city scale). One tight orthographic shadow camera follows the view
  *  focus; enabled only near the ground AND while the sun is up there (a below-horizon sun would
  *  project garbage). World coords are ~6.4e6 m → float32 quantises at ~0.5 m: normalBias absorbs
@@ -182,10 +213,70 @@ export const SHADOWS = {
 
 /** Renderer-level knobs (GlobeCanvas). */
 export const RENDERER = {
-  /** DPR cap — 2 keeps 4K/mobile fill-rate sane; raise only after a mobile memory pass. */
+  /** DPR cap — 2 keeps 4K/mobile fill-rate sane; raise only after a mobile memory pass.
+   *  NOTE: this is now the `high`-tier value; the live cap is QUALITY.tiers[tier].dprCap. */
   maxPixelRatio: 2,
   /** NeutralToneMapping exposure (ACES/AgX rejected — they desaturate the cyan accent). */
   toneMappingExposure: 1.0,
+} as const;
+
+/** Adaptive rendering quality (RENDERING_QUALITY_PASS.md WS1 — the keystone). A device tier is
+ *  picked at startup (`lib/globe/quality.detectDeviceTier`) and a runtime governor
+ *  (`makeGovernor`) steps it up/down from smoothed frame time; GlobeCanvas applies the renderer
+ *  levers (DPR / bloom / shadows) each change.
+ *
+ *  HARD INVARIANT: `tiers.high` MUST equal the pre-pass constants — `RENDERER.maxPixelRatio` (2),
+ *  `SHADOWS.mapSize` (4096), `GROUND.errorTargetNear` (2), the library's 0.4 GB LRU default,
+ *  `VECTOR.latticeBudgetPerFrame` (8), `STREETS.maxVisible` (40), and the buildings' library-default
+ *  16 SSE — so a capable machine renders byte-identical to before and only weaker hardware degrades.
+ *  `test/lib/globe/quality.test.ts` locks this against the live constants. */
+export const QUALITY = {
+  /** Frame governor: asymmetric (quick to shed, slow to re-add), hysteresis + cooldown = no thrash.
+   *  On strong hardware the EMA never crosses budgetMs, so the governor is a no-op and the tier
+   *  stays at the device class. Budgets in ms of frame time (22 ≈ 45 fps, 13 ≈ 77 fps). */
+  governor: {
+    budgetMs: 22,
+    restoreMs: 13,
+    emaAlpha: 0.1, // ~10-frame smoothing
+    downFrames: 45, // ~0.75 s of sustained slowness before dropping a tier
+    upFrames: 240, // ~4 s of headroom before restoring (deliberately reluctant)
+    cooldownMs: 2500, // min gap between changes — a DPR change reallocates render targets
+  },
+  tiers: {
+    high: {
+      dprCap: 2,
+      bloom: true,
+      shadowsEnabled: true,
+      shadowMapSize: 4096,
+      lruBytesMB: 400,
+      groundErrorNear: 2,
+      buildingErrorTarget: 16,
+      vectorLatticeBudget: 8,
+      maxStreetNames: 40,
+    },
+    mid: {
+      dprCap: 1.5,
+      bloom: true,
+      shadowsEnabled: true,
+      shadowMapSize: 2048,
+      lruBytesMB: 256,
+      groundErrorNear: 3,
+      buildingErrorTarget: 24,
+      vectorLatticeBudget: 5,
+      maxStreetNames: 28,
+    },
+    low: {
+      dprCap: 1.25,
+      bloom: false,
+      shadowsEnabled: false,
+      shadowMapSize: 1024,
+      lruBytesMB: 160,
+      groundErrorNear: 5,
+      buildingErrorTarget: 40,
+      vectorLatticeBudget: 3,
+      maxStreetNames: 16,
+    },
+  },
 } as const;
 
 /** Default "spacecraft in LEO" pose (PROJECT_SEED §2) — camera SW of Dnipro aimed past it toward
@@ -232,8 +323,11 @@ export const DRIFT = {
   minAlt: 400_000,
   /** Pause on pointer/wheel/touch; resume this many ms after the last interaction. */
   resumeMs: 8_000,
-  /** Deg/frame about ECEF +Z. 0.0011 ≈ 0.066°/s @60fps — real ISS angular pace (verified feel). */
-  degPerFrame: 0.0011,
+  /** Deg/SECOND about ECEF +Z (RENDERING_QUALITY_PASS F5 — was degPerFrame 0.0011, frame-rate
+   *  DEPENDENT: at 120 Hz the globe drifted 2× as fast, at 30 Hz half. 0.066°/s == 0.0011°/frame
+   *  @60fps — byte-identical feel on the 60 Hz baseline, correct pace on any refresh rate. Real
+   *  ISS angular pace (verified feel). Applied via lib/globe/drift.driftRadiansForDt(dtMs). */
+  degPerSec: 0.066,
 } as const;
 
 /** GlobeControls feel (2026-07-10 owner pass: gradual verticality, eased zoom, longer inertia). */
@@ -444,6 +538,12 @@ export const GRATICULE = {
   lift: 1.0015,
   /** Near-hemisphere discard threshold on dot(normal, toCam) — auto-vanishes when inside. */
   nearCutoff: 0.05,
+  /** Opacity fade band (m) — RENDERING_QUALITY_PASS F7: the wire cage used to HARD-toggle
+   *  `visible` at GATES.decorMinAlt (150 km) on the dive to the city (a visible pop). It now
+   *  ramps opacity across [fadeBottomAltM, fadeTopAltM]: full above the top, gone at/below the
+   *  bottom (which stays at decorMinAlt so nothing shows below it). */
+  fadeTopAltM: 250_000,
+  fadeBottomAltM: 150_000,
 } as const;
 
 /** Ray-based limb glow (NOT fresnel — a fresnel rim peaks at the SHELL silhouette, which from LEO
@@ -618,6 +718,37 @@ export const BUILDINGS = {
   /** Hard-crease threshold (deg) for EdgesGeometry strokes. */
   edgeAngleDeg: 30,
   edgeOpacity: 0.4,
+  /** Per-tile screen-door reveal duration (ms) — RENDERING_QUALITY_PASS F1, the #1 street-level
+   *  pop. attachBuildings registers NO TilesFadePlugin (its per-material WeakMap fights the ONE
+   *  shared-material invariant — last-tile-wins + constant global recompiles), so each b3dm used
+   *  to SNAP to full on load-model. Instead each tile stamps a birth time and the SHARED material's
+   *  chained onBeforeCompile screen-door-`discard`s against a bayer threshold over its age — opaque,
+   *  O(1)/draw, one compiled program, reusing the imageryGround dither idiom. ~600 ms reads as an
+   *  intentional stipple assemble (already the site's look), not a pop. */
+  fadeInMs: 600,
+  // --- Pass 2 (Dnipro identity, RENDERING_QUALITY_PASS WS3) — both ride the ONE shared fill
+  //     material via its chained onBeforeCompile: R2 tints the fill by a stable hash of the b3dm
+  //     batch id (`_batchid`/`_feature_id_0`) + a per-tile seed; R3 adds a warm night emissive
+  //     gated by a SECOND decorrelated hash. Free fragment math (no extra pass, no per-tile
+  //     material), so they need no tier knob — they degrade with the existing bloom tiering. ------
+  /** R2 — per-building tonal variation (±fraction on the fill albedo). 0 = the pre-Pass-2 uniform
+   *  slab (the no-op comparator); 0.12 ≈ subtle massing that survives the dark palette. When the
+   *  live tiles carry no readable batch id the id defaults to 0 in-shader → variation degrades to
+   *  PER-TILE tone (still better than one flat material, never an error). */
+  toneVariation: 0.12,
+  /** R3 — warm facade emissive on the NIGHT side (tokens.cityLights). **DEFAULT OFF (0) 2026-07-13**:
+   *  a FLAT per-building emissive fills whole surfaces with a CONSTANT colour — it reads as "buildings
+   *  painted yellow", never as lit windows, no matter where it's gated (roof→wall) or how far it's
+   *  dimmed (owner rejected 0.6 then 0.4). Doing "city alive at night" properly needs a procedural
+   *  WINDOW PATTERN (a lit-window grid up the facades via precision-safe local building coordinates) —
+   *  its own slice. The wall-gating/hash plumbing stays wired so that pattern can drop in; set >0 only
+   *  once the emissive has spatial structure. Peak added emissive = this × nightFactor × lit × wallness. */
+  nightWindowGain: 0,
+  /** R3 — per-building "is it lit" hash gate: buildings below Lo stay dark, above Hi glow fully, so
+   *  roughly the top ~25% of the skyline carries facade light. "Some windows on at night", not a
+   *  uniform light box — restraint is the spec (0.55/0.95 lit ~45%, too many — owner 2026-07-13). */
+  nightWindowLitLo: 0.7,
+  nightWindowLitHi: 0.95,
 } as const;
 
 /** Imagery-ground palette grade (chained onBeforeCompile over each Esri tile material) — pulls the
@@ -793,6 +924,10 @@ export const STREETS = {
   /** Upright-flip hysteresis (dot of text-up vs camera tangent) — labels flip to stay readable
    *  when the camera crosses the street axis, with a dead band so they never flicker. */
   flipHysteresis: 0.08,
+  /** Per-frame opacity lerp toward the target (RENDERING_QUALITY_PASS F3): a selected label fades
+   *  IN from 0 and a de-selected one fades OUT to 0 before it is dropped, instead of snapping on
+   *  the selection cadence (the v2 pop). 0.15 ≈ the terrain-reseat ease → ~0.25 s at 60 Hz. */
+  labelFadeLerp: 0.15,
   /** Selection re-runs at this cadence (frames) OR on a tile-cache change — selection is
    *  bookkeeping only; the quads themselves are glued to the mesh every frame by the GPU. */
   selectEveryFrames: 20,
