@@ -30,6 +30,10 @@ export interface VectorFeaturesHandle {
     /** False hides the layer (FPV, welcome…) without dropping the builds. */
     enabled: boolean;
   }): void;
+  /** Adaptive quality (RENDERING_QUALITY_PASS WS1): the per-frame terrain-lattice raycast budget
+   *  (VECTOR.latticeBudgetPerFrame on `high`; fewer on weaker tiers → less CPU/GC at street level;
+   *  tiles just seat a little slower). */
+  setLatticeBudget(n: number): void;
   dispose(): void;
 }
 
@@ -351,6 +355,7 @@ export function attachVectorFeatures(opts: {
 
   let frame = 0;
   let refreshCursor = 0;
+  let latticeBudgetOverride: number = VECTOR.latticeBudgetPerFrame; // WS1: lowered on weaker tiers
 
   return {
     update({ alt, focusLatDeg, focusLonDeg, sunElevSin, enabled }) {
@@ -378,7 +383,7 @@ export function attachVectorFeatures(opts: {
         }
       }
       // Lattice sampling budget (amortized raycasts against the rendered terrain).
-      let latticeBudget = VECTOR.latticeBudgetPerFrame;
+      let latticeBudget = latticeBudgetOverride;
       // Build budget (geometry builds are a few ms each).
       let buildBudget = VECTOR.buildBudgetPerFrame;
       for (const key of wanted) {
@@ -492,6 +497,9 @@ export function attachVectorFeatures(opts: {
       const dim = nightDimFor(sunElevSin);
       fillMat.opacity = presence * dim * VECTOR.fillOpacity;
       ribbonMat.opacity = presence * dim * VECTOR.lineOpacity;
+    },
+    setLatticeBudget(n) {
+      latticeBudgetOverride = Math.max(1, Math.floor(n));
     },
     dispose() {
       for (const key of [...builds.keys()]) dropBuild(key);

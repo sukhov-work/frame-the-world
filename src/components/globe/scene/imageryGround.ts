@@ -53,6 +53,11 @@ export interface ImageryGroundHandle {
   /** Per-frame: altitude gate + screen-door fade + dark-drape crossfade + shadow-overlay gate
    *  + tile refinement. `darkGround` = camera.groundMode !== 'satellite'. */
   update(alt: number, darkGround: boolean): void;
+  /** Adaptive quality (RENDERING_QUALITY_PASS WS1): raise the NEAR-altitude error target (coarser
+   *  terrain, fewer tiles at street level) + bound this renderer's LRU bytes on weaker tiers.
+   *  `lruCapBytes` is resolved by `lruCapBytesForTier`; `null` restores the captured library default
+   *  (the `high` path — byte-identical). */
+  setQualityTier(errorNear: number, lruCapBytes: number | null): void;
   dispose(): void;
 }
 
@@ -65,6 +70,10 @@ export function attachImageryGround(
   },
 ): ImageryGroundHandle {
   const tiles = new TilesRenderer();
+  // RENDERING_QUALITY_PASS WS1: this renderer's own LRU byte default (restored on `high`) + the
+  // live near-altitude error endpoint (GROUND.errorTargetNear on high; raised on mid/low).
+  const lruDefaultBytes = tiles.lruCache.maxBytesSize;
+  let errorNearOverride: number = GROUND.errorTargetNear;
   tiles.registerPlugin(
     new CesiumIonAuthPlugin({
       apiToken: opts.ionToken,
@@ -354,6 +363,10 @@ export function attachImageryGround(
     darkBlend() {
       return uniforms.uFtwDark.value;
     },
+    setQualityTier(errorNear, lruCapBytes) {
+      errorNearOverride = errorNear; // consumed by the update() error-ramp near endpoint
+      tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
+    },
     update(alt, darkGround) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band
       // so real terrain grows organically out of the stylized base (no switch), then keeps
@@ -367,7 +380,7 @@ export function attachImageryGround(
         THREE.MathUtils.clamp(alt, GROUND.errorNearAlt, GROUND.errorFarAlt),
         GROUND.errorNearAlt,
         GROUND.errorFarAlt,
-        GROUND.errorTargetNear,
+        errorNearOverride, // GROUND.errorTargetNear on `high`; raised on weaker tiers (WS1)
         GROUND.errorTargetFar,
       );
       // Reveal = altitude dissolve × initial-load readiness, low-passed (frame-rate independent)

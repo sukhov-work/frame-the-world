@@ -34,6 +34,9 @@ export interface StreetNamesHandle {
     /** False hides the layer (FPV, welcome…) without dropping the tile cache. */
     enabled: boolean;
   }): void;
+  /** Adaptive quality (RENDERING_QUALITY_PASS WS1): cap the simultaneous label budget on weaker
+   *  tiers (STREETS.maxVisible on `high`; fewer on mid/low → fewer textures + selection work). */
+  setMaxVisible(n: number): void;
   dispose(): void;
 }
 
@@ -72,6 +75,8 @@ interface LabelEntry {
   easeToM: number | null; // re-seat target (eased, never snapped)
   lastSampleFrame: number;
   flipped: boolean;
+  opacity: number; // F3: current eased opacity (starts 0 → fades in)
+  dying: boolean; // F3: de-selected — fade to 0 then drop (revived if re-selected)
 }
 
 const _v = new THREE.Vector3();
@@ -129,6 +134,7 @@ export function attachStreetNames(opts: {
   let frame = 0;
   let lastVersion = -1;
   let reseatCursor = 0;
+  let maxVisibleOverride: number = STREETS.maxVisible; // WS1: lowered on weaker tiers via setMaxVisible
 
   const buildEntry = (feat: StreetLabelFeat): LabelEntry => {
     const { texture, aspect } = makeTexture(feat.name, feat.rank <= 2);
@@ -178,6 +184,8 @@ export function attachStreetNames(opts: {
       easeToM: null,
       lastSampleFrame: -1,
       flipped: false,
+      opacity: 0,
+      dying: false,
     };
     applyMatrix(entry);
     group.add(mesh);
@@ -244,14 +252,18 @@ export function attachStreetNames(opts: {
       if (!clear) continue;
       anchors.push(p);
       accepted.push(c);
-      if (accepted.length >= STREETS.maxVisible) break;
+      if (accepted.length >= maxVisibleOverride) break;
     }
     const keep = new Set(accepted.map((c) => c.name));
-    for (const [name, e] of live) {
-      if (!keep.has(name)) dropEntry(name, e);
+    // F3: don't drop instantly — mark unkept labels dying (they ease to 0 then remove in the
+    // per-frame loop), and REVIVE a dying label that got re-selected before it faded out.
+    for (const [, e] of live) {
+      if (!keep.has(e.feat.name)) e.dying = true;
     }
     for (const c of accepted) {
-      if (!live.has(c.name)) live.set(c.name, buildEntry(c));
+      const e = live.get(c.name);
+      if (e) e.dying = false;
+      else live.set(c.name, buildEntry(c));
     }
   };
 
@@ -301,8 +313,16 @@ export function attachStreetNames(opts: {
           e.flipped = flipped;
           applyMatrix(e);
         }
-        e.material.opacity = presence * (e.feat.rank <= 2 ? 0.92 : 0.7);
+        // F3: ease opacity toward the target (0 while dying) — fade IN new labels, fade OUT
+        // before removal, instead of snapping on the selection cadence.
+        const target = e.dying ? 0 : presence * (e.feat.rank <= 2 ? 0.92 : 0.7);
+        e.opacity += (target - e.opacity) * STREETS.labelFadeLerp;
+        e.material.opacity = e.opacity;
+        if (e.dying && e.opacity < 0.01) dropEntry(e.feat.name, e);
       }
+    },
+    setMaxVisible(n) {
+      maxVisibleOverride = Math.max(1, Math.floor(n));
     },
     dispose() {
       for (const [name, e] of [...live]) dropEntry(name, e);

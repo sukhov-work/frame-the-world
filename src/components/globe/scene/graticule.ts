@@ -10,6 +10,10 @@ import { glf } from "./glsl";
  */
 export interface GraticuleHandle {
   lines: THREE.LineSegments;
+  /** RENDERING_QUALITY_PASS F7: opacity presence 0..1 (× GRATICULE.lineOpacity) — the orchestrator
+   *  ramps it across an altitude band instead of hard-toggling `visible` on the dive to the city.
+   *  Hides the mesh entirely at 0 so a fully-faded cage costs no draw. */
+  setPresence(k: number): void;
   dispose(): void;
 }
 
@@ -54,6 +58,11 @@ export function attachGraticule(
 
   return {
     lines,
+    setPresence(k) {
+      const p = Math.min(1, Math.max(0, k));
+      material.uniforms.uOpacity.value = GRATICULE.lineOpacity * p;
+      lines.visible = p > 0.01; // fully faded → no draw
+    },
     dispose() {
       lines.geometry.dispose();
       material.dispose();

@@ -238,7 +238,20 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: Phase 6 (marketplace-light) — see NEXT_SESSION_PROMPT.md.** (2026-07-12: root README
+**Next step: RENDERING PASS 2 (Dnipro identity) R2+R3 CODE-COMPLETE (2026-07-13) — per-building tonal
+variation (R2) + restrained night window emissive (R3), both on the ONE shared building material's chained
+onBeforeCompile (invariant intact, no new pass/tier knob — free fragment math degrading with the existing
+bloom tiering); astro check 0/0 · vitest 416 (+8 buildingNight) · wix build; runtime shader-COMPILE + look
+BROWSER-UNVERIFIED (owner: local gates only this pass — the whole rendering pass's browser loop is deferred).
+R2's metadata gate RESOLVED: the b3dm batch id survives as `geometry.attributes._batchid`/`_feature_id_0`
+(three GLTFLoader lowercases it, 3d-tiles-renderer never strips) AND the shader sums both + a per-tile seed
+so it's correct either way + degrades to per-tile tone if absent. R4 (S3DB roof reconstruction) = DESIGN-AND-
+DEFER (bespoke L-effort + Overpass bake + z-fight-vs-LOD1-prism blocker). Pass 1 (keystone + tiering +
+fluidity + GTAO-wired-off) is ALSO code-complete + browser-UNVERIFIED. → browser-verify BOTH passes in
+`wix dev` (Pass 2 FIRST: confirm the building shader LINKS over Dnipro — the #1 risk local gates can't catch),
+tune/enable GTAO, THEN Pass 3 (obstruction/astro moat) / decide R4 build. Phase 6 marketplace DEFERRED behind
+the rendering passes. See NEXT_SESSION_PROMPT.md; `mem:project/wip-2026-07-12-rendering-pass2-dnipro-identity`
+(this session) + `wip-2026-07-12-rendering-pass1-tiling-fluidity` + `wip-2026-07-12-rendering-quality-pass`.** (2026-07-12: root README
 rewritten for the internal Wix contest — canonical framing = Wix-headless stress test first, hobby
 3D layer second, AI-agent-built stated openly; 5 shots committed in `docs/media/`; live URL omitted
 until the next release — `mem:project/wip-2026-07-12-readme-rewrite`.) The pre-S7 refactor tier was COMPLETE before S7. B19 DONE 2026-07-11 (`StylizedTiles.update()` split into 36 named step-closures — provably behavior-identical; astro check 0 · 325 vitest · wix build · browser Flow-0 CLEAN · night-shadow golden gate PASS; `mem:project/wip-2026-07-11-b19-split`). Also this session: the high-altitude pin-jump-shift BUGFIX (`mem:bugs/pin-arrival-reframe`). The pre-S7 architecture-review
