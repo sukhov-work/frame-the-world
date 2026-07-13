@@ -126,17 +126,25 @@ export interface TierGovernor {
 
 /**
  * A runtime tier governor seeded at `initial`, never rising above `ceiling` (the detected device
- * class — hardware can't be exceeded). Hysteresis (`downFrames`/`upFrames`) + a `cooldownMs` gap
- * prevent oscillation. On capable hardware the EMA never exceeds `budgetMs`, so it is a no-op and
- * the scene stays at the device tier — this is what keeps a strong machine unchanged.
+ * class — hardware can't be exceeded) nor falling below `floor`. Hysteresis (`downFrames`/`upFrames`)
+ * + a `cooldownMs` gap prevent oscillation. On capable hardware the EMA never exceeds `budgetMs`, so
+ * it is a no-op and the scene stays at the device tier — this is what keeps a strong machine unchanged.
+ *
+ * `floor` exists because a CONFIRMED-strong device (detected `high`) that can't hold the frame budget
+ * at retina DPR should shed DPR/bloom/tile-detail — but NOT collapse to the weakest tier, which drops
+ * bloom AND (historically) shadows and reads as broken on a flagship (owner-confirmed 2026-07-13: an
+ * M3 Pro governed to `low` lost every shadow + bloom). A `high` device floors at `mid`; a `low`/`mid`
+ * device may still bottom out.
  */
 export function makeGovernor(
   initial: QualityTier,
   cfg: GovernorConfig,
   ceiling: QualityTier = initial,
+  floor: QualityTier = "low",
 ): TierGovernor {
   let idx = TIER_ORDER.indexOf(initial);
   const ceilIdx = TIER_ORDER.indexOf(ceiling);
+  const floorIdx = TIER_ORDER.indexOf(floor);
   let ema = 0;
   let over = 0;
   let under = 0;
@@ -163,7 +171,7 @@ export function makeGovernor(
 
       let changed = false;
       if (sinceChangeMs >= cfg.cooldownMs) {
-        if (over >= cfg.downFrames && idx > 0) {
+        if (over >= cfg.downFrames && idx > floorIdx) {
           idx -= 1;
           changed = true;
         } else if (under >= cfg.upFrames && idx < ceilIdx) {

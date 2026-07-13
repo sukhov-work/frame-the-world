@@ -1,6 +1,7 @@
 import Slider from "../ui/Slider";
 import Encoder from "../ui/Encoder";
 import InfoDot from "../ui/InfoDot";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
 import { wrapHeadingDeg } from "../../lib/geo/heading";
 import { useUploadStore } from "../../store/upload";
@@ -27,6 +28,7 @@ import "../../styles/tips.css";
 
 export default function CameraTiltPanel() {
   const s = useCameraStore();
+  const drag = usePanelDrag("camera");
   const uploadPhase = useUploadStore((st) => st.phase);
   const viewMode = useUploadStore((st) => st.viewMode);
   // ANY FPV re-identifies the encoders (photo FPV via upload.viewMode, temp via camera.tempFpv).
@@ -44,7 +46,8 @@ export default function CameraTiltPanel() {
 
   return (
     <>
-    <div className="ct-stack">
+    <div className="ct-stack" style={drag.style}>
+    <DragGrip drag={drag} label="Move the camera deck" tipPos="left" />
     {showMemo && (
       <div className="ct-memo" role="note">
         <span className="ct-memo__glyph" aria-hidden="true">◎</span>
@@ -170,7 +173,7 @@ export default function CameraTiltPanel() {
         onRate={s.setZoomRate}
         tip={
           fpvMode
-            ? "DRAG TO CHANGE EYE HEIGHT — LIFTS YOU STRAIGHT OFF THE PIN."
+            ? "DRAG RIGHT TO RISE, LEFT TO DESCEND — STRAIGHT OFF THE PIN."
             : "DRAG TO GLIDE ALTITUDE — IN CAMERA VIEW IT BECOMES EYE HEIGHT."
         }
         tipPos="left"
@@ -185,6 +188,22 @@ export default function CameraTiltPanel() {
           expoGamma={CONTROLS.rateExpoGamma}
           onRate={s.setFovRate}
           tip="ZOOM THE CAMERA'S FOCAL LENGTH — THE WHEEL DOES THE SAME."
+          tipPos="left"
+        />
+      )}
+      {/* BUILDINGS shading (owner): 0 = see-through wireframe, 100 = fully shaded solid — tunes the
+          FPV building ghost/opacity so you're not always staring at bare wireframes. */}
+      {fpvMode && (
+        <Slider
+          label="BUILDINGS"
+          formatted={`${Math.round(s.fpvBuildingSolidity * 100)}`}
+          value={Math.round(s.fpvBuildingSolidity * 100)}
+          min={0}
+          max={100}
+          step={1}
+          onChange={(v) => s.setFpvBuildingSolidity(v / 100)}
+          onReset={() => s.setFpvBuildingSolidity(0)}
+          tip="BUILDING SHADING — 0 SEE-THROUGH WIREFRAME, 100 FULLY SHADED SOLID."
           tipPos="left"
         />
       )}

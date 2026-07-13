@@ -1,7 +1,9 @@
 /* FPV HUD (Phase 5.5 S6) — left-side bearings/focal instrument card + off-frame sun/moon edge
-   chips, visible only while an FPV mode is active (unmounts on fpvHud null). Instrument idiom:
-   IBM Plex Mono, tabular numerals, restrained glow; all colour via tokens.css vars.
-   Everything is pointer-events:none — the HUD annotates the look, never intercepts it.
+   chips. 2026-07-14 (owner): the card is ALWAYS-ON — every mode shows the viewer's precise
+   ground-point coordinates (copyable); the bearings/focal rows remain FPV-only. Instrument
+   idiom: IBM Plex Mono, tabular numerals, restrained glow; all colour via tokens.css vars.
+   The card is pointer-events:none — the HUD annotates the look, never intercepts it — except
+   the copy row and the drag grip, which re-enable themselves.
    Both roots are top-level islands (index.astro): position:fixed must never sit inside a
    backdrop-filtered card (the S2 containing-block trap). */
 
@@ -23,6 +25,53 @@
   pointer-events: none;
   font-family: var(--font-mono);
   user-select: none;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+
+/* The copyable viewer-position row (owner 2026-07-14) — a real button so it is clickable and
+   keyboard-reachable inside the otherwise pointer-events:none card. */
+.fh-pos {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: copy;
+  pointer-events: auto;
+}
+
+.fh-pos__coords {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: text; /* hand-selectable even when the clipboard API is denied */
+}
+
+.fh-pos__copy {
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  transition: color 180ms ease, border-color 180ms ease;
+}
+
+.fh-pos:hover .fh-pos__copy {
+  color: var(--color-text-secondary);
+  border-color: var(--color-text-muted);
+}
+
+.fh-pos__copy.is-copied {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
 }
 
 .fh-row {
@@ -50,6 +99,17 @@
 .fh-sub {
   color: var(--color-text-muted);
   font-size: 10px;
+}
+
+/* Walk/look hint (owner: arrow-key walking) — a quiet footer under the readouts. */
+.fh-hint {
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px solid var(--color-border);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 /* Sun warm / moon cool — the PhotoPills colour grammar the day-arcs share. */

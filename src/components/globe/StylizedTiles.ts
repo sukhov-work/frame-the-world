@@ -28,9 +28,12 @@ import { attachGraticule } from "./scene/graticule";
 import { attachAtmosphere } from "./scene/atmosphere";
 import { attachStars } from "./scene/stars";
 import { attachBuildings } from "./scene/buildings";
+import { attachEnrichedBuildings } from "./scene/enrichedBuildings";
 import { attachImageryGround } from "./scene/imageryGround";
 import { attachSky } from "./scene/sky";
 import { attachDayArcs } from "./scene/dayArcs";
+import { attachPlanFeed } from "./scene/planFeed";
+import { attachMinimapFeed } from "./scene/minimapFeed";
 import { attachGeoLabels } from "./scene/geoLabels";
 import { attachStreetNames } from "./scene/streetNames";
 import { attachVectorFeatures } from "./scene/vectorFeatures";
@@ -50,6 +53,7 @@ import {
   DRAPE,
   DRIFT,
   EARTH,
+  ENRICHED,
   FLIGHT,
   FPV,
   FRUSTUM,
@@ -58,6 +62,7 @@ import {
   ORCH,
   PINS,
   PLACING,
+  PLAN,
   POSE,
   QUALITY,
   SEARCH,
@@ -160,8 +165,27 @@ export function attachStylizedTiles(opts: {
   const graticule = attachGraticule(scene, { baseScale });
   const atmosphere = attachAtmosphere(scene, { baseScale });
   const stars = attachStars(scene, { dpr: renderer.getPixelRatio() });
-  const buildings = attachBuildings(scene, { camera, renderer, ionToken });
+  // Dnipro 3D enrichment (Slice 0): entirely opt-in via PUBLIC_ENRICHED_TILES_URL. When set, the
+  // global OSM buildings are masked inside ENRICHED.bbox and the self-hosted enriched tileset streams
+  // in their place, seated on the rendered terrain (R1). Absent → maskBbox null + no 3rd renderer =
+  // byte-identical to before (the Overture-trial-flag precedent).
+  const enrichedUrl = import.meta.env.PUBLIC_ENRICHED_TILES_URL as string | undefined;
+  const buildings = attachBuildings(scene, {
+    camera,
+    renderer,
+    ionToken,
+    maskBbox: enrichedUrl ? ENRICHED.bbox : null,
+  });
   const ground = attachImageryGround(scene, { camera, renderer, ionToken });
+  const enriched = enrichedUrl
+    ? attachEnrichedBuildings(scene, {
+        camera,
+        renderer,
+        url: enrichedUrl,
+        bbox: ENRICHED.bbox,
+        terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+      })
+    : null;
   const sky = attachSky(scene);
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
   const geoLabels = attachGeoLabels(scene); // NE labels + boundaries (S7b) — mid-zoom window only
@@ -180,6 +204,18 @@ export function attachStylizedTiles(opts: {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
     tileZ: STREETS.tileZ,
   });
+  // Pass 3 planner feed (WS4 + Dnipro Slice 5): horizon profile from terrain + the streamed
+  // building/tree geometry around the photo/FPV eye, almanac chips, skyline crossings — all
+  // mirrored into store/plan for the PlanPanel. Owns no scene objects.
+  const planFeed = attachPlanFeed({
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    buildingsGroup: buildings.tiles.group,
+    enrichedGroup: enriched?.tiles.group ?? null,
+    maskBbox: enrichedUrl ? ENRICHED.bbox : null,
+  });
+  // FPV mini-map feed (owner 2026-07-14): the SAME shared MVT source, projected to local metres
+  // around the walked viewer and mirrored into store/minimap for the MiniMap panel.
+  const minimapFeed = attachMinimapFeed({ vtiles });
 
   // --- Adaptive quality fan-out (RENDERING_QUALITY_PASS WS1): GlobeCanvas owns the device tier +
   //     governor + the renderer levers (DPR/bloom/shadows); here we push the tier's TILE knobs into
@@ -190,6 +226,7 @@ export function attachStylizedTiles(opts: {
     const q = QUALITY.tiers[tier];
     const lru = lruCapBytesForTier(tier, q.lruBytesMB); // null on high → each renderer's captured default
     buildings.setQualityTier(q.buildingErrorTarget, lru);
+    enriched?.setQualityTier(q.buildingErrorTarget, lru);
     ground.setQualityTier(q.groundErrorNear, lru);
     streetNames.setMaxVisible(q.maxStreetNames);
     vectorFeatures.setLatticeBudget(q.vectorLatticeBudget);
@@ -600,6 +637,11 @@ export function attachStylizedTiles(opts: {
   // Photo-FPV vertical LIFT off the frustum apex (m, S6): the ALTITUDE encoder's photo identity.
   // 0 = the photographer's exact eye (the entry state, and what the photo alignment means).
   let fpvLiftM = 0;
+  // FPV WALK (owner): a ground-plane displacement off the anchor (m), integrated from held arrow
+  // keys — you walk where you look (◀▶ strafe). Reset on FPV entry.
+  let fpvWalkFwd = 0;
+  let fpvWalkRight = 0;
+  const fpvKeysDown = { up: false, down: false, left: false, right: false };
   // Sticky ground height under the photo-FPV anchor (m above ellipsoid) — feeds the eye-height
   // readout + the building solidity curve; heightAt-null/garbage tolerant (S2 discipline).
   let fpvAnchorGroundM = 0;
@@ -637,6 +679,13 @@ export function attachStylizedTiles(opts: {
   // temp-pin FPV → temp pin → a viewed saved pin (deselect). Own unsaved uploads keep their
   // UploadFlow Escape semantics (never discarded from here).
   const onFpvKey = (e: KeyboardEvent) => {
+    if (fpvActive && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Arrow keys WALK on the ground plane (you walk where you look; ◀▶ strafe).
+      if (e.key === "ArrowUp") { fpvKeysDown.up = true; e.preventDefault(); return; }
+      if (e.key === "ArrowDown") { fpvKeysDown.down = true; e.preventDefault(); return; }
+      if (e.key === "ArrowLeft") { fpvKeysDown.left = true; e.preventDefault(); return; }
+      if (e.key === "ArrowRight") { fpvKeysDown.right = true; e.preventDefault(); return; }
+    }
     if (e.key !== "Escape") return;
     const up = useUploadStore.getState();
     const camS = useCameraStore.getState();
@@ -645,6 +694,12 @@ export function attachStylizedTiles(opts: {
     else if (camS.tempFpv) camS.setTempFpv(false);
     else if (camS.tempPin) camS.setTempPin(null);
     else if (up.phase === "placed" && up.viewingPinId) up.clear();
+  };
+  const onFpvKeyUp = (e: KeyboardEvent) => {
+    if (e.key === "ArrowUp") fpvKeysDown.up = false;
+    else if (e.key === "ArrowDown") fpvKeysDown.down = false;
+    else if (e.key === "ArrowLeft") fpvKeysDown.left = false;
+    else if (e.key === "ArrowRight") fpvKeysDown.right = false;
   };
   // Double-click on the ground drops the temporary pin (deselecting a viewed pin first — the
   // gesture means "focus here"). Ignored while placing and while editing an own unsaved upload.
@@ -669,12 +724,15 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("wheel", onFpvWheel, { passive: false });
   dom.addEventListener("dblclick", onDblClick);
   window.addEventListener("keydown", onFpvKey);
+  window.addEventListener("keyup", onFpvKeyUp);
   const _fpvQ = new THREE.Quaternion();
   const _fpvFwd = new THREE.Vector3();
   const _fpvUp = new THREE.Vector3();
   const _fpvRight = new THREE.Vector3();
   const _fpvUpGeo = new THREE.Vector3();
   const _fpvLook = new THREE.Vector3();
+  const _fpvWalkFwd = new THREE.Vector3();
+  const _fpvWalkRight = new THREE.Vector3();
   // FPV HUD scratch (S6): camera-space body directions + the inverse camera rotation.
   const _hudQ = new THREE.Quaternion();
   const _hudDir = new THREE.Vector3();
@@ -763,6 +821,8 @@ export function attachStylizedTiles(opts: {
       camera,
       controls,
       tiles: buildings.tiles,
+      enriched: enriched?.tiles ?? null, // Dnipro 3D enrichment (Slice 0) — null unless the URL is set
+      enrichedSeats: () => enriched?.debugSeats() ?? null, // per-building re-seat coverage (2026-07-14)
       ground: ground.tiles,
       groundUniforms: ground.uniforms,
       earthUniforms: earth.uniforms,
@@ -793,6 +853,7 @@ export function attachStylizedTiles(opts: {
         controlsEnabled: controls.enabled,
       }),
       dayArcs,
+      plan: () => planFeed.debug(),
       tempPin: () => ({
         pin: useCameraStore.getState().tempPin,
         groundM: tempPinGroundM,
@@ -873,6 +934,13 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  const stepEnrichedUpdate = () => {
+        // Dnipro 3D enrichment (Slice 0): stream the enriched tileset + R1 re-seat to the rendered
+        // terrain. No-op when PUBLIC_ENRICHED_TILES_URL is unset (enriched === null).
+        enriched?.update();
+
+  };
+
   const stepFlightUpdate = () => {
         // Cinematic flight overrides the pose after controls (the drift pattern); an active
         // flight counts as interaction so the drift stays paused through it + resumeMs after.
@@ -925,6 +993,7 @@ export function attachStylizedTiles(opts: {
             controls.enabled = true;
             buildings.setGhostSolid(0); // next FPV entry starts on the ghost curve again
             buildings.setGhost(null);
+            enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
             camNow.clearAllTargets(); // targets set during FPV must not fire now
             fovTargetDeg = POSE.fovDeg;
             const geomOut = upNow.phase === "placed" ? frustum.current() : null;
@@ -961,6 +1030,8 @@ export function attachStylizedTiles(opts: {
               fpvActive = true;
               fpvYaw = 0;
               fpvPitch = 0;
+              fpvWalkFwd = 0;
+              fpvWalkRight = 0;
               fpvLiftM = 0; // the photographer's exact eye — ALTITUDE lifts from here
               fpvDragId = null;
               controls.enabled = false;
@@ -1005,6 +1076,8 @@ export function attachStylizedTiles(opts: {
               fpvActive = true;
               fpvYaw = 0;
               fpvPitch = 0;
+              fpvWalkFwd = 0;
+              fpvWalkRight = 0;
               fpvDragId = null;
               controls.enabled = false;
               controls.adjustHeight = false; // eye height 1.7 m is under cameraRadius
@@ -1080,6 +1153,24 @@ export function attachStylizedTiles(opts: {
                 _fpvQ.setFromAxisAngle(_fpvRight, fpvPitch); // +pitch = look up
                 _fpvFwd.applyQuaternion(_fpvQ);
                 _fpvUp.applyQuaternion(_fpvQ);
+              }
+              // FPV WALK (owner): integrate held arrows into a ground-plane displacement, applied
+              // along the HORIZONTAL look direction (fwd projected off geodetic up) + right. The look
+              // is unchanged — lookAt uses position + _fpvFwd, so moving the position keeps the heading.
+              if (fpvKeysDown.up || fpvKeysDown.down || fpvKeysDown.left || fpvKeysDown.right) {
+                const spd = (FPV.walkSpeedMps * dtMs) / 1000;
+                if (fpvKeysDown.up) fpvWalkFwd += spd;
+                if (fpvKeysDown.down) fpvWalkFwd -= spd;
+                if (fpvKeysDown.right) fpvWalkRight += spd;
+                if (fpvKeysDown.left) fpvWalkRight -= spd;
+              }
+              if (fpvWalkFwd !== 0 || fpvWalkRight !== 0) {
+                _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
+                if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
+                _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
+                camera.position
+                  .addScaledVector(_fpvWalkFwd, fpvWalkFwd)
+                  .addScaledVector(_fpvWalkRight, fpvWalkRight);
               }
               camera.up.copy(_fpvUp);
               camera.lookAt(_fpvLook.copy(camera.position).add(_fpvFwd));
@@ -1303,11 +1394,13 @@ export function attachStylizedTiles(opts: {
         appliedZoomRate += (stickZ - appliedZoomRate) * kRate;
         if (Math.abs(appliedZoomRate) > CONTROLS.rateDeadbandLog) {
           if (fpvActive) {
-            // + rate = "zoom in" = descend; strictly vertical elevation. Proportional speed
-            // with a floor base — a pure exponential from a 1.7 m eye barely gets airborne.
+            // FPV ALTITUDE direction (owner 2026-07-14): + rate (drag RIGHT) = ASCEND — the
+            // encoder reads as an altitude gauge, not a zoom. Strictly vertical elevation;
+            // proportional speed with a floor base — a pure exponential from a 1.7 m eye
+            // barely gets airborne. (The orbit ZOOM branch below keeps + = zoom in.)
             if (fpvKind === "temp") {
               fpvEyeM = THREE.MathUtils.clamp(
-                fpvEyeM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvEyeM, FPV.vertEncoderBaseM),
+                fpvEyeM + ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvEyeM, FPV.vertEncoderBaseM),
                 FRUSTUM.eyeHeightM,
                 FPV.tempEyeMaxM,
               );
@@ -1315,7 +1408,7 @@ export function attachStylizedTiles(opts: {
               // Photo FPV (S6): the same vertical elevation as a LIFT off the apex — floor 0
               // is the photographer's exact eye, never below it.
               fpvLiftM = THREE.MathUtils.clamp(
-                fpvLiftM - ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvLiftM, FPV.vertEncoderBaseM),
+                fpvLiftM + ((appliedZoomRate * dtMs) / 1000) * Math.max(fpvLiftM, FPV.vertEncoderBaseM),
                 0,
                 FPV.tempEyeMaxM,
               );
@@ -1450,12 +1543,42 @@ export function attachStylizedTiles(opts: {
             0,
             1,
           );
-          buildings.setGhostSolid(st * st * (3 - 2 * st));
+          // Owner BUILDINGS slider (0 = wireframe, 1 = solid) raises the auto eye-height curve for
+          // the OSM mass, and drives the enriched set's fill opacity + edge fade directly.
+          const sld = useCameraStore.getState().fpvBuildingSolidity;
+          buildings.setGhostSolid(Math.max(st * st * (3 - 2 * st), sld));
+          enriched?.setSolidity(sld);
         }
+  };
+
+  // Viewer ground point (owner 2026-07-14): camera-nadir geodetic + rendered terrain height
+  // there — the always-on copyable coords readout (FpvHud card, every mode). Written at the
+  // pose-mirror cadence in orbit and the faster HUD cadence while FPV walks; deadbanded to
+  // ~0.1 m so the LEO idle drift doesn't churn React renders.
+  let lastCamGeoLat = NaN;
+  let lastCamGeoLon = NaN;
+  let lastCamGeoGround: number | null = null;
+  const mirrorCamGeo = () => {
+    const g = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+    const th = ground.heightAt(g.latDeg, g.lonDeg);
+    const groundAltM = th == null ? null : clampGroundM(th);
+    if (
+      Math.abs(g.latDeg - lastCamGeoLat) < 1e-6 &&
+      Math.abs(g.lonDeg - lastCamGeoLon) < 1e-6 &&
+      (groundAltM == null) === (lastCamGeoGround == null) &&
+      (groundAltM == null || Math.abs(groundAltM - (lastCamGeoGround ?? 0)) < 0.05)
+    ) {
+      return;
+    }
+    lastCamGeoLat = g.latDeg;
+    lastCamGeoLon = g.lonDeg;
+    lastCamGeoGround = groundAltM;
+    useCameraStore.getState()._syncCamGeo({ latDeg: g.latDeg, lonDeg: g.lonDeg, groundAltM });
   };
 
   const stepFpvHudAndSkyMarkers = () => {
         if (frameCount % FPV.hudSyncEveryFrames === 0) {
+          if (fpvActive) mirrorCamGeo(); // fresh coords while walking (orbit rides the pose mirror)
           // Bearings reference: the FPV anchor while standing in a viewpoint, else the
           // camera's own geodetic position (S6 follow-up — direction chips in every mode).
           const anchorGeo = fpvActive
@@ -1567,6 +1690,7 @@ export function attachStylizedTiles(opts: {
           const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
           usePinsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
+          if (!fpvActive) mirrorCamGeo(); // viewer ground point — FPV writes it at HUD cadence
           // URL pose (S7 feedback #2): mirror the SETTLED pose into the hash — the address bar
           // is always a shareable link and a reload lands here, not on the welcome. Skipped
           // while something else owns the camera (welcome/explore/FPV/flight); replaceState
@@ -1629,7 +1753,11 @@ export function attachStylizedTiles(opts: {
           // blended by the live dark fraction so the crossfade never steps the shadows.
           const dark01 = ground.darkBlend();
           if (moonShadows) {
-            sunLight.color.copy(_moonKeyCol);
+            // Moon "golden hour": warm the cool moon key as the moon grazes the horizon (the SAME
+            // golden bell, over MOON elevation) — mirrors the sun's dusk so both keys share one dusk
+            // language across the cycle. GOLDEN.moonKeyStrength 0 → pure cool moonlight (no-op).
+            const moonGoldenK = goldenFactor(moonDirW.dot(_focusUp), GOLDEN);
+            sunLight.color.copy(_moonKeyCol).lerp(_goldenCol, moonGoldenK * GOLDEN.moonKeyStrength);
             sunLight.intensity = SKY.moonKeyIntensity * moonKs;
             sunLight.position.copy(_focus).addScaledVector(moonDirW, SHADOWS.lightDistM);
             sunLight.target.position.copy(_focus);
@@ -1640,7 +1768,9 @@ export function attachStylizedTiles(opts: {
           } else {
             const goldenK = goldenFactor(sunDirW.dot(_focusUp), GOLDEN);
             sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
-            sunLight.intensity = SUN.keyIntensity;
+            // Golden hour also BRIGHTENS the building key (warm rim-lit swell, not just a hue shift —
+            // the biggest visible building-dusk win). keyBrighten 0 → ×1 = byte-identical.
+            sunLight.intensity = SUN.keyIntensity * (1 + goldenK * GOLDEN.keyBrighten);
             if (sunShadows) {
               sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
               sunLight.target.position.copy(_focus);
@@ -1654,11 +1784,31 @@ export function attachStylizedTiles(opts: {
             }
           }
           sunLight.castShadow = sunShadows || moonShadows;
+          // Altitude-adaptive shadow ORTHO bounds (2026-07-13): the fixed ±boundsM patch is tight for
+          // street-level crispness but left an oblique CITY view mostly shadowless (buildings sat
+          // outside a 1.6 km patch). Widen the shadow map with altitude so the visible ground gets
+          // shadows; extend the depth range with it so far-from-focus buildings stay inside the frustum.
+          // Only touched while casting (skips the updateProjectionMatrix cost at orbit / night).
+          if (sunLight.castShadow) {
+            const b = THREE.MathUtils.clamp(alt * SHADOWS.boundsAltK, SHADOWS.boundsM, SHADOWS.maxBoundsM);
+            const shCam = sunLight.shadow.camera;
+            if (shCam.right !== b) {
+              shCam.left = -b;
+              shCam.right = b;
+              shCam.top = b;
+              shCam.bottom = -b;
+              shCam.near = Math.max(1, SHADOWS.lightDistM - SHADOWS.depthMarginM - b);
+              shCam.far = SHADOWS.lightDistM + SHADOWS.depthMarginM + b;
+              shCam.updateProjectionMatrix();
+            }
+          }
         }
         // Pass 2 R3 (Dnipro identity): the night-side building facade emissive tracks the SAME
         // terminator at the view focus (sine of the sun's elevation → night factor) and lights only
-        // walls perpendicular to the focus up (roofs stay dark).
+        // walls perpendicular to the focus up (roofs stay dark). The enriched set mirrors it
+        // (Slice 2 stylization reconcile — one ephemeris sample drives both tilesets).
         buildings.setNight(sunDirW.dot(_focusUp), _focusUp);
+        enriched?.setNight(sunDirW.dot(_focusUp), _focusUp);
   };
 
   const stepSkyBodies = () => {
@@ -1949,6 +2099,46 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  const stepMinimapFeed = () => {
+        // FPV mini-map (owner 2026-07-14): feature payload (rebuilt on tile arrival / a 60 m
+        // walk) + the ~20 Hz viewer pose → store/minimap. Idle outside FPV (mirrors null once).
+        minimapFeed.update({
+          fpvActive,
+          eyeEcef: camera.position,
+          headingDeg: camNow.fpvHud?.headingDeg ?? camStore.headingDeg,
+        });
+  };
+
+  let planSeatEpoch = 0;
+  const stepPlanFeed = () => {
+        // Pass 3 planner feed (WS4 + Slice 5): time-sliced horizon-profile builds + low-cadence
+        // chip/blocked mirrors. Runs LAST: it reads post-update tile matrices (enriched re-seat
+        // moves cells every frame) and the post-resample scene time.
+        // Per-building re-seat consistency (owner 2026-07-14): a READY profile built over
+        // pre-seat geometry is invalidated ONCE per settled seating epoch — after the enriched
+        // writes go quiet (PLAN.reseatQuietFrames) — so the skyline verdict always matches the
+        // rendered buildings without thrashing rebuilds while the easing is still running.
+        if (enriched) {
+          const st = enriched.seatState();
+          if (
+            st.epoch !== planSeatEpoch &&
+            st.quietFrames >= PLAN.reseatQuietFrames &&
+            planFeed.profileSample() !== null
+          ) {
+            planSeatEpoch = st.epoch;
+            planFeed.invalidate();
+          }
+        }
+        planFeed.update({
+          sceneMs: tMs,
+          photoApex: upNow.phase === "placed" ? (frustum.current()?.apex ?? null) : null,
+          fpvEye: fpvActive ? camera.position : null,
+          fpvEyeAboveGroundM,
+          focusLatDeg: camStore.focusLatDeg,
+          focusLonDeg: camStore.focusLonDeg,
+        });
+  };
+
   return {
     update() {
       // ── B19 · per-frame orchestrator: 38 ordered step-closures (each stepX carries its doc) ──
@@ -1960,6 +2150,8 @@ export function attachStylizedTiles(opts: {
       // 28 FrustumResnapAndTick 29 ArrivalReframing 30 PinsUpdate 31 PinHover 32 TempPinMarker
       // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs 37 GeoLabels 38 StreetNames (S7b)
       // 39 VectorFeatures (S7 feedback — roads/water web from the shared MVT source)
+      // 40 MinimapFeed (owner 2026-07-14 — FPV mini-map features + pose from the shared MVT source)
+      // 41 PlanFeed (Pass 3 — sliced horizon-profile builds; LAST: reads post-update matrices)
       //
       // ORDER IS THE CONTRACT — the sequence is load-bearing, not incidental:
       //   (a) ++frameCount lives INSIDE step 28 and splits every cadence gate into pre/post groups —
@@ -1977,6 +2169,7 @@ export function attachStylizedTiles(opts: {
         stepControlsUpdate();
         stepDampedVerticality();
         stepBuildingsUpdate();
+        stepEnrichedUpdate();
         stepFlightUpdate();
         stepExploreJourney();
         stepFpvTransitions();
@@ -2011,6 +2204,8 @@ export function attachStylizedTiles(opts: {
         stepGeoLabels();
         stepStreetNames();
         stepVectorFeatures();
+        stepMinimapFeed();
+        stepPlanFeed();
       } catch (err) {
         updateErrCount++;
         const tErr = performance.now();
@@ -2036,6 +2231,7 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("wheel", onFpvWheel);
       dom.removeEventListener("dblclick", onDblClick);
       window.removeEventListener("keydown", onFpvKey);
+      window.removeEventListener("keyup", onFpvKeyUp);
       tempPinMarker.geometry.dispose();
       tempPinMat.dispose();
       scene.remove(tempPinMarker);
@@ -2049,12 +2245,15 @@ export function attachStylizedTiles(opts: {
       frustum.dispose();
       controls.dispose();
       buildings.dispose();
+      enriched?.dispose();
       ground.dispose();
       sky.dispose();
       dayArcs.dispose();
       geoLabels.dispose();
       streetNames.dispose();
       vectorFeatures.dispose();
+      minimapFeed.dispose();
+      planFeed.dispose();
       vtiles.dispose();
       earth.dispose();
       graticule.dispose();

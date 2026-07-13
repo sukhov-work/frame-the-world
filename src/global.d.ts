@@ -10,7 +10,9 @@
  */
 import type { useCameraStore } from "./store/camera";
 import type { useTimeStore } from "./store/time";
+import type { useMiniMapStore } from "./store/minimap";
 import type { usePinsStore } from "./store/pins";
+import type { usePlanStore } from "./store/plan";
 import type { useSaveStore } from "./store/save";
 import type { useUploadStore } from "./store/upload";
 
@@ -22,7 +24,9 @@ declare global {
     __quality?: unknown;
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;
+    __minimapStore?: typeof useMiniMapStore;
     __pinsStore?: typeof usePinsStore;
+    __planStore?: typeof usePlanStore;
     __saveStore?: typeof useSaveStore;
     __uploadStore?: typeof useUploadStore;
   }

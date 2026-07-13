@@ -18,14 +18,16 @@
 
 // ── Sections (in file order) ─────────────────────────────────────────────────────────────────
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
-//   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · GROUND · DRAPE ·
-//   LABELS · STREETS · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC · ASTERISMS ·
-//   TEMPPIN · SEARCH · ORCH
+//   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · ENRICHED · GROUND · DRAPE ·
+//   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
+//   ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
 // and guaranteed to match three's WGS84_ELLIPSOID, which the OSM building tiles extrude from).
 export { WGS84_A, WGS84_B } from "../../lib/geo/projection";
+// Type-only (erased at build) — keeps the "no runtime deps / no colour" rule while typing ENRICHED.bbox.
+import type { GeoBbox } from "../../lib/globe/enrichedMask";
 
 export type Tuple3 = readonly [number, number, number];
 
@@ -39,8 +41,9 @@ export const SUN = {
   /** DirectionalLight intensity on the building tiles (verified 1.5; 2.2 clipped highlights). */
   keyIntensity: 1.5,
   /** HemisphereLight fill so night-side buildings never go pure black (AmbientLight(water) was ~0).
-   *  (was 0.4; lowered when moonlight landed — the moon now carries part of the night fill). */
-  hemiIntensity: 0.25,
+   *  (0.4 → 0.25 when moonlight landed, but moon terms are phase-gated by moonKs (~0.05 near new
+   *  moon) → dark-of-moon nights lost the fill; 0.25 → 0.32 2026-07-13 to restore it). */
+  hemiIntensity: 0.32,
   /** Distance (m) the directional key light sits from the origin in DIRECTION-ONLY mode (sun up
    *  but no city-scale shadows) — far enough to read as parallel sun rays. */
   keyLightFarM: 1e7,
@@ -84,8 +87,10 @@ export const SKY = {
    *  K&S-1991 phase curve (`lib/ephemeris/moonlight.ts` — quarter ≈ 9% of full, NOT the
    *  linear illuminated fraction), so this number is the full-moon calibration anchor. */
   moonKeyIntensity: 0.3,
-  /** FULL-MOON moonlight term inside the earth/ground shaders (same K&S phase scaling). */
-  moonSceneGlow: 0.35,
+  /** FULL-MOON moonlight term inside the earth/ground shaders (same K&S phase scaling).
+   *  (0.35 → 0.5 2026-07-13 illumination pass — richer stylized full-moon night; albedo-scaled so
+   *  black stays black; watch vs BLOOM.threshold.) */
+  moonSceneGlow: 0.5,
 } as const;
 
 /** Golden-hour grade (Phase 4, ADR D6/D14). The signal is the SINE of the sun's elevation —
@@ -95,25 +100,36 @@ export const SKY = {
  *  smoothsteps over that sine; colour is tokens.goldenHour only (D14). Curve shape is shader-baked
  *  (glf) — retune needs a reload; strengths are baked too (they're look, not animation). */
 export const GOLDEN = {
-  /** Bell fade-in over sin(sun elevation): starts in civil twilight… (sin −8°) */
-  fadeInLo: -0.139,
+  // 2026-07-13 illumination pass: band WIDENED (~5° longer past both sunrise AND sunset — the bell is
+  // a pure function of sin(sun elevation), so it stays perfectly symmetric) + all strengths raised so
+  // golden reads as a slow warm dusk SWEEP + apparent GI, not a thin terminator hue-shift.
+  /** Bell fade-in over sin(sun elevation): starts deeper in twilight now… (sin −12°) */
+  fadeInLo: -0.21,
   /** …fully warm with the sun on the horizon. (sin −1°) */
   fadeInHi: -0.0175,
-  /** Still fully warm at +7° elevation… (sin +7°) */
-  fadeOutLo: 0.122,
-  /** …gone by +16° — the classic "first/last hour" span. (sin +16°) */
-  fadeOutHi: 0.276,
+  /** Still fully warm at +10° elevation… (sin +10°) */
+  fadeOutLo: 0.17,
+  /** …gone by +21° — a longer, lingering golden span. (sin +21°) */
+  fadeOutHi: 0.36,
   /** Multiplier on tokens.goldenHour in the multiplicative cast (>1 compensates the luminance the
-   *  warm multiply removes from G/B). */
-  castGain: 1.15,
-  /** Cast strength on the stylized base earth (orbit view). */
-  earthStrength: 0.7,
-  /** Cast strength on the graded imagery ground (city/mid view — where golden hour is felt). */
-  groundStrength: 0.8,
-  /** Warm mix on the atmosphere limb line where the sun grazes it. */
-  atmStrength: 0.6,
-  /** Building key light: lerp(white → goldenHour) by bell(focus sun elevation) × this. */
-  keyStrength: 0.85,
+   *  warm multiply removes from G/B — this is what turns golden from a colour FILTER into apparent
+   *  glow/GI). (1.15 → 1.3 2026-07-13.) */
+  castGain: 1.3,
+  /** Cast strength on the stylized base earth (orbit view). (0.7 → 0.9.) */
+  earthStrength: 0.9,
+  /** Cast strength on the graded imagery ground (city/mid view — where golden hour is felt). (0.8 → 1.0.) */
+  groundStrength: 1.0,
+  /** Warm mix on the atmosphere limb line where the sun grazes it. (0.6 → 0.8.) */
+  atmStrength: 0.8,
+  /** Building key light: lerp(white → goldenHour) by bell(focus sun elevation) × this. (0.85 → 1.0.) */
+  keyStrength: 1.0,
+  /** Building key light: at golden hour, ALSO brighten the key intensity by bell × this (a warm
+   *  rim-lit swell, not just a hue shift — the biggest visible building-dusk win). 0 = pure hue shift. */
+  keyBrighten: 0.35,
+  /** Moon "golden hour": when the moon is the night key (moon-shadow mode) and grazes the horizon,
+   *  lerp its cool key colour toward goldenHour by bell(moon elevation) × this — a warm swell at
+   *  moonrise/moonset mirroring the sun's dusk. 0 = no moon warming. */
+  moonKeyStrength: 0.4,
 } as const;
 
 /** Time scrubber UI (panels/TimeScrubber). The rail spans a window centred on an anchor instant;
@@ -180,20 +196,37 @@ export const SHADOWS = {
    *  "crisper"; was 2048²/2.5 km ≈ 2.4 m/texel). ~67 MB depth target — desktop-fine; drop to
    *  2048 if a mobile memory pass complains. */
   mapSize: 4096,
-  /** Orthographic half-extent (m) around the view focus (tighter = more texels per metre). */
+  /** Orthographic half-extent (m) around the view focus — the MINIMUM (street level, crisp). The rig
+   *  is ALTITUDE-ADAPTIVE (StylizedTiles.stepKeyLightAndShadow): the shadow map widens with camera
+   *  altitude so an oblique city view's whole visible ground gets shadows, not just a central 1.6 km
+   *  patch (2026-07-13: "not a single cast shadow" from a mid-city zoom was this — buildings sat
+   *  OUTSIDE the fixed patch). Trades texels/metre when wide (a cinematic call). */
   boundsM: 1_600,
+  /** Shadow ortho half-extent grows this many metres per metre of camera altitude, clamped
+   *  [boundsM, maxBoundsM]. ~0.6 → at 4 km alt ≈ 2.4 km half-extent (covers a city view); street
+   *  level clamps to the crisp boundsM. Browser-tune against the visible extent. */
+  boundsAltK: 0.6,
+  /** Cap on the adaptive half-extent (m) — beyond this the shadow map is too coarse to read. */
+  maxBoundsM: 5_000,
   /** Light sits this far (m) from the focus toward the sun. */
   lightDistM: 8_000,
   /** Shadow camera near/far margin (m) around the focus distance. */
   depthMarginM: 3_500,
   /** Depth bias (negative pulls surfaces toward the light — kill acne, keep contact). */
   bias: -2e-4,
-  /** World-space normal offset (m) — the large-coordinate acne killer. */
-  normalBias: 1.0,
-  /** PCF blur radius (texels) — soft penumbra edge (3 → 2: crisper contact, still not aliased). */
+  /** World-space normal offset (m) — the large-coordinate acne killer. (1.0 → 0.75 2026-07-13: a big
+   *  offset PETER-PANS building shadows off their bases → they read "floating"; 0.75 m still covers the
+   *  ~0.5 m float32@6.4e6 acne while anchoring the shadow to the wall base. Browser-revert to 1.0 if
+   *  acne returns — it's the one shadow value with an acne/contact tradeoff.) */
+  normalBias: 0.75,
+  /** PCF blur radius (texels) — soft penumbra edge (3 → 2 verified 2026-07-10: crisp contact, natural
+   *  soft edge; NOT stair-stepped). */
   radius: 2,
-  /** Sun must be at least this high over the focus (dot with up ≈ sin(elev)) — ~2°. */
-  minSunElevSin: 0.03,
+  /** Sun must be at least this high over the focus (dot with up ≈ sin(elev)) to cast — MUST stay > 0
+   *  (a below-horizon sun projects garbage). 0.03 (~1.7°) → 0.008 (~0.46°) 2026-07-13: shadows now
+   *  persist through the GOLDEN/dusk hour (long raking shadows are the whole point at that time),
+   *  down to nearly the horizon, instead of cutting off ~1.7° up. */
+  minSunElevSin: 0.008,
   /** Ground shadow overlay darkness (ShadowMaterial opacity — invisible where unshadowed).
    *  The graded ground is dark: below ~0.5 the darkening is imperceptible (verified with a
    *  red-mask debug pass 2026-07-10 — the mask itself was always correct; re-verified for the
@@ -203,12 +236,12 @@ export const SHADOWS = {
   // --- Moon shadows (Phase 5.5 S5, §Item 7): ONE rig, source switch — when the sun is below
   //     minSunElevSin and a bright-enough moon is up, the same shadow light is driven from the
   //     moon direction (impersonating the moon key: tokens.moonlight colour, K&S intensity). ---
-  /** Moon shadows engage at/above this illuminated fraction (≈ gibbous 0.85 → K&S ~33% of
-   *  full-moon light — the shadow fades in from ~1/3 strength, never pops). */
-  moonMinIllum: 0.85,
-  /** Ground shadow opacity under a FULL moon (× the K&S phase intensity per frame) — softer
-   *  than the sun's 0.75: moonlight shadows read as presence, not contrast. */
-  moonGroundOpacity: 0.55,
+  /** Moon shadows engage at/above this illuminated fraction (0.85 → 0.6 2026-07-13: moon shadows now
+   *  appear across far more of the lunar month; the ×moonKs in the rig fades them in smoothly). */
+  moonMinIllum: 0.6,
+  /** Ground shadow opacity under a FULL moon (× the K&S phase intensity per frame) — kept BELOW the
+   *  sun's 0.80 so moonlit shadows read as presence, not contrast. (0.55 → 0.62 2026-07-13.) */
+  moonGroundOpacity: 0.62,
 } as const;
 
 /** Renderer-level knobs (GlobeCanvas). */
@@ -235,10 +268,10 @@ export const QUALITY = {
    *  On strong hardware the EMA never crosses budgetMs, so the governor is a no-op and the tier
    *  stays at the device class. Budgets in ms of frame time (22 ≈ 45 fps, 13 ≈ 77 fps). */
   governor: {
-    budgetMs: 22,
+    budgetMs: 35,
     restoreMs: 13,
     emaAlpha: 0.1, // ~10-frame smoothing
-    downFrames: 45, // ~0.75 s of sustained slowness before dropping a tier
+    downFrames: 100, // ~0.75 s of sustained slowness before dropping a tier
     upFrames: 240, // ~4 s of headroom before restoring (deliberately reluctant)
     cooldownMs: 2500, // min gap between changes — a DPR change reallocates render targets
   },
@@ -488,8 +521,9 @@ export const EARTH = {
   polygonOffset: 1,
   // --- uniform defaults (runtime-tunable via __globe.earthUniforms in DEV) --------------------
   /** Dark-side floor — just enough to navigate; city lights + moonlight carry the rest.
-   *  (0.32 → 0.22 2026-07-10 "night side more pronounced"; → 0.19 S5 darker-night pass). */
-  nightFloor: 0.19,
+   *  (0.32 → 0.22 2026-07-10; → 0.19 S5; → 0.23 2026-07-13 — lift dark-of-moon orbit nights without
+   *  washing the terminator/VIIRS). */
+  nightFloor: 0.23,
   /** Normal-map strength: 0 = flat, 1 = full 3D relief. */
   relief: 0.75,
   /** 0 = pure palette duotone, 1 = pure (graded) NASA colour (verified 0.58 — geology reads,
@@ -610,7 +644,7 @@ export const ATMOSPHERE = {
    *  horizon total ran ~1.2 — past BLOOM.threshold, so bloom spread the near-white band across
    *  the frame at strong tilt ("white mess"). The whole horizon budget now stays UNDER the bloom
    *  threshold — see the unit-tested horizon-budget guard (test/…/skyBudget.test.ts). */
-  skyHorizonGain: 0.16,
+  skyHorizonGain: 0.2,
   /** Zenith ramp's horizon anchor: 0 = pure skyDay (blue) at the horizon, 1 = pure skyHorizon
    *  (near-white). Sub-1 keeps the horizon tinted, not white — the S7 white-out fix. */
   skyHorizonWhiteness: 0.55,
@@ -629,8 +663,10 @@ export const ATMOSPHERE = {
   /** Day factor ramp over sin(sun elevation): night → full day across this band. */
   skyDawnLo: -0.12,
   skyDawnHi: 0.12,
-  /** How strongly the golden band warms the horizon haze at dawn/dusk. */
-  skyGoldStrength: 0.55,
+  /** How strongly the golden band warms the horizon haze at dawn/dusk. (0.55 → 0.72 2026-07-13:
+   *  recovers the dusk-sky glow — it lost >half its budget when skyHorizonGain was cut 0.35→0.16 for
+   *  the bloom white-out fix; NOT in the skyBudget guard, which checks the no-golden daytime horizon.) */
+  skyGoldStrength: 0.72,
   /** Zenith→horizon mix exponent over sin(view elevation) (lower = more zenith colour). */
   skyZenithPow: 0.55,
 } as const;
@@ -736,19 +772,104 @@ export const BUILDINGS = {
    *  live tiles carry no readable batch id the id defaults to 0 in-shader → variation degrades to
    *  PER-TILE tone (still better than one flat material, never an error). */
   toneVariation: 0.12,
-  /** R3 — warm facade emissive on the NIGHT side (tokens.cityLights). **DEFAULT OFF (0) 2026-07-13**:
-   *  a FLAT per-building emissive fills whole surfaces with a CONSTANT colour — it reads as "buildings
-   *  painted yellow", never as lit windows, no matter where it's gated (roof→wall) or how far it's
-   *  dimmed (owner rejected 0.6 then 0.4). Doing "city alive at night" properly needs a procedural
-   *  WINDOW PATTERN (a lit-window grid up the facades via precision-safe local building coordinates) —
-   *  its own slice. The wall-gating/hash plumbing stays wired so that pattern can drop in; set >0 only
-   *  once the emissive has spatial structure. Peak added emissive = this × nightFactor × lit × wallness. */
+  /** R3 — night-facade emissive (tokens.cityLights). **DEFAULT OFF (0).** A flat per-wall glow reads
+   *  as "painted yellow" (owner rejected 0.6 then 0.4) and a procedural window GRID read "junky"
+   *  (owner 2026-07-13 — removed). Buildings carry NO night emissive by design: their identity is the
+   *  dark mass + lit edges + cast/received SHADOWS + the golden/moon key light. The wall-gate/hash
+   *  plumbing stays wired (gain 0 = no-op) so a future look could reuse it; keep at 0. */
   nightWindowGain: 0,
-  /** R3 — per-building "is it lit" hash gate: buildings below Lo stay dark, above Hi glow fully, so
-   *  roughly the top ~25% of the skyline carries facade light. "Some windows on at night", not a
-   *  uniform light box — restraint is the spec (0.55/0.95 lit ~45%, too many — owner 2026-07-13). */
+  /** R3 wall-gate hash thresholds (unused while gain 0; kept so the plumbing compiles). */
   nightWindowLitLo: 0.7,
   nightWindowLitHi: 0.95,
+} as const;
+
+/** Dnipro 3D enrichment (Slice 0 de-risk spike) — a SECOND buildings tileset (self-hosted 3D Tiles),
+ *  masking Cesium OSM Buildings inside `bbox` and streamed in their place. ENTIRELY DEFAULT-OFF: the
+ *  orchestrator attaches nothing unless `import.meta.env.PUBLIC_ENRICHED_TILES_URL` is set, so with no
+ *  URL the globe is byte-identical to before. Plan: `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md`
+ *  + `DNIPRO_SLICE0_SPIKE.md`; module: scene/enrichedBuildings.ts; mask: scene/buildings.ts. */
+export const ENRICHED = {
+  /** Enrichment/mask bbox (deg, west/south/east/north). This is BOTH the OSM-buildings mask extent
+   *  AND the enriched-tileset extent — they MUST match (the enriched bake REPLACES OSM here; a mismatch
+   *  overlaps or gaps them). FULL-city Dnipro ~7.4×8.9 km (Slice 2) — matches
+   *  scripts/bake/cities/dnipro.json `bbox`. (Regen with `npm run bake -- --city dnipro`; prior
+   *  extents: greater-centre {35.005,48.435,35.085,48.492}, Slice-0 sample {35.038,48.457,35.053,48.467}.) */
+  bbox: { west: 35.0, south: 48.42, east: 35.1, north: 48.5 } satisfies GeoBbox,
+  /** R1 SEATING STRATEGY (research-verified 2026-07-13): Cesium World Terrain renders WGS84-ELLIPSOIDAL
+   *  heights; open DEMs (GLO-30 = EGM2008 orthometric, N≈+20.42 m over Dnipro) do NOT. So we DON'T trust
+   *  baked absolute Z — we clamp the tileset to the RENDERED CWT at runtime: sample terrainHeightAt at
+   *  the bbox centre and lift the whole group by that (matches how Cesium OSM Buildings seat, and kills
+   *  both the ~20 m datum error AND the inter-DEM residual). The sample tileset is baked at ellipsoid
+   *  h=0 precisely so this re-seat is what puts it on the ground. Set false only for a tileset already
+   *  baked to CWT-consistent ellipsoidal Z (then only seatOffsetM applies). */
+  reseatToTerrain: true,
+  /** PER-CELL re-seat (Slice 2, owner #4 "buildings sit at water level"): the single bbox-centre
+   *  lift seats a 6 km bake on ONE flat plane — the riverbank drop isn't followed. Each grid cell
+   *  is a separate leaf tile, so on top of the group lift every loaded cell is offset along its
+   *  own geodetic up by (terrainHeightAt(cell centre) − centre seat). Requires `reseatToTerrain`
+   *  (meaningless for an absolute-Z bake). Cells keep the plain centre seat until their first
+   *  terrain sample lands (sticky thereafter — same null/garbage discipline as the group seat). */
+  reseatPerCell: true,
+  /** Terrain samples (down-ray raycasts) per frame, round-robin across the LOADED cells — bounds
+   *  the per-frame raycast cost (46 cells sweep in ~8 frames at 6). */
+  reseatSamplesPerFrame: 6,
+  /** Per-frame exponential ease toward a cell's refreshed seat delta (first sample SNAPS — the
+   *  cell is still streaming in). 0.12 ≈ settles ~0.5 s at 60 Hz; keeps terrain-LOD refinements
+   *  from popping buildings mid-view. */
+  reseatEaseK: 0.12,
+  /** PER-BUILDING re-seat (owner 2026-07-14: "buildings sunk/levitating"): the per-cell plane
+   *  still leaves within-cell relief error (±10 m on steep ~0.9 km cells) — so each building
+   *  (one contiguous `_feature_id_0` vertex run) and each tree instance ADDITIONALLY lifts by
+   *  (terrain@its-own-footprint − cell seat), written INTO the position attribute / instance
+   *  matrix on the CPU so the occlusion sweeps, shadows and picks stay consistent. Requires
+   *  `reseatPerCell`. */
+  reseatPerFeature: true,
+  /** Terrain samples (down-ray raycasts) per frame for BUILDING footprints, spent nearest-cell
+   *  first (the cells you stand in seat within ~1 s; the horizon catches up over ~20 s). */
+  reseatFeatureSamplesPerFrame: 16,
+  /** Terrain samples per frame for TREE instances (cheaper visually — trees tolerate a coarser
+   *  sweep; same nearest-cell priority). */
+  reseatTreeSamplesPerFrame: 10,
+  /** Re-sort the per-feature sampling priority (cells by camera distance) every N frames. */
+  reseatPriorityEveryFrames: 30,
+  /** Plausibility bound (m) on a footprint sample vs its CELL seat — within-cell relief is
+   *  ±~20 m at grid 10, so a bigger deviation is a coarse-LOD/streaming garbage raycast
+   *  (browser-caught: a −134 m first sample snapped a building underground for seconds).
+   *  Rejected samples keep the sticky last-good / the cell plane. */
+  reseatFeatureMaxDeltaM: 45,
+  /** One-time bounding-volume pad (m) on cell fill/edge geometry so raycast picks and the
+   *  planner's trust-radius cull stay valid after per-feature verts shift by up to ~±15 m. */
+  reseatBoundsPadM: 40,
+  /** Manual vertical nudge (m, along the bbox-centre geodetic up) ON TOP of the terrain re-seat —
+   *  the browser tuning knob for any residual float/sink. 0 until browser-verified over Dnipro. */
+  seatOffsetM: 0,
+  /** Screen-space error target (px) for the enriched renderer (library default 16). Lower = sharper. */
+  errorTarget: 16,
+  /** Hard-crease threshold (deg) for the enriched building edge strokes (mirrors BUILDINGS.edgeAngleDeg). */
+  edgeAngleDeg: 30,
+  edgeOpacity: 0.5,
+  /** Visual A/B seam: tint the enriched edges to the ACCENT token so they're obviously
+   *  distinguishable from the dark OSM mass during browser verification (confirms the mask + the new
+   *  set at a glance). OFF since Slice 2 — the enriched set renders the SHARED building look
+   *  (scene/buildingMaterial.ts: R2 tone via `_feature_id_0`, F1 reveal, landHi edges); flip back
+   *  to true only to re-verify the mask/bake boundary. */
+  debugDistinctEdges: false,
+} as const;
+
+/** Slice 3 — instanced trees riding the enriched tileset (baked as EXT_mesh_gpu_instancing nodes in
+ *  the per-cell glbs → three's GLTFLoader builds ONE InstancedMesh per cell; streaming, LRU and the
+ *  per-cell terrain re-seat are inherited from ENRICHED). Canopy colour = `tokens.vecGreen` (the
+ *  vector-web vegetation family); the material lives in scene/enrichedBuildings.ts. */
+export const TREES = {
+  /** Trees cast sun/moon shadows (one extra instanced draw into the shadow map per loaded cell).
+   *  Canopy shadows carry the golden-hour look; flip off if a weak tier ever chokes on the pass. */
+  castShadow: true,
+  /** Night albedo dim: at full night the canopy renders at (1 − nightDim) of its day colour —
+   *  mirrors the vector web's night dimming so vegetation never glows against the dark ground. */
+  nightDim: 0.55,
+  /** FPV BUILDINGS-slider floor for trees: at slider 0 (see-through wireframe buildings) trees drop
+   *  to this opacity so they stop occluding the framed subject; at 1 they are solid again. */
+  fpvMinOpacity: 0.15,
 } as const;
 
 /** Imagery-ground palette grade (chained onBeforeCompile over each Esri tile material) — pulls the
@@ -756,12 +877,14 @@ export const BUILDINGS = {
  *  terminator is continuous across LODs. Runtime-tunable via __globe.groundUniforms in DEV. */
 export const GROUND = {
   /** Dark-side floor — slightly above the base's: close-zoom ground must stay navigable.
-   *  (0.45 → 0.38 2026-07-10 "night side more pronounced"; → 0.35 S5 darker-night pass). */
-  nightFloor: 0.35,
+   *  (0.45 → 0.38 2026-07-10; → 0.35 S5; → 0.40 2026-07-13 illumination pass — lifts the night-ground
+   *  ceiling so moon terms can actually raise it; watch VIIRS city lights don't wash out). */
+  nightFloor: 0.4,
   /** Pull satellite chroma toward the instrument (0 = untouched, 1 = grayscale). */
   desat: 0.52,
-  /** Sit the imagery in the dark scene's tonal range. */
-  gain: 0.56,
+  /** Sit the imagery in the dark scene's tonal range. (0.56 → 0.60 2026-07-13: a brighter satellite
+   *  grade so shadow + golden multiplies read as a larger delta — the SAT-mode twin of DRAPE.gain.) */
+  gain: 0.6,
   /** Cool slate cast, per-channel multiplier (palette direction). */
   cast: [0.92, 0.99, 1.06] as Tuple3,
   /** Water detection: smoothstep(0, this, blue − max(red, green)) — blue-dominant = water. */
@@ -778,10 +901,12 @@ export const GROUND = {
    *  ambientNightK × tokens.moonlight plus the moon fill below. Scaled down by uFtwHiAlt so the
    *  orbital fade band stays tonally continuous with the self-lit base. */
   ambientDayK: 0.1,
-  ambientNightK: 0.012,
+  /** (0.012 → 0.02 2026-07-13: the moon terms are phase-gated, so dark-of-moon nights leaned on this
+   *  flat floor — raise it so a new-moon night isn't pitch black, without washing the terminator.) */
+  ambientNightK: 0.02,
   /** Moon fill that does NOT multiply by albedo (the old moonlit term is graded×moon — black
    *  stays black): fill = moonFillK × moonGlow × max(moonDir·up, 0) on the night side. */
-  moonFillK: 0.5,
+  moonFillK: 0.7,
   /** Screen-door bayer offset (px) vs TilesFadePlugin's grid so the two dithers don't collide. */
   bayerOffsetPx: 2.0,
   /** Imagery sits behind building footprints (bases win ties). */
@@ -833,8 +958,10 @@ export const DRAPE = {
   easeTauMs: 350,
   /** Albedo lift on the CARTO raster (screen-designed dark → the instrument's tonal range;
    *  >1 also gives the shadow overlay contrast headroom — the twice-learned lesson: CONTRAST,
-   *  not map size, is the dark-palette shadow ceiling). */
-  gain: 1.3,
+   *  not map size, is the dark-palette shadow ceiling). (1.3 → 1.6 2026-07-13 illumination pass: a
+   *  brighter default day-ground so the shadow multiply AND the golden multiply read as a larger
+   *  delta — the "brighter day-ground grade" the crisp-shadow ask needs. Watch it doesn't bloom.) */
+  gain: 1.6,
   /** Faint cool cast (per-channel multiplier) so the drape sits in the palette family. */
   cast: [0.97, 1.0, 1.05] as Tuple3,
   /** FLAT day-side shade — uniform look, no slope grade (terrain relief stays geometry-only). */
@@ -842,12 +969,15 @@ export const DRAPE = {
   /** Night floor on the drape (brighter than GROUND.nightFloor — the raster is already dark).
    *  0.45 → 0.52 S7 feedback ("uniform illumination" — night ground was reading pitch black). */
   nightFloor: 0.52,
-  /** Dedicated ground-shadow opacity in dark mode (sun); blended vs SHADOWS.groundOpacity by
-   *  the dark fraction. 0.9 → 0.62 S7 feedback: near-black 0.9 footprints were a big part of
-   *  the "jarringly black ground" read — shadows now shade instead of erasing. */
-  shadowOpacity: 0.62,
-  /** …and under a full moon (× the K&S phase intensity, vs SHADOWS.moonGroundOpacity). */
-  moonShadowOpacity: 0.5,
+  /** Dedicated ground-shadow opacity in dark mode (sun); blended vs SHADOWS.groundOpacity by the
+   *  dark fraction — THIS is the value the DEFAULT dark-drape city view settles toward, so it is what
+   *  "crisp shadows" actually depends on. 0.9 → 0.62 (S7 "jarringly black ground") → 0.80 2026-07-13:
+   *  restore shadow presence now that the brighter DRAPE.gain + additive ambient floors keep the
+   *  UNSHADOWED ground from reading black (crisper WITHOUT the old black-pit). */
+  shadowOpacity: 0.8,
+  /** …and under a full moon (× the K&S phase intensity, vs SHADOWS.moonGroundOpacity). Kept below the
+   *  sun's 0.80 so night reads as presence, not contrast. (0.5 → 0.62 2026-07-13.) */
+  moonShadowOpacity: 0.62,
 } as const;
 
 /** Geo labels + boundaries (Phase 5.5 S7b, §Item 2b). Natural Earth 50m public-domain data baked
@@ -1002,6 +1132,26 @@ export const VECTOR = {
   latticeBudgetPerFrame: 8,
   /** Tile geometry builds per frame (a build is a few ms — never burst the frame budget). */
   buildBudgetPerFrame: 1,
+} as const;
+
+/** FPV mini-map (owner 2026-07-14): a small square 2D vector patch — roads/water/green/building
+ *  footprints from the SAME shared MVT source as the street web — always centred on the walked
+ *  viewer, shown ONLY in FPV. The globe-side feed (scene/minimapFeed.ts) projects features into
+ *  local metres around a slow-moving origin and mirrors them into store/minimap; the panel
+ *  (panels/MiniMap.tsx) just draws a canvas. */
+export const MINIMAP = {
+  /** Ground patch the map shows, edge to edge (m) — THE owner tunable ("maybe 200×200 m"). */
+  patchM: 200,
+  /** MVT fetch ring around the viewer (1 → 3×3 z14 tiles — the same tiles the street web uses,
+   *  so entering FPV usually costs zero new network). */
+  ring: 1,
+  /** Rebuild the feature payload when the viewer walks this far from the last build origin (m).
+   *  Features carry ~1.5× patchM margin, so the map never shows a hole before the rebuild. */
+  rebuildDistM: 60,
+  /** Clip half-width of the feature payload around the origin (× patchM) — the walk margin. */
+  clipK: 1.6,
+  /** Pose mirror cadence (frames) — rides the FPV HUD cadence class (~20 Hz at 60 fps). */
+  poseEveryFrames: 3,
 } as const;
 
 /** Placed-photo frustum + image plane (Phase 3, ADR D5 v1: textured plane at the far face).
@@ -1258,8 +1408,9 @@ export const FPV = {
   /** Look-around sensitivity (deg per px) at the DEFAULT scene FOV — scaled down as the FOV
    *  narrows so a zoomed-in look stays controllable. */
   lookDegPerPx: 0.12,
-  /** Camera-FOV zoom range (deg, vertical). Entry FOV = the photo's own vertical FOV. */
-  minFovDeg: 8,
+  /** Camera-FOV zoom range (deg, vertical). Entry FOV = the photo's own vertical FOV. minFovDeg is
+   *  the max ZOOM-IN: 2.75° ≈ a 500 mm full-frame lens (focalFromVerticalFov(2.75) = 12/tan(1.375°) ≈ 500). */
+  minFovDeg: 2.75,
   maxFovDeg: 80,
   /** Wheel deltaY → FOV multiplier exponent: fov ×= exp(deltaY · this). */
   wheelFovFactor: 0.0012,
@@ -1312,6 +1463,9 @@ export const FPV = {
   vertEncoderBaseM: 8,
   /** Temp-pin FPV entry looks at a point this far (m) ahead along the horizontal facing. */
   tempLookAheadM: 50,
+  /** FPV WALK (owner): ground-plane speed (m/s) while an arrow key is held — you walk where you
+   *  look (◀▶ strafe). Accumulates a displacement off the anchor; resets on FPV entry. */
+  walkSpeedMps: 22,
 } as const;
 
 /** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's
@@ -1394,6 +1548,48 @@ export const SEARCH = {
   altMaxM: 1_200_000,
   /** Arrival altitude when the result has no extent (addresses, small POIs). */
   altDefaultM: 4_000,
+} as const;
+
+/** Pass 3 — astro/obstruction planner (RENDERING_QUALITY_PASS WS4 + Dnipro Slice 5). The horizon
+ *  profile is built ONCE per anchor (photo apex / FPV eye) from terrain + streamed buildings +
+ *  instanced trees, then every "is the sun/moon blocked" question is an O(1) lookup — the build
+ *  is time-sliced so no frame pays for the whole sweep. */
+export const PLAN = {
+  /** Azimuth bins in the horizon profile (3° at 120 — a building subtending less than a bin at
+   *  the trust edge is ~150 m wide, comfortably sub-skyline). */
+  azBins: 120,
+  /** Terrain march: first/last sample distance (m) and geometric step growth per sample. */
+  terrainMinM: 60,
+  terrainMaxM: 30_000,
+  terrainGrowth: 1.35,
+  /** Geometry trust radius (m) — the WS4 streamed-LOD caveat: beyond this, buildings/trees may
+   *  simply not be loaded, so the profile only claims terrain knowledge there. 2–4 km per plan. */
+  trustRadiusM: 3_000,
+  /** Standard terrestrial refraction coefficient k (surveyor's 0.13) — folds into the curvature
+   *  drop (1−k)/2R and the ECEF sweep lift k/2R. */
+  refractionK: 0.13,
+  /** Build slicing: terrain bins marched per frame · meshes edge-swept per frame. Both bound the
+   *  per-frame cost of a profile build (~1–4 ms each on M3); raise to build faster. */
+  terrainBinsPerFrame: 3,
+  meshesPerFrame: 2,
+  /** FPV eye drift (m) that invalidates the cached profile (arrow-key walking rebuilds). */
+  rebuildDistM: 25,
+  /** Default eye height above ground (m) when the anchor has no better answer (focus chips). */
+  eyeHeightM: 2,
+  /** Skyline crossing scan: how far ahead (days) and the coarse step (min) — crossings shorter
+   *  than the step can be skipped (bisection refines to ±0.5 s after bracketing). */
+  scanHorizonDays: 1.2,
+  scanStepMin: 12,
+  /** Re-scan throttles: scene-time drift that staleness the crossings (ms) · min REAL time
+   *  between scans (ms) — a scrubber drag re-scans ~1×/s, not per pointermove. */
+  scanStaleMs: 5 * 60_000,
+  scanThrottleMs: 900,
+  /** Store mirror cadence (frames) for the cheap per-instant blocked flags. */
+  mirrorEveryFrames: 12,
+  /** Per-building re-seat → profile consistency: after the enriched seating writes go QUIET for
+   *  this many frames (settled, no easing), a ready profile built over the old geometry is
+   *  invalidated ONCE and rebuilt — the skyline verdict must match what's rendered. */
+  reseatQuietFrames: 90,
 } as const;
 
 /** Orchestrator per-frame loop constants (StylizedTiles.update) — cadences, mirror deadbands and

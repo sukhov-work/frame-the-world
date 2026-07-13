@@ -7,9 +7,10 @@
 }
 
 /* The stack owns the fixed chrome slot (Phase 5.5 S3): dblclick memo above, controls card
-   below. Deliberately NO backdrop-filter/transform on the wrapper — those create a CSS
-   containing block, and position:fixed descendants (the pin popup bug) must keep the
-   viewport as their anchor. */
+   below. Deliberately NO backdrop-filter on the wrapper — it creates a CSS containing block,
+   and position:fixed descendants (the pin popup bug) must keep the viewport as their anchor.
+   The drag translate (owner 2026-07-14, DragGrip) is safe ONLY because the pin popup renders
+   as a SIBLING of this stack (TempPinPopup) — never move it back inside. */
 .ct-stack {
   position: fixed;
   right: 1.6rem;
@@ -19,6 +20,7 @@
   flex-direction: column;
   align-items: stretch;
   gap: 0.5rem;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
 }
 
 .ct {

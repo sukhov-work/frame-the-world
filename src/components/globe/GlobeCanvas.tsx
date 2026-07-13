@@ -74,7 +74,12 @@ export default function GlobeCanvas() {
     // hardware, or a capable machine whose GPU string is privacy-blocked) may climb to `high` when
     // it sustains the headroom — this is what keeps a hidden-string M3 Pro from being stuck at mid.
     const ceiling: QualityTier = deviceTier === "low" ? "low" : "high";
-    const governor = makeGovernor(deviceTier, QUALITY.governor, ceiling);
+    // Floor: a CONFIRMED-strong device (detected `high`) never collapses to `low` — it sheds DPR/bloom/
+    // tiles down to `mid` for frame rate but keeps the core look (bloom + shadows). An M3 Pro governed
+    // to `low` at retina DPR was reading as broken (owner-confirmed: no shadows, no bloom). Unknown/weak
+    // devices (mid/low detection) may still bottom out.
+    const floor: QualityTier = deviceTier === "high" ? "mid" : "low";
+    const governor = makeGovernor(deviceTier, QUALITY.governor, ceiling, floor);
     renderer.setPixelRatio(
       Math.min(window.devicePixelRatio, QUALITY.tiers[deviceTier].dprCap),
     );
@@ -310,12 +315,14 @@ export default function GlobeCanvas() {
       composer.setPixelRatio(dpr);
       composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
       bloomPass.enabled = s.bloom;
-      renderer.shadowMap.enabled = s.shadowsEnabled;
-      if (s.shadowsEnabled && sun.shadow.mapSize.width !== s.shadowMapSize) {
-        sun.shadow.mapSize.set(s.shadowMapSize, s.shadowMapSize);
-        sun.shadow.map?.dispose();
-        sun.shadow.map = null; // force three to rebuild the depth target at the new size
-      }
+      // Shadows follow the DEVICE tier (capability), NOT the runtime governor. Shadows are a core
+      // aesthetic, not a frame-rate-degradable lever like DPR/bloom/tile-detail — so the governor must
+      // NOT switch them off. BUG (owner-confirmed 2026-07-13): the frame governor throttled an M3 Pro all
+      // the way to `low`, and `low.shadowsEnabled=false` killed the entire shadow pass (tier 'low' →
+      // renderer.shadowMap.enabled false → hasShadowMap false → not a single cast shadow at any time/zoom,
+      // even though sun.castShadow was true and 14/14 buildings + 32 ground twins were set up). Enable +
+      // size are set once from `deviceTier` (line ~90 + the rig at init); the governor only sheds DPR,
+      // bloom, and tile detail below. A device DETECTED as low (genuinely weak) still gets no shadows.
       tilesHandle?.setQualityTier(t); // building/ground error targets, LRU caps, vector/street budgets
       updateAoEnabled(); // AO is high-tier only
     };

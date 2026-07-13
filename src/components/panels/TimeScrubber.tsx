@@ -31,6 +31,7 @@ import { useUploadStore } from "../../store/upload";
 import { capturedAtToUtcMs } from "../../lib/ephemeris/captureTime";
 import { SCRUB } from "../globe/tuning";
 import InfoDot from "../ui/InfoDot";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/time-scrubber.css";
 import "../../styles/tips.css";
 
@@ -50,6 +51,7 @@ function offsetLabel(deltaMs: number): string {
 }
 
 export default function TimeScrubber() {
+  const drag = usePanelDrag("timeline");
   const live = useTimeStore((s) => s.live);
   const pinnedMs = useTimeStore((s) => s.timeMs);
   const setTime = useTimeStore((s) => s.setTime);
@@ -151,7 +153,8 @@ export default function TimeScrubber() {
   };
 
   return (
-    <aside className="ts" aria-label="Scene time scrubber — relights the globe">
+    <aside className="ts" style={drag.style} aria-label="Scene time scrubber — relights the globe">
+      <DragGrip drag={drag} label="Move the time scrubber" tipPos="up" />
       <div className="ts-head">
         <span className="ts-label">TIME SCRUB</span>
         <button

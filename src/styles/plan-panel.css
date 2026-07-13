@@ -1,0 +1,173 @@
+/* Light planner (Pass 3 WS4 + Dnipro Slice 5) — a PLAN pill in the free bottom strip between
+   the FPV HUD slot (ends ~17rem) and the TimeScrubber band (starts 32rem), opening an upward
+   card of jump-to-time chips + the skyline verdict. Instrument idiom: IBM Plex Mono, tabular
+   numerals, tokens.css colours only. Top-level island (index.astro) — position:fixed must never
+   sit inside a backdrop-filtered card (the S2 containing-block trap). */
+
+.pp-root {
+  position: fixed;
+  left: 18rem;
+  bottom: 2.4rem;
+  z-index: 10;
+  font-family: var(--font-mono);
+  user-select: none;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+
+.pp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  cursor: pointer;
+}
+.pp-pill:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+.pp-pill--open {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+}
+
+.pp {
+  position: absolute;
+  left: 0;
+  bottom: 2.6rem;
+  width: 13.5rem;
+  max-height: min(26rem, calc(100vh - 12rem));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+}
+
+.pp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pp-title {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--color-text-muted);
+}
+.pp-anchor {
+  margin-left: auto;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-accent);
+}
+
+/* Skyline verdict rows — sun warm / moon cool (the day-arc colour grammar). */
+.pp-body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.pp-body__glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+.pp-body--clear .pp-body__glyph {
+  color: var(--color-sun-glow);
+}
+.pp-body--blocked .pp-body__glyph {
+  color: var(--color-text-muted);
+}
+.pp-body__verdict {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--color-text);
+}
+.pp-body--blocked .pp-body__verdict {
+  color: var(--color-warn);
+}
+.pp-body__pos {
+  grid-column: 2;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pp-body .pp-chip--cross {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 3px;
+}
+
+.pp-status {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.pp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pp-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pp-chip:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+.pp-chip__kind {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+.pp-chip:hover .pp-chip__kind {
+  color: inherit;
+}
+.pp-chip--sun .pp-chip__kind {
+  color: color-mix(in srgb, var(--color-sun-glow) 65%, var(--color-text-muted));
+}
+.pp-chip--moon .pp-chip__kind {
+  color: color-mix(in srgb, var(--color-moonlight) 65%, var(--color-text-muted));
+}
+
+/* Keep the welcome landing clean (the FPV-HUD precedent). */
+body.welcome-active .pp-root {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .pp-root {
+    left: 1rem;
+    bottom: 14rem; /* clear the narrow-viewport scrubber + HUD stack */
+  }
+}

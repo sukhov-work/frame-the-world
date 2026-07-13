@@ -4,6 +4,7 @@ import { useUploadStore } from "../../store/upload";
 import { usePinsStore } from "../../store/pins";
 import { deletePhotoRecord } from "../../lib/save/uploadMedia";
 import type { PhotoListItem } from "../../lib/wix/pinRecords";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/my-pins.css";
 import "../../styles/tips.css";
 
@@ -19,6 +20,7 @@ export default function MyPins() {
   const [error, setError] = useState<string | null>(null);
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const drag = usePanelDrag("my-pins");
 
   useEffect(() => {
     if (!open) return;
@@ -104,7 +106,8 @@ export default function MyPins() {
         My pins
       </button>
       {open && (
-        <div className="mp-panel" role="dialog" aria-label="My uploaded photos">
+        <div className="mp-panel" style={drag.style} role="dialog" aria-label="My uploaded photos">
+          <DragGrip drag={drag} label="Move the pins list" tipPos="left" inset corner="left" />
           <header className="mp-head">
             <span className="mp-title">
               MY PINS{photos ? ` · ${photos.length}` : ""}

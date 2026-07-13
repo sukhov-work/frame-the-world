@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { bodyStatesAt } from "../../lib/ephemeris/bodies";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/time-readout.css";
 
 const two = (n: number) => String(n).padStart(2, "0");
@@ -34,6 +35,7 @@ function moonGlyph(phaseDeg: number): { glyph: string; name: string } {
 }
 
 export default function TimeReadout() {
+  const drag = usePanelDrag("clock");
   const live = useTimeStore((s) => s.live);
   const pinnedMs = useTimeStore((s) => s.timeMs);
   const [nowMs, setNowMs] = useState(() => sceneTimeMs());
@@ -61,7 +63,8 @@ export default function TimeReadout() {
   const date = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
 
   return (
-    <div className="tr" aria-label="Scene time — drives the globe's sun, moon and lighting">
+    <div className="tr" style={drag.style} aria-label="Scene time — drives the globe's sun, moon and lighting">
+      <DragGrip drag={drag} label="Move the scene clock" tipPos="left" />
       <div className="tr-main">
         <span
           className={`tr-dot${live ? "" : " tr-dot--pinned"}`}

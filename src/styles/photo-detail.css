@@ -22,16 +22,19 @@
   backdrop-filter: blur(10px);
   color: var(--color-text);
   font-family: var(--font-ui);
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
   animation: pd-enter 400ms cubic-bezier(0.65, 0, 0.35, 1);
 }
 @keyframes pd-enter {
+  /* The entry slide composes the drag offset — a remounted panel with a remembered position
+     must not snap when the animation ends (custom props resolve per-element in keyframes). */
   from {
     opacity: 0;
-    transform: translateX(-16px);
+    transform: translateX(-16px) translate(var(--drag-x, 0px), var(--drag-y, 0px));
   }
   to {
     opacity: 1;
-    transform: none;
+    transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
   }
 }
 @media (prefers-reduced-motion: reduce) {

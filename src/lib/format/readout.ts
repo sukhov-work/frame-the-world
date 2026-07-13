@@ -15,6 +15,13 @@ export function formatLatLon(lat?: number, lon?: number): string {
   return `${Math.abs(lat).toFixed(4)}° ${ns} · ${Math.abs(lon).toFixed(4)}° ${ew}`;
 }
 
+/** `48.464712, 35.046198` — signed decimal degrees at 6 dp (~0.11 m), comma-separated in the
+ *  exact shape Google Earth / Maps accept as a paste (owner 2026-07-14: the viewer-position
+ *  readout must be precise AND copyable). ASCII minus deliberately — this string is for MACHINES. */
+export function formatLatLonPaste(lat: number, lon: number): string {
+  return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+}
+
 /** `35 MM` — focal lengths under 10 mm keep one decimal (phone lenses, e.g. `6.9 MM`). */
 export function formatFocal(mm?: number): string {
   if (mm === undefined) return EM_DASH;

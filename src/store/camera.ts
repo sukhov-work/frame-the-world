@@ -56,6 +56,17 @@ export interface FpvHud {
   moon: FpvBodyMarker;
 }
 
+/** The viewer's ground point (owner 2026-07-14): the geodetic lat/lon directly under the camera
+ *  plus the rendered terrain height there — the precise, copyable "where am I standing" readout
+ *  the left HUD shows in EVERY mode (orbit and FPV alike). */
+export interface CamGeo {
+  latDeg: number;
+  lonDeg: number;
+  /** Rendered terrain height (m above the ellipsoid) under the viewer; null while no ground
+   *  tile is loaded beneath the camera (oblique views often have none). */
+  groundAltM: number | null;
+}
+
 export interface CameraState {
   /** Live camera pitch (deg; 0 = nadir, 90 = horizon). Display-only for the UI. */
   tiltDeg: number;
@@ -73,6 +84,8 @@ export interface CameraState {
    *  Low-cadence mirror; the location finder uses it as the geocoding bias. */
   focusLatDeg: number;
   focusLonDeg: number;
+  /** Live viewer ground point (camera nadir; low-cadence mirror, faster while FPV walks). */
+  camGeo: CamGeo | null;
   /** Pending one-shot fly-to (location finder); the orchestrator consumes + clears it. */
   flyRequest: FlyRequest | null;
   /** Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops it; while
@@ -135,6 +148,10 @@ export interface CameraState {
   setHeadingRate: (degPerS: number | null) => void;
   setZoomRate: (perS: number | null) => void;
   setFovRate: (perS: number | null) => void;
+  /** FPV building shading (0..1, owner ask): 0 = the see-through wireframe look, 1 = fully shaded
+   *  solid. Raises the auto eye-height ghost curve UPWARD (max), so 0 keeps current behavior. */
+  fpvBuildingSolidity: number;
+  setFpvBuildingSolidity: (v: number) => void;
   /** Orchestrator-only: mirror the FPV HUD state (low cadence; null = FPV inactive). */
   _syncFpvHud: (hud: FpvHud | null) => void;
   /** Orchestrator-only: mirror the sky-body markers (low cadence; null = guides off). */
@@ -146,6 +163,7 @@ export interface CameraState {
   _syncHeading: (deg: number) => void;
   _syncZoom: (altM: number) => void;
   _syncFocus: (latDeg: number, lonDeg: number) => void;
+  _syncCamGeo: (g: CamGeo | null) => void;
 }
 
 export const useCameraStore = create<CameraState>((set) => ({
@@ -157,6 +175,7 @@ export const useCameraStore = create<CameraState>((set) => ({
   targetZoomAltM: null,
   focusLatDeg: 48.46, // Dnipro-ish until the first live sync lands (POSE default view)
   focusLonDeg: 35.05,
+  camGeo: null,
   flyRequest: null,
   headingRateDegPerS: null,
   zoomRatePerS: null,
@@ -191,6 +210,8 @@ export const useCameraStore = create<CameraState>((set) => ({
   setHeadingRate: (degPerS) => set({ headingRateDegPerS: degPerS }),
   setZoomRate: (perS) => set({ zoomRatePerS: perS }),
   setFovRate: (perS) => set({ fovRatePerS: perS }),
+  fpvBuildingSolidity: 0,
+  setFpvBuildingSolidity: (v) => set({ fpvBuildingSolidity: Math.max(0, Math.min(1, v)) }),
   _syncFpvHud: (hud) => set({ fpvHud: hud }),
   _syncSkyMarkers: (m) => set({ skyMarkers: m }),
   clearAllTargets: () =>
@@ -206,6 +227,7 @@ export const useCameraStore = create<CameraState>((set) => ({
   _syncHeading: (deg) => set({ headingDeg: deg }),
   _syncZoom: (altM) => set({ zoomAltM: altM }),
   _syncFocus: (latDeg, lonDeg) => set({ focusLatDeg: latDeg, focusLonDeg: lonDeg }),
+  _syncCamGeo: (g) => set({ camGeo: g }),
 }));
 
 /** Zoom slider (0..1) → altitude (m), log-mapped so metres and megametres both get travel. */

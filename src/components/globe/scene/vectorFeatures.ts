@@ -255,6 +255,7 @@ export function attachVectorFeatures(opts: {
     const fCol: number[] = [];
     const fIdx: number[] = [];
     for (const poly of parsed.polys) {
+      if (poly.kind === "building") continue; // mini-map-only kind — the 3D web has REAL buildings
       const color = poly.kind === "water" ? colWater : colGreen;
       const fillLift = poly.kind === "water" ? VECTOR.liftWaterM : VECTOR.liftFillM;
       for (const rings of poly.polys) {
