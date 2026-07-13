@@ -238,7 +238,7 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: RENDERING PASS 2 (Dnipro identity) R2+R3 CODE-COMPLETE (2026-07-13) — per-building tonal
+**Next step: DNIPRO 3D ENRICHMENT — an offline BAKE of roof-shaped LOD2 buildings self-hosted on Cloudflare R2, masking Cesium OSM Buildings inside the Dnipro bbox (external research 2026-07-13 INCORPORATED → `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md` + `mem:project/wip-2026-07-13-dnipro-enrichment-research`; reframes/retires R4 — bake-and-mask replaces buildings in-bbox, sidestepping the z-fight/cull blocker; extends D1/D13/C6/C1, all data $0). Recommended DEFAULTS (owner dismissed the fork Q): SLICE 0 de-risk spike FIRST (prove masking + R1 vertical-datum seating vs rendered Cesium World Terrain + R2/CORS + stylization reuse), then the full bake; hero splats deferred; the Pass 1/2 browser-verify + GTAO fold into the next browser session. FOLDED-IN prior headline: RENDERING PASS 2 (Dnipro identity) R2+R3 CODE-COMPLETE (2026-07-13) — per-building tonal
 variation (R2) + restrained night window emissive (R3), both on the ONE shared building material's chained
 onBeforeCompile (invariant intact, no new pass/tier knob — free fragment math degrading with the existing
 bloom tiering); astro check 0/0 · vitest 416 (+8 buildingNight) · wix build; runtime shader-COMPILE + look
