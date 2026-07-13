@@ -1,0 +1,150 @@
+/* Boot poster — a SERVER-RENDERED splash that paints instantly, before the client:only globe
+   island hydrates. Two jobs:
+     1. UX: the first frame is the brand + value prop over a globe still, never a black canvas
+        while WASM / Cesium tiles / textures stream in.
+     2. Preview: it is the image the Wix "Headless Day" gallery site-snapshotter and social/OG
+        crawlers capture. A GPU-less/headless screenshot that never runs WebGL (so never fires
+        `globe:ready`) and never receives a pointer simply keeps this poster on screen — see
+        `mem:bugs/gallery-thumbnail-stale`.
+   Copy + placement intentionally mirror the client `Welcome` landing (same eyebrow/title at the
+   same 7.5vw anchor) so the hand-off when Welcome hydrates has no text jump. Dismissal logic is
+   the inline script in `src/pages/index.astro`. Design-fenced: styles only — the globe scene
+   (src/components/globe/**) is untouched. */
+.bp {
+  position: fixed;
+  inset: 0;
+  z-index: 200; /* above ALL chrome (app max is 60) so a panel hydrating within the poster's
+                   window can't poke through the splash — it is the topmost thing during boot */
+  overflow: hidden;
+  background: var(--color-bg);
+  opacity: 1;
+  transition: opacity 0.7s ease;
+  cursor: progress;
+}
+.bp.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bp-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 42%;
+  opacity: 0.92;
+  transform: scale(1.04);
+  animation: bp-drift 20s ease-out both; /* a slow settle — life without motion sickness */
+}
+
+/* Darken the left third (behind the copy) and the bottom (behind the loading line) so the
+   deep-space image reads as the token background and the type stays legible. */
+.bp-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-bg) 88%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg) 34%, transparent) 46%,
+      transparent 72%
+    ),
+    linear-gradient(0deg, color-mix(in srgb, var(--color-bg) 82%, transparent) 0%, transparent 42%);
+}
+
+.bp-copy {
+  position: absolute;
+  left: 7.5vw;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 34rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.3rem;
+}
+.bp-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  color: var(--color-accent);
+}
+.bp-title {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: clamp(2.2rem, 4.6vw, 4rem);
+  line-height: 1.08;
+  color: var(--color-text);
+}
+.bp-sub {
+  margin: 0;
+  max-width: 27rem;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.bp-loading {
+  position: absolute;
+  left: 7.5vw;
+  bottom: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+}
+.bp-dots {
+  display: inline-flex;
+  gap: 0.28rem;
+}
+.bp-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  opacity: 0.35;
+  animation: bp-pulse 1.2s ease-in-out infinite;
+}
+.bp-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.bp-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes bp-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@keyframes bp-drift {
+  from {
+    transform: scale(1.12);
+  }
+  to {
+    transform: scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp {
+    transition: opacity 0.2s ease;
+  }
+  .bp-bg {
+    animation: none;
+    transform: scale(1.04);
+  }
+  .bp-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}

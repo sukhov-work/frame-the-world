@@ -15,9 +15,97 @@ import FpvHud from "../components/panels/FpvHud";
 // Hover tips (tips batch 2026-07-11) — imported here so the Astro-rendered nav links get
 // the same glass tip pills the React panels use.
 import "../styles/tips.css";
+// Boot poster (server-rendered splash) styles — see the #boot-poster block below.
+import "../styles/boot-poster.css";
 ---
 
 <Layout title="Frame the World">
+  <!-- Boot poster — the ONLY server-rendered visual. Everything else on this page is a
+       client:only island (C4), so without this the SSR HTML is a black void until the globe
+       hydrates — which is exactly what the Wix gallery's site-snapshotter captured (it froze on
+       the pre-deploy starter page; see mem:bugs/gallery-thumbnail-stale). This static splash
+       paints instantly, is what a screenshot/OG crawler grabs, and hands off to the client
+       <Welcome> landing (same eyebrow/title, same 7.5vw anchor → no text jump). The inline
+       script below removes it on first interaction / a globe:ready event / a short safety timer;
+       a JS-less or WebGL-less crawler simply keeps it. aria-hidden: <Welcome> carries the real,
+       hydrated copy for assistive tech. -->
+  <div id="boot-poster" class="bp" aria-hidden="true">
+    <img class="bp-bg" src="/social-cover.jpg" alt="" decoding="async" fetchpriority="high" />
+    <div class="bp-scrim"></div>
+    <div class="bp-copy">
+      <span class="bp-eyebrow">EVERY PHOTOGRAPH HAS COORDINATES</span>
+      <div class="bp-title">See your photographs where the&nbsp;world took&nbsp;them.</div>
+      <p class="bp-sub">
+        Upload a RAW. We read its metadata and place your exact camera — position, heading,
+        focal length — on a living globe.
+      </p>
+    </div>
+    <span class="bp-loading">
+      <span class="bp-dots"><i class="bp-dot"></i><i class="bp-dot"></i><i class="bp-dot"></i></span>
+      BUILDING THE GLOBE
+    </span>
+  </div>
+  <script is:inline>
+    (function () {
+      var el = document.getElementById("boot-poster");
+      if (!el) return;
+      // A shared/reloaded `#p=` pose boots straight into that view and skips the Welcome
+      // landing — skip the splash too, matching Welcome.tsx.
+      try {
+        if (/^#p/.test(location.hash)) {
+          el.parentNode && el.parentNode.removeChild(el);
+          return;
+        }
+      } catch (e) {}
+
+      var reduce = false;
+      try {
+        reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      } catch (e) {}
+      var MIN_MS = 350; // guard against a flash if a trigger fires instantly
+      var MAX_MS = reduce ? 1200 : 3800; // safety reveal for real users; a headless snapshotter
+      // that never fires globe:ready and never gets a pointer keeps the poster past this only if
+      // it also runs no JS — a JS-running capture after MAX_MS sees the (equally-fine) live app.
+      var startMs = ts();
+      var done = false;
+      var maxTimer;
+      var interact = ["pointerdown", "keydown", "wheel", "touchstart"];
+
+      function ts() {
+        return window.performance && performance.now ? performance.now() : Date.now();
+      }
+      function remove() {
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }
+      function dismiss() {
+        if (done) return;
+        done = true;
+        interact.forEach(function (t) {
+          window.removeEventListener(t, onTrigger, true);
+        });
+        window.removeEventListener("globe:ready", onTrigger);
+        if (maxTimer) clearTimeout(maxTimer);
+        el.classList.add("is-hidden");
+        el.addEventListener("transitionend", remove, { once: true });
+        setTimeout(remove, (reduce ? 200 : 700) + 400); // hard fallback if transitionend is missed
+      }
+      function arm() {
+        var waited = ts() - startMs;
+        if (waited >= MIN_MS) dismiss();
+        else setTimeout(dismiss, MIN_MS - waited);
+      }
+      function onTrigger() {
+        arm();
+      }
+
+      interact.forEach(function (t) {
+        window.addEventListener(t, onTrigger, { capture: true, passive: true });
+      });
+      window.addEventListener("globe:ready", onTrigger); // future hook — harmless if never fired
+      maxTimer = setTimeout(arm, MAX_MS);
+    })();
+  </script>
+
   <!-- client:only="react" — the WebGL globe is NEVER server-rendered (constraint C4) -->
   <GlobeCanvas client:only="react" />
 
