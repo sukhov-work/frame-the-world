@@ -112,6 +112,14 @@ describe("makeGovernor", () => {
     expect(g.tier).toBe("low");
   });
 
+  it("never drops below the floor — a strong (high) device stops at mid, not low", () => {
+    // Regression guard (2026-07-13): an M3 Pro governed to `low` at retina DPR lost shadows + bloom.
+    // A `high`-detected device floors at `mid` so the core look survives frame-rate throttling.
+    const g = makeGovernor("high", CFG, "high", "mid");
+    for (let i = 0; i < 30; i++) g.step(50); // sustained over-budget — would reach `low` without a floor
+    expect(g.tier).toBe("mid");
+  });
+
   it("respects the cooldown between changes", () => {
     const cfg: GovernorConfig = { ...CFG, downFrames: 1, cooldownMs: 100 };
     const g = makeGovernor("high", cfg, "high");

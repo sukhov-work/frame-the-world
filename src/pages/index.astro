@@ -12,6 +12,8 @@ import PinHoverCard from "../components/panels/PinHoverCard";
 import ExploreMode from "../components/panels/ExploreMode";
 import Welcome from "../components/panels/Welcome";
 import FpvHud from "../components/panels/FpvHud";
+import PlanPanel from "../components/panels/PlanPanel";
+import MiniMap from "../components/panels/MiniMap";
 // Hover tips (tips batch 2026-07-11) — imported here so the Astro-rendered nav links get
 // the same glass tip pills the React panels use.
 import "../styles/tips.css";
@@ -134,6 +136,14 @@ import "../styles/boot-poster.css";
        renders only while an FPV mode is active. Top-level island: position:fixed must never
        live inside a backdrop-filtered card (the S2 containing-block trap). -->
   <FpvHud client:only="react" />
+
+  <!-- Light planner (Pass 3 WS4 + Dnipro Slice 5) — jump-to-time chips + the real-skyline
+       sun/moon verdict for the placed photo / FPV eye. Top-level island (same trap). -->
+  <PlanPanel client:only="react" />
+
+  <!-- FPV mini-map (owner 2026-07-14) — a small square 2D vector patch centred on the walked
+       viewer; renders only while FPV is active. Top-level island (same trap). -->
+  <MiniMap client:only="react" />
 
   <!-- Welcome landing (owner mockup 2026-07-11): journey backdrop, chrome hidden, any globe
        click / the two CTAs dismiss into the full UI -->

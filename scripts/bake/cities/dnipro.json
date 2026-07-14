@@ -1,0 +1,36 @@
+{
+  "city": "dnipro",
+  "bbox": [35.0, 48.42, 35.1, 48.5],
+  "bboxNote": "FULL-city Dnipro (~7.4 x 8.9 km) — widened 2026-07-13 (Slice 2) from the ~5.9x6.3 km central+greater box; per-cell terrain re-seat already ships, so the wider extent follows the riverbank/hills relief. grid 7->10 keeps cell size ~0.74x0.89 km (finer cells also shrink the known within-cell relief limit). bbox = [west,south,east,north] deg. ENRICHED.bbox in src/components/globe/tuning.ts MUST match this (mask extent == enriched extent, or they overlap/gap).",
+  "grid": 10,
+  "buildings": {
+    "levelHeightM": 3.0,
+    "defaultHeightM": 8,
+    "roofPitch": 0.42,
+    "classDefaultsM": {
+      "church": 22, "cathedral": 30, "chapel": 12, "temple": 22, "mosque": 20,
+      "hospital": 24, "hotel": 30, "office": 28, "commercial": 16, "public": 18,
+      "industrial": 12, "warehouse": 11, "retail": 10, "supermarket": 9,
+      "garage": 3, "garages": 3, "shed": 3, "hut": 3, "kiosk": 3, "roof": 3,
+      "school": 12, "university": 20, "college": 18, "kindergarten": 8,
+      "apartments": 24, "residential": 15, "dormitory": 21,
+      "house": 7, "detached": 7, "terrace": 9, "bungalow": 5, "farm": 6
+    }
+  },
+  "vegetation": {
+    "vegetationNote": "Slice 3 trees: OSM natural=tree points (Dnipro maps only ~418) + tree_row sampling + seeded scatter over natural=wood / landuse=forest / leisure=park polygons (grass is NOT planted). Deterministic; heights are class defaults + jitter — the ETH/Meta canopy-height raster is the documented upgrade tier (README §Upgrade tiers).",
+    "spacingWoodM": 13,
+    "spacingParkM": 24,
+    "rowSpacingM": 9,
+    "heightM": { "default": [8, 15], "wood": [10, 17], "park": [8, 14], "row": [7, 12] },
+    "canopyRadiusK": 0.32,
+    "maxTrees": 60000
+  },
+  "exclusion": {
+    "polygonsNote": "C6: per-site military/critical-infra exclusion polygons ([lon,lat] rings). Empty for v1 — the built-in sensitive-tag blocklist (scripts/bake/lib/exclusion.mjs DEFAULT_EXCLUDE_TAGS) still applies. Add named-site rings here as they are identified from PUBLIC pre-war sources only.",
+    "polygons": []
+  },
+  "attribution": "Contains information from OpenStreetMap © OpenStreetMap contributors, made available under the Open Database License (ODbL).",
+  "output": "public/enriched/dnipro",
+  "tilesetVersion": "dnipro-real-2"
+}

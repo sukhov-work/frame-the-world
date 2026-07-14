@@ -100,7 +100,7 @@ height cleanup, the exclusion mask. Onboarding city #2 = new config + run the ba
 
 ## Sliced backlog (each slice = one or more sessions; DoD explicit)
 
-### Slice 0 — DE-RISK SPIKE (do this first)
+### Slice 0 — DE-RISK SPIKE ✅ DONE (2026-07-13, browser-VERIFIED: up-axis upright · R1 clamp-to-CWT seating · OSM mask clean at leaf level · straddle-leak confirmed → Slice-2 clipping planes; `mem:project/wip-2026-07-13-dnipro-slice1-bake`)
 Prove the *hard unknowns* on a tiny hand-baked sample (a few central-Dnipro blocks) before building the
 pipeline. **Deliberately crude data — this validates INTEGRATION, not data quality.**
 - Fastest path to pixels: **OSM2World** (OSM → glTF/3D-Tiles with Simple-3D-Buildings roofs, one tool) OR a
@@ -114,7 +114,13 @@ pipeline. **Deliberately crude data — this validates INTEGRATION, not data qua
   with Cesium OSM Buildings hidden underneath them — browser-verified in `wix dev`. A written verdict on
   the seating strategy + toolchain choice (OSM2World light path vs 3dfier heavy path) for Slice 1.
 
-### Slice 1 — Buildings bake pipeline (the main event)
+### Slice 1 — Buildings bake pipeline ✅ DONE (2026-07-13, browser-VERIFIED)
+**Built as a reproducible Node DATA-DRIVEN baker** (`scripts/bake`, `npm run bake -- --city dnipro`) — owner
+picked it over OSM2World/heavy-3dfier because it reuses the browser-verified glb+tileset writer and runs+verifies
+in-env (Docker daemon down + public npm blocked here). 3233 Dnipro buildings → 16-tile 3D-Tiles (4.83 MB), C6
+exclusion applied before tiling, height inference (~54% real), `_feature_id_0` per building, seated + masked +
+streaming. **OSM2World + heavy 3dfier LOD2 (below) = the roof-fidelity UPGRADE tiers** (recipe in
+`scripts/bake/README.md`), not the shipped path. Original plan text:
 The full offline bake per §pipeline + §per-city config. Height inference, 3dfier LOD2 roofs, CityJSON
 validation (`val3dity`), 3D-Tiles tiling, R2 upload, and the `bake --city` command + config file.
 - Precedent for the "bake script → artifact" pattern exists in-repo (`scripts/build-ne-labels.mjs`,
@@ -125,6 +131,17 @@ validation (`val3dity`), 3D-Tiles tiling, R2 upload, and the `bake --city` comma
   dnipro`, ODbL-attributed, sensitive geometry excluded.
 
 ### Slice 2 — Client integration + stylization reconciliation
+> **✅ SHIPPED 2026-07-13 (browser-VERIFIED; astro check 0 · vitest 459 · wix build):** per-cell terrain
+> re-seat · the 4-plane ECEF clipping-prism hole (straddle-leak fixed pixel-exactly; `bboxClipPrismEcef` +
+> `clipIntersection`/`clipShadows` on the shared OSM materials) · stylization reconciled via option (a) —
+> a NEW shared factory `scene/buildingMaterial.ts` consumed by BOTH tilesets as separate instances (the
+> per-tileset one-shared-material invariant holds; separate because the clip prism must not clip the
+> enriched set), R2 tone keyed on the baked `_feature_id_0`, debug edges off · full-city bake
+> [35.00,48.42,35.10,48.50] grid 10 → 26,569 bldgs · 90 tiles · 32.8 MB · pure-Node SigV4 R2 uploader
+> (`scripts/bake/upload-r2.mjs`, dry-run-verified). **Open tails:** R2 bucket/custom-domain/CORS = owner
+> Cloudflare action; sub-M3 + phone FPS benchmark; optional HLOD coarse tier (box is empty of buildings
+> above ~20 km — enriched SSE-culls, OSM correctly clipped). `mem:project/wip-2026-07-13-dnipro-slice2`.
+> Original plan text:
 - Point the enriched `TilesRenderer` at the production R2 tileset; mask Cesium OSM Buildings in the bbox;
   keep DRACO; add KTX2/meshopt for textures. WebGL2 primary, WebGPU progressive.
 - **Reconcile with Pass 2 (Dnipro identity) stylization:** R2 per-building tone variation + the future
@@ -135,6 +152,14 @@ validation (`val3dity`), 3D-Tiles tiling, R2 upload, and the `bake --city` comma
   system, browser-verified; FPS benchmarked on a sub-M3 laptop + a mid-range phone (<150 MB resident target).
 
 ### Slice 3 — Trees + (optional) terrain
+> **✅ SHIPPED 2026-07-13 (browser-VERIFIED; astro check 0/0 · vitest 473 · wix build):** ~24.7k
+> deterministic trees (OSM tree points + tree_row sampling + seeded scatter over wood/forest/park,
+> building-footprint + C6 rejection) baked as **`EXT_mesh_gpu_instancing` nodes INSIDE the enriched
+> per-cell glbs** (~50 B/tree, +1.2 MB) → three loads ONE InstancedMesh per cell, inheriting the
+> streaming/LRU/per-cell re-seat; shared vecGreen flat-shaded material, night-dimmed, shadow-casting,
+> FPV-slider-faded, raycast-excluded. Canopy-height rasters (ETH/Meta) = documented upgrade tier
+> (`scripts/bake/README.md`). **Terrain decision RECORDED: keep Cesium World Terrain** — R1's runtime
+> clamp never forced a co-bake. `mem:project/wip-2026-07-13-dnipro-slice3-trees`. Original plan text:
 - Instanced trees from ETH/Meta canopy height + OSM tree points/landuse (placement JSON baked → runtime
   `InstancedMesh`/impostors). Night-dimmed like the vector web.
 - Terrain: **only if R1 forces a co-bake** — otherwise keep Cesium World Terrain (30 m GLO-30 is not a
@@ -152,6 +177,15 @@ validation (`val3dity`), 3D-Tiles tiling, R2 upload, and the `bake --city` comma
   demand; measured against real photos.
 
 ### Slice 5 — Feed the enrichment into Pass 3 (the astro/obstruction moat)
+> ✅ **DONE 2026-07-14 (browser-VERIFIED; vitest 506 · astro check 0/0 · wix build).** Shipped WITH
+> the full Pass 3: pure `lib/ephemeris/planner.ts` + `lib/geo/horizonProfile.ts` +
+> `lib/geo/occlusion.ts` (NO-Raycaster silhouette sweeps — building edges az-adaptively subdivided,
+> slice-3 trees as canopy spheres straight from the `EXT_mesh_gpu_instancing` TRS, OSM vertices
+> rejected inside the mask prism) + `scene/planFeed.ts` (time-sliced builds; photo-apex/FPV-eye
+> anchor; 3 km trust) + PlanPanel jump-to-time chips. Live: sun clears the real Dnipro skyline
+> +37 min after astronomical sunrise; park anchor's skyline is canopy-driven (trees ARE occluders).
+> **DoD tail carried:** validate against a surveyed landmark height.
+> `mem:project/wip-2026-07-14-pass3-obstruction-moat`. Original step:
 - The reconstructed buildings + trees ARE the fine obstruction surface for `lib/geo/occlusion.ts` +
   `horizonProfile.ts` (per the report: don't use the coarse 30 m DSM). Better geometry → better "will the
   moon clear that rooftop?" prediction. Direct synergy with the already-queued Pass 3.

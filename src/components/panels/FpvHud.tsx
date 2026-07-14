@@ -1,6 +1,14 @@
+import { useEffect, useRef, useState } from "react";
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
-import { formatFocal, formatEyeM, cardinal, formatSigned } from "../../lib/format/readout";
+import {
+  formatFocal,
+  formatEyeM,
+  formatLatLonPaste,
+  cardinal,
+  formatSigned,
+} from "../../lib/format/readout";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/fpv-hud.css";
 
 /**
@@ -10,11 +18,16 @@ import "../../styles/fpv-hud.css";
  * Sun/moon EDGE CHIPS float at the frame edge pointing toward a body that is OUTSIDE the
  * frame (hidden while the body is visible, or below the planning gate). S6 follow-up: the
  * chips render in EVERY mode from the `skyMarkers` mirror (gated by the right-panel SKY
- * toggle); the instrument card stays FPV-only (`fpvHud`).
+ * toggle); the instrument rows stay FPV-only (`fpvHud`).
+ *
+ * 2026-07-14 (owner): the card itself is now ALWAYS-ON — in every mode it shows the viewer's
+ * precise ground-point coordinates (`camGeo` mirror: camera-nadir geodetic + rendered terrain
+ * height), copyable in the exact "lat, lon" shape Google Earth accepts. Click the row to copy.
  *
  * Mounted as a top-level island (index.astro): position:fixed children must never live inside
- * a backdrop-filtered card (the S2 containing-block trap). Everything is pointer-events:none —
- * the HUD annotates the view, it never intercepts the look-drag.
+ * a backdrop-filtered card (the S2 containing-block trap). The card is pointer-events:none —
+ * it annotates the view, never intercepts the look-drag — except the copy row and the drag
+ * grip, which re-enable themselves.
  */
 
 function bodyReadout(marker: FpvBodyMarker): string {
@@ -25,7 +38,31 @@ function bodyReadout(marker: FpvBodyMarker): string {
 export default function FpvHud() {
   const hud = useCameraStore((s) => s.fpvHud);
   const markers = useCameraStore((s) => s.skyMarkers);
-  if (!hud && !markers) return null;
+  const camGeo = useCameraStore((s) => s.camGeo);
+  const drag = usePanelDrag("fpv-hud");
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+  if (!hud && !markers && !camGeo) return null;
+
+  const copyCoords = (text: string) => {
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true);
+        if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+        copyTimer.current = window.setTimeout(() => setCopied(false), 1400);
+      })
+      .catch(() => {
+        /* clipboard denied — the text stays selectable by hand */
+      });
+  };
+
   return (
     <>
       {markers && (
@@ -34,8 +71,35 @@ export default function FpvHud() {
           <BodyChip marker={markers.moon} glyph="☾" kind="moon" />
         </>
       )}
-      {hud && (
-      <aside className="fh" aria-label="Camera view instruments">
+      {(hud || camGeo) && (
+      <aside className="fh" style={drag.style} aria-label="Camera view instruments">
+        <DragGrip drag={drag} label="Move the view instruments" tipPos="right" />
+        {camGeo && (
+          <>
+            <button
+              type="button"
+              className="fh-pos"
+              onClick={() => copyCoords(formatLatLonPaste(camGeo.latDeg, camGeo.lonDeg))}
+              title="Copy coordinates (paste into Google Earth)"
+            >
+              <span className="fh-label">POSITION</span>
+              <span className="fh-pos__coords">
+                {formatLatLonPaste(camGeo.latDeg, camGeo.lonDeg)}
+              </span>
+              <span className={`fh-pos__copy${copied ? " is-copied" : ""}`}>
+                {copied ? "COPIED ✓" : "COPY"}
+              </span>
+            </button>
+            {camGeo.groundAltM != null && (
+              <div className="fh-row">
+                <span className="fh-label">GROUND</span>
+                <span className="fh-value">{formatEyeM(camGeo.groundAltM)}</span>
+              </div>
+            )}
+          </>
+        )}
+        {hud && (
+        <>
         <div className="fh-row">
           <span className="fh-label">FOCAL</span>
           <span className="fh-value">
@@ -65,6 +129,9 @@ export default function FpvHud() {
           <span className="fh-label">☾ MOON</span>
           <span className="fh-value">{bodyReadout(hud.moon)}</span>
         </div>
+        <div className="fh-hint">◀▲▼▶ WALK · DRAG LOOK · WHEEL ZOOM</div>
+        </>
+        )}
       </aside>
       )}
     </>

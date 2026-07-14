@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatLatLon,
+  formatLatLonPaste,
   formatFocal,
   formatAperture,
   formatShutter,
@@ -55,6 +56,15 @@ describe("formatLatLon", () => {
   });
   it("em-dash when absent", () => {
     expect(formatLatLon(undefined, 2)).toBe(EM_DASH);
+  });
+});
+
+describe("formatLatLonPaste — the copyable viewer-position readout (owner 2026-07-14)", () => {
+  it("is signed decimal degrees at 6 dp, comma-separated — the Google Earth paste shape", () => {
+    expect(formatLatLonPaste(48.4647123, 35.0461987)).toBe("48.464712, 35.046199");
+  });
+  it("keeps ASCII minus for machines (never the typographic minus)", () => {
+    expect(formatLatLonPaste(-33.8568, -151.2153)).toBe("-33.856800, -151.215300");
   });
 });
 

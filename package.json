@@ -13,7 +13,8 @@
     "env": "wix env",
     "skills": "wix skills",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bake": "node scripts/bake/bake.mjs"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",

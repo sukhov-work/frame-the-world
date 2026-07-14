@@ -31,6 +31,15 @@ test/fixtures/**/*.heic
 # --- Browser-verification screenshots (every session writes here — NEVER the repo root) ---
 /verify-shots/
 
+# --- Dnipro 3D enrichment: reproducible hand-baked Slice-0 sample (regen offline, no network):
+#     `node scripts/build-sample-dnipro-tiles.mjs` — the generator is the source of truth. ---
+/public/enriched-sample/
+
+# --- Dnipro 3D enrichment: the REAL Slice-1 bake output + Overpass cache (regen: `npm run bake --
+#     --city dnipro`). Baked tiles are derived artifacts (they'll live on R2 in prod), not committed. ---
+/public/enriched/
+/scripts/bake/.cache/
+
 # --- OS / editor ---
 .DS_Store
 *.log

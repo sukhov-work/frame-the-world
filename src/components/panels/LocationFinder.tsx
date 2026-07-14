@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { arrivalAltM, nominatimSearch, photonSearch, type GeocodeHit } from "../../lib/geo/geocode";
 import { useCameraStore } from "../../store/camera";
 import { SEARCH } from "../globe/tuning";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/location-finder.css";
 import "../../styles/tips.css";
 
@@ -28,6 +29,7 @@ export default function LocationFinder() {
   const debounceRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const drag = usePanelDrag("search");
 
   const cancelPending = () => {
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
@@ -129,7 +131,8 @@ export default function LocationFinder() {
   }, []);
 
   return (
-    <div className="lf" ref={rootRef} role="search" aria-label="Find a location on the globe">
+    <div className="lf" ref={rootRef} style={drag.style} role="search" aria-label="Find a location on the globe">
+      <DragGrip drag={drag} label="Move the location search" tipPos="down" />
       {/* Inputs render no ::after — the wrapper span anchors the hover tip (tips.css). */}
       <span
         className="tip tip-wrap"

@@ -16,6 +16,9 @@ import { STREETS, VECTOR } from "../tuning";
  *   waterway            → VecLineFeat kind "waterway" (river/stream lines)
  *   water               → VecPolyFeat kind "water" (river/lake surfaces — the Dnipro IS a polygon)
  *   landcover/park      → VecPolyFeat kind "green" (grass/wood/park fills)
+ *   building            → VecPolyFeat kind "building" (footprints — the FPV mini-map's anchor
+ *                         detail; probe-verified over Dnipro: ~1.5k rings per central z14 tile.
+ *                         The 3D web ignores them — only the mini-map draws this kind.)
  */
 
 export interface StreetLabelFeat {
@@ -42,7 +45,7 @@ export interface VecLineFeat {
 }
 
 export interface VecPolyFeat {
-  kind: "water" | "green";
+  kind: "water" | "green" | "building";
   /** Polygons as GeoJSON-style rings: [polygon][ring][vertex][lon, lat] (ring 0 = outer). */
   polys: [number, number][][][];
 }
@@ -318,6 +321,7 @@ export function attachVectorTiles(): VectorTilesHandle {
       { name: "water", kind: "water" },
       { name: "landcover", kind: "green", filter: (c) => GREEN_CLASSES.has(c) },
       { name: "park", kind: "green" },
+      { name: "building", kind: "building" }, // mini-map footprints (merged multipolygons at z14)
     ];
     for (const { name, kind, filter } of polyLayers) {
       const layer = vt.layers[name];

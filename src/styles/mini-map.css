@@ -1,0 +1,52 @@
+/* FPV mini-map (owner 2026-07-14) — a small square patch card docked above the FPV HUD in the
+   left column. Instrument idiom: hairline border, mono corner labels, tokens.css colours only.
+   Top-level island (index.astro) — the S2 containing-block rule. */
+
+.mm {
+  position: fixed;
+  left: 1.6rem;
+  /* Above the FPV HUD card (which grows to ~19rem tall with the position row) — the drag grip
+     resolves any collision on unusual viewports. */
+  bottom: 21.5rem;
+  z-index: 10;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+  font-family: var(--font-mono);
+  user-select: none;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+
+.mm-canvas {
+  display: block;
+  width: 176px;
+  height: 176px;
+  border-radius: 7px;
+}
+
+.mm-n {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.mm-scale {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+/* The welcome overlay hides all chrome — each panel hides itself (the welcome.css pattern). */
+body.welcome-active .mm {
+  display: none;
+}

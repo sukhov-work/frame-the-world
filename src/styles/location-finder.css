@@ -5,7 +5,8 @@
   position: fixed;
   top: 1.05rem;
   left: 50%;
-  transform: translateX(-50%);
+  /* Centering + the panel-drag offset compose in ONE transform (DragGrip contract). */
+  transform: translateX(-50%) translate(var(--drag-x, 0px), var(--drag-y, 0px));
   z-index: 11; /* above the canvas + hero, below nothing that matters */
   width: min(21rem, calc(100vw - 26rem)); /* leave the logo + nav clusters room */
   font-family: var(--font-mono);

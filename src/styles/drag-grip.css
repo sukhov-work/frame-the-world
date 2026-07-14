@@ -1,0 +1,48 @@
+/* DragGrip — the ⠿ move handle every floating panel carries (owner 2026-07-14). A small tab
+   peeking over the panel's top-right corner: quiet until hovered, cursor communicates the
+   affordance. pointer-events re-enabled explicitly — some hosts (.fh, .tr) are
+   pointer-events:none by design and the grip must still work there. Colour via tokens.css. */
+
+.drag-grip {
+  position: absolute;
+  top: -11px;
+  right: 6px;
+  z-index: 1;
+  padding: 0 7px;
+  height: 15px;
+  line-height: 13px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 6px;
+  cursor: grab;
+  opacity: 0.55;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  transition: opacity 180ms ease, color 180ms ease;
+}
+
+.drag-grip:hover {
+  opacity: 1;
+  color: var(--color-text-secondary);
+}
+
+.drag-grip:active {
+  cursor: grabbing;
+  color: var(--color-accent);
+}
+
+/* Inside-the-corner variant for overflow:auto panels (the overhanging tab would be clipped). */
+.drag-grip--inset {
+  top: 6px;
+  right: 6px;
+}
+
+/* Left-corner dock — used when the top-right corner already hosts a close button. */
+.drag-grip--left {
+  right: auto;
+  left: 6px;
+}

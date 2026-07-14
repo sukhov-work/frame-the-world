@@ -8,7 +8,8 @@
      column on laptop viewports. */
   position: fixed;
   left: 50%;
-  transform: translateX(-50%);
+  /* Centering + the panel-drag offset compose in ONE transform (DragGrip contract). */
+  transform: translateX(-50%) translate(var(--drag-x, 0px), var(--drag-y, 0px));
   bottom: 2.2rem;
   z-index: 10;
   width: min(38rem, calc(100vw - 34rem));

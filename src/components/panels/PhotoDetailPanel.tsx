@@ -34,6 +34,7 @@ import {
 import Slider, { type BadgeTone } from "../ui/Slider";
 import Encoder from "../ui/Encoder";
 import InfoDot from "../ui/InfoDot";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { CONTROLS, FRUSTUM, PINS } from "../globe/tuning";
 import "../../styles/photo-detail.css";
 import "../../styles/tips.css";
@@ -166,6 +167,7 @@ export default function PhotoDetailPanel() {
     return () => clearTimeout(t);
   }, [savedBeat]);
 
+  const drag = usePanelDrag("photo-detail");
   const exif = store.exif;
   if (!exif || store.phase !== "placed") return null;
 
@@ -209,7 +211,8 @@ export default function PhotoDetailPanel() {
   };
 
   return (
-    <aside className="pd" aria-label="Placed photo — adjust projection">
+    <aside className="pd" style={drag.style} aria-label="Placed photo — adjust projection">
+      <DragGrip drag={drag} label="Move the photo panel" tipPos="right" inset />
       <header className="pd-head">
         <div className="pd-head__title">
           <span className="pd-dot" aria-hidden="true" />
