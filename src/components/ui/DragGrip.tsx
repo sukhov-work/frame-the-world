@@ -8,6 +8,11 @@ import "../../styles/tips.css";
  * floating panel — a dedicated handle, NOT whole-surface dragging, so it can never steal a
  * pointerdown from the sliders/encoders/inputs that pointer-capture their own drags.
  *
+ * Placement is UNIFORM (owner rework, same day): the tab floats just OUTSIDE the window above
+ * its top-right corner (~10% of the panel width) and stays hidden until the panel is hovered
+ * (drag-grip.css `:hover > .drag-grip`). Consequence: a panel that scrolls must keep overflow
+ * on an INNER wrapper (.pd-scroll / .mp-scroll pattern) or the tab would be clipped.
+ *
  * Mechanics: the hook exposes a `style` carrying `--drag-x/--drag-y` custom properties; each
  * panel's CSS composes them into its OWN transform (`translateX(-50%) translate(var(--drag-x)…)`
  * for centred panels) — inline transforms would clobber those centering transforms. Offsets are
@@ -99,27 +104,23 @@ export function usePanelDrag(key: string): PanelDrag {
 }
 
 /** The visible handle — place as a DIRECT child of the panel root carrying `drag.style`
- *  (the clamp measures its parent). */
+ *  (the clamp measures its parent, and the hover-reveal rule is `:hover > .drag-grip`).
+ *  Placement is UNIFORM (owner 2026-07-14): a small tab just OUTSIDE the window above its
+ *  top-right corner, hidden until the panel is hovered. Hosts that scroll must therefore keep
+ *  overflow on an INNER wrapper — an overflow root would clip the overhanging tab. */
 export default function DragGrip({
   drag,
   label,
   tipPos = "up",
-  inset = false,
-  corner = "right",
 }: {
   drag: PanelDrag;
   label: string;
   tipPos?: TipPos;
-  /** Grip INSIDE the panel's top-right corner — for overflow:auto panels (photo detail,
-   *  my-pins) where the default overhanging tab would be scroll-clipped. */
-  inset?: boolean;
-  /** Which top corner the grip docks to (left when the right corner hosts a close button). */
-  corner?: "right" | "left";
 }) {
   return (
     <button
       type="button"
-      className={`drag-grip tip${inset ? " drag-grip--inset" : ""}${corner === "left" ? " drag-grip--left" : ""}`}
+      className="drag-grip tip"
       aria-label={label}
       data-tip="DRAG TO MOVE · DOUBLE-CLICK RESETS"
       data-tip-pos={tipPos}

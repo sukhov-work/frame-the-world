@@ -111,6 +111,10 @@ export default function PlanPanel() {
             />
           </div>
 
+          {/* Scrolling lives on this INNER wrapper so the head's InfoDot tip (a ::after pill
+              wider than the card) never creates a horizontal scrollbar nor gets clipped —
+              the card root stays overflow-free (owner 2026-07-14 no-h-scroll pass). */}
+          <div className="pp-scroll">
           {hasEye ? (
             profileReady ? (
               <>
@@ -142,6 +146,7 @@ export default function PlanPanel() {
               </button>
             ))}
             {events.length === 0 && <div className="pp-status">NO EVENTS FOR THIS DAY</div>}
+          </div>
           </div>
         </aside>
       )}

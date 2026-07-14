@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useCameraStore } from "../../store/camera";
 import { usePinsStore } from "../../store/pins";
-import { parsePoseHash } from "../../lib/geo/urlPose";
+import { parseFpvHash, parsePoseHash } from "../../lib/geo/urlPose";
 import "../../styles/welcome.css";
 
 /**
@@ -15,10 +15,13 @@ import "../../styles/welcome.css";
  * journey keep flying.
  */
 export default function Welcome() {
-  // A shared/reloaded `#p=` pose skips the landing entirely — the globe boots AT that view
-  // (StylizedTiles reads the same hash); showing the welcome would arm Explore over it.
+  // A shared/reloaded `#p=` pose (or `#f=` FPV view, owner 2026-07-14) skips the landing
+  // entirely — the globe boots AT that view (StylizedTiles reads the same hash); showing the
+  // welcome would arm Explore over it.
   const [visible, setVisible] = useState(
-    () => typeof location === "undefined" || parsePoseHash(location.hash) === null,
+    () =>
+      typeof location === "undefined" ||
+      (parsePoseHash(location.hash) === null && parseFpvHash(location.hash) === null),
   );
   const pinCount = usePinsStore((s) => s.pins.length);
 

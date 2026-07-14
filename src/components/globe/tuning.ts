@@ -142,6 +142,12 @@ export const SCRUB = {
   /** Releasing the knob in this outer fraction of the rail recentres the window on the pinned
    *  time — repeated edge drags walk multiple days without a date picker. */
   edgeRecenterFrac: 0.02,
+  /** Fast-forward presets (scene-seconds per real second) for the PLAY control (owner
+   *  2026-07-14) — 1 min/s · 10 min/s · 1 h/s. Real speed (×1) is always offered first. */
+  playRates: [60, 600, 3600],
+  /** UI tick (ms) while playback runs — drives the knob/labels only; the SCENE advances
+   *  continuously via sceneTimeMs() (store/time playback derivation), never in steps. */
+  playTickMs: 150,
 } as const;
 
 /** Soft bloom post (GlobeCanvas composer): sun/moon/city-lights glow; earth catches it very
@@ -1456,6 +1462,15 @@ export const FPV = {
   /** Sun/moon edge markers hide when the body sits below this altitude at the anchor (deg) —
    *  −6° keeps a about-to-rise / just-set body plannable through civil twilight. */
   bodyMarkerMinAltDeg: -6,
+  /** Sky-look glide time constant (ms) — clicking an off-frame ☀/☾ edge chip eases the FPV
+   *  look toward the body (owner 2026-07-14); ~1 s to settle, never a snap. */
+  skyLookEaseTauMs: 320,
+  /** Shared `#f=` FPV link boot framing (owner 2026-07-14): the camera boots this high above
+   *  the shared viewer point (m), looking along the shared bearing, so the right street tiles
+   *  stream while the temp-FPV entry flight descends onto the exact eye. */
+  shareBootAltM: 260,
+  /** Tilt (deg from nadir) of that pre-entry boot framing. */
+  shareBootTiltDeg: 55,
   // --- Per-frame loop constants (B13 — were inline in the orchestrator FPV paths) --------------
   /** The FOV glide has arrived (and snaps) when |fov − target| drops under this (deg). */
   fovArriveDeg: 0.01,

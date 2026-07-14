@@ -16,16 +16,23 @@
  * Multiday (2026-07-10): the rail stays the ±12 h fine control; the header date picker jumps the
  * whole window to ANY calendar date (local time-of-day preserved, window recentred). The
  * ephemeris is exact at any epoch, so sun/moon/star positions are correct on the chosen date.
+ *
+ * Owner 2026-07-14: a precise time-of-day picker joins the date; ±hour/±minute steppers join the
+ * ±day pair; and a PLAY transport advances scene time fluidly — real speed or the SCRUB.playRates
+ * fast-forward presets. The scene itself never steps: consumers read sceneTimeMs() per frame
+ * (store/time playback derivation); the interval here only refreshes the knob and labels.
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import {
   fractionToTime,
   localDateStr,
+  localTimeStr,
   sceneTimeMs,
   timeToFraction,
   useTimeStore,
   withLocalDate,
+  withLocalTime,
 } from "../../store/time";
 import { useUploadStore } from "../../store/upload";
 import { capturedAtToUtcMs } from "../../lib/ephemeris/captureTime";
@@ -50,16 +57,29 @@ function offsetLabel(deltaMs: number): string {
   return h > 0 ? `${sign}${h} h ${String(m).padStart(2, "0")} m` : `${sign}${m} m`;
 }
 
+/** "1 MIN/S" style label for a playback preset (scene-seconds per real second). */
+function rateLabel(rate: number): string {
+  if (rate < 60) return `×${rate}`;
+  if (rate < 3600) return `${Math.round(rate / 60)} MIN/S`;
+  return `${Math.round(rate / 3600)} HR/S`;
+}
+
 export default function TimeScrubber() {
   const drag = usePanelDrag("timeline");
   const live = useTimeStore((s) => s.live);
   const pinnedMs = useTimeStore((s) => s.timeMs);
+  const playRate = useTimeStore((s) => s.playRate);
   const setTime = useTimeStore((s) => s.setTime);
   const goLive = useTimeStore((s) => s.goLive);
+  const play = useTimeStore((s) => s.play);
+  const stopPlay = useTimeStore((s) => s.stopPlay);
   const uploadPhase = useUploadStore((s) => s.phase);
+  const playing = playRate !== null;
 
   const railRef = useRef<HTMLDivElement>(null);
   const [anchorMs, setAnchorMs] = useState(() => sceneTimeMs());
+  // The PLAY speed the transport arms (scene-seconds per real second); 1 = real time.
+  const [armedRate, setArmedRate] = useState<number>(1);
   // Ref, not state: nothing renders from the drag flag, and it must flip synchronously so a
   // pointermove arriving in the same tick as pointerdown already scrubs.
   const draggingRef = useRef(false);
@@ -77,6 +97,21 @@ export default function TimeScrubber() {
     return () => clearInterval(id);
   }, [live, anchorMs]);
 
+  // Playback: a fast UI tick keeps the knob/labels riding the fluid scene time (the SCENE reads
+  // sceneTimeMs() per frame — this interval is display-only). The window recentres when the
+  // playing knob reaches a rail end, so fast-forward walks across days hands-free.
+  useEffect(() => {
+    if (!playing) return;
+    const id = setInterval(() => {
+      const f = timeToFraction(sceneTimeMs(), anchorMs, WINDOW_MS);
+      if (f <= SCRUB.edgeRecenterFrac || f >= 1 - SCRUB.edgeRecenterFrac) {
+        setAnchorMs(sceneTimeMs());
+      }
+      forceTick((n) => n + 1);
+    }, SCRUB.playTickMs);
+    return () => clearInterval(id);
+  }, [playing, anchorMs]);
+
   // Placed photo with an EXIF capture time → pin the scene to the capture instant (solar time at
   // the placement longitude) and centre the rail there. Re-placing re-seeds.
   useEffect(() => {
@@ -89,7 +124,7 @@ export default function TimeScrubber() {
     setAnchorMs(ms);
   }, [uploadPhase, setTime]);
 
-  const nowMs = live ? Date.now() : pinnedMs;
+  const nowMs = sceneTimeMs();
   const fraction = timeToFraction(nowMs, anchorMs, WINDOW_MS);
 
   const scrubToClientX = (clientX: number) => {
@@ -143,14 +178,40 @@ export default function TimeScrubber() {
     setAnchorMs(ms);
   };
 
-  // Quick day traversal (Phase 5.5 S1): ±24 h keeping the time-of-day — pins even from LIVE,
-  // exactly like picking the neighbouring date. Holds up across DST because the ephemeris is
-  // exact at any epoch and the scrubber's day boundary is the browser TZ by design (v1 choice).
-  const stepDay = (dir: 1 | -1) => {
-    const ms = sceneTimeMs() + dir * 86_400_000;
+  // Precise time-of-day (owner 2026-07-14): same calendar day, another wall time.
+  const onTimeChange = (timeStr: string) => {
+    const ms = withLocalTime(sceneTimeMs(), timeStr);
+    if (ms === null) return; // cleared input — never scrub on garbage
     setTime(ms);
     setAnchorMs(ms);
   };
+
+  // Quick traversal (Phase 5.5 S1 days; owner 2026-07-14 hours/minutes): ± one unit keeping the
+  // rest of the stamp — pins even from LIVE. The window recentres only when the step would land
+  // the knob in the clamp band (day steps always do; hour/minute steps stay put on the rail).
+  const stepBy = (deltaMs: number) => {
+    const ms = sceneTimeMs() + deltaMs;
+    setTime(ms);
+    const f = timeToFraction(ms, anchorMs, WINDOW_MS);
+    if (f <= SCRUB.edgeRecenterFrac || f >= 1 - SCRUB.edgeRecenterFrac) setAnchorMs(ms);
+  };
+
+  // PLAY/STOP: play() pins the current instant and advances it at the armed rate (no-op when
+  // already LIVE at real speed — the wall clock IS ×1 playback); STOP freezes where it reached.
+  const togglePlay = () => {
+    if (playing) {
+      stopPlay();
+      return;
+    }
+    play(armedRate);
+    if (!useTimeStore.getState().live) setAnchorMs(sceneTimeMs());
+  };
+  const onRateChange = (rate: number) => {
+    setArmedRate(rate);
+    if (playing) play(rate); // re-arm the running reel at the new speed
+  };
+
+  const ff = playing && (playRate ?? 1) > 1;
 
   return (
     <aside className="ts" style={drag.style} aria-label="Scene time scrubber — relights the globe">
@@ -162,7 +223,7 @@ export default function TimeScrubber() {
           className="ts-day tip"
           aria-label="Previous day (same time)"
           data-tip="PREVIOUS DAY, SAME TIME"
-          onClick={() => stepDay(-1)}
+          onClick={() => stepBy(-86_400_000)}
         >
           ◀
         </button>
@@ -179,16 +240,27 @@ export default function TimeScrubber() {
             onChange={(e) => onDateChange(e.target.value)}
           />
         </span>
+        <span className="tip tip-wrap" data-tip="SET THE PRECISE TIME OF DAY — LIGHT FOLLOWS.">
+          <input
+            type="time"
+            className="ts-date ts-time"
+            aria-label="Scene time of day"
+            value={localTimeStr(nowMs)}
+            onChange={(e) => onTimeChange(e.target.value)}
+          />
+        </span>
         <button
           type="button"
           className="ts-day tip"
           aria-label="Next day (same time)"
           data-tip="NEXT DAY, SAME TIME"
-          onClick={() => stepDay(1)}
+          onClick={() => stepBy(86_400_000)}
         >
           ▶
         </button>
-        <span className="ts-offset">{live ? "LIVE" : offsetLabel(nowMs - Date.now())}</span>
+        <span className={`ts-offset${ff ? " ts-offset--ff" : ""}`}>
+          {live ? "LIVE" : `${playing ? (ff ? "▶▶ " : "▶ ") : ""}${offsetLabel(nowMs - Date.now())}`}
+        </span>
         <InfoDot
           label="About scene time"
           tip="Scene time drives the whole planet: sun, shadows, moon phase, stars. Scrub to plan golden hour at your pin's location."
@@ -237,9 +309,87 @@ export default function TimeScrubber() {
         </div>
         <div className={`ts-knob${live ? "" : " ts-knob--pinned"}`} style={{ left: `${pct}%` }} />
       </div>
-      <div className="ts-span" aria-hidden="true">
-        <span>−{SCRUB.windowHours / 2}h</span>
-        <span>+{SCRUB.windowHours / 2}h</span>
+      <div className="ts-foot">
+        <span className="ts-span" aria-hidden="true">−{SCRUB.windowHours / 2}h</span>
+        <div className="ts-transport">
+          <span className="ts-step">
+            <button
+              type="button"
+              className="ts-day tip"
+              aria-label="Previous hour (same minute)"
+              data-tip="PREVIOUS HOUR"
+              onClick={() => stepBy(-3_600_000)}
+            >
+              ◀
+            </button>
+            <span className="ts-step__unit" aria-hidden="true">H</span>
+            <button
+              type="button"
+              className="ts-day tip"
+              aria-label="Next hour (same minute)"
+              data-tip="NEXT HOUR"
+              onClick={() => stepBy(3_600_000)}
+            >
+              ▶
+            </button>
+          </span>
+          <span className="ts-step">
+            <button
+              type="button"
+              className="ts-day tip"
+              aria-label="Previous minute"
+              data-tip="PREVIOUS MINUTE"
+              onClick={() => stepBy(-60_000)}
+            >
+              ◀
+            </button>
+            <span className="ts-step__unit" aria-hidden="true">M</span>
+            <button
+              type="button"
+              className="ts-day tip"
+              aria-label="Next minute"
+              data-tip="NEXT MINUTE"
+              onClick={() => stepBy(60_000)}
+            >
+              ▶
+            </button>
+          </span>
+          <button
+            type="button"
+            className={`ts-play tip${playing ? " is-on" : ""}${ff ? " is-ff" : ""}`}
+            aria-label={playing ? "Stop playback" : "Play scene time"}
+            aria-pressed={playing}
+            data-tip={
+              playing
+                ? "STOP — STAY AT THIS SCENE TIME."
+                : "PLAY SCENE TIME FROM HERE AT THE PICKED SPEED. NOW RETURNS TO LIVE."
+            }
+            onClick={togglePlay}
+          >
+            {playing ? "◼" : "▶"}
+          </button>
+          <span className="tip tip-wrap" data-tip="PLAYBACK SPEED — REAL TIME OR COMPRESSED.">
+            <select
+              className="ts-rate"
+              aria-label="Playback speed"
+              value={armedRate}
+              onChange={(e) => onRateChange(Number(e.target.value))}
+            >
+              <option value={1}>REAL ×1</option>
+              {SCRUB.playRates.map((r) => (
+                <option key={r} value={r}>
+                  {rateLabel(r)}
+                </option>
+              ))}
+            </select>
+          </span>
+          {ff && (
+            <span className="ts-ff" role="status">
+              FAST-FORWARD {rateLabel(playRate!)}
+            </span>
+          )}
+        </div>
+        <span className="ts-span" aria-hidden="true">+{SCRUB.windowHours / 2}h</span>
       </div>
     </aside>
   );

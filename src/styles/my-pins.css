@@ -32,10 +32,8 @@
   transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
   width: 320px;
   max-height: 60vh;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   padding: 14px 16px;
   border: 1px solid var(--color-border);
   border-radius: 14px;
@@ -45,14 +43,27 @@
   animation: mp-enter 300ms cubic-bezier(0.65, 0, 0.35, 1);
 }
 
+/* The scrolling body — an INNER wrapper (owner 2026-07-14): overflow on the root would clip
+   the drag grip's outside-the-window tab; x pinned hidden (overflow-y:auto forces x to auto). */
+.mp-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 @keyframes mp-enter {
+  /* The entry slide composes the drag offset — a remounted panel with a remembered position
+     must not snap when the animation ends (the pd-enter fix, same idiom). */
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-8px) translate(var(--drag-x, 0px), var(--drag-y, 0px));
   }
   to {
     opacity: 1;
-    transform: none;
+    transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
   }
 }
 

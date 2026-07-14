@@ -1,14 +1,14 @@
-/* Light planner (Pass 3 WS4 + Dnipro Slice 5) — a PLAN pill in the free bottom strip between
-   the FPV HUD slot (ends ~17rem) and the TimeScrubber band (starts 32rem), opening an upward
-   card of jump-to-time chips + the skyline verdict. Instrument idiom: IBM Plex Mono, tabular
-   numerals, tokens.css colours only. Top-level island (index.astro) — position:fixed must never
-   sit inside a backdrop-filtered card (the S2 containing-block trap). */
+/* Light planner (Pass 3 WS4 + Dnipro Slice 5) — the PLAN pill sits just below the FRAME THE
+   WORLD title (top-left, owner 2026-07-14) and unfolds DOWNWARD into the card of jump-to-time
+   chips + the skyline verdict. Instrument idiom: IBM Plex Mono, tabular numerals, tokens.css
+   colours only. Top-level island (index.astro) — position:fixed must never sit inside a
+   backdrop-filtered card (the S2 containing-block trap). */
 
 .pp-root {
   position: fixed;
-  left: 18rem;
-  bottom: 2.4rem;
-  z-index: 10;
+  left: 1.6rem; /* the topnav's own padding — the pill hangs under the logo */
+  top: 3.4rem;
+  z-index: 31; /* above the photo-detail panel (30) — an opened planner must not hide under it */
   font-family: var(--font-mono);
   user-select: none;
   transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
@@ -40,10 +40,14 @@
 .pp {
   position: absolute;
   left: 0;
-  bottom: 2.6rem;
-  width: 13.5rem;
-  max-height: min(26rem, calc(100vh - 12rem));
-  overflow-y: auto;
+  top: 2.4rem; /* unfolds DOWN from the pill (owner 2026-07-14) */
+  width: 12.5rem;
+  /* Cap so the open card never reaches the FPV mini-map's slot in the bottom-left column
+     (the mini-map top edge sits ~33rem above the viewport bottom); the 10rem floor keeps the
+     card usable on short viewports — the drag grip resolves rare collisions. The root itself
+     never clips (no overflow): the head InfoDot's tip pill extends past the card freely, and
+     only the BODY below the head scrolls (.pp-scroll). */
+  max-height: max(10rem, min(24rem, calc(100vh - 39rem)));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -51,6 +55,17 @@
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+}
+
+/* The scrolling body — head stays put; x pinned hidden (overflow-y:auto forces x to auto,
+   and a widget must never grow a horizontal scrollbar). */
+.pp-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .pp-head {
@@ -168,6 +183,6 @@ body.welcome-active .pp-root {
 @media (max-width: 900px) {
   .pp-root {
     left: 1rem;
-    bottom: 14rem; /* clear the narrow-viewport scrubber + HUD stack */
+    top: 7.5rem; /* under the full-width narrow-viewport location search */
   }
 }

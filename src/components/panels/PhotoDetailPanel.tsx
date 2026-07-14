@@ -212,7 +212,10 @@ export default function PhotoDetailPanel() {
 
   return (
     <aside className="pd" style={drag.style} aria-label="Placed photo — adjust projection">
-      <DragGrip drag={drag} label="Move the photo panel" tipPos="right" inset />
+      <DragGrip drag={drag} label="Move the photo panel" tipPos="right" />
+      {/* Scrolling lives on this INNER wrapper: an overflow root would clip the drag grip's
+          overhanging tab (the uniform outside-the-window handle, owner 2026-07-14). */}
+      <div className="pd-scroll">
       <header className="pd-head">
         <div className="pd-head__title">
           <span className="pd-dot" aria-hidden="true" />
@@ -365,6 +368,7 @@ export default function PhotoDetailPanel() {
               role="radiogroup"
               aria-label="Public location precision"
               data-tip="HOW PRECISELY THE PUBLIC PIN SHOWS YOUR SPOT. ~1KM IS THE SAFE DEFAULT."
+              data-tip-pos="left"
             >
               {TIERS.map((t) => (
                 <button
@@ -456,6 +460,7 @@ export default function PhotoDetailPanel() {
         <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().clear()}>
           START OVER
         </button>
+      </div>
       </div>
     </aside>
   );

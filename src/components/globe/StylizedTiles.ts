@@ -45,7 +45,14 @@ import { usePinsStore } from "../../store/pins";
 import { arrivalPose, createFlight, type FlightTarget } from "./flight";
 import { createExplore } from "./explore";
 import type { FrustumGeometry } from "../../lib/geo/frustum";
-import { formatPoseHash, parsePoseHash } from "../../lib/geo/urlPose";
+import {
+  formatFpvHash,
+  formatSceneHash,
+  parseFpvHash,
+  parsePoseHash,
+  parseTimeHash,
+  type UrlFpvPose,
+} from "../../lib/geo/urlPose";
 import { driftRadiansForDt } from "../../lib/globe/drift";
 import { lruCapBytesForTier, type QualityTier } from "../../lib/globe/quality";
 import {
@@ -300,17 +307,24 @@ export function attachStylizedTiles(opts: {
   //     default — the camera BOOTS at the shared view (no flight), welcome stays skipped
   //     (Welcome.tsx checks the same hash). Reconstructed through the ONE arrival derivation
   //     (arrivalPose) from the stored view focus + camera alt/heading/tilt. ------------------
-  const urlPose = parsePoseHash(typeof location === "undefined" ? "" : location.hash);
-  if (urlPose) {
+  // Boots the camera at an orbit pose over a geodetic point along a view heading (shared by the
+  // `#p=` restore and the `#f=` FPV restore's pre-entry framing).
+  const bootPoseAt = (
+    latDeg: number,
+    lonDeg: number,
+    headingDeg: number,
+    altAboveGroundM: number,
+    tiltDeg: number,
+  ) => {
     const lookAt = new THREE.Vector3();
-    const latRad = (urlPose.latDeg * Math.PI) / 180;
-    const lonRad = (urlPose.lonDeg * Math.PI) / 180;
+    const latRad = (latDeg * Math.PI) / 180;
+    const lonRad = (lonDeg * Math.PI) / 180;
     WGS84_ELLIPSOID.getCartographicToPosition(latRad, lonRad, 0, lookAt);
     const upT = lookAt.clone().normalize();
     const east = new THREE.Vector3(-Math.sin(lonRad), Math.cos(lonRad), 0);
     const north = new THREE.Vector3().crossVectors(upT, east).normalize();
     // The camera sits OPPOSITE the view heading: approach = −(sin·east + cos·north).
-    const h = (urlPose.headingDeg * Math.PI) / 180;
+    const h = (headingDeg * Math.PI) / 180;
     const approachHoriz = east
       .clone()
       .multiplyScalar(-Math.sin(h))
@@ -320,8 +334,8 @@ export function attachStylizedTiles(opts: {
       lookAt,
       approachHoriz,
       groundAltM: 0, // terrain hasn't loaded at boot; altM is the camera's ellipsoidal altitude
-      altAboveGroundM: urlPose.altM,
-      tiltDeg: urlPose.tiltDeg,
+      altAboveGroundM,
+      tiltDeg,
       wgs84A: WGS84_A,
       wgs84B: WGS84_B,
     });
@@ -329,6 +343,34 @@ export function attachStylizedTiles(opts: {
     camera.up.copy(pose.position).normalize();
     camera.lookAt(pose.lookAt);
     camera.updateProjectionMatrix();
+  };
+  // A shared `#f=` FPV view pending its temp-FPV entry (consumed by the entry block once the
+  // pin point exists — the exact basis/eye/FOV then come from the hash, not the boot camera).
+  let pendingFpvShare: UrlFpvPose | null = null;
+  const urlPose = parsePoseHash(typeof location === "undefined" ? "" : location.hash);
+  const urlFpv = urlPose ? null : parseFpvHash(typeof location === "undefined" ? "" : location.hash);
+  if (urlPose) {
+    bootPoseAt(urlPose.latDeg, urlPose.lonDeg, urlPose.headingDeg, urlPose.altM, urlPose.tiltDeg);
+  } else if (urlFpv) {
+    // Shared FPV view (owner 2026-07-14): boot NEAR the viewer point looking along the shared
+    // bearing (tiles start streaming toward the right street), then enter temp-pin FPV — the
+    // entry flight lands on the exact eye; basis/pitch/FOV apply from the hash at entry.
+    bootPoseAt(
+      urlFpv.latDeg,
+      urlFpv.lonDeg,
+      urlFpv.headingDeg,
+      FPV.shareBootAltM,
+      FPV.shareBootTiltDeg,
+    );
+    pendingFpvShare = urlFpv;
+    useCameraStore.getState().setTempPin({ latDeg: urlFpv.latDeg, lonDeg: urlFpv.lonDeg });
+    useCameraStore.getState().setTempFpv(true);
+  }
+  if (urlPose || urlFpv) {
+    // Shared CUSTOM scene time (owner 2026-07-14): a `&t=` on either hash pins the scene to
+    // that instant so the shared link reproduces the light too. No `t` = live (never shared).
+    const urlTimeMs = parseTimeHash(location.hash);
+    if (urlTimeMs !== null) useTimeStore.getState().setTime(urlTimeMs);
   }
 
   // --- GlobeControls — documented ellipsoid binding, damping for a premium feel, snappy zoom. --
@@ -658,6 +700,8 @@ export function attachStylizedTiles(opts: {
     fpvDragId = e.pointerId;
     fpvLastX = e.clientX;
     fpvLastY = e.clientY;
+    // A direct look-drag always beats a pending sky-look glide (never fight the user).
+    if (useCameraStore.getState().skyLook) useCameraStore.getState()._clearSkyLook();
   };
   const onFpvPointerMove = (e: PointerEvent) => {
     if (!fpvActive || fpvDragId !== e.pointerId) return;
@@ -736,6 +780,9 @@ export function attachStylizedTiles(opts: {
   const _fpvUp = new THREE.Vector3();
   const _fpvRight = new THREE.Vector3();
   const _fpvUpGeo = new THREE.Vector3();
+  // Sky-look glide scratch (owner 2026-07-14): ENU east/north at the FPV eye.
+  const _skyEast = new THREE.Vector3();
+  const _skyNorth = new THREE.Vector3();
   const _fpvLook = new THREE.Vector3();
   const _fpvWalkFwd = new THREE.Vector3();
   const _fpvWalkRight = new THREE.Vector3();
@@ -1092,23 +1139,45 @@ export function attachStylizedTiles(opts: {
                 edgeOpacity: FPV.buildingGhostEdgeOpacity,
               });
               camNow.clearAllTargets();
-              fpvEyeM = FRUSTUM.eyeHeightM;
-              // Basis: continue looking the way the camera already faces (horizontal at the pin).
+              // A shared `#f=` link carries the EXACT view — eye height, bearing, pitch, FOV
+              // (owner 2026-07-14); consumed once, then the entry behaves as always.
+              const share = pendingFpvShare;
+              pendingFpvShare = null;
+              fpvEyeM = share
+                ? THREE.MathUtils.clamp(share.eyeM, 0.5, FPV.tempEyeMaxM)
+                : FRUSTUM.eyeHeightM;
               _tempUp0.copy(pinP).normalize();
-              camera.getWorldDirection(_camFwd);
-              _tempFwd0.copy(_camFwd).addScaledVector(_tempUp0, -_camFwd.dot(_tempUp0));
-              if (_tempFwd0.lengthSq() < 1e-6) {
-                _tempFwd0.copy(_Z).addScaledVector(_tempUp0, -_tempUp0.z); // north fallback
+              if (share) {
+                // Basis from the SHARED bearing (fresh scratch vectors — never alias a stored
+                // basis vector to a module temp, the S7 street-names lesson).
+                const shareLonR = THREE.MathUtils.degToRad(share.lonDeg);
+                _skyEast.set(-Math.sin(shareLonR), Math.cos(shareLonR), 0);
+                _skyNorth.crossVectors(_tempUp0, _skyEast).normalize();
+                const shareH = THREE.MathUtils.degToRad(share.headingDeg);
+                _tempFwd0
+                  .copy(_skyEast)
+                  .multiplyScalar(Math.sin(shareH))
+                  .addScaledVector(_skyNorth, Math.cos(shareH));
+              } else {
+                // Basis: continue looking the way the camera already faces (horizontal at the pin).
+                camera.getWorldDirection(_camFwd);
+                _tempFwd0.copy(_camFwd).addScaledVector(_tempUp0, -_camFwd.dot(_tempUp0));
+                if (_tempFwd0.lengthSq() < 1e-6) {
+                  _tempFwd0.copy(_Z).addScaledVector(_tempUp0, -_tempUp0.z); // north fallback
+                }
               }
               _tempFwd0.normalize();
               _tempRight0.crossVectors(_tempFwd0, _tempUp0).normalize();
               _tempUp0.crossVectors(_tempRight0, _tempFwd0); // re-orthonormalized
+              if (share) fpvPitch = THREE.MathUtils.degToRad(share.pitchDeg);
               const eye = pinP.clone().addScaledVector(_tempUp0, fpvEyeM);
               flight.start({
                 position: eye,
                 lookAt: eye.clone().addScaledVector(_tempFwd0, FPV.tempLookAheadM),
               });
-              fovTargetDeg = FPV.tempFovDeg;
+              fovTargetDeg = share
+                ? THREE.MathUtils.clamp(share.fovDeg, FPV.minFovDeg, FPV.maxFovDeg)
+                : FPV.tempFovDeg;
               lastInteract = now;
             }
           }
@@ -1145,6 +1214,43 @@ export function attachStylizedTiles(opts: {
               }
             }
             if (posed) {
+              // Sky-look glide (owner 2026-07-14): a clicked ☀/☾ edge chip requested a bearing —
+              // ease the look offsets toward it against the PRE-look anchor basis. The final
+              // view azimuth is az0 + fpvYaw (the −yaw rotation about geodetic up is compass-
+              // clockwise) and the final elevation is baseElev + fpvPitch, so the targets fall
+              // out directly; the pitch target honours the existing ±pitchClampDeg band. Any
+              // direct look interaction cancels the request; arrival clears it.
+              const skyLook = camNow.skyLook;
+              if (skyLook) {
+                const eyeGeo = ecefToGeodetic([
+                  camera.position.x,
+                  camera.position.y,
+                  camera.position.z,
+                ]);
+                const lonR = (eyeGeo.lonDeg * Math.PI) / 180;
+                _skyEast.set(-Math.sin(lonR), Math.cos(lonR), 0); // ECEF z = polar axis
+                _skyNorth.crossVectors(_fpvUpGeo, _skyEast).normalize();
+                const az0 = Math.atan2(_fpvFwd.dot(_skyEast), _fpvFwd.dot(_skyNorth));
+                const elev0 = Math.asin(THREE.MathUtils.clamp(_fpvFwd.dot(_fpvUpGeo), -1, 1));
+                const maxElev = THREE.MathUtils.degToRad(FPV.pitchClampDeg);
+                const azT = THREE.MathUtils.degToRad(skyLook.azDeg);
+                const yawDelta = Math.atan2(Math.sin(azT - az0 - fpvYaw), Math.cos(azT - az0 - fpvYaw));
+                const yawT = fpvYaw + yawDelta;
+                const pitchT = THREE.MathUtils.clamp(
+                  THREE.MathUtils.degToRad(skyLook.altDeg) - elev0,
+                  -maxElev - elev0,
+                  maxElev - elev0,
+                );
+                const kLook = 1 - Math.exp(-dtMs / FPV.skyLookEaseTauMs);
+                fpvYaw += (yawT - fpvYaw) * kLook;
+                fpvPitch += (pitchT - fpvPitch) * kLook;
+                if (Math.abs(yawT - fpvYaw) < 0.003 && Math.abs(pitchT - fpvPitch) < 0.003) {
+                  fpvYaw = yawT;
+                  fpvPitch = pitchT;
+                  camNow._clearSkyLook();
+                }
+                lastInteract = now;
+              }
               if (fpvYaw !== 0) {
                 _fpvQ.setFromAxisAngle(_fpvUpGeo, -fpvYaw); // +yaw = look right (compass sense)
                 _fpvFwd.applyQuaternion(_fpvQ);
@@ -1382,6 +1488,8 @@ export function attachStylizedTiles(opts: {
           if (fpvActive) {
             // + rate = compass-clockwise = look right (matches the fpvYaw convention)
             fpvYaw += THREE.MathUtils.degToRad((appliedHeadingRate * dtMs) / 1000);
+            // Deflecting ROTATE is a direct look interaction — it beats a sky-look glide.
+            if (camStore.skyLook) camStore._clearSkyLook();
             lastInteract = now;
           } else {
             // + rate = compass-clockwise = heading increases → rotate camera by −θ about local up
@@ -1661,6 +1769,8 @@ export function attachStylizedTiles(opts: {
               });
             } else if (camNow.fpvHud) {
               camNow._syncFpvHud(null);
+              // FPV exited mid-glide — drop the leftover request (a re-entry must not consume it).
+              if (camNow.skyLook) camNow._clearSkyLook();
             }
           } else {
             if (camNow.fpvHud) camNow._syncFpvHud(null);
@@ -1699,23 +1809,66 @@ export function attachStylizedTiles(opts: {
           if (!fpvActive) mirrorCamGeo(); // viewer ground point — FPV writes it at HUD cadence
           // URL pose (S7 feedback #2): mirror the SETTLED pose into the hash — the address bar
           // is always a shareable link and a reload lands here, not on the welcome. Skipped
-          // while something else owns the camera (welcome/explore/FPV/flight); replaceState
+          // while something else owns the camera (welcome/explore/flight); replaceState
           // only (no history spam), written only on change, ~1.6 s cadence (Safari rate-limits
-          // history calls).
+          // history calls). In FPV the hash switches to the `#f=` form (owner 2026-07-14):
+          // exact viewer point + eye height + bearing/pitch + FOV — first-person views share.
           if (
             frameCount % ORCH.urlPoseEveryFrames === 0 &&
             !camStore.exploreActive &&
-            !fpvActive &&
             !flight.active() &&
             !document.body.classList.contains("welcome-active")
           ) {
-            const hash = formatPoseHash({
-              latDeg: focusGeo.latDeg,
-              lonDeg: focusGeo.lonDeg,
-              altM: alt,
-              headingDeg: Number.isNaN(liveHeadingDeg) ? camStore.headingDeg : liveHeadingDeg,
-              tiltDeg: liveTiltDeg,
-            });
+            // A CUSTOM scene time (pinned/playing) rides the hash as `&t=` so the light is
+            // shareable with the view; live time is never written (owner 2026-07-14).
+            const shareTimeMs = useTimeStore.getState().live ? null : sceneTimeMs();
+            let hash: string;
+            if (fpvActive) {
+              const eyeGeo = ecefToGeodetic([
+                camera.position.x,
+                camera.position.y,
+                camera.position.z,
+              ]);
+              const eb = enuBasis(eyeGeo.latDeg, eyeGeo.lonDeg);
+              camera.getWorldDirection(_camFwd);
+              const viewAzDeg = THREE.MathUtils.radToDeg(
+                Math.atan2(
+                  _camFwd.x * eb.east[0] + _camFwd.y * eb.east[1] + _camFwd.z * eb.east[2],
+                  _camFwd.x * eb.north[0] + _camFwd.y * eb.north[1] + _camFwd.z * eb.north[2],
+                ),
+              );
+              const viewAltDeg = THREE.MathUtils.radToDeg(
+                Math.asin(
+                  THREE.MathUtils.clamp(
+                    _camFwd.x * eb.up[0] + _camFwd.y * eb.up[1] + _camFwd.z * eb.up[2],
+                    -1,
+                    1,
+                  ),
+                ),
+              );
+              hash = formatFpvHash(
+                {
+                  latDeg: eyeGeo.latDeg,
+                  lonDeg: eyeGeo.lonDeg,
+                  eyeM: fpvEyeAboveGroundM,
+                  headingDeg: viewAzDeg,
+                  pitchDeg: viewAltDeg,
+                  fovDeg: camera.fov,
+                },
+                shareTimeMs,
+              );
+            } else {
+              hash = formatSceneHash(
+                {
+                  latDeg: focusGeo.latDeg,
+                  lonDeg: focusGeo.lonDeg,
+                  altM: alt,
+                  headingDeg: Number.isNaN(liveHeadingDeg) ? camStore.headingDeg : liveHeadingDeg,
+                  tiltDeg: liveTiltDeg,
+                },
+                shareTimeMs,
+              );
+            }
             if (hash !== lastUrlPoseHash) {
               lastUrlPoseHash = hash;
               history.replaceState(null, "", hash);

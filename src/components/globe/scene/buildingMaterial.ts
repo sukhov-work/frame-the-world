@@ -23,7 +23,8 @@ import { glf } from "./glsl";
 // dissolves with (imageryGround.ts:280). Injected into the shared fill + edge material so each
 // tile can reveal per its own birth age WITHOUT a per-tile material (which would break the
 // one-material invariant + recompile constantly, the reason TilesFadePlugin can't ride this layer).
-const FTW_BAYER_GLSL = /* glsl */ `
+// Exported: the enriched tree material reuses the identical dissolve for the BUILDINGS slider.
+export const FTW_BAYER_GLSL = /* glsl */ `
   float ftwBayer2(vec2 v) { return mod(3.0 * v.y + 2.0 * v.x, 4.0); }
   float ftwBayer4(vec2 v) {
     vec2 P1 = mod(v, 2.0);
@@ -56,6 +57,9 @@ export interface BuildingMaterialUniforms {
   uGhostK: { value: number };
   uSolidK: { value: number };
   uGhostAlpha: { value: number };
+  /** Flat solidity multiplier (enriched tileset's BUILDINGS slider law) — 1 = fully solid.
+   *  Applied through the SAME screen-door dissolve as the ghost curve. */
+  uFlatAlpha: { value: number };
   uNowMs: { value: number };
   uFillBirthMs: { value: number };
   uEdgeBirthMs: { value: number };
@@ -95,6 +99,7 @@ export function createBuildingMaterials(
     uGhostK: { value: 0 },
     uSolidK: { value: 0 },
     uGhostAlpha: { value: FPV.buildingGhostOpacity as number },
+    uFlatAlpha: { value: 1 },
     // F1 screen-door reveal: ONE shared per-frame clock (written in the consumer's update()) +
     // per-tile birth ms written by each mesh's / edge's onBeforeRender right before it draws (birth
     // is constant per tile — cheap uniform writes, no per-tile material). Fill and edge draw as
@@ -121,6 +126,7 @@ export function createBuildingMaterials(
     shader.uniforms.uGhostK = uniforms.uGhostK;
     shader.uniforms.uSolidK = uniforms.uSolidK;
     shader.uniforms.uGhostAlpha = uniforms.uGhostAlpha;
+    shader.uniforms.uFlatAlpha = uniforms.uFlatAlpha;
     shader.uniforms.uFtwNowMs = uniforms.uNowMs;
     shader.uniforms.uFtwFillBirthMs = uniforms.uFillBirthMs;
     shader.uniforms.uFtwNight = uniforms.uFtwNight;
@@ -158,6 +164,7 @@ export function createBuildingMaterials(
         uniform float uGhostK;
         uniform float uSolidK;
         uniform float uGhostAlpha;
+        uniform float uFlatAlpha;
         uniform float uFtwNowMs;
         uniform float uFtwFillBirthMs;
         uniform float uFtwNight;
@@ -174,11 +181,25 @@ export function createBuildingMaterials(
         {
           // FPV ghost: near the camera the mass melts away entirely (the street stays
           // readable), easing to the ghost opacity with distance; uSolidK lifts the whole
-          // curve back to solid as the viewpoint climbs over the rooftops.
+          // curve back to solid as the viewpoint climbs over the rooftops; uFlatAlpha is the
+          // enriched tileset's flat BUILDINGS-slider law. The combined solidity renders as a
+          // SCREEN-DOOR dissolve (the F1 Bayer, jittered per building), NOT alpha blending —
+          // the material stays opaque + depth-writing at every slider value, so occlusion is
+          // always correct and the fade is gradual and uniform (the old alpha path needed a
+          // binary depthWrite flip near solid, which read as an instant jump to full opacity
+          // — owner 2026-07-14).
           float ftwD = length(vViewPosition);
           float ftwGhostA = uGhostAlpha *
             smoothstep(${glf(FPV.buildingGhostNearM)}, ${glf(FPV.buildingGhostFarM)}, ftwD);
-          diffuseColor.a *= mix(1.0, mix(ftwGhostA, 1.0, uSolidK), uGhostK);
+          float ftwA = mix(1.0, mix(ftwGhostA, 1.0, uSolidK), uGhostK) * uFlatAlpha;
+          if (ftwA < 0.999) {
+            // Per-building jitter inside each Bayer step: 16 ordered levels become an
+            // effectively continuous city-wide response (each building's threshold shifts
+            // fractionally, so the skyline dissolves smoothly instead of banding).
+            float ftwFb =
+              (ftwBayer4(floor(mod(gl_FragCoord.xy, 4.0))) + ftwHash11(vFtwBId + 5.0)) / 16.0;
+            if (ftwFb > ftwA) discard;
+          }
           // Pass 2 R2: per-building tonal variation — a subtle ± on the fill albedo keyed by the
           // building hash, so the skyline reads as massing, not one uniform slab. toneVariation 0
           // makes mix(1,1,·)=1 → byte-identical to the pre-Pass-2 look (the no-op comparator).
