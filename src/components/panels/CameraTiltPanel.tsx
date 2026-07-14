@@ -8,6 +8,7 @@ import { useUploadStore } from "../../store/upload";
 import { CONTROLS, FPV } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal, formatAltM, formatEyeM } from "../../lib/format/readout";
+import { isVariantActive, toggleVariantUrl } from "../../lib/globe/enrichedVariant";
 import "../../styles/camera-tilt.css";
 import "../../styles/tips.css";
 
@@ -43,6 +44,14 @@ export default function CameraTiltPanel() {
   // The dblclick memo retires the moment the user demonstrates the gesture (a temp pin
   // exists) and stays out of the way while the upload flow owns the globe.
   const showMemo = !s.tempPin && !s.tempFpv && uploadPhase === "idle";
+
+  // Buildings-source A/B (OSM2World variant work, 2026-07-14): the chip toggles `?enriched=`
+  // and RELOADS — the camera pose rides the #p hash, so the reload lands at the identical view
+  // with the other bake streaming. Chip only exists when an enriched tileset is configured
+  // (no env URL → no enrichment → nothing to toggle). Computed once per render: a click
+  // navigates away, so no reactive mirror is needed.
+  const hasEnriched = Boolean(import.meta.env.PUBLIC_ENRICHED_TILES_URL);
+  const o2wActive = typeof location !== "undefined" && isVariantActive(location.search);
 
   return (
     <>
@@ -151,6 +160,26 @@ export default function CameraTiltPanel() {
         >
           SAT
         </button>
+        {/* Buildings source (o2w A/B): CLASSIC extruded bake ↔ OSM2World detailed bake.
+            Reload-based by design — a live tileset swap would have to tear down the enriched
+            renderer's seating/occlusion state mid-frame; the #p pose makes the reload lossless. */}
+        {hasEnriched && (
+          <button
+            type="button"
+            className={`ct-mode ct-bld tip${o2wActive ? " is-on" : ""}`}
+            onClick={() => location.assign(toggleVariantUrl(location.href))}
+            aria-pressed={o2wActive}
+            aria-label={
+              o2wActive
+                ? "Switch buildings to the classic bake"
+                : "Switch buildings to the OSM2World detailed bake"
+            }
+            data-tip="BUILDINGS SOURCE — CLASSIC BAKE ↔ OSM2WORLD DETAIL. RELOADS, KEEPS THE VIEW."
+            data-tip-pos="left"
+          >
+            BLD
+          </button>
+        )}
       </div>
       <Encoder
         label="ROTATE"

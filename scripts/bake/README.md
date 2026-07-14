@@ -15,7 +15,7 @@ npm run bake -- --city dnipro          # or: node scripts/bake/bake.mjs --city d
 
 ```
 Overpass footprints+tags  →  C6 exclusion  →  height inference  →  roof-shaped extrusion  →
-spatial-grid 3D Tiles 1.1 (per-cell glb, shared ENU frame)  →  public/enriched/<city>/
+spatial-grid 3D Tiles 1.1 (per-cell glb, shared ENU frame)  →  bakes/enriched/<city>/
 ```
 
 - **Height inference** (the whole point — <10% of OSM buildings carry a height; ~47% in central Dnipro):
@@ -43,13 +43,19 @@ spatial-grid 3D Tiles 1.1 (per-cell glb, shared ENU frame)  →  public/enriched
 Output per city: `tileset.json`, `cell-<i>-<j>.glb` (one per non-empty grid cell), `bake-manifest.json`
 (provenance + counts + the ODbL attribution string). Baked artifacts are git-ignored (they belong on R2).
 
-## Wire it into the app
+## Wire it into the app — dev streams LOCAL, build/release stream R2
 
 ```bash
-# .env.local
-PUBLIC_ENRICHED_TILES_URL=/enriched/dnipro/tileset.json     # (restart wix dev — Vite reads .env at start)
+# .env.local (production source — what wix build/release bake in):
+PUBLIC_ENRICHED_TILES_URL=https://<worker>.workers.dev/enriched/dnipro/tileset.json
+# .env.development.local (dev override — wix dev NEVER hits R2):
+PUBLIC_ENRICHED_TILES_URL=/enriched/dnipro/tileset.json
 # src/components/globe/tuning.ts — ENRICHED.bbox MUST equal the config bbox (mask extent == enriched extent)
 ```
+
+The bakes live OUTSIDE `public/` (`bakes/enriched/<city>/`, git-ignored) so a build bundle never
+ships hundreds of MB of derived tiles; in dev a `serve`-only Vite middleware (`astro.config.mjs`
+`ftwLocalTiles`) serves them same-origin at `/enriched/*`. Restart `wix dev` after env changes.
 Absent `PUBLIC_ENRICHED_TILES_URL` → the enriched layer is byte-identical-OFF.
 
 ## Per-city config (`cities/<city>.json`)
@@ -80,11 +86,43 @@ enriched layer ships). The manifest carries the full string. Publish any redistr
 - **Single-LOD grid.** Spatial cells cull + stream, but there's one detail level (no coarse LOD). Fine at
   ~0.1–0.3 GB / city; add HLOD when scaling past the central core.
 
+## OSM2World variant bake (fidelity tier 2 — IMPLEMENTED 2026-07-14, parallel to the default)
+
+`bake-osm2world.mjs` bakes the SAME city into a SIBLING output (`bakes/enriched/<city>-o2w/`) with
+OSM2World-reconstructed geometry: every Simple-3D-Buildings roof shape OSM tags (vs the extruder's
+flat/gable/pyramid approximations) plus real constructions — walls, fences, masts, street lamps,
+bollards, fountains, pylons. **The default pipeline is untouched**: `bake.mjs`, `cities/dnipro.json`
+and `bakes/enriched/dnipro` are never modified; the variant has its own config
+(`cities/dnipro-o2w.json`, `extends: dnipro` so bbox/grid/trees stay identical) and its own R2 prefix.
+
+```bash
+node scripts/bake/bake-osm2world.mjs --city dnipro-o2w   # --refresh re-extract · --reconvert force Java re-runs
+node --env-file=.env.local scripts/bake/upload-r2.mjs --city dnipro-o2w   # → enriched/dnipro-o2w/ (Worker unchanged)
+```
+
+Pipeline: tiled Overpass XML (cached `.cache/o2w-*.osm`) → reference-safe C6 filter (`lib/osmXml.mjs` —
+excluded ways/relations removed whole, excluded tagged nodes keep geometry but lose tags) → OSM2World
+`convert` per sub-box (0.5.0-SNAPSHOT CLI, heavy modules excluded, ground Y=0, `keepOsmElements`) →
+re-bin node classes into OUR grid (`lib/readGlb.mjs`; dedupe across sub-boxes; per-feature contiguous
+`_FEATURE_ID_0`; empirical N/S handedness vote; C6 polygon gate) → our instanced trees
+(`lib/vegetation.mjs`, same cache+seed → byte-identical to the default bake) → the REUSED
+`encodeGlb`/`buildTileset`. Requires the OSM2World distro jar (git-ignored; see
+`cities/dnipro-o2w.json` osm2world.jarNote) + Java 17+.
+
+**Visual A/B (the point):** the camera pose lives in the URL hash, so the same link with a different
+`?enriched=` value compares bakes at the identical pose (`src/lib/globe/enrichedVariant.ts`):
+- *(no param)* → the default bake (`PUBLIC_ENRICHED_TILES_URL`, byte-identical behaviour)
+- `?enriched=dnipro-o2w` → the OSM2World variant (falls back to same-origin `/enriched/dnipro-o2w/…` before upload)
+- `?enriched=off` → stock Cesium OSM buildings (mask off)
+
+Ships UNCOMPRESSED (spike-measured ≈1.4× the extruder bake); `gltf-transform weld+draco` gave 23× in
+the spike but needs a DRACOLoader wired into the enriched runtime — a deliberate non-change for now.
+
 ## Higher-fidelity tiers (upgrade paths — same tileset contract)
 
-2. **OSM2World** (richer S3DB roofs + textures). Java 21 ✓ + `osm2world.org/download/...` reachable ✓.
-   `java -jar OSM2World.jar --input dnipro.osm --output dnipro.glb` (local z=0 frame → keep
-   `reseatToTerrain`), then wrap the glb with `lib/gltf.mjs` (verify the up-axis; OSM2World is Y-up).
+2. **OSM2World** — ✅ implemented above (`bake-osm2world.mjs`). Remaining upgrades inside the tier:
+   draco decode wiring (23×), textured "realism" materials (off-by-default pattern), Geofabrik
+   PBF + `osmium tags-filter` extraction for byte-reproducible production bakes.
 3. **Heavy LOD2** (Overture/MS-ML footprints → height inference → 3dfier/City4CFD straight-skeleton LOD2
    roofs → CityJSON (`val3dity`) → `py3dtiles`/`pg2b3dm` Draco+batch-ids). Python 3.10 + PyPI reachable ✓,
    but needs Docker (PostGIS/GDAL) — **the Docker daemon was NOT running when this pipeline was built**, so
@@ -96,17 +134,41 @@ enriched layer ships). The manifest carries the full string. Publish any redistr
    sample the raster at each candidate cell, keep cells > ~3 m canopy, height = raster value; keep the
    same `packTreeInstances` output contract and nothing downstream changes.
 
-## Hosting (R2 — production)
+## Hosting (R2 + Worker — production, LIVE 2026-07-14)
+
+The tiles stream from a **private** Cloudflare R2 bucket fronted by a **Worker** gateway
+(`r2-worker.mjs`). We use a Worker, not an R2 custom domain, because `r2.dev` public URLs serve **no
+CORS** and the owner has no domain to bind — a Worker over a private bucket gives full CORS + Range
+control on the free tier while keeping the bucket private. Three one-command stages, all reading
+`.env.local` (the owner's `CLOUDFLARE_*` names are accepted; `R2_*` also work):
 
 ```bash
-# one-time per bucket (Cloudflare dash): create bucket → connect a CUSTOM DOMAIN (r2.dev serves NO
-# CORS) → add the CORS policy from DNIPRO_SLICE0_SPIKE.md §Recipe (GET/HEAD, range/if-match headers,
-# expose content-range/accept-ranges/etag; purge cache after editing CORS).
-export R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=…   # never committed
-node scripts/bake/upload-r2.mjs --city dnipro          # pure-Node SigV4 PUTs (no SDK/wrangler)
-#   --dry-run   list what would upload
-# then: PUBLIC_ENRICHED_TILES_URL=https://<custom-domain>/enriched/dnipro/tileset.json
+# 1 · upload the baked tileset (pure-Node SigV4 PUTs — no SDK/wrangler)
+node --env-file=.env.local scripts/bake/upload-r2.mjs --city dnipro    # --dry-run to preview
+#    → s3://<bucket>/enriched/dnipro/*   (prefix = enriched/<city>, override with R2_PREFIX)
+
+# 2 · deploy the Worker gateway (CORS + Range; PRESERVES the R2_BUCKET binding)
+node --env-file=.env.local scripts/bake/deploy-worker.mjs             # --dry-run to preview
+
+# 3 · point the client at the Worker (.env.local; restart wix dev — Vite reads env at start)
+PUBLIC_ENRICHED_TILES_URL=https://<worker>.workers.dev/enriched/dnipro/tileset.json
 ```
 
-Free tier (10 GB, zero egress) covers a single-city tileset (~33 MB full-city Dnipro). The signer
+Env (never committed): upload needs the S3 keys `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_ACCESSKEY_ID` /
+`CLOUDFLARE_SECRET_ACCESSKEY` / `CLOUDFLARE_R2_BUCKET`; deploy needs the Workers-Edit `CLOUDFLARE_API_TOKEN`
++ `CLOUDFLARE_ACCOUNT_ID`. Verify: `curl -H 'Origin: http://localhost:4321' -I <worker>/enriched/dnipro/tileset.json`
+must carry `access-control-allow-origin: *`; the Worker root `/` returns
+`{"service":"frame-the-world-tiles","ok":true}` (a pre-release canary).
+
+**Free tier — comfortably safe.** R2: 10 GB storage (Dnipro full-city ≈ 33 MB), egress is **always free**,
+Class A/writes 1M-mo (96 PUTs per upload), Class B/reads 10M-mo. Workers: 100k requests/day — one globe
+view streams ≤ ~96 files, so ≈ 1,000 views/day before the cap, and browser `Cache-Control` (glb
+`immutable`, tileset.json 5 min) collapses repeat requests. No paid resource is touched.
+
+**Onboarding city #2 / expanding Dnipro (extensible by design).** Add `cities/<name>.json` →
+`npm run bake -- --city <name>` → `upload-r2.mjs --city <name>`: it lands at `enriched/<name>/…`, which
+the Worker **already serves with zero changes** (it's path-agnostic) — only `PUBLIC_ENRICHED_TILES_URL`
+moves. Widening the Dnipro bbox is just a re-bake + re-upload under the same prefix. Re-bakes reuse
+filenames → purge the Cloudflare cache (or version the prefix) when a glb changes; tileset.json is only
+cached 5 min. Switching to a custom domain later is a pure client-URL swap. The SigV4 signer
 (`lib/s3sign.mjs`) is unit-gated in `test/bake/s3sign.test.ts`.

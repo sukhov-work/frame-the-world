@@ -22,6 +22,7 @@ import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { clampGroundM } from "../../lib/geo/terrain";
+import { resolveEnrichedUrl } from "../../lib/globe/enrichedVariant";
 import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
@@ -168,8 +169,13 @@ export function attachStylizedTiles(opts: {
   // Dnipro 3D enrichment (Slice 0): entirely opt-in via PUBLIC_ENRICHED_TILES_URL. When set, the
   // global OSM buildings are masked inside ENRICHED.bbox and the self-hosted enriched tileset streams
   // in their place, seated on the rendered terrain (R1). Absent → maskBbox null + no 3rd renderer =
-  // byte-identical to before (the Overture-trial-flag precedent).
-  const enrichedUrl = import.meta.env.PUBLIC_ENRICHED_TILES_URL as string | undefined;
+  // byte-identical to before (the Overture-trial-flag precedent). The `?enriched=` search param is
+  // the A/B compare seam between parallel bakes (o2w variant work) — absent, this line resolves to
+  // the env URL exactly as before; `off` also drops the mask → the stock Cesium OSM look.
+  const enrichedUrl = resolveEnrichedUrl(
+    import.meta.env.PUBLIC_ENRICHED_TILES_URL as string | undefined,
+    typeof location === "undefined" ? "" : location.search,
+  );
   const buildings = attachBuildings(scene, {
     camera,
     renderer,

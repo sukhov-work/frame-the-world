@@ -191,7 +191,7 @@ async function main() {
 
   console.log(`\n✓ baked ${children.length} tiles · ${totalVerts.toLocaleString()} verts · ${totalTrees.toLocaleString()} trees · ${(totalBytes / 1e6).toFixed(2)} MB · maxH ${globalMaxH.toFixed(0)} m`);
   console.log(`  → ${outDir.replace(REPO_ROOT + "/", "")}/tileset.json`);
-  console.log(`  set PUBLIC_ENRICHED_TILES_URL=/${(args.out ?? cfg.output).replace(/^public\//, "")}/tileset.json + set ENRICHED.bbox to [${w},${s},${e},${n}]\n`);
+  console.log(`  set PUBLIC_ENRICHED_TILES_URL=/${(args.out ?? cfg.output).replace(/^(public|bakes)\//, "")}/tileset.json + set ENRICHED.bbox to [${w},${s},${e},${n}]\n`);
 }
 
 main().catch((err) => { console.error("✗ bake failed:", err.message); process.exit(1); });

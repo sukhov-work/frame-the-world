@@ -1,0 +1,24 @@
+{
+  "extends": "dnipro",
+  "city": "dnipro-o2w",
+  "variantNote": "OSM2World higher-fidelity VARIANT of the dnipro bake (fidelity tier 2 — OSM2WORLD_EXPERIMENT_PREP.md §9). Inherits bbox/grid/buildings/vegetation/exclusion from cities/dnipro.json so the mask extent, cells, and trees stay identical — an A/B differs ONLY in structure geometry. Baked by scripts/bake/bake-osm2world.mjs; the default pipeline (bake.mjs → bakes/enriched/dnipro) is untouched. Compare at runtime via ?enriched=dnipro-o2w (src/lib/globe/enrichedVariant.ts).",
+  "output": "bakes/enriched/dnipro-o2w",
+  "tilesetVersion": "dnipro-o2w-2",
+  "osm2world": {
+    "jar": "scripts/bake/spike-osm2world/dist/OSM2World.jar",
+    "jarNote": "0.5.0-SNAPSHOT distro (git-ignored; re-fetch: curl -LO https://osm2world.org/download/files/latest/OSM2World-latest-bin.zip && unzip into scripts/bake/spike-osm2world/dist). Java 17+ required; the --add-exports flags in bake-osm2world.mjs are mandatory on Java 21.",
+    "lod": 2,
+    "xmxGb": 4,
+    "subGrid": 4,
+    "subGridNote": "The bbox is extracted as subGrid×subGrid Overpass XML tiles (one convert each — bounds JVM heap and mirror result size). 4×4 keeps each tile ~5×5 km over the 20×20 km greater box (2×2 sufficed for the old 7.4×8.9 km box). Features straddling tile borders arrive complete in both extracts; the adapter dedupes by OSM element id.",
+    "excludeModules": [
+      "TreeModule", "IndoorModule", "AerowayModule",
+      "RoadModule", "RailwayModule", "SurfaceAreaModule",
+      "WaterModule", "ParkingModule", "SportsModule", "GolfModule", "PoolModule",
+      "TrafficSignModule", "BicycleParkingModule", "BridgeModule", "TunnelModule"
+    ],
+    "excludeModulesNote": "All names verified against osm2world-core-0.5.0-SNAPSHOT.jar. Trees: we inject our own instanced set (vegetation.mjs). Roads/rail/surfaces/water: we already render the vector road/water web — their triangles dominated the spike glb (89%). Bridge/Tunnel render road decks → no-ops without RoadModule. KEPT ON: Building, Barrier (walls/fences/hedges), Power (pylons; C6 tag filter already strips substations/plants), Mast, StreetFurniture, Cliff.",
+    "dropClassesRegex": "^(Road|Railway|Surface|Water|Parking|Traffic|Aeroway|Forest|Tree|PoleFence|ChainLinkFence)",
+    "dropClassesRegexNote": "Adapter-side belt over the module exclusion, matched against each kept node's class token (the word before the OSM id in its name, e.g. 'Building w294038853'). Everything NOT matched flows into the tileset and is reported per class in the bake log + manifest — widen/narrow after reading the report. PoleFence/ChainLinkFence dropped 2026-07-14: OSM2World renders every fence post — measured 62% of ALL vertices over the 20×20 km box (peripheral garden fencing), sub-pixel beyond ~1 km; revisit (central-only or simplified) once draco lands."
+  }
+}
