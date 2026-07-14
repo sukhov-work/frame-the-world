@@ -11,10 +11,8 @@
   z-index: 30;
   width: 360px;
   max-height: calc(100vh - 120px);
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
   padding: 18px 20px 16px;
   border: 1px solid var(--color-border);
   border-radius: 14px;
@@ -45,6 +43,18 @@
   .pd-hint__pulse {
     animation: none;
   }
+}
+
+/* The scrolling body — an INNER wrapper (owner 2026-07-14): overflow on the .pd root would
+   clip the drag grip's outside-the-window tab. overflow-y:auto forces overflow-x to auto, so
+   x is pinned to hidden — a widget must never grow a horizontal scrollbar. */
+.pd-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .pd-head {

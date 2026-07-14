@@ -3,37 +3,90 @@ import { create } from "zustand";
 /**
  * Scene time — the single clock the ephemeris (sun/moon positions, terminator, shadows) reads.
  *
- * Two modes:
- *  • live  — the scene follows the real wall clock. Consumers call `sceneTimeMs()` (cheap;
+ * Three modes:
+ *  • live   — the scene follows the real wall clock. Consumers call `sceneTimeMs()` (cheap;
  *    reads Date.now()) instead of subscribing per-frame — the store is NOT written at 60 fps.
  *  • pinned — `setTime(ms)` freezes the scene at a UTC instant (the Phase-4 time scrubber's
  *    seam: dragging scrubs `timeMs`; `goLive()` resumes the wall clock).
+ *  • playing — `play(rate)` advances the pinned instant fluidly at `rate` scene-seconds per
+ *    real second (owner 2026-07-14: PLAY + fast-forward presets). The store is STILL never
+ *    written per frame: `sceneTimeMs()` derives the current instant from the play anchor, so
+ *    every per-frame consumer (ephemeris resample, shaders, arcs) gets continuous time free.
  *
  * Time is ALWAYS UTC epoch ms here. Formatting (local wall clock, TZ) is the UI's concern
  * (`lib/format/readout.ts` patterns) — never store a formatted date.
  */
 export interface TimeState {
-  /** Pinned scene time (UTC epoch ms). Only meaningful when `live` is false. */
+  /** Pinned scene time (UTC epoch ms). Only meaningful when `live` is false; while playing it
+   *  is the instant playback (re)started from — see `playbackNowMs`. */
   timeMs: number;
-  /** True = follow the real clock; false = pinned at `timeMs`. */
+  /** True = follow the real clock; false = pinned at `timeMs` (or playing from it). */
   live: boolean;
-  /** Pin the scene to a UTC instant (scrubber). */
+  /** Playback rate (scene-seconds per real second; 1 = real speed, 3600 = 1 h/s). null = not
+   *  playing. Playing implies `live === false` — LIVE at real speed needs no playback. */
+  playRate: number | null;
+  /** Wall-clock ms when playback (re)started from `timeMs`; null while not playing. */
+  playWallMs: number | null;
+  /** Pin the scene to a UTC instant (scrubber). A running playback continues FROM that instant
+   *  (the anchor rebases) — scrubbing mid-play adjusts the position, it doesn't stop the reel. */
   setTime: (ms: number) => void;
-  /** Resume following the wall clock. */
+  /** Resume following the wall clock (also stops any playback). */
   goLive: () => void;
+  /** Play scene time forward at `rate` scene-seconds per real second, starting from the
+   *  current scene instant. No-op when already live at real speed (owner spec). */
+  play: (rate: number) => void;
+  /** Stop playback, freezing the scene at the instant playback reached (stays pinned). */
+  stopPlay: () => void;
+}
+
+/** The scene instant (UTC ms) a given state describes at wall-clock `wallMs` (pure — the
+ *  playback derivation `sceneTimeMs` and the unit tests share). */
+export function playbackNowMs(
+  s: Pick<TimeState, "timeMs" | "live" | "playRate" | "playWallMs">,
+  wallMs: number,
+): number {
+  if (s.live) return wallMs;
+  if (s.playRate !== null && s.playWallMs !== null) {
+    return Math.round(s.timeMs + (wallMs - s.playWallMs) * s.playRate);
+  }
+  return s.timeMs;
 }
 
 export const useTimeStore = create<TimeState>((set) => ({
   timeMs: Date.now(),
   live: true,
-  setTime: (ms) => set({ timeMs: ms, live: false }),
-  goLive: () => set({ live: true, timeMs: Date.now() }),
+  playRate: null,
+  playWallMs: null,
+  setTime: (ms) =>
+    set((s) => ({
+      timeMs: ms,
+      live: false,
+      playWallMs: s.playRate === null ? null : Date.now(),
+    })),
+  goLive: () => set({ live: true, timeMs: Date.now(), playRate: null, playWallMs: null }),
+  play: (rate) =>
+    set((s) => {
+      if (s.live && rate === 1) return {}; // already the wall clock at real speed
+      const now = Date.now();
+      return {
+        timeMs: playbackNowMs(s, now),
+        live: false,
+        playRate: rate,
+        playWallMs: now,
+      };
+    }),
+  stopPlay: () =>
+    set((s) =>
+      s.playRate === null
+        ? {}
+        : { timeMs: playbackNowMs(s, Date.now()), playRate: null, playWallMs: null },
+    ),
 }));
 
-/** The scene's current UTC instant (ms) — wall clock when live, pinned value otherwise. */
+/** The scene's current UTC instant (ms) — wall clock when live, the fluid playback instant
+ *  while playing, the pinned value otherwise. */
 export function sceneTimeMs(): number {
-  const s = useTimeStore.getState();
-  return s.live ? Date.now() : s.timeMs;
+  return playbackNowMs(useTimeStore.getState(), Date.now());
 }
 
 // --- Scrubber window math (pure — exported for the TimeScrubber panel + unit tests, the
@@ -73,5 +126,30 @@ export function withLocalDate(ms: number, dateStr: string): number | null {
   if (!m) return null;
   const next = new Date(ms);
   next.setFullYear(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(next.getTime()) ? null : next.getTime();
+}
+
+// --- Time-of-day jump (owner 2026-07-14): the calendar's precise-time twin. Same local-clock
+//     semantics as withLocalDate — the date stays, the wall time moves. -------------------------
+
+/** Scene instant → "HH:MM" in the browser's local timezone (the `<input type="time">` value). */
+export function localTimeStr(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** The same LOCAL calendar date moved to another wall time ("HH:MM" or "HH:MM:SS", browser
+ *  timezone; seconds reset when omitted). Null for malformed/cleared input — never scrub on
+ *  garbage (the withLocalDate discipline). */
+export function withLocalTime(ms: number, timeStr: string): number | null {
+  const m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(timeStr);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  const s = m[3] ? Number(m[3]) : 0;
+  if (h > 23 || min > 59 || s > 59) return null;
+  const next = new Date(ms);
+  next.setHours(h, min, s, 0);
   return Number.isNaN(next.getTime()) ? null : next.getTime();
 }

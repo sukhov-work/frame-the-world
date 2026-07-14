@@ -107,7 +107,10 @@ export default function MyPins() {
       </button>
       {open && (
         <div className="mp-panel" style={drag.style} role="dialog" aria-label="My uploaded photos">
-          <DragGrip drag={drag} label="Move the pins list" tipPos="left" inset corner="left" />
+          <DragGrip drag={drag} label="Move the pins list" tipPos="left" />
+          {/* Scrolling lives on this INNER wrapper: an overflow root would clip the drag
+              grip's outside-the-window tab (owner 2026-07-14 uniform handles). */}
+          <div className="mp-scroll">
           <header className="mp-head">
             <span className="mp-title">
               MY PINS{photos ? ` · ${photos.length}` : ""}
@@ -158,6 +161,7 @@ export default function MyPins() {
               ))}
             </ul>
           )}
+          </div>
         </div>
       )}
     </span>

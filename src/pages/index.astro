@@ -51,10 +51,10 @@ import "../styles/boot-poster.css";
     (function () {
       var el = document.getElementById("boot-poster");
       if (!el) return;
-      // A shared/reloaded `#p=` pose boots straight into that view and skips the Welcome
-      // landing — skip the splash too, matching Welcome.tsx.
+      // A shared/reloaded `#p=` pose (or `#f=` FPV view) boots straight into that view and
+      // skips the Welcome landing — skip the splash too, matching Welcome.tsx.
       try {
-        if (/^#p/.test(location.hash)) {
+        if (/^#(p|f)=/.test(location.hash)) {
           el.parentNode && el.parentNode.removeChild(el);
           return;
         }

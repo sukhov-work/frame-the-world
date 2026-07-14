@@ -39,6 +39,16 @@
   box-shadow: 0 0 6px rgba(232, 162, 104, 0.8);
   animation: none;
 }
+/* Fast-forward (owner 2026-07-14): compressed time gets the red danger tint. */
+.tr-dot--ff {
+  background: var(--color-danger);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-danger) 80%, transparent);
+}
+/* Double class beats the base .tr-mode rule below regardless of source order. */
+.tr-mode.tr-mode--ff {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border));
+}
 @keyframes tr-breathe {
   0%,
   100% {

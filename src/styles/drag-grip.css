@@ -1,33 +1,57 @@
-/* DragGrip — the ⠿ move handle every floating panel carries (owner 2026-07-14). A small tab
-   peeking over the panel's top-right corner: quiet until hovered, cursor communicates the
-   affordance. pointer-events re-enabled explicitly — some hosts (.fh, .tr) are
-   pointer-events:none by design and the grip must still work there. Colour via tokens.css. */
+/* DragGrip — the ⠿ move handle every floating panel carries (owner 2026-07-14 rework: ONE
+   uniform placement). A small distinct tab floating just OUTSIDE the window, above its top-right
+   corner, ~10% of the panel width. Hidden until the panel (or the grip's own halo) is hovered —
+   the :hover chain climbs the DOM from any hovered descendant, so hovering anywhere on the panel
+   reveals it, even though the tab itself sits outside the panel's box. pointer-events re-enabled
+   explicitly — some hosts (.fh, .tr) are pointer-events:none by design and the grip must still
+   work there. Colour via tokens.css. */
 
 .drag-grip {
   position: absolute;
-  top: -11px;
-  right: 6px;
+  bottom: calc(100% + 3px); /* just above the top edge — outside the window */
+  right: 0;
   z-index: 1;
-  padding: 0 7px;
-  height: 15px;
-  line-height: 13px;
-  font-size: 10px;
+  width: max(30px, 10%); /* ~10% of the host panel's width, never a sliver */
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 9px;
+  line-height: 1;
   letter-spacing: 0.08em;
   color: var(--color-text-muted);
   background: color-mix(in srgb, var(--color-bg) 78%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
-  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 5px;
   cursor: grab;
-  opacity: 0.55;
+  opacity: 0;
   pointer-events: auto;
   touch-action: none;
   user-select: none;
-  transition: opacity 180ms ease, color 180ms ease;
+  transition: opacity 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+/* Generous invisible halo: the pointer can travel from the panel onto the tab (and hover the
+   tab's known corner even on pointer-events:none hosts) without the reveal flickering off. */
+.drag-grip::before {
+  content: "";
+  position: absolute;
+  inset: -6px -8px -8px;
+}
+
+/* Reveal when the HOST panel is hovered (the grip is its direct child by contract), when the
+   grip itself is hovered/dragged, or when it holds keyboard focus. */
+:hover > .drag-grip,
+.drag-grip:hover,
+.drag-grip:active,
+.drag-grip:focus-visible {
+  opacity: 1;
 }
 
 .drag-grip:hover {
-  opacity: 1;
   color: var(--color-text-secondary);
+  border-color: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
 }
 
 .drag-grip:active {
@@ -35,14 +59,17 @@
   color: var(--color-accent);
 }
 
-/* Inside-the-corner variant for overflow:auto panels (the overhanging tab would be clipped). */
-.drag-grip--inset {
-  top: 6px;
-  right: 6px;
+/* pointer-events:none hosts (the scene clock .tr, the view-instruments card .fh) never match
+   :hover from their body — keep a faint resting affordance there so the handle is findable. */
+.tr .drag-grip,
+.fh .drag-grip {
+  opacity: 0.28;
 }
-
-/* Left-corner dock — used when the top-right corner already hosts a close button. */
-.drag-grip--left {
-  right: auto;
-  left: 6px;
+.tr:hover > .drag-grip,
+.fh:hover > .drag-grip,
+.tr .drag-grip:hover,
+.fh .drag-grip:hover,
+.tr .drag-grip:active,
+.fh .drag-grip:active {
+  opacity: 1;
 }

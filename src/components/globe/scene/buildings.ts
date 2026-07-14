@@ -221,15 +221,14 @@ export function attachBuildings(
       tiles.update();
     },
     setGhost(ghost) {
-      const wasTransparent = styleMat.transparent;
-      styleMat.transparent = ghost !== null;
-      // Alpha now lives entirely in the injected distance curve — opacity stays 1 so the
-      // shader's mix() is the one source (uGhostK 0 renders identical to the pre-S6 look).
+      // The ghost fade renders as a SCREEN-DOOR dissolve inside the shared shader (owner
+      // 2026-07-14: gradual + uniform) — the fill stays OPAQUE and depth-writing at every
+      // solidity, so there is no transparent-sort, no recompile toggle, and no binary
+      // depthWrite threshold (the old flip near solid read as an instant jump to full
+      // opacity between two slider ticks).
       uGhostK.value = ghost ? 1 : 0;
       if (ghost) uGhostAlpha.value = ghost.fillOpacity;
       ghostEdgeOpacity = ghost ? ghost.edgeOpacity : BUILDINGS.edgeOpacity;
-      styleMat.depthWrite = ghost === null || uSolidK.value > 0.6; // ghosts must not occlude each other into solidity
-      if (wasTransparent !== styleMat.transparent) styleMat.needsUpdate = true; // shader recompile
       edgeMat.opacity = ghost
         ? ghost.edgeOpacity + (BUILDINGS.edgeOpacity - ghost.edgeOpacity) * uSolidK.value
         : BUILDINGS.edgeOpacity;
@@ -237,9 +236,6 @@ export function attachBuildings(
     setGhostSolid(k) {
       uSolidK.value = THREE.MathUtils.clamp(k, 0, 1);
       if (uGhostK.value > 0) {
-        // Near-solid ghosts write depth again — a ~1.0-alpha transparent surface with
-        // depthWrite off would show its own back faces through the front.
-        styleMat.depthWrite = uSolidK.value > 0.6;
         edgeMat.opacity =
           ghostEdgeOpacity + (BUILDINGS.edgeOpacity - ghostEdgeOpacity) * uSolidK.value;
       }

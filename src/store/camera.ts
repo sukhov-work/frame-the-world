@@ -130,6 +130,14 @@ export interface CameraState {
   /** Sun/moon direction markers (every mode, gated by skyGuides) — feeds the ☀/☾ edge chips;
    *  outside FPV the bearings reference is the camera's own geodetic position. */
   skyMarkers: { sun: FpvBodyMarker; moon: FpvBodyMarker } | null;
+  /** One-shot "bring this sky direction into view" request (owner 2026-07-14: clicking an
+   *  off-frame ☀/☾ edge chip). While FPV is active the orchestrator glides fpvYaw/fpvPitch
+   *  toward it and clears it on arrival; outside FPV the chip resolves it directly into the
+   *  existing heading/tilt glide targets. Any direct look interaction cancels it. */
+  skyLook: { azDeg: number; altDeg: number } | null;
+  requestSkyLook: (target: { azDeg: number; altDeg: number }) => void;
+  /** Orchestrator-only: the glide arrived (or was cancelled). */
+  _clearSkyLook: () => void;
   /** Explore ambient pin journey (Phase 5.5 S4): the nav toggle arms it; the orchestrator's
    *  cruise (globe/explore.ts) owns the camera while set. ANY direct interaction (canvas
    *  pointer/wheel, Escape, encoder deflection, slider glide) clears it — never fight the user. */
@@ -186,6 +194,9 @@ export const useCameraStore = create<CameraState>((set) => ({
   groundMode: "dark",
   setGroundMode: (mode) => set({ groundMode: mode }),
   skyMarkers: null,
+  skyLook: null,
+  requestSkyLook: (target) => set({ skyLook: target }),
+  _clearSkyLook: () => set({ skyLook: null }),
   exploreActive: false,
   setExplore: (on) => set({ exploreActive: on }),
   tempPin: null,
@@ -222,6 +233,7 @@ export const useCameraStore = create<CameraState>((set) => ({
       headingRateDegPerS: null,
       zoomRatePerS: null,
       fovRatePerS: null,
+      skyLook: null,
     }),
   _syncTilt: (deg) => set({ tiltDeg: deg }),
   _syncHeading: (deg) => set({ headingDeg: deg }),

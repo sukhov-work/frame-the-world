@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
+import { useUploadStore } from "../../store/upload";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import {
   formatFocal,
@@ -10,6 +11,7 @@ import {
 } from "../../lib/format/readout";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/fpv-hud.css";
+import "../../styles/tips.css";
 
 /**
  * FPV HUD (Phase 5.5 S6, owner ask): while ANY FPV is active, a LEFT-side instrument card
@@ -138,7 +140,15 @@ export default function FpvHud() {
   );
 }
 
-/** Edge chip pointing toward an off-frame body — clamped to a margin box inside the viewport. */
+/** Extra tilt headroom (deg) when steering the orbit camera toward a body: keeps the body
+ *  comfortably inside the ~55° vertical frame rather than pinned at its top edge. */
+const CHIP_TILT_MARGIN_DEG = 18;
+
+/** Edge chip pointing toward an off-frame body — clamped to a margin box inside the viewport.
+ *  Clicking it brings the body into view (owner 2026-07-14): in FPV the orchestrator glides the
+ *  look toward the bearing (camera.skyLook); in orbit it resolves into the existing heading/tilt
+ *  glide targets (heading turns to the azimuth; tilt only ever RAISES toward the horizon, capped
+ *  at the platform's 88° — a high sun stays best-effort at the frame top). */
 function BodyChip({
   marker,
   glyph,
@@ -162,17 +172,31 @@ function BodyChip({
   const x = window.innerWidth / 2 + sx * k;
   const y = window.innerHeight / 2 + sy * k;
   const angleDeg = (Math.atan2(sy, sx) * 180) / Math.PI;
+  const bringIntoView = () => {
+    const st = useCameraStore.getState();
+    const fpvActive = st.fpvHud !== null || useUploadStore.getState().viewMode === "fpv";
+    if (fpvActive) {
+      st.requestSkyLook({ azDeg: marker.azDeg, altDeg: marker.altDeg });
+      return;
+    }
+    st.setTargetHeading(marker.azDeg);
+    const tiltForBody = Math.min(88, 90 + marker.altDeg - CHIP_TILT_MARGIN_DEG);
+    if (tiltForBody > st.tiltDeg) st.setTargetTilt(tiltForBody);
+  };
   return (
-    <div
-      className={`fh-chip fh-chip--${kind}`}
+    <button
+      type="button"
+      className={`fh-chip fh-chip--${kind} tip`}
       style={{ left: x, top: y }}
-      role="img"
-      aria-label={`${kind} is off-frame at ${Math.round(marker.azDeg)}°`}
+      onClick={bringIntoView}
+      data-tip="BRING IT INTO VIEW"
+      data-tip-pos="down"
+      aria-label={`${kind} is off-frame at ${Math.round(marker.azDeg)}° — click to look at it`}
     >
       <span className="fh-chip__glyph">{glyph}</span>
       <span className="fh-chip__arrow" style={{ transform: `rotate(${angleDeg}deg)` }}>
         ➤
       </span>
-    </div>
+    </button>
   );
 }

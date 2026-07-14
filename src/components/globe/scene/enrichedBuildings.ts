@@ -20,7 +20,7 @@ import {
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
 import { EARTH, ENRICHED, TILESETS, TREES } from "../tuning";
-import { createBuildingMaterials } from "./buildingMaterial";
+import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
 
 /**
  * Dnipro 3D enrichment — a THIRD `TilesRenderer` (Slice 0 de-risk spike). It streams a SELF-HOSTED
@@ -161,6 +161,28 @@ export function attachEnrichedBuildings(
     metalness: 0,
     flatShading: true,
   });
+  // FPV BUILDINGS-slider fade for the canopies: the SAME screen-door dissolve the building fill
+  // uses (owner 2026-07-14: gradual + uniform) — the material stays opaque + depth-writing at
+  // every slider value, so trees never alpha-sort against buildings or flip look at a threshold.
+  const uTreeAlpha = { value: 1 };
+  treeMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uFtwTreeAlpha = uTreeAlpha;
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        uniform float uFtwTreeAlpha;
+        ${FTW_BAYER_GLSL}`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        /* glsl */ `#include <color_fragment>
+        if (uFtwTreeAlpha < 0.999) {
+          float ftwTFb = (0.5 + ftwBayer4(floor(mod(gl_FragCoord.xy, 4.0)))) / 16.0;
+          if (ftwTFb > uFtwTreeAlpha) discard;
+        }`,
+      );
+  };
   // Pass 2 R2: a low-discrepancy per-tile seed sequence (golden-ratio increment — well-spread, no
   // Math.random). The baker's feature ids are GLOBAL across the bake, so the seed mostly decorrelates
   // this set from same-id OSM tiles; it also keeps the construction identical to buildings.ts.
@@ -593,25 +615,20 @@ export function attachEnrichedBuildings(
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes;
     },
     setSolidity(k) {
+      // Solidity renders as the shared SCREEN-DOOR dissolve (owner 2026-07-14: gradual +
+      // uniform) — fill and canopy stay OPAQUE and depth-writing at every k, so there is no
+      // transparent-sort and no binary depthWrite threshold (the old flip at k>0.55 made every
+      // mesh read instantly solid between two slider ticks).
       if (k == null) {
-        if (styleMat.transparent) { styleMat.transparent = false; styleMat.needsUpdate = true; }
-        styleMat.opacity = 1;
-        styleMat.depthWrite = true;
+        uniforms.uFlatAlpha.value = 1;
         edgeMat.opacity = ENRICHED.edgeOpacity;
-        if (treeMat.transparent) { treeMat.transparent = false; treeMat.needsUpdate = true; }
-        treeMat.opacity = 1;
-        treeMat.depthWrite = true;
+        uTreeAlpha.value = 1;
         return;
       }
-      const t = k < 0.985; // opaque only at the very top → no transparent-sort cost when solid
-      if (styleMat.transparent !== t) { styleMat.transparent = t; styleMat.needsUpdate = true; }
-      styleMat.opacity = 0.28 + 0.72 * k;
-      styleMat.depthWrite = k > 0.55; // ghosts must not occlude each other into false solidity
+      uniforms.uFlatAlpha.value = 0.28 + 0.72 * k;
       edgeMat.opacity = ENRICHED.edgeOpacity + (0.14 - ENRICHED.edgeOpacity) * k;
       // Trees follow the same slider (owner FPV ask: nothing may occlude the framed subject at 0).
-      if (treeMat.transparent !== t) { treeMat.transparent = t; treeMat.needsUpdate = true; }
-      treeMat.opacity = TREES.fpvMinOpacity + (1 - TREES.fpvMinOpacity) * k;
-      treeMat.depthWrite = k > 0.55;
+      uTreeAlpha.value = TREES.fpvMinOpacity + (1 - TREES.fpvMinOpacity) * k;
     },
     setNight(sunElevSin, up) {
       const night = buildingNightFactor(sunElevSin, EARTH.lightsBand);

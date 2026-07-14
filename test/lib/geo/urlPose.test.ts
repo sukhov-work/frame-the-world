@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatFpvHash,
   formatPoseHash,
+  formatSceneHash,
+  parseFpvHash,
   parsePoseHash,
+  parseTimeHash,
   wrapLon,
 } from "../../../src/lib/geo/urlPose";
 
@@ -62,6 +66,95 @@ describe("parsePoseHash rejects malformed input", () => {
     const p = parsePoseHash("#p=10,20,999999999,10,99")!;
     expect(p.altM).toBe(50_000_000);
     expect(p.tiltDeg).toBe(88);
+  });
+});
+
+describe("scene time on the hash (&t=, owner 2026-07-14)", () => {
+  const pose = { latDeg: 48.4672, lonDeg: 35.0395, altM: 477, headingDeg: 324.2, tiltDeg: 52.4 };
+  const T = 1_780_000_000_123;
+
+  it("formatSceneHash appends &t only for a CUSTOM scene time (live is never shared)", () => {
+    expect(formatSceneHash(pose, null)).toBe(formatPoseHash(pose));
+    expect(formatSceneHash(pose, T)).toBe(`${formatPoseHash(pose)}&t=${T}`);
+  });
+
+  it("parsePoseHash tolerates (and ignores) a trailing &t", () => {
+    expect(parsePoseHash(formatSceneHash(pose, T))).toEqual(parsePoseHash(formatPoseHash(pose)));
+  });
+
+  it("parseTimeHash extracts the instant; null when absent or malformed", () => {
+    expect(parseTimeHash(formatSceneHash(pose, T))).toBe(T);
+    expect(parseTimeHash(formatPoseHash(pose))).toBeNull();
+    expect(parseTimeHash("")).toBeNull();
+    expect(parseTimeHash("#t=123")).toBeNull(); // time never travels without a pose
+    expect(parseTimeHash("#p=1,2,3,4,5&t=abc")).toBeNull();
+    expect(parseTimeHash("#p=1,2,3,4,5&t=99999999999999999")).toBeNull(); // out of the sanity band
+  });
+
+  it("accepts the combined hash with or without the leading #", () => {
+    const h = formatSceneHash(pose, T);
+    expect(parseTimeHash(h.slice(1))).toBe(T);
+    expect(parsePoseHash(h.slice(1))).not.toBeNull();
+  });
+});
+
+describe("FPV pose hash (#f=, owner 2026-07-14)", () => {
+  const fpv = {
+    latDeg: 48.464712,
+    lonDeg: 35.046199,
+    eyeM: 1.7,
+    headingDeg: 300.4,
+    pitchDeg: 2.8,
+    fovDeg: 55,
+  };
+
+  it("round-trips within the format's precision", () => {
+    const p = parseFpvHash(formatFpvHash(fpv, null))!;
+    expect(p.latDeg).toBeCloseTo(fpv.latDeg, 6);
+    expect(p.lonDeg).toBeCloseTo(fpv.lonDeg, 6);
+    expect(p.eyeM).toBeCloseTo(1.7, 1);
+    expect(p.headingDeg).toBeCloseTo(300.4, 1);
+    expect(p.pitchDeg).toBeCloseTo(2.8, 1);
+    expect(p.fovDeg).toBeCloseTo(55, 1);
+  });
+
+  it("clamps/wraps on write (eye floor, pitch band, fov band, heading wrap)", () => {
+    const p = parseFpvHash(
+      formatFpvHash(
+        { latDeg: 48, lonDeg: 215, eyeM: 0, headingDeg: -90, pitchDeg: 120, fovDeg: 500 },
+        null,
+      ),
+    )!;
+    expect(p.lonDeg).toBeCloseTo(-145, 5);
+    expect(p.eyeM).toBe(0.5);
+    expect(p.headingDeg).toBeCloseTo(270, 1);
+    expect(p.pitchDeg).toBe(89);
+    expect(p.fovDeg).toBe(120);
+  });
+
+  it("carries a custom scene time and parseTimeHash reads it back", () => {
+    const T = 1_780_000_000_123;
+    const h = formatFpvHash(fpv, T);
+    expect(h.includes("&t=")).toBe(true);
+    expect(parseTimeHash(h)).toBe(T);
+    expect(parseFpvHash(h)).toEqual(parseFpvHash(formatFpvHash(fpv, null)));
+    expect(parseTimeHash(formatFpvHash(fpv, null))).toBeNull();
+  });
+
+  it("rejects malformed input and never cross-parses with #p=", () => {
+    expect(parseFpvHash("")).toBeNull();
+    expect(parseFpvHash("#f=")).toBeNull();
+    expect(parseFpvHash("#f=1,2,3,4,5")).toBeNull(); // too few
+    expect(parseFpvHash("#f=1,2,3,4,5,6,7")).toBeNull(); // too many
+    expect(parseFpvHash("#f=a,2,3,4,5,6")).toBeNull(); // NaN
+    expect(parseFpvHash("#f=95,2,3,4,5,6")).toBeNull(); // latitude out of range
+    expect(parseFpvHash(formatPoseHash({ latDeg: 1, lonDeg: 2, altM: 10, headingDeg: 0, tiltDeg: 45 }))).toBeNull();
+    expect(parsePoseHash(formatFpvHash(fpv, null))).toBeNull();
+  });
+
+  it("accepts the hash with or without the leading #", () => {
+    const h = formatFpvHash(fpv, null);
+    expect(parseFpvHash(h.slice(1))).toEqual(parseFpvHash(h));
   });
 });
 
