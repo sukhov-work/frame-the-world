@@ -1,8 +1,8 @@
 {
   "city": "dnipro",
-  "bbox": [35.0, 48.42, 35.1, 48.5],
-  "bboxNote": "FULL-city Dnipro (~7.4 x 8.9 km) — widened 2026-07-13 (Slice 2) from the ~5.9x6.3 km central+greater box; per-cell terrain re-seat already ships, so the wider extent follows the riverbank/hills relief. grid 7->10 keeps cell size ~0.74x0.89 km (finer cells also shrink the known within-cell relief limit). bbox = [west,south,east,north] deg. ENRICHED.bbox in src/components/globe/tuning.ts MUST match this (mask extent == enriched extent, or they overlap/gap).",
-  "grid": 10,
+  "bbox": [34.915, 48.37, 35.185, 48.55],
+  "bboxNote": "GREATER Dnipro ~20 x 20 km (~10 km radius from the city centre 48.46/35.05) — widened 2026-07-14 (owner ask) from the full-city ~7.4x8.9 km box. grid 10->20 keeps cell size ~1.0x1.0 km (streaming granularity + within-cell relief limit unchanged). bbox = [west,south,east,north] deg. ENRICHED.bbox in src/components/globe/tuning.ts MUST match this (mask extent == enriched extent, or they overlap/gap). Re-bake BOTH variants on change (bake.mjs + bake-osm2world.mjs — dnipro-o2w extends this file).",
+  "grid": 20,
   "buildings": {
     "levelHeightM": 3.0,
     "defaultHeightM": 8,
@@ -24,13 +24,14 @@
     "rowSpacingM": 9,
     "heightM": { "default": [8, 15], "wood": [10, 17], "park": [8, 14], "row": [7, 12] },
     "canopyRadiusK": 0.32,
-    "maxTrees": 60000
+    "maxTreesNote": "60000 sufficed for the 7.4x8.9 km box (hit 24,714); the 20x20 km box adds the big left-bank/Samara forests and the cap thins HASH-UNIFORMLY across the whole box — a low cap would visibly thin the in-city parks too. 200000 keeps in-city density; instanced trees cost ~50 B each baked.",
+    "maxTrees": 200000
   },
   "exclusion": {
     "polygonsNote": "C6: per-site military/critical-infra exclusion polygons ([lon,lat] rings). Empty for v1 — the built-in sensitive-tag blocklist (scripts/bake/lib/exclusion.mjs DEFAULT_EXCLUDE_TAGS) still applies. Add named-site rings here as they are identified from PUBLIC pre-war sources only.",
     "polygons": []
   },
   "attribution": "Contains information from OpenStreetMap © OpenStreetMap contributors, made available under the Open Database License (ODbL).",
-  "output": "public/enriched/dnipro",
-  "tilesetVersion": "dnipro-real-2"
+  "output": "bakes/enriched/dnipro",
+  "tilesetVersion": "dnipro-real-3"
 }

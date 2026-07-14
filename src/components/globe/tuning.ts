@@ -791,10 +791,13 @@ export const BUILDINGS = {
 export const ENRICHED = {
   /** Enrichment/mask bbox (deg, west/south/east/north). This is BOTH the OSM-buildings mask extent
    *  AND the enriched-tileset extent — they MUST match (the enriched bake REPLACES OSM here; a mismatch
-   *  overlaps or gaps them). FULL-city Dnipro ~7.4×8.9 km (Slice 2) — matches
-   *  scripts/bake/cities/dnipro.json `bbox`. (Regen with `npm run bake -- --city dnipro`; prior
-   *  extents: greater-centre {35.005,48.435,35.085,48.492}, Slice-0 sample {35.038,48.457,35.053,48.467}.) */
-  bbox: { west: 35.0, south: 48.42, east: 35.1, north: 48.5 } satisfies GeoBbox,
+   *  overlaps or gaps them). GREATER Dnipro ~20×20 km (~10 km radius from the centre, owner ask
+   *  2026-07-14) — matches scripts/bake/cities/dnipro.json `bbox` (grid 20 keeps ~1 km cells). Regen
+   *  BOTH bakes on change: `npm run bake -- --city dnipro` AND
+   *  `node scripts/bake/bake-osm2world.mjs --city dnipro-o2w` (the variant extends the same config).
+   *  (Prior extents: full-city {35.0,48.42,35.1,48.5}, greater-centre {35.005,48.435,35.085,48.492},
+   *  Slice-0 sample {35.038,48.457,35.053,48.467}.) */
+  bbox: { west: 34.915, south: 48.37, east: 35.185, north: 48.55 } satisfies GeoBbox,
   /** R1 SEATING STRATEGY (research-verified 2026-07-13): Cesium World Terrain renders WGS84-ELLIPSOIDAL
    *  heights; open DEMs (GLO-30 = EGM2008 orthometric, N≈+20.42 m over Dnipro) do NOT. So we DON'T trust
    *  baked absolute Z — we clamp the tileset to the RENDERED CWT at runtime: sample terrainHeightAt at

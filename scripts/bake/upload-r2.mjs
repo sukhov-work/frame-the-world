@@ -5,13 +5,15 @@
 //
 //   node scripts/bake/upload-r2.mjs --city dnipro [--dry-run]
 //
-// Required env (NEVER printed):
-//   R2_ACCOUNT_ID          Cloudflare account id (the hex id in the R2 endpoint URL)
-//   R2_ACCESS_KEY_ID       R2 API token key id     (R2 → Manage API tokens → Object Read & Write)
-//   R2_SECRET_ACCESS_KEY   R2 API token secret
-//   R2_BUCKET              bucket name (e.g. ftw-enriched)
+// Required env (NEVER printed). The R2_* names take precedence; the owner's Cloudflare-native
+// CLOUDFLARE_* names (as written in .env.local) are accepted as a fallback so that
+// `node --env-file=.env.local scripts/bake/upload-r2.mjs --city dnipro` just works:
+//   R2_ACCOUNT_ID        | CLOUDFLARE_ACCOUNT_ID       account id (hex in the R2 endpoint URL)
+//   R2_ACCESS_KEY_ID     | CLOUDFLARE_ACCESSKEY_ID     R2 API token key id  (Object Read & Write)
+//   R2_SECRET_ACCESS_KEY | CLOUDFLARE_SECRET_ACCESSKEY R2 API token secret
+//   R2_BUCKET            | CLOUDFLARE_R2_BUCKET        bucket name (e.g. frame-the-world-bucket)
 // Optional:
-//   R2_PREFIX              key prefix (default enriched/<city>)
+//   R2_PREFIX              key prefix (default enriched/<city>) — the same prefix the Worker serves
 //
 // SERVING (the part the upload can't do — one-time per bucket, in the Cloudflare dash):
 //   r2.dev serves NO CORS headers → connect a CUSTOM DOMAIN to the bucket, then add the CORS policy
@@ -40,10 +42,17 @@ if (!files.includes("tileset.json")) {
   process.exit(1);
 }
 
-const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } = process.env;
+// R2_* wins; CLOUDFLARE_* (the owner's .env.local names) is the fallback.
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID;
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID ?? process.env.CLOUDFLARE_ACCESSKEY_ID;
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY ?? process.env.CLOUDFLARE_SECRET_ACCESSKEY;
+const R2_BUCKET = process.env.R2_BUCKET ?? process.env.CLOUDFLARE_R2_BUCKET;
 const prefix = process.env.R2_PREFIX ?? `enriched/${city}`;
 if (!dryRun && !(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET)) {
-  console.error("missing env: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET");
+  console.error(
+    "missing env: set R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET\n" +
+      "         (or CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_ACCESSKEY_ID / CLOUDFLARE_SECRET_ACCESSKEY / CLOUDFLARE_R2_BUCKET)",
+  );
   process.exit(1);
 }
 const host = `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;

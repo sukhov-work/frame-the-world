@@ -155,7 +155,8 @@
   letter-spacing: 0;
 }
 .ct-sky.is-on,
-.ct-sat.is-on {
+.ct-sat.is-on,
+.ct-bld.is-on {
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
@@ -165,6 +166,16 @@
 .ct-sat {
   min-width: 2.1rem;
   padding: 0 0.35rem;
+}
+
+/* Buildings-source A/B chip (o2w, 2026-07-14) — same narrow cut; the row wraps if a card
+   ever runs out of width rather than clipping the extra chip. */
+.ct-bld {
+  min-width: 2.1rem;
+  padding: 0 0.35rem;
+}
+.ct-row {
+  flex-wrap: wrap;
 }
 
 /* Encoder (spring-centred rate control) — centre tick over the shared slider rail. */
