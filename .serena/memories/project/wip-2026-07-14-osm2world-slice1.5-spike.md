@@ -1,6 +1,6 @@
 # WIP 2026-07-14 — OSM2World "Slice 1.5" 1-cell de-risk spike (DONE, browser-VERIFIED)
 
-`/frame` + investigate-design-v3 (implement, Deep, heavy verify). Executed `OSM2WORLD_EXPERIMENT_PREP.md §8`;
+`/frame` + investigate-design-v3 (implement, Deep, heavy verify). Executed `dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md §8`;
 verdict recorded as `§9` there. **VERDICT: VIABLE — green-light the full adapter.** No tracked source touched
 → gates unchanged **astro check 0/0 · vitest 513**. Browser shots `verify-shots/o2w-slice15-01..03`.
 Scratch (git-ignored): `scripts/bake/spike-osm2world/` — jar in `dist/`, artifacts in `work/`, scripts
@@ -21,7 +21,7 @@ production adapter.**
    **1.219 MB** raw vs current baker's same cell **0.855 MB** (~1.4×) → **weld+draco 52 KB (23×)**. The raw
    25.66 MB glb was **89% ROADS** (RoadModule on + Overpass `>;` extent-recursion to a 200 km bbox).
 
-## Facts that CORRECT the prep doc (now in OSM2WORLD_EXPERIMENT_PREP.md §9)
+## Facts that CORRECT the prep doc (now in dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md §9)
 - **Distro is `0.5.0-SNAPSHOT`, NOT 0.4.0** → modern subcommand CLI (prep doc's `--input/--output` is WRONG):
   `java --add-exports java.base/java.lang=ALL-UNNAMED --add-exports java.desktop/sun.awt=ALL-UNNAMED
   --add-exports java.desktop/sun.java2d=ALL-UNNAMED -Xmx4g -jar OSM2World.jar convert -i safe.osm -o out.glb
@@ -58,6 +58,6 @@ Road*/Surface*); inject our trees (vegetation.mjs, unchanged); draco-decode-wiri
 re-bake → `upload-r2.mjs --city dnipro` (LIVE) → A/B on a sub-M3 box.
 
 ## Exit — records DONE
-`OSM2WORLD_EXPERIMENT_PREP.md §9` (verdict) + top pointer · DECISIONS "2026-07-14 (LATEST — Slice 1.5)" ·
+`dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md §9` (verdict) + top pointer · DECISIONS "2026-07-14 (LATEST — Slice 1.5)" ·
 mem:core Next step · this memory · NEXT_SESSION_PROMPT. `.env.local` restored to the R2 URL · wix dev stopped ·
 screenshots in `verify-shots/`. Related: `mem:project/wip-2026-07-14-r2-hosting-osm2world-prep` (the prep).

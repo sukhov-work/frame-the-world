@@ -1,7 +1,7 @@
 # Dnipro 3D Enrichment — Slice 0 de-risk spike (2026-07-13, implement/Deep)
 
 **The analysis + integration half of Slice 0 is DONE + locally gated; the data-bake + R2 + browser-confirm
-half is reduced to a one-command recipe + a flag flip.** Full verdict: `.claude/claude-docs/DNIPRO_SLICE0_SPIKE.md`.
+half is reduced to a one-command recipe + a flag flip.** Full verdict: `.claude/claude-docs/dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md`.
 Gates: **astro check 0 · vitest 422 (+6 enrichedMask) · wix build Complete.** Runtime = BROWSER-UNVERIFIED
 (no browser this session — all code is DEFAULT-OFF behind `PUBLIC_ENRICHED_TILES_URL`).
 

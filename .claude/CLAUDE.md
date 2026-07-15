@@ -10,8 +10,8 @@ backend (auth, Data, Media, Pricing Plans, eCommerce, AI proxy).
 ## Knowledge — Search Order (stop at first hit)
 1. **Serena memories**: `list_memories` → read `mem:core` (graph root) → follow its index.
 2. **`.claude/claude-docs/`** — `DECISIONS.md` (recent state, top-first) · `ARCHITECTURE.md` +
-   `IMPLEMENTATION_PLAN.md` (repo-native working docs) · `PROJECT_SEED.md` + `DEEP_RESEARCH.md`
-   (canonical provenance — intent & research) · `CLAUDE_DESIGN_MEMO.md` (design workflow).
+   `IMPLEMENTATION_PLAN.md` (repo-native working docs) · `PROJECT_SEED.md` + `provenance/DEEP_RESEARCH.md`
+   (canonical provenance — intent & research) · `provenance/CLAUDE_DESIGN_MEMO.md` (design workflow).
 3. **`.claude/conventions/`** — `wix-headless.md` (the distilled Wix mechanics) · architecture · testing · naming · errors · `globe-tuning.md` (globe scene modules + tunables contract).
 4. **Codebase**: Serena semantic tools → `Grep` → `Read`.
 5. **External**: Wix MCP / Wix Skills (framework APIs — never fabricate signatures), `gh` CLI, web.
@@ -20,7 +20,7 @@ After significant work: `write_memory` + append `DECISIONS.md` (see `mem:decisio
 
 ## Authority
 `PROJECT_SEED.md` §3 (constraints C1–C6) and §4 (ADR-000, D1–D15) are **binding**. `ARCHITECTURE.md`
-and `IMPLEMENTATION_PLAN.md` are the source of truth on *execution* and distill `DEEP_RESEARCH.md`
+and `IMPLEMENTATION_PLAN.md` are the source of truth on *execution* and distill `provenance/DEEP_RESEARCH.md`
 (Handoff #2) — that doc stays as provenance. Any new decision **extends** `DECISIONS.md` or explicitly
 supersedes a prior line; it never edits history.
 
@@ -66,7 +66,7 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - No cron on headless → external scheduler hits a token-secured HTTP endpoint if ever needed.
 - Digital download links expire after 30 days (not shortenable) → message buyers.
 
-## Design workflow (Claude Design — see CLAUDE_DESIGN_MEMO.md)
+## Design workflow (Claude Design — see provenance/CLAUDE_DESIGN_MEMO.md)
 Tokens source of truth = `src/styles/tokens.css` (plain CSS custom properties — **no Tailwind** in this repo). After any design import, regenerate the
 GL bridge `src/lib/theme/tokens.ts`. Design imports write ONLY under `src/components/panels|ui/**` +
 `src/styles/**` — **NEVER** `src/components/globe/**` or `src/lib/**` (the canvas globe is motion-spec only).

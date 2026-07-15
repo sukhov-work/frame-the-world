@@ -1,7 +1,7 @@
 /**
  * Adaptive rendering quality — device-tier detection + a runtime frame-time governor.
  *
- * The keystone of the rendering quality pass (`.claude/claude-docs/RENDERING_QUALITY_PASS.md` WS1):
+ * The keystone of the rendering quality pass (`.claude/claude-docs/rendering/RENDERING_QUALITY_PASS.md` WS1):
  * the scene had NO adaptive quality — DPR was a static `min(DPR, 2)` and the composer rendered full
  * quality every frame, so anything weaker than the author's M3 Pro had no way to shed load. This
  * module is the pure DECISION core: pick an initial tier from device capabilities, then step it

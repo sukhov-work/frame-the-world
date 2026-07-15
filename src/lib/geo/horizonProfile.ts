@@ -12,7 +12,7 @@
  * curvature drop `d²(1−k)/(2R)` (geometry minus standard refraction, k = PLAN.refractionK);
  * ECEF mesh sweeps get curvature exactly from the geometry and add only the `k·d²/(2R)` lift.
  *
- * HONESTY CONTRACT (the streamed-LOD caveat, RENDERING_QUALITY_PASS.md WS4): `heightAt` reads
+ * HONESTY CONTRACT (the streamed-LOD caveat, rendering/RENDERING_QUALITY_PASS.md WS4): `heightAt` reads
  * the RENDERED terrain, which exists only where tiles are loaded — bins whose samples all
  * returned null stay `known = 0` and report the open-sky floor. Consumers must surface partial
  * coverage (`profileCoverage`) instead of pretending the skyline is complete.

@@ -95,6 +95,25 @@ const COLLECTIONS = [
     ],
     permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ANYONE" },
   },
+  {
+    // Saved first-person viewpoints (owner 2026-07-15): photo-less FPV bookmarks — exactly the
+    // `#f=` share-hash pose + an optional pinned scene time. Member-private (ADMIN everything;
+    // all access through the elevated /api/places, owner-filtered) — never published (C6).
+    id: "SavedPlaces",
+    displayName: "Saved Places",
+    fields: [
+      text("title", "Title"),
+      text("ownerMemberId", "Owner Member Id", true),
+      num("lat", "Latitude"),
+      num("lon", "Longitude"),
+      num("eyeM", "Eye Height Above Ground (m)"),
+      num("headingDeg", "Heading (deg)"),
+      num("pitchDeg", "Pitch (deg)"),
+      num("fovDeg", "Vertical FOV (deg)"),
+      num("timeMs", "Pinned Scene Time (UTC ms)"),
+    ],
+    permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
+  },
 ];
 
 const token = execFileSync("npx", ["@wix/cli@latest", "token", "--site", siteId], {

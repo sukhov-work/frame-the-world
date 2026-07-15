@@ -53,7 +53,7 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
   pins) follow the same attach-module shape.
   **NOTE (2026-07-11): `StylizedTiles.ts` has grown to ~1600 lines** — five subsystems (FPV controller,
   camera glides/encoder-rates, placement/pick, FPV HUD mirror, ephemeris-lighting drive) never got their
-  own module. Getting back toward ~200 lines is the tracked S7 goal (B19/B20 in `ARCHITECTURE_REVIEW.md`),
+  own module. Getting back toward ~200 lines is the tracked S7 goal (B19/B20 in `archive/ARCHITECTURE_REVIEW.md`),
   not the current state.
 - **Encoder controls** (ROTATE/ZOOM/FOCAL) are spring-centred RATE controls: deflection = speed, release
   springs to zero, one rAF low-pass per param through the SAME rotation/dolly path as the absolute glides.

@@ -7,7 +7,7 @@ make code readable/maintainable for humans AND Claude agents.
 
 ## Method + artifacts
 7-track parallel review workflow → consolidated risk-classified 26-item backlog (B1–B26).
-Canonical deliverable: `.claude/claude-docs/ARCHITECTURE_REVIEW.md` (health read + backlog table +
+Canonical deliverable: `.claude/claude-docs/archive/ARCHITECTURE_REVIEW.md` (health read + backlog table +
 risk classes + decisions + ledger). Green baseline held throughout: 304→314 vitest · astro check 0.
 
 ## Owner decisions
@@ -37,7 +37,7 @@ risk classes + decisions + ledger). Green baseline held throughout: 304→314 vi
 - **B14** deleted dead `TERRAIN` tuning const + fixed stale buildings.ts comment.
 - **B18** added `test/lib/decode/extract.test.ts` (fileExtension/isRawFile/isHeicFile/isBrowserDisplayable).
 
-## REMAINING (next session, all scoped in ARCHITECTURE_REVIEW.md)
+## REMAINING (next session, all scoped in archive/ARCHITECTURE_REVIEW.md)
 - **Safe local-verified follow-up:** B6 (shared geo/math helpers incl. `clampGroundM` + TERRAIN.maxPlausibleGroundM=9000,
   projectOntoTangent/horizontalApproach, ndc↔client, focalFromHorizontalFov, move wrapHeadingDeg to lib),
   B8 (lib→store layering: derivedFov→sensors, param types→lib), B9 (coerce.ts + CameraPoseOptics + PRECISION_TIERS),
@@ -59,5 +59,5 @@ risk classes + decisions + ledger). Green baseline held throughout: 304→314 vi
 - `DECISIONS.md § Traps & Gotchas` is now the durable crown-jewels list (GL/Wix/verification).
 
 ## Related
-[[core]] · `ARCHITECTURE_REVIEW.md` · NEXT_SESSION_PROMPT.md · [[patterns/globe-rendering]] ·
+[[core]] · `archive/ARCHITECTURE_REVIEW.md` · NEXT_SESSION_PROMPT.md · [[patterns/globe-rendering]] ·
 [[patterns/sky-bodies-terrain]] · [[decisions/session_workflow]]

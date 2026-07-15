@@ -1,5 +1,5 @@
 # mem:architecture/system-overview
-The engine + pipelines in one place. Full detail: `.claude/claude-docs/ARCHITECTURE.md` + `DEEP_RESEARCH.md`. (Referred by `mem:core`.)
+The engine + pipelines in one place. Full detail: `.claude/claude-docs/ARCHITECTURE.md` + `provenance/DEEP_RESEARCH.md`. (Referred by `mem:core`.)
 
 ## Load split (C1)
 Client does: metadata extraction, RAW decode, projection math, ephemeris, all rendering. Wix does: auth,

@@ -142,6 +142,48 @@ describe("temporary pin seam (Phase 5.5 S2 follow-up)", () => {
   });
 });
 
+describe("pin visibility seam (owner 2026-07-15, PIN chip)", () => {
+  it("defaults ON and toggles; the FPV default-off dance restores correctly", () => {
+    expect(useCameraStore.getState().pinsVisible).toBe(true);
+    // FPV entry: remember + hide (the orchestrator's exact sequence).
+    const before = useCameraStore.getState().pinsVisible;
+    useCameraStore.getState().setPinsVisible(false);
+    expect(useCameraStore.getState().pinsVisible).toBe(false);
+    // FPV exit: restore only when the chip was NOT re-lit inside FPV.
+    if (before && !useCameraStore.getState().pinsVisible) {
+      useCameraStore.getState().setPinsVisible(true);
+    }
+    expect(useCameraStore.getState().pinsVisible).toBe(true);
+  });
+
+  it("a chip re-enable inside FPV survives the exit restore (no-op restore)", () => {
+    useCameraStore.getState().setPinsVisible(false); // FPV entry hid them
+    useCameraStore.getState().setPinsVisible(true); // user re-lit the chip inside FPV
+    const before = true; // pre-FPV state the orchestrator remembered
+    if (before && !useCameraStore.getState().pinsVisible) {
+      useCameraStore.getState().setPinsVisible(true);
+    }
+    expect(useCameraStore.getState().pinsVisible).toBe(true);
+  });
+});
+
+describe("FPV jump seam (saved places, owner 2026-07-15)", () => {
+  it("posts a one-shot full FPV pose and the orchestrator consume clears it", () => {
+    const pose = {
+      latDeg: 48.4647,
+      lonDeg: 35.0462,
+      eyeM: 1.7,
+      headingDeg: 352.1,
+      pitchDeg: 2.4,
+      fovDeg: 26.8,
+    };
+    useCameraStore.getState().requestFpvJump(pose);
+    expect(useCameraStore.getState().fpvJumpRequest).toEqual(pose);
+    useCameraStore.getState()._consumeFpvJump();
+    expect(useCameraStore.getState().fpvJumpRequest).toBeNull();
+  });
+});
+
 describe("explore seam (Phase 5.5 S4)", () => {
   it("arms and disarms the ambient journey", () => {
     expect(useCameraStore.getState().exploreActive).toBe(false);

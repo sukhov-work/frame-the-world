@@ -1,7 +1,7 @@
 # WIP 2026-07-11 — Pre-S7 refactor SESSION 2 (safe local-verified tier finished)
 
 **Mode:** implement (governed), Deep tier (investigate-design-v3 under /frame). Ultracode session.
-**Mission:** finish the pre-S7 safe/local-verified backlog from `ARCHITECTURE_REVIEW.md` (session 1 shipped
+**Mission:** finish the pre-S7 safe/local-verified backlog from `archive/ARCHITECTURE_REVIEW.md` (session 1 shipped
 B1–B5/B7/B14/B18). This session shipped **B6, B8, B9, B10, B11, B12, B13, B14(index), B15, B26** — everything
 except **B19** (the browser-verified orchestrator `update()` split, still pre-S7) and **B20–B25** (S7-folded).
 
@@ -55,11 +55,11 @@ investigation → **0 findings**. NOT browser-run (no runtime paths changed — 
 - **B26** update() catch = log-once-then-throttle (`updateErrCount` + `lastUpdateErrLogMs` closure state,
   ORCH.errorLogThrottleMs) — no more 60 fps console flood on a persistent error.
 
-## STILL PENDING (next session, from ARCHITECTURE_REVIEW.md)
+## STILL PENDING (next session, from archive/ARCHITECTURE_REVIEW.md)
 - **B19 (owner's explicit pre-S7 ask, browser-verified) — NOT DONE, but FULLY SCOPED.** Split StylizedTiles
   `update()` (~920 lines) into named step-fns over an explicit FrameContext, EXACT per-frame order preserved.
   The B6/B12/B13/B26 scaffolding it needs is now IN PLACE. **Execution playbook prepared this session:**
-  `.claude/claude-docs/B19_HANDOFF.md` — a 36-step ordered map (line ranges + purpose + signature), a concrete
+  `.claude/claude-docs/archive/B19_HANDOFF.md` — a 36-step ordered map (line ranges + purpose + signature), a concrete
   `FrameContext` TS type + the closure-state-that-stays list, **13 load-bearing traps with guards** (the crown
   jewels: `++frameCount`@L1419 splits cadence gates into pre/post groups · `camNow`(L750) vs `camStore`(L991)
   dual getState() snapshots with store-mutations between · `controls.adjustCamera` must run EVERY fpvActive
@@ -71,5 +71,5 @@ investigation → **0 findings**. NOT browser-run (no runtime paths changed — 
 - **B20–B25 fold into S7** (browser/shader/precision).
 
 ## Related
-[[core]] · [[project/wip-2026-07-11-pre-s7-refactor]] (session 1) · `ARCHITECTURE_REVIEW.md` ·
+[[core]] · [[project/wip-2026-07-11-pre-s7-refactor]] (session 1) · `archive/ARCHITECTURE_REVIEW.md` ·
 NEXT_SESSION_PROMPT.md · [[patterns/globe-rendering]] · [[decisions/session_workflow]]

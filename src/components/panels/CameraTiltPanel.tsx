@@ -1,8 +1,11 @@
+import { useState } from "react";
 import Slider from "../ui/Slider";
 import Encoder from "../ui/Encoder";
 import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
+import { useMemberStore } from "../../store/member";
+import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { wrapHeadingDeg } from "../../lib/geo/heading";
 import { useUploadStore } from "../../store/upload";
 import { CONTROLS, FPV } from "../globe/tuning";
@@ -160,6 +163,19 @@ export default function CameraTiltPanel() {
         >
           SAT
         </button>
+        {/* Pin markers (owner 2026-07-15): shows/hides everyone's public pins on the globe —
+            declutters the view. FPV entry turns them off by default; the chip re-enables. */}
+        <button
+          type="button"
+          className={`ct-mode ct-pins tip${s.pinsVisible ? " is-on" : ""}`}
+          onClick={() => s.setPinsVisible(!s.pinsVisible)}
+          aria-pressed={s.pinsVisible}
+          aria-label={s.pinsVisible ? "Hide photo pins on the globe" : "Show photo pins on the globe"}
+          data-tip="PHOTO PINS — SHOW OR HIDE EVERYONE'S PINS ON THE GLOBE."
+          data-tip-pos="left"
+        >
+          PIN
+        </button>
         {/* Buildings source (o2w A/B): CLASSIC extruded bake ↔ OSM2World detailed bake.
             Reload-based by design — a live tileset swap would have to tear down the enriched
             renderer's seating/occlusion state mid-frame; the #p pose makes the reload lossless. */}
@@ -236,10 +252,104 @@ export default function CameraTiltPanel() {
           tipPos="left"
         />
       )}
+      {/* SAVE PLACE (owner 2026-07-15): members bookmark the CURRENT first-person viewpoint
+          (the exact #f= pose + pinned scene time) — it lands in MY PINS · PLACES. */}
+      {fpvMode && <SavePlaceControl />}
     </aside>
     </div>
     <TempPinPopup />
     </>
+  );
+}
+
+/** SAVE PLACE (owner 2026-07-15) — members-only bookmark of the live FPV pose. One control,
+ *  three states: quiet button → inline name input (Enter saves, Escape cancels — key events
+ *  stop propagating so the FPV walk/exit handlers never fire while typing) → saved flash.
+ *  Pose source = the SAME mirrors the `#f=` hash writer uses (fpvHud bearings/FOV/eye +
+ *  camGeo ground point), so a saved place and a shared link can never disagree. */
+function SavePlaceControl() {
+  const memberPhase = useMemberStore((s) => s.phase);
+  const fpvHud = useCameraStore((s) => s.fpvHud);
+  const camGeo = useCameraStore((s) => s.camGeo);
+  const [mode, setMode] = useState<"idle" | "naming" | "busy" | "saved" | "error">("idle");
+  const [title, setTitle] = useState("");
+  if (memberPhase !== "member") return null;
+  const ready = fpvHud !== null && camGeo !== null;
+
+  const save = async () => {
+    // Re-read the live mirrors at the save instant — the render props may be a frame stale.
+    const hud = useCameraStore.getState().fpvHud;
+    const geo = useCameraStore.getState().camGeo;
+    if (!hud || !geo) return;
+    setMode("busy");
+    const t = useTimeStore.getState();
+    try {
+      const r = await fetch("/api/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim() || undefined, // server defaults "Untitled place"
+          latDeg: geo.latDeg,
+          lonDeg: geo.lonDeg,
+          eyeM: Math.min(10_000, Math.max(0.5, hud.eyeAboveGroundM)),
+          headingDeg: hud.headingDeg,
+          pitchDeg: Math.min(89, Math.max(-89, hud.pitchDeg)),
+          fovDeg: hud.fovDeg,
+          timeMs: t.live ? null : sceneTimeMs(), // LIVE is never persisted (the &t= rule)
+        }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setMode("saved");
+      setTitle("");
+      window.setTimeout(() => setMode((m) => (m === "saved" ? "idle" : m)), 1800);
+    } catch {
+      setMode("error");
+      window.setTimeout(() => setMode((m) => (m === "error" ? "naming" : m)), 1800);
+    }
+  };
+
+  if (mode === "idle" || mode === "saved") {
+    return (
+      <button
+        type="button"
+        className={`ct-saveplace tip${mode === "saved" ? " is-saved" : ""}`}
+        disabled={!ready || mode === "saved"}
+        onClick={() => setMode("naming")}
+        data-tip="BOOKMARK THIS EXACT VIEWPOINT — FIND IT UNDER MY PINS · PLACES."
+        data-tip-pos="left"
+      >
+        {mode === "saved" ? "✓ PLACE SAVED" : "◎ SAVE PLACE"}
+      </button>
+    );
+  }
+  return (
+    <div className="ct-saveplace__row">
+      <input
+        className="ct-saveplace__input"
+        autoFocus
+        value={title}
+        placeholder="NAME THIS PLACE"
+        maxLength={120}
+        disabled={mode === "busy"}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation(); // typing must never walk (arrows) or exit (Escape) the FPV
+          if (e.key === "Enter") void save();
+          if (e.key === "Escape") {
+            setMode("idle");
+            setTitle("");
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="ct-saveplace__ok"
+        disabled={mode === "busy"}
+        onClick={() => void save()}
+      >
+        {mode === "busy" ? "…" : mode === "error" ? "RETRY" : "SAVE"}
+      </button>
+    </div>
   );
 }
 

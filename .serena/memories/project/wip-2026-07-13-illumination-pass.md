@@ -106,4 +106,4 @@ nightWindowAA 0.08, nightCyanFrac 0.18, nightWindowOnFrac 0.6.
 7. Regression safety: set nightWindowGain/keyBrighten/moonKeyStrength = 0 → byte-identical to pre-change.
 
 Related: [[patterns/globe-rendering]] [[patterns/sky-bodies-terrain]] — the golden/shadow/moon twins to keep
-in sync. Prior: RENDERING_QUALITY_PASS.md (this is an illumination sub-pass).
+in sync. Prior: rendering/RENDERING_QUALITY_PASS.md (this is an illumination sub-pass).

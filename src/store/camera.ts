@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { UrlFpvPose } from "../lib/geo/urlPose";
 
 /**
  * Camera control seams — tilt (declination), heading (rotate-in-place) and zoom (altitude) — the
@@ -127,6 +128,20 @@ export interface CameraState {
    *  (textures are opt-in — the SAT chip on the camera panel). */
   groundMode: "dark" | "satellite";
   setGroundMode: (mode: "dark" | "satellite") => void;
+  /** Public-pin markers master toggle (owner 2026-07-15, PIN chip): ON (default) = pins render
+   *  and pick on the globe; OFF = markers hidden + unpickable (viewport queries keep running so
+   *  re-show is instant). FPV entry hides them by default (declutter) and exit restores the
+   *  pre-FPV state unless the chip was flipped back on inside FPV. */
+  pinsVisible: boolean;
+  setPinsVisible: (on: boolean) => void;
+  /** One-shot "stand in this first-person viewpoint" request (saved places, owner 2026-07-15):
+   *  the full `#f=` pose. The orchestrator consumes it next frame — drops a temp pin at the
+   *  location and enters temp-pin FPV through the exact share-link path (same basis/eye/FOV
+   *  reconstruction), flying there cinematically from wherever the camera currently is. */
+  fpvJumpRequest: UrlFpvPose | null;
+  requestFpvJump: (pose: UrlFpvPose) => void;
+  /** Orchestrator-only: mark the pending FPV jump consumed. */
+  _consumeFpvJump: () => void;
   /** Sun/moon direction markers (every mode, gated by skyGuides) — feeds the ☀/☾ edge chips;
    *  outside FPV the bearings reference is the camera's own geodetic position. */
   skyMarkers: { sun: FpvBodyMarker; moon: FpvBodyMarker } | null;
@@ -193,6 +208,11 @@ export const useCameraStore = create<CameraState>((set) => ({
   setSkyGuides: (on) => set({ skyGuides: on }),
   groundMode: "dark",
   setGroundMode: (mode) => set({ groundMode: mode }),
+  pinsVisible: true,
+  setPinsVisible: (on) => set({ pinsVisible: on }),
+  fpvJumpRequest: null,
+  requestFpvJump: (pose) => set({ fpvJumpRequest: pose }),
+  _consumeFpvJump: () => set({ fpvJumpRequest: null }),
   skyMarkers: null,
   skyLook: null,
   requestSkyLook: (target) => set({ skyLook: target }),

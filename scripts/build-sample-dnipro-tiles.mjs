@@ -3,7 +3,7 @@
 // This is deliberately crude synthetic data (a dozen extruded central-Dnipro blocks, a couple with
 // gable roofs) — its job is to validate the INTEGRATION (a 3rd TilesRenderer at a plain URL, masking
 // the Cesium OSM Buildings underneath, and the R1 vertical-datum seating strategy), NOT data quality.
-// See `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md` §Slice 0 and `DNIPRO_SLICE0_SPIKE.md`.
+// See `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md` §Slice 0 and `dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md`.
 //
 // Pure Node, zero deps: it writes a valid GLB (glTF 2.0 binary, Y-up per the glTF spec) + a
 // `tileset.json` (3D Tiles 1.1, region bounding volume, ENU→ECEF root transform). No OSM2World /

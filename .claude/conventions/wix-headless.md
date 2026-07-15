@@ -149,4 +149,4 @@ Source (read-only reference): `/Users/yevhens/Projects/wix-private/ecom/ecom/.cl
   6-file emit), the multi-subagent **conductor** (`PLAN.md`/`BUILD.md` orchestration, image-wave generation),
   and app-install-per-pack curls. We install only the specific `@wix/*` SDK modules this product needs and
   hand-author every screen/island (no vertical seeding). Our design flow is **Claude Design → tokens →
-  GL bridge** (see `CLAUDE_DESIGN_MEMO.md`), not the internal Composer.
+  GL bridge** (see `provenance/CLAUDE_DESIGN_MEMO.md`), not the internal Composer.

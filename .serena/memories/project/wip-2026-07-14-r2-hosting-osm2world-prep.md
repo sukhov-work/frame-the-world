@@ -41,7 +41,7 @@ into separate `NAME=VALUE` assignments (the API token never reached the process 
 also parses past the multi-line PEM in `.env.local`. Sandbox allowed the PUTs (network egress works).
 
 ## Part B — OSM2World experiment prep (deep investigation)
-Doc: `.claude/claude-docs/OSM2WORLD_EXPERIMENT_PREP.md` (3 cited agents: capabilities 87% · bake-contract
+Doc: `.claude/claude-docs/dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md` (3 cited agents: capabilities 87% · bake-contract
 93% · integration 88%). **Verdict: viable, recommended as fidelity tier 2 (owner: "more realistic buildings
 and other 3d elements and constructions").**
 
@@ -75,4 +75,4 @@ textures strip (v1, small) vs realism tier later; modules keep structures / excl
 vector web); single-tile vs **re-grid** (decisive). **NEXT = the "Slice 1.5" 1-cell spike (steps §8 of the doc).**
 
 Related: `mem:project/wip-2026-07-13-dnipro-slice2` (R2 tooling origin) · `scripts/bake/README.md` §Hosting +
-§Higher-fidelity tiers · `DNIPRO_3D_ENRICHMENT_PLAN.md` Slice 1 · `mem:patterns/globe-rendering`.
+§Higher-fidelity tiers · `dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md` Slice 1 · `mem:patterns/globe-rendering`.

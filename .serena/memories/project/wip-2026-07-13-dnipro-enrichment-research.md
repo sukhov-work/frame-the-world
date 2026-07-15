@@ -1,9 +1,9 @@
 # wip 2026-07-13 — Dnipro 3D Enrichment: external research INCORPORATED → decision + sliced plan
 
 Mode: design (/frame) · No code this session. Two owner turns: (1) wrote the research brief
-`DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md`; (2) fed it to a web researcher, got
-`DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (cited, accessed 2026-07-13), and asked to analyze + plan.
-Output: `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md` (execution plan/backlog) + DECISIONS
+`dnipro-enrichment/DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md`; (2) fed it to a web researcher, got
+`dnipro-enrichment/DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (cited, accessed 2026-07-13), and asked to analyze + plan.
+Output: `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md` (execution plan/backlog) + DECISIONS
 "2026-07-13 — DESIGN" + NEXT_SESSION headline. Verification: research-VERIFIED (external, cited); design
 UNVERIFIED (no spike/code yet).
 
@@ -86,10 +86,10 @@ folds into the next browser session — it's blocked on a weaker-than-M3 box any
 Adjustable — slices are independent enough to reorder if the owner redirects.
 
 ## Files
-`.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md` (new — plan/backlog) · `DNIPRO_3D_ENRICHMENT_RESEARCH_
-RESULTS.md` (new — cited report) · `DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) ·
+`.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md` (new — plan/backlog) · `DNIPRO_3D_ENRICHMENT_RESEARCH_
+RESULTS.md` (new — cited report) · `dnipro-enrichment/DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) ·
 `NEXT_SESSION_PROMPT.md` (headline) · `DECISIONS.md` ("2026-07-13 — DESIGN"). No src/ changes.
 
 Related: `mem:core` · `mem:project/wip-2026-07-12-rendering-pass2-dnipro-identity` (R4 reframed here) ·
 `mem:patterns/globe-rendering` + `mem:patterns/sky-bodies-terrain` (buildings/terrain pipeline the bake
-extends) · `RENDERING_QUALITY_PASS.md` (Pass 3 = Slice 5's consumer).
+extends) · `rendering/RENDERING_QUALITY_PASS.md` (Pass 3 = Slice 5's consumer).

@@ -9,7 +9,7 @@ mid/low degradation needs a non-M3 box). Follows the keystone: `mem:project/wip-
 +4 drift +3 lruCapBytesForTier) · **wix build** complete. Runtime perf/visual = BROWSER-UNVERIFIED
 (needs `wix dev`, ideally non-M3). `window.__quality.force('low'|'mid'|'high')` A/Bs a tier.
 
-## SHIPPED (all of RENDERING_QUALITY_PASS.md remaining Pass 1)
+## SHIPPED (all of rendering/RENDERING_QUALITY_PASS.md remaining Pass 1)
 ### Tile-knob tiering (the explicit "do next #2") — SAFE without a browser (high == byte-identical)
 - NEW pure helper `lib/globe/quality.ts lruCapBytesForTier(tier, mb)`: **`null` on high**
   (restore each renderer's captured library default → byte-identical) · mid/low → `round(mb*1024*1024)`
@@ -73,8 +73,8 @@ StylizedTiles.ts · GlobeCanvas.tsx · NEW test/lib/globe/drift.test.ts · test/
 1. **BROWSER-VERIFY in `wix dev`** (ideally a non-M3 box): `window.__quality.force('low')` measurably
    smoother + no jarring DPR pop; F1 stipple reads as intentional (not a pop); F3/F7 eases; high tier
    unchanged. 2. **Tune + enable GTAO** (`AO.enabled=true`, radius/intensity/tint). 3. **Pass 2 (Dnipro
-   identity R2/R3/R4)** then **Pass 3 (moat)** — see RENDERING_QUALITY_PASS.md WS3/WS4. Phase 6 marketplace
+   identity R2/R3/R4)** then **Pass 3 (moat)** — see rendering/RENDERING_QUALITY_PASS.md WS3/WS4. Phase 6 marketplace
    still deferred. Live URL still serves Phase 5 (pre-release `/api/ping` canary gate).
 
 Related: mem:core · mem:project/wip-2026-07-12-rendering-quality-pass (keystone) ·
-mem:patterns/globe-rendering · RENDERING_QUALITY_PASS.md · DECISIONS 2026-07-12.
+mem:patterns/globe-rendering · rendering/RENDERING_QUALITY_PASS.md · DECISIONS 2026-07-12.

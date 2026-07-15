@@ -667,6 +667,10 @@ export function attachStylizedTiles(opts: {
   let fpvActive = false;
   /** Which anchor the FPV camera stands on: a placed photo's frustum apex, or the temp pin. */
   let fpvKind: "photo" | "temp" | null = null;
+  /** Pin-marker visibility before FPV entry (owner 2026-07-15): FPV hides pins by default
+   *  (declutter); exit restores this UNLESS the user flipped the PIN chip back on inside FPV
+   *  (then the store already says true and the restore is a no-op). */
+  let pinsVisibleBeforeFpv = true;
   let fpvYaw = 0; // look-around offsets (rad) on top of the anchor's own pose
   let fpvPitch = 0;
   let fpvDragId: number | null = null;
@@ -1032,12 +1036,30 @@ export function attachStylizedTiles(opts: {
         //     buildings ghost to FPV.buildingGhostOpacity so the view is never lost in a mesh.
         upNow = useUploadStore.getState();
         camNow = useCameraStore.getState();
+        // Saved-place jump (owner 2026-07-15): a one-shot full FPV pose rides the EXACT
+        // share-link entry path — pendingFpvShare feeds the temp-entry basis/eye/FOV below.
+        // Forcing fpvKind = null makes the entry branch fire even when already standing in a
+        // temp FPV (a direct re-pose: no fly-out, the entry flight goes straight there).
+        if (camNow.fpvJumpRequest) {
+          const jump = camNow.fpvJumpRequest;
+          camNow._consumeFpvJump();
+          pendingFpvShare = jump;
+          if (upNow.viewMode === "fpv") upNow.setViewMode("orbit"); // photo FPV yields
+          if (fpvKind === "temp") fpvKind = null;
+          camNow.setTempPin({ latDeg: jump.latDeg, lonDeg: jump.lonDeg });
+          camNow.setTempFpv(true);
+          upNow = useUploadStore.getState(); // re-snapshot after the writes above
+          camNow = useCameraStore.getState();
+        }
         const wantKind: "photo" | "temp" | null =
           upNow.viewMode === "fpv"
             ? "photo"
             : camNow.tempFpv && camNow.tempPin
               ? "temp"
               : null;
+        // Captured BEFORE the branches: the entry code below sets fpvActive itself, so the
+        // "fresh entry vs FPV→FPV jump" pin-visibility guard must read the pre-transition state.
+        const wasFpvActive = fpvActive;
         if (wantKind !== fpvKind) {
           if (wantKind === null) {
             fpvKind = null;
@@ -1048,6 +1070,8 @@ export function attachStylizedTiles(opts: {
             buildings.setGhost(null);
             enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
             camNow.clearAllTargets(); // targets set during FPV must not fire now
+            // Restore the pre-FPV pin visibility (no-op if the chip was re-lit inside FPV).
+            if (pinsVisibleBeforeFpv && !camNow.pinsVisible) camNow.setPinsVisible(true);
             fovTargetDeg = POSE.fovDeg;
             const geomOut = upNow.phase === "placed" ? frustum.current() : null;
             const pinOut = tempPinPoint();
@@ -1094,6 +1118,12 @@ export function attachStylizedTiles(opts: {
                 edgeOpacity: FPV.buildingGhostEdgeOpacity,
               });
               camNow.clearAllTargets();
+              if (!wasFpvActive) {
+                // FPV declutters: pins off by default. Only capture the restore state on a
+                // FRESH entry — an FPV→FPV jump must keep the original pre-FPV memory.
+                pinsVisibleBeforeFpv = camNow.pinsVisible;
+                if (camNow.pinsVisible) camNow.setPinsVisible(false);
+              }
               const apex = new THREE.Vector3(...g.apex);
               // Anchor ground for the eye-height readout + building solidity: terrain sample,
               // apex-derived fallback (the frameArrivalPose clamp discipline).
@@ -1139,6 +1169,12 @@ export function attachStylizedTiles(opts: {
                 edgeOpacity: FPV.buildingGhostEdgeOpacity,
               });
               camNow.clearAllTargets();
+              if (!wasFpvActive) {
+                // FPV declutters: pins off by default. Only capture the restore state on a
+                // FRESH entry — an FPV→FPV jump must keep the original pre-FPV memory.
+                pinsVisibleBeforeFpv = camNow.pinsVisible;
+                if (camNow.pinsVisible) camNow.setPinsVisible(false);
+              }
               // A shared `#f=` link carries the EXACT view — eye height, bearing, pitch, FOV
               // (owner 2026-07-14); consumed once, then the entry behaves as always.
               const share = pendingFpvShare;
@@ -1975,6 +2011,7 @@ export function attachStylizedTiles(opts: {
         // camera→moon distance — it varies ±2% across an orbit swing).
         sky.update({
           camera,
+          alt, // shared geodetic sample (stepGeodeticAltitude) — drives the horizon fade band
           sunDir: sunDirW,
           moonPos: moonPosW,
           sunAngRad,
@@ -2050,6 +2087,9 @@ export function attachStylizedTiles(opts: {
   const stepPinsUpdate = () => {
         // Public pins: distance-scaled markers + lazy terrain grounding (Phase 5). The
         // selection mirror lets the adaptive de-cluster walk an OPEN pin to its truth.
+        // The PIN chip (owner 2026-07-15) gates render + pick in ONE place — update()
+        // re-sets mesh.visible per frame, so the flag must flow through the handle.
+        pins.setVisible(camNow.pinsVisible);
         pins.setSelected(upNow.viewingPinId ?? null);
         pins.update(camera);
         if (frameCount % PINS.resnapEveryFrames === 0) pins.resnap();

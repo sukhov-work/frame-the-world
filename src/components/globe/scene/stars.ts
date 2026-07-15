@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { ASTERISMS, GATES, MILKYWAY, STARS, WGS84_A } from "../tuning";
+import { ASTERISMS, GATES, MILKYWAY, STARS, WGS84_A, WGS84_B } from "../tuning";
 import {
   magToBright,
   magToSize,
@@ -11,7 +11,8 @@ import {
   asterismSegments,
   type AsterismsAsset,
 } from "../../../lib/ephemeris/asterisms";
-import { glf } from "./glsl";
+import { DITHER_GLSL, glf } from "./glsl";
+import { horizonBandSin, horizonTerms } from "./sky";
 
 /**
  * Star-field — additive round soft stars with a subtle twinkle. Built on a UNIT sphere; each frame
@@ -97,6 +98,16 @@ function makeStarMaterial(opts: {
       uTime: { value: 0 },
       uDpr: { value: opts.dpr },
       uFade: { value: 1 }, // altitude/night fade so stars leave cleanly (no bleed over the ground)
+      // True-horizon fade (owner 2026-07-15, scene/sky twin): terrain depth-occludes most
+      // sub-horizon stars, but the untiled gap past the loaded ground would leak them — and
+      // the sun/moon now slice exactly at the true horizon, so the stars must match.
+      uHorizonUp: { value: new THREE.Vector3(0, 0, 1) },
+      uSinHor: { value: -1 }, // fade OFF until the first update (everything above "horizon")
+      uHorizonBandSin: { value: horizonBandSin(0) },
+      // Atmospheric extinction floor (MILKYWAY.extinction*, owner 2026-07-15 "embed"): 1 =
+      // inert (the catalog stars keep their punch); stars.update writes the altitude-scaled
+      // floor ONLY on the diffuse Milky Way layers.
+      uExtFloor: { value: 1 },
     },
     vertexShader: /* glsl */ `
       attribute float aSize;
@@ -104,11 +115,22 @@ function makeStarMaterial(opts: {
       attribute float aBright;
       uniform float uTime;
       uniform float uDpr;
+      uniform vec3 uHorizonUp;
+      uniform float uSinHor;
+      uniform float uHorizonBandSin;
+      uniform float uExtFloor;
       varying float vB;
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mv;
-        vB = (${glf(opts.twinkleBase)} + ${glf(opts.twinkleAmp)} * sin(uTime * ${glf(STARS.twinkleSpeed)} + aPhase)) * aBright;   // subtle twinkle × magnitude
+        // Per-star true-horizon fade (ellipsoid-scaled space — see scene/sky.ts) + the low-sky
+        // extinction ramp (dim through the thick air column over the first degrees of altitude).
+        vec3 dW = (modelMatrix * vec4(position, 1.0)).xyz - cameraPosition;
+        vec3 Ds = normalize(vec3(dW.xy, dW.z * ${glf(WGS84_A / WGS84_B)}));
+        float sinEl = dot(Ds, uHorizonUp);
+        float hFade = smoothstep(uSinHor, uSinHor + uHorizonBandSin, sinEl);
+        float ext = mix(uExtFloor, 1.0, smoothstep(uSinHor, uSinHor + ${glf(Math.sin((MILKYWAY.extinctionBandDeg * Math.PI) / 180))}, sinEl));
+        vB = (${glf(opts.twinkleBase)} + ${glf(opts.twinkleAmp)} * sin(uTime * ${glf(STARS.twinkleSpeed)} + aPhase)) * aBright * hFade * ext;   // subtle twinkle × magnitude
         gl_PointSize = aSize * uDpr;                  // screen-space (no attenuation)
       }`,
     fragmentShader: /* glsl */ `
@@ -155,6 +177,76 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
   const mwPoints = new THREE.Points(mwGeometry, mwMaterial);
   mwPoints.raycast = () => {};
   points.add(mwPoints);
+
+  // Milky Way HAZE (owner 2026-07-15 realism pass) — the NASA SVS Deep Star Maps 2020
+  // Milky-Way-only layer on an inward-facing sphere, another CHILD of the star sphere (same
+  // −GAST rotation + camera-follow + scale ⇒ automatic alignment with the BSC5 stars in the
+  // shared J2000 frame). Sampled per-fragment dir→RA/Dec: object-space position IS the
+  // equatorial direction, so no geometry-UV pole pinch; RepeatWrapping + no mips ⇒ no seam at
+  // the RA wrap. Additive, riding the same uFade + true-horizon fade as the stars.
+  const hazeTex = new THREE.TextureLoader().load(MILKYWAY.hazeTexture);
+  hazeTex.colorSpace = THREE.SRGBColorSpace;
+  hazeTex.wrapS = THREE.RepeatWrapping;
+  hazeTex.wrapT = THREE.ClampToEdgeWrapping;
+  hazeTex.generateMipmaps = false;
+  hazeTex.minFilter = THREE.LinearFilter;
+  const hazeMaterial = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uMap: { value: hazeTex },
+      uGain: { value: MILKYWAY.hazeGain },
+      uFade: { value: 1 },
+      uHorizonUp: { value: new THREE.Vector3(0, 0, 1) },
+      uSinHor: { value: -1 },
+      uHorizonBandSin: { value: horizonBandSin(0) },
+      uExtFloor: { value: MILKYWAY.extinctionFloor },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      varying vec3 vW;
+      void main() {
+        vDir = position; // unit sphere in the star group's J2000 equatorial frame
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vW = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D uMap;
+      uniform float uGain;
+      uniform float uFade;
+      uniform vec3 uHorizonUp;
+      uniform float uSinHor;
+      uniform float uHorizonBandSin;
+      uniform float uExtFloor;
+      varying vec3 vDir;
+      varying vec3 vW;
+      void main() {
+        vec3 d = normalize(vDir);
+        // Plate carrée in J2000: RA 0h centred, RA increasing LEFT (SVS sky convention) —
+        // u = 0.5 − RA/2π (RepeatWrapping absorbs the wrap), v = 0.5 + dec/π.
+        float dec = asin(clamp(d.z, -1.0, 1.0));
+        float ra = atan(d.y, d.x);
+        vec2 uv = vec2(0.5 - ra / ${glf(2 * Math.PI)}, 0.5 + dec / ${glf(Math.PI)});
+        // True-horizon slice (scene/sky twin) + low-sky extinction (MILKYWAY.extinction* —
+        // the band dims through the thick air column and melts into the horizon haze).
+        vec3 dW = vW - cameraPosition;
+        vec3 Ds = normalize(vec3(dW.xy, dW.z * ${glf(WGS84_A / WGS84_B)}));
+        float sinEl = dot(Ds, uHorizonUp);
+        float hFade = smoothstep(uSinHor, uSinHor + uHorizonBandSin, sinEl);
+        float ext = mix(uExtFloor, 1.0, smoothstep(uSinHor, uSinHor + ${glf(Math.sin((MILKYWAY.extinctionBandDeg * Math.PI) / 180))}, sinEl));
+        vec3 color = texture2D(uMap, uv).rgb * uGain * uFade * hFade * ext;
+        ${DITHER_GLSL}
+        gl_FragColor = vec4(color, 1.0); // additive: rgb carries everything
+        #include <colorspace_fragment>
+      }`,
+  });
+  const hazeMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), hazeMaterial);
+  hazeMesh.raycast = () => {};
+  hazeMesh.frustumCulled = false; // the camera lives at the sphere's centre
+  points.add(hazeMesh);
 
   // Asterism figures (Phase 5.5 S6, §Item 4) — ~20 famous d3-celestial figures as another CHILD
   // of the star sphere: unit J2000 directions inherit −GAST + camera-follow + scale + the
@@ -250,7 +342,32 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       points.position.copy(camera.position);
       points.scale.setScalar(Math.min(STARS.limbMargin * limbDist, camera.far * STARS.farClamp));
       material.uniforms.uFade.value = fade;
-      mwMaterial.uniforms.uFade.value = fade;
+      // Diffuse Milky Way layers attenuate at long focal lengths (MILKYWAY.narrowFov*): the
+      // magnified 4k haze reads as soft blobs at 250–300 mm and the procedural sparkle points
+      // would pose as fake stars among the real BSC5 ones. The catalog stars stay full.
+      const fovK =
+        MILKYWAY.narrowFovFloor +
+        (1 - MILKYWAY.narrowFovFloor) *
+          THREE.MathUtils.smoothstep(camera.fov, MILKYWAY.narrowFovLoDeg, MILKYWAY.narrowFovHiDeg);
+      mwMaterial.uniforms.uFade.value = fade * fovK;
+      hazeMaterial.uniforms.uFade.value = fade * fovK;
+      // Extinction is atmosphere-bound: full at ground level, gone by orbit (the floor lifts
+      // to 1 with altitude). Catalog stars keep their default inert floor — punch preserved.
+      const extFloor =
+        MILKYWAY.extinctionFloor +
+        (1 - MILKYWAY.extinctionFloor) *
+          THREE.MathUtils.smoothstep(alt, MILKYWAY.extAltLoM, MILKYWAY.extAltHiM);
+      mwMaterial.uniforms.uExtFloor.value = extFloor;
+      hazeMaterial.uniforms.uExtFloor.value = extFloor;
+      // True-horizon fade terms (scene/sky twin — CPU float64): stars + the haze sphere sink
+      // at the same line the sun/moon impostors do.
+      const sinHor = horizonTerms(camera.position, material.uniforms.uHorizonUp.value);
+      const bandSin = horizonBandSin(alt);
+      for (const m of [material, mwMaterial, hazeMaterial]) {
+        (m.uniforms.uHorizonUp.value as THREE.Vector3).copy(material.uniforms.uHorizonUp.value);
+        m.uniforms.uSinHor.value = sinHor;
+        m.uniforms.uHorizonBandSin.value = bandSin;
+      }
       asterismLines.visible = asterismsLoaded && asterisms;
       asterismMaterial.opacity = fade * ASTERISMS.alpha;
       if (!reduceMotion) {
@@ -264,6 +381,9 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       material.dispose();
       mwGeometry.dispose();
       mwMaterial.dispose();
+      hazeMesh.geometry.dispose();
+      hazeMaterial.dispose();
+      hazeTex.dispose();
       asterismGeometry.dispose();
       asterismMaterial.dispose();
       scene.remove(points);

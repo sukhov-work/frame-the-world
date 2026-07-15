@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { ATMOSPHERE, GOLDEN, SUN, WGS84_A } from "../tuning";
+import { ATMOSPHERE, GOLDEN, SUN, WGS84_A, WGS84_B } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
+import { horizonTerms } from "./sky";
 
 /**
  * Atmosphere — physically-anchored limb glow. A screen-facing fresnel peaks at the SHELL's
@@ -51,6 +52,10 @@ export function attachAtmosphere(
     uH1: { value: ATMOSPHERE.lineScaleHeightM },
     uH2: { value: ATMOSPHERE.hazeScaleHeightM },
     uInside: { value: 0 }, // 1 when the camera is inside the shell (render back faces instead)
+    // True-horizon terms for the low-altitude sky regime (owner 2026-07-15 seam fix): scaled-
+    // space up + horizon elevation sine (with dip), CPU float64 per frame — scene/sky.ts twin.
+    uHorizonUp: { value: new THREE.Vector3(0, 0, 1) },
+    uSinHor: { value: 0 },
     // 0 at LEO (thick horizon haze is the point of the POV) -> 1 at outer orbit, where the same
     // physical scale heights read as a fat ring around the small disc: shrink widths and shift
     // the line toward Rayleigh blue — "distinct but elegant and subtle" (owner 2026-07-10).
@@ -83,6 +88,8 @@ export function attachAtmosphere(
       uniform float uH2;
       uniform float uInside;
       uniform float uOrbit;
+      uniform vec3 uHorizonUp;
+      uniform float uSinHor;
       varying vec3 vW;
       void main() {
         // one shell layer per view ray: near (front) faces when outside, far (back) faces when inside
@@ -129,7 +136,12 @@ export function attachAtmosphere(
         float skyK = 1.0 - smoothstep(${glf(ATMOSPHERE.skyFullAlt)}, ${glf(ATMOSPHERE.skyGoneAlt)}, uCamAlt);
         if (skyK > 0.001) {
           vec3 upC = normalize(O);
-          float sinEl = dot(D, upC);                  // view-ray elevation sine at the camera
+          // Elevation ABOVE THE TRUE HORIZON (ellipsoid-scaled space; CPU float64 terms — the
+          // scene/sky.ts twin). Anchoring the sky gradient + haze crest at the real horizon
+          // (dip included) removes the full-width seam the geocentric-horizontal anchor drew
+          // at 250–300 mm focal lengths (owner 2026-07-15).
+          vec3 Ds = normalize(vec3(D.xy, D.z * ${glf(WGS84_A / WGS84_B)}));
+          float sRel = dot(Ds, uHorizonUp) - uSinHor;
           float sunEl = dot(normalize(uSunDir), upC); // sun elevation sine at the camera
           float dayK = smoothstep(${glf(ATMOSPHERE.skyDawnLo)}, ${glf(ATMOSPHERE.skyDawnHi)}, sunEl);
           // S7 feedback ("white mess at strong tilt"): the horizon anchor is no longer pure
@@ -137,12 +149,19 @@ export function attachAtmosphere(
           // haze itself pulls blue (skyHazeBlue), the very-low-altitude haze is dimmed
           // (hazeLowAltK ramp — thin air column at drone heights), and the summed horizon budget
           // stays UNDER BLOOM.threshold so bloom never spreads it (unit-tested guard).
+          // Zenith ramp rides smoothstep (zero slope at the horizon — C1): the old pow(x, 0.55)
+          // had an INFINITE derivative at 0⁺, which read as a hard line at long focal lengths.
           vec3 horizonAnchor = mix(uSkyDay, uSkyHorizon, ${glf(ATMOSPHERE.skyHorizonWhiteness)});
-          vec3 zenithCol = mix(horizonAnchor, uSkyDay, pow(clamp(sinEl, 0.0, 1.0), ${glf(ATMOSPHERE.skyZenithPow)}));
+          vec3 zenithCol = mix(horizonAnchor, uSkyDay,
+            pow(smoothstep(0.0, 1.0, clamp(sRel, 0.0, 1.0)), ${glf(ATMOSPHERE.skyZenithPow)}));
           float hazeAltK = mix(${glf(ATMOSPHERE.hazeLowAltK)}, 1.0,
             smoothstep(${glf(ATMOSPHERE.hazeLowAltLo)}, ${glf(ATMOSPHERE.hazeLowAltHi)}, uCamAlt));
-          float haze = (exp(-max(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeFalloff)})
-                     * exp(min(sinEl, 0.0) / ${glf(ATMOSPHERE.skyHazeBelow)})) * hazeAltK;
+          // C1-smooth haze crest: softabs(sRel) rounds the meeting point of the two
+          // exponentials (skyHazeSoft); the crest value stays exactly 1 (skyBudget guard).
+          float hzG = sqrt(sRel * sRel + ${glf(ATMOSPHERE.skyHazeSoft ** 2)}) - ${glf(ATMOSPHERE.skyHazeSoft)};
+          float hzTau = mix(${glf(ATMOSPHERE.skyHazeBelow)}, ${glf(ATMOSPHERE.skyHazeFalloff)},
+            smoothstep(-${glf(ATMOSPHERE.skyHazeSoft)}, ${glf(ATMOSPHERE.skyHazeSoft)}, sRel));
+          float haze = exp(-hzG / hzTau) * hazeAltK;
           float hGold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunEl)
                       * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunEl));
           vec3 hazeBase = mix(uSkyHorizon, uSkyDay, ${glf(ATMOSPHERE.skyHazeBlue)});
@@ -171,6 +190,7 @@ export function attachAtmosphere(
     uniforms,
     update(camera, alt) {
       uniforms.uCamAlt.value = alt;
+      uniforms.uSinHor.value = horizonTerms(camera.position, uniforms.uHorizonUp.value);
       // LEO keeps the thick horizon haze; pulling out to outer orbit thins the halo.
       uniforms.uOrbit.value = THREE.MathUtils.clamp(
         (alt - ATMOSPHERE.orbitStartAlt) / ATMOSPHERE.orbitSpanAlt,

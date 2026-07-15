@@ -86,6 +86,35 @@
   color: var(--color-text-secondary);
 }
 
+/* Tab strip (owner 2026-07-15): MY PINS ↔ PLACES share the panel — same mono micro type as
+   the old title; the active tab lights accent like every other chip in the app. */
+.mp-tabs {
+  display: flex;
+  gap: 12px;
+}
+
+.mp-tab {
+  background: none;
+  border: none;
+  padding: 0 0 2px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid transparent;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.mp-tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.mp-tab.is-active {
+  color: var(--color-text);
+  border-bottom-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+
 .mp-close {
   background: none;
   border: none;
@@ -155,6 +184,16 @@
 .mp-thumb--empty {
   display: inline-block;
   border: 1px dashed var(--color-border);
+}
+
+/* Place rows have no photo — a quiet viewpoint glyph keeps the two lists' rhythm aligned. */
+.mp-thumb--place {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+  font-size: 14px;
 }
 
 .mp-meta {

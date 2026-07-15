@@ -141,7 +141,7 @@ Code agents. What made that work is committed and inspectable:
 - **[`.claude/CLAUDE.md`](.claude/CLAUDE.md)** — the operating contract (knowledge search order,
   binding constraints, verification rules).
 - **[`.claude/claude-docs/`](.claude/claude-docs/)** — `PROJECT_SEED.md` (6 binding constraints +
-  15 locked ADRs), `DEEP_RESEARCH.md` (cited feasibility research), `ARCHITECTURE.md` +
+  15 locked ADRs), `provenance/DEEP_RESEARCH.md` (cited feasibility research), `ARCHITECTURE.md` +
   `IMPLEMENTATION_PLAN.md` (the 7-phase build), and an append-only, dated `DECISIONS.md` —
   the entire decision history survives context resets.
 - **[`.claude/conventions/`](.claude/conventions/)** — distilled platform mechanics; the

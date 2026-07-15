@@ -156,6 +156,7 @@
 }
 .ct-sky.is-on,
 .ct-sat.is-on,
+.ct-pins.is-on,
 .ct-bld.is-on {
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
@@ -164,6 +165,12 @@
 
 /* Ground-mode toggle (S7a) — narrower chip so the four-chip row stays inside the card. */
 .ct-sat {
+  min-width: 2.1rem;
+  padding: 0 0.35rem;
+}
+
+/* Pin-visibility chip (owner 2026-07-15) — same narrow cut as SAT/BLD. */
+.ct-pins {
   min-width: 2.1rem;
   padding: 0 0.35rem;
 }
@@ -276,6 +283,79 @@
 }
 
 .ct-exitlook:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+/* SAVE PLACE (owner 2026-07-15) — quiet full-width control under the FPV sliders; the same
+   instrument cut as EXIT LOOK but muted until hover (accent stays reserved for state). */
+.ct-saveplace {
+  display: block;
+  width: 100%;
+  margin: 0.55rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.ct-saveplace:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+.ct-saveplace:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ct-saveplace.is-saved {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  opacity: 1;
+}
+
+.ct-saveplace__row {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0.55rem 0 0;
+}
+
+.ct-saveplace__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  color: var(--color-text);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.ct-saveplace__input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.ct-saveplace__ok {
+  flex: none;
+  padding: 0 0.55rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.ct-saveplace__ok:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
 

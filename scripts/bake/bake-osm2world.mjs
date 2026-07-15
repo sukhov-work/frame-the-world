@@ -11,7 +11,7 @@
 //   node scripts/bake/bake-osm2world.mjs --city dnipro-o2w     (config extends cities/dnipro.json)
 //   flags: --refresh (re-extract Overpass XML) · --reconvert (force OSM2World re-runs) · --out <dir>
 //
-// Pipeline (OSM2WORLD_EXPERIMENT_PREP.md §9 — Slice-1.5 spike verdict VIABLE, browser-VERIFIED):
+// Pipeline (dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md §9 — Slice-1.5 spike verdict VIABLE, browser-VERIFIED):
 //   Overpass XML per sub-box (cached) → reference-safe C6 filter (osmXml.mjs) → OSM2World `convert`
 //   (heavy modules excluded, ground Y=0, keepOsmElements) → re-bin Building/construction nodes into
 //   OUR grid (dedupe across sub-boxes · per-feature contiguous _FEATURE_ID_0 · C6 polygon gate at

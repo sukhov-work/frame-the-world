@@ -2,7 +2,7 @@
 
 Mode: design→implement (investigate-design-v3) · Tier: Deep
 Status: **design complete; Pass 1 keystone shipped & locally verified; rest of Pass 1 awaits wix-dev.**
-Docs: `.claude/claude-docs/RENDERING_QUALITY_PASS.md` (full plan/backlog). DECISIONS 2026-07-12 (latest).
+Docs: `.claude/claude-docs/rendering/RENDERING_QUALITY_PASS.md` (full plan/backlog). DECISIONS 2026-07-12 (latest).
 
 ## Owner mandate + decisions
 Hard pass on PERF + FLUIDITY + AESTHETICS of all 3D rendering, esp. STREET LEVEL + FPV; must run
@@ -70,4 +70,4 @@ QUICK WIN = pure lib/ephemeris/planner.ts + terrain-only horizonProfile.ts + jum
   material invariant) → F1 screen-door discard is the fix.
 
 Related: mem:core · mem:patterns/globe-rendering · mem:patterns/sky-bodies-terrain ·
-mem:patterns/photo-frustum · RENDERING_QUALITY_PASS.md · DECISIONS 2026-07-12 (latest).
+mem:patterns/photo-frustum · rendering/RENDERING_QUALITY_PASS.md · DECISIONS 2026-07-12 (latest).

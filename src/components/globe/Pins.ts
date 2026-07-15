@@ -48,6 +48,9 @@ export interface PinsHandle {
   mesh: THREE.InstancedMesh;
   setPins(pins: PublicPin[]): void;
   update(camera: THREE.PerspectiveCamera): void;
+  /** Master visibility (owner 2026-07-15, PIN chip / FPV declutter). Hidden pins also stop
+   *  picking — update() re-sets mesh.visible per frame, so this flag is the ONE gate. */
+  setVisible(on: boolean): void;
   /** Re-ask the terrain for ground height under the pins (cheap, call at low cadence). */
   resnap(): void;
   /** The pin under the pointer ray, or null. */
@@ -265,6 +268,7 @@ export function attachPins(
   const _camLast = new THREE.Vector3(Infinity, Infinity, Infinity);
   const _color = new THREE.Color();
   let dirty = true;
+  let shown = true; // master visibility (PIN chip) — gates rendering AND picking
   let lastNow = performance.now();
 
   // Post-save pulse (Phase 5.5 S3): the highlighted pin breathes for PINS.highlightMs.
@@ -387,9 +391,9 @@ export function attachPins(
       const dtMs = Math.min(now - lastNow, 100);
       lastNow = now;
       uTime.value = now / 1000; // shimmer/flare clock — runs even when matrices are static
-      if (pins.length === 0) {
+      if (pins.length === 0 || !shown) {
         for (const m of meshes) m.visible = false;
-        return;
+        return; // hidden: skip ALL per-frame matrix work too
       }
       for (const m of meshes) m.visible = true;
 
@@ -515,8 +519,15 @@ export function attachPins(
       }
     },
 
+    setVisible(on: boolean) {
+      if (on === shown) return;
+      shown = on;
+      // Matrices went stale while hidden (update() early-returned) — force a rebuild pass.
+      if (on) dirty = true;
+    },
+
     pick(raycaster: THREE.Raycaster): PublicPin | null {
-      if (heads.count === 0) return null;
+      if (!shown || heads.count === 0) return null; // hidden pins are unpickable (click + hover)
       const hits = raycaster.intersectObject(heads, false);
       const id = hits[0]?.instanceId;
       return id !== undefined && id < pins.length ? pins[id] : null;
