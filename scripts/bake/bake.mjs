@@ -3,7 +3,7 @@
 //   node scripts/bake/bake.mjs --city dnipro          (or:  npm run bake -- --city dnipro)
 //   flags: --refresh (re-query Overpass), --out <dir> (override config.output)
 //
-// Pipeline (Slice 1, LIGHT Node path — DNIPRO_3D_ENRICHMENT_PLAN.md §Slice 1):
+// Pipeline (Slice 1, LIGHT Node path — dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md §Slice 1):
 //   Overpass footprints+tags → C6 exclusion → height inference → roof-shaped extrusion →
 //   spatial-grid 3D-Tiles 1.1 (per-cell glb, shared ENU frame for the runtime R1 re-seat) → public/.
 // All data is public OSM (ODbL — attributed in the manifest + the app footer). No absolute Z is baked

@@ -1,6 +1,6 @@
 # Frame the World — Implementation Plan (working)
 
-The actionable 7-phase build. Distilled from `DEEP_RESEARCH.md` Handoff #2 (that doc is provenance).
+The actionable 7-phase build. Distilled from `provenance/DEEP_RESEARCH.md` Handoff #2 (that doc is provenance).
 **Work in small, verified increments.** After each phase: `npx astro check` + `npm test` + build pass,
 confirm the Definition-of-Done, stop for review. Never fabricate a Wix API signature — use Wix MCP/Skills.
 Update the checkboxes and append a `DECISIONS.md` line as each phase lands.
@@ -60,7 +60,7 @@ paid); public pins on shared globe via geohash viewport query; default reduced p
 **DoD:** free member saves ≤10, blocked on #11; paid unlimited; public pins render for all at reduced precision.
 **Test:** quota hook rejects #11; viewport geohash query returns only in-view pins; no exact GPS on public pins.
 
-## Phase 5.5 — Pre-marketplace UX/quality batch  ☐ *(designed 2026-07-11 — canonical doc: `PHASE_5_5_UX_BATCH.md`; owner's 10 items ordered into 7 sessions; blocks Phase 6)*
+## Phase 5.5 — Pre-marketplace UX/quality batch  ☑ *(DONE 2026-07-11, S1–S7 all shipped + browser-VERIFIED — canonical doc: `archive/PHASE_5_5_UX_BATCH.md`; owner's 10 items ordered into 7 sessions)*
 **Scope + order (S1→S7; each = one verified increment, DoD in the design doc):**
 - [x] **S1 — Location finder** (Photon autocomplete + Nominatim-on-Enter, OSM attribution, fly-to seam
   in store/camera + orchestrator) **+ day prev/next buttons** in TimeScrubber. *(S1 shipped 2026-07-11 — see DECISIONS)*
@@ -109,9 +109,42 @@ paid); public pins on shared globe via geohash viewport query; default reduced p
 **Test:** per-session `npm test` + `astro check` + `wix build`; browser verify on wix dev
 (`verify-shots/phase55-*`); S3 wix-cloud-verified with a member cookie.
 
-## Phase 6 — Marketplace-light  ☐
+## Interlude (2026-07-12 → 07-14) — owner-directed initiatives shipped between 5.5 and 6  ☑
+Unplanned-in-the-7-phase-build but all SHIPPED + verified (one `DECISIONS.md` line each; memories
+`mem:project/wip-2026-07-12-*` → `wip-2026-07-14-*`). Ledger, in order:
+- [x] **S7 feedback batches 1–2** — GL street names v3, vector road/water web (`scene/vectorTiles`/
+  `vectorFeatures`), ground-grade fixes, tooltips layer, MVT clip-at-parse flicker fix, camera pose in the
+  URL (`#p=`). *(2026-07-11/12)*
+- [x] **README rewrite** for the internal Wix contest (live URL deliberately omitted until next release). *(2026-07-12)*
+- [x] **Rendering quality Pass 1** — adaptive device tier + frame governor (`lib/globe/quality.ts`), tile-knob
+  tiering, fluidity eases, GTAOPass wired default-OFF. Plan: `rendering/RENDERING_QUALITY_PASS.md`.
+  *(2026-07-12; GTAO tune/enable + weak-box A/B still carried)*
+- [x] **Rendering Pass 2 (Dnipro identity)** — per-building tonal variation + night window emissive on the
+  ONE shared building material; R4 roof reconstruction design-and-deferred (superseded by the bake). *(2026-07-12/13)*
+- [x] **Illumination + shadows pass** — crisp building shadows (governor decoupled: shadows follow the DEVICE
+  tier), golden-hour GI, no night emissive (owner call). *(2026-07-13)*
+- [x] **Dnipro 3D enrichment, Slices 0–3** — reproducible Node baker `scripts/bake/` (OSM footprints → C6
+  exclusion → roof-shaped extrusion → gridded 3D-Tiles), mask + clip-prism over Cesium OSM, per-cell then
+  **per-building/per-tree terrain seating**, ~161k instanced trees. Source of truth:
+  `dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md`. *(2026-07-13/14; Slice 4 splats deferred; HLOD tail open)*
+- [x] **Pass 3 + Slice 5 — the planner/obstruction moat** — `lib/ephemeris/planner.ts` +
+  `lib/geo/{horizonProfile,occlusion}.ts` + PlanPanel ("will the sun clear that rooftop", jump-to-time). *(2026-07-14)*
+- [x] **R2 hosting** — Cloudflare Worker over a private bucket (CORS/Range), `upload-r2.mjs`/`deploy-worker.mjs`;
+  dev streams tiles locally (`bakes/` + Vite middleware), build/release use R2. *(2026-07-14)*
+- [x] **OSM2World parallel variant** — `bake-osm2world.mjs` (exact MetricMapProjection inversion), 10 km
+  extent both bakes, `BLD` A/B chip. Prep/verdicts: `dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md`.
+  *(2026-07-14; owner visual verdict pending)*
+- [x] **Owner UX batches** — draggable panels (DragGrip), time playback + precise time, shareable scene time
+  (`&t=`) + FPV views (`#f=`), FPV mini-map, always-on viewer coords, solidity screen-door dissolve,
+  clickable ☀/☾ chips, PLAN panel placement, zero h-scroll. *(2026-07-14)*
+
+## Phase 6 — Marketplace-light  ☐  **← NEXT (runway cleared 2026-07-15)**
+**Read first:** `PROJECT_SEED.md` C3/D9/D10 · `conventions/wix-headless.md` · `mem:patterns/members-pins`
+(the TUS-retained full-res original IS the digital asset) · `DECISIONS.md` §Traps "Wix platform / backend".
 **Scope:** list a photo as a digital product (`itemType.preset: DIGITAL` + `digitalFile` = full-res RAW); buy
 flow; owner-mediated payout note; 30-day download-link messaging. *(Import marketplace screens.)*
+**Open first:** catalog v3-vs-v1 API surface on headless — verify via Wix MCP before writing any endpoint;
+probe early whether checkout needs site-installed apps (the Pricing-Plans degrade lesson).
 **DoD:** list a RAW → another user buys → buyer gets 30-day download; owner sees the sale to pay out manually.
 **Test:** end-to-end purchase in Wix test mode; confirm digital delivery.
 
@@ -134,7 +167,10 @@ prompt; moderation pass on public previews; perf polish (KTX2, OPFS cache, mobil
 | 6 | Multi-party/marketplace payout on the Wix roadmap | owner-mediated manual payout (no split payments) | ☐ |
 | 7 | `3d-tiles-renderer` bundle size (Bundlephobia was down) | `npm view 3d-tiles-renderer dist.unpackedSize` + analyze | ☐ |
 
-## Empirical validation (before Phase 3)
-- ☐ a6700 26MP ARW decode benchmark: desktop **and** a mid-range phone; record peak WASM heap.
-- ☐ OSM building coverage check for Dnipro + 2 rural capture locations.
-- ☐ One `astronomy-engine` sun-azimuth spot-check against an almanac.
+## Empirical validation (was "before Phase 3"; status 2026-07-15)
+- ◐ a6700 26MP ARW decode benchmark: desktop DONE (halfSize ≈ 4.8 s → 3136×2084 texture, Phase 2);
+  **mid-range phone + peak WASM heap still carried.**
+- ☑ OSM building coverage for Dnipro — superseded by the enriched bake (127k buildings, 20×20 km);
+  rural coverage remains whatever Cesium OSM has.
+- ☑ `astronomy-engine` spot-check — JPL-Horizons-tested ±0.05° (pre-Phase-4 pass); Dec-21 subsolar
+  −23.44° verified in-scene.

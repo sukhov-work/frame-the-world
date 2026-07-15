@@ -105,4 +105,4 @@ THEN Pass 3 (moat) / decide R4 build. Phase 6 marketplace still deferred.
   `window.__globe.buildingUniforms` DEV seam (buildings expose no uniforms today, unlike earth/ground).
 
 Related: mem:core · mem:project/wip-2026-07-12-rendering-quality-pass (keystone + design) ·
-wip-2026-07-12-rendering-pass1-tiling-fluidity · mem:patterns/globe-rendering · RENDERING_QUALITY_PASS.md WS3.
+wip-2026-07-12-rendering-pass1-tiling-fluidity · mem:patterns/globe-rendering · rendering/RENDERING_QUALITY_PASS.md WS3.

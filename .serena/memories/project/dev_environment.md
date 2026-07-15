@@ -39,7 +39,7 @@ Where this runs and what CAN'T be trusted from a local test. (Referred by `mem:c
   `CLAUDE_CODE_ENABLE_DESIGN_MCP` (default via server flag) — currently on (tools reach the server).
 - Design project "Frame the World" = `fb0d7afa-8a4f-4b2f-9a59-517fb1eeb46c` (owner acct jaysonx1009@gmail.com,
   accountUuid 9cbd958a-4b7f-40ab-bb2c-4f22a28a46d0). Account match matters: `list_projects` only returns projects
-  owned by the logged-in Anthropic account. Round-trip workflow rules live in `.claude/claude-docs/CLAUDE_DESIGN_MEMO.md`
+  owned by the logged-in Anthropic account. Round-trip workflow rules live in `.claude/claude-docs/provenance/CLAUDE_DESIGN_MEMO.md`
   (fence: design writes ONLY under `src/components/panels|ui/**` + `src/styles/**`, never `globe/**` or `lib/**`).
 
 ## Empirical benchmarks owed before Phase 3

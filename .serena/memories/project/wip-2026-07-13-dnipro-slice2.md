@@ -56,7 +56,7 @@
   SDK/wrangler — npm blocked here). Env R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/
   R2_BUCKET (+R2_PREFIX). `--dry-run` verified: 92 files · 31.32 MB. +5 tests (`test/bake/s3sign.test.ts`).
 - REMAINING OWNER ACTION: create bucket → custom domain (r2.dev = NO CORS) → CORS policy
-  (`DNIPRO_SLICE0_SPIKE.md` §Recipe) → run the uploader → point `PUBLIC_ENRICHED_TILES_URL` at
+  (`dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md` §Recipe) → run the uploader → point `PUBLIC_ENRICHED_TILES_URL` at
   `https://<domain>/enriched/dnipro/tileset.json`. Recipe: `scripts/bake/README.md` §Hosting.
 
 ## Traps (load-bearing)

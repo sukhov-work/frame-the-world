@@ -4,8 +4,8 @@
  * No three, no globe deps → unit-testable. Consumed by scene/buildings.ts (the mask plugin) and
  * scene/enrichedBuildings.ts (the 3rd TilesRenderer + R1 runtime re-seat).
  *
- * Contract source: `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md` §Slice 0 +
- * `DNIPRO_SLICE0_SPIKE.md`. The mask tests each OSM tile's bounding-sphere CENTRE (lat/lon) against
+ * Contract source: `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md` §Slice 0 +
+ * `dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md`. The mask tests each OSM tile's bounding-sphere CENTRE (lat/lon) against
  * the bbox — coordinates the library returns from `TilesRenderer.ellipsoid.getPositionToCartographic`
  * in RADIANS, so the hot path works in radians (bboxContainsRad); degree helpers are for tests/wiring.
  */

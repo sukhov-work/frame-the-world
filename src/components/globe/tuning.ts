@@ -77,12 +77,20 @@ export const SKY = {
   /** Earthshine floor on the moon's dark side (0 = pitch black new moon; nudged 0.1 → 0.12
    *  S6 with the brightness raise — a faintly fuller dark limb reads "brighter" organically). */
   moonEarthshine: 0.12,
-  /** Horizon occlusion fade band (m). The impostors sit at a FAKE camera-anchored distance, so the
-   *  depth buffer cannot occlude them against the planet (the limb is farther than the impostor) —
-   *  each fragment instead tests its view ray against the ellipsoid analytically and fades out as
-   *  the ray's closest-approach altitude drops through this band. ~the atmosphere line scale height
-   *  reads as the body melting into the horizon haze rather than popping. */
-  horizonFadeBandM: 40_000,
+  /** Horizon occlusion — ANGULAR fade against the TRUE ellipsoid horizon (owner 2026-07-15;
+   *  supersedes the closest-approach `horizonFadeBandM` 40 km metric band). The old band
+   *  collapsed at street level: the test sphere used the EQUATORIAL radius (the real surface at
+   *  48°N sits ~11.9 km below it) and every ray at/below geocentric-horizontal pinned to fade 0
+   *  while the `tc<=0` guard pinned everything above to 1 — a razor cut at 0° elevation, well
+   *  above the true horizon (dip −0.31° at ~95 m eye). Now the CPU computes the horizon
+   *  elevation sine (with dip, float64, ellipsoid-scaled space) per frame and fragments fade
+   *  across an angular band above it. Street width ≈ a soft sunset slice (~15% of the solar
+   *  disc); orbit width reproduces the old ~0.6° melt into the limb haze at LEO. */
+  horizonFadeStreetDeg: 0.08,
+  horizonFadeOrbitDeg: 0.6,
+  /** Band-width blend altitudes (m): ≤ Lo → street width, ≥ Hi → orbit width (smoothstep). */
+  horizonFadeAltLoM: 50_000,
+  horizonFadeAltHiM: 600_000,
   /** FULL-MOON DirectionalLight intensity of moonlight on buildings. S5: scaled by the
    *  K&S-1991 phase curve (`lib/ephemeris/moonlight.ts` — quarter ≈ 9% of full, NOT the
    *  linear illuminated fraction), so this number is the full-moon calibration anchor. */
@@ -259,7 +267,7 @@ export const RENDERER = {
   toneMappingExposure: 1.0,
 } as const;
 
-/** Adaptive rendering quality (RENDERING_QUALITY_PASS.md WS1 — the keystone). A device tier is
+/** Adaptive rendering quality (rendering/RENDERING_QUALITY_PASS.md WS1 — the keystone). A device tier is
  *  picked at startup (`lib/globe/quality.detectDeviceTier`) and a runtime governor
  *  (`makeGovernor`) steps it up/down from smoothed frame time; GlobeCanvas applies the renderer
  *  levers (DPR / bloom / shadows) each change.
@@ -666,6 +674,11 @@ export const ATMOSPHERE = {
   /** Haze falloff BELOW the horizon (aerial perspective over distant terrain, decaying fast so
    *  near-ground rays stay clean — near geometry depth-occludes the dome anyway). */
   skyHazeBelow: 0.08,
+  /** C1 crest softening (elevation-sine units) where the two haze exponentials meet at the
+   *  horizon (owner 2026-07-15): the raw kink + the zenith ramp's infinite slope at 0⁺ read as
+   *  a hard full-width seam at 250–300 mm focal lengths. ~0.01 ≈ 0.6° of gentle rounding; the
+   *  crest value stays exactly 1, so the skyBudget guard is unaffected. */
+  skyHazeSoft: 0.01,
   /** Day factor ramp over sin(sun elevation): night → full day across this band. */
   skyDawnLo: -0.12,
   skyDawnHi: 0.12,
@@ -691,9 +704,11 @@ export const STARS = {
   /** Catalog magnitude → point size: size = sizeBase + sizeSpread·10^(−0.4·(V − magRef)·sizeGamma),
    *  clamped to sizeMax. magRef ≈ the naked-eye median keeps most stars near sizeBase. */
   magRef: 2.0,
-  /** Exponent softener on the flux law for SIZE (pure flux would make Sirius a golf ball). */
-  sizeGamma: 0.35,
-  sizeMax: 5.0,
+  /** Exponent softener on the flux law for SIZE (pure flux would make Sirius a golf ball).
+   *  (0.35 → 0.42 + sizeMax 5 → 6.5, owner 2026-07-15 MW pass: steeper hierarchy so the
+   *  first-magnitude stars PUNCH THROUGH the Milky Way haze; the mag-4+ tail barely moves.) */
+  sizeGamma: 0.42,
+  sizeMax: 6.5,
   /** Catalog magnitude → brightness attribute (multiplies alpha): 10^(−0.4·(V − magRef)·brightGamma).
    *  Floor raised 0.18 → 0.3 → 0.55 across browser passes (phase4-04/05): a ~1.5 px point below
    *  ~0.5 alpha weight simply vanishes at DPR 1 — the mag-4+ tail (most of BSC5) went invisible.
@@ -722,16 +737,46 @@ export const STARS = {
   nightVisFullSin: -0.14,
 } as const;
 
-/** Procedural Milky Way band (owner 2026-07-10: "very subtle milkyway at realistic space
- *  coords"). Points scattered about the REAL galactic plane (IAU J2000 pole/centre —
- *  `lib/ephemeris/stars.ts galacticToEquatorial`), rendered as a child of the BSC5 star sphere so
- *  the −GAST sidereal rotation places the band correctly over the earth for the scene time.
- *  Density/brightness bulge toward the galactic centre (Sagittarius). Kept FAINT — it reads as a
- *  texture of the night sky, not a feature. */
+/** Milky Way (owner 2026-07-10 "very subtle" → owner 2026-07-15 "pronounced and realistic").
+ *  TWO layers on the BSC5 star sphere (both inherit the −GAST sidereal rotation, so the band
+ *  sits correctly over the earth for the scene time):
+ *   • HAZE — NASA/GSFC SVS "Deep Star Maps 2020" Milky-Way-only layer (svs.gsfc.nasa.gov/4851;
+ *     Gaia DR2 star counts with the bright Hipparcos/Tycho stars REMOVED, so no BSC5 point is
+ *     drawn twice): real dust lanes / Great Rift / Sagittarius bulge / per-pixel colour, J2000
+ *     equatorial plate carrée (RA 0h centred, RA increasing LEFT — sky convention). Baked
+ *     linear→sRGB + dither offline (scripts note in scene/stars.ts); sampled per-fragment
+ *     dir→RA/Dec (no geometry-UV seam/pole pinch; mips off so the RA wrap has no derivative
+ *     artifact). Landmark-verified: photometric bulge px (3064,1351) vs Sgr A* projection
+ *     (3113,1354) and LMC px (1140,1815) vs (1128,1817) on the 4k grid.
+ *   • POINTS — the original procedural gaussian field, retuned DOWN to a sparkle layer riding
+ *     on top of the haze (alpha 0.35 → 0.14). */
 export const MILKYWAY = {
+  /** All-sky haze texture (public/, 8192×4096 JPEG — upgraded from 4k, owner 2026-07-15;
+   *  credit: NASA/GSFC SVS · ESA/Gaia/DPAC — see index.astro attribution). */
+  hazeTexture: "/textures/milkyway-2020.jpg",
+  /** Haze brightness multiplier on the additive sphere (1 = the baked map as-is;
+   *  1.0 → 0.8 owner 2026-07-15 "a little bit subtler"). */
+  hazeGain: 0.8,
+  /** Atmospheric extinction on the DIFFUSE layers (owner 2026-07-15 "embed into the sky more
+   *  naturally"): near the horizon the band dims through the thick air column — haze/sparkle
+   *  fade from extinctionFloor at the true horizon to full by extinctionBandDeg above it.
+   *  Real BSC5 stars are exempt (they carry the punch). Effect is atmosphere-bound: it fades
+   *  out with camera altitude across extAltLoM → extAltHiM (no extinction from orbit). */
+  extinctionBandDeg: 16,
+  extinctionFloor: 0.22,
+  extAltLoM: 20_000,
+  extAltHiM: 150_000,
+  /** Narrow-FOV attenuation of the DIFFUSE layers (haze + procedural sparkle — never the real
+   *  BSC5 stars): fovK = floor + (1−floor)·smoothstep(lo, hi, camera vFOV°). At 250–300 mm the
+   *  4k map magnifies ~15× (unresolved star speckle → soft blobs) and a long lens + normal
+   *  exposure would not show the diffuse glow this strongly anyway (verified on
+   *  prephase6-b2/c2 shots, 2026-07-15). */
+  narrowFovLoDeg: 8,
+  narrowFovHiDeg: 35,
+  narrowFovFloor: 0.22,
   count: 14_000,
-  /** Peak point alpha (≪ STARS.alpha — subtlety is the spec; 0.25 → 0.35 S5 night pass). */
-  alpha: 0.35,
+  /** Peak point alpha — sparkle layer over the texture haze (0.35 → 0.14, 2026-07-15). */
+  alpha: 0.14,
   /** Point sizes (px, pre-DPR): sizeBase + rand²·sizeSpread. Below ~1 px a point often covers
    *  no pixel centre at DPR 1 and simply vanishes (verified live — the 0.6 px first cut rendered
    *  NOTHING); ~2.6-5 px + low alpha reads as the intended soft veil (sizeBase up S5). */
@@ -792,8 +837,8 @@ export const BUILDINGS = {
 /** Dnipro 3D enrichment (Slice 0 de-risk spike) — a SECOND buildings tileset (self-hosted 3D Tiles),
  *  masking Cesium OSM Buildings inside `bbox` and streamed in their place. ENTIRELY DEFAULT-OFF: the
  *  orchestrator attaches nothing unless `import.meta.env.PUBLIC_ENRICHED_TILES_URL` is set, so with no
- *  URL the globe is byte-identical to before. Plan: `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md`
- *  + `DNIPRO_SLICE0_SPIKE.md`; module: scene/enrichedBuildings.ts; mask: scene/buildings.ts. */
+ *  URL the globe is byte-identical to before. Plan: `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md`
+ *  + `dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md`; module: scene/enrichedBuildings.ts; mask: scene/buildings.ts. */
 export const ENRICHED = {
   /** Enrichment/mask bbox (deg, west/south/east/north). This is BOTH the OSM-buildings mask extent
    *  AND the enriched-tileset extent — they MUST match (the enriched bake REPLACES OSM here; a mismatch

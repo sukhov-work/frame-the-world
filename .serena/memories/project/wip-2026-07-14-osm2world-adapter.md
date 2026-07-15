@@ -112,5 +112,5 @@ Owner A/B verdict on o2w vs extruder (the point of all this) → if o2w wins: dr
 tuning; if extruder wins: keep o2w as an option per city. Also open: dayArcs skyline fold · WS4-D subject
 shadow timeline · optional HLOD · Phase 6 marketplace. wix dev NOT running (stopped at session end).
 
-Related: `mem:project/wip-2026-07-14-osm2world-slice1.5-spike` (the seed) · `OSM2WORLD_EXPERIMENT_PREP.md`
+Related: `mem:project/wip-2026-07-14-osm2world-slice1.5-spike` (the seed) · `dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md`
 §10 · DECISIONS "2026-07-14 (LATEST — OSM2World PRODUCTION ADAPTER)" · `scripts/bake/README.md` §OSM2World.

@@ -2,7 +2,7 @@
 
 Reproducible **offline** bake of roof-shaped enriched buildings **+ instanced trees** for one city →
 self-hostable **3D Tiles**, streamed by `scene/enrichedBuildings.ts` and masked over the global Cesium
-OSM Buildings inside the city bbox. Part of `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md`
+OSM Buildings inside the city bbox. Part of `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md`
 (Slices 1–3). **All inputs are public OSM (ODbL).**
 
 ```bash

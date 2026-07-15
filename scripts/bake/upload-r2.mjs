@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Upload a baked city tileset (public/enriched/<city>/) to Cloudflare R2 — pure Node SigV4 PUTs
 // against the S3-compatible endpoint (no SDK/wrangler; public npm is blocked here). Slice 2 of
-// `.claude/claude-docs/DNIPRO_3D_ENRICHMENT_PLAN.md`.
+// `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md`.
 //
 //   node scripts/bake/upload-r2.mjs --city dnipro [--dry-run]
 //
@@ -17,7 +17,7 @@
 //
 // SERVING (the part the upload can't do — one-time per bucket, in the Cloudflare dash):
 //   r2.dev serves NO CORS headers → connect a CUSTOM DOMAIN to the bucket, then add the CORS policy
-//   from DNIPRO_SLICE0_SPIKE.md §Recipe (GET/HEAD, range/if-match headers, expose content-range/
+//   from dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md §Recipe (GET/HEAD, range/if-match headers, expose content-range/
 //   accept-ranges/etag). Then point PUBLIC_ENRICHED_TILES_URL at
 //   https://<custom-domain>/<prefix>/tileset.json and restart wix dev / release.
 import { readFile, readdir } from "node:fs/promises";
@@ -95,6 +95,6 @@ await Promise.all(workers);
 console.log(`✓ ${files.length} files · ${(total / 1024 / 1024).toFixed(2)} MB`);
 if (!dryRun) {
   console.log(`  NEXT: connect a custom domain to the bucket (r2.dev has NO CORS) + CORS policy`);
-  console.log(`  (DNIPRO_SLICE0_SPIKE.md §Recipe), then set`);
+  console.log(`  (dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md §Recipe), then set`);
   console.log(`  PUBLIC_ENRICHED_TILES_URL=https://<custom-domain>/${prefix}/tileset.json`);
 }

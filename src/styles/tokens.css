@@ -3,7 +3,7 @@
    "00 · DESIGN SYSTEM — TOKENS" (2026-07-10 import): dark space-neutral base, one
    luminous cyan-teal accent, Space Grotesk (UI) + IBM Plex Mono (readouts).
    After ANY change here, regenerate the GL bridge `src/lib/theme/tokens.ts` so the
-   WebGL scene stays in sync. See CLAUDE_DESIGN_MEMO.md for the round-trip rules. */
+   WebGL scene stays in sync. See provenance/CLAUDE_DESIGN_MEMO.md for the round-trip rules. */
 :root {
   /* Base + surfaces (design: bg/base · bg/raise · surface/1 · surface/2) */
   --color-bg: #05070b;

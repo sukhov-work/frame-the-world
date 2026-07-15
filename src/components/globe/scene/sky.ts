@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { SKY, WGS84_A } from "../tuning";
+import { SKY, WGS84_A, WGS84_B } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
 
 /**
@@ -28,6 +28,9 @@ export interface SkyHandle {
   /** Per-frame: re-anchor both impostors (camera + far plane move every frame). */
   update(ctx: {
     camera: THREE.PerspectiveCamera;
+    /** Geodetic camera altitude (m) — the orchestrator's shared sample (tunables contract:
+     *  modules never re-derive it). Drives the horizon fade band width. */
+    alt: number;
     /** Unit direction TO the sun (world/ECEF). */
     sunDir: THREE.Vector3;
     /** Moon centre in world/ECEF metres (true position — direction is derived per-camera). */
@@ -45,19 +48,49 @@ export interface SkyHandle {
 
 // Horizon occlusion — the impostors sit at a FAKE camera-anchored distance, so the depth buffer
 // CANNOT occlude them against the planet (the limb is usually farther than the impostor; that was
-// the "moon clipping through the earth" bug). Instead each fragment tests its view ray against the
-// earth analytically (same closest-approach math as scene/atmosphere) and fades across
-// SKY.horizonFadeBandM — the body melts into the horizon haze instead of popping. `cameraPosition`
-// is a three-provided fragment uniform. Rays whose closest approach lies behind the camera
-// (tc <= 0) open away from the planet — nothing to occlude, e.g. a zenith moon at street level.
+// the "moon clipping through the earth" bug). Each fragment compares its view ray's elevation
+// sine against the TRUE ellipsoid horizon (with dip) and fades across an ANGULAR band — so a
+// setting body slices gradually behind the real horizon line at street level AND melts into the
+// limb haze from orbit (owner 2026-07-15; the old closest-approach metric band collapsed to a
+// razor cut at 0° elevation in FPV — see SKY.horizonFadeStreetDeg provenance).
+//
+// Space is ELLIPSOID-SCALED (x,y ÷ a, z ÷ b → the ellipsoid becomes the unit sphere): tangency
+// is preserved exactly by the linear map, so the horizon is exact; angle distortion ≤ the
+// flattening (~0.3%), invisible. The horizon terms (uHorizonUp = scaled-space up, uSinHor =
+// horizon elevation sine incl. dip, uHorizonBandSin = band width) are computed per frame on the
+// CPU in float64 — float32 shader math near r ≈ 1 would make the dip noisy at low eye heights.
 const HORIZON_FADE_GLSL = /* glsl */ `
+      uniform vec3 uHorizonUp;
+      uniform float uSinHor;
+      uniform float uHorizonBandSin;
       float horizonFade(vec3 worldPos) {
-        vec3 D = normalize(worldPos - cameraPosition);
-        float tc = -dot(cameraPosition, D);
-        if (tc <= 0.0) return 1.0;
-        float dmin = length(cameraPosition + D * tc);
-        return smoothstep(0.0, ${glf(SKY.horizonFadeBandM)}, dmin - ${glf(WGS84_A)});
+        vec3 dW = worldPos - cameraPosition;
+        vec3 Ds = normalize(vec3(dW.xy, dW.z * ${glf(WGS84_A / WGS84_B)}));
+        return smoothstep(uSinHor, uSinHor + uHorizonBandSin, dot(Ds, uHorizonUp));
       }`;
+
+/** Per-frame CPU horizon terms (float64) shared by every sky consumer of HORIZON_FADE_GLSL —
+ *  scene/stars reuses it for the star/Milky-Way fade. Returns the scaled-space up + horizon sine. */
+export function horizonTerms(
+  camPos: { x: number; y: number; z: number },
+  outUp: THREE.Vector3,
+): number {
+  const ox = camPos.x / WGS84_A;
+  const oy = camPos.y / WGS84_A;
+  const oz = camPos.z / WGS84_B;
+  const r = Math.sqrt(ox * ox + oy * oy + oz * oz);
+  outUp.set(ox / r, oy / r, oz / r);
+  // Camera at/under the surface (transient during flights) → horizon at the horizontal.
+  const rSafe = Math.max(r, 1);
+  return -Math.sqrt(Math.max(rSafe * rSafe - 1, 0)) / rSafe;
+}
+
+/** Angular band width (sine units) for the current altitude: street slice ↔ orbit melt. */
+export function horizonBandSin(altM: number): number {
+  const t = THREE.MathUtils.smoothstep(altM, SKY.horizonFadeAltLoM, SKY.horizonFadeAltHiM);
+  const deg = SKY.horizonFadeStreetDeg + (SKY.horizonFadeOrbitDeg - SKY.horizonFadeStreetDeg) * t;
+  return Math.sin(THREE.MathUtils.degToRad(deg));
+}
 
 const IMPOSTOR_VERTEX_GLSL = /* glsl */ `
       varying vec2 vUv;
@@ -69,11 +102,20 @@ const IMPOSTOR_VERTEX_GLSL = /* glsl */ `
       }`;
 
 export function attachSky(scene: THREE.Scene): SkyHandle {
+  // Horizon-fade terms — ONE set of uniform holders shared by both impostor materials (same
+  // {value} object references: one CPU write per frame updates both shaders).
+  const uHorizonUp = { value: new THREE.Vector3(0, 0, 1) };
+  const uSinHor = { value: 0 };
+  const uHorizonBandSin = { value: horizonBandSin(0) };
+
   // --- Sun: billboarded plane, additive; UV distance drives core disc + exp halo. -------------
   const sunUniforms = {
     uCore: { value: new THREE.Color(tokens.sunCore) },
     uGlow: { value: new THREE.Color(tokens.sunGlow) },
     uIntensity: { value: SKY.sunIntensity },
+    uHorizonUp,
+    uSinHor,
+    uHorizonBandSin,
   };
   const sunMat = new THREE.ShaderMaterial({
     uniforms: sunUniforms,
@@ -116,6 +158,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     uSunDir: { value: new THREE.Vector3(1, 0, 0) },
     uBrightness: { value: SKY.moonBrightness },
     uEarthshine: { value: SKY.moonEarthshine },
+    uHorizonUp,
+    uSinHor,
+    uHorizonBandSin,
   };
   const moonMat = new THREE.ShaderMaterial({
     uniforms: moonUniforms,
@@ -180,7 +225,12 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     sunMesh,
     moonMesh,
     moonLight,
-    update({ camera, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity }) {
+    update({ camera, alt, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity }) {
+      // Horizon fade terms (float64 on the CPU — see HORIZON_FADE_GLSL): shared uniform holders,
+      // one write covers the sun AND moon materials.
+      uSinHor.value = horizonTerms(camera.position, uHorizonUp.value);
+      uHorizonBandSin.value = horizonBandSin(alt);
+
       // GlobeControls refits near/far per frame — looking AWAY from the earth pushes near out to
       // thousands of km (it fits the terrain BEHIND the camera), so the impostor distance must be
       // clamped into the live [near, far] band or the bodies near-plane-clip out of the sky.

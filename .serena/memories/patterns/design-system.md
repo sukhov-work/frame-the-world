@@ -3,7 +3,7 @@
 Source: Claude Design project `fb0d7afa-8a4f-4b2f-9a59-517fb1eeb46c` (owner jaysonx1009@gmail.com),
 file `Frame the World.dc.html` (canvas mode, 1234 lines) + `globe-scene.js`/`image-slot.js`/`support.js`.
 Round-trip CONFIRMED working after the killswitch fix (see `mem:project/dev_environment`). Fence rules +
-push-back semantics: `.claude/claude-docs/CLAUDE_DESIGN_MEMO.md`. Read the canvas for pixel-level layout.
+push-back semantics: `.claude/claude-docs/provenance/CLAUDE_DESIGN_MEMO.md`. Read the canvas for pixel-level layout.
 
 ## Tokens → live in `src/styles/tokens.css` (source of truth) + GL bridge `src/lib/theme/tokens.ts`
 Chrome (all adopted): bg/base `#05070B` · bg/raise `#0B0F14` · surface/1 `#12161C` · surface/2 `#1A1F27` ·

@@ -1,6 +1,6 @@
 # Convention — Architecture & Patterns
 
-Canonical architecture: `.claude/claude-docs/ARCHITECTURE.md` (distilled) + `DEEP_RESEARCH.md` (provenance).
+Canonical architecture: `.claude/claude-docs/ARCHITECTURE.md` (distilled) + `provenance/DEEP_RESEARCH.md` (provenance).
 This file is the day-to-day *how we structure code* contract.
 
 ## The load split (C1)

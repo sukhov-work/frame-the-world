@@ -1,7 +1,7 @@
 {
   "extends": "dnipro",
   "city": "dnipro-o2w",
-  "variantNote": "OSM2World higher-fidelity VARIANT of the dnipro bake (fidelity tier 2 — OSM2WORLD_EXPERIMENT_PREP.md §9). Inherits bbox/grid/buildings/vegetation/exclusion from cities/dnipro.json so the mask extent, cells, and trees stay identical — an A/B differs ONLY in structure geometry. Baked by scripts/bake/bake-osm2world.mjs; the default pipeline (bake.mjs → bakes/enriched/dnipro) is untouched. Compare at runtime via ?enriched=dnipro-o2w (src/lib/globe/enrichedVariant.ts).",
+  "variantNote": "OSM2World higher-fidelity VARIANT of the dnipro bake (fidelity tier 2 — dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md §9). Inherits bbox/grid/buildings/vegetation/exclusion from cities/dnipro.json so the mask extent, cells, and trees stay identical — an A/B differs ONLY in structure geometry. Baked by scripts/bake/bake-osm2world.mjs; the default pipeline (bake.mjs → bakes/enriched/dnipro) is untouched. Compare at runtime via ?enriched=dnipro-o2w (src/lib/globe/enrichedVariant.ts).",
   "output": "bakes/enriched/dnipro-o2w",
   "tilesetVersion": "dnipro-o2w-2",
   "osm2world": {

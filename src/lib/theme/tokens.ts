@@ -1,7 +1,7 @@
 /**
  * GL token bridge (ADR D14). The single source of colour for the WebGL scene, so the DOM chrome and
  * the globe never drift apart. SOURCE OF TRUTH is `src/styles/tokens.css` — after a Claude Design
- * import, REGENERATE this file to match those custom properties (see CLAUDE_DESIGN_MEMO.md).
+ * import, REGENERATE this file to match those custom properties (see provenance/CLAUDE_DESIGN_MEMO.md).
  *
  * Reconciled from the Claude Design project "Frame the World" board "00 · DESIGN SYSTEM" (2026-07-10).
  * Chrome tokens mirror tokens.css; globe tokens (land..star) are the FENCED, browser-tuned render palette.
