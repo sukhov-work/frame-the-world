@@ -13,7 +13,14 @@ surprise me". Docs-only session — no code. Chunk-500 prod outage: owner-confir
   mini-batch (spec = §Phase 6 UI tails, from [[project/wip-2026-07-16-phase6-marketplace-research]])
   → 2) demo seeding → 3) Phase 7 AI.
 
-## The dozen (subject — location — why)
+## SIZING UPDATE (2026-07-17 later): owner raised the seed to ~30
+Bench promoted into the main list → **24 distinct locations (+3 optional same-site frames = 27)** in
+`DEMO_CONTENT_SEED.md`. A round-2 hunt (US-federal: Kilauea/black-smoker/Denali/supercell · Commons CC0:
+Bromo/Ha Long/baobabs/Danakil/Patagonia/Iceland/Lofoten/Australia) was **STOPPED BY THE OWNER mid-run** —
+do NOT relaunch unprompted; the un-searched targets are parked in the doc's §Top-up section for an
+exact-30 pass if asked. NASA WAIS "Spectacular Sundog" excluded (CC-BY tag shadows the PD-USGov basis).
+
+## The original dozen (subject — location — why)
 Blood Falls (Antarctica, PD-NSF) · Deadvlei (Namibia, CC0) · Uyuni sky-mirror (Bolivia, PDM, **20.8MB→TUS**)
 · Zhangye Danxia (China, CC0) · Arher dunes Socotra (Yemen, PD-self) · Moeraki boulders (NZ, PD-self) ·
 Lençóis Maranhenses lagoons (Brazil, CC0) · **light pillars Sarny (UKRAINE, CC0 — the deliberate UA pin)** ·

@@ -13,8 +13,11 @@ import { isPrecisionTier, reduceLocation, type PrecisionTier } from "../geo/prec
 import type { CameraPoseOptics } from "../pins/fields";
 import type { PinListing } from "../market/listing";
 
-/** Free-tier pin quota (IMPLEMENTATION_PLAN §Phase 5): the 11th save is refused. */
-export const PIN_QUOTA_FREE = 10;
+/** Free-tier pin quota (owner re-ruling 2026-07-17, supersedes D8's 10): save #101 is refused. */
+export const PIN_QUOTA_FREE = 100;
+
+/** Premium-tier pin quota (owner ruling 2026-07-17 — was "unlimited"): a hard ceiling too. */
+export const PIN_QUOTA_PREMIUM = 1000;
 
 /**
  * Public display label for a member: nickname → login-email user part → "Member".

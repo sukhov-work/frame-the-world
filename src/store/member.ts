@@ -65,6 +65,16 @@ export function loginUrl(returnTo: string): string {
   return `/api/auth/login?returnToUrl=${encodeURIComponent(returnTo)}`;
 }
 
+/**
+ * The current in-app location incl. the `#p=`/`#f=` pose hash the orchestrator mirrors at low
+ * cadence — so a login/checkout round-trip lands back on the exact view (the viewed pin) instead
+ * of the home reset. SSR-safe fallback for the island's first render pass.
+ */
+export function returnHereUrl(): string {
+  if (typeof window === "undefined") return "/";
+  return window.location.pathname + window.location.search + window.location.hash;
+}
+
 /** Short label for the nav badge: nickname → email user part → generic. */
 export function memberLabel(member: MemberInfo | null): string {
   if (!member) return "Member";

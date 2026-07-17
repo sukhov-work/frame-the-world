@@ -29,6 +29,33 @@
   white-space: nowrap;
 }
 
+/* Phase 6.9 — the persistent premium-purchase affordance (free members only). Accent-outlined
+   chip like .nav-upload so it reads as the nav's second CTA, not another text link. */
+.mb-upgrade {
+  background: none;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.mb-upgrade:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.mb-upgrade:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .mb-form {
   display: inline;
   margin: 0;

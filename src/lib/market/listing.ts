@@ -22,6 +22,15 @@ export const STORES_APP_ID = "215238eb-22a5-4c36-9e7b-e7c08025e04e";
 export const MAX_PRICE = 100_000;
 
 /**
+ * The site's checkout currency, written onto every listing at creation time. A constant because
+ * no installed SDK exposes it cleanly: productsV3 never echoes currency, and @wix/ecom's
+ * ecommerce-settings BUSINESS_INFO is typed `{}` on the public build (internal-only fields,
+ * verified 2026-07-17) — the Checkout entity carries it, but only at buy time. The store is
+ * configured in EUR; change here if the site currency ever changes.
+ */
+export const SITE_CURRENCY = "EUR";
+
+/**
  * A pin's listing snapshot — mirrored from the Photos row onto the public pin for buyer display.
  * `variantId` is REQUIRED at checkout: a V3 Stores product resolves to a line item only via
  * `catalogReference.options.variantId` — a productId-only reference yields an EMPTY checkout
@@ -88,9 +97,14 @@ export function parseListBody(raw: unknown): { photoId: string; priceAmount: num
   return { photoId, priceAmount };
 }
 
-/** Human-facing price label — "12.50 USD" or, when the store currency is unknown, just "12.50". */
+/** Symbol-prefixed currencies; anything else renders as an ISO suffix ("12.50 CHF"). */
+const CURRENCY_SYMBOL: Record<string, string> = { EUR: "€", USD: "$", GBP: "£", UAH: "₴" };
+
+/** Human-facing price label — "€12.50" / "12.50 CHF"; pre-currency-fix rows (null) → just "12.50". */
 export function formatPrice(amount: number | null | undefined, currency: string | null | undefined): string {
   if (amount == null) return "";
   const n = amount.toFixed(2).replace(/\.00$/, "");
-  return currency ? `${n} ${currency}` : n;
+  if (!currency) return n;
+  const symbol = CURRENCY_SYMBOL[currency];
+  return symbol ? `${symbol}${n}` : `${n} ${currency}`;
 }

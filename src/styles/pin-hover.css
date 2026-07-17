@@ -56,3 +56,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Phase 6.9 buyer discovery — the for-sale price chip (accent voice, same as .mp-badge--sale). */
+.pinhover__price {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
+}

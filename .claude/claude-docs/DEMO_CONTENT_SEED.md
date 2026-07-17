@@ -6,12 +6,14 @@ bar: **true Public Domain or CC0 only** (US-Gov works qualify; CC-BY/CC-BY-SA do
 on demo content). This is a temporary working doc — archive to `archive/` after seeding.
 
 ## Status
-- [x] Curation research (3 parallel lanes: US-federal · Wikimedia CC0/PD · wildcard phenomena) — 2026-07-17
-- [ ] Owner skim of the dozen (swap any that don't land)
-- [ ] `scripts/seed-demo-pins.mjs` built + run against `wix dev`
-- [ ] Dozen verified rendering across the globe (browser) → archive this doc
+- [x] Curation research round 1 (3 parallel lanes: US-federal · Wikimedia CC0/PD · wildcard phenomena) — 2026-07-17
+- [x] Owner sized the seed to **~30**; round-2 hunt STOPPED by owner mid-run → pool = **24 distinct (+3
+      same-site) = 27**; top-up targets parked below — 2026-07-17
+- [ ] Owner skim of the set (swap any that don't land; decide on #24 pole-cluster + the 3 pad frames)
+- [ ] `scripts/seed-demo-pins.mjs` built + run against `wix dev` (after the Phase-6.9 quota bump + currency fix)
+- [ ] Set verified rendering across the globe + in the MARKETPLACE panel (browser) → archive this doc
 
-## The dozen (curated 2026-07-17 — every continent + one open-ocean pin; all licenses + direct URLs machine-verified)
+## The set — 24 distinct locations verified (+3 optional same-site frames); owner sized the seed to ~30 (2026-07-17)
 
 1. **Blood Falls — a five-story waterfall of blood-red iron brine seeping from a glacier** · Taylor Glacier,
    McMurdo Dry Valleys, **Antarctica** · `-77.717, 162.267` · PD (NSF/USAP employee work, Peter Rejcek) · 2968×1740 ·
@@ -63,20 +65,79 @@ on demo content). This is a temporary working doc — archive to `archive/` afte
     page: https://oceanexplorer.noaa.gov/multimedia/daily-image-media-20201106/ ·
     file: https://oceanexplorer.noaa.gov/wp-content/uploads/2020/10/20201106-hires.jpg
 
-**Spread check:** Antarctica · Africa · S. America ×2 · Asia · Middle East · Oceania · Europe ×2 (UA + UK) ·
-N. America ×2 · open ocean — the globe reads inhabited from every angle.
+13. **Aurora australis + Milky Way over the South Pole observatory** — green curtains AND the galactic core
+    over a lone outpost in polar night · **Antarctica** (Amundsen–Scott) · `-89.997, 139.27` ·
+    PD (NOAA employee work, Ross Burgener) · 4272×2830 ·
+    page: https://commons.wikimedia.org/wiki/File:Aurora_australis_and_Milky_Way_seen_over_NOAA_Atmospheric_Research_Observatory_at_South_Pole_Station_(19771223522).jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/0/00/Aurora_australis_and_Milky_Way_seen_over_NOAA_Atmospheric_Research_Observatory_at_South_Pole_Station_%2819771223522%29.jpg
+14. **Fly Geyser — a geothermal accident in psychedelic thermophile reds and greens** · Hualapai Flat,
+    Nevada, **USA** · `40.859, -119.332` · PD-self (Podruznik) · 3648×2736 ·
+    page: https://commons.wikimedia.org/wiki/File:Fly_geyser_in_nevada_(2).jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/0/00/Fly_geyser_in_nevada_%282%29.jpg
+15. **Bioluminescent "mareel" — sea water glowing electric turquoise under a harbor jetty** · Norra
+    Grundsund, **Sweden** · `58.3053, 11.4203` · CC0 (W.carter) · 5103×2870 · *(glow authentic but dim —
+    inspect at seed time; companion frame `..._harbor_2.jpg` same CC0)* ·
+    page: https://commons.wikimedia.org/wiki/File:Mareel_-_Bioluminescence_in_Norra_Grundsund_harbor_1.jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/1/11/Mareel_-_Bioluminescence_in_Norra_Grundsund_harbor_1.jpg
+16. **Steaming Kamchatka volcano — rust-streaked snowfields on a fumarole cone** · Kamchatka, **Russia** ·
+    `53.26, 158.84` (which cone UNVERIFIED — visually Avachinsky) · CC0 (Natalia Kollegova) · 2048×1536 ·
+    page: https://commons.wikimedia.org/wiki/File:Volcano_in_Kamchatka_in_Russia_-_2785499.jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/c/c1/Volcano_in_Kamchatka_in_Russia_-_2785499.jpg
+17. **Giant's Causeway — hexagonal basalt tiling that reads as man-made** · County Antrim,
+    **Northern Ireland** · `55.2402, -6.5115` · CC0 (DeveshT) · 3200×2400 ·
+    page: https://commons.wikimedia.org/wiki/File:Giant%27s_Causeway_Basalt_Columns.jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/d/d8/Giant%27s_Causeway_Basalt_Columns.jpg
+18. **Pamukkale — white travertine terrace pools spilling down a hillside** · Denizli, **Turkey** ·
+    `37.9238, 29.1238` · CC0 · 4160×3120 · *(hazy light — weakest composition of the set)* ·
+    page: https://commons.wikimedia.org/wiki/File:Pamukkale_travertenleri_(4).jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/b/b2/Pamukkale_travertenleri_%284%29.jpg
+19. **White Sands — blinding gypsum dunes that read as snow in a desert** · Tularosa Basin, New Mexico,
+    **USA** · `32.82, -106.28` · PD (official NPS Flickr) · 5472×3648, 14.2 MB → TUS ·
+    page: https://www.flickr.com/photos/nationalparkservice/32852214697 ·
+    file: https://live.staticflickr.com/65535/32852214697_8682f110c2_o.jpg
+20. **"Big Red" jelly at 1,134 m — a huge opaque blood-red deep-sea jellyfish** · Papahānaumokuākea,
+    **mid-Pacific (open-ocean pin #2)** · `25.5, -170.5` (expedition region — exact dive coords UNVERIFIED) ·
+    PD (NOAA Ocean Exploration) · 1920×1080 ·
+    page: https://oceanexplorer.noaa.gov/multimedia/big-red-jelly/ ·
+    file: https://oceanexplorer.noaa.gov/wp-content/uploads/2025/08/dive05-big-red-jelly.jpg
+21. **Mammatus clouds — ominous globular pouches over a weather-radar dome (1970 Kodachrome)** · Norman,
+    Oklahoma, **USA** · `35.23, -97.46` (NSSL vicinity — exact spot UNVERIFIED) · PD (NOAA/NSSL) · 1764×1208 ·
+    page: https://commons.wikimedia.org/wiki/File:Mamatus_clouds_-_NOAA.jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/8/87/Mamatus_clouds_-_NOAA.jpg
+22. **Nacreous clouds — mother-of-pearl iridescence in a winter stratosphere** · Aberdeenshire,
+    **Scotland** · `57.275, -2.41` · CC0 · 2048×1536 ·
+    page: https://commons.wikimedia.org/wiki/File:Nacreous_clouds,_Aberdeenshire,_UK._9_December_2012..JPG ·
+    file: https://upload.wikimedia.org/wikipedia/commons/a/ac/Nacreous_clouds%2C_Aberdeenshire%2C_UK._9_December_2012..JPG
+23. **Red crab migration — the ground itself appears to crawl** · **Christmas Island** (Indian Ocean) ·
+    `-10.5029, 105.6742` · CC0 (iNaturalist import) · 1700×1133 · *(faint signature watermark top-right —
+    CC0 permits cropping it out at preview time)* ·
+    page: https://commons.wikimedia.org/wiki/File:Gecarcoidea_natalis_248252577.jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/f/fe/Gecarcoidea_natalis_248252577.jpg
+24. **22° halo + sun dog + parhelic circle — four ice-optics phenomena in one 1979 Kodachrome frame** ·
+    South Pole dome, **Antarctica** · `-89.997, 139.27` *(same station as #13 — the two will cluster at the
+    pole; different sky phenomena, keep both or drop this one)* · PD (NOAA, John Bortniak) · 1788×1176 ·
+    page: https://commons.wikimedia.org/wiki/File:Halo_and_sun_dog_-_NOAA.jpg ·
+    file: https://upload.wikimedia.org/wikipedia/commons/d/d0/Halo_and_sun_dog_-_NOAA.jpg
 
-### Alternates (verified, swap-in ready)
-- **Aurora australis + Milky Way over the South Pole NOAA observatory** — PD (NOAA, Ross Burgener), 4272×2830 —
-  file: https://upload.wikimedia.org/wikipedia/commons/0/00/Aurora_australis_and_Milky_Way_seen_over_NOAA_Atmospheric_Research_Observatory_at_South_Pole_Station_%2819771223522%29.jpg (benched only because Blood Falls holds the Antarctica slot)
-- **Fly Geyser, Nevada** — PD-self, 3648×2736 — https://commons.wikimedia.org/wiki/File:Fly_geyser_in_nevada_(2).jpg (3rd US pin)
-- **Bioluminescent "mareel", Norra Grundsund, Sweden** — CC0, 5103×2870, `58.3053, 11.4203` — genuine CC0
-  bioluminescence unicorn, but the glow is dim — inspect first
-- **Kamchatka steaming volcano, Russia** — CC0, 2048×1536, ~`53.26, 158.84` (which cone UNVERIFIED)
-- **Giant's Causeway, N. Ireland** — CC0 3200×2400 · **Pamukkale, Turkey** — CC0 4160×3120 ·
-  **White Sands, USA** — NPS PD 5472×3648 · **Big Red jelly, mid-Pacific** — NOAA PD 1920×1080 ·
-  **Mammatus clouds, Oklahoma** — NOAA PD 1764×1208 · **Red crabs, Christmas Island** — CC0 1700×1133
-  (faint watermark; CC0 permits cropping it)
+**Spread check (24):** Antarctica ×2 · Africa · S. America ×2 · Asia ×2 (China, Russia) · Middle East ·
+Oceania ×2 (NZ, Christmas Is.) · Europe ×5 (UA, England, Scotland, N. Ireland, Sweden, Turkey) ·
+N. America ×5 · open ocean ×2.
+
+### Optional same-site second frames (25–27 — near-duplicates, use to pad toward 30)
+25. **Deadvlei single-tree minimalist** — CC0, 6183×4127, `-24.7472, 15.2879` (~300 m from #2) ·
+    page: https://commons.wikimedia.org/wiki/File:Deadvlei_Hiking_Trail,_Namibia_(Unsplash_jTJ9-4ESzU4).jpg
+26. **Grand Prismatic in daylight, low-aerial** — PD (NPS/Jim Peaco), 3504×2336, 7.8 MB (same spring as #11) ·
+    file: https://live.staticflickr.com/65535/47006411034_285d40816f_o.jpg
+27. **Deadvlei "Petrified In Time" panorama** — CC0 (500px import), 2048×825 (short height) ·
+    page: https://commons.wikimedia.org/wiki/File:Petrified_In_Time_(200653949).jpeg
+
+### Top-up to exactly 30 (PARKED — round-2 hunt stopped by the owner mid-run 2026-07-17)
+Pool stands at 24 distinct (+3 same-site). If exactly 30 matters, rerun the two stopped hunts with these
+un-searched targets: **US-federal round 2** (Kilauea lava ocean-entry/lava lake USGS · black-smoker vent NOAA ·
+Denali aurora NPS · Plains supercell NOAA) · **Commons CC0 round 2** (Bromo Indonesia · Ha Long Vietnam ·
+Baobabs Madagascar · Danakil Ethiopia · Perito Moreno/Marble Caves Patagonia · Iceland diamond beach ·
+Lofoten Norway · Twelve Apostles Australia). Excluded on license ambiguity: NASA WAIS "Spectacular Sundog"
+(page shows a CC-BY Flickr tag over the PD-USGov basis).
 
 ## Seeding plan — `scripts/seed-demo-pins.mjs`
 
