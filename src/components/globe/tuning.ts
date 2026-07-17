@@ -573,6 +573,18 @@ export const EARTH = {
   /** Day-side limb scattering: rim = (1-N·V)^pow · gain — melts the disc into the halo. */
   rimPow: 3.0,
   rimGain: 0.12,
+  /** Day/orbit grade ramp (2026-07-17 orbital-grade pass, poster parity): from orbit the disc
+   *  grades richer — more NASA colour + chroma, slightly deeper tone; at low altitude the
+   *  imagery ground owns the frame and the base grade returns. uOrbitGrade = smoothstep(altLo,
+   *  altHi, camera alt) mixes uOrganic/uSat/uGain toward the *Orbit twins (all six live on
+   *  __globe.earthUniforms in DEV — retune freely). */
+  orbitGrade: {
+    altLo: 500_000,
+    altHi: 2_000_000,
+    organic: 0.72,
+    sat: 0.62,
+    gain: 0.5,
+  },
 } as const;
 
 /** Lat/lon graticule decoration. */
@@ -609,10 +621,13 @@ export const ATMOSPHERE = {
   lineScaleHeightM: 60_000,
   /** Blue haze scale height (m) — the soft outer falloff. */
   hazeScaleHeightM: 240_000,
-  /** uOrbit ramps 0→1 across [start, start+span] altitude: LEO keeps the thick horizon haze,
-   *  outer orbit thins the halo (owner 2026-07-10: "distinct but elegant and subtle"). */
-  orbitStartAlt: 2_500_000,
-  orbitSpanAlt: 6_500_000,
+  /** uOrbit ramps 0→1 across [start, start+span] altitude: outer orbit thins the halo (owner
+   *  2026-07-10: "distinct but elegant and subtle"). 2026-07-17 orbital-grade pass: the old
+   *  2.5e6 start NEVER engaged at the default LEO (1.1e6) — the halo read thick vs the poster.
+   *  Start now sits just above the low-altitude sky regime (domeMaxAlt) so the thinning is
+   *  already ~20% in at LEO and fully thin by ~4,000 km. */
+  orbitStartAlt: 400_000,
+  orbitSpanAlt: 3_600_000,
   /** At full orbit both scale heights shrink to this fraction (1/10 width). */
   orbitWidthShrink: 0.1,
   /** Line colour = mix(atmosphere, atmosphereDeep, base + byOrbit·uOrbit) — bluer as we pull away. */
@@ -735,6 +750,17 @@ export const STARS = {
    *  dusk). Fade = max(altitude fade, night fade). */
   nightVisStartSin: -0.02,
   nightVisFullSin: -0.14,
+  /** Orbit-tier DAY fade (2026-07-17 orbital-grade pass): "space always has stars" put the full
+   *  Milky Way over a daylit Earth — photographically wrong (an exposure that holds a sunlit
+   *  planet kills the sky, poster parity). Over sin(sun elevation at the camera) the star field
+   *  dims from full (at/below dayDimStartSin — terminator under the camera) to its floor by
+   *  dayDimFullSin. Bright stars keep a floor (space stays alive); the Milky Way haze goes
+   *  entirely. Night-side + low-altitude behaviour unchanged (dayK = 0 whenever the sun is
+   *  down at the camera). */
+  dayDimStartSin: 0.0,
+  dayDimFullSin: 0.35,
+  dayDimFloor: 0.25,
+  mwDayFloor: 0.0,
 } as const;
 
 /** Milky Way (owner 2026-07-10 "very subtle" → owner 2026-07-15 "pronounced and realistic").

@@ -29,6 +29,13 @@ describe("buildDigitalProduct", () => {
     expect(v.price.actualPrice.amount).toBe("12.50");
   });
 
+  it("marks the variant in-stock untracked (unlimited) — createProduct's tracked-qty-0 default blocked checkout", () => {
+    const v = buildDigitalProduct("n", 5, "f").variantsInfo.variants[0];
+    // inStock:true = V3 "tracked by status" — sellable with no quantity limit; needs
+    // createProductWithInventory to take effect (plain createProduct ignores it).
+    expect(v.inventoryItem).toEqual({ inStock: true });
+  });
+
   it("defaults a blank name and clamps a long one to 80 chars", () => {
     expect(buildDigitalProduct("", 5, "f").name).toBe("Untitled photo");
     expect(buildDigitalProduct("x".repeat(200), 5, "f").name).toHaveLength(80);

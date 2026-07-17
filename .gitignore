@@ -51,3 +51,6 @@ test/fixtures/**/*.heic
 *.log
 .idea/
 .vscode/
+
+# --- Demo-pin seed downloads (scripts/seed-demo-pins.mjs re-run cache) ---
+/.seed-cache/

@@ -326,7 +326,16 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
         0,
         1,
       );
-      const fade = Math.max(altFade, nightFade);
+      // Orbit-tier day fade (2026-07-17 orbital-grade pass): the altitude path ("space always
+      // has stars") dims over the daylit hemisphere — an exposure holding a sunlit Earth kills
+      // the sky. dayK = 0 whenever the sun is at/below the horizon at the camera, so the
+      // night-side and low-altitude night paths are untouched.
+      const dayK = THREE.MathUtils.clamp(
+        (sunEl - STARS.dayDimStartSin) / (STARS.dayDimFullSin - STARS.dayDimStartSin),
+        0,
+        1,
+      );
+      const fade = Math.max(altFade * (1 - dayK * (1 - STARS.dayDimFloor)), nightFade);
       const visible = fade > 0.01;
       points.visible = visible;
       if (!visible) return;
@@ -349,8 +358,11 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
         MILKYWAY.narrowFovFloor +
         (1 - MILKYWAY.narrowFovFloor) *
           THREE.MathUtils.smoothstep(camera.fov, MILKYWAY.narrowFovLoDeg, MILKYWAY.narrowFovHiDeg);
-      mwMaterial.uniforms.uFade.value = fade * fovK;
-      hazeMaterial.uniforms.uFade.value = fade * fovK;
+      // The Milky Way dims all the way out over the day side (haze over a daylit planet reads
+      // as sensor noise); catalog stars above kept their dayDimFloor.
+      const mwDayK = 1 - dayK * (1 - STARS.mwDayFloor);
+      mwMaterial.uniforms.uFade.value = fade * fovK * mwDayK;
+      hazeMaterial.uniforms.uFade.value = fade * fovK * mwDayK;
       // Extinction is atmosphere-bound: full at ground level, gone by orbit (the floor lifts
       // to 1 with altitude). Catalog stars keep their default inert floor — punch preserved.
       const extFloor =

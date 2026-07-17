@@ -238,7 +238,16 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: DEMO-PIN SEEDING (~30, `DEMO_CONTENT_SEED.md`) → orbital-grade pass → FAQ → PHASE 7.**
+**Next step: RELEASE the populated globe (ritual: build → release → warm-prod-assets → verify-prod) → PHASE 7 (AI analysis + polish).**
+STOCK FIX + DEMO SEED + ORBITAL PASS + FAQ SHIPPED 2026-07-17 (gates vitest 594/594 · astro 0/0 ·
+wix build Complete; `mem:project/wip-2026-07-17-seed-orbital-faq-batch`): listings now
+createProductWithInventory + inStock:true (untracked/unlimited — V3 default tracked-qty-0 blocked
+the owner's checkout; relist verified IN_STOCK/AVAILABLE) · 27/27 demo pins seeded LIVE as
+yevhens@wix.com via DEV-only /api/dev-seed (Google member, no script login; explicit
+ownerMemberId), all listed €5–15, /api/market = 28, browser-verified both hemispheres + panel +
+row-click flight · orbital tunables (halo orbitStartAlt 400e3/span 3.6e6 engages at LEO · STARS
+dayDim* kills MW over daylit Earth in orbit · EARTH.orbitGrade day/orbit ramp via uOrbitGrade) ·
+FAQ floating panel (Faq.tsx accordion, 7 sections, 6 webp shots in public/faq/ + warm list).
 PHASE 6.9 (marketplace + access batch) SHIPPED 2026-07-17, browser-VERIFIED (`scripts/verify-phase69.mjs`;
 gates vitest 593/593 · astro 0/0 · wix build Complete): quota 100/1000 · SITE_CURRENCY EUR ("€7.50" badges) ·
 MY PINS SALES tab · PinHoverCard price chip · MARKETPLACE nav panel over public GET /api/market ·

@@ -2230,6 +2230,13 @@ export function attachStylizedTiles(opts: {
           (alt - GRATICULE.fadeBottomAltM) / (GRATICULE.fadeTopAltM - GRATICULE.fadeBottomAltM),
         );
         atmosphere.update(camera, alt);
+        // Day/orbit grade ramp (2026-07-17 orbital-grade pass): the base-earth grade deepens
+        // toward its orbit twins as the camera pulls away (EARTH.orbitGrade altLo→altHi).
+        earth.uniforms.uOrbitGrade.value = THREE.MathUtils.smoothstep(
+          alt,
+          EARTH.orbitGrade.altLo,
+          EARTH.orbitGrade.altHi,
+        );
         // R1 AO altitude gate: tell GlobeCanvas (which owns the GTAOPass + tier gate) whether the
         // camera is low enough for ambient occlusion (city/street only). No-op unless AO.enabled.
         aoControl?.setAltActive(alt < AO.maxAltM);
