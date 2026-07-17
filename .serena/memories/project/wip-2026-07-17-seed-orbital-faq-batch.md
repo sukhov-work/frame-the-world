@@ -80,6 +80,14 @@
 - Wikimedia originals can carry REAL EXIF (Moeraki = FUJIFILM X-Pro1 35mm f/16 2013) — the upload
   FAQ shot shows genuine metadata.
 
+## RELEASED same day (prod URL live + populated)
+PR #26 merged (rebase over #25's DECISIONS line — newest-first resolution) → ritual: build →
+release → warm ×2 → verify. **TRAP: the Wix asset edge cache is SHARDED** — warm-prod-assets
+reads all-HIT while a browser on another shard still gets cold 500s (jsx-runtime/minimap/camera
+chunks → hydration cascade, no canvas). Recovery = reload until clean (each boot warms its own
+shard; 2 reloads sufficed). Verified after: canvas 1440×900 · #p= mirror · MARKETPLACE
+"FOR SALE · 28" · FAQ button (shot `verify-shots/prod-01-marketplace-populated.jpeg`).
+
 ## Owner follow-ups (unchanged/remaining)
 - Real purchase loop (buy → mark paid in dashboard → 30-day-link email) — now UNBLOCKED by the
   stock fix; any of the 28 listings works.

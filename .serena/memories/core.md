@@ -238,7 +238,10 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: RELEASE the populated globe (ritual: build → release → warm-prod-assets → verify-prod) → PHASE 7 (AI analysis + polish).**
+**Next step: PHASE 7 (AI analysis + polish); small pre-item = prod login `#p=` round-trip smoke.**
+RELEASED 2026-07-17: populated globe LIVE (canvas · #p= mirror · FOR SALE · 28 · FAQ — real-browser
+verified). TRAP: asset edge cache is SHARDED — warm-prod-assets reads HIT while another shard still
+500s cold chunks; recovery = reload until clean.
 STOCK FIX + DEMO SEED + ORBITAL PASS + FAQ SHIPPED 2026-07-17 (gates vitest 594/594 · astro 0/0 ·
 wix build Complete; `mem:project/wip-2026-07-17-seed-orbital-faq-batch`): listings now
 createProductWithInventory + inStock:true (untracked/unlimited — V3 default tracked-qty-0 blocked
