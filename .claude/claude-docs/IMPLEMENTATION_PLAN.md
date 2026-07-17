@@ -138,15 +138,17 @@ Unplanned-in-the-7-phase-build but all SHIPPED + verified (one `DECISIONS.md` li
   (`&t=`) + FPV views (`#f=`), FPV mini-map, always-on viewer coords, solidity screen-door dissolve,
   clickable ☀/☾ chips, PLAN panel placement, zero h-scroll. *(2026-07-14)*
 
-## Phase 6 — Marketplace-light  ☐  **← NEXT (runway cleared 2026-07-15)**
-**Read first:** `PROJECT_SEED.md` C3/D9/D10 · `conventions/wix-headless.md` · `mem:patterns/members-pins`
-(the TUS-retained full-res original IS the digital asset) · `DECISIONS.md` §Traps "Wix platform / backend".
-**Scope:** list a photo as a digital product (`itemType.preset: DIGITAL` + `digitalFile` = full-res RAW); buy
-flow; owner-mediated payout note; 30-day download-link messaging. *(Import marketplace screens.)*
-**Open first:** catalog v3-vs-v1 API surface on headless — verify via Wix MCP before writing any endpoint;
-probe early whether checkout needs site-installed apps (the Pricing-Plans degrade lesson).
-**DoD:** list a RAW → another user buys → buyer gets 30-day download; owner sees the sale to pay out manually.
-**Test:** end-to-end purchase in Wix test mode; confirm digital delivery.
+## Phase 6 — Marketplace-light  ☑ (code+wiring SHIPPED 2026-07-16; pay→deliver loop = owner's manual Wix step)
+**As built (2026-07-16):** self-serve — a member lists their OWN, already-PUBLIC pin as a **Catalog V3 DIGITAL
+product** (owner chose V1, but the site is V3 and hard-rejects V1 — see DECISIONS 2026-07-16); the retained
+`originalFileId` IS the digital file. `POST /api/listings` (elevate → `productsV3.createProduct`), `DELETE`
+unlist, `GET` owner-sales; client BUY = `@wix/ecom checkout.createCheckout` + `@wix/redirects` → hosted checkout.
+**Verified:** V3 create + checkout resolution against the live gateway; member list→sales→unlist E2E in wix dev
+(`scripts/verify-listing-member.mjs`). Gates vitest 587 · astro 0/0 · wix build Complete.
+**Key trap:** the checkout `catalogReference` needs `options.variantId` (productId alone → empty checkout) and the
+fixed Wix-Stores appId `215238eb-…` (NOT the TPA id). **Remaining (Wix-native, NOT code):** a real purchase →
+owner marks the manual payment paid in the Wix dashboard → the preinstalled automation emails the 30-day link.
+Memory: `mem:project/wip-2026-07-16-phase6-marketplace-research`.
 
 ## Phase 7 — AI analysis + polish  ☐
 **Scope:** premium AI panel → Wix AI (Claude, e.g. Opus 4.6) with a **downsized JPEG** + desired-condition
@@ -164,7 +166,7 @@ prompt; moderation pass on public previews; perf polish (KTX2, OPFS cache, mobil
 | 3 | Wix HTTP-endpoint execution-time + max request/response size | keep endpoints thin; all decode client-side | ☐ |
 | 4 | Which Claude models are exposed by Wix AI + is vision enabled? | send JPEG; Opus 4.6 assumed; direct-Anthropic fallback ready | ☐ |
 | 5 | Wix AI credit cost per vision call at realistic preview sizes | premium-gate; downsize aggressively | ☐ |
-| 6 | Multi-party/marketplace payout on the Wix roadmap | owner-mediated manual payout (no split payments) | ☐ |
+| 6 | Multi-party/marketplace payout on the Wix roadmap | owner-mediated manual payout (no split payments) | ✅ Phase 6: no split payments; owner marks paid + pays out in the Wix dashboard (Catalog V3 digital products) |
 | 7 | `3d-tiles-renderer` bundle size (Bundlephobia was down) | `npm view 3d-tiles-renderer dist.unpackedSize` + analyze | ☐ |
 
 ## Empirical validation (was "before Phase 3"; status 2026-07-15)

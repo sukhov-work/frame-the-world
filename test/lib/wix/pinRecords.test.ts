@@ -131,6 +131,28 @@ describe("publicPinRecord (C6 — BINDING)", () => {
     expect(rec.precision).toBe("exact");
   });
 
+  it("defaults the marketplace listing fields to null (a fresh pin is not for sale)", () => {
+    const rec = publicPinRecord(valid(), "photo-1");
+    expect(rec.productId).toBeNull();
+    expect(rec.productVariantId).toBeNull();
+    expect(rec.priceAmount).toBeNull();
+    expect(rec.currency).toBeNull();
+  });
+
+  it("carries a supplied listing through (Phase 6 — a PATCH rebuild must not drop 'for sale')", () => {
+    const rec = publicPinRecord(valid(), "photo-1", "Yevhen", {
+      productId: "prod-1",
+      variantId: "var-1",
+      priceAmount: 12.5,
+      currency: "USD",
+    });
+    expect(rec.productId).toBe("prod-1");
+    // variantId is REQUIRED at checkout — it must survive a PATCH rebuild onto the public row.
+    expect(rec.productVariantId).toBe("var-1");
+    expect(rec.priceAmount).toBe(12.5);
+    expect(rec.currency).toBe("USD");
+  });
+
   it("references the photo and carries display fields", () => {
     const rec = publicPinRecord(valid(), "photo-1");
     expect(rec.photoRef).toBe("photo-1");

@@ -137,3 +137,21 @@ export async function deletePhotoRecord(photoId: string): Promise<{
 }> {
   return requestJson(`/api/photos?id=${encodeURIComponent(photoId)}`, "DELETE");
 }
+
+/** POST /api/listings — list an owned public pin for sale (Phase 6). Throws with .code/.status. */
+export async function postListing(
+  photoId: string,
+  priceAmount: number,
+): Promise<{
+  productId: string;
+  productVariantId: string | null;
+  priceAmount: number;
+  currency: string | null;
+}> {
+  return postJson("/api/listings", { photoId, priceAmount });
+}
+
+/** DELETE /api/listings — unlist an owned pin (removes the Stores product). */
+export async function deleteListing(photoId: string): Promise<{ unlisted: boolean }> {
+  return requestJson(`/api/listings?photoId=${encodeURIComponent(photoId)}`, "DELETE");
+}

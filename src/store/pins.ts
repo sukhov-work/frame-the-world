@@ -33,6 +33,13 @@ export interface PublicPin extends CameraPoseOptics {
   precision: string;
   previewUrl: string | null;
   capturedAt: string | null;
+  /** Marketplace (Phase 6): set when the photo is listed for sale — powers the globe BUY seam.
+   *  Not location data (C6-ok). null on pins that aren't for sale. `productVariantId` is required
+   *  to build the checkout catalogReference (productId alone → empty checkout). */
+  productId: string | null;
+  productVariantId: string | null;
+  priceAmount: number | null;
+  currency: string | null;
 }
 
 export interface Viewport {
@@ -115,6 +122,10 @@ export function pinFromItem(item: Record<string, unknown>): PublicPin | null {
     cameraMake: strOrNull(item.cameraMake),
     cameraModel: strOrNull(item.cameraModel),
     lensModel: strOrNull(item.lensModel),
+    productId: strOrNull(item.productId),
+    productVariantId: strOrNull(item.productVariantId),
+    priceAmount: numOrNull(item.priceAmount),
+    currency: strOrNull(item.currency),
   };
 }
 

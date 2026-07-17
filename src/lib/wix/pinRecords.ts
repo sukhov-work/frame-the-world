@@ -11,6 +11,7 @@ import { encodeGeohash } from "../geo/geohash";
 import { numOrNull, strOrNull } from "../geo/coerce";
 import { isPrecisionTier, reduceLocation, type PrecisionTier } from "../geo/precision";
 import type { CameraPoseOptics } from "../pins/fields";
+import type { PinListing } from "../market/listing";
 
 /** Free-tier pin quota (IMPLEMENTATION_PLAN §Phase 5): the 11th save is refused. */
 export const PIN_QUOTA_FREE = 10;
@@ -181,6 +182,10 @@ export interface PhotoListItem extends CameraPoseOptics {
   isPublic: boolean;
   publicPrecision: string | null;
   createdAt: string | null;
+  /** Marketplace (Phase 6): the Stores product id when this photo is listed for sale (else null). */
+  productId: string | null;
+  priceAmount: number | null;
+  currency: string | null;
 }
 
 export function photoListItem(item: Record<string, unknown>): PhotoListItem | null {
@@ -212,6 +217,9 @@ export function photoListItem(item: Record<string, unknown>): PhotoListItem | nu
     cameraMake: strOrNull(item.cameraMake),
     cameraModel: strOrNull(item.cameraModel),
     lensModel: strOrNull(item.lensModel),
+    productId: strOrNull(item.productId),
+    priceAmount: numOrNull(item.priceAmount),
+    currency: strOrNull(item.currency),
   };
 }
 
@@ -224,6 +232,7 @@ export function publicPinRecord(
   body: SavePinBody,
   photoRef: string,
   authorName: string | null = null,
+  listing: PinListing | null = null,
 ): Record<string, unknown> {
   const reduced = reduceLocation(body.lat, body.lon, body.precision);
   return {
@@ -252,5 +261,12 @@ export function publicPinRecord(
     cameraMake: body.cameraMake,
     cameraModel: body.cameraModel,
     lensModel: body.lensModel,
+    // Marketplace (Phase 6): denormalized so buyers see "for sale" + price. A PATCH rebuild MUST
+    // pass the existing listing (from the Photos row) or the public row would lose it — /api/photos
+    // does exactly that. Buyers/globe read productId+variantId+price; not location data (C6-ok).
+    productId: listing?.productId ?? null,
+    productVariantId: listing?.variantId ?? null,
+    priceAmount: listing?.priceAmount ?? null,
+    currency: listing?.currency ?? null,
   };
 }

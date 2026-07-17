@@ -99,10 +99,23 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
 - Confirmed RAW extensions: `.arw .srw .nef .cr2 .cr3 .crw .rwl .rw2 .raw .raf .pef .orf .mrw .dng .sr2 .srf
   .kdc .k25 .dcr .x3f .erf .3fr` + HEIC/HEIF. **Exact per-file MB cap is TODO-VERIFY.**
 
-## 10. eCommerce (marketplace-light)
-- Digital line item: `itemType.preset: DIGITAL` + a `digitalFile` (the full-res RAW). Wix auto-delivers a
-  download link **valid 30 days** (not shortenable via UI) → message buyers.
-- **No split payments** (Wix Help Center confirmed) → **owner-mediated manual payout** is the only v1 path.
+## 10. eCommerce (marketplace-light) — AS BUILT on Catalog **V3** (Phase 6, 2026-07-16)
+- **The site is Catalog V3, not V1** — the gateway hard-rejects every V1 call (`428
+  CATALOG_V3_CALLING_CATALOG_V1_API`). V1's digital-file attach (`CatalogWriteApi.CreateDigitalProduct`) is
+  `exposure=INTERNAL` (a headless app can't reach it); **V3 lets a headless elevated app create digital products.**
+- List = `productsV3.createProduct` (`@wix/stores`), elevated: `{ name, productType:"DIGITAL",
+  variantsInfo:{ variants:[{ price:{ actualPrice:{ amount:"9.99" } }, digitalProperties:{ digitalFile:{ _id: <wixMediaFileId> } } }] } }`.
+  The digital file = the retained private original (`Photos.originalFileId`) — no re-upload. Wix classifies it
+  (SECURE_PICTURE/…). Returns `product._id` (productId) + `variantsInfo.variants[0]._id` (variantId).
+- Buy = CLIENT-SIDE in the buyer identity (NOT elevated): `checkout.createCheckout({ lineItems:[{ quantity:1,
+  catalogReference }], channelType:"WEB" })` then `redirects.createRedirectSession({ ecomCheckout:{ checkoutId },
+  callbacks:{ postFlowUrl } })` → `redirectSession.fullUrl` (Wix-hosted checkout). **`catalogReference` MUST be
+  `{ appId:"215238eb-22a5-4c36-9e7b-e7c08025e04e" (fixed Wix-Stores id, NOT the TPA id), catalogItemId: productId,
+  options:{ variantId } }`** — productId alone yields an EMPTY checkout (verified against the live gateway).
+- Delivery: on the order becoming PAID, a preinstalled Stores automation emails the buyer a **30-day** download
+  link (not shortenable). Manual/offline payment → the link arrives after the owner marks the order paid in the
+  Wix dashboard (`MarkOrderAsPaid` is exposure=PRIVATE — dashboard only). **No split payments** (Wix Help Center) →
+  **owner-mediated manual payout** is the only v1 path (C3). Owner sales in-app = elevated `orders.searchOrders`.
 
 ## 11. AI (premium shot-analysis + moderation)
 - Runtime Claude via **Wix AI APIs** (proxy; ~1 credit/method call; docs show Claude Opus 4.6). Wix handles

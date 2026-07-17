@@ -19,10 +19,12 @@ import {
 import { useCameraStore } from "../../store/camera";
 import { wrapHeadingDeg } from "../../lib/geo/heading";
 import { useSaveStore, type SavePhase } from "../../store/save";
+import { useMarketStore } from "../../store/market";
 import { loginUrl, memberLabel, useMemberStore } from "../../store/member";
 import { pinHueIndex } from "../../lib/pins/appearance";
 import { tokens } from "../../lib/theme/tokens";
 import { isPrecisionTier, type PrecisionTier } from "../../lib/geo/precision";
+import { formatPrice } from "../../lib/market/listing";
 import { titleFromFileName } from "../../lib/save/pinBody";
 import {
   formatLatLon,
@@ -453,6 +455,9 @@ export default function PhotoDetailPanel() {
       </div>
       )}
 
+      {/* Marketplace-light (Phase 6): own pin → LIST/UNLIST; a foreign pin for sale → BUY. */}
+      <MarketSection />
+
       <div className="pd-actions">
         <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().backToReview()}>
           ← REVIEW
@@ -464,6 +469,142 @@ export default function PhotoDetailPanel() {
       </div>
     </aside>
   );
+}
+
+/**
+ * Marketplace-light (Phase 6). Reads the viewed pin's identity from the upload store:
+ *   • OWN pin (ownPhotoId) → LIST FOR SALE (public pins only) / UNLIST;
+ *   • FOREIGN pin that is for sale (viewingPinId + listing) → BUY (redirects to Wix checkout).
+ * The digital asset is the retained full-res original; the site owner takes the manual payout (C3).
+ */
+function MarketSection() {
+  const store = useUploadStore();
+  const market = useMarketStore();
+  const memberPhase = useMemberStore((s) => s.phase);
+  const [selling, setSelling] = useState(false);
+  const [price, setPrice] = useState("");
+
+  const listing = store.listing ?? null;
+  const busy = market.phase === "listing" || market.phase === "unlisting";
+  const err =
+    market.phase === "error" && market.error ? (
+      <span className="uf-mono pd-market__err">{market.error.toUpperCase()}</span>
+    ) : null;
+
+  // OWNER — their own pin.
+  if (store.ownPhotoId) {
+    if (listing) {
+      return (
+        <div className="pd-market">
+          <div className="pd-market__row">
+            <span className="pd-market__badge">
+              FOR SALE · {formatPrice(listing.priceAmount, listing.currency)}
+            </span>
+            <button
+              className="uf-btn uf-btn--ghost"
+              disabled={busy}
+              onClick={() => void market.unlist()}
+            >
+              {market.phase === "unlisting" ? "UNLISTING…" : "UNLIST"}
+            </button>
+          </div>
+          {err}
+        </div>
+      );
+    }
+    if (!store.ownPinMeta?.isPublic) {
+      return (
+        <div className="pd-market">
+          <span className="uf-mono pd-market__note">MAKE THIS PIN PUBLIC TO SELL IT</span>
+        </div>
+      );
+    }
+    return (
+      <div className="pd-market">
+        {!selling ? (
+          <button
+            className="uf-btn uf-btn--ghost pd-market__sell"
+            onClick={() => setSelling(true)}
+          >
+            $ SELL THIS PHOTO
+          </button>
+        ) : (
+          <div className="pd-market__form">
+            <label className="pd-market__price">
+              <span className="pd-market__pricelabel">PRICE</span>
+              <input
+                type="number"
+                min="1"
+                step="0.5"
+                inputMode="decimal"
+                className="uf-mono pd-market__priceinput"
+                value={price}
+                disabled={busy}
+                placeholder="9.99"
+                onChange={(e) => setPrice(e.target.value)}
+              />
+            </label>
+            <button
+              className="uf-btn uf-btn--primary"
+              disabled={busy || !(Number(price) > 0)}
+              onClick={() =>
+                void market.listForSale(Number(price)).then(() => {
+                  if (useMarketStore.getState().phase === "idle") setSelling(false);
+                })
+              }
+            >
+              {market.phase === "listing" ? "LISTING…" : "LIST FOR SALE"}
+            </button>
+            <button
+              className="uf-btn uf-btn--ghost"
+              disabled={busy}
+              onClick={() => setSelling(false)}
+            >
+              CANCEL
+            </button>
+          </div>
+        )}
+        {err}
+        <p className="pd-market__fine">
+          DIGITAL SALE — THE BUYER GETS YOUR FULL-RES ORIGINAL BY EMAIL (30-DAY LINK). PAYOUT IS
+          HANDLED BY THE SITE OWNER.
+        </p>
+      </div>
+    );
+  }
+
+  // BUYER — a foreign pin that is listed for sale.
+  if (store.viewingPinId && listing) {
+    const buying = market.phase === "buying";
+    return (
+      <div className="pd-market">
+        <div className="pd-market__row">
+          <span className="pd-market__badge">
+            FOR SALE · {formatPrice(listing.priceAmount, listing.currency)}
+          </span>
+          {memberPhase === "member" ? (
+            <button
+              className="uf-btn uf-btn--primary"
+              disabled={buying}
+              onClick={() => void market.buy()}
+            >
+              {buying ? "OPENING CHECKOUT…" : `BUY · ${formatPrice(listing.priceAmount, listing.currency)}`}
+            </button>
+          ) : (
+            <a className="uf-btn uf-btn--primary" href={loginUrl("/")}>
+              SIGN IN TO BUY
+            </a>
+          )}
+        </div>
+        <p className="pd-market__fine">
+          DIGITAL DOWNLOAD — YOU'LL GET THE FULL-RES ORIGINAL BY EMAIL AFTER PAYMENT.
+        </p>
+        {err}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 /** The placing-mode pill: the globe is waiting for a click to set the capture location.

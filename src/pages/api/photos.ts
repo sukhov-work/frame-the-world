@@ -12,6 +12,9 @@ import { auth } from "@wix/essentials";
 import { files } from "@wix/media";
 import { orders } from "@wix/pricing-plans";
 import { json, requireMember } from "../../lib/api/http";
+import { numOrNull, strOrNull } from "../../lib/geo/coerce";
+import { ownedPhoto, deleteListingProduct } from "../../lib/wix/photosData";
+import type { PinListing } from "../../lib/market/listing";
 import {
   applyPinUpdate,
   authorLabel,
@@ -24,10 +27,17 @@ import {
   type PhotoListItem,
 } from "../../lib/wix/pinRecords";
 
-/** The member's own Photos row, or null when it doesn't exist / belongs to someone else. */
-async function ownedPhoto(photoId: string, memberId: string) {
-  const row = await auth.elevate(items.get)("Photos", photoId).catch(() => null);
-  return row && row.ownerMemberId === memberId ? row : null;
+/** The listing snapshot carried on a Photos row (Phase 6) — null when the photo is not for sale. */
+function rowListing(row: Record<string, unknown>): PinListing | null {
+  const productId = strOrNull(row.productId);
+  return productId
+    ? {
+        productId,
+        variantId: strOrNull(row.productVariantId),
+        priceAmount: numOrNull(row.priceAmount),
+        currency: strOrNull(row.currency),
+      }
+    : null;
 }
 
 /** Paid = any ACTIVE pricing-plan order for the calling member (member context, not elevated). */
@@ -130,12 +140,17 @@ export const PATCH: APIRoute = async ({ request }) => {
     const { record, effective } = applyPinUpdate(existing, body);
     const prevPinId = typeof existing.publicPinId === "string" ? existing.publicPinId : null;
     let publicPinId = prevPinId;
+    // Listing (Phase 6) rides on the Photos row; photoRecord() doesn't touch it, so `record`
+    // (…existing) already keeps it across an edit. The PUBLIC row is rebuilt from scratch, so the
+    // listing must be passed through publicPinRecord or the edit would drop "for sale".
+    const listing = rowListing(existing);
 
     if (effective.isPublic) {
       const pinRow = publicPinRecord(
         effective,
         photoId,
         authorLabel(member.profile?.nickname, member.loginEmail),
+        listing,
       );
       if (prevPinId) {
         await auth.elevate(items.update)("PublicPins", { ...pinRow, _id: prevPinId });
@@ -146,6 +161,15 @@ export const PATCH: APIRoute = async ({ request }) => {
     } else if (prevPinId) {
       await auth.elevate(items.remove)("PublicPins", prevPinId);
       publicPinId = null;
+    }
+
+    // A photo turned private can no longer be sold — tear down any active listing (C6/marketplace).
+    if (!effective.isPublic && listing) {
+      await deleteListingProduct(listing.productId);
+      record.productId = null;
+      record.productVariantId = null;
+      record.priceAmount = null;
+      record.currency = null;
     }
 
     record.publicPinId = publicPinId;
@@ -178,6 +202,11 @@ export const DELETE: APIRoute = async ({ url }) => {
       pinId = (res.items[0]?._id as string | undefined) ?? null;
     }
     if (pinId) await auth.elevate(items.remove)("PublicPins", pinId).catch(() => null);
+
+    // Marketplace (Phase 6): a listed photo's Stores product must go with it (best-effort — a
+    // stuck product must never leave the pin undeletable).
+    const productId = strOrNull(existing.productId);
+    if (productId) await deleteListingProduct(productId);
 
     await auth.elevate(items.remove)("Photos", photoId);
 

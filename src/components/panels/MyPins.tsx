@@ -9,6 +9,7 @@ import type { PhotoListItem } from "../../lib/wix/pinRecords";
 import type { PlaceListItem } from "../../lib/wix/placeRecords";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal } from "../../lib/format/readout";
+import { formatPrice } from "../../lib/market/listing";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/my-pins.css";
 import "../../styles/tips.css";
@@ -226,8 +227,15 @@ export default function MyPins() {
                       </span>
                       <span className="mp-sub">{captureLabel(p)}</span>
                     </span>
-                    <span className={`mp-badge${p.isPublic ? " is-public" : ""}`}>
-                      {p.isPublic ? (p.publicPrecision ?? "public").toUpperCase() : "PRIVATE"}
+                    <span className="mp-badges">
+                      {p.productId && (
+                        <span className="mp-badge mp-badge--sale" title="Listed for sale">
+                          ${formatPrice(p.priceAmount, p.currency)}
+                        </span>
+                      )}
+                      <span className={`mp-badge${p.isPublic ? " is-public" : ""}`}>
+                        {p.isPublic ? (p.publicPrecision ?? "public").toUpperCase() : "PRIVATE"}
+                      </span>
                     </span>
                   </button>
                   <button
