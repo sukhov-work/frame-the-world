@@ -6,10 +6,12 @@ import { create } from "zustand";
  *
  *  • listForSale / unlist run against the elevated /api/listings endpoint (owner-gated server-side)
  *    and flip `useUploadStore.listing` so the panel updates without a reopen; the globe pins refresh
- *    so the buyer-facing "for sale" marker appears/disappears.
+ *    so buyer-facing surfaces (the PinHoverCard price chip, the MARKETPLACE panel, the detail
+ *    panel's BUY) pick the listing up. The globe pin mesh itself draws no for-sale variant.
  *  • buy runs CLIENT-SIDE in the buyer's own member/visitor identity (NOT elevated): create an eCom
  *    checkout for the single digital line item, then a Wix redirect session → the hosted checkout.
- *    On payment a preinstalled Stores automation emails the 30-day download link (mem:project/
+ *    The return URL carries ?purchased=1 (the Marketplace island shows the acknowledgment toast);
+ *    on payment a preinstalled Stores automation emails the 30-day download link (mem:project/
  *    wip-2026-07-16-phase6-marketplace-research). SDK modules are lazy imports (globe bundle stays clean).
  */
 
@@ -114,9 +116,17 @@ export const useMarketStore = create<MarketState>((set, get) => ({
       });
       const checkoutId = co?._id;
       if (!checkoutId) throw new Error("checkout not created");
+      // COMPLETED checkouts return via thankYouPageUrl with ?purchased=1 (the Marketplace island
+      // turns it into the "check your email" toast; URL keeps the query BEFORE the #p= pose hash).
+      // postFlowUrl is the catch-all — abandoned/interrupted flows land back WITHOUT the param.
+      const thankYouUrl = new URL(window.location.href);
+      thankYouUrl.searchParams.set("purchased", "1");
       const { redirectSession } = await redirects.createRedirectSession({
         ecomCheckout: { checkoutId },
-        callbacks: { postFlowUrl: typeof window !== "undefined" ? window.location.href : "" },
+        callbacks: {
+          postFlowUrl: window.location.href,
+          thankYouPageUrl: thankYouUrl.toString(),
+        },
       });
       const fullUrl = redirectSession?.fullUrl;
       if (fullUrl && typeof window !== "undefined") {

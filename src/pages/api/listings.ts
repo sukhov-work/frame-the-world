@@ -13,7 +13,7 @@ import { orders } from "@wix/ecom";
 import { productsV3 } from "@wix/stores";
 import { json, requireMember } from "../../lib/api/http";
 import { ownedPhoto, deleteListingProduct } from "../../lib/wix/photosData";
-import { buildDigitalProduct, parseListBody } from "../../lib/market/listing";
+import { buildDigitalProduct, parseListBody, SITE_CURRENCY } from "../../lib/market/listing";
 
 /** Denormalize the listing onto the linked PublicPins row so buyers see it on the shared globe. */
 async function writePublicListing(
@@ -53,7 +53,7 @@ export const POST: APIRoute = async ({ request }) => {
       return json({
         productId: photo.productId,
         priceAmount: typeof photo.priceAmount === "number" ? photo.priceAmount : priceAmount,
-        currency: typeof photo.currency === "string" ? photo.currency : null,
+        currency: typeof photo.currency === "string" ? photo.currency : SITE_CURRENCY,
         alreadyListed: true,
       });
     }
@@ -68,10 +68,12 @@ export const POST: APIRoute = async ({ request }) => {
     const productId: string | undefined = product?._id ?? product?.id;
     if (!productId) throw new Error("createProduct returned no product id");
     const productVariantId: string | null = product?.variantsInfo?.variants?.[0]?._id ?? null;
-    const currency: string | null =
+    // createProduct does not echo a currency anywhere (verified 2026-07-17) — badges rendered a
+    // bare "7.50" on a EUR store. The site constant is the honest source (see SITE_CURRENCY).
+    const currency: string =
       product?.variantsInfo?.variants?.[0]?.price?.actualPrice?.currency ??
       product?.actualPriceRange?.minValue?.currency ??
-      null;
+      SITE_CURRENCY;
 
     await auth.elevate(items.update)("Photos", {
       ...photo,
@@ -141,7 +143,8 @@ export const GET: APIRoute = async () => {
         previewUrl: typeof p.previewUrl === "string" ? p.previewUrl : null,
         productId: p.productId as string,
         priceAmount: typeof p.priceAmount === "number" ? p.priceAmount : null,
-        currency: typeof p.currency === "string" ? p.currency : null,
+        // Pre-currency-fix rows stored null — every checkout on this site is EUR regardless.
+        currency: typeof p.currency === "string" ? p.currency : SITE_CURRENCY,
         soldCount: 0,
       }));
 

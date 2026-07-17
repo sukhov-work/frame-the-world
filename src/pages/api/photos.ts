@@ -23,6 +23,7 @@ import {
   photoListItem,
   photoRecord,
   PIN_QUOTA_FREE,
+  PIN_QUOTA_PREMIUM,
   publicPinRecord,
   type PhotoListItem,
 } from "../../lib/wix/pinRecords";
@@ -88,15 +89,24 @@ export const POST: APIRoute = async ({ request }) => {
       .eq("ownerMemberId", member._id)
       .count();
 
-    if (used >= PIN_QUOTA_FREE && !(await hasActivePlan())) {
-      return json(
-        {
-          error: "QUOTA_EXCEEDED",
-          message: `free plan holds ${PIN_QUOTA_FREE} pins — upgrade for unlimited`,
-          quota: { used, limit: PIN_QUOTA_FREE },
-        },
-        402,
-      );
+    // Two-tier quota (owner 2026-07-17): free 100 · premium 1000. The plan lookup runs only
+    // once the free wall is hit, so the common save path stays a single count query.
+    if (used >= PIN_QUOTA_FREE) {
+      const premium = await hasActivePlan();
+      const limit = premium ? PIN_QUOTA_PREMIUM : PIN_QUOTA_FREE;
+      if (used >= limit) {
+        return json(
+          {
+            error: "QUOTA_EXCEEDED",
+            message: premium
+              ? `premium holds ${PIN_QUOTA_PREMIUM} pins — delete some to add more`
+              : `free plan holds ${PIN_QUOTA_FREE} pins — upgrade for ${PIN_QUOTA_PREMIUM}`,
+            premium,
+            quota: { used, limit },
+          },
+          402,
+        );
+      }
     }
 
     const photo = await auth.elevate(items.insert)("Photos", photoRecord(body, member._id));

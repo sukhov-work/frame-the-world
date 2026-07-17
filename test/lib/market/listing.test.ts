@@ -5,6 +5,7 @@ import {
   MAX_PRICE,
   normalizePrice,
   parseListBody,
+  SITE_CURRENCY,
   STORES_APP_ID,
 } from "../../../src/lib/market/listing";
 
@@ -85,14 +86,23 @@ describe("parseListBody", () => {
 });
 
 describe("formatPrice", () => {
-  it("appends the currency when known and trims trailing .00", () => {
-    expect(formatPrice(12.5, "USD")).toBe("12.50 USD");
-    expect(formatPrice(9, "EUR")).toBe("9 EUR");
+  it("prefixes a known currency symbol and trims trailing .00", () => {
+    expect(formatPrice(12.5, "USD")).toBe("$12.50");
+    expect(formatPrice(9, "EUR")).toBe("€9");
+    expect(formatPrice(7.5, "EUR")).toBe("€7.50");
+  });
+
+  it("falls back to an ISO suffix for symbol-less currencies, bare number for null", () => {
+    expect(formatPrice(12.5, "CHF")).toBe("12.50 CHF");
     expect(formatPrice(9, null)).toBe("9");
   });
 
   it("returns an empty string for a null amount", () => {
     expect(formatPrice(null, "USD")).toBe("");
     expect(formatPrice(undefined, null)).toBe("");
+  });
+
+  it("names the site currency the listing endpoint stamps on every new listing", () => {
+    expect(SITE_CURRENCY).toBe("EUR");
   });
 });

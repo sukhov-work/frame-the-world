@@ -7,6 +7,7 @@ import CameraTiltPanel from "../components/panels/CameraTiltPanel";
 import TimeScrubber from "../components/panels/TimeScrubber";
 import MemberBadge from "../components/panels/MemberBadge";
 import MyPins from "../components/panels/MyPins";
+import Marketplace from "../components/panels/Marketplace";
 import LocationFinder from "../components/panels/LocationFinder";
 import PinHoverCard from "../components/panels/PinHoverCard";
 import ExploreMode from "../components/panels/ExploreMode";
@@ -155,6 +156,9 @@ import "../styles/boot-poster.css";
       <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
       <a href="#explore" data-explore class="tip" data-tip="AMBIENT TOUR OF PUBLIC PINS." data-tip-pos="down">Explore</a>
       <a href="#upload" class="nav-upload tip" data-open-upload data-tip="ADD A PHOTO TO THE GLOBE." data-tip-pos="down">Upload</a>
+      <!-- Phase 6.9: buyer-facing marketplace browse panel (owner ruling — its own nav button).
+           Also hosts the ?purchased=1 post-checkout toast. Panel body + fetch are open-gated. -->
+      <Marketplace client:only="react" />
       <!-- Phase 5.1: rudimentary owner pin list (members only; gallery phase replaces it) -->
       <MyPins client:only="react" />
       <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->

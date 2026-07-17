@@ -20,7 +20,8 @@ import { useCameraStore } from "../../store/camera";
 import { wrapHeadingDeg } from "../../lib/geo/heading";
 import { useSaveStore, type SavePhase } from "../../store/save";
 import { useMarketStore } from "../../store/market";
-import { loginUrl, memberLabel, useMemberStore } from "../../store/member";
+import { loginUrl, memberLabel, returnHereUrl, useMemberStore } from "../../store/member";
+import { startPlanUpgrade } from "../../lib/wix/planUpgrade";
 import { pinHueIndex } from "../../lib/pins/appearance";
 import { tokens } from "../../lib/theme/tokens";
 import { isPrecisionTier, type PrecisionTier } from "../../lib/geo/precision";
@@ -194,8 +195,8 @@ export default function PhotoDetailPanel() {
       return { text: save.warning ? `${quota} · ${save.warning.toUpperCase()}` : quota, tone: "ok" };
     }
     if (save.phase === "error") {
-      if (save.errorCode === "QUOTA_EXCEEDED")
-        return { text: "FREE PLAN FULL (10/10) — UPGRADE FOR UNLIMITED", tone: "warn" };
+      // QUOTA_EXCEEDED needs no special text — the endpoint message carries the tier numbers
+      // ("free plan holds 100 pins — upgrade for 1000"); the action row adds the UPGRADE button.
       return { text: (save.error ?? "SAVE FAILED").toUpperCase(), tone: "warn" };
     }
     return { text: "", tone: "" };
@@ -404,7 +405,16 @@ export default function PhotoDetailPanel() {
         )}
         <div className="pd-save__act">
           {memberPhase !== "member" ? (
-            <a className="uf-btn uf-btn--primary pd-save__signin" href={loginUrl("/")}>
+            <a
+              className="uf-btn uf-btn--primary pd-save__signin"
+              href={loginUrl("/")}
+              // returnTo resolves at CLICK time — the orchestrator mirrors the #p= pose hash at
+              // ~1.6 s cadence, so a render-time href would still say "/" (verified 2026-07-17).
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.href = loginUrl(returnHereUrl());
+              }}
+            >
               SIGN IN TO SAVE
             </a>
           ) : store.ownPhotoId ? (
@@ -451,6 +461,20 @@ export default function PhotoDetailPanel() {
               {status.text}
             </span>
           )}
+          {/* Premium must be obviously buyable (owner 2026-07-17): the quota wall links straight
+              to the Wix-hosted plan checkout; returning lands back on this exact view. */}
+          {save.phase === "error" && save.errorCode === "QUOTA_EXCEEDED" && (
+            <button
+              className="uf-btn uf-btn--primary"
+              onClick={() =>
+                void startPlanUpgrade(returnHereUrl()).catch((e) =>
+                  console.warn("[upgrade] plan checkout failed", e),
+                )
+              }
+            >
+              ⤴ UPGRADE
+            </button>
+          )}
         </div>
       </div>
       )}
@@ -483,6 +507,8 @@ function MarketSection() {
   const memberPhase = useMemberStore((s) => s.phase);
   const [selling, setSelling] = useState(false);
   const [price, setPrice] = useState("");
+  // Arm/SURE? two-press (the row-delete idiom) — unlisting kills the live product.
+  const [confirmUnlist, setConfirmUnlist] = useState(false);
 
   const listing = store.listing ?? null;
   const busy = market.phase === "listing" || market.phase === "unlisting";
@@ -501,11 +527,15 @@ function MarketSection() {
               FOR SALE · {formatPrice(listing.priceAmount, listing.currency)}
             </span>
             <button
-              className="uf-btn uf-btn--ghost"
+              className={`uf-btn uf-btn--ghost${confirmUnlist ? " pd-del is-armed" : ""}`}
               disabled={busy}
-              onClick={() => void market.unlist()}
+              onClick={() => {
+                if (!confirmUnlist) return setConfirmUnlist(true);
+                setConfirmUnlist(false);
+                void market.unlist();
+              }}
             >
-              {market.phase === "unlisting" ? "UNLISTING…" : "UNLIST"}
+              {market.phase === "unlisting" ? "UNLISTING…" : confirmUnlist ? "SURE? UNLIST" : "UNLIST"}
             </button>
           </div>
           {err}
@@ -591,7 +621,15 @@ function MarketSection() {
               {buying ? "OPENING CHECKOUT…" : `BUY · ${formatPrice(listing.priceAmount, listing.currency)}`}
             </button>
           ) : (
-            <a className="uf-btn uf-btn--primary" href={loginUrl("/")}>
+            <a
+              className="uf-btn uf-btn--primary"
+              href={loginUrl("/")}
+              // Click-time returnTo — same reason as SIGN IN TO SAVE (the #p= hash is live-mirrored).
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.href = loginUrl(returnHereUrl());
+              }}
+            >
               SIGN IN TO BUY
             </a>
           )}

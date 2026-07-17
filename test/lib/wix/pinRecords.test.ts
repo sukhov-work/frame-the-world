@@ -7,6 +7,7 @@ import {
   photoListItem,
   photoRecord,
   PIN_QUOTA_FREE,
+  PIN_QUOTA_PREMIUM,
   publicPinRecord,
   type SavePinBody,
 } from "../../../src/lib/wix/pinRecords";
@@ -162,9 +163,14 @@ describe("publicPinRecord (C6 — BINDING)", () => {
   });
 });
 
-describe("quota constant", () => {
-  it("free tier is 10 pins (plan §Phase 5)", () => {
-    expect(PIN_QUOTA_FREE).toBe(10);
+describe("quota constants", () => {
+  it("free tier is 100 pins (owner re-ruling 2026-07-17, supersedes D8's 10)", () => {
+    expect(PIN_QUOTA_FREE).toBe(100);
+  });
+
+  it("premium tier is a 1000-pin hard ceiling (was 'unlimited')", () => {
+    expect(PIN_QUOTA_PREMIUM).toBe(1000);
+    expect(PIN_QUOTA_PREMIUM).toBeGreaterThan(PIN_QUOTA_FREE);
   });
 });
 

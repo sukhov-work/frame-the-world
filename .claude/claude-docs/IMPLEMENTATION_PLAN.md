@@ -150,6 +150,19 @@ fixed Wix-Stores appId `215238eb-…` (NOT the TPA id). **Remaining (Wix-native,
 owner marks the manual payment paid in the Wix dashboard → the preinstalled automation emails the 30-day link.
 Memory: `mem:project/wip-2026-07-16-phase6-marketplace-research`.
 
+## Phase 6.9 — Marketplace + access batch  ☑ (SHIPPED 2026-07-17, browser-VERIFIED)
+**As built:** quota **100 free / 1000 premium** (two-tier wall in `POST /api/photos`; D8 numbers superseded
+by the 2026-07-17 owner ruling) · `SITE_CURRENCY="EUR"` stamped at listing create + symbol-prefixed
+`formatPrice` ("€7.50" badges) · **SALES tab** in MY PINS (first `GET /api/listings` consumer) ·
+`PinHoverCard` price chip · **MARKETPLACE nav button + browse panel** over new public `GET /api/market`
+(C6-reduced PublicPins rows; row click = the globe-pin-click `openSavedPin` path) · UPGRADE affordances
+(nav chip + quota-error button) → `lib/wix/planUpgrade.ts` paid-plans redirect (typings-verified) ·
+click-time sign-in returnTo carrying the `#p=` pose hash · `?purchased=1` thank-you toast · UNLIST arm.
+**Verified:** `scripts/verify-phase69.mjs` (member API + scripted-Chrome tiers) — gates vitest 593/593 ·
+astro 0/0 · wix build Complete. **Owner tail:** install the **Pricing Plans app** + one public plan
+(site lacks it — `APP_NOT_INSTALLED`); the manual purchase→paid→email loop is still the Phase-6 DoD step.
+Memory: `mem:project/wip-2026-07-17-phase69-marketplace-batch`.
+
 ## Phase 7 — AI analysis + polish  ☐
 **Scope:** premium AI panel → Wix AI (Claude, e.g. Opus 4.6) with a **downsized JPEG** + desired-condition
 prompt; moderation pass on public previews; perf polish (KTX2, OPFS cache, mobile half-size decode, View Transitions).

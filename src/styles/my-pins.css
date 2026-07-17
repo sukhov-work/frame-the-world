@@ -172,6 +172,15 @@
   border-color: var(--color-accent);
 }
 
+/* SALES rows are display-only (Phase 6.9) — same rhythm, no click affordance. */
+.mp-item--static {
+  cursor: default;
+}
+
+.mp-item--static:hover {
+  border-color: var(--color-border);
+}
+
 .mp-thumb {
   width: 48px;
   height: 36px;

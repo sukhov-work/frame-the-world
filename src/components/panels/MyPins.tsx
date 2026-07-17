@@ -22,13 +22,28 @@ import "../../styles/tips.css";
  * PLACES tab (owner 2026-07-15): saved photo-less first-person viewpoints — the `#f=` pose
  * + optional pinned scene time. A row click jumps straight into that FPV (requestFpvJump →
  * the orchestrator re-enters the temp-pin FPV through the exact share-link path).
+ *
+ * SALES tab (Phase 6.9): the member's for-sale listings + a PAID-order count each — the first
+ * client consumer of GET /api/listings. Display-only rows (the pin itself opens from MY PINS).
  */
+
+/** One GET /api/listings row (the endpoint's response shape). */
+interface SalesRow {
+  photoId: string;
+  title: string;
+  previewUrl: string | null;
+  productId: string;
+  priceAmount: number | null;
+  currency: string | null;
+  soldCount: number;
+}
 export default function MyPins() {
   const memberPhase = useMemberStore((s) => s.phase);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"pins" | "places">("pins");
+  const [tab, setTab] = useState<"pins" | "places" | "sales">("pins");
   const [photos, setPhotos] = useState<PhotoListItem[] | null>(null);
   const [places, setPlaces] = useState<PlaceListItem[] | null>(null);
+  const [sales, setSales] = useState<SalesRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -49,12 +64,22 @@ export default function MyPins() {
         .catch((e) => {
           if (!stale) setError(e instanceof Error ? e.message : String(e));
         });
-    } else {
+    } else if (tab === "places") {
       setPlaces(null);
       fetch("/api/places")
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((j) => {
           if (!stale) setPlaces(j.places ?? []);
+        })
+        .catch((e) => {
+          if (!stale) setError(e instanceof Error ? e.message : String(e));
+        });
+    } else {
+      setSales(null);
+      fetch("/api/listings")
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((j) => {
+          if (!stale) setSales(j.listings ?? []);
         })
         .catch((e) => {
           if (!stale) setError(e instanceof Error ? e.message : String(e));
@@ -160,7 +185,7 @@ export default function MyPins() {
     return p.timeMs != null ? `${coords} · ${focal} · ⏱` : `${coords} · ${focal}`;
   };
 
-  const count = tab === "pins" ? photos?.length : places?.length;
+  const count = tab === "pins" ? photos?.length : tab === "places" ? places?.length : sales?.length;
 
   return (
     <span className="mp">
@@ -197,6 +222,14 @@ export default function MyPins() {
               >
                 PLACES{tab === "places" && count != null ? ` · ${count}` : ""}
               </button>
+              <button
+                className={`mp-tab${tab === "sales" ? " is-active" : ""}`}
+                role="tab"
+                aria-selected={tab === "sales"}
+                onClick={() => setTab("sales")}
+              >
+                SALES{tab === "sales" && count != null ? ` · ${count}` : ""}
+              </button>
             </div>
             <button className="mp-close" aria-label="Close" onClick={() => setOpen(false)}>
               ×
@@ -230,7 +263,7 @@ export default function MyPins() {
                     <span className="mp-badges">
                       {p.productId && (
                         <span className="mp-badge mp-badge--sale" title="Listed for sale">
-                          ${formatPrice(p.priceAmount, p.currency)}
+                          {formatPrice(p.priceAmount, p.currency)}
                         </span>
                       )}
                       <span className={`mp-badge${p.isPublic ? " is-public" : ""}`}>
@@ -247,6 +280,45 @@ export default function MyPins() {
                   >
                     {deletingId === p.id ? "…" : armedDeleteId === p.id ? "SURE?" : "✕"}
                   </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!error && tab === "sales" && sales === null && <div className="mp-note">LOADING…</div>}
+          {!error && tab === "sales" && sales?.length === 0 && (
+            <div className="mp-note">
+              Nothing for sale yet — open one of your public pins and SELL THIS PHOTO.
+            </div>
+          )}
+          {!error && tab === "sales" && sales && sales.length > 0 && (
+            <ul className="mp-list">
+              {sales.map((s) => (
+                <li key={s.photoId} className="mp-row">
+                  <div className="mp-item mp-item--static">
+                    {s.previewUrl ? (
+                      <img className="mp-thumb" src={s.previewUrl} alt="" loading="lazy" />
+                    ) : (
+                      <span className="mp-thumb mp-thumb--empty" aria-hidden="true" />
+                    )}
+                    <span className="mp-meta">
+                      <span className="mp-name" title={s.title}>
+                        {s.title}
+                      </span>
+                      <span className="mp-sub">
+                        {s.soldCount > 0 ? `${s.soldCount} SOLD · PAYOUT VIA SITE OWNER` : "NO SALES YET"}
+                      </span>
+                    </span>
+                    <span className="mp-badges">
+                      <span className="mp-badge mp-badge--sale">
+                        {formatPrice(s.priceAmount, s.currency)}
+                      </span>
+                      {s.soldCount > 0 && (
+                        <span className="mp-badge is-public" title="Paid orders">
+                          {s.soldCount} SOLD
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>
