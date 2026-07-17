@@ -60,6 +60,12 @@ const COLLECTIONS = [
       bool("isPublic", "Is Public"),
       text("publicPrecision", "Public Precision"),
       text("publicPinId", "Public Pin Id"),
+      // Marketplace-light (Phase 6): set when the owner lists this photo as a Stores Catalog V3
+      // digital product (digitalFile = the retained originalFileId). Managed ONLY by /api/listings.
+      text("productId", "Stores Product Id"),
+      text("productVariantId", "Stores Variant Id"),
+      num("priceAmount", "Price Amount"),
+      text("currency", "Currency"),
     ],
     permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
   },
@@ -92,6 +98,13 @@ const COLLECTIONS = [
       text("cameraMake", "Camera Make"),
       text("cameraModel", "Camera Model"),
       text("lensModel", "Lens Model"),
+      // Marketplace-light (Phase 6): denormalized listing so buyers see "for sale" + price on the
+      // shared globe. World-readable, but productId/price are NOT location data (C6-ok). variantId
+      // is required to build the checkout catalogReference (productId-only → empty checkout).
+      text("productId", "Stores Product Id"),
+      text("productVariantId", "Stores Variant Id"),
+      num("priceAmount", "Price Amount"),
+      text("currency", "Currency"),
     ],
     permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ANYONE" },
   },

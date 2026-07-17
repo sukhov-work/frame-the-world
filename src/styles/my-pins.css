@@ -267,3 +267,15 @@
   color: var(--color-warn, #e8b465);
   border-color: color-mix(in srgb, var(--color-warn, #e8b465) 55%, transparent);
 }
+
+/* Marketplace (Phase 6): a small "for sale" price chip alongside the visibility badge. */
+.mp-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mp-badge--sale {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+}

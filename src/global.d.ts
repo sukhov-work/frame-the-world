@@ -15,6 +15,7 @@ import type { usePinsStore } from "./store/pins";
 import type { usePlanStore } from "./store/plan";
 import type { useSaveStore } from "./store/save";
 import type { useUploadStore } from "./store/upload";
+import type { useMarketStore } from "./store/market";
 
 declare global {
   interface Window {
@@ -29,6 +30,7 @@ declare global {
     __planStore?: typeof usePlanStore;
     __saveStore?: typeof useSaveStore;
     __uploadStore?: typeof useUploadStore;
+    __marketStore?: typeof useMarketStore;
   }
 }
 

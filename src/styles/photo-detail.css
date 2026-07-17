@@ -364,3 +364,79 @@
   color: var(--color-warn, #e8b465);
   border-color: color-mix(in srgb, var(--color-warn, #e8b465) 55%, transparent);
 }
+
+/* ── Marketplace-light (Phase 6): LIST/UNLIST on an own pin, BUY on a foreign one ── */
+.pd-market {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+.pd-market__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pd-market__badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  padding: 3px 8px;
+  border-radius: 7px;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  white-space: nowrap;
+}
+.pd-market__sell {
+  align-self: flex-start;
+}
+.pd-market__form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pd-market__price {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pd-market__pricelabel {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.pd-market__priceinput {
+  width: 82px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  outline: none;
+}
+.pd-market__priceinput:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+.pd-market__note {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}
+.pd-market__fine {
+  margin: 0;
+  font-size: 9.5px;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.pd-market__err {
+  font-size: 10px;
+  color: var(--color-warn, #e8b465);
+}

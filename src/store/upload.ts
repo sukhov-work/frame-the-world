@@ -14,6 +14,7 @@ import { extractMetadata, type ExtractedPhoto, type PhotoExif, type PreviewSourc
 import { focalFromHorizontalFov } from "../lib/decode/sensors";
 import { exifBaselineParams, type AdjustableKey, type AdjustableParams, type Placement } from "../lib/decode/params";
 import type { CameraPoseOptics } from "../lib/pins/fields";
+import type { PinListing } from "../lib/market/listing";
 import { useCameraStore } from "./camera";
 
 // The pure param layer moved to lib/decode/params (B8 — lib/save/pinBody.ts must not import UP into
@@ -42,6 +43,13 @@ export interface SavedPinView extends Partial<CameraPoseOptics> {
   ownPhotoId?: string | null;
   isPublic?: boolean;
   publicPrecision?: string | null;
+  /** Marketplace (Phase 6): present when the pin is listed for sale — an OWN pin shows UNLIST, a
+   *  FOREIGN pin shows BUY. Flows in via the spread at both open sites (globe pin + My-pins row).
+   *  `productVariantId` rides in from PublicPin so a buyer's checkout can reference the variant. */
+  productId?: string | null;
+  productVariantId?: string | null;
+  priceAmount?: number | null;
+  currency?: string | null;
 }
 
 interface UploadStore {
@@ -84,6 +92,9 @@ interface UploadStore {
   ownPhotoId?: string;
   /** Save-time choices of the own viewed pin — seeds the edit section's controls. */
   ownPinMeta?: { isPublic: boolean; precision: string | null };
+  /** Marketplace (Phase 6): the viewed pin's active listing (null = not for sale). Seeded when a
+   *  pin opens; the market store flips it on list/unlist so the panel updates without a reopen. */
+  listing?: PinListing | null;
   /** One-shot location seed from the temp-pin "UPLOAD HERE" action: applied at ingest when
    *  the file carries no GPS (EXIF wins when present — it is the real capture location). */
   pendingPlacement?: Placement;
@@ -178,6 +189,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       viewingPinId: undefined,
       ownPhotoId: undefined,
       ownPinMeta: undefined,
+      listing: null,
       viewMode: "orbit",
     });
 
@@ -353,6 +365,15 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
         view.ownPhotoId != null
           ? { isPublic: view.isPublic === true, precision: view.publicPrecision ?? null }
           : undefined,
+      listing:
+        typeof view.productId === "string" && view.productId.length > 0
+          ? {
+              productId: view.productId,
+              variantId: view.productVariantId ?? null,
+              priceAmount: view.priceAmount ?? null,
+              currency: view.currency ?? null,
+            }
+          : null,
       pendingPlacement: undefined,
       viewMode: "orbit",
     });
@@ -383,6 +404,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
       viewingPinId: undefined,
       ownPhotoId: undefined,
       ownPinMeta: undefined,
+      listing: null,
       pendingPlacement: undefined,
       viewMode: "orbit",
     });
