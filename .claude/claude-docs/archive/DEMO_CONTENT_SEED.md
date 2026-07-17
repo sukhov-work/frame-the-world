@@ -9,9 +9,9 @@ on demo content). This is a temporary working doc — archive to `archive/` afte
 - [x] Curation research round 1 (3 parallel lanes: US-federal · Wikimedia CC0/PD · wildcard phenomena) — 2026-07-17
 - [x] Owner sized the seed to **~30**; round-2 hunt STOPPED by owner mid-run → pool = **24 distinct (+3
       same-site) = 27**; top-up targets parked below — 2026-07-17
-- [ ] Owner skim of the set (swap any that don't land; decide on #24 pole-cluster + the 3 pad frames)
-- [ ] `scripts/seed-demo-pins.mjs` built + run against `wix dev` (after the Phase-6.9 quota bump + currency fix)
-- [ ] Set verified rendering across the globe + in the MARKETPLACE panel (browser) → archive this doc
+- [x] Seeded ALL 27 (incl. #24 pole-cluster + 3 pad frames) — owner can delete any that don't land in MY PINS — 2026-07-17
+- [x] `scripts/seed-demo-pins.mjs` built + run against `wix dev` — 27/27 OK (serial, UA'd, sips previews, TUS originals, DEV-only /api/dev-seed route with ownerMemberId=yevhens@wix.com) — 2026-07-17
+- [x] Browser-verified: both hemispheres render the set · MARKETPLACE 'FOR SALE · 28' · row click → flight + buyer panel (verify-shots/seed-0[1-4]*.jpeg) — ARCHIVED 2026-07-17
 
 ## The set — 24 distinct locations verified (+3 optional same-site frames); owner sized the seed to ~30 (2026-07-17)
 

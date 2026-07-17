@@ -10,10 +10,9 @@ import type { APIRoute } from "astro";
 import { items } from "@wix/data";
 import { auth } from "@wix/essentials";
 import { orders } from "@wix/ecom";
-import { productsV3 } from "@wix/stores";
 import { json, requireMember } from "../../lib/api/http";
-import { ownedPhoto, deleteListingProduct } from "../../lib/wix/photosData";
-import { buildDigitalProduct, parseListBody, SITE_CURRENCY } from "../../lib/market/listing";
+import { ownedPhoto, deleteListingProduct, createListingProduct } from "../../lib/wix/photosData";
+import { parseListBody, SITE_CURRENCY } from "../../lib/market/listing";
 
 /** Denormalize the listing onto the linked PublicPins row so buyers see it on the shared globe. */
 async function writePublicListing(
@@ -59,21 +58,11 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     const name = typeof photo.title === "string" ? photo.title : "Untitled photo";
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the V3Product type is vast; the
-    // create input is validated by buildDigitalProduct + the live gateway (verified 2026-07-16).
-    const created: any = await auth.elevate(productsV3.createProduct)(
-      buildDigitalProduct(name, priceAmount, originalFileId) as never,
+    const { productId, productVariantId, currency } = await createListingProduct(
+      name,
+      priceAmount,
+      originalFileId,
     );
-    const product = created?.product ?? created;
-    const productId: string | undefined = product?._id ?? product?.id;
-    if (!productId) throw new Error("createProduct returned no product id");
-    const productVariantId: string | null = product?.variantsInfo?.variants?.[0]?._id ?? null;
-    // createProduct does not echo a currency anywhere (verified 2026-07-17) — badges rendered a
-    // bare "7.50" on a EUR store. The site constant is the honest source (see SITE_CURRENCY).
-    const currency: string =
-      product?.variantsInfo?.variants?.[0]?.price?.actualPrice?.currency ??
-      product?.actualPriceRange?.minValue?.currency ??
-      SITE_CURRENCY;
 
     await auth.elevate(items.update)("Photos", {
       ...photo,

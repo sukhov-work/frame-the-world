@@ -19,6 +19,10 @@ const TEXTURES = [
   "/textures/earth-night-8k.jpg", "/textures/earth-night.jpg",
   "/textures/earth-landmask-8k.png", "/textures/earth-normal.jpg",
   "/textures/earth-topology.png", "/textures/milkyway-2020.jpg",
+  // FAQ panel section shots (src/components/panels/faqContent.ts) — lazy-loaded on open,
+  // but a cold-origin miss still stalls the panel for ~15-30s (the 2026-07-16 lesson).
+  "/faq/upload.webp", "/faq/nudge.webp", "/faq/time.webp",
+  "/faq/fpv.webp", "/faq/pins.webp", "/faq/market.webp",
 ];
 
 const seen = new Set();

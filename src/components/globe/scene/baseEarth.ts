@@ -66,6 +66,12 @@ export function attachBaseEarth(
     uOrganic: { value: EARTH.organic },
     uSat: { value: EARTH.sat },
     uGain: { value: EARTH.gain },
+    // Day/orbit grade ramp (2026-07-17): the *Orbit twins are the grade at full orbit; the
+    // orchestrator drives uOrbitGrade per frame from camera altitude (EARTH.orbitGrade).
+    uOrganicOrbit: { value: EARTH.orbitGrade.organic },
+    uSatOrbit: { value: EARTH.orbitGrade.sat },
+    uGainOrbit: { value: EARTH.orbitGrade.gain },
+    uOrbitGrade: { value: 0 },
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -93,6 +99,10 @@ export function attachBaseEarth(
       uniform float uOrganic;
       uniform float uSat;
       uniform float uGain;
+      uniform float uOrganicOrbit;
+      uniform float uSatOrbit;
+      uniform float uGainOrbit;
+      uniform float uOrbitGrade;
       varying vec2 vUv;
       varying vec3 vDir;
       void main() {
@@ -107,8 +117,13 @@ export function attachBaseEarth(
         // forests, ice and ocean depth READ geographically without going semi-realistic (C2).
         vec3 organic = texture2D(uColor, vUv).rgb;
         float oLum = dot(organic, vec3(0.2126, 0.7152, 0.0722));
-        organic = mix(vec3(oLum), organic, uSat) * uGain;
-        vec3 albedo = mix(duo, organic, uOrganic);
+        // Day/orbit grade ramp: each grade knob mixes toward its orbit twin as the camera
+        // pulls away (uOrbitGrade 0 = low-altitude base grade, 1 = full-orbit grade).
+        float satK = mix(uSat, uSatOrbit, uOrbitGrade);
+        float gainK = mix(uGain, uGainOrbit, uOrbitGrade);
+        float organicK = mix(uOrganic, uOrganicOrbit, uOrbitGrade);
+        organic = mix(vec3(oLum), organic, satK) * gainK;
+        vec3 albedo = mix(duo, organic, organicK);
         // Tangent-space normal map -> lit 3D relief. Build a tangent frame from the ECEF outward normal
         // (guard the pole where the default 'up' aligns with N). Relief only on land (ocean ~ flat).
         vec3 N = normalize(vDir);

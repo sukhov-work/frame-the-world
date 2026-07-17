@@ -44,7 +44,14 @@ export interface PinListing {
   currency: string | null;
 }
 
-/** The V3 digital-product create input (camelCase; `digitalFile._id` is the SDK field name). */
+/**
+ * The V3 digital-product create input (camelCase; `digitalFile._id` is the SDK field name).
+ * `inventoryItem.inStock: true` is the V3 "tracked by status" method — available for sale with NO
+ * quantity limit. Without it `createProduct` defaults to tracked quantity 0 and checkout blocks
+ * with OUT OF STOCK (hit live 2026-07-17 on the €7.50 test listing) — a digital file never runs
+ * out, so every listing ships untracked. Requires `createProductWithInventory` (plain
+ * `createProduct` ignores the field).
+ */
 export interface DigitalProductInput {
   name: string;
   productType: "DIGITAL";
@@ -52,13 +59,15 @@ export interface DigitalProductInput {
     variants: Array<{
       price: { actualPrice: { amount: string } };
       digitalProperties: { digitalFile: { _id: string } };
+      inventoryItem: { inStock: true };
     }>;
   };
 }
 
 /**
- * Build the `productsV3.createProduct` input for a photo listing. Single digital variant priced at
- * `priceAmount` (site currency), the secured file = the retained original's Wix Media id.
+ * Build the `productsV3.createProductWithInventory` input for a photo listing. Single digital
+ * variant priced at `priceAmount` (site currency), the secured file = the retained original's
+ * Wix Media id, inventory untracked (unlimited — nobody manages stock on a digital file).
  */
 export function buildDigitalProduct(
   name: string,
@@ -73,6 +82,7 @@ export function buildDigitalProduct(
         {
           price: { actualPrice: { amount: priceAmount.toFixed(2) } },
           digitalProperties: { digitalFile: { _id: originalFileId } },
+          inventoryItem: { inStock: true },
         },
       ],
     },
