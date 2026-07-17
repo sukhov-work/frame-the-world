@@ -55,12 +55,17 @@ The five owner rulings from `mem:project/wip-2026-07-16-phase6-marketplace-resea
 - Verify scripts need **Node ≥22** (global WebSocket); default node here is 20 → use
   `~/.nvm/versions/node/v24.10.0/bin/node`.
 
-## SITE-CONFIG GAP (owner dashboard action, NOT code)
-**Pricing Plans app is NOT INSTALLED** on the site — `queryPublicPlans` → `APP_NOT_INSTALLED`
-(appId 1522827f-c56c-a5c9-2ac9-00f9e6ae12d3). Until the owner installs it + creates ONE public
-premium plan, `startPlanUpgrade` throws "no public plan is configured" (surfaced in the chip tip)
-and `hasActivePlan()` correctly reads everyone as free. The verify script's A5 check flips green
-once installed.
+## SITE-CONFIG: Pricing Plans — RESOLVED same day (owner installed + created the plan)
+Plan id `5874dba8-44ae-49ce-b6f6-d36bc93ce978` · €5 EUR · one-time (`singlePaymentUnlimited`) ·
+**Valid until canceled** (the lifetime setting the ACTIVE-order check needs) · public, the only plan.
+`verify-phase69.mjs --no-browser` ALL PASS. **NEW TRAP found by the live E2E
+(`scripts/verify-plan-upgrade.mjs`): `createRedirectSession` REJECTS relative callback URLs**
+("INVALID URL FORMAT for postFlowUrl, value /") — `returnHereUrl()` returns path+hash, fine for
+the managed login route but fatal here; `startPlanUpgrade` now absolutizes
+(`new URL(returnTo, window.location.origin)`). ecom buy() never hit it (absolute href). Verified:
+chip click → Wix-hosted plan checkout `__eplans/pricing-plans/plan-customization?planId=5874dba8…`
+(shot `verify-shots/phase69-06-plan-checkout.jpeg`). Owner nit: plan still NAMED "Community Monthly
+Membership (Premium" — template leftover; rename in dashboard, no code impact.
 
 ## UNVERIFIED tails
 - `#p=` hash survival through the FULL login / checkout round-trip (verified: the login request
