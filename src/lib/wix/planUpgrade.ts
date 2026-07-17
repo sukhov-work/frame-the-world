@@ -44,9 +44,13 @@ export async function startPlanUpgrade(returnTo: string): Promise<void> {
   const planId = await fetchUpgradePlanId();
   if (!planId) throw new Error("no public plan is configured on the site");
   const { redirects } = await import("@wix/redirects");
+  // The redirects API rejects RELATIVE callback URLs ("INVALID URL FORMAT for postFlowUrl,
+  // value /" — hit live 2026-07-17): returnHereUrl() hands back a path+hash (fine for the
+  // managed login route), so absolutize against the current origin here.
+  const postFlowUrl = new URL(returnTo, window.location.origin).toString();
   const { redirectSession } = await redirects.createRedirectSession({
     paidPlansCheckout: { planId },
-    callbacks: { postFlowUrl: returnTo },
+    callbacks: { postFlowUrl },
   });
   const fullUrl = redirectSession?.fullUrl;
   if (!fullUrl) throw new Error("no redirect url from Wix");
