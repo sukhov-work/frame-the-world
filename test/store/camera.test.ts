@@ -23,6 +23,24 @@ describe("zoom slider mapping", () => {
   });
 });
 
+describe("view defaults (owner 2026-07-21)", () => {
+  it("boots with SAT ground, solid FPV buildings, pins + sky guides on", () => {
+    const s = useCameraStore.getState();
+    expect(s.groundMode).toBe("satellite"); // SAT chip lit by default
+    expect(s.fpvBuildingSolidity).toBe(1); // FPV buildings fully shaded, not wireframe
+    expect(s.pinsVisible).toBe(true);
+    expect(s.skyGuides).toBe(true);
+  });
+
+  it("clamps building solidity into 0..1", () => {
+    useCameraStore.getState().setFpvBuildingSolidity(2);
+    expect(useCameraStore.getState().fpvBuildingSolidity).toBe(1);
+    useCameraStore.getState().setFpvBuildingSolidity(-0.5);
+    expect(useCameraStore.getState().fpvBuildingSolidity).toBe(0);
+    useCameraStore.getState().setFpvBuildingSolidity(1); // restore the default for later tests
+  });
+});
+
 describe("camera store glide targets", () => {
   beforeEach(() => {
     useCameraStore.getState().clearAllTargets();

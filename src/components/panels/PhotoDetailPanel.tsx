@@ -223,6 +223,18 @@ export default function PhotoDetailPanel() {
         <div className="pd-head__title">
           <span className="pd-dot" aria-hidden="true" />
           <span className="uf-mono pd-name">{store.fileName}</span>
+          {/* Quick close (owner 2026-07-21): every camera-parameters panel gets a one-click way
+              back to the bare map — clears the frustum + panel (START OVER's quiet twin). */}
+          <button
+            type="button"
+            className="pd-close tip"
+            aria-label="Close and return to the map"
+            data-tip="CLOSE — BACK TO THE MAP."
+            data-tip-pos="down"
+            onClick={() => useUploadStore.getState().clear()}
+          >
+            ✕
+          </button>
         </div>
         <span className="uf-mono pd-coords">
           {store.placement ? formatLatLon(store.placement.latDeg, store.placement.lonDeg) : ""}
@@ -482,13 +494,23 @@ export default function PhotoDetailPanel() {
       {/* Marketplace-light (Phase 6): own pin → LIST/UNLIST; a foreign pin for sale → BUY. */}
       <MarketSection />
 
+      {/* REVIEW / START OVER are upload-flow verbs — a FOREIGN viewed pin (owner 2026-07-21)
+          has no review overlay or flow to restart; closing back to the map is its only action. */}
       <div className="pd-actions">
-        <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().backToReview()}>
-          ← REVIEW
-        </button>
-        <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().clear()}>
-          START OVER
-        </button>
+        {store.viewingPinId && !store.ownPhotoId ? (
+          <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().clear()}>
+            ✕ CLOSE
+          </button>
+        ) : (
+          <>
+            <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().backToReview()}>
+              ← REVIEW
+            </button>
+            <button className="uf-btn uf-btn--ghost" onClick={() => useUploadStore.getState().clear()}>
+              START OVER
+            </button>
+          </>
+        )}
       </div>
       </div>
     </aside>

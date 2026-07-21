@@ -4,6 +4,8 @@ import {
   resolveEnrichedBbox,
   isVariantActive,
   toggleVariantUrl,
+  applyStoredVariant,
+  setVariantUrl,
   ENRICHED_VARIANT_NAME,
 } from "../../../src/lib/globe/enrichedVariant";
 
@@ -112,5 +114,49 @@ describe("isVariantActive / toggleVariantUrl", () => {
     const on = new URL(toggleVariantUrl("http://localhost:4321/?foo=1#p=1,2,3,4,5"));
     expect(on.searchParams.get("foo")).toBe("1");
     expect(on.searchParams.get("enriched")).toBe(ENRICHED_VARIANT_NAME);
+  });
+});
+
+// Persisted BLD chip (owner 2026-07-21): the stored preference makes the variant survive a plain
+// reload of `/`. Load-bearing invariant: an explicit `?enriched=` in the URL ALWAYS wins verbatim
+// (incl. off and cross-city variants) — the pref only speaks when the URL is silent.
+describe("applyStoredVariant / setVariantUrl (BLD persistence)", () => {
+  const PAGE = "http://localhost:4321/#p=48.464,35.046,650,25,55";
+
+  it("stored ON injects the variant only when the URL is silent", () => {
+    expect(applyStoredVariant("", true)).toBe(`?enriched=${ENRICHED_VARIANT_NAME}`);
+    const withOther = applyStoredVariant("?foo=1", true);
+    expect(withOther).toContain("foo=1");
+    expect(withOther).toContain(`enriched=${ENRICHED_VARIANT_NAME}`);
+  });
+
+  it("an explicit URL param wins verbatim — off, other variants, even empty", () => {
+    expect(applyStoredVariant("?enriched=off", true)).toBe("?enriched=off");
+    expect(applyStoredVariant("?enriched=st-albans-o2w", true)).toBe("?enriched=st-albans-o2w");
+    expect(applyStoredVariant("?enriched=", true)).toBe("?enriched=");
+  });
+
+  it("stored OFF / unset leaves the search untouched", () => {
+    expect(applyStoredVariant("", false)).toBe("");
+    expect(applyStoredVariant("?a=1", undefined)).toBe("?a=1");
+  });
+
+  it("setVariantUrl writes the EXPLICIT state and preserves the pose hash", () => {
+    const on = new URL(setVariantUrl(PAGE, true));
+    expect(on.searchParams.get("enriched")).toBe(ENRICHED_VARIANT_NAME);
+    expect(on.hash).toBe("#p=48.464,35.046,650,25,55");
+    const off = new URL(
+      setVariantUrl(`http://localhost:4321/?enriched=${ENRICHED_VARIANT_NAME}#p=1,2,3,4,5`, false),
+    );
+    expect(off.searchParams.get("enriched")).toBeNull();
+    expect(off.hash).toBe("#p=1,2,3,4,5");
+  });
+
+  it("chip flow: pref-active page (no URL param) turns OFF, not double-ON", () => {
+    // The BLD chip computes the EFFECTIVE state through the pref, then writes it explicitly.
+    const effective = isVariantActive(applyStoredVariant("", true));
+    expect(effective).toBe(true);
+    const next = new URL(setVariantUrl(PAGE, !effective));
+    expect(next.searchParams.get("enriched")).toBeNull(); // OFF — a raw toggle would have set it
   });
 });

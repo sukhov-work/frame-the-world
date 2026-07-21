@@ -22,7 +22,12 @@ import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { clampGroundM } from "../../lib/geo/terrain";
-import { resolveEnrichedUrl, resolveEnrichedBbox } from "../../lib/globe/enrichedVariant";
+import {
+  applyStoredVariant,
+  resolveEnrichedUrl,
+  resolveEnrichedBbox,
+} from "../../lib/globe/enrichedVariant";
+import { loadViewPrefs } from "../../lib/prefs";
 import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
@@ -179,17 +184,20 @@ export function attachStylizedTiles(opts: {
   // byte-identical to before (the Overture-trial-flag precedent). The `?enriched=` search param is
   // the A/B compare seam between parallel bakes (o2w variant work) — absent, this line resolves to
   // the env URL exactly as before; `off` also drops the mask → the stock Cesium OSM look.
+  // The BLD chip's stored preference survives reloads (owner 2026-07-21): with no explicit
+  // `?enriched=` the pref injects the variant; the SAME effective search must feed BOTH the
+  // tileset URL and the mask/seat bbox, or the mask could follow a different bake than streams.
+  const enrichedSearch = applyStoredVariant(
+    typeof location === "undefined" ? "" : location.search,
+    loadViewPrefs().enrichedVariant,
+  );
   const enrichedUrl = resolveEnrichedUrl(
     import.meta.env.PUBLIC_ENRICHED_TILES_URL as string | undefined,
-    typeof location === "undefined" ? "" : location.search,
+    enrichedSearch,
   );
   // A cross-city variant (?enriched=st-albans-o2w) is baked over its OWN box, so the OSM mask and
   // the re-seat extent must follow it; every other value resolves to ENRICHED.bbox itself.
-  const enrichedBbox = resolveEnrichedBbox(
-    ENRICHED.bbox,
-    typeof location === "undefined" ? "" : location.search,
-    ENRICHED.variantBboxes,
-  );
+  const enrichedBbox = resolveEnrichedBbox(ENRICHED.bbox, enrichedSearch, ENRICHED.variantBboxes);
   const buildings = attachBuildings(scene, {
     camera,
     renderer,

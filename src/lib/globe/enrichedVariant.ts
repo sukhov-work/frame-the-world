@@ -33,14 +33,41 @@ export function isVariantActive(search: string, variant: string = ENRICHED_VARIA
   }
 }
 
-/** The same page URL with `?enriched=` toggled to/from the variant — the hash (and with it the
- *  `#p=` camera pose) is preserved, so the reload lands at the identical view. Used by the
- *  CameraTiltPanel BLD chip; a full URL string in/out keeps it pure + testable. */
-export function toggleVariantUrl(href: string, variant: string = ENRICHED_VARIANT_NAME): string {
+/** Persisted BLD chip (owner 2026-07-21): with NO `?enriched=` in the URL, a stored preference
+ *  (lib/prefs `enrichedVariant`, written by the chip) injects the variant into the effective
+ *  search — that's how the choice survives a plain reload of `/`. An explicit URL param (any
+ *  value, including `off` and other variants) always wins verbatim. Pure — callers pass the
+ *  stored flag in. */
+export function applyStoredVariant(
+  search: string,
+  storedOn: boolean | undefined,
+  variant: string = ENRICHED_VARIANT_NAME,
+): string {
+  if (!storedOn) return search;
+  try {
+    const params = new URLSearchParams(search);
+    if (params.get("enriched") != null) return search;
+    params.set("enriched", variant);
+    return `?${params.toString()}`;
+  } catch {
+    return search;
+  }
+}
+
+/** The same page URL with the variant EXPLICITLY on (param set) or off (param removed) — the hash
+ *  (and with it the `#p=` camera pose) is preserved, so the reload lands at the identical view.
+ *  The BLD chip drives this with the EFFECTIVE state (URL + stored pref): a blind param toggle
+ *  would flip the wrong way when the pref, not the URL, made the variant active. */
+export function setVariantUrl(href: string, on: boolean, variant: string = ENRICHED_VARIANT_NAME): string {
   const url = new URL(href);
-  if (isVariantActive(url.search, variant)) url.searchParams.delete("enriched");
-  else url.searchParams.set("enriched", variant);
+  if (on) url.searchParams.set("enriched", variant);
+  else url.searchParams.delete("enriched");
   return url.toString();
+}
+
+/** The same page URL with `?enriched=` toggled to/from the variant (URL-only view of the state). */
+export function toggleVariantUrl(href: string, variant: string = ENRICHED_VARIANT_NAME): string {
+  return setVariantUrl(href, !isVariantActive(new URL(href).search, variant), variant);
 }
 
 /** Resolve the enrichment mask/seat bbox for the active `?enriched=` value: a variant listed in

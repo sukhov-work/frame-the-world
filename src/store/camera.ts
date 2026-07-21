@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { UrlFpvPose } from "../lib/geo/urlPose";
+import { loadViewPrefs, saveViewPref } from "../lib/prefs";
 
 /**
  * Camera control seams — tilt (declination), heading (rotate-in-place) and zoom (altitude) — the
@@ -123,9 +124,9 @@ export interface CameraState {
    *  (the FPV HUD card itself stays — it is an instrument readout, not a sky decoration). */
   skyGuides: boolean;
   setSkyGuides: (on: boolean) => void;
-  /** Ground surface mode (Phase 5.5 S7a): 'dark' (default) = the CARTO dark drape owns the
-   *  ground below DRAPE.fadeTopAltM; 'satellite' = the Esri imagery look at every altitude
-   *  (textures are opt-in — the SAT chip on the camera panel). */
+  /** Ground surface mode (Phase 5.5 S7a; default flipped 2026-07-21): 'satellite' (default) =
+   *  the Esri imagery look at every altitude; 'dark' = the CARTO dark drape owns the ground
+   *  below DRAPE.fadeTopAltM (the SAT chip on the camera panel toggles, persisted). */
   groundMode: "dark" | "satellite";
   setGroundMode: (mode: "dark" | "satellite") => void;
   /** Public-pin markers master toggle (owner 2026-07-15, PIN chip): ON (default) = pins render
@@ -171,8 +172,9 @@ export interface CameraState {
   setHeadingRate: (degPerS: number | null) => void;
   setZoomRate: (perS: number | null) => void;
   setFovRate: (perS: number | null) => void;
-  /** FPV building shading (0..1, owner ask): 0 = the see-through wireframe look, 1 = fully shaded
-   *  solid. Raises the auto eye-height ghost curve UPWARD (max), so 0 keeps current behavior. */
+  /** FPV building shading (0..1, owner ask; default 1 since 2026-07-21): 0 = the see-through
+   *  wireframe look, 1 (default) = fully shaded solid. Raises the auto eye-height ghost curve
+   *  UPWARD (max), so lowering it restores the ghost look. Persisted (BUILDINGS slider). */
   fpvBuildingSolidity: number;
   setFpvBuildingSolidity: (v: number) => void;
   /** Orchestrator-only: mirror the FPV HUD state (low cadence; null = FPV inactive). */
@@ -189,6 +191,10 @@ export interface CameraState {
   _syncCamGeo: (g: CamGeo | null) => void;
 }
 
+// Reload-surviving view choices (owner 2026-07-21) — read once at module load (client:only
+// islands ⇒ browser-only; tests/SSR degrade to {} inside loadViewPrefs).
+const stored = loadViewPrefs();
+
 export const useCameraStore = create<CameraState>((set) => ({
   tiltDeg: 45,
   targetTiltDeg: null,
@@ -204,11 +210,19 @@ export const useCameraStore = create<CameraState>((set) => ({
   zoomRatePerS: null,
   fovRatePerS: null,
   fpvHud: null,
-  skyGuides: true,
-  setSkyGuides: (on) => set({ skyGuides: on }),
-  groundMode: "dark",
-  setGroundMode: (mode) => set({ groundMode: mode }),
-  pinsVisible: true,
+  skyGuides: stored.skyGuides ?? true,
+  setSkyGuides: (on) => {
+    saveViewPref("skyGuides", on);
+    set({ skyGuides: on });
+  },
+  groundMode: stored.groundMode ?? "satellite",
+  setGroundMode: (mode) => {
+    saveViewPref("groundMode", mode);
+    set({ groundMode: mode });
+  },
+  pinsVisible: stored.pinsVisible ?? true,
+  // NOT persisted here: the orchestrator's FPV declutter (hide on entry / restore on exit) flows
+  // through this same setter — only the PIN chip writes the preference (CameraTiltPanel).
   setPinsVisible: (on) => set({ pinsVisible: on }),
   fpvJumpRequest: null,
   requestFpvJump: (pose) => set({ fpvJumpRequest: pose }),
@@ -241,8 +255,12 @@ export const useCameraStore = create<CameraState>((set) => ({
   setHeadingRate: (degPerS) => set({ headingRateDegPerS: degPerS }),
   setZoomRate: (perS) => set({ zoomRatePerS: perS }),
   setFovRate: (perS) => set({ fovRatePerS: perS }),
-  fpvBuildingSolidity: 0,
-  setFpvBuildingSolidity: (v) => set({ fpvBuildingSolidity: Math.max(0, Math.min(1, v)) }),
+  fpvBuildingSolidity: stored.fpvBuildingSolidity ?? 1,
+  setFpvBuildingSolidity: (v) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    saveViewPref("fpvBuildingSolidity", clamped);
+    set({ fpvBuildingSolidity: clamped });
+  },
   _syncFpvHud: (hud) => set({ fpvHud: hud }),
   _syncSkyMarkers: (m) => set({ skyMarkers: m }),
   clearAllTargets: () =>
