@@ -16,6 +16,9 @@
 // The camera pose persists in the URL HASH (#p=…, lib/geo/urlPose.ts), which reloads survive — so a
 // same-pose A/B is just the same link with a different ?enriched= value. Pure function; unit-tested.
 
+// Type-only (erased at build) — the mask/seat extent resolved per variant (resolveEnrichedBbox).
+import type { GeoBbox } from "./enrichedMask";
+
 /** The OSM2World variant the UI toggle switches to (the `?enriched=` value; city-specific v1 —
  *  becomes per-city config if a second city ever bakes a variant). */
 export const ENRICHED_VARIANT_NAME = "dnipro-o2w";
@@ -38,6 +41,25 @@ export function toggleVariantUrl(href: string, variant: string = ENRICHED_VARIAN
   if (isVariantActive(url.search, variant)) url.searchParams.delete("enriched");
   else url.searchParams.set("enriched", variant);
   return url.toString();
+}
+
+/** Resolve the enrichment mask/seat bbox for the active `?enriched=` value: a variant listed in
+ *  `variantBboxes` (a bake over a DIFFERENT box — cross-city experiments, tuning.ts
+ *  `ENRICHED.variantBboxes`) gets its own extent; everything else — no param, a same-box variant
+ *  like dnipro-o2w, off, a verbatim URL — returns `defaultBbox` ITSELF (identity ⇒ the default
+ *  path stays byte-identical). Off drops the mask anyway (`resolveEnrichedUrl` → undefined). */
+export function resolveEnrichedBbox(
+  defaultBbox: GeoBbox,
+  search: string,
+  variantBboxes: Readonly<Record<string, GeoBbox>>,
+): GeoBbox {
+  try {
+    const v = new URLSearchParams(search).get("enriched")?.trim();
+    if (v && variantBboxes[v]) return variantBboxes[v];
+  } catch {
+    /* malformed search → default */
+  }
+  return defaultBbox;
 }
 
 /** Resolve the enriched-tileset URL from the env default + the page's `location.search`. */

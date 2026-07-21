@@ -22,7 +22,7 @@ import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { clampGroundM } from "../../lib/geo/terrain";
-import { resolveEnrichedUrl } from "../../lib/globe/enrichedVariant";
+import { resolveEnrichedUrl, resolveEnrichedBbox } from "../../lib/globe/enrichedVariant";
 import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
@@ -183,11 +183,18 @@ export function attachStylizedTiles(opts: {
     import.meta.env.PUBLIC_ENRICHED_TILES_URL as string | undefined,
     typeof location === "undefined" ? "" : location.search,
   );
+  // A cross-city variant (?enriched=st-albans-o2w) is baked over its OWN box, so the OSM mask and
+  // the re-seat extent must follow it; every other value resolves to ENRICHED.bbox itself.
+  const enrichedBbox = resolveEnrichedBbox(
+    ENRICHED.bbox,
+    typeof location === "undefined" ? "" : location.search,
+    ENRICHED.variantBboxes,
+  );
   const buildings = attachBuildings(scene, {
     camera,
     renderer,
     ionToken,
-    maskBbox: enrichedUrl ? ENRICHED.bbox : null,
+    maskBbox: enrichedUrl ? enrichedBbox : null,
   });
   const ground = attachImageryGround(scene, { camera, renderer, ionToken });
   const enriched = enrichedUrl
@@ -195,7 +202,7 @@ export function attachStylizedTiles(opts: {
         camera,
         renderer,
         url: enrichedUrl,
-        bbox: ENRICHED.bbox,
+        bbox: enrichedBbox,
         terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
       })
     : null;
@@ -224,7 +231,7 @@ export function attachStylizedTiles(opts: {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
     buildingsGroup: buildings.tiles.group,
     enrichedGroup: enriched?.tiles.group ?? null,
-    maskBbox: enrichedUrl ? ENRICHED.bbox : null,
+    maskBbox: enrichedUrl ? enrichedBbox : null,
   });
   // FPV mini-map feed (owner 2026-07-14): the SAME shared MVT source, projected to local metres
   // around the walked viewer and mirrored into store/minimap for the MiniMap panel.
