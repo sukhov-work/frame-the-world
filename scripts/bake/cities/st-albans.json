@@ -1,0 +1,37 @@
+{
+  "city": "st-albans",
+  "bbox": [-0.3692, 51.7244, -0.2821, 51.7787],
+  "bboxNote": "St Albans, UK ~6 x 6 km centred on 51.75153/-0.32567 (owner experiment 2026-07-18). Covers the built-up city: cathedral/centre (~-0.34), Verulamium Park west edge (~-0.365), Marshalswick NE. grid 6 keeps cell size ~1.0x1.0 km (same streaming granularity as dnipro). bbox = [west,south,east,north] deg. The runtime mask extent for the VARIANT comes from ENRICHED.variantBboxes in src/components/globe/tuning.ts and MUST match this (mask extent == enriched extent, or they overlap/gap).",
+  "grid": 6,
+  "buildings": {
+    "levelHeightM": 3.0,
+    "defaultHeightM": 7,
+    "roofPitch": 0.5,
+    "buildingsNote": "Extruder-only block (bake.mjs; unused by bake-osm2world.mjs) — kept so a classic bake of the same box is one command. UK town defaults: 2-storey brick housing dominates (defaultHeightM 7), pitched roofs steeper than the Dnipro mix (roofPitch 0.5).",
+    "classDefaultsM": {
+      "church": 22, "cathedral": 30, "chapel": 12, "temple": 22, "mosque": 20,
+      "hospital": 24, "hotel": 30, "office": 28, "commercial": 16, "public": 18,
+      "industrial": 12, "warehouse": 11, "retail": 10, "supermarket": 9,
+      "garage": 3, "garages": 3, "shed": 3, "hut": 3, "kiosk": 3, "roof": 3,
+      "school": 12, "university": 20, "college": 18, "kindergarten": 8,
+      "apartments": 15, "residential": 10, "dormitory": 15,
+      "house": 7, "detached": 7, "terrace": 8, "semidetached_house": 7, "bungalow": 4, "farm": 6
+    }
+  },
+  "vegetation": {
+    "vegetationNote": "Same Slice-3 scatter as dnipro (OSM natural=tree points + tree_row sampling + seeded scatter over wood/forest/park polygons). 60000 cap is generous for a 6x6 km box (the original 7.4x8.9 km Dnipro box hit 24,714 under the same cap).",
+    "spacingWoodM": 13,
+    "spacingParkM": 24,
+    "rowSpacingM": 9,
+    "heightM": { "default": [8, 15], "wood": [10, 17], "park": [8, 14], "row": [7, 12] },
+    "canopyRadiusK": 0.32,
+    "maxTrees": 60000
+  },
+  "exclusion": {
+    "polygonsNote": "No per-site polygons — the built-in sensitive-tag blocklist (scripts/bake/lib/exclusion.mjs DEFAULT_EXCLUDE_TAGS: military/substation/plant tags) still applies everywhere, which is prudent and cheap even outside the C6 wartime context.",
+    "polygons": []
+  },
+  "attribution": "Contains information from OpenStreetMap © OpenStreetMap contributors, made available under the Open Database License (ODbL).",
+  "output": "bakes/enriched/st-albans",
+  "tilesetVersion": "st-albans-1"
+}

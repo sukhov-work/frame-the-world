@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   resolveEnrichedUrl,
+  resolveEnrichedBbox,
   isVariantActive,
   toggleVariantUrl,
   ENRICHED_VARIANT_NAME,
@@ -51,6 +52,28 @@ describe("resolveEnrichedUrl", () => {
   it("other params coexist; empty value falls back to env", () => {
     expect(resolveEnrichedUrl(ENV, "?a=1&enriched=dnipro-o2w&b=2")).toContain("dnipro-o2w");
     expect(resolveEnrichedUrl(ENV, "?enriched=")).toBe(ENV);
+  });
+});
+
+// Cross-city variants (?enriched=st-albans-o2w) are baked over their OWN box — the OSM mask and
+// re-seat extent must follow the variant. Load-bearing invariant: every non-listed value returns
+// the default bbox OBJECT ITSELF (identity), so the default path stays byte-identical.
+describe("resolveEnrichedBbox", () => {
+  const DNIPRO = { west: 34.915, south: 48.37, east: 35.185, north: 48.55 };
+  const ST_ALBANS = { west: -0.3692, south: 51.7244, east: -0.2821, north: 51.7787 };
+  const VARIANTS = { "st-albans-o2w": ST_ALBANS };
+
+  it("no param / unknown / off / same-box variant → the default bbox IDENTITY", () => {
+    expect(resolveEnrichedBbox(DNIPRO, "", VARIANTS)).toBe(DNIPRO);
+    expect(resolveEnrichedBbox(DNIPRO, "?foo=bar", VARIANTS)).toBe(DNIPRO);
+    expect(resolveEnrichedBbox(DNIPRO, "?enriched=dnipro-o2w", VARIANTS)).toBe(DNIPRO);
+    expect(resolveEnrichedBbox(DNIPRO, "?enriched=off", VARIANTS)).toBe(DNIPRO);
+    expect(resolveEnrichedBbox(DNIPRO, "?enriched=/x/y/tileset.json", VARIANTS)).toBe(DNIPRO);
+  });
+
+  it("a listed cross-city variant → its own bbox", () => {
+    expect(resolveEnrichedBbox(DNIPRO, "?enriched=st-albans-o2w", VARIANTS)).toBe(ST_ALBANS);
+    expect(resolveEnrichedBbox(DNIPRO, "?a=1&enriched=st-albans-o2w&b=2", VARIANTS)).toBe(ST_ALBANS);
   });
 });
 

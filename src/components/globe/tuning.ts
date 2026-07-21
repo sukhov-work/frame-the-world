@@ -875,6 +875,15 @@ export const ENRICHED = {
    *  (Prior extents: full-city {35.0,48.42,35.1,48.5}, greater-centre {35.005,48.435,35.085,48.492},
    *  Slice-0 sample {35.038,48.457,35.053,48.467}.) */
   bbox: { west: 34.915, south: 48.37, east: 35.185, north: 48.55 } satisfies GeoBbox,
+  /** Mask/seat extents for `?enriched=` variants baked over a DIFFERENT box than `bbox` (cross-city
+   *  experiments; key = the variant name = cities/<name>.json, value = that config's bbox verbatim).
+   *  Resolved once at boot by lib/globe/enrichedVariant.ts `resolveEnrichedBbox`; any variant NOT
+   *  listed (dnipro-o2w — same box) and the no-param default fall back to `bbox` above, so the
+   *  default path stays byte-identical. St Albans, UK ~6×6 km (owner experiment 2026-07-18). */
+  variantBboxes: {
+    "st-albans": { west: -0.3692, south: 51.7244, east: -0.2821, north: 51.7787 } satisfies GeoBbox,
+    "st-albans-o2w": { west: -0.3692, south: 51.7244, east: -0.2821, north: 51.7787 } satisfies GeoBbox,
+  },
   /** R1 SEATING STRATEGY (research-verified 2026-07-13): Cesium World Terrain renders WGS84-ELLIPSOIDAL
    *  heights; open DEMs (GLO-30 = EGM2008 orthometric, N≈+20.42 m over Dnipro) do NOT. So we DON'T trust
    *  baked absolute Z — we clamp the tileset to the RENDERED CWT at runtime: sample terrainHeightAt at

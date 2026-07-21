@@ -42,7 +42,11 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
-const WORK_DIR = join(__dirname, ".cache", "o2w");
+// Per-CITY work dir (.cache/o2w/<city>/): safe-*.osm / o2w-*.glb / convert-*.log are keyed by
+// sub-grid INDEX only, so a shared dir would let city #2 overwrite city #1's convert cache — and a
+// later re-bake of city #1 would silently reuse city #2's safe.osm (the raw-extract cache is
+// bbox-keyed, the safe/glb mtime chain is not). Existing dnipro-o2w files were mv'd (mtime kept).
+const workDirFor = (city) => join(__dirname, ".cache", "o2w", city);
 
 function parseArgs(argv) {
   const a = { refresh: false, reconvert: false };
@@ -121,6 +125,7 @@ async function main() {
   const outDir = join(REPO_ROOT, args.out ?? cfg.output);
   const excluder = makeExcluder(cfg);
   const dropRe = new RegExp(o2w.dropClassesRegex ?? "^(Road|Rail|Surface|Water|Parking|Traffic)");
+  const WORK_DIR = workDirFor(cfg.city);
   mkdirSync(WORK_DIR, { recursive: true });
 
   console.log(`\n▶ bake-osm2world --city ${args.city}`);

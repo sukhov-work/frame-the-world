@@ -1,0 +1,24 @@
+{
+  "extends": "st-albans",
+  "city": "st-albans-o2w",
+  "variantNote": "OSM2World highest-fidelity bake of St Albans, UK (city #2 — owner experiment 2026-07-18). Same pattern as dnipro-o2w: inherits bbox/grid/vegetation/exclusion from cities/st-albans.json; baked by scripts/bake/bake-osm2world.mjs into a SIBLING output. The Dnipro bakes and the default runtime path are untouched — this loads ONLY via ?enriched=st-albans-o2w (src/lib/globe/enrichedVariant.ts), whose mask bbox comes from ENRICHED.variantBboxes in tuning.ts.",
+  "output": "bakes/enriched/st-albans-o2w",
+  "tilesetVersion": "st-albans-o2w-1",
+  "osm2world": {
+    "jar": "scripts/bake/spike-osm2world/dist/OSM2World.jar",
+    "jarNote": "0.5.0-SNAPSHOT distro (git-ignored; re-fetch: curl -LO https://osm2world.org/download/files/latest/OSM2World-latest-bin.zip && unzip into scripts/bake/spike-osm2world/dist). Java 17+ required; the --add-exports flags in bake-osm2world.mjs are mandatory on Java 21.",
+    "lod": 2,
+    "xmxGb": 4,
+    "subGrid": 2,
+    "subGridNote": "2×2 extracts of ~3×3 km over the 6×6 km box — well under the mirror/JVM limits that sized dnipro-o2w's 4×4 (~5×5 km each).",
+    "excludeModules": [
+      "TreeModule", "IndoorModule", "AerowayModule",
+      "RoadModule", "RailwayModule", "SurfaceAreaModule",
+      "WaterModule", "ParkingModule", "SportsModule", "GolfModule", "PoolModule",
+      "TrafficSignModule", "BicycleParkingModule", "BridgeModule", "TunnelModule"
+    ],
+    "excludeModulesNote": "Same list as dnipro-o2w (all names verified against osm2world-core-0.5.0-SNAPSHOT.jar). Trees: our instanced set. Roads/rail/surfaces/water: the vector web renders those.",
+    "dropClassesRegex": "^(Road|Railway|Surface|Water|Parking|Traffic|Aeroway|Forest|Tree|PoleFence|ChainLinkFence)",
+    "dropClassesRegexNote": "Same belt as dnipro-o2w. PoleFence/ChainLinkFence stay dropped: UK gardens fence-map heavily too, and per-post geometry measured 62% of ALL vertices on the Dnipro box (sub-pixel beyond ~1 km). Revisit per-city once draco lands."
+  }
+}

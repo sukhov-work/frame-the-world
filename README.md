@@ -170,4 +170,5 @@ Missing `WIX_CLIENT_ID` → `npx @wix/cli@latest env pull --json`.
 - **Intent, constraints, ADRs** → [`.claude/claude-docs/PROJECT_SEED.md`](.claude/claude-docs/PROJECT_SEED.md)
 - **Execution map** → [`.claude/claude-docs/ARCHITECTURE.md`](.claude/claude-docs/ARCHITECTURE.md) + [`IMPLEMENTATION_PLAN.md`](.claude/claude-docs/IMPLEMENTATION_PLAN.md)
 - **Full decision history** → [`.claude/claude-docs/DECISIONS.md`](.claude/claude-docs/DECISIONS.md)
+- **City 3D-tile bakes** (Dnipro default + OSM2World variants, onboarding another city — e.g. `?enriched=st-albans-o2w`) → [`scripts/bake/README.md`](scripts/bake/README.md)
 - **Decoder licenses** → [`THIRD_PARTY.md`](THIRD_PARTY.md); map/imagery attribution (Esri, CARTO, OpenStreetMap, Cesium ion, NASA, Natural Earth, OpenFreeMap) is rendered live in the app footer

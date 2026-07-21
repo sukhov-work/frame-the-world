@@ -118,6 +118,42 @@ re-bin node classes into OUR grid (`lib/readGlb.mjs`; dedupe across sub-boxes; p
 Ships UNCOMPRESSED (spike-measured ≈1.4× the extruder bake); `gltf-transform weld+draco` gave 23× in
 the spike but needs a DRACOLoader wired into the enriched runtime — a deliberate non-change for now.
 
+### Onboarding another city (generic flow — worked example: St Albans, UK, LIVE on R2 2026-07-18)
+
+Any number of cities coexist: each is a config + an output prefix, selected at runtime by
+`?enriched=<name>`. The existing cities' bakes, work caches and the default runtime path stay
+untouched throughout. For city `<name>` (St Albans shipped exactly this way):
+
+1. **Configs.** `cities/<name>.json` — bbox `[west,south,east,north]` sized to the built-up area,
+   `grid` ≈ 1 cell / km (the proven streaming granularity), `vegetation` (omit for no trees),
+   `exclusion.polygons` (only for geo-sensitive regions — the built-in sensitive-tag blocklist
+   always applies), `output: bakes/enriched/<name>`. For the OSM2World tier add
+   `cities/<name>-o2w.json` (`extends: <name>` + the `osm2world` block — copy it from
+   `st-albans-o2w.json`; `subGrid` so each extract stays ≲5×5 km). Worked example:
+   `st-albans.json` (~6×6 km on 51.75153/−0.32567, grid 6) + `st-albans-o2w.json` (subGrid 2).
+2. **Mask bbox (runtime, one entry).** A cross-city bake sits outside the default city's box, so
+   list it in `ENRICHED.variantBboxes` (`src/components/globe/tuning.ts`, value = the config bbox
+   verbatim); `resolveEnrichedBbox` (`src/lib/globe/enrichedVariant.ts`) routes the OSM-buildings
+   mask and the re-seat extent to it at boot. Unlisted variants (dnipro-o2w — same box as the
+   default) and the no-param default keep `ENRICHED.bbox` — the default path stays byte-identical.
+   NOTE: this entry ships with the next `wix release`; until then production streams the new tiles
+   but masks the OLD box (stock OSM z-fights the new city there).
+3. **Bake.** `npm run bake -- --city <name>` (extruder tier) and/or
+   `node scripts/bake/bake-osm2world.mjs --city <name>-o2w` → `bakes/enriched/<…>/`.
+   Work caches are per-city (`.cache/o2w/<city>/`): the safe.osm/glb/log names are sub-grid-indexed,
+   so a shared dir would let city #2 silently poison city #1's convert cache — never flatten it back.
+   St Albans measured: 26,102 features / 21,814 trees / 36 cells / 49.5 MB / ~4 min cold.
+4. **View (dev).** `http://localhost:4321/?enriched=<name>-o2w` — the dev middleware serves
+   `bakes/enriched/*` same-origin, no R2 involved; fly to the city and share any view via the `#p=`
+   pose hash. The plain URL keeps streaming the default city. (The BLD chip is a Dnipro-only
+   default↔o2w toggle — `ENRICHED_VARIANT_NAME` in enrichedVariant.ts; other cities are URL-param
+   only until a city picker exists.)
+5. **Publish.** `node --env-file=.env.local scripts/bake/upload-r2.mjs --city <name>-o2w`
+   → `enriched/<name>-o2w/` (the Worker is path-agnostic; zero changes). Verify:
+   `curl -I <worker>/enriched/<name>-o2w/tileset.json` → 200 + `access-control-allow-origin: *`.
+   Production then serves `?enriched=<name>-o2w` on the SAME env URL (the resolver swaps the path
+   segment). To make a city the DEFAULT instead, point `PUBLIC_ENRICHED_TILES_URL` at it.
+
 ## Higher-fidelity tiers (upgrade paths — same tileset contract)
 
 2. **OSM2World** — ✅ implemented above (`bake-osm2world.mjs`). Remaining upgrades inside the tier:
@@ -165,10 +201,11 @@ Class A/writes 1M-mo (96 PUTs per upload), Class B/reads 10M-mo. Workers: 100k r
 view streams ≤ ~96 files, so ≈ 1,000 views/day before the cap, and browser `Cache-Control` (glb
 `immutable`, tileset.json 5 min) collapses repeat requests. No paid resource is touched.
 
-**Onboarding city #2 / expanding Dnipro (extensible by design).** Add `cities/<name>.json` →
-`npm run bake -- --city <name>` → `upload-r2.mjs --city <name>`: it lands at `enriched/<name>/…`, which
-the Worker **already serves with zero changes** (it's path-agnostic) — only `PUBLIC_ENRICHED_TILES_URL`
-moves. Widening the Dnipro bbox is just a re-bake + re-upload under the same prefix. Re-bakes reuse
+**Onboarding city #2 / expanding Dnipro (extensible by design).** The full recipe is §Onboarding
+another city above (config → `ENRICHED.variantBboxes` entry → bake → upload). Storage-side it is
+just `upload-r2.mjs --city <name>` → `enriched/<name>/…`, which the Worker **already serves with
+zero changes** (it's path-agnostic). Widening the Dnipro bbox is just a re-bake + re-upload under
+the same prefix. Re-bakes reuse
 filenames → purge the Cloudflare cache (or version the prefix) when a glb changes; tileset.json is only
 cached 5 min. Switching to a custom domain later is a pure client-URL swap. The SigV4 signer
 (`lib/s3sign.mjs`) is unit-gated in `test/bake/s3sign.test.ts`.
