@@ -11,7 +11,12 @@ import { useUploadStore } from "../../store/upload";
 import { CONTROLS, FPV } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal, formatAltM, formatEyeM } from "../../lib/format/readout";
-import { isVariantActive, toggleVariantUrl } from "../../lib/globe/enrichedVariant";
+import {
+  applyStoredVariant,
+  isVariantActive,
+  setVariantUrl,
+} from "../../lib/globe/enrichedVariant";
+import { loadViewPrefs, saveViewPref } from "../../lib/prefs";
 import "../../styles/camera-tilt.css";
 import "../../styles/tips.css";
 
@@ -52,9 +57,12 @@ export default function CameraTiltPanel() {
   // and RELOADS — the camera pose rides the #p hash, so the reload lands at the identical view
   // with the other bake streaming. Chip only exists when an enriched tileset is configured
   // (no env URL → no enrichment → nothing to toggle). Computed once per render: a click
-  // navigates away, so no reactive mirror is needed.
+  // navigates away, so no reactive mirror is needed. The EFFECTIVE state folds in the stored
+  // preference (owner 2026-07-21) — that's what survives a plain reload of `/` with no param.
   const hasEnriched = Boolean(import.meta.env.PUBLIC_ENRICHED_TILES_URL);
-  const o2wActive = typeof location !== "undefined" && isVariantActive(location.search);
+  const o2wActive =
+    typeof location !== "undefined" &&
+    isVariantActive(applyStoredVariant(location.search, loadViewPrefs().enrichedVariant));
 
   return (
     <>
@@ -144,8 +152,8 @@ export default function CameraTiltPanel() {
         >
           ☀☾
         </button>
-        {/* Ground mode (S7a): the dark drape is the default below ~7 km; SAT opts back into
-            the satellite imagery look at every altitude. */}
+        {/* Ground mode (S7a; SAT is the default since 2026-07-21): satellite imagery at every
+            altitude, or opt into the stylized dark drape below ~7 km. Persisted. */}
         <button
           type="button"
           className={`ct-mode ct-sat tip${s.groundMode === "satellite" ? " is-on" : ""}`}
@@ -164,11 +172,17 @@ export default function CameraTiltPanel() {
           SAT
         </button>
         {/* Pin markers (owner 2026-07-15): shows/hides everyone's public pins on the globe —
-            declutters the view. FPV entry turns them off by default; the chip re-enables. */}
+            declutters the view. FPV entry turns them off by default; the chip re-enables.
+            Persisted HERE, not in the setter — the FPV auto-hide shares that setter and must
+            never overwrite the user's choice. */}
         <button
           type="button"
           className={`ct-mode ct-pins tip${s.pinsVisible ? " is-on" : ""}`}
-          onClick={() => s.setPinsVisible(!s.pinsVisible)}
+          onClick={() => {
+            const on = !s.pinsVisible;
+            saveViewPref("pinsVisible", on);
+            s.setPinsVisible(on);
+          }}
           aria-pressed={s.pinsVisible}
           aria-label={s.pinsVisible ? "Hide photo pins on the globe" : "Show photo pins on the globe"}
           data-tip="PHOTO PINS — SHOW OR HIDE EVERYONE'S PINS ON THE GLOBE."
@@ -183,7 +197,12 @@ export default function CameraTiltPanel() {
           <button
             type="button"
             className={`ct-mode ct-bld tip${o2wActive ? " is-on" : ""}`}
-            onClick={() => location.assign(toggleVariantUrl(location.href))}
+            onClick={() => {
+              // Persist the NEW state, then reload with it explicit in the URL — the effective
+              // (URL+pref) active flag is what must flip, not the raw URL param.
+              saveViewPref("enrichedVariant", !o2wActive);
+              location.assign(setVariantUrl(location.href, !o2wActive));
+            }}
             aria-pressed={o2wActive}
             aria-label={
               o2wActive
@@ -236,8 +255,8 @@ export default function CameraTiltPanel() {
           tipPos="left"
         />
       )}
-      {/* BUILDINGS shading (owner): 0 = see-through wireframe, 100 = fully shaded solid — tunes the
-          FPV building ghost/opacity so you're not always staring at bare wireframes. */}
+      {/* BUILDINGS shading (owner; default fully solid since 2026-07-21): 0 = see-through
+          wireframe, 100 = fully shaded solid. Double-click resets to the solid default. */}
       {fpvMode && (
         <Slider
           label="BUILDINGS"
@@ -247,7 +266,7 @@ export default function CameraTiltPanel() {
           max={100}
           step={1}
           onChange={(v) => s.setFpvBuildingSolidity(v / 100)}
-          onReset={() => s.setFpvBuildingSolidity(0)}
+          onReset={() => s.setFpvBuildingSolidity(1)}
           tip="BUILDING SHADING — 0 SEE-THROUGH WIREFRAME, 100 FULLY SHADED SOLID."
           tipPos="left"
         />

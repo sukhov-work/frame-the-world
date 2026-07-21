@@ -85,6 +85,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Quick close — right-docked in the title row (the ct-pinpop__x idiom). */
+.pd-close {
+  flex: none;
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.25rem 0.35rem;
+  cursor: pointer;
+}
+.pd-close:hover {
+  color: var(--color-text);
+}
 .pd-coords {
   font-size: 10px;
   letter-spacing: 0.12em;
