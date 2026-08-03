@@ -42,8 +42,9 @@ export interface DayArcsHandle {
 
 /** Line/tick material — alpha-blended (NOT additive: an additive stroke vanishes against the
  *  bright day sky — browser-bisected; the planning arc must read at noon too, PhotoPills-style),
- *  depth-free; alpha = past/future split × horizon fade. */
-function makeArcMaterial(color: string, alphaGain: number): THREE.ShaderMaterial {
+ *  depth-free; alpha = past/future split × horizon fade. Exported for `skyTrail.ts` (phase C) —
+ *  the tracked target's trail is the same instrument grammar in the accent colour. */
+export function makeArcMaterial(color: string, alphaGain: number): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -79,12 +80,29 @@ function makeArcMaterial(color: string, alphaGain: number): THREE.ShaderMaterial
   });
 }
 
-/** Per-vertex horizon melt — the arc dives visibly through rise/set instead of being clipped. */
-function horizonFade(altDeg: number): number {
+/** Per-vertex horizon melt — the arc dives visibly through rise/set instead of being clipped.
+ *  Shared with `skyTrail.ts`. */
+export function horizonFade(altDeg: number): number {
   const lo = DAYARC.horizonFadeLoDeg;
   const hi = DAYARC.horizonFadeHiDeg;
   const t = THREE.MathUtils.clamp((altDeg - lo) / (hi - lo), 0, 1);
   return t * t * (3 - 2 * t); // smoothstep
+}
+
+/** ENU→ECEF direction for one sampled point on the anchor's basis. Shared with `skyTrail.ts`. */
+export function pointDirs(
+  points: readonly DayArcPoint[],
+  basis: ReturnType<typeof enuBasis>,
+  toXyz: (p: DayArcPoint) => readonly [number, number, number],
+): Float32Array {
+  const out = new Float32Array(points.length * 3);
+  for (let i = 0; i < points.length; i++) {
+    const [e, n, u] = toXyz(points[i]);
+    out[i * 3] = e * basis.east[0] + n * basis.north[0] + u * basis.up[0];
+    out[i * 3 + 1] = e * basis.east[1] + n * basis.north[1] + u * basis.up[1];
+    out[i * 3 + 2] = e * basis.east[2] + n * basis.north[2] + u * basis.up[2];
+  }
+  return out;
 }
 
 export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
@@ -110,22 +128,6 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
   let anchorLat = NaN;
   let anchorLon = NaN;
   let fade = 0;
-
-  /** ENU→ECEF direction for one sampled point on the anchor's basis. */
-  function pointDirs(
-    points: readonly DayArcPoint[],
-    basis: ReturnType<typeof enuBasis>,
-    toXyz: (p: DayArcPoint) => readonly [number, number, number],
-  ): Float32Array {
-    const out = new Float32Array(points.length * 3);
-    for (let i = 0; i < points.length; i++) {
-      const [e, n, u] = toXyz(points[i]);
-      out[i * 3] = e * basis.east[0] + n * basis.north[0] + u * basis.up[0];
-      out[i * 3 + 1] = e * basis.east[1] + n * basis.north[1] + u * basis.up[1];
-      out[i * 3 + 2] = e * basis.east[2] + n * basis.north[2] + u * basis.up[2];
-    }
-    return out;
-  }
 
   function rebuild(latDeg: number, lonDeg: number, sceneMs: number) {
     const basis = enuBasis(latDeg, lonDeg);

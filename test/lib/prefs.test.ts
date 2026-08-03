@@ -53,6 +53,28 @@ describe("sanitizeViewPrefs", () => {
     expect(sanitizeViewPrefs("garbage")).toEqual({});
     expect(sanitizeViewPrefs(42)).toEqual({});
   });
+
+  // The phase-C key rename (2026-08-03): comet-era blobs keep their chip choices.
+  it("migrates the comet-era sky-target keys to the new names", () => {
+    expect(sanitizeViewPrefs({ cometVisible: false, cometHighlight: true })).toEqual({
+      skyTargetVisible: false,
+      skyTargetHighlight: true,
+    });
+  });
+
+  it("new sky-target keys win over the comet-era fallbacks, trail is its own key", () => {
+    expect(
+      sanitizeViewPrefs({
+        cometVisible: false,
+        skyTargetVisible: true,
+        cometHighlight: true,
+        skyTargetHighlight: false,
+        skyTargetTrail: false,
+      }),
+    ).toEqual({ skyTargetVisible: true, skyTargetHighlight: false, skyTargetTrail: false });
+    // Wrong-typed old keys never leak through the fallback either.
+    expect(sanitizeViewPrefs({ cometVisible: "yes", cometHighlight: 1 })).toEqual({});
+  });
 });
 
 describe("loadViewPrefs / saveViewPref", () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
-import { useUploadStore } from "../../store/upload";
+import { useSkyStore } from "../../store/sky";
+import { aimAtSky } from "../../store/skyAim";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import {
   formatFocal,
@@ -69,8 +70,19 @@ export default function FpvHud() {
     <>
       {markers && (
         <>
-          <BodyChip marker={markers.sun} glyph="☀" kind="sun" />
-          <BodyChip marker={markers.moon} glyph="☾" kind="moon" />
+          {markers.sun && <BodyChip marker={markers.sun} glyph="☀" kind="sun" />}
+          {markers.moon && <BodyChip marker={markers.moon} glyph="☾" kind="moon" />}
+          {markers.target && (
+            <BodyChip
+              marker={markers.target}
+              glyph={markers.target.glyph}
+              kind="target"
+              label={markers.target.label}
+              // The chip is the marker's off-screen surrogate — clicking it also fronts the
+              // TARGET panel, like clicking the marker itself (phase C).
+              onAim={() => useSkyStore.getState().setOpen(true)}
+            />
+          )}
         </>
       )}
       {(hud || camGeo) && (
@@ -140,23 +152,25 @@ export default function FpvHud() {
   );
 }
 
-/** Extra tilt headroom (deg) when steering the orbit camera toward a body: keeps the body
- *  comfortably inside the ~55° vertical frame rather than pinned at its top edge. */
-const CHIP_TILT_MARGIN_DEG = 18;
-
 /** Edge chip pointing toward an off-frame body — clamped to a margin box inside the viewport.
- *  Clicking it brings the body into view (owner 2026-07-14): in FPV the orchestrator glides the
- *  look toward the bearing (camera.skyLook); in orbit it resolves into the existing heading/tilt
- *  glide targets (heading turns to the azimuth; tilt only ever RAISES toward the horizon, capped
- *  at the platform's 88° — a high sun stays best-effort at the frame top). */
+ *  Clicking it brings the body into view via the shared aim idiom (store/skyAim — owner
+ *  2026-07-14; extracted phase C): FPV glides the look, orbit resolves into heading/tilt glide
+ *  targets. The tracked sky target renders the same chip with its kind glyph + designation
+ *  (phase C, owner feedback #4). */
 function BodyChip({
   marker,
   glyph,
   kind,
+  label,
+  onAim,
 }: {
   marker: FpvBodyMarker;
   glyph: string;
-  kind: "sun" | "moon";
+  kind: "sun" | "moon" | "target";
+  /** Designation text after the glyph (tracked target only — ☀/☾ speak for themselves). */
+  label?: string;
+  /** Extra action on click (the target chip fronts its panel). */
+  onAim?: () => void;
 }) {
   if (marker.inFrame || !marker.up) return null;
   // Screen-plane direction: store y is up, screen y is down.
@@ -172,28 +186,22 @@ function BodyChip({
   const x = window.innerWidth / 2 + sx * k;
   const y = window.innerHeight / 2 + sy * k;
   const angleDeg = (Math.atan2(sy, sx) * 180) / Math.PI;
-  const bringIntoView = () => {
-    const st = useCameraStore.getState();
-    const fpvActive = st.fpvHud !== null || useUploadStore.getState().viewMode === "fpv";
-    if (fpvActive) {
-      st.requestSkyLook({ azDeg: marker.azDeg, altDeg: marker.altDeg });
-      return;
-    }
-    st.setTargetHeading(marker.azDeg);
-    const tiltForBody = Math.min(88, 90 + marker.altDeg - CHIP_TILT_MARGIN_DEG);
-    if (tiltForBody > st.tiltDeg) st.setTargetTilt(tiltForBody);
-  };
+  const name = label ?? kind;
   return (
     <button
       type="button"
       className={`fh-chip fh-chip--${kind} tip`}
       style={{ left: x, top: y }}
-      onClick={bringIntoView}
+      onClick={() => {
+        aimAtSky(marker.azDeg, marker.altDeg);
+        onAim?.();
+      }}
       data-tip="BRING IT INTO VIEW"
       data-tip-pos="down"
-      aria-label={`${kind} is off-frame at ${Math.round(marker.azDeg)}° — click to look at it`}
+      aria-label={`${name} is off-frame at ${Math.round(marker.azDeg)}° — click to look at it`}
     >
       <span className="fh-chip__glyph">{glyph}</span>
+      {label && <span className="fh-chip__label">{label}</span>}
       <span className="fh-chip__arrow" style={{ transform: `rotate(${angleDeg}deg)` }}>
         ➤
       </span>

@@ -59,7 +59,7 @@ export interface SkyHandle {
 // flattening (~0.3%), invisible. The horizon terms (uHorizonUp = scaled-space up, uSinHor =
 // horizon elevation sine incl. dip, uHorizonBandSin = band width) are computed per frame on the
 // CPU in float64 — float32 shader math near r ≈ 1 would make the dip noisy at low eye heights.
-const HORIZON_FADE_GLSL = /* glsl */ `
+export const HORIZON_FADE_GLSL = /* glsl */ `
       uniform vec3 uHorizonUp;
       uniform float uSinHor;
       uniform float uHorizonBandSin;

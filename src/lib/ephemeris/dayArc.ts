@@ -13,6 +13,7 @@
  */
 
 import { horizontal, type AzAlt } from "./bodies";
+import { targetAzAlt, type SkyTarget } from "./targets";
 
 export interface DayArcPoint extends AzAlt {
   utcMs: number;
@@ -20,8 +21,9 @@ export interface DayArcPoint extends AzAlt {
   t01: number;
 }
 
-export interface DayArc {
-  body: "sun" | "moon";
+/** One body's az/alt path across the observer's local solar day — the body-agnostic shape
+ *  (ASTRO ENGINE phase C: the tracked sky target rides the same grammar as the sun/moon). */
+export interface SkyArc {
   /** Local solar day window [startMs, endMs) containing the scene instant. */
   startMs: number;
   endMs: number;
@@ -31,8 +33,12 @@ export interface DayArc {
   points: DayArcPoint[];
   /** On-the-(local)-hour samples — tick marks. Every `tickEveryH` hours, 0h..24h inclusive. */
   hourTicks: DayArcPoint[];
-  /** True if any sample rises above the horizon (a moon can stay down all day at high lat). */
+  /** True if any sample rises above the horizon (a body can stay down all day). */
   everUp: boolean;
+}
+
+export interface DayArc extends SkyArc {
+  body: "sun" | "moon";
 }
 
 export interface DayArcOptions {
@@ -61,6 +67,41 @@ export function localDayWindow(
   return { startMs, endMs: startMs + DAY_MS, offsetHours };
 }
 
+/** Shared arc builder — dense polyline + hour ticks from ONE az/alt sampler. */
+function buildArc(
+  at: (utcMs: number) => AzAlt,
+  sceneUtcMs: number,
+  lonDeg: number,
+  opts: DayArcOptions,
+): SkyArc {
+  const stepMin = opts.stepMin ?? 10;
+  const tickEveryH = opts.tickEveryH ?? 1;
+  const { startMs, endMs, offsetHours } = localDayWindow(sceneUtcMs, lonDeg);
+
+  const pt = (utcMs: number): DayArcPoint => ({
+    utcMs,
+    t01: (utcMs - startMs) / DAY_MS,
+    ...at(utcMs),
+  });
+
+  const points: DayArcPoint[] = [];
+  const stepMs = stepMin * 60_000;
+  for (let t = startMs; t < endMs; t += stepMs) points.push(pt(t));
+  points.push(pt(endMs)); // inclusive tail — the arc closes the day
+
+  const hourTicks: DayArcPoint[] = [];
+  for (let h = 0; h <= 24; h += tickEveryH) hourTicks.push(pt(startMs + h * HOUR_MS));
+
+  return {
+    startMs,
+    endMs,
+    offsetHours,
+    points,
+    hourTicks,
+    everUp: points.some((p) => p.altDeg > 0),
+  };
+}
+
 /**
  * Sample a body's day arc for the local solar day containing `sceneUtcMs` at the observer.
  * Both the dense polyline and the hour ticks come from the one `horizontal` ephemeris face.
@@ -72,33 +113,35 @@ export function sampleDayArc(
   lonDeg: number,
   opts: DayArcOptions = {},
 ): DayArc {
-  const stepMin = opts.stepMin ?? 10;
-  const tickEveryH = opts.tickEveryH ?? 1;
-  const { startMs, endMs, offsetHours } = localDayWindow(sceneUtcMs, lonDeg);
-
-  const at = (utcMs: number): DayArcPoint => ({
-    utcMs,
-    t01: (utcMs - startMs) / DAY_MS,
-    ...horizontal(body, utcMs, latDeg, lonDeg),
-  });
-
-  const points: DayArcPoint[] = [];
-  const stepMs = stepMin * 60_000;
-  for (let t = startMs; t < endMs; t += stepMs) points.push(at(t));
-  points.push(at(endMs)); // inclusive tail — the arc closes the day
-
-  const hourTicks: DayArcPoint[] = [];
-  for (let h = 0; h <= 24; h += tickEveryH) hourTicks.push(at(startMs + h * HOUR_MS));
-
   return {
     body,
-    startMs,
-    endMs,
-    offsetHours,
-    points,
-    hourTicks,
-    everUp: points.some((p) => p.altDeg > 0),
+    ...buildArc((utcMs) => horizontal(body, utcMs, latDeg, lonDeg), sceneUtcMs, lonDeg, opts),
   };
+}
+
+/**
+ * The tracked sky target's arc across the SAME local solar day window (ASTRO ENGINE phase C —
+ * the owner's missing trajectory). `targetAzAlt` is the sampler, so the trail can never
+ * disagree with the marker or the panel: one target, one ephemeris, three faces. Within a day
+ * even the fastest tracked body (a comet, ~0.3°/day against the stars) is dominated by the
+ * diurnal rotation, so the day window is the right span for every kind.
+ */
+export function sampleTargetArc(
+  target: SkyTarget,
+  sceneUtcMs: number,
+  latDeg: number,
+  lonDeg: number,
+  opts: DayArcOptions = {},
+): SkyArc {
+  return buildArc(
+    (utcMs) => {
+      const { azDeg, altDeg } = targetAzAlt(target, utcMs, latDeg, lonDeg);
+      return { azDeg, altDeg };
+    },
+    sceneUtcMs,
+    lonDeg,
+    opts,
+  );
 }
 
 /** Fraction of the local day elapsed at `utcMs`, clamped 0..1 — the shader's uNow01 uniform. */

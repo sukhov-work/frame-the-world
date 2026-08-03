@@ -13,6 +13,7 @@ import type { useTimeStore } from "./store/time";
 import type { useMiniMapStore } from "./store/minimap";
 import type { usePinsStore } from "./store/pins";
 import type { usePlanStore } from "./store/plan";
+import type { useSkyStore } from "./store/sky";
 import type { useSaveStore } from "./store/save";
 import type { useUploadStore } from "./store/upload";
 import type { useMarketStore } from "./store/market";
@@ -28,6 +29,7 @@ declare global {
     __minimapStore?: typeof useMiniMapStore;
     __pinsStore?: typeof usePinsStore;
     __planStore?: typeof usePlanStore;
+    __skyStore?: typeof useSkyStore;
     __saveStore?: typeof useSaveStore;
     __uploadStore?: typeof useUploadStore;
     __marketStore?: typeof useMarketStore;

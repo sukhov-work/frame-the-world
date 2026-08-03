@@ -23,6 +23,15 @@ export interface ViewPrefs {
   fpvBuildingSolidity?: number;
   /** BLD chip — the OSM2World enriched-bake variant (feeds `?enriched=` resolution at boot). */
   enrichedVariant?: boolean;
+  /** TARGET panel SHOW — render the tracked sky target's tracer. (Renamed from the comet-era
+   *  `cometVisible` 2026-08-03, phase C; sanitize still READS the old key so saved chip choices
+   *  from the comet sessions survive — the next save rewrites them under the new name.) */
+  skyTargetVisible?: boolean;
+  /** TARGET panel MARK — the highlight reticle (and its daylight floor). Migrated from
+   *  `cometHighlight` the same way. */
+  skyTargetHighlight?: boolean;
+  /** TARGET panel TRAIL — the projected day-arc trajectory (phase C; default ON). */
+  skyTargetTrail?: boolean;
 }
 
 /** Keep only known keys with the right types; clamp numerics. Pure — unit-tested directly. */
@@ -36,6 +45,13 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   if (typeof r.fpvBuildingSolidity === "number" && Number.isFinite(r.fpvBuildingSolidity))
     out.fpvBuildingSolidity = Math.max(0, Math.min(1, r.fpvBuildingSolidity));
   if (typeof r.enrichedVariant === "boolean") out.enrichedVariant = r.enrichedVariant;
+  // Sky-target keys, with the comet-era names as read-only fallbacks (new name wins): a blob
+  // saved before the 2026-08-03 rename keeps its chip choices without a migration pass.
+  const vis = typeof r.skyTargetVisible === "boolean" ? r.skyTargetVisible : r.cometVisible;
+  if (typeof vis === "boolean") out.skyTargetVisible = vis;
+  const hl = typeof r.skyTargetHighlight === "boolean" ? r.skyTargetHighlight : r.cometHighlight;
+  if (typeof hl === "boolean") out.skyTargetHighlight = hl;
+  if (typeof r.skyTargetTrail === "boolean") out.skyTargetTrail = r.skyTargetTrail;
   return out;
 }
 

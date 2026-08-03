@@ -238,7 +238,23 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: PHASE 7 (AI analysis + polish); small pre-item = prod login `#p=` round-trip smoke.**
+**Next step: ASTRO ENGINE remaining phases — B (data: full OpenNGC + IAU star names + MPC
+comets + asteroids w/ H/G law + SIMBAD TAP fallback + localStorage cache) · D (render polish) ·
+E (planner skyline verdict) + the A-tail (`/api/sbdb` on Wix cloud UNVERIFIED). Then PHASE 7
+(AI analysis + polish); small pre-item = prod login `#p=` round-trip smoke.**
+ASTRO ENGINE PHASE C SHIPPED 2026-08-03 (vitest 674/674 · astro 0/0 · browser-VERIFIED in a
+VISIBLE window): day-arc TRAIL (`scene/skyTrail.ts` + `sampleTargetArc`; SHOW·MARK·TRAIL) ·
+marker click-to-aim (angular hit test, orbit+FPV) · post-search auto-aim (`store/skyAim`) ·
+tracked-target edge chip (`SkyMarkers{sun|moon|target}`, per-slot gating) · SKY_TARGET tuning
+split + prefs `skyTargetVisible/Highlight/Trail` w/ read-old-keys migration. Visible-window
+verify recipe (CDP `/json/activate`) in `mem:project/wip-2026-08-03-astro-engine-phase-c`.
+ASTRO ENGINE PHASE A SHIPPED 2026-08-03 (vitest 669/669 · astro 0/0; browser state+UI verified,
+new treatments visually UNVERIFIED — hidden-window rAF suspension trap): `SkyTarget` seam
+(`lib/ephemeris/targets.ts`, fixed/engine/kepler providers) · EARTH⇄SKY search (lazy
+`lib/sky/catalog` — planets+Pluto + ALL 110 Messier via OpenNGC bake + 10P) · `scene/skyTarget.ts`
+(comet/point/ellipse) · `TargetPanel` (per-kind cards + `targetWindows` for any target) ·
+`/api/sbdb` proxy (JPL sends no CORS). 10P = `cometTarget(TEMPEL2)`, not a special case.
+`mem:project/wip-2026-08-03-astro-engine-phase-a`.
 RELEASED 2026-07-17: populated globe LIVE (canvas · #p= mirror · FOR SALE · 28 · FAQ — real-browser
 verified). TRAP: asset edge cache is SHARDED — warm-prod-assets reads HIT while another shard still
 500s cold chunks; recovery = reload until clean.

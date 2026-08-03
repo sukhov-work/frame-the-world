@@ -101,6 +101,80 @@ export const SKY = {
   moonSceneGlow: 0.5,
 } as const;
 
+/** Generic sky-target tracer (ASTRO ENGINE phase C split, 2026-08-03 — was baked into COMET):
+ *  the marker / night-gate / impostor / trail params EVERY tracked target uses, whatever its
+ *  kind. `scene/skyTarget.ts` + `scene/skyTrail.ts` read this; the comet-specific coma/tail
+ *  look stays in COMET below.
+ *
+ *  HONESTY NOTE: most tracked bodies would be a sub-pixel nothing at true angular size. The
+ *  marker is an INSTRUMENT OVERLAY (the day-arc / asterism grammar), not a photometric body,
+ *  drawn at stylized angular size along the astronomically exact direction. Everything else —
+ *  where it is, when it rises, how bright it really is — stays true. */
+export const SKY_TARGET = {
+  /** Point-body core angular radius (deg) — the stylized overlay size for planets / stars /
+   *  asteroids (the coma's little sibling). */
+  pointCoreDeg: 0.12,
+  /** Highlight reticle (house marker spec). Owner 2026-08-03: "crude and obscures the view —
+   *  much thinner, subtler." A finder mark's job is to say WHERE, not to draw attention to
+   *  itself: the ring is a hairline (0.035 → 0.012 of its radius ≈ 1 px at a 38° FOV on a
+   *  1600 px canvas), opened OUT to 1.5° so it frames the body instead of crowding it, dimmed
+   *  to 0.45, and BROKEN into four arcs with the gaps on the axes — an open bracket reads as a
+   *  marker while leaving the sky visible through it. `reticleGapFrac` = fraction of each
+   *  quadrant the gap eats. */
+  reticleRadDeg: 1.5,
+  reticleWidthFrac: 0.012,
+  reticleIntensity: 0.45,
+  reticleGapFrac: 0.34,
+  /** Tick length as a fraction of the ring radius (short outward strokes at the gaps). */
+  reticleTickFrac: 0.18,
+  /** Impostor distance = camera.far × this (the sun/moon rule — clamped into [near·1.2, far·0.95]).
+   *  NOTE (browser pass 2026-08-02): a low tracer that "won't render" at street level is almost
+   *  always the REAL SKYLINE occluding it — buildings and trees write depth in the opaque pass and
+   *  the impostor is depth-tested against them, which is the honest planner behaviour, not a bug.
+   *  Proven with a solid-red debug fragment shader: the quad was there, sliced by a rooftop. The
+   *  camera-anchored sky dome is ADDITIVE (it can never paint over the tracer), so do NOT reach
+   *  for renderOrder when this happens — raise the eye or wait for the body to climb. */
+  impostorFarFrac: 0.5,
+  /** Night gate over sin(sun elevation) at the camera — the star-field's grammar, one band wider
+   *  (a faint body at civil twilight is already lost, so the tracer fades before the stars do). */
+  nightVisStartSin: 0.02,
+  nightVisFullSin: -0.12,
+  /** Daylight/twilight floor for the HIGHLIGHT reticle only — the body render honours the night
+   *  gate with no floor, so the tracer stays findable when the sky is lit but the body is not.
+   *  UNVERIFIED in a shot and not shot-tunable at the 10P site: its 2026 apparition sits near
+   *  opposition (elongation ~164°), so from Dnipro it is never both above the local skyline AND
+   *  in a lit sky. Reasoned value: an ADDITIVE teal ring at ~1/3 presence reads over twilight
+   *  and honestly loses to a full daylight sky (where the panel's ALT/AZ readout is the tool). */
+  highlightDayFloor: 0.35,
+  /** TRAIL rebuild deadband on the anchor (deg) — a celestial az/alt path shifts ~1:1 with
+   *  observer latitude, so 0.05° ≈ 0.05° of arc error: invisible against a 1.5° ring, and it
+   *  keeps an orbit pan from rebuilding the ~170-sample arc every frame. */
+  trailRebuildMinDeg: 0.05,
+  /** Marker click slack — the hit test accepts clicks inside ring radius × this (a hairline
+   *  ring is a thin literal target; the disc it frames is the intended one). */
+  clickSlack: 1.25,
+} as const;
+
+/** Comet-LOOK params (temporal addition 2026-08-02, `lib/ephemeris/comet.ts`) — ONLY the coma +
+ *  anti-sunward tail treatment. Everything generic (marker, night gate, impostor distance)
+ *  lives in SKY_TARGET above (phase C split). */
+export const COMET = {
+  /** Coma disc angular radius (deg). Browser pass 2026-08-02: 0.32° at comaIntensity 1.5 sat
+   *  over BLOOM.threshold (0.9) and UnrealBloom smeared it into a ~2° green ball that swallowed
+   *  the tail — a fake "great comet" for a mag-12.8 object. Half the disc, gain just under the
+   *  bloom threshold: a crisp head with a soft rim, and the tail reads. */
+  comaAngRadDeg: 0.16,
+  /** Coma sprite half-extent in coma radii (room for the shader falloff + a little bloom). */
+  comaGlowExtent: 4,
+  /** Additive gain on the coma core (kept ≲ BLOOM.threshold — the halo carries the glow). */
+  comaIntensity: 0.85,
+  /** Anti-sunward tail: length and base half-width (deg of sky). */
+  tailLenDeg: 3.4,
+  tailWidthDeg: 0.5,
+  /** Tail gain; the shader tapers it to nothing over its length. */
+  tailIntensity: 0.75,
+} as const;
+
 /** Golden-hour grade (Phase 4, ADR D6/D14). The signal is the SINE of the sun's elevation —
  *  per-fragment `dot(surfaceNormal, sunDir)` in the earth/ground/atmosphere shaders (so the warm
  *  band hugs the terminator and appears at the correct LOCAL times everywhere at once), and

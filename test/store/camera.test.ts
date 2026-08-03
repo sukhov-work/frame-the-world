@@ -134,8 +134,16 @@ describe("sky guides seam (Phase 5.5 S6 follow-up)", () => {
       altDeg: 60,
       up: true,
     };
-    useCameraStore.getState()._syncSkyMarkers({ sun: marker, moon: marker });
-    expect(useCameraStore.getState().skyMarkers?.sun.azDeg).toBe(214);
+    // Phase C shape: per-slot nullable — sun/moon ride skyGuides, target rides TARGET SHOW.
+    useCameraStore.getState()._syncSkyMarkers({
+      sun: marker,
+      moon: marker,
+      target: { ...marker, glyph: "☄", label: "10P" },
+    });
+    expect(useCameraStore.getState().skyMarkers?.sun?.azDeg).toBe(214);
+    expect(useCameraStore.getState().skyMarkers?.target?.label).toBe("10P");
+    useCameraStore.getState()._syncSkyMarkers({ sun: null, moon: null, target: null });
+    expect(useCameraStore.getState().skyMarkers?.sun).toBeNull();
     useCameraStore.getState()._syncSkyMarkers(null);
     expect(useCameraStore.getState().skyMarkers).toBeNull();
   });

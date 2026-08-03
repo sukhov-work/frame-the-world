@@ -44,6 +44,24 @@ export interface FpvBodyMarker {
   up: boolean;
 }
 
+/** The tracked sky target's edge-chip marker (ASTRO ENGINE phase C) — a body marker plus what
+ *  the chip face needs to say WHICH object it points at. */
+export interface SkyTargetMarker extends FpvBodyMarker {
+  /** Kind glyph (☄ ◉ ❍ …) — the chip face. */
+  glyph: string;
+  /** Shortest honest designation ("10P" · "MARS" · "M31") — the chip label + aria text. */
+  label: string;
+}
+
+/** Sky-body direction markers (every mode): sun/moon ride the right-panel SKY-guides chip;
+ *  the tracked target rides the TARGET panel's SHOW toggle — each slot null when its gate is
+ *  off, the whole mirror null when nothing wants markers. */
+export interface SkyMarkers {
+  sun: FpvBodyMarker | null;
+  moon: FpvBodyMarker | null;
+  target: SkyTargetMarker | null;
+}
+
 /** FPV HUD mirror — camera-view bearings + focal state + sky-body markers. */
 export interface FpvHud {
   /** Compass azimuth of the view centre (deg; 0 = north, 90 = east). */
@@ -143,9 +161,9 @@ export interface CameraState {
   requestFpvJump: (pose: UrlFpvPose) => void;
   /** Orchestrator-only: mark the pending FPV jump consumed. */
   _consumeFpvJump: () => void;
-  /** Sun/moon direction markers (every mode, gated by skyGuides) — feeds the ☀/☾ edge chips;
+  /** Sky-body direction markers (every mode) — feeds the ☀/☾ + tracked-target edge chips;
    *  outside FPV the bearings reference is the camera's own geodetic position. */
-  skyMarkers: { sun: FpvBodyMarker; moon: FpvBodyMarker } | null;
+  skyMarkers: SkyMarkers | null;
   /** One-shot "bring this sky direction into view" request (owner 2026-07-14: clicking an
    *  off-frame ☀/☾ edge chip). While FPV is active the orchestrator glides fpvYaw/fpvPitch
    *  toward it and clears it on arrival; outside FPV the chip resolves it directly into the
@@ -179,8 +197,8 @@ export interface CameraState {
   setFpvBuildingSolidity: (v: number) => void;
   /** Orchestrator-only: mirror the FPV HUD state (low cadence; null = FPV inactive). */
   _syncFpvHud: (hud: FpvHud | null) => void;
-  /** Orchestrator-only: mirror the sky-body markers (low cadence; null = guides off). */
-  _syncSkyMarkers: (m: { sun: FpvBodyMarker; moon: FpvBodyMarker } | null) => void;
+  /** Orchestrator-only: mirror the sky-body markers (low cadence; null = nothing wants them). */
+  _syncSkyMarkers: (m: SkyMarkers | null) => void;
   /** Direct manipulation (pointer/wheel/touch on the globe) cancels every slider glide. */
   clearAllTargets: () => void;
   /** Orchestrator-only: mirror the live pose into the store (low cadence). */

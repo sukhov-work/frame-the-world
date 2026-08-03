@@ -4,8 +4,15 @@ import {
   dayFraction,
   localDayWindow,
   sampleDayArc,
+  sampleTargetArc,
   solarOffsetHours,
 } from "../../../src/lib/ephemeris/dayArc";
+import {
+  cometTarget,
+  fixedTarget,
+  planetTarget,
+  targetAzAlt,
+} from "../../../src/lib/ephemeris/targets";
 
 // Same observer + almanac anchors as bodies.test.ts (JPL Horizons, Dnipro 48.4647N/35.0462E).
 const DNIPRO = { latDeg: 48.4647, lonDeg: 35.0462 };
@@ -87,6 +94,58 @@ describe("sampleDayArc", () => {
     expect(p).toBeDefined();
     expect(p!.azDeg).toBeCloseTo(171.211895, 1);
     expect(p!.altDeg).toBeCloseTo(12.777505, 1);
+  });
+});
+
+describe("sampleTargetArc (ASTRO ENGINE phase C — the tracked target's trail)", () => {
+  it("shares the sun/moon day-window grammar and samples via targetAzAlt exactly", () => {
+    const target = cometTarget(); // 10P — the standing default the trail ships tracking
+    const arc = sampleTargetArc(target, SOLSTICE_NOON, DNIPRO.latDeg, DNIPRO.lonDeg, {
+      stepMin: 60,
+    });
+    const win = localDayWindow(SOLSTICE_NOON, DNIPRO.lonDeg);
+    expect(arc.startMs).toBe(win.startMs);
+    expect(arc.endMs).toBe(win.endMs);
+    expect(arc.points).toHaveLength(25);
+    expect(arc.hourTicks).toHaveLength(25);
+    // One target, one ephemeris, three faces: every trail point IS a targetAzAlt sample.
+    for (const p of [arc.points[0], arc.points[12], arc.points[24]]) {
+      const ref = targetAzAlt(target, p.utcMs, DNIPRO.latDeg, DNIPRO.lonDeg);
+      expect(p.azDeg).toBeCloseTo(ref.azDeg, 9);
+      expect(p.altDeg).toBeCloseTo(ref.altDeg, 9);
+    }
+  });
+
+  it("a planet's arc matches the engine provider through the same face", () => {
+    const target = planetTarget("saturn");
+    const arc = sampleTargetArc(target, SOLSTICE_NOON, DNIPRO.latDeg, DNIPRO.lonDeg, {
+      stepMin: 120,
+    });
+    const p = arc.points[6];
+    const ref = targetAzAlt(target, p.utcMs, DNIPRO.latDeg, DNIPRO.lonDeg);
+    expect(p.azDeg).toBeCloseTo(ref.azDeg, 9);
+    expect(p.altDeg).toBeCloseTo(ref.altDeg, 9);
+    expect(arc.everUp).toBe(true); // Saturn (dec ≈ −5° mid-2026) clears a 48.5°N horizon daily
+  });
+
+  it("everUp = false for a far-southern object that never rises here", () => {
+    // Dec −80°: max altitude from 48.46°N = 90 − |48.46 − (−80)| ≈ −38° — never up, by geometry.
+    const southern = fixedTarget({
+      id: "dso:TEST-S",
+      name: "Test South",
+      kind: "cluster",
+      aliases: [],
+      raDeg: 120,
+      decDeg: -80,
+      vmag: 5,
+      facts: { kind: "dso", dsoType: "OCl", typeLabel: "OPEN CLUSTER", constellation: null, names: [] },
+      source: "TEST",
+    });
+    const arc = sampleTargetArc(southern, SOLSTICE_NOON, DNIPRO.latDeg, DNIPRO.lonDeg, {
+      stepMin: 60,
+    });
+    expect(arc.everUp).toBe(false);
+    expect(Math.max(...arc.points.map((p) => p.altDeg))).toBeLessThan(-30);
   });
 });
 

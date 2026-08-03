@@ -1,0 +1,309 @@
+/* Sky-target tracer (ASTRO ENGINE phase A, 2026-08-03 — generalises the 2026-08-02 ☄ comet
+   panel; classes renamed cp-→tp-, look unchanged). The pill sits top-RIGHT under the nav (the
+   free corner: PLAN owns top-left, the clock bottom-right, the scrubber bottom-centre) and
+   unfolds DOWNWARD. Same instrument idiom as the light planner: IBM Plex Mono, tabular numerals,
+   tokens.css colours only. Top-level island (index.astro) — position:fixed must never sit inside
+   a backdrop-filtered card (the S2 containing-block trap). */
+
+.tp-root {
+  position: fixed;
+  right: 1.6rem; /* the topnav's own padding */
+  top: 3.4rem;
+  z-index: 31;
+  font-family: var(--font-mono);
+  user-select: none;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+
+.tp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  cursor: pointer;
+}
+.tp-pill:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+.tp-pill--open {
+  color: var(--color-comet-coma);
+  border-color: color-mix(in srgb, var(--color-comet-coma) 55%, var(--color-border));
+}
+
+.tp {
+  position: absolute;
+  right: 0;
+  top: 2.4rem;
+  width: 16.5rem;
+  /* Floor keeps it usable on short viewports. The ROOT never clips — only the body scrolls, so
+     the drag grip's overhanging tab stays visible (DragGrip contract). */
+  max-height: max(12rem, min(30rem, calc(100vh - 10rem)));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  /* DENSE glass, not the 72% wash the top-left planner uses (browser pass 2026-08-02): an open
+     card overlaps the camera deck's column, and a translucent one interleaved the two panels'
+     text into mush. Opaque + blurred it reads as a stacked window, which is what z-index 31 is
+     already saying — and the deck is only covered while the card is deliberately open (the
+     Marketplace/FAQ contract). Blur lives on the CARD, never on .tp-root: backdrop-filter makes
+     a containing block, and the root carries the drag transform (camera-tilt.css precedent). */
+  background: rgba(11, 15, 20, 0.9);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.tp-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.tp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tp-title {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--color-comet-coma);
+}
+.tp-anchor {
+  margin-left: auto;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+
+.tp-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tp-badge {
+  padding: 3px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  color: var(--color-text-muted);
+}
+.tp-badge--peri {
+  color: var(--color-golden-hour);
+  border-color: color-mix(in srgb, var(--color-golden-hour) 45%, var(--color-border));
+}
+.tp-badge--up {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+}
+
+.tp-live {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.tp-live__row {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr 3rem 1fr;
+  align-items: baseline;
+  column-gap: 6px;
+}
+.tp-k {
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  color: var(--color-text-muted);
+}
+.tp-v {
+  font-size: 11px;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.tp-sub {
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* The ± band on the magnitude — a comet's brightness is a fit, never a fact. */
+.tp-pm {
+  font-size: 8px;
+  color: var(--color-text-muted);
+}
+/* "What it takes to see it" — the line a session planner actually reads. */
+.tp-see {
+  margin-top: 3px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--color-comet-coma);
+}
+
+.tp-section {
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: var(--color-text-muted);
+  padding-top: 2px;
+}
+
+.tp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tp-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tp-chip:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+.tp-chip__kind {
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--color-comet-tail) 65%, var(--color-text-muted));
+}
+
+/* One dark-sky window — the money row: click and the whole scene flies to that instant. */
+.tp-win {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: baseline;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tp-win:hover {
+  border-color: color-mix(in srgb, var(--color-comet-coma) 45%, var(--color-border));
+  color: var(--color-text);
+}
+.tp-win__date {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--color-text);
+}
+.tp-win__span {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.tp-win__score {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--color-comet-coma);
+}
+.tp-win__peak {
+  grid-column: 1 / -1;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tp-facts {
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.tp-toggles {
+  display: flex;
+  gap: 6px;
+  padding-top: 2px;
+}
+.tp-toggle {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+}
+.tp-toggle:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+.tp-toggle--on {
+  color: var(--color-comet-coma);
+  border-color: color-mix(in srgb, var(--color-comet-coma) 50%, var(--color-border));
+}
+.tp-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tp-note {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+.tp-note--warn {
+  color: var(--color-warn);
+}
+.tp-note--src {
+  opacity: 0.7;
+}
+
+.tp-status {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* Keep the welcome landing clean (the PLAN / FPV-HUD precedent). */
+body.welcome-active .tp-root {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .tp-root {
+    right: 1rem;
+    top: 7.5rem;
+  }
+  .tp {
+    width: min(16.5rem, calc(100vw - 2rem));
+  }
+}
