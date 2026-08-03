@@ -16,6 +16,11 @@ import {
 import { frameMarker } from "../../lib/geo/offscreen";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
+import { targetShortName, type TargetState } from "../../lib/ephemeris/targets";
+import { kindGlyph } from "../../lib/sky/searchIndex";
+import { useSkyStore } from "../../store/sky";
+import { usePlanStore } from "../../store/plan";
+import { aimAtSky } from "../../store/skyAim";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore, type AdjustableParams } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
@@ -37,6 +42,8 @@ import { attachBuildings } from "./scene/buildings";
 import { attachEnrichedBuildings } from "./scene/enrichedBuildings";
 import { attachImageryGround } from "./scene/imageryGround";
 import { attachSky } from "./scene/sky";
+import { attachSkyTarget } from "./scene/skyTarget";
+import { attachSkyTrail } from "./scene/skyTrail";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachPlanFeed } from "./scene/planFeed";
 import { attachMinimapFeed } from "./scene/minimapFeed";
@@ -215,6 +222,8 @@ export function attachStylizedTiles(opts: {
       })
     : null;
   const sky = attachSky(scene);
+  const skyTarget = attachSkyTarget(scene); // tracked sky target (ASTRO ENGINE) — 10P by default
+  const skyTrail = attachSkyTrail(scene); // the target's day-arc trajectory (phase C, SHOW+TRAIL)
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
   const geoLabels = attachGeoLabels(scene); // NE labels + boundaries (S7b) — mid-zoom window only
   // Shared MVT source (S7 feedback batch): ONE fetch/parse per z14 tile feeds the GL street
@@ -271,10 +280,23 @@ export function attachStylizedTiles(opts: {
   let moonIllum = 0.5; // illuminated fraction (the moon-shadow GATE reads this)
   let moonKs = 0.05; // K&S-1991 phase intensity, 1 = full (every moonlight STRENGTH reads this)
   let gastRad = 0; // sidereal angle for the star sphere (−GAST about +Z = equatorial → ECEF)
+  // Tracked sky target (ASTRO ENGINE phase A — the 2026-08-02 comet seam generalised): rides the
+  // SAME sample cadence — even the fast comet drifts only ~0.3°/day (≈4e-6 °/s), so a 1 s
+  // re-sample is orders of magnitude finer than any target needs. A target SWAP (SKY search)
+  // forces an immediate re-sample via lastTargetId in stepSkyTarget.
+  const targetDirW = new THREE.Vector3(0, 0, 1);
+  const targetTailW = new THREE.Vector3(0, 0, 1);
+  let targetState: TargetState | null = null;
+  let lastTargetId = "";
   let lastSampleMs = -Infinity;
   const sampleEphemeris = (tMs: number) => {
     lastSampleMs = tMs;
     const s = bodyStatesAt(tMs);
+    const target = useSkyStore.getState().target;
+    lastTargetId = target.id;
+    const c = (targetState = target.stateAt(tMs));
+    targetDirW.set(c.dir[0], c.dir[1], c.dir[2]);
+    if (c.tailDir) targetTailW.set(c.tailDir[0], c.tailDir[1], c.tailDir[2]);
     gastRad = s.gastRad;
     sunDirW.set(s.sunDir[0], s.sunDir[1], s.sunDir[2]);
     moonDirW.set(s.moonDir[0], s.moonDir[1], s.moonDir[2]);
@@ -590,6 +612,44 @@ export function attachStylizedTiles(opts: {
     );
   };
 
+  // --- Sky-marker click (ASTRO ENGINE phase C, owner feedback): clicking the tracked target's
+  //     hairline ring aims the camera at it (FPV: look glide · orbit: heading + tilt raise —
+  //     the shared store/skyAim idiom) and fronts the TARGET panel. The billboard mesh keeps
+  //     raycast disabled (it is far bigger than the visible mark and would steal ground
+  //     clicks), so the test is ANGULAR: click-ray vs the tracked direction against the LIVE
+  //     ring radius (it widens for extended objects). --------------------------------------
+  const trySkyMarkerClick = (ndcX: number, ndcY: number): boolean => {
+    const skyNow = useSkyStore.getState();
+    if (!skyNow.visible || !skyTarget.mesh.visible) return false;
+    _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
+    const cosHit = Math.cos(THREE.MathUtils.degToRad(skyTarget.hitRadiusDeg()));
+    if (_pickRay.ray.direction.dot(targetDirW) < cosHit) return false;
+    // Bearings at the camera's own geodetic position — the same reference the edge chips use
+    // outside FPV; at any trackable target's distance it matches the anchor's to chip precision.
+    const g = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+    const b = enuBasis(g.latDeg, g.lonDeg);
+    const azDeg = wrapHeadingDeg(
+      THREE.MathUtils.radToDeg(
+        Math.atan2(
+          targetDirW.x * b.east[0] + targetDirW.y * b.east[1] + targetDirW.z * b.east[2],
+          targetDirW.x * b.north[0] + targetDirW.y * b.north[1] + targetDirW.z * b.north[2],
+        ),
+      ),
+    );
+    const altDeg = THREE.MathUtils.radToDeg(
+      Math.asin(
+        THREE.MathUtils.clamp(
+          targetDirW.x * b.up[0] + targetDirW.y * b.up[1] + targetDirW.z * b.up[2],
+          -1,
+          1,
+        ),
+      ),
+    );
+    aimAtSky(azDeg, altDeg);
+    if (!skyNow.open) skyNow.setOpen(true);
+    return true;
+  };
+
   // --- Click-to-place (the missing-GPS path): while the store is in "placing", a CLICK (not a
   //     drag) casts the pointer ray at the ground and drops the photo there. A live accent
   //     marker hugs the rendered ground under the pointer (Phase 5.5 S3) so the drop point is
@@ -633,6 +693,9 @@ export function attachStylizedTiles(opts: {
       useUploadStore.getState().setPlacement(g.latDeg, g.lonDeg);
       return;
     }
+    // Sky-marker click (phase C) beats pin picking — it only ever fires inside the marker's
+    // own ring, which lives in the sky, so ground targets stay reachable.
+    if (trySkyMarkerClick(ndcX, ndcY)) return;
     // Otherwise: a click on a public pin opens it as the placed camera view (Phase 5.1) —
     // the store transition triggers the frustum rebuild, the detail panel, and the flight.
     // A COLLAPSED cluster marker (adaptive de-cluster, far range) dives to differentiation
@@ -691,6 +754,8 @@ export function attachStylizedTiles(opts: {
   let fpvDragId: number | null = null;
   let fpvLastX = 0;
   let fpvLastY = 0;
+  let fpvDownX = 0; // pointer-down position — separates a marker CLICK from a look-drag
+  let fpvDownY = 0;
   let fovTargetDeg: number = camera.fov; // eased every frame (FPV zoom + entry/exit restore)
   // Temp-pin FPV basis, captured at ENTRY (fwd = the camera's azimuth at that moment — deriving
   // it per frame from the camera would feed back on itself). Position refreshes per frame as
@@ -719,6 +784,8 @@ export function attachStylizedTiles(opts: {
     fpvDragId = e.pointerId;
     fpvLastX = e.clientX;
     fpvLastY = e.clientY;
+    fpvDownX = e.clientX;
+    fpvDownY = e.clientY;
     // A direct look-drag always beats a pending sky-look glide (never fight the user).
     if (useCameraStore.getState().skyLook) useCameraStore.getState()._clearSkyLook();
   };
@@ -733,7 +800,18 @@ export function attachStylizedTiles(opts: {
     fpvLastY = e.clientY;
   };
   const onFpvPointerEnd = (e: PointerEvent) => {
-    if (fpvDragId === e.pointerId) fpvDragId = null;
+    if (fpvDragId !== e.pointerId) return;
+    fpvDragId = null;
+    // FPV has no pin/ground picking, but a CLICK (not a look-drag) can still hit the tracked
+    // sky marker: glide the look onto it + front the panel (phase C, owner feedback #2).
+    if (
+      e.type === "pointerup" &&
+      Math.hypot(e.clientX - fpvDownX, e.clientY - fpvDownY) <= ORCH.clickDragPx
+    ) {
+      const rect = dom.getBoundingClientRect();
+      const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+      trySkyMarkerClick(ndcX, ndcY);
+    }
   };
   const onFpvWheel = (e: WheelEvent) => {
     if (!fpvActive) return;
@@ -901,6 +979,7 @@ export function attachStylizedTiles(opts: {
       frustum,
       flight,
       sky,
+      skyTarget,
       sunLight,
       bodies: () => ({
         sunDir: sunDirW.toArray(),
@@ -908,6 +987,10 @@ export function attachStylizedTiles(opts: {
         moonIllumination: moonIllum,
         moonKs, // K&S-1991 phase intensity (S5 — 1 = full moon)
         gastRad,
+        targetId: lastTargetId,
+        targetDir: targetDirW.toArray(),
+        targetMag: targetState?.magnitude ?? null,
+        targetVisible: skyTarget.mesh.visible,
         sampleMs: lastSampleMs,
       }),
       terrainHeightAt: (lat: number, lon: number) => ground.heightAt(lat, lon),
@@ -1749,9 +1832,15 @@ export function attachStylizedTiles(opts: {
           const anchorGeo = fpvActive
             ? ((fpvKind === "photo" ? upNow.placement : camNow.tempPin) ?? null)
             : null;
+          // Marker consumers (phase C): sun/moon chips ride the right-panel SKY-guides chip;
+          // the tracked target's chip rides the TARGET panel's SHOW toggle — either one wants
+          // a bearings reference.
+          const skyNow = useSkyStore.getState();
+          const wantGuides = camNow.skyGuides;
+          const wantTarget = skyNow.visible;
           const refGeo =
             anchorGeo ??
-            (camNow.skyGuides
+            (wantGuides || wantTarget
               ? ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z])
               : null);
           if (refGeo) {
@@ -1802,8 +1891,20 @@ export function attachStylizedTiles(opts: {
             const moonM = bodyMarker(
               _hudDir2.subVectors(moonPosW, camera.position).normalize(),
             );
-            if (camNow.skyGuides) {
-              camNow._syncSkyMarkers({ sun: sunM, moon: moonM });
+            if (wantGuides || wantTarget) {
+              camNow._syncSkyMarkers({
+                sun: wantGuides ? sunM : null,
+                moon: wantGuides ? moonM : null,
+                // Every trackable target is far enough that the geocentric direction IS the
+                // topocentric one at chip precision (the marker draws the same dir).
+                target: wantTarget
+                  ? {
+                      ...bodyMarker(targetDirW),
+                      glyph: kindGlyph(skyNow.target.kind),
+                      label: targetShortName(skyNow.target).toUpperCase(),
+                    }
+                  : null,
+              });
             } else if (camNow.skyMarkers) {
               camNow._syncSkyMarkers(null);
             }
@@ -2034,6 +2135,44 @@ export function attachStylizedTiles(opts: {
           moonIntensity: moonShadows ? 0 : moonKs, // the rig carries the key in moon-shadow mode
         });
 
+  };
+
+  const stepSkyTarget = () => {
+        // Tracked sky target (ASTRO ENGINE phase A — generalises the 2026-08 comet tracer) —
+        // same impostor machinery as the sun/moon, gated by the TARGET panel's toggles (store
+        // read per frame: getState() is a reference read, the panel writes at most on a click).
+        // A SKY-search target swap re-samples the ephemeris immediately — the 1 s cadence would
+        // otherwise show the OLD body's direction under the new body's treatment for a beat.
+        const skyNow = useSkyStore.getState();
+        if (skyNow.target.id !== lastTargetId) sampleEphemeris(sceneTimeMs());
+        const t = targetState;
+        skyTarget.update({
+          camera,
+          alt,
+          dir: targetDirW,
+          tailDir: t?.tailDir ? targetTailW : null,
+          sunDir: sunDirW,
+          kind: skyNow.target.kind,
+          magnitude: t?.magnitude ?? null,
+          apparent: skyNow.target.apparent ?? null,
+          visible: skyNow.visible,
+          highlight: skyNow.highlight,
+        });
+        // The target's trajectory (phase C) — anchored at the SAME eye the TargetPanel prints
+        // numbers for: the plan anchor when standing somewhere, else the view focus (the mirror
+        // is low-cadence, but the trail rebuild is deadbanded far coarser than its lag).
+        const planAnchor = usePlanStore.getState().anchor;
+        skyTrail.update({
+          camera,
+          sceneMs: tMs,
+          target: skyNow.target,
+          anchor: planAnchor ?? {
+            latDeg: camStore.focusLatDeg,
+            lonDeg: camStore.focusLonDeg,
+          },
+          visible: skyNow.visible && skyNow.trail,
+          dtMs,
+        });
   };
 
   const stepFrustumResnapAndTick = () => {
@@ -2368,6 +2507,7 @@ export function attachStylizedTiles(opts: {
       // 12 ViewFocus 13 IdleDrift 14 TiltGlide 15 HeadingGlide 16 ZoomGlide 17 EncoderRates
       // 18 FocalEncoder 19 StreetFloorGuard 20 LocationFinderFlyTo 21 FpvSolidity 22 FpvHudAndSkyMarkers
       // 23 PoseMirrorAndViewport 24 GroundUpdate 25 EphemerisResample 26 KeyLightAndShadow 27 SkyBodies
+      //    (+SkyTarget right after 27 — the ASTRO ENGINE tracer + phase-C trail, unnumbered to keep the anchors below)
       // 28 FrustumResnapAndTick 29 ArrivalReframing 30 PinsUpdate 31 PinHover 32 TempPinMarker
       // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs 37 GeoLabels 38 StreetNames (S7b)
       // 39 VectorFeatures (S7 feedback — roads/water web from the shared MVT source)
@@ -2413,6 +2553,7 @@ export function attachStylizedTiles(opts: {
         stepEphemerisResample();
         stepKeyLightAndShadow();
         stepSkyBodies();
+        stepSkyTarget();
         stepFrustumResnapAndTick();
         stepArrivalReframing();
         stepPinsUpdate();
@@ -2469,6 +2610,8 @@ export function attachStylizedTiles(opts: {
       enriched?.dispose();
       ground.dispose();
       sky.dispose();
+      skyTarget.dispose();
+      skyTrail.dispose();
       dayArcs.dispose();
       geoLabels.dispose();
       streetNames.dispose();

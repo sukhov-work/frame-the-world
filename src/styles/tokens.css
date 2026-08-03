@@ -46,6 +46,8 @@
   --color-sky-day: #7fb8e8; /* low-altitude day-sky zenith — light blue dome at city zooms */
   --color-sky-horizon: #d8e6f2; /* low-altitude horizon haze — near-white aerial perspective */
   --color-milky-way: #e7e3d8; /* faint warm-white galactic band (subtle, near --color-star) */
+  --color-comet-coma: #9ff3c8; /* comet coma — the real C2/CN green of an active nucleus */
+  --color-comet-tail: #8fd8ff; /* comet ion tail — cold plasma blue, anti-sunward */
 
   /* Vector map ink (S7 feedback batch) — the close-zoom street/water/terrain web drawn as GL
      geometry over the dark drape. Map INK, not signal: steel greys + a desaturated steel blue,

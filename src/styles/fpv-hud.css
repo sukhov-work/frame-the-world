@@ -163,6 +163,17 @@
   color: var(--color-moonlight);
   text-shadow: 0 0 8px color-mix(in srgb, var(--color-moonlight) 45%, transparent);
 }
+/* Tracked sky target (ASTRO ENGINE phase C) — accent, matching its hairline marker ring. */
+.fh-chip--target .fh-chip__glyph {
+  color: var(--color-accent);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.fh-chip__label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  color: var(--color-text-secondary);
+}
 
 /* The chips now render in every mode (S6 follow-up) — keep the welcome landing clean. */
 body.welcome-active .fh-chip,

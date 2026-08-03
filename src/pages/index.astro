@@ -15,6 +15,7 @@ import ExploreMode from "../components/panels/ExploreMode";
 import Welcome from "../components/panels/Welcome";
 import FpvHud from "../components/panels/FpvHud";
 import PlanPanel from "../components/panels/PlanPanel";
+import TargetPanel from "../components/panels/TargetPanel";
 import MiniMap from "../components/panels/MiniMap";
 // Hover tips (tips batch 2026-07-11) — imported here so the Astro-rendered nav links get
 // the same glass tip pills the React panels use.
@@ -142,6 +143,11 @@ import "../styles/boot-poster.css";
   <!-- Light planner (Pass 3 WS4 + Dnipro Slice 5) — jump-to-time chips + the real-skyline
        sun/moon verdict for the placed photo / FPV eye. Top-level island (same trap). -->
   <PlanPanel client:only="react" />
+
+  <!-- Sky-target tracer (ASTRO ENGINE phase A — generalises the 10P comet panel): live position
+       of the tracked target from the current anchor, a per-kind object card, and the next
+       dark-sky windows. 10P stays the default guest. Top-level island. -->
+  <TargetPanel client:only="react" />
 
   <!-- FPV mini-map (owner 2026-07-14) — a small square 2D vector patch centred on the walked
        viewer; renders only while FPV is active. Top-level island (same trap). -->

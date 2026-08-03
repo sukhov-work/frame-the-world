@@ -14,6 +14,7 @@
  */
 
 import {
+  type AstroTime,
   Body,
   Equator,
   GeoMoon,
@@ -56,20 +57,44 @@ export interface BodyStates {
   gastRad: number;
 }
 
-/** Sun + moon state at a UTC instant — ONE call drives lighting, bodies and readouts. */
-export function bodyStatesAt(utcMs: number): BodyStates {
-  const time = MakeTime(new Date(utcMs));
+/** The EQJ → ECEF map for ONE instant (see the module header for the verified recipe). */
+export interface EcefFrame {
+  /** Greenwich apparent sidereal time (rad) — the −Z rotation this frame applies. */
+  gastRad: number;
+  /** EQJ vector → earth-fixed components, units preserved (AU in → AU out). */
+  toEcef(eqj: { x: number; y: number; z: number }): Vec3;
+}
+
+/**
+ * Build the EQJ → ECEF converter for an instant. Shared by every body that has to land in the
+ * scene frame — the sun/moon here, the comet propagator in `comet.ts`, and every SkyTarget
+ * provider in `targets.ts` (fixed/engine/kepler) — so there is exactly ONE place where
+ * precession/nutation and the sidereal spin are applied (the dayArc.ts "never a second
+ * ephemeris" rule, one level down).
+ */
+export function ecefFrameAt(time: AstroTime): EcefFrame {
   const rot = Rotation_EQJ_EQD(time); // precession + nutation, once per instant
   const gastRad = SiderealTime(time) * 15 * (Math.PI / 180); // sidereal hours → radians
   const c = Math.cos(gastRad);
   const s = Math.sin(gastRad);
+  return {
+    gastRad,
+    toEcef(eqj) {
+      const v = RotateVector(rot, new Vector(eqj.x, eqj.y, eqj.z, time)); // EQJ → equator-of-date
+      // Equator-of-date → earth-fixed: rotate about +Z by −GAST (sign verified against the
+      // library's own terra()/Horizon() and JPL Horizons).
+      return [v.x * c + v.y * s, -v.x * s + v.y * c, v.z] as const;
+    },
+  };
+}
+
+/** Sun + moon state at a UTC instant — ONE call drives lighting, bodies and readouts. */
+export function bodyStatesAt(utcMs: number): BodyStates {
+  const time = MakeTime(new Date(utcMs));
+  const frame = ecefFrameAt(time);
+  const gastRad = frame.gastRad;
   const toEcef = (eqj: Vector): { dir: Vec3; distAu: number } => {
-    const v = RotateVector(rot, eqj); // EQJ → equator-of-date
-    // Equator-of-date → earth-fixed: rotate about +Z by −GAST (sign verified against the
-    // library's own terra()/Horizon() and JPL Horizons).
-    const x = v.x * c + v.y * s;
-    const y = -v.x * s + v.y * c;
-    const z = v.z;
+    const [x, y, z] = frame.toEcef(eqj);
     const d = Math.hypot(x, y, z);
     return { dir: [x / d, y / d, z / d] as const, distAu: d };
   };

@@ -27,7 +27,9 @@ import {
   SearchMoonPhase,
   SearchRiseSet,
 } from "astronomy-engine";
-import { horizontal, type AzAlt } from "./bodies";
+import { bodyStatesAt, horizontal, type AzAlt } from "./bodies";
+import { cometAzAlt, TEMPEL2, type CometProfile } from "./comet";
+import { targetAzAlt, type SkyTarget } from "./targets";
 import { localDayWindow } from "./dayArc";
 import type { GoldenCurve } from "./golden";
 
@@ -144,6 +146,163 @@ export function moonPhaseEvents(sceneUtcMs: number, o: PlanObserver): PlanEvent[
   if (full != null) events.push(annotate("fullMoon", "moon", full, o));
   if (nw != null) events.push(annotate("newMoon", "moon", nw, o));
   return events.sort((a, b) => a.utcMs - b.utcMs);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Target observing windows — "when is my next session on X" (2026-08-02 for the comet;
+// generalised to any SkyTarget 2026-08-03, ASTRO ENGINE phase A)
+// ---------------------------------------------------------------------------------------------
+
+/** One dark-sky window where the target stands above the observer's minimum altitude. */
+export interface TargetWindow {
+  /** Window bounds (UTC ms) — sun below `darkSunDeg` AND target above `minAltDeg`. */
+  startMs: number;
+  endMs: number;
+  /** Best instant inside the window (target culmination, or a clipped edge). */
+  peakMs: number;
+  peakAltDeg: number;
+  peakAzDeg: number;
+  /** Predicted magnitude at the peak — null when the target carries no brightness model. */
+  magnitude: number | null;
+  /** Moon altitude (deg) and illuminated fraction at the peak — the interference read. */
+  moonAltDeg: number;
+  moonIllum: number;
+  /** 0..1 session quality: altitude × moon interference × how long the window lasts. */
+  score: number;
+}
+
+/** Back-compat name from the 2026-08-02 comet session — same shape. */
+export type CometWindow = TargetWindow;
+
+export interface TargetWindowOptions {
+  /** How many days ahead to scan. */
+  days?: number;
+  /** Sample cadence (minutes) — also the window-edge granularity. */
+  stepMin?: number;
+  /** Sun must be BELOW this altitude (deg). −15 ≈ deep nautical dark; −18 = astronomical. */
+  darkSunDeg?: number;
+  /** Target must be ABOVE this altitude (deg) — the open-sky floor before any skyline profile. */
+  minAltDeg?: number;
+  /** Stop after this many windows. */
+  limit?: number;
+}
+
+export interface CometWindowOptions extends TargetWindowOptions {
+  profile?: CometProfile;
+}
+
+/** Altitude (deg) at which a window scores a full altitude mark (10P culminates low from 48°N —
+ *  a generous full-mark bar keeps low-declination targets honestly scoreable). */
+const WINDOW_ALT_FULL_DEG = 30;
+/** A window this long (hours) scores full on duration. */
+const WINDOW_DURATION_FULL_H = 3;
+
+/** One topocentric sample of whatever the scan is hunting — injected so the scan itself stays
+ *  provider-agnostic (the plan's "never a second ephemeris" rule applies to the SAMPLER). */
+type WindowSample = { azDeg: number; altDeg: number; magnitude: number | null };
+
+/**
+ * Next dark-sky windows on a target for an observer. A pure forward scan (no root-finder: kepler
+ * and fixed targets are not astronomy-engine bodies, and 10-minute granularity is finer than any
+ * real observing plan) over the SAME topocentric ephemeris the panel and the scene read.
+ *
+ * Cost is ~1 sun evaluation per step plus a target evaluation only while it is dark — a 10-day /
+ * 10-minute scan is a few tens of ms, which is why callers memoize it per anchor+day.
+ */
+function scanWindows(
+  fromMs: number,
+  o: PlanObserver,
+  opts: TargetWindowOptions,
+  sample: (utcMs: number, eyeM: number) => WindowSample,
+): TargetWindow[] {
+  const days = opts.days ?? 10;
+  const stepMs = (opts.stepMin ?? 10) * 60_000;
+  const darkSunDeg = opts.darkSunDeg ?? -15;
+  const minAltDeg = opts.minAltDeg ?? 5;
+  const limit = opts.limit ?? 6;
+  const eyeM = o.groundAltM + o.eyeAboveGroundM;
+
+  const out: TargetWindow[] = [];
+  let open: TargetWindow | null = null;
+  const endScanMs = fromMs + days * 86_400_000;
+
+  for (let t = fromMs; t <= endScanMs && out.length < limit; t += stepMs) {
+    const dark = horizontal("sun", t, o.latDeg, o.lonDeg).altDeg < darkSunDeg;
+    const c = dark ? sample(t, eyeM) : null;
+    const up = c != null && c.altDeg > minAltDeg;
+    if (up && c) {
+      if (!open) {
+        open = {
+          startMs: t,
+          endMs: t,
+          peakMs: t,
+          peakAltDeg: -90,
+          peakAzDeg: 0,
+          magnitude: c.magnitude,
+          moonAltDeg: 0,
+          moonIllum: 0,
+          score: 0,
+        };
+      }
+      open.endMs = t;
+      if (c.altDeg > open.peakAltDeg) {
+        open.peakAltDeg = c.altDeg;
+        open.peakAzDeg = c.azDeg;
+        open.peakMs = t;
+        open.magnitude = c.magnitude;
+      }
+    } else if (open) {
+      out.push(finishWindow(open, o));
+      open = null;
+    }
+  }
+  if (open && out.length < limit) out.push(finishWindow(open, o));
+  return out;
+}
+
+/** Dark-sky windows on any SkyTarget — the generic face (TargetPanel's NEXT SESSIONS). */
+export function targetWindows(
+  fromMs: number,
+  o: PlanObserver,
+  target: SkyTarget,
+  opts: TargetWindowOptions = {},
+): TargetWindow[] {
+  return scanWindows(fromMs, o, opts, (t, eyeM) => {
+    const s = targetAzAlt(target, t, o.latDeg, o.lonDeg, eyeM);
+    return { azDeg: s.azDeg, altDeg: s.altDeg, magnitude: s.state.magnitude };
+  });
+}
+
+/** The 2026-08-02 comet face, kept verbatim-compatible (comet.test.ts locks it). */
+export function cometWindows(
+  fromMs: number,
+  o: PlanObserver,
+  opts: CometWindowOptions = {},
+): CometWindow[] {
+  const profile = opts.profile ?? TEMPEL2;
+  return scanWindows(fromMs, o, opts, (t, eyeM) =>
+    cometAzAlt(t, o.latDeg, o.lonDeg, eyeM, profile),
+  );
+}
+
+function finishWindow(w: TargetWindow, o: PlanObserver): TargetWindow {
+  const moon = horizontal("moon", w.peakMs, o.latDeg, o.lonDeg);
+  const moonIllum = bodyStatesAt(w.peakMs).moonIllumination;
+  // A moon below the horizon costs nothing; above it, the penalty follows brightness × how high
+  // it stands (a low gibbous scatters far less sky glow than the same moon at the zenith).
+  const moonFactor =
+    moon.altDeg <= 0
+      ? 1
+      : 1 - 0.8 * moonIllum * Math.sqrt(Math.sin(Math.min(90, moon.altDeg) * (Math.PI / 180)));
+  const altScore = Math.min(1, Math.max(0, w.peakAltDeg / WINDOW_ALT_FULL_DEG));
+  const durationH = (w.endMs - w.startMs) / 3_600_000;
+  const durationScore = Math.min(1, durationH / WINDOW_DURATION_FULL_H);
+  return {
+    ...w,
+    moonAltDeg: moon.altDeg,
+    moonIllum,
+    score: altScore * moonFactor * (0.5 + 0.5 * durationScore),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------

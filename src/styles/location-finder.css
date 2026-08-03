@@ -12,6 +12,51 @@
   font-family: var(--font-mono);
 }
 
+/* EARTH ⇄ SKY segmented toggle (ASTRO ENGINE phase A) — sits IN the input row; the drag offset
+   stays on .lf's single transform (DragGrip contract — never a second transform). */
+.lf-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.lf-tipwrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.lf-mode {
+  display: flex;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.lf-mode__btn {
+  font-family: inherit;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  padding: 0 0.5rem;
+  cursor: pointer;
+  transition: color 180ms ease, background 180ms ease;
+}
+
+.lf-mode__btn--on {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.lf-hit-glyph {
+  color: var(--color-accent);
+  margin-right: 2px;
+}
+
 .lf-input {
   width: 100%;
   font-family: inherit;

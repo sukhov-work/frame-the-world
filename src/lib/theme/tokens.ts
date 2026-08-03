@@ -31,6 +31,8 @@ export const tokens = {
   skyDay: '#7FB8E8', // low-altitude day-sky zenith — light blue dome at city zooms
   skyHorizon: '#D8E6F2', // low-altitude horizon haze — near-white aerial perspective
   milkyWay: '#E7E3D8', // faint warm-white galactic band (subtle, near tokens.star)
+  cometComa: '#9FF3C8', // comet coma — the real C2/CN green of an active nucleus
+  cometTail: '#8FD8FF', // comet ion tail — cold plasma blue, anti-sunward
   // Vector map ink (S7 feedback batch) — the close-zoom street/water web (map ink, not signal)
   vecRoadMajor: '#A7B4C4', // motorway/trunk/primary — bright steel strokes
   vecRoadMinor: '#5F6B7A', // residential/service web — dim slate
