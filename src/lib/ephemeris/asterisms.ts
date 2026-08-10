@@ -28,6 +28,27 @@ export interface AsterismSegments {
   figureCount: number;
 }
 
+/** The full-88 constellation-figure asset (phase B — `public/data/constellation-lines.json`,
+ *  scripts/build-constellations.mjs; same coordinate convention as the asterisms). */
+export interface ConstellationFiguresAsset {
+  credit: string;
+  figures: Array<{ abbr: string; lines: number[][][] }>;
+}
+
+/** Per-figure LineSegments positions, keyed by the IAU abbreviation — the tracked-constellation
+ *  highlight picks its one figure from here (scene/stars.ts). */
+export function figureSegmentsByAbbr(asset: ConstellationFiguresAsset): Map<string, Float32Array> {
+  const out = new Map<string, Float32Array>();
+  for (const f of asset.figures) {
+    out.set(
+      f.abbr,
+      asterismSegments({ credit: asset.credit, asterisms: [{ id: f.abbr, name: f.abbr, lines: f.lines }] })
+        .positions,
+    );
+  }
+  return out;
+}
+
 /** Flatten every asterism polyline into LineSegments vertex pairs of unit J2000 directions. */
 export function asterismSegments(asset: AsterismsAsset): AsterismSegments {
   const xyz: number[] = [];

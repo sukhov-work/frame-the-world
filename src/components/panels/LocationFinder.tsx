@@ -9,10 +9,13 @@
  *   store/camera; the globe orchestrator turns it into the same cinematic flight a placed photo
  *   gets. Results are OSM data → attribution line in the list.
  *
- *   SKY — "track that object": planets · Messier objects · the comet, fuzzy-matched against the
- *   hardcoded phase-A catalog (`lib/sky/catalog`, LAZY — the first SKY keystroke pays the chunk,
- *   the boot never does). Picking a result swaps the tracked target in store/sky: the marker
- *   moves, the TARGET panel re-badges, windows re-scan. No network, no debounce needed.
+ *   SKY — "track that object" (phase B, 2026-08-10): planets · IAU-named stars · Messier + the
+ *   full OpenNGC (common names fuzzy, NGC/IC ids via the pattern branch) · 88 constellations ·
+ *   ~950 MPC comets · bright asteroids — all against `lib/sky/catalog` (LAZY — the first SKY
+ *   keystroke pays the chunk, the boot never does). A local miss falls through, DEBOUNCED, to
+ *   SIMBAD TAP (fixed objects, client-direct) or `/api/sbdb` (small bodies) — both localStorage
+ *   cached. Picking a result swaps the tracked target in store/sky: the marker moves, the
+ *   TARGET panel re-badges, windows re-scan.
  *
  * Keyboard: ↑/↓ move, Enter picks (or submits on EARTH), Escape closes then clears.
  */
@@ -25,7 +28,12 @@ import { usePlanStore } from "../../store/plan";
 import { aimAtSky } from "../../store/skyAim";
 import { sceneTimeMs } from "../../store/time";
 import { targetAzAlt } from "../../lib/ephemeris/targets";
-import { kindGlyph, type SkyIndexEntry } from "../../lib/sky/searchIndex";
+import {
+  kindGlyph,
+  looksLikeSmallBody,
+  normalizeSky,
+  type SkyIndexEntry,
+} from "../../lib/sky/searchIndex";
 import { SEARCH } from "../globe/tuning";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/location-finder.css";
@@ -98,13 +106,33 @@ export default function LocationFinder() {
     skyQueryRef.current = q;
     setStatus("loading");
     loadCatalog()
-      .then((cat) => {
+      .then(async (cat) => {
         if (skyQueryRef.current !== q) return; // superseded while the chunk loaded
-        const result = cat.searchSkyCatalog(q, SEARCH.limit);
-        setSkyHits(result);
-        setActive(result.length > 0 ? 0 : -1);
+        // Instant pass over the baked index; the OpenNGC binary joins on its first fetch.
+        const instant = cat.searchSkyCatalog(q, SEARCH.limit);
+        if (instant.length > 0) {
+          setSkyHits(instant);
+          setActive(0);
+          setStatus("ready");
+          setOpen(true);
+        }
+        const enriched = await cat.searchSkyEnriched(q, SEARCH.limit);
+        if (skyQueryRef.current !== q) return;
+        setSkyHits(enriched);
+        setActive(enriched.length > 0 ? 0 : -1);
         setStatus("ready");
         setOpen(true);
+        // Long tail (phase B): nothing local → one DEBOUNCED remote lookup. SIMBAD for fixed
+        // objects (CORS *, courtesy-limited — never per keystroke), /api/sbdb for anything
+        // that reads as a small-body designation. A designation-shaped query ALSO goes out
+        // when the local rows are only near-misses ("2024 YR4" must not drown under the
+        // C/2024 R4 typo family — browser-caught 2026-08-10).
+        const exactLocal = enriched.some((e) => e.keys.includes(normalizeSky(q)));
+        if (
+          q.length >= 3 &&
+          (enriched.length === 0 || (looksLikeSmallBody(q) && !exactLocal))
+        )
+          scheduleLongTail(q, enriched);
       })
       .catch((err) => {
         console.warn("[search] sky catalog failed to load:", err);
@@ -112,6 +140,39 @@ export default function LocationFinder() {
         setStatus("error");
         setOpen(true);
       });
+  };
+
+  const scheduleLongTail = (q: string, baseRows: SkyIndexEntry[]) => {
+    if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(async () => {
+      if (skyQueryRef.current !== q) return;
+      setStatus("loading");
+      try {
+        const [{ resolveSbdb, sbdbIndexEntry }, { resolveSimbad, simbadIndexEntry }] =
+          await Promise.all([import("../../lib/sky/sbdb"), import("../../lib/sky/simbad")]);
+        const remote: SkyIndexEntry[] = [];
+        if (looksLikeSmallBody(q)) {
+          const hit = await resolveSbdb(q);
+          if (hit) remote.push(sbdbIndexEntry(hit));
+        } else {
+          const o = await resolveSimbad(q);
+          if (o) remote.push(simbadIndexEntry(o));
+        }
+        if (skyQueryRef.current !== q) return;
+        // The resolved object leads; the local near-misses stay below it as suggestions.
+        const ids = new Set(remote.map((e) => e.id));
+        const rows = [...remote, ...baseRows.filter((e) => !ids.has(e.id))].slice(0, SEARCH.limit);
+        setSkyHits(rows);
+        setActive(rows.length > 0 ? 0 : -1);
+        setStatus("ready");
+        setOpen(true);
+      } catch (err) {
+        if (skyQueryRef.current !== q) return;
+        console.warn("[search] sky long-tail lookup failed:", err);
+        setStatus("ready"); // the local rows stand — a dead network is not an error state
+        setOpen(true);
+      }
+    }, SEARCH.skyLongTailDebounceMs);
   };
 
   const minLen = (m: Mode) => (m === "sky" ? SKY_MIN_QUERY_LEN : SEARCH.minQueryLen);
@@ -163,8 +224,8 @@ export default function LocationFinder() {
   };
 
   const track = (entry: SkyIndexEntry) => {
-    void loadCatalog().then((cat) => {
-      const target = cat.targetById(entry.id);
+    void loadCatalog().then(async (cat) => {
+      const target = await cat.targetByIdAsync(entry.id);
       if (!target) return;
       const sky = useSkyStore.getState();
       sky.setTarget(target);
@@ -271,7 +332,7 @@ export default function LocationFinder() {
           className="tip tip-wrap lf-tipwrap"
           data-tip={
             sky
-              ? "SEARCH THE SKY — PLANETS · MESSIER · COMETS. ENTER TRACKS IT."
+              ? "SEARCH THE SKY — PLANETS · STARS · NGC/IC · COMETS · ASTEROIDS · CONSTELLATIONS. ENTER TRACKS IT."
               : "SEARCH ANY PLACE — ENTER FLIES THERE. RESULTS AS YOU TYPE."
           }
           data-tip-pos="down"
@@ -281,7 +342,7 @@ export default function LocationFinder() {
             type="text"
             placeholder={
               sky
-                ? "FIND A SKY OBJECT — m31 · saturn · orion nebula"
+                ? "FIND A SKY OBJECT — m31 · vega · ngc 7000 · ceres · orion"
                 : "FIND A PLACE — city · street · sight · zip"
             }
             value={query}
@@ -338,7 +399,9 @@ export default function LocationFinder() {
                 </button>
               ))}
           <div className="lf-credit">
-            {sky ? "OpenNGC (CC-BY-SA-4.0) · astronomy-engine · JPL" : "© OpenStreetMap contributors"}
+            {sky
+              ? "OpenNGC (CC-BY-SA) · IAU WGSN · MPC · JPL · SIMBAD/CDS · astronomy-engine"
+              : "© OpenStreetMap contributors"}
           </div>
         </div>
       )}

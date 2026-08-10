@@ -111,6 +111,10 @@
   letter-spacing: 0.14em;
   color: var(--color-text);
 }
+/* Tracked-target row (phase E) — the label matches the FPV edge chip's accent identity. */
+.pp-body__label {
+  color: var(--color-accent);
+}
 .pp-body--blocked .pp-body__verdict {
   color: var(--color-warn);
 }

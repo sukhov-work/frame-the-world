@@ -138,6 +138,18 @@ export function searchSky(
     .map((x) => x.e);
 }
 
+/** Does a query look like a small-body designation worth a JPL SBDB round-trip? Lives here
+ *  (boot-safe, pure) so the finder can consult it without pulling the sbdb module. */
+export function looksLikeSmallBody(query: string): boolean {
+  const q = query.trim();
+  return (
+    /^[cpdai]\/\d{4}\s?[a-z]+\d*(-[a-z])?$/i.test(q) || // C/2023 A3 · P/2016 BA14
+    /^\d{4}\s?[a-z]{2}\d*$/i.test(q) || // 2024 YR4 (provisional)
+    /^\d+[pP]$/.test(q) || // 73P
+    /^\(?\d{1,7}\)?(\s+[a-z][a-z' -]+)?$/i.test(q) // 433 · (99942) · 99942 apophis
+  );
+}
+
 /** Kind glyph for result rows + the panel pill — the one place the mapping lives. */
 export function kindGlyph(kind: TargetKind): string {
   switch (kind) {
@@ -157,6 +169,8 @@ export function kindGlyph(kind: TargetKind): string {
       return "❋";
     case "cluster":
       return "⁘";
+    case "constellation":
+      return "✶";
     case "shower":
       return "☄";
     default:

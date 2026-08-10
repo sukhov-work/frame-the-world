@@ -331,20 +331,22 @@ export interface SkylineSearchOptions {
   scanStepMin?: number;
 }
 
+/** Topocentric az/alt at an instant — the skyline scan's injected position source (the same
+ *  provider-agnostic move `scanWindows` made for the window sampler). */
+export type AzAltSampler = (utcMs: number) => AzAlt;
+
 /** Signed clearance: body altitude − skyline altitude at the body's azimuth (deg). */
 function clearanceDeg(
-  body: PlanBody,
+  sample: AzAltSampler,
   utcMs: number,
-  o: PlanObserver,
   profile: ProfileSampleFn,
 ): { c: number; pos: AzAlt } {
-  const pos = horizontal(body, utcMs, o.latDeg, o.lonDeg);
+  const pos = sample(utcMs);
   return { c: pos.altDeg - profile(pos.azDeg), pos };
 }
 
 function bisectCrossing(
-  body: PlanBody,
-  o: PlanObserver,
+  sample: AzAltSampler,
   profile: ProfileSampleFn,
   loMs: number,
   hiMs: number,
@@ -354,7 +356,7 @@ function bisectCrossing(
   let hi = hiMs;
   for (let i = 0; i < 22 && hi - lo > 500; i++) {
     const mid = (lo + hi) / 2;
-    const { c } = clearanceDeg(body, mid, o, profile);
+    const { c } = clearanceDeg(sample, mid, profile);
     const clearAtMid = c > 0;
     if (clearAtMid === risingToClear) hi = mid;
     else lo = mid;
@@ -363,30 +365,29 @@ function bisectCrossing(
 }
 
 /**
- * Where the body stands vs the skyline NOW, plus the next clear/block instants. Coarse scan +
- * bisection (±0.5 s) instead of astronomy-engine `Search` because the profile is a piecewise
- * bin function — no derivative smoothness for its quadratic interpolation to exploit.
+ * Where the sampled body stands vs the skyline NOW, plus the next clear/block instants. Coarse
+ * scan + bisection (±0.5 s) instead of astronomy-engine `Search` because the profile is a
+ * piecewise bin function — no derivative smoothness for its quadratic interpolation to exploit.
  * "Blocked" includes below the open-sky horizon (profile bins floor at the eye-height dip).
  */
-export function skylineState(
-  body: PlanBody,
+export function sampledSkylineState(
+  sample: AzAltSampler,
   sceneUtcMs: number,
-  o: PlanObserver,
   profile: ProfileSampleFn,
   opts: SkylineSearchOptions = {},
 ): SkylineState {
   const horizonMs = (opts.horizonDays ?? 1.5) * 86_400_000;
   const stepMs = (opts.scanStepMin ?? 10) * 60_000;
-  const now = clearanceDeg(body, sceneUtcMs, o, profile);
+  const now = clearanceDeg(sample, sceneUtcMs, profile);
   const blockedNow = now.c <= 0;
   let nextClearMs: number | null = null;
   let nextBlockMs: number | null = null;
   let prevMs = sceneUtcMs;
   let prevClear = !blockedNow;
   for (let t = sceneUtcMs + stepMs; t <= sceneUtcMs + horizonMs; t += stepMs) {
-    const clear = clearanceDeg(body, t, o, profile).c > 0;
+    const clear = clearanceDeg(sample, t, profile).c > 0;
     if (clear !== prevClear) {
-      const ms = bisectCrossing(body, o, profile, prevMs, t, clear);
+      const ms = bisectCrossing(sample, profile, prevMs, t, clear);
       if (clear && nextClearMs == null) nextClearMs = ms;
       if (!clear && nextBlockMs == null) nextBlockMs = ms;
       if (nextClearMs != null && nextBlockMs != null) break;
@@ -402,4 +403,41 @@ export function skylineState(
     nextClearMs,
     nextBlockMs,
   };
+}
+
+/** Sun/moon vs the skyline — the WS4-C face (planFeed's sun/moon rows), output unchanged. */
+export function skylineState(
+  body: PlanBody,
+  sceneUtcMs: number,
+  o: PlanObserver,
+  profile: ProfileSampleFn,
+  opts: SkylineSearchOptions = {},
+): SkylineState {
+  return sampledSkylineState(
+    (t) => horizontal(body, t, o.latDeg, o.lonDeg),
+    sceneUtcMs,
+    profile,
+    opts,
+  );
+}
+
+/** Any tracked SkyTarget vs the skyline (ASTRO ENGINE phase E) — same topocentric face the
+ *  marker/trail/panel read (`targetAzAlt`), so the verdict can never disagree with the scene. */
+export function targetSkylineState(
+  target: SkyTarget,
+  sceneUtcMs: number,
+  o: PlanObserver,
+  profile: ProfileSampleFn,
+  opts: SkylineSearchOptions = {},
+): SkylineState {
+  const eyeM = o.groundAltM + o.eyeAboveGroundM;
+  return sampledSkylineState(
+    (t) => {
+      const s = targetAzAlt(target, t, o.latDeg, o.lonDeg, eyeM);
+      return { azDeg: s.azDeg, altDeg: s.altDeg };
+    },
+    sceneUtcMs,
+    profile,
+    opts,
+  );
 }

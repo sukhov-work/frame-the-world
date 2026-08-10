@@ -8,6 +8,7 @@ import {
   observedMagnitude,
   visibilityClass,
   helioEqjAu,
+  hgMagnitude,
   jdTdbFromUtcMs,
   nextPerihelionMs,
   perihelionMs,
@@ -136,7 +137,7 @@ describe("orbit mechanics", () => {
   it("perihelion lands on 2026-08-02 02:44Z and the next one 5.37 yr later", () => {
     // Horizons Tp = 2461254.615211 TDB for solution JPL#K265/43.
     expect(perihelionMs()).toBeCloseTo(utc("2026-08-02T02:44:45Z"), -4); // ±5 s
-    expect(new Date(nextPerihelionMs()).toISOString().slice(0, 7)).toBe("2031-12");
+    expect(new Date(nextPerihelionMs()!).toISOString().slice(0, 7)).toBe("2031-12");
   });
 
   it("closest approach to Earth is 0.414 au on 2026-08-03", () => {
@@ -260,5 +261,77 @@ describe("cometWindows (the observing-session planner)", () => {
     // Far northern summer: the sun never reaches −15° AND a dec −25° object never rises high.
     const svalbard = { latDeg: 78.2, lonDeg: 15.6, groundAltM: 0, eyeAboveGroundM: 1.6 };
     expect(cometWindows(utc("2026-08-02T12:00:00Z"), svalbard, { days: 3 })).toHaveLength(0);
+  });
+});
+
+describe("universal-variable propagator — every conic (phase B)", () => {
+  const base = {
+    epochJdTdb: 2461000.5,
+    iDeg: 0,
+    nodeDeg: 0,
+    periDeg: 0,
+    tpJdTdb: 2461000.5,
+    m1: 10,
+    k1: 4,
+  };
+  /** Heliocentric distance from the propagator at Tp + dtDays. */
+  const rAt = (el: Parameters<typeof helioEqjAu>[1], dtDays: number) => {
+    const p = helioEqjAu(base.tpJdTdb + dtDays, el);
+    return Math.hypot(p[0], p[1], p[2]);
+  };
+
+  it("near-parabolic (Hale-Bopp-like, e=0.9949): r=q at Tp, symmetric legs, sane at ±1 yr", () => {
+    const q = 0.9141;
+    const el = { ...base, e: 0.9949, qAu: q, aAu: q / (1 - 0.9949), nDegPerDay: 0, periodDays: Infinity };
+    expect(rAt(el, 0)).toBeCloseTo(q, 9);
+    expect(rAt(el, 200)).toBeCloseTo(rAt(el, -200), 9); // time-symmetric about perihelion
+    const r1y = rAt(el, 365.25);
+    expect(r1y).toBeGreaterThan(3); // receding — a comet like this is ~4 au out a year on
+    expect(r1y).toBeLessThan(8);
+  });
+
+  it("hyperbolic (e=1.05): departs monotonically and beats the parabola out", () => {
+    const q = 1.0;
+    const hyp = { ...base, e: 1.05, qAu: q, aAu: q / (1 - 1.05), nDegPerDay: 0, periodDays: Infinity };
+    const par = { ...base, e: 1.0, qAu: q, aAu: Infinity, nDegPerDay: 0, periodDays: Infinity };
+    expect(rAt(hyp, 0)).toBeCloseTo(q, 9);
+    expect(rAt(par, 0)).toBeCloseTo(q, 9);
+    let prev = rAt(hyp, 0);
+    for (const dt of [50, 150, 400, 1000]) {
+      const r = rAt(hyp, dt);
+      expect(r).toBeGreaterThan(prev);
+      prev = r;
+    }
+    expect(rAt(hyp, 1000)).toBeGreaterThan(rAt(par, 1000)); // excess velocity
+  });
+
+  it("elliptic wrap: centuries from epoch the orbit still cycles r within [q, a(1+e)]", () => {
+    const el = TEMPEL2.elements;
+    for (const dt of [36500, -36500, 100 * el.periodDays + 17]) {
+      const r = rAt(el, dt);
+      expect(r).toBeGreaterThanOrEqual(el.qAu - 1e-6);
+      expect(r).toBeLessThanOrEqual(el.aAu * (1 + el.e) + 1e-6);
+    }
+  });
+});
+
+describe("hgMagnitude — IAU (H,G) asteroid phase law (phase B)", () => {
+  it("Ceres at opposition: H=3.34 at r=2.77, Δ=1.77 → V ≈ 6.8 (the classic naked-eye-miss)", () => {
+    // α → 0 at exact opposition (R = r − Δ): the phase term vanishes and V = H + 5·log10(rΔ).
+    const v = hgMagnitude(1.77, 2.77, 1.0, 3.34, 0.12);
+    expect(v).toBeGreaterThan(6.5);
+    expect(v).toBeLessThan(7.1);
+  });
+
+  it("phase dims: the same geometry at α ≈ 20° reads fainter than the zero-phase value", () => {
+    // r=2.77, Δ=2.77, R≈0.96 → α ≈ 20° at the body.
+    const zeroPhase = 3.34 + 5 * Math.log10(2.77 * 2.77);
+    const v = hgMagnitude(2.77, 2.77, 0.96, 3.34, 0.12);
+    expect(v).toBeGreaterThan(zeroPhase + 0.3);
+    expect(v).toBeLessThan(zeroPhase + 2.5);
+  });
+
+  it("G defaults to 0.15 and both Φ functions stay inside (0,1]", () => {
+    expect(hgMagnitude(1, 2, 1, 10)).toBeCloseTo(hgMagnitude(1, 2, 1, 10, 0.15), 12);
   });
 });

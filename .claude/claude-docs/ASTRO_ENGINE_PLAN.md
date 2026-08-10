@@ -166,8 +166,17 @@ kind glyph. Small, contained change — the hard part (screen projection + edge 
   **point/ellipse treatments + auto-widened ring visually UNVERIFIED** (hidden-window rAF trap) —
   eyeball first thing next visible-window session. See DECISIONS 2026-08-03 ASTRO ENGINE line +
   `mem:project/wip-2026-08-03-astro-engine-phase-a`.
-- **B · Data.** Bake scripts for OpenNGC + star names + comet/asteroid element sets; the real fuzzy
-  index; SIMBAD fallback + localStorage cache.
+- **B · Data. ✅ SHIPPED 2026-08-10** — the full catalog fleet behind one lazy chunk (424 KB, boot
+  chunk untouched — build-verified + `lazyContract.test.ts` guard): full OpenNGC (13,263 records
+  packed to `public/data/openngc.bin`, 20 B/record; common names fuzzy, NGC/IC ids via a pattern
+  branch) · 451 IAU WGSN star names (`starNames.ts`, own RA/Dec — no bsc5 re-bake; greek-bayer
+  key expansion "alpha lyrae"→Vega) · 88 constellations (`constellations.ts` + the full 88-figure
+  lines asset) · 952 MPC comets + 337 SBDB bright asteroids (full-prec, H<9) through a NEW
+  **universal-variable (Stumpff) propagator** (all conics — Hale-Bopp e=0.9949 ≤2′ vs Horizons)
+  + the **IAU (H,G) Bowell law** (Ceres ≤30″/0.2 mag vs Horizons); SIMBAD TAP + `/api/sbdb`
+  long-tail (debounced, localStorage-cached, `phys-par=1` — SBDB omits H otherwise); last-tracked
+  id persists (`skyTargetId`, idle-restored). Gates vitest 701/701 · astro 0/0 · browser-VERIFIED
+  in a visible window. DECISIONS 2026-08-10 line + `mem:project/wip-2026-08-10-astro-engine-phase-bde`.
 - **C · Trajectory + off-screen chips + interaction (owner feedback 2026-08-03 after testing A).
   ✅ SHIPPED 2026-08-03 (same day)** — all five items, browser-VERIFIED in a visible window
   (gates vitest 674/674 · astro 0/0; DECISIONS 2026-08-03 PHASE C line +
@@ -185,9 +194,22 @@ kind glyph. Small, contained change — the hard part (screen projection + edge 
   5. Cleanup: `SKY_TARGET` tuning group split out of `COMET` (which keeps coma/tail only);
      prefs → `skyTargetVisible/Highlight/Trail` with read-old-keys fallback (old blobs keep
      their chips).
-- **D · Per-category render polish.** Planet phase discs, Saturn's rings, DSO ellipses, star colour.
-- **E · Planner.** Generalise `cometWindows` → `targetWindows` (any target), and extend the PLAN
-  panel's skyline verdict to the tracked target.
+- **D · Per-category render polish. ✅ SHIPPED 2026-08-10** — planet treatment = uMode 3 in
+  `scene/skyTarget.ts`: phase-lit disc (moon lambert on the billboard, sun in billboard-local
+  coords, +Y = celestial north → true terminator orientation; size floored at
+  `SKY_TARGET.planetDiscMinDeg` 0.4°, TRUE size wins at long focal) + Saturn ring band (real
+  pole via `saturnRingPoleDir`, projected opening sin B — near edge-on in 2026 — with the near
+  arm crossing IN FRONT of the disc); star colour = per-star B−V tint (`bvToRgb`: Ballesteros
+  temperature + blackbody sRGB, `STARS.bvTintAmount` 0.6 blend, all 9,096 BSC5 stars).
+  Constellation treatment (net-new kind): tracked figure lights up in accent via
+  `stars.update({constellation})` + the 88-figure asset. Browser shots
+  `verify-shots/astroB-0[1-4]*.jpeg` (the 500 mm Saturn is the flagship).
+- **E · Planner. ✅ SHIPPED 2026-08-10** — `skylineState` generalised over an injected az/alt
+  sampler (`sampledSkylineState`; the scanWindows move); `targetSkylineState(target,…)` feeds a
+  THIRD row in planFeed (gated by TARGET SHOW, target-swap invalidates the scan) mirrored as
+  `store/plan.target` → PlanPanel row (glyph + designation) + a SKYLINE CLEAR / BEHIND SKYLINE
+  badge in TargetPanel. Browser-verified both ways (Saturn CLEAR w/ HIDES crossing · Orion
+  BEHIND w/ CLEARS crossing).
 
 ## Risks / open questions
 - **Boot weight.** Everything lazy-loads on first SKY search; assert the boot chunk is unchanged.

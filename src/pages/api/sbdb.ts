@@ -15,8 +15,9 @@ import { json } from "../../lib/api/http";
  */
 
 const UPSTREAM = "https://ssd-api.jpl.nasa.gov/sbdb.api";
-/** Upstream params a client may set — anything else is dropped. */
-const ALLOWED = new Set(["sstr", "full-prec"]);
+/** Upstream params a client may set — anything else is dropped. `phys-par` pulls H/G (and the
+ *  comet M1/K1) — SBDB omits physical parameters by default (browser-caught 2026-08-10). */
+const ALLOWED = new Set(["sstr", "full-prec", "phys-par"]);
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
 export const GET: APIRoute = async ({ url }) => {

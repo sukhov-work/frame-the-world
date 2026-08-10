@@ -27,7 +27,10 @@ import {
   cometStateAt,
   ELEMENTS_TRUST_DAYS,
   TEMPEL2,
+  hgMagnitude,
+  smallBodyGeometryAt,
   type CometProfile,
+  type KeplerElements,
 } from "./comet";
 import { enuBasis, geodeticToEcef, type Vec3 } from "../geo/projection";
 
@@ -44,6 +47,7 @@ export type TargetKind =
   | "galaxy"
   | "nebula"
   | "cluster"
+  | "constellation"
   | "shower"
   | "other";
 
@@ -52,7 +56,8 @@ export type TargetMagnitudeModel =
   | "observed" // fitted to real observations (the comet's COBS light curve)
   | "jpl" // JPL M1/k1 fit (systematically faint for an extended coma — labelled)
   | "engine" // astronomy-engine planetary magnitude model
-  | "catalog"; // a fixed catalog value (stars, DSOs — no phase/distance dependence)
+  | "catalog" // a fixed catalog value (stars, DSOs — no phase/distance dependence)
+  | "hg"; // IAU (H,G) asteroid phase law (Bowell 1989) — phase B
 
 /** Everything the scene and the readouts need about a target at ONE instant. */
 export interface TargetState {
@@ -105,6 +110,36 @@ export type TargetFacts =
       constellation: string | null;
       /** Common names beyond the primary one. */
       names: string[];
+    }
+  | {
+      kind: "asteroid";
+      /** MPC number ("1" Ceres … ) — null for unnumbered. */
+      number: number | null;
+      /** Absolute magnitude H + slope G of the (H,G) phase law. */
+      h: number;
+      g: number;
+      /** The baked element set (epoch honesty + perihelion arithmetic). */
+      elements: KeplerElements;
+    }
+  | {
+      kind: "star";
+      /** Primary catalog designation ("HR 7001"). */
+      designation: string;
+      /** Bayer-style id + constellation ("alp Lyr"), when the catalog has one. */
+      bayer: string | null;
+      constellation: string | null;
+      /** Cross-catalog numbers for the card (null where absent). */
+      hr: number | null;
+      hip: number | null;
+      hd: number | null;
+    }
+  | {
+      kind: "constellation";
+      /** 3-letter IAU abbreviation ("Ori"). */
+      abbr: string;
+      genitive: string;
+      /** d3-celestial prominence rank 1..3. */
+      rank: number;
     };
 
 /** ONE interface every category satisfies — the load-bearing abstraction of the astro engine. */
@@ -323,6 +358,28 @@ export function fixedTarget(spec: FixedTargetSpec): SkyTarget {
   };
 }
 
+/** Saturn's north pole, J2000 (IAU WGCCRE 2015: RA 40.589°, Dec 83.537° — ring-plane normal;
+ *  precession of Saturn's pole is ~0.02°/century, ignorable here). */
+const SATURN_POLE_J2000 = { raDeg: 40.589, decDeg: 83.537 } as const;
+
+/**
+ * Saturn's ring-plane normal in ECEF at an instant (phase D — the ring treatment's orientation).
+ * Same J2000 → of-date → ECEF path the fixed provider takes, so the projected ring ellipse and
+ * every fixed target share one frame. Returns a unit vector.
+ */
+export function saturnRingPoleDir(utcMs: number): Vec3 {
+  const ra = SATURN_POLE_J2000.raDeg * DEG;
+  const dec = SATURN_POLE_J2000.decDeg * DEG;
+  const j = {
+    x: Math.cos(dec) * Math.cos(ra),
+    y: Math.cos(dec) * Math.sin(ra),
+    z: Math.sin(dec),
+  };
+  const [ex, ey, ez] = ecefFrameAt(MakeTime(new Date(utcMs))).toEcef(j);
+  const d = Math.hypot(ex, ey, ez);
+  return [ex / d, ey / d, ez / d] as const;
+}
+
 // ------------------------------------------------------------------------------------------
 // kepler provider — osculating elements through the comet propagator
 // ------------------------------------------------------------------------------------------
@@ -333,7 +390,8 @@ export function fixedTarget(spec: FixedTargetSpec): SkyTarget {
  * and the next comet is one baked profile away (`scripts/build-comet-elements.mjs`).
  */
 export function cometTarget(profile: CometProfile = TEMPEL2): SkyTarget {
-  const short = profile.designation.split("/")[0]; // "10P"
+  const short = cometShortDesignation(profile.designation); // "10P" · "C/1995 O1"
+  const paren = profile.designation.match(/\(([^)]+)\)/)?.[1] ?? null; // "Hale-Bopp"
   return {
     id: `comet:${short}`,
     name: profile.designation,
@@ -341,6 +399,7 @@ export function cometTarget(profile: CometProfile = TEMPEL2): SkyTarget {
     aliases: [
       short.toLowerCase(),
       profile.designation.toLowerCase(),
+      ...(paren ? [paren.toLowerCase()] : []),
       ...profile.designation.toLowerCase().split("/"),
       "comet",
     ],
@@ -354,9 +413,10 @@ export function cometTarget(profile: CometProfile = TEMPEL2): SkyTarget {
         decDeg: s.decDeg,
         distanceAu: s.distanceAu,
         sunDistanceAu: s.sunDistanceAu,
-        magnitude: s.magnitude,
+        // MPC rows without an H carry m1 = NaN — no model, so no number (never print NaN).
+        magnitude: Number.isFinite(s.magnitude) ? s.magnitude : null,
         magnitudeModel: s.magnitudeModel,
-        magnitudeUncertainty: s.magnitudeUncertainty,
+        magnitudeUncertainty: Number.isFinite(s.magnitude) ? s.magnitudeUncertainty : null,
         elongationDeg: s.elongationDeg,
         phaseFraction: null,
         angularDiamArcsec: null,
@@ -366,13 +426,86 @@ export function cometTarget(profile: CometProfile = TEMPEL2): SkyTarget {
   };
 }
 
+/**
+ * Asteroid profile — the kepler provider's second face (phase B). Same universal-variable
+ * propagator and geometry as the comets; only the brightness law differs: the IAU (H,G) phase
+ * law instead of the coma m1/k1 model (an asteroid is a point reflector — the phase angle at
+ * the body matters, and near opposition the surge is real).
+ */
+export interface AsteroidProfile {
+  /** MPC number — null for unnumbered. */
+  number: number | null;
+  /** Name or provisional designation ("Ceres", "2024 YR4"). */
+  name: string;
+  /** Absolute magnitude H (V band). */
+  h: number;
+  /** Slope parameter G (0.15 = the MPC default where unmeasured). */
+  g: number;
+  elements: KeplerElements;
+  source: string;
+}
+
+export function asteroidTarget(profile: AsteroidProfile): SkyTarget {
+  const numName = profile.number != null ? `${profile.number} ${profile.name}` : profile.name;
+  return {
+    id: `asteroid:${profile.number ?? profile.name}`,
+    name: numName,
+    kind: "asteroid",
+    aliases: [profile.name.toLowerCase(), numName.toLowerCase(), "asteroid"],
+    facts: {
+      kind: "asteroid",
+      number: profile.number,
+      h: profile.h,
+      g: profile.g,
+      elements: profile.elements,
+    },
+    source: profile.source.toUpperCase(),
+    stateAt(utcMs: number): TargetState {
+      const geo = smallBodyGeometryAt(utcMs, profile.elements);
+      return {
+        dir: geo.dir,
+        raDeg: geo.raDeg,
+        decDeg: geo.decDeg,
+        distanceAu: geo.distanceAu,
+        sunDistanceAu: geo.sunDistanceAu,
+        magnitude: hgMagnitude(
+          geo.distanceAu,
+          geo.sunDistanceAu,
+          geo.earthSunAu,
+          profile.h,
+          profile.g,
+        ),
+        magnitudeModel: "hg",
+        // H itself is typically good to ~0.2–0.3 mag; the two-parameter law adds a bit more.
+        magnitudeUncertainty: 0.3,
+        elongationDeg: geo.elongationDeg,
+        phaseFraction: null,
+        angularDiamArcsec: null,
+        tailDir: null,
+      };
+    },
+  };
+}
+
 export { ELEMENTS_TRUST_DAYS };
 
-/** The shortest honest designation for pills / edge chips — "10P" · "Mars" · "M31". */
+/** "10P/Tempel 2" → "10P" · "C/1995 O1 (Hale-Bopp)" → "C/1995 O1" — numbered periodic comets
+ *  shorten to the number, long-period ones keep the year designation (dropping "C/" would
+ *  collide with the provisional-asteroid grammar). */
+export function cometShortDesignation(designation: string): string {
+  return designation.match(/^(\d+[A-Z])\b/)?.[1] ?? designation.split(" (")[0].trim();
+}
+
+/** The shortest honest designation for pills / edge chips — "10P" · "Mars" · "M31" · "Ceres". */
 export function targetShortName(target: SkyTarget): string {
   const f = target.facts;
-  if (f.kind === "comet") return f.profile.designation.split("/")[0];
+  if (f.kind === "comet") return cometShortDesignation(f.profile.designation);
   if (f.kind === "dso") return target.id.slice(4); // "dso:M31" → the catalog id
+  if (f.kind === "asteroid") {
+    const bare = target.name.replace(/^\d+\s+/, ""); // "1 Ceres" → "Ceres"
+    return bare.length <= 12 ? bare : target.name.split(" ")[0];
+  }
+  if (f.kind === "constellation") return f.abbr;
   return target.name;
 }
 

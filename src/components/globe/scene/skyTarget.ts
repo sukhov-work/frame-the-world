@@ -40,13 +40,19 @@ export interface SkyTargetHandle {
     dir: THREE.Vector3;
     /** Unit anti-sunward direction at the target (world/ECEF) — comets only, else null. */
     tailDir: THREE.Vector3 | null;
-    /** Unit direction TO the sun (world/ECEF) — drives the night gate. */
+    /** Unit direction TO the sun (world/ECEF) — drives the night gate AND the planet-disc
+     *  phase lighting (phase D). */
     sunDir: THREE.Vector3;
     kind: TargetKind;
     /** Predicted visual magnitude — drives the point/ellipse gain (null = adopt a faint floor). */
     magnitude: number | null;
     /** Real apparent extents for DSOs — null renders the point treatment. */
     apparent: { majorArcmin: number; minorArcmin: number; paDeg: number } | null;
+    /** True apparent diameter (arcsec) — engine bodies only; selects the phase-lit disc
+     *  treatment for planets (phase D). */
+    angularDiamArcsec: number | null;
+    /** Ring-plane normal (world/ECEF, unit) — Saturn only; orients the ring ellipse. */
+    ringPoleDir: THREE.Vector3 | null;
     /** Master toggle (store/sky, persisted view pref). */
     visible: boolean;
     /** Highlight reticle — also lifts a daylight floor so the tracer stays findable by day. */
@@ -92,6 +98,13 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
     },
     /** Ellipse: (a⁻², b⁻², cos rot, sin rot) in normalized plane units. */
     uEllipse: { value: new THREE.Vector4(1, 1, 1, 0) },
+    /** Planet disc angular radius, normalized to the billboard half-extent (phase D). */
+    uDiscRadN: { value: 0.1 },
+    /** Sun direction in billboard-local coords — phase-lights the disc (the moon's grammar). */
+    uSunLocal: { value: new THREE.Vector3(0, 0, 1) },
+    /** Saturn ring: (cos, sin) rotating the plane so +q.y runs along the projected pole,
+     *  z = SIGNED sin(ring opening B) (sign picks which arm passes in front), w = enable. */
+    uRing: { value: new THREE.Vector4(1, 0, 0, 0) },
     /** Coma/tail/point presence (night gate, no floor — a body lost in daylight is not there). */
     uBodyFade: { value: 0 },
     /** Reticle presence (night gate lifted by COMET.highlightDayFloor; 0 = highlight off). */
@@ -124,6 +137,9 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
       uniform float uRingRadN;
       uniform float uTickOutN;
       uniform vec4 uEllipse;
+      uniform float uDiscRadN;
+      uniform vec3 uSunLocal;
+      uniform vec4 uRing;
       uniform float uBodyFade;
       uniform float uMarkFade;
       varying vec2 vUv;
@@ -152,7 +168,7 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
           float core = 1.0 - smoothstep(${glf(POINT_N * 0.55)}, ${glf(POINT_N)}, r);
           float halo = exp(-max(r - ${glf(POINT_N)}, 0.0) / ${glf(POINT_N * 2.2)});
           body = uBody * (core + halo * 0.5) * uAmp;
-        } else {
+        } else if (uMode < 2.5) {
           // --- extended object: soft ellipse at REAL apparent extents + position angle -------
           vec2 q = vec2(
             p.x * uEllipse.z + p.y * uEllipse.w,
@@ -162,6 +178,30 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
           float ell = exp(-e2 * 1.8);
           float core = 1.0 - smoothstep(${glf(POINT_N * 0.4)}, ${glf(POINT_N * 0.8)}, r);
           body = uBody * (ell + core * 0.5) * uAmp;
+        } else {
+          // --- planet: disc phase-lit by the REAL sun (the moon's lambert on a billboard) ----
+          // Fake sphere normal from the in-plane coords; uSunLocal is the world sun direction
+          // expressed in the billboard basis (+Y = projected celestial north), so the
+          // terminator's shape AND orientation are the true phase geometry.
+          vec2 pd = p / uDiscRadN;
+          float rd = length(pd);
+          float inDisc = 1.0 - smoothstep(0.92, 1.0, rd);
+          vec3 n = vec3(pd, sqrt(max(1.0 - dot(pd, pd), 0.0)));
+          float lit = pow(max(dot(n, normalize(uSunLocal)), 0.0), 0.8);
+          body = uBody * inDisc * (0.04 + lit) * uAmp;
+          if (uRing.w > 0.5) {
+            // Saturn's ring band: a flat annulus in the ring plane, projected = ellipse squashed
+            // by |sin B| along the projected pole (+q.y). Radii in planet radii are physical
+            // (C-ring inner 1.24 → A-ring outer 2.27, Cassini division at ~1.95).
+            vec2 q = vec2(p.x * uRing.x - p.y * uRing.y, p.x * uRing.y + p.y * uRing.x);
+            float squash = max(abs(uRing.z), 0.06);
+            float rr = length(vec2(q.x, q.y / squash)) / uDiscRadN;
+            float band = smoothstep(1.16, 1.32, rr) * (1.0 - smoothstep(2.05, 2.35, rr));
+            band *= 1.0 - 0.45 * smoothstep(1.88, 1.95, rr) * (1.0 - smoothstep(1.99, 2.06, rr));
+            // The arm on the pole's camera side passes BEHIND the disc — mask it there.
+            float behind = step(0.0, q.y * uRing.z) * (1.0 - smoothstep(0.98, 1.0, rd));
+            body += uBody * band * (1.0 - behind) * uAmp * ${glf(SKY_TARGET.ringGain)};
+          }
         }
 
         // --- highlight reticle: BROKEN hairline ring + four axis ticks (house marker spec) ---
@@ -209,7 +249,20 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
   return {
     mesh,
     hitRadiusDeg: () => currentRingRadDeg * SKY_TARGET.clickSlack,
-    update({ camera, alt, dir, tailDir, sunDir, kind, magnitude, apparent, visible, highlight }) {
+    update({
+      camera,
+      alt,
+      dir,
+      tailDir,
+      sunDir,
+      kind,
+      magnitude,
+      apparent,
+      angularDiamArcsec,
+      ringPoleDir,
+      visible,
+      highlight,
+    }) {
       if (!visible) {
         mesh.visible = false;
         return;
@@ -229,11 +282,13 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
       uniforms.uBodyFade.value = night;
       uniforms.uMarkFade.value = markFade;
 
-      // Treatment: comet look for comets; real-extent ellipse for DSOs that carry one; point
-      // otherwise. Gains are magnitude-derived (overlay grammar — see the header note).
+      // Treatment: comet look for comets; phase-lit disc for planets (phase D); real-extent
+      // ellipse for DSOs that carry one; point otherwise. Gains are magnitude-derived (overlay
+      // grammar — see the header note).
       const isComet = kind === "comet";
-      const isEllipse = !isComet && apparent != null && apparent.majorArcmin > 6;
-      uniforms.uMode.value = isComet ? 0 : isEllipse ? 2 : 1;
+      const isPlanet = !isComet && kind === "planet" && angularDiamArcsec != null;
+      const isEllipse = !isComet && !isPlanet && apparent != null && apparent.majorArcmin > 6;
+      uniforms.uMode.value = isComet ? 0 : isPlanet ? 3 : isEllipse ? 2 : 1;
       uniforms.uAmp.value = isEllipse
         ? Math.max(0.25, pointAmp(magnitude) * 0.9)
         : pointAmp(magnitude);
@@ -286,6 +341,45 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
       }
       _basis.makeBasis(_x, _y, _z);
       mesh.quaternion.setFromRotationMatrix(_basis);
+
+      // Planet disc + ring uniforms — AFTER the basis: uSunLocal/uRing live in billboard space.
+      if (isPlanet) {
+        const discRadDeg = Math.max(
+          angularDiamArcsec / 3600 / 2,
+          SKY_TARGET.planetDiscMinDeg,
+        );
+        uniforms.uDiscRadN.value = discRadDeg / SPAN_DEG;
+        // A disc reads best framed, not sliced: widen the reticle past the ring band when the
+        // (floored) disc approaches it — same move the DSO ellipse makes.
+        const discRingDeg = Math.max(
+          SKY_TARGET.reticleRadDeg,
+          discRadDeg * (ringPoleDir ? 2.6 : 1.6),
+        );
+        currentRingRadDeg = discRingDeg;
+        uniforms.uRingRadN.value = discRingDeg / SPAN_DEG;
+        uniforms.uTickOutN.value = (discRingDeg * (1 + SKY_TARGET.reticleTickFrac)) / SPAN_DEG;
+        (uniforms.uSunLocal.value as THREE.Vector3).set(
+          sunDir.dot(_x),
+          sunDir.dot(_y),
+          sunDir.dot(_z),
+        );
+        if (ringPoleDir) {
+          const px = ringPoleDir.dot(_x);
+          const py = ringPoleDir.dot(_y);
+          const pz = ringPoleDir.dot(_z);
+          const L = Math.hypot(px, py);
+          // Rotate so +q.y runs along the projected pole; z = signed sin(B) (opening + which
+          // arm crosses in front); degenerate face-on projection defaults the axes.
+          (uniforms.uRing.value as THREE.Vector4).set(
+            L > 1e-6 ? py / L : 1,
+            L > 1e-6 ? px / L : 0,
+            pz,
+            1,
+          );
+        } else {
+          (uniforms.uRing.value as THREE.Vector4).w = 0;
+        }
+      }
     },
     dispose() {
       mesh.geometry.dispose();

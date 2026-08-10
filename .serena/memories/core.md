@@ -238,10 +238,18 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: ASTRO ENGINE remaining phases — B (data: full OpenNGC + IAU star names + MPC
-comets + asteroids w/ H/G law + SIMBAD TAP fallback + localStorage cache) · D (render polish) ·
-E (planner skyline verdict) + the A-tail (`/api/sbdb` on Wix cloud UNVERIFIED). Then PHASE 7
-(AI analysis + polish); small pre-item = prod login `#p=` round-trip smoke.**
+**Next step: PHASE 7 (AI analysis + polish); small pre-item = prod login `#p=` round-trip
+smoke. Astro tails: `/api/sbdb` on Wix cloud UNVERIFIED (rides the next release) · owner
+taste-pass on ringGain/highlightAlpha/bvTintAmount/trail.**
+ASTRO ENGINE COMPLETE — PHASES B+D+E + CONSTELLATIONS SHIPPED 2026-08-10 (vitest 701/701 ·
+astro 0/0 · wix build Complete · browser-VERIFIED in a VISIBLE window): 1,947-entry fuzzy index
+(451 IAU star names · 88 constellations w/ figure highlight · 952 MPC comets · 337 asteroids ·
+full OpenNGC 13,263 via pattern branch + openngc.bin) in ONE lazy 424 KB chunk (machine-guarded
+by lazyContract.test.ts); kepler propagator now UNIVERSAL-VARIABLE (all conics, Hale-Bopp ≤2′)
++ IAU (H,G) asteroid law (Ceres ≤30″); SIMBAD TAP + /api/sbdb long-tail (debounced, cached,
+phys-par=1 trap); planet phase discs + Saturn ring at the real 2026 edge-on opening + B−V star
+colour; PLAN/Target panels carry the tracked target's skyline verdict; last-tracked id persists.
+`mem:project/wip-2026-08-10-astro-engine-phase-bde` + DECISIONS 2026-08-10.
 ASTRO ENGINE PHASE C SHIPPED 2026-08-03 (vitest 674/674 · astro 0/0 · browser-VERIFIED in a
 VISIBLE window): day-arc TRAIL (`scene/skyTrail.ts` + `sampleTargetArc`; SHOW·MARK·TRAIL) ·
 marker click-to-aim (angular hit test, orbit+FPV) · post-search auto-aim (`store/skyAim`) ·

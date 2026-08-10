@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
 import { ASTERISMS, GATES, MILKYWAY, STARS, WGS84_A, WGS84_B } from "../tuning";
 import {
+  bvToRgb,
   magToBright,
   magToSize,
   milkyWayField,
@@ -9,7 +10,9 @@ import {
 } from "../../../lib/ephemeris/stars";
 import {
   asterismSegments,
+  figureSegmentsByAbbr,
   type AsterismsAsset,
+  type ConstellationFiguresAsset,
 } from "../../../lib/ephemeris/asterisms";
 import { DITHER_GLSL, glf } from "./glsl";
 import { horizonBandSin, horizonTerms } from "./sky";
@@ -43,6 +46,9 @@ export interface StarsHandle {
     /** Show the asterism figures (S6 follow-up: an FPV planning layer — the caller gates it
      *  by FPV + the SKY toggle; the stars' own altitude/night fade still applies on top). */
     asterisms?: boolean;
+    /** IAU abbreviation of the TRACKED constellation (phase B) — its figure renders in accent
+     *  regardless of the asterisms chip; null/undefined hides the highlight. */
+    constellation?: string | null;
   }): void;
   dispose(): void;
 }
@@ -71,12 +77,19 @@ function buildGeometry(
   aSize: Float32Array,
   aPhase: Float32Array,
   aBright: Float32Array,
+  /** Per-star RGB tint (phase D star colour) — omitted = all-white (token colour unchanged). */
+  aTint?: Float32Array,
 ): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
+  const count = aSize.length;
   geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   geometry.setAttribute("aSize", new THREE.BufferAttribute(aSize, 1));
   geometry.setAttribute("aPhase", new THREE.BufferAttribute(aPhase, 1));
   geometry.setAttribute("aBright", new THREE.BufferAttribute(aBright, 1));
+  geometry.setAttribute(
+    "aTint",
+    new THREE.BufferAttribute(aTint ?? new Float32Array(count * 3).fill(1), 3),
+  );
   return geometry;
 }
 
@@ -113,6 +126,7 @@ function makeStarMaterial(opts: {
       attribute float aSize;
       attribute float aPhase;
       attribute float aBright;
+      attribute vec3 aTint;
       uniform float uTime;
       uniform float uDpr;
       uniform vec3 uHorizonUp;
@@ -120,7 +134,9 @@ function makeStarMaterial(opts: {
       uniform float uHorizonBandSin;
       uniform float uExtFloor;
       varying float vB;
+      varying vec3 vTint;
       void main() {
+        vTint = aTint;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mv;
         // Per-star true-horizon fade (ellipsoid-scaled space — see scene/sky.ts) + the low-sky
@@ -137,12 +153,13 @@ function makeStarMaterial(opts: {
       uniform vec3 uColor;
       uniform float uFade;
       varying float vB;
+      varying vec3 vTint;
       void main() {
         vec2 uv = gl_PointCoord - 0.5;
         float d = dot(uv, uv);
         if (d > 0.25) discard;
         float a = smoothstep(0.25, 0.0, d) * vB * ${glf(opts.alpha)} * uFade;
-        gl_FragColor = vec4(uColor * a, a);
+        gl_FragColor = vec4(uColor * vTint * a, a);
         #include <colorspace_fragment>
       }`,
   });
@@ -265,6 +282,40 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
   let asterismsLoaded = false;
   points.add(asterismLines);
 
+  // Tracked-constellation highlight (phase B) — ONE figure from the full-88 asset, accent
+  // coloured, another star-sphere child. The asset fetches lazily on the FIRST tracked
+  // constellation (never at boot); per-figure segment arrays are prebuilt once.
+  const figureGeometry = new THREE.BufferGeometry();
+  const figureMaterial = new THREE.LineBasicMaterial({
+    color: new THREE.Color(tokens.accent),
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const figureLines = new THREE.LineSegments(figureGeometry, figureMaterial);
+  figureLines.raycast = () => {};
+  figureLines.visible = false;
+  points.add(figureLines);
+  let figuresByAbbr: Map<string, Float32Array> | null = null;
+  let figuresPromise: Promise<void> | null = null;
+  let figureAbbrShown = "";
+  const loadFigures = () => {
+    figuresPromise ??= fetch(ASTERISMS.figuresUrl)
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.json();
+      })
+      .then((asset: ConstellationFiguresAsset) => {
+        if (disposed) return;
+        figuresByAbbr = figureSegmentsByAbbr(asset);
+      })
+      .catch((e) => {
+        console.warn("[globe] constellation figures unavailable — marker only:", e);
+        figuresPromise = null; // a later track retries
+      });
+  };
+
   // Real catalog swap — async; the procedural field covers the gap. A failed fetch (offline dev)
   // just keeps the fallback and says so once.
   let disposed = false;
@@ -294,12 +345,21 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       const aSize = new Float32Array(cat.count);
       const aPhase = new Float32Array(cat.count);
       const aBright = new Float32Array(cat.count);
+      // Per-star B−V tint (phase D): catalog colour blended toward the flat token colour by
+      // STARS.bvTintAmount — the classic Orion contrast (blue Rigel / orange Betelgeuse) at
+      // stylized strength. Sentinel B−V (bvToRgb → white) leaves those stars untinted.
+      const aTint = new Float32Array(cat.count * 3);
+      const k = STARS.bvTintAmount;
       for (let i = 0; i < cat.count; i++) {
         aSize[i] = magToSize(cat.vmag[i], STARS);
         aBright[i] = magToBright(cat.vmag[i], STARS);
         aPhase[i] = Math.random() * Math.PI * 2;
+        const [tr, tg, tb] = bvToRgb(cat.bv[i]);
+        aTint[i * 3] = 1 + k * (tr - 1);
+        aTint[i * 3 + 1] = 1 + k * (tg - 1);
+        aTint[i * 3 + 2] = 1 + k * (tb - 1);
       }
-      const next = buildGeometry(cat.positions, aSize, aPhase, aBright);
+      const next = buildGeometry(cat.positions, aSize, aPhase, aBright, aTint);
       points.geometry = next;
       geometry.dispose();
       geometry = next;
@@ -310,7 +370,7 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
 
   return {
     points,
-    update({ alt, camera, elapsedS, reduceMotion, gastRad, sunDir, asterisms = false }) {
+    update({ alt, camera, elapsedS, reduceMotion, gastRad, sunDir, asterisms = false, constellation = null }) {
       // Two ways in: the high-altitude backdrop (space always has stars), OR a night sky at any
       // altitude — below the altitude band the stars now fade in as the sun sets at the camera
       // (owner 2026-07-10: "at night stars must be visible at low altitudes").
@@ -382,6 +442,17 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       }
       asterismLines.visible = asterismsLoaded && asterisms;
       asterismMaterial.opacity = fade * ASTERISMS.alpha;
+      // Tracked-constellation figure — lazy asset, one-figure geometry swap on target change.
+      const wantAbbr = constellation ?? "";
+      if (wantAbbr && !figuresByAbbr) loadFigures();
+      if (figuresByAbbr && wantAbbr !== figureAbbrShown) {
+        figureAbbrShown = wantAbbr;
+        const segs = wantAbbr ? figuresByAbbr.get(wantAbbr) : undefined;
+        if (segs) figureGeometry.setAttribute("position", new THREE.BufferAttribute(segs, 3));
+      }
+      figureLines.visible =
+        !!wantAbbr && !!figuresByAbbr?.has(wantAbbr) && figureAbbrShown === wantAbbr;
+      figureMaterial.opacity = fade * ASTERISMS.highlightAlpha;
       if (!reduceMotion) {
         material.uniforms.uTime.value = elapsedS;
         mwMaterial.uniforms.uTime.value = elapsedS;
@@ -398,6 +469,8 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
       hazeTex.dispose();
       asterismGeometry.dispose();
       asterismMaterial.dispose();
+      figureGeometry.dispose();
+      figureMaterial.dispose();
       scene.remove(points);
     },
   };

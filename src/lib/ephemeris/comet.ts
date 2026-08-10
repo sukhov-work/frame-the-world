@@ -37,13 +37,18 @@ const JD_UNIX_EPOCH = 2440587.5;
 const TDB_MINUS_UTC_S = 69.184;
 export { KM_PER_AU }; // re-exported so a consumer needs ONE import for the comet's numbers
 
-/** Heliocentric osculating elements, Horizons/SBDB naming (ecliptic + equinox J2000). */
-export interface CometElements {
+/** Heliocentric osculating elements, Horizons/SBDB naming (ecliptic + equinox J2000).
+ *  Phase B (2026-08-10): the propagator is now universal-variable (perihelion-anchored: only
+ *  `qAu`/`e`/`tpJdTdb` + angles drive the position), so near-parabolic and hyperbolic element
+ *  sets (most C/ comets) work; `aAu`/`nDegPerDay`/`periodDays` are derived/COSMETIC for e ≥ 1
+ *  (a < 0, period Infinity — `nextPerihelionMs` guards). Brightness-free — asteroids ride this
+ *  directly (their H/G law lives on the profile); comets extend it with the m1/k1 model. */
+export interface KeplerElements {
   /** Osculating epoch (Julian date, TDB) — two-body error grows away from it. */
   epochJdTdb: number;
-  /** Eccentricity. */
+  /** Eccentricity (any conic — the universal propagator handles e ⋛ 1). */
   e: number;
-  /** Semi-major axis (AU). */
+  /** Semi-major axis (AU) — NEGATIVE for hyperbolic orbits (q/(1−e)). */
   aAu: number;
   /** Perihelion distance (AU). */
   qAu: number;
@@ -55,11 +60,15 @@ export interface CometElements {
   periDeg: number;
   /** Time of perihelion passage (Julian date, TDB). */
   tpJdTdb: number;
-  /** Mean motion (deg/day). */
+  /** Mean motion (deg/day) — |a|-derived for e ≥ 1 (informational only). */
   nDegPerDay: number;
-  /** Sidereal period (days). */
+  /** Sidereal period (days) — Infinity for e ≥ 1. */
   periodDays: number;
-  /** Total (coma-inclusive) absolute magnitude — Horizons M1. */
+}
+
+/** Comet element set = orbit + the MPC/Horizons total-magnitude model. */
+export interface CometElements extends KeplerElements {
+  /** Total (coma-inclusive) absolute magnitude — Horizons M1 (MPC "H" → M1, k1 = 2.5·G). */
   m1: number;
   /** Total magnitude slope — Horizons k1. `m = M1 + 5·log10(Δ) + k1·log10(r)`. */
   k1: number;
@@ -94,17 +103,19 @@ export interface CometLightCurve {
   source: string;
 }
 
-/** The static, human-facing card for the object (JPL SBDB + the literature it cites). */
+/** The static, human-facing card for the object (JPL SBDB + the literature it cites).
+ *  Phase B: the MPC-baked catalog comets carry only what CometEls provides — the physical/
+ *  discovery fields are null there and the panel skips those lines. */
 export interface CometProfile {
   /** IAU designation. */
   designation: string;
   /** Dynamical class. */
   family: string;
-  discovery: string;
-  /** Effective nucleus diameter (km) — Lamy et al. 2004, Comets II pp. 223–264. */
-  nucleusKm: number;
-  /** Synodic rotation period (h) — LCDB rev. 2023-10 / Warner et al. 2009. */
-  rotationHours: number;
+  discovery: string | null;
+  /** Effective nucleus diameter (km) — null when unmeasured. */
+  nucleusKm: number | null;
+  /** Synodic rotation period (h) — null when unmeasured. */
+  rotationHours: number | null;
   /** Provenance of the baked elements (Horizons solution + query date). */
   source: string;
   elements: CometElements;
@@ -170,7 +181,8 @@ export const jdTdbFromUtcMs = (utcMs: number): number =>
 export const utcMsFromJdTdb = (jdTdb: number): number =>
   (jdTdb - JD_UNIX_EPOCH) * 86_400_000 - TDB_MINUS_UTC_S * 1000;
 
-/** Newton–Raphson on Kepler's equation `M = E − e·sin E` (rad). Converges in <10 its at e≈0.54. */
+/** Newton–Raphson on Kepler's equation `M = E − e·sin E` (rad). Converges in <10 its at e≈0.54.
+ *  (Kept exported for reference/tests — the propagator itself moved to universal variables.) */
 export function solveKepler(meanAnomalyRad: number, e: number): number {
   let E = e < 0.8 ? meanAnomalyRad : Math.PI;
   for (let i = 0; i < 40; i++) {
@@ -181,18 +193,77 @@ export function solveKepler(meanAnomalyRad: number, e: number): number {
   return E;
 }
 
+/** Gaussian gravitational constant k (rad/day) → μ☉ = k² (AU³/day²). */
+const GAUSS_K = 0.01720209895;
+const MU_SUN = GAUSS_K * GAUSS_K;
+
+/** Stumpff c2/c3 (ψ = α·χ²): the universal-variable trig kernel, series-stabilised near 0. */
+function stumpff(psi: number): { c2: number; c3: number } {
+  if (psi > 1e-8) {
+    const s = Math.sqrt(psi);
+    return { c2: (1 - Math.cos(s)) / psi, c3: (s - Math.sin(s)) / (s * psi) };
+  }
+  if (psi < -1e-8) {
+    const s = Math.sqrt(-psi);
+    return { c2: (Math.cosh(s) - 1) / -psi, c3: (Math.sinh(s) - s) / (s * -psi) };
+  }
+  return { c2: 1 / 2 - psi / 24, c3: 1 / 6 - psi / 120 };
+}
+
+/**
+ * Perifocal position (AU; x toward perihelion) at a TDB instant — universal-variable Kepler
+ * anchored at perihelion (r₀ = q, r₀·v₀ = 0), Vallado's formulation. ONE code path for every
+ * conic: the elliptic case wraps Δt to the nearest perihelion first; parabolic/hyperbolic run
+ * unwrapped. Newton on χ is globally safe here because dF/dχ = r > 0 (F strictly increasing);
+ * a bisection fallback guards pathological steps anyway.
+ */
+function perifocalAt(jdTdb: number, el: KeplerElements): { x: number; y: number } {
+  const q = el.qAu;
+  const e = el.e;
+  const alpha = (1 - e) / q; // 1/a (AU⁻¹) — >0 elliptic · 0 parabolic · <0 hyperbolic
+  const sqrtMu = Math.sqrt(MU_SUN);
+  let dt = jdTdb - el.tpJdTdb; // days from perihelion
+  if (alpha > 0) {
+    const period = (2 * Math.PI) / (sqrtMu * Math.pow(alpha, 1.5)); // 2π√(a³/μ)
+    dt -= Math.round(dt / period) * period;
+  }
+  const target = sqrtMu * dt;
+  // Universal Kepler at the perihelion anchor: F(χ) = χ³·c3(ψ) + q·χ·(1 − ψ·c3(ψ)) = √μ·Δt.
+  const F = (chi: number): { f: number; r: number } => {
+    const psi = alpha * chi * chi;
+    const { c2, c3 } = stumpff(psi);
+    return {
+      f: chi * chi * chi * c3 + q * chi * (1 - psi * c3) - target,
+      r: chi * chi * c2 + q * (1 - psi * c2), // dF/dχ = current radius (always > 0)
+    };
+  };
+  let chi =
+    alpha > 0
+      ? target * alpha // Vallado's elliptic seed
+      : Math.cbrt(6 * target); // parabolic asymptote (χ³·c3 → χ³/6 dominates)
+  for (let i = 0; i < 60; i++) {
+    const { f, r } = F(chi);
+    const step = f / Math.max(r, 1e-12);
+    chi -= step;
+    if (!Number.isFinite(chi)) {
+      chi = 0; // degenerate seed — restart from perihelion; monotone F recovers
+    }
+    if (Math.abs(step) < 1e-12) break;
+  }
+  const psi = alpha * chi * chi;
+  const { c2, c3 } = stumpff(psi);
+  const fLag = 1 - ((chi * chi) / q) * c2;
+  const gLag = dt - (chi * chi * chi * c3) / sqrtMu;
+  const vPeri = Math.sqrt((MU_SUN * (1 + e)) / q); // perihelion speed, along perifocal +y
+  return { x: fLag * q, y: gLag * vPeri };
+}
+
 /**
  * Heliocentric position (AU) in the EQJ frame (equatorial J2000 — the frame astronomy-engine's
  * `HelioVector` returns, so the two can be differenced directly).
  */
-export function helioEqjAu(jdTdb: number, el: CometElements = TEMPEL2.elements): Vec3 {
-  const twoPi = 2 * Math.PI;
-  const M =
-    ((((el.nDegPerDay * (jdTdb - el.tpJdTdb) * DEG) % twoPi) + twoPi * 2) % twoPi);
-  const E = solveKepler(M, el.e);
-  // Perifocal plane (x toward perihelion).
-  const xp = el.aAu * (Math.cos(E) - el.e);
-  const yp = el.aAu * Math.sqrt(1 - el.e * el.e) * Math.sin(E);
+export function helioEqjAu(jdTdb: number, el: KeplerElements = TEMPEL2.elements): Vec3 {
+  const { x: xp, y: yp } = perifocalAt(jdTdb, el);
   const om = el.nodeDeg * DEG;
   const w = el.periDeg * DEG;
   const inc = el.iDeg * DEG;
@@ -295,6 +366,33 @@ export function cometBrightness(
   };
 }
 
+/**
+ * IAU two-parameter (H,G) asteroid magnitude — Bowell et al. 1989 (Asteroids II, pp. 524–556;
+ * adopted by IAU Comm. 20, 1985): V = H + 5·log10(r·Δ) − 2.5·log10[(1−G)·Φ1 + G·Φ2] with
+ * Φi = exp(−Ai·tan(α/2)^Bi), A1=3.33 B1=0.63, A2=1.87 B2=1.22. Valid α < 120° (every
+ * earth-observable main-belt geometry); G defaults 0.15 when unmeasured (MPC 17257 convention).
+ * This is NOT the comet m1/k1 law — asteroids are point reflectors and the phase angle matters.
+ */
+export function hgMagnitude(
+  distanceAu: number,
+  sunDistanceAu: number,
+  earthSunAu: number,
+  h: number,
+  g = 0.15,
+): number {
+  const cosA =
+    (sunDistanceAu * sunDistanceAu + distanceAu * distanceAu - earthSunAu * earthSunAu) /
+    (2 * sunDistanceAu * distanceAu);
+  const alpha = Math.acos(Math.max(-1, Math.min(1, cosA)));
+  const t = Math.tan(alpha / 2);
+  const phi1 = Math.exp(-3.33 * Math.pow(t, 0.63));
+  const phi2 = Math.exp(-1.87 * Math.pow(t, 1.22));
+  const phase = (1 - g) * phi1 + g * phi2;
+  return (
+    h + 5 * Math.log10(sunDistanceAu * distanceAu) - 2.5 * Math.log10(Math.max(phase, 1e-9))
+  );
+}
+
 /** What it takes to see something this bright — the answer a session planner actually wants. */
 export function visibilityClass(magnitude: number): string {
   if (magnitude < 2) return "NAKED EYE — BRILLIANT";
@@ -305,13 +403,24 @@ export function visibilityClass(magnitude: number): string {
   return "IMAGING ONLY";
 }
 
-/**
- * Full comet state at a UTC instant. Light-time corrected (3 fixed iterations — the comet moves
- * ~0.3°/day, so this converges instantly), which is what makes the RA/Dec ASTROMETRIC and
- * directly comparable to Horizons' quantity 1.
- */
-export function cometStateAt(utcMs: number, profile: CometProfile = TEMPEL2): CometState {
-  const el = profile.elements;
+/** Light-time-corrected geometry of ANY kepler small body at a UTC instant — the element-only
+ *  half of `cometStateAt`, shared with the asteroid provider (phase B). */
+export interface SmallBodyGeometry {
+  /** Unit direction TO the body, ECEF (geocentric). */
+  dir: Vec3;
+  /** Unit ECEF direction sun → body (the comet anti-sunward tail; unused for asteroids). */
+  antiSunDir: Vec3;
+  distanceAu: number;
+  sunDistanceAu: number;
+  earthSunAu: number;
+  raDeg: number;
+  decDeg: number;
+  elongationDeg: number;
+  /** TDB Julian date of the instant (perihelion/epoch arithmetic reuses it). */
+  jdTdb: number;
+}
+
+export function smallBodyGeometryAt(utcMs: number, el: KeplerElements): SmallBodyGeometry {
   const time = MakeTime(new Date(utcMs));
   const earth = HelioVector(Body.Earth, time); // EQJ, AU
   const jd = jdTdbFromUtcMs(utcMs);
@@ -338,23 +447,44 @@ export function cometStateAt(utcMs: number, profile: CometProfile = TEMPEL2): Co
   const [tx, ty, tz] = frame.toEcef({ x: helio[0], y: helio[1], z: helio[2] });
   const td = Math.hypot(tx, ty, tz);
 
-  // Elongation: angle at Earth between the sun (−earth vector) and the comet.
+  // Elongation: angle at Earth between the sun (−earth vector) and the body.
   const cosElong =
     (-earth.x * gx - earth.y * gy - earth.z * gz) / (earthSunAu * distanceAu);
-  const bright = cometBrightness(utcMs, distanceAu, sunDistanceAu, profile);
   return {
     dir: [ex / ed, ey / ed, ez / ed] as const,
-    tailDir: [tx / td, ty / td, tz / td] as const,
+    antiSunDir: [tx / td, ty / td, tz / td] as const,
     distanceAu,
     sunDistanceAu,
+    earthSunAu,
     raDeg: ((Math.atan2(gy, gx) * RAD) % 360 + 360) % 360,
     decDeg: Math.asin(gz / distanceAu) * RAD,
+    elongationDeg: Math.acos(Math.max(-1, Math.min(1, cosElong))) * RAD,
+    jdTdb: jd,
+  };
+}
+
+/**
+ * Full comet state at a UTC instant. Light-time corrected (3 fixed iterations — the comet moves
+ * ~0.3°/day, so this converges instantly), which is what makes the RA/Dec ASTROMETRIC and
+ * directly comparable to Horizons' quantity 1.
+ */
+export function cometStateAt(utcMs: number, profile: CometProfile = TEMPEL2): CometState {
+  const el = profile.elements;
+  const g = smallBodyGeometryAt(utcMs, el);
+  const bright = cometBrightness(utcMs, g.distanceAu, g.sunDistanceAu, profile);
+  return {
+    dir: g.dir,
+    tailDir: g.antiSunDir,
+    distanceAu: g.distanceAu,
+    sunDistanceAu: g.sunDistanceAu,
+    raDeg: g.raDeg,
+    decDeg: g.decDeg,
     magnitude: bright.magnitude,
     magnitudeModel: bright.model,
     magnitudeUncertainty: bright.uncertaintyMag,
-    elongationDeg: Math.acos(Math.max(-1, Math.min(1, cosElong))) * RAD,
-    daysFromPerihelion: jd - el.tpJdTdb,
-    elementsAgeDays: Math.abs(jd - el.epochJdTdb),
+    elongationDeg: g.elongationDeg,
+    daysFromPerihelion: g.jdTdb - el.tpJdTdb,
+    elementsAgeDays: Math.abs(g.jdTdb - el.epochJdTdb),
   };
 }
 
@@ -406,8 +536,10 @@ export function perihelionMs(profile: CometProfile = TEMPEL2): number {
   return utcMsFromJdTdb(profile.elements.tpJdTdb);
 }
 
-/** The following perihelion (UTC ms) — one sidereal period on, honest to ~a few days. */
-export function nextPerihelionMs(profile: CometProfile = TEMPEL2): number {
+/** The following perihelion (UTC ms) — one sidereal period on, honest to ~a few days.
+ *  Null for open orbits (e ≥ 1 — there is no next perihelion). */
+export function nextPerihelionMs(profile: CometProfile = TEMPEL2): number | null {
+  if (!Number.isFinite(profile.elements.periodDays)) return null;
   return utcMsFromJdTdb(profile.elements.tpJdTdb + profile.elements.periodDays);
 }
 
