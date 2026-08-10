@@ -153,6 +153,15 @@ export const SKY_TARGET = {
   /** Marker click slack — the hit test accepts clicks inside ring radius × this (a hairline
    *  ring is a thin literal target; the disc it frames is the intended one). */
   clickSlack: 1.25,
+  /** Planet-disc treatment (phase D): floor on the rendered disc's angular RADIUS (deg). True
+   *  angular size wins when larger (a long-focal FPV zoom grows Venus honestly); below it the
+   *  disc is floored to stay readable — the PHASE (terminator shape/orientation vs the real
+   *  sun) is exact either way, the SIZE is overlay grammar like the point treatment. 0.4° ≈ a
+   *  moon-scale disc; Saturn's ring (2.27 disc radii) then spans 0.9°, inside the 1.5° ring. */
+  planetDiscMinDeg: 0.4,
+  /** Saturn ring-band additive gain relative to the disc (taste — the disc's phase is the
+   *  treatment's star; the band should read as jewellery, not a searchlight). */
+  ringGain: 0.55,
 } as const;
 
 /** Comet-LOOK params (temporal addition 2026-08-02, `lib/ephemeris/comet.ts`) — ONLY the coma +
@@ -812,6 +821,11 @@ export const STARS = {
   twinkleBase: 0.7,
   twinkleAmp: 0.3,
   twinkleSpeed: 1.5,
+  /** B−V colour tint amount (phase D, 2026-08-10): 0 = every star wears the flat token colour
+   *  (pre-phase-D look), 1 = full catalog colour (`bvToRgb` — Ballesteros temperature +
+   *  blackbody sRGB). 0.6 keeps the stylized sky while Betelgeuse reads orange next to a blue
+   *  Rigel — the classic Orion contrast is the acceptance test. */
+  bvTintAmount: 0.6,
   /** Peak star alpha (0.8 → 0.9 S5 — brighter stars are half the point of the darker sky). */
   alpha: 0.9,
   /** Sphere radius = limbDistance·this (just beyond the farthest terrain)… */
@@ -1677,6 +1691,12 @@ export const ASTERISMS = {
   url: "/data/asterisms.json",
   /** Peak line alpha (× the star fade) — a faint constellation tracery. */
   alpha: 0.15,
+  /** Full 88-figure asset (phase B, scripts/build-constellations.mjs) — fetched only when a
+   *  constellation is first TRACKED; the ambient tracery above keeps the curated 26. */
+  figuresUrl: "/data/constellation-lines.json",
+  /** Tracked-constellation figure alpha (× the star fade) — an accent highlight, clearly above
+   *  the ambient tracery yet still an overlay, not a poster. */
+  highlightAlpha: 0.55,
 } as const;
 
 /** Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops it, it becomes
@@ -1720,6 +1740,10 @@ export const SEARCH = {
   altMaxM: 1_200_000,
   /** Arrival altitude when the result has no extent (addresses, small POIs). */
   altDefaultM: 4_000,
+  /** SKY long-tail lookup debounce (ms) — SIMBAD is a courtesy service (>10 req/s = a 1-min
+   *  ban) and /api/sbdb relays to JPL; both fire only after the local index came up empty AND
+   *  the user paused this long. */
+  skyLongTailDebounceMs: 600,
 } as const;
 
 /** Pass 3 — astro/obstruction planner (RENDERING_QUALITY_PASS WS4 + Dnipro Slice 5). The horizon

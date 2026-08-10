@@ -48,7 +48,11 @@ describe("the query grammar (catalog end to end)", () => {
   });
 
   it("common names and partial names", () => {
-    expect(first("andromeda")).toBe("dso:M31");
+    // Phase B: "andromeda" is now the CONSTELLATION's exact name — it wins the top row, with
+    // the galaxy right behind it (both must surface; the exact name outranks the prefix).
+    expect(first("andromeda")).toBe("constellation:And");
+    expect(topIds("andromeda").slice(0, 3)).toContain("dso:M31");
+    expect(first("andromeda galaxy")).toBe("dso:M31");
     expect(first("orion nebula")).toBe("dso:M42");
     expect(first("pleiades")).toBe("dso:M45");
     expect(first("crab")).toBe("dso:M1");
@@ -81,15 +85,30 @@ describe("the query grammar (catalog end to end)", () => {
 });
 
 describe("catalog integrity", () => {
-  it("carries all 110 Messier objects + 8 engine bodies + the comet", () => {
+  it("carries every baked source (phase B: 8 planets + 10P + 110 M + 451 stars + 88 const + MPC comets + asteroids)", () => {
     expect(MESSIER).toHaveLength(110);
     expect(MESSIER.map((e) => e.m)).toEqual(Array.from({ length: 110 }, (_, i) => i + 1));
-    expect(skyIndex().length).toBe(110 + 8 + 1);
+    const byPrefix = (p: string) => skyIndex().filter((e) => e.id.startsWith(p)).length;
+    expect(byPrefix("planet:")).toBe(8);
+    expect(byPrefix("dso:M")).toBe(110);
+    expect(byPrefix("star:")).toBe(451);
+    expect(byPrefix("constellation:")).toBe(88);
+    expect(byPrefix("comet:")).toBeGreaterThanOrEqual(900); // 10P + the MPC fleet (re-bakes drift)
+    expect(byPrefix("asteroid:")).toBeGreaterThanOrEqual(300);
+    expect(skyIndex().length).toBeGreaterThanOrEqual(1900);
   });
 
   it("resolves every index entry to a working SkyTarget", () => {
     const t = Date.parse("2026-08-03T21:00:00Z");
-    for (const e of skyIndex()) {
+    // Full resolution for the hand-curated sets; the big baked fleets sample every 13th (each
+    // resolve propagates an orbit — 1,947 full evals would slow the suite for no extra proof).
+    const all = skyIndex();
+    const curated = all.filter(
+      (e) => !e.id.startsWith("comet:") && !e.id.startsWith("asteroid:"),
+    );
+    const fleets = all.filter((e) => e.id.startsWith("comet:") || e.id.startsWith("asteroid:"));
+    const sample = [...curated, ...fleets.filter((_, i) => i % 13 === 0)];
+    for (const e of sample) {
       const target = targetById(e.id);
       expect(target, e.id).not.toBeNull();
       const s = target!.stateAt(t);

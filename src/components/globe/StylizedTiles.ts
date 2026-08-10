@@ -16,7 +16,11 @@ import {
 import { frameMarker } from "../../lib/geo/offscreen";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
-import { targetShortName, type TargetState } from "../../lib/ephemeris/targets";
+import {
+  saturnRingPoleDir,
+  targetShortName,
+  type TargetState,
+} from "../../lib/ephemeris/targets";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
@@ -286,6 +290,8 @@ export function attachStylizedTiles(opts: {
   // forces an immediate re-sample via lastTargetId in stepSkyTarget.
   const targetDirW = new THREE.Vector3(0, 0, 1);
   const targetTailW = new THREE.Vector3(0, 0, 1);
+  const targetPoleW = new THREE.Vector3(0, 0, 1); // Saturn ring-plane normal (phase D)
+  let targetHasPole = false;
   let targetState: TargetState | null = null;
   let lastTargetId = "";
   let lastSampleMs = -Infinity;
@@ -297,6 +303,11 @@ export function attachStylizedTiles(opts: {
     const c = (targetState = target.stateAt(tMs));
     targetDirW.set(c.dir[0], c.dir[1], c.dir[2]);
     if (c.tailDir) targetTailW.set(c.tailDir[0], c.tailDir[1], c.tailDir[2]);
+    targetHasPole = target.id === "planet:saturn";
+    if (targetHasPole) {
+      const p = saturnRingPoleDir(tMs);
+      targetPoleW.set(p[0], p[1], p[2]);
+    }
     gastRad = s.gastRad;
     sunDirW.set(s.sunDir[0], s.sunDir[1], s.sunDir[2]);
     moonDirW.set(s.moonDir[0], s.moonDir[1], s.moonDir[2]);
@@ -2155,6 +2166,8 @@ export function attachStylizedTiles(opts: {
           kind: skyNow.target.kind,
           magnitude: t?.magnitude ?? null,
           apparent: skyNow.target.apparent ?? null,
+          angularDiamArcsec: t?.angularDiamArcsec ?? null,
+          ringPoleDir: targetHasPole ? targetPoleW : null,
           visible: skyNow.visible,
           highlight: skyNow.highlight,
         });
@@ -2398,6 +2411,14 @@ export function attachStylizedTiles(opts: {
   };
 
   const stepStars = () => {
+        // Tracked-constellation figure (phase B): its lines light up whenever the tracked
+        // target IS a constellation and the TARGET SHOW chip is on — any camera mode (the
+        // pattern is the whole treatment; a centroid ring alone says nothing).
+        const skyForStars = useSkyStore.getState();
+        const trackedConstellation =
+          skyForStars.visible && skyForStars.target.facts.kind === "constellation"
+            ? skyForStars.target.facts.abbr
+            : null;
         stars.update({
           alt,
           camera,
@@ -2408,6 +2429,7 @@ export function attachStylizedTiles(opts: {
           // S6 follow-up: asterisms are an FPV planning layer, not ambient decoration —
           // shown only while standing in a viewpoint, and only with the SKY guides on.
           asterisms: fpvActive && camNow.skyGuides,
+          constellation: trackedConstellation,
         });
 
   };

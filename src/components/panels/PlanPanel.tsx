@@ -46,14 +46,17 @@ function timeLabel(e: PlanEvent): string {
     : t;
 }
 
-function BodyRow({ glyph, state }: { glyph: string; state: PlanBodyState }) {
+function BodyRow({ glyph, label, state }: { glyph: string; label?: string; state: PlanBodyState }) {
   const setTime = useTimeStore((s) => s.setTime);
   const crossMs = state.blockedNow ? state.nextClearMs : state.nextBlockMs;
   const crossLabel = state.blockedNow ? "CLEARS" : "HIDES";
   return (
     <div className={`pp-body ${state.blockedNow ? "pp-body--blocked" : "pp-body--clear"}`}>
       <span className="pp-body__glyph">{glyph}</span>
-      <span className="pp-body__verdict">{state.blockedNow ? "BEHIND SKYLINE" : "CLEAR"}</span>
+      <span className="pp-body__verdict">
+        {label && <span className="pp-body__label">{label} · </span>}
+        {state.blockedNow ? "BEHIND SKYLINE" : "CLEAR"}
+      </span>
       <span className="pp-body__pos">
         {Math.round(state.azDeg)}° {cardinal(state.azDeg)} · skyline{" "}
         {state.skylineAltDeg.toFixed(1)}°
@@ -84,6 +87,7 @@ export default function PlanPanel() {
   const trustRadiusM = usePlanStore((s) => s.trustRadiusM);
   const sun = usePlanStore((s) => s.sun);
   const moon = usePlanStore((s) => s.moon);
+  const target = usePlanStore((s) => s.target);
   const setTime = useTimeStore((s) => s.setTime);
 
   const hasEye = anchor != null && anchor.kind !== "focus";
@@ -120,6 +124,7 @@ export default function PlanPanel() {
               <>
                 {sun && <BodyRow glyph="☀" state={sun} />}
                 {moon && <BodyRow glyph="☾" state={moon} />}
+                {target && <BodyRow glyph={target.glyph} label={target.label} state={target} />}
                 <div className="pp-status">
                   SKYLINE {Math.round(coverage * 100)}% MAPPED · {(trustRadiusM / 1000).toFixed(0)}{" "}
                   KM TRUST

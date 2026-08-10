@@ -24,12 +24,15 @@ import {
   dayEvents,
   moonPhaseEvents,
   skylineState,
+  targetSkylineState,
   type PlanBody,
   type PlanEvent,
   type PlanObserver,
   type SkylineState,
 } from "../../../lib/ephemeris/planner";
 import { horizontal } from "../../../lib/ephemeris/bodies";
+import { targetAzAlt, targetShortName, type SkyTarget } from "../../../lib/ephemeris/targets";
+import { kindGlyph } from "../../../lib/sky/searchIndex";
 import { localDayWindow } from "../../../lib/ephemeris/dayArc";
 import {
   createProfile,
@@ -44,7 +47,13 @@ import { sweepMeshEdges, sweepTreeInstances } from "../../../lib/geo/occlusion";
 import { clampGroundM } from "../../../lib/geo/terrain";
 import { ecefToGeodetic, enuBasis } from "../../../lib/geo/projection";
 import { bboxClipPrismEcef, type EcefPlane, type GeoBbox } from "../../../lib/globe/enrichedMask";
-import { usePlanStore, type PlanAnchorKind, type PlanBodyState } from "../../../store/plan";
+import {
+  usePlanStore,
+  type PlanAnchorKind,
+  type PlanBodyState,
+  type PlanTargetState,
+} from "../../../store/plan";
+import { useSkyStore } from "../../../store/sky";
 
 export interface PlanFeedHandle {
   update(ctx: PlanFeedCtx): void;
@@ -121,6 +130,9 @@ export function attachPlanFeed(opts: {
   let lastScanRealMs = -Infinity;
   let scanSun: SkylineState | null = null;
   let scanMoon: SkylineState | null = null;
+  // Tracked-target scan (phase E) — invalidated by target swaps as well as time scrubs.
+  let scanTarget: SkylineState | null = null;
+  let scanTargetId = "";
 
   let frameCount = 0;
   let lastMirrorSig = "";
@@ -162,6 +174,8 @@ export function attachPlanFeed(opts: {
     };
     scanSun = null;
     scanMoon = null;
+    scanTarget = null;
+    scanTargetId = "";
     scanBaseMs = NaN;
   };
 
@@ -288,6 +302,35 @@ export function attachPlanFeed(opts: {
     };
   };
 
+  /** The tracked target's row (phase E) — same shape as sun/moon plus identity, through the SAME
+   *  `targetAzAlt` face the marker/trail/panel read. */
+  const targetState = (
+    t: SkyTarget,
+    b: BuildState,
+    sceneMs: number,
+    scan: SkylineState | null,
+  ): PlanTargetState => {
+    const pos = targetAzAlt(
+      t,
+      sceneMs,
+      b.obs.latDeg,
+      b.obs.lonDeg,
+      b.obs.groundAltM + b.obs.eyeAboveGroundM,
+    );
+    const skylineAltDeg = sampleProfile(b.profile, pos.azDeg);
+    return {
+      id: t.id,
+      label: targetShortName(t).toUpperCase(),
+      glyph: kindGlyph(t.kind),
+      blockedNow: pos.altDeg < skylineAltDeg,
+      azDeg: pos.azDeg,
+      altDeg: pos.altDeg,
+      skylineAltDeg,
+      nextClearMs: scan?.nextClearMs ?? null,
+      nextBlockMs: scan?.nextBlockMs ?? null,
+    };
+  };
+
   const update = (ctx: PlanFeedCtx) => {
     frameCount++;
 
@@ -306,6 +349,8 @@ export function attachPlanFeed(opts: {
       build = null;
       scanSun = null;
       scanMoon = null;
+      scanTarget = null;
+      scanTargetId = "";
     }
 
     if (build && !build.ready) stepBuild(build);
@@ -338,11 +383,19 @@ export function attachPlanFeed(opts: {
       chips = [...dayEvents(ctx.sceneMs, obs, GOLDEN), ...moonPhaseEvents(ctx.sceneMs, obs)];
     }
 
-    // Skyline crossing scans (profile ready only) — refreshed when scene time out-scrubs them.
+    // The tracked target rides the skyline verdicts only while its SHOW chip is on — the same
+    // per-slot gate the FPV edge chip uses (a hidden target must not haunt the planner).
+    const sky = useSkyStore.getState();
+    const tracked = sky.visible ? sky.target : null;
+
+    // Skyline crossing scans (profile ready only) — refreshed when scene time out-scrubs them
+    // or (target slot) when the tracked target itself swaps.
     if (build?.ready) {
       const nowReal = performance.now();
       const stale =
-        Number.isNaN(scanBaseMs) || Math.abs(ctx.sceneMs - scanBaseMs) > PLAN.scanStaleMs;
+        Number.isNaN(scanBaseMs) ||
+        Math.abs(ctx.sceneMs - scanBaseMs) > PLAN.scanStaleMs ||
+        (tracked?.id ?? "") !== scanTargetId;
       if (stale && nowReal - lastScanRealMs > PLAN.scanThrottleMs) {
         lastScanRealMs = nowReal;
         scanBaseMs = ctx.sceneMs;
@@ -350,11 +403,19 @@ export function attachPlanFeed(opts: {
         const scanOpts = { horizonDays: PLAN.scanHorizonDays, scanStepMin: PLAN.scanStepMin };
         scanSun = skylineState("sun", ctx.sceneMs, build.obs, profileFn, scanOpts);
         scanMoon = skylineState("moon", ctx.sceneMs, build.obs, profileFn, scanOpts);
+        scanTargetId = tracked?.id ?? "";
+        scanTarget = tracked
+          ? targetSkylineState(tracked, ctx.sceneMs, build.obs, profileFn, scanOpts)
+          : null;
       }
     }
 
     const sun = build?.ready ? bodyState("sun", build, ctx.sceneMs, scanSun) : null;
     const moon = build?.ready ? bodyState("moon", build, ctx.sceneMs, scanMoon) : null;
+    const target =
+      build?.ready && tracked
+        ? targetState(tracked, build, ctx.sceneMs, tracked.id === scanTargetId ? scanTarget : null)
+        : null;
     const coverage = build?.ready ? profileCoverage(build.profile) : 0;
 
     // Skip the store write when nothing the panel renders changed (float fields quantized).
@@ -362,6 +423,7 @@ export function attachPlanFeed(opts: {
       `${key}|${chips.length}|${build?.ready ? 1 : 0}|${coverage.toFixed(2)}|` +
       `${sun ? `${sun.blockedNow}:${sun.azDeg.toFixed(1)}:${sun.altDeg.toFixed(1)}:${sun.nextClearMs}:${sun.nextBlockMs}` : "-"}|` +
       `${moon ? `${moon.blockedNow}:${moon.azDeg.toFixed(1)}:${moon.altDeg.toFixed(1)}:${moon.nextClearMs}:${moon.nextBlockMs}` : "-"}|` +
+      `${target ? `${target.id}:${target.blockedNow}:${target.azDeg.toFixed(1)}:${target.altDeg.toFixed(1)}:${target.nextClearMs}:${target.nextBlockMs}` : "-"}|` +
       `${Math.floor(ctx.sceneMs / DAY_MS)}`;
     if (sig === lastMirrorSig) return;
     lastMirrorSig = sig;
@@ -374,6 +436,7 @@ export function attachPlanFeed(opts: {
       trustRadiusM: PLAN.trustRadiusM,
       sun,
       moon,
+      target,
     });
   };
 
@@ -399,6 +462,7 @@ export function attachPlanFeed(opts: {
         profileCoverage: 0,
         sun: null,
         moon: null,
+        target: null,
       });
     },
   };

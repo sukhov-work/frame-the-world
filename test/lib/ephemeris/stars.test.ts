@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   BV_SENTINEL,
+  bvToRgb,
+  bvToTempK,
   GALACTIC_CENTER,
   GALACTIC_NORTH_POLE,
   galacticToEquatorial,
@@ -192,5 +194,36 @@ describe("magnitude mapping", () => {
     expect(magToSize(SIRIUS.vmag, MAPPING)).toBeLessThanOrEqual(MAPPING.sizeMax);
     expect(magToBright(6.5, MAPPING)).toBeGreaterThanOrEqual(MAPPING.brightMin);
     expect(magToBright(-1.46, MAPPING)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("bvToRgb — B−V catalog colour (phase D star tint)", () => {
+  it("Ballesteros temperature anchors: Sun ≈ 5800 K, Vega ≈ 9600 K, Betelgeuse ≈ 3300 K", () => {
+    expect(bvToTempK(0.65)).toBeGreaterThan(5500);
+    expect(bvToTempK(0.65)).toBeLessThan(6100);
+    expect(bvToTempK(0.0)).toBeGreaterThan(9000);
+    expect(bvToTempK(0.0)).toBeLessThan(10500);
+    expect(bvToTempK(1.85)).toBeGreaterThan(3000);
+    expect(bvToTempK(1.85)).toBeLessThan(3700);
+  });
+
+  it("channel ordering: hot stars blue-leaning, cool stars red-leaning, max channel = 1", () => {
+    const rigel = bvToRgb(-0.03);
+    const betelgeuse = bvToRgb(1.85);
+    const sun = bvToRgb(0.65);
+    expect(rigel[2]).toBeGreaterThan(rigel[0]); // b > r — blue-white
+    expect(betelgeuse[0]).toBeGreaterThan(betelgeuse[2]); // r > b — orange
+    expect(betelgeuse[0]).toBeGreaterThan(betelgeuse[1]);
+    for (const c of [...rigel, ...betelgeuse, ...sun]) {
+      expect(c).toBeGreaterThanOrEqual(0);
+      expect(c).toBeLessThanOrEqual(1);
+    }
+    expect(Math.max(...rigel)).toBeCloseTo(1, 6);
+    expect(Math.max(...betelgeuse)).toBeCloseTo(1, 6);
+    expect(Math.max(...sun)).toBeCloseTo(1, 6);
+  });
+
+  it("the BV sentinel (no catalog colour) tints nothing", () => {
+    expect(bvToRgb(9.99)).toEqual([1, 1, 1]);
   });
 });

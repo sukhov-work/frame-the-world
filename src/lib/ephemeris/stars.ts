@@ -84,6 +84,42 @@ export function magToBright(v: number, m: MagMapping): number {
   return Math.min(1, Math.max(m.brightMin, flux));
 }
 
+/** B−V colour index → effective temperature (K). Ballesteros (2012, EPL 97, 34008) — a
+ *  blackbody fit valid across the main sequence (±3% over B−V ∈ [−0.4, 2]). */
+export function bvToTempK(bv: number): number {
+  return 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62));
+}
+
+/**
+ * B−V colour index → linear-ish sRGB tint, normalized so max(r,g,b) = 1 (brightness stays the
+ * magnitude attributes' job — the tint must never double-dim a star). Blackbody chromaticity via
+ * `bvToTempK` + the Tanner Helland piecewise fit of the Planckian locus (the standard compact
+ * approximation; kelvin → 0..255 channels, here rescaled 0..1). BV_SENTINEL (no catalog colour)
+ * → white. Anchors: Rigel (−0.03) blue-white · Sun (0.65) warm white · Betelgeuse (1.85) orange.
+ */
+export function bvToRgb(bv: number): [number, number, number] {
+  if (bv >= 9) return [1, 1, 1];
+  const t = Math.min(Math.max(bvToTempK(Math.min(Math.max(bv, -0.4), 2.0)), 1000), 40000) / 100;
+  let r: number;
+  let g: number;
+  let b: number;
+  if (t <= 66) {
+    r = 255;
+    g = 99.4708025861 * Math.log(t) - 161.1195681661;
+    b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  } else {
+    r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    b = 255;
+  }
+  const clamp01 = (x: number) => Math.min(255, Math.max(0, x)) / 255;
+  const rr = clamp01(r);
+  const gg = clamp01(g);
+  const bb = clamp01(b);
+  const max = Math.max(rr, gg, bb, 1e-6);
+  return [rr / max, gg / max, bb / max];
+}
+
 // ---------------------------------------------------------------------------------------------
 // Milky Way — the galactic plane at its REAL celestial coordinates. IAU J2000 galactic frame:
 // north galactic pole RA 12h51m26.28s / Dec +27°07'42.0", galactic centre (l=0, b=0) at

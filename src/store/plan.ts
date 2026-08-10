@@ -28,6 +28,14 @@ export interface PlanBodyState {
   nextBlockMs: number | null;
 }
 
+/** The tracked SkyTarget vs the skyline (ASTRO ENGINE phase E) — same verdict shape as
+ *  sun/moon plus enough identity for the row to label itself without importing the sky store. */
+export interface PlanTargetState extends PlanBodyState {
+  id: string;
+  label: string;
+  glyph: string;
+}
+
 export interface PlanState {
   /** Panel visibility (user toggle — the pill stays either way). */
   open: boolean;
@@ -46,12 +54,21 @@ export interface PlanState {
    *  one: no eye, no skyline; the almanac chips still work). */
   sun: PlanBodyState | null;
   moon: PlanBodyState | null;
+  /** Tracked sky target vs skyline — additionally null while the target's SHOW chip is off. */
+  target: PlanTargetState | null;
 
   _syncPlan(
     p: Partial<
       Pick<
         PlanState,
-        "anchor" | "events" | "profileReady" | "profileCoverage" | "trustRadiusM" | "sun" | "moon"
+        | "anchor"
+        | "events"
+        | "profileReady"
+        | "profileCoverage"
+        | "trustRadiusM"
+        | "sun"
+        | "moon"
+        | "target"
       >
     >,
   ): void;
@@ -68,6 +85,7 @@ export const usePlanStore = create<PlanState>((set) => ({
   trustRadiusM: 0,
   sun: null,
   moon: null,
+  target: null,
 
   _syncPlan: (p) => set(p),
 }));

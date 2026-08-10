@@ -7,9 +7,11 @@ import {
   goldenElevationsDeg,
   moonPhaseEvents,
   skylineState,
+  targetSkylineState,
   type PlanEvent,
   type PlanObserver,
 } from "../../../src/lib/ephemeris/planner";
+import { fixedTarget, targetAzAlt } from "../../../src/lib/ephemeris/targets";
 
 /** Same fixture as bodies.test.ts — Dnipro, UA (JPL-anchored `horizontal` is the ground truth
  *  every planner event is checked against: self-consistency, not a second almanac). */
@@ -164,5 +166,47 @@ describe("skylineState — body vs the cached horizon profile", () => {
     expect(atClear.azDeg).toBeGreaterThan(238);
     expect(atClear.azDeg).toBeLessThan(302);
     expect(atClear.altDeg).toBeGreaterThan(0);
+  });
+});
+
+describe("targetSkylineState — any tracked SkyTarget vs the profile (ASTRO ENGINE phase E)", () => {
+  // Vega as a fixed target: dec 38.8° from 48.5°N rises and sets every sidereal day — a clean
+  // diurnal crosser for the same synthetic profiles the sun/moon tests use.
+  const VEGA = fixedTarget({
+    id: "star:test-vega",
+    name: "Vega",
+    kind: "star",
+    aliases: [],
+    raDeg: 279.2347,
+    decDeg: 38.7837,
+    vmag: 0.03,
+    facts: { kind: "dso", dsoType: "*", typeLabel: "STAR", constellation: "Lyr", names: [] },
+    source: "test fixture",
+  });
+
+  it("crossings land ON the wall through the SAME targetAzAlt face the scene reads", () => {
+    const s = targetSkylineState(VEGA, SOLSTICE_NOON_MS, DNIPRO, () => 10);
+    const eyeM = DNIPRO.groundAltM + DNIPRO.eyeAboveGroundM;
+    const nowPos = targetAzAlt(VEGA, SOLSTICE_NOON_MS, DNIPRO.latDeg, DNIPRO.lonDeg, eyeM);
+    expect(s.azDeg).toBeCloseTo(nowPos.azDeg, 6);
+    expect(s.altDeg).toBeCloseTo(nowPos.altDeg, 6);
+    expect(s.skylineAltDeg).toBeCloseTo(10, 6);
+    expect(s.blockedNow).toBe(nowPos.altDeg <= 10);
+    // Vega peaks at ~80° and dips to ~ −3° from Dnipro — both crossings must exist.
+    expect(s.nextClearMs).not.toBeNull();
+    expect(s.nextBlockMs).not.toBeNull();
+    const atClear = targetAzAlt(VEGA, s.nextClearMs!, DNIPRO.latDeg, DNIPRO.lonDeg, eyeM);
+    expect(atClear.altDeg).toBeCloseTo(10, 1);
+    const atBlock = targetAzAlt(VEGA, s.nextBlockMs!, DNIPRO.latDeg, DNIPRO.lonDeg, eyeM);
+    expect(atBlock.altDeg).toBeCloseTo(10, 1);
+  });
+
+  it("a 90° dome never clears; an all-open pit never blocks", () => {
+    const dome = targetSkylineState(VEGA, SOLSTICE_NOON_MS, DNIPRO, () => 89.9);
+    expect(dome.blockedNow).toBe(true);
+    expect(dome.nextClearMs).toBeNull();
+    const pit = targetSkylineState(VEGA, SOLSTICE_NOON_MS, DNIPRO, () => -90);
+    expect(pit.blockedNow).toBe(false);
+    expect(pit.nextBlockMs).toBeNull();
   });
 });

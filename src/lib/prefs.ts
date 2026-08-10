@@ -32,6 +32,9 @@ export interface ViewPrefs {
   skyTargetHighlight?: boolean;
   /** TARGET panel TRAIL — the projected day-arc trajectory (phase C; default ON). */
   skyTargetTrail?: boolean;
+  /** Last-tracked sky target id (phase B) — restored lazily after boot (`store/sky`); resolves
+   *  through `catalog.targetByIdAsync`, so even `ngc:`/`simbad:` ids survive a reload. */
+  skyTargetId?: string;
 }
 
 /** Keep only known keys with the right types; clamp numerics. Pure — unit-tested directly. */
@@ -52,6 +55,8 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   const hl = typeof r.skyTargetHighlight === "boolean" ? r.skyTargetHighlight : r.cometHighlight;
   if (typeof hl === "boolean") out.skyTargetHighlight = hl;
   if (typeof r.skyTargetTrail === "boolean") out.skyTargetTrail = r.skyTargetTrail;
+  if (typeof r.skyTargetId === "string" && r.skyTargetId.length <= 80 && r.skyTargetId.includes(":"))
+    out.skyTargetId = r.skyTargetId;
   return out;
 }
 

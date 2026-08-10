@@ -86,6 +86,8 @@ function magnitudeNote(state: TargetState): string {
       return "BRIGHTNESS FROM THE PLANETARY MAGNITUDE MODEL (ASTRONOMY-ENGINE) — GOOD TO ~0.1 MAG.";
     case "catalog":
       return "CATALOG MAGNITUDE (INTEGRATED) — AN EXTENDED OBJECT'S LIGHT IS SPREAD OVER ITS WHOLE AREA, SO IT READS FAINTER IN THE EYEPIECE THAN A STAR OF THE SAME NUMBER.";
+    case "hg":
+      return "BRIGHTNESS FROM THE IAU (H,G) ASTEROID PHASE LAW (BOWELL 1989) — TYPICALLY GOOD TO ~0.3 MAG; THE OPPOSITION SURGE IS MODELLED.";
   }
 }
 
@@ -155,16 +157,25 @@ function CometFacts({ target, onJump }: { target: SkyTarget; onJump: (ms: number
       </div>
       <div className="tp-section">THE OBJECT</div>
       <div className="tp-facts">
-        {profile.family.toUpperCase()} · PERIOD {(el.periodDays / 365.25).toFixed(2)} YR · q{" "}
-        {el.qAu.toFixed(3)} AU · Q {(el.aAu * (1 + el.e)).toFixed(2)} AU · i {el.iDeg.toFixed(1)}°
+        {profile.family.toUpperCase()}
+        {Number.isFinite(el.periodDays) && <> · PERIOD {(el.periodDays / 365.25).toFixed(2)} YR</>}
+        {" "}· q {el.qAu.toFixed(3)} AU
+        {el.e < 1 && <> · Q {(el.aAu * (1 + el.e)).toFixed(2)} AU</>}
+        {el.e >= 1 && <> · e {el.e.toFixed(4)} (OPEN ORBIT)</>}
+        {" "}· i {el.iDeg.toFixed(1)}°
       </div>
-      <div className="tp-facts">
-        NUCLEUS ≈{profile.nucleusKm} KM · ROTATION {profile.rotationHours} H · DISCOVERED{" "}
-        {profile.discovery.toUpperCase()}
-      </div>
-      <div className="tp-facts">
-        NEXT PERIHELION {new Date(apparition.next).toISOString().slice(0, 10)}
-      </div>
+      {(profile.nucleusKm != null || profile.rotationHours != null || profile.discovery) && (
+        <div className="tp-facts">
+          {profile.nucleusKm != null && <>NUCLEUS ≈{profile.nucleusKm} KM · </>}
+          {profile.rotationHours != null && <>ROTATION {profile.rotationHours} H · </>}
+          {profile.discovery && <>DISCOVERED {profile.discovery.toUpperCase()}</>}
+        </div>
+      )}
+      {apparition.next != null && (
+        <div className="tp-facts">
+          NEXT PERIHELION {new Date(apparition.next).toISOString().slice(0, 10)}
+        </div>
+      )}
     </>
   );
 }
@@ -213,6 +224,71 @@ function DsoFacts({ target }: { target: SkyTarget }) {
   );
 }
 
+/** The star card (phase B): WGSN designation + cross-catalog ids. */
+function StarFacts({ target }: { target: SkyTarget }) {
+  if (target.facts.kind !== "star") return null;
+  const f = target.facts;
+  const ids = [
+    f.hr != null ? `HR ${f.hr}` : null,
+    f.hip != null ? `HIP ${f.hip}` : null,
+    f.hd != null ? `HD ${f.hd}` : null,
+  ].filter(Boolean);
+  return (
+    <>
+      <div className="tp-section">THE OBJECT</div>
+      <div className="tp-facts">
+        IAU-NAMED STAR
+        {f.bayer ? ` · ${f.bayer.toUpperCase()}` : ` · ${f.designation.toUpperCase()}`}
+        {f.constellation ? ` · ${f.constellation.toUpperCase()}` : ""}
+      </div>
+      {ids.length > 0 && <div className="tp-facts">{ids.join(" · ")}</div>}
+    </>
+  );
+}
+
+/** The asteroid card (phase B): H/G photometry + orbit shape + element honesty. */
+function AsteroidFacts({ target, nowMs }: { target: SkyTarget; nowMs: number }) {
+  if (target.facts.kind !== "asteroid") return null;
+  const f = target.facts;
+  const el = f.elements;
+  const ageDays = Math.abs(jdTdbFromUtcMs(nowMs) - el.epochJdTdb);
+  return (
+    <>
+      <div className="tp-section">THE OBJECT</div>
+      <div className="tp-facts">
+        {f.number != null ? `MPC ${f.number} · ` : ""}H {f.h.toFixed(2)} · G {f.g.toFixed(2)} · q{" "}
+        {el.qAu.toFixed(3)} AU · Q {(el.aAu * (1 + el.e)).toFixed(2)} AU · i {el.iDeg.toFixed(1)}°
+        {Number.isFinite(el.periodDays) && <> · PERIOD {(el.periodDays / 365.25).toFixed(2)} YR</>}
+      </div>
+      {ageDays > ELEMENTS_TRUST_DAYS && (
+        <div className="tp-facts">
+          ELEMENTS {Math.round(ageDays)} DAYS FROM THEIR EPOCH — TWO-BODY DRIFT SOFTENS THE
+          POSITION THIS FAR OUT.
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The constellation card (phase B): the marker tracks the figure's centre, not one object. */
+function ConstellationFacts({ target }: { target: SkyTarget }) {
+  if (target.facts.kind !== "constellation") return null;
+  const f = target.facts;
+  return (
+    <>
+      <div className="tp-section">THE CONSTELLATION</div>
+      <div className="tp-facts">
+        {f.abbr.toUpperCase()} · GENITIVE {f.genitive.toUpperCase()} · ONE OF THE 88 IAU
+        CONSTELLATIONS
+      </div>
+      <div className="tp-facts">
+        THE MARKER SITS AT THE FIGURE'S CENTRE — THE PATTERN SPANS TENS OF DEGREES AROUND IT,
+        AND ITS FIGURE LIGHTS UP IN THE SKY WHILE TRACKED.
+      </div>
+    </>
+  );
+}
+
 export default function TargetPanel() {
   const drag = usePanelDrag("target");
   const open = useSkyStore((s) => s.open);
@@ -232,6 +308,9 @@ export default function TargetPanel() {
   // The eye: the planner's anchor (a placed photo / the FPV viewer) when there is one, else the
   // live view focus — the same "where am I standing" the rest of the instrument uses.
   const anchor = usePlanStore((s) => s.anchor);
+  // Skyline verdict for THIS target (phase E) — planFeed mirrors it only while a photo/FPV eye
+  // has a ready profile; id-matched so a just-swapped target never wears the old verdict.
+  const planTarget = usePlanStore((s) => s.target);
   const focusLat = useCameraStore((s) => s.focusLatDeg);
   const focusLon = useCameraStore((s) => s.focusLonDeg);
   const latDeg = anchor?.latDeg ?? focusLat;
@@ -315,6 +394,14 @@ export default function TargetPanel() {
               <span className={`tp-badge ${upNow ? "tp-badge--up" : ""}`}>
                 {upNow ? "ABOVE HORIZON" : "BELOW HORIZON"}
               </span>
+              {upNow && planTarget?.id === target.id && (
+                <span
+                  className={`tp-badge ${planTarget.blockedNow ? "tp-badge--sky-blocked" : "tp-badge--up"}`}
+                  title={`Local skyline at ${Math.round(planTarget.azDeg)}° is ${planTarget.skylineAltDeg.toFixed(1)}° (terrain + streamed buildings around the plan anchor)`}
+                >
+                  {planTarget.blockedNow ? "BEHIND SKYLINE" : "SKYLINE CLEAR"}
+                </span>
+              )}
             </div>
 
             <div className="tp-live">
@@ -356,6 +443,9 @@ export default function TargetPanel() {
             <CometFacts target={target} onJump={setTime} />
             <PlanetFacts target={target} state={s} />
             <DsoFacts target={target} />
+            <StarFacts target={target} />
+            <AsteroidFacts target={target} nowMs={nowMs} />
+            <ConstellationFacts target={target} />
 
             <div className="tp-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
             {windows.length > 0 ? (

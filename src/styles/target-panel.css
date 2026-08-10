@@ -110,6 +110,11 @@
   color: var(--color-accent);
   border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
 }
+/* Phase E — target stands above the horizon but behind the REAL local skyline. */
+.tp-badge--sky-blocked {
+  color: var(--color-warn);
+  border-color: color-mix(in srgb, var(--color-warn) 45%, var(--color-border));
+}
 
 .tp-live {
   display: flex;
