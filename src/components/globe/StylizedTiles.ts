@@ -780,11 +780,13 @@ export function attachStylizedTiles(opts: {
   // Photo-FPV vertical LIFT off the frustum apex (m, S6): the ALTITUDE encoder's photo identity.
   // 0 = the photographer's exact eye (the entry state, and what the photo alignment means).
   let fpvLiftM = 0;
-  // FPV WALK (owner): a ground-plane displacement off the anchor (m), integrated from held arrow
-  // keys — you walk where you look (◀▶ strafe). Reset on FPV entry.
-  let fpvWalkFwd = 0;
-  let fpvWalkRight = 0;
-  const fpvKeysDown = { up: false, down: false, left: false, right: false };
+  // FPV WALK (owner): a WORLD-SPACE displacement off the anchor (ECEF, m), integrated from held
+  // arrow keys along the horizontal look of the frame each step is taken — you walk where you
+  // look (◀▶ strafe). A fixed vector, NOT fwd/right scalars re-projected on the live look basis:
+  // the scalar form re-aimed the ACCUMULATED displacement on every head-turn, orbiting the eye
+  // around the anchor at walk radius (the pivot-ellipse bug, owner 2026-08-11). Reset on FPV entry.
+  const fpvWalkOffset = new THREE.Vector3();
+  const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false };
   // Sticky ground height under the photo-FPV anchor (m above ellipsoid) — feeds the eye-height
   // readout + the building solidity curve; heightAt-null/garbage tolerant (S2 discipline).
   let fpvAnchorGroundM = 0;
@@ -837,8 +839,12 @@ export function attachStylizedTiles(opts: {
   // temp-pin FPV → temp pin → a viewed saved pin (deselect). Own unsaved uploads keep their
   // UploadFlow Escape semantics (never discarded from here).
   const onFpvKey = (e: KeyboardEvent) => {
-    if (fpvActive && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (fpvActive && !e.metaKey && !e.ctrlKey) {
       // Arrow keys WALK on the ground plane (you walk where you look; ◀▶ strafe).
+      // Shift sprints (×walkFastMult); Option/Alt creeps (×walkSlowMult). Modifier state is
+      // mirrored on EVERY key event so pressing/releasing mid-stride retunes the speed live.
+      fpvKeysDown.shift = e.shiftKey;
+      fpvKeysDown.alt = e.altKey;
       if (e.key === "ArrowUp") { fpvKeysDown.up = true; e.preventDefault(); return; }
       if (e.key === "ArrowDown") { fpvKeysDown.down = true; e.preventDefault(); return; }
       if (e.key === "ArrowLeft") { fpvKeysDown.left = true; e.preventDefault(); return; }
@@ -854,6 +860,8 @@ export function attachStylizedTiles(opts: {
     else if (up.phase === "placed" && up.viewingPinId) up.clear();
   };
   const onFpvKeyUp = (e: KeyboardEvent) => {
+    fpvKeysDown.shift = e.shiftKey;
+    fpvKeysDown.alt = e.altKey;
     if (e.key === "ArrowUp") fpvKeysDown.up = false;
     else if (e.key === "ArrowDown") fpvKeysDown.down = false;
     else if (e.key === "ArrowLeft") fpvKeysDown.left = false;
@@ -1216,8 +1224,7 @@ export function attachStylizedTiles(opts: {
               fpvActive = true;
               fpvYaw = 0;
               fpvPitch = 0;
-              fpvWalkFwd = 0;
-              fpvWalkRight = 0;
+              fpvWalkOffset.set(0, 0, 0);
               fpvLiftM = 0; // the photographer's exact eye — ALTITUDE lifts from here
               fpvDragId = null;
               controls.enabled = false;
@@ -1268,8 +1275,7 @@ export function attachStylizedTiles(opts: {
               fpvActive = true;
               fpvYaw = 0;
               fpvPitch = 0;
-              fpvWalkFwd = 0;
-              fpvWalkRight = 0;
+              fpvWalkOffset.set(0, 0, 0);
               fpvDragId = null;
               controls.enabled = false;
               controls.adjustHeight = false; // eye height 1.7 m is under cameraRadius
@@ -1411,24 +1417,27 @@ export function attachStylizedTiles(opts: {
                 _fpvFwd.applyQuaternion(_fpvQ);
                 _fpvUp.applyQuaternion(_fpvQ);
               }
-              // FPV WALK (owner): integrate held arrows into a ground-plane displacement, applied
-              // along the HORIZONTAL look direction (fwd projected off geodetic up) + right. The look
-              // is unchanged — lookAt uses position + _fpvFwd, so moving the position keeps the heading.
+              // FPV WALK (owner): integrate held arrows into fpvWalkOffset — a fixed WORLD-SPACE
+              // displacement — stepping along THIS frame's HORIZONTAL look direction (fwd projected
+              // off geodetic up) + right. Only key-holds mutate the offset; a head-turn never does
+              // (true-FPV invariant — the eye stays put while looking). The look itself is unchanged:
+              // lookAt uses position + _fpvFwd, so moving the position keeps the heading.
               if (fpvKeysDown.up || fpvKeysDown.down || fpvKeysDown.left || fpvKeysDown.right) {
-                const spd = (FPV.walkSpeedMps * dtMs) / 1000;
-                if (fpvKeysDown.up) fpvWalkFwd += spd;
-                if (fpvKeysDown.down) fpvWalkFwd -= spd;
-                if (fpvKeysDown.right) fpvWalkRight += spd;
-                if (fpvKeysDown.left) fpvWalkRight -= spd;
-              }
-              if (fpvWalkFwd !== 0 || fpvWalkRight !== 0) {
+                const mult = fpvKeysDown.shift
+                  ? FPV.walkFastMult
+                  : fpvKeysDown.alt
+                    ? FPV.walkSlowMult
+                    : 1;
+                const spd = (FPV.walkSpeedMps * mult * dtMs) / 1000;
                 _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
                 if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
                 _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
-                camera.position
-                  .addScaledVector(_fpvWalkFwd, fpvWalkFwd)
-                  .addScaledVector(_fpvWalkRight, fpvWalkRight);
+                if (fpvKeysDown.up) fpvWalkOffset.addScaledVector(_fpvWalkFwd, spd);
+                if (fpvKeysDown.down) fpvWalkOffset.addScaledVector(_fpvWalkFwd, -spd);
+                if (fpvKeysDown.right) fpvWalkOffset.addScaledVector(_fpvWalkRight, spd);
+                if (fpvKeysDown.left) fpvWalkOffset.addScaledVector(_fpvWalkRight, -spd);
               }
+              camera.position.add(fpvWalkOffset);
               camera.up.copy(_fpvUp);
               camera.lookAt(_fpvLook.copy(camera.position).add(_fpvFwd));
               camera.updateMatrixWorld();

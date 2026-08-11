@@ -1650,8 +1650,12 @@ export const FPV = {
   /** Temp-pin FPV entry looks at a point this far (m) ahead along the horizontal facing. */
   tempLookAheadM: 50,
   /** FPV WALK (owner): ground-plane speed (m/s) while an arrow key is held — you walk where you
-   *  look (◀▶ strafe). Accumulates a displacement off the anchor; resets on FPV entry. */
+   *  look (◀▶ strafe). Accumulates a world-space displacement off the anchor; resets on FPV entry. */
   walkSpeedMps: 22,
+  /** Walk sprint multiplier while Shift is held with the arrows (owner 2026-08-11). */
+  walkFastMult: 3,
+  /** Walk precision-creep multiplier while Option (mac) / Alt is held with the arrows. */
+  walkSlowMult: 0.5,
 } as const;
 
 /** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's
