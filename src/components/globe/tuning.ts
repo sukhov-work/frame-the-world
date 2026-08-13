@@ -1673,6 +1673,13 @@ export const FPV = {
   walkFastMult: 3,
   /** Walk precision-creep multiplier while Option (mac) / Alt is held with the arrows. */
   walkSlowMult: 0.5,
+  /** Mobile walk stick (MOBILE_PLAN §4.1, M2): speed multiplier at FULL deflection — the
+   *  desktop Shift/Alt modifiers become the stick radius. The response is quadratic in the
+   *  deflection (speed = walkSpeedMps · this · d²): the rim sprints like Shift, ~58% deflection
+   *  walks at arrow speed, the first centimetre creeps like Option. */
+  walkStickMaxMult: 3,
+  /** Stick deflections under this are ignored (finger-jitter deadband, fraction of the radius). */
+  walkStickDeadband: 0.06,
 } as const;
 
 /** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's

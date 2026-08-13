@@ -120,6 +120,29 @@ describe("encoder rate seams (Phase 5.5 S2)", () => {
   });
 });
 
+describe("FPV walk stick seam (MOBILE_PLAN §4.1, M2)", () => {
+  it("stores the analog deflection while held and null on release, clamping to ±1", () => {
+    const s = useCameraStore.getState();
+    s.setFpvWalkInput({ fwd: 0.7, right: -0.3 });
+    expect(useCameraStore.getState().fpvWalkInput).toEqual({ fwd: 0.7, right: -0.3 });
+    s.setFpvWalkInput({ fwd: 4, right: -2 }); // defensive clamp — the pad math never exceeds 1
+    expect(useCameraStore.getState().fpvWalkInput).toEqual({ fwd: 1, right: -1 });
+    useCameraStore.getState().setFpvWalkInput(null);
+    expect(useCameraStore.getState().fpvWalkInput).toBeNull();
+  });
+
+  it("SURVIVES clearAllTargets — the FPV look-drag pointerdown must not kill a held stick", () => {
+    // noteInteract (StylizedTiles) fires clearAllTargets on EVERY canvas pointerdown, and in
+    // FPV that pointerdown IS the look-drag. Walking while looking is the joystick's whole
+    // point, so this seam deliberately diverges from the encoder rates here.
+    const s = useCameraStore.getState();
+    s.setFpvWalkInput({ fwd: 1, right: 0 });
+    useCameraStore.getState().clearAllTargets();
+    expect(useCameraStore.getState().fpvWalkInput).toEqual({ fwd: 1, right: 0 });
+    useCameraStore.getState().setFpvWalkInput(null); // restore for later tests
+  });
+});
+
 describe("sky guides seam (Phase 5.5 S6 follow-up)", () => {
   it("defaults ON and toggles; the marker mirror is orchestrator-fed and nullable", () => {
     expect(useCameraStore.getState().skyGuides).toBe(true);

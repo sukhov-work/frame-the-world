@@ -790,6 +790,17 @@ export function attachStylizedTiles(opts: {
   let fpvLastY = 0;
   let fpvDownX = 0; // pointer-down position — separates a marker CLICK from a look-drag
   let fpvDownY = 0;
+  // Pinch-FOV (MOBILE_PLAN §4.2, M2): a SECOND touch beside the look finger drives the camera
+  // FOV — spread = zoom in, same clamps as the wheel. While the pinch lives the look FREEZES
+  // (both fingers move during a pinch; feeding them to yaw/pitch would swing the view), and the
+  // lift click-check is suppressed (a pinch is never a marker click). Desktop-inert: a mouse
+  // is always isPrimary, so the pinch branch needs a real second pointer to exist at all.
+  let fpvPinchId: number | null = null;
+  let fpvPinchX = 0; // the second finger's live position
+  let fpvPinchY = 0;
+  let fpvPinchStartDist = 0; // finger gap + FOV captured at pinch start — ratio drives the zoom
+  let fpvPinchStartFov = 0;
+  let fpvPinchedDuringDrag = false; // suppresses the sky-marker click on the look finger's lift
   let fovTargetDeg: number = camera.fov; // eased every frame (FPV zoom + entry/exit restore)
   // Temp-pin FPV basis, captured at ENTRY (fwd = the camera's azimuth at that moment — deriving
   // it per frame from the camera would feed back on itself). Position refreshes per frame as
@@ -816,17 +827,60 @@ export function attachStylizedTiles(opts: {
   // Live eye height above the local ground while ANY FPV is active (m).
   let fpvEyeAboveGroundM = 0;
   const onFpvPointerDown = (e: PointerEvent) => {
-    if (!fpvActive || !e.isPrimary) return;
+    if (!fpvActive) return;
+    if (!e.isPrimary) {
+      // Second finger while the look finger is down = a pinch begins (M2). Anything past two
+      // pointers is ignored; a second finger with NO look finger down is ignored too.
+      if (fpvDragId !== null && fpvPinchId === null) {
+        fpvPinchId = e.pointerId;
+        fpvPinchX = e.clientX;
+        fpvPinchY = e.clientY;
+        fpvPinchStartDist = Math.hypot(e.clientX - fpvLastX, e.clientY - fpvLastY);
+        fpvPinchStartFov = fovTargetDeg;
+        fpvPinchedDuringDrag = true;
+      }
+      return;
+    }
     fpvDragId = e.pointerId;
     fpvLastX = e.clientX;
     fpvLastY = e.clientY;
     fpvDownX = e.clientX;
     fpvDownY = e.clientY;
+    fpvPinchedDuringDrag = false;
     // A direct look-drag always beats a pending sky-look glide (never fight the user).
     if (useCameraStore.getState().skyLook) useCameraStore.getState()._clearSkyLook();
   };
   const onFpvPointerMove = (e: PointerEvent) => {
-    if (!fpvActive || fpvDragId !== e.pointerId) return;
+    if (!fpvActive) return;
+    if (fpvPinchId !== null && (e.pointerId === fpvPinchId || e.pointerId === fpvDragId)) {
+      // Pinch owns BOTH fingers: track them, re-derive the gap, drive the FOV by the ratio —
+      // spread = zoom in (FOV narrows), same eased fovTargetDeg + clamps as the wheel path.
+      // fpvLastX/Y stay fresh so the look doesn't jump when the pinch finger lifts.
+      if (e.pointerId === fpvDragId) {
+        fpvLastX = e.clientX;
+        fpvLastY = e.clientY;
+      } else {
+        fpvPinchX = e.clientX;
+        fpvPinchY = e.clientY;
+      }
+      const dist = Math.hypot(fpvLastX - fpvPinchX, fpvLastY - fpvPinchY);
+      if (fpvPinchStartDist < 8) {
+        // Fingers began (or collapsed) nearly on top of each other — re-seed instead of
+        // dividing by a hair's width.
+        fpvPinchStartDist = dist;
+        fpvPinchStartFov = fovTargetDeg;
+        return;
+      }
+      if (dist > 8) {
+        fovTargetDeg = THREE.MathUtils.clamp(
+          (fpvPinchStartFov * fpvPinchStartDist) / dist,
+          FPV.minFovDeg,
+          FPV.maxFovDeg,
+        );
+      }
+      return;
+    }
+    if (fpvDragId !== e.pointerId) return;
     // Grab-the-world: dragging right rotates the view left; sensitivity scales with the FOV
     // zoom so a zoomed-in look stays controllable.
     const k = ((FPV.lookDegPerPx * Math.PI) / 180) * (camera.fov / POSE.fovDeg);
@@ -836,12 +890,19 @@ export function attachStylizedTiles(opts: {
     fpvLastY = e.clientY;
   };
   const onFpvPointerEnd = (e: PointerEvent) => {
+    if (e.pointerId === fpvPinchId) {
+      fpvPinchId = null; // the look finger (still down) resumes the drag seamlessly
+      return;
+    }
     if (fpvDragId !== e.pointerId) return;
     fpvDragId = null;
+    fpvPinchId = null; // a pinch cannot outlive its anchor finger
     // FPV has no pin/ground picking, but a CLICK (not a look-drag) can still hit the tracked
     // sky marker: glide the look onto it + front the panel (phase C, owner feedback #2).
+    // Never after a pinch — those two fingers were a zoom, not a tap.
     if (
       e.type === "pointerup" &&
+      !fpvPinchedDuringDrag &&
       Math.hypot(e.clientX - fpvDownX, e.clientY - fpvDownY) <= ORCH.clickDragPx
     ) {
       const rect = dom.getBoundingClientRect();
@@ -1239,6 +1300,9 @@ export function attachStylizedTiles(opts: {
             buildings.setGhost(null);
             enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
             camNow.clearAllTargets(); // targets set during FPV must not fire now
+            // A held walk stick must not survive the exit either (clearAllTargets deliberately
+            // spares it — the stick component's unmount is the usual clear; this is the backstop).
+            if (camNow.fpvWalkInput) camNow.setFpvWalkInput(null);
             // Restore the pre-FPV pin visibility (no-op if the chip was re-lit inside FPV).
             if (pinsVisibleBeforeFpv && !camNow.pinsVisible) camNow.setPinsVisible(true);
             fovTargetDeg = POSE.fovDeg;
@@ -1469,25 +1533,45 @@ export function attachStylizedTiles(opts: {
                 _fpvFwd.applyQuaternion(_fpvQ);
                 _fpvUp.applyQuaternion(_fpvQ);
               }
-              // FPV WALK (owner): integrate held arrows into fpvWalkOffset — a fixed WORLD-SPACE
-              // displacement — stepping along THIS frame's HORIZONTAL look direction (fwd projected
-              // off geodetic up) + right. Only key-holds mutate the offset; a head-turn never does
-              // (true-FPV invariant — the eye stays put while looking). The look itself is unchanged:
-              // lookAt uses position + _fpvFwd, so moving the position keeps the heading.
-              if (fpvKeysDown.up || fpvKeysDown.down || fpvKeysDown.left || fpvKeysDown.right) {
+              // FPV WALK (owner): integrate held arrows + the mobile walk stick (M2) into
+              // fpvWalkOffset — a fixed WORLD-SPACE displacement — stepping along THIS frame's
+              // HORIZONTAL look direction (fwd projected off geodetic up) + right. Only INPUT
+              // mutates the offset; a head-turn never does (true-FPV invariant — the eye stays
+              // put while looking). The look itself is unchanged: lookAt uses position + _fpvFwd,
+              // so moving the position keeps the heading.
+              const stick = camNow.fpvWalkInput;
+              const stickRaw = stick ? Math.hypot(stick.fwd, stick.right) : 0;
+              const stickMag = Math.min(1, stickRaw);
+              const stickOn = stick !== null && stickMag > FPV.walkStickDeadband;
+              const keysOn =
+                fpvKeysDown.up || fpvKeysDown.down || fpvKeysDown.left || fpvKeysDown.right;
+              if (keysOn || stickOn) {
+                _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
+                if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
+                _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
+              }
+              if (keysOn) {
                 const mult = fpvKeysDown.shift
                   ? FPV.walkFastMult
                   : fpvKeysDown.alt
                     ? FPV.walkSlowMult
                     : 1;
                 const spd = (FPV.walkSpeedMps * mult * dtMs) / 1000;
-                _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
-                if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
-                _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
                 if (fpvKeysDown.up) fpvWalkOffset.addScaledVector(_fpvWalkFwd, spd);
                 if (fpvKeysDown.down) fpvWalkOffset.addScaledVector(_fpvWalkFwd, -spd);
                 if (fpvKeysDown.right) fpvWalkOffset.addScaledVector(_fpvWalkRight, spd);
                 if (fpvKeysDown.left) fpvWalkOffset.addScaledVector(_fpvWalkRight, -spd);
+              }
+              if (stickOn && stick) {
+                // Analog: the deflection IS the modifier (MOBILE_PLAN §4.1) — speed =
+                // walkSpeedMps · walkStickMaxMult · d², so the rim sprints like Shift and the
+                // first centimetre creeps like Option. Dividing by the raw magnitude keeps the
+                // direction unit-length even if both axes rail simultaneously.
+                const k =
+                  (FPV.walkSpeedMps * FPV.walkStickMaxMult * stickMag * stickMag * dtMs) /
+                  (1000 * Math.max(stickRaw, 1e-6));
+                fpvWalkOffset.addScaledVector(_fpvWalkFwd, stick.fwd * k);
+                fpvWalkOffset.addScaledVector(_fpvWalkRight, stick.right * k);
               }
               camera.position.add(fpvWalkOffset);
               camera.up.copy(_fpvUp);

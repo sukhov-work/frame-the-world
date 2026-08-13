@@ -1,0 +1,128 @@
+/* Mobile M2 — FPV touch instruments: WALK joystick (left thumb), ⤒/⤓ altitude nudges (right
+   column above the scene chips), compact HUD row under the status strip. Imported by
+   FpvControls.tsx; tokens.css is the single source of truth. z stack on /m: canvas 0 ·
+   chrome 10 · sheets 30 (chrome.css). */
+
+/* ── Compact HUD row (FOCAL · HDG · PITCH · EYE) ───────────────────────────────────────── */
+.m-fpvhud {
+  position: fixed;
+  top: calc(3.1rem + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 999px;
+  padding: 0.32rem 0.75rem;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none; /* a readout, never a look-drag obstacle */
+}
+.m-fpvhud__cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.m-fpvhud__k {
+  font-size: 0.5rem;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+
+/* ── WALK joystick ─────────────────────────────────────────────────────────────────────── */
+.m-joy {
+  position: fixed;
+  left: calc(1rem + env(safe-area-inset-left));
+  bottom: calc(11.2rem + env(safe-area-inset-bottom)); /* clears the bottom chrome column */
+  z-index: 10;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  touch-action: none; /* the pad owns its gesture — never a page scroll/zoom */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  display: grid;
+  place-items: center;
+}
+.m-joy__label {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.2em;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.m-joy__knob {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  pointer-events: none;
+  transition: transform 120ms ease; /* the recenter snap; live drags override per-event */
+}
+.m-joy__knob--live {
+  transition: none;
+  background: color-mix(in srgb, var(--color-accent) 26%, transparent);
+}
+
+/* ── Altitude nudges (⤒ ascend / ⤓ descend, hold-to-fly) ───────────────────────────────── */
+.m-altcol {
+  position: fixed;
+  right: calc(0.75rem + env(safe-area-inset-right));
+  bottom: calc(14.4rem + env(safe-area-inset-bottom)); /* stacked above the EXIT VIEW chip */
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.m-alt {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.m-alt:active {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+/* ── FPV mini-map (the desktop island, mounted by m.astro — reposition + shrink) ───────── */
+/* Only visible while FPV feeds store/minimap; sits top-right clear of the HUD row.
+   body.m outranks mini-map.css regardless of island-chunk CSS order (MobileLayout). */
+body.m .mm {
+  left: auto;
+  right: calc(0.75rem + env(safe-area-inset-right));
+  top: calc(5.6rem + env(safe-area-inset-top));
+  bottom: auto;
+}
+body.m .mm-canvas {
+  width: 124px;
+  height: 124px;
+}

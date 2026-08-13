@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { localTimeStr, sceneTimeMs, useTimeStore } from "../../store/time";
 import { useSkyStore } from "../../store/sky";
+import { useCameraStore } from "../../store/camera";
 import MobileTimeDock from "./MobileTimeDock";
 import TabBar, { type MobileTab } from "./TabBar";
 import Sheet from "./Sheet";
@@ -22,6 +23,7 @@ import PlanSheet from "./PlanSheet";
 import TargetSheet from "./TargetSheet";
 import TargetPeek from "./TargetPeek";
 import SceneActions from "./SceneActions";
+import FpvControls from "./FpvControls";
 import "../../styles/mobile/chrome.css";
 
 type SheetId = "plan" | "search" | "target" | null;
@@ -50,6 +52,10 @@ function TimeChip() {
 export default function MobileShell() {
   const [sheet, setSheet] = useState<SheetId>(null);
   const target = useSkyStore((s) => s.target);
+  // FPV touch instruments (M2): tempFpv flips instantly on LOOK FROM HERE (joystick usable
+  // from the first frame); the fpvHud mirror covers any FPV kind and lingers a beat on exit.
+  const tempFpv = useCameraStore((s) => s.tempFpv);
+  const fpvOn = useCameraStore((s) => s.fpvHud !== null) || tempFpv;
 
   const activeTab: MobileTab = sheet === "plan" || sheet === "search" ? sheet : "scene";
   const onTab = (t: MobileTab) => setSheet(t === "scene" ? null : t);
@@ -66,6 +72,7 @@ export default function MobileShell() {
         </span>
       </div>
       <SceneActions />
+      {fpvOn && <FpvControls />}
       <div className="m-bottom">
         <TargetPeek onOpen={() => setSheet("target")} />
         <MobileTimeDock />
