@@ -1817,6 +1817,10 @@ export const ORCH = {
   maxFrameDtMs: 100,
   /** Pointer travel (px) above which a press is a drag, not a click / double-click. */
   clickDragPx: 6,
+  /** Long-press hold (ms, TOUCH pointers only) that drops the temp pin — the dblclick twin on
+   *  glass (MOBILE_PLAN §4.3; dblclick is undiscoverable on touch). Travel past clickDragPx,
+   *  lift, cancel or a second finger (pinch) all cancel the press. */
+  longPressMs: 500,
   /** The low-altitude terrain guard runs only below this camera altitude (m). */
   groundGuardMaxAltM: 50_000,
   /** Live-pose → store mirror cadence (frames) for the panel readouts (never 60 fps). */

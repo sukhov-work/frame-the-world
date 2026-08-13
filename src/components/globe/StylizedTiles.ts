@@ -698,7 +698,23 @@ export function attachStylizedTiles(opts: {
     downX = e.clientX;
     downY = e.clientY;
   };
+  // Long-press pin drop (MOBILE_PLAN §4.3, M1): state lives up here because onPointerUp must
+  // know a fired press already consumed the gesture — the pin lands BEFORE the finger lifts,
+  // and the release would otherwise read as an empty-map click and clear it straight back.
+  let longPressTimer: number | null = null;
+  let longPressFired = false;
+  const cancelLongPress = () => {
+    if (longPressTimer !== null) {
+      window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  };
   const onPointerUp = (e: PointerEvent) => {
+    cancelLongPress();
+    if (longPressFired) {
+      longPressFired = false; // the long-press consumed this gesture — not a click
+      return;
+    }
     if (fpvActive) return; // FPV owns the pointer (look-around) — no placing, no pin-picking
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a click
     const rect = dom.getBoundingClientRect();
@@ -876,20 +892,49 @@ export function attachStylizedTiles(opts: {
   };
   // Double-click on the ground drops the temporary pin (deselecting a viewed pin first — the
   // gesture means "focus here"). Ignored while placing and while editing an own unsaved upload.
-  const onDblClick = (e: MouseEvent) => {
+  const dropTempPinAt = (clientX: number, clientY: number) => {
     if (fpvActive) return;
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a dblclick
     const up = useUploadStore.getState();
     if (up.phase === "placing") return;
     if (up.phase === "placed" && !up.viewingPinId) return; // don't disturb an editing session
     const rect = dom.getBoundingClientRect();
-    const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+    const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
     const hit = pickGround(ndcX, ndcY);
-    if (!hit) return; // clicked past the limb
+    if (!hit) return; // clicked/pressed past the limb
     if (up.phase === "placed" && up.viewingPinId) up.clear(); // deselect the viewed pin first
     const g = ecefToGeodetic(hit);
     useCameraStore.getState().setTempPin({ latDeg: g.latDeg, lonDeg: g.lonDeg });
   };
+  const onDblClick = (e: MouseEvent) => {
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a dblclick
+    dropTempPinAt(e.clientX, e.clientY);
+  };
+  // Long-press = the dblclick twin on glass (MOBILE_PLAN §4.3, M1). Gated on pointerType
+  // "touch" — STRICTER than the plan's wording — so the frozen desktop stays behavior-identical
+  // (a mouse held still 500 ms must not start dropping pins). Guards re-run at fire time via
+  // dropTempPinAt; a second finger (pinch) cancels; onPointerUp above owns lift/suppression.
+  const onLongPressDown = (e: PointerEvent) => {
+    if (e.pointerType !== "touch" || !e.isPrimary) {
+      cancelLongPress(); // a mouse press or a second touch is never a long-press
+      return;
+    }
+    if (fpvActive) return;
+    cancelLongPress();
+    longPressFired = false;
+    const { clientX, clientY } = e;
+    longPressTimer = window.setTimeout(() => {
+      longPressTimer = null;
+      longPressFired = true;
+      dropTempPinAt(clientX, clientY);
+    }, ORCH.longPressMs);
+  };
+  const onLongPressMove = (e: PointerEvent) => {
+    if (longPressTimer === null || !e.isPrimary) return;
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) cancelLongPress();
+  };
+  dom.addEventListener("pointerdown", onLongPressDown);
+  dom.addEventListener("pointermove", onLongPressMove);
+  dom.addEventListener("pointercancel", cancelLongPress);
   dom.addEventListener("pointerdown", onFpvPointerDown);
   dom.addEventListener("pointermove", onFpvPointerMove);
   dom.addEventListener("pointerup", onFpvPointerEnd);
@@ -2627,6 +2672,10 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("pointerup", onPointerUp);
       dom.removeEventListener("pointermove", noteHover);
       dom.removeEventListener("pointerleave", noteLeave);
+      cancelLongPress();
+      dom.removeEventListener("pointerdown", onLongPressDown);
+      dom.removeEventListener("pointermove", onLongPressMove);
+      dom.removeEventListener("pointercancel", cancelLongPress);
       dom.removeEventListener("pointerdown", onFpvPointerDown);
       dom.removeEventListener("pointermove", onFpvPointerMove);
       dom.removeEventListener("pointerup", onFpvPointerEnd);

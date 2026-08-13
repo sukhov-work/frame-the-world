@@ -238,7 +238,7 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: M1 (mobile planning loop — consumes lib/ephemeris/twilight.ts) → M2 → 8b. DONE
+**Next step: M2 (FPV touch — joystick walk seam + pinch FOV + wake lock) → 8b desktop-first (P4 Find · P5 NPF · P6 moon calendar). M1 DONE 2026-08-13 (phone-viewport browser-verified; `mem:project/wip-2026-08-13-m1-mobile-planning`). DONE
 2026-08-13 evening: slice 7 (enriched-sample → bakes/enriched/sample, A5 de-export sweep, dist
 32.2 MB) · owner rulings (T26 ACCEPTED unbounded · T27 B2-password WON'T-FIX · T4 DEFERRED
 post-M6) · **PHASE 8a SHIPPED desktop** (twilight.ts + scrubber bands · GC target "dso:gc" +
