@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { geodeticToEcef } from "../../lib/geo/projection";
+import { sampleGroundM } from "../../lib/geo/terrain";
 import {
   clusterLayout,
   hash01,
@@ -292,11 +293,10 @@ export function attachPins(
   const selAmt = new Float32Array(cap);
   let selAnimating = false;
 
-  const groundHeight = (pin: PublicPin): { h: number; real: boolean } => {
-    const h = opts.terrainHeightAt?.(pin.lat, pin.lon);
-    if (h !== null && h !== undefined && Number.isFinite(h)) return { h, real: true };
-    return { h: PINS.fallbackGroundM, real: false };
-  };
+  // Clamp + no-latch (2026-08-13 audit A1): an out-of-range sample is coarse-LOD garbage — placed
+  // clamped but kept `real:false` so resnap() re-resolves it as tiles refine (never latched).
+  const groundHeight = (pin: PublicPin): { h: number; real: boolean } =>
+    sampleGroundM(opts.terrainHeightAt?.(pin.lat, pin.lon), PINS.fallbackGroundM);
 
   const _east = new THREE.Vector3();
   const _north = new THREE.Vector3();

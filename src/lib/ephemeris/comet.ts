@@ -23,7 +23,8 @@
 
 import { Body, HelioVector, MakeTime } from "astronomy-engine";
 import { ecefFrameAt, KM_PER_AU } from "./bodies";
-import { enuBasis, geodeticToEcef, type Vec3 } from "../geo/projection";
+import { topoAzAlt } from "./topo";
+import type { Vec3 } from "../geo/projection";
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
@@ -511,21 +512,12 @@ export function cometAzAlt(
   profile: CometProfile = TEMPEL2,
 ): CometAzAlt {
   const s = cometStateAt(utcMs, profile);
-  const dKm = s.distanceAu * KM_PER_AU;
-  const [ox, oy, oz] = geodeticToEcef(latDeg, lonDeg, altM); // metres
-  // Geocentric direction × distance − observer position, all in km.
-  const x = s.dir[0] * dKm - ox / 1000;
-  const y = s.dir[1] * dKm - oy / 1000;
-  const z = s.dir[2] * dKm - oz / 1000;
-  const d = Math.hypot(x, y, z);
-  const { east, north, up } = enuBasis(latDeg, lonDeg);
-  const u = (x * up[0] + y * up[1] + z * up[2]) / d;
-  const e = (x * east[0] + y * east[1] + z * east[2]) / d;
-  const n = (x * north[0] + y * north[1] + z * north[2]) / d;
+  // ONE ENU projection for every provider — lib/ephemeris/topo.ts (audit A6).
+  const t = topoAzAlt(s.dir, s.distanceAu, latDeg, lonDeg, altM);
   return {
-    azDeg: ((Math.atan2(e, n) * RAD) % 360 + 360) % 360,
-    altDeg: Math.asin(Math.max(-1, Math.min(1, u))) * RAD,
-    distanceAu: d / KM_PER_AU,
+    azDeg: t.azDeg,
+    altDeg: t.altDeg,
+    distanceAu: t.topoDistanceAu ?? s.distanceAu,
     sunDistanceAu: s.sunDistanceAu,
     magnitude: s.magnitude,
   };

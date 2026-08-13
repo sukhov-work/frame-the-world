@@ -4,8 +4,8 @@ import { create } from "zustand";
  * Public pins store (Phase 5) — the shared globe's pin layer.
  *
  * The globe orchestrator mirrors its view focus + altitude here at low cadence
- * (`reportViewport`); a debounced worker decides whether the viewport moved enough to
- * re-query Wix Data and swaps `pins` atomically. Query tiers (D7 — no geo query on Wix Data):
+ * (`reportViewport`); a THROTTLED worker (§Traps: throttle, not debounce) decides whether the
+ * viewport moved enough to re-query Wix Data and swaps `pins` atomically. Query tiers (D7 — no geo query on Wix Data):
  *   • ≥ PINS.queryGlobalAltM — newest pins globally (a hemisphere view can't be cell-covered);
  *   • below — `hasSome` over the geohash cells covering the viewport (gh4, or gh6 when low).
  * PublicPins is world-readable (read: ANYONE), so this works signed-out — the DoD case.
@@ -14,8 +14,7 @@ import { create } from "zustand";
  */
 
 import { geohashesForViewport, type GeohashBounds } from "../lib/geo/geohash";
-import { numOrNull, strOrNull } from "../lib/geo/coerce";
-import { DEFAULT_PRECISION_TIER } from "../lib/geo/precision";
+import { publicPinCore } from "../lib/pins/fields";
 import type { CameraPoseOptics } from "../lib/pins/fields";
 import { PINS } from "../components/globe/tuning";
 
@@ -96,37 +95,10 @@ export function needsRequery(prev: Viewport | null, next: Viewport): boolean {
   return altRatio > PINS.requeryAltFrac;
 }
 
-/** Map a Wix Data item to a PublicPin (defensive — bad rows are dropped by the caller). */
+/** Map a Wix Data item to a PublicPin (defensive — bad rows are dropped by the caller).
+ *  Field reading lives in lib/pins/fields.ts `publicPinCore` — ONE mapper (audit A6). */
 export function pinFromItem(item: Record<string, unknown>): PublicPin | null {
-  const lat = item.latReduced;
-  const lon = item.lonReduced;
-  const id = item._id;
-  if (typeof lat !== "number" || typeof lon !== "number" || typeof id !== "string") return null;
-  return {
-    id,
-    title: typeof item.title === "string" ? item.title : "Untitled",
-    authorName: strOrNull(item.authorName),
-    lat,
-    lon,
-    precision: typeof item.precision === "string" ? item.precision : DEFAULT_PRECISION_TIER,
-    previewUrl: strOrNull(item.previewUrl),
-    capturedAt: strOrNull(item.capturedAt),
-    altitudeM: numOrNull(item.altitudeM),
-    headingDeg: numOrNull(item.headingDeg),
-    pitchDeg: numOrNull(item.pitchDeg),
-    rollDeg: numOrNull(item.rollDeg),
-    focalLengthMm: numOrNull(item.focalLengthMm),
-    hFovDeg: numOrNull(item.hFovDeg),
-    textureWidth: numOrNull(item.textureWidth),
-    textureHeight: numOrNull(item.textureHeight),
-    cameraMake: strOrNull(item.cameraMake),
-    cameraModel: strOrNull(item.cameraModel),
-    lensModel: strOrNull(item.lensModel),
-    productId: strOrNull(item.productId),
-    productVariantId: strOrNull(item.productVariantId),
-    priceAmount: numOrNull(item.priceAmount),
-    currency: strOrNull(item.currency),
-  };
+  return publicPinCore(item);
 }
 
 export interface PinsState {
@@ -157,7 +129,7 @@ export interface PinsState {
 
 let lastQueried: Viewport | null = null;
 let lastReported: Viewport | null = null;
-let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+let throttleTimer: ReturnType<typeof setTimeout> | undefined;
 let querySeq = 0;
 
 async function runQuery(v: Viewport, set: (partial: Partial<PinsState>) => void): Promise<void> {
@@ -207,9 +179,9 @@ export const usePinsStore = create<PinsState>((set) => ({
     // THROTTLE, not debounce: reports arrive ~5/s from the render loop, so resetting a pending
     // timer on every report would starve it forever (needsRequery stays true until the FIRST
     // query lands). Let one pending timer fire with the freshest report instead.
-    if (debounceTimer !== undefined) return;
-    debounceTimer = setTimeout(() => {
-      debounceTimer = undefined;
+    if (throttleTimer !== undefined) return;
+    throttleTimer = setTimeout(() => {
+      throttleTimer = undefined;
       // Query the freshest report — the camera may have kept moving since the timer was armed.
       const target = lastReported ?? v;
       if (needsRequery(lastQueried, target)) void runQuery(target, set);
@@ -220,8 +192,8 @@ export const usePinsStore = create<PinsState>((set) => ({
     const target = lastReported ?? lastQueried;
     if (!target) return;
     lastQueried = null; // force
-    clearTimeout(debounceTimer);
-    debounceTimer = undefined;
+    clearTimeout(throttleTimer);
+    throttleTimer = undefined;
     void runQuery(target, set);
   },
 }));

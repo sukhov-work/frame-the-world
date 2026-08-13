@@ -25,8 +25,19 @@ const DNIPRO: PlanObserver = {
 /** 2026 June solstice, midday UTC (≈15:00 Dnipro solar). */
 const SOLSTICE_NOON_MS = Date.UTC(2026, 5, 21, 12, 0, 0);
 
-/** tuning.GOLDEN mirror (fadeIn sin −12°→−1°, fadeOut sin +10°→+21° — 2026-07-13 values). */
+/** tuning.GOLDEN mirror (fadeIn sin −12°→−1°, fadeOut sin +10°→+21° — 2026-07-13 values).
+ *  Parity-guarded below (audit C1: golden.test's twin mirror drifted once already). */
 const CURVE = { fadeInLo: -0.21, fadeInHi: -0.0175, fadeOutLo: 0.17, fadeOutHi: 0.36 };
+
+it("CURVE mirror matches the shipped tuning.GOLDEN (drift guard — audit C1)", async () => {
+  const { GOLDEN } = await import("../../../src/components/globe/tuning");
+  expect(CURVE).toEqual({
+    fadeInLo: GOLDEN.fadeInLo,
+    fadeInHi: GOLDEN.fadeInHi,
+    fadeOutLo: GOLDEN.fadeOutLo,
+    fadeOutHi: GOLDEN.fadeOutHi,
+  });
+});
 
 const eventByKind = (events: PlanEvent[], kind: PlanEvent["kind"]) =>
   events.find((e) => e.kind === kind);

@@ -156,6 +156,10 @@ export function attachStylizedTiles(opts: {
   /** Initial device quality tier (RENDERING_QUALITY_PASS WS1) — the tile knobs start here so a
    *  weak device isn't briefly over-committed before the first governor correction. Default high. */
   qualityTier?: QualityTier;
+  /** Mobile texture tier (MOBILE_PLAN M0): false skips the base-earth 8k swaps and loads the 2k
+   *  milky-way haze. Needed because phones report maxTextureSize ≥ 8192 — GPU capability alone
+   *  can't gate the ~280 MB texture budget. Default true (desktop byte-identical). */
+  allow8k?: boolean;
   /** AO altitude gate (RENDERING_QUALITY_PASS R1): the orchestrator knows the camera altitude, so
    *  it tells GlobeCanvas (which owns the GTAOPass + the tier gate) whether the camera is low
    *  enough for AO. Only present when AO.enabled — undefined otherwise (zero cost). */
@@ -169,6 +173,7 @@ export function attachStylizedTiles(opts: {
     reduceMotion = false,
     sunLight,
     qualityTier = "high",
+    allow8k = true,
     aoControl,
   } = opts;
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
@@ -185,10 +190,11 @@ export function attachStylizedTiles(opts: {
     baseScale,
     maxAniso,
     maxTextureSize: renderer.capabilities.maxTextureSize,
+    allow8k,
   });
   const graticule = attachGraticule(scene, { baseScale });
   const atmosphere = attachAtmosphere(scene, { baseScale });
-  const stars = attachStars(scene, { dpr: renderer.getPixelRatio() });
+  const stars = attachStars(scene, { dpr: renderer.getPixelRatio(), allow8k });
   // Dnipro 3D enrichment (Slice 0): entirely opt-in via PUBLIC_ENRICHED_TILES_URL. When set, the
   // global OSM buildings are masked inside ENRICHED.bbox and the self-hosted enriched tileset streams
   // in their place, seated on the rendered terrain (R1). Absent → maskBbox null + no 3rd renderer =
@@ -525,7 +531,7 @@ export function attachStylizedTiles(opts: {
   //     clicking one re-opens it as the placed CAMERA VIEW (upload-store openSavedPin → the
   //     frustum rebuilds + PhotoDetailPanel shows + the onPlaced flight frames the photo).
   //     The orchestrator mirrors its view focus into the store at the same low cadence as
-  //     the camera mirrors — the store debounces the actual query. -------------------------
+  //     the camera mirrors — the store THROTTLES the actual query (§Traps: throttle, not debounce). -------------------------
   const pins = attachPins(scene, {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
   });
@@ -1972,7 +1978,7 @@ export function attachStylizedTiles(opts: {
             camStore._syncZoom(alt);
           }
           // Viewport mirror for the public-pin query (Phase 5) — same cadence as the camera
-          // mirrors; the pins store debounces + thresholds the actual Wix Data query, so the
+          // mirrors; the pins store THROTTLES + thresholds the actual Wix Data query, so the
           // perpetual LEO idle drift never spams it. The camera store keeps the same focus as
           // the geocoding bias (location finder ranks results near what you're looking at).
           const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);

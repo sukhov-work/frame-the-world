@@ -1,6 +1,7 @@
 # Frame the World — Implementation Plan (working)
 
-The actionable 7-phase build. Distilled from `provenance/DEEP_RESEARCH.md` Handoff #2 (that doc is provenance).
+The actionable phased build — phases 1–7 distilled from `provenance/DEEP_RESEARCH.md` Handoff #2 (that
+doc is provenance), plus **Phase 8, the planning-instrument ladder (desktop-first — owner 2026-08-13)**.
 **Work in small, verified increments.** After each phase: `npx astro check` + `npm test` + build pass,
 confirm the Definition-of-Done, stop for review. Never fabricate a Wix API signature — use Wix MCP/Skills.
 Update the checkboxes and append a `DECISIONS.md` line as each phase lands.
@@ -160,14 +161,65 @@ by the 2026-07-17 owner ruling) · `SITE_CURRENCY="EUR"` stamped at listing crea
 click-time sign-in returnTo carrying the `#p=` pose hash · `?purchased=1` thank-you toast · UNLIST arm.
 **Verified:** `scripts/verify-phase69.mjs` (member API + scripted-Chrome tiers) — gates vitest 593/593 ·
 astro 0/0 · wix build Complete. **Owner tail:** install the **Pricing Plans app** + one public plan
-(site lacks it — `APP_NOT_INSTALLED`); the manual purchase→paid→email loop is still the Phase-6 DoD step.
+(site lacks it — `APP_NOT_INSTALLED`) *(correction 2026-08-13, audit D11: the install COMPLETED
+2026-07-17 same-day — DECISIONS "UPGRADE FLOW LIVE-VERIFIED", plan `5874dba8-…`; backlog T4
+corrected)*; the manual purchase→paid→email loop is still the Phase-6 DoD step.
 Memory: `mem:project/wip-2026-07-17-phase69-marketplace-batch`.
 
-## Phase 7 — AI analysis + polish  ☐
+## Phase 7 — AI analysis + polish  ⛔ PARKED (owner ruling 2026-08-11: out of scope for ALL plans)
+> The active tracks are **Phase 8 below** (the Stellarium/PhotoPills planning-feature ladder —
+> CORE scope, **desktop-first, then mobile**; owner re-ruling 2026-08-13) and **`MOBILE_PLAN.md`
+> M0–M2** (mobile infrastructure; M3–M6 are the *mobile surfaces* of Phase 8). This phase is kept
+> verbatim below for history only; nothing schedules it.
+
 **Scope:** premium AI panel → Wix AI (Claude, e.g. Opus 4.6) with a **downsized JPEG** + desired-condition
 prompt; moderation pass on public previews; perf polish (KTX2, OPFS cache, mobile half-size decode, View Transitions).
 **DoD:** premium user gets tidy suggestion cards ("shift heading +12°, shoot 40 min earlier"); public pins pass moderation.
 **Test:** AI call consumes ~1 credit + returns structured suggestions; non-premium is gated.
+
+## Phase 8 — Planning instrument, core ladder (desktop-first; owner re-ruling 2026-08-13)
+
+**The PhotoPills/Stellarium feature ladder (`MOBILE_PLAN.md` §5 P1–P10 + the scheduled backlog) is
+CORE product scope, not mobile scope.** Owner ruling 2026-08-13 (supersedes the 2026-08-11
+scheduling of these features inside mobile-only phases M3–M6): every planning feature — current and
+future planning-app additions alike — ships **desktop-first, then mobile**. `MOBILE_PLAN.md` M0–M2
+remain the mobile-infrastructure track; its M3–M6 are re-scoped to the *mobile surfaces* of the
+sub-phases below. Feature sketches, effort sizes, and evidence live in `MOBILE_PLAN.md` §5 (still
+the design source); THIS section owns the schedule.
+
+**Build rule (every feature):** pure lib + vitest first (`lib/ephemeris/*` / `lib/geo/*` — shared,
+shell-agnostic, literature test vectors) → store mirror if stateful → **desktop surface** (panels;
+the design-import fence applies) → mobile surface in the twin M-phase. A feature's mobile surface
+never precedes its desktop surface.
+**Desktop-freeze amendment (2026-08-13):** the 2026-08-11 "desktop is FROZEN" ruling now reads —
+shipped exploration-UI design/behavior stays frozen; **additive** planning-feature surfaces (new
+panels/cards/rail decorations) are allowed. Zero regression of shipped features and perf is a
+per-sub-phase gate.
+
+- [ ] **8a — Darkness & the galaxy** *(mobile twins: M1 rides P1; M3 rides P2/P3)* — P1 twilight
+  bands (civil −6°/nautical −12°/astro −18°, `lib/ephemeris/twilight.ts`) on the desktop TimeScrubber
+  rail · P2 MW band + Galactic Centre as a first-class SkyTarget (fixed provider → reticle/trail/
+  chips/skyline verdict inherited) · P3 MW season calendar + darkness score (`targetWindows(GC)` ∩
+  sun<−18° ∩ moon interference via `moonlight.ts`) in PlanPanel.
+- [ ] **8b — Search & exposure** *(mobile twin: M3)* — P4 **Find** (sun/moon/GC at azimuth(±tol)/
+  elevation over a date range, **filtered by the real skyline** — the category-first bet) · P5 Spot
+  Stars NPF + 500 rule (seeded from FPV focal + view-centre declination; D850 vector ≈16.3 s) ·
+  P6 moon phase calendar + apogee/perigee.
+- [ ] **8c — Events** *(mobile twin: M4)* — P7 meteor showers (bake IAU MDC, avoid GPL showers.json;
+  radiant = tracked target; ZHR×sin(h), moon-scored peaks) · P8 conjunctions/oppositions finder ·
+  P9 lunar eclipses (shadow-cone from the existing sun/moon; local visibility = the horizon test).
+- [ ] **8d — Session tools** *(mobile twin: M5)* — P10 sensor-frame/mosaic overlay on DSO targets ·
+  star-trail simulator · long-exposure/ND + timelapse calculators · What's-Up-Tonight ranking.
+- [ ] **8e — Ambience & flagship** *(mobile twin: M6)* — light-pollution drape + Bortle at the pin ·
+  ISS/satellite passes (SGP4 + cached `/api/tle` proxy) · web-push event alerts (headless has NO
+  cron — external scheduler or on-open recompute, decide at build) · **solar-eclipse umbra path on
+  the globe** (the flagship visual).
+
+**DoD per sub-phase:** lib math unit-tested against literature vectors · desktop surface
+browser-verified · gates green (`npm test` + `astro check` + `wix build`) · shipped features and
+perf regression-free (frozen chrome untouched) · only then does the mobile twin unblock.
+**Permanently out (owner 2026-08-11, unchanged):** Gaia-depth catalogs · GOTO · tides/rainbow ·
+Skyfire · the Phase-7 AI panel.
 
 ---
 

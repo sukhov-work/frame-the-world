@@ -38,9 +38,15 @@ describe("sky catalog stays off the boot chunk", () => {
       if (file.includes("lib/sky/")) continue; // intra-chunk imports are the point
       const src = readFileSync(file, "utf8");
       for (const mod of HEAVY) {
-        // Static: `import ... from "<path>"` / `export ... from "<path>"`.
-        // Dynamic `import("<path>")` is the sanctioned route and must NOT match.
-        const re = new RegExp(`(^|\\n)\\s*(import|export)[^("]*from\\s+["'][^"']*${mod}["']`);
+        // Static: `import ... from "<path>"` / `export ... from "<path>"` / bare side-effect
+        // `import "<path>"` (hardened 2026-08-13 audit C4). Dynamic `import("<path>")` is the
+        // sanctioned route and must NOT match; `import type … from` is erased at build and is
+        // excluded (the [^("]* body can't contain `type ` at position 0 check below).
+        const re = new RegExp(
+          `(^|\\n)\\s*(import(?!\\s+type\\b)[^("]*from\\s+["'][^"']*${mod}["']` +
+            `|export(?!\\s+type\\b)[^("]*from\\s+["'][^"']*${mod}["']` +
+            `|import\\s+["'][^"']*${mod}["'])`,
+        );
         if (re.test(src)) offenders.push(`${file} → ${mod}`);
       }
     }

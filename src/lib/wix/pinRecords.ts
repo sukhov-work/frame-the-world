@@ -10,7 +10,7 @@
 import { encodeGeohash } from "../geo/geohash";
 import { numOrNull, strOrNull } from "../geo/coerce";
 import { isPrecisionTier, reduceLocation, type PrecisionTier } from "../geo/precision";
-import type { CameraPoseOptics } from "../pins/fields";
+import { pinOpticsFields, type CameraPoseOptics } from "../pins/fields";
 import type { PinListing } from "../market/listing";
 
 /** Free-tier pin quota (owner re-ruling 2026-07-17, supersedes D8's 10): save #101 is refused. */
@@ -209,17 +209,7 @@ export function photoListItem(item: Record<string, unknown>): PhotoListItem | nu
         : typeof created === "string"
           ? created
           : null,
-    altitudeM: numOrNull(item.altitudeM),
-    headingDeg: numOrNull(item.headingDeg),
-    pitchDeg: numOrNull(item.pitchDeg),
-    rollDeg: numOrNull(item.rollDeg),
-    focalLengthMm: numOrNull(item.focalLengthMm),
-    hFovDeg: numOrNull(item.hFovDeg),
-    textureWidth: numOrNull(item.textureWidth),
-    textureHeight: numOrNull(item.textureHeight),
-    cameraMake: strOrNull(item.cameraMake),
-    cameraModel: strOrNull(item.cameraModel),
-    lensModel: strOrNull(item.lensModel),
+    ...pinOpticsFields(item), // ONE optics reader — lib/pins/fields.ts (audit A6)
     productId: strOrNull(item.productId),
     priceAmount: numOrNull(item.priceAmount),
     currency: strOrNull(item.currency),

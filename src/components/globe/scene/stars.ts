@@ -165,7 +165,15 @@ function makeStarMaterial(opts: {
   });
 }
 
-export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHandle {
+export function attachStars(
+  scene: THREE.Scene,
+  opts: {
+    dpr: number;
+    /** Mobile texture tier (MOBILE_PLAN M0): false loads the 2k milky-way haze bake instead of
+     *  the 8192×4096 original (~134 MB VRAM, mips off). Default true (desktop unchanged). */
+    allow8k?: boolean;
+  },
+): StarsHandle {
   let geometry = proceduralGeometry();
   const material = makeStarMaterial({
     color: tokens.star,
@@ -201,7 +209,9 @@ export function attachStars(scene: THREE.Scene, opts: { dpr: number }): StarsHan
   // shared J2000 frame). Sampled per-fragment dir→RA/Dec: object-space position IS the
   // equatorial direction, so no geometry-UV pole pinch; RepeatWrapping + no mips ⇒ no seam at
   // the RA wrap. Additive, riding the same uFade + true-horizon fade as the stars.
-  const hazeTex = new THREE.TextureLoader().load(MILKYWAY.hazeTexture);
+  const hazeTex = new THREE.TextureLoader().load(
+    opts.allow8k === false ? MILKYWAY.hazeTexture2k : MILKYWAY.hazeTexture,
+  );
   hazeTex.colorSpace = THREE.SRGBColorSpace;
   hazeTex.wrapS = THREE.RepeatWrapping;
   hazeTex.wrapT = THREE.ClampToEdgeWrapping;

@@ -1,0 +1,49 @@
+/* Mobile shell styles (MOBILE_PLAN M0) — imported ONLY by MobileLayout (/m).
+   tokens.css stays the single source of truth (no Tailwind). Overrides the frozen global.css
+   for phone viewports: 100dvh (URL-bar collapse safe) + touch discipline on the canvas. */
+
+html,
+body {
+  height: 100dvh;
+  overscroll-behavior: none; /* no rubber-band page scroll behind the globe */
+}
+
+.globe-canvas {
+  height: 100dvh; /* global.css says 100vh — on phones that hides ground under the URL bar */
+  touch-action: none; /* the canvas owns every gesture (orbit pinch/drag; FPV in M2) */
+}
+
+/* M0 status strip — the only chrome; safe-area padded; never intercepts globe gestures. */
+.m-status {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(0.6rem + env(safe-area-inset-top)) calc(0.9rem + env(safe-area-inset-right))
+    0.6rem calc(0.9rem + env(safe-area-inset-left));
+  pointer-events: none;
+}
+.m-status a {
+  pointer-events: auto;
+}
+.m-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+}
+.m-chip {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+}

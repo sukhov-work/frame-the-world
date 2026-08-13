@@ -238,9 +238,49 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: PHASE 7 (AI analysis + polish); small pre-item = prod login `#p=` round-trip
-smoke. Astro tails: `/api/sbdb` on Wix cloud UNVERIFIED (rides the next release) · owner
-taste-pass on ringGain/highlightAlpha/bvTintAmount/trail.**
+**Next step: audit fix slice 7 (B10 move 3 MB public/enriched-sample out of the build + A5
+de-export sweep — own wix-build verify) → release canaries (T2 `/m`+pages.json+sbdb · T3 prod
+`#p=` smoke; B2 password rotation + B9/T26 upload-caps ruling + T25 point/ellipse eyeball ride
+owner/browser sessions) → PHASE 8a (P1 twilight · P2 MW/GC · P3 season calendar, desktop-first)
+→ M1. Phase 7 (AI) OUT of all plans. The ONE debt registry =
+`.claude/skills/frame/references/tracked-backlog.md` (now T1–T26; T23 closed).**
+FULL AUDIT #1 DONE + FIX SLICES 0–6 APPLIED 2026-08-13 (gates after fixes: vitest 710/710 (+6) ·
+astro 0/0 · hints 6 = baseline · wix build Complete 26 routes): 29 confirmed findings (report
+`.claude/claude-docs/audits/audit-full-2026-08-13.md`); D1 BLOCKER = DECISIONS same-day prepend
+SPLICE repaired pre-commit; A1 MAJOR = the one unclamped heightAt consumer (Pins) → NEW
+`sampleGroundM` clamp-no-latch in lib/geo/terrain; A6 dedup → NEW `lib/pins/fields.ts` +
+`lib/ephemeris/topo.ts` + `lib/sky/ttlCache.ts`; `@wix/redirects` phantom dep fixed;
+`conventions/contracts.md` AUTHORED (T23); C6 traced clean; astro-XSS zero sinks (T24).
+`mem:project/wip-2026-08-13-full-audit-1` + DECISIONS 2026-08-13 latest.
+PLANNING LADDER PROMOTED TO CORE + MOBILE M0 SHIPPED 2026-08-13 (vitest 704/704 (+3) · astro 0/0 ·
+wix build Complete 26 routes · browser-VERIFIED via Playwright-over-CDP; REAL-DEVICE gate OPEN):
+owner re-ruling — the MOBILE_PLAN §5 ladder (P1–P10 + backlog + ALL future planning-app features)
+is CORE scope in NEW `IMPLEMENTATION_PLAN.md §Phase 8` (8a–8e), **desktop-first then mobile**
+(lib+vitest → desktop panel → mobile sheet; a mobile surface never precedes its desktop twin);
+M0–M2 stay mobile infra, M3–M6 = the mobile SURFACES of 8a–8e (supersedes the 2026-08-11
+mobile-only scheduling); desktop freeze amended ADDITIVELY. M0 built: `/m` route
+(`pages/m.astro` + `MobileLayout.astro` viewport-fit=cover + `components/mobile/MobileShell.tsx`
++ `styles/mobile/mobile.css` 100dvh/touch-action:none) · mobile texture tier =
+`DeviceCaps.coarsePointer` caps tier AND governor ceiling at `mid` (an iPhone otherwise detects
+HIGH — "Apple GPU" passes STRONG_GPU, mem/cores default 8) + `allow8k` opt threaded
+GlobeCanvas→StylizedTiles→{baseEarth: skip the 3×8k swaps; stars: NEW 572 KB
+`milkyway-2020-2k.jpg` via `scripts/build-milkyway-2k.mjs` — LINEAR-light Lanczos, the SVS
+flux-per-pixel trap, landmark patch means ≥0.949 PASS} · desktop deltas: topnav `Mobile` link +
+dismissible coarse-pointer banner. Coarse-shim boot verified tier=mid + ONLY the 2k haze fetched;
+fine-pointer desktop byte-identical. NEW TRAPS: author `display:flex` BEATS the `hidden` attribute
+(`[hidden]{display:none}` is load-bearing — a property-level check LIED, the screenshot caught it)
+· Playwright addInitScript on a CDP-attached page needs a NEXT navigation (about:blank hop; hash-only
+goto is same-document) · background-tab CLICKS starve on rAF actionability → `bringToFront()`.
+`mem:project/wip-2026-08-13-planning-core-restructure` + DECISIONS 2026-08-13.
+FPV WALK PIVOT-ELLIPSE BUG FIXED 2026-08-11 (backfilled 2026-08-13, audit D10 — this same-day
+session had no core block): walk state became a persistent WORLD-SPACE `fpvWalkOffset` mutated
+only by key-holds (a look never re-aims accumulated displacement) + Shift ×3 / Option ×0.5
+modifiers; browser-VERIFIED 0.000 m look-drift after walking. `mem:bugs/fpv-walk-orbit`.
+MOBILE DESIGNED + RATIFIED 2026-08-11 (`MOBILE_PLAN.md`; no code): separate `/m` page over
+responsive retrofit (desktop frozen; CDN Vary unverifiable → client-side banner, no UA redirect);
+shell = thin store/lib consumers under `components/mobile/**`; 4 additive engine seams (analog
+walk vector · pinch-FOV · long-press pin · `&sky=` hash); owner rulings: mobile = planning-only
+PERMANENTLY · Phase 7 AI panel OUT of all plans. `mem:project/wip-2026-08-11-mobile-design`.
 ASTRO ENGINE COMPLETE — PHASES B+D+E + CONSTELLATIONS SHIPPED 2026-08-10 (vitest 701/701 ·
 astro 0/0 · wix build Complete · browser-VERIFIED in a VISIBLE window): 1,947-entry fuzzy index
 (451 IAU star names · 88 constellations w/ figure highlight · 952 MPC comets · 337 asteroids ·
@@ -310,16 +350,30 @@ S7 landed 2026-07-11 (block above) — **Phase 6 marketplace is next. S1–S7 no
 Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId `f597bcf5-bd38-4941-9dfe-e16d775743a3`,
 appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`; see `mem:project/wix-site`).
 
-## Source layout (globe+frustum+upload built; ephemeris/wix/backend still to come)
+## Source layout (as-built; refreshed 2026-08-13, audit D9)
+Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.
 - `src/components/globe/` — client:only three.js scene. `tuning.ts` (ALL tunables, documented) ·
-  `scene/*` attach-modules (baseEarth/graticule/atmosphere/stars/buildings/imageryGround + glsl) ·
-  `StylizedTiles.ts` orchestrator · `PhotoFrustum.ts` + `flight.ts` (Phase 3) · GlobeCanvas. Sky,
-  Pins TBD. Design imports NEVER touch. Convention: `.claude/conventions/globe-tuning.md`.
-- `src/components/panels|ui/` — UploadFlow + PhotoDetailPanel + ui/Slider BUILT; time scrubber, AI TBD. Design imports allowed.
-- `src/lib/{decode,geo,format,ephemeris,theme,wix}/` — decode REAL (extract/exif/worker/workerClient/convert + sensors; libraw-wasm@1.0.5 pinned); geo REAL (projection incl. ecefToGeodetic + rayEllipsoidIntersect, frustum, geohash); readout formatters; GL token bridge; ephemeris + SDK clients TBD.
-- `src/store/` — zustand reactive EXIF params + placement machine (spine of real-time re-projection); `upload.ts` BUILT. `src/backend/` — thin HTTP endpoints (TBD).
-- (no `public/wasm/` — Vite emits `libraw-*.wasm` as a hashed asset; libheif wasm is inlined). `public/textures/` — earth-color (July topo+bathy) + earth-night
-  (VIIRS) + earth-topology (elevation) + earth-landmask + earth-normal. `test/` — vitest (FOV/geohash/projection).
+  `scene/*` attach-modules (baseEarth/graticule/atmosphere/stars/buildings/enrichedBuildings/
+  buildingMaterial/imageryGround/vectorTiles/vectorFeatures/streetNames/geoLabels/sky/skyTarget/
+  skyTrail/dayArcs/planFeed/minimapFeed + glsl) · `StylizedTiles.ts` orchestrator (41 steps,
+  2665 lines as of 2026-08-13) · `PhotoFrustum.ts` · `Pins.ts` · `flight.ts` · `GlobeCanvas.tsx`.
+  Design imports NEVER touch. Convention: `.claude/conventions/globe-tuning.md`.
+- `src/components/panels|ui/` — the full desktop chrome (UploadFlow, PhotoDetailPanel,
+  LocationFinder, TimeScrubber, TimeReadout, CameraTiltPanel, FpvHud, TargetPanel, PlanPanel,
+  MyPins, Marketplace, Welcome, ExploreMode, Faq, MemberBadge, MiniMap, PinHoverCard + ui/*).
+  Design imports allowed. `src/components/mobile/` — M0 store-free shell for `/m` (2026-08-13).
+- `src/lib/` — ALL REAL: decode (libraw-wasm@1.0.5 worker) · geo (projection/frustum/geohash/
+  terrain/precision/urlPose/occlusion/horizonProfile/…) · ephemeris (bodies/comet/targets/
+  planner/stars/asterisms/dayArc/topo/…) · sky (catalog/searchIndex/openngc/simbad/sbdb/
+  ttlCache/…) · globe (quality/enrichedVariant/enrichedMask) · pins (fields = shared row
+  mappers, appearance) · market+save+wix (record builders + SDK clients) · theme (GL token
+  bridge) · format/api/prefs.
+- `src/store/` — zustand: upload/camera/time/pins/member/save/market/plan/sky/skyAim/minimap.
+- `src/pages/` — index.astro + m.astro (+ layouts) + `api/*` thin endpoints — 26 routes total;
+  there is NO `src/backend/`.
+- `public/textures|data/` — earth + milky-way sets (8k desktop / 2k mobile) + baked catalogs
+  (bsc5.bin, openngc.bin, constellation-lines.json). `test/` — vitest twins of every lib
+  (704 tests as of 2026-08-13; audit fixes added more — see newest DECISIONS line).
 
 ## Key invariants (violations = bugs)
 - Globe is `client:only` — **never SSR WebGL**. Decode runs in a **Web Worker**; free RAW buffers immediately.

@@ -73,6 +73,11 @@ export interface DeviceCaps {
   maxTextureSize?: number;
   /** A failIfMajorPerformanceCaveat probe returned no context → software/blocked GL. */
   softwareGL?: boolean;
+  /** matchMedia("(pointer: coarse)") — the primary input is a touchscreen (phone/tablet). Phones
+   *  lie UPWARD on every other signal (iOS Safari exposes no deviceMemory and reports "Apple GPU"
+   *  → STRONG_GPU, so an iPhone would detect `high`: dprCap 2 + bloom + 4096² shadows + the 8k
+   *  texture budget). Coarse pointer caps the tier at `mid` (MOBILE_PLAN M0 texture tier). */
+  coarsePointer?: boolean;
 }
 
 /**
@@ -90,7 +95,11 @@ export function detectDeviceTier(caps: DeviceCaps): QualityTier {
   const cores = caps.cores ?? 8;
 
   if (WEAK_GPU.test(s) || mem <= 4 || cores <= 3) return "low";
-  if (STRONG_GPU.test(s) && mem >= 8 && cores >= 8) return "high";
+  // A coarse-pointer (touch-primary) device never STARTS above `mid` — phone GPU strings pass
+  // STRONG_GPU and their memory signals default upward, but the VRAM/thermal envelope doesn't
+  // carry the `high` budget (M0 rule; the ceiling in GlobeCanvas keeps the governor from
+  // promoting past this either).
+  if (STRONG_GPU.test(s) && mem >= 8 && cores >= 8) return caps.coarsePointer ? "mid" : "high";
   return "mid";
 }
 

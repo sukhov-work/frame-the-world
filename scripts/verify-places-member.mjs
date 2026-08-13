@@ -11,7 +11,13 @@ const PORT = process.argv[2] ?? "9333";
 const APP = "http://localhost:4321/";
 const SITE = "https://frame-the-a173087b-yevhens.wix-site-host.com";
 const SHOTS = "verify-shots";
-const TEST_MEMBER = { email: "frame-p5-tester@example.com", password: "FrameP5!test1" }; // Phase-5 test account
+const _envB2 = readFileSync(".env.local", "utf-8");
+const TEST_MEMBER = {
+  email: _envB2.match(/^TEST_MEMBER_EMAIL=(.+)$/m)?.[1]?.trim().replace(/^["']|["']$/g, ""),
+  password: _envB2.match(/^TEST_MEMBER_PASSWORD=(.+)$/m)?.[1]?.trim().replace(/^["']|["']$/g, ""),
+}; // audit B2 (2026-08-13): credential moved out of git — lives in gitignored .env.local
+if (!TEST_MEMBER.email || !TEST_MEMBER.password)
+  throw new Error("TEST_MEMBER_EMAIL / TEST_MEMBER_PASSWORD missing from .env.local (audit B2)");
 const TITLE = `Verify place ${Date.now() % 1_000_000}`; // unique per run — Wix Data reads lag writes
 const DNIPRO = { latDeg: 48.4647, lonDeg: 35.0462 };
 

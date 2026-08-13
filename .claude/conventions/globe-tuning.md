@@ -51,10 +51,10 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
 - The orchestrator owns: camera pose, GlobeControls, idle drift, per-frame gate evaluation, the
   try/catch around the frame, and `__globe` DEV introspection. New scene features (frustum, sky,
   pins) follow the same attach-module shape.
-  **NOTE (2026-07-11): `StylizedTiles.ts` has grown to ~1600 lines** — five subsystems (FPV controller,
-  camera glides/encoder-rates, placement/pick, FPV HUD mirror, ephemeris-lighting drive) never got their
-  own module. Getting back toward ~200 lines is the tracked S7 goal (B19/B20 in `archive/ARCHITECTURE_REVIEW.md`),
-  not the current state.
+  **NOTE (updated 2026-08-13, audit D6 — the 2026-07-11 note had gone stale):** B19 completed
+  2026-07-11 as ~36 named step-closures (STRUCTURE, not line count, was the accepted resolution);
+  `StylizedTiles.ts` is **2665 lines as of 2026-08-13** and remains the one sanctioned orchestrator.
+  Any further decomposition is backlog material via an audit slice, never a drive-by refactor.
 - **Encoder controls** (ROTATE/ZOOM/FOCAL) are spring-centred RATE controls: deflection = speed, release
   springs to zero, one rAF low-pass per param through the SAME rotation/dolly path as the absolute glides.
   **FPV** = the camera pinned at the frustum apex at the photo's own FOV (`controls.enabled = false` →

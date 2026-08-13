@@ -16,6 +16,7 @@ import {
 } from "../ephemeris/targets";
 import type { CometElements, CometProfile } from "../ephemeris/comet";
 import { looksLikeSmallBody, normalizeSky, type SkyIndexEntry } from "./searchIndex";
+import { makeTtlCache } from "./ttlCache";
 
 export { looksLikeSmallBody }; // canonical home moved to searchIndex (boot-safe) — re-exported
 
@@ -127,33 +128,14 @@ export function sbdbIndexEntry(p: SbdbParsed): SkyIndexEntry {
 // Fetch + cache (same discipline as lib/sky/simbad.ts).
 // ---------------------------------------------------------------------------------------------
 
-const CACHE_KEY = "ftw:sbdb:v1";
-const HIT_TTL_MS = 14 * 86_400_000; // elements age — a fortnight keeps them honest
-const MISS_TTL_MS = 86_400_000;
-const CACHE_CAP = 100;
-
-interface CacheRow {
-  t: number;
-  body: unknown | null;
-}
-
-function readCache(): Record<string, CacheRow> {
-  try {
-    return JSON.parse(localStorage.getItem(CACHE_KEY) ?? "{}") as Record<string, CacheRow>;
-  } catch {
-    return {};
-  }
-}
-
-function writeCache(c: Record<string, CacheRow>): void {
-  try {
-    const keys = Object.keys(c);
-    if (keys.length > CACHE_CAP) for (const k of keys.slice(0, keys.length - CACHE_CAP)) delete c[k];
-    localStorage.setItem(CACHE_KEY, JSON.stringify(c));
-  } catch {
-    /* cache is an optimization only */
-  }
-}
+// ONE TTL-cache implementation — lib/sky/ttlCache.ts (audit A6); old `body`-key blobs read fine.
+// Hit TTL stays a fortnight: elements age.
+const cache = makeTtlCache<unknown>({
+  storageKey: "ftw:sbdb:v1",
+  hitTtlMs: 14 * 86_400_000,
+  missTtlMs: 86_400_000,
+  cap: 100,
+});
 
 const inflight = new Map<string, Promise<SbdbParsed | null>>();
 
@@ -161,9 +143,9 @@ const inflight = new Map<string, Promise<SbdbParsed | null>>();
 export async function resolveSbdb(query: string): Promise<SbdbParsed | null> {
   const key = normalizeSky(query);
   if (!key) return null;
-  const cached = readCache()[key];
-  if (cached && Date.now() - cached.t < (cached.body ? HIT_TTL_MS : MISS_TTL_MS)) {
-    return cached.body ? sbdbToTarget(cached.body) : null;
+  const cached = cache.get(key);
+  if (cached !== undefined) {
+    return cached ? sbdbToTarget(cached) : null;
   }
   const running = inflight.get(key);
   if (running) return running;
@@ -178,9 +160,7 @@ export async function resolveSbdb(query: string): Promise<SbdbParsed | null> {
       // 300 = ambiguity list, 404 = no match — both cache as misses at this layer (the search
       // UI shows its own "no matches" row; disambiguation is a future nicety).
       const hit = relay.status === 200 ? relay.body : null;
-      const cache = readCache();
-      cache[key] = { t: Date.now(), body: hit };
-      writeCache(cache);
+      cache.set(key, hit);
       return hit ? sbdbToTarget(hit) : null;
     } finally {
       inflight.delete(key);
@@ -193,9 +173,9 @@ export async function resolveSbdb(query: string): Promise<SbdbParsed | null> {
 /** Resolve a persisted small-body id from the cache (`comet:`/`asteroid:` ids the bakes don't
  *  know) — reload persistence for live-looked-up targets. */
 export function sbdbTargetById(id: string): SkyTarget | null {
-  for (const row of Object.values(readCache())) {
-    if (!row.body) continue;
-    const parsed = sbdbToTarget(row.body);
+  for (const body of cache.values()) {
+    if (!body) continue;
+    const parsed = sbdbToTarget(body);
     if (parsed?.target.id === id) return parsed.target;
   }
   return null;

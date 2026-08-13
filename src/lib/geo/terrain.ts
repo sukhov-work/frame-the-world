@@ -15,3 +15,20 @@ export const MAX_TERRAIN_M = 9_000;
 export function clampGroundM(heightM: number): number {
   return Math.min(Math.max(heightM, 0), MAX_TERRAIN_M);
 }
+
+/**
+ * Normalize a LIVE sampler answer for consumers that latch "resolved" ground (2026-08-13 audit A1).
+ * `real` means "safe to stop re-sampling": a missing sample falls back, and an out-of-range finite
+ * sample is loading-phase / coarse-LOD garbage — usable after the clamp for placement, but NOT real,
+ * so a resnap loop keeps refining it until the tile answer lands in range.
+ */
+export function sampleGroundM(
+  raw: number | null | undefined,
+  fallbackM: number,
+): { h: number; real: boolean } {
+  if (raw === null || raw === undefined || !Number.isFinite(raw)) {
+    return { h: fallbackM, real: false };
+  }
+  const clamped = clampGroundM(raw);
+  return { h: clamped, real: clamped === raw };
+}

@@ -25,7 +25,7 @@ wip-2026-08-02-comet-10p-tracer`) is the reference implementation and the proof 
 |---|---|---|
 | Sun, Moon, 8 planets + Pluto | `astronomy-engine` 2.1.19 (ADR D6) | positions, phases, rise/set, illumination |
 | Jupiter's Galilean moons | `astronomy-engine` `JupiterMoons()` | Io/Europa/Ganymede/Callisto |
-| 9,096 stars to ~mag 6.5 | `public/data/bsc5.bin` (Yale BSC5) | position + Vmag + B−V. **No names, no cross-IDs** |
+| 9,096 stars to ~mag 6.5 (as baked 2026-07-10) | `public/data/bsc5.bin` (Yale BSC5) | position + Vmag + B−V. **No names, no cross-IDs** |
 | ~26 asterism figures | `public/data/asterisms.json` (d3-celestial) | constellation lines only |
 | Milky Way | procedural band + NASA SVS haze texture | backdrop |
 | 1 comet | `lib/ephemeris/comet.ts` (10P, baked JPL elements) | position, magnitude, tail direction |
@@ -164,7 +164,10 @@ kind glyph. Small, contained change — the hard part (screen projection + edge 
   Pluto + ALL 110 Messier via the OpenNGC bake + 10P), `/api/sbdb` proxy, `targetWindows()`.
   10P is now `cometTarget(TEMPEL2)`. Gates vitest 669/669 · astro 0/0; browser state+UI verified;
   **point/ellipse treatments + auto-widened ring visually UNVERIFIED** (hidden-window rAF trap) —
-  eyeball first thing next visible-window session. See DECISIONS 2026-08-03 ASTRO ENGINE line +
+  eyeball first thing next visible-window session. *(Narrowed 2026-08-13, audit C2/D8: the ring
+  widening + tracked-DSO flows WERE browser-verified — M31 hit ≈2.5° on 08-03, NGC7000 tracked
+  across reload on 08-10 — but no session recorded eyeballing the point/ellipse impostor RENDER
+  itself; that remainder is now backlog row T25.)* See DECISIONS 2026-08-03 ASTRO ENGINE line +
   `mem:project/wip-2026-08-03-astro-engine-phase-a`.
 - **B · Data. ✅ SHIPPED 2026-08-10** — the full catalog fleet behind one lazy chunk (424 KB, boot
   chunk untouched — build-verified + `lazyContract.test.ts` guard): full OpenNGC (13,263 records

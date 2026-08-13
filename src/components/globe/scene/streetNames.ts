@@ -90,7 +90,7 @@ export function attachStreetNames(opts: {
 }): StreetNamesHandle {
   const group = new THREE.Group();
   group.visible = false;
-  group.renderOrder = 3;
+  // renderOrder lives on each label MESH (Group.renderOrder does NOT propagate — §Traps).
   opts.scene.add(group);
 
   // The design type reaches the canvas through the resolved CSS var (canvas needs a concrete

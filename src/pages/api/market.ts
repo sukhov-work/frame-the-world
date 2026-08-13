@@ -8,43 +8,20 @@ import type { APIRoute } from "astro";
 import { items } from "@wix/data";
 import { auth } from "@wix/essentials";
 import { json } from "../../lib/api/http";
-import { numOrNull, strOrNull } from "../../lib/geo/coerce";
+import { publicPinCore } from "../../lib/pins/fields";
 import { SITE_CURRENCY } from "../../lib/market/listing";
 
-/** Map a PublicPins row to the client's PublicPin shape (the store/pins.ts pinFromItem twin —
- *  kept local so the endpoint never imports a zustand store or the globe tuning module). */
+/** Map a PublicPins row to the client's PublicPin shape. Field reading lives in
+ *  lib/pins/fields.ts `publicPinCore` (audit A6 — was a drift-prone local twin of
+ *  store/pins.ts pinFromItem; the shared module is pure, so the locality concern —
+ *  never import a zustand store or the globe tuning module here — stays satisfied). */
 function marketPin(item: Record<string, unknown>): Record<string, unknown> | null {
-  const lat = item.latReduced;
-  const lon = item.lonReduced;
-  const id = item._id;
-  const productId = strOrNull(item.productId);
-  if (typeof lat !== "number" || typeof lon !== "number" || typeof id !== "string" || !productId)
-    return null;
+  const core = publicPinCore(item);
+  if (!core || !core.productId) return null; // marketplace rows require a listed product
   return {
-    id,
-    title: typeof item.title === "string" ? item.title : "Untitled",
-    authorName: strOrNull(item.authorName),
-    lat,
-    lon,
-    precision: typeof item.precision === "string" ? item.precision : "1km",
-    previewUrl: strOrNull(item.previewUrl),
-    capturedAt: strOrNull(item.capturedAt),
-    altitudeM: numOrNull(item.altitudeM),
-    headingDeg: numOrNull(item.headingDeg),
-    pitchDeg: numOrNull(item.pitchDeg),
-    rollDeg: numOrNull(item.rollDeg),
-    focalLengthMm: numOrNull(item.focalLengthMm),
-    hFovDeg: numOrNull(item.hFovDeg),
-    textureWidth: numOrNull(item.textureWidth),
-    textureHeight: numOrNull(item.textureHeight),
-    cameraMake: strOrNull(item.cameraMake),
-    cameraModel: strOrNull(item.cameraModel),
-    lensModel: strOrNull(item.lensModel),
-    productId,
-    productVariantId: strOrNull(item.productVariantId),
-    priceAmount: numOrNull(item.priceAmount),
+    ...core,
     // Pre-currency-fix listings stored null — the site checkout is EUR regardless.
-    currency: strOrNull(item.currency) ?? SITE_CURRENCY,
+    currency: core.currency ?? SITE_CURRENCY,
   };
 }
 

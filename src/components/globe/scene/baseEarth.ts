@@ -21,7 +21,14 @@ export interface BaseEarthHandle {
 
 export function attachBaseEarth(
   scene: THREE.Scene,
-  opts: { baseScale: THREE.Vector3; maxAniso: number; maxTextureSize: number },
+  opts: {
+    baseScale: THREE.Vector3;
+    maxAniso: number;
+    maxTextureSize: number;
+    /** Mobile texture tier (MOBILE_PLAN M0): false keeps the boot textures — phones report
+     *  maxTextureSize ≥ 8192, so the capability gate below can't shed the 8k budget alone. */
+    allow8k?: boolean;
+  },
 ): BaseEarthHandle {
   const loader = new THREE.TextureLoader();
   const landMaskTex = loader.load(EARTH.textures.landMask);
@@ -257,7 +264,7 @@ export function attachBaseEarth(
       (e) => console.warn("[globe] 8k colour map unavailable — keeping the boot colour:", e),
     );
   };
-  if (opts.maxTextureSize >= 8192) {
+  if (opts.maxTextureSize >= 8192 && opts.allow8k !== false) {
     void upgradeNight();
     void upgradeLandMask();
     upgradeColor();

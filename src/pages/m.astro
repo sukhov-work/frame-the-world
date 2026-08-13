@@ -1,0 +1,16 @@
+---
+// /m — the mobile planning shell (MOBILE_PLAN M0; owner-ratified 2026-08-11, planning-only
+// permanently). A SEPARATE page over a responsive retrofit: desktop index.astro is frozen and
+// device routing is client-side only (banner + topnav link there — never a UA redirect; CDN
+// `Vary` is unverifiable). Same engine island, own thin chrome; no Welcome/boot-poster port
+// (by design — /m boots straight into the globe).
+import MobileLayout from "../layouts/MobileLayout.astro";
+import GlobeCanvas from "../components/globe/GlobeCanvas";
+import MobileShell from "../components/mobile/MobileShell";
+---
+
+<MobileLayout title="Frame the World — Mobile">
+  <!-- client:only="react" — the WebGL globe is NEVER server-rendered (constraint C4) -->
+  <GlobeCanvas client:only="react" />
+  <MobileShell client:only="react" />
+</MobileLayout>
