@@ -66,6 +66,27 @@ describe("detectDeviceTier", () => {
     // deviceMemory/cores undefined off Chrome → assumed 8; a strong string still reaches high.
     expect(detectDeviceTier({ rendererString: "Apple M2", maxTextureSize: 16384 })).toBe("high");
   });
+
+  it("caps a strong-GPU coarse-pointer device (phone/tablet) at mid — MOBILE_PLAN M0", () => {
+    // The exact iPhone shape: "Apple GPU" passes STRONG_GPU, deviceMemory is absent on iOS
+    // Safari (→ assumed 8), and modern phones report maxTextureSize ≥ 8192 — without the
+    // coarse-pointer cap this would detect `high` (dprCap 2 + bloom + the 8k texture budget).
+    expect(
+      detectDeviceTier({ rendererString: "Apple GPU", maxTextureSize: 16384, coarsePointer: true }),
+    ).toBe("mid");
+  });
+
+  it("keeps a coarse-pointer weak device at low (the cap never lifts a tier)", () => {
+    expect(
+      detectDeviceTier({ rendererString: "Mali-400 MP", maxTextureSize: 8192, coarsePointer: true }),
+    ).toBe("low");
+  });
+
+  it("leaves fine-pointer detection unchanged when coarsePointer is explicitly false", () => {
+    expect(
+      detectDeviceTier({ rendererString: "Apple M2", maxTextureSize: 16384, coarsePointer: false }),
+    ).toBe("high");
+  });
 });
 
 // Deliberately tiny thresholds so the state machine is exercised in a handful of frames.

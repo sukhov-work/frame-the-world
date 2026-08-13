@@ -1,7 +1,8 @@
 // /api/photos — the pin lifecycle endpoint (ARCHITECTURE §6): GET list · POST save ·
 // PATCH update · DELETE remove. Thin per C1: validate → auth → quota/owner gate → write.
 // This endpoint is the ONLY writer of the Photos and PublicPins collections (both are
-// ADMIN-only on the platform side), which makes two invariants structural:
+// ADMIN-write on the platform side; PublicPins read is ANYONE), which makes two invariants
+// structural:
 //   • quota — a free member's 11th photo is refused HERE, and the collections refuse direct
 //     member-session writes, so the wall cannot be bypassed from the client;
 //   • C6 — the PublicPins row is built by publicPinRecord (reduced-precision derivation only);
@@ -91,9 +92,11 @@ export const POST: APIRoute = async ({ request }) => {
 
     // Two-tier quota (owner 2026-07-17): free 100 · premium 1000. The plan lookup runs only
     // once the free wall is hit, so the common save path stays a single count query.
+    let knownLimit = PIN_QUOTA_FREE; // honest only below the free wall (audit B7)
     if (used >= PIN_QUOTA_FREE) {
       const premium = await hasActivePlan();
       const limit = premium ? PIN_QUOTA_PREMIUM : PIN_QUOTA_FREE;
+      knownLimit = limit;
       if (used >= limit) {
         return json(
           {
@@ -124,7 +127,7 @@ export const POST: APIRoute = async ({ request }) => {
     return json({
       photoId: photo._id,
       publicPinId,
-      quota: { used: used + 1, limit: PIN_QUOTA_FREE },
+      quota: { used: used + 1, limit: knownLimit },
     });
   } catch (e) {
     console.error("[photos]", e);

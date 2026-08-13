@@ -179,6 +179,8 @@ import "../styles/boot-poster.css";
       <MyPins client:only="react" />
       <!-- FAQ — floating how-it-works panel (owner ask 2026-07-17); body is open-gated -->
       <Faq client:only="react" />
+      <!-- MOBILE_PLAN M0 (owner-ratified 2026-08-11): permanent link to the /m planning shell -->
+      <a href="/m" class="tip" data-tip="PLANNING SHELL FOR YOUR PHONE." data-tip-pos="down">Mobile</a>
       <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->
       <MemberBadge client:only="react" />
     </nav>
@@ -202,6 +204,36 @@ import "../styles/boot-poster.css";
     href="https://www.esri.com/"
     target="_blank"
     rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · © CARTO · Cesium ion · © OpenStreetMap contributors · © OpenMapTiles · NASA Earth Observatory (Suomi NPP VIIRS) · NASA/GSFC SVS · ESA/Gaia/DPAC · Natural Earth</a>
+
+  <!-- MOBILE_PLAN M0 (owner-ratified 2026-08-11): coarse-pointer visitors get a dismissible
+       offer of /m. Client-side ONLY — never a UA redirect (CDN `Vary` is unverifiable; the
+       sharded-edge-cache precedent). Dismissal persists in localStorage. -->
+  <div id="m-banner" class="m-banner" hidden>
+    <span>On a phone? The planning shell fits your thumb.</span>
+    <a href="/m">OPEN&nbsp;/M</a>
+    <button type="button" id="m-banner-dismiss" aria-label="Dismiss">×</button>
+  </div>
+  <script is:inline>
+    (function () {
+      var KEY = "ftw:m-banner-dismissed";
+      var el = document.getElementById("m-banner");
+      if (!el || !window.matchMedia("(pointer: coarse)").matches) return;
+      try {
+        if (localStorage.getItem(KEY)) return;
+      } catch (e) {
+        /* storage blocked → show once per load */
+      }
+      el.hidden = false;
+      document.getElementById("m-banner-dismiss").addEventListener("click", function () {
+        el.hidden = true;
+        try {
+          localStorage.setItem(KEY, "1");
+        } catch (e) {
+          /* non-fatal */
+        }
+      });
+    })();
+  </script>
 </Layout>
 
 <style>
@@ -288,5 +320,45 @@ import "../styles/boot-poster.css";
   }
   .map-credit:hover {
     color: var(--color-text-secondary);
+  }
+  /* Mobile offer banner (MOBILE_PLAN M0) — coarse-pointer only, dismissible. No fixed
+     descendants inside (the backdrop-filter containing-block trap). TRAP: an author
+     `display: flex` BEATS the `hidden` attribute's UA display:none — the [hidden] rule below
+     is load-bearing, not decoration. */
+  .m-banner[hidden] {
+    display: none;
+  }
+  .m-banner {
+    position: fixed;
+    left: 50%;
+    bottom: calc(3.4rem + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 11;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.45rem 0.6rem 0.45rem 0.9rem;
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+    background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+    border-radius: 999px;
+    backdrop-filter: blur(6px);
+    white-space: nowrap;
+  }
+  .m-banner a {
+    color: var(--color-accent);
+    text-decoration: none;
+    letter-spacing: 0.06em;
+    font-size: 0.74rem;
+  }
+  .m-banner button {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 0.2rem;
   }
 </style>

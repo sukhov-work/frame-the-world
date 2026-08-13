@@ -104,11 +104,16 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         import("@wix/redirects"),
       ]);
       // A V3 Stores product resolves to a line item ONLY via options.variantId — productId alone
-      // yields an empty checkout (verified against the live gateway 2026-07-16).
+      // yields an empty checkout (verified against the live gateway 2026-07-16). Guard, never
+      // degrade silently (audit B5): a variantId-less listing would check out EMPTY.
+      if (!listing?.variantId) {
+        set({ phase: "error", error: "listing is missing its variant — relist the pin to fix it" });
+        return;
+      }
       const catalogReference: { appId: string; catalogItemId: string; options?: { variantId: string } } = {
         appId: STORES_APP_ID,
         catalogItemId: productId,
-        ...(listing?.variantId ? { options: { variantId: listing.variantId } } : {}),
+        options: { variantId: listing.variantId },
       };
       const co = await checkout.createCheckout({
         lineItems: [{ quantity: 1, catalogReference }],

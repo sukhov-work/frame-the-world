@@ -5,7 +5,13 @@ import { createClient, OAuthStrategy } from "@wix/sdk";
 
 const APP = "http://localhost:4321";
 const SITE = "https://frame-the-a173087b-yevhens.wix-site-host.com";
-const TEST_MEMBER = { email: "frame-p5-tester@example.com", password: "FrameP5!test1" };
+const _envB2 = readFileSync(".env.local", "utf-8");
+const TEST_MEMBER = {
+  email: _envB2.match(/^TEST_MEMBER_EMAIL=(.+)$/m)?.[1]?.trim().replace(/^["']|["']$/g, ""),
+  password: _envB2.match(/^TEST_MEMBER_PASSWORD=(.+)$/m)?.[1]?.trim().replace(/^["']|["']$/g, ""),
+}; // audit B2 (2026-08-13): credential moved out of git — lives in gitignored .env.local
+if (!TEST_MEMBER.email || !TEST_MEMBER.password)
+  throw new Error("TEST_MEMBER_EMAIL / TEST_MEMBER_PASSWORD missing from .env.local (audit B2)");
 const EXPECTED_PLAN = "5874dba8-44ae-49ce-b6f6-d36bc93ce978";
 const CDP = "9333";
 

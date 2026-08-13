@@ -63,22 +63,33 @@ DNIPRO_3D_ENRICHMENT_PLAN.md` · `rendering/RENDERING_QUALITY_PASS.md`; mechanic
   `lib/geo/horizonProfile.ts` (az-binned max-elevation, 3 km trust) + `lib/geo/occlusion.ts`
   (**no-Raycaster** building triangle-edge sweeps + tree canopy spheres), fed by `scene/planFeed.ts` →
   `PlanPanel`. Mechanics: `mem:project/wip-2026-07-14-pass3-obstruction-moat`.
+- **Planning-instrument ladder (CORE, desktop-first — owner 2026-08-13):** the PhotoPills/Stellarium
+  feature set (twilight bands · MW band/Galactic-Centre target + season calendar · az/el **Find**
+  filtered by the real skyline · NPF/500 · moon calendar · meteors/conjunctions/lunar eclipses ·
+  session calculators · light pollution/ISS/alerts/solar-eclipse umbra) is core architecture, not a
+  mobile add-on. Invariant per feature: pure lib (`lib/ephemeris/*`, `lib/geo/*`) + vitest →
+  store mirror → **desktop panel first** → mobile sheet second (a mobile surface never precedes its
+  desktop twin). Schedule: `IMPLEMENTATION_PLAN.md §Phase 8` (8a–8e); feature spec + evidence:
+  `MOBILE_PLAN.md §5`; mobile twins: M1/M3–M6.
 
-## 5. Data model — Wix Data Collections (ADR D7) [VERIFIED no-geo; INFERRED schema]
+## 5. Data model — Wix Data Collections (ADR D7) [as-built; rewritten 2026-08-13, audit D7]
 > No geospatial operator → geohash-prefix `hasSome` + client refine. Denormalize hot fields into `PublicPins`.
 
-**Photos** (owner-private working record)
-`_id, ownerMemberId(ref), title, mediaFileIdOriginal(private), previewUrl(public), lat(num), lon(num),
-alt(num), geohash(str), headingDeg(num), pitchDeg(num), rollDeg(num), focalMm(num), focal35(num),
-sensorWidthMm(num), lensModel(str), captureTime(datetime), tzOffset(str), isPublic(bool),
-publicPrecision(str: exact|1km|city), forSale(bool), price(num), createdAt`
+**Schema source of truth = [`scripts/provision-collections.mjs`](../../scripts/provision-collections.mjs)**
+(the REST provisioner — the CLI `dataCollections` extension does NOT provision from wix dev); the full
+field-by-field inventory lives in [`conventions/contracts.md §4`](../conventions/contracts.md). Summary:
 
-**PublicPins** (denormalized for fast globe/viewport query)
-`_id, photoRef, geohash, latReduced, lonReduced, previewUrlLowRes, title, authorName`  ← **never** exact GPS
-(C6; the published point is the geohash CELL CENTRE — 1 km default, exact = opt-in)
-
-**Listings** (marketplace)
-`_id, photoRef, sellerMemberId, price, status, digitalProductId`
+- **Photos** (ADMIN read/write — owner-private working record): title/owner + **exact lat/lon
+  (ONLY here)** + full camera pose/optics + `geohash9` + media file ids/preview + `isPublic`,
+  `publicPrecision`, `publicPinId` + the marketplace linkage (`productId/productVariantId/
+  priceAmount/currency`).
+- **PublicPins** (read ANYONE, write ADMIN — denormalized for the globe/viewport query):
+  `photoRef/authorName` + **`latReduced/lonReduced` + `geohash/gh4/gh6` + `precision`** + preview +
+  pose/optics + the same marketplace linkage. ← **never exact GPS** (C6; the published point is the
+  geohash CELL CENTRE — 1 km default, exact = opt-in; `publicPinRecord` is the only builder).
+- **SavedPlaces** (member camera bookmarks): title/owner + the `#f=`-grammar pose fields.
+- **There is NO Listings collection** — listing state rides Photos/PublicPins product fields
+  (the marketplace is Stores products + these links; see §6 `/api/listings`).
 
 ## 6. Endpoint contracts (Astro backend — thin; heavy compute stays client-side per C1)
 | Endpoint | Does | Notes |
@@ -102,7 +113,11 @@ publicPrecision(str: exact|1km|city), forSale(bool), price(num), createdAt`
   sliders/encoders + save/update/delete), `TimeScrubber`+`TimeReadout` (scrub + playback), `LocationFinder`
   (geocode→fly-to), `CameraTiltPanel` (compass/2D-3D/encoders/SAT/BLD chips), `MyPins`, `MemberBadge`,
   `Welcome`, `ExploreMode`, `FpvHud`, `PinHoverCard`, `PlanPanel` (skyline verdicts + jump chips),
-  `MiniMap` (FPV). `components/ui/`: `Slider`, `Encoder`, `InfoDot`, `DragGrip`. *(`AiPanel` = Phase 7, not built.)*
+  `MiniMap` (FPV). `components/ui/`: `Slider`, `Encoder`, `InfoDot`, `DragGrip`. *(`AiPanel` = Phase 7, PARKED — out of all plans per owner 2026-08-11.)*
+- `components/mobile/` (M0+, planning-only shell — owner 2026-08-11/13): thin consumers of the SAME
+  stores/libs (`MobileShell`, tab bar, sheets, time dock, FPV touch controls) mounted by
+  `src/pages/m.astro` + `layouts/MobileLayout.astro`. Never imports desktop panels; desktop never
+  imports from it; all shared logic lives in `lib/**`+`store/**` (the two-shell drift guard).
 - `lib/`: `decode/`, `geo/` (projection, frustum, geohash, precision, geocode, offscreen, terrain, screen,
   heading, coerce, urlPose, horizonProfile, occlusion), `ephemeris/` (bodies, stars, asterisms, dayArc,
   golden, moonlight, captureTime, planner), `globe/` (quality, drift, buildingNight, enrichedMask,

@@ -80,7 +80,8 @@ const result = await evalJs(`(async () => {
 console.log("probes:");
 for (const p of result.report) console.log(" ", JSON.stringify(p));
 console.log("mask png bytes:", result.size);
-writeFileSync("/private/tmp/claude-501/-Users-yevhens-Projects-wix-private-headless-frame-the-world/608e287d-00e2-40f4-9633-511c6a734aaf/scratchpad/earth-landmask-8k.png", Buffer.from(result.b64, "base64"));
+// Repo-relative output (audit B6 2026-08-13 — was a dead machine/session scratchpad path).
+writeFileSync(new URL("../public/textures/earth-landmask-8k.png", import.meta.url), Buffer.from(result.b64, "base64"));
 console.log("saved earth-landmask-8k.png");
 ws.close();
 process.exit(0);

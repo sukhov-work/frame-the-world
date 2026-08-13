@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { goldenFactor, type GoldenCurve } from "../../../src/lib/ephemeris/golden";
+import { GOLDEN } from "../../../src/components/globe/tuning";
 
-// Mirror of tuning.GOLDEN's curve (lib stays layering-clean of the globe fence — the orchestrator
-// passes the real knobs; these tests assert the SHAPE with the shipped numbers).
+// THE shipped curve, imported straight from tuning (audit C1, 2026-08-13: the previous hand
+// mirror had silently pinned the pre-2026-07-13 numbers — a drifted copy tests nothing). The
+// runtime lib stays layering-clean of the globe fence (the orchestrator passes the knobs);
+// importing tuning from a TEST is sanctioned (quality.test.ts precedent).
 const CURVE: GoldenCurve = {
-  fadeInLo: -0.139, // sin(−8°)
-  fadeInHi: -0.0175, // sin(−1°)
-  fadeOutLo: 0.122, // sin(+7°)
-  fadeOutHi: 0.276, // sin(+16°)
+  fadeInLo: GOLDEN.fadeInLo,
+  fadeInHi: GOLDEN.fadeInHi,
+  fadeOutLo: GOLDEN.fadeOutLo,
+  fadeOutHi: GOLDEN.fadeOutHi,
 };
 
 const sin = (deg: number) => Math.sin((deg * Math.PI) / 180);

@@ -31,6 +31,9 @@ function readDeviceCaps(renderer: THREE.WebGLRenderer): DeviceCaps {
     deviceMemoryGB: nav.deviceMemory,
     cores: nav.hardwareConcurrency,
     maxTextureSize: renderer.capabilities.maxTextureSize,
+    // Touch-primary device (phone/tablet) — caps the tier at `mid` (phones pass STRONG_GPU with
+    // defaulted memory signals but can't carry the `high` VRAM budget; MOBILE_PLAN M0).
+    coarsePointer: window.matchMedia("(pointer: coarse)").matches,
   };
 }
 
@@ -73,7 +76,11 @@ export default function GlobeCanvas() {
     // memory pressure, so we never let it climb into the high LRU/8k-texture budget. `mid` (unknown
     // hardware, or a capable machine whose GPU string is privacy-blocked) may climb to `high` when
     // it sustains the headroom — this is what keeps a hidden-string M3 Pro from being stuck at mid.
-    const ceiling: QualityTier = deviceTier === "low" ? "low" : "high";
+    // A coarse-pointer device is ALSO capped at `mid` for the same frame-time-can't-see-memory
+    // reason (a phone sustaining 60 fps at LEO would otherwise be promoted into the 8k/dpr-2
+    // budget it can't hold at city zoom; MOBILE_PLAN M0).
+    const ceiling: QualityTier =
+      deviceTier === "low" ? "low" : deviceCaps.coarsePointer ? "mid" : "high";
     // Floor: a CONFIRMED-strong device (detected `high`) never collapses to `low` — it sheds DPR/bloom/
     // tiles down to `mid` for frame rate but keeps the core look (bloom + shadows). An M3 Pro governed
     // to `low` at retina DPR was reading as broken (owner-confirmed: no shadows, no bloom). Unknown/weak
@@ -83,7 +90,6 @@ export default function GlobeCanvas() {
     renderer.setPixelRatio(
       Math.min(window.devicePixelRatio, QUALITY.tiers[deviceTier].dprCap),
     );
-    renderer.setClearColor(new THREE.Color(tokens.bg), 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Neutral (Khronos PBR-Neutral) tames the key light's highlight clipping WITHOUT desaturating the
     // cyan accent + additive atmosphere rim the way ACES/AgX would.
@@ -362,6 +368,9 @@ export default function GlobeCanvas() {
             reduceMotion,
             sunLight: sun,
             qualityTier: activeTier, // start the tile knobs at the detected device tier (WS1)
+            // Mobile texture tier (MOBILE_PLAN M0): phones report maxTextureSize ≥ 8192, so GPU
+            // capability alone can't gate the ~280 MB of 8k swaps — the coarse-pointer signal does.
+            allow8k: !deviceCaps.coarsePointer,
             aoControl, // R1 altitude gate (undefined unless AO.enabled)
           });
         })

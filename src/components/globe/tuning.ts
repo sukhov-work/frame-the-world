@@ -868,6 +868,12 @@ export const MILKYWAY = {
   /** All-sky haze texture (public/, 8192×4096 JPEG — upgraded from 4k, owner 2026-07-15;
    *  credit: NASA/GSFC SVS · ESA/Gaia/DPAC — see index.astro attribution). */
   hazeTexture: "/textures/milkyway-2020.jpg",
+  /** Mobile texture tier (MOBILE_PLAN M0): 2048×1024 bake of the same map for coarse-pointer
+   *  devices (~2 MB VRAM vs ~134 MB, mips off). NOT a naive downscale — SVS maps are
+   *  flux-per-pixel and the flux hides in sub-texel star speckle (DECISIONS 2026-07-15), so the
+   *  bake resizes in LINEAR light (area-integrating the speckle) and verifies patch means:
+   *  `node scripts/build-milkyway-2k.mjs`. */
+  hazeTexture2k: "/textures/milkyway-2020-2k.jpg",
   /** Haze brightness multiplier on the additive sphere (1 = the baked map as-is;
    *  1.0 → 0.8 owner 2026-07-15 "a little bit subtler"). */
   hazeGain: 0.8,

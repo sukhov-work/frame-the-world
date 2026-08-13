@@ -58,6 +58,14 @@ describe("bodyStatesAt (ECEF directions the scene consumes)", () => {
     expect(subsolarLat).toBeLessThan(23.5);
   });
 
+  it("subsolar latitude at the December solstice is the Tropic of Capricorn (−23.44°)", () => {
+    // Unit twin of the browser-verified Dec-21 jump (audit C6 — was browser-tier only).
+    const { sunDir } = bodyStatesAt(Date.UTC(2026, 11, 21, 12, 0, 0));
+    const subsolarLat = (Math.asin(sunDir[2]) * 180) / Math.PI;
+    expect(subsolarLat).toBeLessThan(-23.3);
+    expect(subsolarLat).toBeGreaterThan(-23.5);
+  });
+
   it("moon ECEF direction is within topocentric parallax (<1.2°) of the observer view", () => {
     const tm = Date.UTC(2026, 5, 29, 21, 0, 0);
     const { moonDir } = bodyStatesAt(tm);

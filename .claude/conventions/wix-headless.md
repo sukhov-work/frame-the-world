@@ -58,6 +58,12 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
 - npm installs use `--legacy-peer-deps` (**pnpm fails** against the `@wix/cli` template). Never invent
   packages; skipping a needed `@wix/<x>` → `Rollup failed to resolve import "@wix/<x>"`.
 - Missing `WIX_CLIENT_ID` → build fails with `Missing environment variable WIX_CLIENT_ID` → run `env pull`.
+- **Post-release ritual (added 2026-08-13, audit B3 — this lived only in memory before):**
+  `GET`+`POST` the released `/api/ping` (200-gate, the pre-release canary) → `node
+  scripts/warm-prod-assets.mjs` → `node scripts/verify-prod-globe.mjs`. The Wix edge cache is
+  SHARDED — a broken asset can serve from one edge while another is fine: reload until clean
+  (the 2026-07-16 prod-asset-outage lesson), and re-check any release-riding backlog canaries
+  (tracked-backlog T2/T3).
 
 ## 5. SDK usage in app code
 - `@wix/astro` gives **automatic auth** on managed headless — you generally don't hand-build a client for
@@ -86,7 +92,7 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
 - **No geospatial operator.** Query language: `$eq/$ne/$hasSome/$hasAll/$in/$gt/$lt/$exists/$and/$or/$not`.
   Viewport query pattern: store a **geohash** string per photo → compute covering prefixes client-side →
   `hasSome(geohashPrefix, [...])` → refine client-side. (Denormalize hot fields into `PublicPins`.)
-- **Quota (10 free / unlimited paid):** enforce server-side. *(As built, Phase 5 — SUPERSEDES the
+- **Quota (100 free / 1000 premium — owner re-ruling 2026-07-17; was 10/unlimited):** enforce server-side. *(As built, Phase 5 — SUPERSEDES the
   `beforeInsert`-hook plan (D8): the headless CLI provisions **no Wix Data hooks**, and a member-session
   insert is platform-refused, so the count-and-reject lives in the elevated `POST /api/photos` handler
   (#11 → 402). Pricing Plans gates unlimited.)* UI-only enforcement is a bug.
@@ -152,7 +158,8 @@ hitting a token-secured HTTP endpoint (ADR D11). None in v1.
 | 30-day download expiry | message buyers; not shortenable |
 
 ## Provenance — what we borrowed vs dropped from the internal `wix-headless` skill
-Source (read-only reference): `/Users/yevhens/Projects/wix-private/ecom/ecom/.claude/claude-docs/frame-the-world/wix-headless/` (SKILL.md +
+Source (read-only reference; machine-local — unavailable off this box, audit D13):
+`/Users/yevhens/Projects/wix-private/ecom/ecom/.claude/claude-docs/frame-the-world/wix-headless/` (SKILL.md +
 `references/SETUP.md`, `references/shared/AUTHENTICATION.md`, `references/custom/*/WIRING.md`, …).
 - **Borrowed (this doc):** CLI+token+`curl` auth shape & recovery ladder, scaffold command + single-folder
   caveat, `env pull --json`, `--legacy-peer-deps`, elevate, resumable upload, no-geo-query, no-split-payment,

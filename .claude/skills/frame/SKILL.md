@@ -2,9 +2,10 @@
 name: frame
 description: >
   Universal development skill for Frame the World (Wix headless / Astro 5 photo-on-3D-globe instrument).
-  Handles feature implementation, architecture decisions, bug fixing, research, and design. Parallel-first
-  with confidence tracking. Trigger on: "implement", "build", "add", "fix", "debug", "design", "plan",
-  "investigate", "research", any IMPLEMENTATION_PLAN.md phase reference (e.g. "Phase 3"), the globe/decode/
+  Handles feature implementation, architecture decisions, bug fixing, research, design, and whole-repo
+  audits. Parallel-first with confidence tracking. Trigger on: "implement", "build", "add", "fix", "debug",
+  "design", "plan", "investigate", "research", "audit", "comprehensive review", any IMPLEMENTATION_PLAN.md
+  phase reference (e.g. "Phase 3"), the globe/decode/
   projection/ephemeris/Wix-backend subsystems, or any task requiring multi-file changes.
 argument-hint: <what to build, fix, investigate, or design>
 ---
@@ -15,7 +16,7 @@ Implementing, designing, investigating, and fixing code for **Frame the World** 
 (Astro 5) app that projects camera photos onto a stylized 3D globe with real OSM buildings; client-heavy
 (WASM decode + three.js), Wix as the backend. Design docs: `.claude/claude-docs/ARCHITECTURE.md` (canonical
 map), `.claude/claude-docs/IMPLEMENTATION_PLAN.md` (7-phase build). Conventions: `.claude/conventions/`
-(especially `wix-headless.md`). Heavy design/migration → reach for `investigate-design-v3` skill (/Users/yevhens/Projects/wix-private/ecom/ecom/.claude/ecom-grill-agent-kb/skills/investigate-design-v3) instead.
+(especially `wix-headless.md`). Heavy design/migration → reach for `investigate-design-v3` skill (/Users/yevhens/Projects/wix-private/ecom/ecom/.claude/ecom-grill-agent-kb/skills/investigate-design-v3 — machine-local; unavailable off this box) instead.
 
 ## Workflow
 ```
@@ -33,6 +34,15 @@ Phase 4: Record — Serena memory + DECISIONS.md + NEXT_SESSION_PROMPT.md
 | Fix | locate → diagnose → fix → verify | Phase 1 if location known |
 | Design | research → options → recommend → doc | Phase 3 tests |
 | Research | parallel agents → synthesize → report | Phase 2–3 |
+| **Audit** | whole-repo/docs review: tracks → parallel finder agents → verification pass → report (`references/audit-mode.md`) | Phase 2 build — **READ-ONLY on src/ + docs; fixes are separate sliced sessions** |
+
+An owner "comprehensive review" order ⇒ Audit, not a single-artifact review (whole-repo scope
+outranks). Audit machinery: `references/audit-mode.md` (engine + tracks + severity + cadence) ·
+`references/checklists/{code,platform,tests,docs}.md` · `references/review-agent.md` (finder
+contract) · `references/audit-report-template.md` (report → `.claude/claude-docs/audits/`) ·
+`references/tracked-backlog.md` (the ONE debt registry — audits verify rows, never re-discover) ·
+`references/laws.md` (which software-engineering law each check encodes — read before authoring
+new checklist items).
 
 Load: `list_memories` → `mem:core` + topical memories; the relevant `ARCHITECTURE.md`/`IMPLEMENTATION_PLAN.md`
 section (**read the plan's phase before touching its code**); conventions. Build a shared-context block for
@@ -102,3 +112,7 @@ See `conventions/wix-headless.md` for the full mechanics + recovery ladder.
 | Claim the globe "works" from a passing unit test | Mark UNVERIFIED until run in the browser |
 | Expose exact GPS on a public pin | Reduced precision only (C6) |
 | Report success with failing tests / `astro check` errors | Fix all failures first |
+| Audit session that edits src/ | Report + sliced fix sessions (audit is READ-ONLY) |
+| Re-raising a tracked-backlog item as a discovery | Verify status against `references/tracked-backlog.md`, cite the row |
+| Empty tool/grep result treated as "nothing there" | Zero-result validation: prove the probe CAN match |
+| Verifying visibility/state via DOM properties | Rendered geometry + screenshots (the `[hidden]` trap, 2026-08-13) |

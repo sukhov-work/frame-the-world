@@ -14,6 +14,7 @@
 
 import { fixedTarget, type SkyTarget, type TargetKind } from "../ephemeris/targets";
 import { normalizeSky, type SkyIndexEntry } from "./searchIndex";
+import { makeTtlCache } from "./ttlCache";
 
 export interface SimbadObject {
   mainId: string;
@@ -101,48 +102,25 @@ export function simbadIndexEntry(o: SimbadObject): SkyIndexEntry {
 // Cache — one localStorage blob; hits live 30 days, misses 1 day; capped by insertion order.
 // ---------------------------------------------------------------------------------------------
 
-const CACHE_KEY = "ftw:simbad:v1";
-const HIT_TTL_MS = 30 * 86_400_000;
-const MISS_TTL_MS = 86_400_000;
-const CACHE_CAP = 200;
-
-interface CacheRow {
-  t: number;
-  o: SimbadObject | null;
-}
-
-function readCache(): Record<string, CacheRow> {
-  try {
-    return JSON.parse(localStorage.getItem(CACHE_KEY) ?? "{}") as Record<string, CacheRow>;
-  } catch {
-    return {};
-  }
-}
-
-function writeCache(c: Record<string, CacheRow>): void {
-  try {
-    const keys = Object.keys(c);
-    if (keys.length > CACHE_CAP) for (const k of keys.slice(0, keys.length - CACHE_CAP)) delete c[k];
-    localStorage.setItem(CACHE_KEY, JSON.stringify(c));
-  } catch {
-    /* storage full/unavailable — the cache is an optimization, never a failure */
-  }
-}
+// ONE TTL-cache implementation — lib/sky/ttlCache.ts (audit A6); old `o`-key blobs read fine.
+const cache = makeTtlCache<SimbadObject>({
+  storageKey: "ftw:simbad:v1",
+  hitTtlMs: 30 * 86_400_000,
+  missTtlMs: 86_400_000,
+  cap: 200,
+});
 
 /** Cached resolution: the object, null (cached miss), or undefined (never asked / expired). */
 export function cachedSimbad(query: string): SimbadObject | null | undefined {
-  const row = readCache()[normalizeSky(query)];
-  if (!row) return undefined;
-  if (Date.now() - row.t > (row.o ? HIT_TTL_MS : MISS_TTL_MS)) return undefined;
-  return row.o;
+  return cache.get(normalizeSky(query));
 }
 
 /** Resolve a persisted `simbad:<mainId>` target id from cached objects (reload persistence). */
 export function simbadTargetById(id: string): SkyTarget | null {
   if (!id.startsWith("simbad:")) return null;
   const mainId = id.slice(7);
-  for (const row of Object.values(readCache())) {
-    if (row.o && row.o.mainId === mainId) return simbadTarget(row.o);
+  for (const o of cache.values()) {
+    if (o && o.mainId === mainId) return simbadTarget(o);
   }
   return null;
 }
@@ -203,9 +181,7 @@ export async function resolveSimbad(query: string): Promise<SimbadObject | null>
               minArcmin: typeof row[6] === "number" ? row[6] : null,
             }
           : null;
-      const cache = readCache();
-      cache[key] = { t: Date.now(), o };
-      writeCache(cache);
+      cache.set(key, o);
       return o;
     } finally {
       clearTimeout(timer);

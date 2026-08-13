@@ -27,6 +27,7 @@
     "@wix/media": "^1.0.264",
     "@wix/members": "^1.0.485",
     "@wix/pricing-plans": "^1.0.346",
+    "@wix/redirects": "^1.0.125",
     "@wix/sdk": "^1.21.5",
     "@wix/stores": "^1.0.830",
     "3d-tiles-renderer": "^0.4.28",
