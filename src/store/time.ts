@@ -107,6 +107,36 @@ export function fractionToTime(fraction: number, anchorMs: number, windowMs: num
   return Math.round(anchorMs + (clamp01(fraction) - 0.5) * windowMs);
 }
 
+// --- Hour ticks (QoL-1 scrubber v2): the sliding rail annotates REAL local hours. Browser-local
+//     by the same convention as the date/time inputs below; Date#setHours does the calendar
+//     walking, so DST transitions land where the wall clock says (a spring-forward hour simply
+//     never appears; a fold's repeated hour appears once). -------------------------------------
+
+export interface HourTick {
+  ms: number;
+  /** Browser-local hour 0..23 — the tick label. */
+  hour: number;
+  /** Local midnight — the day boundary tick (styled taller / dated by the consumer). */
+  isMidnight: boolean;
+}
+
+/** Every full local hour inside [startMs, endMs], ascending. Pure; safe on any window size. */
+export function hourTicksBetween(startMs: number, endMs: number): HourTick[] {
+  if (!(endMs > startMs)) return [];
+  const out: HourTick[] = [];
+  const d = new Date(startMs);
+  d.setMinutes(0, 0, 0);
+  if (d.getTime() < startMs) d.setHours(d.getHours() + 1);
+  while (d.getTime() <= endMs) {
+    const hour = d.getHours();
+    out.push({ ms: d.getTime(), hour, isMidnight: hour === 0 });
+    const before = d.getTime();
+    d.setHours(d.getHours() + 1);
+    if (d.getTime() <= before) d.setTime(before + 3_600_000); // DST-fold guard — never stall
+  }
+  return out;
+}
+
 // --- Date jump (multiday scrubber, 2026-07-10). The rail stays a ±12 h window; the date picker
 //     moves the whole window to another calendar day, preserving the local time-of-day. The
 //     ephemeris takes any UTC instant, so sun/moon/star positions stay exact on any date. -------
@@ -152,4 +182,11 @@ export function withLocalTime(ms: number, timeStr: string): number | null {
   const next = new Date(ms);
   next.setHours(h, min, s, 0);
   return Number.isNaN(next.getTime()) ? null : next.getTime();
+}
+
+// Dev-only introspection (the window.__* DEV-seam registry, global.d.ts) so browser verification
+// drives the REAL island instance — a page-context `import("/src/store/time.ts")` can resolve a
+// SECOND module instance in the Vite dev graph (observed 2026-08-14). No secrets, no behaviour.
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  window.__timeStore = useTimeStore;
 }

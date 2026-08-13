@@ -9,6 +9,7 @@ import MemberBadge from "../components/panels/MemberBadge";
 import MyPins from "../components/panels/MyPins";
 import Marketplace from "../components/panels/Marketplace";
 import Faq from "../components/panels/Faq";
+import MyLocation from "../components/panels/MyLocation";
 import LocationFinder from "../components/panels/LocationFinder";
 import PinHoverCard from "../components/panels/PinHoverCard";
 import ExploreMode from "../components/panels/ExploreMode";
@@ -179,6 +180,9 @@ import "../styles/boot-poster.css";
       <MyPins client:only="react" />
       <!-- FAQ — floating how-it-works panel (owner ask 2026-07-17); body is open-gated -->
       <Faq client:only="react" />
+      <!-- QoL-1 (owner 2026-08-14): geolocation → temp-pin FPV at the visitor's real spot (C6:
+           client-side only). The /m twin is SceneActions' 🧭 chip. -->
+      <MyLocation client:only="react" />
       <!-- MOBILE_PLAN M0 (owner-ratified 2026-08-11): permanent link to the /m planning shell -->
       <a href="/m" class="tip" data-tip="PLANNING SHELL FOR YOUR PHONE." data-tip-pos="down">Mobile</a>
       <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->

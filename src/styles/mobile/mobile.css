@@ -47,3 +47,20 @@ body {
   text-decoration: none;
   background: color-mix(in srgb, var(--color-bg) 55%, transparent);
 }
+
+/* M1: the status strip's right cluster — scene-time chip + the DESKTOP link. */
+.m-status__right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.m-chip--time {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.m-chip--pinned {
+  color: var(--color-warn);
+  border-color: color-mix(in srgb, var(--color-warn) 45%, transparent);
+}

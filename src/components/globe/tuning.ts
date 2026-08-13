@@ -223,16 +223,27 @@ export const GOLDEN = {
   moonKeyStrength: 0.4,
 } as const;
 
-/** Time scrubber UI (panels/TimeScrubber). The rail spans a window centred on an anchor instant;
- *  dragging pins scene time via store/time.setTime — the ephemeris relights everything. */
+/** Time scrubber UI (panels/TimeScrubber). Desktop v2 (QoL-1, owner 2026-08-14): an INFINITE
+ *  conveyor — scene time rides the fixed centre cursor and dragging slides the timeline under
+ *  it, unbounded both directions; the mobile dock still uses the clamped-window model until its
+ *  M-twin lands (PLANNING_QOL_PLAN §3.1). */
 export const SCRUB = {
-  /** Rail span (hours) — ±12 h covers a full terminator sweep + both golden hours. */
-  windowHours: 24,
+  /** Visible rail span (hours) — v2: 12 h visible, infinite reach (was the fixed ±12 h). */
+  windowHours: 12,
   /** Keyboard arrow step (minutes). */
   keyStepMin: 10,
   /** Releasing the knob in this outer fraction of the rail recentres the window on the pinned
-   *  time — repeated edge drags walk multiple days without a date picker. */
+   *  time (mobile dock's clamped-window model; the desktop conveyor no longer needs it). */
   edgeRecenterFrac: 0.02,
+  /** Tap zones (fraction of rail width at each end): a CLICK there steps to the next/previous
+   *  almanac event chip (the PhotoPills Time-Bar event-step, beaten with our richer event set). */
+  eventTapFrac: 0.12,
+  /** A press that moves ≤ this many px is a TAP (event step / dblclick), not a drag. */
+  tapSlopPx: 5,
+  /** Hour ticks get a printed label every N local hours (midnight always labels). */
+  hourLabelEvery: 2,
+  /** Elevation-curve sampling step (minutes) — sun+moon altitude traces on the rail. */
+  curveStepMin: 10,
   /** Fast-forward presets (scene-seconds per real second) for the PLAY control (owner
    *  2026-07-14) — 1 min/s · 10 min/s · 1 h/s. Real speed (×1) is always offered first. */
   playRates: [60, 600, 3600],
@@ -1673,6 +1684,20 @@ export const FPV = {
   walkFastMult: 3,
   /** Walk precision-creep multiplier while Option (mac) / Alt is held with the arrows. */
   walkSlowMult: 0.5,
+  /** Mobile walk stick (MOBILE_PLAN §4.1, M2): speed multiplier at FULL deflection — the
+   *  desktop Shift/Alt modifiers become the stick radius. The response is quadratic in the
+   *  deflection (speed = walkSpeedMps · this · d²): the rim sprints like Shift, ~58% deflection
+   *  walks at arrow speed, the first centimetre creeps like Option. */
+  walkStickMaxMult: 3,
+  /** Stick deflections under this are ignored (finger-jitter deadband, fraction of the radius). */
+  walkStickDeadband: 0.06,
+  /** SPACE = ascend with hold-acceleration (QoL-1, owner 2026-08-14): vertical rate at FULL
+   *  ramp (per s, proportional — same units/idiom as the ALTITUDE encoder's rail
+   *  CONTROLS.zoomRateMaxPerS; step scales with max(height, vertEncoderBaseM)). */
+  spaceLiftRatePerS: 1.1,
+  /** Seconds of hold to reach full rate. The gain is QUADRATIC in hold time (precision at a
+   *  tap — a 0.2 s tap moves centimetres; speed on a long hold), never faster than the rail. */
+  spaceRampS: 2.5,
 } as const;
 
 /** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's
@@ -1817,6 +1842,10 @@ export const ORCH = {
   maxFrameDtMs: 100,
   /** Pointer travel (px) above which a press is a drag, not a click / double-click. */
   clickDragPx: 6,
+  /** Long-press hold (ms, TOUCH pointers only) that drops the temp pin — the dblclick twin on
+   *  glass (MOBILE_PLAN §4.3; dblclick is undiscoverable on touch). Travel past clickDragPx,
+   *  lift, cancel or a second finger (pinch) all cancel the press. */
+  longPressMs: 500,
   /** The low-altitude terrain guard runs only below this camera altitude (m). */
   groundGuardMaxAltM: 50_000,
   /** Live-pose → store mirror cadence (frames) for the panel readouts (never 60 fps). */

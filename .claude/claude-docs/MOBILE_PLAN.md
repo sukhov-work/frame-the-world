@@ -204,13 +204,21 @@ tier + DPR cap; **exit gate: globe renders + orbit touch-nav on a real iPhone + 
 any UI investment). Verify: `npm test` + `astro check` + real-device browser check + one release
 canary (`/m` in prod, `/_wix/pages.json` contains it).
 
-**M1 — Planning loop.** Tab bar + sheets; SEARCH (earth/sky via libs); compact time dock with
+**M1 — Planning loop.** ☑ *BUILT 2026-08-13, phone-viewport browser-VERIFIED (the full exit-gate
+walk: Dnipro fly → GC tracked+windows → pin → LOOK FROM HERE → FPV skyline verdicts → DUSK chip →
+rail scrub → NOW; shots `verify-shots/mobile-m1-01..06`); real-device pass pairs backlog T1; the
+SKY long-tail (SIMBAD//api/sbdb) deliberately deferred to a later M-phase. DECISIONS 2026-08-13
+"night".* Tab bar + sheets; SEARCH (earth/sky via libs); compact time dock with
 **twilight bands (P1 — lib + desktop rail land first in Phase 8a; M1 consumes
 `lib/ephemeris/twilight.ts`)**; PLAN + TARGET sheets (store readers); long-press / crosshair pin drop +
 `🧭 my location`; `LOOK FROM HERE`. Exit: pick place → track target → see windows + skyline verdict
 → scrub time — phone-only, browser-verified.
 
-**M2 — FPV touch.** Joystick walk (store seam) + pinch FOV + altitude nudges + compact HUD + MiniMap
+**M2 — FPV touch.** ☑ *BUILT 2026-08-14, phone-viewport browser-VERIFIED (the exit gate below:
+joystick walk 65.92 m/s at full rail → 45° look-drag + reverse → **0.0000 m drift**; two-thumb
+walk-while-looking; pinch 55°→27.7°, clamps at 80°; ⤒/⤓ 1.7→16.9 m, floors 1.7; wake lock
+acquired/released; shots `verify-shots/mobile-m2-01..02`); REAL-DEVICE pass pairs backlog T1.
+DECISIONS 2026-08-14.* Joystick walk (store seam) + pinch FOV + altitude nudges + compact HUD + MiniMap
 resize + wake lock. Exit: FPV navigable phone-only; the 2026-08-11 pivot invariant re-verified on
 touch (walk → look-drag → zero position drift).
 
@@ -297,3 +305,16 @@ pixel-pitch DB deferred (manual sensor input v1).
   mobile**; M3–M6 re-scoped to the mobile SURFACES of 8a–8e (M0–M2 unchanged); desktop freeze
   amended additively (shipped chrome/behavior frozen, new planning surfaces allowed). SUPERSEDES
   the 2026-08-11 mobile-only scheduling of these features.
+- 2026-08-13 · M1 SHIPPED (phone-viewport browser-verified). §4.3's long-press landed gated on
+  `pointerType === "touch"` — STRICTER than the sketch's "inert under clickDragPx" argument: a
+  mouse held 500 ms would otherwise drop pins on the frozen desktop (verified inert). The §2
+  drift guard is now a test (`test/components/mobileFence.test.ts`), not a comment. M1 cut:
+  SKY search long-tail (SIMBAD//api/sbdb) + MAP tab ride later M-phases.
+- 2026-08-14 · M2 SHIPPED (phone-viewport browser-verified). §4.1's stick landed as a store seam
+  (`fpvWalkInput`) that `clearAllTargets` deliberately SPARES — the FPV look-drag's own canvas
+  pointerdown fires clearAllTargets, and walking-while-looking is the point (pinned by test);
+  analog response is quadratic (`walkSpeedMps · walkStickMaxMult · d²` — the rim is the desktop
+  Shift, the centre the desktop Option). §4.2's pinch freezes the look while it lives and hands
+  the drag back seamlessly. MiniMap = the DESKTOP island mounted by m.astro (fence rule 2 exempts
+  the page) + a `body.m` specificity hook in MobileLayout (island-chunk CSS order is not
+  guaranteed). M0–M2 mobile infrastructure COMPLETE — next mobile work is M3 (8a/8b surfaces).

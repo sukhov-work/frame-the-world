@@ -7,10 +7,15 @@
 import MobileLayout from "../layouts/MobileLayout.astro";
 import GlobeCanvas from "../components/globe/GlobeCanvas";
 import MobileShell from "../components/mobile/MobileShell";
+import MiniMap from "../components/panels/MiniMap";
 ---
 
 <MobileLayout title="Frame the World — Mobile">
   <!-- client:only="react" — the WebGL globe is NEVER server-rendered (constraint C4) -->
   <GlobeCanvas client:only="react" />
   <MobileShell client:only="react" />
+  <!-- M2: the FPV mini-map — the DESKTOP island reused as-is (renders only while FPV feeds
+       store/minimap; fence rule 1 fences components/mobile/**, and this page is rule 2's
+       named exemption). styles/mobile/fpv.css repositions + shrinks it for the phone. -->
+  <MiniMap client:only="react" />
 </MobileLayout>

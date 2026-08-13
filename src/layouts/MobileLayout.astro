@@ -35,7 +35,10 @@ const description =
     <title>{title}</title>
     <meta name="description" content={description} />
   </head>
-  <body>
+  <!-- body.m — the phone-shell scope hook: mobile CSS that must OUTRANK a reused desktop
+       panel's own stylesheet (e.g. the M2 mini-map reposition) keys on it, so the win is
+       specificity, not bundle order (island chunk CSS order is not guaranteed). -->
+  <body class="m">
     <slot />
   </body>
 </html>

@@ -145,6 +145,36 @@ export function sampleTargetArc(
 }
 
 /** Fraction of the local day elapsed at `utcMs`, clamped 0..1 — the shader's uNow01 uniform. */
+/** One altitude sample of the scrubber-rail elevation curves (QoL-1, PLANNING_QOL_PLAN §3.1.C). */
+export interface AltSample {
+  utcMs: number;
+  altDeg: number;
+}
+
+/**
+ * Altitude-vs-time series over an ARBITRARY window (the rail's sliding span — unlike the day
+ * arcs this is not tied to the local solar day). Same single ephemeris face (`horizontal`);
+ * pure and cheap (~145 calls per 24 h at the default step) — consumers memoise per quantized
+ * (window, lat, lon), never per frame (the twilight.ts discipline).
+ */
+export function elevationSeries(
+  body: "sun" | "moon",
+  startMs: number,
+  endMs: number,
+  latDeg: number,
+  lonDeg: number,
+  stepMin = 10,
+): AltSample[] {
+  if (!(endMs > startMs) || !(stepMin > 0)) return [];
+  const stepMs = stepMin * 60_000;
+  const out: AltSample[] = [];
+  for (let t = startMs; t < endMs; t += stepMs) {
+    out.push({ utcMs: t, altDeg: horizontal(body, t, latDeg, lonDeg).altDeg });
+  }
+  out.push({ utcMs: endMs, altDeg: horizontal(body, endMs, latDeg, lonDeg).altDeg });
+  return out;
+}
+
 export function dayFraction(arc: Pick<DayArc, "startMs" | "endMs">, utcMs: number): number {
   return Math.min(1, Math.max(0, (utcMs - arc.startMs) / (arc.endMs - arc.startMs)));
 }

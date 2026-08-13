@@ -698,7 +698,23 @@ export function attachStylizedTiles(opts: {
     downX = e.clientX;
     downY = e.clientY;
   };
+  // Long-press pin drop (MOBILE_PLAN §4.3, M1): state lives up here because onPointerUp must
+  // know a fired press already consumed the gesture — the pin lands BEFORE the finger lifts,
+  // and the release would otherwise read as an empty-map click and clear it straight back.
+  let longPressTimer: number | null = null;
+  let longPressFired = false;
+  const cancelLongPress = () => {
+    if (longPressTimer !== null) {
+      window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  };
   const onPointerUp = (e: PointerEvent) => {
+    cancelLongPress();
+    if (longPressFired) {
+      longPressFired = false; // the long-press consumed this gesture — not a click
+      return;
+    }
     if (fpvActive) return; // FPV owns the pointer (look-around) — no placing, no pin-picking
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a click
     const rect = dom.getBoundingClientRect();
@@ -774,6 +790,17 @@ export function attachStylizedTiles(opts: {
   let fpvLastY = 0;
   let fpvDownX = 0; // pointer-down position — separates a marker CLICK from a look-drag
   let fpvDownY = 0;
+  // Pinch-FOV (MOBILE_PLAN §4.2, M2): a SECOND touch beside the look finger drives the camera
+  // FOV — spread = zoom in, same clamps as the wheel. While the pinch lives the look FREEZES
+  // (both fingers move during a pinch; feeding them to yaw/pitch would swing the view), and the
+  // lift click-check is suppressed (a pinch is never a marker click). Desktop-inert: a mouse
+  // is always isPrimary, so the pinch branch needs a real second pointer to exist at all.
+  let fpvPinchId: number | null = null;
+  let fpvPinchX = 0; // the second finger's live position
+  let fpvPinchY = 0;
+  let fpvPinchStartDist = 0; // finger gap + FOV captured at pinch start — ratio drives the zoom
+  let fpvPinchStartFov = 0;
+  let fpvPinchedDuringDrag = false; // suppresses the sky-marker click on the look finger's lift
   let fovTargetDeg: number = camera.fov; // eased every frame (FPV zoom + entry/exit restore)
   // Temp-pin FPV basis, captured at ENTRY (fwd = the camera's azimuth at that moment — deriving
   // it per frame from the camera would feed back on itself). Position refreshes per frame as
@@ -793,24 +820,72 @@ export function attachStylizedTiles(opts: {
   // the scalar form re-aimed the ACCUMULATED displacement on every head-turn, orbiting the eye
   // around the anchor at walk radius (the pivot-ellipse bug, owner 2026-08-11). Reset on FPV entry.
   const fpvWalkOffset = new THREE.Vector3();
-  const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false };
+  const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false, space: false };
+  // SPACE hold time (ms, accumulated from frame dt — clock-epoch-free): the ascend rate ramps
+  // quadratically over FPV.spaceRampS (QoL-1, owner 2026-08-14). Lives beside fpvKeysDown, NOT
+  // as a store rate, so a simultaneous canvas pointerdown's clearAllTargets can't null a held
+  // key mid-flight (the M2 fpvWalkInput lesson).
+  let fpvSpaceHeldMs = 0;
   // Sticky ground height under the photo-FPV anchor (m above ellipsoid) — feeds the eye-height
   // readout + the building solidity curve; heightAt-null/garbage tolerant (S2 discipline).
   let fpvAnchorGroundM = 0;
   // Live eye height above the local ground while ANY FPV is active (m).
   let fpvEyeAboveGroundM = 0;
   const onFpvPointerDown = (e: PointerEvent) => {
-    if (!fpvActive || !e.isPrimary) return;
+    if (!fpvActive) return;
+    if (!e.isPrimary) {
+      // Second finger while the look finger is down = a pinch begins (M2). Anything past two
+      // pointers is ignored; a second finger with NO look finger down is ignored too.
+      if (fpvDragId !== null && fpvPinchId === null) {
+        fpvPinchId = e.pointerId;
+        fpvPinchX = e.clientX;
+        fpvPinchY = e.clientY;
+        fpvPinchStartDist = Math.hypot(e.clientX - fpvLastX, e.clientY - fpvLastY);
+        fpvPinchStartFov = fovTargetDeg;
+        fpvPinchedDuringDrag = true;
+      }
+      return;
+    }
     fpvDragId = e.pointerId;
     fpvLastX = e.clientX;
     fpvLastY = e.clientY;
     fpvDownX = e.clientX;
     fpvDownY = e.clientY;
+    fpvPinchedDuringDrag = false;
     // A direct look-drag always beats a pending sky-look glide (never fight the user).
     if (useCameraStore.getState().skyLook) useCameraStore.getState()._clearSkyLook();
   };
   const onFpvPointerMove = (e: PointerEvent) => {
-    if (!fpvActive || fpvDragId !== e.pointerId) return;
+    if (!fpvActive) return;
+    if (fpvPinchId !== null && (e.pointerId === fpvPinchId || e.pointerId === fpvDragId)) {
+      // Pinch owns BOTH fingers: track them, re-derive the gap, drive the FOV by the ratio —
+      // spread = zoom in (FOV narrows), same eased fovTargetDeg + clamps as the wheel path.
+      // fpvLastX/Y stay fresh so the look doesn't jump when the pinch finger lifts.
+      if (e.pointerId === fpvDragId) {
+        fpvLastX = e.clientX;
+        fpvLastY = e.clientY;
+      } else {
+        fpvPinchX = e.clientX;
+        fpvPinchY = e.clientY;
+      }
+      const dist = Math.hypot(fpvLastX - fpvPinchX, fpvLastY - fpvPinchY);
+      if (fpvPinchStartDist < 8) {
+        // Fingers began (or collapsed) nearly on top of each other — re-seed instead of
+        // dividing by a hair's width.
+        fpvPinchStartDist = dist;
+        fpvPinchStartFov = fovTargetDeg;
+        return;
+      }
+      if (dist > 8) {
+        fovTargetDeg = THREE.MathUtils.clamp(
+          (fpvPinchStartFov * fpvPinchStartDist) / dist,
+          FPV.minFovDeg,
+          FPV.maxFovDeg,
+        );
+      }
+      return;
+    }
+    if (fpvDragId !== e.pointerId) return;
     // Grab-the-world: dragging right rotates the view left; sensitivity scales with the FOV
     // zoom so a zoomed-in look stays controllable.
     const k = ((FPV.lookDegPerPx * Math.PI) / 180) * (camera.fov / POSE.fovDeg);
@@ -820,12 +895,19 @@ export function attachStylizedTiles(opts: {
     fpvLastY = e.clientY;
   };
   const onFpvPointerEnd = (e: PointerEvent) => {
+    if (e.pointerId === fpvPinchId) {
+      fpvPinchId = null; // the look finger (still down) resumes the drag seamlessly
+      return;
+    }
     if (fpvDragId !== e.pointerId) return;
     fpvDragId = null;
+    fpvPinchId = null; // a pinch cannot outlive its anchor finger
     // FPV has no pin/ground picking, but a CLICK (not a look-drag) can still hit the tracked
     // sky marker: glide the look onto it + front the panel (phase C, owner feedback #2).
+    // Never after a pinch — those two fingers were a zoom, not a tap.
     if (
       e.type === "pointerup" &&
+      !fpvPinchedDuringDrag &&
       Math.hypot(e.clientX - fpvDownX, e.clientY - fpvDownY) <= ORCH.clickDragPx
     ) {
       const rect = dom.getBoundingClientRect();
@@ -856,6 +938,22 @@ export function attachStylizedTiles(opts: {
       if (e.key === "ArrowDown") { fpvKeysDown.down = true; e.preventDefault(); return; }
       if (e.key === "ArrowLeft") { fpvKeysDown.left = true; e.preventDefault(); return; }
       if (e.key === "ArrowRight") { fpvKeysDown.right = true; e.preventDefault(); return; }
+      if (e.code === "Space") {
+        // SPACE = ascend (QoL-1). Never steal Space from an interactive element — the browser
+        // activates a focused button/input with it (the scrubber rail is tabIndex=0 too).
+        const ae = document.activeElement as HTMLElement | null;
+        const tag = ae?.tagName;
+        if (
+          ae &&
+          (tag === "BUTTON" || tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" ||
+            ae.isContentEditable || ae.tabIndex >= 0)
+        )
+          return;
+        if (!fpvKeysDown.space) fpvSpaceHeldMs = 0; // key-repeat must not reset the ramp
+        fpvKeysDown.space = true;
+        e.preventDefault(); // Space must not scroll the page under the view
+        return;
+      }
     }
     if (e.key !== "Escape") return;
     const up = useUploadStore.getState();
@@ -873,23 +971,59 @@ export function attachStylizedTiles(opts: {
     else if (e.key === "ArrowDown") fpvKeysDown.down = false;
     else if (e.key === "ArrowLeft") fpvKeysDown.left = false;
     else if (e.key === "ArrowRight") fpvKeysDown.right = false;
+    else if (e.code === "Space") fpvKeysDown.space = false;
+  };
+  // Focus loss eats keyup events — release every held walk/ascend key or the camera walks
+  // itself over the horizon on an unfocused tab (stuck-key safety, QoL-1).
+  const onWinBlur = () => {
+    fpvKeysDown.up = fpvKeysDown.down = fpvKeysDown.left = fpvKeysDown.right = false;
+    fpvKeysDown.shift = fpvKeysDown.alt = fpvKeysDown.space = false;
   };
   // Double-click on the ground drops the temporary pin (deselecting a viewed pin first — the
   // gesture means "focus here"). Ignored while placing and while editing an own unsaved upload.
-  const onDblClick = (e: MouseEvent) => {
+  const dropTempPinAt = (clientX: number, clientY: number) => {
     if (fpvActive) return;
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a dblclick
     const up = useUploadStore.getState();
     if (up.phase === "placing") return;
     if (up.phase === "placed" && !up.viewingPinId) return; // don't disturb an editing session
     const rect = dom.getBoundingClientRect();
-    const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+    const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
     const hit = pickGround(ndcX, ndcY);
-    if (!hit) return; // clicked past the limb
+    if (!hit) return; // clicked/pressed past the limb
     if (up.phase === "placed" && up.viewingPinId) up.clear(); // deselect the viewed pin first
     const g = ecefToGeodetic(hit);
     useCameraStore.getState().setTempPin({ latDeg: g.latDeg, lonDeg: g.lonDeg });
   };
+  const onDblClick = (e: MouseEvent) => {
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a dblclick
+    dropTempPinAt(e.clientX, e.clientY);
+  };
+  // Long-press = the dblclick twin on glass (MOBILE_PLAN §4.3, M1). Gated on pointerType
+  // "touch" — STRICTER than the plan's wording — so the frozen desktop stays behavior-identical
+  // (a mouse held still 500 ms must not start dropping pins). Guards re-run at fire time via
+  // dropTempPinAt; a second finger (pinch) cancels; onPointerUp above owns lift/suppression.
+  const onLongPressDown = (e: PointerEvent) => {
+    if (e.pointerType !== "touch" || !e.isPrimary) {
+      cancelLongPress(); // a mouse press or a second touch is never a long-press
+      return;
+    }
+    if (fpvActive) return;
+    cancelLongPress();
+    longPressFired = false;
+    const { clientX, clientY } = e;
+    longPressTimer = window.setTimeout(() => {
+      longPressTimer = null;
+      longPressFired = true;
+      dropTempPinAt(clientX, clientY);
+    }, ORCH.longPressMs);
+  };
+  const onLongPressMove = (e: PointerEvent) => {
+    if (longPressTimer === null || !e.isPrimary) return;
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) cancelLongPress();
+  };
+  dom.addEventListener("pointerdown", onLongPressDown);
+  dom.addEventListener("pointermove", onLongPressMove);
+  dom.addEventListener("pointercancel", cancelLongPress);
   dom.addEventListener("pointerdown", onFpvPointerDown);
   dom.addEventListener("pointermove", onFpvPointerMove);
   dom.addEventListener("pointerup", onFpvPointerEnd);
@@ -898,6 +1032,7 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("dblclick", onDblClick);
   window.addEventListener("keydown", onFpvKey);
   window.addEventListener("keyup", onFpvKeyUp);
+  window.addEventListener("blur", onWinBlur);
   const _fpvQ = new THREE.Quaternion();
   const _fpvFwd = new THREE.Vector3();
   const _fpvUp = new THREE.Vector3();
@@ -1194,6 +1329,9 @@ export function attachStylizedTiles(opts: {
             buildings.setGhost(null);
             enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
             camNow.clearAllTargets(); // targets set during FPV must not fire now
+            // A held walk stick must not survive the exit either (clearAllTargets deliberately
+            // spares it — the stick component's unmount is the usual clear; this is the backstop).
+            if (camNow.fpvWalkInput) camNow.setFpvWalkInput(null);
             // Restore the pre-FPV pin visibility (no-op if the chip was re-lit inside FPV).
             if (pinsVisibleBeforeFpv && !camNow.pinsVisible) camNow.setPinsVisible(true);
             fovTargetDeg = POSE.fovDeg;
@@ -1424,25 +1562,72 @@ export function attachStylizedTiles(opts: {
                 _fpvFwd.applyQuaternion(_fpvQ);
                 _fpvUp.applyQuaternion(_fpvQ);
               }
-              // FPV WALK (owner): integrate held arrows into fpvWalkOffset — a fixed WORLD-SPACE
-              // displacement — stepping along THIS frame's HORIZONTAL look direction (fwd projected
-              // off geodetic up) + right. Only key-holds mutate the offset; a head-turn never does
-              // (true-FPV invariant — the eye stays put while looking). The look itself is unchanged:
-              // lookAt uses position + _fpvFwd, so moving the position keeps the heading.
-              if (fpvKeysDown.up || fpvKeysDown.down || fpvKeysDown.left || fpvKeysDown.right) {
+              // FPV WALK (owner): integrate held arrows + the mobile walk stick (M2) into
+              // fpvWalkOffset — a fixed WORLD-SPACE displacement — stepping along THIS frame's
+              // HORIZONTAL look direction (fwd projected off geodetic up) + right. Only INPUT
+              // mutates the offset; a head-turn never does (true-FPV invariant — the eye stays
+              // put while looking). The look itself is unchanged: lookAt uses position + _fpvFwd,
+              // so moving the position keeps the heading.
+              const stick = camNow.fpvWalkInput;
+              const stickRaw = stick ? Math.hypot(stick.fwd, stick.right) : 0;
+              const stickMag = Math.min(1, stickRaw);
+              const stickOn = stick !== null && stickMag > FPV.walkStickDeadband;
+              const keysOn =
+                fpvKeysDown.up || fpvKeysDown.down || fpvKeysDown.left || fpvKeysDown.right;
+              if (keysOn || stickOn) {
+                _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
+                if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
+                _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
+              }
+              if (keysOn) {
                 const mult = fpvKeysDown.shift
                   ? FPV.walkFastMult
                   : fpvKeysDown.alt
                     ? FPV.walkSlowMult
                     : 1;
                 const spd = (FPV.walkSpeedMps * mult * dtMs) / 1000;
-                _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
-                if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
-                _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
                 if (fpvKeysDown.up) fpvWalkOffset.addScaledVector(_fpvWalkFwd, spd);
                 if (fpvKeysDown.down) fpvWalkOffset.addScaledVector(_fpvWalkFwd, -spd);
                 if (fpvKeysDown.right) fpvWalkOffset.addScaledVector(_fpvWalkRight, spd);
                 if (fpvKeysDown.left) fpvWalkOffset.addScaledVector(_fpvWalkRight, -spd);
+              }
+              if (stickOn && stick) {
+                // Analog: the deflection IS the modifier (MOBILE_PLAN §4.1) — speed =
+                // walkSpeedMps · walkStickMaxMult · d², so the rim sprints like Shift and the
+                // first centimetre creeps like Option. Dividing by the raw magnitude keeps the
+                // direction unit-length even if both axes rail simultaneously.
+                const k =
+                  (FPV.walkSpeedMps * FPV.walkStickMaxMult * stickMag * stickMag * dtMs) /
+                  (1000 * Math.max(stickRaw, 1e-6));
+                fpvWalkOffset.addScaledVector(_fpvWalkFwd, stick.fwd * k);
+                fpvWalkOffset.addScaledVector(_fpvWalkRight, stick.right * k);
+              }
+              // SPACE = ascend with hold-acceleration (QoL-1, owner 2026-08-14): gain ramps
+              // QUADRATICALLY over spaceRampS (a tap nudges centimetres, a hold accelerates —
+              // precision-controlled, never faster than the encoder rail), stepping the SAME
+              // strictly-vertical identity the ALTITUDE encoder drives (temp: eye height;
+              // photo: lift off the apex) with the same proportional floor + clamps. Mutating
+              // next frame's eye/lift here (not camera.position) keeps one vertical authority.
+              if (fpvKeysDown.space) {
+                fpvSpaceHeldMs += dtMs;
+                const gain = Math.min(1, fpvSpaceHeldMs / (FPV.spaceRampS * 1000));
+                const rate = FPV.spaceLiftRatePerS * gain * gain;
+                if (fpvKind === "temp") {
+                  fpvEyeM = THREE.MathUtils.clamp(
+                    fpvEyeM + ((rate * dtMs) / 1000) * Math.max(fpvEyeM, FPV.vertEncoderBaseM),
+                    FRUSTUM.eyeHeightM,
+                    FPV.tempEyeMaxM,
+                  );
+                } else {
+                  fpvLiftM = THREE.MathUtils.clamp(
+                    fpvLiftM + ((rate * dtMs) / 1000) * Math.max(fpvLiftM, FPV.vertEncoderBaseM),
+                    0,
+                    FPV.tempEyeMaxM,
+                  );
+                }
+                lastInteract = now;
+              } else if (fpvSpaceHeldMs !== 0) {
+                fpvSpaceHeldMs = 0;
               }
               camera.position.add(fpvWalkOffset);
               camera.up.copy(_fpvUp);
@@ -2627,6 +2812,10 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("pointerup", onPointerUp);
       dom.removeEventListener("pointermove", noteHover);
       dom.removeEventListener("pointerleave", noteLeave);
+      cancelLongPress();
+      dom.removeEventListener("pointerdown", onLongPressDown);
+      dom.removeEventListener("pointermove", onLongPressMove);
+      dom.removeEventListener("pointercancel", cancelLongPress);
       dom.removeEventListener("pointerdown", onFpvPointerDown);
       dom.removeEventListener("pointermove", onFpvPointerMove);
       dom.removeEventListener("pointerup", onFpvPointerEnd);
@@ -2635,6 +2824,7 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("dblclick", onDblClick);
       window.removeEventListener("keydown", onFpvKey);
       window.removeEventListener("keyup", onFpvKeyUp);
+      window.removeEventListener("blur", onWinBlur);
       tempPinMarker.geometry.dispose();
       tempPinMat.dispose();
       scene.remove(tempPinMarker);

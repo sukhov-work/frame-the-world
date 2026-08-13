@@ -46,6 +46,8 @@
   --color-sky-day: #7fb8e8; /* low-altitude day-sky zenith — light blue dome at city zooms */
   --color-sky-horizon: #d8e6f2; /* low-altitude horizon haze — near-white aerial perspective */
   --color-milky-way: #e7e3d8; /* faint warm-white galactic band (subtle, near --color-star) */
+  --color-blue-hour: #7fa0e0; /* blue-hour band on the time rails (QoL-1 scrubber v2) */
+  --color-night-band: #0a1526; /* night band fill on the time rails — darkens, unlike the moonlight ramp */
   --color-comet-coma: #9ff3c8; /* comet coma — the real C2/CN green of an active nucleus */
   --color-comet-tail: #8fd8ff; /* comet ion tail — cold plasma blue, anti-sunward */
 

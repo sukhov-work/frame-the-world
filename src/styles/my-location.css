@@ -1,0 +1,37 @@
+/* MyLocation — lives inside .topnav nav; mirrors the static nav link styling
+   (island DOM can't receive the page's scoped styles — the member-badge precedent). */
+
+.ml {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ml-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  transition: color 0.2s ease;
+}
+
+.ml-toggle:hover {
+  color: var(--color-accent);
+}
+
+.ml-toggle:disabled {
+  color: var(--color-text-secondary);
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.ml-note {
+  color: var(--color-warn);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}

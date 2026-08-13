@@ -114,6 +114,87 @@ function refineCrossing(
   return Math.round((lo + hi) / 2);
 }
 
+// ── Full light phases (QoL-1 scrubber v2, PLANNING_QOL_PLAN §3.1.A) ───────────────────────────
+//
+// The photographic partition: golden hour = sun −4°..+6°, blue hour = −6°..−4° (the standard
+// PhotoPills-era convention). Together with the USNO twilight floors this tiles every altitude:
+// day > +6° > golden > −4° > blue > −6° > nautical > −12° > astro > −18° > night.
+// DELIBERATELY NOT derived from the render GOLDEN bell (goldenElevationsDeg spans −6.5°..+15.4°
+// as measured 2026-08-14) — that curve is a widened scene-grading device, not the photographer's
+// golden hour; painting it as a band would label most of a summer day "golden".
+
+/** Sun-altitude edges of the photographic light phases (deg, geometric/airless). */
+export const LIGHT_DEG = {
+  goldenHi: 6,
+  goldenLo: -4,
+  blue: -6,
+  nautical: -12,
+  astro: -18,
+} as const;
+
+/** Light phases, brightest → darkest — the scrubber v2 band vocabulary. */
+export type LightPhase = "day" | "golden" | "blue" | "nautical" | "astro" | "night";
+
+const LIGHT_ORDER: readonly LightPhase[] = ["day", "golden", "blue", "nautical", "astro", "night"];
+/** LIGHT_BOUNDS[i] separates LIGHT_ORDER[i] (above) from LIGHT_ORDER[i+1] (below). */
+const LIGHT_BOUNDS: readonly number[] = [
+  LIGHT_DEG.goldenHi,
+  LIGHT_DEG.goldenLo,
+  LIGHT_DEG.blue,
+  LIGHT_DEG.nautical,
+  LIGHT_DEG.astro,
+];
+
+function lightIndexOfAlt(altDeg: number): number {
+  for (let i = 0; i < LIGHT_BOUNDS.length; i++) if (altDeg >= LIGHT_BOUNDS[i]) return i;
+  return LIGHT_ORDER.length - 1;
+}
+
+export interface LightSegment {
+  startMs: number;
+  endMs: number;
+  phase: LightPhase;
+}
+
+/**
+ * Partition [startMs, endMs] into contiguous LIGHT phases (the twilightSegments contract: exact
+ * tiling, ≤1 s boundaries, polar cases degenerate naturally). One coarse step can cross MORE
+ * than one boundary here (blue is only 2° tall) — every crossed boundary is refined in order so
+ * the sliver segments are never skipped.
+ */
+export function lightSegments(
+  startMs: number,
+  endMs: number,
+  latDeg: number,
+  lonDeg: number,
+): LightSegment[] {
+  if (!(endMs > startMs)) return [];
+  const out: LightSegment[] = [];
+  let segStart = startMs;
+  let prevIdx = lightIndexOfAlt(sunAltDeg(startMs, latDeg, lonDeg));
+  let prevT = startMs;
+  for (let t = startMs + COARSE_STEP_MS; ; t = Math.min(t + COARSE_STEP_MS, endMs)) {
+    const clamped = Math.min(t, endMs);
+    const idx = lightIndexOfAlt(sunAltDeg(clamped, latDeg, lonDeg));
+    if (idx !== prevIdx) {
+      const dir = idx > prevIdx ? 1 : -1;
+      let lo = prevT;
+      for (let j = prevIdx; j !== idx; j += dir) {
+        const boundAlt = LIGHT_BOUNDS[dir > 0 ? j : j - 1];
+        const crossing = refineCrossing(lo, clamped, boundAlt, latDeg, lonDeg);
+        out.push({ startMs: segStart, endMs: crossing, phase: LIGHT_ORDER[j] });
+        segStart = crossing;
+        lo = crossing;
+      }
+      prevIdx = idx;
+    }
+    prevT = clamped;
+    if (clamped >= endMs) break;
+  }
+  out.push({ startMs: segStart, endMs, phase: LIGHT_ORDER[prevIdx] });
+  return out;
+}
+
 /** Astronomical-darkness windows (sun < −18°) inside [startMs, endMs] — the P3 darkness gate. */
 export function darkWindows(
   startMs: number,

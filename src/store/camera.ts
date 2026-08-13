@@ -132,6 +132,15 @@ export interface CameraState {
   /** FOCAL ZOOM encoder (Phase 5.5 S6, FPV only): log-space rate on the camera FOV — the panel
    *  twin of the FPV wheel zoom. Positive = zoom IN (FOV narrows / focal length grows). */
   fovRatePerS: number | null;
+  /** FPV walk stick (MOBILE_PLAN §4.1, M2): the mobile joystick's analog deflection, −1..1 per
+   *  axis (fwd + = walk where you look, right + = strafe right); null = stick released. The
+   *  orchestrator integrates it into the world-space walk offset each frame alongside the
+   *  arrow keys (the 2026-08-11 pivot invariant: only INPUT mutates the offset — a head-turn
+   *  never does). Deliberately NOT cleared by clearAllTargets: the canvas pointerdown that
+   *  fires it is the FPV look-drag itself, and walking while looking is the joystick's whole
+   *  point — the stick component owns the null-on-release lifecycle instead. */
+  fpvWalkInput: { fwd: number; right: number } | null;
+  setFpvWalkInput: (v: { fwd: number; right: number } | null) => void;
   /** FPV HUD mirror (Phase 5.5 S6) — the orchestrator writes it at low cadence while ANY FPV
    *  is active, null otherwise (the HUD unmounts on null). Bearings are the CAMERA VIEW's
    *  topocentric az/alt at the FPV anchor; sun/moon carry screen-space info for the off-frame
@@ -273,6 +282,17 @@ export const useCameraStore = create<CameraState>((set) => ({
   setHeadingRate: (degPerS) => set({ headingRateDegPerS: degPerS }),
   setZoomRate: (perS) => set({ zoomRatePerS: perS }),
   setFovRate: (perS) => set({ fovRatePerS: perS }),
+  fpvWalkInput: null,
+  setFpvWalkInput: (v) =>
+    set({
+      fpvWalkInput:
+        v === null
+          ? null
+          : {
+              fwd: Math.max(-1, Math.min(1, v.fwd)),
+              right: Math.max(-1, Math.min(1, v.right)),
+            },
+    }),
   fpvBuildingSolidity: stored.fpvBuildingSolidity ?? 1,
   setFpvBuildingSolidity: (v) => {
     const clamped = Math.max(0, Math.min(1, v));
@@ -308,4 +328,10 @@ export function sliderToAltM(t: number, minAltM: number, maxAltM: number): numbe
 export function altMToSlider(altM: number, minAltM: number, maxAltM: number): number {
   const a = Math.min(maxAltM, Math.max(minAltM, altM));
   return (Math.log(a) - Math.log(minAltM)) / (Math.log(maxAltM) - Math.log(minAltM));
+}
+
+// Dev-only introspection (the window.__* DEV-seam registry, global.d.ts) — same dual-instance
+// caveat as store/time.ts: always probe THIS handle, never a page-context /src import.
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  window.__cameraStore = useCameraStore;
 }

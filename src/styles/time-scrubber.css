@@ -108,71 +108,119 @@
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 
+/* v2 rail (QoL-1, owner 2026-08-14): a 40px strip — light bands + sun/moon elevation curves in
+   the top 24px, real hour-tick labels in the bottom 12px, the centre cursor knob over it all. */
 .ts-rail {
   position: relative;
-  height: 22px;
+  height: 40px;
   cursor: ew-resize;
   touch-action: none;
   outline: none;
 }
-.ts-rail:focus-visible .ts-track {
-  background: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+.ts-rail:focus-visible {
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
-/* Twilight bands (Phase 8a P1) — additive decoration; first rail child = paints UNDER
-   track/ticks/knob. Moonlight-blue steps deepen toward astronomical night; day stays bare.
-   Absolute + pointer-events:none: adds no layout, cannot move the rail's 22px hit box. */
-.ts-twilight {
+/* Light bands (v2 — day/golden/blue/nautical/astro/night, lib lightSegments). Distinct HUES per
+   phase (the P1 single-blue ramp read "night-only" to the owner); night genuinely DARKENS.
+   Absolute + pointer-events:none: adds no layout, cannot move the rail's hit box. */
+.ts-light {
+  position: absolute;
+  inset: 3px 0 13px 0;
+  pointer-events: none;
+}
+.ts-light__seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+}
+.ts-light__seg--day {
+  background: color-mix(in srgb, var(--color-sun-glow) 8%, transparent);
+}
+.ts-light__seg--golden {
+  background: color-mix(in srgb, var(--color-golden-hour) 36%, transparent);
+}
+.ts-light__seg--blue {
+  background: color-mix(in srgb, var(--color-blue-hour) 34%, transparent);
+}
+.ts-light__seg--nautical {
+  background: color-mix(in srgb, var(--color-moonlight) 16%, transparent);
+}
+.ts-light__seg--astro {
+  background: color-mix(in srgb, var(--color-moonlight) 8%, transparent);
+}
+.ts-light__seg--night {
+  background: color-mix(in srgb, var(--color-night-band) 65%, transparent);
+}
+
+/* Sun/moon elevation curves over the band strip (viewBox 100×40 stretched; horizon = midline).
+   The PhotoPills Time-Bar composition — bands and body altitude on ONE time axis — beaten with
+   real hour labels below. */
+.ts-curves {
+  position: absolute;
+  inset: 3px 0 13px 0;
+  width: 100%;
+  height: 24px;
+  pointer-events: none;
+  overflow: visible;
+}
+.ts-curves path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.ts-curves__horizon {
+  stroke: color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.ts-curves__sun {
+  stroke: color-mix(in srgb, var(--color-sun-glow) 85%, transparent);
+  stroke-width: 1.4;
+}
+.ts-curves__moon {
+  stroke: color-mix(in srgb, var(--color-moonlight) 70%, transparent);
+  stroke-width: 1;
+}
+
+/* Hour ticks — REAL local hours sliding with the conveyor; labels every SCRUB.hourLabelEvery.
+   Midnight = a full-strip day boundary. All ticks grow upward off the label row. */
+.ts-ticks {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
-.ts-twilight__seg {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  border-radius: 2px;
-}
-.ts-twilight__seg--civil {
-  background: color-mix(in srgb, var(--color-moonlight) 12%, transparent);
-}
-.ts-twilight__seg--nautical {
-  background: color-mix(in srgb, var(--color-moonlight) 24%, transparent);
-}
-.ts-twilight__seg--astro {
-  background: color-mix(in srgb, var(--color-moonlight) 38%, transparent);
-}
-.ts-twilight__seg--night {
-  background: color-mix(in srgb, var(--color-moonlight) 55%, transparent);
-}
-
-.ts-track {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 2px;
-  transform: translateY(-50%);
-  background: var(--color-border);
-  border-radius: 1px;
-}
-
-.ts-ticks {
-  position: absolute;
-  inset: 0 0 0 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  pointer-events: none;
-}
 .ts-tick {
+  position: absolute;
+  bottom: 12px;
   width: 1px;
-  height: 6px;
+  height: 5px;
+  transform: translateX(-50%);
   background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
 }
 .ts-tick--major {
-  height: 11px;
+  height: 8px;
   background: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
+}
+.ts-tick--midnight {
+  height: 24px;
+  background: color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
+}
+.ts-tick__label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 1px;
+  font-size: 7.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ts-tick--midnight .ts-tick__label {
+  color: var(--color-text-secondary);
 }
 
 .ts-knob {
