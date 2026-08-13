@@ -204,19 +204,38 @@ per-sub-phase gate.
   `moonlight.ts`, one convention in `lib/ephemeris/mwSeason.ts`) in PlanPanel. Gates vitest
   733/733 · astro 0/0/6 · wix build 26 routes; surfaces browser-verified (verify-shots/phase8a-*);
   T25 closed in the same pass. DECISIONS 2026-08-13 Phase-8a line.
-- [ ] **8b — Search & exposure** *(mobile twin: M3)* — P4 **Find** (sun/moon/GC at azimuth(±tol)/
-  elevation over a date range, **filtered by the real skyline** — the category-first bet) · P5 Spot
-  Stars NPF + 500 rule (seeded from FPV focal + view-centre declination; D850 vector ≈16.3 s) ·
-  P6 moon phase calendar + apogee/perigee.
-- [ ] **8c — Events** *(mobile twin: M4)* — P7 meteor showers (bake IAU MDC, avoid GPL showers.json;
-  radiant = tracked target; ZHR×sin(h), moon-scored peaks) · P8 conjunctions/oppositions finder ·
-  P9 lunar eclipses (shadow-cone from the existing sun/moon; local visibility = the horizon test).
-- [ ] **8d — Session tools** *(mobile twin: M5)* — P10 sensor-frame/mosaic overlay on DSO targets ·
-  star-trail simulator · long-exposure/ND + timelapse calculators · What's-Up-Tonight ranking.
-- [ ] **8e — Ambience & flagship** *(mobile twin: M6)* — light-pollution drape + Bortle at the pin ·
-  ISS/satellite passes (SGP4 + cached `/api/tle` proxy) · web-push event alerts (headless has NO
-  cron — external scheduler or on-open recompute, decide at build) · **solar-eclipse umbra path on
-  the globe** (the flagship visual).
+> **Re-ruled 2026-08-14 (owner, supersedes the 8b–8e ordering below-history):** after the
+> PhotoPills user-guide DEEP review (feature-level; adoption record + specs in
+> **`PLANNING_QOL_PLAN.md`** — the spec source for every rung below), the ladder is re-prioritized
+> **sun/moon/MW-first**; astro/DSO work only after mobile is fully solved AND the QoL pass is done.
+
+- [x] **8-QoL-1 — Scrubber v2 + instant wins ◐ SHIPPED 2026-08-14 (desktop; tail = the
+  tracked-target trace §3.1.D + the dock's mobile v2)** *(mobile twin: M3a)* — full light bands
+  (day/golden/blue/nautical/astro/night, ONE golden source with chips+grade) · **infinite
+  conveyor drag** (12 h centre-cursor window, real browser-local hour labels) · sun/moon
+  elevation curves ON the rail · event-step tap zones · tracked-target visibility trace in
+  current-frame context (partially lands T8) · **my-location→FPV button on BOTH shells** ·
+  **Space = FPV hold-accelerated ascend**. Spec: PLANNING_QOL_PLAN §3.1/§3.3/§3.4.
+- [ ] **8-QoL-2 — This-frame + daily surface** *(mobile twin: M3b)* — FPV **shoot-this-frame
+  suggestions** (`frameFinder`: sun/moon/GC frame crossings, skyline-aware, light-tagged; the
+  frame IS the query) · single-target "when nearest az/el" (P4 seed) · TODAY daily panel
+  (cross-body midnight→midnight chronology, light glyphs, sun-el-at-moonrise) · next-phase/
+  new-moon jump chips · ICS calendar export. Spec: PLANNING_QOL_PLAN §3.2 + §1.1 R5/R7/R15.
+- [ ] **8-QoL-3 — Find + moon/exposure toolkit** *(mobile twin: M3c)* — P4 **Find** FULL
+  (az(±3°)/el(±0.5°) over a date range, **skyline-filtered results** — the category-first bet;
+  sortable, light+phase-pictured rows) · P6 moon phase calendar + apogee/perigee/supermoon ·
+  P5 Spot Stars NPF (declination FREE from the frustum; 500-rule as ghost) · sun/moon
+  size→distance tool. Spec: PLANNING_QOL_PLAN §1.1 R8/R9/R10/R14.
+- [ ] **8-events** *(mobile twin: M4; AFTER the QoL pass + its mobile twins)* — P7 meteor showers
+  (bake IAU MDC, avoid GPL showers.json; radiant = tracked target; ZHR×sin(h), moon-scored peaks;
+  + rail intensity trace) · P8 conjunctions/oppositions finder · P9 lunar eclipses (shadow-cone
+  from the existing sun/moon; local visibility = the horizon test).
+- [ ] **8-tools/ambience** *(mobile twins: M5/M6)* — P10 sensor-frame/mosaic overlay on DSO
+  targets (explicitly slid behind the QoL pass) · star-trail simulator (FPV-composed
+  per-direction preview) · long-exposure/ND + timelapse calculators · What's-Up-Tonight ranking ·
+  light-pollution drape + Bortle at the pin · ISS/satellite passes (SGP4 + cached `/api/tle`
+  proxy) · web-push event alerts (headless has NO cron — external scheduler or on-open recompute,
+  decide at build) · **solar-eclipse umbra path on the globe** (the flagship visual).
 
 **DoD per sub-phase:** lib math unit-tested against literature vectors · desktop surface
 browser-verified · gates green (`npm test` + `astro check` + `wix build`) · shipped features and

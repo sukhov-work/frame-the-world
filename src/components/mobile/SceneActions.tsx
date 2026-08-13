@@ -1,14 +1,15 @@
 /**
  * SceneActions (M1) — the /m FPV-entry affordances (MOBILE_PLAN §3 SCENE): 🧭 MY LOCATION
- * (geolocation → temp pin + fly; CLIENT-SIDE ONLY, never published — constraint C6), and the
- * temp-pin flow — ◎ LOOK FROM HERE (setTempFpv, the CameraTiltPanel popup's store calls with
- * thumb-sized chips) / ✕ CLEAR PIN / ✕ EXIT VIEW (phones have no Escape key). The desktop
- * pin-side popup needs a hover-scale pointer; a fixed chip column is the touch idiom.
+ * (geolocation → STRAIGHT INTO temp-pin FPV via requestFpvJump — QoL-1 upgrade, owner
+ * 2026-08-14, PLANNING_QOL_PLAN §3.3; was pin+fly. CLIENT-SIDE ONLY, never published —
+ * constraint C6), and the temp-pin flow — ◎ LOOK FROM HERE (setTempFpv, the CameraTiltPanel
+ * popup's store calls with thumb-sized chips) / ✕ CLEAR PIN / ✕ EXIT VIEW (phones have no
+ * Escape key). The desktop twin is the MyLocation nav island (same pose, same discipline).
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore } from "../../store/camera";
-import { SEARCH } from "../globe/tuning";
+import { FPV, FRUSTUM } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
 
 export default function SceneActions() {
@@ -41,12 +42,17 @@ export default function SceneActions() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setBusy(false);
-        const latDeg = pos.coords.latitude;
-        const lonDeg = pos.coords.longitude;
-        // Client-side only (C6): the temp pin never leaves the browser and is never published.
-        const cam = useCameraStore.getState();
-        cam.setTempPin({ latDeg, lonDeg });
-        cam.requestFly({ latDeg, lonDeg, altM: SEARCH.altDefaultM });
+        // Client-side only (C6): the fix never leaves the browser and is never published.
+        // Straight into temp-pin FPV at a standing eye, facing north (the share-link path
+        // drops the pin and flies there) — owner 2026-08-14.
+        useCameraStore.getState().requestFpvJump({
+          latDeg: pos.coords.latitude,
+          lonDeg: pos.coords.longitude,
+          eyeM: FRUSTUM.eyeHeightM,
+          headingDeg: 0,
+          pitchDeg: 0,
+          fovDeg: FPV.tempFovDeg,
+        });
       },
       () => {
         setBusy(false);

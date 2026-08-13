@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   azAltToEnu,
   dayFraction,
+  elevationSeries,
   localDayWindow,
   sampleDayArc,
   sampleTargetArc,
   solarOffsetHours,
 } from "../../../src/lib/ephemeris/dayArc";
+import { horizontal } from "../../../src/lib/ephemeris/bodies";
 import {
   cometTarget,
   fixedTarget,
@@ -173,5 +175,38 @@ describe("azAltToEnu", () => {
     expect(eS).toBeCloseTo(0, 9);
     expect(nS).toBeCloseTo(-Math.SQRT1_2, 9);
     expect(uS).toBeCloseTo(Math.SQRT1_2, 9);
+  });
+});
+
+describe("elevationSeries (QoL-1 scrubber rail curves)", () => {
+  const start = SOLSTICE_NOON - 12 * 3_600_000;
+  const end = SOLSTICE_NOON + 12 * 3_600_000;
+
+  it("samples the window inclusively at the requested step", () => {
+    const s = elevationSeries("sun", start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 10);
+    expect(s.length).toBe((24 * 60) / 10 + 1);
+    expect(s[0].utcMs).toBe(start);
+    expect(s[s.length - 1].utcMs).toBe(end);
+    for (let i = 1; i < s.length; i++) expect(s[i].utcMs).toBeGreaterThan(s[i - 1].utcMs);
+  });
+
+  it("puts the solstice sun high at local noon and deep at local midnight", () => {
+    const s = elevationSeries("sun", start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 10);
+    const at = (ms: number) => s.reduce((a, b) => (Math.abs(b.utcMs - ms) < Math.abs(a.utcMs - ms) ? b : a));
+    // maxAlt = 90 − 48.46 + 23.44 ≈ +65°; minAlt = 48.46 + 23.44 − 90 ≈ −18°.
+    expect(at(SOLSTICE_NOON).altDeg).toBeGreaterThan(60);
+    expect(at(start).altDeg).toBeLessThan(-14);
+  });
+
+  it("agrees with the horizontal() face it wraps (one ephemeris, ADR D6)", () => {
+    const s = elevationSeries("moon", start, start + 3_600_000, DNIPRO.latDeg, DNIPRO.lonDeg, 30);
+    expect(s.length).toBe(3);
+    const direct = horizontal("moon", s[1].utcMs, DNIPRO.latDeg, DNIPRO.lonDeg);
+    expect(s[1].altDeg).toBeCloseTo(direct.altDeg, 9);
+  });
+
+  it("returns [] on garbage windows", () => {
+    expect(elevationSeries("sun", end, start, DNIPRO.latDeg, DNIPRO.lonDeg, 10)).toEqual([]);
+    expect(elevationSeries("sun", start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 0)).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fractionToTime,
+  hourTicksBetween,
   localDateStr,
   localTimeStr,
   playbackNowMs,
@@ -160,5 +161,37 @@ describe("playback (PLAY / fast-forward, owner 2026-07-14)", () => {
     expect(s.playRate).toBe(60);
     expect(s.playWallMs).not.toBeNull();
     useTimeStore.getState().goLive(); // leave the store clean for other suites
+  });
+});
+
+describe("hourTicksBetween (QoL-1 conveyor rail labels)", () => {
+  const start = Date.UTC(2026, 6, 10, 12, 17, 0);
+  const WINDOW12 = 12 * 3_600_000;
+
+  it("emits every full local hour inside the window, ascending", () => {
+    const ticks = hourTicksBetween(start, start + WINDOW12);
+    expect(ticks.length).toBeGreaterThanOrEqual(11); // DST transitions can trim one
+    expect(ticks.length).toBeLessThanOrEqual(13);
+    expect(ticks[0].ms).toBeGreaterThanOrEqual(start);
+    expect(ticks[ticks.length - 1].ms).toBeLessThanOrEqual(start + WINDOW12);
+    for (let i = 1; i < ticks.length; i++) expect(ticks[i].ms).toBeGreaterThan(ticks[i - 1].ms);
+  });
+
+  it("labels carry the browser-local wall hour (the date-input convention)", () => {
+    for (const t of hourTicksBetween(start, start + WINDOW12)) {
+      expect(t.hour).toBe(new Date(t.ms).getHours());
+      expect(new Date(t.ms).getMinutes()).toBe(0);
+      expect(t.isMidnight).toBe(t.hour === 0);
+    }
+  });
+
+  it("crosses local midnight with exactly one midnight tick per day boundary", () => {
+    const dayCross = hourTicksBetween(start, start + 24 * 3_600_000);
+    expect(dayCross.filter((t) => t.isMidnight).length).toBe(1);
+  });
+
+  it("returns [] for empty or inverted windows", () => {
+    expect(hourTicksBetween(start, start)).toEqual([]);
+    expect(hourTicksBetween(start, start - 1)).toEqual([]);
   });
 });

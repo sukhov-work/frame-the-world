@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  LIGHT_DEG,
   TWILIGHT_DEG,
   darkWindows,
+  lightSegments,
   sunAltDeg,
   twilightPhaseAt,
   twilightSegments,
+  type LightPhase,
   type TwilightPhase,
 } from "../../../src/lib/ephemeris/twilight";
 
@@ -135,5 +138,69 @@ describe("darkWindows", () => {
     expect(dark[0].endMs).toBeGreaterThan(midnight);
 
     expect(darkWindows(start, start + DAY_MS, 60, 0)).toHaveLength(0);
+  });
+});
+
+describe("lightSegments (QoL-1 scrubber v2)", () => {
+  const winStart = utc("2026-03-20T00:00:00Z"); // Dnipro equinox: max alt ≈ +41°, min ≈ −41°
+  const segs = () => lightSegments(winStart, winStart + DAY_MS, DNIPRO.lat, DNIPRO.lon);
+
+  it("tiles the window exactly with no gaps", () => {
+    const s = segs();
+    expect(s[0].startMs).toBe(winStart);
+    expect(s[s.length - 1].endMs).toBe(winStart + DAY_MS);
+    for (let i = 1; i < s.length; i++) expect(s[i].startMs).toBe(s[i - 1].endMs);
+  });
+
+  it("shows all six phases on an equinox day and orders them brightest→darkest into night", () => {
+    const phases = new Set(segs().map((seg) => seg.phase));
+    for (const p of ["day", "golden", "blue", "nautical", "astro", "night"]) {
+      expect(phases.has(p as LightPhase)).toBe(true);
+    }
+    // Around sunset the sequence must walk every band without skipping the blue sliver.
+    const names = segs().map((seg) => seg.phase);
+    const iDay = names.lastIndexOf("day");
+    expect(names.slice(iDay, iDay + 5)).toEqual(["day", "golden", "blue", "nautical", "astro"]);
+  });
+
+  it("refines the photographic edges to the LIGHT_DEG thresholds", () => {
+    for (const seg of segs()) {
+      if (seg.phase !== "golden") continue;
+      // Each golden segment is bounded by the day edge (+6°) on one side and the blue edge
+      // (−4°) on the other; a boundary altitude must sit on one of them (≤1 s bisection ⇒
+      // well under 0.05°).
+      for (const edge of [seg.startMs, seg.endMs]) {
+        if (edge === winStart || edge === winStart + DAY_MS) continue;
+        const alt = sunAltDeg(edge, DNIPRO.lat, DNIPRO.lon);
+        const nearest = Math.min(
+          Math.abs(alt - LIGHT_DEG.goldenHi),
+          Math.abs(alt - LIGHT_DEG.goldenLo),
+        );
+        expect(nearest).toBeLessThan(0.05);
+      }
+    }
+  });
+
+  it("keeps the blue-hour sliver (2° tall) — never skipped by the coarse scan", () => {
+    const blue = segs().filter((seg) => seg.phase === "blue");
+    expect(blue.length).toBe(2); // dawn + dusk
+    for (const seg of blue) {
+      const minutes = (seg.endMs - seg.startMs) / 60_000;
+      expect(minutes).toBeGreaterThan(5);
+      expect(minutes).toBeLessThan(60);
+    }
+  });
+
+  it("degenerates naturally at the poles", () => {
+    // Longyearbyen June: midnight sun — one giant "day" segment.
+    const north = lightSegments(utc("2026-06-21T00:00:00Z"), utc("2026-06-22T00:00:00Z"), 78.2, 15.6);
+    expect(new Set(north.map((s) => s.phase))).toEqual(new Set(["day"]));
+    // Longyearbyen December: polar night — nothing brighter than nautical ever appears.
+    const south = lightSegments(utc("2026-12-21T00:00:00Z"), utc("2026-12-22T00:00:00Z"), 78.2, 15.6);
+    for (const seg of south) expect(["nautical", "astro", "night"]).toContain(seg.phase);
+  });
+
+  it("returns [] for an inverted window", () => {
+    expect(lightSegments(winStart, winStart - 1, DNIPRO.lat, DNIPRO.lon)).toEqual([]);
   });
 });

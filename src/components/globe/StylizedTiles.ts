@@ -820,7 +820,12 @@ export function attachStylizedTiles(opts: {
   // the scalar form re-aimed the ACCUMULATED displacement on every head-turn, orbiting the eye
   // around the anchor at walk radius (the pivot-ellipse bug, owner 2026-08-11). Reset on FPV entry.
   const fpvWalkOffset = new THREE.Vector3();
-  const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false };
+  const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false, space: false };
+  // SPACE hold time (ms, accumulated from frame dt — clock-epoch-free): the ascend rate ramps
+  // quadratically over FPV.spaceRampS (QoL-1, owner 2026-08-14). Lives beside fpvKeysDown, NOT
+  // as a store rate, so a simultaneous canvas pointerdown's clearAllTargets can't null a held
+  // key mid-flight (the M2 fpvWalkInput lesson).
+  let fpvSpaceHeldMs = 0;
   // Sticky ground height under the photo-FPV anchor (m above ellipsoid) — feeds the eye-height
   // readout + the building solidity curve; heightAt-null/garbage tolerant (S2 discipline).
   let fpvAnchorGroundM = 0;
@@ -933,6 +938,22 @@ export function attachStylizedTiles(opts: {
       if (e.key === "ArrowDown") { fpvKeysDown.down = true; e.preventDefault(); return; }
       if (e.key === "ArrowLeft") { fpvKeysDown.left = true; e.preventDefault(); return; }
       if (e.key === "ArrowRight") { fpvKeysDown.right = true; e.preventDefault(); return; }
+      if (e.code === "Space") {
+        // SPACE = ascend (QoL-1). Never steal Space from an interactive element — the browser
+        // activates a focused button/input with it (the scrubber rail is tabIndex=0 too).
+        const ae = document.activeElement as HTMLElement | null;
+        const tag = ae?.tagName;
+        if (
+          ae &&
+          (tag === "BUTTON" || tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" ||
+            ae.isContentEditable || ae.tabIndex >= 0)
+        )
+          return;
+        if (!fpvKeysDown.space) fpvSpaceHeldMs = 0; // key-repeat must not reset the ramp
+        fpvKeysDown.space = true;
+        e.preventDefault(); // Space must not scroll the page under the view
+        return;
+      }
     }
     if (e.key !== "Escape") return;
     const up = useUploadStore.getState();
@@ -950,6 +971,13 @@ export function attachStylizedTiles(opts: {
     else if (e.key === "ArrowDown") fpvKeysDown.down = false;
     else if (e.key === "ArrowLeft") fpvKeysDown.left = false;
     else if (e.key === "ArrowRight") fpvKeysDown.right = false;
+    else if (e.code === "Space") fpvKeysDown.space = false;
+  };
+  // Focus loss eats keyup events — release every held walk/ascend key or the camera walks
+  // itself over the horizon on an unfocused tab (stuck-key safety, QoL-1).
+  const onWinBlur = () => {
+    fpvKeysDown.up = fpvKeysDown.down = fpvKeysDown.left = fpvKeysDown.right = false;
+    fpvKeysDown.shift = fpvKeysDown.alt = fpvKeysDown.space = false;
   };
   // Double-click on the ground drops the temporary pin (deselecting a viewed pin first — the
   // gesture means "focus here"). Ignored while placing and while editing an own unsaved upload.
@@ -1004,6 +1032,7 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("dblclick", onDblClick);
   window.addEventListener("keydown", onFpvKey);
   window.addEventListener("keyup", onFpvKeyUp);
+  window.addEventListener("blur", onWinBlur);
   const _fpvQ = new THREE.Quaternion();
   const _fpvFwd = new THREE.Vector3();
   const _fpvUp = new THREE.Vector3();
@@ -1572,6 +1601,33 @@ export function attachStylizedTiles(opts: {
                   (1000 * Math.max(stickRaw, 1e-6));
                 fpvWalkOffset.addScaledVector(_fpvWalkFwd, stick.fwd * k);
                 fpvWalkOffset.addScaledVector(_fpvWalkRight, stick.right * k);
+              }
+              // SPACE = ascend with hold-acceleration (QoL-1, owner 2026-08-14): gain ramps
+              // QUADRATICALLY over spaceRampS (a tap nudges centimetres, a hold accelerates —
+              // precision-controlled, never faster than the encoder rail), stepping the SAME
+              // strictly-vertical identity the ALTITUDE encoder drives (temp: eye height;
+              // photo: lift off the apex) with the same proportional floor + clamps. Mutating
+              // next frame's eye/lift here (not camera.position) keeps one vertical authority.
+              if (fpvKeysDown.space) {
+                fpvSpaceHeldMs += dtMs;
+                const gain = Math.min(1, fpvSpaceHeldMs / (FPV.spaceRampS * 1000));
+                const rate = FPV.spaceLiftRatePerS * gain * gain;
+                if (fpvKind === "temp") {
+                  fpvEyeM = THREE.MathUtils.clamp(
+                    fpvEyeM + ((rate * dtMs) / 1000) * Math.max(fpvEyeM, FPV.vertEncoderBaseM),
+                    FRUSTUM.eyeHeightM,
+                    FPV.tempEyeMaxM,
+                  );
+                } else {
+                  fpvLiftM = THREE.MathUtils.clamp(
+                    fpvLiftM + ((rate * dtMs) / 1000) * Math.max(fpvLiftM, FPV.vertEncoderBaseM),
+                    0,
+                    FPV.tempEyeMaxM,
+                  );
+                }
+                lastInteract = now;
+              } else if (fpvSpaceHeldMs !== 0) {
+                fpvSpaceHeldMs = 0;
               }
               camera.position.add(fpvWalkOffset);
               camera.up.copy(_fpvUp);
@@ -2768,6 +2824,7 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("dblclick", onDblClick);
       window.removeEventListener("keydown", onFpvKey);
       window.removeEventListener("keyup", onFpvKeyUp);
+      window.removeEventListener("blur", onWinBlur);
       tempPinMarker.geometry.dispose();
       tempPinMat.dispose();
       scene.remove(tempPinMarker);

@@ -329,3 +329,9 @@ export function altMToSlider(altM: number, minAltM: number, maxAltM: number): nu
   const a = Math.min(maxAltM, Math.max(minAltM, altM));
   return (Math.log(a) - Math.log(minAltM)) / (Math.log(maxAltM) - Math.log(minAltM));
 }
+
+// Dev-only introspection (the window.__* DEV-seam registry, global.d.ts) — same dual-instance
+// caveat as store/time.ts: always probe THIS handle, never a page-context /src import.
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  window.__cameraStore = useCameraStore;
+}

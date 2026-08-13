@@ -1,35 +1,41 @@
 /**
- * TimeScrubber — the Phase-4 scene-time instrument (IMPLEMENTATION_PLAN §4, ADR D6). A docked
- * bottom-centre rail spanning ±12 h (SCRUB.windowHours) around an anchor instant: dragging pins
- * scene time via `useTimeStore.setTime` and the ephemeris relights the whole globe (terminator,
- * sun/moon, shadows, golden hour, stars); NOW resumes the wall clock. Releasing the knob at a rail
- * end recentres the window there, so repeated edge drags walk across days.
+ * TimeScrubber — the scene-time instrument (Phase 4; v2 QoL-1, owner 2026-08-14 —
+ * PLANNING_QOL_PLAN §3.1). A docked bottom-centre rail showing a 12 h window with scene time
+ * riding the FIXED CENTRE CURSOR: dragging slides the timeline under it — an INFINITE conveyor
+ * into past and future (drag left = forward, the PhotoPills Time-Bar direction) — and the
+ * ephemeris relights the whole globe per move (terminator, sun/moon, shadows, golden hour,
+ * stars). NOW resumes the wall clock.
+ *
+ * On the rail (v2): the full photographic light bands (day/golden/blue/nautical/astro/night —
+ * lib/ephemeris/twilight lightSegments), sun+moon altitude curves against the horizon midline
+ * (elevationSeries), and REAL local hour ticks with printed labels (store/time hourTicksBetween;
+ * browser-local, the same convention as the date/time inputs). A CLICK in the outer tap zones
+ * steps to the next/previous almanac event chip (store/plan events — the planFeed mirror);
+ * double-click in the middle returns to NOW.
  *
  * When a photo lands on the globe with an EXIF capture time, the scene pins to that instant —
  * `capturedAtToUtcMs` reads the TZ-naive stamp as solar time at the placement longitude (the
  * documented v1 choice), so the pin shows the light the photographer actually stood in.
  *
- * The knob is keyboard-operable (role="slider": arrows ± SCRUB.keyStepMin, Home/End = window
- * edges, Backspace/double-click = go live). TimeReadout (bottom-right) stays the precise readout;
- * this panel's header shows the offset against the real clock.
+ * The rail is keyboard-operable (role="slider": arrows ± SCRUB.keyStepMin, Home/End = ∓ half a
+ * window, Backspace = go live). TimeReadout (bottom-right) stays the precise readout; this
+ * panel's header shows the offset against the real clock.
  *
- * Multiday (2026-07-10): the rail stays the ±12 h fine control; the header date picker jumps the
- * whole window to ANY calendar date (local time-of-day preserved, window recentred). The
- * ephemeris is exact at any epoch, so sun/moon/star positions are correct on the chosen date.
+ * Owner 2026-07-14 (kept intact): precise time-of-day picker, ±day/±hour/±minute steppers, and
+ * the PLAY transport (real speed or SCRUB.playRates fast-forward). The scene itself never
+ * steps: consumers read sceneTimeMs() per frame; the interval here only refreshes the labels.
  *
- * Owner 2026-07-14: a precise time-of-day picker joins the date; ±hour/±minute steppers join the
- * ±day pair; and a PLAY transport advances scene time fluidly — real speed or the SCRUB.playRates
- * fast-forward presets. The scene itself never steps: consumers read sceneTimeMs() per frame
- * (store/time playback derivation); the interval here only refreshes the knob and labels.
+ * Perf discipline: bands/curves memoise on a SPAN (2× window) centred on the scene HOUR + the
+ * 0.05°-quantized eye — never per pointermove; the window then slides over the cached span with
+ * plain arithmetic (the Phase-8a twilight-band rule, now spanning the conveyor).
  */
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import {
-  fractionToTime,
+  hourTicksBetween,
   localDateStr,
   localTimeStr,
   sceneTimeMs,
-  timeToFraction,
   useTimeStore,
   withLocalDate,
   withLocalTime,
@@ -38,14 +44,19 @@ import { useUploadStore } from "../../store/upload";
 import { usePlanStore } from "../../store/plan";
 import { useCameraStore } from "../../store/camera";
 import { capturedAtToUtcMs } from "../../lib/ephemeris/captureTime";
-import { twilightSegments } from "../../lib/ephemeris/twilight";
-import { SCRUB } from "../globe/tuning";
+import { lightSegments } from "../../lib/ephemeris/twilight";
+import { elevationSeries, type AltSample } from "../../lib/ephemeris/dayArc";
+import { dayEvents, moonPhaseEvents } from "../../lib/ephemeris/planner";
+import { GOLDEN, SCRUB } from "../globe/tuning";
 import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/time-scrubber.css";
 import "../../styles/tips.css";
 
 const WINDOW_MS = SCRUB.windowHours * 3_600_000;
+/** Band/curve cache span — 2× the visible window so an hour of drift never leaves it. */
+const SPAN_MS = WINDOW_MS * 2;
+const HOUR_MS = 3_600_000;
 
 /** "+3 h 12 m" / "−47 m" / "+164 d 2 h" offset of the pinned scene time against the real clock.
  *  Minutes are rounded FIRST and carried up (the old per-unit rounding printed "+3936 h 60 m"). */
@@ -67,10 +78,24 @@ function rateLabel(rate: number): string {
   return `${Math.round(rate / 3600)} HR/S`;
 }
 
+/** SVG path for an altitude curve over the visible window (viewBox 0..100 × 0..40; horizon at
+ *  y=20, ±90° maps to ±19 units). Pure string math over cached span samples — cheap per render. */
+function curvePath(samples: AltSample[], windowStartMs: number): string {
+  let d = "";
+  for (const s of samples) {
+    const x = ((s.utcMs - windowStartMs) / WINDOW_MS) * 100;
+    if (x < -2 || x > 102) continue;
+    const y = 20 - (s.altDeg / 90) * 19;
+    d += `${d ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
+  }
+  return d;
+}
+
 export default function TimeScrubber() {
   const drag = usePanelDrag("timeline");
   const live = useTimeStore((s) => s.live);
-  const pinnedMs = useTimeStore((s) => s.timeMs);
+  // Subscribed for re-render on every scrub/jump (the value itself is read via sceneTimeMs()).
+  useTimeStore((s) => s.timeMs);
   const playRate = useTimeStore((s) => s.playRate);
   const setTime = useTimeStore((s) => s.setTime);
   const goLive = useTimeStore((s) => s.goLive);
@@ -80,63 +105,48 @@ export default function TimeScrubber() {
   const playing = playRate !== null;
 
   const railRef = useRef<HTMLDivElement>(null);
-  const [anchorMs, setAnchorMs] = useState(() => sceneTimeMs());
 
-  // Twilight bands (Phase 8a P1) — pure decoration under the rail chrome. The eye = the
-  // planner's anchor when there is one, else the live view focus (the TargetPanel pattern).
-  // Memo keys quantized to 0.05° (focus drifts constantly in LEO idle) and keyed on anchorMs,
-  // NEVER scene time — this component re-renders on every scrub pointermove via `pinnedMs`.
+  const nowMs = sceneTimeMs();
+  const windowStartMs = nowMs - WINDOW_MS / 2;
+  // Span anchor quantized to the scene HOUR: bands/curves recompute once per crossed hour (or
+  // eye move), and the ±24 h span always contains the ±6 h window between recomputes.
+  const spanAnchorMs = Math.round(nowMs / HOUR_MS) * HOUR_MS;
+  const spanStartMs = spanAnchorMs - SPAN_MS / 2;
+  const spanEndMs = spanAnchorMs + SPAN_MS / 2;
+
+  // The eye = the planner's anchor when there is one, else the live view focus (the TargetPanel
+  // pattern), quantized to 0.05° — focus drifts constantly in LEO idle.
   const planAnchor = usePlanStore((s) => s.anchor);
   const focusLat = useCameraStore((s) => s.focusLatDeg);
   const focusLon = useCameraStore((s) => s.focusLonDeg);
-  const twiLatKey = Math.round((planAnchor?.latDeg ?? focusLat) * 20);
-  const twiLonKey = Math.round((planAnchor?.lonDeg ?? focusLon) * 20);
-  const twilight = useMemo(
-    () =>
-      twilightSegments(
-        anchorMs - WINDOW_MS / 2,
-        anchorMs + WINDOW_MS / 2,
-        twiLatKey / 20,
-        twiLonKey / 20,
-      ).filter((s) => s.phase !== "day"),
-    [anchorMs, twiLatKey, twiLonKey],
+  const eyeLatKey = Math.round((planAnchor?.latDeg ?? focusLat) * 20);
+  const eyeLonKey = Math.round((planAnchor?.lonDeg ?? focusLon) * 20);
+
+  const bands = useMemo(
+    () => lightSegments(spanStartMs, spanEndMs, eyeLatKey / 20, eyeLonKey / 20),
+    [spanAnchorMs, eyeLatKey, eyeLonKey], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const curves = useMemo(
+    () => ({
+      sun: elevationSeries("sun", spanStartMs, spanEndMs, eyeLatKey / 20, eyeLonKey / 20, SCRUB.curveStepMin),
+      moon: elevationSeries("moon", spanStartMs, spanEndMs, eyeLatKey / 20, eyeLonKey / 20, SCRUB.curveStepMin),
+    }),
+    [spanAnchorMs, eyeLatKey, eyeLonKey], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   // The PLAY speed the transport arms (scene-seconds per real second); 1 = real time.
   const [armedRate, setArmedRate] = useState<number>(1);
-  // Ref, not state: nothing renders from the drag flag, and it must flip synchronously so a
-  // pointermove arriving in the same tick as pointerdown already scrubs.
-  const draggingRef = useRef(false);
-  // Live mode: a coarse tick keeps the creeping knob honest (the store is never written per-frame).
+  // Live/playback: a coarse tick keeps the sliding rail honest (the store is never written
+  // per-frame; the conveyor needs no recentring — the window IS always centred).
   const [, forceTick] = useState(0);
   useEffect(() => {
-    if (!live) return;
-    const id = setInterval(() => {
-      // Recentre quietly if hours of live drift walked the knob toward a rail end.
-      if (Math.abs(timeToFraction(Date.now(), anchorMs, WINDOW_MS) - 0.5) > 0.45) {
-        setAnchorMs(Date.now());
-      }
-      forceTick((n) => n + 1);
-    }, 10_000);
+    if (!live && !playing) return;
+    const id = setInterval(() => forceTick((n) => n + 1), playing ? SCRUB.playTickMs : 10_000);
     return () => clearInterval(id);
-  }, [live, anchorMs]);
+  }, [live, playing]);
 
-  // Playback: a fast UI tick keeps the knob/labels riding the fluid scene time (the SCENE reads
-  // sceneTimeMs() per frame — this interval is display-only). The window recentres when the
-  // playing knob reaches a rail end, so fast-forward walks across days hands-free.
-  useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => {
-      const f = timeToFraction(sceneTimeMs(), anchorMs, WINDOW_MS);
-      if (f <= SCRUB.edgeRecenterFrac || f >= 1 - SCRUB.edgeRecenterFrac) {
-        setAnchorMs(sceneTimeMs());
-      }
-      forceTick((n) => n + 1);
-    }, SCRUB.playTickMs);
-    return () => clearInterval(id);
-  }, [playing, anchorMs]);
-
-  // Placed photo with an EXIF capture time → pin the scene to the capture instant (solar time at
-  // the placement longitude) and centre the rail there. Re-placing re-seeds.
+  // Placed photo with an EXIF capture time → pin the scene to the capture instant (solar time
+  // at the placement longitude); the window centres there by construction. Re-placing re-seeds.
   useEffect(() => {
     if (uploadPhase !== "placed") return;
     const { exif, placement } = useUploadStore.getState();
@@ -144,37 +154,61 @@ export default function TimeScrubber() {
     const ms = capturedAtToUtcMs(exif.capturedAt, placement.lonDeg);
     if (ms === null) return;
     setTime(ms);
-    setAnchorMs(ms);
   }, [uploadPhase, setTime]);
 
-  const nowMs = sceneTimeMs();
-  const fraction = timeToFraction(nowMs, anchorMs, WINDOW_MS);
-
-  const scrubToClientX = (clientX: number) => {
-    const rect = railRef.current!.getBoundingClientRect();
-    const f = (clientX - rect.left) / rect.width;
-    setTime(fractionToTime(f, anchorMs, WINDOW_MS));
-  };
-
+  // Conveyor drag: grab the timeline — dx px slides time by −dx/width·window (drag left =
+  // forward). A press that never leaves the tap slop is a TAP: outer zones event-step.
+  const dragRef = useRef<{ startX: number; startMs: number; moved: boolean } | null>(null);
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
       // synthetic events (tests) have no active pointer — dragging still works via bubbling
     }
-    draggingRef.current = true;
-    scrubToClientX(e.clientX);
+    dragRef.current = { startX: e.clientX, startMs: sceneTimeMs(), moved: false };
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (draggingRef.current) scrubToClientX(e.clientX);
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    if (!d.moved && Math.abs(dx) <= SCRUB.tapSlopPx) return;
+    d.moved = true;
+    const rect = railRef.current!.getBoundingClientRect();
+    setTime(d.startMs - (dx / rect.width) * WINDOW_MS);
   };
-  const endDrag = () => {
-    if (!draggingRef.current) return;
-    draggingRef.current = false;
-    // Released at a rail end → recentre the window on the pinned instant (walk further days).
-    const f = timeToFraction(useTimeStore.getState().timeMs, anchorMs, WINDOW_MS);
-    if (f <= SCRUB.edgeRecenterFrac || f >= 1 - SCRUB.edgeRecenterFrac) {
-      setAnchorMs(useTimeStore.getState().timeMs);
+  // Next/previous almanac event (tap zones). The planFeed mirror is preferred when warm (it
+  // adds skyline crossings and terrain-true elevation), but it only computes while the PLAN
+  // panel is open / a photo-FPV anchor exists — so a closed-panel tap computes the pure almanac
+  // chips on demand (a few finder ms, only when actually tapped; sea-level observer is within
+  // chip granularity).
+  const jumpEvent = (dir: 1 | -1) => {
+    const base = sceneTimeMs();
+    let events = usePlanStore.getState().events;
+    if (events.length === 0) {
+      const obs = { latDeg: eyeLatKey / 20, lonDeg: eyeLonKey / 20, groundAltM: 0, eyeAboveGroundM: 2 };
+      events = [...dayEvents(base, obs, GOLDEN), ...moonPhaseEvents(base, obs)].sort(
+        (a, b) => a.utcMs - b.utcMs,
+      );
+    }
+    const target =
+      dir > 0
+        ? events.find((ev) => ev.utcMs > base + 30_000)
+        : [...events].reverse().find((ev) => ev.utcMs < base - 30_000);
+    if (target) setTime(target.utcMs);
+  };
+  const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* no capture to release for synthetic pointers */
+    }
+    if (d && !d.moved) {
+      const rect = railRef.current!.getBoundingClientRect();
+      const f = (e.clientX - rect.left) / rect.width;
+      if (f <= SCRUB.eventTapFrac) jumpEvent(-1);
+      else if (f >= 1 - SCRUB.eventTapFrac) jumpEvent(1);
     }
   };
 
@@ -183,22 +217,20 @@ export default function TimeScrubber() {
     const base = sceneTimeMs();
     if (e.key === "ArrowLeft" || e.key === "ArrowDown") setTime(base - stepMs);
     else if (e.key === "ArrowRight" || e.key === "ArrowUp") setTime(base + stepMs);
-    else if (e.key === "Home") setTime(fractionToTime(0, anchorMs, WINDOW_MS));
-    else if (e.key === "End") setTime(fractionToTime(1, anchorMs, WINDOW_MS));
+    else if (e.key === "Home") setTime(base - WINDOW_MS / 2);
+    else if (e.key === "End") setTime(base + WINDOW_MS / 2);
     else if (e.key === "Backspace" || e.key === "Delete") goLive();
     else return;
     e.preventDefault();
   };
 
-  const pct = fraction * 100;
   const offsetMinNow = Math.round((nowMs - Date.now()) / 60_000);
 
-  // Date jump: move the pinned window to another calendar day, same local time-of-day.
+  // Date jump: same local time-of-day on another calendar day (the window follows the time).
   const onDateChange = (dateStr: string) => {
     const ms = withLocalDate(sceneTimeMs(), dateStr);
     if (ms === null) return; // cleared/partial input — never scrub on garbage
     setTime(ms);
-    setAnchorMs(ms);
   };
 
   // Precise time-of-day (owner 2026-07-14): same calendar day, another wall time.
@@ -206,28 +238,17 @@ export default function TimeScrubber() {
     const ms = withLocalTime(sceneTimeMs(), timeStr);
     if (ms === null) return; // cleared input — never scrub on garbage
     setTime(ms);
-    setAnchorMs(ms);
   };
 
   // Quick traversal (Phase 5.5 S1 days; owner 2026-07-14 hours/minutes): ± one unit keeping the
-  // rest of the stamp — pins even from LIVE. The window recentres only when the step would land
-  // the knob in the clamp band (day steps always do; hour/minute steps stay put on the rail).
-  const stepBy = (deltaMs: number) => {
-    const ms = sceneTimeMs() + deltaMs;
-    setTime(ms);
-    const f = timeToFraction(ms, anchorMs, WINDOW_MS);
-    if (f <= SCRUB.edgeRecenterFrac || f >= 1 - SCRUB.edgeRecenterFrac) setAnchorMs(ms);
-  };
+  // rest of the stamp — pins even from LIVE. The conveyor re-centres by construction.
+  const stepBy = (deltaMs: number) => setTime(sceneTimeMs() + deltaMs);
 
   // PLAY/STOP: play() pins the current instant and advances it at the armed rate (no-op when
   // already LIVE at real speed — the wall clock IS ×1 playback); STOP freezes where it reached.
   const togglePlay = () => {
-    if (playing) {
-      stopPlay();
-      return;
-    }
-    play(armedRate);
-    if (!useTimeStore.getState().live) setAnchorMs(sceneTimeMs());
+    if (playing) stopPlay();
+    else play(armedRate);
   };
   const onRateChange = (rate: number) => {
     setArmedRate(rate);
@@ -235,6 +256,7 @@ export default function TimeScrubber() {
   };
 
   const ff = playing && (playRate ?? 1) > 1;
+  const ticks = hourTicksBetween(windowStartMs, windowStartMs + WINDOW_MS);
 
   return (
     <aside className="ts" style={drag.style} aria-label="Scene time scrubber — relights the globe">
@@ -253,12 +275,12 @@ export default function TimeScrubber() {
         {/* Inputs render no ::after — the wrapper span anchors the tip (tips.css). */}
         <span
           className="tip tip-wrap"
-          data-tip="JUMP THE 24H WINDOW TO ANY DATE — SUN, MOON AND STARS FOLLOW."
+          data-tip="JUMP TO ANY DATE — SUN, MOON AND STARS FOLLOW."
         >
           <input
             type="date"
             className="ts-date"
-            aria-label="Scene date — jump the window to another day"
+            aria-label="Scene date — jump to another day"
             value={localDateStr(nowMs)}
             onChange={(e) => onDateChange(e.target.value)}
           />
@@ -286,14 +308,14 @@ export default function TimeScrubber() {
         </span>
         <InfoDot
           label="About scene time"
-          tip="Scene time drives the whole planet: sun, shadows, moon phase, stars. Scrub to plan golden hour at your pin's location."
+          tip="Scene time drives the whole planet: sun, shadows, moon phase, stars. Drag the timeline to plan golden hour, blue hour and darkness at your pin's location."
         />
         {!live && (
           <button
             type="button"
             className="ts-now tip"
             data-tip="RESUME THE LIVE WALL CLOCK."
-            onClick={() => { goLive(); setAnchorMs(Date.now()); }}
+            onClick={goLive}
           >
             NOW
           </button>
@@ -304,46 +326,68 @@ export default function TimeScrubber() {
         className="ts-rail tip"
         role="slider"
         tabIndex={0}
-        data-tip="SCRUB ±12H — LIGHT, SHADOWS AND SKY FOLLOW SCENE TIME. DOUBLE-CLICK FOR NOW."
+        data-tip="DRAG THE TIMELINE — ENDLESS, BOTH WAYS. TAP AN EDGE FOR NEXT/PREV EVENT. DOUBLE-CLICK FOR NOW."
         aria-label="Scene time offset from the real clock"
-        aria-valuemin={-SCRUB.windowHours * 30}
-        aria-valuemax={SCRUB.windowHours * 30}
+        aria-valuemin={offsetMinNow - SCRUB.windowHours * 30}
+        aria-valuemax={offsetMinNow + SCRUB.windowHours * 30}
         aria-valuenow={offsetMinNow}
         aria-valuetext={new Date(nowMs).toUTCString()}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={(e) => {
-          endDrag();
-          try {
-            e.currentTarget.releasePointerCapture(e.pointerId);
-          } catch {
-            /* no capture to release for synthetic pointers */
-          }
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => (dragRef.current = null)}
+        onDoubleClick={(e) => {
+          const rect = railRef.current!.getBoundingClientRect();
+          const f = (e.clientX - rect.left) / rect.width;
+          // The outer zones are the event-step taps — only a middle double-click means NOW.
+          if (f > SCRUB.eventTapFrac && f < 1 - SCRUB.eventTapFrac) goLive();
         }}
-        onPointerCancel={endDrag}
-        onDoubleClick={() => { goLive(); setAnchorMs(Date.now()); }}
         onKeyDown={onKeyDown}
       >
-        <div className="ts-twilight" aria-hidden="true">
-          {twilight.map((seg) => {
-            const left = timeToFraction(seg.startMs, anchorMs, WINDOW_MS) * 100;
-            const right = timeToFraction(seg.endMs, anchorMs, WINDOW_MS) * 100;
+        <div className="ts-light" aria-hidden="true">
+          {bands.map((seg) => {
+            const left = ((seg.startMs - windowStartMs) / WINDOW_MS) * 100;
+            const right = ((seg.endMs - windowStartMs) / WINDOW_MS) * 100;
+            if (right <= 0 || left >= 100) return null;
+            const l = Math.max(0, left);
+            const r = Math.min(100, right);
             return (
               <span
                 key={`${seg.phase}${seg.startMs}`}
-                className={`ts-twilight__seg ts-twilight__seg--${seg.phase}`}
-                style={{ left: `${left}%`, width: `${right - left}%` }}
+                className={`ts-light__seg ts-light__seg--${seg.phase}`}
+                style={{ left: `${l}%`, width: `${r - l}%` }}
               />
             );
           })}
         </div>
-        <div className="ts-track" />
+        <svg
+          className="ts-curves"
+          viewBox="0 0 100 40"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <line className="ts-curves__horizon" x1="0" y1="20" x2="100" y2="20" />
+          <path className="ts-curves__moon" d={curvePath(curves.moon, windowStartMs)} />
+          <path className="ts-curves__sun" d={curvePath(curves.sun, windowStartMs)} />
+        </svg>
         <div className="ts-ticks" aria-hidden="true">
-          {Array.from({ length: SCRUB.windowHours + 1 }, (_, i) => (
-            <span key={i} className={`ts-tick${i % 6 === 0 ? " ts-tick--major" : ""}`} />
-          ))}
+          {ticks.map((t) => {
+            const left = ((t.ms - windowStartMs) / WINDOW_MS) * 100;
+            const labeled = t.isMidnight || t.hour % SCRUB.hourLabelEvery === 0;
+            return (
+              <span
+                key={t.ms}
+                className={`ts-tick${labeled ? " ts-tick--major" : ""}${t.isMidnight ? " ts-tick--midnight" : ""}`}
+                style={{ left: `${left}%` }}
+              >
+                {labeled && (
+                  <span className="ts-tick__label">{String(t.hour).padStart(2, "0")}</span>
+                )}
+              </span>
+            );
+          })}
         </div>
-        <div className={`ts-knob${live ? "" : " ts-knob--pinned"}`} style={{ left: `${pct}%` }} />
+        <div className={`ts-knob${live ? "" : " ts-knob--pinned"}`} style={{ left: "50%" }} />
       </div>
       <div className="ts-foot">
         <span className="ts-span" aria-hidden="true">−{SCRUB.windowHours / 2}h</span>
