@@ -11,7 +11,7 @@ import type { PlanEvent } from "../lib/ephemeris/planner";
 /** Where the current plan is anchored — the eye the skyline is measured from. */
 export type PlanAnchorKind = "photo" | "fpv" | "focus";
 
-export interface PlanAnchor {
+interface PlanAnchor {
   kind: PlanAnchorKind;
   latDeg: number;
   lonDeg: number;

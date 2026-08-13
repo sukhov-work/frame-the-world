@@ -47,5 +47,3 @@ export const tokens = {
   pinLavender: '#B0A6F0', // lavender
   pinWarm: '#E8BC7A', // the rare warm voice (near warn, softened)
 } as const;
-
-export type ThemeTokens = typeof tokens;

@@ -54,7 +54,7 @@ const OTYPE_LABEL: Record<TargetKind, string> = {
 };
 
 /** SIMBAD row → fixed-provider SkyTarget (`simbad:` id namespace). */
-export function simbadTarget(o: SimbadObject): SkyTarget {
+function simbadTarget(o: SimbadObject): SkyTarget {
   const kind = simbadKind(o.otype);
   return fixedTarget({
     id: `simbad:${o.mainId}`,
@@ -111,7 +111,7 @@ const cache = makeTtlCache<SimbadObject>({
 });
 
 /** Cached resolution: the object, null (cached miss), or undefined (never asked / expired). */
-export function cachedSimbad(query: string): SimbadObject | null | undefined {
+function cachedSimbad(query: string): SimbadObject | null | undefined {
   return cache.get(normalizeSky(query));
 }
 

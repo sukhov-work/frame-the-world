@@ -15,7 +15,7 @@ import { decodeGeohash, encodeGeohash } from "./geohash";
 
 export type PrecisionTier = "exact" | "1km" | "city";
 
-export const PRECISION_TIERS: readonly PrecisionTier[] = ["exact", "1km", "city"];
+const PRECISION_TIERS: readonly PrecisionTier[] = ["exact", "1km", "city"];
 
 /** C6: the default choice at save time is reduced, never exact. */
 export const DEFAULT_PRECISION_TIER: PrecisionTier = "1km";

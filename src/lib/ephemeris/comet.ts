@@ -313,7 +313,7 @@ export interface CometState {
 }
 
 /** Which curve produced a magnitude — the label the UI must show alongside the number. */
-export type MagnitudeModel = "observed" | "jpl";
+type MagnitudeModel = "observed" | "jpl";
 
 export interface CometBrightness {
   /** Predicted total (coma-inclusive) magnitude. */

@@ -66,6 +66,19 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - No cron on headless → external scheduler hits a token-secured HTTP endpoint if ever needed.
 - Digital download links expire after 30 days (not shortenable) → message buyers.
 
+## Session-end auto-ship (hook `session-end-ship.sh`, owner order 2026-08-13)
+On SessionEnd a detached hook commits EVERYTHING on a `claude/ship-*` branch with
+`#pr #skipreview #automerge`, waits for the automerge to land on `origin/master`, force-pushes
+`origin/master` to the `private` mirror remote, and fast-forwards the local checkout back onto
+master. Gates: it ABORTS if `.claude/BLOCKING_QUESTIONS.md` exists, or vitest / `astro check`
+fail. Your part every session (Phase 4 recording):
+- Leave a one-line commit title in **`.claude/.ship-title`** (gitignored; consumed by the ship).
+- If the session ends with STANDING BLOCKING owner questions, write them to
+  **`.claude/BLOCKING_QUESTIONS.md`** (gitignored) — nothing ships while it exists; delete it
+  the moment the owner answers. Ordinary open tails/taste-passes are NOT blocking — only
+  questions whose answer changes what should be committed.
+Ship log: `~/.claude/logs/ftw-session-ship.log`.
+
 ## Design workflow (Claude Design — see provenance/CLAUDE_DESIGN_MEMO.md)
 Tokens source of truth = `src/styles/tokens.css` (plain CSS custom properties — **no Tailwind** in this repo). After any design import, regenerate the
 GL bridge `src/lib/theme/tokens.ts`. Design imports write ONLY under `src/components/panels|ui/**` +

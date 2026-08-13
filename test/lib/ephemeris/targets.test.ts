@@ -10,11 +10,14 @@ import {
 import {
   cometTarget,
   fixedTarget,
+  GALACTIC_CENTRE_ID,
+  galacticCentreTarget,
   PLANETS,
   planetTarget,
   targetAzAlt,
   type PlanetId,
 } from "../../../src/lib/ephemeris/targets";
+import { galacticToEquatorial, raDecToUnit } from "../../../src/lib/ephemeris/stars";
 import { cometStateAt, TEMPEL2 } from "../../../src/lib/ephemeris/comet";
 import { cometWindows, targetWindows } from "../../../src/lib/ephemeris/planner";
 
@@ -158,5 +161,48 @@ describe("targetAzAlt parallax handling", () => {
     // 3 km of eye height moves a planet by micro-degrees — but the code path must not blow up,
     // and the direction must stay the same to ~arcsec.
     expect(Math.abs(a.altDeg - b.altDeg)).toBeLessThan(0.01);
+  });
+});
+
+describe("galacticCentreTarget (Phase 8a P2)", () => {
+  const gc = galacticCentreTarget();
+  const dot = (a: readonly number[], b: readonly number[]) =>
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+  it("carries the fixed-provider state contract with no photometry", () => {
+    const s = gc.stateAt(utc("2026-08-13T21:00:00Z"));
+    expect(gc.id).toBe(GALACTIC_CENTRE_ID);
+    expect(s.magnitude).toBeNull();
+    expect(s.magnitudeModel).toBe("catalog");
+    expect(s.distanceAu).toBeNull();
+    expect(s.angularDiamArcsec).toBeNull();
+    expect(Math.hypot(...s.dir)).toBeCloseTo(1, 12);
+  });
+
+  it("aims at Sgr A*, ≈4.3′ from the frame-defining l=0,b=0 point — close but NOT merged", () => {
+    const sgrA = raDecToUnit(266.41684 / 15, -29.00781);
+    const frameGc = galacticToEquatorial(0, 0);
+    const sepDeg = (Math.acos(Math.min(1, dot(sgrA, frameGc))) * 180) / Math.PI;
+    expect(sepDeg).toBeGreaterThan(0.04); // silently merging the constants would trip this
+    expect(sepDeg).toBeLessThan(0.1); // and a typo in either constant would trip this
+  });
+
+  it("NGP↔GC round-trip: the target direction lies in the galactic plane (b ≈ −0.05°)", () => {
+    const sgrA = raDecToUnit(266.41684 / 15, -29.00781);
+    const ngp = galacticToEquatorial(0, 90);
+    const bDeg = (Math.asin(Math.max(-1, Math.min(1, dot(sgrA, ngp)))) * 180) / Math.PI;
+    expect(Math.abs(bDeg)).toBeLessThan(0.1);
+  });
+
+  it("from Dnipro peaks low in the south (dec −29° → max alt ≈ 12.5°)", () => {
+    // Scan a winter night when GC transits in darkness is irrelevant here — pure geometry:
+    // max altitude over any day = 90 − |lat − dec| = 90 − 77.47 ≈ 12.53°.
+    let peak = -90;
+    const start = utc("2026-08-12T00:00:00Z");
+    for (let t = start; t < start + 24 * 3600_000; t += 10 * 60_000) {
+      peak = Math.max(peak, targetAzAlt(gc, t, DNIPRO.latDeg, DNIPRO.lonDeg).altDeg);
+    }
+    expect(peak).toBeGreaterThan(11.5);
+    expect(peak).toBeLessThan(13.5);
   });
 });

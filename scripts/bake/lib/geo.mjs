@@ -6,8 +6,8 @@
 // h = 0; scene/enrichedBuildings.ts re-seats the whole group onto the rendered Cesium World Terrain
 // at runtime (strategy R1), so we bake only RELATIVE geometry, never absolute Z.
 
-export const WGS84_A = 6378137.0;
-export const WGS84_B = 6356752.314245;
+const WGS84_A = 6378137.0;
+const WGS84_B = 6356752.314245;
 const E2 = 1 - (WGS84_B * WGS84_B) / (WGS84_A * WGS84_A);
 export const DEG = Math.PI / 180;
 

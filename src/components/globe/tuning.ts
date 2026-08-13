@@ -911,6 +911,17 @@ export const MILKYWAY = {
   baseWeight: 0.35,
   /** Twinkle amplitude on the band (near-static — it's diffuse light, not point stars). */
   twinkleAmp: 0.05,
+  /** Galactic-equator guide (Phase 8a P2) — shown only while the GALACTIC CENTRE is tracked.
+   *  Segment length along galactic longitude (deg); 3° ≈ smooth at any focal length. */
+  bandStepDeg: 3,
+  /** Half-width of the guide ribbon (deg of galactic latitude) — the ±edge small-circles.
+   *  Spec range ±10–15°; 12° brackets the visual band (σb 8.5° above). */
+  bandEdgeDeg: 12,
+  /** Guide alphas (× the stars' own fade): equator line / edge lines. Guide semantics — no
+   *  fovK/day dimming like the diffuse layers; additive line colour = tokens.milkyWay, so the
+   *  peak stays far under BLOOM.threshold 0.9 (UNVERIFIED visually until the P2 browser pass). */
+  bandAlpha: 0.5,
+  bandEdgeAlpha: 0.2,
 } as const;
 
 /** OSM building style — design idiom "dark mass, lit edges" (canvas ftw-scene). Colours: fill =

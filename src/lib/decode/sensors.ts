@@ -19,10 +19,9 @@ export const DEFAULT_SENSOR_WIDTH_MM = 23.5;
 
 /**
  * Curated Make+Model → sensor width (mm). A small, high-confidence subset — extend as needed. Keys are
- * normalised (see `normaliseKey`): uppercased, trimmed, single-spaced. Bodies that share a sensor width are
- * grouped by format at the bottom via `SENSOR_FORMAT_WIDTH_MM` used as a coarse fallback by make.
+ * normalised (see `normaliseKey`): uppercased, trimmed, single-spaced.
  */
-export const SENSOR_WIDTH_DB_MM: Readonly<Record<string, number>> = {
+const SENSOR_WIDTH_DB_MM: Readonly<Record<string, number>> = {
   // Sony full-frame (Exmor 35.9 mm; 7R bodies 35.7 mm)
   "SONY ILCE-7M4": 35.9,
   "SONY ILCE-7RM4": 35.7,
@@ -52,15 +51,6 @@ export const SENSOR_WIDTH_DB_MM: Readonly<Record<string, number>> = {
   "PANASONIC DC-G9M2": 17.3,
 };
 
-/** Coarse per-format widths (mm) for a make/format fallback. */
-export const SENSOR_FORMAT_WIDTH_MM = {
-  fullFrame: 35.9,
-  apsCCanon: 22.3,
-  apsC: 23.5,
-  mft: 17.3,
-  oneInch: 13.2,
-} as const;
-
 export interface FovInputs {
   /** EXIF `FocalLength` in mm (the physical focal length). */
   focalLengthMm?: number;
@@ -70,7 +60,7 @@ export interface FovInputs {
   model?: string;
 }
 
-export type FovSource = "focal35" | "sensorDb" | "default";
+type FovSource = "focal35" | "sensorDb" | "default";
 
 export interface FovResult {
   hFovDeg: number;
@@ -153,7 +143,7 @@ export function verticalFovDeg(hFovDeg: number, aspect: number): number {
 }
 
 /** Full-frame sensor HEIGHT (mm) — the vertical twin of FULL_FRAME_WIDTH_MM (36×24). */
-export const FULL_FRAME_HEIGHT_MM = 24;
+const FULL_FRAME_HEIGHT_MM = 24;
 
 /** 35mm-equivalent focal length (mm) for a VERTICAL FOV — inverse of the FOV derivation
  *  against the full-frame 24 mm height. The FPV HUD reads the live camera.fov (vertical)

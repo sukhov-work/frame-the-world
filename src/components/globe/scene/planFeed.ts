@@ -74,7 +74,7 @@ export interface PlanFeedHandle {
   dispose(): void;
 }
 
-export interface PlanFeedCtx {
+interface PlanFeedCtx {
   sceneMs: number;
   /** Placed photo apex (ECEF m) — priority anchor. */
   photoApex: readonly [number, number, number] | null;

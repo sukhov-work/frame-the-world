@@ -333,7 +333,7 @@ export interface SkylineSearchOptions {
 
 /** Topocentric az/alt at an instant — the skyline scan's injected position source (the same
  *  provider-agnostic move `scanWindows` made for the window sampler). */
-export type AzAltSampler = (utcMs: number) => AzAlt;
+type AzAltSampler = (utcMs: number) => AzAlt;
 
 /** Signed clearance: body altitude − skyline altitude at the body's azimuth (deg). */
 function clearanceDeg(
@@ -370,7 +370,7 @@ function bisectCrossing(
  * piecewise bin function — no derivative smoothness for its quadratic interpolation to exploit.
  * "Blocked" includes below the open-sky horizon (profile bins floor at the eye-height dip).
  */
-export function sampledSkylineState(
+function sampledSkylineState(
   sample: AzAltSampler,
   sceneUtcMs: number,
   profile: ProfileSampleFn,

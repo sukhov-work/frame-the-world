@@ -5,6 +5,7 @@ import {
   bvToRgb,
   magToBright,
   magToSize,
+  milkyWayBandSegments,
   milkyWayField,
   parseStarCatalog,
 } from "../../../lib/ephemeris/stars";
@@ -49,6 +50,9 @@ export interface StarsHandle {
     /** IAU abbreviation of the TRACKED constellation (phase B) — its figure renders in accent
      *  regardless of the asterisms chip; null/undefined hides the highlight. */
     constellation?: string | null;
+    /** Milky-Way band guide (Phase 8a P2) — galactic equator + ±edge circles; the caller gates
+     *  it by "GALACTIC CENTRE is the tracked target AND SHOW is on" (constellation precedent). */
+    mwBand?: boolean;
   }): void;
   dispose(): void;
 }
@@ -307,6 +311,36 @@ export function attachStars(
   figureLines.raycast = () => {};
   figureLines.visible = false;
   points.add(figureLines);
+
+  // Milky-Way band guide (Phase 8a P2) — the galactic equator + ±bandEdgeDeg small-circles as
+  // two more star-sphere children (equator brighter than the edges). Pure math, built once at
+  // attach — no fetch. Guide semantics like the asterisms: opacity = fade × alpha only (none of
+  // the diffuse layers' fovK/day dimming). Precession is not applied on the star sphere (≤0.3°
+  // at 2026 — invisible at ±12° band width; the precessed GC reticle may sit that far off b=0).
+  const makeBandLines = (latitudes: readonly number[], alpha: () => number) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(milkyWayBandSegments(MILKYWAY.bandStepDeg, latitudes).positions, 3),
+    );
+    const material = new THREE.LineBasicMaterial({
+      color: new THREE.Color(tokens.milkyWay),
+      transparent: true,
+      opacity: 0, // driven per-frame: fade × alpha()
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const lines = new THREE.LineSegments(geometry, material);
+    lines.raycast = () => {};
+    lines.visible = false;
+    points.add(lines);
+    return { geometry, material, lines, alpha };
+  };
+  const mwBandCore = makeBandLines([0], () => MILKYWAY.bandAlpha);
+  const mwBandEdges = makeBandLines(
+    [MILKYWAY.bandEdgeDeg, -MILKYWAY.bandEdgeDeg],
+    () => MILKYWAY.bandEdgeAlpha,
+  );
   let figuresByAbbr: Map<string, Float32Array> | null = null;
   let figuresPromise: Promise<void> | null = null;
   let figureAbbrShown = "";
@@ -380,7 +414,17 @@ export function attachStars(
 
   return {
     points,
-    update({ alt, camera, elapsedS, reduceMotion, gastRad, sunDir, asterisms = false, constellation = null }) {
+    update({
+      alt,
+      camera,
+      elapsedS,
+      reduceMotion,
+      gastRad,
+      sunDir,
+      asterisms = false,
+      constellation = null,
+      mwBand = false,
+    }) {
       // Two ways in: the high-altitude backdrop (space always has stars), OR a night sky at any
       // altitude — below the altitude band the stars now fade in as the sun sets at the camera
       // (owner 2026-07-10: "at night stars must be visible at low altitudes").
@@ -452,6 +496,10 @@ export function attachStars(
       }
       asterismLines.visible = asterismsLoaded && asterisms;
       asterismMaterial.opacity = fade * ASTERISMS.alpha;
+      for (const band of [mwBandCore, mwBandEdges]) {
+        band.lines.visible = mwBand;
+        band.material.opacity = fade * band.alpha();
+      }
       // Tracked-constellation figure — lazy asset, one-figure geometry swap on target change.
       const wantAbbr = constellation ?? "";
       if (wantAbbr && !figuresByAbbr) loadFigures();
@@ -481,6 +529,10 @@ export function attachStars(
       asterismMaterial.dispose();
       figureGeometry.dispose();
       figureMaterial.dispose();
+      for (const band of [mwBandCore, mwBandEdges]) {
+        band.geometry.dispose();
+        band.material.dispose();
+      }
       scene.remove(points);
     },
   };

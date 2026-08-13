@@ -23,7 +23,7 @@
  * (store/time playback derivation); the interval here only refreshes the knob and labels.
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import {
   fractionToTime,
   localDateStr,
@@ -35,7 +35,10 @@ import {
   withLocalTime,
 } from "../../store/time";
 import { useUploadStore } from "../../store/upload";
+import { usePlanStore } from "../../store/plan";
+import { useCameraStore } from "../../store/camera";
 import { capturedAtToUtcMs } from "../../lib/ephemeris/captureTime";
+import { twilightSegments } from "../../lib/ephemeris/twilight";
 import { SCRUB } from "../globe/tuning";
 import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
@@ -78,6 +81,26 @@ export default function TimeScrubber() {
 
   const railRef = useRef<HTMLDivElement>(null);
   const [anchorMs, setAnchorMs] = useState(() => sceneTimeMs());
+
+  // Twilight bands (Phase 8a P1) — pure decoration under the rail chrome. The eye = the
+  // planner's anchor when there is one, else the live view focus (the TargetPanel pattern).
+  // Memo keys quantized to 0.05° (focus drifts constantly in LEO idle) and keyed on anchorMs,
+  // NEVER scene time — this component re-renders on every scrub pointermove via `pinnedMs`.
+  const planAnchor = usePlanStore((s) => s.anchor);
+  const focusLat = useCameraStore((s) => s.focusLatDeg);
+  const focusLon = useCameraStore((s) => s.focusLonDeg);
+  const twiLatKey = Math.round((planAnchor?.latDeg ?? focusLat) * 20);
+  const twiLonKey = Math.round((planAnchor?.lonDeg ?? focusLon) * 20);
+  const twilight = useMemo(
+    () =>
+      twilightSegments(
+        anchorMs - WINDOW_MS / 2,
+        anchorMs + WINDOW_MS / 2,
+        twiLatKey / 20,
+        twiLonKey / 20,
+      ).filter((s) => s.phase !== "day"),
+    [anchorMs, twiLatKey, twiLonKey],
+  );
   // The PLAY speed the transport arms (scene-seconds per real second); 1 = real time.
   const [armedRate, setArmedRate] = useState<number>(1);
   // Ref, not state: nothing renders from the drag flag, and it must flip synchronously so a
@@ -301,6 +324,19 @@ export default function TimeScrubber() {
         onDoubleClick={() => { goLive(); setAnchorMs(Date.now()); }}
         onKeyDown={onKeyDown}
       >
+        <div className="ts-twilight" aria-hidden="true">
+          {twilight.map((seg) => {
+            const left = timeToFraction(seg.startMs, anchorMs, WINDOW_MS) * 100;
+            const right = timeToFraction(seg.endMs, anchorMs, WINDOW_MS) * 100;
+            return (
+              <span
+                key={`${seg.phase}${seg.startMs}`}
+                className={`ts-twilight__seg ts-twilight__seg--${seg.phase}`}
+                style={{ left: `${left}%`, width: `${right - left}%` }}
+              />
+            );
+          })}
+        </div>
         <div className="ts-track" />
         <div className="ts-ticks" aria-hidden="true">
           {Array.from({ length: SCRUB.windowHours + 1 }, (_, i) => (

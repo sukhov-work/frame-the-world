@@ -48,7 +48,7 @@ export function pinOpticsFields(item: Record<string, unknown>): CameraPoseOptics
 }
 
 /** The marketplace linkage block (Phase 6). Not location data — C6-ok. */
-export function pinProductFields(item: Record<string, unknown>) {
+function pinProductFields(item: Record<string, unknown>) {
   return {
     productId: strOrNull(item.productId),
     productVariantId: strOrNull(item.productVariantId),

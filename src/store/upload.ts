@@ -20,18 +20,18 @@ import { useCameraStore } from "./camera";
 // The pure param layer moved to lib/decode/params (B8 — lib/save/pinBody.ts must not import UP into
 // the store). Re-exported here so existing consumers (panels, tests) keep their import path.
 export { exifBaselineParams, missingParamKeys, paramSource, isDirty, derivedFov } from "../lib/decode/params";
-export type { Placement, AdjustableParams, AdjustableKey, ParamSource } from "../lib/decode/params";
+export type { AdjustableParams, AdjustableKey } from "../lib/decode/params";
 
 /**
  * idle → decoding → review → placed (GPS present)
  *                          ↘ placing (no GPS: "SET ON GLOBE" → user clicks the globe) → placed
  */
-export type UploadPhase = "idle" | "decoding" | "review" | "placing" | "placed";
+type UploadPhase = "idle" | "decoding" | "review" | "placing" | "placed";
 
 /** A saved pin re-opened as the camera view (globe pin click / My-pins click, Phase 5.1).
  *  Carries whatever the record kept — the pose/optics are `Partial<CameraPoseOptics>` (any
  *  missing field falls back to the D4 manual path). */
-export interface SavedPinView extends Partial<CameraPoseOptics> {
+interface SavedPinView extends Partial<CameraPoseOptics> {
   pinId: string;
   title: string;
   lat: number;

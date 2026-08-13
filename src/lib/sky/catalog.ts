@@ -18,6 +18,8 @@ import {
   asteroidTarget,
   cometTarget,
   fixedTarget,
+  GALACTIC_CENTRE_ID,
+  galacticCentreTarget,
   PLANETS,
   planetTarget,
   type PlanetId,
@@ -109,6 +111,27 @@ function tempel2Entry(): SkyIndexEntry {
     keys: ["10p", "10p tempel 2", "tempel 2", "tempel", "comet 10p", "comet"],
     mag: 8.4,
     boost: 0.9,
+  };
+}
+
+function gcEntry(): SkyIndexEntry {
+  return {
+    id: GALACTIC_CENTRE_ID,
+    name: "GALACTIC CENTRE",
+    detail: "MILKY WAY CORE · SGR A* · SAGITTARIUS",
+    kind: "galaxy",
+    keys: [
+      "galactic centre",
+      "galactic center",
+      "milky way",
+      "milkyway",
+      "milky way core",
+      "sgr a",
+      "sagittarius a",
+      "gc",
+    ],
+    mag: null,
+    boost: 0.95,
   };
 }
 
@@ -364,6 +387,7 @@ export function skyIndex(): SkyIndexEntry[] {
     indexMemo = [
       ...(Object.keys(PLANETS) as PlanetId[]).map(planetEntry),
       tempel2Entry(),
+      gcEntry(),
       ...MESSIER.map(messierEntry),
       ...STAR_NAMES.map(starEntry),
       ...CONSTELLATIONS.map(constellationEntry),
@@ -446,6 +470,8 @@ export function targetById(id: string): SkyTarget | null {
   } else if (id.startsWith("constellation:")) {
     const c = CONSTELLATIONS.find((x) => x.abbr === id.slice(14));
     if (c) t = constellationTarget(c);
+  } else if (id === GALACTIC_CENTRE_ID) {
+    t = galacticCentreTarget();
   } else if (id.startsWith("dso:M")) {
     const m = Number(id.slice(5));
     const e = MESSIER[m - 1];

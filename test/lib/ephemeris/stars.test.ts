@@ -8,6 +8,7 @@ import {
   galacticToEquatorial,
   magToBright,
   magToSize,
+  milkyWayBandSegments,
   milkyWayField,
   parseStarCatalog,
   raDecToUnit,
@@ -225,5 +226,40 @@ describe("bvToRgb — B−V catalog colour (phase D star tint)", () => {
 
   it("the BV sentinel (no catalog colour) tints nothing", () => {
     expect(bvToRgb(9.99)).toEqual([1, 1, 1]);
+  });
+});
+
+describe("milkyWayBandSegments (Phase 8a P2)", () => {
+  const dot = (a: number[] | Float32Array, o: number, b: number[]) =>
+    a[o] * b[0] + a[o + 1] * b[1] + a[o + 2] * b[2];
+
+  it("emits paired unit vertices with the asterismSegments layout contract", () => {
+    const band = milkyWayBandSegments(5, [0, 12, -12]);
+    expect(band.positions.length % 6).toBe(0);
+    expect(band.segmentCount).toBe(band.positions.length / 6);
+    expect(band.segmentCount).toBe((360 / 5) * 3);
+    for (let i = 0; i < band.positions.length; i += 3) {
+      const len = Math.hypot(band.positions[i], band.positions[i + 1], band.positions[i + 2]);
+      expect(len).toBeCloseTo(1, 5);
+    }
+  });
+
+  it("each line holds its galactic latitude: b=0 ⊥ pole, b=±12 at sin(12°)", () => {
+    const pole = galacticToEquatorial(0, 90);
+    for (const b of [0, 12, -12]) {
+      const band = milkyWayBandSegments(15, [b]);
+      const want = Math.sin((b * Math.PI) / 180);
+      for (let o = 0; o < band.positions.length; o += 3) {
+        expect(dot(band.positions, o, pole)).toBeCloseTo(want, 6);
+      }
+    }
+  });
+
+  it("each line closes: the last segment ends where the first begins", () => {
+    const band = milkyWayBandSegments(10, [0]);
+    const n = band.positions.length;
+    expect(band.positions[n - 3]).toBeCloseTo(band.positions[0], 6);
+    expect(band.positions[n - 2]).toBeCloseTo(band.positions[1], 6);
+    expect(band.positions[n - 1]).toBeCloseTo(band.positions[2], 6);
   });
 });

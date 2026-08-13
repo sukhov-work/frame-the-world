@@ -55,6 +55,19 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/yevhens/Projects/wix-private/headless-frame-the-world/.claude/hooks/session-end-ship.sh",
+            "timeout": 20,
+            "statusMessage": "Auto-shipping session work (branch → #pr #skipreview #automerge → mirror)…"
+          }
+        ]
+      }
     ]
   }
 }

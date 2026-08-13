@@ -167,8 +167,11 @@ kind glyph. Small, contained change — the hard part (screen projection + edge 
   eyeball first thing next visible-window session. *(Narrowed 2026-08-13, audit C2/D8: the ring
   widening + tracked-DSO flows WERE browser-verified — M31 hit ≈2.5° on 08-03, NGC7000 tracked
   across reload on 08-10 — but no session recorded eyeballing the point/ellipse impostor RENDER
-  itself; that remainder is now backlog row T25.)* See DECISIONS 2026-08-03 ASTRO ENGINE line +
-  `mem:project/wip-2026-08-03-astro-engine-phase-a`.
+  itself; that remainder is now backlog row T25.)* *(T25 CLOSED 2026-08-13, Phase 8a browser
+  pass: POINT eyeballed on the new Galactic-Centre target — faint point + broken-hairline ring,
+  `verify-shots/phase8a-09-gc-reticle-crop.png`; ELLIPSE eyeballed on M31 at its real 178′×70′
+  extents + widened ring, `verify-shots/phase8a-10-m31-ellipse-crop.png`.)* See DECISIONS
+  2026-08-03 ASTRO ENGINE line + `mem:project/wip-2026-08-03-astro-engine-phase-a`.
 - **B · Data. ✅ SHIPPED 2026-08-10** — the full catalog fleet behind one lazy chunk (424 KB, boot
   chunk untouched — build-verified + `lazyContract.test.ts` guard): full OpenNGC (13,263 records
   packed to `public/data/openngc.bin`, 20 B/record; common names fuzzy, NGC/IC ids via a pattern

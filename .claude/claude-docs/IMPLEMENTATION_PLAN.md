@@ -196,11 +196,14 @@ shipped exploration-UI design/behavior stays frozen; **additive** planning-featu
 panels/cards/rail decorations) are allowed. Zero regression of shipped features and perf is a
 per-sub-phase gate.
 
-- [ ] **8a — Darkness & the galaxy** *(mobile twins: M1 rides P1; M3 rides P2/P3)* — P1 twilight
-  bands (civil −6°/nautical −12°/astro −18°, `lib/ephemeris/twilight.ts`) on the desktop TimeScrubber
-  rail · P2 MW band + Galactic Centre as a first-class SkyTarget (fixed provider → reticle/trail/
-  chips/skyline verdict inherited) · P3 MW season calendar + darkness score (`targetWindows(GC)` ∩
-  sun<−18° ∩ moon interference via `moonlight.ts`) in PlanPanel.
+- [x] **8a — Darkness & the galaxy ✅ SHIPPED 2026-08-13 (desktop)** *(mobile twins: M1 rides P1;
+  M3 rides P2/P3 — now unblocked)* — P1 twilight bands (civil −6°/nautical −12°/astro −18°,
+  `lib/ephemeris/twilight.ts`) on the desktop TimeScrubber rail · P2 MW band + Galactic Centre as
+  a first-class SkyTarget (fixed provider → reticle/trail/chips/skyline verdict inherited) · P3 MW
+  season calendar + darkness score (`targetWindows(GC)` ∩ sun<−18° ∩ moon interference via
+  `moonlight.ts`, one convention in `lib/ephemeris/mwSeason.ts`) in PlanPanel. Gates vitest
+  733/733 · astro 0/0/6 · wix build 26 routes; surfaces browser-verified (verify-shots/phase8a-*);
+  T25 closed in the same pass. DECISIONS 2026-08-13 Phase-8a line.
 - [ ] **8b — Search & exposure** *(mobile twin: M3)* — P4 **Find** (sun/moon/GC at azimuth(±tol)/
   elevation over a date range, **filtered by the real skyline** — the category-first bet) · P5 Spot
   Stars NPF + 500 rule (seeded from FPV focal + view-centre declination; D850 vector ≈16.3 s) ·

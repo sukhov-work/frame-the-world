@@ -1,6 +1,10 @@
 # --- Claude Code local session state ---
 /.claude/.env
 /.claude/claude-docs/NEXT_SESSION_PROMPT.md
+# Session-end auto-ship markers (session-end-ship.sh): the one-line commit title Claude leaves,
+# and the standing-blocking-questions marker that VETOES the auto-ship while it exists.
+/.claude/.ship-title
+/.claude/BLOCKING_QUESTIONS.md
 
 # --- Node / Astro / Wix (populated after Phase 1 scaffold) ---
 node_modules/
@@ -31,9 +35,9 @@ test/fixtures/**/*.heic
 # --- Browser-verification screenshots (every session writes here — NEVER the repo root) ---
 /verify-shots/
 
-# --- Dnipro 3D enrichment: reproducible hand-baked Slice-0 sample (regen offline, no network):
-#     `node scripts/build-sample-dnipro-tiles.mjs` — the generator is the source of truth. ---
-/public/enriched-sample/
+# --- Dnipro 3D enrichment: the hand-baked Slice-0 sample now lives in bakes/enriched/sample/
+#     (regen offline, no network: `node scripts/build-sample-dnipro-tiles.mjs`; moved out of
+#     public/ 2026-08-13 so builds never ship it — audit B10). Covered by /bakes/ below. ---
 
 # --- Dnipro 3D enrichment: the REAL bake outputs + Overpass cache (regen: `npm run bake --
 #     --city dnipro` / `node scripts/bake/bake-osm2world.mjs --city dnipro-o2w`). Baked tiles are
