@@ -34,7 +34,7 @@ export interface StreetLabelFeat {
   bLonDeg: number;
 }
 
-export interface VecLineFeat {
+interface VecLineFeat {
   kind: "road" | "waterway";
   /** OpenMapTiles class (motorway/primary/…/river/stream). */
   cls: string;
@@ -44,13 +44,13 @@ export interface VecLineFeat {
   lines: [number, number][][];
 }
 
-export interface VecPolyFeat {
+interface VecPolyFeat {
   kind: "water" | "green" | "building";
   /** Polygons as GeoJSON-style rings: [polygon][ring][vertex][lon, lat] (ring 0 = outer). */
   polys: [number, number][][][];
 }
 
-export interface ParsedVtile {
+interface ParsedVtile {
   tx: number;
   ty: number;
   labels: StreetLabelFeat[];

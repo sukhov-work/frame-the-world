@@ -119,6 +119,33 @@
   background: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
 }
 
+/* Twilight bands (Phase 8a P1) — additive decoration; first rail child = paints UNDER
+   track/ticks/knob. Moonlight-blue steps deepen toward astronomical night; day stays bare.
+   Absolute + pointer-events:none: adds no layout, cannot move the rail's 22px hit box. */
+.ts-twilight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ts-twilight__seg {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  border-radius: 2px;
+}
+.ts-twilight__seg--civil {
+  background: color-mix(in srgb, var(--color-moonlight) 12%, transparent);
+}
+.ts-twilight__seg--nautical {
+  background: color-mix(in srgb, var(--color-moonlight) 24%, transparent);
+}
+.ts-twilight__seg--astro {
+  background: color-mix(in srgb, var(--color-moonlight) 38%, transparent);
+}
+.ts-twilight__seg--night {
+  background: color-mix(in srgb, var(--color-moonlight) 55%, transparent);
+}
+
 .ts-track {
   position: absolute;
   left: 0;

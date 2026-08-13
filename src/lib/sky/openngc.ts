@@ -107,7 +107,7 @@ export function parseOpenNgc(buffer: ArrayBuffer): NgcCatalog {
 }
 
 /** OpenNGC type code → TargetKind (the messier bake's mapping, extended for the full set). */
-export function ngcKind(type: string): TargetKind {
+function ngcKind(type: string): TargetKind {
   switch (type) {
     case "G":
     case "GPair":
@@ -136,7 +136,7 @@ export function ngcKind(type: string): TargetKind {
 }
 
 /** Human label for the panel — mirrors the messier bake's vocabulary. */
-export function ngcTypeLabel(type: string): string {
+function ngcTypeLabel(type: string): string {
   const labels: Record<string, string> = {
     G: "GALAXY",
     GPair: "GALAXY PAIR",

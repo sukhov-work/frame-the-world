@@ -238,11 +238,13 @@ camera pose in the URL (`lib/geo/urlPose.ts` `#p=lat,lon,alt,heading,tilt`; step
 ~1.6 s gated off welcome/Explore/FPV/flight; boot restores via arrivalPose; Welcome skips on hash —
 share links + reload lands where you were). `mem:project/wip-2026-07-11-s7-feedback-batch` §batch-2.
 
-**Next step: audit fix slice 7 (B10 move 3 MB public/enriched-sample out of the build + A5
-de-export sweep — own wix-build verify) → release canaries (T2 `/m`+pages.json+sbdb · T3 prod
-`#p=` smoke; B2 password rotation + B9/T26 upload-caps ruling + T25 point/ellipse eyeball ride
-owner/browser sessions) → PHASE 8a (P1 twilight · P2 MW/GC · P3 season calendar, desktop-first)
-→ M1. Phase 7 (AI) OUT of all plans. The ONE debt registry =
+**Next step: M1 (mobile planning loop — consumes lib/ephemeris/twilight.ts) → M2 → 8b. DONE
+2026-08-13 evening: slice 7 (enriched-sample → bakes/enriched/sample, A5 de-export sweep, dist
+32.2 MB) · owner rulings (T26 ACCEPTED unbounded · T27 B2-password WON'T-FIX · T4 DEFERRED
+post-M6) · **PHASE 8a SHIPPED desktop** (twilight.ts + scrubber bands · GC target "dso:gc" +
+MW b=0/±12° band guide · mwSeason.ts + PlanPanel MW card; vitest 733/733; browser-verified,
+T25 CLOSED — point on GC, ellipse on M31; `mem:project/wip-2026-08-13-slice7-phase8a`).
+Release canaries T2/T3 still ride the next `wix release`. Phase 7 (AI) OUT of all plans. The ONE debt registry =
 `.claude/skills/frame/references/tracked-backlog.md` (now T1–T26; T23 closed).**
 FULL AUDIT #1 DONE + FIX SLICES 0–6 APPLIED 2026-08-13 (gates after fixes: vitest 710/710 (+6) ·
 astro 0/0 · hints 6 = baseline · wix build Complete 26 routes): 29 confirmed findings (report

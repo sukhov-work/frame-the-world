@@ -53,7 +53,7 @@ const ftwFadeDiscard = (birthUniform: string) => /* glsl */ `
  *  across any transparent-toggle recompile, so state survives). The consumer writes these directly:
  *  `uNowMs` every frame, `uFillBirthMs`/`uEdgeBirthMs`/`uFtwTileSeed` per-tile via onBeforeRender,
  *  `uFtwNight`/`uFtwUp` from the ephemeris sample, the ghost trio from the FPV curve. */
-export interface BuildingMaterialUniforms {
+interface BuildingMaterialUniforms {
   uGhostK: { value: number };
   uSolidK: { value: number };
   uGhostAlpha: { value: number };

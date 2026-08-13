@@ -30,29 +30,6 @@ export function lruCapBytesForTier(tier: QualityTier, lruBytesMB: number): numbe
   return tier === "high" ? null : Math.round(lruBytesMB * 1024 * 1024);
 }
 
-/** The per-tier render settings shape (the data lives in `tuning.QUALITY.tiers`, kept there so the
- *  tuning contract stays the one home for numbers; this is only the type). */
-export interface QualityTierSettings {
-  /** Upper bound on `min(devicePixelRatio, dprCap)` — the dominant fill-rate lever. */
-  dprCap: number;
-  /** UnrealBloom pass on? (12 fullscreen draws + ~11 RTs — first thing to shed on weak GPUs). */
-  bloom: boolean;
-  /** Sun/moon shadow pass on? (a 4096² depth pass + per-tile ground twins at city scale). */
-  shadowsEnabled: boolean;
-  /** Shadow map resolution when enabled. */
-  shadowMapSize: number;
-  /** Per-TilesRenderer LRU byte cap (MB) — bounds the ~0.8 GB two-renderer default (mobile OOM). */
-  lruBytesMB: number;
-  /** Ground tiles' near-altitude error target (higher = coarser = fewer tiles). */
-  groundErrorNear: number;
-  /** OSM buildings' screen-space error target (higher = coarser skyline). */
-  buildingErrorTarget: number;
-  /** Vector-web height-lattice raycasts per frame (CPU/GC lever at street level). */
-  vectorLatticeBudget: number;
-  /** Max simultaneous street-name labels. */
-  maxStreetNames: number;
-}
-
 // GPU-family heuristics. Deliberately conservative: an unknown string falls through to `mid`, and
 // the runtime governor is the real backstop — this only sets a sane STARTING tier so the first
 // seconds aren't jank while the governor settles. Strings come from WEBGL_debug_renderer_info.
@@ -119,7 +96,7 @@ export interface GovernorConfig {
   cooldownMs: number;
 }
 
-export interface GovernorStep {
+interface GovernorStep {
   tier: QualityTier;
   /** True on the frame the tier actually changed (the only time the caller re-applies). */
   changed: boolean;

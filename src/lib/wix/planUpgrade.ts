@@ -20,7 +20,7 @@ export function pickUpgradePlan<T extends { primary?: boolean | null }>(plans: T
  * (PRICING_PLANS.READ_PUBLIC_PLANS) — the same no-elevate pattern as the buy flow's
  * createCheckout. queryPublicPlans is the API the paid-plans redirect doc itself points at.
  */
-export async function fetchUpgradePlanId(): Promise<string | null> {
+async function fetchUpgradePlanId(): Promise<string | null> {
   const { plans } = await import("@wix/pricing-plans");
   const res = await plans.queryPublicPlans().find();
   const plan = pickUpgradePlan(res.items ?? []);

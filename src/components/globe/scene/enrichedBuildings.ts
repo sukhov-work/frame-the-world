@@ -24,8 +24,8 @@ import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
 
 /**
  * Dnipro 3D enrichment — a THIRD `TilesRenderer` (Slice 0 de-risk spike). It streams a SELF-HOSTED
- * 3D-Tiles set (a plain HTTPS URL — Cloudflare R2 in production, or `public/enriched-sample/` served
- * locally by `wix dev`; NO Cesium ion auth) of roof-shaped enriched buildings, styled to the same
+ * 3D-Tiles set (a plain HTTPS URL — Cloudflare R2 in production, or `bakes/enriched/` served at
+ * `/enriched/*` by the dev middleware; NO Cesium ion auth) of roof-shaped enriched buildings, styled to the same
  * "dark mass, lit edges" idiom as the global OSM buildings, and seated on the RENDERED terrain.
  *
  * ── R1 (the #1 spike risk) — VERTICAL-DATUM SEATING ─────────────────────────────────────────────

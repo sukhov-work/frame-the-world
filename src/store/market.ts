@@ -19,7 +19,7 @@ import { STORES_APP_ID } from "../lib/market/listing";
 import { postListing, deleteListing } from "../lib/save/uploadMedia";
 import { useUploadStore } from "./upload";
 
-export type MarketPhase = "idle" | "listing" | "unlisting" | "buying" | "error";
+type MarketPhase = "idle" | "listing" | "unlisting" | "buying" | "error";
 
 export interface MarketState {
   phase: MarketPhase;

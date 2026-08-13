@@ -22,7 +22,7 @@ import { loadViewPrefs, saveViewPref } from "../lib/prefs";
 /** A one-shot "fly the camera here" request (location finder → orchestrator). The orchestrator
  *  consumes it on the next frame: geodetic target → ECEF arrival pose along the current approach
  *  azimuth → the same cinematic flight a placed photo uses. */
-export interface FlyRequest {
+interface FlyRequest {
   latDeg: number;
   lonDeg: number;
   /** Arrival camera altitude above the ellipsoid (m). */
@@ -46,7 +46,7 @@ export interface FpvBodyMarker {
 
 /** The tracked sky target's edge-chip marker (ASTRO ENGINE phase C) — a body marker plus what
  *  the chip face needs to say WHICH object it points at. */
-export interface SkyTargetMarker extends FpvBodyMarker {
+interface SkyTargetMarker extends FpvBodyMarker {
   /** Kind glyph (☄ ◉ ❍ …) — the chip face. */
   glyph: string;
   /** Shortest honest designation ("10P" · "MARS" · "M31") — the chip label + aria text. */
@@ -56,14 +56,14 @@ export interface SkyTargetMarker extends FpvBodyMarker {
 /** Sky-body direction markers (every mode): sun/moon ride the right-panel SKY-guides chip;
  *  the tracked target rides the TARGET panel's SHOW toggle — each slot null when its gate is
  *  off, the whole mirror null when nothing wants markers. */
-export interface SkyMarkers {
+interface SkyMarkers {
   sun: FpvBodyMarker | null;
   moon: FpvBodyMarker | null;
   target: SkyTargetMarker | null;
 }
 
 /** FPV HUD mirror — camera-view bearings + focal state + sky-body markers. */
-export interface FpvHud {
+interface FpvHud {
   /** Compass azimuth of the view centre (deg; 0 = north, 90 = east). */
   headingDeg: number;
   /** Elevation of the view centre (deg; + = up). */
@@ -79,7 +79,7 @@ export interface FpvHud {
 /** The viewer's ground point (owner 2026-07-14): the geodetic lat/lon directly under the camera
  *  plus the rendered terrain height there — the precise, copyable "where am I standing" readout
  *  the left HUD shows in EVERY mode (orbit and FPV alike). */
-export interface CamGeo {
+interface CamGeo {
   latDeg: number;
   lonDeg: number;
   /** Rendered terrain height (m above the ellipsoid) under the viewer; null while no ground

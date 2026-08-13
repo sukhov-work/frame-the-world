@@ -6,7 +6,7 @@
 
 import type { DecodeKind, DecodeWorkerMessage } from "./worker";
 
-export interface DecodedImage {
+interface DecodedImage {
   blob: Blob;
   width: number;
   height: number;

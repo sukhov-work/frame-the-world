@@ -14,7 +14,7 @@ export const WGS84_A = 6378137.0;
 /** WGS84 semi-minor axis (polar radius), metres. */
 export const WGS84_B = 6356752.314245;
 /** First eccentricity squared, e² = 1 − b²/a². */
-export const WGS84_E2 = 1 - (WGS84_B * WGS84_B) / (WGS84_A * WGS84_A);
+const WGS84_E2 = 1 - (WGS84_B * WGS84_B) / (WGS84_A * WGS84_A);
 
 export type Vec3 = readonly [number, number, number];
 

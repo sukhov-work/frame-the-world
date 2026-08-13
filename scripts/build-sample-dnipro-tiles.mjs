@@ -16,15 +16,17 @@
 // that runtime re-seat is exactly strategy R1(a). If it seats correctly, the strategy is proven.
 //
 // Run:  node scripts/build-sample-dnipro-tiles.mjs
-// Out:  public/enriched-sample/dnipro/{tileset.json, buildings.glb}
-// Serve (local, no R2 needed): `wix dev` serves public/ → set PUBLIC_ENRICHED_TILES_URL=/enriched-sample/dnipro/tileset.json
+// Out:  bakes/enriched/sample/dnipro/{tileset.json, buildings.glb}  (git-ignored; NOT in public/ —
+//       it must never ship in a build; audit 2026-08-13 B10)
+// Serve (local, no R2 needed): the astro.config dev middleware serves bakes/enriched/ at /enriched/*
+//       → set PUBLIC_ENRICHED_TILES_URL=/enriched/sample/dnipro/tileset.json
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dirname, "..", "public", "enriched-sample", "dnipro");
+const OUT_DIR = join(__dirname, "..", "bakes", "enriched", "sample", "dnipro");
 
 // --- WGS84 (matches src/lib/geo/projection.ts) ---------------------------------------------------
 const WGS84_A = 6378137.0;

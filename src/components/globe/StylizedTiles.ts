@@ -17,6 +17,7 @@ import { frameMarker } from "../../lib/geo/offscreen";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import {
+  GALACTIC_CENTRE_ID,
   saturnRingPoleDir,
   targetShortName,
   type TargetState,
@@ -2445,6 +2446,9 @@ export function attachStylizedTiles(opts: {
           // shown only while standing in a viewpoint, and only with the SKY guides on.
           asterisms: fpvActive && camNow.skyGuides,
           constellation: trackedConstellation,
+          // Phase 8a P2: the galactic-equator guide lights up while the GALACTIC CENTRE is
+          // the tracked target with SHOW on — the tracked-constellation precedent.
+          mwBand: skyForStars.visible && skyForStars.target.id === GALACTIC_CENTRE_ID,
         });
 
   };

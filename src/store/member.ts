@@ -12,7 +12,7 @@ import { create } from "zustand";
  * The SDK import is lazy (inside refresh) so tests and the globe bundle never pull @wix/members.
  */
 
-export type MemberPhase = "unknown" | "loading" | "member" | "anonymous";
+type MemberPhase = "unknown" | "loading" | "member" | "anonymous";
 
 export interface MemberInfo {
   id: string;

@@ -160,6 +160,41 @@ export function galacticToEquatorial(lDeg: number, bDeg: number): [number, numbe
   ];
 }
 
+export interface MwBandSegments {
+  /** J2000 equatorial unit vectors, PAIRED per segment (same contract as `asterismSegments`). */
+  positions: Float32Array;
+  segmentCount: number;
+}
+
+/**
+ * Galactic-equator guide polylines (Phase 8a P2): one closed small-circle of constant galactic
+ * latitude per entry in `latitudesDeg` (b=0 = the galactic equator; ±edges delimit the visual
+ * ribbon), sampled every `stepDeg` of galactic longitude. Unit-sphere vertices — the star
+ * sphere's scale supplies the world radius, its −GAST spin supplies the time dependence
+ * (precession deliberately ignored there: ≤0.3° at 2026, invisible at band width).
+ */
+export function milkyWayBandSegments(stepDeg: number, latitudesDeg: readonly number[]): MwBandSegments {
+  const perLine = Math.ceil(360 / stepDeg);
+  const segmentCount = perLine * latitudesDeg.length;
+  const positions = new Float32Array(segmentCount * 6);
+  let o = 0;
+  for (const b of latitudesDeg) {
+    for (let i = 0; i < perLine; i++) {
+      const l0 = i * stepDeg;
+      const l1 = Math.min(l0 + stepDeg, 360);
+      const [x0, y0, z0] = galacticToEquatorial(l0, b);
+      const [x1, y1, z1] = galacticToEquatorial(l1, b);
+      positions[o++] = x0;
+      positions[o++] = y0;
+      positions[o++] = z0;
+      positions[o++] = x1;
+      positions[o++] = y1;
+      positions[o++] = z1;
+    }
+  }
+  return { positions, segmentCount };
+}
+
 export interface MilkyWayOptions {
   count: number;
   /** Gaussian half-thickness across galactic latitude (deg). */

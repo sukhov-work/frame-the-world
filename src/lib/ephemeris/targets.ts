@@ -53,7 +53,7 @@ export type TargetKind =
   | "other";
 
 /** Which model produced a magnitude — the label the UI must show alongside the number. */
-export type TargetMagnitudeModel =
+type TargetMagnitudeModel =
   | "observed" // fitted to real observations (the comet's COBS light curve)
   | "jpl" // JPL M1/k1 fit (systematically faint for an extended coma — labelled)
   | "engine" // astronomy-engine planetary magnitude model
@@ -88,7 +88,7 @@ export interface TargetState {
 }
 
 /** Static, kind-specific card content — the panel renders from this typed union. */
-export type TargetFacts =
+type TargetFacts =
   | {
       kind: "planet";
       /** IAU equatorial radius (km) — also the angular-size source. */
@@ -381,6 +381,42 @@ export function saturnRingPoleDir(utcMs: number): Vec3 {
   return [ex / d, ey / d, ez / d] as const;
 }
 
+/** Sgr A* (SIMBAD ICRS J2000: 17h45m40.04s, −29°00′28.1″) — the Galactic-Centre TARGET.
+ *  Deliberately ≈4.3′ from the frame-defining IAU l=0,b=0 point (`GALACTIC_CENTER` in
+ *  lib/ephemeris/stars.ts, 266.405°/−28.93617°): the compact radio source is what a photographer
+ *  aims at; the galactic-coordinate origin defines the Milky-Way band basis. Never merge the two
+ *  constants — three stars.test.ts round-trips key off the frame one. */
+const SGR_A_STAR_J2000 = { raDeg: 266.41684, decDeg: -29.00781 } as const;
+
+/** `targetShortName` slices "dso:" off dso-fact ids — "dso:gc" reads GC on the edge chip. */
+export const GALACTIC_CENTRE_ID = "dso:gc";
+
+/**
+ * The Milky Way core as a first-class fixed-provider target (Phase 8a P2). Reticle, trail, edge
+ * chips, dark-sky windows and the skyline verdict all ride the generic SkyTarget machinery; no
+ * `apparent` extents → the POINT reticle treatment. vmag null — a diffuse region has no honest
+ * catalog magnitude (magnitude renders as "—").
+ */
+export function galacticCentreTarget(): SkyTarget {
+  return fixedTarget({
+    id: GALACTIC_CENTRE_ID,
+    name: "Galactic Centre",
+    kind: "galaxy",
+    aliases: ["Sgr A*", "Sagittarius A*", "Milky Way core", "GC"],
+    raDeg: SGR_A_STAR_J2000.raDeg,
+    decDeg: SGR_A_STAR_J2000.decDeg,
+    vmag: null,
+    facts: {
+      kind: "dso",
+      dsoType: "GC",
+      typeLabel: "GALACTIC CENTRE",
+      constellation: "Sgr",
+      names: ["Sgr A*", "Sagittarius A*", "Milky Way core"],
+    },
+    source: "SIMBAD (Sgr A*, ICRS J2000)",
+  });
+}
+
 // ------------------------------------------------------------------------------------------
 // kepler provider — osculating elements through the comet propagator
 // ------------------------------------------------------------------------------------------
@@ -493,7 +529,7 @@ export { ELEMENTS_TRUST_DAYS };
 /** "10P/Tempel 2" → "10P" · "C/1995 O1 (Hale-Bopp)" → "C/1995 O1" — numbered periodic comets
  *  shorten to the number, long-period ones keep the year designation (dropping "C/" would
  *  collide with the provisional-asteroid grammar). */
-export function cometShortDesignation(designation: string): string {
+function cometShortDesignation(designation: string): string {
   return designation.match(/^(\d+[A-Z])\b/)?.[1] ?? designation.split(" (")[0].trim();
 }
 

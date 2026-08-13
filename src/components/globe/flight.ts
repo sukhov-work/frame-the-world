@@ -29,7 +29,7 @@ export interface FlightTarget {
   lookAt: THREE.Vector3;
 }
 
-export interface FlightStartOpts {
+interface FlightStartOpts {
   /** Path-altitude floor (m above the ellipsoid) — usually max(rendered terrain at both
    *  endpoints) + FLIGHT.floorClearM. Enforced mid-flight, ramped near the endpoints so the
    *  start/end poses stay exact. null/undefined = no floor (pure ellipsoid blend). */

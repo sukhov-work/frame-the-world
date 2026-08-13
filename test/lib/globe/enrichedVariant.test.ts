@@ -43,8 +43,8 @@ describe("resolveEnrichedUrl", () => {
   });
 
   it("value containing '/' → used verbatim", () => {
-    expect(resolveEnrichedUrl(ENV, "?enriched=/enriched-sample/dnipro-o2w/tileset.json")).toBe(
-      "/enriched-sample/dnipro-o2w/tileset.json",
+    expect(resolveEnrichedUrl(ENV, "?enriched=/enriched/sample/dnipro-o2w/tileset.json")).toBe(
+      "/enriched/sample/dnipro-o2w/tileset.json",
     );
     expect(resolveEnrichedUrl(undefined, "?enriched=https://x.test/t/tileset.json")).toBe(
       "https://x.test/t/tileset.json",
