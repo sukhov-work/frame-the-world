@@ -17,7 +17,7 @@ import {
 import { horizontal } from "../../lib/ephemeris/bodies";
 import { bodyTarget, galacticCentreTarget, targetAzAlt } from "../../lib/ephemeris/targets";
 import { sampleBins } from "../../lib/geo/horizonProfile";
-import { findHitColor } from "../../lib/theme/findPalette";
+import { findHitColor, findStandingColorIdx } from "../../lib/theme/findPalette";
 import { cardinal } from "../../lib/format/readout";
 import { downloadIcs } from "../../lib/export/ics";
 import "../../styles/plan-panel.css"; // the shared .pp-* board grammar (chips, dots, rows)
@@ -181,7 +181,7 @@ export default function FindPanel() {
 
   // Ghost mirror: the first FIND_GHOST_CAP standings by date, colour = row index on the wheel.
   useEffect(() => {
-    const ghosts: FindGhost[] = hits.slice(0, FIND_GHOST_CAP).map((h, i) => ({
+    const ghosts: FindGhost[] = hits.slice(0, FIND_GHOST_CAP).map((h) => ({
       key: `${h.body}:${h.utcMs}`,
       utcMs: h.utcMs,
       body: h.body,
@@ -190,7 +190,8 @@ export default function FindPanel() {
       discDeg: DISC_DEG[h.body],
       tNorm: Math.min(1, Math.max(0, (h.utcMs - baseMs) / (rangeDays * DAY_MS))),
       visibility: h.visibility,
-      colorIdx: i,
+      illum: h.body === "moon" ? h.moonIllum : 0,
+      colorIdx: findStandingColorIdx(h.body, h.utcMs),
     }));
     useFindStore.getState()._syncGhosts({ latDeg: latKey / 20, lonDeg: lonKey / 20 }, ghosts);
     // eslint-disable-next-line react-hooks/exhaustive-deps — baseMs rides minuteKey via hits
@@ -285,7 +286,7 @@ export default function FindPanel() {
                       >
                         <span
                           className={`fnd-sw ${projected ? "" : "fnd-sw--off"}`}
-                          style={{ background: findHitColor(i).css }}
+                          style={{ background: findHitColor(findStandingColorIdx(h.body, h.utcMs)).css }}
                         />
                         <i className={`pp-day__dot pp-day__dot--${h.light}`} />
                         <span className="pp-day__time">{dateTag(h.utcMs)}</span>

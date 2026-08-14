@@ -68,6 +68,16 @@ export const SKY = {
   sunIntensity: 5,
   /** Halo gain inside the impostor shader (kept low — UnrealBloom carries the wide glow). */
   sunGlowGain: 0.5,
+  /** Atmospheric extinction on the SUN disc near the horizon (owner 2026-08-14: "when the sun
+   *  is really close to the horizon, dim it a little like the real atmosphere does"). The
+   *  factor ramps 1 → floor as the sun's altitude falls from this angle to 0° (smoothstep — a
+   *  taste curve standing in for the airmass exponential, which would crush the disc to ~10⁻³
+   *  and break the cinematic look). Applied to the WHOLE impostor (core + halo), so the bloom
+   *  driver dims with it; faded out with altitude above the atmosphere (ATMOSPHERE.skyFullAlt/
+   *  GoneAlt — from orbit there is no air in the way). */
+  sunExtinctAltHiDeg: 10,
+  /** Extinction floor at 0° altitude (and below) — "a little bit", not astronomy. */
+  sunExtinctFloor: 0.4,
   /** Moon albedo multiplier (>1 pushes the lit limb into bloom; raised 2026-07-10 "moon
    *  brighter", again for the S5 night pass, again S6 (owner: "brighter, organically") — the
    *  gain rides the existing albedo·(N·sun)^0.8 curve so maria contrast and the phase shape
@@ -1885,6 +1895,18 @@ export const FINDGHOSTS = {
   /** Minimum effective alpha for a ghost to be clickable — a near-invisible ghost must not
    *  steal a sky click. */
   pickMinAlpha: 0.08,
+  /** In-sky standing labels (owner 2026-08-14: "subtle date dd.mm near each standing; the moon
+   *  adds its phase %"). DOM layer in the hit's identity colour (the skyNames/geoLabels
+   *  discipline — design fonts, no GL text); opacity rides the ghost's own effective alpha. */
+  labelAlphaK: 0.85,
+  /** Screen-space de-clutter: a label within this many px of an already-placed one is skipped
+   *  (date order; the hovered ghost's label always wins). The dense two-branch corridor at long
+   *  focals would otherwise stack 20 labels on one spot. */
+  labelMinSepPx: 34,
+  /** Gap (px) between the ring's right edge and its label. */
+  labelPadPx: 6,
+  /** Labels below this effective alpha hide entirely (melted/faded ghosts stay quiet). */
+  labelMinAlpha: 0.06,
 } as const;
 
 /** Night-sky asterism figures (Phase 5.5 S6, §Item 4) — ~20 famous d3-celestial figures as a

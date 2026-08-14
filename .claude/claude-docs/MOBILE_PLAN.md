@@ -226,6 +226,11 @@ touch (walk → look-drag → zero position drift).
 re-scoped 2026-08-13)*. P2 MW band/GC → P3 season calendar/score → P4 Find → P5 NPF → P6 moon
 calendar. Each feature's lib + desktop surface land FIRST in Phase 8a/8b; M3 adds the mobile
 TOOLS/PLAN cards + sheets on the same libs/stores.
+> **M3a ☑ + M3b ☑ BUILT 2026-08-14 night-5b, phone-viewport browser-VERIFIED** (DECISIONS
+> night-5b): dock v2 = the desktop conveyor at phone scale (lightSegments bands + hour labels
+> + sun/moon curves + target trace + edge-tap events); PlanSheet v2 = THIS FRAME · TODAY ·
+> FIND v2 (the sheet is the store/find ghost writer on /m) · MOON · SPOT STARS twins.
+> **M3c OPEN:** GHOSTS controls → TARGET sheet · long-press sky-menu · tap-to-reveal names.
 
 **M4 — On-site + events.** AR aim (dual-path compass + calibration UX — mobile-native, stays here) ·
 P7 meteors · P8 conjunctions · P9 lunar eclipses *(P7–P9 desktop-first in Phase 8c; M4 adds the

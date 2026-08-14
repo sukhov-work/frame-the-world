@@ -9,78 +9,162 @@
   -webkit-user-select: none;
 }
 
+/* v2 (M3a): the rail is the desktop conveyor at phone scale — light bands + compact sun/moon
+   curves + hour labels sliding under a FIXED centre cursor. Geometry contract: rail 40px =
+   2px top inset + 28px band/curve strip + 10px hour-label row (the .ts-rail 48/3/32/13 twin —
+   keep the three insets in lockstep). */
 .md-rail {
   position: relative;
-  height: 30px; /* fatter than the desktop 22px — this is a thumb target */
+  height: 40px; /* thumb target + label row */
   touch-action: none; /* the rail owns the horizontal drag — never pans the page */
   outline: none;
   cursor: ew-resize;
 }
+.md-rail:focus-visible {
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
 
-/* Twilight bands — same 4-step moonlight ramp as the desktop rail (time-scrubber.css). */
-.md-twilight {
+/* Light bands — the desktop hues verbatim (time-scrubber.css .ts-light__seg--*). */
+.md-light {
   position: absolute;
-  inset: 0;
+  inset: 2px 0 10px 0;
   pointer-events: none;
 }
-.md-twilight__seg {
+.md-light__seg {
   position: absolute;
-  top: 10px;
-  bottom: 10px;
+  top: 0;
+  bottom: 0;
   border-radius: 2px;
 }
-.md-twilight__seg--civil {
-  background: color-mix(in srgb, var(--color-moonlight) 12%, transparent);
+.md-light__seg--day {
+  background: color-mix(in srgb, var(--color-sun-glow) 8%, transparent);
 }
-.md-twilight__seg--nautical {
-  background: color-mix(in srgb, var(--color-moonlight) 24%, transparent);
+.md-light__seg--golden {
+  background: color-mix(in srgb, var(--color-golden-hour) 36%, transparent);
 }
-.md-twilight__seg--astro {
-  background: color-mix(in srgb, var(--color-moonlight) 38%, transparent);
+.md-light__seg--blue {
+  background: color-mix(in srgb, var(--color-blue-hour) 34%, transparent);
 }
-.md-twilight__seg--night {
-  background: color-mix(in srgb, var(--color-moonlight) 55%, transparent);
+.md-light__seg--nautical {
+  background: color-mix(in srgb, var(--color-moonlight) 16%, transparent);
+}
+.md-light__seg--astro {
+  background: color-mix(in srgb, var(--color-moonlight) 8%, transparent);
+}
+.md-light__seg--night {
+  background: color-mix(in srgb, var(--color-night-band) 65%, transparent);
 }
 
-.md-track {
+/* Compact sun/moon curves + target trace (viewBox 100×40 stretched; horizon = midline). Trace
+   strokes one step lighter than the desktop's (5/2.4/1.6 → 4/2/1.4) — phone rail is shorter. */
+.md-curves {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 2px;
-  transform: translateY(-50%);
-  background: var(--color-border);
-  border-radius: 1px;
+  inset: 2px 0 10px 0;
+  width: 100%;
+  height: 28px; /* rail 40 − 2 top − 10 label row (keep in lockstep with .md-rail) */
+  pointer-events: none;
+  overflow: visible;
+}
+.md-curves path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.md-curves__horizon {
+  stroke: color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.md-curves__sun {
+  stroke: color-mix(in srgb, var(--color-sun-glow) 85%, transparent);
+  stroke-width: 1.3;
+}
+.md-curves__moon {
+  stroke: color-mix(in srgb, var(--color-moonlight) 70%, transparent);
+  stroke-width: 1;
+}
+.md-curves__trace-blocked {
+  stroke: color-mix(in srgb, var(--color-text-muted) 42%, transparent);
+  stroke-width: 1.4;
+  stroke-dasharray: 2 3;
+}
+.md-curves__trace-clear {
+  stroke: color-mix(in srgb, var(--color-accent) 52%, transparent);
+  stroke-width: 2;
+}
+.md-curves__trace-frame {
+  stroke: color-mix(in srgb, var(--color-accent) 78%, transparent);
+  stroke-width: 4;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--color-accent) 55%, transparent));
 }
 
+/* Hour ticks — REAL local hours sliding with the conveyor; labels every SCRUB.hourLabelEvery.
+   Midnight = a full-strip day boundary. */
 .md-ticks {
   position: absolute;
   inset: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   pointer-events: none;
 }
 .md-tick {
+  position: absolute;
+  bottom: 10px;
   width: 1px;
-  height: 10px;
-  background: color-mix(in srgb, var(--color-text-muted) 60%, transparent);
+  height: 4px;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+}
+.md-tick--major {
+  height: 7px;
+  background: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
+}
+.md-tick--midnight {
+  height: 28px; /* full curve-strip day boundary (rail 40 geometry) */
+  background: color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
+}
+.md-tick__label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 1px;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.md-tick--midnight .md-tick__label {
+  color: var(--color-text-secondary);
 }
 
-.md-knob {
+/* Centre playhead — the conveyor's fixed reading lens (accent = LIVE, warn-amber = pinned). */
+.md-cursor {
   position: absolute;
-  top: 50%;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: var(--color-accent);
-  box-shadow: 0 0 8px rgba(56, 225, 208, 0.7);
+  left: 50%;
+  top: -3px;
+  bottom: 9px;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-accent) 88%, transparent);
+  box-shadow: 0 0 6px rgba(56, 225, 208, 0.55);
   pointer-events: none;
+  transition: background 180ms ease, box-shadow 180ms ease;
 }
-.md-knob--pinned {
+.md-cursor::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 9px;
+  height: 11px;
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+  background: inherit;
+}
+.md-cursor--pinned {
   background: var(--color-warn);
-  box-shadow: 0 0 8px rgba(232, 162, 104, 0.7);
+  box-shadow: 0 0 6px rgba(232, 162, 104, 0.6);
 }
 
 /* Control row under the rail: date · play · rate · offset · NOW. */

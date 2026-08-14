@@ -63,7 +63,7 @@ export default function MobileShell() {
   return (
     <>
       <div className="m-status">
-        <span className="m-title">Frame&nbsp;the&nbsp;World</span>
+        <span className="m-title">Sidera</span>
         <span className="m-status__right">
           <TimeChip />
           <a className="m-chip" href="/">

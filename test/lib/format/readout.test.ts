@@ -14,6 +14,7 @@ import {
   formatCaptureDateTime,
   formatAltM,
   formatEyeM,
+  formatStandingLabel,
   cardinal,
   formatSigned,
   EM_DASH,
@@ -116,5 +117,18 @@ describe("megapixels / bytes / datetime", () => {
   it("capture datetime is string surgery on the TZ-naive ISO", () => {
     expect(formatCaptureDateTime("2026-06-21T18:42:17")).toBe("2026-06-21 · 18:42");
     expect(formatCaptureDateTime(undefined)).toBe(EM_DASH);
+  });
+});
+
+describe("standing label (FIND in-sky tag, owner 2026-08-14)", () => {
+  // Local-date semantics: build the instant FROM local fields so the test is TZ-independent.
+  const ms = new Date(2026, 7, 3, 19, 47).getTime(); // Aug 3, local
+
+  it("dd.mm with zero padding", () => {
+    expect(formatStandingLabel(ms)).toBe("03.08");
+  });
+  it("the moon appends its phase percentage", () => {
+    expect(formatStandingLabel(ms, 0.62)).toBe("03.08 · 62%");
+    expect(formatStandingLabel(ms, 0)).toBe("03.08 · 0%");
   });
 });

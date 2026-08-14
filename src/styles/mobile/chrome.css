@@ -265,6 +265,138 @@
   color: var(--color-moonlight);
 }
 
+/* Compact list rows (M3b — the pp-day__row twin): full-width jump button, light dot, time,
+   kind, quiet meta. One grammar serves TODAY / MOON / FIND / THIS FRAME. */
+.m-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.m-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+.m-row--hot .m-row__jump {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.m-row__jump,
+.m-row__none {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 2.1rem; /* touch target */
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.2rem 0.35rem;
+  text-align: left;
+}
+.m-row__jump:active {
+  border-color: color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+}
+.m-row__glyph {
+  flex: none;
+  width: 1rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+.m-row__time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.m-row__kind {
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.m-row__meta {
+  margin-left: auto;
+  font-size: 0.54rem;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.m-row__meta + .m-row__meta {
+  margin-left: 6px;
+}
+
+/* Light-phase dots — the scrubber band colours (the pp-day__dot twin). */
+.m-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+.m-dot--day {
+  background: var(--color-sun-glow);
+}
+.m-dot--golden {
+  background: var(--color-golden-hour);
+}
+.m-dot--blue {
+  background: var(--color-blue-hour);
+}
+.m-dot--nautical {
+  background: color-mix(in srgb, var(--color-moonlight) 55%, var(--color-night-band));
+}
+.m-dot--astro {
+  background: color-mix(in srgb, var(--color-moonlight) 25%, var(--color-night-band));
+}
+.m-dot--night {
+  background: var(--color-night-band);
+}
+
+/* FIND identity swatch — matches the in-sky ghost ring colour (the fnd-sw twin). */
+.m-sw {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* SPOT STARS (NPF) inputs + readout. */
+.m-npf {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.m-npf__field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+}
+.m-in {
+  width: 3.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 6px;
+  padding: 4px 6px;
+  color-scheme: dark;
+}
+.m-npf__big {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  color: var(--color-accent);
+  margin: 0.4rem 0 0.1rem;
+}
+
 /* Body verdict rows (sun/moon/target vs the skyline). */
 .m-body {
   display: flex;
