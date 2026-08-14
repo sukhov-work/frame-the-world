@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { SKY, WGS84_A, WGS84_B } from "../tuning";
+import { ATMOSPHERE, SKY, WGS84_A, WGS84_B } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
 
 /**
@@ -158,6 +158,8 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     uSunDir: { value: new THREE.Vector3(1, 0, 0) },
     uBrightness: { value: SKY.moonBrightness },
     uEarthshine: { value: SKY.moonEarthshine },
+    // 0 night/space → 1 full daylight sky behind the disc (CPU per frame — see update()).
+    uDaySky: { value: 0 },
     uHorizonUp,
     uSinHor,
     uHorizonBandSin,
@@ -165,8 +167,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   const moonMat = new THREE.ShaderMaterial({
     uniforms: moonUniforms,
     // Transparent so the horizon fade can dissolve the disc; depthWrite stays ON — the moon BODY
-    // occludes stars behind it regardless of phase. Fully-occluded fragments discard instead
-    // (no depth hole punched into the starfield by an invisible disc).
+    // occludes stars behind it regardless of phase. Fully-occluded OR day-sky-invisible fragments
+    // discard instead (no depth hole punched into the starfield — and no depth wall that rejects
+    // the additive sky dome drawn after the disc: the daytime dark-disc bug, owner 2026-08-14).
     transparent: true,
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -183,21 +186,29 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       uniform vec3 uSunDir;
       uniform float uBrightness;
       uniform float uEarthshine;
+      uniform float uDaySky;
       varying vec2 vUv;
       varying vec3 vNw;
       varying vec3 vW;
       ${HORIZON_FADE_GLSL}
       void main() {
         float fade = horizonFade(vW);
-        if (fade < 0.004) discard; // behind the planet — write no depth, hide no stars
-        vec3 albedo = texture2D(uMap, vUv).rgb;
         float lit = max(dot(normalize(vNw), normalize(uSunDir)), 0.0);
         // soften the terminator a touch (regolith scattering reads better than a hard lambert)
         lit = pow(lit, 0.8);
+        // Day-sky occlusion (owner 2026-08-14): against a bright sky only the SUNLIT part of
+        // the disc shows — alpha follows the lit term as the day comes up, so the night side is
+        // sky, not an opaque dark disc. At night uDaySky→0 keeps the disc opaque (occludes stars).
+        float vis = mix(1.0, clamp(lit * ${glf(SKY.moonDayAlphaGain)}, 0.0, 1.0), uDaySky);
+        float alpha = fade * vis;
+        if (alpha < ${glf(SKY.moonAlphaDiscard)}) discard; // invisible → write NO depth (dome safety)
+        vec3 albedo = texture2D(uMap, vUv).rgb;
         vec3 color = albedo * (uEarthshine + lit * uBrightness);
         ${DITHER_GLSL}
-        gl_FragColor = vec4(color, fade);
-        #include <tonemapping_fragment>
+        gl_FragColor = vec4(color, alpha);
+        // NO tonemapping_fragment here: OutputPass tone-maps the whole buffer once — a second
+        // in-shader pass crushed the earthshine limb to (7,6,2) black (the measured dark disc).
+        // Every other sky shader already includes colorspace_fragment only.
         #include <colorspace_fragment>
       }`,
   });
@@ -258,6 +269,14 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       _m.makeBasis(_x, _y, _z);
       moonMesh.quaternion.setFromRotationMatrix(_m);
       moonUniforms.uSunDir.value.copy(sunDir);
+      // Day-sky visibility for the dark-limb alpha (dark-disc fix, owner 2026-08-14): the SAME
+      // sun-elevation ramp the atmosphere's dayK uses × the sky-regime altitude fade — the
+      // disc's alpha story always matches the sky the dome paints behind it. uHorizonUp was
+      // just refreshed above (scaled-space up ≈ geodetic up to ~0.3%).
+      const sinSun = sunDir.dot(uHorizonUp.value);
+      const dayK = THREE.MathUtils.smoothstep(sinSun, ATMOSPHERE.skyDawnLo, ATMOSPHERE.skyDawnHi);
+      const skyK = 1 - THREE.MathUtils.smoothstep(alt, ATMOSPHERE.skyFullAlt, ATMOSPHERE.skyGoneAlt);
+      moonUniforms.uDaySky.value = dayK * skyK;
 
       // Moonlight follows the moon; intensity follows the K&S phase curve (quarter ≈ 9% of
       // full — physical relative scaling, calibrated at full moon by moonKeyIntensity).

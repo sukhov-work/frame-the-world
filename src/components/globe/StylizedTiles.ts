@@ -49,6 +49,7 @@ import { attachImageryGround } from "./scene/imageryGround";
 import { attachSky } from "./scene/sky";
 import { attachSkyTarget } from "./scene/skyTarget";
 import { attachSkyTrail } from "./scene/skyTrail";
+import { attachSkyGhosts } from "./scene/skyGhosts";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachPlanFeed } from "./scene/planFeed";
 import { attachMinimapFeed } from "./scene/minimapFeed";
@@ -235,6 +236,7 @@ export function attachStylizedTiles(opts: {
   const sky = attachSky(scene);
   const skyTarget = attachSkyTarget(scene); // tracked sky target (ASTRO ENGINE) — 10P by default
   const skyTrail = attachSkyTrail(scene); // the target's day-arc trajectory (phase C, SHOW+TRAIL)
+  const skyGhosts = attachSkyGhosts(scene); // temporal ghost copies of the tracked body (QoL-2)
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
   const geoLabels = attachGeoLabels(scene); // NE labels + boundaries (S7b) — mid-zoom window only
   // Shared MVT source (S7 feedback batch): ONE fetch/parse per z14 tile feeds the GL street
@@ -668,6 +670,75 @@ export function attachStylizedTiles(opts: {
     return true;
   };
 
+  // --- Right-click a sky body (QoL-2 ask 7, owner 2026-08-14): the same ANGULAR test as the
+  //     marker click, extended to the sun and the moon (their meshes keep raycast disabled).
+  //     A hit suppresses the browser menu and mirrors {kind, screen px, az/alt} into
+  //     camera.skyMenu for the SkyContextMenu island; a ground right-click keeps the native
+  //     browser menu. Any canvas pointerdown clears the mirror (natural dismiss). -----------
+  const _menuMoonDir = new THREE.Vector3();
+  const dirToAzAltAtCamera = (dir: THREE.Vector3): { azDeg: number; altDeg: number } => {
+    const g = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+    const b = enuBasis(g.latDeg, g.lonDeg);
+    const azDeg = wrapHeadingDeg(
+      THREE.MathUtils.radToDeg(
+        Math.atan2(
+          dir.x * b.east[0] + dir.y * b.east[1] + dir.z * b.east[2],
+          dir.x * b.north[0] + dir.y * b.north[1] + dir.z * b.north[2],
+        ),
+      ),
+    );
+    const altDeg = THREE.MathUtils.radToDeg(
+      Math.asin(THREE.MathUtils.clamp(dir.x * b.up[0] + dir.y * b.up[1] + dir.z * b.up[2], -1, 1)),
+    );
+    return { azDeg, altDeg };
+  };
+  const onSkyContextMenu = (e: MouseEvent) => {
+    const rect = dom.getBoundingClientRect();
+    const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+    _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
+    const rayDir = _pickRay.ray.direction;
+    const skyNow = useSkyStore.getState();
+    const candidates: Array<{
+      kind: "sun" | "moon" | "target";
+      dir: THREE.Vector3;
+      radiusDeg: number;
+    }> = [
+      {
+        kind: "sun",
+        dir: sunDirW,
+        radiusDeg: Math.max(THREE.MathUtils.radToDeg(sunAngRad) * 2, ORCH.skyMenuMinHitDeg),
+      },
+      {
+        kind: "moon",
+        dir: _menuMoonDir.copy(moonPosW).sub(camera.position).normalize(),
+        radiusDeg: Math.max(
+          THREE.MathUtils.radToDeg(
+            angularRadiusRad(MOON_RADIUS_KM * 1000, moonPosW.distanceTo(camera.position)),
+          ) * 2,
+          ORCH.skyMenuMinHitDeg,
+        ),
+      },
+    ];
+    if (skyNow.visible && skyTarget.mesh.visible)
+      candidates.push({ kind: "target", dir: targetDirW, radiusDeg: skyTarget.hitRadiusDeg() });
+    let best: (typeof candidates)[number] | null = null;
+    let bestDot = -1;
+    for (const c of candidates) {
+      const dot = rayDir.dot(c.dir);
+      if (dot >= Math.cos(THREE.MathUtils.degToRad(c.radiusDeg)) && dot > bestDot) {
+        best = c;
+        bestDot = dot;
+      }
+    }
+    if (!best) return;
+    const { azDeg, altDeg } = dirToAzAltAtCamera(best.dir);
+    if (altDeg < ORCH.skyMenuMinAltDeg) return; // below the horizon — that click was terrain
+    e.preventDefault();
+    useCameraStore
+      .getState()
+      .setSkyMenu({ kind: best.kind, screenX: e.clientX, screenY: e.clientY, azDeg, altDeg });
+  };
+
   // --- Click-to-place (the missing-GPS path): while the store is in "placing", a CLICK (not a
   //     drag) casts the pointer ray at the ground and drops the photo there. A live accent
   //     marker hugs the rendered ground under the pointer (Phase 5.5 S3) so the drop point is
@@ -697,6 +768,9 @@ export function attachStylizedTiles(opts: {
   const notePointerDown = (e: PointerEvent) => {
     downX = e.clientX;
     downY = e.clientY;
+    // Any canvas press dismisses the sky context menu (a right press re-opens it on a hit).
+    const camMenu = useCameraStore.getState();
+    if (camMenu.skyMenu) camMenu.setSkyMenu(null);
   };
   // Long-press pin drop (MOBILE_PLAN §4.3, M1): state lives up here because onPointerUp must
   // know a fired press already consumed the gesture — the pin lands BEFORE the finger lifts,
@@ -927,21 +1001,35 @@ export function attachStylizedTiles(opts: {
   // Escape unwinds the interaction stack one level at a time: explore → photo FPV →
   // temp-pin FPV → temp pin → a viewed saved pin (deselect). Own unsaved uploads keep their
   // UploadFlow Escape semantics (never discarded from here).
+  // A focused typing surface owns its letters/arrows — walk keys must never steal them.
+  const typingTarget = (ae: HTMLElement | null): boolean => {
+    const tag = ae?.tagName;
+    return !!ae && (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || ae.isContentEditable);
+  };
   const onFpvKey = (e: KeyboardEvent) => {
     if (fpvActive && !e.metaKey && !e.ctrlKey) {
-      // Arrow keys WALK on the ground plane (you walk where you look; ◀▶ strafe).
-      // Shift sprints (×walkFastMult); Option/Alt creeps (×walkSlowMult). Modifier state is
-      // mirrored on EVERY key event so pressing/releasing mid-stride retunes the speed live.
+      // Arrow keys + WASD (owner 2026-08-14, ask 2) WALK on the ground plane (you walk where
+      // you look; ◀▶/AD strafe). Shift sprints (×walkFastMult); Option/Alt creeps
+      // (×walkSlowMult). Modifier state is mirrored on EVERY key event so pressing/releasing
+      // mid-stride retunes the speed live. Guards: WASD are letters — blocked only while a
+      // typing surface is focused; arrows additionally yield to an EXPLICIT tabindex owner
+      // (the scrubber rail scrubs with ◀▶ — native buttons don't use arrows, so they still walk).
+      const ae = document.activeElement as HTMLElement | null;
       fpvKeysDown.shift = e.shiftKey;
       fpvKeysDown.alt = e.altKey;
-      if (e.key === "ArrowUp") { fpvKeysDown.up = true; e.preventDefault(); return; }
-      if (e.key === "ArrowDown") { fpvKeysDown.down = true; e.preventDefault(); return; }
-      if (e.key === "ArrowLeft") { fpvKeysDown.left = true; e.preventDefault(); return; }
-      if (e.key === "ArrowRight") { fpvKeysDown.right = true; e.preventDefault(); return; }
+      const isArrow = e.key.startsWith("Arrow");
+      const walkBlocked = isArrow ? typingTarget(ae) || !!ae?.hasAttribute("tabindex") : typingTarget(ae);
+      if (!walkBlocked) {
+        if (e.key === "ArrowUp" || e.code === "KeyW") { fpvKeysDown.up = true; e.preventDefault(); return; }
+        if (e.key === "ArrowDown" || e.code === "KeyS") { fpvKeysDown.down = true; e.preventDefault(); return; }
+        if (e.key === "ArrowLeft" || e.code === "KeyA") { fpvKeysDown.left = true; e.preventDefault(); return; }
+        if (e.key === "ArrowRight" || e.code === "KeyD") { fpvKeysDown.right = true; e.preventDefault(); return; }
+      }
       if (e.code === "Space") {
-        // SPACE = ascend (QoL-1). Never steal Space from an interactive element — the browser
+        // SPACE = ascend, SHIFT+SPACE = descend (QoL-1 + owner 2026-08-14 ask 2 — the sign
+        // rides the live shift mirror, so pressing/releasing Shift mid-hold reverses without
+        // restarting the ramp). Never steal Space from an interactive element — the browser
         // activates a focused button/input with it (the scrubber rail is tabIndex=0 too).
-        const ae = document.activeElement as HTMLElement | null;
         const tag = ae?.tagName;
         if (
           ae &&
@@ -958,6 +1046,12 @@ export function attachStylizedTiles(opts: {
     if (e.key !== "Escape") return;
     const up = useUploadStore.getState();
     const camS = useCameraStore.getState();
+    // The sky context menu owns the first Escape — closing it must not unwind FPV (QoL-2 ask 7;
+    // the SkyContextMenu island also closes itself, so this consume is belt-and-braces).
+    if (camS.skyMenu) {
+      camS.setSkyMenu(null);
+      return;
+    }
     if (camS.exploreActive) camS.setExplore(false);
     else if (up.viewMode === "fpv") up.setViewMode("orbit");
     else if (camS.tempFpv) camS.setTempFpv(false);
@@ -967,10 +1061,10 @@ export function attachStylizedTiles(opts: {
   const onFpvKeyUp = (e: KeyboardEvent) => {
     fpvKeysDown.shift = e.shiftKey;
     fpvKeysDown.alt = e.altKey;
-    if (e.key === "ArrowUp") fpvKeysDown.up = false;
-    else if (e.key === "ArrowDown") fpvKeysDown.down = false;
-    else if (e.key === "ArrowLeft") fpvKeysDown.left = false;
-    else if (e.key === "ArrowRight") fpvKeysDown.right = false;
+    if (e.key === "ArrowUp" || e.code === "KeyW") fpvKeysDown.up = false;
+    else if (e.key === "ArrowDown" || e.code === "KeyS") fpvKeysDown.down = false;
+    else if (e.key === "ArrowLeft" || e.code === "KeyA") fpvKeysDown.left = false;
+    else if (e.key === "ArrowRight" || e.code === "KeyD") fpvKeysDown.right = false;
     else if (e.code === "Space") fpvKeysDown.space = false;
   };
   // Focus loss eats keyup events — release every held walk/ascend key or the camera walks
@@ -1030,6 +1124,7 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("pointercancel", onFpvPointerEnd);
   dom.addEventListener("wheel", onFpvWheel, { passive: false });
   dom.addEventListener("dblclick", onDblClick);
+  dom.addEventListener("contextmenu", onSkyContextMenu);
   window.addEventListener("keydown", onFpvKey);
   window.addEventListener("keyup", onFpvKeyUp);
   window.addEventListener("blur", onWinBlur);
@@ -1602,16 +1697,18 @@ export function attachStylizedTiles(opts: {
                 fpvWalkOffset.addScaledVector(_fpvWalkFwd, stick.fwd * k);
                 fpvWalkOffset.addScaledVector(_fpvWalkRight, stick.right * k);
               }
-              // SPACE = ascend with hold-acceleration (QoL-1, owner 2026-08-14): gain ramps
-              // QUADRATICALLY over spaceRampS (a tap nudges centimetres, a hold accelerates —
-              // precision-controlled, never faster than the encoder rail), stepping the SAME
-              // strictly-vertical identity the ALTITUDE encoder drives (temp: eye height;
-              // photo: lift off the apex) with the same proportional floor + clamps. Mutating
+              // SPACE = ascend, SHIFT+SPACE = descend, with hold-acceleration (QoL-1 +
+              // owner 2026-08-14 ask 2): gain ramps QUADRATICALLY over spaceRampS (a tap
+              // nudges centimetres, a hold accelerates — precision-controlled, never faster
+              // than the encoder rail), stepping the SAME strictly-vertical identity the
+              // ALTITUDE encoder drives (temp: eye height; photo: lift off the apex) with the
+              // same proportional floor + clamps. The shift mirror flips the SIGN live — a
+              // mid-hold Shift press reverses direction without restarting the ramp. Mutating
               // next frame's eye/lift here (not camera.position) keeps one vertical authority.
               if (fpvKeysDown.space) {
                 fpvSpaceHeldMs += dtMs;
                 const gain = Math.min(1, fpvSpaceHeldMs / (FPV.spaceRampS * 1000));
-                const rate = FPV.spaceLiftRatePerS * gain * gain;
+                const rate = FPV.spaceLiftRatePerS * gain * gain * (fpvKeysDown.shift ? -1 : 1);
                 if (fpvKind === "temp") {
                   fpvEyeM = THREE.MathUtils.clamp(
                     fpvEyeM + ((rate * dtMs) / 1000) * Math.max(fpvEyeM, FPV.vertEncoderBaseM),
@@ -2388,6 +2485,20 @@ export function attachStylizedTiles(opts: {
           visible: skyNow.visible && skyNow.trail,
           dtMs,
         });
+        // Temporal ghost copies (QoL-2, owner 2026-08-14) — same eye, same gate family.
+        skyGhosts.update({
+          camera,
+          sceneMs: tMs,
+          target: skyNow.target,
+          anchor: planAnchor ?? {
+            latDeg: camStore.focusLatDeg,
+            lonDeg: camStore.focusLonDeg,
+          },
+          visible: skyNow.visible && skyNow.ghosts,
+          countPerSide: skyNow.ghostCount,
+          stepMin: skyNow.ghostStepMin,
+          dtMs,
+        });
   };
 
   const stepFrustumResnapAndTick = () => {
@@ -2823,6 +2934,7 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("pointercancel", onFpvPointerEnd);
       dom.removeEventListener("wheel", onFpvWheel);
       dom.removeEventListener("dblclick", onDblClick);
+      dom.removeEventListener("contextmenu", onSkyContextMenu);
       window.removeEventListener("keydown", onFpvKey);
       window.removeEventListener("keyup", onFpvKeyUp);
       window.removeEventListener("blur", onWinBlur);
@@ -2844,6 +2956,7 @@ export function attachStylizedTiles(opts: {
       sky.dispose();
       skyTarget.dispose();
       skyTrail.dispose();
+      skyGhosts.dispose();
       dayArcs.dispose();
       geoLabels.dispose();
       streetNames.dispose();

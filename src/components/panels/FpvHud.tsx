@@ -143,7 +143,10 @@ export default function FpvHud() {
           <span className="fh-label">☾ MOON</span>
           <span className="fh-value">{bodyReadout(hud.moon)}</span>
         </div>
-        <div className="fh-hint">◀▲▼▶ WALK · DRAG LOOK · WHEEL ZOOM</div>
+        <div className="fh-hint">
+          WASD·◀▲▼▶ WALK · DRAG LOOK
+          <br />␣ RISE · ⇧␣ SINK · WHEEL ZOOM
+        </div>
         </>
         )}
       </aside>

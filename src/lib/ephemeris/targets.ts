@@ -38,8 +38,11 @@ import type { Vec3 } from "../geo/projection";
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
 
-/** Every category requirement 2 names — `other` is the SIMBAD-fallback catch-all (phase B). */
+/** Every category requirement 2 names — `other` is the SIMBAD-fallback catch-all (phase B).
+ *  "sun" joined 2026-08-14 (owner: "anything should be searchable") — the sun/moon became
+ *  first-class trackable targets (`bodyTarget`), not just scene impostors + HUD chips. */
 export type TargetKind =
+  | "sun"
   | "planet"
   | "moon"
   | "star"
@@ -289,6 +292,75 @@ export function planetTarget(id: PlanetId): SkyTarget {
         phaseFraction: il.phase_fraction,
         angularDiamArcsec:
           2 * angularRadiusRad(spec.radiusKm, d * KM_PER_AU) * RAD * 3600,
+        tailDir: null,
+      };
+    },
+  };
+}
+
+// ------------------------------------------------------------------------------------------
+// body provider — the sun and the moon as trackable targets (owner 2026-08-14, "anything
+// should be searchable"). They keep their first-class scene impostors (scene/sky.ts) — a
+// tracked sun/moon ADDS the instrument treatment (marker/trail/ghosts/panel) on top.
+// ------------------------------------------------------------------------------------------
+
+export type SunMoonId = "sun" | "moon";
+
+const SUN_MOON: Record<
+  SunMoonId,
+  { body: Body; name: string; kind: TargetKind; radiusKm: number; aliases: string[]; blurb: string }
+> = {
+  sun: {
+    body: Body.Sun,
+    name: "Sun",
+    kind: "sun",
+    radiusKm: 695_700,
+    aliases: ["sun", "sol", "the sun"],
+    blurb: "OUR STAR · THE LIGHT EVERY SHOT HERE IS PLANNED AROUND · NEVER LOOK THROUGH OPTICS",
+  },
+  moon: {
+    body: Body.Moon,
+    name: "Moon",
+    kind: "moon",
+    radiusKm: 1737.4,
+    aliases: ["moon", "luna", "the moon"],
+    blurb: "EARTH'S MOON · 29.5 D PHASE CYCLE · THE TELEPHOTO LANDSCAPE TARGET",
+  },
+} as const;
+
+/** The sun or the moon as a SkyTarget — astronomy-engine geocentric vectors, the planetTarget
+ *  recipe. Illumination() is undefined for the sun (it IS the light source): magnitude is the
+ *  standard −26.74 constant, phase null, elongation 0 by definition. */
+export function bodyTarget(id: SunMoonId): SkyTarget {
+  const spec = SUN_MOON[id];
+  return {
+    id: `body:${id}`,
+    name: spec.name,
+    kind: spec.kind,
+    aliases: spec.aliases,
+    facts: { kind: "planet", radiusKm: spec.radiusKm, blurb: spec.blurb },
+    source: "ASTRONOMY-ENGINE 2.1.19 (VSOP87/TOP2013 CLASS)",
+    stateAt(utcMs: number): TargetState {
+      const time = MakeTime(new Date(utcMs));
+      const g = GeoVector(spec.body, time, true);
+      const frame = ecefFrameAt(time);
+      const [ex, ey, ez] = frame.toEcef(g);
+      const d = Math.hypot(ex, ey, ez);
+      const isSun = id === "sun";
+      const il = isSun ? null : Illumination(spec.body, time);
+      const sun = isSun ? g : GeoVector(Body.Sun, time, true);
+      return {
+        dir: [ex / d, ey / d, ez / d] as const,
+        raDeg: ((Math.atan2(g.y, g.x) * RAD) % 360 + 360) % 360,
+        decDeg: Math.asin(g.z / d) * RAD,
+        distanceAu: d,
+        sunDistanceAu: il ? il.helio_dist : null,
+        magnitude: il ? il.mag : -26.74,
+        magnitudeModel: il ? "engine" : "catalog",
+        magnitudeUncertainty: null,
+        elongationDeg: isSun ? 0 : elongationDeg(g.x, g.y, g.z, sun.x, sun.y, sun.z),
+        phaseFraction: il ? il.phase_fraction : null,
+        angularDiamArcsec: 2 * angularRadiusRad(spec.radiusKm, d * KM_PER_AU) * RAD * 3600,
         tailDir: null,
       };
     },

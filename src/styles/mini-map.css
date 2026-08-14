@@ -5,9 +5,10 @@
 .mm {
   position: fixed;
   left: 1.6rem;
-  /* Above the FPV HUD card (which grows to ~19rem tall with the position row) — the drag grip
-     resolves any collision on unusual viewports. */
-  bottom: 21.5rem;
+  /* Above the FPV HUD card (which grows to ~20rem tall with the two-line position row + the
+     two-line walk hint, owner 2026-08-14 ask 6) — the drag grip resolves any collision on
+     unusual viewports. */
+  bottom: 22.6rem;
   z-index: 10;
   padding: 4px;
   border: 1px solid var(--color-border);
@@ -18,10 +19,12 @@
   transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
 }
 
+/* 200px canvas + 4px padding + 1px border = a 210px border-box — the FPV HUD card below pins
+   the SAME 210px (fpv-hud.css .fh width), owner 2026-08-14 ask 6. Keep the two in lockstep. */
 .mm-canvas {
   display: block;
-  width: 176px;
-  height: 176px;
+  width: 200px;
+  height: 200px;
   border-radius: 7px;
 }
 

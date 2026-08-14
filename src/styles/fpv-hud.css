@@ -17,7 +17,11 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 13rem;
+  /* Exactly the mini-map's border-box (200px canvas + 4px pad + 1px border = 210px) so the
+     left column reads as ONE instrument stack (owner 2026-08-14 ask 6). Content that can't
+     fit 176px of content-box wraps (the position row is two-line by design). */
+  width: 210px;
+  box-sizing: border-box;
   padding: 0.85rem 1rem;
   border: 1px solid var(--color-border);
   border-radius: 10px;
@@ -31,9 +35,12 @@
 /* The copyable viewer-position row (owner 2026-07-14) — a real button so it is clickable and
    keyboard-reachable inside the otherwise pointer-events:none card. */
 .fh-pos {
-  display: flex;
+  /* Two-line by design (ask 6): label + COPY chip on top, the full-precision coords below —
+     the only shape that fits the pinned 210px card without shrinking the numerals. */
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 3px;
   align-items: baseline;
-  gap: 10px;
   margin: 0;
   padding: 0;
   border: none;
@@ -43,6 +50,22 @@
   color: inherit;
   cursor: copy;
   pointer-events: auto;
+}
+
+.fh-pos__coords {
+  grid-row: 2;
+  grid-column: 1 / -1;
+}
+
+.fh-pos .fh-label {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.fh-pos__copy {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
 }
 
 .fh-pos__coords {
@@ -101,13 +124,14 @@
   font-size: 10px;
 }
 
-/* Walk/look hint (owner: arrow-key walking) — a quiet footer under the readouts. */
+/* Walk/look hint (owner: arrow-key walking; +WASD/⇧␣ 2026-08-14) — a quiet two-line footer. */
 .fh-hint {
   margin-top: 2px;
   padding-top: 7px;
   border-top: 1px solid var(--color-border);
-  font-size: 9px;
-  letter-spacing: 0.14em;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  line-height: 1.7;
   color: var(--color-text-muted);
   white-space: nowrap;
 }
@@ -185,6 +209,7 @@ body.welcome-active .fh {
   .fh {
     left: 1rem;
     bottom: 5rem; /* clear the narrow-viewport scrubber band */
+    width: auto;
     min-width: 0;
     padding: 0.7rem 0.8rem;
   }

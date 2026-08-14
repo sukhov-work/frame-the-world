@@ -20,7 +20,7 @@
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
 //   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · ENRICHED · GROUND · DRAPE ·
 //   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
-//   ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
+//   GHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
@@ -77,6 +77,18 @@ export const SKY = {
   /** Earthshine floor on the moon's dark side (0 = pitch black new moon; nudged 0.1 → 0.12
    *  S6 with the brightness raise — a faintly fuller dark limb reads "brighter" organically). */
   moonEarthshine: 0.12,
+  /** Day-sky occlusion of the moon's dark limb (owner 2026-08-14 dark-disc bugfix): against a
+   *  bright daytime sky only the SUNLIT part of the disc is visible — the shader converts the
+   *  lit term into per-fragment ALPHA as the day sky comes up (gain × lit, clamped), so the
+   *  night side can never render as an opaque dark disc when the additive sky dome loses the
+   *  depth race behind it (the camera-motion "dark moon" clipping, owner screenshots 12:37).
+   *  The ramp rides the atmosphere's OWN bands (ATMOSPHERE.skyDawnLo/Hi × skyFullAlt/GoneAlt)
+   *  so the disc's alpha story always matches the sky behind it; in space the disc stays opaque. */
+  moonDayAlphaGain: 1.35,
+  /** Fragments below this alpha DISCARD (write no colour AND no depth): an invisible dark limb
+   *  must never occupy the depth buffer or it depth-rejects the sky dome drawn after it — the
+   *  root of the daytime dark-disc frames. Also serves the horizon-fade discard (was 0.004). */
+  moonAlphaDiscard: 0.03,
   /** Horizon occlusion — ANGULAR fade against the TRUE ellipsoid horizon (owner 2026-07-15;
    *  supersedes the closest-approach `horizonFadeBandM` 40 km metric band). The old band
    *  collapsed at street level: the test sphere used the EQUATORIAL radius (the real surface at
@@ -1731,6 +1743,38 @@ export const DAYARC = {
   fadeTauMs: 250,
 } as const;
 
+/** Temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14 — "see the body's path
+ *  precisely against the surroundings while scrubbing"): soft alpha-blended disc billboards at
+ *  scene time ± k·step, symmetric, opacity falling with temporal distance and the PAST side
+ *  dimmed below the future (planning looks forward). Alpha-blended + depth-free like the day
+ *  arcs (an additive stroke vanishes against the bright day sky); the per-ghost horizon melt
+ *  owns occlusion. Count/step live in store/sky (user-facing, persisted); taste lives here.
+ *  Colours: tokens.sunGlow (sun) / tokens.moonlight (moon) / tokens.accent (everything else). */
+export const GHOSTS = {
+  /** Hard cap per direction (the store clamps to this too — one source would be nicer, but the
+   *  store may not import three-adjacent modules; keep in sync with store/sky clamp). */
+  maxPerSide: 8,
+  /** Peak ghost alpha (the k=±1 neighbour) — ghosts must whisper, never rival the real body. */
+  alphaNear: 0.5,
+  /** Alpha at the far end of the chain (k=±count). */
+  alphaFar: 0.14,
+  /** Past-side multiplier (× the ramp) — the future chain leads, the past trails off. */
+  pastDim: 0.6,
+  /** Disc diameter floor (deg) — point targets (stars/comets) get a readable dot; the sun and
+   *  the moon render at their TRUE apparent size (angularDiamArcsec) above this floor. */
+  minDiscDeg: 0.4,
+  /** Soft-edge fraction of the disc radius (1 = fully soft, 0 = hard rim). */
+  edgeSoftness: 0.45,
+  /** Re-sample the ghost chain when scene time moved this much (ms) — scrubbing slides the
+   *  chain along the trajectory at this cadence; 1 s matches SKY.sampleIntervalMs. */
+  resampleMs: 1_000,
+  /** Per-ghost horizon melt band (deg of altitude) — the dayArcs grammar. */
+  horizonFadeLoDeg: -1.5,
+  horizonFadeHiDeg: 0.5,
+  /** Whole-overlay fade ease (ms) on toggle. */
+  fadeTauMs: 250,
+} as const;
+
 /** Night-sky asterism figures (Phase 5.5 S6, §Item 4) — ~20 famous d3-celestial figures as a
  *  LineSegments CHILD of the BSC5 star sphere (inherits −GAST + camera-follow + scale + the
  *  stars' own altitude/night fade gating). Subtle by design: the figures annotate the stars,
@@ -1863,6 +1907,11 @@ export const ORCH = {
   zoomMirrorMinFrac: 0.005,
   /** Projected-screen mirrors (hover card, temp-pin popup) re-sync past this move (px). */
   screenMoveMinPx: 2,
+  /** Sky context menu (QoL-2 ask 7) — minimum angular hit radius (deg) around the sun/moon
+   *  (their discs are ~0.5°; a comfortable right-click pad) and the altitude floor below
+   *  which a "hit" is really terrain in front of a set body. */
+  skyMenuMinHitDeg: 1.2,
+  skyMenuMinAltDeg: -0.5,
   /** Per-frame update() error log throttle (ms): log the first, then at most once per window
    *  with a rolling count — a persistent error must not flood the console at 60 fps (B26). */
   errorLogThrottleMs: 2_000,

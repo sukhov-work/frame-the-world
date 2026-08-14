@@ -278,6 +278,63 @@
   cursor: default;
 }
 
+/* Ghost-chain knobs (QoL-2 2026-08-14) — a slim stepper row under the toggles. */
+.tp-ghostrow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 4px;
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+.tp-ghostrow__label {
+  letter-spacing: 0.16em;
+}
+.tp-ghostrow__value {
+  min-width: 1.1em;
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.tp-ghostbtn {
+  width: 1.5rem;
+  height: 1.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tp-ghostbtn:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+.tp-ghostbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tp-ghostsel {
+  margin-left: auto;
+  padding: 3px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color-scheme: dark;
+  cursor: pointer;
+}
+.tp-ghostsel:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
 .tp-note {
   font-size: 8px;
   letter-spacing: 0.08em;

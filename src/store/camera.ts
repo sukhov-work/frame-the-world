@@ -29,6 +29,18 @@ interface FlyRequest {
   altM: number;
 }
 
+/** A right-clicked sky body (QoL-2 ask 7): who was hit, where on screen, and its bearings at
+ *  click time — everything the SkyContextMenu island needs to render + act. */
+export interface SkyMenuInfo {
+  kind: "sun" | "moon" | "target";
+  /** Client px of the right-click — the menu anchors here (a static point; no live mirror). */
+  screenX: number;
+  screenY: number;
+  /** Topocentric bearings at the camera's geodetic position (the trySkyMarkerClick reference). */
+  azDeg: number;
+  altDeg: number;
+}
+
 /** Screen-space info for one sky body while FPV is active (Phase 5.5 S6 HUD markers). */
 export interface FpvBodyMarker {
   /** True when the body sits inside the current FPV frame (no edge chip needed). */
@@ -173,6 +185,12 @@ export interface CameraState {
   requestFpvJump: (pose: UrlFpvPose) => void;
   /** Orchestrator-only: mark the pending FPV jump consumed. */
   _consumeFpvJump: () => void;
+  /** Right-click sky context menu (QoL-2 ask 7, owner 2026-08-14): the orchestrator's angular
+   *  hit test writes which body was hit, the click point (client px) and the body's bearings
+   *  at click time; the SkyContextMenu island renders + clears it (dismiss/action/Escape).
+   *  Any canvas pointerdown also clears it (natural dismiss). */
+  skyMenu: SkyMenuInfo | null;
+  setSkyMenu: (info: SkyMenuInfo | null) => void;
   /** Sky-body direction markers (every mode) — feeds the ☀/☾ + tracked-target edge chips;
    *  outside FPV the bearings reference is the camera's own geodetic position. */
   skyMarkers: SkyMarkers | null;
@@ -257,6 +275,8 @@ export const useCameraStore = create<CameraState>((set) => ({
   fpvJumpRequest: null,
   requestFpvJump: (pose) => set({ fpvJumpRequest: pose }),
   _consumeFpvJump: () => set({ fpvJumpRequest: null }),
+  skyMenu: null,
+  setSkyMenu: (info) => set({ skyMenu: info }),
   skyMarkers: null,
   skyLook: null,
   requestSkyLook: (target) => set({ skyLook: target }),

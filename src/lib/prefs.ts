@@ -35,6 +35,12 @@ export interface ViewPrefs {
   /** Last-tracked sky target id (phase B) — restored lazily after boot (`store/sky`); resolves
    *  through `catalog.targetByIdAsync`, so even `ngc:`/`simbad:` ids survive a reload. */
   skyTargetId?: string;
+  /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
+  skyGhosts?: boolean;
+  /** Ghost copies per time direction (1..8; the owner default is 4 each way = 8 total). */
+  skyGhostCount?: number;
+  /** Minutes between ghost copies (1..120). */
+  skyGhostStepMin?: number;
 }
 
 /** Keep only known keys with the right types; clamp numerics. Pure — unit-tested directly. */
@@ -57,6 +63,11 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   if (typeof r.skyTargetTrail === "boolean") out.skyTargetTrail = r.skyTargetTrail;
   if (typeof r.skyTargetId === "string" && r.skyTargetId.length <= 80 && r.skyTargetId.includes(":"))
     out.skyTargetId = r.skyTargetId;
+  if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
+  if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
+    out.skyGhostCount = Math.max(1, Math.min(8, Math.round(r.skyGhostCount)));
+  if (typeof r.skyGhostStepMin === "number" && Number.isFinite(r.skyGhostStepMin))
+    out.skyGhostStepMin = Math.max(1, Math.min(120, Math.round(r.skyGhostStepMin)));
   return out;
 }
 

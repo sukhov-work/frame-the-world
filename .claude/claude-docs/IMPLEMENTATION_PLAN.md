@@ -217,11 +217,15 @@ per-sub-phase gate.
   elevation curves ON the rail · event-step tap zones · tracked-target visibility trace in
   current-frame context (partially lands T8) · **my-location→FPV button on BOTH shells** ·
   **Space = FPV hold-accelerated ascend**. Spec: PLANNING_QOL_PLAN §3.1/§3.3/§3.4.
-- [ ] **8-QoL-2 — This-frame + daily surface** *(mobile twin: M3b)* — FPV **shoot-this-frame
-  suggestions** (`frameFinder`: sun/moon/GC frame crossings, skyline-aware, light-tagged; the
-  frame IS the query) · single-target "when nearest az/el" (P4 seed) · TODAY daily panel
-  (cross-body midnight→midnight chronology, light glyphs, sun-el-at-moonrise) · next-phase/
-  new-moon jump chips · ICS calendar export. Spec: PLANNING_QOL_PLAN §3.2 + §1.1 R5/R7/R15.
+- [x] **8-QoL-2 — This-frame + daily surface ✅ SHIPPED 2026-08-14 (desktop, browser-verified;
+  owner batch rode along: GHOSTS temporal chain of the tracked body, sun/moon as first-class
+  searchable/trackable targets, right-click sky context menu, WASD+Shift/Space descend, the
+  daytime moon dark-disc fix, HUD/minimap 210px width match, compact FPV deck)** *(mobile twin:
+  M3b)* — FPV **shoot-this-frame suggestions** (`frameFinder`: sun/moon/target frame crossings,
+  skyline-aware, light-tagged; the frame IS the query) · single-target "when nearest frame
+  centre" (P4 seed) · TODAY daily panel (cross-body midnight→midnight chronology, light glyphs,
+  sun-el-at-moonrise) · next-phase/new-moon jump chips · ICS calendar export (client Blob).
+  Spec: PLANNING_QOL_PLAN §3.2 + §1.1 R5/R7/R15.
 - [ ] **8-QoL-3 — Find + moon/exposure toolkit** *(mobile twin: M3c)* — P4 **Find** FULL
   (az(±3°)/el(±0.5°) over a date range, **skyline-filtered results** — the category-first bet;
   sortable, light+phase-pictured rows) · P6 moon phase calendar + apogee/perigee/supermoon ·

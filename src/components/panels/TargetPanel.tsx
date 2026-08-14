@@ -299,6 +299,12 @@ export default function TargetPanel() {
   const setHighlight = useSkyStore((s) => s.setHighlight);
   const trail = useSkyStore((s) => s.trail);
   const setTrail = useSkyStore((s) => s.setTrail);
+  const ghosts = useSkyStore((s) => s.ghosts);
+  const setGhosts = useSkyStore((s) => s.setGhosts);
+  const ghostCount = useSkyStore((s) => s.ghostCount);
+  const setGhostCount = useSkyStore((s) => s.setGhostCount);
+  const ghostStepMin = useSkyStore((s) => s.ghostStepMin);
+  const setGhostStepMin = useSkyStore((s) => s.setGhostStepMin);
   const target = useSkyStore((s) => s.target);
   const setTime = useTimeStore((s) => s.setTime);
   const live = useTimeStore((s) => s.live);
@@ -485,7 +491,57 @@ export default function TargetPanel() {
               >
                 TRAIL
               </button>
+              <button
+                type="button"
+                className={`tp-toggle ${ghosts ? "tp-toggle--on" : ""}`}
+                onClick={() => setGhosts(!ghosts)}
+                aria-pressed={ghosts}
+                disabled={!visible}
+                title="Ghost copies of the body at ± time steps — its path against the surroundings while you scrub"
+              >
+                GHOSTS
+              </button>
             </div>
+
+            {/* Ghost-chain knobs (QoL-2, owner 2026-08-14): symmetric count each way + minutes
+                between copies. Steppers, not sliders — discrete values, instrument grammar. */}
+            {visible && ghosts && (
+              <div className="tp-ghostrow">
+                <span className="tp-ghostrow__label">±</span>
+                <button
+                  type="button"
+                  className="tp-ghostbtn"
+                  onClick={() => setGhostCount(ghostCount - 1)}
+                  disabled={ghostCount <= 1}
+                  aria-label="Fewer ghost copies"
+                >
+                  −
+                </button>
+                <span className="tp-ghostrow__value">{ghostCount}</span>
+                <button
+                  type="button"
+                  className="tp-ghostbtn"
+                  onClick={() => setGhostCount(ghostCount + 1)}
+                  disabled={ghostCount >= 8}
+                  aria-label="More ghost copies"
+                >
+                  +
+                </button>
+                <span className="tp-ghostrow__label">EVERY</span>
+                <select
+                  className="tp-ghostsel"
+                  value={ghostStepMin}
+                  onChange={(e) => setGhostStepMin(Number(e.target.value))}
+                  aria-label="Minutes between ghost copies"
+                >
+                  {[1, 2, 5, 10, 15, 20, 30, 60].map((m) => (
+                    <option key={m} value={m}>
+                      {m} MIN
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="tp-note">
               {magnitudeNote(s)} THE SKY MARKER IS AN INSTRUMENT OVERLAY AT STYLIZED SIZE; ITS

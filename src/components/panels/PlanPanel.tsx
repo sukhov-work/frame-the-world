@@ -5,50 +5,24 @@ import { usePlanStore, type PlanBodyState } from "../../store/plan";
 import { useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { cardinal } from "../../lib/format/readout";
-import type { PlanEvent, PlanEventKind } from "../../lib/ephemeris/planner";
 import { galacticCentreTarget } from "../../lib/ephemeris/targets";
 import { mwArcTiltDeg, mwSeason, type MwNight } from "../../lib/ephemeris/mwSeason";
+import FrameCard from "./FrameCard";
+import TodayCard from "./TodayCard";
 import "../../styles/plan-panel.css";
 import "../../styles/tips.css";
 
 /**
- * Light planner (Pass 3 WS4-C + Dnipro Slice 5) — jump-to-time chips for the anchor's solar
- * day (rise/set, golden windows matching the rendered grade, twilight, culminations, next
- * full/new moon) plus the skyline verdict: is the sun/moon behind the REAL local skyline
- * (terrain + streamed buildings + trees around the photo/FPV eye), and when does it clear.
- * Every chip pins scene time via store/time.setTime — the whole scene relights (S5 seam).
+ * Light planner (Pass 3 WS4-C + Dnipro Slice 5; QoL-2 2026-08-14) — the skyline verdict rows
+ * (is the sun/moon/target behind the REAL local skyline around the photo/FPV eye, and when
+ * does it clear) + THIS FRAME (FPV-only frame-crossing finder, FrameCard) + the TODAY daily
+ * chronology (TodayCard — supersedes the old flat chip row) + the Milky-Way season card.
+ * Every row pins scene time via store/time.setTime — the whole scene relights (S5 seam).
  *
- * The globe computes everything (scene/planFeed.ts); this panel only renders the store mirror.
+ * The globe computes the skyline mirror (scene/planFeed.ts); the cards self-compute off the
+ * pure ephemeris libs (the MwCard precedent — dodges the planFeed panel-open mirror trap).
  * Mounted as a top-level island (index.astro) — the S2 containing-block rule.
  */
-
-const CHIP_LABEL: Record<PlanEventKind, string> = {
-  sunrise: "☀ RISE",
-  sunset: "☀ SET",
-  civilDawn: "DAWN",
-  civilDusk: "DUSK",
-  goldenAmStart: "GOLDEN AM",
-  goldenAmEnd: "GOLD AM END",
-  goldenPmStart: "GOLDEN PM",
-  goldenPmEnd: "GOLD PM END",
-  sunNoon: "NOON",
-  moonrise: "☾ RISE",
-  moonset: "☾ SET",
-  moonCulmination: "☾ HIGH",
-  fullMoon: "FULL MOON",
-  newMoon: "NEW MOON",
-};
-
-/** Multi-day chips (full/new moon) show the date too. */
-const DATED_KINDS: ReadonlySet<PlanEventKind> = new Set(["fullMoon", "newMoon"]);
-
-function timeLabel(e: PlanEvent): string {
-  const d = new Date(e.utcMs);
-  const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return DATED_KINDS.has(e.kind)
-    ? `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${t}`
-    : t;
-}
 
 function BodyRow({ glyph, label, state }: { glyph: string; label?: string; state: PlanBodyState }) {
   const setTime = useTimeStore((s) => s.setTime);
@@ -170,14 +144,12 @@ export default function PlanPanel() {
   const open = usePlanStore((s) => s.open);
   const setOpen = usePlanStore((s) => s.setOpen);
   const anchor = usePlanStore((s) => s.anchor);
-  const events = usePlanStore((s) => s.events);
   const profileReady = usePlanStore((s) => s.profileReady);
   const coverage = usePlanStore((s) => s.profileCoverage);
   const trustRadiusM = usePlanStore((s) => s.trustRadiusM);
   const sun = usePlanStore((s) => s.sun);
   const moon = usePlanStore((s) => s.moon);
   const target = usePlanStore((s) => s.target);
-  const setTime = useTimeStore((s) => s.setTime);
   // The MW card's eye: the planner anchor when there is one, else the live view focus
   // (the TargetPanel pattern — quantization happens inside MwCard's memo keys).
   const focusLat = useCameraStore((s) => s.focusLatDeg);
@@ -230,21 +202,9 @@ export default function PlanPanel() {
             <div className="pp-status">PLACE A PHOTO OR ENTER FPV FOR THE SKYLINE VERDICT</div>
           )}
 
-          <div className="pp-chips">
-            {events.map((e) => (
-              <button
-                key={`${e.kind}:${e.utcMs}`}
-                type="button"
-                className={`pp-chip pp-chip--${e.body}`}
-                onClick={() => setTime(e.utcMs)}
-                title="Jump scene time"
-              >
-                <span className="pp-chip__kind">{CHIP_LABEL[e.kind]}</span>
-                <span className="pp-chip__time">{timeLabel(e)}</span>
-              </button>
-            ))}
-            {events.length === 0 && <div className="pp-status">NO EVENTS FOR THIS DAY</div>}
-          </div>
+          <FrameCard />
+
+          <TodayCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
 
           <MwCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
           </div>
