@@ -77,17 +77,18 @@ export const SKY = {
   /** Earthshine floor on the moon's dark side (0 = pitch black new moon; nudged 0.1 → 0.12
    *  S6 with the brightness raise — a faintly fuller dark limb reads "brighter" organically). */
   moonEarthshine: 0.12,
-  /** Day-sky occlusion of the moon's dark limb (owner 2026-08-14 dark-disc bugfix): against a
-   *  bright daytime sky only the SUNLIT part of the disc is visible — the shader converts the
-   *  lit term into per-fragment ALPHA as the day sky comes up (gain × lit, clamped), so the
-   *  night side can never render as an opaque dark disc when the additive sky dome loses the
-   *  depth race behind it (the camera-motion "dark moon" clipping, owner screenshots 12:37).
-   *  The ramp rides the atmosphere's OWN bands (ATMOSPHERE.skyDawnLo/Hi × skyFullAlt/GoneAlt)
-   *  so the disc's alpha story always matches the sky behind it; in space the disc stays opaque. */
-  moonDayAlphaGain: 1.35,
-  /** Fragments below this alpha DISCARD (write no colour AND no depth): an invisible dark limb
-   *  must never occupy the depth buffer or it depth-rejects the sky dome drawn after it — the
-   *  root of the daytime dark-disc frames. Also serves the horizon-fade discard (was 0.004). */
+  /** Day-arm gain on the moon's ADDITIVE daytime rendering (qol3, owner 2026-08-14 round 2 —
+   *  supersedes `moonDayAlphaGain`): by day the disc is premultiplied-ADDITIVE (alpha 0), so a
+   *  crescent can only ADD reflected sunlight over the sky — the old alpha-lerp arm blended the
+   *  DARK albedo colour over a BRIGHTER sky and every mid-lit pixel darkened (the abrupt
+   *  dark-crescent camera-motion screenshots). Day colour = albedo·lit·moonBrightness·THIS;
+   *  the uDaySky ramp still rides the atmosphere's own bands (ATMOSPHERE.skyDawnLo/Hi ×
+   *  skyFullAlt/GoneAlt) so the disc's story always matches the sky the dome paints behind it. */
+  moonDayAddGain: 0.55,
+  /** Fragments below this CONTRIBUTION (premultiplied rgb max AND blend alpha) DISCARD — write
+   *  no colour AND no depth: an invisible dark limb must never occupy the depth buffer or it
+   *  depth-rejects the sky dome drawn after it — the root of the daytime dark-disc frames.
+   *  Also serves the horizon-fade discard (was 0.004). */
   moonAlphaDiscard: 0.03,
   /** Horizon occlusion — ANGULAR fade against the TRUE ellipsoid horizon (owner 2026-07-15;
    *  supersedes the closest-approach `horizonFadeBandM` 40 km metric band). The old band
@@ -1754,17 +1755,22 @@ export const GHOSTS = {
   /** Hard cap per direction (the store clamps to this too — one source would be nicer, but the
    *  store may not import three-adjacent modules; keep in sync with store/sky clamp). */
   maxPerSide: 8,
-  /** Peak ghost alpha (the k=±1 neighbour) — ghosts must whisper, never rival the real body. */
-  alphaNear: 0.5,
-  /** Alpha at the far end of the chain (k=±count). */
-  alphaFar: 0.14,
+  /** Peak ghost alpha (the k=±1 neighbour) — ghosts must whisper, never rival the real body.
+   *  Raised 0.5 → 0.62 (owner 2026-08-14 qol3: "each afterimage a bit more distinct"). */
+  alphaNear: 0.62,
+  /** Alpha at the far end of the chain (k=±count) — raised 0.14 → 0.2 with the qol3 pass;
+   *  the fainter-with-distance ramp SHAPE is unchanged. */
+  alphaFar: 0.2,
   /** Past-side multiplier (× the ramp) — the future chain leads, the past trails off. */
   pastDim: 0.6,
   /** Disc diameter floor (deg) — point targets (stars/comets) get a readable dot; the sun and
    *  the moon render at their TRUE apparent size (angularDiamArcsec) above this floor. */
   minDiscDeg: 0.4,
-  /** Soft-edge fraction of the disc radius (1 = fully soft, 0 = hard rim). */
-  edgeSoftness: 0.45,
+  /** Soft-edge fraction of the disc radius (1 = fully soft, 0 = hard rim). Tightened 0.45 →
+   *  0.18 (owner 2026-08-14 qol3): the wide feather ate ~45% of the radius, so every ghost READ
+   *  smaller and blurrier than the true-size disc it actually is — a crisp ~82% core restores
+   *  the apparent true size next to the real body. */
+  edgeSoftness: 0.18,
   /** Re-sample the ghost chain when scene time moved this much (ms) — scrubbing slides the
    *  chain along the trajectory at this cadence; 1 s matches SKY.sampleIntervalMs. */
   resampleMs: 1_000,
@@ -1912,6 +1918,14 @@ export const ORCH = {
    *  which a "hit" is really terrain in front of a set body. */
   skyMenuMinHitDeg: 1.2,
   skyMenuMinAltDeg: -0.5,
+  /** Sky-body hover affordance (qol3, owner 2026-08-14: "not obvious I can right-click") —
+   *  the pointer resting on the sun/moon/tracked target lifts that body's brightness VERY
+   *  slightly and organically (the pin-hover grammar: cadence-gated angular test + exp ease).
+   *  Gain multiplies the body's own additive gains (uIntensity / uBrightness / uAmp), so the
+   *  lift reads as a breath of glow, never a UI outline. */
+  skyHoverEveryFrames: 4,
+  skyHoverEaseTauMs: 140,
+  skyHoverGain: 0.25,
   /** Per-frame update() error log throttle (ms): log the first, then at most once per window
    *  with a rolling count — a persistent error must not flood the console at 60 fps (B26). */
   errorLogThrottleMs: 2_000,

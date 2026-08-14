@@ -5,10 +5,11 @@
 .mm {
   position: fixed;
   left: 1.6rem;
-  /* Above the FPV HUD card (which grows to ~20rem tall with the two-line position row + the
-     two-line walk hint, owner 2026-08-14 ask 6) — the drag grip resolves any collision on
-     unusual viewports. */
-  bottom: 22.6rem;
+  /* Above the FPV HUD card (measured ~16.3rem tall with the two-line position row + walk
+     hint, 2026-08-14 browser pass; lowered 2rem the same day so an open LIGHT PLANNER no
+     longer lands on the patch) — the drag grip resolves any collision on unusual viewports.
+     Coupled: plan-panel.css .pp max-height tracks this card's TOP edge (bottom + ~13.2rem). */
+  bottom: 20.6rem;
   z-index: 10;
   padding: 4px;
   border: 1px solid var(--color-border);

@@ -90,24 +90,29 @@ export default function CameraTiltPanel() {
         />
       </div>
       {/* Temp-pin look-around active: the exit affordance sits ABOVE the controls it retargets
-          (ROTATE = look, ZOOM = vertical elevation while in this mode). */}
+          (ZOOM = vertical elevation while in this mode; look = drag / WASD). */}
       {s.tempFpv && (
         <button type="button" className="ct-exitlook" onClick={() => s.setTempFpv(false)}>
           EXIT LOOK · ESC
         </button>
       )}
-      <Slider
-        label="CAM TILT"
-        formatted={`${Math.round(shownTilt)}°`}
-        value={Math.round(shownTilt)}
-        min={CONTROLS.tiltMinDeg}
-        max={CONTROLS.tiltMaxDeg}
-        step={1}
-        onChange={s.setTargetTilt}
-        onReset={s.clearTargetTilt}
-        tip="CAMERA PITCH — 0° LOOKS STRAIGHT DOWN, 88° AT THE HORIZON."
-        tipPos="left"
-      />
+      {/* CAM TILT + ROTATE hide in FPV (owner 2026-08-14): tilt is a dead control there (the
+          orchestrator skips the glide while fpvActive) and look/turn belong to drag + WASD —
+          dropping both shortens the deck the TARGET panel used to occlude. */}
+      {!fpvMode && (
+        <Slider
+          label="CAM TILT"
+          formatted={`${Math.round(shownTilt)}°`}
+          value={Math.round(shownTilt)}
+          min={CONTROLS.tiltMinDeg}
+          max={CONTROLS.tiltMaxDeg}
+          step={1}
+          onChange={s.setTargetTilt}
+          onReset={s.clearTargetTilt}
+          tip="CAMERA PITCH — 0° LOOKS STRAIGHT DOWN, 88° AT THE HORIZON."
+          tipPos="left"
+        />
+      )}
       <div className="ct-row">
         <button
           type="button"
@@ -216,15 +221,17 @@ export default function CameraTiltPanel() {
           </button>
         )}
       </div>
-      <Encoder
-        label="ROTATE"
-        formatted={`${Math.round(liveHeading)}°`}
-        maxRate={CONTROLS.headingRateMaxDegPerS}
-        expoGamma={CONTROLS.rateExpoGamma}
-        onRate={s.setHeadingRate}
-        tip="DRAG SIDEWAYS TO SPIN THE VIEW — FURTHER IS FASTER; RELEASE STOPS."
-        tipPos="left"
-      />
+      {!fpvMode && (
+        <Encoder
+          label="ROTATE"
+          formatted={`${Math.round(liveHeading)}°`}
+          maxRate={CONTROLS.headingRateMaxDegPerS}
+          expoGamma={CONTROLS.rateExpoGamma}
+          onRate={s.setHeadingRate}
+          tip="DRAG SIDEWAYS TO SPIN THE VIEW — FURTHER IS FASTER; RELEASE STOPS."
+          tipPos="left"
+        />
+      )}
       {/* In FPV the same stick elevates the viewpoint vertically — the label says what it
           does; the readout swaps to the eye height above the local ground (FpvHud mirror). */}
       <Encoder

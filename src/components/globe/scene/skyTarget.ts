@@ -32,6 +32,10 @@ export interface SkyTargetHandle {
   /** Angular click radius (deg of sky) around the tracked direction — the CURRENT ring radius
    *  (it widens for extended objects) plus a little slack; the phase-C marker-click hit test. */
   hitRadiusDeg(): number;
+  /** Post-update hover boost (qol3 hover affordance): multiplies THIS FRAME's additive gains
+   *  (uAmp/uMarkFade/uBodyFade) — update() reassigns them every frame, so the orchestrator
+   *  must call this immediately after update(). k = 0 is a no-op. */
+  hoverBoost(k: number): void;
   update(ctx: {
     camera: THREE.PerspectiveCamera;
     /** Geodetic camera altitude (m) — the orchestrator's shared sample (tunables contract). */
@@ -249,6 +253,12 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
   return {
     mesh,
     hitRadiusDeg: () => currentRingRadDeg * SKY_TARGET.clickSlack,
+    hoverBoost(k) {
+      if (k <= 0 || !mesh.visible) return;
+      uniforms.uAmp.value *= 1 + k;
+      uniforms.uMarkFade.value = Math.min(uniforms.uMarkFade.value * (1 + k), 1);
+      uniforms.uBodyFade.value = Math.min(uniforms.uBodyFade.value * (1 + k), 1);
+    },
     update({
       camera,
       alt,
