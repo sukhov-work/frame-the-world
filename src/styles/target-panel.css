@@ -44,8 +44,11 @@
   top: 2.4rem;
   width: 16.5rem;
   /* Floor keeps it usable on short viewports. The ROOT never clips — only the body scrolls, so
-     the drag grip's overhanging tab stays visible (DragGrip contract). */
-  max-height: max(12rem, min(30rem, calc(100vh - 10rem)));
+     the drag grip's overhanging tab stays visible (DragGrip contract). Cap measured 2026-08-14
+     against the COMPACTED FPV camera deck below (deck top ≈ 23.3rem above the viewport bottom,
+     card top 5.8rem, plus the card's own padding+border ~1.9rem — max-height caps the CONTENT
+     box): 100vh − 31.3rem stops a hairline above the deck instead of on it. */
+  max-height: max(12rem, min(30rem, calc(100vh - 31.3rem)));
   display: flex;
   flex-direction: column;
   gap: 8px;

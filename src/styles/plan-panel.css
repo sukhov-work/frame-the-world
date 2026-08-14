@@ -42,12 +42,15 @@
   left: 0;
   top: 2.4rem; /* unfolds DOWN from the pill (owner 2026-07-14) */
   width: 12.5rem;
-  /* Cap so the open card never reaches the FPV mini-map's slot in the bottom-left column
-     (the mini-map top edge sits ~33rem above the viewport bottom); the 10rem floor keeps the
+  /* Cap so the open card never reaches the FPV mini-map's slot in the bottom-left column.
+     Measured 2026-08-14: mini-map top edge = bottom 20.6rem (mini-map.css) + 13.2rem card
+     ≈ 33.8rem above the viewport bottom; card top = 5.8rem; max-height caps the CONTENT box,
+     so the card's own padding+border (~1.9rem) ride on top → 100vh − 41.7rem keeps a hairline
+     gap (the old 39rem let the card land ~2.5rem ON the patch). The 10rem floor keeps the
      card usable on short viewports — the drag grip resolves rare collisions. The root itself
      never clips (no overflow): the head InfoDot's tip pill extends past the card freely, and
      only the BODY below the head scrolls (.pp-scroll). */
-  max-height: max(10rem, min(24rem, calc(100vh - 39rem)));
+  max-height: max(10rem, min(24rem, calc(100vh - 41.7rem)));
   display: flex;
   flex-direction: column;
   gap: 8px;

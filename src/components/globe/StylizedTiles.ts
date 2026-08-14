@@ -692,9 +692,12 @@ export function attachStylizedTiles(opts: {
     );
     return { azDeg, altDeg };
   };
-  const onSkyContextMenu = (e: MouseEvent) => {
-    const rect = dom.getBoundingClientRect();
-    const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+  // Shared angular body pick (qol3: the contextmenu test, extracted so the hover affordance
+  // runs the IDENTICAL candidate set — what highlights is exactly what right-click hits).
+  const pickSkyBody = (
+    ndcX: number,
+    ndcY: number,
+  ): { kind: "sun" | "moon" | "target"; dir: THREE.Vector3 } | null => {
     _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
     const rayDir = _pickRay.ray.direction;
     const skyNow = useSkyStore.getState();
@@ -730,6 +733,12 @@ export function attachStylizedTiles(opts: {
         bestDot = dot;
       }
     }
+    return best;
+  };
+  const onSkyContextMenu = (e: MouseEvent) => {
+    const rect = dom.getBoundingClientRect();
+    const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+    const best = pickSkyBody(ndcX, ndcY);
     if (!best) return;
     const { azDeg, altDeg } = dirToAzAltAtCamera(best.dir);
     if (altDeg < ORCH.skyMenuMinAltDeg) return; // below the horizon — that click was terrain
@@ -765,12 +774,17 @@ export function attachStylizedTiles(opts: {
   };
   let downX = 0;
   let downY = 0;
+  let anyPointerDown = false; // sky-body hover stands down while a button/finger is held (drags)
   const notePointerDown = (e: PointerEvent) => {
     downX = e.clientX;
     downY = e.clientY;
+    anyPointerDown = true;
     // Any canvas press dismisses the sky context menu (a right press re-opens it on a hit).
     const camMenu = useCameraStore.getState();
     if (camMenu.skyMenu) camMenu.setSkyMenu(null);
+  };
+  const notePointerFree = () => {
+    anyPointerDown = false;
   };
   // Long-press pin drop (MOBILE_PLAN §4.3, M1): state lives up here because onPointerUp must
   // know a fired press already consumed the gesture — the pin lands BEFORE the finger lifts,
@@ -836,6 +850,8 @@ export function attachStylizedTiles(opts: {
   };
   dom.addEventListener("pointerdown", notePointerDown);
   dom.addEventListener("pointerup", onPointerUp);
+  dom.addEventListener("pointerup", notePointerFree);
+  dom.addEventListener("pointercancel", notePointerFree);
   dom.addEventListener("pointermove", noteHover);
   dom.addEventListener("pointerleave", noteLeave);
   // Crosshair while the globe waits for the placement click.
@@ -2501,6 +2517,41 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  // --- Sky-body hover (qol3, owner 2026-08-14: right-click discoverability): the pointer
+  //     resting on the sun/moon/tracked target lifts that body's brightness VERY slightly —
+  //     the pin-hover grammar (banked hoverX/Y + cadence-gated angular pick + house exp ease).
+  //     Runs the SAME pickSkyBody the context menu hits, so what glows is exactly what a
+  //     right-click opens. Must run AFTER stepSkyBodies/stepSkyTarget: sun/moon lifts are
+  //     absolute re-derivations (setHoverGlow), the target's is a post-update multiply.
+  const skyHoverAmt = { sun: 0, moon: 0, target: 0 };
+  let skyHoverKind: "sun" | "moon" | "target" | null = null;
+  const stepSkyHover = () => {
+        const eligible = Number.isFinite(hoverX) && !anyPointerDown && upNow.phase !== "placing";
+        if (!eligible) skyHoverKind = null;
+        else if (frameCount % ORCH.skyHoverEveryFrames === 0) {
+          const rect = dom.getBoundingClientRect();
+          const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
+          const hit = pickSkyBody(nx, ny);
+          // The context menu's own horizon floor: a "hit" on a set body is really terrain.
+          skyHoverKind =
+            hit && dirToAzAltAtCamera(hit.dir).altDeg >= ORCH.skyMenuMinAltDeg ? hit.kind : null;
+        }
+        const kh = 1 - Math.exp(-dtMs / ORCH.skyHoverEaseTauMs);
+        for (const k of ["sun", "moon", "target"] as const) {
+          const target = skyHoverKind === k ? 1 : 0;
+          const next = skyHoverAmt[k] + (target - skyHoverAmt[k]) * kh;
+          skyHoverAmt[k] = Math.abs(next - target) < 0.004 ? target : next;
+        }
+        sky.setHoverGlow(skyHoverAmt.sun * ORCH.skyHoverGain, skyHoverAmt.moon * ORCH.skyHoverGain);
+        skyTarget.hoverBoost(skyHoverAmt.target * ORCH.skyHoverGain);
+        // Cursor hint. The placing crosshair owns the cursor while placing (eligible=false and
+        // we never write over "crosshair"); stepPinHover runs later and leaves "pointer" in
+        // place while a sky body owns it (pins win ties simply by running last).
+        if (skyHoverKind) dom.style.cursor = "pointer";
+        else if (dom.style.cursor === "pointer" && !usePinsStore.getState().hoverPin)
+          dom.style.cursor = "";
+  };
+
   const stepFrustumResnapAndTick = () => {
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
         if (++frameCount % FRUSTUM.resnapEveryFrames === 0) frustum.resnap();
@@ -2588,7 +2639,8 @@ export function attachStylizedTiles(opts: {
             if (pinsStore.hoverPin) {
               pins.setHover(null);
               pinsStore._syncHover(null, null);
-              if (dom.style.cursor === "pointer") dom.style.cursor = "";
+              // A sky body may own the pointer cursor (stepSkyHover) — leave it in place.
+              if (dom.style.cursor === "pointer" && !skyHoverKind) dom.style.cursor = "";
             }
           } else if (frameCount % PINS.hoverEveryFrames === 0) {
             const rect = dom.getBoundingClientRect();
@@ -2618,7 +2670,7 @@ export function attachStylizedTiles(opts: {
               dom.style.cursor = "pointer";
             } else {
               if (pinsStore.hoverPin) pinsStore._syncHover(null, null);
-              if (dom.style.cursor === "pointer") dom.style.cursor = "";
+              if (dom.style.cursor === "pointer" && !skyHoverKind) dom.style.cursor = "";
             }
           }
         }
@@ -2845,7 +2897,8 @@ export function attachStylizedTiles(opts: {
       // 12 ViewFocus 13 IdleDrift 14 TiltGlide 15 HeadingGlide 16 ZoomGlide 17 EncoderRates
       // 18 FocalEncoder 19 StreetFloorGuard 20 LocationFinderFlyTo 21 FpvSolidity 22 FpvHudAndSkyMarkers
       // 23 PoseMirrorAndViewport 24 GroundUpdate 25 EphemerisResample 26 KeyLightAndShadow 27 SkyBodies
-      //    (+SkyTarget right after 27 — the ASTRO ENGINE tracer + phase-C trail, unnumbered to keep the anchors below)
+      //    (+SkyTarget +SkyHover right after 27 — the tracer/trail/ghosts, then the qol3 hover lift
+      //     which MUST follow both: sun/moon lifts re-derive uniforms, the target's post-multiplies)
       // 28 FrustumResnapAndTick 29 ArrivalReframing 30 PinsUpdate 31 PinHover 32 TempPinMarker
       // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs 37 GeoLabels 38 StreetNames (S7b)
       // 39 VectorFeatures (S7 feedback — roads/water web from the shared MVT source)
@@ -2892,6 +2945,7 @@ export function attachStylizedTiles(opts: {
         stepKeyLightAndShadow();
         stepSkyBodies();
         stepSkyTarget();
+        stepSkyHover();
         stepFrustumResnapAndTick();
         stepArrivalReframing();
         stepPinsUpdate();
@@ -2922,6 +2976,8 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("touchstart", noteInteract);
       dom.removeEventListener("pointerdown", notePointerDown);
       dom.removeEventListener("pointerup", onPointerUp);
+      dom.removeEventListener("pointerup", notePointerFree);
+      dom.removeEventListener("pointercancel", notePointerFree);
       dom.removeEventListener("pointermove", noteHover);
       dom.removeEventListener("pointerleave", noteLeave);
       cancelLongPress();

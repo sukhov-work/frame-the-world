@@ -43,6 +43,10 @@ export interface SkyHandle {
      *  the moon (S5 source switch), so the night key is never doubled. */
     moonIntensity: number;
   }): void;
+  /** Hover affordance (qol3): per-frame ABSOLUTE brightness lift — uIntensity/uBrightness are
+   *  write-once uniforms, so the setter re-derives them from the SKY constants (idempotent;
+   *  never compounds). k = eased 0..1 hover × ORCH.skyHoverGain, per body. */
+  setHoverGlow(sunK: number, moonK: number): void;
   dispose(): void;
 }
 
@@ -92,6 +96,30 @@ export function horizonBandSin(altM: number): number {
   return Math.sin(THREE.MathUtils.degToRad(deg));
 }
 
+/**
+ * CPU twin of the moon fragment's premultiplied two-arm mix (scalar albedo) — testable maths
+ * for the qol3 day-moon fix (the horizonTerms/skyBudget twin precedent). Premultiplied output:
+ * the blend is `src.rgb + dst.rgb·(1−src.a)`, so
+ *  • day arm (uDaySky→1): alpha 0 + rgb = albedo·lit·brightness·dayGain — the disc can only ADD
+ *    light over the sky. The old NormalBlending day arm lerped a DARK albedo colour over a
+ *    BRIGHT sky at alpha = lit·gain, which DARKENED every mid-lit pixel (the owner's abrupt
+ *    dark-crescent screenshots, 2026-08-14): a physically-backwards regime — the real daytime
+ *    moon is sky + reflected sunlight, never a shadow on the sky.
+ *  • night arm (uDaySky→0): alpha = fade + rgb = albedo·(earthshine + lit·brightness)·fade —
+ *    byte-identical to the previous opaque star-occluding disc.
+ */
+export function moonDiscArms(
+  lit: number,
+  albedo: number,
+  daySky: number,
+  fade: number,
+): { rgb: number; alpha: number } {
+  const nightRgb = albedo * (SKY.moonEarthshine + lit * SKY.moonBrightness);
+  const dayRgb = albedo * lit * SKY.moonBrightness * SKY.moonDayAddGain;
+  const aNight = fade * (1 - daySky);
+  return { rgb: nightRgb * aNight + dayRgb * daySky * fade, alpha: aNight };
+}
+
 const IMPOSTOR_VERTEX_GLSL = /* glsl */ `
       varying vec2 vUv;
       varying vec3 vW;
@@ -112,7 +140,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   const sunUniforms = {
     uCore: { value: new THREE.Color(tokens.sunCore) },
     uGlow: { value: new THREE.Color(tokens.sunGlow) },
-    uIntensity: { value: SKY.sunIntensity },
+    uIntensity: { value: SKY.sunIntensity as number }, // widened: setHoverGlow re-derives it
     uHorizonUp,
     uSinHor,
     uHorizonBandSin,
@@ -156,7 +184,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   const moonUniforms = {
     uMap: { value: moonTex },
     uSunDir: { value: new THREE.Vector3(1, 0, 0) },
-    uBrightness: { value: SKY.moonBrightness },
+    uBrightness: { value: SKY.moonBrightness as number }, // widened: setHoverGlow re-derives it
     uEarthshine: { value: SKY.moonEarthshine },
     // 0 night/space → 1 full daylight sky behind the disc (CPU per frame — see update()).
     uDaySky: { value: 0 },
@@ -170,6 +198,17 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     // occludes stars behind it regardless of phase. Fully-occluded OR day-sky-invisible fragments
     // discard instead (no depth hole punched into the starfield — and no depth wall that rejects
     // the additive sky dome drawn after the disc: the daytime dark-disc bug, owner 2026-08-14).
+    //
+    // PREMULTIPLIED custom blend (qol3, owner 2026-08-14 round 2): ONE / ONE_MINUS_SRC_ALPHA lets
+    // ONE material be additive by day (alpha 0 — the disc can only ADD light, so no camera pose
+    // can render a crescent DARKER than the sky) and opaque by night (alpha = fade — occludes
+    // stars). See moonDiscArms above (the tested CPU twin). Do NOT revert to NormalBlending: the
+    // day arm's darker-than-sky lerp was the abrupt dark-crescent bug.
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     transparent: true,
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -196,14 +235,20 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         float lit = max(dot(normalize(vNw), normalize(uSunDir)), 0.0);
         // soften the terminator a touch (regolith scattering reads better than a hard lambert)
         lit = pow(lit, 0.8);
-        // Day-sky occlusion (owner 2026-08-14): against a bright sky only the SUNLIT part of
-        // the disc shows — alpha follows the lit term as the day comes up, so the night side is
-        // sky, not an opaque dark disc. At night uDaySky→0 keeps the disc opaque (occludes stars).
-        float vis = mix(1.0, clamp(lit * ${glf(SKY.moonDayAlphaGain)}, 0.0, 1.0), uDaySky);
-        float alpha = fade * vis;
-        if (alpha < ${glf(SKY.moonAlphaDiscard)}) discard; // invisible → write NO depth (dome safety)
         vec3 albedo = texture2D(uMap, vUv).rgb;
-        vec3 color = albedo * (uEarthshine + lit * uBrightness);
+        // Two premultiplied arms mixed by uDaySky (CPU twin: moonDiscArms — keep in lockstep).
+        // NIGHT: the classic opaque star-occluding disc. DAY: additive-only reflected sunlight —
+        // the dark side IS the sky, and no mid-lit pixel can ever be darker than the sky behind
+        // it (the abrupt dark-crescent bug, owner 2026-08-14 round 2).
+        vec3 nightRgb = albedo * (uEarthshine + lit * uBrightness);
+        vec3 dayRgb = albedo * lit * uBrightness * ${glf(SKY.moonDayAddGain)};
+        float aNight = fade * (1.0 - uDaySky);
+        vec3 color = nightRgb * aNight + dayRgb * (uDaySky * fade);
+        float alpha = aNight;
+        // Invisible either way → write NO depth (dome safety: an unseen fragment must never
+        // depth-reject the additive sky dome drawn after the disc).
+        if (max(max(color.r, color.g), color.b) < ${glf(SKY.moonAlphaDiscard)} &&
+            alpha < ${glf(SKY.moonAlphaDiscard)}) discard;
         ${DITHER_GLSL}
         gl_FragColor = vec4(color, alpha);
         // NO tonemapping_fragment here: OutputPass tone-maps the whole buffer once — a second
@@ -283,6 +328,10 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       moonLight.position.copy(_dir).multiplyScalar(1e7);
       moonLight.target.position.set(0, 0, 0);
       moonLight.intensity = SKY.moonKeyIntensity * moonIntensity;
+    },
+    setHoverGlow(sunK, moonK) {
+      sunUniforms.uIntensity.value = SKY.sunIntensity * (1 + sunK);
+      moonUniforms.uBrightness.value = SKY.moonBrightness * (1 + moonK);
     },
     dispose() {
       moonTex.dispose();
