@@ -14,6 +14,11 @@ export interface FrameMarker {
    *  (x = right, y = up). For a behind-camera target this is the shortest-turn hint. */
   dirX: number;
   dirY: number;
+  /** Normalized frame coordinates (x right, y up; |·| ≤ 1 inside the frame) — WHERE in the
+   *  frame the direction lands (FIND v2 position hints). Only meaningful in front of the
+   *  camera (vz < 0); 0 for a behind-camera direction. */
+  fx: number;
+  fy: number;
 }
 
 /**
@@ -27,15 +32,15 @@ export function frameMarker(
   tanHalfV: number,
   aspect: number,
 ): FrameMarker {
-  const inFrame =
-    vz < 0 &&
-    Math.abs(vx / -vz) <= tanHalfV * aspect &&
-    Math.abs(vy / -vz) <= tanHalfV;
+  const front = vz < 0;
+  const fx = front ? vx / -vz / (tanHalfV * aspect) : 0;
+  const fy = front ? vy / -vz / tanHalfV : 0;
+  const inFrame = front && Math.abs(fx) <= 1 && Math.abs(fy) <= 1;
   const len = Math.hypot(vx, vy);
   // Degenerate straight-ahead/straight-behind: point "up" so the chip still renders sanely.
   const dirX = len > 1e-9 ? vx / len : 0;
   const dirY = len > 1e-9 ? vy / len : 1;
-  return { inFrame, dirX, dirY };
+  return { inFrame, dirX, dirY, fx, fy };
 }
 
 const DEG = Math.PI / 180;

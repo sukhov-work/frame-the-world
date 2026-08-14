@@ -321,6 +321,134 @@ export function azElHits(
   return out;
 }
 
+// ------------------------------------------------------------------------------------------
+// FIND v2 (owner rework 2026-08-14): "at THIS time-of-day, on which coming days does the body
+// stand inside THIS frame?" The frame IS the query (the §3.2 beat the az/el card never kept):
+// the window is the live frustum (azAltFrameMarker over heading/pitch/fov/aspect — findings
+// scale with zoom AND orientation), the instant is the scrubber's wall-clock time walked
+// across every following day (store/time.sameLocalTimeInstants), and each standing carries a
+// 0..1 VISIBILITY score that drives the in-frame ghost projection's opacity. Two faces so the
+// panel can memo them separately: positions are pose-FREE (the expensive ephemeris pass
+// survives a look-drag), the frame filter + annotations are pose-cheap.
+// ------------------------------------------------------------------------------------------
+
+/** The FIND v2 bodies — the sun, the moon and the Galactic Centre (`galacticCentreTarget`). */
+export type FindBody = "sun" | "moon" | "gc";
+
+/** One pose-free ephemeris sample — where the body stands at that day's query instant. */
+export interface DayPosition {
+  utcMs: number;
+  azDeg: number;
+  altDeg: number;
+}
+
+/** The pose-independent (expensive) pass: one sample per instant. ~30 µs each — a 1 Y × 3-body
+ *  scan is ~1 k samples, memoised on the time/anchor key so a look-drag never re-pays it. */
+export function bodyDayPositions(
+  sample: FrameSampler,
+  instants: readonly number[],
+): DayPosition[] {
+  return instants.map((t) => {
+    const p = sample(t);
+    return { utcMs: t, azDeg: p.azDeg, altDeg: p.altDeg };
+  });
+}
+
+export interface FrameStanding {
+  /** The query instant on that day (the scrubber's wall-clock time). */
+  utcMs: number;
+  body: FindBody;
+  azDeg: number;
+  altDeg: number;
+  /** Normalized frame coordinates (−1..1; x right, y up) — where in the frame it stands. */
+  fx: number;
+  fy: number;
+  skyline: "clear" | "blocked" | "unknown";
+  light: LightPhase;
+  moonIllum: number;
+  moonGlare: number;
+  /** 0..1 — how visible the standing would actually be (moon by illumination, the GC by
+   *  darkness × moonlight, anything skyline-blocked dimmed). Drives the ghost's opacity. */
+  visibility: number;
+}
+
+/** Visibility model constants (documented, test-pinned). */
+export const FIND_VIS = {
+  /** A new moon in frame is honest but nearly invisible — floor, then scale by illumination. */
+  moonFloor: 0.25,
+  /** GC visibility ramps with darkness: 0 at sun alt ≥ hi, 1 at ≤ lo (astro dark, mwSeason). */
+  gcSunHiDeg: -8,
+  gcSunLoDeg: -18,
+  /** Moonlight washes the core out — this fraction of the K&S glare is subtracted. */
+  gcMoonGlareK: 0.65,
+  /** A skyline-blocked standing stays listed but its ghost whispers. */
+  blockedDim: 0.35,
+} as const;
+
+const smooth01 = (t: number): number => {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+};
+
+/** The pose-dependent (cheap) pass: frame filter + annotations on the survivors only. */
+export function frameStandingsFromPositions(
+  body: FindBody,
+  positions: readonly DayPosition[],
+  pose: FramePose,
+  profileFn: ProfileFn | null = null,
+): FrameStanding[] {
+  const out: FrameStanding[] = [];
+  for (const p of positions) {
+    if (p.altDeg <= 0) continue; // below the geometric horizon — never in a sky frame
+    const m = azAltFrameMarker(p.azDeg, p.altDeg, pose);
+    if (!m.inFrame) continue;
+    const states = bodyStatesAt(p.utcMs);
+    const moonUp = horizontal("moon", p.utcMs, pose.latDeg, pose.lonDeg).altDeg > 0;
+    const moonGlare = moonUp ? moonPhaseIntensity(states.moonPhaseAngleDeg) : 0;
+    const skyline: FrameStanding["skyline"] = !profileFn
+      ? "unknown"
+      : p.altDeg > profileFn(p.azDeg)
+        ? "clear"
+        : "blocked";
+    let visibility = 1; // the sun in frame is the sun — always fully visible
+    if (body === "moon") {
+      visibility = FIND_VIS.moonFloor + (1 - FIND_VIS.moonFloor) * states.moonIllumination;
+    } else if (body === "gc") {
+      const sunAlt = horizontal("sun", p.utcMs, pose.latDeg, pose.lonDeg).altDeg;
+      const dark = smooth01(
+        (FIND_VIS.gcSunHiDeg - sunAlt) / (FIND_VIS.gcSunHiDeg - FIND_VIS.gcSunLoDeg),
+      );
+      visibility = dark * (1 - FIND_VIS.gcMoonGlareK * moonGlare);
+    }
+    if (skyline === "blocked") visibility *= FIND_VIS.blockedDim;
+    out.push({
+      utcMs: p.utcMs,
+      body,
+      azDeg: p.azDeg,
+      altDeg: p.altDeg,
+      fx: m.fx,
+      fy: m.fy,
+      skyline,
+      light: lightPhaseAt(p.utcMs, pose.latDeg, pose.lonDeg),
+      moonIllum: states.moonIllumination,
+      moonGlare,
+      visibility,
+    });
+  }
+  return out;
+}
+
+/** One-call face (tests + simple callers) — positions then the frame pass. */
+export function frameStandings(
+  body: FindBody,
+  sample: FrameSampler,
+  pose: FramePose,
+  instants: readonly number[],
+  profileFn: ProfileFn | null = null,
+): FrameStanding[] {
+  return frameStandingsFromPositions(body, bodyDayPositions(sample, instants), pose, profileFn);
+}
+
 /**
  * "When is the body nearest the frame CENTRE?" — the single-target Find inversion (P4 seed).
  * Global minimum of the angular separation over the scan horizon (no in-frame requirement —

@@ -48,18 +48,23 @@ export default function Welcome() {
   return (
     <div className="wl" role="region" aria-label="Welcome">
       <div className="wl-copy">
-        <span className="wl-eyebrow">EVERY PHOTOGRAPH HAS COORDINATES</span>
+        <span className="wl-eyebrow">EVERY FRAME HAS ITS MOMENT</span>
         <h1 className="wl-title">
-          See your photographs where the&nbsp;world took&nbsp;them.
+          Plan the shot where the&nbsp;world will&nbsp;take&nbsp;it.
         </h1>
         <p className="wl-sub">
-          Upload a RAW. We read its metadata and place your exact camera — position, heading,
-          focal length — on a living globe.
+          Stand anywhere on a living globe — real streets, real skyline, the real sun, moon and
+          stars. Scrub time, frame the sky, and find the day everything lines up.
         </p>
+        {/* Planning/exploration lead (owner 2026-08-14: upload = last priority, a side
+            gimmick) — EXPLORE carries the primary weight; upload rides along as the ghost. */}
         <div className="wl-actions">
+          <button type="button" className="wl-btn wl-btn--primary" onClick={() => setVisible(false)}>
+            EXPLORE THE GLOBE <span aria-hidden="true">→</span>
+          </button>
           <button
             type="button"
-            className="wl-btn wl-btn--primary"
+            className="wl-btn wl-btn--ghost"
             data-open-upload
             onClick={() => {
               useCameraStore.getState().setExplore(false);
@@ -67,9 +72,6 @@ export default function Welcome() {
             }}
           >
             UPLOAD A PHOTO
-          </button>
-          <button type="button" className="wl-btn wl-btn--ghost" onClick={() => setVisible(false)}>
-            EXPLORE THE GLOBE <span aria-hidden="true">→</span>
           </button>
         </div>
       </div>

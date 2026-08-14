@@ -4,6 +4,11 @@
 
 # Frame the World
 
+> **App working title: Sidera** (2026-08-14). The product now leads with **planning,
+> photography and exploration** — stand anywhere, scrub time, frame the sky, find the day your
+> shot lines up. Uploading photos remains as a side path. "Frame the World" stays the repo /
+> technical name; the sections below describe the full stack including the upload pipeline.
+
 Upload a photograph — a RAW file straight from the camera — and see it *where the world took it*:
 projected as a true camera frustum at its capture coordinates, on a stylized 3D globe with real
 terrain, real OSM buildings, and a real sky computed for the moment the shutter fired. Scrub time,

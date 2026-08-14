@@ -102,7 +102,7 @@ export default function UploadFlow() {
             <div className="uf-brand__mark">
               <div className="uf-brand__dot" />
             </div>
-            <span className="uf-brand__name">FRAME THE WORLD</span>
+            <span className="uf-brand__name">SIDERA</span>
           </div>
           <InfoDot
             pos="down"
