@@ -159,6 +159,24 @@ export function withLocalDate(ms: number, dateStr: string): number | null {
   return Number.isNaN(next.getTime()) ? null : next.getTime();
 }
 
+// --- FIND v2 day walk (owner rework 2026-08-14): the scrubber's wall-clock time repeated on
+//     each of the next `days` calendar days. Same local-clock semantics as withLocalDate —
+//     Date#setDate walks months and DST so the LOCAL hour:minute is preserved on every day
+//     (a fixed +24 h step would drift an hour across a DST boundary). Day 0 is excluded: the
+//     query instant itself is what the scene already shows. ------------------------------------
+
+/** UTC instants for the same LOCAL time-of-day on days +1..+days (browser timezone). */
+export function sameLocalTimeInstants(fromMs: number, days: number): number[] {
+  const out: number[] = [];
+  const base = new Date(fromMs);
+  for (let k = 1; k <= days; k++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + k);
+    out.push(d.getTime());
+  }
+  return out;
+}
+
 // --- Time-of-day jump (owner 2026-07-14): the calendar's precise-time twin. Same local-clock
 //     semantics as withLocalDate — the date stays, the wall time moves. -------------------------
 

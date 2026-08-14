@@ -191,7 +191,11 @@
    current frame — "it crosses MY frame 19:40–20:25". Drawn over the sun/moon curves.
    Owner 2026-08-14 ("charts clumped"): the target strokes are THICKER + MORE TRANSPARENT than
    the thin solid sun/moon hairlines — a wide translucent ribbon reads as a separate layer even
-   where the curves overlap, instead of merging into one clump. */
+   where the curves overlap, instead of merging into one clump.
+   Owner rework-2 (same day): the SEMANTICS are now explicit — the base ribbon (clear/blocked)
+   = ABSOLUTE visibility while above the horizon; the THICK band = visible IN THIS FRAME. The
+   frame band gets clearly more weight + glow so the distinction reads at a glance, same accent
+   family so the aesthetic holds. */
 .ts-curves__trace-blocked {
   stroke: color-mix(in srgb, var(--color-text-muted) 42%, transparent);
   stroke-width: 1.6;
@@ -202,9 +206,9 @@
   stroke-width: 2.4;
 }
 .ts-curves__trace-frame {
-  stroke: color-mix(in srgb, var(--color-accent) 65%, transparent);
-  stroke-width: 3.6;
-  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-accent) 45%, transparent));
+  stroke: color-mix(in srgb, var(--color-accent) 78%, transparent);
+  stroke-width: 5;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--color-accent) 55%, transparent));
 }
 
 /* Hour ticks — REAL local hours sliding with the conveyor; labels every SCRUB.hourLabelEvery.

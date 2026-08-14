@@ -20,7 +20,7 @@
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
 //   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · ENRICHED · GROUND · DRAPE ·
 //   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
-//   GHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
+//   GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
@@ -1819,6 +1819,72 @@ export const GHOSTS = {
   horizonFadeHiDeg: 0.5,
   /** Whole-overlay fade ease (ms) on toggle. */
   fadeTauMs: 250,
+} as const;
+
+/** FIND v2 ghost projections (owner rework 2026-08-14) — every future standing the FIND panel
+ *  found, projected INTO the current frame at once as hollow per-hit-coloured markers (rings
+ *  for the sun/moon, a diamond for the Galactic Centre — hollow + tinted so they can never be
+ *  read as the real bodies). Opacity = date ramp × the engine's visibility score. Rendered by
+ *  scene/findGhosts.ts off the store/find mirror (the panel computes, the globe draws). */
+export const FINDGHOSTS = {
+  /** Instance cap — keep in sync with store/find FIND_GHOST_CAP (same both-sides note as
+   *  GHOSTS.maxPerSide: the store may not import three-adjacent modules). */
+  maxGhosts: 24,
+  /** Opacity of the NEAREST-dated standing (× visibility) — markers, quieter than GHOSTS. */
+  alphaNear: 0.5,
+  /** Opacity at the far end of the search horizon (× visibility). */
+  alphaFar: 0.12,
+  /** Ring outer radius as a fraction of the body's apparent radius — slightly larger than the
+   *  disc it predicts (the hoverRing 1.45 grammar) so it reads as a MARKER, never a body. */
+  ringRadFrac: 1.6,
+  /** Identity-ring hairline half-width (normalized to the quad half-size) — the hoverRing
+   *  broken-ring grammar, NOT a fat band (owner rework 2: "circles too fat"). */
+  ringWidthN: 0.07,
+  /** Ring-only alpha gain (clamped ≤1 in-shader) — a hairline needs alpha compensation or the
+   *  identity colour vanishes against the day sky (browser-measured, rework-2 round 2). */
+  ringAlphaGain: 2.2,
+  /** Angular gap fraction of each ring quadrant (the reticle quad-gap mask — SKY.hoverRing). */
+  ringGapFrac: 0.22,
+  /** Centre dot radius as a fraction of the ring radius (GC only — the sun/moon markers carry
+   *  a real body picture instead). */
+  coreDotFrac: 0.14,
+  /** The semi-transparent ACCURATE body picture inside the ring (owner rework 2): sun =
+   *  limb-darkened warm disc, moon = LROC texture phase-lit for the HIT's instant. This scales
+   *  its alpha on top of the ghost's own date×visibility alpha. */
+  bodyAlpha: 0.6,
+  /** Earthshine floor on the moon picture's dark side (fraction of albedo). */
+  earthshine: 0.08,
+  /** Per-hit sky path (owner rework 2): the body's day arc on the HIT's local day, drawn in the
+   *  hit's identity colour. Sampling step (min) — 20 ≈ 72 pts/day, cache makes it rebuild-only. */
+  pathStepMin: 20,
+  /** Path alpha as a fraction of the hit's ghost alpha (date ramp × visibility). Kept LOW:
+   *  near-coincident sun arcs STACK (1−(1−α)^N) — a soft corridor, never a scratch bundle. */
+  pathAlphaK: 0.3,
+  /** Hovered hit's path alpha boost (row or canvas hover — the ghost pulse's sibling; strong
+   *  so one path can be singled out of the corridor). */
+  pathHotBoost: 3,
+  /** Day-arc cache entries (body|day keyed) — scrubbing minutes must not resample days. */
+  pathCacheMax: 128,
+  /** Marker diameter floor (deg) — a ghost ring must stay readable at any FOV. */
+  minDiscDeg: 0.55,
+  /** GC diamond marker angular DIAMETER (deg) — the core is a region, not a disc. */
+  gcMarkDeg: 0.9,
+  /** Skip a sun/moon ghost within this many marker-DIAMETERS of that body's LIVE direction —
+   *  tomorrow's sun sits ~0.25–0.5° from today's and the ring would bite the real disc (the
+   *  GHOSTS.nowGapDiscs lesson). */
+  nowGapDiscs: 1.2,
+  /** Hovered ghost (panel row or canvas) alpha boost — multiplicative, clamped ≤ 0.95. */
+  hoverBoost: 1.9,
+  /** Hovered ghost scale-up (the pin-hover pulse grammar, subtle). */
+  hoverScale: 1.18,
+  /** Per-ghost horizon melt band (deg of altitude) — the dayArcs grammar. */
+  horizonFadeLoDeg: -1.5,
+  horizonFadeHiDeg: 0.5,
+  /** Whole-overlay fade ease (ms) on panel open/close. */
+  fadeTauMs: 250,
+  /** Minimum effective alpha for a ghost to be clickable — a near-invisible ghost must not
+   *  steal a sky click. */
+  pickMinAlpha: 0.08,
 } as const;
 
 /** Night-sky asterism figures (Phase 5.5 S6, §Item 4) — ~20 famous d3-celestial figures as a

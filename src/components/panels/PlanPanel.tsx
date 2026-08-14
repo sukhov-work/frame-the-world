@@ -9,7 +9,6 @@ import { galacticCentreTarget } from "../../lib/ephemeris/targets";
 import { mwArcTiltDeg, mwSeason, type MwNight } from "../../lib/ephemeris/mwSeason";
 import FrameCard from "./FrameCard";
 import TodayCard from "./TodayCard";
-import FindCard from "./FindCard";
 import MoonCalCard from "./MoonCalCard";
 import SpotStarsCard from "./SpotStarsCard";
 import "../../styles/plan-panel.css";
@@ -209,7 +208,8 @@ export default function PlanPanel() {
 
           <TodayCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
 
-          <FindCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
+          {/* FIND moved OUT of the deck (v2 rework 2026-08-14): it lives as the dedicated
+              FindPanel island — frame-as-query + in-frame ghost projections. */}
 
           <MoonCalCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
 

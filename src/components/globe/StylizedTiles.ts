@@ -17,7 +17,9 @@ import { frameMarker } from "../../lib/geo/offscreen";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import {
+  bodyTarget,
   GALACTIC_CENTRE_ID,
+  galacticCentreTarget,
   saturnRingPoleDir,
   targetShortName,
   type TargetState,
@@ -25,6 +27,7 @@ import {
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
+import { useFindStore } from "../../store/find";
 import { aimAtSky } from "../../store/skyAim";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore, type AdjustableParams } from "../../store/upload";
@@ -50,6 +53,7 @@ import { attachSky } from "./scene/sky";
 import { attachSkyTarget } from "./scene/skyTarget";
 import { attachSkyTrail } from "./scene/skyTrail";
 import { attachSkyGhosts } from "./scene/skyGhosts";
+import { attachFindGhosts } from "./scene/findGhosts";
 import { attachSkyNames } from "./scene/skyNames";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachPlanFeed } from "./scene/planFeed";
@@ -239,6 +243,7 @@ export function attachStylizedTiles(opts: {
   const skyTarget = attachSkyTarget(scene); // tracked sky target (ASTRO ENGINE) — 10P by default
   const skyTrail = attachSkyTrail(scene); // the target's day-arc trajectory (phase C, SHOW+TRAIL)
   const skyGhosts = attachSkyGhosts(scene); // temporal ghost copies of the tracked body (QoL-2)
+  const findGhosts = attachFindGhosts(scene); // FIND v2 standings projected into the frame (owner rework)
   const skyNames = attachSkyNames(); // hover-name reveal for stars/asterisms/constellations (qol4)
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
   const geoLabels = attachGeoLabels(scene); // NE labels + boundaries (S7b) — mid-zoom window only
@@ -684,6 +689,20 @@ export function attachStylizedTiles(opts: {
     return true;
   };
 
+  // --- FIND v2 ghost click (owner rework 2026-08-14): tapping a projected standing JUMPS scene
+  //     time onto that day's instant and tracks the body. The camera deliberately does NOT move —
+  //     the frame is the query, so the real body arrives exactly where its ghost stood. ------
+  const tryFindGhostClick = (ndcX: number, ndcY: number): boolean => {
+    _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
+    const hit = findGhosts.pick(_pickRay.ray.direction);
+    if (!hit) return false;
+    useTimeStore.getState().setTime(hit.utcMs);
+    const skyNow = useSkyStore.getState();
+    skyNow.setTarget(hit.body === "gc" ? galacticCentreTarget() : bodyTarget(hit.body));
+    if (!skyNow.visible) skyNow.setVisible(true);
+    return true;
+  };
+
   // --- Right-click a sky body (QoL-2 ask 7, owner 2026-08-14): the same ANGULAR test as the
   //     marker click, extended to the sun and the moon (their meshes keep raycast disabled).
   //     A hit suppresses the browser menu and mirrors {kind, screen px, az/alt} into
@@ -832,6 +851,8 @@ export function attachStylizedTiles(opts: {
     // Sky-marker click (phase C) beats pin picking — it only ever fires inside the marker's
     // own ring, which lives in the sky, so ground targets stay reachable.
     if (trySkyMarkerClick(ndcX, ndcY)) return;
+    // FIND ghost projections next (also sky-only — a faded ghost is click-transparent).
+    if (tryFindGhostClick(ndcX, ndcY)) return;
     // Otherwise: a click on a public pin opens it as the placed camera view (Phase 5.1) —
     // the store transition triggers the frustum rebuild, the detail panel, and the flight.
     // A COLLAPSED cluster marker (adaptive de-cluster, far range) dives to differentiation
@@ -1016,7 +1037,8 @@ export function attachStylizedTiles(opts: {
     ) {
       const rect = dom.getBoundingClientRect();
       const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
-      trySkyMarkerClick(ndcX, ndcY);
+      // Marker first, then a FIND ghost projection — a tap on a standing jumps time onto it.
+      if (!trySkyMarkerClick(ndcX, ndcY)) tryFindGhostClick(ndcX, ndcY);
     }
   };
   const onFpvWheel = (e: WheelEvent) => {
@@ -1266,6 +1288,7 @@ export function attachStylizedTiles(opts: {
       flight,
       sky,
       skyTarget,
+      findGhosts,
       sunLight,
       bodies: () => ({
         sunDir: sunDirW.toArray(),
@@ -2537,6 +2560,27 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  // FIND v2 projections (owner rework 2026-08-14): the FIND panel computes the standings into
+  // store/find; this step only draws + hit-tests the mirror. Runs right after stepSkyTarget so
+  // the LIVE topocentric moon direction (the now-gap reference) matches the frame's own disc.
+  const _fgMoonDir = new THREE.Vector3();
+  const _fgHoverKeys: (string | null)[] = [null, null];
+  const stepFindGhosts = () => {
+        const findNow = useFindStore.getState();
+        _fgHoverKeys[0] = findNow.hoverKey;
+        _fgHoverKeys[1] = findNow.sceneHoverKey;
+        findGhosts.update({
+          camera,
+          anchor: findNow.anchor,
+          ghosts: findNow.ghosts,
+          visible: findNow.open,
+          hoverKeys: _fgHoverKeys,
+          sunDirW,
+          moonDirW: _fgMoonDir.copy(moonPosW).sub(camera.position).normalize(),
+          dtMs,
+        });
+  };
+
   // --- Sky-body hover (qol3, owner 2026-08-14: right-click discoverability): the pointer
   //     resting on the sun/moon/tracked target lifts that body's brightness VERY slightly —
   //     the pin-hover grammar (banked hoverX/Y + cadence-gated angular pick + house exp ease).
@@ -2545,6 +2589,10 @@ export function attachStylizedTiles(opts: {
   //     absolute re-derivations (setHoverGlow), the target's is a post-update multiply.
   const skyHoverAmt = { sun: 0, moon: 0, target: 0 };
   let skyHoverKind: "sun" | "moon" | "target" | null = null;
+  // FIND ghost hover (v2 rework): a projected standing under the pointer — pulses the ghost,
+  // highlights its panel row (store/find.sceneHoverKey), and outranks the star-name reveal
+  // (it is clickable; names are not). Bodies outrank ghosts.
+  let skyGhostKey: string | null = null;
   // Sky NAMES hover (qol4): stars/asterisms/constellations, night sky only, bodies win ties.
   let skyNameHit: ReturnType<typeof skyNames.hitAt> = null;
   let skyNameLast: ReturnType<typeof skyNames.hitAt> = null;
@@ -2553,21 +2601,28 @@ export function attachStylizedTiles(opts: {
   const _skyNameUp = new THREE.Vector3();
   const stepSkyHover = () => {
         const eligible = Number.isFinite(hoverX) && !anyPointerDown && upNow.phase !== "placing";
-        if (!eligible) skyHoverKind = null;
-        else if (frameCount % ORCH.skyHoverEveryFrames === 0) {
+        if (!eligible) {
+          skyHoverKind = null;
+          skyGhostKey = null;
+        } else if (frameCount % ORCH.skyHoverEveryFrames === 0) {
           const rect = dom.getBoundingClientRect();
           const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
           const hit = pickSkyBody(nx, ny);
           // The context menu's own horizon floor: a "hit" on a set body is really terrain.
           skyHoverKind =
             hit && dirToAzAltAtCamera(hit.dir).altDeg >= ORCH.skyMenuMinAltDeg ? hit.kind : null;
+          // Ghost pick reuses the _pickRay pickSkyBody just seated in this SAME cadence tick.
+          skyGhostKey = skyHoverKind ? null : (findGhosts.pick(_pickRay.ray.direction)?.key ?? null);
         }
+        // Row-highlight mirror (identity-guarded — the store must not churn per frame).
+        if (useFindStore.getState().sceneHoverKey !== skyGhostKey)
+          useFindStore.getState()._setSceneHover(skyGhostKey);
         // Name reveal (qol4, owner 2026-08-14: "reveal (very gently) their names"): the star-
         // field's own night ramp gates it — no names on a day sky — and a body hover outranks
         // a name. pickSkyBody above just seated _pickRay for this cadence tick; the same ray
         // rotated by +GAST (the star sphere applies −GAST) is the J2000 hit-test direction.
-        skyNameHit = eligible && !skyHoverKind ? skyNameHit : null;
-        if (eligible && !skyHoverKind && frameCount % ORCH.skyHoverEveryFrames === 0) {
+        skyNameHit = eligible && !skyHoverKind && !skyGhostKey ? skyNameHit : null;
+        if (eligible && !skyHoverKind && !skyGhostKey && frameCount % ORCH.skyHoverEveryFrames === 0) {
           _skyNameUp.copy(camera.position).normalize();
           const sunEl = sunDirW.dot(_skyNameUp);
           skyNameNight = THREE.MathUtils.clamp(
@@ -2609,7 +2664,7 @@ export function attachStylizedTiles(opts: {
         // Cursor hint. The placing crosshair owns the cursor while placing (eligible=false and
         // we never write over "crosshair"); stepPinHover runs later and leaves "pointer" in
         // place while a sky body owns it (pins win ties simply by running last).
-        if (skyHoverKind) dom.style.cursor = "pointer";
+        if (skyHoverKind || skyGhostKey) dom.style.cursor = "pointer";
         else if (dom.style.cursor === "pointer" && !usePinsStore.getState().hoverPin)
           dom.style.cursor = "";
   };
@@ -2959,8 +3014,10 @@ export function attachStylizedTiles(opts: {
       // 12 ViewFocus 13 IdleDrift 14 TiltGlide 15 HeadingGlide 16 ZoomGlide 17 EncoderRates
       // 18 FocalEncoder 19 StreetFloorGuard 20 LocationFinderFlyTo 21 FpvSolidity 22 FpvHudAndSkyMarkers
       // 23 PoseMirrorAndViewport 24 GroundUpdate 25 EphemerisResample 26 KeyLightAndShadow 27 SkyBodies
-      //    (+SkyTarget +SkyHover right after 27 — the tracer/trail/ghosts, then the qol3 hover lift
-      //     which MUST follow both: sun/moon lifts re-derive uniforms, the target's post-multiplies)
+      //    (+SkyTarget +FindGhosts +SkyHover right after 27 — the tracer/trail/ghosts, the FIND v2
+      //     standing projections (reads store/find, needs the fresh topocentric moon dir), then the
+      //     qol3 hover lift which MUST follow: sun/moon lifts re-derive uniforms, the target's
+      //     post-multiplies, and the ghost hover pick reads findGhosts' just-written alphas)
       // 28 FrustumResnapAndTick 29 ArrivalReframing 30 PinsUpdate 31 PinHover 32 TempPinMarker
       // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs 37 GeoLabels 38 StreetNames (S7b)
       // 39 VectorFeatures (S7 feedback — roads/water web from the shared MVT source)
@@ -3007,6 +3064,7 @@ export function attachStylizedTiles(opts: {
         stepKeyLightAndShadow();
         stepSkyBodies();
         stepSkyTarget();
+        stepFindGhosts();
         stepSkyHover();
         stepFrustumResnapAndTick();
         stepArrivalReframing();
@@ -3075,6 +3133,7 @@ export function attachStylizedTiles(opts: {
       skyTarget.dispose();
       skyTrail.dispose();
       skyGhosts.dispose();
+      findGhosts.dispose();
       skyNames.dispose();
       dayArcs.dispose();
       geoLabels.dispose();

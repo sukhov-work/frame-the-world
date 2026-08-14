@@ -107,12 +107,16 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `scene/imageryGround`+`scene/buildings`), `PhotoFrustum` (EXIF→camera + image plane), `flight`/`explore`
   (camera controllers), `Pins` (instanced camera-anchored public pins), `tuning.ts` (every tunable —
   contract in `conventions/globe-tuning.md`), and `scene/*` (baseEarth, atmosphere, stars, sky, dayArcs,
-  buildings, buildingMaterial, enrichedBuildings, imageryGround, vectorTiles, vectorFeatures, streetNames,
+  skyTarget, skyTrail, skyGhosts, skyNames, findGhosts (FIND v2 in-frame standings — rings +
+  phase-lit body pictures + per-hit day-arc paths, 2026-08-14), buildings, buildingMaterial,
+  enrichedBuildings, imageryGround, vectorTiles, vectorFeatures, streetNames,
   geoLabels, minimapFeed, planFeed, graticule, glsl).
 - `components/panels/` (design imports allowed): `UploadFlow` (dropzone→worker), `PhotoDetailPanel` (EXIF
   sliders/encoders + save/update/delete), `TimeScrubber`+`TimeReadout` (scrub + playback), `LocationFinder`
   (geocode→fly-to), `CameraTiltPanel` (compass/2D-3D/encoders/SAT/BLD chips), `MyPins`, `MemberBadge`,
   `Welcome`, `ExploreMode`, `FpvHud`, `PinHoverCard`, `PlanPanel` (skyline verdicts + jump chips),
+  `FindPanel` (FIND v2 — frame-as-query day scan + ghost projections; replaced the FindCard deck
+  row 2026-08-14), `TargetPanel` (tracked sky target), `SkyContextMenu` (right-click sky),
   `MiniMap` (FPV). `components/ui/`: `Slider`, `Encoder`, `InfoDot`, `DragGrip`. *(`AiPanel` = Phase 7, PARKED — out of all plans per owner 2026-08-11.)*
 - `components/mobile/` (M0+, planning-only shell — owner 2026-08-11/13): thin consumers of the SAME
   stores/libs (`MobileShell`, tab bar, sheets, time dock, FPV touch controls) mounted by
@@ -123,7 +127,8 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   golden, moonlight, captureTime, planner), `globe/` (quality, drift, buildingNight, enrichedMask,
   enrichedVariant), `pins/`, `save/`, `wix/` (`pinRecords`), `api/`, `format/`, `textures/`, `theme/`
   (GL token bridge).
-- `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member`, `plan`, `minimap` —
+- `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member`, `plan`, `sky`,
+  `find` (FIND v2 panel⇆globe ghost mirror + two-way hover), `minimap` —
   the reactive spine + the globe⇆React seam/mirror contract (see `conventions/architecture-and-patterns.md`).
 - `scripts/bake/` (offline, Node-only): `bake.mjs` (OSM footprints → C6 exclusion → roof-shaped extrusion →
   gridded 3D-Tiles + instanced trees), `bake-osm2world.mjs` (OSM2World variant), `upload-r2.mjs` /

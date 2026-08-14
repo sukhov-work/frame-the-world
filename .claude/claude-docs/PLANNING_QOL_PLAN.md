@@ -234,6 +234,30 @@ skyline (dayArcs grammar), showing at a glance which months the sun sets inside 
 
 ## 5. Decision log (append-only)
 
+- 2026-08-14 night-4b · **FIND markers restyled + app identity shift** (owner follow-up; core v2
+  verdict: "works exactly as i imagined"). Markers: hairline quad-gap identity rings
+  (`ringAlphaGain` — hairlines need alpha compensation) + semi-transparent phase-ACCURATE body
+  pictures (moon LROC phase-lit per hit instant; sun limb-darkened) + per-hit day-arc sky paths
+  in hit colours (cached per body|day; `pathAlphaK .3` anti-scratch; hover boost ×3). Scrubber
+  trace semantics explicit: base ribbon = absolute above-horizon visibility, THICK 5px@78% band
+  = in THIS frame. App working title → **SIDERA** (UI-facing only) + planning-first cover
+  (eyebrow "EVERY FRAME HAS ITS MOMENT", title "Plan the shot where the world will take it.",
+  EXPLORE = primary CTA, upload = ghost/side path — the product now leads with planning,
+  photography, exploration). Twin: DECISIONS 2026-08-14 night-4b.
+
+- 2026-08-14 night-4 · **FIND v2 OWNER REWORK — the P4 az/el card SUPERSEDED** (owner: "buried,
+  nobody understands az/el; the frame must be the query" — i.e. the §3.2 beat, now actually
+  built). Dedicated FindPanel island (⌖ FIND pill beside PLAN, mutually exclusive open; the
+  FindCard row DELETED from the PLAN deck): every following day is scanned at the EXACT scrubber
+  wall-clock time against the LIVE frustum (`frameFinder.frameStandings` two-face engine +
+  `FIND_VIS` visibility + `sameLocalTimeInstants` DST-safe day walk; findings scale with zoom AND
+  orientation — measured 45 hits @60° FOV → 0 @3°); bodies ☀/☾/✦ GC; ALL standings project into
+  the frame as hollow per-hit-coloured ghost rings/diamond (`scene/findGhosts` + `FINDGHOSTS`,
+  `lib/theme/findPalette` — real-body colours excluded; alpha = date ramp × visibility, skyline-
+  blocked ×.35); click ghost/row = jump to that day + track the body, camera UNMOVED. R8's
+  crossing engine (`azElHits`) stays in the lib, UI-less. Gates 842/842 · astro 0 err; shots
+  `find-rework-01..03`. Twin: DECISIONS 2026-08-14 night-4 + `mem:project/wip-2026-08-14-find-rework`.
+
 - 2026-08-14 night-3 · **QoL-3 SHIPPED desktop (P4/P5/P6/R9) + §3.5 spec'd** — FIND card
   (az±3/el±0.5 over 1W–1Y; engine `azElHits` = per-day az root-find + joint-box bisection,
   ~1 ms/day so 1 Y computes in-memo; end-to-end validated: the Sep 26 row jumps to sun az 249.99/

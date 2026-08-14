@@ -39,6 +39,20 @@ describe("frameMarker", () => {
     expect(m.dirY).toBeGreaterThan(0);
   });
 
+  it("frame coordinates (FIND v2): centre → 0,0; the frame edge → ±1; behind → 0", () => {
+    const centre = frameMarker(0, 0, -1, TAN_HALF_V, ASPECT);
+    expect(centre.fx).toBeCloseTo(0, 9);
+    expect(centre.fy).toBeCloseTo(0, 9);
+    const rightEdge = frameMarker(TAN_HALF_V * ASPECT, 0, -1, TAN_HALF_V, ASPECT);
+    expect(rightEdge.fx).toBeCloseTo(1, 9);
+    expect(rightEdge.inFrame).toBe(true);
+    const topEdge = frameMarker(0, TAN_HALF_V, -1, TAN_HALF_V, ASPECT);
+    expect(topEdge.fy).toBeCloseTo(1, 9);
+    const behind = frameMarker(0.4, 0.3, 0.87, TAN_HALF_V, ASPECT);
+    expect(behind.fx).toBe(0);
+    expect(behind.fy).toBe(0);
+  });
+
   it("degenerate straight-behind points the chip up", () => {
     const m = frameMarker(0, 0, 1, TAN_HALF_V, ASPECT);
     expect(m.inFrame).toBe(false);

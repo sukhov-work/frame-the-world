@@ -1,0 +1,96 @@
+/* FIND panel (v2, owner rework 2026-08-14) — the dedicated frame finder. Sits top-left NEXT TO
+   the PLAN pill (the two are mutually exclusive when open, so their cards share the column
+   without colliding). Reuses the .pp-* board grammar from plan-panel.css (pill, chips, rows,
+   light dots) — only the root placement, the card shell and the FIND-specific row cells live
+   here. Top-level island (index.astro) — the S2 containing-block trap. */
+
+.fnd-root {
+  position: fixed;
+  left: 7.3rem; /* right of the ☀ PLAN pill (left 1.6rem + pill ~5.2rem + gap) */
+  top: 3.4rem;
+  z-index: 31; /* the PLAN/TARGET tier */
+  font-family: var(--font-mono);
+  user-select: none;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+
+.fnd {
+  position: absolute;
+  left: 0;
+  top: 2.4rem; /* unfolds DOWN from the pill (the .pp grammar) */
+  width: 15rem; /* wider than .pp's 12.5rem — rows carry swatch+glyph+position+verdict+vis */
+  /* Same viewport budget as .pp (content-box: padding+border ~1.9rem ride on top — the
+     max-height trap, DECISIONS 2026-08-14 night-2). */
+  max-height: max(10rem, min(26rem, calc(100vh - 41.7rem)));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+}
+
+/* Scrolling body — head stays put; the .pp-scroll discipline (drag tab must not clip). */
+.fnd-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* The friendly context block — what is being searched, in plain instrument words. */
+.fnd-ctx {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-hit colour swatch — matches the ghost ring projected in the frame. */
+.fnd-sw {
+  flex: none;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+/* Beyond the ghost cap the row is listed but not projected — the swatch hollows out. */
+.fnd-sw--off {
+  background: transparent !important;
+  border: 1px solid var(--color-text-muted);
+}
+
+.fnd-glyph {
+  flex: none;
+  width: 0.9rem;
+  text-align: center;
+}
+.fnd-pos {
+  flex: none;
+  min-width: 1.1rem;
+  font-size: 9px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* Canvas-hover sync: the ghost under the pointer highlights its row. */
+.fnd-row--hot .pp-day__jump {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-text);
+}
+
+/* Keep the welcome landing clean (the FPV-HUD precedent). */
+body.welcome-active .fnd-root {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .fnd-root {
+    left: calc(1rem + 5.7rem); /* track the narrow-viewport .pp-root shift */
+    top: 7.5rem;
+  }
+}

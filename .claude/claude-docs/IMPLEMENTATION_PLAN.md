@@ -234,6 +234,12 @@ per-sub-phase gate.
   SpotStarsCard NPF (`lib/photo/npf` — declination FREE from the frustum via maxCosDecInFrame;
   simplified + 500 ghosts) · R9 size→distance (lib/geo/sizeDistance + TargetPanel SIZE→DIST row).
   Spec: PLANNING_QOL_PLAN §1.1 R8/R9/R10/R14.
+  **FIND SUPERSEDED same day (v2 owner rework, night-4/4b):** the az/el FindCard row is GONE —
+  dedicated `FindPanel` island ("the frame IS the query": per-day scan at the exact scrubber
+  hour vs the LIVE frustum, sun/moon/GC) + in-frame ghost projections (`scene/findGhosts`:
+  hairline identity rings, phase-accurate translucent body pictures, per-hit day-arc sky paths;
+  click = jump+track, camera unmoved). Engine `frameFinder.frameStandings`/`FIND_VIS` +
+  `store/find`. DECISIONS 2026-08-14 night-4 + night-4b.
 - [ ] **8-events** *(mobile twin: M4; AFTER the QoL pass + its mobile twins)* — P7 meteor showers
   (bake IAU MDC, avoid GPL showers.json; radiant = tracked target; ZHR×sin(h), moon-scored peaks;
   + rail intensity trace) · P8 conjunctions/oppositions finder · P9 lunar eclipses (shadow-cone

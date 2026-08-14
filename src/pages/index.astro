@@ -16,6 +16,7 @@ import ExploreMode from "../components/panels/ExploreMode";
 import Welcome from "../components/panels/Welcome";
 import FpvHud from "../components/panels/FpvHud";
 import PlanPanel from "../components/panels/PlanPanel";
+import FindPanel from "../components/panels/FindPanel";
 import TargetPanel from "../components/panels/TargetPanel";
 import MiniMap from "../components/panels/MiniMap";
 import SkyContextMenu from "../components/panels/SkyContextMenu";
@@ -26,7 +27,7 @@ import "../styles/tips.css";
 import "../styles/boot-poster.css";
 ---
 
-<Layout title="Frame the World">
+<Layout title="Sidera">
   <!-- Boot poster — the ONLY server-rendered visual. Everything else on this page is a
        client:only island (C4), so without this the SSR HTML is a black void until the globe
        hydrates — which is exactly what the Wix gallery's site-snapshotter captured (it froze on
@@ -40,11 +41,11 @@ import "../styles/boot-poster.css";
     <img class="bp-bg" src="/social-cover.jpg" alt="" decoding="async" fetchpriority="high" />
     <div class="bp-scrim"></div>
     <div class="bp-copy">
-      <span class="bp-eyebrow">EVERY PHOTOGRAPH HAS COORDINATES</span>
-      <div class="bp-title">See your photographs where the&nbsp;world took&nbsp;them.</div>
+      <span class="bp-eyebrow">EVERY FRAME HAS ITS MOMENT</span>
+      <div class="bp-title">Plan the shot where the&nbsp;world will&nbsp;take&nbsp;it.</div>
       <p class="bp-sub">
-        Upload a RAW. We read its metadata and place your exact camera — position, heading,
-        focal length — on a living globe.
+        Stand anywhere on a living globe — real streets, real skyline, the real sun, moon and
+        stars. Scrub time, frame the sky, and find the day everything lines up.
       </p>
     </div>
     <span class="bp-loading">
@@ -146,6 +147,11 @@ import "../styles/boot-poster.css";
        sun/moon verdict for the placed photo / FPV eye. Top-level island (same trap). -->
   <PlanPanel client:only="react" />
 
+  <!-- FIND panel (v2, owner rework 2026-08-14) — the dedicated frame finder: "at this hour, on
+       which coming days does the sun/moon/MW core stand inside THIS frame?" Standings project
+       into the frame as colour-matched ghost rings (scene/findGhosts). Top-level island. -->
+  <FindPanel client:only="react" />
+
   <!-- Sky-target tracer (ASTRO ENGINE phase A — generalises the 10P comet panel): live position
        of the tracked target from the current anchor, a per-kind object card, and the next
        dark-sky windows. 10P stays the default guest. Top-level island. -->
@@ -173,7 +179,7 @@ import "../styles/boot-poster.css";
       id="logo-home"
       href="/"
       data-tip="FRESH START — THE CLEAN GLOBE."
-      data-tip-pos="down">Frame&nbsp;the&nbsp;World</a>
+      data-tip-pos="down">Sidera</a>
     <nav>
       <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
       <a href="#explore" data-explore class="tip" data-tip="AMBIENT TOUR OF PUBLIC PINS." data-tip-pos="down">Explore</a>
