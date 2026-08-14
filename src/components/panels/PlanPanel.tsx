@@ -9,6 +9,9 @@ import { galacticCentreTarget } from "../../lib/ephemeris/targets";
 import { mwArcTiltDeg, mwSeason, type MwNight } from "../../lib/ephemeris/mwSeason";
 import FrameCard from "./FrameCard";
 import TodayCard from "./TodayCard";
+import FindCard from "./FindCard";
+import MoonCalCard from "./MoonCalCard";
+import SpotStarsCard from "./SpotStarsCard";
 import "../../styles/plan-panel.css";
 import "../../styles/tips.css";
 
@@ -205,6 +208,12 @@ export default function PlanPanel() {
           <FrameCard />
 
           <TodayCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
+
+          <FindCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
+
+          <MoonCalCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
+
+          <SpotStarsCard latDeg={anchor?.latDeg ?? focusLat} />
 
           <MwCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
           </div>

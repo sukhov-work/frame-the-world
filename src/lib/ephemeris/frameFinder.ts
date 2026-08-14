@@ -192,6 +192,135 @@ export function frameCrossings(
   return out;
 }
 
+// ------------------------------------------------------------------------------------------
+// P4 Find FULL (QoL-3, PLANNING_QOL_PLAN §1.1 R8): "when does the body stand at az±tol/el±tol?"
+// The R8 craft constants: az+el modes ONLY, tol ≈ 3° az / 0.5° el. A generic minute-scan over a
+// year is ~10⁵ samples — instead each local day is solved by ROOT-FINDING the azimuth crossing
+// (az is monotonic ~15°/h along a branch; MOBILE_PLAN §5 row 4), then checking the elevation
+// tolerance and bisecting the joint box window edges. ~10² samples per day ⇒ a year is cheap,
+// and the per-day face lets the card chunk long ranges without blocking a frame.
+// ------------------------------------------------------------------------------------------
+
+export interface AzElQuery {
+  azDeg: number;
+  elDeg: number;
+  /** R8 defaults: 3° az / 0.5° el. */
+  azTolDeg: number;
+  elTolDeg: number;
+}
+
+export interface AzElHit {
+  /** The instant the body crosses the target azimuth (bisected ≤ 1 s). */
+  utcMs: number;
+  /** Body elevation at the crossing (deg). */
+  elDeg: number;
+  /** Joint box window (az AND el inside tolerance) around the crossing. */
+  startMs: number;
+  endMs: number;
+  /** Above the injected skyline at the crossing ("unknown" without a profile). */
+  skyline: "clear" | "blocked" | "unknown";
+  light: LightPhase;
+  moonUp: boolean;
+  moonIllum: number;
+  moonGlare: number;
+}
+
+const wrap180 = (deg: number) => ((deg + 540) % 360) - 180;
+
+/** All az±tol/el±tol standings in ONE local day [dayStartMs, dayStartMs + 24 h).
+ *  `observer` annotates light/moon at the hit; `profileFn` gives the skyline verdict. */
+export function azElHitsInDay(
+  sample: FrameSampler,
+  q: AzElQuery,
+  dayStartMs: number,
+  observer: { latDeg: number; lonDeg: number },
+  profileFn: ProfileFn | null = null,
+): AzElHit[] {
+  const dayEndMs = dayStartMs + 86_400_000;
+  const stepMs = 3_600_000; // az moves ≤ ~16°/h — hourly sign sampling cannot skip a crossing
+  const dAz = (t: number) => wrap180(sample(t).azDeg - q.azDeg);
+  const out: AzElHit[] = [];
+  let prevT = dayStartMs;
+  let prevD = dAz(prevT);
+  for (let t = dayStartMs + stepMs; t <= dayEndMs; t += stepMs) {
+    const d = dAz(t);
+    // A sign flip marks either the azimuth crossing (near 0) or the wrap seam (near ±180).
+    if ((prevD <= 0) !== (d <= 0) && Math.abs(prevD) < 90 && Math.abs(d) < 90) {
+      let lo = prevT;
+      let hi = t;
+      const loNeg = prevD <= 0;
+      for (let i = 0; i < REFINE_MAX_ITER && hi - lo > REFINE_TOL_MS; i++) {
+        const mid = (lo + hi) / 2;
+        if ((dAz(mid) <= 0) === loNeg) lo = mid;
+        else hi = mid;
+      }
+      const crossMs = Math.round((lo + hi) / 2);
+      const at = sample(crossMs);
+      if (Math.abs(at.altDeg - q.elDeg) <= q.elTolDeg && at.altDeg > -1) {
+        // Joint box window: expand out from the crossing to the first minute outside the box,
+        // then bisect each edge (box residence is minutes — az tol alone is ~±12 min).
+        const inBox = (ms: number) => {
+          const p = sample(ms);
+          return (
+            Math.abs(wrap180(p.azDeg - q.azDeg)) <= q.azTolDeg &&
+            Math.abs(p.altDeg - q.elDeg) <= q.elTolDeg
+          );
+        };
+        const edge = (dir: -1 | 1): number => {
+          let inside = crossMs;
+          for (let k = 1; k <= 60; k++) {
+            const probe = crossMs + dir * k * 60_000;
+            if (!inBox(probe)) {
+              let a = inside;
+              let b = probe;
+              for (let i = 0; i < REFINE_MAX_ITER && Math.abs(b - a) > REFINE_TOL_MS; i++) {
+                const mid = (a + b) / 2;
+                if (inBox(mid)) a = mid;
+                else b = mid;
+              }
+              return Math.round((a + b) / 2);
+            }
+            inside = probe;
+          }
+          return inside;
+        };
+        const states = bodyStatesAt(crossMs);
+        const moon = horizontal("moon", crossMs, observer.latDeg, observer.lonDeg);
+        const moonUp = moon.altDeg > 0;
+        out.push({
+          utcMs: crossMs,
+          elDeg: at.altDeg,
+          startMs: inBox(crossMs) ? edge(-1) : crossMs,
+          endMs: inBox(crossMs) ? edge(1) : crossMs,
+          skyline: !profileFn ? "unknown" : at.altDeg > profileFn(at.azDeg) ? "clear" : "blocked",
+          light: lightPhaseAt(crossMs, observer.latDeg, observer.lonDeg),
+          moonUp,
+          moonIllum: states.moonIllumination,
+          moonGlare: moonUp ? moonPhaseIntensity(states.moonPhaseAngleDeg) : 0,
+        });
+      }
+    }
+    prevT = t;
+    prevD = d;
+  }
+  return out;
+}
+
+/** Convenience range face (tests + short presets) — the card chunks days itself for long ones. */
+export function azElHits(
+  sample: FrameSampler,
+  q: AzElQuery,
+  fromMs: number,
+  days: number,
+  observer: { latDeg: number; lonDeg: number },
+  profileFn: ProfileFn | null = null,
+): AzElHit[] {
+  const out: AzElHit[] = [];
+  for (let d = 0; d < days; d++)
+    out.push(...azElHitsInDay(sample, q, fromMs + d * 86_400_000, observer, profileFn));
+  return out;
+}
+
 /**
  * "When is the body nearest the frame CENTRE?" — the single-target Find inversion (P4 seed).
  * Global minimum of the angular separation over the scan horizon (no in-frame requirement —

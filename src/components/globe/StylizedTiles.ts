@@ -50,6 +50,7 @@ import { attachSky } from "./scene/sky";
 import { attachSkyTarget } from "./scene/skyTarget";
 import { attachSkyTrail } from "./scene/skyTrail";
 import { attachSkyGhosts } from "./scene/skyGhosts";
+import { attachSkyNames } from "./scene/skyNames";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachPlanFeed } from "./scene/planFeed";
 import { attachMinimapFeed } from "./scene/minimapFeed";
@@ -94,6 +95,7 @@ import {
   SEARCH,
   SHADOWS,
   SKY,
+  STARS,
   STREETS,
   SUN,
   TEMPPIN,
@@ -237,6 +239,7 @@ export function attachStylizedTiles(opts: {
   const skyTarget = attachSkyTarget(scene); // tracked sky target (ASTRO ENGINE) — 10P by default
   const skyTrail = attachSkyTrail(scene); // the target's day-arc trajectory (phase C, SHOW+TRAIL)
   const skyGhosts = attachSkyGhosts(scene); // temporal ghost copies of the tracked body (QoL-2)
+  const skyNames = attachSkyNames(); // hover-name reveal for stars/asterisms/constellations (qol4)
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
   const geoLabels = attachGeoLabels(scene); // NE labels + boundaries (S7b) — mid-zoom window only
   // Shared MVT source (S7 feedback batch): ONE fetch/parse per z14 tile feeds the GL street
@@ -300,6 +303,15 @@ export function attachStylizedTiles(opts: {
   const targetDirW = new THREE.Vector3(0, 0, 1);
   const targetTailW = new THREE.Vector3(0, 0, 1);
   const targetPoleW = new THREE.Vector3(0, 0, 1); // Saturn ring-plane normal (phase D)
+  // Diurnal parallax for the marker (owner 2026-08-14 round 3): TargetState.dir is GEOCENTRIC —
+  // fine for stars/DSOs (infinity) but the MOON's topocentric direction differs by up to ~0.95°
+  // (≈2 moon diameters; the "mark scope drawn off-target" screenshots). When the target carries
+  // a finite distance, bank its ECEF position and re-derive the camera-relative direction EVERY
+  // FRAME in stepSkyTarget — the exact move sky.ts makes for the moon disc, so the reticle,
+  // click/hover hit tests and edge chip all land on the rendered body. targetAzAlt (ghosts/
+  // trail/panel) already subtracts the observer — this closes the one remaining geocentric seam.
+  const targetPosW = new THREE.Vector3();
+  let targetDistM: number | null = null;
   let targetHasPole = false;
   let targetState: TargetState | null = null;
   let lastTargetId = "";
@@ -311,6 +323,8 @@ export function attachStylizedTiles(opts: {
     lastTargetId = target.id;
     const c = (targetState = target.stateAt(tMs));
     targetDirW.set(c.dir[0], c.dir[1], c.dir[2]);
+    targetDistM = c.distanceAu != null ? c.distanceAu * KM_PER_AU * 1000 : null;
+    if (targetDistM != null) targetPosW.copy(targetDirW).multiplyScalar(targetDistM);
     if (c.tailDir) targetTailW.set(c.tailDir[0], c.tailDir[1], c.tailDir[2]);
     targetHasPole = target.id === "planet:saturn";
     if (targetHasPole) {
@@ -2220,8 +2234,9 @@ export function attachStylizedTiles(opts: {
               camNow._syncSkyMarkers({
                 sun: wantGuides ? sunM : null,
                 moon: wantGuides ? moonM : null,
-                // Every trackable target is far enough that the geocentric direction IS the
-                // topocentric one at chip precision (the marker draws the same dir).
+                // targetDirW is camera-relative for finite-distance targets (stepSkyTarget
+                // re-derives it per frame — the moon's ~0.95° diurnal parallax), so the chip,
+                // the reticle and the rendered body all agree.
                 target: wantTarget
                   ? {
                       ...bodyMarker(targetDirW),
@@ -2471,6 +2486,11 @@ export function attachStylizedTiles(opts: {
         // otherwise show the OLD body's direction under the new body's treatment for a beat.
         const skyNow = useSkyStore.getState();
         if (skyNow.target.id !== lastTargetId) sampleEphemeris(sceneTimeMs());
+        // Finite-distance targets (moon/sun/planets/comets): re-derive the camera-relative
+        // direction per frame from the banked ECEF position — diurnal parallax for the marker
+        // (up to ~0.95° for the moon; see the targetPosW note above). Stars/DSOs stay geocentric.
+        if (targetDistM != null)
+          targetDirW.copy(targetPosW).sub(camera.position).normalize();
         const t = targetState;
         skyTarget.update({
           camera,
@@ -2525,6 +2545,12 @@ export function attachStylizedTiles(opts: {
   //     absolute re-derivations (setHoverGlow), the target's is a post-update multiply.
   const skyHoverAmt = { sun: 0, moon: 0, target: 0 };
   let skyHoverKind: "sun" | "moon" | "target" | null = null;
+  // Sky NAMES hover (qol4): stars/asterisms/constellations, night sky only, bodies win ties.
+  let skyNameHit: ReturnType<typeof skyNames.hitAt> = null;
+  let skyNameLast: ReturnType<typeof skyNames.hitAt> = null;
+  let skyNameAmt = 0;
+  let skyNameNight = 0;
+  const _skyNameUp = new THREE.Vector3();
   const stepSkyHover = () => {
         const eligible = Number.isFinite(hoverX) && !anyPointerDown && upNow.phase !== "placing";
         if (!eligible) skyHoverKind = null;
@@ -2536,6 +2562,32 @@ export function attachStylizedTiles(opts: {
           skyHoverKind =
             hit && dirToAzAltAtCamera(hit.dir).altDeg >= ORCH.skyMenuMinAltDeg ? hit.kind : null;
         }
+        // Name reveal (qol4, owner 2026-08-14: "reveal (very gently) their names"): the star-
+        // field's own night ramp gates it — no names on a day sky — and a body hover outranks
+        // a name. pickSkyBody above just seated _pickRay for this cadence tick; the same ray
+        // rotated by +GAST (the star sphere applies −GAST) is the J2000 hit-test direction.
+        skyNameHit = eligible && !skyHoverKind ? skyNameHit : null;
+        if (eligible && !skyHoverKind && frameCount % ORCH.skyHoverEveryFrames === 0) {
+          _skyNameUp.copy(camera.position).normalize();
+          const sunEl = sunDirW.dot(_skyNameUp);
+          skyNameNight = THREE.MathUtils.clamp(
+            (STARS.nightVisStartSin - sunEl) / (STARS.nightVisStartSin - STARS.nightVisFullSin),
+            0,
+            1,
+          );
+          if (skyNameNight > 0.05) {
+            skyNames.ensureLoaded(); // lazy catalogs — first eligible night hover kicks it
+            const d = _pickRay.ray.direction;
+            if (dirToAzAltAtCamera(d).altDeg >= ORCH.skyMenuMinAltDeg) {
+              const cg = Math.cos(gastRad);
+              const sg = Math.sin(gastRad);
+              skyNameHit = skyNames.hitAt(
+                [d.x * cg - d.y * sg, d.x * sg + d.y * cg, d.z],
+                fpvActive && useCameraStore.getState().skyGuides,
+              );
+            } else skyNameHit = null;
+          } else skyNameHit = null;
+        }
         const kh = 1 - Math.exp(-dtMs / ORCH.skyHoverEaseTauMs);
         for (const k of ["sun", "moon", "target"] as const) {
           const target = skyHoverKind === k ? 1 : 0;
@@ -2544,6 +2596,16 @@ export function attachStylizedTiles(opts: {
         }
         sky.setHoverGlow(skyHoverAmt.sun * ORCH.skyHoverGain, skyHoverAmt.moon * ORCH.skyHoverGain);
         skyTarget.hoverBoost(skyHoverAmt.target * ORCH.skyHoverGain);
+        // The name label breathes with the same house ease, scaled by the night ramp; it
+        // follows the live cursor every frame (the eased alpha alone changes at cadence).
+        // skyNameLast keeps the outgoing text during the fade-out so it melts, never pops.
+        if (skyNameHit) skyNameLast = skyNameHit;
+        const nameTarget = skyNameHit ? skyNameNight : 0;
+        skyNameAmt += (nameTarget - skyNameAmt) * kh;
+        if (Math.abs(skyNameAmt - nameTarget) < 0.004) skyNameAmt = nameTarget;
+        if (skyNameAmt > 0.02 && skyNameLast && Number.isFinite(hoverX))
+          skyNames.show(skyNameLast, hoverX, hoverY, skyNameAmt);
+        else skyNames.hide();
         // Cursor hint. The placing crosshair owns the cursor while placing (eligible=false and
         // we never write over "crosshair"); stepPinHover runs later and leaves "pointer" in
         // place while a sky body owns it (pins win ties simply by running last).
@@ -3013,6 +3075,7 @@ export function attachStylizedTiles(opts: {
       skyTarget.dispose();
       skyTrail.dispose();
       skyGhosts.dispose();
+      skyNames.dispose();
       dayArcs.dispose();
       geoLabels.dispose();
       streetNames.dispose();

@@ -108,11 +108,12 @@
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 
-/* v2 rail (QoL-1, owner 2026-08-14): a 40px strip — light bands + sun/moon elevation curves in
-   the top 24px, real hour-tick labels in the bottom 12px, the centre cursor knob over it all. */
+/* v2 rail (QoL-1, owner 2026-08-14; +20% taller same day — "charts clumped"): a 48px strip —
+   light bands + sun/moon elevation curves in the top 32px, real hour-tick labels in the bottom
+   12px, the centre cursor knob over it all. */
 .ts-rail {
   position: relative;
-  height: 40px;
+  height: 48px;
   cursor: ew-resize;
   touch-action: none;
   outline: none;
@@ -162,7 +163,7 @@
   position: absolute;
   inset: 3px 0 13px 0;
   width: 100%;
-  height: 24px;
+  height: 32px; /* rail 48 − 3 top − 13 label row (keep in lockstep with .ts-rail) */
   pointer-events: none;
   overflow: visible;
 }
@@ -187,20 +188,23 @@
 
 /* Tracked-target visibility trace (§3.1.D): absent below the horizon · dim dashed while the
    skyline blocks it · accent when clear · FPV-only emphasis where the target sits inside the
-   current frame — "it crosses MY frame 19:40–20:25". Drawn over the sun/moon curves. */
+   current frame — "it crosses MY frame 19:40–20:25". Drawn over the sun/moon curves.
+   Owner 2026-08-14 ("charts clumped"): the target strokes are THICKER + MORE TRANSPARENT than
+   the thin solid sun/moon hairlines — a wide translucent ribbon reads as a separate layer even
+   where the curves overlap, instead of merging into one clump. */
 .ts-curves__trace-blocked {
-  stroke: color-mix(in srgb, var(--color-text-muted) 60%, transparent);
-  stroke-width: 1;
+  stroke: color-mix(in srgb, var(--color-text-muted) 42%, transparent);
+  stroke-width: 1.6;
   stroke-dasharray: 2 3;
 }
 .ts-curves__trace-clear {
-  stroke: color-mix(in srgb, var(--color-accent) 80%, transparent);
-  stroke-width: 1.3;
+  stroke: color-mix(in srgb, var(--color-accent) 52%, transparent);
+  stroke-width: 2.4;
 }
 .ts-curves__trace-frame {
-  stroke: var(--color-accent);
-  stroke-width: 2.4;
-  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-accent) 70%, transparent));
+  stroke: color-mix(in srgb, var(--color-accent) 65%, transparent);
+  stroke-width: 3.6;
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-accent) 45%, transparent));
 }
 
 /* Hour ticks — REAL local hours sliding with the conveyor; labels every SCRUB.hourLabelEvery.
@@ -223,7 +227,7 @@
   background: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
 }
 .ts-tick--midnight {
-  height: 24px;
+  height: 32px; /* full curve-strip day boundary (rail 48 geometry) */
   background: color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
 }
 .ts-tick__label {

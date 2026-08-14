@@ -45,7 +45,10 @@ export interface SkyHandle {
   }): void;
   /** Hover affordance (qol3): per-frame ABSOLUTE brightness lift — uIntensity/uBrightness are
    *  write-once uniforms, so the setter re-derives them from the SKY constants (idempotent;
-   *  never compounds). k = eased 0..1 hover × ORCH.skyHoverGain, per body. */
+   *  never compounds). k = eased 0..1 hover × ORCH.skyHoverGain, per body. Round 3 (owner
+   *  2026-08-14 "a bit more distinct — maybe a very faint small frame"): the lift also breathes
+   *  in a hairline broken ring just outside the hovered disc (the reticle grammar at hover
+   *  scale) — call AFTER update() (it reads the freshly-anchored body positions + camera). */
   setHoverGlow(sunK: number, moonK: number): void;
   dispose(): void;
 }
@@ -194,10 +197,15 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   };
   const moonMat = new THREE.ShaderMaterial({
     uniforms: moonUniforms,
-    // Transparent so the horizon fade can dissolve the disc; depthWrite stays ON — the moon BODY
-    // occludes stars behind it regardless of phase. Fully-occluded OR day-sky-invisible fragments
-    // discard instead (no depth hole punched into the starfield — and no depth wall that rejects
-    // the additive sky dome drawn after the disc: the daytime dark-disc bug, owner 2026-08-14).
+    // Transparent so the horizon fade can dissolve the disc; depthTest ON (terrain/buildings
+    // occlude a setting moon); depthWrite OFF (round 3, owner 2026-08-14) — the disc must never
+    // place a depth wall in the sky: the additive dome draws after it, and ANY depth the disc
+    // writes can depth-reject the dome on the disc's footprint during rapid FPV look-drags
+    // (browser A/B over ~470 drag frames each: depthWrite on → dark frames at 0.13× sky
+    // luminance; off → zero). Star occlusion needs no depth — the night arm's alpha (≈1 at
+    // night) REPLACES the stars drawn before the disc, and by day the stars are gone. Known
+    // cosmetic edge: a total solar eclipse would let the additive sun (drawn after) wash
+    // through the disc — no depth wall is worth that trade.
     //
     // PREMULTIPLIED custom blend (qol3, owner 2026-08-14 round 2): ONE / ONE_MINUS_SRC_ALPHA lets
     // ONE material be additive by day (alpha 0 — the disc can only ADD light, so no camera pose
@@ -210,6 +218,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     blendSrcAlpha: THREE.OneFactor,
     blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     transparent: true,
+    depthWrite: false,
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       varying vec3 vNw;
@@ -245,8 +254,8 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         float aNight = fade * (1.0 - uDaySky);
         vec3 color = nightRgb * aNight + dayRgb * (uDaySky * fade);
         float alpha = aNight;
-        // Invisible either way → write NO depth (dome safety: an unseen fragment must never
-        // depth-reject the additive sky dome drawn after the disc).
+        // Invisible either way → discard (cheap ROP skip; depthWrite is already OFF — round 3 —
+        // so this is no longer load-bearing for the dome, just hygiene).
         if (max(max(color.r, color.g), color.b) < ${glf(SKY.moonAlphaDiscard)} &&
             alpha < ${glf(SKY.moonAlphaDiscard)}) discard;
         ${DITHER_GLSL}
@@ -261,6 +270,41 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   moonMesh.frustumCulled = false;
   moonMesh.raycast = () => {};
   scene.add(moonMesh);
+
+  // --- Hover ring (qol3 round 3): a hairline broken ring that breathes in around the hovered
+  //     sun/moon — the skyTarget reticle grammar (quad-gap arcs) at hover scale, additive so the
+  //     sky stays visible through it. ONE billboard, repositioned by setHoverGlow each frame. ---
+  const hoverUniforms = {
+    uColor: { value: new THREE.Color(tokens.accent) },
+    uFade: { value: 0 },
+  };
+  const hoverRingMat = new THREE.ShaderMaterial({
+    uniforms: hoverUniforms,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: IMPOSTOR_VERTEX_GLSL,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uFade;
+      varying vec2 vUv;
+      void main() {
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        // Broken hairline ring at r = 0.8 (the reticle's quad-gap mask — ticks-free, fainter).
+        float quad = abs(fract(atan(p.y, p.x) * ${glf(2.0 / Math.PI)} + 0.5) - 0.5) * 2.0;
+        float arc = smoothstep(${glf(SKY.hoverRingGapFrac)}, ${glf(SKY.hoverRingGapFrac + 0.12)}, quad);
+        float ring = smoothstep(${glf(SKY.hoverRingWidthN)}, 0.0, abs(r - 0.8)) * arc;
+        gl_FragColor = vec4(uColor * ring * uFade * ${glf(SKY.hoverRingGain)}, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const hoverRing = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), hoverRingMat);
+  hoverRing.frustumCulled = false;
+  hoverRing.raycast = () => {};
+  hoverRing.visible = false;
+  scene.add(hoverRing);
+  let lastCamera: THREE.PerspectiveCamera | null = null;
 
   // --- Moonlight: cool fill that tracks the real moon direction + phase. -----------------------
   const moonLight = new THREE.DirectionalLight(
@@ -282,6 +326,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     moonMesh,
     moonLight,
     update({ camera, alt, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity }) {
+      lastCamera = camera; // banked for setHoverGlow's ring billboard (called right after)
       // Horizon fade terms (float64 on the CPU — see HORIZON_FADE_GLSL): shared uniform holders,
       // one write covers the sun AND moon materials.
       uSinHor.value = horizonTerms(camera.position, uHorizonUp.value);
@@ -332,6 +377,23 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     setHoverGlow(sunK, moonK) {
       sunUniforms.uIntensity.value = SKY.sunIntensity * (1 + sunK);
       moonUniforms.uBrightness.value = SKY.moonBrightness * (1 + moonK);
+      // The faint frame: follow whichever body is (more) hovered; k is already eased upstream,
+      // so the ring breathes in/out with the glow. Ring radius = disc radius × hoverRingRadFrac
+      // (the ring lives at normalized r = 0.8 of the plane, hence the /0.8 scale map).
+      const k = Math.max(sunK, moonK);
+      if (k < 0.01 || !lastCamera) {
+        hoverRing.visible = false;
+        return;
+      }
+      const onSun = sunK >= moonK;
+      const body = onSun ? sunMesh : moonMesh;
+      // Sun plane spans sunGlowExtent disc radii; the moon sphere's scale IS its disc radius.
+      const discR = onSun ? sunMesh.scale.x / SKY.sunGlowExtent : moonMesh.scale.x;
+      hoverRing.visible = true;
+      hoverRing.position.copy(body.position);
+      hoverRing.scale.setScalar((discR * SKY.hoverRingRadFrac) / 0.8);
+      hoverRing.quaternion.copy(lastCamera.quaternion);
+      hoverUniforms.uFade.value = k;
     },
     dispose() {
       moonTex.dispose();
@@ -339,6 +401,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       sunMat.dispose();
       moonMesh.geometry.dispose();
       moonMat.dispose();
+      hoverRing.geometry.dispose();
+      hoverRingMat.dispose();
+      scene.remove(hoverRing);
       scene.remove(sunMesh);
       scene.remove(moonMesh);
       scene.remove(moonLight.target);
