@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { FINDGHOSTS, SKY, SKY_TARGET } from "../tuning";
 import { tokens } from "../../../lib/theme/tokens";
 import { findHitColor } from "../../../lib/theme/findPalette";
+import { formatStandingLabel } from "../../../lib/format/readout";
 import { azAltToEnu, sampleDayArc, type DayArc } from "../../../lib/ephemeris/dayArc";
 import { bodyStatesAt } from "../../../lib/ephemeris/bodies";
 import { enuBasis } from "../../../lib/geo/projection";
@@ -77,9 +78,41 @@ interface Inst {
   litW: THREE.Vector3 | null;
   /** Static alpha factors (date ramp × visibility) — melt/hover/fade applied per frame. */
   baseAlpha: number;
+  /** In-sky tag `dd.mm` (moon: `dd.mm · NN%`) — static per rebuild. */
+  label: string;
+  /** Identity colour hex — the label wears the ring's colour. */
+  colorHex: string;
 }
 
 export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
+  // ── In-sky standing labels (owner 2026-08-14): a subtle `dd.mm` (moon: `dd.mm · NN%`) beside
+  //    each ghost ring, in the hit's identity colour. DOM layer, NOT GL text (the skyNames/
+  //    geoLabels discipline — design fonts survive); pooled divs, transform-only per-frame
+  //    writes; opacity rides the ghost's own effective alpha, so labels melt/fade/pulse with
+  //    their rings. Screen-space de-clutter: the dense two-branch corridor at long focals would
+  //    stack every label on one spot — nearest dates win, the hovered ghost's label always shows.
+  const labelLayer = document.createElement("div");
+  labelLayer.className = "sky-names"; // welcome.css hides the same chrome family
+  labelLayer.setAttribute("aria-hidden", "true");
+  labelLayer.style.cssText = "position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:2;";
+  document.body.appendChild(labelLayer);
+  const labelPool: HTMLDivElement[] = [];
+  const labelEl = (i: number): HTMLDivElement => {
+    while (labelPool.length <= i) {
+      const el = document.createElement("div");
+      el.style.cssText =
+        "position:absolute;left:0;top:0;white-space:nowrap;display:none;" +
+        "font:500 0.52rem var(--font-ui,sans-serif);letter-spacing:0.14em;" +
+        `text-shadow:0 0 6px ${tokens.bg},0 0 2px ${tokens.bg};`;
+      labelLayer.appendChild(el);
+      labelPool.push(el);
+    }
+    return labelPool[i];
+  };
+  const hideLabelsFrom = (i: number) => {
+    for (let k = i; k < labelPool.length; k++) labelPool[k].style.display = "none";
+  };
+
   const uFade = { value: 0 };
   const moonTex = new THREE.TextureLoader().load(SKY.moonTexture);
   moonTex.colorSpace = THREE.SRGBColorSpace;
@@ -261,6 +294,11 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
   const _pos = new THREE.Vector3();
   const _lit = new THREE.Vector3();
   const _scale = new THREE.Vector3();
+  const _view = new THREE.Vector3();
+  const _ndc = new THREE.Vector3();
+  /** Reused per-frame label candidates/accepted (the geoLabels no-churn discipline). */
+  const _labelCand: { inst: Inst; x: number; y: number; a: number; hot: boolean }[] = [];
+  const _labelAcc: { x: number; y: number }[] = [];
 
   function rebuildPaths(anchor: { latDeg: number; lonDeg: number }) {
     const basis = enuBasis(anchor.latDeg, anchor.lonDeg);
@@ -330,6 +368,7 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
         const st = bodyStatesAt(g.utcMs);
         litW = new THREE.Vector3(st.sunDir[0], st.sunDir[1], st.sunDir[2]);
       }
+      const colorHex = findHitColor(g.colorIdx).gl;
       insts.push({
         ghost: g,
         dir,
@@ -337,9 +376,11 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
         kind: isGc ? 2 : g.body === "moon" ? 1 : 0,
         litW,
         baseAlpha: ramp * g.visibility,
+        label: formatStandingLabel(g.utcMs, g.body === "moon" ? g.illum : undefined),
+        colorHex,
       });
       const i = insts.length - 1;
-      _c.set(findHitColor(g.colorIdx).gl);
+      _c.set(colorHex);
       colorAttr.setXYZ(i, _c.r, _c.g, _c.b);
       kindAttr.setX(i, insts[i].kind);
     }
@@ -358,6 +399,7 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
       if (fade < 0.01 && !want) {
         mesh.visible = false;
         pathGroup.visible = false;
+        hideLabelsFrom(0);
         return;
       }
       if (want && anchor) {
@@ -374,6 +416,7 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
         mesh.visible = fade >= 0.01;
         pathGroup.visible = false;
         mesh.count = 0;
+        hideLabelsFrom(0);
         return;
       }
       mesh.visible = true;
@@ -386,6 +429,10 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
       );
       _q.copy(camera.quaternion); // billboards
       _qInv.copy(camera.quaternion).invert(); // world → billboard space (the moon phase light)
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const pxPerRad = vh / 2 / Math.tan((camera.fov * Math.PI) / 360);
+      _labelCand.length = 0;
       let hotIdx = -5;
       for (let i = 0; i < insts.length; i++) {
         const s = insts[i];
@@ -420,7 +467,53 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
         _pos.copy(camera.position).addScaledVector(s.dir, d);
         _m.compose(_pos, _q, _scale.setScalar(size));
         mesh.setMatrixAt(i, _m);
+        // Label candidate: in front of the camera, on screen, above the alpha floor.
+        const labelA = effAlpha[i] * FINDGHOSTS.labelAlphaK;
+        if (labelA >= FINDGHOSTS.labelMinAlpha) {
+          _view.copy(_pos).applyMatrix4(camera.matrixWorldInverse);
+          if (_view.z < 0) {
+            _ndc.copy(_pos).project(camera);
+            if (Math.abs(_ndc.x) <= 1.02 && Math.abs(_ndc.y) <= 1.02) {
+              const ringPx = Math.tan(s.markRad) * (hovered ? FINDGHOSTS.hoverScale : 1) * pxPerRad;
+              _labelCand.push({
+                inst: s,
+                x: (_ndc.x * 0.5 + 0.5) * vw + ringPx + FINDGHOSTS.labelPadPx,
+                y: (-_ndc.y * 0.5 + 0.5) * vh,
+                a: labelA,
+                hot: hovered,
+              });
+            }
+          }
+        }
       }
+      // De-clutter + write: hovered first (it must never lose its tag), then date order.
+      _labelCand.sort((a, b) => Number(b.hot) - Number(a.hot));
+      _labelAcc.length = 0;
+      let shown = 0;
+      const minSep2 = FINDGHOSTS.labelMinSepPx * FINDGHOSTS.labelMinSepPx;
+      for (const c of _labelCand) {
+        let clear = true;
+        for (const p of _labelAcc) {
+          const dx = p.x - c.x;
+          const dy = p.y - c.y;
+          if (dx * dx + dy * dy < minSep2) {
+            clear = false;
+            break;
+          }
+        }
+        if (!clear) continue;
+        _labelAcc.push({ x: c.x, y: c.y });
+        const el = labelEl(shown++);
+        if (el.dataset.k !== c.inst.ghost.key) {
+          el.dataset.k = c.inst.ghost.key;
+          el.textContent = c.inst.label;
+          el.style.color = c.inst.colorHex;
+        }
+        el.style.transform = `translate(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px) translate(0, -50%)`;
+        el.style.opacity = String(Math.min(0.95, c.a));
+        el.style.display = "block";
+      }
+      hideLabelsFrom(shown);
       mesh.count = insts.length;
       mesh.instanceMatrix.needsUpdate = true;
       alphaAttr.needsUpdate = true;
@@ -450,6 +543,7 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
       return best;
     },
     dispose() {
+      labelLayer.remove();
       mesh.geometry.dispose();
       material.dispose();
       moonTex.dispose();

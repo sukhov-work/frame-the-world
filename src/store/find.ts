@@ -24,6 +24,9 @@ export interface FindGhost {
   tNorm: number;
   /** 0..1 — the FIND_VIS visibility score (the second opacity factor). */
   visibility: number;
+  /** Illuminated fraction 0..1 at the hit — the moon's in-sky label appends it as a phase %
+   *  (0 for the sun/GC: their labels carry the date alone). */
+  illum: number;
   /** FIND_PALETTE index (already cycled by the panel). */
   colorIdx: number;
 }

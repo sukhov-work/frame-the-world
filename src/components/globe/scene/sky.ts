@@ -123,6 +123,20 @@ export function moonDiscArms(
   return { rgb: nightRgb * aNight + dayRgb * daySky * fade, alpha: aNight };
 }
 
+/**
+ * CPU twin of the sun's horizon-extinction factor (owner 2026-08-14: a setting sun should dim
+ * "like the real atmosphere does"). `sunAltDeg` = sun altitude at the camera (deg); `skyK` =
+ * the atmosphere-presence altitude fade (1 at street level, 0 in space — the moon dayK's
+ * ATMOSPHERE.skyFullAlt/GoneAlt ramp): from orbit there is no air, so the factor relaxes to 1.
+ * Smoothstep taste curve, NOT the airmass exponential — the real horizon sun is ~10⁻³ of its
+ * zenith luminance, which would erase the disc and its bloom entirely (C2: beauty AND accuracy).
+ */
+export function sunExtinctionK(sunAltDeg: number, skyK: number): number {
+  const t = THREE.MathUtils.smoothstep(sunAltDeg, 0, SKY.sunExtinctAltHiDeg);
+  const air = SKY.sunExtinctFloor + (1 - SKY.sunExtinctFloor) * t;
+  return 1 - skyK * (1 - air);
+}
+
 const IMPOSTOR_VERTEX_GLSL = /* glsl */ `
       varying vec2 vUv;
       varying vec3 vW;
@@ -144,6 +158,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     uCore: { value: new THREE.Color(tokens.sunCore) },
     uGlow: { value: new THREE.Color(tokens.sunGlow) },
     uIntensity: { value: SKY.sunIntensity as number }, // widened: setHoverGlow re-derives it
+    // Horizon extinction (sunExtinctionK, CPU per frame) — dims core AND halo, so the bloom
+    // driver dims with the disc. Separate from uIntensity: the hover lift must not fight it.
+    uExtinct: { value: 1 },
     uHorizonUp,
     uSinHor,
     uHorizonBandSin,
@@ -158,6 +175,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       uniform vec3 uCore;
       uniform vec3 uGlow;
       uniform float uIntensity;
+      uniform float uExtinct;
       varying vec2 vUv;
       varying vec3 vW;
       ${HORIZON_FADE_GLSL}
@@ -169,7 +187,7 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         float limb = mix(1.0, 0.7, smoothstep(0.0, 1.0, r));
         // tight shader halo — the WIDE glow is the bloom pass's job
         float halo = exp(-(max(r - 1.0, 0.0)) * 1.6) * ${glf(SKY.sunGlowGain)};
-        vec3 color = (uCore * disc * limb * uIntensity + uGlow * halo) * horizonFade(vW);
+        vec3 color = (uCore * disc * limb * uIntensity + uGlow * halo) * horizonFade(vW) * uExtinct;
         ${DITHER_GLSL}
         gl_FragColor = vec4(color, 1.0); // additive: rgb carries everything
         #include <colorspace_fragment>
@@ -341,11 +359,20 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         camera.far * 0.95,
       );
 
+      // Shared sun-elevation / atmosphere-presence terms (uHorizonUp just refreshed above;
+      // scaled-space up ≈ geodetic up to ~0.3%): the sun's horizon extinction AND the moon's
+      // day-sky arm both read them — one derivation, two consumers.
+      const sinSun = sunDir.dot(uHorizonUp.value);
+      const skyK = 1 - THREE.MathUtils.smoothstep(alt, ATMOSPHERE.skyFullAlt, ATMOSPHERE.skyGoneAlt);
+
       // Sun: parallax-free — anchor along the direction from the camera.
       sunMesh.position.copy(camera.position).addScaledVector(sunDir, d);
       // plane half-extent covers the halo: disc radius × glow extent
       sunMesh.scale.setScalar(d * Math.tan(sunAngRad) * SKY.sunGlowExtent);
       sunMesh.quaternion.copy(camera.quaternion); // billboard
+      // Horizon extinction (owner 2026-08-14): a setting sun dims like the real atmosphere.
+      const sunAltDeg = Math.asin(THREE.MathUtils.clamp(sinSun, -1, 1)) * (180 / Math.PI);
+      sunUniforms.uExtinct.value = sunExtinctionK(sunAltDeg, skyK);
 
       // Moon: true position is finite (≈384,000 km) — derive the per-camera direction, then
       // anchor inside the far plane at the true apparent size.
@@ -361,11 +388,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       moonUniforms.uSunDir.value.copy(sunDir);
       // Day-sky visibility for the dark-limb alpha (dark-disc fix, owner 2026-08-14): the SAME
       // sun-elevation ramp the atmosphere's dayK uses × the sky-regime altitude fade — the
-      // disc's alpha story always matches the sky the dome paints behind it. uHorizonUp was
-      // just refreshed above (scaled-space up ≈ geodetic up to ~0.3%).
-      const sinSun = sunDir.dot(uHorizonUp.value);
+      // disc's alpha story always matches the sky the dome paints behind it (sinSun/skyK are
+      // the shared derivation above the sun anchor).
       const dayK = THREE.MathUtils.smoothstep(sinSun, ATMOSPHERE.skyDawnLo, ATMOSPHERE.skyDawnHi);
-      const skyK = 1 - THREE.MathUtils.smoothstep(alt, ATMOSPHERE.skyFullAlt, ATMOSPHERE.skyGoneAlt);
       moonUniforms.uDaySky.value = dayK * skyK;
 
       // Moonlight follows the moon; intensity follows the K&S phase curve (quarter ≈ 9% of

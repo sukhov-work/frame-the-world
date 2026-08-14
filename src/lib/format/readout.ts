@@ -103,6 +103,15 @@ export function formatBytes(bytes?: number): string {
   return `${(mb / 1024).toFixed(1)} GB`;
 }
 
+/** `14.08` (dd.mm, LOCAL date) — the in-sky FIND standing tag; the moon appends its phase:
+ *  `14.08 · 62%` (owner 2026-08-14: "subtle date near each standing, phase % for the moon"). */
+export function formatStandingLabel(utcMs: number, illum?: number): string {
+  const d = new Date(utcMs);
+  const p = (n: number) => String(n).padStart(2, "0");
+  const tag = `${p(d.getDate())}.${p(d.getMonth() + 1)}`;
+  return illum === undefined ? tag : `${tag} · ${Math.round(illum * 100)}%`;
+}
+
 /** `2026-06-21 · 18:42` from a TZ-naive ISO string — string surgery, no Date (keeps tests + TZ sane). */
 export function formatCaptureDateTime(iso?: string): string {
   if (!iso) return EM_DASH;
