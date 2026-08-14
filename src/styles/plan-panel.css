@@ -214,6 +214,127 @@
   gap: 6px;
 }
 
+/* TODAY daily chronology + THIS FRAME rows (QoL-2 2026-08-14) — one ordered list, each row a
+   jump button + a ⤓ .ics export; the light-phase dot reuses the scrubber-band colour grammar.
+   Everything fits the 12.5rem card (the phantom-h-scroll rule). */
+.pp-day,
+.pp-fr {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+.pp-day__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 4px;
+}
+.pp-day__jump {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+.pp-day__jump:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-text);
+}
+.pp-day__dot {
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+}
+.pp-day__dot--day {
+  background: var(--color-sun-glow);
+}
+.pp-day__dot--golden {
+  background: var(--color-golden-hour);
+}
+.pp-day__dot--blue {
+  background: var(--color-blue-hour);
+}
+.pp-day__dot--nautical {
+  background: color-mix(in srgb, var(--color-moonlight) 55%, var(--color-night-band));
+}
+.pp-day__dot--astro {
+  background: color-mix(in srgb, var(--color-moonlight) 25%, var(--color-night-band));
+}
+.pp-day__dot--night {
+  background: var(--color-night-band);
+}
+.pp-day__time {
+  flex: none;
+  white-space: nowrap;
+}
+.pp-day__kind {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-day__jump:hover .pp-day__kind {
+  color: inherit;
+}
+.pp-day__meta {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-ics {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 9px;
+  cursor: pointer;
+  transition: color 180ms ease, border-color 180ms ease;
+}
+.pp-ics:hover {
+  color: var(--color-text-secondary);
+  border-color: var(--color-text-muted);
+}
+.pp-fr__glyph {
+  flex: none;
+  width: 1rem;
+  text-align: center;
+}
+.pp-fr__none {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+.pp-fr .pp-chip--cross {
+  align-self: flex-start;
+  margin-top: 3px;
+}
+
 .pp-chip {
   display: inline-flex;
   align-items: baseline;

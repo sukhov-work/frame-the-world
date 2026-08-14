@@ -153,6 +153,8 @@ export function looksLikeSmallBody(query: string): boolean {
 /** Kind glyph for result rows + the panel pill — the one place the mapping lives. */
 export function kindGlyph(kind: TargetKind): string {
   switch (kind) {
+    case "sun":
+      return "☀";
     case "planet":
       return "◉";
     case "moon":

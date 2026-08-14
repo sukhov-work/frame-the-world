@@ -150,6 +150,11 @@ function lightIndexOfAlt(altDeg: number): number {
   return LIGHT_ORDER.length - 1;
 }
 
+/** Point query: the photographic light phase at one instant (QoL-2 frameFinder annotations). */
+export function lightPhaseAt(utcMs: number, latDeg: number, lonDeg: number): LightPhase {
+  return LIGHT_ORDER[lightIndexOfAlt(sunAltDeg(utcMs, latDeg, lonDeg))];
+}
+
 export interface LightSegment {
   startMs: number;
   endMs: number;

@@ -78,7 +78,7 @@ export default function CameraTiltPanel() {
         </span>
       </div>
     )}
-    <aside className="ct" aria-label="Camera controls">
+    <aside className={`ct${fpvMode ? " ct--fpv" : ""}`} aria-label="Camera controls">
       {/* Panel header (tips batch): quiet label + the one flow-level InfoDot (right-docked
           panel → tips slide out to the LEFT so they never leave the viewport). */}
       <div className="ct-head">

@@ -8,6 +8,7 @@ import {
   Observer,
 } from "astronomy-engine";
 import {
+  bodyTarget,
   cometTarget,
   fixedTarget,
   GALACTIC_CENTRE_ID,
@@ -17,6 +18,7 @@ import {
   targetAzAlt,
   type PlanetId,
 } from "../../../src/lib/ephemeris/targets";
+import { bodyStatesAt } from "../../../src/lib/ephemeris/bodies";
 import { galacticToEquatorial, raDecToUnit } from "../../../src/lib/ephemeris/stars";
 import { cometStateAt, TEMPEL2 } from "../../../src/lib/ephemeris/comet";
 import { cometWindows, targetWindows } from "../../../src/lib/ephemeris/planner";
@@ -204,5 +206,43 @@ describe("galacticCentreTarget (Phase 8a P2)", () => {
     }
     expect(peak).toBeGreaterThan(11.5);
     expect(peak).toBeLessThan(13.5);
+  });
+});
+
+describe("bodyTarget (sun/moon as first-class targets, owner 2026-08-14)", () => {
+  it("tracks the SAME sky the scene impostors render (bodyStatesAt agreement)", () => {
+    for (const iso of INSTANTS) {
+      const t = utc(iso);
+      const scene = bodyStatesAt(t);
+      const sun = bodyTarget("sun").stateAt(t);
+      const moon = bodyTarget("moon").stateAt(t);
+      // Geocentric unit directions agree with the scene's own ephemeris sample to ≲1″
+      // (GeoVector vs the bodies.ts GeoMoon recipe — aberration-level differences only).
+      for (let i = 0; i < 3; i++) {
+        expect(sun.dir[i]).toBeCloseTo(scene.sunDir[i], 4);
+        expect(moon.dir[i]).toBeCloseTo(scene.moonDir[i], 4);
+      }
+      expect(moon.phaseFraction).toBeCloseTo(scene.moonIllumination, 6);
+    }
+  });
+
+  it("carries honest readout fields for each body", () => {
+    const t = utc(INSTANTS[0]);
+    const sun = bodyTarget("sun").stateAt(t);
+    expect(sun.magnitude).toBeCloseTo(-26.74, 2);
+    expect(sun.magnitudeModel).toBe("catalog");
+    expect(sun.elongationDeg).toBe(0);
+    expect(sun.phaseFraction).toBeNull();
+    // Sun apparent diameter ≈ 31.5–32.5 arcmin over the year.
+    expect(sun.angularDiamArcsec! / 60).toBeGreaterThan(31);
+    expect(sun.angularDiamArcsec! / 60).toBeLessThan(33);
+    const moon = bodyTarget("moon").stateAt(t);
+    expect(moon.magnitudeModel).toBe("engine");
+    expect(moon.magnitude).toBeLessThan(-8); // any illuminated moon is bright
+    expect(moon.angularDiamArcsec! / 60).toBeGreaterThan(29);
+    expect(moon.angularDiamArcsec! / 60).toBeLessThan(34);
+    expect(bodyTarget("sun").id).toBe("body:sun");
+    expect(bodyTarget("moon").kind).toBe("moon");
+    expect(bodyTarget("sun").kind).toBe("sun");
   });
 });

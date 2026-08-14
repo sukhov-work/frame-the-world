@@ -30,6 +30,16 @@ export interface SkyStoreState {
   /** TRAIL — draw the projected day-arc trajectory (phase C; ON by default, owner ask). */
   trail: boolean;
   setTrail(on: boolean): void;
+  /** GHOSTS — temporal ghost copies of the tracked body at t ± k·step (QoL-2, owner 2026-08-14:
+   *  "see the body's path precisely against the surroundings while scrubbing"). OFF by default. */
+  ghosts: boolean;
+  setGhosts(on: boolean): void;
+  /** Ghost copies per time direction (symmetric past/future; owner default 4 → 8 total). */
+  ghostCount: number;
+  setGhostCount(n: number): void;
+  /** Minutes between ghost copies. */
+  ghostStepMin: number;
+  setGhostStepMin(min: number): void;
   /** The tracked sky target — the ONE object the scene marker + trail + panel follow. */
   target: SkyTarget;
   setTarget(target: SkyTarget): void;
@@ -54,6 +64,23 @@ export const useSkyStore = create<SkyStoreState>((set) => ({
   setTrail: (trail) => {
     saveViewPref("skyTargetTrail", trail);
     set({ trail });
+  },
+  ghosts: prefs.skyGhosts ?? false,
+  setGhosts: (ghosts) => {
+    saveViewPref("skyGhosts", ghosts);
+    set({ ghosts });
+  },
+  ghostCount: prefs.skyGhostCount ?? 4,
+  setGhostCount: (n) => {
+    const ghostCount = Math.max(1, Math.min(8, Math.round(n)));
+    saveViewPref("skyGhostCount", ghostCount);
+    set({ ghostCount });
+  },
+  ghostStepMin: prefs.skyGhostStepMin ?? 10,
+  setGhostStepMin: (min) => {
+    const ghostStepMin = Math.max(1, Math.min(120, Math.round(min)));
+    saveViewPref("skyGhostStepMin", ghostStepMin);
+    set({ ghostStepMin });
   },
   target: cometTarget(),
   setTarget: (target) => {

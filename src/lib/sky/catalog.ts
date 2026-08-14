@@ -16,6 +16,7 @@
 
 import {
   asteroidTarget,
+  bodyTarget,
   cometTarget,
   fixedTarget,
   GALACTIC_CENTRE_ID,
@@ -24,6 +25,7 @@ import {
   planetTarget,
   type PlanetId,
   type SkyTarget,
+  type SunMoonId,
   type TargetKind,
 } from "../ephemeris/targets";
 import { TEMPEL2, type CometProfile } from "../ephemeris/comet";
@@ -55,6 +57,21 @@ const PLANET_ROW_MAG: Record<PlanetId, number> = {
   neptune: 7.8,
   pluto: 14.4,
 };
+
+/** Sun/moon rows (owner 2026-08-14, "anything should be searchable") — top-boosted: typing
+ *  "sun"/"moon" must hit the body before any star alias containing the substring. */
+function bodyEntry(id: SunMoonId): SkyIndexEntry {
+  const isSun = id === "sun";
+  return {
+    id: `body:${id}`,
+    name: isSun ? "SUN" : "MOON",
+    detail: isSun ? "OUR STAR · MAG −26.7" : "EARTH'S MOON · MAG ~−12.7",
+    kind: isSun ? "sun" : "moon",
+    keys: isSun ? ["sun", "sol", "the sun"] : ["moon", "luna", "the moon"],
+    mag: isSun ? -26.7 : -12.7,
+    boost: 2,
+  };
+}
 
 function planetEntry(id: PlanetId): SkyIndexEntry {
   const spec = PLANETS[id];
@@ -385,6 +402,8 @@ let indexMemo: SkyIndexEntry[] | null = null;
 export function skyIndex(): SkyIndexEntry[] {
   if (!indexMemo) {
     indexMemo = [
+      bodyEntry("sun"),
+      bodyEntry("moon"),
       ...(Object.keys(PLANETS) as PlanetId[]).map(planetEntry),
       tempel2Entry(),
       gcEntry(),
@@ -453,7 +472,9 @@ export function targetById(id: string): SkyTarget | null {
   const hit = targetMemo.get(id);
   if (hit) return hit;
   let t: SkyTarget | null = null;
-  if (id.startsWith("planet:")) {
+  if (id === "body:sun" || id === "body:moon") {
+    t = bodyTarget(id.slice(5) as SunMoonId);
+  } else if (id.startsWith("planet:")) {
     const p = id.slice(7) as PlanetId;
     if (PLANETS[p]) t = planetTarget(p);
   } else if (id === "comet:10P") {

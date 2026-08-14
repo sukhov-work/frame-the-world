@@ -33,6 +33,48 @@
   -webkit-backdrop-filter: blur(6px);
 }
 
+/* Compaction (owner 2026-08-14 ask 5) — the deck row budget, scoped to .ct so UploadFlow's
+   sliders keep their airy spacing. Every control stays; only the whitespace shrinks. */
+.ct .uf-slider {
+  padding: 7px 0;
+  gap: 5px;
+}
+
+/* FPV gains FOCAL ZOOM + BUILDINGS + SAVE PLACE — the tall stack tightens further. */
+.ct--fpv {
+  padding: 0.45rem 0.75rem 0.55rem;
+}
+.ct--fpv .uf-slider {
+  padding: 5px 0;
+  gap: 4px;
+}
+.ct--fpv .uf-slider__track {
+  height: 14px;
+}
+.ct--fpv .ct-head {
+  margin-bottom: 0.15rem;
+}
+.ct--fpv .ct-row {
+  margin: 0.35rem 0 0.25rem;
+  gap: 0.4rem;
+}
+.ct--fpv .ct-compass {
+  width: 1.85rem;
+  height: 1.85rem;
+}
+.ct--fpv .ct-mode {
+  height: 1.4rem;
+  min-width: 2.2rem;
+}
+.ct--fpv .ct-exitlook {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.ct--fpv .ct-saveplace {
+  margin-top: 0.35rem;
+  padding: 0.3rem 0.6rem;
+}
+
 /* Panel header (tips batch 2026-07-11): quiet mono label + the flow-level InfoDot. */
 .ct-head {
   display: flex;

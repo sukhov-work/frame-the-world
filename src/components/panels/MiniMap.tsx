@@ -15,8 +15,10 @@ import "../../styles/mini-map.css";
  * cannot read var() — the streetNames idiom). Top-level island (the S2 containing-block rule).
  */
 
-/** CSS px of the square canvas (the CSS size — the buffer is DPR-scaled). */
-const SIZE_PX = 176;
+/** CSS px of the square canvas (the CSS size — the buffer is DPR-scaled). 200 makes the card's
+ *  border-box exactly 210px — the FPV HUD below pins the same width (owner 2026-08-14 ask 6).
+ *  Must match `.mm-canvas` width/height in mini-map.css. */
+const SIZE_PX = 200;
 
 function cssVar(el: HTMLElement, name: string): string {
   return getComputedStyle(el).getPropertyValue(name).trim();

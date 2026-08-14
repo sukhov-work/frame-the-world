@@ -40,6 +40,7 @@ export function simbadKind(otype: string): TargetKind {
 }
 
 const OTYPE_LABEL: Record<TargetKind, string> = {
+  sun: "STAR",
   planet: "PLANET",
   moon: "MOON",
   star: "STAR",

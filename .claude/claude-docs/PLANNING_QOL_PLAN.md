@@ -226,6 +226,15 @@ the hold (stuck-key safety).
   event-step both directions, Space ramp 1.71→16.70 m over 3 s hold + 1 cm tap + zero drift after
   release, MY SPOT/🧭 → temp-pin FPV at the stubbed fix on both shells (real geolocation prompt =
   owner-device tier). Gates 752/752 · astro 0 err. Shots verify-shots/qol1-01..08.
+- 2026-08-14 evening · **§3.2 SHIPPED — QoL-2 desktop COMPLETE** (+ owner batch: GHOSTS temporal
+  chain of the tracked body with count/step knobs · sun/moon as first-class `body:*` targets
+  (searchable/trackable — the §3.2 "GC as findable" beat now covers EVERYTHING) · right-click
+  sky context menu · WASD + ⇧␣ descend · daytime-moon dark-disc shader fix · HUD/minimap 210 px
+  width match · compact FPV deck). frameFinder ships with an INJECTED sampler (any body/target,
+  the planner idiom) + `nearestFrameCentre` as the P4 seed; TODAY replaced the flat chip row
+  (self-computing, light-dotted, ☀-el-at-moonrise, per-row .ics); ICS = pure RFC 5545 builder +
+  client Blob (no cron, C1). Gates 784/784 · astro 0 err; browser-verified qol2-01..08.
+  Twin: DECISIONS 2026-08-14 evening + `mem:project/wip-2026-08-14-qol2-batch`.
 - 2026-08-14 late · **§3.1.D SHIPPED — QoL-1 desktop COMPLETE** (playhead cursor rework rode
   along, owner screenshot order). Recorded deviation from the letter of §3.1.D: planFeed mirrors
   the ready profile's **skyline bins** (`store/plan.profileBins`) instead of a trace polyline;
