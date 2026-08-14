@@ -73,7 +73,11 @@ export const SKY = {
    *  gain rides the existing albedo·(N·sun)^0.8 curve so maria contrast and the phase shape
    *  survive; the lit limb pushes further over BLOOM.threshold, so the extra brightness reads
    *  as glow, not clipping. Horizon-fade keeps the disc melting cleanly. */
-  moonBrightness: 3.2,
+  // 3.2 → 2.9 (owner 2026-08-14 "moderate brightness a little" — the big cut was killing the
+  // stacked marker point-glow; this is the gentle trim on top). SHARED by both arms: night
+  // disc = albedo·(earthshine + lit·THIS) and day disc = albedo·lit·THIS·moonDayAddGain — if
+  // the day moon now reads too dim, raise moonDayAddGain (0.55 → ~0.61 restores the old day sum).
+  moonBrightness: 2.9,
   /** Earthshine floor on the moon's dark side (0 = pitch black new moon; nudged 0.1 → 0.12
    *  S6 with the brightness raise — a faintly fuller dark limb reads "brighter" organically). */
   moonEarthshine: 0.12,
@@ -85,6 +89,16 @@ export const SKY = {
    *  the uDaySky ramp still rides the atmosphere's own bands (ATMOSPHERE.skyDawnLo/Hi ×
    *  skyFullAlt/GoneAlt) so the disc's story always matches the sky the dome paints behind it. */
   moonDayAddGain: 0.55,
+  /** Hover frame (qol3 round 3, owner "a very faint small frame around edge"): hairline broken
+   *  ring around the hovered sun/moon. Radius = disc radius × this. */
+  hoverRingRadFrac: 1.45,
+  /** Ring band half-width in normalized plane units (the ring sits at r = 0.8). */
+  hoverRingWidthN: 0.016,
+  /** Quad-gap fraction of the broken-arc mask (the skyTarget reticle grammar). */
+  hoverRingGapFrac: 0.22,
+  /** Ring intensity per unit of the eased hover k (k peaks at ORCH.skyHoverGain, so the
+   *  delivered peak is gain × this ≈ 0.7 — additive hairline, sky stays visible through it). */
+  hoverRingGain: 2.2,
   /** Fragments below this CONTRIBUTION (premultiplied rgb max AND blend alpha) DISCARD — write
    *  no colour AND no depth: an invisible dark limb must never occupy the depth buffer or it
    *  depth-rejects the sky dome drawn after it — the root of the daytime dark-disc frames.
@@ -1751,10 +1765,36 @@ export const DAYARC = {
  *  arcs (an additive stroke vanishes against the bright day sky); the per-ghost horizon melt
  *  owns occlusion. Count/step live in store/sky (user-facing, persisted); taste lives here.
  *  Colours: tokens.sunGlow (sun) / tokens.moonlight (moon) / tokens.accent (everything else). */
+/** Sky hover-name reveal (qol4, owner 2026-08-14) — scene/skyNames + lib/sky/hoverNames.
+ *  A gentle uppercase label near the cursor names the hovered star / asterism / constellation
+ *  on the night sky. Catalogs lazy-load on the first eligible hover (lazyContract). */
+export const SKYNAMES = {
+  /** Stars fainter than this are not hover targets (the IAU list tails into vmag-12 exoplanet
+   *  hosts) — 3.6 keeps every naked-eye landmark incl. the Milky Way band stars. */
+  maxVmag: 3.6,
+  /** Star hit-pad radius (deg) at vmag 0 … at maxVmag — bright stars are easier to hit. */
+  starHitBrightDeg: 1.1,
+  starHitFaintDeg: 0.5,
+  /** Figure-line hit radius (deg) — asterism + constellation polylines. */
+  figureHitDeg: 1.2,
+  /** Constellation label-anchor fallback radius (deg) — the "roughly here" tier. */
+  anchorHitDeg: 8,
+  /** Night gate: label presence rides the same eased hover amount as the body glow, further
+   *  scaled by the star-field night ramp — no names on a day sky. Peak label opacity: */
+  alpha: 0.85,
+  /** Label offset from the cursor (px, +x right / +y down). */
+  offsetPx: [14, -18] as [number, number],
+};
+
 export const GHOSTS = {
   /** Hard cap per direction (the store clamps to this too — one source would be nicer, but the
    *  store may not import three-adjacent modules; keep in sync with store/sky clamp). */
   maxPerSide: 8,
+  /** The real body owns its own disc: ghosts whose centre falls within this many disc-DIAMETERS
+   *  of the now direction are skipped (at 1-min steps the k=±1 moon ghosts otherwise sit ON the
+   *  disc and their alpha blend dims a visible bite out of it — owner 2026-08-14 round 3).
+   *  1.0 = centres may touch edge-to-edge; 1.2 leaves a 0.2-diameter breathing gap. */
+  nowGapDiscs: 1.2,
   /** Peak ghost alpha (the k=±1 neighbour) — ghosts must whisper, never rival the real body.
    *  Raised 0.5 → 0.62 (owner 2026-08-14 qol3: "each afterimage a bit more distinct"). */
   alphaNear: 0.62,
@@ -1925,7 +1965,7 @@ export const ORCH = {
    *  lift reads as a breath of glow, never a UI outline. */
   skyHoverEveryFrames: 4,
   skyHoverEaseTauMs: 140,
-  skyHoverGain: 0.25,
+  skyHoverGain: 0.32,
   /** Per-frame update() error log throttle (ms): log the first, then at most once per window
    *  with a rolling count — a persistent error must not flood the console at 60 fps (B26). */
   errorLogThrottleMs: 2_000,

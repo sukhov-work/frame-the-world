@@ -226,11 +226,14 @@ per-sub-phase gate.
   centre" (P4 seed) · TODAY daily panel (cross-body midnight→midnight chronology, light glyphs,
   sun-el-at-moonrise) · next-phase/new-moon jump chips · ICS calendar export (client Blob).
   Spec: PLANNING_QOL_PLAN §3.2 + §1.1 R5/R7/R15.
-- [ ] **8-QoL-3 — Find + moon/exposure toolkit** *(mobile twin: M3c)* — P4 **Find** FULL
-  (az(±3°)/el(±0.5°) over a date range, **skyline-filtered results** — the category-first bet;
-  sortable, light+phase-pictured rows) · P6 moon phase calendar + apogee/perigee/supermoon ·
-  P5 Spot Stars NPF (declination FREE from the frustum; 500-rule as ghost) · sun/moon
-  size→distance tool. Spec: PLANNING_QOL_PLAN §1.1 R8/R9/R10/R14.
+- [x] **8-QoL-3 — Find + moon/exposure toolkit** ✅ desktop 2026-08-14 night-3 *(mobile twin:
+  M3c open)* — P4 **Find** FULL (FindCard: az(±3°)/el(±0.5°) over 1W/1M/6M/1Y, **skyline-filtered
+  rows** — the category-first bet; DATE/LIGHT sort; engine `frameFinder.azElHits` per-day azimuth
+  root-find ~1 ms/day) · P6 MoonCalCard (quarters + perigee/apogee via SearchMoonQuarter/
+  SearchLunarApsis, supermoon ★ ≤ 360 Mm, disc-arcmin rows, NEXT SUPERMOON chip) · P5
+  SpotStarsCard NPF (`lib/photo/npf` — declination FREE from the frustum via maxCosDecInFrame;
+  simplified + 500 ghosts) · R9 size→distance (lib/geo/sizeDistance + TargetPanel SIZE→DIST row).
+  Spec: PLANNING_QOL_PLAN §1.1 R8/R9/R10/R14.
 - [ ] **8-events** *(mobile twin: M4; AFTER the QoL pass + its mobile twins)* — P7 meteor showers
   (bake IAU MDC, avoid GPL showers.json; radiant = tracked target; ZHR×sin(h), moon-scored peaks;
   + rail intensity trace) · P8 conjunctions/oppositions finder · P9 lunar eclipses (shadow-cone

@@ -120,17 +120,25 @@ export function attachSkyGhosts(scene: THREE.Scene): SkyGhostsHandle {
     basis = enuBasis(anchor.latDeg, anchor.lonDeg);
     const n = Math.max(1, Math.min(GHOSTS.maxPerSide, Math.round(countPerSide)));
     const stepMs = Math.max(1, Math.round(stepMin)) * 60_000;
-    samples = [];
-    for (let k = -n; k <= n; k++) {
-      if (k === 0) continue; // the real body owns "now"
-      const p = targetAzAlt(target, sceneMs + k * stepMs, anchor.latDeg, anchor.lonDeg);
-      if (p.altDeg < GHOSTS.horizonFadeLoDeg) continue; // fully melted — skip the instance
-      samples.push({ enu: azAltToEnu(p.azDeg, p.altDeg), altDeg: p.altDeg, k });
-    }
     // True apparent size where the target knows one (sun/moon/planets), floored for points.
     const st = target.stateAt(sceneMs);
     const trueRad = st.angularDiamArcsec ? (st.angularDiamArcsec / 3600 / 2) * (Math.PI / 180) : 0;
     discRad = Math.max(trueRad, (GHOSTS.minDiscDeg * Math.PI) / 360);
+    // The real body owns "now" AND its own disc (owner 2026-08-14 round 3): at small steps the
+    // k=±1 ghosts land ON the moon's disc and their alpha blend visibly dims a bite out of it —
+    // skip any ghost whose centre is within nowGapDiscs disc-DIAMETERS of the now direction.
+    const p0 = targetAzAlt(target, sceneMs, anchor.latDeg, anchor.lonDeg);
+    const now = azAltToEnu(p0.azDeg, p0.altDeg);
+    const minSepCos = Math.cos(2 * discRad * GHOSTS.nowGapDiscs);
+    samples = [];
+    for (let k = -n; k <= n; k++) {
+      if (k === 0) continue;
+      const p = targetAzAlt(target, sceneMs + k * stepMs, anchor.latDeg, anchor.lonDeg);
+      if (p.altDeg < GHOSTS.horizonFadeLoDeg) continue; // fully melted — skip the instance
+      const enu = azAltToEnu(p.azDeg, p.altDeg);
+      if (enu[0] * now[0] + enu[1] * now[1] + enu[2] * now[2] > minSepCos) continue; // on the disc
+      samples.push({ enu, altDeg: p.altDeg, k });
+    }
     // Body-coded colour (D14 tokens): the sun warm, the moon cool, everything else accent.
     uColor.value.set(
       target.kind === "sun" ? tokens.sunGlow : target.kind === "moon" ? tokens.moonlight : tokens.accent,

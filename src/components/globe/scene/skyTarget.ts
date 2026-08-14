@@ -287,9 +287,15 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
         1,
       );
       const markFade = highlight ? Math.max(night, SKY_TARGET.highlightDayFloor) : 0;
-      mesh.visible = night > 0.01 || markFade > 0.01;
+      // Tracked sun/moon: the REAL rendered disc IS the body — the point-glow treatment must
+      // never draw for them. Before round 3 it sat 0.9° off-disc (parallax) and was depth-
+      // rejected by the disc anyway; the round-3 fixes centred it and removed the depth wall,
+      // and the mag −12.7 moon pointAmp (clamped 1.5) stacked a blown white core+halo onto the
+      // night disc (owner 2026-08-14 "moon got too bright"). The reticle still draws.
+      const isBody = kind === "sun" || kind === "moon";
+      mesh.visible = (!isBody && night > 0.01) || markFade > 0.01;
       if (!mesh.visible) return;
-      uniforms.uBodyFade.value = night;
+      uniforms.uBodyFade.value = isBody ? 0 : night;
       uniforms.uMarkFade.value = markFade;
 
       // Treatment: comet look for comets; phase-lit disc for planets (phase D); real-extent

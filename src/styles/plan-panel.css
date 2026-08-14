@@ -378,6 +378,76 @@ body.welcome-active .pp-root {
   display: none;
 }
 
+/* --- FIND / SPOT STARS (QoL-3, 2026-08-14) — inputs + chip rows in the card grammar.
+       Everything fits the 12.5rem card width (the 2026-07-14 phantom-h-scroll rule). ----------- */
+.pp-find,
+.pp-npf {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pp-find__inputs,
+.pp-find__chips,
+.pp-find__foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.pp-find__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+  min-width: 0;
+}
+.pp-in {
+  width: 3.1rem;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.pp-in:focus {
+  outline: none;
+  border-color: var(--color-text-muted);
+}
+/* number spinners eat half the 12.5rem card — the values are 1-3 digits */
+.pp-in::-webkit-inner-spin-button,
+.pp-in::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pp-chip--on {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+.pp-find__sep {
+  flex: 1 1 0;
+}
+.pp-status--inline {
+  padding: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-npf__big {
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  padding: 2px 0;
+}
+
 @media (max-width: 900px) {
   .pp-root {
     left: 1rem;

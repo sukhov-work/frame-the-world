@@ -187,6 +187,38 @@ the hold (stuck-key safety).
 
 ---
 
+### 3.5 Sunsets/sunrises IN FRAME (QoL-4 — spec 2026-08-14 night-3, owner order; build next)
+
+The owner ask: the P4 Find grammar applied to the EVENTS — "on which days does the sunset (or
+sunrise / the golden sun) happen inside MY frame?" Every piece exists; the missing primitive is
+an **event-time-anchored day loop** (today everything is either a full-range scan — frameFinder —
+or a same-day almanac lookup — planner.dayEvents; a 365-day scan for a ~20-min/day event is
+wasteful and blurs the answer).
+
+**Pure lib** `lib/ephemeris/sunEventFrame.ts`:
+`sunEventInFrame(pose, fromMs, days, {events: ("sunrise"|"sunset"|"goldenAm"|"goldenPm")[],
+profileFn?}) → SunEventHit[]` — per LOCAL day (`localDayWindow`, the mwSeason day-loop precedent):
+1. Event instants from the planner's own root-finds (`SearchRiseSet` for rise/set — refraction +
+   solar radius + eye-height dip; `SearchAltitude` at the GOLDEN render-bell edges) — ~4 finds/day,
+   so 1 y ≈ 2–3 k samples: memo-friendly, no chunking.
+2. Frame test at the instant (+ a ±golden-band sweep for the golden events): `azAltFrameMarker`
+   over the airless `horizontal()` sampler — the frameFinder predicate verbatim. Fold the solar
+   DISC extent in (`angularRadiusRad` — "the disc touches the frame edge" honesty; frameFinder's
+   centre-only test is the documented gap #6 of the QoL-3 grounding).
+3. Annotate: skyline verdict at the event az (`profileFn` — a sunset "in frame" behind a ridge is
+   a BLOCKED row, the category-first beat) · light phase · az drift °/day (composition planning:
+   how fast the sunset walks along the skyline).
+**Refraction convention (resolves the known ~2–4 min disagreement):** event LABEL times come from
+`SearchRiseSet` (refracted — matches TODAY's ☀ SET chip and every almanac); the frame/skyline
+GEOMETRY test stays airless (the house `horizontal()` contract, twilight.ts §doc). Document the
+pairing in the lib header; never mix a refracted time with a refracted altitude test (double-count).
+**Surface:** SUNSETS card in the PLAN panel (FPV pose-seeded like THIS FRAME; hidden outside FPV),
+range presets 1M/3M/1Y: rows `date · hh:mm · SUNSET/GOLDEN · CLEAR/✕skyline` light-dotted,
+jump-on-tap, per-row .ics (TodayCard grammar) + a "next sunset in frame" headline chip. V2 stretch:
+the **sunset corridor** — the year's sunset-azimuth span drawn as a faint arc pair on the FPV
+skyline (dayArcs grammar), showing at a glance which months the sun sets inside the frame.
+**Mobile twin:** M3c (PlanSheet compact rows, the accepted two-shell duplication).
+
 ## 4. Verification
 
 - **Local (every slice):** vitest (new: lightSegments, window math, elevationSeries, trace
@@ -201,6 +233,21 @@ the hold (stuck-key safety).
 - **Real device / prod:** rides T1 + the release canaries (T2) as usual.
 
 ## 5. Decision log (append-only)
+
+- 2026-08-14 night-3 · **QoL-3 SHIPPED desktop (P4/P5/P6/R9) + §3.5 spec'd** — FIND card
+  (az±3/el±0.5 over 1W–1Y; engine `azElHits` = per-day az root-find + joint-box bisection,
+  ~1 ms/day so 1 Y computes in-memo; end-to-end validated: the Sep 26 row jumps to sun az 249.99/
+  el 15.08 against an az 250/el 15 query) · MOON calendar (SearchMoonQuarter + SearchLunarApsis;
+  supermoon = full ≤ 360,000 km, ★ rows + NEXT SUPERMOON chip) · SPOT STARS NPF (npfFull/Simple/
+  500; δ auto from the frustum — maxCosDecInFrame pins cos δ = 1 when the celestial equator
+  crosses the frame) · SIZE→DIST row in the TARGET planet card (person/tower distances at the
+  TRUE current disc). Same session: day-moon dark-chunk ROUND 3 (the real enabler was the moon's
+  depthWrite punching a depth wall that intermittently rejected the additive dome → depthWrite
+  OFF; A/B 20 dark frames → 0 in ~470 drag frames) · reticle 0.878°→0° (geocentric targetDirW →
+  per-frame topocentric for finite-distance targets) · ghost now-exclusion (GHOSTS.nowGapDiscs) ·
+  hover ring + skyHoverGain 0.32 · sky hover NAMES (stars/asterisms/constellations,
+  lib/sky/hoverNames + scene/skyNames). Gates 828/828 · astro 0 err; shots qol4-01..04.
+  Twin: DECISIONS 2026-08-14 night-3 + `mem:project/wip-2026-08-14-qol4-batch`.
 
 - 2026-08-14 · Deep review sourced from Wayback 2026-07-07 snapshots (site is Cloudflare-gated);
   feature-level verdicts re-judged against the codebase map; §1.1 R1–R20 is the adoption record.

@@ -21,6 +21,7 @@ import {
   visibilityClass,
 } from "../../lib/ephemeris/comet";
 import { targetWindows, type TargetWindow } from "../../lib/ephemeris/planner";
+import { subjectDistanceForDiscMatch } from "../../lib/geo/sizeDistance";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { cardinal } from "../../lib/format/readout";
 import "../../styles/target-panel.css";
@@ -183,6 +184,14 @@ function CometFacts({ target, onJump }: { target: SkyTarget; onJump: (ms: number
 /** The planet card: blurb + phase + true angular size. */
 function PlanetFacts({ target, state }: { target: SkyTarget; state: TargetState }) {
   if (target.facts.kind !== "planet") return null;
+  // R9 size→distance (QoL-3): the telephoto-alignment essence — how far the camera must stand
+  // for the CURRENT disc to span a human / a building storey stack. Only meaningful for discs
+  // you can compose against (sun/moon ≈ 1800″); planets are arcsecond specks.
+  const diamRad =
+    state.angularDiamArcsec != null && state.angularDiamArcsec > 300
+      ? (state.angularDiamArcsec / 3600) * (Math.PI / 180)
+      : null;
+  const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} KM` : `${Math.round(m)} M`);
   return (
     <>
       <div className="tp-section">THE OBJECT</div>
@@ -192,6 +201,15 @@ function PlanetFacts({ target, state }: { target: SkyTarget; state: TargetState 
         {state.angularDiamArcsec != null && <>DISC {state.angularDiamArcsec.toFixed(1)}″ · </>}
         RADIUS {Math.round(target.facts.radiusKm).toLocaleString()} KM
       </div>
+      {diamRad != null && (
+        <div
+          className="tp-facts"
+          title="Stand this far from your subject and the disc exactly spans it (true current apparent size)"
+        >
+          SIZE→DIST · 1.8 M PERSON @ {fmtDist(subjectDistanceForDiscMatch(1.8, diamRad))} · 30 M
+          TOWER @ {fmtDist(subjectDistanceForDiscMatch(30, diamRad))}
+        </div>
+      )}
     </>
   );
 }
