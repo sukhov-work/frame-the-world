@@ -244,6 +244,9 @@ export const SCRUB = {
   hourLabelEvery: 2,
   /** Elevation-curve sampling step (minutes) — sun+moon altitude traces on the rail. */
   curveStepMin: 10,
+  /** Tracked-target trace sampling step (minutes) — ~90 samples/12 h (§3.1.D); the target
+   *  sampler (Kepler for comets) is heavier than `horizontal`, so it gets its own knob. */
+  traceStepMin: 8,
   /** Fast-forward presets (scene-seconds per real second) for the PLAY control (owner
    *  2026-07-14) — 1 min/s · 10 min/s · 1 h/s. Real speed (×1) is always offered first. */
   playRates: [60, 600, 3600],

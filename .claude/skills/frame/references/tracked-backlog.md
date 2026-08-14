@@ -14,7 +14,7 @@ edit, never a deletion. New debt found anywhere lands here the same session.
 | T5 | 2026-07-17 | Ground CHECKERBOARD + flicker 1500→200 km (owner screenshot-evidenced) | mem:bugs/ground-checkerboard-flicker | OPEN — plan drafted |
 | T6 | 2026-07-14 | Owner A/B verdict BLD chip (CLASSIC vs OSM2WORLD); if o2w wins: draco 23× + untagged-height defaults | mem:project/wip-2026-07-14-osm2world-adapter | OPEN — both live on R2 |
 | T7 | 2026-07-14 | HLOD coarse tier (enriched bbox building-empty above ~20 km) | dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md | OPEN |
-| T8 | 2026-07-14 | dayArcs skyline fold (seam: `planFeed.profileSample()`) | mem:project/wip-2026-07-14-pass3-obstruction-moat | OPEN |
+| T8 | 2026-07-14 | dayArcs skyline fold (seam: `planFeed.profileSample()`; 2026-08-14: second seam `store/plan.profileBins` + `sampleBins` — rail-context half LANDED via the §3.1.D trace; the 3D dayArcs fold itself remains) | mem:project/wip-2026-07-14-pass3-obstruction-moat | OPEN — rail half done |
 | T9 | 2026-07-14 | WS4-D subject shadow timeline | same memory as T8 | OPEN |
 | T10 | 2026-07-12 | GTAO tune/enable + Pass-1 tier A/B on a weaker box | rendering/RENDERING_QUALITY_PASS.md | OPEN — GTAOPass wired default-OFF |
 | T11 | 2026-08-10 | Astro taste-pass: `SKY_TARGET.ringGain` 0.55 · `ASTERISMS.highlightAlpha` 0.55 · `STARS.bvTintAmount` 0.6 · TRAIL weight/alpha | DECISIONS 2026-08-10 | OPEN — owner taste |

@@ -226,3 +226,13 @@ the hold (stuck-key safety).
   event-step both directions, Space ramp 1.71→16.70 m over 3 s hold + 1 cm tap + zero drift after
   release, MY SPOT/🧭 → temp-pin FPV at the stubbed fix on both shells (real geolocation prompt =
   owner-device tier). Gates 752/752 · astro 0 err. Shots verify-shots/qol1-01..08.
+- 2026-08-14 late · **§3.1.D SHIPPED — QoL-1 desktop COMPLETE** (playhead cursor rework rode
+  along, owner screenshot order). Recorded deviation from the letter of §3.1.D: planFeed mirrors
+  the ready profile's **skyline bins** (`store/plan.profileBins`) instead of a trace polyline;
+  the RAIL computes the trace via new pure `targetElevationSeries`+`traceStates` (dayArc.ts)
+  with its existing span-memo idiom, FPV in-frame emphasis via new `azAltFrameMarker`
+  (offscreen.ts, roll-free pose from `FpvHud` + new `aspect` field). The bins mirror doubles as
+  the §3.2 frameFinder profileFn seam. Gates 763/763 · astro 0 err. Browser-verified: orbit
+  clear-only fallback · FPV blocked+clear vs the Dnipro skyline (bins 120, coverage 1.00) ·
+  aim-at-Perseus → one contiguous emphasized frame window · pinned +3 h keeps the emphasis at
+  its clock window. Shots verify-shots/qol1t-01..03.

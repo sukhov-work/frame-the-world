@@ -59,17 +59,25 @@ export function raiseBin(p: HorizonProfile, azDeg: number, altDeg: number): void
   p.known[i] = 1;
 }
 
+/** Skyline elevation at an azimuth over a BARE bin array — the interpolation core of
+ *  `sampleProfile`, callable on the plain array `store/plan.profileBins` mirrors to React
+ *  consumers (the QoL-1 rail trace; the QoL-2 frameFinder profileFn). */
+export function sampleBins(altDeg: ArrayLike<number>, azDeg: number): number {
+  const n = altDeg.length;
+  const az = ((azDeg % 360) + 360) % 360;
+  const x = (az / 360) * n - 0.5; // bin CENTRES at i + 0.5
+  const i0 = Math.floor(x);
+  const t = x - i0;
+  const a = altDeg[((i0 % n) + n) % n];
+  const b = altDeg[(((i0 + 1) % n) + n) % n];
+  return a + (b - a) * t;
+}
+
 /** Skyline elevation at an azimuth — linear interpolation between neighbouring bin centres
  *  (wrapping). Between a known and an unknown bin the interpolation still runs; honesty lives
  *  in `profileCoverage`, not in per-sample gaps. */
 export function sampleProfile(p: HorizonProfile, azDeg: number): number {
-  const az = ((azDeg % 360) + 360) % 360;
-  const x = (az / 360) * p.binCount - 0.5; // bin CENTRES at i + 0.5
-  const i0 = Math.floor(x);
-  const t = x - i0;
-  const a = p.altDeg[((i0 % p.binCount) + p.binCount) % p.binCount];
-  const b = p.altDeg[(((i0 + 1) % p.binCount) + p.binCount) % p.binCount];
-  return a + (b - a) * t;
+  return sampleBins(p.altDeg, azDeg);
 }
 
 /** Fraction of bins with real evidence, 0..1. */

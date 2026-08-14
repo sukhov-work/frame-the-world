@@ -1,9 +1,26 @@
 #!/bin/bash
-# SessionEnd hook — auto-ship the session's work (owner order 2026-08-13):
-#   commit everything on a claude/ship-* branch → push with "#pr #skipreview #automerge"
-#   (the Wix push automation opens + automerges the PR) → wait until the commit lands on
-#   origin/master → force-push origin/master to the `private` mirror remote → fast-forward
-#   the local checkout back onto master.
+# SessionEnd hook — auto-ship the session's work (owner order 2026-08-13; hardened v2 2026-08-14):
+#   commit everything on a claude/ship-* branch → SELF-HEAL any squash-merge divergence
+#   (reseat onto origin/master) → push with "#pr #skipreview #automerge" (the Wix push
+#   automation opens + automerges the PR) → wait until the content lands on origin/master
+#   (SQUASH-AWARE: PR-state / tree-equality, not just SHA ancestry) → force-push origin/master
+#   to the `private` mirror remote → fast-forward the local checkout back onto master.
+#
+# WHY v2 (2026-08-14 pipeline incident): Wix automation SQUASH-merges, so a shipped commit SHA
+# is NEVER an ancestor of origin/master — v1's wait loop always timed out, left the checkout on
+# the ship branch, and the next session built on pre-squash history → every later PR was
+# permanently CONFLICTING and automerge never fired (PRs #35/#36 sat stuck holding two sessions
+# of work). v2 rules:
+#   · NEVER lose content: refs/backups/* snapshot before anything moves; branches are only
+#     deleted after tree-level containment in origin/master is PROVEN; no forced merges ever.
+#   · SELF-HEAL divergence: if origin/master is not an ancestor of the ship commit, find the
+#     nearest local ancestor whose TREE equals origin/master's tree and rebase --onto it —
+#     conflict-free by construction; stale pre-squash commits replay empty and are dropped.
+#     If no such ancestor exists (master moved with foreign work) → push AS-IS and report; a
+#     human (or the next session) resolves — never a guessed merge/rebase.
+#   · SQUASH-AWARE landing: merged = SHA ancestor OR tree-equal OR gh-reported PR merge.
+#   · Anomalies (reseat happened / timeout / stale open ship PRs) are written to
+#     .claude/SHIP_ATTENTION.md (gitignored) — the next session MUST read + clear it.
 #
 # GATES (any one aborts the ship, loudly, in the log):
 #   1. .claude/BLOCKING_QUESTIONS.md exists  → standing owner questions; Claude writes/removes
@@ -13,16 +30,18 @@
 #
 # Commit title: first line of .claude/.ship-title when Claude left one (gitignored), else generic.
 # Log: ~/.claude/logs/ftw-session-ship.log   Lock: ~/.claude/locks/ftw-ship.lock (mkdir-atomic)
-# DRY_RUN=1 exercises every gate + prints the plan without touching git.
+# DRY_RUN=1 exercises every gate + the divergence preflight without touching git state.
 
 set -u
 REPO="/Users/yevhens/Projects/wix-private/headless-frame-the-world"
 LOG_DIR="$HOME/.claude/logs"
 LOG="$LOG_DIR/ftw-session-ship.log"
 LOCK="$HOME/.claude/locks/ftw-ship.lock"
+ATTENTION="$REPO/.claude/SHIP_ATTENTION.md"
 MIRROR_REMOTE="private"
 MERGE_TIMEOUT_S=2700   # 45 min for CI + automerge
 POLL_S=60
+RESEAT_SEARCH_DEPTH=100
 
 mkdir -p "$LOG_DIR" "$(dirname "$LOCK")"
 
@@ -35,6 +54,12 @@ if [ -z "${FTW_SHIP_DAEMON:-}" ] && [ -z "${DRY_RUN:-}" ]; then
 fi
 
 log() { echo "[$(date '+%F %T')] $*"; }
+attention() {
+  # Append an anomaly line the NEXT session must read (file is gitignored).
+  [ -n "${DRY_RUN:-}" ] && { log "DRY_RUN: would flag ATTENTION: $*"; return 0; }
+  { [ -s "$ATTENTION" ] || echo "# SHIP ATTENTION — anomalies from the last auto-ship. Read, act, DELETE this file."; \
+    echo "- [$(date '+%F %T')] $*"; } >>"$ATTENTION"
+}
 
 cd "$REPO" || { log "ABORT: repo path missing"; exit 1; }
 
@@ -51,7 +76,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
-log "=== session-end ship run (dry-run: ${DRY_RUN:-0}) ==="
+log "=== session-end ship run v2 (dry-run: ${DRY_RUN:-0}) ==="
 
 # --- Gate 1: standing blocking questions -------------------------------------------------------
 if [ -s ".claude/BLOCKING_QUESTIONS.md" ]; then
@@ -66,6 +91,32 @@ sync_mirror() {
   git fetch -q origin master || { log "WARN: fetch origin master failed"; return 1; }
   git push --force "$MIRROR_REMOTE" refs/remotes/origin/master:refs/heads/master \
     && log "mirror synced" || log "WARN: mirror push failed"
+}
+
+# Nearest first-parent ancestor of $1 whose TREE equals origin/master's tree — the provably
+# safe reseat point after a squash merge (the squash twin). Prints the SHA; rc 1 = none found.
+find_reseat_point() {
+  local target_tree c
+  target_tree=$(git rev-parse origin/master^{tree}) || return 1
+  for c in $(git rev-list --first-parent -"$RESEAT_SEARCH_DEPTH" "$1"); do
+    if [ "$(git rev-parse "$c^{tree}")" = "$target_tree" ]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+
+# Squash-aware "has our ship landed?" — $1 = ship commit SHA, $2 = ship branch name.
+ship_landed() {
+  # (a) true-merge / rebase-merge: the SHA itself is reachable.
+  git merge-base --is-ancestor "$1" origin/master 2>/dev/null && return 0
+  # (b) squash: master's tree caught up to exactly our shipped tree.
+  git diff --quiet "$1" origin/master 2>/dev/null && return 0
+  # (c) squash + master moved further: ask GitHub whether the PR for our branch merged.
+  if command -v gh >/dev/null 2>&1; then
+    local st
+    st=$(gh pr list --head "$2" --state merged --json number -q 'length' 2>/dev/null)
+    [ -n "$st" ] && [ "$st" != "0" ] && return 0
+  fi
+  return 1
 }
 
 # --- Gate 2: anything to ship? ------------------------------------------------------------------
@@ -97,6 +148,14 @@ fi
 if [ -n "${DRY_RUN:-}" ]; then
   log "DRY_RUN: would ship branch=$BRANCH title=\"$TITLE #pr #skipreview #automerge\""
   log "DRY_RUN: $(git status --porcelain | wc -l | tr -d ' ') files pending"
+  git fetch -q origin master 2>/dev/null
+  if git merge-base --is-ancestor origin/master HEAD 2>/dev/null; then
+    log "DRY_RUN: preflight — HEAD descends from origin/master (no reseat needed)"
+  else
+    RESEAT=$(find_reseat_point HEAD) \
+      && log "DRY_RUN: preflight — DIVERGED; would reseat via rebase --onto origin/master ${RESEAT:0:9}" \
+      || log "DRY_RUN: preflight — DIVERGED and NO tree-equal ancestor; would push AS-IS + flag attention"
+  fi
   exit 0
 fi
 
@@ -109,29 +168,83 @@ git commit -m "$TITLE #pr #skipreview #automerge" \
   || { log "ABORT: commit failed"; exit 1; }
 SHA="$(git rev-parse HEAD)"
 rm -f ".claude/.ship-title"
-git push -u origin "$BRANCH" || { log "ABORT: push failed — commit $SHA stays on $BRANCH locally"; exit 1; }
-log "pushed $BRANCH ($SHA) — waiting for automerge into origin/master"
 
-# --- Wait for automerge (ancestor check needs no gh auth) ---------------------------------------
+# NO-LOSS SNAPSHOT: a backup ref outside the branch namespace — survives every later rebase /
+# branch deletion; prune manually via `git for-each-ref refs/backups`.
+git update-ref "refs/backups/ship-$(date +%Y%m%d-%H%M%S)" "$SHA"
+log "backup ref stored for $SHA"
+
+# --- Divergence preflight (the squash-merge self-heal) -------------------------------------------
+# If a previous ship was squash-merged but this checkout still carries the pre-squash commits,
+# origin/master is NOT an ancestor of HEAD and the PR would be permanently CONFLICTING.
+git fetch -q origin master || log "WARN: preflight fetch failed — shipping from local view"
+if ! git merge-base --is-ancestor origin/master "$SHA" 2>/dev/null; then
+  log "preflight: HEAD does not descend from origin/master — attempting tree-equal reseat"
+  if RESEAT=$(find_reseat_point "$SHA"); then
+    log "preflight: reseat point ${RESEAT:0:9} (tree == origin/master) — rebasing --onto"
+    if git rebase --onto origin/master "$RESEAT" "$BRANCH" >/dev/null 2>&1; then
+      SHA="$(git rev-parse HEAD)"
+      log "preflight: reseated cleanly; ship commit is now $SHA"
+      attention "Ship reseated onto origin/master (squash divergence healed automatically; backup in refs/backups)."
+    else
+      git rebase --abort >/dev/null 2>&1
+      log "WARN: reseat rebase failed — shipping the un-rebased branch (content safe; PR may conflict)"
+      attention "Reseat rebase FAILED for $BRANCH — PR may be CONFLICTING; resolve via tree-identity check + rebase --onto (see mem:decisions/session-end-autoship)."
+    fi
+  else
+    log "WARN: no tree-equal ancestor within $RESEAT_SEARCH_DEPTH commits — master has foreign work; shipping AS-IS"
+    attention "Ship $BRANCH pushed WITHOUT reseat (no tree-equal ancestor — origin/master carries foreign work). PR may conflict; merge by hand, NEVER force."
+  fi
+fi
+
+git push -u origin "$BRANCH" || { log "ABORT: push failed — commit $SHA stays on $BRANCH locally"; exit 1; }
+log "pushed $BRANCH ($SHA) — waiting for automerge into origin/master (squash-aware)"
+
+# --- Wait for the automerge to LAND (squash-aware) ------------------------------------------------
 waited=0
 while [ "$waited" -lt "$MERGE_TIMEOUT_S" ]; do
   sleep "$POLL_S"; waited=$((waited + POLL_S))
   git fetch -q origin master 2>/dev/null || continue
-  if git merge-base --is-ancestor "$SHA" origin/master 2>/dev/null; then
-    log "automerged into origin/master after ${waited}s"
+  if ship_landed "$SHA" "$BRANCH"; then
+    log "landed on origin/master after ${waited}s"
     sync_mirror
+    # Close older ship PRs whose branch tips are ancestors of what just landed (the #35 trap).
+    if command -v gh >/dev/null 2>&1; then
+      gh pr list --state open --json number,headRefName \
+        -q '.[] | select(.headRefName | startswith("claude/ship-")) | "\(.number) \(.headRefName)"' 2>/dev/null \
+      | while read -r num ref; do
+          [ "$ref" = "$BRANCH" ] && continue
+          tip=$(git rev-parse "origin/$ref" 2>/dev/null) || continue
+          if git merge-base --is-ancestor "$tip" "$SHA" 2>/dev/null; then
+            gh pr close "$num" --comment "Superseded: this branch is an ancestor of the merged ship $SHA — content already on master (tree-verified)." >/dev/null 2>&1 \
+              && log "closed superseded ship PR #$num ($ref)"
+          else
+            attention "Older ship PR #$num ($ref) is still OPEN and not an ancestor of the merged ship — verify its content against master."
+          fi
+        done
+    fi
     # Restore the local checkout onto the updated master — only if nothing moved meanwhile.
     if [ "$(git rev-parse --abbrev-ref HEAD)" = "$BRANCH" ] && [ -z "$(git status --porcelain)" ]; then
       git checkout -q master \
         && git merge -q --ff-only origin/master \
-        && git branch -q -D "$BRANCH" \
-        && log "local checkout back on master @ $(git rev-parse --short HEAD); $BRANCH deleted" \
-        || log "WARN: local master restore incomplete — resolve by hand"
+        && log "local checkout back on master @ $(git rev-parse --short HEAD)" \
+        || { log "WARN: local master restore incomplete — resolve by hand"; attention "Local master restore incomplete after ship $SHA — checkout state needs a look."; }
+      # Delete branches ONLY with tree-level proof that master contains exactly what we shipped.
+      if git diff --quiet "$SHA" origin/master 2>/dev/null; then
+        git branch -q -D "$BRANCH" && log "local $BRANCH deleted (tree-proven in master)"
+        git push -q origin --delete "$BRANCH" 2>/dev/null && log "remote $BRANCH deleted (tree-proven in master)" \
+          || log "remote $BRANCH already gone (auto-delete) or delete skipped"
+      else
+        log "master moved past our ship — keeping $BRANCH (content proof is PR-level only)"
+      fi
     else
       log "WARN: checkout moved or tree dirty during the wait — leaving branches as-is"
+      attention "Ship $SHA landed but the local checkout had moved — verify you are on master and $BRANCH can be deleted."
     fi
     exit 0
   fi
 done
-log "WARN: automerge NOT observed within ${MERGE_TIMEOUT_S}s — work is safe on $BRANCH (pushed); mirror NOT synced"
+log "WARN: automerge NOT observed within ${MERGE_TIMEOUT_S}s — work is safe on $BRANCH (pushed)"
+attention "Ship $BRANCH ($SHA) did NOT land within ${MERGE_TIMEOUT_S}s — check the PR state (gh pr list --head $BRANCH); the next ship run self-heals divergence, but the PR may need a manual nudge."
+sync_mirror
 exit 0

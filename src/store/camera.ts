@@ -70,6 +70,9 @@ interface FpvHud {
   pitchDeg: number;
   /** Live camera vertical FOV (deg) — the HUD derives the 35mm-equivalent focal length. */
   fovDeg: number;
+  /** Live camera aspect (width/height) — with fovDeg it fixes the frame rectangle (the rail
+   *  trace's in-frame test §3.1.D; the QoL-2 frameFinder pose). */
+  aspect: number;
   /** Eye height above the local ground (m) — the ALTITUDE encoder readout. */
   eyeAboveGroundM: number;
   sun: FpvBodyMarker;

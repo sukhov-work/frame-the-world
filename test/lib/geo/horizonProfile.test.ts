@@ -9,6 +9,7 @@ import {
   profileCoverage,
   raiseBin,
   R_MEAN_M,
+  sampleBins,
   sampleProfile,
   type SilhouetteFrame,
   type TerrainAnchor,
@@ -137,5 +138,25 @@ describe("azAltOfEcef — exact ECEF→ENU geometry", () => {
     const north = geodeticToEcef((500 / R_MEAN_M) * (180 / Math.PI), 0, 0);
     const r = azAltOfEcef(f, north[0], north[1], north[2]);
     expect(Math.min(r.azDeg, 360 - r.azDeg)).toBeLessThan(0.1);
+  });
+});
+
+describe("sampleBins (the store-mirror sampler, QoL-1 §3.1.D)", () => {
+  it("matches sampleProfile over the same bins at every azimuth", () => {
+    const p = createProfile(360, -0.5);
+    raiseBin(p, 90.5, 12);
+    raiseBin(p, 91.5, 8);
+    raiseBin(p, 359.5, 3);
+    const bins = Array.from(p.altDeg); // the plain array store/plan mirrors
+    for (let az = 0; az < 360; az += 0.7) {
+      expect(sampleBins(bins, az)).toBeCloseTo(sampleProfile(p, az), 9);
+    }
+  });
+
+  it("wraps and interpolates between bin centres", () => {
+    const bins = [0, 10, 0, 0]; // 4 bins, centres at 45/135/225/315°
+    expect(sampleBins(bins, 135)).toBeCloseTo(10, 9);
+    expect(sampleBins(bins, 90)).toBeCloseTo(5, 9);
+    expect(sampleBins(bins, 0)).toBeCloseTo(0, 9); // wrap: between 315° and 45° centres
   });
 });

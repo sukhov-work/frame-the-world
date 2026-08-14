@@ -66,12 +66,19 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - No cron on headless → external scheduler hits a token-secured HTTP endpoint if ever needed.
 - Digital download links expire after 30 days (not shortenable) → message buyers.
 
-## Session-end auto-ship (hook `session-end-ship.sh`, owner order 2026-08-13)
+## Session-end auto-ship (hook `session-end-ship.sh`, owner order 2026-08-13; v2 2026-08-14)
 On SessionEnd a detached hook commits EVERYTHING on a `claude/ship-*` branch with
-`#pr #skipreview #automerge`, waits for the automerge to land on `origin/master`, force-pushes
-`origin/master` to the `private` mirror remote, and fast-forwards the local checkout back onto
-master. Gates: it ABORTS if `.claude/BLOCKING_QUESTIONS.md` exists, or vitest / `astro check`
-fail. Your part every session (Phase 4 recording):
+`#pr #skipreview #automerge`, **self-heals squash-merge divergence** (Wix automation
+squash-merges; if origin/master isn't an ancestor, the hook finds the tree-identical local
+ancestor and `rebase --onto`s — conflict-free by construction; a backup ref in `refs/backups/*`
+is stored first, and branches are deleted only after tree-level proof of containment), waits for
+the landing **squash-aware** (SHA-ancestor OR tree-equality OR gh PR state), force-pushes
+`origin/master` to the `private` mirror remote (on every path, incl. timeout), closes superseded
+open ship PRs, and fast-forwards the local checkout back onto master. Gates: it ABORTS if
+`.claude/BLOCKING_QUESTIONS.md` exists, or vitest / `astro check` fail. Your part every session:
+- **At boot: if `.claude/SHIP_ATTENTION.md` exists, read it, resolve what it reports, delete it.**
+  Never build a session on a stale `claude/ship-*` checkout — re-seat onto origin/master first
+  (tree-identity check → `rebase --onto`; see `mem:decisions/session-end-autoship`).
 - Leave a one-line commit title in **`.claude/.ship-title`** (gitignored; consumed by the ship).
 - If the session ends with STANDING BLOCKING owner questions, write them to
   **`.claude/BLOCKING_QUESTIONS.md`** (gitignored) — nothing ships while it exists; delete it

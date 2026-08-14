@@ -9,6 +9,7 @@ import {
   solarOffsetHours,
 } from "../../../src/lib/ephemeris/dayArc";
 import { horizontal } from "../../../src/lib/ephemeris/bodies";
+import { targetElevationSeries, traceStates } from "../../../src/lib/ephemeris/dayArc";
 import {
   cometTarget,
   fixedTarget,
@@ -208,5 +209,67 @@ describe("elevationSeries (QoL-1 scrubber rail curves)", () => {
   it("returns [] on garbage windows", () => {
     expect(elevationSeries("sun", end, start, DNIPRO.latDeg, DNIPRO.lonDeg, 10)).toEqual([]);
     expect(elevationSeries("sun", start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 0)).toEqual([]);
+  });
+});
+
+describe("targetElevationSeries + traceStates (QoL-1 §3.1.D rail trace)", () => {
+  const start = SOLSTICE_NOON - 6 * 3_600_000;
+  const end = SOLSTICE_NOON + 6 * 3_600_000;
+  const polaris = fixedTarget({
+    id: "star:TEST-POLARIS",
+    name: "Test Polaris",
+    kind: "star",
+    aliases: [],
+    raDeg: 37.95,
+    decDeg: 89.26,
+    vmag: 2,
+    facts: { kind: "dso", dsoType: "**", typeLabel: "STAR", constellation: null, names: [] },
+    source: "TEST",
+  });
+  const southern = fixedTarget({
+    id: "dso:TEST-S",
+    name: "Test South",
+    kind: "cluster",
+    aliases: [],
+    raDeg: 120,
+    decDeg: -80,
+    vmag: 5,
+    facts: { kind: "dso", dsoType: "OCl", typeLabel: "OPEN CLUSTER", constellation: null, names: [] },
+    source: "TEST",
+  });
+
+  it("samples the window inclusively at the requested step and agrees with targetAzAlt", () => {
+    const s = targetElevationSeries(polaris, start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 8);
+    expect(s.length).toBe(Math.floor((12 * 60) / 8) + 1);
+    expect(s[0].utcMs).toBe(start);
+    expect(s[s.length - 1].utcMs).toBe(end);
+    const direct = targetAzAlt(polaris, s[3].utcMs, DNIPRO.latDeg, DNIPRO.lonDeg);
+    expect(s[3].altDeg).toBeCloseTo(direct.altDeg, 9);
+    expect(s[3].azDeg).toBeCloseTo(direct.azDeg, 9);
+  });
+
+  it("returns [] on garbage windows", () => {
+    expect(targetElevationSeries(polaris, end, start, DNIPRO.latDeg, DNIPRO.lonDeg, 8)).toEqual([]);
+    expect(targetElevationSeries(polaris, start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 0)).toEqual([]);
+  });
+
+  it("classifies against a mock skyline: clear above, blocked below, down under the horizon", () => {
+    const s = targetElevationSeries(polaris, start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 60);
+    // Polaris from Dnipro sits ~48° up all day — a 50° wall blocks it, a 10° wall doesn't.
+    expect(traceStates(s, () => 50).every((st) => st === "blocked")).toBe(true);
+    expect(traceStates(s, () => 10).every((st) => st === "clear")).toBe(true);
+    // No profile → horizon-only classification: up samples are clear.
+    expect(traceStates(s, null).every((st) => st === "clear")).toBe(true);
+    // A dec −80° target never rises from Dnipro → every sample is down, wall or no wall.
+    const sDown = targetElevationSeries(southern, start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 60);
+    expect(traceStates(sDown, () => 50).every((st) => st === "down")).toBe(true);
+  });
+
+  it("skyline sampler receives the sample azimuth", () => {
+    const s = targetElevationSeries(polaris, start, start + 3_600_000, DNIPRO.latDeg, DNIPRO.lonDeg, 30);
+    const seen: number[] = [];
+    traceStates(s, (az) => { seen.push(az); return -90; });
+    expect(seen.length).toBe(s.length);
+    expect(seen[0]).toBeCloseTo(s[0].azDeg, 9);
   });
 });
