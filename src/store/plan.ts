@@ -50,6 +50,11 @@ export interface PlanState {
   profileReady: boolean;
   profileCoverage: number;
   trustRadiusM: number;
+  /** The ready profile's per-azimuth-bin skyline elevations (deg; bin centres at i+0.5 —
+   *  sample via lib/geo/horizonProfile `sampleBins`), mirrored once per completed build so
+   *  React consumers (rail trace §3.1.D, the QoL-2 frameFinder) can classify against the
+   *  skyline without reaching into the scene. Null until a photo/FPV build completes. */
+  profileBins: readonly number[] | null;
   /** Per-instant body vs skyline — null until the profile is ready (focus anchors never get
    *  one: no eye, no skyline; the almanac chips still work). */
   sun: PlanBodyState | null;
@@ -66,6 +71,7 @@ export interface PlanState {
         | "profileReady"
         | "profileCoverage"
         | "trustRadiusM"
+        | "profileBins"
         | "sun"
         | "moon"
         | "target"
@@ -83,6 +89,7 @@ export const usePlanStore = create<PlanState>((set) => ({
   profileReady: false,
   profileCoverage: 0,
   trustRadiusM: 0,
+  profileBins: null,
   sun: null,
   moon: null,
   target: null,

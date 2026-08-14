@@ -179,6 +179,58 @@ export function dayFraction(arc: Pick<DayArc, "startMs" | "endMs">, utcMs: numbe
   return Math.min(1, Math.max(0, (utcMs - arc.startMs) / (arc.endMs - arc.startMs)));
 }
 
+/** One tracked-target trace sample (QoL-1 §3.1.D) — the rail needs the azimuth too: skyline
+ *  classification and the FPV frame test are both az-dependent. */
+export interface TargetAltSample extends AltSample {
+  azDeg: number;
+}
+
+/**
+ * The tracked SkyTarget's altitude-vs-time series over an arbitrary window — the target twin of
+ * `elevationSeries`, through the SAME `targetAzAlt` face the marker/trail/panel read (one
+ * target, one ephemeris). Sea-level observer: at trace granularity even a comet's diurnal
+ * parallax shift from eye height is far below a rail pixel (the jumpEvent fallback discipline).
+ */
+export function targetElevationSeries(
+  target: SkyTarget,
+  startMs: number,
+  endMs: number,
+  latDeg: number,
+  lonDeg: number,
+  stepMin = 8,
+): TargetAltSample[] {
+  if (!(endMs > startMs) || !(stepMin > 0)) return [];
+  const stepMs = stepMin * 60_000;
+  const out: TargetAltSample[] = [];
+  const at = (t: number) => {
+    const { azDeg, altDeg } = targetAzAlt(target, t, latDeg, lonDeg);
+    out.push({ utcMs: t, azDeg, altDeg });
+  };
+  for (let t = startMs; t < endMs; t += stepMs) at(t);
+  at(endMs);
+  return out;
+}
+
+/** Rail-trace visibility class of one sample: below the horizon / up but skyline-blocked /
+ *  clear sky (§3.1.D). */
+export type TraceState = "down" | "blocked" | "clear";
+
+/**
+ * Classify trace samples against a skyline sampler (deg az → deg elevation; the mirrored
+ * planFeed profile). Without a sampler (no photo/FPV anchor → no profile) every up sample is
+ * `clear` — horizon-only classification, the honest fallback.
+ */
+export function traceStates(
+  samples: readonly TargetAltSample[],
+  skylineAltDegAt: ((azDeg: number) => number) | null,
+): TraceState[] {
+  return samples.map((s) => {
+    if (s.altDeg <= 0) return "down";
+    if (skylineAltDegAt && s.altDeg < skylineAltDegAt(s.azDeg)) return "blocked";
+    return "clear";
+  });
+}
+
 /**
  * Az/alt → local ENU unit direction (x=east, y=north, z=up). The renderer maps ENU to ECEF
  * with the pin's geodetic basis; kept here so the trig has a unit test against known bearings.

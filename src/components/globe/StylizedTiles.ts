@@ -2127,6 +2127,7 @@ export function attachStylizedTiles(opts: {
                 headingDeg: view.azDeg,
                 pitchDeg: view.altDeg,
                 fovDeg: camera.fov,
+                aspect: camera.aspect,
                 eyeAboveGroundM: fpvEyeAboveGroundM,
                 sun: sunM,
                 moon: moonM,

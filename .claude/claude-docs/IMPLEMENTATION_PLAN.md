@@ -209,8 +209,9 @@ per-sub-phase gate.
 > **`PLANNING_QOL_PLAN.md`** — the spec source for every rung below), the ladder is re-prioritized
 > **sun/moon/MW-first**; astro/DSO work only after mobile is fully solved AND the QoL pass is done.
 
-- [x] **8-QoL-1 — Scrubber v2 + instant wins ◐ SHIPPED 2026-08-14 (desktop; tail = the
-  tracked-target trace §3.1.D + the dock's mobile v2)** *(mobile twin: M3a)* — full light bands
+- [x] **8-QoL-1 — Scrubber v2 + instant wins ✅ SHIPPED 2026-08-14 (desktop COMPLETE — the
+  §3.1.D trace + playhead cursor landed same day, late line; remaining tail = the dock's
+  mobile v2 only)** *(mobile twin: M3a)* — full light bands
   (day/golden/blue/nautical/astro/night, ONE golden source with chips+grade) · **infinite
   conveyor drag** (12 h centre-cursor window, real browser-local hour labels) · sun/moon
   elevation curves ON the rail · event-step tap zones · tracked-target visibility trace in

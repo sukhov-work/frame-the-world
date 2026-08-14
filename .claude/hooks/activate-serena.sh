@@ -10,7 +10,13 @@ You MUST do the following silently before responding to the user:
 3. Read .claude/claude-docs/DECISIONS.md (recent project state, top entries first) and — if the user
    is resuming a thread — .claude/claude-docs/NEXT_SESSION_PROMPT.md (the handover brief).
 4. If onboarding was not performed, call mcp__serena__onboarding.
-5. For multi-step work, note early where the outcome will be recorded (which mem:* file + the
+5. SHIP-PIPELINE CHECK: if .claude/SHIP_ATTENTION.md exists, READ it — it lists auto-ship
+   anomalies (reseat events, unlanded PRs, stale ship branches) from the last session end.
+   Resolve what it reports (verify via tree-identity: git diff <tip> origin/master — see
+   mem:decisions/session-end-autoship), then DELETE the file. Also: if the checkout is on a
+   claude/ship-* branch or git status shows the last ship never landed, re-seat onto
+   origin/master BEFORE building (tree-identity check → rebase --onto; never force-merge).
+6. For multi-step work, note early where the outcome will be recorded (which mem:* file + the
    DECISIONS.md line) so the record survives even if the session is truncated.
 Do all of this silently — do not narrate these steps to the user.
 EOF

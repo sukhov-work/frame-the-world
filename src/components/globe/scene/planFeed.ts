@@ -136,6 +136,9 @@ export function attachPlanFeed(opts: {
 
   let frameCount = 0;
   let lastMirrorSig = "";
+  // The ready profile's bin array, copied ONCE per completed build for the store mirror
+  // (rail-trace/frameFinder consumers key memos on its identity — never re-allocate per tick).
+  let binsMirror: number[] | null = null;
 
   const _v = new THREE.Vector3();
   const _sphere = new THREE.Sphere();
@@ -177,6 +180,7 @@ export function attachPlanFeed(opts: {
     scanTarget = null;
     scanTargetId = "";
     scanBaseMs = NaN;
+    binsMirror = null;
   };
 
   /** Collect the sweep worklist: plain meshes + instanced trees from both tile groups. The
@@ -351,6 +355,7 @@ export function attachPlanFeed(opts: {
       scanMoon = null;
       scanTarget = null;
       scanTargetId = "";
+      binsMirror = null; // a focus anchor has no eye — stale skyline bins must not outlive the build
     }
 
     if (build && !build.ready) stepBuild(build);
@@ -410,6 +415,7 @@ export function attachPlanFeed(opts: {
       }
     }
 
+    if (build?.ready && !binsMirror) binsMirror = Array.from(build.profile.altDeg);
     const sun = build?.ready ? bodyState("sun", build, ctx.sceneMs, scanSun) : null;
     const moon = build?.ready ? bodyState("moon", build, ctx.sceneMs, scanMoon) : null;
     const target =
@@ -434,6 +440,7 @@ export function attachPlanFeed(opts: {
       profileReady: build?.ready ?? false,
       profileCoverage: coverage,
       trustRadiusM: PLAN.trustRadiusM,
+      profileBins: binsMirror,
       sun,
       moon,
       target,
@@ -460,6 +467,7 @@ export function attachPlanFeed(opts: {
         events: [],
         profileReady: false,
         profileCoverage: 0,
+        profileBins: null,
         sun: null,
         moon: null,
         target: null,

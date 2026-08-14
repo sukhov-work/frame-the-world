@@ -2,9 +2,11 @@
 /.claude/.env
 /.claude/claude-docs/NEXT_SESSION_PROMPT.md
 # Session-end auto-ship markers (session-end-ship.sh): the one-line commit title Claude leaves,
-# and the standing-blocking-questions marker that VETOES the auto-ship while it exists.
+# the standing-blocking-questions marker that VETOES the auto-ship while it exists, and the
+# anomaly report the hook leaves for the NEXT session (reseat events, timeouts, stale ship PRs).
 /.claude/.ship-title
 /.claude/BLOCKING_QUESTIONS.md
+/.claude/SHIP_ATTENTION.md
 
 # --- Node / Astro / Wix (populated after Phase 1 scaffold) ---
 node_modules/

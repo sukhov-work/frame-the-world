@@ -43,10 +43,20 @@ import {
 import { useUploadStore } from "../../store/upload";
 import { usePlanStore } from "../../store/plan";
 import { useCameraStore } from "../../store/camera";
+import { useSkyStore } from "../../store/sky";
 import { capturedAtToUtcMs } from "../../lib/ephemeris/captureTime";
 import { lightSegments } from "../../lib/ephemeris/twilight";
-import { elevationSeries, type AltSample } from "../../lib/ephemeris/dayArc";
+import {
+  elevationSeries,
+  targetElevationSeries,
+  traceStates,
+  type AltSample,
+  type TargetAltSample,
+  type TraceState,
+} from "../../lib/ephemeris/dayArc";
 import { dayEvents, moonPhaseEvents } from "../../lib/ephemeris/planner";
+import { sampleBins } from "../../lib/geo/horizonProfile";
+import { azAltFrameMarker } from "../../lib/geo/offscreen";
 import { GOLDEN, SCRUB } from "../globe/tuning";
 import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
@@ -87,6 +97,39 @@ function curvePath(samples: AltSample[], windowStartMs: number): string {
     if (x < -2 || x > 102) continue;
     const y = 20 - (s.altDeg / 90) * 19;
     d += `${d ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
+  }
+  return d;
+}
+
+/** The tracked-target trace split into per-class SVG paths (§3.1.D): below-horizon samples
+ *  break the pen; class transitions bridge FROM the previous point so segments meet without
+ *  gaps. `frameTest` (FPV only) promotes clear samples inside the current frame — the
+ *  "crosses MY frame" emphasis. Same curvePath coordinate system; cheap per render. */
+function tracePaths(
+  samples: readonly TargetAltSample[],
+  states: readonly TraceState[],
+  windowStartMs: number,
+  frameTest: ((s: TargetAltSample) => boolean) | null,
+): { blocked: string; clear: string; frame: string } {
+  const d = { blocked: "", clear: "", frame: "" };
+  let prev: { x: number; y: number } | null = null;
+  let open: keyof typeof d | null = null;
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
+    const x = ((s.utcMs - windowStartMs) / WINDOW_MS) * 100;
+    if (x < -2 || x > 102 || states[i] === "down") {
+      prev = null;
+      open = null;
+      continue;
+    }
+    const y = 20 - (s.altDeg / 90) * 19;
+    const cls: keyof typeof d =
+      states[i] === "blocked" ? "blocked" : frameTest?.(s) ? "frame" : "clear";
+    const pt = `${x.toFixed(2)} ${y.toFixed(2)}`;
+    if (open === cls) d[cls] += `L${pt}`;
+    else d[cls] += prev ? `M${prev.x.toFixed(2)} ${prev.y.toFixed(2)}L${pt}` : `M${pt}`;
+    open = cls;
+    prev = { x, y };
   }
   return d;
 }
@@ -133,6 +176,36 @@ export default function TimeScrubber() {
     }),
     [spanAnchorMs, eyeLatKey, eyeLonKey], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // Tracked-target visibility trace (§3.1.D) — rides the TARGET panel's SHOW gate like the
+  // marker/trail; sampled with the same span memo discipline as the sun/moon curves. Skyline
+  // classification reads the planFeed profile mirror when a photo/FPV build is warm; without
+  // one, up samples honestly read "clear" (horizon-only).
+  const targetVisible = useSkyStore((s) => s.visible);
+  const skyTarget = useSkyStore((s) => s.target);
+  const profileBins = usePlanStore((s) => s.profileBins);
+  const trace = useMemo(
+    () =>
+      targetVisible
+        ? targetElevationSeries(skyTarget, spanStartMs, spanEndMs, eyeLatKey / 20, eyeLonKey / 20, SCRUB.traceStepMin)
+        : [],
+    [targetVisible, skyTarget, spanAnchorMs, eyeLatKey, eyeLonKey], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const traceCls = useMemo(
+    () => traceStates(trace, profileBins ? (az) => sampleBins(profileBins, az) : null),
+    [trace, profileBins],
+  );
+  // FPV in-frame emphasis: subscribe to a QUANTIZED pose key so the HUD mirror's low-cadence
+  // writes only re-render the rail when the frame meaningfully moves (~1° / 0.5 FOV).
+  const fpvPoseKey = useCameraStore((s) =>
+    s.fpvHud
+      ? `${Math.round(s.fpvHud.headingDeg)}|${Math.round(s.fpvHud.pitchDeg)}|${Math.round(s.fpvHud.fovDeg * 2)}|${s.fpvHud.aspect.toFixed(2)}`
+      : null,
+  );
+  const fpvPose = fpvPoseKey ? useCameraStore.getState().fpvHud : null;
+  const frameTest = fpvPose
+    ? (s: TargetAltSample) => azAltFrameMarker(s.azDeg, s.altDeg, fpvPose).inFrame
+    : null;
 
   // The PLAY speed the transport arms (scene-seconds per real second); 1 = real time.
   const [armedRate, setArmedRate] = useState<number>(1);
@@ -369,6 +442,17 @@ export default function TimeScrubber() {
           <line className="ts-curves__horizon" x1="0" y1="20" x2="100" y2="20" />
           <path className="ts-curves__moon" d={curvePath(curves.moon, windowStartMs)} />
           <path className="ts-curves__sun" d={curvePath(curves.sun, windowStartMs)} />
+          {trace.length > 0 &&
+            (() => {
+              const t = tracePaths(trace, traceCls, windowStartMs, frameTest);
+              return (
+                <>
+                  {t.blocked && <path className="ts-curves__trace-blocked" d={t.blocked} />}
+                  {t.clear && <path className="ts-curves__trace-clear" d={t.clear} />}
+                  {t.frame && <path className="ts-curves__trace-frame" d={t.frame} />}
+                </>
+              );
+            })()}
         </svg>
         <div className="ts-ticks" aria-hidden="true">
           {ticks.map((t) => {
@@ -387,7 +471,7 @@ export default function TimeScrubber() {
             );
           })}
         </div>
-        <div className={`ts-knob${live ? "" : " ts-knob--pinned"}`} style={{ left: "50%" }} />
+        <div className={`ts-cursor${live ? "" : " ts-cursor--pinned"}`} aria-hidden="true" />
       </div>
       <div className="ts-foot">
         <span className="ts-span" aria-hidden="true">−{SCRUB.windowHours / 2}h</span>
