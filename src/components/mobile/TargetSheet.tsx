@@ -1,8 +1,9 @@
 /**
- * TargetSheet (M1) — the /m face of the tracked sky target: live ALT/AZ/MAG, the skyline
- * verdict, the next dark-sky windows and the SHOW/MARK/TRAIL chips. Same stores + lib calls
- * as the desktop TargetPanel (never the panel itself); the compact card drops the per-kind
- * fact blocks — those are desktop depth, the phone loop needs "where is it, when do I go".
+ * TargetSheet (M1; ghosts M3c) — the /m face of the tracked sky target: live ALT/AZ/MAG, the
+ * skyline verdict, the next dark-sky windows, the SHOW/MARK/TRAIL/GHOSTS chips and the
+ * ghost-chain steppers. Same stores + lib calls as the desktop TargetPanel (never the panel
+ * itself); the compact card drops the per-kind fact blocks — those are desktop depth, the
+ * phone loop needs "where is it, when do I go".
  *
  * Cost disciplines carried over: az/alt per MINUTE key (the fastest target crawls ~0.3°/day);
  * the ~10–20 ms targetWindows scan keyed to the hour + 0.05°-quantized eye + target — being
@@ -58,6 +59,12 @@ export default function TargetSheet() {
   const setHighlight = useSkyStore((s) => s.setHighlight);
   const trail = useSkyStore((s) => s.trail);
   const setTrail = useSkyStore((s) => s.setTrail);
+  const ghosts = useSkyStore((s) => s.ghosts);
+  const setGhosts = useSkyStore((s) => s.setGhosts);
+  const ghostCount = useSkyStore((s) => s.ghostCount);
+  const setGhostCount = useSkyStore((s) => s.setGhostCount);
+  const ghostStepMin = useSkyStore((s) => s.ghostStepMin);
+  const setGhostStepMin = useSkyStore((s) => s.setGhostStepMin);
   const setTime = useTimeStore((s) => s.setTime);
   const live = useTimeStore((s) => s.live);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -165,7 +172,53 @@ export default function TargetSheet() {
         >
           TRAIL
         </button>
+        <button
+          type="button"
+          className={`m-toggle${ghosts ? " m-toggle--on" : ""}`}
+          aria-pressed={ghosts}
+          disabled={!visible}
+          onClick={() => setGhosts(!ghosts)}
+        >
+          GHOSTS
+        </button>
       </div>
+      {visible && ghosts && (
+        <div className="m-ghostrow">
+          <span>±</span>
+          <button
+            type="button"
+            className="m-ghostbtn"
+            aria-label="Fewer ghost copies"
+            disabled={ghostCount <= 1}
+            onClick={() => setGhostCount(ghostCount - 1)}
+          >
+            −
+          </button>
+          <span className="m-ghostrow__value">{ghostCount}</span>
+          <button
+            type="button"
+            className="m-ghostbtn"
+            aria-label="More ghost copies"
+            disabled={ghostCount >= 8}
+            onClick={() => setGhostCount(ghostCount + 1)}
+          >
+            +
+          </button>
+          <span>EVERY</span>
+          <select
+            className="m-ghostsel"
+            aria-label="Minutes between ghost copies"
+            value={ghostStepMin}
+            onChange={(e) => setGhostStepMin(Number(e.target.value))}
+          >
+            {[1, 2, 5, 10, 15, 20, 30, 60].map((m) => (
+              <option key={m} value={m}>
+                {m} MIN
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="m-status-line">{target.source}</div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { useTimeStore, sceneTimeMs } from "../../store/time";
@@ -35,6 +35,23 @@ export default function SkyContextMenu() {
   const focusLon = useCameraStore((s) => s.focusLonDeg);
   const sky = useSkyStore();
   const setTime = useTimeStore((s) => s.setTime);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  // Viewport clamp (M3c): the card floats up-right of the anchor; a press near a screen edge
+  // (a thumb long-press on /m, a right-click at the desktop edge) would push it offscreen.
+  // Measure after layout, nudge back inside via margins; re-runs (and resets) per open.
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!el || !menu) return;
+    el.style.marginLeft = "0px";
+    el.style.marginTop = "0px";
+    const r = el.getBoundingClientRect();
+    const pad = 8;
+    const dx = Math.max(pad - r.left, Math.min(0, window.innerWidth - pad - r.right));
+    const dy = Math.max(pad - r.top, Math.min(0, window.innerHeight - pad - r.bottom));
+    if (dx !== 0) el.style.marginLeft = `${Math.round(dx)}px`;
+    if (dy !== 0) el.style.marginTop = `${Math.round(dy)}px`;
+  }, [menu]);
 
   // Escape / click-away dismiss while open (pointerdown capture beats the menu's own clicks —
   // stopPropagation on the card keeps in-menu presses alive).
@@ -89,6 +106,7 @@ export default function SkyContextMenu() {
 
   return (
     <div
+      ref={cardRef}
       className="skymenu"
       role="menu"
       aria-label={`${label} actions`}

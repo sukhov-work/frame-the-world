@@ -1892,12 +1892,24 @@ export const FINDGHOSTS = {
   horizonFadeHiDeg: 0.5,
   /** Whole-overlay fade ease (ms) on panel open/close. */
   fadeTauMs: 250,
-  /** Minimum effective alpha for a ghost to be clickable — a near-invisible ghost must not
-   *  steal a sky click. */
-  pickMinAlpha: 0.08,
+  /** Interactivity floor — a ghost below it is transparent to hover AND clicks. SKY-AWARE
+   *  (findPickFloor blends by the observer's sun altitude): on a night/twilight sky the
+   *  hairline ring reads clearly at effective alphas the day sky swallows (ringAlphaGain
+   *  widens the drawn band), so the night floor is "if it draws, it responds" (the shader
+   *  discards ≈ 0.012) while the day floor keeps a washed-invisible ghost from stealing a
+   *  sky click. A flat 0.08 left plainly visible twilight moon standings hover-dead (owner
+   *  bug 2026-08-14 night-6 — effAlpha 0.026–0.079 at civil twilight). */
+  pickMinAlphaDay: 0.08,
+  pickMinAlphaNight: 0.015,
+  /** Sun-altitude band (deg) blending the two pick floors — full night at/below lo, full day
+   *  at/above hi (the sunExtinctionK smoothstep grammar). */
+  pickSunAltLoDeg: -8,
+  pickSunAltHiDeg: 2,
   /** In-sky standing labels (owner 2026-08-14: "subtle date dd.mm near each standing; the moon
    *  adds its phase %"). DOM layer in the hit's identity colour (the skyNames/geoLabels
-   *  discipline — design fonts, no GL text); opacity rides the ghost's own effective alpha. */
+   *  discipline — design fonts, no GL text); opacity rides the ghost's own effective alpha.
+   *  A label shows exactly when its ghost is interactive (≥ the sky-aware pick floor) —
+   *  hoverable ⇒ labeled, one economy for ring, mouse and text. */
   labelAlphaK: 0.85,
   /** Screen-space de-clutter: a label within this many px of an already-placed one is skipped
    *  (date order; the hovered ghost's label always wins). The dense two-branch corridor at long
@@ -1905,8 +1917,11 @@ export const FINDGHOSTS = {
   labelMinSepPx: 34,
   /** Gap (px) between the ring's right edge and its label. */
   labelPadPx: 6,
-  /** Labels below this effective alpha hide entirely (melted/faded ghosts stay quiet). */
-  labelMinAlpha: 0.06,
+  /** Label display floor: a SHOWN label never renders dimmer than this opacity. The raw
+   *  effective alpha at twilight (0.02–0.08) reads fine as a ring but is unreadable as
+   *  0.52rem text (owner 2026-08-14 night-6: "date texts get lost in day time and
+   *  twilights"). Opacity = lift + labelA·(0.95 − lift) — monotone, hover still brightens. */
+  labelLiftA: 0.32,
 } as const;
 
 /** Night-sky asterism figures (Phase 5.5 S6, §Item 4) — ~20 famous d3-celestial figures as a
@@ -2054,6 +2069,17 @@ export const ORCH = {
   skyHoverEveryFrames: 4,
   skyHoverEaseTauMs: 140,
   skyHoverGain: 0.32,
+  /** Tap-reveal (M3c): a TOUCH tap on the open sky parks a synthetic hover at the tap point
+   *  for this long — the whole hover-affordance cascade (body glow, FIND-ghost pulse + row
+   *  highlight, night star names) runs off it on glass, where no resting pointer exists. Any
+   *  new canvas press clears it. */
+  tapRevealMs: 2000,
+  /** The revealed star-name label lifts this many extra px above the tap point — out from
+   *  under the fingertip (SKYNAMES.offsetPx alone was authored for a mouse cursor). */
+  tapRevealLiftPx: 26,
+  /** Coarse-pointer (touch) multiplier on the sky angular hit pads (bodies + FIND ghosts) —
+   *  a fingertip covers ~3× a cursor's arc; desktop stays ×1 (mouse pads unchanged). */
+  touchHitPadK: 1.7,
   /** Per-frame update() error log throttle (ms): log the first, then at most once per window
    *  with a rolling count — a persistent error must not flood the console at 60 fps (B26). */
   errorLogThrottleMs: 2_000,

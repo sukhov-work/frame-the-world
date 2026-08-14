@@ -16,6 +16,14 @@ import {
 } from "../../lib/ephemeris/frameFinder";
 import { horizontal } from "../../lib/ephemeris/bodies";
 import { bodyTarget, galacticCentreTarget, targetAzAlt } from "../../lib/ephemeris/targets";
+import {
+  sunEventDays,
+  sunEventFrameHits,
+  type SunEventDay,
+  type SunEventHit,
+  type SunEventKind,
+} from "../../lib/ephemeris/sunEventFrame";
+import { GOLDEN } from "../globe/tuning";
 import { sampleBins } from "../../lib/geo/horizonProfile";
 import { findHitColor, findStandingColorIdx } from "../../lib/theme/findPalette";
 import { cardinal } from "../../lib/format/readout";
@@ -86,6 +94,34 @@ function icsForStanding(h: FrameStanding, latDeg: number, lonDeg: number): void 
   ]);
 }
 
+// ── SUNSETS · IN FRAME (§3.5, owner order: lives HERE, never buried in a PLAN card) ──────────
+/** Rendered sun-event row cap — the section shares the card's scroll budget with the standings. */
+const SUNSET_MAX_ROWS = 21;
+const EVENT_LABEL: Record<SunEventKind, string> = {
+  sunset: "SET",
+  sunrise: "RISE",
+  goldenAm: "G·AM",
+  goldenPm: "G·PM",
+};
+const EVENT_LONG: Record<SunEventKind, string> = {
+  sunset: "Sunset",
+  sunrise: "Sunrise",
+  goldenAm: "Golden morning sun",
+  goldenPm: "Golden evening sun",
+};
+
+function icsForSunEvent(h: SunEventHit, latDeg: number, lonDeg: number): void {
+  downloadIcs(`ftw-sunevent-${new Date(h.utcMs).toISOString().slice(0, 10)}`, [
+    {
+      startMs: h.utcMs,
+      endMs: h.utcMs + 10 * 60_000,
+      summary: `☀ ${EVENT_LONG[h.kind]} in your frame (Sidera)`,
+      description: `Az ${Math.round(h.azDeg)}°; skyline ${h.skyline}; walks ${h.azDriftDegPerDay.toFixed(1)}°/day along the horizon.`,
+      geo: { latDeg, lonDeg },
+    },
+  ]);
+}
+
 export default function FindPanel() {
   const drag = usePanelDrag("find");
   const open = useFindStore((s) => s.open);
@@ -116,6 +152,8 @@ export default function FindPanel() {
     gc: true,
   });
   const [rangeDays, setRangeDays] = useState<number>(182);
+  // §3.5 event chips — SET on by default (the owner ask was literally "sunsets in my frame").
+  const [sunEventsOn, setSunEventsOn] = useState({ set: true, rise: false, gold: false });
 
   // The two planning surfaces share the top-left column — opening one closes the other.
   useEffect(() => {
@@ -178,6 +216,50 @@ export default function FindPanel() {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
   }, [positions, poseKey, bins, bodies, latKey, lonKey]);
+
+  // §3.5 stage 1 — pose-FREE event day loop (root-finds). Keyed on the local DAY, never the
+  // scrub minute: sunset instants don't depend on the scrubber hour (unlike the standings scan).
+  const dayKey = Math.floor(baseMs / DAY_MS);
+  const eventDays = useMemo<SunEventDay[] | null>(() => {
+    if (!active) return null;
+    const kinds: SunEventKind[] = [
+      ...(sunEventsOn.set ? (["sunset"] as const) : []),
+      ...(sunEventsOn.rise ? (["sunrise"] as const) : []),
+      ...(sunEventsOn.gold ? (["goldenAm", "goldenPm"] as const) : []),
+    ];
+    if (kinds.length === 0) return [];
+    return sunEventDays(
+      { latDeg: latKey / 20, lonDeg: lonKey / 20, groundAltM: 0, eyeAboveGroundM: 1.6 },
+      dayKey * DAY_MS,
+      rangeDays,
+      kinds,
+      GOLDEN,
+    );
+  }, [active, dayKey, latKey, lonKey, rangeDays, sunEventsOn]);
+
+  // §3.5 stage 2 — pose-cheap frame filter (the sunEventFrameHits face).
+  const sunHits = useMemo<SunEventHit[]>(() => {
+    if (!eventDays || !poseKey) return [];
+    const hud = useCameraStore.getState().fpvHud;
+    if (!hud) return [];
+    const pose: FramePose = {
+      latDeg: latKey / 20,
+      lonDeg: lonKey / 20,
+      headingDeg: hud.headingDeg,
+      pitchDeg: hud.pitchDeg,
+      fovDeg: hud.fovDeg,
+      aspect: hud.aspect,
+    };
+    return sunEventFrameHits(eventDays, pose, bins ? (az: number) => sampleBins(bins, az) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
+  }, [eventDays, poseKey, bins, latKey, lonKey]);
+
+  const jumpSunEvent = (h: SunEventHit) => {
+    setTime(h.utcMs);
+    const sky = useSkyStore.getState();
+    sky.setTarget(bodyTarget("sun"));
+    if (!sky.visible) sky.setVisible(true);
+  };
 
   // Ghost mirror: the first FIND_GHOST_CAP standings by date, colour = row index on the wheel.
   useEffect(() => {
@@ -320,6 +402,88 @@ export default function FindPanel() {
                       : hits.length > FIND_GHOST_CAP
                         ? `${hits.length} STANDINGS · FIRST ${FIND_GHOST_CAP} PROJECTED IN FRAME`
                         : `${hits.length} STANDING${hits.length === 1 ? "" : "S"} · ALL PROJECTED IN FRAME`}
+                  </span>
+                </div>
+                {/* ── §3.5 SUNSETS · IN FRAME — the event-anchored twin of the scan above:
+                       not "where does the sun stand at this hour" but "on which days does the
+                       sunset/sunrise/golden sun itself land inside this frame". ─────────── */}
+                <div className="pp-section">
+                  SUNSETS · IN FRAME
+                  <InfoDot
+                    tip="On which coming days does the sunset (or sunrise / the golden sun) happen INSIDE this exact frame? Times are true almanac times (refracted); ✕ means a ridge or building swallows the sun before the horizon. The °/day figure is how fast the event walks along your skyline."
+                    pos="right"
+                  />
+                </div>
+                <div className="pp-find__chips" role="group" aria-label="Sun events">
+                  {(
+                    [
+                      ["set", "SET"],
+                      ["rise", "RISE"],
+                      ["gold", "GOLD"],
+                    ] as const
+                  ).map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className={`pp-chip ${sunEventsOn[k] ? "pp-chip--on" : ""}`}
+                      onClick={() => setSunEventsOn({ ...sunEventsOn, [k]: !sunEventsOn[k] })}
+                      title={
+                        k === "set" ? "Sunsets" : k === "rise" ? "Sunrises" : "Golden-hour sun"
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {sunHits.length > 0 && (
+                  <div className="fnd-ctx">
+                    NEXT · {dateTag(sunHits[0].utcMs).toUpperCase()} {hhmm(sunHits[0].utcMs)}{" "}
+                    {EVENT_LABEL[sunHits[0].kind]}
+                  </div>
+                )}
+                {sunHits.slice(0, SUNSET_MAX_ROWS).map((h) => (
+                  <div className="pp-day__row fnd-row" key={`${h.kind}:${h.utcMs}`}>
+                    <button
+                      type="button"
+                      className="pp-day__jump"
+                      onClick={() => jumpSunEvent(h)}
+                      title={`Jump to ${EVENT_LONG[h.kind].toLowerCase()} on ${dateTag(h.utcMs)} and track the sun`}
+                    >
+                      <i className={`pp-day__dot pp-day__dot--${h.light}`} />
+                      <span className="pp-day__time">{dateTag(h.utcMs)}</span>
+                      <span className="pp-day__time">{hhmm(h.utcMs)}</span>
+                      <span className="pp-day__kind">{EVENT_LABEL[h.kind]}</span>
+                      <span className="pp-day__kind">
+                        {h.skyline === "blocked" ? "✕" : h.skyline === "clear" ? "CLEAR" : "—"}
+                      </span>
+                      <span
+                        className="pp-day__meta"
+                        title="How fast this event walks along the skyline"
+                      >
+                        {h.azDriftDegPerDay > 0 ? "+" : ""}
+                        {h.azDriftDegPerDay.toFixed(1)}°/d
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="pp-ics"
+                      onClick={() => icsForSunEvent(h, latKey / 20, lonKey / 20)}
+                      title="Add to calendar (.ics)"
+                      aria-label="Export sun event to calendar"
+                    >
+                      ⤓
+                    </button>
+                  </div>
+                ))}
+                <div className="pp-find__foot">
+                  <span className="pp-status pp-status--inline">
+                    {!sunEventsOn.set && !sunEventsOn.rise && !sunEventsOn.gold
+                      ? "PICK AN EVENT — SET, RISE OR GOLD"
+                      : sunHits.length === 0
+                        ? "NO SUN EVENTS LAND IN THIS FRAME · TRY 1Y OR TURN TOWARD THE HORIZON"
+                        : sunHits.length > SUNSET_MAX_ROWS
+                          ? `${sunHits.length} EVENTS · FIRST ${SUNSET_MAX_ROWS} SHOWN`
+                          : `${sunHits.length} EVENT${sunHits.length === 1 ? "" : "S"} IN FRAME`}
                   </span>
                 </div>
               </>

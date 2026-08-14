@@ -230,7 +230,14 @@ TOOLS/PLAN cards + sheets on the same libs/stores.
 > night-5b): dock v2 = the desktop conveyor at phone scale (lightSegments bands + hour labels
 > + sun/moon curves + target trace + edge-tap events); PlanSheet v2 = THIS FRAME · TODAY ·
 > FIND v2 (the sheet is the store/find ghost writer on /m) · MOON · SPOT STARS twins.
-> **M3c OPEN:** GHOSTS controls → TARGET sheet · long-press sky-menu · tap-to-reveal names.
+> **M3c ☑ BUILT 2026-08-14 night-6, phone-viewport browser-VERIFIED** (DECISIONS night-6):
+> GHOSTS toggle + ghost-chain steppers into the TARGET sheet (tp-ghostrow twin, pure skyStore
+> writes, prefs round-trip) · long-press on a sky body opens `SkyContextMenu` on /m (island
+> mounted from m.astro; one timer arbitrates sky-menu vs pin-drop at fire time, FPV honours
+> the sky path only; card viewport-clamped) · tap-to-reveal = a 2 s synthetic-hover latch
+> (`ORCH.tapRevealMs`) driving the whole stepSkyHover cascade (glow / ghost pulse / night
+> names) · `ORCH.touchHitPadK 1.7` widens sky picks on coarse pointers. **M3 COMPLETE**;
+> real-device pass rides T1.
 
 **M4 — On-site + events.** AR aim (dual-path compass + calibration UX — mobile-native, stays here) ·
 P7 meteors · P8 conjunctions · P9 lunar eclipses *(P7–P9 desktop-first in Phase 8c; M4 adds the

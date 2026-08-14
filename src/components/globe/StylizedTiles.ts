@@ -689,12 +689,19 @@ export function attachStylizedTiles(opts: {
     return true;
   };
 
+  // Coarse-pointer (touch) sky hit pad (M3c): a fingertip covers ~3× a cursor's arc, so the
+  // angular picks (bodies + FIND ghosts) widen on touch devices; desktop stays ×1.
+  const hitPadK =
+    typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches
+      ? ORCH.touchHitPadK
+      : 1;
+
   // --- FIND v2 ghost click (owner rework 2026-08-14): tapping a projected standing JUMPS scene
   //     time onto that day's instant and tracks the body. The camera deliberately does NOT move —
   //     the frame is the query, so the real body arrives exactly where its ghost stood. ------
   const tryFindGhostClick = (ndcX: number, ndcY: number): boolean => {
     _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
-    const hit = findGhosts.pick(_pickRay.ray.direction);
+    const hit = findGhosts.pick(_pickRay.ray.direction, hitPadK);
     if (!hit) return false;
     useTimeStore.getState().setTime(hit.utcMs);
     const skyNow = useSkyStore.getState();
@@ -742,21 +749,22 @@ export function attachStylizedTiles(opts: {
       {
         kind: "sun",
         dir: sunDirW,
-        radiusDeg: Math.max(THREE.MathUtils.radToDeg(sunAngRad) * 2, ORCH.skyMenuMinHitDeg),
+        radiusDeg: Math.max(THREE.MathUtils.radToDeg(sunAngRad) * 2, ORCH.skyMenuMinHitDeg) * hitPadK,
       },
       {
         kind: "moon",
         dir: _menuMoonDir.copy(moonPosW).sub(camera.position).normalize(),
-        radiusDeg: Math.max(
-          THREE.MathUtils.radToDeg(
-            angularRadiusRad(MOON_RADIUS_KM * 1000, moonPosW.distanceTo(camera.position)),
-          ) * 2,
-          ORCH.skyMenuMinHitDeg,
-        ),
+        radiusDeg:
+          Math.max(
+            THREE.MathUtils.radToDeg(
+              angularRadiusRad(MOON_RADIUS_KM * 1000, moonPosW.distanceTo(camera.position)),
+            ) * 2,
+            ORCH.skyMenuMinHitDeg,
+          ) * hitPadK,
       },
     ];
     if (skyNow.visible && skyTarget.mesh.visible)
-      candidates.push({ kind: "target", dir: targetDirW, radiusDeg: skyTarget.hitRadiusDeg() });
+      candidates.push({ kind: "target", dir: targetDirW, radiusDeg: skyTarget.hitRadiusDeg() * hitPadK });
     let best: (typeof candidates)[number] | null = null;
     let bestDot = -1;
     for (const c of candidates) {
@@ -797,6 +805,14 @@ export function attachStylizedTiles(opts: {
   scene.add(placingMarker);
   let hoverX = Number.NaN; // last pointer position over the canvas (client px)
   let hoverY = Number.NaN;
+  // Tap-reveal latch (M3c): a TOUCH tap that hits nothing interactive parks a synthetic hover
+  // here for ORCH.tapRevealMs — stepSkyHover runs its whole affordance cascade (body glow,
+  // FIND-ghost pulse + row highlight, night star names) off it. Touch never produces a resting
+  // pointer, so without the latch NO hover affordance can ever fire on glass. Any new canvas
+  // press clears it (notePointerDown).
+  let tapRevealX = Number.NaN;
+  let tapRevealY = Number.NaN;
+  let tapRevealUntil = 0;
   const noteHover = (e: PointerEvent) => {
     hoverX = e.clientX;
     hoverY = e.clientY;
@@ -812,6 +828,7 @@ export function attachStylizedTiles(opts: {
     downX = e.clientX;
     downY = e.clientY;
     anyPointerDown = true;
+    tapRevealUntil = 0; // a new press ends any parked tap-reveal
     // Any canvas press dismisses the sky context menu (a right press re-opens it on a hit).
     const camMenu = useCameraStore.getState();
     if (camMenu.skyMenu) camMenu.setSkyMenu(null);
@@ -833,7 +850,9 @@ export function attachStylizedTiles(opts: {
   const onPointerUp = (e: PointerEvent) => {
     cancelLongPress();
     if (longPressFired) {
-      longPressFired = false; // the long-press consumed this gesture — not a click
+      // The long-press consumed this gesture — not a click. In FPV the flag SURVIVES for
+      // onFpvPointerEnd (bound after this handler) — it owns the FPV tap path's suppression.
+      if (!fpvActive) longPressFired = false;
       return;
     }
     if (fpvActive) return; // FPV owns the pointer (look-around) — no placing, no pin-picking
@@ -853,6 +872,16 @@ export function attachStylizedTiles(opts: {
     if (trySkyMarkerClick(ndcX, ndcY)) return;
     // FIND ghost projections next (also sky-only — a faded ghost is click-transparent).
     if (tryFindGhostClick(ndcX, ndcY)) return;
+    // Tap-reveal (M3c): a TOUCH tap on the open sky parks the synthetic hover — the ghost
+    // pick above just seated _pickRay for this exact tap, so the skyward test is free.
+    if (
+      e.pointerType === "touch" &&
+      dirToAzAltAtCamera(_pickRay.ray.direction).altDeg >= ORCH.skyMenuMinAltDeg
+    ) {
+      tapRevealX = e.clientX;
+      tapRevealY = e.clientY;
+      tapRevealUntil = performance.now() + ORCH.tapRevealMs;
+    }
     // Otherwise: a click on a public pin opens it as the placed camera view (Phase 5.1) —
     // the store transition triggers the frustum rebuild, the detail panel, and the flight.
     // A COLLAPSED cluster marker (adaptive de-cluster, far range) dives to differentiation
@@ -1027,6 +1056,10 @@ export function attachStylizedTiles(opts: {
     if (fpvDragId !== e.pointerId) return;
     fpvDragId = null;
     fpvPinchId = null; // a pinch cannot outlive its anchor finger
+    if (longPressFired) {
+      longPressFired = false; // the sky-menu long-press consumed this gesture (M3c)
+      return;
+    }
     // FPV has no pin/ground picking, but a CLICK (not a look-drag) can still hit the tracked
     // sky marker: glide the look onto it + front the panel (phase C, owner feedback #2).
     // Never after a pinch — those two fingers were a zoom, not a tap.
@@ -1038,7 +1071,18 @@ export function attachStylizedTiles(opts: {
       const rect = dom.getBoundingClientRect();
       const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
       // Marker first, then a FIND ghost projection — a tap on a standing jumps time onto it.
-      if (!trySkyMarkerClick(ndcX, ndcY)) tryFindGhostClick(ndcX, ndcY);
+      if (!trySkyMarkerClick(ndcX, ndcY) && !tryFindGhostClick(ndcX, ndcY)) {
+        // Tap-reveal (M3c): nothing interactive under the tap — park the synthetic hover
+        // (the ghost pick just seated _pickRay); sky-only, same floor as the context menu.
+        if (
+          e.pointerType === "touch" &&
+          dirToAzAltAtCamera(_pickRay.ray.direction).altDeg >= ORCH.skyMenuMinAltDeg
+        ) {
+          tapRevealX = e.clientX;
+          tapRevealY = e.clientY;
+          tapRevealUntil = performance.now() + ORCH.tapRevealMs;
+        }
+      }
     }
   };
   const onFpvWheel = (e: WheelEvent) => {
@@ -1144,21 +1188,37 @@ export function attachStylizedTiles(opts: {
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a dblclick
     dropTempPinAt(e.clientX, e.clientY);
   };
-  // Long-press = the dblclick twin on glass (MOBILE_PLAN §4.3, M1). Gated on pointerType
-  // "touch" — STRICTER than the plan's wording — so the frozen desktop stays behavior-identical
-  // (a mouse held still 500 ms must not start dropping pins). Guards re-run at fire time via
-  // dropTempPinAt; a second finger (pinch) cancels; onPointerUp above owns lift/suppression.
+  // Long-press = the dblclick twin on glass (MOBILE_PLAN §4.3, M1; sky menu M3c). Gated on
+  // pointerType "touch" — STRICTER than the plan's wording — so the frozen desktop stays
+  // behavior-identical (a mouse held still 500 ms must not start dropping pins). ONE timer
+  // arbitrates at FIRE time: a press on a sky body opens the context menu (the right-click
+  // twin — and the only long-press FPV honours); otherwise the orbit ground press drops the
+  // temp pin as before. Guards re-run at fire time via dropTempPinAt; a second finger (pinch)
+  // cancels; onPointerUp / onFpvPointerEnd above own lift/suppression.
   const onLongPressDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch" || !e.isPrimary) {
       cancelLongPress(); // a mouse press or a second touch is never a long-press
       return;
     }
-    if (fpvActive) return;
     cancelLongPress();
     longPressFired = false;
     const { clientX, clientY } = e;
     longPressTimer = window.setTimeout(() => {
       longPressTimer = null;
+      const rect = dom.getBoundingClientRect();
+      const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
+      const best = pickSkyBody(ndcX, ndcY);
+      if (best) {
+        const { azDeg, altDeg } = dirToAzAltAtCamera(best.dir);
+        if (altDeg >= ORCH.skyMenuMinAltDeg) {
+          longPressFired = true;
+          useCameraStore
+            .getState()
+            .setSkyMenu({ kind: best.kind, screenX: clientX, screenY: clientY, azDeg, altDeg });
+          return;
+        }
+      }
+      if (fpvActive) return; // ground long-press stays orbit-only (FPV owns its pointer)
       longPressFired = true;
       dropTempPinAt(clientX, clientY);
     }, ORCH.longPressMs);
@@ -2600,19 +2660,26 @@ export function attachStylizedTiles(opts: {
   let skyNameNight = 0;
   const _skyNameUp = new THREE.Vector3();
   const stepSkyHover = () => {
-        const eligible = Number.isFinite(hoverX) && !anyPointerDown && upNow.phase !== "placing";
+        // Tap-reveal latch (M3c): while parked (touch tap on open sky), the tap point IS the
+        // hover point — the whole cascade below (glow / ghost pulse / names) runs off it.
+        const tapLatch = tapRevealUntil > performance.now() && !Number.isFinite(hoverX);
+        const hx = tapLatch ? tapRevealX : hoverX;
+        const hy = tapLatch ? tapRevealY : hoverY;
+        const eligible = Number.isFinite(hx) && !anyPointerDown && upNow.phase !== "placing";
         if (!eligible) {
           skyHoverKind = null;
           skyGhostKey = null;
         } else if (frameCount % ORCH.skyHoverEveryFrames === 0) {
           const rect = dom.getBoundingClientRect();
-          const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
+          const [nx, ny] = clientToNdc(hx, hy, rect);
           const hit = pickSkyBody(nx, ny);
           // The context menu's own horizon floor: a "hit" on a set body is really terrain.
           skyHoverKind =
             hit && dirToAzAltAtCamera(hit.dir).altDeg >= ORCH.skyMenuMinAltDeg ? hit.kind : null;
           // Ghost pick reuses the _pickRay pickSkyBody just seated in this SAME cadence tick.
-          skyGhostKey = skyHoverKind ? null : (findGhosts.pick(_pickRay.ray.direction)?.key ?? null);
+          skyGhostKey = skyHoverKind
+            ? null
+            : (findGhosts.pick(_pickRay.ray.direction, hitPadK)?.key ?? null);
         }
         // Row-highlight mirror (identity-guarded — the store must not churn per frame).
         if (useFindStore.getState().sceneHoverKey !== skyGhostKey)
@@ -2658,8 +2725,9 @@ export function attachStylizedTiles(opts: {
         const nameTarget = skyNameHit ? skyNameNight : 0;
         skyNameAmt += (nameTarget - skyNameAmt) * kh;
         if (Math.abs(skyNameAmt - nameTarget) < 0.004) skyNameAmt = nameTarget;
-        if (skyNameAmt > 0.02 && skyNameLast && Number.isFinite(hoverX))
-          skyNames.show(skyNameLast, hoverX, hoverY, skyNameAmt);
+        if (skyNameAmt > 0.02 && skyNameLast && Number.isFinite(hx))
+          // On the tap latch the label lifts extra px — out from under the fingertip.
+          skyNames.show(skyNameLast, hx, hy - (tapLatch ? ORCH.tapRevealLiftPx : 0), skyNameAmt);
         else skyNames.hide();
         // Cursor hint. The placing crosshair owns the cursor while placing (eligible=false and
         // we never write over "crosshair"); stepPinHover runs later and leaves "pointer" in

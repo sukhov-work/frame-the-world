@@ -8,6 +8,7 @@ import MobileLayout from "../layouts/MobileLayout.astro";
 import GlobeCanvas from "../components/globe/GlobeCanvas";
 import MobileShell from "../components/mobile/MobileShell";
 import MiniMap from "../components/panels/MiniMap";
+import SkyContextMenu from "../components/panels/SkyContextMenu";
 ---
 
 <MobileLayout title="Sidera — Mobile">
@@ -18,4 +19,8 @@ import MiniMap from "../components/panels/MiniMap";
        store/minimap; fence rule 1 fences components/mobile/**, and this page is rule 2's
        named exemption). styles/mobile/fpv.css repositions + shrinks it for the phone. -->
   <MiniMap client:only="react" />
+  <!-- M3c: the sky context menu — the same desktop island (renders only while camera.skyMenu
+       is set; the orchestrator's TOUCH long-press on a sky body is the /m opener). The MiniMap
+       fence-exemption precedent applies. -->
+  <SkyContextMenu client:only="react" />
 </MobileLayout>

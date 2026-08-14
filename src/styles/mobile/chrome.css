@@ -485,6 +485,50 @@
 .m-toggle[disabled] {
   opacity: 0.45;
 }
+/* Ghost-chain knobs (M3c) — the tp-ghostrow twin at touch scale (accepted two-shell dup). */
+.m-ghostrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+}
+.m-ghostrow__value {
+  min-width: 1.2em;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.m-ghostbtn {
+  width: 2.2rem;
+  height: 1.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.m-ghostbtn:disabled {
+  opacity: 0.45;
+}
+.m-ghostsel {
+  margin-left: auto;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  color-scheme: dark;
+}
 
 /* ── Search sheet ──────────────────────────────────────────────────────────────────────── */
 .m-search__row {

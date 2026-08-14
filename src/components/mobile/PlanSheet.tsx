@@ -43,6 +43,13 @@ import {
 } from "../../lib/ephemeris/frameFinder";
 import { horizontal } from "../../lib/ephemeris/bodies";
 import {
+  sunEventDays,
+  sunEventFrameHits,
+  type SunEventDay,
+  type SunEventHit,
+  type SunEventKind,
+} from "../../lib/ephemeris/sunEventFrame";
+import {
   bodyTarget,
   galacticCentreTarget,
   targetAzAlt,
@@ -465,6 +472,155 @@ function FindSection() {
   );
 }
 
+// ── SUNSETS · IN FRAME (§3.5) — the FindPanel SUNSETS twin (accepted two-shell dup) ─────────
+const SUNSET_MAX_ROWS = 12;
+const EVENT_LABEL: Record<SunEventKind, string> = {
+  sunset: "SET",
+  sunrise: "RISE",
+  goldenAm: "G·AM",
+  goldenPm: "G·PM",
+};
+
+/** SUNSETS IN FRAME — the event-anchored twin of FIND: not "where does the sun stand at this
+ *  hour" but "on which days does the sunset/sunrise/golden sun itself land in this frame".
+ *  Same two-stage memo + pose gate; day-keyed (never the scrub minute); reads only. */
+function SunsetSection() {
+  const poseKey = usePoseKey();
+  const anchor = usePlanStore((s) => s.anchor);
+  const bins = usePlanStore((s) => s.profileBins);
+  const focusLat = useCameraStore((s) => s.focusLatDeg);
+  const focusLon = useCameraStore((s) => s.focusLonDeg);
+  const pinnedMs = useTimeStore((s) => s.timeMs);
+  const live = useTimeStore((s) => s.live);
+  const setTime = useTimeStore((s) => s.setTime);
+
+  const [eventsOn, setEventsOn] = useState({ set: true, rise: false, gold: false });
+  const [rangeDays, setRangeDays] = useState<number>(182);
+
+  const baseMs = live ? Date.now() : pinnedMs;
+  const dayKey = Math.floor(baseMs / DAY_MS);
+  const lat = anchor?.latDeg ?? focusLat;
+  const lon = anchor?.lonDeg ?? focusLon;
+  const latKey = Math.round(lat * 20);
+  const lonKey = Math.round(lon * 20);
+  const active = poseKey !== null;
+
+  const eventDays = useMemo<SunEventDay[] | null>(() => {
+    if (!active) return null;
+    const kinds: SunEventKind[] = [
+      ...(eventsOn.set ? (["sunset"] as const) : []),
+      ...(eventsOn.rise ? (["sunrise"] as const) : []),
+      ...(eventsOn.gold ? (["goldenAm", "goldenPm"] as const) : []),
+    ];
+    if (kinds.length === 0) return [];
+    return sunEventDays(
+      { latDeg: latKey / 20, lonDeg: lonKey / 20, groundAltM: 0, eyeAboveGroundM: 1.6 },
+      dayKey * DAY_MS,
+      rangeDays,
+      kinds,
+      GOLDEN,
+    );
+  }, [active, dayKey, latKey, lonKey, rangeDays, eventsOn]);
+
+  const sunHits = useMemo<SunEventHit[]>(() => {
+    if (!eventDays || !poseKey) return [];
+    const hud = useCameraStore.getState().fpvHud;
+    if (!hud) return [];
+    const pose: FramePose = {
+      latDeg: latKey / 20,
+      lonDeg: lonKey / 20,
+      headingDeg: hud.headingDeg,
+      pitchDeg: hud.pitchDeg,
+      fovDeg: hud.fovDeg,
+      aspect: hud.aspect,
+    };
+    return sunEventFrameHits(eventDays, pose, bins ? (az: number) => sampleBins(bins, az) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
+  }, [eventDays, poseKey, bins, latKey, lonKey]);
+
+  const jump = (h: SunEventHit) => {
+    setTime(h.utcMs);
+    const sky = useSkyStore.getState();
+    sky.setTarget(bodyTarget("sun"));
+    if (!sky.visible) sky.setVisible(true);
+  };
+
+  return (
+    <>
+      <div className="m-section">SUNSETS IN FRAME</div>
+      {active ? (
+        <>
+          {sunHits.length > 0 && (
+            <div className="m-status-line">
+              NEXT · {dateTag(sunHits[0].utcMs).toUpperCase()} {hhmm(sunHits[0].utcMs)}{" "}
+              {EVENT_LABEL[sunHits[0].kind]}
+            </div>
+          )}
+          <div className="m-toggles">
+            {(
+              [
+                ["set", "SET"],
+                ["rise", "RISE"],
+                ["gold", "GOLD"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                className={`m-toggle ${eventsOn[k] ? "m-toggle--on" : ""}`}
+                onClick={() => setEventsOn({ ...eventsOn, [k]: !eventsOn[k] })}
+              >
+                {label}
+              </button>
+            ))}
+            {FIND_RANGES.map((r) => (
+              <button
+                key={r.label}
+                type="button"
+                className={`m-toggle ${rangeDays === r.days ? "m-toggle--on" : ""}`}
+                onClick={() => setRangeDays(r.days)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <div className="m-rows">
+            {sunHits.slice(0, SUNSET_MAX_ROWS).map((h) => (
+              <div className="m-row" key={`${h.kind}:${h.utcMs}`}>
+                <button type="button" className="m-row__jump" onClick={() => jump(h)}>
+                  <i className={`m-dot m-dot--${h.light}`} />
+                  <span className="m-row__time">{`${dateTag(h.utcMs)} ${hhmm(h.utcMs)}`}</span>
+                  <span className="m-row__kind">{EVENT_LABEL[h.kind]}</span>
+                  <span className="m-row__meta">
+                    {h.skyline === "blocked" ? "✕" : h.skyline === "clear" ? "CLEAR" : "—"}
+                  </span>
+                  <span className="m-row__meta">
+                    {h.azDriftDegPerDay > 0 ? "+" : ""}
+                    {h.azDriftDegPerDay.toFixed(1)}°/d
+                  </span>
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="m-status-line">
+            {!eventsOn.set && !eventsOn.rise && !eventsOn.gold
+              ? "PICK AN EVENT — SET, RISE OR GOLD"
+              : sunHits.length === 0
+                ? "NO SUN EVENTS LAND IN THIS FRAME · TRY 1Y OR TURN TOWARD THE HORIZON"
+                : sunHits.length > SUNSET_MAX_ROWS
+                  ? `${sunHits.length} EVENTS · FIRST ${SUNSET_MAX_ROWS} SHOWN`
+                  : `${sunHits.length} EVENT${sunHits.length === 1 ? "" : "S"} IN FRAME`}
+          </div>
+        </>
+      ) : (
+        <div className="m-status-line">
+          ENTER LOOK-FROM-HERE (FPV) — ON WHICH DAYS DOES THE SUNSET ITSELF LAND IN YOUR FRAME?
+        </div>
+      )}
+    </>
+  );
+}
+
 /** MOON — the MoonCalCard twin (phases + perigee/apogee, supermoons starred, disc size). */
 function MoonSection({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -640,6 +796,7 @@ export default function PlanSheet() {
       <FrameSection />
       <TodaySection latDeg={eyeLat} lonDeg={eyeLon} />
       <FindSection />
+      <SunsetSection />
       <MoonSection latDeg={eyeLat} lonDeg={eyeLon} />
       <SpotSection latDeg={eyeLat} />
     </div>

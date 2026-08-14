@@ -50,13 +50,29 @@ export interface FindGhostsHandle {
     dtMs: number;
   }): void;
   /** The standing whose marker the (unit, world) ray direction hits — nearest wins; ghosts
-   *  faded below FINDGHOSTS.pickMinAlpha are transparent to clicks. */
-  pick(rayDir: THREE.Vector3): FindGhost | null;
+   *  faded below the sky-aware findPickFloor are transparent to hover and clicks. padK
+   *  scales the hit radius (ORCH.touchHitPadK on coarse pointers — a fingertip's arc). */
+  pick(rayDir: THREE.Vector3, padK?: number): FindGhost | null;
   dispose(): void;
 }
 
 const MAX = FINDGHOSTS.maxGhosts;
 const DAY_MS = 86_400_000;
+
+/** Sky-aware interactivity floor (CPU-twin discipline): the minimum effective alpha at which
+ *  a ghost responds to hover/clicks, blended by the observer's sun altitude. A hairline ring
+ *  on a night sky reads clearly at alphas the day sky swallows — a flat floor left visible
+ *  twilight standings mouse-dead (owner 2026-08-14 night-6). */
+export function findPickFloor(sunAltDeg: number): number {
+  const t = THREE.MathUtils.smoothstep(
+    sunAltDeg,
+    FINDGHOSTS.pickSunAltLoDeg,
+    FINDGHOSTS.pickSunAltHiDeg,
+  );
+  return (
+    FINDGHOSTS.pickMinAlphaNight + (FINDGHOSTS.pickMinAlphaDay - FINDGHOSTS.pickMinAlphaNight) * t
+  );
+}
 
 /** Per-vertex horizon melt for the paths (the dayArcs recipe on the FINDGHOSTS band). */
 function pathFade(altDeg: number): number {
@@ -284,6 +300,8 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
   let insts: Inst[] = [];
   /** Effective per-instance alpha of the LAST frame (melt/hover folded) — the pick gate. */
   let effAlpha: number[] = [];
+  /** Last frame's sky-aware interactivity floor (findPickFloor at the observer's sun alt). */
+  let pickFloor: number = FINDGHOSTS.pickMinAlphaDay;
   let builtGhosts: readonly FindGhost[] | null = null;
   let builtAnchorKey = "";
   let fade = 0;
@@ -421,6 +439,12 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
       }
       mesh.visible = true;
       pathGroup.visible = true;
+      // The frame's interactivity floor: sun altitude at the OBSERVER (geocentric up).
+      pickFloor = findPickFloor(
+        THREE.MathUtils.radToDeg(
+          Math.asin(THREE.MathUtils.clamp(sunDirW.dot(_view.copy(camera.position).normalize()), -1, 1)),
+        ),
+      );
       // The marker/trail/ghosts sky shell — FIND markers sit with everything else.
       const d = THREE.MathUtils.clamp(
         camera.far * SKY_TARGET.impostorFarFrac,
@@ -467,9 +491,10 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
         _pos.copy(camera.position).addScaledVector(s.dir, d);
         _m.compose(_pos, _q, _scale.setScalar(size));
         mesh.setMatrixAt(i, _m);
-        // Label candidate: in front of the camera, on screen, above the alpha floor.
+        // Label candidate: in front of the camera, on screen, INTERACTIVE (the sky-aware
+        // pick floor) — hoverable ⇒ labeled, one economy for ring, mouse and text.
         const labelA = effAlpha[i] * FINDGHOSTS.labelAlphaK;
-        if (labelA >= FINDGHOSTS.labelMinAlpha) {
+        if (effAlpha[i] >= pickFloor) {
           _view.copy(_pos).applyMatrix4(camera.matrixWorldInverse);
           if (_view.z < 0) {
             _ndc.copy(_pos).project(camera);
@@ -510,7 +535,11 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
           el.style.color = c.inst.colorHex;
         }
         el.style.transform = `translate(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px) translate(0, -50%)`;
-        el.style.opacity = String(Math.min(0.95, c.a));
+        // Display lift: rides the ghost's alpha but never drops below reading brightness —
+        // 0.52rem text vanishes at the raw twilight alphas the ring itself survives.
+        el.style.opacity = String(
+          Math.min(0.95, FINDGHOSTS.labelLiftA + c.a * (0.95 - FINDGHOSTS.labelLiftA)),
+        );
         el.style.display = "block";
       }
       hideLabelsFrom(shown);
@@ -525,15 +554,15 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
       uPathFade.value = fade;
       uHotIdx.value = hotIdx;
     },
-    pick(rayDir) {
+    pick(rayDir, padK = 1) {
       if (!mesh.visible) return null;
       let best: FindGhost | null = null;
       let bestDot = -1;
       for (let i = 0; i < insts.length; i++) {
-        if (effAlpha[i] < FINDGHOSTS.pickMinAlpha) continue;
+        if (effAlpha[i] < pickFloor) continue;
         const s = insts[i];
         // Hit radius: the marker itself plus a small pad — a thin ring needs a forgiving click.
-        const hitRad = s.markRad * 1.6;
+        const hitRad = s.markRad * 1.6 * padK;
         const dot = rayDir.dot(s.dir);
         if (dot >= Math.cos(hitRad) && dot > bestDot) {
           best = s.ghost;

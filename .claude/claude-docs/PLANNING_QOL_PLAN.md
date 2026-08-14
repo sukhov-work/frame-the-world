@@ -187,7 +187,9 @@ the hold (stuck-key safety).
 
 ---
 
-### 3.5 Sunsets/sunrises IN FRAME (QoL-4 — spec 2026-08-14 night-3, owner order; build next)
+### 3.5 Sunsets/sunrises IN FRAME (QoL-4 — spec 2026-08-14 night-3, owner order; **☑ BUILT
+### 2026-08-15 both shells** — surface landed INSIDE FindPanel per the owner de-burying order,
+### superseding this spec's PLAN-card line; V2 corridor stretch still open. DECISIONS 2026-08-15.)
 
 The owner ask: the P4 Find grammar applied to the EVENTS — "on which days does the sunset (or
 sunrise / the golden sun) happen inside MY frame?" Every piece exists; the missing primitive is
@@ -233,6 +235,14 @@ skyline (dayArcs grammar), showing at a glance which months the sun sets inside 
 - **Real device / prod:** rides T1 + the release canaries (T2) as usual.
 
 ## 5. Decision log (append-only)
+
+- 2026-08-15 · **§3.5 SHIPPED both shells** — NEW `lib/ephemeris/sunEventFrame.ts` (event-
+  anchored day loop; refracted labels + airless geometry PINNED — no altDeg>0 floor; disc-
+  extent frame pads; rise/set skyline = "is the true horizon visible", golden = centre-vs-
+  profile; az drift seeded day −1; three-face split) + FindPanel SUNSETS section (SET/RISE/
+  GOLD chips, NEXT headline, day-keyed memo, per-row .ics) + PlanSheet SunsetSection twin.
+  866/866 · astro 0 err; shots `verify-shots/sunsets-01..03`. Ghost projection + the sunset
+  corridor deliberately deferred (single-writer mirror; V2 stretch). Twin: DECISIONS 2026-08-15.
 
 - 2026-08-14 night-4b · **FIND markers restyled + app identity shift** (owner follow-up; core v2
   verdict: "works exactly as i imagined"). Markers: hairline quad-gap identity rings
