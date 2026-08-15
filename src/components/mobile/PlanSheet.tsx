@@ -316,7 +316,8 @@ function FindSection() {
   const setTime = useTimeStore((s) => s.setTime);
   const sceneHoverKey = useFindStore((s) => s.sceneHoverKey);
 
-  const [bodies, setBodies] = useState<Record<FindBody, boolean>>({ sun: true, moon: true, gc: true });
+  // Moon-only by default (owner 2026-08-15) — the desktop FindPanel twin.
+  const [bodies, setBodies] = useState<Record<FindBody, boolean>>({ sun: false, moon: true, gc: false });
   const [rangeDays, setRangeDays] = useState<number>(182);
 
   // The sheet IS the FIND surface on /m: mount opens the store gate (ghosts draw), unmount

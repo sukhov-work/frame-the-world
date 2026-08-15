@@ -600,3 +600,30 @@
   color: var(--color-text-muted);
   padding: 0.7rem 0.2rem 0;
 }
+
+/* ── MY PLACES + account chip (owner 2026-08-15: login + saved views on /m) ──────────────── */
+
+/* The idle SEARCH sheet's saved-views block (MobilePlaces) — .m-hit rows carry the list.
+   The sign-in row is an ANCHOR wearing the button row's class — strip the UA underline. */
+.m-places {
+  margin-top: 0.4rem;
+}
+a.m-hit {
+  text-decoration: none;
+}
+.m-places__head {
+  font-size: 0.56rem;
+  letter-spacing: 0.22em;
+  color: var(--color-text-secondary);
+  padding: 0.5rem 0.2rem 0.35rem;
+}
+
+/* Status-strip account chip — a member label can be long; the strip cannot. */
+.m-chip--account {
+  max-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}

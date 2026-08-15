@@ -1,0 +1,49 @@
+/* PLAN / FIND IN FRAME segmented toggle (owner 2026-08-15) — sits in the topnav beside the
+   wordmark; the .pp-pill grammar (mono caps, hairline border, bg-tinted pill) folded into one
+   two-segment switch. The shared window opens in the left column below (plan-panel.css /
+   find-panel.css). */
+
+.pft {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+
+.pft-seg {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.pft-seg + .pft-seg {
+  border-left: 1px solid var(--color-border);
+}
+.pft-seg:hover {
+  color: var(--color-text);
+}
+.pft-seg.is-on {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+/* Narrow desktop windows: the nav is crowded — drop the label's tail, FIND stays. */
+@media (max-width: 1100px) {
+  .pft-ext {
+    display: none;
+  }
+}
+
+/* Keep the welcome landing clean (the pills' old rule carries over). */
+body.welcome-active .pft {
+  display: none;
+}

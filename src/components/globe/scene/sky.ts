@@ -196,6 +196,10 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   const sunMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), sunMat);
   sunMesh.frustumCulled = false; // re-anchored every frame — stale bounds must never cull it
   sunMesh.raycast = () => {};
+  // The REAL body draws ABOVE the depth-free planning overlays (ghosts/trail/arcs/find rings,
+  // all renderOrder 10) — owner 2026-08-15: ghosts sit BEHIND the disc, never wash it. Safe vs
+  // the atmosphere dome: the day contribution is additive, and addition commutes.
+  sunMesh.renderOrder = 11;
   scene.add(sunMesh);
 
   // --- Moon: sphere + LROC colour map, phase-lit by the real sun direction in-shader (scene
@@ -287,6 +291,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   const moonMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 48), moonMat);
   moonMesh.frustumCulled = false;
   moonMesh.raycast = () => {};
+  // Above the overlay tier (10) — the sunMesh note applies verbatim. Night arm: the opaque
+  // disc now also replaces any ghost drawn behind it, which is exactly "ghosts BEHIND".
+  moonMesh.renderOrder = 11;
   scene.add(moonMesh);
 
   // --- Hover ring (qol3 round 3): a hairline broken ring that breathes in around the hovered

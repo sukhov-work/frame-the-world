@@ -1,12 +1,13 @@
-/* FIND panel (v2, owner rework 2026-08-14) — the dedicated frame finder. Sits top-left NEXT TO
-   the PLAN pill (the two are mutually exclusive when open, so their cards share the column
-   without colliding). Reuses the .pp-* board grammar from plan-panel.css (pill, chips, rows,
-   light dots) — only the root placement, the card shell and the FIND-specific row cells live
-   here. Top-level island (index.astro) — the S2 containing-block trap. */
+/* FIND panel (v2 owner rework 2026-08-14; window rework 2026-08-15) — the dedicated frame
+   finder, now the FIND face of the shared PLAN/FIND window: the pill moved into the topnav
+   PlanFindToggle and this card mounts at the SAME left-column spot with the SAME "planfind"
+   drag/resize key as .pp (plan-panel.css owns the canonical geometry comments). Reuses the
+   .pp-* board grammar (chips, rows, light dots) — only the FIND-specific cells live here.
+   Top-level island (index.astro) — the S2 containing-block trap. */
 
 .fnd-root {
   position: fixed;
-  left: 7.3rem; /* right of the ☀ PLAN pill (left 1.6rem + pill ~5.2rem + gap) */
+  left: 1.6rem; /* the .pp-root spot — one window, one place */
   top: 3.4rem;
   z-index: 31; /* the PLAN/TARGET tier */
   font-family: var(--font-mono);
@@ -17,11 +18,13 @@
 .fnd {
   position: absolute;
   left: 0;
-  top: 2.4rem; /* unfolds DOWN from the pill (the .pp grammar) */
-  width: 15rem; /* wider than .pp's 12.5rem — rows carry swatch+glyph+position+verdict+vis */
-  /* Same viewport budget as .pp (content-box: padding+border ~1.9rem ride on top — the
-     max-height trap, DECISIONS 2026-08-14 night-2). */
-  max-height: max(10rem, min(26rem, calc(100vh - 41.7rem)));
+  top: 0; /* the pill is gone (topnav toggle) — the window opens right at the root */
+  /* The .pp geometry twin (owner 2026-08-15) — same vars, same defaults, same border-box
+     discipline; see plan-panel.css for the full resize + mini-map-cap rationale. */
+  box-sizing: border-box;
+  width: var(--win-w, 17.25rem);
+  height: var(--win-h, auto);
+  max-height: var(--win-h, max(11.9rem, min(27.9rem, calc(100vh - 39.8rem))));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -90,7 +93,7 @@ body.welcome-active .fnd-root {
 
 @media (max-width: 900px) {
   .fnd-root {
-    left: calc(1rem + 5.7rem); /* track the narrow-viewport .pp-root shift */
+    left: 1rem; /* track the narrow-viewport .pp-root shift — same window, same spot */
     top: 7.5rem;
   }
 }

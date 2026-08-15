@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import InfoDot from "../ui/InfoDot";
-import DragGrip, { usePanelDrag } from "../ui/DragGrip";
+import DragGrip, { ResizeGrip, usePanelDrag, usePanelResize } from "../ui/DragGrip";
 import { usePlanStore, type PlanBodyState } from "../../store/plan";
 import { useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
@@ -142,7 +142,10 @@ function MwCard({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
 }
 
 export default function PlanPanel() {
-  const drag = usePanelDrag("plan");
+  // ONE session key with FIND (owner 2026-08-15): the shared window keeps its dragged spot and
+  // its user size across a mode switch — to the user PLAN/FIND is one window.
+  const drag = usePanelDrag("planfind");
+  const resize = usePanelResize("planfind");
   const open = usePlanStore((s) => s.open);
   const setOpen = usePlanStore((s) => s.setOpen);
   const anchor = usePlanStore((s) => s.anchor);
@@ -159,20 +162,15 @@ export default function PlanPanel() {
 
   const hasEye = anchor != null && anchor.kind !== "focus";
 
+  // The pill moved into the topnav PlanFindToggle (owner 2026-08-15). Closed renders nothing —
+  // all hooks above still run, so the store-driven feeds keep their gating.
+  if (!open) return null;
+
   return (
     <div className="pp-root" style={drag.style}>
-      <DragGrip drag={drag} label="Move the light planner" tipPos="up" />
-      <button
-        type="button"
-        className={`pp-pill ${open ? "pp-pill--open" : ""}`}
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-label="Toggle the light planner"
-      >
-        ☀ PLAN
-      </button>
+      <DragGrip drag={drag} label="Move the planning window" tipPos="up" />
       {open && (
-        <aside className="pp" aria-label="Light planner">
+        <aside className="pp" aria-label="Light planner" style={resize.style}>
           <div className="pp-head">
             <span className="pp-title">LIGHT PLANNER</span>
             <span className="pp-anchor">{anchor ? anchor.kind.toUpperCase() : "—"}</span>
@@ -180,6 +178,14 @@ export default function PlanPanel() {
               tip="When is the light right, here. Chips pin scene time — sunrise, golden hour (matched to this scene's grade), moon events. With a placed photo or in FPV, the skyline rows read the REAL local horizon: terrain plus the streamed buildings and trees around your eye."
               pos="right"
             />
+            <button
+              type="button"
+              className="pp-x"
+              aria-label="Close the planning window"
+              onClick={() => setOpen(false)}
+            >
+              ×
+            </button>
           </div>
 
           {/* Scrolling lives on this INNER wrapper so the head's InfoDot tip (a ::after pill
@@ -217,6 +223,7 @@ export default function PlanPanel() {
 
           <MwCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
           </div>
+          <ResizeGrip resize={resize} label="Resize the planning window" />
         </aside>
       )}
     </div>

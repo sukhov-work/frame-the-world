@@ -137,7 +137,8 @@
   color: var(--color-text-secondary);
 }
 
-/* Centre playhead — the conveyor's fixed reading lens (accent = LIVE, warn-amber = pinned). */
+/* Centre playhead — the conveyor's fixed reading lens (accent = LIVE, warn-amber = pinned in
+   the past, blue = pinned in the future — owner 2026-08-15). */
 .md-cursor {
   position: absolute;
   left: 50%;
@@ -165,6 +166,10 @@
 .md-cursor--pinned {
   background: var(--color-warn);
   box-shadow: 0 0 6px rgba(232, 162, 104, 0.6);
+}
+.md-cursor--future {
+  background: var(--color-time-future);
+  box-shadow: 0 0 6px rgba(124, 176, 245, 0.6);
 }
 
 /* Control row under the rail: date · play · rate · offset · NOW. */
@@ -220,6 +225,13 @@
 }
 .md-offset--ff {
   color: var(--color-danger);
+}
+/* Pinned-side tint (owner 2026-08-15) — the desktop .ts-offset twin: amber past, blue future. */
+.md-offset--past {
+  color: var(--color-warn);
+}
+.md-offset--future {
+  color: var(--color-time-future);
 }
 
 .md-now {

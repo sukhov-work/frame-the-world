@@ -199,7 +199,7 @@ export default function TargetSheet() {
             type="button"
             className="m-ghostbtn"
             aria-label="More ghost copies"
-            disabled={ghostCount >= 8}
+            disabled={ghostCount >= 15}
             onClick={() => setGhostCount(ghostCount + 1)}
           >
             +

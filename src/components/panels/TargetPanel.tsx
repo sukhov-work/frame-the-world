@@ -540,7 +540,7 @@ export default function TargetPanel() {
                   type="button"
                   className="tp-ghostbtn"
                   onClick={() => setGhostCount(ghostCount + 1)}
-                  disabled={ghostCount >= 8}
+                  disabled={ghostCount >= 15}
                   aria-label="More ghost copies"
                 >
                   +

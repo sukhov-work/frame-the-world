@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import InfoDot from "../ui/InfoDot";
-import DragGrip, { usePanelDrag } from "../ui/DragGrip";
+import DragGrip, { ResizeGrip, usePanelDrag, usePanelResize } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
 import { usePlanStore } from "../../store/plan";
 import { useSkyStore } from "../../store/sky";
@@ -123,7 +123,9 @@ function icsForSunEvent(h: SunEventHit, latDeg: number, lonDeg: number): void {
 }
 
 export default function FindPanel() {
-  const drag = usePanelDrag("find");
+  // ONE session key with PLAN (owner 2026-08-15) — the shared window, see PlanFindToggle.
+  const drag = usePanelDrag("planfind");
+  const resize = usePanelResize("planfind");
   const open = useFindStore((s) => s.open);
   const setOpen = useFindStore((s) => s.setOpen);
   const setHoverKey = useFindStore((s) => s.setHoverKey);
@@ -146,24 +148,23 @@ export default function FindPanel() {
   const live = useTimeStore((s) => s.live);
   const setTime = useTimeStore((s) => s.setTime);
 
+  // Moon-only by default (owner 2026-08-15: all three at once read as clutter) — sun/GC stay
+  // one chip-tap away. The §3.5 SUNSETS chips are independent of this set.
   const [bodies, setBodies] = useState<Record<FindBody, boolean>>({
-    sun: true,
+    sun: false,
     moon: true,
-    gc: true,
+    gc: false,
   });
   const [rangeDays, setRangeDays] = useState<number>(182);
   // §3.5 event chips — SET on by default (the owner ask was literally "sunsets in my frame").
   const [sunEventsOn, setSunEventsOn] = useState({ set: true, rise: false, gold: false });
 
-  // The two planning surfaces share the top-left column — opening one closes the other.
+  // The two planning surfaces share ONE window — opening PLAN closes FIND. The topnav
+  // PlanFindToggle enforces this at click time; this effect is the belt for any other opener.
   useEffect(() => {
     if (planOpen && open) setOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps — only PLAN opening matters here
   }, [planOpen]);
-  const togglePanel = () => {
-    if (!open) usePlanStore.getState().setOpen(false);
-    setOpen(!open);
-  };
 
   // Scan anchor instant: the pinned/scrubbed moment (stable while playing — a fast playback
   // must not re-run the day scan per frame), the wall clock while LIVE.
@@ -295,20 +296,15 @@ export default function FindPanel() {
   const shown = hits.slice(0, MAX_ROWS);
   const rangeLabel = RANGES.find((r) => r.days === rangeDays)?.label ?? `${rangeDays}D`;
 
+  // The pill moved into the topnav PlanFindToggle (owner 2026-08-15). Closed renders nothing —
+  // all hooks above still run, so `active` gating and the ghost-mirror clearing stay intact.
+  if (!open) return null;
+
   return (
     <div className="fnd-root" style={drag.style}>
-      <DragGrip drag={drag} label="Move the frame finder" tipPos="up" />
-      <button
-        type="button"
-        className={`pp-pill ${open ? "pp-pill--open" : ""}`}
-        onClick={togglePanel}
-        aria-expanded={open}
-        aria-label="Toggle the frame finder"
-      >
-        ⌖ FIND
-      </button>
+      <DragGrip drag={drag} label="Move the planning window" tipPos="up" />
       {open && (
-        <aside className="fnd" aria-label="Frame finder">
+        <aside className="fnd" aria-label="Frame finder" style={resize.style}>
           <div className="pp-head">
             <span className="pp-title">FIND IN FRAME</span>
             <span className="pp-anchor">{anchor ? anchor.kind.toUpperCase() : "—"}</span>
@@ -316,6 +312,14 @@ export default function FindPanel() {
               tip="Your frame is the query: on which coming days will the sun, the moon or the Milky-Way core stand INSIDE this exact view — at this exact time of day (set it with the scrubber)? Every find is projected into the frame as a colour-matched ring; click a ring or a row to jump to that day. Zoom or turn the frame and the results follow."
               pos="right"
             />
+            <button
+              type="button"
+              className="pp-x"
+              aria-label="Close the planning window"
+              onClick={() => setOpen(false)}
+            >
+              ×
+            </button>
           </div>
           <div className="fnd-scroll">
             {hud ? (
@@ -494,6 +498,7 @@ export default function FindPanel() {
               </div>
             )}
           </div>
+          <ResizeGrip resize={resize} label="Resize the planning window" />
         </aside>
       )}
     </div>

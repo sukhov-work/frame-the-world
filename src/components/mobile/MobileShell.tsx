@@ -18,6 +18,7 @@ import { useCameraStore } from "../../store/camera";
 import MobileTimeDock from "./MobileTimeDock";
 import TabBar, { type MobileTab } from "./TabBar";
 import Sheet from "./Sheet";
+import MobileAccount from "./MobileAccount";
 import MobileSearch from "./MobileSearch";
 import PlanSheet from "./PlanSheet";
 import TargetSheet from "./TargetSheet";
@@ -40,8 +41,12 @@ function TimeChip() {
     return () => clearInterval(id);
   }, [playRate, live]);
   const nowMs = live && playRate === null ? Date.now() : playRate !== null ? sceneTimeMs() : pinnedMs;
+  // Amber = pinned behind the wall clock, blue = ahead (owner 2026-08-15; scrubber-cursor twin).
+  const ahead = !live && nowMs > Date.now();
   return (
-    <span className={`m-chip m-chip--time${live ? "" : " m-chip--pinned"}`}>
+    <span
+      className={`m-chip m-chip--time${live ? "" : ahead ? " m-chip--pinned m-chip--future" : " m-chip--pinned"}`}
+    >
       {live
         ? `${localTimeStr(nowMs)} LIVE`
         : `${new Date(nowMs).toLocaleDateString([], { month: "short", day: "numeric" })} ${localTimeStr(nowMs)}`}
@@ -65,6 +70,8 @@ export default function MobileShell() {
       <div className="m-status">
         <span className="m-title">Sidera</span>
         <span className="m-status__right">
+          {/* owner 2026-08-15: login + MY PLACES one tap from the strip (list = SEARCH sheet) */}
+          <MobileAccount onOpenPlaces={() => setSheet("search")} />
           <TimeChip />
           <a className="m-chip" href="/">
             DESKTOP

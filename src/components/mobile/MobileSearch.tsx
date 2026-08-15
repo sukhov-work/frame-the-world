@@ -25,6 +25,7 @@ import { sceneTimeMs } from "../../store/time";
 import { targetAzAlt } from "../../lib/ephemeris/targets";
 import { kindGlyph, type SkyIndexEntry } from "../../lib/sky/searchIndex";
 import { SEARCH } from "../globe/tuning";
+import MobilePlaces from "./MobilePlaces";
 import "../../styles/mobile/chrome.css";
 
 type Status = "idle" | "loading" | "ready" | "error";
@@ -227,6 +228,9 @@ export default function MobileSearch({
           onKeyDown={onKeyDown}
         />
       </div>
+      {/* MY PLACES (owner 2026-08-15): the idle SEARCH sheet doubles as the saved-views list —
+          typing swaps it for results, clearing brings it back. Jump closes the sheet (onFly). */}
+      {query.trim().length === 0 && <MobilePlaces onJump={onFly} />}
       <div role="listbox" aria-label="Search results">
         {status === "loading" && <div className="m-status-line">SEARCHING…</div>}
         {status === "error" && <div className="m-status-line">SEARCH UNAVAILABLE — TRY AGAIN</div>}

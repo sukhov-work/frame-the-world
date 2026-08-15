@@ -329,6 +329,9 @@ export default function TimeScrubber() {
   };
 
   const ff = playing && (playRate ?? 1) > 1;
+  // Pinned-time side (owner 2026-08-15): amber = behind the wall clock, blue = ahead of it.
+  // Recomputed per render — the same cadence the offset readout already lives with.
+  const ahead = !live && nowMs > Date.now();
   const ticks = hourTicksBetween(windowStartMs, windowStartMs + WINDOW_MS);
 
   return (
@@ -376,7 +379,9 @@ export default function TimeScrubber() {
         >
           ▶
         </button>
-        <span className={`ts-offset${ff ? " ts-offset--ff" : ""}`}>
+        <span
+          className={`ts-offset${ff ? " ts-offset--ff" : live ? "" : ahead ? " ts-offset--future" : " ts-offset--past"}`}
+        >
           {live ? "LIVE" : `${playing ? (ff ? "▶▶ " : "▶ ") : ""}${offsetLabel(nowMs - Date.now())}`}
         </span>
         <InfoDot
@@ -471,7 +476,10 @@ export default function TimeScrubber() {
             );
           })}
         </div>
-        <div className={`ts-cursor${live ? "" : " ts-cursor--pinned"}`} aria-hidden="true" />
+        <div
+          className={`ts-cursor${live ? "" : ahead ? " ts-cursor--future" : " ts-cursor--pinned"}`}
+          aria-hidden="true"
+        />
       </div>
       <div className="ts-foot">
         <span className="ts-span" aria-hidden="true">−{SCRUB.windowHours / 2}h</span>
