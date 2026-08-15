@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:project/wip-2026-08-14-qol-batch` + DECISIONS 2026-08-14 lines.
+
 # WIP 2026-08-14 late — QoL-1 tail: §3.1.D tracked-target trace + playhead cursor SHIPPED
 
 Session: NEXT_SESSION item 1 + owner ask (replace the scrubber's circle knob with a vertical

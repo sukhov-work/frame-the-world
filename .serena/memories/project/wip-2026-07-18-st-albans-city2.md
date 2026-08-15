@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by scripts/bake/README.md (city-onboarding runbook) + DECISIONS 2026-07-18 line.
+
 # WIP 2026-07-18 — CITY #2: St Albans OSM2World variant (baked + R2 LIVE, Dnipro untouched)
 
 `/frame` implement. Owner ask: "local-backed highest-fidelity (osm2world) variant for St Albans

@@ -1,7 +1,7 @@
 # Dnipro 3D Enrichment — Plan & Backlog
 
-**Provenance.** Distilled from `DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) →
-`DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (the cited external report, accessed 2026-07-13) + this
+**Provenance.** Distilled from `../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) →
+`../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (the cited external report, accessed 2026-07-13) + this
 session's analysis against our locked ADRs and current build state. This doc is the execution source of
 truth for the enrichment workstream (peer of `RENDERING_QUALITY_PASS.md`). Nothing here supersedes a
 locked ADR without a dated `DECISIONS.md` line.
@@ -252,8 +252,8 @@ for Dnipro (excluded or unfit) · fresh aerial/UAV capture (illegal) · whole-ci
 ---
 
 ## Pointers
-`DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (the full cited report + source appendix) ·
-`DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) · `RENDERING_QUALITY_PASS.md` (Pass 1/2/3 — Slice 5
+`../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (the full cited report + source appendix) ·
+`../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) · `RENDERING_QUALITY_PASS.md` (Pass 1/2/3 — Slice 5
 feeds Pass 3) · `mem:project/wip-2026-07-13-dnipro-enrichment-research` · `mem:patterns/globe-rendering` +
 `mem:patterns/sky-bodies-terrain` (current buildings/terrain pipeline the bake extends) ·
 `mem:project/wip-2026-07-12-rendering-pass2-dnipro-identity` (R4 reframed here).

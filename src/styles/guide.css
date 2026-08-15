@@ -1,0 +1,346 @@
+/* GUIDE — the in-app user guide panel (guide track G1, 2026-08-15). Successor of faq.css
+   (fq-*): same top-nav toggle + floating-panel idiom, upgraded to the resizable-window class
+   (PLAN/FIND grammar: --win-w/--win-h from usePanelResize). Two columns: chapter rail left,
+   chapter content right, scroll on the INNER wrapper only (grip tabs overhang the window). */
+
+.gd {
+  display: inline-flex;
+}
+
+.gd-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  transition: color 0.2s ease;
+}
+
+.gd-toggle:hover,
+.gd-toggle[aria-expanded="true"] {
+  color: var(--color-accent);
+}
+
+.gd-panel {
+  position: fixed;
+  top: 64px;
+  right: 24px;
+  z-index: 42;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+  box-sizing: border-box;
+  width: var(--win-w, 31rem);
+  height: var(--win-h, auto);
+  max-height: var(--win-h, 76vh);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg) 90%, transparent);
+  backdrop-filter: blur(10px);
+  color: var(--color-text);
+  animation: gd-enter 300ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@keyframes gd-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) translate(var(--drag-x, 0px), var(--drag-y, 0px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gd-panel {
+    animation: none;
+  }
+}
+
+.gd-cols {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+
+/* ————— chapter rail ————— */
+
+.gd-rail {
+  flex: none;
+  width: 7.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 10px;
+  border-right: 1px solid var(--color-border);
+  overflow-y: auto;
+}
+
+.gd-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+  padding: 2px 6px 8px;
+}
+
+.gd-railbtn {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  color: var(--color-text-secondary);
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.gd-railbtn:hover {
+  color: var(--color-text);
+}
+
+.gd-railbtn.is-on {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+/* ————— content column ————— */
+
+.gd-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.gd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gd-chtitle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--color-accent);
+}
+
+.gd-close {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  transition: color 0.2s ease;
+}
+
+.gd-close:hover {
+  color: var(--color-text);
+}
+
+.gd-lead {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+/* ————— goal router (START chapter) ————— */
+
+.gd-goals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gd-goal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  color: var(--color-text-secondary);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.gd-goal:hover {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.gd-goal-arrow {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+/* ————— topics ————— */
+
+.gd-topic {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+  scroll-margin-top: 6px;
+}
+
+.gd-topic--hit .gd-ttitle {
+  color: var(--color-accent);
+}
+
+.gd-ttitle {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+  transition: color 0.4s ease;
+}
+
+.gd-where {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+
+.gd-where b {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  margin-right: 4px;
+}
+
+.gd-body {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.gd-steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.gd-steps li::marker {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-accent);
+}
+
+.gd-tip {
+  margin: 0;
+  padding: 6px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--color-accent) 65%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.gd-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.gd-link:hover {
+  text-decoration-style: solid;
+}
+
+/* ————— figures ————— */
+
+.gd-fig {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gd-fig--m {
+  max-width: 62%;
+}
+
+.gd-shot {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
+}
+
+.gd-cap {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+/* ————— next-chapter footer ————— */
+
+.gd-next {
+  align-self: flex-start;
+  margin: 4px 0 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.gd-next:hover {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}

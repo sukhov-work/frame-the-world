@@ -8,7 +8,7 @@ import TimeScrubber from "../components/panels/TimeScrubber";
 import MemberBadge from "../components/panels/MemberBadge";
 import MyPins from "../components/panels/MyPins";
 import Marketplace from "../components/panels/Marketplace";
-import Faq from "../components/panels/Faq";
+import Guide from "../components/panels/Guide";
 import MyLocation from "../components/panels/MyLocation";
 import LocationFinder from "../components/panels/LocationFinder";
 import PinHoverCard from "../components/panels/PinHoverCard";
@@ -221,8 +221,9 @@ import "../styles/boot-poster.css";
       <Marketplace client:only="react" />
       <!-- Phase 5.1: rudimentary owner pin list (members only; gallery phase replaces it) -->
       <MyPins client:only="react" />
-      <!-- FAQ — floating how-it-works panel (owner ask 2026-07-17); body is open-gated -->
-      <Faq client:only="react" />
+      <!-- GUIDE — the in-app user guide (guide track G1, 2026-08-15; absorbed the FAQ).
+           Body is open-gated; content = src/lib/guide/guideContent.ts (both shells). -->
+      <Guide client:only="react" />
       <!-- QoL-1 (owner 2026-08-14): geolocation → temp-pin FPV at the visitor's real spot (C6:
            client-side only). The /m twin is SceneActions' 🧭 chip. -->
       <MyLocation client:only="react" />

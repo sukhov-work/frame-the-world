@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:patterns/members-pins` + DECISIONS 2026-07-10 Phase-5 digest (full text in DECISIONS_ARCHIVE).
+
 # WIP 2026-07-10 — Phase 5: members + quota + save/public pins — ✅ DONE (wix-cloud-VERIFIED)
 
 Session complete. Canonical records:

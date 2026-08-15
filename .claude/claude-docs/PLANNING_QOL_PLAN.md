@@ -1,7 +1,8 @@
 # PLANNING_QOL_PLAN — PhotoPills deep review → the sun/moon/MW QoL pass
 
-**Status: DESIGNED 2026-08-14 · QoL-1 SHIPPED same day (desktop, minus §3.1.D — see the decision
-log tail) (owner orders 2026-08-14, `mem:project/owner-orders-2026-08-14-qol-batch`).**
+**Status (refreshed 2026-08-15): QoL-1 → QoL-4 ALL SHIPPED — incl. the §3.1.D trace tail
+(2026-08-14 late line) and §3.5 sunsets-in-frame (2026-08-15, both shells); per-rung dated lines
+in the §5 decision log (owner orders 2026-08-14, `mem:project/owner-orders-2026-08-14-qol-batch`).**
 This doc is the SPEC + research provenance for the QoL pass; the canonical SCHEDULE stays
 `IMPLEMENTATION_PLAN.md §Phase 8` (re-ruled the same day to point here). Standing rule on every
 adoption: **beat PhotoPills, never blindly copy** — only intuitive shot-planning value, nothing

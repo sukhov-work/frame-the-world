@@ -22,13 +22,14 @@ import MobileAccount from "./MobileAccount";
 import MobileSearch from "./MobileSearch";
 import PlanSheet from "./PlanSheet";
 import FindSheet from "./FindSheet";
+import GuideSheet from "./GuideSheet";
 import TargetSheet from "./TargetSheet";
 import TargetPeek from "./TargetPeek";
 import SceneActions from "./SceneActions";
 import FpvControls from "./FpvControls";
 import "../../styles/mobile/chrome.css";
 
-type SheetId = "plan" | "find" | "search" | "target" | null;
+type SheetId = "plan" | "find" | "search" | "target" | "guide" | null;
 
 /** Status-strip scene-time chip: local wall time + LIVE, or the pinned date · time. */
 function TimeChip() {
@@ -75,6 +76,10 @@ export default function MobileShell() {
           {/* owner 2026-08-15: login + MY PLACES one tap from the strip (list = SEARCH sheet) */}
           <MobileAccount onOpenPlaces={() => setSheet("search")} />
           <TimeChip />
+          {/* Guide track G1 (owner 2026-08-15): the same guideContent both shells render. */}
+          <button className="m-chip" onClick={() => setSheet("guide")}>
+            GUIDE
+          </button>
           {/* ?d=1 persists the desktop preference — without it the index auto-detect
               (owner 2026-08-15c) would bounce a phone straight back to /m. */}
           <a className="m-chip" href="/?d=1">
@@ -102,6 +107,11 @@ export default function MobileShell() {
       {sheet === "target" && (
         <Sheet title={target.name.toUpperCase()} onClose={() => setSheet(null)}>
           <TargetSheet />
+        </Sheet>
+      )}
+      {sheet === "guide" && (
+        <Sheet title="GUIDE" full onClose={() => setSheet(null)}>
+          <GuideSheet />
         </Sheet>
       )}
       {/* ALWAYS mounted (owner 2026-08-15c): the FIND scan + ghost mirror live in its hooks —

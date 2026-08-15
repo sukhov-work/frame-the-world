@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:project/wip-2026-08-14-mobile-m3c` + DECISIONS 2026-08-14 lines.
+
 # WIP 2026-08-14 night-5b — Mobile M3a (dock v2) + M3b (PlanSheet twins) [SHIPPED phone-viewport]
 
 Twin: DECISIONS 2026-08-14 night-5b. Gates: **vitest 851/851 · astro 0 err/5 hints**; phone

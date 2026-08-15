@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by src/lib/prefs.ts + conventions/contracts.md §2 (ftw:view-prefs:v1) + DECISIONS 2026-07-21 lines.
+
 # wip 2026-07-21 — view-prefs persistence + default flips + detail-panel close (owner batch)
 
 Status: SHIPPED. Gates: vitest 609/609 · astro check 0/0 · browser-VERIFIED (Playwright MCP → CDP

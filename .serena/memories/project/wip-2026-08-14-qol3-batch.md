@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:project/wip-2026-08-14-qol4-batch` + DECISIONS 2026-08-14 lines.
+
 # WIP 2026-08-14 night-2 — QoL-3 owner 3-ask batch (day-moon additive fix · distinct ghosts · panel de-occlusion/deck v2 · sky hover)
 
 Twin: DECISIONS 2026-08-14 night-2 line. Gates: **vitest 789/789 (+5) · astro 0 err/5 hints**;

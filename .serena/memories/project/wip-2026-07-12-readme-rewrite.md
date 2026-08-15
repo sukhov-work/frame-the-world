@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by the README.md itself (rewritten again 2026-08-15) + DECISIONS 2026-07-12 line.
+
 # wip 2026-07-12 — README rewritten for the Wix contest (DONE)
 
 Mode: implement (investigate-design-v3) · Tier: Standard · Status: **DONE, verified**

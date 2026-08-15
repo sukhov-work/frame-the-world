@@ -19,9 +19,11 @@ Later audits diff this file against the code (docs.md item 11); source anchors a
 
 Query-string contracts: `?enriched=` A/B seam (`src/lib/globe/enrichedVariant.ts` — absent→env URL ·
 `off`→Cesium OSM · `<name>`→`…/enriched/<name>/tileset.json` segment swap · leading `/`→verbatim) ·
-`?purchased=1` (post-checkout toast) · `?p=` (prod-login hash-fallback, backlog T3).
+`?purchased=1` (post-checkout toast) · `?p=` (prod-login hash-fallback, backlog T3) · `?d=` on
+`index.astro` (desktop opt-out for the mobile-default entry — sets `ftw:prefer-desktop` and skips
+the `/m` redirect; new 2026-08-15).
 
-## 2. localStorage keys (all `ftw:*`; complete as of 2026-08-13)
+## 2. localStorage keys (all `ftw:*`; complete as of 2026-08-15)
 
 | Key | Owner | Notes |
 |---|---|---|
@@ -29,11 +31,12 @@ Query-string contracts: `?enriched=` A/B seam (`src/lib/globe/enrichedVariant.ts
 | `ftw:simbad:v1` | `src/lib/sky/simbad.ts` | TTL cache (hits 30 d / misses 1 d) |
 | `ftw:sbdb:v1` | `src/lib/sky/sbdb.ts` | TTL cache |
 | `ftw:m-banner-dismissed` | `src/pages/index.astro` | new 2026-08-13 (M0) |
+| `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
 
-## 3. `window.__*` DEV seams (all DEV-gated; 14 as of 2026-08-13)
+## 3. `window.__*` DEV seams (all DEV-gated; 15 as of 2026-08-15)
 
 `__globe __renderer __composer __quality __cameraStore __timeStore __uploadStore __pinsStore
-__memberStore __planStore __saveStore __marketStore __minimapStore __skyStore`
+__memberStore __planStore __saveStore __marketStore __minimapStore __skyStore __findStore`
 
 Verify scripts and the NEXT_SESSION_PROMPT recipe consume these — removing/renaming one silently breaks
 the browser-verify tier. (NSP's list was 3 short at audit time — this file is the canonical set.)
@@ -75,9 +78,14 @@ the browser-verify tier. (NSP's list was 3 short at audit time — this file is 
 
 ## 7. HTTP surface
 
-- 26 routes as of 2026-08-13; the stable programmatic ones: `/api/photos` (GET/POST/PATCH/DELETE),
-  `/api/places`, `/api/listings`, `/api/market` (public GET), `/api/upload-url`, `/api/sbdb`
-  (param-allowlisted JPL relay), `/api/ping` (the release canary — never delete), `/api/dev-seed`
-  (DEV-gated 404 in prod).
+- **8 API routes** under `src/pages/api/` as of 2026-08-15 (the 2026-08-13 "26 routes" figure was
+  the whole `wix build` route table): `/api/photos` (GET/POST/PATCH/DELETE), `/api/places`,
+  `/api/listings`, `/api/market` (public GET), `/api/upload-url`, `/api/sbdb` (param-allowlisted
+  JPL relay), `/api/ping` (the release canary — never delete), `/api/dev-seed` (DEV-gated 404 in
+  prod).
 - Response shape note: `quota:{used,limit}` rides photos responses (limit currently always the free
   tier — audit finding B7).
+- **Place quota DELETED (owner 2026-08-15c):** the `/api/places` POST 402 gate (old 50-cap) is
+  GONE — no per-member SavedPlaces cap; the GET page (`PLACE_PAGE = 1000`,
+  `src/lib/wix/placeRecords.ts`) is the only listing bound. A 402 from `/api/places` is no longer
+  a contract.

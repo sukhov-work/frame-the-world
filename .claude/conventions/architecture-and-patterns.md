@@ -9,38 +9,60 @@ The **client** does metadata extraction, RAW decode, projection math, ephemeris,
 through a handful of HTTP endpoints. If you find yourself doing heavy compute on an endpoint, stop — it
 belongs on the client.
 
-## Repo layout (actual, 2026-07-11 — regenerate from `git ls-files src` if it drifts)
+## Repo layout (actual, 2026-08-15 — regenerate from `git ls-files src` if it drifts)
 ```
 src/
   pages/
-    index.astro            # the single app page: globe island + every panel
-    api/                   # thin Astro endpoints — photos.ts, upload-url.ts, ping.ts (release canary)
+    index.astro            # the desktop app page: globe island + every panel (+ the /m redirect gate)
+    m.astro                # the mobile shell page — planning-first /m, SAME engine/stores/libs
+    api/                   # thin Astro endpoints — photos, places, listings, market, upload-url,
+                           #   sbdb (JPL relay), ping (release canary), dev-seed (DEV-gated)
   components/
     globe/                 # client:only three.js  ← design imports NEVER touch
       GlobeCanvas.tsx      # renderer/composer/bloom + procedural fallback + dynamic-imports StylizedTiles
-      StylizedTiles.ts     # orchestrator: camera, GlobeControls, per-frame loop, FPV, glides, pins/sky sync
+      StylizedTiles.ts     # orchestrator: camera, GlobeControls, per-frame loop, FPV, glides, pins/sky/plan sync
       tuning.ts            # THE single source for every globe tunable (documented groups)
       PhotoFrustum.ts      # EXIF → camera frustum + image plane
       flight.ts explore.ts # camera controllers (createX → handle; pure math exported for tests)
       Pins.ts              # public-pin instanced markers (camera-anchored)
-      scene/               # one visual concern per file: baseEarth atmosphere stars buildings
-                           #   imageryGround sky dayArcs graticule  + glsl (GLSL-literal injection)
+      scene/               # one visual concern per file: baseEarth atmosphere stars sky dayArcs
+                           #   skyTarget skyTrail skyGhosts skyNames findGhosts buildings
+                           #   buildingMaterial enrichedBuildings imageryGround vectorTiles
+                           #   vectorFeatures streetNames geoLabels minimapFeed planFeed graticule
+                           #   + glsl (GLSL-literal injection)
     panels/                # React islands  ← design imports allowed (UploadFlow, PhotoDetailPanel,
                            #   TimeScrubber, TimeReadout, LocationFinder, CameraTiltPanel, MyPins,
-                           #   MemberBadge, Welcome, ExploreMode, FpvHud, PinHoverCard)
-    ui/                    # shared primitives  ← design imports allowed (Slider, Encoder)
+                           #   MyLocation, MemberBadge, Welcome, ExploreMode, FpvHud, PinHoverCard,
+                           #   PlanPanel, PlanFindToggle, FindPanel, FrameCard, TodayCard, MoonCalCard,
+                           #   SpotStarsCard, TargetPanel, SkyContextMenu, MiniMap, Marketplace, Guide)
+    mobile/                # the /m shell — thin consumers of the SAME stores/libs (MobileShell, TabBar,
+                           #   Sheet, PlanSheet, FindSheet, TargetSheet, TargetPeek, GuideSheet,
+                           #   MobileTimeDock, FpvControls, SceneActions, MobileSearch, MobilePlaces,
+                           #   MobileAccount) — never imports desktop panels, and vice versa
+    ui/                    # shared primitives  ← design imports allowed (Slider, Encoder, InfoDot, DragGrip)
   lib/                     # pure/logic  ← design imports NEVER touch
-    decode/                # extract, exif, convert (HEIC), sensors (FOV), worker, workerClient, wasm-modules.d.ts
-    geo/                   # projection (ECEF/geodetic/ENU + ray-ellipsoid), frustum, geohash, precision, geocode, offscreen
-    ephemeris/             # bodies, stars, captureTime, dayArc, golden, moonlight, asterisms (astronomy-engine)
-    pins/ save/ wix/       # appearance (author hue) · pinBody+uploadMedia · pinRecords (Data shapes + C6 reduction)
-    format/ textures/      # readout (formatters) · redChannel (R8 data-texture extraction)
+    decode/                # extract, exif, convert (HEIC), params, sensors (FOV), worker, workerClient
+    geo/                   # projection (ECEF/geodetic/ENU + ray-ellipsoid), frustum, geohash, precision,
+                           #   geocode, offscreen, terrain, screen, heading, coerce, urlPose,
+                           #   horizonProfile, occlusion, sizeDistance
+    ephemeris/             # bodies, stars, asterisms, captureTime, dayArc, golden, moonlight, planner,
+                           #   twilight, mwSeason, frameFinder, sunEventFrame, moonCalendar, targets,
+                           #   topo, comet (astronomy-engine + universal-variable kepler propagation)
+    sky/                   # the search/catalog layer: catalog, searchIndex, messier, openngc, ngcNames,
+                           #   constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache
+    globe/                 # quality (device tier + frame governor), drift, buildingNight, enrichedMask, enrichedVariant
+    photo/ market/ guide/  # npf (spot-stars exposure) · listing (marketplace) · guideContent+inline (the GUIDE)
+    export/                # ics (calendar export)
+    pins/ save/ wix/       # appearance+fields · pinBody+uploadMedia · pinRecords, placeRecords, photosData, planUpgrade
+    api/ format/ textures/ # http · readout (formatters) · redChannel (R8 data-texture extraction)
     theme/                 # tokens.ts (GL bridge — regenerate from styles/tokens.css after a design import)
-  store/                   # zustand (use*Store): camera, upload, pins, save, time, member — the reactive spine
-  styles/                  # tokens.css (design source of truth) + per-component CSS  (plain CSS — no Tailwind)
-  layouts/ Layout.astro
+    prefs.ts               # the ftw:view-prefs:v1 versioned blob
+  store/                   # zustand (use*Store): camera, upload, pins, save, time, member, plan, sky,
+                           #   skyAim, find, market, minimap — the reactive spine
+  styles/                  # tokens.css (design source of truth) + per-component CSS + mobile/ (plain CSS — no Tailwind)
+  layouts/                 # Layout.astro + MobileLayout.astro
 test/                      # vitest (lib math + store seams), mirroring src/lib/**
-scripts/                   # provision-collections, build-*, verify-*.mjs (browser-verify harnesses)
+scripts/                   # provision-collections, build-* catalog bakes, verify-*.mjs, bake/ (city tilesets)
 ```
 Endpoints live in `src/pages/api/`, **not** a `backend/` folder. WASM ships as hashed Vite build assets
 (libraw) / inlined (libheif) — there is **no `public/wasm/`**.
@@ -85,8 +107,9 @@ React islands. They communicate ONLY through the zustand stores, in two directio
 ## DEV-seam global registry (deliberate — do not "clean up")
 In `import.meta.env.DEV` only, the orchestrator/stores expose typed globals for browser verification
 (Playwright / CDP scripts read them): `window.__globe` (camera/controls/tiles/uniforms/bodies/fpv/...),
-`__composer`, `__renderer`, and the raw stores `__cameraStore __timeStore __uploadStore __pinsStore
-__saveStore __memberStore`. They carry no secrets and change no behaviour. Standardize new seams on the
+`__composer`, `__renderer`, `__quality`, and the raw stores `__cameraStore __timeStore __uploadStore
+__pinsStore __saveStore __memberStore __planStore __skyStore __findStore __marketStore
+__minimapStore` (canonical inventory: `contracts.md §3`). They carry no secrets and change no behaviour. Standardize new seams on the
 `declare global { interface Window { … } }` pattern (see `store/member.ts`). Keep them all.
 
 ## Feature flags

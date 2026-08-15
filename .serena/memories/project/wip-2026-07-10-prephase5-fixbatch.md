@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by the DECISIONS 2026-07-10 digest lines (full text in DECISIONS_ARCHIVE).
+
 # DONE — 2026-07-10 pre-Phase-5 owner fix batch (8 asks)
 
 Shipped + browser-VERIFIED same day (Playwright MCP on wix dev, shots verify-shots/prephase5-01..11).

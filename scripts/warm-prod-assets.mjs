@@ -19,10 +19,12 @@ const TEXTURES = [
   "/textures/earth-night-8k.jpg", "/textures/earth-night.jpg",
   "/textures/earth-landmask-8k.png", "/textures/earth-normal.jpg",
   "/textures/earth-topology.png", "/textures/milkyway-2020.jpg",
-  // FAQ panel section shots (src/components/panels/faqContent.ts) — lazy-loaded on open,
-  // but a cold-origin miss still stalls the panel for ~15-30s (the 2026-07-16 lesson).
-  "/faq/upload.webp", "/faq/nudge.webp", "/faq/time.webp",
-  "/faq/fpv.webp", "/faq/pins.webp", "/faq/market.webp",
+  // GUIDE chapter shots (src/lib/guide/guideContent.ts) — lazy-loaded on open, but a
+  // cold-origin miss still stalls the panel for ~15-30s (the 2026-07-16 lesson).
+  // guideContent.test.ts cross-checks this list against the content module.
+  "/guide/welcome.webp", "/guide/orbit.webp", "/guide/fpv.webp", "/guide/fpv-m.webp",
+  "/guide/time.webp", "/guide/target.webp", "/guide/skymenu.webp", "/guide/plan.webp",
+  "/guide/find.webp", "/guide/sunsets.webp", "/guide/upload.webp", "/guide/shell-m.webp",
 ];
 
 const seen = new Set();

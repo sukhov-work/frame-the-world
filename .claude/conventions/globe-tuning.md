@@ -53,7 +53,7 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
   pins) follow the same attach-module shape.
   **NOTE (updated 2026-08-13, audit D6 — the 2026-07-11 note had gone stale):** B19 completed
   2026-07-11 as ~36 named step-closures (STRUCTURE, not line count, was the accepted resolution);
-  `StylizedTiles.ts` is **2665 lines as of 2026-08-13** and remains the one sanctioned orchestrator.
+  `StylizedTiles.ts` is **3263 lines as of 2026-08-15** and remains the one sanctioned orchestrator.
   Any further decomposition is backlog material via an audit slice, never a drive-by refactor.
 - **Encoder controls** (ROTATE/ZOOM/FOCAL) are spring-centred RATE controls: deflection = speed, release
   springs to zero, one rAF low-pass per param through the SAME rotation/dolly path as the absolute glides.

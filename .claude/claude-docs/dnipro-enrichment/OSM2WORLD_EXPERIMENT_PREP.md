@@ -370,7 +370,7 @@ byte-reproducible upgrade.
 `scripts/bake/README.md §Higher-fidelity tiers` (tier 2 = this) · `DNIPRO_3D_ENRICHMENT_PLAN.md` Slice 1 ·
 `scripts/bake/{bake,lib/gltf,lib/buildings,lib/geo,lib/exclusion,lib/vegetation,lib/overpass}.mjs` (the reuse
 surface) · `scene/enrichedBuildings.ts` + `scene/buildingMaterial.ts` (the runtime contract) ·
-`DNIPRO_SLICE0_SPIKE.md` (the spike template). Sources: github.com/tordanik/OSM2World (`GltfOutput.java`,
+`../archive/DNIPRO_SLICE0_SPIKE.md` (the spike template). Sources: github.com/tordanik/OSM2World (`GltfOutput.java`,
 `O2WConfig.java`, `O2WConverterImpl.java`, `MetricMapProjection.java`, `world/modules/**`,
 `console/commands/**`, `doc/changes.txt`, `LICENSE.txt`), github.com/tordanik/OSM2World-default-style
 (`standard.properties`), osm2world.org/download + /blog, wiki.openstreetmap.org/wiki/OSM2World.

@@ -3,7 +3,7 @@
 ## Runtime / tooling
 - Node **v22.14.0** (need ≥20.11), npm 10.9.2, nvm-managed. Wix-scoped npm registry configured. Wix CLI authed.
 - Package manager: **npm with `--legacy-peer-deps`** — pnpm fails against the `@wix/cli` template. Lockfile: package-lock.json.
-- Test: **vitest** (Vite-native). Types: `astro check` / tsc. Lint: eslint + prettier.
+- Test: **vitest** (Vite-native). Types: `astro check` / tsc. Lint: **none** (no lint script; eslint/prettier were never wired) — `astro check` + vitest are the quality gates.
 - Wix CLI resolved via `npx @wix/cli@latest` (project-local after scaffold; auto-fetch ~3–5s first call).
 
 ## Pinned stack (versions from DEEP_RESEARCH, July 2026) — verify latest at install

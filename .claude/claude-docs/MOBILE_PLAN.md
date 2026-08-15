@@ -1,7 +1,8 @@
 # MOBILE_PLAN — true mobile support (planning-first, Stellarium × PhotoPills)
 
-**Status: DESIGNED 2026-08-11 · RATIFIED by owner the same day (all three [OPEN] items resolved —
-see §7) · M0 starts next session.** **RE-RULED 2026-08-13 (owner):** the §5 feature ladder
+**Status (refreshed 2026-08-15): M0–M3 COMPLETE (shell + planning sheets + FPV touch + the
+M3a/M3b/M3c planning twins; dated lines in the §Decision-log tail) · M4 (events twin) is next,
+QUEUED BEHIND the guide track (`GUIDE_PLAN.md`, owner order 2026-08-15).** **RE-RULED 2026-08-13 (owner):** the §5 feature ladder
 (P1–P10 + backlog + all future planning-app features) is **CORE scope** — its schedule now lives in
 `IMPLEMENTATION_PLAN.md §Phase 8` (8a–8e) and every feature ships **desktop-first, then mobile**.
 M0–M2 stay the mobile-infrastructure track here; §6's M3–M6 are re-scoped to the *mobile surfaces*

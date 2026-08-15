@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:project/wip-2026-07-13-dnipro-slice2` + `wip-2026-07-13-dnipro-slice3-trees` + dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md + DECISIONS 2026-07-13 lines.
+
 # WIP 2026-07-13 — Dnipro 3D Enrichment: Slice-0 browser-verify + Slice-1 REAL bake (DONE)
 
 **Mode:** implement (Deep), `/frame` + investigate-design-v3. **Gates: astro check 0/0 · vitest 442 (+19 bake)

@@ -628,3 +628,150 @@ a.m-hit {
   font-family: var(--font-mono);
   cursor: pointer;
 }
+
+/* ── GUIDE sheet (guide track G1, 2026-08-15) — the /m twin of guide.css (gd-*) ─────────── */
+
+.m-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-bottom: 0.6rem;
+}
+.m-grows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.m-grow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  color: var(--color-text);
+}
+.m-grow:active {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.m-grow__ch {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+}
+.m-grow__arrow {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+.m-gback {
+  align-self: flex-start;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 8px;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+}
+.m-gnext {
+  margin-top: 0.3rem;
+}
+.m-gtopic {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+.m-gtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+}
+.m-gwhere {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+.m-gwhere b {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  margin-right: 0.25rem;
+}
+.m-gbody {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+.m-gbody--lead {
+  color: var(--color-text);
+}
+.m-gsteps {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+.m-gsteps li::marker {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--color-accent);
+}
+.m-gtip {
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border-left: 2px solid color-mix(in srgb, var(--color-accent) 65%, transparent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+.m-glink {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.m-gfig {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.m-gfig--m {
+  max-width: 62%;
+}
+.m-gshot {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
+}
+.m-gcap {
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}

@@ -34,7 +34,9 @@ So the workload was chosen to be deliberately hostile:
 Everything photographic, orbital, and astronomical in here is the owner's side hobby — chosen to
 make the test genuinely fun, personally challenging, and a probe of a second frontier:
 **the limits of AI coding agents**. Every line of code, test, and document in this repository was
-written by Claude Code agents, end to end, in **four days** (2026-07-09 → 2026-07-12, 17 commits).
+written by Claude Code agents, end to end — a **four-day launch sprint** (2026-07-09 → 2026-07-12)
+shipped the core instrument, and the build has kept compounding through August 2026 (48 commits on
+`master` as of 2026-08-15 — most of them whole agent sessions squash-merged to a single commit).
 The full agent operating harness is committed in [`.claude/`](.claude/CLAUDE.md) — it is part of
 the deliverable.
 
@@ -51,6 +53,28 @@ More: live EXIF what-if re-projection (focal / heading / pitch / altitude slider
 time scrubbing, location search, street-level camera (2 m above the pavement), click-anywhere
 photo placement, HEIC/JPEG support with instant embedded-thumbnail preview.
 
+## The planning instrument (why the UI says Sidera)
+
+Since the launch sprint the app has grown its second identity: a **planning-first
+astro-photography instrument**. Stand anywhere, scrub time, and ask the frame itself when the
+shot works — all client-side, off the same ephemeris/geometry libraries (`lib/ephemeris`,
+`lib/geo`):
+
+- **PLAN** — skyline-aware verdicts against the real 3D buildings ("will the sun clear that
+  rooftop?"), twilight bands, Milky-Way season + darkness score, moon calendar with supermoons,
+  NPF/spot-stars exposure math, a TODAY chronology with ICS export.
+- **FIND** — *the frame is the query*: a per-day scan of sun / moon / Galactic Centre against the
+  live camera frustum, rendered as in-frame ghost projections (hairline identity rings,
+  phase-accurate translucent body pictures, per-hit day-arc sky paths) plus sunsets-in-frame
+  standings; click a hit to jump to its moment, camera unmoved.
+- **TARGET tracking** — search and track any sky body (planets, comets, asteroids, Messier/NGC
+  deep-sky objects, live SIMBAD / JPL-SBDB long-tail lookups) with reticle, trail, rise/set
+  camera aim, and a temporal ghost chain; FPV mode keeps a tracking lock while you look around.
+- **The `/m` mobile shell** — a separate planning-first page (`src/pages/m.astro`) reusing the
+  same engine, stores, and libs: tab bar, bottom sheets, touch FPV, conveyor time dock — built
+  for standing at the tripod.
+- **The in-app GUIDE** — a guide/FAQ surface on both shells that teaches the instrument.
+
 ## The Wix integration surface
 
 Every backend capability in the app is a Wix primitive. What a judge should look at:
@@ -63,8 +87,8 @@ Every backend capability in the app is a Wix primitive. What a judge should look
 | **Media Manager** (`@wix/media`) | 25–80 MB RAW originals via TUS resumable upload (private) + generated ≤1280 px public previews on the wixstatic CDN | Shipped · verified live |
 | **Geo queries without geo support** | Wix Data has no geospatial operator → geohash tiers (`gh4`/`gh6`) + `hasSome` prefix queries + client refine drive the live pin viewport at every zoom | Shipped · verified live |
 | **Pricing Plans** (`@wix/pricing-plans`) | Gates the 1,000-pin premium tier above the free 100 | Shipped · app installed, premium plan live (2026-07-17) |
-| **eCommerce digital products** (`@wix/ecom`) | Sell the full-res RAW as a `DIGITAL` line item; 30-day download links; owner-mediated payout (platform has no split payments) | Phase 6 — next up |
-| **Wix AI proxy** | Premium Claude shot-analysis + moderation gate on public pins (JPEG previews — vision doesn't take RAW) | Planned |
+| **eCommerce digital products** (`@wix/ecom`) | Sell the full-res RAW as a Catalog V3 `DIGITAL` product; hosted checkout via `@wix/redirects`; 30-day download links; owner-mediated payout (platform has no split payments) | Shipped Phase 6/6.9 · list→checkout verified live |
+| **Wix AI proxy** | Premium Claude shot-analysis + moderation gate on public pins (JPEG previews — vision doesn't take RAW) | PARKED (owner ruling 2026-08-11) |
 | **Wix CLI** | `wix dev` / `build` / `release` as the entire dev-to-prod pipeline; site-scoped tokens for REST provisioning; `env pull` for secrets | Daily driver |
 
 ## What the build proved — and falsified — about the platform
@@ -118,7 +142,7 @@ Browser (the heavy half)                        Wix (the thin half)
 ├─ three.js globe — client:only island          ├─ Wix Data: Photos / PublicPins
 │    terrain · buildings · imagery · vectors    ├─ Media Manager (TUS + previews)
 ├─ frustum projection + WGS84 geodesy           ├─ Pricing Plans (quota gate)
-├─ astronomy-engine ephemeris + BSC5 sky        └─ eCommerce digital (Phase 6)
+├─ astronomy-engine ephemeris + BSC5 sky        └─ eCommerce digital (shipped Phase 6)
 └─ zustand stores (live what-if re-projection)
 ```
 
@@ -129,13 +153,16 @@ Browser (the heavy half)                        Wix (the thin half)
 | RAW decode | `libraw-wasm` (exact-pinned 1.0.5) in a disposable Web Worker · `exifr` · `libheif-js` |
 | Ephemeris | `astronomy-engine` (JPL-Horizons-tested ±0.05°) + Yale BSC5 catalog |
 | State | `zustand` |
-| Backend | Wix Data · Media · Members · Pricing Plans · eCommerce · Wix AI |
+| Backend | Wix Data · Media · Members · Pricing Plans · eCommerce (Wix AI parked) |
 
-**Status:** Phases 1–5.5 complete (globe, decode, projection, ephemeris sky, members + pins, the
-full UX batch). Phase 6 (marketplace-light) is next. Quality gates at head: **377 vitest tests
-across 38 files, `astro check` 0 errors / 0 warnings**, browser flows verified via Playwright on
-`wix dev`. The released URL currently serves the earlier Phase 5 build; the latest work is
-release-gated behind a canary check.
+**Status:** Phases 1–6.9 shipped (globe, decode, projection, ephemeris sky, members + pins, the
+full UX batch, marketplace-light + the access batch) — plus the post-launch tracks: the
+astro-engine sky (comets, asteroids, Messier/NGC, SIMBAD/SBDB search), Phase 8a darkness & the
+galaxy, the planning-QoL pass (scrubber v2, TODAY, FIND v2/v3), §3.5 sunsets-in-frame, and the
+`/m` mobile shell M0–M3. Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11). Quality gates
+at head: **886 vitest tests across 80 files, `astro check` 0 errors / 0 warnings**, browser flows
+verified via Playwright on `wix dev`. The app is released and live on the Wix cloud (demo URL
+deliberately withheld — owner call pending).
 
 ## Built entirely by AI agents
 
@@ -162,7 +189,7 @@ Prereqs: Node ≥ 20.11, Wix CLI authed (`npx @wix/cli@latest whoami`).
 ```bash
 npm install --legacy-peer-deps    # pnpm fails against the @wix/cli template — proven, see conventions
 npm run dev                       # wix dev — local dev wired to a real Wix site sandbox
-npm test                          # 377 vitest unit tests (projection, geodesy, ephemeris, geohash…)
+npm test                          # 886 vitest unit tests (projection, geodesy, ephemeris, planner…)
 npx astro check                   # typecheck (0 errors at head)
 npm run build && npm run release  # publish to Wix cloud — there is no other prod
 ```

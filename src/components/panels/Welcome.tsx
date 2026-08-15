@@ -67,6 +67,20 @@ export default function Welcome() {
           <a className="wl-btn wl-btn--ghost" href="/m">
             MOBILE VERSION
           </a>
+          {/* Guide track G1: first-run discoverability — dismiss into the scene with the
+              GUIDE panel open (Guide.tsx's delegated data-open-guide listener). */}
+          <button
+            type="button"
+            className="wl-btn wl-btn--ghost"
+            data-open-guide
+            onClick={() => {
+              // Reading the guide over a touring camera is noise — arrive on a still globe.
+              useCameraStore.getState().setExplore(false);
+              setVisible(false);
+            }}
+          >
+            HOW IT WORKS
+          </button>
           <button
             type="button"
             className="wl-btn wl-btn--ghost"

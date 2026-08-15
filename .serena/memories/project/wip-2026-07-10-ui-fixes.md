@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by the DECISIONS 2026-07-10 digest lines (full text in DECISIONS_ARCHIVE) + `mem:patterns/design-system`.
+
 # DONE — 2026-07-10 owner UX pass (camera / moon / tile-load)
 
 Shipped + browser-VERIFIED same day. Full mechanics live in the taxonomy (this file is just the

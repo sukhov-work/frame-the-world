@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:project/wip-2026-08-14-find-rework` + DECISIONS 2026-08-14 lines.
+
 # WIP 2026-08-14 night-5 — FIND accuracy audit + in-sky dd.mm labels + sun extinction [SHIPPED desktop]
 
 Twin: DECISIONS 2026-08-14 night-5 line. Gates: **vitest 851/851 (+9) · astro 0 err/5 hints**;

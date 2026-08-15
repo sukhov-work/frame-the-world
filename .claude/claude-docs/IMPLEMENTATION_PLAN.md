@@ -227,7 +227,8 @@ per-sub-phase gate.
   sun-el-at-moonrise) · next-phase/new-moon jump chips · ICS calendar export (client Blob).
   Spec: PLANNING_QOL_PLAN §3.2 + §1.1 R5/R7/R15.
 - [x] **8-QoL-3 — Find + moon/exposure toolkit** ✅ desktop 2026-08-14 night-3 *(mobile twin:
-  M3c open)* — P4 **Find** FULL (FindCard: az(±3°)/el(±0.5°) over 1W/1M/6M/1Y, **skyline-filtered
+  M3c ✅ SHIPPED 2026-08-14 — TARGET GHOSTS, long-press sky menu, tap-reveal, touch pads;
+  annotation 2026-08-15)* — P4 **Find** FULL (FindCard: az(±3°)/el(±0.5°) over 1W/1M/6M/1Y, **skyline-filtered
   rows** — the category-first bet; DATE/LIGHT sort; engine `frameFinder.azElHits` per-day azimuth
   root-find ~1 ms/day) · P6 MoonCalCard (quarters + perigee/apogee via SearchMoonQuarter/
   SearchLunarApsis, supermoon ★ ≤ 360 Mm, disc-arcmin rows, NEXT SUPERMOON chip) · P5
@@ -240,6 +241,13 @@ per-sub-phase gate.
   hairline identity rings, phase-accurate translucent body pictures, per-hit day-arc sky paths;
   click = jump+track, camera unmoved). Engine `frameFinder.frameStandings`/`FIND_VIS` +
   `store/find`. DECISIONS 2026-08-14 night-4 + night-4b.
+- [x] **8-QoL-4 / §3.5 — Sunsets-in-frame ☑ SHIPPED 2026-08-15 (both shells)** — the P4 Find
+  grammar applied to sun EVENTS: `lib/ephemeris/sunEventFrame.ts` per-day sunset/sunrise/golden
+  in-frame scan vs the LIVE frustum + skyline verdict, surfaced as the FindPanel **SUNSETS** tab
+  (owner de-burying order — supersedes the spec's PLAN-card line) + the PlanSheet twin on `/m`.
+  Spec: PLANNING_QOL_PLAN §3.5. DECISIONS 2026-08-15.
+> **QUEUED BEHIND the guide track** (GUIDE_PLAN.md, owner order 2026-08-15); G1 shipped
+> 2026-08-15 (guideContent.ts + GUIDE panel + /m sheet, FAQ absorbed).
 - [ ] **8-events** *(mobile twin: M4; AFTER the QoL pass + its mobile twins)* — P7 meteor showers
   (bake IAU MDC, avoid GPL showers.json; radiant = tracked target; ZHR×sin(h), moon-scored peaks;
   + rail intensity trace) · P8 conjunctions/oppositions finder · P9 lunar eclipses (shadow-cone

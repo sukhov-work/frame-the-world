@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:patterns/sky-bodies-terrain` + DECISIONS 2026-07-10 Phase-4 digest (full text in DECISIONS_ARCHIVE).
+
 # DONE — 2026-07-10 Phase 4 remainder (scrubber + golden hour + BSC5 stars)
 
 Shipped + browser-VERIFIED same day (Playwright MCP healthy again). Session-closure pointer —

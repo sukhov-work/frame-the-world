@@ -1,5 +1,20 @@
 # GUIDE_PLAN — the in-app user guide (owner order 2026-08-15)
 
+> **STATUS 2026-08-15 (same-day full crunch): G1 + the G2 content SHIPPED both shells.**
+> One content module `src/lib/guide/guideContent.ts` (11 chapters · ~40 topics · goal router ·
+> `[[crosslinks]]` via `lib/guide/inline.ts`) → desktop `panels/Guide.tsx` (resizable window,
+> chapter rail; nav GUIDE replaces FAQ) + `/m mobile/GuideSheet.tsx` (status-strip GUIDE chip,
+> full sheet, index→chapter drill). **FAQ decision: ABSORBED/RETIRED** (Faq.tsx + faqContent.ts
+> + faq.css + public/faq deleted; privacy/marketplace/upload copy ported into chapters).
+> 12 fresh screenshots `public/guide/*.webp` (720 px desktop / 360 px portrait, all warmed in
+> warm-prod-assets.mjs). Welcome gained HOW IT WORKS (data-open-guide, explore cleared).
+> Content-integrity + slop-lint vitest gate (`test/lib/guide/`). Copy audited against the LIVE
+> UI (both shells, CDP): double-click = pin + FPV in one motion; search bar top-nav; menu
+> labels state-flipped. Remaining (G3): owner taste pass · coach-mark journeys (optional,
+> owner call) · real-device pass. Inventory corrections vs this file's checklist: place quota
+> DROPPED (not 50) · /m tab bar is 4 tabs (SCENE·PLAN·FIND·SEARCH) · FIND default = moon-only
+> **1M**.
+
 **Goal:** a user-friendly, in-app guide to ALL of Sidera's planning features — desktop AND /m,
 **precisely** reflecting real capabilities (no phantom features, no stale claims). Multi-session
 effort (G1–G3 below). UI-facing name: the app is **Sidera**; repo/technical ids stay

@@ -1,3 +1,5 @@
+**ARCHIVED (2026-08-15)** — superseded by `mem:project/wip-2026-07-11-pre-s7-refactor-s2` (the completing second pass) + DECISIONS 2026-07-11 lines.
+
 # WIP 2026-07-11 — Pre-S7 architecture review + careful refactor
 
 **Mode:** design+review, Deep tier (investigate-design-v3 under /frame). Ultracode session.
