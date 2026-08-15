@@ -139,6 +139,10 @@ export default function GuideSheet() {
             </button>
           ))}
         </div>
+        {/* The same content as a plain document — /guide (pages/guide.astro). */}
+        <a className="m-gback" href="/guide">
+          OPEN AS A PAGE ↗
+        </a>
       </div>
     );
   }

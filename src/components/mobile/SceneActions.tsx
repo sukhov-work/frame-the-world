@@ -11,6 +11,12 @@ import { useEffect, useRef, useState } from "react";
 import { useCameraStore } from "../../store/camera";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
+import {
+  applyStoredVariant,
+  isVariantActive,
+  setVariantUrl,
+} from "../../lib/globe/enrichedVariant";
+import { loadViewPrefs, saveViewPref } from "../../lib/prefs";
 import { FPV, FRUSTUM } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
 
@@ -104,7 +110,36 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
           🧭 {busy ? "LOCATING…" : "MY LOCATION"}
         </button>
       )}
+      {!tempFpv && <BuildingsChip />}
     </div>
+  );
+}
+
+/** ▦ 3D DETAIL (owner 2026-08-15e) — the desktop deck's BLD twin: classic extruded bake ↔ the
+ *  OSM2World detailed bake, OFF (classic) by default. Reload-based by design (a live tileset
+ *  swap would tear down the enriched renderer mid-frame); the pose hash makes it lossless.
+ *  Same pref (`enrichedVariant`) + same effective-state derivation as the desktop chip, so the
+ *  choice carries across shells. Hidden where no enriched bake exists. */
+function BuildingsChip() {
+  const hasEnriched = Boolean(import.meta.env.PUBLIC_ENRICHED_TILES_URL);
+  if (!hasEnriched) return null;
+  const o2wActive = isVariantActive(
+    applyStoredVariant(location.search, loadViewPrefs().enrichedVariant),
+  );
+  return (
+    <button
+      type="button"
+      className={o2wActive ? "m-act m-act--accent" : "m-act m-act--quiet"}
+      aria-pressed={o2wActive}
+      onClick={() => {
+        // Persist the NEW state, then reload with it explicit in the URL — the effective
+        // (URL+pref) flag is what must flip, not the raw URL param (the desktop rule).
+        saveViewPref("enrichedVariant", !o2wActive);
+        location.assign(setVariantUrl(location.href, !o2wActive));
+      }}
+    >
+      ▦ 3D DETAIL{o2wActive ? " ON" : ""}
+    </button>
   );
 }
 

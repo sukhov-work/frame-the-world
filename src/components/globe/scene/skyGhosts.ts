@@ -14,9 +14,10 @@ import { glf } from "./glsl";
  * real surroundings (skyline, buildings), which is the whole point: framing a sunset or a
  * moonrise over a landmark without leaving FPV.
  *
- * Grammar: the skyTrail sibling — same observer (plan anchor else view focus), same impostor
- * distance (the marker/ghosts/trail all sit on one sky shell), alpha-blended + depth-free
- * (additive vanishes against the day sky — the S6 lesson), per-ghost analytic horizon melt,
+ * Grammar: the skyTrail sibling — same observer (plan anchor else view focus), the trail's
+ * impostor shell pushed 2% deeper, alpha-blended (additive vanishes against the day sky — the
+ * S6 lesson) but DEPTH-TESTED (2026-08-15e: buildings/terrain clip the chain exactly like the
+ * real disc; depth-free it floated over skyscrapers), per-ghost analytic horizon melt,
  * rebuilds deadbanded (a scrub step or an anchor move — never per frame). ONE InstancedMesh,
  * per-instance alpha/scale; billboard orientation follows the camera every frame (cheap: ≤16).
  *
@@ -62,7 +63,11 @@ export function attachSkyGhosts(scene: THREE.Scene): SkyGhostsHandle {
     uniforms: { uColor, uFade },
     transparent: true,
     depthWrite: false,
-    depthTest: false, // planning overlay — the analytic horizon melt owns occlusion (dayArcs)
+    // depthTest ON (owner 2026-08-15e): the ghosts are copies of a PHYSICAL body — buildings
+    // and terrain must clip them exactly like the real sun/moon disc (which depth-tests since
+    // round 3). Depth-free, the chain floated in front of skyscrapers and rose from behind the
+    // horizon. The analytic melt stays as the soft horizon treatment on top.
+    depthTest: true,
     vertexShader: /* glsl */ `
       attribute float aAlpha;
       varying vec2 vUv;
@@ -94,7 +99,7 @@ export function attachSkyGhosts(scene: THREE.Scene): SkyGhostsHandle {
   mesh.visible = false;
   mesh.frustumCulled = false; // camera-anchored — stale bounds must never cull it
   mesh.raycast = () => {};
-  mesh.renderOrder = 10; // depth-free overlay draws after the world (the dayArcs discipline)
+  mesh.renderOrder = 10; // under the real body (11) — ghosts never wash the disc (2026-08-15b)
   scene.add(mesh);
 
   let samples: GhostSample[] = [];
@@ -171,9 +176,12 @@ export function attachSkyGhosts(scene: THREE.Scene): SkyGhostsHandle {
         return;
       }
       mesh.visible = true;
-      // The marker/trail sky shell: same impostor distance — ghosts sit ON the trail.
+      // The marker/trail sky shell, pushed 2% deeper (owner 2026-08-15e): screen position is
+      // unchanged (the discs sit along their direction rays), but in z the chain lands JUST
+      // BEHIND the real body's impostor shell — with depthTest on, whatever clips the body
+      // clips its ghosts, and the body itself always reads in front.
       const d = THREE.MathUtils.clamp(
-        camera.far * SKY_TARGET.impostorFarFrac,
+        camera.far * SKY_TARGET.impostorFarFrac * 1.02,
         camera.near * 1.2,
         camera.far * 0.95,
       );

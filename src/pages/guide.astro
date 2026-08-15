@@ -1,0 +1,357 @@
+---
+/**
+ * /guide — the user guide as a standalone document (owner 2026-08-15e). The THIRD renderer of
+ * src/lib/guide/guideContent.ts (desktop Guide panel · /m GuideSheet · this page): zero client
+ * JS, plain server-rendered HTML with real anchors, so it is linkable, printable and readable
+ * without the globe. Crosslinks become in-page #anchors; the goal router links chapters.
+ * Deliberately NOT Layout.astro (the app layout locks body scroll for the canvas) — this page
+ * owns a minimal document shell with the same tokens + fonts.
+ */
+import {
+  GUIDE_CHAPTERS,
+  GUIDE_GOALS,
+  GUIDE_INDEX,
+  type GuideMedia,
+  type GuideTopic,
+} from "../lib/guide/guideContent";
+import { parseGuideInline } from "../lib/guide/inline";
+import "../styles/tokens.css";
+
+/** Inline runs → static HTML: crosslinks are in-page anchors to the target's section id. */
+function inlineHtml(text: string): string {
+  return parseGuideInline(text)
+    .map((run) => {
+      if (run.kind === "text") return escapeHtml(run.text);
+      const label = run.label ?? GUIDE_INDEX.get(run.target)?.title ?? run.target;
+      return `<a href="#${run.target}">${escapeHtml(label)}</a>`;
+    })
+    .join("");
+}
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function shotClass(m: GuideMedia): string {
+  return m.shell === "mobile" ? "g-fig g-fig--m" : "g-fig";
+}
+function whereLines(t: GuideTopic): { k: string; v: string }[] {
+  const out: { k: string; v: string }[] = [];
+  if (t.where?.desktop) out.push({ k: "DESKTOP", v: t.where.desktop });
+  if (t.where?.mobile) out.push({ k: "PHONE", v: t.where.mobile });
+  return out;
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidera — Guide</title>
+    <meta
+      name="description"
+      content="How Sidera works: plan light, stand in the landscape, command time, search the sky with your frame."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+  </head>
+  <body>
+    <header class="g-top">
+      <a class="g-brand" href="/">Sidera</a>
+      <span class="g-title">GUIDE</span>
+      <nav class="g-topnav">
+        <a href="/">Open the instrument</a>
+        <a href="/m">Phone version</a>
+      </nav>
+    </header>
+
+    <main class="g-main">
+      <section class="g-router">
+        <h2 class="g-kicker">WHAT DO YOU WANT TO DO?</h2>
+        <ul class="g-goals">
+          {
+            GUIDE_GOALS.map((g) => (
+              <li>
+                <a href={`#${GUIDE_INDEX.get(g.target)?.chapterId ?? g.target}`}>
+                  {g.goal} <span aria-hidden="true">→</span>
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+        <nav class="g-toc" aria-label="Chapters">
+          {GUIDE_CHAPTERS.map((c) => <a href={`#${c.id}`}>{c.title}</a>)}
+        </nav>
+      </section>
+
+      {
+        GUIDE_CHAPTERS.map((ch) => (
+          <article class="g-chapter" id={ch.id}>
+            <h2 class="g-chtitle">{ch.title}</h2>
+            <p class="g-lead" set:html={inlineHtml(ch.lead)} />
+            {ch.media && (
+              <figure class={shotClass(ch.media)}>
+                <img src={ch.media.src} alt="" loading="lazy" width="720" />
+                {ch.media.caption && <figcaption>{ch.media.caption}</figcaption>}
+              </figure>
+            )}
+            {ch.topics.map((t) => (
+              <section class="g-topic" id={t.id}>
+                <h3>{t.title}</h3>
+                {whereLines(t).length > 0 && (
+                  <p class="g-where">
+                    {whereLines(t).map((w) => (
+                      <span>
+                        <b>{w.k}</b> {w.v}
+                      </span>
+                    ))}
+                  </p>
+                )}
+                {t.body && <p class="g-body" set:html={inlineHtml(t.body)} />}
+                {t.steps && (
+                  <ol class="g-steps">
+                    {t.steps.map((s) => (
+                      <li set:html={inlineHtml(s)} />
+                    ))}
+                  </ol>
+                )}
+                {t.tip && <p class="g-tip" set:html={inlineHtml(t.tip)} />}
+                {t.media?.map((m) => (
+                  <figure class={shotClass(m)}>
+                    <img src={m.src} alt="" loading="lazy" />
+                    {m.caption && <figcaption>{m.caption}</figcaption>}
+                  </figure>
+                ))}
+              </section>
+            ))}
+          </article>
+        ))
+      }
+
+      <footer class="g-foot">
+        <a href="/">Sidera — open the instrument</a>
+      </footer>
+    </main>
+  </body>
+</html>
+
+<style>
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-ui);
+    line-height: 1.55;
+  }
+
+  a {
+    color: var(--color-accent);
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+  }
+  a:hover {
+    text-decoration-style: solid;
+  }
+
+  .g-top {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 14px clamp(16px, 6vw, 48px);
+    background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .g-brand {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--color-text);
+    text-decoration: none;
+  }
+  .g-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--color-accent);
+  }
+  .g-topnav {
+    margin-left: auto;
+    display: flex;
+    gap: 16px;
+    font-size: 0.82rem;
+  }
+
+  .g-main {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 24px clamp(16px, 6vw, 48px) 64px;
+  }
+
+  .g-kicker {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    margin: 18px 0 10px;
+  }
+  .g-goals {
+    list-style: none;
+    margin: 0 0 18px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 6px;
+  }
+  .g-goals a {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 0.84rem;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+  }
+  .g-goals a:hover {
+    color: var(--color-accent);
+    border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+  .g-toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+  .g-toc a {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+  }
+  .g-toc a:hover {
+    color: var(--color-accent);
+  }
+
+  .g-chapter {
+    padding-top: 26px;
+    scroll-margin-top: 64px;
+  }
+  .g-chtitle {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    color: var(--color-accent);
+    margin: 0 0 8px;
+  }
+  .g-lead {
+    margin: 0 0 12px;
+    font-size: 0.95rem;
+    color: var(--color-text);
+    max-width: 62ch;
+  }
+
+  .g-topic {
+    padding: 14px 0 2px;
+    border-top: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+    scroll-margin-top: 64px;
+  }
+  .g-topic h3 {
+    margin: 0 0 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .g-where {
+    margin: 0 0 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--color-text-secondary);
+  }
+  .g-where b {
+    font-weight: 400;
+    color: var(--color-text-muted);
+    margin-right: 5px;
+  }
+  .g-body {
+    margin: 0 0 8px;
+    font-size: 0.88rem;
+    color: var(--color-text-secondary);
+    max-width: 66ch;
+  }
+  .g-steps {
+    margin: 0 0 8px;
+    padding-left: 1.3rem;
+    font-size: 0.88rem;
+    color: var(--color-text-secondary);
+    max-width: 62ch;
+  }
+  .g-steps li {
+    margin: 3px 0;
+  }
+  .g-steps li::marker {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-accent);
+  }
+  .g-tip {
+    margin: 0 0 10px;
+    padding: 7px 10px;
+    border-left: 2px solid color-mix(in srgb, var(--color-accent) 65%, transparent);
+    border-radius: 0 6px 6px 0;
+    background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+    font-size: 0.82rem;
+    color: var(--color-text-secondary);
+    max-width: 62ch;
+  }
+
+  .g-fig {
+    margin: 6px 0 12px;
+  }
+  .g-fig img {
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--color-border);
+  }
+  .g-fig--m {
+    max-width: 46%;
+  }
+  .g-fig figcaption {
+    margin-top: 4px;
+    font-size: 0.76rem;
+    color: var(--color-text-muted);
+  }
+
+  .g-foot {
+    margin-top: 42px;
+    padding-top: 14px;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.84rem;
+  }
+
+  @media (max-width: 480px) {
+    .g-fig--m {
+      max-width: 70%;
+    }
+    .g-topnav {
+      gap: 10px;
+      font-size: 0.76rem;
+    }
+  }
+</style>

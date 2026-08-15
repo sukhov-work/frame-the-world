@@ -27,7 +27,12 @@ body {
     0.6rem calc(0.9rem + env(safe-area-inset-left));
   pointer-events: none;
 }
-.m-status a {
+/* Re-enable the strip's CONTROLS only — the strip itself must stay gesture-transparent.
+   BOTH element kinds: `a` alone left every <button> chip (GUIDE, account) dead to real taps —
+   synthetic .click() verification masked it; Playwright's "canvas intercepts pointer events"
+   actionability failure was the honest signal (owner catch, 2026-08-15e). */
+.m-status a,
+.m-status button {
   pointer-events: auto;
 }
 .m-title {

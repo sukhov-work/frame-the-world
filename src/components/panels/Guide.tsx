@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import DragGrip, { ResizeGrip, usePanelDrag, usePanelResize } from "../ui/DragGrip";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import {
   GUIDE_CHAPTERS,
   GUIDE_GOALS,
@@ -96,7 +96,6 @@ export default function Guide() {
   const [open, setOpen] = useState(false);
   const [chapterId, setChapterId] = useState(GUIDE_CHAPTERS[0].id);
   const drag = usePanelDrag("guide");
-  const resize = usePanelResize("guide");
   const scrollRef = useRef<HTMLDivElement>(null);
   // Topic to scroll to once the target chapter has rendered (crosslink / deep-link jumps).
   const pendingTopic = useRef<string | null>(null);
@@ -166,14 +165,8 @@ export default function Guide() {
         Guide
       </button>
       {open && (
-        <div
-          className="gd-panel"
-          style={{ ...drag.style, ...resize.style }}
-          role="dialog"
-          aria-label="Guide"
-        >
+        <div className="gd-panel" style={drag.style} role="dialog" aria-label="Guide">
           <DragGrip drag={drag} label="Move the guide" tipPos="left" />
-          <ResizeGrip resize={resize} label="Resize the guide" />
           <div className="gd-cols">
             <aside className="gd-rail">
               <span className="gd-title">GUIDE</span>
@@ -193,9 +186,22 @@ export default function Guide() {
             <div className="gd-scroll" ref={scrollRef}>
               <header className="gd-head">
                 <span className="gd-chtitle">{chapter.title}</span>
-                <button className="gd-close" aria-label="Close" onClick={() => setOpen(false)}>
-                  ×
-                </button>
+                <span className="gd-headtools">
+                  {/* The same content as a standalone document — /guide (pages/guide.astro). */}
+                  <a
+                    className="gd-pagelink tip"
+                    href="/guide"
+                    target="_blank"
+                    rel="noopener"
+                    data-tip="OPEN THE GUIDE AS ITS OWN PAGE."
+                    data-tip-pos="left"
+                  >
+                    ↗
+                  </a>
+                  <button className="gd-close" aria-label="Close" onClick={() => setOpen(false)}>
+                    ×
+                  </button>
+                </span>
               </header>
               <p className="gd-lead">
                 <Inline text={chapter.lead} onNav={nav} />

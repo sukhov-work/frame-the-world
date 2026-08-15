@@ -24,22 +24,24 @@
   color: var(--color-accent);
 }
 
+/* Centred reading window (owner 2026-08-15e): a fixed, book-sized layout in the middle of the
+   screen — wide two-column body, NOT resizable (the size is part of the design), draggable via
+   the grip. The centring translate composes with the drag offsets in ONE transform. */
 .gd-panel {
   position: fixed;
-  top: 64px;
-  right: 24px;
+  top: 50%;
+  left: 50%;
   z-index: 42;
-  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+  transform: translate(calc(-50% + var(--drag-x, 0px)), calc(-50% + var(--drag-y, 0px)));
   box-sizing: border-box;
-  width: var(--win-w, 31rem);
-  height: var(--win-h, auto);
-  max-height: var(--win-h, 76vh);
+  width: min(56rem, 92vw);
+  height: min(78vh, 46rem);
   display: flex;
   flex-direction: column;
-  padding: 14px 16px;
+  padding: 16px 20px;
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--color-bg) 90%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
   backdrop-filter: blur(10px);
   color: var(--color-text);
   animation: gd-enter 300ms cubic-bezier(0.65, 0, 0.35, 1);
@@ -48,11 +50,11 @@
 @keyframes gd-enter {
   from {
     opacity: 0;
-    transform: translateY(-8px) translate(var(--drag-x, 0px), var(--drag-y, 0px));
+    transform: translate(calc(-50% + var(--drag-x, 0px)), calc(-50% + var(--drag-y, 0px) - 8px));
   }
   to {
     opacity: 1;
-    transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+    transform: translate(calc(-50% + var(--drag-x, 0px)), calc(-50% + var(--drag-y, 0px)));
   }
 }
 
@@ -73,7 +75,7 @@
 
 .gd-rail {
   flex: none;
-  width: 7.9rem;
+  width: 10rem;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -139,6 +141,25 @@
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.16em;
+  color: var(--color-accent);
+}
+
+.gd-headtools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gd-pagelink {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  text-decoration: none;
+  color: var(--color-text-muted);
+  transition: color 0.2s ease;
+}
+
+.gd-pagelink:hover {
   color: var(--color-accent);
 }
 
