@@ -50,6 +50,51 @@
   pointer-events: none;
 }
 
+/* ── /m collapse (owner 2026-08-15c) — the patch folds into a 44px puck at the right edge,
+   aligned with the altitude/action columns (same right offset via body.m .mm in
+   mobile/fpv.css). Open by default; desktop NEVER shows the control. ──────────────────── */
+.mm-collapse {
+  display: none;
+}
+body.m .mm-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  line-height: 1;
+  z-index: 1;
+}
+body.m .mm--collapsed {
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+body.m .mm--collapsed .mm-canvas,
+body.m .mm--collapsed .mm-n,
+body.m .mm--collapsed .mm-scale,
+body.m .mm--collapsed .drag-grip {
+  display: none;
+}
+body.m .mm--collapsed .mm-collapse {
+  position: static;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
 /* The welcome overlay hides all chrome — each panel hides itself (the welcome.css pattern). */
 body.welcome-active .mm {
   display: none;

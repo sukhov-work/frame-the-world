@@ -148,14 +148,12 @@ export default function FindPanel() {
   const live = useTimeStore((s) => s.live);
   const setTime = useTimeStore((s) => s.setTime);
 
-  // Moon-only by default (owner 2026-08-15: all three at once read as clutter) — sun/GC stay
-  // one chip-tap away. The §3.5 SUNSETS chips are independent of this set.
-  const [bodies, setBodies] = useState<Record<FindBody, boolean>>({
-    sun: false,
-    moon: true,
-    gc: false,
-  });
-  const [rangeDays, setRangeDays] = useState<number>(182);
+  // Bodies + range live in store/find (owner 2026-08-15c) — shared with the /m sheet and the
+  // sky context-menu quick-toggle. The §3.5 SUNSETS chips are independent of this set.
+  const bodies = useFindStore((s) => s.bodies);
+  const setBody = useFindStore((s) => s.setBody);
+  const rangeDays = useFindStore((s) => s.rangeDays);
+  const setRangeDays = useFindStore((s) => s.setRangeDays);
   // §3.5 event chips — SET on by default (the owner ask was literally "sunsets in my frame").
   const [sunEventsOn, setSunEventsOn] = useState({ set: true, rise: false, gold: false });
 
@@ -336,7 +334,7 @@ export default function FindPanel() {
                       key={b}
                       type="button"
                       className={`pp-chip ${bodies[b] ? "pp-chip--on" : ""}`}
-                      onClick={() => setBodies({ ...bodies, [b]: !bodies[b] })}
+                      onClick={() => setBody(b, !bodies[b])}
                       title={BODY_NAME[b]}
                     >
                       {BODY_GLYPH[b]}

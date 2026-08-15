@@ -6,11 +6,13 @@
 
 import "../../styles/mobile/chrome.css";
 
-export type MobileTab = "scene" | "plan" | "search";
+export type MobileTab = "scene" | "plan" | "find" | "search";
 
 const TABS: Array<{ id: MobileTab; glyph: string; label: string }> = [
   { id: "scene", glyph: "◉", label: "SCENE" },
   { id: "plan", glyph: "☀", label: "PLAN" },
+  // FIND IN FRAME promoted to a first-class tab (owner 2026-08-15c — ease of access).
+  { id: "find", glyph: "⌖", label: "FIND" },
   { id: "search", glyph: "⌕", label: "SEARCH" },
 ];
 

@@ -1,23 +1,35 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
+import { usePlanStore } from "../../store/plan";
+import { useFindStore } from "../../store/find";
 import { useTimeStore, sceneTimeMs } from "../../store/time";
 import { aimAtSky } from "../../store/skyAim";
-import { bodyTarget, targetShortName } from "../../lib/ephemeris/targets";
+import { bodyTarget, targetAzAlt, targetShortName } from "../../lib/ephemeris/targets";
+import { bodyStatesAt } from "../../lib/ephemeris/bodies";
 import { dayEvents, type PlanEvent } from "../../lib/ephemeris/planner";
+import type { FindBody } from "../../lib/ephemeris/frameFinder";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { GOLDEN } from "../globe/tuning";
 import "../../styles/sky-menu.css";
 
 /**
- * Sky context menu (QoL-2 ask 7, owner 2026-08-14) — right-click the sun, the moon or the
- * tracked target: TRACK it (sun/moon became first-class targets the same session), AIM the
- * camera at it, toggle its GHOSTS chain, and jump to its next rise/set. Fed by the
- * orchestrator's angular hit test (camera.skyMenu mirror — a static click point, no live
- * re-anchoring); dismissed by any canvas press, Escape, a click-away, or any action.
+ * Sky context menu (QoL-2 ask 7, owner 2026-08-14; grown 2026-08-15c) — right-click (desktop)
+ * or long-press (/m) the sun, the moon or the tracked target: TRACK it (make it the sky
+ * target), AIM the camera at it, toggle TRACKING (the FPV camera lock), its GHOSTS chain,
+ * its MARK reticle + TRAIL arc, its FIND IN FRAME body chip, and jump to its next rise/set —
+ * the rise/set jump also turns the camera so the body lands in frame (owner 2026-08-15c: the
+ * old time-only jump left users staring at empty sky; the FIND "frame is the query" no-move
+ * rule deliberately does NOT apply to menu actions). The moon's header carries its
+ * illuminated %. Fed by the orchestrator's angular hit test (camera.skyMenu mirror — a
+ * static click point, no live re-anchoring); dismissed by any canvas press, Escape, a
+ * click-away, or any action.
  *
- * Top-level island (index.astro), positioned from fixed client coords — the `.ct-pinpop`
- * discipline (never inside a backdrop-filtered ancestor).
+ * Top-level island (index.astro + m.astro), positioned from fixed client coords — the
+ * `.ct-pinpop` discipline (never inside a backdrop-filtered ancestor). Two-shell fence:
+ * this island must NEVER import from components/mobile/** — the one shell probe allowed is
+ * the `body.m` class (MobileLayout), used to keep the desktop-only PLAN/FIND window
+ * exclusivity from disturbing the /m plan sheet.
  */
 
 const NAME: Record<"sun" | "moon", string> = { sun: "SUN", moon: "MOON" };
@@ -34,6 +46,7 @@ export default function SkyContextMenu() {
   const focusLat = useCameraStore((s) => s.focusLatDeg);
   const focusLon = useCameraStore((s) => s.focusLonDeg);
   const sky = useSkyStore();
+  const find = useFindStore();
   const setTime = useTimeStore((s) => s.setTime);
   const cardRef = useRef<HTMLDivElement | null>(null);
 
@@ -90,6 +103,12 @@ export default function SkyContextMenu() {
     // The menu is a one-shot surface: recompute only when it (re)opens.
   }, [menu, camGeo, focusLat, focusLon]);
 
+  // Moon illuminated % for the header (owner 2026-08-15c) — once per open, scene instant.
+  const moonIllum = useMemo(() => {
+    if (!menu || menu.kind !== "moon") return null;
+    return bodyStatesAt(sceneTimeMs()).moonIllumination;
+  }, [menu]);
+
   if (!menu) return null;
 
   const isBody = menu.kind !== "target";
@@ -97,11 +116,26 @@ export default function SkyContextMenu() {
   const tracked = isBody ? sky.target.id === `body:${bodyId}` : true;
   const glyph = isBody ? kindGlyph(bodyId) : kindGlyph(sky.target.kind);
   const label = isBody ? NAME[bodyId] : targetShortName(sky.target).toUpperCase();
+  // FIND IN FRAME body chip for this object — sun/moon always, the tracked target only when
+  // it IS the Milky-Way core (FIND scans sun/moon/gc, nothing else).
+  const findBody: FindBody | null = isBody ? bodyId : sky.target.id === "dso:gc" ? "gc" : null;
+  const findOn = findBody !== null && find.bodies[findBody];
 
   /** Sun/moon: make it the tracked target (idempotent), keep SHOW on. */
   const ensureTracked = () => {
     if (isBody && !tracked) sky.setTarget(bodyTarget(bodyId));
     if (!sky.visible) sky.setVisible(true);
+  };
+
+  /** Rise/set jumps also aim the camera at where the body stands at the NEW instant — the
+   *  menu's az/alt snapshot is stale after a time jump, so recompute, then one-shot aim
+   *  (alt floored at the horizon for framing; FPV glides, orbit turns). */
+  const aimBodyAt = (ms: number) => {
+    if (!isBody) return;
+    const lat = camGeo?.latDeg ?? focusLat;
+    const lon = camGeo?.lonDeg ?? focusLon;
+    const p = targetAzAlt(bodyTarget(bodyId), ms, lat, lon);
+    aimAtSky(p.azDeg, Math.max(p.altDeg, 0));
   };
 
   return (
@@ -118,6 +152,7 @@ export default function SkyContextMenu() {
         <span className="skymenu__pos">
           {Math.round(menu.azDeg)}° · {menu.altDeg >= 0 ? "+" : ""}
           {Math.round(menu.altDeg)}°
+          {moonIllum !== null ? ` · ${Math.round(moonIllum * 100)}%` : ""}
         </span>
       </div>
       {isBody && (
@@ -164,6 +199,19 @@ export default function SkyContextMenu() {
         role="menuitem"
         onClick={() => {
           ensureTracked();
+          // Enabling for an untracked body first TRACKS it — one gesture (the ghosts idiom).
+          sky.setTrack(isBody && !tracked ? true : !sky.track);
+          setMenu(null);
+        }}
+      >
+        {tracked && sky.track ? "TRACKING OFF" : "⊕ TRACKING"}
+      </button>
+      <button
+        type="button"
+        className="skymenu__item"
+        role="menuitem"
+        onClick={() => {
+          ensureTracked();
           // Toggling ghosts for a body that wasn't tracked first TRACKS it — one gesture.
           sky.setGhosts(isBody && !tracked ? true : !sky.ghosts);
           setMenu(null);
@@ -171,6 +219,53 @@ export default function SkyContextMenu() {
       >
         {tracked && sky.ghosts ? "GHOSTS OFF" : "✧ GHOSTS"}
       </button>
+      <button
+        type="button"
+        className="skymenu__item"
+        role="menuitem"
+        onClick={() => {
+          ensureTracked();
+          sky.setHighlight(isBody && !tracked ? true : !sky.highlight);
+          setMenu(null);
+        }}
+      >
+        {tracked && sky.highlight ? "MARK OFF" : "◌ MARK"}
+      </button>
+      <button
+        type="button"
+        className="skymenu__item"
+        role="menuitem"
+        onClick={() => {
+          ensureTracked();
+          sky.setTrail(isBody && !tracked ? true : !sky.trail);
+          setMenu(null);
+        }}
+      >
+        {tracked && sky.trail ? "TRAIL OFF" : "∿ TRAIL"}
+      </button>
+      {findBody && (
+        <button
+          type="button"
+          className="skymenu__item"
+          role="menuitem"
+          onClick={() => {
+            const f = useFindStore.getState();
+            f.setBody(findBody, !findOn);
+            if (!findOn) {
+              // Switching a body ON opens the FIND surface (the scan lives in the panel /
+              // the /m FindSheet hooks — find.open gates it). Desktop only: close the PLAN
+              // window first (shared-window exclusivity); on /m `body.m` skips this so an
+              // open PLAN sheet keeps its planFeed.
+              if (!document.body.classList.contains("m"))
+                usePlanStore.getState().setOpen(false);
+              f.setOpen(true);
+            }
+            setMenu(null);
+          }}
+        >
+          {findOn ? "FIND IN FRAME OFF" : "⌖ FIND IN FRAME"}
+        </button>
+      )}
       {riseSet?.rise && (
         <button
           type="button"
@@ -178,6 +273,7 @@ export default function SkyContextMenu() {
           role="menuitem"
           onClick={() => {
             setTime(riseSet.rise!.utcMs);
+            aimBodyAt(riseSet.rise!.utcMs);
             setMenu(null);
           }}
         >
@@ -191,6 +287,7 @@ export default function SkyContextMenu() {
           role="menuitem"
           onClick={() => {
             setTime(riseSet.set!.utcMs);
+            aimBodyAt(riseSet.set!.utcMs);
             setMenu(null);
           }}
         >

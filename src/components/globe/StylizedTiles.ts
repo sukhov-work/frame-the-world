@@ -21,6 +21,7 @@ import {
   GALACTIC_CENTRE_ID,
   galacticCentreTarget,
   saturnRingPoleDir,
+  targetAzAlt,
   targetShortName,
   type TargetState,
 } from "../../lib/ephemeris/targets";
@@ -1040,6 +1041,14 @@ export function attachStylizedTiles(opts: {
       return;
     }
     if (fpvDragId !== e.pointerId) return;
+    // A REAL look-drag (past the click slack) releases the TRACKING lock — never fight the
+    // user. A tap (marker click) and the wheel/pinch FOV zoom deliberately do NOT release.
+    if (
+      Math.hypot(e.clientX - fpvDownX, e.clientY - fpvDownY) > ORCH.clickDragPx &&
+      useSkyStore.getState().track
+    ) {
+      useSkyStore.getState().setTrack(false);
+    }
     // Grab-the-world: dragging right rotates the view left; sensitivity scales with the FOV
     // zoom so a zoomed-in look stays controllable.
     const k = ((FPV.lookDegPerPx * Math.PI) / 180) * (camera.fov / POSE.fovDeg);
@@ -1688,6 +1697,37 @@ export function attachStylizedTiles(opts: {
         }
   };
 
+  // ── TRACKING lock (owner 2026-08-15c) — while sky.track is ON and FPV is live, re-aim the
+  // sky-look glide at the tracked target EVERY frame (topocentric az/alt from the camera's
+  // geodetic — the same basis stepFpvPose solves against, so the lock settles dead-centre).
+  // The aim lives in this closure var, NOT the camera store (stores are never written at
+  // 60 fps); stepFpvPose consumes it exactly like a one-shot skyLook but never clears it.
+  // Releases: the target sinking below FPV.skyTrackReleaseAltDeg (here), a real look-drag
+  // (onFpvPointerMove), or the TRACKING toggle itself. FPV-exit just suspends the lock.
+  let skyTrackAim: { azDeg: number; altDeg: number } | null = null;
+  const stepSkyTrack = () => {
+    const skyNow = useSkyStore.getState();
+    if (!skyNow.track || !fpvActive || flight.active()) {
+      skyTrackAim = null;
+      return;
+    }
+    const eyeGeo = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+    const p = targetAzAlt(
+      skyNow.target,
+      sceneTimeMs(),
+      eyeGeo.latDeg,
+      eyeGeo.lonDeg,
+      Math.max(0, eyeGeo.altM),
+    );
+    if (p.altDeg < FPV.skyTrackReleaseAltDeg) {
+      // Below the horizon — the lock lets go ("until released or below horizon", owner).
+      skyTrackAim = null;
+      skyNow.setTrack(false);
+      return;
+    }
+    skyTrackAim = { azDeg: p.azDeg, altDeg: p.altDeg };
+  };
+
   const stepFpvPose = () => {
         if (fpvActive) {
           if (!flight.active()) {
@@ -1724,7 +1764,9 @@ export function attachStylizedTiles(opts: {
               // clockwise) and the final elevation is baseElev + fpvPitch, so the targets fall
               // out directly; the pitch target honours the existing ±pitchClampDeg band. Any
               // direct look interaction cancels the request; arrival clears it.
-              const skyLook = camNow.skyLook;
+              // TRACKING (owner 2026-08-15c) rides the same solve as a one-shot skyLook —
+              // stepSkyTrack refreshes the aim per frame and owns clearing/release.
+              const skyLook = skyTrackAim ?? camNow.skyLook;
               if (skyLook) {
                 const eyeGeo = ecefToGeodetic([
                   camera.position.x,
@@ -1745,13 +1787,14 @@ export function attachStylizedTiles(opts: {
                   -maxElev - elev0,
                   maxElev - elev0,
                 );
-                const kLook = 1 - Math.exp(-dtMs / FPV.skyLookEaseTauMs);
+                const kLook =
+                  1 - Math.exp(-dtMs / (skyTrackAim ? FPV.skyTrackEaseTauMs : FPV.skyLookEaseTauMs));
                 fpvYaw += (yawT - fpvYaw) * kLook;
                 fpvPitch += (pitchT - fpvPitch) * kLook;
                 if (Math.abs(yawT - fpvYaw) < 0.003 && Math.abs(pitchT - fpvPitch) < 0.003) {
                   fpvYaw = yawT;
                   fpvPitch = pitchT;
-                  camNow._clearSkyLook();
+                  if (!skyTrackAim) camNow._clearSkyLook(); // tracking is persistent — no clear
                 }
                 lastInteract = now;
               }
@@ -3112,6 +3155,7 @@ export function attachStylizedTiles(opts: {
         stepFlightUpdate();
         stepExploreJourney();
         stepFpvTransitions();
+        stepSkyTrack(); // 8.5 — TRACKING lock feeds the FpvPose glide (fresh camNow, pre-pose)
         stepFpvPose();
         stepFovGlide();
         stepGeodeticAltitude();

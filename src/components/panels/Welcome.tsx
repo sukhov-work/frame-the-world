@@ -62,6 +62,11 @@ export default function Welcome() {
           <button type="button" className="wl-btn wl-btn--primary" onClick={() => setVisible(false)}>
             EXPLORE THE GLOBE <span aria-hidden="true">→</span>
           </button>
+          {/* Owner 2026-08-15c: a big escape hatch to /m for phones the auto-detect missed
+              (reliable detection already redirects — this button is the belt). */}
+          <a className="wl-btn wl-btn--ghost" href="/m">
+            MOBILE VERSION
+          </a>
           <button
             type="button"
             className="wl-btn wl-btn--ghost"

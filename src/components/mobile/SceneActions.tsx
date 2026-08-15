@@ -14,11 +14,17 @@ import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { FPV, FRUSTUM } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
 
-export default function SceneActions() {
+export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => void }) {
   const tempPin = useCameraStore((s) => s.tempPin);
   const tempFpv = useCameraStore((s) => s.tempFpv);
   const setTempPin = useCameraStore((s) => s.setTempPin);
   const setTempFpv = useCameraStore((s) => s.setTempFpv);
+  // Member gate for the SAVED PLACES chip (owner 2026-08-15c) — the shared auth idiom.
+  const memberPhase = useMemberStore((s) => s.phase);
+  const refreshMember = useMemberStore((s) => s.refresh);
+  useEffect(() => {
+    void refreshMember();
+  }, [refreshMember]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const noteTimer = useRef<number | null>(null);
@@ -86,6 +92,13 @@ export default function SceneActions() {
           </button>
         </>
       ) : null}
+      {/* SAVED PLACES (owner 2026-08-15c): logged-in members pick from the full MY PLACES
+          list — the idle SEARCH sheet. Sits directly ABOVE the MY LOCATION chip. */}
+      {memberPhase === "member" && onOpenPlaces && (
+        <button type="button" className="m-act" onClick={onOpenPlaces}>
+          ▤ SAVED PLACES
+        </button>
+      )}
       {!tempFpv && (
         <button type="button" className="m-act" disabled={busy} onClick={locate}>
           🧭 {busy ? "LOCATING…" : "MY LOCATION"}

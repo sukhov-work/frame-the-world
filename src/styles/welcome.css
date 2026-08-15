@@ -52,6 +52,10 @@
 
 .wl-btn {
   pointer-events: auto;
+  /* The MOBILE VERSION action is an <a> (2026-08-15c) — keep anchors button-identical. */
+  display: inline-block;
+  text-decoration: none;
+  box-sizing: border-box;
   font-family: var(--font-mono);
   font-size: 0.78rem;
   letter-spacing: 0.12em;

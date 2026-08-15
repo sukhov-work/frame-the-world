@@ -1,26 +1,24 @@
 /**
- * PlanSheet (M1; v2 M3b — the /m twin of the desktop PLAN deck + FIND panel): skyline verdict
- * rows (store/plan readers) + compact self-computing twins of THIS FRAME · TODAY · FIND IN
- * FRAME (v2 frame-as-query semantics — the ghost projections already render on /m's globe;
- * this sheet is their panel surface and the store/find ghost-mirror WRITER on /m) · MOON ·
- * SPOT STARS. Chip/row labels are deliberate compact copies of the desktop cards' (the
- * accepted two-shell duplication — MOBILE_PLAN §1); everything computes off the same pure
- * libs + stores, desktop panels are never imported.
+ * PlanSheet (M1; v2 M3b — the /m twin of the desktop PLAN deck): skyline verdict rows
+ * (store/plan readers) + compact self-computing twins of THIS FRAME · TODAY · SUNSETS ·
+ * MOON · SPOT STARS. FIND IN FRAME moved to its own 4th-tab FindSheet (owner 2026-08-15c) —
+ * that component is the store/find ghost-mirror writer on /m, not this sheet. Chip/row
+ * labels are deliberate compact copies of the desktop cards' (the accepted two-shell
+ * duplication — MOBILE_PLAN §1); everything computes off the same pure libs + stores,
+ * desktop panels are never imported.
  *
  * IMPORTANT seams:
  *  • planFeed computes focus-anchored chips only while plan.open — this sheet's mount IS the
- *    /m "open" state. Same idiom for FIND: mount sets find.open (the globe draws the ghost
- *    projections while the sheet lives), unmount clears the mirror.
- *  • FPV-only twins (THIS FRAME / FIND / SPOT STARS) gate on the quantized fpvHud pose key —
+ *    /m "open" state.
+ *  • FPV-only twins (THIS FRAME / SUNSETS / SPOT STARS) gate on the quantized fpvHud pose key —
  *    the FindPanel `active` gate lesson (an ungated ephemeris pass froze the boot flight).
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { usePlanStore, type PlanBodyState } from "../../store/plan";
-import { useTimeStore, sameLocalTimeInstants, localTimeStr } from "../../store/time";
+import { useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
-import { useFindStore, FIND_GHOST_CAP, type FindGhost } from "../../store/find";
 import { cardinal, formatSigned } from "../../lib/format/readout";
 import {
   dayEvents,
@@ -30,16 +28,11 @@ import {
 } from "../../lib/ephemeris/planner";
 import { lightPhaseAt, sunAltDeg } from "../../lib/ephemeris/twilight";
 import {
-  bodyDayPositions,
   frameCrossings,
-  frameStandingsFromPositions,
   nearestFrameCentre,
-  type DayPosition,
-  type FindBody,
   type FrameCrossing,
   type FramePose,
   type FrameSampler,
-  type FrameStanding,
 } from "../../lib/ephemeris/frameFinder";
 import { horizontal } from "../../lib/ephemeris/bodies";
 import {
@@ -49,16 +42,10 @@ import {
   type SunEventHit,
   type SunEventKind,
 } from "../../lib/ephemeris/sunEventFrame";
-import {
-  bodyTarget,
-  galacticCentreTarget,
-  targetAzAlt,
-  targetShortName,
-} from "../../lib/ephemeris/targets";
+import { bodyTarget, targetAzAlt, targetShortName } from "../../lib/ephemeris/targets";
 import { moonCalendar, nextSupermoons, type MoonCalKind } from "../../lib/ephemeris/moonCalendar";
 import { sampleBins } from "../../lib/geo/horizonProfile";
 import { kindGlyph } from "../../lib/sky/searchIndex";
-import { findHitColor, findStandingColorIdx } from "../../lib/theme/findPalette";
 import { maxCosDecInFrame, npfFullSec, npfSimpleSec, rule500Sec } from "../../lib/photo/npf";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { GOLDEN } from "../globe/tuning";
@@ -286,193 +273,14 @@ function TodaySection({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
   );
 }
 
+// FIND IN FRAME moved to its own 4th-tab FindSheet (owner 2026-08-15c) — that component is
+// now the single store/find ghost writer on /m; this sheet keeps SUNSETS (its event twin).
 const FIND_RANGES = [
   { label: "1W", days: 7 },
   { label: "1M", days: 30 },
   { label: "6M", days: 182 },
   { label: "1Y", days: 365 },
 ] as const;
-const GC = galacticCentreTarget();
-const BODY_GLYPH: Record<FindBody, string> = { sun: "☀", moon: "☾", gc: "✦" };
-const FIND_MAX_ROWS = 24;
-
-function findPosHint(h: FrameStanding): string {
-  const x = h.fx < -0.33 ? "◀" : h.fx > 0.33 ? "▶" : "";
-  const y = h.fy < -0.33 ? "▼" : h.fy > 0.33 ? "▲" : "";
-  return x + y || "·";
-}
-
-/** FIND IN FRAME — the FindPanel v2 twin (frame-as-query at the scrubber's wall-clock on every
- *  following day; the ghost projections on /m's globe read the mirror THIS section writes).
- *  Same two-stage memo + the `active` gate (the frozen-boot-flight lesson). */
-function FindSection() {
-  const poseKey = usePoseKey();
-  const anchor = usePlanStore((s) => s.anchor);
-  const bins = usePlanStore((s) => s.profileBins);
-  const focusLat = useCameraStore((s) => s.focusLatDeg);
-  const focusLon = useCameraStore((s) => s.focusLonDeg);
-  const pinnedMs = useTimeStore((s) => s.timeMs);
-  const live = useTimeStore((s) => s.live);
-  const setTime = useTimeStore((s) => s.setTime);
-  const sceneHoverKey = useFindStore((s) => s.sceneHoverKey);
-
-  // Moon-only by default (owner 2026-08-15) — the desktop FindPanel twin.
-  const [bodies, setBodies] = useState<Record<FindBody, boolean>>({ sun: false, moon: true, gc: false });
-  const [rangeDays, setRangeDays] = useState<number>(182);
-
-  // The sheet IS the FIND surface on /m: mount opens the store gate (ghosts draw), unmount
-  // clears the mirror (this section is the single ghost writer on the /m shell).
-  useEffect(() => {
-    useFindStore.getState().setOpen(true);
-    return () => {
-      useFindStore.getState().setOpen(false);
-      useFindStore.getState()._syncGhosts(null, []);
-    };
-  }, []);
-
-  const baseMs = live ? Date.now() : pinnedMs;
-  const minuteKey = Math.floor(baseMs / 60_000);
-  const lat = anchor?.latDeg ?? focusLat;
-  const lon = anchor?.lonDeg ?? focusLon;
-  const latKey = Math.round(lat * 20);
-  const lonKey = Math.round(lon * 20);
-  const active = poseKey !== null; // mount = open; FPV gate stays (the boot-flight freeze lesson)
-
-  const positions = useMemo<Record<FindBody, DayPosition[]> | null>(() => {
-    if (!active) return null;
-    const la = latKey / 20;
-    const lo = lonKey / 20;
-    const instants = sameLocalTimeInstants(minuteKey * 60_000, rangeDays);
-    return {
-      sun: bodyDayPositions((t) => horizontal("sun", t, la, lo), instants),
-      moon: bodyDayPositions((t) => horizontal("moon", t, la, lo), instants),
-      gc: bodyDayPositions((t) => targetAzAlt(GC, t, la, lo), instants),
-    };
-  }, [active, minuteKey, latKey, lonKey, rangeDays]);
-
-  const hits = useMemo<FrameStanding[]>(() => {
-    if (!positions || !poseKey) return [];
-    const hud = useCameraStore.getState().fpvHud;
-    if (!hud) return [];
-    const pose: FramePose = {
-      latDeg: latKey / 20,
-      lonDeg: lonKey / 20,
-      headingDeg: hud.headingDeg,
-      pitchDeg: hud.pitchDeg,
-      fovDeg: hud.fovDeg,
-      aspect: hud.aspect,
-    };
-    const profileFn = bins ? (az: number) => sampleBins(bins, az) : null;
-    const out: FrameStanding[] = [];
-    for (const b of ["sun", "moon", "gc"] as const) {
-      if (!bodies[b]) continue;
-      out.push(...frameStandingsFromPositions(b, positions[b], pose, profileFn));
-    }
-    out.sort((a, b) => a.utcMs - b.utcMs);
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [positions, poseKey, bins, bodies, latKey, lonKey]);
-
-  // Ghost mirror — identical contract to the desktop FindPanel writer.
-  useEffect(() => {
-    const ghosts: FindGhost[] = hits.slice(0, FIND_GHOST_CAP).map((h) => ({
-      key: `${h.body}:${h.utcMs}`,
-      utcMs: h.utcMs,
-      body: h.body,
-      azDeg: h.azDeg,
-      altDeg: h.altDeg,
-      discDeg: h.body === "sun" ? 0.533 : h.body === "moon" ? 0.518 : 0,
-      tNorm: Math.min(1, Math.max(0, (h.utcMs - baseMs) / (rangeDays * DAY_MS))),
-      visibility: h.visibility,
-      illum: h.body === "moon" ? h.moonIllum : 0,
-      colorIdx: findStandingColorIdx(h.body, h.utcMs),
-    }));
-    useFindStore.getState()._syncGhosts({ latDeg: latKey / 20, lonDeg: lonKey / 20 }, ghosts);
-    // eslint-disable-next-line react-hooks/exhaustive-deps — baseMs rides minuteKey via hits
-  }, [hits, latKey, lonKey, rangeDays]);
-
-  const jump = (h: FrameStanding) => {
-    setTime(h.utcMs);
-    const sky = useSkyStore.getState();
-    sky.setTarget(h.body === "gc" ? GC : bodyTarget(h.body));
-    if (!sky.visible) sky.setVisible(true);
-  };
-
-  const shown = hits.slice(0, FIND_MAX_ROWS);
-  const rangeLabel = FIND_RANGES.find((r) => r.days === rangeDays)?.label ?? `${rangeDays}D`;
-
-  return (
-    <>
-      <div className="m-section">FIND IN FRAME</div>
-      {active ? (
-        <>
-          <div className="m-status-line">
-            AT {localTimeStr(baseMs)} EVERY DAY · NEXT {rangeLabel} — RINGS IN THE SKY ARE THE
-            FINDS
-          </div>
-          <div className="m-toggles">
-            {(["sun", "moon", "gc"] as const).map((b) => (
-              <button
-                key={b}
-                type="button"
-                className={`m-toggle ${bodies[b] ? "m-toggle--on" : ""}`}
-                onClick={() => setBodies({ ...bodies, [b]: !bodies[b] })}
-              >
-                {BODY_GLYPH[b]}
-              </button>
-            ))}
-            {FIND_RANGES.map((r) => (
-              <button
-                key={r.label}
-                type="button"
-                className={`m-toggle ${rangeDays === r.days ? "m-toggle--on" : ""}`}
-                onClick={() => setRangeDays(r.days)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-          <div className="m-rows">
-            {shown.map((h) => {
-              const key = `${h.body}:${h.utcMs}`;
-              return (
-                <div className={`m-row ${sceneHoverKey === key ? "m-row--hot" : ""}`} key={key}>
-                  <button type="button" className="m-row__jump" onClick={() => jump(h)}>
-                    <span
-                      className="m-sw"
-                      style={{ background: findHitColor(findStandingColorIdx(h.body, h.utcMs)).css }}
-                    />
-                    <i className={`m-dot m-dot--${h.light}`} />
-                    <span className="m-row__time">{dateTag(h.utcMs)}</span>
-                    <span className="m-row__kind">{BODY_GLYPH[h.body]}</span>
-                    <span className="m-row__meta">{findPosHint(h)}</span>
-                    <span className="m-row__meta">
-                      {h.skyline === "blocked" ? "✕" : h.skyline === "clear" ? "CLEAR" : "—"} ·{" "}
-                      {Math.round(h.visibility * 100)}%
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-          <div className="m-status-line">
-            {hits.length === 0
-              ? `NOTHING STANDS HERE AT ${localTimeStr(baseMs)} · TRY 1Y OR A WIDER FRAME`
-              : hits.length > FIND_MAX_ROWS
-                ? `${hits.length} STANDINGS · FIRST ${FIND_GHOST_CAP} PROJECTED IN THE SKY`
-                : `${hits.length} STANDING${hits.length === 1 ? "" : "S"} · ALL PROJECTED`}
-          </div>
-        </>
-      ) : (
-        <div className="m-status-line">
-          ENTER LOOK-FROM-HERE (FPV) — YOUR FRAME IS THE QUERY. THE TIME DOCK SETS THE HOUR;
-          EVERY COMING DAY IS CHECKED AT THAT EXACT TIME.
-        </div>
-      )}
-    </>
-  );
-}
-
 // ── SUNSETS · IN FRAME (§3.5) — the FindPanel SUNSETS twin (accepted two-shell dup) ─────────
 const SUNSET_MAX_ROWS = 12;
 const EVENT_LABEL: Record<SunEventKind, string> = {
@@ -796,7 +604,6 @@ export default function PlanSheet() {
 
       <FrameSection />
       <TodaySection latDeg={eyeLat} lonDeg={eyeLon} />
-      <FindSection />
       <SunsetSection />
       <MoonSection latDeg={eyeLat} lonDeg={eyeLon} />
       <SpotSection latDeg={eyeLat} />

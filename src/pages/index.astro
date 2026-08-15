@@ -38,6 +38,30 @@ import "../styles/boot-poster.css";
        script below removes it on first interaction / a globe:ready event / a short safety timer;
        a JS-less or WebGL-less crawler simply keeps it. aria-hidden: <Welcome> carries the real,
        hydrated copy for assistive tech. -->
+  <script is:inline>
+    // Owner 2026-08-15c: a RELIABLY-detected phone boots straight into the /m shell.
+    // Client-side replace ONLY — never a server UA redirect (CDN `Vary` is unverifiable; the
+    // M0 ruling stands). Conservative AND of three signals (mobile UA · coarse pointer +
+    // no hover · multitouch) keeps tablets and touch-laptops on desktop. Any query string
+    // skips the redirect (checkout toasts, flows); `/?d=1` (the /m DESKTOP chip) persists a
+    // desktop preference. The pose/FPV hash rides along — /m understands #p=/#f=.
+    (function () {
+      try {
+        if (location.search) {
+          if (/[?&]d=/.test(location.search)) localStorage.setItem("ftw:prefer-desktop", "1");
+          return;
+        }
+        if (localStorage.getItem("ftw:prefer-desktop")) return;
+        var uaMobile = /Android.+Mobile|iPhone|iPod/.test(navigator.userAgent || "");
+        var coarse =
+          matchMedia("(pointer: coarse)").matches && matchMedia("(hover: none)").matches;
+        if (uaMobile && coarse && (navigator.maxTouchPoints || 0) > 1)
+          location.replace("/m" + location.hash);
+      } catch (e) {
+        /* storage/matchMedia blocked — stay on desktop */
+      }
+    })();
+  </script>
   <div id="boot-poster" class="bp" aria-hidden="true">
     <img class="bp-bg" src="/social-cover.jpg" alt="" decoding="async" fetchpriority="high" />
     <div class="bp-scrim"></div>
@@ -189,6 +213,8 @@ import "../styles/boot-poster.css";
     <nav>
       <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
       <a href="#explore" data-explore class="tip" data-tip="AMBIENT TOUR OF PUBLIC PINS." data-tip-pos="down">Explore</a>
+      <!-- MOBILE_PLAN M0 link, moved BEFORE Upload (owner 2026-08-15c — planning outranks upload) -->
+      <a href="/m" class="tip" data-tip="PLANNING SHELL FOR YOUR PHONE." data-tip-pos="down">Mobile</a>
       <a href="#upload" class="nav-upload tip" data-open-upload data-tip="ADD A PHOTO TO THE GLOBE." data-tip-pos="down">Upload</a>
       <!-- Phase 6.9: buyer-facing marketplace browse panel (owner ruling — its own nav button).
            Also hosts the ?purchased=1 post-checkout toast. Panel body + fetch are open-gated. -->
@@ -200,8 +226,6 @@ import "../styles/boot-poster.css";
       <!-- QoL-1 (owner 2026-08-14): geolocation → temp-pin FPV at the visitor's real spot (C6:
            client-side only). The /m twin is SceneActions' 🧭 chip. -->
       <MyLocation client:only="react" />
-      <!-- MOBILE_PLAN M0 (owner-ratified 2026-08-11): permanent link to the /m planning shell -->
-      <a href="/m" class="tip" data-tip="PLANNING SHELL FOR YOUR PHONE." data-tip-pos="down">Mobile</a>
       <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->
       <MemberBadge client:only="react" />
     </nav>

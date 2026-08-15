@@ -86,7 +86,10 @@
 .m-altcol {
   position: fixed;
   right: calc(0.75rem + env(safe-area-inset-right));
-  bottom: calc(14.4rem + env(safe-area-inset-bottom)); /* stacked above the EXIT VIEW chip */
+  /* Above the FULL .m-actions stack — since SAVE VIEW joined EXIT VIEW (2026-08-15) the
+     two-chip column tops out ≈15.2rem, and 14.4rem overlapped the ⤓ button onto SAVE VIEW
+     (owner bug report 2026-08-15c). A transient note may still brush it for ~4 s — accepted. */
+  bottom: calc(16.4rem + env(safe-area-inset-bottom));
   z-index: 10;
   display: flex;
   flex-direction: column;

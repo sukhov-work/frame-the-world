@@ -40,6 +40,12 @@ export interface SkyStoreState {
   /** Minutes between ghost copies. */
   ghostStepMin: number;
   setGhostStepMin(min: number): void;
+  /** TRACKING — camera lock (owner 2026-08-15c): while ON and FPV is live, the camera keeps
+   *  the tracked target centred every frame. Released by the toggle, a look-drag, or the
+   *  target setting below the horizon (the orchestrator's stepSkyTrack owns the release).
+   *  Session-only — deliberately NOT persisted (a reload must never grab the camera). */
+  track: boolean;
+  setTrack(on: boolean): void;
   /** The tracked sky target — the ONE object the scene marker + trail + panel follow. */
   target: SkyTarget;
   setTarget(target: SkyTarget): void;
@@ -82,6 +88,8 @@ export const useSkyStore = create<SkyStoreState>((set) => ({
     saveViewPref("skyGhostStepMin", ghostStepMin);
     set({ ghostStepMin });
   },
+  track: false,
+  setTrack: (track) => set({ track }),
   target: cometTarget(),
   setTarget: (target) => {
     saveViewPref("skyTargetId", target.id);

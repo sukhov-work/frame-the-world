@@ -1701,6 +1701,15 @@ export const FPV = {
   /** Sky-look glide time constant (ms) — clicking an off-frame ☀/☾ edge chip eases the FPV
    *  look toward the body (owner 2026-07-14); ~1 s to settle, never a snap. */
   skyLookEaseTauMs: 320,
+  /** TRACKING lock ease (ms) — while sky.track is on in FPV the look re-aims at the tracked
+   *  target every frame through the same glide solve (owner 2026-08-15c). Slightly slower
+   *  than the one-shot glide: glued to live sidereal drift, still converges ~1 s after a
+   *  time-jump. */
+  skyTrackEaseTauMs: 450,
+  /** TRACKING self-release altitude (deg) — the lock lets go once the target sinks below
+   *  this ("until released or below horizon", owner 2026-08-15c). Slightly under 0 so a
+   *  setting body is followed all the way onto the skyline. */
+  skyTrackReleaseAltDeg: -1,
   /** Shared `#f=` FPV link boot framing (owner 2026-07-14): the camera boots this high above
    *  the shared viewer point (m), looking along the shared bearing, so the right street tiles
    *  stream while the temp-FPV entry flight descends onto the exact eye. */

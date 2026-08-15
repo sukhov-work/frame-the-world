@@ -7,7 +7,7 @@
  * the framing. Same ranges/clamps as lib/geo/urlPose.ts so a saved place and a shared link can
  * never disagree about what a valid pose is.
  *
- * The endpoint stays thin (validate → auth → quota → write, per C1); everything unit-testable
+ * The endpoint stays thin (validate → auth → owner gate → write, per C1); everything unit-testable
  * lives here. C6 note: places hold the member's OWN exact pose in an ADMIN-only collection —
  * they are never published; nothing here feeds a world-readable row.
  */
@@ -16,8 +16,10 @@ import { numOrNull, strOrNull } from "../geo/coerce";
 import { wrapHeadingDeg } from "../geo/heading";
 import { wrapLon, type UrlFpvPose } from "../geo/urlPose";
 
-/** Saved-places cap per member (matches the GET limit; small rows, no media — no paid tier). */
-export const PLACE_QUOTA = 50;
+/** Saved-places GET page size — the Wix Data query maximum. NOT a save cap: the per-member
+ *  quota was DROPPED (owner 2026-08-15c, "no limitations on saved FPV locations"); rows are
+ *  tiny and media-less, so the only bound left is the platform page. */
+export const PLACE_PAGE = 1000;
 
 /** Mirrors the urlPose clamp bands (EYE_MIN/MAX, PITCH_MAX, FOV_MIN/MAX) — one contract. */
 const EYE_MIN_M = 0.5;

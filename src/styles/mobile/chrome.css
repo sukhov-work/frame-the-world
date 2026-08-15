@@ -465,6 +465,7 @@
 }
 .m-toggles {
   display: flex;
+  flex-wrap: wrap; /* 5 target toggles since TRACK (2026-08-15c); pills don't flex */
   gap: 6px;
   margin-top: 0.7rem;
 }

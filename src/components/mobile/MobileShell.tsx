@@ -21,13 +21,14 @@ import Sheet from "./Sheet";
 import MobileAccount from "./MobileAccount";
 import MobileSearch from "./MobileSearch";
 import PlanSheet from "./PlanSheet";
+import FindSheet from "./FindSheet";
 import TargetSheet from "./TargetSheet";
 import TargetPeek from "./TargetPeek";
 import SceneActions from "./SceneActions";
 import FpvControls from "./FpvControls";
 import "../../styles/mobile/chrome.css";
 
-type SheetId = "plan" | "search" | "target" | null;
+type SheetId = "plan" | "find" | "search" | "target" | null;
 
 /** Status-strip scene-time chip: local wall time + LIVE, or the pinned date · time. */
 function TimeChip() {
@@ -62,7 +63,8 @@ export default function MobileShell() {
   const tempFpv = useCameraStore((s) => s.tempFpv);
   const fpvOn = useCameraStore((s) => s.fpvHud !== null) || tempFpv;
 
-  const activeTab: MobileTab = sheet === "plan" || sheet === "search" ? sheet : "scene";
+  const activeTab: MobileTab =
+    sheet === "plan" || sheet === "find" || sheet === "search" ? sheet : "scene";
   const onTab = (t: MobileTab) => setSheet(t === "scene" ? null : t);
 
   return (
@@ -73,12 +75,14 @@ export default function MobileShell() {
           {/* owner 2026-08-15: login + MY PLACES one tap from the strip (list = SEARCH sheet) */}
           <MobileAccount onOpenPlaces={() => setSheet("search")} />
           <TimeChip />
-          <a className="m-chip" href="/">
+          {/* ?d=1 persists the desktop preference — without it the index auto-detect
+              (owner 2026-08-15c) would bounce a phone straight back to /m. */}
+          <a className="m-chip" href="/?d=1">
             DESKTOP
           </a>
         </span>
       </div>
-      <SceneActions />
+      <SceneActions onOpenPlaces={() => setSheet("search")} />
       {fpvOn && <FpvControls />}
       <div className="m-bottom">
         <TargetPeek onOpen={() => setSheet("target")} />
@@ -100,6 +104,9 @@ export default function MobileShell() {
           <TargetSheet />
         </Sheet>
       )}
+      {/* ALWAYS mounted (owner 2026-08-15c): the FIND scan + ghost mirror live in its hooks —
+          collapsing the sheet must NOT clear the in-frame standings (the Pixel bug). */}
+      <FindSheet open={sheet === "find"} onClose={() => setSheet(null)} />
     </>
   );
 }
