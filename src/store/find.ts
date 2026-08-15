@@ -40,6 +40,15 @@ export interface FindState {
   open: boolean;
   setOpen(open: boolean): void;
 
+  // ── Scan configuration (owner 2026-08-15c) — lifted out of panel-local state so the desktop
+  //    panel, the /m FIND sheet AND the SkyContextMenu quick-toggle all read/write ONE truth
+  //    (chips no longer reset when the /m sheet remounts). Compute stays in the panels.
+  bodies: Record<FindBody, boolean>;
+  setBody(body: FindBody, on: boolean): void;
+  /** Scan horizon in days — 30 (1M) by default (owner 2026-08-15c). */
+  rangeDays: number;
+  setRangeDays(days: number): void;
+
   // ── Panel-written mirror (FindPanel only — the globe reads) ──────────────────────────────
   /** The observer the az/alt directions were computed from; null hides every ghost. */
   anchor: { latDeg: number; lonDeg: number } | null;
@@ -57,6 +66,12 @@ export interface FindState {
 export const useFindStore = create<FindState>((set) => ({
   open: false,
   setOpen: (open) => set({ open }),
+
+  // Moon-only by default (owner 2026-08-15: all three at once read as clutter).
+  bodies: { sun: false, moon: true, gc: false },
+  setBody: (body, on) => set((s) => ({ bodies: { ...s.bodies, [body]: on } })),
+  rangeDays: 30,
+  setRangeDays: (rangeDays) => set({ rangeDays }),
 
   anchor: null,
   ghosts: [],

@@ -323,6 +323,8 @@ export default function TargetPanel() {
   const setGhostCount = useSkyStore((s) => s.setGhostCount);
   const ghostStepMin = useSkyStore((s) => s.ghostStepMin);
   const setGhostStepMin = useSkyStore((s) => s.setGhostStepMin);
+  const track = useSkyStore((s) => s.track);
+  const setTrack = useSkyStore((s) => s.setTrack);
   const target = useSkyStore((s) => s.target);
   const setTime = useTimeStore((s) => s.setTime);
   const live = useTimeStore((s) => s.live);
@@ -518,6 +520,17 @@ export default function TargetPanel() {
                 title="Ghost copies of the body at ± time steps — its path against the surroundings while you scrub"
               >
                 GHOSTS
+              </button>
+              {/* TRACKING camera lock (owner 2026-08-15c) — FPV keeps the target centred.
+                  Not gated on `visible`: the lock follows the ephemeris, not the render. */}
+              <button
+                type="button"
+                className={`tp-toggle ${track ? "tp-toggle--on" : ""}`}
+                onClick={() => setTrack(!track)}
+                aria-pressed={track}
+                title="Camera lock (LOOK mode): keep the target centred until released, a look-drag, or it sets below the horizon"
+              >
+                TRACK
               </button>
             </div>
 

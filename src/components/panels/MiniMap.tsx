@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMiniMapStore, type MiniMapPose, type MiniMapScene } from "../../store/minimap";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/mini-map.css";
@@ -116,6 +116,10 @@ export default function MiniMap() {
   const patchM = useMiniMapStore((s) => s.patchM);
   const drag = usePanelDrag("mini-map");
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // /m-only collapse (owner 2026-08-15c): the patch folds into a small puck at the right
+  // edge, aligned with the button column. Open by default; the control is CSS-hidden on
+  // desktop (.mm-collapse — body.m reveals it), so this state never fires there.
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current && scene && pose) draw(canvasRef.current, scene, pose, patchM);
@@ -124,12 +128,21 @@ export default function MiniMap() {
   if (!scene || !pose) return null;
   return (
     <div
-      className="mm"
+      className={`mm${collapsed ? " mm--collapsed" : ""}`}
       style={drag.style}
       role="img"
       aria-label={`Mini-map — a ${patchM} metre square around your position, north up`}
     >
       <DragGrip drag={drag} label="Move the mini-map" tipPos="right" />
+      <button
+        type="button"
+        className="mm-collapse"
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Expand the mini-map" : "Collapse the mini-map"}
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        {collapsed ? "▣" : "»"}
+      </button>
       <canvas ref={canvasRef} className="mm-canvas" />
       <span className="mm-n" aria-hidden="true">
         N

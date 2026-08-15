@@ -1,5 +1,6 @@
 // /api/places — saved first-person viewpoints (owner 2026-07-15): GET list · POST save ·
-// DELETE remove. Thin per C1: validate → auth → quota/owner gate → write. This endpoint is
+// DELETE remove. Thin per C1: validate → auth → owner gate → write (no quota — owner
+// 2026-08-15c dropped the saved-places cap). This endpoint is
 // the ONLY writer of the SavedPlaces collection (ADMIN-only platform-side), same posture as
 // /api/photos. Places are member-private bookmarks — they are never published (C6-safe: the
 // exact pose stays in the ADMIN-read collection, visible only to its owner through this
@@ -12,7 +13,7 @@ import {
   parseSavePlaceBody,
   placeListItem,
   placeRecord,
-  PLACE_QUOTA,
+  PLACE_PAGE,
   type PlaceListItem,
 } from "../../lib/wix/placeRecords";
 
@@ -31,12 +32,12 @@ export const GET: APIRoute = async () => {
     const res = await auth.elevate(items.query)("SavedPlaces")
       .eq("ownerMemberId", member._id)
       .descending("_createdDate")
-      .limit(PLACE_QUOTA)
+      .limit(PLACE_PAGE)
       .find();
     const places = (res.items as Record<string, unknown>[])
       .map(placeListItem)
       .filter((p): p is PlaceListItem => p !== null);
-    return json({ places, quota: { used: places.length, limit: PLACE_QUOTA } });
+    return json({ places });
   } catch (e) {
     console.error("[places:list]", e);
     return json({ error: "LIST_FAILED", message: "could not list places" }, 502);
@@ -52,25 +53,13 @@ export const POST: APIRoute = async ({ request }) => {
   if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
 
   try {
-    const used = await auth.elevate(items.query)("SavedPlaces")
-      .eq("ownerMemberId", member._id)
-      .count();
-    if (used >= PLACE_QUOTA) {
-      return json(
-        {
-          error: "QUOTA_EXCEEDED",
-          message: `saved places hold ${PLACE_QUOTA} viewpoints — delete one first`,
-          quota: { used, limit: PLACE_QUOTA },
-        },
-        402,
-      );
-    }
-
+    // No per-member quota (owner 2026-08-15c) — places are tiny media-less rows; the old
+    // 50-cap 402 gate is gone. The GET page (PLACE_PAGE) is the only listing bound.
     const row = await auth.elevate(items.insert)(
       "SavedPlaces",
       placeRecord(parsed.body, member._id),
     );
-    return json({ placeId: row._id, quota: { used: used + 1, limit: PLACE_QUOTA } });
+    return json({ placeId: row._id });
   } catch (e) {
     console.error("[places]", e);
     return json({ error: "SAVE_FAILED", message: "could not save the place" }, 502);

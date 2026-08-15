@@ -65,6 +65,8 @@ export default function TargetSheet() {
   const setGhostCount = useSkyStore((s) => s.setGhostCount);
   const ghostStepMin = useSkyStore((s) => s.ghostStepMin);
   const setGhostStepMin = useSkyStore((s) => s.setGhostStepMin);
+  const track = useSkyStore((s) => s.track);
+  const setTrack = useSkyStore((s) => s.setTrack);
   const setTime = useTimeStore((s) => s.setTime);
   const live = useTimeStore((s) => s.live);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -180,6 +182,16 @@ export default function TargetSheet() {
           onClick={() => setGhosts(!ghosts)}
         >
           GHOSTS
+        </button>
+        {/* TRACKING camera lock (owner 2026-08-15c) — not gated on `visible` (follows the
+            ephemeris, not the render); released by a look-drag or the target setting. */}
+        <button
+          type="button"
+          className={`m-toggle${track ? " m-toggle--on" : ""}`}
+          aria-pressed={track}
+          onClick={() => setTrack(!track)}
+        >
+          TRACK
         </button>
       </div>
       {visible && ghosts && (

@@ -3,7 +3,7 @@ import {
   parseSavePlaceBody,
   placeListItem,
   placeRecord,
-  PLACE_QUOTA,
+  PLACE_PAGE,
 } from "../../../src/lib/wix/placeRecords";
 
 const validBody = {
@@ -75,8 +75,8 @@ describe("placeRecord / placeListItem round-trip", () => {
     expect(placeListItem({ title: "no id" })).toBeNull();
   });
 
-  it("quota constant stays a small per-member cap", () => {
-    expect(PLACE_QUOTA).toBeGreaterThan(0);
-    expect(PLACE_QUOTA).toBeLessThanOrEqual(100);
+  it("page constant stays inside the Wix Data query bound (quota itself dropped 2026-08-15c)", () => {
+    expect(PLACE_PAGE).toBeGreaterThan(0);
+    expect(PLACE_PAGE).toBeLessThanOrEqual(1000); // items.query .limit() platform maximum
   });
 });
