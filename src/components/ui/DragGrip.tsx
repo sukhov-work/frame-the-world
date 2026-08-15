@@ -49,6 +49,15 @@ export function usePanelDrag(key: string): PanelDrag {
   const [offset, setOffset] = useState(() => sessionOffsets.get(key) ?? { x: 0, y: 0 });
   const start = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
 
+  // Shared-key sync (owner 2026-08-15, the PLAN/FIND window): a SIBLING panel under the same
+  // key writes the Map while this one sits closed-but-mounted (the null-render pattern keeps
+  // hooks alive), so the mount-time initializer alone goes stale. Adopt on render — the legal
+  // derived-state setState; same-key siblings never render simultaneously, so no ping-pong.
+  const storedOffset = sessionOffsets.get(key);
+  if (storedOffset && (storedOffset.x !== offset.x || storedOffset.y !== offset.y)) {
+    setOffset(storedOffset);
+  }
+
   const apply = (next: { x: number; y: number }) => {
     sessionOffsets.set(key, next);
     setOffset(next);
@@ -101,6 +110,113 @@ export function usePanelDrag(key: string): PanelDrag {
       onDoubleClick: () => apply({ x: 0, y: 0 }),
     },
   };
+}
+
+/** Session-scoped window sizes — the offsets' twin (owner 2026-08-15, the PLAN/FIND window):
+ *  PLAN and FIND share ONE key, so the window keeps its user-set size across a mode switch. */
+const sessionSizes = new Map<string, { w: number; h: number }>();
+
+export interface PanelResize {
+  /** Spread onto the WINDOW element — its CSS must read `--win-w`/`--win-h` (border-box px)
+   *  as `width: var(--win-w, <default>); height: var(--win-h, auto);
+   *  max-height: var(--win-h, <default cap>)` so a user resize also lifts the default cap. */
+  style: CSSProperties;
+  /** Spread onto the ResizeGrip (or any custom handle element). */
+  grip: PanelDrag["grip"];
+}
+
+/** Window floors (px) — a resized window must stay a usable instrument. */
+const MIN_WIN_W = 200;
+const MIN_WIN_H = 130;
+
+/** Corner-resize twin of usePanelDrag: same session-Map memory, same double-click reset, same
+ *  pointer-capture tolerance. Emits border-box px as CSS vars; `null` size = the CSS default. */
+export function usePanelResize(key: string): PanelResize {
+  const [size, setSize] = useState<{ w: number; h: number } | null>(
+    () => sessionSizes.get(key) ?? null,
+  );
+  const start = useRef<{ px: number; py: number; w: number; h: number } | null>(null);
+
+  // Shared-key sync — the usePanelDrag note applies verbatim (reset DELETES the entry,
+  // so null-vs-null must count as equal).
+  const stored = sessionSizes.get(key) ?? null;
+  const stale =
+    stored === null
+      ? size !== null
+      : size === null || stored.w !== size.w || stored.h !== size.h;
+  if (stale) setSize(stored);
+
+  const apply = (next: { w: number; h: number } | null) => {
+    if (next) sessionSizes.set(key, next);
+    else sessionSizes.delete(key);
+    setSize(next);
+  };
+
+  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+    const win = e.currentTarget.parentElement; // the window (the grip's parent, by contract)
+    if (!win) return;
+    const r = win.getBoundingClientRect();
+    start.current = { px: e.clientX, py: e.clientY, w: r.width, h: r.height };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // synthetic pointers (tests) have no capturable id — the resize still works via move/up
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
+    if (!start.current) return;
+    const w = Math.min(
+      Math.max(start.current.w + (e.clientX - start.current.px), MIN_WIN_W),
+      window.innerWidth * 0.92,
+    );
+    const h = Math.min(
+      Math.max(start.current.h + (e.clientY - start.current.py), MIN_WIN_H),
+      window.innerHeight * 0.92,
+    );
+    apply({ w, h });
+  };
+
+  const endResize = (e: PointerEvent<HTMLElement>) => {
+    start.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // never captured (synthetic pointer) — nothing to release
+    }
+  };
+
+  return {
+    style: size
+      ? ({ "--win-w": `${size.w}px`, "--win-h": `${size.h}px` } as CSSProperties)
+      : {},
+    grip: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: endResize,
+      onPointerCancel: endResize,
+      onDoubleClick: () => apply(null),
+    },
+  };
+}
+
+/** The corner handle — place as a DIRECT child of the WINDOW element carrying `resize.style`
+ *  (the measure reads its parent; the reveal rule is `:hover > .resize-grip`). */
+export function ResizeGrip({ resize, label }: { resize: PanelResize; label: string }) {
+  return (
+    <button
+      type="button"
+      className="resize-grip tip"
+      aria-label={label}
+      data-tip="DRAG TO RESIZE · DOUBLE-CLICK RESETS"
+      data-tip-pos="up"
+      {...resize.grip}
+    >
+      ◢
+    </button>
+  );
 }
 
 /** The visible handle — place as a DIRECT child of the panel root carrying `drag.style`

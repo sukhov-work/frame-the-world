@@ -48,6 +48,14 @@
 .ts-offset--ff {
   color: var(--color-danger);
 }
+/* Pinned-side tint (owner 2026-08-15): the readout echoes the cursor — amber behind the wall
+   clock, blue ahead of it. The TSX picks ONE of ff/past/future, so order carries no weight. */
+.ts-offset--past {
+  color: var(--color-warn);
+}
+.ts-offset--future {
+  color: var(--color-time-future);
+}
 
 /* Day step — quick ±24 h traversal flanking the date picker (same time-of-day). */
 .ts-day {
@@ -251,7 +259,8 @@
 
 /* Centre playhead (owner 2026-08-14 — replaces the old floating dot): a hairline cursor bar
    across the band/curve strip with a tag handle on top — the conveyor's fixed reading lens.
-   Same state semantics as the knob it supersedes: accent = LIVE, warn-amber = pinned. The bar
+   State semantics (owner 2026-08-15): accent = LIVE, warn-amber = pinned in the PAST, blue =
+   pinned in the FUTURE — one glance answers "behind or ahead of the wall clock?". The bar
    stops above the hour-label row so the labels stay readable. */
 .ts-cursor {
   position: absolute;
@@ -281,6 +290,10 @@
 .ts-cursor--pinned {
   background: var(--color-warn);
   box-shadow: 0 0 6px rgba(232, 162, 104, 0.6);
+}
+.ts-cursor--future {
+  background: var(--color-time-future);
+  box-shadow: 0 0 6px rgba(124, 176, 245, 0.6);
 }
 
 /* Foot row: the ±window labels frame the transport cluster (steppers + play + speed). */

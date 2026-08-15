@@ -17,6 +17,7 @@ import Welcome from "../components/panels/Welcome";
 import FpvHud from "../components/panels/FpvHud";
 import PlanPanel from "../components/panels/PlanPanel";
 import FindPanel from "../components/panels/FindPanel";
+import PlanFindToggle from "../components/panels/PlanFindToggle";
 import TargetPanel from "../components/panels/TargetPanel";
 import MiniMap from "../components/panels/MiniMap";
 import SkyContextMenu from "../components/panels/SkyContextMenu";
@@ -174,12 +175,17 @@ import "../styles/boot-poster.css";
          navigation (hash clears, no reload) — the app would keep its camera. The inline script
          below clears the URL state and forces a real reload so the boot path (splash → welcome
          → default LEO) runs from scratch. -->
-    <a
-      class="logo tip"
-      id="logo-home"
-      href="/"
-      data-tip="FRESH START — THE CLEAN GLOBE."
-      data-tip-pos="down">Sidera</a>
+    <div class="topnav-left">
+      <a
+        class="logo tip"
+        id="logo-home"
+        href="/"
+        data-tip="FRESH START — THE CLEAN GLOBE."
+        data-tip-pos="down">Sidera</a>
+      <!-- owner 2026-08-15: the PLAN/FIND pills became ONE segmented toggle beside the
+           wordmark — the shared window opens in the left column (PlanPanel/FindPanel). -->
+      <PlanFindToggle client:only="react" />
+    </div>
     <nav>
       <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
       <a href="#explore" data-explore class="tip" data-tip="AMBIENT TOUR OF PUBLIC PINS." data-tip-pos="down">Explore</a>
@@ -262,6 +268,12 @@ import "../styles/boot-poster.css";
     align-items: center;
     justify-content: space-between;
     padding: 1.1rem 1.6rem;
+  }
+  /* Left cluster: wordmark + the PLAN/FIND toggle island (owner 2026-08-15). */
+  .topnav-left {
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
   }
   /* Beats the generic `.topnav a` (0,1,1) — the logo anchor keeps its identity-mark look;
      hover accents like the rest of the nav to signal the clean-boot click. */

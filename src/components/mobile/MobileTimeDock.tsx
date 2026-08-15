@@ -268,6 +268,8 @@ export default function MobileTimeDock() {
   };
 
   const ff = playing && (playRate ?? 1) > 1;
+  // Pinned-time side (owner 2026-08-15) — the desktop TimeScrubber twin: amber past, blue future.
+  const ahead = !live && nowMs > Date.now();
   const offsetMinNow = Math.round((nowMs - Date.now()) / 60_000);
   const ticks = hourTicksBetween(windowStartMs, windowStartMs + WINDOW_MS);
 
@@ -341,7 +343,10 @@ export default function MobileTimeDock() {
             );
           })}
         </div>
-        <div className={`md-cursor${live ? "" : " md-cursor--pinned"}`} aria-hidden="true" />
+        <div
+          className={`md-cursor${live ? "" : ahead ? " md-cursor--future" : " md-cursor--pinned"}`}
+          aria-hidden="true"
+        />
       </div>
       <div className="md-row">
         <input
@@ -373,7 +378,9 @@ export default function MobileTimeDock() {
             </option>
           ))}
         </select>
-        <span className={`md-offset${ff ? " md-offset--ff" : ""}`}>
+        <span
+          className={`md-offset${ff ? " md-offset--ff" : live ? "" : ahead ? " md-offset--future" : " md-offset--past"}`}
+        >
           {live ? "LIVE" : `${playing ? "▶ " : ""}${offsetShort(nowMs - Date.now())}`}
         </span>
         {!live && (

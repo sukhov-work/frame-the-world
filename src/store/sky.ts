@@ -72,7 +72,7 @@ export const useSkyStore = create<SkyStoreState>((set) => ({
   },
   ghostCount: prefs.skyGhostCount ?? 4,
   setGhostCount: (n) => {
-    const ghostCount = Math.max(1, Math.min(8, Math.round(n)));
+    const ghostCount = Math.max(1, Math.min(15, Math.round(n)));
     saveViewPref("skyGhostCount", ghostCount);
     set({ ghostCount });
   },

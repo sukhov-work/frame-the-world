@@ -1,12 +1,13 @@
-/* Light planner (Pass 3 WS4 + Dnipro Slice 5) — the PLAN pill sits just below the FRAME THE
-   WORLD title (top-left, owner 2026-07-14) and unfolds DOWNWARD into the card of jump-to-time
-   chips + the skyline verdict. Instrument idiom: IBM Plex Mono, tabular numerals, tokens.css
-   colours only. Top-level island (index.astro) — position:fixed must never sit inside a
-   backdrop-filtered card (the S2 containing-block trap). */
+/* Light planner (Pass 3 WS4 + Dnipro Slice 5; window rework owner 2026-08-15) — the PLAN pill
+   moved into the topnav PlanFindToggle; this file keeps the shared PLAN/FIND WINDOW that opens
+   top-left under the nav. PLAN and FIND mount at the SAME spot with the SAME "planfind"
+   drag/resize key — one window whose content switches (find-panel.css mirrors this geometry).
+   Instrument idiom: IBM Plex Mono, tabular numerals, tokens.css colours only. Top-level island
+   (index.astro) — position:fixed must never sit inside a backdrop-filtered card (S2 trap). */
 
 .pp-root {
   position: fixed;
-  left: 1.6rem; /* the topnav's own padding — the pill hangs under the logo */
+  left: 1.6rem; /* the topnav's own padding — the window hangs under the logo */
   top: 3.4rem;
   z-index: 31; /* above the photo-detail panel (30) — an opened planner must not hide under it */
   font-family: var(--font-mono);
@@ -14,43 +15,24 @@
   transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
 }
 
-.pp-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
-  color: var(--color-text-secondary);
-  font-family: inherit;
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  cursor: pointer;
-}
-.pp-pill:hover {
-  color: var(--color-text);
-  border-color: var(--color-text-muted);
-}
-.pp-pill--open {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
-}
-
 .pp {
   position: absolute;
   left: 0;
-  top: 2.4rem; /* unfolds DOWN from the pill (owner 2026-07-14) */
-  width: 12.5rem;
-  /* Cap so the open card never reaches the FPV mini-map's slot in the bottom-left column.
-     Measured 2026-08-14: mini-map top edge = bottom 20.6rem (mini-map.css) + 13.2rem card
-     ≈ 33.8rem above the viewport bottom; card top = 5.8rem; max-height caps the CONTENT box,
-     so the card's own padding+border (~1.9rem) ride on top → 100vh − 41.7rem keeps a hairline
-     gap (the old 39rem let the card land ~2.5rem ON the patch). The 10rem floor keeps the
-     card usable on short viewports — the drag grip resolves rare collisions. The root itself
-     never clips (no overflow): the head InfoDot's tip pill extends past the card freely, and
-     only the BODY below the head scrolls (.pp-scroll). */
-  max-height: max(10rem, min(24rem, calc(100vh - 41.7rem)));
+  top: 0; /* the pill is gone (topnav toggle) — the window opens right at the root */
+  /* Resizable window (owner 2026-08-15): the ResizeGrip writes border-box px into
+     --win-w/--win-h; unset = the defaults below. box-sizing MUST be border-box so a grabbed
+     corner doesn't jump by the padding. Default width ≈ the old FIND content width (one
+     window, one width — PLAN gave up its narrower 12.5rem). */
+  box-sizing: border-box;
+  width: var(--win-w, 17.25rem);
+  height: var(--win-h, auto);
+  /* Default cap so the open window never reaches the FPV mini-map's slot in the bottom-left
+     column (mini-map.css top edge — the coupling note lives there). Border-box since the
+     2026-08-15 rework: the old CONTENT budget (max(10rem, min(26rem, 100vh − 41.7rem))) plus
+     the ~1.9rem padding+border that used to ride on top. A user resize lifts the cap —
+     var(--win-h) wins both slots. The root itself never clips (no overflow): the head
+     InfoDot's tip pill extends past the card freely; only the BODY scrolls (.pp-scroll). */
+  max-height: var(--win-h, max(11.9rem, min(27.9rem, calc(100vh - 39.8rem))));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -58,6 +40,29 @@
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+}
+
+/* Window close (owner 2026-08-15) — the pill left for the topnav; the window dismisses here
+   too. Sits at the head's right edge, after the anchor/InfoDot cluster. */
+.pp-x {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.pp-x:hover {
+  color: var(--color-text);
 }
 
 /* The scrolling body — head stays put; x pinned hidden (overflow-y:auto forces x to auto,

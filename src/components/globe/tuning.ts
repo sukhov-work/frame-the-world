@@ -1798,13 +1798,16 @@ export const SKYNAMES = {
 
 export const GHOSTS = {
   /** Hard cap per direction (the store clamps to this too — one source would be nicer, but the
-   *  store may not import three-adjacent modules; keep in sync with store/sky clamp). */
-  maxPerSide: 8,
-  /** The real body owns its own disc: ghosts whose centre falls within this many disc-DIAMETERS
-   *  of the now direction are skipped (at 1-min steps the k=±1 moon ghosts otherwise sit ON the
-   *  disc and their alpha blend dims a visible bite out of it — owner 2026-08-14 round 3).
-   *  1.0 = centres may touch edge-to-edge; 1.2 leaves a 0.2-diameter breathing gap. */
-  nowGapDiscs: 1.2,
+   *  store may not import three-adjacent modules; keep in sync with store/sky clamp).
+   *  8 → 15 (owner 2026-08-15): count reads PER SIDE, so the ceiling is 30 discs total. */
+  maxPerSide: 15,
+  /** The real body owns "now": ghosts whose centre falls within this many disc-DIAMETERS of the
+   *  now direction are skipped. RETUNED 1.2 → 0.25 (owner 2026-08-15): the FIRST ghost must sit
+   *  exactly one step from the live body, and the old 1.2-diameter cone ate k=±1…3 at 1–2 min
+   *  steps (diurnal drift ≈ 0.25°/min vs a 0.53° sun/moon disc) — reading as a fat first gap AND
+   *  a wrong count. 0.25 (= half a disc-radius) drops only a near-CONCENTRIC ghost (slow movers
+   *  near the celestial pole), never a stepping sun/moon one. */
+  nowGapDiscs: 0.25,
   /** Peak ghost alpha (the k=±1 neighbour) — ghosts must whisper, never rival the real body.
    *  Raised 0.5 → 0.62 (owner 2026-08-14 qol3: "each afterimage a bit more distinct"). */
   alphaNear: 0.62,

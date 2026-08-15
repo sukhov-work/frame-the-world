@@ -260,6 +260,10 @@ scheduling = an external scheduler hitting a token-secured endpoint, or on-open 
 decide at build time) · solar-eclipse umbra path drawn on the globe (the flagship visual; Besselian
 elements table 2020–2060 or an astronomy-engine port).
 
+**Clarified 2026-08-15 (owner order):** login + MY PLACES (saved FPV viewpoints incl. pinned time)
+are IN on /m — MobileAccount strip chip, MobilePlaces in the idle SEARCH sheet, ◎ SAVE VIEW in
+SceneActions. "Pins-browsing" below still means the PHOTO-pin gallery, which stays out.
+
 **Permanently out (owner-ratified 2026-08-11):** upload / marketplace / pins-browsing on mobile ·
 Gaia-depth catalogs · telescope GOTO · tides/rainbow · Skyfire-style color forecasts · **Phase 7
 AI panel — out of ALL plans** (not merely deferred; nothing schedules after M6).

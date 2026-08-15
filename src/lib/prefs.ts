@@ -37,7 +37,7 @@ export interface ViewPrefs {
   skyTargetId?: string;
   /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
   skyGhosts?: boolean;
-  /** Ghost copies per time direction (1..8; the owner default is 4 each way = 8 total). */
+  /** Ghost copies per time direction (1..15; the owner default is 4 each way = 8 total). */
   skyGhostCount?: number;
   /** Minutes between ghost copies (1..120). */
   skyGhostStepMin?: number;
@@ -65,7 +65,7 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
     out.skyTargetId = r.skyTargetId;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
   if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
-    out.skyGhostCount = Math.max(1, Math.min(8, Math.round(r.skyGhostCount)));
+    out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));
   if (typeof r.skyGhostStepMin === "number" && Number.isFinite(r.skyGhostStepMin))
     out.skyGhostStepMin = Math.max(1, Math.min(120, Math.round(r.skyGhostStepMin)));
   return out;

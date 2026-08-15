@@ -64,3 +64,8 @@ body {
   color: var(--color-warn);
   border-color: color-mix(in srgb, var(--color-warn) 45%, transparent);
 }
+/* Pinned in the FUTURE (owner 2026-08-15) — rides on top of --pinned, declared after it wins. */
+.m-chip--future {
+  color: var(--color-time-future);
+  border-color: color-mix(in srgb, var(--color-time-future) 45%, transparent);
+}

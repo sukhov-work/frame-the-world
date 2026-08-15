@@ -124,9 +124,9 @@ export function attachSkyGhosts(scene: THREE.Scene): SkyGhostsHandle {
     const st = target.stateAt(sceneMs);
     const trueRad = st.angularDiamArcsec ? (st.angularDiamArcsec / 3600 / 2) * (Math.PI / 180) : 0;
     discRad = Math.max(trueRad, (GHOSTS.minDiscDeg * Math.PI) / 360);
-    // The real body owns "now" AND its own disc (owner 2026-08-14 round 3): at small steps the
-    // k=±1 ghosts land ON the moon's disc and their alpha blend visibly dims a bite out of it —
-    // skip any ghost whose centre is within nowGapDiscs disc-DIAMETERS of the now direction.
+    // The real body owns "now" (owner 2026-08-14 r3; retuned 2026-08-15): drop ONLY a ghost
+    // sitting nearly concentric with the live disc (nowGapDiscs is a small diameter fraction) —
+    // the k=±1 first step must always survive, else fine steps show a fat first gap.
     const p0 = targetAzAlt(target, sceneMs, anchor.latDeg, anchor.lonDeg);
     const now = azAltToEnu(p0.azDeg, p0.altDeg);
     const minSepCos = Math.cos(2 * discRad * GHOSTS.nowGapDiscs);
