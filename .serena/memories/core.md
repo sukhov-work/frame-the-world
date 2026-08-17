@@ -108,11 +108,14 @@ stay "frame the world".
   `mem:project/wip-2026-08-15-guide-g1`.
 
 ## Next step
-**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U1 2D-first mobile → U2 FPV
-stability → U3–U8.** P7 meteor showers SHIPPED desktop 2026-08-17 (showers.ts 21-row IMO/MDC
-bake · radiant tracked targets · METEORS card · R12 rail layer; gates 908/908, browser-verified;
-`mem:project/wip-2026-08-17-p7-meteors-uplift-plan`). P8 conjunctions + P9 lunar eclipses + M4
-(incl. the /m meteor twin) resume AFTER the uplift ladder. See `NEXT_SESSION_PROMPT.md`.
+**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U2 FPV stability next → U3–U8.**
+U1 2D-first mobile SHIPPED 2026-08-17b (`camera.mapMode` · building detach on both handles ·
+nadir north-up boot + 2D locks · library touch-ROTATE as the tilt gesture · FPV exit → 2D ·
+pinch hardening + lint test; gates 922/922, phone-viewport browser-verified; REAL-DEVICE exit
+gate OPEN; `mem:project/wip-2026-08-17-u1-2d-mobile`). P7 meteor showers SHIPPED desktop
+2026-08-17 (`mem:project/wip-2026-08-17-p7-meteors-uplift-plan`). P8 conjunctions + P9 lunar
+eclipses + M4 (incl. the /m meteor twin) resume AFTER the uplift ladder. See
+`NEXT_SESSION_PROMPT.md`.
 
 ## Source layout (as-built; refreshed 2026-08-15)
 Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.

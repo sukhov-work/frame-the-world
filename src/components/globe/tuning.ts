@@ -593,6 +593,29 @@ export const CONTROLS = {
   rateDeadbandLog: 1e-3,
 } as const;
 
+/** /m 2D-first navigation (UPLIFT U1, owner point 1): the mobile shell boots into a top-down,
+ *  north-up "2D map" with every building tileset detached; a two-finger vertical drag (the
+ *  library's own touch-ROTATE state) tilts into 3D and attaches buildings; the 2D chip glides
+ *  back. Desktop never reads this block (camera.mapMode stays "3d" there). */
+export const MOBILE2D = {
+  /** 2D boot view: nadir over the default focus (the same Dnipro-ish point the desktop LEO
+   *  pose centres on — store/camera's boot mirror) at the LEO default altitude. */
+  bootLatDeg: 48.46,
+  bootLonDeg: 35.05,
+  bootAltM: 1_100_000,
+  /** Two-finger tilt past this (deg) flips the shell to 3D mid-gesture (buildings attach). */
+  enter3dTiltDeg: 15,
+  /** FPV-exit map altitude (m above ground): wider than FLIGHT.arrivalAltAboveGroundM (200 —
+   *  a frame view, too tight for a map) so the landing shows the surrounding blocks. */
+  exitAltAboveGroundM: 600,
+  /** 2D re-lock glide time-constant (ms) — how fast tilt/heading return to nadir/north after
+   *  a library interaction disturbs them (pinch-zoom verticalization, twist, FPV exit). */
+  lockEaseTauMs: 300,
+  /** Re-lock deadbands — under these the pose counts as locked (no per-frame rotation work). */
+  lockTiltEpsDeg: 0.2,
+  lockHeadingEpsDeg: 0.25,
+} as const;
+
 /** External tile sources. ToS: Esri World Imagery is hackathon-standard but UNVERIFIED for
  *  production; attribution for Esri + OSM lives in the DOM (src/pages/index.astro). */
 export const TILESETS = {

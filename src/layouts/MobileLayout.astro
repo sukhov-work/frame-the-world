@@ -22,7 +22,19 @@ const description =
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    {/* U1 pinch hardening (owner point 5): the browser must never zoom the /m page — pinch
+        belongs to the globe (zoom) and the FPV (FOV). Android honours the meta; iOS ≥10
+        ignores user-scalable, so the gesturestart guard below + the touch-action discipline
+        in mobile.css/chrome.css carry Safari. Desktop + /guide keep browser zoom (a11y). */}
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <script is:inline>
+      // iOS Safari pinch/double-tap page zoom (proprietary gesture events — pointer events,
+      // which the globe uses, are unaffected). Passive:false is required to preventDefault.
+      document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     {/* Type per the Claude Design system (board 02): Space Grotesk UI + IBM Plex Mono readouts. */}
     <link rel="preconnect" href="https://fonts.googleapis.com" />

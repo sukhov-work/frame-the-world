@@ -16,6 +16,7 @@
   -webkit-backdrop-filter: blur(8px);
   font-family: var(--font-mono);
   user-select: none;
+  touch-action: none; /* U1 pinch hardening: menu rows are taps only — no page zoom from here */
 }
 
 .skymenu__head {

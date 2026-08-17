@@ -16,6 +16,7 @@
   border-top: 1px solid color-mix(in srgb, var(--color-text-muted) 16%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  touch-action: none; /* U1 pinch hardening: a pinch straddling the dock must never zoom the page */
 }
 
 .m-tabs {
@@ -109,6 +110,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+  touch-action: none; /* U1 pinch hardening: chips are taps only — no page zoom/scroll from here */
 }
 .m-act {
   font-family: var(--font-mono);
@@ -143,6 +145,7 @@
   position: absolute;
   inset: 0;
   background: color-mix(in srgb, var(--color-bg) 35%, transparent);
+  touch-action: none; /* U1 pinch hardening: the dismiss surface is a tap, never a zoom */
 }
 .m-sheet {
   position: absolute;
@@ -215,6 +218,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y; /* U1 pinch hardening: scroll stays, a pinch on the sheet never zooms the page */
   padding: 0 0.9rem calc(0.9rem + env(safe-area-inset-bottom));
 }
 

@@ -207,6 +207,13 @@ export interface CameraState {
    *  pointer/wheel, Escape, encoder deflection, slider glide) clears it — never fight the user. */
   exploreActive: boolean;
   setExplore: (on: boolean) => void;
+  /** /m 2D-first navigation (UPLIFT U1): "2d" = top-down north-up map, buildings DETACHED;
+   *  "3d" = free orbit with buildings. Written ONLY by the mobile shell (the /m boot path,
+   *  the 2D/3D chip, the two-finger tilt flip, FPV exit) — desktop never writes it and the
+   *  orchestrator ignores it off /m, so the default "3d" keeps desktop byte-identical.
+   *  Deliberately NOT persisted: the owner rule is "/m always boots into the 2D map". */
+  mapMode: "2d" | "3d";
+  setMapMode: (mode: "2d" | "3d") => void;
   requestFly: (req: FlyRequest) => void;
   /** Orchestrator-only: mark the pending fly request consumed. */
   _consumeFlyRequest: () => void;
@@ -283,6 +290,8 @@ export const useCameraStore = create<CameraState>((set) => ({
   _clearSkyLook: () => set({ skyLook: null }),
   exploreActive: false,
   setExplore: (on) => set({ exploreActive: on }),
+  mapMode: "3d",
+  setMapMode: (mode) => set({ mapMode: mode }),
   tempPin: null,
   tempFpv: false,
   tempPinScreen: null,
