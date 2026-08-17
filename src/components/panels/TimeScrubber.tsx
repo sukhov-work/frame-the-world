@@ -55,6 +55,7 @@ import {
   type TraceState,
 } from "../../lib/ephemeris/dayArc";
 import { dayEvents, moonPhaseEvents } from "../../lib/ephemeris/planner";
+import { meteorRateSeries, type RateSample } from "../../lib/ephemeris/showers";
 import { sampleBins } from "../../lib/geo/horizonProfile";
 import { azAltFrameMarker } from "../../lib/geo/offscreen";
 import { GOLDEN, SCRUB } from "../globe/tuning";
@@ -134,6 +135,39 @@ function tracePaths(
   return d;
 }
 
+/** The meteor intensity trace (P7/R12): the TRACKED shower's expected visible rate drawn as a
+ *  filled area rising from the rail floor (y=39; the shower's own peak ZHR tops out at y=22 —
+ *  the below-horizon half, clear of the altitude curves). Normalized per shower: the shape
+ *  answers "when tonight", the METEORS card answers "how strong". Zero-rate spans break the
+ *  pen like the trace's "down" state. */
+function meteorPath(
+  samples: readonly RateSample[],
+  zhrPeak: number,
+  windowStartMs: number,
+): string {
+  let d = "";
+  let seg = "";
+  let x0 = 0;
+  let xPrev = 0;
+  const flush = () => {
+    if (seg) d += `M${x0.toFixed(2)} 39${seg}L${xPrev.toFixed(2)} 39Z`;
+    seg = "";
+  };
+  for (const s of samples) {
+    const x = ((s.utcMs - windowStartMs) / WINDOW_MS) * 100;
+    if (x < -2 || x > 102 || s.rate <= 0) {
+      flush();
+      continue;
+    }
+    if (!seg) x0 = x;
+    const y = 39 - Math.min(1, s.rate / zhrPeak) * 17;
+    seg += `L${x.toFixed(2)} ${y.toFixed(2)}`;
+    xPrev = x;
+  }
+  flush();
+  return d;
+}
+
 export default function TimeScrubber() {
   const drag = usePanelDrag("timeline");
   const live = useTimeStore((s) => s.live);
@@ -194,6 +228,19 @@ export default function TimeScrubber() {
   const traceCls = useMemo(
     () => traceStates(trace, profileBins ? (az) => sampleBins(profileBins, az) : null),
     [trace, profileBins],
+  );
+  // P7/R12 meteor layer — only when the tracked target IS a shower with a real ZHR curve
+  // (the Var outburst rows honestly stay flat); same span/eye memo discipline as the trace.
+  const showerRow =
+    targetVisible && skyTarget.facts.kind === "shower" && skyTarget.facts.row.zhr != null
+      ? skyTarget.facts.row
+      : null;
+  const meteorTrace = useMemo(
+    () =>
+      showerRow
+        ? meteorRateSeries(showerRow, spanStartMs, spanEndMs, eyeLatKey / 20, eyeLonKey / 20, SCRUB.traceStepMin)
+        : [],
+    [showerRow, spanAnchorMs, eyeLatKey, eyeLonKey], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // FPV in-frame emphasis: subscribe to a QUANTIZED pose key so the HUD mirror's low-cadence
   // writes only re-render the rail when the frame meaningfully moves (~1° / 0.5 FOV).
@@ -445,6 +492,12 @@ export default function TimeScrubber() {
           aria-hidden="true"
         >
           <line className="ts-curves__horizon" x1="0" y1="20" x2="100" y2="20" />
+          {showerRow && meteorTrace.length > 0 && (
+            <path
+              className="ts-curves__meteor"
+              d={meteorPath(meteorTrace, showerRow.zhr!, windowStartMs)}
+            />
+          )}
           <path className="ts-curves__moon" d={curvePath(curves.moon, windowStartMs)} />
           <path className="ts-curves__sun" d={curvePath(curves.sun, windowStartMs)} />
           {trace.length > 0 &&

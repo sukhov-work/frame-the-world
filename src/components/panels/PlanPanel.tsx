@@ -10,6 +10,7 @@ import { mwArcTiltDeg, mwSeason, type MwNight } from "../../lib/ephemeris/mwSeas
 import FrameCard from "./FrameCard";
 import TodayCard from "./TodayCard";
 import MoonCalCard from "./MoonCalCard";
+import MeteorsCard from "./MeteorsCard";
 import SpotStarsCard from "./SpotStarsCard";
 import "../../styles/plan-panel.css";
 import "../../styles/tips.css";
@@ -218,6 +219,8 @@ export default function PlanPanel() {
               FindPanel island — frame-as-query + in-frame ghost projections. */}
 
           <MoonCalCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
+
+          <MeteorsCard latDeg={anchor?.latDeg ?? focusLat} lonDeg={anchor?.lonDeg ?? focusLon} />
 
           <SpotStarsCard latDeg={anchor?.latDeg ?? focusLat} />
 

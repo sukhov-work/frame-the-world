@@ -21,6 +21,7 @@ import {
   visibilityClass,
 } from "../../lib/ephemeris/comet";
 import { targetWindows, type TargetWindow } from "../../lib/ephemeris/planner";
+import { lambdaToMs } from "../../lib/ephemeris/showers";
 import { subjectDistanceForDiscMatch } from "../../lib/geo/sizeDistance";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { cardinal } from "../../lib/format/readout";
@@ -288,6 +289,45 @@ function AsteroidFacts({ target, nowMs }: { target: SkyTarget; nowMs: number }) 
   );
 }
 
+/** The shower card (Phase 8c P7): activity/ZHR facts for the tracked RADIANT — a direction,
+ *  not an object (mag prints "—" by the null contract). Dates are this apparition's, solved
+ *  from the baked λ☉ table around scene time. */
+function ShowerFacts({ target, nowMs }: { target: SkyTarget; nowMs: number }) {
+  const f = target.facts;
+  const row = f.kind === "shower" ? f.row : null;
+  const dates = useMemo(() => {
+    if (!row) return null;
+    const DAY = 24 * 3600_000;
+    // The apparition nearest scene time: solve the peak forward from half a year back, then
+    // bracket the activity window around it (windows span ≤ ~60 days).
+    const peakMs = lambdaToMs(row.lamPeak, nowMs - 183 * DAY);
+    const startMs = lambdaToMs(row.lamStart, peakMs - 70 * DAY);
+    const endMs = lambdaToMs(row.lamEnd, startMs);
+    const d = (ms: number) =>
+      new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+    return { peak: d(peakMs), start: d(startMs), end: d(endMs) };
+  }, [row, Math.floor(nowMs / (24 * 3600_000))]);
+  if (!row || !dates) return null;
+  return (
+    <>
+      <div className="tp-section">THE SHOWER</div>
+      <div className="tp-facts">
+        ZHR {row.zhr ?? "VAR"} · r {row.rIndex.toFixed(1)} · {row.vgKmS.toFixed(0)} KM/S
+        {row.parent ? ` · PARENT ${row.parent.toUpperCase()}` : " · PARENT UNKNOWN"}
+      </div>
+      <div className="tp-facts">
+        PEAK {dates.peak.toUpperCase()} · ACTIVE {dates.start.toUpperCase()}–
+        {dates.end.toUpperCase()} · RADIANT DRIFTS {row.driftRa >= 0 ? "+" : ""}
+        {row.driftRa.toFixed(1)}°/D RA
+      </div>
+      <div className="tp-facts">
+        THE MARKER IS THE RADIANT — METEORS STREAM FROM IT AND GROW LONGER AWAY FROM IT, SO
+        FRAME IT OFF-CENTRE.{row.note ? ` ${row.note.toUpperCase()}` : ""}
+      </div>
+    </>
+  );
+}
+
 /** The constellation card (phase B): the marker tracks the figure's centre, not one object. */
 function ConstellationFacts({ target }: { target: SkyTarget }) {
   if (target.facts.kind !== "constellation") return null;
@@ -472,6 +512,7 @@ export default function TargetPanel() {
             <StarFacts target={target} />
             <AsteroidFacts target={target} nowMs={nowMs} />
             <ConstellationFacts target={target} />
+            <ShowerFacts target={target} nowMs={nowMs} />
 
             <div className="tp-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
             {windows.length > 0 ? (
