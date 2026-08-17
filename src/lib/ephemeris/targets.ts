@@ -33,6 +33,7 @@ import {
   type CometProfile,
   type KeplerElements,
 } from "./comet";
+import { radiantAt, type ShowerRow } from "./showers";
 import type { Vec3 } from "../geo/projection";
 
 const DEG = Math.PI / 180;
@@ -144,6 +145,11 @@ type TargetFacts =
       genitive: string;
       /** d3-celestial prominence rank 1..3. */
       rank: number;
+    }
+  | {
+      kind: "shower";
+      /** The full baked row — the panel keeps its ZHR/activity/parent treatment. */
+      row: ShowerRow;
     };
 
 /** ONE interface every category satisfies — the load-bearing abstraction of the astro engine. */
@@ -489,6 +495,50 @@ export function galacticCentreTarget(): SkyTarget {
   });
 }
 
+/**
+ * A meteor-shower RADIANT as a first-class tracked target (Phase 8c P7). The radiant is the
+ * perspective vanishing point the shower streams from — a direction, not an object: distance is
+ * infinity like every fixed target, magnitude is null by contract (`TargetState.magnitude` doc
+ * names this exact case), and the RA/Dec DRIFTS day-to-day (the IMO drift columns) — so stateAt
+ * recomputes the J2000 vector per call instead of closing over it like `fixedTarget`.
+ */
+export function showerTarget(row: ShowerRow): SkyTarget {
+  return {
+    id: `shower:${row.code}`,
+    name: row.name,
+    kind: "shower",
+    aliases: [row.code.toLowerCase(), ...row.aliases, "meteor shower", "meteors"],
+    facts: { kind: "shower", row },
+    source: "IAU MDC + IMO CALENDAR (BAKE 2026-08-17)",
+    stateAt(utcMs: number): TargetState {
+      const time = MakeTime(new Date(utcMs));
+      const sun = GeoVector(Body.Sun, time, true);
+      const { raDeg, decDeg } = radiantAt(row, utcMs);
+      const ra = raDeg * DEG;
+      const dec = decDeg * DEG;
+      const jx = Math.cos(dec) * Math.cos(ra);
+      const jy = Math.cos(dec) * Math.sin(ra);
+      const jz = Math.sin(dec);
+      const [ex, ey, ez] = ecefFrameAt(time).toEcef({ x: jx, y: jy, z: jz });
+      const d = Math.hypot(ex, ey, ez);
+      return {
+        dir: [ex / d, ey / d, ez / d] as const,
+        raDeg,
+        decDeg,
+        distanceAu: null,
+        sunDistanceAu: null,
+        magnitude: null,
+        magnitudeModel: "catalog",
+        magnitudeUncertainty: null,
+        elongationDeg: elongationDeg(jx, jy, jz, sun.x, sun.y, sun.z),
+        phaseFraction: null,
+        angularDiamArcsec: null,
+        tailDir: null,
+      };
+    },
+  };
+}
+
 // ------------------------------------------------------------------------------------------
 // kepler provider — osculating elements through the comet propagator
 // ------------------------------------------------------------------------------------------
@@ -615,6 +665,7 @@ export function targetShortName(target: SkyTarget): string {
     return bare.length <= 12 ? bare : target.name.split(" ")[0];
   }
   if (f.kind === "constellation") return f.abbr;
+  if (f.kind === "shower") return f.row.code;
   return target.name;
 }
 

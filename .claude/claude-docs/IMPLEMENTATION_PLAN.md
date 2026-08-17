@@ -248,10 +248,16 @@ per-sub-phase gate.
   Spec: PLANNING_QOL_PLAN §3.5. DECISIONS 2026-08-15.
 > **QUEUED BEHIND the guide track** (GUIDE_PLAN.md, owner order 2026-08-15); G1 shipped
 > 2026-08-15 (guideContent.ts + GUIDE panel + /m sheet, FAQ absorbed).
-- [ ] **8-events** *(mobile twin: M4; AFTER the QoL pass + its mobile twins)* — P7 meteor showers
-  (bake IAU MDC, avoid GPL showers.json; radiant = tracked target; ZHR×sin(h), moon-scored peaks;
-  + rail intensity trace) · P8 conjunctions/oppositions finder · P9 lunar eclipses (shadow-cone
-  from the existing sun/moon; local visibility = the horizon test).
+- [ ] **8-events** *(mobile twin: M4; AFTER the QoL pass + its mobile twins)* — **P7 meteor
+  showers ✅ SHIPPED 2026-08-17 desktop** (`lib/ephemeris/showers.ts` 21-row IMO/MDC bake ·
+  λ☉ J2000 convention · radiant = tracked target `shower:<code>` · ZHR×sin(h) + Jenniskens
+  profile · moon-scored peak nights · METEORS PlanPanel card · R12 rail intensity layer;
+  DECISIONS 2026-08-17; /m twin rides M4) · P8 conjunctions/oppositions finder · P9 lunar
+  eclipses (shadow-cone from the existing sun/moon; local visibility = the horizon test).
+> **Queue re-ruled 2026-08-17 (owner):** the mobile/desktop uplift ladder **`UPLIFT_PLAN.md`
+> U1–U8** (2D-first mobile · FPV stability · fullscreen map · direction cones · progressive/
+> foveated loading · terrain precision · building height overrides) takes the NEXT sessions;
+> P8/P9 + M4 resume after.
 - [ ] **8-tools/ambience** *(mobile twins: M5/M6)* — P10 sensor-frame/mosaic overlay on DSO
   targets (explicitly slid behind the QoL pass) · star-trail simulator (FPV-composed
   per-direction preview) · long-exposure/ND + timelapse calculators · What's-Up-Tonight ranking ·

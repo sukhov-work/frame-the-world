@@ -219,6 +219,16 @@
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--color-accent) 55%, transparent));
 }
 
+/* Meteor intensity layer (P7/R12): the tracked shower's expected rate as a star-coloured area
+   rising from the rail floor — meteors ARE shooting stars, so the layer takes the starfield
+   white, filled + faint so the altitude curves above stay legible. Drawn UNDER the curves.
+   (`path.` qualifier: the base `.ts-curves path` fill:none must lose to this fill.) */
+.ts-curves path.ts-curves__meteor {
+  fill: color-mix(in srgb, var(--color-star) 16%, transparent);
+  stroke: color-mix(in srgb, var(--color-star) 55%, transparent);
+  stroke-width: 1.2;
+}
+
 /* Hour ticks — REAL local hours sliding with the conveyor; labels every SCRUB.hourLabelEvery.
    Midnight = a full-strip day boundary. All ticks grow upward off the label row. */
 .ts-ticks {

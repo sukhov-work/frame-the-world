@@ -24,11 +24,13 @@ import {
   PLANETS,
   planetTarget,
   type PlanetId,
+  showerTarget,
   type SkyTarget,
   type SunMoonId,
   type TargetKind,
 } from "../ephemeris/targets";
 import { TEMPEL2, type CometProfile } from "../ephemeris/comet";
+import { SHOWERS, showerByCode, type ShowerRow } from "../ephemeris/showers";
 import { MESSIER, type MessierEntry } from "./messier";
 import { STAR_NAMES, type StarNameEntry } from "./starNames";
 import { CONSTELLATIONS, type ConstellationEntry } from "./constellations";
@@ -392,6 +394,27 @@ function mpcAsteroidProfileTarget(row: AsteroidRow): SkyTarget {
   });
 }
 
+/** Meteor-shower rows (Phase 8c P7) — the radiant is trackable like any target; mag has no
+ *  meaning for a vanishing point, so rows rank on boost alone (just under the GC). */
+function showerEntry(row: ShowerRow): SkyIndexEntry {
+  return {
+    id: `shower:${row.code}`,
+    name: row.name.toUpperCase(),
+    detail: `METEOR SHOWER · ${row.zhr != null ? `ZHR ${row.zhr}` : "OUTBURST"} · ${row.parent ?? "PARENT UNKNOWN"}`,
+    kind: "shower",
+    keys: [
+      normalizeSky(row.name),
+      row.code.toLowerCase(),
+      ...row.aliases.map(normalizeSky),
+      "meteor shower",
+      "meteors",
+      "shower",
+    ],
+    mag: null,
+    boost: 0.9,
+  };
+}
+
 // ---------------------------------------------------------------------------------------------
 // The index + the resolver
 // ---------------------------------------------------------------------------------------------
@@ -407,6 +430,7 @@ export function skyIndex(): SkyIndexEntry[] {
       ...(Object.keys(PLANETS) as PlanetId[]).map(planetEntry),
       tempel2Entry(),
       gcEntry(),
+      ...SHOWERS.map(showerEntry),
       ...MESSIER.map(messierEntry),
       ...STAR_NAMES.map(starEntry),
       ...CONSTELLATIONS.map(constellationEntry),
@@ -493,6 +517,9 @@ export function targetById(id: string): SkyTarget | null {
     if (c) t = constellationTarget(c);
   } else if (id === GALACTIC_CENTRE_ID) {
     t = galacticCentreTarget();
+  } else if (id.startsWith("shower:")) {
+    const row = showerByCode(id.slice(7));
+    if (row) t = showerTarget(row);
   } else if (id.startsWith("dso:M")) {
     const m = Number(id.slice(5));
     const e = MESSIER[m - 1];

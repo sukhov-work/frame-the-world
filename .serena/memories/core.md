@@ -108,11 +108,11 @@ stay "frame the world".
   `mem:project/wip-2026-08-15-guide-g1`.
 
 ## Next step
-The guide track continues: G1 + G2-content are shipped; remaining per `GUIDE_PLAN.md` status —
-owner taste pass (chapter set, copy voice, GUIDE chip placement, shot crops) and the optional
-coach-mark journeys (G3, owner call), plus the real-device pass. After the guide track closes,
-the owner picks the next ladder rung: **Phase 8c** (P7 meteors · P8 conjunctions · P9 lunar
-eclipses) or **M4** (AR aim · PWA · data-saver). See `NEXT_SESSION_PROMPT.md` for the live brief.
+**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U1 2D-first mobile → U2 FPV
+stability → U3–U8.** P7 meteor showers SHIPPED desktop 2026-08-17 (showers.ts 21-row IMO/MDC
+bake · radiant tracked targets · METEORS card · R12 rail layer; gates 908/908, browser-verified;
+`mem:project/wip-2026-08-17-p7-meteors-uplift-plan`). P8 conjunctions + P9 lunar eclipses + M4
+(incl. the /m meteor twin) resume AFTER the uplift ladder. See `NEXT_SESSION_PROMPT.md`.
 
 ## Source layout (as-built; refreshed 2026-08-15)
 Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.
