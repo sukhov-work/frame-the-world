@@ -5,6 +5,7 @@ import { GLTFExtensionsPlugin } from "3d-tiles-renderer/three/plugins";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { buildingNightFactor } from "../../../lib/globe/buildingNight";
+import { lruFloorBytesForCap } from "../../../lib/globe/quality";
 import {
   bboxClipPrismEcef,
   bboxContainsRad,
@@ -80,7 +81,10 @@ export function attachBuildings(
     : new TilesRenderer();
   // The renderer's own LRU byte budget at construction (0.4 GB default) — restored on the `high`
   // tier so the byte-identical invariant holds; mid/low actively tighten it (setQualityTier).
+  // U2/A9: the min/max pair travels TOGETHER — a cap under the library's 0.3 GiB min floor
+  // inverts the eviction band and every parse onto the full cache is discarded (re-stream loop).
   const lruDefaultBytes = tiles.lruCache.maxBytesSize;
+  const lruDefaultMinBytes = tiles.lruCache.minBytesSize;
   if (!useOverture) {
     tiles.registerPlugin(
       new CesiumIonAuthPlugin({ apiToken: opts.ionToken, assetId: TILESETS.ionAssetId }),
@@ -258,6 +262,7 @@ export function attachBuildings(
     setQualityTier(errorTarget, lruCapBytes) {
       tiles.errorTarget = errorTarget;
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
+      tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
     },
     setNight(sunElevSin, up) {
       uFtwNight.value = buildingNightFactor(sunElevSin, EARTH.lightsBand);

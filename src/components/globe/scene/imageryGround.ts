@@ -9,6 +9,7 @@ import {
   XYZTilesOverlay,
 } from "3d-tiles-renderer/three/plugins";
 import { tokens } from "../../../lib/theme/tokens";
+import { lruFloorBytesForCap } from "../../../lib/globe/quality";
 import { DRAPE, EARTH, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
 import { glf, glf3 } from "./glsl";
 
@@ -73,6 +74,7 @@ export function attachImageryGround(
   // RENDERING_QUALITY_PASS WS1: this renderer's own LRU byte default (restored on `high`) + the
   // live near-altitude error endpoint (GROUND.errorTargetNear on high; raised on mid/low).
   const lruDefaultBytes = tiles.lruCache.maxBytesSize;
+  const lruDefaultMinBytes = tiles.lruCache.minBytesSize; // U2/A9: min/max travel as a pair
   let errorNearOverride: number = GROUND.errorTargetNear;
   tiles.registerPlugin(
     new CesiumIonAuthPlugin({
@@ -366,6 +368,7 @@ export function attachImageryGround(
     setQualityTier(errorNear, lruCapBytes) {
       errorNearOverride = errorNear; // consumed by the update() error-ramp near endpoint
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
+      tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
     },
     update(alt, darkGround) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band

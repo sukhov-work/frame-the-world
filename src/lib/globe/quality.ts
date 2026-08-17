@@ -30,6 +30,20 @@ export function lruCapBytesForTier(tier: QualityTier, lruBytesMB: number): numbe
   return tier === "high" ? null : Math.round(lruBytesMB * 1024 * 1024);
 }
 
+/**
+ * The matching `LRUCache.minBytesSize` floor for a capped tier (UPLIFT U2/A9). The library ships
+ * min=0.3·2³⁰ / max=0.4·2³⁰ as a PAIR: eviction rests the cache at `min`, and a freshly parsed
+ * tile is DISCARDED outright when `cachedBytes >= maxBytesSize` (TilesRendererBase "cache full →
+ * remove; it will be loaded again later"). Our mid/low caps (256/160 MB) sat UNDER the untouched
+ * 0.3 GiB default floor, inverting the band: the cache could never rest below the cap, so in FPV
+ * (working set ≥ cap) every parse landed on a full cache → discard → re-download — the visible
+ * "full re-render" loop. The floor keeps the library's own 0.75 ratio; `null` in / `null` out
+ * mirrors lruCapBytesForTier (high → restore BOTH captured defaults). Pure → unit-tested.
+ */
+export function lruFloorBytesForCap(capBytes: number | null): number | null {
+  return capBytes === null ? null : Math.round(capBytes * 0.75);
+}
+
 // GPU-family heuristics. Deliberately conservative: an unknown string falls through to `mid`, and
 // the runtime governor is the real backstop — this only sets a sane STARTING tier so the first
 // seconds aren't jank while the governor settles. Strings come from WEBGL_debug_renderer_info.

@@ -7,6 +7,7 @@ import { tokens } from "../../../lib/theme/tokens";
 import { clampGroundM } from "../../../lib/geo/terrain";
 import { ecefToGeodetic, geodeticToEcef } from "../../../lib/geo/projection";
 import { buildingNightFactor } from "../../../lib/globe/buildingNight";
+import { lruFloorBytesForCap } from "../../../lib/globe/quality";
 import {
   bboxCenterDeg,
   csrFromRunIds,
@@ -136,6 +137,7 @@ export function attachEnrichedBuildings(
 ): EnrichedBuildingsHandle {
   const tiles = new TilesRenderer(opts.url);
   const lruDefaultBytes = tiles.lruCache.maxBytesSize;
+  const lruDefaultMinBytes = tiles.lruCache.minBytesSize; // U2/A9: min/max travel as a pair
   tiles.errorTarget = ENRICHED.errorTarget;
   const draco = new DRACOLoader().setDecoderPath(TILESETS.dracoDecoderPath);
   tiles.registerPlugin(
@@ -390,6 +392,12 @@ export function attachEnrichedBuildings(
   );
   let seatM = 0; // last-good terrain height (m above ellipsoid) at the bbox centre
   let centreSampled = false; // per-cell deltas are meaningless until the base seat is real
+  // U2/A5: the group lift itself was the ONE unsmoothed layer — a terrain-LOD refine at the bbox
+  // centre stepped the whole city in a single frame (the "buildings re-seat at a new altitude"
+  // jump; cells/features already ease). The APPLIED seat now rides the same seatStep discipline
+  // (first sample snaps, refinements ease), and the per-cell targets reference the APPLIED value
+  // so the sum (group + cell + feature) still converges on each footprint's own terrain.
+  let seatAppliedM: number | null = null;
 
   /** One-shot footprint location for a cell: run centroids / instance translations → world →
    *  geodetic. Gated on the cell having snapped once (its scene matrixWorld was force-updated);
@@ -552,7 +560,10 @@ export function attachEnrichedBuildings(
           seatM = clampGroundM(h); // sticky; ignore null/garbage
           centreSampled = true;
         }
-        tiles.group.position.copy(_up).multiplyScalar(seatM + ENRICHED.seatOffsetM);
+        // U2/A5: apply the EASED seat (seatStep: first real sample snaps, refinements slide).
+        if (centreSampled) seatAppliedM = seatStep(seatAppliedM, seatM, ENRICHED.reseatEaseK);
+        const seatRefM = seatAppliedM ?? seatM;
+        tiles.group.position.copy(_up).multiplyScalar(seatRefM + ENRICHED.seatOffsetM);
 
         // Per-cell re-seat: refresh a few cell samples per frame (bounded raycast cost), then
         // ease every sampled cell toward (its seat − the centre seat) along its own geodetic up.
@@ -566,7 +577,10 @@ export function attachEnrichedBuildings(
           if (rrCursor >= cellList.length) rrCursor %= cellList.length;
           for (const cell of cellList) {
             if (cell.seatM == null) continue; // unsampled → stays on the centre-seat plane
-            const next = seatStep(cell.appliedM, cell.seatM - seatM, ENRICHED.reseatEaseK);
+            // U2/A5: target references the APPLIED group seat — while the group ease is mid-slide
+            // a sampled cell's sum stays exactly on its own terrain (a centre refine is about the
+            // centre, not this cell), and unsampled cells ride the group ease smoothly.
+            const next = seatStep(cell.appliedM, cell.seatM - seatRefM, ENRICHED.reseatEaseK);
             if (cell.appliedM != null && Math.abs(next - cell.appliedM) < 0.01) continue; // settled
             cell.appliedM = next;
             cell.scene.position.copy(cell.basePos).addScaledVector(cell.up, next);
@@ -621,6 +635,7 @@ export function attachEnrichedBuildings(
     setQualityTier(errorTarget, lruCapBytes) {
       tiles.errorTarget = errorTarget;
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes;
+      tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
     },
     setSolidity(k) {
       // Solidity renders as the shared SCREEN-DOOR dissolve (owner 2026-07-14: gradual +

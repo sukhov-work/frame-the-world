@@ -1,7 +1,7 @@
 # UPLIFT_PLAN — mobile UX/perf + desktop uplift (owner 10-point order, 2026-08-17)
 
-**Status: U1 SHIPPED 2026-08-17b (phone-viewport browser-verified; real-device pass OPEN —
-the slice's exit gate). U2 next.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
+**Status: U1 SHIPPED 2026-08-17b · U2 SHIPPED 2026-08-18 (both browser-verified; the shared
+real-device pass rides T1 and stays each slice's exit gate). U3 next.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
 shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both
 performance and stability; 10 points below, "in order of urgency and criticality", to be churned
@@ -184,6 +184,15 @@ glide ends). Real-device pass is the exit gate (the M0 lesson).
 zero page-zoom on every audited surface; desktop byte-identical chrome; gates green.
 
 ### U2 — FPV stability: the re-render/jerk bug · point 6
+**SHIPPED 2026-08-18** (DECISIONS 2026-08-18-u2-fpv-stability · `mem:project/wip-2026-08-17-u2-fpv-stability`).
+All 8 mechanisms fixed as sketched + three verification upgrades: A9's discard-loop confirmed at
+TilesRendererBase.js:1789 (parsed tile DISCARDED when isFull() — worse than the plan text); A2's
+bank proven CONSERVED across FPV (stepZoomBrakeAndEase sloshes it between pendingZoom and the
+unconsumed zc.zoomDelta); A8's wheel-during-entry-flight cancel was a browser-real teleport.
+Soak: zero non-walk eye jumps (>0.5 m/frame, walk-attributed probe) through walk + look-drag +
+±6 h scrub + high→mid→low→high flap on both shells; LRU pairs mid 192/256 · low 120/160 MB;
+exit-alt drift 0.00 m. OPEN: natural-governor deferral (this machine never governs down; DEV
+force() bypasses the gate) + real-device feel ride T1.
 **Scope.** Kill every mechanism in [1.3]. Instrument first, fix second, prove third.
 **Sketch (in fix order).**
 1. Reproduce + instrument: log tier changes, `zoomDelta` at FPV boundaries, `tempPinGroundM`
@@ -358,3 +367,14 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
   nadir `#p=` hashes re-land 2D on /m (the mirror writes them) · heading mirrored off SCREEN-UP
   in 2D (forward-heading degenerate at nadir) · ▦ 3D DETAIL hidden in 2D · exit alt 600 m.
   Gates 922/922 · astro 0 err. Real-device pass = the open exit gate.
+- 2026-08-18 · U2 shipped (see the slice header). Rulings: LRU floor = cap×0.75 (the library's
+  own min/max ratio; pure fn, both defaults captured + restored on high) · governor steps PARK
+  during FPV (pendingTier; force() immediate) · DPR-unchanged tier flips skip the composer
+  realloc · zoom bank zeroed at BOTH FPV boundaries · entry-frame controls.update gated by
+  fpvEntryPending() · temp-pin ground eased at TEMPPIN.groundEaseK (first sample snaps) ·
+  enriched GROUP seat eased, per-cell targets reference the APPLIED seat (sum invariant holds
+  mid-slide) · photo-FPV skips the cadence resnap · noteInteract keeps only the drift guard in
+  FPV · lastGroundM invalidated at exit · resize refreshes setResolutionFromRenderer ×3 + stars
+  uDpr on tier change. Soak trap for the record: an OCCLUDED headful CDP Chrome stops rAF
+  entirely (visibilityState hidden) — assert rAF ticks in every probe or "zero jumps" passes
+  vacuously; launch with --disable-backgrounding-occluded-windows.
