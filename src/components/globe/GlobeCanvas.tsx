@@ -317,9 +317,14 @@ export default function GlobeCanvas() {
       activeTier = t;
       const s = QUALITY.tiers[t];
       const dpr = Math.min(window.devicePixelRatio, s.dprCap);
-      renderer.setPixelRatio(dpr);
-      composer.setPixelRatio(dpr);
-      composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
+      // U2/A9: only touch the renderer + composer when the EFFECTIVE DPR actually changes —
+      // composer.setSize reallocates every render target, and tier flips between caps that
+      // resolve to the same DPR (e.g. devicePixelRatio 1 under caps 1.5/1.25) paid it for nothing.
+      if (renderer.getPixelRatio() !== dpr) {
+        renderer.setPixelRatio(dpr);
+        composer.setPixelRatio(dpr);
+        composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
+      }
       bloomPass.enabled = s.bloom;
       // Shadows follow the DEVICE tier (capability), NOT the runtime governor. Shadows are a core
       // aesthetic, not a frame-rate-degradable lever like DPR/bloom/tile-detail — so the governor must
@@ -331,17 +336,29 @@ export default function GlobeCanvas() {
       // bloom, and tile detail below. A device DETECTED as low (genuinely weak) still gets no shadows.
       tilesHandle?.setQualityTier(t); // building/ground error targets, LRU caps, vector/street budgets
       updateAoEnabled(); // AO is high-tier only
+      tierLog.push({ atMs: Math.round(performance.now()), tier: t }); // U2 probe (bounded)
+      if (tierLog.length > 50) tierLog.shift();
     };
+    // U2/A9: a governor tier change is NEVER applied mid-FPV — the composer-target realloc + the
+    // three LRU re-caps are exactly the "full re-render" moment. It parks here and lands on the
+    // first non-FPV frame. The DEV force() applies immediately (verification tool) and clears it.
+    let pendingTier: QualityTier | null = null;
+    const tierLog: Array<{ atMs: number; tier: QualityTier }> = []; // U2 instrumentation (DEV probe)
     if (import.meta.env.DEV)
       window.__quality = {
         get tier() {
           return activeTier;
         },
+        get pendingTier() {
+          return pendingTier; // U2: a deferred governor step waiting for FPV exit
+        },
+        tierLog,
         deviceTier,
         deviceCaps,
         governor,
         ao: gtaoPass, // R1 GTAOPass (null unless AO.enabled) — live-tune radius/intensity here
         force: (t: QualityTier) => {
+          pendingTier = null;
           governor.force(t);
           applyTier(t);
         },
@@ -351,6 +368,7 @@ export default function GlobeCanvas() {
     let tilesHandle: {
       update: () => void;
       setQualityTier: (t: QualityTier) => void;
+      fpvActive: () => boolean; // U2/A9: governor tier steps defer while FPV owns the camera
       dispose: () => void;
     } | null = null;
     const ionToken = import.meta.env.PUBLIC_CESIUM_ION_TOKEN as string | undefined;
@@ -397,7 +415,13 @@ export default function GlobeCanvas() {
       const nowMs = performance.now();
       const gov = governor.step(nowMs - lastGovMs);
       lastGovMs = nowMs;
-      if (gov.changed) applyTier(gov.tier);
+      // U2/A9: park a governor step while FPV owns the camera; land it on the first non-FPV
+      // frame (repeat steps while parked just overwrite — only the latest tier matters).
+      if (gov.changed) pendingTier = gov.tier;
+      if (pendingTier !== null && !(tilesHandle?.fpvActive() ?? false)) {
+        applyTier(pendingTier);
+        pendingTier = null;
+      }
       if (tilesHandle) {
         tilesHandle.update();
       } else if (!reduceMotion) {

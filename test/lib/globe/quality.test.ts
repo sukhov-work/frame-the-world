@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   detectDeviceTier,
   lruCapBytesForTier,
+  lruFloorBytesForCap,
   makeGovernor,
   TIER_ORDER,
   type GovernorConfig,
@@ -229,5 +230,37 @@ describe("lruCapBytesForTier — the byte-identical-on-high LRU rule (WS1)", () 
   it("mid/low caps sit below the library default — they actually tighten memory", () => {
     expect(lruCapBytesForTier("mid", QUALITY.tiers.mid.lruBytesMB)!).toBeLessThan(LIBRARY_DEFAULT_BYTES);
     expect(lruCapBytesForTier("low", QUALITY.tiers.low.lruBytesMB)!).toBeLessThan(LIBRARY_DEFAULT_BYTES);
+  });
+});
+
+describe("lruFloorBytesForCap — the U2/A9 min/max pair rule", () => {
+  const LIBRARY_DEFAULT_MIN_BYTES = 0.3 * 2 ** 30; // LRUCache.minBytesSize default
+
+  it("returns null for null (high tier restores BOTH captured library defaults)", () => {
+    expect(lruFloorBytesForCap(null)).toBeNull();
+  });
+
+  it("keeps the library's own 0.75 min/max ratio", () => {
+    expect(lruFloorBytesForCap(400 * 1024 * 1024)).toBe(300 * 1024 * 1024);
+  });
+
+  it("floor < cap for every capped tier — the eviction band is never inverted", () => {
+    for (const tier of ["mid", "low"] as const) {
+      const cap = lruCapBytesForTier(tier, QUALITY.tiers[tier].lruBytesMB)!;
+      const floor = lruFloorBytesForCap(cap)!;
+      expect(floor).toBeLessThan(cap);
+      expect(floor).toBeGreaterThan(0);
+    }
+  });
+
+  it("the ACTUAL mid/low caps sit under the library's default MIN floor — the A9 defect this fixes", () => {
+    // Pinned as documentation: without the paired floor, `unloadUnusedContent` could never rest
+    // the cache below the cap (excessBytes = cached − min stayed negative), so `isFull()` held at
+    // the cap boundary and every freshly parsed tile was discarded → the FPV re-stream loop.
+    for (const tier of ["mid", "low"] as const) {
+      const cap = lruCapBytesForTier(tier, QUALITY.tiers[tier].lruBytesMB)!;
+      expect(cap).toBeLessThan(LIBRARY_DEFAULT_MIN_BYTES);
+      expect(lruFloorBytesForCap(cap)!).toBeLessThan(cap); // the paired floor restores min < max
+    }
   });
 });

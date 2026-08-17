@@ -251,6 +251,69 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 New work appends a dated line here. *(Marker moved to the top 2026-08-13 — it had drifted mid-list
 since 2026-08-03; a move is not an edit (compaction precedent). Audit finding D2.)*
 
+- **2026-08-18-u2-fpv-stability (UPLIFT U2 SHIPPED — the point-6 FPV re-render/jerk bug: all 8
+  cited mechanisms fixed + instrumented. Gates vitest 926/926 (+4) · astro 0 err/5 hints;
+  browser-VERIFIED desktop + phone viewport (wix dev + Playwright soak, shots
+  `verify-shots/u2-01..04`); real-device pass rides T1.)**
+  **(a) A9 LRU floor** — the root of the "full re-render": mid/low caps (256/160 MB) sat UNDER
+  the library's untouched `minBytesSize` default (0.3 GiB), inverting the eviction band; worse,
+  `TilesRendererBase` DISCARDS a freshly parsed tile when `isFull()` ("it will be loaded again
+  later", TilesRendererBase.js:1789) → parse→discard→re-download loop whenever the FPV working
+  set reached the cap. Fix: pure `lruFloorBytesForCap` (cap×0.75 — the library's own 0.3/0.4
+  ratio; null→null) applied beside every `maxBytesSize` write in buildings/imageryGround/
+  enrichedBuildings (each captures BOTH library defaults; `high` restores both). Soak-verified
+  pairs: mid 192/256 · low 120/160 · high restored 307/410 MB. **(b) A9 governor gate** —
+  GlobeCanvas parks a governor tier change in `pendingTier` while `tilesHandle.fpvActive()`
+  (new handle method) and lands it on the first non-FPV frame; DEV `force()` stays immediate
+  and clears the pending. `applyTier` also SKIPS the renderer/composer realloc when the
+  effective DPR is unchanged (tier flips between caps resolving to the same DPR paid a full
+  render-target realloc for nothing). NOTE: the natural-governor deferral path is
+  logic-reviewed but browser-UNVERIFIED (this M3 Pro never governs down; force() bypasses the
+  gate by design) — a weak-device run rides T1. **(c) A2 zoom bank** — `resetState()` never
+  clears `zoomDelta` and disabled `update()` never consumes it; stepZoomBrakeAndEase SLOSHES
+  the bank between `pendingZoom` and `zc.zoomDelta`, so the sum is CONSERVED across an FPV
+  session of any length and discharged at exit (the "violent jerk to orbit"). Fix:
+  `zeroZoomBank()` at FPV entry (both kinds) AND exit. Soak: bank {0,0} at every boundary,
+  exit-alt drift 0.00 m over 2 s. (/m tilt gesture never disables controls — no bank path
+  there, nothing to clear.) **(d) A1 entry-frame gate** — the controls flip to disabled one
+  step late (transitions run AFTER controls.update), so the entry frame's update could
+  discharge bank/drag into the camera before the entry code zeroed it: `fpvEntryPending()`
+  (same store-derived wantKind + the fpvJumpRequest one-shot) gates `stepControlsUpdate` on
+  the entry frame. **(e) A4 eased pin ground** — `tempPinPoint()` re-samples `heightAt` every
+  frame; a terrain-LOD refine TELEPORTED the temp-FPV eye by the LOD delta. Fix: eased applied
+  ground (`seatStep`, new `TEMPPIN.groundEaseK` 0.12 — first real sample snaps, refinements
+  slide; frame-stamped, the fn runs ×4/frame). Measured: the old double-teleport (0→28.9→76.4 m
+  as LODs landed) is now a ~3 s glide with per-frame steps = (raw−applied)×0.12 exactly; zero
+  steps after settle. **(f) A5 eased enriched group seat** — the group lift was the ONE
+  unsmoothed layer (cells/features already eased): `seatAppliedM` now rides the same seatStep;
+  per-cell targets reference the APPLIED seat, so a sampled cell's sum stays exactly on its own
+  terrain mid-slide and unsampled cells glide. **(g) A4-photo resnap gate** — the 120-frame
+  cadence `frustum.resnap()` is a >0.5 m SNAP rebuild; skipped while photo-FPV (the camera
+  stands on the apex) — deferred to the next cadence tick after exit. `frameCount` still ticks
+  (the cadence-split contract). **(h) A8 noteInteract FPV guard** — wheel/pointer during FPV
+  fired the full noteInteract: `flight.cancel()` KILLED the entry flight mid-air and stepFpvPose
+  snapped to the eye (browser-real teleport). Now FPV keeps only the `lastInteract` drift guard;
+  exit fly-out still cancels on grab (fpvActive already false — user takes over, as designed).
+  Soak: a 6-tick wheel burst at t+400 ms into the entry flight left it flying (alt 530 m
+  mid-arc, landed 78 m; pre-fix = instant snap). **(i) A7 stale floor** — `lastGroundM` (street-
+  floor guard memory, frozen during FPV) invalidated at exit; the guard re-samples at the fresh
+  focus before clamping. **(j) A11 resolution refresh** — `setResolutionFromRenderer` was a
+  one-shot per tile renderer (stale SSE denominator after any resize/orientation → phantom
+  load/unload burst): a window resize listener now refreshes all three; stars gain `setDpr`
+  (uDpr was captured once) refreshed on every tier change via applyQualityTier. **(k) U2
+  instrumentation (DEV)** — `__globe.u2()`: zoom bank, raw+applied pin ground, lastGroundM,
+  enriched seat epoch, per-renderer LRU min/max, and a 50-ring of single-frame eye jumps
+  (>0.5 m, walk-attributed — sprint walk is ~1.15 m/frame by design — + monotonic total);
+  `__quality.pendingTier` + `tierLog`. Soak protocol result: zero non-walk jumps through
+  4 s analog walk + 20-step look-drag + ±6 h scrub + high→mid→low→high flap, on BOTH shells;
+  /m exit still lands 2D nadir @679 m (U1 contract intact). TRAP (cost a full soak restart):
+  headful CDP Chrome goes `visibilityState:hidden` when OCCLUDED — rAF stops COMPLETELY and
+  every "zero jumps" assert passes vacuously; relaunch with
+  `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding` and embed an
+  rAF-tick counter in every probe (zero-result validation). Files: lib/globe/quality.ts
+  (+lruFloorBytesForCap), scene/{buildings,imageryGround,enrichedBuildings,stars}.ts,
+  StylizedTiles.ts, GlobeCanvas.tsx, tuning.ts (TEMPPIN.groundEaseK),
+  test/lib/globe/quality.test.ts. Memory: `mem:project/wip-2026-08-17-u2-fpv-stability`.
 - **2026-08-17b-u1-2d-mobile (UPLIFT U1 SHIPPED — /m 2D-first navigation + pinch hardening,
   owner points 1+5. Gates vitest 922/922 (+14) · astro 0 err/5 hints; phone-viewport
   browser-VERIFIED (wix dev + Playwright, shots `verify-shots/u1-01..04`); REAL-DEVICE pass =

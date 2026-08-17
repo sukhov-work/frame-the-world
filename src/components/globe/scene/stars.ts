@@ -34,6 +34,8 @@ import { horizonBandSin, horizonTerms } from "./sky";
  */
 export interface StarsHandle {
   points: THREE.Points;
+  /** U2/A11: refresh the captured uDpr (gl_PointSize scale) after a governor DPR change. */
+  setDpr(dpr: number): void;
   /** Per-frame: visibility gate, camera-follow, altitude fade, twinkle clock, sidereal rotation. */
   update(ctx: {
     alt: number;
@@ -414,6 +416,13 @@ export function attachStars(
 
   return {
     points,
+    /** U2/A11: uDpr scales gl_PointSize — it was captured ONCE at attach, so a governor DPR shed
+     *  (or restore) left star/MW point sizes computed for the old pixel ratio. The orchestrator
+     *  refreshes it on every tier change (the haze layer is size-free — no uniform there). */
+    setDpr(dpr: number) {
+      material.uniforms.uDpr.value = dpr;
+      mwMaterial.uniforms.uDpr.value = dpr;
+    },
     update({
       alt,
       camera,

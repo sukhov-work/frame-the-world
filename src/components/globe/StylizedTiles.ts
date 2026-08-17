@@ -78,6 +78,7 @@ import {
   type UrlFpvPose,
 } from "../../lib/geo/urlPose";
 import { driftRadiansForDt } from "../../lib/globe/drift";
+import { seatStep } from "../../lib/globe/enrichedMask";
 import { lruCapBytesForTier, type QualityTier } from "../../lib/globe/quality";
 import {
   AO,
@@ -137,6 +138,10 @@ export interface TilesHandle {
    *  vector-lattice budgets). GlobeCanvas owns the renderer-level levers (DPR/bloom/shadows) and
    *  calls this on each tier change. `high` restores every library default → byte-identical. */
   setQualityTier: (tier: QualityTier) => void;
+  /** U2/A9: true while ANY FPV (photo/temp) owns the camera. GlobeCanvas's governor defers tier
+   *  applications while set — composer-target realloc + LRU re-caps mid-FPV read as the point-6
+   *  "full re-render"; the pending tier lands on the first non-FPV frame. */
+  fpvActive: () => boolean;
   dispose: () => void;
 }
 
@@ -296,8 +301,22 @@ export function attachStylizedTiles(opts: {
     ground.setQualityTier(q.groundErrorNear, lru);
     streetNames.setMaxVisible(q.maxStreetNames);
     vectorFeatures.setLatticeBudget(q.vectorLatticeBudget);
+    // U2/A11: GlobeCanvas re-set the renderer pixel ratio just before this call (applyTier order)
+    // — refresh the stars' captured uDpr so point sizes track the governor's DPR shed/restore.
+    stars.setDpr(renderer.getPixelRatio());
   };
   applyQualityTier(qualityTier);
+
+  // U2/A11: setResolutionFromRenderer was a ONE-SHOT per tile renderer — after any resize or
+  // orientation change the screen-space-error denominator kept the old viewport height, so every
+  // tile's computed error was wrong by the resize ratio and the next update() burst-loaded (or
+  // mass-evicted) against phantom error. Refresh all three on every resize (cheap: a vector read).
+  const onEngineResize = () => {
+    buildings.tiles.setResolutionFromRenderer(camera, renderer);
+    ground.tiles.setResolutionFromRenderer(camera, renderer);
+    enriched?.tiles.setResolutionFromRenderer(camera, renderer);
+  };
+  window.addEventListener("resize", onEngineResize);
 
   // --- Ephemeris: ONE astronomical sample drives every light in the scene (terminator, ground
   //     grade, atmosphere, sun/moon bodies, building key light, moonlight). Re-sampled when scene
@@ -664,6 +683,14 @@ export function attachStylizedTiles(opts: {
   // load and NEGATIVE garbage on coarse tiles (clamp [0, 9000], the S2 discipline).
   let tempPinGroundM = 0;
   let tempPinKey = "";
+  // U2/A4: the APPLIED ground is EASED toward the raw sticky sample (seatStep: the first real
+  // sample snaps — the marker must land, not float up; refinements slide at TEMPPIN.groundEaseK).
+  // Raw was consumed directly before, so a terrain-LOD refine under a temp-FPV eye teleported the
+  // camera by the LOD delta in ONE frame (the point-6 jump). Frame-stamped: tempPinPoint() runs
+  // several times per frame (transitions, pose, focus, marker) — the ease advances once.
+  let tempPinAppliedM: number | null = null;
+  let tempPinSampled = false;
+  let tempPinEaseStamp = -1;
   const _tempPinEcef = new THREE.Vector3();
   /** Refresh + return the temp pin's ECEF anchor point (on the rendered ground), or null. */
   const tempPinPoint = (): THREE.Vector3 | null => {
@@ -673,11 +700,41 @@ export function attachStylizedTiles(opts: {
     if (key !== tempPinKey) {
       tempPinKey = key;
       tempPinGroundM = 0;
+      tempPinAppliedM = null;
+      tempPinSampled = false;
     }
     const th = ground.heightAt(pin.latDeg, pin.lonDeg);
-    if (th != null) tempPinGroundM = clampGroundM(th);
-    return _tempPinEcef.fromArray(geodeticToEcef(pin.latDeg, pin.lonDeg, tempPinGroundM));
+    if (th != null) {
+      tempPinGroundM = clampGroundM(th);
+      tempPinSampled = true;
+    }
+    if (tempPinSampled && tempPinEaseStamp !== now) {
+      tempPinEaseStamp = now;
+      tempPinAppliedM = seatStep(tempPinAppliedM, tempPinGroundM, TEMPPIN.groundEaseK);
+    }
+    return _tempPinEcef.fromArray(
+      geodeticToEcef(pin.latDeg, pin.lonDeg, tempPinAppliedM ?? tempPinGroundM),
+    );
   };
+
+  // U2 instrumentation (DEV): single-frame FPV eye jumps, ring-buffered with cause context so the
+  // scripted soak (and a human) can pin WHICH mechanism moved the camera. 0.5 m in one frame is
+  // safely above legit motion (sprint walk ≈ 0.1–0.2 m/frame at 60 Hz — dtMs recorded so a slow
+  // frame can be discounted). Entry/exit flights are excluded (they legitimately traverse).
+  const _u2PrevEye = new THREE.Vector3();
+  let u2PrevEyeValid = false;
+  let u2JumpsTotal = 0; // monotonic — the ring below caps at 50, so deltas need this
+  const u2Jumps: Array<{
+    atMs: number;
+    dM: number;
+    dtMs: number;
+    kind: "photo" | "temp" | null;
+    /** True when walk input (stick/keys/space-lift) was live — sprint legitimately exceeds the
+     *  0.5 m/frame threshold, so only walk:false records count as teleports. */
+    walk: boolean;
+    groundRawM: number;
+    groundAppliedM: number | null;
+  }> = [];
 
   // --- Idle orbital drift — the "spacecraft in LEO" feel (seed: "slightly rotating by default").
   //     Rotates the camera around Earth's axis at ISS-like angular speed; pauses the moment the
@@ -685,6 +742,13 @@ export function attachStylizedTiles(opts: {
   let lastInteract = -Infinity;
   const noteInteract = () => {
     lastInteract = performance.now();
+    // U2/A8: while FPV is live the user CANNOT take over the orbit camera (controls disabled) —
+    // their pointer/wheel is the FPV look/FOV, which must NOT cancel the FPV ENTRY flight
+    // (cancelling it mid-air let stepFpvPose snap straight to the eye — a teleport, browser-real)
+    // nor clear targets/explore that FPV entry already handled. The idle-drift guard above is
+    // all FPV needs from this listener. The EXIT fly-out runs with fpvActive already false, so
+    // grabbing the globe there still cancels — the user takes over, as designed.
+    if (fpvActive) return;
     flight.cancel(); // grabbing the globe aborts a flight — the user takes over
     framingActive = false; // …and abandons the arrival re-framing (direct control wins)
     const camS = useCameraStore.getState();
@@ -1358,6 +1422,18 @@ export function attachStylizedTiles(opts: {
   //     the camera around the zoom point at FULL strength as the local up changes
   //     (EnvironmentControls._setFrame) — that pair is what read as "snaps to vertical". --------
   let pendingZoom = 0; // banked wheel/pinch delta, released exp(-dt/tau) per frame
+  // U2/A2: the zoom bank must die at every FPV boundary. The library's `resetState()` (fired by
+  // the `enabled` setter) clears drag/rotate state + inertia but NEVER `zoomDelta`, and while
+  // disabled `update()` early-returns — worse, stepZoomBrakeAndEase keeps SLOSHING the bank
+  // between `pendingZoom` and the unconsumed `zc.zoomDelta` each frame, so the sum is CONSERVED
+  // across an FPV session of any length and discharges as one real zoom the instant FPV exits
+  // (the point-6 "violent jerk to orbit"). Zeroed at entry AND exit. (The /m 2D tilt gesture
+  // never toggles controls.enabled — stepMobile2dLocks steers targets only — so no bank can
+  // survive a disable there; nothing to clear on that path.)
+  const zeroZoomBank = () => {
+    pendingZoom = 0;
+    zc.zoomDelta = 0;
+  };
   let lastAlt: number = POSE.cam.altM; // previous frame's altitude (zoom braking runs pre-update)
   let lastFrameMs = performance.now();
   const _upBefore = new THREE.Vector3();
@@ -1482,6 +1558,33 @@ export function attachStylizedTiles(opts: {
         buildingsAttached: buildings.tiles.group.parent !== null,
         enrichedAttached: enriched ? enriched.tiles.group.parent !== null : null,
       }),
+      // U2 (FPV stability): the live discriminator state for every point-6 mechanism — the zoom
+      // bank (A2), eased vs raw pin ground (A4), the street-floor memory (A7), the enriched seat
+      // epoch (A5), LRU min/max per renderer (A9) and the single-frame eye-jump ring (soak gate).
+      u2: () => ({
+        zoomBank: { pendingZoom, zoomDelta: zc.zoomDelta as number },
+        tempPinGround: { rawM: tempPinGroundM, appliedM: tempPinAppliedM },
+        lastGroundM,
+        enrichedSeat: enriched?.seatState() ?? null,
+        lru: {
+          buildings: {
+            min: buildings.tiles.lruCache.minBytesSize,
+            max: buildings.tiles.lruCache.maxBytesSize,
+          },
+          ground: {
+            min: ground.tiles.lruCache.minBytesSize,
+            max: ground.tiles.lruCache.maxBytesSize,
+          },
+          enriched: enriched
+            ? {
+                min: enriched.tiles.lruCache.minBytesSize,
+                max: enriched.tiles.lruCache.maxBytesSize,
+              }
+            : null,
+        },
+        jumps: u2Jumps.slice(),
+        jumpsTotal: u2JumpsTotal,
+      }),
       pins,
     };
     window.__timeStore = useTimeStore; // scrub scene time from the console / Playwright
@@ -1526,7 +1629,23 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  // U2/A1: does THIS frame's stepFpvTransitions (which runs AFTER controls.update) enter FPV?
+  // The controls flip to disabled one step too late otherwise: the entry frame's controls.update
+  // still runs ENABLED and discharges banked zoom/drag into the camera — moving the pose the
+  // entry math is about to capture, BEFORE the entry code can zero the bank. Same store reads the
+  // transition step derives wantKind from (stores can't change mid-update — sync), plus the
+  // fpvJumpRequest one-shot (its store writes land inside the transition step itself).
+  const fpvEntryPending = (): boolean => {
+    if (fpvActive) return false; // already in FPV → controls disabled, update() self-gates
+    const up = useUploadStore.getState();
+    const cam = useCameraStore.getState();
+    return (
+      up.viewMode === "fpv" || (cam.tempFpv && cam.tempPin !== null) || cam.fpvJumpRequest !== null
+    );
+  };
+
   const stepControlsUpdate = () => {
+        if (fpvEntryPending()) return; // U2/A1: never let controls move the camera on the entry frame
         controls.update();
 
   };
@@ -1638,6 +1757,11 @@ export function attachStylizedTiles(opts: {
             fpvActive = false;
             controls.adjustHeight = true;
             controls.enabled = true;
+            zeroZoomBank(); // U2/A2: the pre-entry zoom bank survived the whole session — never discharge it here
+            // U2/A7: the street-floor guard froze lastGroundM at its PRE-FPV value (it gates on
+            // !fpvActive) — stale high ground here would clamp the exit fly-out upward the frame
+            // it ends. Invalidate; the guard re-samples at the fresh view focus before clamping.
+            lastGroundM = null;
             buildings.setGhostSolid(0); // next FPV entry starts on the ghost curve again
             buildings.setGhost(null);
             enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
@@ -1704,6 +1828,7 @@ export function attachStylizedTiles(opts: {
               fpvDragId = null;
               controls.enabled = false;
               controls.adjustHeight = false; // cameraRadius would push us off the apex
+              zeroZoomBank(); // U2/A2: a wheel burst just before entry must not survive to exit
               buildings.setGhost({
                 fillOpacity: FPV.buildingGhostOpacity,
                 edgeOpacity: FPV.buildingGhostEdgeOpacity,
@@ -1754,6 +1879,7 @@ export function attachStylizedTiles(opts: {
               fpvDragId = null;
               controls.enabled = false;
               controls.adjustHeight = false; // eye height 1.7 m is under cameraRadius
+              zeroZoomBank(); // U2/A2: a wheel burst just before entry must not survive to exit
               buildings.setGhost({
                 fillOpacity: FPV.buildingGhostOpacity,
                 edgeOpacity: FPV.buildingGhostEdgeOpacity,
@@ -2003,7 +2129,37 @@ export function attachStylizedTiles(opts: {
             }
           }
           controls.adjustCamera(camera); // controls disabled: keep the near/far fit alive
-        }
+          // U2 instrumentation (DEV): record single-frame eye jumps with their ground context.
+          if (import.meta.env.DEV) {
+            if (!flight.active()) {
+              if (u2PrevEyeValid) {
+                const dM = camera.position.distanceTo(_u2PrevEye);
+                if (dM > 0.5) {
+                  u2JumpsTotal++;
+                  u2Jumps.push({
+                    atMs: Math.round(now),
+                    dM: Math.round(dM * 100) / 100,
+                    dtMs: Math.round(dtMs),
+                    kind: fpvKind,
+                    walk:
+                      camNow.fpvWalkInput !== null ||
+                      fpvKeysDown.up ||
+                      fpvKeysDown.down ||
+                      fpvKeysDown.left ||
+                      fpvKeysDown.right ||
+                      fpvKeysDown.space,
+                    groundRawM: Math.round(tempPinGroundM * 100) / 100,
+                    groundAppliedM:
+                      tempPinAppliedM == null ? null : Math.round(tempPinAppliedM * 100) / 100,
+                  });
+                  if (u2Jumps.length > 50) u2Jumps.shift();
+                }
+              }
+              _u2PrevEye.copy(camera.position);
+              u2PrevEyeValid = true;
+            } else u2PrevEyeValid = false;
+          }
+        } else if (import.meta.env.DEV) u2PrevEyeValid = false;
   };
 
   const stepFovGlide = () => {
@@ -2950,7 +3106,15 @@ export function attachStylizedTiles(opts: {
 
   const stepFrustumResnapAndTick = () => {
         // Re-seat the placed photo as terrain tiles refine under it (low cadence — a raycast).
-        if (++frameCount % FRUSTUM.resnapEveryFrames === 0) frustum.resnap();
+        // U2/A4: NOT while standing IN the photo — the camera sits on the apex, and resnap's
+        // 0.5 m-threshold rebuild is a snap (not an ease), so a terrain refine would teleport
+        // the photographer's eye mid-look. Deferred: the next cadence tick after exit re-seats.
+        // (frameCount still ticks every frame — it splits every cadence gate, the order contract.)
+        if (
+          ++frameCount % FRUSTUM.resnapEveryFrames === 0 &&
+          !(fpvActive && fpvKind === "photo")
+        )
+          frustum.resnap();
 
   };
 
@@ -3375,7 +3539,12 @@ export function attachStylizedTiles(opts: {
       }
     },
     setQualityTier: applyQualityTier,
+    // U2/A9: GlobeCanvas's governor DEFERS tier applications while this is true — a tier change
+    // reallocates composer targets and re-caps three LRU caches, and mid-FPV is the one moment
+    // that mass-evict reads as "the whole city re-rendered". Applied at the next non-FPV frame.
+    fpvActive: () => fpvActive,
     dispose() {
+      window.removeEventListener("resize", onEngineResize);
       dom.removeEventListener("pointerdown", noteInteract);
       dom.removeEventListener("wheel", noteInteract);
       dom.removeEventListener("touchstart", noteInteract);

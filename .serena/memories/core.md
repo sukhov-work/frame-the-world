@@ -108,13 +108,16 @@ stay "frame the world".
   `mem:project/wip-2026-08-15-guide-g1`.
 
 ## Next step
-**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U2 FPV stability next → U3–U8.**
-U1 2D-first mobile SHIPPED 2026-08-17b (`camera.mapMode` · building detach on both handles ·
-nadir north-up boot + 2D locks · library touch-ROTATE as the tilt gesture · FPV exit → 2D ·
-pinch hardening + lint test; gates 922/922, phone-viewport browser-verified; REAL-DEVICE exit
-gate OPEN; `mem:project/wip-2026-08-17-u1-2d-mobile`). P7 meteor showers SHIPPED desktop
-2026-08-17 (`mem:project/wip-2026-08-17-p7-meteors-uplift-plan`). P8 conjunctions + P9 lunar
-eclipses + M4 (incl. the /m meteor twin) resume AFTER the uplift ladder. See
+**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U3 fullscreen map + view cone
+next → U4–U8.** U2 FPV stability SHIPPED 2026-08-18 (all 8 point-6 mechanisms: A9 LRU floor
+`lruFloorBytesForCap` + governor tier steps parked during FPV + zoom-bank kill at both FPV
+boundaries + eased temp-pin/enriched-group grounds + entry-frame controls gate + FPV
+noteInteract guard + lastGroundM invalidation + resize resolution refresh; gates 926/926,
+soak-verified both shells — zero non-walk eye jumps; DEV seams `__globe.u2()` +
+`__quality.pendingTier`; `mem:project/wip-2026-08-17-u2-fpv-stability`). U1 2D-first mobile
+SHIPPED 2026-08-17b (`mem:project/wip-2026-08-17-u1-2d-mobile`). P7 meteors SHIPPED 2026-08-17.
+REAL-DEVICE pass (U1 gestures + U2 governor-on-weak-device) rides T1 — still OPEN. P8
+conjunctions + P9 lunar eclipses + M4 resume AFTER the uplift ladder. See
 `NEXT_SESSION_PROMPT.md`.
 
 ## Source layout (as-built; refreshed 2026-08-15)

@@ -1990,6 +1990,12 @@ export const TEMPPIN = {
   screenSyncEveryFrames: 6,
   /** NDC on-screen margin — the popup shows while |ndc| < this (a hair past the edge). */
   onScreenMargin: 1.02,
+  /** U2/A4: per-frame exponential ease of the pin's APPLIED ground height toward the latest
+   *  terrain sample. The raw sample re-reads `heightAt` every frame, so a terrain-LOD refine
+   *  used to TELEPORT the temp-FPV eye by the LOD delta in one frame (the point-6 jump); the
+   *  first real sample still snaps (seatStep — the marker must land, not float up), refinements
+   *  slide. Matches ENRICHED.reseatEaseK (0.12 ≈ settles ~0.5 s at 60 Hz). */
+  groundEaseK: 0.12,
 } as const;
 
 /** Location finder (Phase 5.5 S1) — free geocoding behind a swap-friendly adapter
