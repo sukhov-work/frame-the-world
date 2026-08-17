@@ -233,6 +233,26 @@ describe("FPV jump seam (saved places, owner 2026-07-15)", () => {
   });
 });
 
+describe("map mode seam (/m 2D-first, UPLIFT U1)", () => {
+  it("defaults to 3d — desktop never writes it, so every U1 seam is inert there", () => {
+    expect(useCameraStore.getState().mapMode).toBe("3d");
+  });
+
+  it("toggles between the 2D map and free 3D (the /m chip + orchestrator writers)", () => {
+    useCameraStore.getState().setMapMode("2d");
+    expect(useCameraStore.getState().mapMode).toBe("2d");
+    useCameraStore.getState().setMapMode("3d");
+    expect(useCameraStore.getState().mapMode).toBe("3d");
+  });
+
+  it("survives clearAllTargets — a mode is a place, not a pending glide", () => {
+    useCameraStore.getState().setMapMode("2d");
+    useCameraStore.getState().clearAllTargets();
+    expect(useCameraStore.getState().mapMode).toBe("2d");
+    useCameraStore.getState().setMapMode("3d"); // restore the default for later tests
+  });
+});
+
 describe("explore seam (Phase 5.5 S4)", () => {
   it("arms and disarms the ambient journey", () => {
     expect(useCameraStore.getState().exploreActive).toBe(false);

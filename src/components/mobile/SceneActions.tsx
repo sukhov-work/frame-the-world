@@ -17,7 +17,7 @@ import {
   setVariantUrl,
 } from "../../lib/globe/enrichedVariant";
 import { loadViewPrefs, saveViewPref } from "../../lib/prefs";
-import { FPV, FRUSTUM } from "../globe/tuning";
+import { CONTROLS, FPV, FRUSTUM } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
 
 export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => void }) {
@@ -110,8 +110,40 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
           🧭 {busy ? "LOCATING…" : "MY LOCATION"}
         </button>
       )}
+      {!tempFpv && <MapModeChip />}
       {!tempFpv && <BuildingsChip />}
     </div>
+  );
+}
+
+/** 2D ↔ 3D (UPLIFT U1, owner point 1) — the accessibility twin of the two-finger tilt gesture.
+ *  2D → 3D tilts up to the desktop toggle's angle (buildings attach on the mode write); 3D →
+ *  2D glides back to nadir + north (buildings detach). The orchestrator's locks/gate own the
+ *  camera + tileset mechanics — this chip only writes the store seams. */
+function MapModeChip() {
+  const mapMode = useCameraStore((s) => s.mapMode);
+  const setMapMode = useCameraStore((s) => s.setMapMode);
+  const setTargetTilt = useCameraStore((s) => s.setTargetTilt);
+  const setTargetHeading = useCameraStore((s) => s.setTargetHeading);
+  const is2D = mapMode === "2d";
+  return (
+    <button
+      type="button"
+      className="m-act"
+      aria-pressed={is2D}
+      onClick={() => {
+        if (is2D) {
+          setMapMode("3d");
+          setTargetTilt(CONTROLS.toggle3dTiltDeg);
+        } else {
+          setMapMode("2d");
+          setTargetTilt(0);
+          setTargetHeading(0);
+        }
+      }}
+    >
+      {is2D ? "▲ 3D VIEW" : "▼ 2D MAP"}
+    </button>
   );
 }
 
@@ -119,10 +151,12 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
  *  OSM2World detailed bake, OFF (classic) by default. Reload-based by design (a live tileset
  *  swap would tear down the enriched renderer mid-frame); the pose hash makes it lossless.
  *  Same pref (`enrichedVariant`) + same effective-state derivation as the desktop chip, so the
- *  choice carries across shells. Hidden where no enriched bake exists. */
+ *  choice carries across shells. Hidden where no enriched bake exists — and in the 2D map
+ *  (U1: buildings are absent there, so a reload chip would be a dead control). */
 function BuildingsChip() {
   const hasEnriched = Boolean(import.meta.env.PUBLIC_ENRICHED_TILES_URL);
-  if (!hasEnriched) return null;
+  const mapMode = useCameraStore((s) => s.mapMode);
+  if (!hasEnriched || mapMode === "2d") return null;
   const o2wActive = isVariantActive(
     applyStoredVariant(location.search, loadViewPrefs().enrichedVariant),
   );

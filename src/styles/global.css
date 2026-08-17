@@ -25,6 +25,10 @@ body {
   width: 100vw;
   height: 100vh;
   z-index: 0;
+  /* U1 pinch hardening: the canvas owns every gesture on touch-capable desktops/laptops too —
+     a trackpad/touchscreen pinch must zoom the GLOBE, never the page (mobile.css already
+     declared this for /m; this closes the desktop shell's leak). */
+  touch-action: none;
 }
 
 /* Daytime nav legibility (owner 2026-08-15): the fixed top nav floats bare over the sky canvas —

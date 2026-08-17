@@ -17,6 +17,7 @@
   background: color-mix(in srgb, var(--color-bg) 78%, transparent);
   font-family: var(--font-mono);
   user-select: none;
+  touch-action: none; /* U1 pinch hardening: the patch is display-only — no page zoom from it */
   transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
 }
 

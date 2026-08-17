@@ -46,6 +46,11 @@ export interface BuildingsHandle {
    *  caps this renderer's own LRU byte budget (already resolved by `lruCapBytesForTier` — `null` =
    *  restore the captured library default, the `high`-tier byte-identical path). */
   setQualityTier(errorTarget: number, lruCapBytes: number | null): void;
+  /** /m 2D map mode (UPLIFT U1): `false` DETACHES the tileset — the group leaves the scene
+   *  graph (render + every raycast, incl. GlobeControls' whole-scene pivot cast) and `update()`
+   *  freezes, so traversal/download/parse stop entirely. Loaded tiles stay in the LRU, so
+   *  re-attach is instant where the cache still holds them. Desktop never calls this. */
+  setActive(on: boolean): void;
   /** Pass 2 R3 (Dnipro identity): drive the night-side window emissive. Pass the SINE of the sun's
    *  elevation at the view focus (`sunDir·focusUp`); the module converts it to a night factor with
    *  the SAME EARTH.lightsBand terminator the earth + ground use, so the windows light up in step
@@ -214,11 +219,21 @@ export function attachBuildings(
     });
   });
 
+  // /m 2D map mode (UPLIFT U1) — see setActive on the handle.
+  let active = true;
+
   return {
     tiles,
     update() {
+      if (!active) return; // detached: no reveal clock, no traversal, no streaming
       uNowMs.value = performance.now(); // F1: advance the shared reveal clock before the draw
       tiles.update();
+    },
+    setActive(on) {
+      if (on === active) return;
+      active = on;
+      if (on) scene.add(tiles.group);
+      else scene.remove(tiles.group);
     },
     setGhost(ghost) {
       // The ghost fade renders as a SCREEN-DOOR dissolve inside the shared shader (owner

@@ -91,6 +91,7 @@ import {
   FRUSTUM,
   GOLDEN,
   GRATICULE,
+  MOBILE2D,
   ORCH,
   PINS,
   PLACING,
@@ -147,6 +148,12 @@ interface GlobeControlsInternal {
   zoomDelta: number;
   /** The library's current up vector (read pre-update to measure the auto-verticality it applied). */
   up: THREE.Vector3;
+  /** Interaction state (EnvironmentControls.js:17-22: NONE 0 · DRAG 1 · ROTATE 2 · ZOOM 3 ·
+   *  WAITING 4) — the /m 2D map reads it to tell the two-finger TILT gesture (touch ROTATE)
+   *  from everything else. The constants are not re-exported at the package root. */
+  state: number;
+  /** The library's pointer bookkeeping — `isPointerTouch()` distinguishes glass from a mouse. */
+  pointerTracker: { isPointerTouch(): boolean };
   /** Ellipsoid-surface up at a point (used for the tilt-glide pivot + the live tilt mirror). */
   getUpDirection(point: THREE.Vector3, target: THREE.Vector3): void;
   /** Rotate the camera about a pivot (azimuth, altitude) — the declination glide's rotation path. */
@@ -450,6 +457,42 @@ export function attachStylizedTiles(opts: {
     if (urlTimeMs !== null) useTimeStore.getState().setTime(urlTimeMs);
   }
 
+  // --- /m 2D-first navigation (UPLIFT U1, owner point 1): the mobile shell — detected by the
+  //     server-rendered body.m scope hook (MobileLayout), present before any island mounts —
+  //     boots into a top-down, north-up 2D map with every building tileset detached. A shared
+  //     `#p=` scene pose boots 3D instead (the north-lock would destroy the shared heading);
+  //     a shared `#f=` FPV view enters FPV as always, and its exit lands in 2D. Desktop:
+  //     isMobileShell false → mapMode stays "3d" → every U1 seam is inert. ------------------
+  const isMobileShell =
+    typeof document !== "undefined" && document.body.classList.contains("m");
+  if (isMobileShell) {
+    if (urlPose && urlPose.tiltDeg >= CONTROLS.twoDMaxTiltDeg) {
+      useCameraStore.getState().setMapMode("3d"); // an OBLIQUE share keeps its exact 3D view
+    } else {
+      // No hash, an `#f=` FPV share (its exit lands in 2D), or a NADIR `#p=` share (the /m
+      // pose mirror writes tilt≈0 hashes — a reload must land back on the 2D map, not in 3D).
+      useCameraStore.getState().setMapMode("2d");
+      // Buildings detached from frame 0 (FPV — the `#f=` case — re-attaches on entry).
+      buildings.setActive(false);
+      enriched?.setActive(false);
+      if (!urlFpv && !urlPose) {
+        // EXACT nadir, north-up (arrivalPose clamps tilt to ≥5° — construct directly):
+        // screen-up = local north at the boot point, so the map reads as a chart.
+        const b = enuBasis(MOBILE2D.bootLatDeg, MOBILE2D.bootLonDeg);
+        camera.position.fromArray(
+          geodeticToEcef(MOBILE2D.bootLatDeg, MOBILE2D.bootLonDeg, MOBILE2D.bootAltM),
+        );
+        camera.up.set(b.north[0], b.north[1], b.north[2]);
+        camera.lookAt(
+          new THREE.Vector3(
+            ...geodeticToEcef(MOBILE2D.bootLatDeg, MOBILE2D.bootLonDeg, 0),
+          ),
+        );
+        camera.updateProjectionMatrix();
+      }
+    }
+  }
+
   // --- GlobeControls — documented ellipsoid binding, damping for a premium feel, snappy zoom. --
   const controls = new GlobeControls(scene, camera, renderer.domElement);
   controls.setEllipsoid(
@@ -509,6 +552,26 @@ export function attachStylizedTiles(opts: {
       groundAltM,
       altAboveGroundM: FLIGHT.arrivalAltAboveGroundM,
       tiltDeg: FLIGHT.arrivalTiltDeg,
+      wgs84A: WGS84_A,
+      wgs84B: WGS84_B,
+    });
+  };
+
+  // /m 2D-map arrival (UPLIFT U1): near-nadir, approaching from the south so the landing is
+  // north-up (heading 0 ⇒ approach = −north). arrivalPose clamps tilt to ≥5°; the 2D locks
+  // glide the last few degrees to exact nadir after the flight settles.
+  const mapArrivalPose = (lookAt: THREE.Vector3, groundAltM: number): FlightTarget => {
+    const upT = lookAt.clone().normalize();
+    const east = new THREE.Vector3(-lookAt.y, lookAt.x, 0);
+    if (east.lengthSq() < 1e-6) east.set(0, 1, 0); // pole fallback (never on /m in practice)
+    east.normalize();
+    const approach = new THREE.Vector3().crossVectors(upT, east).negate().normalize(); // −north
+    return arrivalPose({
+      lookAt: lookAt.clone(),
+      approachHoriz: approach,
+      groundAltM,
+      altAboveGroundM: MOBILE2D.exitAltAboveGroundM,
+      tiltDeg: 0,
       wgs84A: WGS84_A,
       wgs84B: WGS84_B,
     });
@@ -1341,6 +1404,21 @@ export function attachStylizedTiles(opts: {
     return THREE.MathUtils.radToDeg(Math.atan2(_fh.dot(_east), _fh.dot(_north)));
   };
 
+  // Compass bearing of the camera's SCREEN-UP projected on the horizon plane at `up` — the /m
+  // 2D map's north reference (U1). viewHeadingDeg degenerates exactly where the 2D map lives
+  // (at nadir, forward ∥ up); screen-up is horizontal there and stays valid through the whole
+  // 2D tilt band, and for an unrolled camera the two bearings agree at any oblique tilt.
+  const mapUpHeadingDeg = (up: THREE.Vector3): number => {
+    _east.crossVectors(_Z, up);
+    if (_east.lengthSq() < 1e-12) return NaN; // at a pole east/north degenerate
+    _east.normalize();
+    _north.crossVectors(up, _east);
+    _fh.set(0, 1, 0).transformDirection(camera.matrixWorld); // camera local +Y = screen-up
+    _fh.addScaledVector(up, -_fh.dot(up));
+    if (_fh.lengthSq() < 1e-10) return NaN; // screen-up vertical (horizon view — never 2D)
+    return THREE.MathUtils.radToDeg(Math.atan2(_fh.dot(_east), _fh.dot(_north)));
+  };
+
   // Dev-only introspection so browser verification (Playwright) can read camera altitude and tile
   // state without reaching into the closure. No secrets, no behaviour change.
   if (import.meta.env.DEV) {
@@ -1396,6 +1474,13 @@ export function attachStylizedTiles(opts: {
         active: useCameraStore.getState().exploreActive,
         state: explore.state(),
         legs: explore.legsFlown(),
+      }),
+      // U1 (/m 2D map): mode + the buildings gate's rendered truth (group membership, not a flag).
+      map2d: () => ({
+        isMobileShell,
+        mode: useCameraStore.getState().mapMode,
+        buildingsAttached: buildings.tiles.group.parent !== null,
+        enrichedAttached: enriched ? enriched.tiles.group.parent !== null : null,
       }),
       pins,
     };
@@ -1460,6 +1545,17 @@ export function attachStylizedTiles(opts: {
         }
 
         camera.updateMatrixWorld();
+  };
+
+  const stepMobileBuildingsGate = () => {
+        // /m 2D map (UPLIFT U1): buildings exist only in 3D — and in ANY FPV, whose entry
+        // needs the streets it stands in regardless of the map mode at entry. The handles'
+        // own identity guards make the per-frame call a no-op while nothing changed, so no
+        // separate gate state can ever drift from the truth. Desktop: inert (mapMode "3d").
+        if (!isMobileShell) return;
+        const on = fpvActive || useCameraStore.getState().mapMode === "3d";
+        buildings.setActive(on);
+        enriched?.setActive(on);
   };
 
   const stepBuildingsUpdate = () => {
@@ -1554,7 +1650,24 @@ export function attachStylizedTiles(opts: {
             fovTargetDeg = POSE.fovDeg;
             const geomOut = upNow.phase === "placed" ? frustum.current() : null;
             const pinOut = tempPinPoint();
-            if (geomOut) {
+            // U1 (owner point 1): on /m, FPV always exits to the 2D map — flip the mode
+            // (buildings detach via the gate step) and fly out to the north-up nadir pose
+            // instead of the oblique frame arrival (which the 2D locks would then fight).
+            if (isMobileShell) {
+              camNow.setMapMode("2d");
+              const outP = geomOut
+                ? new THREE.Vector3(geomOut.apex[0], geomOut.apex[1], geomOut.apex[2])
+                : pinOut;
+              if (outP) {
+                const gOut = ecefToGeodetic([outP.x, outP.y, outP.z]);
+                const pose = mapArrivalPose(
+                  outP,
+                  clampGroundM(ground.heightAt(gOut.latDeg, gOut.lonDeg) ?? tempPinGroundM),
+                );
+                flight.start(pose, { floorM: flightFloorM(pose.position) });
+                // no beginFraming: the re-framing glide targets the OBLIQUE photo arrival.
+              }
+            } else if (geomOut) {
               const pose = frameArrivalPose(geomOut);
               flight.start(pose, { floorM: flightFloorM(pose.position) });
               beginFraming(pose); // same live-terrain settle the pin selection gets
@@ -1954,10 +2067,13 @@ export function attachStylizedTiles(opts: {
 
   const stepIdleDrift = () => {
         // Idle orbital drift (LEO spacecraft feel) — orbit only, paused after interaction.
+        // U1: the /m 2D map is a CHART and holds still — the drift visibly slid the map
+        // eastward (~3° lon in the first browser pass) and read as broken, not cinematic.
         if (
           !reduceMotion &&
           alt > DRIFT.minAlt &&
-          performance.now() - lastInteract > DRIFT.resumeMs
+          performance.now() - lastInteract > DRIFT.resumeMs &&
+          !(isMobileShell && useCameraStore.getState().mapMode === "2d")
         ) {
           _driftQ.setFromAxisAngle(_driftAxis, driftRadiansForDt(DRIFT.degPerSec, dtMs));
           camera.position.applyQuaternion(_driftQ);
@@ -2026,6 +2142,51 @@ export function attachStylizedTiles(opts: {
           }
         }
 
+  };
+
+  const stepMobile2dLocks = () => {
+        // ── /m 2D map locks (UPLIFT U1) ── nadir + north-up re-lock while the 2D map is
+        // active. The library's own two-finger parallel drag (touch ROTATE — the pinch/rotate
+        // classifier, EnvironmentControls.js:562-585) IS the tilt-into-3D gesture: while it is
+        // live the TILT lock stands down (the fingers must win) and crossing
+        // MOBILE2D.enter3dTiltDeg flips the shell to 3D mid-gesture (buildings attach, locks
+        // end); the HEADING lock keeps running through it, so the gesture reads as pure tilt.
+        // Manual glides (the 3D chip's setTargetTilt) outrank both locks — one writer per axis.
+        if (!isMobileShell || fpvActive || flight.active()) return;
+        if (useCameraStore.getState().mapMode !== "2d") return;
+        // Live tilt — the stepTiltGlide measurement (pivot up vs camera-backward).
+        if (controls.getPivotPoint(_pivot) === null) _pivot.copy(_focus);
+        zc.getUpDirection(_pivot, _pivotUp);
+        _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
+        const pitchRad = _pivotUp.angleTo(_camBack);
+        const touchRotate = zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch();
+        if (touchRotate) {
+          if (pitchRad > THREE.MathUtils.degToRad(MOBILE2D.enter3dTiltDeg)) {
+            useCameraStore.getState().setMapMode("3d"); // tilted through the gate — 3D owns it
+            return;
+          }
+        } else if (
+          camStore.targetTiltDeg === null &&
+          pitchRad > THREE.MathUtils.degToRad(MOBILE2D.lockTiltEpsDeg)
+        ) {
+          const kk = 1 - Math.exp(-dtMs / MOBILE2D.lockEaseTauMs);
+          zc._applyRotation(0, pitchRad * kk, _pivot);
+          camera.updateMatrixWorld();
+        }
+        if (camStore.targetHeadingDeg === null) {
+          const liveH = mapUpHeadingDeg(_focusUp);
+          if (!Number.isNaN(liveH)) {
+            const deltaH = headingDeltaDeg(liveH, 0);
+            if (Math.abs(deltaH) > MOBILE2D.lockHeadingEpsDeg) {
+              const kk = 1 - Math.exp(-dtMs / MOBILE2D.lockEaseTauMs);
+              _qHead.setFromAxisAngle(_focusUp, -THREE.MathUtils.degToRad(deltaH * kk));
+              camera.position.sub(_focus).applyQuaternion(_qHead).add(_focus);
+              camera.up.applyQuaternion(_qHead);
+              camera.quaternion.premultiply(_qHead);
+              camera.updateMatrixWorld();
+            }
+          }
+        }
   };
 
   const stepZoomGlide = () => {
@@ -2408,7 +2569,14 @@ export function attachStylizedTiles(opts: {
           _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
           const liveTiltDeg = THREE.MathUtils.radToDeg(_pivotUp.angleTo(_camBack));
           if (Math.abs(liveTiltDeg - camStore.tiltDeg) > ORCH.tiltMirrorMinDeg) camStore._syncTilt(liveTiltDeg);
-          const liveHeadingDeg = viewHeadingDeg(_focusUp); // same frame as the heading glide
+          // U1: on the /m 2D map the forward-derived heading is DEGENERATE (at nadir any
+          // residual tilt direction defines it — it printed 180.5° on a north-up chart);
+          // mirror the screen-up bearing instead, so the readouts + the `#p=` hash say what
+          // the map shows (and a hash reload restores the same north-up chart).
+          const liveHeadingDeg =
+            isMobileShell && !fpvActive && camStore.mapMode === "2d"
+              ? mapUpHeadingDeg(_focusUp)
+              : viewHeadingDeg(_focusUp); // same frame as the heading glide
           if (!Number.isNaN(liveHeadingDeg)) {
             const wrapped = wrapHeadingDeg(liveHeadingDeg);
             if (Math.abs(headingDeltaDeg(camStore.headingDeg, wrapped)) > ORCH.headingMirrorMinDeg) {
@@ -3144,12 +3312,16 @@ export function attachStylizedTiles(opts: {
       //   (h) FPV pose (9) runs BEFORE the encoders (17/18) — steering applies one frame later.
       // Snapshots (trap b): camNow (step 8) and camStore (step 14) are TWO deliberate store reads with
       //   store mutations between them — the glide/encoder/fly-to region (14-20) reads camStore; never merged.
+      // U1 (/m only; desktop-inert): MobileBuildingsGate runs just before 5 (the attach/detach
+      //   must apply before the tile update it gates) and Mobile2dLocks between 15 and 16 (after
+      //   the manual glides it defers to, before zoom — it needs step 12's focus frame).
       // One try wraps all 36 steps; the throttled catch keeps a single bad frame from freezing the canvas.
       try {
         stepFrameTiming();
         stepZoomBrakeAndEase();
         stepControlsUpdate();
         stepDampedVerticality();
+        stepMobileBuildingsGate();
         stepBuildingsUpdate();
         stepEnrichedUpdate();
         stepFlightUpdate();
@@ -3163,6 +3335,7 @@ export function attachStylizedTiles(opts: {
         stepIdleDrift();
         stepTiltGlide();
         stepHeadingGlide();
+        stepMobile2dLocks();
         stepZoomGlide();
         stepEncoderRates();
         stepFocalEncoder();

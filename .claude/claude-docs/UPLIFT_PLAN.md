@@ -1,7 +1,8 @@
 # UPLIFT_PLAN — mobile UX/perf + desktop uplift (owner 10-point order, 2026-08-17)
 
-**Status: AUTHORED 2026-08-17 (design session; no uplift code yet — P7 meteors shipped the same
-session under IMPLEMENTATION_PLAN Phase 8c).** Owner ask (2026-08-17, verbatim priority order):
+**Status: U1 SHIPPED 2026-08-17b (phone-viewport browser-verified; real-device pass OPEN —
+the slice's exit gate). U2 next.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
+shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both
 performance and stability; 10 points below, "in order of urgency and criticality", to be churned
 over the following sessions. This doc is the canonical schedule + design sketches; each slice is
@@ -146,6 +147,14 @@ mid-FPV would poison any foveation measurement).
 ## 2. The slices
 
 ### U1 — 2D-first mobile navigation (+ pinch hardening) · points 1 + 5
+**SHIPPED 2026-08-17b** (DECISIONS 2026-08-17b-u1-2d-mobile · `mem:project/wip-2026-08-17-u1-2d-mobile`).
+As sketched, with three implementation rulings: the two-finger tilt is the LIBRARY's own
+touch-ROTATE state (no custom gesture layer — the pinch/parallel classifier already exists,
+EnvironmentControls.js:562-585); detach = scene-graph removal + frozen update (three's Raycaster
+does not skip invisible objects — `visible=false` would have left hidden mass under GlobeControls'
+pivot raycast); the idle LEO drift is OFF in 2D (it slid the chart ~3° lon — a map holds still).
+Real-device exit gate OPEN (iPhone 17 Pro / Pixel 6 Pro): pinch suppression + gesture feel
+(MOBILE2D.enter3dTiltDeg / lockEaseTauMs) are tunable on glass.
 **Scope.** /m boots into a top-down, north-up "2D map" over photo tiles + vectors with ALL
 building tilesets detached; a two-finger vertical drag tilts into 3D (buildings attach); a
 `2D` button glides back (buildings detach); FPV exit lands in 2D. Desktop untouched (its 2D
@@ -344,3 +353,8 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
   against the owner's 10-point urgency list (U2 promoted to second — verification of every
   later mobile slice runs through FPV). P7 meteors shipped the same session (Phase 8c line in
   DECISIONS).
+- 2026-08-17b · U1 shipped (see the slice header). Rulings: library touch-ROTATE reused as the
+  tilt gesture · detach = scene-graph removal (Raycaster ignores `visible`) · drift off in 2D ·
+  nadir `#p=` hashes re-land 2D on /m (the mirror writes them) · heading mirrored off SCREEN-UP
+  in 2D (forward-heading degenerate at nadir) · ▦ 3D DETAIL hidden in 2D · exit alt 600 m.
+  Gates 922/922 · astro 0 err. Real-device pass = the open exit gate.

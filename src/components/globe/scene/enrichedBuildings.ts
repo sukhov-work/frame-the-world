@@ -97,6 +97,10 @@ export interface EnrichedBuildingsHandle {
   /** Pass 2 R3 night hook (mirrors BuildingsHandle.setNight — one ephemeris sample drives both
    *  tilesets). Dormant while BUILDINGS.nightWindowGain is 0, wired so the sets can never drift. */
   setNight(sunElevSin: number, up: THREE.Vector3): void;
+  /** /m 2D map mode (UPLIFT U1) — mirrors BuildingsHandle.setActive: `false` removes the group
+   *  from the scene graph and freezes update() (no traversal/streaming/re-seat work); loaded
+   *  cells stay LRU-cached for an instant re-attach. Desktop never calls this. */
+  setActive(on: boolean): void;
   /** Per-building re-seat progress: `epoch` bumps on every frame that WROTE seating deltas,
    *  `quietFrames` counts frames since the last write. The orchestrator invalidates a ready
    *  skyline profile once per settled epoch (PLAN.reseatQuietFrames). */
@@ -533,9 +537,13 @@ export function attachEnrichedBuildings(
     return wrote;
   };
 
+  // /m 2D map mode (UPLIFT U1) — see setActive on the handle.
+  let active = true;
+
   return {
     tiles,
     update() {
+      if (!active) return; // detached: no reveal clock, no streaming, no re-seat writes
       uniforms.uNowMs.value = performance.now(); // F1: advance the shared reveal clock before the draw
       frameNo++;
       if (ENRICHED.reseatToTerrain) {
@@ -677,6 +685,12 @@ export function attachEnrichedBuildings(
         epoch: seatEpochN,
         quietFrames: seatQuietN,
       };
+    },
+    setActive(on) {
+      if (on === active) return;
+      active = on;
+      if (on) scene.add(tiles.group);
+      else scene.remove(tiles.group);
     },
     dispose() {
       cellList.length = 0;
