@@ -12,6 +12,15 @@ memories. If this doc and DECISIONS ever disagree, DECISIONS wins.
 |---|---|---|---|---|
 | Buildings tier 1 — "classic" | OSM (Overpass) | pure-Node extruder (`bake.mjs`) | gridded 3D-Tiles 1.1, per-cell GLBs, per-building `_FEATURE_ID_0`, instanced trees | `enriched/<city>/` |
 | Buildings tier 2 — "o2w" | OSM (tiled XML) | OSM2World jar + re-grid adapter (`bake-osm2world.mjs`) | same tileset CONTRACT as tier 1 (sibling dir/prefix) | `enriched/<city>-o2w/` |
+
+Since 2026-08-19 (U8) BOTH building bakers also emit a `cell-<gi>-<gj>.meta.json` identity
+sidecar per cell — `{ features: [{ id, osm, … }] }` mapping the bake-sequential featureId to
+the stable OSM element id (`w<id>` / `r<id>#<ring>`; o2w adds `cls`). The OSM id can NEVER
+ride `_FEATURE_ID_0` itself (float32 — exact only to 2^24; way ids are ~10^9). Purpose: the
+per-building height-override keys (`ftw:bldg-overrides:v1` + the future BuildingOverrides
+collection) upgrade from re-bake-fragile featureIds to OSM ids at the next re-bake; runtime
+consumption is not built yet. Served/uploaded automatically (`.json` passes the dev middleware
+and upload-r2's extension filter).
 | Terrain patch | Copernicus GLO-30 (30 m DSM, free + commercial w/ attribution) | mago-3d-terrainer jar + post-bake tooling (`scripts/bake/terrain/`) | Cesium quantized-mesh pyramid + layer.json | `terrain/<city>/` |
 
 - **Registry**: `src/lib/globe/regions.ts` — bundled pure data; the ONE source of truth for

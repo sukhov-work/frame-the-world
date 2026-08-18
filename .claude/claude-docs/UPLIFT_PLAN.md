@@ -12,10 +12,11 @@ the AUDIT #2 fix phase closed same day (slices 1–7 shipped, DECISIONS 2026-08-
 browser-verified both shells (gates 1,022/1,022); U7 measured CWT over Dnipro = L13 max /
 4-VERTEX leaf quads (≈2 km effective posting — NOT the assumed SRTM 30 m) — decision memo in
 **Appendix A**, owner calls (GLO-30 bake approval · WorldDEM Neo purchase · C6 patch
-precision · Esri imagery licence rider) OPEN, defaults attached. ACTIVE order: U8 height
-overrides → then P8 conjunctions + P9 lunar eclipses (IMPLEMENTATION_PLAN §Phase 8) + M4
-mobile resume; the U7 GLO-30 bake slice schedules on owner approval. T1 real-device exit gate
-unchanged and still owner-present.** *(Historical: PARKED 2026-08-18j for the audit/fix intermediate phase.)* Originally AUTHORED 2026-08-17 (design session; P7 meteors
+precision · Esri imagery licence rider) OPEN, defaults attached. U7b GLO-30 bake SHIPPED
+2026-08-18p (owner-approved, in-scene verdict POSITIVE 18r). **U8 SHIPPED 2026-08-19 — the
+10-point ladder is COMPLETE.** Next: the owner's announced batch of minor-to-medium
+improvements + UX fixes; then P8 conjunctions + P9 lunar eclipses (IMPLEMENTATION_PLAN
+§Phase 8) + M4 mobile resume. T1 real-device exit gate unchanged and still owner-present.** *(Historical: PARKED 2026-08-18j for the audit/fix intermediate phase.)* Originally AUTHORED 2026-08-17 (design session; P7 meteors
 shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both
 performance and stability; 10 points below, "in order of urgency and criticality", to be churned
@@ -367,7 +368,18 @@ truth depends on this — it feeds U8's "ground zero" reference.
 **DoD.** A decision memo in this doc's appendix (measured level, candidate table with
 cost/licence, recommendation); owner call on purchase; bake slice scheduled if approved.
 
-### U8 — Per-building height override (localStorage) · point 10
+### U8 — Per-building height override (localStorage) · point 10 — SHIPPED 2026-08-19
+
+**SHIPPED 2026-08-19** (DECISIONS 2026-08-19 — the full as-built record) with the owner's
+same-day additions: solid original + semi-transparent ghost juxtaposition during the drag,
+mesh-pinned dual-height indicator, per-edit clamp 0.5×/3× of current height, both shells,
++ the backend PREPARED for the batch-sync phase (overrideRecords + /api/building-overrides +
+BuildingOverrides provision entry — run provision-collections.mjs when that phase starts).
+Gates 1,048/1,048 · astro 0 err; browser-verified both shells (verify-bldg-override.mjs,
+shots u8-01..06). Sketch below preserved as authored (the as-built deviations: the drag is a
+CLAIMED pointer while armed — camera look frozen, no per-building re-hit needed; ghost scale
+rides `scale.y` over rebased geometry, zero per-frame rewrites; hM rides the stored row).
+
 **Scope.** In FPV (both shells): double-tap/double-click an ENRICHED building → it arms for
 extrude (highlight); drag up/down scales its height relative to its own ground zero; release
 persists to this browser's localStorage; overridden buildings render in a distinct tint and
@@ -420,6 +432,13 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
    research). Default: yes, enriched-only.
 
 ## 5. Decision log (append-only)
+- 2026-08-19 · U8 SHIPPED (the ladder's last slice) — per-building height override on the
+  enriched set, both shells: dblclick/double-tap arms · claimed-pointer drag with solid
+  original + ghost preview + pinned dual-height label · owner band 0.5×/3× per edit ·
+  `ftw:bldg-overrides:v1` capped map w/ centroid checksum · scale folded into
+  applyFeatureSeats (commutes with seats) · bakers now emit cell-*.meta.json osmId sidecars ·
+  backend prepared (LWW BuildingOverrides + bulkSave sync endpoint, collection NOT yet
+  provisioned). Full record: DECISIONS 2026-08-19.
 - 2026-08-18p · U7b bake slice shipped (owner approved Appendix A #1, ahead of U8) + the
   best-variant-by-default buildings rule (owner order — BLD/3D DETAIL are a live on/off; the
   registry `lib/globe/regions.ts` owns variants/bboxes/terrain patches; `enrichedVariant` pref

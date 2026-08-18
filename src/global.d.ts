@@ -8,6 +8,7 @@
  * The scene handles (`__globe`/`__renderer`/`__composer`) stay `unknown` — they exist only to be
  * poked at runtime and typing them would couple this file to three; the stores are typed precisely.
  */
+import type { useBldgEditStore } from "./store/bldgEdit";
 import type { useCameraStore } from "./store/camera";
 import type { useTimeStore } from "./store/time";
 import type { useMiniMapStore } from "./store/minimap";
@@ -31,6 +32,7 @@ declare global {
     __pinsStore?: typeof usePinsStore;
     __planStore?: typeof usePlanStore;
     __findStore?: typeof useFindStore;
+    __bldgEditStore?: typeof useBldgEditStore;
     __skyStore?: typeof useSkyStore;
     __saveStore?: typeof useSaveStore;
     __uploadStore?: typeof useUploadStore;

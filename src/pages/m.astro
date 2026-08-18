@@ -10,6 +10,7 @@ import MobileShell from "../components/mobile/MobileShell";
 import MiniMap from "../components/panels/MiniMap";
 import MapWindow from "../components/panels/MapWindow";
 import SkyContextMenu from "../components/panels/SkyContextMenu";
+import BuildingEditChip from "../components/panels/BuildingEditChip";
 ---
 
 <MobileLayout title="Sidera — Mobile">
@@ -27,4 +28,7 @@ import SkyContextMenu from "../components/panels/SkyContextMenu";
        is set; the orchestrator's TOUCH long-press on a sky body is the /m opener). The MiniMap
        fence-exemption precedent applies. -->
   <SkyContextMenu client:only="react" />
+  <!-- U8: the building height-edit chip — the same-island-both-shells precedent (renders only
+       while the orchestrator's bldgEdit mirror is armed; double-tap a building in FPV). -->
+  <BuildingEditChip client:only="react" />
 </MobileLayout>

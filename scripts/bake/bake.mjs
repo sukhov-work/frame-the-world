@@ -85,7 +85,7 @@ async function main() {
     const key = `${gi},${gj}`;
     let cell = cells.get(key);
     if (!cell) { cell = { buildings: [], minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity, maxH: 0 }; cells.set(key, cell); }
-    cell.buildings.push({ ringEN, params, featureId: featureId++ });
+    cell.buildings.push({ ringEN, params, featureId: featureId++, osm: b.osm });
     for (const [lon, lat] of b.ring) {
       if (lon < cell.minLon) cell.minLon = lon; if (lon > cell.maxLon) cell.maxLon = lon;
       if (lat < cell.minLat) cell.minLat = lat; if (lat > cell.maxLat) cell.maxLat = lat;
@@ -153,6 +153,23 @@ async function main() {
     const glb = encodeGlb(out);
     const uri = `cell-${key.replace(",", "-")}.glb`;
     writeFileSync(join(outDir, uri), glb);
+    // U8 identity sidecar: featureId → stable OSM element id (+ inferred heights) per cell.
+    // The OSM id can NEVER ride `_FEATURE_ID_0` itself — the attribute is float32 (exact only
+    // to 2^24; way ids are ~10^9). Served/uploaded automatically (.json passes the dev
+    // middleware and upload-r2's extension filter); the runtime upgrade to OSM-keyed overrides
+    // is the next phase — this bake-side carry is what makes it possible.
+    writeFileSync(
+      join(outDir, uri.replace(/\.glb$/, ".meta.json")),
+      JSON.stringify({
+        features: cell.buildings.map((b) => ({
+          id: b.featureId,
+          osm: b.osm ?? null,
+          base: b.params.base,
+          height: b.params.height,
+          heightSource: b.params.heightSource,
+        })),
+      }),
+    );
     totalVerts += out.positions.length / 3;
     totalBytes += glb.length;
     globalMaxH = Math.max(globalMaxH, cell.maxH);

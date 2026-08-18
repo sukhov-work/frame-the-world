@@ -156,6 +156,24 @@ export function featureRunsOf(ids: ArrayLike<number>): FeatureRun[] {
   return runs;
 }
 
+/** Which run owns vertex index `v`? Binary search over the run starts — `featureRunsOf` appends
+ *  runs in ascending `start` order by construction, so the array is already sorted. Returns the
+ *  run INDEX (the CSR/features-array index, not the baked feature id), or −1 when `v` is outside
+ *  every run. This is the U8 pick path: a non-indexed cell mesh gives `hit.face.a` as a direct
+ *  vertex index into the shared position/feature-id arrays. */
+export function runIndexOfVertex(runs: readonly FeatureRun[], v: number): number {
+  let lo = 0;
+  let hi = runs.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const run = runs[mid];
+    if (v < run.start) hi = mid - 1;
+    else if (v >= run.start + run.count) lo = mid + 1;
+    else return mid;
+  }
+  return -1;
+}
+
 /** Mean of a run's vertices (stride-3 positions) — the terrain-sample point for that building
  *  (horizontal centre; roof verts bias x/z negligibly for prism-like buildings). */
 export function runCentroid(

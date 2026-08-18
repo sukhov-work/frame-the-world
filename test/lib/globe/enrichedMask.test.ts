@@ -11,6 +11,7 @@ import {
   planeDistance,
   regionCenterDeg,
   runCentroid,
+  runIndexOfVertex,
   seatStep,
   vertexKeyToRun,
   type GeoBbox,
@@ -198,6 +199,22 @@ describe("enrichedMask — per-feature run helpers (owner 2026-07-14 per-buildin
     // run 0 owns verts 1 and 3; run 1 owns vert 0
     expect(Array.from(csr.verts.slice(csr.offsets[0], csr.offsets[1]))).toEqual([1, 3]);
     expect(Array.from(csr.verts.slice(csr.offsets[1], csr.offsets[2]))).toEqual([0]);
+  });
+
+  it("runIndexOfVertex binary-searches a vertex index to its owning run (U8 pick path)", () => {
+    const runs = featureRunsOf([7, 7, 7, 42, 42, 9]);
+    // Every vertex maps to its run index; boundaries land on the correct side.
+    expect(runIndexOfVertex(runs, 0)).toBe(0);
+    expect(runIndexOfVertex(runs, 2)).toBe(0);
+    expect(runIndexOfVertex(runs, 3)).toBe(1);
+    expect(runIndexOfVertex(runs, 4)).toBe(1);
+    expect(runIndexOfVertex(runs, 5)).toBe(2);
+    // Out of range on both sides, and the empty table.
+    expect(runIndexOfVertex(runs, -1)).toBe(-1);
+    expect(runIndexOfVertex(runs, 6)).toBe(-1);
+    expect(runIndexOfVertex([], 0)).toBe(-1);
+    // Single-run table.
+    expect(runIndexOfVertex(featureRunsOf([5]), 0)).toBe(0);
   });
 
   it("shared corners between adjacent buildings resolve to the FIRST run (never crash)", () => {

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { BUILDINGS, FPV } from "../tuning";
+import { BUILDINGS, ENRICHED, FPV } from "../tuning";
 import { glf } from "./glsl";
 
 /**
@@ -67,6 +67,12 @@ interface BuildingMaterialUniforms {
   uFtwTileSeed: { value: number };
   uFtwWindow: { value: THREE.Color };
   uFtwUp: { value: THREE.Vector3 };
+  /** U8 armed building — the RAW baked `_feature_id_0` of the run under edit (−1 = none, the
+   *  no-op default; only the enriched consumer ever writes it). Compared against a raw-id
+   *  varying, NOT vFtwBId — that one is seed-polluted by design. */
+  uFtwArmedId: { value: number };
+  /** U8 tint colour (tokens.accent through the D14 bridge). */
+  uFtwAccent: { value: THREE.Color };
 }
 
 export interface BuildingMaterialSet {
@@ -120,6 +126,12 @@ export function createBuildingMaterials(
     // dark), so it reads as lit facades — a flat roof glow read as "buildings painted yellow"
     // (owner 2026-07-13).
     uFtwUp: { value: new THREE.Vector3(0, 0, 1) },
+    // U8 height-override tint: armed id −1 = byte-identical no-op (the toneVariation-0
+    // comparator idiom); the committed tint rides the `_ftw_override` vertex attribute, which
+    // three zero-fills when a geometry doesn't carry it (the `_batchid` precedent above) — so
+    // the OSM instance renders unchanged without any gating.
+    uFtwArmedId: { value: -1 },
+    uFtwAccent: { value: new THREE.Color(tokens.accent) },
   };
 
   fillMat.onBeforeCompile = (shader) => {
@@ -133,6 +145,8 @@ export function createBuildingMaterials(
     shader.uniforms.uFtwTileSeed = uniforms.uFtwTileSeed;
     shader.uniforms.uFtwWindow = uniforms.uFtwWindow;
     shader.uniforms.uFtwUp = uniforms.uFtwUp;
+    shader.uniforms.uFtwArmedId = uniforms.uFtwArmedId;
+    shader.uniforms.uFtwAccent = uniforms.uFtwAccent;
     // Pass 2 R2: carry a stable per-building key to the fragment. The b3dm batch id survives GLTF
     // load as `_batchid` (legacy) or `_feature_id_0` (3D Tiles 1.1 — also what the Slice-1 baker
     // writes per building) — whichever the tile has; the other defaults to 0 (three disables an
@@ -145,14 +159,21 @@ export function createBuildingMaterials(
         `#include <common>
         attribute float _batchid;
         attribute float _feature_id_0;
+        attribute float _ftw_override;
         uniform float uFtwTileSeed;
         varying float vFtwBId;
+        varying float vFtwFid;
+        varying float vFtwOverride;
         varying vec3 vFtwWNormal;`,
       )
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
         vFtwBId = _batchid + _feature_id_0 + uFtwTileSeed;
+        // U8: the RAW id (no seed — comparable against uFtwArmedId) + the committed-override
+        // mask the enriched consumer writes per run (absent attribute → 0 → no tint).
+        vFtwFid = _feature_id_0;
+        vFtwOverride = _ftw_override;
         // R3: world face normal (direction only → float32-safe at ECEF scale, unlike world position).
         // objectNormal is defined by <beginnormal_vertex> above; the tile transform is rigid.
         vFtwWNormal = mat3(modelMatrix) * objectNormal;`,
@@ -170,7 +191,11 @@ export function createBuildingMaterials(
         uniform float uFtwNight;
         uniform vec3 uFtwWindow;
         uniform vec3 uFtwUp;
+        uniform float uFtwArmedId;
+        uniform vec3 uFtwAccent;
         varying float vFtwBId;
+        varying float vFtwFid;
+        varying float vFtwOverride;
         varying vec3 vFtwWNormal;
         ${FTW_BAYER_GLSL}
         ${FTW_HASH_GLSL}`,
@@ -205,6 +230,13 @@ export function createBuildingMaterials(
           // makes mix(1,1,·)=1 → byte-identical to the pre-Pass-2 look (the no-op comparator).
           float ftwTone = ftwHash11(vFtwBId + 11.0);
           diffuseColor.rgb *= mix(${glf(1 - BUILDINGS.toneVariation)}, ${glf(1 + BUILDINGS.toneVariation)}, ftwTone);
+          // U8 height-override tint: the ARMED run (raw-id match vs uFtwArmedId, −1 = none)
+          // reads stronger than a COMMITTED override (the per-vertex mask) — "selected" vs
+          // "edited". Accent through the D14 token bridge; both no-op at their defaults.
+          float ftwArm = (uFtwArmedId >= 0.0 && abs(vFtwFid - uFtwArmedId) < 0.5) ? 1.0 : 0.0;
+          float ftwOvK = max(ftwArm * ${glf(ENRICHED.overrideTintK)},
+            vFtwOverride * ${glf(ENRICHED.overrideTintCommittedK)});
+          diffuseColor.rgb = mix(diffuseColor.rgb, uFtwAccent, ftwOvK);
         }`,
       )
       .replace(

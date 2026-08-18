@@ -226,7 +226,11 @@ async function main() {
         }
       }
       if (pos.length === 0) continue;
-      feats.push({ name: node.name, cls, pos: Float32Array.from(pos), nrm: Float32Array.from(nrm), inv });
+      // U8: the stable OSM element id — OSM2World stamps every kept node with extras.osmId
+      // ("w141472295"; artifact-verified 2026-08-19) and mirrors it in the node name
+      // ("Building w141472295"); either source survives a version drift.
+      const osm = node.extras?.osmId ?? node.name.split(" ")[1] ?? null;
+      feats.push({ name: node.name, cls, osm, pos: Float32Array.from(pos), nrm: Float32Array.from(nrm), inv });
     }
   }
   console.log(`  nodes  kept ${feats.length} (deduped ${dupes})  dropped by class: ${JSON.stringify(droppedClasses)}`);
@@ -273,6 +277,9 @@ async function main() {
     let cell = cells.get(key);
     if (!cell) { cell = { positions: [], normals: [], featureIds: [], minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity, maxH: 0 }; cells.set(key, cell); }
     const id = featureId++;
+    // U8 identity sidecar row: featureId → OSM element id + class (fences/lamps get filtered
+    // by class once the runtime consumes this — today the pick uses a height floor instead).
+    (cell.meta ??= []).push({ id, osm: f.osm, cls: f.cls });
     for (let v = 0; v < nv; v++) {
       const [E, N] = projectEN(lats[v], lons[v], basis);
       // our tileset local frame: gv(e,n,u) = [e, u, −n] — the identical convention to bake.mjs.
@@ -333,6 +340,12 @@ async function main() {
     const glb = encodeGlb(out);
     const uri = `cell-${key.replace(",", "-")}.glb`;
     writeFileSync(join(outDir, uri), glb);
+    // U8 identity sidecar (mirrors bake.mjs): featureId → stable OSM id per cell. Never in
+    // `_FEATURE_ID_0` itself — float32 tops out at 2^24, OSM way ids are ~10^9.
+    writeFileSync(
+      join(outDir, uri.replace(/\.glb$/, ".meta.json")),
+      JSON.stringify({ features: cell.meta ?? [] }),
+    );
     totalVerts += cell.positions.length / 3;
     totalBytes += glb.length;
     globalMaxH = Math.max(globalMaxH, cell.maxH);

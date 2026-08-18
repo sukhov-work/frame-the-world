@@ -21,11 +21,18 @@ import {
   mapVertsToRuns,
   regionCenterDeg,
   runCentroid,
+  runIndexOfVertex,
   seatStep,
   vertexKeyToRun,
   type FeatureRun,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
+import {
+  checksumMatches,
+  NEUTRAL_K_EPS,
+  SCALE_MAX_K,
+  SCALE_MIN_K,
+} from "../../../lib/globe/bldgOverrides";
 import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
 import { makeTileCenterReader } from "./tilePriority";
@@ -92,7 +99,39 @@ import { makeTileFoveation } from "./tileFoveation";
  * (`seatStep`); geometry bounding volumes get a one-time pad (reseatBoundsPadM). `seatState()`
  * exposes an epoch + quiet-frames counter so the orchestrator can invalidate a skyline profile
  * built over pre-seat geometry exactly once, after the writes settle.
+ *
+ * ── U8 — PER-BUILDING HEIGHT OVERRIDE (owner 2026-08-18) ────────────────────────────────────────
+ * Double-click/tap in FPV arms a building; a drag rescales it. This module owns the geometry side:
+ *  · Pick: the fill meshes keep their default raycast (decorations are noop'd for exactly this) —
+ *    a hit on a NON-INDEXED cell mesh gives `face.a` = a direct vertex index (source-verified
+ *    three 0.18x), binary-searched through the cached run table (`runIndexOfVertex`).
+ *  · The override is a SCALE about the building's LIVE base (baseY + appliedM), applied inside
+ *    `applyFeatureSeats` — the ONE writer of the position arrays. A scale about the live base
+ *    commutes with the seat's incremental `+= dy` translation (a later dy shifts base and spans
+ *    together), so the two can never fight; the edge CSR gets the identical formula and the
+ *    settle epoch bumps as usual (skyline/occlusion re-profile for free).
+ *  · Pristine per-run capture at load-model (baseY/topY/centroid X-Z) feeds the checksum that
+ *    invalidates persisted rows after a re-bake, the "original height" display, and the ghost.
+ *  · The GHOST (drag preview) is the run's geometry rebased so the base sits at local y=0 —
+ *    the whole drag is `ghost.scale.y = k`, zero per-frame geometry writes. MeshBasicMaterial,
+ *    transparent, depthTest OFF (reads "on top" through the solid original in grow AND shrink),
+ *    XZ inflated a hair so coincident faces never shimmer. The REAL mesh stays untouched until
+ *    the orchestrator commits via `setHeightScale`.
  */
+
+/** U8 — one resolved building pick (the arm target). `cx/cz/vc` are the pristine checksum
+ *  fields (bake-local metres, un-rounded — the store rounds); `distance` (m) feeds the drag gain. */
+export interface BuildingPick {
+  cellUri: string;
+  featureId: number;
+  bakedHeightM: number;
+  /** Committed scale target (1 = original). */
+  currentK: number;
+  distance: number;
+  cx: number;
+  cz: number;
+  vc: number;
+}
 export interface EnrichedBuildingsHandle {
   tiles: TilesRenderer;
   /** Per-frame: R1 re-seat to the rendered terrain + tile streaming/LOD. */
@@ -124,6 +163,24 @@ export interface EnrichedBuildingsHandle {
    *  `quietFrames` counts frames since the last write. The orchestrator invalidates a ready
    *  skyline profile once per settled epoch (PLAN.reseatQuietFrames). */
   seatState(): { epoch: number; quietFrames: number };
+  /** U8 pick: raycast the enriched fill meshes; the first qualifying hit (baked height ≥
+   *  ENRICHED.overrideMinPickHeightM — skips the o2w fences/lamps) resolves through the cached
+   *  run table. Null = no building under the ray. */
+  pickBuilding(raycaster: THREE.Raycaster): BuildingPick | null;
+  /** U8 commit: set a building's height-scale target (1 = original). The next frames ease the
+   *  REAL mesh there inside applyFeatureSeats (fill + edge CSR + bounds pad + committed tint). */
+  setHeightScale(cellUri: string, featureId: number, k: number): void;
+  /** U8 ghost preview (drag-time). `showGhost` builds the rebased semi-transparent copy over the
+   *  solid original (false = cell not loaded); `setGhostK` is the live drag scale; `hideGhost`
+   *  removes + disposes. At most one ghost exists. */
+  showGhost(cellUri: string, featureId: number): boolean;
+  setGhostK(k: number): void;
+  hideGhost(): void;
+  /** U8 armed-run tint — the RAW baked feature id (null = disarm). */
+  setArmedId(featureId: number | null): void;
+  /** U8: world position of the building's roof centre at height-scale `k` (the pinned
+   *  dual-height label anchor). False when the cell isn't loaded. */
+  buildingTopWorld(cellUri: string, featureId: number, k: number, out: THREE.Vector3): boolean;
   /** DEV introspection (window.__globe) — per-feature re-seat coverage + applied-delta spread. */
   debugSeats(): {
     cells: number;
@@ -132,6 +189,8 @@ export interface EnrichedBuildingsHandle {
     featuresSampled: number;
     featureAppliedMinM: number;
     featureAppliedMaxM: number;
+    /** U8: features with a non-neutral height-scale target (browser-verify probe). */
+    overridden: number;
     trees: number;
     treesSampled: number;
     epoch: number;
@@ -153,6 +212,16 @@ export function attachEnrichedBuildings(
     terrainHeightAt: (latDeg: number, lonDeg: number) => number | null;
     /** UPLIFT U5: the shared download-priority aim state (mirrors attachBuildings.loadAim). */
     loadAim: LoadAim;
+    /** U8: persisted height overrides for THIS variant — consulted per cell at load-model (LRU
+     *  reloads re-apply for free). A checksum mismatch (re-bake reshuffled ids) reports through
+     *  `onInvalid` so the orchestrator drops the stored row. Omit = overrides disabled (the
+     *  `?enriched=<url>` verbatim dev seam has no stable variant identity). */
+    overrides?: {
+      forCell(
+        cellUri: string,
+      ): Array<{ featureId: number; k: number; cx: number; cz: number; vc: number }>;
+      onInvalid(cellUri: string, featureId: number): void;
+    };
   },
 ): EnrichedBuildingsHandle {
   const tiles = new TilesRenderer(opts.url);
@@ -244,14 +313,25 @@ export function attachEnrichedBuildings(
     lonDeg: number;
     seatM: number | null; // sticky last-good terrain at the footprint
     appliedM: number | null; // delta currently baked into the geometry (null = on the cell plane)
+    // U8 — pristine per-run capture (load-model, BEFORE any write; Y mutates afterward):
+    baseY: number; // pristine min local Y (the building's base)
+    topY: number; // pristine max local Y (baked height = topY − baseY)
+    cx: number; // pristine centroid X/Z (bake-local m) — checksum + ghost inflate centre
+    cz: number;
+    scaleK: number; // height-scale TARGET (1 = original; set by commit / persisted rows)
+    appliedK: number; // scale currently baked into the geometry (eases toward scaleK)
   }
   interface MeshPart {
     mesh: THREE.Mesh;
     posAttr: THREE.BufferAttribute;
     edgeAttr: THREE.BufferAttribute | null;
+    edgeGeom: THREE.BufferGeometry | null; // U8: bounds-pad growth needs the edge geometry too
     /** Edge-vertex indices bucketed per feature run (CSR) — built from the pristine buffers. */
     edgeCsr: { offsets: Int32Array; verts: Int32Array } | null;
+    runs: FeatureRun[]; // the runIndexOfVertex table (same objects features[].run wrap)
     features: FeatureSeat[];
+    runIdx: Map<number, number>; // baked feature id → features[] index (pick / override apply)
+    extraPadM: number; // U8: bounds radius already grown past the base reseat pad
     cursor: number; // round-robin feature sampling cursor
   }
   interface TreeSet {
@@ -264,6 +344,7 @@ export function attachEnrichedBuildings(
   }
   interface CellSeat {
     scene: THREE.Object3D;
+    uri: string; // U8 — the baked content uri basename ("cell-10-10.glb"): env-invariant identity
     latDeg: number;
     lonDeg: number;
     up: THREE.Vector3; // geodetic up at the CELL centre, in the (unrotated) group frame
@@ -277,6 +358,63 @@ export function attachEnrichedBuildings(
   }
   const cellList: CellSeat[] = [];
   const cellByScene = new Map<THREE.Object3D, CellSeat>();
+  // U8 registries: cell identity for the persistence key + mesh → registry for the pick path.
+  const cellByUri = new Map<string, CellSeat>();
+  const partByMesh = new Map<THREE.Mesh, { cell: CellSeat; part: MeshPart }>();
+  // U8 ghost (at most one — the drag preview). Owns its geometry; material is shared below.
+  let ghost: { mesh: THREE.Mesh; geom: THREE.BufferGeometry; cellScene: THREE.Object3D } | null =
+    null;
+  const ghostMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(tokens.accent), // D14: GL colour through the token bridge
+    transparent: true,
+    opacity: ENRICHED.overrideGhostOpacity,
+    depthTest: false, // "on top" through the solid original — grow AND shrink stay readable
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const hideGhostImpl = () => {
+    if (!ghost) return;
+    ghost.mesh.parent?.remove(ghost.mesh);
+    ghost.geom.dispose();
+    ghost = null;
+  };
+  /** U8: committed-override tint mask (`_ftw_override`, Uint8 normalized — the shared building
+   *  shader zero-fills geometries without it, so the attribute is created lazily on first use). */
+  const setOverrideTint = (part: MeshPart, runI: number, on: boolean) => {
+    const geom = part.mesh.geometry as THREE.BufferGeometry;
+    let attr = geom.getAttribute("_ftw_override") as THREE.BufferAttribute | undefined;
+    if (!attr) {
+      if (!on) return;
+      attr = new THREE.BufferAttribute(new Uint8Array(part.posAttr.count), 1, true);
+      geom.setAttribute("_ftw_override", attr);
+    }
+    const { start, count } = part.features[runI].run;
+    (attr.array as Uint8Array).fill(on ? 255 : 0, start, start + count);
+    attr.needsUpdate = true;
+  };
+  /** U8: a tall override can outgrow the one-time reseat bounds pad — grow the fill+edge
+   *  bounding spheres by the extra height (monotonic; shrink never un-grows, harmless). */
+  const growBoundsFor = (part: MeshPart, f: FeatureSeat, k: number) => {
+    const need = Math.max(0, (f.topY - f.baseY) * (k - 1));
+    if (need <= part.extraPadM) return;
+    for (const g of [part.mesh.geometry as THREE.BufferGeometry, part.edgeGeom]) {
+      if (g?.boundingSphere) g.boundingSphere.radius += need - part.extraPadM;
+    }
+    part.extraPadM = need;
+  };
+  /** U8: resolve (cellUri, featureId) → the live registry entry, or null while unloaded. */
+  const findFeature = (
+    cellUri: string,
+    featureId: number,
+  ): { cell: CellSeat; part: MeshPart; f: FeatureSeat; runI: number } | null => {
+    const cell = cellByUri.get(cellUri);
+    if (!cell) return null;
+    for (const part of cell.parts) {
+      const runI = part.runIdx.get(featureId);
+      if (runI !== undefined) return { cell, part, f: part.features[runI], runI };
+    }
+    return null;
+  };
   let rrCursor = 0;
   // Per-building re-seat state: sampling cursors + the settle telemetry for seatState().
   let frameNo = 0;
@@ -299,8 +437,13 @@ export function attachEnrichedBuildings(
       const up = new THREE.Vector3();
       WGS84_ELLIPSOID.getCartographicToNormal((c.latDeg * Math.PI) / 180, (c.lonDeg * Math.PI) / 180, up);
       const ecef = geodeticToEcef(c.latDeg, c.lonDeg, 0);
+      // U8: the baked content uri BASENAME ("cell-10-10.glb") — authored relative by the baker
+      // and left untouched by the library, so it's byte-identical between the dev middleware
+      // and the R2 worker (basename defensively, in case a library version absolutizes).
+      const uri = String(e.tile?.content?.uri ?? "").split("/").pop() ?? "";
       cell = {
         scene: e.scene,
+        uri,
         latDeg: c.latDeg,
         lonDeg: c.lonDeg,
         up,
@@ -314,6 +457,7 @@ export function attachEnrichedBuildings(
       };
       cellList.push(cell);
       cellByScene.set(e.scene, cell);
+      if (uri) cellByUri.set(uri, cell);
     }
     e.scene.traverse((c: any) => {
       // Trees FIRST — InstancedMesh passes `isMesh` too, and must NOT get the building material,
@@ -387,14 +531,68 @@ export function attachEnrichedBuildings(
               if (!g.boundingSphere) g.computeBoundingSphere();
               if (g.boundingSphere) g.boundingSphere.radius += ENRICHED.reseatBoundsPadM;
             }
-            cell.parts.push({
+            // U8: pristine per-run capture (base/top Y + centroid X/Z) — MUST happen here,
+            // before any seat write mutates Y. Baked height, checksum and ghost all read these.
+            const posArr = posAttr.array as Float32Array;
+            const runIdx = new Map<number, number>();
+            const features: FeatureSeat[] = runs.map((run, i) => {
+              runIdx.set(run.id, i);
+              let baseY = Infinity;
+              let topY = -Infinity;
+              let sx = 0;
+              let sz = 0;
+              for (let v = run.start; v < run.start + run.count; v++) {
+                const y = posArr[v * 3 + 1];
+                if (y < baseY) baseY = y;
+                if (y > topY) topY = y;
+                sx += posArr[v * 3];
+                sz += posArr[v * 3 + 2];
+              }
+              const n = Math.max(1, run.count);
+              return {
+                run,
+                latDeg: 0,
+                lonDeg: 0,
+                seatM: null,
+                appliedM: null,
+                baseY,
+                topY,
+                cx: sx / n,
+                cz: sz / n,
+                scaleK: 1,
+                appliedK: 1,
+              };
+            });
+            const part: MeshPart = {
               mesh: c,
               posAttr,
               edgeAttr,
+              edgeGeom: edges.geometry,
               edgeCsr,
-              features: runs.map((run) => ({ run, latDeg: 0, lonDeg: 0, seatM: null, appliedM: null })),
+              runs,
+              features,
+              runIdx,
+              extraPadM: 0,
               cursor: 0,
-            });
+            };
+            cell.parts.push(part);
+            partByMesh.set(c, { cell, part });
+            // U8: re-apply persisted overrides — LRU-evicted cells come back pristine, so
+            // load-model is the ONE re-entry point. A checksum miss (re-bake reshuffled the
+            // bake-sequential ids) invalidates the stored row instead of rescaling a stranger.
+            if (opts.overrides && cell.uri) {
+              for (const row of opts.overrides.forCell(cell.uri)) {
+                const i = runIdx.get(row.featureId);
+                const f = i === undefined ? undefined : features[i];
+                if (!f || !checksumMatches(row, f.cx, f.cz, f.run.count)) {
+                  opts.overrides.onInvalid(cell.uri, row.featureId);
+                  continue;
+                }
+                f.scaleK = Math.max(SCALE_MIN_K, Math.min(SCALE_MAX_K, row.k));
+                growBoundsFor(part, f, f.scaleK);
+                setOverrideTint(part, i as number, true);
+              }
+            }
           }
         }
       }
@@ -404,6 +602,11 @@ export function attachEnrichedBuildings(
     const cell = cellByScene.get(e.scene);
     if (cell) {
       cellByScene.delete(e.scene);
+      // U8 registries + a mid-drag ghost die with their cell (the orchestrator's armed state
+      // survives — the override re-applies when the cell streams back).
+      if (cell.uri && cellByUri.get(cell.uri) === cell) cellByUri.delete(cell.uri);
+      for (const part of cell.parts) partByMesh.delete(part.mesh);
+      if (ghost && ghost.cellScene === e.scene) hideGhostImpl();
       const i = cellList.indexOf(cell);
       if (i !== -1) {
         cellList[i] = cellList[cellList.length - 1]; // swap-pop; round-robin order is irrelevant
@@ -531,26 +734,58 @@ export function attachEnrichedBuildings(
         const edgePos = part.edgeAttr ? (part.edgeAttr.array as Float32Array) : null;
         for (let r = 0; r < part.features.length; r++) {
           const f = part.features[r];
-          if (f.seatM == null) continue; // unsampled → stays on the cell plane
-          let target = f.seatM - cell.seatM;
-          // Poisoned pair (browser-caught): the CELL seat can itself be streaming-time garbage
-          // when a feature samples — the pair then looks plausible until the cell corrects and
-          // the stale feature seat drags the building tens of metres. An implausible delta at
-          // APPLY time collapses back to the cell plane and re-samples on the next round-robin.
-          if (Math.abs(target) > ENRICHED.reseatFeatureMaxDeltaM) {
-            f.seatM = null;
-            target = 0;
+          // Seat translation step (unchanged law): unsampled features stay on the cell plane.
+          let dy = 0;
+          if (f.seatM != null) {
+            let target = f.seatM - cell.seatM;
+            // Poisoned pair (browser-caught): the CELL seat can itself be streaming-time garbage
+            // when a feature samples — the pair then looks plausible until the cell corrects and
+            // the stale feature seat drags the building tens of metres. An implausible delta at
+            // APPLY time collapses back to the cell plane and re-samples on the next round-robin.
+            if (Math.abs(target) > ENRICHED.reseatFeatureMaxDeltaM) {
+              f.seatM = null;
+              target = 0;
+            }
+            const next = seatStep(f.appliedM, target, ENRICHED.reseatEaseK);
+            if (f.appliedM == null || Math.abs(next - f.appliedM) >= 0.01) {
+              dy = next - (f.appliedM ?? 0);
+              f.appliedM = next;
+            }
           }
-          const next = seatStep(f.appliedM, target, ENRICHED.reseatEaseK);
-          if (f.appliedM != null && Math.abs(next - f.appliedM) < 0.01) continue; // settled
-          const dy = next - (f.appliedM ?? 0);
-          f.appliedM = next;
+          // U8 height-override step: ease appliedK toward the committed target. The write is a
+          // scale about the LIVE base (baseY + appliedM) — it commutes with the translation
+          // above (a later dy shifts base and spans together), so seat and override never fight;
+          // the poisoned-pair collapse is a pure translation and passes through the scale intact.
+          let ratio = 1;
+          if (f.scaleK !== f.appliedK) {
+            let nextK = f.appliedK + (f.scaleK - f.appliedK) * ENRICHED.overrideEaseK;
+            if (Math.abs(f.scaleK - nextK) < 0.002) nextK = f.scaleK; // snap the ease tail
+            ratio = nextK / f.appliedK;
+            f.appliedK = nextK;
+          }
+          if (dy === 0 && ratio === 1) continue; // settled
+          const liveBase = f.baseY + (f.appliedM ?? 0);
           const { start, count } = f.run;
-          for (let i = start; i < start + count; i++) pos[i * 3 + 1] += dy;
+          if (ratio === 1) {
+            for (let i = start; i < start + count; i++) pos[i * 3 + 1] += dy;
+          } else {
+            for (let i = start; i < start + count; i++) {
+              const y = pos[i * 3 + 1] + dy;
+              pos[i * 3 + 1] = liveBase + (y - liveBase) * ratio;
+            }
+          }
           touchedFill = true;
           if (edgePos && part.edgeCsr) {
             const { offsets, verts } = part.edgeCsr;
-            for (let j = offsets[r]; j < offsets[r + 1]; j++) edgePos[verts[j] * 3 + 1] += dy;
+            if (ratio === 1) {
+              for (let j = offsets[r]; j < offsets[r + 1]; j++) edgePos[verts[j] * 3 + 1] += dy;
+            } else {
+              for (let j = offsets[r]; j < offsets[r + 1]; j++) {
+                const vi = verts[j] * 3 + 1;
+                const y = edgePos[vi] + dy;
+                edgePos[vi] = liveBase + (y - liveBase) * ratio;
+              }
+            }
           }
         }
         if (touchedFill) {
@@ -722,10 +957,103 @@ export function attachEnrichedBuildings(
       treeMat.color.copy(treeBaseColor).multiplyScalar(1 - TREES.nightDim * night);
     },
     seatState: () => ({ epoch: seatEpochN, quietFrames: seatQuietN }),
+    pickBuilding(raycaster) {
+      // Fill meshes keep default raycast; edges/trees/ghost are noop'd — hits here are either
+      // registered building fills or upstream scenery, and only the former resolve.
+      for (const hit of raycaster.intersectObject(tiles.group, true)) {
+        const reg = partByMesh.get(hit.object as THREE.Mesh);
+        const a = (hit as { face?: { a: number } }).face?.a;
+        if (!reg || typeof a !== "number") continue;
+        const r = runIndexOfVertex(reg.part.runs, a);
+        if (r < 0) continue;
+        const f = reg.part.features[r];
+        const bakedHeightM = f.topY - f.baseY;
+        // The o2w bake keeps fences/walls/lamps as runs with no runtime class signal (yet —
+        // the meta sidecar lands at the next re-bake): a height floor keeps the gesture on
+        // actual massing, falling through to the building BEHIND the fence.
+        if (bakedHeightM < ENRICHED.overrideMinPickHeightM) continue;
+        if (!reg.cell.uri) return null; // verbatim dev tileset — no stable identity
+        return {
+          cellUri: reg.cell.uri,
+          featureId: f.run.id,
+          bakedHeightM,
+          currentK: f.scaleK,
+          distance: hit.distance,
+          cx: f.cx,
+          cz: f.cz,
+          vc: f.run.count,
+        };
+      }
+      return null;
+    },
+    setHeightScale(cellUri, featureId, k) {
+      const found = findFeature(cellUri, featureId);
+      if (!found) return;
+      const clamped = Math.max(SCALE_MIN_K, Math.min(SCALE_MAX_K, k));
+      found.f.scaleK = clamped;
+      growBoundsFor(found.part, found.f, clamped);
+      setOverrideTint(found.part, found.runI, Math.abs(clamped - 1) >= NEUTRAL_K_EPS);
+    },
+    showGhost(cellUri, featureId) {
+      hideGhostImpl();
+      const found = findFeature(cellUri, featureId);
+      if (!found) return false;
+      const { cell, part, f } = found;
+      const pos = part.posAttr.array as Float32Array;
+      const { start, count } = f.run;
+      const liveBase = f.baseY + (f.appliedM ?? 0);
+      const inflate = ENRICHED.overrideGhostInflate;
+      // Rebase the run so the building base sits at local y=0 and spans are BAKED-relative
+      // (divide out the committed appliedK) — the whole drag is then `scale.y = k`, zero
+      // per-frame geometry writes. XZ inflates a hair about the centroid so the ghost's walls
+      // sit just proud of the original's (no coincident-face shimmer).
+      const arr = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const s = (start + i) * 3;
+        arr[i * 3] = (pos[s] - f.cx) * inflate + f.cx;
+        arr[i * 3 + 1] = (pos[s + 1] - liveBase) / f.appliedK;
+        arr[i * 3 + 2] = (pos[s + 2] - f.cz) * inflate + f.cz;
+      }
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+      const mesh = new THREE.Mesh(geom, ghostMat);
+      mesh.raycast = () => {}; // GlobeControls raycasts the scene — never pick the preview
+      mesh.renderOrder = 20; // draw after the opaque city (depthTest is off anyway)
+      mesh.frustumCulled = false; // one short-lived mesh; not worth re-deriving scaled bounds
+      mesh.position.y = liveBase; // parented to part.mesh → group/cell seats apply for free
+      mesh.scale.y = f.appliedK;
+      part.mesh.add(mesh);
+      // TilesGroup trap (module header): updateMatrixWorld does NOT recurse into cell children
+      // unless the GROUP matrix changed — force the ghost's own compose or it renders with an
+      // identity local matrix (browser-caught 2026-08-19: invisible ghost, label correct).
+      mesh.updateMatrixWorld(true);
+      ghost = { mesh, geom, cellScene: cell.scene };
+      return true;
+    },
+    setGhostK(k) {
+      if (!ghost) return;
+      ghost.mesh.scale.y = Math.max(0.05, k);
+      ghost.mesh.updateMatrixWorld(true); // same TilesGroup trap — every write forces
+    },
+    hideGhost: hideGhostImpl,
+    setArmedId(featureId) {
+      uniforms.uFtwArmedId.value = featureId ?? -1;
+    },
+    buildingTopWorld(cellUri, featureId, k, out) {
+      const found = findFeature(cellUri, featureId);
+      if (!found) return false;
+      const { f } = found;
+      const liveBase = f.baseY + (f.appliedM ?? 0);
+      out
+        .set(f.cx, liveBase + (f.topY - f.baseY) * k, f.cz)
+        .applyMatrix4(found.part.mesh.matrixWorld);
+      return true;
+    },
     debugSeats() {
       let located = 0;
       let features = 0;
       let featuresSampled = 0;
+      let overridden = 0;
       let lo = Infinity;
       let hi = -Infinity;
       let trees = 0;
@@ -735,6 +1063,7 @@ export function attachEnrichedBuildings(
         for (const part of cell.parts) {
           features += part.features.length;
           for (const f of part.features) {
+            if (Math.abs(f.scaleK - 1) >= NEUTRAL_K_EPS) overridden++;
             if (f.seatM == null) continue;
             featuresSampled++;
             if (f.appliedM != null) {
@@ -755,6 +1084,7 @@ export function attachEnrichedBuildings(
         featuresSampled,
         featureAppliedMinM: lo,
         featureAppliedMaxM: hi,
+        overridden,
         trees,
         treesSampled,
         epoch: seatEpochN,
@@ -768,8 +1098,12 @@ export function attachEnrichedBuildings(
       else scene.remove(tiles.group);
     },
     dispose() {
+      hideGhostImpl();
+      ghostMat.dispose();
       cellList.length = 0;
       cellByScene.clear();
+      cellByUri.clear();
+      partByMesh.clear();
       nearestCell = null;
       tiles.dispose();
       styleMat.dispose();
