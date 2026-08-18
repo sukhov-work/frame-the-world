@@ -17,7 +17,7 @@ import type { StreetLabelFeat, VectorTilesHandle } from "./vectorTiles";
  * street zoom the entire budget sat off-screen. Selection now projects candidate anchors
  * through the camera (margin STREETS.viewMarginNdc), long streets carry repeat anchors
  * (vectorTiles v4) held apart by a same-name separation, and label WORLD size scales up at
- * altitude so the smallest tier stays legible (STREETS.minTextPx) — at street level the scale
+ * altitude so the smallest tier stays legible (STREETS.textPxTarget) — at street level the scale
  * floors at 1 and the v3 "road paint" reading is unchanged.
  *
  * Float32 safety: the quad geometry is a unit plane (local coords ≤ 0.5); the ECEF magnitude

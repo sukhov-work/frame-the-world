@@ -3,6 +3,7 @@ import {
   geodeticToEcef,
   enuBasis,
   cameraForward,
+  dirAzAltDeg,
   length,
   WGS84_A,
   WGS84_B,
@@ -59,5 +60,31 @@ describe("cameraForward heading/pitch at (0,0)", () => {
     for (const hp of [[0, 0], [37, 12], [270, -45], [180, 80]] as const) {
       expect(length(cameraForward(10, 20, hp[0], hp[1]))).toBeCloseTo(1, 6);
     }
+  });
+});
+
+describe("dirAzAltDeg — dir→bearing against an ENU basis (audit-2 A5 fold; inverse of cameraForward)", () => {
+  const toXyz = (v: readonly [number, number, number]) => ({ x: v[0], y: v[1], z: v[2] });
+
+  it("round-trips cameraForward for a grid of heading/pitch at Dnipro", () => {
+    const basis = enuBasis(48.4647, 35.0462);
+    for (const [h, p] of [[0, 0], [90, 0], [180, 45], [270, -30], [359.5, 80], [37.2, -12.8]] as const) {
+      const { azDeg, altDeg } = dirAzAltDeg(toXyz(cameraForward(48.4647, 35.0462, h, p)), basis);
+      expect(azDeg).toBeCloseTo(h, 5);
+      expect(altDeg).toBeCloseTo(p, 5);
+    }
+  });
+
+  it("wraps azimuth to [0,360) — a due-west direction reads 270, never −90", () => {
+    const basis = enuBasis(0, 0);
+    const { azDeg } = dirAzAltDeg(toXyz(cameraForward(0, 0, 270, 0)), basis);
+    expect(azDeg).toBeCloseTo(270, 6);
+    expect(azDeg).toBeGreaterThanOrEqual(0);
+  });
+
+  it("clamps the up-dot: a straight-up direction is exactly +90 alt, no NaN", () => {
+    const basis = enuBasis(45, 45);
+    const { altDeg } = dirAzAltDeg(toXyz(basis.up), basis);
+    expect(altDeg).toBeCloseTo(90, 6);
   });
 });

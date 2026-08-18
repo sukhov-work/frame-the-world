@@ -51,10 +51,12 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
 - The orchestrator owns: camera pose, GlobeControls, idle drift, per-frame gate evaluation, the
   try/catch around the frame, and `__globe` DEV introspection. New scene features (frustum, sky,
   pins) follow the same attach-module shape.
-  **NOTE (updated 2026-08-13, audit D6 — the 2026-07-11 note had gone stale):** B19 completed
-  2026-07-11 as ~36 named step-closures (STRUCTURE, not line count, was the accepted resolution);
-  `StylizedTiles.ts` is **3263 lines as of 2026-08-15** and remains the one sanctioned orchestrator.
-  Any further decomposition is backlog material via an audit slice, never a drive-by refactor.
+  **NOTE (updated 2026-08-18, audit-2 A6 — counts keep re-staling, so this note now carries
+  NONE):** `StylizedTiles.ts` is the ONE sanctioned orchestrator, organized as named
+  step-closures in a load-bearing ORDER (producer→consumer bands — the in-file ORDER header is
+  the contract). Do not cite step/line counts here or in the file header; they drift within
+  days. Any decomposition is backlog material via an audit slice (the named extraction ladder
+  lives in the audit-2 report §Fitness), never a drive-by refactor.
 - **Encoder controls** (ROTATE/ZOOM/FOCAL) are spring-centred RATE controls: deflection = speed, release
   springs to zero, one rAF low-pass per param through the SAME rotation/dolly path as the absolute glides.
   **FPV** = the camera pinned at the frustum apex at the photo's own FOV (`controls.enabled = false` →
@@ -75,3 +77,14 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
 - Anything camera-relative must respect GlobeControls' **dynamic far plane** (it once hid both the
   starfield and the atmosphere's far hemisphere).
 - Keep `tuning.ts` import-safe for non-globe code (GlobeCanvas, tests): pure TS module, no WebGL.
+- **Pan on the raw `focusHit`, never the deadband copy** (U4 owner round, 2026-08-18h): the
+  camera/pan math consumes the LIVE per-frame focus hit; the deadband-quantized copy exists only
+  to gate ephemeris rebuilds. Wiring pan to the quantized copy makes centring visibly sticky.
+- **3d-tiles-renderer 0.4.28 internals** (installed-source facts — re-verify on ANY version
+  bump, they are undocumented): download comparator = sort-then-POP (return 1 ⇒ runs FIRST);
+  tile fields live at `tile.traversal.*` / `tile.internal.*` (the old `__dunder` fields are
+  GONE); a custom `priorityCallback` must stay total on non-tile items; `loadAncestors=false`
+  must always pair with an explicit comparator. Crib: `mem:project/wip-2026-08-18-u5-loading`.
+- **Absolute-ECEF placement is sanctioned ONLY at far-shell distance** (ghost impostors: angular
+  error ≪ 1 px at shell range). Copy that pattern to GROUND scale and you recreate the float32
+  cancellation trap above — anything near the surface stays camera-anchored/local-frame.

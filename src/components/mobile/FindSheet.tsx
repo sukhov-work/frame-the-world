@@ -89,7 +89,7 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
   useEffect(
     () => () => {
       useFindStore.getState().setOpen(false);
-      useFindStore.getState()._syncGhosts(null, []);
+      useFindStore.getState().publishGhosts(null, []);
     },
     [],
   );
@@ -153,7 +153,7 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
       illum: h.body === "moon" ? h.moonIllum : 0,
       colorIdx: findStandingColorIdx(h.body, h.utcMs),
     }));
-    useFindStore.getState()._syncGhosts({ latDeg: latKey / 20, lonDeg: lonKey / 20 }, ghosts);
+    useFindStore.getState().publishGhosts({ latDeg: latKey / 20, lonDeg: lonKey / 20 }, ghosts);
     // eslint-disable-next-line react-hooks/exhaustive-deps — baseMs rides minuteKey via hits
   }, [hits, latKey, lonKey, rangeDays]);
 

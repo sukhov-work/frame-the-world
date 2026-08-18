@@ -101,8 +101,16 @@ React islands. They communicate ONLY through the zustand stores, in two directio
 - **Mirror (globe → React):** an orchestrator-written *snapshot* of live scene state at LOW cadence (never
   60 fps — same discipline as `store/time`), read by panels for readouts — e.g. `camera._syncHeading`,
   `camera._syncTilt`, `camera.fpvHud`, `pins._syncHover`. Mirror setters are **`_`-prefixed** (orchestrator-only).
+- **Panel-published feed (the inverse seam, sanctioned 2026-08-14 FIND v2):** when a PANEL is the
+  producer and the globe the reader (`find.publishGhosts`), the setter is a plain un-prefixed
+  verb — the `_` prefix stays reserved for orchestrator-written mirrors (audit-2 A3 rename,
+  2026-08-18; `_syncGhosts` was the contradiction).
 - Rule: a per-frame globe read must NEVER trigger a React re-render (use `getState()`, not the hook);
   mirrors are throttled so the idle LEO drift never spams React or the Wix Data viewport query.
+- **Mirrors never SEAT geometry (trap, browser-caught 2026-08-18h):** a deadband-quantized store
+  mirror is for READOUTS; anything that positions scene geometry (a seat, an anchor, a cone
+  centre) must resolve LIVE in the orchestrator frame — a 0.02° stale mirror seat is ~2 km of
+  visible offset. Static fence: `test/components/globe/fences.test.ts` (scene→store imports).
 
 ## DEV-seam global registry (deliberate — do not "clean up")
 In `import.meta.env.DEV` only, the orchestrator/stores expose typed globals for browser verification

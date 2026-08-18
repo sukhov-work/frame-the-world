@@ -71,12 +71,13 @@ DNIPRO_3D_ENRICHMENT_PLAN.md` · `rendering/RENDERING_QUALITY_PASS.md`; mechanic
   store mirror → **desktop panel first** → mobile sheet second (a mobile surface never precedes its
   desktop twin). Schedule: `IMPLEMENTATION_PLAN.md §Phase 8` (8a–8e); feature spec + evidence:
   `MOBILE_PLAN.md §5`; mobile twins: M1/M3–M6.
-- **Planner engines as built (2026-08-15):** the ladder's pure-lib layer now spans
+- **Planner engines as built (2026-08-18):** the ladder's pure-lib layer now spans
   `lib/ephemeris/{frameFinder, sunEventFrame, twilight, mwSeason, moonCalendar, targets, topo,
-  comet}` (frame-as-query day scans + sunsets-in-frame, twilight bands, MW season/darkness, moon
-  quarters/apsides, the SkyTarget provider registry, topocentric corrections, and the
-  universal-variable comet/asteroid propagator) alongside the original `planner`/`golden`/
-  `moonlight`/`dayArc`.
+  comet, showers, azSector}` (frame-as-query day scans + sunsets-in-frame, twilight bands, MW
+  season/darkness, moon quarters/apsides, the SkyTarget provider registry, topocentric
+  corrections, the universal-variable comet/asteroid propagator, P7 meteor showers — IMO cal2026
+  + λ☉ anchor + Jenniskens activity profile — and the U4 rise→set azimuth-sector sampler feeding
+  the aim cones) alongside the original `planner`/`golden`/`moonlight`/`dayArc`.
 
 ## 5. Data model — Wix Data Collections (ADR D7) [as-built; rewritten 2026-08-13, audit D7]
 > No geospatial operator → geohash-prefix `hasSome` + client refine. Denormalize hot fields into `PublicPins`.
@@ -106,7 +107,7 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
 | `POST /api/analyze` | premium-gate → Wix AI (Claude) + **downsized JPEG** + desired-condition prompt → suggestions | ~1 credit; never RAW. **PLANNED — Phase 7** |
 | `POST /api/moderate` | Claude moderation pass on a preview before publishing a public pin | C6 gate. **PLANNED — Phase 7** |
 
-## 7. Component responsibilities (`src/`, as built 2026-08-15)
+## 7. Component responsibilities (`src/`, as built 2026-08-18)
 - `components/globe/` (`client:only`, **design imports never write here**): `GlobeCanvas` (renderer/composer/
   bloom/GTAO seam + quality tier), `StylizedTiles` (orchestrator: camera, controls, the ~40-step per-frame
   loop, FPV, glides, pins/sky/plan sync — the `load-model` material override lives in
@@ -116,7 +117,9 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   skyTarget, skyTrail, skyGhosts, skyNames, findGhosts (FIND v2 in-frame standings — rings +
   phase-lit body pictures + per-hit day-arc paths, 2026-08-14), buildings, buildingMaterial,
   enrichedBuildings, imageryGround, vectorTiles, vectorFeatures, streetNames,
-  geoLabels, minimapFeed, planFeed, graticule, glsl).
+  geoLabels, minimapFeed, planFeed, graticule, glsl, aimCones (U4 direction lines + rise→set
+  visibility cones on the ground plane, 2026-08-18), tilePriority (U5 closest-first download
+  comparator adapter + queue caps, 2026-08-18)).
 - `components/panels/` (design imports allowed): `UploadFlow` (dropzone→worker), `PhotoDetailPanel` (EXIF
   sliders/encoders + save/update/delete), `TimeScrubber`+`TimeReadout` (scrub + playback + light bands),
   `LocationFinder` (geocode + sky-object search → fly-to/track), `CameraTiltPanel` (compass/2D-3D/
@@ -128,9 +131,13 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   chronology + ICS export), `MoonCalCard` (quarters/apsides/supermoons), `SpotStarsCard` (NPF),
   `TargetPanel` (tracked sky target), `SkyContextMenu` (right-click/long-press sky menu),
   `MiniMap` (FPV), `Marketplace` (browse panel), `Guide` (the in-app guide, G1 2026-08-15 —
-  absorbed the former `Faq.tsx`/`faqContent.ts`/`faq.css`, now DELETED).
+  absorbed the former `Faq.tsx`/`faqContent.ts`/`faq.css`, now DELETED), `MeteorsCard` (P7
+  shower windows + ZHR cards, 2026-08-17), `MapWindow` (U3 fullscreen slippy 2D map twin over
+  `lib/geo/slippy.ts` + `styles/map-window.css`, 2026-08-18).
   `components/ui/`: `Slider`, `Encoder`, `InfoDot`, `DragGrip`. *(`AiPanel` = Phase 7, PARKED — out of all plans per owner 2026-08-11.)*
-- `components/mobile/` (M0–M3 shipped, planning-first shell — owner 2026-08-11/13): thin consumers of
+- `components/mobile/` (M0–M3 shipped, planning-first shell — owner 2026-08-11/13; **U1
+  2026-08-17: /m boots 2D-first** — the 3D globe is opt-in per session, buildings detach in 2D
+  map mode): thin consumers of
   the SAME stores/libs mounted by `src/pages/m.astro` + `layouts/MobileLayout.astro`: `MobileShell`,
   `TabBar`, `Sheet`, `PlanSheet`, `FindSheet`, `TargetSheet`, `TargetPeek`, `GuideSheet` (G1),
   `MobileTimeDock` (conveyor dock v2), `FpvControls` (touch pads), `SceneActions`, `MobileSearch`,
@@ -141,11 +148,14 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
   sunEventFrame, moonCalendar, targets, topo, comet — see §4), `sky/` (catalog, searchIndex, messier,
   openngc, ngcNames, constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache),
-  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant), `photo/` (npf), `market/`
+  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant, loadPriority — the U5
+  pure download comparator, 0.4.28-parity, 2026-08-18), `geo/` also carries `slippy` (U3 tile
+  math for the 2D map twins), `photo/` (npf), `market/`
   (listing), `guide/` (guideContent, inline — the guide content model, G1 2026-08-15), `export/` (ics),
   `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade), `api/`, `format/`,
   `textures/`, `theme/` (GL token bridge), `prefs.ts`.
-- `pages/`: `index.astro` (desktop) + `m.astro` (mobile shell) + `api/` (8 routes: photos, places,
+- `pages/`: `index.astro` (desktop) + `m.astro` (mobile shell) + `guide.astro` (standalone server-rendered
+  guide page over the same `guideContent`, 2026-08-15e) + `api/` (8 routes: photos, places,
   listings, market, upload-url, sbdb, ping, dev-seed — full route inventory in
   `conventions/contracts.md §7`; §6 above keeps the original endpoint contracts).
 - `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member`, `plan`, `sky`,

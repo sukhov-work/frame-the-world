@@ -9,6 +9,8 @@
  * Pure math, no three.js import → fast to unit-test.
  */
 
+import { wrapHeadingDeg } from "./heading";
+
 /** WGS84 semi-major axis (equatorial radius), metres. */
 export const WGS84_A = 6378137.0;
 /** WGS84 semi-minor axis (polar radius), metres. */
@@ -52,6 +54,24 @@ export function enuBasis(latDeg: number, lonDeg: number): { east: Vec3; north: V
   const north: Vec3 = [-sinLat * cosLon, -sinLat * sinLon, cosLat];
   const up: Vec3 = [cosLat * cosLon, cosLat * sinLon, sinLat];
   return { east, north, up };
+}
+
+/**
+ * Az/alt (degrees) of a world-space unit direction against an ENU basis — az compass-wrapped
+ * [0,360) (N=0, E=90), alt = asin(dir·up) in [−90,90]. The ONE home for the dir→bearing math
+ * that was inlined 4× in the orchestrator (audit-2 A5). Accepts any `{x,y,z}` (a THREE.Vector3
+ * fits) so this module stays three-free.
+ */
+export function dirAzAltDeg(
+  dir: { x: number; y: number; z: number },
+  basis: { east: Vec3; north: Vec3; up: Vec3 },
+): { azDeg: number; altDeg: number } {
+  const e = dir.x * basis.east[0] + dir.y * basis.east[1] + dir.z * basis.east[2];
+  const n = dir.x * basis.north[0] + dir.y * basis.north[1] + dir.z * basis.north[2];
+  const u = dir.x * basis.up[0] + dir.y * basis.up[1] + dir.z * basis.up[2];
+  const azDeg = wrapHeadingDeg(Math.atan2(e, n) / DEG);
+  const altDeg = Math.asin(Math.min(Math.max(u, -1), 1)) / DEG;
+  return { azDeg, altDeg };
 }
 
 /**

@@ -4,7 +4,8 @@ Wix-managed **headless** (Astro 5) web app: upload a camera RAW/JPEG → extract
 photo as an oriented **camera frustum + image plane** at its real capture location on a **stylized 3D
 globe with real OSM buildings**; tweak EXIF (focal/heading/pitch/position/time) in real time; ephemeris
 (sun/moon/stars) drives the same scene; members save/publish pins; light RAW marketplace; premium AI
-shot-analysis. **The client does the heavy lifting** (WASM decode, projection, rendering); Wix is the
+shot-analysis *(Phase 7 — PARKED indefinitely, owner ruling 2026-08-11; out of all plans)*.
+**The client does the heavy lifting** (WASM decode, projection, rendering); Wix is the
 backend (auth, Data, Media, Pricing Plans, eCommerce, AI proxy).
 
 ## Knowledge — Search Order (stop at first hit)
@@ -35,8 +36,8 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 `investigate-design-v3`. Persist via `mem:decisions/session_workflow` (DECISIONS + NEXT_SESSION + memories).
 
 ## Build / Test / Run — Node/TS + Astro 5 (Wix headless)
-> Commands below become live **after Phase 1 scaffolds the Astro app** (`npm create @wix/new`). See
-> `mem:suggested_commands` for the full list and `conventions/wix-headless.md` for auth/build/release.
+> See `mem:suggested_commands` for the full list and `conventions/wix-headless.md` for
+> auth/build/release. (Phase-1 scaffold shipped 2026-07-09 — everything below is live.)
 - Deps: `npm install --legacy-peer-deps`  (pnpm **fails** against the `@wix/cli` template)
 - Dev: `wix dev`  ·  Types: `npx astro check`  ·  Test: `npm test` (vitest). **No lint script** — `astro check` + `npm test` are the done-gates.
 - Release: `npx @wix/cli@latest build` → `npx @wix/cli@latest release`  (no SSH — "prod" is Wix cloud)

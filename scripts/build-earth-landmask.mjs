@@ -1,3 +1,5 @@
+// Last baked: 2026-07-11 (git-dated, audit-2 B3) — update this line on regen (a PNG carries no
+// header to stamp).
 // ONE-TIME BAKE (like build-star-catalog.mjs) — derives public/textures/earth-landmask-8k.png
 // from the SHIPPED 8k BMNG colour map, so the mask is registration-PERFECT with the rendered
 // coastlines (any external mask misaligns at coast scale). Classifier: BMNG-bathy blue-dominance

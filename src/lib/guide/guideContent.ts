@@ -16,7 +16,7 @@
  * - `where` lines name the entry point per shell; omit `mobile` for desktop-only surfaces.
  */
 
-export type GuideShell = "desktop" | "mobile";
+type GuideShell = "desktop" | "mobile";
 
 export interface GuideMedia {
   /** Path under public/, e.g. "/guide/fpv.webp". */
@@ -27,7 +27,7 @@ export interface GuideMedia {
   shell?: GuideShell;
 }
 
-export interface GuideWhere {
+interface GuideWhere {
   desktop?: string;
   mobile?: string;
 }

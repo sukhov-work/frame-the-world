@@ -6,12 +6,12 @@
  * bold/italic/HTML in guide copy is a content bug, not a renderer feature.
  */
 
-export interface GuideTextRun {
+interface GuideTextRun {
   kind: "text";
   text: string;
 }
 
-export interface GuideLinkRun {
+interface GuideLinkRun {
   kind: "link";
   /** Chapter or topic id the link jumps to (validated by guideContent.test.ts). */
   target: string;

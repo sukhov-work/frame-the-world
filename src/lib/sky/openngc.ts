@@ -14,7 +14,8 @@
  * (`searchNgcById` — "NGC 891", "ic434", "b33") so an average query is never flooded by
  * anonymous field galaxies. Pure parsing/query here; the fetch lives in `catalog.ts`.
  *
- * Data: OpenNGC (mattiaverga, CC-BY-SA-4.0).
+ * Data: OpenNGC (mattiaverga, CC-BY-SA-4.0). Baked: 2026-08-10 (`public/data/openngc.bin`,
+ * git-dated — audit-2 B3; the generator now stamps ngcNames.ts automatically on regen).
  */
 
 import { fixedTarget, type SkyTarget, type TargetKind } from "../ephemeris/targets";

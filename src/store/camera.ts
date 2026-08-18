@@ -35,7 +35,7 @@ interface FlyRequest {
 
 /** A right-clicked sky body (QoL-2 ask 7): who was hit, where on screen, and its bearings at
  *  click time — everything the SkyContextMenu island needs to render + act. */
-export interface SkyMenuInfo {
+interface SkyMenuInfo {
   kind: "sun" | "moon" | "target";
   /** Client px of the right-click — the menu anchors here (a static point; no live mirror). */
   screenX: number;

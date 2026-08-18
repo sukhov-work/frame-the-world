@@ -274,11 +274,11 @@ export default function FindPanel() {
       illum: h.body === "moon" ? h.moonIllum : 0,
       colorIdx: findStandingColorIdx(h.body, h.utcMs),
     }));
-    useFindStore.getState()._syncGhosts({ latDeg: latKey / 20, lonDeg: lonKey / 20 }, ghosts);
+    useFindStore.getState().publishGhosts({ latDeg: latKey / 20, lonDeg: lonKey / 20 }, ghosts);
     // eslint-disable-next-line react-hooks/exhaustive-deps — baseMs rides minuteKey via hits
   }, [hits, latKey, lonKey, rangeDays]);
   // Leaving the page/panel unmount clears the projections.
-  useEffect(() => () => useFindStore.getState()._syncGhosts(null, []), []);
+  useEffect(() => () => useFindStore.getState().publishGhosts(null, []), []);
 
   const jump = (h: FrameStanding) => {
     setTime(h.utcMs);

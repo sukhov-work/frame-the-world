@@ -58,8 +58,10 @@ additive · 6 color-space traps · 7 tuning contract · 8 shared building materi
    writers are orchestrator-only; camera motion goes through request seams (requestFly,
    requestFpvJump, setTempPin/Fpv, rate setters) — no panel writes the camera directly.
    — check: `grep -rn "_sync" src/components/panels/ src/components/mobile/` returns nothing;
-   new panels' store calls are reads + documented writers only.
-   — anchor: conventions/architecture-and-patterns.md (globe⇆React seam); MOBILE_PLAN §2.
+   new panels' store calls are reads + documented writers only. A sanctioned panel→globe feed
+   uses an UN-prefixed verb (`publishGhosts` — the FIND v2 inversion, renamed from `_syncGhosts`
+   2026-08-18 audit-2 A3), so the probe needs no exception list.
+   — anchor: conventions/architecture-and-patterns.md (globe⇆React seam + panel-published feed); MOBILE_PLAN §2.
 10. Zero per-frame store writes: continuous values derive (the `sceneTimeMs()` pattern) or
     throttle; viewport-style queries THROTTLE, never debounce (perpetual drift starves timers).
     — check: `grep -rn "setState\|\.set(" src/components/globe/` in per-frame paths triaged;

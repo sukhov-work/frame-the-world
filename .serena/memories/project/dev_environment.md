@@ -42,5 +42,19 @@ Where this runs and what CAN'T be trusted from a local test. (Referred by `mem:c
   owned by the logged-in Anthropic account. Round-trip workflow rules live in `.claude/claude-docs/provenance/CLAUDE_DESIGN_MEMO.md`
   (fence: design writes ONLY under `src/components/panels|ui/**` + `src/styles/**`, never `globe/**` or `lib/**`).
 
+## Browser-verify Chrome (owner ruling 2026-08-18)
+- The owner keeps a PERSISTENT CDP Chrome on :9222 via zsh alias `chrome-playwright`
+  (`/Applications/Google Chrome.app/... --remote-debugging-port=9222
+  --user-data-dir=/Users/yevhens/Playwright_Chrome_data`; NO occlusion flags). The Playwright
+  MCP attaches to it (`--cdp-endpoint http://localhost:9222`).
+- **NEVER kill or relaunch it — not even at session end.** Killing it disconnects the Playwright
+  MCP for the entire session with no mid-session recovery (burned 2026-08-18). The SessionStart
+  hook (`activate-serena.sh` step 7) probes :9222 and reports attach/absent/foreign status.
+- No occlusion flags ⇒ timed probes need bringToFront + in-page rAF-tick guards; headless probes
+  run on a SEPARATE instance (`scripts/verify-chrome.mjs --headless --port 9333 --profile
+  /tmp/ftw-cdp`). `verify-chrome.mjs` reuses a running verify-profile instance by default.
+- Session end reaps THIS repo's `wix dev`/`astro dev` trees (`session-end-ship.sh
+  kill_dev_servers()`, cwd-scoped) — never assume yesterday's dev server on :4321 is current.
+
 ## Empirical benchmarks owed before Phase 3
 a6700 26MP ARW decode ms + heap (desktop + mid phone); Dnipro + 2 rural OSM building coverage; one sun-azimuth almanac spot-check.

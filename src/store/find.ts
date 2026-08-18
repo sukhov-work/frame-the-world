@@ -49,11 +49,13 @@ export interface FindState {
   rangeDays: number;
   setRangeDays(days: number): void;
 
-  // ── Panel-written mirror (FindPanel only — the globe reads) ──────────────────────────────
+  // ── Panel-published feed (FindPanel/FindSheet write, the globe reads — FIND v2's sanctioned
+  //    seam INVERSION; renamed from `_syncGhosts` 2026-08-18, audit-2 A3: the `_` prefix means
+  //    orchestrator-only and this producer is a panel) ────────────────────────────────────────
   /** The observer the az/alt directions were computed from; null hides every ghost. */
   anchor: { latDeg: number; lonDeg: number } | null;
   ghosts: readonly FindGhost[];
-  _syncGhosts(anchor: FindState["anchor"], ghosts: readonly FindGhost[]): void;
+  publishGhosts(anchor: FindState["anchor"], ghosts: readonly FindGhost[]): void;
 
   /** Panel row under the pointer → that ghost pulses (React-written). */
   hoverKey: string | null;
@@ -75,7 +77,7 @@ export const useFindStore = create<FindState>((set) => ({
 
   anchor: null,
   ghosts: [],
-  _syncGhosts: (anchor, ghosts) => set({ anchor, ghosts }),
+  publishGhosts: (anchor, ghosts) => set({ anchor, ghosts }),
 
   hoverKey: null,
   setHoverKey: (hoverKey) => set({ hoverKey }),

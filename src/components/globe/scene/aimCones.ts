@@ -4,6 +4,7 @@ import { AIMCONES } from "../tuning";
 import { sampleAimDay, type AimDay } from "../../../lib/ephemeris/azSector";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../../lib/ephemeris/targets";
 import { enuBasis, geodeticToEcef } from "../../../lib/geo/projection";
+import { clampGroundM } from "../../../lib/geo/terrain";
 
 /**
  * Map direction lines + visibility cones (UPLIFT U4, owner point 3): from the plan anchor,
@@ -110,6 +111,24 @@ function makeLineMaterial(color: string): THREE.ShaderMaterial {
 }
 
 const DEG = Math.PI / 180;
+
+/**
+ * Terrain-seat ease (pure twin — tested). A null probe keeps the last seat; the FIRST finite
+ * sample SNAPS (NaN prev = unseeded); later samples ease with time-constant `tauMs`. The raw
+ * probe is clamped to `[0, MAX_TERRAIN_M]` BEFORE it can seat or steer the ease — terrain.ts
+ * mandates the clamp for EVERY live heightAt consumer: one coarse-LOD negative would otherwise
+ * snap the circle underground and the ease would retain it (audit-2 A1).
+ */
+export function easeSeatM(
+  prevM: number,
+  probe: number | null,
+  dtMs: number,
+  tauMs: number,
+): number {
+  if (probe === null) return prevM;
+  const h = clampGroundM(probe);
+  return Number.isNaN(prevM) ? h : prevM + (h - prevM) * (1 - Math.exp(-dtMs / tauMs));
+}
 
 export function attachAimCones(opts: {
   scene: THREE.Scene;
@@ -286,16 +305,16 @@ export function attachAimCones(opts: {
           }
         }
 
-        // Terrain seat — eased like the temp pin (first sample snaps; a null probe keeps the
-        // last seat; an unseeded null sits at the ellipsoid until tiles answer). Probes the
-        // LIVE anchor: the deadband quantizes only the EPHEMERIS, never the seat (a 0.02°
-        // stale seat is ~2 km of visible offset — browser-caught 2026-08-18).
-        const probe = opts.terrainHeightAt(anchor.latDeg, anchor.lonDeg);
-        if (probe !== null) {
-          groundM = Number.isNaN(groundM)
-            ? probe
-            : groundM + (probe - groundM) * (1 - Math.exp(-dtMs / AIMCONES.fadeTauMs));
-        }
+        // Terrain seat — eased like the temp pin (first CLAMPED sample snaps; a null probe
+        // keeps the last seat; an unseeded null sits at the ellipsoid until tiles answer).
+        // Probes the LIVE anchor: the deadband quantizes only the EPHEMERIS, never the seat
+        // (a 0.02° stale seat is ~2 km of visible offset — browser-caught 2026-08-18).
+        groundM = easeSeatM(
+          groundM,
+          opts.terrainHeightAt(anchor.latDeg, anchor.lonDeg),
+          dtMs,
+          AIMCONES.fadeTauMs,
+        );
 
         // Zoom-adaptive radius — RAW, never eased (owner 2026-08-18: the circle must resize in
         // lockstep with the wheel/pinch; the clamp is continuous in alt, so direct application

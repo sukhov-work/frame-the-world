@@ -26,9 +26,13 @@ real-time what-if is the product's emotional core.
 `astronomy-engine` → sun/moon/planet az-alt + scene lighting + Yale BSC5 star points, all from one time+observer.
 
 ## Data (D7) + endpoints
-Collections: `Photos` (private working record), `PublicPins` (denormalized, reduced-precision, **no exact GPS**),
-`Listings`. Query viewport by geohash-prefix `hasSome` + client refine (no geo operator). Endpoints:
-`/api/upload-url` (resumable), `/api/photos` (quota+insert), `/api/analyze` (Claude, JPEG), `/api/moderate`.
+Collections (as-built 2026-08-18 — schema source of truth `scripts/provision-collections.mjs` +
+contracts.md §4): `Photos` (private working record), `PublicPins` (denormalized, reduced-precision,
+**no exact GPS**), `SavedPlaces` (member camera bookmarks). There is **NO Listings collection** —
+listing state rides Photos/PublicPins product fields (audit-1 correction). Query viewport by
+geohash-prefix `hasSome` + client refine (no geo operator). Endpoints as-built: **8 routes** —
+`/api/{photos, places, listings, market, upload-url, sbdb, ping, dev-seed}` (contracts.md §7;
+`/api/analyze`+`/api/moderate` were Phase-7 plans — Phase 7 is OUT per owner ruling 2026-08-11).
 
 ## Design/GL bridge (D14)
 `src/styles/tokens.css` (source of truth) → `src/lib/theme/tokens.ts` (GL bridge): accent→pin emissive/frustum,

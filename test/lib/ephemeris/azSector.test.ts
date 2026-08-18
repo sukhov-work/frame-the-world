@@ -166,6 +166,7 @@ describe("sampleAimDay (real ephemeris, Dnipro)", () => {
     const run = d.runs[0];
     const rise = run[0];
     const set = run[run.length - 1];
+    // Vector: timeanddate.com Dnipro 2026-06-21 — sunrise az ≈51° (NE), sunset az ≈309° (NW).
     expect(Math.abs(wrap180(rise.azDeg - 51))).toBeLessThan(4); // NE
     expect(Math.abs(wrap180(set.azDeg - 309))).toBeLessThan(4); // NW
     // The window really is the local solar day containing the instant.

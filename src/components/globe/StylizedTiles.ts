@@ -8,6 +8,7 @@ import {
   SUN_RADIUS_KM,
 } from "../../lib/ephemeris/bodies";
 import {
+  dirAzAltDeg,
   ecefToGeodetic,
   enuBasis,
   geodeticToEcef,
@@ -836,23 +837,7 @@ export function attachStylizedTiles(opts: {
     // outside FPV; at any trackable target's distance it matches the anchor's to chip precision.
     const g = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
     const b = enuBasis(g.latDeg, g.lonDeg);
-    const azDeg = wrapHeadingDeg(
-      THREE.MathUtils.radToDeg(
-        Math.atan2(
-          targetDirW.x * b.east[0] + targetDirW.y * b.east[1] + targetDirW.z * b.east[2],
-          targetDirW.x * b.north[0] + targetDirW.y * b.north[1] + targetDirW.z * b.north[2],
-        ),
-      ),
-    );
-    const altDeg = THREE.MathUtils.radToDeg(
-      Math.asin(
-        THREE.MathUtils.clamp(
-          targetDirW.x * b.up[0] + targetDirW.y * b.up[1] + targetDirW.z * b.up[2],
-          -1,
-          1,
-        ),
-      ),
-    );
+    const { azDeg, altDeg } = dirAzAltDeg(targetDirW, b);
     aimAtSky(azDeg, altDeg);
     if (!skyNow.open) skyNow.setOpen(true);
     return true;
@@ -887,19 +872,7 @@ export function attachStylizedTiles(opts: {
   const _menuMoonDir = new THREE.Vector3();
   const dirToAzAltAtCamera = (dir: THREE.Vector3): { azDeg: number; altDeg: number } => {
     const g = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
-    const b = enuBasis(g.latDeg, g.lonDeg);
-    const azDeg = wrapHeadingDeg(
-      THREE.MathUtils.radToDeg(
-        Math.atan2(
-          dir.x * b.east[0] + dir.y * b.east[1] + dir.z * b.east[2],
-          dir.x * b.north[0] + dir.y * b.north[1] + dir.z * b.north[2],
-        ),
-      ),
-    );
-    const altDeg = THREE.MathUtils.radToDeg(
-      Math.asin(THREE.MathUtils.clamp(dir.x * b.up[0] + dir.y * b.up[1] + dir.z * b.up[2], -1, 1)),
-    );
-    return { azDeg, altDeg };
+    return dirAzAltDeg(dir, enuBasis(g.latDeg, g.lonDeg));
   };
   // Shared angular body pick (qol3: the contextmenu test, extracted so the hover affordance
   // runs the IDENTICAL candidate set — what highlights is exactly what right-click hits).
@@ -2776,25 +2749,7 @@ export function attachStylizedTiles(opts: {
               : null);
           if (refGeo) {
             const basis = enuBasis(refGeo.latDeg, refGeo.lonDeg);
-            const azAltOf = (d: THREE.Vector3) => ({
-              azDeg: wrapHeadingDeg(
-                THREE.MathUtils.radToDeg(
-                  Math.atan2(
-                    d.x * basis.east[0] + d.y * basis.east[1] + d.z * basis.east[2],
-                    d.x * basis.north[0] + d.y * basis.north[1] + d.z * basis.north[2],
-                  ),
-                ),
-              ),
-              altDeg: THREE.MathUtils.radToDeg(
-                Math.asin(
-                  THREE.MathUtils.clamp(
-                    d.x * basis.up[0] + d.y * basis.up[1] + d.z * basis.up[2],
-                    -1,
-                    1,
-                  ),
-                ),
-              ),
-            });
+            const azAltOf = (d: THREE.Vector3) => dirAzAltDeg(d, basis);
             _hudQ.copy(camera.quaternion).invert();
             const tanHalfV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
             const bodyMarker = (dirW: THREE.Vector3) => {
@@ -2923,21 +2878,8 @@ export function attachStylizedTiles(opts: {
               ]);
               const eb = enuBasis(eyeGeo.latDeg, eyeGeo.lonDeg);
               camera.getWorldDirection(_camFwd);
-              const viewAzDeg = THREE.MathUtils.radToDeg(
-                Math.atan2(
-                  _camFwd.x * eb.east[0] + _camFwd.y * eb.east[1] + _camFwd.z * eb.east[2],
-                  _camFwd.x * eb.north[0] + _camFwd.y * eb.north[1] + _camFwd.z * eb.north[2],
-                ),
-              );
-              const viewAltDeg = THREE.MathUtils.radToDeg(
-                Math.asin(
-                  THREE.MathUtils.clamp(
-                    _camFwd.x * eb.up[0] + _camFwd.y * eb.up[1] + _camFwd.z * eb.up[2],
-                    -1,
-                    1,
-                  ),
-                ),
-              );
+              // dirAzAltDeg wraps az [0,360) — same output through formatFpvHash, which wraps anyway.
+              const { azDeg: viewAzDeg, altDeg: viewAltDeg } = dirAzAltDeg(_camFwd, eb);
               hash = formatFpvHash(
                 {
                   latDeg: eyeGeo.latDeg,
@@ -3669,40 +3611,45 @@ export function attachStylizedTiles(opts: {
 
   return {
     update() {
-      // ── B19 · per-frame orchestrator: 38 ordered step-closures (each stepX carries its doc) ──
-      //  1 FrameTiming 2 ZoomBrakeAndEase 3 ControlsUpdate 4 DampedVerticality 5 BuildingsUpdate
-      //  6 FlightUpdate 7 ExploreJourney 8 FpvTransitions 9 FpvPose 10 FovGlide 11 GeodeticAltitude
-      // 12 ViewFocus 13 IdleDrift 14 TiltGlide 15 HeadingGlide 16 ZoomGlide 17 EncoderRates
-      // 18 FocalEncoder 19 StreetFloorGuard 20 LocationFinderFlyTo 21 FpvSolidity 22 FpvHudAndSkyMarkers
-      // 23 PoseMirrorAndViewport 24 GroundUpdate 25 EphemerisResample 26 KeyLightAndShadow 27 SkyBodies
-      //    (+SkyTarget +FindGhosts +SkyHover right after 27 — the tracer/trail/ghosts, the FIND v2
-      //     standing projections (reads store/find, needs the fresh topocentric moon dir), then the
-      //     qol3 hover lift which MUST follow: sun/moon lifts re-derive uniforms, the target's
-      //     post-multiplies, and the ghost hover pick reads findGhosts' just-written alphas)
-      // 28 FrustumResnapAndTick 29 ArrivalReframing 30 PinsUpdate 31 PinHover 32 TempPinMarker
-      // 33 PlacementMarker 34 GraticuleAndAtmosphere 35 Stars 36 DayArcs 37 GeoLabels 38 StreetNames (S7b)
-      // 39 VectorFeatures (S7 feedback — roads/water web from the shared MVT source)
-      // 40 MinimapFeed (owner 2026-07-14 — FPV mini-map features + pose from the shared MVT source)
-      // 41 PlanFeed (Pass 3 — sliced horizon-profile builds; LAST: reads post-update matrices)
-      //
-      // ORDER IS THE CONTRACT — the sequence is load-bearing, not incidental:
-      //   (a) ++frameCount lives INSIDE step 28 and splits every cadence gate into pre/post groups —
-      //       steps 21/22/23 read the PRE-increment count (fire on frame 0); steps 30/31/32/33 read POST.
-      //   (c) idle-drift (13) runs AFTER flight/explore/FPV writes but BEFORE the encoders (lastInteract).
-      //   (f) each updateMatrixWorld()/updateProjectionMatrix() flush is bound to its mutation —
-      //       idle-drift (13) intentionally has NO flush; add/remove none.
-      //   (h) FPV pose (9) runs BEFORE the encoders (17/18) — steering applies one frame later.
-      // Snapshots (trap b): camNow (step 8) and camStore (step 14) are TWO deliberate store reads with
-      //   store mutations between them — the glide/encoder/fly-to region (14-20) reads camStore; never merged.
-      // U1 (/m only; desktop-inert): MobileBuildingsGate runs just before 5 (the attach/detach
-      //   must apply before the tile update it gates) and Mobile2dLocks between 15 and 16 (after
-      //   the manual glides it defers to, before zoom — it needs step 12's focus frame).
-      // U4: AimCones runs right after 36 (DayArcs) — ground direction lines + visibility
-      //   sectors at the plan anchor; needs the post-resample tMs (25) and step 11/12 alt+focus.
-      // U5: the download-priority aim refresh rides INSIDE ViewFocus (12) — it needs that step's
-      //   fresh _camFwd; the queue comparators read it asynchronously at the next sort, so the
-      //   one-frame lag vs the tile updates (5/6) is harmless.
-      // One try wraps all 36 steps; the throttled catch keeps a single bad frame from freezing the canvas.
+      // ── B19 · per-frame orchestrator: named step-closures (each stepX carries its own doc) ──
+      // ORDER IS THE CONTRACT — the call list BELOW is the roster (never a count or numbering
+      // here: both re-staled twice — audit-1 D6, audit-2 A2). The chain runs in producer→
+      // consumer BANDS; insert a new step into its band, honouring the named constraints:
+      //   timing/input      FrameTiming → ZoomBrakeAndEase → ControlsUpdate → DampedVerticality
+      //   tiles             MobileBuildingsGate (U1 gate BEFORE the tile update it gates) →
+      //                     BuildingsUpdate → EnrichedUpdate
+      //   camera control    FlightUpdate → ExploreJourney → FpvTransitions → SkyTrack (TRACKING
+      //                     lock feeds the pose glide) → FpvPose → FovGlide
+      //   camera frame      GeodeticAltitude → ViewFocus (the U5 download-aim refresh rides
+      //                     INSIDE it — needs its fresh _camFwd; queue comparators read it async
+      //                     at the next sort, one-frame lag vs the tile updates is harmless)
+      //   glides/encoders   IdleDrift → TiltGlide → HeadingGlide → Mobile2dLocks (U1: after the
+      //                     manual glides it defers to, before zoom; needs ViewFocus' frame) →
+      //                     ZoomGlide → EncoderRates → FocalEncoder → StreetFloorGuard →
+      //                     LocationFinderFlyTo
+      //   FPV present/mirror FpvSolidity → FpvHudAndSkyMarkers → PoseMirrorAndViewport
+      //   ground/ephemeris  GroundUpdate → EphemerisResample → KeyLightAndShadow → SkyBodies →
+      //                     SkyTarget → FindGhosts (FIND v2 standings — reads store/find, needs
+      //                     the fresh topocentric moon dir) → SkyHover (MUST be last of the
+      //                     three: sun/moon lifts re-derive uniforms, the target's post-
+      //                     multiplies, and the hover pick reads findGhosts' just-written alphas)
+      //   frustum/pins      FrustumResnapAndTick (++frameCount lives INSIDE it, splitting every
+      //                     cadence gate into pre/post groups: the FPV-present/mirror band reads
+      //                     PRE-increment — fires on frame 0; the pins/marker steps read POST) →
+      //                     ArrivalReframing → PinsUpdate → PinHover → TempPinMarker →
+      //                     PlacementMarker
+      //   scenery/overlays  GraticuleAndAtmosphere → Stars → DayArcs → AimCones (U4 — needs the
+      //                     post-resample tMs + the alt/focus frame) → GeoLabels → StreetNames →
+      //                     VectorFeatures
+      //   feeds LAST        MinimapFeed → PlanFeed (reads post-update matrices)
+      // Cross-band constraints:
+      //   (a) idle-drift runs AFTER flight/explore/FPV writes but BEFORE the encoders (lastInteract).
+      //   (b) camNow (FpvTransitions) and camStore (TiltGlide) are TWO deliberate store reads with
+      //       mutations between them — the glide/encoder/fly-to band reads camStore; never merged.
+      //   (c) each updateMatrixWorld()/updateProjectionMatrix() flush is bound to its mutation —
+      //       idle-drift intentionally has NO flush; add/remove none.
+      //   (d) FpvPose runs BEFORE the encoders — steering applies one frame later.
+      // One try wraps the whole chain; the throttled catch keeps a single bad frame from freezing the canvas.
       try {
         stepFrameTiming();
         stepZoomBrakeAndEase();

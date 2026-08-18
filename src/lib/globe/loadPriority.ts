@@ -135,7 +135,7 @@ export function makeClosestFirstComparator(
 }
 
 /** One tile's in-flight latency record + the aggregate snapshot the DEV seam exposes. */
-export interface LatencySnapshot {
+interface LatencySnapshot {
   /** Completed download→model cycles since attach. */
   n: number;
   meanMs: number;

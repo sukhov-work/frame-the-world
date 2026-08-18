@@ -16,3 +16,11 @@ How to keep this memory graph useful. Domain-agnostic; applies to every memory h
 ## Naming
 `architecture/<component>`, `decisions/<topic>`, `patterns/<pattern>`, `bugs/<issue>`, `project/<area>`.
 One memory per logical unit. Update or delete when stale; never duplicate.
+## Graph-health policy (adopted 2026-08-18, audit-2 D9/memory scorecard)
+- Every DECISIONS compaction round adds its era rows to `mem:core`'s Era index and re-dates the
+  Status block the same session.
+- Size caps: `core` ≤12 KB · `project/wip-*` ≤10 KB · `patterns/*` ≤15 KB — compact when crossed.
+- Keep `project/wip-*` leaves indefinitely (no storage pressure; they are the era archive).
+- A superseded ALWAYS-OFFERED memory (patterns/architecture) gets an **in-place SUPERSEDED
+  header naming the current truth** (the globe-rendering idiom) — never a silent deletion, and
+  never left selling stale facts (the sky-bodies-terrain trap, audit-2 D9).

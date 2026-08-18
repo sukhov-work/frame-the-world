@@ -1,4 +1,16 @@
-# Session-end auto-ship hook (owner order 2026-08-13; HARDENED v2 2026-08-14)
+# Session-end auto-ship hook (owner order 2026-08-13; HARDENED v2 2026-08-14; v3 additions 2026-08-18)
+
+## v3 additions (audit-2 F3 + owner orders 2026-08-18)
+- `kill_dev_servers()` runs FIRST (even when a gate later aborts): TERM→KILL every `wix dev` /
+  `astro dev` / npm-wrapper process whose **cwd == this repo** (other projects untouched).
+  The owner's persistent chrome-playwright CDP instance on :9222 is deliberately NOT touched
+  (see mem:project/dev_environment §Browser-verify Chrome).
+- `prune_stale_ship_branches()`: deletes local claude/ship-* branches only on a containment
+  PROOF (SHA-ancestor / tree==master-tip / tree equal to a recent origin/master commit);
+  proof-failers ≥3 days old are REPORTED to SHIP_ATTENTION with evidence, never deleted.
+- `attention()` DEDUPs (identical text never appended twice) and the 45-min-timeout entry
+  re-verifies `ship_landed` before writing — both halves of the boot-rm race observed 2026-08-18.
+- `.ship-title` must NOT include the `#pr #skipreview #automerge` tags — the hook appends them.
 
 `.claude/hooks/session-end-ship.sh` wired to **SessionEnd** in `.claude/settings.json`
 (self-daemonizes via nohup — an in-process hook would die with the CLI, so the hook entry
