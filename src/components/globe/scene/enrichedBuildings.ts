@@ -7,7 +7,12 @@ import { tokens } from "../../../lib/theme/tokens";
 import { clampGroundM } from "../../../lib/geo/terrain";
 import { ecefToGeodetic, geodeticToEcef } from "../../../lib/geo/projection";
 import { buildingNightFactor } from "../../../lib/globe/buildingNight";
-import { lruFloorBytesForCap, type QueueCaps } from "../../../lib/globe/quality";
+import {
+  lruFloorBytesForCap,
+  peripheryErrorTarget,
+  type FoveationTierCfg,
+  type QueueCaps,
+} from "../../../lib/globe/quality";
 import { makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
 import {
   bboxCenterDeg,
@@ -21,9 +26,10 @@ import {
   type FeatureRun,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
-import { EARTH, ENRICHED, LOADING, TILESETS, TREES } from "../tuning";
+import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
 import { makeTileCenterReader } from "./tilePriority";
+import { makeTileFoveation } from "./tileFoveation";
 
 /**
  * Dnipro 3D enrichment — a THIRD `TilesRenderer` (Slice 0 de-risk spike). It streams a SELF-HOSTED
@@ -95,6 +101,15 @@ export interface EnrichedBuildingsHandle {
    *  tiers. `lruCapBytes` null → restore the captured library default. U5: `queueCaps` bounds the
    *  download/parse concurrency the same way (null → captured defaults). */
   setQualityTier(errorTarget: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
+  /** UPLIFT U6 (mirrors BuildingsHandle): per-tier foveation config (null = off). */
+  setFoveation(cfg: FoveationTierCfg | null): void;
+  /** UPLIFT U6: FPV boundary flip — regions on/off + periphery relax/restore. */
+  setFoveaActive(on: boolean): void;
+  /** UPLIFT U6: per-frame WORLD eye + unit look while foveated. The adapter converts through
+   *  group.matrixWorldInverse — which here carries the R1 seat lift, not identity. */
+  setFoveaPose(eyeWorld: THREE.Vector3, fwdWorld: THREE.Vector3): void;
+  /** DEV probe (__globe.u6()). */
+  foveaSnapshot(): { engaged: boolean; baseErrorTarget: number };
   /** FPV building shading (owner ask): `k` 0 = see-through wireframe (bright edges, ~0.28 fill),
    *  1 = opaque shaded (faint edges). `null` restores the non-FPV default (opaque, ENRICHED edges). */
   setSolidity(k: number | null): void;
@@ -159,6 +174,16 @@ export function attachEnrichedBuildings(
   tiles.registerPlugin(
     new GLTFExtensionsPlugin({ dracoLoader: draco, meshoptDecoder: MeshoptDecoder }),
   );
+  // U6 foveated FPV loading (mirrors buildings.ts): regions tighten inside the fovea only; the
+  // periphery rides the base errorTarget through the same one-writer recompute.
+  const fovea = makeTileFoveation(tiles, FOVEATION.regionErrorTargetM.enriched);
+  tiles.registerPlugin(fovea.plugin);
+  let tierErrorTarget = tiles.errorTarget;
+  let fovCfg: FoveationTierCfg | null = null;
+  let fovOn = false;
+  const applyErrorTarget = () => {
+    tiles.errorTarget = peripheryErrorTarget(tierErrorTarget, fovCfg, fovOn);
+  };
   tiles.setCamera(opts.camera);
   tiles.setResolutionFromRenderer(opts.camera, opts.renderer);
   scene.add(tiles.group);
@@ -649,11 +674,28 @@ export function attachEnrichedBuildings(
       tiles.update();
     },
     setQualityTier(errorTarget, lruCapBytes, queueCaps) {
-      tiles.errorTarget = errorTarget;
+      tierErrorTarget = errorTarget; // U6: base recomputes through the periphery rule
+      applyErrorTarget();
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes;
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
       tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5
       tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
+    },
+    setFoveation(cfg) {
+      fovCfg = cfg;
+      fovea.configure(cfg);
+      applyErrorTarget();
+    },
+    setFoveaActive(on) {
+      fovOn = on;
+      fovea.setActive(on);
+      applyErrorTarget();
+    },
+    setFoveaPose(eyeWorld, fwdWorld) {
+      fovea.setPose(eyeWorld, fwdWorld);
+    },
+    foveaSnapshot() {
+      return { ...fovea.snapshot(), baseErrorTarget: tiles.errorTarget };
     },
     setSolidity(k) {
       // Solidity renders as the shared SCREEN-DOOR dissolve (owner 2026-07-14: gradual +

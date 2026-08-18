@@ -246,6 +246,9 @@ export function attachStylizedTiles(opts: {
   // U5: the shared download-priority aim state — written once per frame (stepLoadAim, after the
   // focus step computes the camera forward), read by the buildings/enriched download comparators.
   const loadAim = makeLoadAim();
+  // U6: the foveation boundary mirror — flipped in stepViewFocus when fpvActive changes; the
+  // per-tier gate (foveation null on high) lives in the modules, so this only tracks FPV.
+  let foveaOn = false;
   const buildings = attachBuildings(scene, {
     camera,
     renderer,
@@ -335,6 +338,11 @@ export function attachStylizedTiles(opts: {
     buildings.setQualityTier(q.buildingErrorTarget, lru, qCaps);
     enriched?.setQualityTier(q.buildingErrorTarget, lru, qCaps);
     ground.setQualityTier(q.groundErrorNear, lru, qCaps);
+    // U6: per-tier foveation (null on high — byte-identical; regions/periphery only engage in
+    // FPV via setFoveaActive). Safe mid-FPV: each module recomputes its base from (tier, cfg, on).
+    buildings.setFoveation(q.foveation);
+    enriched?.setFoveation(q.foveation);
+    ground.setFoveation(q.foveation);
     streetNames.setMaxVisible(q.maxStreetNames);
     vectorFeatures.setLatticeBudget(q.vectorLatticeBudget);
     // U2/A11: GlobeCanvas re-set the renderer pixel ratio just before this call (applyTier order)
@@ -1649,6 +1657,14 @@ export function attachStylizedTiles(opts: {
         loadProbes.ground.mark();
         loadProbes.enriched?.mark();
       },
+      u6: () => ({
+        // U6 foveation probe: engaged = regions live on that renderer NOW (FPV + tier cfg);
+        // baseErrorTarget shows the periphery relax on buildings/enriched (ground never relaxes).
+        fpvMirror: foveaOn,
+        buildings: buildings.foveaSnapshot(),
+        enriched: enriched?.foveaSnapshot() ?? null,
+        ground: ground.foveaSnapshot(),
+      }),
       pins,
     };
     window.__timeStore = useTimeStore; // scrub scene time from the console / Playwright
@@ -2276,6 +2292,21 @@ export function attachStylizedTiles(opts: {
         loadAim.fwd.y = _camFwd.y;
         loadAim.fwd.z = _camFwd.z;
         loadAim.epoch++;
+        // U6: foveated regions ride the SAME fresh pose (compose with the U5 aim — one seam).
+        // The boundary flip adds/clears regions + relaxes/restores the periphery; per frame the
+        // fovea ray + eye bubble follow the eye. Tier gating (foveation null on high) is the
+        // modules' — orbit/2D and desktop-high stay byte-identical by construction.
+        if (fpvActive !== foveaOn) {
+          foveaOn = fpvActive;
+          buildings.setFoveaActive(foveaOn);
+          enriched?.setFoveaActive(foveaOn);
+          ground.setFoveaActive(foveaOn);
+        }
+        if (foveaOn) {
+          buildings.setFoveaPose(camera.position, _camFwd);
+          enriched?.setFoveaPose(camera.position, _camFwd);
+          ground.setFoveaPose(camera.position, _camFwd);
+        }
         // Pin focus lock (owner follow-up 2026-07-11): while a photo pin is selected (placed)
         // or a temp pin is set, the heading/zoom glides + encoder rates pivot around the PIN —
         // the controls relate to the pin the way FPV relates to the apex. Library drag/wheel

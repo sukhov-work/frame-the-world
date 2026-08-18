@@ -9,9 +9,14 @@ import {
   XYZTilesOverlay,
 } from "3d-tiles-renderer/three/plugins";
 import { tokens } from "../../../lib/theme/tokens";
-import { lruFloorBytesForCap, type QueueCaps } from "../../../lib/globe/quality";
-import { DRAPE, EARTH, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
+import {
+  lruFloorBytesForCap,
+  type FoveationTierCfg,
+  type QueueCaps,
+} from "../../../lib/globe/quality";
+import { DRAPE, EARTH, FOVEATION, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
 import { glf, glf3 } from "./glsl";
+import { makeTileFoveation } from "./tileFoveation";
 
 /**
  * Terrain ground — REAL elevation (Cesium World Terrain, ion asset 1, quantized-mesh) with Esri
@@ -68,6 +73,17 @@ export interface ImageryGroundHandle {
    *  way — this renderer KEEPS ancestors + library ordering (the terrain stand-in under the camera),
    *  only its concurrency rides the tier. */
   setQualityTier(errorNear: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
+  /** UPLIFT U6: per-tier foveation config (null = off). GROUND foveation is purely ADDITIVE —
+   *  sharper terrain along the look ray + around the eye; the base errorTarget (the altitude
+   *  ramp above) is NEVER relaxed here: heightAt seats buildings/frustum/FPV on this renderer,
+   *  and regions only tighten, so seating can only get truer at the fovea. */
+  setFoveation(cfg: FoveationTierCfg | null): void;
+  /** UPLIFT U6: FPV boundary flip — regions on/off. */
+  setFoveaActive(on: boolean): void;
+  /** UPLIFT U6: per-frame WORLD eye + unit look while foveated. */
+  setFoveaPose(eyeWorld: THREE.Vector3, fwdWorld: THREE.Vector3): void;
+  /** DEV probe (__globe.u6()). */
+  foveaSnapshot(): { engaged: boolean; baseErrorTarget: number };
   dispose(): void;
 }
 
@@ -132,6 +148,11 @@ export function attachImageryGround(
   );
   const uocPlugin = new UpdateOnChangePlugin(); // only re-tile when the camera actually moves
   tiles.registerPlugin(uocPlugin);
+  // U6 foveated FPV loading — ADDITIVE only on this renderer (see the handle doc): the adapter
+  // dispatches `needs-update` on region flips, so UpdateOnChangePlugin re-traverses even with a
+  // parked camera.
+  const fovea = makeTileFoveation(tiles, FOVEATION.regionErrorTargetM.ground);
+  tiles.registerPlugin(fovea.plugin);
   // S7a overlay stack (composited bottom-up per tile; each `opacity` is a LIVE uniform — the
   // wrap shader reads layerInfo[i].opacity every frame, so the dark↔Esri crossfade is a plain
   // per-frame write, no re-composite): Esri imagery → CARTO dark drape. (Street names are the
@@ -161,6 +182,32 @@ export function attachImageryGround(
     ],
   });
   tiles.registerPlugin(overlayPlugin);
+  // U6 guard — upstream 0.4.28 bug (re-verify on any version bump): the overlay plugin's
+  // 'tile-visibility-change' listener reads `tileInfo.get(tile).range` UNGUARDED
+  // (ImageOverlayPlugin.js:230) while every other consumer in the file checks
+  // `tileInfo.has(tile)` first. TilesFadePlugin defers visibility flips to fade-complete, so a
+  // tile disposed mid-fade delivers the event AFTER its entry was deleted → TypeError inside
+  // dispatchEvent (aborts the remaining listeners of that dispatch). Latent before U6; the
+  // foveation region flips (forced tiles fading while dropped) hit it reliably. Swap in the
+  // same body with the has-guard the library itself uses elsewhere.
+  {
+    const p = overlayPlugin as unknown as {
+      _onTileVisibilityChange: (e: { tile: object; visible: boolean }) => void;
+      overlayInfo: Map<
+        { setRegionVisible(range: unknown, visible: boolean): void },
+        { tileInfo: Map<object, { range: unknown }> }
+      >;
+    };
+    const unguarded = p._onTileVisibilityChange;
+    tiles.removeEventListener("tile-visibility-change", unguarded as any);
+    p._onTileVisibilityChange = ({ tile, visible }) => {
+      p.overlayInfo.forEach(({ tileInfo }, overlay) => {
+        const info = tileInfo.get(tile);
+        if (info) overlay.setRegionVisible(info.range, visible);
+      });
+    };
+    tiles.addEventListener("tile-visibility-change", p._onTileVisibilityChange as any);
+  }
   tiles.setCamera(opts.camera);
   const refreshResolution = () => {
     const size = opts.renderer.getSize(new THREE.Vector2());
@@ -400,6 +447,18 @@ export function attachImageryGround(
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
       tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5
       tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
+    },
+    setFoveation(cfg) {
+      fovea.configure(cfg);
+    },
+    setFoveaActive(on) {
+      fovea.setActive(on);
+    },
+    setFoveaPose(eyeWorld, fwdWorld) {
+      fovea.setPose(eyeWorld, fwdWorld);
+    },
+    foveaSnapshot() {
+      return { ...fovea.snapshot(), baseErrorTarget: tiles.errorTarget };
     },
     update(alt, darkGround, flat2d) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band

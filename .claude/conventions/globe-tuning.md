@@ -85,6 +85,21 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
   tile fields live at `tile.traversal.*` / `tile.internal.*` (the old `__dunder` fields are
   GONE); a custom `priorityCallback` must stay total on non-tile items; `loadAncestors=false`
   must always pair with an explicit comparator. Crib: `mem:project/wip-2026-08-18-u5-loading`.
+- **LoadRegionPlugin (U6, 0.4.28 installed-source facts)**: regions are evaluated in the
+  tiles-GROUP frame with NO matrixWorld fold-in — convert world poses through
+  `group.matrixWorldInverse` (identity for buildings/ground; the enriched group carries its seat
+  lift). A region `errorTarget` is GEOMETRIC-ERROR METRES (refine until
+  `tile.geometricError ≤ it`), distance-independent — NOT screen-space. Regions only TIGHTEN
+  (max-merge with camera error), so periphery softening must ride the BASE `errorTarget`
+  (`quality.peripheryErrorTarget`). A stock `RayRegion` ray is INFINITE — it pierces the globe
+  and force-loads the exit side; always range-cap (`scene/tileFoveation.RangedRayRegion`).
+  Empty regions == plugin-off; never set `region.mask` (it suppresses everything OUTSIDE).
+  Mutate `region.ray/.sphere` in place (constructors CLONE their geometry argument).
+- **ImageOverlayPlugin 'tile-visibility-change' is unguarded upstream** (0.4.28,
+  ImageOverlayPlugin.js:230 reads `tileInfo.get(tile).range` where every other consumer checks
+  `.has` first): a tile disposed mid-fade TypeErrors on fade-complete — U6 region flips hit it
+  reliably. `imageryGround.ts` swaps in a guarded listener twin; re-verify/remove on any
+  version bump (T33).
 - **Absolute-ECEF placement is sanctioned ONLY at far-shell distance** (ghost impostors: angular
   error ≪ 1 px at shell range). Copy that pattern to GROUND scale and you recreate the float32
   cancellation trap above — anything near the surface stays camera-anchored/local-frame.
