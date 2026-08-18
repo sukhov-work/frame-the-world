@@ -369,6 +369,7 @@ export default function GlobeCanvas() {
       update: () => void;
       setQualityTier: (t: QualityTier) => void;
       fpvActive: () => boolean; // U2/A9: governor tier steps defer while FPV owns the camera
+      mapFlat: () => boolean; // 2026-08-18e: flat-map engine treatment → bloom off
       dispose: () => void;
     } | null = null;
     const ionToken = import.meta.env.PUBLIC_CESIUM_ION_TOKEN as string | undefined;
@@ -427,6 +428,10 @@ export default function GlobeCanvas() {
       } else if (!reduceMotion) {
         globe.rotation.y += 0.0006; // ~0.03 deg/frame idle rotation
       }
+      // Flat-map bloom gate (owner 2026-08-18/18e): the chart has nothing to bloom — skip the
+      // ~12 fullscreen draws while the engine runs the flat treatment (/m 2D map, or desktop
+      // nadir below CONTROLS.mapFlatMaxAltM — the LEO flagship keeps its atmosphere bloom).
+      bloomPass.enabled = QUALITY.tiers[activeTier].bloom && !(tilesHandle?.mapFlat() ?? false);
       composer.render();
     };
     tick();

@@ -1,7 +1,8 @@
 # UPLIFT_PLAN — mobile UX/perf + desktop uplift (owner 10-point order, 2026-08-17)
 
-**Status: U1 SHIPPED 2026-08-17b · U2 SHIPPED 2026-08-18 (both browser-verified; the shared
-real-device pass rides T1 and stays each slice's exit gate). U3 next.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
+**Status: U1 SHIPPED 2026-08-17b · U2 SHIPPED 2026-08-18 · U3 SHIPPED 2026-08-18b (+ the
+owner's 5-issue 2D-map batch, same session — all browser-verified; the shared real-device pass
+rides T1 and stays each slice's exit gate). U4 next.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
 shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both
 performance and stability; 10 points below, "in order of urgency and criticality", to be churned
@@ -215,7 +216,16 @@ rides T1. Each fix gets a regression probe where unit-testable (LRU floor arithm
 clearing are pure).
 
 ### U3 — Fullscreen map + minimap view cone · points 2 + 4
-**Scope.** Tap the minimap → fullscreen north-up map (desktop: large centered modal — the GUIDE
+**SHIPPED 2026-08-18b** (DECISIONS 2026-08-18b-u3-2dmap-batch ·
+`mem:project/wip-2026-08-18-u3-2dmap-batch`) — as sketched: minimap pose mirror gains `coneDeg`
+(horizontalFovDeg off fpvHud, tracks pinch-FOV; wedge replaced by a translucent sector), the
+patch is a tap target opening the NEW `MapWindow` island (desktop centred window / /m true
+fullscreen; raw Esri/CARTO XYZ canvas via the new pure `lib/geo/slippy.ts`, drag/wheel/pinch/±,
+double-click / long-press = VIEW FROM HERE through `requestFpvJump`, Esc/✕ back, attribution).
+Shipped alongside the owner's 5-issue 2D-map batch (3D→2D spin fix · street-names v4 +
+flat-map depth · imagery sharpness chain · 2D speed levers · MY LOCATION lands the map) — see
+the DECISIONS entry. Esri ToS decision still rides U7.
+**Scope (as planned).** Tap the minimap → fullscreen north-up map (desktop: large centered modal — the GUIDE
 window precedent) with the photo-tile layer, long-tap = view-from-here, a button where the map
 was returns to mini; minimap (both sizes) gains a semi-transparent FOV cone driven by the live
 FPV focal.
@@ -367,6 +377,26 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
   nadir `#p=` hashes re-land 2D on /m (the mirror writes them) · heading mirrored off SCREEN-UP
   in 2D (forward-heading degenerate at nadir) · ▦ 3D DETAIL hidden in 2D · exit alt 600 m.
   Gates 922/922 · astro 0 err. Real-device pass = the open exit gate.
+- 2026-08-18e · Owner round 4: desktop nadir = the same flat map (unified `flatGroundNow()`:
+  deep error target + day grade + shadow rig off + bloom off + fast zoom, bounded by
+  `CONTROLS.mapFlatMaxAltM` 120 km so the LEO flagship stays byte-identical; any inclination →
+  normal 3D). Buildings stay attached on desktop (BLD chip hides them) — the one deliberate
+  shell difference.
+- 2026-08-18d · Owner round 3: street-name scale v4.1 — per-tier screen px targets [15,13,11]
+  applied DIRECTLY per frame (the eased global scale lagged pinch ~270 ms and majors rode 2×
+  world size × scale = the "huge text" shot); flat-map fills 0.15 → 0.08.
+- 2026-08-18c · Owner follow-up: the LIVE-map blur root was CWT's tiny leaf GE (≈1.1 m on
+  ~800 m tiles) freezing the overlay's virtual splits at z16 — `errorTarget2dDeep` 0.35 below
+  1.2 km (blended out by 6 km) reaches z17–18 for ~+5 tiles at street nadir; flat-map fills
+  ×0.15 / ribbons ×0.55 (imagery is the map); chips → `▲ 3D`/`▼ 2D`/`🧭 MY LOC`.
+- 2026-08-18b · U3 shipped + the owner's 5-issue 2D-map batch (see the U3 slice header +
+  DECISIONS 2026-08-18b). Rulings: the heading glide measures SCREEN-UP below 60° tilt (one
+  heading definition through the glide→lock handoff — the 3D→2D spin) · nadir vector web +
+  names = MAP INK (depthTest off, night dim down, near-ground ink fade) · street names v4
+  (viewport selection + along-street repeats + legibility scale, band → 5 km) · imagery chain
+  (512 composite · device-px SSE for the ground alone · levels off-by-one · 2D day grade ·
+  2D near-error 2) · CARTO overlay attach-on-dark-only · MY LOCATION lands the 2D map with the
+  pin armed (supersedes 2026-08-14) · MapWindow = raw-tile canvas island, NOT a second GL view.
 - 2026-08-18 · U2 shipped (see the slice header). Rulings: LRU floor = cap×0.75 (the library's
   own min/max ratio; pure fn, both defaults captured + restored on high) · governor steps PARK
   during FPV (pendingTier; force() immediate) · DPR-unchanged tier flips skip the composer

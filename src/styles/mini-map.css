@@ -23,6 +23,17 @@
 
 /* 200px canvas + 4px padding + 1px border = a 210px border-box — the FPV HUD card below pins
    the SAME 210px (fpv-hud.css .fh width), owner 2026-08-14 ask 6. Keep the two in lockstep. */
+/* U3: the patch is a tap target (fullscreen map) — an unstyled button wrapping the canvas. */
+.mm-open {
+  display: block;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+
 .mm-canvas {
   display: block;
   width: 200px;

@@ -565,6 +565,13 @@ export const CONTROLS = {
   toggle3dTiltDeg: 55,
   /** The toggle reads "2D" while the live tilt is under this (deg). */
   twoDMaxTiltDeg: 10,
+  /** DESKTOP flat-map ENGINE treatment ceiling (m, owner 2026-08-18e): at nadir tilt below this
+   *  altitude the desktop gets the /m map treatment (deep imagery error target, day grade,
+   *  shadow rig off, bloom off, fast zoom) — any inclination returns to normal 3D. The bound
+   *  exists because the FLAGSHIP LEO view is also tilt≈0: above it the terminator / night
+   *  lights / atmosphere bloom must stay byte-identical. /m ignores this (mapMode is the gate
+   *  there, and the imagery layer only exists below ~750 km anyway). */
+  mapFlatMaxAltM: 120_000,
   /** Encoder-style rate controls (Phase 5.5 S2 — spring-centred ROTATE/ZOOM): max rates at
    *  full deflection. Heading in deg/s (compass-clockwise positive)… */
   headingRateMaxDegPerS: 45,
@@ -583,6 +590,13 @@ export const CONTROLS = {
   tiltArriveRad: 8e-4,
   /** Heading glide has arrived when the signed arc to target drops under this (deg). */
   headingArriveDeg: 0.08,
+  /** Below this live tilt (deg) the heading glide measures the SCREEN-UP bearing instead of the
+   *  forward bearing. Forward is DEGENERATE near nadir — any residual-tilt sliver defines it, and
+   *  chasing it spun the /m 3D→2D transition through several visible turns (owner bug
+   *  2026-08-18; measured 170→9.7→308.6→207→359.7° at tilt 0.2°). Screen-up is the 2D locks'
+   *  reference, so the glide→lock handoff shares ONE heading definition; the two bearings agree
+   *  for an unrolled camera at any oblique tilt, so the switch point is not visible. */
+  headingUpRefMaxTiltDeg: 60,
   /** Zoom glide has arrived when |log(target/alt)| drops under this. */
   zoomArriveLog: 0.005,
   /** Altitude change (m) below which a zoom glide counts as "stalled" (resting on terrain). */
@@ -614,6 +628,14 @@ export const MOBILE2D = {
   /** Re-lock deadbands — under these the pose counts as locked (no per-frame rotation work). */
   lockTiltEpsDeg: 0.2,
   lockHeadingEpsDeg: 0.25,
+  /** MY LOCATION arrival altitude (m above ground): the fix now lands ON the 2D map with the
+   *  temp pin armed for LOOK FROM HERE (owner 2026-08-18 — supersedes the 2026-08-14
+   *  straight-into-FPV ruling). Same map-scale rationale as exitAltAboveGroundM. */
+  locateAltAboveGroundM: 600,
+  /** Near-ground zoom-brake floor on the 2D map (owner 2026-08-18 "speed up the 2D map") —
+   *  replaces CONTROLS.zoomSlowFrac (0.35, tuned for the cinematic 3D dive) while mapMode is
+   *  "2d": a chart pinch should stay near full speed all the way down. */
+  zoomSlowFrac: 0.85,
 } as const;
 
 /** External tile sources. ToS: Esri World Imagery is hackathon-standard but UNVERIFIED for
@@ -1179,9 +1201,12 @@ export const GROUND = {
   bayerOffsetPx: 2.0,
   /** Imagery sits behind building footprints (bases win ties). */
   polygonOffset: 1,
-  /** ImageOverlayPlugin per-tile composite texture resolution (px). 256 = plugin default;
-   *  raise if grazing-angle imagery reads soft (memory: ~res²·4 B per tile per overlay). */
-  overlayResolution: 256,
+  /** ImageOverlayPlugin per-tile composite texture resolution (px). 256 (the plugin default)
+   *  delivered only ~1–3 CSS px per imagery texel at street zoom — the owner's "horrible and
+   *  blurry" (2026-08-18): a settled region spans ~130–260·errorTarget px on screen but carried
+   *  256 texels. 512 ≈ screen density at errorTarget 2. Memory: ~res²·4 B per tile per overlay —
+   *  offset by the dark drape now attaching only in dark mode. */
+  overlayResolution: 512,
   // --- soft adaptive loading (2026-07-10 owner pass: no patchy pop-in on page open) -----------
   /** TilesFadePlugin per-tile dissolve duration (ms). Library default 250 reads as popping;
    *  700 lets refinement breathe. */
@@ -1195,6 +1220,22 @@ export const GROUND = {
    *  full coverage far sooner; diving refines them progressively (per-tile fades cover it). */
   errorTargetNear: 2,
   errorTargetFar: 12,
+  /** Near error target on the /m 2D MAP (owner 2026-08-18): the map is the planning surface and
+   *  buildings are detached there — weaker tiers (mid raises errorNear to 3) claw back down to
+   *  this so street imagery stays sharp where it matters most. min() with the tier value. */
+  errorTargetNear2d: 2,
+  /** 2D-map DEEP error target (owner 2026-08-18b — "crisp below 2 km"). The blur was NOT the
+   *  composite: CWT leaves over Dnipro report GE ≈ 1.1 m on ~800 m tiles, so at errorTarget 2
+   *  the GEOMETRY converges after one virtual split and the imagery freezes at z16 ≈ 1.6 m/px —
+   *  SSE measures mesh error, not texel density. Probe-verified: 0.35 drives the overlay's
+   *  virtual splits to z17–18 (0.4–0.8 m/px) for only ~+5 visible tiles at street nadir (the
+   *  frustum is tiny there). Applied only in flat2d, blended out by error2dBlendAltM so
+   *  mid-altitude views never carry the deep-region tile count. */
+  errorTarget2dDeep: 0.35,
+  /** Full deep target at/below this altitude (m)… */
+  error2dDeepAltM: 1_200,
+  /** …blended back to the tier near-target by this one. */
+  error2dBlendAltM: 6_000,
   errorNearAlt: 60_000,
   /** Matches the fade band top — the imagery is never visible above it, so the coarse end of the
    *  error ramp should land there (finer tiles inside the band = more consistent Esri zooms). */
@@ -1299,14 +1340,36 @@ export const STREETS = {
   tileZ: 14,
   /** Neighborhood ring around the focus tile (1 = 3×3 ≈ 7 km — covers the visible street web). */
   ring: 1,
-  /** Names fade in below this camera altitude (owner: appear at ~2–2.5 km)… */
-  topAltM: 2_500,
+  /** Names fade in below this camera altitude (v4, owner 2026-08-18: the 2D map wants names
+   *  from ~city overview down — was 2 500)… */
+  topAltM: 5_000,
   /** …fully present at/below this one; they stay to street level. */
-  fullAltM: 2_100,
+  fullAltM: 4_000,
   /** Visible label budget + WORLD-space min separation (m) between anchors — priority order
    *  wins (the v2 screen-space declutter reshuffled labels on every sync — the "jump"). */
   maxVisible: 40,
   minSepM: 130,
+  /** v4 (owner 2026-08-18 — "names along the streets"): a named line drops an anchor every
+   *  ~this many metres (Google-style repeats along long streets), capped per feature. */
+  repeatEveryM: 450,
+  maxAnchorsPerFeat: 6,
+  /** Two anchors of the SAME street name must sit at least this far apart (m, × the current
+   *  label scale) — the along-street repeat spacing on screen. */
+  sameNameSepM: 650,
+  /** v4.1 screen-size targets by class tier (owner 2026-08-18d — "too big, out of sync"):
+   *  above the world-size floor each tier scales to ITS OWN target CSS px — majors no longer
+   *  inherit a 2× world size × the global scale (26 px "huge" text towering over its lane).
+   *  Below the floor the world-metre "road paint" reading is kept (scale 1 at street level).
+   *  Applied DIRECTLY per frame (no ease): the scale is a continuous function of altitude, so
+   *  pinch-zoom tracks exactly — the eased version visibly lagged the map (~270 ms). */
+  textPxTarget: [15, 13, 11],
+  maxTextScale: 9,
+  /** Screen-space min separation (CSS px, converted to world metres per selection pass) so a
+   *  zoomed-out view never stacks labels — the world minSepM alone was tuned for street level. */
+  minSepPx: 90,
+  /** Selection viewport margin (|NDC| bound) — anchors outside the view frustum are never
+   *  selected (v4: the v3 world-space selection spent the whole budget off-screen at nadir). */
+  viewMarginNdc: 1.15,
   /** Painted text cap height (m) by class tier: [majors ≤ rank 2, mid ≤ rank 4, the rest].
    *  World-sized text reads like road paint: distant names small, street-level names large. */
   textHeightM: [22, 15, 11],
@@ -1394,6 +1457,18 @@ export const VECTOR = {
   /** Night dim: map ink is unlit, so it would glow at night — dim toward this floor as the sun
    *  sets (smoothstep over sin(sun elevation) at the view focus, twin of EARTH.lightsBand). */
   nightDim: 0.45,
+  /** Flat-map near-ground ink fade (owner 2026-08-18): at street zoom the sharpened imagery
+   *  IS the map — full-strength ribbons covered exactly the kerbs/parking the owner reads.
+   *  Ink alpha lerps down to the floor across [loAltM, hiAltM] while mapFlat. */
+  flatNearFadeLoAltM: 300,
+  flatNearFadeHiAltM: 900,
+  flatNearFadeFloor: 0.35,
+  /** Flat-map ink attenuation (owner 2026-08-18b — "vector layer obscures the actual streets
+   *  and landscape"): the imagery already SHOWS parks/water/roads, so on the 2D map fills drop
+   *  to a whisper of a tint and ribbons to light ink. Multiplies the base opacities while
+   *  mapFlat (3D keeps the full web — the drape is dark and stylized there). */
+  flatFillK: 0.08, // 0.15 → 0.08 owner 2026-08-18d
+  flatLineK: 0.55,
   /** Terrain height lattice per tile (N×N heightAt samples, bilinear between) + the per-frame
    *  sampling budget shared across tiles (raycasts — keep small). */
   latticeN: 6,

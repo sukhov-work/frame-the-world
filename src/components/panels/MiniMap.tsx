@@ -92,18 +92,36 @@ function draw(
     ctx.stroke();
   }
 
-  // Viewer: screen space again — a heading wedge + dot at the exact centre.
+  // Viewer: screen space again — the U3 FOV cone (width = the live horizontal FPV FOV, so it
+  // visibly narrows as you pinch-zoom the lens) or the legacy wedge when no FOV is mirrored,
+  // + the centre dot.
   ctx.setTransform(1, 0, 0, 1, px / 2, px / 2);
   ctx.rotate((pose.headingDeg * Math.PI) / 180); // north-up map: heading rotates clockwise
   ctx.globalAlpha = 1;
   ctx.fillStyle = ink.viewer;
-  ctx.beginPath();
-  ctx.moveTo(0, -11 * dpr);
-  ctx.lineTo(5.5 * dpr, 4 * dpr);
-  ctx.lineTo(-5.5 * dpr, 4 * dpr);
-  ctx.closePath();
-  ctx.globalAlpha = 0.35;
-  ctx.fill();
+  if (pose.coneDeg !== null) {
+    const half = ((pose.coneDeg / 2) * Math.PI) / 180;
+    const r = px * 0.42; // cone reach — a fixed fraction of the patch
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    // canvas angles: 0 = +x (east); "up" (the heading direction after the rotate) is −y ⇒ −π/2
+    ctx.arc(0, 0, r, -Math.PI / 2 - half, -Math.PI / 2 + half);
+    ctx.closePath();
+    ctx.globalAlpha = 0.18;
+    ctx.fill();
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 1 * dpr;
+    ctx.strokeStyle = ink.viewer;
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(0, -11 * dpr);
+    ctx.lineTo(5.5 * dpr, 4 * dpr);
+    ctx.lineTo(-5.5 * dpr, 4 * dpr);
+    ctx.closePath();
+    ctx.globalAlpha = 0.35;
+    ctx.fill();
+  }
   ctx.globalAlpha = 1;
   ctx.beginPath();
   ctx.arc(0, 0, 2.6 * dpr, 0, Math.PI * 2);
@@ -114,6 +132,7 @@ export default function MiniMap() {
   const scene = useMiniMapStore((s) => s.scene);
   const pose = useMiniMapStore((s) => s.pose);
   const patchM = useMiniMapStore((s) => s.patchM);
+  const setMapWindowOpen = useMiniMapStore((s) => s.setMapWindowOpen);
   const drag = usePanelDrag("mini-map");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // /m-only collapse (owner 2026-08-15c): the patch folds into a small puck at the right
@@ -127,12 +146,7 @@ export default function MiniMap() {
 
   if (!scene || !pose) return null;
   return (
-    <div
-      className={`mm${collapsed ? " mm--collapsed" : ""}`}
-      style={drag.style}
-      role="img"
-      aria-label={`Mini-map — a ${patchM} metre square around your position, north up`}
-    >
+    <div className={`mm${collapsed ? " mm--collapsed" : ""}`} style={drag.style}>
       <DragGrip drag={drag} label="Move the mini-map" tipPos="right" />
       <button
         type="button"
@@ -143,7 +157,15 @@ export default function MiniMap() {
       >
         {collapsed ? "▣" : "»"}
       </button>
-      <canvas ref={canvasRef} className="mm-canvas" />
+      {/* U3 (owner point 2): the patch itself is the tap target for the fullscreen map. */}
+      <button
+        type="button"
+        className="mm-open"
+        aria-label={`Mini-map — a ${patchM} metre square around your position, north up. Open the full map`}
+        onClick={() => setMapWindowOpen(true)}
+      >
+        <canvas ref={canvasRef} className="mm-canvas" />
+      </button>
       <span className="mm-n" aria-hidden="true">
         N
       </span>

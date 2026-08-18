@@ -6,23 +6,27 @@ import { STREETS } from "../tuning";
 import type { StreetLabelFeat, VectorTilesHandle } from "./vectorTiles";
 
 /**
- * Street names v3 (S7 feedback batch) — GL labels PINNED TO THE GROUND MESH.
+ * Street names v4 (owner batch 2026-08-18) — GL labels PINNED TO THE GROUND MESH, now selected
+ * INSIDE the viewport with Google-style repeats along long streets.
  *
- * The v2 DOM pool moved labels by JS style writes every 3rd frame while the mesh re-rendered at
- * 60 Hz — the owner read that as "very laggy, jumping around, lagging behind the mesh". v3 kills
- * the cadence gap structurally: each street name is a canvas-textured quad LYING ON the rendered
- * terrain, rotated along its street in the local tangent plane. The GPU projects it with the
- * same matrices in the same composer frame as the terrain — it cannot lag or jump by
- * construction. Type size is WORLD metres (road paint): it scales optically with zoom.
+ * v3 (S7 feedback batch) killed the DOM-label lag structurally: each street name is a
+ * canvas-textured quad LYING ON the rendered terrain, rotated along its street in the local
+ * tangent plane — the GPU projects it with the same matrices in the same composer frame as the
+ * terrain, so it cannot lag or jump. v4 fixes WHY names never showed on the 2D map: the v3
+ * selection was world-space over the whole tile cache (~130 km²) with no camera test, so at
+ * street zoom the entire budget sat off-screen. Selection now projects candidate anchors
+ * through the camera (margin STREETS.viewMarginNdc), long streets carry repeat anchors
+ * (vectorTiles v4) held apart by a same-name separation, and label WORLD size scales up at
+ * altitude so the smallest tier stays legible (STREETS.minTextPx) — at street level the scale
+ * floors at 1 and the v3 "road paint" reading is unchanged.
  *
  * Float32 safety: the quad geometry is a unit plane (local coords ≤ 0.5); the ECEF magnitude
  * lives only in mesh.matrix, and three computes modelViewMatrix per mesh on the CPU in float64 —
  * the PhotoFrustum lesson (apex-relative geometry), not the instanced-attribute trap (Pins).
  *
- * Selection (dedupe by name → rank order → WORLD-space min separation) is bookkeeping at a slow
- * cadence; between selections nothing is repositioned in screen space — labels are simply part
- * of the scene. The upright flip (text readable from either side of the street) and the lazy
- * terrain re-seat are the only per-frame writes, both eased/hysteresis-guarded.
+ * Selection is bookkeeping at a slow cadence; between selections nothing is repositioned in
+ * screen space — labels are simply part of the scene. Per-frame writes: opacity fade, lazy
+ * terrain re-seat (eased), upright flip (hysteresis), and the v4 scale ease.
  */
 export interface StreetNamesHandle {
   update(opts: {
@@ -33,6 +37,11 @@ export interface StreetNamesHandle {
     focusLonDeg: number;
     /** False hides the layer (FPV, welcome…) without dropping the tile cache. */
     enabled: boolean;
+    /** Flat-map mode (nadir 2D): labels skip the depth test — terrain LOD can never slice
+     *  through them (the "roads clip through the ground" family, owner 2026-08-18). */
+    mapFlat: boolean;
+    /** Viewport CSS height (px) — the v4 legibility scale's screen reference. */
+    viewportH: number;
   }): void;
   /** Adaptive quality (RENDERING_QUALITY_PASS WS1): cap the simultaneous label budget on weaker
    *  tiers (STREETS.maxVisible on `high`; fewer on mid/low → fewer textures + selection work). */
@@ -51,6 +60,29 @@ export function textHeightM(rank: number): number {
   return rank <= 2 ? STREETS.textHeightM[0] : rank <= 4 ? STREETS.textHeightM[1] : STREETS.textHeightM[2];
 }
 
+/** World metres per CSS px at the view centre of a nadir camera (pure — unit-tested). */
+export function worldPerPx(altM: number, fovDeg: number, viewportHPx: number): number {
+  return (2 * altM * Math.tan((fovDeg * Math.PI) / 360)) / Math.max(1, viewportHPx);
+}
+
+/** Screen-size target (CSS px) for a class rank — the v4.1 per-tier ladder (pure). */
+export function textPxTargetFor(rank: number): number {
+  return rank <= 2
+    ? STREETS.textPxTarget[0]
+    : rank <= 4
+      ? STREETS.textPxTarget[1]
+      : STREETS.textPxTarget[2];
+}
+
+/** v4.1 legibility scale for ONE label: grow its world size until it subtends its tier's
+ *  target px; floors at 1 (street level keeps the world-metre "road paint" reading) and caps
+ *  at maxTextScale. Every tier lands on its OWN px target at altitude — majors no longer ride
+ *  a 2× world size times a global scale (pure — unit-tested). */
+export function labelScaleFor(hWorldM: number, pxTarget: number, wpp: number): number {
+  const need = (pxTarget * wpp) / hWorldM;
+  return Math.min(STREETS.maxTextScale, Math.max(1, need));
+}
+
 /** Upright flip with hysteresis: given the dot of the CURRENTLY RENDERED text-up with the
  *  camera's tangent direction, toggle only once it points clearly away — the dead band keeps
  *  labels from flickering when the camera rides the street axis (pure — unit-tested). */
@@ -59,11 +91,11 @@ export function uprightFlip(dotEffUpToCam: number, flipped: boolean): boolean {
 }
 
 interface LabelEntry {
+  key: string;
   feat: StreetLabelFeat;
   mesh: THREE.Mesh;
   material: THREE.MeshBasicMaterial;
-  texture: THREE.CanvasTexture;
-  /** World width/height of the quad (m). */
+  /** World width/height of the quad at scale 1 (m). */
   w: number;
   h: number;
   /** ENU-ish basis at the anchor (along = street dir in tangent plane, side = in-plane up). */
@@ -79,8 +111,14 @@ interface LabelEntry {
   dying: boolean; // F3: de-selected — fade to 0 then drop (revived if re-selected)
 }
 
+/** Stable identity of one anchor (a street NAME now carries several — v4 repeats). */
+const featKey = (f: StreetLabelFeat): string =>
+  `${f.name}@${f.latDeg.toFixed(4)},${f.lonDeg.toFixed(4)}`;
+
 const _v = new THREE.Vector3();
 const _toCam = new THREE.Vector3();
+const _proj = new THREE.Vector3();
+const _selFwd = new THREE.Vector3();
 
 export function attachStreetNames(opts: {
   scene: THREE.Scene;
@@ -102,9 +140,17 @@ export function attachStreetNames(opts: {
 
   const geometry = new THREE.PlaneGeometry(1, 1); // shared; scaled per label via matrix basis
 
-  // One texture per street NAME, kept while the label is live (labels churn slowly; textures
-  // for dropped labels are disposed with their entry).
-  const makeTexture = (name: string, major: boolean) => {
+  // One texture per street NAME (refcounted — v4 repeats share it across their anchors);
+  // released with the last entry that used it.
+  const texCache = new Map<string, { texture: THREE.CanvasTexture; aspect: number; refs: number }>();
+  const texKey = (name: string, major: boolean) => `${major ? "M" : "m"}|${name}`;
+  const acquireTexture = (name: string, major: boolean) => {
+    const k = texKey(name, major);
+    const hit = texCache.get(k);
+    if (hit) {
+      hit.refs++;
+      return hit;
+    }
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
     const pad = Math.ceil(STREETS.canvasPx * 0.45);
@@ -126,18 +172,33 @@ export function attachStreetNames(opts: {
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = Math.min(8, opts.maxAniso ?? 1);
-    return { texture, aspect: canvas.width / canvas.height };
+    const entry = { texture, aspect: canvas.width / canvas.height, refs: 1 };
+    texCache.set(k, entry);
+    return entry;
+  };
+  const releaseTexture = (name: string, major: boolean) => {
+    const k = texKey(name, major);
+    const hit = texCache.get(k);
+    if (!hit) return;
+    if (--hit.refs <= 0) {
+      hit.texture.dispose();
+      texCache.delete(k);
+    }
   };
 
-  const live = new Map<string, LabelEntry>(); // keyed by street name
-  const bestByName = new Map<string, StreetLabelFeat>();
+  const live = new Map<string, LabelEntry>(); // keyed by featKey (name + anchor)
   let frame = 0;
   let lastVersion = -1;
   let reseatCursor = 0;
   let maxVisibleOverride: number = STREETS.maxVisible; // WS1: lowered on weaker tiers via setMaxVisible
+  // v4.1: the CURRENT world-per-px — label scales derive from it per entry inside applyMatrix,
+  // applied DIRECTLY (no ease: scale is continuous in altitude, so pinch tracks exactly).
+  let wppCur = 0;
+  let flatApplied = false; // mapFlat depth-test state currently on the materials
 
   const buildEntry = (feat: StreetLabelFeat): LabelEntry => {
-    const { texture, aspect } = makeTexture(feat.name, feat.rank <= 2);
+    const major = feat.rank <= 2;
+    const { texture, aspect } = acquireTexture(feat.name, major);
     const h = textHeightM(feat.rank);
     const w = h * aspect;
     const material = new THREE.MeshBasicMaterial({
@@ -145,6 +206,7 @@ export function attachStreetNames(opts: {
       transparent: true,
       opacity: 0,
       depthWrite: false,
+      depthTest: !flatApplied,
       polygonOffset: true,
       polygonOffsetFactor: -4,
       polygonOffsetUnits: -4,
@@ -170,10 +232,10 @@ export function attachStreetNames(opts: {
     along.normalize();
     const side = new THREE.Vector3().crossVectors(up, along).normalize();
     const entry: LabelEntry = {
+      key: featKey(feat),
       feat,
       mesh,
       material,
-      texture,
       w,
       h,
       along,
@@ -196,8 +258,9 @@ export function attachStreetNames(opts: {
   const _mSide = new THREE.Vector3();
   const applyMatrix = (e: LabelEntry) => {
     const sign = e.flipped ? -1 : 1;
-    _mAlong.copy(e.along).multiplyScalar(e.w * sign);
-    _mSide.copy(e.side).multiplyScalar(e.h * sign);
+    const scale = labelScaleFor(e.h, textPxTargetFor(e.feat.rank), wppCur);
+    _mAlong.copy(e.along).multiplyScalar(e.w * scale * sign);
+    _mSide.copy(e.side).multiplyScalar(e.h * scale * sign);
     // Quad plane: local X = along (scaled to width), local Y = in-plane up, local Z = normal.
     e.mesh.matrix.makeBasis(_mAlong, _mSide, e.up);
     e.mesh.matrix.setPosition(e.anchor);
@@ -210,78 +273,102 @@ export function attachStreetNames(opts: {
     applyMatrix(e);
   };
 
-  const dropEntry = (name: string, e: LabelEntry) => {
+  const dropEntry = (e: LabelEntry) => {
     group.remove(e.mesh);
     e.material.dispose();
-    e.texture.dispose();
-    live.delete(name);
+    releaseTexture(e.feat.name, e.feat.rank <= 2);
+    live.delete(e.key);
   };
 
-  const runSelection = () => {
-    // One label per street NAME across the neighborhood — best class, then longest segment.
-    bestByName.clear();
+  const runSelection = (camera: THREE.PerspectiveCamera, wpp: number) => {
+    // v4: candidates = every anchor in the cache, VIEWPORT-FILTERED first (the v3 world-only
+    // selection spent the whole budget off-screen at street zoom), then accepted in rank order
+    // under two separations — a global min distance (world floor, raised to minSepPx on screen
+    // at altitude) and a same-name spacing (the along-street repeat rhythm).
+    camera.getWorldDirection(_selFwd);
+    const minSep = Math.max(STREETS.minSepM, STREETS.minSepPx * wpp);
+    const minSepSq = minSep * minSep;
+    // Same-name spacing rides the MAJOR tier's current scale (the widest labels set the rhythm).
+    const sameSep =
+      STREETS.sameNameSepM * labelScaleFor(STREETS.textHeightM[0], STREETS.textPxTarget[0], wpp);
+    const sameSepSq = sameSep * sameSep;
+    const candidates: StreetLabelFeat[] = [];
     for (const entry of opts.vtiles.tiles().values()) {
       if (typeof entry === "string") continue;
       for (const label of entry.labels) {
-        const prev = bestByName.get(label.name);
+        const p = _v.set(...geodeticToEcef(label.latDeg, label.lonDeg, 0));
+        _toCam.copy(p).sub(camera.position);
+        if (_toCam.dot(_selFwd) <= 0) continue; // behind the camera
+        _proj.copy(p).project(camera);
         if (
-          !prev ||
-          label.rank < prev.rank ||
-          (label.rank === prev.rank && label.lineLen > prev.lineLen)
+          Math.abs(_proj.x) > STREETS.viewMarginNdc ||
+          Math.abs(_proj.y) > STREETS.viewMarginNdc
         ) {
-          bestByName.set(label.name, label);
+          continue;
         }
+        candidates.push(label);
       }
     }
-    const candidates = [...bestByName.values()].sort(
-      (a, b) => a.rank - b.rank || b.lineLen - a.lineLen,
-    );
-    // WORLD-space min separation in rank order (stable under camera motion — no screen reshuffle).
+    candidates.sort((a, b) => a.rank - b.rank || b.lineLen - a.lineLen);
     const accepted: StreetLabelFeat[] = [];
-    const minSepSq = STREETS.minSepM * STREETS.minSepM;
-    const anchors: THREE.Vector3[] = [];
+    const anchors: { p: THREE.Vector3; name: string }[] = [];
     for (const c of candidates) {
       const p = _v.set(...geodeticToEcef(c.latDeg, c.lonDeg, 0)).clone();
       let clear = true;
       for (const a of anchors) {
-        if (a.distanceToSquared(p) < minSepSq) {
+        const dSq = a.p.distanceToSquared(p);
+        if (dSq < minSepSq || (a.name === c.name && dSq < sameSepSq)) {
           clear = false;
           break;
         }
       }
       if (!clear) continue;
-      anchors.push(p);
+      anchors.push({ p, name: c.name });
       accepted.push(c);
       if (accepted.length >= maxVisibleOverride) break;
     }
-    const keep = new Set(accepted.map((c) => c.name));
+    const keep = new Set(accepted.map((c) => featKey(c)));
     // F3: don't drop instantly — mark unkept labels dying (they ease to 0 then remove in the
     // per-frame loop), and REVIVE a dying label that got re-selected before it faded out.
     for (const [, e] of live) {
-      if (!keep.has(e.feat.name)) e.dying = true;
+      if (!keep.has(e.key)) e.dying = true;
     }
     for (const c of accepted) {
-      const e = live.get(c.name);
+      const e = live.get(featKey(c));
       if (e) e.dying = false;
-      else live.set(c.name, buildEntry(c));
+      else live.set(featKey(c), buildEntry(c));
     }
   };
 
   return {
-    update({ camera, alt, focusLatDeg, focusLonDeg, enabled }) {
+    update({ camera, alt, focusLatDeg, focusLonDeg, enabled, mapFlat, viewportH }) {
       frame++;
       const presence = enabled ? streetPresence(alt) : 0;
       group.visible = presence > 0.01;
       if (!group.visible) return;
+      // Flat-map depth gate (owner 2026-08-18): at nadir the labels are pure map ink — depth
+      // testing against the refining terrain only ever CUTS them (never correctly occludes).
+      if (mapFlat !== flatApplied) {
+        flatApplied = mapFlat;
+        for (const e of live.values()) e.material.depthTest = !mapFlat;
+      }
       // Keep the focus neighborhood fetched (fire-and-forget; the shared cache absorbs repeats).
       opts.vtiles.ensureRing(focusLatDeg, focusLonDeg, STREETS.ring);
+      // v4.1: the current world-per-px — label scales derive from it inside applyMatrix.
+      const wpp = worldPerPx(alt, camera.fov, viewportH);
+      const wppChanged = Math.abs(wpp - wppCur) > wppCur * 0.003;
+      wppCur = wpp;
       // Selection: on tile-cache change or the slow cadence — never per frame.
       const v = opts.vtiles.version();
       if (v !== lastVersion || frame % STREETS.selectEveryFrames === 0) {
         lastVersion = v;
-        runSelection();
+        runSelection(camera, wpp);
       }
-      // Per-frame: opacity fade, lazy terrain seat (eased), upright flip (hysteresis).
+      // Per-frame: DIRECT scale tracking (no ease — the eased scale visibly lagged pinch-zoom,
+      // owner 2026-08-18d), opacity fade, lazy terrain seat (eased), upright flip.
+      if (wppChanged) {
+        for (const e of live.values()) applyMatrix(e);
+      }
       const entries = [...live.values()];
       // Amortized terrain (re-)seat: 2 raycasts per frame, round-robin; unseated labels and
       // labels whose sample is older than reseatEveryFrames get re-sampled.
@@ -318,14 +405,14 @@ export function attachStreetNames(opts: {
         const target = e.dying ? 0 : presence * (e.feat.rank <= 2 ? 0.92 : 0.7);
         e.opacity += (target - e.opacity) * STREETS.labelFadeLerp;
         e.material.opacity = e.opacity;
-        if (e.dying && e.opacity < 0.01) dropEntry(e.feat.name, e);
+        if (e.dying && e.opacity < 0.01) dropEntry(e);
       }
     },
     setMaxVisible(n) {
       maxVisibleOverride = Math.max(1, Math.floor(n));
     },
     dispose() {
-      for (const [name, e] of [...live]) dropEntry(name, e);
+      for (const e of [...live.values()]) dropEntry(e);
       geometry.dispose();
       opts.scene.remove(group);
     },

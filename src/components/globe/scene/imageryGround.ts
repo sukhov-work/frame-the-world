@@ -51,9 +51,16 @@ export interface ImageryGroundHandle {
   setShadowStrength(opacity: number): void;
   /** Live dark-drape fraction (0 = Esri look, 1 = CARTO dark) — eased inside update(). */
   darkBlend(): number;
+  /** DPR-aware SSE resolution (owner 2026-08-18 sharpness batch): setResolutionFromRenderer
+   *  feeds CSS px, so a retina screen refined no deeper than a 1× one — this renderer alone
+   *  spends its error budget in DEVICE px (imagery density matches the glass; buildings keep
+   *  CSS-px SSE). Call after any resize / pixel-ratio change. */
+  refreshResolution(): void;
   /** Per-frame: altitude gate + screen-door fade + dark-drape crossfade + shadow-overlay gate
-   *  + tile refinement. `darkGround` = camera.groundMode !== 'satellite'. */
-  update(alt: number, darkGround: boolean): void;
+   *  + tile refinement. `darkGround` = camera.groundMode !== 'satellite'; `flat2d` = the /m 2D
+   *  map (sharper near-error target — buildings are detached there, the budget is free — and
+   *  no shadow twins: nothing casts). */
+  update(alt: number, darkGround: boolean, flat2d: boolean): void;
   /** Adaptive quality (RENDERING_QUALITY_PASS WS1): raise the NEAR-altitude error target (coarser
    *  terrain, fewer tiles at street level) + bound this renderer's LRU bytes on weaker tiers.
    *  `lruCapBytes` is resolved by `lruCapBytesForTier`; `null` restores the captured library default
@@ -126,25 +133,37 @@ export function attachImageryGround(
   // per-frame write, no re-composite): Esri imagery → CARTO dark drape. (Street names are the
   // VECTOR layer scene/streetNames.ts — a draped raster label overlay was tried and dropped:
   // blurry, and raster text cannot scale with zoom.)
+  // `levels` is a COUNT (the library's generateLevels sets maxLevel = levels − 1) — passing the
+  // max level directly capped Esri at z18 / CARTO at z19, one below what the sources serve
+  // (the 2026-08-18 sharpness batch off-by-one).
   const cartoDark = new XYZTilesOverlay({
     url: TILESETS.cartoDarkUrl,
-    levels: TILESETS.cartoMaxLevel,
+    levels: TILESETS.cartoMaxLevel + 1,
     opacity: 0,
   });
+  // The dark drape attaches ONLY in dark ground mode (2026-08-18 speed batch): registered
+  // up-front with opacity 0 it fetched + composited a full second tile chain for zero pixels —
+  // the default mode is satellite, so most sessions paid 2× imagery for nothing. delete→add is
+  // the plugin's own re-order idiom (ImageOverlayPlugin.js:154-155), so the flip is safe live.
+  let cartoAttached = false;
   const overlayPlugin = new ImageOverlayPlugin({
     renderer: opts.renderer,
     resolution: GROUND.overlayResolution,
     overlays: [
       new XYZTilesOverlay({
         url: TILESETS.esriImageryUrl,
-        levels: TILESETS.esriMaxLevel,
+        levels: TILESETS.esriMaxLevel + 1,
       }),
-      cartoDark,
     ],
   });
   tiles.registerPlugin(overlayPlugin);
   tiles.setCamera(opts.camera);
-  tiles.setResolutionFromRenderer(opts.camera, opts.renderer);
+  const refreshResolution = () => {
+    const size = opts.renderer.getSize(new THREE.Vector2());
+    const dpr = opts.renderer.getPixelRatio();
+    tiles.setResolution(opts.camera, Math.round(size.x * dpr), Math.round(size.y * dpr));
+  };
+  refreshResolution();
   tiles.group.visible = false; // revealed by altitude in update()
   scene.add(tiles.group);
 
@@ -176,6 +195,7 @@ export function attachImageryGround(
     uFtwFade: { value: 0 }, // 0 = invisible (all fragments discarded) … 1 = fully present
     uFtwHiAlt: { value: 0 }, // 1 − altFade: high-altitude grade harmonizer (mixed Esri zooms)
     uFtwDark: { value: 0 }, // S7a dark-drape fraction: 0 = Esri grade … 1 = flat dark grade
+    uFtwFlat2d: { value: 0 }, // /m 2D map: forces day grading (a planning chart reads around the clock)
     uFtwSun: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uFtwMoonDir: { value: new THREE.Vector3(0, 0, 1) },
     uFtwMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
@@ -212,6 +232,7 @@ export function attachImageryGround(
         uniform float uFtwFade;
         uniform float uFtwHiAlt;
         uniform float uFtwDark;
+        uniform float uFtwFlat2d;
         uniform vec3 uFtwSun;
         uniform vec3 uFtwMoonDir;
         uniform float uFtwMoonGlow;
@@ -246,6 +267,9 @@ export function attachImageryGround(
           float sunDot = dot(nS, normalize(uFtwSun));
           float sunUpDot = dot(nUp, normalize(uFtwSun));
           float dayK = smoothstep(${glf(EARTH.termBand[0])}, ${glf(EARTH.termBand[1])}, sunUpDot);
+          // /m 2D map (owner 2026-08-18): a planning chart reads around the clock — the eased
+          // uFtwFlat2d forces day grading (and the moon/golden adds fade with their own gates).
+          dayK = max(dayK, uFtwFlat2d);
           float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
           // S7a dark drape: the Esri grade blends OUT and a UNIFORM flat shade blends IN as
           // uFtwDark rises (the CARTO overlay already owns diffuseColor by then) — the water
@@ -365,12 +389,13 @@ export function attachImageryGround(
     darkBlend() {
       return uniforms.uFtwDark.value;
     },
+    refreshResolution,
     setQualityTier(errorNear, lruCapBytes) {
       errorNearOverride = errorNear; // consumed by the update() error-ramp near endpoint
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
     },
-    update(alt, darkGround) {
+    update(alt, darkGround, flat2d) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band
       // so real terrain grows organically out of the stylized base (no switch), then keeps
       // LOD-refining (Esri z19 overlay + TilesFadePlugin) all the way to street level.
@@ -379,11 +404,27 @@ export function attachImageryGround(
       if (!on) return;
       // Adaptive screen-space error: coarse tiles at orbit reach full coverage fast; diving
       // ramps the target back down to QuantizedMeshPlugin's fine default so cities stay sharp.
+      // Near endpoint: GROUND.errorTargetNear on `high`; raised on weaker tiers (WS1). The /m
+      // 2D map claws it back to errorTargetNear2d AND, close to the ground, dives to the DEEP
+      // target — the imagery composite density is slaved to this number (see errorTarget2dDeep),
+      // and buildings are detached in 2D so the budget is free (owner 2026-08-18/18b).
+      const nearBase = flat2d
+        ? Math.min(errorNearOverride, GROUND.errorTargetNear2d)
+        : errorNearOverride;
+      const near = flat2d
+        ? THREE.MathUtils.mapLinear(
+            THREE.MathUtils.clamp(alt, GROUND.error2dDeepAltM, GROUND.error2dBlendAltM),
+            GROUND.error2dDeepAltM,
+            GROUND.error2dBlendAltM,
+            GROUND.errorTarget2dDeep,
+            nearBase,
+          )
+        : nearBase;
       tiles.errorTarget = THREE.MathUtils.mapLinear(
         THREE.MathUtils.clamp(alt, GROUND.errorNearAlt, GROUND.errorFarAlt),
         GROUND.errorNearAlt,
         GROUND.errorFarAlt,
-        errorNearOverride, // GROUND.errorTargetNear on `high`; raised on weaker tiers (WS1)
+        near,
         GROUND.errorTargetFar,
       );
       // Reveal = altitude dissolve × initial-load readiness, low-passed (frame-rate independent)
@@ -416,11 +457,24 @@ export function attachImageryGround(
         : 0;
       const kDark = 1 - Math.exp(-dtMs / DRAPE.easeTauMs);
       uniforms.uFtwDark.value += (darkTarget - uniforms.uFtwDark.value) * kDark;
-      cartoDark.opacity = uniforms.uFtwDark.value;
+      // /m 2D-map day grading — same ease so the 2D↔3D flip dissolves, never snaps.
+      uniforms.uFtwFlat2d.value += ((flat2d ? 1 : 0) - uniforms.uFtwFlat2d.value) * kDark;
+      // Dark-drape overlay lifecycle (2026-08-18 speed batch): attach on entering dark mode,
+      // detach once the crossfade has fully eased back out — never mid-fade (the eased opacity
+      // needs the overlay to exist to show it).
+      const wantCarto = darkGround || uniforms.uFtwDark.value > 0.005;
+      if (wantCarto !== cartoAttached) {
+        cartoAttached = wantCarto;
+        if (wantCarto) overlayPlugin.addOverlay(cartoDark);
+        else overlayPlugin.deleteOverlay(cartoDark);
+      }
+      if (cartoAttached) cartoDark.opacity = uniforms.uFtwDark.value;
       // Keep refinement ticking through the initial load even if the camera is static (reduced
       // motion disables the drift; UpdateOnChangePlugin would otherwise stall until a zoom).
       if (!initialLoadEnded) (uocPlugin as any).needsUpdate = true;
-      const wantShadows = alt < SHADOWS.maxAltM;
+      // No shadow twins on the /m 2D map (2026-08-18 speed batch): buildings — the only casters
+      // — are detached there, so the depth pass + per-tile twin draws bought nothing.
+      const wantShadows = alt < SHADOWS.maxAltM && !flat2d;
       if (wantShadows !== shadowsActive) {
         shadowsActive = wantShadows;
         for (const twin of shadowTwins) twin.visible = shadowsActive;

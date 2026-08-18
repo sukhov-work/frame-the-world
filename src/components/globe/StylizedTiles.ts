@@ -142,6 +142,9 @@ export interface TilesHandle {
    *  applications while set — composer-target realloc + LRU re-caps mid-FPV read as the point-6
    *  "full re-render"; the pending tier lands on the first non-FPV frame. */
   fpvActive: () => boolean;
+  /** 2026-08-18e: true while the flat-map ENGINE treatment is active (/m 2D map, or desktop
+   *  nadir under CONTROLS.mapFlatMaxAltM) — GlobeCanvas gates bloom off with it. */
+  mapFlat: () => boolean;
   dispose: () => void;
 }
 
@@ -302,8 +305,10 @@ export function attachStylizedTiles(opts: {
     streetNames.setMaxVisible(q.maxStreetNames);
     vectorFeatures.setLatticeBudget(q.vectorLatticeBudget);
     // U2/A11: GlobeCanvas re-set the renderer pixel ratio just before this call (applyTier order)
-    // — refresh the stars' captured uDpr so point sizes track the governor's DPR shed/restore.
+    // — refresh the stars' captured uDpr so point sizes track the governor's DPR shed/restore,
+    // and the ground's DEVICE-px SSE resolution (2026-08-18 sharpness batch) tracks it too.
     stars.setDpr(renderer.getPixelRatio());
+    ground.refreshResolution();
   };
   applyQualityTier(qualityTier);
 
@@ -313,7 +318,7 @@ export function attachStylizedTiles(opts: {
   // mass-evicted) against phantom error. Refresh all three on every resize (cheap: a vector read).
   const onEngineResize = () => {
     buildings.tiles.setResolutionFromRenderer(camera, renderer);
-    ground.tiles.setResolutionFromRenderer(camera, renderer);
+    ground.refreshResolution(); // DEVICE-px SSE for the imagery (2026-08-18 sharpness batch)
     enriched?.tiles.setResolutionFromRenderer(camera, renderer);
   };
   window.addEventListener("resize", onEngineResize);
@@ -579,7 +584,11 @@ export function attachStylizedTiles(opts: {
   // /m 2D-map arrival (UPLIFT U1): near-nadir, approaching from the south so the landing is
   // north-up (heading 0 ⇒ approach = −north). arrivalPose clamps tilt to ≥5°; the 2D locks
   // glide the last few degrees to exact nadir after the flight settles.
-  const mapArrivalPose = (lookAt: THREE.Vector3, groundAltM: number): FlightTarget => {
+  const mapArrivalPose = (
+    lookAt: THREE.Vector3,
+    groundAltM: number,
+    altAboveGroundM: number = MOBILE2D.exitAltAboveGroundM,
+  ): FlightTarget => {
     const upT = lookAt.clone().normalize();
     const east = new THREE.Vector3(-lookAt.y, lookAt.x, 0);
     if (east.lengthSq() < 1e-6) east.set(0, 1, 0); // pole fallback (never on /m in practice)
@@ -589,7 +598,7 @@ export function attachStylizedTiles(opts: {
       lookAt: lookAt.clone(),
       approachHoriz: approach,
       groundAltM,
-      altAboveGroundM: MOBILE2D.exitAltAboveGroundM,
+      altAboveGroundM,
       tiltDeg: 0,
       wgs84A: WGS84_A,
       wgs84B: WGS84_B,
@@ -1606,10 +1615,14 @@ export function attachStylizedTiles(opts: {
   const stepZoomBrakeAndEase = () => {
         // Zoom braking near the ground: the library step is already ∝ distance-to-surface, but
         // the last kilometres still read fast — shrink the effective speed below zoomSlowAltM.
+        // The flat MAP mostly stands down (owner 2026-08-18 "speed up the 2D map"; 18e: desktop
+        // nadir too): the brake was tuned for the cinematic 3D dive, and on a flat chart it
+        // read as pinch/wheel mud.
+        const zoomSlowFloor = flatGroundNow() ? MOBILE2D.zoomSlowFrac : CONTROLS.zoomSlowFrac;
         controls.zoomSpeed =
           CONTROLS.zoomSpeed *
           THREE.MathUtils.lerp(
-            CONTROLS.zoomSlowFrac,
+            zoomSlowFloor,
             1,
             THREE.MathUtils.smoothstep(lastAlt, 0, CONTROLS.zoomSlowAltM),
           );
@@ -2208,7 +2221,14 @@ export function attachStylizedTiles(opts: {
             _focusUp.copy(_focus).normalize();
             focusLocked = true;
           } else {
-            const pinP = tempPinPoint();
+            // On the /m 2D map the chart pivots at the SCREEN CENTRE, never a dropped pin:
+            // heading/zoom corrections orbiting an off-centre pin sweep the camera through a
+            // ground arc that reads as the map whirling — and MY LOCATION now drops a pin on
+            // the 2D map as a matter of course (owner batch 2026-08-18).
+            const pinP =
+              isMobileShell && useCameraStore.getState().mapMode === "2d"
+                ? null
+                : tempPinPoint();
             if (pinP) {
               _focus.copy(pinP);
               _focusUp.copy(pinP).normalize();
@@ -2280,7 +2300,16 @@ export function attachStylizedTiles(opts: {
         // Sign: rotating the camera by +θ about local up DECREASES the view heading (RH rule
         // with heading measured clockwise from north) — hence the negation.
         if (camStore.targetHeadingDeg !== null && !flight.active() && !fpvActive) {
-          const liveH = viewHeadingDeg(_focusUp);
+          // Near nadir the forward bearing is DEGENERATE (any residual-tilt sliver defines it) —
+          // chasing it spun the /m 3D→2D transition through several visible turns (owner bug
+          // 2026-08-18). Below the blend tilt, measure the SCREEN-UP bearing instead: the 2D
+          // locks' reference, so the glide→lock handoff shares one heading definition.
+          _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
+          const glidePitchRad = _focusUp.angleTo(_camBack);
+          const liveH =
+            glidePitchRad < THREE.MathUtils.degToRad(CONTROLS.headingUpRefMaxTiltDeg)
+              ? mapUpHeadingDeg(_focusUp)
+              : viewHeadingDeg(_focusUp);
           if (Number.isNaN(liveH)) {
             camStore.clearTargetHeading(); // heading undefined here (pole / nadir view)
           } else {
@@ -2535,15 +2564,21 @@ export function attachStylizedTiles(opts: {
             horiz.copy(_Z).addScaledVector(upT, -_Z.dot(upT)); // north = Z − up(Z·up)
           }
           horiz.normalize();
-          const pose = arrivalPose({
-            lookAt: target,
-            approachHoriz: horiz,
-            groundAltM: groundT,
-            altAboveGroundM: req.altM,
-            tiltDeg: SEARCH.arrivalTiltDeg,
-            wgs84A: WGS84_A,
-            wgs84B: WGS84_B,
-          });
+          // On the /m 2D map a fly-to lands nadir + north-up (mapArrivalPose) — the oblique
+          // 52° search arrival left the 2D locks to visibly re-rotate the chart after landing
+          // (the same corrector family as the 3D→2D spin, owner batch 2026-08-18).
+          const pose =
+            isMobileShell && useCameraStore.getState().mapMode === "2d"
+              ? mapArrivalPose(target, groundT, req.altM)
+              : arrivalPose({
+                  lookAt: target,
+                  approachHoriz: horiz,
+                  groundAltM: groundT,
+                  altAboveGroundM: req.altM,
+                  tiltDeg: SEARCH.arrivalTiltDeg,
+                  wgs84A: WGS84_A,
+                  wgs84B: WGS84_B,
+                });
           flight.start(pose, { floorM: flightFloorM(pose.position) });
           lastInteract = now; // pause the idle drift through the flight, like any interaction
         }
@@ -2823,7 +2858,11 @@ export function attachStylizedTiles(opts: {
 
   const stepGroundUpdate = () => {
         // S7a: dark drape unless the user opted into the satellite look (SAT chip).
-        ground.update(alt, camStore.groundMode !== "satellite");
+        ground.update(
+          alt,
+          camStore.groundMode !== "satellite",
+          flatGroundNow(),
+        );
 
   };
 
@@ -2843,7 +2882,10 @@ export function attachStylizedTiles(opts: {
         // dedicated moonLight stands down so the night key is never doubled.
         moonShadows = false;
         if (sunLight) {
-          const shadowEligible = alt < SHADOWS.maxAltM && !!focusHit;
+          // Flat map = no synthetic shadow rig (owner 2026-08-18e): the day-graded photo already
+          // carries the real capture shadows; the depth pass + receiver draws bought a second,
+          // contradicting set (and on /m 2D the casters are detached anyway).
+          const shadowEligible = alt < SHADOWS.maxAltM && !!focusHit && !flatGroundNow();
           const sunUp = sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin;
           const sunShadows = shadowEligible && sunUp;
           moonShadows =
@@ -3383,29 +3425,59 @@ export function attachStylizedTiles(opts: {
         geoLabels.update({ camera, alt });
   };
 
+  // Flat-map latch (owner 2026-08-18): the vector web + street names read as MAP INK at nadir —
+  // they skip the depth test (terrain LOD can never slice them) and the night dim stands down.
+  // /m: exactly the 2D map mode. Desktop: the mirrored tilt inside the 2D-chip band, with
+  // hysteresis so a tilt wobbling on the threshold never flickers the depth state.
+  let mapFlatLatch = false;
+  const mapFlatNow = (): boolean => {
+    if (isMobileShell) return !fpvActive && useCameraStore.getState().mapMode === "2d";
+    if (fpvActive) return false;
+    if (mapFlatLatch) {
+      if (camStore.tiltDeg > CONTROLS.twoDMaxTiltDeg + 5) mapFlatLatch = false;
+    } else if (camStore.tiltDeg < CONTROLS.twoDMaxTiltDeg) {
+      mapFlatLatch = true;
+    }
+    return mapFlatLatch;
+  };
+  // The ENGINE flat treatment (owner 2026-08-18e — desktop nadir = the same map as /m): deep
+  // imagery error target, day grade, shadow rig off, bloom off, fast zoom. Desktop adds an
+  // ALTITUDE bound — the flagship LEO view is also tilt≈0 and must stay byte-identical
+  // (terminator, night lights, atmosphere bloom). Mirrored per frame for GlobeCanvas (bloom).
+  let flatGround = false;
+  const flatGroundNow = (): boolean => {
+    flatGround = mapFlatNow() && (isMobileShell || alt < CONTROLS.mapFlatMaxAltM);
+    return flatGround;
+  };
+
   const stepStreetNames = () => {
-        // Street names v3 (S7 feedback): GL quads PINNED to the ground mesh below
-        // STREETS.topAltM — same composer frame as the terrain, so they cannot lag or jump.
-        // Off in FPV — the viewfinder stays clean.
+        // Street names v4: GL quads PINNED to the ground mesh below STREETS.topAltM — same
+        // composer frame as the terrain, so they cannot lag or jump; viewport-aware selection
+        // with along-street repeats + the legibility scale. Off in FPV — the viewfinder stays
+        // clean.
         streetNames.update({
           camera,
           alt,
           focusLatDeg: camStore.focusLatDeg,
           focusLonDeg: camStore.focusLonDeg,
           enabled: !fpvActive,
+          mapFlat: mapFlatNow(),
+          viewportH: dom.clientHeight || 1,
         });
   };
 
   const stepVectorFeatures = () => {
         // Vector feature web (S7 feedback): roads / rivers / water / green from the SAME parsed
         // tiles, ribbons + fills on the rendered terrain below VECTOR.topAltM. Night-dimmed by
-        // solar elevation at the view focus (map ink is unlit). Off in FPV, like the names.
+        // solar elevation at the view focus (map ink is unlit) — except on the flat map, where
+        // ink stays readable around the clock. Off in FPV, like the names.
         vectorFeatures.update({
           alt,
           focusLatDeg: camStore.focusLatDeg,
           focusLonDeg: camStore.focusLonDeg,
           sunElevSin: sunDirW.dot(_focusUp),
           enabled: !fpvActive,
+          mapFlat: mapFlatNow(),
         });
   };
 
@@ -3416,6 +3488,8 @@ export function attachStylizedTiles(opts: {
           fpvActive,
           eyeEcef: camera.position,
           headingDeg: camNow.fpvHud?.headingDeg ?? camStore.headingDeg,
+          fovDeg: camNow.fpvHud?.fovDeg ?? null, // U3 view cone — tracks pinch-FOV live
+          aspect: camNow.fpvHud?.aspect ?? null,
         });
   };
 
@@ -3543,6 +3617,9 @@ export function attachStylizedTiles(opts: {
     // reallocates composer targets and re-caps three LRU caches, and mid-FPV is the one moment
     // that mass-evict reads as "the whole city re-rendered". Applied at the next non-FPV frame.
     fpvActive: () => fpvActive,
+    // 2026-08-18e: GlobeCanvas's bloom gate — true while the flat-map engine treatment is on
+    // (/m 2D map, or desktop nadir below CONTROLS.mapFlatMaxAltM). Mirrored per frame.
+    mapFlat: () => flatGround,
     dispose() {
       window.removeEventListener("resize", onEngineResize);
       dom.removeEventListener("pointerdown", noteInteract);

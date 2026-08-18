@@ -39,8 +39,11 @@ export interface MiniMapPose {
   /** Viewer offset from the scene origin (m; east/north). */
   dxM: number;
   dyM: number;
-  /** Compass heading of the view centre (deg; 0 = north) — drives the view wedge. */
+  /** Compass heading of the view centre (deg; 0 = north) — drives the view wedge/cone. */
   headingDeg: number;
+  /** Horizontal FOV of the live FPV camera (deg) — the U3 view cone's width; null = no cone
+   *  (the plain wedge draws instead). Tracks pinch-FOV live. */
+  coneDeg: number | null;
 }
 
 interface MiniMapState {
@@ -49,6 +52,9 @@ interface MiniMapState {
   /** Ground patch shown edge-to-edge (m) — mirrored from MINIMAP.patchM so the panel needs no
    *  globe import (the design fence). */
   patchM: number;
+  /** U3 fullscreen map (owner point 2): minimap tap opens the MapWindow island; UI-writable. */
+  mapWindowOpen: boolean;
+  setMapWindowOpen: (on: boolean) => void;
   /** Orchestrator-only mirrors (scene/minimapFeed.ts). */
   _syncScene: (scene: MiniMapScene | null) => void;
   _syncPose: (pose: MiniMapPose | null) => void;
@@ -59,6 +65,8 @@ export const useMiniMapStore = create<MiniMapState>((set) => ({
   scene: null,
   pose: null,
   patchM: 200,
+  mapWindowOpen: false,
+  setMapWindowOpen: (on) => set({ mapWindowOpen: on }),
   _syncScene: (scene) => set({ scene }),
   _syncPose: (pose) => set({ pose }),
   _syncPatchM: (m) => set({ patchM: m }),

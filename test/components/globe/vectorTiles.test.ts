@@ -4,6 +4,7 @@ import {
   clipRingToBounds,
   lonLatToTile,
   ringArea,
+  sampleLineAnchors,
   tileLocalToLonLat,
 } from "../../../src/components/globe/scene/vectorTiles";
 
@@ -150,5 +151,59 @@ describe("clipLineToBounds (roads clipped to the tile, split on exits)", () => {
         10,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("sampleLineAnchors (v4 — names along the streets)", () => {
+  it("a short line keeps the v3 single mid-vertex anchor", () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 200, y: 0 },
+    ];
+    const out = sampleLineAnchors(line, 1_000, 6);
+    expect(out).toHaveLength(1);
+    expect(out[0].a).toEqual({ x: 100, y: 0 });
+    expect(out[0].b).toEqual({ x: 200, y: 0 });
+  });
+
+  it("a long line drops an anchor every step, starting at half a step", () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 1_000, y: 0 },
+    ];
+    const out = sampleLineAnchors(line, 300, 6);
+    // arc length 1000, anchors at 150 / 450 / 750
+    expect(out.map((o) => Math.round(o.a.x))).toEqual([150, 450, 750]);
+    for (const o of out) expect(o.b).toEqual({ x: 1_000, y: 0 });
+  });
+
+  it("caps at maxAnchors", () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 10_000, y: 0 },
+    ];
+    expect(sampleLineAnchors(line, 100, 4)).toHaveLength(4);
+  });
+
+  it("anchors interpolate across vertices and take the local segment direction", () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 100 },
+    ];
+    const out = sampleLineAnchors(line, 80, 6);
+    // length 200 → anchors at 40 (on the east segment) and 120 (on the north segment)
+    expect(out).toHaveLength(2);
+    expect(out[0].a.x).toBeCloseTo(40, 9);
+    expect(out[0].a.y).toBeCloseTo(0, 9);
+    expect(out[0].b).toEqual({ x: 100, y: 0 });
+    expect(out[1].a.x).toBeCloseTo(100, 9);
+    expect(out[1].a.y).toBeCloseTo(20, 9);
+    expect(out[1].b).toEqual({ x: 100, y: 100 });
+  });
+
+  it("degenerate input returns empty", () => {
+    expect(sampleLineAnchors([{ x: 0, y: 0 }], 100, 6)).toEqual([]);
   });
 });

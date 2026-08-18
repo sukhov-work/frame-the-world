@@ -26,6 +26,9 @@ export interface MinimapFeedHandle {
     eyeEcef: THREE.Vector3;
     /** Compass heading of the view centre (deg). */
     headingDeg: number;
+    /** Live FPV camera vertical FOV + aspect (fpvHud mirror) — the U3 view cone; null → wedge. */
+    fovDeg: number | null;
+    aspect: number | null;
   }): void;
   dispose(): void;
 }
@@ -33,6 +36,12 @@ export interface MinimapFeedHandle {
 const DEG = Math.PI / 180;
 /** Metres per degree of latitude (spherical mean — plenty at patch scale). */
 const M_PER_DEG_LAT = 111_320;
+
+/** Horizontal FOV from a camera's VERTICAL fov + aspect (deg) — the U3 view-cone width
+ *  (pure — unit-tested). */
+export function horizontalFovDeg(vFovDeg: number, aspect: number): number {
+  return (2 * Math.atan(Math.tan((vFovDeg * DEG) / 2) * aspect)) / DEG;
+}
 
 export function attachMinimapFeed(opts: { vtiles: VectorTilesHandle }): MinimapFeedHandle {
   let frame = 0;
@@ -145,13 +154,17 @@ export function attachMinimapFeed(opts: { vtiles: VectorTilesHandle }): MinimapF
       const dxM = Number.isNaN(originLonDeg) ? Infinity : (eye.lonDeg - originLonDeg) * kLon;
       const dyM = Number.isNaN(originLatDeg) ? Infinity : (eye.latDeg - originLatDeg) * M_PER_DEG_LAT;
       const walked = Math.hypot(dxM, dyM);
+      const coneDeg =
+        ctx.fovDeg !== null && ctx.aspect !== null
+          ? horizontalFovDeg(ctx.fovDeg, ctx.aspect)
+          : null;
       if (builtVersion !== opts.vtiles.version() || walked > MINIMAP.rebuildDistM) {
         builtVersion = opts.vtiles.version();
         store()._syncScene(buildScene(eye.latDeg, eye.lonDeg));
-        store()._syncPose({ dxM: 0, dyM: 0, headingDeg: ctx.headingDeg });
+        store()._syncPose({ dxM: 0, dyM: 0, headingDeg: ctx.headingDeg, coneDeg });
         return;
       }
-      store()._syncPose({ dxM, dyM, headingDeg: ctx.headingDeg });
+      store()._syncPose({ dxM, dyM, headingDeg: ctx.headingDeg, coneDeg });
     },
     dispose() {
       store()._syncScene(null);

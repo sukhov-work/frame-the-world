@@ -1,10 +1,12 @@
 /**
  * SceneActions (M1) — the /m FPV-entry affordances (MOBILE_PLAN §3 SCENE): 🧭 MY LOCATION
- * (geolocation → STRAIGHT INTO temp-pin FPV via requestFpvJump — QoL-1 upgrade, owner
- * 2026-08-14, PLANNING_QOL_PLAN §3.3; was pin+fly. CLIENT-SIDE ONLY, never published —
- * constraint C6), and the temp-pin flow — ◎ LOOK FROM HERE (setTempFpv, the CameraTiltPanel
- * popup's store calls with thumb-sized chips) / ✕ CLEAR PIN / ✕ EXIT VIEW (phones have no
- * Escape key). The desktop twin is the MyLocation nav island (same pose, same discipline).
+ * (geolocation → fly the 2D MAP there with the temp pin armed for LOOK FROM HERE — owner
+ * 2026-08-18, supersedes the 2026-08-14 straight-into-FPV ruling. CLIENT-SIDE ONLY, never
+ * published — constraint C6), and the temp-pin flow — ◎ LOOK FROM HERE (setTempFpv, the
+ * CameraTiltPanel popup's store calls with thumb-sized chips) / ✕ CLEAR PIN / ✕ EXIT VIEW
+ * (phones have no Escape key). The desktop twin is the MyLocation nav island (which keeps the
+ * straight-into-FPV jump — desktop has no 2D map). Also home to the 2D/3D mode chip row with
+ * its micro compass + altitude readout (owner 2026-08-18).
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -17,7 +19,8 @@ import {
   setVariantUrl,
 } from "../../lib/globe/enrichedVariant";
 import { loadViewPrefs, saveViewPref } from "../../lib/prefs";
-import { CONTROLS, FPV, FRUSTUM } from "../globe/tuning";
+import { formatAltM } from "../../lib/format/readout";
+import { CONTROLS, MOBILE2D } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
 
 export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => void }) {
@@ -57,15 +60,16 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
       (pos) => {
         setBusy(false);
         // Client-side only (C6): the fix never leaves the browser and is never published.
-        // Straight into temp-pin FPV at a standing eye, facing north (the share-link path
-        // drops the pin and flies there) — owner 2026-08-14.
-        useCameraStore.getState().requestFpvJump({
+        // Land ON the 2D map with the pin armed (owner 2026-08-18): the map flies there
+        // north-up/nadir (the orchestrator's 2D-aware fly-to arrival), the temp pin raises
+        // the LOOK FROM HERE chip — one more tap enters FPV, instead of being pushed there.
+        const cam = useCameraStore.getState();
+        cam.setMapMode("2d");
+        cam.setTempPin({ latDeg: pos.coords.latitude, lonDeg: pos.coords.longitude });
+        cam.requestFly({
           latDeg: pos.coords.latitude,
           lonDeg: pos.coords.longitude,
-          eyeM: FRUSTUM.eyeHeightM,
-          headingDeg: 0,
-          pitchDeg: 0,
-          fovDeg: FPV.tempFovDeg,
+          altM: MOBILE2D.locateAltAboveGroundM,
         });
       },
       () => {
@@ -107,10 +111,15 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
       )}
       {!tempFpv && (
         <button type="button" className="m-act" disabled={busy} onClick={locate}>
-          🧭 {busy ? "LOCATING…" : "MY LOCATION"}
+          🧭 {busy ? "LOCATING…" : "MY LOC"}
         </button>
       )}
-      {!tempFpv && <MapModeChip />}
+      {!tempFpv && (
+        <div className="m-actrow">
+          <MapModeChip />
+          <NavChip />
+        </div>
+      )}
       {!tempFpv && <BuildingsChip />}
     </div>
   );
@@ -142,7 +151,41 @@ function MapModeChip() {
         }
       }}
     >
-      {is2D ? "▲ 3D VIEW" : "▼ 2D MAP"}
+      {is2D ? "▲ 3D" : "▼ 2D"}
+    </button>
+  );
+}
+
+/** Micro compass + altitude readout (owner 2026-08-18) — sits exactly RIGHT of the 2D/3D chip.
+ *  The needle is the camera bearing mirror (screen-up based in 2D, where it pins to N; forward
+ *  based in 3D — StylizedTiles' pose mirror handles the switch); the readout is the camera
+ *  altitude mirror. Selectors return ROUNDED/FORMATTED values so the chip re-renders only when
+ *  the display changes, not per frame. Tap in 3D = face north (the desktop compass-rose click). */
+function NavChip() {
+  const headingDeg = useCameraStore((s) => Math.round(((s.headingDeg % 360) + 360) % 360) % 360);
+  const altText = useCameraStore((s) => formatAltM(s.zoomAltM).toUpperCase());
+  const setTargetHeading = useCameraStore((s) => s.setTargetHeading);
+  const is2D = useCameraStore((s) => s.mapMode === "2d");
+  return (
+    <button
+      type="button"
+      className="m-act m-nav"
+      aria-label={`Bearing ${headingDeg}°, altitude ${altText}${is2D ? "" : " — tap to face north"}`}
+      onClick={() => {
+        if (!is2D) setTargetHeading(0);
+      }}
+    >
+      <svg
+        className="m-nav__dial"
+        viewBox="0 0 20 20"
+        aria-hidden="true"
+        style={{ transform: `rotate(${-headingDeg}deg)` }}
+      >
+        <circle cx="10" cy="10" r="9" className="m-nav__ring" />
+        <polygon points="10,2.6 12.4,10 7.6,10" className="m-nav__n" />
+        <polygon points="10,17.4 12.4,10 7.6,10" className="m-nav__s" />
+      </svg>
+      <span className="m-nav__alt">{altText}</span>
     </button>
   );
 }
