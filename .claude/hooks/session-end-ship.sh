@@ -56,9 +56,70 @@ fi
 log() { echo "[$(date '+%F %T')] $*"; }
 attention() {
   # Append an anomaly line the NEXT session must read (file is gitignored).
+  # v3 (audit-2 F3): DEDUP — the detached watcher's late write raced a boot deletion and
+  # re-created the file with an already-resolved entry (observed 2x 2026-08-18). Identical
+  # anomaly text is never appended twice; entry text is stable (no timestamps inside $*).
   [ -n "${DRY_RUN:-}" ] && { log "DRY_RUN: would flag ATTENTION: $*"; return 0; }
+  grep -qF -- "$*" "$ATTENTION" 2>/dev/null && { log "attention (dup, skipped): $*"; return 0; }
   { [ -s "$ATTENTION" ] || echo "# SHIP ATTENTION — anomalies from the last auto-ship. Read, act, DELETE this file."; \
     echo "- [$(date '+%F %T')] $*"; } >>"$ATTENTION"
+}
+
+# Reap leftover dev servers (owner order 2026-08-18): `wix dev` trees (wix/npm wrappers +
+# `astro dev` + vite children) outlive sessions, squat :4321 and confuse the next session
+# (a stale pre-config-change server served the 2026-08-18 checkOrigin trial until killed).
+# Scope: ONLY processes whose cwd is THIS repo — other projects' dev servers are not ours.
+kill_dev_servers() {
+  local p cwd cmd
+  for p in $(pgrep -f "wix dev|astro dev|npm exec (wix|astro) dev" 2>/dev/null); do
+    cwd=$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+    [ "$cwd" = "$REPO" ] || continue
+    cmd=$(ps -p "$p" -o command= 2>/dev/null | head -c 100)
+    if [ -n "${DRY_RUN:-}" ]; then log "DRY_RUN: would reap dev-server pid $p ($cmd)"; continue; fi
+    log "reaping dev-server pid $p ($cmd)"
+    kill "$p" 2>/dev/null
+  done
+  [ -n "${DRY_RUN:-}" ] && return 0
+  sleep 2
+  for p in $(pgrep -f "wix dev|astro dev|npm exec (wix|astro) dev" 2>/dev/null); do
+    cwd=$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+    [ "$cwd" = "$REPO" ] && kill -9 "$p" 2>/dev/null && log "force-killed lingering dev pid $p"
+  done
+  return 0
+}
+
+# Prune stale claude/ship-* branches (audit-2 F3 — the "leaving branches as-is" paths leaked
+# them forever). Deletion needs PROOF that origin/master contains the branch's content:
+#   (a) SHA ancestry, (b) tree equal to master's tip, or (c) tree equal to ANY recent
+# origin/master commit (squash landed, master moved on). A proof-failing branch ≥3 days old
+# is REPORTED with evidence, never deleted (backup refs in refs/backups cover the true tips).
+prune_stale_ship_branches() {
+  git fetch -q origin master 2>/dev/null || return 0
+  local branch tip proof target_tree c age_days
+  for branch in $(git for-each-ref --format='%(refname:short)' 'refs/heads/claude/ship-*'); do
+    [ "$branch" = "${BRANCH:-}" ] && continue
+    [ "$(git rev-parse --abbrev-ref HEAD)" = "$branch" ] && continue
+    tip=$(git rev-parse "$branch" 2>/dev/null) || continue
+    proof=""
+    if git merge-base --is-ancestor "$tip" origin/master 2>/dev/null; then proof="SHA-ancestor"
+    elif git diff --quiet "$tip" origin/master 2>/dev/null; then proof="tree==master-tip"
+    else
+      target_tree=$(git rev-parse "$tip^{tree}" 2>/dev/null) || continue
+      for c in $(git rev-list --first-parent -"$RESEAT_SEARCH_DEPTH" origin/master); do
+        if [ "$(git rev-parse "$c^{tree}")" = "$target_tree" ]; then proof="tree@${c:0:9}"; break; fi
+      done
+    fi
+    if [ -n "$proof" ]; then
+      if [ -n "${DRY_RUN:-}" ]; then log "DRY_RUN: would prune $branch (proof: $proof)"; continue; fi
+      git branch -q -D "$branch" && log "pruned stale ship branch $branch (containment proof: $proof)"
+      git push -q origin --delete "$branch" 2>/dev/null || true
+    else
+      age_days=$(( ( $(date +%s) - $(git log -1 --format=%ct "$branch" 2>/dev/null || date +%s) ) / 86400 ))
+      if [ "$age_days" -ge 3 ]; then
+        attention "Stale ship branch $branch fails ALL containment proofs vs origin/master (age ${age_days}d) — inspect: git diff $branch origin/master --stat; true tip is backed up under refs/backups. Delete by hand only after review."
+      fi
+    fi
+  done
 }
 
 cd "$REPO" || { log "ABORT: repo path missing"; exit 1; }
@@ -77,6 +138,11 @@ fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 log "=== session-end ship run v2 (dry-run: ${DRY_RUN:-0}) ==="
+
+# Machine hygiene FIRST — runs even when a gate aborts the ship (owner order 2026-08-18).
+# NOTE: the owner's persistent chrome-playwright CDP instance (:9222) is deliberately NOT
+# touched here — it outlives sessions by design (see activate-serena.sh step 7).
+kill_dev_servers
 
 # --- Gate 1: standing blocking questions -------------------------------------------------------
 if [ -s ".claude/BLOCKING_QUESTIONS.md" ]; then
@@ -118,6 +184,9 @@ ship_landed() {
   fi
   return 1
 }
+
+# --- Housekeeping: sweep stale ship branches (runs even on clean-tree sessions) -----------------
+prune_stale_ship_branches
 
 # --- Gate 2: anything to ship? ------------------------------------------------------------------
 if [ -z "$(git status --porcelain)" ]; then
@@ -245,6 +314,13 @@ while [ "$waited" -lt "$MERGE_TIMEOUT_S" ]; do
   fi
 done
 log "WARN: automerge NOT observed within ${MERGE_TIMEOUT_S}s — work is safe on $BRANCH (pushed)"
-attention "Ship $BRANCH ($SHA) did NOT land within ${MERGE_TIMEOUT_S}s — check the PR state (gh pr list --head $BRANCH); the next ship run self-heals divergence, but the PR may need a manual nudge."
+# Only-if-unresolved (audit-2 F3): this write fires ~45 min in, often mid-NEXT-session — one
+# last landing check keeps a since-landed ship from re-creating an already-resolved entry.
+git fetch -q origin master 2>/dev/null
+if ship_landed "$SHA" "$BRANCH"; then
+  log "landed exactly at the timeout boundary — no attention entry needed"
+else
+  attention "Ship $BRANCH ($SHA) did NOT land within ${MERGE_TIMEOUT_S}s — check the PR state (gh pr list --head $BRANCH); the next ship run self-heals divergence, but the PR may need a manual nudge."
+fi
 sync_mirror
 exit 0

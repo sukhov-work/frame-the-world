@@ -33,13 +33,27 @@ the `/m` redirect; new 2026-08-15).
 | `ftw:m-banner-dismissed` | `src/pages/index.astro` | new 2026-08-13 (M0) |
 | `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
 
-## 3. `window.__*` DEV seams (all DEV-gated; 15 as of 2026-08-15)
+## 3. `window.__*` DEV seams (all DEV-gated; 15 top-level as of 2026-08-15)
 
 `__globe __renderer __composer __quality __cameraStore __timeStore __uploadStore __pinsStore
 __memberStore __planStore __saveStore __marketStore __minimapStore __skyStore __findStore`
 
 Verify scripts and the NEXT_SESSION_PROMPT recipe consume these — removing/renaming one silently breaks
 the browser-verify tier. (NSP's list was 3 short at audit time — this file is the canonical set.)
+
+**Sub-seams** (dated 2026-08-18, audit-2 D6 — verify-recipe-consumed callables under the
+top-level globals; same removal/rename rule):
+
+| Sub-seam | Owner (file:line) | Consumer / purpose |
+|---|---|---|
+| `__globe.fpv()` | `StylizedTiles.ts:1571` | FPV state (yaw/pitch/fov/eye/lift) — FPV verify passes |
+| `__globe.plan()` | `StylizedTiles.ts:1584` | planFeed debug snapshot — planner verify |
+| `__globe.tempPin()` / `__globe.explore()` / `__globe.bodies()` / `__globe.enrichedSeats()` | `StylizedTiles.ts:1585/1590/1557/1547` | pin seat, explore journey, ephemeris dirs, enriched re-seat coverage |
+| `__globe.map2d()` | `StylizedTiles.ts:1596` | U1/U3 2D-mode rendered truth (buildings group membership, not a flag) |
+| `__globe.u2()` | `StylizedTiles.ts:1605` | U2 FPV-stability discriminators (zoom bank, eased grounds, LRU, jump ring) |
+| `__globe.u5()` / `__globe.u5Mark()` | `StylizedTiles.ts:1633/1674` | U5 loading state (flags/aim/queues/latency) + time-to-first window |
+| `__quality.governor.emaMs()` / `.hitchCount()` | `lib/globe/quality.ts:151–153` (exposed via `GlobeCanvas.tsx:348`) | frame-time EMA + hitch counter — U2/U5 soak gates |
+| `__quality.ao` | `GlobeCanvas.tsx:257` | GTAO look tuning in wix dev |
 
 ## 4. Wix Data collection schemas (source of truth: `scripts/provision-collections.mjs`)
 

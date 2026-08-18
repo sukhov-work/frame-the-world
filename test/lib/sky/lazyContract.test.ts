@@ -6,8 +6,9 @@ import { describe, expect, it } from "vitest";
  * LAZY BY CONTRACT guard (phase B — the contract was comment-enforced only, and the catalog
  * chunk has grown from ~24 KB to ~700 KB of baked data): no module outside `src/lib/sky/`
  * may STATICALLY import the sky data modules — only `await import(...)` (LocationFinder /
- * store-sky restore) keeps them off the boot chunk. `searchIndex.ts` alone is boot-safe
- * (pure ranking + glyphs; planFeed and the orchestrator import it for kindGlyph).
+ * store-sky restore) keeps them off the boot chunk. Two modules are boot-safe: `searchIndex.ts`
+ * (pure ranking + glyphs; planFeed and the orchestrator import it for kindGlyph) and
+ * `hoverNames.ts` (statically imported by scene/skyNames — sanctioned, audit-2 C4).
  */
 const HEAVY = [
   "lib/sky/catalog",

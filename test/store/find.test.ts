@@ -32,10 +32,10 @@ describe("store/find scan config", () => {
     expect(useFindStore.getState().rangeDays).toBe(365);
   });
 
-  it("_syncGhosts still replaces anchor+ghosts wholesale (single-writer mirror unchanged)", () => {
-    useFindStore.getState()._syncGhosts({ latDeg: 48.4, lonDeg: 35.0 }, []);
+  it("publishGhosts still replaces anchor+ghosts wholesale (single-writer mirror unchanged)", () => {
+    useFindStore.getState().publishGhosts({ latDeg: 48.4, lonDeg: 35.0 }, []);
     expect(useFindStore.getState().anchor).toEqual({ latDeg: 48.4, lonDeg: 35.0 });
-    useFindStore.getState()._syncGhosts(null, []);
+    useFindStore.getState().publishGhosts(null, []);
     expect(useFindStore.getState().anchor).toBeNull();
     expect(useFindStore.getState().ghosts).toEqual([]);
   });

@@ -23,7 +23,7 @@ import type { SkyTarget } from "./targets";
 export type AimSample = TargetAltSample;
 
 /** Day classification of a body's sky path at the observer. */
-export type AimDayKind = "arc" | "ring" | "none";
+type AimDayKind = "arc" | "ring" | "none";
 
 /** The expensive per-day pass — memoise on (target id, window start, quantized lat/lon). */
 export interface AimDay {

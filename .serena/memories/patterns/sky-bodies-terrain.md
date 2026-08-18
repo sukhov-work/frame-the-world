@@ -1,5 +1,11 @@
 # mem:patterns/sky-bodies-terrain — ephemeris sun/moon + real terrain + bloom + shadows (pre-Phase-4, 2026-07-10)
 
+> **PARTIALLY SUPERSEDED (2026-08-18, audit-2 D9):** the GROUND/TILES pipeline described below was
+> rebuilt by U3 (2026-08-18b/c — errorTarget2dDeep, unified flatGround gate, labels v4.1) and U5
+> (closest-first loading). Current truth: ARCHITECTURE §7 + `conventions/globe-tuning.md` +
+> `mem:project/wip-2026-08-18-u3-2dmap-batch` / `-u5-loading`. The EPHEMERIS/sky mechanics
+> (terminator, moon phase, bloom, shadows) remain accurate.
+
 Browser-VERIFIED (Playwright on wix dev): terminator matches real time (subsolar 22.2N/43.1E @ 09:12Z
 Jul 10 ✓), night Americas + blooming VIIRS lights, sun disc + halo, moon with correct 22% waning
 crescent + LROC maria + earthshine, Matterhorn/Alps real 3D relief, Dnipro buildings seat on terrain

@@ -85,7 +85,9 @@ npx astro check     # types   (no lint script in this repo — test + check are 
 Fix all failures before claiming success.
 ### Browser / Wix-cloud-only (mark UNVERIFIED until actually run there — see mem:project/dev_environment)
 - **Browser:** globe render, cinematic flight, `libraw-wasm`/HEIC decode, WebGPU fallback, mobile memory —
-  verify in `wix dev` on desktop Chrome (+ a real device for mobile decode).
+  verify in `wix dev` on desktop Chrome (+ a real device for mobile decode). **Launch via
+  `node scripts/verify-chrome.mjs`** (port-ownership check + occlusion flags); recipe + traps:
+  `conventions/verify.md`.
 - **Wix cloud:** quota #11 rejection, resumable upload, geohash viewport query, digital purchase, AI credit
   cost — verify in `wix dev` / Wix test mode. `wix release` publishes to the live URL (there is no SSH box).
 

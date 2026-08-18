@@ -36,7 +36,15 @@ function ftwLocalTiles() {
 // https://astro.build/config
 export default defineConfig({
   integrations: [wix(), wixPages(), react()],
-  security: { checkOrigin: false },
+  // RULING 2026-08-18 (audit-2 B1; was `false` since the Phase-1 scaffold, undocumented):
+  // `true` — blocks cross-site form/text-plain/no-content-type POSTs (the text/plain-enctype
+  // JSON-body CSRF parsed on cookie-authed routes). Engages ONLY in the built app (in dev,
+  // Astro 5.18 composes the injected @wix/astro middleware directly and skips the origin
+  // check — render-context.js:101). Same-origin JSON fetches, GET-only auth redirects, and
+  // TUS (Wix-domain) uploads are all untouched. LANDMINE: if a webhook / service-plugin
+  // extension is ever registered, its no-Origin text() POSTs get 403'd — revisit then
+  // (details: conventions/wix-headless.md + DECISIONS 2026-08-18).
+  security: { checkOrigin: true },
   ...(isBuild && { adapter: cloudProviderFetchAdapter({}) }),
 
   image: {

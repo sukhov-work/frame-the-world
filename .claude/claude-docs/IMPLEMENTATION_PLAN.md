@@ -206,7 +206,7 @@ per-sub-phase gate.
   T25 closed in the same pass. DECISIONS 2026-08-13 Phase-8a line.
 > **Re-ruled 2026-08-14 (owner, supersedes the 8b–8e ordering below-history):** after the
 > PhotoPills user-guide DEEP review (feature-level; adoption record + specs in
-> **`PLANNING_QOL_PLAN.md`** — the spec source for every rung below), the ladder is re-prioritized
+> **`archive/PLANNING_QOL_PLAN.md`** (era-CLOSED, archived 2026-08-18 — audit-2 D12) — the spec source for every rung below), the ladder is re-prioritized
 > **sun/moon/MW-first**; astro/DSO work only after mobile is fully solved AND the QoL pass is done.
 
 - [x] **8-QoL-1 — Scrubber v2 + instant wins ✅ SHIPPED 2026-08-14 (desktop COMPLETE — the
@@ -246,7 +246,7 @@ per-sub-phase gate.
   in-frame scan vs the LIVE frustum + skyline verdict, surfaced as the FindPanel **SUNSETS** tab
   (owner de-burying order — supersedes the spec's PLAN-card line) + the PlanSheet twin on `/m`.
   Spec: PLANNING_QOL_PLAN §3.5. DECISIONS 2026-08-15.
-> **QUEUED BEHIND the guide track** (GUIDE_PLAN.md, owner order 2026-08-15); G1 shipped
+> **QUEUED BEHIND the guide track** (archive/GUIDE_PLAN.md — G1+G2 shipped, G3 folded into backlog T28, archived 2026-08-18); G1 shipped
 > 2026-08-15 (guideContent.ts + GUIDE panel + /m sheet, FAQ absorbed).
 - [ ] **8-events** *(mobile twin: M4; AFTER the QoL pass + its mobile twins)* — **P7 meteor
   showers ✅ SHIPPED 2026-08-17 desktop** (`lib/ephemeris/showers.ts` 21-row IMO/MDC bake ·

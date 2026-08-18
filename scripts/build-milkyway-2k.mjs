@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
  * Bake the 2k mobile milky-way haze (MOBILE_PLAN M0 texture tier) from the 8k SVS original.
+ * Requires `sharp` — NOT a package.json dep by design (one-shot dev script; keeping it out of
+ * the install tree is deliberate — audit-2 B3 rider, depcheck flags it): `npm i --no-save sharp`
+ * before a regen.
  *
  * TRAP (DECISIONS 2026-07-15, the 4k→8k upgrade): SVS Deep Star Maps are FLUX-PER-PIXEL and much
  * of the flux hides in sub-texel star speckle; the runtime samples with mips OFF (RA-wrap safety),

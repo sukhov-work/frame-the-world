@@ -138,6 +138,23 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
   *(RESOLVED by sidestep, Phase 2: we ship **single-threaded** `libraw-wasm@1.0.5` in a disposable Worker —
   no isolation, no COOP/COEP; the header question stayed moot because we never needed threads.)*
 
+## 12b. CSRF origin check (`security.checkOrigin` — RULED 2026-08-18, audit-2 B1)
+- `astro.config.mjs` sets **`checkOrigin: true`** (the scaffold's `false` had been undocumented
+  since Phase 1). It blocks cross-site POSTs with form-like content-types (`x-www-form-urlencoded`,
+  `multipart`, `text/plain`) or NO content-type — including the text/plain-enctype JSON-body CSRF
+  that `request.json()` would happily parse on cookie-authed routes.
+- **It engages ONLY in the built app.** In dev, Astro 5.18 composes the injected @wix/astro
+  middleware directly and bypasses the origin-check wrapper (`render-context.js:101` — dev-tier
+  trials of this flag are structurally inert; empirically confirmed 2026-08-18).
+- Verified compatible by construction: same-origin JSON `fetch` writes (JSON content-types are
+  exempt), the GET-only `/api/auth/*` OAuth redirect routes, checkout return redirects, and TUS
+  uploads (they hit Wix's own upload domain, never our routes).
+- **LANDMINE:** Wix webhook / service-plugin extensions (`/_wix/extensions/webhooks/[id]`,
+  `/_wix/extensions/service-plugins/...`) receive no-Origin server-to-server POSTs read via
+  `request.text()` — `checkOrigin: true` would 403 them. This app registers ZERO such extensions
+  (no `src/backend/`); **the day one is added, revisit this ruling** (Astro has no route-level
+  opt-out). Canary: first release after 2026-08-18 exercises login/save/checkout live (T2/T3).
+
 ## 13. No cron
 Headless has no scheduler. If ever needed (e.g. expiring listings): external trigger (GitHub Actions cron)
 hitting a token-secured HTTP endpoint (ADR D11). None in v1.

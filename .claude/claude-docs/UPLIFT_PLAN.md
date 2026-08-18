@@ -19,7 +19,7 @@ over the following sessions. This doc is the canonical schedule + design sketche
 independently shippable and lands desktop-safe (frozen chrome untouched unless the point is
 desktop-facing). Research provenance: three parallel evidence-cited scouts (minimap/2D/gesture
 audit · FPV-stability/tiles/terrain audit · P7 seams), 2026-08-17; every load-bearing claim below
-carries file:line evidence from them. Memory twin: `mem:project/wip-2026-08-17-uplift-plan`.
+carries file:line evidence from them. Memory twin: `mem:project/wip-2026-08-17-p7-meteors-uplift-plan`.
 
 **Authority interplay:** M4 (MOBILE_PLAN — P7–P9 mobile twins, AR, PWA) stays queued; this plan
 takes the next sessions per the owner order. Desktop freeze stays additive-only. C-constraints

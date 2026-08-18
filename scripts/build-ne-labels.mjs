@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
  * build-ne-labels.mjs — bake the Natural Earth geo-label assets (Phase 5.5 S7b, §Item 2b).
+ * Last baked: 2026-07-12 (git-dated, audit-2 B3) — update this line on regen (the JSON assets
+ * carry no header to stamp).
  *
  * Fetches Natural Earth 50m GeoJSON (public domain, naturalearthdata.com) from the canonical
  * nvkelso/natural-earth-vector mirror and writes two compact assets:

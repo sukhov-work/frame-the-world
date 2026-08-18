@@ -12,7 +12,7 @@ stay "frame the world".
 
 ## Status (compacted 2026-08-15 — era index + pointers; the old narrative Status lives in DECISIONS.md digests + DECISIONS_ARCHIVE.md)
 
-### Current state (2026-08-15, post guide-G1 session)
+### Current state (re-dated 2026-08-18 at compaction r3 per policy; narrative below written 2026-08-15 post guide-G1 — the 08-17→18 delta [P7 + U1–U5 + audit-2 + fix slices] lives in the Era index HOT rows + Next step)
 - **Phases 1–6.9 SHIPPED + RELEASED**: scaffold + LEO signature globe · WASM decode
   (libraw-wasm@1.0.5 worker) · frustum projection + click-to-place · ephemeris-driven scene
   (sun/moon/stars/terminator/shadows/golden) · members + C6 reduced-precision pins · Phase 5.5
@@ -52,7 +52,7 @@ stay "frame the world".
   `f597bcf5-bd38-4941-9dfe-e16d775743a3`, appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`;
   `mem:project/wix-site`).
 
-### Era index (DECISIONS.md §Per-phase digests for eras through 2026-07-21; later eras are verbatim in DECISIONS §Recent sessions)
+### Era index (DECISIONS.md §Per-phase digests for eras through 2026-08-15e after compaction r3 2026-08-18; verbatim logs in DECISIONS_ARCHIVE §Moved dividers; only the UPLIFT era 2026-08-17→ stays verbatim in DECISIONS §Recent sessions. Policy: every compaction round adds its era rows HERE and re-dates the Status block.)
 - **Phases 1–4 — scaffold · globe · decode · projection · ephemeris (2026-07-09→10)** —
   digests "Bootstrap"→"Phase 4" (+ design-system import) ·
   `mem:patterns/globe-rendering` · `mem:patterns/upload-flow` · `mem:patterns/photo-frustum` ·
@@ -104,28 +104,29 @@ stay "frame the world".
   `wip-2026-08-15-sunsets-in-frame` · `mem:project/owner-orders-2026-08-14-qol-batch`.
 - **Owner UX batches ×5 + ×9 (2026-08-15b/c)** — DECISIONS §Recent 2026-08-15b + 2026-08-15c ·
   `mem:project/wip-2026-08-15-ux-batch` · `wip-2026-08-15-uxbatch2`.
-- **Guide track G1 (2026-08-15d)** — DECISIONS §Recent 2026-08-15d-guide-g1 + `GUIDE_PLAN.md` ·
-  `mem:project/wip-2026-08-15-guide-g1`.
+- **Guide track G1 + polish (2026-08-15d/e)** — DECISIONS digest + ARCHIVE §Moved 2026-08-18 ·
+  `archive/GUIDE_PLAN.md` · `mem:project/wip-2026-08-15-guide-g1`.
+- **P7 meteors + UPLIFT ladder U1–U5 (2026-08-17→18, era still HOT — verbatim in DECISIONS
+  §Recent)** — meteor showers (IMO cal2026) + UPLIFT_PLAN authored · U1 2D-first /m · U2 FPV
+  stability ×8 · U3 fullscreen MapWindow + 2D-map batch + crispness + desktop flat-map · U4
+  direction lines + aim cones (+2 owner rounds) · U5 closest-first loading. Ladder PARKED after
+  U5 for AUDIT #2 + fix slices; resume U6 foveation. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
+  `wip-2026-08-17-u1-2d-mobile` · `wip-2026-08-17-u2-fpv-stability` · `wip-2026-08-18-u3-2dmap-batch` ·
+  `wip-2026-08-18-u4-aim-cones` · `wip-2026-08-18-u5-loading` · `UPLIFT_PLAN.md`.
+- **AUDIT #2 + fix slices (2026-08-18, HOT)** — report `audits/audit-full-2026-08-18.md` ·
+  `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**AUDIT #2 DONE 2026-08-18k — report `audits/audit-full-2026-08-18.md` + `mem:project/wip-2026-08-18-audit2`.
-2 MAJOR (A1 aimCones unclamped heightAt seat · B1 undocumented `checkOrigin:false`) + 22 MINOR
-(compaction r3 DUE — 206 KB hot file defeats the boot read · ARCH §7 nine files behind ·
-conventions ×4 stale · 3 stale memories · harness F1–F3); C6 clean ×2; FP ratchet 0%.
-NEXT = the 8 fix slices (report §Fix-session): 1 A1 clamp · 2 B1 checkOrigin trial+ruling ·
-3 compaction r3+docs · 4 conventions · 5 dead-code · 6 test fences+backlog rows · 7 harness
-scripts/hooks · 8 owner calls. The UPLIFT ladder stays PARKED until this fix phase ends (resume
-U6 foveation → U7 → U8 → P8/P9 → M4; parked-state twin in UPLIFT_PLAN status).** U5 closest-first + U4 owner rounds 1+2 shipped 2026-08-18g/h/i. U5 closest-first loading SHIPPED 2026-08-18g (loadAncestors=false + FPV look-bias
-download comparator on buildings/enriched, ground keeps ancestors; per-tier queue caps
-null-on-high; governor emaMs/hitchCount + latency probes + `__globe.u5()` seam; gates 989/989,
-at-rest A/B tile-identical, browser-verified both shells; 0.4.28 library-facts crib in
-`mem:project/wip-2026-08-18-u5-loading`). U4 direction lines + visibility cones SHIPPED
-2026-08-18f (`mem:project/wip-2026-08-18-u4-aim-cones`). U3 + the owner's 5-issue 2D-map batch SHIPPED
-2026-08-18b (`mem:project/wip-2026-08-18-u3-2dmap-batch`). U2 FPV stability SHIPPED 2026-08-18
-(`mem:project/wip-2026-08-17-u2-fpv-stability`). U1 2D-first mobile SHIPPED 2026-08-17b. P7
-meteors SHIPPED 2026-08-17. REAL-DEVICE pass (U1 gestures + U2 governor + U4 cone feel) rides
-T1 — still OPEN. P8 conjunctions + P9 lunar eclipses + M4 resume AFTER the uplift ladder. See
-`NEXT_SESSION_PROMPT.md`.
+**AUDIT #2 FIX SLICES 1–7 DONE 2026-08-18l (`mem:project/wip-2026-08-18-audit2-fixslices` +
+DECISIONS 2026-08-18l): both MAJORs fixed (A1 easeSeatM clamp browser-proven · B1 ruled
+`checkOrigin: true` — inert in dev by Astro 5.18 construction, prod-compatible, webhook landmine
+documented wix-headless §12b) + compaction r3 (hot DECISIONS 66 KB) + conventions/dead-code/
+fences/harness slices. Gates 1,013/1,013 · astro 0 err/5 hints. NEXT = slice 8 OWNER calls:
+B1 canary ride (T2/T3) · plan-archive ratify · T28/T29 acceptance · B4/T30 display call ·
+declare the fix phase DONE → un-park the UPLIFT ladder at U6 foveation (LoadRegionPlugin
+RayRegion along FPV look + SphereRegion at eye, per-tier radii in QUALITY.tiers, compose with
+U5 loadAim — UPLIFT_PLAN §1.4/§2) → U7 terrain audit → U8 height overrides → P8/P9 → M4.
+T1 real-device exit gate stays owner-present. See `NEXT_SESSION_PROMPT.md`.
 
 ## Source layout (as-built; refreshed 2026-08-15)
 Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.
@@ -178,7 +179,7 @@ are the execution source of truth (distilled from `provenance/DEEP_RESEARCH.md` 
 - `mem:project/wix-platform` — Wix mechanics + gotchas + TODO-VERIFY · `mem:project/wix-site` — live URL + siteId/appId
 - `mem:architecture/system-overview` — the engine + pipelines
 - `mem:patterns/globe-rendering` — how the organic LEO globe is built (bands, atmosphere, ground grade, traps)
-- `mem:patterns/sky-bodies-terrain` — ephemeris sun/moon, scene time, bloom, shadows, REAL terrain (current ground pipeline)
+- `mem:patterns/sky-bodies-terrain` — ephemeris sun/moon, scene time, bloom, shadows, REAL terrain (Phase-4-era snapshot, frozen 2026-07-10 — the ground pipeline was REBUILT 2026-08-18b/c U3; current truth = ARCHITECTURE §7 + `conventions/globe-tuning.md`)
 - `mem:patterns/design-system` — imported Claude Design tokens/type/motion/screen boards (chrome; globe stays fenced)
 - `mem:decisions/adr-000-locked-stack` — the 15 locked ADRs · `mem:decisions/session_workflow` — persistence loop
 - `mem:decisions/session-end-autoship` — the SessionEnd auto-ship hook contract

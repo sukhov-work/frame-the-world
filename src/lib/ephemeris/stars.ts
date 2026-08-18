@@ -1,7 +1,7 @@
 /**
  * Yale Bright Star Catalog (BSC5) — packed-binary parsing + star math (Phase 4, ADR D6).
  *
- * The asset (`public/data/bsc5.bin`, built by `scripts/build-star-catalog.mjs` from
+ * The asset (`public/data/bsc5.bin`, baked 2026-07-10 — git-dated, audit-2 B3; built by `scripts/build-star-catalog.mjs` from
  * brettonw/YaleBrightStarCatalog bsc5.json, MIT; catalog: Hoffleit & Warren, The Bright Star
  * Catalogue, 5th Rev. Ed. 1991) is little-endian float32 records of STAR_RECORD_FLOATS each:
  *   [x, y, z, vmag, bv]

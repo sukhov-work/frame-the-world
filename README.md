@@ -158,11 +158,13 @@ Browser (the heavy half)                        Wix (the thin half)
 **Status:** Phases 1–6.9 shipped (globe, decode, projection, ephemeris sky, members + pins, the
 full UX batch, marketplace-light + the access batch) — plus the post-launch tracks: the
 astro-engine sky (comets, asteroids, Messier/NGC, SIMBAD/SBDB search), Phase 8a darkness & the
-galaxy, the planning-QoL pass (scrubber v2, TODAY, FIND v2/v3), §3.5 sunsets-in-frame, and the
-`/m` mobile shell M0–M3. Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11). Quality gates
-at head: **886 vitest tests across 80 files, `astro check` 0 errors / 0 warnings**, browser flows
-verified via Playwright on `wix dev`. The app is released and live on the Wix cloud (demo URL
-deliberately withheld — owner call pending).
+galaxy, the planning-QoL pass (scrubber v2, TODAY, FIND v2/v3), §3.5 sunsets-in-frame, the
+`/m` mobile shell M0–M3, P7 meteor showers, and the UPLIFT ladder U1–U5 (2D-first mobile
+navigation, FPV stability, fullscreen 2D map + minimap FOV cone, direction lines + visibility
+cones, closest-first tile loading). Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11).
+Quality gates at head (2026-08-18): **1,004 vitest tests across 89 files, `astro check`
+0 errors / 0 warnings**, browser flows verified over CDP on `wix dev`. The app is released and
+live on the Wix cloud (demo URL deliberately withheld — owner call pending).
 
 ## Built entirely by AI agents
 
@@ -189,7 +191,7 @@ Prereqs: Node ≥ 20.11, Wix CLI authed (`npx @wix/cli@latest whoami`).
 ```bash
 npm install --legacy-peer-deps    # pnpm fails against the @wix/cli template — proven, see conventions
 npm run dev                       # wix dev — local dev wired to a real Wix site sandbox
-npm test                          # 886 vitest unit tests (projection, geodesy, ephemeris, planner…)
+npm test                          # 1,004 vitest unit tests (2026-08-18) — projection, geodesy, ephemeris, planner…
 npx astro check                   # typecheck (0 errors at head)
 npm run build && npm run release  # publish to Wix cloud — there is no other prod
 ```
