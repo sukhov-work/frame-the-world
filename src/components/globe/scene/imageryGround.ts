@@ -9,7 +9,7 @@ import {
   XYZTilesOverlay,
 } from "3d-tiles-renderer/three/plugins";
 import { tokens } from "../../../lib/theme/tokens";
-import { lruFloorBytesForCap } from "../../../lib/globe/quality";
+import { lruFloorBytesForCap, type QueueCaps } from "../../../lib/globe/quality";
 import { DRAPE, EARTH, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
 import { glf, glf3 } from "./glsl";
 
@@ -64,8 +64,10 @@ export interface ImageryGroundHandle {
   /** Adaptive quality (RENDERING_QUALITY_PASS WS1): raise the NEAR-altitude error target (coarser
    *  terrain, fewer tiles at street level) + bound this renderer's LRU bytes on weaker tiers.
    *  `lruCapBytes` is resolved by `lruCapBytesForTier`; `null` restores the captured library default
-   *  (the `high` path — byte-identical). */
-  setQualityTier(errorNear: number, lruCapBytes: number | null): void;
+   *  (the `high` path — byte-identical). U5: `queueCaps` bounds download/parse concurrency the same
+   *  way — this renderer KEEPS ancestors + library ordering (the terrain stand-in under the camera),
+   *  only its concurrency rides the tier. */
+  setQualityTier(errorNear: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
   dispose(): void;
 }
 
@@ -82,6 +84,8 @@ export function attachImageryGround(
   // live near-altitude error endpoint (GROUND.errorTargetNear on high; raised on mid/low).
   const lruDefaultBytes = tiles.lruCache.maxBytesSize;
   const lruDefaultMinBytes = tiles.lruCache.minBytesSize; // U2/A9: min/max travel as a pair
+  const dlJobsDefault = tiles.downloadQueue.maxJobs; // U5: restored on `high`
+  const parseJobsDefault = tiles.parseQueue.maxJobs;
   let errorNearOverride: number = GROUND.errorTargetNear;
   tiles.registerPlugin(
     new CesiumIonAuthPlugin({
@@ -390,10 +394,12 @@ export function attachImageryGround(
       return uniforms.uFtwDark.value;
     },
     refreshResolution,
-    setQualityTier(errorNear, lruCapBytes) {
+    setQualityTier(errorNear, lruCapBytes, queueCaps) {
       errorNearOverride = errorNear; // consumed by the update() error-ramp near endpoint
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
+      tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5
+      tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
     },
     update(alt, darkGround, flat2d) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band

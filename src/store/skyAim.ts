@@ -44,3 +44,23 @@ export function aimAtSky(azDeg: number, altDeg: number): void {
   const tiltForBody = orbitTiltForAltDeg(altDeg);
   if (tiltForBody > st.tiltDeg) st.setTargetTilt(tiltForBody);
 }
+
+/**
+ * SKY-search selection policy (owner 2026-08-18) — SOFTER than aimAtSky: picking a target from
+ * the search box is a DATA choice, not a "steer my camera" order. In any map view (2D or 3D
+ * orbit) the camera must not re-aim — the old auto-aim raised tilt toward the horizon and the
+ * 2D locks visibly fought it back (tilt-out → rotate → snap-nadir). Behaviour:
+ *   · FPV — keep the look glide (the viewfinder is exactly an aiming instrument there).
+ *   · temp pin set — re-centre the PIN with a pose-preserving pan (`centerOnly` fly request:
+ *     rigid translation, same tilt/heading/zoom) so the aim circle lands in view.
+ *   · otherwise — nothing moves; the aim circle re-derives at the focus by itself.
+ */
+export function aimAtSkyFromSearch(azDeg: number, altDeg: number): void {
+  const st = useCameraStore.getState();
+  if (fpvActiveNow()) {
+    if (altDeg > 0) st.requestSkyLook({ azDeg, altDeg });
+    return;
+  }
+  const pin = st.tempPin;
+  if (pin) st.requestFly({ latDeg: pin.latDeg, lonDeg: pin.lonDeg, altM: 0, centerOnly: true });
+}

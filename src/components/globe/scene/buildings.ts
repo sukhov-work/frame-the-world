@@ -5,15 +5,17 @@ import { GLTFExtensionsPlugin } from "3d-tiles-renderer/three/plugins";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { buildingNightFactor } from "../../../lib/globe/buildingNight";
-import { lruFloorBytesForCap } from "../../../lib/globe/quality";
+import { lruFloorBytesForCap, type QueueCaps } from "../../../lib/globe/quality";
+import { makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
 import {
   bboxClipPrismEcef,
   bboxContainsRad,
   bboxToRadians,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
-import { BUILDINGS, EARTH, TILESETS } from "../tuning";
+import { BUILDINGS, EARTH, LOADING, TILESETS } from "../tuning";
 import { createBuildingMaterials } from "./buildingMaterial";
+import { makeTileCenterReader } from "./tilePriority";
 
 /**
  * OSM building tiles (Cesium ion, TILESETS.ionAssetId) restyled to the design-board building idiom
@@ -46,7 +48,7 @@ export interface BuildingsHandle {
    *  weaker tiers. `errorTarget` raises the screen-space error (fewer building tiles); `lruCapBytes`
    *  caps this renderer's own LRU byte budget (already resolved by `lruCapBytesForTier` — `null` =
    *  restore the captured library default, the `high`-tier byte-identical path). */
-  setQualityTier(errorTarget: number, lruCapBytes: number | null): void;
+  setQualityTier(errorTarget: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
   /** /m 2D map mode (UPLIFT U1): `false` DETACHES the tileset — the group leaves the scene
    *  graph (render + every raycast, incl. GlobeControls' whole-scene pivot cast) and `update()`
    *  freezes, so traversal/download/parse stop entirely. Loaded tiles stay in the LRU, so
@@ -71,6 +73,9 @@ export function attachBuildings(
      *  the self-hosted enriched tileset (scene/enrichedBuildings.ts) replaces them there. Null/absent
      *  → no mask (byte-identical to before). */
     maskBbox?: GeoBbox | null;
+    /** UPLIFT U5: the shared download-priority aim state (StylizedTiles refreshes it per frame;
+     *  the closest-first comparator reads it). Consumed only when LOADING.closestFirst.buildings. */
+    loadAim: LoadAim;
   },
 ): BuildingsHandle {
   // S7d trial flag: Re:Earth Overture buildings (hosted 3D Tiles 1.1, meshopt-compressed glTF)
@@ -85,6 +90,21 @@ export function attachBuildings(
   // inverts the eviction band and every parse onto the full cache is discarded (re-stream loop).
   const lruDefaultBytes = tiles.lruCache.maxBytesSize;
   const lruDefaultMinBytes = tiles.lruCache.minBytesSize;
+  // U5: captured queue-concurrency defaults (25 download / 5 parse) — restored on `high` so the
+  // byte-identical invariant holds; mid/low tighten them (setQualityTier third arg).
+  const dlJobsDefault = tiles.downloadQueue.maxJobs;
+  const parseJobsDefault = tiles.parseQueue.maxJobs;
+  if (LOADING.closestFirst.buildings) {
+    // U5 closest-first: no ancestor stand-in downloads — the library's own traversal now queues
+    // only target-SSE tiles, distance-ordered (see tuning.LOADING header). The custom download
+    // comparator reproduces that ordering and adds the FPV look-direction bias; the parse queue
+    // keeps the library's unified callback (already distance-routed once loadAncestors=false).
+    tiles.loadAncestors = false;
+    tiles.downloadQueue.priorityCallback = makeClosestFirstComparator(
+      opts.loadAim,
+      makeTileCenterReader(),
+    );
+  }
   if (!useOverture) {
     tiles.registerPlugin(
       new CesiumIonAuthPlugin({ apiToken: opts.ionToken, assetId: TILESETS.ionAssetId }),
@@ -259,10 +279,12 @@ export function attachBuildings(
           ghostEdgeOpacity + (BUILDINGS.edgeOpacity - ghostEdgeOpacity) * uSolidK.value;
       }
     },
-    setQualityTier(errorTarget, lruCapBytes) {
+    setQualityTier(errorTarget, lruCapBytes, queueCaps) {
       tiles.errorTarget = errorTarget;
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
+      tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5: null → captured default
+      tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
     },
     setNight(sunElevSin, up) {
       uFtwNight.value = buildingNightFactor(sunElevSin, EARTH.lightsBand);

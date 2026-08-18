@@ -422,6 +422,7 @@ export const QUALITY = {
     downFrames: 100, // ~0.75 s of sustained slowness before dropping a tier
     upFrames: 240, // ~4 s of headroom before restoring (deliberately reluctant)
     cooldownMs: 2500, // min gap between changes — a DPR change reallocates render targets
+    hitchMs: 50, // U5: raw dt above this counts a hitch (~3 missed 60 Hz frames) — A/B metric
   },
   tiers: {
     high: {
@@ -458,6 +459,38 @@ export const QUALITY = {
       maxStreetNames: 16,
     },
   },
+} as const;
+
+/** UPLIFT U5 — closest-first progressive loading (owner point 7, 2026-08-18). Order and
+ *  concurrency ONLY — every errorTarget stays untouched, so detail at rest is unchanged.
+ *  3d-tiles-renderer 0.4.28, source-verified: `loadAncestors = false` alone flips a renderer
+ *  onto its distance-priority path (unifiedPriorityCallback → distancePriorityCallback;
+ *  optimizedLoadStrategy defaults true), so used → inFrustum → NEAREST-first replaces
+ *  highest-error-first AND ancestors stop being downloaded as coarse stand-ins. BUILDINGS +
+ *  ENRICHED only: a fresh block pops in at target SSE instead of refining through blurry
+ *  parents — for extruded buildings that reads as intended streaming. GROUND is excluded by
+ *  construction, not by flag: it is the terrain everything seats on (heightAt, the reveal
+ *  dissolve) and MUST keep its coarse stand-in under the camera. In FPV a custom download
+ *  comparator (lib/globe/loadPriority) divides each tile's distance by (1 + k·max(0, look·to
+ *  tile)) so the streaming front advances along the look vector; orbit/2D keep pure library
+ *  ordering (k gated on fpvActive). Queue caps ride the tier fan-out (quality.queueCapsForTier):
+ *  null on high restores the captured library defaults (25 download / 5 parse — the
+ *  byte-identical invariant), mid/low run fewer concurrent jobs — parse is MAIN-THREAD glb
+ *  decode, and five stacking in one frame is a visible hitch on weak devices. */
+export const LOADING = {
+  /** Per-renderer closest-first switch (loadAncestors=false + the biased download comparator).
+   *  Ground deliberately has no entry here — see the header. */
+  closestFirst: { buildings: true, enriched: true },
+  /** FPV look-direction bias strength k: a tile straight ahead ranks like one at distance
+   *  d/(1+k) behind. 1.5 → ahead@100 m ≈ behind@40 m. 0 disables the bias (pure distance). */
+  fpvBiasK: 1.5,
+  /** Download/parse maxJobs per capped tier (high = null → library defaults 25/5). */
+  queueCaps: {
+    mid: { download: 12, parse: 3 },
+    low: { download: 8, parse: 2 },
+  },
+  /** Latency-probe ring length (last N download→model dts kept per renderer, DEV seam u5()). */
+  latencyRing: 32,
 } as const;
 
 /** Default "spacecraft in LEO" pose (PROJECT_SEED §2) — camera SW of Dnipro aimed past it toward
@@ -1884,8 +1917,9 @@ export const DAYARC = {
  *  Orbit-mode overlay in real metres on the anchor's ENU tangent plane, depth-free like the
  *  day arcs (a flat sector cannot follow relief; a planning overlay reads THROUGH the world),
  *  alpha-blended NEVER additive (the S6 bright-sky lesson). Colours per D14, named here only:
- *  line = body identity (tokens.accent / sunGlow / moonlight); sector past = tokens.warn,
- *  future = tokens.timeFuture — the scrubber's past/future language, bridged for U4. */
+ *  line = body identity (tokens.accent / sunGlow / moonlight); sector past =
+ *  tokens.textSecondary NEUTRAL grey (owner 2026-08-18: amber read as a day/night claim —
+ *  swept history is inert), future = tokens.timeFuture — the scrubber's future language. */
 export const AIMCONES = {
   /** Ephemeris sampling step across the day (min) — sector rim kinks stay sub-pixel. */
   stepMin: 10,
@@ -1894,22 +1928,27 @@ export const AIMCONES = {
   /** …clamped to this band (m): never vanishes at street zoom, never swallows the map. */
   radiusMinM: 150,
   radiusMaxM: 12_000,
-  /** Radius / emphasis-scale ease (ms) — zoom breathes, never snaps. */
+  /** EMPHASIS-swap ease (ms) — a focus tap breathes. The RADIUS deliberately does NOT ease
+   *  (owner 2026-08-18: the circle must resize in lockstep with the wheel/pinch — the clamp is
+   *  continuous in alt, so the raw value is already smooth). */
   radiusTauMs: 180,
   /** Non-emphasized (compact) systems render at this radius fraction, rim-only (no fill). */
   compactK: 0.55,
   /** Sector fill alpha (emphasized body) — glassy, the imagery must read through
-   *  (0.16 → 0.12 browser pass 2026-08-18: at district radius the fill blanketed blocks). */
-  fillAlpha: 0.12,
+   *  (0.16 → 0.12 browser pass → 0.08 owner 2026-08-18: the fill still occluded the map). */
+  fillAlpha: 0.08,
   /** Sector rim (outline) alpha. */
   rimAlpha: 0.5,
   /** Direction-line alpha, and its paled value while the body is below the horizon. */
   lineAlpha: 0.85,
   lineAlphaDown: 0.28,
-  /** Direction-line length as a fraction of the sector radius (reads past the rim). */
+  /** The FOCUSED body's line length as a fraction of the sector radius (reads past the rim,
+   *  toward off-screen at street zoom). Non-focused lines end EXACTLY at their circle (×1.0 —
+   *  owner 2026-08-18). */
   lineLenK: 1.18,
-  /** Direction-line half-width as a fraction of the sector radius. */
-  lineHalfWidthK: 0.006,
+  /** Direction-line half-width as a fraction of the sector radius (0.006 → 0.003 owner
+   *  2026-08-18: the lines read bulky). */
+  lineHalfWidthK: 0.003,
   /** Altitude presence band (m): full below, gone above — a map instrument, not an orbit
    *  decoration (the VECTOR band idiom, wider: the flat map lives below ~120 km). */
   fullAltM: 25_000,

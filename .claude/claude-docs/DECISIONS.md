@@ -251,6 +251,100 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 New work appends a dated line here. *(Marker moved to the top 2026-08-13 — it had drifted mid-list
 since 2026-08-03; a move is not an edit (compaction precedent). Audit finding D2.)*
 
+- **2026-08-18j-park-audit2 (owner order: PARK the ladder, schedule AUDIT #2 — whole-project
+  expansion-readiness).** Before any further UX/features/rendering/height/meshes work the
+  owner wants the project verified ready for expansion on four dimensions — documentation,
+  organization, architecture, code quality — explicitly NOT refactoring for its own sake:
+  optimize/change/prune what the evidence supports; update conventions/tips/gotchas; refactor
+  the memory graph; propose new session hooks + guardrails (skill/docs/CLAUDE.md). UPLIFT
+  PARKED before U6 (durable note in UPLIFT_PLAN status; resume order U6→U7→U8→P8/P9→M4; T1
+  unchanged). Next session = the /frame AUDIT mode, Deep, READ-ONLY, baseline = audit #1
+  2026-08-13, deliverable `audits/audit-full-2026-08-18.md` + sliced fix plan. Charter with
+  owner-dimension→track mapping + the seed inventory in NEXT_SESSION_PROMPT +
+  `mem:project/audit2-2026-08-18-charter`. Seed numbers (2026-08-18): src 43,810 lines
+  (StylizedTiles 3,833/41 steps · tuning 2,287 · comets 991 · guideContent 833 · enriched 740);
+  100 memories (75 project/, mostly wip-*); DECISIONS 660 lines, 31 entries in the 5 days
+  since audit #1; ARCHITECTURE §7 stale at 2026-08-15; 7 convention docs / 553 lines; tests
+  86 files / 989; astro hints baseline 5; bundle baseline 33 MB (2026-08-13).
+
+- **2026-08-18i-u4-round2 (owner: spoke colours + silver moon + the search-select camera jerk.
+  Gates 989/989 · astro 0 err; browser-verified, shots `verify-shots/u4fix-03..04`.)**
+  (a) The sector's rise/set RADIAL SPOKES now wear the BODY identity colour — sun sunGlow
+  orange, moon silver, target accent — own `edges` LineSegments in the GL module (they left
+  the past/future-split rim geometry: a visibility boundary is the body's claim, not the
+  scrubber's) + separate arc-vs-spoke strokes in the MapWindow twin (`arcPath` no longer
+  closes through the centre — also kills the old ring day-boundary seam). NEW globe token
+  `tokens.moonDial` #DDE3EA — the moon's aim dial/spokes SILVER (moonlight's #BFD0E8 blue-grey
+  sat too close to the textSecondary past grey); scene moonlight untouched. (b) SKY-search
+  select no longer steers the camera: new `aimAtSkyFromSearch` policy (store/skyAim) — FPV
+  keeps the look glide; otherwise NO re-aim ever (the old auto-aim raised tilt toward the
+  horizon and the 2D locks visibly fought it back — the owner's "tilts to 3d, rotates, snaps
+  back"). With a temp pin set it re-centres the PIN via a new `centerOnly` FlyRequest: a RIGID
+  pose-preserving pan (position += target − rayHit, lookAt target; FLIGHT.reframeDurationMs).
+  PROBE-CAUGHT during verify: the pan must subtract the RAW `focusHit`, NOT `_focus` — the
+  temp-pin focus-lock overrides _focus to the pin, zeroing the delta (the flight degenerated
+  to a rotate-in-place, tilt +19.7°). Verified: pin re-centre = 757 m translation with 0.01°
+  quaternion change, tilt/heading mirrors exact; real-UI Vega select (SKY tab) = target swaps,
+  0 m / 0.00° camera; /m MapWindow twin renders arcs+spokes correctly. Edge chips + sky-menu
+  AIM CAMERA keep the explicit aimAtSky (a "look at it" button is an aim order; search isn't).
+
+- **2026-08-18h-u4-aim-feedback (owner 4-issue U4 batch: aim-circle lag + styling + past colour
+  + stuck FPV anchor. Gates 989/989 · astro 0 err; browser-verified both shells, shots
+  `verify-shots/u4fix-01..02`.)** ROOT CAUSE of the lag AND the stuck anchor was ONE seam:
+  stepAimCones/MapWindow consumed the PLAN-STORE anchor — a low-cadence panel mirror
+  (`PLAN.mirrorEveryFrames` 12 ≈ 5 Hz, focus quantized 0.05° ≈ 5.5 km, FPV anchor chunked by
+  `rebuildDistM` 25 m) whose lifecycle gate (`!build && !open → return`) STRANDS the last FPV
+  anchor after exit with the panel closed. A mirror built for panel readouts must never be a
+  per-frame geometric seat. Fix: resolve the eye-rule LIVE each frame at orchestrator level —
+  photo placement > tempPin > THIS-frame `_focus` via one `ecefToGeodetic` (GL), and in
+  MapWindow walking-viewer `camGeo` (fpvHud) > tempPin > camGeo > focus mirror — plan-store
+  read DELETED from both. Zoom: the aim radius no longer eases (`radiusTauMs` now
+  emphasis-swap-only) — `clamp(alt×0.35)` is continuous in alt, raw = lockstep with the wheel.
+  Styling (owner): past sector amber → **tokens.textSecondary NEUTRAL grey** both surfaces
+  (amber read as a day/night claim); `fillAlpha` 0.12 → 0.08; `lineHalfWidthK` 0.006 → 0.003
+  (GL) / 2 dpr → 1 dpr (canvas); direction lines end EXACTLY at their circle rim except the
+  FOCUSED body (`line.scale.y = 1 + (lineLenK−1)·emphK` — rides the emphasis ease, no pop).
+  Line quad is now UNIT-length (tip at rim), stretched per-frame. Verified: 44-frame wheel
+  zoom 1935→565 m radius glued to clamp (0/44 off), pin A→B moves 4.3 km (the stuck case),
+  clear→live-focus 2.6 km, 30-step drag → anchor moved on every input event (was ≥12-frame
+  stale); /m MapWindow circle centred ON the viewer marker. Tap-promote reach untouched
+  (generous gate still covers ×1.0 lines).
+
+- **2026-08-18g-u5-loading (UPLIFT U5 SHIPPED: closest-first progressive loading, owner point 7.
+  Gates vitest 989/989 (+27) · astro 0 err/5 hints; browser-VERIFIED both shells, shots
+  `verify-shots/u5-01..04`.)** Order + concurrency ONLY — every errorTarget untouched; browser
+  proof: leg A/B at-rest scene is TILE-IDENTICAL (31 vis/39 cached buildings · 107/107 enriched ·
+  314 ground; pixel-equivalent shots). Library facts source-verified on installed 0.4.28:
+  `loadAncestors=false` ALONE flips a renderer onto `distancePriorityCallback`
+  (optimizedLoadStrategy defaults true; TilesRendererBase.js:172-182), comparator contract
+  "return 1 ⇒ a runs first" (items.sort then pop), tile fields live on `traversal.*`/`internal.*`
+  (the old `__dunder`s are GONE in 0.4.28), queues are PER-INSTANCE (caps independent),
+  `maxJobs`/`priorityCallback` are plain post-construction writes (ImageOverlayPlugin itself
+  mutates maxJobs at runtime). Wiring: BUILDINGS + ENRICHED get `loadAncestors=false` + a custom
+  download comparator (NEW pure `lib/globe/loadPriority.ts`, 21-test twin) that mirrors
+  distancePriorityCallback term-for-term with the distance term swapped for
+  `effDist = d/(1+k·max(0,look·toTile))` — k=`LOADING.fpvBiasK` 1.5, gated on fpvActive (orbit/2D
+  = byte-identical library ordering; k=0 degenerates to it), per-tile per-frame memo via
+  `aim.epoch` stamps; GROUND excluded BY CONSTRUCTION (heightAt seating + the reveal need the
+  coarse ancestor stand-in). Aim state (`makeLoadAim`) refreshes inside stepViewFocus (fresh
+  `_camFwd`, no new step). Queue caps ride the tier fan-out (`queueCapsForTier`, null-on-high
+  like the LRU rule): high restores captured 25 dl/5 parse, mid 12/3, low 8/2 — live-verified
+  via `__quality.force()` round-trip incl. U2 LRU pair intact. Instrumentation: governor grew
+  `emaMs()`+`hitchCount()` (raw dt > `QUALITY.governor.hitchMs` 50; was closure-private) +
+  per-renderer download→model latency probes (`makeTileLatencyProbe`; `tile-download-start` →
+  `load-model`, `load-error` cancels; injected clock) + DEV seam `__globe.u5()`/`u5Mark()`
+  (flags/aim/queue depths/stats/latency + time-to-first window). A/B numbers (M3 Pro, dev-local
+  WARM cache — weak evidence, saturates in ~2 s): buildings initial-stream mean 376 ms max 540
+  (leg A 428/677, ~-15%), enriched tail ~1.9 s (A ~2.17 s), ground statistically unchanged (by
+  design); scripted 4 s FPV walk: 0 hitches BOTH legs, ~46-48 fps, EMA ~21 ms; /m: 2D boot
+  detached-buildings intact, FPV aim active, EMA 8.3 ms. HONEST GAPS: the dev pipe never holds
+  ≥3 items in a download queue → queue-ORDER observable unreachable locally (locked by the
+  27 unit tests instead); real cold-network + weak-device (mid/low caps + parse-hitch relief)
+  ride T1. FPV exit → aim inactive verified. TRAP (cost ~20 min): a STALE Playwright Chrome
+  from a prior session held port 9222 WITHOUT the occlusion flags — my flagged launch silently
+  didn't bind, the MCP attached to the buried stale window, rAF froze (the U2 trap wearing a
+  new coat). Check `ps` for who OWNS 9222 before trusting the launch.
+
 - **2026-08-18f-u4-aim-cones (UPLIFT U4 SHIPPED: direction lines + visibility cones on the 2D
   map, owner point 3 — PhotoPills-style. Gates vitest 962/962 (+12) · astro 0 err; browser-
   VERIFIED both shells, shots `verify-shots/u4-01..08`.)** From the plan anchor (the TargetPanel

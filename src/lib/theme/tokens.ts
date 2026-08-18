@@ -30,6 +30,8 @@ export const tokens = {
   sunCore: '#FFF3D9', // solar disc — warm white (bloom carries the blowout)
   sunGlow: '#FFD9A0', // solar halo / corona falloff — warmer than the disc
   moonlight: '#BFD0E8', // cool moonlight fill on the night side (intensity by phase)
+  moonDial: '#DDE3EA', // U4 aim surfaces — the moon's dial/edge SILVER (owner 2026-08-18:
+  // moonlight's blue-grey sat too close to the textSecondary past-sector grey on the map)
   skyDay: '#7FB8E8', // low-altitude day-sky zenith — light blue dome at city zooms
   skyHorizon: '#D8E6F2', // low-altitude horizon haze — near-white aerial perspective
   milkyWay: '#E7E3D8', // faint warm-white galactic band (subtle, near tokens.star)
