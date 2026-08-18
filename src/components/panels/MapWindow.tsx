@@ -1,8 +1,21 @@
 import { useEffect, useRef } from "react";
 import { useCameraStore } from "../../store/camera";
 import { useMiniMapStore } from "../../store/minimap";
+import { useSkyStore } from "../../store/sky";
+import { usePlanStore } from "../../store/plan";
+import { useTimeStore, sceneTimeMs } from "../../store/time";
 import { lonLatToTileF, tileFToLonLat, zoomForMetersPerPx } from "../../lib/geo/slippy";
-import { FPV, FRUSTUM, TILESETS } from "../globe/tuning";
+import {
+  sampleAimDay,
+  splitAimRuns,
+  wrap180,
+  type AimDay,
+  type AimSample,
+} from "../../lib/ephemeris/azSector";
+import { localDayWindow } from "../../lib/ephemeris/dayArc";
+import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
+import { tokens } from "../../lib/theme/tokens";
+import { AIMCONES, FPV, FRUSTUM, TILESETS } from "../globe/tuning";
 import "../../styles/map-window.css";
 
 /**
@@ -24,11 +37,17 @@ const MIN_Z = 3;
 const LONG_PRESS_MS = 500; // the ORCH long-press shape (tuning.ts ORCH.longPressMs twin)
 const DRAG_CANCEL_PX = 6;
 const TILE_CACHE_MAX = 300;
+// U4 aim overlay: chart-fixed radius (the FOV-cone idiom — the map is a chart, metres live on
+// the globe module); slightly wider than the 0.22 FOV cone so the sectors read around it.
+const AIM_R_FRAC = 0.3;
+const AIM_TAP_TOL_DEG = 8; // tap-promote angular tolerance around a direction line
 
 interface TileImg {
   img: HTMLImageElement;
   ok: boolean;
 }
+
+type AimKey = "target" | "sun" | "moon";
 
 export default function MapWindow() {
   const open = useMiniMapStore((s) => s.mapWindowOpen);
@@ -40,6 +59,9 @@ export default function MapWindow() {
   const rafPending = useRef(false);
   // The zoom chips need the effect-scoped zoomBy — bridged through a ref.
   const zoomButtons = useRef<(dz: number) => void>(() => {});
+  // U4: per-body aim-day memo — ~145 ephemeris calls per (target, day, anchor); the 20 Hz
+  // FPV repaint only re-splits at now. Warm across open/close like the tile cache.
+  const aimCache = useRef<Map<AimKey, { key: string; day: AimDay }>>(new Map());
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +90,54 @@ export default function MapWindow() {
 
     const cssVar = (name: string) =>
       getComputedStyle(canvas).getPropertyValue(name).trim() || "#8ef";
+
+    // ── U4 aim helpers (shared by draw() and the tap-promote hit test) ──────────────────────
+    // The anchor is the plan anchor with the eye/focus fallback — the SAME eye the TargetPanel
+    // prints numbers for (the aimCones module's rule), so the two surfaces always agree.
+    const aimAnchorNow = (camNow: ReturnType<typeof useCameraStore.getState>) =>
+      usePlanStore.getState().anchor ??
+      camNow.camGeo ?? { latDeg: camNow.focusLatDeg, lonDeg: camNow.focusLonDeg };
+
+    const aimBodiesNow = (skyNow: ReturnType<typeof useSkyStore.getState>) => {
+      const out: { key: AimKey; target: SkyTarget; color: string; emphasized: boolean }[] = [];
+      if (skyNow.aimTarget)
+        out.push({
+          key: "target",
+          target: skyNow.target,
+          color: tokens.accent,
+          emphasized: skyNow.aimFocus === "target",
+        });
+      if (skyNow.aimSun)
+        out.push({
+          key: "sun",
+          target: bodyTarget("sun"),
+          color: tokens.sunGlow,
+          emphasized: skyNow.aimFocus === "sun",
+        });
+      if (skyNow.aimMoon)
+        out.push({
+          key: "moon",
+          target: bodyTarget("moon"),
+          color: tokens.moonlight,
+          emphasized: skyNow.aimFocus === "moon",
+        });
+      return out;
+    };
+
+    const aimDayFor = (
+      key: AimKey,
+      target: SkyTarget,
+      anchor: { latDeg: number; lonDeg: number },
+      nowMs: number,
+    ): AimDay => {
+      const w0 = localDayWindow(nowMs, anchor.lonDeg);
+      const memoKey = `${target.id}:${anchor.latDeg.toFixed(3)}:${anchor.lonDeg.toFixed(3)}:${w0.startMs}`;
+      const hit = aimCache.current.get(key);
+      if (hit && hit.key === memoKey) return hit.day;
+      const day = sampleAimDay(target, nowMs, anchor.latDeg, anchor.lonDeg, AIMCONES.stepMin);
+      aimCache.current.set(key, { key: memoKey, day });
+      return day;
+    };
 
     const tileFor = (tpl: string, z: number, x: number, y: number): TileImg => {
       const n = 2 ** z;
@@ -141,6 +211,70 @@ export default function MapWindow() {
         return [w / 2 + (p.x - c.x) * tilePx, h / 2 + (p.y - c.y) * tilePx];
       };
       const accent = cssVar("--color-accent");
+
+      // ── U4 aim overlay — the GL aimCones module's canvas twin: same azSector helper, same
+      // token colours (bridge import — sunGlow/moonlight have no CSS custom property), chart-
+      // fixed radius. Split at scene time per paint (cheap); the day sampling is memoised.
+      // Drawn BEFORE the pin/eye markers so position always reads on top.
+      {
+        const skyNow = useSkyStore.getState();
+        const anchor = aimAnchorNow(camNow);
+        const nowMs = sceneTimeMs();
+        const rBase = Math.min(w, h) * AIM_R_FRAC;
+        const [ax, ay] = toPx(anchor.latDeg, anchor.lonDeg);
+        const pt = (azDeg: number, rr: number): [number, number] => {
+          // Compass az (N=0, CW) → canvas angle: north is −y, east is +x.
+          const th = ((azDeg - 90) * Math.PI) / 180;
+          return [ax + rr * Math.cos(th), ay + rr * Math.sin(th)];
+        };
+        const sectorPath = (runs: readonly AimSample[][], r: number) => {
+          ctx.beginPath();
+          for (const run of runs) {
+            if (run.length < 2) continue;
+            ctx.moveTo(ax, ay);
+            for (const s of run) {
+              const [x, y] = pt(s.azDeg, r);
+              ctx.lineTo(x, y);
+            }
+            ctx.closePath(); // radial edges close the wedge (the GL module's rim rule)
+          }
+        };
+        for (const b of aimBodiesNow(skyNow)) {
+          const r = rBase * (b.emphasized ? 1 : AIMCONES.compactK);
+          const day = aimDayFor(b.key, b.target, anchor, nowMs);
+          const split = splitAimRuns(day, nowMs);
+          if (b.emphasized) {
+            // Glassy fills, past amber → future blue (the scrubber's language).
+            ctx.globalAlpha = AIMCONES.fillAlpha;
+            ctx.fillStyle = tokens.warn;
+            sectorPath(split.past, r);
+            ctx.fill();
+            ctx.fillStyle = tokens.timeFuture;
+            sectorPath(split.future, r);
+            ctx.fill();
+          }
+          ctx.globalAlpha = AIMCONES.rimAlpha;
+          ctx.lineWidth = 1 * dpr;
+          ctx.strokeStyle = tokens.warn;
+          sectorPath(split.past, r);
+          ctx.stroke();
+          ctx.strokeStyle = tokens.timeFuture;
+          sectorPath(split.future, r);
+          ctx.stroke();
+          // Direction line at the CURRENT azimuth — body identity colour, pales below horizon.
+          const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
+          ctx.globalAlpha = nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown;
+          ctx.strokeStyle = b.color;
+          ctx.lineWidth = 2 * dpr;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          const [lx, ly] = pt(nowPos.azDeg, r * AIMCONES.lineLenK);
+          ctx.lineTo(lx, ly);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+
       const pin = camNow.tempPin;
       if (pin) {
         const [px, py] = toPx(pin.latDeg, pin.lonDeg);
@@ -256,7 +390,12 @@ export default function MapWindow() {
     zoomButtons.current = zoomBy;
 
     const onPointerDown = (e: PointerEvent) => {
-      canvas.setPointerCapture(e.pointerId);
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // NotFoundError when the pointer is already gone (a fast tap released within the
+        // same frame, or a synthetic event) — the drag/press bookkeeping below still applies.
+      }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 1) {
         dragging = true;
@@ -314,6 +453,50 @@ export default function MapWindow() {
       zoomBy(e.deltaY < 0 ? 1 : -1);
     };
     const onDblClick = (e: MouseEvent) => viewFromHere(e.clientX, e.clientY);
+    // U4 tap-promote: a click ON a body's direction line promotes it to the emphasized system
+    // (UPLIFT_PLAN §2/U4 "a tap on a line promotes it"). Tight gate — azimuth within tolerance
+    // AND radially along the line's reach — so ordinary map taps never steal the focus.
+    const onClick = (e: MouseEvent) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > DRAG_CANCEL_PX) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = rect.width * dpr;
+      const h = rect.height * dpr;
+      const camNow = useCameraStore.getState();
+      const skyNow = useSkyStore.getState();
+      const anchor = aimAnchorNow(camNow);
+      const nowMs = sceneTimeMs();
+      // Same transform stack as draw() (the canvasPointToLatLon idiom).
+      const sat = camNow.groundMode === "satellite";
+      const srcMaxZ = sat ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
+      const boost = dpr >= 1.5 ? 1 : 0;
+      const { z, latDeg, lonDeg } = view.current;
+      const zDraw = Math.min(z + boost, srcMaxZ);
+      const tilePx = TILE_SRC_PX * dpr * 2 ** (z - zDraw);
+      const c = lonLatToTileF(lonDeg, latDeg, zDraw);
+      const a = lonLatToTileF(anchor.lonDeg, anchor.latDeg, zDraw);
+      const axPx = w / 2 + (a.x - c.x) * tilePx;
+      const ayPx = h / 2 + (a.y - c.y) * tilePx;
+      const dx = (e.clientX - rect.left) * dpr - axPx;
+      const dy = (e.clientY - rect.top) * dpr - ayPx;
+      const dist = Math.hypot(dx, dy);
+      // Compass azimuth of the tap around the anchor (north = −y on canvas).
+      const azClick = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+      const rBase = Math.min(w, h) * AIM_R_FRAC;
+      let best: { key: AimKey; dAz: number } | null = null;
+      for (const b of aimBodiesNow(skyNow)) {
+        if (b.emphasized) continue; // already the focus
+        const reach = rBase * AIMCONES.compactK * AIMCONES.lineLenK;
+        if (dist < reach * 0.15 || dist > reach * 1.15) continue;
+        const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
+        const dAz = Math.abs(wrap180(azClick - nowPos.azDeg));
+        if (dAz <= AIM_TAP_TOL_DEG && (!best || dAz < best.dAz)) best = { key: b.key, dAz };
+      }
+      if (best) {
+        skyNow.setAimFocus(best.key);
+        requestRedraw();
+      }
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
@@ -324,10 +507,15 @@ export default function MapWindow() {
     canvas.addEventListener("pointercancel", onPointerUp);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("dblclick", onDblClick);
+    canvas.addEventListener("click", onClick);
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", requestRedraw);
     // Live markers: the camera mirrors tick at store cadence; redraw on any change while open.
+    // U4: the aim overlay also re-derives on sky toggles/target swaps and on time scrubs —
+    // getState() reads inside draw() can't see those without their own subscriptions.
     const unsub = useCameraStore.subscribe(requestRedraw);
+    const unsubSky = useSkyStore.subscribe(requestRedraw);
+    const unsubTime = useTimeStore.subscribe(requestRedraw);
     requestRedraw();
 
     return () => {
@@ -337,9 +525,12 @@ export default function MapWindow() {
       canvas.removeEventListener("pointercancel", onPointerUp);
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("dblclick", onDblClick);
+      canvas.removeEventListener("click", onClick);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", requestRedraw);
       unsub();
+      unsubSky();
+      unsubTime();
       cancelPress();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

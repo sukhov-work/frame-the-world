@@ -251,6 +251,33 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 New work appends a dated line here. *(Marker moved to the top 2026-08-13 — it had drifted mid-list
 since 2026-08-03; a move is not an edit (compaction precedent). Audit finding D2.)*
 
+- **2026-08-18f-u4-aim-cones (UPLIFT U4 SHIPPED: direction lines + visibility cones on the 2D
+  map, owner point 3 — PhotoPills-style. Gates vitest 962/962 (+12) · astro 0 err; browser-
+  VERIFIED both shells, shots `verify-shots/u4-01..08`.)** From the plan anchor (the TargetPanel
+  eye), three azimuth systems — tracked target (accent) / sun (sunGlow) / moon (moonlight) —
+  each a current-azimuth direction line + a rise→set ground sector, split at scene time:
+  swept = amber, to-come = blue (the scrubber convention, **tokens.warn/timeFuture BRIDGED to
+  GL** — supersedes the tokens.css "chrome-only" note, comment updated). NEW pure
+  `lib/ephemeris/azSector.ts` (time-ordered az runs off `targetElevationSeries`; wrap-aware
+  lerp; horizon-crossing + now-split interpolation; circumpolar → ring, never-up → none;
+  `wrap180` HOISTED here from frameFinder/sunEventFrame; 11-test twin) → consumed by NEW
+  `scene/aimCones.ts` (unit-circle fan/rim/line in the anchor ENU tangent plane, ECEF+radius
+  in the matrix — zoom rescales, never rebuilds; per-vertex aT01 vs uNow01 COLOUR split in
+  shader — scrub never rebuilds; depth-free renderOrder 9 like dayArcs, a flat sector cannot
+  follow relief; ~145 ephemeris calls/body only on anchor-deadband/day-cross/target-swap;
+  AIMCONES tuning block; presence band 25→50 km — LEO flagship byte-identical, probe-verified
+  at 1.09 Mm) AND the `MapWindow` canvas twin (memoised aim-day + per-paint `splitAimRuns`,
+  chart-fixed radius, sky/time subscribe→redraw, tap-on-line PROMOTES). Emphasis: ONE body full
+  (fill 0.12 after browser pass), others compact rim-only ×0.55 — eased, fill rides the same
+  ease. Toggles: `aim{Target,Sun,Moon}` prefs + session `aimFocus` (store/sky), ONE `∠
+  DIRECTION` row in the shared SkyContextMenu (turn-on promotes; per-body flags, deliberately
+  no ensureTracked for sun/moon). Sun/moon ride `bodyTarget()` — one `targetAzAlt` path, D6.
+  **Browser-caught bug:** the seat initially rode the ephemeris anchor deadband (0.02° ≈ 2 km
+  visible offset off a boot-flight capture) — the seat now tracks the LIVE anchor every frame;
+  only the az curves quantize. **Hardening:** MapWindow `setPointerCapture` wrapped (throws
+  NotFoundError on same-frame-released pointers). v1 horizon-only (skyline `traceStates`
+  sub-bands = v2); GL sector labels deferred (taste tail).
+
 - **2026-08-18e-desktop-flat (owner round 4: the flat-map treatment lands on DESKTOP at nadir.
   Gates 950/950 · astro 0 err; browser-VERIFIED, shot `verify-shots/u3e-01`.)** The ink fixes
   (depth-off, night-dim stand-down, fill/ribbon attenuation, names v4.1) were already

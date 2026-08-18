@@ -108,19 +108,15 @@ stay "frame the world".
   `mem:project/wip-2026-08-15-guide-g1`.
 
 ## Next step
-**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U4 direction lines/cones next
-→ U5–U8.** U3 + the owner's 5-issue 2D-map batch SHIPPED 2026-08-18b (fullscreen MapWindow both
-shells + minimap FOV cone + 3D→2D spin fix + street-names v4 + imagery sharpness chain + 2D
-speed levers + MY LOCATION lands the map; gates 947/947, browser-verified both shells;
-`mem:project/wip-2026-08-18-u3-2dmap-batch`). U2 FPV stability SHIPPED 2026-08-18 (all 8 point-6 mechanisms: A9 LRU floor
-`lruFloorBytesForCap` + governor tier steps parked during FPV + zoom-bank kill at both FPV
-boundaries + eased temp-pin/enriched-group grounds + entry-frame controls gate + FPV
-noteInteract guard + lastGroundM invalidation + resize resolution refresh; gates 926/926,
-soak-verified both shells — zero non-walk eye jumps; DEV seams `__globe.u2()` +
-`__quality.pendingTier`; `mem:project/wip-2026-08-17-u2-fpv-stability`). U1 2D-first mobile
-SHIPPED 2026-08-17b (`mem:project/wip-2026-08-17-u1-2d-mobile`). P7 meteors SHIPPED 2026-08-17.
-REAL-DEVICE pass (U1 gestures + U2 governor-on-weak-device) rides T1 — still OPEN. P8
-conjunctions + P9 lunar eclipses + M4 resume AFTER the uplift ladder. See
+**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U5 closest-first loading next
+→ U6–U8.** U4 direction lines + visibility cones SHIPPED 2026-08-18f (azSector pure lib +
+scene/aimCones + MapWindow twin + ∠ DIRECTION menu row + aim prefs/aimFocus; warn/timeFuture
+bridged to GL; gates 962/962, browser-verified both shells;
+`mem:project/wip-2026-08-18-u4-aim-cones`). U3 + the owner's 5-issue 2D-map batch SHIPPED
+2026-08-18b (`mem:project/wip-2026-08-18-u3-2dmap-batch`). U2 FPV stability SHIPPED 2026-08-18
+(`mem:project/wip-2026-08-17-u2-fpv-stability`). U1 2D-first mobile SHIPPED 2026-08-17b. P7
+meteors SHIPPED 2026-08-17. REAL-DEVICE pass (U1 gestures + U2 governor + U4 cone feel) rides
+T1 — still OPEN. P8 conjunctions + P9 lunar eclipses + M4 resume AFTER the uplift ladder. See
 `NEXT_SESSION_PROMPT.md`.
 
 ## Source layout (as-built; refreshed 2026-08-15)

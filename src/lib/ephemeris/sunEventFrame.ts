@@ -30,6 +30,7 @@ import {
   KM_PER_AU,
   SUN_RADIUS_KM,
 } from "./bodies";
+import { wrap180 } from "./azSector";
 import { localDayWindow } from "./dayArc";
 import { goldenElevationsDeg } from "./planner";
 import type { GoldenCurve } from "./golden";
@@ -39,7 +40,6 @@ import { azAltFrameMarker } from "../geo/offscreen";
 
 const DAY_MS = 86_400_000;
 const DEG = 180 / Math.PI;
-const wrap180 = (deg: number): number => ((deg + 540) % 360) - 180;
 
 export type SunEventKind = "sunrise" | "sunset" | "goldenAm" | "goldenPm";
 

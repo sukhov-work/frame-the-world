@@ -54,6 +54,16 @@ describe("sanitizeViewPrefs", () => {
     expect(sanitizeViewPrefs(42)).toEqual({});
   });
 
+  // U4 AIM flags — per-body booleans, wrong types dropped like every other key.
+  it("keeps the aim flags and drops wrong-typed ones", () => {
+    expect(sanitizeViewPrefs({ aimTarget: false, aimSun: true, aimMoon: false })).toEqual({
+      aimTarget: false,
+      aimSun: true,
+      aimMoon: false,
+    });
+    expect(sanitizeViewPrefs({ aimTarget: "on", aimSun: 1, aimMoon: null })).toEqual({});
+  });
+
   // The phase-C key rename (2026-08-03): comet-era blobs keep their chip choices.
   it("migrates the comet-era sky-target keys to the new names", () => {
     expect(sanitizeViewPrefs({ cometVisible: false, cometHighlight: true })).toEqual({

@@ -20,7 +20,7 @@
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
 //   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · ENRICHED · GROUND · DRAPE ·
 //   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
-//   GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
+//   AIMCONES · GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
@@ -1873,6 +1873,52 @@ export const DAYARC = {
   horizonFadeHiDeg: -1,
   /** Whole-overlay fade ease (ms) on FPV enter/exit. */
   fadeTauMs: 250,
+} as const;
+
+/** Map direction lines + visibility cones (UPLIFT U4, owner point 3 — PhotoPills-style): from
+ *  the plan anchor (the SAME eye the TargetPanel prints numbers for), each AIM-enabled body
+ *  draws a ground-seated direction line at its CURRENT azimuth plus a sector sweeping its
+ *  rise→set azimuths across the scene-local solar day (lib/ephemeris/azSector — time-ordered
+ *  az samples, never a naive rise→set arc). Swept-already vs still-to-come splits IN THE SHADER
+ *  (per-vertex aT01 vs uNow01, the dayArcs grammar — scrubbing never rebuilds geometry).
+ *  Orbit-mode overlay in real metres on the anchor's ENU tangent plane, depth-free like the
+ *  day arcs (a flat sector cannot follow relief; a planning overlay reads THROUGH the world),
+ *  alpha-blended NEVER additive (the S6 bright-sky lesson). Colours per D14, named here only:
+ *  line = body identity (tokens.accent / sunGlow / moonlight); sector past = tokens.warn,
+ *  future = tokens.timeFuture — the scrubber's past/future language, bridged for U4. */
+export const AIMCONES = {
+  /** Ephemeris sampling step across the day (min) — sector rim kinks stay sub-pixel. */
+  stepMin: 10,
+  /** Sector radius = camera altitude × this (the zoom-adaptive scale)… */
+  radiusAltK: 0.35,
+  /** …clamped to this band (m): never vanishes at street zoom, never swallows the map. */
+  radiusMinM: 150,
+  radiusMaxM: 12_000,
+  /** Radius / emphasis-scale ease (ms) — zoom breathes, never snaps. */
+  radiusTauMs: 180,
+  /** Non-emphasized (compact) systems render at this radius fraction, rim-only (no fill). */
+  compactK: 0.55,
+  /** Sector fill alpha (emphasized body) — glassy, the imagery must read through
+   *  (0.16 → 0.12 browser pass 2026-08-18: at district radius the fill blanketed blocks). */
+  fillAlpha: 0.12,
+  /** Sector rim (outline) alpha. */
+  rimAlpha: 0.5,
+  /** Direction-line alpha, and its paled value while the body is below the horizon. */
+  lineAlpha: 0.85,
+  lineAlphaDown: 0.28,
+  /** Direction-line length as a fraction of the sector radius (reads past the rim). */
+  lineLenK: 1.18,
+  /** Direction-line half-width as a fraction of the sector radius. */
+  lineHalfWidthK: 0.006,
+  /** Altitude presence band (m): full below, gone above — a map instrument, not an orbit
+   *  decoration (the VECTOR band idiom, wider: the flat map lives below ~120 km). */
+  fullAltM: 25_000,
+  topAltM: 50_000,
+  /** Whole-overlay fade ease (ms) on toggle / anchor appearance. */
+  fadeTauMs: 250,
+  /** Anchor move deadband (deg) before an ephemeris rebuild — the focus-fallback anchor pans
+   *  continuously in orbit (the skyTrail coarse-deadband lesson, not dayArcs' pin epsilon). */
+  anchorEpsDeg: 0.02,
 } as const;
 
 /** Temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14 — "see the body's path

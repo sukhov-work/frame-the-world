@@ -35,6 +35,12 @@ export interface ViewPrefs {
   /** Last-tracked sky target id (phase B) — restored lazily after boot (`store/sky`); resolves
    *  through `catalog.targetByIdAsync`, so even `ngc:`/`simbad:` ids survive a reload. */
   skyTargetId?: string;
+  /** AIM systems (UPLIFT U4) — direction line + rise→set visibility cone on the 2D map, one
+   *  flag per body. Sun/moon render compact unless emphasized; the emphasis itself is
+   *  session-only (store/sky `aimFocus`), like TRACKING. */
+  aimTarget?: boolean;
+  aimSun?: boolean;
+  aimMoon?: boolean;
   /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
   skyGhosts?: boolean;
   /** Ghost copies per time direction (1..15; the owner default is 4 each way = 8 total). */
@@ -63,6 +69,9 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   if (typeof r.skyTargetTrail === "boolean") out.skyTargetTrail = r.skyTargetTrail;
   if (typeof r.skyTargetId === "string" && r.skyTargetId.length <= 80 && r.skyTargetId.includes(":"))
     out.skyTargetId = r.skyTargetId;
+  if (typeof r.aimTarget === "boolean") out.aimTarget = r.aimTarget;
+  if (typeof r.aimSun === "boolean") out.aimSun = r.aimSun;
+  if (typeof r.aimMoon === "boolean") out.aimMoon = r.aimMoon;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
   if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
     out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));

@@ -15,6 +15,8 @@ export const tokens = {
   textMuted: '#5B6472',
   accent: '#38E1D0', // luminous cyan-teal — pin emissive / frustum / active states (RESERVED for signal)
   accent600: '#2FD1C4', // accent hover / pressed — pin focus, active frustum edge
+  warn: '#E8A268', // past/swept-already amber (scrubber language; bridged for the U4 aim cones)
+  timeFuture: '#7CB0F5', // future/still-to-come blue — the cool twin of warn (U4 aim cones)
   land: '#53655C', // sage-slate — continent fill (design hue #7A8E84 at cartographic lightness)
   landHi: '#687D73', // rolling-terrain relief + OSM building emissive tint
   peak: '#8FA097', // high-terrain sheen + OSM building fill (light sage, not blown-out)
