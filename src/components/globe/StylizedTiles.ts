@@ -80,7 +80,8 @@ import {
 } from "../../lib/geo/urlPose";
 import { driftRadiansForDt } from "../../lib/globe/drift";
 import { seatStep } from "../../lib/globe/enrichedMask";
-import { lruCapBytesForTier, type QualityTier } from "../../lib/globe/quality";
+import { lruCapBytesForTier, queueCapsForTier, type QualityTier } from "../../lib/globe/quality";
+import { makeLoadAim, makeTileLatencyProbe } from "../../lib/globe/loadPriority";
 import {
   AO,
   CONTROLS,
@@ -96,6 +97,7 @@ import {
   MOBILE2D,
   ORCH,
   PINS,
+  LOADING,
   PLACING,
   PLAN,
   POSE,
@@ -240,11 +242,15 @@ export function attachStylizedTiles(opts: {
   // A cross-city variant (?enriched=st-albans-o2w) is baked over its OWN box, so the OSM mask and
   // the re-seat extent must follow it; every other value resolves to ENRICHED.bbox itself.
   const enrichedBbox = resolveEnrichedBbox(ENRICHED.bbox, enrichedSearch, ENRICHED.variantBboxes);
+  // U5: the shared download-priority aim state — written once per frame (stepLoadAim, after the
+  // focus step computes the camera forward), read by the buildings/enriched download comparators.
+  const loadAim = makeLoadAim();
   const buildings = attachBuildings(scene, {
     camera,
     renderer,
     ionToken,
     maskBbox: enrichedUrl ? enrichedBbox : null,
+    loadAim,
   });
   const ground = attachImageryGround(scene, { camera, renderer, ionToken });
   const enriched = enrichedUrl
@@ -254,8 +260,26 @@ export function attachStylizedTiles(opts: {
         url: enrichedUrl,
         bbox: enrichedBbox,
         terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+        loadAim,
       })
     : null;
+  // U5 instrumentation: per-renderer download→model latency probes (tile-download-start pairs
+  // with load-model per tile; load-error forgets the entry). Counters only — the DEV seam
+  // (__globe.u5) reads snapshots; u5Mark() starts a time-to-first window for a scripted A/B.
+  const attachLoadProbe = (t: {
+    addEventListener: (type: string, cb: (e: { tile?: object }) => void) => void;
+  }) => {
+    const p = makeTileLatencyProbe(() => performance.now(), LOADING.latencyRing);
+    t.addEventListener("tile-download-start", (e) => e.tile && p.start(e.tile));
+    t.addEventListener("load-model", (e) => e.tile && p.end(e.tile));
+    t.addEventListener("load-error", (e) => e.tile && p.cancel(e.tile));
+    return p;
+  };
+  const loadProbes = {
+    buildings: attachLoadProbe(buildings.tiles),
+    ground: attachLoadProbe(ground.tiles),
+    enriched: enriched ? attachLoadProbe(enriched.tiles) : null,
+  };
   const sky = attachSky(scene);
   const skyTarget = attachSkyTarget(scene); // tracked sky target (ASTRO ENGINE) — 10P by default
   const skyTrail = attachSkyTrail(scene); // the target's day-arc trajectory (phase C, SHOW+TRAIL)
@@ -306,9 +330,10 @@ export function attachStylizedTiles(opts: {
   const applyQualityTier = (tier: QualityTier) => {
     const q = QUALITY.tiers[tier];
     const lru = lruCapBytesForTier(tier, q.lruBytesMB); // null on high → each renderer's captured default
-    buildings.setQualityTier(q.buildingErrorTarget, lru);
-    enriched?.setQualityTier(q.buildingErrorTarget, lru);
-    ground.setQualityTier(q.groundErrorNear, lru);
+    const qCaps = queueCapsForTier(tier, LOADING.queueCaps); // U5: same null-on-high rule for maxJobs
+    buildings.setQualityTier(q.buildingErrorTarget, lru, qCaps);
+    enriched?.setQualityTier(q.buildingErrorTarget, lru, qCaps);
+    ground.setQualityTier(q.groundErrorNear, lru, qCaps);
     streetNames.setMaxVisible(q.maxStreetNames);
     vectorFeatures.setLatticeBudget(q.vectorLatticeBudget);
     // U2/A11: GlobeCanvas re-set the renderer pixel ratio just before this call (applyTier order)
@@ -1601,6 +1626,56 @@ export function attachStylizedTiles(opts: {
         jumps: u2Jumps.slice(),
         jumpsTotal: u2JumpsTotal,
       }),
+      // U5 (closest-first loading): the live streaming discriminator — loadAncestors flags, the
+      // FPV aim state, per-renderer queue depth/concurrency (untyped library internals, hence
+      // the narrow cast) + download→model latency snapshots. u5Mark() opens a time-to-first
+      // window (mark → teleport → read lat.*.firstAfterMarkMs).
+      u5: () => {
+        const qSnap = (t: unknown) => {
+          const r = t as {
+            loadAncestors: boolean;
+            downloadQueue: { maxJobs: number; items?: unknown[]; currJobs?: number };
+            parseQueue: { maxJobs: number; items?: unknown[]; currJobs?: number };
+            stats?: Record<string, number>;
+          };
+          return {
+            loadAncestors: r.loadAncestors,
+            dl: {
+              len: r.downloadQueue.items?.length ?? 0,
+              jobs: r.downloadQueue.currJobs ?? 0,
+              maxJobs: r.downloadQueue.maxJobs,
+            },
+            parse: {
+              len: r.parseQueue.items?.length ?? 0,
+              jobs: r.parseQueue.currJobs ?? 0,
+              maxJobs: r.parseQueue.maxJobs,
+            },
+            stats: {
+              queued: r.stats?.queued ?? 0,
+              downloading: r.stats?.downloading ?? 0,
+              parsing: r.stats?.parsing ?? 0,
+              inCache: r.stats?.inCache ?? 0,
+              visible: r.stats?.visible ?? 0,
+            },
+          };
+        };
+        return {
+          aim: { active: loadAim.active, k: loadAim.k, epoch: loadAim.epoch },
+          buildings: qSnap(buildings.tiles),
+          ground: qSnap(ground.tiles),
+          enriched: enriched ? qSnap(enriched.tiles) : null,
+          lat: {
+            buildings: loadProbes.buildings.snapshot(),
+            ground: loadProbes.ground.snapshot(),
+            enriched: loadProbes.enriched?.snapshot() ?? null,
+          },
+        };
+      },
+      u5Mark: () => {
+        loadProbes.buildings.mark();
+        loadProbes.ground.mark();
+        loadProbes.enriched?.mark();
+      },
       pins,
     };
     window.__timeStore = useTimeStore; // scrub scene time from the console / Playwright
@@ -2216,6 +2291,18 @@ export function attachStylizedTiles(opts: {
           _focus.copy(camera.position);
           _focusUp.copy(camera.position).normalize();
         }
+        // U5: refresh the download-priority aim from THIS frame's camera (the comparators read
+        // it asynchronously at the next queue sort). Epoch bump invalidates every tile's cached
+        // biased distance; the bias itself gates on FPV — orbit/2D keep pure library ordering.
+        loadAim.active = fpvActive && LOADING.fpvBiasK > 0;
+        loadAim.k = LOADING.fpvBiasK;
+        loadAim.eye.x = camera.position.x;
+        loadAim.eye.y = camera.position.y;
+        loadAim.eye.z = camera.position.z;
+        loadAim.fwd.x = _camFwd.x;
+        loadAim.fwd.y = _camFwd.y;
+        loadAim.fwd.z = _camFwd.z;
+        loadAim.epoch++;
         // Pin focus lock (owner follow-up 2026-07-11): while a photo pin is selected (placed)
         // or a temp pin is set, the heading/zoom glides + encoder rates pivot around the PIN —
         // the controls relate to the pin the way FPV relates to the apex. Library drag/wheel
@@ -2562,6 +2649,26 @@ export function attachStylizedTiles(opts: {
           // now above the rendered ground, through the shared arrival-pose derivation.
           const groundT = clampGroundM(ground.heightAt(req.latDeg, req.lonDeg) ?? 0);
           const target = new THREE.Vector3(...geodeticToEcef(req.latDeg, req.lonDeg, groundT));
+          // Pose-preserving pan (owner 2026-08-18, the sky-search pin re-centre): a RIGID
+          // translation moving the current SCREEN-CENTRE point onto the target — position
+          // shifts by (target − rayHit), lookAt = target, so tilt/heading/zoom/2D-flavour stay
+          // EXACTLY as they are (curvature over a map-scale hop re-tilts by <0.05°). Uses the
+          // RAW ray hit, NOT `_focus`: with a temp pin set the pin focus-lock overrides _focus
+          // to the pin itself, which zeroes the delta and degenerates the pan into a
+          // rotate-in-place toward the pin (probe-caught 2026-08-18). Past-the-limb views
+          // (no hit) fall through to the normal cinematic arrival.
+          if (req.centerOnly && focusHit) {
+            const pan = camera.position
+              .clone()
+              .add(target)
+              .sub(new THREE.Vector3(focusHit[0], focusHit[1], focusHit[2]));
+            flight.start(
+              { position: pan, lookAt: target },
+              { floorM: flightFloorM(pan), durationMs: FLIGHT.reframeDurationMs },
+            );
+            lastInteract = now;
+            return;
+          }
           const upT = target.clone().normalize();
           // Horizontal approach direction: camera bearing projected on the target's horizon
           // plane; degenerate (overhead / antipodal) falls back to local north.
@@ -3427,16 +3534,22 @@ export function attachStylizedTiles(opts: {
   };
 
   const stepAimCones = () => {
-        // U4 direction lines + visibility cones: the plan anchor with the view-focus fallback —
-        // the SAME eye the TargetPanel prints numbers for (the skyTrail anchor rule). Store
-        // reads live at orchestrator level (the findGhosts idiom); the module gets plain data.
+        // U4 direction lines + visibility cones — LIVE anchor, owner lag report 2026-08-18:
+        // the plan-STORE anchor is a low-cadence mirror (PLAN.mirrorEveryFrames, ~5.5 km focus
+        // quantize, and its lifecycle gate leaves a STALE fpv anchor behind after FPV exit with
+        // the panel closed) — a panel readout, never a per-frame geometric seat. The circle
+        // instead resolves the same eye-rule live each frame: photo placement > temp pin > the
+        // THIS-frame view focus (step 12's _focus, converted here — one cheap ecefToGeodetic).
+        // This is also what fixes "second FPV point ignored" and "stuck after FPV exit": the
+        // pin and the focus are read fresh, no mirror lifecycle in the path.
         const skyNow = useSkyStore.getState();
+        const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
         aimCones.update({
           sceneMs: tMs,
-          anchor: usePlanStore.getState().anchor ?? {
-            latDeg: camStore.focusLatDeg,
-            lonDeg: camStore.focusLonDeg,
-          },
+          anchor:
+            (upNow.phase === "placed" ? upNow.placement : null) ??
+            camNow.tempPin ??
+            { latDeg: focusGeo.latDeg, lonDeg: focusGeo.lonDeg },
           alt,
           enabled: !fpvActive,
           target: skyNow.target,
@@ -3586,6 +3699,9 @@ export function attachStylizedTiles(opts: {
       //   the manual glides it defers to, before zoom — it needs step 12's focus frame).
       // U4: AimCones runs right after 36 (DayArcs) — ground direction lines + visibility
       //   sectors at the plan anchor; needs the post-resample tMs (25) and step 11/12 alt+focus.
+      // U5: the download-priority aim refresh rides INSIDE ViewFocus (12) — it needs that step's
+      //   fresh _camFwd; the queue comparators read it asynchronously at the next sort, so the
+      //   one-frame lag vs the tile updates (5/6) is harmless.
       // One try wraps all 36 steps; the throttled catch keeps a single bad frame from freezing the canvas.
       try {
         stepFrameTiming();

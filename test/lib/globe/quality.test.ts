@@ -4,10 +4,11 @@ import {
   lruCapBytesForTier,
   lruFloorBytesForCap,
   makeGovernor,
+  queueCapsForTier,
   TIER_ORDER,
   type GovernorConfig,
 } from "../../../src/lib/globe/quality";
-import { QUALITY, RENDERER, SHADOWS, GROUND, VECTOR, STREETS } from "../../../src/components/globe/tuning";
+import { LOADING, QUALITY, RENDERER, SHADOWS, GROUND, VECTOR, STREETS } from "../../../src/components/globe/tuning";
 
 describe("detectDeviceTier", () => {
   it("returns high for a strong GPU with ample memory + cores", () => {
@@ -164,6 +165,29 @@ describe("makeGovernor", () => {
     expect(g.tier).toBe("low");
   });
 
+  it("emaMs() exposes the live smoothed frame time (U5 probe)", () => {
+    const g = makeGovernor("high", CFG, "high"); // emaAlpha 1 → EMA == latest dt
+    expect(g.emaMs()).toBe(0);
+    g.step(16);
+    expect(g.emaMs()).toBe(16);
+  });
+
+  it("hitchCount() counts RAW frames above hitchMs, not the EMA (U5 A/B metric)", () => {
+    const g = makeGovernor("high", { ...CFG, emaAlpha: 0.01, hitchMs: 40 }, "high");
+    g.step(60); // hitch — even though the EMA barely moves
+    g.step(16);
+    g.step(41); // hitch
+    g.step(40); // exactly at the threshold — not a hitch
+    expect(g.hitchCount()).toBe(2);
+  });
+
+  it("hitchMs defaults to 50 ms when the config omits it", () => {
+    const g = makeGovernor("high", CFG, "high"); // CFG has no hitchMs
+    g.step(51);
+    g.step(49);
+    expect(g.hitchCount()).toBe(1);
+  });
+
   it("is a no-op on comfortable frame times (strong hardware stays put)", () => {
     const g = makeGovernor("high", CFG, "high");
     for (let i = 0; i < 100; i++) expect(g.step(16).changed).toBe(false); // 12 < 16 < 20 = neutral band
@@ -230,6 +254,33 @@ describe("lruCapBytesForTier — the byte-identical-on-high LRU rule (WS1)", () 
   it("mid/low caps sit below the library default — they actually tighten memory", () => {
     expect(lruCapBytesForTier("mid", QUALITY.tiers.mid.lruBytesMB)!).toBeLessThan(LIBRARY_DEFAULT_BYTES);
     expect(lruCapBytesForTier("low", QUALITY.tiers.low.lruBytesMB)!).toBeLessThan(LIBRARY_DEFAULT_BYTES);
+  });
+});
+
+describe("queueCapsForTier — the U5 null-on-high concurrency rule", () => {
+  // 3d-tiles-renderer 0.4.28 ships downloadQueue.maxJobs 25 / parseQueue.maxJobs 5.
+  const LIB_DOWNLOAD_JOBS = 25;
+  const LIB_PARSE_JOBS = 5;
+
+  it("returns null on high so each renderer keeps its captured library defaults", () => {
+    expect(queueCapsForTier("high", LOADING.queueCaps)).toBeNull();
+  });
+
+  it("returns the tier's caps on mid/low", () => {
+    expect(queueCapsForTier("mid", LOADING.queueCaps)).toEqual(LOADING.queueCaps.mid);
+    expect(queueCapsForTier("low", LOADING.queueCaps)).toEqual(LOADING.queueCaps.low);
+  });
+
+  it("mid/low caps sit below the library defaults and degrade monotonically", () => {
+    for (const tier of ["mid", "low"] as const) {
+      const caps = queueCapsForTier(tier, LOADING.queueCaps)!;
+      expect(caps.download).toBeLessThan(LIB_DOWNLOAD_JOBS);
+      expect(caps.parse).toBeLessThan(LIB_PARSE_JOBS);
+      expect(caps.download).toBeGreaterThan(0);
+      expect(caps.parse).toBeGreaterThan(0);
+    }
+    expect(LOADING.queueCaps.mid.download).toBeGreaterThanOrEqual(LOADING.queueCaps.low.download);
+    expect(LOADING.queueCaps.mid.parse).toBeGreaterThanOrEqual(LOADING.queueCaps.low.parse);
   });
 });
 

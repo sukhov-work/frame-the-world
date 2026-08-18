@@ -58,6 +58,31 @@ probed) · u4-08 MapWindow twin + tap-promote (focus sun→target). Shots `verif
   midpoint) — one shared centre vertex smears the split across the whole fan.
 - `wrap180` range is **[−180, 180)** (wrap180(180) = −180) — the pre-existing convention.
 
+## Owner feedback batch RESOLVED 2026-08-18h (DECISIONS 2026-08-18h-u4-aim-feedback)
+4 issues, one root cause for the two behavioural ones: the aim anchor consumed the PLAN-STORE
+mirror (5 Hz, 5.5 km focus quantize, 25 m FPV chunks, lifecycle strands a stale FPV anchor
+after exit with the panel closed). **RULE: a panel mirror is never a per-frame geometric
+seat.** Fixed by resolving the eye-rule LIVE per frame: GL = placement > tempPin > this-frame
+`_focus` (one ecefToGeodetic in stepAimCones); MapWindow = fpvHud→camGeo > tempPin > camGeo >
+focus mirror. Radius ease KILLED (raw clamp(alt×0.35) — continuous ⇒ lockstep with wheel;
+radiusTauMs now emphasis-only). Styling: past = tokens.textSecondary grey (NOT amber — read as
+day/night) both surfaces · fillAlpha 0.08 · lineHalfWidthK 0.003 / canvas 1 dpr · non-focused
+lines end EXACTLY at rim (unit quad + line.scale.y rides emphK). Probes: 44-frame zoom 0/44
+off-lockstep · pin A→B 4.3 km · clear→focus 2.6 km · drag anchor moved 30/30 input events.
+Shots `verify-shots/u4fix-01..02`.
+
+## Round 2 RESOLVED 2026-08-18i (DECISIONS 2026-08-18i-u4-round2)
+- Rise/set radial spokes = BODY colour (sun sunGlow / moon `tokens.moonDial` NEW silver #DDE3EA
+  / target accent): GL `edges` LineSegments per body (left the split rim geometry); MapWindow
+  `arcPath` (arc-only strokes) + body-colour spokes — ring seam gone as a side effect. Moon
+  DIAL also moonDial silver (moonlight too close to past grey). Scene moonlight untouched.
+- SKY-search select policy `aimAtSkyFromSearch` (store/skyAim): FPV → look glide · pin →
+  `centerOnly` FlyRequest (RIGID pan: position += target − rayHit, lookAt target,
+  reframeDurationMs) · else NOTHING (the old auto-aim + 2D-lock fight = the owner's jerk).
+  **TRAP: subtract the RAW focusHit, not `_focus` — the temp-pin focus-lock overrides _focus
+  to the pin → zero delta → rotate-in-place.** Probes: 757 m pan @ 0.01° quaternion change;
+  Vega UI select 0 m/0.00°. Edge chips + menu AIM CAMERA keep explicit aimAtSky.
+
 ## Open tails
 - U5 next (closest-first progressive loading — UPLIFT_PLAN §2/U5).
 - v2 tails (named): skyline `traceStates` dimmed sub-bands in the sectors · GL sector edge

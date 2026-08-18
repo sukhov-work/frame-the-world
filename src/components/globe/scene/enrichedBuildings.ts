@@ -7,7 +7,8 @@ import { tokens } from "../../../lib/theme/tokens";
 import { clampGroundM } from "../../../lib/geo/terrain";
 import { ecefToGeodetic, geodeticToEcef } from "../../../lib/geo/projection";
 import { buildingNightFactor } from "../../../lib/globe/buildingNight";
-import { lruFloorBytesForCap } from "../../../lib/globe/quality";
+import { lruFloorBytesForCap, type QueueCaps } from "../../../lib/globe/quality";
+import { makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
 import {
   bboxCenterDeg,
   csrFromRunIds,
@@ -20,8 +21,9 @@ import {
   type FeatureRun,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
-import { EARTH, ENRICHED, TILESETS, TREES } from "../tuning";
+import { EARTH, ENRICHED, LOADING, TILESETS, TREES } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
+import { makeTileCenterReader } from "./tilePriority";
 
 /**
  * Dnipro 3D enrichment — a THIRD `TilesRenderer` (Slice 0 de-risk spike). It streams a SELF-HOSTED
@@ -90,8 +92,9 @@ export interface EnrichedBuildingsHandle {
   /** Per-frame: R1 re-seat to the rendered terrain + tile streaming/LOD. */
   update(): void;
   /** Adaptive quality (mirrors BuildingsHandle): raise screen-space error + bound LRU bytes on weaker
-   *  tiers. `lruCapBytes` null → restore the captured library default. */
-  setQualityTier(errorTarget: number, lruCapBytes: number | null): void;
+   *  tiers. `lruCapBytes` null → restore the captured library default. U5: `queueCaps` bounds the
+   *  download/parse concurrency the same way (null → captured defaults). */
+  setQualityTier(errorTarget: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
   /** FPV building shading (owner ask): `k` 0 = see-through wireframe (bright edges, ~0.28 fill),
    *  1 = opaque shaded (faint edges). `null` restores the non-FPV default (opaque, ENRICHED edges). */
   setSolidity(k: number | null): void;
@@ -133,11 +136,24 @@ export function attachEnrichedBuildings(
     bbox: GeoBbox;
     /** Rendered-CWT ellipsoidal height sampler (ground.heightAt); null while tiles load. */
     terrainHeightAt: (latDeg: number, lonDeg: number) => number | null;
+    /** UPLIFT U5: the shared download-priority aim state (mirrors attachBuildings.loadAim). */
+    loadAim: LoadAim;
   },
 ): EnrichedBuildingsHandle {
   const tiles = new TilesRenderer(opts.url);
   const lruDefaultBytes = tiles.lruCache.maxBytesSize;
   const lruDefaultMinBytes = tiles.lruCache.minBytesSize; // U2/A9: min/max travel as a pair
+  const dlJobsDefault = tiles.downloadQueue.maxJobs; // U5: restored on `high`
+  const parseJobsDefault = tiles.parseQueue.maxJobs;
+  if (LOADING.closestFirst.enriched) {
+    // U5 closest-first (see buildings.ts / tuning.LOADING): nearest cells stream first; the
+    // enriched tree is shallow (root → ~1 km leaf cells) so dropping ancestors costs nothing.
+    tiles.loadAncestors = false;
+    tiles.downloadQueue.priorityCallback = makeClosestFirstComparator(
+      opts.loadAim,
+      makeTileCenterReader(),
+    );
+  }
   tiles.errorTarget = ENRICHED.errorTarget;
   const draco = new DRACOLoader().setDecoderPath(TILESETS.dracoDecoderPath);
   tiles.registerPlugin(
@@ -632,10 +648,12 @@ export function attachEnrichedBuildings(
       }
       tiles.update();
     },
-    setQualityTier(errorTarget, lruCapBytes) {
+    setQualityTier(errorTarget, lruCapBytes, queueCaps) {
       tiles.errorTarget = errorTarget;
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes;
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
+      tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5
+      tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
     },
     setSolidity(k) {
       // Solidity renders as the shared SCREEN-DOOR dissolve (owner 2026-07-14: gradual +

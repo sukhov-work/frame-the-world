@@ -25,7 +25,7 @@ import { arrivalAltM, nominatimSearch, photonSearch, type GeocodeHit } from "../
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
-import { aimAtSky } from "../../store/skyAim";
+import { aimAtSkyFromSearch } from "../../store/skyAim";
 import { sceneTimeMs } from "../../store/time";
 import { targetAzAlt } from "../../lib/ephemeris/targets";
 import {
@@ -243,7 +243,7 @@ export default function LocationFinder() {
         anchor?.latDeg ?? cam.focusLatDeg,
         anchor?.lonDeg ?? cam.focusLonDeg,
       );
-      if (altDeg > 0) aimAtSky(azDeg, altDeg);
+      aimAtSkyFromSearch(azDeg, altDeg); // never re-aims a map view (owner 2026-08-18)
     });
     cancelPending();
     setOpen(false);

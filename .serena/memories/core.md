@@ -108,11 +108,16 @@ stay "frame the world".
   `mem:project/wip-2026-08-15-guide-g1`.
 
 ## Next step
-**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U5 closest-first loading next
-→ U6–U8.** U4 direction lines + visibility cones SHIPPED 2026-08-18f (azSector pure lib +
-scene/aimCones + MapWindow twin + ∠ DIRECTION menu row + aim prefs/aimFocus; warn/timeFuture
-bridged to GL; gates 962/962, browser-verified both shells;
-`mem:project/wip-2026-08-18-u4-aim-cones`). U3 + the owner's 5-issue 2D-map batch SHIPPED
+**AUDIT #2 NEXT (owner order 2026-08-18j): whole-project expansion-readiness — docs /
+organization / architecture / code quality; /frame Audit mode, Deep, READ-ONLY; charter =
+`mem:project/audit2-2026-08-18-charter` + NEXT_SESSION_PROMPT. The UPLIFT ladder is PARKED
+until the audit/refactor phase ends (resume U6 foveation → U7 → U8 → P8/P9 → M4; parked-state
+twin in UPLIFT_PLAN status).** U5 closest-first + U4 owner rounds 1+2 shipped 2026-08-18g/h/i. U5 closest-first loading SHIPPED 2026-08-18g (loadAncestors=false + FPV look-bias
+download comparator on buildings/enriched, ground keeps ancestors; per-tier queue caps
+null-on-high; governor emaMs/hitchCount + latency probes + `__globe.u5()` seam; gates 989/989,
+at-rest A/B tile-identical, browser-verified both shells; 0.4.28 library-facts crib in
+`mem:project/wip-2026-08-18-u5-loading`). U4 direction lines + visibility cones SHIPPED
+2026-08-18f (`mem:project/wip-2026-08-18-u4-aim-cones`). U3 + the owner's 5-issue 2D-map batch SHIPPED
 2026-08-18b (`mem:project/wip-2026-08-18-u3-2dmap-batch`). U2 FPV stability SHIPPED 2026-08-18
 (`mem:project/wip-2026-08-17-u2-fpv-stability`). U1 2D-first mobile SHIPPED 2026-08-17b. P7
 meteors SHIPPED 2026-08-17. REAL-DEVICE pass (U1 gestures + U2 governor + U4 cone feel) rides

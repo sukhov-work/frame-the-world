@@ -25,8 +25,12 @@ import { loadViewPrefs, saveViewPref } from "../lib/prefs";
 interface FlyRequest {
   latDeg: number;
   lonDeg: number;
-  /** Arrival camera altitude above the ellipsoid (m). */
+  /** Arrival camera altitude above the ellipsoid (m). Ignored when `centerOnly`. */
   altM: number;
+  /** Pose-preserving pan (owner 2026-08-18): translate the camera so the target lands at the
+   *  view centre — tilt/heading/zoom stay EXACTLY as they are (rigid translation, no arrival
+   *  pose). Used by the sky-search pin re-centre; never changes 2D/3D character. */
+  centerOnly?: boolean;
 }
 
 /** A right-clicked sky body (QoL-2 ask 7): who was hit, where on screen, and its bearings at

@@ -44,6 +44,28 @@ export function lruFloorBytesForCap(capBytes: number | null): number | null {
   return capBytes === null ? null : Math.round(capBytes * 0.75);
 }
 
+/** Per-renderer download/parse concurrency caps (UPLIFT U5). `download` throttles the network
+ *  fetch queue; `parse` throttles the MAIN-THREAD parse queue — the one that hitches weak
+ *  devices when five glb decodes land in one frame. */
+export interface QueueCaps {
+  download: number;
+  parse: number;
+}
+
+/**
+ * Queue caps for a tier (UPLIFT U5), same shape as the LRU rule: `null` on `high` means
+ * "restore the renderer's captured library defaults" (3d-tiles-renderer 0.4.28 ships
+ * downloadQueue.maxJobs 25 / parseQueue.maxJobs 5) — a capable machine keeps the byte-identical
+ * invariant; mid/low run fewer concurrent jobs so streaming is steadier and parse stops
+ * stacking. The scene modules apply it as `maxJobs = cap ?? capturedDefault`. Pure → unit-tested.
+ */
+export function queueCapsForTier(
+  tier: QualityTier,
+  caps: { mid: QueueCaps; low: QueueCaps },
+): QueueCaps | null {
+  return tier === "high" ? null : caps[tier];
+}
+
 // GPU-family heuristics. Deliberately conservative: an unknown string falls through to `mid`, and
 // the runtime governor is the real backstop — this only sets a sane STARTING tier so the first
 // seconds aren't jank while the governor settles. Strings come from WEBGL_debug_renderer_info.
@@ -108,6 +130,9 @@ export interface GovernorConfig {
   upFrames: number;
   /** Minimum ms between tier changes (a DPR change reallocates targets — never thrash). */
   cooldownMs: number;
+  /** A raw frame dt above this counts as a HITCH (U5 instrumentation — the A/B "hitch count
+   *  during a scripted FPV walk" metric). Optional; defaults to 50 ms (~3 missed 60 Hz frames). */
+  hitchMs?: number;
 }
 
 interface GovernorStep {
@@ -122,6 +147,10 @@ export interface TierGovernor {
   step(dtMs: number): GovernorStep;
   /** DEV: jump to a tier (verification / A-B); resets the hysteresis + cooldown. */
   force(tier: QualityTier): void;
+  /** The live smoothed frame time (U5 probe — was closure-private before the uplift). */
+  emaMs(): number;
+  /** Monotonic count of raw frames above `hitchMs` (U5 A/B metric; diff across a window). */
+  hitchCount(): number;
 }
 
 /**
@@ -149,6 +178,8 @@ export function makeGovernor(
   let over = 0;
   let under = 0;
   let sinceChangeMs = cfg.cooldownMs; // allow the first correction immediately
+  let hitches = 0;
+  const hitchMs = cfg.hitchMs ?? 50;
 
   return {
     get tier() {
@@ -157,6 +188,7 @@ export function makeGovernor(
     step(dtMs) {
       ema = ema === 0 ? dtMs : ema + cfg.emaAlpha * (dtMs - ema);
       sinceChangeMs += dtMs;
+      if (dtMs > hitchMs) hitches += 1; // U5: raw dt, not the EMA — a hitch IS the transient
 
       if (ema > cfg.budgetMs) {
         over += 1;
@@ -191,6 +223,12 @@ export function makeGovernor(
       over = 0;
       under = 0;
       sinceChangeMs = 0;
+    },
+    emaMs() {
+      return ema;
+    },
+    hitchCount() {
+      return hitches;
     },
   };
 }

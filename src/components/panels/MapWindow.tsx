@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { useCameraStore } from "../../store/camera";
 import { useMiniMapStore } from "../../store/minimap";
 import { useSkyStore } from "../../store/sky";
-import { usePlanStore } from "../../store/plan";
 import { useTimeStore, sceneTimeMs } from "../../store/time";
 import { lonLatToTileF, tileFToLonLat, zoomForMetersPerPx } from "../../lib/geo/slippy";
 import {
@@ -92,10 +91,13 @@ export default function MapWindow() {
       getComputedStyle(canvas).getPropertyValue(name).trim() || "#8ef";
 
     // ── U4 aim helpers (shared by draw() and the tap-promote hit test) ──────────────────────
-    // The anchor is the plan anchor with the eye/focus fallback — the SAME eye the TargetPanel
-    // prints numbers for (the aimCones module's rule), so the two surfaces always agree.
+    // LIVE anchor (owner lag report 2026-08-18): the plan-STORE anchor is a low-cadence,
+    // ~25 m-chunked mirror with a lifecycle that strands stale FPV anchors — while walking,
+    // the circle visibly trailed the 20 Hz camGeo-centred chart. Resolve live instead, the
+    // aimCones orchestrator rule: walking FPV viewer > temp pin > viewer point > focus mirror.
     const aimAnchorNow = (camNow: ReturnType<typeof useCameraStore.getState>) =>
-      usePlanStore.getState().anchor ??
+      (camNow.fpvHud ? camNow.camGeo : null) ??
+      camNow.tempPin ??
       camNow.camGeo ?? { latDeg: camNow.focusLatDeg, lonDeg: camNow.focusLonDeg };
 
     const aimBodiesNow = (skyNow: ReturnType<typeof useSkyStore.getState>) => {
@@ -118,7 +120,7 @@ export default function MapWindow() {
         out.push({
           key: "moon",
           target: bodyTarget("moon"),
-          color: tokens.moonlight,
+          color: tokens.moonDial, // dial SILVER — distinct from the past-sector grey (owner 2026-08-18)
           emphasized: skyNow.aimFocus === "moon",
         });
       return out;
@@ -236,7 +238,22 @@ export default function MapWindow() {
               const [x, y] = pt(s.azDeg, r);
               ctx.lineTo(x, y);
             }
-            ctx.closePath(); // radial edges close the wedge (the GL module's rim rule)
+            ctx.closePath(); // wedge closure — FILLS only; strokes use arcPath + spokes
+          }
+        };
+        // Rim ARC only (no centre legs) — the past/future stroke must not draw the radial
+        // spokes: those are the body's rise/set boundary and wear its identity colour (owner
+        // 2026-08-18; also removes the ring day-boundary seam the closePath used to draw).
+        const arcPath = (runs: readonly AimSample[][], r: number) => {
+          ctx.beginPath();
+          for (const run of runs) {
+            if (run.length < 2) continue;
+            const [x0, y0] = pt(run[0].azDeg, r);
+            ctx.moveTo(x0, y0);
+            for (let i = 1; i < run.length; i++) {
+              const [x, y] = pt(run[i].azDeg, r);
+              ctx.lineTo(x, y);
+            }
           }
         };
         for (const b of aimBodiesNow(skyNow)) {
@@ -244,9 +261,10 @@ export default function MapWindow() {
           const day = aimDayFor(b.key, b.target, anchor, nowMs);
           const split = splitAimRuns(day, nowMs);
           if (b.emphasized) {
-            // Glassy fills, past amber → future blue (the scrubber's language).
+            // Glassy fills — past NEUTRAL grey (inert history, never a day/night claim —
+            // owner 2026-08-18), future blue (the scrubber's language).
             ctx.globalAlpha = AIMCONES.fillAlpha;
-            ctx.fillStyle = tokens.warn;
+            ctx.fillStyle = tokens.textSecondary;
             sectorPath(split.past, r);
             ctx.fill();
             ctx.fillStyle = tokens.timeFuture;
@@ -255,20 +273,37 @@ export default function MapWindow() {
           }
           ctx.globalAlpha = AIMCONES.rimAlpha;
           ctx.lineWidth = 1 * dpr;
-          ctx.strokeStyle = tokens.warn;
-          sectorPath(split.past, r);
+          ctx.strokeStyle = tokens.textSecondary;
+          arcPath(split.past, r);
           ctx.stroke();
           ctx.strokeStyle = tokens.timeFuture;
-          sectorPath(split.future, r);
+          arcPath(split.future, r);
           ctx.stroke();
+          // Rise/set radial spokes — BODY identity colour (sun orange / moon silver / target
+          // accent); a ring (circumpolar) has no rise/set → no spokes (the GL module's rule).
+          if (day.kind !== "ring") {
+            ctx.strokeStyle = b.color;
+            ctx.beginPath();
+            for (const run of day.runs) {
+              if (run.length < 2) continue;
+              for (const s of [run[0], run[run.length - 1]]) {
+                const [ex, ey] = pt(s.azDeg, r);
+                ctx.moveTo(ax, ay);
+                ctx.lineTo(ex, ey);
+              }
+            }
+            ctx.stroke();
+          }
           // Direction line at the CURRENT azimuth — body identity colour, pales below horizon.
+          // Slim (the GL module's owner-2026-08-18 halving); only the FOCUSED body's line reads
+          // past the rim — the others end exactly at their circle.
           const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
           ctx.globalAlpha = nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown;
           ctx.strokeStyle = b.color;
-          ctx.lineWidth = 2 * dpr;
+          ctx.lineWidth = 1 * dpr;
           ctx.beginPath();
           ctx.moveTo(ax, ay);
-          const [lx, ly] = pt(nowPos.azDeg, r * AIMCONES.lineLenK);
+          const [lx, ly] = pt(nowPos.azDeg, r * (b.emphasized ? AIMCONES.lineLenK : 1));
           ctx.lineTo(lx, ly);
           ctx.stroke();
           ctx.globalAlpha = 1;

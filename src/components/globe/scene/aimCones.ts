@@ -48,7 +48,9 @@ export interface AimConesHandle {
   dispose(): void;
 }
 
-/** Sector material — past/future COLOUR split (the dayArcs split is alpha-only). */
+/** Sector material — past/future COLOUR split (the dayArcs split is alpha-only). Past is
+ *  NEUTRAL light grey, not amber (owner 2026-08-18: amber read as a day/night claim — the
+ *  swept segment is inert history, so it wears the inert text grey). */
 function makeSectorMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -56,7 +58,7 @@ function makeSectorMaterial(): THREE.ShaderMaterial {
     depthTest: false, // planning overlay reads through the world (module doc)
     side: THREE.DoubleSide, // the tangent plane is seen from either hemisphere of tilt
     uniforms: {
-      uPast: { value: new THREE.Color(tokens.warn) },
+      uPast: { value: new THREE.Color(tokens.textSecondary) },
       uFuture: { value: new THREE.Color(tokens.timeFuture) },
       uNow01: { value: 0 },
       uAlpha: { value: 0 },
@@ -120,30 +122,38 @@ export function attachAimCones(opts: {
 
   const bodies = (
     [
+      // Moon wears the DIAL silver, not scene moonlight — tokens.moonDial exists exactly so the
+      // moon's aim ink cannot be mistaken for the textSecondary past-sector grey (owner
+      // 2026-08-18); the sun keeps its warm sunGlow, the tracked target the signal accent.
       { key: "target" as AimKey, color: tokens.accent },
       { key: "sun" as AimKey, color: tokens.sunGlow },
-      { key: "moon" as AimKey, color: tokens.moonlight },
+      { key: "moon" as AimKey, color: tokens.moonDial },
     ] as const
   ).map(({ key, color }) => {
     const holder = new THREE.Group(); // per-body compact/emphasized scale lives here
     group.add(holder);
     const fanMat = makeSectorMaterial();
     const rimMat = makeSectorMaterial();
+    const edgesMat = makeLineMaterial(color); // rise/set radial spokes — BODY identity colour
     const lineMat = makeLineMaterial(color);
     const fan = new THREE.Mesh(new THREE.BufferGeometry(), fanMat);
     const rim = new THREE.LineSegments(new THREE.BufferGeometry(), rimMat);
-    // Unit-length quad along +north; rotation.z = −az swings it to the compass bearing.
+    const edges = new THREE.LineSegments(new THREE.BufferGeometry(), edgesMat);
+    // UNIT-length quad along +north (tip exactly at the rim radius); rotation.z = −az swings
+    // it to the compass bearing, and scale.y stretches ONLY the focused body's line past the
+    // rim (owner 2026-08-18: non-focused lines end exactly at their circle). Local scale
+    // applies before the rotation in the matrix, so the stretch rides the line's own axis.
     const w = AIMCONES.lineHalfWidthK;
     const lineGeom = new THREE.BufferGeometry();
     lineGeom.setAttribute(
       "position",
       new THREE.BufferAttribute(
-        new Float32Array([-w, 0, 0, w, 0, 0, w, AIMCONES.lineLenK, 0, -w, 0, 0, w, AIMCONES.lineLenK, 0, -w, AIMCONES.lineLenK, 0]),
+        new Float32Array([-w, 0, 0, w, 0, 0, w, 1, 0, -w, 0, 0, w, 1, 0, -w, 1, 0]),
         3,
       ),
     );
     const line = new THREE.Mesh(lineGeom, lineMat);
-    for (const obj of [fan, rim, line]) {
+    for (const obj of [fan, rim, edges, line]) {
       obj.raycast = () => {};
       obj.frustumCulled = false; // unit geometry under a scaled matrix — bounds would lie
       obj.renderOrder = 9; // depth-free ink under the sky overlays (10); per-object (Group renderOrder does not propagate)
@@ -154,9 +164,11 @@ export function attachAimCones(opts: {
       holder,
       fan,
       rim,
+      edges,
       line,
       fanMat,
       rimMat,
+      edgesMat,
       lineMat,
       day: null as AimDay | null,
       emphasisScale: 1,
@@ -167,7 +179,7 @@ export function attachAimCones(opts: {
   let anchorLon = NaN;
   let builtTargetId = "";
   let fade = 0;
-  let radius = 0; // eased, m (0 = unseeded → first apply snaps)
+  let radius = 0; // m — raw zoom function, recomputed every frame (see the update() note)
   let groundM = Number.NaN; // eased terrain seat at the anchor (NaN = unseeded)
   const _ecef = new THREE.Vector3();
   const _e = new THREE.Vector3();
@@ -204,20 +216,22 @@ export function attachAimCones(opts: {
       }
     }
     // Radial edges close the wedge at each run's rise/set azimuth (a rim arc alone floats).
-    // A ring has no rise/set — no edges, the fan closes itself.
+    // BODY-IDENTITY coloured, own geometry (owner 2026-08-18): these spokes ARE the body's
+    // visibility boundary — sun rise/set wears sunGlow, moon wears the dial silver — so they
+    // must not ride the past/future split the rim arcs carry. A ring has no rise/set — none.
+    const edgePos: number[] = [];
     if (day.kind !== "ring") {
       for (const run of day.runs) {
         if (run.length < 2) continue;
         const first = run[0];
         const last = run[run.length - 1];
-        const tf = t01(first.utcMs);
-        const tl = t01(last.utcMs);
-        rimPos.push(0, 0, 0, Math.sin(first.azDeg * DEG), Math.cos(first.azDeg * DEG), 0);
-        rimT.push(tf, tf);
-        rimPos.push(Math.sin(last.azDeg * DEG), Math.cos(last.azDeg * DEG), 0, 0, 0, 0);
-        rimT.push(tl, tl);
+        edgePos.push(0, 0, 0, Math.sin(first.azDeg * DEG), Math.cos(first.azDeg * DEG), 0);
+        edgePos.push(0, 0, 0, Math.sin(last.azDeg * DEG), Math.cos(last.azDeg * DEG), 0);
       }
     }
+    b.edges.geometry.dispose();
+    b.edges.geometry = new THREE.BufferGeometry();
+    b.edges.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(edgePos), 3));
     b.fan.geometry.dispose();
     b.fan.geometry = new THREE.BufferGeometry();
     b.fan.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(fanPos), 3));
@@ -283,12 +297,13 @@ export function attachAimCones(opts: {
             : groundM + (probe - groundM) * (1 - Math.exp(-dtMs / AIMCONES.fadeTauMs));
         }
 
-        // Zoom-adaptive radius, eased; unit geometry scales through the matrix basis.
-        const wantR = Math.min(
+        // Zoom-adaptive radius — RAW, never eased (owner 2026-08-18: the circle must resize in
+        // lockstep with the wheel/pinch; the clamp is continuous in alt, so direct application
+        // is smooth by construction — the old 180 ms ease read as the overlay trailing the zoom).
+        radius = Math.min(
           AIMCONES.radiusMaxM,
           Math.max(AIMCONES.radiusMinM, alt * AIMCONES.radiusAltK),
         );
-        radius = radius === 0 ? wantR : radius + (wantR - radius) * (1 - Math.exp(-dtMs / AIMCONES.radiusTauMs));
 
         // Seat the group at the LIVE anchor — only the az curves ride the rebuild deadband
         // (azimuths barely move over 2 km; the seat visibly does).
@@ -329,11 +344,14 @@ export function attachAimCones(opts: {
         );
         b.fanMat.uniforms.uAlpha.value = AIMCONES.fillAlpha * overlayA * emphK;
         b.rimMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
+        b.edgesMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
 
         // Direction line: current azimuth + below-horizon paling (3 ephemeris calls/frame —
-        // the sky marker's own budget).
+        // the sky marker's own budget). Only the FOCUSED body's line reads past the rim;
+        // the others end exactly at their circle (rides the same emphasis ease — no pop).
         const nowPos = targetAzAlt(targetFor(b.key, target), sceneMs, anchorLat, anchorLon);
         b.line.rotation.z = -nowPos.azDeg * DEG;
+        b.line.scale.y = 1 + (AIMCONES.lineLenK - 1) * emphK;
         b.lineMat.uniforms.uAlpha.value =
           (nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown) * overlayA;
       }
@@ -342,9 +360,11 @@ export function attachAimCones(opts: {
       for (const b of bodies) {
         b.fan.geometry.dispose();
         b.rim.geometry.dispose();
+        b.edges.geometry.dispose();
         b.line.geometry.dispose();
         b.fanMat.dispose();
         b.rimMat.dispose();
+        b.edgesMat.dispose();
         b.lineMat.dispose();
       }
       opts.scene.remove(group);
