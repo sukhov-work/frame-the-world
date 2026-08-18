@@ -25,7 +25,9 @@
   --color-danger: #e8756a;
   --color-warn: #e8a268;
   --color-time-future: #7cb0f5; /* scrubber pinned-in-the-FUTURE signal — the cool twin of --color-warn
-     (owner 2026-08-15: past = amber, future = blue). Chrome-only, like danger/warn: not in the GL bridge. */
+     (owner 2026-08-15: past = amber, future = blue). Since U4 (2026-08-18) warn + time-future ARE in the
+     GL bridge (tokens.warn / tokens.timeFuture) — the map visibility cones speak the scrubber's
+     past/future language; danger stays chrome-only. */
 
   /* Globe — FENCED (D14): browser-tuned in-scene values, NOT owned by the design canvas.
      2026-07-10 owner-authorized retune TOWARD the design board's sage-grey/near-black intent

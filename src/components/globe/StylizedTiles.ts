@@ -57,6 +57,7 @@ import { attachSkyGhosts } from "./scene/skyGhosts";
 import { attachFindGhosts } from "./scene/findGhosts";
 import { attachSkyNames } from "./scene/skyNames";
 import { attachDayArcs } from "./scene/dayArcs";
+import { attachAimCones } from "./scene/aimCones";
 import { attachPlanFeed } from "./scene/planFeed";
 import { attachMinimapFeed } from "./scene/minimapFeed";
 import { attachGeoLabels } from "./scene/geoLabels";
@@ -262,6 +263,12 @@ export function attachStylizedTiles(opts: {
   const findGhosts = attachFindGhosts(scene); // FIND v2 standings projected into the frame (owner rework)
   const skyNames = attachSkyNames(); // hover-name reveal for stars/asterisms/constellations (qol4)
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
+  // U4 aim cones: map direction lines + rise→set visibility sectors at the plan anchor —
+  // orbit-mode only (FPV keeps the viewfinder clean; the MapWindow canvas is the FPV twin).
+  const aimCones = attachAimCones({
+    scene,
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+  });
   const geoLabels = attachGeoLabels(scene); // NE labels + boundaries (S7b) — mid-zoom window only
   // Shared MVT source (S7 feedback batch): ONE fetch/parse per z14 tile feeds the GL street
   // names AND the vector feature web. Both seat on the RENDERED terrain, not the ellipsoid.
@@ -3419,6 +3426,30 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  const stepAimCones = () => {
+        // U4 direction lines + visibility cones: the plan anchor with the view-focus fallback —
+        // the SAME eye the TargetPanel prints numbers for (the skyTrail anchor rule). Store
+        // reads live at orchestrator level (the findGhosts idiom); the module gets plain data.
+        const skyNow = useSkyStore.getState();
+        aimCones.update({
+          sceneMs: tMs,
+          anchor: usePlanStore.getState().anchor ?? {
+            latDeg: camStore.focusLatDeg,
+            lonDeg: camStore.focusLonDeg,
+          },
+          alt,
+          enabled: !fpvActive,
+          target: skyNow.target,
+          aim: {
+            target: skyNow.aimTarget,
+            sun: skyNow.aimSun,
+            moon: skyNow.aimMoon,
+            focus: skyNow.aimFocus,
+          },
+          dtMs,
+        });
+  };
+
   const stepGeoLabels = () => {
         // Geo labels (S7b): country boundaries + populated-place labels inside their
         // 100–2000 km altitude window (module-internal fades + rank gate + DOM cadence).
@@ -3553,6 +3584,8 @@ export function attachStylizedTiles(opts: {
       // U1 (/m only; desktop-inert): MobileBuildingsGate runs just before 5 (the attach/detach
       //   must apply before the tile update it gates) and Mobile2dLocks between 15 and 16 (after
       //   the manual glides it defers to, before zoom — it needs step 12's focus frame).
+      // U4: AimCones runs right after 36 (DayArcs) — ground direction lines + visibility
+      //   sectors at the plan anchor; needs the post-resample tMs (25) and step 11/12 alt+focus.
       // One try wraps all 36 steps; the throttled catch keeps a single bad frame from freezing the canvas.
       try {
         stepFrameTiming();
@@ -3598,6 +3631,7 @@ export function attachStylizedTiles(opts: {
         stepGraticuleAndAtmosphere();
         stepStars();
         stepDayArcs();
+        stepAimCones();
         stepGeoLabels();
         stepStreetNames();
         stepVectorFeatures();
@@ -3667,6 +3701,7 @@ export function attachStylizedTiles(opts: {
       findGhosts.dispose();
       skyNames.dispose();
       dayArcs.dispose();
+      aimCones.dispose();
       geoLabels.dispose();
       streetNames.dispose();
       vectorFeatures.dispose();

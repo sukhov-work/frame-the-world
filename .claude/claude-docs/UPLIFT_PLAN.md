@@ -1,8 +1,8 @@
 # UPLIFT_PLAN — mobile UX/perf + desktop uplift (owner 10-point order, 2026-08-17)
 
 **Status: U1 SHIPPED 2026-08-17b · U2 SHIPPED 2026-08-18 · U3 SHIPPED 2026-08-18b (+ the
-owner's 5-issue 2D-map batch, same session — all browser-verified; the shared real-device pass
-rides T1 and stays each slice's exit gate). U4 next.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
+owner's 5-issue 2D-map batch, same session) · U4 SHIPPED 2026-08-18f — all browser-verified;
+the shared real-device pass rides T1 and stays each slice's exit gate. U5 next.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
 shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both
 performance and stability; 10 points below, "in order of urgency and criticality", to be churned
@@ -246,6 +246,16 @@ FPV focal.
 cone width visibly tracks pinch-FOV; north-up invariant; collapse behavior preserved.
 
 ### U4 — Direction lines + visibility cones on the 2D map · point 3
+**SHIPPED 2026-08-18f** (DECISIONS 2026-08-18f-u4-aim-cones · `mem:project/wip-2026-08-18-u4-aim-cones`)
+— as sketched, with four implementation rulings: (1) all three bodies ride ONE ephemeris path
+(`bodyTarget()` + `targetElevationSeries`/`targetAzAlt` — no sun/moon special case, D6); (2) the
+GL sector is DEPTH-FREE like dayArcs (renderOrder 9), not depth-tested — a flat metre-scale
+sector cannot follow relief, and ink-through-the-world makes the MAP-INK flat behaviour
+automatic; (3) `tokens.warn`/`timeFuture` bridged into the GL token bridge (supersedes the
+tokens.css "chrome-only" note); (4) the seat tracks the LIVE anchor every frame while the az
+curves ride the 0.02° rebuild deadband (browser-caught: a deadbanded seat sat ~1 km off a
+boot-flight capture). Emphasis = session `aimFocus`; menu turn-on + MapWindow line-tap promote.
+Gates 962/962; shots `verify-shots/u4-01..08`; real-device feel rides T1.
 **Scope.** From the current pin/eye on the 2D map: three color-coded azimuth systems — tracked
 target (accent) / sun (sunGlow) / moon (moonlight) — each a direct line at the CURRENT azimuth
 plus a ground sector ("visibility cone") sweeping rise-azimuth → set-azimuth for the scene day,
@@ -368,6 +378,10 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
    research). Default: yes, enriched-only.
 
 ## 5. Decision log (append-only)
+- 2026-08-18f · U4 shipped (see the slice header). New tunables block AIMCONES; new pure
+  `lib/ephemeris/azSector.ts` (wrap180's shared home); aim prefs `aimTarget/aimSun/aimMoon`
+  (default ON) + session `aimFocus`; `∠ DIRECTION` row in the shared sky menu. v1 horizon-only —
+  skyline sub-bands (traceStates) and GL sector edge labels are the named v2 tails.
 - 2026-08-17 · Plan authored from 3 parallel evidence-cited scouts; slice order U1→U8 ratified
   against the owner's 10-point urgency list (U2 promoted to second — verification of every
   later mobile slice runs through FPV). P7 meteors shipped the same session (Phase 8c line in

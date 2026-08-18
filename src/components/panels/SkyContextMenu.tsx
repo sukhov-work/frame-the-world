@@ -243,6 +243,32 @@ export default function SkyContextMenu() {
       >
         {tracked && sky.trail ? "TRAIL OFF" : "∿ TRAIL"}
       </button>
+      {(() => {
+        // AIM (U4) — per-BODY map overlay flags, not tracked-target properties: no
+        // ensureTracked. Turning ON also promotes the body to the emphasized system
+        // (the store setter owns that).
+        const aimOn =
+          menu.kind === "sun" ? sky.aimSun : menu.kind === "moon" ? sky.aimMoon : sky.aimTarget;
+        const setAim =
+          menu.kind === "sun"
+            ? sky.setAimSun
+            : menu.kind === "moon"
+              ? sky.setAimMoon
+              : sky.setAimTarget;
+        return (
+          <button
+            type="button"
+            className="skymenu__item"
+            role="menuitem"
+            onClick={() => {
+              setAim(!aimOn);
+              setMenu(null);
+            }}
+          >
+            {aimOn ? "DIRECTION OFF" : "∠ DIRECTION"}
+          </button>
+        );
+      })()}
       {findBody && (
         <button
           type="button"

@@ -40,6 +40,18 @@ export interface SkyStoreState {
   /** Minutes between ghost copies. */
   ghostStepMin: number;
   setGhostStepMin(min: number): void;
+  /** AIM (UPLIFT U4) — per-body direction line + rise→set visibility cone on the 2D map.
+   *  Persisted; the globe module and the MapWindow canvas both read these. */
+  aimTarget: boolean;
+  setAimTarget(on: boolean): void;
+  aimSun: boolean;
+  setAimSun(on: boolean): void;
+  aimMoon: boolean;
+  setAimMoon(on: boolean): void;
+  /** Which AIM system gets the full treatment (radius + fill); the others render compact.
+   *  Session-only, like `track` — promoted by turning a body's AIM on or tapping its line. */
+  aimFocus: "target" | "sun" | "moon";
+  setAimFocus(focus: "target" | "sun" | "moon"): void;
   /** TRACKING — camera lock (owner 2026-08-15c): while ON and FPV is live, the camera keeps
    *  the tracked target centred every frame. Released by the toggle, a look-drag, or the
    *  target setting below the horizon (the orchestrator's stepSkyTrack owns the release).
@@ -88,6 +100,23 @@ export const useSkyStore = create<SkyStoreState>((set) => ({
     saveViewPref("skyGhostStepMin", ghostStepMin);
     set({ ghostStepMin });
   },
+  aimTarget: prefs.aimTarget ?? true,
+  setAimTarget: (aimTarget) => {
+    saveViewPref("aimTarget", aimTarget);
+    set(aimTarget ? { aimTarget, aimFocus: "target" } : { aimTarget });
+  },
+  aimSun: prefs.aimSun ?? true,
+  setAimSun: (aimSun) => {
+    saveViewPref("aimSun", aimSun);
+    set(aimSun ? { aimSun, aimFocus: "sun" } : { aimSun });
+  },
+  aimMoon: prefs.aimMoon ?? true,
+  setAimMoon: (aimMoon) => {
+    saveViewPref("aimMoon", aimMoon);
+    set(aimMoon ? { aimMoon, aimFocus: "moon" } : { aimMoon });
+  },
+  aimFocus: "target",
+  setAimFocus: (aimFocus) => set({ aimFocus }),
   track: false,
   setTrack: (track) => set({ track }),
   target: cometTarget(),

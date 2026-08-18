@@ -11,6 +11,7 @@
 // moon and any SkyTarget go through one engine; public wrappers live at the call sites
 // (bodies.horizontal / targets.targetAzAlt). All functions take explicit epoch ms — no Date.now().
 
+import { wrap180 } from "./azSector";
 import type { AzAlt } from "./bodies";
 import { bodyStatesAt, horizontal } from "./bodies";
 import { moonPhaseIntensity } from "./moonlight";
@@ -225,7 +226,6 @@ export interface AzElHit {
   moonGlare: number;
 }
 
-const wrap180 = (deg: number) => ((deg + 540) % 360) - 180;
 
 /** All az±tol/el±tol standings in ONE local day [dayStartMs, dayStartMs + 24 h).
  *  `observer` annotates light/moon at the hit; `profileFn` gives the skyline verdict. */
