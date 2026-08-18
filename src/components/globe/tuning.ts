@@ -26,9 +26,6 @@
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
 // and guaranteed to match three's WGS84_ELLIPSOID, which the OSM building tiles extrude from).
 export { WGS84_A, WGS84_B } from "../../lib/geo/projection";
-// Type-only (erased at build) — keeps the "no runtime deps / no colour" rule while typing ENRICHED.bbox.
-import type { GeoBbox } from "../../lib/globe/enrichedMask";
-
 export type Tuple3 = readonly [number, number, number];
 
 /** Sun lighting. `direction` is only the FIRST-FRAME fallback — since the pre-Phase-4 ephemeris
@@ -1128,24 +1125,10 @@ export const BUILDINGS = {
  *  URL the globe is byte-identical to before. Plan: `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md`
  *  + `dnipro-enrichment/DNIPRO_SLICE0_SPIKE.md`; module: scene/enrichedBuildings.ts; mask: scene/buildings.ts. */
 export const ENRICHED = {
-  /** Enrichment/mask bbox (deg, west/south/east/north). This is BOTH the OSM-buildings mask extent
-   *  AND the enriched-tileset extent — they MUST match (the enriched bake REPLACES OSM here; a mismatch
-   *  overlaps or gaps them). GREATER Dnipro ~20×20 km (~10 km radius from the centre, owner ask
-   *  2026-07-14) — matches scripts/bake/cities/dnipro.json `bbox` (grid 20 keeps ~1 km cells). Regen
-   *  BOTH bakes on change: `npm run bake -- --city dnipro` AND
-   *  `node scripts/bake/bake-osm2world.mjs --city dnipro-o2w` (the variant extends the same config).
-   *  (Prior extents: full-city {35.0,48.42,35.1,48.5}, greater-centre {35.005,48.435,35.085,48.492},
-   *  Slice-0 sample {35.038,48.457,35.053,48.467}.) */
-  bbox: { west: 34.915, south: 48.37, east: 35.185, north: 48.55 } satisfies GeoBbox,
-  /** Mask/seat extents for `?enriched=` variants baked over a DIFFERENT box than `bbox` (cross-city
-   *  experiments; key = the variant name = cities/<name>.json, value = that config's bbox verbatim).
-   *  Resolved once at boot by lib/globe/enrichedVariant.ts `resolveEnrichedBbox`; any variant NOT
-   *  listed (dnipro-o2w — same box) and the no-param default fall back to `bbox` above, so the
-   *  default path stays byte-identical. St Albans, UK ~6×6 km (owner experiment 2026-07-18). */
-  variantBboxes: {
-    "st-albans": { west: -0.3692, south: 51.7244, east: -0.2821, north: 51.7787 } satisfies GeoBbox,
-    "st-albans-o2w": { west: -0.3692, south: 51.7244, east: -0.2821, north: 51.7787 } satisfies GeoBbox,
-  },
+  /** Region bboxes + variant lists MOVED to `lib/globe/regions.ts` (owner rule 2026-08-18: best
+   *  variant by default per baked region; the registry is the ONE source of truth for mask/seat
+   *  extents, variant names AND terrain patches — a bbox here could only drift from it). The
+   *  mask extent == bake extent coupling and the regen-both-bakes-on-change rule live there. */
   /** R1 SEATING STRATEGY (research-verified 2026-07-13): Cesium World Terrain renders WGS84-ELLIPSOIDAL
    *  heights; open DEMs (GLO-30 = EGM2008 orthometric, N≈+20.42 m over Dnipro) do NOT. So we DON'T trust
    *  baked absolute Z — we clamp the tileset to the RENDERED CWT at runtime: sample terrainHeightAt at

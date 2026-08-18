@@ -17,6 +17,7 @@ import {
 import { DRAPE, EARTH, FOVEATION, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
 import { glf, glf3 } from "./glsl";
 import { makeTileFoveation } from "./tileFoveation";
+import { hookTerrainPatch, makeTerrainPatchFetchPlugin, type TerrainPatchOpts } from "./terrainPatch";
 
 /**
  * Terrain ground — REAL elevation (Cesium World Terrain, ion asset 1, quantized-mesh) with Esri
@@ -93,6 +94,9 @@ export function attachImageryGround(
     camera: THREE.PerspectiveCamera;
     renderer: THREE.WebGLRenderer;
     ionToken: string;
+    /** Self-baked GLO-30 terrain patch (scene/terrainPatch.ts) — null/absent = pure CWT,
+     *  byte-identical to before the bake slice. NEVER user-facing: the registry + env decide. */
+    terrainPatch?: TerrainPatchOpts | null;
   },
 ): ImageryGroundHandle {
   const tiles = new TilesRenderer();
@@ -110,11 +114,26 @@ export function attachImageryGround(
       autoRefreshToken: true,
       assetTypeHandler: (type, tilesRenderer) => {
         if (type === "TERRAIN") {
-          tilesRenderer.registerPlugin(new QuantizedMeshPlugin({}));
+          const qm = new QuantizedMeshPlugin({});
+          // GLO-30 patch composite (U7→bake slice): wrap createChild BEFORE registration — the
+          // plugin loads layer.json on init, so every tile ever created passes the serve-set
+          // rule (terrainPatch.ts). Absent patch → the stock plugin, byte-identical.
+          if (opts.terrainPatch) {
+            hookTerrainPatch(
+              qm as unknown as Parameters<typeof hookTerrainPatch>[0],
+              opts.terrainPatch.base,
+              opts.terrainPatch.cfgs,
+            );
+          }
+          tilesRenderer.registerPlugin(qm);
         }
       },
     }),
   );
+  // The patch fetch claimer (plain fetch — the ion Bearer never reaches the patch CDN).
+  if (opts.terrainPatch) {
+    tiles.registerPlugin(makeTerrainPatchFetchPlugin(opts.terrainPatch.base) as never);
+  }
   // Unlit swap — must run BEFORE ImageOverlayPlugin (-15) wraps materials, hence priority -100.
   const swappedMats = new WeakSet<THREE.Material>();
   tiles.registerPlugin({

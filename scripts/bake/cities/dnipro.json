@@ -33,5 +33,16 @@
   },
   "attribution": "Contains information from OpenStreetMap © OpenStreetMap contributors, made available under the Open Database License (ODbL).",
   "output": "bakes/enriched/dnipro",
-  "tilesetVersion": "dnipro-real-3"
+  "tilesetVersion": "dnipro-real-3",
+  "terrain": {
+    "terrainNote": "GLO-30 quantized-mesh patch (design ruling 2026-08-18): extentBbox = whole input 1x1-deg GLO-30 tiles (served fully-inside up to extentMaxDepth, rim-blended to CWT over blendKm at the edge — blend.mjs, post-bake); cityBbox = the enriched bbox above (deep-detail area above extentMaxDepth — MUST stay equal to bbox, same mask-extent coupling). L13 64-seg posting is 38x25 m ~ GLO-30 native; L14 resolves the 20.5 m E-W arcsec detail city-only (mago may cap below — the bake warns and patch-info.json carries the real max). Heights become ELLIPSOIDAL via mago's built-in EGM2008 geoid (--geoid EGM2008) — same datum as CWT, so runtime seating needs no datum handling; geoid.mjs is the verification twin. C6: 30 m native = SRTM-class public data (owner ruling 2026-08-18); never bake finer without an explicit ruling. Runtime twin: src/lib/globe/regions.ts terrain block MUST match the bake console snippet.",
+    "extentBbox": [34.0, 48.0, 36.0, 49.0],
+    "extentMaxDepth": 13,
+    "cityBbox": [34.915, 48.37, 35.185, 48.55],
+    "maxDepthNote": "mago 1.14.2 silently clamps maxDepth to its raster-resolution heuristic — 13 for 30 m input (asked 14, got 13; ruling 2026-08-18: ship 13 — 64-seg L13 posting 38x25 m ~ GLO-30 native 31x21 m, the L14 gain was marginal). extentMaxDepth == maxDepth ⇒ the city deep-detail clause is dormant until a finer source ever lands.",
+    "maxDepth": 13,
+    "blendKm": 3,
+    "output": "bakes/terrain/dnipro",
+    "attribution": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+  }
 }

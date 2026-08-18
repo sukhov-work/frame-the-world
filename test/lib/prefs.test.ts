@@ -35,7 +35,7 @@ describe("sanitizeViewPrefs", () => {
         pinsVisible: false,
         skyGuides: true,
         fpvBuildingSolidity: 7,
-        enrichedVariant: true,
+        buildings3d: false,
         rogue: "x",
       }),
     ).toEqual({
@@ -43,8 +43,12 @@ describe("sanitizeViewPrefs", () => {
       pinsVisible: false,
       skyGuides: true,
       fpvBuildingSolidity: 1,
-      enrichedVariant: true,
+      buildings3d: false,
     });
+  });
+
+  it("drops the retired enrichedVariant key from pre-2026-08-18 blobs (BLD is on/off now)", () => {
+    expect(sanitizeViewPrefs({ enrichedVariant: true })).toEqual({});
   });
 
   it("drops wrong-typed values and degrades junk to {}", () => {

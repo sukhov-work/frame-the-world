@@ -183,9 +183,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "Toggles for 2D/3D, day-night, satellite imagery (SAT) and the pin (PIN), plus " +
           "ALTITUDE, FOCAL ZOOM and BUILDINGS sliders and a compass. In first-person view " +
-          "the deck compacts to what matters there. Where a detailed city model exists, BLD " +
-          "switches the buildings between the classic and the detailed bake — the page " +
-          "reloads and keeps your exact view.",
+          "the deck compacts to what matters there. BLD shows or hides the 3D buildings — " +
+          "the most detailed model available for where you are looking loads on its own.",
       },
       {
         id: "move-minimap",
@@ -755,9 +754,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Scene chips",
         body:
           "The right-edge stack adapts to what you are doing: 🧭 MY LOC, ◎ LOOK FROM " +
-          "HERE, ◎ SAVE VIEW, ▤ SAVED PLACES for members, ✕ CLEAR PIN, ✕ EXIT VIEW. Where a " +
-          "detailed city model exists, ▦ 3D DETAIL switches to it (off keeps the lighter " +
-          "classic buildings; the page reloads and keeps your view).",
+          "HERE, ◎ SAVE VIEW, ▤ SAVED PLACES for members, ✕ CLEAR PIN, ✕ EXIT VIEW. " +
+          "▦ 3D DETAIL shows or hides the 3D buildings — the most detailed model available " +
+          "for the area loads on its own.",
       },
       {
         id: "mobile-gestures",

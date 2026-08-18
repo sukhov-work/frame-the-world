@@ -37,12 +37,9 @@ import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { clampGroundM } from "../../lib/geo/terrain";
-import {
-  applyStoredVariant,
-  resolveEnrichedUrl,
-  resolveEnrichedBbox,
-} from "../../lib/globe/enrichedVariant";
-import { loadViewPrefs } from "../../lib/prefs";
+import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
+import { BAKED_REGIONS } from "../../lib/globe/regions";
+import { resolveTerrainBase } from "./scene/terrainPatch";
 import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
@@ -89,7 +86,6 @@ import {
   DRAPE,
   DRIFT,
   EARTH,
-  ENRICHED,
   FLIGHT,
   FPV,
   FRUSTUM,
@@ -223,26 +219,25 @@ export function attachStylizedTiles(opts: {
   const graticule = attachGraticule(scene, { baseScale });
   const atmosphere = attachAtmosphere(scene, { baseScale });
   const stars = attachStars(scene, { dpr: renderer.getPixelRatio(), allow8k });
-  // Dnipro 3D enrichment (Slice 0): entirely opt-in via PUBLIC_ENRICHED_TILES_URL. When set, the
-  // global OSM buildings are masked inside ENRICHED.bbox and the self-hosted enriched tileset streams
-  // in their place, seated on the rendered terrain (R1). Absent → maskBbox null + no 3rd renderer =
-  // byte-identical to before (the Overture-trial-flag precedent). The `?enriched=` search param is
-  // the A/B compare seam between parallel bakes (o2w variant work) — absent, this line resolves to
-  // the env URL exactly as before; `off` also drops the mask → the stock Cesium OSM look.
-  // The BLD chip's stored preference survives reloads (owner 2026-07-21): with no explicit
-  // `?enriched=` the pref injects the variant; the SAME effective search must feed BOTH the
-  // tileset URL and the mask/seat bbox, or the mask could follow a different bake than streams.
-  const enrichedSearch = applyStoredVariant(
-    typeof location === "undefined" ? "" : location.search,
-    loadViewPrefs().enrichedVariant,
-  );
-  const enrichedUrl = resolveEnrichedUrl(
+  // 3D enrichment — BEST VARIANT BY DEFAULT per baked region (owner rule 2026-08-18; registry =
+  // lib/globe/regions.ts): entirely opt-in via PUBLIC_ENRICHED_TILES_URL. When set, the global
+  // OSM buildings are masked inside the boot region's bbox and that region's BEST bake streams in
+  // their place, seated on the rendered terrain (R1). Absent → maskBbox null + no 3rd renderer =
+  // byte-identical to before (the Overture-trial-flag precedent). The `?enriched=` search param
+  // is a DEV seam only (A/B compares / off); the old BLD variant pref is retired — the chips are
+  // a plain live buildings on/off now (store/camera `buildings3d`). URL and mask bbox come from
+  // ONE resolver call, so they can never follow different bakes. A `#p=`/`#f=` share into another
+  // baked city boots THAT city's best bake (the boot-point region wins the default).
+  const bootHash = typeof location === "undefined" ? "" : location.hash;
+  const bootPoint = parsePoseHash(bootHash) ?? parseFpvHash(bootHash);
+  const enrichedSel = resolveEnrichedSelection(
     import.meta.env.PUBLIC_ENRICHED_TILES_URL as string | undefined,
-    enrichedSearch,
+    typeof location === "undefined" ? "" : location.search,
+    bootPoint?.latDeg,
+    bootPoint?.lonDeg,
   );
-  // A cross-city variant (?enriched=st-albans-o2w) is baked over its OWN box, so the OSM mask and
-  // the re-seat extent must follow it; every other value resolves to ENRICHED.bbox itself.
-  const enrichedBbox = resolveEnrichedBbox(ENRICHED.bbox, enrichedSearch, ENRICHED.variantBboxes);
+  const enrichedUrl = enrichedSel.url;
+  const enrichedBbox = enrichedSel.bbox;
   // U5: the shared download-priority aim state — written once per frame (stepLoadAim, after the
   // focus step computes the camera forward), read by the buildings/enriched download comparators.
   const loadAim = makeLoadAim();
@@ -253,20 +248,33 @@ export function attachStylizedTiles(opts: {
     camera,
     renderer,
     ionToken,
-    maskBbox: enrichedUrl ? enrichedBbox : null,
+    maskBbox: enrichedBbox, // null exactly when no enriched streams (one-resolver invariant)
     loadAim,
   });
-  const ground = attachImageryGround(scene, { camera, renderer, ionToken });
-  const enriched = enrichedUrl
-    ? attachEnrichedBuildings(scene, {
-        camera,
-        renderer,
-        url: enrichedUrl,
-        bbox: enrichedBbox,
-        terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
-        loadAim,
-      })
-    : null;
+  // GLO-30 terrain patch (U7→bake slice, design ruling 2026-08-18): silent + automatic — the
+  // registry decides where the high-accuracy self-baked terrain composites over CWT; the user
+  // never chooses (C6-ruled 30 m native). Env base unset → pure CWT, byte-identical.
+  const terrainBase = resolveTerrainBase(
+    import.meta.env.PUBLIC_TERRAIN_TILES_URL as string | undefined,
+  );
+  const terrainCfgs = BAKED_REGIONS.flatMap((r) => (r.terrain ? [r.terrain] : []));
+  const ground = attachImageryGround(scene, {
+    camera,
+    renderer,
+    ionToken,
+    terrainPatch: terrainBase && terrainCfgs.length ? { base: terrainBase, cfgs: terrainCfgs } : null,
+  });
+  const enriched =
+    enrichedUrl && enrichedBbox
+      ? attachEnrichedBuildings(scene, {
+          camera,
+          renderer,
+          url: enrichedUrl,
+          bbox: enrichedBbox,
+          terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+          loadAim,
+        })
+      : null;
   // U5 instrumentation: per-renderer download→model latency probes (tile-download-start pairs
   // with load-model per tile; load-error forgets the entry). Counters only — the DEV seam
   // (__globe.u5) reads snapshots; u5Mark() starts a time-to-first window for a scripted A/B.
@@ -320,7 +328,7 @@ export function attachStylizedTiles(opts: {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
     buildingsGroup: buildings.tiles.group,
     enrichedGroup: enriched?.tiles.group ?? null,
-    maskBbox: enrichedUrl ? enrichedBbox : null,
+    maskBbox: enrichedBbox,
   });
   // FPV mini-map feed (owner 2026-07-14): the SAME shared MVT source, projected to local metres
   // around the walked viewer and mirrored into store/minimap for the MiniMap panel.
@@ -1751,12 +1759,16 @@ export function attachStylizedTiles(opts: {
   };
 
   const stepMobileBuildingsGate = () => {
-        // /m 2D map (UPLIFT U1): buildings exist only in 3D — and in ANY FPV, whose entry
-        // needs the streets it stands in regardless of the map mode at entry. The handles'
-        // own identity guards make the per-frame call a no-op while nothing changed, so no
-        // separate gate state can ever drift from the truth. Desktop: inert (mapMode "3d").
-        if (!isMobileShell) return;
-        const on = fpvActive || useCameraStore.getState().mapMode === "3d";
+        // 3D-buildings gate, BOTH shells (owner rule 2026-08-18 folded into the U1 gate): the
+        // user's BLD / ▦ 3D DETAIL on/off (store `buildings3d`) composes with the /m 2D map
+        // auto-detach (U1: buildings exist only in 3D — and in ANY FPV, whose entry needs the
+        // streets it stands in regardless of the map mode at entry). The handles' own identity
+        // guards make the per-frame call a no-op while nothing changed, so no separate gate
+        // state can ever drift from the truth. Desktop with the default pref ON: `on` is always
+        // true — byte-identical to the pre-rule behaviour (frozen-additive).
+        const cam = useCameraStore.getState();
+        const shellOn = !isMobileShell || fpvActive || cam.mapMode === "3d";
+        const on = shellOn && cam.buildings3d;
         buildings.setActive(on);
         enriched?.setActive(on);
   };

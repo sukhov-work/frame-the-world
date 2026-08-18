@@ -13,12 +13,6 @@ import { useEffect, useRef, useState } from "react";
 import { useCameraStore } from "../../store/camera";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
-import {
-  applyStoredVariant,
-  isVariantActive,
-  setVariantUrl,
-} from "../../lib/globe/enrichedVariant";
-import { loadViewPrefs, saveViewPref } from "../../lib/prefs";
 import { formatAltM } from "../../lib/format/readout";
 import { CONTROLS, MOBILE2D } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
@@ -190,32 +184,23 @@ function NavChip() {
   );
 }
 
-/** ▦ 3D DETAIL (owner 2026-08-15e) — the desktop deck's BLD twin: classic extruded bake ↔ the
- *  OSM2World detailed bake, OFF (classic) by default. Reload-based by design (a live tileset
- *  swap would tear down the enriched renderer mid-frame); the pose hash makes it lossless.
- *  Same pref (`enrichedVariant`) + same effective-state derivation as the desktop chip, so the
- *  choice carries across shells. Hidden where no enriched bake exists — and in the 2D map
- *  (U1: buildings are absent there, so a reload chip would be a dead control). */
+/** ▦ 3D DETAIL (owner 2026-08-15e; on/off semantics 2026-08-18) — the desktop BLD twin: a plain
+ *  LIVE 3D-buildings show/hide (store `buildings3d`, persisted, shared across shells). WHICH
+ *  bake streams is the registry's call (lib/globe/regions.ts — best variant by default), so the
+ *  chip never reloads. Hidden in the 2D map (U1: buildings are absent there — a dead control). */
 function BuildingsChip() {
-  const hasEnriched = Boolean(import.meta.env.PUBLIC_ENRICHED_TILES_URL);
   const mapMode = useCameraStore((s) => s.mapMode);
-  if (!hasEnriched || mapMode === "2d") return null;
-  const o2wActive = isVariantActive(
-    applyStoredVariant(location.search, loadViewPrefs().enrichedVariant),
-  );
+  const buildings3d = useCameraStore((s) => s.buildings3d);
+  const setBuildings3d = useCameraStore((s) => s.setBuildings3d);
+  if (mapMode === "2d") return null;
   return (
     <button
       type="button"
-      className={o2wActive ? "m-act m-act--accent" : "m-act m-act--quiet"}
-      aria-pressed={o2wActive}
-      onClick={() => {
-        // Persist the NEW state, then reload with it explicit in the URL — the effective
-        // (URL+pref) flag is what must flip, not the raw URL param (the desktop rule).
-        saveViewPref("enrichedVariant", !o2wActive);
-        location.assign(setVariantUrl(location.href, !o2wActive));
-      }}
+      className={buildings3d ? "m-act m-act--accent" : "m-act m-act--quiet"}
+      aria-pressed={buildings3d}
+      onClick={() => setBuildings3d(!buildings3d)}
     >
-      ▦ 3D DETAIL{o2wActive ? " ON" : ""}
+      ▦ 3D DETAIL{buildings3d ? " ON" : ""}
     </button>
   );
 }

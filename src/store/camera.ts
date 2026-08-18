@@ -181,6 +181,12 @@ export interface CameraState {
    *  pre-FPV state unless the chip was flipped back on inside FPV. */
   pinsVisible: boolean;
   setPinsVisible: (on: boolean) => void;
+  /** 3D buildings master toggle (owner rule 2026-08-18: BLD / ▦ 3D DETAIL are a plain live
+   *  on/off — WHICH bake streams is the registry's call, lib/globe/regions.ts). OFF detaches
+   *  the stock OSM AND enriched renderers everywhere (orbit, FPV, both shells); ON restores.
+   *  Composes with the /m 2D auto-detach in the orchestrator's per-frame gate. Persisted. */
+  buildings3d: boolean;
+  setBuildings3d: (on: boolean) => void;
   /** One-shot "stand in this first-person viewpoint" request (saved places, owner 2026-07-15):
    *  the full `#f=` pose. The orchestrator consumes it next frame — drops a temp pin at the
    *  location and enters temp-pin FPV through the exact share-link path (same basis/eye/FOV
@@ -283,6 +289,11 @@ export const useCameraStore = create<CameraState>((set) => ({
   // NOT persisted here: the orchestrator's FPV declutter (hide on entry / restore on exit) flows
   // through this same setter — only the PIN chip writes the preference (CameraTiltPanel).
   setPinsVisible: (on) => set({ pinsVisible: on }),
+  buildings3d: stored.buildings3d ?? true,
+  setBuildings3d: (on) => {
+    saveViewPref("buildings3d", on);
+    set({ buildings3d: on });
+  },
   fpvJumpRequest: null,
   requestFpvJump: (pose) => set({ fpvJumpRequest: pose }),
   _consumeFpvJump: () => set({ fpvJumpRequest: null }),
