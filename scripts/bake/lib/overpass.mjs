@@ -57,19 +57,32 @@ export async function fetchBuildings(bbox, { refresh = false } = {}) {
 }
 
 /**
- * Flatten an Overpass response into building footprints.
- * @returns {Array<{tags:Record<string,string>, ring:[number,number][]}>} ring = [[lon,lat],…]
+ * Flatten an Overpass response into building footprints. `osm` is the stable OSM element id
+ * (U8: carried into the per-cell `.meta.json` sidecar so height-override keys survive re-bakes
+ * — bake-sequential feature ids reshuffle, element ids don't): `w<id>` for ways; a relation
+ * with N outer rings yields N footprints sharing the relation id, disambiguated `r<id>#<ring>`
+ * (an override must hit ONE ring, not all of them).
+ * @returns {Array<{tags:Record<string,string>, ring:[number,number][], osm:string}>} ring = [[lon,lat],…]
  */
 export function extractFootprints(json) {
   const buildings = [];
   for (const el of json.elements ?? []) {
     if (el.type === "way" && Array.isArray(el.geometry)) {
-      buildings.push({ tags: el.tags ?? {}, ring: el.geometry.map((g) => [g.lon, g.lat]) });
+      buildings.push({
+        tags: el.tags ?? {},
+        ring: el.geometry.map((g) => [g.lon, g.lat]),
+        osm: `w${el.id}`,
+      });
     } else if (el.type === "relation" && Array.isArray(el.members)) {
       // Multipolygon: treat each outer ring as its own footprint carrying the relation's tags.
+      let outerIdx = 0;
       for (const m of el.members) {
         if (m.role === "outer" && Array.isArray(m.geometry)) {
-          buildings.push({ tags: el.tags ?? {}, ring: m.geometry.map((g) => [g.lon, g.lat]) });
+          buildings.push({
+            tags: el.tags ?? {},
+            ring: m.geometry.map((g) => [g.lon, g.lat]),
+            osm: `r${el.id}#${outerIdx++}`,
+          });
         }
       }
     }

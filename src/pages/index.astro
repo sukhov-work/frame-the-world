@@ -22,6 +22,7 @@ import TargetPanel from "../components/panels/TargetPanel";
 import MiniMap from "../components/panels/MiniMap";
 import MapWindow from "../components/panels/MapWindow";
 import SkyContextMenu from "../components/panels/SkyContextMenu";
+import BuildingEditChip from "../components/panels/BuildingEditChip";
 // Hover tips (tips batch 2026-07-11) — imported here so the Astro-rendered nav links get
 // the same glass tip pills the React panels use.
 import "../styles/tips.css";
@@ -194,6 +195,10 @@ import "../styles/boot-poster.css";
   <!-- Sky context menu (QoL-2 ask 7) — right-click the sun / moon / tracked target: track,
        aim, ghosts, rise/set jumps. Fed by the orchestrator's hit test. Top-level island. -->
   <SkyContextMenu client:only="react" />
+
+  <!-- U8 building height edit (owner 2026-08-18) — Δ + RESET chip while a building is armed
+       (dbl-click in FPV). Top-level island (same trap); the same island mounts on /m. -->
+  <BuildingEditChip client:only="react" />
 
   <!-- Welcome landing (owner mockup 2026-07-11): journey backdrop, chrome hidden, any globe
        click / the two CTAs dismiss into the full UI -->

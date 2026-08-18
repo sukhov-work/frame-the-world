@@ -112,32 +112,33 @@ stay "frame the world".
   direction lines + aim cones (+2 owner rounds) · U5 closest-first loading. Ladder PARKED after
   U5 for AUDIT #2 + fix slices; UN-PARKED 18n → U6 foveation SHIPPED + U7 terrain audit DONE
   18o (`wip-2026-08-18-u6-foveation` + UPLIFT_PLAN Appendix A) → U7b GLO-30 terrain patch +
-  best-variant buildings rule SHIPPED 18p (`wip-2026-08-18-u7b-glo30-terrain-buildings-rule`);
-  next U8. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
+  best-variant buildings rule SHIPPED 18p (`wip-2026-08-18-u7b-glo30-terrain-buildings-rule`)
+  → U8 height override SHIPPED 2026-08-19 (`wip-2026-08-18-u8-height-override`) — the ladder
+  is COMPLETE. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
   `wip-2026-08-17-u1-2d-mobile` · `wip-2026-08-17-u2-fpv-stability` · `wip-2026-08-18-u3-2dmap-batch` ·
   `wip-2026-08-18-u4-aim-cones` · `wip-2026-08-18-u5-loading` · `UPLIFT_PLAN.md`.
 - **AUDIT #2 + fix slices (2026-08-18, HOT)** — report `audits/audit-full-2026-08-18.md` ·
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**U7b GLO-30 TERRAIN PATCH SHIPPED + BEST-VARIANT BUILDINGS RULE 2026-08-18p** (owner approved
-Appendix A #1 ahead of U8; DECISIONS top entry; gates 1,027/1,027 · astro 0 err/5 hints;
-browser-verified both shells). Dnipro renders ~30 m GLO-30 composited over CWT through the ONE
-ground renderer (`scene/terrainPatch.ts` createChild wrap; registry `lib/globe/regions.ts`;
-bake `scripts/bake/terrain/`; R2 `terrain/dnipro/` 7,329 files·11 MB): city heightAt
-120.4→85.9 m, river 88-94→68.9 m. o2w bake = DEFAULT; BLD / ▦ 3D DETAIL = plain live on/off
-(`buildings3d` pref; `enrichedVariant` pref retired). **NEXT SESSION = U8 per-building height
-override** (UPLIFT_PLAN §2/U8 + §1.5 — its ground-zero reference is now the real patch).
-OWNER VERDICT 18r: GLO-30 in-scene POSITIVE (terrain taste tail closed; Neo stays defer);
-AFTER U8 an owner batch of minor-to-medium improvements + UX fixes is incoming.
-Open riders: production canary (terrain + o2w-default + B1/T2/T3) on next `wix release` · T1
-owner device pass (judges GLO-30 in-scene → then the WorldDEM-Neo call, Appendix A #2) · T29
-extraction slice · T32 one-liner · T28 · B4/T30 · Esri imagery rider · cross-region enriched
-attach mid-session (named tail). See `NEXT_SESSION_PROMPT.md` +
-`mem:project/wip-2026-08-18-u7b-glo30-terrain-buildings-rule` (traps incl. geotiff.js-writer/
-mago georef, mago depth clamp, verify-too-early) + **`BAKED_ASSETS.md`** (the baked
-buildings/terrain/regions domain doc, 2026-08-18q — rulings ledger, registry contract,
-add-a-city + ops runbooks, GLO-30 aux layers).
+**U8 PER-BUILDING HEIGHT OVERRIDE SHIPPED 2026-08-19 — the UPLIFT 10-point ladder is
+COMPLETE** (DECISIONS top entry 2026-08-19; gates 1,048/1,048 · astro 0 err/5 hints;
+browser-verified both shells via `scripts/verify-bldg-override.mjs`, shots u8-01..06).
+FPV dblclick/double-tap arms an enriched building → claimed-pointer drag with SOLID original +
+ghost preview + mesh-pinned dual-height label → commit persists to `ftw:bldg-overrides:v1`
+(per-edit band 0.5×/3×; scale folded into applyFeatureSeats — commutes with seats; checksum
+invalidates on re-bake). Bakers now emit `cell-*.meta.json` osmId sidecars; backend PREPARED
+but dormant for the batch-sync phase (LWW BuildingOverrides + bulkSave endpoint; activation
+ladder in NEXT_SESSION §2 — provision script NOT yet run). **NEXT SESSION = the owner's
+announced batch of minor-to-medium improvements + UX fixes (2026-08-18r)** — start from their
+list; then P8 conjunctions + P9 lunar eclipses + M4 mobile resume.
+Open riders: production canary (U8 + terrain + o2w-default + B1/T2/T3) on next `wix release` ·
+T1 owner device pass (now also judges the U8 glass gesture feel) · T29 extraction slice · T32
+one-liner · T28 · B4/T30 · Esri imagery rider · cross-region enriched attach mid-session
+(named tail). See `NEXT_SESSION_PROMPT.md` + `mem:project/wip-2026-08-18-u8-height-override`
+(rulings + traps incl. the TilesGroup ghost-matrix trap) +
+`mem:project/wip-2026-08-18-u7b-glo30-terrain-buildings-rule` + **`BAKED_ASSETS.md`** (the
+baked buildings/terrain/regions domain doc — now incl. the U8 identity sidecars).
 
 ## Source layout (as-built; refreshed 2026-08-15)
 Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.

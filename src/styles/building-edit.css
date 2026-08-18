@@ -1,0 +1,98 @@
+/* U8 building height edit chip (owner 2026-08-18) — the Δ + RESET readout shown while a
+   building is armed in FPV, both shells. Instrument idiom (fpv-hud.css family): mono numerals,
+   token colours, restrained glow. Top-level island — position:fixed must never sit inside a
+   backdrop-filtered card (the S2 containing-block trap). The mesh-pinned dual-height label is
+   NOT this: it's the orchestrator-owned DOM layer (scene/bldgEditLabel.ts). */
+
+.bldg-edit-chip {
+  position: fixed;
+  left: 50%;
+  /* Above the TimeScrubber's bottom-center band (browser-caught overlap 2026-08-19, u8-02). */
+  bottom: 11rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  user-select: none;
+  pointer-events: none; /* annotate, don't intercept — RESET re-enables itself */
+  white-space: nowrap;
+}
+
+.bldg-edit-chip.is-dragging {
+  border-color: var(--color-accent);
+}
+
+.bec-title {
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  color: var(--color-text-secondary);
+}
+
+.bec-delta {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.bec-range {
+  font-size: 0.68rem;
+  color: var(--color-text-secondary);
+}
+
+.bec-reset {
+  pointer-events: auto;
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: none;
+  font: 600 0.58rem var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.bec-reset:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.bec-hint {
+  font-size: 0.55rem;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--color-text-secondary) 75%, transparent);
+}
+
+/* Shell-specific hint copy: the one sanctioned shell probe is body.m (MobileLayout).
+   (The --m variant is currently dormant — /m hides hints entirely below — but the twin-copy
+   machinery stays for the day the /m slot grows.) */
+.bec-hint--m,
+body.m .bec-hint--desktop {
+  display: none;
+}
+
+/* /m: the narrow slot between the FPV info strip and the EXIT VIEW button (browser-measured
+   2026-08-19, u8-06) — hints and the range drop entirely; the double-tap already taught the
+   gesture and the pinned mesh label carries both heights. Narrow chip clears the right-anchored
+   buttons. */
+body.m .bldg-edit-chip {
+  bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
+}
+
+body.m .bec-hint,
+body.m .bec-range {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .bec-range {
+    display: none; /* the pinned mesh label already carries both heights */
+  }
+}

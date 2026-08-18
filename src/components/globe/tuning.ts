@@ -1177,6 +1177,36 @@ export const ENRICHED = {
   /** Manual vertical nudge (m, along the bbox-centre geodetic up) ON TOP of the terrain re-seat —
    *  the browser tuning knob for any residual float/sink. 0 until browser-verified over Dnipro. */
   seatOffsetM: 0,
+  // --- U8 per-building height override (owner 2026-08-18: double-click/tap an enriched building
+  //     in FPV → drag to rescale it; original stays SOLID, a semi-transparent ghost previews the
+  //     new height; release commits + persists). The clamp BAND (0.5×/3× per edit) is contract,
+  //     not taste — it lives in lib/globe/bldgOverrides.ts; these are the feel knobs. -----------
+  /** Per-frame exponential ease of a committed height change (the same seatStep law the re-seat
+   *  uses; 0.18 ≈ settles ~0.35 s at 60 Hz — snappier than terrain, it's a direct user action). */
+  overrideEaseK: 0.18,
+  /** Ghost preview opacity (MeshBasicMaterial, depthTest OFF so it reads "on top" through the
+   *  solid original in both grow AND shrink). 0.45 — browser-tuned 2026-08-19: at 0.32 a
+   *  distant extension over bright sky compressed to near-invisible (u8-02 shot). */
+  overrideGhostOpacity: 0.45,
+  /** Ghost XZ inflate about the run centroid — keeps the ghost's walls just proud of the
+   *  original's so coincident faces never shimmer (1.5 % ≈ 15 cm on a 10 m building). */
+  overrideGhostInflate: 1.015,
+  /** Drag gain: metres of height per px of vertical drag, PER metre of camera distance
+   *  (clamped below). At 100 m range a 100 px drag moves ~22 m. */
+  overrideDragGainPerM: 0.0022,
+  /** Camera-distance clamp (m) for the drag gain — a nose-against-the-wall pick still moves,
+   *  a skyline pick doesn't teleport. */
+  overrideDragMinDistM: 8,
+  overrideDragMaxDistM: 500,
+  /** Minimum BAKED height (m) for a pick to arm — the o2w bake keeps fences/walls/street
+   *  furniture as runs (~4.5 % of features, no runtime class signal yet); a 2.5 m floor keeps
+   *  the gesture on actual massing. */
+  overrideMinPickHeightM: 2.5,
+  /** Armed-building tint strength (fill albedo mix toward accent while armed / overridden). */
+  overrideTintK: 0.35,
+  /** Persistent tint on committed overrides — subtler than armed (they should read as "edited",
+   *  not "selected"). */
+  overrideTintCommittedK: 0.16,
   /** Screen-space error target (px) for the enriched renderer (library default 16). Lower = sharper. */
   errorTarget: 16,
   /** Hard-crease threshold (deg) for the enriched building edge strokes (mirrors BUILDINGS.edgeAngleDeg). */
@@ -2254,6 +2284,12 @@ export const ORCH = {
    *  glass (MOBILE_PLAN §4.3; dblclick is undiscoverable on touch). Travel past clickDragPx,
    *  lift, cancel or a second finger (pinch) all cancel the press. */
   longPressMs: 500,
+  /** U8 double-tap window (ms, TOUCH pointers in FPV): two qualifying taps inside this window
+   *  and `doubleTapSlopPx` arm the building height edit — the glass twin of the desktop FPV
+   *  dblclick (the browser never synthesizes dblclick from canvas touches here; longPressMs
+   *  stays the temp-pin/sky twin). */
+  doubleTapMs: 320,
+  doubleTapSlopPx: 32,
   /** The low-altitude terrain guard runs only below this camera altitude (m). */
   groundGuardMaxAltM: 50_000,
   /** Live-pose → store mirror cadence (frames) for the panel readouts (never 60 fps). */

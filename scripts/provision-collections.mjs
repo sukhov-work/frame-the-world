@@ -109,6 +109,30 @@ const COLLECTIONS = [
     permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ANYONE" },
   },
   {
+    // U8 building height overrides (owner 2026-08-19, backend prep for the batch-sync phase):
+    // ONE world-shared row per overridden building, `_id` = deterministic hash of
+    // `variant|cell|featureId` (LWW via items.bulkSave). ADMIN everything — all access through
+    // the elevated /api/building-overrides (public GET strips memberId; POST requires login).
+    // C6: cx/cz are BAKE-LOCAL checksum metres, not geographic coordinates; no member GPS.
+    id: "BuildingOverrides",
+    displayName: "Building Overrides",
+    fields: [
+      text("variant", "Bake Variant", true),
+      text("cell", "Cell URI", true),
+      num("featureId", "Baked Feature Id"),
+      // Reserved for the OSM-keyed upgrade (the bakers now emit cell-*.meta.json sidecars).
+      text("osmId", "OSM Element Id"),
+      num("heightScale", "Height Scale (vs baked)"),
+      num("cx", "Centroid X (bake-local m)"),
+      num("cz", "Centroid Z (bake-local m)"),
+      num("vc", "Run Vertex Count"),
+      num("bakedHeightM", "Baked Height (m)"),
+      text("region", "Region Id"),
+      text("memberId", "Last Editor Member Id", true),
+    ],
+    permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
+  },
+  {
     // Saved first-person viewpoints (owner 2026-07-15): photo-less FPV bookmarks — exactly the
     // `#f=` share-hash pose + an optional pinned scene time. Member-private (ADMIN everything;
     // all access through the elevated /api/places, owner-filtered) — never published (C6).

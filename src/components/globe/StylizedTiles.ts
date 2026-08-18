@@ -35,6 +35,7 @@ import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore, type AdjustableParams } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
+import { useBldgEditStore } from "../../store/bldgEdit";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
@@ -54,6 +55,7 @@ import { attachSkyTrail } from "./scene/skyTrail";
 import { attachSkyGhosts } from "./scene/skyGhosts";
 import { attachFindGhosts } from "./scene/findGhosts";
 import { attachSkyNames } from "./scene/skyNames";
+import { attachBldgEditLabel } from "./scene/bldgEditLabel";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachAimCones } from "./scene/aimCones";
 import { attachPlanFeed } from "./scene/planFeed";
@@ -78,6 +80,16 @@ import {
 } from "../../lib/geo/urlPose";
 import { driftRadiansForDt } from "../../lib/globe/drift";
 import { seatStep } from "../../lib/globe/enrichedMask";
+import {
+  deleteOverride,
+  dragScaleK,
+  loadOverrides,
+  NEUTRAL_K_EPS,
+  overrideKey,
+  parseOverrideKey,
+  roundCentroidM,
+  upsertOverride,
+} from "../../lib/globe/bldgOverrides";
 import { lruCapBytesForTier, queueCapsForTier, type QualityTier } from "../../lib/globe/quality";
 import { makeLoadAim, makeTileLatencyProbe } from "../../lib/globe/loadPriority";
 import {
@@ -86,6 +98,7 @@ import {
   DRAPE,
   DRIFT,
   EARTH,
+  ENRICHED,
   FLIGHT,
   FPV,
   FRUSTUM,
@@ -264,6 +277,33 @@ export function attachStylizedTiles(opts: {
     ionToken,
     terrainPatch: terrainBase && terrainCfgs.length ? { base: terrainBase, cfgs: terrainCfgs } : null,
   });
+  // U8 per-building height overrides (owner 2026-08-18): the localStorage map for the RESOLVED
+  // variant, handed to the enriched module (checksum-validated per cell at load-model; a
+  // mismatch — a re-bake reshuffled the bake-sequential ids — drops the stored row here).
+  // The verbatim `?enriched=<url>` dev seam has no stable variant identity → seam omitted.
+  const bldgOverrideMap = loadOverrides();
+  const bldgOverridesSeam = enrichedSel.variant
+    ? {
+        forCell: (cellUri: string) => {
+          const rows: Array<{ featureId: number; k: number; cx: number; cz: number; vc: number }> =
+            [];
+          const prefix = `${enrichedSel.variant}|${cellUri}|`;
+          for (const [key, row] of Object.entries(bldgOverrideMap)) {
+            if (!key.startsWith(prefix)) continue;
+            const parsed = parseOverrideKey(key);
+            if (parsed)
+              rows.push({ featureId: parsed.featureId, k: row.k, cx: row.cx, cz: row.cz, vc: row.vc });
+          }
+          return rows;
+        },
+        onInvalid: (cellUri: string, featureId: number) => {
+          deleteOverride(
+            bldgOverrideMap,
+            overrideKey(enrichedSel.variant as string, cellUri, featureId),
+          );
+        },
+      }
+    : undefined;
   const enriched =
     enrichedUrl && enrichedBbox
       ? attachEnrichedBuildings(scene, {
@@ -273,6 +313,7 @@ export function attachStylizedTiles(opts: {
           bbox: enrichedBbox,
           terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
           loadAim,
+          overrides: bldgOverridesSeam,
         })
       : null;
   // U5 instrumentation: per-renderer download→model latency probes (tile-download-start pairs
@@ -298,6 +339,7 @@ export function attachStylizedTiles(opts: {
   const skyGhosts = attachSkyGhosts(scene); // temporal ghost copies of the tracked body (QoL-2)
   const findGhosts = attachFindGhosts(scene); // FIND v2 standings projected into the frame (owner rework)
   const skyNames = attachSkyNames(); // hover-name reveal for stars/asterisms/constellations (qol4)
+  const bldgEditLabel = attachBldgEditLabel(); // U8 mesh-pinned dual-height indicator (both shells)
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
   // U4 aim cones: map direction lines + rise→set visibility sectors at the plan anchor —
   // orbit-mode only (FPV keeps the viewfinder clean; the MapWindow canvas is the FPV twin).
@@ -1143,9 +1185,106 @@ export function attachStylizedTiles(opts: {
   let fpvAnchorGroundM = 0;
   // Live eye height above the local ground while ANY FPV is active (m).
   let fpvEyeAboveGroundM = 0;
+  // ── U8 building height edit (owner 2026-08-18, UPLIFT §2/U8) ──────────────────────────────
+  // dblclick (desktop) / double-tap (glass) on an enriched building in FPV ARMS it (accent
+  // tint + chip + mesh-pinned label); while armed the primary pointer's drag is CLAIMED as the
+  // height gesture (the pinch precedent — consumed before the look math, so the camera never
+  // turns) and a semi-transparent ghost previews the new height over the SOLID original;
+  // release COMMITS (the real mesh eases inside applyFeatureSeats) + persists to
+  // ftw:bldg-overrides:v1. Esc (before the FPV unwind) / tap-away / FPV exit / BLD-off disarm.
+  // Second fingers are IGNORED while armed — an explicit no-pinch-mid-edit rule, not emergent.
+  let bldgArmed: {
+    cellUri: string;
+    featureId: number;
+    bakedHeightM: number;
+    cx: number; // pristine checksum capture from the pick (rounded at persist time)
+    cz: number;
+    vc: number;
+    committedK: number; // the scale each edit re-anchors on (the owner's 0.5×/3× band)
+    liveK: number; // live drag value (== committedK between drags)
+    distM: number; // pick distance — scales the drag gain
+  } | null = null;
+  let bldgDragId: number | null = null; // the claimed pointer while a height drag is live
+  let bldgDragStartY = 0;
+  let bldgDragStartK = 1;
+  let bldgDragMoved = false;
+  let bldgLastTapMs = 0; // glass double-tap detector (no synthesized dblclick on the canvas)
+  let bldgLastTapX = 0;
+  let bldgLastTapY = 0;
+  const syncBldgEdit = () => {
+    const a = bldgArmed;
+    useBldgEditStore.getState()._syncArmed(
+      a
+        ? {
+            featureId: a.featureId,
+            originalHeightM: a.bakedHeightM,
+            liveHeightM: a.bakedHeightM * a.liveK,
+            deltaM: a.bakedHeightM * (a.liveK - 1),
+            dragging: bldgDragId !== null && bldgDragMoved,
+            overridden: Math.abs(a.liveK - 1) >= NEUTRAL_K_EPS,
+          }
+        : null,
+    );
+  };
+  const disarmBuilding = () => {
+    if (!bldgArmed) return;
+    bldgArmed = null;
+    bldgDragId = null;
+    bldgDragMoved = false;
+    enriched?.setArmedId(null);
+    enriched?.hideGhost();
+    syncBldgEdit();
+  };
+  const tryArmBuilding = (clientX: number, clientY: number): boolean => {
+    if (!enriched || !fpvActive || !useCameraStore.getState().buildings3d) return false;
+    const rect = dom.getBoundingClientRect();
+    const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
+    _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
+    const pick = enriched.pickBuilding(_pickRay);
+    if (!pick) return false;
+    bldgArmed = {
+      cellUri: pick.cellUri,
+      featureId: pick.featureId,
+      bakedHeightM: pick.bakedHeightM,
+      cx: pick.cx,
+      cz: pick.cz,
+      vc: pick.vc,
+      committedK: pick.currentK,
+      liveK: pick.currentK,
+      distM: pick.distance,
+    };
+    enriched.setArmedId(pick.featureId);
+    syncBldgEdit();
+    return true;
+  };
+  /** Apply + persist the armed building's liveK (drag release / RESET-to-1). The stored row is
+   *  C6-clean: scale + bake-local checksum only — no coordinates, nothing that could leak. */
+  const commitBldgHeight = () => {
+    if (!bldgArmed || !enriched) return;
+    const a = bldgArmed;
+    a.committedK = a.liveK;
+    enriched.hideGhost();
+    enriched.setHeightScale(a.cellUri, a.featureId, a.liveK);
+    if (enrichedSel.variant) {
+      upsertOverride(
+        bldgOverrideMap,
+        overrideKey(enrichedSel.variant, a.cellUri, a.featureId),
+        {
+          k: a.liveK,
+          cx: roundCentroidM(a.cx),
+          cz: roundCentroidM(a.cz),
+          vc: a.vc,
+          hM: Math.round(a.bakedHeightM * 10) / 10,
+        },
+        Date.now(),
+      );
+    }
+    syncBldgEdit();
+  };
   const onFpvPointerDown = (e: PointerEvent) => {
     if (!fpvActive) return;
     if (!e.isPrimary) {
+      if (bldgArmed) return; // U8: no pinch mid-edit — second fingers are ignored while armed
       // Second finger while the look finger is down = a pinch begins (M2). Anything past two
       // pointers is ignored; a second finger with NO look finger down is ignored too.
       if (fpvDragId !== null && fpvPinchId === null) {
@@ -1166,9 +1305,35 @@ export function attachStylizedTiles(opts: {
     fpvPinchedDuringDrag = false;
     // A direct look-drag always beats a pending sky-look glide (never fight the user).
     if (useCameraStore.getState().skyLook) useCameraStore.getState()._clearSkyLook();
+    // U8: while armed the primary pointer is CLAIMED for the height drag (a press that never
+    // crosses clickDragPx stays a tap — tap-away — see onFpvPointerMove/End).
+    if (bldgArmed) {
+      bldgDragId = e.pointerId;
+      bldgDragStartY = e.clientY;
+      bldgDragStartK = bldgArmed.liveK;
+      bldgDragMoved = false;
+    }
   };
   const onFpvPointerMove = (e: PointerEvent) => {
     if (!fpvActive) return;
+    // U8: the claimed height drag consumes its pointer BEFORE any look math (the pinch
+    // precedent) — the camera never turns while armed-and-pressing. The ghost preview appears
+    // on the first move past the click slack; below it, the press is still a candidate tap.
+    if (bldgArmed && bldgDragId === e.pointerId && enriched) {
+      const dyPx = bldgDragStartY - e.clientY; // screen-up = grow
+      if (!bldgDragMoved) {
+        if (Math.abs(dyPx) <= ORCH.clickDragPx) return;
+        bldgDragMoved = true;
+        enriched.showGhost(bldgArmed.cellUri, bldgArmed.featureId);
+      }
+      bldgArmed.liveK = dragScaleK(bldgDragStartK, dyPx, bldgArmed.distM, bldgArmed.bakedHeightM, {
+        gainPerM: ENRICHED.overrideDragGainPerM,
+        minDistM: ENRICHED.overrideDragMinDistM,
+        maxDistM: ENRICHED.overrideDragMaxDistM,
+      });
+      enriched.setGhostK(bldgArmed.liveK);
+      return;
+    }
     if (fpvPinchId !== null && (e.pointerId === fpvPinchId || e.pointerId === fpvDragId)) {
       // Pinch owns BOTH fingers: track them, re-derive the gap, drive the FOV by the ratio —
       // spread = zoom in (FOV narrows), same eased fovTargetDeg + clamps as the wheel path.
@@ -1222,6 +1387,16 @@ export function attachStylizedTiles(opts: {
     if (fpvDragId !== e.pointerId) return;
     fpvDragId = null;
     fpvPinchId = null; // a pinch cannot outlive its anchor finger
+    // U8: releasing the claimed height drag COMMITS; a press that never moved falls through to
+    // the tap path below (tap-away / double-tap re-target).
+    if (bldgArmed && bldgDragId === e.pointerId) {
+      bldgDragId = null;
+      if (bldgDragMoved) {
+        bldgDragMoved = false;
+        commitBldgHeight();
+        return;
+      }
+    }
     if (longPressFired) {
       longPressFired = false; // the sky-menu long-press consumed this gesture (M3c)
       return;
@@ -1234,6 +1409,26 @@ export function attachStylizedTiles(opts: {
       !fpvPinchedDuringDrag &&
       Math.hypot(e.clientX - fpvDownX, e.clientY - fpvDownY) <= ORCH.clickDragPx
     ) {
+      // U8 glass double-tap: two qualifying taps inside the window arm the building under the
+      // second tap (the desktop dblclick twin — dblclick never synthesizes from canvas touches
+      // here, and longPressMs stays the temp-pin/sky twin). A single tap while armed = tap-away.
+      if (e.pointerType === "touch") {
+        const nowTapMs = performance.now();
+        const isDoubleTap =
+          nowTapMs - bldgLastTapMs <= ORCH.doubleTapMs &&
+          Math.hypot(e.clientX - bldgLastTapX, e.clientY - bldgLastTapY) <= ORCH.doubleTapSlopPx;
+        bldgLastTapMs = isDoubleTap ? 0 : nowTapMs;
+        bldgLastTapX = e.clientX;
+        bldgLastTapY = e.clientY;
+        if (isDoubleTap) {
+          disarmBuilding(); // re-target: the second tap's building wins
+          if (tryArmBuilding(e.clientX, e.clientY)) return;
+        }
+      }
+      if (bldgArmed) {
+        disarmBuilding(); // U8 tap-away — the edit session is modal; nothing else on this tap
+        return;
+      }
       const rect = dom.getBoundingClientRect();
       const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
       // Marker first, then a FIND ghost projection — a tap on a standing jumps time onto it.
@@ -1314,6 +1509,11 @@ export function attachStylizedTiles(opts: {
       camS.setSkyMenu(null);
       return;
     }
+    // U8: an armed building edit owns the next Escape — finishing the edit must not exit FPV.
+    if (bldgArmed) {
+      disarmBuilding();
+      return;
+    }
     if (camS.exploreActive) camS.setExplore(false);
     else if (up.viewMode === "fpv") up.setViewMode("orbit");
     else if (camS.tempFpv) camS.setTempFpv(false);
@@ -1352,6 +1552,14 @@ export function attachStylizedTiles(opts: {
   };
   const onDblClick = (e: MouseEvent) => {
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a dblclick
+    if (fpvActive) {
+      // U8 (owner 2026-08-18): FPV dblclick was a free slot (dropTempPinAt early-returns in
+      // FPV) — it now arms the building under the cursor for a height edit; a dblclick on
+      // another building re-targets; on empty ground/sky it just disarms.
+      disarmBuilding();
+      tryArmBuilding(e.clientX, e.clientY);
+      return;
+    }
     dropTempPinAt(e.clientX, e.clientY);
   };
   // Long-press = the dblclick twin on glass (MOBILE_PLAN §4.3, M1; sky menu M3c). Gated on
@@ -1421,6 +1629,8 @@ export function attachStylizedTiles(opts: {
   const _hudQ = new THREE.Quaternion();
   const _hudDir = new THREE.Vector3();
   const _hudDir2 = new THREE.Vector3();
+  // U8 scratch: the armed building's roof anchor (world) for the pinned label.
+  const _bldgTop = new THREE.Vector3();
 
   // Encoder-style rate controls (Phase 5.5 S2): the applied rates ease toward the stick so
   // deflection ramps in and release coasts out (CONTROLS.rateEaseTauMs).
@@ -1771,6 +1981,7 @@ export function attachStylizedTiles(opts: {
         const on = shellOn && cam.buildings3d;
         buildings.setActive(on);
         enriched?.setActive(on);
+        if (!on) disarmBuilding(); // U8: BLD off detaches the renderer — the edit session ends
   };
 
   const stepBuildingsUpdate = () => {
@@ -1861,6 +2072,7 @@ export function attachStylizedTiles(opts: {
             buildings.setGhostSolid(0); // next FPV entry starts on the ghost curve again
             buildings.setGhost(null);
             enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
+            disarmBuilding(); // U8: the height-edit session cannot outlive FPV
             camNow.clearAllTargets(); // targets set during FPV must not fire now
             // A held walk stick must not survive the exit either (clearAllTargets deliberately
             // spares it — the stick component's unmount is the usual clear; this is the backstop).
@@ -3595,6 +3807,42 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  const stepBldgEdit = () => {
+        // U8: per-frame service of the armed building edit — consume the chip's RESET one-shot,
+        // re-anchor the mesh-pinned dual-height label (per-frame: it tracks a live drag), and
+        // mirror the chip numbers at a deadband (React must never re-render at 60 fps).
+        const bs = useBldgEditStore.getState();
+        if (bs.resetRequest) {
+          bs._consumeResetRequest();
+          if (bldgArmed && enriched) {
+            bldgArmed.liveK = 1;
+            commitBldgHeight(); // neutral k → the persisted row is deleted, tint clears
+          }
+        }
+        if (!bldgArmed) {
+          bldgEditLabel.update(null, 0, 0, camera);
+          return;
+        }
+        const a = bldgArmed;
+        const anchored = enriched?.buildingTopWorld(a.cellUri, a.featureId, a.liveK, _bldgTop);
+        bldgEditLabel.update(
+          anchored ? _bldgTop : null,
+          a.bakedHeightM,
+          a.bakedHeightM * a.liveK,
+          camera,
+        );
+        const mirror = bs.armed;
+        const liveM = a.bakedHeightM * a.liveK;
+        const dragging = bldgDragId !== null && bldgDragMoved;
+        if (
+          !mirror ||
+          mirror.featureId !== a.featureId ||
+          mirror.dragging !== dragging ||
+          Math.abs(mirror.liveHeightM - liveM) >= 0.05
+        )
+          syncBldgEdit();
+  };
+
   const stepVectorFeatures = () => {
         // Vector feature web (S7 feedback): roads / rivers / water / green from the SAME parsed
         // tiles, ribbons + fills on the rendered terrain below VECTOR.topAltM. Night-dimmed by
@@ -3683,7 +3931,8 @@ export function attachStylizedTiles(opts: {
       //                     PlacementMarker
       //   scenery/overlays  GraticuleAndAtmosphere → Stars → DayArcs → AimCones (U4 — needs the
       //                     post-resample tMs + the alt/focus frame) → GeoLabels → StreetNames →
-      //                     VectorFeatures
+      //                     BldgEdit (U8: RESET consume + pinned label + deadband chip mirror;
+      //                     needs post-update matrices for the roof anchor) → VectorFeatures
       //   feeds LAST        MinimapFeed → PlanFeed (reads post-update matrices)
       // Cross-band constraints:
       //   (a) idle-drift runs AFTER flight/explore/FPV writes but BEFORE the encoders (lastInteract).
@@ -3740,6 +3989,7 @@ export function attachStylizedTiles(opts: {
         stepAimCones();
         stepGeoLabels();
         stepStreetNames();
+        stepBldgEdit();
         stepVectorFeatures();
         stepMinimapFeed();
         stepPlanFeed();
@@ -3806,6 +4056,7 @@ export function attachStylizedTiles(opts: {
       skyGhosts.dispose();
       findGhosts.dispose();
       skyNames.dispose();
+      bldgEditLabel.dispose();
       dayArcs.dispose();
       aimCones.dispose();
       geoLabels.dispose();
