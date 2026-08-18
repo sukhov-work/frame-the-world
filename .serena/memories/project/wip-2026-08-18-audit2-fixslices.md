@@ -46,6 +46,15 @@ boundingSphere THREE regression) + hiddenPairs.test.ts + T24/T1 edits + T28–T3
 verify-chrome.mjs + conventions/verify.md + ship-hook v3 (prune with containment proofs +
 attention dedup/re-verify) + bake stamps ×5.
 
+## Shipped + follow-ups (2026-08-18m, owner orders)
+- ALL of the above LANDED: PR #55 squash → origin/master `4e42396`; mirror synced; tree clean.
+- Harness hooks added same session (DECISIONS 2026-08-18m): boot CDP-Chrome check (attach to
+  the owner's persistent `chrome-playwright` :9222 — NEVER kill) · verify-chrome.mjs
+  reuse-by-default · ship-hook `kill_dev_servers()` (cwd-scoped wix/astro dev reap).
+- Stale M1-era branch `claude/ship-20260813-205327` RESOLVED + deleted: tip 03c97ed is pinned
+  by refs/backups/2026-08-14-m1-original; content landed via the 08-14 #36 combined squash
+  (that combination is why per-branch proofs fail structurally). SHIP_ATTENTION cleared.
+
 ## Open = slice 8 (owner; none blocking)
 B1 canary ride next release · plan-archive ratify (PLANNING_QOL/GUIDE → archive/) · T28/T29
 acceptance · B4/T30 quota-display call · **phase done? → un-park UPLIFT U6 foveation**.

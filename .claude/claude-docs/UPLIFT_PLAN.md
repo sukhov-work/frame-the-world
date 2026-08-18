@@ -6,12 +6,12 @@ owner's 5-issue 2D-map batch, same session) · U4 SHIPPED 2026-08-18f (+ owner f
 in DECISIONS — local warm-cache numbers only, cold-network/weak-device rides T1) — all
 browser-verified; the shared real-device pass rides T1 and stays each slice's exit gate.**
 
-**PARKED 2026-08-18j (owner order): the ladder pauses BEFORE U6 for the AUDIT #2 /
-refactor-improve intermediate phase — whole-project readiness for expansion (docs · org ·
-architecture · code quality). Resume order after the phase ends: U6 foveation → U7 terrain
-audit (Esri licensed-source decision rides it) → U8 height overrides → then P8 conjunctions +
-P9 lunar eclipses (IMPLEMENTATION_PLAN §Phase 8) + M4 mobile resume. T1 real-device exit gate
-unchanged and still owner-present.** Originally AUTHORED 2026-08-17 (design session; P7 meteors
+**UN-PARKED 2026-08-18n (owner order: "fully ready to unpark … proceed with U6 and U7") —
+the AUDIT #2 fix phase closed same day (slices 1–7 shipped, DECISIONS 2026-08-18l/m; gates
+1,013/1,013). ACTIVE order: U6 foveation → U7 terrain audit (Esri licensed-source decision
+rides it) → U8 height overrides → then P8 conjunctions + P9 lunar eclipses
+(IMPLEMENTATION_PLAN §Phase 8) + M4 mobile resume. T1 real-device exit gate unchanged and
+still owner-present.** *(Historical: PARKED 2026-08-18j for the audit/fix intermediate phase.)* Originally AUTHORED 2026-08-17 (design session; P7 meteors
 shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both
 performance and stability; 10 points below, "in order of urgency and criticality", to be churned

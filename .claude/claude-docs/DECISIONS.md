@@ -302,6 +302,14 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 New work appends a dated line here. *(Marker moved to the top 2026-08-13 — it had drifted mid-list
 since 2026-08-03; a move is not an edit (compaction precedent). Audit finding D2.)*
 
+- **2026-08-18n-unpark-uplift (owner ruling):** *"fully ready to unpark main uplift plan and
+  proceed with U6 and U7"* — the audit-2 fix phase is CLOSED (slice 8's phase-done call answered;
+  remaining slice-8 riders stay open as ordinary tails: B1 canary on next release · T28/T29 ·
+  B4/T30 · T1 device pass). UPLIFT_PLAN status → ACTIVE, order U6 foveation (LoadRegionPlugin
+  RayRegion + SphereRegion, compose with U5 `loadAim`, tier radii in QUALITY.tiers — §1.4 APIs)
+  → U7 terrain audit (CWT measure · source scan incl. UA/C6-sensitive options · possible R2
+  patch; Esri licensed-source decision rides it) → U8 → P8/P9 → M4. NSP rewritten as the U6+U7
+  build brief. Files: UPLIFT_PLAN.md status · NEXT_SESSION_PROMPT.md · mem:core Next step.
 - **2026-08-18m-harness-hooks (owner orders ×3, same session as 18l):** **(a) CDP Chrome is
   session-START state, never session-end cleanup** — the owner keeps a PERSISTENT Chrome on
   :9222 via the zsh alias `chrome-playwright` (`--user-data-dir=~/Playwright_Chrome_data`, no

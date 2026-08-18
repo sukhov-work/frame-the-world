@@ -117,16 +117,15 @@ stay "frame the world".
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**AUDIT #2 FIX SLICES 1–7 DONE 2026-08-18l (`mem:project/wip-2026-08-18-audit2-fixslices` +
-DECISIONS 2026-08-18l): both MAJORs fixed (A1 easeSeatM clamp browser-proven · B1 ruled
-`checkOrigin: true` — inert in dev by Astro 5.18 construction, prod-compatible, webhook landmine
-documented wix-headless §12b) + compaction r3 (hot DECISIONS 66 KB) + conventions/dead-code/
-fences/harness slices. Gates 1,013/1,013 · astro 0 err/5 hints. NEXT = slice 8 OWNER calls:
-B1 canary ride (T2/T3) · plan-archive ratify · T28/T29 acceptance · B4/T30 display call ·
-declare the fix phase DONE → un-park the UPLIFT ladder at U6 foveation (LoadRegionPlugin
-RayRegion along FPV look + SphereRegion at eye, per-tier radii in QUALITY.tiers, compose with
-U5 loadAim — UPLIFT_PLAN §1.4/§2) → U7 terrain audit → U8 height overrides → P8/P9 → M4.
-T1 real-device exit gate stays owner-present. See `NEXT_SESSION_PROMPT.md`.
+**UPLIFT UN-PARKED (owner ruling 2026-08-18n — fix phase CLOSED; DECISIONS 2026-08-18n).
+NEXT SESSION = U6 foveation** (LoadRegionPlugin RayRegion along FPV look + SphereRegion at eye,
+per-tier radii in QUALITY.tiers, COMPOSE with U5 `loadAim`; cited APIs UPLIFT_PLAN §1.4; DoD =
+measured time-to-sharp-centre + no fovea popping) **then U7 terrain audit** (CWT measure over
+Dnipro · source scan incl. UA/C6-sensitive · decision memo; Esri licence decision rides it) →
+U8 height overrides → P8/P9 → M4. Fix-phase state: slices 1–7 + harness hooks LANDED (PR #55 →
+master 4e42396; gates 1,013/1,013 · astro 0 err/5 hints; DECISIONS 2026-08-18l/m). Open riders:
+B1 checkOrigin canary on next release (T2/T3) · T28/T29 · B4/T30 · T1 owner-present device
+pass. See `NEXT_SESSION_PROMPT.md` (the U6+U7 build brief).
 
 ## Source layout (as-built; refreshed 2026-08-15)
 Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.
