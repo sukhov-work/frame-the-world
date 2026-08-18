@@ -108,11 +108,14 @@ stay "frame the world".
   `mem:project/wip-2026-08-15-guide-g1`.
 
 ## Next step
-**AUDIT #2 NEXT (owner order 2026-08-18j): whole-project expansion-readiness — docs /
-organization / architecture / code quality; /frame Audit mode, Deep, READ-ONLY; charter =
-`mem:project/audit2-2026-08-18-charter` + NEXT_SESSION_PROMPT. The UPLIFT ladder is PARKED
-until the audit/refactor phase ends (resume U6 foveation → U7 → U8 → P8/P9 → M4; parked-state
-twin in UPLIFT_PLAN status).** U5 closest-first + U4 owner rounds 1+2 shipped 2026-08-18g/h/i. U5 closest-first loading SHIPPED 2026-08-18g (loadAncestors=false + FPV look-bias
+**AUDIT #2 DONE 2026-08-18k — report `audits/audit-full-2026-08-18.md` + `mem:project/wip-2026-08-18-audit2`.
+2 MAJOR (A1 aimCones unclamped heightAt seat · B1 undocumented `checkOrigin:false`) + 22 MINOR
+(compaction r3 DUE — 206 KB hot file defeats the boot read · ARCH §7 nine files behind ·
+conventions ×4 stale · 3 stale memories · harness F1–F3); C6 clean ×2; FP ratchet 0%.
+NEXT = the 8 fix slices (report §Fix-session): 1 A1 clamp · 2 B1 checkOrigin trial+ruling ·
+3 compaction r3+docs · 4 conventions · 5 dead-code · 6 test fences+backlog rows · 7 harness
+scripts/hooks · 8 owner calls. The UPLIFT ladder stays PARKED until this fix phase ends (resume
+U6 foveation → U7 → U8 → P8/P9 → M4; parked-state twin in UPLIFT_PLAN status).** U5 closest-first + U4 owner rounds 1+2 shipped 2026-08-18g/h/i. U5 closest-first loading SHIPPED 2026-08-18g (loadAncestors=false + FPV look-bias
 download comparator on buildings/enriched, ground keeps ancestors; per-tier queue caps
 null-on-high; governor emaMs/hitchCount + latency probes + `__globe.u5()` seam; gates 989/989,
 at-rest A/B tile-identical, browser-verified both shells; 0.4.28 library-facts crib in

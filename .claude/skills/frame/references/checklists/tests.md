@@ -4,7 +4,8 @@ Format: one assertion per item, then `— check:` and `— anchor:`. Authored 20
 DECISIONS since the baseline anchor at every audit start and append dated items.
 
 TOC: 1 literature vectors · 2 golden gates · 3 trap→test coverage · 4 tests-alongside ·
-5 tier honesty · 6 staleness/duplication · 7 suite speed · 8 goodhart guard
+5 tier honesty · 6 staleness/duplication · 7 suite speed · 8 goodhart guard ·
+9 CDP verify-session discipline
 
 1. Load-bearing math is tested against LITERATURE vectors, not self-derived expectations:
    FOV (sensor DB + focal35), geohash, projection (ecefToGeodetic round-trips,
@@ -47,9 +48,10 @@ TOC: 1 literature vectors · 2 golden gates · 3 trap→test coverage · 4 tests
    — check: `npx jscpd test/` (if available) + grep for known-removed feature names; sweep
    test/helpers duplication.
    — anchor: Track E; 2026-07-11 pre-S7 refactor precedent.
-7. Suite speed guard: the vitest wall stays seconds-class (~2 s at 704 tests, 2026-08-13);
-   a slow test (>1 s single) names its reason or moves behind a flag — a slow suite stops
-   being run.
+7. Suite speed guard: the vitest wall stays seconds-class (1.93–2.73 s at 989 tests,
+   2026-08-18 audit #2; was ~2 s at 704, 2026-08-13); a slow test (>1 s single) names its
+   reason or moves behind a flag — a slow suite stops being run. Slowest single 2026-08-18:
+   270 ms (geoLabels NE-boundaries parse).
    — check: `npm test` duration vs the dated baseline; list tests >1 s.
    — anchor: this file (dated baseline).
 8. Goodhart guard: no single metric is the verdict — "tests green" never substitutes for the
@@ -57,3 +59,15 @@ TOC: 1 literature vectors · 2 golden gates · 3 trap→test coverage · 4 tests
    ratios never substitute for a landmark look (the 2k-bake pattern: numbers AND eyes).
    — check: report language + recent session evidence pairs (number + shot) for visual changes.
    — anchor: laws.md (Goodhart); 2026-08-13 milkyway bake verification shape.
+9. CDP verify-session discipline (appended 2026-08-18, audit #2 re-mine): before trusting a
+   flagged verify-Chrome launch, check WHO owns port 9222 (`ps` / `lsof`) — a STALE Playwright
+   Chrome (~/Playwright_Chrome_data) can hold the port WITHOUT the occlusion flags; the flagged
+   launch silently doesn't bind and the MCP attaches to the buried stale window (rAF frozen —
+   the U2 trap wearing a new coat, cost ~20 min in U5). And: Playwright `evaluate` starts only
+   POST-load — dev-local streams finish first, so construction-relative metrics (stream order,
+   time-to-first-tile) need IN-PAGE probes injected before load (the `u5Mark` idiom), never
+   evaluate-side timing.
+   — check: the browser-verify recipe (wherever it lives) names the 9222-ownership check; any
+   load-order/latency claim in DECISIONS since baseline cites an in-page probe, not evaluate
+   timing.
+   — anchor: DECISIONS 2026-08-18g TRAP; NEXT_SESSION_PROMPT verify recipe.

@@ -1,6 +1,6 @@
 # AUDIT #2 charter — whole-project expansion-readiness (owner order 2026-08-18j)
 
-**Status: SCHEDULED — next session runs it. The UPLIFT ladder is PARKED until this
+**Status: DONE 2026-08-18k — ran as chartered; report `audits/audit-full-2026-08-18.md`, log [[project/wip-2026-08-18-audit2]]; 8 fix slices queued. The UPLIFT ladder is PARKED until this
 audit/refactor/improve intermediate phase ends** (durable parked-state twin: UPLIFT_PLAN
 status block + DECISIONS 2026-08-18j; resume order U6 foveation → U7 terrain → U8 heights →
 P8/P9 → M4; T1 real-device gate unchanged).

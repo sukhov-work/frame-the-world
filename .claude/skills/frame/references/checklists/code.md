@@ -8,7 +8,8 @@ TOC: 1 client:only · 2 worker decode · 3 float32 ECEF · 4 heightAt clamp · 5
 additive · 6 color-space traps · 7 tuning contract · 8 shared building material · 9 store seams ·
 10 per-frame writes · 11 lazy contract · 12 contract strings · 13 degrade visibility ·
 14 hidden-attr CSS · 15 frame-loop budgets · 16 dead/duplicated code · 17 instanced-mesh lifecycle ·
-18 CSS containing-block traps · 19 FPV disabled-controls invariants
+18 CSS containing-block traps · 19 FPV disabled-controls invariants · 20 mirror-never-seats ·
+21 raw-focusHit pan math · 22 3d-tiles-renderer version-coupled internals
 
 1. The globe island is never SSR'd (C4): every GlobeCanvas mount is `client:only="react"`; no
    three/globe import is reachable from .astro frontmatter server code.
@@ -121,3 +122,32 @@ additive · 6 color-space traps · 7 tuning contract · 8 shared building materi
     present; walk offset is a Vector3 integrated at key time.
     — anchor: DECISIONS §Traps "GlobeControls.update() skips near/far" (S2); 2026-08-11
     fpv-walk-orbit fix (mem:bugs/fpv-walk-orbit).
+20. Mirror-never-seats (appended 2026-08-18, audit #2 re-mine): a panel/store MIRROR (low-cadence,
+    quantized, lifecycle-gated — e.g. the plan-store anchor: `PLAN.mirrorEveryFrames` ≈ 5 Hz,
+    focus quantized 0.05°, `!build && !open → return` strands the last value) is NEVER a per-frame
+    geometric seat — per-frame GL geometry resolves its anchor LIVE at orchestrator level (photo
+    placement > tempPin > THIS-frame `_focus`). Deadbands may gate EXPENSIVE recompute (the ~145
+    ephemeris calls), never the geometric seat write — the U4 cone seat riding the 0.02° ephemeris
+    deadband lagged ~2 km behind the camera.
+    — check: grep scene modules' step*/frame paths for plan/find/panel store reads used as
+    positions/anchors → each is a readout mirror or cites its live resolve.
+    — anchor: DECISIONS 2026-08-18h (aim-cone lag + stranded FPV anchor); 2026-08-18f
+    (deadband-seat browser-caught bug).
+21. Raw-focusHit pan math (appended 2026-08-18, audit #2 re-mine): camera pan/reframe deltas
+    subtract the RAW `focusHit`, never `_focus`, anywhere a focus-lock can be active — the
+    temp-pin focus-lock overrides `_focus` to the pin, zeroing the delta (the centerOnly flight
+    degenerated to a rotate-in-place, tilt +19.7°).
+    — check: read `_focus` consumers in StylizedTiles camera/pan/flight paths → each names
+    whether it needs the locked focus or the raw hit.
+    — anchor: DECISIONS 2026-08-18i (centerOnly pose-preserving pan, probe-caught).
+22. 3d-tiles-renderer version-coupled internals (appended 2026-08-18, audit #2 re-mine): on the
+    installed 0.4.28, tile fields live on `traversal.*`/`internal.*` (pre-0.4 `__dunder`s are
+    GONE); queue comparator contract is "return 1 ⇒ a runs FIRST" (items.sort then pop) and
+    comparators stay TOTAL over non-tile items (processNodeQueue reads
+    `downloadQueue.priorityCallback` dynamically); `loadAncestors=false` ALONE flips a renderer
+    onto `distancePriorityCallback`. Any lib upgrade re-verifies these against the installed
+    source, not docs.
+    — check: grep `traversal\.` / `\.internal\.` / `priorityCallback` sites in src/ → each cites
+    the 0.4.28 contract; comparator tests cover non-tile items.
+    — anchor: DECISIONS 2026-08-18g (source-verified library facts);
+    mem:project/wip-2026-08-18-u5-loading crib.

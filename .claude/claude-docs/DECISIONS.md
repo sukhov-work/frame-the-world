@@ -251,6 +251,47 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 New work appends a dated line here. *(Marker moved to the top 2026-08-13 — it had drifted mid-list
 since 2026-08-03; a move is not an edit (compaction precedent). Audit finding D2.)*
 
+- **2026-08-18k-audit2 (AUDIT #2 SHIPPED — whole-project expansion-readiness per owner order
+  2026-08-18j; /frame Audit mode, tier Deep, READ-ONLY on src/+docs; report =
+  `audits/audit-full-2026-08-18.md`.)** 4 parallel track finders (A code · B platform · C tests ·
+  D docs/memory) + main-agent Tracks E (mechanical) and NEW F (harness, charter dim 4);
+  verification pass **34 findings confirmed / 0 deleted** (FP ratchet 0%; B-4 reclassified as
+  audit-1-B7 partial-fix status check). Gates: vitest 989/989 · astro 0 err/5 hints (= baseline) ·
+  bundle 30 MB (= 33 − enriched-sample move) · prod npm-audit 9 (= baseline) · jscpd src 1.89% ·
+  public/ 0 unreferenced. **TWO MAJORS: A1** — `scene/aimCones.ts:293` U4 terrain seat is the ONE
+  unclamped `heightAt` consumer repo-wide (snap-then-ease retains coarse-LOD garbage; the audit-1
+  Pins class again) · **B1** — `astro.config.mjs:39` `checkOrigin:false` has disabled Astro's CSRF
+  origin check on all cookie-authed write routes since the Phase-1 scaffold with NO documented
+  sanction (exploitability UNVERIFIED — Wix cookie SameSite unreachable locally; fix = trial
+  `checkOrigin:true` + a dated ruling either way). 22 MINOR — dominated by doc/memory currency
+  debt from the 31-entry burst: DECISIONS compaction **round 3 DUE** (hot file 206 KB, 71%
+  closed-era verbatim; density now DEFEATS the boot hook's read instruction = harness finding F1) ·
+  ARCHITECTURE §4/§7 nine files behind · PLANNING_QOL + GUIDE plans era-closed → archive ·
+  conventions stale ×4 files (naming "real six"/phantom Listings, testing beforeInsert,
+  globe-tuning counts) · contracts §3 misses the u5/u5Mark/emaMs/hitchCount/map2d/fpv sub-seams ·
+  3 stale always-offered memories (system-overview Listings, core:178 ground-pipeline claim) ·
+  verify recipe not runnable anywhere (F2 → propose `scripts/verify-chrome.mjs` +
+  `conventions/verify.md`) · ship-hook stale-branch leak + SHIP_ATTENTION write race observed
+  LIVE this session (F3). Clean: **C6 hop-trace PASS ×2 audits running** (incl. U3–U5 surfaces,
+  zero egress probes) · T24 re-verified with formula extension (`set:html` in guide.astro is
+  static+escaped; `/_server-islands/` route registered but zero components) · append-only ledger
+  PROVEN (per-commit deleted-line probe; r2 byte-identical 162/163) · orchestrator
+  HOLDING-MARGINAL (3,833 ln / 49 steps, +570 ln in 3 days; extraction ladder named:
+  DEV-introspection ~200 ln + quality fan-out ~90 ln LOW-risk first → zoom-bank → FocusFrame →
+  FPV controller ≈950 ln/25%; strangler = the attach-module idiom, one family per session) · U5
+  lru/caps idiom ×3 = restraint-now with named seam `captureTileDefaults/applyTileTier` (T29) ·
+  scene-test ruling RE-AFFIRMED narrowed: "pure islands exported/extracted + tested; attach/GL
+  structure = browser tier" (to be codified in testing-standards, C1 — both owner-caught U4 bugs
+  sat in that layer; the cheap guard is the C2 static-fence family). Step-2 re-mine applied
+  PRE-tracks (dated): code.md items 20–22 (mirror-never-seats · raw-focusHit · 0.4.28 internals) +
+  tests.md item 9 (CDP 9222/evaluate) + item-7 suite baseline re-dated (1.93–2.73 s @989,
+  2026-08-18). 8 fix slices ordered in the report §Fix-session (1 = A1, 2 = B1 trial, 3 =
+  compaction r3 + docs, 4 = conventions, 5 = dead-code, 6 = test fences + backlog rows T28–T31,
+  7 = harness scripts/hooks, 8 = owner calls). Ship diff = checklists + report + this record only
+  (audit purity PASS). Boot note: resolved SHIP_ATTENTION ×2 (the 12:58 file at boot; its 15:32
+  race-recreation mid-session), deleted the tree-proven 08-13 ship branch, left the
+  proof-failing M1-era one for F3's prune mechanism. Memory: `mem:project/wip-2026-08-18-audit2`.
+
 - **2026-08-18j-park-audit2 (owner order: PARK the ladder, schedule AUDIT #2 — whole-project
   expansion-readiness).** Before any further UX/features/rendering/height/meshes work the
   owner wants the project verified ready for expansion on four dimensions — documentation,
