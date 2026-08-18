@@ -66,6 +66,39 @@ export function queueCapsForTier(
   return tier === "high" ? null : caps[tier];
 }
 
+/** Per-tier foveated-loading levers (UPLIFT U6, owner point 8 — mobile-first). `null` on `high`:
+ *  foveation is a weak-device budget re-allocation (spend tile detail where the user looks), and
+ *  the byte-identical invariant keeps a capable machine untouched. Lives in `QUALITY.tiers`. */
+export interface FoveationTierCfg {
+  /** Fovea ray reach along the FPV look vector (metres). Also the range CAP: a three.js Ray is
+   *  infinite, and an uncapped RayRegion pierces the globe — tiles beyond the horizon (and on
+   *  the exit side) would refine off-camera. scene/tileFoveation.ts enforces it. */
+  rayRangeM: number;
+  /** Omnidirectional detail bubble around the eye (metres) — quick turns stay sharp. */
+  eyeRadiusM: number;
+  /** Base errorTarget multiplier while foveated: the PERIPHERY rides base×factor (softer), the
+   *  regions pay full detail back at the fovea. ≥ 1. Buildings + enriched only — the ground's
+   *  errorTarget seats `heightAt` (buildings, frustum, FPV anchor) and is never relaxed. */
+  peripheryFactor: number;
+}
+
+/**
+ * The periphery screen-space errorTarget while foveation is engaged (UPLIFT U6). LoadRegionPlugin
+ * regions can only TIGHTEN detail (the library merges `max(cameraError, regionError)` — a region
+ * never relaxes below the camera-driven SSE), so the perf win comes from RELAXING the base target
+ * while FPV is foveated; the fovea ray + eye bubble then restore full detail where the user looks.
+ * Off (not in FPV, or the tier has `foveation: null`) → the tier base, unchanged — orbit/2D and
+ * the `high` tier are byte-identical to pre-U6. Pure → unit-tested.
+ */
+export function peripheryErrorTarget(
+  baseErrorTarget: number,
+  cfg: FoveationTierCfg | null,
+  foveaOn: boolean,
+): number {
+  if (!foveaOn || cfg === null) return baseErrorTarget;
+  return Math.round(baseErrorTarget * cfg.peripheryFactor);
+}
+
 // GPU-family heuristics. Deliberately conservative: an unknown string falls through to `mid`, and
 // the runtime governor is the real backstop — this only sets a sane STARTING tier so the first
 // seconds aren't jank while the governor settles. Strings come from WEBGL_debug_renderer_info.

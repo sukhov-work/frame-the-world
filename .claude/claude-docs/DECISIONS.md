@@ -302,6 +302,49 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 New work appends a dated line here. *(Marker moved to the top 2026-08-13 — it had drifted mid-list
 since 2026-08-03; a move is not an edit (compaction precedent). Audit finding D2.)*
 
+- **2026-08-18o-u6-foveation+u7-terrain-audit:** **U6 SHIPPED** (owner point 8, mobile-first) —
+  LoadRegionPlugin foveation per buildings/enriched/ground renderer: range-capped
+  `RangedRayRegion` along the FPV look + eye `SphereRegion`, updated in `stepViewFocus` beside
+  the U5 aim (one seam); tier lever `QUALITY.tiers[tier].foveation` (null on high = the
+  byte-identical invariant carries "desktop unchanged"; mid 1400/160 m ×1.5, low 900/110 m ×1.6);
+  region errorTargets are GEOMETRIC-ERROR METRES (`FOVEATION.regionErrorTargetM` 8/4/2 —
+  0.4.28 source: refine while geometricError > regionET, distance-independent, max-merge with
+  camera error ⇒ regions only TIGHTEN, so the periphery win rides the BASE errorTarget via pure
+  `quality.peripheryErrorTarget`; GROUND's base NEVER relaxes — it seats heightAt — ground gets
+  additive regions only); regions authored group-local via `group.matrixWorldInverse` (enriched
+  seat lift handled). Files: `lib/globe/quality.ts` (+FoveationTierCfg/peripheryErrorTarget) ·
+  `tuning.ts` (FOVEATION + tiers.foveation) · NEW `scene/tileFoveation.ts` ·
+  buildings/enrichedBuildings/imageryGround (setFoveation/setFoveaActive/setFoveaPose/
+  foveaSnapshot; base-ET one-writer recompute) · StylizedTiles (fan-out + boundary flip + pose +
+  DEV `__globe.u6()`) · quality.test.ts (+9). **Found en route:** upstream 0.4.28
+  ImageOverlayPlugin `tile-visibility-change` reads `tileInfo.get(tile).range` UNGUARDED
+  (:230) — tile disposed mid-fade TypeErrors on fade-complete; U6 region flips hit it reliably;
+  guarded listener swap shipped in imageryGround.ts (T33, re-verify on bump) · pre-existing
+  planner.ts:76 Observer elevation has no ceiling (astronomy-engine throws >100 km; /m
+  browser-caught, non-fatal via B26 logger) → T32 · T29 extraction trigger FIRED (all three
+  modules touched + a 4th repeated pattern) — deferred to its own slice. **Verified:** gates
+  1,022/1,022 vitest (+9) · astro 0 err/5 hints · browser BOTH shells (CDP-attach to the
+  owner's :9222 Chrome; OS-occlusion rAF-freeze twice defeated via CDP window raise + in-page
+  rAF assertions): high orbit byte-identical (cfg null, base 16) · mid FPV engaged ×3 (base
+  24→36, ground base untouched at ramp, aim k=1.5 composing) · boundary matrix enter/exit/
+  tier-flap ×4 mid-FPV clean, zero overlay TypeErrors post-guard · steady-state foveated FPV
+  0 hitches/8 s, EMA 16.7 ms, 60 fps, queues drained · /m 2D boot off → FPV engaged → exit
+  lands 2D disengaged (parked governor step applied at exit, correct) · warm-cache
+  firstAfterMark at mid-FPV entry: enriched ~185–221 ms, ground ~528–624 ms, buildings
+  ~1,129–1,268 ms (local saturates — cold-network/weak-device feel rides T1, incl. periphery
+  softness taste §4 Q3). Shots `verify-shots/u6-01..03`. **U7 AUDIT DONE** (owner point 9) —
+  measured: CWT over Dnipro = max L13, leaf meshes 4-VERTEX QUADS city-wide (9/9 tiles; L10=9v;
+  Interlaken 1,250v / Warsaw 489 / Berlin 668 / Rotterdam 451 vs Kyiv/Kharkiv/Lviv/Odesa/
+  Rostov/Minsk ALL 4v — the fine source ends at the EU-DEM/EEA39 border) ⇒ ≈2 km effective
+  posting, +13…58 m landmark errors vs SRTM30, R6's "SRTM 30 m ceiling" optimistic by ~50×;
+  app `heightAt` 120.4 m == a decoded quad corner (exact — rendered terrain IS these quads).
+  Source scan (web scout, cited): GLO-30 free+commercial = the step-change; FABDEM
+  licence-blocked; WorldDEM Neo 5 m ≈$3.5–5.5k/400 km² archive; Maxar ≈$16k; UA state geodata
+  closed under martial law (C6). **Decision memo → UPLIFT_PLAN Appendix A**; owner calls OPEN
+  non-blocking (GLO-30 bake approval [default yes, after U8] · Neo purchase [defer] · C6 patch
+  precision [30 m native] · Esri imagery licence rider [carried]). Next slice: U8 height
+  overrides. Memory `mem:project/wip-2026-08-18-u6-foveation`; globe-tuning.md +LoadRegion/
+  overlay traps; backlog +T32/T33, T29 re-dated.
 - **2026-08-18n-unpark-uplift (owner ruling):** *"fully ready to unpark main uplift plan and
   proceed with U6 and U7"* — the audit-2 fix phase is CLOSED (slice 8's phase-done call answered;
   remaining slice-8 riders stay open as ordinary tails: B1 canary on next release · T28/T29 ·

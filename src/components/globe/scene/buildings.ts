@@ -5,7 +5,12 @@ import { GLTFExtensionsPlugin } from "3d-tiles-renderer/three/plugins";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { buildingNightFactor } from "../../../lib/globe/buildingNight";
-import { lruFloorBytesForCap, type QueueCaps } from "../../../lib/globe/quality";
+import {
+  lruFloorBytesForCap,
+  peripheryErrorTarget,
+  type FoveationTierCfg,
+  type QueueCaps,
+} from "../../../lib/globe/quality";
 import { makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
 import {
   bboxClipPrismEcef,
@@ -13,9 +18,10 @@ import {
   bboxToRadians,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
-import { BUILDINGS, EARTH, LOADING, TILESETS } from "../tuning";
+import { BUILDINGS, EARTH, FOVEATION, LOADING, TILESETS } from "../tuning";
 import { createBuildingMaterials } from "./buildingMaterial";
 import { makeTileCenterReader } from "./tilePriority";
+import { makeTileFoveation } from "./tileFoveation";
 
 /**
  * OSM building tiles (Cesium ion, TILESETS.ionAssetId) restyled to the design-board building idiom
@@ -49,6 +55,16 @@ export interface BuildingsHandle {
    *  caps this renderer's own LRU byte budget (already resolved by `lruCapBytesForTier` — `null` =
    *  restore the captured library default, the `high`-tier byte-identical path). */
   setQualityTier(errorTarget: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
+  /** UPLIFT U6: per-tier foveation config (QUALITY.tiers[tier].foveation; null = off — the
+   *  `high` tier and orbit/2D stay byte-identical). Applied at the next boundary/pose. */
+  setFoveation(cfg: FoveationTierCfg | null): void;
+  /** UPLIFT U6: FPV boundary flip — ON adds the fovea ray + eye bubble and relaxes the BASE
+   *  errorTarget to the periphery value; OFF clears the regions and restores the tier base. */
+  setFoveaActive(on: boolean): void;
+  /** UPLIFT U6: per-frame WORLD eye + unit look while foveated (no-op otherwise). */
+  setFoveaPose(eyeWorld: THREE.Vector3, fwdWorld: THREE.Vector3): void;
+  /** DEV probe (__globe.u6()). */
+  foveaSnapshot(): { engaged: boolean; baseErrorTarget: number };
   /** /m 2D map mode (UPLIFT U1): `false` DETACHES the tileset — the group leaves the scene
    *  graph (render + every raycast, incl. GlobeControls' whole-scene pivot cast) and `update()`
    *  freezes, so traversal/download/parse stop entirely. Loaded tiles stay in the LRU, so
@@ -114,6 +130,18 @@ export function attachBuildings(
   tiles.registerPlugin(
     new GLTFExtensionsPlugin({ dracoLoader: draco, meshoptDecoder: MeshoptDecoder }),
   );
+  // U6 foveated FPV loading: regions only ever TIGHTEN detail inside the fovea (max-error merge);
+  // the periphery win rides the base errorTarget via peripheryErrorTarget. Empty regions == no-op.
+  const fovea = makeTileFoveation(tiles, FOVEATION.regionErrorTargetM.buildings);
+  tiles.registerPlugin(fovea.plugin);
+  // The base (periphery) errorTarget is a pure function of (tier value, fov cfg, fov on) — one
+  // writer, recomputed on every input change, so tier flips mid-FPV and boundary flips compose.
+  let tierErrorTarget = tiles.errorTarget;
+  let fovCfg: FoveationTierCfg | null = null;
+  let fovOn = false;
+  const applyErrorTarget = () => {
+    tiles.errorTarget = peripheryErrorTarget(tierErrorTarget, fovCfg, fovOn);
+  };
 
   // Dnipro 3D enrichment (Slice 0): when an enriched buildings tileset is active, MASK the global
   // Cesium OSM Buildings inside its bbox so the enriched set REPLACES them (doesn't overlay). The
@@ -280,11 +308,28 @@ export function attachBuildings(
       }
     },
     setQualityTier(errorTarget, lruCapBytes, queueCaps) {
-      tiles.errorTarget = errorTarget;
+      tierErrorTarget = errorTarget; // U6: base recomputes through the periphery rule
+      applyErrorTarget();
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
       tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5: null → captured default
       tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
+    },
+    setFoveation(cfg) {
+      fovCfg = cfg;
+      fovea.configure(cfg);
+      applyErrorTarget();
+    },
+    setFoveaActive(on) {
+      fovOn = on;
+      fovea.setActive(on);
+      applyErrorTarget();
+    },
+    setFoveaPose(eyeWorld, fwdWorld) {
+      fovea.setPose(eyeWorld, fwdWorld);
+    },
+    foveaSnapshot() {
+      return { ...fovea.snapshot(), baseErrorTarget: tiles.errorTarget };
     },
     setNight(sunElevSin, up) {
       uFtwNight.value = buildingNightFactor(sunElevSin, EARTH.lightsBand);

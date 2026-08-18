@@ -435,6 +435,9 @@ export const QUALITY = {
       buildingErrorTarget: 16,
       vectorLatticeBudget: 8,
       maxStreetNames: 40,
+      /** U6: foveation OFF on high — byte-identical invariant; desktop unchanged (owner point 8
+       *  is mobile-first; enable per tier here if a desktop trial is ever wanted). */
+      foveation: null,
     },
     mid: {
       dprCap: 1.5,
@@ -446,6 +449,9 @@ export const QUALITY = {
       buildingErrorTarget: 24,
       vectorLatticeBudget: 5,
       maxStreetNames: 28,
+      /** U6 foveated FPV loading (see tuning.FOVEATION for the shared region errorTargets).
+       *  First-guess radii — judged on device with the owner (T1), like fpvBiasK. */
+      foveation: { rayRangeM: 1400, eyeRadiusM: 160, peripheryFactor: 1.5 },
     },
     low: {
       dprCap: 1.25,
@@ -457,6 +463,8 @@ export const QUALITY = {
       buildingErrorTarget: 40,
       vectorLatticeBudget: 3,
       maxStreetNames: 16,
+      /** U6: tighter reach + softer periphery than mid — the weakest devices trade the most. */
+      foveation: { rayRangeM: 900, eyeRadiusM: 110, peripheryFactor: 1.6 },
     },
   },
 } as const;
@@ -491,6 +499,26 @@ export const LOADING = {
   },
   /** Latency-probe ring length (last N download→model dts kept per renderer, DEV seam u5()). */
   latencyRing: 32,
+} as const;
+
+/** UPLIFT U6 — foveated tile loading (owner point 8, mobile-first, 2026-08-18). Spend tile
+ *  detail where the user LOOKS: in FPV each renderer gets a LoadRegionPlugin with a range-capped
+ *  RayRegion along the look vector (the fovea) + a SphereRegion around the eye (quick turns),
+ *  while buildings/enriched relax their BASE errorTarget (the periphery softens); the ground's
+ *  base is NEVER relaxed — heightAt seats buildings/frustum/FPV on it. 0.4.28 source-verified:
+ *  a region's errorTarget is in GEOMETRIC-ERROR METRES, distance-independent — traversal refines
+ *  while tile.geometricError > region.errorTarget (calculateError = geometricError − regionET +
+ *  baseET, LoadRegionPlugin.js; merge with camera error = max, TilesRendererBase.js) — so
+ *  regions only ever ADD detail, and an empty regions list is a no-op (orbit/2D/high pay
+ *  nothing). SELECTION only — shading, the U5 queue order, loadAncestors and the OSM mask are
+ *  untouched. Per-tier radii/periphery live in QUALITY.tiers[tier].foveation (null on high). */
+export const FOVEATION = {
+  /** Per-renderer region errorTarget (GEOMETRIC-ERROR METRES — not screen-space). Sit just
+   *  above each tileset's leaf GE so the fovea refines to (near-)leaf and stops: OSM building
+   *  leaves are city-block scale, the enriched bake's cells are shallow (root → ~1 km leaves),
+   *  CWT leaf GE over the enriched city ≈ 7 m (measured, U7 2026-08-18). First-guess values —
+   *  A/B on device (T1). */
+  regionErrorTargetM: { buildings: 8, enriched: 4, ground: 2 },
 } as const;
 
 /** Default "spacecraft in LEO" pose (PROJECT_SEED §2) — camera SW of Dnipro aimed past it toward

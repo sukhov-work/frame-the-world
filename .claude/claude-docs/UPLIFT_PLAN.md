@@ -8,10 +8,14 @@ browser-verified; the shared real-device pass rides T1 and stays each slice's ex
 
 **UN-PARKED 2026-08-18n (owner order: "fully ready to unpark … proceed with U6 and U7") —
 the AUDIT #2 fix phase closed same day (slices 1–7 shipped, DECISIONS 2026-08-18l/m; gates
-1,013/1,013). ACTIVE order: U6 foveation → U7 terrain audit (Esri licensed-source decision
-rides it) → U8 height overrides → then P8 conjunctions + P9 lunar eclipses
-(IMPLEMENTATION_PLAN §Phase 8) + M4 mobile resume. T1 real-device exit gate unchanged and
-still owner-present.** *(Historical: PARKED 2026-08-18j for the audit/fix intermediate phase.)* Originally AUTHORED 2026-08-17 (design session; P7 meteors
+1,013/1,013). U6 SHIPPED + U7 AUDIT DONE 2026-08-18o (same session): U6 foveated loading
+browser-verified both shells (gates 1,022/1,022); U7 measured CWT over Dnipro = L13 max /
+4-VERTEX leaf quads (≈2 km effective posting — NOT the assumed SRTM 30 m) — decision memo in
+**Appendix A**, owner calls (GLO-30 bake approval · WorldDEM Neo purchase · C6 patch
+precision · Esri imagery licence rider) OPEN, defaults attached. ACTIVE order: U8 height
+overrides → then P8 conjunctions + P9 lunar eclipses (IMPLEMENTATION_PLAN §Phase 8) + M4
+mobile resume; the U7 GLO-30 bake slice schedules on owner approval. T1 real-device exit gate
+unchanged and still owner-present.** *(Historical: PARKED 2026-08-18j for the audit/fix intermediate phase.)* Originally AUTHORED 2026-08-17 (design session; P7 meteors
 shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both
 performance and stability; 10 points below, "in order of urgency and criticality", to be churned
@@ -308,6 +312,23 @@ own EMA + a tile-latency probe before/after.
 FPV walk, phone viewport); no visual regression at rest; tunables documented in tuning.ts.
 
 ### U6 — Foveated rendering + perf tricks · point 8 (mobile-first)
+**SHIPPED 2026-08-18o** (DECISIONS 2026-08-18o · `mem:project/wip-2026-08-18-u6-foveation`) —
+as sketched, with five implementation rulings: (1) foveation is a TIER lever —
+`QUALITY.tiers[tier].foveation`, null on `high` (byte-identical invariant = "desktop unchanged"
+for free; mid/low carry radii + peripheryFactor); (2) region errorTargets are GEOMETRIC-ERROR
+METRES (0.4.28 source: refine while `geometricError > region.errorTarget`, distance-independent)
+— per-renderer values in `tuning.FOVEATION.regionErrorTargetM`; (3) regions only TIGHTEN
+(max-merge with camera error), so the periphery win rides the BASE errorTarget
+(`quality.peripheryErrorTarget`, buildings+enriched only — GROUND's base is never relaxed, it
+seats `heightAt`; ground gets additive regions only); (4) the fovea ray is RANGE-CAPPED
+(`scene/tileFoveation.RangedRayRegion` — a stock RayRegion is infinite and force-loads through
+the planet) with `calculateDistance` overridden so fovea tiles queue near-first; (5) regions are
+authored in the tiles-GROUP frame via `group.matrixWorldInverse` (identity for buildings/ground;
+the enriched seat lift handled by the same transform). Composes with U5 in the same
+`stepViewFocus` seam. Found + guarded en route: upstream ImageOverlayPlugin unguarded
+`tile-visibility-change` (T33); pre-existing planner Observer no-ceiling (T32). Verified:
+boundary matrix (enter/exit/tier-flap mid-FPV ×4) clean, steady-state foveated FPV 0 hitches/8 s
+EMA 16.7 ms, both shells; local warm-cache numbers only — feel + cold-network ride T1.
 **Scope.** Spend detail where the user looks: FPV gets a `RayRegion` along the look vector with
 a tight errorTarget + a `SphereRegion` around the eye; periphery rides a relaxed base
 errorTarget. Stretch (desktop-low-prio): DPR/resolution foveation via the composer.
@@ -320,6 +341,12 @@ construction; periphery honesty = the owner's explicit trade to test on device.
 regressions at the fovea; desktop unchanged unless enabled per tier.
 
 ### U7 — Terrain precision audit (Dnipro) · point 9
+**AUDIT DONE 2026-08-18o** — measured + sourced; decision memo in **Appendix A** (owner calls
+open, defaults attached). Headline: CWT over Dnipro tops out at **L13 with 4-vertex leaf
+quads** (≈2 km effective posting, +13…58 m landmark errors vs SRTM30) — the whole UA/BY/RU
+region is served km-class terrain while EU cities get 450–1,250-vertex meshes; the R6 "SRTM
+30 m ceiling" assumption was optimistic by ~50×. A free Copernicus GLO-30 self-baked patch is
+therefore a step-change, not a marginal, uplift. The bake slice schedules on owner approval.
 **Scope.** Establish what CWT actually delivers over Dnipro, whether better data exists, and
 whether we self-host a Dnipro terrain patch (the R2 bake precedent).
 **Sketch.** (a) Measure: read layer.json max level + sample a tile over the city; cross-check
@@ -387,6 +414,13 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
    research). Default: yes, enriched-only.
 
 ## 5. Decision log (append-only)
+- 2026-08-18o · U6 shipped + U7 audit done (see the slice headers + Appendix A). New tunables:
+  `FOVEATION` block + `QUALITY.tiers.*.foveation` (null on high); new pure
+  `quality.peripheryErrorTarget` + `FoveationTierCfg`; new scene adapter
+  `scene/tileFoveation.ts` (RangedRayRegion + eye SphereRegion per renderer); module handles
+  gain `setFoveation/setFoveaActive/setFoveaPose/foveaSnapshot`; DEV seam `__globe.u6()`.
+  Upstream overlay-plugin bug guarded (T33); planner Observer ceiling filed (T32); T29
+  extraction trigger fired, deferred to its own slice.
 - 2026-08-18f · U4 shipped (see the slice header). New tunables block AIMCONES; new pure
   `lib/ephemeris/azSector.ts` (wrap180's shared home); aim prefs `aimTarget/aimSun/aimMoon`
   (default ON) + session `aimFocus`; `∠ DIRECTION` row in the shared sky menu. v1 horizon-only —
@@ -431,3 +465,61 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
   uDpr on tier change. Soak trap for the record: an OCCLUDED headful CDP Chrome stops rAF
   entirely (visibilityState hidden) — assert rAF ticks in every probe or "zero jumps" passes
   vacuously; launch with --disable-backgrounding-occluded-windows.
+
+---
+
+## Appendix A — U7 terrain-precision decision memo (Dnipro), 2026-08-18
+
+### Measured (direct probes of ion asset 1 "Cesium World Terrain" v1.2.0, quantized-mesh)
+- **Max level over Dnipro = 13.** layer.json `available[]` excludes the city at L14/L15; direct
+  tile GETs return 200 at L12/L13 and 404 at L14/L15; the L10 ancestor's embedded
+  metadata-extension availability subtree terminates at L13. (Tiling arithmetic: an L13
+  geodetic tile there spans ≈2.4 × 1.6 km.)
+- **The served meshes are 4-VERTEX QUADS city-wide.** All 9 sampled L13 tiles across the city
+  decode to exactly 4 vertices (~272 B); the L12 tile has 8, the L10 ancestor 9 (+64 KB
+  watermask). Effective terrain = one bilinear quad per ~2 × 1.6 km — **km-class posting, not
+  the "SRTM 30 m ceiling" the enrichment plan assumed (R6): optimistic by ~50×.**
+- **Controls prove it's a source boundary, not mesher thrift:** Interlaken L13 = 1,250 verts,
+  Warsaw 489, Berlin 668, Rotterdam 451 (flat cities!) — while Kyiv, Kharkiv, Lviv, Odesa,
+  Rostov-on-Don and Minsk are ALL 4-vertex. CWT's fine European source (EU-DEM, EEA39 extent)
+  stops at the EU border; over UA the fallback is far coarser than SRTM.
+- **Landmark errors vs SRTM30** (AWS terrarium z13): Dnipro river surface **+33…37 m** (CWT says
+  ~88–94 m where the river is ~51–57 m), station square +22, Topol plateau +20, left bank +21,
+  balka mid-slope **+58**, Soborna −13.
+- **Runtime cross-check closes the loop:** the app's own `heightAt` at the U6 verify pin
+  returned 120.4 m — byte-equal to one decoded corner of the containing L13 quad. What we
+  render IS these quads (and every building/frustum/FPV seat rides them).
+
+### Sources (scout table — full citations in the session's agent report / wip memory)
+| Source | Res | Licence | Fit |
+|---|---|---|---|
+| **Copernicus GLO-30** | 30 m DSM, <4 m LE90 | free incl. commercial (attribution) | **the free step-change**; AWS S3 open bucket; EGM2008→ellipsoid shift needed |
+| SRTM v3 / NASADEM | 30 m | public domain | strictly worse than GLO-30 over UA |
+| ALOS AW3D30 v4.1 | 30 m DSM | free + attribution | optical canopy bias; GLO-30 void-fill anyway |
+| FABDEM v1-2 | 30 m DTM-ish | **CC BY-NC-SA — licence-blocked** (commercial via Fathom quote) | best bare-earth if ever licensed |
+| TanDEM-X EDEM | 30 m | science-only | blocked |
+| **WorldDEM Neo** | 5 m DSM/DTM | commercial, archive (pre-war acquisition) | ≈$3.5k DSM / $5.5k DSM+DTM L1 per 400 km²; the meaningful paid step |
+| Maxar Precision3D-class | 0.5–5 m | commercial, feasibility-gated | ≈$16k; overkill unless sub-metre grounding becomes a product claim |
+| UA state (Derzhgeokadastr/NSDI) | — | **closed under martial law** (Res. 564/263) | do not pursue (C6) |
+
+### Recommendation
+1. **Bake a GLO-30 quantized-mesh patch for the 20×20 km enriched bbox onto R2** (same
+   QuantizedMeshPlugin path as CWT; maintained tool: Gaia3D `mago-3d-terrainer` (MPL-2.0,
+   active 2026); alternatives: `ctb-quantized-mesh` docker, `CTOD`). ~50× effective-resolution
+   uplift at zero licence cost — this also shrinks the U2/A5 re-seat surface and gives U8 its
+   "ground zero" reference. Engineering note: one terrain provider at a time → composite the
+   patch over the surrounding CWT levels in the bake's layer.json.
+2. Judge the 5 m question (WorldDEM Neo, ~$5.5k DSM+DTM) only AFTER GLO-30 is in-scene.
+3. **C6:** all candidate purchases are pre-war archive collections (never task new collection
+   over the city). Self-hosting a public high-precision patch of a wartime city is a
+   REPUBLICATION decision — GLO-30 is the same class as already-public SRTM (low sensitivity);
+   anything ≤5 m is the owner's explicit call (option: resample the public patch to 10–15 m).
+4. **Esri imagery licence rider (UPLIFT §4 Q2) stays OPEN** — this audit was terrain-scoped;
+   the imagery-source decision (Esri ToS for production) needs its own small pass or owner
+   call; carry it to the GLO-30 bake slice.
+
+### Owner decisions requested (non-blocking; defaults attached)
+1. Approve the GLO-30 bake slice? **Default: yes — schedule after U8.**
+2. WorldDEM Neo purchase? **Default: defer until GLO-30 is judged in-scene.**
+3. C6 public-patch precision? **Default: ship GLO-30 at native 30 m (SRTM-class, already
+   public); any finer patch = explicit owner ruling.**

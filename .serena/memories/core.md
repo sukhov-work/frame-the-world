@@ -110,22 +110,25 @@ stay "frame the world".
   §Recent)** — meteor showers (IMO cal2026) + UPLIFT_PLAN authored · U1 2D-first /m · U2 FPV
   stability ×8 · U3 fullscreen MapWindow + 2D-map batch + crispness + desktop flat-map · U4
   direction lines + aim cones (+2 owner rounds) · U5 closest-first loading. Ladder PARKED after
-  U5 for AUDIT #2 + fix slices; resume U6 foveation. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
+  U5 for AUDIT #2 + fix slices; UN-PARKED 18n → U6 foveation SHIPPED + U7 terrain audit DONE
+  18o (`wip-2026-08-18-u6-foveation` + UPLIFT_PLAN Appendix A); next U8. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
   `wip-2026-08-17-u1-2d-mobile` · `wip-2026-08-17-u2-fpv-stability` · `wip-2026-08-18-u3-2dmap-batch` ·
   `wip-2026-08-18-u4-aim-cones` · `wip-2026-08-18-u5-loading` · `UPLIFT_PLAN.md`.
 - **AUDIT #2 + fix slices (2026-08-18, HOT)** — report `audits/audit-full-2026-08-18.md` ·
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**UPLIFT UN-PARKED (owner ruling 2026-08-18n — fix phase CLOSED; DECISIONS 2026-08-18n).
-NEXT SESSION = U6 foveation** (LoadRegionPlugin RayRegion along FPV look + SphereRegion at eye,
-per-tier radii in QUALITY.tiers, COMPOSE with U5 `loadAim`; cited APIs UPLIFT_PLAN §1.4; DoD =
-measured time-to-sharp-centre + no fovea popping) **then U7 terrain audit** (CWT measure over
-Dnipro · source scan incl. UA/C6-sensitive · decision memo; Esri licence decision rides it) →
-U8 height overrides → P8/P9 → M4. Fix-phase state: slices 1–7 + harness hooks LANDED (PR #55 →
-master 4e42396; gates 1,013/1,013 · astro 0 err/5 hints; DECISIONS 2026-08-18l/m). Open riders:
-B1 checkOrigin canary on next release (T2/T3) · T28/T29 · B4/T30 · T1 owner-present device
-pass. See `NEXT_SESSION_PROMPT.md` (the U6+U7 build brief).
+**U6 SHIPPED + U7 AUDIT DONE 2026-08-18o (DECISIONS top entry; gates 1,022/1,022 · astro
+0 err/5 hints; browser-verified both shells). NEXT SESSION = U8 per-building height override**
+(UPLIFT_PLAN §2/U8 + §1.5 — enriched-only v1, localStorage overrides, fold into
+applyFeatureSeats). **Owner decisions pending from U7** (UPLIFT_PLAN Appendix A, non-blocking,
+defaults attached): GLO-30 bake approval [default yes, after U8] · WorldDEM Neo 5 m purchase
+[defer] · C6 patch precision [30 m native] · Esri imagery licence rider [carried]. U7 headline:
+CWT serves Dnipro 4-VERTEX terrain quads at L13 (~2 km posting, +13…58 m errors — the fine
+source ends at the EU border; R6's "SRTM 30 m" was ~50× optimistic). Open riders: T29
+extraction slice (trigger FIRED with U6) · T32 planner Observer ceiling one-liner · B1
+checkOrigin canary on next release (T2/T3) · T28 · B4/T30 · T1 owner-present device pass (now
+also judges U6 foveation feel). See `NEXT_SESSION_PROMPT.md` (the U8 brief + owner calls).
 
 ## Source layout (as-built; refreshed 2026-08-15)
 Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.

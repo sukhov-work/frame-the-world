@@ -4,11 +4,13 @@ import {
   lruCapBytesForTier,
   lruFloorBytesForCap,
   makeGovernor,
+  peripheryErrorTarget,
   queueCapsForTier,
   TIER_ORDER,
+  type FoveationTierCfg,
   type GovernorConfig,
 } from "../../../src/lib/globe/quality";
-import { LOADING, QUALITY, RENDERER, SHADOWS, GROUND, VECTOR, STREETS } from "../../../src/components/globe/tuning";
+import { FOVEATION, LOADING, QUALITY, RENDERER, SHADOWS, GROUND, VECTOR, STREETS } from "../../../src/components/globe/tuning";
 
 describe("detectDeviceTier", () => {
   it("returns high for a strong GPU with ample memory + cores", () => {
@@ -219,6 +221,9 @@ describe("QUALITY.tiers.high INVARIANT — must equal the pre-pass constants", (
     expect(high.buildingErrorTarget).toBe(16); // 3d-tiles-renderer default errorTarget
     expect(high.lruBytesMB).toBe(400); // LRUCache default maxBytesSize (0.4 GB)
   });
+  it("U6: foveation is OFF on high (null — a capable machine stays byte-identical)", () => {
+    expect(high.foveation).toBeNull();
+  });
   it("degrades monotonically across tiers (each lever eases toward low)", () => {
     const { high: h, mid: m, low: l } = QUALITY.tiers;
     expect(h.dprCap).toBeGreaterThanOrEqual(m.dprCap);
@@ -313,5 +318,59 @@ describe("lruFloorBytesForCap — the U2/A9 min/max pair rule", () => {
       expect(cap).toBeLessThan(LIBRARY_DEFAULT_MIN_BYTES);
       expect(lruFloorBytesForCap(cap)!).toBeLessThan(cap); // the paired floor restores min < max
     }
+  });
+});
+
+describe("peripheryErrorTarget — the U6 foveation base-relax rule", () => {
+  const cfg: FoveationTierCfg = { rayRangeM: 1400, eyeRadiusM: 160, peripheryFactor: 1.5 };
+
+  it("returns the base unchanged while foveation is not engaged (orbit/2D)", () => {
+    expect(peripheryErrorTarget(24, cfg, false)).toBe(24);
+  });
+
+  it("returns the base unchanged when the tier has no foveation cfg (high / disabled)", () => {
+    expect(peripheryErrorTarget(24, null, true)).toBe(24);
+  });
+
+  it("relaxes the base by peripheryFactor (rounded) while engaged", () => {
+    expect(peripheryErrorTarget(24, cfg, true)).toBe(36); // mid buildings 24 × 1.5
+    expect(peripheryErrorTarget(40, { ...cfg, peripheryFactor: 1.6 }, true)).toBe(64); // low × 1.6
+  });
+
+  it("factor 1 is a no-op even while engaged (regions-only mode)", () => {
+    expect(peripheryErrorTarget(24, { ...cfg, peripheryFactor: 1 }, true)).toBe(24);
+  });
+});
+
+describe("FOVEATION + QUALITY.tiers.foveation invariants (U6)", () => {
+  it("mid and low both carry a cfg; positive radii; factor ≥ 1 (never TIGHTENS the periphery)", () => {
+    for (const tier of ["mid", "low"] as const) {
+      const f = QUALITY.tiers[tier].foveation;
+      expect(f).not.toBeNull();
+      expect(f.rayRangeM).toBeGreaterThan(0);
+      expect(f.eyeRadiusM).toBeGreaterThan(0);
+      expect(f.peripheryFactor).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("degrades monotonically: low reaches no further than mid and softens at least as much", () => {
+    const m = QUALITY.tiers.mid.foveation;
+    const l = QUALITY.tiers.low.foveation;
+    expect(l.rayRangeM).toBeLessThanOrEqual(m.rayRangeM);
+    expect(l.eyeRadiusM).toBeLessThanOrEqual(m.eyeRadiusM);
+    expect(l.peripheryFactor).toBeGreaterThanOrEqual(m.peripheryFactor);
+  });
+
+  it("the eye bubble sits inside the fovea reach (the ray extends the bubble, not vice versa)", () => {
+    for (const tier of ["mid", "low"] as const) {
+      const f = QUALITY.tiers[tier].foveation;
+      expect(f.eyeRadiusM).toBeLessThan(f.rayRangeM);
+    }
+  });
+
+  it("region errorTargets are positive geometric-error metres for all three renderers", () => {
+    expect(FOVEATION.regionErrorTargetM.buildings).toBeGreaterThan(0);
+    expect(FOVEATION.regionErrorTargetM.enriched).toBeGreaterThan(0);
+    expect(FOVEATION.regionErrorTargetM.ground).toBeGreaterThan(0);
   });
 });
