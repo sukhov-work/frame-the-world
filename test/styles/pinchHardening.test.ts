@@ -40,6 +40,7 @@ describe("U1 pinch hardening — the audited touch-action leak list", () => {
     ["src/styles/mini-map.css", ".mm", "none"], // FPV mini-map patch
     ["src/styles/sky-menu.css", ".skymenu", "none"], // sky context menu
     ["src/styles/mobile/mobile.css", ".m-status a,", "none"], // status-strip chips
+    ["src/styles/map-window.css", ".mw-canvas", "none"], // U3 fullscreen map (owns its gestures)
   ];
 
   for (const [file, selector, action] of mustDeclare) {

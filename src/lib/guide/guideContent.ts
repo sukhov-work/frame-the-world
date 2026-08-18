@@ -218,7 +218,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Enter first-person view",
         where: {
           desktop: "Double-click the ground, or My spot in the nav",
-          mobile: "◎ LOOK FROM HERE or 🧭 MY LOCATION chips",
+          mobile: "◎ LOOK FROM HERE or 🧭 MY LOC chips",
         },
         steps: [
           "Double-click where you want to stand — the pin drops and you land at eye " +
@@ -754,7 +754,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "mobile-chips",
         title: "Scene chips",
         body:
-          "The right-edge stack adapts to what you are doing: 🧭 MY LOCATION, ◎ LOOK FROM " +
+          "The right-edge stack adapts to what you are doing: 🧭 MY LOC, ◎ LOOK FROM " +
           "HERE, ◎ SAVE VIEW, ▤ SAVED PLACES for members, ✕ CLEAR PIN, ✕ EXIT VIEW. Where a " +
           "detailed city model exists, ▦ 3D DETAIL switches to it (off keeps the lighter " +
           "classic buildings; the page reloads and keeps your view).",

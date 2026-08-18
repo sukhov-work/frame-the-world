@@ -29,6 +29,11 @@ export interface VectorFeaturesHandle {
     sunElevSin: number;
     /** False hides the layer (FPV, welcome…) without dropping the builds. */
     enabled: boolean;
+    /** Flat-map mode (nadir 2D, owner 2026-08-18): ribbons/fills skip the depth test — the
+     *  refining terrain can never slice through them ("ugly clipping"; the 6×6 lattice + 1.5 m
+     *  lift cannot track LOD between knots) — and the night dim stands down (the 2D map is a
+     *  planning chart; unreadable ink at night defeated it). Oblique 3D keeps both. */
+    mapFlat: boolean;
   }): void;
   /** Adaptive quality (RENDERING_QUALITY_PASS WS1): the per-frame terrain-lattice raycast budget
    *  (VECTOR.latticeBudgetPerFrame on `high`; fewer on weaker tiers → less CPU/GC at street level;
@@ -47,6 +52,20 @@ export function nightDimFor(sunElevSin: number): number {
   const t = Math.min(1, Math.max(0, (sunElevSin - -0.12) / (0.05 - -0.12)));
   const s = t * t * (3 - 2 * t);
   return VECTOR.nightDim + (1 - VECTOR.nightDim) * s;
+}
+
+/** Flat-map near-ground ink fade: 1 at/above hiAltM, down to the floor at/below loAltM — at
+ *  street zoom the sharpened imagery carries the detail and full-strength ink covered exactly
+ *  what the owner reads (kerbs, parking). Pure — unit-tested. */
+export function flatNearFade(alt: number): number {
+  const t = Math.min(
+    1,
+    Math.max(
+      0,
+      (alt - VECTOR.flatNearFadeLoAltM) / (VECTOR.flatNearFadeHiAltM - VECTOR.flatNearFadeLoAltM),
+    ),
+  );
+  return VECTOR.flatNearFadeFloor + (1 - VECTOR.flatNearFadeFloor) * t;
 }
 
 /** Ribbon strip for a 2D polyline (local tangent metres): per-vertex averaged directions,
@@ -357,13 +376,21 @@ export function attachVectorFeatures(opts: {
   let frame = 0;
   let refreshCursor = 0;
   let latticeBudgetOverride: number = VECTOR.latticeBudgetPerFrame; // WS1: lowered on weaker tiers
+  let flatApplied = false; // mapFlat depth-test state currently on the materials
 
   return {
-    update({ alt, focusLatDeg, focusLonDeg, sunElevSin, enabled }) {
+    update({ alt, focusLatDeg, focusLonDeg, sunElevSin, enabled, mapFlat }) {
       frame++;
       const presence = enabled ? vectorPresence(alt) : 0;
       group.visible = presence > 0.01;
       if (!group.visible) return;
+      if (mapFlat !== flatApplied) {
+        // Flat-map depth gate (owner 2026-08-18): at nadir the web is pure map ink — depth
+        // testing against the refining terrain only ever CUTS it, never correctly occludes.
+        flatApplied = mapFlat;
+        fillMat.depthTest = !mapFlat;
+        ribbonMat.depthTest = !mapFlat;
+      }
       const ring = alt > VECTOR.ringFarAltM ? VECTOR.ringFar : VECTOR.ringNear;
       opts.vtiles.ensureRing(focusLatDeg, focusLonDeg, ring);
       // Active set = parsed tiles in the ring (+1 margin). Builds OUTSIDE it PERSIST — dropping
@@ -495,9 +522,11 @@ export function attachVectorFeatures(opts: {
           dropBuild(b.key);
         }
       }
-      const dim = nightDimFor(sunElevSin);
-      fillMat.opacity = presence * dim * VECTOR.fillOpacity;
-      ribbonMat.opacity = presence * dim * VECTOR.lineOpacity;
+      // Flat map: the imagery is the map — fills drop to a whisper, ribbons to light ink
+      // (owner 2026-08-18b); 3D keeps the full stylized web over the dark drape.
+      const dim = mapFlat ? flatNearFade(alt) : nightDimFor(sunElevSin);
+      fillMat.opacity = presence * dim * VECTOR.fillOpacity * (mapFlat ? VECTOR.flatFillK : 1);
+      ribbonMat.opacity = presence * dim * VECTOR.lineOpacity * (mapFlat ? VECTOR.flatLineK : 1);
     },
     setLatticeBudget(n) {
       latticeBudgetOverride = Math.max(1, Math.floor(n));

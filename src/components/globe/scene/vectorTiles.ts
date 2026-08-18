@@ -25,9 +25,11 @@ export interface StreetLabelFeat {
   name: string;
   /** Index into STREETS.classPriority (lower = more important). */
   rank: number;
-  /** Tile-local line length (extent units) — the per-name dedupe tiebreak. */
+  /** Tile-local line length (extent units) — the selection tiebreak. */
   lineLen: number;
-  /** Anchor (longest line's middle vertex) + the next vertex along the street. */
+  /** Anchor + a direction point along the street. v4: a long named line carries SEVERAL
+   *  anchors (every STREETS.repeatEveryM of arc length) — Google-style repeats; the consumer's
+   *  same-name separation keeps them apart on screen. */
   latDeg: number;
   lonDeg: number;
   bLatDeg: number;
@@ -199,6 +201,44 @@ export function clipLineToBounds(pts: Pt[], min: number, max: number): Pt[][] {
   return parts;
 }
 
+/** Arc-length anchors along a tile-local polyline (v4 — "names along the streets"): one anchor
+ *  every stepUnits of accumulated length starting at stepUnits/2, each with the direction point
+ *  of the segment it lands on; a line shorter than one step keeps the v3 single mid-vertex
+ *  anchor. Capped at maxAnchors (spread from the start — long streets repeat, never crowd).
+ *  Pure — unit-tested. */
+export function sampleLineAnchors(
+  line: Pt[],
+  stepUnits: number,
+  maxAnchors: number,
+): { a: Pt; b: Pt }[] {
+  if (line.length < 2) return [];
+  let total = 0;
+  for (let i = 1; i < line.length; i++) {
+    total += Math.hypot(line[i].x - line[i - 1].x, line[i].y - line[i - 1].y);
+  }
+  const mid = Math.floor((line.length - 1) / 2);
+  const midNext = Math.min(mid + 1, line.length - 1);
+  if (!(stepUnits > 0) || total < stepUnits) {
+    return [{ a: line[mid], b: line[midNext] }];
+  }
+  const out: { a: Pt; b: Pt }[] = [];
+  let next = stepUnits / 2;
+  const lastAt = total - stepUnits / 2; // half-step end margin (no anchor at the line tip —
+  let walked = 0; //                       its direction point would be degenerate)
+  for (let i = 1; i < line.length && out.length < maxAnchors; i++) {
+    const p = line[i - 1];
+    const q = line[i];
+    const seg = Math.hypot(q.x - p.x, q.y - p.y);
+    while (walked + seg >= next && next <= lastAt && out.length < maxAnchors) {
+      const t = seg > 1e-9 ? (next - walked) / seg : 0;
+      out.push({ a: { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t }, b: q });
+      next += stepUnits;
+    }
+    walked += seg;
+  }
+  return out.length > 0 ? out : [{ a: line[mid], b: line[midNext] }];
+}
+
 const GREEN_CLASSES = new Set(["grass", "wood", "park", "meadow", "recreation_ground"]);
 
 export function attachVectorTiles(): VectorTilesHandle {
@@ -248,19 +288,36 @@ export function attachVectorTiles(): VectorTilesHandle {
           }
         }
         if (!line) continue;
-        const mid = line[Math.floor((line.length - 1) / 2)];
-        const next = line[Math.min(Math.floor((line.length - 1) / 2) + 1, line.length - 1)];
-        const a = toLonLat(tx, ty, nameLayer.extent, mid);
-        const b = toLonLat(tx, ty, nameLayer.extent, next);
-        out.labels.push({
-          name,
-          rank,
-          lineLen,
-          lonDeg: a[0],
-          latDeg: a[1],
-          bLonDeg: b[0],
-          bLatDeg: b[1],
-        });
+        // v4: repeat anchors along the line every STREETS.repeatEveryM (converted to extent
+        // units at this tile's latitude — a z14 tile is ~2.4 km wide at 48°N).
+        const centreLat = tileLocalToLonLat(
+          STREETS.tileZ,
+          tx,
+          ty,
+          nameLayer.extent,
+          nameLayer.extent / 2,
+          nameLayer.extent / 2,
+        ).latDeg;
+        const tileWidthM =
+          (40_075_016.686 * Math.cos((centreLat * Math.PI) / 180)) / 2 ** STREETS.tileZ;
+        const stepUnits = (STREETS.repeatEveryM / tileWidthM) * nameLayer.extent;
+        for (const { a: pA, b: pB } of sampleLineAnchors(
+          line,
+          stepUnits,
+          STREETS.maxAnchorsPerFeat,
+        )) {
+          const a = toLonLat(tx, ty, nameLayer.extent, pA);
+          const b = toLonLat(tx, ty, nameLayer.extent, pB);
+          out.labels.push({
+            name,
+            rank,
+            lineLen,
+            lonDeg: a[0],
+            latDeg: a[1],
+            bLonDeg: b[0],
+            bLatDeg: b[1],
+          });
+        }
       }
     }
 

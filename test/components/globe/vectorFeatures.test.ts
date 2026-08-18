@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bilinearHeight,
+  flatNearFade,
   nightDimFor,
   ribbonStrip,
   vectorPresence,
@@ -115,5 +116,17 @@ describe("VECTOR width tables (the render filter)", () => {
     expect(VECTOR.roadWidthM.minor).toBeGreaterThan(VECTOR.roadWidthM.path);
     expect(VECTOR.roadWidthM.transit).toBe(0);
     expect(VECTOR.waterwayWidthM.river).toBeGreaterThan(VECTOR.waterwayWidthM.stream);
+  });
+});
+
+describe("flatNearFade (2D-map street-zoom ink fade)", () => {
+  it("full ink at/above the hi edge, the floor at/below the lo edge, monotone between", () => {
+    expect(flatNearFade(VECTOR.flatNearFadeHiAltM)).toBe(1);
+    expect(flatNearFade(5_000)).toBe(1);
+    expect(flatNearFade(VECTOR.flatNearFadeLoAltM)).toBeCloseTo(VECTOR.flatNearFadeFloor, 12);
+    expect(flatNearFade(0)).toBeCloseTo(VECTOR.flatNearFadeFloor, 12);
+    const mid = (VECTOR.flatNearFadeLoAltM + VECTOR.flatNearFadeHiAltM) / 2;
+    expect(flatNearFade(mid)).toBeGreaterThan(VECTOR.flatNearFadeFloor);
+    expect(flatNearFade(mid)).toBeLessThan(1);
   });
 });

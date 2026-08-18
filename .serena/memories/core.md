@@ -108,8 +108,11 @@ stay "frame the world".
   `mem:project/wip-2026-08-15-guide-g1`.
 
 ## Next step
-**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U3 fullscreen map + view cone
-next → U4–U8.** U2 FPV stability SHIPPED 2026-08-18 (all 8 point-6 mechanisms: A9 LRU floor
+**The UPLIFT ladder (`UPLIFT_PLAN.md`, owner order 2026-08-17): U4 direction lines/cones next
+→ U5–U8.** U3 + the owner's 5-issue 2D-map batch SHIPPED 2026-08-18b (fullscreen MapWindow both
+shells + minimap FOV cone + 3D→2D spin fix + street-names v4 + imagery sharpness chain + 2D
+speed levers + MY LOCATION lands the map; gates 947/947, browser-verified both shells;
+`mem:project/wip-2026-08-18-u3-2dmap-batch`). U2 FPV stability SHIPPED 2026-08-18 (all 8 point-6 mechanisms: A9 LRU floor
 `lruFloorBytesForCap` + governor tier steps parked during FPV + zoom-bank kill at both FPV
 boundaries + eased temp-pin/enriched-group grounds + entry-frame controls gate + FPV
 noteInteract guard + lastGroundM invalidation + resize resolution refresh; gates 926/926,

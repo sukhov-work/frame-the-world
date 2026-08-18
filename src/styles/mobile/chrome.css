@@ -135,6 +135,42 @@
   opacity: 0.5;
 }
 
+/* 2D/3D chip row + the micro compass/altitude chip to its right (owner 2026-08-18). */
+.m-actrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.m-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.4rem 0.6rem;
+}
+.m-nav__dial {
+  width: 16px;
+  height: 16px;
+  display: block;
+  transition: transform 0.25s ease-out; /* the desktop compass-rose glide */
+}
+.m-nav__ring {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  stroke-width: 1.5;
+}
+.m-nav__n {
+  fill: var(--color-accent);
+}
+.m-nav__s {
+  fill: color-mix(in srgb, var(--color-text-muted) 60%, transparent);
+}
+.m-nav__alt {
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
 /* ── Sheets ────────────────────────────────────────────────────────────────────────────── */
 .m-sheetroot {
   position: fixed;

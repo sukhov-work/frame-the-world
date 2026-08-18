@@ -251,6 +251,141 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 New work appends a dated line here. *(Marker moved to the top 2026-08-13 — it had drifted mid-list
 since 2026-08-03; a move is not an edit (compaction precedent). Audit finding D2.)*
 
+- **2026-08-18e-desktop-flat (owner round 4: the flat-map treatment lands on DESKTOP at nadir.
+  Gates 950/950 · astro 0 err; browser-VERIFIED, shot `verify-shots/u3e-01`.)** The ink fixes
+  (depth-off, night-dim stand-down, fill/ribbon attenuation, names v4.1) were already
+  shell-shared via the tilt latch; the ENGINE treatment was /m-gated. New unified
+  `flatGroundNow()` = ink latch AND (mobile mapMode-2d OR desktop `alt <
+  CONTROLS.mapFlatMaxAltM` 120 km): drives the deep imagery error target, the `uFtwFlat2d` day
+  grade, the shadow rig (now the WHOLE rig off in flat — the day-graded photo carries the real
+  capture shadows; was receiver-twins-only), the zoom-brake relaxation, and (via a new
+  `tilesHandle.mapFlat()` seam) the GlobeCanvas bloom gate. **The altitude bound is
+  load-bearing:** the flagship LEO view is also tilt≈0 — verified at 1.09 Mm nadir the
+  treatment stays OFF (terminator/night-lights/atmosphere bloom byte-identical); at 1.5 km
+  nadir it is fully ON (errorTarget 0.45, day grade 1.0) and any inclination (tilt > 15°,
+  hysteresis) reverts to normal 3D. Deliberate desktop/mobile DIFFERENCE kept: buildings stay
+  ATTACHED on desktop nadir (high-tier budget carries them; the deck's BLD chip hides them
+  manually) — /m detaches for phone perf. Files: tuning.ts (CONTROLS.mapFlatMaxAltM) ·
+  StylizedTiles.ts (flatGroundNow + shadowEligible + zoom brake + handle.mapFlat) ·
+  GlobeCanvas.tsx (bloom via the handle seam; store import dropped).
+
+- **2026-08-18d-labels-v4.1 (owner round 3: label size/sync + fills 8%. Gates 950/950 · astro
+  0 err; browser-VERIFIED, shots `verify-shots/u3c-01..02`.)** The v4 legibility scale had two
+  defects the owner nailed: (a) ONE global scale multiplied the majors' already-2× world size —
+  26 px text "sticking out of its lane" at altitude; (b) the scale EASED toward its target
+  (~270 ms lag) — pinch shrank the map while the text stayed big, then caught up. v4.1:
+  per-tier screen targets `STREETS.textPxTarget` [15,13,11] (replaces minTextPx 13; each tier
+  lands on its OWN px at altitude — `labelScaleFor(hWorld, pxTarget, wpp)` per entry inside
+  applyMatrix), applied DIRECTLY per frame (no ease — scale is continuous in altitude, so
+  pinch tracks exactly; matrices refresh when wpp moves >0.3%); same-name spacing rides the
+  major tier's scale. Below the floor (majors ≤ ~1.5 km, minors ≤ ~700 m) the v3 world-metre
+  "road paint" reading is unchanged. Also `VECTOR.flatFillK` 0.15 → **0.08** (owner).
+  Files: tuning.ts · streetNames.ts · streetNames.test.ts (+3).
+
+- **2026-08-18c-2dmap-crispness (owner follow-up round: "why is the live 2D map still blurry
+  when the MapWindow is crisp" + subtler vectors + chip renames. Gates 947/947 · astro 0 err;
+  browser-VERIFIED, shots `verify-shots/u3b-01..02`.)**
+  **The REAL blur root found by live probing** (the 18b composite/DPR/level fixes were
+  necessary but not sufficient): per-region imagery level selection showed visible regions
+  capping at **z16 ≈ 1.6 m/px** with only 4 virtual splits — because **CWT leaves over Dnipro
+  report GE ≈ 1.1 m on ~800 m tiles**, so at errorTarget 2 the GEOMETRY converges after one
+  split and refinement stops. SSE measures mesh error, not texel density — the imagery
+  composite is slaved to a number that says "the terrain is accurate enough". Probe: freezing
+  errorTarget at 0.35 drove the overlay's (already-built) virtual split tree to **z17–18
+  (0.4–0.8 m/px)** for only ~+5 visible tiles at street nadir. Fix: `GROUND.errorTarget2dDeep`
+  0.35 applied in flat2d below `error2dDeepAltM` 1.2 km, blended back to the tier near-target
+  by `error2dBlendAltM` 6 km (mid-altitude views never carry the deep-region count; measured:
+  600 m → target 0.35/z17–18/16 virtual splits · 1.8 km → 0.55/z16 ≈ exactly screen density).
+  Desktop + 3D orbit untouched (flat2d-gated). **Vector subtlety** (owner: "obscures the actual
+  streets and landscape"): flat-map fills ×`VECTOR.flatFillK` 0.15 (the imagery already shows
+  parks/water — the park fill blanketed a whole district) and ribbons ×`flatLineK` 0.55 on top
+  of the existing near-ground fade — light ink over a readable photo. **Chip renames** (owner):
+  `▲ 3D VIEW`/`▼ 2D MAP` → `▲ 3D`/`▼ 2D` · `🧭 MY LOCATION` → `🧭 MY LOC` (guide prose
+  updated). Files: tuning.ts (GROUND.errorTarget2dDeep/error2dDeepAltM/error2dBlendAltM ·
+  VECTOR.flatFillK/flatLineK) · imageryGround.ts (blended near target) · vectorFeatures.ts ·
+  SceneActions.tsx · guideContent.ts. TRAP for the record: **a "converged" SSE does not mean
+  sharp imagery** — ImageOverlayPlugin's virtual-split depth (and thus texel density) is
+  bounded by errorTarget vs the SOURCE tileset's leaf geometricError; CWT's tiny leaf GE makes
+  the default target freeze imagery at ~1.6 m/px no matter the composite resolution.
+
+- **2026-08-18b-u3-2dmap-batch (UPLIFT U3 SHIPPED + the owner's 5-issue 2D-map batch. Gates
+  vitest 947/947 (+21) · astro 0 err/5 hints; browser-VERIFIED desktop 1440×900 + phone 402×874
+  (wix dev + Playwright CDP, shots `verify-shots/u3-01..07` + `u3-repro-01..02` before-shots);
+  real-device pass rides T1.)**
+  **(1) 3D→2D multi-rotation FIXED (owner issue 1)** — browser-reproduced first: heading
+  wandered 170→9.7→308.6→207→359.7° AT NADIR (tilt 0.2°, sweep 323°, three direction
+  reversals). Root: `stepHeadingGlide` steered the FORWARD-derived bearing, which is degenerate
+  at nadir (any residual-tilt sliver defines it) while the 2D lock used `mapUpHeadingDeg` — two
+  heading definitions across one handoff. Fix: below new `CONTROLS.headingUpRefMaxTiltDeg` (60°)
+  the glide measures the SCREEN-UP bearing (the lock's reference; the two agree for an unrolled
+  camera at oblique tilt). Post-fix: sweep 166.9° (ideal arc 170°), ZERO reversals, lands 0.2°/
+  tilt 0. Related fixes: temp-pin focus lock is SKIPPED in mobile-2D (`stepViewFocus` — heading/
+  zoom corrections orbiting an off-centre pin read as the map whirling; H3), and a 2D-mode
+  search/`requestFly` arrival now lands `mapArrivalPose` (nadir north-up, altAboveGroundM param
+  added) instead of the oblique 52° search pose the locks then visibly re-rotated.
+  **(2) roads-clip + street names v4 (owner issue 2)** — clipping root (scout-cited): ribbons
+  seat on a 6×6 per-tile lattice with mean-filled out-of-frustum knots + 1.5 m lift vs a 3 m
+  refresh eps — terrain LOD slices mid-segment by construction. Ruling: at nadir the web is MAP
+  INK — new `mapFlat` latch (mobile: mapMode 2d; desktop: mirrored tilt < twoDMaxTiltDeg with
+  +5° hysteresis) turns OFF depthTest on ribbons/fills/labels (renderOrder already layers them)
+  and stands the night dim down. Street names v4 (`streetNames.ts` + `vectorTiles.ts`): the v3
+  selection was WORLD-space over the whole ~130 km² cache with no camera test — at street zoom
+  the entire 40-label budget sat off-screen (why names "never appeared"). Now: viewport-filtered
+  selection (project → |NDC| ≤ `STREETS.viewMarginNdc` 1.15), Google-style repeat anchors along
+  long streets (`sampleLineAnchors`, every `repeatEveryM` 450 m arc-length, ≤6/feat, half-step
+  end margins; same-name separation 650 m×scale), refcounted texture cache (repeats share one
+  canvas per name), band raised 2500/2100 → **5000/4000 m**, and a legibility scale
+  (`labelScaleFor`: world size grows until the smallest tier subtends `minTextPx` 13 px, floor 1
+  at street level — the v3 "road paint" reading unchanged there, cap ×9; per-frame eased).
+  **(3) imagery sharpness (owner issue 3)** — scout-diagnosed chain: per-region 256-px composite
+  slaved to geometry SSE at errorTarget 2–3 CSS px ⇒ ~1–4.5 px/texel; DPR-blind
+  `setResolutionFromRenderer`; and a `levels`-is-a-COUNT off-by-one capping Esri at z18/CARTO
+  z19. Fixes: `GROUND.overlayResolution` 256→**512** · ground renderer alone gets DEVICE-px SSE
+  (`refreshResolution()` = size×pixelRatio via `setResolution`; wired into resize + tier apply) ·
+  `levels: max+1` (real z19/z20) · `GROUND.errorTargetNear2d` 2 claws the /m mid-tier near
+  target back down in 2D (buildings detached → budget free) · **the 2D map is day-graded around
+  the clock** (new eased `uFtwFlat2d` uniform forces the grade's dayK — a planning chart reads
+  at 02:00; vectors likewise skip night dim in mapFlat) · flat-mode near-ground ink fade
+  (`flatNearFade`, 900→300 m → ×0.35 floor: at street zoom the sharpened imagery IS the map and
+  full ribbons covered exactly the kerbs/parking the owner reads). Also NEW `.m-actrow` chip
+  row: micro compass (SVG needle off the heading mirror, tap-to-face-north in 3D) + live
+  altitude readout (`formatAltM`) exactly right of the 2D/3D chip (owner ask, both modes).
+  **(4) 2D speed (owner issue 4)** — CARTO dark overlay now attaches ONLY in dark ground mode
+  (it was registered at opacity 0 and fetched/composited a full second tile chain for zero
+  pixels in the default satellite mode; delete→add is the plugin's own re-order idiom) · shadow
+  twins off in 2D (`flat2d` param — buildings, the only casters, are detached) · bloom pass off
+  while /m shows the map (FPV keeps it) · the near-ground zoom brake stands mostly down in 2D
+  (`MOBILE2D.zoomSlowFrac` 0.85 vs 0.35 — chart pinch stays fast).
+  **(5) MY LOCATION lands the MAP (owner issue 5, supersedes the 2026-08-14 straight-into-FPV
+  ruling)** — `SceneActions.locate()` now: `setMapMode("2d")` + `setTempPin` + `requestFly` at
+  `MOBILE2D.locateAltAboveGroundM` 600 → the 2D-aware fly-to lands nadir/north-up over the fix
+  (verified 718 m over ~117 m terrain) with ◎ LOOK FROM HERE armed — one more tap enters FPV.
+  Desktop MyLocation island unchanged (no 2D map there).
+  **(6) U3 fullscreen map + view cone SHIPPED (UPLIFT §2/U3)** — minimap pose mirror gains
+  `coneDeg` (pure `horizontalFovDeg` off the fpvHud vertical FOV + aspect; verified 26.9° phone
+  / 83.1° desktop, tracks pinch-FOV live) and MiniMap draws a translucent sector instead of the
+  fixed wedge; the minimap patch is now a tap target (`.mm-open` button) opening the NEW
+  top-level `MapWindow` island (both pages): desktop = large centred window (GUIDE precedent,
+  z 42), /m = true fullscreen (body.m, z 20 between chrome and sheets); raw Esri/CARTO XYZ
+  canvas (retina fetches one level deeper + draws half-size), drag-pan / wheel / pinch / ±
+  chips, double-click (desktop) / 500 ms long-press (touch) = VIEW FROM HERE via
+  `requestFpvJump` (verified: relocates a live FPV session and closes), Esc/✕ back, DOM
+  attribution line. New pure lib `lib/geo/slippy.ts` (lonLatToTileF/tileFToLonLat/
+  metersPerTilePx/zoomForMetersPerPx — cross-tested against the vectorTiles integer tiler).
+  Esri ToS stance unchanged (dev reuse; licensed-source decision rides U7). `touch-action:none`
+  on `.mw-canvas` added to the U1 pinch-lint leak list.
+  Files: `tuning.ts` (CONTROLS.headingUpRefMaxTiltDeg · MOBILE2D.locateAltAboveGroundM/
+  zoomSlowFrac · STREETS band+v4 knobs · GROUND.overlayResolution/errorTargetNear2d ·
+  VECTOR.flatNearFade*) · `StylizedTiles.ts` · `imageryGround.ts` · `vectorFeatures.ts` ·
+  `streetNames.ts` (v4) · `vectorTiles.ts` · `minimapFeed.ts` · `GlobeCanvas.tsx` ·
+  `store/minimap.ts` · `panels/MiniMap.tsx` · NEW `panels/MapWindow.tsx` + `styles/map-window.css`
+  · NEW `lib/geo/slippy.ts` · `mobile/SceneActions.tsx` · `styles/mobile/chrome.css` ·
+  `mini-map.css` · `index.astro`/`m.astro` · tests (+21: slippy, sampleLineAnchors,
+  labelScaleFor/worldPerPx, flatNearFade, horizontalFovDeg, pinch-lint row).
+  Open tails: ribbon width/opacity taste pass at street zoom · Esri source LOD varies across
+  Dnipro (some blocks stay soft — source-bound) · desktop 2D chip keeps the cinematic night
+  ground (flat day-grade is /m-only by design) · real-device pass (T1).
+
 - **2026-08-18-u2-fpv-stability (UPLIFT U2 SHIPPED — the point-6 FPV re-render/jerk bug: all 8
   cited mechanisms fixed + instrumented. Gates vitest 926/926 (+4) · astro 0 err/5 hints;
   browser-VERIFIED desktop + phone viewport (wix dev + Playwright soak, shots
