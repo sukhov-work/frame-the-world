@@ -20,15 +20,30 @@ function ftwLocalTiles() {
     name: "ftw-local-tiles",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use("/enriched", (req, res, next) => {
+      /** @param {string} kind @param {(f: string) => string} typeFor @returns {import("vite").Connect.NextHandleFunction} */
+      const serveBakes = (kind, typeFor) => (req, res, next) => {
         const rel = normalize(decodeURIComponent((req.url ?? "/").split("?")[0])).replace(/^[/\\]+/, "");
         if (rel.split(/[/\\]/).includes("..")) return next();
-        const file = join(process.cwd(), "bakes", "enriched", rel);
+        const file = join(process.cwd(), "bakes", kind, rel);
         if (!existsSync(file) || !statSync(file).isFile()) return next();
-        res.setHeader("Content-Type", file.endsWith(".glb") ? "model/gltf-binary" : "application/json");
+        res.setHeader("Content-Type", typeFor(file));
         res.setHeader("Content-Length", String(statSync(file).size));
         createReadStream(file).pipe(res);
-      });
+      };
+      server.middlewares.use(
+        "/enriched",
+        serveBakes("enriched", (/** @type {string} */ f) =>
+          f.endsWith(".glb") ? "model/gltf-binary" : "application/json",
+        ),
+      );
+      // Terrain patch tiles (bakes/terrain/<city>/{z}/{x}/{y}.terrain + layer.json) — same
+      // local-dev-only contract as /enriched; R2 (terrain/<city>/…) is production's only source.
+      server.middlewares.use(
+        "/terrain",
+        serveBakes("terrain", (/** @type {string} */ f) =>
+          f.endsWith(".terrain") ? "application/vnd.quantized-mesh" : "application/json",
+        ),
+      );
     },
   };
 }

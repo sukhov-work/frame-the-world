@@ -111,24 +111,33 @@ stay "frame the world".
   stability ×8 · U3 fullscreen MapWindow + 2D-map batch + crispness + desktop flat-map · U4
   direction lines + aim cones (+2 owner rounds) · U5 closest-first loading. Ladder PARKED after
   U5 for AUDIT #2 + fix slices; UN-PARKED 18n → U6 foveation SHIPPED + U7 terrain audit DONE
-  18o (`wip-2026-08-18-u6-foveation` + UPLIFT_PLAN Appendix A); next U8. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
+  18o (`wip-2026-08-18-u6-foveation` + UPLIFT_PLAN Appendix A) → U7b GLO-30 terrain patch +
+  best-variant buildings rule SHIPPED 18p (`wip-2026-08-18-u7b-glo30-terrain-buildings-rule`);
+  next U8. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
   `wip-2026-08-17-u1-2d-mobile` · `wip-2026-08-17-u2-fpv-stability` · `wip-2026-08-18-u3-2dmap-batch` ·
   `wip-2026-08-18-u4-aim-cones` · `wip-2026-08-18-u5-loading` · `UPLIFT_PLAN.md`.
 - **AUDIT #2 + fix slices (2026-08-18, HOT)** — report `audits/audit-full-2026-08-18.md` ·
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**U6 SHIPPED + U7 AUDIT DONE 2026-08-18o (DECISIONS top entry; gates 1,022/1,022 · astro
-0 err/5 hints; browser-verified both shells). NEXT SESSION = U8 per-building height override**
-(UPLIFT_PLAN §2/U8 + §1.5 — enriched-only v1, localStorage overrides, fold into
-applyFeatureSeats). **Owner decisions pending from U7** (UPLIFT_PLAN Appendix A, non-blocking,
-defaults attached): GLO-30 bake approval [default yes, after U8] · WorldDEM Neo 5 m purchase
-[defer] · C6 patch precision [30 m native] · Esri imagery licence rider [carried]. U7 headline:
-CWT serves Dnipro 4-VERTEX terrain quads at L13 (~2 km posting, +13…58 m errors — the fine
-source ends at the EU border; R6's "SRTM 30 m" was ~50× optimistic). Open riders: T29
-extraction slice (trigger FIRED with U6) · T32 planner Observer ceiling one-liner · B1
-checkOrigin canary on next release (T2/T3) · T28 · B4/T30 · T1 owner-present device pass (now
-also judges U6 foveation feel). See `NEXT_SESSION_PROMPT.md` (the U8 brief + owner calls).
+**U7b GLO-30 TERRAIN PATCH SHIPPED + BEST-VARIANT BUILDINGS RULE 2026-08-18p** (owner approved
+Appendix A #1 ahead of U8; DECISIONS top entry; gates 1,027/1,027 · astro 0 err/5 hints;
+browser-verified both shells). Dnipro renders ~30 m GLO-30 composited over CWT through the ONE
+ground renderer (`scene/terrainPatch.ts` createChild wrap; registry `lib/globe/regions.ts`;
+bake `scripts/bake/terrain/`; R2 `terrain/dnipro/` 7,329 files·11 MB): city heightAt
+120.4→85.9 m, river 88-94→68.9 m. o2w bake = DEFAULT; BLD / ▦ 3D DETAIL = plain live on/off
+(`buildings3d` pref; `enrichedVariant` pref retired). **NEXT SESSION = U8 per-building height
+override** (UPLIFT_PLAN §2/U8 + §1.5 — its ground-zero reference is now the real patch).
+OWNER VERDICT 18r: GLO-30 in-scene POSITIVE (terrain taste tail closed; Neo stays defer);
+AFTER U8 an owner batch of minor-to-medium improvements + UX fixes is incoming.
+Open riders: production canary (terrain + o2w-default + B1/T2/T3) on next `wix release` · T1
+owner device pass (judges GLO-30 in-scene → then the WorldDEM-Neo call, Appendix A #2) · T29
+extraction slice · T32 one-liner · T28 · B4/T30 · Esri imagery rider · cross-region enriched
+attach mid-session (named tail). See `NEXT_SESSION_PROMPT.md` +
+`mem:project/wip-2026-08-18-u7b-glo30-terrain-buildings-rule` (traps incl. geotiff.js-writer/
+mago georef, mago depth clamp, verify-too-early) + **`BAKED_ASSETS.md`** (the baked
+buildings/terrain/regions domain doc, 2026-08-18q — rulings ledger, registry contract,
+add-a-city + ops runbooks, GLO-30 aux layers).
 
 ## Source layout (as-built; refreshed 2026-08-15)
 Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.

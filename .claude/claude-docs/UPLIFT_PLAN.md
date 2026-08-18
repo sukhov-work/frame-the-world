@@ -341,8 +341,14 @@ construction; periphery honesty = the owner's explicit trade to test on device.
 regressions at the fovea; desktop unchanged unless enabled per tier.
 
 ### U7 — Terrain precision audit (Dnipro) · point 9
-**AUDIT DONE 2026-08-18o** — measured + sourced; decision memo in **Appendix A** (owner calls
-open, defaults attached). Headline: CWT over Dnipro tops out at **L13 with 4-vertex leaf
+**AUDIT DONE 2026-08-18o · BAKE SLICE (U7b) SHIPPED 2026-08-18p** — the owner approved
+Appendix A call #1 and pulled the bake ahead of U8: GLO-30 quantized-mesh patch (L13 ≈ native
+posting, ellipsoidal via mago's EGM2008, 3 km rim blend onto decoded CWT) live on R2
+`terrain/dnipro/` and composited through the ONE ground renderer (`scene/terrainPatch.ts`
+createChild wrap + fetchData claimer; serve-set rule twinned bake⇄runtime and parity-tested).
+Same session: best-variant-by-default buildings rule (`lib/globe/regions.ts` registry; BLD /
+▦ 3D DETAIL = plain live on/off). Measured in-browser: city 120.4→85.9 m, river 88-94→68.9 m
+(the +33 m river fiction gone), seam clean. Full record: DECISIONS 2026-08-18p. Headline: CWT over Dnipro tops out at **L13 with 4-vertex leaf
 quads** (≈2 km effective posting, +13…58 m landmark errors vs SRTM30) — the whole UA/BY/RU
 region is served km-class terrain while EU cities get 450–1,250-vertex meshes; the R6 "SRTM
 30 m ceiling" assumption was optimistic by ~50×. A free Copernicus GLO-30 self-baked patch is
@@ -414,6 +420,15 @@ run-index binary search; C6 note: overrides are local-only, never uploaded.
    research). Default: yes, enriched-only.
 
 ## 5. Decision log (append-only)
+- 2026-08-18p · U7b bake slice shipped (owner approved Appendix A #1, ahead of U8) + the
+  best-variant-by-default buildings rule (owner order — BLD/3D DETAIL are a live on/off; the
+  registry `lib/globe/regions.ts` owns variants/bboxes/terrain patches; `enrichedVariant` pref
+  retired). Rulings: single-renderer composite via createChild wrap (never a second terrain
+  renderer — heightAt/drape/foveation stay untouched) · rim blend POST-BAKE on the .terrain
+  tiles (raster rewrite abandoned: geotiff.js writer geo-tags invisible to mago — run-1 landed
+  the mosaic at −180/90) · mago's silent L13 depth clamp ACCEPTED (≈ native GLO-30 posting) ·
+  C6 30 m native per the standing ruling · terrain has NO user control. Appendix A calls #2
+  (WorldDEM Neo) and the Esri imagery rider stay open/deferred.
 - 2026-08-18o · U6 shipped + U7 audit done (see the slice headers + Appendix A). New tunables:
   `FOVEATION` block + `QUALITY.tiers.*.foveation` (null on high); new pure
   `quality.peripheryErrorTarget` + `FoveationTierCfg`; new scene adapter

@@ -1,162 +1,90 @@
 import { describe, it, expect } from "vitest";
-import {
-  resolveEnrichedUrl,
-  resolveEnrichedBbox,
-  isVariantActive,
-  toggleVariantUrl,
-  applyStoredVariant,
-  setVariantUrl,
-  ENRICHED_VARIANT_NAME,
-} from "../../../src/lib/globe/enrichedVariant";
+import { resolveEnrichedSelection } from "../../../src/lib/globe/enrichedVariant";
 
-// The ?enriched= A/B compare seam between parallel Dnipro bakes (default extruder vs OSM2World).
-// Load-bearing invariant: with NO param the resolver returns the env URL untouched — the default
-// pipeline must stay byte-identical.
+// Best-variant-by-default selection (owner rule 2026-08-18): with NO ?enriched= param the BOOT
+// REGION's best bake streams (regions.ts variants[0]); the param survives as the DEV seam only.
+// Load-bearing invariant: URL and mask bbox come from ONE resolver call and can never disagree.
 
 const ENV = "https://frame-the-world.example.workers.dev/enriched/dnipro/tileset.json";
+const DNIPRO_BBOX = { west: 34.915, south: 48.37, east: 35.185, north: 48.55 };
+const ST_ALBANS_BBOX = { west: -0.3692, south: 51.7244, east: -0.2821, north: 51.7787 };
 
-describe("resolveEnrichedUrl", () => {
-  it("no param → the env URL exactly (byte-identical default)", () => {
-    expect(resolveEnrichedUrl(ENV, "")).toBe(ENV);
-    expect(resolveEnrichedUrl(ENV, "?foo=bar")).toBe(ENV);
-    expect(resolveEnrichedUrl(undefined, "")).toBeUndefined();
-    expect(resolveEnrichedUrl("", "")).toBeUndefined(); // empty env behaves as unset
+describe("resolveEnrichedSelection — defaults", () => {
+  it("no param → the env-anchored region's BEST variant (dnipro-o2w), bbox follows", () => {
+    const sel = resolveEnrichedSelection(ENV, "");
+    expect(sel.url).toBe("https://frame-the-world.example.workers.dev/enriched/dnipro-o2w/tileset.json");
+    expect(sel.variant).toBe("dnipro-o2w");
+    expect(sel.regionId).toBe("dnipro");
+    expect(sel.bbox).toEqual(DNIPRO_BBOX);
   });
 
-  it("off/none/0 → undefined (drops the tileset AND the OSM mask)", () => {
-    expect(resolveEnrichedUrl(ENV, "?enriched=off")).toBeUndefined();
-    expect(resolveEnrichedUrl(ENV, "?enriched=NONE")).toBeUndefined();
-    expect(resolveEnrichedUrl(ENV, "?enriched=0")).toBeUndefined();
+  it("no env URL → nothing streams (byte-identical pre-enrichment app)", () => {
+    const sel = resolveEnrichedSelection(undefined, "");
+    expect(sel.url).toBeUndefined();
+    expect(sel.bbox).toBeNull();
+    expect(resolveEnrichedSelection("", "").url).toBeUndefined(); // empty env behaves as unset
   });
 
-  it("variant name → swaps the second-to-last path segment", () => {
-    expect(resolveEnrichedUrl(ENV, "?enriched=dnipro-o2w")).toBe(
-      "https://frame-the-world.example.workers.dev/enriched/dnipro-o2w/tileset.json",
+  it("a boot point inside ANOTHER baked region wins the default (a #p share into St Albans)", () => {
+    const sel = resolveEnrichedSelection(ENV, "", 51.75, -0.33);
+    expect(sel.url).toBe("https://frame-the-world.example.workers.dev/enriched/st-albans-o2w/tileset.json");
+    expect(sel.variant).toBe("st-albans-o2w");
+    expect(sel.regionId).toBe("st-albans");
+    expect(sel.bbox).toEqual(ST_ALBANS_BBOX);
+  });
+
+  it("a boot point inside NO baked region falls back to the env anchor", () => {
+    const sel = resolveEnrichedSelection(ENV, "", 50.45, 30.52); // Kyiv — no bake
+    expect(sel.regionId).toBe("dnipro");
+    expect(sel.variant).toBe("dnipro-o2w");
+  });
+
+  it("other params / empty value do not disturb the default", () => {
+    expect(resolveEnrichedSelection(ENV, "?foo=bar").variant).toBe("dnipro-o2w");
+    expect(resolveEnrichedSelection(ENV, "?enriched=").variant).toBe("dnipro-o2w");
+  });
+});
+
+describe("resolveEnrichedSelection — the ?enriched= dev seam", () => {
+  it("off/none/0 → no tileset AND no mask", () => {
+    for (const v of ["off", "NONE", "0"]) {
+      const sel = resolveEnrichedSelection(ENV, `?enriched=${v}`);
+      expect(sel.url).toBeUndefined();
+      expect(sel.bbox).toBeNull();
+      expect(sel.regionId).toBeNull();
+    }
+  });
+
+  it("explicit variant name → that bake verbatim, bbox follows the OWNING region", () => {
+    const classic = resolveEnrichedSelection(ENV, "?enriched=dnipro");
+    expect(classic.url).toBe(ENV); // the classic extruder bake stays reachable
+    expect(classic.bbox).toEqual(DNIPRO_BBOX);
+    const cross = resolveEnrichedSelection(ENV, "?enriched=st-albans-o2w");
+    expect(cross.url).toBe(
+      "https://frame-the-world.example.workers.dev/enriched/st-albans-o2w/tileset.json",
     );
-    expect(resolveEnrichedUrl("/enriched/dnipro/tileset.json", "?enriched=dnipro-o2w")).toBe(
+    expect(cross.bbox).toEqual(ST_ALBANS_BBOX);
+    expect(cross.regionId).toBe("st-albans");
+  });
+
+  it("unknown variant name → URL swap still happens, bbox falls back to the default region", () => {
+    const sel = resolveEnrichedSelection(ENV, "?enriched=nowhere-x");
+    expect(sel.url).toBe("https://frame-the-world.example.workers.dev/enriched/nowhere-x/tileset.json");
+    expect(sel.bbox).toEqual(DNIPRO_BBOX);
+  });
+
+  it("variant name with no env URL → same-origin public dir (local pre-upload A/B)", () => {
+    expect(resolveEnrichedSelection(undefined, "?enriched=dnipro-o2w").url).toBe(
       "/enriched/dnipro-o2w/tileset.json",
     );
   });
 
-  it("variant name with no env URL → same-origin public dir (local pre-upload A/B)", () => {
-    expect(resolveEnrichedUrl(undefined, "?enriched=dnipro-o2w")).toBe("/enriched/dnipro-o2w/tileset.json");
-  });
-
   it("value containing '/' → used verbatim", () => {
-    expect(resolveEnrichedUrl(ENV, "?enriched=/enriched/sample/dnipro-o2w/tileset.json")).toBe(
-      "/enriched/sample/dnipro-o2w/tileset.json",
+    expect(resolveEnrichedSelection(ENV, "?enriched=/enriched/sample/x/tileset.json").url).toBe(
+      "/enriched/sample/x/tileset.json",
     );
-    expect(resolveEnrichedUrl(undefined, "?enriched=https://x.test/t/tileset.json")).toBe(
+    expect(resolveEnrichedSelection(undefined, "?enriched=https://x.test/t/tileset.json").url).toBe(
       "https://x.test/t/tileset.json",
     );
-  });
-
-  it("other params coexist; empty value falls back to env", () => {
-    expect(resolveEnrichedUrl(ENV, "?a=1&enriched=dnipro-o2w&b=2")).toContain("dnipro-o2w");
-    expect(resolveEnrichedUrl(ENV, "?enriched=")).toBe(ENV);
-  });
-});
-
-// Cross-city variants (?enriched=st-albans-o2w) are baked over their OWN box — the OSM mask and
-// re-seat extent must follow the variant. Load-bearing invariant: every non-listed value returns
-// the default bbox OBJECT ITSELF (identity), so the default path stays byte-identical.
-describe("resolveEnrichedBbox", () => {
-  const DNIPRO = { west: 34.915, south: 48.37, east: 35.185, north: 48.55 };
-  const ST_ALBANS = { west: -0.3692, south: 51.7244, east: -0.2821, north: 51.7787 };
-  const VARIANTS = { "st-albans-o2w": ST_ALBANS };
-
-  it("no param / unknown / off / same-box variant → the default bbox IDENTITY", () => {
-    expect(resolveEnrichedBbox(DNIPRO, "", VARIANTS)).toBe(DNIPRO);
-    expect(resolveEnrichedBbox(DNIPRO, "?foo=bar", VARIANTS)).toBe(DNIPRO);
-    expect(resolveEnrichedBbox(DNIPRO, "?enriched=dnipro-o2w", VARIANTS)).toBe(DNIPRO);
-    expect(resolveEnrichedBbox(DNIPRO, "?enriched=off", VARIANTS)).toBe(DNIPRO);
-    expect(resolveEnrichedBbox(DNIPRO, "?enriched=/x/y/tileset.json", VARIANTS)).toBe(DNIPRO);
-  });
-
-  it("a listed cross-city variant → its own bbox", () => {
-    expect(resolveEnrichedBbox(DNIPRO, "?enriched=st-albans-o2w", VARIANTS)).toBe(ST_ALBANS);
-    expect(resolveEnrichedBbox(DNIPRO, "?a=1&enriched=st-albans-o2w&b=2", VARIANTS)).toBe(ST_ALBANS);
-  });
-});
-
-// The BLD chip (CameraTiltPanel) — reload-based buildings-source toggle. The hash carries the
-// #p pose, so preserving it through the toggle IS the "keeps the view" guarantee.
-describe("isVariantActive / toggleVariantUrl", () => {
-  const PAGE = "http://localhost:4321/#p=48.464,35.046,650,25,55";
-
-  it("detects the variant by name and by verbatim path", () => {
-    expect(isVariantActive("")).toBe(false);
-    expect(isVariantActive("?enriched=dnipro-o2w")).toBe(true);
-    expect(isVariantActive("?enriched=/enriched/dnipro-o2w/tileset.json")).toBe(true);
-    expect(isVariantActive("?enriched=off")).toBe(false);
-  });
-
-  it("toggles ON: sets the param and PRESERVES the pose hash", () => {
-    const on = toggleVariantUrl(PAGE);
-    const u = new URL(on);
-    expect(u.searchParams.get("enriched")).toBe(ENRICHED_VARIANT_NAME);
-    expect(u.hash).toBe("#p=48.464,35.046,650,25,55");
-  });
-
-  it("toggles OFF: removes the param, hash intact, back to the clean URL", () => {
-    const off = toggleVariantUrl(`http://localhost:4321/?enriched=${ENRICHED_VARIANT_NAME}#p=1,2,3,4,5`);
-    const u = new URL(off);
-    expect(u.searchParams.get("enriched")).toBeNull();
-    expect(u.hash).toBe("#p=1,2,3,4,5");
-  });
-
-  it("round-trips: toggle twice returns to no param", () => {
-    const twice = new URL(toggleVariantUrl(toggleVariantUrl(PAGE)));
-    expect(twice.searchParams.get("enriched")).toBeNull();
-  });
-
-  it("keeps unrelated params", () => {
-    const on = new URL(toggleVariantUrl("http://localhost:4321/?foo=1#p=1,2,3,4,5"));
-    expect(on.searchParams.get("foo")).toBe("1");
-    expect(on.searchParams.get("enriched")).toBe(ENRICHED_VARIANT_NAME);
-  });
-});
-
-// Persisted BLD chip (owner 2026-07-21): the stored preference makes the variant survive a plain
-// reload of `/`. Load-bearing invariant: an explicit `?enriched=` in the URL ALWAYS wins verbatim
-// (incl. off and cross-city variants) — the pref only speaks when the URL is silent.
-describe("applyStoredVariant / setVariantUrl (BLD persistence)", () => {
-  const PAGE = "http://localhost:4321/#p=48.464,35.046,650,25,55";
-
-  it("stored ON injects the variant only when the URL is silent", () => {
-    expect(applyStoredVariant("", true)).toBe(`?enriched=${ENRICHED_VARIANT_NAME}`);
-    const withOther = applyStoredVariant("?foo=1", true);
-    expect(withOther).toContain("foo=1");
-    expect(withOther).toContain(`enriched=${ENRICHED_VARIANT_NAME}`);
-  });
-
-  it("an explicit URL param wins verbatim — off, other variants, even empty", () => {
-    expect(applyStoredVariant("?enriched=off", true)).toBe("?enriched=off");
-    expect(applyStoredVariant("?enriched=st-albans-o2w", true)).toBe("?enriched=st-albans-o2w");
-    expect(applyStoredVariant("?enriched=", true)).toBe("?enriched=");
-  });
-
-  it("stored OFF / unset leaves the search untouched", () => {
-    expect(applyStoredVariant("", false)).toBe("");
-    expect(applyStoredVariant("?a=1", undefined)).toBe("?a=1");
-  });
-
-  it("setVariantUrl writes the EXPLICIT state and preserves the pose hash", () => {
-    const on = new URL(setVariantUrl(PAGE, true));
-    expect(on.searchParams.get("enriched")).toBe(ENRICHED_VARIANT_NAME);
-    expect(on.hash).toBe("#p=48.464,35.046,650,25,55");
-    const off = new URL(
-      setVariantUrl(`http://localhost:4321/?enriched=${ENRICHED_VARIANT_NAME}#p=1,2,3,4,5`, false),
-    );
-    expect(off.searchParams.get("enriched")).toBeNull();
-    expect(off.hash).toBe("#p=1,2,3,4,5");
-  });
-
-  it("chip flow: pref-active page (no URL param) turns OFF, not double-ON", () => {
-    // The BLD chip computes the EFFECTIVE state through the pref, then writes it explicitly.
-    const effective = isVariantActive(applyStoredVariant("", true));
-    expect(effective).toBe(true);
-    const next = new URL(setVariantUrl(PAGE, !effective));
-    expect(next.searchParams.get("enriched")).toBeNull(); // OFF — a raw toggle would have set it
   });
 });

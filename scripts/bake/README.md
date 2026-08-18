@@ -209,3 +209,35 @@ the same prefix. Re-bakes reuse
 filenames → purge the Cloudflare cache (or version the prefix) when a glb changes; tileset.json is only
 cached 5 min. Switching to a custom domain later is a pure client-URL swap. The SigV4 signer
 (`lib/s3sign.mjs`) is unit-gated in `test/bake/s3sign.test.ts`.
+
+## Terrain patches (GLO-30 quantized-mesh — SHIPPED 2026-08-18, design ruling in DECISIONS 2026-08-18p)
+
+A parallel bake family: `scripts/bake/terrain/` turns free Copernicus GLO-30 (30 m DSM,
+commercial-OK with attribution) into a Cesium quantized-mesh pyramid the runtime composites
+over Cesium World Terrain INSIDE the bake extent — ~50× effective-resolution uplift over the
+km-class CWT the UA region gets (the U7 audit, UPLIFT_PLAN Appendix A).
+
+```bash
+npm run bake:terrain -- --city dnipro          # fetch COGs → mago-3d-terrainer → rim blend → verify
+node --env-file=.env.local scripts/bake/upload-r2.mjs --city dnipro --terrain   # → terrain/<city>/
+```
+
+Config = the `terrain` block in `cities/<city>.json` (extentBbox / extentMaxDepth / cityBbox /
+maxDepth / blendKm / attribution). Pipeline facts that cost real time (full log:
+`mem:project/wip-2026-08-18-u7b-glo30-terrain-buildings-rule`):
+- **Never rewrite the DEM rasters in Node** — geotiff.js's writer emits geo-tags the Java
+  terrainer ignores (the mosaic landed at −180/90). Feed the ORIGINAL COGs; custom height work
+  happens POST-BAKE on the `.terrain` tiles (`blend.mjs` splices only the h-stream + header
+  min/max — `qmesh.mjs spliceHeights`).
+- Heights become **ellipsoidal** via mago's built-in `--geoid EGM2008` (same datum as CWT ⇒
+  the runtime seat machinery needs zero datum handling); `geoid.mjs` is the verification twin.
+- The **rim blend** (3 km, w=smoothstep toward the DECODED CWT surface) is the spatial seam:
+  served tiles meet their CWT neighbours with no height step at every level.
+- mago **silently clamps** `-max` to its resolution heuristic (30 m → L13 ≈ native posting).
+- The runtime serve-set rule lives twice — `src/lib/geo/terrainTiles.ts` ⇄
+  `terrain/tiling.mjs` — pinned by `test/lib/geo/terrainTiles.test.ts`; the bake ASSERTS its
+  layer.json availability contains the rule's output, so mismatches die at bake time.
+- Runtime: `src/components/globe/scene/terrainPatch.ts` (createChild wrap + fetchData claimer
+  on the ONE ground renderer) + the `lib/globe/regions.ts` registry + `PUBLIC_TERRAIN_TILES_URL`
+  (Worker `/terrain` base; dev serves `bakes/terrain/` at `/terrain`). No user control (owner
+  ruling); C6: 30 m native only.

@@ -4,6 +4,8 @@
 // `.claude/claude-docs/dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md`.
 //
 //   node scripts/bake/upload-r2.mjs --city dnipro [--dry-run]
+//   node scripts/bake/upload-r2.mjs --city dnipro --terrain [--dry-run]   # terrain patch mode:
+//     uploads cfg.terrain.output (recursive z/x/y tree, .terrain+.json) → terrain/<city>/
 //
 // Required env (NEVER printed). The R2_* names take precedence; the owner's Cloudflare-native
 // CLOUDFLARE_* names (as written in .env.local) are accepted as a fallback so that
@@ -21,7 +23,7 @@
 //   accept-ranges/etag). Then point PUBLIC_ENRICHED_TILES_URL at
 //   https://<custom-domain>/<prefix>/tileset.json and restart wix dev / release.
 import { readFile, readdir } from "node:fs/promises";
-import { resolve, dirname, join } from "node:path";
+import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { contentTypeFor, encodeS3Path, sha256Hex, sigV4Headers } from "./lib/s3sign.mjs";
 
@@ -29,16 +31,32 @@ const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const city = args.includes("--city") ? args[args.indexOf("--city") + 1] : null;
 const dryRun = args.includes("--dry-run");
+const terrainMode = args.includes("--terrain");
 if (!city) {
-  console.error("usage: node scripts/bake/upload-r2.mjs --city <name> [--dry-run]");
+  console.error("usage: node scripts/bake/upload-r2.mjs --city <name> [--terrain] [--dry-run]");
   process.exit(1);
 }
 
 const cfg = JSON.parse(await readFile(join(here, "cities", `${city}.json`), "utf8"));
-const outDir = resolve(here, "../..", cfg.output ?? `public/enriched/${city}`);
-const files = (await readdir(outDir)).filter((f) => f.endsWith(".json") || f.endsWith(".glb")).sort();
-if (!files.includes("tileset.json")) {
-  console.error(`no tileset.json in ${outDir} — run \`npm run bake -- --city ${city}\` first`);
+const outDir = terrainMode
+  ? resolve(here, "../..", cfg.terrain.output)
+  : resolve(here, "../..", cfg.output ?? `public/enriched/${city}`);
+// Terrain patches are a z/x/y tree of .terrain tiles under layer.json; building tilesets are flat.
+async function walkFiles(dir, exts) {
+  const out = [];
+  for (const ent of await readdir(dir, { withFileTypes: true })) {
+    const p = join(dir, ent.name);
+    if (ent.isDirectory()) out.push(...(await walkFiles(p, exts)));
+    else if (exts.some((e) => ent.name.endsWith(e))) out.push(relative(outDir, p));
+  }
+  return out.sort();
+}
+const files = await walkFiles(outDir, terrainMode ? [".json", ".terrain"] : [".json", ".glb"]);
+const rootFile = terrainMode ? "layer.json" : "tileset.json";
+if (!files.includes(rootFile)) {
+  console.error(
+    `no ${rootFile} in ${outDir} — run \`${terrainMode ? `node --env-file=.env.local scripts/bake/terrain/bake-terrain.mjs --city ${city}` : `npm run bake -- --city ${city}`}\` first`,
+  );
   process.exit(1);
 }
 
@@ -47,7 +65,7 @@ const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUN
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID ?? process.env.CLOUDFLARE_ACCESSKEY_ID;
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY ?? process.env.CLOUDFLARE_SECRET_ACCESSKEY;
 const R2_BUCKET = process.env.R2_BUCKET ?? process.env.CLOUDFLARE_R2_BUCKET;
-const prefix = process.env.R2_PREFIX ?? `enriched/${city}`;
+const prefix = process.env.R2_PREFIX ?? (terrainMode ? `terrain/${city}` : `enriched/${city}`);
 if (!dryRun && !(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET)) {
   console.error(
     "missing env: set R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET\n" +

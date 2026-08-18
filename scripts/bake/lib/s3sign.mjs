@@ -18,10 +18,12 @@ export function encodeS3Path(path) {
     .join("/");
 }
 
-/** Content types the tileset actually contains (3D Tiles 1.1: JSON tree + glb cells). */
+/** Content types the baked artifacts actually contain (3D Tiles 1.1: JSON tree + glb cells;
+ *  terrain patches: quantized-mesh tiles + layer.json). */
 export function contentTypeFor(name) {
   if (name.endsWith(".json")) return "application/json";
   if (name.endsWith(".glb")) return "model/gltf-binary";
+  if (name.endsWith(".terrain")) return "application/vnd.quantized-mesh";
   return "application/octet-stream";
 }
 

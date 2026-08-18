@@ -11,12 +11,7 @@ import { useUploadStore } from "../../store/upload";
 import { CONTROLS, FPV } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal, formatAltM, formatEyeM } from "../../lib/format/readout";
-import {
-  applyStoredVariant,
-  isVariantActive,
-  setVariantUrl,
-} from "../../lib/globe/enrichedVariant";
-import { loadViewPrefs, saveViewPref } from "../../lib/prefs";
+import { saveViewPref } from "../../lib/prefs";
 import "../../styles/camera-tilt.css";
 import "../../styles/tips.css";
 
@@ -53,16 +48,10 @@ export default function CameraTiltPanel() {
   // exists) and stays out of the way while the upload flow owns the globe.
   const showMemo = !s.tempPin && !s.tempFpv && uploadPhase === "idle";
 
-  // Buildings-source A/B (OSM2World variant work, 2026-07-14): the chip toggles `?enriched=`
-  // and RELOADS — the camera pose rides the #p hash, so the reload lands at the identical view
-  // with the other bake streaming. Chip only exists when an enriched tileset is configured
-  // (no env URL → no enrichment → nothing to toggle). Computed once per render: a click
-  // navigates away, so no reactive mirror is needed. The EFFECTIVE state folds in the stored
-  // preference (owner 2026-07-21) — that's what survives a plain reload of `/` with no param.
-  const hasEnriched = Boolean(import.meta.env.PUBLIC_ENRICHED_TILES_URL);
-  const o2wActive =
-    typeof location !== "undefined" &&
-    isVariantActive(applyStoredVariant(location.search, loadViewPrefs().enrichedVariant));
+  // BLD = 3D buildings on/off, LIVE (owner rule 2026-08-18, superseding the 2026-07-14 variant
+  // A/B chip): WHICH bake streams is decided under the hood (lib/globe/regions.ts — best
+  // variant by default per baked region), so the chip's whole job is show/hide. Flows through
+  // the same setActive path the /m 2D map uses — no reload.
 
   return (
     <>
@@ -195,31 +184,18 @@ export default function CameraTiltPanel() {
         >
           PIN
         </button>
-        {/* Buildings source (o2w A/B): CLASSIC extruded bake ↔ OSM2World detailed bake.
-            Reload-based by design — a live tileset swap would have to tear down the enriched
-            renderer's seating/occlusion state mid-frame; the #p pose makes the reload lossless. */}
-        {hasEnriched && (
-          <button
-            type="button"
-            className={`ct-mode ct-bld tip${o2wActive ? " is-on" : ""}`}
-            onClick={() => {
-              // Persist the NEW state, then reload with it explicit in the URL — the effective
-              // (URL+pref) active flag is what must flip, not the raw URL param.
-              saveViewPref("enrichedVariant", !o2wActive);
-              location.assign(setVariantUrl(location.href, !o2wActive));
-            }}
-            aria-pressed={o2wActive}
-            aria-label={
-              o2wActive
-                ? "Switch buildings to the classic bake"
-                : "Switch buildings to the OSM2World detailed bake"
-            }
-            data-tip="BUILDINGS SOURCE — CLASSIC BAKE ↔ OSM2WORLD DETAIL. RELOADS, KEEPS THE VIEW."
-            data-tip-pos="left"
-          >
-            BLD
-          </button>
-        )}
+        {/* 3D buildings on/off (live — the best available bake for the region streams when ON). */}
+        <button
+          type="button"
+          className={`ct-mode ct-bld tip${s.buildings3d ? " is-on" : ""}`}
+          onClick={() => s.setBuildings3d(!s.buildings3d)}
+          aria-pressed={s.buildings3d}
+          aria-label={s.buildings3d ? "Hide 3D buildings" : "Show 3D buildings"}
+          data-tip="3D BUILDINGS — SHOW OR HIDE. THE BEST AVAILABLE DETAIL LOADS AUTOMATICALLY."
+          data-tip-pos="left"
+        >
+          BLD
+        </button>
       </div>
       {!fpvMode && (
         <Encoder

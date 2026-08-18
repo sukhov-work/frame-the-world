@@ -1,111 +1,97 @@
-// Enriched-tileset A/B compare seam (OSM2World variant work, 2026-07-14).
+// Enriched-tileset selection — BEST VARIANT BY DEFAULT per baked region (owner rule 2026-08-18,
+// superseding the 2026-07-14 A/B-chip semantics): the registry (lib/globe/regions.ts) decides
+// which bake streams; the user's BLD / ▦ 3D DETAIL chips are a plain live buildings on/off
+// (prefs `buildings3d`), never a variant choice. The `?enriched=` URL search param survives as
+// the DEV seam only:
 //
-// The Dnipro enrichment now has PARALLEL bakes (the default extruder bake `enriched/dnipro` and the
-// OSM2World variant `enriched/dnipro-o2w` — scripts/bake/bake-osm2world.mjs). To compare them
-// visually WITHOUT touching the default pipeline, the `?enriched=` URL search param overrides which
-// tileset the globe streams, resolved once at boot:
+//   (absent)                     → the BOOT REGION's best variant (regions.ts, variants[0]);
+//                                  region = the boot view's containing region, else the region
+//                                  anchored by the env URL's city segment, else the first entry
+//   ?enriched=off|none|0         → no enriched tileset AND no OSM mask → stock Cesium OSM look
+//   ?enriched=<name>             → that variant verbatim (A/B compares; mask bbox follows the
+//                                  region OWNING the name — unknown names fall back to the
+//                                  default region's bbox, exactly the old variantBboxes rule)
+//   ?enriched=<anything with /=> → used verbatim (full URL or absolute path)
 //
-//   (absent)                     → PUBLIC_ENRICHED_TILES_URL exactly as before (byte-identical default)
-//   ?enriched=off|none|0         → no enriched tileset AND no OSM mask → the stock Cesium OSM look
-//   ?enriched=dnipro-o2w         → the env URL with its variant path segment swapped
-//                                  (…/enriched/dnipro/tileset.json → …/enriched/dnipro-o2w/tileset.json);
-//                                  with no env URL set, falls back to the same-origin public dir
-//                                  (/enriched/dnipro-o2w/tileset.json) — the local pre-upload A/B
-//   ?enriched=<anything with "/"> → used verbatim (full URL or absolute path)
-//
-// The camera pose persists in the URL HASH (#p=…, lib/geo/urlPose.ts), which reloads survive — so a
-// same-pose A/B is just the same link with a different ?enriched= value. Pure function; unit-tested.
+// The stored `enrichedVariant` pref is RETIRED (prefs sanitize drops the stale key). Camera pose
+// rides the #p= hash as before, so explicit-param A/B reloads still land on the identical view.
+// Pure; unit-tested (test/enriched-variant.test.ts).
 
-// Type-only (erased at build) — the mask/seat extent resolved per variant (resolveEnrichedBbox).
 import type { GeoBbox } from "./enrichedMask";
+import { BAKED_REGIONS, regionContaining, regionOfVariant, type BakedRegion } from "./regions";
 
-/** The OSM2World variant the UI toggle switches to (the `?enriched=` value; city-specific v1 —
- *  becomes per-city config if a second city ever bakes a variant). */
-export const ENRICHED_VARIANT_NAME = "dnipro-o2w";
-
-/** Is the o2w variant the active enriched source in this page's URL? */
-export function isVariantActive(search: string, variant: string = ENRICHED_VARIANT_NAME): boolean {
-  try {
-    const v = new URLSearchParams(search).get("enriched");
-    return v != null && (v === variant || v.includes(`/${variant}/`));
-  } catch {
-    return false;
-  }
+export interface EnrichedSelection {
+  /** Tileset URL to stream — undefined = no enriched renderer (stock Cesium OSM look). */
+  url: string | undefined;
+  /** OSM-mask + re-seat extent — null exactly when url is undefined. */
+  bbox: GeoBbox | null;
+  /** Resolved variant name (null for verbatim URLs). */
+  variant: string | null;
+  /** Owning registry region id (null when off). */
+  regionId: string | null;
 }
 
-/** Persisted BLD chip (owner 2026-07-21): with NO `?enriched=` in the URL, a stored preference
- *  (lib/prefs `enrichedVariant`, written by the chip) injects the variant into the effective
- *  search — that's how the choice survives a plain reload of `/`. An explicit URL param (any
- *  value, including `off` and other variants) always wins verbatim. Pure — callers pass the
- *  stored flag in. */
-export function applyStoredVariant(
+const toGeoBbox = (b: readonly [number, number, number, number]): GeoBbox => ({
+  west: b[0],
+  south: b[1],
+  east: b[2],
+  north: b[3],
+});
+
+/** The env URL's second-to-last path segment (…/enriched/<city>/tileset.json → "<city>"). */
+function envAnchorSegment(envUrl: string | undefined): string | null {
+  const m = envUrl?.match(/^(?:.*\/)?([^/]+)\/[^/]+$/);
+  return m ? m[1] : null;
+}
+
+/** Swap the env URL's variant path segment (…/enriched/dnipro/tileset.json → …/<variant>/…). */
+function swapVariant(envUrl: string | undefined, variant: string): string {
+  if (envUrl) {
+    const m = envUrl.match(/^(.*\/)[^/]+(\/[^/]+)$/);
+    if (m) return `${m[1]}${variant}${m[2]}`;
+  }
+  return `/enriched/${variant}/tileset.json`;
+}
+
+/** The region the boot defaults to: the boot view's containing region wins (a #p= share into
+ *  another baked city streams THAT city's best bake), else the env anchor, else the registry head. */
+function defaultRegion(envUrl: string | undefined, bootLatDeg?: number, bootLonDeg?: number): BakedRegion {
+  const byBoot =
+    bootLatDeg !== undefined && bootLonDeg !== undefined
+      ? regionContaining(bootLatDeg, bootLonDeg)
+      : null;
+  if (byBoot) return byBoot;
+  const anchor = envAnchorSegment(envUrl);
+  return (anchor && regionOfVariant(anchor)) || BAKED_REGIONS[0];
+}
+
+/** Resolve WHAT streams and WHERE the mask sits, in ONE call — the tileset URL and the mask/seat
+ *  bbox must always derive from the same decision (the old two-resolver sync trap). */
+export function resolveEnrichedSelection(
+  envUrl: string | undefined,
   search: string,
-  storedOn: boolean | undefined,
-  variant: string = ENRICHED_VARIANT_NAME,
-): string {
-  if (!storedOn) return search;
-  try {
-    const params = new URLSearchParams(search);
-    if (params.get("enriched") != null) return search;
-    params.set("enriched", variant);
-    return `?${params.toString()}`;
-  } catch {
-    return search;
-  }
-}
-
-/** The same page URL with the variant EXPLICITLY on (param set) or off (param removed) — the hash
- *  (and with it the `#p=` camera pose) is preserved, so the reload lands at the identical view.
- *  The BLD chip drives this with the EFFECTIVE state (URL + stored pref): a blind param toggle
- *  would flip the wrong way when the pref, not the URL, made the variant active. */
-export function setVariantUrl(href: string, on: boolean, variant: string = ENRICHED_VARIANT_NAME): string {
-  const url = new URL(href);
-  if (on) url.searchParams.set("enriched", variant);
-  else url.searchParams.delete("enriched");
-  return url.toString();
-}
-
-/** The same page URL with `?enriched=` toggled to/from the variant (URL-only view of the state). */
-export function toggleVariantUrl(href: string, variant: string = ENRICHED_VARIANT_NAME): string {
-  return setVariantUrl(href, !isVariantActive(new URL(href).search, variant), variant);
-}
-
-/** Resolve the enrichment mask/seat bbox for the active `?enriched=` value: a variant listed in
- *  `variantBboxes` (a bake over a DIFFERENT box — cross-city experiments, tuning.ts
- *  `ENRICHED.variantBboxes`) gets its own extent; everything else — no param, a same-box variant
- *  like dnipro-o2w, off, a verbatim URL — returns `defaultBbox` ITSELF (identity ⇒ the default
- *  path stays byte-identical). Off drops the mask anyway (`resolveEnrichedUrl` → undefined). */
-export function resolveEnrichedBbox(
-  defaultBbox: GeoBbox,
-  search: string,
-  variantBboxes: Readonly<Record<string, GeoBbox>>,
-): GeoBbox {
-  try {
-    const v = new URLSearchParams(search).get("enriched")?.trim();
-    if (v && variantBboxes[v]) return variantBboxes[v];
-  } catch {
-    /* malformed search → default */
-  }
-  return defaultBbox;
-}
-
-/** Resolve the enriched-tileset URL from the env default + the page's `location.search`. */
-export function resolveEnrichedUrl(envUrl: string | undefined, search: string): string | undefined {
-  const base = envUrl || undefined;
+  bootLatDeg?: number,
+  bootLonDeg?: number,
+): EnrichedSelection {
   let raw: string | null = null;
   try {
     raw = new URLSearchParams(search).get("enriched");
   } catch {
     raw = null;
   }
-  if (raw == null || raw.trim() === "") return base;
-  const val = raw.trim();
-  if (/^(off|none|0)$/i.test(val)) return undefined;
-  if (val.includes("/")) return val;
-  if (base) {
-    // Swap the second-to-last path segment: …/<variant>/<file> → …/<val>/<file>.
-    const m = base.match(/^(.*\/)[^/]+(\/[^/]+)$/);
-    if (m) return `${m[1]}${val}${m[2]}`;
+  const region = defaultRegion(envUrl, bootLatDeg, bootLonDeg);
+  const val = raw?.trim() ?? "";
+  if (val === "") {
+    // Default path: best variant of the boot region. No env URL → no enriched (dev without the
+    // local middleware / prod without R2 stays byte-identical to the pre-enrichment app).
+    if (!envUrl) return { url: undefined, bbox: null, variant: null, regionId: null };
+    const variant = region.variants[0];
+    return { url: swapVariant(envUrl, variant), bbox: toGeoBbox(region.bbox), variant, regionId: region.id };
   }
-  return `/enriched/${val}/tileset.json`;
+  if (/^(off|none|0)$/i.test(val)) return { url: undefined, bbox: null, variant: null, regionId: null };
+  if (val.includes("/")) {
+    return { url: val, bbox: toGeoBbox(region.bbox), variant: null, regionId: region.id };
+  }
+  const owner = regionOfVariant(val) ?? region;
+  return { url: swapVariant(envUrl, val), bbox: toGeoBbox(owner.bbox), variant: val, regionId: owner.id };
 }

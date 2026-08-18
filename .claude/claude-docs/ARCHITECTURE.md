@@ -119,7 +119,9 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   enrichedBuildings, imageryGround, vectorTiles, vectorFeatures, streetNames,
   geoLabels, minimapFeed, planFeed, graticule, glsl, aimCones (U4 direction lines + rise→set
   visibility cones on the ground plane, 2026-08-18), tilePriority (U5 closest-first download
-  comparator adapter + queue caps, 2026-08-18)).
+  comparator adapter + queue caps, 2026-08-18), terrainPatch (U7b GLO-30 composite — createChild
+  wrap + fetchData claimer on the ONE ground renderer, 2026-08-18; domain doc
+  `BAKED_ASSETS.md`)).
 - `components/panels/` (design imports allowed): `UploadFlow` (dropzone→worker), `PhotoDetailPanel` (EXIF
   sliders/encoders + save/update/delete), `TimeScrubber`+`TimeReadout` (scrub + playback + light bands),
   `LocationFinder` (geocode + sky-object search → fly-to/track), `CameraTiltPanel` (compass/2D-3D/
@@ -148,9 +150,12 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
   sunEventFrame, moonCalendar, targets, topo, comet — see §4), `sky/` (catalog, searchIndex, messier,
   openngc, ngcNames, constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache),
-  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant, loadPriority — the U5
+  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant — best-variant
+  selection, rewritten 2026-08-18p, regions — the baked-region REGISTRY: bboxes/variants/
+  terrain patches, the ONE source (2026-08-18p, `BAKED_ASSETS.md` §4), loadPriority — the U5
   pure download comparator, 0.4.28-parity, 2026-08-18), `geo/` also carries `slippy` (U3 tile
-  math for the 2D map twins), `photo/` (npf), `market/`
+  math for the 2D map twins) + `terrainTiles` (terrain-patch serve-set math, bake-twin
+  parity-tested, 2026-08-18p), `photo/` (npf), `market/`
   (listing), `guide/` (guideContent, inline — the guide content model, G1 2026-08-15), `export/` (ics),
   `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade), `api/`, `format/`,
   `textures/`, `theme/` (GL token bridge), `prefs.ts`.
@@ -163,9 +168,13 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `minimap` — the reactive spine + the globe⇆React seam/mirror contract (see
   `conventions/architecture-and-patterns.md`).
 - `scripts/bake/` (offline, Node-only): `bake.mjs` (OSM footprints → C6 exclusion → roof-shaped extrusion →
-  gridded 3D-Tiles + instanced trees), `bake-osm2world.mjs` (OSM2World variant), `upload-r2.mjs` /
-  `r2-worker.mjs` / `deploy-worker.mjs` (R2 hosting), `cities/*.json` (per-city config; bbox must equal
-  `tuning.ts ENRICHED.bbox` — regen BOTH bakes on change). See `scripts/bake/README.md`.
+  gridded 3D-Tiles + instanced trees), `bake-osm2world.mjs` (OSM2World variant), `terrain/`
+  (GLO-30 → quantized-mesh patch: fetch → mago-3d-terrainer EGM2008 → 3 km CWT rim blend →
+  self-verifying probes, 2026-08-18p), `upload-r2.mjs` (`--terrain` mode) / `r2-worker.mjs` /
+  `deploy-worker.mjs` (R2 hosting), `cities/*.json` (per-city config; bbox must equal the
+  region's `lib/globe/regions.ts` entry — regen BOTH building bakes on change). Script detail:
+  `scripts/bake/README.md`; the domain doc (rulings + registry contract + ops runbooks + aux
+  data): **`BAKED_ASSETS.md`**.
 
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to
