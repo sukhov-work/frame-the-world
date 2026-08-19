@@ -1961,6 +1961,31 @@ export const DAYARC = {
  *  line = body identity (tokens.accent / sunGlow / moonlight); sector past =
  *  tokens.textSecondary NEUTRAL grey (owner 2026-08-18: amber read as a day/night claim —
  *  swept history is inert), future = tokens.timeFuture — the scrubber's future language. */
+/** MY PLACES markers on the GL globe (owner 2026-08-19b — "expected a dot per saved place
+ *  on the map") — the 2D map-window layer's scene twin: quiet lavender ring-dots at each
+ *  saved view. Deliberately NOT pins: no stems, no clustering, no picking — a wayfinding
+ *  layer, not content. Colour = tokens.pinLavender (D14: tuning names tokens only). */
+export const PLACEMARKS = {
+  /** Marker centre above the local ground (m) — just clears the drape. */
+  liftM: 2,
+  /** Fallback ground height (m, above ellipsoid) before terrain tiles answer heightAt. */
+  fallbackGroundM: 120,
+  /** Ring world radius = camera distance × this (angular-constant)… */
+  angularSize: 0.006,
+  /** …clamped: legible at street level, a small dot from orbit — never pin-sized. */
+  minSizeM: 4,
+  maxSizeM: 9_000,
+  /** Overall alpha — matches the 2D map-window drawing (0.85). */
+  alpha: 0.85,
+  /** Instanced capacity (PLACE_PAGE is the fetch bound; markers cap independently). */
+  maxRender: 500,
+  /** Lazy terrain re-ask cadence (frames) — the PINS.resnapEveryFrames idiom. */
+  resnapEveryFrames: 120,
+  /** Idle delay (ms) before the orchestrator kicks the store fetch — the saved-places load
+   *  must never ride the boot path (lazy-by-contract). */
+  fetchIdleMs: 3_500,
+} as const;
+
 export const AIMCONES = {
   /** Ephemeris sampling step across the day (min) — sector rim kinks stay sub-pixel. */
   stepMin: 10,
@@ -1991,9 +2016,14 @@ export const AIMCONES = {
    *  2026-08-18: the lines read bulky). */
   lineHalfWidthK: 0.003,
   /** Altitude presence band (m): full below, gone above — a map instrument, not an orbit
-   *  decoration (the VECTOR band idiom, wider: the flat map lives below ~120 km). */
+   *  decoration (the VECTOR band idiom, wider: the flat map lives below ~120 km). Mobile
+   *  keeps this wide band (the fullscreen 2D map is the phone's main planning surface)… */
   fullAltM: 25_000,
   topAltM: 50_000,
+  /** …desktop gets a TIGHT one (owner 2026-08-19b: "radar only below 10 km" — at 30 km zoom
+   *  it read as premature clutter on the main globe). */
+  desktopFullAltM: 8_000,
+  desktopTopAltM: 10_000,
   /** Whole-overlay fade ease (ms) on toggle / anchor appearance. */
   fadeTauMs: 250,
   /** Anchor move deadband (deg) before an ephemeris rebuild — the focus-fallback anchor pans

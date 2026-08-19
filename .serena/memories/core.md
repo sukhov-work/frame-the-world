@@ -121,7 +121,21 @@ stay "frame the world".
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**OWNER UX BATCH #2 SHIPPED 2026-08-19b — all 11 announced items** (DECISIONS 2026-08-19b;
+**OWNER UX BATCH #3 SHIPPED 2026-08-19c — all 9 announced items + 2 batch-#2 tails**
+(DECISIONS 2026-08-19c; gates 1,062/1,062 · astro 0 err/5 hints; browser-verified both
+shells over the owner's CDP Chrome, shots uxb3-01..07): desktop 2×4 toggle grid · desktop
+radar <10 km band · my-places-on-map desktop FIXED (missing `.ct-places.is-on` lit CSS +
+new GL `scene/placeMarkers.ts` lavender dots on the MAIN globe + save/delete local push) ·
+UNFOLLOW also disables its FIND body · /m LAYERS expands LEFT · radar-bearings regression
+FIXED (UNFOLLOW dismissal now session-only + body-named DIRECTION labels + one-time
+`prefsRev` re-arm of corrupted aim/SHOW offs) · places lists nearest-first
+(`lib/geo/proximity.ts`) · /m SAVE VIEW optional-name Sheet (portaled) · GOTO tracked-target
+chips both shells (`panels/SkyGotoChips.tsx`; below-horizon → `nextRiseAzimuth` aim). See
+`mem:project/wip-2026-08-19-owner-uxbatch3` (rulings + traps — incl. the foreign-CDP
+rAF-throttle trap + the depthTest:false far-hemisphere cull rule). **NEXT SESSION: batch-#3
+tails if the owner flags them (FPV mini-map place markers · bright-target FIND refinement ·
+taste pass), then P8 conjunctions + P9 lunar eclipses + M4 mobile resume.**
+Prior batch (#2, 2026-08-19b — all 11 items; DECISIONS 2026-08-19b;
 gates 1,052/1,052 · astro 0 err/5 hints; browser-verified both shells, shots uxb2-01..05):
 cap 1000 · /m map glyph + day steppers + joystick-over-fullscreen-map · Esc-closes-map-first ·
 SKY search default · DISABLE menu labels + find-in-frame composite-state fix · UNFOLLOW verb

@@ -10,6 +10,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import Sheet from "./Sheet";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { usePlacesMapStore } from "../../store/places";
@@ -191,7 +193,8 @@ function NavChip() {
  *  expanding the scene-layer toggles. Absorbs the old standalone ▦ 3D DETAIL chip (owner
  *  2026-08-15e) and adds: MY PLACES markers on the 2D map (member feature), photo pins
  *  (/m default OFF), and the aim RADAR master switch. Every toggle persists through the
- *  shared view-prefs blob; the expand state itself is session-local. */
+ *  shared view-prefs blob; the expand state itself is session-local. Expands LEFT (owner
+ *  2026-08-19b): the anchor chip is DOM-first inside a row-reverse row so it never moves. */
 function LayersChip() {
   const [expanded, setExpanded] = useState(false);
   const mapMode = useCameraStore((s) => s.mapMode);
@@ -205,7 +208,15 @@ function LayersChip() {
   const setPlacesOn = usePlacesMapStore((s) => s.setOnMap);
   const toggleCls = (on: boolean) => (on ? "m-act m-act--accent" : "m-act m-act--quiet");
   return (
-    <>
+    <div className="m-layersrow">
+      <button
+        type="button"
+        className="m-act"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
+        ⊞ LAYERS
+      </button>
       {expanded && (
         <>
           {/* 2D has no buildings (U1) — the chip stays visible but stands down. */}
@@ -248,31 +259,27 @@ function LayersChip() {
           </button>
         </>
       )}
-      <button
-        type="button"
-        className="m-act"
-        aria-expanded={expanded}
-        onClick={() => setExpanded(!expanded)}
-      >
-        ⊞ LAYERS
-      </button>
-    </>
+    </div>
   );
 }
 
-/** ◎ SAVE VIEW (owner 2026-08-15) — the desktop SavePlaceControl twin, one-tap: bookmark the
- *  live FPV pose + pinned scene time to /api/places (it appears in MY PLACES on both shells).
- *  Phones get an auto title (no inline naming — rename/delete stay desktop). Anonymous gets a
- *  SIGN IN chip instead: the pose hash rides the login round trip, so the view survives it.
- *  Pose source = the SAME mirrors the `#f=` hash writer uses (fpvHud + camGeo), re-read at
- *  the save instant — a saved place and a shared link can never disagree. */
+/** ◎ SAVE VIEW (owner 2026-08-15; optional naming ask owner 2026-08-19b — supersedes the
+ *  auto-title-only ruling) — the desktop SavePlaceControl twin: bookmark the live FPV pose +
+ *  pinned scene time to /api/places (it appears in MY PLACES on both shells). Tap first asks
+ *  an OPTIONAL name in a small Sheet (portaled to <body>: the chip stack is a z-10 fixed
+ *  layer exactly where the soft keyboard lands — the sheet idiom is the shell's one
+ *  keyboard-safe input home, same as SEARCH). Empty submit keeps the auto title. Anonymous
+ *  gets a SIGN IN chip instead: the pose hash rides the login round trip, so the view
+ *  survives it. Pose source = the SAME mirrors the `#f=` hash writer uses (fpvHud + camGeo),
+ *  re-read at the save instant — a saved place and a shared link can never disagree. */
 function SavePlaceChip() {
   const phase = useMemberStore((s) => s.phase);
   const refresh = useMemberStore((s) => s.refresh);
   const ready = useCameraStore((s) => s.fpvHud !== null && s.camGeo !== null);
   // Subscribed so the chip's ⏱ hint follows the scrubber state.
   const live = useTimeStore((s) => s.live);
-  const [mode, setMode] = useState<"idle" | "busy" | "saved" | "error">("idle");
+  const [mode, setMode] = useState<"idle" | "naming" | "busy" | "saved" | "error">("idle");
+  const [title, setTitle] = useState("");
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -307,23 +314,36 @@ function SavePlaceChip() {
       hour: "2-digit",
       minute: "2-digit",
     });
+    // Custom name wins; empty keeps the auto title (nicer than the server's default).
+    const finalTitle = title.trim() || `View · ${stamp}`;
+    const pose = {
+      latDeg: geo.latDeg,
+      lonDeg: geo.lonDeg,
+      eyeM: Math.min(10_000, Math.max(0.5, hud.eyeAboveGroundM)),
+      headingDeg: hud.headingDeg,
+      pitchDeg: Math.min(89, Math.max(-89, hud.pitchDeg)),
+      fovDeg: hud.fovDeg,
+      timeMs: t.live ? null : sceneTimeMs(), // LIVE is never persisted (the &t= rule)
+    };
     try {
       const r = await fetch("/api/places", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `View · ${stamp}`,
-          latDeg: geo.latDeg,
-          lonDeg: geo.lonDeg,
-          eyeM: Math.min(10_000, Math.max(0.5, hud.eyeAboveGroundM)),
-          headingDeg: hud.headingDeg,
-          pitchDeg: Math.min(89, Math.max(-89, hud.pitchDeg)),
-          fovDeg: hud.fovDeg,
-          timeMs: t.live ? null : sceneTimeMs(), // LIVE is never persisted (the &t= rule)
-        }),
+        body: JSON.stringify({ title: finalTitle, ...pose }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      // Push into the map-marker store so it shows WITHOUT a reload (owner 2026-08-19b).
+      const j = (await r.json().catch(() => null)) as { placeId?: string } | null;
+      if (j?.placeId) {
+        usePlacesMapStore.getState().addLocal({
+          id: j.placeId,
+          title: finalTitle,
+          createdAt: new Date().toISOString(),
+          ...pose,
+        });
+      }
       setMode("saved");
+      setTitle("");
       window.setTimeout(() => setMode((m) => (m === "saved" ? "idle" : m)), 1800);
     } catch {
       setMode("error");
@@ -332,19 +352,48 @@ function SavePlaceChip() {
   };
 
   return (
-    <button
-      type="button"
-      className="m-act"
-      disabled={mode === "busy" || mode === "saved"}
-      onClick={() => void save()}
-    >
-      {mode === "saved"
-        ? "✓ SAVED"
-        : mode === "error"
-          ? "◎ RETRY SAVE"
-          : mode === "busy"
-            ? "◎ SAVING…"
-            : `◎ SAVE VIEW${live ? "" : " ⏱"}`}
-    </button>
+    <>
+      <button
+        type="button"
+        className="m-act"
+        disabled={mode === "busy" || mode === "saved"}
+        onClick={() => setMode("naming")}
+      >
+        {mode === "saved"
+          ? "✓ SAVED"
+          : mode === "error"
+            ? "◎ RETRY SAVE"
+            : mode === "busy"
+              ? "◎ SAVING…"
+              : `◎ SAVE VIEW${live ? "" : " ⏱"}`}
+      </button>
+      {mode === "naming" &&
+        createPortal(
+          <Sheet title="SAVE VIEW" onClose={() => setMode("idle")}>
+            <div className="m-savename">
+              <input
+                className="m-input"
+                type="text"
+                placeholder="NAME THIS PLACE (OPTIONAL)"
+                maxLength={120}
+                value={title}
+                spellCheck={false}
+                autoComplete="off"
+                autoFocus
+                aria-label="Optional place name"
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") void save();
+                }}
+              />
+              <button type="button" className="m-act m-act--accent" onClick={() => void save()}>
+                ◎ SAVE{live ? "" : " ⏱"}
+              </button>
+            </div>
+          </Sheet>,
+          document.body,
+        )}
+    </>
   );
 }

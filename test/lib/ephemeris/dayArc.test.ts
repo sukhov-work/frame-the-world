@@ -9,8 +9,13 @@ import {
   solarOffsetHours,
 } from "../../../src/lib/ephemeris/dayArc";
 import { horizontal } from "../../../src/lib/ephemeris/bodies";
-import { targetElevationSeries, traceStates } from "../../../src/lib/ephemeris/dayArc";
 import {
+  nextRiseAzimuth,
+  targetElevationSeries,
+  traceStates,
+} from "../../../src/lib/ephemeris/dayArc";
+import {
+  bodyTarget,
   cometTarget,
   fixedTarget,
   planetTarget,
@@ -271,5 +276,53 @@ describe("targetElevationSeries + traceStates (QoL-1 §3.1.D rail trace)", () =>
     traceStates(s, (az) => { seen.push(az); return -90; });
     expect(seen.length).toBe(s.length);
     expect(seen[0]).toBeCloseTo(s[0].azDeg, 9);
+  });
+});
+
+describe("nextRiseAzimuth (goto-chip below-horizon jump, owner 2026-08-19b)", () => {
+  // Midnight local solar time in Dnipro on the solstice — the sun is well below the horizon.
+  const midnight = SOLSTICE_NOON + 12 * 3_600_000;
+  const neverUp = fixedTarget({
+    id: "dso:TEST-NEVER-UP",
+    name: "Test Never Up",
+    kind: "cluster",
+    aliases: [],
+    raDeg: 120,
+    decDeg: -80, // from 48.5°N a −80° dec target never clears the horizon
+    vmag: 5,
+    facts: { kind: "dso", dsoType: "OCl", typeLabel: "OPEN CLUSTER", constellation: null, names: [] },
+    source: "TEST",
+  });
+
+  it("finds the sun's next rise from a night instant: within a day, NE on the solstice", () => {
+    const rise = nextRiseAzimuth(bodyTarget("sun"), midnight, DNIPRO.latDeg, DNIPRO.lonDeg);
+    expect(rise).not.toBeNull();
+    expect(rise!.utcMs).toBeGreaterThan(midnight);
+    expect(rise!.utcMs - midnight).toBeLessThan(24 * 3_600_000);
+    // Summer-solstice sunrise sits far north of east at 48.5°N (~45–70°).
+    expect(rise!.azDeg).toBeGreaterThan(30);
+    expect(rise!.azDeg).toBeLessThan(90);
+    // The interpolated instant really is a horizon crossing.
+    const at = targetAzAlt(bodyTarget("sun"), rise!.utcMs, DNIPRO.latDeg, DNIPRO.lonDeg);
+    expect(Math.abs(at.altDeg)).toBeLessThan(0.5);
+  });
+
+  it("returns null for a target that never rises here", () => {
+    expect(nextRiseAzimuth(neverUp, midnight, DNIPRO.latDeg, DNIPRO.lonDeg)).toBeNull();
+  });
+
+  it("returns null for a circumpolar target that never sets (no crossing exists)", () => {
+    const polarisHigh = fixedTarget({
+      id: "star:TEST-P2",
+      name: "Test P2",
+      kind: "star",
+      aliases: [],
+      raDeg: 37.95,
+      decDeg: 89.26,
+      vmag: 2,
+      facts: { kind: "dso", dsoType: "**", typeLabel: "STAR", constellation: null, names: [] },
+      source: "TEST",
+    });
+    expect(nextRiseAzimuth(polarisHigh, midnight, DNIPRO.latDeg, DNIPRO.lonDeg)).toBeNull();
   });
 });

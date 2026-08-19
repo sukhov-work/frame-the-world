@@ -3,7 +3,9 @@ import { useMemberStore } from "../../store/member";
 import { useUploadStore } from "../../store/upload";
 import { usePinsStore } from "../../store/pins";
 import { useCameraStore } from "../../store/camera";
+import { usePlacesMapStore } from "../../store/places";
 import { useTimeStore } from "../../store/time";
+import { sortByProximity } from "../../lib/geo/proximity";
 import { deletePhotoRecord } from "../../lib/save/uploadMedia";
 import type { PhotoListItem } from "../../lib/wix/pinRecords";
 import type { PlaceListItem } from "../../lib/wix/placeRecords";
@@ -69,7 +71,11 @@ export default function MyPins() {
       fetch("/api/places")
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((j) => {
-          if (!stale) setPlaces(j.places ?? []);
+          // Nearest-first from the current map position (owner 2026-08-19b) — FPV eye when
+          // live, else the view focus; sorted once per fetch (no reshuffle while panning).
+          const cam = useCameraStore.getState();
+          const at = cam.camGeo ?? { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg };
+          if (!stale) setPlaces(sortByProximity(j.places ?? [], at.latDeg, at.lonDeg));
         })
         .catch((e) => {
           if (!stale) setError(e instanceof Error ? e.message : String(e));
@@ -172,6 +178,7 @@ export default function MyPins() {
       const r = await fetch(`/api/places?id=${encodeURIComponent(p.id)}`, { method: "DELETE" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setPlaces((list) => (list ? list.filter((x) => x.id !== p.id) : list));
+      usePlacesMapStore.getState().removeLocal(p.id); // map markers drop it live too
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

@@ -199,6 +199,21 @@
   color: var(--color-text-secondary);
 }
 
+/* Below-horizon state (owner 2026-08-19b, tracked target only): the chip stays as the GOTO
+   affordance but reads dormant — click looks at the next-rise azimuth. */
+.fh-chip--down {
+  opacity: 0.55;
+}
+.fh-chip--down:hover {
+  opacity: 0.85;
+}
+
+/* /m: thumb-sized touch target (the desktop 13px pill is a mouse target). */
+body.m .fh-chip {
+  padding: 8px 12px;
+  font-size: 15px;
+}
+
 /* The chips now render in every mode (S6 follow-up) — keep the welcome landing clean. */
 body.welcome-active .fh-chip,
 body.welcome-active .fh {

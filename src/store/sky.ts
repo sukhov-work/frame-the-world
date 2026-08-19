@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { loadViewPrefs, saveViewPref } from "../lib/prefs";
 import { cometTarget, type SkyTarget } from "../lib/ephemeris/targets";
+import { useFindStore } from "./find";
 
 /**
  * Sky-target seam (ASTRO ENGINE phase A, 2026-08-03 — generalises the 2026-08-02 comet store):
@@ -62,9 +63,10 @@ export interface SkyStoreState {
    *  Session-only — deliberately NOT persisted (a reload must never grab the camera). */
   track: boolean;
   setTrack(on: boolean): void;
-  /** UNFOLLOW (owner 2026-08-19): dismiss the followed object — SHOW off + camera lock off in
-   *  one verb. `target` itself stays set (non-nullable contract); every follow path (search,
-   *  sky menu, FIND/PLAN jumps) re-enables SHOW. */
+  /** UNFOLLOW (owner 2026-08-19): dismiss the followed object — SHOW off + camera lock off +
+   *  its FIND-in-frame body off (owner 2026-08-19b) in one verb. `target` itself stays set
+   *  (non-nullable contract); every follow path (search, sky menu, FIND/PLAN jumps)
+   *  re-enables SHOW. */
   stopFollowing(): void;
   /** The tracked sky target — the ONE object the scene marker + trail + panel follow. */
   target: SkyTarget;
@@ -73,7 +75,7 @@ export interface SkyStoreState {
 
 const prefs = loadViewPrefs();
 
-export const useSkyStore = create<SkyStoreState>((set) => ({
+export const useSkyStore = create<SkyStoreState>((set, get) => ({
   open: false,
   setOpen: (open) => set({ open }),
   visible: prefs.skyTargetVisible ?? true,
@@ -133,8 +135,18 @@ export const useSkyStore = create<SkyStoreState>((set) => ({
   track: false,
   setTrack: (track) => set({ track }),
   stopFollowing: () => {
-    saveViewPref("skyTargetVisible", false);
+    // SESSION-ONLY dismissal (regression fix 2026-08-19b): persisting visible:false bricked
+    // the aim TARGET line across reloads (boot restored the target with SHOW off and the
+    // radar gate reads `visible`). Dismissal now mirrors `track` — never persisted; a
+    // reload brings the target back, and every follow path still re-enables SHOW live.
     set({ visible: false, track: false });
+    // Dismissing the object also stands down its FIND-in-frame scan (owner 2026-08-19b).
+    // Tracked sun/moon map to their OWN find chips (the targetIsBody rule); anything else
+    // is the generic "target" body. `find.open` stays — other bodies may still be scanning.
+    const id = get().target.id;
+    useFindStore
+      .getState()
+      .setBody(id === "body:sun" ? "sun" : id === "body:moon" ? "moon" : "target", false);
   },
   target: cometTarget(),
   setTarget: (target) => {

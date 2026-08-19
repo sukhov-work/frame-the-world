@@ -11,6 +11,7 @@ import MiniMap from "../components/panels/MiniMap";
 import MapWindow from "../components/panels/MapWindow";
 import SkyContextMenu from "../components/panels/SkyContextMenu";
 import BuildingEditChip from "../components/panels/BuildingEditChip";
+import SkyGotoChips from "../components/panels/SkyGotoChips";
 ---
 
 <MobileLayout title="Sidera — Mobile">
@@ -31,4 +32,7 @@ import BuildingEditChip from "../components/panels/BuildingEditChip";
   <!-- U8: the building height-edit chip — the same-island-both-shells precedent (renders only
        while the orchestrator's bldgEdit mirror is armed; double-tap a building in FPV). -->
   <BuildingEditChip client:only="react" />
+  <!-- GOTO edge chips (owner 2026-08-19b): the desktop off-frame ☀/☾/target chips, mounted
+       here too — the component self-gates to FPV on /m (the 2D map has no sky). -->
+  <SkyGotoChips client:only="react" />
 </MobileLayout>

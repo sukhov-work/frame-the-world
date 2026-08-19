@@ -249,7 +249,10 @@ export default function SkyContextMenu() {
       {(() => {
         // AIM (U4) — per-BODY map overlay flags, not tracked-target properties: no
         // ensureTracked. Turning ON also promotes the body to the emphasized system
-        // (the store setter owns that).
+        // (the store setter owns that). The label NAMES the body (2026-08-19b): when the
+        // tracked target sits ON the sun/moon the picker's tie can hand either kind to the
+        // menu — an unlabelled row let the user flip a flag they couldn't identify (the
+        // persisted-aimSun-off regression).
         const aimOn =
           menu.kind === "sun" ? sky.aimSun : menu.kind === "moon" ? sky.aimMoon : sky.aimTarget;
         const setAim =
@@ -258,6 +261,7 @@ export default function SkyContextMenu() {
             : menu.kind === "moon"
               ? sky.setAimMoon
               : sky.setAimTarget;
+        const aimWord = menu.kind === "sun" ? "SUN" : menu.kind === "moon" ? "MOON" : "TARGET";
         return (
           <button
             type="button"
@@ -268,7 +272,7 @@ export default function SkyContextMenu() {
               setMenu(null);
             }}
           >
-            {aimOn ? "DISABLE DIRECTION" : "∠ DIRECTION"}
+            {aimOn ? `DISABLE ${aimWord} DIRECTION` : `∠ ${aimWord} DIRECTION`}
           </button>
         );
       })()}

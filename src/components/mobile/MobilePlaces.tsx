@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { sortByProximity } from "../../lib/geo/proximity";
 import type { PlaceListItem } from "../../lib/wix/placeRecords";
 import { useCameraStore } from "../../store/camera";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
@@ -28,7 +29,12 @@ export default function MobilePlaces({ onJump }: { onJump: () => void }) {
     fetch("/api/places")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j: { places?: PlaceListItem[] }) => {
-        if (!stale) setPlaces(j.places ?? []);
+        // Nearest-first from the CURRENT map position (owner 2026-08-19b): FPV eye when
+        // live, else the orbit/2D view focus. Sorted once per fetch — a list must not
+        // reshuffle under the reader's finger while the map pans.
+        const cam = useCameraStore.getState();
+        const at = cam.camGeo ?? { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg };
+        if (!stale) setPlaces(sortByProximity(j.places ?? [], at.latDeg, at.lonDeg));
       })
       .catch(() => {
         if (!stale) setErr(true);
