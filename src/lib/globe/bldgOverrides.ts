@@ -28,7 +28,7 @@
 export const BLDG_OVERRIDES_KEY = "ftw:bldg-overrides:v1";
 
 /** Max persisted overrides — oldest-updated rows are trimmed at write (ttlCache discipline). */
-export const OVERRIDES_CAP = 200;
+export const OVERRIDES_CAP = 1000;
 
 /** Per-EDIT clamp band (owner 2026-08-18: one edit may halve or triple the CURRENT height).
  *  Edits compound across sessions; the absolute band below is the safety rail. */

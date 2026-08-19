@@ -11,8 +11,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore } from "../../store/camera";
+import { useSkyStore } from "../../store/sky";
+import { usePlacesMapStore } from "../../store/places";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
+import { saveViewPref } from "../../lib/prefs";
 import { formatAltM } from "../../lib/format/readout";
 import { CONTROLS, MOBILE2D } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
@@ -114,7 +117,7 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
           <NavChip />
         </div>
       )}
-      {!tempFpv && <BuildingsChip />}
+      {!tempFpv && <LayersChip />}
     </div>
   );
 }
@@ -184,24 +187,76 @@ function NavChip() {
   );
 }
 
-/** ▦ 3D DETAIL (owner 2026-08-15e; on/off semantics 2026-08-18) — the desktop BLD twin: a plain
- *  LIVE 3D-buildings show/hide (store `buildings3d`, persisted, shared across shells). WHICH
- *  bake streams is the registry's call (lib/globe/regions.ts — best variant by default), so the
- *  chip never reloads. Hidden in the 2D map (U1: buildings are absent there — a dead control). */
-function BuildingsChip() {
+/** ⊞ LAYERS (owner 2026-08-19, LAYERS batch) — configurability without clutter: ONE chip
+ *  expanding the scene-layer toggles. Absorbs the old standalone ▦ 3D DETAIL chip (owner
+ *  2026-08-15e) and adds: MY PLACES markers on the 2D map (member feature), photo pins
+ *  (/m default OFF), and the aim RADAR master switch. Every toggle persists through the
+ *  shared view-prefs blob; the expand state itself is session-local. */
+function LayersChip() {
+  const [expanded, setExpanded] = useState(false);
   const mapMode = useCameraStore((s) => s.mapMode);
   const buildings3d = useCameraStore((s) => s.buildings3d);
   const setBuildings3d = useCameraStore((s) => s.setBuildings3d);
-  if (mapMode === "2d") return null;
+  const pinsVisible = useCameraStore((s) => s.pinsVisible);
+  const setPinsVisible = useCameraStore((s) => s.setPinsVisible);
+  const aimVisible = useSkyStore((s) => s.aimVisible);
+  const setAimVisible = useSkyStore((s) => s.setAimVisible);
+  const placesOn = usePlacesMapStore((s) => s.onMap);
+  const setPlacesOn = usePlacesMapStore((s) => s.setOnMap);
+  const toggleCls = (on: boolean) => (on ? "m-act m-act--accent" : "m-act m-act--quiet");
   return (
-    <button
-      type="button"
-      className={buildings3d ? "m-act m-act--accent" : "m-act m-act--quiet"}
-      aria-pressed={buildings3d}
-      onClick={() => setBuildings3d(!buildings3d)}
-    >
-      ▦ 3D DETAIL{buildings3d ? " ON" : ""}
-    </button>
+    <>
+      {expanded && (
+        <>
+          {/* 2D has no buildings (U1) — the chip stays visible but stands down. */}
+          <button
+            type="button"
+            className={toggleCls(buildings3d)}
+            aria-pressed={buildings3d}
+            disabled={mapMode === "2d"}
+            onClick={() => setBuildings3d(!buildings3d)}
+          >
+            ▦ 3D DETAIL
+          </button>
+          <button
+            type="button"
+            className={toggleCls(placesOn)}
+            aria-pressed={placesOn}
+            onClick={() => setPlacesOn(!placesOn)}
+          >
+            ◎ MY PLACES
+          </button>
+          {/* Persist at the call site, never in the setter — the FPV declutter shares it. */}
+          <button
+            type="button"
+            className={toggleCls(pinsVisible)}
+            aria-pressed={pinsVisible}
+            onClick={() => {
+              saveViewPref("pinsVisible", !pinsVisible);
+              setPinsVisible(!pinsVisible);
+            }}
+          >
+            ⌖ PHOTO PINS
+          </button>
+          <button
+            type="button"
+            className={toggleCls(aimVisible)}
+            aria-pressed={aimVisible}
+            onClick={() => setAimVisible(!aimVisible)}
+          >
+            ∠ RADAR
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        className="m-act"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
+        ⊞ LAYERS
+      </button>
+    </>
   );
 }
 

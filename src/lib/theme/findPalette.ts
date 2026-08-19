@@ -36,13 +36,13 @@ export function findHitColor(i: number): FindHitColor {
 
 const DAY_MS = 86_400_000;
 /** Per-body wheel offset — two bodies standing on the SAME day must not share a colour. */
-const BODY_OFFSET: Record<"sun" | "moon" | "gc", number> = { sun: 0, moon: 3, gc: 6 };
+const BODY_OFFSET: Record<"sun" | "moon" | "target", number> = { sun: 0, moon: 3, target: 6 };
 
 /** Identity colour index keyed to the standing's UTC DAY (+ body offset), NOT its row index —
  *  a hit entering/leaving at the frame edge must never recolour its neighbours (row-indexed
  *  colours churned the whole ladder on every scrub/pose step and read as "the predictions
  *  jumped", owner 2026-08-14). Adjacent days still land on adjacent wheel slots, preserving
  *  the warm/cool interleave. */
-export function findStandingColorIdx(body: "sun" | "moon" | "gc", utcMs: number): number {
+export function findStandingColorIdx(body: "sun" | "moon" | "target", utcMs: number): number {
   return Math.floor(utcMs / DAY_MS) + BODY_OFFSET[body];
 }

@@ -20,7 +20,6 @@ import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import {
   bodyTarget,
   GALACTIC_CENTRE_ID,
-  galacticCentreTarget,
   saturnRingPoleDir,
   targetAzAlt,
   targetShortName,
@@ -36,6 +35,7 @@ import { useUploadStore, type AdjustableParams } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { useBldgEditStore } from "../../store/bldgEdit";
+import { useMiniMapStore } from "../../store/minimap";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
@@ -917,7 +917,8 @@ export function attachStylizedTiles(opts: {
     if (!hit) return false;
     useTimeStore.getState().setTime(hit.utcMs);
     const skyNow = useSkyStore.getState();
-    skyNow.setTarget(hit.body === "gc" ? galacticCentreTarget() : bodyTarget(hit.body));
+    // "target" ghosts belong to the CURRENT tracked target (item 10) — nothing to swap.
+    if (hit.body !== "target") skyNow.setTarget(bodyTarget(hit.body));
     if (!skyNow.visible) skyNow.setVisible(true);
     return true;
   };
@@ -1512,6 +1513,13 @@ export function attachStylizedTiles(opts: {
     // U8: an armed building edit owns the next Escape — finishing the edit must not exit FPV.
     if (bldgArmed) {
       disarmBuilding();
+      return;
+    }
+    // Batch 2026-08-19 item 5: the fullscreen map window owns the next Escape — closing it
+    // must never unwind FPV under it (MapWindow's own listener double-closes; idempotent).
+    const mmS = useMiniMapStore.getState();
+    if (mmS.mapWindowOpen) {
+      mmS.setMapWindowOpen(false);
       return;
     }
     if (camS.exploreActive) camS.setExplore(false);
@@ -3748,10 +3756,12 @@ export function attachStylizedTiles(opts: {
             camNow.tempPin ??
             { latDeg: focusGeo.latDeg, lonDeg: focusGeo.lonDeg },
           alt,
-          enabled: !fpvActive,
+          // RADAR master switch (LAYERS batch, 2026-08-19) ANDs the standing FPV-off rule.
+          enabled: !fpvActive && skyNow.aimVisible,
           target: skyNow.target,
           aim: {
-            target: skyNow.aimTarget,
+            // UNFOLLOW/SHOW-off (2026-08-19): a hidden target draws no direction line either.
+            target: skyNow.aimTarget && skyNow.visible,
             sun: skyNow.aimSun,
             moon: skyNow.aimMoon,
             focus: skyNow.aimFocus,

@@ -130,14 +130,14 @@ describe("frameStandings — visibility model", () => {
     expect(newest.visibility).toBeGreaterThanOrEqual(FIND_VIS.moonFloor);
   });
 
-  it("GC visibility is ~0 by day and rises in the dark", () => {
+  it("target visibility (the GC case) is ~0 by day and rises in the dark", () => {
     const p = pose(180, 20, 50);
     const noon = Date.UTC(2026, 0, 15, 10, 0, 0); // Dnipro midday, January
     const midnight = Date.UTC(2026, 0, 15, 22, 0, 0); // Dnipro midnight — deep astro dark
     expect(horizontal("sun", noon, DNIPRO.latDeg, DNIPRO.lonDeg).altDeg).toBeGreaterThan(0);
     expect(horizontal("sun", midnight, DNIPRO.latDeg, DNIPRO.lonDeg).altDeg).toBeLessThan(-18);
-    const day = frameStandingsFromPositions("gc", [at(noon, 180, 20)], p)[0];
-    const night = frameStandingsFromPositions("gc", [at(midnight, 180, 20)], p)[0];
+    const day = frameStandingsFromPositions("target", [at(noon, 180, 20)], p)[0];
+    const night = frameStandingsFromPositions("target", [at(midnight, 180, 20)], p)[0];
     expect(day.visibility).toBeLessThan(0.05);
     expect(night.visibility).toBeGreaterThan(day.visibility);
   });

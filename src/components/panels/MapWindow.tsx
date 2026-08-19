@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useCameraStore } from "../../store/camera";
 import { useMiniMapStore } from "../../store/minimap";
+import { usePlacesMapStore } from "../../store/places";
 import { useSkyStore } from "../../store/sky";
 import { useTimeStore, sceneTimeMs } from "../../store/time";
 import { lonLatToTileF, tileFToLonLat, zoomForMetersPerPx } from "../../lib/geo/slippy";
@@ -62,6 +63,14 @@ export default function MapWindow() {
   // FPV repaint only re-splits at now. Warm across open/close like the tile cache.
   const aimCache = useRef<Map<AimKey, { key: string; day: AimDay }>>(new Map());
 
+  // /m batch item 4 (owner 2026-08-19): while the fullscreen map is up the FPV walk controls
+  // float above it (mobile/fpv.css `body.mw-open` rung) — precision moves with the map open.
+  useEffect(() => {
+    if (!open) return;
+    document.body.classList.add("mw-open");
+    return () => document.body.classList.remove("mw-open");
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const canvas = canvasRef.current;
@@ -102,7 +111,9 @@ export default function MapWindow() {
 
     const aimBodiesNow = (skyNow: ReturnType<typeof useSkyStore.getState>) => {
       const out: { key: AimKey; target: SkyTarget; color: string; emphasized: boolean }[] = [];
-      if (skyNow.aimTarget)
+      if (!skyNow.aimVisible) return out; // RADAR master switch (LAYERS batch, 2026-08-19)
+      // UNFOLLOW/SHOW-off (2026-08-19): a hidden target draws no direction line either.
+      if (skyNow.aimTarget && skyNow.visible)
         out.push({
           key: "target",
           target: skyNow.target,
@@ -308,6 +319,27 @@ export default function MapWindow() {
           ctx.stroke();
           ctx.globalAlpha = 1;
         }
+      }
+
+      // MY PLACES markers (LAYERS batch, owner 2026-08-19) — the member's saved views: the
+      // temp-pin drawing at the lavender pin hue, so "yours but dormant" reads at a glance.
+      const placesNow = usePlacesMapStore.getState();
+      if (placesNow.onMap && placesNow.places.length > 0) {
+        ctx.strokeStyle = tokens.pinLavender;
+        ctx.fillStyle = tokens.pinLavender;
+        for (const p of placesNow.places) {
+          const [px, py] = toPx(p.latDeg, p.lonDeg);
+          if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
+          ctx.globalAlpha = 0.85;
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.beginPath();
+          ctx.arc(px, py, 5 * dpr, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(px, py, 1.8 * dpr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       }
 
       const pin = camNow.tempPin;
@@ -551,6 +583,9 @@ export default function MapWindow() {
     const unsub = useCameraStore.subscribe(requestRedraw);
     const unsubSky = useSkyStore.subscribe(requestRedraw);
     const unsubTime = useTimeStore.subscribe(requestRedraw);
+    // MY PLACES (LAYERS batch): rows arrive async — repaint when they land or the toggle flips.
+    const unsubPlaces = usePlacesMapStore.subscribe(requestRedraw);
+    if (usePlacesMapStore.getState().onMap) usePlacesMapStore.getState().ensureLoaded();
     requestRedraw();
 
     return () => {
@@ -566,6 +601,7 @@ export default function MapWindow() {
       unsub();
       unsubSky();
       unsubTime();
+      unsubPlaces();
       cancelPress();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

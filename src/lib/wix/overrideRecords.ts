@@ -27,7 +27,7 @@ import { regionOfVariant } from "../globe/regions";
 export const OVERRIDES_COLLECTION = "BuildingOverrides";
 
 /** Platform bulk-call cap (wix-data-items-sdk d.ts:347) — parseSyncBody rejects past it; the
- *  local store's 200-row cap keeps real payloads far below. */
+ *  local store's OVERRIDES_CAP (1000) sits exactly at it, never past. */
 export const SYNC_MAX = 1000;
 
 /** One building override as the sync POST carries it (mirrors the local OverrideRow + key). */

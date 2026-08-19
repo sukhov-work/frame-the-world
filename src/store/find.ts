@@ -18,14 +18,14 @@ export interface FindGhost {
   body: FindBody;
   azDeg: number;
   altDeg: number;
-  /** Ghost disc/marker angular DIAMETER (deg) — sun/moon true-ish size, GC the tuned marker. */
+  /** Ghost disc/marker angular DIAMETER (deg) — sun/moon true-ish size, target the tuned marker. */
   discDeg: number;
   /** 0..1 — days-ahead fraction of the search horizon (near→far opacity ramp). */
   tNorm: number;
   /** 0..1 — the FIND_VIS visibility score (the second opacity factor). */
   visibility: number;
   /** Illuminated fraction 0..1 at the hit — the moon's in-sky label appends it as a phase %
-   *  (0 for the sun/GC: their labels carry the date alone). */
+   *  (0 for the sun/target: their labels carry the date alone). */
   illum: number;
   /** FIND_PALETTE index (already cycled by the panel). */
   colorIdx: number;
@@ -70,7 +70,7 @@ export const useFindStore = create<FindState>((set) => ({
   setOpen: (open) => set({ open }),
 
   // Moon-only by default (owner 2026-08-15: all three at once read as clutter).
-  bodies: { sun: false, moon: true, gc: false },
+  bodies: { sun: false, moon: true, target: false },
   setBody: (body, on) => set((s) => ({ bodies: { ...s.bodies, [body]: on } })),
   rangeDays: 30,
   setRangeDays: (rangeDays) => set({ rangeDays }),

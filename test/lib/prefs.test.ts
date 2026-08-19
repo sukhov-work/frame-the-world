@@ -68,6 +68,15 @@ describe("sanitizeViewPrefs", () => {
     expect(sanitizeViewPrefs({ aimTarget: "on", aimSun: 1, aimMoon: null })).toEqual({});
   });
 
+  // LAYERS batch (owner 2026-08-19) — the RADAR master switch + MY PLACES on the map.
+  it("keeps aimVisible + savedPlacesOnMap and drops wrong-typed ones", () => {
+    expect(sanitizeViewPrefs({ aimVisible: false, savedPlacesOnMap: true })).toEqual({
+      aimVisible: false,
+      savedPlacesOnMap: true,
+    });
+    expect(sanitizeViewPrefs({ aimVisible: "off", savedPlacesOnMap: 0 })).toEqual({});
+  });
+
   // The phase-C key rename (2026-08-03): comet-era blobs keep their chip choices.
   it("migrates the comet-era sky-target keys to the new names", () => {
     expect(sanitizeViewPrefs({ cometVisible: false, cometHighlight: true })).toEqual({

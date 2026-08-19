@@ -116,10 +116,13 @@ export default function SkyContextMenu() {
   const tracked = isBody ? sky.target.id === `body:${bodyId}` : true;
   const glyph = isBody ? kindGlyph(bodyId) : kindGlyph(sky.target.kind);
   const label = isBody ? NAME[bodyId] : targetShortName(sky.target).toUpperCase();
-  // FIND IN FRAME body chip for this object — sun/moon always, the tracked target only when
-  // it IS the Milky-Way core (FIND scans sun/moon/gc, nothing else).
-  const findBody: FindBody | null = isBody ? bodyId : sky.target.id === "dso:gc" ? "gc" : null;
-  const findOn = findBody !== null && find.bodies[findBody];
+  // FIND IN FRAME body chip for this object — sun/moon map to their own chips; ANY tracked
+  // target maps to the generic TARGET slot (owner 2026-08-19, item 10 — gc de-specialised).
+  const findBody: FindBody = isBody ? bodyId : "target";
+  // "Enabled" = the chip is on AND the FIND surface is open — with the surface closed nothing
+  // scans or renders, so the menu must offer ENABLE, not DISABLE (owner bug 2026-08-19: the
+  // moon chip defaults on, and the old `bodies[b]`-only read showed "OFF" on a fresh session).
+  const findOn = find.open && find.bodies[findBody];
 
   /** Sun/moon: make it the tracked target (idempotent), keep SHOW on. */
   const ensureTracked = () => {
@@ -204,7 +207,7 @@ export default function SkyContextMenu() {
           setMenu(null);
         }}
       >
-        {tracked && sky.track ? "TRACKING OFF" : "⊕ TRACKING"}
+        {tracked && sky.track ? "DISABLE TRACKING" : "⊕ TRACKING"}
       </button>
       <button
         type="button"
@@ -217,7 +220,7 @@ export default function SkyContextMenu() {
           setMenu(null);
         }}
       >
-        {tracked && sky.ghosts ? "GHOSTS OFF" : "✧ GHOSTS"}
+        {tracked && sky.ghosts ? "DISABLE GHOSTS" : "✧ GHOSTS"}
       </button>
       <button
         type="button"
@@ -229,7 +232,7 @@ export default function SkyContextMenu() {
           setMenu(null);
         }}
       >
-        {tracked && sky.highlight ? "MARK OFF" : "◌ MARK"}
+        {tracked && sky.highlight ? "DISABLE MARK" : "◌ MARK"}
       </button>
       <button
         type="button"
@@ -241,7 +244,7 @@ export default function SkyContextMenu() {
           setMenu(null);
         }}
       >
-        {tracked && sky.trail ? "TRAIL OFF" : "∿ TRAIL"}
+        {tracked && sky.trail ? "DISABLE TRAIL" : "∿ TRAIL"}
       </button>
       {(() => {
         // AIM (U4) — per-BODY map overlay flags, not tracked-target properties: no
@@ -265,33 +268,31 @@ export default function SkyContextMenu() {
               setMenu(null);
             }}
           >
-            {aimOn ? "DIRECTION OFF" : "∠ DIRECTION"}
+            {aimOn ? "DISABLE DIRECTION" : "∠ DIRECTION"}
           </button>
         );
       })()}
-      {findBody && (
-        <button
-          type="button"
-          className="skymenu__item"
-          role="menuitem"
-          onClick={() => {
-            const f = useFindStore.getState();
-            f.setBody(findBody, !findOn);
-            if (!findOn) {
-              // Switching a body ON opens the FIND surface (the scan lives in the panel /
-              // the /m FindSheet hooks — find.open gates it). Desktop only: close the PLAN
-              // window first (shared-window exclusivity); on /m `body.m` skips this so an
-              // open PLAN sheet keeps its planFeed.
-              if (!document.body.classList.contains("m"))
-                usePlanStore.getState().setOpen(false);
-              f.setOpen(true);
-            }
-            setMenu(null);
-          }}
-        >
-          {findOn ? "FIND IN FRAME OFF" : "⌖ FIND IN FRAME"}
-        </button>
-      )}
+      <button
+        type="button"
+        className="skymenu__item"
+        role="menuitem"
+        onClick={() => {
+          const f = useFindStore.getState();
+          f.setBody(findBody, !findOn);
+          if (!findOn) {
+            // Switching a body ON opens the FIND surface (the scan lives in the panel /
+            // the /m FindSheet hooks — find.open gates it). Desktop only: close the PLAN
+            // window first (shared-window exclusivity); on /m `body.m` skips this so an
+            // open PLAN sheet keeps its planFeed.
+            if (!document.body.classList.contains("m"))
+              usePlanStore.getState().setOpen(false);
+            f.setOpen(true);
+          }
+          setMenu(null);
+        }}
+      >
+        {findOn ? "DISABLE FIND IN FRAME" : "⌖ FIND IN FRAME"}
+      </button>
       {riseSet?.rise && (
         <button
           type="button"

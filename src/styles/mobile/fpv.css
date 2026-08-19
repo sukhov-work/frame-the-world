@@ -1,7 +1,7 @@
 /* Mobile M2 — FPV touch instruments: WALK joystick (left thumb), ⤒/⤓ altitude nudges (right
    column above the scene chips), compact HUD row under the status strip. Imported by
    FpvControls.tsx; tokens.css is the single source of truth. z stack on /m: canvas 0 ·
-   chrome 10 · sheets 30 (chrome.css). */
+   chrome 10 · map window 20 (walk controls 24 while body.mw-open) · sheets 30 (chrome.css). */
 
 /* ── Compact HUD row (FOCAL · HDG · PITCH · EYE) ───────────────────────────────────────── */
 .m-fpvhud {
@@ -80,6 +80,14 @@
 .m-joy__knob--live {
   transition: none;
   background: color-mix(in srgb, var(--color-accent) 26%, transparent);
+}
+
+/* Fullscreen map open (MapWindow sets body.mw-open): keep the walk joystick + altitude
+   nudges operable ABOVE the opaque map (z 20) for precision moves — owner 2026-08-19,
+   batch item 4. Sheets (30) still cover them. */
+body.mw-open .m-joy,
+body.mw-open .m-altcol {
+  z-index: 24;
 }
 
 /* ── Altitude nudges (⤒ ascend / ⤓ descend, hold-to-fly) ───────────────────────────────── */

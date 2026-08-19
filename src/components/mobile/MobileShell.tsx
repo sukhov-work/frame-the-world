@@ -106,7 +106,7 @@ export default function MobileShell() {
       )}
       {sheet === "target" && (
         <Sheet title={target.name.toUpperCase()} onClose={() => setSheet(null)}>
-          <TargetSheet />
+          <TargetSheet onClose={() => setSheet(null)} />
         </Sheet>
       )}
       {sheet === "guide" && (

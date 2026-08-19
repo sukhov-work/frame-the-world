@@ -82,6 +82,32 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* Pull-up hint (owner 2026-08-19) — its own accent element with a gentle nudge loop, so the
+   peek row reads as openable (the old bare "▲" blended into the numbers). */
+.m-peek__more {
+  display: inline-block;
+  color: var(--color-accent);
+  font-size: 0.6rem;
+  animation: m-peek-nudge 2.6s ease-in-out infinite;
+}
+@keyframes m-peek-nudge {
+  0%,
+  62%,
+  100% {
+    transform: translateY(0);
+  }
+  74% {
+    transform: translateY(-3px);
+  }
+  86% {
+    transform: translateY(1px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-peek__more {
+    animation: none;
+  }
+}
 .m-badge {
   font-size: 0.56rem;
   letter-spacing: 0.1em;
@@ -525,6 +551,19 @@
 }
 .m-toggle[disabled] {
   opacity: 0.45;
+}
+/* UNFOLLOW (owner 2026-08-19) — the tp-unfollow twin at touch scale. */
+.m-unfollow {
+  width: 100%;
+  margin-top: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  color: var(--color-warn);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-warn) 38%, transparent);
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
 }
 /* Ghost-chain knobs (M3c) — the tp-ghostrow twin at touch scale (accepted two-shell dup). */
 .m-ghostrow {

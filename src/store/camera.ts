@@ -285,7 +285,11 @@ export const useCameraStore = create<CameraState>((set) => ({
     saveViewPref("groundMode", mode);
     set({ groundMode: mode });
   },
-  pinsVisible: stored.pinsVisible ?? true,
+  // /m defaults photo pins OFF (owner 2026-08-19, LAYERS batch) — same shared key once the
+  // user flips it anywhere; only the untouched default is shell-aware.
+  pinsVisible:
+    stored.pinsVisible ??
+    !(typeof location !== "undefined" && (location.pathname === "/m" || location.pathname === "/m/")),
   // NOT persisted here: the orchestrator's FPV declutter (hide on entry / restore on exit) flows
   // through this same setter — only the PIN chip writes the preference (CameraTiltPanel).
   setPinsVisible: (on) => set({ pinsVisible: on }),

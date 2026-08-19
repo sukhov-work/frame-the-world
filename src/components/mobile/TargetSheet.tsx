@@ -51,8 +51,9 @@ function WindowRow({ w, onJump }: { w: TargetWindow; onJump: (ms: number) => voi
   );
 }
 
-export default function TargetSheet() {
+export default function TargetSheet({ onClose }: { onClose: () => void }) {
   const target = useSkyStore((s) => s.target);
+  const stopFollowing = useSkyStore((s) => s.stopFollowing);
   const visible = useSkyStore((s) => s.visible);
   const setVisible = useSkyStore((s) => s.setVisible);
   const highlight = useSkyStore((s) => s.highlight);
@@ -140,13 +141,8 @@ export default function TargetSheet() {
         <span className="m-v">{Math.round(s.elongationDeg)}°</span>
       </div>
 
-      <div className="m-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
-      {windows.length > 0 ? (
-        windows.map((w) => <WindowRow key={w.startMs} w={w} onJump={setTime} />)
-      ) : (
-        <div className="m-status-line">NO DARK-SKY PASS IN THE NEXT 8 NIGHTS HERE</div>
-      )}
-
+      {/* Owner 2026-08-19 (batch item 8): the actions block sits right under the essentials,
+          AHEAD of the next-sessions list — both shells share this order. */}
       <div className="m-toggles">
         <button
           type="button"
@@ -231,6 +227,26 @@ export default function TargetSheet() {
           </select>
         </div>
       )}
+      {/* Owner 2026-08-19 (batch item 7): dismiss the followed object — hides it everywhere
+          and releases the camera; search / long-press the sky to follow again. */}
+      <button
+        type="button"
+        className="m-unfollow"
+        onClick={() => {
+          stopFollowing();
+          onClose();
+        }}
+      >
+        ✕ UNFOLLOW
+      </button>
+
+      <div className="m-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
+      {windows.length > 0 ? (
+        windows.map((w) => <WindowRow key={w.startMs} w={w} onJump={setTime} />)
+      ) : (
+        <div className="m-status-line">NO DARK-SKY PASS IN THE NEXT 8 NIGHTS HERE</div>
+      )}
+
       <div className="m-status-line">{target.source}</div>
     </div>
   );

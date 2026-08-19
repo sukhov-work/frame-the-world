@@ -365,6 +365,7 @@ export default function TargetPanel() {
   const setGhostStepMin = useSkyStore((s) => s.setGhostStepMin);
   const track = useSkyStore((s) => s.track);
   const setTrack = useSkyStore((s) => s.setTrack);
+  const stopFollowing = useSkyStore((s) => s.stopFollowing);
   const target = useSkyStore((s) => s.target);
   const setTime = useTimeStore((s) => s.setTime);
   const live = useTimeStore((s) => s.live);
@@ -430,6 +431,10 @@ export default function TargetPanel() {
     ? Math.abs(jdTdbFromUtcMs(nowMs) - profile.elements.epochJdTdb)
     : null;
   const stale = elementsAgeDays != null && elementsAgeDays > ELEMENTS_TRUST_DAYS;
+
+  // UNFOLLOW (owner 2026-08-19): a dismissed object drops its pill too. `!open` keeps the
+  // panel usable while SHOW is merely toggled off from inside (never a one-way door).
+  if (!visible && !open) return null;
 
   return (
     <div className="tp-root" style={drag.style}>
@@ -506,21 +511,8 @@ export default function TargetPanel() {
               {s.magnitude != null && <div className="tp-see">{visibilityClass(s.magnitude)}</div>}
             </div>
 
-            <CometFacts target={target} onJump={setTime} />
-            <PlanetFacts target={target} state={s} />
-            <DsoFacts target={target} />
-            <StarFacts target={target} />
-            <AsteroidFacts target={target} nowMs={nowMs} />
-            <ConstellationFacts target={target} />
-            <ShowerFacts target={target} nowMs={nowMs} />
-
-            <div className="tp-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
-            {windows.length > 0 ? (
-              windows.map((w) => <WindowRow key={w.startMs} w={w} onJump={setTime} />)
-            ) : (
-              <div className="tp-status">NO DARK-SKY PASS IN THE NEXT 8 NIGHTS HERE</div>
-            )}
-
+            {/* Owner 2026-08-19 (batch item 8): the actions block sits right under the live
+                essentials, ahead of the per-kind facts + next-sessions — both shells agree. */}
             {/* SHOW · MARK · TRAIL (phase C rename — "SKY" read as a mode, not a visibility). */}
             <div className="tp-toggles">
               <button
@@ -613,6 +605,35 @@ export default function TargetPanel() {
                   ))}
                 </select>
               </div>
+            )}
+
+            {/* Owner 2026-08-19 (batch item 7): dismiss the followed object — hides it
+                everywhere and releases the camera; search / right-click the sky re-follows. */}
+            <button
+              type="button"
+              className="tp-unfollow"
+              onClick={() => {
+                stopFollowing();
+                setOpen(false);
+              }}
+              title="Stop following this object — hides it and releases the camera lock"
+            >
+              ✕ UNFOLLOW
+            </button>
+
+            <CometFacts target={target} onJump={setTime} />
+            <PlanetFacts target={target} state={s} />
+            <DsoFacts target={target} />
+            <StarFacts target={target} />
+            <AsteroidFacts target={target} nowMs={nowMs} />
+            <ConstellationFacts target={target} />
+            <ShowerFacts target={target} nowMs={nowMs} />
+
+            <div className="tp-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
+            {windows.length > 0 ? (
+              windows.map((w) => <WindowRow key={w.startMs} w={w} onJump={setTime} />)
+            ) : (
+              <div className="tp-status">NO DARK-SKY PASS IN THE NEXT 8 NIGHTS HERE</div>
             )}
 
             <div className="tp-note">
