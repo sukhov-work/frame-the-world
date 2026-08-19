@@ -167,6 +167,19 @@
   align-items: center;
   gap: 8px;
 }
+
+/* LAYERS expands LEFT (owner 2026-08-19b): row-reverse keeps the DOM-first anchor chip
+   pinned bottom-right while the toggles pop out horizontally; wrap-reverse sends any
+   overflow into a short row ABOVE (never a horizontal scroll — the stack is
+   touch-action:none). */
+.m-layersrow {
+  display: flex;
+  flex-flow: row-reverse wrap-reverse;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  max-width: calc(100vw - 1.5rem);
+}
 .m-nav {
   display: inline-flex;
   align-items: center;
@@ -636,6 +649,18 @@
   color: var(--color-bg);
   background: var(--color-accent);
 }
+/* SAVE VIEW naming row (owner 2026-08-19b) — the optional-name ask inside its portaled
+   sheet: input + accent save chip side by side. */
+.m-savename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 0.2rem;
+}
+.m-savename .m-act {
+  flex: none;
+}
+
 .m-input {
   flex: 1;
   min-width: 0;

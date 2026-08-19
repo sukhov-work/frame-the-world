@@ -13,6 +13,10 @@
 export const VIEW_PREFS_KEY = "ftw:view-prefs:v1";
 
 export interface ViewPrefs {
+  /** Blob revision stamp — written by every save. Rev < 2 marks a blob from before the
+   *  2026-08-19b radar re-arm (see sanitize): those drop persisted FALSE for the aim/SHOW
+   *  keys once, because the 2026-08-19 build could write offs the user never chose. */
+  prefsRev?: number;
   /** SAT chip — ground style. */
   groundMode?: "dark" | "satellite";
   /** PIN chip — public pin markers on the globe. */
@@ -62,6 +66,14 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   if (typeof raw !== "object" || raw === null) return {};
   const r = raw as Record<string, unknown>;
   const out: ViewPrefs = {};
+  // One-time radar re-arm (rev 2, owner regression report 2026-08-19b): the 2026-08-19 build
+  // could persist offs the user never chose — UNFOLLOW wrote skyTargetVisible:false on every
+  // use, and the then-unlabelled DISABLE DIRECTION row could flip the wrong body's aim flag
+  // while that body was tracked. Un-stamped blobs drop persisted FALSE for those four keys
+  // (their defaults are ON); deliberate offs re-persist stamped afterwards (saveViewPref
+  // writes prefsRev on every save).
+  const rearmed = typeof r.prefsRev === "number" && r.prefsRev >= 2;
+  if (typeof r.prefsRev === "number" && Number.isFinite(r.prefsRev)) out.prefsRev = r.prefsRev;
   if (r.groundMode === "dark" || r.groundMode === "satellite") out.groundMode = r.groundMode;
   if (typeof r.pinsVisible === "boolean") out.pinsVisible = r.pinsVisible;
   if (typeof r.skyGuides === "boolean") out.skyGuides = r.skyGuides;
@@ -71,15 +83,15 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   // Sky-target keys, with the comet-era names as read-only fallbacks (new name wins): a blob
   // saved before the 2026-08-03 rename keeps its chip choices without a migration pass.
   const vis = typeof r.skyTargetVisible === "boolean" ? r.skyTargetVisible : r.cometVisible;
-  if (typeof vis === "boolean") out.skyTargetVisible = vis;
+  if (typeof vis === "boolean" && (vis || rearmed)) out.skyTargetVisible = vis;
   const hl = typeof r.skyTargetHighlight === "boolean" ? r.skyTargetHighlight : r.cometHighlight;
   if (typeof hl === "boolean") out.skyTargetHighlight = hl;
   if (typeof r.skyTargetTrail === "boolean") out.skyTargetTrail = r.skyTargetTrail;
   if (typeof r.skyTargetId === "string" && r.skyTargetId.length <= 80 && r.skyTargetId.includes(":"))
     out.skyTargetId = r.skyTargetId;
-  if (typeof r.aimTarget === "boolean") out.aimTarget = r.aimTarget;
-  if (typeof r.aimSun === "boolean") out.aimSun = r.aimSun;
-  if (typeof r.aimMoon === "boolean") out.aimMoon = r.aimMoon;
+  if (typeof r.aimTarget === "boolean" && (r.aimTarget || rearmed)) out.aimTarget = r.aimTarget;
+  if (typeof r.aimSun === "boolean" && (r.aimSun || rearmed)) out.aimSun = r.aimSun;
+  if (typeof r.aimMoon === "boolean" && (r.aimMoon || rearmed)) out.aimMoon = r.aimMoon;
   if (typeof r.aimVisible === "boolean") out.aimVisible = r.aimVisible;
   if (typeof r.savedPlacesOnMap === "boolean") out.savedPlacesOnMap = r.savedPlacesOnMap;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
@@ -103,7 +115,9 @@ export function loadViewPrefs(): ViewPrefs {
 export function saveViewPref<K extends keyof ViewPrefs>(key: K, value: ViewPrefs[K]): void {
   try {
     if (typeof localStorage === "undefined") return;
-    const next = { ...loadViewPrefs(), [key]: value };
+    // Every save stamps the blob revision — the rev-2 re-arm (sanitize) runs exactly until
+    // the first post-fix save, after which deliberate offs persist again.
+    const next = { ...loadViewPrefs(), prefsRev: 2, [key]: value };
     localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify(next));
   } catch {
     /* private mode / quota — prefs are best-effort */

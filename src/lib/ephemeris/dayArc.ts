@@ -211,6 +211,41 @@ export function targetElevationSeries(
   return out;
 }
 
+/** Next horizon RISE of the target after `fromMs` (the goto-chip below-horizon jump, owner
+ *  2026-08-19b: "move to the point where it will appear from the horizon next") — the first
+ *  ≤0 → >0 crossing in the scan window, time + azimuth linearly interpolated at the crossing
+ *  (wrap-aware az lerp; at 8-min sampling the az step is small at planning latitudes, and
+ *  the goto glide is a look, not a measurement). Null = no rise in the window (never-up /
+ *  circumpolar-down from here — callers fall back to the current azimuth). */
+export function nextRiseAzimuth(
+  target: SkyTarget,
+  fromMs: number,
+  latDeg: number,
+  lonDeg: number,
+  scanHours = 48,
+): { utcMs: number; azDeg: number } | null {
+  const samples = targetElevationSeries(
+    target,
+    fromMs,
+    fromMs + scanHours * 3_600_000,
+    latDeg,
+    lonDeg,
+  );
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1];
+    const b = samples[i];
+    if (a.altDeg <= 0 && b.altDeg > 0) {
+      const f = b.altDeg > a.altDeg ? (0 - a.altDeg) / (b.altDeg - a.altDeg) : 0;
+      let dAz = b.azDeg - a.azDeg;
+      if (dAz > 180) dAz -= 360;
+      if (dAz < -180) dAz += 360;
+      const azDeg = (((a.azDeg + dAz * f) % 360) + 360) % 360;
+      return { utcMs: a.utcMs + (b.utcMs - a.utcMs) * f, azDeg };
+    }
+  }
+  return null;
+}
+
 /** Rail-trace visibility class of one sample: below the horizon / up but skyline-blocked /
  *  clear sky (§3.1.D). */
 export type TraceState = "down" | "blocked" | "clear";

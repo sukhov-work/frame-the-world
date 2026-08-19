@@ -38,6 +38,9 @@ export interface AimConesHandle {
     anchor: { latDeg: number; lonDeg: number } | null;
     /** Geodetic camera altitude (m) — presence band + zoom-adaptive radius. */
     alt: number;
+    /** Shell-aware presence band (m) — desktop rides the tight AIMCONES.desktop* band,
+     *  /m the wide one (owner 2026-08-19b). */
+    band: { fullAltM: number; topAltM: number };
     /** False in FPV (the viewfinder stays clean — streetNames/vectors rule). */
     enabled: boolean;
     /** The tracked sky target (store/sky mirror — pushed, never read here). */
@@ -263,14 +266,14 @@ export function attachAimCones(opts: {
 
   return {
     group,
-    update({ sceneMs, anchor, alt, enabled, target, aim, dtMs }) {
+    update({ sceneMs, anchor, alt, band, enabled, target, aim, dtMs }) {
       const anyOn = aim.target || aim.sun || aim.moon;
       const presence =
-        alt >= AIMCONES.topAltM
+        alt >= band.topAltM
           ? 0
-          : alt <= AIMCONES.fullAltM
+          : alt <= band.fullAltM
             ? 1
-            : 1 - (alt - AIMCONES.fullAltM) / (AIMCONES.topAltM - AIMCONES.fullAltM);
+            : 1 - (alt - band.fullAltM) / (band.topAltM - band.fullAltM);
       const want = enabled && anyOn && anchor !== null && presence > 0;
       fade += ((want ? 1 : 0) - fade) * (1 - Math.exp(-dtMs / AIMCONES.fadeTauMs));
       if (fade < 0.01 && !want) {

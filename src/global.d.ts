@@ -16,6 +16,7 @@ import type { usePinsStore } from "./store/pins";
 import type { usePlanStore } from "./store/plan";
 import type { useFindStore } from "./store/find";
 import type { useSkyStore } from "./store/sky";
+import type { usePlacesMapStore } from "./store/places";
 import type { useSaveStore } from "./store/save";
 import type { useUploadStore } from "./store/upload";
 import type { useMarketStore } from "./store/market";
@@ -34,6 +35,7 @@ declare global {
     __findStore?: typeof useFindStore;
     __bldgEditStore?: typeof useBldgEditStore;
     __skyStore?: typeof useSkyStore;
+    __placesStore?: typeof usePlacesMapStore;
     __saveStore?: typeof useSaveStore;
     __uploadStore?: typeof useUploadStore;
     __marketStore?: typeof useMarketStore;

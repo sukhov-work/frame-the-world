@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
-import { useSkyStore } from "../../store/sky";
-import { aimAtSky } from "../../store/skyAim";
+import SkyGotoChips from "./SkyGotoChips";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import {
   formatFocal,
@@ -68,23 +67,9 @@ export default function FpvHud() {
 
   return (
     <>
-      {markers && (
-        <>
-          {markers.sun && <BodyChip marker={markers.sun} glyph="☀" kind="sun" />}
-          {markers.moon && <BodyChip marker={markers.moon} glyph="☾" kind="moon" />}
-          {markers.target && (
-            <BodyChip
-              marker={markers.target}
-              glyph={markers.target.glyph}
-              kind="target"
-              label={markers.target.label}
-              // The chip is the marker's off-screen surrogate — clicking it also fronts the
-              // TARGET panel, like clicking the marker itself (phase C).
-              onAim={() => useSkyStore.getState().setOpen(true)}
-            />
-          )}
-        </>
-      )}
+      {/* Off-frame GOTO chips — extracted to SkyGotoChips (2026-08-19b) so /m mounts the
+          same island; desktop keeps the every-mode S6 behavior through this render. */}
+      <SkyGotoChips />
       {(hud || camGeo) && (
       <aside className="fh" style={drag.style} aria-label="Camera view instruments">
         <DragGrip drag={drag} label="Move the view instruments" tipPos="right" />
@@ -155,59 +140,3 @@ export default function FpvHud() {
   );
 }
 
-/** Edge chip pointing toward an off-frame body — clamped to a margin box inside the viewport.
- *  Clicking it brings the body into view via the shared aim idiom (store/skyAim — owner
- *  2026-07-14; extracted phase C): FPV glides the look, orbit resolves into heading/tilt glide
- *  targets. The tracked sky target renders the same chip with its kind glyph + designation
- *  (phase C, owner feedback #4). */
-function BodyChip({
-  marker,
-  glyph,
-  kind,
-  label,
-  onAim,
-}: {
-  marker: FpvBodyMarker;
-  glyph: string;
-  kind: "sun" | "moon" | "target";
-  /** Designation text after the glyph (tracked target only — ☀/☾ speak for themselves). */
-  label?: string;
-  /** Extra action on click (the target chip fronts its panel). */
-  onAim?: () => void;
-}) {
-  if (marker.inFrame || !marker.up) return null;
-  // Screen-plane direction: store y is up, screen y is down.
-  const sx = marker.dirX;
-  const sy = -marker.dirY;
-  const margin = 64;
-  const halfW = window.innerWidth / 2 - margin;
-  const halfH = window.innerHeight / 2 - margin;
-  const k = Math.min(
-    Math.abs(sx) > 1e-6 ? halfW / Math.abs(sx) : Infinity,
-    Math.abs(sy) > 1e-6 ? halfH / Math.abs(sy) : Infinity,
-  );
-  const x = window.innerWidth / 2 + sx * k;
-  const y = window.innerHeight / 2 + sy * k;
-  const angleDeg = (Math.atan2(sy, sx) * 180) / Math.PI;
-  const name = label ?? kind;
-  return (
-    <button
-      type="button"
-      className={`fh-chip fh-chip--${kind} tip`}
-      style={{ left: x, top: y }}
-      onClick={() => {
-        aimAtSky(marker.azDeg, marker.altDeg);
-        onAim?.();
-      }}
-      data-tip="BRING IT INTO VIEW"
-      data-tip-pos="down"
-      aria-label={`${name} is off-frame at ${Math.round(marker.azDeg)}° — click to look at it`}
-    >
-      <span className="fh-chip__glyph">{glyph}</span>
-      {label && <span className="fh-chip__label">{label}</span>}
-      <span className="fh-chip__arrow" style={{ transform: `rotate(${angleDeg}deg)` }}>
-        ➤
-      </span>
-    </button>
-  );
-}

@@ -67,6 +67,8 @@ import { attachVectorTiles } from "./scene/vectorTiles";
 import { attachPhotoFrustum } from "./PhotoFrustum";
 import { attachPins } from "./Pins";
 import { usePinsStore } from "../../store/pins";
+import { attachPlaceMarkers } from "./scene/placeMarkers";
+import { usePlacesMapStore } from "../../store/places";
 import { arrivalPose, createFlight, type FlightTarget } from "./flight";
 import { createExplore } from "./explore";
 import type { FrustumGeometry } from "../../lib/geo/frustum";
@@ -93,6 +95,7 @@ import {
 import { lruCapBytesForTier, queueCapsForTier, type QualityTier } from "../../lib/globe/quality";
 import { makeLoadAim, makeTileLatencyProbe } from "../../lib/globe/loadPriority";
 import {
+  AIMCONES,
   AO,
   CONTROLS,
   DRAPE,
@@ -107,6 +110,7 @@ import {
   MOBILE2D,
   ORCH,
   PINS,
+  PLACEMARKS,
   LOADING,
   PLACING,
   PLAN,
@@ -752,6 +756,20 @@ export function attachStylizedTiles(opts: {
   });
   const _pinRay = new THREE.Raycaster();
   const _hoverAnchor = new THREE.Vector3();
+
+  // --- MY PLACES markers (owner 2026-08-19b): the member's saved views on the GL globe —
+  //     the 2D map-window layer's scene twin (dot per place, lavender). store/places feeds
+  //     it; the fetch is idle-kicked HERE so the main view shows dots without the map window
+  //     ever opening (the store itself only loads on map-window open). The PLC / LAYERS
+  //     "MY PLACES" chips gate via `onMap`; anonymous resolves to an empty list (401-final).
+  const placeMarkers = attachPlaceMarkers(scene, {
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+  });
+  placeMarkers.setPlaces(usePlacesMapStore.getState().places);
+  const unsubPlaces = usePlacesMapStore.subscribe((s) => placeMarkers.setPlaces(s.places));
+  const placesFetchTimer = window.setTimeout(() => {
+    if (usePlacesMapStore.getState().onMap) usePlacesMapStore.getState().ensureLoaded();
+  }, PLACEMARKS.fetchIdleMs);
 
   // --- Explore ambient pin journey (Phase 5.5 S4, §Item 11): armed by the nav toggle via
   //     camera.exploreActive; the controller owns the camera while cruising (drift + glides
@@ -3546,6 +3564,12 @@ export function attachStylizedTiles(opts: {
         pins.update(camera);
         if (frameCount % PINS.resnapEveryFrames === 0) pins.resnap();
 
+        // MY PLACES dots ride the same cadence slot (owner 2026-08-19b) — the chip gate is
+        // the ONE flag, mirrored per frame like the PIN chip above.
+        placeMarkers.setVisible(usePlacesMapStore.getState().onMap);
+        placeMarkers.update(camera);
+        if (frameCount % PLACEMARKS.resnapEveryFrames === 0) placeMarkers.resnap();
+
   };
 
   const stepPinHover = () => {
@@ -3756,6 +3780,11 @@ export function attachStylizedTiles(opts: {
             camNow.tempPin ??
             { latDeg: focusGeo.latDeg, lonDeg: focusGeo.lonDeg },
           alt,
+          // Desktop shows the radar only near the ground (owner 2026-08-19b: <10 km);
+          // /m keeps the wide band — its fullscreen 2D map IS the planning surface.
+          band: isMobileShell
+            ? { fullAltM: AIMCONES.fullAltM, topAltM: AIMCONES.topAltM }
+            : { fullAltM: AIMCONES.desktopFullAltM, topAltM: AIMCONES.desktopTopAltM },
           // RADAR master switch (LAYERS batch, 2026-08-19) ANDs the standing FPV-off rule.
           enabled: !fpvActive && skyNow.aimVisible,
           target: skyNow.target,
@@ -4055,6 +4084,9 @@ export function attachStylizedTiles(opts: {
       unsubCursor();
       unsubPins();
       pins.dispose();
+      window.clearTimeout(placesFetchTimer);
+      unsubPlaces();
+      placeMarkers.dispose();
       frustum.dispose();
       controls.dispose();
       buildings.dispose();

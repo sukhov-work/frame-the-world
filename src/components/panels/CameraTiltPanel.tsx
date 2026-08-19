@@ -289,22 +289,36 @@ function SavePlaceControl() {
     if (!hud || !geo) return;
     setMode("busy");
     const t = useTimeStore.getState();
+    const pose = {
+      latDeg: geo.latDeg,
+      lonDeg: geo.lonDeg,
+      eyeM: Math.min(10_000, Math.max(0.5, hud.eyeAboveGroundM)),
+      headingDeg: hud.headingDeg,
+      pitchDeg: Math.min(89, Math.max(-89, hud.pitchDeg)),
+      fovDeg: hud.fovDeg,
+      timeMs: t.live ? null : sceneTimeMs(), // LIVE is never persisted (the &t= rule)
+    };
     try {
       const r = await fetch("/api/places", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim() || undefined, // server defaults "Untitled place"
-          latDeg: geo.latDeg,
-          lonDeg: geo.lonDeg,
-          eyeM: Math.min(10_000, Math.max(0.5, hud.eyeAboveGroundM)),
-          headingDeg: hud.headingDeg,
-          pitchDeg: Math.min(89, Math.max(-89, hud.pitchDeg)),
-          fovDeg: hud.fovDeg,
-          timeMs: t.live ? null : sceneTimeMs(), // LIVE is never persisted (the &t= rule)
+          ...pose,
         }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      // Push the new place into the map-marker store so it shows WITHOUT a reload
+      // (owner 2026-08-19b) — same shape the GET would return.
+      const j = (await r.json().catch(() => null)) as { placeId?: string } | null;
+      if (j?.placeId) {
+        usePlacesMapStore.getState().addLocal({
+          id: j.placeId,
+          title: title.trim() || "Untitled place",
+          createdAt: new Date().toISOString(),
+          ...pose,
+        });
+      }
       setMode("saved");
       setTitle("");
       window.setTimeout(() => setMode((m) => (m === "saved" ? "idle" : m)), 1800);

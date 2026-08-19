@@ -58,14 +58,33 @@ describe("sanitizeViewPrefs", () => {
     expect(sanitizeViewPrefs(42)).toEqual({});
   });
 
-  // U4 AIM flags — per-body booleans, wrong types dropped like every other key.
-  it("keeps the aim flags and drops wrong-typed ones", () => {
+  // U4 AIM flags — per-body booleans, wrong types dropped like every other key. An
+  // UN-stamped blob (prefsRev < 2) drops persisted FALSE (the 2026-08-19b re-arm — the
+  // prior build could write offs the user never chose); a stamped blob keeps them.
+  it("keeps the aim flags (re-arm drops un-stamped falses) and drops wrong-typed ones", () => {
     expect(sanitizeViewPrefs({ aimTarget: false, aimSun: true, aimMoon: false })).toEqual({
+      aimSun: true,
+    });
+    expect(
+      sanitizeViewPrefs({ prefsRev: 2, aimTarget: false, aimSun: true, aimMoon: false }),
+    ).toEqual({
+      prefsRev: 2,
       aimTarget: false,
       aimSun: true,
       aimMoon: false,
     });
     expect(sanitizeViewPrefs({ aimTarget: "on", aimSun: 1, aimMoon: null })).toEqual({});
+  });
+
+  // The 2026-08-19b radar re-arm in full: skyTargetVisible rides the same one-time drop
+  // (UNFOLLOW used to persist it false on every use).
+  it("re-arms skyTargetVisible from un-stamped blobs, keeps a stamped off", () => {
+    expect(sanitizeViewPrefs({ skyTargetVisible: false })).toEqual({});
+    expect(sanitizeViewPrefs({ skyTargetVisible: true })).toEqual({ skyTargetVisible: true });
+    expect(sanitizeViewPrefs({ prefsRev: 2, skyTargetVisible: false })).toEqual({
+      prefsRev: 2,
+      skyTargetVisible: false,
+    });
   });
 
   // LAYERS batch (owner 2026-08-19) — the RADAR master switch + MY PLACES on the map.
@@ -77,10 +96,15 @@ describe("sanitizeViewPrefs", () => {
     expect(sanitizeViewPrefs({ aimVisible: "off", savedPlacesOnMap: 0 })).toEqual({});
   });
 
-  // The phase-C key rename (2026-08-03): comet-era blobs keep their chip choices.
+  // The phase-C key rename (2026-08-03): comet-era blobs keep their chip choices. (A
+  // comet-era SHOW-off is un-stamped by definition, so the 2026-08-19b re-arm drops it —
+  // the ON choices survive.)
   it("migrates the comet-era sky-target keys to the new names", () => {
     expect(sanitizeViewPrefs({ cometVisible: false, cometHighlight: true })).toEqual({
-      skyTargetVisible: false,
+      skyTargetHighlight: true,
+    });
+    expect(sanitizeViewPrefs({ cometVisible: true, cometHighlight: true })).toEqual({
+      skyTargetVisible: true,
       skyTargetHighlight: true,
     });
   });
@@ -107,13 +131,24 @@ describe("loadViewPrefs / saveViewPref", () => {
     expect(() => saveViewPref("groundMode", "dark")).not.toThrow();
   });
 
-  it("round-trips a pref and merges instead of clobbering siblings", () => {
+  it("round-trips a pref, merges instead of clobbering siblings, stamps prefsRev", () => {
     vi.stubGlobal("localStorage", fakeStorage());
     saveViewPref("groundMode", "dark");
     saveViewPref("pinsVisible", false);
-    expect(loadViewPrefs()).toEqual({ groundMode: "dark", pinsVisible: false });
+    expect(loadViewPrefs()).toEqual({ groundMode: "dark", pinsVisible: false, prefsRev: 2 });
     saveViewPref("groundMode", "satellite");
-    expect(loadViewPrefs()).toEqual({ groundMode: "satellite", pinsVisible: false });
+    expect(loadViewPrefs()).toEqual({
+      groundMode: "satellite",
+      pinsVisible: false,
+      prefsRev: 2,
+    });
+  });
+
+  it("a stamped save makes a later aim/SHOW off stick (the re-arm is one-time)", () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    saveViewPref("aimSun", false);
+    saveViewPref("skyTargetVisible", false);
+    expect(loadViewPrefs()).toEqual({ aimSun: false, skyTargetVisible: false, prefsRev: 2 });
   });
 
   it("unparseable / junk stored JSON degrades to {}", () => {
