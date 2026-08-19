@@ -258,6 +258,9 @@ export default function MobileTimeDock() {
     setTime(ms);
   };
 
+  // Owner 2026-08-19 (batch item 3): desktop .ts-day parity — a fixed 24 h step, same literal.
+  const stepDay = (dir: 1 | -1) => setTime(sceneTimeMs() + dir * 86_400_000);
+
   const togglePlay = () => {
     if (playing) stopPlay();
     else play(armedRate);
@@ -349,6 +352,14 @@ export default function MobileTimeDock() {
         />
       </div>
       <div className="md-row">
+        <button
+          type="button"
+          className="md-day"
+          aria-label="Previous day (same time)"
+          onClick={() => stepDay(-1)}
+        >
+          ◀
+        </button>
         <input
           type="date"
           className="md-date"
@@ -356,6 +367,14 @@ export default function MobileTimeDock() {
           value={localDateStr(nowMs)}
           onChange={(e) => onDateChange(e.target.value)}
         />
+        <button
+          type="button"
+          className="md-day"
+          aria-label="Next day (same time)"
+          onClick={() => stepDay(1)}
+        >
+          ▶
+        </button>
         <button
           type="button"
           className={`md-play${playing ? " is-on" : ""}${ff ? " is-ff" : ""}`}

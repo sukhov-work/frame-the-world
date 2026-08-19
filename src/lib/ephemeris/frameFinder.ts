@@ -332,8 +332,11 @@ export function azElHits(
 // survives a look-drag), the frame filter + annotations are pose-cheap.
 // ------------------------------------------------------------------------------------------
 
-/** The FIND v2 bodies — the sun, the moon and the Galactic Centre (`galacticCentreTarget`). */
-export type FindBody = "sun" | "moon" | "gc";
+/** The FIND v2 bodies — the sun, the moon and the TRACKED TARGET (owner 2026-08-19, batch
+ *  item 10: the third slot generalised from the Galactic Centre to ANY `sky.target`; the MW
+ *  core is now just the generic case with `dso:gc` tracked). Samplers stay injected, so the
+ *  engine never resolves the target itself. */
+export type FindBody = "sun" | "moon" | "target";
 
 /** One pose-free ephemeris sample — where the body stands at that day's query instant. */
 export interface DayPosition {
@@ -367,7 +370,7 @@ export interface FrameStanding {
   light: LightPhase;
   moonIllum: number;
   moonGlare: number;
-  /** 0..1 — how visible the standing would actually be (moon by illumination, the GC by
+  /** 0..1 — how visible the standing would actually be (moon by illumination, the target by
    *  darkness × moonlight, anything skyline-blocked dimmed). Drives the ghost's opacity. */
   visibility: number;
 }
@@ -376,7 +379,9 @@ export interface FrameStanding {
 export const FIND_VIS = {
   /** A new moon in frame is honest but nearly invisible — floor, then scale by illumination. */
   moonFloor: 0.25,
-  /** GC visibility ramps with darkness: 0 at sun alt ≥ hi, 1 at ≤ lo (astro dark, mwSeason). */
+  /** Target visibility ramps with darkness: 0 at sun alt ≥ hi, 1 at ≤ lo (astro dark,
+   *  mwSeason). Named gc* for history — since 2026-08-19 the model covers ANY tracked target
+   *  (a deliberate dark-sky simplification; bright planets read conservative). */
   gcSunHiDeg: -8,
   gcSunLoDeg: -18,
   /** Moonlight washes the core out — this fraction of the K&S glare is subtracted. */
@@ -413,7 +418,7 @@ export function frameStandingsFromPositions(
     let visibility = 1; // the sun in frame is the sun — always fully visible
     if (body === "moon") {
       visibility = FIND_VIS.moonFloor + (1 - FIND_VIS.moonFloor) * states.moonIllumination;
-    } else if (body === "gc") {
+    } else if (body === "target") {
       const sunAlt = horizontal("sun", p.utcMs, pose.latDeg, pose.lonDeg).altDeg;
       const dark = smooth01(
         (FIND_VIS.gcSunHiDeg - sunAlt) / (FIND_VIS.gcSunHiDeg - FIND_VIS.gcSunLoDeg),

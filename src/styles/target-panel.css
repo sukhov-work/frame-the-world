@@ -256,6 +256,7 @@
   flex-wrap: wrap; /* 5 toggles since TRACK (2026-08-15c) — wrap beats clipping at 17rem */
   gap: 6px;
   padding-top: 2px;
+  margin-top: 6px; /* sits under .tp-live since the 2026-08-19 reorder — needs its own gap */
 }
 .tp-toggle {
   flex: 1;
@@ -280,6 +281,24 @@
 .tp-toggle:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* UNFOLLOW (owner 2026-08-19) — quiet warn-tinted full-width row closing the actions group. */
+.tp-unfollow {
+  width: 100%;
+  margin: 6px 0 4px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-warn) 38%, var(--color-border));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-warn);
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+}
+.tp-unfollow:hover {
+  border-color: var(--color-warn);
 }
 
 /* Ghost-chain knobs (QoL-2 2026-08-14) — a slim stepper row under the toggles. */

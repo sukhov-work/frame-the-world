@@ -196,6 +196,18 @@
   filter: invert(0.7);
 }
 
+/* Compact ‹day› steppers flanking the calendar (owner 2026-08-19 — desktop .ts-day parity). */
+.md-day {
+  font-family: inherit;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 6px;
+  padding: 6px 7px; /* the glyph is tiny — the padding keeps a usable touch target */
+}
+
 .md-play {
   font-family: inherit;
   font-size: 11px;

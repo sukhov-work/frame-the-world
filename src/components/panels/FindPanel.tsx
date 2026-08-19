@@ -15,7 +15,8 @@ import {
   type FrameStanding,
 } from "../../lib/ephemeris/frameFinder";
 import { horizontal } from "../../lib/ephemeris/bodies";
-import { bodyTarget, galacticCentreTarget, targetAzAlt } from "../../lib/ephemeris/targets";
+import { bodyTarget, targetAzAlt, targetShortName } from "../../lib/ephemeris/targets";
+import { kindGlyph } from "../../lib/sky/searchIndex";
 import {
   sunEventDays,
   sunEventFrameHits,
@@ -60,11 +61,12 @@ const MAX_ROWS = 42;
 
 /** Mean apparent disc diameters (deg) — ghost rings are markers, the ±2% seasonal swing is
  *  invisible at ring scale (the true-size discipline lives in skyGhosts, not here). */
-const DISC_DEG: Record<FindBody, number> = { sun: 0.533, moon: 0.518, gc: 0 };
+const DISC_DEG: Record<FindBody, number> = { sun: 0.533, moon: 0.518, target: 0 };
 
-const GC = galacticCentreTarget(); // stateless closure — the PlanPanel module-scope precedent
-const BODY_GLYPH: Record<FindBody, string> = { sun: "☀", moon: "☾", gc: "✦" };
-const BODY_NAME: Record<FindBody, string> = { sun: "SUN", moon: "MOON", gc: "MW CORE" };
+// The third slot is the TRACKED TARGET (owner 2026-08-19, item 10) — glyph/name resolve live
+// from sky.target in the component; only the sun/moon are static.
+const BODY_GLYPH: Record<FindBody, string> = { sun: "☀", moon: "☾", target: "✦" };
+const BODY_NAME: Record<FindBody, string> = { sun: "SUN", moon: "MOON", target: "TARGET" };
 const DAY_MS = 24 * 3600_000;
 
 const hhmm = (ms: number) =>
@@ -154,6 +156,10 @@ export default function FindPanel() {
   const setBody = useFindStore((s) => s.setBody);
   const rangeDays = useFindStore((s) => s.rangeDays);
   const setRangeDays = useFindStore((s) => s.setRangeDays);
+  // The generic third body (item 10, owner 2026-08-19) — the LIVE tracked target. A tracked
+  // sun/moon duplicates its own chip, so the TARGET chip stands down then.
+  const target = useSkyStore((s) => s.target);
+  const targetIsBody = target.id === "body:sun" || target.id === "body:moon";
   // §3.5 event chips — SET on by default (the owner ask was literally "sunsets in my frame").
   const [sunEventsOn, setSunEventsOn] = useState({ set: true, rise: false, gold: false });
 
@@ -188,9 +194,9 @@ export default function FindPanel() {
     return {
       sun: bodyDayPositions((t) => horizontal("sun", t, la, lo), instants),
       moon: bodyDayPositions((t) => horizontal("moon", t, la, lo), instants),
-      gc: bodyDayPositions((t) => targetAzAlt(GC, t, la, lo), instants),
+      target: bodyDayPositions((t) => targetAzAlt(target, t, la, lo), instants),
     };
-  }, [active, minuteKey, latKey, lonKey, rangeDays]);
+  }, [active, minuteKey, latKey, lonKey, rangeDays, target]);
 
   // Stage 2 — pose filter + annotations (cheap, re-runs on ~1° pose moves / chip toggles).
   const hits = useMemo<FrameStanding[]>(() => {
@@ -207,14 +213,15 @@ export default function FindPanel() {
     };
     const profileFn = bins ? (az: number) => sampleBins(bins, az) : null;
     const out: FrameStanding[] = [];
-    for (const b of ["sun", "moon", "gc"] as const) {
+    for (const b of ["sun", "moon", "target"] as const) {
       if (!bodies[b]) continue;
+      if (b === "target" && targetIsBody) continue; // its own sun/moon chip covers it
       out.push(...frameStandingsFromPositions(b, positions[b], pose, profileFn));
     }
     out.sort((a, b) => a.utcMs - b.utcMs);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [positions, poseKey, bins, bodies, latKey, lonKey]);
+  }, [positions, poseKey, bins, bodies, latKey, lonKey, targetIsBody]);
 
   // §3.5 stage 1 — pose-FREE event day loop (root-finds). Keyed on the local DAY, never the
   // scrub minute: sunset instants don't depend on the scrubber hour (unlike the standings scan).
@@ -283,7 +290,7 @@ export default function FindPanel() {
   const jump = (h: FrameStanding) => {
     setTime(h.utcMs);
     const sky = useSkyStore.getState();
-    sky.setTarget(h.body === "gc" ? GC : bodyTarget(h.body));
+    if (h.body !== "target") sky.setTarget(bodyTarget(h.body)); // "target" already IS it
     if (!sky.visible) sky.setVisible(true);
   };
 
@@ -307,7 +314,7 @@ export default function FindPanel() {
             <span className="pp-title">FIND IN FRAME</span>
             <span className="pp-anchor">{anchor ? anchor.kind.toUpperCase() : "—"}</span>
             <InfoDot
-              tip="Your frame is the query: on which coming days will the sun, the moon or the Milky-Way core stand INSIDE this exact view — at this exact time of day (set it with the scrubber)? Every find is projected into the frame as a colour-matched ring; click a ring or a row to jump to that day. Zoom or turn the frame and the results follow."
+              tip="Your frame is the query: on which coming days will the sun, the moon or your tracked target stand INSIDE this exact view — at this exact time of day (set it with the scrubber)? Every find is projected into the frame as a colour-matched ring; click a ring or a row to jump to that day. Zoom or turn the frame and the results follow."
               pos="right"
             />
             <button
@@ -329,15 +336,22 @@ export default function FindPanel() {
                   {Math.round(hfovDeg)}°×{Math.round(hud.fovDeg)}°
                 </div>
                 <div className="pp-find__chips" role="group" aria-label="Bodies and range">
-                  {(["sun", "moon", "gc"] as const).map((b) => (
+                  {(["sun", "moon", "target"] as const).map((b) => (
                     <button
                       key={b}
                       type="button"
                       className={`pp-chip ${bodies[b] ? "pp-chip--on" : ""}`}
                       onClick={() => setBody(b, !bodies[b])}
-                      title={BODY_NAME[b]}
+                      disabled={b === "target" && targetIsBody}
+                      title={
+                        b === "target"
+                          ? targetIsBody
+                            ? "The tracked target IS the sun/moon — its own chip covers it"
+                            : `${targetShortName(target).toUpperCase()} (the tracked target)`
+                          : BODY_NAME[b]
+                      }
                     >
-                      {BODY_GLYPH[b]}
+                      {b === "target" ? kindGlyph(target.kind) : BODY_GLYPH[b]}
                     </button>
                   ))}
                   <span className="pp-find__sep" />
@@ -366,7 +380,7 @@ export default function FindPanel() {
                         type="button"
                         className="pp-day__jump"
                         onClick={() => jump(h)}
-                        title={`Jump to ${dateTag(h.utcMs)} ${hhmm(h.utcMs)} and track the ${BODY_NAME[h.body]}`}
+                        title={`Jump to ${dateTag(h.utcMs)} ${hhmm(h.utcMs)} and track ${h.body === "target" ? targetShortName(target).toUpperCase() : `the ${BODY_NAME[h.body]}`}`}
                       >
                         <span
                           className={`fnd-sw ${projected ? "" : "fnd-sw--off"}`}
@@ -374,7 +388,9 @@ export default function FindPanel() {
                         />
                         <i className={`pp-day__dot pp-day__dot--${h.light}`} />
                         <span className="pp-day__time">{dateTag(h.utcMs)}</span>
-                        <span className="fnd-glyph">{BODY_GLYPH[h.body]}</span>
+                        <span className="fnd-glyph">
+                          {h.body === "target" ? kindGlyph(target.kind) : BODY_GLYPH[h.body]}
+                        </span>
                         <span className="fnd-pos" title="Where in the frame it stands">
                           {posHint(h)}
                         </span>

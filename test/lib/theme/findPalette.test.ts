@@ -46,7 +46,7 @@ describe("findStandingColorIdx (identity glued to the date, owner 2026-08-14)", 
     const n = FIND_PALETTE.length;
     const sun = ((findStandingColorIdx("sun", t0) % n) + n) % n;
     const moon = ((findStandingColorIdx("moon", t0) % n) + n) % n;
-    const gc = ((findStandingColorIdx("gc", t0) % n) + n) % n;
-    expect(new Set([sun, moon, gc]).size).toBe(3);
+    const target = ((findStandingColorIdx("target", t0) % n) + n) % n;
+    expect(new Set([sun, moon, target]).size).toBe(3);
   });
 });

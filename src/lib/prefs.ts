@@ -44,6 +44,11 @@ export interface ViewPrefs {
   aimTarget?: boolean;
   aimSun?: boolean;
   aimMoon?: boolean;
+  /** RADAR — master switch over the whole U4 aim overlay, both renderers (LAYERS batch,
+   *  owner 2026-08-19). Per-body aim* flags survive underneath it. */
+  aimVisible?: boolean;
+  /** MY PLACES ON MAP — the member's saved-place markers on the 2D map (owner 2026-08-19). */
+  savedPlacesOnMap?: boolean;
   /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
   skyGhosts?: boolean;
   /** Ghost copies per time direction (1..15; the owner default is 4 each way = 8 total). */
@@ -75,6 +80,8 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   if (typeof r.aimTarget === "boolean") out.aimTarget = r.aimTarget;
   if (typeof r.aimSun === "boolean") out.aimSun = r.aimSun;
   if (typeof r.aimMoon === "boolean") out.aimMoon = r.aimMoon;
+  if (typeof r.aimVisible === "boolean") out.aimVisible = r.aimVisible;
+  if (typeof r.savedPlacesOnMap === "boolean") out.savedPlacesOnMap = r.savedPlacesOnMap;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
   if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
     out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));

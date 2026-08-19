@@ -541,8 +541,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           mobile: "FIND tab · same chips",
         },
         body:
-          "Body chips: ☀ sun, ☾ moon, ✦ galactic centre — moon alone is the default. " +
-          "Range chips: 1W, 1M, 6M, 1Y. Your choices stick.",
+          "Body chips: ☀ sun, ☾ moon, and your tracked target (whatever the search or the " +
+          "sky menu follows — the Milky-Way core, a comet, a nebula) — moon alone is the " +
+          "default. Range chips: 1W, 1M, 6M, 1Y. Your choices stick.",
       },
       {
         id: "find-standings",
@@ -755,8 +756,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "The right-edge stack adapts to what you are doing: 🧭 MY LOC, ◎ LOOK FROM " +
           "HERE, ◎ SAVE VIEW, ▤ SAVED PLACES for members, ✕ CLEAR PIN, ✕ EXIT VIEW. " +
-          "▦ 3D DETAIL shows or hides the 3D buildings — the most detailed model available " +
-          "for the area loads on its own.",
+          "⊞ LAYERS expands the scene layers: ▦ 3D DETAIL (the most detailed building " +
+          "model loads on its own), ◎ MY PLACES markers on the map, ⌖ PHOTO PINS, and " +
+          "the ∠ RADAR aim overlay.",
       },
       {
         id: "mobile-gestures",

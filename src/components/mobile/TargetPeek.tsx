@@ -17,6 +17,7 @@ import "../../styles/mobile/chrome.css";
 
 export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
   const target = useSkyStore((s) => s.target);
+  const visible = useSkyStore((s) => s.visible);
   const planTarget = usePlanStore((s) => s.target);
   const anchor = usePlanStore((s) => s.anchor);
   const focusLat = useCameraStore((s) => s.focusLatDeg);
@@ -45,8 +46,17 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
   );
   const upNow = now.altDeg > 0;
 
+  // UNFOLLOW / SHOW-off (owner 2026-08-19): a dismissed object leaves the bottom bar too —
+  // the whole app already treats `visible=false` as "not there" (planFeed, scrubber, cards).
+  if (!visible) return null;
+
   return (
-    <button type="button" className="m-peek" onClick={onOpen} aria-label={`Tracked target: ${target.name}`}>
+    <button
+      type="button"
+      className="m-peek"
+      onClick={onOpen}
+      aria-label={`Tracked target: ${target.name} — open details`}
+    >
       <span className="m-peek__glyph" aria-hidden="true">
         {kindGlyph(target.kind)}
       </span>
@@ -59,7 +69,12 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
         !upNow && <span className="m-badge">BELOW</span>
       )}
       <span className="m-peek__pos">
-        {now.altDeg.toFixed(0)}° · {Math.round(now.azDeg)}° {cardinal(now.azDeg)} ▲
+        {now.altDeg.toFixed(0)}° · {Math.round(now.azDeg)}° {cardinal(now.azDeg)}
+      </span>
+      {/* Pull-up hint (owner 2026-08-19, batch item 7: "not obvious this opens") — an own
+          element, accent-coloured, gently nudging; reduced-motion opts out in chrome.css. */}
+      <span className="m-peek__more" aria-hidden="true">
+        ▲
       </span>
     </button>
   );

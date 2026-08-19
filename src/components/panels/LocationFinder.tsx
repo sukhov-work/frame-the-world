@@ -51,7 +51,9 @@ let catalogPromise: Promise<typeof import("../../lib/sky/catalog")> | null = nul
 const loadCatalog = () => (catalogPromise ??= import("../../lib/sky/catalog"));
 
 export default function LocationFinder() {
-  const [mode, setMode] = useState<Mode>("earth");
+  // SKY is the default mode (owner 2026-08-19, batch item 6) — the catalog stays lazy: it
+  // warms on first input focus, not at mount (this island mounts on every page load).
+  const [mode, setMode] = useState<Mode>("sky");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<GeocodeHit[]>([]);
   const [skyHits, setSkyHits] = useState<SkyIndexEntry[]>([]);
@@ -352,7 +354,10 @@ export default function LocationFinder() {
             aria-expanded={open}
             onChange={(e) => onInput(e.target.value)}
             onKeyDown={onKeyDown}
-            onFocus={() => rowCount > 0 && setOpen(true)}
+            onFocus={() => {
+              void loadCatalog(); // warm before the first SKY keystroke (sky-default)
+              if (rowCount > 0) setOpen(true);
+            }}
           />
         </span>
       </div>

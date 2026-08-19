@@ -121,8 +121,19 @@ stay "frame the world".
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**U8 PER-BUILDING HEIGHT OVERRIDE SHIPPED 2026-08-19 — the UPLIFT 10-point ladder is
-COMPLETE** (DECISIONS top entry 2026-08-19; gates 1,048/1,048 · astro 0 err/5 hints;
+**OWNER UX BATCH #2 SHIPPED 2026-08-19b — all 11 announced items** (DECISIONS 2026-08-19b;
+gates 1,052/1,052 · astro 0 err/5 hints; browser-verified both shells, shots uxb2-01..05):
+cap 1000 · /m map glyph + day steppers + joystick-over-fullscreen-map · Esc-closes-map-first ·
+SKY search default · DISABLE menu labels + find-in-frame composite-state fix · UNFOLLOW verb
+(`sky.stopFollowing`; visible=false = dismissed everywhere) + peek hint + target-section
+reorder both shells · FIND third body generalised `gc`→`target` (ANY tracked target) ·
+/m ⊞ LAYERS chip + MY-PLACES-ON-MAP (`store/places.ts`, 2D MapWindow markers, pinLavender) +
+`aimVisible` RADAR master + `pinsVisible` /m-default-off. See
+`mem:project/wip-2026-08-19-owner-uxbatch2` (rulings, traps — incl. the wix-dev-SIGPIPE
+harness trap). **NEXT SESSION: batch tails first if the owner flags them (GL-globe/minimap
+saved-place markers · post-save push into placesMap · bright-target FIND visibility · taste
+pass), then P8 conjunctions + P9 lunar eclipses + M4 mobile resume.**
+Prior milestone (U8, ladder COMPLETE): (DECISIONS top entry 2026-08-19; gates 1,048/1,048 · astro 0 err/5 hints;
 browser-verified both shells via `scripts/verify-bldg-override.mjs`, shots u8-01..06).
 FPV dblclick/double-tap arms an enriched building → claimed-pointer drag with SOLID original +
 ghost preview + mesh-pinned dual-height label → commit persists to `ftw:bldg-overrides:v1`

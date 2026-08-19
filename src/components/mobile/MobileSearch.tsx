@@ -47,7 +47,9 @@ export default function MobileSearch({
   /** A sky object is now tracked — the shell swaps to the TARGET sheet. */
   onTrack: () => void;
 }) {
-  const [mode, setMode] = useState<Mode>("earth");
+  // SKY is the default mode (owner 2026-08-19, batch item 6). This sheet mounts only when
+  // the user opens search, so warming the catalog at mount keeps the lazy contract.
+  const [mode, setMode] = useState<Mode>("sky");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<GeocodeHit[]>([]);
   const [skyHits, setSkyHits] = useState<SkyIndexEntry[]>([]);
@@ -64,7 +66,10 @@ export default function MobileSearch({
     abortRef.current = null;
     skyQueryRef.current = "";
   };
-  useEffect(() => cancelPending, []);
+  useEffect(() => {
+    void loadCatalog(); // sky-default: ready before the first keystroke
+    return cancelPending;
+  }, []);
 
   const runSearch = async (fn: (signal: AbortSignal) => Promise<GeocodeHit[]>) => {
     abortRef.current?.abort();

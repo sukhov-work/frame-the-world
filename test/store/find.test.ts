@@ -8,7 +8,7 @@ import { useSkyStore } from "../../src/store/sky";
 describe("store/find scan config", () => {
   beforeEach(() => {
     useFindStore.setState({
-      bodies: { sun: false, moon: true, gc: false },
+      bodies: { sun: false, moon: true, target: false },
       rangeDays: 30,
       open: false,
     });
@@ -16,15 +16,15 @@ describe("store/find scan config", () => {
 
   it("defaults: moon-only bodies, 1M (30-day) range", () => {
     const s = useFindStore.getState();
-    expect(s.bodies).toEqual({ sun: false, moon: true, gc: false });
+    expect(s.bodies).toEqual({ sun: false, moon: true, target: false });
     expect(s.rangeDays).toBe(30);
   });
 
   it("setBody flips one body without touching the others (the menu quick-toggle path)", () => {
     useFindStore.getState().setBody("sun", true);
-    expect(useFindStore.getState().bodies).toEqual({ sun: true, moon: true, gc: false });
+    expect(useFindStore.getState().bodies).toEqual({ sun: true, moon: true, target: false });
     useFindStore.getState().setBody("moon", false);
-    expect(useFindStore.getState().bodies).toEqual({ sun: true, moon: false, gc: false });
+    expect(useFindStore.getState().bodies).toEqual({ sun: true, moon: false, target: false });
   });
 
   it("setRangeDays writes through", () => {

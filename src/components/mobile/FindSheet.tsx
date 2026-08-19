@@ -29,7 +29,8 @@ import {
   type FrameStanding,
 } from "../../lib/ephemeris/frameFinder";
 import { horizontal } from "../../lib/ephemeris/bodies";
-import { bodyTarget, galacticCentreTarget, targetAzAlt } from "../../lib/ephemeris/targets";
+import { bodyTarget, targetAzAlt, targetShortName } from "../../lib/ephemeris/targets";
+import { kindGlyph } from "../../lib/sky/searchIndex";
 import { sampleBins } from "../../lib/geo/horizonProfile";
 import { findHitColor, findStandingColorIdx } from "../../lib/theme/findPalette";
 import "../../styles/mobile/chrome.css";
@@ -41,8 +42,8 @@ const FIND_RANGES = [
   { label: "6M", days: 182 },
   { label: "1Y", days: 365 },
 ] as const;
-const GC = galacticCentreTarget();
-const BODY_GLYPH: Record<FindBody, string> = { sun: "☀", moon: "☾", gc: "✦" };
+// The third slot is the TRACKED TARGET (owner 2026-08-19, item 10) — glyph resolves live.
+const BODY_GLYPH: Record<FindBody, string> = { sun: "☀", moon: "☾", target: "✦" };
 const FIND_MAX_ROWS = 24;
 
 const dateTag = (ms: number) =>
@@ -79,6 +80,10 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
   const setBody = useFindStore((s) => s.setBody);
   const rangeDays = useFindStore((s) => s.rangeDays);
   const setRangeDays = useFindStore((s) => s.setRangeDays);
+  // The generic third body (item 10, owner 2026-08-19) — the LIVE tracked target; a tracked
+  // sun/moon duplicates its own chip, so the TARGET chip stands down then.
+  const target = useSkyStore((s) => s.target);
+  const targetIsBody = target.id === "body:sun" || target.id === "body:moon";
 
   // STICKY open: showing the sheet switches the scan on; collapsing it does NOT switch it
   // off — the projections keep living in the frame (the whole point of the 4th tab).
@@ -112,9 +117,9 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
     return {
       sun: bodyDayPositions((t) => horizontal("sun", t, la, lo), instants),
       moon: bodyDayPositions((t) => horizontal("moon", t, la, lo), instants),
-      gc: bodyDayPositions((t) => targetAzAlt(GC, t, la, lo), instants),
+      target: bodyDayPositions((t) => targetAzAlt(target, t, la, lo), instants),
     };
-  }, [active, minuteKey, latKey, lonKey, rangeDays]);
+  }, [active, minuteKey, latKey, lonKey, rangeDays, target]);
 
   const hits = useMemo<FrameStanding[]>(() => {
     if (!positions || !poseKey) return [];
@@ -130,14 +135,15 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
     };
     const profileFn = bins ? (az: number) => sampleBins(bins, az) : null;
     const out: FrameStanding[] = [];
-    for (const b of ["sun", "moon", "gc"] as const) {
+    for (const b of ["sun", "moon", "target"] as const) {
       if (!bodies[b]) continue;
+      if (b === "target" && targetIsBody) continue; // its own sun/moon chip covers it
       out.push(...frameStandingsFromPositions(b, positions[b], pose, profileFn));
     }
     out.sort((a, b) => a.utcMs - b.utcMs);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [positions, poseKey, bins, bodies, latKey, lonKey]);
+  }, [positions, poseKey, bins, bodies, latKey, lonKey, targetIsBody]);
 
   // Ghost mirror — identical contract to the desktop FindPanel writer.
   useEffect(() => {
@@ -160,7 +166,7 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
   const jump = (h: FrameStanding) => {
     setTime(h.utcMs);
     const sky = useSkyStore.getState();
-    sky.setTarget(h.body === "gc" ? GC : bodyTarget(h.body));
+    if (h.body !== "target") sky.setTarget(bodyTarget(h.body)); // "target" already IS it
     if (!sky.visible) sky.setVisible(true);
   };
 
@@ -179,14 +185,18 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
             FINDS · THEY STAY WHEN THIS SHEET CLOSES
           </div>
           <div className="m-toggles">
-            {(["sun", "moon", "gc"] as const).map((b) => (
+            {(["sun", "moon", "target"] as const).map((b) => (
               <button
                 key={b}
                 type="button"
                 className={`m-toggle ${bodies[b] ? "m-toggle--on" : ""}`}
                 onClick={() => setBody(b, !bodies[b])}
+                disabled={b === "target" && targetIsBody}
+                aria-label={
+                  b === "target" ? `${targetShortName(target)} (the tracked target)` : b
+                }
               >
-                {BODY_GLYPH[b]}
+                {b === "target" ? kindGlyph(target.kind) : BODY_GLYPH[b]}
               </button>
             ))}
             {FIND_RANGES.map((r) => (
@@ -212,7 +222,9 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
                     />
                     <i className={`m-dot m-dot--${h.light}`} />
                     <span className="m-row__time">{dateTag(h.utcMs)}</span>
-                    <span className="m-row__kind">{BODY_GLYPH[h.body]}</span>
+                    <span className="m-row__kind">
+                      {h.body === "target" ? kindGlyph(target.kind) : BODY_GLYPH[h.body]}
+                    </span>
                     <span className="m-row__meta">{findPosHint(h)}</span>
                     <span className="m-row__meta">
                       {h.skyline === "blocked" ? "✕" : h.skyline === "clear" ? "CLEAR" : "—"} ·{" "}

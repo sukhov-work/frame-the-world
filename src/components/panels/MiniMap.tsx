@@ -155,7 +155,19 @@ export default function MiniMap() {
         aria-label={collapsed ? "Expand the mini-map" : "Collapse the mini-map"}
         onClick={() => setCollapsed(!collapsed)}
       >
-        {collapsed ? "▣" : "»"}
+        {collapsed ? (
+          /* Folded-map glyph (owner 2026-08-19: the ▣ puck read as a blank white square). */
+          <svg className="mm-glyph" viewBox="0 0 20 20" aria-hidden="true">
+            <path
+              className="mm-glyph__fold"
+              d="M3 5.5 L7.5 3.5 L12.5 5.5 L17 3.5 L17 14.5 L12.5 16.5 L7.5 14.5 L3 16.5 Z"
+            />
+            <path className="mm-glyph__seam" d="M7.5 3.5 L7.5 14.5 M12.5 5.5 L12.5 16.5" />
+            <circle className="mm-glyph__dot" cx="10" cy="10" r="1.7" />
+          </svg>
+        ) : (
+          "»"
+        )}
       </button>
       {/* U3 (owner point 2): the patch itself is the tap target for the fullscreen map. */}
       <button

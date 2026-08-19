@@ -88,7 +88,7 @@ interface Inst {
   dir: THREE.Vector3;
   /** Marker angular radius (rad) — ring outer / diamond half-diagonal. */
   markRad: number;
-  /** 0 = sun, 1 = moon, 2 = gc (the shader's picture selector). */
+  /** 0 = sun, 1 = moon, 2 = target (the shader's picture selector; diamond+core marker). */
   kind: number;
   /** World unit dir TOWARD the sun at the HIT's instant — the moon picture's phase light. */
   litW: THREE.Vector3 | null;
@@ -326,7 +326,7 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
     const idx: number[] = [];
     for (let i = 0; i < insts.length; i++) {
       const s = insts[i];
-      if (s.ghost.body === "gc") continue; // the GC barely moves day-to-day — no path
+      if (s.ghost.body === "target") continue; // generic targets get no day-arc path
       const arc = cachedArc(s.ghost.body, s.ghost.utcMs, anchor.latDeg, anchor.lonDeg);
       if (!arc.everUp) continue;
       _c.set(findHitColor(s.ghost.colorIdx).gl);
@@ -372,7 +372,7 @@ export function attachFindGhosts(scene: THREE.Scene): FindGhostsHandle {
         enu[0] * basis.east[1] + enu[1] * basis.north[1] + enu[2] * basis.up[1],
         enu[0] * basis.east[2] + enu[1] * basis.north[2] + enu[2] * basis.up[2],
       );
-      const isGc = g.body === "gc";
+      const isGc = g.body === "target"; // historic name — the tuned diamond marker path
       const discRad = (Math.max(g.discDeg, FINDGHOSTS.minDiscDeg) * Math.PI) / 360;
       const markRad = isGc
         ? ((FINDGHOSTS.gcMarkDeg * Math.PI) / 360) * FINDGHOSTS.ringRadFrac

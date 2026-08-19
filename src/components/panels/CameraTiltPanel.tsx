@@ -4,6 +4,8 @@ import Encoder from "../ui/Encoder";
 import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
+import { useSkyStore } from "../../store/sky";
+import { usePlacesMapStore } from "../../store/places";
 import { useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { wrapHeadingDeg } from "../../lib/geo/heading";
@@ -196,6 +198,8 @@ export default function CameraTiltPanel() {
         >
           BLD
         </button>
+        <AimVisibleChip />
+        <PlacesOnMapChip />
       </div>
       {!fpvMode && (
         <Encoder
@@ -390,5 +394,44 @@ function TempPinPopup() {
         ✕
       </button>
     </div>
+  );
+}
+
+/** RADAR chip (LAYERS batch, owner 2026-08-19) — master switch over the U4 aim overlay
+ *  (azimuth circle + direction lines, GL + 2D map). Per-body DIRECTION flags survive under it. */
+function AimVisibleChip() {
+  const aimVisible = useSkyStore((s) => s.aimVisible);
+  const setAimVisible = useSkyStore((s) => s.setAimVisible);
+  return (
+    <button
+      type="button"
+      className={`ct-mode ct-aim tip${aimVisible ? " is-on" : ""}`}
+      onClick={() => setAimVisible(!aimVisible)}
+      aria-pressed={aimVisible}
+      aria-label={aimVisible ? "Hide the aim radar overlay" : "Show the aim radar overlay"}
+      data-tip="RADAR — THE AZIMUTH CIRCLE + DIRECTION LINES, ON THE GLOBE AND THE 2D MAP."
+      data-tip-pos="left"
+    >
+      AIM
+    </button>
+  );
+}
+
+/** MY PLACES chip (LAYERS batch, owner 2026-08-19) — saved-place markers on the 2D map. */
+function PlacesOnMapChip() {
+  const onMap = usePlacesMapStore((s) => s.onMap);
+  const setOnMap = usePlacesMapStore((s) => s.setOnMap);
+  return (
+    <button
+      type="button"
+      className={`ct-mode ct-places tip${onMap ? " is-on" : ""}`}
+      onClick={() => setOnMap(!onMap)}
+      aria-pressed={onMap}
+      aria-label={onMap ? "Hide my saved places on the map" : "Show my saved places on the map"}
+      data-tip="MY PLACES — YOUR SAVED VIEWS AS MARKERS ON THE 2D MAP (WHEN SIGNED IN)."
+      data-tip-pos="left"
+    >
+      PLC
+    </button>
   );
 }

@@ -48,6 +48,10 @@ export interface SkyStoreState {
   setAimSun(on: boolean): void;
   aimMoon: boolean;
   setAimMoon(on: boolean): void;
+  /** RADAR (LAYERS batch, owner 2026-08-19) — master switch over the WHOLE aim overlay (the
+   *  azimuth circle + every direction line, both renderers). Per-body flags stay underneath. */
+  aimVisible: boolean;
+  setAimVisible(on: boolean): void;
   /** Which AIM system gets the full treatment (radius + fill); the others render compact.
    *  Session-only, like `track` — promoted by turning a body's AIM on or tapping its line. */
   aimFocus: "target" | "sun" | "moon";
@@ -58,6 +62,10 @@ export interface SkyStoreState {
    *  Session-only — deliberately NOT persisted (a reload must never grab the camera). */
   track: boolean;
   setTrack(on: boolean): void;
+  /** UNFOLLOW (owner 2026-08-19): dismiss the followed object — SHOW off + camera lock off in
+   *  one verb. `target` itself stays set (non-nullable contract); every follow path (search,
+   *  sky menu, FIND/PLAN jumps) re-enables SHOW. */
+  stopFollowing(): void;
   /** The tracked sky target — the ONE object the scene marker + trail + panel follow. */
   target: SkyTarget;
   setTarget(target: SkyTarget): void;
@@ -115,10 +123,19 @@ export const useSkyStore = create<SkyStoreState>((set) => ({
     saveViewPref("aimMoon", aimMoon);
     set(aimMoon ? { aimMoon, aimFocus: "moon" } : { aimMoon });
   },
+  aimVisible: prefs.aimVisible ?? true,
+  setAimVisible: (aimVisible) => {
+    saveViewPref("aimVisible", aimVisible);
+    set({ aimVisible });
+  },
   aimFocus: "target",
   setAimFocus: (aimFocus) => set({ aimFocus }),
   track: false,
   setTrack: (track) => set({ track }),
+  stopFollowing: () => {
+    saveViewPref("skyTargetVisible", false);
+    set({ visible: false, track: false });
+  },
   target: cometTarget(),
   setTarget: (target) => {
     saveViewPref("skyTargetId", target.id);
