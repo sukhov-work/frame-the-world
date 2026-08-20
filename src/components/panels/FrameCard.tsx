@@ -64,7 +64,7 @@ function icsForWindow(r: Row, latDeg: number, lonDeg: number): void {
     {
       startMs: w.startMs,
       endMs: w.endMs,
-      summary: `${r.glyph} ${r.label} crosses your frame · ${rowMeta(r)} (Sidera)`,
+      summary: `${r.glyph} ${r.label} crosses your frame · ${rowMeta(r)} (Plux)`,
       description: `In frame ${new Date(w.startMs).toLocaleString()} → ${new Date(
         w.endMs,
       ).toLocaleString()}; nearest frame centre ${new Date(w.peakMs).toLocaleTimeString()} (${w.peakSepDeg.toFixed(1)}° off).`,

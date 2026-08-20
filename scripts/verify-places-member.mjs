@@ -9,7 +9,9 @@ import { createClient, OAuthStrategy } from "@wix/sdk";
 
 const PORT = process.argv[2] ?? "9333";
 const APP = "http://localhost:4321/";
-const SITE = "https://frame-the-a173087b-yevhens.wix-site-host.com";
+// Domain cutover 2026-08-19: www.plux.today is the primary (the old wix-site-host URL
+// 301s site-wide). FTW_SITE_URL env overrides the origin when needed.
+const SITE = process.env.FTW_SITE_URL || "https://www.plux.today";
 const SHOTS = "verify-shots";
 const _envB2 = readFileSync(".env.local", "utf-8");
 const TEST_MEMBER = {

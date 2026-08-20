@@ -11,7 +11,7 @@ import "../styles/mobile/mobile.css";
 interface Props {
   title?: string;
 }
-const { title = "Sidera" } = Astro.props;
+const { title = "Plux" } = Astro.props;
 
 const description =
   "Plan photos and astro events on a living 3D globe — sun, moon and stars over real city " +
@@ -35,7 +35,8 @@ const description =
       // which the globe uses, are unaffected). Passive:false is required to preventDefault.
       document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
     </script>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     {/* Type per the Claude Design system (board 02): Space Grotesk UI + IBM Plex Mono readouts. */}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

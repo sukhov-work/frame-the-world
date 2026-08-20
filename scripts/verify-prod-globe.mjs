@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const URL_ = process.argv[2] || "https://frame-the-a173087b-yevhens.wix-site-host.com/";
+const URL_ = process.argv[2] || process.env.FTW_SITE_URL || "https://www.plux.today/";
 const SHOT = process.argv[3] || "verify-shots/prod-outage-02-after-warm.jpeg";
 const PORT = 9333;
 

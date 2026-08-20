@@ -49,8 +49,16 @@ export default function Welcome() {
     <div className="wl" role="region" aria-label="Welcome">
       <div className="wl-copy">
         <span className="wl-eyebrow">EVERY FRAME HAS ITS MOMENT</span>
+        {/* Brand launch (owner 2026-08-19): the Plux wordmark replaces the old hero headline.
+            The h1 keeps the page's accessible name — the image alt carries it. */}
         <h1 className="wl-title">
-          Plan the shot where the&nbsp;world will&nbsp;take&nbsp;it.
+          <img
+            className="wl-logo"
+            src="/logo/plux-wordmark.webp"
+            alt="Plux — plan the shot where the world will take it"
+            width="1200"
+            height="489"
+          />
         </h1>
         <p className="wl-sub">
           Stand anywhere on a living globe — real streets, real skyline, the real sun, moon and

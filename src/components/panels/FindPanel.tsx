@@ -89,7 +89,7 @@ function icsForStanding(h: FrameStanding, latDeg: number, lonDeg: number): void 
     {
       startMs: h.utcMs,
       endMs: h.utcMs + 10 * 60_000,
-      summary: `${BODY_GLYPH[h.body]} ${BODY_NAME[h.body]} stands in your frame · ${h.light.toUpperCase()} (Sidera)`,
+      summary: `${BODY_GLYPH[h.body]} ${BODY_NAME[h.body]} stands in your frame · ${h.light.toUpperCase()} (Plux)`,
       description: `Az ${Math.round(h.azDeg)}° / el ${h.altDeg.toFixed(1)}°; skyline ${h.skyline}; visibility ${Math.round(h.visibility * 100)}%.`,
       geo: { latDeg, lonDeg },
     },
@@ -117,7 +117,7 @@ function icsForSunEvent(h: SunEventHit, latDeg: number, lonDeg: number): void {
     {
       startMs: h.utcMs,
       endMs: h.utcMs + 10 * 60_000,
-      summary: `☀ ${EVENT_LONG[h.kind]} in your frame (Sidera)`,
+      summary: `☀ ${EVENT_LONG[h.kind]} in your frame (Plux)`,
       description: `Az ${Math.round(h.azDeg)}°; skyline ${h.skyline}; walks ${h.azDriftDegPerDay.toFixed(1)}°/day along the horizon.`,
       geo: { latDeg, lonDeg },
     },

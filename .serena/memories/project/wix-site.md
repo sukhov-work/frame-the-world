@@ -1,7 +1,15 @@
 # mem:project/wix-site
 The live Wix project this repo is bound to (provisioned by `npm create @wix/new`, 2026-07-09). (Referred by `mem:core`.)
 
-- **Site (live URL):** https://frame-the-a173087b-yevhens.wix-site-host.com
+- **Site (live URL):** https://www.plux.today — PRIMARY since 2026-08-19 (custom domain
+  `plux.today` via GoDaddy; Wix flipped primary mid-connection: the old
+  https://frame-the-a173087b-yevhens.wix-site-host.com now **301s site-wide** to www.plux.today
+  and is NOT independently addressable). Domain state 2026-08-19: registry delegation still
+  mixed (GoDaddy ns31/ns32 + wixdns ns8/ns9 — owner must finish GoDaddy "Nameservers → Change →
+  I'll use my own" with ONLY ns8/ns9.wixdns.net), www TLS cert pending → site dark until Wix
+  finishes SSL. **OAuth-app allowlist must gain https://www.plux.today (+ apex) or
+  login/checkout-return break.** Apex 301s to www. Full ruling: DECISIONS 2026-08-19d +
+  `mem:project/wip-2026-08-19-plux-launch-grooming`.
 - **Dashboard / Business Manager:** https://manage.wix.com/dashboard/f597bcf5-bd38-4941-9dfe-e16d775743a3
 - **siteId:** `f597bcf5-bd38-4941-9dfe-e16d775743a3`  (→ `--site` for `token`, `wix-site-id` header, install bodies)
 - **appId:** `566ce8ce-d18c-4950-88ac-5d2c53311cd6`  (→ SDK `createClient` inputs)

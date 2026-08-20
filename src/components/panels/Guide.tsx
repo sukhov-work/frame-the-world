@@ -8,6 +8,7 @@ import {
   type GuideTopic,
 } from "../../lib/guide/guideContent";
 import { parseGuideInline } from "../../lib/guide/inline";
+import { searchGuide } from "../../lib/guide/search";
 import "../../styles/guide.css";
 import "../../styles/tips.css";
 
@@ -95,6 +96,9 @@ function Topic({ t, onNav }: { t: GuideTopic; onNav: (id: string) => void }) {
 export default function Guide() {
   const [open, setOpen] = useState(false);
   const [chapterId, setChapterId] = useState(GUIDE_CHAPTERS[0].id);
+  // Embedded BM25+fuzzy search (owner 2026-08-19) — while a query is typed, the rail
+  // swaps its chapter list for ranked hits; picking one clears the query and jumps.
+  const [query, setQuery] = useState("");
   const drag = usePanelDrag("guide");
   const scrollRef = useRef<HTMLDivElement>(null);
   // Topic to scroll to once the target chapter has rendered (crosslink / deep-link jumps).
@@ -158,7 +162,7 @@ export default function Guide() {
       <button
         className="gd-toggle tip"
         aria-expanded={open}
-        data-tip="HOW SIDERA WORKS — THE FULL TOUR."
+        data-tip="HOW PLUX WORKS — THE FULL TOUR."
         data-tip-pos="down"
         onClick={() => setOpen((o) => !o)}
       >
@@ -170,16 +174,56 @@ export default function Guide() {
           <div className="gd-cols">
             <aside className="gd-rail">
               <span className="gd-title">GUIDE</span>
-              {GUIDE_CHAPTERS.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={`gd-railbtn${c.id === chapter.id ? " is-on" : ""}`}
-                  onClick={() => nav(c.id)}
-                >
-                  {c.title}
-                </button>
-              ))}
+              <input
+                className="gd-search"
+                type="search"
+                placeholder="SEARCH…"
+                aria-label="Search the guide"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  // Esc clears the query first — only an empty search lets it close the panel.
+                  if (e.key === "Escape" && query) {
+                    e.stopPropagation();
+                    setQuery("");
+                  }
+                }}
+              />
+              {query.trim() ? (
+                (() => {
+                  const hits = searchGuide(query);
+                  return hits.length > 0 ? (
+                    hits.map((h) => (
+                      <button
+                        key={h.id}
+                        type="button"
+                        className="gd-hit"
+                        onClick={() => {
+                          setQuery("");
+                          nav(h.id);
+                        }}
+                      >
+                        <span className="gd-hit__title">{h.title}</span>
+                        <span className="gd-hit__ch">{h.chapterTitle}</span>
+                        {h.snip && <span className="gd-hit__snip">{h.snip}</span>}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="gd-nohit">NO MATCHES</span>
+                  );
+                })()
+              ) : (
+                GUIDE_CHAPTERS.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`gd-railbtn${c.id === chapter.id ? " is-on" : ""}`}
+                    onClick={() => nav(c.id)}
+                  >
+                    {c.title}
+                  </button>
+                ))
+              )}
             </aside>
             {/* Scroll on the INNER wrapper — an overflow root would clip the grips'
                 outside-the-window tabs (the uniform-handles rule, owner 2026-07-14). */}

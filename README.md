@@ -4,7 +4,8 @@
 
 # Frame the World
 
-> **App working title: Sidera** (2026-08-14). The product now leads with **planning,
+> **App name: Plux** — plux.today (2026-08-19; supersedes the working title "Sidera",
+> 2026-08-14). The product now leads with **planning,
 > photography and exploration** — stand anywhere, scrub time, frame the sky, find the day your
 > shot lines up. Uploading photos remains as a side path. "Frame the World" stays the repo /
 > technical name; the sections below describe the full stack including the upload pipeline.
@@ -53,7 +54,7 @@ More: live EXIF what-if re-projection (focal / heading / pitch / altitude slider
 time scrubbing, location search, street-level camera (2 m above the pavement), click-anywhere
 photo placement, HEIC/JPEG support with instant embedded-thumbnail preview.
 
-## The planning instrument (why the UI says Sidera)
+## The planning instrument (why the UI says Plux)
 
 Since the launch sprint the app has grown its second identity: a **planning-first
 astro-photography instrument**. Stand anywhere, scrub time, and ask the frame itself when the

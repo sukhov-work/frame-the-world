@@ -9,7 +9,7 @@
 // Usage: node scripts/warm-prod-assets.mjs [baseUrl]
 // Re-run after every `wix release` (new hashes reset the cache cold).
 
-const BASE = process.argv[2] || "https://frame-the-a173087b-yevhens.wix-site-host.com";
+const BASE = process.argv[2] || process.env.FTW_SITE_URL || "https://www.plux.today";
 const PER_TRY_TIMEOUT_MS = 34_000;
 const MAX_TRIES = 4;
 

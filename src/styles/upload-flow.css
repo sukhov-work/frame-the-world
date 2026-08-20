@@ -79,20 +79,10 @@
   align-items: center;
   gap: 14px;
 }
-.uf-brand__mark {
+/* The Plux star mark (brand launch 2026-08-19 — replaced the bordered-dot placeholder). */
+.uf-brand__logo {
   width: 16px;
   height: 16px;
-  border: 1.5px solid var(--color-text);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.uf-brand__dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  box-shadow: 0 0 6px rgba(56, 225, 208, 0.9);
 }
 .uf-brand__name {
   font-size: 12px;

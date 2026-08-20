@@ -44,7 +44,7 @@ function icsForMoonEvent(e: MoonCalEvent, latDeg: number, lonDeg: number): void 
     {
       startMs: e.utcMs,
       endMs: e.utcMs + 15 * 60_000,
-      summary: `☾ ${label} · ${e.discArcmin.toFixed(1)}′ disc (Sidera)`,
+      summary: `☾ ${label} · ${e.discArcmin.toFixed(1)}′ disc (Plux)`,
       description: `${label} at ${new Date(e.utcMs).toLocaleString()} — ${Math.round(
         e.distanceKm / 1000,
       )}k km, disc ${e.discArcmin.toFixed(1)}′, ${Math.round(e.illum * 100)}% lit.`,

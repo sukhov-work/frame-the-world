@@ -28,11 +28,14 @@
 
 .wl-title {
   margin: 0;
-  font-family: var(--font-ui);
-  font-weight: 500;
-  font-size: clamp(2.2rem, 4.6vw, 4rem);
-  line-height: 1.08;
-  color: var(--color-text);
+}
+
+/* The Plux wordmark hero (owner 2026-08-19 — replaces the old headline). Master art is
+   white-on-transparent with a baked soft glow; scale fluidly like the old clamp()ed type. */
+.wl-logo {
+  display: block;
+  width: clamp(16rem, 34vw, 29rem);
+  height: auto;
 }
 
 .wl-sub {

@@ -785,6 +785,45 @@ a.m-hit {
   letter-spacing: 0.14em;
   color: var(--color-text-secondary);
 }
+/* Guide search (owner 2026-08-19) — the index view's first control. */
+.m-gsearch {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 26%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+}
+.m-gsearch::placeholder {
+  color: var(--color-text-muted);
+}
+.m-gsearch:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+.m-ghit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  text-align: left;
+}
+.m-ghit__ch {
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.16em;
+  color: var(--color-accent);
+}
+.m-gnohit {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+  padding: 0.4rem 0.2rem;
+}
 .m-gnext {
   margin-top: 0.3rem;
 }

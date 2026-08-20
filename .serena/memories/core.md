@@ -7,8 +7,8 @@ OSM buildings**; real-time EXIF what-if re-projection; ephemeris (sun/moon/stars
 save/publish pins; light RAW marketplace; premium AI shot-analysis. **Client-heavy** (WASM decode + three.js
 render + projection math all in-browser); Wix is a thin backend (auth/Data/Media/Pricing Plans/eCommerce/AI).
 Owner: Yevhen. Hackathon build. Language: TypeScript + Astro. No SSH/prod box — "prod" is Wix cloud via `wix release`.
-**UI-facing name = SIDERA (owner 2026-08-14), planning-first** — the repo and every technical identifier
-stay "frame the world".
+**UI-facing name = PLUX (owner 2026-08-19; supersedes working title SIDERA 2026-08-14), planning-first;
+domain `plux.today` (www = primary)** — the repo and every technical identifier stay "frame the world".
 
 ## Status (compacted 2026-08-15 — era index + pointers; the old narrative Status lives in DECISIONS.md digests + DECISIONS_ARCHIVE.md)
 
@@ -121,7 +121,20 @@ stay "frame the world".
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**OWNER UX BATCH #3 SHIPPED 2026-08-19c — all 9 announced items + 2 batch-#2 tails**
+**PLUX LAUNCH GROOMING SHIPPED 2026-08-19d** (DECISIONS 2026-08-19d; gates 1,073/1,073 ·
+astro 0 err; both shells + /guide CDP-verified): brand Sidera→PLUX everywhere (wordmark hero,
+nav/strip/upload marks, favicon.png + apple-touch, favicon.svg deleted) · domain plux.today
+assessed + repo flipped to `https://www.plux.today` (SITE_URL + 7 script defaults;
+`FTW_SITE_URL` override) — **PROD IS DARK until the owner finishes the GoDaddy nameserver
+replacement (Nameservers → Change → own nameservers = ONLY ns8/ns9.wixdns.net), Wix issues the
+www TLS cert, and the headless OAuth allowlist gains plux.today; `wix release` is GATED on
+that** · guide G2-refresh (16 topics corrected + 7 new + 3 goals; shell-m.webp re-shot; other
+5 desktop shots = warm-cache tail) · guide BM25+fuzzy search both shells
+(`lib/guide/search.ts` + rail/sheet UIs, 11 tests). See
+`mem:project/wip-2026-08-19-plux-launch-grooming`. **NEXT SESSION: confirm domain live → wix
+release (first Plux prod + standing canary) → warm-prod-assets → re-shoot the 5 stale guide
+shots on a warm cache → owner taste pass (logo sizes, search placement).**
+Prior batch (#3, 2026-08-19c — all 9 announced items + 2 batch-#2 tails)
 (DECISIONS 2026-08-19c; gates 1,062/1,062 · astro 0 err/5 hints; browser-verified both
 shells over the owner's CDP Chrome, shots uxb3-01..07): desktop 2×4 toggle grid · desktop
 radar <10 km band · my-places-on-map desktop FIXED (missing `.ct-places.is-on` lit CSS +

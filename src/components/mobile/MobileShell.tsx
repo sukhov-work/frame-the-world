@@ -71,7 +71,10 @@ export default function MobileShell() {
   return (
     <>
       <div className="m-status">
-        <span className="m-title">Sidera</span>
+        <span className="m-title">
+          <img className="m-title__mark" src="/logo/plux-mark.png" alt="" width="96" height="96" />
+          Plux
+        </span>
         <span className="m-status__right">
           {/* owner 2026-08-15: login + MY PLACES one tap from the strip (list = SEARCH sheet) */}
           <MobileAccount onOpenPlaces={() => setSheet("search")} />

@@ -14,6 +14,7 @@ import {
   type GuideTopic,
 } from "../../lib/guide/guideContent";
 import { parseGuideInline } from "../../lib/guide/inline";
+import { searchGuide } from "../../lib/guide/search";
 import "../../styles/mobile/chrome.css";
 
 function Shot({ m }: { m: GuideMedia }) {
@@ -85,6 +86,9 @@ function Topic({ t, onNav }: { t: GuideTopic; onNav: (id: string) => void }) {
 
 export default function GuideSheet() {
   const [chapterId, setChapterId] = useState<string | null>(null);
+  // Embedded BM25+fuzzy search (owner 2026-08-19) — typing swaps the index view's
+  // goal/chapter rows for ranked hits; tapping one clears the query and drills in.
+  const [query, setQuery] = useState("");
   const hostRef = useRef<HTMLDivElement>(null);
   const pendingTopic = useRef<string | null>(null);
 
@@ -115,34 +119,71 @@ export default function GuideSheet() {
   const chapter = chapterId ? GUIDE_CHAPTERS.find((c) => c.id === chapterId) : null;
 
   if (!chapter) {
+    const q = query.trim();
+    const hits = q ? searchGuide(query) : [];
     return (
       <div ref={hostRef} className="m-guide">
-        <div className="m-section">WHAT DO YOU WANT TO DO?</div>
-        <div className="m-grows">
-          {GUIDE_GOALS.map((g) => (
-            <button key={g.target + g.goal} type="button" className="m-grow" onClick={() => nav(g.target)}>
-              <span>{g.goal}</span>
-              <span className="m-grow__arrow" aria-hidden="true">
-                →
-              </span>
-            </button>
-          ))}
-        </div>
-        <div className="m-section">CHAPTERS</div>
-        <div className="m-grows">
-          {GUIDE_CHAPTERS.map((c) => (
-            <button key={c.id} type="button" className="m-grow" onClick={() => nav(c.id)}>
-              <span className="m-grow__ch">{c.title}</span>
-              <span className="m-grow__arrow" aria-hidden="true">
-                ›
-              </span>
-            </button>
-          ))}
-        </div>
-        {/* The same content as a plain document — /guide (pages/guide.astro). */}
-        <a className="m-gback" href="/guide">
-          OPEN AS A PAGE ↗
-        </a>
+        <input
+          className="m-gsearch"
+          type="search"
+          placeholder="SEARCH THE GUIDE…"
+          aria-label="Search the guide"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {q ? (
+          <div className="m-grows">
+            {hits.map((h) => (
+              <button
+                key={h.id}
+                type="button"
+                className="m-grow"
+                onClick={() => {
+                  setQuery("");
+                  nav(h.id);
+                }}
+              >
+                <span className="m-ghit">
+                  <span>{h.title}</span>
+                  <span className="m-ghit__ch">{h.chapterTitle}</span>
+                </span>
+                <span className="m-grow__arrow" aria-hidden="true">
+                  ›
+                </span>
+              </button>
+            ))}
+            {hits.length === 0 && <span className="m-gnohit">NO MATCHES</span>}
+          </div>
+        ) : (
+          <>
+            <div className="m-section">WHAT DO YOU WANT TO DO?</div>
+            <div className="m-grows">
+              {GUIDE_GOALS.map((g) => (
+                <button key={g.target + g.goal} type="button" className="m-grow" onClick={() => nav(g.target)}>
+                  <span>{g.goal}</span>
+                  <span className="m-grow__arrow" aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="m-section">CHAPTERS</div>
+            <div className="m-grows">
+              {GUIDE_CHAPTERS.map((c) => (
+                <button key={c.id} type="button" className="m-grow" onClick={() => nav(c.id)}>
+                  <span className="m-grow__ch">{c.title}</span>
+                  <span className="m-grow__arrow" aria-hidden="true">
+                    ›
+                  </span>
+                </button>
+              ))}
+            </div>
+            {/* The same content as a plain document — /guide (pages/guide.astro). */}
+            <a className="m-gback" href="/guide">
+              OPEN AS A PAGE ↗
+            </a>
+          </>
+        )}
       </div>
     );
   }
