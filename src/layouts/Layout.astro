@@ -5,18 +5,20 @@ import "../styles/global.css";
 interface Props {
   title?: string;
 }
-// Working title "Sidera" (owner 2026-08-14) — UI-facing name only; the repo and every
-// technical identifier stay "frame the world".
-const { title = "Sidera" } = Astro.props;
+// Brand name "Plux" (owner 2026-08-19, supersedes working title "Sidera") — UI-facing name
+// only; the repo and every technical identifier stay "frame the world".
+const { title = "Plux" } = Astro.props;
 
 // Social / link previews. Wix's headless SEO layer injects og:title + twitter:card=
 // summary_large_image but NOT an image or description, so an unfixed share card is blank
 // (see mem:bugs/gallery-thumbnail-stale). We fill only the missing tags here (no og:title /
 // twitter:title — Wix owns those; duplicating them fights its injection). The image must be an
-// ABSOLUTE URL for crawlers; SITE_URL is this deployment's stable public origin (update the one
-// constant if a custom domain is added). NOTE: OG tags do NOT feed the internal gallery card —
+// ABSOLUTE URL for crawlers; SITE_URL is this deployment's stable public origin — flipped to
+// plux.today 2026-08-19: Wix already made www.plux.today the primary (the old wix-site-host
+// URL 301s to it site-wide, measured live), so the old origin is no longer addressable anyway.
+// NOTE: OG tags do NOT feed the internal gallery card —
 // that is a server SCREENSHOT (site-snapshotter); the boot poster in index.astro covers that.
-const SITE_URL = "https://frame-the-a173087b-yevhens.wix-site-host.com";
+const SITE_URL = "https://www.plux.today";
 const description =
   "Stand anywhere on a living 3D globe — real buildings and terrain, lit by the real sun, moon " +
   "and stars. Scrub time, frame the sky, and find the day your shot lines up. Photos can join " +
@@ -29,7 +31,8 @@ const ogImage = `${SITE_URL}/social-cover.jpg`;
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     {/* Type per the Claude Design system (board 02): Space Grotesk UI + IBM Plex Mono readouts. */}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -46,7 +49,7 @@ const ogImage = `${SITE_URL}/social-cover.jpg`;
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1600" />
     <meta property="og:image:height" content="800" />
-    <meta property="og:image:alt" content="A photograph placed on the stylized 3D globe of Sidera" />
+    <meta property="og:image:alt" content="A photograph placed on the stylized 3D globe of Plux" />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
   </head>

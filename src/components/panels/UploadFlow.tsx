@@ -99,10 +99,8 @@ export default function UploadFlow() {
             <span aria-hidden="true">←</span> GLOBE
           </button>
           <div className="uf-brand">
-            <div className="uf-brand__mark">
-              <div className="uf-brand__dot" />
-            </div>
-            <span className="uf-brand__name">SIDERA</span>
+            <img className="uf-brand__logo" src="/logo/plux-mark.png" alt="" width="96" height="96" />
+            <span className="uf-brand__name">PLUX</span>
           </div>
           <InfoDot
             pos="down"

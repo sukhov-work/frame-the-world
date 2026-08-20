@@ -30,7 +30,7 @@ import "../styles/tips.css";
 import "../styles/boot-poster.css";
 ---
 
-<Layout title="Sidera">
+<Layout title="Plux">
   <!-- Boot poster — the ONLY server-rendered visual. Everything else on this page is a
        client:only island (C4), so without this the SSR HTML is a black void until the globe
        hydrates — which is exactly what the Wix gallery's site-snapshotter captured (it froze on
@@ -215,7 +215,7 @@ import "../styles/boot-poster.css";
         id="logo-home"
         href="/"
         data-tip="FRESH START — THE CLEAN GLOBE."
-        data-tip-pos="down">Sidera</a>
+        data-tip-pos="down"><img class="logo-mark" src="/logo/plux-mark.png" alt="" width="96" height="96" />Plux</a>
       <!-- owner 2026-08-15: the PLAN/FIND pills became ONE segmented toggle beside the
            wordmark — the shared window opens in the left column (PlanPanel/FindPanel). -->
       <PlanFindToggle client:only="react" />
@@ -317,10 +317,18 @@ import "../styles/boot-poster.css";
   /* Beats the generic `.topnav a` (0,1,1) — the logo anchor keeps its identity-mark look;
      hover accents like the rest of the nav to signal the clean-boot click. */
   .topnav a.logo {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
     font-weight: 600;
     font-size: 1rem;
     letter-spacing: 0.02em;
     color: var(--color-text);
+  }
+  /* The star mark (brand launch 2026-08-19) rides beside the name at text height. */
+  .topnav a.logo .logo-mark {
+    width: 18px;
+    height: 18px;
   }
   .topnav a.logo:hover {
     color: var(--color-accent);

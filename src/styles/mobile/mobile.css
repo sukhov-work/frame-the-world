@@ -37,10 +37,19 @@ body {
   touch-action: none; /* U1 pinch hardening: a pinch that starts on a strip chip must not zoom */
 }
 .m-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-weight: 600;
   font-size: 0.95rem;
   letter-spacing: 0.02em;
   color: var(--color-text);
+}
+
+/* The Plux star mark (brand launch 2026-08-19) at text height on the status strip. */
+.m-title__mark {
+  width: 14px;
+  height: 14px;
 }
 .m-chip {
   font-family: var(--font-mono);

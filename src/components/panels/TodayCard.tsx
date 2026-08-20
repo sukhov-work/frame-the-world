@@ -54,7 +54,7 @@ function icsForEvent(e: PlanEvent, latDeg: number, lonDeg: number, light: string
     {
       startMs: e.utcMs,
       endMs: e.utcMs + 15 * 60_000,
-      summary: `${CHIP_LABEL[e.kind]} · ${light.toUpperCase()} (Sidera)`,
+      summary: `${CHIP_LABEL[e.kind]} · ${light.toUpperCase()} (Plux)`,
       description: `${CHIP_LABEL[e.kind]} at ${new Date(e.utcMs).toLocaleString()} — az ${Math.round(e.azDeg)}°, alt ${formatSigned(e.altDeg)}.`,
       geo: { latDeg, lonDeg },
     },

@@ -5,7 +5,7 @@ import "../../styles/tips.css";
 
 /**
  * PLAN / FIND IN FRAME segmented toggle (owner 2026-08-15) — the two planning pills leave the
- * floating left column and become ONE switch beside the Sidera wordmark: they were already
+ * floating left column and become ONE switch beside the Plux wordmark: they were already
  * mutually exclusive (opening one closed the other), so two separate buttons carried no state
  * a single toggle can't. The stores keep owning `open`; exclusivity is enforced here at click
  * time (FindPanel keeps its reactive belt for any other opener). The window itself is
