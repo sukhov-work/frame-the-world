@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  chartWalkAzRad,
   lonLatToTileF,
   metersPerTilePx,
   tileFToLonLat,
@@ -73,5 +74,60 @@ describe("zoomForMetersPerPx", () => {
     const got = metersPerTilePx(48.4647, z);
     expect(got / 5).toBeGreaterThan(0.5);
     expect(got / 5).toBeLessThan(2);
+  });
+});
+
+/**
+ * QA slice B — screen-relative walk on the expanded chart. The truth anchor is the chart's
+ * OWN forward transform (screen = R(rot)·tileΔ, tile north = −y): a walk along compass
+ * azimuth az is tile Δ(sin az, −cos az), which lands on screen at
+ * (sin(az+rot), −cos(az+rot)) — screen-UP exactly when az = −rot. chartWalkAzRad must be
+ * that inverse for every input direction, not just up.
+ */
+describe("chartWalkAzRad — stick direction → compass azimuth on a twisted chart", () => {
+  const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+
+  it("north-up chart (rot 0): up=N, right=E, down=S, left=W", () => {
+    expect(norm(chartWalkAzRad(0, 1, 0))).toBeCloseTo(0, 12);
+    expect(norm(chartWalkAzRad(1, 0, 0))).toBeCloseTo(Math.PI / 2, 12);
+    expect(norm(chartWalkAzRad(0, -1, 0))).toBeCloseTo(Math.PI, 12);
+    expect(norm(chartWalkAzRad(-1, 0, 0))).toBeCloseTo((3 * Math.PI) / 2, 12);
+  });
+
+  it("stick-up tracks chart-up exactly for any twist (the owner's acceptance check)", () => {
+    for (const rot of [-2.1, -0.7, 0.3, 1.234, 2.9]) {
+      // Walk az from the input, pushed through the chart's FORWARD transform: the screen
+      // direction of that world walk must be straight up (0, -1).
+      const az = chartWalkAzRad(0, 1, rot);
+      const tile = { x: Math.sin(az), y: -Math.cos(az) }; // tile Δ of a unit walk along az
+      const sx = tile.x * Math.cos(rot) - tile.y * Math.sin(rot);
+      const sy = tile.x * Math.sin(rot) + tile.y * Math.cos(rot);
+      expect(sx).toBeCloseTo(0, 12);
+      expect(sy).toBeCloseTo(-1, 12);
+    }
+  });
+
+  it("round-trips every input direction through the chart transform (diagonals included)", () => {
+    for (const rot of [0, 0.9, -1.7]) {
+      for (const [x, y] of [
+        [1, 1],
+        [-1, 1],
+        [0.3, -0.8],
+        [-0.5, -0.5],
+      ] as const) {
+        const az = chartWalkAzRad(x, y, rot);
+        const tile = { x: Math.sin(az), y: -Math.cos(az) };
+        const sx = tile.x * Math.cos(rot) - tile.y * Math.sin(rot);
+        const sy = tile.x * Math.sin(rot) + tile.y * Math.cos(rot);
+        const len = Math.hypot(x, y);
+        // Screen +y is DOWN, the input's y is UP — the round-trip must reproduce the input.
+        expect(sx).toBeCloseTo(x / len, 12);
+        expect(sy).toBeCloseTo(-y / len, 12);
+      }
+    }
+  });
+
+  it("a quarter-turn twist (rot = π/2, chart twisted CCW) sends stick-up along west", () => {
+    expect(norm(chartWalkAzRad(0, 1, Math.PI / 2))).toBeCloseTo((3 * Math.PI) / 2, 12);
   });
 });

@@ -6,6 +6,7 @@ import {
   makeGovernor,
   peripheryErrorTarget,
   queueCapsForTier,
+  stickyOverlayPx,
   TIER_ORDER,
   type FoveationTierCfg,
   type GovernorConfig,
@@ -403,5 +404,61 @@ describe("FOVEATION + QUALITY.tiers.foveation invariants (U6)", () => {
     expect(FOVEATION.regionErrorTargetM.buildings).toBeGreaterThan(0);
     expect(FOVEATION.regionErrorTargetM.enriched).toBeGreaterThan(0);
     expect(FOVEATION.regionErrorTargetM.ground).toBeGreaterThan(0);
+  });
+});
+
+describe("stickyOverlayPx — QA slice C: the composite px only ratchets up", () => {
+  const FLAT2D = GROUND.overlayResolution2dPx;
+
+  it("frame 1 in 3D ratchets from the 0 seed to the tier base (no-op vs the constructor px)", () => {
+    expect(stickyOverlayPx(0, 256, false, FLAT2D)).toBe(256);
+  });
+
+  it("the first flat-chart frame raises to max(tier, flat2dPx)", () => {
+    expect(stickyOverlayPx(256, 256, true, 512)).toBe(512);
+    // high already composites at 512 — the chart never raises above the tier there
+    expect(stickyOverlayPx(512, 512, true, 512)).toBe(512);
+  });
+
+  it("NEVER lowers when the chart drops (the QA-7b 2D↔FPV rebuild-storm regression)", () => {
+    const raised = stickyOverlayPx(256, 256, true, 512); // chart visit → 512
+    expect(stickyOverlayPx(raised, 256, false, 512)).toBe(512); // back to FPV — stays
+  });
+
+  it("NEVER lowers on a governor demote (the S3-era rebuild-on-demote folds under the same rule)", () => {
+    expect(stickyOverlayPx(512, 256, false, 512)).toBe(512);
+  });
+
+  it("a governor promote to high raises once (the only other legitimate rebuild)", () => {
+    expect(stickyOverlayPx(256, 512, false, 512)).toBe(512);
+  });
+
+  it("is monotonic non-decreasing over an arbitrary flip sequence, with ≤1 change per rung", () => {
+    const tiers = [256, 256, 512, 256, 256, 512, 256];
+    const flats = [false, true, false, true, false, false, true];
+    let px = 0;
+    let changes = 0;
+    for (let i = 0; i < tiers.length; i++) {
+      const next = stickyOverlayPx(px, tiers[i], flats[i], 512);
+      expect(next).toBeGreaterThanOrEqual(px);
+      if (next !== px) changes++;
+      px = next;
+    }
+    // seed→256 (boot) + 256→512 (first chart visit) — nothing else may rebuild
+    expect(changes).toBe(2);
+    expect(px).toBe(512);
+  });
+
+  it("rollback knob: flat2dPx at the tier base disables the raise entirely (no post-boot rebuild)", () => {
+    let px = stickyOverlayPx(0, 256, false, 256);
+    for (const flat of [true, false, true, false]) {
+      const next = stickyOverlayPx(px, 256, flat, 256);
+      expect(next).toBe(256);
+      px = next;
+    }
+  });
+
+  it("the live knob still raises the chart above the lean tier base (QA-7b crispness intact)", () => {
+    expect(stickyOverlayPx(256, 256, true, FLAT2D)).toBe(Math.max(256, FLAT2D));
   });
 });

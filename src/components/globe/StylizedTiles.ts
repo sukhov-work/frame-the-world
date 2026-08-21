@@ -37,6 +37,7 @@ import { useCameraStore } from "../../store/camera";
 import { useBldgEditStore } from "../../store/bldgEdit";
 import { useMiniMapStore } from "../../store/minimap";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
+import { chartWalkAzRad } from "../../lib/geo/slippy";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
@@ -96,7 +97,12 @@ import {
   roundCentroidM,
   upsertOverride,
 } from "../../lib/globe/bldgOverrides";
-import { lruCapBytesForTier, queueCapsForTier, type QualityTier } from "../../lib/globe/quality";
+import {
+  lruCapBytesForTier,
+  queueCapsForTier,
+  stickyOverlayPx,
+  type QualityTier,
+} from "../../lib/globe/quality";
 import { makeLoadAim, makeTileLatencyProbe } from "../../lib/globe/loadPriority";
 import {
   AIMCONES,
@@ -407,6 +413,9 @@ export function attachStylizedTiles(opts: {
   // QA-7b: the current tier's overlay composite base (px) — stepGroundUpdate resolves the
   // effective value (× the flat-chart raise) each frame; seeded with the constructor default.
   let tierOverlayPx: number = GROUND.overlayResolution;
+  // QA slice C (2026-08-21h): the EFFECTIVE composite px — sticky-up (see stickyOverlayPx).
+  // Seeded 0 so frame 1 ratchets to the boot value (== the constructor px → a no-op write).
+  let overlayPxEff = 0;
   const applyQualityTier = (tier: QualityTier) => {
     const q = QUALITY.tiers[tier];
     const lru = lruCapBytesForTier(tier, q.lruBytesMB); // null on high → each renderer's captured default
@@ -423,9 +432,9 @@ export function attachStylizedTiles(opts: {
       qCaps,
     );
     // QA-7b: the tier value is the BASE only — stepGroundUpdate is the ONE writer of the
-    // effective composite resolution (raises to overlayResolution2dPx while the flat 2D chart
-    // is up, restores the tier value the frame it drops; setOverlayResolution no-ops on the
-    // same px, so per-frame calls are free and a governor change mid-chart rebuilds ONCE).
+    // effective composite resolution. QA slice C: the effective value is STICKY-UP (a promote
+    // to high may raise it once; a demote never lowers it — a lower write is a fresh-instance
+    // overlay rebuild, the white-chart storm class).
     tierOverlayPx = q.overlayResolutionPx;
     // U6: per-tier foveation (null on high — byte-identical; regions/periphery only engage in
     // FPV via setFoveaActive). Safe mid-FPV: each module recomputes its base from (tier, cfg, on).
@@ -2512,9 +2521,33 @@ export function attachStylizedTiles(opts: {
               const keysOn =
                 fpvKeysDown.up || fpvKeysDown.down || fpvKeysDown.left || fpvKeysDown.right;
               if (keysOn || stickOn) {
-                _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
-                if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
-                _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
+                // QA slice B (owner 2026-08-21g-end): while the EXPANDED chart is up, walking
+                // is SCREEN-relative — stick/arrow-up moves me UP on the chart regardless of
+                // its twist or my camera heading (heads-down map navigation; the look stays
+                // free). The published twist (store/minimap.mapWindowRotRad, nulled on close)
+                // de-rotates the input: basis fwd = the compass azimuth of screen-up =
+                // chartWalkAzRad(0,1,rot), right = fwd + 90°, built in ENU at the eye
+                // (east = polar × up — the _skyEast idiom; the _sky temps are free here, the
+                // skyLook block above has consumed them). Everywhere else (plain FPV, 3D)
+                // the camera-relative basis below is untouched.
+                const mwRotRad = useMiniMapStore.getState().mapWindowRotRad;
+                if (mwRotRad !== null) {
+                  _skyEast.set(-_fpvUpGeo.y, _fpvUpGeo.x, 0).normalize(); // ENU east (polar z × up)
+                  _skyNorth.crossVectors(_fpvUpGeo, _skyEast).normalize(); // ENU north
+                  const azF = chartWalkAzRad(0, 1, mwRotRad); // chart-up as a compass azimuth
+                  _fpvWalkFwd
+                    .copy(_skyEast)
+                    .multiplyScalar(Math.sin(azF))
+                    .addScaledVector(_skyNorth, Math.cos(azF));
+                  _fpvWalkRight
+                    .copy(_skyEast)
+                    .multiplyScalar(Math.sin(azF + Math.PI / 2))
+                    .addScaledVector(_skyNorth, Math.cos(azF + Math.PI / 2));
+                } else {
+                  _fpvWalkFwd.copy(_fpvFwd).addScaledVector(_fpvUpGeo, -_fpvFwd.dot(_fpvUpGeo));
+                  if (_fpvWalkFwd.lengthSq() > 1e-9) _fpvWalkFwd.normalize();
+                  _fpvWalkRight.crossVectors(_fpvWalkFwd, _fpvUpGeo).normalize();
+                }
               }
               if (keysOn) {
                 const mult = fpvKeysDown.shift
@@ -3338,14 +3371,19 @@ export function attachStylizedTiles(opts: {
         // QA-7b (owner 2026-08-21f): the flat 2D CHART composites at overlayResolution2dPx —
         // the level chooser derives the Esri source zoom from resolution/rangeWidth, so the
         // 256 lean composite alone pins the chart one level shallow even with the coarse cap
-        // at 18; the raise is what actually reaches z18. setOverlayResolution no-ops on the
-        // same px and rebuilds fresh-instance otherwise (composites re-render from force-
-        // cached tiles on a mode flip — CPU burst, judged on device T1). Never LOWERS a tier
-        // (high already composites at 512).
-        const overlayPx = flatGround
-          ? Math.max(tierOverlayPx, GROUND.overlayResolution2dPx)
-          : tierOverlayPx;
-        ground.setOverlayResolution(overlayPx);
+        // at 18; the raise is what actually reaches z18. QA slice C (owner 2026-08-21g-end,
+        // CRITICAL): the raise is STICKY — QA-7b restored the tier base the frame the chart
+        // dropped, and every 2D↔FPV/3D flip was a fresh-instance overlay rebuild (white chart
+        // + vector ink for seconds→10 s+ on device, tile refetch storm, then a blurry stall).
+        // stickyOverlayPx only ratchets up (≤1 post-boot rebuild per rung per session);
+        // setOverlayResolution no-ops on the same px, so the per-frame write stays free.
+        overlayPxEff = stickyOverlayPx(
+          overlayPxEff,
+          tierOverlayPx,
+          flatGround,
+          GROUND.overlayResolution2dPx,
+        );
+        ground.setOverlayResolution(overlayPxEff);
   };
 
   const stepEphemerisResample = () => {

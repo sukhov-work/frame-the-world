@@ -153,3 +153,29 @@ additive · 6 color-space traps · 7 tuning contract · 8 shared building materi
     the 0.4.28 contract; comparator tests cover non-tile items.
     — anchor: DECISIONS 2026-08-18g (source-verified library facts);
     mem:project/wip-2026-08-18-u5-loading crib.
+23. Injected-GLSL uniform declaration (appended 2026-08-21, QA-batch re-mine): adding a uniform
+    to a scene module's JS `uniforms` object is NOT enough on injected/chained shaders — the
+    fragment-HEADER injection must DECLARE each uniform explicitly; a missing declaration makes
+    the new program fail compile while tiles keep rendering with the PREVIOUS program, so live
+    uniform pokes silently no-op (cost ~40 min in QA-7a: gain/fade/photo all "inert").
+    — check: for every uniform in imageryGround/buildingMaterial-style injected GLSL, grep the
+    header-injection block for its declaration; a JS-only uniform is a FAIL.
+    — anchor: DECISIONS 2026-08-21g; mem:project/wip-2026-08-21-owner-qabatch7 §Traps.
+24. Per-frame writers of construction-time values (appended 2026-08-21, QA-slice-C re-mine): a
+    per-frame writer that resolves an EXPENSIVE construction-time value (overlay composite px,
+    LRU rebuild paths, fresh-instance plugin swaps) must be STICKY/monotone — a two-way resolver
+    that restores on a mode flip is a rebuild LOOP (QA-7b: overlay rebuild storm on every
+    2D↔FPV flip, white chart 10 s+ on device). "Flips are rare" is not a cost argument; treat
+    any value change on a mode flip as happening at interaction rate.
+    — check: grep step*/frame paths for set*/rebuild calls whose argument depends on a mode
+    flag (flat/fpv/tier) → each is a no-op-on-same-value AND monotone or attach-time-fixed.
+    — anchor: DECISIONS 2026-08-21g regression + 2026-08-21h fix (stickyOverlayPx);
+    mem:project/wip-2026-08-21-owner-qabatch7 §REGRESSION.
+25. Event-swallow and shared-CSS lifecycles (appended 2026-08-21, batch #4/#5 re-mine): an
+    element-level click swallow DIES with its element (unmount retargets the trailing click to
+    whatever chrome is underneath — use a document-level capture swallow, short-fused); deleting
+    a CSS selector from a SHARED rule can orphan the surviving selectors onto the wrong rule
+    (the .md-rate deletion left .md-date on the invert rule — whole input inverted).
+    — check: grep stopPropagation/preventDefault swallows near unmount paths → document-capture
+    or justified; any CSS rule deletion in the diff re-reads the FULL selector list it touched.
+    — anchor: DECISIONS 2026-08-21b (S1 long-press login-nav bug); 2026-08-21d item 5.

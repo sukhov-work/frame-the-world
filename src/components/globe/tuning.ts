@@ -1317,10 +1317,13 @@ export const GROUND = {
   /** QA-7b (owner 2026-08-21f): overlay composite resolution while the FLAT 2D CHART is up —
    *  the plugin derives the Esri source zoom from resolution/rangeWidth, so the lean 256
    *  composite pins the chart ONE level shallower than the esriMaxLevelCoarse cap allows;
-   *  512 is what actually reaches z18. stepGroundUpdate raises to max(tier, this) on the
-   *  chart and restores the tier base off it (fresh-instance rebuild per mode flip — the
-   *  composites re-render from force-cached tiles; CPU burst judged on device, T1). Never
-   *  lowers a tier (high already composites at 512). */
+   *  512 is what actually reaches z18. QA slice C (2026-08-21h): the raise is STICKY-UP
+   *  (lib/globe/quality stickyOverlayPx) — the first flat-chart frame ratchets the effective
+   *  px to max(tier, this) and it NEVER lowers again (mode flips + governor demotes are
+   *  free; QA-7b's restore-on-drop was a fresh-instance overlay rebuild per flip — the
+   *  white-chart + tile-storm regression). FPV then shares the raised composites; VRAM cost
+   *  = the S3 jetsam concern, judged on device (T1). Rollback: 256 here disables the raise
+   *  entirely (chart rides the tier base; z18 cap + DPR keep most of the QA-7b crispness). */
   overlayResolution2dPx: 512,
   /** Moon fill that does NOT multiply by albedo (the old moonlit term is graded×moon — black
    *  stays black): fill = moonFillK × moonGlow × max(moonDir·up, 0) on the night side. */

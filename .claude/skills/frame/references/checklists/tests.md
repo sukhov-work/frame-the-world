@@ -71,3 +71,18 @@ TOC: 1 literature vectors · 2 golden gates · 3 trap→test coverage · 4 tests
    load-order/latency claim in DECISIONS since baseline cites an in-page probe, not evaluate
    timing.
    — anchor: DECISIONS 2026-08-18g TRAP; NEXT_SESSION_PROMPT verify recipe.
+10. Verify-harness environment classes (appended 2026-08-21, QA-batch re-mine): (a) headless
+    verify-Chrome EXHAUSTS WebGL contexts across suites — each script opens tabs via /json/new
+    and never closes them; after ~5 suites WebGLRenderer throws "BindToCurrentSequence failed"
+    and later boots all fail — RESTART verify-chrome between suites; (b) wix dev serves Vite
+    504 "Outdated Optimize Dep" for EVERY module after a new import lands in the globe bundle —
+    restart wix dev before browser verification whenever imports changed; (c)
+    performance.getEntriesByType("resource") overflows at 250 entries — count tile fetches via
+    CDP Network.requestWillBeSent; (d) headless Chrome governs to tier `low` — assert DPR/tier
+    CONSISTENCY via window.__globeQuality, never absolutes; (e) /m re-mirrors the live camera
+    into location.hash ~1.6 s after boot — assert boot RESULTS, never the link hash; (f)
+    /tmp/ftw-cdp persists prefs (groundMode/vectors) across verify sessions — probe or reset
+    before visual assertions.
+    — check: conventions/verify.md names all six; verify scripts since baseline follow them
+    (Chrome restarts between suites in session logs; CDP Network counters where levels matter).
+    — anchor: DECISIONS 2026-08-21f/g traps; mem:project/wip-2026-08-21-owner-qabatch7.

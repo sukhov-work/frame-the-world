@@ -512,6 +512,18 @@ export function attachImageryGround(
       cartoDark = makeCartoOverlay();
       overlayPlugin.addOverlay(esriOverlay);
       if (hadCarto) overlayPlugin.addOverlay(cartoDark);
+      // QA slice C (2026-08-21h): a rebuild destroys every composited texture, and with a
+      // PARKED camera UpdateOnChangePlugin never re-traverses — the fresh overlays could sit
+      // at whatever level the first re-composite grabbed until the next pan (the "blurry
+      // stall" tail). ONE forced traversal is enough: it re-evaluates error targets and
+      // enqueues, and the plugin's own preprocessNode() re-arms itself as new nodes stream in.
+      (uocPlugin as any).needsUpdate = true;
+      // DEV probe (global.d.ts registry): the sticky-composite invariant is "≤1 rebuild per
+      // session post-boot" — browser verification asserts THIS counter, because raw Esri GET
+      // counts also carry the pre-existing LRU rest-trim churn and can't isolate the storm.
+      if (import.meta.env.DEV) {
+        window.__overlayRebuilds = (window.__overlayRebuilds ?? 0) + 1;
+      }
     },
     setQualityTier(errorNear, lruCapBytes, queueCaps) {
       errorNearOverride = errorNear; // consumed by the update() error-ramp near endpoint
@@ -519,6 +531,10 @@ export function attachImageryGround(
       tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
       tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5
       tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
+      // QA slice C: an error-target change on a parked camera is the same stall class — the
+      // new target only applies on the next traversal, which UpdateOnChangePlugin would defer
+      // until the camera moves. Kick once so a governor flip lands immediately.
+      (uocPlugin as any).needsUpdate = true;
     },
     setFoveation(cfg) {
       fovea.configure(cfg);

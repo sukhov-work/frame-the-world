@@ -45,3 +45,14 @@ export function zoomForMetersPerPx(
   const z = Math.log2((40_075_016.686 * Math.cos((latDeg * Math.PI) / 180)) / (256 * targetMPerPx));
   return Math.min(maxZ, Math.max(minZ, Math.round(z)));
 }
+
+/** QA slice B (owner 2026-08-21g-end): SCREEN-relative walk on the expanded chart — the
+ *  compass azimuth (rad) a screen-space walk input steers toward on a chart twisted by
+ *  `rotRad` (screen-CCW; MapWindow `view.rot`). Input is (x right, y UP) — the joystick/arrow
+ *  sense, not canvas +y-down. The chart's forward transform is screen = R(rot)·tileΔ with
+ *  tile north = −y, so screen-up at rot 0 is north and a screen direction de-rotates by rot:
+ *  az = atan2(x, y) − rot. The orchestrator builds its ENU walk basis from this (fwd = az of
+ *  (0,1), right = fwd + π/2) so stick-up tracks chart-up exactly, world-correct (unit-tested). */
+export function chartWalkAzRad(x: number, y: number, rotRad: number): number {
+  return Math.atan2(x, y) - rotRad;
+}

@@ -54,6 +54,13 @@ const AIM_TAP_TOL_DEG = 8; // tap-promote angular tolerance around a direction l
  *  deadband edge — a rubber band, so small strolls never move the map and a placed-point
  *  relocation lands on-screen. Never during an active gesture. */
 const FPV_FOLLOW_FRAC = 0.12;
+/** QA slice A (owner 2026-08-21g-end): manual exploration WINS. Any pan/pinch latches the
+ *  chart where the user put it; the follow re-arms only on EXPLICIT eye movement — the eye
+ *  walking this far (m) from where the latch was set, or an FPV (re-)entry/place-point
+ *  teleport. Distance-from-latch-anchor, never per-frame delta: a 20 Hz stroll moves ~7 cm
+ *  a frame and standing jitter must never accumulate into a re-arm. Heading/focal edits
+ *  (aim stick) move nothing, so they naturally never re-arm. */
+const FOLLOW_REARM_M = 0.5;
 
 /** The GL module's band allocation, read from the SAME tunables (one geometry model);
  *  on /m the sun/moon rings sit ~20% closer to the centre (owner batch #5 item 2). */
@@ -111,6 +118,8 @@ export default function MapWindow() {
       // Item 3: the PiP dies with the window — the engine must stop the scaled pass.
       lastPipRect.current = null;
       useMiniMapStore.getState().setPipRect(null);
+      // QA slice B: the walk reverts to camera-relative the moment the chart closes.
+      useMiniMapStore.getState().setMapWindowRotRad(null);
     };
   }, [open]);
 
@@ -125,6 +134,10 @@ export default function MapWindow() {
     view.current.latDeg = centre.latDeg;
     view.current.lonDeg = centre.lonDeg;
     view.current.rot = 0; // every open starts north-up (the /m 2D-map boot rule)
+    // QA slice B: seed the published twist NOW (draw is a rAF away — the walk must not spend
+    // a frame camera-relative on an open chart); draw() keeps it live, deadbanded.
+    useMiniMapStore.getState().setMapWindowRotRad(0);
+    let lastRotPub = 0;
     const satellite = cam.groundMode === "satellite";
     const maxZ = satellite ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
     // FPV opens one level closer since batch #4 item 4 ("start with closer zoom") — z18 on
@@ -296,13 +309,29 @@ export default function MapWindow() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       const camNow = useCameraStore.getState();
+      // QA slice A eye-motion re-arm: the manual latch clears only when the eye has MOVED —
+      // > FOLLOW_REARM_M from where the latch was set (a walk via /m stick or desktop keys,
+      // or the place-point re-seat teleport, which is movement by the owner's QA-1 rule).
+      // A null anchor (latched outside FPV) clears on the first live eye: entry = teleport.
+      if (manualPan && camNow.fpvHud && camNow.camGeo) {
+        const a = manualAnchor;
+        const dN = a ? (camNow.camGeo.latDeg - a.latDeg) * 111_320 : Infinity;
+        const dE = a
+          ? (camNow.camGeo.lonDeg - a.lonDeg) * 111_320 * Math.cos((a.latDeg * Math.PI) / 180)
+          : Infinity;
+        if (Math.hypot(dN, dE) > FOLLOW_REARM_M) {
+          manualPan = false;
+          manualAnchor = null;
+        }
+      }
       // FPV follow (owner QA 2026-08-21 item 1): while FPV is live, rubber-band the chart
       // centre onto the walking viewer — pulled back to the deadband edge once the eye
       // drifts past it, so radar + cone + eye dot can never walk off the chart. Skipped
       // during any gesture (the pan/pinch owns the centre), and BEFORE the transform
       // snapshot so this very paint already uses the followed centre. This supersedes the
       // batch-#5 "the chart deliberately does not re-centre" note for the FPV-live case.
-      if (camNow.fpvHud && camNow.camGeo && pointers.size === 0) {
+      // QA slice A: also skipped while the manual-pan latch is armed — exploration wins.
+      if (camNow.fpvHud && camNow.camGeo && pointers.size === 0 && !manualPan) {
         const Xf = xformNow();
         const pe = lonLatToTileF(camNow.camGeo.lonDeg, camNow.camGeo.latDeg, Xf.zDraw);
         const [fdx, fdy] = Xf.fwd(pe.x - Xf.c.x, pe.y - Xf.c.y);
@@ -318,6 +347,22 @@ export default function MapWindow() {
       }
       const X = xformNow();
       const { zDraw, tilePx, c, rot } = X;
+      // QA slice B: publish the live twist for the screen-relative walk (deadbanded out of
+      // the 20 Hz paint like the PiP rect; the twist gesture redraws, so this stays current).
+      if (Math.abs(rot - lastRotPub) > 1e-4) {
+        lastRotPub = rot;
+        useMiniMapStore.getState().setMapWindowRotRad(rot);
+      }
+      // DEV-only introspection (the global.d.ts registry): the view lives in refs — browser
+      // verification (follow-latch + screen-walk asserts) can't reach it any other way.
+      if (import.meta.env.DEV) {
+        window.__mapWindowView = {
+          latDeg: view.current.latDeg,
+          lonDeg: view.current.lonDeg,
+          rot,
+          z: view.current.z,
+        };
+      }
       const tpl = X.sat ? TILESETS.esriImageryUrl : TILESETS.cartoDarkUrl;
       const n = 2 ** zDraw;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -609,6 +654,16 @@ export default function MapWindow() {
 
     // --- interactions ------------------------------------------------------------------------
     const pointers = new Map<number, { x: number; y: number }>();
+    // QA slice A: the manual-pan latch + the eye position it was set at. Armed by any pan or
+    // pinch; cleared by the eye-motion detector in draw(). A null anchor means the latch was
+    // set with no live eye (outside FPV) — the next camGeo IS an entry teleport, so it clears.
+    let manualPan = false;
+    let manualAnchor: { latDeg: number; lonDeg: number } | null = null;
+    const latchManualPan = () => {
+      manualPan = true;
+      const eye = useCameraStore.getState().camGeo;
+      manualAnchor = eye ? { latDeg: eye.latDeg, lonDeg: eye.lonDeg } : null;
+    };
     let dragging = false;
     let pinchStartDist = 0;
     let pinchStartZ = 0;
@@ -684,6 +739,7 @@ export default function MapWindow() {
     };
 
     const panBy = (dxCss: number, dyCss: number) => {
+      latchManualPan(); // QA slice A: a dragged chart STAYS (drag + pinch-midpoint both land here)
       const X = xformNow();
       const [vx, vy] = X.inv(dxCss * X.dpr, dyCss * X.dpr);
       const ll = tileFToLonLat(X.c.x - vx, X.c.y - vy, X.zDraw);
@@ -724,6 +780,7 @@ export default function MapWindow() {
       } else if (pointers.size === 2) {
         cancelPress();
         dragging = false;
+        latchManualPan(); // QA slice A: a pinch (zoom/twist, even without a midpoint pan) is manual
         const [a, b] = [...pointers.values()];
         pinchStartDist = Math.hypot(a.x - b.x, a.y - b.y);
         pinchStartZ = view.current.z;
