@@ -89,5 +89,9 @@ Ship log: `~/.claude/logs/ftw-session-ship.log`.
 
 ## Design workflow (Claude Design — see provenance/CLAUDE_DESIGN_MEMO.md)
 Tokens source of truth = `src/styles/tokens.css` (plain CSS custom properties — **no Tailwind** in this repo). After any design import, regenerate the
-GL bridge `src/lib/theme/tokens.ts`. Design imports write ONLY under `src/components/panels|ui/**` +
+GL bridge `src/lib/theme/tokens.ts`. Design imports write ONLY under `src/components/panels|ui|controls/**` +
 `src/styles/**` — **NEVER** `src/components/globe/**` or `src/lib/**` (the canvas globe is motion-spec only).
+`components/controls/**` joined the allow-list 2026-08-22 (audit #3 D6): it shipped 2026-08-21b as the
+third SHARED tier (input instruments whose feel must not fork between shells) and was enforced only by
+`test/components/mobileFence.test.ts` rule 3 — a pure leaf: react + stores + `lib/**` + `globe/tuning`
++ styles, never a panel or mobile import.

@@ -68,6 +68,13 @@ interface MiniMapState {
   /** /m PiP hole (batch #5 item 3) — UI-writable, engine-read (the mapWindowOpen idiom). */
   pipRect: PipRect | null;
   setPipRect: (rect: PipRect | null) => void;
+  /** QA slice B (owner 2026-08-21g-end): the expanded chart's LIVE twist (rad, screen-CCW —
+   *  MapWindow `view.rot`), published while the window is open so the orchestrator steers
+   *  walk inputs in CHART directions (stick/arrow-up = chart-up, world-correct). Null when
+   *  closed → the walk reverts to camera-relative. UI-writable, engine-read (pipRect idiom);
+   *  consumed NOWHERE else by owner order. */
+  mapWindowRotRad: number | null;
+  setMapWindowRotRad: (rot: number | null) => void;
   /** Orchestrator-only mirrors (scene/minimapFeed.ts). */
   _syncScene: (scene: MiniMapScene | null) => void;
   _syncPose: (pose: MiniMapPose | null) => void;
@@ -82,6 +89,8 @@ export const useMiniMapStore = create<MiniMapState>((set) => ({
   setMapWindowOpen: (on) => set({ mapWindowOpen: on }),
   pipRect: null,
   setPipRect: (rect) => set({ pipRect: rect }),
+  mapWindowRotRad: null,
+  setMapWindowRotRad: (rot) => set({ mapWindowRotRad: rot }),
   _syncScene: (scene) => set({ scene }),
   _syncPose: (pose) => set({ pose }),
   _syncPatchM: (m) => set({ patchM: m }),

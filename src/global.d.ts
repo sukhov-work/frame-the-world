@@ -27,6 +27,12 @@ declare global {
     __renderer?: unknown;
     __composer?: unknown;
     __quality?: unknown;
+    /** QA slice A/B: the expanded chart's live view (centre/twist/zoom) — refs are otherwise
+     *  unreachable from the harness; published per paint by MapWindow.draw(). */
+    __mapWindowView?: { latDeg: number; lonDeg: number; rot: number; z: number };
+    /** QA slice C: overlay fresh-instance rebuild count (imageryGround.setOverlayResolution)
+     *  — the sticky-composite invariant is ≤1 per session post-boot. */
+    __overlayRebuilds?: number;
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;
     __minimapStore?: typeof useMiniMapStore;

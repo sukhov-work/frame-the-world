@@ -1,11 +1,48 @@
 import { describe, expect, it } from "vitest";
 import {
   focalMmFromHFov,
+  horizontalFovDeg,
   integratePlanned,
   plannedAtRest,
   stickRate,
   type PlannedIntegration,
 } from "../../../src/lib/geo/plannedView";
+import { focalFromHorizontalFov, verticalFovDeg } from "../../../src/lib/decode/sensors";
+
+/**
+ * AUDIT #3 C7 — the FOV inverse pair is a PRODUCTION ROUND TRIP (`plannedView.hFovDeg` is
+ * emitted by StylizedTiles and inverted at MapWindow's FPV jump), but until now no test file
+ * imported both halves: each was pinned only at aspect 1 plus a monotonicity direction.
+ * This also REFUTES a claim recorded in DECISIONS 2026-08-21h ("the FOV inverse pair is
+ * transitively pinned") — it was not, and the recovered agent output that asserted it was
+ * pre-verification. Portrait aspects matter most: /m is 390×844 ⇒ aspect ≈ 0.46.
+ */
+describe("FOV inverse pair — horizontalFovDeg ∘ verticalFovDeg = identity", () => {
+  it("round-trips across real viewport aspects and the full focal band", () => {
+    for (const aspect of [16 / 9, 3 / 2, 1, 390 / 844, 844 / 390]) {
+      for (const vFov of [3, 20, 58, 80, 110]) {
+        expect(verticalFovDeg(horizontalFovDeg(vFov, aspect), aspect)).toBeCloseTo(vFov, 9);
+      }
+    }
+  });
+
+  it("…and the other way round, so neither half can drift alone", () => {
+    for (const aspect of [16 / 9, 1, 390 / 844]) {
+      for (const hFov of [5, 40, 90, 120]) {
+        expect(horizontalFovDeg(verticalFovDeg(hFov, aspect), aspect)).toBeCloseTo(hFov, 9);
+      }
+    }
+  });
+
+  // AUDIT #3 C9 — the same formula ships from two modules with divergent guards
+  // (`focalMmFromHFov` unguarded, `focalFromHorizontalFov` throws outside (0,180)).
+  // Cross-pin them so a change to one cannot silently fork the AIM stick's mm readout.
+  it("focalMmFromHFov agrees with the sensors-module twin", () => {
+    for (const hFov of [5, 20, 40, 63.4, 90, 120]) {
+      expect(focalMmFromHFov(hFov)).toBeCloseTo(focalFromHorizontalFov(hFov), 9);
+    }
+  });
+});
 
 const rest = (headingDeg: number, hFovDeg: number): PlannedIntegration => ({
   headingDeg,

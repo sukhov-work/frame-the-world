@@ -1,4 +1,23 @@
-# Session-end auto-ship hook (owner order 2026-08-13; HARDENED v2 2026-08-14; v3 additions 2026-08-18)
+# Session-end auto-ship hook (owner order 2026-08-13; HARDENED v2 2026-08-14; v3 additions 2026-08-18; v4 title cap 2026-08-22)
+
+## v4 — THE PR-TITLE LENGTH TRAP (owner report 2026-08-22b; a whole ship lost to it)
+**Symptom:** the ship branch pushes cleanly, the log says "waiting for automerge", and **no PR
+is ever created** — so the work never lands and the next boot finds an unlanded ship. It is
+NOT a divergence/squash problem, so none of the v2 self-healing applies and nothing is flagged.
+**Cause:** GitHub rejects an over-long PR title (256-char limit), and the Wix automation derives
+the title from the commit SUBJECT. The 2026-08-22 00:20 ship's subject was **1,221 chars**.
+(Data point: PR #68 landed at 666 chars, #69 failed at 1,221 — so the effective threshold is
+somewhere in between; treat 256 as the contract and do not probe it.)
+**Fix in the hook:** `SUBJECT_MAX=200` — cap the subject in BYTES (bytes ≥ chars, so never
+over), rewind to the last word boundary (which also discards any byte-split multibyte
+character), append `…`, `log` the cap, and write the FULL untruncated title as the FIRST body
+paragraph so nothing is lost and it stays greppable.
+**Your part:** keep `.claude/.ship-title` **≤ ~225 chars** anyway (the hook appends
+` #pr #skipreview #automerge`, 27 chars). The cap is a net, not a licence — a subject truncated
+mid-sentence is a bad PR title. Put the detail in DECISIONS, not the subject.
+**Diagnosing it later:** `gh pr list --head <branch>` returning `[]` while the branch exists on
+origin is the signature. Nothing is lost — the commit is on the local+remote branch and the
+next ship, branching from HEAD, carries it forward.
 
 ## v3 additions (audit-2 F3 + owner orders 2026-08-18)
 - `kill_dev_servers()` runs FIRST (even when a gate later aborts): TERM→KILL every `wix dev` /

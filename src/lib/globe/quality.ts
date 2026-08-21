@@ -99,6 +99,26 @@ export function peripheryErrorTarget(
   return Math.round(baseErrorTarget * cfg.peripheryFactor);
 }
 
+/**
+ * The effective ImageOverlayPlugin composite resolution — STICKY-UP (QA slice C, 2026-08-21h).
+ * `setOverlayResolution` is never cheap: a changed value is a fresh-instance overlay rebuild
+ * (every composited texture destroyed + a tile refetch storm — the QA-7b white-chart regression
+ * rebuilt on EVERY 2D↔FPV/3D flip because the resolver restored the tier base off the chart).
+ * The value therefore only RATCHETS UP — to the flat-chart raise on the first 2D visit, or to a
+ * promoted tier's base — and never lowers on a mode flip or a governor demote. At most one
+ * post-boot rebuild per rung per session (256→512). FPV then shares the raised composites; the
+ * VRAM cost is the S3 jetsam concern, T1-judged, rollback knob `GROUND.overlayResolution2dPx`.
+ * Pure → unit-tested.
+ */
+export function stickyOverlayPx(
+  prevPx: number,
+  tierPx: number,
+  flat2d: boolean,
+  flat2dPx: number,
+): number {
+  return Math.max(prevPx, flat2d ? Math.max(tierPx, flat2dPx) : tierPx);
+}
+
 // GPU-family heuristics. Deliberately conservative: an unknown string falls through to `mid`, and
 // the runtime governor is the real backstop — this only sets a sane STARTING tier so the first
 // seconds aren't jank while the governor settles. Strings come from WEBGL_debug_renderer_info.

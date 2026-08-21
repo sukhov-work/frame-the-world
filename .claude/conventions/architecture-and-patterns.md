@@ -90,7 +90,14 @@ Endpoints live in `src/pages/api/`, **not** a `backend/` folder. WASM ships as h
 - **Design/GL bridge.** DOM chrome and the WebGL scene read the **same tokens**: `src/styles/tokens.css`
   (source of truth) → `src/lib/theme/tokens.ts` (GL bridge). Regenerate the bridge after any token change.
   **The design-fence rule is defined once in `.claude/CLAUDE.md`** — design imports write only under
-  `components/panels|ui/**` + `styles/**`, never `globe/**` or `lib/**`.
+  `components/panels|ui|controls/**` + `styles/**`, never `globe/**` or `lib/**`.
+- **The two-shell fences (`test/components/mobileFence.test.ts` — the ONLY place they were stated
+  until audit #3 D6).** Three rules: (1) `components/mobile/**` never imports a desktop panel;
+  (2) `components/panels|ui/**` never imports from `components/mobile/**`; (3) **`components/controls/**`
+  is a PURE LEAF** — react + stores + `lib/**` + `globe/tuning` + styles only. That third tier
+  (shipped 2026-08-21b, `Joystick.tsx` → `Joystick` + `AimJoystick`) exists so an input instrument's
+  FEEL cannot fork between the shells; both `MiniMap` and `MobileShell` mount the same component.
+  Shared logic therefore lives in **three** places, not two: `lib/**` + `store/**` + `controls/**`.
 
 ## Store pattern — seam + mirror (the globe ⇆ React contract)
 The globe orchestrator (`StylizedTiles.ts`, not React) drives the scene each frame, while the panels are

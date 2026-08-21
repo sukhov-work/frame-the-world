@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
 import { useMiniMapStore } from "../../store/minimap";
@@ -33,9 +33,12 @@ import "../../styles/map-window.css";
  *
  * Interactions: drag pans · wheel / pinch / ± buttons zoom · two-finger TWIST rotates the
  * chart (batch #4 item 4b — view.rot, reset north-up per open; every transform runs through
- * ONE rotation-aware helper set) · double-click (desktop) or long-press (touch) = VIEW FROM
- * HERE (requestFpvJump — relocates a live FPV session, the MobilePlaces idiom) · ✕ / Esc
- * returns to the mini-map. Top-level island (the S2 containing-block rule) on both pages.
+ * ONE rotation-aware helper set) · ◉ re-centres on you after a manual pan (2026-08-22) ·
+ * ✕ / Esc returns to the mini-map. Top-level island (the S2 containing-block rule).
+ * The place gesture SPLITS BY SHELL (owner batch #5 item 4; this docblock claimed the
+ * desktop behaviour for both until audit #3 D2 caught it, and the /m guide copy had
+ * inherited the error): desktop double-click = VIEW FROM HERE (requestFpvJump relocates a
+ * live FPV session); /m long-press = PLACE A POINT and STAY on the map — no jump.
  */
 
 const TILE_SRC_PX = 256; // XYZ source tiles are 256 px
@@ -54,6 +57,13 @@ const AIM_TAP_TOL_DEG = 8; // tap-promote angular tolerance around a direction l
  *  deadband edge — a rubber band, so small strolls never move the map and a placed-point
  *  relocation lands on-screen. Never during an active gesture. */
 const FPV_FOLLOW_FRAC = 0.12;
+/** QA slice A (owner 2026-08-21g-end) → owner micro-slice 2026-08-22 (SUPERSEDES the re-arm):
+ *  manual exploration wins PERMANENTLY. Any pan/pinch latches the chart where the user put it
+ *  and NOTHING re-arms the follow implicitly — walking does not recentre the chart, not even
+ *  once the eye leaves the visible chart bounds (the radar/cone/eye simply scroll off with the
+ *  world, which is already how draw() places them: anchor → xformNow().fwd). The eye-motion
+ *  detector (`FOLLOW_REARM_M 0.5`, 2026-08-21g) is DELETED — the ◉ RE-CENTRE button is the
+ *  one and only path back to following. Default is unchanged: an untouched chart follows. */
 
 /** The GL module's band allocation, read from the SAME tunables (one geometry model);
  *  on /m the sun/moon rings sit ~20% closer to the centre (owner batch #5 item 2). */
@@ -97,6 +107,11 @@ export default function MapWindow() {
   const rafPending = useRef(false);
   // The zoom chips need the effect-scoped zoomBy — bridged through a ref.
   const zoomButtons = useRef<(dz: number) => void>(() => {});
+  // Owner micro-slice 2026-08-22 item 2: the ◉ RE-CENTRE button rides the same bridge.
+  const recenterRef = useRef<() => void>(() => {});
+  // …and a TRANSITION-ONLY mirror of the manual-pan latch, so the button can advertise
+  // "you've panned away, tap to come back" (lit) vs "following you" (muted).
+  const [panned, setPanned] = useState(false);
   // U4: per-body aim-day memo — ~145 ephemeris calls per (target, day, anchor); the 20 Hz
   // FPV repaint only re-splits at now. Warm across open/close like the tile cache.
   const aimCache = useRef<Map<AimKey, { key: string; day: AimDay }>>(new Map());
@@ -111,6 +126,8 @@ export default function MapWindow() {
       // Item 3: the PiP dies with the window — the engine must stop the scaled pass.
       lastPipRect.current = null;
       useMiniMapStore.getState().setPipRect(null);
+      // QA slice B: the walk reverts to camera-relative the moment the chart closes.
+      useMiniMapStore.getState().setMapWindowRotRad(null);
     };
   }, [open]);
 
@@ -118,6 +135,9 @@ export default function MapWindow() {
     if (!open) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Every open starts FOLLOWING (the latch lives in this effect closure; the React mirror
+    // outlives it — the island stays mounted while closed).
+    setPanned(false);
     const cam = useCameraStore.getState();
     // Centre on the FPV eye (camGeo) — or the orbit focus when opened outside FPV; initial
     // zoom matches the current view scale so the map "continues" what the user sees.
@@ -125,6 +145,10 @@ export default function MapWindow() {
     view.current.latDeg = centre.latDeg;
     view.current.lonDeg = centre.lonDeg;
     view.current.rot = 0; // every open starts north-up (the /m 2D-map boot rule)
+    // QA slice B: seed the published twist NOW (draw is a rAF away — the walk must not spend
+    // a frame camera-relative on an open chart); draw() keeps it live, deadbanded.
+    useMiniMapStore.getState().setMapWindowRotRad(0);
+    let lastRotPub = 0;
     const satellite = cam.groundMode === "satellite";
     const maxZ = satellite ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
     // FPV opens one level closer since batch #4 item 4 ("start with closer zoom") — z18 on
@@ -296,13 +320,17 @@ export default function MapWindow() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       const camNow = useCameraStore.getState();
+      // (The QA-slice-A eye-motion re-arm lived here; owner 2026-08-22 made the override
+      //  permanent — see the FOLLOW_REARM_M note at the top. Nothing clears the latch but ◉.)
       // FPV follow (owner QA 2026-08-21 item 1): while FPV is live, rubber-band the chart
       // centre onto the walking viewer — pulled back to the deadband edge once the eye
       // drifts past it, so radar + cone + eye dot can never walk off the chart. Skipped
       // during any gesture (the pan/pinch owns the centre), and BEFORE the transform
       // snapshot so this very paint already uses the followed centre. This supersedes the
       // batch-#5 "the chart deliberately does not re-centre" note for the FPV-live case.
-      if (camNow.fpvHud && camNow.camGeo && pointers.size === 0) {
+      // QA slice A → owner 2026-08-22: also skipped while the manual-pan latch is armed —
+      // exploration wins PERMANENTLY, so the eye may legitimately walk clean off the chart.
+      if (camNow.fpvHud && camNow.camGeo && pointers.size === 0 && !manualPan) {
         const Xf = xformNow();
         const pe = lonLatToTileF(camNow.camGeo.lonDeg, camNow.camGeo.latDeg, Xf.zDraw);
         const [fdx, fdy] = Xf.fwd(pe.x - Xf.c.x, pe.y - Xf.c.y);
@@ -318,6 +346,22 @@ export default function MapWindow() {
       }
       const X = xformNow();
       const { zDraw, tilePx, c, rot } = X;
+      // QA slice B: publish the live twist for the screen-relative walk (deadbanded out of
+      // the 20 Hz paint like the PiP rect; the twist gesture redraws, so this stays current).
+      if (Math.abs(rot - lastRotPub) > 1e-4) {
+        lastRotPub = rot;
+        useMiniMapStore.getState().setMapWindowRotRad(rot);
+      }
+      // DEV-only introspection (the global.d.ts registry): the view lives in refs — browser
+      // verification (follow-latch + screen-walk asserts) can't reach it any other way.
+      if (import.meta.env.DEV) {
+        window.__mapWindowView = {
+          latDeg: view.current.latDeg,
+          lonDeg: view.current.lonDeg,
+          rot,
+          z: view.current.z,
+        };
+      }
       const tpl = X.sat ? TILESETS.esriImageryUrl : TILESETS.cartoDarkUrl;
       const n = 2 ** zDraw;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -609,6 +653,31 @@ export default function MapWindow() {
 
     // --- interactions ------------------------------------------------------------------------
     const pointers = new Map<number, { x: number; y: number }>();
+    // QA slice A → owner 2026-08-22: the manual-pan latch, armed by any pan or pinch and
+    // cleared ONLY by the ◉ RE-CENTRE button. The React mirror is written on TRANSITIONS
+    // only — never per pan event (20 Hz) and never per frame — so the chrome can light the
+    // button without re-rendering the window under the paint loop.
+    let manualPan = false;
+    const latchManualPan = () => {
+      if (manualPan) return;
+      manualPan = true;
+      setPanned(true);
+    };
+    /** Owner micro-slice 2026-08-22 item 2: the ◉ button — centre on the SAME anchor the
+     *  radar uses (FPV eye while live → placed pin → camGeo → focus), drop the latch and let
+     *  the follow resume until the next pan. Bridged to JSX through recenterRef (the
+     *  zoomButtons idiom — the latch lives in this effect closure, the button in the tree). */
+    const recenterOnMe = () => {
+      const at = aimAnchorNow(useCameraStore.getState());
+      view.current.latDeg = at.latDeg;
+      view.current.lonDeg = at.lonDeg;
+      if (manualPan) {
+        manualPan = false;
+        setPanned(false);
+      }
+      requestRedraw();
+    };
+    recenterRef.current = recenterOnMe;
     let dragging = false;
     let pinchStartDist = 0;
     let pinchStartZ = 0;
@@ -683,6 +752,11 @@ export default function MapWindow() {
       setOpen(false);
     };
 
+    // NOTE (audit #3 A1-1): panBy does NOT latch. It used to, but "any pointer move" is not
+    // "a pan": a 500 ms long-press to place a point drifts a pixel or two, and since the
+    // override became permanent (2026-08-22a) that jitter armed a latch nothing could clear
+    // but ◉. The latch now rides the SAME DRAG_CANCEL_PX threshold that already decides a
+    // drag from a press — see onPointerMove — and the 2-pointer branch of onPointerDown.
     const panBy = (dxCss: number, dyCss: number) => {
       const X = xformNow();
       const [vx, vy] = X.inv(dxCss * X.dpr, dyCss * X.dpr);
@@ -724,6 +798,7 @@ export default function MapWindow() {
       } else if (pointers.size === 2) {
         cancelPress();
         dragging = false;
+        latchManualPan(); // QA slice A: a pinch (zoom/twist, even without a midpoint pan) is manual
         const [a, b] = [...pointers.values()];
         pinchStartDist = Math.hypot(a.x - b.x, a.y - b.y);
         pinchStartZ = view.current.z;
@@ -738,11 +813,12 @@ export default function MapWindow() {
       if (!prev) return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 1 && dragging) {
-        if (
-          pressTimer !== null &&
-          Math.hypot(e.clientX - downX, e.clientY - downY) > DRAG_CANCEL_PX
-        ) {
+        // ONE threshold decides "this is a drag, not a press" (audit #3 A1-1): past it the
+        // long-press is cancelled AND the manual-pan override arms. Below it the chart still
+        // tracks the finger — it just doesn't latch, so the follow tidies the stray pixels up.
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > DRAG_CANCEL_PX) {
           cancelPress();
+          latchManualPan();
         }
         panBy(e.clientX - prev.x, e.clientY - prev.y);
       } else if (pointers.size === 2 && pinchStartDist > 0) {
@@ -872,7 +948,12 @@ export default function MapWindow() {
   }, [open]);
 
   if (!open) return null;
+  // Two fixed siblings, NOT nested: .mw carries the centring/drag transform (desktop), which
+  // would make it the containing block for any position:fixed descendant — the attribution bar
+  // must reach the SCREEN's bottom edge (owner 2026-08-22 item 3), so it lives outside .mw.
+  // MapWindow is a top-level island on both pages, so nothing above it traps `fixed` either.
   return (
+    <>
     <div className="mw" role="dialog" aria-label="Full map" style={drag.style}>
       <DragGrip drag={drag} label="Move the map window" />
       <canvas ref={canvasRef} className="mw-canvas" />
@@ -894,7 +975,7 @@ export default function MapWindow() {
         <span className="mw-title">MAP</span>
         {/* Owner QA 2026-08-21 item 4: the bottom band belongs to the time scrubber now — the
             interaction hint rides the top row (desktop; /m's single long-press action lives in
-            the guide) and the attribution re-seats under the top row (CSS .mw-credit). */}
+            the guide). The attribution LEFT this band on 2026-08-22 (item 3, below). */}
         {!mobileShell && <span className="mw-tophint">DOUBLE-CLICK / LONG-PRESS — VIEW FROM HERE</span>}
         <button type="button" className="mw-btn" aria-label="Zoom in" onClick={() => zoomButtons.current(1)}>
           +
@@ -908,6 +989,27 @@ export default function MapWindow() {
           </button>
         )}
       </div>
+      {/* Owner micro-slice 2026-08-22 item 2: the round ◉ RE-CENTRE button on the right edge,
+          below the top row (on /m it clears the 32vw PiP that owns that rung — see the CSS).
+          ALWAYS visible, muted while following and accent-lit once you've panned away, so it
+          advertises the way back — the only path out of the now-permanent manual override. */}
+      <button
+        type="button"
+        className={`mw-btn mw-recenter${panned ? " is-panned" : ""}`}
+        aria-label="Centre the map on me"
+        aria-pressed={!panned}
+        onClick={() => recenterRef.current()}
+      >
+        ◉
+      </button>
+    </div>
+    {/* Item 3: ALL map attribution as ONE very thin full-bleed line on the screen's bottom
+        edge, under the time strip (which is the REAL /m dock at z 24 / desktop TimeScrubber at
+        z 43 — both bottom-anchored, so map-window.css lifts them by --mw-credit-h rather than
+        stacking over them). pointer-events are off on the bar and on only for the anchor, so a
+        drag that runs off the bottom edge can never be stolen by it. Esri/CARTO/OSM attribution
+        is contractual — thin is fine, truncated is not: the type scales with the viewport. */}
+    <div className="mw-creditbar">
       <a
         className="mw-credit"
         href="https://www.esri.com/"
@@ -917,5 +1019,6 @@ export default function MapWindow() {
         © Esri · Maxar · Earthstar Geographics · © CARTO · © OpenStreetMap contributors
       </a>
     </div>
+    </>
   );
 }
