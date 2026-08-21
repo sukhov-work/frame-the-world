@@ -1437,7 +1437,7 @@ export const STREETS = {
    *  Below the floor the world-metre "road paint" reading is kept (scale 1 at street level).
    *  Applied DIRECTLY per frame (no ease): the scale is a continuous function of altitude, so
    *  pinch-zoom tracks exactly — the eased version visibly lagged the map (~270 ms). */
-  textPxTarget: [15, 13, 11],
+  textPxTarget: [8, 7, 6],
   maxTextScale: 9,
   /** Screen-space min separation (CSS px, converted to world metres per selection pass) so a
    *  zoomed-out view never stacks labels — the world minSepM alone was tuned for street level. */
@@ -1446,8 +1446,10 @@ export const STREETS = {
    *  selected (v4: the v3 world-space selection spent the whole budget off-screen at nadir). */
   viewMarginNdc: 1.15,
   /** Painted text cap height (m) by class tier: [majors ≤ rank 2, mid ≤ rank 4, the rest].
-   *  World-sized text reads like road paint: distant names small, street-level names large. */
-  textHeightM: [22, 15, 11],
+   *  World-sized text reads like road paint: distant names small, street-level names large.
+   *  Halved with textPxTarget (owner ×0.5, batch #4 item 16 2026-08-21) — the world-size floor
+   *  is what painted the giant low-altitude riverfront label, not the px targets. */
+  textHeightM: [11, 7.5, 5.5],
   /** Label quads float this far above the sampled terrain (z-fight clearance vs the drape). */
   liftM: 2.2,
   /** Canvas raster cap height (px) — one texture per name, mipmapped; 44 px stays crisp
@@ -1999,10 +2001,23 @@ export const AIMCONES = {
   radiusMaxM: 12_000,
   /** EMPHASIS-swap ease (ms) — a focus tap breathes. The RADIUS deliberately does NOT ease
    *  (owner 2026-08-18: the circle must resize in lockstep with the wheel/pinch — the clamp is
-   *  continuous in alt, so the raw value is already smooth). */
-  radiusTauMs: 180,
-  /** Non-emphasized (compact) systems render at this radius fraction, rim-only (no fill). */
-  compactK: 0.55,
+   *  continuous in alt, so the raw value is already smooth). Since batch #4 S2 emphasis gates
+   *  FILL + rim brightness only (band radii are fixed — compactK retired). */
+  emphTauMs: 180,
+  /** Concentric band allocation (unit-radius [inner, outer] fractions — owner batch #4 item 9,
+   *  2026-08-21): the TARGET visibility zone is an ANNULAR band clipped at the outer circle;
+   *  sun and moon read as THIN separate rings below it (sun inner, moon outer, per the owner's
+   *  sketch) — non-overlapping by construction, which is what retired the compact/emphasis
+   *  radius scaling. ONE geometry model shared by the GL fan (scene/aimCones), the MapWindow
+   *  canvas twin, and the minimap radar. */
+  bandSun: [0.3, 0.38],
+  bandMoon: [0.42, 0.5],
+  bandTarget: [0.55, 1],
+  /** Small `N` north marker on the radar rim, all surfaces (owner addendum 2026-08-21 — the
+   *  2D map rotates everywhere now): centre at outer-radius × northOffsetK along az 0, glyph
+   *  height = radius × northSizeK. */
+  northOffsetK: 1.09,
+  northSizeK: 0.11,
   /** Sector fill alpha (emphasized body) — glassy, the imagery must read through
    *  (0.16 → 0.12 browser pass → 0.08 owner 2026-08-18: the fill still occluded the map). */
   fillAlpha: 0.08,
@@ -2011,10 +2026,9 @@ export const AIMCONES = {
   /** Direction-line alpha, and its paled value while the body is below the horizon. */
   lineAlpha: 0.85,
   lineAlphaDown: 0.28,
-  /** The FOCUSED body's line length as a fraction of the sector radius (reads past the rim,
-   *  toward off-screen at street zoom). Non-focused lines end EXACTLY at their circle (×1.0 —
-   *  owner 2026-08-18). Sun/moon only since batch #4 — the target has its own rayLenK. */
-  lineLenK: 1.18,
+  /** Sun/moon dials cap EXACTLY at their own band's outer radius since batch #4 S2 (owner:
+   *  "dials capped at their own band") — the pre-S2 focused ×1.18 overshoot is retired; the
+   *  target keeps its long rayLenK ray. */
   /** The TARGET tracking-ray length as a fraction of the sector radius (owner batch #4 item 6,
    *  2026-08-21): reads FAR past the rim at every zoom so distant landmarks line up against
    *  it (the 2D canvas twin draws it to the window edge). Emphasis never shortens it. */
@@ -2036,6 +2050,31 @@ export const AIMCONES = {
   /** Anchor move deadband (deg) before an ephemeris rebuild — the focus-fallback anchor pans
    *  continuously in orbit (the skyTrail coarse-deadband lesson, not dayArcs' pin epsilon). */
   anchorEpsDeg: 0.02,
+} as const;
+
+/** The planned-shot FOCAL CONE (owner batch #4 S2, 2026-08-21 — "focal cone everywhere"):
+ *  a wedge showing the planned heading + HORIZONTAL fov on every planning surface — the GL
+ *  globe (scene/focalCone.ts), the MapWindow canvas, and the FPV minimap. Outside FPV it
+ *  draws the camera store's plannedView; in FPV the 2D surfaces mirror the live fpvHud and
+ *  the GL cone hides (you are standing inside it). Colour = tokens.focalCone — deliberately
+ *  distinct from every radar ink (accent target / sunGlow / moonDial / past-grey /
+ *  future-blue). Anchor + altitude presence band ride AIMCONES (one planning instrument). */
+export const FOCALCONE = {
+  /** Fill alpha — "very transparent" (owner): the boundary carries the reading. */
+  fillAlpha: 0.05,
+  /** Boundary edge alpha ("highlighted boundary") + edge half-width as a reach fraction. */
+  edgeAlpha: 0.55,
+  edgeHalfWidthK: 0.0015,
+  /** Planned hFov clamp (deg) — spans the FPV vertical clamp across sane aspects; the aim
+   *  joystick integrates hFov in log space between these. */
+  minHFovDeg: 3,
+  maxHFovDeg: 120,
+  /** Aim-joystick rate ceilings: heading °/s + log-space hFov /s — the desktop encoder pair
+   *  (CONTROLS.headingRateMaxDegPerS / FPV.fovRateMaxPerS twins) so the stick is one knob. */
+  headingRateMaxDegPerS: 45,
+  hFovRateMaxPerS: 0.9,
+  /** Whole-cone fade ease (ms) — the AIMCONES fade idiom. */
+  fadeTauMs: 250,
 } as const;
 
 /** Temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14 — "see the body's path

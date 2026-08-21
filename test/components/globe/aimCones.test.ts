@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { easeSeatM } from "../../../src/components/globe/scene/aimCones";
+import { bandFor, easeSeatM } from "../../../src/components/globe/scene/aimCones";
 import { MAX_TERRAIN_M } from "../../../src/lib/geo/terrain";
+import { AIMCONES } from "../../../src/components/globe/tuning";
+
+describe("bandFor — S2 concentric annular band allocation (one model, three surfaces)", () => {
+  it("maps each body to its own tunable pair", () => {
+    expect(bandFor("sun")).toBe(AIMCONES.bandSun);
+    expect(bandFor("moon")).toBe(AIMCONES.bandMoon);
+    expect(bandFor("target")).toBe(AIMCONES.bandTarget);
+  });
+  it("bands are well-formed and NON-OVERLAPPING by construction (sun < moon < target)", () => {
+    for (const key of ["sun", "moon", "target"] as const) {
+      const [rIn, rOut] = bandFor(key);
+      expect(rIn).toBeGreaterThan(0);
+      expect(rOut).toBeGreaterThan(rIn);
+      expect(rOut).toBeLessThanOrEqual(1);
+    }
+    expect(AIMCONES.bandSun[1]).toBeLessThan(AIMCONES.bandMoon[0]); // sun ring below moon ring
+    expect(AIMCONES.bandMoon[1]).toBeLessThan(AIMCONES.bandTarget[0]); // moon below the target zone
+    expect(AIMCONES.bandTarget[1]).toBe(1); // the target band is CLIPPED at the outer circle
+  });
+  it("the N marker sits past the outer circle", () => {
+    expect(AIMCONES.northOffsetK).toBeGreaterThan(1);
+  });
+});
 
 /**
  * A1 regression (audit-2, 2026-08-18): the aim-cone terrain seat was the ONE live `heightAt`

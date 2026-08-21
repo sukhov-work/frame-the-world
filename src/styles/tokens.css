@@ -28,6 +28,9 @@
      (owner 2026-08-15: past = amber, future = blue). Since U4 (2026-08-18) warn + time-future ARE in the
      GL bridge (tokens.warn / tokens.timeFuture) — the map visibility cones speak the scrubber's
      past/future language; danger stays chrome-only. */
+  --color-focal-cone: #e08fc6; /* planned-shot focal cone (batch #4 S2, 2026-08-21) — soft orchid-rose,
+     deliberately outside every radar ink family (accent teal / sun amber / moon silver / past grey /
+     future blue / places lavender). Bridged to GL as tokens.focalCone (moonDial precedent). */
 
   /* Globe — FENCED (D14): browser-tuned in-scene values, NOT owned by the design canvas.
      2026-07-10 owner-authorized retune TOWARD the design board's sage-grey/near-black intent

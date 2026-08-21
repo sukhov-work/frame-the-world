@@ -26,6 +26,7 @@ import TargetSheet from "./TargetSheet";
 import TargetPeek from "./TargetPeek";
 import SceneActions from "./SceneActions";
 import FpvControls from "./FpvControls";
+import { AimJoystick } from "../controls/Joystick";
 import "../../styles/mobile/chrome.css";
 
 type SheetId = "plan" | "find" | "search" | "target" | "guide" | null;
@@ -66,6 +67,9 @@ export default function MobileShell() {
       </div>
       <SceneActions onOpenPlaces={() => setSheet("search")} />
       {fpvOn && <FpvControls />}
+      {/* AIM joystick on the 2D/3D map surface (owner batch #4 item 11) — steers the planned
+          shot (heading + focal cone); in FPV the minimap card carries its own instance. */}
+      {!fpvOn && <AimJoystick variant="map" />}
       <div className="m-bottom">
         <TargetPeek onOpen={() => setSheet("target")} />
         <MobileTimeDock />

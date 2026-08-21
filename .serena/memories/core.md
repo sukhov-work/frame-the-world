@@ -121,7 +121,28 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**OWNER BATCH #4 S1 SHIPPED 2026-08-21 — 10/15 items** (DECISIONS 2026-08-21; gates
+**OWNER BATCH #4 S2 SHIPPED 2026-08-21b — 14/18 items done (owner addendum #2 post-S2 added
+17 radar sun/moon body-tint + 18 TargetPanel GOTO button — S3 openers, specs in
+UXBATCH4_PLAN §Owner addendum #2)** (DECISIONS 2026-08-21b; gates
+1,088/1,088 · astro 0 err; S1 regression ALL PASS + NEW `verify-uxbatch4-s2.mjs` 15/15 both
+shells): radar → concentric annular bands (AIMCONES.bandSun/.bandMoon/.bandTarget — ONE model,
+three surfaces incl. the NEW minimap radar; compactK/lineLenK RETIRED; N rim marker
+everywhere) · focal cone EVERYWHERE (camera-store `plannedView` heading+HORIZONTAL-fov,
+session-only, seeds photo/jump/FPV-exit/stick; NEW `scene/focalCone.ts` + `--color-focal-cone`
+#E08FC6; MapWindow hardcoded-0.22 replaced; math in `lib/geo/plannedView.ts`) · AIM joystick
+both shells (NEW shared `components/controls/` tier — mobileFence rule 3) · MapWindow
+two-finger TWIST (`view.rot` + ONE `xformNow()` transform) · street labels ×0.5 BOTH branches
+(the world-size floor was the giant-label cause) · S1 long-press login-nav BUG fixed
+(document-capture click swallow — element-level swallows die with their element). Side quest:
+ALL UPLIFT rendering optimizations audited IN-PLACE-WIRED; cache-ENABLED measurement
+(`scripts/measure-tile-cache.mjs`) REFUTES desktop cache-busting — disk cache holds ≈95% on
+reload, owner's observation ≈ DevTools disable-cache; iOS-small-cache ranking STANDS (SW
+mitigation now iOS-directed). S3 lever warning: GROUND.overlayResolution is construction-time
+— the 256 shrink needs a plugin rebuild path. **NEXT SESSION: batch #4 S3 = #15 SW tile cache
+(iOS-directed) + demand shrink + #5 iOS contextlost/pagehide/lean profile + #1 minimap PiP
+(the S2 xformNow rewrite makes the punched hole easy). Release still GATED on the owner's
+domain fix.** Log: `mem:project/wip-2026-08-21-owner-uxbatch4` · plan `UXBATCH4_PLAN.md`.
+Prior (S1, 2026-08-21 — 10/15 items) (DECISIONS 2026-08-21; gates
 1,074/1,074 · astro 0 err; both shells verified via NEW re-runnable
 `scripts/verify-uxbatch4.mjs` 23/23): iOS selection tint killed (global user-select none) ·
 2D-map two-finger ROTATE + tilt-into-3D door removed (`mobile2dFreeHeading` latch) ·

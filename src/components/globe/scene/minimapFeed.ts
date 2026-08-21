@@ -37,11 +37,10 @@ const DEG = Math.PI / 180;
 /** Metres per degree of latitude (spherical mean — plenty at patch scale). */
 const M_PER_DEG_LAT = 111_320;
 
-/** Horizontal FOV from a camera's VERTICAL fov + aspect (deg) — the U3 view-cone width
- *  (pure — unit-tested). */
-export function horizontalFovDeg(vFovDeg: number, aspect: number): number {
-  return (2 * Math.atan(Math.tan((vFovDeg * DEG) / 2) * aspect)) / DEG;
-}
+// Horizontal FOV helper moved to lib/geo/plannedView (batch #4 S2 — the shared controls tier
+// needs it without touching scene modules); re-exported for the existing consumers/tests.
+import { horizontalFovDeg } from "../../../lib/geo/plannedView";
+export { horizontalFovDeg };
 
 export function attachMinimapFeed(opts: { vtiles: VectorTilesHandle }): MinimapFeedHandle {
   let frame = 0;

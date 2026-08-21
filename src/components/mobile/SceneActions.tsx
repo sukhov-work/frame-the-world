@@ -161,6 +161,21 @@ function MapModeChip() {
   };
   useEffect(() => cancelPress, []);
   const jumpHere = () => {
+    // The chip UNMOUNTS before touchEnd (tempFpv flips the chrome within a frame), so the
+    // element-level onClick swallow below never fires and the browser's synthesized click
+    // retargets to whatever now occupies the point — browser-caught 2026-08-21 S2: it landed
+    // on the member-gated SAVE VIEW and bounced the owner to the LOGIN page mid-jump.
+    // Swallow ONE trailing click at the document (capture), short-fused so a cancelled
+    // gesture can never eat an unrelated later tap.
+    const swallow = (e: MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+    };
+    document.addEventListener("click", swallow, { capture: true, once: true });
+    window.setTimeout(
+      () => document.removeEventListener("click", swallow, { capture: true }),
+      900,
+    );
     const cam = useCameraStore.getState();
     cam.requestFpvJump({
       latDeg: cam.focusLatDeg,
