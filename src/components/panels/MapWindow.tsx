@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
 import { useMiniMapStore } from "../../store/minimap";
 import { usePlacesMapStore } from "../../store/places";
@@ -34,6 +35,7 @@ import "../../styles/map-window.css";
 
 const TILE_SRC_PX = 256; // XYZ source tiles are 256 px
 const MIN_Z = 3;
+const PINCH_SENS = 0.8; // continuous-pinch damping (batch #4 item 4): <1 = calmer than 1:1 log2
 const LONG_PRESS_MS = 500; // the ORCH long-press shape (tuning.ts ORCH.longPressMs twin)
 const DRAG_CANCEL_PX = 6;
 const TILE_CACHE_MAX = 300;
@@ -52,6 +54,8 @@ type AimKey = "target" | "sun" | "moon";
 export default function MapWindow() {
   const open = useMiniMapStore((s) => s.mapWindowOpen);
   const setOpen = useMiniMapStore((s) => s.setMapWindowOpen);
+  // Desktop window drag (owner batch #4 item 13) — /m ignores it (fullscreen, grip hidden).
+  const drag = usePanelDrag("map-window");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // The view state lives in refs — drawing is manual (rAF-scheduled), React only owns chrome.
   const view = useRef({ latDeg: 0, lonDeg: 0, z: 16 });
@@ -83,8 +87,10 @@ export default function MapWindow() {
     view.current.lonDeg = centre.lonDeg;
     const satellite = cam.groundMode === "satellite";
     const maxZ = satellite ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
+    // FPV opens one level closer since batch #4 item 4 ("start with closer zoom") — z18 on
+    // Esri (max 19) keeps one wheel/pinch step of headroom plus the retina boost.
     view.current.z = cam.fpvHud
-      ? Math.min(17, maxZ)
+      ? Math.min(18, maxZ)
       : zoomForMetersPerPx(centre.latDeg, Math.max(0.3, cam.zoomAltM * 0.0012), MIN_Z, maxZ);
 
     const requestRedraw = () => {
@@ -198,7 +204,7 @@ export default function MapWindow() {
       // glass (the slippy retina idiom); zDraw stays within the source's real range.
       const boost = dpr >= 1.5 ? 1 : 0;
       const { z, latDeg, lonDeg } = view.current;
-      const zDraw = Math.min(z + boost, srcMaxZ);
+      const zDraw = Math.min(Math.round(z) + boost, srcMaxZ); // integer tile level under a continuous z
       const tilePx = TILE_SRC_PX * dpr * 2 ** (z - zDraw); // device px per drawn tile
       const c = lonLatToTileF(lonDeg, latDeg, zDraw);
       const n = 2 ** zDraw;
@@ -307,14 +313,17 @@ export default function MapWindow() {
           }
           // Direction line at the CURRENT azimuth — body identity colour, pales below horizon.
           // Slim (the GL module's owner-2026-08-18 halving); only the FOCUSED body's line reads
-          // past the rim — the others end exactly at their circle.
+          // past the rim — the others end exactly at their circle. The TARGET line is the
+          // tracking RAY (batch #4 item 6): it runs to the window edge for distant alignment.
           const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
           ctx.globalAlpha = nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown;
           ctx.strokeStyle = b.color;
           ctx.lineWidth = 1 * dpr;
           ctx.beginPath();
           ctx.moveTo(ax, ay);
-          const [lx, ly] = pt(nowPos.azDeg, r * (b.emphasized ? AIMCONES.lineLenK : 1));
+          const rayLen =
+            b.key === "target" ? Math.hypot(w, h) : r * (b.emphasized ? AIMCONES.lineLenK : 1);
+          const [lx, ly] = pt(nowPos.azDeg, rayLen);
           ctx.lineTo(lx, ly);
           ctx.stroke();
           ctx.globalAlpha = 1;
@@ -411,7 +420,7 @@ export default function MapWindow() {
       const sat = useCameraStore.getState().groundMode === "satellite";
       const srcMaxZ = sat ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
       const boost = dpr >= 1.5 ? 1 : 0;
-      const zDraw = Math.min(z + boost, srcMaxZ);
+      const zDraw = Math.min(Math.round(z) + boost, srcMaxZ); // integer tile level under a continuous z
       const tilePx = TILE_SRC_PX * dpr * 2 ** (z - zDraw);
       const c = lonLatToTileF(lonDeg, latDeg, zDraw);
       const dx = ((clientX - rect.left - rect.width / 2) * dpr) / tilePx;
@@ -439,7 +448,7 @@ export default function MapWindow() {
       const sat = useCameraStore.getState().groundMode === "satellite";
       const srcMaxZ = sat ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
       const boost = dpr >= 1.5 ? 1 : 0;
-      const zDraw = Math.min(z + boost, srcMaxZ);
+      const zDraw = Math.min(Math.round(z) + boost, srcMaxZ); // integer tile level under a continuous z
       const tilePx = TILE_SRC_PX * dpr * 2 ** (z - zDraw);
       const c = lonLatToTileF(view.current.lonDeg, view.current.latDeg, zDraw);
       const ll = tileFToLonLat(c.x - (dxCss * dpr) / tilePx, c.y - (dyCss * dpr) / tilePx, zDraw);
@@ -451,7 +460,8 @@ export default function MapWindow() {
     const zoomBy = (dz: number) => {
       const sat = useCameraStore.getState().groundMode === "satellite";
       const maxZNow = sat ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
-      view.current.z = Math.min(maxZNow, Math.max(MIN_Z, view.current.z + dz));
+      // Wheel/chips step whole levels — rounding first re-seats a fractional pinch z.
+      view.current.z = Math.min(maxZNow, Math.max(MIN_Z, Math.round(view.current.z + dz)));
       requestRedraw();
     };
     zoomButtons.current = zoomBy;
@@ -497,9 +507,12 @@ export default function MapWindow() {
         }
         panBy(e.clientX - prev.x, e.clientY - prev.y);
       } else if (pointers.size === 2 && pinchStartDist > 0) {
+        // Continuous pinch (owner batch #4 item 4 — the old Math.round snapped whole slippy
+        // levels and read as chaotic steps): fractional z, gently damped; tiles render at the
+        // nearest integer level scaled by 2^(z − zDraw).
         const [a, b] = [...pointers.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        const dz = Math.round(Math.log2(d / pinchStartDist));
+        const dz = Math.log2(d / pinchStartDist) * PINCH_SENS;
         const sat = useCameraStore.getState().groundMode === "satellite";
         const maxZNow = sat ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
         const next = Math.min(maxZNow, Math.max(MIN_Z, pinchStartZ + dz));
@@ -538,7 +551,7 @@ export default function MapWindow() {
       const srcMaxZ = sat ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
       const boost = dpr >= 1.5 ? 1 : 0;
       const { z, latDeg, lonDeg } = view.current;
-      const zDraw = Math.min(z + boost, srcMaxZ);
+      const zDraw = Math.min(Math.round(z) + boost, srcMaxZ); // integer tile level under a continuous z
       const tilePx = TILE_SRC_PX * dpr * 2 ** (z - zDraw);
       const c = lonLatToTileF(lonDeg, latDeg, zDraw);
       const a = lonLatToTileF(anchor.lonDeg, anchor.latDeg, zDraw);
@@ -553,8 +566,11 @@ export default function MapWindow() {
       let best: { key: AimKey; dAz: number } | null = null;
       for (const b of aimBodiesNow(skyNow)) {
         if (b.emphasized) continue; // already the focus
-        const reach = rBase * AIMCONES.compactK * AIMCONES.lineLenK;
-        if (dist < reach * 0.15 || dist > reach * 1.15) continue;
+        // The target's tracking ray runs to the window edge (batch #4 item 6) — its whole
+        // length promotes; sun/moon keep the compact-rim band.
+        const reach =
+          b.key === "target" ? Math.hypot(w, h) : rBase * AIMCONES.compactK * AIMCONES.lineLenK;
+        if (dist < rBase * AIMCONES.compactK * 0.15 || dist > reach * 1.05) continue;
         const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
         const dAz = Math.abs(wrap180(azClick - nowPos.azDeg));
         if (dAz <= AIM_TAP_TOL_DEG && (!best || dAz < best.dAz)) best = { key: b.key, dAz };
@@ -609,7 +625,8 @@ export default function MapWindow() {
 
   if (!open) return null;
   return (
-    <div className="mw" role="dialog" aria-label="Full map">
+    <div className="mw" role="dialog" aria-label="Full map" style={drag.style}>
+      <DragGrip drag={drag} label="Move the map window" />
       <canvas ref={canvasRef} className="mw-canvas" />
       <div className="mw-top">
         <span className="mw-title">MAP</span>

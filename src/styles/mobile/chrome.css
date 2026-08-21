@@ -566,6 +566,24 @@
   opacity: 0.45;
 }
 /* UNFOLLOW (owner 2026-08-19) — the tp-unfollow twin at touch scale. */
+/* FIND IN FRAME seat (batch #4 item 8) — unfollow's calmer sibling, accent when armed. */
+.m-findframe {
+  width: 100%;
+  margin-top: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+}
+.m-findframe--on {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
 .m-unfollow {
   width: 100%;
   margin-top: 0.55rem;

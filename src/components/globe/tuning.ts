@@ -675,8 +675,9 @@ export const MOBILE2D = {
   bootLatDeg: 48.46,
   bootLonDeg: 35.05,
   bootAltM: 1_100_000,
-  /** Two-finger tilt past this (deg) flips the shell to 3D mid-gesture (buildings attach). */
-  enter3dTiltDeg: 15,
+  /* enter3dTiltDeg RETIRED (owner batch #4 item 3, 2026-08-21): two-finger drag no longer
+     tilts into 3D — the ▲ 3D chip is the only door, and the freed gesture ROTATES the 2D map
+     (heading stays where the fingers leave it; see stepMobile2dLocks). */
   /** FPV-exit map altitude (m above ground): wider than FLIGHT.arrivalAltAboveGroundM (200 —
    *  a frame view, too tight for a map) so the landing shows the surrounding blocks. */
   exitAltAboveGroundM: 600,
@@ -1525,9 +1526,11 @@ export const VECTOR = {
   liftRoadM: 1.5,
   bridgeLiftM: 6,
   /** Layer opacities (× presence × night dim). Fills stay translucent — the drape's own
-   *  colorimetry shows through; ribbons are the readable ink. */
-  fillOpacity: 0.5,
-  lineOpacity: 0.85,
+   *  colorimetry shows through; ribbons are the readable ink. Halved 2026-08-21 (owner batch
+   *  #4 item 7: "still makes the whole map bleak … much more transparent") — the imagery
+   *  carries the detail; ink is a hint, not a coat. */
+  fillOpacity: 0.25,
+  lineOpacity: 0.55,
   /** Night dim: map ink is unlit, so it would glow at night — dim toward this floor as the sun
    *  sets (smoothstep over sin(sun elevation) at the view focus, twin of EARTH.lightsBand). */
   nightDim: 0.45,
@@ -1542,7 +1545,7 @@ export const VECTOR = {
    *  to a whisper of a tint and ribbons to light ink. Multiplies the base opacities while
    *  mapFlat (3D keeps the full web — the drape is dark and stylized there). */
   flatFillK: 0.08, // 0.15 → 0.08 owner 2026-08-18d
-  flatLineK: 0.55,
+  flatLineK: 0.32, // 0.55 → 0.32 owner batch #4 item 7 (2D-map wash — the screenshot case)
   /** Terrain height lattice per tile (N×N heightAt samples, bilinear between) + the per-frame
    *  sampling budget shared across tiles (raycasts — keep small). */
   latticeN: 6,
@@ -2010,8 +2013,12 @@ export const AIMCONES = {
   lineAlphaDown: 0.28,
   /** The FOCUSED body's line length as a fraction of the sector radius (reads past the rim,
    *  toward off-screen at street zoom). Non-focused lines end EXACTLY at their circle (×1.0 —
-   *  owner 2026-08-18). */
+   *  owner 2026-08-18). Sun/moon only since batch #4 — the target has its own rayLenK. */
   lineLenK: 1.18,
+  /** The TARGET tracking-ray length as a fraction of the sector radius (owner batch #4 item 6,
+   *  2026-08-21): reads FAR past the rim at every zoom so distant landmarks line up against
+   *  it (the 2D canvas twin draws it to the window edge). Emphasis never shortens it. */
+  rayLenK: 6,
   /** Direction-line half-width as a fraction of the sector radius (0.006 → 0.003 owner
    *  2026-08-18: the lines read bulky). */
   lineHalfWidthK: 0.003,

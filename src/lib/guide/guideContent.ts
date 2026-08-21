@@ -855,9 +855,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         where: { mobile: "The shell starts here" },
         body:
           "/m boots as a flat, north-up 2D chart — faster and calmer for planning on a " +
-          "phone. The ▲ 3D chip (or a two-finger tilt) lifts it into the full 3D globe; " +
-          "▼ 2D folds it flat again. 🧭 MY LOC flies the chart to your device fix and " +
-          "arms ◎ LOOK FROM HERE.",
+          "phone. The ▲ 3D chip lifts it into the full 3D globe (long-press it to stand " +
+          "straight into first-person view right where the chart is centred); ▼ 2D folds " +
+          "it flat again. A two-finger drag TURNS the chart — the compass chip flies it " +
+          "back north. 🧭 MY LOC flies the chart to your device fix and arms " +
+          "◎ LOOK FROM HERE.",
         tip:
           "Buildings exist only in 3D — the ▦ 3D DETAIL toggle stands down while the " +
           "chart is flat.",
@@ -866,9 +868,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "mobile-layout",
         title: "The layout",
         body:
-          "Top strip: place, account, scene time, DESKTOP switch. Bottom, in order: the " +
-          "tracked target row (tap it for the full card), the time dock, and the SCENE · " +
-          "PLAN · FIND · SEARCH tabs.",
+          "Top strip: place, account, DESKTOP switch. Bottom, in order: the tracked " +
+          "target row (tap it for the full card), the time dock — day steppers, the " +
+          "calendar, the scene-time clock and NOW — and the SCENE · PLAN · FIND · " +
+          "SEARCH tabs.",
       },
       {
         id: "mobile-sheets",
@@ -885,8 +888,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "◎ LOOK FROM HERE, ◎ SAVE VIEW, ▤ SAVED PLACES for members, ✕ CLEAR PIN, " +
           "✕ EXIT VIEW, and a micro-compass with your altitude. ⊞ LAYERS expands the " +
           "scene layers to the left: ▦ 3D DETAIL (the most detailed building model " +
-          "loads on its own), ◎ MY PLACES markers, ⌖ PHOTO PINS, and the ∠ RADAR aim " +
-          "overlay.",
+          "loads on its own), ◎ MY PLACES markers, ⌖ PHOTO PINS, the ∠ RADAR aim " +
+          "overlay, and the ▤ VECTOR road-and-river ink.",
       },
       {
         id: "mobile-gestures",
@@ -895,7 +898,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Long-press the ground — planning pin.",
           "Long-press a sky body — the context menu.",
           "Tap empty sky — reveal names for a moment.",
-          "Two-finger tilt — flip the flat chart into the 3D globe and back.",
+          "Two-finger drag on the flat chart — turn the map; long-press ▲ 3D to stand " +
+            "straight into first-person view, no pin needed.",
           "In first-person view: joystick walks, one finger looks, pinch zooms the " +
             "focal, double-tap a building [[fpv-height|edits its height]].",
           "Long-press the full MAP — VIEW FROM HERE at that spot.",

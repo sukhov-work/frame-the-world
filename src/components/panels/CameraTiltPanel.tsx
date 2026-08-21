@@ -200,6 +200,19 @@ export default function CameraTiltPanel() {
         </button>
         <AimVisibleChip />
         <PlacesOnMapChip />
+        {/* Vector map-ink on/off (owner batch #4 item 7): the road/river/green ribbons washed
+            out satellite detail — this kills the wash; street names stay (content, not wash). */}
+        <button
+          type="button"
+          className={`ct-mode ct-vec tip${s.vectorsVisible ? " is-on" : ""}`}
+          onClick={() => s.setVectorsVisible(!s.vectorsVisible)}
+          aria-pressed={s.vectorsVisible}
+          aria-label={s.vectorsVisible ? "Hide the vector map overlay" : "Show the vector map overlay"}
+          data-tip="VECTOR OVERLAY — ROAD / RIVER / PARK INK OVER THE GROUND."
+          data-tip-pos="left"
+        >
+          VEC
+        </button>
       </div>
       {!fpvMode && (
         <Encoder
