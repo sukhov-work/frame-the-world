@@ -1,93 +1,103 @@
-# wip 2026-08-21 — OWNER BATCH #4 (15 items, post-iPhone-17-Pro testing) — S1 SHIPPED 10/15
+# wip 2026-08-21 — OWNER BATCH #4 (16 items post-addendum) — S1 + S2 SHIPPED, S3 remains
 
-Plan doc: `.claude/claude-docs/UXBATCH4_PLAN.md` (tracks A–F, 3 sessions, per-item specs).
-DECISIONS 2026-08-21. Gates: vitest 1,074/1,074 (+1 prefs) · astro 0 err/5 hints ·
-`scripts/verify-uxbatch4.mjs` 23/23 PASS (raw-CDP, both shells; shots verify-shots/uxb4-01..11).
+Plan doc: `.claude/claude-docs/UXBATCH4_PLAN.md` (tracks A–F + §S2 DESIGN, per-item specs).
+DECISIONS 2026-08-21 (S1) + 2026-08-21b (S2). Gates after S2: vitest 1,088/1,088 · astro
+0 err/5 hints · `verify-uxbatch4.mjs` (S1 regression) ALL PASS · NEW `verify-uxbatch4-s2.mjs`
+15/15 both shells (shots verify-shots/uxb4-s2-01..07).
 
-## S1 shipped (owner numbering)
-- **#2** selection tint: global.css body user-select/touch-callout/tap-highlight none; form
-  fields opt back in. Repo previously had ZERO -webkit-tap-highlight-color rules.
-- **#3** 2D map gestures: tilt-into-3D door REMOVED (MOBILE2D.enter3dTiltDeg retired — ▲ 3D
-  chip only door); two-finger parallel drag = ROTATE the chart. stepMobile2dLocks: tilt
-  re-locks EVERY frame (kk=1 during touchRotate — same-frame kill), heading lock stands down
-  during gesture + `mobile2dFreeHeading` latch keeps user heading until 2D re-entry/heading
-  glide. Compass −69° after synthetic gesture, mapMode stayed 2d.
-- **#4-zoom** MapWindow pinch continuous: fractional z, tiles at Math.round(z)+boost scaled
-  2^(z−zDraw) (4 zDraw sites), PINCH_SENS 0.8 damp, wheel/chips round to integer, FPV-open
-  z 17→18. Rotation gesture deferred to S2 (same draw() rewrite as radar twin).
-- **#6** target ray: AIMCONES.rayLenK 6 (GL, emphasis-independent scale.y) + window-edge
-  Math.hypot(w,h) on canvas twin + full-ray tap-promote reach. Sun/moon dials untouched (S2).
-- **#7** vector ink: fillOpacity 0.25 · lineOpacity 0.55 · flatLineK 0.32 + NEW pref
-  `vectorsVisible` (camera store) → desktop VEC chip + /m ▤ VECTOR (LAYERS). Gates only
-  vectorFeatures `enabled` (StylizedTiles ~:3895); streetNames stay on.
-- **#8** ⌖ FIND IN FRAME above UNFOLLOW both shells (.tp-findframe/.m-findframe; sky-menu
-  mapping body:sun/moon→own chip else "target"; composite find.open && bodies[b] read;
-  desktop closes PLAN first, /m keeps PLAN sheet).
-- **#10** long-press ▲ 3D → requestFpvJump(map centre, current heading, lastFpvFovDeg ??
-  FPV.tempFovDeg); session tracker subscribes fpvHud in SceneActions root; 500 ms/6 px +
-  click-swallow.
-- **#12** /m dock: PLAY + rate REMOVED (desktop scrubber untouched), strip TimeChip deleted
-  (MobileShell), `.md-clock` time-only readout in dock (amber past/blue future).
-- **#13** MapWindow desktop: usePanelDrag("map-window") + grip; −10% = min(57.6rem,84.6vw) ×
-  min(72vh,43.2rem). **`.mw` overflow:hidden REMOVED** — it clipped the DragGrip tab (the
-  documented inner-wrapper trap); corner clip moved to `.mw-canvas` border-radius (/m resets 0).
-- **#14** Guide: usePanelResize("guide") + ResizeGrip + --win-w/--win-h (supersedes 15e
-  "not resizable"). Guide SEARCH was already shipped 2026-08-19d (owner tested pre-ship build).
-- Guide topics updated: mobile-map (rotate + long-press), mobile-layout (clock in dock),
-  mobile-chips (+▤ VECTOR), mobile-gestures (6-step cap — structure test limits steps ≤6!).
+## S1 shipped (see DECISIONS 2026-08-21 + plan §S1 — summary)
+#2 selection tint killed · #3 2D two-finger ROTATE + tilt-door removed (`mobile2dFreeHeading`)
+· #4-zoom MapWindow continuous pinch (PINCH_SENS 0.8, FPV z18) · #6 target ray far (rayLenK 6
+/ canvas edge) · #7 vector ink halved + `vectorsVisible` pref + VEC/▤ VECTOR · #8 find-in-frame
+above UNFOLLOW both shells · #10 long-press ▲ 3D → FPV jump · #12 /m time-only dock clock ·
+#13 MapWindow drag/−10% (DragGrip clip trap) · #14 Guide resizable.
 
-## TRAPS (new, for the record)
-- **Synthetic CDP two-finger gestures need ≤3 px steps**: EnvironmentControls classifies
-  ROTATE-vs-ZOOM on the FIRST move past dragThreshold (2×dpr), and CDP delivers the two
-  pointers in separate tasks — a 14 px step reads as a pinch mid-frame → ZOOM latched
-  (state 3). 3 px × 50 moves → clean ROTATE (state 2).
-- `.mw`/any DragGrip host must NOT be overflow:hidden (grip floats above the top edge).
-- `__globe.controls` IS exposed in DEV — gesture state probes (`controls.state`,
-  `pointerTracker.isPointerTouch()`) work from the page.
+## S2 shipped (2026-08-21b — radar unify + focal cone everywhere + joystick + twist + item 16)
+- **Item 16**: STREETS.textPxTarget [15,13,11]→[8,7,6] AND textHeightM [22,15,11]→[11,7.5,5.5]
+  (tuning.ts:1439/1449). The giant riverfront label WAS the world-size floor branch: on-screen
+  size = max(world-size-px, pxTarget) via labelScaleFor floor-at-1 — halving only pxTarget
+  would have changed nothing at street level.
+- **#9 radar bands**: AIMCONES.bandSun [0.3,0.38] · bandMoon [0.42,0.5] · bandTarget [0.55,1]
+  (unit-radius [inner,outer], tuning.ts) — ONE model consumed by GL fan (scene/aimCones.ts
+  annular quad strips, spokes inner→outer, `bandFor()` exported+tested), MapWindow canvas twin
+  (outer-arc + reversed-inner-arc paths) and the NEW minimap radar. compactK/lineLenK RETIRED
+  (radiusTauMs→emphTauMs; emphasis gates FILL alpha only — bands can't overlap by construction);
+  sun/moon dials cap at own band outer; target ray keeps rayLenK 6. `N` marker at rim az 0 all
+  surfaces (GL = 64px canvas-raster quad on tangent plane, northOffsetK 1.09/northSizeK 0.11;
+  MapWindow fillText rides the rotation; minimap keeps DOM `.mm-n` — it never rotates).
+- **Planned-view state**: camera store `plannedView {headingDeg, hFovDeg}` (+`plannedRates`,
+  `setPlannedView/setPlannedRates`) — hFov stored HORIZONTAL (kills the aspect question).
+  Session-only (mapMode precedent). Seeds LWW: photo placement (stepPlannedView watches
+  phase+params key), #10 jump consume (StylizedTiles seeds from jump pose at live aspect),
+  FPV exit (both hud-null branches seed from the dying hud — continuity), joystick first touch
+  (camGeo heading + tempFovDeg hFov). Integration: `lib/geo/plannedView.ts` (stickRate expo /
+  integratePlanned low-pass+wrap+log-clamp / plannedAtRest / horizontalFovDeg — CANONICAL home
+  now, minimapFeed re-exports) + orchestrator `stepPlannedView` (no store churn at rest).
+- **Focal cone everywhere**: NEW token `--color-focal-cone` #E08FC6 orchid-rose (tokens.css +
+  tokens.ts bridge — timeFuture/pinIce/cometTail too close to radar future-blue, lavender =
+  places). FOCALCONE tunables (fillAlpha 0.05, edgeAlpha 0.55, minHFovDeg 3/maxHFovDeg 120,
+  rate ceilings 45°/s + 0.9/s, γ via CONTROLS.rateExpoGamma). GL = NEW `scene/focalCone.ts`
+  (unit ENU wedge, rebuild only on hFov Δ>0.1°, heading = rotation.z; reach = radar radius ×
+  rayLenK; rides aimCones anchor/band/master, hidden in FPV) wired in stepAimCones. MapWindow:
+  hardcoded 0.22 block REPLACED — fpvHud (live, at eye) > plannedView (at radar anchor, gated
+  aimVisible), reach = window edge. MiniMap cone re-inked focalCone.
+- **#11 AimJoystick**: `Joystick` parameterized (raw unit-disc `onVector`, label/aria/class);
+  NEW SHARED TIER `src/components/controls/Joystick.tsx` — the mobile fence forbids
+  panels↔mobile so instruments whose FEEL must not fork live in controls/ (rule 3 added to
+  mobileFence.test.ts: controls may import ONLY react+store+lib+globe/tuning+styles). In FPV
+  writes real setHeadingRate/setFovRate; outside seeds+writes setPlannedRates. Mounts: /m
+  2D/3D map surface bottom-left (MobileShell, !fpvOn) + minimap card bottom-right (both
+  shells, `.m-joy--aim-minimap` 72px absolute) — knob wears focal-cone ink.
+- **#4b MapWindow twist**: `view.rot` (rad, north-up 0, reset per open) + ONE rotation-aware
+  transform (`xformNow()` fwd/inv) replacing the 4 duplicated zDraw stacks; tiles blit under
+  ctx.rotate with half-diagonal AABB range (+1px overdraw seam guard at rot≠0; texel-snap
+  round kept at rot=0); pt()/N/cone angles add rot; tap-promote de-rotates via inv; pinch
+  composes twist (angle Δ, undamped 1:1) + midpoint pan; wheel/chips untouched.
+- **S1 BUG found+fixed**: long-press trailing click RETARGETS after the pressed chip unmounts
+  (tempFpv flips chrome within a frame) → click landed on member-gated SAVE VIEW → LOGIN page
+  navigation mid-jump (browser-caught: www.plux.today/__auth/loginv2, read as a white "crash").
+  Fix: one-shot document-level capture click swallow, 900ms fuse — SceneActions.jumpHere +
+  MapWindow.viewFromHere. **TRAP: element-level click-swallows die with the element.**
+
+## Side quest (owner ask): rendering-pipeline optimization audit + cache measurement
+- Static audit (scout, all file:line-cited in session log): U5 closest-first (loadAncestors
+  false + comparator on buildings/enriched, ground excluded, fpvBiasK FPV-gated, queue caps
+  12/3 mid via setQualityTier fan-out) · U6 foveation (per-tier cfg, region targets 8/4/2 all
+  3 renderers, periphery relax buildings/enriched only, FPV-only boundary) · mobile tier
+  (coarse→mid ceiling, DPR≤1.5, bloom on/shadows 2048 static-by-design, 3×256MB LRU + 192
+  floors, 2k textures) — ALL IN-PLACE-WIRED, zero drift. S3 NOTE: GROUND.overlayResolution 512
+  is a CONSTRUCTION-TIME ImageOverlayPlugin arg, no tier branch, no re-set path — the S3
+  shrink-to-256 needs a plugin rebuild or upstream setter. Confirmed negatives (positive
+  controls shown): zero webglcontextlost/pagehide handlers; the one visibilitychange listener
+  only re-acquires the wake lock.
+- **Cache measurement (S3 opener, `scripts/measure-tile-cache.mjs`, cache ENABLED)**: desktop
+  view reload = 1,173 tile urls fromDiskCache vs 64 net at ~0.0MB (metadata revalidations);
+  mobile view 711 vs 58 same shape; ZERO in-session re-fetches over a 6-pan wander →
+  request-level cache-busting REFUTED; owner's desktop observation ≈ DevTools disable-cache
+  artifact; iOS-small-cache ranking STANDS, SW mitigation stays iOS-directed. Gap: mobile-view
+  WANDER gesture didn't register on the emulated tab — on-device re-measure rides T1.
+
+## TRAPS (cumulative this batch)
+- Synthetic CDP two-finger gestures on the LIBRARY canvas need ≤3px steps (ROTATE/ZOOM latch);
+  MapWindow's own canvas needs no such care (twist+pinch compose continuously).
+- `.mw`/any DragGrip host must NOT be overflow:hidden (clip belongs on the canvas child).
 - guideContent structure test caps topic steps at 6.
+- Stale-9222 Chrome (owner alias, no occlusion flags): pkill -f Playwright_Chrome_data +
+  scripts/verify-chrome.mjs. ALSO: a long-lived `wix dev` predating new module files serves
+  504 "Outdated Optimize Dep" → BLACK canvas — restart wix dev after adding modules.
+- Element-level click-swallow dies when the element unmounts mid-gesture (S2 login-nav bug).
+- vitest expectation must respect the clamp (hFov test: 60·e^0.9 > 120 clamps).
 
-## Owner addendum (2026-08-21, post-S1 — accepted into the plan)
-1. **#15 not iOS-exclusive**: same excessive tile loading / no physical cache observed in
-   desktop Chrome MOBILE VIEW (maybe desktop view — needs checks). S3 opens with a
-   cache-enabled desktop-Chrome measurement (rule out DevTools disable-cache) before trusting
-   the "iOS cache too small" ranking — if Chrome's disk cache also misses, look for
-   request-level cache-busting / eviction churn outrunning any browser cache. SW mitigation
-   stays valid either way.
-2. **#9 radar += small `N` north marker** on the rim, ALL surfaces (GL/MapWindow/minimap) —
-   the 2D map rotates everywhere now.
-3. **NEW item 16**: street-name labels ×0.5 font — `STREETS.textPxTarget [15,13,11]` → halve
-   + check the world-size floor branch (tuning.ts ~1449) that likely painted the giant
-   riverfront label in the owner's screenshot. Quick win at S2 open.
+## Owner addendum #2 (2026-08-21b, post-S2 — do at S3 open, the item-16 pattern)
+- **17 radar band body tint**: sun/moon band fills+rims future part = BODY colour (sunGlow /
+  moonDial), past = grey; target keeps grey/blue. Cheap: GL fan/rim materials are per-body
+  instances — set uFuture at creation; MapWindow + minimap twins pick future ink per body.
+- **18 TargetPanel GOTO button** before SHOW (~TargetPanel.tsx:524): same action as the
+  viewport chip — extract SkyGotoChips `aim` (~:105-122; below-horizon → nextRiseAzimuth →
+  aimAtSky(rise.azDeg, 0)) into a shared helper, don't duplicate.
 
-## Remaining (owner items → sessions)
-- **S2 (radar unify, design-first)**: #9 radar rework (target zone clipped at outer circle;
-  sun/moon THIN non-overlapping concentric bands — sun inner sunGlow/past-grey, moon outer
-  brighter moonDial; dials capped at own band; annular geometry is consumer-side only —
-  azSector needs nothing) + focal cone EVERYWHERE (GL module NEW, MapWindow hardcoded-0.22
-  replace, minimap; reach = tracking ray; distinct colour, near-zero fill) — needs a
-  **planned-view state** (heading+focal outside FPV; FPV mirrors fpvHud) + #11 focal joystick
-  (Joystick geometry-only, add onVector prop; setHeadingRate max 45°/s + setFovRate log-space
-  max 0.9/s, expo γ2.2; minimap bottom-right, map bottom-left) + #4b MapWindow twist rotation
-  (canvas bearing — do WITH the radar twin draw() rewrite).
-- **S3 (network/stability + PiP)**: #15 request storm — scout PROBED all hosts: headers fine
-  everywhere (ion/Esri/CARTO/workers.dev/openfreemap all public+max-age, binaries immutable);
-  cause = LRU-eviction re-fetch (library relies on browser disk cache,
-  TilesRendererBase.js:1786-94) vs iOS Safari's small pressure-pruned cache; Esri HTTP/1.1-only.
-  Mitigations ranked: same-origin SW Cache-Storage tile cache (~300 MB LRU) > mobile demand
-  shrink (GROUND.overlayResolution 512→256 mid/low; Esri depth cap z17 coarse-pointer; ground-
-  LRU-only raise) > per-URL force-cache (immutable binaries ONLY — tileset/layer.json must
-  revalidate) — Esri ToS note tuning.ts:699 before SW-caching their tiles. #5 iOS reload/heat —
-  ZERO contextlost/pagehide handling today; mid tier = bloom + 2048 shadows + DPR 1.5 + up to
-  3×256 MB LRU → jetsam; plan: contextlost restore, rAF+tiles pause on hide, iOS lean profile.
-  #1 minimap PiP — /m MapWindow close button → punched-hole live GL view (canvas keeps
-  rendering under the fullscreen window), AFTER S2's draw() rewrite.
-- Real-device gesture feel + iOS behaviour = UNVERIFIED, rides T1 owner device pass.
-
-## Scout facts worth keeping (evidence in session log 2026-08-21)
-- The "2D map" = GL globe top-down (MOBILE2D lock); "expanded minimap" on /m = fullscreen
-  MapWindow; the FPV mini-patch has NO zoom (fixed 200 m patch) — the owner's "crude steps"
-  was MapWindow's integer-snap pinch.
-- aimCones: unit-circle geometry, radius clamp(alt×0.35, 150, 12 000 m), holder emphasis
-  compactK 0.55, dial = 6-vertex quad y∈[0,1]; canvas twin AIM_R_FRAC 0.3, FOV cone 0.22
-  hardcoded (MapWindow.tsx:~368); minimap cone reach 0.42×patch.
-- Tier pick: coarse-pointer caps phones at mid (iPhone 17 Pro = Pixel 6 = mid); DPR cap 1.5.
+## Remaining (S3): items 17+18 above at open · #15 SW tile cache (iOS-directed now) + demand
+shrink (overlayResolution needs rebuild path!) + force-cache per-URL · #5 iOS contextlost/
+pagehide/lean profile · #1 minimap PiP (post-S2 draw() rewrite makes the punched hole
+straightforward). Real-device gesture feel (twist damp? aim joystick feel, radar band radii
+taste) rides T1 owner pass.

@@ -1,24 +1,105 @@
 import { useEffect, useRef, useState } from "react";
 import { useMiniMapStore, type MiniMapPose, type MiniMapScene } from "../../store/minimap";
+import { useCameraStore } from "../../store/camera";
+import { useSkyStore } from "../../store/sky";
+import { useTimeStore, sceneTimeMs } from "../../store/time";
+import {
+  sampleAimDay,
+  splitAimRuns,
+  type AimDay,
+  type AimSample,
+} from "../../lib/ephemeris/azSector";
+import { localDayWindow } from "../../lib/ephemeris/dayArc";
+import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
+import { tokens } from "../../lib/theme/tokens";
+import { AIMCONES, FOCALCONE } from "../globe/tuning";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
+import { AimJoystick } from "../controls/Joystick";
 import "../../styles/mini-map.css";
 
 /**
  * FPV mini-map (owner 2026-07-14) — a small square 2D vector patch (MINIMAP.patchM edge to
  * edge, ~200 m) always centred on the walked viewer, shown ONLY while FPV is active. North-up
- * with a heading wedge at the centre — the precise-orientation aid for arrow-key walking.
+ * with a heading cone at the centre — the precise-orientation aid for arrow-key walking.
  *
  * Pure consumer: scene/minimapFeed.ts projects roads/water/green/building footprints from the
  * shared MVT source into origin-local metres and mirrors them into store/minimap (features on
  * tile arrival / a 60 m walk; pose at ~20 Hz). This panel just pans a <canvas> between feature
  * rebuilds. Colours resolve from the tokens.css custom properties at draw time (the canvas
  * cannot read var() — the streetNames idiom). Top-level island (the S2 containing-block rule).
+ *
+ * Batch #4 S2 (owner item 9): the minimap gains the RADAR — the same concentric annular band
+ * model as the GL fan + MapWindow twin (AIMCONES.band*), drawn in screen space around the
+ * centred viewer (this surface is always north-up, so the DOM `.mm-n` chip IS the radar's
+ * north marker). The FOV cone wears the focal-cone ink (one "planned shot" colour everywhere).
  */
 
 /** CSS px of the square canvas (the CSS size — the buffer is DPR-scaled). 200 makes the card's
  *  border-box exactly 210px — the FPV HUD below pins the same width (owner 2026-08-14 ask 6).
  *  Must match `.mm-canvas` width/height in mini-map.css. */
 const SIZE_PX = 200;
+/** Radar outer-circle radius as a canvas fraction — N chip + scale text stay outside it. */
+const RADAR_R_FRAC = 0.44;
+
+type AimKey = "target" | "sun" | "moon";
+
+interface RadarBody {
+  key: AimKey;
+  color: string;
+  emphasized: boolean;
+  day: AimDay;
+  past: AimSample[][];
+  future: AimSample[][];
+  nowAzDeg: number;
+  nowAltDeg: number;
+}
+
+/** The GL module's band allocation, read from the SAME tunables (one geometry model). */
+const bandFor = (key: AimKey): readonly [number, number] =>
+  key === "sun" ? AIMCONES.bandSun : key === "moon" ? AIMCONES.bandMoon : AIMCONES.bandTarget;
+
+// Per-body aim-day memo (the MapWindow idiom) — ~145 ephemeris calls per (target, day,
+// anchor); the 20 Hz pose repaint only re-splits at now. Module singleton: the island mounts
+// once per page and the memo stays warm across FPV sessions.
+const aimCache = new Map<AimKey, { key: string; day: AimDay }>();
+
+/** Radar bodies for the CURRENT stores — [] when the radar master is off or no anchor. */
+function radarNow(): RadarBody[] {
+  const cam = useCameraStore.getState();
+  const skyNow = useSkyStore.getState();
+  const anchor = cam.camGeo;
+  if (!skyNow.aimVisible || !anchor) return [];
+  const nowMs = sceneTimeMs();
+  const wanted: { key: AimKey; target: SkyTarget; color: string }[] = [];
+  // UNFOLLOW/SHOW-off (2026-08-19): a hidden target draws no radar ink either.
+  if (skyNow.aimTarget && skyNow.visible)
+    wanted.push({ key: "target", target: skyNow.target, color: tokens.accent });
+  if (skyNow.aimSun) wanted.push({ key: "sun", target: bodyTarget("sun"), color: tokens.sunGlow });
+  if (skyNow.aimMoon)
+    wanted.push({ key: "moon", target: bodyTarget("moon"), color: tokens.moonDial });
+  return wanted.map(({ key, target, color }) => {
+    const w0 = localDayWindow(nowMs, anchor.lonDeg);
+    const memoKey = `${target.id}:${anchor.latDeg.toFixed(3)}:${anchor.lonDeg.toFixed(3)}:${w0.startMs}`;
+    const hit = aimCache.get(key);
+    const day =
+      hit && hit.key === memoKey
+        ? hit.day
+        : sampleAimDay(target, nowMs, anchor.latDeg, anchor.lonDeg, AIMCONES.stepMin);
+    if (!hit || hit.key !== memoKey) aimCache.set(key, { key: memoKey, day });
+    const split = splitAimRuns(day, nowMs);
+    const nowPos = targetAzAlt(target, nowMs, anchor.latDeg, anchor.lonDeg);
+    return {
+      key,
+      color,
+      emphasized: skyNow.aimFocus === key,
+      day,
+      past: split.past,
+      future: split.future,
+      nowAzDeg: nowPos.azDeg,
+      nowAltDeg: nowPos.altDeg,
+    };
+  });
+}
 
 function cssVar(el: HTMLElement, name: string): string {
   return getComputedStyle(el).getPropertyValue(name).trim();
@@ -29,6 +110,7 @@ function draw(
   scene: MiniMapScene,
   pose: MiniMapPose,
   patchM: number,
+  radar: RadarBody[],
 ) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const px = SIZE_PX * dpr;
@@ -92,9 +174,86 @@ function draw(
     ctx.stroke();
   }
 
-  // Viewer: screen space again — the U3 FOV cone (width = the live horizontal FPV FOV, so it
-  // visibly narrows as you pinch-zoom the lens) or the legacy wedge when no FOV is mirrored,
-  // + the centre dot.
+  // ── S2 radar — screen space around the centred viewer; north-up (this surface never
+  // rotates — the DOM `.mm-n` chip is its north marker). Same geometry model + inks as the
+  // GL fan / MapWindow twin: annular band fills (emphasized body only), past/future rim at
+  // the outer radius, body-colour rise/set spokes across the band, dials capped at the band
+  // (target ray to the patch edge).
+  ctx.setTransform(1, 0, 0, 1, px / 2, px / 2);
+  if (radar.length > 0) {
+    const rBase = px * RADAR_R_FRAC;
+    const pt = (azDeg: number, rr: number): [number, number] => {
+      const th = ((azDeg - 90) * Math.PI) / 180;
+      return [rr * Math.cos(th), rr * Math.sin(th)];
+    };
+    const sectorPath = (runs: readonly AimSample[][], rIn: number, rOut: number) => {
+      ctx.beginPath();
+      for (const run of runs) {
+        if (run.length < 2) continue;
+        ctx.moveTo(...pt(run[0].azDeg, rOut));
+        for (let i = 1; i < run.length; i++) ctx.lineTo(...pt(run[i].azDeg, rOut));
+        for (let i = run.length - 1; i >= 0; i--) ctx.lineTo(...pt(run[i].azDeg, rIn));
+        ctx.closePath();
+      }
+    };
+    const arcPath = (runs: readonly AimSample[][], r: number) => {
+      ctx.beginPath();
+      for (const run of runs) {
+        if (run.length < 2) continue;
+        const [px0, py0] = pt(run[0].azDeg, r);
+        ctx.moveTo(px0, py0);
+        for (let i = 1; i < run.length; i++) {
+          const [x, y] = pt(run[i].azDeg, r);
+          ctx.lineTo(x, y);
+        }
+      }
+    };
+    for (const b of radar) {
+      const [kIn, kOut] = bandFor(b.key);
+      const rIn = rBase * kIn;
+      const rOut = rBase * kOut;
+      if (b.emphasized) {
+        ctx.globalAlpha = AIMCONES.fillAlpha * 2; // patch scale: the map ink below is dense
+        ctx.fillStyle = cssVar(canvas, "--color-text-secondary");
+        sectorPath(b.past, rIn, rOut);
+        ctx.fill();
+        ctx.fillStyle = cssVar(canvas, "--color-time-future");
+        sectorPath(b.future, rIn, rOut);
+        ctx.fill();
+      }
+      ctx.globalAlpha = AIMCONES.rimAlpha;
+      ctx.lineWidth = 1 * dpr;
+      ctx.strokeStyle = cssVar(canvas, "--color-text-secondary");
+      arcPath(b.past, rOut);
+      ctx.stroke();
+      ctx.strokeStyle = cssVar(canvas, "--color-time-future");
+      arcPath(b.future, rOut);
+      ctx.stroke();
+      if (b.day.kind !== "ring") {
+        ctx.strokeStyle = b.color;
+        ctx.beginPath();
+        for (const run of b.day.runs) {
+          if (run.length < 2) continue;
+          for (const s of [run[0], run[run.length - 1]]) {
+            ctx.moveTo(...pt(s.azDeg, rIn));
+            ctx.lineTo(...pt(s.azDeg, rOut));
+          }
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = b.nowAltDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown;
+      ctx.strokeStyle = b.color;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(...pt(b.nowAzDeg, b.key === "target" ? px * 0.75 : rOut));
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Viewer: the U3 FOV cone (width = the live horizontal FPV FOV, so it visibly narrows as
+  // you pinch-zoom the lens) or the legacy wedge when no FOV is mirrored, + the centre dot.
+  // S2: the cone wears the focal-cone ink — the ONE planned-shot colour on every surface.
   ctx.setTransform(1, 0, 0, 1, px / 2, px / 2);
   ctx.rotate((pose.headingDeg * Math.PI) / 180); // north-up map: heading rotates clockwise
   ctx.globalAlpha = 1;
@@ -102,17 +261,19 @@ function draw(
   if (pose.coneDeg !== null) {
     const half = ((pose.coneDeg / 2) * Math.PI) / 180;
     const r = px * 0.42; // cone reach — a fixed fraction of the patch
+    ctx.fillStyle = tokens.focalCone;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     // canvas angles: 0 = +x (east); "up" (the heading direction after the rotate) is −y ⇒ −π/2
     ctx.arc(0, 0, r, -Math.PI / 2 - half, -Math.PI / 2 + half);
     ctx.closePath();
-    ctx.globalAlpha = 0.18;
+    ctx.globalAlpha = FOCALCONE.fillAlpha * 2; // patch scale: dense map ink below
     ctx.fill();
-    ctx.globalAlpha = 0.45;
+    ctx.globalAlpha = FOCALCONE.edgeAlpha;
     ctx.lineWidth = 1 * dpr;
-    ctx.strokeStyle = ink.viewer;
+    ctx.strokeStyle = tokens.focalCone;
     ctx.stroke();
+    ctx.fillStyle = ink.viewer;
   } else {
     ctx.beginPath();
     ctx.moveTo(0, -11 * dpr);
@@ -141,7 +302,18 @@ export default function MiniMap() {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    if (canvasRef.current && scene && pose) draw(canvasRef.current, scene, pose, patchM);
+    const doDraw = () => {
+      if (canvasRef.current && scene && pose) draw(canvasRef.current, scene, pose, patchM, radarNow());
+    };
+    doDraw();
+    // S2 radar: sky toggles/focus swaps + time scrubs repaint even while standing still
+    // (the pose tick only covers movement) — the MapWindow subscription idiom.
+    const unsubSky = useSkyStore.subscribe(doDraw);
+    const unsubTime = useTimeStore.subscribe(doDraw);
+    return () => {
+      unsubSky();
+      unsubTime();
+    };
   }, [scene, pose, patchM]);
 
   if (!scene || !pose) return null;
@@ -184,6 +356,9 @@ export default function MiniMap() {
       <span className="mm-scale" aria-hidden="true">
         {patchM} M
       </span>
+      {/* AIM joystick (batch #4 item 11) — bottom-right of the card; in FPV (the minimap's
+          only life) it steers the REAL camera heading/focal. Hidden with the collapse. */}
+      {!collapsed && <AimJoystick variant="minimap" />}
     </div>
   );
 }

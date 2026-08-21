@@ -5,12 +5,17 @@ import { join } from "node:path";
 /**
  * The two-shell drift guard (MOBILE_PLAN §2 / §7), promoted from a comment to a fence:
  *
- *  1. `src/components/mobile/**` consumes stores + `lib/**` (+ globe tunables) ONLY — it must
- *     never import a desktop panel (`components/panels/**`) or desktop chrome
- *     (`components/ui/**`). The compact mobile surfaces re-consume the same stores/libs;
- *     importing the panels would silently couple the frozen desktop to the phone shell.
+ *  1. `src/components/mobile/**` consumes stores + `lib/**` (+ globe tunables + the shared
+ *     `components/controls/**` instruments) ONLY — it must never import a desktop panel
+ *     (`components/panels/**`) or desktop chrome (`components/ui/**`). The compact mobile
+ *     surfaces re-consume the same stores/libs; importing the panels would silently couple
+ *     the frozen desktop to the phone shell.
  *  2. Nothing OUTSIDE `src/components/mobile/**` (except the /m page itself) may import from
  *     it — the frozen desktop must stay byte-independent of the mobile track.
+ *  3. `src/components/controls/**` (batch #4 S2 — input instruments whose FEEL must never
+ *     fork between shells, e.g. the joystick) is a LEAF both shells may import. It keeps the
+ *     independence guarantee by consuming ONLY react + stores + lib/** + globe tunables +
+ *     styles — never panels/ui/mobile/globe scene modules.
  *
  * Same walking idiom as test/lib/sky/lazyContract.test.ts (which separately guarantees the
  * mobile shell keeps the sky catalog dynamic-import-only).
@@ -64,6 +69,24 @@ describe("mobile shell fence (MOBILE_PLAN §2)", () => {
         if (spec.includes("components/mobile/") || /\.\.?\/mobile\//.test(spec)) {
           offenders.push(`${file} → ${spec}`);
         }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("controls/ stays a pure leaf: react + stores + lib + globe tunables + styles only", () => {
+    const controlsFiles = all.filter((f) => f.includes(join("components", "controls")));
+    expect(controlsFiles.length).toBeGreaterThan(0); // zero-result probe
+    const offenders: string[] = [];
+    for (const file of controlsFiles) {
+      for (const spec of importSpecifiers(readFileSync(file, "utf8"))) {
+        const allowed =
+          spec === "react" ||
+          /(?:^|\/)store\//.test(spec) ||
+          /(?:^|\/)lib\//.test(spec) ||
+          /(?:^|\/)styles\//.test(spec) ||
+          /(?:^|\.\.\/)globe\/tuning$/.test(spec);
+        if (!allowed) offenders.push(`${file} → ${spec}`);
       }
     }
     expect(offenders).toEqual([]);

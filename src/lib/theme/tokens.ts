@@ -17,6 +17,8 @@ export const tokens = {
   accent600: '#2FD1C4', // accent hover / pressed — pin focus, active frustum edge
   warn: '#E8A268', // past/swept-already amber (scrubber language; bridged for the U4 aim cones)
   timeFuture: '#7CB0F5', // future/still-to-come blue — the cool twin of warn (U4 aim cones)
+  focalCone: '#E08FC6', // planned-shot focal cone (batch #4 S2) — orchid-rose, outside every
+  // radar ink family (accent/sunGlow/moonDial/past-grey/future-blue/pinLavender)
   land: '#53655C', // sage-slate — continent fill (design hue #7A8E84 at cartographic lightness)
   landHi: '#687D73', // rolling-terrain relief + OSM building emissive tint
   peak: '#8FA097', // high-terrain sheen + OSM building fill (light sage, not blown-out)

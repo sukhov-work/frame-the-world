@@ -58,8 +58,11 @@ import { attachSkyNames } from "./scene/skyNames";
 import { attachBldgEditLabel } from "./scene/bldgEditLabel";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachAimCones } from "./scene/aimCones";
+import { attachFocalCone } from "./scene/focalCone";
+import { integratePlanned, plannedAtRest } from "../../lib/geo/plannedView";
+import { derivedFov } from "../../lib/decode/params";
 import { attachPlanFeed } from "./scene/planFeed";
-import { attachMinimapFeed } from "./scene/minimapFeed";
+import { attachMinimapFeed, horizontalFovDeg } from "./scene/minimapFeed";
 import { attachGeoLabels } from "./scene/geoLabels";
 import { attachStreetNames } from "./scene/streetNames";
 import { attachVectorFeatures } from "./scene/vectorFeatures";
@@ -103,6 +106,7 @@ import {
   EARTH,
   ENRICHED,
   FLIGHT,
+  FOCALCONE,
   FPV,
   FRUSTUM,
   GOLDEN,
@@ -348,6 +352,12 @@ export function attachStylizedTiles(opts: {
   // U4 aim cones: map direction lines + rise→set visibility sectors at the plan anchor —
   // orbit-mode only (FPV keeps the viewfinder clean; the MapWindow canvas is the FPV twin).
   const aimCones = attachAimCones({
+    scene,
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+  });
+  // Batch #4 S2: the planned-shot focal cone at the same anchor — orbit-mode only (in FPV you
+  // are standing inside it; the MapWindow/minimap twins mirror the live hud there).
+  const focalCone = attachFocalCone({
     scene,
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
   });
@@ -2072,6 +2082,12 @@ export function attachStylizedTiles(opts: {
           if (fpvKind === "temp") fpvKind = null;
           camNow.setTempPin({ latDeg: jump.latDeg, lonDeg: jump.lonDeg });
           camNow.setTempFpv(true);
+          // S2: the jump pose seeds the planned view (fov widened to horizontal at the live
+          // aspect) — leaving FPV later keeps this plan alive on the map surfaces.
+          camNow.setPlannedView({
+            headingDeg: jump.headingDeg,
+            hFovDeg: horizontalFovDeg(jump.fovDeg, camera.aspect),
+          });
           upNow = useUploadStore.getState(); // re-snapshot after the writes above
           camNow = useCameraStore.getState();
         }
@@ -3099,12 +3115,24 @@ export function attachStylizedTiles(opts: {
                 moon: moonM,
               });
             } else if (camNow.fpvHud) {
+              // S2: the dying hud seeds the planned view — the shot just framed in FPV
+              // survives as the focal cone on the planning surfaces (continuity seed).
+              camNow.setPlannedView({
+                headingDeg: camNow.fpvHud.headingDeg,
+                hFovDeg: horizontalFovDeg(camNow.fpvHud.fovDeg, camNow.fpvHud.aspect),
+              });
               camNow._syncFpvHud(null);
               // FPV exited mid-glide — drop the leftover request (a re-entry must not consume it).
               if (camNow.skyLook) camNow._clearSkyLook();
             }
           } else {
-            if (camNow.fpvHud) camNow._syncFpvHud(null);
+            if (camNow.fpvHud) {
+              camNow.setPlannedView({
+                headingDeg: camNow.fpvHud.headingDeg,
+                hFovDeg: horizontalFovDeg(camNow.fpvHud.fovDeg, camNow.fpvHud.aspect),
+              });
+              camNow._syncFpvHud(null);
+            }
             if (camNow.skyMarkers) camNow._syncSkyMarkers(null);
           }
         }
@@ -3783,18 +3811,20 @@ export function attachStylizedTiles(opts: {
         // pin and the focus are read fresh, no mirror lifecycle in the path.
         const skyNow = useSkyStore.getState();
         const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
+        const aimAnchor =
+          (upNow.phase === "placed" ? upNow.placement : null) ??
+          camNow.tempPin ??
+          { latDeg: focusGeo.latDeg, lonDeg: focusGeo.lonDeg };
+        // Desktop shows the radar only near the ground (owner 2026-08-19b: <10 km);
+        // /m keeps the wide band — its fullscreen 2D map IS the planning surface.
+        const aimBand = isMobileShell
+          ? { fullAltM: AIMCONES.fullAltM, topAltM: AIMCONES.topAltM }
+          : { fullAltM: AIMCONES.desktopFullAltM, topAltM: AIMCONES.desktopTopAltM };
         aimCones.update({
           sceneMs: tMs,
-          anchor:
-            (upNow.phase === "placed" ? upNow.placement : null) ??
-            camNow.tempPin ??
-            { latDeg: focusGeo.latDeg, lonDeg: focusGeo.lonDeg },
+          anchor: aimAnchor,
           alt,
-          // Desktop shows the radar only near the ground (owner 2026-08-19b: <10 km);
-          // /m keeps the wide band — its fullscreen 2D map IS the planning surface.
-          band: isMobileShell
-            ? { fullAltM: AIMCONES.fullAltM, topAltM: AIMCONES.topAltM }
-            : { fullAltM: AIMCONES.desktopFullAltM, topAltM: AIMCONES.desktopTopAltM },
+          band: aimBand,
           // RADAR master switch (LAYERS batch, 2026-08-19) ANDs the standing FPV-off rule.
           enabled: !fpvActive && skyNow.aimVisible,
           target: skyNow.target,
@@ -3807,6 +3837,63 @@ export function attachStylizedTiles(opts: {
           },
           dtMs,
         });
+        // S2 focal cone — same anchor, band and master switch as the radar (one planning
+        // instrument); draws the planned view, which only exists outside FPV on this surface.
+        focalCone.update({
+          anchor: aimAnchor,
+          alt,
+          band: aimBand,
+          enabled: !fpvActive && skyNow.aimVisible,
+          headingDeg: camNow.plannedView?.headingDeg ?? null,
+          hFovDeg: camNow.plannedView?.hFovDeg ?? null,
+          dtMs,
+        });
+  };
+
+  // Batch #4 S2 — planned-view seeding + joystick-rate integration. Photo placement re-seeds
+  // whenever the placed photo's heading/focal change (last-writer-wins with the jump/FPV-exit
+  // seeds and the stick); rates integrate OUTSIDE FPV only — inside FPV the stick writes the
+  // real camera's setHeadingRate/setFovRate instead (FpvControls owns that split).
+  let plannedApplied = { appliedHeadingDegPerS: 0, appliedHFovPerS: 0 };
+  let lastPlacedSeedKey = "";
+  const stepPlannedView = () => {
+        if (upNow.phase === "placed" && upNow.exif) {
+          const h = upNow.params.headingDeg ?? 0;
+          const f = derivedFov(upNow.exif, upNow.params).hFovDeg;
+          const key = `${h}:${f}`;
+          if (key !== lastPlacedSeedKey) {
+            lastPlacedSeedKey = key;
+            camNow.setPlannedView({
+              headingDeg: h,
+              hFovDeg: Math.min(FOCALCONE.maxHFovDeg, Math.max(FOCALCONE.minHFovDeg, f)),
+            });
+          }
+        } else {
+          lastPlacedSeedKey = "";
+        }
+        if (fpvActive) return;
+        const pv = camNow.plannedView;
+        if (!pv) return;
+        const rates = camNow.plannedRates;
+        const state = { headingDeg: pv.headingDeg, hFovDeg: pv.hFovDeg, ...plannedApplied };
+        if (!rates && plannedAtRest(state)) {
+          plannedApplied = { appliedHeadingDegPerS: 0, appliedHFovPerS: 0 };
+          return; // released and eased out — no store churn at rest
+        }
+        const next = integratePlanned(
+          state,
+          rates?.headingDegPerS ?? 0,
+          rates?.hFovPerS ?? 0,
+          dtMs,
+          CONTROLS.rateEaseTauMs,
+          FOCALCONE.minHFovDeg,
+          FOCALCONE.maxHFovDeg,
+        );
+        plannedApplied = {
+          appliedHeadingDegPerS: next.appliedHeadingDegPerS,
+          appliedHFovPerS: next.appliedHFovPerS,
+        };
+        camNow.setPlannedView({ headingDeg: next.headingDeg, hFovDeg: next.hFovDeg });
   };
 
   const stepGeoLabels = () => {
@@ -4036,6 +4123,7 @@ export function attachStylizedTiles(opts: {
         stepGraticuleAndAtmosphere();
         stepStars();
         stepDayArcs();
+        stepPlannedView();
         stepAimCones();
         stepGeoLabels();
         stepStreetNames();
@@ -4112,6 +4200,7 @@ export function attachStylizedTiles(opts: {
       bldgEditLabel.dispose();
       dayArcs.dispose();
       aimCones.dispose();
+      focalCone.dispose();
       geoLabels.dispose();
       streetNames.dispose();
       vectorFeatures.dispose();

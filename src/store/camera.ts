@@ -151,6 +151,21 @@ export interface CameraState {
   /** FOCAL ZOOM encoder (Phase 5.5 S6, FPV only): log-space rate on the camera FOV — the panel
    *  twin of the FPV wheel zoom. Positive = zoom IN (FOV narrows / focal length grows). */
   fovRatePerS: number | null;
+  /** Planned shot view (owner batch #4 S2, 2026-08-21): the heading + HORIZONTAL fov pair the
+   *  focal cone renders OUTSIDE FPV (in FPV every cone surface mirrors fpvHud instead — the
+   *  live camera outranks the plan). Horizontal fov is stored directly so no surface ever
+   *  needs an aspect to draw it. Session-only (the mapMode no-persist precedent). Seeded
+   *  last-writer-wins by photo placement, the long-press FPV jump, FPV exit (continuity), or
+   *  the aim joystick's first touch; the joystick then steers it via plannedRates. */
+  plannedView: { headingDeg: number; hFovDeg: number } | null;
+  setPlannedView: (v: { headingDeg: number; hFovDeg: number } | null) => void;
+  /** Aim-joystick rate seams (null = released): heading °/s (+ = clockwise) and log-space
+   *  hFov rate /s (+ = zoom IN, same convention as fovRatePerS); the orchestrator integrates
+   *  them into plannedView per frame outside FPV (inside FPV the joystick writes the real
+   *  camera's setHeadingRate/setFovRate instead). Not cleared by clearAllTargets — the stick
+   *  owns its null-on-release lifecycle, same as fpvWalkInput. */
+  plannedRates: { headingDegPerS: number; hFovPerS: number } | null;
+  setPlannedRates: (r: { headingDegPerS: number; hFovPerS: number } | null) => void;
   /** FPV walk stick (MOBILE_PLAN §4.1, M2): the mobile joystick's analog deflection, −1..1 per
    *  axis (fwd + = walk where you look, right + = strafe right); null = stick released. The
    *  orchestrator integrates it into the world-space walk offset each frame alongside the
@@ -344,6 +359,10 @@ export const useCameraStore = create<CameraState>((set) => ({
   setHeadingRate: (degPerS) => set({ headingRateDegPerS: degPerS }),
   setZoomRate: (perS) => set({ zoomRatePerS: perS }),
   setFovRate: (perS) => set({ fovRatePerS: perS }),
+  plannedView: null,
+  setPlannedView: (v) => set({ plannedView: v }),
+  plannedRates: null,
+  setPlannedRates: (r) => set({ plannedRates: r }),
   fpvWalkInput: null,
   setFpvWalkInput: (v) =>
     set({

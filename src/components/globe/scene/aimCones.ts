@@ -23,8 +23,13 @@ import { clampGroundM } from "../../../lib/geo/terrain";
  * Depth-free like the day arcs (renderOrder 9, no depth test): a flat metre-scale sector
  * cannot follow terrain relief, and a planning overlay reads THROUGH the world — which also
  * makes the flat-map MAP-INK behaviour automatic. Alpha-blended, NEVER additive (S6).
- * One body is EMPHASIZED (full radius + glassy fill); the others render compact (rim-only at
- * AIMCONES.compactK) — the owner's "don't overload the map" ruling.
+ *
+ * Batch #4 S2 (owner item 9, 2026-08-21): the three systems are CONCENTRIC ANNULAR BANDS
+ * (AIMCONES.bandSun inner ring / bandMoon ring above it / bandTarget clipped at the outer
+ * circle) — non-overlapping by construction, so the old compact/emphasized radius scaling is
+ * retired; emphasis now gates FILL + keeps the tap-to-focus semantics. Sun/moon dials cap at
+ * their OWN band's outer radius; the target ray keeps rayLenK. A small `N` marker sits on the
+ * rim (the 2D map rotates everywhere now — the radar carries its own north).
  */
 
 type AimKey = "target" | "sun" | "moon";
@@ -115,6 +120,16 @@ function makeLineMaterial(color: string): THREE.ShaderMaterial {
 
 const DEG = Math.PI / 180;
 
+/** Per-body annular band [inner, outer] as unit-radius fractions (pure — unit-tested; the
+ *  MapWindow canvas twin + minimap radar consume the SAME allocation, one geometry model). */
+export function bandFor(key: "target" | "sun" | "moon"): readonly [number, number] {
+  return key === "sun"
+    ? AIMCONES.bandSun
+    : key === "moon"
+      ? AIMCONES.bandMoon
+      : AIMCONES.bandTarget;
+}
+
 /**
  * Terrain-seat ease (pure twin — tested). A null probe keeps the last seat; the FIRST finite
  * sample SNAPS (NaN prev = unseeded); later samples ease with time-constant `tauMs`. The raw
@@ -193,9 +208,47 @@ export function attachAimCones(opts: {
       edgesMat,
       lineMat,
       day: null as AimDay | null,
-      emphasisScale: 1,
+      emphEased: 0, // eased 0..1 emphasis (fill gate) — band radii are fixed since S2
     };
   });
+
+  // Small `N` north marker just past the outer circle at az 0 (owner addendum 2026-08-21 —
+  // the 2D map rotates everywhere now, so the radar carries its own north). One 64px canvas
+  // raster (the streetNames idiom, --font-ui resolved at attach), muted ink — an orientation
+  // hint, not a signal. Lies on the tangent plane like the bands (top-down is the radar's
+  // home view); alpha rides the whole-overlay fade in update().
+  const uiFont =
+    (typeof document !== "undefined"
+      ? getComputedStyle(document.documentElement).getPropertyValue("--font-ui").trim()
+      : "") || "system-ui, sans-serif";
+  const nCanvas = document.createElement("canvas");
+  nCanvas.width = 64;
+  nCanvas.height = 64;
+  const nCtx = nCanvas.getContext("2d")!;
+  nCtx.font = `600 44px ${uiFont}`;
+  nCtx.textAlign = "center";
+  nCtx.textBaseline = "middle";
+  nCtx.fillStyle = tokens.textSecondary;
+  nCtx.fillText("N", 32, 34);
+  const nTexture = new THREE.CanvasTexture(nCanvas);
+  nTexture.colorSpace = THREE.SRGBColorSpace;
+  const northMat = new THREE.MeshBasicMaterial({
+    map: nTexture,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide,
+  });
+  const north = new THREE.Mesh(
+    new THREE.PlaneGeometry(AIMCONES.northSizeK, AIMCONES.northSizeK),
+    northMat,
+  );
+  north.position.set(0, AIMCONES.northOffsetK, 0);
+  north.raycast = () => {};
+  north.frustumCulled = false;
+  north.renderOrder = 9;
+  group.add(north);
 
   let anchorLat = NaN;
   let anchorLon = NaN;
@@ -211,9 +264,11 @@ export function attachAimCones(opts: {
   const targetFor = (key: AimKey, tracked: SkyTarget): SkyTarget =>
     key === "target" ? tracked : bodyTarget(key);
 
-  /** Rebuild one body's sector from its aim day — unit-circle fan + rim with per-vertex t01. */
+  /** Rebuild one body's sector from its aim day — an ANNULAR band strip between the body's
+   *  own [inner, outer] radii (batch #4 S2) + outer-rim arc, per-vertex t01. */
   function rebuildBody(b: (typeof bodies)[number], day: AimDay) {
     b.day = day;
+    const [rIn, rOut] = bandFor(b.key);
     const t01 = (ms: number) => (ms - day.startMs) / (day.endMs - day.startMs);
     const fanPos: number[] = [];
     const fanT: number[] = [];
@@ -229,26 +284,31 @@ export function attachAimCones(opts: {
         const cy = Math.cos(c.azDeg * DEG);
         const ta = t01(a.utcMs);
         const tc = t01(c.utcMs);
-        // Per-wedge centre copy: its t01 is the wedge midpoint, so the shader's now-split
-        // cuts the one straddling wedge roughly radially instead of smearing the whole fan.
-        fanPos.push(0, 0, 0, ax, ay, 0, cx, cy, 0);
-        fanT.push((ta + tc) / 2, ta, tc);
-        rimPos.push(ax, ay, 0, cx, cy, 0);
+        // Two triangles per wedge between the inner and outer arcs; each vertex keeps its own
+        // sample's t01 (inner + outer share it), so the shader's now-split cuts the straddling
+        // wedge radially — the old fan-centre-midpoint trick is unnecessary on a strip.
+        fanPos.push(ax * rIn, ay * rIn, 0, ax * rOut, ay * rOut, 0, cx * rOut, cy * rOut, 0);
+        fanT.push(ta, ta, tc);
+        fanPos.push(ax * rIn, ay * rIn, 0, cx * rOut, cy * rOut, 0, cx * rIn, cy * rIn, 0);
+        fanT.push(ta, tc, tc);
+        rimPos.push(ax * rOut, ay * rOut, 0, cx * rOut, cy * rOut, 0);
         rimT.push(ta, tc);
       }
     }
-    // Radial edges close the wedge at each run's rise/set azimuth (a rim arc alone floats).
+    // Radial edges close the band at each run's rise/set azimuth (a rim arc alone floats).
     // BODY-IDENTITY coloured, own geometry (owner 2026-08-18): these spokes ARE the body's
     // visibility boundary — sun rise/set wears sunGlow, moon wears the dial silver — so they
     // must not ride the past/future split the rim arcs carry. A ring has no rise/set — none.
+    // Since S2 they span the band (inner→outer), not centre→rim.
     const edgePos: number[] = [];
     if (day.kind !== "ring") {
       for (const run of day.runs) {
         if (run.length < 2) continue;
-        const first = run[0];
-        const last = run[run.length - 1];
-        edgePos.push(0, 0, 0, Math.sin(first.azDeg * DEG), Math.cos(first.azDeg * DEG), 0);
-        edgePos.push(0, 0, 0, Math.sin(last.azDeg * DEG), Math.cos(last.azDeg * DEG), 0);
+        for (const s of [run[0], run[run.length - 1]]) {
+          const sx = Math.sin(s.azDeg * DEG);
+          const sy = Math.cos(s.azDeg * DEG);
+          edgePos.push(sx * rIn, sy * rIn, 0, sx * rOut, sy * rOut, 0);
+        }
       }
     }
     b.edges.geometry.dispose();
@@ -343,15 +403,15 @@ export function attachAimCones(opts: {
       group.visible = true;
 
       const overlayA = fade * presence;
+      northMat.opacity = AIMCONES.rimAlpha * overlayA;
       for (const b of bodies) {
         const on = aim[b.key];
         b.holder.visible = on;
         if (!on || !b.day) continue;
         const emphasized = aim.focus === b.key;
-        // Compact systems shrink to compactK and drop their fill — eased, never a pop.
-        const wantScale = emphasized ? 1 : AIMCONES.compactK;
-        b.emphasisScale += (wantScale - b.emphasisScale) * (1 - Math.exp(-dtMs / AIMCONES.radiusTauMs));
-        b.holder.scale.setScalar(b.emphasisScale);
+        // Bands sit at FIXED concentric radii (S2) — emphasis breathes the FILL only, eased
+        // with the same time constant as the old scale swap (a focus tap still breathes).
+        b.emphEased += ((emphasized ? 1 : 0) - b.emphEased) * (1 - Math.exp(-dtMs / AIMCONES.emphTauMs));
 
         const now01 = Math.min(
           1,
@@ -359,24 +419,18 @@ export function attachAimCones(opts: {
         );
         b.fanMat.uniforms.uNow01.value = now01;
         b.rimMat.uniforms.uNow01.value = now01;
-        // Fill rides the SAME eased emphasis scale — a focus swap breathes, never pops.
-        const emphK = Math.max(
-          0,
-          (b.emphasisScale - AIMCONES.compactK) / (1 - AIMCONES.compactK),
-        );
-        b.fanMat.uniforms.uAlpha.value = AIMCONES.fillAlpha * overlayA * emphK;
+        b.fanMat.uniforms.uAlpha.value = AIMCONES.fillAlpha * overlayA * b.emphEased;
         b.rimMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
         b.edgesMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
 
         // Direction line: current azimuth + below-horizon paling (3 ephemeris calls/frame —
         // the sky marker's own budget). The TARGET line is the tracking RAY (owner batch #4
         // item 6, 2026-08-21): it reads far past the rim so distant landmarks can be lined up
-        // against it. Sun/moon keep the dial rule — only the FOCUSED body's line reads past
-        // the rim; the others end exactly at their circle (same emphasis ease — no pop).
+        // against it. Sun/moon dials cap EXACTLY at their own band's outer radius (owner S2 —
+        // the ×1.18 focused overshoot is retired with the radius scaling).
         const nowPos = targetAzAlt(targetFor(b.key, target), sceneMs, anchorLat, anchorLon);
         b.line.rotation.z = -nowPos.azDeg * DEG;
-        b.line.scale.y =
-          b.key === "target" ? AIMCONES.rayLenK : 1 + (AIMCONES.lineLenK - 1) * emphK;
+        b.line.scale.y = b.key === "target" ? AIMCONES.rayLenK : bandFor(b.key)[1];
         b.lineMat.uniforms.uAlpha.value =
           (nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown) * overlayA;
       }
@@ -392,6 +446,9 @@ export function attachAimCones(opts: {
         b.edgesMat.dispose();
         b.lineMat.dispose();
       }
+      north.geometry.dispose();
+      northMat.dispose();
+      nTexture.dispose();
       opts.scene.remove(group);
     },
   };

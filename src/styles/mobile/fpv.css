@@ -90,6 +90,39 @@ body.mw-open .m-altcol {
   z-index: 24;
 }
 
+/* ── AIM joystick (batch #4 item 11) — heading + focal for the planned shot ─────────────── */
+/* Knob wears the focal-cone ink: the pad steers exactly what that colour draws. */
+.m-joy--aim .m-joy__knob {
+  border-color: color-mix(in srgb, var(--color-focal-cone) 45%, transparent);
+  background: color-mix(in srgb, var(--color-focal-cone) 14%, transparent);
+}
+.m-joy--aim .m-joy__knob--live {
+  background: color-mix(in srgb, var(--color-focal-cone) 26%, transparent);
+}
+/* Map-surface instance (/m 2D/3D, non-FPV) inherits the walk stick's bottom-left seat —
+   the two never coexist (walk = FPV-only, this one = not-FPV-only) and it rides over the
+   fullscreen MapWindow through the same body.mw-open rung above. */
+/* Minimap-card instance: a smaller pad pinned to the card's bottom-right corner (both
+   shells — the minimap only lives in FPV, where it steers the REAL camera). */
+.m-joy--aim-minimap {
+  position: absolute;
+  left: auto;
+  top: auto;
+  right: -10px;
+  bottom: -10px;
+  width: 72px;
+  height: 72px;
+  z-index: 2;
+}
+.m-joy--aim-minimap .m-joy__knob {
+  width: 30px;
+  height: 30px;
+}
+.m-joy--aim-minimap .m-joy__label {
+  top: 5px;
+  font-size: 0.45rem;
+}
+
 /* ── Altitude nudges (⤒ ascend / ⤓ descend, hold-to-fly) ───────────────────────────────── */
 .m-altcol {
   position: fixed;

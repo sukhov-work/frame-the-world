@@ -45,9 +45,21 @@ session log + `mem:project/wip-2026-08-21-owner-uxbatch4`.
 | A Touch & input correctness | 2 (selection tint) · 3 (2D gestures) · 4 (MapWindow zoom feel) · 10 (long-press 3D) | **S1 ✓ SHIPPED 2026-08-21** |
 | B Overlay & chrome quick wins | 6 (ray far) · 7 (vector transparency+toggle) · 8 (find-in-frame toggle) · 12 (time dock) | **S1 ✓ SHIPPED 2026-08-21** |
 | C Desktop windows | 13 (MapWindow drag/−10%) · 14 (guide resize) | **S1 ✓ SHIPPED 2026-08-21** |
-| D Radar unify (design) | 9 (zones/bands/dials/focal cone everywhere) · 11 (focal joystick) · 4-rotation (MapWindow twist — same draw() rewrite) | S2 |
+| D Radar unify (design) | 9 (zones/bands/dials/focal cone everywhere) · 11 (focal joystick) · 4-rotation (MapWindow twist — same draw() rewrite) · 16 (street labels ×0.5) | **S2 ✓ SHIPPED 2026-08-21** |
 | E FPV⇄map continuity | 1 (PiP hole in MapWindow) | S3 (after D reshapes MapWindow) |
 | F Network & iOS stability | 15 (SW tile cache + demand shrink + force-cache care) · 5 (iOS resilience: contextlost/pagehide/lean profile/heat) | S3 |
+
+S2 verification: gates 1,088/1,088 · astro 0 err/5 hints · `scripts/verify-uxbatch4.mjs` (S1
+regression) ALL PASS · NEW `scripts/verify-uxbatch4-s2.mjs` 15/15 both shells (shots
+`verify-shots/uxb4-s2-01..07`) · S1 BUG found+fixed: the long-press trailing click retargets
+after the chip unmounts (→ SAVE VIEW → LOGIN page) — one-shot document-capture swallow in
+SceneActions.jumpHere + MapWindow.viewFromHere. **S3-opener cache measurement DONE**
+(`scripts/measure-tile-cache.mjs`, cache ENABLED, both views): Chrome disk cache HOLDS
+(reload ≈95% fromDiskCache; only ~60 near-zero-byte metadata revalidations repeat), zero
+in-session re-fetches over a 6-pan wander → request-level cache-busting REFUTED; the owner's
+desktop-Chrome observation was almost certainly the DevTools disable-cache checkbox; the
+"iOS small pressure-pruned cache" ranking stands and the SW mitigation stays iOS-directed
+(mobile-view WANDER gesture didn't register on the emulated tab — re-measure on device).
 
 S1 verification: gates 1,074/1,074 · astro 0 err/5 hints · `scripts/verify-uxbatch4.mjs`
 23/23 both shells (re-runnable regression suite; shots `verify-shots/uxb4-01..11`). Gesture
@@ -122,6 +134,76 @@ FEEL on a real device = UNVERIFIED, rides T1. DECISIONS 2026-08-21 ·
   2D/3D map bottom-left. Drives planned view outside FPV, real camera in FPV.
 - **#4-rotation**: MapWindow two-finger twist → map bearing (canvas rotation around centre);
   all overlays + hit-tests + pan axes rotate. Done together with the radar-twin draw() rewrite.
+
+## S2 DESIGN (locked 2026-08-21, investigate-design-v3 design mode; scouts cited in session log)
+
+**D-1 Planned-view state = camera store fields (not a new store, not upload params).**
+`plannedHeadingDeg: number|null` + `plannedHFovDeg: number|null` (HORIZONTAL fov — the cone
+surfaces all draw horizontal width, storing hFov kills the aspect question; FPV mirror derives
+`horizontalFovDeg(fpvHud.fovDeg, fpvHud.aspect)` at read time) + rate seams
+`plannedHeadingRateDegPerS`/`plannedHFovRatePerS` (setter `setPlannedRates`) integrated by a new
+orchestrator step with the SAME math as FPV (low-pass rateEaseTauMs 140, heading wrap 360, hFov
+log-clamp [horizontal-of-2.75°, horizontal-of-80°]). Session-only (mapMode no-persist precedent);
+URL-hash persistence NOT extended [ASSUMPTION — cheap to add later]. Seeds (last-writer-wins):
+photo placement (`phase==="placed"` → params.headingDeg ?? 0 + derivedFov().hFovDeg), #10 jump
+payload (headingDeg + fovDeg→hFov at live aspect), FPV exit (mirror the last fpvHud so the plan
+survives leaving FPV), joystick first touch when null → seed from camGeo heading + FPV.tempFovDeg.
+**Cone source precedence at every surface: fpvHud (live) > plannedView > nothing.**
+
+**D-2 Radar bands (one geometry model, all surfaces).** Unit-radius allocation as AIMCONES
+tunables shared by GL + canvas: `bandSun: [0.30, 0.38]` (inner, sunGlow/past-grey) ·
+`bandMoon: [0.42, 0.50]` (moonDial, brighter) · `bandTarget: [0.55, 1.0]` (accent, clipped at
+the outer circle). Fan-centre triangles → annular quad strips (GL: two-ring vertex pairs;
+canvas: outer arc + reversed inner arc). **compactK radius-scaling RETIRED** — bands are
+non-overlapping by construction; emphasis keeps gating FILL alpha + rim brightness only
+(simplifies tap-promote reach to fixed radii). Dials cap at OWN band outer radius (sun 0.38,
+moon 0.50); lineLenK overshoot retired for sun/moon; target ray stays rayLenK 6 / canvas edge.
+`N` marker at rim az 0 on ALL surfaces: GL = small canvas-"N"-texture quad on the tangent plane
+at (0, ~1.08) (streetNames raster precedent); MapWindow = fillText rotating with bearing;
+MiniMap keeps its DOM `.mm-n`. azSector untouched (consumer-side geometry, scout-verified).
+
+**D-3 Focal cone.** NEW token `--color-focal-cone` (rose/orchid family — accent=teal,
+timeFuture-blue and pinIce/cometTail too close to it, pinLavender = places; moonDial precedent:
+tokens.css + tokens.ts bridge). Fill near-zero (~0.05), boundary edges ~0.5 ("very transparent,
+highlighted boundary"). Reach = tracking ray (GL: AIMCONES radius × rayLenK, capped at canvas
+edge on 2D surfaces). GL = NEW `scene/focalCone.ts` (unit ENU tangent wedge, aimCones idiom,
+same anchor resolution photo>tempPin>focus, same alt-band fade, hidden in FPV — you're inside
+it); MapWindow replaces the hardcoded 0.22 block and draws from fpvHud>planned; MiniMap keeps
+live-FOV cone (FPV-only surface). MiniMap ALSO gains the radar bands: computes `sampleAimDay`
+in-component with MapWindow's aimCache memo pattern (pose channel stays untouched).
+
+**D-4 Joystick.** `Joystick` gets `onVector({x,y})` prop (geometry unchanged); walk instance
+passes the walk handler. New aim instances map x→heading rate 45·sign·|x|^γ2.2 °/s,
+y→hFov rate 0.9·sign·|y|^γ2.2 /s (up = zoom in, Encoder.tsx:52 math): in FPV →
+setHeadingRate/setFovRate (real camera, existing seams); outside → setPlannedRates. Placement:
+MiniMap bottom-right, fullscreen MapWindow bottom-left (stack-checked against the floated walk
+joystick at impl).
+
+**D-5 MapWindow bearing.** `view.bearing` (rad, 0=north-up, desktop stays 0). ONE shared
+transform helper set (screen↔tile with bearing) replacing the 4 duplicated zDraw sites +
+toPx/pt/panBy/tap-promote/canvasPointToLatLon; tiles blit under ctx.rotate about centre with
+AABB-of-rotated-viewport range; radar/N/cone angles subtract bearing. Twist = two-pointer angle
+delta alongside the existing continuous pinch (own canvas — no ROTATE/ZOOM latch needed);
+midpoint pans. Tap-the-N reset = tail, not S2.
+
+## Owner addendum #2 (2026-08-21b, post-S2 — two taste items, do at S3 open like item 16)
+
+- **Item 17 — radar band body tinting:** the sun's and moon's visibility bands (fills + rims)
+  wear their BODY colours on the future part (sun = sunGlow orange, moon = moonDial silver)
+  and go GREY (textSecondary) for the past part — replacing the shared grey/blue split on
+  those two bands (the target zone keeps the current scrubber grey/blue language; the owner
+  named only sun/moon). This restores the original S2-spec intent ("sun inner sunGlow +
+  past-grey, moon outer brighter moonDial"). CHEAP: the GL fan/rim materials are already
+  per-body instances — set `uFuture` per body at creation (aimCones.ts makeSectorMaterial
+  uniforms); the MapWindow twin + minimap radar pick the future fill/stroke colour per body
+  (`b.color` for sun/moon, timeFuture for target). One decision to keep: the shader's
+  past/future split stays `step(uNow01, vT)` — only the future COLOUR changes.
+- **Item 18 — desktop TargetPanel GOTO button:** in the tracked-object properties window, a
+  new GOTO button BEFORE the SHOW toggle (TargetPanel.tsx ~:524 `tp-toggle` row), same action
+  as the viewport GOTO chip (SkyGotoChips.tsx `aim` handler ~:105-122: below-horizon →
+  `nextRiseAzimuth(...)` → `aimAtSky(rise?.azDeg ?? marker.azDeg, 0)`, else
+  `aimAtSky(marker.azDeg, marker.altDeg)`) — extract that handler into a shared helper
+  rather than duplicating (it reads skyMarkers + camGeo/focus fallbacks).
 
 ## S3 spec (network & stability + PiP)
 
