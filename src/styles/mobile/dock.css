@@ -181,17 +181,6 @@
 }
 
 .md-date,
-.md-rate {
-  font-family: inherit;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--color-text);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
-  border-radius: 6px;
-  padding: 3px 6px;
-  color-scheme: dark;
-}
 .md-date::-webkit-calendar-picker-indicator {
   filter: invert(0.7);
 }
@@ -208,23 +197,20 @@
   padding: 6px 7px; /* the glyph is tiny — the padding keeps a usable touch target */
 }
 
-.md-play {
-  font-family: inherit;
-  font-size: 11px;
-  line-height: 1;
-  color: var(--color-text-secondary);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
-  border-radius: 999px;
-  padding: 5px 11px; /* ≥ ~26px tall — a real touch target with the row padding */
+/* Scene-time readout (batch #4 item 12) — replaces PLAY + speed on /m; time only (the
+   calendar to the left carries the date). Live = calm; pinned tints amber/blue like the cursor. */
+.md-clock {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.md-play.is-on {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+.md-clock--pinned {
+  color: var(--color-warn);
 }
-.md-play.is-on.is-ff {
-  color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+.md-clock--future {
+  color: var(--color-time-future);
 }
 
 .md-offset {

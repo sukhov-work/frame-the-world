@@ -187,6 +187,12 @@ export interface CameraState {
    *  Composes with the /m 2D auto-detach in the orchestrator's per-frame gate. Persisted. */
   buildings3d: boolean;
   setBuildings3d: (on: boolean) => void;
+  /** Vector map-ink toggle (owner batch #4 item 7, 2026-08-21): the road/river/green ribbons
+   *  (scene/vectorFeatures) washed out satellite detail even after the flat-map attenuation.
+   *  OFF hides the ribbons everywhere (builds are kept — re-show is instant); street-name
+   *  labels are content, not wash, and stay on their own presence. Persisted (VEC / ▤ VECTOR). */
+  vectorsVisible: boolean;
+  setVectorsVisible: (on: boolean) => void;
   /** One-shot "stand in this first-person viewpoint" request (saved places, owner 2026-07-15):
    *  the full `#f=` pose. The orchestrator consumes it next frame — drops a temp pin at the
    *  location and enters temp-pin FPV through the exact share-link path (same basis/eye/FOV
@@ -297,6 +303,11 @@ export const useCameraStore = create<CameraState>((set) => ({
   setBuildings3d: (on) => {
     saveViewPref("buildings3d", on);
     set({ buildings3d: on });
+  },
+  vectorsVisible: stored.vectorsVisible ?? true,
+  setVectorsVisible: (on) => {
+    saveViewPref("vectorsVisible", on);
+    set({ vectorsVisible: on });
   },
   fpvJumpRequest: null,
   requestFpvJump: (pose) => set({ fpvJumpRequest: pose }),

@@ -13,6 +13,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
+import { useFindStore } from "../../store/find";
+import type { FindBody } from "../../lib/ephemeris/frameFinder";
 import { useCameraStore } from "../../store/camera";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { targetAzAlt } from "../../lib/ephemeris/targets";
@@ -54,6 +56,12 @@ function WindowRow({ w, onJump }: { w: TargetWindow; onJump: (ms: number) => voi
 export default function TargetSheet({ onClose }: { onClose: () => void }) {
   const target = useSkyStore((s) => s.target);
   const stopFollowing = useSkyStore((s) => s.stopFollowing);
+  // FIND IN FRAME seat (batch #4 item 8) — the sky-menu mapping: sun/moon own chips, else TARGET.
+  const findOpen = useFindStore((s) => s.open);
+  const findBodies = useFindStore((s) => s.bodies);
+  const findBody: FindBody =
+    target.id === "body:sun" ? "sun" : target.id === "body:moon" ? "moon" : "target";
+  const findOn = findOpen && findBodies[findBody];
   const visible = useSkyStore((s) => s.visible);
   const setVisible = useSkyStore((s) => s.setVisible);
   const highlight = useSkyStore((s) => s.highlight);
@@ -227,6 +235,20 @@ export default function TargetSheet({ onClose }: { onClose: () => void }) {
           </select>
         </div>
       )}
+      {/* FIND IN FRAME (owner batch #4 item 8) — the sky-menu action seated above UNFOLLOW;
+          same body mapping + composite enabled-read as the menu (on /m PLAN keeps its sheet). */}
+      <button
+        type="button"
+        className={`m-findframe${findOn ? " m-findframe--on" : ""}`}
+        aria-pressed={findOn}
+        onClick={() => {
+          const f = useFindStore.getState();
+          f.setBody(findBody, !findOn);
+          if (!findOn) f.setOpen(true);
+        }}
+      >
+        {findOn ? "✓ FIND IN FRAME" : "⌖ FIND IN FRAME"}
+      </button>
       {/* Owner 2026-08-19 (batch item 7): dismiss the followed object — hides it everywhere
           and releases the camera; search / long-press the sky to follow again. */}
       <button

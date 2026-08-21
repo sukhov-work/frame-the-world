@@ -121,7 +121,22 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**PLUX LAUNCH GROOMING SHIPPED 2026-08-19d** (DECISIONS 2026-08-19d; gates 1,073/1,073 ·
+**OWNER BATCH #4 S1 SHIPPED 2026-08-21 — 10/15 items** (DECISIONS 2026-08-21; gates
+1,074/1,074 · astro 0 err; both shells verified via NEW re-runnable
+`scripts/verify-uxbatch4.mjs` 23/23): iOS selection tint killed (global user-select none) ·
+2D-map two-finger ROTATE + tilt-into-3D door removed (`mobile2dFreeHeading` latch) ·
+MapWindow continuous fractional pinch (PINCH_SENS 0.8, FPV z18) + desktop drag/−10% (DragGrip
+overflow-clip trap fixed) · target tracking ray FAR (rayLenK 6 / canvas edge) · vector ink
+halved + `vectorsVisible` pref + VEC / ▤ VECTOR toggles · ⌖ FIND IN FRAME above UNFOLLOW both
+shells · long-press ▲ 3D → FPV jump at map centre w/ last focal · /m dock time-only clock
+(PLAY+rate retired on /m) · Guide resizable (search had already shipped 19d). Plan + specs:
+`UXBATCH4_PLAN.md`; log `mem:project/wip-2026-08-21-owner-uxbatch4`. **NEXT SESSION: batch #4
+S2 = radar rework #9 (clipped target zone + thin sun/moon concentric bands + capped dials,
+unified GL/canvas/minimap) + focal cone everywhere (needs planned-view heading+focal state) +
+#11 focal joystick + #4b MapWindow twist — design-first. Then S3 = #15 tile-storm (SW cache;
+headers probed fine — cause is LRU re-fetch vs iOS cache) + #5 iOS reload/heat (contextlost/
+pagehide/lean profile) + #1 minimap PiP. Release still GATED on the owner's domain fix.**
+Prior state (2026-08-19d): **PLUX LAUNCH GROOMING SHIPPED** (DECISIONS 2026-08-19d; gates 1,073/1,073 ·
 astro 0 err; both shells + /guide CDP-verified): brand Sidera→PLUX everywhere (wordmark hero,
 nav/strip/upload marks, favicon.png + apple-touch, favicon.svg deleted) · domain plux.today
 assessed + repo flipped to `https://www.plux.today` (SITE_URL + 7 script defaults;

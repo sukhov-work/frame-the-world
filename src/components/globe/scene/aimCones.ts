@@ -369,11 +369,14 @@ export function attachAimCones(opts: {
         b.edgesMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
 
         // Direction line: current azimuth + below-horizon paling (3 ephemeris calls/frame —
-        // the sky marker's own budget). Only the FOCUSED body's line reads past the rim;
-        // the others end exactly at their circle (rides the same emphasis ease — no pop).
+        // the sky marker's own budget). The TARGET line is the tracking RAY (owner batch #4
+        // item 6, 2026-08-21): it reads far past the rim so distant landmarks can be lined up
+        // against it. Sun/moon keep the dial rule — only the FOCUSED body's line reads past
+        // the rim; the others end exactly at their circle (same emphasis ease — no pop).
         const nowPos = targetAzAlt(targetFor(b.key, target), sceneMs, anchorLat, anchorLon);
         b.line.rotation.z = -nowPos.azDeg * DEG;
-        b.line.scale.y = 1 + (AIMCONES.lineLenK - 1) * emphK;
+        b.line.scale.y =
+          b.key === "target" ? AIMCONES.rayLenK : 1 + (AIMCONES.lineLenK - 1) * emphK;
         b.lineMat.uniforms.uAlpha.value =
           (nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown) * overlayA;
       }

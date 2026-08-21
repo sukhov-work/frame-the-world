@@ -96,6 +96,12 @@ describe("sanitizeViewPrefs", () => {
     expect(sanitizeViewPrefs({ aimVisible: "off", savedPlacesOnMap: 0 })).toEqual({});
   });
 
+  // Batch #4 item 7 (owner 2026-08-21) — the VEC / ▤ VECTOR map-ink toggle.
+  it("keeps vectorsVisible and drops wrong-typed ones", () => {
+    expect(sanitizeViewPrefs({ vectorsVisible: false })).toEqual({ vectorsVisible: false });
+    expect(sanitizeViewPrefs({ vectorsVisible: "off" })).toEqual({});
+  });
+
   // The phase-C key rename (2026-08-03): comet-era blobs keep their chip choices. (A
   // comet-era SHOW-off is un-stamped by definition, so the 2026-08-19b re-arm drops it —
   // the ON choices survive.)

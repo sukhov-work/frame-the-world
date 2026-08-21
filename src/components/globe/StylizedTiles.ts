@@ -2677,36 +2677,46 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  // 2D-map free-heading latch (batch #4 item 3): flips true on the first two-finger rotate and
+  // stands the north re-lock down until 2D re-entry or an explicit heading glide.
+  let mobile2dFreeHeading = false;
+
   const stepMobile2dLocks = () => {
-        // ── /m 2D map locks (UPLIFT U1) ── nadir + north-up re-lock while the 2D map is
-        // active. The library's own two-finger parallel drag (touch ROTATE — the pinch/rotate
-        // classifier, EnvironmentControls.js:562-585) IS the tilt-into-3D gesture: while it is
-        // live the TILT lock stands down (the fingers must win) and crossing
-        // MOBILE2D.enter3dTiltDeg flips the shell to 3D mid-gesture (buildings attach, locks
-        // end); the HEADING lock keeps running through it, so the gesture reads as pure tilt.
+        // ── /m 2D map locks (UPLIFT U1; gesture rework owner batch #4 item 3, 2026-08-21) ──
+        // TILT re-locks to nadir EVERY frame while the 2D map is active — the old
+        // tilt-through-15°-into-3D door is gone (the ▲ 3D chip is the only way up), so the
+        // library's two-finger parallel drag (touch ROTATE — the pinch/rotate classifier,
+        // EnvironmentControls.js:562-585) is now the map ROTATION gesture: while it lives the
+        // HEADING lock stands down (azimuth shows through, pitch dies in the tilt lock), and
+        // the map KEEPS the user's heading afterwards (free-heading) until 2D is re-entered or
+        // a heading glide (the 2D chip / compass) seats it home. North-lock keeps running only
+        // while the map is still un-rotated — it corrects pan-induced drift, not the user.
         // Manual glides (the 3D chip's setTargetTilt) outrank both locks — one writer per axis.
         if (!isMobileShell || fpvActive || flight.active()) return;
-        if (useCameraStore.getState().mapMode !== "2d") return;
+        if (useCameraStore.getState().mapMode !== "2d") {
+          mobile2dFreeHeading = false; // re-arm the north lock for the next 2D entry
+          return;
+        }
         // Live tilt — the stepTiltGlide measurement (pivot up vs camera-backward).
         if (controls.getPivotPoint(_pivot) === null) _pivot.copy(_focus);
         zc.getUpDirection(_pivot, _pivotUp);
         _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
         const pitchRad = _pivotUp.angleTo(_camBack);
         const touchRotate = zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch();
-        if (touchRotate) {
-          if (pitchRad > THREE.MathUtils.degToRad(MOBILE2D.enter3dTiltDeg)) {
-            useCameraStore.getState().setMapMode("3d"); // tilted through the gate — 3D owns it
-            return;
-          }
-        } else if (
+        if (touchRotate) mobile2dFreeHeading = true;
+        if (
           camStore.targetTiltDeg === null &&
           pitchRad > THREE.MathUtils.degToRad(MOBILE2D.lockTiltEpsDeg)
         ) {
-          const kk = 1 - Math.exp(-dtMs / MOBILE2D.lockEaseTauMs);
+          // Mid-gesture the fingers' vertical component must die the SAME frame (kk = 1) or
+          // the ease reads as a wobble; outside a gesture the usual glide cleans up drift.
+          const kk = touchRotate ? 1 : 1 - Math.exp(-dtMs / MOBILE2D.lockEaseTauMs);
           zc._applyRotation(0, pitchRad * kk, _pivot);
           camera.updateMatrixWorld();
         }
-        if (camStore.targetHeadingDeg === null) {
+        // A heading glide (the 2D chip's setTargetHeading(0)) re-seats north AND re-arms the lock.
+        if (camStore.targetHeadingDeg !== null) mobile2dFreeHeading = false;
+        if (!mobile2dFreeHeading && !touchRotate && camStore.targetHeadingDeg === null) {
           const liveH = mapUpHeadingDeg(_focusUp);
           if (!Number.isNaN(liveH)) {
             const deltaH = headingDeltaDeg(liveH, 0);
@@ -3886,13 +3896,14 @@ export function attachStylizedTiles(opts: {
         // Vector feature web (S7 feedback): roads / rivers / water / green from the SAME parsed
         // tiles, ribbons + fills on the rendered terrain below VECTOR.topAltM. Night-dimmed by
         // solar elevation at the view focus (map ink is unlit) — except on the flat map, where
-        // ink stays readable around the clock. Off in FPV, like the names.
+        // ink stays readable around the clock. Off in FPV, like the names. VEC / ▤ VECTOR
+        // toggle (owner batch #4 item 7): hides the ribbons only — street names stay content.
         vectorFeatures.update({
           alt,
           focusLatDeg: camStore.focusLatDeg,
           focusLonDeg: camStore.focusLonDeg,
           sunElevSin: sunDirW.dot(_focusUp),
-          enabled: !fpvActive,
+          enabled: !fpvActive && camStore.vectorsVisible,
           mapFlat: mapFlatNow(),
         });
   };

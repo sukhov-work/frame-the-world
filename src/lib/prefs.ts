@@ -53,6 +53,10 @@ export interface ViewPrefs {
   aimVisible?: boolean;
   /** MY PLACES ON MAP — the member's saved-place markers on the 2D map (owner 2026-08-19). */
   savedPlacesOnMap?: boolean;
+  /** VEC chip (desktop) / ▤ VECTOR (/m LAYERS) — the map-ink road/river/green ribbons
+   *  (scene/vectorFeatures). Street-name labels stay on their own presence — the toggle kills
+   *  the wash, not the content (owner batch #4 item 7, 2026-08-21). */
+  vectorsVisible?: boolean;
   /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
   skyGhosts?: boolean;
   /** Ghost copies per time direction (1..15; the owner default is 4 each way = 8 total). */
@@ -94,6 +98,7 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   if (typeof r.aimMoon === "boolean" && (r.aimMoon || rearmed)) out.aimMoon = r.aimMoon;
   if (typeof r.aimVisible === "boolean") out.aimVisible = r.aimVisible;
   if (typeof r.savedPlacesOnMap === "boolean") out.savedPlacesOnMap = r.savedPlacesOnMap;
+  if (typeof r.vectorsVisible === "boolean") out.vectorsVisible = r.vectorsVisible;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
   if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
     out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));

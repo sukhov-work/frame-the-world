@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import DragGrip, { usePanelDrag } from "../ui/DragGrip";
+import DragGrip, { ResizeGrip, usePanelDrag, usePanelResize } from "../ui/DragGrip";
 import {
   GUIDE_CHAPTERS,
   GUIDE_GOALS,
@@ -100,6 +100,9 @@ export default function Guide() {
   // swaps its chapter list for ranked hits; picking one clears the query and jumps.
   const [query, setQuery] = useState("");
   const drag = usePanelDrag("guide");
+  // Resizable since batch #4 item 14 (owner 2026-08-21 — supersedes the 2026-08-15e
+  // "size is part of the design" ruling).
+  const resize = usePanelResize("guide");
   const scrollRef = useRef<HTMLDivElement>(null);
   // Topic to scroll to once the target chapter has rendered (crosslink / deep-link jumps).
   const pendingTopic = useRef<string | null>(null);
@@ -169,8 +172,9 @@ export default function Guide() {
         Guide
       </button>
       {open && (
-        <div className="gd-panel" style={drag.style} role="dialog" aria-label="Guide">
+        <div className="gd-panel" style={{ ...drag.style, ...resize.style }} role="dialog" aria-label="Guide">
           <DragGrip drag={drag} label="Move the guide" tipPos="left" />
+          <ResizeGrip resize={resize} label="Resize the guide" />
           <div className="gd-cols">
             <aside className="gd-rail">
               <span className="gd-title">GUIDE</span>

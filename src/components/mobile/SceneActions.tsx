@@ -19,8 +19,13 @@ import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { saveViewPref } from "../../lib/prefs";
 import { formatAltM } from "../../lib/format/readout";
-import { CONTROLS, MOBILE2D } from "../globe/tuning";
+import { CONTROLS, FPV, FRUSTUM, MOBILE2D, ORCH } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
+
+/** Last FPV focal (vertical FOV) seen this session — a long-press 3D jump re-enters at the
+ *  focal the user last stood at instead of the temp default (batch #4 item 10). Tracked from
+ *  the fpvHud mirror by the SceneActions root (always mounted on /m). */
+let lastFpvFovDeg: number | null = null;
 
 export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => void }) {
   const tempPin = useCameraStore((s) => s.tempPin);
@@ -36,6 +41,14 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const noteTimer = useRef<number | null>(null);
+  // Track the last FPV focal for the long-press 3D jump (module note above).
+  useEffect(
+    () =>
+      useCameraStore.subscribe((s) => {
+        if (s.fpvHud) lastFpvFovDeg = s.fpvHud.fovDeg;
+      }),
+    [],
+  );
 
   useEffect(
     () => () => {
@@ -127,19 +140,69 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
 /** 2D ↔ 3D (UPLIFT U1, owner point 1) — the accessibility twin of the two-finger tilt gesture.
  *  2D → 3D tilts up to the desktop toggle's angle (buildings attach on the mode write); 3D →
  *  2D glides back to nadir + north (buildings detach). The orchestrator's locks/gate own the
- *  camera + tileset mechanics — this chip only writes the store seams. */
+ *  camera + tileset mechanics — this chip only writes the store seams.
+ *  LONG-PRESS (owner batch #4 item 10, 2026-08-21): jump straight into FPV at the current map
+ *  centre — no set point needed — keeping the last-used focal (the MapWindow long-press pose,
+ *  aimed the way the map is turned). The ORCH long-press shape: 500 ms, 6 px move-cancel. */
 function MapModeChip() {
   const mapMode = useCameraStore((s) => s.mapMode);
   const setMapMode = useCameraStore((s) => s.setMapMode);
   const setTargetTilt = useCameraStore((s) => s.setTargetTilt);
   const setTargetHeading = useCameraStore((s) => s.setTargetHeading);
   const is2D = mapMode === "2d";
+  const pressTimer = useRef<number | null>(null);
+  const pressFired = useRef(false);
+  const downPos = useRef({ x: 0, y: 0 });
+  const cancelPress = () => {
+    if (pressTimer.current !== null) {
+      window.clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  };
+  useEffect(() => cancelPress, []);
+  const jumpHere = () => {
+    const cam = useCameraStore.getState();
+    cam.requestFpvJump({
+      latDeg: cam.focusLatDeg,
+      lonDeg: cam.focusLonDeg,
+      eyeM: FRUSTUM.eyeHeightM,
+      headingDeg: cam.headingDeg,
+      pitchDeg: 0,
+      fovDeg: lastFpvFovDeg ?? FPV.tempFovDeg,
+    });
+  };
   return (
     <button
       type="button"
       className="m-act"
       aria-pressed={is2D}
+      onPointerDown={(e) => {
+        if (e.pointerType !== "touch") return;
+        pressFired.current = false;
+        downPos.current = { x: e.clientX, y: e.clientY };
+        cancelPress();
+        pressTimer.current = window.setTimeout(() => {
+          pressTimer.current = null;
+          pressFired.current = true;
+          jumpHere();
+        }, ORCH.longPressMs);
+      }}
+      onPointerMove={(e) => {
+        if (
+          pressTimer.current !== null &&
+          Math.hypot(e.clientX - downPos.current.x, e.clientY - downPos.current.y) >
+            ORCH.clickDragPx
+        )
+          cancelPress();
+      }}
+      onPointerUp={cancelPress}
+      onPointerCancel={cancelPress}
       onClick={() => {
+        if (pressFired.current) {
+          // The long-press already consumed this gesture — swallow the trailing click.
+          pressFired.current = false;
+          return;
+        }
         if (is2D) {
           setMapMode("3d");
           setTargetTilt(CONTROLS.toggle3dTiltDeg);
@@ -206,6 +269,8 @@ function LayersChip() {
   const setAimVisible = useSkyStore((s) => s.setAimVisible);
   const placesOn = usePlacesMapStore((s) => s.onMap);
   const setPlacesOn = usePlacesMapStore((s) => s.setOnMap);
+  const vectorsVisible = useCameraStore((s) => s.vectorsVisible);
+  const setVectorsVisible = useCameraStore((s) => s.setVectorsVisible);
   const toggleCls = (on: boolean) => (on ? "m-act m-act--accent" : "m-act m-act--quiet");
   return (
     <div className="m-layersrow">
@@ -256,6 +321,14 @@ function LayersChip() {
             onClick={() => setAimVisible(!aimVisible)}
           >
             ∠ RADAR
+          </button>
+          <button
+            type="button"
+            className={toggleCls(vectorsVisible)}
+            aria-pressed={vectorsVisible}
+            onClick={() => setVectorsVisible(!vectorsVisible)}
+          >
+            ▤ VECTOR
           </button>
         </>
       )}

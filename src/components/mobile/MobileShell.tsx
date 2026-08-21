@@ -11,8 +11,7 @@
  * containing-block rule carries to mobile).
  */
 
-import { useEffect, useState } from "react";
-import { localTimeStr, sceneTimeMs, useTimeStore } from "../../store/time";
+import { useState } from "react";
 import { useSkyStore } from "../../store/sky";
 import { useCameraStore } from "../../store/camera";
 import MobileTimeDock from "./MobileTimeDock";
@@ -30,31 +29,6 @@ import FpvControls from "./FpvControls";
 import "../../styles/mobile/chrome.css";
 
 type SheetId = "plan" | "find" | "search" | "target" | "guide" | null;
-
-/** Status-strip scene-time chip: local wall time + LIVE, or the pinned date · time. */
-function TimeChip() {
-  const live = useTimeStore((s) => s.live);
-  const playRate = useTimeStore((s) => s.playRate);
-  // Subscribing to timeMs re-renders the chip on every scrub move — exactly what a readout wants.
-  const pinnedMs = useTimeStore((s) => s.timeMs);
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => tick((n) => n + 1), playRate !== null ? 250 : 10_000);
-    return () => clearInterval(id);
-  }, [playRate, live]);
-  const nowMs = live && playRate === null ? Date.now() : playRate !== null ? sceneTimeMs() : pinnedMs;
-  // Amber = pinned behind the wall clock, blue = ahead (owner 2026-08-15; scrubber-cursor twin).
-  const ahead = !live && nowMs > Date.now();
-  return (
-    <span
-      className={`m-chip m-chip--time${live ? "" : ahead ? " m-chip--pinned m-chip--future" : " m-chip--pinned"}`}
-    >
-      {live
-        ? `${localTimeStr(nowMs)} LIVE`
-        : `${new Date(nowMs).toLocaleDateString([], { month: "short", day: "numeric" })} ${localTimeStr(nowMs)}`}
-    </span>
-  );
-}
 
 export default function MobileShell() {
   const [sheet, setSheet] = useState<SheetId>(null);
@@ -78,7 +52,7 @@ export default function MobileShell() {
         <span className="m-status__right">
           {/* owner 2026-08-15: login + MY PLACES one tap from the strip (list = SEARCH sheet) */}
           <MobileAccount onOpenPlaces={() => setSheet("search")} />
-          <TimeChip />
+          {/* Scene-time readout moved into the bottom dock (owner batch #4 item 12). */}
           {/* Guide track G1 (owner 2026-08-15): the same guideContent both shells render. */}
           <button className="m-chip" onClick={() => setSheet("guide")}>
             GUIDE

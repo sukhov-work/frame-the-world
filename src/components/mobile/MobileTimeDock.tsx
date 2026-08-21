@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import {
   hourTicksBetween,
   localDateStr,
+  localTimeStr,
   sceneTimeMs,
   useTimeStore,
   withLocalDate,
@@ -59,13 +60,6 @@ function offsetShort(deltaMs: number): string {
   const m = totalMin % 60;
   if (d > 0) return `${sign}${d}d${h > 0 ? ` ${h}h` : ""}`;
   return h > 0 ? `${sign}${h}h${String(m).padStart(2, "0")}m` : `${sign}${m}m`;
-}
-
-/** "10 MIN/S" style playback label (compact). */
-function rateShort(rate: number): string {
-  if (rate < 60) return `×${rate}`;
-  if (rate < 3600) return `${Math.round(rate / 60)}M/S`;
-  return `${Math.round(rate / 3600)}H/S`;
 }
 
 /** SVG path for an altitude curve over the visible window (viewBox 0..100 × 0..40; horizon at
@@ -120,12 +114,11 @@ export default function MobileTimeDock() {
   const playRate = useTimeStore((s) => s.playRate);
   const setTime = useTimeStore((s) => s.setTime);
   const goLive = useTimeStore((s) => s.goLive);
-  const play = useTimeStore((s) => s.play);
-  const stopPlay = useTimeStore((s) => s.stopPlay);
+  // PLAY/speed retired on /m (batch #4 item 12) — playRate still read: a play started elsewhere
+  // (e.g. a shared pose landing mid-play) keeps its cursor/offset styling honest.
   const playing = playRate !== null;
 
   const railRef = useRef<HTMLDivElement>(null);
-  const [armedRate, setArmedRate] = useState<number>(600); // 10 min/s — the planning default
 
   const nowMs = sceneTimeMs();
   const windowStartMs = nowMs - WINDOW_MS / 2;
@@ -261,15 +254,6 @@ export default function MobileTimeDock() {
   // Owner 2026-08-19 (batch item 3): desktop .ts-day parity — a fixed 24 h step, same literal.
   const stepDay = (dir: 1 | -1) => setTime(sceneTimeMs() + dir * 86_400_000);
 
-  const togglePlay = () => {
-    if (playing) stopPlay();
-    else play(armedRate);
-  };
-  const onRateChange = (rate: number) => {
-    setArmedRate(rate);
-    if (playing) play(rate);
-  };
-
   const ff = playing && (playRate ?? 1) > 1;
   // Pinned-time side (owner 2026-08-15) — the desktop TimeScrubber twin: amber past, blue future.
   const ahead = !live && nowMs > Date.now();
@@ -375,28 +359,14 @@ export default function MobileTimeDock() {
         >
           ▶
         </button>
-        <button
-          type="button"
-          className={`md-play${playing ? " is-on" : ""}${ff ? " is-ff" : ""}`}
-          aria-label={playing ? "Stop playback" : "Play scene time"}
-          aria-pressed={playing}
-          onClick={togglePlay}
+        {/* Owner batch #4 item 12 (2026-08-21): PLAY + speed retired on /m (not useful at touch
+            scale) — the scene-time readout moved down here from the status strip instead.
+            Time only (the calendar to the left already carries the date). */}
+        <span
+          className={`md-clock${live ? " md-clock--live" : ahead ? " md-clock--future" : " md-clock--pinned"}`}
         >
-          {playing ? "◼" : "▶"}
-        </button>
-        <select
-          className="md-rate"
-          aria-label="Playback speed"
-          value={armedRate}
-          onChange={(e) => onRateChange(Number(e.target.value))}
-        >
-          <option value={1}>×1</option>
-          {SCRUB.playRates.map((r) => (
-            <option key={r} value={r}>
-              {rateShort(r)}
-            </option>
-          ))}
-        </select>
+          {localTimeStr(nowMs)}
+        </span>
         <span
           className={`md-offset${ff ? " md-offset--ff" : live ? "" : ahead ? " md-offset--future" : " md-offset--past"}`}
         >

@@ -3,6 +3,8 @@ import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
+import { useFindStore } from "../../store/find";
+import type { FindBody } from "../../lib/ephemeris/frameFinder";
 import { useCameraStore } from "../../store/camera";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import {
@@ -367,6 +369,12 @@ export default function TargetPanel() {
   const setTrack = useSkyStore((s) => s.setTrack);
   const stopFollowing = useSkyStore((s) => s.stopFollowing);
   const target = useSkyStore((s) => s.target);
+  // FIND IN FRAME seat (batch #4 item 8) — same body mapping + composite read as the sky menu.
+  const findOpen = useFindStore((s) => s.open);
+  const findBodies = useFindStore((s) => s.bodies);
+  const findBody: FindBody =
+    target.id === "body:sun" ? "sun" : target.id === "body:moon" ? "moon" : "target";
+  const findOn = findOpen && findBodies[findBody];
   const setTime = useTimeStore((s) => s.setTime);
   const live = useTimeStore((s) => s.live);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -606,6 +614,29 @@ export default function TargetPanel() {
                 </select>
               </div>
             )}
+
+            {/* FIND IN FRAME (owner batch #4 item 8, 2026-08-21) — the sky-menu action, seated
+                in the properties panel: sun/moon map to their own FIND chips, ANY other tracked
+                target to the generic TARGET slot. Enabled = chip on AND the FIND surface open
+                (closed surface scans nothing — same composite read as the menu). */}
+            <button
+              type="button"
+              className={`tp-findframe ${findOn ? "tp-findframe--on" : ""}`}
+              aria-pressed={findOn}
+              onClick={() => {
+                const f = useFindStore.getState();
+                f.setBody(findBody, !findOn);
+                if (!findOn) {
+                  // Desktop shared-window exclusivity: PLAN yields to FIND (the menu's rule).
+                  if (!document.body.classList.contains("m"))
+                    usePlanStore.getState().setOpen(false);
+                  f.setOpen(true);
+                }
+              }}
+              title="Scan the day for frames that catch this object — the sky-menu FIND IN FRAME"
+            >
+              {findOn ? "✓ FIND IN FRAME" : "⌖ FIND IN FRAME"}
+            </button>
 
             {/* Owner 2026-08-19 (batch item 7): dismiss the followed object — hides it
                 everywhere and releases the camera; search / right-click the sky re-follows. */}
