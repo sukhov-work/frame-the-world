@@ -148,7 +148,16 @@ Vite 504 "Outdated Optimize Dep" after new globe-bundle imports (restart wix dev
 imageryGround injected-GLSL uniforms MUST be declared in the fragment header (JS uniforms
 object alone ⇒ silent compile fail, previous program keeps rendering, pokes no-op);
 headless Chrome governs to tier `low` — assert DPR via __globeQuality tier-consistency.
-**NEXT SESSION (owner order 2026-08-21f-end, CONFIRMED at push time): AUDIT + REVIEW +
+**NEXT SESSION (owner orders 2026-08-21f-end + g-end): FIRST a 3-item QA slice —
+(C) CRITICAL regression from QA-7b: overlay-composite REBUILD STORM on every 2D↔FPV/3D
+flip (white chart seconds→10 s+, load storm, blurry stall; desktop below tier high too) —
+sticky composite resolution + refinement kick; mitigation knob overlayResolution2dPx→256;
+full diagnosis NEXT_SESSION_PROMPT §0C · then
+(A) expanded-minimap follow YIELDS to manual drag/focal edits (manualPan latch cleared by
+an eye-motion detector; follow only on explicit movement) · (B) SCREEN-relative walk
+controls while mapWindowOpen, both shells (stick/arrow-up = chart-up regardless of twist,
+converted to true-world bearing via a published mapWindowRotRad; nowhere else) — full specs
+NEXT_SESSION_PROMPT §0. THEN the standing charter: AUDIT + REVIEW +
 DOCS REORG + GUIDE WORK — the full charter is NEXT_SESSION_PROMPT.md (audit READ-ONLY →
 audits/; adversarial review of the QA fixes' edges; ARCHITECTURE §7 + globe-tuning +
 verify.md refresh + plans archive + DECISIONS-compaction check; guideContent topics for

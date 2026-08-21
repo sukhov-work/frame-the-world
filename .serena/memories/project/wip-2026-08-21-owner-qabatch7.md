@@ -94,6 +94,18 @@ icons AGAIN (the batch-#5 corruption) — item 7 answered from pipeline code ins
   uniforms, FPV heat-cap return); `verify-uxbatch4-s3.mjs` DPR check SUPERSEDED (2D chart
   now correctly 1.5; the 1.25 FPV cap is locked by qa7ab).
 
+## REGRESSION REPORTED post-push (owner 2026-08-21g-end — scheduled as NEXT_SESSION §0C, CRITICAL)
+QA-7b's overlayResolution2dPx per-frame writer flips the composite 512↔256 on EVERY
+2D↔FPV/3D transition → fresh-instance overlay rebuild each flip → white chart + vector ink
+for seconds (10 s+ on device), tile-load storm ("zero cache"), then a blurry stall (the
+rebuilt overlay likely never re-refines without camera motion — UpdateOnChangePlugin not
+kicked). Desktop reproduces below tier `high` (tier 256 vs flat 512). Fix direction:
+STICKY resolution (never flip on mode changes) + refinement kick after rebuilds; instant
+mitigation: GROUND.overlayResolution2dPx → 256. The "flips are rare / no-op guard suffices"
+cost call in this session's QA-7b was WRONG — record as a lesson: setOverlayResolution is
+never cheap; treat ANY per-frame writer that can change its value on a mode flip as a
+rebuild loop.
+
 ## Traps (QA-7 follow-up — expensive ones)
 - **Injected-GLSL uniform declaration**: adding a uniform to the imageryGround JS `uniforms`
   object is NOT enough — the fragment-header injection DECLARES each `uFtw*` explicitly;
