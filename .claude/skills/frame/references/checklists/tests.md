@@ -86,3 +86,36 @@ TOC: 1 literature vectors · 2 golden gates · 3 trap→test coverage · 4 tests
     — check: conventions/verify.md names all six; verify scripts since baseline follow them
     (Chrome restarts between suites in session logs; CDP Network counters where levels matter).
     — anchor: DECISIONS 2026-08-21f/g traps; mem:project/wip-2026-08-21-owner-qabatch7.
+
+11. Can this check FAIL? (appended 2026-08-22, audit #3 re-mine — the run's headline result:
+    FIVE checks that could not fail, four of them written in the session that "verified" the
+    feature). For every assertion added, name the mutation that would turn it red. Three
+    shapes to refuse, each drawn from a real one:
+    (a) **The already-true absolute.** "the scrubber is LIFTED clear of the bar" asserted
+        `gap > barHeight` — but the element's BASE offset (2.2rem = 35.2 px) already exceeded
+        the 13.6 px bar, so it held with the lift deleted entirely. **A check on a lift/offset/
+        delta must measure the DELTA** (read the closed state, act, assert the difference),
+        never an absolute that the base value already satisfies.
+    (b) **The unfalsifiable capture.** A regex captured CSS up to `visibility: hidden`, then
+        the test asserted the captured text did NOT contain `display: none` — which it never
+        could. When asserting an ABSENCE inside an extracted region, prove the region is big
+        enough to have contained the thing.
+    (c) **The no-op that reads as success.** "following RESUMED — the chart tracks the eye"
+        passed when the walk moved nothing, because the previous step had just centred the
+        chart ON the eye. **Every "it responded" assertion needs a trigger guard** proving the
+        stimulus actually happened, in the same block.
+    — check: each new `check(...)`/`expect(...)` has a named falsifying mutation; no
+    lift/offset assertion compares against an absolute; no "responded" assertion lacks its
+    trigger guard.
+
+12. A counter needs a positive control AND its precondition pinned (appended 2026-08-22,
+    audit #3 C1). A browser check that reads an event counter (CDP `Network.requestWillBeSent`
+    tallies, rebuild counters, tile GETs) must (i) assert the counter is non-zero — otherwise
+    "≈0 new requests" is indistinguishable from "the probe never fired" — and (ii) assert the
+    state that makes it fire. Real failure: the Esri GET counter only counts in satellite
+    ground mode, and `/tmp/ftw-cdp` PERSISTS that pref across verify sessions, so an entire
+    regression leg could run on zero traffic and pass while its reported numbers were fiction.
+    Same rule for a guard captured in a probe payload: **assert it, do not merely log it** (a
+    viewport loop captured `altPresent` and never checked it — on the one occlusion it existed
+    to disprove). — check: every counter-based assertion carries `counter > 0` plus its
+    precondition; every captured guard field is asserted, not just printed.

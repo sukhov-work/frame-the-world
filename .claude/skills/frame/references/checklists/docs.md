@@ -70,3 +70,16 @@ TOC: 1 append-only ledger · 2 doc-sync completeness · 3 convention samples · 
     prompt file is gitignored — the registry is the durable copy); no forked second list.
     — check: diff the registry against NEXT_SESSION_PROMPT tails + DECISIONS open items.
     — anchor: references/audit-mode.md step 7; laws.md (Technical Debt).
+
+13. Delegated affordances make their guide topic LOAD-BEARING (appended 2026-08-22, audit #3
+    D2). When code deliberately drops an on-screen affordance BECAUSE the guide covers it, that
+    guide topic stops being documentation and becomes part of the feature — and must be
+    verified in the same pass as the code. Real failure: `MapWindow.tsx` hides the /m
+    interaction hint with the comment "/m's single long-press action lives in the guide", and
+    the guide said long-press = VIEW FROM HERE while the code places a point and stays — so a
+    /m user was told to expect a teleport, got a pin, and would reasonably conclude the app was
+    broken. The stale claim had also been copied from the file's own header docblock, which
+    contradicted its own body. — check: grep the code for comments delegating behaviour to the
+    guide ("lives in the guide", "see the guide", "documented in"); each one's topic is read
+    against the current code, and the module's own header docblock is checked as the likely
+    upstream source of any error.

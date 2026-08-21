@@ -179,3 +179,33 @@ additive · 6 color-space traps · 7 tuning contract · 8 shared building materi
     — check: grep stopPropagation/preventDefault swallows near unmount paths → document-capture
     or justified; any CSS rule deletion in the diff re-reads the FULL selector list it touched.
     — anchor: DECISIONS 2026-08-21b (S1 long-press login-nav bug); 2026-08-21d item 5.
+
+26. Screen-edge ownership, on BOTH shells, before adding a surface (appended 2026-08-22,
+    audit #3 re-mine — this cost TWO collisions in one session). Before pinning anything to a
+    viewport edge, enumerate what already owns that edge in each shell. **The shells are not
+    symmetric**: `/m` has no page-level chrome, desktop does. Real failures: a new map
+    attribution bar drew straight on top of `index.astro`'s existing `.map-credit`, whose
+    source list was a strict SUPERSET of it (two overlapping lines); and moving the `/m` PiP
+    up one rung put its transparent hole over the status strip, which then showed through it.
+    — check: for a new fixed/absolute edge surface, an enumeration of that edge's existing
+    occupants per shell exists in the commit or the comment.
+
+27. A z-index cannot lift a child out of its parent's stacking context (appended 2026-08-22,
+    audit #3 A1-2). If element A must paint above element B and A is a descendant of a
+    positioned/z-indexed ancestor, raising A's own `z-index` does NOTHING — the whole subtree
+    is composited at the ancestor's level. Real failure: the map's ◉ RE-CENTRE button (inside
+    the z-20 `.mw`) was occluded by the z-24 FPV altitude column; the fix had to be
+    **geometric** (a `min()` floor derived from the column's published geometry tokens), or
+    else move the element out of the ancestor entirely (the sibling-not-child pattern the
+    attribution bar uses to escape `.mw`'s transform). Reaching for `z-index` first is the
+    trap. — check: any new "must paint above" requirement names the stacking context both
+    elements resolve in.
+
+28. When a shared offset token is introduced, sweep EVERY surface anchored to that edge
+    (appended 2026-08-22, audit #3 A1-15). Introducing `--mw-credit-h` and lifting the two
+    surfaces named in the spec left a third — the TimeReadout, deliberately co-axial with the
+    scrub rail — unlifted, splitting two instruments that are specified to share an axis. The
+    sweep is mechanical: grep every `position: fixed|absolute` block with a `bottom:`/`top:`
+    declaration for that edge, in both shells, and decide each one explicitly.
+    — check: the commit that adds an offset token lists every edge-anchored surface and its
+    lift/no-lift decision.
