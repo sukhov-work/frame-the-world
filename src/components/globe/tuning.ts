@@ -491,6 +491,11 @@ export const QUALITY = {
     dprCap: 1.25,
     bloom: false,
     shadowMapSize: 1024,
+    /** QA-7b (owner 2026-08-21f): the /m 2D CHART spends the heat budget on CRISPNESS —
+     *  bloom/GTAO/shadow twins are already off on the flat map, so a DPR raise there costs
+     *  fragments only. FPV/3D keep the 1.25 heat cap. Applied via TilesHandle.mapFlat() in
+     *  GlobeCanvas; judged on device (T1). Must stay ≤ tiers.mid.dprCap (test-locked). */
+    dprCap2d: 1.5,
   },
 } as const;
 
@@ -740,10 +745,12 @@ export const TILESETS = {
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   /** Esri refines to ~z19 (sub-metre in cities). */
   esriMaxLevel: 19,
-  /** #15 demand shrink (batch #4 S3): coarse-pointer devices cap Esri one level shallower —
-   *  z17 is still ~1.2 m/px, and the deepest level is where a street-level wander burns the
-   *  most tile GETs on a phone. Desktop keeps z19 (byte-identical `high` rule). */
-  esriMaxLevelCoarse: 17,
+  /** #15 demand shrink (batch #4 S3): coarse-pointer devices cap Esri shallower than the
+   *  desktop z19 — the deepest level is where a street-level wander burns the most tile GETs
+   *  on a phone. QA-7b (owner 2026-08-21f): 17 → 18 (~0.4 m/px at lat 48) — the z17 ceiling
+   *  was the dominant cause of the 2D-chart softness vs the raw MapWindow's z19; the ~4×
+   *  deep-level GET cost is judged on device (T1 — roll back to 17 if it heats). */
+  esriMaxLevelCoarse: 18,
   /** CARTO dark_nolabels raster (Phase 5.5 S7a, owner-approved 2026-07-11) — the dark uniform
    *  drape below DRAPE.fadeTopAltM. Keyless + CORS * (live-verified); standard {z}/{x}/{y}.
    *  (The dark_only_labels street-name raster was TRIED and dropped same day — draped raster
@@ -1301,6 +1308,20 @@ export const GROUND = {
   /** (0.012 → 0.02 2026-07-13: the moon terms are phase-gated, so dark-of-moon nights leaned on this
    *  flat floor — raise it so a new-moon night isn't pitch black, without washing the terminator.) */
   ambientNightK: 0.02,
+  /** QA-7a (owner 2026-08-21f): PHOTOGRAPHIC 2D chart — strength (0..1) of the flat-map
+   *  de-grade. At 1 the /m 2D map shows the raw Esri colorimetry (gain→1, desat→0, cast→
+   *  neutral, water-darken/golden/moonlit/ambient→off, shade→1) like the MapWindow canvas;
+   *  the blend rides the eased uFtwFlat2d and is gated OUT under the dark CARTO drape
+   *  (uFtwDark), so 3D/desktop/dark-mode grading is untouched. 0 = the old stylized chart. */
+  flat2dPhotoK: 1,
+  /** QA-7b (owner 2026-08-21f): overlay composite resolution while the FLAT 2D CHART is up —
+   *  the plugin derives the Esri source zoom from resolution/rangeWidth, so the lean 256
+   *  composite pins the chart ONE level shallower than the esriMaxLevelCoarse cap allows;
+   *  512 is what actually reaches z18. stepGroundUpdate raises to max(tier, this) on the
+   *  chart and restores the tier base off it (fresh-instance rebuild per mode flip — the
+   *  composites re-render from force-cached tiles; CPU burst judged on device, T1). Never
+   *  lowers a tier (high already composites at 512). */
+  overlayResolution2dPx: 512,
   /** Moon fill that does NOT multiply by albedo (the old moonlit term is graded×moon — black
    *  stays black): fill = moonFillK × moonGlow × max(moonDir·up, 0) on the night side. */
   moonFillK: 0.7,
@@ -2055,6 +2076,18 @@ export const AIMCONES = {
    *  to screen") — applied to the GL fan AND the fullscreen MapWindow twin. The minimap radar
    *  is NOT scaled (its card is already CSS-shrunk to 124 px on /m). */
   mobileRadiusK: 0.8,
+  /** MapWindow radar radius as a fraction of the canvas HEIGHT (owner QA 2026-08-21 item 1:
+   *  "unify the minimap radar size with the normal 2D map" — it read ≈3.7× too small on a
+   *  phone). The GL fan resolves to radiusAltK/tan(POSE.fovDeg/2) ≈ 1.02 × the viewport
+   *  half-height inside its clamp band, so the chart twin rides the same fraction-of-height
+   *  rule (was 0.3 × min(w,h), zoom- and axis-inconsistent with the fan). ×mobileRadiusK on
+   *  /m like every other radar surface. */
+  mapRadiusHK: 0.5,
+  /** Skyline-gap anchor guard (m) — the horizonProfile is swept at the PLAN anchor (photo
+   *  apex / FPV eye; store/plan mirrors it ~25 m-chunked); a radar anchored further than this
+   *  from that eye must NOT wear the profile's occlusion gaps (owner QA 2026-08-21 item 3 —
+   *  honesty rule: no profile at this eye ⇒ no gap claim). */
+  skylineGuardM: 60,
   /** Small `N` north marker on the radar rim, all surfaces (owner addendum 2026-08-21 — the
    *  2D map rotates everywhere now): centre at outer-radius × northOffsetK along az 0, glyph
    *  height = radius × northSizeK. */

@@ -134,11 +134,10 @@ body.m .mw-pip {
   pointer-events: none;
 }
 
-.mw-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 2.1rem;
-  transform: translateX(-50%);
+/* Owner QA 2026-08-21 item 4: the bottom band belongs to the TIME SCRUBBER now (the /m dock
+   rides the mw-open z-24 rung; the desktop TimeScrubber rides z 43 in time-scrubber.css) —
+   the interaction hint moved into the top row and the attribution re-seated under it. */
+.mw-tophint {
   font-family: var(--font-mono);
   font-size: 0.54rem;
   letter-spacing: 0.14em;
@@ -149,14 +148,11 @@ body.m .mw-pip {
   pointer-events: none;
   white-space: nowrap;
 }
-body.m .mw-hint {
-  bottom: calc(2.4rem + env(safe-area-inset-bottom));
-}
 
 .mw-credit {
   position: absolute;
-  right: 0.6rem;
-  bottom: 0.45rem;
+  left: 0.75rem;
+  top: 3.1rem;
   font-family: var(--font-mono);
   font-size: 0.5rem;
   letter-spacing: 0.04em;
@@ -167,5 +163,7 @@ body.m .mw-hint {
   padding: 0.15rem 0.4rem;
 }
 body.m .mw-credit {
-  bottom: calc(0.45rem + env(safe-area-inset-bottom));
+  top: calc(3.1rem + env(safe-area-inset-top));
+  /* Stay clear of the 32vw PiP on the right (its box starts at 3.4rem). */
+  max-width: calc(100vw - 32vw - 2rem);
 }

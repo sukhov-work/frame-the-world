@@ -101,6 +101,23 @@ body.m.mw-open .fh-chip {
   visibility: hidden;
 }
 
+/* Owner QA 2026-08-21 item 4: while the /m fullscreen map is up the bottom column rides the
+   walk-controls rung and ONLY the time dock stays — the real scrubber rail + date/time line
+   at the very bottom of the expanded map (it replaces the retired bottom hint/attribution
+   band). Peek + tabs drop from LAYOUT (display, not visibility — the dock must sit flush on
+   the bottom edge); CSS-only, so the React mounts and their subscriptions stay warm. The
+   dock inherits the tab bar's safe-area duty while the tabs are gone. */
+body.m.mw-open .m-bottom {
+  z-index: 24;
+}
+body.m.mw-open .m-bottom .m-peek,
+body.m.mw-open .m-bottom .m-tabs {
+  display: none;
+}
+body.m.mw-open .md {
+  padding-bottom: calc(0.3rem + env(safe-area-inset-bottom));
+}
+
 /* ── AIM joystick (batch #4 item 11) — heading + focal for the planned shot ─────────────── */
 /* Knob wears the focal-cone ink: the pad steers exactly what that colour draws. */
 .m-joy--aim .m-joy__knob {

@@ -10,7 +10,7 @@ import {
   type FoveationTierCfg,
   type GovernorConfig,
 } from "../../../src/lib/globe/quality";
-import { FOVEATION, LOADING, QUALITY, RENDERER, SHADOWS, GROUND, VECTOR, STREETS } from "../../../src/components/globe/tuning";
+import { FOVEATION, LOADING, QUALITY, RENDERER, SHADOWS, GROUND, TILESETS, VECTOR, STREETS } from "../../../src/components/globe/tuning";
 
 describe("detectDeviceTier", () => {
   it("returns high for a strong GPU with ample memory + cores", () => {
@@ -245,6 +245,15 @@ describe("QUALITY.tiers.high INVARIANT — must equal the pre-pass constants", (
     expect(lean.dprCap).toBeLessThanOrEqual(QUALITY.tiers.mid.dprCap);
     expect(lean.shadowMapSize).toBeLessThanOrEqual(QUALITY.tiers.mid.shadowMapSize);
     expect(lean.bloom).toBe(false);
+    // QA-7b: the flat-2D-chart relaxation may spend heat on crispness but never exceed what
+    // the mid ceiling grants — and it must actually be a relaxation, not a second cut.
+    expect(lean.dprCap2d).toBeLessThanOrEqual(QUALITY.tiers.mid.dprCap);
+    expect(lean.dprCap2d).toBeGreaterThanOrEqual(lean.dprCap);
+    // QA-7b: the coarse Esri ceiling stays a demand SHRINK (≤ desktop z19) and can never
+    // exceed the tileset's real refinement; QA-7a's de-grade strength is a proper blend.
+    expect(TILESETS.esriMaxLevelCoarse).toBeLessThanOrEqual(TILESETS.esriMaxLevel);
+    expect(GROUND.flat2dPhotoK).toBeGreaterThanOrEqual(0);
+    expect(GROUND.flat2dPhotoK).toBeLessThanOrEqual(1);
   });
   it("degrades monotonically across tiers (each lever eases toward low)", () => {
     const { high: h, mid: m, low: l } = QUALITY.tiers;

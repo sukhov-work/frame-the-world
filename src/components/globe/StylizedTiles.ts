@@ -37,6 +37,7 @@ import { useCameraStore } from "../../store/camera";
 import { useBldgEditStore } from "../../store/bldgEdit";
 import { useMiniMapStore } from "../../store/minimap";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
+import { verticalFovDeg } from "../../lib/decode/sensors";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
 import { BAKED_REGIONS } from "../../lib/globe/regions";
@@ -111,6 +112,7 @@ import {
   FRUSTUM,
   GOLDEN,
   GRATICULE,
+  GROUND,
   MOBILE2D,
   ORCH,
   PINS,
@@ -402,6 +404,9 @@ export function attachStylizedTiles(opts: {
   //     each module. On `high` every renderer restores its captured library default (null LRU), so a
   //     capable machine is byte-identical to before the quality pass. Called once now (the device
   //     tier) + on every governor change (via the returned setQualityTier). -----------------------
+  // QA-7b: the current tier's overlay composite base (px) — stepGroundUpdate resolves the
+  // effective value (× the flat-chart raise) each frame; seeded with the constructor default.
+  let tierOverlayPx: number = GROUND.overlayResolution;
   const applyQualityTier = (tier: QualityTier) => {
     const q = QUALITY.tiers[tier];
     const lru = lruCapBytesForTier(tier, q.lruBytesMB); // null on high → each renderer's captured default
@@ -417,7 +422,11 @@ export function attachStylizedTiles(opts: {
       lruCapBytesForTier(tier, q.groundLruBytesMB),
       qCaps,
     );
-    ground.setOverlayResolution(q.overlayResolutionPx);
+    // QA-7b: the tier value is the BASE only — stepGroundUpdate is the ONE writer of the
+    // effective composite resolution (raises to overlayResolution2dPx while the flat 2D chart
+    // is up, restores the tier value the frame it drops; setOverlayResolution no-ops on the
+    // same px, so per-frame calls are free and a governor change mid-chart rebuilds ONCE).
+    tierOverlayPx = q.overlayResolutionPx;
     // U6: per-tier foveation (null on high — byte-identical; regions/periphery only engage in
     // FPV via setFoveaActive). Safe mid-FPV: each module recomputes its base from (tier, cfg, on).
     buildings.setFoveation(q.foveation);
@@ -1185,6 +1194,10 @@ export function attachStylizedTiles(opts: {
   let fpvYaw = 0; // look-around offsets (rad) on top of the anchor's own pose
   let fpvPitch = 0;
   let fpvDragId: number | null = null;
+  // Temp-FPV pin identity (owner QA 2026-08-21 item 1): the per-frame re-pose compares this
+  // to detect a PLACE POINT under a live session — a pin change re-seats the ENU basis at
+  // the new pin and zeroes the walk offset (the stale-basis/stale-offset detach root cause).
+  let fpvPinKey: string | null = null;
   let fpvLastX = 0;
   let fpvLastY = 0;
   let fpvDownX = 0; // pointer-down position — separates a marker CLICK from a look-drag
@@ -2286,17 +2299,28 @@ export function attachStylizedTiles(opts: {
                 ? THREE.MathUtils.clamp(share.eyeM, 0.5, FPV.tempEyeMaxM)
                 : FRUSTUM.eyeHeightM;
               _tempUp0.copy(pinP).normalize();
-              if (share) {
-                // Basis from the SHARED bearing (fresh scratch vectors — never alias a stored
-                // basis vector to a module temp, the S7 street-names lesson).
-                const shareLonR = THREE.MathUtils.degToRad(share.lonDeg);
-                _skyEast.set(-Math.sin(shareLonR), Math.cos(shareLonR), 0);
+              // Owner QA 2026-08-21 item 2: a plain LOOK-FROM-HERE entry honours the FOCAL
+              // CONE — plannedView (seeded from boot, batch #6) steers the basis exactly like
+              // a share bearing does, and its hFov converts back to the camera's vertical FOV
+              // (verticalFovDeg — the missing half of the horizontalFovDeg round trip). The
+              // old "continue facing the camera" projection degenerated to NORTH at the /m 2D
+              // nadir (|fwd·horizontal|≈0), which is what ignored the drawn cone.
+              const planEntry = share ? null : camNow.plannedView;
+              if (share || planEntry) {
+                // Basis from the SHARED or PLANNED bearing (fresh scratch vectors — never
+                // alias a stored basis vector to a module temp, the S7 street-names lesson).
+                const entryLonR = THREE.MathUtils.degToRad(
+                  share ? share.lonDeg : camNow.tempPin!.lonDeg,
+                );
+                _skyEast.set(-Math.sin(entryLonR), Math.cos(entryLonR), 0);
                 _skyNorth.crossVectors(_tempUp0, _skyEast).normalize();
-                const shareH = THREE.MathUtils.degToRad(share.headingDeg);
+                const entryH = THREE.MathUtils.degToRad(
+                  share ? share.headingDeg : planEntry!.headingDeg,
+                );
                 _tempFwd0
                   .copy(_skyEast)
-                  .multiplyScalar(Math.sin(shareH))
-                  .addScaledVector(_skyNorth, Math.cos(shareH));
+                  .multiplyScalar(Math.sin(entryH))
+                  .addScaledVector(_skyNorth, Math.cos(entryH));
               } else {
                 // Basis: continue looking the way the camera already faces (horizontal at the pin).
                 camera.getWorldDirection(_camFwd);
@@ -2309,6 +2333,9 @@ export function attachStylizedTiles(opts: {
               _tempRight0.crossVectors(_tempFwd0, _tempUp0).normalize();
               _tempUp0.crossVectors(_tempRight0, _tempFwd0); // re-orthonormalized
               if (share) fpvPitch = THREE.MathUtils.degToRad(share.pitchDeg);
+              fpvPinKey = camNow.tempPin
+                ? `${camNow.tempPin.latDeg},${camNow.tempPin.lonDeg}`
+                : null;
               const eye = pinP.clone().addScaledVector(_tempUp0, fpvEyeM);
               flight.start({
                 position: eye,
@@ -2316,7 +2343,13 @@ export function attachStylizedTiles(opts: {
               });
               fovTargetDeg = share
                 ? THREE.MathUtils.clamp(share.fovDeg, FPV.minFovDeg, FPV.maxFovDeg)
-                : FPV.tempFovDeg;
+                : planEntry
+                  ? THREE.MathUtils.clamp(
+                      verticalFovDeg(planEntry.hFovDeg, camera.aspect),
+                      FPV.minFovDeg,
+                      FPV.maxFovDeg,
+                    )
+                  : FPV.tempFovDeg;
               lastInteract = now;
             }
           }
@@ -2373,6 +2406,33 @@ export function attachStylizedTiles(opts: {
             } else {
               const pinP = tempPinPoint();
               if (pinP) {
+                // PLACE POINT under a LIVE temp FPV (owner QA 2026-08-21 item 1): the batch-#6
+                // re-pose kept the OLD pin's ENU basis + the accumulated walk offset, landing
+                // the eye |walkOffset| away from the new pin — the "detached radar/eye" root
+                // cause. A pin change re-seats cleanly: fresh tangent basis at the NEW pin
+                // with the CURRENT view direction carried over (heading survives the frame
+                // change; the look elevation re-expresses as the pitch offset), walk zeroed.
+                const pinKey = camNow.tempPin
+                  ? `${camNow.tempPin.latDeg},${camNow.tempPin.lonDeg}`
+                  : null;
+                if (pinKey !== fpvPinKey) {
+                  fpvPinKey = pinKey;
+                  camera.getWorldDirection(_camFwd);
+                  _tempUp0.copy(pinP).normalize();
+                  const elev = Math.asin(
+                    THREE.MathUtils.clamp(_camFwd.dot(_tempUp0), -1, 1),
+                  );
+                  _tempFwd0.copy(_camFwd).addScaledVector(_tempUp0, -_camFwd.dot(_tempUp0));
+                  if (_tempFwd0.lengthSq() < 1e-6) {
+                    _tempFwd0.copy(_Z).addScaledVector(_tempUp0, -_tempUp0.z); // degenerate fallback
+                  }
+                  _tempFwd0.normalize();
+                  _tempRight0.crossVectors(_tempFwd0, _tempUp0).normalize();
+                  _tempUp0.crossVectors(_tempRight0, _tempFwd0); // re-orthonormalized
+                  fpvYaw = 0;
+                  fpvPitch = elev;
+                  fpvWalkOffset.set(0, 0, 0);
+                }
                 camera.position.copy(pinP).addScaledVector(_tempUp0, fpvEyeM);
                 _fpvUpGeo.copy(_tempUp0);
                 _fpvFwd.copy(_tempFwd0);
@@ -3275,7 +3335,17 @@ export function attachStylizedTiles(opts: {
           camStore.groundMode !== "satellite",
           flatGroundNow(),
         );
-
+        // QA-7b (owner 2026-08-21f): the flat 2D CHART composites at overlayResolution2dPx —
+        // the level chooser derives the Esri source zoom from resolution/rangeWidth, so the
+        // 256 lean composite alone pins the chart one level shallow even with the coarse cap
+        // at 18; the raise is what actually reaches z18. setOverlayResolution no-ops on the
+        // same px and rebuilds fresh-instance otherwise (composites re-render from force-
+        // cached tiles on a mode flip — CPU burst, judged on device T1). Never LOWERS a tier
+        // (high already composites at 512).
+        const overlayPx = flatGround
+          ? Math.max(tierOverlayPx, GROUND.overlayResolution2dPx)
+          : tierOverlayPx;
+        ground.setOverlayResolution(overlayPx);
   };
 
   const stepEphemerisResample = () => {
@@ -3857,6 +3927,25 @@ export function attachStylizedTiles(opts: {
         const aimBand = isMobileShell
           ? { fullAltM: AIMCONES.fullAltM, topAltM: AIMCONES.topAltM }
           : { fullAltM: AIMCONES.desktopFullAltM, topAltM: AIMCONES.desktopTopAltM };
+        // Skyline gaps (owner QA 2026-08-21 item 3): feed the horizonProfile bins ONLY when
+        // the plan anchor — the swept eye (photo apex / FPV eye) — sits at (≈) the radar
+        // anchor. A focus anchor never owns a profile, and a far-away eye must not lend its
+        // skyline to another point's radar (honesty rule; AIMCONES.skylineGuardM).
+        const planSkyNow = usePlanStore.getState();
+        let aimSkyline: readonly number[] | null = null;
+        if (
+          planSkyNow.profileReady &&
+          planSkyNow.profileBins &&
+          planSkyNow.anchor &&
+          planSkyNow.anchor.kind !== "focus"
+        ) {
+          const dN = (aimAnchor.latDeg - planSkyNow.anchor.latDeg) * 111_320;
+          const dE =
+            (aimAnchor.lonDeg - planSkyNow.anchor.lonDeg) *
+            111_320 *
+            Math.cos((aimAnchor.latDeg * Math.PI) / 180);
+          if (dN * dN + dE * dE < AIMCONES.skylineGuardM ** 2) aimSkyline = planSkyNow.profileBins;
+        }
         aimCones.update({
           sceneMs: tMs,
           anchor: aimAnchor,
@@ -3873,6 +3962,7 @@ export function attachStylizedTiles(opts: {
             focus: skyNow.aimFocus,
           },
           mobile: isMobileShell, // batch #5 item 2 — /m radius shrink + inward sun/moon bands
+          skylineBins: aimSkyline,
           dtMs,
         });
         // S2 focal cone — same anchor, band and master switch as the radar (one planning

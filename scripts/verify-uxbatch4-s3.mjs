@@ -145,7 +145,14 @@ await m.goto(M_URL, 14000);
 const mCoarse = await m.evalJs(`window.__quality?.deviceCaps?.coarsePointer`);
 check("/m: coarsePointer true under mobile emulation", mCoarse === true, String(mCoarse));
 const mDpr = await m.evalJs(`window.__renderer.getPixelRatio()`);
-check("/m: lean DPR cap holds (≤1.25 at dsf 3)", typeof mDpr === "number" && mDpr <= 1.25, String(mDpr));
+// SUPERSEDED by QA-7b (owner 2026-08-21f): the /m 2D CHART deliberately relaxes the lean cap
+// to leanMobile.dprCap2d (1.5) — this boot lands on the chart, so 1.5 is the CORRECT value
+// here now; the 1.25 heat cap still binds in FPV/3D and is locked by verify-qa7ab.mjs.
+check(
+  "/m: lean DPR cap holds (≤ dprCap2d 1.5 on the 2D chart at dsf 3)",
+  typeof mDpr === "number" && mDpr <= 1.5,
+  String(mDpr),
+);
 const mBloom = await m.evalJs(
   `(() => { const p = window.__composer.passes.find((p) => p.constructor.name.includes("UnrealBloomPass")); return p ? p.enabled : null; })()`,
 );

@@ -309,6 +309,8 @@ export function attachImageryGround(
       value: new THREE.Color(tokens.skyHorizon).multiplyScalar(GROUND.ambientDayK),
     },
     uFtwAmbNight: { value: GROUND.ambientNightK },
+    // QA-7a (owner 2026-08-21f): photographic-chart strength — see GROUND.flat2dPhotoK.
+    uFtwPhotoK: { value: GROUND.flat2dPhotoK },
   };
   const gradeGround = (shader: any) => {
     shader.uniforms = { ...shader.uniforms, ...uniforms };
@@ -341,6 +343,7 @@ export function attachImageryGround(
         uniform vec3 uFtwCast;
         uniform vec3 uFtwAmbDay;
         uniform float uFtwAmbNight;
+        uniform float uFtwPhotoK;
         float ftwBayer2(vec2 v) { return mod(3.0 * v.y + 2.0 * v.x, 4.0); }
         float ftwBayer4(vec2 v) {
           vec2 P1 = mod(v, 2.0);
@@ -367,6 +370,11 @@ export function attachImageryGround(
           // /m 2D map (owner 2026-08-18): a planning chart reads around the clock — the eased
           // uFtwFlat2d forces day grading (and the moon/golden adds fade with their own gates).
           dayK = max(dayK, uFtwFlat2d);
+          // QA-7a (owner 2026-08-21f): PHOTOGRAPHIC chart — on the /m 2D flat map the whole
+          // stylized grade lerps OUT (raw Esri colorimetry, the MapWindow-canvas look). Gated
+          // off under the dark CARTO drape (its flat grade IS the dark-mode look) and rides
+          // the same eased uFtwFlat2d, so 2D↔3D dissolves. Strength: GROUND.flat2dPhotoK.
+          float photo = uFtwFlat2d * uFtwPhotoK * (1.0 - uFtwDark);
           float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
           // S7a dark drape: the Esri grade blends OUT and a UNIFORM flat shade blends IN as
           // uFtwDark rises (the CARTO overlay already owns diffuseColor by then) — the water
@@ -375,35 +383,38 @@ export function attachImageryGround(
             mix(uFtwNightFloor, dayShade, dayK),
             mix(${glf(DRAPE.nightFloor)}, ${glf(DRAPE.dayShade)}, dayK),
             uFtwDark);
+          shade = mix(shade, 1.0, photo);
           float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
           // high-altitude harmonizer: extra desaturation converges mixed Esri source zooms
           // (washed low-zoom mosaic vs crisp high-zoom texture) so they stop reading as patches
-          float desatEff = mix(uFtwDesat, ${glf(GROUND.hiAltDesat)}, uFtwHiAlt) * (1.0 - uFtwDark);
+          float desatEff = mix(uFtwDesat, ${glf(GROUND.hiAltDesat)}, uFtwHiAlt) * (1.0 - uFtwDark)
+            * (1.0 - photo);
           vec3 graded = mix(diffuseColor.rgb, vec3(lum), desatEff)
-            * mix(uFtwGain, ${glf(DRAPE.gain)}, uFtwDark)
-            * mix(uFtwCast, ${glf3(DRAPE.cast)}, uFtwDark);
+            * mix(mix(uFtwGain, ${glf(DRAPE.gain)}, uFtwDark), 1.0, photo)
+            * mix(mix(uFtwCast, ${glf3(DRAPE.cast)}, uFtwDark), vec3(1.0), photo);
           // blue-dominant pixels = water -> pull toward the instrument's near-black ocean so the
           // imagery's bright seas never punch through the dark palette (rivers/lakes stay slate too)
           float waterness = smoothstep(0.0, ${glf(GROUND.waterThreshold)}, diffuseColor.b - max(diffuseColor.r, diffuseColor.g))
-            * (1.0 - uFtwDark);
+            * (1.0 - uFtwDark) * (1.0 - photo);
           graded *= mix(1.0, ${glf(GROUND.waterDarken)}, waterness);
           // golden-hour cast where the sun grazes the local horizon (bell over sin(elevation);
           // GLSL twin of lib/ephemeris/golden.ts — keep in sync with tuning.GOLDEN + baseEarth).
           // Over SOLAR elevation (sunUpDot) — golden hour is a time of day, not a slope angle.
           float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunUpDot)
                      * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunUpDot));
-          graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.groundStrength)});
+          graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.groundStrength)} * (1.0 - photo));
           // Night gate over solar elevation (twin of EARTH.lightsBand).
           float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunUpDot);
           float moonUp = max(dot(nUp, uFtwMoonDir), 0.0);
           // Moonlight, two terms (S7 feedback): the albedo-scaled sheen (graded×moon — black
           // stays black) + a small NON-albedo fill so the moon actually LIFTS the dark ground.
-          vec3 moonlit = graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night)
-            + uFtwMoonCol * (uFtwMoonGlow * ${glf(GROUND.moonFillK)} * moonUp * night);
+          vec3 moonlit = (graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night)
+            + uFtwMoonCol * (uFtwMoonGlow * ${glf(GROUND.moonFillK)} * moonUp * night))
+            * (1.0 - photo);
           // Ambient sky fill — additive, so dark source pixels never multiply to black. Scaled
           // out through the orbital fade band (uFtwHiAlt→1) to stay continuous with the base.
           vec3 ambient = (uFtwAmbDay * dayK + uFtwMoonCol * (uFtwAmbNight * night))
-            * (1.0 - uFtwHiAlt);
+            * (1.0 - uFtwHiAlt) * (1.0 - photo);
           diffuseColor.rgb = graded * shade + moonlit + ambient;
         }`,
     ).replace(

@@ -10,7 +10,7 @@
  * covers the planning loop; the long tail rides a later M-phase.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   arrivalAltM,
   nominatimSearch,
@@ -69,6 +69,28 @@ export default function MobileSearch({
   useEffect(() => {
     void loadCatalog(); // sky-default: ready before the first keystroke
     return cancelPending;
+  }, []);
+
+  // iOS Safari focus discipline (owner QA 2026-08-21): React's `autoFocus` fires while the
+  // sheet is still at translateY(100%), so Safari scrolls the LAYOUT viewport to reveal the
+  // off-screen input — the user gets a dark scrim + keyboard until they tap (Android only
+  // resizes the visual viewport, hence "fine on Android"). Focus in the same discrete-event
+  // commit (user activation carries → the keyboard still opens) but with preventScroll, then
+  // pin the layout viewport at 0 through the slide-in + keyboard settle. The /m shell is a
+  // 100dvh app surface — layout scrollY must always be 0, so the reset can never misfire.
+  useLayoutEffect(() => {
+    inputRef.current?.focus({ preventScroll: true });
+    const reset = () => {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    const raf = requestAnimationFrame(reset);
+    const timer = window.setTimeout(reset, 550); // m-sheet-in is 400ms; keyboard lags it
+    window.visualViewport?.addEventListener("resize", reset);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+      window.visualViewport?.removeEventListener("resize", reset);
+    };
   }, []);
 
   const runSearch = async (fn: (signal: AbortSignal) => Promise<GeocodeHit[]>) => {
@@ -223,11 +245,12 @@ export default function MobileSearch({
           ref={inputRef}
           className="m-input"
           type="text"
-          placeholder={sky ? "m31 · vega · ngc 7000 · orion" : "city · street · sight"}
+          placeholder={
+            sky ? "Type to search — e.g. m31 · moon · orion" : "Type to search — e.g. city · street · sight"
+          }
           value={query}
           spellCheck={false}
           autoComplete="off"
-          autoFocus
           aria-label={sky ? "Search for a sky object" : "Search for a place"}
           onChange={(e) => onInput(e.target.value)}
           onKeyDown={onKeyDown}

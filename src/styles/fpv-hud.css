@@ -208,10 +208,13 @@
   opacity: 0.85;
 }
 
-/* /m: thumb-sized touch target (the desktop 13px pill is a mouse target). */
+/* /m: thumb-sized touch target (the desktop 13px pill is a mouse target). Chips sit one
+   rung BELOW the z-10 chrome (joysticks/dock/status) — they are ambient pointers, never
+   allowed to paint over or steal touches from controls (owner QA 2026-08-21). */
 body.m .fh-chip {
   padding: 8px 12px;
   font-size: 15px;
+  z-index: 9;
 }
 
 /* The chips now render in every mode (S6 follow-up) — keep the welcome landing clean. */

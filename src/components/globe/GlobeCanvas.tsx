@@ -87,6 +87,13 @@ export default function GlobeCanvas() {
     // either. Tile knobs stay per-tier; desktop is untouched (byte-identical `high` rule).
     const lean = deviceCaps.coarsePointer;
     const leanDprCap = lean ? QUALITY.leanMobile.dprCap : Infinity;
+    // QA-7b (owner 2026-08-21f): on the /m 2D CHART the lean cap relaxes to dprCap2d — the
+    // flat map has bloom/GTAO/shadow twins off already, so the heat budget goes to crispness.
+    // Tracked from TilesHandle.mapFlat() in the tick (the bloom-gate seam); applyTier reads
+    // the latch so a governor step mid-chart keeps the raised cap. Judged on device (T1).
+    let flatForDpr = false;
+    const leanDprCapNow = () =>
+      lean ? (flatForDpr ? QUALITY.leanMobile.dprCap2d : QUALITY.leanMobile.dprCap) : Infinity;
     const tierBloom = (t: QualityTier) =>
       QUALITY.tiers[t].bloom && !(lean && !QUALITY.leanMobile.bloom);
     // Floor: a CONFIRMED-strong device (detected `high`) never collapses to `low` — it sheds DPR/bloom/
@@ -326,7 +333,7 @@ export default function GlobeCanvas() {
     const applyTier = (t: QualityTier) => {
       activeTier = t;
       const s = QUALITY.tiers[t];
-      const dpr = Math.min(window.devicePixelRatio, s.dprCap, leanDprCap);
+      const dpr = Math.min(window.devicePixelRatio, s.dprCap, leanDprCapNow());
       // U2/A9: only touch the renderer + composer when the EFFECTIVE DPR actually changes —
       // composer.setSize reallocates every render target, and tier flips between caps that
       // resolve to the same DPR (e.g. devicePixelRatio 1 under caps 1.5/1.25) paid it for nothing.
@@ -334,6 +341,17 @@ export default function GlobeCanvas() {
         renderer.setPixelRatio(dpr);
         composer.setPixelRatio(dpr);
         composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
+      }
+      // DEV introspection (QA-7b verify): the governed tier + effective DPR + the flat latch —
+      // headless verification asserts CONSISTENCY here (a governed-to-low headless run binds on
+      // tiers.low.dprCap before the lean 2D cap; a real mid-tier phone reaches dprCap2d).
+      if (import.meta.env.DEV) {
+        (window as unknown as { __globeQuality?: object }).__globeQuality = {
+          tier: t,
+          dpr,
+          flat2d: flatForDpr,
+          lean,
+        };
       }
       bloomPass.enabled = tierBloom(t);
       // Shadows follow the DEVICE tier (capability), NOT the runtime governor. Shadows are a core
@@ -468,7 +486,14 @@ export default function GlobeCanvas() {
       // Flat-map bloom gate (owner 2026-08-18/18e): the chart has nothing to bloom — skip the
       // ~12 fullscreen draws while the engine runs the flat treatment (/m 2D map, or desktop
       // nadir below CONTROLS.mapFlatMaxAltM — the LEO flagship keeps its atmosphere bloom).
-      bloomPass.enabled = tierBloom(activeTier) && !(tilesHandle?.mapFlat() ?? false);
+      const flatNow = tilesHandle?.mapFlat() ?? false;
+      bloomPass.enabled = tierBloom(activeTier) && !flatNow;
+      // QA-7b: the lean DPR cap follows the chart latch — re-apply the tier on a flip (the
+      // A9 guard inside applyTier makes it a no-op unless the EFFECTIVE DPR really changes).
+      if (lean && flatNow !== flatForDpr) {
+        flatForDpr = flatNow;
+        applyTier(activeTier);
+      }
       composer.render();
       // Batch #5 item 3 — /m PiP: one scissored pass renders the WHOLE view scaled into the
       // map window's hole. The .mw-pip box is sized in EQUAL vw/dvh fractions, so its aspect

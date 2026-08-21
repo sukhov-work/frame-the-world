@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aimDayFromSamples,
+  fractureRunsBySkyline,
   lerpAzDeg,
   norm360,
   sampleAimDay,
@@ -177,5 +178,45 @@ describe("sampleAimDay (real ephemeris, Dnipro)", () => {
     for (let i = 1; i < run.length; i++) {
       expect(wrap180(run[i].azDeg - run[i - 1].azDeg)).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("fractureRunsBySkyline — radar occlusion gaps (owner QA 2026-08-21 item 3)", () => {
+  // Six samples marching east→SE, climbing: az 90+10i, alt 10+2i.
+  const run: AimSample[] = Array.from({ length: 6 }, (_, i) => ({
+    utcMs: i * HOUR,
+    azDeg: 90 + 10 * i,
+    altDeg: 10 + 2 * i,
+  }));
+  /** A 30° building wall over az (105, 125) — hides the az-110 and az-120 samples. */
+  const wall = (azDeg: number) => (azDeg > 105 && azDeg < 125 ? 30 : 0);
+
+  it("null sampler returns the runs UNTOUCHED (no profile ⇒ no gap claim)", () => {
+    const runs = [run];
+    expect(fractureRunsBySkyline(runs, null)).toBe(runs);
+  });
+
+  it("a blocked middle span becomes a GAP — one run fractures into two sub-runs", () => {
+    const out = fractureRunsBySkyline([run], wall);
+    expect(out).toHaveLength(2);
+    expect(out[0].map((s) => s.azDeg)).toEqual([90, 100]);
+    expect(out[1].map((s) => s.azDeg)).toEqual([130, 140]);
+  });
+
+  it("an all-clear sampler preserves every sample; an all-blocking one erases the run", () => {
+    expect(fractureRunsBySkyline([run], () => 0)[0]).toEqual(run);
+    expect(fractureRunsBySkyline([run], () => 90)).toEqual([]);
+  });
+
+  it("sub-runs shorter than 2 samples are dropped (cannot draw)", () => {
+    // Only the az-130 sample clears this skyline — a 1-sample island, dropped.
+    const out = fractureRunsBySkyline([run], (az) => (az > 125 && az < 135 ? 0 : 90));
+    expect(out).toEqual([]);
+  });
+
+  it("exactly-at-skyline counts as VISIBLE (altDeg >= skyline keeps the sample)", () => {
+    const out = fractureRunsBySkyline([run], () => 10); // first sample sits exactly at 10°
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual(run);
   });
 });

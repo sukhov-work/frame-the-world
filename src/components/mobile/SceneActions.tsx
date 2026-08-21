@@ -18,6 +18,7 @@ import { usePlacesMapStore } from "../../store/places";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { saveViewPref } from "../../lib/prefs";
+import { verticalFovDeg } from "../../lib/decode/sensors";
 import { formatAltM } from "../../lib/format/readout";
 import { CONTROLS, FPV, FRUSTUM, MOBILE2D, ORCH } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
@@ -177,13 +178,22 @@ function MapModeChip() {
       900,
     );
     const cam = useCameraStore.getState();
+    // Owner QA 2026-08-21 item 2: the jump honours the FOCAL CONE — plannedView carries the
+    // aimed heading + focal (it is seeded from boot and re-seeded on FPV exit, so the batch-#4
+    // "last focal" intent survives INSIDE it); cam.headingDeg here is the 2D map-up bearing,
+    // not a view direction, so it stays fallback-only. hFov → vertical via verticalFovDeg at
+    // the live viewport aspect, clamped to the camera's own FOV band.
+    const plan = cam.plannedView;
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
     cam.requestFpvJump({
       latDeg: cam.focusLatDeg,
       lonDeg: cam.focusLonDeg,
       eyeM: FRUSTUM.eyeHeightM,
-      headingDeg: cam.headingDeg,
+      headingDeg: plan?.headingDeg ?? cam.headingDeg,
       pitchDeg: 0,
-      fovDeg: lastFpvFovDeg ?? FPV.tempFovDeg,
+      fovDeg: plan
+        ? Math.min(FPV.maxFovDeg, Math.max(FPV.minFovDeg, verticalFovDeg(plan.hFovDeg, aspect)))
+        : (lastFpvFovDeg ?? FPV.tempFovDeg),
     });
   };
   return (
