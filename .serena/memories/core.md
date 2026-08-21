@@ -117,8 +117,20 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   is COMPLETE. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
   `wip-2026-08-17-u1-2d-mobile` · `wip-2026-08-17-u2-fpv-stability` · `wip-2026-08-18-u3-2dmap-batch` ·
   `wip-2026-08-18-u4-aim-cones` · `wip-2026-08-18-u5-loading` · `UPLIFT_PLAN.md`.
-- **AUDIT #2 + fix slices (2026-08-18, HOT)** — report `audits/audit-full-2026-08-18.md` ·
+- **AUDIT #2 + fix slices (2026-08-18)** — report `audits/audit-full-2026-08-18.md` ·
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
+- **Compaction round 4 (2026-08-22, audit-3 D16) — the UPLIFT + batch-#2/#3 + PLUX eras went
+  COLD.** Verbatim 2026-08-17 → 2026-08-19d moved byte-identical to DECISIONS_ARCHIVE
+  §Moved 2026-08-22 (md5 `5ed47c51b9d44a754964771ffe418330`, 556 lines / 79,306 B); 3 era
+  digests in DECISIONS §Per-phase digests cover them. §Recent 141.7 → 62.6 KB. **Only the
+  OWNER-BATCH era (2026-08-21 → 2026-08-22d) stays verbatim** — it all rides the un-shipped
+  release gate. Next carve-out review when that era ships or §Recent nears ~140 KB again.
+- **Owner UX batches #2/#3 + PLUX launch grooming (2026-08-19 → 19d)** — digests of those
+  names · `mem:project/wip-2026-08-19-owner-uxbatch2` · `wip-2026-08-19-owner-uxbatch3` ·
+  `wip-2026-08-19-plux-launch-grooming`.
+- **Owner micro-slice + AUDIT #3 (2026-08-22a→d, HOT)** — report
+  `audits/audit-batchseams-2026-08-22.md` · `mem:project/wip-2026-08-22-owner-microslice` ·
+  `wip-2026-08-22-audit3`.
 
 ## Next step
 **OWNER MICRO-SLICE SHIPPED + AUDIT #3 COMPLETE 2026-08-22 (a/b/c)** — gates **vitest
