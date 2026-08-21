@@ -94,10 +94,27 @@ body.mw-open .m-altcol {
    the minimap card, the FPV HUD pill, the GOTO chips — used to bleed through the PiP hole
    ("minimap inside minimap"). While the /m fullscreen map is up that mid-stack chrome is
    redundant (the map IS the map) and the hole must read as pure 3D. visibility (not
-   [hidden]) — these islands stay mounted and their subscriptions warm. */
+   [hidden]) — these islands stay mounted and their subscriptions warm.
+   2026-08-22b: `.m-status` (the Plux/account/GUIDE/DESKTOP strip, also fixed at z 10) JOINED
+   the list when the owner top-aligned the PiP with the .mw-top pills — the hole moved up onto
+   that rung and the chips started showing through it. Nothing is lost: the opaque map canvas
+   (z 20) already covered the whole strip, so it was neither visible nor reachable while the
+   map is open; this only stops it painting inside the hole.
+   The DOM LABEL layers (z 2 — scene/skyNames + findGhosts `.sky-names`, scene/geoLabels
+   `.geo-labels`, scene/bldgEditLabel `.bldg-edit-label`) join for a second reason: they are
+   positioned for the FULL-SCREEN view, while the hole shows a SCALED miniature of it (the
+   batch-#5 second GL pass). They could only ever paint in the wrong place there. This bleed
+   is PRE-EXISTING — the hole overlapped the upper screen at its old 3.4rem rung too — and was
+   surfaced by the 2026-08-22b intersection sweep, not caused by it.
+   RULE: any fixed 1 ≤ z < 20 surface that overlaps the PiP rect belongs here — the verify
+   suite sweeps for exactly that intersection. */
 body.m.mw-open .mm,
 body.m.mw-open .m-fpvhud,
-body.m.mw-open .fh-chip {
+body.m.mw-open .fh-chip,
+body.m.mw-open .m-status,
+body.m.mw-open .sky-names,
+body.m.mw-open .geo-labels,
+body.m.mw-open .bldg-edit-label {
   visibility: hidden;
 }
 
@@ -109,13 +126,19 @@ body.m.mw-open .fh-chip {
    dock inherits the tab bar's safe-area duty while the tabs are gone. */
 body.m.mw-open .m-bottom {
   z-index: 24;
+  /* Owner micro-slice 2026-08-22 item 3: the map attribution line owns the very bottom strip
+     (map-window.css .mw-creditbar, which also carries the safe-area padding now) — the whole
+     bottom column rides above it. Var defined in map-window.css; fallback keeps this valid. */
+  bottom: calc(var(--mw-credit-h, 0.85rem) + env(safe-area-inset-bottom));
 }
 body.m.mw-open .m-bottom .m-peek,
 body.m.mw-open .m-bottom .m-tabs {
   display: none;
 }
+/* The dock inherited the tab bar's safe-area duty while the tabs are gone — since 2026-08-22
+   the credit bar below it owns the inset instead, so this is a plain pad (never double-count). */
 body.m.mw-open .md {
-  padding-bottom: calc(0.3rem + env(safe-area-inset-bottom));
+  padding-bottom: 0.3rem;
 }
 
 /* ── AIM joystick (batch #4 item 11) — heading + focal for the planned shot ─────────────── */
@@ -172,13 +195,21 @@ body.m.mw-open .md {
 }
 
 /* ── Altitude nudges (⤒ ascend / ⤓ descend, hold-to-fly) ───────────────────────────────── */
+/* Geometry published as tokens (audit #3 A1-2): while the fullscreen map is open this column
+   rides z 24 — ABOVE the z-20 map window — so the map's ◉ RE-CENTRE button, which since
+   2026-08-22a is the ONLY exit from the permanent manual-pan override, must be able to seat
+   itself clear of this box on short viewports. map-window.css reads both. */
+:root {
+  --m-altcol-bottom: 16.4rem;
+  --m-altcol-h: 96px; /* two 44 px buttons + the 8 px gap below */
+}
 .m-altcol {
   position: fixed;
   right: calc(0.75rem + env(safe-area-inset-right));
   /* Above the FULL .m-actions stack — since SAVE VIEW joined EXIT VIEW (2026-08-15) the
      two-chip column tops out ≈15.2rem, and 14.4rem overlapped the ⤓ button onto SAVE VIEW
      (owner bug report 2026-08-15c). A transient note may still brush it for ~4 s — accepted. */
-  bottom: calc(16.4rem + env(safe-area-inset-bottom));
+  bottom: calc(var(--m-altcol-bottom) + env(safe-area-inset-bottom));
   z-index: 10;
   display: flex;
   flex-direction: column;

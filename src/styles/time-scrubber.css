@@ -20,6 +20,10 @@
    no .ts (its dock rides the fpv.css rung instead). */
 body.mw-open .ts {
   z-index: 43;
+  /* Owner micro-slice 2026-08-22 item 3: the map attribution owns the very bottom strip while
+     the window is open — lift the rail by exactly its height (map-window.css defines the var;
+     the fallback keeps this rule valid if that sheet ever loads late). */
+  bottom: calc(2.2rem + var(--mw-credit-h, 0.85rem));
   width: min(38rem, calc(100vw - 34rem));
   padding: 0.55rem 0.95rem 0.5rem;
   border-radius: 10px;

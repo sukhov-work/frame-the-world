@@ -189,14 +189,22 @@ if (chipRect) {
       tabsGone: tabs ? getComputedStyle(tabs).display === "none" : false,
       timeLive: time ? time.getBoundingClientRect().height > 0 && !!time.value : false,
       hintGone: hint === null,
-      creditTop: credit ? credit.getBoundingClientRect().y : -1,
+      // SUPERSEDED 2026-08-22 (owner micro-slice item 3): this read creditTop and asserted
+      // the attribution had re-seated into the TOP band (< 160 px). The owner then moved ALL
+      // map attribution to one thin line on the screen's BOTTOM edge under the time strip, so
+      // the assertion below is its inversion — bottom-anchored, still exactly one line.
+      creditBottomGap: credit ? window.innerHeight - credit.getBoundingClientRect().bottom : -1,
     }; })()`);
   check("/m: fullscreen map open", mapUi.open === true);
   check("/m: dock lifted to z 24 over the map", mapUi.bottomZ === "24", mapUi.bottomZ);
   check("/m: tabs dropped from layout (dock flush at bottom)", mapUi.tabsGone === true);
   check("/m: time input LIVE on the map bottom strip", mapUi.timeLive === true);
   check("/m: bottom hint retired", mapUi.hintGone === true);
-  check("/m: credit re-seated to the top band", mapUi.creditTop >= 0 && mapUi.creditTop < 160, String(mapUi.creditTop));
+  check(
+    "/m: credit rides the BOTTOM edge under the time strip (2026-08-22 supersedes the top band)",
+    mapUi.creditBottomGap >= 0 && mapUi.creditBottomGap < 40,
+    `${mapUi.creditBottomGap} px above the viewport bottom`,
+  );
   await m.shoot("uxb7-04-m-map-dock-strip");
 
   // Place a point clear of the left stick rail (x ≲ 126) and the top-right PiP.

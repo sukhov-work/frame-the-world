@@ -107,7 +107,7 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
 | `POST /api/analyze` | premium-gate → Wix AI (Claude) + **downsized JPEG** + desired-condition prompt → suggestions | ~1 credit; never RAW. **PLANNED — Phase 7** |
 | `POST /api/moderate` | Claude moderation pass on a preview before publishing a public pin | C6 gate. **PLANNED — Phase 7** |
 
-## 7. Component responsibilities (`src/`, as built 2026-08-18)
+## 7. Component responsibilities (`src/`, as built 2026-08-22)
 - `components/globe/` (`client:only`, **design imports never write here**): `GlobeCanvas` (renderer/composer/
   bloom/GTAO seam + quality tier), `StylizedTiles` (orchestrator: camera, controls, the ~40-step per-frame
   loop, FPV, glides, pins/sky/plan sync — the `load-model` material override lives in
@@ -117,11 +117,25 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   skyTarget, skyTrail, skyGhosts, skyNames, findGhosts (FIND v2 in-frame standings — rings +
   phase-lit body pictures + per-hit day-arc paths, 2026-08-14), buildings, buildingMaterial,
   enrichedBuildings, imageryGround, vectorTiles, vectorFeatures, streetNames,
-  geoLabels, minimapFeed, planFeed, graticule, glsl, aimCones (U4 direction lines + rise→set
-  visibility cones on the ground plane, 2026-08-18), tilePriority (U5 closest-first download
+  geoLabels, minimapFeed, planFeed, graticule, glsl, aimCones (U4 direction lines → since batch #4
+  S2 **concentric annular BANDS**: `AIMCONES.bandMoon/bandSun/bandTarget` innermost-outward with
+  `*Mobile` variants + `mobileRadiusK`, an `N` rim marker via `northOffsetK/northSizeK`, always-on
+  `fillAlphaRest` washes, and **skyline occlusion GAPS** — `azSector.fractureRunsBySkyline` honoured
+  only within `skylineGuardM` of the profile anchor), focalCone (the planned-shot cone, seeded from
+  boot out of `camera.plannedView`; maths in `lib/geo/plannedView.ts`), tileFoveation (U6),
+  bldgEditLabel + placeMarkers, tilePriority (U5 closest-first download
   comparator adapter + queue caps, 2026-08-18), terrainPatch (U7b GLO-30 composite — createChild
   wrap + fetchData claimer on the ONE ground renderer, 2026-08-18; domain doc
   `BAKED_ASSETS.md`)).
+  **ONE geometry model, THREE surfaces:** the band/cone model above is read by the GL fan
+  (`scene/aimCones`+`scene/focalCone`), the `MapWindow` canvas twin and the `MiniMap` radar —
+  a band edit that lands in only one of them is a bug (`AIMCONES.mapRadiusHK` sizes the two
+  canvas twins as a fraction of canvas HEIGHT, the GL fan's rule).
+  **Sticky overlay resolution:** `stepGroundUpdate` is the ONE caller of
+  `ground.setOverlayResolution`, and the effective px only ever RATCHETS UP
+  (`lib/globe/quality.stickyOverlayPx`) — never lowered by a 2D↔FPV flip or a governor demote.
+  Lowering it rebuilds every resident composite (the 2026-08-21h white-chart storm); the assert
+  is the DEV probe `window.__overlayRebuilds`, never raw tile-GET counts.
 - `components/panels/` (design imports allowed): `UploadFlow` (dropzone→worker), `PhotoDetailPanel` (EXIF
   sliders/encoders + save/update/delete), `TimeScrubber`+`TimeReadout` (scrub + playback + light bands),
   `LocationFinder` (geocode + sky-object search → fly-to/track), `CameraTiltPanel` (compass/2D-3D/
@@ -137,6 +151,13 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   shower windows + ZHR cards, 2026-08-17), `MapWindow` (U3 fullscreen slippy 2D map twin over
   `lib/geo/slippy.ts` + `styles/map-window.css`, 2026-08-18).
   `components/ui/`: `Slider`, `Encoder`, `InfoDot`, `DragGrip`. *(`AiPanel` = Phase 7, PARKED — out of all plans per owner 2026-08-11.)*
+- **`components/controls/` — the THIRD shared tier (batch #4 S2, 2026-08-21b):** input instruments
+  whose FEEL must never fork between the shells. `Joystick.tsx` exports `Joystick` (the walk pad)
+  and `AimJoystick` (heading + focal for the planned shot, with an mm focal footer). Mounted by
+  BOTH shells — `MiniMap` (desktop mini-map footer) and `MobileShell`
+  (`variant={fpvOn ? "fpv" : "map"}`). Fenced by `test/components/mobileFence.test.ts` rule 3:
+  `controls/` is a PURE LEAF — react + stores + `lib/**` + `globe/tuning` + styles only, never a
+  panel or a mobile import. Design imports MAY write here (it is chrome, not the canvas globe).
 - `components/mobile/` (M0–M3 shipped, planning-first shell — owner 2026-08-11/13; **U1
   2026-08-17: /m boots 2D-first** — the 3D globe is opt-in per session, buildings detach in 2D
   map mode): thin consumers of
@@ -144,7 +165,8 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `TabBar`, `Sheet`, `PlanSheet`, `FindSheet`, `TargetSheet`, `TargetPeek`, `GuideSheet` (G1),
   `MobileTimeDock` (conveyor dock v2), `FpvControls` (touch pads), `SceneActions`, `MobileSearch`,
   `MobilePlaces`, `MobileAccount`. Never imports desktop panels; desktop never imports from it; all
-  shared logic lives in `lib/**`+`store/**` (the two-shell drift guard).
+  shared logic lives in `lib/**` + `store/**` + **`components/controls/**`** — THREE shared tiers
+  since 2026-08-21b (the two-shell drift guard; the third was undocumented until audit #3 D1/D6).
 - `lib/`: `decode/`, `geo/` (projection, frustum, geohash, precision, geocode, offscreen, terrain, screen,
   heading, coerce, urlPose, horizonProfile, occlusion, sizeDistance), `ephemeris/` (bodies, stars,
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
@@ -160,12 +182,16 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade), `api/`, `format/`,
   `textures/`, `theme/` (GL token bridge), `prefs.ts`.
 - `pages/`: `index.astro` (desktop) + `m.astro` (mobile shell) + `guide.astro` (standalone server-rendered
-  guide page over the same `guideContent`, 2026-08-15e) + `api/` (8 routes: photos, places,
-  listings, market, upload-url, sbdb, ping, dev-seed — full route inventory in
-  `conventions/contracts.md §7`; §6 above keeps the original endpoint contracts).
+  guide page over the same `guideContent`, 2026-08-15e) + `api/` (**9 routes**: photos, places,
+  listings, market, upload-url, sbdb, ping, dev-seed, `building-overrides` (U8 LWW height-override
+  bulkSave, 2026-08-19) — full route inventory in `conventions/contracts.md §7`; §6 above keeps
+  the original endpoint contracts). Also under `public/`: **`sw.js`** — the iOS-ONLY, dev-gated,
+  7-day-TTL tile cache (#15, batch #4 S3); registered dynamically at runtime, never imported, and
+  policy-fenced by `test/swTileCache.test.ts`.
 - `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member`, `plan`, `sky`,
   `skyAim` (rise/set camera aim), `find` (FIND v2 panel⇆globe ghost mirror + two-way hover), `market`,
-  `minimap` — the reactive spine + the globe⇆React seam/mirror contract (see
+  `minimap`, `places` (MY PLACES on-map mirror), `bldgEdit` (U8 height-override drag) — **14 stores**,
+  the reactive spine + the globe⇆React seam/mirror contract (see
   `conventions/architecture-and-patterns.md`).
 - `scripts/bake/` (offline, Node-only): `bake.mjs` (OSM footprints → C6 exclusion → roof-shaped extrusion →
   gridded 3D-Tiles + instanced trees), `bake-osm2world.mjs` (OSM2World variant), `terrain/`

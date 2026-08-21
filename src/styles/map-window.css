@@ -55,9 +55,17 @@ body.m .mw-canvas {
   cursor: grabbing;
 }
 
+/* The top rung, as a VARIABLE: on /m the PiP's top edge must line up with the MAP/+/− pills
+   (owner 2026-08-22b), and the ◉ button hangs off the bottom of the PiP. Sharing one token
+   makes that alignment structural — moving the row moves the whole right rail with it —
+   instead of three literals that drift apart the first time one of them is nudged. */
+:root {
+  --mw-top-y: 0.6rem;
+  --mw-pip-h: 32dvh; /* equal vw/dvh fractions ⇒ viewport aspect — see the .mw-pip note */
+}
 .mw-top {
   position: absolute;
-  top: 0.6rem;
+  top: var(--mw-top-y);
   left: 0.75rem;
   right: 0.75rem;
   display: flex;
@@ -66,7 +74,7 @@ body.m .mw-canvas {
   pointer-events: none; /* the row passes drags through; buttons re-enable themselves */
 }
 body.m .mw-top {
-  top: calc(0.6rem + env(safe-area-inset-top));
+  top: calc(var(--mw-top-y) + env(safe-area-inset-top));
 }
 .mw-title {
   font-family: var(--font-mono);
@@ -102,18 +110,22 @@ body.m .mw-top {
    hole showed a 1:1 screen crop). Sized in EQUAL vw/dvh fractions so the box's aspect always
    equals the viewport's — that is what lets the engine reuse the live camera untouched (a
    true scaled miniature, never anamorphic). SQUARE corners: the hole is a clearRect — a
-   border-radius would leak cleared pixels past the ring. Top-right, below the .mw-top pills
-   and clear of the z-24 walk controls that own the bottom edge. */
+   border-radius would leak cleared pixels past the ring.
+   Seat (owner 2026-08-22b — was 3.4rem, one rung lower): TOP-ALIGNED with the .mw-top pills,
+   i.e. the same --mw-top-y rung. It does not collide with them: on /m the row packs
+   [MAP][+][−] to the LEFT (≈147 px on a 390 px screen) while the PiP starts at
+   100vw − 0.75rem − 32vw, and .mw-top is pointer-events:none, so its full-width invisible box
+   passes taps straight through to the PiP underneath. */
 .mw-pip {
   display: none; /* /m-only instrument — desktop keeps the ✕ MINI-MAP button */
 }
 body.m .mw-pip {
   display: block;
   position: absolute;
-  top: calc(3.4rem + env(safe-area-inset-top));
+  top: calc(var(--mw-top-y) + env(safe-area-inset-top));
   right: 0.75rem;
   width: 32vw;
-  height: 32dvh;
+  height: var(--mw-pip-h);
   padding: 0;
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--color-text-muted) 45%, transparent);
@@ -136,7 +148,8 @@ body.m .mw-pip {
 
 /* Owner QA 2026-08-21 item 4: the bottom band belongs to the TIME SCRUBBER now (the /m dock
    rides the mw-open z-24 rung; the desktop TimeScrubber rides z 43 in time-scrubber.css) —
-   the interaction hint moved into the top row and the attribution re-seated under it. */
+   the interaction hint moved into the top row. (The attribution shared that top band until
+   2026-08-22, when item 3 moved it to the bottom edge under the time strip — see below.) */
 .mw-tophint {
   font-family: var(--font-mono);
   font-size: 0.54rem;
@@ -149,21 +162,122 @@ body.m .mw-pip {
   white-space: nowrap;
 }
 
-.mw-credit {
+/* ── ◉ RE-CENTRE (owner micro-slice 2026-08-22 item 2) ──────────────────────────────────── */
+/* The manual-pan override is PERMANENT since 2026-08-22 (MapWindow.tsx) — walking never pulls
+   the chart back — so the map needs an explicit way home. Round (equal width/height under the
+   .mw-btn pill radius), right edge, below the top row: on desktop that is the rung the old
+   .mw-credit used to occupy (freed by item 3). ◉ U+25C9 reads as a filled locator dot and
+   collides with none of the map chrome's glyphs (▲ FPV · + · − · ✕). */
+.mw-recenter {
   position: absolute;
-  left: 0.75rem;
+  right: 0.75rem;
   top: 3.1rem;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  transition: color 180ms ease, border-color 180ms ease;
+}
+/* Panned away — the button advertises the way back (owner-flagged taste call: always visible,
+   muted while following, accent-lit once overridden). */
+.mw-recenter.is-panned {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mw-recenter {
+    transition: none;
+  }
+}
+/* /m: the 3.1rem rung belongs to the PiP, which since 2026-08-22b is top-aligned with the
+   .mw-top pills — the button hangs 0.5rem off the PiP's BOTTOM edge, so the right rail reads
+   top-down [+ −] · [PiP] · [◉] and the whole stack moves as one if --mw-top-y ever changes.
+   The min() is the FLOOR (audit #3 A1-2): the right rail also carries the FPV altitude column,
+   which body.mw-open lifts to z 24 — ABOVE this z-20 window — so on a short viewport the ◉
+   would slide UNDER it and a tap would nudge the eye's altitude instead of recentring. Since ◉
+   is the only exit from the permanent override, it stops at the last rung that clears
+   .m-altcol (tokens published by mobile/fpv.css) and tucks over the PiP's bottom edge instead.
+   Worked: 390×844 → the PiP rung wins unchanged; 360×560 → the floor wins at 160 px. */
+body.m .mw-recenter {
+  top: min(
+    calc(var(--mw-top-y) + var(--mw-pip-h) + 0.5rem + env(safe-area-inset-top)),
+    calc(
+      100dvh - env(safe-area-inset-bottom) - var(--m-altcol-bottom, 16.4rem) -
+        var(--m-altcol-h, 96px) - 0.5rem - 2.1rem
+    )
+  );
+}
+
+/* ── Attribution (owner micro-slice 2026-08-22 item 3) ──────────────────────────────────── */
+/* ONE very thin full-bleed line on the screen's bottom edge, UNDER the time strip. Both time
+   surfaces are bottom-anchored (the /m dock at z 24 and the desktop TimeScrubber at z 43,
+   QA-4 2026-08-21f), so this cannot be a z-bump: they are lifted by --mw-credit-h instead
+   (time-scrubber.css + mobile/fpv.css read the var, with this value as their fallback).
+   The bar is a SIBLING of .mw in the DOM — .mw's centring/drag transform would otherwise be
+   the containing block for a fixed child on desktop. */
+:root {
+  --mw-credit-h: 0.85rem;
+}
+/* /m-ONLY surface (the .mw-pip precedent). On desktop the PAGE already pins an attribution
+   line to the bottom edge (index.astro .map-credit) whose source list is a strict SUPERSET of
+   this one — Cesium ion / OpenMapTiles / Copernicus / NASA / Gaia on top of Esri·CARTO·OSM —
+   so a second bar there would be a duplicate drawn over it. Desktop instead promotes THAT
+   line to the full-bleed bottom bar while body.mw-open (index.astro), which is the same
+   single-line result with the complete list. /m has no page credit at all — this IS its line. */
+.mw-creditbar {
+  display: none;
+}
+body.m .mw-creditbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25; /* above the mw-open dock rung (24), below the /m sheets (30) */
+  /* content-box explicitly: the lifts above are `--mw-credit-h + inset`, so the inset must
+     ADD to the line's height, never eat it (this repo sets box-sizing per component). */
+  box-sizing: content-box;
+  height: var(--mw-credit-h);
+  padding-bottom: env(safe-area-inset-bottom); /* clears the iOS home indicator */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  /* Never steal a drag that runs off the bottom edge — only the anchor takes input. */
+  pointer-events: none;
+  overflow: hidden;
+}
+/* The desktop twin got a wrap branch when audit #3 A1-3 caught its clamp FLOOR clipping the
+   line; /m had none (that media block is page-scoped to `/`). The /m list is 76 chars, not
+   265, so it survives to ≈305 px — but the margin at 320 px is ~28 px, which is not a margin.
+   Same escape hatch, same shape, so the two shells cannot diverge again (audit #3 C12). */
+@media (max-width: 22rem) {
+  body.m {
+    --mw-credit-h: 1.6rem;
+  }
+  body.m .mw-creditbar {
+    height: auto;
+    min-height: var(--mw-credit-h);
+  }
+  body.m .mw-credit {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+    padding: 0 0.4rem;
+  }
+}
+.mw-credit {
+  pointer-events: auto;
   font-family: var(--font-mono);
-  font-size: 0.5rem;
+  /* Contractual: the FULL source list must stay legible and unclipped. The type scales with
+     the viewport so the one line fits a 320 px phone as well as a desktop window. */
+  font-size: clamp(0.4rem, 1.75vw, 0.5rem);
+  line-height: 1;
   letter-spacing: 0.04em;
+  white-space: nowrap;
   color: color-mix(in srgb, var(--color-text-muted) 85%, transparent);
   text-decoration: none;
-  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
-  border-radius: 6px;
-  padding: 0.15rem 0.4rem;
-}
-body.m .mw-credit {
-  top: calc(3.1rem + env(safe-area-inset-top));
-  /* Stay clear of the 32vw PiP on the right (its box starts at 3.4rem). */
-  max-width: calc(100vw - 32vw - 2rem);
 }

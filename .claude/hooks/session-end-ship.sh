@@ -214,6 +214,22 @@ if [ -s ".claude/.ship-title" ]; then
   TITLE="$(head -1 ".claude/.ship-title")"
 fi
 
+# SUBJECT CAP (owner report 2026-08-22b — the 2026-08-22 00:20 ship pushed fine but NO PR was
+# ever created: GitHub rejects an over-long PR title, and the automation derives the title from
+# the commit subject; that ship's subject was 1,221 chars). Cap the SUBJECT and move the full
+# text into the commit BODY, so nothing is lost and the tail is still greppable in the log.
+# 200 leaves ≈27 chars of headroom for " #pr #skipreview #automerge" under GitHub's 256 limit.
+# The cut is by bytes (≥ chars, so never over the limit) and is then rewound to the last word
+# boundary — which also discards any byte-split multibyte character.
+SUBJECT_MAX=200
+TITLE_FULL="$TITLE"
+TITLE_TRUNCATED=0
+if [ "${#TITLE}" -gt "$SUBJECT_MAX" ]; then
+  TITLE="$(printf '%s' "$TITLE_FULL" | cut -b "1-$SUBJECT_MAX" | sed 's/[[:space:]][^[:space:]]*$//')…"
+  TITLE_TRUNCATED=1
+  log "title capped for GitHub: ${#TITLE_FULL} chars -> ${#TITLE} (full text rides the commit body)"
+fi
+
 if [ -n "${DRY_RUN:-}" ]; then
   log "DRY_RUN: would ship branch=$BRANCH title=\"$TITLE #pr #skipreview #automerge\""
   log "DRY_RUN: $(git status --porcelain | wc -l | tr -d ' ') files pending"
@@ -231,10 +247,19 @@ fi
 log "shipping branch=$BRANCH title=\"$TITLE\""
 git checkout -b "$BRANCH" || { log "ABORT: branch create failed"; exit 1; }
 git add -A
-git commit -m "$TITLE #pr #skipreview #automerge" \
-  -m "Auto-shipped by the session-end hook." \
-  -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>" \
-  || { log "ABORT: commit failed"; exit 1; }
+if [ "$TITLE_TRUNCATED" -eq 1 ]; then
+  git commit -m "$TITLE #pr #skipreview #automerge" \
+    -m "$TITLE_FULL" \
+    -m "Auto-shipped by the session-end hook. (Subject capped at $SUBJECT_MAX bytes for GitHub's
+PR-title limit — the paragraph above is the untruncated title.)" \
+    -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>" \
+    || { log "ABORT: commit failed"; exit 1; }
+else
+  git commit -m "$TITLE #pr #skipreview #automerge" \
+    -m "Auto-shipped by the session-end hook." \
+    -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>" \
+    || { log "ABORT: commit failed"; exit 1; }
+fi
 SHA="$(git rev-parse HEAD)"
 rm -f ".claude/.ship-title"
 

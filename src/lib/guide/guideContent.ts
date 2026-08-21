@@ -287,10 +287,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "The MAP window",
         where: { desktop: "Click the mini-map", mobile: "Tap the mini-map" },
         body:
-          "The mini-map expands to a fullscreen flat chart of the area around you. " +
-          "Double-click it (long-press on /m) and you are standing there — VIEW FROM " +
-          "HERE moves the live viewpoint without leaving first-person view. ± zooms; " +
-          "✕ MINI-MAP shrinks it back.",
+          "The mini-map expands to a fullscreen flat chart of the area around you, and it " +
+          "follows you as you walk. On desktop, double-click to stand somewhere else; on " +
+          "/m, long-press to drop a point and stay on the map. Drag the chart and it holds " +
+          "where you put it — tap ◉ to come back to yourself.",
         tip:
           "On /m the walk joystick keeps working over the fullscreen map. On desktop, " +
           "Esc closes the map first, then exits the view.",
@@ -461,11 +461,12 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           mobile: "∠ RADAR under ⊞ LAYERS",
         },
         body:
-          "An azimuth circle around where you stand: direction lines for the sun (gold), " +
-          "the moon (silver) and your target, each with its rise→set ground sector — the " +
-          "already-swept part grey, the still-to-come part blue, split at scene time. It " +
-          "draws on the globe and on [[fpv-map|the 2D map]] alike. The sky menu's " +
-          "∠ DIRECTION rows toggle single bodies.",
+          "Concentric bands around where you stand — moon innermost, then sun, then your " +
+          "target — each a rise→set ground sector with a direction line. The swept part " +
+          "is grey; what is still to come wears the body's own ink (gold sun, silver " +
+          "moon, blue target), split at scene time. N marks north on the rim, and a band " +
+          "BREAKS where buildings or terrain hide that body. The sky menu's ∠ DIRECTION " +
+          "rows toggle single bodies.",
         tip:
           "On desktop the radar appears below about 10 km of altitude — climb higher and " +
           "it stands down.",
@@ -902,7 +903,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             "straight into first-person view, no pin needed.",
           "In first-person view: joystick walks, one finger looks, pinch zooms the " +
             "focal, double-tap a building [[fpv-height|edits its height]].",
-          "Long-press the full MAP — VIEW FROM HERE at that spot.",
+          "Long-press the full MAP to drop a point there — the map stays open.",
         ],
         tip: "While the walk controls are up, the screen stays awake.",
       },

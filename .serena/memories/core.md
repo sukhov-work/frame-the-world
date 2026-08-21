@@ -121,7 +121,41 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**PRE-AUDIT QA SLICE C→A→B SHIPPED 2026-08-21h + AUDIT #3 STARTED then RESCHEDULED**
+**OWNER MICRO-SLICE SHIPPED + AUDIT #3 COMPLETE 2026-08-22 (a/b/c)** — gates **vitest
+1,147/1,147 (102 files)** · astro 0 err/5 hints · `verify-qaslice-cab.mjs` **64/64 both
+shells** · all seven regression suites PASS.
+**(a/b) Owner micro-slice, 4 items:** the expanded-map manual-pan override is now PERMANENT
+(the `FOLLOW_REARM_M` eye-motion re-arm DELETED — walking never recentres the chart, verified
+0.0 m hold with the eye 302 m out vs a 184 m half-diagonal; radar/cone unchanged by design) ·
+NEW round **◉ RE-CENTRE** button both shells (`aimAnchorNow` centre + latch clear; muted →
+accent-lit, transition-only mirror) · ALL map attribution → ONE thin full-bleed line on the
+SCREEN's bottom edge (`--mw-credit-h` LIFT of `.ts`/`.m-bottom`/`.tr`, never a z-bump) ·
+`/m` PiP TOP-ALIGNED with the MAP/+/− pills via shared `--mw-top-y`/`--mw-pip-h` tokens.
+**Four defects in that slice were caught by the audit and fixed BEFORE ship**: a 2 px
+long-press drift armed the permanent override · the ◉ (the sole exit) was occludable by the
+z-24 FPV altitude column on short viewports — **a z-index cannot fix that, `.mw` is its own
+stacking context**, so the seat carries a geometric floor · the desktop attribution truncated
+below ≈900 px, losing "© Esri" · `.tr` was not lifted with `.ts`. Two collisions came from
+the shells NOT being symmetric (desktop already had a superset `.map-credit` on that edge;
+`/m` has no page chrome) — `.mw-creditbar` is /m-only and desktop promotes the page line.
+**(c) AUDIT #3 COMPLETE — report `audits/audit-batchseams-2026-08-22.md`** (4 tracks, TWO
+WAVES so a session limit can't void all four; 46 candidates, 0 deleted in verification).
+**Headline: FIVE checks that could not fail — four written the same session — found and
+fixed** (unfalsifiable regex · a lift check that held with the lift deleted · a GET counter
+that could count zero and pass · a "responded" check with no trigger guard · a vacuously
+captured guard). **C7 REFUTED a PASS recorded in DECISIONS 2026-08-21h** (the FOV inverse
+pair was NOT transitively pinned — it came from a killed agent's pre-verification output;
+now pinned for real). Docs reorg part 1 shipped (ARCHITECTURE §7 had 3 factually WRONG
+claims; the guide taught a gesture the code doesn't perform, and the code *delegated* that
+affordance to the guide). **NEXT SESSION: the audit's F1–F10 fix slices + T34–T40** —
+start F1 (one-liners: tile `onerror`, seat-reset gate, stale comment, DEV-seam registry,
+T32 planner ceiling), then F7 docs remainder (globe-tuning tunables + the two missing traps ·
+verify.md's six harness classes · `contracts.md` §2/§3/§7 · `UXBATCH4_PLAN`→archive AFTER
+`contracts.md`), then **F8 DECISIONS compaction round 4 (DUE — boundary measured `:319`→`:879`,
+34 rows ≈79.5 KB)**, then F9 guide work (4 new topics + 6 extensions + 11 stale re-shoots).
+Release still gated on the owner's domain fix; T1 device pass grown.
+Logs: `mem:project/wip-2026-08-22-owner-microslice` · `mem:project/wip-2026-08-22-audit3`.
+Prior: **PRE-AUDIT QA SLICE C→A→B SHIPPED 2026-08-21h + AUDIT #3 STARTED then RESCHEDULED**
 (DECISIONS 2026-08-21h; gates **vitest 1,128/1,128** · astro 0 err/5 hints; NEW
 `scripts/verify-qaslice-cab.mjs` 17/17 [shots qsl-01..05] + ALL SEVEN regression suites
 uxb4/s2/s3/uxb5/uxb6/uxb7/qa7ab PASS, Chrome restarted between suites):
