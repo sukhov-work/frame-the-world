@@ -380,6 +380,7 @@ export default function GlobeCanvas() {
       setQualityTier: (t: QualityTier) => void;
       fpvActive: () => boolean; // U2/A9: governor tier steps defer while FPV owns the camera
       mapFlat: () => boolean; // 2026-08-18e: flat-map engine treatment → bloom off
+      pipRect: () => { x: number; y: number; w: number; h: number } | null; // batch #5 item 3
       dispose: () => void;
     } | null = null;
     const ionToken = import.meta.env.PUBLIC_CESIUM_ION_TOKEN as string | undefined;
@@ -469,6 +470,24 @@ export default function GlobeCanvas() {
       // nadir below CONTROLS.mapFlatMaxAltM — the LEO flagship keeps its atmosphere bloom).
       bloomPass.enabled = tierBloom(activeTier) && !(tilesHandle?.mapFlat() ?? false);
       composer.render();
+      // Batch #5 item 3 — /m PiP: one scissored pass renders the WHOLE view scaled into the
+      // map window's hole. The .mw-pip box is sized in EQUAL vw/dvh fractions, so its aspect
+      // equals the viewport's — same camera, no projection swap, a true miniature (the old
+      // punched hole showed a 1:1 screen crop). Direct renderer.render to the backbuffer:
+      // tone map + sRGB apply natively there, and bloom is already off on /m (leanMobile),
+      // so the look matches the main pass. setViewport/setScissor take CSS px (three applies
+      // the pixel ratio itself); GL origin is bottom-left, hence the Y flip.
+      const pip = tilesHandle?.pipRect() ?? null;
+      if (pip) {
+        const vpW = window.innerWidth;
+        const vpH = window.innerHeight;
+        renderer.setScissorTest(true);
+        renderer.setScissor(pip.x, vpH - (pip.y + pip.h), pip.w, pip.h);
+        renderer.setViewport(pip.x, vpH - (pip.y + pip.h), pip.w, pip.h);
+        renderer.render(scene, camera);
+        renderer.setScissorTest(false);
+        renderer.setViewport(0, 0, vpW, vpH); // the composer's passes read this next frame
+      }
     };
     tick();
 

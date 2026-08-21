@@ -54,9 +54,24 @@ interface RadarBody {
   nowAltDeg: number;
 }
 
+/** /m shell — body.m is server-rendered by the layout before any island mounts (the
+ *  MapWindow idiom). The band model shifts inward on /m (owner batch #5 item 2); the radar
+ *  RADIUS is not scaled here — the card itself is already CSS-shrunk to 124px on /m. */
+const mobileShell = typeof document !== "undefined" && document.body.classList.contains("m");
+
 /** The GL module's band allocation, read from the SAME tunables (one geometry model). */
 const bandFor = (key: AimKey): readonly [number, number] =>
-  key === "sun" ? AIMCONES.bandSun : key === "moon" ? AIMCONES.bandMoon : AIMCONES.bandTarget;
+  key === "sun"
+    ? mobileShell
+      ? AIMCONES.bandSunMobile
+      : AIMCONES.bandSun
+    : key === "moon"
+      ? mobileShell
+        ? AIMCONES.bandMoonMobile
+        : AIMCONES.bandMoon
+      : mobileShell
+        ? AIMCONES.bandTargetMobile
+        : AIMCONES.bandTarget;
 
 // Per-body aim-day memo (the MapWindow idiom) — ~145 ephemeris calls per (target, day,
 // anchor); the 20 Hz pose repaint only re-splits at now. Module singleton: the island mounts
@@ -216,15 +231,15 @@ function draw(
       // from the tokens bridge — there is NO --color-moon-dial custom property to cssVar.
       const futureInk =
         b.key === "target" ? cssVar(canvas, "--color-time-future") : b.color;
-      if (b.emphasized) {
-        ctx.globalAlpha = AIMCONES.fillAlpha * 2; // patch scale: the map ink below is dense
-        ctx.fillStyle = cssVar(canvas, "--color-text-secondary");
-        sectorPath(b.past, rIn, rOut);
-        ctx.fill();
-        ctx.fillStyle = futureInk;
-        sectorPath(b.future, rIn, rOut);
-        ctx.fill();
-      }
+      // Fills never rest at zero (owner batch #5 item 1) — the wash is always on, a focus
+      // tap breathes it up to fillAlpha. ×2 = patch scale: the map ink below is dense.
+      ctx.globalAlpha = (b.emphasized ? AIMCONES.fillAlpha : AIMCONES.fillAlphaRest) * 2;
+      ctx.fillStyle = cssVar(canvas, "--color-text-secondary");
+      sectorPath(b.past, rIn, rOut);
+      ctx.fill();
+      ctx.fillStyle = futureInk;
+      sectorPath(b.future, rIn, rOut);
+      ctx.fill();
       ctx.globalAlpha = AIMCONES.rimAlpha;
       ctx.lineWidth = 1 * dpr;
       ctx.strokeStyle = cssVar(canvas, "--color-text-secondary");
@@ -273,9 +288,17 @@ function draw(
     ctx.closePath();
     ctx.globalAlpha = FOCALCONE.fillAlpha * 2; // patch scale: dense map ink below
     ctx.fill();
+    // Boundary LEGS only — stroking the closed wedge drew the far ARC too, which no other
+    // surface does (owner batch #5 item 1 consistency pass); a touch wider + brighter than
+    // the 1px radar lines, the GL 1.25× rule.
     ctx.globalAlpha = FOCALCONE.edgeAlpha;
-    ctx.lineWidth = 1 * dpr;
+    ctx.lineWidth = 1.5 * dpr;
     ctx.strokeStyle = tokens.focalCone;
+    ctx.beginPath();
+    for (const a of [-Math.PI / 2 - half, -Math.PI / 2 + half]) {
+      ctx.moveTo(0, 0);
+      ctx.lineTo(r * Math.cos(a), r * Math.sin(a));
+    }
     ctx.stroke();
     ctx.fillStyle = ink.viewer;
   } else {
@@ -362,7 +385,9 @@ export default function MiniMap() {
       </span>
       {/* AIM joystick (batch #4 item 11) — bottom-right of the card; in FPV (the minimap's
           only life) it steers the REAL camera heading/focal. Hidden with the collapse. */}
-      {!collapsed && <AimJoystick variant="minimap" />}
+      {/* Owner batch #6 item 4: the /m aim stick moved above the WALK stick (MobileShell) —
+          the card corner keeps it on DESKTOP only. */}
+      {!collapsed && !mobileShell && <AimJoystick variant="minimap" />}
     </div>
   );
 }

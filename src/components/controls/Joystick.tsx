@@ -9,7 +9,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore } from "../../store/camera";
 import { CONTROLS, FOCALCONE, FPV } from "../globe/tuning";
-import { horizontalFovDeg, stickRate } from "../../lib/geo/plannedView";
+import { focalMmFromHFov, horizontalFovDeg, stickRate } from "../../lib/geo/plannedView";
+import { formatFocal } from "../../lib/format/readout";
 import "../../styles/mobile/fpv.css";
 
 /** Knob travel radius as a fraction of the pad radius (the rim ring stays visible). */
@@ -23,11 +24,14 @@ export function Joystick({
   label,
   ariaLabel,
   className,
+  footer,
 }: {
   onVector: (v: { x: number; y: number } | null) => void;
   label: string;
   ariaLabel: string;
   className?: string;
+  /** Small readout on the pad's lower body (batch #6 item 3: the aim stick's focal mm). */
+  footer?: string;
 }) {
   const padRef = useRef<HTMLDivElement>(null);
   const dragId = useRef<number | null>(null);
@@ -91,6 +95,11 @@ export function Joystick({
         style={knob ? { transform: `translate(${knob.x}px, ${knob.y}px)` } : undefined}
         aria-hidden="true"
       />
+      {footer && (
+        <span className="m-joy__footer" aria-hidden="true">
+          {footer}
+        </span>
+      )}
     </div>
   );
 }
@@ -98,9 +107,14 @@ export function Joystick({
 /** AIM joystick (owner batch #4 item 11): left-right steers heading, up-down the focal
  *  (up = zoom in), desktop-encoder feel (expo γ 2.2, 45°/s + log-space 0.9/s ceilings).
  *  In FPV it writes the REAL camera's rate seams; outside it steers the PLANNED view
- *  (seeding it from the current view on first touch). Mounts: the minimap card
- *  (bottom-right, both shells) and the /m 2D/3D map surface (bottom-left). */
-export function AimJoystick({ variant }: { variant: "map" | "minimap" }) {
+ *  (seeding it from the current view on first touch). Mounts (batch #6 item 4): desktop
+ *  minimap card corner ("minimap") and the /m shell ("map" on the 2D/3D surface, "fpv"
+ *  seated just above the walk stick). The pad's lower body carries the LIVE focal readout
+ *  in mm — fpvHud when standing in the shot, else the planned view (item 3). */
+export function AimJoystick({ variant }: { variant: "map" | "minimap" | "fpv" }) {
+  const hFovNow = useCameraStore((s) =>
+    s.fpvHud ? horizontalFovDeg(s.fpvHud.fovDeg, s.fpvHud.aspect) : (s.plannedView?.hFovDeg ?? null),
+  );
   const onVector = (v: { x: number; y: number } | null) => {
     const cam = useCameraStore.getState();
     if (v === null) {
@@ -143,6 +157,7 @@ export function AimJoystick({ variant }: { variant: "map" | "minimap" }) {
       ariaLabel="Aim joystick — drag sideways to turn the shot heading, up and down to zoom the focal"
       className={`m-joy--aim m-joy--aim-${variant}`}
       onVector={onVector}
+      footer={hFovNow !== null ? formatFocal(focalMmFromHFov(hFovNow)) : undefined}
     />
   );
 }

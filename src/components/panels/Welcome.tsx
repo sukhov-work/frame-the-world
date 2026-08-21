@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useCameraStore } from "../../store/camera";
 import { usePinsStore } from "../../store/pins";
-import { parseFpvHash, parsePoseHash } from "../../lib/geo/urlPose";
+import { mobileShellHash, parseFpvHash, parsePoseHash } from "../../lib/geo/urlPose";
 import "../../styles/welcome.css";
 
 /**
@@ -71,8 +71,19 @@ export default function Welcome() {
             EXPLORE THE GLOBE <span aria-hidden="true">→</span>
           </button>
           {/* Owner 2026-08-15c: a big escape hatch to /m for phones the auto-detect missed
-              (reliable detection already redirects — this button is the belt). */}
-          <a className="wl-btn wl-btn--ghost" href="/m">
+              (reliable detection already redirects — this button is the belt). Batch #5
+              item 6: carry the pose if one exists (welcome-active suppresses the mirror, so
+              usually there is none and the plain /m default boot is right). */}
+          <a
+            className="wl-btn wl-btn--ghost"
+            href="/m"
+            onClick={(e) => {
+              const h = mobileShellHash(window.location.hash);
+              if (!h) return;
+              e.preventDefault();
+              window.location.href = "/m" + h;
+            }}
+          >
             MOBILE VERSION
           </a>
           {/* Guide track G1: first-run discoverability — dismiss into the scene with the

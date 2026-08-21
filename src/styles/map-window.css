@@ -95,12 +95,15 @@ body.m .mw-top {
   color: var(--color-text-secondary);
 }
 
-/* #1 PiP (batch #4 S3, /m only): the live-3D punched hole replacing ✕ MINI-MAP. The button is
-   TRANSPARENT — draw() clearRects the canvas under its exact DOM box, and body.m .mw drops the
-   panel background, so these pixels reach the GL canvas rendering the live FPV view. 200 px =
-   the desktop FPV mini-patch (MiniMap SIZE_PX — the spec's "same size"). SQUARE corners: the
-   hole is a clearRect — a border-radius would leak cleared pixels past the ring. Top-right,
-   below the .mw-top pills and clear of the z-24 walk controls that own the bottom edge. */
+/* #1 PiP (batch #4 S3 → batch #5 item 3, /m only): the live-3D hole replacing ✕ MINI-MAP.
+   The button is TRANSPARENT — draw() clearRects the canvas under its exact DOM box, and
+   body.m .mw drops the panel background, so these pixels reach the GL canvas — which since
+   batch #5 renders a SECOND scissored pass of the whole view into exactly this rect (the old
+   hole showed a 1:1 screen crop). Sized in EQUAL vw/dvh fractions so the box's aspect always
+   equals the viewport's — that is what lets the engine reuse the live camera untouched (a
+   true scaled miniature, never anamorphic). SQUARE corners: the hole is a clearRect — a
+   border-radius would leak cleared pixels past the ring. Top-right, below the .mw-top pills
+   and clear of the z-24 walk controls that own the bottom edge. */
 .mw-pip {
   display: none; /* /m-only instrument — desktop keeps the ✕ MINI-MAP button */
 }
@@ -109,8 +112,8 @@ body.m .mw-pip {
   position: absolute;
   top: calc(3.4rem + env(safe-area-inset-top));
   right: 0.75rem;
-  width: 200px;
-  height: 200px;
+  width: 32vw;
+  height: 32dvh;
   padding: 0;
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--color-text-muted) 45%, transparent);

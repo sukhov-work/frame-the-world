@@ -105,8 +105,10 @@ const d = await attach();
 await d.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
 await d.goto(ORBIT_URL, 16000); // tiles + radar warm up
 
-// 1 — annular radar on the GL globe (visual) + plannedView starts null
-check("desktop: plannedView starts null", (await planned(d)) === null);
+// 1 — annular radar on the GL globe (visual) + plannedView SEEDED at boot (batch #6 item 3
+// supersession: the focal cone shows from start — the old starts-null contract is retired).
+const dBootPlan = await planned(d);
+check("desktop: plannedView seeded at boot (batch #6)", dBootPlan !== null && dBootPlan.hFovDeg > 0);
 await d.shoot("uxb4-s2-01-desktop-annular-radar");
 
 // 2 — FPV: minimap aim joystick steers the REAL camera
@@ -189,7 +191,9 @@ await m.goto(M_URL, 14000);
 // 5 — /m 2D map: AIM joystick creates + steers the planned view
 const joyMap = await m.rect(".m-joy--aim-map");
 check("/m: map AIM joystick present (2D, not FPV)", joyMap !== null);
-check("/m: plannedView starts null", (await planned(m)) === null);
+// Batch #6 supersession: seeded at boot on /m too.
+const mBootPlan = await planned(m);
+check("/m: plannedView seeded at boot (batch #6)", mBootPlan !== null && mBootPlan.hFovDeg > 0);
 if (joyMap) {
   await m.deflect(".m-joy--aim-map", 26, 0, 900);
   await sleep(300);
@@ -215,8 +219,12 @@ if (chipRect) {
   await sleep(4500);
   const fpvOn = await m.evalJs(`!!document.querySelector(".m-joy")`);
   check("/m: long-press 3D entered FPV", fpvOn);
-  const mmJoy = await m.rect(".m-joy--aim-minimap");
-  check("/m: minimap card carries the AIM joystick", mmJoy !== null);
+  // Batch #6 item 4 supersession: the /m aim stick moved OFF the minimap corner to its own
+  // seat above the walk stick (the corner instance is desktop-only now).
+  const mmJoy = await m.rect(".m-joy--aim-fpv");
+  check("/m: FPV carries the AIM joystick above the walk stick", mmJoy !== null);
+  const cornerGone = await m.evalJs(`document.querySelector(".m-joy--aim-minimap") === null`);
+  check("/m: minimap-corner AIM joystick retired (batch #6)", cornerGone === true);
   await m.shoot("uxb4-s2-07-m-fpv-minimap-radar");
 }
 

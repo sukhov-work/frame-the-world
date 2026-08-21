@@ -121,7 +121,54 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**OWNER BATCH #4 S3 SHIPPED 2026-08-21c — BATCH CLOSED 18/18** (DECISIONS 2026-08-21c; gates
+**OWNER BATCH #6 SHIPPED 2026-08-21e — 4/4 fixes on batch #5, same session** (DECISIONS
+2026-08-21e; gates 1,109/1,109 · astro 0 err/5 hints; verify S1 23/23 + s2 16/16 [2 checks
+superseded] + s3 18/18 + uxb5 17/17 + NEW `verify-uxbatch6.mjs` 12/12, shots uxb6-01..05):
+(1) placed point OWNS the map radar (MapWindow anchor `tempPin ?? camGeo ?? focus`) and —
+kept deliberately — relocates a STANDING temp FPV (tempPinPoint per-frame re-pose; the PiP
+previews the new point, tap = you're there) · (2) band stack REORDERED+COMPACTED (supersedes
+the batch-#4 sketch): moon INNERMOST / sun / target small-gap above at 3× band width off the
+rim — desktop [0.3,0.38]/[0.42,0.5]/[0.55,0.79], mobile [0.24,0.32]/[0.34,0.42]/NEW
+bandTargetMobile [0.46,0.7]; N rides bandTarget[1]×northOffsetK (GL + MapWindow); "lost
+moon" = silver-on-bright readability (+ maybe a dismissed MOON direction) — drawn innermost
+now, alpha bump = T1 taste · (3) focal cone seeded FROM BOOT (stepPlannedView null-seed) +
+aim-stick mm focal footer (NEW pure `focalMmFromHFov`, Joystick `footer` prop,
+`.m-joy__footer`) · (4) /m aim stick above the WALK stick (`.m-joy--aim-fpv`, one MobileShell
+instance `variant={fpvOn?"fpv":"map"}`; minimap-corner instance DESKTOP-ONLY; rides the
+mw-open z-24 rung so it survives the /m fullscreen map). TRAPS: the /m left rail is two
+stacked z-24 pads — synthetic map presses below x≈126 land on sticks; wix dev on :4321 died
+mid-session once — check before browser work. **NEXT SESSION (owner order 2026-08-21e): REVIEW/AUDIT PASS + reconcile docs/guides after
+batches #4–#6 — /frame Audit mode (READ-ONLY report → audits/; scope: batch-touched seams +
+debris sweep), ARCHITECTURE/globe-tuning refresh, guideContent topics (bands, aim-stick
+seats + mm footer, PiP, place-point, dock inputs, shell-switch) + guide re-shoots. Release
+still gated on the owner's domain fix (batches #4+#5+#6 ride it); T1 device pass after
+(moon-silver readability, aim-pad size, place-point-FPV-relocate feel, PiP perf); then P8
+conjunctions + P9 lunar eclipses + M4 · U8 sync-phase ladder.**
+Log: `mem:project/wip-2026-08-21-owner-uxbatch6`.
+Prior: **OWNER BATCH #5 SHIPPED 2026-08-21d — 6/6 post-batch-#4 fixes** (DECISIONS 2026-08-21d;
+gates 1,107/1,107 · astro 0 err/5 hints; S1 23/23 + S2 15/15 + S3 18/18 regressions + NEW
+`verify-uxbatch5.mjs` 17/17, shots uxb5-01..05; owner's report screenshots arrived BROKEN —
+fixes driven from written descriptions + own shots): (1) radar bands ALWAYS-filled —
+`AIMCONES.fillAlphaRest 0.05` (the ×emphEased gate zeroed non-focused fills, root cause), 3
+surfaces; focal-cone edge de-fattened 3.0×→1.25× (`edgeHalfWidthK 0.000625` — GL width is in
+ray-extended units ×rayLenK) + minimap cone legs-only · (2) /m radar ×0.8
+(`mobileRadiusK`, orchestrator-pushed `mobile:` flag) + `bandSun/MoonMobile` inward rings ·
+(3) /m PiP = TRUE miniature — `.mw-pip` 32vw×32dvh (equal fractions ⇒ screen aspect ⇒ live
+camera reused), `minimap.pipRect` → `TilesHandle.pipRect()` → GlobeCanvas scissored second
+render after composer (restore viewport!); `body.m.mw-open` hides `.mm/.m-fpvhud/.fh-chip`
+(the minimap-in-minimap leak) · (4) /m map long-press = PLACE POINT only (setTempPin, stays
+open; wantKind===fpvKind ⇒ no FPV re-entry; desktop keeps VIEW FROM HERE) · (5) /m dock —
+S1's `.md-rate` CSS deletion had ORPHANED `.md-date` onto the invert rule (whole input
+inverted/unstyled); rebuilt as .ts-date twin + native `<input type=time>` picker = desktop
+parity · (6) shell-switch pose carry — NEW pure `mobileShellHash()` (#p= tilt→0 for the 2D
+door, #f= exact) at topnav/banner/Welcome + /m DESKTOP chip carries raw hash to /?d=1.
+TRAP: /m re-mirrors the live camera into location.hash ~1.6s after boot — assert boot
+RESULTS in verify scripts, never the link hash. **NEXT SESSION: release when the owner
+finishes the domain fix (batches #4+#5 ride it; probe /sw.js after); T1 device pass (grown:
+PiP scaled-pass feel, band-wash + mobile-radar taste, iOS time-input popover); then P8
+conjunctions + P9 lunar eclipses + M4 mobile resume · U8 sync-phase ladder.** Log:
+`mem:project/wip-2026-08-21-owner-uxbatch5`.
+Prior: **OWNER BATCH #4 S3 SHIPPED 2026-08-21c — BATCH CLOSED 18/18** (DECISIONS 2026-08-21c; gates
 1,101/1,101 · astro 0 err/5 hints; S1 23/23 + S2 15/15 regression + NEW `verify-uxbatch4-s3.mjs`
 18/18, shots uxb4-s3-01..04): (17) radar sun/moon band FUTURE halves wear body ink —
 `bandFutureInk()` (aimCones, unit-locked), per-body uFuture + both canvas twins via `b.color` ·

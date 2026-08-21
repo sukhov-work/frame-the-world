@@ -53,6 +53,9 @@ export interface AimConesHandle {
     target: SkyTarget;
     /** Per-body AIM flags + the emphasized system (store/sky mirror). */
     aim: { target: boolean; sun: boolean; moon: boolean; focus: AimKey };
+    /** /m shell (orchestrator-pushed environment fact — batch #5 item 2): 20% smaller radius
+     *  + the sun/moon bands pulled inward (bandFor's mobile variant). */
+    mobile: boolean;
     dtMs: number;
   }): void;
   dispose(): void;
@@ -124,13 +127,23 @@ function makeLineMaterial(color: string): THREE.ShaderMaterial {
 const DEG = Math.PI / 180;
 
 /** Per-body annular band [inner, outer] as unit-radius fractions (pure — unit-tested; the
- *  MapWindow canvas twin + minimap radar consume the SAME allocation, one geometry model). */
-export function bandFor(key: "target" | "sun" | "moon"): readonly [number, number] {
+ *  MapWindow canvas twin + minimap radar consume the SAME allocation, one geometry model).
+ *  On /m the sun/moon rings sit ~20% closer to the centre (owner batch #5 item 2). */
+export function bandFor(
+  key: "target" | "sun" | "moon",
+  mobile = false,
+): readonly [number, number] {
   return key === "sun"
-    ? AIMCONES.bandSun
+    ? mobile
+      ? AIMCONES.bandSunMobile
+      : AIMCONES.bandSun
     : key === "moon"
-      ? AIMCONES.bandMoon
-      : AIMCONES.bandTarget;
+      ? mobile
+        ? AIMCONES.bandMoonMobile
+        : AIMCONES.bandMoon
+      : mobile
+        ? AIMCONES.bandTargetMobile
+        : AIMCONES.bandTarget;
 }
 
 /** Band FUTURE ink per body (owner item 17, 2026-08-21b): the sun/moon bands wear their BODY
@@ -277,9 +290,12 @@ export function attachAimCones(opts: {
 
   /** Rebuild one body's sector from its aim day — an ANNULAR band strip between the body's
    *  own [inner, outer] radii (batch #4 S2) + outer-rim arc, per-vertex t01. */
+  // /m flag, mirrored from the update ctx (static per shell — geometry built once is honest).
+  let mobileNow = false;
+
   function rebuildBody(b: (typeof bodies)[number], day: AimDay) {
     b.day = day;
-    const [rIn, rOut] = bandFor(b.key);
+    const [rIn, rOut] = bandFor(b.key, mobileNow);
     const t01 = (ms: number) => (ms - day.startMs) / (day.endMs - day.startMs);
     const fanPos: number[] = [];
     const fanT: number[] = [];
@@ -337,7 +353,8 @@ export function attachAimCones(opts: {
 
   return {
     group,
-    update({ sceneMs, anchor, alt, band, enabled, target, aim, dtMs }) {
+    update({ sceneMs, anchor, alt, band, enabled, target, aim, mobile, dtMs }) {
+      mobileNow = mobile;
       const anyOn = aim.target || aim.sun || aim.moon;
       const presence =
         alt >= band.topAltM
@@ -393,10 +410,9 @@ export function attachAimCones(opts: {
         // Zoom-adaptive radius — RAW, never eased (owner 2026-08-18: the circle must resize in
         // lockstep with the wheel/pinch; the clamp is continuous in alt, so direct application
         // is smooth by construction — the old 180 ms ease read as the overlay trailing the zoom).
-        radius = Math.min(
-          AIMCONES.radiusMaxM,
-          Math.max(AIMCONES.radiusMinM, alt * AIMCONES.radiusAltK),
-        );
+        radius =
+          Math.min(AIMCONES.radiusMaxM, Math.max(AIMCONES.radiusMinM, alt * AIMCONES.radiusAltK)) *
+          (mobile ? AIMCONES.mobileRadiusK : 1); // batch #5 item 2 — /m radar reads 20% smaller
 
         // Seat the group at the LIVE anchor — only the az curves ride the rebuild deadband
         // (azimuths barely move over 2 km; the seat visibly does).
@@ -414,6 +430,9 @@ export function attachAimCones(opts: {
       group.visible = true;
 
       const overlayA = fade * presence;
+      // N rides just past the OUTERMOST band (batch #6: the target band compacted off the
+      // unit rim — a fixed unit-1.09 seat would float detached from the ink).
+      north.position.y = bandFor("target", mobile)[1] * AIMCONES.northOffsetK;
       northMat.opacity = AIMCONES.rimAlpha * overlayA;
       for (const b of bodies) {
         const on = aim[b.key];
@@ -430,7 +449,11 @@ export function attachAimCones(opts: {
         );
         b.fanMat.uniforms.uNow01.value = now01;
         b.rimMat.uniforms.uNow01.value = now01;
-        b.fanMat.uniforms.uAlpha.value = AIMCONES.fillAlpha * overlayA * b.emphEased;
+        // Fill NEVER rests at zero (owner batch #5 item 1: the strips read as empty) — every
+        // band wears the fillAlphaRest wash; emphasis breathes it up to fillAlpha.
+        b.fanMat.uniforms.uAlpha.value =
+          (AIMCONES.fillAlphaRest + (AIMCONES.fillAlpha - AIMCONES.fillAlphaRest) * b.emphEased) *
+          overlayA;
         b.rimMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
         b.edgesMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
 
@@ -441,7 +464,7 @@ export function attachAimCones(opts: {
         // the ×1.18 focused overshoot is retired with the radius scaling).
         const nowPos = targetAzAlt(targetFor(b.key, target), sceneMs, anchorLat, anchorLon);
         b.line.rotation.z = -nowPos.azDeg * DEG;
-        b.line.scale.y = b.key === "target" ? AIMCONES.rayLenK : bandFor(b.key)[1];
+        b.line.scale.y = b.key === "target" ? AIMCONES.rayLenK : bandFor(b.key, mobile)[1];
         b.lineMat.uniforms.uAlpha.value =
           (nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown) * overlayA;
       }

@@ -2037,14 +2037,24 @@ export const AIMCONES = {
    *  FILL + rim brightness only (band radii are fixed — compactK retired). */
   emphTauMs: 180,
   /** Concentric band allocation (unit-radius [inner, outer] fractions — owner batch #4 item 9,
-   *  2026-08-21): the TARGET visibility zone is an ANNULAR band clipped at the outer circle;
-   *  sun and moon read as THIN separate rings below it (sun inner, moon outer, per the owner's
-   *  sketch) — non-overlapping by construction, which is what retired the compact/emphasis
-   *  radius scaling. ONE geometry model shared by the GL fan (scene/aimCones), the MapWindow
-   *  canvas twin, and the minimap radar. */
-  bandSun: [0.3, 0.38],
-  bandMoon: [0.42, 0.5],
-  bandTarget: [0.55, 1],
+   *  REORDERED + COMPACTED batch #6 2026-08-21e): MOON innermost, SUN directly above it, the
+   *  TARGET visibility zone a small gap above the sun and 3× the sun/moon width (the old
+   *  rim-clipped [0.55, 1] zone read "too far out and huge") — non-overlapping by
+   *  construction, which is what retired the compact/emphasis radius scaling. ONE geometry
+   *  model shared by the GL fan (scene/aimCones), the MapWindow canvas twin, and the minimap
+   *  radar. (The batch-#4 "sun inner, moon outer" sketch order is SUPERSEDED here.) */
+  bandMoon: [0.3, 0.38],
+  bandSun: [0.42, 0.5],
+  bandTarget: [0.55, 0.79],
+  /** Mobile band allocation (owner batch #5 item 2 + batch #6 compaction): the whole stack
+   *  sits ~20% closer to the centre on /m (same widths/order as desktop). */
+  bandMoonMobile: [0.24, 0.32],
+  bandSunMobile: [0.34, 0.42],
+  bandTargetMobile: [0.46, 0.7],
+  /** Whole-radar radius multiplier on /m (owner batch #5 item 2: "radar too big in relation
+   *  to screen") — applied to the GL fan AND the fullscreen MapWindow twin. The minimap radar
+   *  is NOT scaled (its card is already CSS-shrunk to 124 px on /m). */
+  mobileRadiusK: 0.8,
   /** Small `N` north marker on the radar rim, all surfaces (owner addendum 2026-08-21 — the
    *  2D map rotates everywhere now): centre at outer-radius × northOffsetK along az 0, glyph
    *  height = radius × northSizeK. */
@@ -2053,6 +2063,10 @@ export const AIMCONES = {
   /** Sector fill alpha (emphasized body) — glassy, the imagery must read through
    *  (0.16 → 0.12 browser pass → 0.08 owner 2026-08-18: the fill still occluded the map). */
   fillAlpha: 0.08,
+  /** RESTING sector fill alpha (owner batch #5 item 1, 2026-08-21: the non-focused bands read
+   *  as EMPTY strips) — every visible band always wears a very transparent but visible wash
+   *  (body ink future / grey past); a focus tap still breathes it up to fillAlpha. */
+  fillAlphaRest: 0.05,
   /** Sector rim (outline) alpha. */
   rimAlpha: 0.5,
   /** Direction-line alpha, and its paled value while the body is below the horizon. */
@@ -2095,9 +2109,13 @@ export const AIMCONES = {
 export const FOCALCONE = {
   /** Fill alpha — "very transparent" (owner): the boundary carries the reading. */
   fillAlpha: 0.05,
-  /** Boundary edge alpha ("highlighted boundary") + edge half-width as a reach fraction. */
-  edgeAlpha: 0.55,
-  edgeHalfWidthK: 0.0015,
+  /** Boundary edge alpha ("highlighted boundary") + edge half-width as a reach fraction.
+   *  The reach is the RAY-EXTENDED radius (radar radius × AIMCONES.rayLenK 6), so in radar
+   *  units the half-width is ×6: 0.000625 ⇒ 0.00375 ≈ 1.25× the radar direction line's
+   *  lineHalfWidthK 0.003 (owner batch #5 item 1: the old 0.0015 ⇒ 3× read as FAT borders —
+   *  "just a bit more distinct and bright than base radar lines"; brightness rides edgeAlpha). */
+  edgeAlpha: 0.7,
+  edgeHalfWidthK: 0.000625,
   /** Planned hFov clamp (deg) — spans the FPV vertical clamp across sane aspects; the aim
    *  joystick integrates hFov in log space between these. */
   minHFovDeg: 3,

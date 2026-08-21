@@ -172,7 +172,7 @@
   box-shadow: 0 0 6px rgba(124, 176, 245, 0.6);
 }
 
-/* Control row under the rail: date · play · rate · offset · NOW. */
+/* Control row under the rail: ‹day› · date · time · offset · NOW. */
 .md-row {
   display: flex;
   align-items: center;
@@ -180,9 +180,30 @@
   margin-top: 2px;
 }
 
-.md-date,
+/* Date + time jump — native pickers skinned to the instrument idiom, the desktop .ts-date
+   twin (owner batch #5: /m date+time must look/behave exactly like TimeScrubber's; the S1
+   .md-rate deletion had taken this rule's body with it and left the whole input inverted).
+   11px + 3px 6px keep the /m touch size; everything else mirrors time-scrubber.css. */
+.md-date {
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
+  border-radius: 6px;
+  padding: 3px 6px;
+  color-scheme: dark; /* native calendar/clock popover follows the dark chrome */
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+.md-date:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline: none;
+}
 .md-date::-webkit-calendar-picker-indicator {
   filter: invert(0.7);
+  cursor: pointer;
 }
 
 /* Compact ‹day› steppers flanking the calendar (owner 2026-08-19 — desktop .ts-day parity). */
@@ -197,20 +218,11 @@
   padding: 6px 7px; /* the glyph is tiny — the padding keeps a usable touch target */
 }
 
-/* Scene-time readout (batch #4 item 12) — replaces PLAY + speed on /m; time only (the
-   calendar to the left carries the date). Live = calm; pinned tints amber/blue like the cursor. */
-.md-clock {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  color: var(--color-text);
+/* Scene-time input (batch #4 item 12 → batch #5 item 5): the readout IS the picker — a native
+   time input riding .md-date, the desktop .ts-time twin (untinted like desktop; the offset
+   chip + cursor carry the pinned amber/blue signal). .md-time is a hook class like .ts-time. */
+.md-time {
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.md-clock--pinned {
-  color: var(--color-warn);
-}
-.md-clock--future {
-  color: var(--color-time-future);
 }
 
 .md-offset {

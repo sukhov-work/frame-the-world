@@ -197,8 +197,9 @@ await seedPrefs(m);
 await m.goto("about:blank", 300);
 await m.goto(M_URL, 14000);
 
-// 5 — dock clock replaces PLAY/rate; strip chip gone
-check("/m: dock clock present", await m.evalJs(`!!document.querySelector(".md-clock")`));
+// 5 — dock clock replaces PLAY/rate; strip chip gone (batch #5 item 5: the clock became a
+// native time input, .md-time — the desktop .ts-time twin)
+check("/m: dock time input present", await m.evalJs(`!!document.querySelector("input.md-time[type=time]")`));
 check("/m: PLAY button gone", await m.evalJs(`!document.querySelector(".md-play")`));
 check("/m: rate select gone", await m.evalJs(`!document.querySelector(".md-rate")`));
 check("/m: strip time chip gone", await m.evalJs(`!document.querySelector(".m-chip--time")`));

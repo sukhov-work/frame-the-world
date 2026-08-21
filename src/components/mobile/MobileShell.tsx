@@ -59,17 +59,30 @@ export default function MobileShell() {
             GUIDE
           </button>
           {/* ?d=1 persists the desktop preference — without it the index auto-detect
-              (owner 2026-08-15c) would bounce a phone straight back to /m. */}
-          <a className="m-chip" href="/?d=1">
+              (owner 2026-08-15c) would bounce a phone straight back to /m. Batch #5 item 6:
+              the pose hash resolves at CLICK time (the MobileAccount returnTo idiom) so the
+              desktop boots at this exact view — it honors #p=/#f= as-is, no transform. */}
+          <a
+            className="m-chip"
+            href="/?d=1"
+            onClick={(e) => {
+              if (!window.location.hash) return; // plain boot — keep the no-JS href semantics
+              e.preventDefault();
+              window.location.href = "/?d=1" + window.location.hash;
+            }}
+          >
             DESKTOP
           </a>
         </span>
       </div>
       <SceneActions onOpenPlaces={() => setSheet("search")} />
       {fpvOn && <FpvControls />}
-      {/* AIM joystick on the 2D/3D map surface (owner batch #4 item 11) — steers the planned
-          shot (heading + focal cone); in FPV the minimap card carries its own instance. */}
-      {!fpvOn && <AimJoystick variant="map" />}
+      {/* AIM joystick (owner batch #4 item 11 → batch #6 item 4): steers the planned shot
+          (heading + focal cone) on the 2D/3D map surface AND, in FPV, the live camera — one
+          instance, seated just above the WALK stick while it exists (the minimap-corner
+          instance is desktop-only now; body.mw-open's z-24 rung keeps both sticks over the
+          fullscreen map, so the aim stick survives the /m "minimap mode" too). */}
+      <AimJoystick variant={fpvOn ? "fpv" : "map"} />
       <div className="m-bottom">
         <TargetPeek onOpen={() => setSheet("target")} />
         <MobileTimeDock />

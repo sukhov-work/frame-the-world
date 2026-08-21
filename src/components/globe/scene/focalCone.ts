@@ -32,6 +32,8 @@ export interface FocalConeHandle {
     /** Planned view (compass heading + HORIZONTAL fov, deg); null hides. */
     headingDeg: number | null;
     hFovDeg: number | null;
+    /** /m shell (orchestrator-pushed) — the reach rides the radar's mobile radius (item 2). */
+    mobile: boolean;
     dtMs: number;
   }): void;
   dispose(): void;
@@ -126,7 +128,7 @@ export function attachFocalCone(opts: {
 
   return {
     group,
-    update({ anchor, alt, band, enabled, headingDeg, hFovDeg, dtMs }) {
+    update({ anchor, alt, band, enabled, headingDeg, hFovDeg, mobile, dtMs }) {
       const presence =
         alt >= band.topAltM
           ? 0
@@ -154,9 +156,11 @@ export function attachFocalCone(opts: {
           dtMs,
           FOCALCONE.fadeTauMs,
         );
-        // Reach = the tracking ray: the radar's zoom-adaptive radius × rayLenK (item 6).
+        // Reach = the tracking ray: the radar's zoom-adaptive radius × rayLenK (item 6);
+        // rides the radar's mobile shrink so the two instruments stay one system (item 2).
         const radius =
           Math.min(AIMCONES.radiusMaxM, Math.max(AIMCONES.radiusMinM, alt * AIMCONES.radiusAltK)) *
+          (mobile ? AIMCONES.mobileRadiusK : 1) *
           AIMCONES.rayLenK;
         const basis = enuBasis(anchor.latDeg, anchor.lonDeg);
         const [x, y, z] = geodeticToEcef(

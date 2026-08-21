@@ -3,6 +3,7 @@ import {
   formatFpvHash,
   formatPoseHash,
   formatSceneHash,
+  mobileShellHash,
   parseFpvHash,
   parsePoseHash,
   parseTimeHash,
@@ -165,5 +166,39 @@ describe("wrapLon", () => {
     expect(wrapLon(-180)).toBe(-180);
     expect(wrapLon(215)).toBeCloseTo(-145, 10);
     expect(wrapLon(-545)).toBeCloseTo(175, 10);
+  });
+});
+
+describe("mobileShellHash — desktop→/m shell-switch hash (owner batch #5 item 6)", () => {
+  const pose = { latDeg: 48.46, lonDeg: 35.05, altM: 3_200, headingDeg: 217.4, tiltDeg: 45 };
+
+  it("forces the orbit tilt to 0 so /m lands on the 2D map, keeping lat/lon/alt/heading", () => {
+    const out = parsePoseHash(mobileShellHash(formatPoseHash(pose)))!;
+    expect(out.tiltDeg).toBe(0);
+    expect(out.latDeg).toBeCloseTo(pose.latDeg, 5);
+    expect(out.lonDeg).toBeCloseTo(pose.lonDeg, 5);
+    expect(out.altM).toBe(3_200);
+    expect(out.headingDeg).toBeCloseTo(pose.headingDeg, 1);
+  });
+
+  it("preserves a pinned scene time across the transform", () => {
+    const T = 1_780_000_000_123;
+    const h = mobileShellHash(formatSceneHash(pose, T));
+    expect(parseTimeHash(h)).toBe(T);
+    expect(parsePoseHash(h)!.tiltDeg).toBe(0);
+  });
+
+  it("passes an FPV hash through EXACT (a first-person view reproduces 1:1 on /m)", () => {
+    const f = formatFpvHash(
+      { latDeg: 48.46, lonDeg: 35.05, eyeM: 1.7, headingDeg: 90, pitchDeg: 5, fovDeg: 60 },
+      1_780_000_000_123,
+    );
+    expect(mobileShellHash(f)).toBe(f);
+  });
+
+  it("returns empty on no/garbage pose — the caller keeps the plain /m default boot", () => {
+    expect(mobileShellHash("")).toBe("");
+    expect(mobileShellHash("#explore")).toBe("");
+    expect(mobileShellHash("#p=garbage")).toBe("");
   });
 });

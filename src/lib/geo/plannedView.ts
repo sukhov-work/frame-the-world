@@ -18,6 +18,12 @@ export function horizontalFovDeg(vFovDeg: number, aspect: number): number {
   return (2 * Math.atan(Math.tan((vFovDeg * DEG) / 2) * aspect)) / DEG;
 }
 
+/** 35mm-equivalent focal length (mm) for a HORIZONTAL fov — full-frame width 36 mm, the
+ *  photographer's number (batch #6 item 3: the aim stick's readout). Pure — unit-tested. */
+export function focalMmFromHFov(hFovDeg: number): number {
+  return 18 / Math.tan((hFovDeg * DEG) / 2);
+}
+
 /** Encoder expo curve (ui/Encoder.tsx rateFor): deflection −1..1 → signed rate; γ > 1 bends
  *  small deflections toward fine control (the desktop knobs ship γ 2.2). */
 export function stickRate(deflection: number, maxRate: number, gamma: number): number {

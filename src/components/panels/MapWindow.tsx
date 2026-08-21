@@ -45,9 +45,20 @@ const TILE_CACHE_MAX = 300;
 const AIM_R_FRAC = 0.3;
 const AIM_TAP_TOL_DEG = 8; // tap-promote angular tolerance around a direction line
 
-/** The GL module's band allocation, read from the SAME tunables (one geometry model). */
-const bandFor = (key: AimKey): readonly [number, number] =>
-  key === "sun" ? AIMCONES.bandSun : key === "moon" ? AIMCONES.bandMoon : AIMCONES.bandTarget;
+/** The GL module's band allocation, read from the SAME tunables (one geometry model);
+ *  on /m the sun/moon rings sit ~20% closer to the centre (owner batch #5 item 2). */
+const bandFor = (key: AimKey, mobile: boolean): readonly [number, number] =>
+  key === "sun"
+    ? mobile
+      ? AIMCONES.bandSunMobile
+      : AIMCONES.bandSun
+    : key === "moon"
+      ? mobile
+        ? AIMCONES.bandMoonMobile
+        : AIMCONES.bandMoon
+      : mobile
+        ? AIMCONES.bandTargetMobile
+        : AIMCONES.bandTarget;
 
 interface TileImg {
   img: HTMLImageElement;
@@ -67,6 +78,8 @@ export default function MapWindow() {
   const mobileShell =
     typeof document !== "undefined" && document.body.classList.contains("m");
   const pipRef = useRef<HTMLButtonElement>(null);
+  // Last PUBLISHED PiP box (batch #5 item 3) — deadbands the store write out of the 20 Hz paint.
+  const lastPipRect = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   // The view state lives in refs — drawing is manual (rAF-scheduled), React only owns chrome.
   // rot = chart bearing (rad, screen-CCW; 0 = north-up) — two-finger twist writes it (item 4b).
   const view = useRef({ latDeg: 0, lonDeg: 0, z: 16, rot: 0 });
@@ -83,7 +96,12 @@ export default function MapWindow() {
   useEffect(() => {
     if (!open) return;
     document.body.classList.add("mw-open");
-    return () => document.body.classList.remove("mw-open");
+    return () => {
+      document.body.classList.remove("mw-open");
+      // Item 3: the PiP dies with the window — the engine must stop the scaled pass.
+      lastPipRect.current = null;
+      useMiniMapStore.getState().setPipRect(null);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -157,10 +175,11 @@ export default function MapWindow() {
     // ── U4 aim helpers (shared by draw() and the tap-promote hit test) ──────────────────────
     // LIVE anchor (owner lag report 2026-08-18): the plan-STORE anchor is a low-cadence,
     // ~25 m-chunked mirror with a lifecycle that strands stale FPV anchors — while walking,
-    // the circle visibly trailed the 20 Hz camGeo-centred chart. Resolve live instead, the
-    // aimCones orchestrator rule: walking FPV viewer > temp pin > viewer point > focus mirror.
+    // the circle visibly trailed the 20 Hz camGeo-centred chart. Resolve live instead.
+    // Owner batch #6 item 1: a PLACED point OWNS the radar — the temp pin now outranks the
+    // walking FPV viewer (the radar used to stay glued to camGeo after a place, reading as a
+    // buggy offset from the pin); with no pin the old ladder stands.
     const aimAnchorNow = (camNow: ReturnType<typeof useCameraStore.getState>) =>
-      (camNow.fpvHud ? camNow.camGeo : null) ??
       camNow.tempPin ??
       camNow.camGeo ?? { latDeg: camNow.focusLatDeg, lonDeg: camNow.focusLonDeg };
 
@@ -294,7 +313,8 @@ export default function MapWindow() {
       {
         const anchor = aimAnchorNow(camNow);
         const nowMs = sceneTimeMs();
-        const rBase = Math.min(w, h) * AIM_R_FRAC;
+        // /m: the radar reads 20% smaller (owner batch #5 item 2) — the GL fan's mobileRadiusK.
+        const rBase = Math.min(w, h) * AIM_R_FRAC * (mobileShell ? AIMCONES.mobileRadiusK : 1);
         const [ax, ay] = toPx(anchor.latDeg, anchor.lonDeg);
         const pt = (azDeg: number, rr: number): [number, number] => {
           // Compass az (N=0, CW) → canvas angle (north −y, east +x) + the chart rotation.
@@ -330,7 +350,7 @@ export default function MapWindow() {
         };
         const radarBodies = aimBodiesNow(skyNow);
         for (const b of radarBodies) {
-          const [kIn, kOut] = bandFor(b.key);
+          const [kIn, kOut] = bandFor(b.key, mobileShell);
           const rIn = rBase * kIn;
           const rOut = rBase * kOut;
           const day = aimDayFor(b.key, b.target, anchor, nowMs);
@@ -339,17 +359,16 @@ export default function MapWindow() {
           // against the inert past grey); the target band keeps the scrubber future-blue.
           // Same rule as the GL fan's bandFutureInk — b.color IS that body ink here.
           const futureInk = b.key === "target" ? tokens.timeFuture : b.color;
-          if (b.emphasized) {
-            // Glassy fills — past NEUTRAL grey (inert history, never a day/night claim —
-            // owner 2026-08-18), future in futureInk.
-            ctx.globalAlpha = AIMCONES.fillAlpha;
-            ctx.fillStyle = tokens.textSecondary;
-            sectorPath(split.past, rIn, rOut);
-            ctx.fill();
-            ctx.fillStyle = futureInk;
-            sectorPath(split.future, rIn, rOut);
-            ctx.fill();
-          }
+          // Glassy fills, NEVER resting at zero (owner batch #5 item 1: the strips read as
+          // empty) — past NEUTRAL grey (inert history, never a day/night claim — owner
+          // 2026-08-18), future in futureInk; emphasis breathes the wash up to fillAlpha.
+          ctx.globalAlpha = b.emphasized ? AIMCONES.fillAlpha : AIMCONES.fillAlphaRest;
+          ctx.fillStyle = tokens.textSecondary;
+          sectorPath(split.past, rIn, rOut);
+          ctx.fill();
+          ctx.fillStyle = futureInk;
+          sectorPath(split.future, rIn, rOut);
+          ctx.fill();
           ctx.globalAlpha = AIMCONES.rimAlpha;
           ctx.lineWidth = 1 * dpr;
           ctx.strokeStyle = tokens.textSecondary;
@@ -389,7 +408,8 @@ export default function MapWindow() {
         // Small `N` on the radar rim (owner addendum 2026-08-21) — the chart rotates now, so
         // the radar carries its own north; rides pt() and turns with the twist.
         if (radarBodies.length > 0) {
-          const [nx, ny] = pt(0, rBase * AIMCONES.northOffsetK);
+          // N rides just past the OUTERMOST band (batch #6 — the target band compacted).
+          const [nx, ny] = pt(0, rBase * bandFor("target", mobileShell)[1] * AIMCONES.northOffsetK);
           ctx.globalAlpha = AIMCONES.rimAlpha;
           ctx.fillStyle = tokens.textSecondary;
           ctx.font = `600 ${Math.max(9 * dpr, rBase * AIMCONES.northSizeK)}px ${getComputedStyle(canvas).fontFamily}`;
@@ -473,8 +493,10 @@ export default function MapWindow() {
           ctx.arc(px, py, r, a0, a1);
           ctx.closePath();
           ctx.fill();
+          // Boundary legs: a touch wider + brighter than the 1px radar lines (owner batch #5
+          // item 1 — "just a bit more distinct than base"), the GL 1.25× rule.
           ctx.globalAlpha = FOCALCONE.edgeAlpha;
-          ctx.lineWidth = 1 * dpr;
+          ctx.lineWidth = 1.5 * dpr;
           ctx.strokeStyle = tokens.focalCone;
           ctx.beginPath();
           ctx.moveTo(px, py);
@@ -499,7 +521,9 @@ export default function MapWindow() {
       // #1 PiP (batch #4 S3, /m only): punch the live-3D hole LAST — the GL canvas renders the
       // FPV view beneath this window (body.m .mw drops its panel background; this canvas paints
       // the chart bg, so cleared pixels reach GL). The rect tracks the .mw-pip button's DOM box,
-      // so CSS owns the placement and the ring + hole can never drift apart.
+      // so CSS owns the placement and the ring + hole can never drift apart. Batch #5 item 3:
+      // the box is also PUBLISHED (viewport CSS px, deadbanded) — GlobeCanvas renders a scaled
+      // whole-view pass into exactly this rect, so the hole shows a true miniature, not a crop.
       const pip = pipRef.current;
       if (pip) {
         const pr = pip.getBoundingClientRect();
@@ -510,6 +534,17 @@ export default function MapWindow() {
           pr.width * dpr,
           pr.height * dpr,
         );
+        const last = lastPipRect.current;
+        if (
+          !last ||
+          Math.abs(last.x - pr.left) > 0.5 ||
+          Math.abs(last.y - pr.top) > 0.5 ||
+          Math.abs(last.w - pr.width) > 0.5 ||
+          Math.abs(last.h - pr.height) > 0.5
+        ) {
+          lastPipRect.current = { x: pr.left, y: pr.top, w: pr.width, h: pr.height };
+          useMiniMapStore.getState().setPipRect(lastPipRect.current);
+        }
       }
     };
 
@@ -559,6 +594,15 @@ export default function MapWindow() {
         () => document.removeEventListener("click", swallow, { capture: true }),
         900,
       );
+      // Owner batch #5 item 4: on /m placing a point must NOT jump back into FPV — move the
+      // temp pin and STAY on the map (the chart deliberately does not re-centre). tempFpv is
+      // untouched, so wantKind === fpvKind and the live FPV under the PiP never re-enters;
+      // the swallow above now guards the trailing click from tap-promoting the radar instead.
+      if (mobileShell) {
+        useCameraStore.getState().setTempPin({ latDeg: at.latDeg, lonDeg: at.lonDeg });
+        requestRedraw();
+        return;
+      }
       useCameraStore.getState().requestFpvJump({
         latDeg: at.latDeg,
         lonDeg: at.lonDeg,
@@ -693,13 +737,15 @@ export default function MapWindow() {
       // Compass azimuth of the tap around the anchor — inverse-rotated (tile north = −y).
       const [vx, vy] = X.inv(dx, dy);
       const azClick = ((Math.atan2(vx, -vy) * 180) / Math.PI + 360) % 360;
-      const rBase = Math.min(w, h) * AIM_R_FRAC;
+      // Must mirror draw()'s rBase exactly or tap-promote desyncs from the drawing (item 2).
+      const rBase = Math.min(w, h) * AIM_R_FRAC * (mobileShell ? AIMCONES.mobileRadiusK : 1);
       let best: { key: AimKey; dAz: number } | null = null;
       for (const b of aimBodiesNow(skyNow)) {
         if (b.emphasized) continue; // already the focus
         // The target's tracking ray runs to the window edge (batch #4 item 6) — its whole
         // length promotes; sun/moon promote along their capped band dial (S2 fixed radii).
-        const reach = b.key === "target" ? Math.hypot(w, h) : rBase * bandFor(b.key)[1];
+        const reach =
+          b.key === "target" ? Math.hypot(w, h) : rBase * bandFor(b.key, mobileShell)[1];
         if (dist < rBase * 0.08 || dist > reach * 1.05) continue;
         const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
         const dAz = Math.abs(wrap180(azClick - nowPos.azDeg));
@@ -786,7 +832,9 @@ export default function MapWindow() {
           </button>
         )}
       </div>
-      <span className="mw-hint">DOUBLE-CLICK / LONG-PRESS — VIEW FROM HERE</span>
+      <span className="mw-hint">
+        {mobileShell ? "LONG-PRESS — PLACE POINT" : "DOUBLE-CLICK / LONG-PRESS — VIEW FROM HERE"}
+      </span>
       <a
         className="mw-credit"
         href="https://www.esri.com/"

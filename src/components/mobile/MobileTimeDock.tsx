@@ -26,6 +26,7 @@ import {
   sceneTimeMs,
   useTimeStore,
   withLocalDate,
+  withLocalTime,
 } from "../../store/time";
 import { usePlanStore } from "../../store/plan";
 import { useCameraStore } from "../../store/camera";
@@ -251,6 +252,12 @@ export default function MobileTimeDock() {
     setTime(ms);
   };
 
+  const onTimeChange = (timeStr: string) => {
+    const ms = withLocalTime(sceneTimeMs(), timeStr);
+    if (ms === null) return; // cleared/partial input — never scrub on garbage
+    setTime(ms);
+  };
+
   // Owner 2026-08-19 (batch item 3): desktop .ts-day parity — a fixed 24 h step, same literal.
   const stepDay = (dir: 1 | -1) => setTime(sceneTimeMs() + dir * 86_400_000);
 
@@ -359,14 +366,16 @@ export default function MobileTimeDock() {
         >
           ▶
         </button>
-        {/* Owner batch #4 item 12 (2026-08-21): PLAY + speed retired on /m (not useful at touch
-            scale) — the scene-time readout moved down here from the status strip instead.
-            Time only (the calendar to the left already carries the date). */}
-        <span
-          className={`md-clock${live ? " md-clock--live" : ahead ? " md-clock--future" : " md-clock--pinned"}`}
-        >
-          {localTimeStr(nowMs)}
-        </span>
+        {/* Owner batch #4 item 12 → batch #5 item 5 (2026-08-21): PLAY + speed stay retired on
+            /m; the readout IS the picker — a native time input, the desktop .ts-time twin
+            (same value/onChange contract as TimeScrubber's). */}
+        <input
+          type="time"
+          className="md-date md-time"
+          aria-label="Scene time of day"
+          value={localTimeStr(nowMs)}
+          onChange={(e) => onTimeChange(e.target.value)}
+        />
         <span
           className={`md-offset${ff ? " md-offset--ff" : live ? "" : ahead ? " md-offset--future" : " md-offset--past"}`}
         >

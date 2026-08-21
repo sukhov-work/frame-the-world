@@ -248,6 +248,22 @@ import "../styles/boot-poster.css";
       location.reload();
     });
   </script>
+  <!-- Batch #5 item 6: the /m links carry the CURRENT pose at click time (the bare href was
+       dropping the hash — /m booted at the 1100 km default). Orbit tilt is forced to 0 so the
+       phone lands on its 2D map at the exact coords/altitude; module script so the shared
+       urlPose grammar is imported, not duplicated. Covers the topnav link AND the coarse-
+       pointer banner (both are static anchors). -->
+  <script>
+    import { mobileShellHash } from "../lib/geo/urlPose";
+    for (const a of document.querySelectorAll('a[href="/m"]')) {
+      a.addEventListener("click", (e) => {
+        const h = mobileShellHash(location.hash);
+        if (!h) return; // no pose mirrored yet — the plain /m default boot is correct
+        e.preventDefault();
+        location.href = "/m" + h;
+      });
+    }
+  </script>
 
   <!-- Attribution: Esri World Imagery (draped ground) + CARTO dark basemap (S7a drape) +
        Cesium ion (World Terrain + OSM Buildings, D13 manual attribution) + OpenStreetMap

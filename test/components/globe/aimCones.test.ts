@@ -14,19 +14,42 @@ describe("bandFor — S2 concentric annular band allocation (one model, three su
     expect(bandFor("moon")).toBe(AIMCONES.bandMoon);
     expect(bandFor("target")).toBe(AIMCONES.bandTarget);
   });
-  it("bands are well-formed and NON-OVERLAPPING by construction (sun < moon < target)", () => {
-    for (const key of ["sun", "moon", "target"] as const) {
-      const [rIn, rOut] = bandFor(key);
-      expect(rIn).toBeGreaterThan(0);
-      expect(rOut).toBeGreaterThan(rIn);
-      expect(rOut).toBeLessThanOrEqual(1);
+  it("bands are well-formed and NON-OVERLAPPING (batch #6 order: moon < sun < target)", () => {
+    for (const mobile of [false, true]) {
+      for (const key of ["sun", "moon", "target"] as const) {
+        const [rIn, rOut] = bandFor(key, mobile);
+        expect(rIn).toBeGreaterThan(0);
+        expect(rOut).toBeGreaterThan(rIn);
+        expect(rOut).toBeLessThanOrEqual(1);
+      }
+      // Moon innermost, sun directly above, target a small gap above the sun (owner batch #6
+      // — supersedes the batch-#4 sun-inner sketch order).
+      expect(bandFor("moon", mobile)[1]).toBeLessThan(bandFor("sun", mobile)[0]);
+      expect(bandFor("sun", mobile)[1]).toBeLessThan(bandFor("target", mobile)[0]);
+      // The target zone is COMPACTED off the unit rim: ~3× the sun/moon band width.
+      const bandW = bandFor("sun", mobile)[1] - bandFor("sun", mobile)[0];
+      const targetW = bandFor("target", mobile)[1] - bandFor("target", mobile)[0];
+      expect(bandFor("target", mobile)[1]).toBeLessThan(1);
+      expect(targetW / bandW).toBeCloseTo(3, 5);
     }
-    expect(AIMCONES.bandSun[1]).toBeLessThan(AIMCONES.bandMoon[0]); // sun ring below moon ring
-    expect(AIMCONES.bandMoon[1]).toBeLessThan(AIMCONES.bandTarget[0]); // moon below the target zone
-    expect(AIMCONES.bandTarget[1]).toBe(1); // the target band is CLIPPED at the outer circle
   });
-  it("the N marker sits past the outer circle", () => {
+  it("the N marker offset sits past its anchor radius", () => {
     expect(AIMCONES.northOffsetK).toBeGreaterThan(1);
+  });
+  it("mobile variant (batch #5 item 2): the whole stack pulled inward, own tunables", () => {
+    expect(bandFor("sun", true)).toBe(AIMCONES.bandSunMobile);
+    expect(bandFor("moon", true)).toBe(AIMCONES.bandMoonMobile);
+    expect(bandFor("target", true)).toBe(AIMCONES.bandTargetMobile);
+    expect(AIMCONES.bandSunMobile[0]).toBeLessThan(AIMCONES.bandSun[0]);
+    expect(AIMCONES.bandMoonMobile[0]).toBeLessThan(AIMCONES.bandMoon[0]);
+    expect(AIMCONES.bandTargetMobile[0]).toBeLessThan(AIMCONES.bandTarget[0]);
+    // The /m radius shrink is a proper fraction — never grows, never vanishes.
+    expect(AIMCONES.mobileRadiusK).toBeGreaterThan(0);
+    expect(AIMCONES.mobileRadiusK).toBeLessThan(1);
+  });
+  it("resting fill wash (batch #5 item 1): visible, below the emphasized fill", () => {
+    expect(AIMCONES.fillAlphaRest).toBeGreaterThan(0.003); // above the shader discard gate
+    expect(AIMCONES.fillAlphaRest).toBeLessThan(AIMCONES.fillAlpha);
   });
 });
 

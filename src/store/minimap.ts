@@ -46,6 +46,16 @@ export interface MiniMapPose {
   coneDeg: number | null;
 }
 
+/** The /m PiP hole in VIEWPORT CSS px (batch #5 item 3) — MapWindow measures its .mw-pip DOM
+ *  box each paint and publishes it here; GlobeCanvas renders a scaled whole-view pass into
+ *  exactly this rect after the main composer pass. Null = no PiP (map closed / desktop). */
+export interface PipRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 interface MiniMapState {
   scene: MiniMapScene | null;
   pose: MiniMapPose | null;
@@ -55,6 +65,9 @@ interface MiniMapState {
   /** U3 fullscreen map (owner point 2): minimap tap opens the MapWindow island; UI-writable. */
   mapWindowOpen: boolean;
   setMapWindowOpen: (on: boolean) => void;
+  /** /m PiP hole (batch #5 item 3) — UI-writable, engine-read (the mapWindowOpen idiom). */
+  pipRect: PipRect | null;
+  setPipRect: (rect: PipRect | null) => void;
   /** Orchestrator-only mirrors (scene/minimapFeed.ts). */
   _syncScene: (scene: MiniMapScene | null) => void;
   _syncPose: (pose: MiniMapPose | null) => void;
@@ -67,6 +80,8 @@ export const useMiniMapStore = create<MiniMapState>((set) => ({
   patchM: 200,
   mapWindowOpen: false,
   setMapWindowOpen: (on) => set({ mapWindowOpen: on }),
+  pipRect: null,
+  setPipRect: (rect) => set({ pipRect: rect }),
   _syncScene: (scene) => set({ scene }),
   _syncPose: (pose) => set({ pose }),
   _syncPatchM: (m) => set({ patchM: m }),

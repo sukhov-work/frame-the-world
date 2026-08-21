@@ -166,6 +166,10 @@ export interface TilesHandle {
   /** 2026-08-18e: true while the flat-map ENGINE treatment is active (/m 2D map, or desktop
    *  nadir under CONTROLS.mapFlatMaxAltM) — GlobeCanvas gates bloom off with it. */
   mapFlat: () => boolean;
+  /** Batch #5 item 3: the /m PiP hole (viewport CSS px; null = none) — GlobeCanvas renders a
+   *  scaled whole-view pass into exactly this rect after the main composer pass. The store
+   *  read lives HERE (the orchestrator owns store facts; GlobeCanvas stays store-free). */
+  pipRect: () => { x: number; y: number; w: number; h: number } | null;
   dispose: () => void;
 }
 
@@ -3868,6 +3872,7 @@ export function attachStylizedTiles(opts: {
             moon: skyNow.aimMoon,
             focus: skyNow.aimFocus,
           },
+          mobile: isMobileShell, // batch #5 item 2 — /m radius shrink + inward sun/moon bands
           dtMs,
         });
         // S2 focal cone — same anchor, band and master switch as the radar (one planning
@@ -3879,6 +3884,7 @@ export function attachStylizedTiles(opts: {
           enabled: !fpvActive && skyNow.aimVisible,
           headingDeg: camNow.plannedView?.headingDeg ?? null,
           hFovDeg: camNow.plannedView?.hFovDeg ?? null,
+          mobile: isMobileShell,
           dtMs,
         });
   };
@@ -3906,7 +3912,17 @@ export function attachStylizedTiles(opts: {
         }
         if (fpvActive) return;
         const pv = camNow.plannedView;
-        if (!pv) return;
+        if (!pv) {
+          // Owner batch #6 item 3: the focal cone shows FROM BOOT — seed the plan eagerly
+          // from the live view heading + the temp-FPV default focal at the live aspect (the
+          // aim stick's first-touch seed, done here so the cone and the stick's mm readout
+          // never wait for a first input). Later seeds (photo/jump/FPV-exit/stick) overwrite.
+          camNow.setPlannedView({
+            headingDeg: camNow.headingDeg,
+            hFovDeg: horizontalFovDeg(FPV.tempFovDeg, camera.aspect),
+          });
+          return;
+        }
         const rates = camNow.plannedRates;
         const state = { headingDeg: pv.headingDeg, hFovDeg: pv.hFovDeg, ...plannedApplied };
         if (!rates && plannedAtRest(state)) {
@@ -4181,6 +4197,7 @@ export function attachStylizedTiles(opts: {
     // 2026-08-18e: GlobeCanvas's bloom gate — true while the flat-map engine treatment is on
     // (/m 2D map, or desktop nadir below CONTROLS.mapFlatMaxAltM). Mirrored per frame.
     mapFlat: () => flatGround,
+    pipRect: () => useMiniMapStore.getState().pipRect,
     dispose() {
       window.removeEventListener("resize", onEngineResize);
       dom.removeEventListener("pointerdown", noteInteract);

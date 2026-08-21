@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  focalMmFromHFov,
   integratePlanned,
   plannedAtRest,
   stickRate,
@@ -65,5 +66,17 @@ describe("integratePlanned", () => {
   });
   it("plannedAtRest is false while a rate is live", () => {
     expect(plannedAtRest({ ...rest(0, 60), appliedHeadingDegPerS: 1 })).toBe(false);
+  });
+});
+
+describe("focalMmFromHFov — 35mm-equivalent focal for a horizontal fov (batch #6 item 3)", () => {
+  it("matches the full-frame 36 mm geometry", () => {
+    expect(focalMmFromHFov(90)).toBeCloseTo(18, 6); // tan 45° = 1
+    expect(focalMmFromHFov(60)).toBeCloseTo(18 / Math.tan(Math.PI / 6), 6); // ≈31.18
+    expect(focalMmFromHFov(39.6)).toBeCloseTo(50, 0); // the classic "normal" lens
+  });
+  it("monotone: narrower fov = longer lens", () => {
+    expect(focalMmFromHFov(20)).toBeGreaterThan(focalMmFromHFov(40));
+    expect(focalMmFromHFov(40)).toBeGreaterThan(focalMmFromHFov(80));
   });
 });

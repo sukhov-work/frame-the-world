@@ -90,6 +90,17 @@ body.mw-open .m-altcol {
   z-index: 24;
 }
 
+/* Batch #5 item 3: chrome living BETWEEN the GL canvas (z 0) and the map window (z 20) —
+   the minimap card, the FPV HUD pill, the GOTO chips — used to bleed through the PiP hole
+   ("minimap inside minimap"). While the /m fullscreen map is up that mid-stack chrome is
+   redundant (the map IS the map) and the hole must read as pure 3D. visibility (not
+   [hidden]) — these islands stay mounted and their subscriptions warm. */
+body.m.mw-open .mm,
+body.m.mw-open .m-fpvhud,
+body.m.mw-open .fh-chip {
+  visibility: hidden;
+}
+
 /* ── AIM joystick (batch #4 item 11) — heading + focal for the planned shot ─────────────── */
 /* Knob wears the focal-cone ink: the pad steers exactly what that colour draws. */
 .m-joy--aim .m-joy__knob {
@@ -102,8 +113,28 @@ body.mw-open .m-altcol {
 /* Map-surface instance (/m 2D/3D, non-FPV) inherits the walk stick's bottom-left seat —
    the two never coexist (walk = FPV-only, this one = not-FPV-only) and it rides over the
    fullscreen MapWindow through the same body.mw-open rung above. */
-/* Minimap-card instance: a smaller pad pinned to the card's bottom-right corner (both
-   shells — the minimap only lives in FPV, where it steers the REAL camera). */
+/* FPV instance (owner batch #6 item 4): the /m aim stick left the minimap corner — in FPV
+   it seats JUST ABOVE the walk stick (same size, same left rail; 108 px pad + 12 px gap)
+   and rides the same body.mw-open z-24 rung, so it survives the fullscreen-map view too. */
+.m-joy--aim-fpv {
+  bottom: calc(11.2rem + 120px + env(safe-area-inset-bottom));
+}
+/* Focal readout (batch #6 item 3) — the CURRENT lens in mm on the pad's lower body. */
+.m-joy__footer {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-focal-cone) 85%, var(--color-text));
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* Minimap-card instance: a smaller pad pinned to the card's bottom-right corner (DESKTOP
+   only since batch #6 — /m carries the above-walk instance instead). */
 .m-joy--aim-minimap {
   position: absolute;
   left: auto;

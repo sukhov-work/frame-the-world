@@ -139,6 +139,20 @@ export function parseFpvHash(hash: string): UrlFpvPose | null {
   };
 }
 
+/** Desktop → /m shell-switch hash (owner batch #5 item 6). The /m boot already honors
+ *  `#p=`/`#f=`, but an oblique orbit tilt (≥ CONTROLS.twoDMaxTiltDeg) would land the phone in
+ *  3D — the switch must arrive on the 2D map at the EXACT coords/altitude, so the orbit form
+ *  re-formats with tilt 0 (heading rides along; the /m north lock glides it away). An FPV
+ *  hash passes through EXACT (a first-person view reproduces 1:1 on /m). No/garbage pose →
+ *  empty string: the caller keeps the plain `/m` default boot. Pure — unit-tested. */
+export function mobileShellHash(hash: string): string {
+  const fpv = parseFpvHash(hash);
+  if (fpv) return hash.startsWith("#") ? hash : `#${hash}`;
+  const pose = parsePoseHash(hash);
+  if (!pose) return "";
+  return formatSceneHash({ ...pose, tiltDeg: 0 }, parseTimeHash(hash));
+}
+
 /** Longitude wrapped to [−180, 180) (pure). */
 export function wrapLon(lonDeg: number): number {
   const w = ((lonDeg + 180) % 360 + 360) % 360 - 180;
