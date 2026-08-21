@@ -12,6 +12,14 @@
   transform: translateX(-50%) translate(var(--drag-x, 0px), var(--drag-y, 0px));
   bottom: 2.2rem;
   z-index: 10;
+}
+
+/* Owner QA 2026-08-21 item 4: with the map window up (z 42) the scrubber rides ABOVE it —
+   the "time scrubber + date/time line at the very bottom of the expanded minimap" on desktop
+   is the REAL scrubber, not a twin. body.mw-open is set by MapWindow on both shells; /m has
+   no .ts (its dock rides the fpv.css rung instead). */
+body.mw-open .ts {
+  z-index: 43;
   width: min(38rem, calc(100vw - 34rem));
   padding: 0.55rem 0.95rem 0.5rem;
   border-radius: 10px;

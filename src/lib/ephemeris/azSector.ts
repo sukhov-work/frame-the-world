@@ -136,6 +136,38 @@ export function sampleAimDay(
 }
 
 /**
+ * Fracture above-horizon runs by a SKYLINE sampler (owner QA 2026-08-21 item 3): a sample
+ * stays when its altitude clears the per-azimuth skyline (buildings/trees/terrain — the
+ * horizonProfile contract); blocked spans become GAPS, so the radar bands carry the same
+ * visibility intermittence the time-rail trace shows (dayArc.traceStates is the classifier
+ * twin). A null sampler returns the runs untouched — no profile at this eye ⇒ no gap claim
+ * (the traceStates honesty rule). Cuts land between samples: at 3° profile bins × the 10-min
+ * step a gap edge sits within one bin of truth, the module-doc budget. Sub-runs shorter than
+ * 2 samples cannot draw and are dropped. Cheap (one sampler lerp per sample) — safe per
+ * rebuild, and pure like everything here.
+ */
+export function fractureRunsBySkyline(
+  runs: readonly AimSample[][],
+  skylineAltDegAt: ((azDeg: number) => number) | null,
+): readonly AimSample[][] {
+  if (!skylineAltDegAt) return runs;
+  const out: AimSample[][] = [];
+  for (const run of runs) {
+    let sub: AimSample[] | null = null;
+    for (const s of run) {
+      if (s.altDeg >= skylineAltDegAt(s.azDeg)) {
+        (sub ??= []).push(s);
+      } else {
+        if (sub && sub.length >= 2) out.push(sub);
+        sub = null;
+      }
+    }
+    if (sub && sub.length >= 2) out.push(sub);
+  }
+  return out;
+}
+
+/**
  * Split a day's runs at the scene instant — swept-already vs still-to-come. A straddling run
  * is cut at an interpolated now-sample (present in BOTH halves so the two paths meet). Cheap
  * (one walk over ≤ ~150 samples) — safe per paint; only `sampleAimDay` needs the memo.

@@ -344,8 +344,8 @@ export default function LocationFinder() {
             type="text"
             placeholder={
               sky
-                ? "FIND A SKY OBJECT — m31 · vega · ngc 7000 · ceres · orion"
-                : "FIND A PLACE — city · street · sight · zip"
+                ? "TYPE TO SEARCH — e.g. m31 · moon · orion · ngc 7000"
+                : "TYPE TO SEARCH — e.g. city · street · sight · zip"
             }
             value={query}
             spellCheck={false}

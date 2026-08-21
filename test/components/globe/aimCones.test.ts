@@ -51,6 +51,19 @@ describe("bandFor — S2 concentric annular band allocation (one model, three su
     expect(AIMCONES.fillAlphaRest).toBeGreaterThan(0.003); // above the shader discard gate
     expect(AIMCONES.fillAlphaRest).toBeLessThan(AIMCONES.fillAlpha);
   });
+  it("MapWindow radius rule (owner QA 2026-08-21 item 1): a proper fraction of the canvas HEIGHT, near the GL fan's ≈0.51×h equivalent", () => {
+    expect(AIMCONES.mapRadiusHK).toBeGreaterThan(0.3);
+    expect(AIMCONES.mapRadiusHK).toBeLessThanOrEqual(0.6);
+    // The outer target band must still fit inside the canvas height on both shells.
+    expect(AIMCONES.mapRadiusHK * AIMCONES.bandTarget[1]).toBeLessThan(0.5);
+    expect(
+      AIMCONES.mapRadiusHK * AIMCONES.mobileRadiusK * AIMCONES.bandTargetMobile[1],
+    ).toBeLessThan(0.5);
+  });
+  it("skyline anchor guard (owner QA 2026-08-21 item 3): a sane walking-scale metre radius", () => {
+    expect(AIMCONES.skylineGuardM).toBeGreaterThan(0);
+    expect(AIMCONES.skylineGuardM).toBeLessThanOrEqual(500);
+  });
 });
 
 describe("bandFutureInk — item 17 body-tinted future halves (owner 2026-08-21b)", () => {

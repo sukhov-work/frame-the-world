@@ -3,10 +3,14 @@ import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
 import { useMiniMapStore } from "../../store/minimap";
 import { usePlacesMapStore } from "../../store/places";
+import { usePlanStore } from "../../store/plan";
 import { useSkyStore } from "../../store/sky";
 import { useTimeStore, sceneTimeMs } from "../../store/time";
 import { lonLatToTileF, tileFToLonLat, zoomForMetersPerPx } from "../../lib/geo/slippy";
+import { sampleBins } from "../../lib/geo/horizonProfile";
+import { verticalFovDeg } from "../../lib/decode/sensors";
 import {
+  fractureRunsBySkyline,
   sampleAimDay,
   splitAimRuns,
   wrap180,
@@ -42,8 +46,14 @@ const DRAG_CANCEL_PX = 6;
 const TILE_CACHE_MAX = 300;
 // U4 aim overlay: chart-fixed radius (the FOV-cone idiom — the map is a chart, metres live on
 // the globe module). The S2 annular bands (AIMCONES.bandSun/bandMoon/bandTarget) subdivide it.
-const AIM_R_FRAC = 0.3;
+// Owner QA 2026-08-21 item 1: sized by AIMCONES.mapRadiusHK × canvas HEIGHT — the GL fan's
+// fraction-of-height rule (the old 0.3 × min(w,h) read ≈3.7× smaller than the fan on a phone).
 const AIM_TAP_TOL_DEG = 8; // tap-promote angular tolerance around a direction line
+/** While FPV is live the chart FOLLOWS the walking viewer (owner QA 2026-08-21 item 1): once
+ *  the eye leaves this fraction of min(w,h) from the chart centre it is pulled back to the
+ *  deadband edge — a rubber band, so small strolls never move the map and a placed-point
+ *  relocation lands on-screen. Never during an active gesture. */
+const FPV_FOLLOW_FRAC = 0.12;
 
 /** The GL module's band allocation, read from the SAME tunables (one geometry model);
  *  on /m the sun/moon rings sit ~20% closer to the centre (owner batch #5 item 2). */
@@ -176,12 +186,33 @@ export default function MapWindow() {
     // LIVE anchor (owner lag report 2026-08-18): the plan-STORE anchor is a low-cadence,
     // ~25 m-chunked mirror with a lifecycle that strands stale FPV anchors — while walking,
     // the circle visibly trailed the 20 Hz camGeo-centred chart. Resolve live instead.
-    // Owner batch #6 item 1: a PLACED point OWNS the radar — the temp pin now outranks the
-    // walking FPV viewer (the radar used to stay glued to camGeo after a place, reading as a
-    // buggy offset from the pin); with no pin the old ladder stands.
+    // Owner QA 2026-08-21 item 1 (supersedes batch #6's tempPin-first order): while FPV is
+    // LIVE the walking viewer owns the radar — radar, cone and eye dot stay one point, never
+    // detaching (placing a point relocates the FPV to the pin via the orchestrator's re-seat,
+    // so both arrive together). OUTSIDE FPV the batch-#6 rule stands: a placed point owns the
+    // radar, then the old ladder.
     const aimAnchorNow = (camNow: ReturnType<typeof useCameraStore.getState>) =>
+      (camNow.fpvHud ? camNow.camGeo : null) ??
       camNow.tempPin ??
       camNow.camGeo ?? { latDeg: camNow.focusLatDeg, lonDeg: camNow.focusLonDeg };
+
+    // Skyline sampler for the radar's occlusion GAPS (owner QA 2026-08-21 item 3) — the
+    // horizonProfile bins mirrored by planFeed, honoured ONLY when the swept eye (photo apex
+    // / FPV eye) sits within AIMCONES.skylineGuardM of the radar anchor (no profile at this
+    // eye ⇒ no gap claim — the traceStates honesty rule the time rail already follows).
+    const skylineNow = (anchor: { latDeg: number; lonDeg: number }) => {
+      const plan = usePlanStore.getState();
+      if (!plan.profileReady || !plan.profileBins || !plan.anchor || plan.anchor.kind === "focus")
+        return null;
+      const dN = (anchor.latDeg - plan.anchor.latDeg) * 111_320;
+      const dE =
+        (anchor.lonDeg - plan.anchor.lonDeg) *
+        111_320 *
+        Math.cos((anchor.latDeg * Math.PI) / 180);
+      if (dN * dN + dE * dE > AIMCONES.skylineGuardM ** 2) return null;
+      const bins = plan.profileBins;
+      return (azDeg: number) => sampleBins(bins, azDeg);
+    };
 
     const aimBodiesNow = (skyNow: ReturnType<typeof useSkyStore.getState>) => {
       const out: { key: AimKey; target: SkyTarget; color: string; emphasized: boolean }[] = [];
@@ -265,6 +296,26 @@ export default function MapWindow() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       const camNow = useCameraStore.getState();
+      // FPV follow (owner QA 2026-08-21 item 1): while FPV is live, rubber-band the chart
+      // centre onto the walking viewer — pulled back to the deadband edge once the eye
+      // drifts past it, so radar + cone + eye dot can never walk off the chart. Skipped
+      // during any gesture (the pan/pinch owns the centre), and BEFORE the transform
+      // snapshot so this very paint already uses the followed centre. This supersedes the
+      // batch-#5 "the chart deliberately does not re-centre" note for the FPV-live case.
+      if (camNow.fpvHud && camNow.camGeo && pointers.size === 0) {
+        const Xf = xformNow();
+        const pe = lonLatToTileF(camNow.camGeo.lonDeg, camNow.camGeo.latDeg, Xf.zDraw);
+        const [fdx, fdy] = Xf.fwd(pe.x - Xf.c.x, pe.y - Xf.c.y);
+        const lim = Math.min(w, h) * FPV_FOLLOW_FRAC;
+        const d = Math.hypot(fdx, fdy);
+        if (d > lim) {
+          const k = 1 - lim / d;
+          const [fvx, fvy] = Xf.inv(fdx * k, fdy * k);
+          const ll = tileFToLonLat(Xf.c.x + fvx, Xf.c.y + fvy, Xf.zDraw);
+          view.current.lonDeg = ll.lonDeg;
+          view.current.latDeg = Math.max(-85, Math.min(85, ll.latDeg));
+        }
+      }
       const X = xformNow();
       const { zDraw, tilePx, c, rot } = X;
       const tpl = X.sat ? TILESETS.esriImageryUrl : TILESETS.cartoDarkUrl;
@@ -313,8 +364,10 @@ export default function MapWindow() {
       {
         const anchor = aimAnchorNow(camNow);
         const nowMs = sceneTimeMs();
-        // /m: the radar reads 20% smaller (owner batch #5 item 2) — the GL fan's mobileRadiusK.
-        const rBase = Math.min(w, h) * AIM_R_FRAC * (mobileShell ? AIMCONES.mobileRadiusK : 1);
+        // Fraction-of-HEIGHT radius, the GL fan's rule (owner QA 2026-08-21 item 1 — size
+        // unified); /m keeps the 20% shrink (batch #5 item 2) like every radar surface.
+        const rBase = h * AIMCONES.mapRadiusHK * (mobileShell ? AIMCONES.mobileRadiusK : 1);
+        const skyline = skylineNow(anchor);
         const [ax, ay] = toPx(anchor.latDeg, anchor.lonDeg);
         const pt = (azDeg: number, rr: number): [number, number] => {
           // Compass az (N=0, CW) → canvas angle (north −y, east +x) + the chart rotation.
@@ -355,6 +408,12 @@ export default function MapWindow() {
           const rOut = rBase * kOut;
           const day = aimDayFor(b.key, b.target, anchor, nowMs);
           const split = splitAimRuns(day, nowMs);
+          // Occlusion GAPS (owner QA 2026-08-21 item 3): fills + rim arcs fracture where the
+          // body hides behind the skyline (buildings/trees/terrain); the rise/set spokes and
+          // the direction line stay whole — they mark the horizon boundary and the live
+          // bearing, not clear sky. Null sampler ⇒ unfractured (honest fallback).
+          const past = fractureRunsBySkyline(split.past, skyline);
+          const future = fractureRunsBySkyline(split.future, skyline);
           // Future ink is the BODY colour for sun/moon (owner item 17 — sunGlow / moonDial
           // against the inert past grey); the target band keeps the scrubber future-blue.
           // Same rule as the GL fan's bandFutureInk — b.color IS that body ink here.
@@ -364,18 +423,18 @@ export default function MapWindow() {
           // 2026-08-18), future in futureInk; emphasis breathes the wash up to fillAlpha.
           ctx.globalAlpha = b.emphasized ? AIMCONES.fillAlpha : AIMCONES.fillAlphaRest;
           ctx.fillStyle = tokens.textSecondary;
-          sectorPath(split.past, rIn, rOut);
+          sectorPath(past, rIn, rOut);
           ctx.fill();
           ctx.fillStyle = futureInk;
-          sectorPath(split.future, rIn, rOut);
+          sectorPath(future, rIn, rOut);
           ctx.fill();
           ctx.globalAlpha = AIMCONES.rimAlpha;
           ctx.lineWidth = 1 * dpr;
           ctx.strokeStyle = tokens.textSecondary;
-          arcPath(split.past, rOut);
+          arcPath(past, rOut);
           ctx.stroke();
           ctx.strokeStyle = futureInk;
-          arcPath(split.future, rOut);
+          arcPath(future, rOut);
           ctx.stroke();
           // Rise/set radial spokes — BODY identity colour, spanning the band (inner→outer,
           // the GL module's S2 rule); a ring (circumpolar) has no rise/set → no spokes.
@@ -603,13 +662,23 @@ export default function MapWindow() {
         requestRedraw();
         return;
       }
+      // Owner QA 2026-08-21 item 2 (desktop twin of the /m rule): the jump honours the FOCAL
+      // CONE — plannedView carries the aimed heading + focal (the hardcoded north/55° ignored
+      // the drawn cone); hFov → vertical via verticalFovDeg at the live viewport aspect.
+      const planJump = useCameraStore.getState().plannedView;
+      const jumpAspect = window.innerWidth / Math.max(1, window.innerHeight);
       useCameraStore.getState().requestFpvJump({
         latDeg: at.latDeg,
         lonDeg: at.lonDeg,
         eyeM: FRUSTUM.eyeHeightM,
-        headingDeg: 0,
+        headingDeg: planJump?.headingDeg ?? 0,
         pitchDeg: 0,
-        fovDeg: FPV.tempFovDeg,
+        fovDeg: planJump
+          ? Math.min(
+              FPV.maxFovDeg,
+              Math.max(FPV.minFovDeg, verticalFovDeg(planJump.hFovDeg, jumpAspect)),
+            )
+          : FPV.tempFovDeg,
       });
       setOpen(false);
     };
@@ -738,7 +807,7 @@ export default function MapWindow() {
       const [vx, vy] = X.inv(dx, dy);
       const azClick = ((Math.atan2(vx, -vy) * 180) / Math.PI + 360) % 360;
       // Must mirror draw()'s rBase exactly or tap-promote desyncs from the drawing (item 2).
-      const rBase = Math.min(w, h) * AIM_R_FRAC * (mobileShell ? AIMCONES.mobileRadiusK : 1);
+      const rBase = h * AIMCONES.mapRadiusHK * (mobileShell ? AIMCONES.mobileRadiusK : 1);
       let best: { key: AimKey; dAz: number } | null = null;
       for (const b of aimBodiesNow(skyNow)) {
         if (b.emphasized) continue; // already the focus
@@ -777,6 +846,8 @@ export default function MapWindow() {
     const unsubTime = useTimeStore.subscribe(requestRedraw);
     // MY PLACES (LAYERS batch): rows arrive async — repaint when they land or the toggle flips.
     const unsubPlaces = usePlacesMapStore.subscribe(requestRedraw);
+    // Skyline gaps (QA item 3): the profile mirror lands async per build — refracture on it.
+    const unsubPlan = usePlanStore.subscribe(requestRedraw);
     if (usePlacesMapStore.getState().onMap) usePlacesMapStore.getState().ensureLoaded();
     requestRedraw();
 
@@ -794,6 +865,7 @@ export default function MapWindow() {
       unsubSky();
       unsubTime();
       unsubPlaces();
+      unsubPlan();
       cancelPress();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -820,6 +892,10 @@ export default function MapWindow() {
       )}
       <div className="mw-top">
         <span className="mw-title">MAP</span>
+        {/* Owner QA 2026-08-21 item 4: the bottom band belongs to the time scrubber now — the
+            interaction hint rides the top row (desktop; /m's single long-press action lives in
+            the guide) and the attribution re-seats under the top row (CSS .mw-credit). */}
+        {!mobileShell && <span className="mw-tophint">DOUBLE-CLICK / LONG-PRESS — VIEW FROM HERE</span>}
         <button type="button" className="mw-btn" aria-label="Zoom in" onClick={() => zoomButtons.current(1)}>
           +
         </button>
@@ -832,9 +908,6 @@ export default function MapWindow() {
           </button>
         )}
       </div>
-      <span className="mw-hint">
-        {mobileShell ? "LONG-PRESS — PLACE POINT" : "DOUBLE-CLICK / LONG-PRESS — VIEW FROM HERE"}
-      </span>
       <a
         className="mw-credit"
         href="https://www.esri.com/"

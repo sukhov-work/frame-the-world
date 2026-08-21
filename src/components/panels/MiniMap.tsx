@@ -4,11 +4,14 @@ import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { useTimeStore, sceneTimeMs } from "../../store/time";
 import {
+  fractureRunsBySkyline,
   sampleAimDay,
   splitAimRuns,
   type AimDay,
   type AimSample,
 } from "../../lib/ephemeris/azSector";
+import { usePlanStore } from "../../store/plan";
+import { sampleBins } from "../../lib/geo/horizonProfile";
 import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
 import { tokens } from "../../lib/theme/tokens";
@@ -48,8 +51,8 @@ interface RadarBody {
   color: string;
   emphasized: boolean;
   day: AimDay;
-  past: AimSample[][];
-  future: AimSample[][];
+  past: readonly AimSample[][];
+  future: readonly AimSample[][];
   nowAzDeg: number;
   nowAltDeg: number;
 }
@@ -85,6 +88,20 @@ function radarNow(): RadarBody[] {
   const anchor = cam.camGeo;
   if (!skyNow.aimVisible || !anchor) return [];
   const nowMs = sceneTimeMs();
+  // Skyline sampler for occlusion GAPS (owner QA 2026-08-21 item 3) — this surface is
+  // FPV-only and anchored at the walking eye, exactly where planFeed sweeps its profile;
+  // the AIMCONES.skylineGuardM match keeps a stale far-away profile from lending its gaps.
+  const plan = usePlanStore.getState();
+  let skyline: ((azDeg: number) => number) | null = null;
+  if (plan.profileReady && plan.profileBins && plan.anchor && plan.anchor.kind !== "focus") {
+    const dN = (anchor.latDeg - plan.anchor.latDeg) * 111_320;
+    const dE =
+      (anchor.lonDeg - plan.anchor.lonDeg) * 111_320 * Math.cos((anchor.latDeg * Math.PI) / 180);
+    if (dN * dN + dE * dE <= AIMCONES.skylineGuardM ** 2) {
+      const bins = plan.profileBins;
+      skyline = (azDeg: number) => sampleBins(bins, azDeg);
+    }
+  }
   const wanted: { key: AimKey; target: SkyTarget; color: string }[] = [];
   // UNFOLLOW/SHOW-off (2026-08-19): a hidden target draws no radar ink either.
   if (skyNow.aimTarget && skyNow.visible)
@@ -108,8 +125,10 @@ function radarNow(): RadarBody[] {
       color,
       emphasized: skyNow.aimFocus === key,
       day,
-      past: split.past,
-      future: split.future,
+      // Occlusion GAPS (QA item 3): fills + rim arcs fracture behind the skyline; the
+      // rise/set spokes (day.runs) and the direction line stay whole.
+      past: fractureRunsBySkyline(split.past, skyline),
+      future: fractureRunsBySkyline(split.future, skyline),
       nowAzDeg: nowPos.azDeg,
       nowAltDeg: nowPos.altDeg,
     };

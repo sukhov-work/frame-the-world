@@ -121,7 +121,42 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**OWNER BATCH #6 SHIPPED 2026-08-21e — 4/4 fixes on batch #5, same session** (DECISIONS
+**OWNER QA BATCH SHIPPED 2026-08-21f — 6 fixes + 1 answered question after device QA**
+(DECISIONS 2026-08-21f; gates 1,116/1,116 · astro 0 err/5 hints; regressions uxb4 23/23 +
+s2 16/16 + s3 18/18 + uxb5 17/17 + uxb6 12/12 + NEW `verify-uxbatch7.mjs` 22/22, shots
+uxb7-01..06): (1) expanded-minimap radar FOLLOWS the viewer — MapWindow anchor camGeo-first
+while FPV live + `fpvPinKey` re-seat (fresh basis at a new pin, walk offset zeroed — eye
+0.0 m from pin) + 0.12 rubber-band chart follow + size unified via `AIMCONES.mapRadiusHK
+0.5` (fraction-of-height, was ≈3.7× too small on /m) · (2) FPV entry consumes plannedView
+(heading + verticalFovDeg) on place-point + /m ▲3D + desktop map — verified 137.0°/76.5°
+exact · (3) radar skyline GAPS on all 3 surfaces (`fractureRunsBySkyline` + `skylineGuardM
+60`; research REFUTED the "lost gaps" suspicion — they never existed; GL-fan visual = T1
+rider) · (4) expanded-map bottom = the REAL time dock (/m, mw-open z-24 lift) / REAL
+TimeScrubber (desktop, z 43); bottom hint/credit retired to the top band · (5) /m .fh-chip
+z 9 under all controls · (6) TYPE-TO-SEARCH placeholders + the iOS search dark-screen fix
+(focus({preventScroll}) in-commit + scroll pin; REAL-iOS feel = T1) · (7) map-quality
+question ANSWERED: 2D map = GL (z17 coarse cap + DPR 1.25 + stylized grade) vs minimap =
+raw z19/DPR-2 canvas — owner ruling wanted on the free `uFtwFlat2d` de-grade vs z18/DPR-1.5.
+SAME SESSION (2026-08-21g): QA-7 a+b SHIPPED on the owner's "try both" — (a) PHOTOGRAPHIC
+flat chart (`GROUND.flat2dPhotoK` → uFtwPhotoK; grade lerps out on /m 2D + desktop nadir
+flat-map; dark-CARTO untouched) · (b) `esriMaxLevelCoarse 17→18` + flat-only DPR 1.5
+(`leanMobile.dprCap2d`, TilesHandle.mapFlat-gated) + `GROUND.overlayResolution2dPx 512`
+(the 256 composite alone pinned the chart a level shallow — all three levers needed).
+z18 CDP-verified; A/B shots qa7-08/09 night-and-day; rollback knobs independent (T1).
+TRAPS: verify-Chrome exhausts WebGL contexts across suites (restart between suites);
+Vite 504 "Outdated Optimize Dep" after new globe-bundle imports (restart wix dev);
+imageryGround injected-GLSL uniforms MUST be declared in the fragment header (JS uniforms
+object alone ⇒ silent compile fail, previous program keeps rendering, pokes no-op);
+headless Chrome governs to tier `low` — assert DPR via __globeQuality tier-consistency.
+**NEXT SESSION (owner order 2026-08-21f-end, CONFIRMED at push time): AUDIT + REVIEW +
+DOCS REORG + GUIDE WORK — the full charter is NEXT_SESSION_PROMPT.md (audit READ-ONLY →
+audits/; adversarial review of the QA fixes' edges; ARCHITECTURE §7 + globe-tuning +
+verify.md refresh + plans archive + DECISIONS-compaction check; guideContent topics for
+bands/gaps/aim/PiP/place-point/time-strip/photo-chart/search + warm re-shoots). Release
+still gated on the owner's domain fix (batches #4–#6 + QA batch ride it); T1 device pass
+judges QA-7 a+b knobs → then P8/P9/M4 · U8 sync ladder.**
+Log: `mem:project/wip-2026-08-21-owner-qabatch7`.
+Prior: **OWNER BATCH #6 SHIPPED 2026-08-21e — 4/4 fixes on batch #5, same session** (DECISIONS
 2026-08-21e; gates 1,109/1,109 · astro 0 err/5 hints; verify S1 23/23 + s2 16/16 [2 checks
 superseded] + s3 18/18 + uxb5 17/17 + NEW `verify-uxbatch6.mjs` 12/12, shots uxb6-01..05):
 (1) placed point OWNS the map radar (MapWindow anchor `tempPin ?? camGeo ?? focus`) and —
