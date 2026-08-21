@@ -31,6 +31,23 @@ const ogImage = `${SITE_URL}/social-cover.jpg`;
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline>
+      // #15 (batch #4 S3): iOS-DIRECTED tile cache — same snippet as MobileLayout (an iPhone
+      // can open the desktop shell via /?d=1). Desktop browsers never register: their HTTP
+      // cache HOLDS (measured, scripts/measure-tile-cache.mjs). Dev excluded — a stale SW
+      // would mask fresh code (public/sw.js is the worker).
+      try {
+        var ftwIos =
+          /iPhone|iPod|iPad/.test(navigator.userAgent) ||
+          (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+        var ftwDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+        if (ftwIos && !ftwDev && "serviceWorker" in navigator) {
+          navigator.serviceWorker.register("/sw.js");
+        }
+      } catch (e) {
+        /* SW is a mitigation, never load-bearing */
+      }
+    </script>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     {/* Type per the Claude Design system (board 02): Space Grotesk UI + IBM Plex Mono readouts. */}

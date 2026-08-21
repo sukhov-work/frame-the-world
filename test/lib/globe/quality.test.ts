@@ -224,6 +224,28 @@ describe("QUALITY.tiers.high INVARIANT — must equal the pre-pass constants", (
   it("U6: foveation is OFF on high (null — a capable machine stays byte-identical)", () => {
     expect(high.foveation).toBeNull();
   });
+  it("#15 overlayResolutionPx: high == GROUND.overlayResolution (byte-identical); mid/low shrink", () => {
+    expect(high.overlayResolutionPx).toBe(GROUND.overlayResolution);
+    expect(QUALITY.tiers.mid.overlayResolutionPx).toBe(256);
+    expect(QUALITY.tiers.low.overlayResolutionPx).toBe(256);
+  });
+  it("#15 groundLruBytesMB: high == lruBytesMB (null-restore path); mid/low raise is GROUND-only and modest", () => {
+    expect(high.groundLruBytesMB).toBe(high.lruBytesMB);
+    for (const t of ["mid", "low"] as const) {
+      const tier = QUALITY.tiers[t];
+      expect(tier.groundLruBytesMB).toBeGreaterThanOrEqual(tier.lruBytesMB); // a raise, never a cut
+      expect(tier.groundLruBytesMB).toBeLessThanOrEqual(tier.lruBytesMB * 1.3); // modest — jetsam guard
+    }
+  });
+  it("#5 lean-mobile overrides only ever CLAMP below the coarse-pointer ceiling (mid)", () => {
+    // The lean profile is a coarse-pointer-only override on top of the running tier — it must
+    // never exceed what mid grants (else 'lean' could accidentally UPGRADE a governed device),
+    // and bloom-off is its point (the ~12 fullscreen draws are the phone heat driver).
+    const lean = QUALITY.leanMobile;
+    expect(lean.dprCap).toBeLessThanOrEqual(QUALITY.tiers.mid.dprCap);
+    expect(lean.shadowMapSize).toBeLessThanOrEqual(QUALITY.tiers.mid.shadowMapSize);
+    expect(lean.bloom).toBe(false);
+  });
   it("degrades monotonically across tiers (each lever eases toward low)", () => {
     const { high: h, mid: m, low: l } = QUALITY.tiers;
     expect(h.dprCap).toBeGreaterThanOrEqual(m.dprCap);

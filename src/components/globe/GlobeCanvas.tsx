@@ -81,6 +81,14 @@ export default function GlobeCanvas() {
     // budget it can't hold at city zoom; MOBILE_PLAN M0).
     const ceiling: QualityTier =
       deviceTier === "low" ? "low" : deviceCaps.coarsePointer ? "mid" : "high";
+    // #5 iOS lean profile (batch #4 S3): on ANY coarse-pointer device the renderer levers are
+    // additionally clamped to QUALITY.leanMobile (DPR 1.25 / bloom off / shadow 1024) — heat and
+    // jetsam pressure, not frame time, are what kill phone sessions, and the governor can't see
+    // either. Tile knobs stay per-tier; desktop is untouched (byte-identical `high` rule).
+    const lean = deviceCaps.coarsePointer;
+    const leanDprCap = lean ? QUALITY.leanMobile.dprCap : Infinity;
+    const tierBloom = (t: QualityTier) =>
+      QUALITY.tiers[t].bloom && !(lean && !QUALITY.leanMobile.bloom);
     // Floor: a CONFIRMED-strong device (detected `high`) never collapses to `low` — it sheds DPR/bloom/
     // tiles down to `mid` for frame rate but keeps the core look (bloom + shadows). An M3 Pro governed
     // to `low` at retina DPR was reading as broken (owner-confirmed: no shadows, no bloom). Unknown/weak
@@ -88,7 +96,7 @@ export default function GlobeCanvas() {
     const floor: QualityTier = deviceTier === "high" ? "mid" : "low";
     const governor = makeGovernor(deviceTier, QUALITY.governor, ceiling, floor);
     renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, QUALITY.tiers[deviceTier].dprCap),
+      Math.min(window.devicePixelRatio, QUALITY.tiers[deviceTier].dprCap, leanDprCap),
     );
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Neutral (Khronos PBR-Neutral) tames the key light's highlight clipping WITHOUT desaturating the
@@ -203,10 +211,12 @@ export default function GlobeCanvas() {
     // Tight orthographic shadow camera — refit to the view focus each frame by the orchestrator.
     // castShadow stays OFF until the orchestrator gates it on (low altitude + sun above horizon).
     sun.castShadow = false;
-    sun.shadow.mapSize.set(
+    // Lean profile caps the shadow map (heat lever) — shadows themselves stay tier-gated ON.
+    const shadowPx = Math.min(
       QUALITY.tiers[deviceTier].shadowMapSize,
-      QUALITY.tiers[deviceTier].shadowMapSize,
+      lean ? QUALITY.leanMobile.shadowMapSize : Infinity,
     );
+    sun.shadow.mapSize.set(shadowPx, shadowPx);
     sun.shadow.camera.left = -SHADOWS.boundsM;
     sun.shadow.camera.right = SHADOWS.boundsM;
     sun.shadow.camera.top = SHADOWS.boundsM;
@@ -245,7 +255,7 @@ export default function GlobeCanvas() {
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
-    bloomPass.enabled = QUALITY.tiers[deviceTier].bloom; // off on `low` (12 fullscreen draws)
+    bloomPass.enabled = tierBloom(deviceTier); // off on `low` + lean mobile (12 fullscreen draws)
     // DEV-only introspection (same pattern as __renderer/__globe): browser verification can
     // toggle passes / read bloom uniforms without reaching into this closure.
     if (import.meta.env.DEV) window.__composer = composer;
@@ -316,7 +326,7 @@ export default function GlobeCanvas() {
     const applyTier = (t: QualityTier) => {
       activeTier = t;
       const s = QUALITY.tiers[t];
-      const dpr = Math.min(window.devicePixelRatio, s.dprCap);
+      const dpr = Math.min(window.devicePixelRatio, s.dprCap, leanDprCap);
       // U2/A9: only touch the renderer + composer when the EFFECTIVE DPR actually changes —
       // composer.setSize reallocates every render target, and tier flips between caps that
       // resolve to the same DPR (e.g. devicePixelRatio 1 under caps 1.5/1.25) paid it for nothing.
@@ -325,7 +335,7 @@ export default function GlobeCanvas() {
         composer.setPixelRatio(dpr);
         composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
       }
-      bloomPass.enabled = s.bloom;
+      bloomPass.enabled = tierBloom(t);
       // Shadows follow the DEVICE tier (capability), NOT the runtime governor. Shadows are a core
       // aesthetic, not a frame-rate-degradable lever like DPR/bloom/tile-detail — so the governor must
       // NOT switch them off. BUG (owner-confirmed 2026-07-13): the frame governor throttled an M3 Pro all
@@ -406,11 +416,37 @@ export default function GlobeCanvas() {
     onResize();
     window.addEventListener("resize", onResize);
 
+    // --- #5 WebGL context loss (batch #4 S3) — the iOS jetsam/heat path. three's own handlers
+    // already preventDefault() the lost event (restorable) and re-init GL state on restore; the
+    // app half is (1) STOP driving the dead context — composer.render against a lost context
+    // burns CPU on a tab iOS is already punishing — and (2) realloc the composer chain on
+    // restore (scene resources re-upload lazily through three's reset managers; the composer's
+    // HalfFloat/MSAA target realloc rides the same setSize precedent as applyTier/onResize).
+    let ctxLost = false;
+    const onCtxLost = (e: Event) => {
+      e.preventDefault(); // idempotent with three's handler — keeps the context restorable
+      ctxLost = true;
+    };
+    const onCtxRestored = () => {
+      ctxLost = false;
+      composer.setSize(window.innerWidth, window.innerHeight);
+    };
+    canvas.addEventListener("webglcontextlost", onCtxLost);
+    canvas.addEventListener("webglcontextrestored", onCtxRestored);
+
     // --- animation loop: slow cinematic auto-rotation (respects reduced motion) ---
     let raf = 0;
     let lastGovMs = performance.now();
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      // #5: never render a LOST context, and skip work on a hidden page (most browsers stop
+      // rAF when hidden, but iOS Safari still delivers throttled frames — each one heat).
+      // Re-seat the governor clock while skipping so the first live frame doesn't read the
+      // whole background gap as one giant frame time and shed a tier for nothing.
+      if (ctxLost || document.hidden) {
+        lastGovMs = performance.now();
+        return;
+      }
       // Adaptive-quality governor: smoothed frame time steps the tier down under load / back up
       // with headroom. No-op on capable hardware (frame time stays under budget → never fires).
       const nowMs = performance.now();
@@ -431,7 +467,7 @@ export default function GlobeCanvas() {
       // Flat-map bloom gate (owner 2026-08-18/18e): the chart has nothing to bloom — skip the
       // ~12 fullscreen draws while the engine runs the flat treatment (/m 2D map, or desktop
       // nadir below CONTROLS.mapFlatMaxAltM — the LEO flagship keeps its atmosphere bloom).
-      bloomPass.enabled = QUALITY.tiers[activeTier].bloom && !(tilesHandle?.mapFlat() ?? false);
+      bloomPass.enabled = tierBloom(activeTier) && !(tilesHandle?.mapFlat() ?? false);
       composer.render();
     };
     tick();
@@ -439,6 +475,8 @@ export default function GlobeCanvas() {
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      canvas.removeEventListener("webglcontextlost", onCtxLost);
+      canvas.removeEventListener("webglcontextrestored", onCtxRestored);
       tilesHandle?.dispose();
       earth.geometry.dispose();
       (earth.material as THREE.Material).dispose();

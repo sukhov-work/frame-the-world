@@ -1,5 +1,9 @@
 import { useCameraStore } from "./camera";
 import { useUploadStore } from "./upload";
+import { useSkyStore } from "./sky";
+import { sceneTimeMs } from "./time";
+import { nextRiseAzimuth } from "../lib/ephemeris/dayArc";
+import { bodyTarget, targetAzAlt } from "../lib/ephemeris/targets";
 
 /**
  * "Bring this sky bearing into view" — the ☀/☾ edge-chip idiom (owner 2026-07-14), extracted
@@ -63,4 +67,42 @@ export function aimAtSkyFromSearch(azDeg: number, altDeg: number): void {
   }
   const pin = st.tempPin;
   if (pin) st.requestFly({ latDeg: pin.latDeg, lonDeg: pin.lonDeg, altM: 0, centerOnly: true });
+}
+
+/** GOTO bearing decision (pure twin — tested): an up body is aimed at directly; a below-horizon
+ *  body is aimed at the azimuth where it next RISES, at the horizon (no rise within the scan →
+ *  its current azimuth at the horizon — the 2026-08-19b chip rule). */
+export function gotoAimSolution(
+  pos: { azDeg: number; altDeg: number; up: boolean },
+  riseAzDeg: number | null,
+): { azDeg: number; altDeg: number } {
+  return pos.up
+    ? { azDeg: pos.azDeg, altDeg: pos.altDeg }
+    : { azDeg: riseAzDeg ?? pos.azDeg, altDeg: 0 };
+}
+
+/**
+ * GOTO a sky body — the viewport edge-chip action, extracted for item 18 (owner 2026-08-21b)
+ * so the desktop TargetPanel GOTO button steers EXACTLY like the chip instead of duplicating
+ * the below-horizon rise scan. Reads the `skyMarkers` mirror when the orchestrator maintains
+ * it (marker.up carries the FPV.bodyMarkerMinAltDeg gate); with no marker (e.g. SHOW off —
+ * the mirror is target-gated on sky.visible) it falls back to the live ephemeris bearing at
+ * the same observer (`camGeo ?? focus`, the chip's fallback), with a plain altDeg > 0 up-test.
+ * The 48 h rise scan runs HERE, on click — never in a frame loop (the chip rule).
+ */
+export function gotoSkyBody(kind: "target" | "sun" | "moon"): void {
+  const cam = useCameraStore.getState();
+  const at = cam.camGeo ?? { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg };
+  const target = kind === "target" ? useSkyStore.getState().target : bodyTarget(kind);
+  const marker = cam.skyMarkers?.[kind];
+  let pos: { azDeg: number; altDeg: number; up: boolean };
+  if (marker) {
+    pos = { azDeg: marker.azDeg, altDeg: marker.altDeg, up: marker.up };
+  } else {
+    const live = targetAzAlt(target, sceneTimeMs(), at.latDeg, at.lonDeg);
+    pos = { azDeg: live.azDeg, altDeg: live.altDeg, up: live.altDeg > 0 };
+  }
+  const rise = pos.up ? null : nextRiseAzimuth(target, sceneTimeMs(), at.latDeg, at.lonDeg);
+  const aim = gotoAimSolution(pos, rise?.azDeg ?? null);
+  aimAtSky(aim.azDeg, aim.altDeg);
 }

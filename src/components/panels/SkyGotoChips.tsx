@@ -1,9 +1,6 @@
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
-import { aimAtSky } from "../../store/skyAim";
-import { sceneTimeMs } from "../../store/time";
-import { nextRiseAzimuth } from "../../lib/ephemeris/dayArc";
-import { bodyTarget } from "../../lib/ephemeris/targets";
+import { gotoSkyBody } from "../../store/skyAim";
 import "../../styles/fpv-hud.css";
 import "../../styles/tips.css";
 
@@ -100,17 +97,10 @@ function BodyChip({
   const name = label ?? kind;
 
   const aim = () => {
-    if (down) {
-      // Below the horizon: look where it next rises (computed HERE, on click — a 48 h
-      // ephemeris scan has no place in a frame loop). No rise → its azimuth at the horizon.
-      const cam = useCameraStore.getState();
-      const at = cam.camGeo ?? { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg };
-      const target = kind === "target" ? useSkyStore.getState().target : bodyTarget(kind);
-      const rise = nextRiseAzimuth(target, sceneTimeMs(), at.latDeg, at.lonDeg);
-      aimAtSky(rise?.azDeg ?? marker.azDeg, 0);
-    } else {
-      aimAtSky(marker.azDeg, marker.altDeg);
-    }
+    // Shared with the TargetPanel GOTO button (item 18) — store/skyAim.gotoSkyBody reads the
+    // same marker mirror this chip renders from; below-horizon it runs the 48 h rise scan on
+    // click (never in a frame loop) and looks where the body next rises.
+    gotoSkyBody(kind);
     onAim?.();
   };
 

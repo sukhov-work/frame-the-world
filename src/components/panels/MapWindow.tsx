@@ -62,6 +62,11 @@ export default function MapWindow() {
   // Desktop window drag (owner batch #4 item 13) — /m ignores it (fullscreen, grip hidden).
   const drag = usePanelDrag("map-window");
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // #1 PiP (batch #4 S3): /m-only live-3D hole — draw() clearRects the canvas under this
+  // button's DOM box. body.m is set by the layout before any island mounts (stable per shell).
+  const mobileShell =
+    typeof document !== "undefined" && document.body.classList.contains("m");
+  const pipRef = useRef<HTMLButtonElement>(null);
   // The view state lives in refs — drawing is manual (rAF-scheduled), React only owns chrome.
   // rot = chart bearing (rad, screen-CCW; 0 = north-up) — two-finger twist writes it (item 4b).
   const view = useRef({ latDeg: 0, lonDeg: 0, z: 16, rot: 0 });
@@ -330,14 +335,18 @@ export default function MapWindow() {
           const rOut = rBase * kOut;
           const day = aimDayFor(b.key, b.target, anchor, nowMs);
           const split = splitAimRuns(day, nowMs);
+          // Future ink is the BODY colour for sun/moon (owner item 17 — sunGlow / moonDial
+          // against the inert past grey); the target band keeps the scrubber future-blue.
+          // Same rule as the GL fan's bandFutureInk — b.color IS that body ink here.
+          const futureInk = b.key === "target" ? tokens.timeFuture : b.color;
           if (b.emphasized) {
             // Glassy fills — past NEUTRAL grey (inert history, never a day/night claim —
-            // owner 2026-08-18), future blue (the scrubber's language).
+            // owner 2026-08-18), future in futureInk.
             ctx.globalAlpha = AIMCONES.fillAlpha;
             ctx.fillStyle = tokens.textSecondary;
             sectorPath(split.past, rIn, rOut);
             ctx.fill();
-            ctx.fillStyle = tokens.timeFuture;
+            ctx.fillStyle = futureInk;
             sectorPath(split.future, rIn, rOut);
             ctx.fill();
           }
@@ -346,7 +355,7 @@ export default function MapWindow() {
           ctx.strokeStyle = tokens.textSecondary;
           arcPath(split.past, rOut);
           ctx.stroke();
-          ctx.strokeStyle = tokens.timeFuture;
+          ctx.strokeStyle = futureInk;
           arcPath(split.future, rOut);
           ctx.stroke();
           // Rise/set radial spokes — BODY identity colour, spanning the band (inner→outer,
@@ -486,6 +495,21 @@ export default function MapWindow() {
         ctx.strokeStyle = cssVar("--color-bg");
         ctx.lineWidth = 1.5 * dpr;
         ctx.stroke();
+      }
+      // #1 PiP (batch #4 S3, /m only): punch the live-3D hole LAST — the GL canvas renders the
+      // FPV view beneath this window (body.m .mw drops its panel background; this canvas paints
+      // the chart bg, so cleared pixels reach GL). The rect tracks the .mw-pip button's DOM box,
+      // so CSS owns the placement and the ring + hole can never drift apart.
+      const pip = pipRef.current;
+      if (pip) {
+        const pr = pip.getBoundingClientRect();
+        const cr = canvas.getBoundingClientRect();
+        ctx.clearRect(
+          (pr.left - cr.left) * dpr,
+          (pr.top - cr.top) * dpr,
+          pr.width * dpr,
+          pr.height * dpr,
+        );
       }
     };
 
@@ -734,6 +758,20 @@ export default function MapWindow() {
     <div className="mw" role="dialog" aria-label="Full map" style={drag.style}>
       <DragGrip drag={drag} label="Move the map window" />
       <canvas ref={canvasRef} className="mw-canvas" />
+      {/* #1 PiP (batch #4 S3): on /m the ✕ MINI-MAP button is REPLACED by a live-3D PiP — a
+          transparent button over the canvas hole draw() clears; the GL FPV view (which persists
+          under this window the whole time) shows through. Tap = close = back to FPV. */}
+      {mobileShell && (
+        <button
+          type="button"
+          ref={pipRef}
+          className="mw-pip"
+          aria-label="Live 3D view — tap to return to it"
+          onClick={() => setOpen(false)}
+        >
+          <span className="mw-pip__tag">▲ FPV</span>
+        </button>
+      )}
       <div className="mw-top">
         <span className="mw-title">MAP</span>
         <button type="button" className="mw-btn" aria-label="Zoom in" onClick={() => zoomButtons.current(1)}>
@@ -742,9 +780,11 @@ export default function MapWindow() {
         <button type="button" className="mw-btn" aria-label="Zoom out" onClick={() => zoomButtons.current(-1)}>
           −
         </button>
-        <button type="button" className="mw-btn mw-close" onClick={() => setOpen(false)}>
-          ✕ MINI-MAP
-        </button>
+        {!mobileShell && (
+          <button type="button" className="mw-btn mw-close" onClick={() => setOpen(false)}>
+            ✕ MINI-MAP
+          </button>
+        )}
       </div>
       <span className="mw-hint">DOUBLE-CLICK / LONG-PRESS — VIEW FROM HERE</span>
       <a

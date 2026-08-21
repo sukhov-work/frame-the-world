@@ -205,7 +205,18 @@ midpoint pans. Tap-the-N reset = tail, not S2.
   `aimAtSky(marker.azDeg, marker.altDeg)`) — extract that handler into a shared helper
   rather than duplicating (it reads skyMarkers + camGeo/focus fallbacks).
 
-## S3 spec (network & stability + PiP)
+## S3 spec (network & stability + PiP) — **SHIPPED 2026-08-21c, BATCH CLOSED 18/18**
+
+**As-built (DECISIONS 2026-08-21c):** items 17 (`bandFutureInk`, 3 surfaces) + 18
+(`skyAim.gotoSkyBody` shared helper + GOTO pill) at open; #15a = `public/sw.js` (iOS-only
+registration, dev-gated, 7-day-TTL performance cache, policy fenced by `test/swTileCache.test.ts`);
+#15b = per-tier `overlayResolutionPx` 512/256/256 + `ground.setOverlayResolution` rebuild path
+(fresh-instance delete→add) + `esriMaxLevelCoarse 17` + ground-only `groundLruBytesMB` 320/192;
+#15c = force-cache on overlay images / .terrain / .glb / .pbf (manifests revalidate); #5 =
+contextlost gate + hidden-tick skip + 9-queue freeze + `QUALITY.leanMobile` coarse overrides;
+#1 = `.mw-pip` 200 px hole (draw() clearRect under its DOM box, `body.m .mw` background dropped).
+Verified: vitest 1,101 · S1 23/23 + S2 15/15 + NEW `verify-uxbatch4-s3.mjs` 18/18, shots
+`uxb4-s3-01..04`. On-device behaviour (SW on real iOS, heat, taste) rides T1 + first release.
 
 - **#15**: (a) same-origin service worker, Cache Storage LRU ~300 MB for Esri/ion/workers.dev/
   openfreemap GETs (all CORS-clean; verify Esri ToS note tuning.ts:699-700 before persistent
