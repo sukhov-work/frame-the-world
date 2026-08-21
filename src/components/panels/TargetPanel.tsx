@@ -6,6 +6,7 @@ import { usePlanStore } from "../../store/plan";
 import { useFindStore } from "../../store/find";
 import type { FindBody } from "../../lib/ephemeris/frameFinder";
 import { useCameraStore } from "../../store/camera";
+import { gotoSkyBody } from "../../store/skyAim";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import {
   ELEMENTS_TRUST_DAYS,
@@ -523,6 +524,18 @@ export default function TargetPanel() {
                 essentials, ahead of the per-kind facts + next-sessions — both shells agree. */}
             {/* SHOW · MARK · TRAIL (phase C rename — "SKY" read as a mode, not a visibility). */}
             <div className="tp-toggles">
+              {/* GOTO (owner item 18, 2026-08-21b) — the viewport edge-chip action from the
+                  panel: store/skyAim.gotoSkyBody, below-horizon → next-rise azimuth. An ACTION
+                  pill among toggles, and not gated on `visible` (the TRACK precedent — it
+                  follows the ephemeris, not the render). */}
+              <button
+                type="button"
+                className="tp-toggle"
+                onClick={() => gotoSkyBody("target")}
+                title="Aim the camera at the target — below the horizon it looks where it next rises"
+              >
+                GOTO
+              </button>
               <button
                 type="button"
                 className={`tp-toggle ${visible ? "tp-toggle--on" : ""}`}

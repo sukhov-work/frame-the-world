@@ -243,6 +243,19 @@ export function attachEnrichedBuildings(
   tiles.registerPlugin(
     new GLTFExtensionsPlugin({ dracoLoader: draco, meshoptDecoder: MeshoptDecoder }),
   );
+  // #15(c) (batch #4 S3): enriched cells are bake-content-addressed R2 binaries → immutable.
+  // Claim ONLY the .glb content fetches with HTTP force-cache (skips revalidation);
+  // tileset.json declines → the default fetch keeps revalidating. Same claimer shape +
+  // priority slot as FTW_TERRAIN_PATCH (no ion auth on this renderer to defer to).
+  tiles.registerPlugin({
+    name: "FTW_ENRICHED_FORCE_CACHE",
+    priority: -500,
+    fetchData(url: string | URL, options: RequestInit) {
+      const u = String(url);
+      if (!u.endsWith(".glb")) return null;
+      return fetch(u, { ...options, cache: "force-cache" });
+    },
+  } as never);
   // U6 foveated FPV loading (mirrors buildings.ts): regions tighten inside the fovea only; the
   // periphery rides the base errorTarget through the same one-writer recompute.
   const fovea = makeTileFoveation(tiles, FOVEATION.regionErrorTargetM.enriched);

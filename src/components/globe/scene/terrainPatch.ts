@@ -86,7 +86,10 @@ export function makeTerrainPatchFetchPlugin(base: string): object {
     fetchData(url: string | URL, options: RequestInit) {
       const u = String(url);
       if (!u.startsWith(prefix)) return null; // decline → ion (or default fetch) handles it
-      return fetch(u, options);
+      // #15(c) (batch #4 S3): patch tiles are bake-content-addressed → immutable; force-cache
+      // skips the revalidation round-trip entirely. Only .terrain binaries — manifests never
+      // route here (hookTerrainPatch rewrites tile content URIs only), but stay defensive.
+      return fetch(u, u.endsWith(".terrain") ? { ...options, cache: "force-cache" } : options);
     },
   };
 }

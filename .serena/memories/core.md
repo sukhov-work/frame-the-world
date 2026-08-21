@@ -121,9 +121,29 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
 
 ## Next step
-**OWNER BATCH #4 S2 SHIPPED 2026-08-21b — 14/18 items done (owner addendum #2 post-S2 added
-17 radar sun/moon body-tint + 18 TargetPanel GOTO button — S3 openers, specs in
-UXBATCH4_PLAN §Owner addendum #2)** (DECISIONS 2026-08-21b; gates
+**OWNER BATCH #4 S3 SHIPPED 2026-08-21c — BATCH CLOSED 18/18** (DECISIONS 2026-08-21c; gates
+1,101/1,101 · astro 0 err/5 hints; S1 23/23 + S2 15/15 regression + NEW `verify-uxbatch4-s3.mjs`
+18/18, shots uxb4-s3-01..04): (17) radar sun/moon band FUTURE halves wear body ink —
+`bandFutureInk()` (aimCones, unit-locked), per-body uFuture + both canvas twins via `b.color` ·
+(18) TargetPanel GOTO pill before SHOW — chip handler extracted to `store/skyAim.gotoSkyBody`
+(marker mirror → live-ephemeris fallback; `gotoAimSolution` pure twin tested) · (#5) iOS
+resilience — contextlost render gate + composer realloc on restore; hidden tick skip w/
+governor-clock re-seat; visibilitychange/pagehide freeze of ALL NINE tile queues
+(PriorityQueue.autoUpdate); NEW `QUALITY.leanMobile` coarse-pointer overrides (DPR 1.25 /
+bloom off / shadow 1024 — tile knobs stay per-tier, high test-locked) · (#15) NEW
+`public/sw.js` iOS-ONLY tile cache (dev-gated, 7-day-TTL performance cache — Esri ToS posture
+flagged; policy fenced by test/swTileCache.test.ts) + per-tier `overlayResolutionPx` 512/256/256
+w/ `ground.setOverlayResolution` fresh-instance rebuild path + `esriMaxLevelCoarse 17` +
+ground-only `groundLruBytesMB` 320/192 + per-URL force-cache (overlay images / .terrain / .glb
+/ .pbf; manifests revalidate) · (#1) /m PiP `.mw-pip` 200px live-3D hole (draw() clearRect
+under its DOM box; body.m .mw background dropped) replaces ✕ MINI-MAP, tap → back to FPV.
+UNVERIFIED → T1 + first release: /sw.js on Wix hosting (Content-Type unprobed), real-iOS
+jetsam/heat, z17/256 look, tint/PiP taste. **NEXT SESSION: release when the owner finishes the
+domain fix (batch #4 rides it; NEW rider — probe https://www.plux.today/sw.js after the flip);
+T1 device pass (grown: lean heat, SW effect, PiP feel, band tint taste); then P8 conjunctions
++ P9 lunar eclipses + M4 mobile resume · U8 sync-phase ladder.** Log:
+`mem:project/wip-2026-08-21-owner-uxbatch4` · plan `UXBATCH4_PLAN.md` (§S3 as-built).
+Prior (S2, 2026-08-21b — 14/18 items done, owner addendum #2 post-S2 added 17+18) (DECISIONS 2026-08-21b; gates
 1,088/1,088 · astro 0 err; S1 regression ALL PASS + NEW `verify-uxbatch4-s2.mjs` 15/15 both
 shells): radar → concentric annular bands (AIMCONES.bandSun/.bandMoon/.bandTarget — ONE model,
 three surfaces incl. the NEW minimap radar; compactK/lineLenK RETIRED; N rim marker

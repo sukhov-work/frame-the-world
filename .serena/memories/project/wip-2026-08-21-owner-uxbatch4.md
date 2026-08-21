@@ -1,9 +1,9 @@
-# wip 2026-08-21 — OWNER BATCH #4 (16 items post-addendum) — S1 + S2 SHIPPED, S3 remains
+# wip 2026-08-21 — OWNER BATCH #4 (18 items post-addendum-#2) — COMPLETE (S1+S2+S3 SHIPPED)
 
-Plan doc: `.claude/claude-docs/UXBATCH4_PLAN.md` (tracks A–F + §S2 DESIGN, per-item specs).
-DECISIONS 2026-08-21 (S1) + 2026-08-21b (S2). Gates after S2: vitest 1,088/1,088 · astro
-0 err/5 hints · `verify-uxbatch4.mjs` (S1 regression) ALL PASS · NEW `verify-uxbatch4-s2.mjs`
-15/15 both shells (shots verify-shots/uxb4-s2-01..07).
+Plan doc: `.claude/claude-docs/UXBATCH4_PLAN.md` (tracks A–F + §S2 DESIGN + §S3 as-built).
+DECISIONS 2026-08-21 (S1) + 2026-08-21b (S2) + 2026-08-21c (S3). Gates after S3: vitest
+1,101/1,101 · astro 0 err/5 hints · `verify-uxbatch4.mjs` 23/23 + `verify-uxbatch4-s2.mjs`
+15/15 + NEW `verify-uxbatch4-s3.mjs` 18/18 (shots verify-shots/uxb4-s3-01..04).
 
 ## S1 shipped (see DECISIONS 2026-08-21 + plan §S1 — summary)
 #2 selection tint killed · #3 2D two-finger ROTATE + tilt-door removed (`mobile2dFreeHeading`)
@@ -96,8 +96,53 @@ above UNFOLLOW both shells · #10 long-press ▲ 3D → FPV jump · #12 /m time-
   viewport chip — extract SkyGotoChips `aim` (~:105-122; below-horizon → nextRiseAzimuth →
   aimAtSky(rise.azDeg, 0)) into a shared helper, don't duplicate.
 
-## Remaining (S3): items 17+18 above at open · #15 SW tile cache (iOS-directed now) + demand
-shrink (overlayResolution needs rebuild path!) + force-cache per-URL · #5 iOS contextlost/
-pagehide/lean profile · #1 minimap PiP (post-S2 draw() rewrite makes the punched hole
-straightforward). Real-device gesture feel (twist damp? aim joystick feel, radar band radii
-taste) rides T1 owner pass.
+## S3 SHIPPED (2026-08-21c — BATCH #4 CLOSED 18/18; DECISIONS 2026-08-21c)
+- **17**: `bandFutureInk()` exported from aimCones.ts (sun→sunGlow / moon→moonDial / target→
+  timeFuture, unit-locked); `makeSectorMaterial(futureHex)` per-body uFuture at creation
+  (fill+rim; spokes + the step(uNow01,vT) split untouched); MapWindow + minimap twins use
+  their existing `b.color` (minimap: tokens bridge — NO --color-moon-dial CSS var, deliberate).
+- **18**: chip aim handler EXTRACTED → `store/skyAim.gotoSkyBody(kind)` (skyMarkers mirror
+  first, live targetAzAlt fallback at camGeo??focus so SHOW-off works; below-horizon →
+  nextRiseAzimuth at horizon; pure twin `gotoAimSolution` in test/store/skyAim.test.ts);
+  SkyGotoChips delegates; TargetPanel GOTO pill BEFORE SHOW, not gated on `visible` (TRACK
+  precedent). tp-toggles now 6 pills (CSS comment updated).
+- **#5**: GlobeCanvas contextlost/restored handlers (three preventDefault()s + re-inits GL
+  itself; app half = ctxLost render gate + composer realloc on restore) + tick skips hidden
+  pages re-seating the governor clock; StylizedTiles visibilitychange/pagehide/pageshow freeze
+  ALL NINE tile queues (3 renderers × download/parse/processNode, PriorityQueue.autoUpdate —
+  publicly typed; orthogonal to tier maxJobs) + scheduleJobRun re-kick. NEW QUALITY.leanMobile
+  {dprCap 1.25, bloom false, shadowMapSize 1024} = coarse-pointer renderer OVERRIDES on top of
+  the governed tier (tile knobs per-tier; shadows ON at 1024; high test-locked byte-identical).
+- **#15a**: NEW public/sw.js — iOS-ONLY registration in BOTH layouts (iPhone/iPod/iPad UA or
+  Macintosh-UA+maxTouchPoints>1 = iPadOS; localhost dev-gated), cache-first Cache-Storage over
+  Esri/CARTO/assets.ion/openfreemap/*.workers.dev, FIFO 6000 entries ≈300MB + 7-day TTL
+  (Esri ToS posture: performance cache, never an offline extract — flag for owner), NEVER
+  tileset.json/layer.json//planet/api.cesium.com. Policy fenced: test/swTileCache.test.ts.
+- **#15b**: per-tier overlayResolutionPx 512/256/256 (the REAL network lever — calculateLevel
+  picks Esri source z from resolution; ≈4× fewer GETs at 256) + imageryGround
+  `setOverlayResolution` REBUILD path: plugin.resolution + FRESH overlay instances via
+  delete→add (re-adding the SAME instance NESTS the download-queue fetch wrapper — the trap);
+  U6 guard + retry closure ride the plugin instance and survive; construction takes the tier
+  resolution so the attach fan-out no-ops. esriMaxLevelCoarse 17 (coarse cap; desktop z19).
+  Ground-ONLY groundLruBytesMB 320 mid/192 low (high 400 = lruBytesMB byte-identical).
+- **#15c**: force-cache per-URL — Esri/CARTO overlay.fetchOptions (kills the ~60/reload
+  revalidations), terrainPatch .terrain, FTW_ENRICHED_FORCE_CACHE .glb claimer (-500 slot,
+  tileset.json declines), openfreemap .pbf (dated path; TileJSON default mode).
+- **#1**: NEW .mw-pip — transparent 200px button top-right of the /m fullscreen map; draw()
+  clearRects the canvas under its exact DOM box (CSS owns placement); body.m .mw background
+  DROPPED so cleared pixels reach the GL FPV view (chrome included — a true live PiP);
+  replaces ✕ MINI-MAP on /m only; tap → setMapWindowOpen(false) → back to FPV.
+- Gates: vitest 1,101/1,101 (+13) · astro 0 err/5 hints · S1 23/23 + S2 15/15 + NEW
+  scripts/verify-uxbatch4-s3.mjs 18/18 (shots uxb4-s3-01..04). UNVERIFIED → T1 + first
+  release: /sw.js served by Wix hosting (Content-Type unprobed — the one #15a risk), real-iOS
+  jetsam/heat, Esri-z17/256 look, governor-flip rebuild flash, sun/moon tint taste.
+
+## S3 traps (fresh)
+- Dev bundle RENAMES three pass classes (`_UnrealBloomPass`) — CDP probes match
+  constructor.name by SUBSTRING.
+- Hash-only Page.navigate does NOT reload — #p= poses apply at LOAD; about:blank first.
+- Bloom off on the city chart pose is BY DESIGN (mapFlat gate, 120km) — assert at a LEO pose.
+- wix dev left RUNNING on :4321 (2026-08-21c) — restart it if the next session adds modules.
+
+Real-device gesture feel (twist damp? aim joystick feel, radar band radii taste, NEW: lean
+heat + SW effect + PiP feel + body-tint taste) rides T1 owner pass.

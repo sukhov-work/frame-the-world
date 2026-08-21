@@ -253,7 +253,7 @@
 
 .tp-toggles {
   display: flex;
-  flex-wrap: wrap; /* 5 toggles since TRACK (2026-08-15c) — wrap beats clipping at 17rem */
+  flex-wrap: wrap; /* 6 pills since GOTO (item 18, 2026-08-21b) — wrap beats clipping at 17rem */
   gap: 6px;
   padding-top: 2px;
   margin-top: 6px; /* sits under .tp-live since the 2026-08-19 reorder — needs its own gap */

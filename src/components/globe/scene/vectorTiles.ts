@@ -420,7 +420,10 @@ export function attachVectorTiles(): VectorTilesHandle {
         .replace("{z}", String(STREETS.tileZ))
         .replace("{x}", String(tx))
         .replace("{y}", String(ty));
-      fetch(url, { signal: abort.signal })
+      // #15(c) (batch #4 S3): the TileJSON template embeds a dated build path → tile URLs are
+      // immutable; force-cache skips revalidation. The /planet TileJSON fetch above keeps the
+      // default mode — it is the mutable pointer that rotates to each new OpenFreeMap build.
+      fetch(url, { signal: abort.signal, cache: "force-cache" })
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${r.status}`))))
         .then((buf) => {
           cache.set(key, parseTile(buf, tx, ty));

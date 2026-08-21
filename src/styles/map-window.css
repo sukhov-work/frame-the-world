@@ -30,6 +30,9 @@ body.m .mw {
   border: none;
   border-radius: 0;
   z-index: 20; /* above the /m chrome (10), below sheets (30) */
+  /* #1 PiP (batch #4 S3): the canvas paints the chart background itself — dropping the panel
+     background here lets the PiP hole's cleared pixels reach the GL canvas (z 0) below. */
+  background: none;
 }
 /* Fullscreen /m has nowhere to drag to — and no hover to reveal the grip anyway. */
 body.m .mw > .drag-grip {
@@ -90,6 +93,42 @@ body.m .mw-top {
 .mw-close {
   margin-left: auto;
   color: var(--color-text-secondary);
+}
+
+/* #1 PiP (batch #4 S3, /m only): the live-3D punched hole replacing ✕ MINI-MAP. The button is
+   TRANSPARENT — draw() clearRects the canvas under its exact DOM box, and body.m .mw drops the
+   panel background, so these pixels reach the GL canvas rendering the live FPV view. 200 px =
+   the desktop FPV mini-patch (MiniMap SIZE_PX — the spec's "same size"). SQUARE corners: the
+   hole is a clearRect — a border-radius would leak cleared pixels past the ring. Top-right,
+   below the .mw-top pills and clear of the z-24 walk controls that own the bottom edge. */
+.mw-pip {
+  display: none; /* /m-only instrument — desktop keeps the ✕ MINI-MAP button */
+}
+body.m .mw-pip {
+  display: block;
+  position: absolute;
+  top: calc(3.4rem + env(safe-area-inset-top));
+  right: 0.75rem;
+  width: 200px;
+  height: 200px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  border-radius: 0;
+  touch-action: manipulation;
+}
+.mw-pip__tag {
+  position: absolute;
+  top: 0.3rem;
+  left: 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  pointer-events: none;
 }
 
 .mw-hint {

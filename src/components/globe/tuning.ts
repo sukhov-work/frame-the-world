@@ -435,6 +435,13 @@ export const QUALITY = {
       /** U6: foveation OFF on high — byte-identical invariant; desktop unchanged (owner point 8
        *  is mobile-first; enable per tier here if a desktop trial is ever wanted). */
       foveation: null,
+      /** #15: ImageOverlayPlugin composite resolution — high keeps GROUND.overlayResolution
+       *  (byte-identical); the tile-GET demand lever, not just VRAM (calculateLevel picks the
+       *  Esri source zoom from resolution/rangeWidth — 256 drops ~one level ≈ 4× fewer GETs). */
+      overlayResolutionPx: 512,
+      /** #15: ground-renderer LRU (MB) — its OWN budget, decoupled from lruBytesMB. On high it
+       *  equals lruBytesMB (the null-restore path never reads it). */
+      groundLruBytesMB: 400,
     },
     mid: {
       dprCap: 1.5,
@@ -446,6 +453,12 @@ export const QUALITY = {
       buildingErrorTarget: 24,
       vectorLatticeBudget: 5,
       maxStreetNames: 28,
+      /** #15: half the composite → ~4× less overlay VRAM per tile + ~4× fewer Esri GETs. */
+      overlayResolutionPx: 256,
+      /** #15: MODEST ground-only raise (256→320) — the 256 composite frees the headroom, and a
+       *  retained ground tile is a pan re-fetch that never happens. Buildings/enriched stay at
+       *  lruBytesMB: a blanket raise worsens jetsam (the owner spec's own warning). */
+      groundLruBytesMB: 320,
       /** U6 foveated FPV loading (see tuning.FOVEATION for the shared region errorTargets).
        *  First-guess radii — judged on device with the owner (T1), like fpvBiasK. */
       foveation: { rayRangeM: 1400, eyeRadiusM: 160, peripheryFactor: 1.5 },
@@ -462,7 +475,22 @@ export const QUALITY = {
       maxStreetNames: 16,
       /** U6: tighter reach + softer periphery than mid — the weakest devices trade the most. */
       foveation: { rayRangeM: 900, eyeRadiusM: 110, peripheryFactor: 1.6 },
+      /** #15: same shrink as mid — low is where the network/VRAM relief matters most. */
+      overlayResolutionPx: 256,
+      /** #15: +20% over lruBytesMB, same modest-raise rationale as mid. */
+      groundLruBytesMB: 192,
     },
+  },
+  /** #5 iOS lean profile (batch #4 S3): coarse-pointer devices run HOT — bloom's ~12 fullscreen
+   *  draws, retina DPR and the 2k shadow map are the heat + jetsam drivers on iOS Safari. These
+   *  are renderer-lever OVERRIDES applied on top of whatever tier the governor runs (tile knobs
+   *  stay per-tier): DPR hard-capped, bloom OFF, shadow map 1024 — shadows stay ON (the mid-tier
+   *  core look survives, unlike tier `low`). Desktop never sees this (coarse-pointer gate), so
+   *  the byte-identical `high` invariant is untouched. Feel judged on device (T1). */
+  leanMobile: {
+    dprCap: 1.25,
+    bloom: false,
+    shadowMapSize: 1024,
   },
 } as const;
 
@@ -712,6 +740,10 @@ export const TILESETS = {
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   /** Esri refines to ~z19 (sub-metre in cities). */
   esriMaxLevel: 19,
+  /** #15 demand shrink (batch #4 S3): coarse-pointer devices cap Esri one level shallower —
+   *  z17 is still ~1.2 m/px, and the deepest level is where a street-level wander burns the
+   *  most tile GETs on a phone. Desktop keeps z19 (byte-identical `high` rule). */
+  esriMaxLevelCoarse: 17,
   /** CARTO dark_nolabels raster (Phase 5.5 S7a, owner-approved 2026-07-11) — the dark uniform
    *  drape below DRAPE.fadeTopAltM. Keyless + CORS * (live-verified); standard {z}/{x}/{y}.
    *  (The dark_only_labels street-name raster was TRIED and dropped same day — draped raster
@@ -2057,8 +2089,9 @@ export const AIMCONES = {
  *  globe (scene/focalCone.ts), the MapWindow canvas, and the FPV minimap. Outside FPV it
  *  draws the camera store's plannedView; in FPV the 2D surfaces mirror the live fpvHud and
  *  the GL cone hides (you are standing inside it). Colour = tokens.focalCone — deliberately
- *  distinct from every radar ink (accent target / sunGlow / moonDial / past-grey /
- *  future-blue). Anchor + altitude presence band ride AIMCONES (one planning instrument). */
+ *  distinct from every radar ink (accent target / sunGlow / moonDial / past-grey / target
+ *  future-blue; since item 17 the sun/moon band FUTURE halves wear the body inks too —
+ *  bandFutureInk). Anchor + altitude presence band ride AIMCONES (one planning instrument). */
 export const FOCALCONE = {
   /** Fill alpha — "very transparent" (owner): the boundary carries the reading. */
   fillAlpha: 0.05,

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { bandFor, easeSeatM } from "../../../src/components/globe/scene/aimCones";
+import {
+  bandFor,
+  bandFutureInk,
+  easeSeatM,
+} from "../../../src/components/globe/scene/aimCones";
 import { MAX_TERRAIN_M } from "../../../src/lib/geo/terrain";
 import { AIMCONES } from "../../../src/components/globe/tuning";
+import { tokens } from "../../../src/lib/theme/tokens";
 
 describe("bandFor — S2 concentric annular band allocation (one model, three surfaces)", () => {
   it("maps each body to its own tunable pair", () => {
@@ -22,6 +27,19 @@ describe("bandFor — S2 concentric annular band allocation (one model, three su
   });
   it("the N marker sits past the outer circle", () => {
     expect(AIMCONES.northOffsetK).toBeGreaterThan(1);
+  });
+});
+
+describe("bandFutureInk — item 17 body-tinted future halves (owner 2026-08-21b)", () => {
+  it("sun/moon future = BODY ink; target keeps the scrubber future-blue", () => {
+    expect(bandFutureInk("sun")).toBe(tokens.sunGlow);
+    expect(bandFutureInk("moon")).toBe(tokens.moonDial);
+    expect(bandFutureInk("target")).toBe(tokens.timeFuture);
+  });
+  it("every future ink stays distinct from the shared past grey", () => {
+    for (const key of ["sun", "moon", "target"] as const) {
+      expect(bandFutureInk(key)).not.toBe(tokens.textSecondary);
+    }
   });
 });
 

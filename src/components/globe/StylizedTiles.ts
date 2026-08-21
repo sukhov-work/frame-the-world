@@ -284,6 +284,9 @@ export function attachStylizedTiles(opts: {
     renderer,
     ionToken,
     terrainPatch: terrainBase && terrainCfgs.length ? { base: terrainBase, cfgs: terrainCfgs } : null,
+    // #15: construct at the tier's composite resolution — the applyQualityTier call below then
+    // no-ops instead of rebuilding the overlay stack it just built.
+    overlayResolution: QUALITY.tiers[qualityTier].overlayResolutionPx,
   });
   // U8 per-building height overrides (owner 2026-08-18): the localStorage map for the RESOLVED
   // variant, handed to the enriched module (checksum-validated per cell at load-model; a
@@ -401,7 +404,16 @@ export function attachStylizedTiles(opts: {
     const qCaps = queueCapsForTier(tier, LOADING.queueCaps); // U5: same null-on-high rule for maxJobs
     buildings.setQualityTier(q.buildingErrorTarget, lru, qCaps);
     enriched?.setQualityTier(q.buildingErrorTarget, lru, qCaps);
-    ground.setQualityTier(q.groundErrorNear, lru, qCaps);
+    // #15: the ground rides its OWN LRU budget (modest raise over lruBytesMB on mid/low — the
+    // 256 overlay composite frees ~4× per-tile VRAM, and a retained ground tile is a pan
+    // re-fetch that never happens; buildings/enriched keep the shared cap — a blanket raise
+    // worsens jetsam) + the per-tier overlay composite resolution.
+    ground.setQualityTier(
+      q.groundErrorNear,
+      lruCapBytesForTier(tier, q.groundLruBytesMB),
+      qCaps,
+    );
+    ground.setOverlayResolution(q.overlayResolutionPx);
     // U6: per-tier foveation (null on high — byte-identical; regions/periphery only engage in
     // FPV via setFoveaActive). Safe mid-FPV: each module recomputes its base from (tier, cfg, on).
     buildings.setFoveation(q.foveation);
@@ -1650,6 +1662,27 @@ export function attachStylizedTiles(opts: {
   window.addEventListener("keydown", onFpvKey);
   window.addEventListener("keyup", onFpvKeyUp);
   window.addEventListener("blur", onWinBlur);
+  // #5 iOS resilience (batch #4 S3): hiding the page stalls the rAF-driven queue SCHEDULER but
+  // leaves in-flight fetches + freshly queued jobs running — network/parse churn on a hidden tab
+  // is exactly what iOS Safari's jetsam/heat accounting punishes with a page kill. Freeze all
+  // nine tile queues (3 renderers × download/parse/processNode) the moment the page hides;
+  // re-arm and kick on return. `autoUpdate` is the library's ONE scheduling gate (PriorityQueue)
+  // — orthogonal to the tier `maxJobs` caps, so the quality fan-out never fights it.
+  const setTilesNetworkPaused = (paused: boolean) => {
+    for (const t of [buildings.tiles, enriched?.tiles, ground.tiles]) {
+      if (!t) continue;
+      for (const q of [t.downloadQueue, t.parseQueue, t.processNodeQueue]) {
+        q.autoUpdate = !paused;
+        if (!paused) q.scheduleJobRun();
+      }
+    }
+  };
+  const onLifecycleVisibility = () => setTilesNetworkPaused(document.hidden);
+  const onPageHide = () => setTilesNetworkPaused(true);
+  const onPageShow = () => setTilesNetworkPaused(false);
+  document.addEventListener("visibilitychange", onLifecycleVisibility);
+  window.addEventListener("pagehide", onPageHide);
+  window.addEventListener("pageshow", onPageShow);
   const _fpvQ = new THREE.Quaternion();
   const _fpvFwd = new THREE.Vector3();
   const _fpvUp = new THREE.Vector3();
@@ -4173,6 +4206,9 @@ export function attachStylizedTiles(opts: {
       window.removeEventListener("keydown", onFpvKey);
       window.removeEventListener("keyup", onFpvKeyUp);
       window.removeEventListener("blur", onWinBlur);
+      document.removeEventListener("visibilitychange", onLifecycleVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
       tempPinMarker.geometry.dispose();
       tempPinMat.dispose();
       scene.remove(tempPinMarker);

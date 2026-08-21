@@ -212,12 +212,16 @@ function draw(
       const [kIn, kOut] = bandFor(b.key);
       const rIn = rBase * kIn;
       const rOut = rBase * kOut;
+      // Sun/moon future = BODY ink (owner item 17); target keeps future-blue. b.color comes
+      // from the tokens bridge — there is NO --color-moon-dial custom property to cssVar.
+      const futureInk =
+        b.key === "target" ? cssVar(canvas, "--color-time-future") : b.color;
       if (b.emphasized) {
         ctx.globalAlpha = AIMCONES.fillAlpha * 2; // patch scale: the map ink below is dense
         ctx.fillStyle = cssVar(canvas, "--color-text-secondary");
         sectorPath(b.past, rIn, rOut);
         ctx.fill();
-        ctx.fillStyle = cssVar(canvas, "--color-time-future");
+        ctx.fillStyle = futureInk;
         sectorPath(b.future, rIn, rOut);
         ctx.fill();
       }
@@ -226,7 +230,7 @@ function draw(
       ctx.strokeStyle = cssVar(canvas, "--color-text-secondary");
       arcPath(b.past, rOut);
       ctx.stroke();
-      ctx.strokeStyle = cssVar(canvas, "--color-time-future");
+      ctx.strokeStyle = futureInk;
       arcPath(b.future, rOut);
       ctx.stroke();
       if (b.day.kind !== "ring") {

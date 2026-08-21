@@ -11,8 +11,9 @@ import { clampGroundM } from "../../../lib/geo/terrain";
  * three azimuth systems — tracked target (accent) / sun (sunGlow) / moon (moonlight) — each a
  * direction line at the CURRENT azimuth plus a ground sector sweeping the body's rise→set
  * azimuths across the scene-local solar day. The sector splits at scene time: swept-already =
- * tokens.warn amber, still-to-come = tokens.timeFuture blue — a per-vertex aT01 vs uNow01
- * shader compare (the dayArcs grammar), so scrubbing never rebuilds geometry.
+ * inert textSecondary grey, still-to-come = the body's own ink for sun/moon (sunGlow /
+ * moonDial — owner item 17, 2026-08-21b) and timeFuture blue for the target — a per-vertex
+ * aT01 vs uNow01 shader compare (the dayArcs grammar), so scrubbing never rebuilds geometry.
  *
  * Geometry lives in a UNIT circle on the anchor's ENU tangent plane (x=east, y=north, z=up);
  * the group matrix carries the ECEF anchor + basis × eased radius (the vectorFeatures float32
@@ -59,8 +60,10 @@ export interface AimConesHandle {
 
 /** Sector material — past/future COLOUR split (the dayArcs split is alpha-only). Past is
  *  NEUTRAL light grey, not amber (owner 2026-08-18: amber read as a day/night claim — the
- *  swept segment is inert history, so it wears the inert text grey). */
-function makeSectorMaterial(): THREE.ShaderMaterial {
+ *  swept segment is inert history, so it wears the inert text grey). The future half wears
+ *  `futureHex` — per-body via bandFutureInk (owner item 17); the split itself stays the
+ *  step(uNow01, vT) compare, only the colour differs per body. */
+function makeSectorMaterial(futureHex: string): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -68,7 +71,7 @@ function makeSectorMaterial(): THREE.ShaderMaterial {
     side: THREE.DoubleSide, // the tangent plane is seen from either hemisphere of tilt
     uniforms: {
       uPast: { value: new THREE.Color(tokens.textSecondary) },
-      uFuture: { value: new THREE.Color(tokens.timeFuture) },
+      uFuture: { value: new THREE.Color(futureHex) },
       uNow01: { value: 0 },
       uAlpha: { value: 0 },
     },
@@ -130,6 +133,14 @@ export function bandFor(key: "target" | "sun" | "moon"): readonly [number, numbe
       : AIMCONES.bandTarget;
 }
 
+/** Band FUTURE ink per body (owner item 17, 2026-08-21b): the sun/moon bands wear their BODY
+ *  colour on the still-to-come part (sunGlow / moonDial silver) against the shared inert-grey
+ *  past; the target band keeps the scrubber future-blue. Pure — unit-tested; the MapWindow
+ *  canvas twin + minimap radar apply the SAME rule (per-body ink is already on their models). */
+export function bandFutureInk(key: "target" | "sun" | "moon"): string {
+  return key === "sun" ? tokens.sunGlow : key === "moon" ? tokens.moonDial : tokens.timeFuture;
+}
+
 /**
  * Terrain-seat ease (pure twin — tested). A null probe keeps the last seat; the FIRST finite
  * sample SNAPS (NaN prev = unseeded); later samples ease with time-constant `tauMs`. The raw
@@ -169,8 +180,8 @@ export function attachAimCones(opts: {
   ).map(({ key, color }) => {
     const holder = new THREE.Group(); // per-body compact/emphasized scale lives here
     group.add(holder);
-    const fanMat = makeSectorMaterial();
-    const rimMat = makeSectorMaterial();
+    const fanMat = makeSectorMaterial(bandFutureInk(key));
+    const rimMat = makeSectorMaterial(bandFutureInk(key));
     const edgesMat = makeLineMaterial(color); // rise/set radial spokes — BODY identity colour
     const lineMat = makeLineMaterial(color);
     const fan = new THREE.Mesh(new THREE.BufferGeometry(), fanMat);

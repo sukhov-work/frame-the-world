@@ -74,6 +74,12 @@ export interface ImageryGroundHandle {
    *  way — this renderer KEEPS ancestors + library ordering (the terrain stand-in under the camera),
    *  only its concurrency rides the tier. */
   setQualityTier(errorNear: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
+  /** #15 (batch #4 S3): per-tier ImageOverlayPlugin composite resolution (512 high / 256 mid+low).
+   *  `resolution` is construction-time on the plugin, so a change swaps in FRESH overlay
+   *  instances via the plugin's own delete→add idiom — loaded tiles re-composite at the new
+   *  size and calculateLevel re-picks the Esri source zoom (~4× fewer GETs at 256). No-op when
+   *  unchanged; rides the FPV-deferred tier fan-out, so it never fires mid-viewfinder. */
+  setOverlayResolution(px: number): void;
   /** UPLIFT U6: per-tier foveation config (null = off). GROUND foveation is purely ADDITIVE —
    *  sharper terrain along the look ray + around the eye; the base errorTarget (the altitude
    *  ramp above) is NEVER relaxed here: heightAt seats buildings/frustum/FPV on this renderer,
@@ -97,6 +103,9 @@ export function attachImageryGround(
     /** Self-baked GLO-30 terrain patch (scene/terrainPatch.ts) — null/absent = pure CWT,
      *  byte-identical to before the bake slice. NEVER user-facing: the registry + env decide. */
     terrainPatch?: TerrainPatchOpts | null;
+    /** #15 (batch #4 S3): initial ImageOverlayPlugin composite resolution — per-tier
+     *  (QUALITY.tiers[*].overlayResolutionPx); absent = GROUND.overlayResolution (512). */
+    overlayResolution?: number;
   },
 ): ImageryGroundHandle {
   const tiles = new TilesRenderer();
@@ -180,25 +189,43 @@ export function attachImageryGround(
   // `levels` is a COUNT (the library's generateLevels sets maxLevel = levels − 1) — passing the
   // max level directly capped Esri at z18 / CARTO at z19, one below what the sources serve
   // (the 2026-08-18 sharpness batch off-by-one).
-  const cartoDark = new XYZTilesOverlay({
-    url: TILESETS.cartoDarkUrl,
-    levels: TILESETS.cartoMaxLevel + 1,
-    opacity: 0,
-  });
+  // #15 (batch #4 S3): overlay factories — the rebuild path below needs FRESH instances (every
+  // addOverlay pass re-wraps overlay.fetch with the download-queue adapter, so re-adding the
+  // SAME instance nests wrappers). Coarse-pointer devices cap Esri one level shallower (the
+  // deepest level is where a street wander burns the most GETs). fetchOptions force-cache:
+  // an overlay fetches ONLY tile images — no manifests — and Esri/CARTO tile content is
+  // immutable-in-practice, so the per-reload revalidation round-trips buy nothing (measured
+  // ~60/reload, scripts/measure-tile-cache.mjs).
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const makeEsriOverlay = () => {
+    const o = new XYZTilesOverlay({
+      url: TILESETS.esriImageryUrl,
+      levels: (coarsePointer ? TILESETS.esriMaxLevelCoarse : TILESETS.esriMaxLevel) + 1,
+    });
+    o.fetchOptions = { cache: "force-cache" };
+    return o;
+  };
+  const makeCartoOverlay = () => {
+    const o = new XYZTilesOverlay({
+      url: TILESETS.cartoDarkUrl,
+      levels: TILESETS.cartoMaxLevel + 1,
+      opacity: 0,
+    });
+    o.fetchOptions = { cache: "force-cache" };
+    return o;
+  };
+  let cartoDark = makeCartoOverlay();
   // The dark drape attaches ONLY in dark ground mode (2026-08-18 speed batch): registered
   // up-front with opacity 0 it fetched + composited a full second tile chain for zero pixels —
   // the default mode is satellite, so most sessions paid 2× imagery for nothing. delete→add is
   // the plugin's own re-order idiom (ImageOverlayPlugin.js:154-155), so the flip is safe live.
   let cartoAttached = false;
+  let esriOverlay = makeEsriOverlay();
+  let overlayResolutionPx = opts.overlayResolution ?? GROUND.overlayResolution;
   const overlayPlugin = new ImageOverlayPlugin({
     renderer: opts.renderer,
-    resolution: GROUND.overlayResolution,
-    overlays: [
-      new XYZTilesOverlay({
-        url: TILESETS.esriImageryUrl,
-        levels: TILESETS.esriMaxLevel + 1,
-      }),
-    ],
+    resolution: overlayResolutionPx,
+    overlays: [esriOverlay],
   });
   tiles.registerPlugin(overlayPlugin);
   // U6 guard — upstream 0.4.28 bug (re-verify on any version bump): the overlay plugin's
@@ -460,6 +487,21 @@ export function attachImageryGround(
       return uniforms.uFtwDark.value;
     },
     refreshResolution,
+    setOverlayResolution(px) {
+      if (px === overlayResolutionPx) return;
+      overlayResolutionPx = px;
+      (overlayPlugin as unknown as { resolution: number }).resolution = px;
+      // Fresh instances (see the factory comment — re-adding the same object nests the fetch
+      // wrapper). The U6 visibility-guard patch + the load-error retry closure ride the PLUGIN
+      // instance and survive. Bottom-up order restored: Esri first, dark drape back on top.
+      const hadCarto = cartoAttached;
+      overlayPlugin.deleteOverlay(esriOverlay);
+      if (hadCarto) overlayPlugin.deleteOverlay(cartoDark);
+      esriOverlay = makeEsriOverlay();
+      cartoDark = makeCartoOverlay();
+      overlayPlugin.addOverlay(esriOverlay);
+      if (hadCarto) overlayPlugin.addOverlay(cartoDark);
+    },
     setQualityTier(errorNear, lruCapBytes, queueCaps) {
       errorNearOverride = errorNear; // consumed by the update() error-ramp near endpoint
       tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
