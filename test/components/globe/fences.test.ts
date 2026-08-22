@@ -166,6 +166,13 @@ describe("ULTRA HQ — desktop-only, fenced at the read", () => {
     "store/camera.ts": "the store field + setter",
     "components/globe/StylizedTiles.ts": "the ONE engine reader — every read AND-ed with hqAllowed",
     "components/panels/CameraTiltPanel.tsx": "the desktop chips (rendered behind the same predicate)",
+    // Added 2026-08-22j (T45 S5). The shadow rig's map size and `shadowMap.enabled` are
+    // CONSTRUCTION-TIME — three latches the depth target on first render and a live
+    // `shadowMap.enabled` flip recompiles every material — so they are read from the PERSISTED
+    // pref at boot, before any island has mounted and therefore before the store exists. That is
+    // the second (and only other) sanctioned path in ULTRA_PLAN.md §2. It earns its place here
+    // by folding the shell gate into the same expression as the read; the test below pins that.
+    "lib/globe/ultraBoot.ts": "the BOOT-time reader for construction-time levers — read AND-ed with ultraShellAllowed()",
   };
 
   const walk = (dir: string, out: string[] = []): string[] => {
@@ -178,7 +185,7 @@ describe("ULTRA HQ — desktop-only, fenced at the read", () => {
   };
   const files = walk(srcDir);
 
-  it("only four files may name the flag at all", () => {
+  it("only the sanctioned owner files may name the flag at all", () => {
     // POSITIVE CONTROL first: the probe must be able to match, or an empty offender list below
     // would prove nothing (audit-2's zero-result-validation rule).
     const named = files.filter((f) => FLAGS.some((k) => readFileSync(f, "utf8").includes(k)));
@@ -214,5 +221,39 @@ describe("ULTRA HQ — desktop-only, fenced at the read", () => {
     });
     expect(unguarded.filter((u) => !probeOnly.includes(u)).map((u) => `:${u.n} ${u.line.trim()}`)).toEqual([]);
     expect(probeOnly.length).toBeGreaterThan(0); // the exemption is real, not a dead clause
+  });
+
+  // --- the SECOND reader (T45 S5, 2026-08-22j) -----------------------------------------------
+  // `lib/globe/ultraBoot.ts` exists because three latches a shadow map's size on first render
+  // and recompiles every material on a live `shadowMap.enabled` flip, so those two levers have
+  // to be decided at boot — before any island has mounted, i.e. before the store exists. A
+  // second reader is a second chance to leak the flag onto `/m`, so it carries the same two
+  // obligations as the orchestrator, machine-checked.
+  it("the BOOT reader gates its flag read on the same line", () => {
+    const src = readFileSync(join(srcDir, "lib/globe/ultraBoot.ts"), "utf8");
+    const reads = src
+      .split("\n")
+      .map((line, i) => ({ line, n: i + 1 }))
+      .filter(({ line }) => /ultraQuality/.test(line) && !/^\s*\*/.test(line));
+    // POSITIVE CONTROL: an empty `reads` would make the assertion below vacuously true.
+    expect(reads.length).toBeGreaterThan(0);
+    expect(
+      reads.filter((r) => !r.line.includes("ultraShellAllowed")).map((r) => `:${r.n} ${r.line.trim()}`),
+    ).toEqual([]);
+  });
+
+  it("the BOOT gate and the engine gate test the SAME two terms", () => {
+    // Two expressions of one rule is a drift risk, and the failure mode is invisible: a shell
+    // where one gate opens and the other does not is a `/m` session running ULTRA's shadow rig
+    // with none of its look, or the reverse. Neither can be expressed as one function — the
+    // orchestrator's must stay the literal the test above pins, and this one runs before the
+    // orchestrator module is even imported — so pin that both name both terms instead.
+    const boot = readFileSync(join(srcDir, "lib/globe/ultraBoot.ts"), "utf8");
+    const gate = boot.slice(boot.indexOf("export function ultraShellAllowed"));
+    expect(gate).toMatch(/classList\.contains\("m"\)/); // the /m ROUTE
+    expect(gate).toMatch(/matchMedia\("\(pointer: coarse\)"\)/); // the HARDWARE
+    expect(gate).toMatch(/!isMobileShell && !coarsePointerShell/); // …AND-ed, not OR-ed
+    const orch = readFileSync(join(srcDir, "components/globe/StylizedTiles.ts"), "utf8");
+    expect(orch).toMatch(/const hqAllowed =\s*!isMobileShell && !coarsePointerShell;/);
   });
 });

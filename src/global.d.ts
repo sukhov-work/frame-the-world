@@ -60,6 +60,14 @@ declare global {
        *  coarse-pointer device (the gate is resolved in StylizedTiles, before GlobeCanvas
        *  ever sees it). */
       readonly ultra: boolean;
+      /** ULTRA (T45 S5, 2026-08-22j): the chip state as read at BOOT, and the shadow-map edge the
+       *  rig was actually built with. These two exist because the construction-time levers cannot
+       *  follow a live flip — `ultra !== ultraBoot` is exactly the "toggled this session, reload
+       *  for the full shadow rig" state, and `shadowMapPx` is the value AFTER the
+       *  maxTextureSize clamp, so a browser check reads what the GPU got rather than what tuning
+       *  asked for. */
+      readonly ultraBoot: boolean;
+      readonly shadowMapPx: number;
     };
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;

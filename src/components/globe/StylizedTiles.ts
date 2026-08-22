@@ -131,6 +131,7 @@ import {
   PLAN,
   POSE,
   QUALITY,
+  RENDERER,
   SEARCH,
   SHADOWS,
   SKY,
@@ -138,9 +139,11 @@ import {
   STREETS,
   SUN,
   TEMPPIN,
+  ULTRA,
   WGS84_A,
   WGS84_B,
 } from "./tuning";
+import { easeK, ultraLightAt } from "../../lib/globe/lightBands";
 
 /**
  * StylizedTiles — the real, geo-accurate globe (ADR D1), built to the PROJECT_SEED §2 signature
@@ -218,6 +221,10 @@ export function attachStylizedTiles(opts: {
   /** GlobeCanvas's DirectionalLight (buildings key + shadow caster) — the orchestrator drives its
    *  direction from the ephemeris and its shadow rig from the view focus. */
   sunLight?: THREE.DirectionalLight;
+  /** GlobeCanvas's HemisphereLight (the sky/ground ambient fill on the buildings). ULTRA S10
+   *  re-seats it onto the LOCAL UP at the view focus and tracks its intensity/tint to the
+   *  ephemeris; with the chip off it is never touched. */
+  hemiLight?: THREE.HemisphereLight;
   /** Initial device quality tier (RENDERING_QUALITY_PASS WS1) — the tile knobs start here so a
    *  weak device isn't briefly over-committed before the first governor correction. Default high. */
   qualityTier?: QualityTier;
@@ -237,6 +244,7 @@ export function attachStylizedTiles(opts: {
     ionToken,
     reduceMotion = false,
     sunLight,
+    hemiLight,
     qualityTier = "high",
     allow8k = true,
     aoControl,
@@ -1801,6 +1809,50 @@ export function attachStylizedTiles(opts: {
   const _moonKeyCol = new THREE.Color(tokens.moonlight); // the key light's moon-shadow disguise
   let frameCount = 0;
 
+  // --- ULTRA LOOK (T44 §1a + T45 S4/S9/S10/S11) — the light-transport half of the fidelity track.
+  //
+  //     ONE sample per frame drives every consumer, which is the point: the ULTRA_PLAN's hardest
+  //     constraint is that the ground, the buildings, the key light and the exposure move TOGETHER
+  //     through the twilight bands — a ground that brightens on a different curve from the city
+  //     standing on it is the same incoherence that made forcing `dayK` a C2 breach in §1a.
+  //
+  //     THE ACCEPTANCE CRITERION IS A TIMELAPSE (owner 2026-08-22i): park the camera, scrub scene
+  //     time day → golden → civil → nautical → astronomical → night and back, and judge the
+  //     SEQUENCE. Every term below is therefore eased, never stepped.
+  //
+  //     The four tint anchors line up with ULTRA.tintStopsDeg [+10, 0, −6, −16] — day / golden /
+  //     blue / night. `water` (a near-black slate) is the night anchor on purpose: night haze is
+  //     DARKNESS, not grey. Painting grey over a night city is the C2 failure mode of S4.
+  const _hazeDayCol = new THREE.Color(tokens.skyHorizon);
+  const _hazeGoldCol = new THREE.Color(tokens.goldenHour);
+  const _hazeBlueCol = new THREE.Color(tokens.atmosphereDeep);
+  const _hazeNightCol = new THREE.Color(tokens.water);
+  const _hazeCol = new THREE.Color();
+  const _ultraZeroCol = new THREE.Color(tokens.skyHorizon);
+  /** The construction state of every live lever ULTRA writes, captured so the OFF edge is a
+   *  RESTORE rather than a re-derivation. `hemiLight` in particular has no other record of where
+   *  it started: three reads a HemisphereLight's direction from its world position, and its
+   *  as-constructed position is the default (0,1,0). */
+  const _hemiSky0 = hemiLight ? hemiLight.color.clone() : null;
+  const _hemiGround0 = hemiLight ? hemiLight.groundColor.clone() : null;
+  const _hemiPos0 = hemiLight ? hemiLight.position.clone() : null;
+  const _hemiIntensity0 = hemiLight ? hemiLight.intensity : 0;
+  const _shadowRadius0 = sunLight ? sunLight.shadow.radius : SHADOWS.radius;
+  const _shadowNormalBias0 = sunLight ? sunLight.shadow.normalBias : SHADOWS.normalBias;
+  const _shadowBias0 = sunLight ? sunLight.shadow.bias : SHADOWS.bias;
+  /** Eased `renderer.toneMappingExposure` (S11). Seeded at the constructed value so the very
+   *  first ULTRA frame ramps from where the scene actually is, not from 1.0-by-assumption. */
+  let ultraExposure = renderer.toneMappingExposure;
+  let lastUltraMs = performance.now();
+  /** False while any ULTRA-owned lever is still unwinding back to its baseline. It is what lets
+   *  the OFF steady state cost literally nothing (an early return) without making the OFF EDGE a
+   *  snap — a one-frame exposure or ambient jump on a chip click reads as a flash. */
+  let ultraLookSettled = true;
+  /** True while the shadow rig carries ULTRA geometry — the edge detector for the rig, which
+   *  cannot use the bounds comparison below: at street level both profiles clamp to the same
+   *  `SHADOWS.boundsM`, so a flip would leave near/far and the bias on the wrong profile. */
+  let shadowRigUltra = false;
+
   // --- Camera feel (2026-07-10 owner pass) — temporal zoom easing, damped auto-verticality and
   //     the declination glide. Mechanics verified against the GlobeControls source (0.4.28):
   //     the library consumes the whole wheel delta in one frame and, while zooming IN, rotates
@@ -2052,6 +2104,78 @@ export function attachStylizedTiles(opts: {
         coarsePointer: coarsePointerShell,
         pref: useCameraStore.getState().ultraQuality === true,
         on: ultraOn,
+      }),
+      // ULTRA LOOK probe (T44 §1a/§1b + T45 S3/S4/S5/S9/S10/S11, 2026-08-22j) — the ONE seam that
+      // makes this track verifiable. Every lever it reports is otherwise unreachable from a
+      // harness: the lights live in GlobeCanvas's closure, the shadow rig on a light three
+      // mutates internally, and the ground's ULTRA uniforms behind an attach closure.
+      //
+      // It exists because the OFF-state claim ("with the chip off, nothing here is read") is only
+      // worth as much as its proof, and the honest proof is EXACT ZEROS read out of the live
+      // engine — not a screenshot that looks the same. `hemiPos` is reported because audit gap
+      // #16 is invisible in every other way: three derives a HemisphereLight's direction from its
+      // world position, so [0,1,0] IS the bug and a focus-tracking unit vector IS the fix.
+      ultraLook: () => ({
+        on: ultraOn,
+        // ground (T44 §1a + S9 + S4) — these four are the off-state proof
+        photo3d: ground.uniforms.uFtwPhoto3d.value,
+        dayMix: ground.uniforms.uFtwUltraLight.value,
+        haze: ground.uniforms.uFtwHaze.value,
+        hazeCol: (ground.uniforms.uFtwHazeCol.value as THREE.Color).getHex(),
+        // S11 exposure — live-written, so a stale value here means the step stopped running
+        exposure: renderer.toneMappingExposure,
+        // S10 hemisphere (audit gap #16)
+        hemiPos: hemiLight ? hemiLight.position.toArray() : null,
+        hemiIntensity: hemiLight ? hemiLight.intensity : null,
+        hemiSky: hemiLight ? hemiLight.color.getHex() : null,
+        // S5 + S2 + S3 shadow rig. `bias` is reported alongside near/far ON PURPOSE: its unit is
+        // a FRACTION of that range, so the number is meaningless without them.
+        shadow: sunLight
+          ? {
+              mapPx: sunLight.shadow.mapSize.x,
+              radius: sunLight.shadow.radius,
+              bias: sunLight.shadow.bias,
+              normalBias: sunLight.shadow.normalBias,
+              boundsM: sunLight.shadow.camera.right,
+              near: sunLight.shadow.camera.near,
+              far: sunLight.shadow.camera.far,
+              casting: sunLight.castShadow,
+              biasMetres: -sunLight.shadow.bias * (sunLight.shadow.camera.far - sunLight.shadow.camera.near),
+            }
+          : null,
+        // S3 terrain casts — counted off the LIVE scene graph rather than off our own flag, so
+        // the `shadowSide` trap (which fails silently and casts nothing) cannot pass this.
+        terrain: (() => {
+          let meshes = 0;
+          let casting = 0;
+          let frontSideShadow = 0;
+          ground.tiles.group.traverse((o: THREE.Object3D) => {
+            const m = o as THREE.Mesh;
+            if (!m.isMesh || (m.material as THREE.Material)?.type !== "MeshBasicMaterial") return;
+            meshes++;
+            if (m.castShadow) casting++;
+            if ((m.material as THREE.Material).shadowSide === THREE.FrontSide) frontSideShadow++;
+          });
+          return { meshes, casting, frontSideShadow };
+        })(),
+        // §1b anisotropy — sampled off the LIVE composite textures the shader is sampling, not
+        // off the value we asked for. Walks the overlay plugin's own maps (overlays → tileInfo →
+        // target); a `null` here means the reach broke, which is itself the finding.
+        aniso: (() => {
+          const plugins = (ground.tiles as unknown as { plugins?: unknown[] }).plugins ?? [];
+          const plug = plugins.find(
+            (p) => (p as { overlayInfo?: unknown }).overlayInfo instanceof Map,
+          ) as { overlayInfo: Map<unknown, { tileInfo: Map<unknown, { target?: THREE.Texture }> }> } | undefined;
+          if (!plug) return null;
+          const seen: number[] = [];
+          plug.overlayInfo.forEach(({ tileInfo }) => {
+            tileInfo.forEach((info) => {
+              if (info.target?.isTexture) seen.push(info.target.anisotropy);
+            });
+          });
+          if (seen.length === 0) return { n: 0, min: null, max: null };
+          return { n: seen.length, min: Math.min(...seen), max: Math.max(...seen) };
+        })(),
       }),
       pins,
     };
@@ -3460,6 +3584,26 @@ export function attachStylizedTiles(opts: {
     if (want === ultraOn) return;
     ultraOn = want;
     applyQualityTier(activeQualityTier);
+    // --- the LOOK half (T44 §1a + T45), all edge-applied ---
+    // Wake the look step: while OFF it early-returns, and only an edge can un-settle it. Without
+    // this the OFF→ON flip would leave exposure, ambient and haze frozen at their baselines.
+    ultraLookSettled = false;
+    // T44 §1b — anisotropy. Stamped at texture CREATION, so this changes what NEW composites get
+    // and leaves loaded ones alone: `anisotropy` is part of three's GL texture cache key, and
+    // re-stamping live would mean a full re-upload of every drape in the working set. Documented
+    // consequence: fly a little (or revisit) for the full effect. `maxAniso` is the GPU's real
+    // ceiling (16 on the owner's machine); 1 is three's default, so OFF restores the exact
+    // cache key the library would have produced on its own.
+    ground.setUltraAnisotropy(ultraOn ? Math.min(ULTRA.anisotropy, maxAniso) : 1);
+    // S2 — the soft-shadow lever. NOT a shadowMap.type change: `PCFSoftShadowMap` is deprecated
+    // in three 0.185 and silently rewritten to `PCFShadowMap` on the first depth pass. What
+    // replaced it is a 5-tap Vogel disk rotated per pixel by interleaved gradient noise, where
+    // `radius` scales the disk in texels — a LIVE uniform, no recompile, and because the disk is
+    // per-pixel rotated a large radius degrades to noise rather than to banding.
+    if (sunLight) {
+      sunLight.shadow.radius = ultraOn ? ULTRA.shadowRadius : _shadowRadius0;
+      sunLight.shadow.normalBias = ultraOn ? ULTRA.shadowNormalBias : _shadowNormalBias0;
+    }
   };
 
   const stepGroundUpdate = () => {
@@ -3494,6 +3638,96 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  /** ULTRA LOOK (T44 §1a + T45 S4/S9/S10/S11) — ONE light sample, pushed to every consumer.
+   *
+   *  Runs AFTER stepGroundUpdate on purpose: the ground owns the haze gates (altitude, flat
+   *  chart, dark drape) and its own easing, so reading its live `uFtwHaze` back out and handing
+   *  THAT to the buildings is what makes "the same atmosphere over the city and over the ground"
+   *  true by construction instead of by two parallel calculations agreeing. The cost is a
+   *  one-frame lag on targets, which is nothing against easings of 0.4–1 s. */
+  const stepUltraLook = () => {
+    if (!ultraOn && ultraLookSettled) return; // the OFF steady state: zero per-frame cost
+    const nowMs = performance.now();
+    const dtMs = nowMs - lastUltraMs;
+    lastUltraMs = nowMs;
+    // `sunDirW · focusUp` IS sin(solar elevation) at the view focus — the same quantity the
+    // ground shader evaluates per fragment, so the CPU-side terms (exposure, ambient, haze tint)
+    // and the GPU-side one (dayK) are reading one curve family at one input.
+    const light = ultraOn ? ultraLightAt(ULTRA, sunDirW.dot(_focusUp)) : null;
+
+    // --- the band tint: a 4-stop palette ramp, at most two stops live at a time ---
+    if (light) {
+      const w = light.tint;
+      _hazeCol.setRGB(
+        w[0] * _hazeDayCol.r + w[1] * _hazeGoldCol.r + w[2] * _hazeBlueCol.r + w[3] * _hazeNightCol.r,
+        w[0] * _hazeDayCol.g + w[1] * _hazeGoldCol.g + w[2] * _hazeBlueCol.g + w[3] * _hazeNightCol.g,
+        w[0] * _hazeDayCol.b + w[1] * _hazeGoldCol.b + w[2] * _hazeBlueCol.b + w[3] * _hazeNightCol.b,
+      );
+    } else {
+      _hazeCol.copy(_ultraZeroCol);
+    }
+
+    // --- §1a + S9 + S4 targets to the ground (it eases and gates them) ---
+    ground.setUltraTargets({
+      photo3d: light ? ULTRA.photo3dK : 0,
+      light: light ? 1 : 0,
+      haze: light ? light.hazeK : 0,
+      hazeCol: _hazeCol,
+    });
+    // --- S4 to the buildings: the ground's EFFECTIVE, already-gated, already-eased value ---
+    const hazeNow = ground.uniforms.uFtwHaze.value as number;
+    buildings.setUltraHaze(hazeNow, _hazeCol, sunDirW);
+    enriched?.setUltraHaze(hazeNow, _hazeCol, sunDirW);
+
+    // --- S11 exposure: the cheapest "epic" lever, and the one that MUST ease. A per-frame
+    //     exposure step reads as a flicker, and while scrubbing the sun can cross a whole
+    //     twilight band in a handful of frames. OutputPass re-reads this every render.
+    const expTarget = (light ? light.exposureK : 1) * RENDERER.toneMappingExposure;
+    ultraExposure += (expTarget - ultraExposure) * easeK(dtMs, ULTRA.exposureTauMs);
+    renderer.toneMappingExposure = ultraExposure;
+
+    // --- S10 hemisphere: local up + ephemeris tint/intensity (audit gap #16) ---
+    if (hemiLight && _hemiSky0 && _hemiGround0 && _hemiPos0) {
+      const k = easeK(dtMs, ULTRA.exposureTauMs);
+      // Direction. three normalizes the light's world position, so a unit vector is the whole
+      // API. Eased rather than snapped ONLY so the OFF edge doesn't flip the ambient in a frame;
+      // while on, `_focusUp` moves continuously with the camera and the ease is invisible.
+      hemiLight.position.lerp(light && ULTRA.hemiTrackUp ? _focusUp : _hemiPos0, k);
+      hemiLight.intensity += ((light ? SUN.hemiIntensity * light.hemiK : _hemiIntensity0) - hemiLight.intensity) * k;
+      // Sky half tracks the band tint (warm skylight at dusk is what keeps buildings coherent
+      // with the ground's band curve); ground half stays put — bounce off dark terrain has no
+      // reason to change colour with the sun.
+      hemiLight.color.lerp(
+        light ? _hemiSky0.clone().lerp(_hazeCol, ULTRA.hemiTintK) : _hemiSky0,
+        k,
+      );
+      hemiLight.groundColor.lerp(_hemiGround0, k);
+    }
+
+    // --- settle: snap EXACTLY to baseline and stop stepping, so "off" is off ---
+    if (!ultraOn) {
+      const expDone = Math.abs(ultraExposure - RENDERER.toneMappingExposure) < 1e-4;
+      const hemiDone =
+        !hemiLight ||
+        !_hemiPos0 ||
+        (hemiLight.position.distanceToSquared(_hemiPos0) < 1e-8 &&
+          Math.abs(hemiLight.intensity - _hemiIntensity0) < 1e-4);
+      if (expDone && hemiDone && hazeNow === 0) {
+        ultraExposure = RENDERER.toneMappingExposure;
+        renderer.toneMappingExposure = ultraExposure;
+        if (hemiLight && _hemiSky0 && _hemiGround0 && _hemiPos0) {
+          hemiLight.color.copy(_hemiSky0);
+          hemiLight.groundColor.copy(_hemiGround0);
+          hemiLight.position.copy(_hemiPos0);
+          hemiLight.intensity = _hemiIntensity0;
+        }
+        buildings.setUltraHaze(0, _ultraZeroCol, sunDirW);
+        enriched?.setUltraHaze(0, _ultraZeroCol, sunDirW);
+        ultraLookSettled = true;
+      }
+    }
+  };
+
   const stepKeyLightAndShadow = () => {
         // Key light + the ONE shadow rig (S5 §Item 7: source switch, never a second rig).
         // Sun mode: ephemeris direction; colour warms through the golden band at the focus;
@@ -3502,6 +3736,13 @@ export function attachStylizedTiles(opts: {
         // impersonates the moon (direction, cool colour, K&S phase intensity) and the
         // dedicated moonLight stands down so the night key is never doubled.
         moonShadows = false;
+        // ULTRA S5/S3: the light must stand far enough off the focus to clear the RELIEF, not
+        // just the rooftops. `SHADOWS.lightDistM` 8 km puts the light inside Everest's own air
+        // column, so a summit would sit behind the shadow camera's near plane and drop out of
+        // the depth pass entirely — the feature would silently do nothing exactly where the
+        // owner asked for it. Ortho shadow cameras pay no texel-density cost for distance; only
+        // depth precision, and D24 over ~96 km still resolves ~6 mm.
+        const shadowLightDistM = ultraOn ? ULTRA.lightDistM : SHADOWS.lightDistM;
         if (sunLight) {
           // Flat map = no synthetic shadow rig (owner 2026-08-18e): the day-graded photo already
           // carries the real capture shadows; the depth pass + receiver draws bought a second,
@@ -3524,7 +3765,7 @@ export function attachStylizedTiles(opts: {
             const moonGoldenK = goldenFactor(moonDirW.dot(_focusUp), GOLDEN);
             sunLight.color.copy(_moonKeyCol).lerp(_goldenCol, moonGoldenK * GOLDEN.moonKeyStrength);
             sunLight.intensity = SKY.moonKeyIntensity * moonKs;
-            sunLight.position.copy(_focus).addScaledVector(moonDirW, SHADOWS.lightDistM);
+            sunLight.position.copy(_focus).addScaledVector(moonDirW, shadowLightDistM);
             sunLight.target.position.copy(_focus);
             ground.setShadowStrength(
               THREE.MathUtils.lerp(SHADOWS.moonGroundOpacity, DRAPE.moonShadowOpacity, dark01) *
@@ -3537,7 +3778,7 @@ export function attachStylizedTiles(opts: {
             // the biggest visible building-dusk win). keyBrighten 0 → ×1 = byte-identical.
             sunLight.intensity = SUN.keyIntensity * (1 + goldenK * GOLDEN.keyBrighten);
             if (sunShadows) {
-              sunLight.position.copy(_focus).addScaledVector(sunDirW, SHADOWS.lightDistM);
+              sunLight.position.copy(_focus).addScaledVector(sunDirW, shadowLightDistM);
               sunLight.target.position.copy(_focus);
               ground.setShadowStrength(
                 THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01),
@@ -3555,18 +3796,52 @@ export function attachStylizedTiles(opts: {
           // shadows; extend the depth range with it so far-from-focus buildings stay inside the frustum.
           // Only touched while casting (skips the updateProjectionMatrix cost at orbit / night).
           if (sunLight.castShadow) {
-            const b = THREE.MathUtils.clamp(alt * SHADOWS.boundsAltK, SHADOWS.boundsM, SHADOWS.maxBoundsM);
+            // ULTRA S3: the base rig caps at SHADOWS.maxBoundsM 5 km — sized for CITY blocks, and
+            // therefore useless for terrain, which casts tens of kilometres at low sun. The wider
+            // ULTRA cap costs texels/metre, which is precisely what the 8192² map buys back; and
+            // because the extent still RIDES ALTITUDE, the trade self-selects: at street level
+            // both profiles clamp to boundsM (8192² over 1.6 km ≈ 0.39 m/texel — the crispest
+            // building shadows this app has ever had), while a mountain view spends the same
+            // texels on 11 km of relief. That altitude ramp is doing a cascade's job for free,
+            // which is the other half of why CSM was not worth its blast radius here.
+            const b = THREE.MathUtils.clamp(
+              alt * (ultraOn ? ULTRA.boundsAltK : SHADOWS.boundsAltK),
+              SHADOWS.boundsM,
+              ultraOn ? ULTRA.maxBoundsM : SHADOWS.maxBoundsM,
+            );
             const shCam = sunLight.shadow.camera;
-            if (shCam.right !== b) {
+            // The `shadowRigUltra` term is load-bearing: at street level `b` is identical under
+            // both profiles, so a bounds-only comparison would leave near/far and the derived
+            // bias on the OLD profile after a chip flip — a silent, position-dependent bug.
+            if (shCam.right !== b || shadowRigUltra !== ultraOn) {
+              shadowRigUltra = ultraOn;
+              const margin = ultraOn ? ULTRA.depthMarginM : SHADOWS.depthMarginM;
               shCam.left = -b;
               shCam.right = b;
               shCam.top = b;
               shCam.bottom = -b;
-              shCam.near = Math.max(1, SHADOWS.lightDistM - SHADOWS.depthMarginM - b);
-              shCam.far = SHADOWS.lightDistM + SHADOWS.depthMarginM + b;
+              shCam.near = Math.max(1, shadowLightDistM - margin - b);
+              shCam.far = shadowLightDistM + margin + b;
               shCam.updateProjectionMatrix();
+              // `shadow.bias` is added to shadowCoord.z AFTER the divide, and an ortho shadow
+              // matrix maps to [0,1] LINEARLY in view depth — so its unit is *fraction of the
+              // near→far range*, and it silently rescales whenever that range moves. The base
+              // rig's −2e-4 over 7,000 m is −1.4 m; over ULTRA's ~96 km the SAME constant would
+              // be −19 m and detach every shadow from its caster. Derive it from metres instead.
+              sunLight.shadow.bias = ultraOn
+                ? -ULTRA.shadowBiasM / Math.max(1, shCam.far - shCam.near)
+                : _shadowBias0;
             }
           }
+          // S3 TERRAIN CASTS — the owner's named killer feature. Gated on the shadow pass being
+          // live at all (no caster matters when nothing receives), on altitude, and off the flat
+          // chart. `setTerrainCast` no-ops when unchanged, so this is a comparison per frame.
+          ground.setTerrainCast(
+            ultraOn &&
+              ULTRA.terrainCast &&
+              (sunShadows || moonShadows) &&
+              alt < ULTRA.terrainCastMaxAltM,
+          );
         }
         // Pass 2 R3 (Dnipro identity): the night-side building facade emissive tracks the SAME
         // terminator at the view focus (sine of the sun's elevation → night factor) and lights only
@@ -4401,6 +4676,7 @@ export function attachStylizedTiles(opts: {
         stepUltraGate();
         stepGroundUpdate();
         stepEphemerisResample();
+        stepUltraLook(); // after the ground (it owns the haze gates) and the ephemeris resample
         stepKeyLightAndShadow();
         stepSkyBodies();
         stepSkyTarget();

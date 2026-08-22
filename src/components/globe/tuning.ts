@@ -338,8 +338,14 @@ export const SHADOWS = {
   /** Shadows render only below this camera altitude (nothing to see from orbit; big perf win). */
   maxAltM: 30_000,
   /** Shadow map resolution (4096² ≈ 0.78 m/texel over a 1.6 km half-extent — owner 2026-07-10
-   *  "crisper"; was 2048²/2.5 km ≈ 2.4 m/texel). ~67 MB depth target — desktop-fine; drop to
-   *  2048 if a mobile memory pass complains. */
+   *  "crisper"; was 2048²/2.5 km ≈ 2.4 m/texel). Drop to 2048 if a mobile memory pass complains.
+   *  MEMORY, CORRECTED 2026-08-22j: this comment used to say "~67 MB depth target" and undercounted
+   *  by 2×. three allocates a directional shadow target with DEFAULT RenderTarget options — an
+   *  RGBA8 COLOUR attachment — plus a `DepthTexture(…, UnsignedIntType)` ⇒ DEPTH_COMPONENT24
+   *  (driver-padded to 32 bits). So 4096² costs ~128 MiB, of which HALF is a colour attachment
+   *  that `MeshDepthMaterial` writes and nothing ever reads (the sampler reads the depth texture).
+   *  It cannot be switched off without a `customDepthMaterial` per caster, and doing so saves
+   *  bandwidth, not VRAM — the attachment is still allocated and still cleared each pass. */
   mapSize: 4096,
   /** Orthographic half-extent (m) around the view focus — the MINIMUM (street level, crisp). The rig
    *  is ALTITUDE-ADAPTIVE (StylizedTiles.stepKeyLightAndShadow): the shadow map widens with camera
@@ -522,6 +528,246 @@ export const QUALITY = {
     lruBytesMB: 600,
     groundLruBytesMB: 600,
   },
+} as const;
+
+/**
+ * ULTRA LOOK — the desktop-only, opt-in fidelity track (T44 + T45; owner 2026-08-22i, extended
+ * 2026-08-22j). `QUALITY.ultraDesktop` above is the TILE half (how much geometry streams); this
+ * is the LOOK half (how the scene is lit, graded and hazed). Same chip, same one gate
+ * (`hqAllowed` in StylizedTiles), same rule: **with the chip off not one value here is read**,
+ * every shader term is `mix(legacy, ultra, 0.0)` — exactly the legacy expression.
+ *
+ * OWNER RULING 2026-08-22j — THE FRAME-RATE CEILING IS LIFTED: *"even if it is sub 15FPS but
+ * graphics fidelity improves and gives nicer richer picture — worth it, user enables it in its
+ * own volition anyways."* That supersedes the ULTRA_PLAN §2 line "a 12 fps ULTRA is a broken
+ * feature". It is what makes the construction-time shadow levers below (an 8k map, soft PCF,
+ * terrain casting) shippable at all — they were previously ruled out as too expensive to justify.
+ * Frame time is still MEASURED and reported; it is no longer a veto.
+ *
+ * ACCEPTANCE CRITERION (owner, verbatim): *"whatever we choose makes transitioning from
+ * day → dusk → night and vice versa more epic, not only in terms of shadows but general
+ * realistic atmosphere and global light feel."* **Judge as a TIMELAPSE, never as single frames.**
+ *
+ * The four curves are anchor tables in SUN ELEVATION (deg, airless) evaluated by
+ * `lib/globe/lightBands.ts`; their knots are the twilight thresholds `lib/ephemeris/twilight.ts`
+ * already gives the planner and the scrubber bands (golden +6/−4, civil −6, nautical −12,
+ * astronomical −18), so the renderer and the planner finally speak one vocabulary. Author them
+ * HIGH→LOW elevation, monotone; the evaluator hits every anchor value exactly.
+ */
+export const ULTRA = {
+  // --- §1a THE PHOTOGRAPHIC GRADE IN 3D (T44 — the owner's "very grayish") ------------------
+  /** Strength (0..1) of the photographic de-grade applied to the 3D ground under ULTRA — the
+   *  SAME `photo` term the /m 2D chart drives at `GROUND.flat2dPhotoK`, but on its OWN uniform.
+   *  This is the finding that unblocks T44: `uFtwFlat2d` drives TWO independent effects, and
+   *  only one of them is safe in 3D. The de-grade (raw Esri colorimetry: shade→1, desat→0,
+   *  gain→1, cast→neutral) is safe; FORCING `dayK` is not — it would light the night side in
+   *  daylight while the buildings keep the sun/moon key, deleting the terminator, golden hour
+   *  and moonlight. So this uniform touches `photo` and never `dayK`.
+   *  Deliberately BELOW the chart's 1.0: in 3D the buildings are still stylized-graded, so a
+   *  full de-grade makes the ground read as a different scene from the city standing on it. */
+  photo3dK: 0.6,
+  /** Ease time-constant (ms) for the de-grade on the chip's edge — a snap would read as a flash. */
+  photoTauMs: 420,
+
+  // --- §1b ANISOTROPY (T44 — the owner's "less resolution"; the lever that actually delivers) --
+  /** Requested anisotropic-filtering taps on the ground drape composites, clamped at use to
+   *  `renderer.capabilities.getMaxAnisotropy()` (measured 16 on the owner's machine). The drapes
+   *  are built `generateMipmaps=false` / `anisotropy=1` by the library and `imageryGround` never
+   *  sets a filter, while `maxAniso` IS computed in StylizedTiles and handed to `baseEarth` and
+   *  `streetNames` — the ground was simply missed. 2026-08-22i PROVED the alternative wrong: a
+   *  refinement lever produced ZERO extra tiles even with the global ground `errorTarget` forced
+   *  to 0.05, because desktop imagery is availability-capped (Esri z19 + patch L13). What a tilt
+   *  loses is grazing-angle MINIFICATION, and that is what anisotropy fixes. */
+  anisotropy: 16,
+
+  // --- S9 THE DAY CURVE (T45 — the root of "naive and linear") -------------------------------
+  /** Ground/building day factor vs sun elevation, replacing
+   *  `smoothstep(EARTH.termBand[0], EARTH.termBand[1], sunUpDot)` — a 9.2°-wide blend with no
+   *  physical meaning at its edges. This table spans 36° instead of 9°, so the transition takes
+   *  roughly 2½ hours at mid latitudes rather than ~37 minutes, and each twilight band gets its
+   *  own slope: the fast fall is between sunset and civil dusk (where the real world's fall IS
+   *  fast), then a long shallow tail through nautical and astronomical dark. Civil twilight
+   *  staying navigable-bright (0.30 at −6°) is not artistic licence — it is why you can still
+   *  walk home without a torch half an hour after sunset. */
+  dayCurve: [
+    { elevDeg: 12, v: 1 },
+    { elevDeg: 6, v: 0.94 },
+    { elevDeg: 0, v: 0.62 },
+    { elevDeg: -4, v: 0.42 },
+    { elevDeg: -6, v: 0.3 },
+    { elevDeg: -12, v: 0.1 },
+    { elevDeg: -18, v: 0.02 },
+    { elevDeg: -24, v: 0 },
+  ],
+
+  // --- S11 EXPOSURE (the cheapest "epic" lever there is) -------------------------------------
+  /** `RENDERER.toneMappingExposure` MULTIPLIER vs sun elevation — the camera opening up as the
+   *  sun goes down, which is most of why a real timelapse feels cinematic (and it stops the night
+   *  side reading as merely dark). `OutputPass` re-reads `renderer.toneMappingExposure` every
+   *  render (`three/examples/jsm/postprocessing/OutputPass.js:93`), so this is a live write with
+   *  no recompile — the one renderer-level lever ULTRA can move without a boot cost. */
+  exposureCurve: [
+    { elevDeg: 12, v: 1 },
+    { elevDeg: 0, v: 1.12 },
+    { elevDeg: -6, v: 1.28 },
+    { elevDeg: -12, v: 1.4 },
+    { elevDeg: -18, v: 1.46 },
+  ],
+  /** Exposure ease τ (ms). MUST be slow — a per-frame exposure step reads as a flicker, and at
+   *  scrub rates the sun can cross a whole band in a few frames. ~1 s of eye adaptation. */
+  exposureTauMs: 950,
+
+  // --- S10 THE HEMISPHERE FILL (audit gap #16 — wrong everywhere but one meridian) ------------
+  /** `SUN.hemiIntensity` multiplier vs sun elevation. The fill exists so night-side buildings
+   *  aren't pure black; today it is a CONSTANT, so the sky/ground ambient split never changes
+   *  from noon to midnight. */
+  hemiCurve: [
+    { elevDeg: 12, v: 1 },
+    { elevDeg: 0, v: 1.15 },
+    { elevDeg: -6, v: 0.95 },
+    { elevDeg: -12, v: 0.7 },
+    { elevDeg: -18, v: 0.6 },
+  ],
+  /** Orient the HemisphereLight along LOCAL UP at the view focus instead of ECEF +Y (audit gap
+   *  #16, already verified: `new THREE.HemisphereLight(...)` is added at the default position, so
+   *  three reads its direction as world +Y — correct on exactly one meridian and progressively
+   *  upside-down everywhere else). Arguably a plain bug fix, but it is a visual delta EVERYWHERE,
+   *  so it ships ULTRA-gated like everything else on this track. */
+  hemiTrackUp: true,
+  /** How far the hemisphere's SKY colour lerps from its constructed `tokens.landHi` toward the
+   *  current twilight-band tint. This is what puts warm light on the shaded faces of buildings at
+   *  dusk — the physical reason a city at civil twilight is not black even though the sun is gone
+   *  (it is lit by the SKY, not the sun). Also the coherence fix for S9: the ground's band curve
+   *  keeps the ground at 0.30 through civil twilight, and this is what keeps the buildings with
+   *  it. The ground half of the hemisphere keeps `tokens.water` — bounce light off dark terrain
+   *  has no reason to change colour with the sun. */
+  hemiTintK: 0.6,
+
+  // --- S4 AERIAL PERSPECTIVE (co-primary with S9 — the biggest sunrise/sunset lever) ----------
+  /** Aerial-perspective strength vs sun elevation. Absent entirely today: there is no `scene.fog`,
+   *  no distance term on the ground or the buildings, and the sky dome's own `skyHazeBelow` is
+   *  geometrically unreachable (the dome sits at `camera.far × 0.45` ≈ 81 km with depthTest on).
+   *  Peaks at sunset, where the sun's light rakes through the most air; low at night, because
+   *  night haze is DARKNESS, not grey — painting grey over a night city is the C2 failure mode
+   *  this curve exists to avoid. */
+  hazeCurve: [
+    { elevDeg: 30, v: 0.5 },
+    { elevDeg: 6, v: 0.64 },
+    { elevDeg: 0, v: 0.85 },
+    { elevDeg: -4, v: 0.8 },
+    { elevDeg: -6, v: 0.58 },
+    { elevDeg: -12, v: 0.26 },
+    { elevDeg: -18, v: 0.12 },
+    { elevDeg: -24, v: 0.08 },
+  ],
+  /** e-folding distance (m) of the haze: `f = 1 − exp(−d / hazeDistM)`. ~55 km ⇒ ≈17% at 10 km,
+   *  ≈42% at 30 km, ≈62% at 55 km — clear-day visibility, not fog. */
+  hazeDistM: 55_000,
+  /** Hard ceiling on the haze fraction, so distant terrain never fully dissolves into flat tint
+   *  (the "grey mush" C2 risk the ULTRA_PLAN flags in both directions). */
+  hazeMaxK: 0.72,
+  /** Full strength at/below this camera altitude (m)… */
+  hazeFullAltM: 20_000,
+  /** …zero at/above this one. The base earth + limb shader own the look from orbit; layering a
+   *  second scattering model on top of them would double-count. */
+  hazeGoneAltM: 150_000,
+  /** Forward (Mie-like) scattering: haze brightens toward the sun as `pow(max(view·sun,0), pow)`.
+   *  This is what makes a hazy sunset READ as backlit rather than as uniform grey. */
+  hazeSunPow: 7,
+  hazeSunGain: 0.65,
+  /** Haze ease τ (ms) — rides the same low-pass as exposure so a scrub never steps the fog. */
+  hazeTauMs: 700,
+  /** Haze strength multiplier under the dark CARTO drape (`uFtwDark` → 1). The dark drape is a
+   *  deliberately FLAT stylized look and it is the DEFAULT ground mode below 7 km, so haze cannot
+   *  simply be gated off there without ULTRA's biggest lever doing nothing for most users — but
+   *  at full strength it fights the vaporwave grade. Half-strength keeps the atmosphere and lets
+   *  the drape stay the drape. 0 here = "no aerial perspective in dark mode". */
+  hazeDarkK: 0.55,
+  /** Palette-ramp stops (sun elevation, deg) for the haze / ambient TINT: day → golden → blue →
+   *  night. Consumers lerp four palette colours by `rampWeights` (at most two live at a time). */
+  tintStopsDeg: [10, 0, -6, -16],
+
+  // --- S5 + S2 THE SHADOW RIG (construction-time — read from the pref at BOOT) ----------------
+  /** ULTRA shadow-map edge. `shadowMapSize` is CONSTRUCTION-TIME (a live flip recompiles every
+   *  material), so ULTRA sizes the rig at BOOT from the persisted pref — the legitimate exception
+   *  the ULTRA_PLAN allows, and the reason toggling the chip asks for a reload to reach full
+   *  effect. 8192² over the street-level 1.6 km half-extent ≈ 0.39 m/texel (vs 0.78 m at 4096²).
+   *  VRAM: 8192² × 4 B depth ≈ 268 MB — the single largest cost on this track, and the reason it
+   *  could not ship before the owner lifted the frame-rate ceiling. Clamped at use to
+   *  `renderer.capabilities.maxTextureSize`. */
+  shadowMapSize: 8192,
+  /**
+   * PCF disk radius (texels) under ULTRA — **this is the whole "soft shadows" lever in r185**,
+   * and it is a LIVE uniform (`WebGLLights.js:290-292`), so it edge-applies with no recompile.
+   *
+   * S2 in `ULTRA_PLAN.md` proposed switching `renderer.shadowMap.type` to `PCFSoftShadowMap`.
+   * That is DEAD CODE in three 0.185.0: `WebGLShadowMap.js:99-104` intercepts it, warns
+   * "has been deprecated", and rewrites `this.type = PCFShadowMap`; there is no
+   * `SHADOWMAP_TYPE_PCF_SOFT` define left and no shader branch for it. What replaced it is a
+   * rewritten PCF path — a **5-tap Vogel disk rotated per pixel by interleaved gradient noise**
+   * (`shadowmap_pars_fragment.glsl.js:115-149`), each tap a free 2×2 hardware PCF ⇒ ~20
+   * effective taps for 5 fetches — where `radius` scales the disk in texels. Because the disk is
+   * rotated per pixel, a large radius degrades to NOISE rather than banding, which is exactly
+   * what makes it safe to push. At 8192² a texel is half the size, so 2 → 4 keeps the same
+   * apparent penumbra width and spends the resolution on the edge instead.
+   *
+   * (PCSS proper — contact-hardening, penumbra scaling with occluder distance — is NOT shipped
+   * in the npm package: `three/package.json` files-list ships `examples/jsm` only and the
+   * `webgl_shadowmap_pcss` demo is not installed. A hand port also needs a RAW depth read for
+   * its blocker search, but the PCF sampler is a `sampler2DShadow` with hardware compare, so it
+   * would mean nulling `compareFunction` or dropping to `SHADOWMAP_TYPE_BASIC` and losing
+   * hardware PCF. Deferred with reasons rather than half-built.)
+   */
+  shadowRadius: 4,
+  /**
+   * Depth bias under ULTRA, **in METRES** — not in three's raw units, on purpose.
+   *
+   * `light.shadow.bias` is added to `shadowCoord.z` AFTER the perspective divide
+   * (`shadowmap_pars_fragment.glsl.js:121-122`), and the shadow matrix maps an ORTHOGRAPHIC
+   * camera's clip space to [0,1] linearly in view depth (`LightShadow.js:227-232`). So the unit
+   * of `bias` is *fraction of the shadow camera's near→far range* — which means it silently
+   * rescales whenever that range changes. Today's rig runs 4,500→11,500 m, so the shipped
+   * `SHADOWS.bias` −2e-4 is really −1.4 m. ULTRA widens the range to ~96 km for terrain casting,
+   * where that same −2e-4 would become **−19 m** of peter-panning: every shadow detached from
+   * its caster. The rig therefore derives `bias = −shadowBiasM / (far − near)` each time it
+   * resizes, and this number stays physical.
+   */
+  shadowBiasM: 0.6,
+  /** World-space normal offset (m) under ULTRA (`shadowmap_vertex.glsl.js:28-29` — verified
+   *  world-space: `worldPosition + shadowWorldNormal * bias`). Lowered from `SHADOWS.normalBias`
+   *  0.75 because normal-offset is what PETER-PANS a shadow off its wall base — the exact
+   *  artefact that makes buildings read as floating — and the 8k map needs less of it. */
+  shadowNormalBias: 0.45,
+
+  // --- S3 TERRAIN CASTS (the owner's named killer feature) ------------------------------------
+  /** Let the terrain tiles CAST into the shadow map, not just receive. The ground is unlit
+   *  `MeshBasicMaterial` + a `ShadowMaterial` twin, so today it receives and never casts — which
+   *  is why a mountain at low sun has no valley shadow. three renders a cast from any mesh with
+   *  `castShadow` via `MeshDepthMaterial`, unlit or not, so this needs no material change; what
+   *  it needs is a shadow camera wide enough to hold the relief, hence the ULTRA bounds below. */
+  terrainCast: true,
+  /** Terrain casting only below this camera altitude (m) — above it the depth pass would sweep
+   *  the whole visible tile set for shadows nobody can resolve. */
+  terrainCastMaxAltM: 30_000,
+  /** Polygon offset (factor AND units) on the terrain casters' own depth material, pushing their
+   *  depth AWAY from the light. Terrain is a single-sided sheet that both casts and receives
+   *  (through its ShadowMaterial twin on the SAME geometry), so without this every slope
+   *  self-shadows into acne — and the global `bias`/`normalBias` cannot fix it without
+   *  peter-panning the BUILDING shadows those values are tuned for. A separate depth material is
+   *  what decouples the two. Too high detaches a mountain's shadow from its own ridge; 2 is the
+   *  conventional starting point, browser-judged at Everest. */
+  terrainDepthOffset: 2,
+  /** ULTRA shadow-ortho half-extent growth per metre of camera altitude, and its cap (m). The
+   *  base rig clamps at `SHADOWS.maxBoundsM` 5 km, sized for CITY blocks; a mountain casts tens
+   *  of kilometres at low sun, so terrain casting is worthless inside a 5 km box. Widening costs
+   *  texels/metre — which is precisely what the 8192² map above buys back. */
+  boundsAltK: 1.1,
+  maxBoundsM: 18_000,
+  /** Light distance + depth margin (m) from the focus under ULTRA. Both must clear the relief:
+   *  8 km of `SHADOWS.lightDistM` puts the light INSIDE Everest's air column, so a summit would
+   *  sit behind the shadow camera's near plane and vanish from the depth pass. */
+  lightDistM: 60_000,
+  depthMarginM: 30_000,
 } as const;
 
 /** UPLIFT U5 — closest-first progressive loading (owner point 7, 2026-08-18). Order and

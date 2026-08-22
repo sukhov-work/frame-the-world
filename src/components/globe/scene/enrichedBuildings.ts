@@ -155,6 +155,9 @@ export interface EnrichedBuildingsHandle {
   /** Pass 2 R3 night hook (mirrors BuildingsHandle.setNight — one ephemeris sample drives both
    *  tilesets). Dormant while BUILDINGS.nightWindowGain is 0, wired so the sets can never drift. */
   setNight(sunElevSin: number, up: THREE.Vector3): void;
+  /** ULTRA S4 aerial perspective (T45) — mirrors BuildingsHandle.setUltraHaze; the orchestrator
+   *  pushes ONE haze number to the ground and both building sets, so they cannot drift. */
+  setUltraHaze(haze: number, col: THREE.Color, sunW: THREE.Vector3): void;
   /** /m 2D map mode (UPLIFT U1) — mirrors BuildingsHandle.setActive: `false` removes the group
    *  from the scene graph and freezes update() (no traversal/streaming/re-seat work); loaded
    *  cells stay LRU-cached for an instant re-attach. Desktop never calls this. */
@@ -968,6 +971,11 @@ export function attachEnrichedBuildings(
       // Slice 3: canopy albedo dims toward night (CPU write on the ONE shared tree material —
       // mirrors the vector web's night dimming; no shader work needed).
       treeMat.color.copy(treeBaseColor).multiplyScalar(1 - TREES.nightDim * night);
+    },
+    setUltraHaze(haze, col, sunW) {
+      uniforms.uFtwHaze.value = haze;
+      uniforms.uFtwHazeCol.value.copy(col);
+      uniforms.uFtwSunW.value.copy(sunW);
     },
     seatState: () => ({ epoch: seatEpochN, quietFrames: seatQuietN }),
     pickBuilding(raycaster) {

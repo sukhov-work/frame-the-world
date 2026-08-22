@@ -224,6 +224,39 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `scripts/bake/README.md`; the domain doc (rulings + registry contract + ops runbooks + aux
   data): **`BAKED_ASSETS.md`**.
 
+## 7b. ULTRA — the desktop opt-in fidelity mode (as built 2026-08-22j) [BROWSER-VERIFIED]
+**Full architecture: `rendering/ULTRA_ARCHITECTURE.md`.** Charter: `ULTRA_PLAN.md` (+ its AS BUILT
+block). Tunables: `conventions/globe-tuning.md` §ULTRA. Decisions: `DECISIONS.md` 2026-08-22j.
+
+One desktop-only, **off-by-default** chip (`ULT`) turning on nine rendering levers — a photographic
+ground de-grade in 3D, anisotropic drape filtering, a twilight-band day curve, an exposure ramp,
+aerial perspective, an ephemeris-tracked hemisphere light, soft shadows, an 8192² shadow map, and
+**terrain that casts shadows**. Owner cost ruling: sub-15 fps is acceptable in ULTRA — frame time is
+measured and reported, never a veto (measured +18% frame time at a city).
+
+Three architectural facts that constrain anything touching it:
+- **The gate is on the READ, not the UI.** `ftw:view-prefs:v1` is ONE localStorage blob shared by
+  both shells, so a desktop-set flag IS present on `/m`. Two readers exist — `hqAllowed` in
+  `StylizedTiles` (runtime) and `lib/globe/ultraBoot.ts` (boot, for three's construction-time shadow
+  levers). `test/components/globe/fences.test.ts` pins which files may name the flag and that every
+  read the engine ACTS on is gated (one sanctioned DEV-probe exemption — see the full doc).
+- **Exactly three lever paths, no fourth**: edge-applied on the chip flip (`stepUltraGate`, plus a
+  DEFERRED tier pin in GlobeCanvas that parks while FPV owns the camera) · frame-applied by
+  `stepUltraLook` (the look: photo3d, dayK mix, haze + tint, exposure, hemisphere) **and**
+  `stepKeyLightAndShadow` (the shadow rig: light distance, ortho bounds, near/far, the DERIVED
+  metric bias, terrain cast) · boot-read. Anything construction-time MUST take the boot path — three latches
+  `shadow.mapSize` on first render and recompiles every material on a `shadowMap.enabled` flip.
+- **OFF is EXACT, not approximate**: identity arithmetic in the shaders (`mix(a,b,0.0)`,
+  `max(x,0.0)`, an early return at `hazeK<=0`), eased uniforms that SNAP to zero under an epsilon,
+  and a browser assertion on literal zeros (`scripts/verify-ultra.mjs`, 28 checks).
+
+New modules: `lib/globe/lightBands.ts` (pure band curves + **the emitted GLSL twin** — the shader and
+its JS twin are generated from one table and unit-tested against each other), `lib/globe/ultraBoot.ts`,
+`tuning.ULTRA`, `scene/glsl.FTW_AERIAL_GLSL` (ONE aerial-perspective function compiled into both the
+ground and the buildings, so the air over a city cannot diverge from the air over its ground).
+DEV seam: `__globe.ultraLook()` — reads terrain casting and anisotropy off the LIVE scene graph and
+LIVE textures, never off our own flags.
+
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to
 Commercial ($149/mo) at first real sale or under a >$50K entity. Early-commercial ≈ $178/mo (Wix Premium +
