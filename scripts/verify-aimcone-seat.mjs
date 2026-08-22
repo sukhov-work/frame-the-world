@@ -9,6 +9,7 @@
 // height is in [0, 9000] m, and it tracks the live terrainHeightAt clamp. Screenshot lands
 // in verify-shots/ (git-ignored).
 import { writeFileSync, mkdirSync } from "node:fs";
+import { trackTarget, finishVerify, VerifyFailure } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9333";
 const SHOTS = process.argv[3] ?? "verify-shots";
@@ -24,6 +25,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 
@@ -120,9 +123,12 @@ const path = `${SHOTS}/audit2-s1-aimcone-seat.jpeg`;
 writeFileSync(path, Buffer.from(shot.data, "base64"));
 console.log(`shot: ${path}`);
 
+/** audit #3 C11: THROW rather than `process.exit` — the throw unwinds to the cleanup handler
+ *  in verify-cdp-cleanup.mjs, which closes this script's CDP target and exits 1. (An `await
+ *  finishVerify()` here would NOT do: every call site is `if (x) fail(...)` with no await, so
+ *  an async fail would let the script carry on past its own failure.) */
 const fail = (msg) => {
-  console.error(`FAIL: ${msg}`);
-  process.exit(1);
+  throw new VerifyFailure(msg);
 };
 if (!probe?.found) fail("aim-cone group not found in the scene");
 if (!probe.visible) fail("aim-cone group not visible at street-level orbit");
@@ -132,3 +138,4 @@ console.log(
   `PASS: seat ${probe.seatHeightM.toFixed(1)} m above ellipsoid (live clamped probe ${probe.liveClampedProbe?.toFixed?.(1)} m)`,
 );
 ws.close();
+await finishVerify(0); // audit #3 C11: return the CDP target on the success path too

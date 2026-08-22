@@ -103,3 +103,78 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
 - **Absolute-ECEF placement is sanctioned ONLY at far-shell distance** (ghost impostors: angular
   error ≪ 1 px at shell range). Copy that pattern to GROUND scale and you recreate the float32
   cancellation trap above — anything near the surface stays camera-anchored/local-frame.
+
+## The batch-#4 → #7 tunable families (added 2026-08-22, audit #3 D5)
+
+The 2026-08-21 owner batches, the QA batch and the QA slice landed a whole planning-instrument
+vocabulary that this doc named NONE of (20 identifiers, 0 hits — positive control: it does name
+`EARTH.nightFloor` and friends, so the probe worked). Search-order step 3 lands here, so the
+names have to be findable from here.
+
+**`AIMCONES` — the radar, one geometry model on THREE surfaces** (the GL fan
+`scene/aimCones`, the expanded chart `panels/MapWindow`, the FPV mini-map `panels/MiniMap`;
+the band mapping itself lives in `lib/geo/radarBands` since audit #3 A1-7):
+- `bandMoon` / `bandSun` / `bandTarget` — concentric annular `[inner, outer]` unit-radius
+  fractions, MOON innermost. Non-overlapping BY CONSTRUCTION, which is what retired the
+  pre-S2 compact/emphasis radius scaling.
+- `bandMoonMobile` / `bandSunMobile` / `bandTargetMobile` — the same stack ~20 % closer in on
+  `/m` (owner batch #5 item 2). Same widths, same order.
+- `mobileRadiusK` — whole-radar shrink on `/m`. Applied to the GL fan AND the chart twin; the
+  mini-map is NOT scaled (its card is already CSS-shrunk).
+- `mapRadiusHK` — the chart radar's radius as a fraction of canvas HEIGHT. Fraction-of-height
+  is the GL fan's own rule; the pre-QA `0.3 × min(w,h)` read ≈3.7× too small on a phone.
+- `skylineGuardM` — how far a radar may sit from the eye the horizon profile was SWEPT at
+  before it must stop claiming that profile's gaps. Honesty rule, not a perf knob.
+- `northOffsetK` / `northSizeK` — the `N` rim marker's seat (just past the OUTERMOST band) and
+  glyph size. Every surface rotates now, so every surface carries its own north.
+- `fillAlphaRest` — the ALWAYS-ON band wash. A band must never rest at zero (owner batch #5
+  item 1: the strips read as empty); emphasis breathes it up to `fillAlpha`.
+- `emphTauMs` — the emphasis ease. It gates the **FILL WASH ONLY** — the rim rides
+  `rimAlpha × overlayA` with no `emphEased` term (corrected by audit #3 A2-6).
+- `rayLenK` — the TARGET body's tracking ray, which runs far past the rim; sun/moon dials cap
+  EXACTLY at their own band's outer radius.
+
+**`FOCALCONE` — the planned-shot wedge** (`scene/focalCone` + both canvas twins):
+- `minHFovDeg` / `maxHFovDeg` — the planned view's RANGE CONTRACT, enforced once at
+  `store/camera.setPlannedView` (audit #3 A2-3: four of seven writers used to bypass it).
+- `fillAlpha` / `edgeAlpha` / `edgeHalfWidthK` — near-zero fill, the boundary carries the
+  reading. `edgeHalfWidthK` is in RAY-EXTENDED units (radar radius × `AIMCONES.rayLenK`), so
+  the number is ~6× smaller than the radar's own `lineHalfWidthK` for a comparable width.
+- `headingRateMaxDegPerS` / `hFovRateMaxPerS` — the aim joystick's rate ceilings (the desktop
+  encoder twins, so the stick is one knob across shells).
+- `fadeTauMs` — whole-cone fade, the AIMCONES fade idiom.
+
+**`GROUND` / `TILESETS` — the flat 2D chart** (QA-7 a+b):
+- `overlayResolutionPx` (per tier) and `overlayResolution2dPx` — the imagery COMPOSITE size.
+  `stepGroundUpdate` is the ONE writer of the effective value (see the trap below).
+- `esriMaxLevelCoarse` — the deepest Esri level a coarse-pointer device may fetch. The
+  ImageOverlay level chooser derives source zoom from resolution/rangeWidth, so raising this
+  ALONE pins the chart a level shallow: it needs the 512 composite AND the DPR cap together.
+- `flat2dPhotoK` → `uFtwPhotoK` — how far the stylized ground grade lerps OUT on the flat
+  chart. 1 = raw Esri colorimetry (the "photographic chart" ruling); 0 = the old stylized look.
+- ground LRU floors (`groundLruBytesMB`, per-tier) — see T34: the cache rests at exactly
+  `minBytesSize` and re-fetches on every 2D↔FPV flip.
+
+**`QUALITY.leanMobile` — the coarse-pointer profile**: `dprCap` (heat), `dprCap2d` (relaxed
+only while the flat chart is up — the chart has bloom/GTAO/shadow twins off already, so the
+budget goes to crispness), `bloom`, shadow size. Desktop is untouched by design.
+
+**`PLAN.minCoverageForGaps`** (audit #3 A1-16) — the evidence floor below which NO radar
+surface claims skyline gaps. `profileCoverage` reached the store and both PLAN panels and was
+consulted by no radar: a 15 %-covered profile fractured its bands like a complete one.
+
+## Two traps this doc was missing (audit #3 D5)
+
+- **The sticky overlay-px rule has exactly ONE writer.** `stepGroundUpdate` is the only caller
+  of `ground.setOverlayResolution`, and the effective composite px may only RATCHET UP
+  (`lib/globe/quality.stickyOverlayPx`, a `Math.max` — monotone by construction). A second
+  writer, or any path that LOWERS it on a mode flip or a governor demote, reintroduces the
+  CRITICAL QA-7b regression: a composite-rebuild storm on every 2D↔FPV flip (white chart for
+  10 s+, a load storm, a blurry stall). Raw Esri GET counts CANNOT isolate it — assert
+  `window.__overlayRebuilds`.
+- **An injected-GLSL uniform MUST be declared in the fragment HEADER.** Adding an entry to
+  `shader.uniforms` is not enough: without `uniform float uFtwFoo;` in the injected header the
+  new program fails to compile, tiles keep rendering the PREVIOUS program, and every live poke
+  at the uniform silently no-ops. It cost ~40 minutes once, and the sweep that proves the
+  invariant is checklist item 23 (16 JS uniforms vs 16 header declarations in `imageryGround`;
+  `buildingMaterial`'s `uFtwTileSeed` is a correct VERTEX-header declaration, not a miss).

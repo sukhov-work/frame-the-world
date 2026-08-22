@@ -25,6 +25,7 @@ const TEXTURES = [
   "/guide/welcome.webp", "/guide/orbit.webp", "/guide/fpv.webp", "/guide/fpv-m.webp",
   "/guide/time.webp", "/guide/target.webp", "/guide/skymenu.webp", "/guide/plan.webp",
   "/guide/find.webp", "/guide/sunsets.webp", "/guide/upload.webp", "/guide/shell-m.webp",
+  "/guide/fpv-map.webp", // NEW 2026-08-22 (audit #3 D10) — the expanded-map controls shot
 ];
 
 const seen = new Set();

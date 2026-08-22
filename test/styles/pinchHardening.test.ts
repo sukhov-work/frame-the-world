@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { read } from "./_css"; // audit #3 C18 — these were triplicated across test/styles
 
 /**
  * U1 pinch hardening (UPLIFT_PLAN §2/U1, owner point 5): "pinch must never zoom the browser
@@ -9,9 +8,6 @@ import { describe, expect, it } from "vitest";
  * drop. This test pins the audited leak list (UPLIFT_PLAN §1.2) file-by-file, the same
  * file-content guard style as the guide image cross-check.
  */
-
-const root = join(__dirname, "..", "..");
-const read = (p: string) => readFileSync(join(root, p), "utf8");
 
 describe("U1 pinch hardening — viewport meta (/m only)", () => {
   it("MobileLayout pins the viewport scale and guards iOS gestures", () => {

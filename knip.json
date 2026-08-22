@@ -8,7 +8,17 @@
     "public/sw.js",
     "test/**/*.test.{ts,tsx}"
   ],
-  "project": ["src/**/*.{ts,tsx,astro}", "scripts/**/*.mjs", "test/**/*.{ts,tsx}"],
-  "ignoreDependencies": ["@astrojs/check"],
-  "ignoreExportsUsedInFile": true
+  "project": [
+    "src/**/*.{ts,tsx,astro}",
+    "scripts/**/*.mjs",
+    "test/**/*.{ts,tsx}"
+  ],
+  "ignoreDependencies": [
+    "@astrojs/check"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": [
+    "java",
+    "sips"
+  ]
 }

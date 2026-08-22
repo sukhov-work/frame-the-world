@@ -4,6 +4,7 @@
 // Usage: wix dev on :4321 + CDP Chrome, then
 //   node --experimental-websocket scripts/verify-qa7ab.mjs [cdpPort] [shotsDir]
 import { writeFileSync, mkdirSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
 const SHOTS = process.argv[3] ?? "verify-shots";
@@ -29,6 +30,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => ((ws.onopen = res), (ws.onerror = rej)));
 let seq = 0;
@@ -91,12 +94,17 @@ check("/m: engine booted", await waitFor(`!!window.__cameraStore && !!window.__g
 // min(devicePixelRatio, tier cap, lean 2D cap 1.5). A headless run governs to `low`
 // (1.25 binds); a real mid-tier phone reaches 1.5 — same formula either way.
 const CAPS = { high: 2, mid: 1.5, low: 1.25 };
-const q2d = await evalJs(`window.__globeQuality ?? null`);
+// audit #3 A2-5: __globeQuality is a LIVE-GETTER object now (it used to be a snapshot frozen at
+// the last governor step). Read the fields explicitly rather than relying on CDP returnByValue
+// to walk accessor properties — same reason verify scripts never serialise a store wholesale.
+const QUALITY_SNAP = `(() => { const q = window.__globeQuality; return q ? { tier: q.tier, dpr: q.dpr, leanFlat2d: q.leanFlat2d, mapFlat: q.mapFlat, lean: q.lean } : null; })()`;
+const q2d = await evalJs(QUALITY_SNAP);
 check(
   "/m 2D: flat latch armed + DPR = min(dpr, tierCap, dprCap2d 1.5)",
   q2d !== null &&
     q2d.lean === true &&
-    q2d.flat2d === true &&
+    q2d.leanFlat2d === true &&
+    q2d.mapFlat === true &&
     Math.abs(q2d.dpr - Math.min(3, CAPS[q2d.tier], 1.5)) < 0.01,
   JSON.stringify(q2d),
 );
@@ -125,12 +133,13 @@ if (chip) {
   await sleep(700);
   await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await sleep(5200);
-  await waitFor(`window.__globeQuality && window.__globeQuality.flat2d === false`, 10000);
-  const qFpv = await evalJs(`window.__globeQuality ?? null`);
+  await waitFor(`window.__globeQuality && window.__globeQuality.leanFlat2d === false`, 10000);
+  const qFpv = await evalJs(QUALITY_SNAP);
   check(
     "/m FPV: flat latch released + DPR = min(dpr, tierCap, heat cap 1.25)",
     qFpv !== null &&
-      qFpv.flat2d === false &&
+      qFpv.leanFlat2d === false &&
+      qFpv.mapFlat === false &&
       Math.abs(qFpv.dpr - Math.min(3, CAPS[qFpv.tier], 1.25)) < 0.01,
     JSON.stringify(qFpv),
   );
@@ -140,4 +149,4 @@ if (chip) {
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

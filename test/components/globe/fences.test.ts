@@ -96,3 +96,52 @@ describe("InstancedMesh.boundingSphere caching — the Pins raycast trap (three 
     expect(rayAtOrigin().intersectObject(mesh).length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * PER-FRAME WASTE fences (audit #3 T38 — A1-10 / A1-11 / A2-2, fixed 2026-08-22).
+ *
+ * All three regressions are invisible in a screenshot and cheap in a unit test: they are
+ * *source shapes*, not values. Each block below names the mutation that turns it red.
+ */
+describe("per-frame waste (T38)", () => {
+  const read = (...p: string[]) => readFileSync(join(root, ...p), "utf8");
+
+  it("focalCone allocates its wedge geometry ONCE and rewrites in place (A1-10)", () => {
+    const src = read("src", "components", "globe", "scene", "focalCone.ts");
+    // RED if `rebuild()` goes back to `new THREE.BufferGeometry()` per call: HFOV_EPS_DEG 0.1
+    // sits below the aim stick's sweep rate, so "per rebuild" meant "per frame while held".
+    const rebuild = src.slice(src.indexOf("function rebuild("), src.indexOf("return {"));
+    expect(rebuild).not.toMatch(/new THREE\.BufferGeometry\(/);
+    expect(rebuild).not.toMatch(/\.geometry\.dispose\(\)/);
+    expect(rebuild).toMatch(/needsUpdate\s*=\s*true/);
+    // POSITIVE CONTROL: the slice really is the rebuild body, not an empty string.
+    expect(rebuild).toMatch(/builtHFovDeg\s*=\s*hFovDeg/);
+  });
+
+  it("neither canvas radar calls getComputedStyle in its paint (A1-11)", () => {
+    // RED if either surface goes back to resolving tokens inline: ~320 forced style recalcs a
+    // second between them at 20 Hz, for values declared once on :root.
+    for (const file of ["MapWindow.tsx", "MiniMap.tsx"]) {
+      const src = read("src", "components", "panels", file);
+      expect({ file, hits: [...src.matchAll(/getComputedStyle/g)].length }).toEqual({
+        file,
+        hits: 0,
+      });
+      expect(src).toMatch(/from "\.\.\/\.\.\/lib\/theme\/cssInk"/);
+    }
+    // POSITIVE CONTROL: the probe CAN match — a module that legitimately resolves style inline.
+    expect(read("src", "components", "globe", "scene", "streetNames.ts")).toMatch(
+      /getComputedStyle/,
+    );
+  });
+
+  it("the /m PiP's second render brackets the shadow map (A2-2)", () => {
+    const src = read("src", "components", "globe", "GlobeCanvas.tsx");
+    const pip = src.slice(src.indexOf("const pip = tilesHandle?.pipRect()"));
+    // RED if the bracket is dropped: three re-renders the whole 1024² depth pass per frame on
+    // the most heat-constrained surface (mid tier — the coarse-pointer ceiling — has shadows on).
+    expect(pip).toMatch(/shadowMap\.autoUpdate\s*=\s*false;[\s\S]{0,400}?renderer\.render\(/);
+    // …and RESTORES it, so nothing downstream silently inherits a frozen shadow map.
+    expect(pip).toMatch(/renderer\.render\([\s\S]{0,200}?shadowMap\.autoUpdate\s*=\s*shadowAuto/);
+  });
+});

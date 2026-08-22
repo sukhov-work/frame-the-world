@@ -17,6 +17,7 @@
 //   B. screen-relative walk — after a two-finger TWIST, stick-up walks CHART-up: the
 //      world track's compass bearing ≈ −rot (published via store/minimap.mapWindowRotRad).
 import { writeFileSync, mkdirSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
 const SHOTS = process.argv[3] ?? "verify-shots";
@@ -43,6 +44,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => ((ws.onopen = res), (ws.onerror = rej)));
 let seq = 0;
@@ -278,6 +281,11 @@ check(
     `eye ${eyeOffChartM.toFixed(0)} m from chart centre vs ${halfDiagM.toFixed(0)} m half-diagonal (z ${vAfterWalk?.z?.toFixed?.(2)})`,
   );
 }
+// SUPERSEDED ARTIFACT (audit #3 C17, annotated 2026-08-22): this shot was
+// `qsl-04-m-walk-rearmed-follow` while the QA-slice-A rule was "walking re-arms the follow".
+// The owner micro-slice 2026-08-22 made the manual override PERMANENT, so the check was
+// inverted and the shot renamed to match what it now shows. Older DECISIONS lines citing the
+// old filename refer to the superseded behaviour, not a missing file.
 await shoot("qsl-04-m-chart-held-past-bounds");
 
 // ── NEW (owner micro-slice 2026-08-22 items 1+2): the ◉ RE-CENTRE button is the way back ──
@@ -605,8 +613,20 @@ await shoot("qsl-05-m-twisted-chart-walk");
   await dEval(`document.querySelector(".mw-recenter").click()`);
   await sleep(700);
   const vRecD = await dEval(`window.__mapWindowView`);
-  const anchorD = await dEval(`(() => { const s = window.__cameraStore.getState();
-    return (s.fpvHud ? s.camGeo : null) ?? s.tempPin ?? s.camGeo ?? { latDeg: s.focusLatDeg, lonDeg: s.focusLonDeg }; })()`);
+  // audit #3 T36: READ the resolved anchor the app published — this was a hand-transcribed
+  // copy of the chart's ladder (`(fpv?camGeo) ?? tempPin ?? camGeo ?? focus`), i.e. the C8
+  // anti-pattern. When F4 hoisted the ladder and dropped the bare-camGeo NADIR rung, the copy
+  // went stale and this check failed by 81.8 m against an app that was correct.
+  const anchorD = vRecD
+    ? { latDeg: vRecD.anchorLatDeg, lonDeg: vRecD.anchorLonDeg }
+    : null;
+  // Positive control: the published anchor must exist at all (an undefined pair would make
+  // distM NaN, and `NaN < 5` is false — it would fail loudly rather than pass, but say why).
+  check(
+    "desktop 2: the chart publishes its resolved aim anchor (probe validated)",
+    anchorD !== null && Number.isFinite(anchorD.latDeg) && Number.isFinite(anchorD.lonDeg),
+    JSON.stringify(anchorD),
+  );
   check("desktop 2: ◉ centres the chart on the radar anchor", vRecD !== null && anchorD !== null && distM(vRecD, anchorD) < 5, `${vRecD && anchorD ? distM(vRecD, anchorD).toFixed(1) : "?"} m`);
   check("desktop 2: and drops back to muted", (await dEval(`document.querySelector(".mw-recenter").classList.contains("is-panned")`)) === false);
 
@@ -725,4 +745,4 @@ await shoot("qsl-05-m-twisted-chart-walk");
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

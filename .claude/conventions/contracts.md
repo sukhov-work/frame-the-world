@@ -23,7 +23,7 @@ Query-string contracts: `?enriched=` A/B seam (`src/lib/globe/enrichedVariant.ts
 `index.astro` (desktop opt-out for the mobile-default entry — sets `ftw:prefer-desktop` and skips
 the `/m` redirect; new 2026-08-15).
 
-## 2. localStorage keys (all `ftw:*`; complete as of 2026-08-15)
+## 2. localStorage keys (all `ftw:*`; re-diffed 2026-08-22, audit #3 D7)
 
 | Key | Owner | Notes |
 |---|---|---|
@@ -32,14 +32,37 @@ the `/m` redirect; new 2026-08-15).
 | `ftw:sbdb:v1` | `src/lib/sky/sbdb.ts` | TTL cache |
 | `ftw:m-banner-dismissed` | `src/pages/index.astro` | new 2026-08-13 (M0) |
 | `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
+| `ftw:bldg-overrides:v1` | `src/lib/globe/…` → `scene/bldgEditLabel` + the U8 edit flow | new 2026-08-19 (U8 building-height override), missed by the 2026-08-15 sweep. Per-edit scale band 0.5×–3×, keyed `<variant>\|cell-<id>\|<osmId>`; a re-bake CHECKSUM invalidates the row rather than migrating it, so a stale key is dropped, never applied to the wrong building. The backend twin (`BuildingOverrides` + `/api/building-overrides`) is provisioned but DORMANT — this key is the live store |
 
-## 3. `window.__*` DEV seams (all DEV-gated; 15 top-level as of 2026-08-15)
+## 3. `window.__*` DEV seams (all DEV-gated; **20 top-level** as of 2026-08-22, audit #3 D7)
 
-`__globe __renderer __composer __quality __cameraStore __timeStore __uploadStore __pinsStore
-__memberStore __planStore __saveStore __marketStore __minimapStore __skyStore __findStore`
+`__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
+__cameraStore __timeStore __uploadStore __pinsStore __memberStore __planStore __saveStore
+__marketStore __minimapStore __skyStore __findStore __placesStore __bldgEditStore`
 
 Verify scripts and the NEXT_SESSION_PROMPT recipe consume these — removing/renaming one silently breaks
 the browser-verify tier. (NSP's list was 3 short at audit time — this file is the canonical set.)
+
+**The registry is `src/global.d.ts`** — every seam's TYPE belongs there, not in a `declare
+global` next to its owner and never behind an `as unknown as` cast. Both drifts were live at
+audit #3: `__globeQuality` shipped through the exact cast the registry exists to replace (A2-5)
+and `__memberStore` was declared locally in `store/member.ts`, which is why this section
+under-counted by five. Both are seated now.
+
+The five added since the 2026-08-15 count:
+
+| Seam | Owner | Purpose |
+|---|---|---|
+| `__globeQuality` | `GlobeCanvas.tsx` | `{ tier, dpr, leanFlat2d, mapFlat, lean }` — **live getters**, so a reader never sees a value frozen at the last governor step. `leanFlat2d` is the coarse-pointer-only DPR latch (false on desktop by construction); `mapFlat` is the engine's real flat-chart latch on every shell |
+| `__mapWindowView` | `panels/MapWindow.tsx` | the expanded chart's live centre / twist / zoom + the **resolved aim anchor**. The anchor exists so a verify script READS the ladder's result instead of transcribing it (audit #3 C8/T36 — a transcribed copy failed by 81.8 m against a correct app) |
+| `__overlayRebuilds` | `scene/imageryGround.ts` | imagery-composite fresh-instance rebuild count. THE assert for the QA-7b storm — Esri GET counts cannot isolate it. Invariant: ≤ 1 post-boot per rung |
+| `__placesStore` | `store/places.ts` | MY PLACES rows + the on-map toggle |
+| `__bldgEditStore` | `store/bldgEdit.ts` | U8 building-height edit state |
+
+New sub-seam (dated 2026-08-22): **`__globe.aim()`** — the radar seam's resolved state: the
+shared anchor (`anchorLatDeg`/`anchorLonDeg`), `skylineClaimed` + the `coverage`/`minCoverage`
+behind it (A1-16), the focal cone's BufferGeometry ids (stable across an hFov sweep proves the
+T38 per-frame realloc is gone) and `shadowAutoUpdate`.
 
 **Sub-seams** (dated 2026-08-18, audit-2 D6 — verify-recipe-consumed callables under the
 top-level globals; same removal/rename rule):
@@ -92,11 +115,24 @@ top-level globals; same removal/rename rule):
 
 ## 7. HTTP surface
 
-- **8 API routes** under `src/pages/api/` as of 2026-08-15 (the 2026-08-13 "26 routes" figure was
-  the whole `wix build` route table): `/api/photos` (GET/POST/PATCH/DELETE), `/api/places`,
-  `/api/listings`, `/api/market` (public GET), `/api/upload-url`, `/api/sbdb` (param-allowlisted
-  JPL relay), `/api/ping` (the release canary — never delete), `/api/dev-seed` (DEV-gated 404 in
-  prod).
+- **9 API routes** under `src/pages/api/` as of 2026-08-22 (audit #3 D7 re-count; the
+  2026-08-13 "26 routes" figure was the whole `wix build` route table): `/api/photos`
+  (GET/POST/PATCH/DELETE), `/api/places`, `/api/listings`, `/api/market` (public GET),
+  `/api/upload-url`, `/api/sbdb` (param-allowlisted JPL relay), `/api/ping` (the release canary
+  — never delete), `/api/dev-seed` (DEV-gated 404 in prod), and **`/api/building-overrides`**
+  (U8, new 2026-08-19): the batch-sync twin of the `ftw:bldg-overrides:v1` local store —
+  PROVISIONED BUT DORMANT (the collection provision script has not been run), LWW by
+  `updatedAt`, admin-elevated. It is a route on disk and in the build's route table, so it
+  counts here; it is not yet a live contract.
+- **`public/sw.js` — a same-origin STATIC asset, not a route, but a contract all the same**
+  (re-homed here 2026-08-22 from `UXBATCH4_PLAN.md` before it was archived — audit #3 D7/D8).
+  iOS-ONLY registration (coarse-pointer + Apple UA), dev-gated (never registers on localhost),
+  a 7-day-TTL PERFORMANCE cache for Esri / Cesium ion / workers.dev / OpenFreeMap GETs. Its
+  scope is `/`, so the filename and location are the contract — moving it silently narrows the
+  scope and orphans every installed worker. Policy (what it may cache, the TTL, the iOS gate)
+  is fenced by `test/swTileCache.test.ts`. ToS posture is an ACCEPTED, dated risk (T17; A2-10
+  asks to extend that row's host list with Cesium ion, whose content this now caches).
+  Unprobed in production: the `Content-Type` Wix hosting serves for `/sw.js` (release rider).
 - Response shape note: `quota:{used,limit}` rides photos responses (limit currently always the free
   tier — audit finding B7).
 - **Place quota DELETED (owner 2026-08-15c):** the `/api/places` POST 402 gate (old 50-cap) is

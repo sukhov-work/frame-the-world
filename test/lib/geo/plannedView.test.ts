@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampPlannedView,
   focalMmFromHFov,
   horizontalFovDeg,
   integratePlanned,
@@ -115,5 +116,60 @@ describe("focalMmFromHFov — 35mm-equivalent focal for a horizontal fov (batch 
   it("monotone: narrower fov = longer lens", () => {
     expect(focalMmFromHFov(20)).toBeGreaterThan(focalMmFromHFov(40));
     expect(focalMmFromHFov(40)).toBeGreaterThan(focalMmFromHFov(80));
+  });
+});
+
+/**
+ * AUDIT #3 A2-3 / T39 — the stored planned view's RANGE CONTRACT.
+ *
+ * `hFovDeg` was clamped in only 3 of 7 writers. The two breaches the audit measured are
+ * reproduced below from the SAME production expression that produced them
+ * (`horizontalFovDeg(vFov, aspect)` at the FPV vertical band's ends):
+ *   • /m portrait, aspect 390/844 ≈ 0.462, at FPV.minFovDeg  ⇒ ≈1.27° (< minHFovDeg 3)
+ *   • landscape,   aspect 844/390 ≈ 2.164, at FPV.maxFovDeg  ⇒ ≈122.4° (> maxHFovDeg 120)
+ *
+ * Mutation that makes these RED: drop `clampPlannedView` from `store/camera.setPlannedView`
+ * (the raw values then reach the store) or widen FOCALCONE's band past the breaches.
+ */
+describe("clampPlannedView — the planned-view range contract (T39)", () => {
+  const MIN = 3;
+  const MAX = 120;
+
+  it("POSITIVE CONTROL: the production expression really does breach the band", async () => {
+    const { FPV } = await import("../../../src/components/globe/tuning");
+    const narrow = horizontalFovDeg(FPV.minFovDeg, 390 / 844);
+    const wide = horizontalFovDeg(FPV.maxFovDeg, 844 / 390);
+    expect(narrow).toBeLessThan(MIN); // ≈1.27° — the /m portrait max-zoom-in breach
+    expect(wide).toBeGreaterThan(MAX); // ≈122.4° — the landscape min-zoom breach
+    // …and both land inside the band once clamped.
+    expect(clampPlannedView({ headingDeg: 0, hFovDeg: narrow }, MIN, MAX).hFovDeg).toBe(MIN);
+    expect(clampPlannedView({ headingDeg: 0, hFovDeg: wide }, MIN, MAX).hFovDeg).toBe(MAX);
+  });
+
+  it("passes an in-band value through UNCHANGED (identity, not a copy)", () => {
+    const v = { headingDeg: 137, hFovDeg: 63.4 };
+    expect(clampPlannedView(v, MIN, MAX)).toBe(v);
+  });
+
+  it("normalises heading and survives non-finite input", () => {
+    expect(clampPlannedView({ headingDeg: -10, hFovDeg: 60 }, MIN, MAX).headingDeg).toBeCloseTo(350, 9);
+    expect(clampPlannedView({ headingDeg: 725, hFovDeg: 60 }, MIN, MAX).headingDeg).toBeCloseTo(5, 9);
+    expect(clampPlannedView({ headingDeg: Number.NaN, hFovDeg: 60 }, MIN, MAX).headingDeg).toBe(0);
+    // NaN fov falls back to the band midpoint — a NaN half-angle would blank every cone.
+    expect(clampPlannedView({ headingDeg: 0, hFovDeg: Number.NaN }, MIN, MAX).hFovDeg).toBe(61.5);
+  });
+
+  it("the store seam applies it — every writer inherits the contract", async () => {
+    const { useCameraStore } = await import("../../../src/store/camera");
+    const { FOCALCONE, FPV } = await import("../../../src/components/globe/tuning");
+    const set = useCameraStore.getState().setPlannedView;
+    set({ headingDeg: 10, hFovDeg: horizontalFovDeg(FPV.minFovDeg, 390 / 844) });
+    expect(useCameraStore.getState().plannedView!.hFovDeg).toBe(FOCALCONE.minHFovDeg);
+    set({ headingDeg: 10, hFovDeg: horizontalFovDeg(FPV.maxFovDeg, 844 / 390) });
+    expect(useCameraStore.getState().plannedView!.hFovDeg).toBe(FOCALCONE.maxHFovDeg);
+    // …and the aim stick's mm readout is back inside a lens that exists (the ~1624 mm report).
+    expect(focalMmFromHFov(useCameraStore.getState().plannedView!.hFovDeg)).toBeLessThan(20);
+    set(null); // null still clears (the guards documented at the three seed sites rely on it)
+    expect(useCameraStore.getState().plannedView).toBeNull();
   });
 });

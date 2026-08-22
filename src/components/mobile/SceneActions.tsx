@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Sheet from "./Sheet";
+import { useSheetInputFocus } from "./useSheetInputFocus";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { usePlacesMapStore } from "../../store/places";
@@ -25,7 +26,12 @@ import "../../styles/mobile/chrome.css";
 
 /** Last FPV focal (vertical FOV) seen this session — a long-press 3D jump re-enters at the
  *  focal the user last stood at instead of the temp default (batch #4 item 10). Tracked from
- *  the fpvHud mirror by the SceneActions root (always mounted on /m). */
+ *  the fpvHud mirror by the SceneActions root (always mounted on /m).
+ *  ENGINE-ABSENT GUARD, kept deliberately (audit #3 A2-4/A1-12, dated 2026-08-22): the jump
+ *  below prefers `plannedView`, which the batch-#6 boot seed makes non-null on every shipped
+ *  frame (`setPlannedView(null)` has no call site), so this fallback is unreachable unless the
+ *  orchestrator never attached (no PUBLIC_CESIUM_ION_TOKEN) or a `#f=` FPV boot has not exited
+ *  once yet. It is 4 bytes of state and the honest default for those two states. */
 let lastFpvFovDeg: number | null = null;
 
 export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => void }) {
@@ -378,6 +384,12 @@ function SavePlaceChip() {
   const live = useTimeStore((s) => s.live);
   const [mode, setMode] = useState<"idle" | "naming" | "busy" | "saved" | "error">("idle");
   const [title, setTitle] = useState("");
+  // audit #3 A1-9: the name field used React `autoFocus` inside the SAME 400 ms translateY(100%)
+  // sheet the QA batch fixed on MobileSearch — the identical iOS dark-screen trap, still armed.
+  // Declared BEFORE the early return (hooks cannot be conditional); `active` does the gating,
+  // and the portal's input is committed by the time this layout effect runs.
+  const nameRef = useRef<HTMLInputElement>(null);
+  useSheetInputFocus(nameRef, mode === "naming");
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -470,6 +482,7 @@ function SavePlaceChip() {
           <Sheet title="SAVE VIEW" onClose={() => setMode("idle")}>
             <div className="m-savename">
               <input
+                ref={nameRef}
                 className="m-input"
                 type="text"
                 placeholder="NAME THIS PLACE (OPTIONAL)"
@@ -477,7 +490,6 @@ function SavePlaceChip() {
                 value={title}
                 spellCheck={false}
                 autoComplete="off"
-                autoFocus
                 aria-label="Optional place name"
                 onChange={(e) => setTitle(e.target.value)}
                 onKeyDown={(e) => {

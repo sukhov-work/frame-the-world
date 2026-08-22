@@ -15,6 +15,8 @@ import {
   rayEllipsoidIntersect,
 } from "../../lib/geo/projection";
 import { frameMarker } from "../../lib/geo/offscreen";
+import { aimAnchorFor } from "../../lib/geo/aimAnchor";
+import { skylineBinsFor } from "../../lib/geo/horizonProfile";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import {
@@ -1861,6 +1863,22 @@ export function attachStylizedTiles(opts: {
         sampleMs: lastSampleMs,
       }),
       terrainHeightAt: (lat: number, lon: number) => ground.heightAt(lat, lon),
+      // audit #3 (F3 · F4/T36 · A1-16): the radar seam's RESOLVED state. `anchor*` is the one
+      // shared ladder's output — a verify script must read it, never re-derive it.
+      // `skylineClaimed` is the one gap gate's output, `coverage` the evidence behind it, and
+      // `focalGeoIds` the focal cone's BufferGeometry identities: stable across an aim-stick
+      // sweep is the proof that the per-frame dispose+realloc (T38) is gone.
+      aim: () => ({
+        anchorLatDeg: lastAimAnchor?.latDeg ?? null,
+        anchorLonDeg: lastAimAnchor?.lonDeg ?? null,
+        skylineClaimed: lastAimSkyline !== null,
+        coverage: usePlanStore.getState().profileCoverage,
+        minCoverage: PLAN.minCoverageForGaps,
+        focalGeoIds: focalCone.group.children.map((c) =>
+          c instanceof THREE.Mesh ? c.geometry.uuid : null,
+        ),
+        shadowAutoUpdate: renderer.shadowMap.autoUpdate,
+      }),
       alt: () => WGS84_ELLIPSOID.getPositionElevation(camera.position),
       fpv: () => ({
         active: fpvActive,
@@ -2331,7 +2349,15 @@ export function attachStylizedTiles(opts: {
                   .multiplyScalar(Math.sin(entryH))
                   .addScaledVector(_skyNorth, Math.cos(entryH));
               } else {
-                // Basis: continue looking the way the camera already faces (horizontal at the pin).
+                // ENGINE-ABSENT GUARD, kept deliberately (audit #3 A2-4/A1-12, dated 2026-08-22).
+                // INVARIANT: `plannedView` is non-null from the first non-FPV orchestrator frame
+                // (the batch-#6 boot seed below) and is NEVER set back to null — `setPlannedView(null)`
+                // has no call site. So this arm is unreachable in the shipped configuration, and it
+                // is NOT deleted because two real states still reach it: a build without
+                // PUBLIC_CESIUM_ION_TOKEN never attaches this orchestrator at all (GlobeCanvas logs
+                // "tiles disabled" and the chrome still mounts), and a `#f=` URL that boots straight
+                // into FPV skips the boot seed until the first exit. Basis: continue looking the way
+                // the camera already faces (horizontal at the pin).
                 camera.getWorldDirection(_camFwd);
                 _tempFwd0.copy(_camFwd).addScaledVector(_tempUp0, -_camFwd.dot(_tempUp0));
                 if (_tempFwd0.lengthSq() < 1e-6) {
@@ -3945,6 +3971,10 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  /** DEV probe mirrors for the radar seam (audit #3 F4 / A1-16) — written by stepAimCones. */
+  let lastAimAnchor: { latDeg: number; lonDeg: number } | null = null;
+  let lastAimSkyline: readonly number[] | null = null;
+
   const stepAimCones = () => {
         // U4 direction lines + visibility cones — LIVE anchor, owner lag report 2026-08-18:
         // the plan-STORE anchor is a low-cadence mirror (PLAN.mirrorEveryFrames, ~5.5 km focus
@@ -3954,12 +3984,19 @@ export function attachStylizedTiles(opts: {
         // THIS-frame view focus (step 12's _focus, converted here — one cheap ecefToGeodetic).
         // This is also what fixes "second FPV point ignored" and "stuck after FPV exit": the
         // pin and the focus are read fresh, no mirror lifecycle in the path.
+        // …through the ONE ladder all three radar surfaces share since audit #3 T36
+        // (lib/geo/aimAnchor) — this call is behaviour-identical to the hand-written ladder it
+        // replaces, because rung 1 (`fpvActive`) can never fire on a surface that is
+        // `enabled: !fpvActive`. The chart and the mini-map now resolve the same way.
         const skyNow = useSkyStore.getState();
         const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
-        const aimAnchor =
-          (upNow.phase === "placed" ? upNow.placement : null) ??
-          camNow.tempPin ??
-          { latDeg: focusGeo.latDeg, lonDeg: focusGeo.lonDeg };
+        const aimAnchor = aimAnchorFor({
+          fpvActive,
+          camGeo: camNow.camGeo,
+          placement: (upNow.phase === "placed" && upNow.placement) || null,
+          tempPin: camNow.tempPin,
+          focus: { latDeg: focusGeo.latDeg, lonDeg: focusGeo.lonDeg },
+        });
         // Desktop shows the radar only near the ground (owner 2026-08-19b: <10 km);
         // /m keeps the wide band — its fullscreen 2D map IS the planning surface.
         const aimBand = isMobileShell
@@ -3969,21 +4006,23 @@ export function attachStylizedTiles(opts: {
         // the plan anchor — the swept eye (photo apex / FPV eye) — sits at (≈) the radar
         // anchor. A focus anchor never owns a profile, and a far-away eye must not lend its
         // skyline to another point's radar (honesty rule; AIMCONES.skylineGuardM).
+        // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineBinsFor) — one rule on
+        // all three radar surfaces, now including the EVIDENCE floor (`profileCoverage`), which
+        // reached planFeed, the store and the PLAN panels but no radar.
         const planSkyNow = usePlanStore.getState();
-        let aimSkyline: readonly number[] | null = null;
-        if (
-          planSkyNow.profileReady &&
-          planSkyNow.profileBins &&
-          planSkyNow.anchor &&
-          planSkyNow.anchor.kind !== "focus"
-        ) {
-          const dN = (aimAnchor.latDeg - planSkyNow.anchor.latDeg) * 111_320;
-          const dE =
-            (aimAnchor.lonDeg - planSkyNow.anchor.lonDeg) *
-            111_320 *
-            Math.cos((aimAnchor.latDeg * Math.PI) / 180);
-          if (dN * dN + dE * dE < AIMCONES.skylineGuardM ** 2) aimSkyline = planSkyNow.profileBins;
-        }
+        const aimSkyline = skylineBinsFor({
+          ready: planSkyNow.profileReady,
+          bins: planSkyNow.profileBins,
+          coverage: planSkyNow.profileCoverage,
+          eye: planSkyNow.anchor && planSkyNow.anchor.kind !== "focus" ? planSkyNow.anchor : null,
+          anchor: aimAnchor,
+          guardM: AIMCONES.skylineGuardM,
+          minCoverage: PLAN.minCoverageForGaps,
+        });
+        // audit #3 F4/A1-16 probe state — the harness must READ what the orchestrator resolved
+        // (a transcribed ladder in a verify script is the C8 trap; it already bit once here).
+        lastAimAnchor = aimAnchor;
+        lastAimSkyline = aimSkyline;
         aimCones.update({
           sceneMs: tMs,
           anchor: aimAnchor,
@@ -4030,10 +4069,10 @@ export function attachStylizedTiles(opts: {
           const key = `${h}:${f}`;
           if (key !== lastPlacedSeedKey) {
             lastPlacedSeedKey = key;
-            camNow.setPlannedView({
-              headingDeg: h,
-              hFovDeg: Math.min(FOCALCONE.maxHFovDeg, Math.max(FOCALCONE.minHFovDeg, f)),
-            });
+            // The FOCALCONE clamp used to be inlined here — it moved to
+            // store/camera.setPlannedView (audit #3 A2-3), which is the ONE writer now, so all
+            // seven seeds get it instead of just this one.
+            camNow.setPlannedView({ headingDeg: h, hFovDeg: f });
           }
         } else {
           lastPlacedSeedKey = "";

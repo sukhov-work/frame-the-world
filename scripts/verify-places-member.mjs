@@ -5,6 +5,7 @@
 // jumps into the exact viewpoint → FPV→FPV re-jump → delete cleanup.
 // Usage: node scripts/verify-places-member.mjs [cdpPort]   (wix dev on :4321, Chrome CDP on :9333)
 import { readFileSync, writeFileSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 import { createClient, OAuthStrategy } from "@wix/sdk";
 
 const PORT = process.argv[2] ?? "9333";
@@ -57,6 +58,8 @@ const http = (path, method = "GET") =>
 let target;
 try { target = await http("/json/new?about:blank", "PUT"); }
 catch { target = await http("/json/new?about:blank", "GET"); }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 let seq = 0;
@@ -153,7 +156,7 @@ for (let i = 0; i < 12 && !saved; i++) {
   saved = afterSave?.places?.find((p) => p.title === TITLE) ?? null;
 }
 check("place saved", !!saved, saved ? JSON.stringify(saved).slice(0, 140) : "row never appeared");
-if (!saved) process.exit(1);
+if (!saved) await finishVerify(1); // C11: close the target on the early-out too
 check("saved pose ≈ live hud", Math.abs(saved.headingDeg - hud.headingDeg) < 1 && Math.abs(saved.fovDeg - hud.fovDeg) < 0.5);
 
 // ---- exit FPV, open MY PINS → PLACES, jump from the list ------------------------------------
@@ -219,4 +222,4 @@ for (let i = 0; i < 12 && !deleted; i++) {
 check("place deleted", deleted);
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

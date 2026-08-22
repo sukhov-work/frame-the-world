@@ -92,3 +92,56 @@ describe("mobile shell fence (MOBILE_PLAN §2)", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * AUDIT #3 A1-9 → the iOS SHEET-FOCUS fence (2026-08-22).
+ *
+ * The trap: an input focused while its sheet is still at `translateY(100%)` makes iOS Safari
+ * scroll the LAYOUT viewport to an off-screen element — dark scrim + keyboard, no way back but
+ * a tap. The QA batch fixed `MobileSearch`; the audit found it STILL ARMED in two siblings
+ * (React `autoFocus` in `SceneActions`'s SAVE VIEW sheet, and a bare re-`focus()` on the search
+ * mode switch). The fix is `useSheetInputFocus` / `focusInSheet`.
+ *
+ * Mutation that makes this RED: add `autoFocus` to any `/m` input, or call `.focus()` without
+ * `preventScroll` anywhere in the mobile shell.
+ */
+describe("rule 4 — /m inputs never focus themselves into the iOS scroll trap", () => {
+  const mobileFiles = () =>
+    walk(join(SRC, MOBILE_DIR)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+  /** The rule is about CODE — the hook's docblock and the fix notes at the call sites both
+   *  name `autoFocus` and `.focus()` on purpose, and a probe that fired on prose would just
+   *  get the prose reworded. */
+  const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  it("no React autoFocus anywhere in the mobile shell", () => {
+    const offenders = mobileFiles().filter((f) =>
+      /\bautoFocus\b/.test(code(readFileSync(f, "utf8"))),
+    );
+    expect(offenders.map((f) => f.replace(SRC, "src"))).toEqual([]);
+  });
+
+  it("every .focus() in the mobile shell goes through the hook or carries preventScroll", () => {
+    const offenders: string[] = [];
+    for (const f of mobileFiles()) {
+      const src = code(readFileSync(f, "utf8"));
+      for (const m of src.matchAll(/\.focus\(([^)]*)\)/g)) {
+        if (!/preventScroll/.test(m[1])) offenders.push(`${f.replace(SRC, "src")} → ${m[0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the probes can match, and the hook really is the one home", () => {
+    expect(/\bautoFocus\b/.test(code("<input autoFocus />"))).toBe(true);
+    expect(/\.focus\(([^)]*)\)/.exec(code("el.focus()"))![1]).toBe("");
+    // The stripper removes prose but never code on a following line.
+    expect(/\bautoFocus\b/.test(code("// mentions autoFocus\n<input autoFocus />"))).toBe(true);
+    expect(/\bautoFocus\b/.test(code("/* mentions autoFocus */"))).toBe(false);
+    const hook = readFileSync(join(SRC, MOBILE_DIR, "useSheetInputFocus.ts"), "utf8");
+    expect(hook).toMatch(/preventScroll:\s*true/);
+    // …and the three parts of the documented fix are all still there.
+    expect(hook).toMatch(/useLayoutEffect/); // same-commit focus keeps the user activation
+    expect(hook).toMatch(/visualViewport\?\.addEventListener\("resize"/); // keyboard settle
+    expect(hook).toMatch(/window\.scrollTo\(0, 0\)/); // the layout-viewport pin
+  });
+});

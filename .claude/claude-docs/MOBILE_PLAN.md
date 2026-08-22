@@ -187,7 +187,7 @@ with buildings vs PhotoPills' dashed-line heuristic / TPE's terrain-only geodeti
 | 8 | **Conjunctions/oppositions finder** | S/M | scan existing planetary ephemeris for pairwise separation minima + elongation extrema (Stellarium Phenomena precedent) |
 | 9 | **Lunar eclipses** | M | shadow-cone geometry from existing sun/moon; local visibility = existing horizon test. (Solar-eclipse umbra path on the globe = flagship visual, L, later; Besselian elements or astronomy-engine's eclipse search) |
 | 10 | Sensor-frame overlay on DSO targets (framing/mosaic vs catalog angular sizes) | S/M | angular rect from focal+sensor centered on target; Messier/NGC sizes already in catalog |
-| — | Former backlog — **all scheduled** (owner 2026-08-11: every planning addition ships): star-trail simulator (M) · What's-Up-Tonight ranking (M) · light-pollution drape (M) · ISS passes (satellite.js SGP4 + CelesTrak TLE via a cached `/api/tle` proxy — CORS-unsafe direct, M) · long-exposure/ND + timelapse calcs (S) · Web-Push event alerts via Wix backend (M — no competitor has server push) · solar-eclipse umbra path (L, flagship) → phases **M5/M6** below. Permanently out: Gaia-depth catalogs · GOTO control · tides/rainbow · Skyfire forecasts (off-mission) | | |
+| — | Former backlog — **all scheduled** (owner 2026-08-11: every planning addition ships): star-trail simulator (M) · What's-Up-Tonight ranking (M) · light-pollution drape (M) · ISS passes (satellite.js SGP4 + CelesTrak TLE via a cached `/api/tle` proxy — CORS-unsafe direct, M) · long-exposure/ND + timelapse calcs (S) · Web-Push event alerts via Wix backend (M — no competitor has server push) · solar-eclipse umbra path (L, flagship) → phases **M5/M6** below. Permanently out: Gaia-depth catalogs · **telescope GOTO** (mount control — NOT the shipped camera-aim GOTO pill; audit #3 D14) · tides/rainbow · Skyfire forecasts (off-mission) | | |
 
 Strategic read: P1–P5 ≈ "moon behind the landmark" + "MW over the subject" + "how long can I expose"
 — the core of why landscape astrophotographers pay for PhotoPills — and every one of them lands in
@@ -266,7 +266,8 @@ are IN on /m — MobileAccount strip chip, MobilePlaces in the idle SEARCH sheet
 SceneActions. "Pins-browsing" below still means the PHOTO-pin gallery, which stays out.
 
 **Permanently out (owner-ratified 2026-08-11):** upload / marketplace / pins-browsing on mobile ·
-Gaia-depth catalogs · telescope GOTO · tides/rainbow · Skyfire-style color forecasts · **Phase 7
+Gaia-depth catalogs · telescope GOTO (mount control; the shipped camera-aim GOTO pill is a
+different thing — audit #3 D14) · tides/rainbow · Skyfire-style color forecasts · **Phase 7
 AI panel — out of ALL plans** (not merely deferred; nothing schedules after M6).
 
 ---

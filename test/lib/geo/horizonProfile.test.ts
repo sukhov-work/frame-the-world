@@ -11,7 +11,9 @@ import {
   R_MEAN_M,
   sampleBins,
   sampleProfile,
+  skylineBinsFor,
   type SilhouetteFrame,
+  type SkylineGate,
   type TerrainAnchor,
 } from "../../../src/lib/geo/horizonProfile";
 import { enuBasis, geodeticToEcef } from "../../../src/lib/geo/projection";
@@ -158,5 +160,68 @@ describe("sampleBins (the store-mirror sampler, QoL-1 §3.1.D)", () => {
     expect(sampleBins(bins, 135)).toBeCloseTo(10, 9);
     expect(sampleBins(bins, 90)).toBeCloseTo(5, 9);
     expect(sampleBins(bins, 0)).toBeCloseTo(0, 9); // wrap: between 315° and 45° centres
+  });
+});
+
+/**
+ * AUDIT #3 A1-16 — the skyline-gap gate, hoisted 2026-08-22.
+ *
+ * `profileCoverage` reached `planFeed`, the store and both PLAN panels and was consulted by NO
+ * radar surface (verified: the positive control `profileBins` DID match in both panels). A
+ * 15 %-covered profile fractured its bands with exactly the authority of a complete one — the
+ * gaps themselves are true, but the clear sky between them is ignorance drawn as knowledge.
+ *
+ * Mutation that makes these RED: drop the coverage clause, the guard-distance clause or the
+ * "focus anchor owns no profile" clause from `skylineBinsFor` — each has its own case below.
+ */
+describe("skylineBinsFor — one gap gate, three radar surfaces (A1-16)", () => {
+  const BINS = [1, 2, 3, 4];
+  const EYE = { latDeg: 48.4647, lonDeg: 35.0462 };
+  const gate = (o: Partial<SkylineGate> = {}): SkylineGate => ({
+    ready: true,
+    bins: BINS,
+    coverage: 1,
+    eye: EYE,
+    anchor: EYE,
+    guardM: 60,
+    minCoverage: 0.5,
+    ...o,
+  });
+
+  it("a complete profile at the radar's own eye claims its gaps", () => {
+    expect(skylineBinsFor(gate())).toBe(BINS);
+  });
+
+  it("THE FINDING: a sparsely covered profile claims NOTHING", () => {
+    expect(skylineBinsFor(gate({ coverage: 0.15 }))).toBeNull();
+    expect(skylineBinsFor(gate({ coverage: 0 }))).toBeNull();
+    // …and the floor is inclusive, so exactly-at-threshold still claims.
+    expect(skylineBinsFor(gate({ coverage: 0.5 }))).toBe(BINS);
+    expect(skylineBinsFor(gate({ coverage: 0.49 }))).toBeNull();
+  });
+
+  it("a far-away eye may not lend its skyline to another point's radar", () => {
+    const near = { latDeg: EYE.latDeg + 0.0004, lonDeg: EYE.lonDeg }; // ≈45 m
+    const far = { latDeg: EYE.latDeg + 0.0009, lonDeg: EYE.lonDeg }; // ≈100 m
+    expect(skylineBinsFor(gate({ anchor: near }))).toBe(BINS);
+    expect(skylineBinsFor(gate({ anchor: far }))).toBeNull();
+    // The guard is a true 2D distance — an EAST offset of the same metric size also fails.
+    const eastFar = {
+      latDeg: EYE.latDeg,
+      lonDeg: EYE.lonDeg + 100 / (111_320 * Math.cos((EYE.latDeg * Math.PI) / 180)),
+    };
+    expect(skylineBinsFor(gate({ anchor: eastFar }))).toBeNull();
+  });
+
+  it("no profile, no bins, or a focus anchor ⇒ no claim (the pre-existing honest fallbacks)", () => {
+    expect(skylineBinsFor(gate({ ready: false }))).toBeNull();
+    expect(skylineBinsFor(gate({ bins: null }))).toBeNull();
+    expect(skylineBinsFor(gate({ eye: null }))).toBeNull();
+  });
+
+  it("the shipped floor is a real threshold — not 0 (which would gate nothing)", async () => {
+    const { PLAN } = await import("../../../src/components/globe/tuning");
+    expect(PLAN.minCoverageForGaps).toBeGreaterThan(0);
+    expect(PLAN.minCoverageForGaps).toBeLessThanOrEqual(1);
   });
 });

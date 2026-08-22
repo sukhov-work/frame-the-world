@@ -3,6 +3,9 @@
 // asset-cache warm-up (parallel island burst against the now-warm edge).
 // Needs Node >= 22 (global WebSocket). Chrome: --headless=new --remote-debugging-port=9333.
 import { spawn } from "node:child_process";
+// audit #3 C11: this script ATTACHES to the operator's existing page target rather than
+// opening one of its own, so there is nothing to close — only the crash-safe exit is imported.
+import { finishVerify } from "./verify-cdp-cleanup.mjs";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,4 +69,4 @@ console.log(`\n=== failed requests (${failedReqs.length}) ===`);
 failedReqs.slice(0, 25).forEach((e) => console.log("  •", e));
 
 ws.close(); chrome.kill();
-process.exit(0);
+await finishVerify(0);

@@ -36,6 +36,33 @@ export interface PlannedViewState {
   hFovDeg: number;
 }
 
+/**
+ * The RANGE CONTRACT for a stored planned view (audit #3 A2-3 / T39, 2026-08-22).
+ *
+ * `hFovDeg` was clamped in only 3 of its 7 writers — the photo seed, `integratePlanned` and the
+ * placed-photo seed that duplicated it. The other four (the FPV-jump seed, the two FPV-exit
+ * continuity seeds and the boot seed) piped `horizontalFovDeg(vFov, aspect)` straight through,
+ * and the FPV vertical band widens hard at extreme aspects: measured breaches were **1.27°** (/m
+ * portrait, aspect 0.46, at max zoom-in) and **122.4°** (landscape, aspect 2.17, at min zoom) —
+ * both outside `FOCALCONE.minHFovDeg 3 / maxHFovDeg 120`, drawing an out-of-band cone on all
+ * three radar surfaces and a ~1624 mm reading on the aim stick's mm footer.
+ *
+ * Applied ONCE, at `store/camera.setPlannedView` — every writer goes through that seam, so a
+ * future eighth writer inherits the contract instead of re-deriving it. Non-finite input falls
+ * back to the band midpoint rather than poisoning the cone geometry with NaN.
+ */
+export function clampPlannedView(
+  v: PlannedViewState,
+  minHFovDeg: number,
+  maxHFovDeg: number,
+): PlannedViewState {
+  const h = Number.isFinite(v.hFovDeg)
+    ? Math.min(maxHFovDeg, Math.max(minHFovDeg, v.hFovDeg))
+    : (minHFovDeg + maxHFovDeg) / 2;
+  const heading = Number.isFinite(v.headingDeg) ? norm360(v.headingDeg) : 0;
+  return heading === v.headingDeg && h === v.hFovDeg ? v : { headingDeg: heading, hFovDeg: h };
+}
+
 export interface PlannedIntegration extends PlannedViewState {
   /** Low-passed applied rates — feed back on the next call (release eases out, never snaps). */
   appliedHeadingDegPerS: number;

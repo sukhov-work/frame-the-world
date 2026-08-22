@@ -4,6 +4,8 @@
 // then unlists (cleanup). Proves the endpoint's elevate() + productsV3.createProduct works under a
 // real member session in the app runtime. Usage: wix dev on :4321, then `node scripts/verify-listing-member.mjs`.
 import { readFileSync } from "node:fs";
+// audit #3 C11: no CDP target here (pure SDK/HTTP script) — only the crash-safe exit.
+import { finishVerify } from "./verify-cdp-cleanup.mjs";
 import { createClient, OAuthStrategy } from "@wix/sdk";
 
 const APP = "http://localhost:4321";
@@ -65,7 +67,7 @@ const publicPins = (photos.json.photos ?? []).filter((p) => p.isPublic);
 console.log(`  member has ${photos.json.photos?.length ?? 0} pins, ${publicPins.length} public`);
 if (publicPins.length === 0) {
   console.log("  NO PUBLIC PIN to list — save a public pin as this member first (upload → SAVE PIN, public).");
-  process.exit(2);
+  await finishVerify(2);
 }
 
 // Try to list one (the endpoint 409s if it has no stored original — walk until one lists).
@@ -85,7 +87,7 @@ for (const p of publicPins) {
   console.log(`  · ${p.title}: ${r.status} ${r.json.error ?? ""} (${r.json.message ?? ""})`);
 }
 check("POST /api/listings → 200 with productId", !!listed?.productId, listed ? JSON.stringify(listed) : "no pin could be listed");
-if (!listed) process.exit(1);
+if (!listed) await finishVerify(1);
 check("listing carries productVariantId (required for checkout)", !!listed.productVariantId, listed.productVariantId ?? "MISSING");
 
 // ---- sales view lists it ---------------------------------------------------------------------
@@ -125,4 +127,4 @@ check("listing gone from sales after unlist",
   !(salesAfter.json.listings ?? []).some((l) => l.productId === listed.productId));
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

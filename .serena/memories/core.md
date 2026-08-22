@@ -128,12 +128,64 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
 - **Owner UX batches #2/#3 + PLUX launch grooming (2026-08-19 → 19d)** — digests of those
   names · `mem:project/wip-2026-08-19-owner-uxbatch2` · `wip-2026-08-19-owner-uxbatch3` ·
   `wip-2026-08-19-plux-launch-grooming`.
-- **Owner micro-slice + AUDIT #3 (2026-08-22a→d, HOT)** — report
+- **Owner micro-slice + AUDIT #3 + its fix slices F1–F10 (2026-08-22a→e, HOT)** — report
   `audits/audit-batchseams-2026-08-22.md` · `mem:project/wip-2026-08-22-owner-microslice` ·
-  `wip-2026-08-22-audit3`.
+  `wip-2026-08-22-audit3` · `wip-2026-08-22-audit3-fixslices`.
 
 ## Next step
-**OWNER MICRO-SLICE SHIPPED + AUDIT #3 COMPLETE 2026-08-22 (a/b/c)** — gates **vitest
+**AUDIT #3 FIX SLICES F1–F10 ALL SHIPPED 2026-08-22e — the queue is EMPTY.** Gates: **vitest
+1,217/1,217 (107 files)** · astro 0 err/5 hints · **`npx knip` exit-0 clean** · all SEVEN
+regression suites PASS + NEW `scripts/verify-audit3.mjs` both shells (shots `a3-01..04`).
+Backlog **T32/T35/T36/T37/T38/T39/T40 CLOSED**; **T41 + T42 opened** (below).
+Headlines a future session must not relearn:
+· **F4/T36 — ONE `lib/geo/aimAnchor.aimAnchorFor()`** on all three radar surfaces (FPV eye →
+placed photo → temp pin → view focus). Browser-measured: the camera NADIR sat **4,341 m** from
+the view focus on a tilted desktop orbit — the size of the bug the chart's private ladder had.
+**THE AUDIT'S OWN C8 FINDING THEN BIT THE HARNESS LIVE**: `verify-qaslice-cab.mjs` had
+transcribed the old ladder and failed by 81.8 m against the CORRECTED app. The chart now
+PUBLISHES its resolved anchor (`__mapWindowView.anchor*`) and the script reads it.
+**RULE: a verify script never re-derives a shipped decision.**
+· **F1/T32 — the test found a SECOND throw site inspection had missed**: `SearchRiseSet(...,
+metersAboveGround)` builds a second observer at `height − metersAboveGround`, so a clamped
+10 km observer against an un-clamped 6,000 km eye still threw. `planElevationsM()` writes both.
+· **F1/T37 — the audit's literal one-liner would have been a regression**: `draw()` runs at
+~20 Hz in FPV, so a bare `cache.delete(url)` in `onerror` = a 20 req/s storm. Shipped with a
+30 s cooldown + a capped warn. **Read an audit's "specific fix" as a direction, not a patch.**
+· **F5/T35 — four seams extracted** (`lib/geo/radarBands` · `scene/tangentOverlay` ·
+`panels/radarCanvas` · `slippy.chartTransform`); jscpd 35→33 clones, 1.14→1.06 %.
+· **F6 — CDP targets now close themselves** (`scripts/verify-cdp-cleanup.mjs`, all 20 scripts);
+fences de-brittled (JSX depth, brace matching, presence pins); A1-16 `PLAN.minCoverageForGaps`
+gives the three radars ONE evidence-floored gap gate.
+· **F7 — docs**: `globe-tuning.md` gained the batch-#4→#7 tunables + the sticky-overlay-px and
+injected-GLSL-header traps · `verify.md` gained all six harness classes + gesture recipes ·
+`contracts.md` §3 15→**20** seams, §7 8→**9** routes · `UXBATCH4_PLAN.md` → `archive/`.
+· **F9 — guide**: 4 NEW topics (`fpv-cone`, `move-aimstick`, `fpv-map-controls`,
+`fpv-map-gestures`) + 6 extensions; NEW reproducible `scripts/shoot-guide.mjs` re-shot
+`orbit`/`fpv`/`fpv-m`/`target` warm and added `fpv-map`.
+**OWNER ORDERS 2026-08-22f — T41 RULED + the next session is SINGLE-TRACK: FINALIZE THE GUIDE.**
+· **T41 ACCEPTED AS-IS** ("i am ok for now with this and understand the reasoning") → a DOCS item,
+not a code item. Mechanism CORRECTED while ruling it: `Joystick.tsx:115-117` shows that **inside
+FPV both readouts derive from the SAME live vertical FOV**, so the divergence is purely the sensor
+AXIS — `focalFromVerticalFov` measures across the frame's HEIGHT (24 mm, 6 consumers),
+`focalMmFromHFov` across its WIDTH (36 mm, 1 consumer). No second source of truth.
+· **The guide charter is `.claude/claude-docs/GUIDE_FINALIZATION_PLAN.md`** (732 lines, 10
+dependency-ordered slices G-A…G-J, each with the command that proves it done). Authored by a
+10-agent fan-out; 58 findings, **0 refuted** in adversarial verification.
+**The headline is a REJECTION** — 97 of ~120 stop-slop patterns score ZERO hits (the guide already
+reads the way the skill wants), while adopting it wholesale would destroy em dashes (4,647 in
+`src/**`; the skill breaks its own rule at `examples.md:45`), three-item lists (19 real UI
+enumerations), `-ly` precision words, `never` (the C6 privacy guarantee) and "quotables" (the
+`tip` field's whole job). ADOPTED instead: one new BANNED group covering the *essayist* tells the
+*marketing* lint never reached, at 0 current hits — a REGRESSION GUARD — plus i-have-adhd's
+one-bounded-action-per-step rule (12 of 43 shipped steps violate it).
+**LIVE BUG found and verified, not yet fixed:** a crosslink to a topic in the CURRENT chapter does
+not scroll on EITHER island — `nav()` sets an identical `chapterId`, React bails, and the scroll
+effect's `[chapterId, open]` deps never re-fire (`Guide.tsx:110-116` vs `:157`;
+`GuideSheet.tsx:95-100` vs `:117`). Two shipped crosslinks hit it today.
+Then the standing release gate (owner's domain fix), T1 (which now also owes the **unmeasured** F3
+per-frame ms), T34, then P8/P9/M4 · U8 sync ladder. Entry point: `NEXT_SESSION_PROMPT.md`;
+log: `mem:project/wip-2026-08-22-audit3-fixslices`.
+Prior: **OWNER MICRO-SLICE SHIPPED + AUDIT #3 COMPLETE 2026-08-22 (a/b/c)** — gates **vitest
 1,147/1,147 (102 files)** · astro 0 err/5 hints · `verify-qaslice-cab.mjs` **64/64 both
 shells** · all seven regression suites PASS.
 **(a/b) Owner micro-slice, 4 items:** the expanded-map manual-pan override is now PERMANENT

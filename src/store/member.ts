@@ -83,12 +83,9 @@ export function memberLabel(member: MemberInfo | null): string {
   return "Member";
 }
 
-// DEV convenience (mirrors store/upload.ts): poke the member store from the console.
-declare global {
-  interface Window {
-    __memberStore?: typeof useMemberStore;
-  }
-}
+// DEV convenience (mirrors store/upload.ts): poke the member store from the console. The TYPE
+// lives in the central registry `src/global.d.ts` like every other seam — it was declared
+// locally here, which is why `contracts.md §3` under-counted (audit #3 D7 / A2-5's class).
 if (typeof window !== "undefined" && import.meta.env?.DEV) {
   window.__memberStore = useMemberStore;
 }

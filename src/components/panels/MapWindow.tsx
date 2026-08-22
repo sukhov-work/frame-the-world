@@ -6,8 +6,18 @@ import { usePlacesMapStore } from "../../store/places";
 import { usePlanStore } from "../../store/plan";
 import { useSkyStore } from "../../store/sky";
 import { useTimeStore, sceneTimeMs } from "../../store/time";
-import { lonLatToTileF, tileFToLonLat, zoomForMetersPerPx } from "../../lib/geo/slippy";
-import { sampleBins } from "../../lib/geo/horizonProfile";
+import { useUploadStore } from "../../store/upload";
+import { aimAnchorFor } from "../../lib/geo/aimAnchor";
+// audit #3 A1-7 / T35: the band allocation is ONE model (lib/geo/radarBands) — this file used
+// to carry a hand-maintained copy of it, as did MiniMap, with no cross-file fence.
+import { bandFor, type RadarBandKey } from "../../lib/geo/radarBands";
+import {
+  chartTransform,
+  lonLatToTileF,
+  tileFToLonLat,
+  zoomForMetersPerPx,
+} from "../../lib/geo/slippy";
+import { sampleBins, skylineBinsFor } from "../../lib/geo/horizonProfile";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import {
   fractureRunsBySkyline,
@@ -15,12 +25,13 @@ import {
   splitAimRuns,
   wrap180,
   type AimDay,
-  type AimSample,
 } from "../../lib/ephemeris/azSector";
 import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
+import { cssFontFamily, cssInk } from "../../lib/theme/cssInk";
 import { tokens } from "../../lib/theme/tokens";
-import { AIMCONES, FOCALCONE, FPV, FRUSTUM, TILESETS } from "../globe/tuning";
+import { AIMCONES, FOCALCONE, FPV, FRUSTUM, PLAN, TILESETS } from "../globe/tuning";
+import { drawRadarCanvas } from "./radarCanvas";
 import "../../styles/map-window.css";
 
 /**
@@ -47,6 +58,15 @@ const PINCH_SENS = 0.8; // continuous-pinch damping (batch #4 item 4): <1 = calm
 const LONG_PRESS_MS = 500; // the ORCH long-press shape (tuning.ts ORCH.longPressMs twin)
 const DRAG_CANCEL_PX = 6;
 const TILE_CACHE_MAX = 300;
+/** audit #3 A1-4 / T37 — the degrade path. A tile that 404s or times out used to be cached
+ *  `{ok:false}` FOREVER: silent, and never retried however far the user panned away and back.
+ *  It now rests for this long and the next paint that still wants it re-asks. The cooldown is
+ *  the load-bearing half: `draw()` runs at ~20 Hz while FPV is live, so an unguarded
+ *  `cache.delete(url)` in `onerror` would turn one bad tile into a 20 req/s storm. */
+const TILE_RETRY_MS = 30_000;
+/** …and the warn is capped, so an offline session logs a handful of lines, not one per tile
+ *  per cooldown (the throttled-logger idiom the orchestrator's frame catch already uses). */
+const TILE_WARN_MAX = 8;
 // U4 aim overlay: chart-fixed radius (the FOV-cone idiom — the map is a chart, metres live on
 // the globe module). The S2 annular bands (AIMCONES.bandSun/bandMoon/bandTarget) subdivide it.
 // Owner QA 2026-08-21 item 1: sized by AIMCONES.mapRadiusHK × canvas HEIGHT — the GL fan's
@@ -65,27 +85,14 @@ const FPV_FOLLOW_FRAC = 0.12;
  *  detector (`FOLLOW_REARM_M 0.5`, 2026-08-21g) is DELETED — the ◉ RE-CENTRE button is the
  *  one and only path back to following. Default is unchanged: an untouched chart follows. */
 
-/** The GL module's band allocation, read from the SAME tunables (one geometry model);
- *  on /m the sun/moon rings sit ~20% closer to the centre (owner batch #5 item 2). */
-const bandFor = (key: AimKey, mobile: boolean): readonly [number, number] =>
-  key === "sun"
-    ? mobile
-      ? AIMCONES.bandSunMobile
-      : AIMCONES.bandSun
-    : key === "moon"
-      ? mobile
-        ? AIMCONES.bandMoonMobile
-        : AIMCONES.bandMoon
-      : mobile
-        ? AIMCONES.bandTargetMobile
-        : AIMCONES.bandTarget;
-
 interface TileImg {
   img: HTMLImageElement;
   ok: boolean;
+  /** Wall clock of the last load failure (audit #3 A1-4) — `undefined` while healthy. */
+  failedAtMs?: number;
 }
 
-type AimKey = "target" | "sun" | "moon";
+type AimKey = RadarBandKey;
 
 export default function MapWindow() {
   const open = useMiniMapStore((s) => s.mapWindowOpen);
@@ -104,6 +111,8 @@ export default function MapWindow() {
   // rot = chart bearing (rad, screen-CCW; 0 = north-up) — two-finger twist writes it (item 4b).
   const view = useRef({ latDeg: 0, lonDeg: 0, z: 16, rot: 0 });
   const tiles = useRef<Map<string, TileImg>>(new Map());
+  // Bounded failure log (audit #3 A1-4) — warms across open/close like the tile cache itself.
+  const tileWarns = useRef(0);
   const rafPending = useRef(false);
   // The zoom chips need the effect-scoped zoomBy — bridged through a ref.
   const zoomButtons = useRef<(dz: number) => void>(() => {});
@@ -166,8 +175,10 @@ export default function MapWindow() {
       });
     };
 
-    const cssVar = (name: string) =>
-      getComputedStyle(canvas).getPropertyValue(name).trim() || "#8ef";
+    // audit #3 A1-11 / T38: memoised at `lib/theme/cssInk` — this forced a style recalc per
+    // token per paint (4 here, at the FPV chart's ~20 Hz). `:root` tokens cannot change without
+    // an explicit `invalidateCssInk()`.
+    const cssVar = (name: string) => cssInk(canvas, name, "#8ef");
 
     // ── ONE rotation-aware transform (batch #4 item 4b) ─────────────────────────────────────
     // Forward: screen = centre + R(rot)·(tile − c)·tilePx (tile-space: east +x, SOUTH +y, so
@@ -183,27 +194,12 @@ export default function MapWindow() {
       const zDraw = Math.min(Math.round(z) + boost, srcMaxZ); // integer tile level under a continuous z
       const tilePx = TILE_SRC_PX * dpr * 2 ** (z - zDraw); // device px per drawn tile
       const c = lonLatToTileF(lonDeg, latDeg, zDraw);
-      const cos = Math.cos(rot);
-      const sin = Math.sin(rot);
-      return {
-        dpr,
-        sat,
-        srcMaxZ,
-        zDraw,
-        tilePx,
-        c,
-        rot,
-        /** Tile-space delta from centre → device-px delta from canvas centre. */
-        fwd: (vx: number, vy: number): [number, number] => [
-          (vx * cos - vy * sin) * tilePx,
-          (vx * sin + vy * cos) * tilePx,
-        ],
-        /** Device-px delta from canvas centre → tile-space delta (Rᵀ). */
-        inv: (dx: number, dy: number): [number, number] => [
-          (dx * cos + dy * sin) / tilePx,
-          (-dx * sin + dy * cos) / tilePx,
-        ],
-      };
+      // audit #3 C8 / T35: fwd/inv are `lib/geo/slippy.chartTransform` now. They were declared
+      // inside this closure, which made them unimportable — `chartWalkAzRad`'s round-trip test
+      // had to hand-transcribe the same arithmetic, so a sign flip HERE would have left the
+      // test green. The test imports the shipped pair now.
+      const { fwd, inv } = chartTransform(rot, tilePx);
+      return { dpr, sat, srcMaxZ, zDraw, tilePx, c, rot, fwd, inv };
     };
 
     // ── U4 aim helpers (shared by draw() and the tap-promote hit test) ──────────────────────
@@ -215,10 +211,21 @@ export default function MapWindow() {
     // detaching (placing a point relocates the FPV to the pin via the orchestrator's re-seat,
     // so both arrive together). OUTSIDE FPV the batch-#6 rule stands: a placed point owns the
     // radar, then the old ladder.
-    const aimAnchorNow = (camNow: ReturnType<typeof useCameraStore.getState>) =>
-      (camNow.fpvHud ? camNow.camGeo : null) ??
-      camNow.tempPin ??
-      camNow.camGeo ?? { latDeg: camNow.focusLatDeg, lonDeg: camNow.focusLonDeg };
+    // audit #3 A1-6 / T36: this ladder is HOISTED now (lib/geo/aimAnchor). The local copy had
+    // drifted from the GL fan's in two ways that were real defects — it had no placed-PHOTO
+    // rung (so a placed shot owned the GL radar but not the chart's), and it reached a bare
+    // `camGeo` — the camera NADIR — BEFORE the view focus, seating the chart radar kilometres
+    // away at any tilt outside FPV and making the focus tail below it dead code.
+    const aimAnchorNow = (camNow: ReturnType<typeof useCameraStore.getState>) => {
+      const upNow = useUploadStore.getState();
+      return aimAnchorFor({
+        fpvActive: camNow.fpvHud !== null,
+        camGeo: camNow.camGeo,
+        placement: (upNow.phase === "placed" && upNow.placement) || null,
+        tempPin: camNow.tempPin,
+        focus: { latDeg: camNow.focusLatDeg, lonDeg: camNow.focusLonDeg },
+      });
+    };
 
     // Skyline sampler for the radar's occlusion GAPS (owner QA 2026-08-21 item 3) — the
     // horizonProfile bins mirrored by planFeed, honoured ONLY when the swept eye (photo apex
@@ -226,16 +233,19 @@ export default function MapWindow() {
     // eye ⇒ no gap claim — the traceStates honesty rule the time rail already follows).
     const skylineNow = (anchor: { latDeg: number; lonDeg: number }) => {
       const plan = usePlanStore.getState();
-      if (!plan.profileReady || !plan.profileBins || !plan.anchor || plan.anchor.kind === "focus")
-        return null;
-      const dN = (anchor.latDeg - plan.anchor.latDeg) * 111_320;
-      const dE =
-        (anchor.lonDeg - plan.anchor.lonDeg) *
-        111_320 *
-        Math.cos((anchor.latDeg * Math.PI) / 180);
-      if (dN * dN + dE * dE > AIMCONES.skylineGuardM ** 2) return null;
-      const bins = plan.profileBins;
-      return (azDeg: number) => sampleBins(bins, azDeg);
+      // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineBinsFor) — one rule on
+      // all three radar surfaces, and it now also requires enough EVIDENCE (profileCoverage),
+      // which no radar consulted before.
+      const bins = skylineBinsFor({
+        ready: plan.profileReady,
+        bins: plan.profileBins,
+        coverage: plan.profileCoverage,
+        eye: plan.anchor && plan.anchor.kind !== "focus" ? plan.anchor : null,
+        anchor,
+        guardM: AIMCONES.skylineGuardM,
+        minCoverage: PLAN.minCoverageForGaps,
+      });
+      return bins ? (azDeg: number) => sampleBins(bins, azDeg) : null;
     };
 
     const aimBodiesNow = (skyNow: ReturnType<typeof useSkyStore.getState>) => {
@@ -290,12 +300,29 @@ export default function MapWindow() {
         .replace("{y}", String(y));
       const cache = tiles.current;
       const hit = cache.get(url);
-      if (hit) return hit;
+      // audit #3 A1-4 / T37: a healthy or still-loading entry is reused; a FAILED one is reused
+      // only until its cooldown expires, then evicted so this very paint re-asks. Without the
+      // cooldown the eviction would fire every frame (draw runs at ~20 Hz in FPV).
+      if (hit && (hit.failedAtMs === undefined || Date.now() - hit.failedAtMs < TILE_RETRY_MS))
+        return hit;
+      if (hit) cache.delete(url);
       const entry: TileImg = { img: new Image(), ok: false };
       entry.img.crossOrigin = "anonymous";
       entry.img.onload = () => {
         entry.ok = true;
+        entry.failedAtMs = undefined;
         requestRedraw();
+      };
+      entry.img.onerror = () => {
+        entry.ok = false;
+        entry.failedAtMs = Date.now();
+        if (tileWarns.current < TILE_WARN_MAX) {
+          tileWarns.current += 1;
+          console.warn(
+            `[map-window] chart tile failed (retry in ${TILE_RETRY_MS / 1000}s): ${url}` +
+              (tileWarns.current === TILE_WARN_MAX ? " — further tile warnings suppressed" : ""),
+          );
+        }
       };
       entry.img.src = url;
       cache.set(url, entry);
@@ -355,11 +382,18 @@ export default function MapWindow() {
       // DEV-only introspection (the global.d.ts registry): the view lives in refs — browser
       // verification (follow-latch + screen-walk asserts) can't reach it any other way.
       if (import.meta.env.DEV) {
+        // audit #3 T36 rider: the RESOLVED aim anchor rides along. `verify-qaslice-cab` used to
+        // hand-transcribe the ladder to check where ◉ centres — the C8 anti-pattern — and that
+        // copy went stale the moment the ladder was hoisted, failing on an app that was right.
+        // Publishing what the app computed makes the check a read, not a re-derivation.
+        const anchorNow = aimAnchorNow(camNow);
         window.__mapWindowView = {
           latDeg: view.current.latDeg,
           lonDeg: view.current.lonDeg,
           rot,
           z: view.current.z,
+          anchorLatDeg: anchorNow.latDeg,
+          anchorLonDeg: anchorNow.lonDeg,
         };
       }
       const tpl = X.sat ? TILESETS.esriImageryUrl : TILESETS.cartoDarkUrl;
@@ -413,101 +447,48 @@ export default function MapWindow() {
         const rBase = h * AIMCONES.mapRadiusHK * (mobileShell ? AIMCONES.mobileRadiusK : 1);
         const skyline = skylineNow(anchor);
         const [ax, ay] = toPx(anchor.latDeg, anchor.lonDeg);
+        // THE canvas radar painter since audit #3 A1-8 / T35 (panels/radarCanvas) — this
+        // block and the mini-map's twin were ≈95 hand-maintained duplicated lines. The chart
+        // passes its anchor point, its live twist and a window-edge tracking ray; everything
+        // else is the shared model.
+        const radarBodies = aimBodiesNow(skyNow);
+        drawRadarCanvas(
+          ctx,
+          {
+            cx: ax,
+            cy: ay,
+            rotRad: rot,
+            rBase,
+            mobile: mobileShell,
+            dpr,
+            targetRayPx: Math.hypot(w, h),
+            pastInk: tokens.textSecondary,
+          },
+          radarBodies.map((b) => {
+            const day = aimDayFor(b.key, b.target, anchor, nowMs);
+            const split = splitAimRuns(day, nowMs);
+            const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
+            return {
+              key: b.key,
+              color: b.color,
+              emphasized: b.emphasized,
+              // Occlusion GAPS (owner QA 2026-08-21 item 3): fills + rim arcs fracture where
+              // the body hides behind the skyline (buildings/trees/terrain); the rise/set
+              // spokes and the direction line stay whole — they mark the horizon boundary and
+              // the live bearing, not clear sky. Null sampler ⇒ unfractured (honest fallback).
+              past: fractureRunsBySkyline(split.past, skyline),
+              future: fractureRunsBySkyline(split.future, skyline),
+              spokeRuns: day.kind === "ring" ? [] : day.runs,
+              nowAzDeg: nowPos.azDeg,
+              nowAltDeg: nowPos.altDeg,
+            };
+          }),
+        );
+        /** The N glyph is chart-only (the mini-map's north is a DOM chip) and rides the twist. */
         const pt = (azDeg: number, rr: number): [number, number] => {
-          // Compass az (N=0, CW) → canvas angle (north −y, east +x) + the chart rotation.
           const th = ((azDeg - 90) * Math.PI) / 180 + rot;
           return [ax + rr * Math.cos(th), ay + rr * Math.sin(th)];
         };
-        // ANNULAR band fill (S2): outer arc forward + inner arc reversed per run — the
-        // fan-centre wedge is retired with the compact scaling (bands are fixed radii now).
-        const sectorPath = (runs: readonly AimSample[][], rIn: number, rOut: number) => {
-          ctx.beginPath();
-          for (const run of runs) {
-            if (run.length < 2) continue;
-            ctx.moveTo(...pt(run[0].azDeg, rOut));
-            for (let i = 1; i < run.length; i++) ctx.lineTo(...pt(run[i].azDeg, rOut));
-            for (let i = run.length - 1; i >= 0; i--) ctx.lineTo(...pt(run[i].azDeg, rIn));
-            ctx.closePath();
-          }
-        };
-        // Rim ARC only (no radial legs) — the past/future stroke must not draw the spokes:
-        // those are the body's rise/set boundary and wear its identity colour (owner
-        // 2026-08-18); a ring's closePath seam stays retired.
-        const arcPath = (runs: readonly AimSample[][], r: number) => {
-          ctx.beginPath();
-          for (const run of runs) {
-            if (run.length < 2) continue;
-            const [px0, py0] = pt(run[0].azDeg, r);
-            ctx.moveTo(px0, py0);
-            for (let i = 1; i < run.length; i++) {
-              const [x, y] = pt(run[i].azDeg, r);
-              ctx.lineTo(x, y);
-            }
-          }
-        };
-        const radarBodies = aimBodiesNow(skyNow);
-        for (const b of radarBodies) {
-          const [kIn, kOut] = bandFor(b.key, mobileShell);
-          const rIn = rBase * kIn;
-          const rOut = rBase * kOut;
-          const day = aimDayFor(b.key, b.target, anchor, nowMs);
-          const split = splitAimRuns(day, nowMs);
-          // Occlusion GAPS (owner QA 2026-08-21 item 3): fills + rim arcs fracture where the
-          // body hides behind the skyline (buildings/trees/terrain); the rise/set spokes and
-          // the direction line stay whole — they mark the horizon boundary and the live
-          // bearing, not clear sky. Null sampler ⇒ unfractured (honest fallback).
-          const past = fractureRunsBySkyline(split.past, skyline);
-          const future = fractureRunsBySkyline(split.future, skyline);
-          // Future ink is the BODY colour for sun/moon (owner item 17 — sunGlow / moonDial
-          // against the inert past grey); the target band keeps the scrubber future-blue.
-          // Same rule as the GL fan's bandFutureInk — b.color IS that body ink here.
-          const futureInk = b.key === "target" ? tokens.timeFuture : b.color;
-          // Glassy fills, NEVER resting at zero (owner batch #5 item 1: the strips read as
-          // empty) — past NEUTRAL grey (inert history, never a day/night claim — owner
-          // 2026-08-18), future in futureInk; emphasis breathes the wash up to fillAlpha.
-          ctx.globalAlpha = b.emphasized ? AIMCONES.fillAlpha : AIMCONES.fillAlphaRest;
-          ctx.fillStyle = tokens.textSecondary;
-          sectorPath(past, rIn, rOut);
-          ctx.fill();
-          ctx.fillStyle = futureInk;
-          sectorPath(future, rIn, rOut);
-          ctx.fill();
-          ctx.globalAlpha = AIMCONES.rimAlpha;
-          ctx.lineWidth = 1 * dpr;
-          ctx.strokeStyle = tokens.textSecondary;
-          arcPath(past, rOut);
-          ctx.stroke();
-          ctx.strokeStyle = futureInk;
-          arcPath(future, rOut);
-          ctx.stroke();
-          // Rise/set radial spokes — BODY identity colour, spanning the band (inner→outer,
-          // the GL module's S2 rule); a ring (circumpolar) has no rise/set → no spokes.
-          if (day.kind !== "ring") {
-            ctx.strokeStyle = b.color;
-            ctx.beginPath();
-            for (const run of day.runs) {
-              if (run.length < 2) continue;
-              for (const s of [run[0], run[run.length - 1]]) {
-                ctx.moveTo(...pt(s.azDeg, rIn));
-                ctx.lineTo(...pt(s.azDeg, rOut));
-              }
-            }
-            ctx.stroke();
-          }
-          // Direction line at the CURRENT azimuth — body identity colour, pales below
-          // horizon. Sun/moon dials cap EXACTLY at their own band's outer radius (owner S2);
-          // the TARGET line is the tracking RAY (item 6) — it runs to the window edge.
-          const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
-          ctx.globalAlpha = nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown;
-          ctx.strokeStyle = b.color;
-          ctx.lineWidth = 1 * dpr;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          const rayLen = b.key === "target" ? Math.hypot(w, h) : rOut;
-          ctx.lineTo(...pt(nowPos.azDeg, rayLen));
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-        }
         // Small `N` on the radar rim (owner addendum 2026-08-21) — the chart rotates now, so
         // the radar carries its own north; rides pt() and turns with the twist.
         if (radarBodies.length > 0) {
@@ -515,7 +496,7 @@ export default function MapWindow() {
           const [nx, ny] = pt(0, rBase * bandFor("target", mobileShell)[1] * AIMCONES.northOffsetK);
           ctx.globalAlpha = AIMCONES.rimAlpha;
           ctx.fillStyle = tokens.textSecondary;
-          ctx.font = `600 ${Math.max(9 * dpr, rBase * AIMCONES.northSizeK)}px ${getComputedStyle(canvas).fontFamily}`;
+          ctx.font = `600 ${Math.max(9 * dpr, rBase * AIMCONES.northSizeK)}px ${cssFontFamily(canvas)}`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillText("N", nx, ny);
@@ -924,6 +905,10 @@ export default function MapWindow() {
     const unsubPlaces = usePlacesMapStore.subscribe(requestRedraw);
     // Skyline gaps (QA item 3): the profile mirror lands async per build — refracture on it.
     const unsubPlan = usePlanStore.subscribe(requestRedraw);
+    // T36: the anchor ladder now reads a PLACED photo, so the chart must repaint when the
+    // upload phase/placement changes — without this the new rung would only land on the next
+    // camera tick (the bug class the live-anchor note above already warns about).
+    const unsubUpload = useUploadStore.subscribe(requestRedraw);
     if (usePlacesMapStore.getState().onMap) usePlacesMapStore.getState().ensureLoaded();
     requestRedraw();
 
@@ -942,6 +927,7 @@ export default function MapWindow() {
       unsubTime();
       unsubPlaces();
       unsubPlan();
+      unsubUpload();
       cancelPress();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

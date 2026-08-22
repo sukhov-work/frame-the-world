@@ -342,17 +342,6 @@ export default function GlobeCanvas() {
         composer.setPixelRatio(dpr);
         composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
       }
-      // DEV introspection (QA-7b verify): the governed tier + effective DPR + the flat latch —
-      // headless verification asserts CONSISTENCY here (a governed-to-low headless run binds on
-      // tiers.low.dprCap before the lean 2D cap; a real mid-tier phone reaches dprCap2d).
-      if (import.meta.env.DEV) {
-        (window as unknown as { __globeQuality?: object }).__globeQuality = {
-          tier: t,
-          dpr,
-          flat2d: flatForDpr,
-          lean,
-        };
-      }
       bloomPass.enabled = tierBloom(t);
       // Shadows follow the DEVICE tier (capability), NOT the runtime governor. Shadows are a core
       // aesthetic, not a frame-rate-degradable lever like DPR/bloom/tile-detail — so the governor must
@@ -424,6 +413,31 @@ export default function GlobeCanvas() {
         })
         .catch((e) => console.warn("[globe] tiles disabled:", e));
     }
+
+    // DEV introspection (QA-7b verify; REGISTERED + de-cast by audit #3 A2-5): the governed
+    // tier, the EFFECTIVE DPR and both flat latches. LIVE GETTERS on purpose — the old shape
+    // was written inside applyTier, so on a shell where the flat flip does not re-apply the
+    // tier (desktop: `lean` is false) every field went stale at the last governor step. Named
+    // `leanFlat2d` because that is exactly what it is: the coarse-pointer-only latch that
+    // gates QUALITY.leanMobile.dprCap2d, permanently false on desktop. `mapFlat` is the
+    // engine's real flat-chart latch on EVERY shell, so a desktop check can still fail.
+    // Declared in global.d.ts; must sit after `tilesHandle` (its getter closes over it).
+    if (import.meta.env.DEV)
+      window.__globeQuality = {
+        get tier() {
+          return activeTier;
+        },
+        get dpr() {
+          return renderer.getPixelRatio();
+        },
+        get leanFlat2d() {
+          return flatForDpr;
+        },
+        get mapFlat() {
+          return tilesHandle?.mapFlat() ?? false;
+        },
+        lean: !!lean,
+      };
 
     // --- resize ---
     const onResize = () => {
@@ -509,7 +523,15 @@ export default function GlobeCanvas() {
         renderer.setScissorTest(true);
         renderer.setScissor(pip.x, vpH - (pip.y + pip.h), pip.w, pip.h);
         renderer.setViewport(pip.x, vpH - (pip.y + pip.h), pip.w, pip.h);
+        // audit #3 A2-2 / T38: three re-renders the SHADOW MAP on every `render()` unless
+        // `shadowMap.autoUpdate` is off, and `mid` (the coarse-pointer ceiling) has shadows on —
+        // so this second pass was paying a full 1024² depth pass per frame for a shadow map the
+        // composer pass rendered microseconds ago from the SAME camera and the SAME light. Skip
+        // it and restore, so nothing else in the app inherits the flag.
+        const shadowAuto = renderer.shadowMap.autoUpdate;
+        renderer.shadowMap.autoUpdate = false;
         renderer.render(scene, camera);
+        renderer.shadowMap.autoUpdate = shadowAuto;
         renderer.setScissorTest(false);
         renderer.setViewport(0, 0, vpW, vpH); // the composer's passes read this next frame
       }

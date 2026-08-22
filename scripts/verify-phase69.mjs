@@ -9,6 +9,7 @@
 // Leaves the pin LISTED unless --cleanup is passed (the demo-seed session wants a populated market).
 // Usage: wix dev on :4321, Chrome headless on CDP :9333, then `node scripts/verify-phase69.mjs [--cleanup]`.
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 import { createClient, OAuthStrategy } from "@wix/sdk";
 
 const APP = "http://localhost:4321";
@@ -83,7 +84,7 @@ check("quota.limit is 100 (owner re-ruling)", photos.json.quota?.limit === 100,
 const publicPins = (photos.json.photos ?? []).filter((p) => p.isPublic);
 if (publicPins.length === 0) {
   console.log("  NO PUBLIC PIN to list — save one as this member first.");
-  process.exit(2);
+  await finishVerify(2);
 }
 let listed = null;
 let target = null;
@@ -98,7 +99,7 @@ for (const p of publicPins) {
   console.log(`  · ${p.title}: ${r.status} ${r.json.error ?? ""}`);
 }
 check("POST /api/listings → 200", !!listed?.productId, JSON.stringify(listed ?? {}));
-if (!listed) process.exit(1);
+if (!listed) await finishVerify(1);
 check("listing stamps currency EUR (was null)", listed.currency === "EUR", `currency=${listed.currency}`);
 
 // A3 — owner sales row shape
@@ -139,6 +140,8 @@ if (CDP) {
   } catch {
     targetPage = await http("/json/new?about:blank", "GET");
   }
+  // audit #3 C11: register for close — an abandoned target holds a WebGL context.
+  trackTarget(CDP, targetPage.id);
   const ws = new WebSocket(targetPage.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
   let seq = 0;
@@ -311,4 +314,4 @@ if (CLEANUP && target) {
 }
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

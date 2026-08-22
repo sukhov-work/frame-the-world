@@ -8,6 +8,7 @@
 // resnap the fix corrects), and a corrective re-frame flight actually FIRED after the initial landing.
 // Screenshots → verify-shots/pin-reframe-*.  Usage: node scripts/verify-pin-reframe.mjs [cdpPort] [shotsDir]
 import { writeFileSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9333";
 const URL = "http://localhost:4321/";
@@ -24,6 +25,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 
@@ -227,4 +230,4 @@ for (const e of globeErrors.slice(0, 6)) console.log("    ! " + e);
 
 await send("Target.closeTarget", { targetId: target.id }).catch(() => {});
 ws.close();
-process.exit(pass && paramGateOk && cleanConsole ? 0 : 1);
+await finishVerify(pass && paramGateOk && cleanConsole ? 0 : 1);

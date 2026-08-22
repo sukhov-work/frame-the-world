@@ -5,6 +5,7 @@
 // day · the night sky above the horizon reads near-black (navy-floor fix). Screenshots →
 // verify-shots/phase55-36..40. Usage: node scripts/verify-s5-night.mjs [cdpPort] [shotsDir]
 import { writeFileSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9333";
 const URL = "http://localhost:4321/";
@@ -27,6 +28,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 
@@ -204,4 +207,4 @@ await shot("phase55-40-leo-day-limb.jpeg");
 
 console.log(failures.length ? "FAIL: " + failures.join("; ") : "PASS");
 ws.close();
-process.exit(failures.length ? 1 : 0);
+await finishVerify(failures.length ? 1 : 0);

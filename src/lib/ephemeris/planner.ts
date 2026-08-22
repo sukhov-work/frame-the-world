@@ -72,8 +72,48 @@ export interface PlanObserver {
 /** Civil twilight boundary (deg, geometric sun elevation). */
 export const CIVIL_TWILIGHT_DEG = -6;
 
+/** Observer elevation band (m) — T32, fixed 2026-08-22. astronomy-engine's `Atmosphere()`, which
+ *  the rise/set searches reach through the Observer's elevation, THROWS `Invalid elevation` for
+ *  anything non-finite or outside [−500, +100000] (astronomy.js:4809). This planner is fed the
+ *  LIVE camera height, and at LEO in the 2D shell that is millions of metres — browser-caught
+ *  during the U6 verify, non-fatal only because the orchestrator's throttled frame catch
+ *  swallowed it. The floor was already here; the CEILING is new and sits deliberately far below
+ *  the library's own limit: past ~10 km the horizon dip is within a few arc-minutes of its
+ *  asymptote, so the clamp costs nothing an almanac chip could show, and it keeps a plausible
+ *  aerial observer rather than silently reporting orbital rise times. */
+export const OBSERVER_MIN_ELEV_M = -400;
+export const OBSERVER_MAX_ELEV_M = 10_000;
+
+/** Eye-above-ground ceiling (m). `SearchRiseSet(..., metersAboveGround)` builds a SECOND observer
+ *  at `observer.height − metersAboveGround` and runs it through the same `Atmosphere()`, so
+ *  clamping the observer alone is NOT enough — an un-clamped 6,000 km eye against a clamped
+ *  10 km observer throws `Invalid elevation: -5990000`. Found by the T32 test, not by inspection. */
+export const OBSERVER_MAX_EYE_M = 10_000;
+
+/** Clamp into the band above; a non-finite input falls back to the sea-level datum (a NaN would
+ *  otherwise sail through both `Math.max` and `Math.min` and throw inside the library). Exported
+ *  so the planner's range contract is testable without driving a whole almanac. */
+export const clampObserverElevationM = (m: number): number =>
+  Number.isFinite(m) ? Math.min(OBSERVER_MAX_ELEV_M, Math.max(OBSERVER_MIN_ELEV_M, m)) : 0;
+
+/**
+ * The ONE writer of the elevations every astronomy-engine call in this module is allowed to see
+ * (T32). Returns the observer height and the eye-above-ground the rise/set search may subtract,
+ * with `obsM − eyeM` guaranteed inside the library's band by construction:
+ *   • `eyeM ≤ OBSERVER_MAX_EYE_M`, and `obsM` is at least `groundM` when the sum fits, so
+ *     `obsM − eyeM = groundM ∈ band`;
+ *   • when the sum is clipped, `obsM − eyeM = OBSERVER_MAX_ELEV_M − eyeM ∈ [0, band max]`.
+ */
+export const planElevationsM = (o: PlanObserver): { obsM: number; eyeM: number } => {
+  const groundM = clampObserverElevationM(o.groundAltM);
+  const eyeM = Number.isFinite(o.eyeAboveGroundM)
+    ? Math.min(OBSERVER_MAX_EYE_M, Math.max(0, o.eyeAboveGroundM))
+    : 0;
+  return { obsM: clampObserverElevationM(groundM + eyeM), eyeM };
+};
+
 const toObserver = (o: PlanObserver): Observer =>
-  new Observer(o.latDeg, o.lonDeg, Math.max(-400, o.groundAltM + o.eyeAboveGroundM));
+  new Observer(o.latDeg, o.lonDeg, planElevationsM(o).obsM);
 
 const DEG = 180 / Math.PI;
 
@@ -114,8 +154,11 @@ export function dayEvents(
     if (inWindow(ms)) events.push(annotate(kind, body, ms, o));
   };
 
+  // T32: the CLAMPED eye — `obs` above is the clamped observer, and SearchRiseSet subtracts this
+  // from it to build the ground observer, so the two must come from the same normalisation.
+  const { eyeM: riseSetEyeM } = planElevationsM(o);
   const riseSet = (body: Body, dir: 1 | -1): number | null =>
-    SearchRiseSet(body, obs, dir, start, windowDays, o.eyeAboveGroundM)?.date.getTime() ?? null;
+    SearchRiseSet(body, obs, dir, start, windowDays, riseSetEyeM)?.date.getTime() ?? null;
   push("sunrise", "sun", riseSet(Body.Sun, 1));
   push("sunset", "sun", riseSet(Body.Sun, -1));
   push("moonrise", "moon", riseSet(Body.Moon, 1));

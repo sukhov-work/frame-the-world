@@ -11,13 +11,18 @@ import {
   type AimSample,
 } from "../../lib/ephemeris/azSector";
 import { usePlanStore } from "../../store/plan";
-import { sampleBins } from "../../lib/geo/horizonProfile";
+import { useUploadStore } from "../../store/upload";
+import { aimAnchorFor } from "../../lib/geo/aimAnchor";
+import { type RadarBandKey } from "../../lib/geo/radarBands";
+import { sampleBins, skylineBinsFor } from "../../lib/geo/horizonProfile";
 import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
+import { cssInk } from "../../lib/theme/cssInk";
 import { tokens } from "../../lib/theme/tokens";
-import { AIMCONES, FOCALCONE } from "../globe/tuning";
+import { AIMCONES, FOCALCONE, PLAN } from "../globe/tuning";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { AimJoystick } from "../controls/Joystick";
+import { drawRadarCanvas } from "./radarCanvas";
 import "../../styles/mini-map.css";
 
 /**
@@ -44,7 +49,7 @@ const SIZE_PX = 200;
 /** Radar outer-circle radius as a canvas fraction — N chip + scale text stay outside it. */
 const RADAR_R_FRAC = 0.44;
 
-type AimKey = "target" | "sun" | "moon";
+type AimKey = RadarBandKey;
 
 interface RadarBody {
   key: AimKey;
@@ -62,20 +67,6 @@ interface RadarBody {
  *  RADIUS is not scaled here — the card itself is already CSS-shrunk to 124px on /m. */
 const mobileShell = typeof document !== "undefined" && document.body.classList.contains("m");
 
-/** The GL module's band allocation, read from the SAME tunables (one geometry model). */
-const bandFor = (key: AimKey): readonly [number, number] =>
-  key === "sun"
-    ? mobileShell
-      ? AIMCONES.bandSunMobile
-      : AIMCONES.bandSun
-    : key === "moon"
-      ? mobileShell
-        ? AIMCONES.bandMoonMobile
-        : AIMCONES.bandMoon
-      : mobileShell
-        ? AIMCONES.bandTargetMobile
-        : AIMCONES.bandTarget;
-
 // Per-body aim-day memo (the MapWindow idiom) — ~145 ephemeris calls per (target, day,
 // anchor); the 20 Hz pose repaint only re-splits at now. Module singleton: the island mounts
 // once per page and the memo stays warm across FPV sessions.
@@ -85,23 +76,39 @@ const aimCache = new Map<AimKey, { key: string; day: AimDay }>();
 function radarNow(): RadarBody[] {
   const cam = useCameraStore.getState();
   const skyNow = useSkyStore.getState();
-  const anchor = cam.camGeo;
-  if (!skyNow.aimVisible || !anchor) return [];
+  // T36: through the ONE shared ladder (lib/geo/aimAnchor). This surface mounts only inside
+  // FPV, so rung 1 always wins and the result is identical to the `cam.camGeo` it replaces —
+  // the point is that a future change to the ladder can no longer reach two surfaces and miss
+  // this one. The null guard stays: it covers the frames before the first camGeo mirror, where
+  // falling through to the view focus would draw a radar somewhere the walker is not.
+  if (!skyNow.aimVisible || !cam.camGeo) return [];
+  const upNow = useUploadStore.getState();
+  const anchor = aimAnchorFor({
+    fpvActive: true,
+    camGeo: cam.camGeo,
+    placement: (upNow.phase === "placed" && upNow.placement) || null,
+    tempPin: cam.tempPin,
+    focus: { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg },
+  });
   const nowMs = sceneTimeMs();
   // Skyline sampler for occlusion GAPS (owner QA 2026-08-21 item 3) — this surface is
   // FPV-only and anchored at the walking eye, exactly where planFeed sweeps its profile;
   // the AIMCONES.skylineGuardM match keeps a stale far-away profile from lending its gaps.
   const plan = usePlanStore.getState();
-  let skyline: ((azDeg: number) => number) | null = null;
-  if (plan.profileReady && plan.profileBins && plan.anchor && plan.anchor.kind !== "focus") {
-    const dN = (anchor.latDeg - plan.anchor.latDeg) * 111_320;
-    const dE =
-      (anchor.lonDeg - plan.anchor.lonDeg) * 111_320 * Math.cos((anchor.latDeg * Math.PI) / 180);
-    if (dN * dN + dE * dE <= AIMCONES.skylineGuardM ** 2) {
-      const bins = plan.profileBins;
-      skyline = (azDeg: number) => sampleBins(bins, azDeg);
-    }
-  }
+  // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineBinsFor) — one rule on all
+  // three radar surfaces, evidence floor included.
+  const bins = skylineBinsFor({
+    ready: plan.profileReady,
+    bins: plan.profileBins,
+    coverage: plan.profileCoverage,
+    eye: plan.anchor && plan.anchor.kind !== "focus" ? plan.anchor : null,
+    anchor,
+    guardM: AIMCONES.skylineGuardM,
+    minCoverage: PLAN.minCoverageForGaps,
+  });
+  const skyline: ((azDeg: number) => number) | null = bins
+    ? (azDeg: number) => sampleBins(bins, azDeg)
+    : null;
   const wanted: { key: AimKey; target: SkyTarget; color: string }[] = [];
   // UNFOLLOW/SHOW-off (2026-08-19): a hidden target draws no radar ink either.
   if (skyNow.aimTarget && skyNow.visible)
@@ -135,8 +142,11 @@ function radarNow(): RadarBody[] {
   });
 }
 
+/** audit #3 A1-11 / T38: memoised at `lib/theme/cssInk` — this used to force a style recalc per
+ *  token per paint (8 here × 20 Hz). The values are `:root` tokens; they cannot change without
+ *  an explicit `invalidateCssInk()`. */
 function cssVar(el: HTMLElement, name: string): string {
-  return getComputedStyle(el).getPropertyValue(name).trim();
+  return cssInk(el, name);
 }
 
 function draw(
@@ -215,78 +225,34 @@ function draw(
   // (target ray to the patch edge).
   ctx.setTransform(1, 0, 0, 1, px / 2, px / 2);
   if (radar.length > 0) {
-    const rBase = px * RADAR_R_FRAC;
-    const pt = (azDeg: number, rr: number): [number, number] => {
-      const th = ((azDeg - 90) * Math.PI) / 180;
-      return [rr * Math.cos(th), rr * Math.sin(th)];
-    };
-    const sectorPath = (runs: readonly AimSample[][], rIn: number, rOut: number) => {
-      ctx.beginPath();
-      for (const run of runs) {
-        if (run.length < 2) continue;
-        ctx.moveTo(...pt(run[0].azDeg, rOut));
-        for (let i = 1; i < run.length; i++) ctx.lineTo(...pt(run[i].azDeg, rOut));
-        for (let i = run.length - 1; i >= 0; i--) ctx.lineTo(...pt(run[i].azDeg, rIn));
-        ctx.closePath();
-      }
-    };
-    const arcPath = (runs: readonly AimSample[][], r: number) => {
-      ctx.beginPath();
-      for (const run of runs) {
-        if (run.length < 2) continue;
-        const [px0, py0] = pt(run[0].azDeg, r);
-        ctx.moveTo(px0, py0);
-        for (let i = 1; i < run.length; i++) {
-          const [x, y] = pt(run[i].azDeg, r);
-          ctx.lineTo(x, y);
-        }
-      }
-    };
-    for (const b of radar) {
-      const [kIn, kOut] = bandFor(b.key);
-      const rIn = rBase * kIn;
-      const rOut = rBase * kOut;
-      // Sun/moon future = BODY ink (owner item 17); target keeps future-blue. b.color comes
-      // from the tokens bridge — there is NO --color-moon-dial custom property to cssVar.
-      const futureInk =
-        b.key === "target" ? cssVar(canvas, "--color-time-future") : b.color;
-      // Fills never rest at zero (owner batch #5 item 1) — the wash is always on, a focus
-      // tap breathes it up to fillAlpha. ×2 = patch scale: the map ink below is dense.
-      ctx.globalAlpha = (b.emphasized ? AIMCONES.fillAlpha : AIMCONES.fillAlphaRest) * 2;
-      ctx.fillStyle = cssVar(canvas, "--color-text-secondary");
-      sectorPath(b.past, rIn, rOut);
-      ctx.fill();
-      ctx.fillStyle = futureInk;
-      sectorPath(b.future, rIn, rOut);
-      ctx.fill();
-      ctx.globalAlpha = AIMCONES.rimAlpha;
-      ctx.lineWidth = 1 * dpr;
-      ctx.strokeStyle = cssVar(canvas, "--color-text-secondary");
-      arcPath(b.past, rOut);
-      ctx.stroke();
-      ctx.strokeStyle = futureInk;
-      arcPath(b.future, rOut);
-      ctx.stroke();
-      if (b.day.kind !== "ring") {
-        ctx.strokeStyle = b.color;
-        ctx.beginPath();
-        for (const run of b.day.runs) {
-          if (run.length < 2) continue;
-          for (const s of [run[0], run[run.length - 1]]) {
-            ctx.moveTo(...pt(s.azDeg, rIn));
-            ctx.lineTo(...pt(s.azDeg, rOut));
-          }
-        }
-        ctx.stroke();
-      }
-      ctx.globalAlpha = b.nowAltDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown;
-      ctx.strokeStyle = b.color;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(...pt(b.nowAzDeg, b.key === "target" ? px * 0.75 : rOut));
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
+    // THE canvas radar painter since audit #3 A1-8 / T35 (panels/radarCanvas) — this block and
+    // the expanded chart's twin were ≈95 hand-maintained duplicated lines. This surface is
+    // always centred (the transform above put the origin at the viewer) and always north-up,
+    // and it doubles the fill wash because its map ink is dense at patch scale.
+    drawRadarCanvas(
+      ctx,
+      {
+        cx: 0,
+        cy: 0,
+        rotRad: 0,
+        rBase: px * RADAR_R_FRAC,
+        mobile: mobileShell,
+        dpr,
+        targetRayPx: px * 0.75,
+        pastInk: cssVar(canvas, "--color-text-secondary"),
+        fillAlphaK: 2,
+      },
+      radar.map((b) => ({
+        key: b.key,
+        color: b.color,
+        emphasized: b.emphasized,
+        past: b.past,
+        future: b.future,
+        spokeRuns: b.day.kind === "ring" ? [] : b.day.runs,
+        nowAzDeg: b.nowAzDeg,
+        nowAltDeg: b.nowAltDeg,
+      })),
+    );
   }
 
   // Viewer: the U3 FOV cone (width = the live horizontal FPV FOV, so it visibly narrows as
