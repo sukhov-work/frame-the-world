@@ -10,8 +10,11 @@
  *   verified in-browser per GUIDE_PLAN's done gates.
  * - Voice: action first, imperative, plain words. UI labels verbatim in CAPS as rendered.
  *   One idea per topic; related ideas are [[crosslinks]], not asides.
- * - Images: pre-compressed webp under public/guide/ (720 px wide desktop, 402 px portrait
- *   /m), EVERY path also added to scripts/warm-prod-assets.mjs — a release resets the asset
+ * - Images: pre-compressed webp under public/guide/, shot by scripts/shoot-guide.mjs.
+ *   Desktop frames are 720 px wide (some are cropped taller or shorter); /m frames are
+ *   360×783. Declare the real `w`/`h` on every entry — the integrity test reads the webp
+ *   header and fails on a mismatch, so a re-shoot that changes a crop cannot drift.
+ *   EVERY path also goes into scripts/warm-prod-assets.mjs — a release resets the asset
  *   edge cache cold (the 2026-07-16 outage lesson).
  * - `where` lines name the entry point per shell; omit `mobile` for desktop-only surfaces.
  */
@@ -25,6 +28,14 @@ export interface GuideMedia {
   caption?: string;
   /** Which shell the shot shows; mobile shots render narrower (portrait). */
   shell?: GuideShell;
+  /**
+   * Intrinsic pixel size, so a lazy image reserves its box instead of shifting the text
+   * under it. Six distinct sizes ship, which is why this is per-media and not a per-shell
+   * CSS ratio. Asserted against the file header by guideContent.test.ts — a re-shoot that
+   * changes a size fails loudly instead of drifting.
+   */
+  w?: number;
+  h?: number;
 }
 
 interface GuideWhere {
@@ -39,10 +50,28 @@ export interface GuideTopic {
   where?: GuideWhere;
   /** Short prose. May carry [[id]] / [[id|label]] crosslinks (lib/guide/inline.ts). */
   body?: string;
+  /**
+   * An UNORDERED enumeration — the controls on a deck, the chips in a stack. Renders as a
+   * `<ul>`. Use it wherever the alternative is a colon followed by ten commas: those lists
+   * are not sequential, so they must never be pushed into `steps` (which renders `<ol>` and
+   * promises an order that does not exist).
+   */
+  list?: string[];
   /** Numbered steps, one action each. */
   steps?: string[];
   /** The one gotcha worth knowing — rendered as a distinct callout line. */
   tip?: string;
+  /**
+   * Search-only aliases: the word a reader types that appears nowhere in the copy — a
+   * synonym, a glyph's name, a platform ("android"), a photographer's word ("shutter").
+   * NOT rendered anywhere.
+   *
+   * Fenced BEHAVIOURALLY by guideSearchGolden.test.ts, not lexically: an alias must actually
+   * reach the topic that declares it, no alias may be claimed by more than two topics, and
+   * none may make an unanswerable query answerable. Adding a generic word here will turn the
+   * suite red rather than quietly widen the topic's reach.
+   */
+  keys?: string[];
   media?: GuideMedia[];
 }
 
@@ -59,19 +88,90 @@ export interface GuideChapter {
 export interface GuideGoal {
   goal: string;
   target: string;
+  /**
+   * The reading ROUTE this goal opens, in order. `route[0]` is always `target`, so every
+   * existing consumer keeps working; renderers that understand routes draw a
+   * `STEP n OF m · <next> →` footer. 3–5 ids. Every id is validated by guideContent.test.ts.
+   */
+  route?: string[];
 }
 
+/**
+ * `route` = the reading path the goal opens, `route[0] === target` always (2026-08-22g).
+ * Four rows were added in the same pass: nothing used to route into the TIME or PHONE
+ * chapters at all, and the two new topics needed a door.
+ */
 export const GUIDE_GOALS: GuideGoal[] = [
-  { goal: "Catch the moon inside my composition", target: "find" },
-  { goal: "Line up a sunset over this skyline", target: "find-sunsets" },
-  { goal: "Read when the light is right at a spot", target: "plan" },
-  { goal: "Scout a location before I go", target: "fpv" },
-  { goal: "See what stands in the sky right now", target: "target" },
-  { goal: "Plan a meteor-shower night", target: "plan-meteors" },
-  { goal: "See which way the sun will travel", target: "target-radar" },
-  { goal: "Correct a building that looks wrong", target: "fpv-height" },
-  { goal: "Share an exact view and moment", target: "save" },
-  { goal: "Put my photo on the globe", target: "photo" },
+  {
+    goal: "Catch the moon inside my composition",
+    target: "find",
+    route: ["find", "fpv-enter", "find-concept", "find-chips", "find-jump"],
+  },
+  {
+    goal: "Line up a sunset over this skyline",
+    target: "find-sunsets",
+    route: ["find-sunsets", "fpv-enter", "fpv-focal", "trust-airless"],
+  },
+  {
+    goal: "Read when the light is right at a spot",
+    target: "plan",
+    route: ["plan", "move-pin", "plan-verdicts", "plan-today", "save-ics"],
+  },
+  {
+    goal: "Scout a location before I go",
+    target: "fpv",
+    route: ["fpv", "fpv-enter", "fpv-walk", "fpv-focal", "fpv-map"],
+  },
+  {
+    goal: "See what stands in the sky right now",
+    target: "target",
+    route: ["target", "target-search", "target-card", "target-toggles", "target-radar"],
+  },
+  {
+    goal: "Plan a meteor-shower night",
+    target: "plan-meteors",
+    route: ["plan-meteors", "target-search", "time-bands"],
+  },
+  {
+    goal: "See which way the sun will travel",
+    target: "target-radar",
+    route: ["target-radar", "fpv-cone", "fpv-map-gestures"],
+  },
+  {
+    goal: "Correct a building that looks wrong",
+    target: "fpv-height",
+    route: ["fpv-height", "fpv-enter", "plan-verdicts"],
+  },
+  {
+    goal: "Share an exact view and moment",
+    target: "save",
+    route: ["save", "save-links", "save-place", "save-places", "save-onmap"],
+  },
+  {
+    goal: "Put my photo on the globe",
+    target: "photo",
+    route: ["photo", "photo-upload", "photo-align", "photo-fpv", "photo-pins"],
+  },
+  {
+    goal: "Move the scene to another moment",
+    target: "time",
+    route: ["time", "time-scrub", "time-bands", "time-inputs", "time-events"],
+  },
+  {
+    goal: "Work one-handed on my phone",
+    target: "mobile",
+    route: ["mobile", "mobile-map", "mobile-layout", "mobile-chips", "mobile-gestures"],
+  },
+  {
+    goal: "Wander and see what other people framed",
+    target: "start-explore",
+    route: ["start-explore", "photo-pins", "move-orbit"],
+  },
+  {
+    goal: "Drive the whole thing from the keyboard",
+    target: "keys",
+    route: ["keys", "fpv-walk", "time-scrub"],
+  },
 ];
 
 export const GUIDE_CHAPTERS: GuideChapter[] = [
@@ -85,6 +185,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "moon or any sky target will stand inside it.",
     media: {
       src: "/guide/welcome.webp",
+      w: 720,
+      h: 450,
       caption: "The landing screen. Any click on the globe drops you into the instrument.",
       shell: "desktop",
     },
@@ -92,6 +194,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "start-loop",
         title: "The planning loop",
+        keys: ["workflow", "how to", "getting started", "basics", "first steps"],
         body:
           "Most answers come from one loop: pick a spot, stand in it, command time, read " +
           "the panels.",
@@ -106,23 +209,61 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "start-shells",
         title: "One app, two shells",
+        keys: ["desktop", "phone", "which shell", "android", "tablet", "ipad"],
         body:
           "The desktop shell at / carries every feature. The phone shell at /m carries the " +
           "full planning loop — sheets and touch controls instead of panels. Phones land on " +
           "/m automatically; the DESKTOP chip switches back and remembers the choice. Your " +
           "tracked target, your toggles AND your POSE carry across shells — switch while " +
           "standing somewhere and you arrive at the same place, looking the same way.",
-        tip: "Photo upload and the marketplace stay desktop-only by design.",
+        tip:
+          "The phone leaves out photo upload, the marketplace, the Milky-Way season card, " +
+          "the meteor card and calendar export.",
       },
       {
         id: "start-real",
         title: "What is real here",
+        keys: ["accuracy", "real", "data", "source", "true"],
         body:
           "Terrain and buildings come from real map data. The sun, the moon, planets and " +
           "9,000 catalog stars sit at their true positions for the scene time, computed to " +
           "about an arcminute. When a panel says the moon clears your skyline at 21:14, " +
           "that is a measurement, not an illustration. Limits worth knowing live in " +
           "[[trust]].",
+      },
+      {
+        id: "start-explore",
+        title: "Explore — the ambient tour",
+        where: { desktop: "Explore, in the nav" },
+        keys: ["tour", "ambient", "journey", "slideshow", "browse"],
+        body:
+          "Explore flies the globe from one public photo pin to the next by itself, so you " +
+          "can see what other people have framed without searching for anything. Touch the " +
+          "globe or press Escape to take the camera back. It refuses to start while an " +
+          "upload is in progress.",
+        tip: "While the tour runs, a chip reads ◉ EXPLORING · PIN TO PIN.",
+      },
+      {
+        id: "keys",
+        title: "Keyboard map",
+        where: { desktop: "Anywhere on the desktop shell" },
+        keys: ["shortcut", "shortcuts", "hotkey", "hotkeys", "wasd", "spacebar", "escape", "esc"],
+        body:
+          "The desktop shell answers the keyboard nearly everywhere, and first-person view " +
+          "prints its own reminder in the corner of the HUD.",
+        list: [
+          "WASD or the arrow keys — walk, in [[fpv|first-person view]].",
+          "Shift — stride, at triple speed. Option/Alt — creep, at half.",
+          "Space — rise. Shift+Space — sink.",
+          "Escape — unwind one layer: the sky menu, then a building edit, then the MAP " +
+            "window, then Explore, then the view itself.",
+          "On the time rail: ← and → step 10 minutes, Home and End jump 6 hours.",
+          "In the search box: ↓ and ↑ walk the suggestions, Enter takes one, Escape " +
+            "dismisses them.",
+        ],
+        tip:
+          "Every knob and slider on the desktop deck is a keyboard control too — focus one " +
+          "and the arrow keys drive it.",
       },
     ],
   },
@@ -136,10 +277,12 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "a drag or a search away.",
     media: {
       src: "/guide/orbit.webp",
+      w: 720,
+      h: 450,
       caption:
-        "Orbit view over Dnipro. Camera deck bottom-right with the 2×4 layer grid, search " +
-        "top-centre, the planned focal cone and direction radar drawn on the ground, time " +
-        "rail along the bottom.",
+        "Orbit view over Dnipro. Camera deck bottom-right with its four-column toggle grid, " +
+        "search top-centre, the planned focal cone and direction radar drawn on the ground, " +
+        "time rail along the bottom.",
       shell: "desktop",
     },
     topics: [
@@ -148,10 +291,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Fly the globe",
         where: { desktop: "The globe itself", mobile: "The globe itself" },
         body:
-          "On /m the shell starts as a flat 2D chart — the ▲ 3D chip or a two-finger " +
-          "tilt lifts it into the globe ([[mobile-map]]).",
+          "On /m the shell starts as a flat 2D chart, and the ▲ 3D chip is the only way up " +
+          "into the globe ([[mobile-map]]).",
         steps: [
-          "Drag to orbit. Scroll or pinch to zoom.",
+          "Drag to orbit.",
+          "Scroll or pinch to zoom.",
           "Zoom in far enough and buildings rise from the ground.",
         ],
         tip:
@@ -165,11 +309,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Search bar in the top nav · the EARTH tab",
           mobile: "SEARCH tab · EARTH",
         },
+        keys: ["geocode", "address", "city", "town", "location", "goto"],
         steps: [
           "Switch the search to EARTH — it opens on SKY.",
           "Type a place name — suggestions appear as you type.",
           "Press Enter for a deeper search when the suggestions miss.",
-          "Click a result. The camera flies there.",
+          "Walk the suggestions with ↓ and ↑, or press Escape to dismiss them.",
+          "Click a result — the camera flies there.",
         ],
         tip:
           "The empty field tells you what it wants: SKY offers examples like m31 · moon · " +
@@ -179,31 +325,45 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "move-pin",
         title: "Drop a planning pin",
         where: {
-          desktop: "Double-click the ground (this also stands you there)",
+          desktop: "Double-click the ground",
           mobile: "Long-press the ground",
         },
         body:
-          "The pin is the anchor: [[plan|PLAN]] reads the light at the pin, and LOOK FROM " +
-          "HERE stands you on it. On desktop, double-clicking drops the pin and enters " +
-          "[[fpv|first-person view]] in one motion.",
+          "The pin seats [[target-radar|the aim radar]] and [[fpv-cone|the focal cone]] — " +
+          "the camera aims from it. On desktop a small popup opens beside the new pin " +
+          "carrying ◎ LOOK FROM HERE, which is how you [[fpv-enter|stand on it]], and " +
+          "↑ UPLOAD HERE for a photo with no GPS. [[plan|PLAN]] reads the light where you " +
+          "STAND, not at the pin — take ◎ LOOK FROM HERE for the verdict there.",
         tip: "On /m, ✕ CLEAR PIN removes it.",
       },
       {
         id: "move-deck",
         title: "The camera deck",
         where: { desktop: "Bottom-right stack" },
+        keys: ["toggles", "layers", "compass", "bearing", "north", "satellite", "imagery"],
         body:
-          "A 2×4 grid of toggles — compass, 2D/3D, sun-moon guides, satellite imagery " +
-          "(SAT), the pin (PIN), buildings (BLD), AIM ([[target-radar|the radar]]) and " +
-          "PLC ([[save-onmap|places on the map]]) — plus ALTITUDE, FOCAL ZOOM and " +
-          "BUILDINGS sliders. In first-person view the deck compacts to what matters " +
-          "there. BLD shows or hides the 3D buildings — the most detailed model " +
-          "available for where you are looking loads on its own.",
+          "Eight toggles and the compass rose, over four columns. The deck compacts in " +
+          "first-person view to what matters there.",
+        list: [
+          "The compass rose — click it to face north.",
+          "3D / 2D — the chip shows the mode it switches to.",
+          "☀☾ — the sun and moon sky guides.",
+          "SAT — satellite imagery on the ground.",
+          "PIN — everyone's public [[photo-pins|photo pins]].",
+          "BLD — the 3D buildings; the best model for where you look loads on its own.",
+          "AIM — [[target-radar|the direction radar]].",
+          "PLC — [[save-onmap|your saved places on the map]].",
+          "VEC — the road, river and park ink over the ground.",
+        ],
+        tip:
+          "The knobs change with the mode: CAM TILT above the row, ROTATE and ZOOM below " +
+          "it in orbit; ALTITUDE, FOCAL ZOOM and BUILDINGS in first-person view.",
       },
       {
         id: "move-minimap",
         title: "The mini-map",
         where: { desktop: "Bottom-left (first-person view)", mobile: "Top-right" },
+        keys: ["minimap", "mini map", "inset", "chart", "puck"],
         body:
           "A small chart of where you stand, your view drawn as a translucent cone. " +
           "Click the map itself to open [[fpv-map|the full MAP window]]. On /m, tap its " +
@@ -218,11 +378,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Corner of the mini-map",
           mobile: "Left rail — above the walk stick in first-person view",
         },
+        keys: ["joystick", "stick", "pad", "thumbstick", "heading", "focal", "mm"],
         body:
           "A round stick that aims the SHOT, not the walk. Push left or right to swing the " +
           "heading; push up to go telephoto, down to go wide. It reads out the focal length " +
-          "in millimetres under the pad, and [[fpv-cone|the cone]] follows it live on every " +
-          "surface. Inside first-person view it steers the real camera; outside, the plan.",
+          "in millimetres under the pad ([[fpv-focal-axes|why two numbers]]), and " +
+          "[[fpv-cone|the cone]] follows it live on every surface. Inside first-person view " +
+          "it steers the real camera; outside, the plan.",
         tip:
           "It is a RATE control, like the desktop encoder knobs: how far you push sets how " +
           "fast it turns, and letting go eases to a stop rather than snapping.",
@@ -239,6 +401,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "compose here is what every planning tool measures against.",
     media: {
       src: "/guide/fpv.webp",
+      w: 720,
+      h: 450,
       caption:
         "Standing at street level. The HUD reads position, ground, focal, heading, pitch and " +
         "eye height; the mini-map carries the radar and the AIM stick; the compact deck stays " +
@@ -253,12 +417,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Double-click the ground, or My spot in the nav",
           mobile: "◎ LOOK FROM HERE chip",
         },
+        keys: ["street level", "eye height", "ground level", "my spot"],
         steps: [
-          "Double-click where you want to stand — the pin drops and you land at eye " +
-            "height, looking along the horizon.",
-          "From an existing [[move-pin|pin]], LOOK FROM HERE on the camera deck does the same.",
-          "On /m, 🧭 MY LOC flies the chart to your device fix and arms ◎ LOOK FROM " +
-            "HERE — one more tap stands you there.",
+          "Double-click where you want to stand — a [[move-pin|pin]] drops there.",
+          "Press ◎ LOOK FROM HERE in the popup beside it — you land at eye height, " +
+            "looking along the horizon.",
+          "On /m, tap 🧭 MY LOC to fly the chart to your device fix.",
+          "Then tap the ◎ LOOK FROM HERE chip it arms.",
         ],
         tip:
           "My spot uses your device location and keeps it in the browser — it is never " +
@@ -271,15 +436,20 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Keyboard + mouse",
           mobile: "Left-thumb joystick + one-finger drag",
         },
+        keys: ["wasd", "arrows", "joystick", "strafe", "run", "rise", "sink", "altitude"],
         steps: [
           "Drag to look around.",
-          "Walk with WASD or the arrow keys. Hold Shift to stride, Option/Alt to creep.",
+          "Walk with WASD or the arrow keys.",
+          "Hold Shift to stride at triple speed, Option/Alt to creep at half.",
           "Hold Space to rise, Shift+Space to sink — a short tap nudges by a centimetre.",
+          "On /m, use the ⤒ and ⤓ pads on the right rail to rise and sink.",
         ],
         tip: "On /m the joystick keeps walking while your other finger drags the view.",
         media: [
           {
             src: "/guide/fpv-m.webp",
+            w: 360,
+            h: 783,
             caption:
               "Touch controls on /m: the AIM stick above the WALK stick on the left rail, " +
               "rise and sink pads on the right, the HUD row under the status strip, the " +
@@ -295,13 +465,31 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Scroll wheel, or the FOCAL ZOOM slider",
           mobile: "Two-finger pinch",
         },
+        keys: ["zoom", "lens", "telephoto", "wide", "mm", "millimetres", "focal length"],
         body:
           "The frame zooms from a wide 80° down to a 2.75° super-telephoto. Zoom changes " +
           "what fits the frame — and with it every [[find|FIND]] answer.",
       },
       {
+        id: "fpv-focal-axes",
+        title: "Why two focal numbers",
+        where: {
+          desktop: "FOCAL on the HUD card · mm under the AIM stick",
+          mobile: "FOCAL in the HUD row · mm under the AIM stick",
+        },
+        keys: ["35mm equivalent", "full frame", "sensor", "crop", "aspect", "portrait"],
+        body:
+          "Two readouts describe one view, and they measure different edges of the frame. " +
+          "The HUD's FOCAL is the 35 mm equivalent across the frame's HEIGHT; the AIM " +
+          "stick's mm footer is the equivalent across its WIDTH. On a 3:2 frame they agree. " +
+          "On a tall phone frame the HUD reads much shorter, because a tall frame is wide in " +
+          "one axis and narrow in the other. Read the one that matches how you crop.",
+        tip: "Same view, two edges. Neither number is a correction of the other.",
+      },
+      {
         id: "fpv-cone",
         title: "The focal cone",
+        keys: ["wedge", "frustum", "field of view", "fov", "coverage"],
         where: {
           desktop: "On the map, the mini-map and the globe",
           mobile: "Same three surfaces",
@@ -313,26 +501,39 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "sets. It reads through the world rather than over it, so buildings stay legible " +
           "under it. Widen the focal and the wedge opens; go telephoto and it narrows to a line.",
         tip:
-          "The cone shows from the moment the app boots, so you always have a frame to aim " +
-          "before you pick a subject.",
+          "The plan is seeded from boot, so the cone is ready the moment you drop near the " +
+          "ground — like the radar it draws below about 10 km on desktop, and only while AIM is on.",
       },
       {
         id: "fpv-hud",
         title: "Read the HUD",
-        where: { desktop: "Top-left card", mobile: "Compact row above the dock" },
+        where: {
+          desktop: "Bottom-left card, under the mini-map",
+          mobile: "Compact row at the top, under the status strip",
+        },
+        keys: ["readout", "overlay", "telemetry", "coordinates", "elevation", "bearing"],
         body:
-          "Position (with a COPY button), focal length, heading, pitch and eye height — " +
-          "plus edge chips pointing toward the sun, the moon and your target when they sit " +
-          "outside the frame. A tracked target's chip stays on below the horizon, dimmed — " +
-          "clicking it looks where the target rises next. The same chips ride /m.",
+          "The card reads out where you stand and how you are looking, and it prints the " +
+          "keyboard reminder along its foot. Edge chips point toward the sun, the moon and " +
+          "your target when they sit outside the frame; a tracked target's chip stays on " +
+          "below the horizon, dimmed, and clicking it looks where the target rises next. " +
+          "On /m the row keeps FOCAL, HDG, PITCH and EYE, and the edge chips ride along.",
+        list: [
+          "Position, with a COPY button.",
+          "GROUND — the terrain height under your feet.",
+          "FOCAL — the [[fpv-focal-axes|35 mm equivalent]] for the frame's height.",
+          "HEADING, PITCH and EYE — your aim and how far above the ground you stand.",
+          "☀ SUN and ☾ MOON — where each of them stands right now.",
+        ],
       },
       {
         id: "fpv-map",
         title: "The MAP window",
+        keys: ["fullscreen map", "expand", "big map", "chart"],
         where: { desktop: "Click the mini-map", mobile: "Tap the mini-map" },
         body:
-          "The mini-map expands to a fullscreen flat chart of the area around you, and it " +
-          "follows you as you walk. On desktop, double-click to stand somewhere else; on " +
+          "The mini-map expands to a big flat chart of the area around you — a centred " +
+          "window on desktop, fullscreen on /m — and it follows you as you walk. On desktop, double-click to stand somewhere else; on " +
           "/m, long-press to drop a point and stay on the map. Drag the chart and it holds " +
           "where you put it — tap ◉ to come back to yourself.",
         tip:
@@ -344,20 +545,21 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Controls on the MAP",
         where: {
           desktop: "Top row of the map window",
-          mobile: "Right rail — pills, live view, ◉",
+          mobile: "Pills top-left · live view and ◉ down the right",
         },
         body:
-          "The top row carries the title, + and −, and on desktop ✕ MINI-MAP. Below it on /m " +
-          "sits a live 3D window onto where you stand — tap it to go back there. Under that, " +
+          "The top row carries the title, + and −, and on desktop ✕ MINI-MAP. To its right on " +
+          "/m sits a live 3D window onto where you stand — tap it to go back there. Under that, " +
           "the round ◉ button: muted while the chart is following you, lit once you have " +
           "explored away. The time strip keeps working along the bottom, so you can scrub the " +
           "sky without closing the map.",
+        keys: ["re-centre", "recentre", "recenter", "centre", "center", "follow", "pan"],
         steps: [
-          "Drag the chart anywhere — it now STAYS there. Walking will not pull it back.",
-          "Watch ◉ light up: that is the map telling you it is no longer following.",
+          "Drag the chart anywhere — it stays where you put it.",
+          "Watch ◉ light up: the map is telling you it has stopped following.",
           "Tap ◉ to centre on yourself again and hand the follow back.",
           "On /m, walk with the joystick — it keeps working over the fullscreen map.",
-          "Tap the live 3D window (or press Esc on desktop) to leave the map.",
+          "Tap the live 3D window, or press Esc on desktop, to leave the map.",
         ],
         tip:
           "Closing and reopening the map also hands the follow back — ◉ is the way to do it " +
@@ -365,6 +567,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         media: [
           {
             src: "/guide/fpv-map.webp",
+            w: 360,
+            h: 783,
             caption:
               "The expanded MAP on /m: MAP and ± pills top-left, the live 3D window top-right, " +
               "the lit ◉ on the right edge after a pan, AIM over WALK on the left rail, your " +
@@ -377,11 +581,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "fpv-map-gestures",
         title: "Turn and zoom the MAP",
         where: { desktop: "Wheel · drag", mobile: "Two fingers" },
+        keys: ["twist", "rotate", "pinch", "zoom"],
         body:
           "Two fingers TWIST the chart to any bearing — N on the radar rim turns with it, so " +
           "you always know which way is north. The pinch is continuous rather than stepped: " +
           "the chart scales smoothly between levels instead of jumping. On desktop the wheel " +
-          "steps whole levels and a drag pans.",
+          "steps whole levels and a drag pans. Tap a body's direction line on the chart to " +
+          "make that body the emphasized one in [[target-radar|the radar]].",
         tip:
           "While the chart is turned, the walk stick works SCREEN-relative: push up and you " +
           "walk toward the top of the map, whatever bearing that is on the ground.",
@@ -394,15 +600,18 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           mobile: "Double-tap a building",
         },
         body:
-          "Map data gets heights wrong; your eyes know better. Edits re-measure every " +
+          "Map data gets heights wrong; your eyes know better. One drag rescales a building " +
+          "between half and triple its CURRENT height, and repeated edits compound — down to " +
+          "a tenth of the mapped height, or up to ten times it. Edits re-measure every " +
           "[[plan-verdicts|skyline verdict]].",
+        keys: ["height", "scale", "rescale", "too short", "too tall", "wrong height", "osm"],
         steps: [
           "Double-click a building — it arms with a highlight.",
-          "Drag up or down to rescale it, 0.5× to 3×; a ghost of the original stays for " +
-            "comparison.",
+          "Drag up or down to rescale it — a translucent ghost previews the new height over " +
+            "the solid original.",
           "Read the pinned label: the live height, with \"↳ was\" the mapped one.",
           "The HEIGHT chip shows the delta — RESET restores the mapped height.",
-          "Click away (tap away on /m) or press Esc when done.",
+          "Click away, tap away on /m, or press Esc when done.",
         ],
         tip:
           "Edits live only in this browser — up to 1,000 buildings. They survive " +
@@ -411,8 +620,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "fpv-exit",
         title: "Exit",
+        keys: ["leave", "quit", "back", "escape", "exit"],
         where: { desktop: "EXIT LOOK, or press Escape", mobile: "✕ EXIT VIEW chip" },
-        body: "You return to the orbit camera above the same spot.",
+        body:
+          "On desktop you return to the orbit camera above the same spot; on /m you land " +
+          "on the flat 2D map, north-up over it.",
       },
     ],
   },
@@ -426,6 +638,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "whole scene — light, shadows, stars, everything.",
     media: {
       src: "/guide/time.webp",
+      w: 640,
+      h: 128,
       caption:
         "The time rail: light bands behind, sun and moon elevation curves, the playhead " +
         "cursor in the centre. Teal cursor = LIVE.",
@@ -436,9 +650,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "time-scrub",
         title: "Scrub",
         where: { desktop: "Time rail, bottom", mobile: "Time dock above the tab bar" },
+        keys: ["scrub", "timeline", "playhead", "cursor", "now", "clock"],
         steps: [
-          "Drag the rail. Time slides under the fixed centre cursor; drag left to go into the future.",
-          "Double-click the middle — or press NOW — to return to the present.",
+          "Drag the rail — time slides under the fixed centre cursor.",
+          "Drag left to go into the future.",
+          "Double-click the middle, or press NOW, to return to the present.",
         ],
         tip:
           "Cursor colour tells the state: teal = LIVE, amber = pinned in the past, blue = " +
@@ -447,19 +663,27 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "time-bands",
         title: "Read the light bands",
+        keys: ["golden hour", "blue hour", "twilight", "dusk", "dawn", "night", "curve"],
         body:
-          "The rail is painted with the day's light: daylight, golden hour, blue hour, " +
-          "nautical and astronomical twilight, night. The curves are sun and moon " +
-          "elevation; a tracked target adds its own trace — drawn thick where it crosses " +
-          "your current frame. A tracked [[plan-meteors|meteor shower]] fills its active " +
-          "nights with a rate curve instead.",
+          "The rail is painted with the day's light, from daylight through to night. The " +
+          "curves over it are sun and moon elevation; a tracked target adds its own trace, " +
+          "drawn thick where it crosses your current frame. On desktop a tracked " +
+          "[[plan-meteors|meteor shower]] adds a rate curve filling its active nights.",
+        list: [
+          "Daylight.",
+          "Golden hour, then blue hour.",
+          "Nautical and astronomical twilight.",
+          "Night.",
+        ],
       },
       {
         id: "time-events",
         title: "Step between events",
+        keys: ["sunrise", "sunset", "moonrise", "moonset", "almanac", "next event"],
         body:
-          "Tap the rail's outer edges to jump to the next or previous almanac event — " +
-          "sunrise, sunset, twilight starts and ends, moonrise, moonset.",
+          "Tap the rail's outer edges to jump to the next or previous almanac event: " +
+          "sunrise and sunset, the golden-hour edges, civil twilight, solar noon, moonrise, " +
+          "moonset, moon culmination, and the next full and new moon.",
       },
       {
         id: "time-inputs",
@@ -468,18 +692,23 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Date and time inputs beside the rail",
           mobile: "Date jump + ◀ ▶ day steppers on the dock",
         },
+        keys: ["date", "picker", "calendar", "exact time", "stepper"],
         body:
-          "Pick any date, type an exact time, or step by day and hour with the ◀ ▶ steppers. " +
-          "The rail also answers the arrow keys when focused. On /m the dock carries the same " +
-          "pair — your phone's own date picker and its own time picker — so an exact moment " +
-          "takes two taps instead of a scrub.",
+          "Pick any date, type an exact time, or step by day, hour and minute with the " +
+          "◀ ▶ steppers. Focused, the rail answers the arrow keys too: ← and → move 10 " +
+          "minutes, Home and End jump 6 hours. On /m the dock carries the same pair — your " +
+          "phone's own date picker and its own time picker — so an exact moment takes two " +
+          "taps instead of a scrub.",
       },
       {
         id: "time-play",
         title: "Play",
+        where: { desktop: "▶ and the speed picker on the rail" },
+        keys: ["playback", "speed", "fast forward", "animate", "timelapse"],
         body:
           "PLAY advances scene time at a chosen speed; fast-forward speeds read red. " +
           "Watch a whole night's sky motion in a minute.",
+        tip: "PLAY is desktop-only — the /m dock carries the clock and the steppers instead.",
       },
     ],
   },
@@ -494,6 +723,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "its standings in FIND.",
     media: {
       src: "/guide/target.webp",
+      w: 720,
+      h: 450,
       caption:
         "The TARGET panel with the moon tracked: the object card, the GOTO · SHOW · MARK · " +
         "TRAIL row, GHOSTS and TRACK, FIND IN FRAME and UNFOLLOW — and the banded direction " +
@@ -504,36 +735,50 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "target-search",
         title: "Pick a target",
+        keys: ["find object", "catalog", "messier", "ngc", "comet", "asteroid"],
         where: {
           desktop: "Search panel · SKY tab",
           mobile: "SEARCH tab · SKY",
         },
         body:
           "Sun, moon, planets, 451 named stars, the constellations, Messier and NGC " +
-          "objects, bright comets and asteroids, the Galactic Centre. Typos are fine — " +
-          "picking a result tracks it and aims the camera when it stands above the horizon.",
+          "objects, bright comets and asteroids, the Galactic Centre. Typos are fine, and " +
+          "picking a result tracks it. Standing in the landscape ([[fpv]]) the camera also " +
+          "turns to it when it is above the horizon; on the globe or the flat map nothing moves.",
       },
       {
         id: "target-card",
         title: "Read the object card",
+        keys: ["magnitude", "altitude", "azimuth", "phase", "distance", "rise", "set"],
         where: { desktop: "TARGET panel, top-right", mobile: "Tap the target row above the dock" },
         body:
-          "Altitude and azimuth, celestial coordinates, distance, magnitude with a " +
-          "naked-eye verdict, phase and true disc size. NEXT SESSIONS lists the coming " +
-          "dark-sky windows for it; rise and set chips jump time to those instants and aim " +
-          "the camera at where it happens.",
+          "On desktop: altitude and azimuth, celestial coordinates, distance, magnitude with " +
+          "a naked-eye verdict, phase and true disc size; on /m the card keeps the " +
+          "essentials. NEXT SESSIONS lists the coming dark-sky windows — press one to pin " +
+          "scene time to its peak. Rise and set jumps live in [[target-menu|the sky menu]].",
       },
       {
         id: "target-toggles",
-        title: "The five toggles",
+        title: "The action row",
+        where: { desktop: "Under the object card in the TARGET panel", mobile: "On the target sheet" },
+        keys: ["goto", "show", "mark", "trail", "ghosts", "track", "pills", "buttons"],
         body:
-          "SHOW draws the marker. MARK highlights it. TRAIL draws its day-arc across the " +
-          "sky. GHOSTS adds its [[target-ghosts|time-ghost chain]]. TRACK locks the camera " +
-          "on it.",
+          "One row of pills drives everything the tracked target draws. MARK, TRAIL and " +
+          "GHOSTS need SHOW on — without a marker there is nothing to decorate.",
+        list: [
+          "GOTO — aim the camera at it; below the horizon it looks where it next rises. " +
+            "Desktop only.",
+          "SHOW — draw the marker.",
+          "MARK — highlight it.",
+          "TRAIL — draw its day-arc across the sky.",
+          "GHOSTS — add its [[target-ghosts|time-ghost chain]].",
+          "TRACK — [[target-track|lock the camera]] on it.",
+        ],
       },
       {
         id: "target-ghosts",
         title: "Time ghosts",
+        keys: ["ghosting", "time steps", "chain", "copies"],
         body:
           "GHOSTS ± N EVERY step surrounds the real body with translucent copies of " +
           "itself at fixed time steps — up to 15 per side, the past side dimmed. One " +
@@ -542,9 +787,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "target-track",
         title: "TRACK — the camera lock",
+        keys: ["lock", "follow", "glue", "camera lock"],
         body:
           "With TRACK on, the camera stays glued to the target while time scrubs or " +
-          "plays. A deliberate look-drag releases it, so the lock never fights your hand; " +
+          "plays — while you stand in the landscape ([[fpv]]). On the globe or the flat map " +
+          "the toggle only arms the lock for your next LOOK FROM HERE. A deliberate look-drag releases it, so the lock never fights your hand; " +
           "it also releases when the target sinks below the horizon.",
       },
       {
@@ -560,7 +807,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "is grey; what is still to come wears the body's own ink (gold sun, silver " +
           "moon, blue target), split at scene time. N marks north on the rim, and a band " +
           "BREAKS where buildings or terrain hide that body. The sky menu's ∠ DIRECTION " +
-          "rows toggle single bodies.",
+          "rows toggle single bodies, and on the flat chart tapping a body's direction line " +
+          "makes that body the emphasized one.",
         tip:
           "On desktop the radar appears below about 10 km of altitude — climb higher and it " +
           "stands down. On /m it draws smaller and the bands sit closer in, so it reads " +
@@ -573,15 +821,25 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Right-click a body in the sky",
           mobile: "Long-press a body",
         },
+        keys: ["right click", "context menu", "long press", "quick menu"],
         body:
-          "The fastest path to everything: ⌖ TRACK it (TARGET PANEL once tracked), toggle " +
-          "⊕ TRACKING, ◌ MARK, ∿ TRAIL, ✧ GHOSTS or ∠ DIRECTION, run ⌖ FIND IN FRAME on " +
-          "any tracked object, aim the camera, or jump to its rise or set. Active rows " +
-          "flip to DISABLE TRACKING, DISABLE TRAIL and so on. The moon's header shows its " +
-          "illuminated percentage.",
+          "The fastest path to everything a body can do. Active rows flip to DISABLE " +
+          "TRACKING, DISABLE TRAIL and so on, and the moon's header shows its illuminated " +
+          "percentage.",
+        list: [
+          "⌖ TRACK it — the row reads TARGET PANEL once it already is the target.",
+          "⊕ TRACKING, ◌ MARK, ∿ TRAIL, ✧ GHOSTS — the same toggles as " +
+            "[[target-toggles|the action row]] — plus ∠ SUN / MOON / TARGET DIRECTION, " +
+            "which arms that one body's [[target-radar|radar band]].",
+          "⌖ FIND IN FRAME — run a [[find|FIND]] scan on it.",
+          "◎ AIM HERE — point the camera at it.",
+          "Its rise and set — jump time to either; for the sun and the moon the camera turns there too.",
+        ],
         media: [
           {
             src: "/guide/skymenu.webp",
+            w: 720,
+            h: 450,
             caption: "Right-click on the moon: quick toggles plus rise/set jumps.",
             shell: "desktop",
           },
@@ -591,12 +849,18 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "target-unfollow",
         title: "UNFOLLOW",
         where: {
-          desktop: "✕ UNFOLLOW at the foot of the TARGET panel",
+          desktop: "✕ UNFOLLOW under ⌖ FIND IN FRAME in the TARGET panel",
           mobile: "✕ UNFOLLOW on the target sheet",
         },
-        body:
-          "One press stands the whole apparatus down: marker, trail, radar line, peek " +
-          "row and the FIND target chip all clear, and the camera is yours again.",
+        keys: ["stop following", "clear target", "dismiss", "untrack", "drop"],
+        body: "One press clears everything the target was drawing, and the camera is yours again.",
+        list: [
+          "Its marker in the sky.",
+          "Its trail.",
+          "Its line on [[target-radar|the radar]].",
+          "The peek row above the dock.",
+          "Its chip in [[find|FIND]].",
+        ],
         tip:
           "Dismissal lasts the session — a reload brings the target back. Search or the " +
           "sky menu re-follows at any time.",
@@ -604,10 +868,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "target-hover",
         title: "Names in the sky",
+        keys: ["names", "labels", "identify", "what is that", "reticle"],
         body:
-          "Hover a body for its name and a reticle ring; at night, stars answer with star, " +
-          "asterism and constellation names. On /m, tap empty sky to reveal names for a " +
-          "couple of seconds.",
+          "Hover the sun, the moon or your tracked target and it brightens under the " +
+          "cursor. At night the stars name themselves too — star, asterism and " +
+          "constellation. On /m, tap empty sky to reveal names for a couple of seconds.",
       },
     ],
   },
@@ -621,6 +886,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "your target against the real local skyline — terrain and buildings included.",
     media: {
       src: "/guide/plan.webp",
+      w: 640,
+      h: 700,
       caption:
         "The LIGHT PLANNER window: skyline verdicts on top, then the day's chronology, " +
         "moon calendar, meteors and star-exposure cards.",
@@ -630,6 +897,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "plan-open",
         title: "Open it",
+        keys: ["open plan", "window", "resize", "drag"],
         where: {
           desktop: "PLAN | FIND IN FRAME toggle beside the Plux wordmark",
           mobile: "PLAN tab",
@@ -642,23 +910,29 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "plan-verdicts",
         title: "Skyline verdicts",
+        keys: ["clear", "behind skyline", "blocked", "obstruction", "horizon"],
         body:
           "Sun, moon and target rows read CLEAR or BEHIND SKYLINE against the actual " +
           "horizon profile from where you stand, with the exact times they clear or hide. " +
           "A trust line reports how much skyline is mapped and to what distance.",
-        tip: "Verdicts are measured from the pin — or from your feet in first-person view.",
+        tip:
+          "Verdicts read from your feet in first-person view, or from a placed photo. " +
+          "A planning pin alone gives none until you stand on it.",
       },
       {
         id: "plan-frame",
         title: "THIS FRAME · NEXT 36 H",
+        where: { desktop: "Top card in PLAN", mobile: "PLAN sheet, first card" },
+        keys: ["36h", "36 hours", "next 36", "crossing", "frame crossing"],
         body:
           "In first-person view only: when will each body next cross the frame you are " +
           "composing right now? Rows carry the crossing window, the light phase, a skyline " +
-          "verdict, a jump chip and a calendar export.",
+          "verdict and a jump chip; on desktop they also carry a calendar export.",
       },
       {
         id: "plan-today",
         title: "TODAY",
+        keys: ["chronology", "day", "timeline", "events"],
         body:
           "The day's full chronology, midnight to midnight — rises, sets, twilights, " +
           "with light-phase dots. Click a row to jump time to it.",
@@ -666,13 +940,16 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "plan-moon",
         title: "MOON · PHASES & DISTANCES",
+        keys: ["phases", "supermoon", "perigee", "apogee", "disc size"],
         body:
-          "Quarters, perigees and apogees ahead, each with disc size and distance; " +
-          "supermoon rows are starred. NEXT SUPERMOON jumps straight to it.",
+          "Quarters, perigees and apogees ahead, each with its apparent disc size, and " +
+          "supermoon rows starred. When the next supermoon falls past the end of the list, " +
+          "a ★ SUPERMOON chip appears — click it to jump there.",
       },
       {
         id: "plan-npf",
         title: "SPOT STARS — sharp star exposure",
+        keys: ["npf", "exposure", "shutter", "star trails", "sharp stars", "aperture"],
         body:
           "In first-person view, the card computes the longest exposure that keeps stars " +
           "as points (the NPF rule) for the exact patch of sky you frame. Enter your " +
@@ -681,18 +958,24 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "plan-mw",
         title: "Milky-Way season",
+        where: { desktop: "The MILKY WAY card in PLAN" },
+        keys: ["milkyway", "galactic core", "galaxy", "core season", "dark sky"],
         body:
           "Per-night windows when the galactic core stands in dark sky, scored by " +
           "darkness against moon interference. Click a window to jump to its peak. " +
-          "Tracking the Galactic Centre also draws the Milky Way band in the sky.",
+          "Tracking the Galactic Centre also draws the galactic-equator guide — a centre line " +
+          "with two edge circles — over the Milky Way the sky already shows.",
+        tip: "This card is desktop-only.",
       },
       {
         id: "plan-meteors",
         title: "METEORS — peak nights",
+        keys: ["shower", "zhr", "perseids", "radiant", "hourly rate"],
         where: { desktop: "The METEORS card in PLAN" },
         body:
           "The METEORS · PEAK NIGHTS · NEXT 120D card scores each shower's maximum " +
-          "against the moon: expected hourly rate, best hour, moon illumination. Search " +
+          "against the moon: expected hourly rate, best hour, and how much moonlight washes " +
+          "the night out. Search " +
           "a shower by name (☄ rows) and track it — the marker stands on the radiant, " +
           "THE SHOWER facts read ZHR and speed, and the [[time-bands|time rail]] fills " +
           "its nights with the rate curve.",
@@ -712,6 +995,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "frame and ask: on which days does it stand inside THIS view?",
     media: {
       src: "/guide/find.webp",
+      w: 720,
+      h: 450,
       caption:
         "FIND with the moon: the standings list on the left, each day projected into the " +
         "sky as a dated ring with that day's phase.",
@@ -721,6 +1006,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "find-concept",
         title: "The frame is the query",
+        keys: ["query", "composition", "scan", "how find works"],
         body:
           "FIND needs [[fpv|first-person view]] — the query is your composition itself. " +
           "Each coming day is tested at the scrubber's wall-clock hour against your live " +
@@ -735,31 +1021,51 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "Chips at the top of the FIND window",
           mobile: "FIND tab · same chips",
         },
+        keys: ["1w", "1m", "6m", "1y", "range", "chips", "week", "month", "year"],
         body:
-          "Body chips: ☀ sun, ☾ moon, and your tracked target (whatever the search or the " +
-          "sky menu follows — the Milky-Way core, a comet, a nebula) — moon alone is the " +
-          "default. Range chips: 1W, 1M, 6M, 1Y. Your choices stick. Tracking the sun or " +
-          "the moon itself dims the target chip — its own chip already covers it.",
+          "One row of chips sets the question: the bodies on the left, the range on the " +
+          "right. Your choices stick, and tracking the sun or the moon itself switches the " +
+          "target chip off, because its own chip already covers it.",
+        list: [
+          "☀ SUN and ☾ MOON — moon alone is the default.",
+          "Your tracked target — whatever the search or the sky menu follows: the " +
+            "Milky-Way core, a comet, a nebula.",
+          "Range: 1W, 1M, 6M, 1Y.",
+        ],
       },
       {
         id: "find-standings",
         title: "Read the standings",
+        keys: ["results", "list", "rows", "days", "score", "verdict"],
         body:
-          "One row per qualifying day: its identity colour, the date, where in the frame " +
-          "the body stands, a CLEAR or ✕ skyline verdict and a visibility score. Hover a " +
-          "row and its sky ring pulses; hover a ring and its row lights up.",
+          "One row per qualifying day. Hover a row and its sky ring pulses; hover a ring " +
+          "and its row lights up.",
+        list: [
+          "Its identity colour, matching its ring in the sky.",
+          "The date.",
+          "Where in the frame the body stands.",
+          "A CLEAR or ✕ skyline verdict.",
+          "A visibility score.",
+        ],
       },
       {
         id: "find-ghosts",
         title: "Ghosts in the frame",
+        keys: ["rings", "ghosting", "projection", "overlay", "preview"],
         body:
-          "Every listed day projects into the sky: a hairline ring in the day's colour, a " +
-          "translucent body picture with that day's real phase, its day-arc path, and a " +
-          "small date label — the moon's adds its illuminated percentage.",
+          "The first 24 listed days project into the sky as a small stack of marks; on " +
+          "desktop, rows past that stay listed with a hollow swatch.",
+        list: [
+          "A hairline ring in the day's colour.",
+          "A translucent picture of the body, wearing that day's real phase.",
+          "Its day-arc path.",
+          "A date label — the moon's adds its illuminated percentage.",
+        ],
       },
       {
         id: "find-jump",
         title: "Click a day — time jumps, camera stays",
+        keys: ["jump", "click a day", "time travel"],
         body:
           "Click a ring or a row: scene time jumps to that instant and the body becomes " +
           "the tracked target. The camera does not move — the real body arrives exactly " +
@@ -768,17 +1074,24 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "find-sunsets",
         title: "SUNSETS · IN FRAME",
+        where: {
+          desktop: "Below the standings in FIND",
+          mobile: "SUNSETS IN FRAME, in the PLAN sheet",
+        },
+        keys: ["sunset", "sunrise", "golden hour", "drift", "solstice", "horizon"],
         body:
-          "Below the standings, an event-anchored list: on which days does the sunset " +
-          "itself land inside the frame? Chips switch SET, RISE and golden hour; each row " +
-          "carries the exact time, a skyline verdict, the drift in degrees per day along " +
-          "your skyline, and a calendar export.",
+          "An event-anchored list: on which days does the sunset itself land inside the " +
+          "frame? Chips switch SET, RISE and golden hour. Each row carries the exact time, " +
+          "a skyline verdict and the drift in degrees per day along your skyline; on " +
+          "desktop it also carries a calendar export.",
         tip:
           "Times are true almanac times. A season's sunsets walk along the horizon and " +
           "turn around at the solstices — dates far apart can share one spot.",
         media: [
           {
             src: "/guide/sunsets.webp",
+            w: 320,
+            h: 640,
             caption: "Sunset standings: date, time, verdict and per-day drift.",
             shell: "desktop",
           },
@@ -787,7 +1100,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "find-mobile",
         title: "FIND on the phone",
-        where: { mobile: "FIND tab — the fourth tab" },
+        keys: ["find tab", "phone", "fourth tab"],
+        where: { mobile: "FIND tab — the third tab" },
         body:
           "The same scan at touch scale. Collapsing the sheet keeps the standings " +
           "projected in the frame, so you can compose against them full-screen.",
@@ -806,6 +1120,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "save-links",
         title: "Share a link",
+        keys: ["url", "share", "link", "address bar", "copy"],
         body:
           "The address bar always carries your exact camera pose — and the pinned time " +
           "when you scrubbed to one. Copy the URL and the recipient stands where you " +
@@ -819,10 +1134,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "◎ SAVE PLACE on the camera deck (first-person view, signed in)",
           mobile: "◎ SAVE VIEW chip",
         },
+        keys: ["bookmark", "viewpoint", "save view", "save place", "favourite"],
         body:
-          "One press bookmarks the full viewpoint, pinned time included. On /m, " +
-          "◎ SAVE VIEW asks for an optional name — leave it empty and the view names " +
-          "itself with a timestamp.",
+          "Saving bookmarks the full viewpoint, pinned time included. Both shells ask for " +
+          "an optional name first. Leave it empty and desktop files it as \"Untitled " +
+          "place\", while /m stamps it with the view and the moment.",
       },
       {
         id: "save-places",
@@ -831,14 +1147,19 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "MY PINS panel · PLACES tab",
           mobile: "▤ SAVED PLACES chip, or the SEARCH tab's idle list",
         },
+        keys: ["my places", "saved", "bookmarks", "list", "delete"],
         body:
           "Tap a saved place and Plux restores the moment first, then the exact " +
-          "viewpoint. Both lists sort nearest-first from where you stand. Renaming and " +
-          "deleting live on the desktop list.",
+          "viewpoint. Both lists sort nearest-first from where you stand. Deleting lives " +
+          "on the desktop list.",
+        tip:
+          "There is no rename — a place keeps the name you gave it when you saved it, so " +
+          "name it then.",
       },
       {
         id: "save-onmap",
         title: "Your places on the map",
+        keys: ["markers", "dots", "places on map", "lavender"],
         where: {
           desktop: "PLC on the camera deck",
           mobile: "◎ MY PLACES under ⊞ LAYERS",
@@ -851,14 +1172,18 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "save-ics",
         title: "Export to your calendar",
+        where: { desktop: "The calendar chip on a PLAN or FIND row" },
+        keys: ["ics", "calendar", "export", "reminder", "event", "download"],
         body:
           "Rows across [[plan|PLAN]] and [[find|FIND]] — frame crossings, moon events, " +
           "standings, sunsets — carry a calendar chip that downloads an .ics event for " +
           "that instant.",
+        tip: "Calendar export is desktop-only; the /m rows jump time instead.",
       },
       {
         id: "save-signin",
         title: "Sign in",
+        keys: ["login", "log in", "account", "sign up", "member", "register"],
         where: {
           desktop: "Sign in, top-right",
           mobile: "The chip in the status strip",
@@ -875,36 +1200,44 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     id: "photo",
     title: "YOUR PHOTOS",
     lead:
-      "Plux also projects real photographs: a camera file becomes a standing frame at " +
-      "its true capture spot, and the scene rebuilds the light it was made in.",
+      "Plux also projects real photographs. Drop in a camera file and it stands as a frame " +
+      "at its true capture spot, with the scene rebuilt in the light it was made in.",
     media: {
       src: "/guide/upload.webp",
-      caption: "A decoded RAW projected at its capture spot, frustum and image plane visible.",
+      w: 720,
+      h: 673,
+      caption:
+        "The upload drop zone: the RAW and image formats it decodes, and the promise that " +
+        "files stay private until you place them.",
       shell: "desktop",
     },
     topics: [
       {
         id: "photo-upload",
         title: "Upload",
+        keys: ["exif", "raw", "arw", "cr3", "dng", "nef", "heic", "jpeg", "import", "decode"],
         where: { desktop: "Upload, in the nav" },
         body:
           "Drop a camera file — RAW (ARW, CR3, DNG, NEF…), HEIC or JPEG. Decoding happens " +
           "in your browser; nothing uploads until you choose to save. EXIF supplies the " +
           "where and when, and the photo rises as a camera frustum at its capture spot.",
-        tip: "No GPS in the file? Double-click the globe to place it by hand.",
+        tip: "No GPS in the file? Press SET ON GLOBE, then click the capture spot.",
       },
       {
         id: "photo-align",
         title: "Align it",
+        keys: ["heading", "pitch", "nudge", "calibrate", "opacity", "projection"],
         body:
-          "Cameras rarely record which way they pointed. Nudge heading, pitch, altitude " +
-          "and focal until the projected frame locks onto the real terrain and buildings; " +
-          "every slider re-projects live. A plane opacity slider blends photo against " +
-          "scene. Pin the clock to the capture time to study its light.",
+          "Cameras rarely record which way they pointed. Swing heading and pitch on the " +
+          "encoder knobs — push and hold to turn, let go and they ease to a stop — then pull " +
+          "the focal and altitude sliders until the projected frame locks onto the real " +
+          "terrain and buildings. Every change re-projects live, and PLANE ALPHA blends the " +
+          "photo against the scene. Pin the clock to the capture time to study its light.",
       },
       {
         id: "photo-fpv",
         title: "Stand inside the shot",
+        keys: ["view from camera", "eyepoint", "stand inside"],
         body:
           "VIEW FROM CAMERA enters [[fpv|first-person view]] at the photo's exact " +
           "eyepoint and focal length — then [[find|FIND]] and [[plan|PLAN]] answer for " +
@@ -913,6 +1246,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "photo-pins",
         title: "Pins and publishing",
+        keys: ["quota", "publish", "public", "private", "premium"],
         body:
           "Members save photo pins — 100 on the free tier, 1,000 with premium. A public " +
           "pin joins the shared globe for everyone; location precision is yours to choose " +
@@ -921,7 +1255,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "photo-market",
         title: "Marketplace",
-        where: { desktop: "Market, in the nav" },
+        where: { desktop: "Marketplace, in the nav" },
+        keys: ["sell", "buy", "shop", "store", "price", "checkout", "market"],
         body:
           "A public pin with a stored original can be listed for sale at your price. " +
           "Buyers pay through the site checkout and receive a 30-day download link to the " +
@@ -939,6 +1274,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       "everything else is a chip, a dock or a sheet.",
     media: {
       src: "/guide/shell-m.webp",
+      w: 360,
+      h: 783,
       caption:
         "The /m shell on its flat chart: status strip on top, action chips and LAYERS on " +
         "the right, radar bearings on the map, target row, time dock and tabs at the bottom.",
@@ -949,13 +1286,14 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "mobile-map",
         title: "The flat chart",
         where: { mobile: "The shell starts here" },
+        keys: ["2d", "flat", "north up", "android", "tablet", "ipad"],
         body:
           "/m boots as a flat, north-up 2D chart — faster and calmer for planning on a " +
           "phone. The ▲ 3D chip lifts it into the full 3D globe (long-press it to stand " +
           "straight into first-person view right where the chart is centred); ▼ 2D folds " +
-          "it flat again. A two-finger drag TURNS the chart — the compass chip flies it " +
-          "back north. 🧭 MY LOC flies the chart to your device fix and arms " +
-          "◎ LOOK FROM HERE.",
+          "it flat again. A two-finger drag TURNS the chart, and it keeps the bearing you " +
+          "leave it on — to face north again, tap ▲ 3D then ▼ 2D. 🧭 MY LOC flies the " +
+          "chart to your device fix and arms ◎ LOOK FROM HERE.",
         tip:
           "Buildings exist only in 3D — ▦ 3D DETAIL stands down while the chart is flat, " +
           "which is also why the chart shows satellite imagery as photographed and one zoom " +
@@ -964,42 +1302,61 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "mobile-layout",
         title: "The layout",
-        body:
-          "Top strip: place, account, DESKTOP switch. Bottom, in order: the tracked " +
-          "target row (tap it for the full card), the time dock — day steppers, the " +
-          "calendar, the scene-time clock and NOW — and the SCENE · PLAN · FIND · " +
-          "SEARCH tabs.",
+        keys: ["strip", "dock", "tabs", "tab bar", "chrome", "status bar"],
+        body: "Two strips carry the chrome, and the globe fills everything between them.",
+        list: [
+          "Top: the Plux mark, your account chip, a GUIDE chip and the DESKTOP switch.",
+          "The tracked target row — tap it for the full card.",
+          "The time dock — day steppers, the calendar, the scene-time clock and NOW.",
+          "The SCENE · PLAN · FIND · SEARCH tabs.",
+        ],
       },
       {
         id: "mobile-sheets",
         title: "Sheets",
+        keys: ["bottom sheet", "drawer", "scrim", "close"],
         body:
-          "Tabs open bottom sheets. Pull the handle down or tap the dark scrim to close " +
-          "one. The FIND sheet covers the tab bar — leave it by the scrim.",
+          "Tabs open bottom sheets. Every one carries a ✕, a pull-down handle and a dark " +
+          "scrim — any of the three closes it. SEARCH and GUIDE open near full height, " +
+          "because a keyboard eats the lower half of the screen.",
       },
       {
         id: "mobile-chips",
         title: "Scene chips",
+        keys: ["buttons", "right rail", "actions", "layers", "toggles"],
         body:
-          "The right-edge stack adapts to what you are doing: 🧭 MY LOC, ▲ 3D / ▼ 2D, " +
-          "◎ LOOK FROM HERE, ◎ SAVE VIEW, ▤ SAVED PLACES for members, ✕ CLEAR PIN, " +
-          "✕ EXIT VIEW, and a micro-compass with your altitude. ⊞ LAYERS expands the " +
-          "scene layers to the left: ▦ 3D DETAIL (the most detailed building model " +
-          "loads on its own), ◎ MY PLACES markers, ⌖ PHOTO PINS, the ∠ RADAR aim " +
-          "overlay, and the ▤ VECTOR road-and-river ink.",
+          "The right-edge stack adapts to what you are doing, so you only ever see the " +
+          "chips that apply right now.",
+        list: [
+          "🧭 MY LOC — fly the chart to your device fix.",
+          "▲ 3D / ▼ 2D — lift the chart into the globe, or fold it flat.",
+          "◎ LOOK FROM HERE — [[fpv-enter|stand at the pin you dropped]].",
+          "◎ SAVE VIEW and ▤ SAVED PLACES, for members. Signed out, ◎ SIGN IN TO SAVE " +
+            "stands in their place.",
+          "✕ CLEAR PIN and ✕ EXIT VIEW.",
+          "A micro-compass with your altitude.",
+        ],
+        tip:
+          "⊞ LAYERS expands to the left with ▦ 3D DETAIL, ◎ MY PLACES, ⌖ PHOTO PINS, " +
+          "∠ RADAR and ▤ VECTOR. It stands down in first-person view.",
       },
       {
         id: "mobile-gestures",
         title: "Touch gestures",
-        steps: [
-          "Long-press the ground — planning pin.",
+        keys: ["long press", "tap", "pinch", "two finger", "double tap", "swipe"],
+        // A REFERENCE, not a procedure — these were an <ol> promising an order that never
+        // existed (G-B/G-H 2026-08-22g). As a list they also escape the 6-step cap, which is
+        // what made the old copy cram three gestures into one line.
+        list: [
+          "Long-press the ground — a planning pin.",
           "Long-press a sky body — the context menu.",
-          "Tap empty sky — reveal names for a moment.",
-          "Two-finger drag on the flat chart — turn the map; long-press ▲ 3D to stand " +
-            "straight into first-person view, no pin needed.",
-          "In first-person view: joystick walks, one finger looks, pinch zooms the " +
-            "focal, double-tap a building [[fpv-height|edits its height]].",
-          "Long-press the full MAP to drop a point there — the map stays open.",
+          "Tap empty sky at night — names appear for a moment.",
+          "Two-finger drag on the flat chart — turn the map.",
+          "Long-press ▲ 3D — stand straight into first-person view, no pin needed.",
+          "Long-press the full MAP — drop a point there, and the map stays open.",
+          "In first-person view, the joystick walks and one finger looks.",
+          "In first-person view, pinch zooms the focal length.",
+          "In first-person view, double-tap a building to [[fpv-height|edit its height]].",
         ],
         tip: "While the walk controls are up, the screen stays awake.",
       },
@@ -1011,12 +1368,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     id: "trust",
     title: "PRECISION",
     lead:
-      "Plux is built to be trusted: real ephemeris, real skylines, and honest labels " +
-      "where a number is a model.",
+      "Real ephemeris, real skylines, and an honest label wherever a number is a model " +
+      "rather than a measurement.",
     topics: [
       {
         id: "trust-accuracy",
         title: "How precise is it",
+        keys: ["precision", "arcminute", "error", "how accurate", "model"],
         body:
           "Positions come from a professional ephemeris engine, accurate to about one " +
           "arcminute. Skyline verdicts measure the actual rendered terrain and buildings. " +
@@ -1029,15 +1387,17 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "trust-airless",
         title: "Printed times vs the drawn sky",
+        keys: ["refraction", "almanac", "airless", "offset", "printed time"],
         body:
           "Event times are true almanac times, refraction included — trust them for the " +
           "field. The drawn scene is an airless sky by convention, so the rendered sunset " +
-          "touches the horizon a few minutes after the printed time. The numbers are " +
+          "touches the horizon a few minutes before the printed time. The numbers are " +
           "right; the drawing is the instrument.",
       },
       {
         id: "trust-privacy",
         title: "Location privacy",
+        keys: ["privacy", "gps", "location", "reduced precision", "geohash", "safety"],
         body:
           "Wartime-aware by design. A public pin publishes reduced precision by default — " +
           "the centre of its ~1 km cell, or only the city; exact GPS never leaves your " +

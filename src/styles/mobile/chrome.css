@@ -897,6 +897,97 @@ a.m-hit {
   font-size: 0.66rem;
   color: var(--color-accent);
 }
+/* ————— /m search presentation + topic tier (G-E/SURF-2 2026-08-22g) ————— */
+
+.m-gcount {
+  display: block;
+  padding: 0.35rem 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+}
+
+.m-ghit__snip {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.m-ghit mark,
+.m-gchtopic mark {
+  background: color-mix(in srgb, var(--color-accent) 26%, transparent);
+  color: var(--color-text);
+  border-radius: 2px;
+}
+
+.m-ghit__kind {
+  margin-left: 0.3rem;
+  padding: 0 0.2rem;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.1em;
+  vertical-align: middle;
+  color: var(--color-bg);
+  background: var(--color-text-muted);
+}
+
+.m-ghit__kind--chapter {
+  background: var(--color-accent);
+}
+
+.m-gchgroup {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Every topic reachable from the index — 67 of them used to need a chapter opened first. */
+.m-gchtopics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.2rem 0 0.5rem 0.6rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid color-mix(in srgb, var(--color-text-muted) 25%, transparent);
+}
+
+.m-gchtopic {
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--color-text-muted);
+}
+
+/* /m twin of .gd-list (G-B 2026-08-22g) — unordered enumerations, never an <ol>. */
+.m-glist {
+  margin: 0;
+  padding-left: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  list-style: none;
+}
+.m-glist li {
+  position: relative;
+}
+.m-glist li::before {
+  content: "·";
+  position: absolute;
+  left: -0.8rem;
+  font-family: var(--font-mono);
+  color: var(--color-accent);
+}
 .m-gtip {
   margin: 0;
   padding: 0.4rem 0.55rem;
@@ -927,6 +1018,8 @@ a.m-hit {
 }
 .m-gshot {
   width: 100%;
+  /* w/h attributes are a RATIO hint only — see .gd-shot. */
+  height: auto;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
   background: color-mix(in srgb, var(--color-text) 3%, transparent);

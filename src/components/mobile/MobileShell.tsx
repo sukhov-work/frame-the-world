@@ -11,7 +11,7 @@
  * containing-block rule carries to mobile).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSkyStore } from "../../store/sky";
 import { useCameraStore } from "../../store/camera";
 import MobileTimeDock from "./MobileTimeDock";
@@ -33,6 +33,20 @@ type SheetId = "plan" | "find" | "search" | "target" | "guide" | null;
 
 export default function MobileShell() {
   const [sheet, setSheet] = useState<SheetId>(null);
+  // ?guide=<id> deep link. It must be read HERE, not in GuideSheet: sheet visibility is local
+  // state and GuideSheet only mounts once `sheet === "guide"`, so it can never see the URL
+  // that asked for it. A QUERY param, never a hash — the globe rewrites the whole hash every
+  // ~1.6 s and both pose parsers are anchored. Stripped on read, pose hash preserved.
+  const [guideSeed, setGuideSeed] = useState<string | null>(null);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const want = url.searchParams.get("guide");
+    if (!want) return;
+    url.searchParams.delete("guide");
+    history.replaceState(null, "", url.toString());
+    setGuideSeed(want);
+    setSheet("guide");
+  }, []);
   const target = useSkyStore((s) => s.target);
   // FPV touch instruments (M2): tempFpv flips instantly on LOOK FROM HERE (joystick usable
   // from the first frame); the fpvHud mirror covers any FPV kind and lingers a beat on exit.
@@ -105,7 +119,7 @@ export default function MobileShell() {
       )}
       {sheet === "guide" && (
         <Sheet title="GUIDE" full onClose={() => setSheet(null)}>
-          <GuideSheet />
+          <GuideSheet seedTopic={guideSeed} />
         </Sheet>
       )}
       {/* ALWAYS mounted (owner 2026-08-15c): the FIND scan + ghost mirror live in its hooks —

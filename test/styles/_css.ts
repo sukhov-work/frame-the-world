@@ -18,6 +18,27 @@ const root = join(__dirname, "..", "..");
 /** Read a repo-relative file. */
 export const read = (p: string): string => readFileSync(join(root, p), "utf8");
 
+/**
+ * Source with comments removed, for fences that probe CODE and must not be satisfied (or
+ * defeated) by a docblock — the docblocks in this repo deliberately name the very things the
+ * fences look for.
+ *
+ * ORDER IS LOAD-BEARING, and getting it wrong is not a subtle failure. Stripping block
+ * comments first lets a LINE comment that merely contains the characters `/*` open a phantom
+ * block that runs to the next real `*​/`. That is not hypothetical: `GuideSheet.tsx` carries
+ * `// … components/mobile/**, and any .focus() without preventScroll`, whose `/**` swallowed
+ * ~100 lines of live code and silently turned two parity assertions red (2026-08-22g).
+ * Line comments go first, so a `/*` inside one is gone before block matching begins.
+ *
+ * The line-comment pattern is anchored to the start of a line so that a URL (`https://…`)
+ * in the middle of a string is never mistaken for a comment.
+ */
+export const stripComments = (src: string): string =>
+  src
+    .replace(/^[ \t]*\/\/.*$/gm, "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+
 /** Escape a literal for use inside a RegExp. */
 export const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

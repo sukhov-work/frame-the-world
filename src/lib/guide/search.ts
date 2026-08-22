@@ -16,6 +16,7 @@ import { editDistance, normalizeSky } from "../sky/searchIndex";
 import {
   GUIDE_CHAPTERS,
   GUIDE_GOALS,
+  GUIDE_INDEX,
   type GuideChapter,
   type GuideGoal,
   type GuideTopic,
@@ -39,9 +40,74 @@ const STOP = new Set([
   "i", "my", "your", "for", "with", "want", "how", "do", "does", "when",
 ]);
 
-/** Crosslink grammar [[id]] / [[id|label]] → searchable label text. */
+/**
+ * Crosslink grammar [[id]] / [[id|label]] → searchable text.
+ *
+ * A BARE `[[fpv]]` resolves to the target's TITLE, exactly as all three renderers do
+ * (Guide.tsx, GuideSheet.tsx, guide.astro each fall back to `GUIDE_INDEX.get(id).title`).
+ * Search used to be the only consumer that did not, so it indexed the raw id: the literal
+ * string "FPV" appears nowhere in the module, and `postings.get("fpv")` held ONE document.
+ * Feeding the rendered words in is a cross-surface parity fix, not a ranking tweak.
+ */
 function stripInline(s: string): string {
-  return s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, id: string, label?: string) => label ?? id);
+  return s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, id: string, label?: string) => {
+    if (label) return label;
+    return GUIDE_INDEX.get(id)?.title ?? id;
+  });
+}
+
+/**
+ * Glyph → word, QUERY-SIDE only. The instrument labels a dozen controls with a glyph and no
+ * text (`◉` is `aria-label="Centre the map on me"`), so a reader who types what they see used
+ * to get nothing at all. Applied to the query, never to the corpus, so snippets keep printing
+ * the glyph the reader is looking at. Lives here and not in `sky/searchIndex.ts` — that map is
+ * the sky finder's Greek normalization and must not learn about UI chrome.
+ */
+const GLYPH_WORDS: Record<string, string> = {
+  "◉": "centre map follow",
+  "◎": "look from here save place",
+  "∠": "radar direction",
+  "⌖": "track find in frame photo pins",
+  "▲": "3d",
+  "▼": "2d",
+  "▤": "vector saved places",
+  "⊞": "layers",
+  "▦": "3d detail buildings",
+  "✕": "clear exit close",
+  "☀": "sun",
+  "☾": "moon",
+  "☄": "comet",
+  "◌": "mark",
+  "∿": "trail",
+  "✧": "ghosts",
+  "⊕": "tracking",
+  "🧭": "my loc location compass",
+  "⤒": "rise ascend",
+  "⤓": "sink descend",
+  "▶": "play",
+  "◢": "resize",
+  "★": "supermoon",
+};
+
+/**
+ * Query-only rewrites for tokens the tokenizer would otherwise destroy. `/m` and `36h` both
+ * survive `normalizeSky` as unusable fragments; the shell path and the card title are what the
+ * reader means. Applied before tokenizing.
+ */
+const QUERY_ALIASES: Array<[RegExp, string]> = [
+  [/(^|\s)\/m(\s|$)/gi, " mobile phone shell "],
+  [/\b36\s?h(ours)?\b/gi, " 36 h this frame next "],
+  [/\b2d\b/gi, " 2d flat chart "],
+  [/\b3d\b/gi, " 3d globe "],
+];
+
+/** Expand glyphs and shell shorthand in a QUERY before it is tokenized. */
+function expandQuery(q: string): string {
+  let out = q;
+  for (const [ch, words] of Object.entries(GLYPH_WORDS))
+    if (out.includes(ch)) out = `${out} ${words}`;
+  for (const [re, words] of QUERY_ALIASES) out = out.replace(re, words);
+  return out;
 }
 
 function tokenize(s: string): string[] {
@@ -58,8 +124,15 @@ interface Doc {
   tf: Map<string, number>;
   /** Weighted length (Σ tf) — the BM25 length normalizer. */
   len: number;
-  /** Plain prose (body + steps + tip) for snippet extraction. */
+  /** Plain prose (body + list + steps + tip) for snippet extraction. */
   prose: string;
+  /**
+   * Every indexed string, normalized and joined — used ONLY to test whether the reader's
+   * query appears verbatim as a phrase. BM25 is a bag of words and cannot see "my spot" as
+   * one thing; that string is a rendered nav label, so a document containing it literally is
+   * a better answer than one that merely scores well on "spot".
+   */
+  flat: string;
 }
 
 interface GuideIndex {
@@ -77,28 +150,57 @@ function addTerms(tf: Map<string, number>, text: string | undefined, weight: num
 function topicDoc(c: GuideChapter, t: GuideTopic): Doc {
   const tf = new Map<string, number>();
   addTerms(tf, t.title, 3.5);
+  // The ID is real vocabulary, not a slug: `fpv`, `mobile`, `find`, `plan` are what readers
+  // type and what every crosslink and deep link already uses. It has to be indexed HERE,
+  // because stripInline now resolves a bare `[[fpv]]` to its rendered title — which is the
+  // correct parity behaviour and which removed the literal token "fpv" from the corpus
+  // entirely (the chapter is titled STAND IN IT). Indexing the id puts the word back on the
+  // document that OWNS it rather than on every document that happens to link to it.
+  addTerms(tf, t.id.replace(/-/g, " "), 2.5);
   addTerms(tf, t.where?.desktop, 2);
   addTerms(tf, t.where?.mobile, 2);
+  // Aliases sit between `tip` and `steps`: strong enough that the ONE word a reader knows
+  // wins, too weak to outrank a topic's own title. Deliberately NOT folded into `prose`, so
+  // a snippet never quotes a word that does not appear in the copy.
+  for (const k of t.keys ?? []) addTerms(tf, k, 1.25);
   addTerms(tf, t.tip, 1.5);
   for (const s of t.steps ?? []) addTerms(tf, s, 1);
+  for (const l of t.list ?? []) addTerms(tf, l, 1);
   addTerms(tf, t.body, 1);
+  // Captions are the most literal UI-label text in the corpus and were never indexed at all
+  // ("pads", "credit", "portrait" had empty postings). Below body weight — a caption describes
+  // a picture of the thing, not the thing.
+  for (const m of t.media ?? []) addTerms(tf, m.caption, 0.75);
   // The chapter title rides along faintly — "mobile joystick" should reach STAND IN IT's
   // twin topics filed under THE PHONE SHELL.
   addTerms(tf, c.title, 0.5);
-  const prose = [t.body, ...(t.steps ?? []), t.tip].filter(Boolean).map((s) => stripInline(s as string)).join(" ");
+  const prose = [t.body, ...(t.list ?? []), ...(t.steps ?? []), t.tip]
+    .filter(Boolean)
+    .map((s) => stripInline(s as string))
+    .join(" ");
+  const flat = normalizeSky(
+    [t.title, t.id.replace(/-/g, " "), t.where?.desktop, t.where?.mobile, ...(t.keys ?? []),
+      prose, ...(t.media ?? []).map((m) => m.caption)].filter(Boolean).join(" "),
+  );
   return {
     id: t.id, kind: "topic", title: t.title, chapterId: c.id, chapterTitle: c.title,
-    tf, len: [...tf.values()].reduce((a, b) => a + b, 0), prose,
+    tf, len: [...tf.values()].reduce((a, b) => a + b, 0), prose, flat,
   };
 }
 
 function chapterDoc(c: GuideChapter): Doc {
   const tf = new Map<string, number>();
   addTerms(tf, c.title, 3.5);
+  addTerms(tf, c.id.replace(/-/g, " "), 2.5); // see topicDoc — "FPV" lives here, not in the title
   addTerms(tf, c.lead, 1);
+  // The chapter caption too — GOTO is named ONLY in the target chapter's caption, so the
+  // topic-level loop alone would not have found it.
+  addTerms(tf, c.media?.caption, 0.75);
+  const prose = stripInline(c.lead);
   return {
     id: c.id, kind: "chapter", title: c.title, chapterId: c.id, chapterTitle: c.title,
-    tf, len: [...tf.values()].reduce((a, b) => a + b, 0), prose: stripInline(c.lead),
+    tf, len: [...tf.values()].reduce((a, b) => a + b, 0), prose,
+    flat: normalizeSky([c.title, c.id.replace(/-/g, " "), prose, c.media?.caption].filter(Boolean).join(" ")),
   };
 }
 
@@ -141,22 +243,59 @@ let defaultIndex: GuideIndex | null = null;
 const K1 = 1.4;
 const B = 0.6;
 
-/** One query token → vocabulary terms it may stand for, best-first, capped. */
+/**
+ * Two-character exact vocabulary that must survive the prefix floor below — these are real
+ * things a reader types, not fragments (`3d`, `1y`, `36`…). An EXACT match is never gated;
+ * this set exists so the intent is documented rather than implied.
+ */
+const SHORT_EXACT = new Set(["3d", "2d", "1w", "1m", "6m", "1y", "80", "75", "36", "30", "24", "18"]);
+
+/** Per-tier expansion caps — see expandToken. */
+const MAX_PREFIX = 16;
+const MAX_FUZZY = 5;
+
+/**
+ * One query token → vocabulary terms it may stand for, best-first, capped PER TIER.
+ *
+ * Three deliberate constraints, each measured (charter §4.2):
+ *  · fuzzy needs 5 chars for d=1 (was 4). At 4 chars a single edit is not a typo, it is a
+ *    different word: "exif" reached `fpv-exit` through "exit" and outranked the upload topic.
+ *  · prefixes need 3 chars. `expandToken("re")` used to yield re/red/real/read/reads/reset/…,
+ *    which is why "re-centre" returned `target-search`.
+ *  · the old single `.slice(0, 8)` ranked by weight, and weight rewards SHORT terms — so "co"
+ *    kept come/cone/copy/core and DROPPED compass, controls, constellation. Ranking each tier
+ *    by `w × idf` keeps the rare, discriminating term instead of the short one, and capping
+ *    per tier stops a flood of prefixes from starving the fuzzy tier (or the reverse).
+ */
 function expandToken(tok: string, index: GuideIndex): Array<{ term: string; w: number }> {
-  const out: Array<{ term: string; w: number }> = [];
-  const dMax = tok.length >= 7 ? 2 : tok.length >= 4 ? 1 : 0;
+  const exact: Array<{ term: string; w: number }> = [];
+  const prefix: Array<{ term: string; w: number }> = [];
+  const fuzzy: Array<{ term: string; w: number }> = [];
+  const dMax = tok.length >= 7 ? 2 : tok.length >= 5 ? 1 : 0;
+  const allowPrefix = tok.length >= 3;
   for (const term of index.postings.keys()) {
     if (term === tok) {
-      out.push({ term, w: 1 });
-    } else if (term.startsWith(tok)) {
+      exact.push({ term, w: 1 });
+    } else if (allowPrefix && term.startsWith(tok)) {
       // Longer coverage of the term = stronger evidence ("met" → METEORS beats "me…").
-      out.push({ term, w: 0.6 + 0.35 * (tok.length / term.length) });
+      prefix.push({ term, w: 0.6 + 0.35 * (tok.length / term.length) });
     } else if (dMax > 0) {
       const d = editDistance(tok, term, dMax);
-      if (d <= dMax) out.push({ term, w: d === 1 ? 0.55 : 0.35 });
+      if (d <= dMax) fuzzy.push({ term, w: d === 1 ? 0.55 : 0.35 });
     }
   }
-  return out.sort((a, b) => b.w - a.w).slice(0, 8);
+  if (SHORT_EXACT.has(tok) && exact.length === 0 && prefix.length === 0) {
+    // A pinned short token with no exact posting still deserves its prefixes.
+    for (const term of index.postings.keys())
+      if (term.startsWith(tok)) prefix.push({ term, w: 0.6 + 0.35 * (tok.length / term.length) });
+  }
+  const byEvidence = (a: { term: string; w: number }, b: { term: string; w: number }) =>
+    b.w * idf(index, b.term) - a.w * idf(index, a.term);
+  return [
+    ...exact,
+    ...prefix.sort(byEvidence).slice(0, MAX_PREFIX),
+    ...fuzzy.sort(byEvidence).slice(0, MAX_FUZZY),
+  ];
 }
 
 function idf(index: GuideIndex, term: string): number {
@@ -192,13 +331,102 @@ function snipFor(doc: Doc, terms: readonly string[]): string | undefined {
   return s;
 }
 
+/**
+ * Ranking constants, chosen ONCE against the golden fixture
+ * (test/lib/guide/guideSearchGolden.test.ts). Do not tune one in isolation: EXACT_BONUS and
+ * TITLE_MULT pull `plan` in opposite directions (toward `plan-open` and toward the PLAN
+ * chapter respectively), which is exactly why the fixture exists.
+ */
+/** Rewards covering the query with terms the reader literally typed. */
+const EXACT_BONUS = 0.35;
+/**
+ * Title match, in three tiers — a document whose title the reader has effectively typed is
+ * almost always the answer, but "effectively typed" has degrees:
+ *  · EXACT  — the query IS the title ("plan" → the PLAN chapter, "STAND IN IT" → fpv).
+ *  · PHRASE — a multi-word query sits inside the title. Measured at 1.6 the chapter
+ *    "STAND IN IT" only reached rank 2, so 2.0.
+ *  · WORD   — a single token is a whole word of the title ("aim" → "The AIM stick"). Small
+ *    on purpose: it must outrank an incidental `where`-line mention without letting one long
+ *    title hijack every one-word search.
+ */
+const TITLE_EXACT = 3.0;
+const TITLE_PHRASE = 2.0;
+const TITLE_WORD = 1.5;
+/**
+ * The title's FIRST word. For a one-word query the broader node is usually the better
+ * landing, and "does the title lead with it" separates the chapter SKY TARGETS from the
+ * topic "Names in the sky" without hard-coding either.
+ */
+const TITLE_LEAD = 2.0;
+/**
+ * The reader typed the node's own id — `fpv`, `mobile`, `plan`. These are the identifiers
+ * every crosslink and deep link uses, so an exact hit is as intentional as typing the title.
+ * Needed because the ids that matter most name chapters whose TITLE is something else
+ * entirely (id `fpv` is titled STAND IN IT).
+ */
+const ID_EXACT = 2.5;
+/**
+ * A partly-typed word that is a prefix of a TITLE or ID word. This is the while-typing case,
+ * and it corrects a genuine IDF distortion at N=78: "foc" expands to both `focal` and
+ * `focus`, and `focus` is rarer — it occurs once, incidentally, in the sentence "the field
+ * takes focus" — so IDF alone ranked the search topic above "Set the focal length" even
+ * though `focal` carries that topic's title AND its id. Where a term SITS is evidence that
+ * document frequency cannot see.
+ */
+const TITLE_PREFIX = 1.35;
+/** The whole multi-word query appearing verbatim somewhere in the document. */
+const PHRASE_ANY = 1.4;
+
+/**
+ * Split `text` into hit / non-hit segments for the query — the data behind `<mark>` in both
+ * shells. Pure and DOM-free, so the two renderers highlight identically without sharing a
+ * component across the mobile fence.
+ *
+ * Matches on the RAW typed tokens only, never on fuzzy or prefix expansions: highlighting a
+ * word the reader did not type reads as a bug, and an alias is never in the visible text.
+ */
+export function markSegments(text: string, query: string): Array<{ t: string; hit: boolean }> {
+  const toks = [...new Set(tokenize(query))].filter((t) => !STOP.has(t) && t.length >= 2);
+  if (toks.length === 0 || !text) return [{ t: text, hit: false }];
+  const re = new RegExp(`(${toks.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  const out: Array<{ t: string; hit: boolean }> = [];
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const at = m.index ?? 0;
+    if (at > last) out.push({ t: text.slice(last, at), hit: false });
+    out.push({ t: m[0], hit: true });
+    last = at + m[0].length;
+  }
+  if (last < text.length) out.push({ t: text.slice(last), hit: false });
+  return out.length > 0 ? out : [{ t: text, hit: false }];
+}
+
+/**
+ * Keep a result list from becoming one chapter's table of contents. Applied AFTER ranking, so
+ * the best hit in every chapter survives — a pre-rank cap would drop `fpv-map-controls`, which
+ * is the answer to half the alias queries, because the FPV chapter fills 5 of 8 rows for "map".
+ */
+export function capPerChapter(hits: readonly GuideSearchHit[], max = 3): GuideSearchHit[] {
+  const seen = new Map<string, number>();
+  const out: GuideSearchHit[] = [];
+  for (const h of hits) {
+    const n = seen.get(h.chapterId) ?? 0;
+    if (n >= max) continue;
+    seen.set(h.chapterId, n + 1);
+    out.push(h);
+  }
+  return out;
+}
+
 /** Rank the guide against a query — top `limit` hits, best first; [] for empty/no match. */
 export function searchGuide(query: string, limit = 8, index?: GuideIndex): GuideSearchHit[] {
   const ix = index ?? (defaultIndex ??= buildGuideIndex());
-  let tokens = [...new Set(tokenize(query))];
+  const raw = normalizeSky(query);
+  let tokens = [...new Set(tokenize(expandQuery(query)))];
   const meaningful = tokens.filter((t) => !STOP.has(t));
   if (meaningful.length > 0) tokens = meaningful;
   if (tokens.length === 0) return [];
+  const typed = new Set(tokenize(query));
 
   const scores = new Map<number, { score: number; covered: number; terms: string[] }>();
   for (const tok of tokens) {
@@ -222,13 +450,34 @@ export function searchGuide(query: string, limit = 8, index?: GuideIndex): Guide
   }
 
   return [...scores.entries()]
-    .map(([docIx, r]) => ({
-      doc: ix.docs[docIx],
-      terms: r.terms,
+    .map(([docIx, r]) => {
+      const doc = ix.docs[docIx];
       // Coverage dominates: a doc matching both words of "save view" must beat a doc
       // matching one of them twice as well.
-      final: r.score * (0.4 + 0.6 * (r.covered / tokens.length)),
-    }))
+      let final = r.score * (0.4 + 0.6 * (r.covered / tokens.length));
+      // Exact-match bonus. Honest limit: this is a no-op wherever EVERY competing document
+      // carries the term, so it cannot rescue a query like "sky" on its own.
+      const exact = r.terms.filter((t) => typed.has(t)).length;
+      if (exact > 0) final *= 1 + EXACT_BONUS * (exact / tokens.length);
+      // Identity match — the STRONGEST tier that applies wins; they never compound.
+      const title = normalizeSky(doc.title);
+      const words = title.split(" ");
+      let boost = 1;
+      if (raw.length >= 2 && title === raw) boost = TITLE_EXACT;
+      else if (raw.length >= 2 && normalizeSky(doc.id) === raw) boost = ID_EXACT;
+      else if (typed.size >= 2 && raw.length >= 3 && title.includes(raw)) boost = TITLE_PHRASE;
+      else if (typed.size === 1 && raw.length >= 2 && words[0] === raw) boost = TITLE_LEAD;
+      else if (typed.size === 1 && raw.length >= 2 && words.includes(raw)) boost = TITLE_WORD;
+      else if (typed.size >= 2 && raw.length >= 4 && doc.flat.includes(raw)) boost = PHRASE_ANY;
+      else if (
+        typed.size === 1 &&
+        raw.length >= 3 &&
+        [...words, ...normalizeSky(doc.id).split(" ")].some((w) => w !== raw && w.startsWith(raw))
+      )
+        boost = TITLE_PREFIX;
+      final *= boost;
+      return { doc, terms: r.terms, final };
+    })
     .sort((a, b) => b.final - a.final)
     .slice(0, limit)
     .map(({ doc, terms }) => ({

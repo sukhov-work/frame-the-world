@@ -64,6 +64,28 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
 - Decorations set `raycast = () => {}` so GlobeControls never picks them.
 
 ## Traps that keep resurfacing (violations = bugs)
+- **TWO focal readouts, TWO sensor axes, ONE view — do NOT "fix" either one** *(T41, owner ruled
+  ACCEPTED AS-IS 2026-08-22e; documented 2026-08-22g)*. The app prints the 35 mm-equivalent focal
+  length in two places and they legitimately disagree, because they measure **different edges of
+  the frame**:
+  - `focalFromVerticalFov(vFov)` = `FULL_FRAME_HEIGHT_MM / 2 / tan(vFov/2)`, `FULL_FRAME_HEIGHT_MM = 24`
+    (`src/lib/decode/sensors.ts:146`) — across the frame's **HEIGHT**. **Six consumers**:
+    `FpvHud.tsx:105` · `FpvControls.tsx:124` · `CameraTiltPanel.tsx:250` · `SpotStarsCard.tsx:43` ·
+    `PlanSheet.tsx:493` · `MyPins.tsx:190`.
+  - `focalMmFromHFov(hFov)` = `18 / tan(hFov/2)` — the `18` is 36/2, the full-frame **WIDTH** half
+    (`src/lib/geo/plannedView.ts:21-25`). **One consumer**: the AIM stick's mm footer,
+    `Joystick.tsx:168`.
+
+  **There is no second source of truth.** `Joystick.tsx:115-117` proves both derive from the SAME
+  live vertical FOV inside FPV (`hFovNow = s.fpvHud ? horizontalFovDeg(s.fpvHud.fovDeg, s.fpvHud.aspect)
+  : (s.plannedView?.hFovDeg ?? null)`). They **agree at 3:2** and diverge with aspect — a portrait
+  phone (aspect ≈ 0.46) reads ≈23 MM and ≈75 MM for one view, both visible together in
+  `public/guide/fpv-m.webp`.
+
+  THE TRAP: a contributor "reconciles" the two, silently breaking the photographer's width-based
+  number — or adds a **seventh consumer on the wrong axis**. Pick the axis the readout's own label
+  implies, and never hard-code a literal MM pair anywhere (it is viewport-specific, so it becomes
+  the next drift). Reader-facing twin: guide topic `fpv-focal-axes` ("Why two focal numbers").
 - **Chain, never assign, `onBeforeCompile`** on imagery-tile materials — TilesFadePlugin already
   wrapped it (`const prev = mat.onBeforeCompile; mat.onBeforeCompile = (s, r) => { prev?.(s, r); mine(s); }`).
 - Colour textures = `SRGBColorSpace`; data textures (mask/elevation/normal) = `NoColorSpace`
