@@ -210,6 +210,19 @@ export interface CameraState {
    *  labels are content, not wash, and stay on their own presence. Persisted (VEC / ▤ VECTOR). */
   vectorsVisible: boolean;
   setVectorsVisible: (on: boolean) => void;
+  /** ULTRA HQ — the DESKTOP-ONLY experimental chip (owner 2026-08-22h).
+   *
+   *  This is the ONLY flag in this store that defaults to **false**; every other chip above
+   *  defaults on. That is deliberate — it is an opt-in experiment, not a feature — so do not
+   *  "fix" the `?? false` to match its neighbours.
+   *
+   *  The store is shared by BOTH shells and so is the localStorage blob behind it, so these
+   *  fields WILL be true on `/m` for a user who enabled them on desktop in the same browser.
+   *  That is fine and intended: the fence is not in the store, it is the one `hqAllowed`
+   *  predicate (`!isMobileShell && !coarsePointer`) that every engine read is AND-ed with in
+   *  StylizedTiles. Nothing outside that file may read this field — `fences.test.ts` pins it. */
+  ultraQuality: boolean;
+  setUltraQuality: (on: boolean) => void;
   /** One-shot "stand in this first-person viewpoint" request (saved places, owner 2026-07-15):
    *  the full `#f=` pose. The orchestrator consumes it next frame — drops a temp pin at the
    *  location and enters temp-pin FPV through the exact share-link path (same basis/eye/FOV
@@ -325,6 +338,12 @@ export const useCameraStore = create<CameraState>((set) => ({
   setVectorsVisible: (on) => {
     saveViewPref("vectorsVisible", on);
     set({ vectorsVisible: on });
+  },
+  // `?? false` on purpose (see the interface docblock) — an opt-in experiment, never a default.
+  ultraQuality: stored.ultraQuality ?? false,
+  setUltraQuality: (on) => {
+    saveViewPref("ultraQuality", on);
+    set({ ultraQuality: on });
   },
   fpvJumpRequest: null,
   requestFpvJump: (pose) => set({ fpvJumpRequest: pose }),

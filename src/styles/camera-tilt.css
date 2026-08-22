@@ -117,9 +117,12 @@
 }
 
 /* Compass + toggle chips (Phase 5.5 S2). Accent stays reserved: the needle's north half is
-   the only accent stroke; buttons are quiet surface chips. Two rows × 4 cells (owner
-   2026-08-19, supersedes the 2026-08-14 qol3 single-row rule): compass is cell 1, the 7
-   chips fill the rest — [compass][2D][☀☾][SAT] / [PIN][BLD][AIM][PLC]. */
+   the only accent stroke; buttons are quiet surface chips. A 4-column grid (owner 2026-08-19,
+   supersedes the 2026-08-14 qol3 single-row rule) that grows by rows as chips are added —
+   compass is cell 1:
+     [compass][2D][☀☾][SAT] / [PIN][BLD][AIM][PLC] / [VEC]
+   and, on desktop with a fine pointer only, [ULT] joins that third row (owner 2026-08-22h).
+   Count re-checked 2026-08-22h — the old "the 7 chips" wording had been stale since VEC. */
 .ct-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -204,15 +207,33 @@
 .ct-sky {
   letter-spacing: 0;
 }
+/* Every chip that has a lit state must be listed here — this group is by-hand, not a generic
+   `.ct-mode.is-on` rule, so a new chip that forgets its line ships with the `is-on` class
+   applied and no pixels to show for it. That has now happened twice: PLC once (recorded in
+   DECISIONS), and `.ct-vec` — shipped 2026-08-21 with `ct-vec` appearing nowhere under
+   src/styles/**, so the VEC chip has had NO lit state since the day it landed. Both fixed
+   2026-08-22h. */
 .ct-sky.is-on,
 .ct-sat.is-on,
 .ct-pins.is-on,
 .ct-bld.is-on,
 .ct-aim.is-on,
+.ct-vec.is-on,
 .ct-places.is-on {
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+/* The EXPERIMENTAL chip (owner 2026-08-22h, desktop-only, off by default) lights in
+   warn-amber rather than the accent — the same colour the scrubber's pinned knob and the
+   TimeReadout dot use for "this is not the resting state". It is an opt-in experiment that
+   costs tiles and frames, so it should not read as an ordinary view preference. Rendered only
+   when `hqExperimentsAllowed` (CameraTiltPanel), so on /m this selector never matches. */
+.ct-ultra.is-on {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-warn) 60%, transparent);
+  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
 }
 
 /* The per-chip narrow cuts + the old flex-share single row retired (owner 2026-08-19): the

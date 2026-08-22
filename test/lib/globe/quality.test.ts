@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   detectDeviceTier,
   lruCapBytesForTier,
+  lruCapBytesForUltra,
   lruFloorBytesForCap,
   makeGovernor,
+  ultraTileLevers,
   peripheryErrorTarget,
   queueCapsForTier,
   stickyOverlayPx,
@@ -460,5 +462,80 @@ describe("stickyOverlayPx — QA slice C: the composite px only ratchets up", ()
 
   it("the live knob still raises the chart above the lean tier base (QA-7b crispness intact)", () => {
     expect(stickyOverlayPx(256, 256, true, FLAT2D)).toBe(Math.max(256, FLAT2D));
+  });
+});
+
+/**
+ * ULTRA HQ (owner 2026-08-22h) — the "OFF == today" fence.
+ *
+ * ULTRA is deliberately NOT a fourth tier: `QualityTier`, `TIER_ORDER`, `detectDeviceTier` and
+ * `makeGovernor` are untouched, and `QUALITY.tiers` is not edited. It is an override profile
+ * layered on top of the running tier, the mirror of `QUALITY.leanMobile`. These assertions pin
+ * the property the owner actually asked for — zero regression when off — as IDENTITY, which is
+ * a stronger claim than equality and one no future refactor can satisfy by accident.
+ */
+describe("ULTRA HQ — off is byte-identical, on is bounded", () => {
+  it("ultraTileLevers returns its input BY IDENTITY when off", () => {
+    for (const tier of TIER_ORDER) {
+      const base = QUALITY.tiers[tier];
+      expect(ultraTileLevers(base, false, QUALITY.ultraDesktop)).toBe(base);
+    }
+  });
+
+  it("ultraTileLevers overrides exactly the declared keys when on, and nothing else", () => {
+    const base = QUALITY.tiers.high;
+    const on = ultraTileLevers(base, true, QUALITY.ultraDesktop);
+    expect(on).not.toBe(base); // a copy, so the frozen tuning object is never mutated
+    expect(on.buildingErrorTarget).toBe(QUALITY.ultraDesktop.buildingErrorTarget);
+    expect(on.maxStreetNames).toBe(QUALITY.ultraDesktop.maxStreetNames);
+    expect(on.vectorLatticeBudget).toBe(QUALITY.ultraDesktop.vectorLatticeBudget);
+    // Everything the exclusion list says must NOT move: DPR is inert behind
+    // min(devicePixelRatio, …); shadows/AO/8k are construction-time; foveation must stay null
+    // on high (a cfg there SOFTENS the periphery); the composite px is a one-way ratchet.
+    expect(on.dprCap).toBe(base.dprCap);
+    expect(on.shadowMapSize).toBe(base.shadowMapSize);
+    expect(on.shadowsEnabled).toBe(base.shadowsEnabled);
+    expect(on.bloom).toBe(base.bloom);
+    expect(on.overlayResolutionPx).toBe(base.overlayResolutionPx);
+    expect(on.foveation).toBe(base.foveation);
+    expect(on.groundErrorNear).toBe(base.groundErrorNear);
+  });
+
+  it("ULTRA really is a RAISE — every override moves detail up, never down", () => {
+    const h = QUALITY.tiers.high;
+    const u = QUALITY.ultraDesktop;
+    expect(u.buildingErrorTarget).toBeLessThan(h.buildingErrorTarget); // SSE: lower = finer
+    expect(u.maxStreetNames).toBeGreaterThan(h.maxStreetNames);
+    expect(u.vectorLatticeBudget).toBeGreaterThan(h.vectorLatticeBudget);
+    // The one thing tier `high` can never do: exceed the library's own LRU default. `high`
+    // resolves to null = "restore that default", so a raise has to come from here.
+    expect(u.lruBytesMB).toBeGreaterThan(h.lruBytesMB);
+    expect(u.groundLruBytesMB).toBeGreaterThan(h.groundLruBytesMB);
+  });
+
+  it("lruCapBytesForUltra off is DEFINED as lruCapBytesForTier — including the null-on-high path", () => {
+    for (const tier of TIER_ORDER) {
+      const mb = QUALITY.tiers[tier].lruBytesMB;
+      expect(lruCapBytesForUltra(tier, mb, false, QUALITY.ultraDesktop.lruBytesMB)).toBe(
+        lruCapBytesForTier(tier, mb),
+      );
+    }
+    // `null` is the load-bearing case: it means "restore the renderer's captured library
+    // default", which is the whole byte-identical-on-high property.
+    expect(lruCapBytesForUltra("high", 400, false, 600)).toBeNull();
+  });
+
+  it("lruCapBytesForUltra on returns explicit bytes ABOVE the library default, with a paired floor", () => {
+    const cap = lruCapBytesForUltra("high", 400, true, QUALITY.ultraDesktop.lruBytesMB);
+    expect(cap).toBe(Math.round(QUALITY.ultraDesktop.lruBytesMB * 1024 * 1024));
+    expect(cap!).toBeGreaterThan(0.4 * 2 ** 30); // the 3d-tiles-renderer default
+    // U2/A9: a max-only raise inverts the library's min/max band and re-enters the
+    // parse → cache-full → discard → re-download loop. The floor must travel with it.
+    expect(lruFloorBytesForCap(cap)).toBe(Math.round(cap! * 0.75));
+  });
+
+  it("ULTRA is not a tier — the three-rung ladder is untouched", () => {
+    expect(TIER_ORDER).toEqual(["low", "mid", "high"]);
+    expect(Object.keys(QUALITY.tiers).sort()).toEqual(["high", "low", "mid"]);
   });
 });

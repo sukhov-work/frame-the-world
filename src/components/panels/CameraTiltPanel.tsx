@@ -32,6 +32,16 @@ import "../../styles/tips.css";
  * Grabbing the globe releases every pending glide (direct manipulation wins).
  */
 
+/** Desktop-experiment gate (owner 2026-08-22h) — the UI twin of StylizedTiles' `hqAllowed`, and
+ *  it MUST stay the same expression. The engine is the real fence (the prefs blob is shared
+ *  across both shells, so hiding a chip isolates nothing); this exists so the two can never
+ *  disagree, i.e. so a visible chip is always a working chip. The `body.m` half is the
+ *  MiniMap.tsx module-scope idiom; the pointer half catches a phone running `/?d=1`. */
+const hqExperimentsAllowed =
+  typeof document !== "undefined" &&
+  !document.body.classList.contains("m") &&
+  !window.matchMedia("(pointer: coarse)").matches;
+
 export default function CameraTiltPanel() {
   const s = useCameraStore();
   const drag = usePanelDrag("camera");
@@ -213,6 +223,27 @@ export default function CameraTiltPanel() {
         >
           VEC
         </button>
+        {/* The two EXPERIMENTAL chips (owner 2026-08-22h) — desktop only, off by default.
+            `hqExperimentsAllowed` is the SAME predicate the engine gates on (StylizedTiles
+            `hqAllowed`), deliberately duplicated rather than plumbed: a chip that renders but
+            does nothing reads as broken and invites re-click thrash, so UI and engine must
+            agree by construction. This panel is desktop-only by mount already (index.astro
+            never runs on /m) — the coarse-pointer half is what a phone on `/?d=1` needs. */}
+        {hqExperimentsAllowed && (
+          <>
+            <button
+              type="button"
+              className={`ct-mode ct-ultra tip${s.ultraQuality ? " is-on" : ""}`}
+              onClick={() => s.setUltraQuality(!s.ultraQuality)}
+              aria-pressed={s.ultraQuality}
+              aria-label={s.ultraQuality ? "Turn off ultra quality" : "Turn on ultra quality"}
+              data-tip="ULTRA HQ (EXPERIMENTAL) — PINS QUALITY TO MAXIMUM WHATEVER THE FRAME RATE, AND PUSHES BUILDING / LABEL / VECTOR DETAIL PAST THE NORMAL CEILING. MAKE YOUR MACHINE HURT."
+              data-tip-pos="left"
+            >
+              ULT
+            </button>
+          </>
+        )}
       </div>
       {!fpvMode && (
         <Encoder

@@ -9,6 +9,10 @@
  *   building mask AND the enriched re-seat extent (the old tuning.ENRICHED.bbox contract).
  * - `variants` are R2 path names under enriched/ (…/enriched/<variant>/tileset.json), BEST
  *   FIRST — [0] is what boots by default; the tail is reachable via the `?enriched=` dev seam.
+ *   It may be EMPTY: a region can carry a terrain patch and no buildings at all (everest,
+ *   2026-08-22h). Such an entry must never win enriched selection — `enrichedVariant.ts`
+ *   skips a variant-less boot region so that ground behaves exactly like unbaked ground for
+ *   the buildings pipeline, which is the only honest answer when there is no bake to stream.
  * - `terrain` values come verbatim from the bake output (patch-info.json / bake-terrain.mjs
  *   console snippet); the bake asserts its layer.json availability CONTAINS the serve-set this
  *   config generates, so a mismatch fails at bake time, not in the field.
@@ -19,7 +23,7 @@ export interface BakedRegion {
   id: string;
   /** Enriched-bake extent [w,s,e,n] deg — mask + seat + region-pick extent. */
   bbox: LonLatBbox;
-  /** Enriched building tileset variants on R2, BEST FIRST. */
+  /** Enriched building tileset variants on R2, BEST FIRST. EMPTY = terrain-only region. */
   variants: string[];
   /** Self-baked terrain patch (GLO-30), when this region has one. */
   terrain?: TerrainPatchCfg;
@@ -46,6 +50,24 @@ export const BAKED_REGIONS: readonly BakedRegion[] = [
     id: "st-albans",
     bbox: [-0.3692, 51.7244, -0.2821, 51.7787],
     variants: ["st-albans-o2w"],
+  },
+  {
+    // TERRAIN-ONLY (owner ask 2026-08-22h — a second true-heights bake to exercise the height
+    // pipeline where it actually has something to say: 8,849 m of it). No enriched buildings
+    // exist for the Khumbu and none are planned, so `variants` is empty by design and this
+    // entry is invisible to the buildings pipeline; only StylizedTiles' terrainCfgs reads it.
+    // bbox == terrain.cityBbox == a 20 km-radius box on the summit (86.925278, 27.988056).
+    // Values verbatim from the bake console snippet — scripts/bake/cities/everest.json.
+    id: "everest",
+    bbox: [86.72, 27.805, 87.13, 28.17],
+    variants: [],
+    terrain: {
+      path: "everest",
+      extentBbox: [86.0, 27.0, 88.0, 29.0],
+      extentMaxDepth: 13,
+      cityBbox: [86.72, 27.805, 87.13, 28.17],
+      maxDepth: 13,
+    },
   },
 ];
 

@@ -55,6 +55,11 @@ declare global {
       readonly leanFlat2d: boolean;
       readonly mapFlat: boolean;
       readonly lean: boolean;
+      /** ULTRA HQ (owner 2026-08-22h): the tier pin is engaged — the governor still steps and
+       *  its EMA stays honest, but its results are dropped. Always false on /m and on any
+       *  coarse-pointer device (the gate is resolved in StylizedTiles, before GlobeCanvas
+       *  ever sees it). */
+      readonly ultra: boolean;
     };
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;

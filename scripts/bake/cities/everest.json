@@ -1,0 +1,23 @@
+{
+  "city": "everest",
+  "cityNote": "NOT a city — a TERRAIN-ONLY region (owner ask 2026-08-22h: 'add another true-heights bake, this time for Everest, 20 km radius, purely to test what the height map can do'). The bake pipeline keys everything on `--city <id>`, so the id stays 'everest' and this file carries ONLY the `terrain` section: `bake-terrain.mjs` reads `cfg.terrain` and nothing else, and `upload-r2.mjs --terrain` reads `cfg.terrain.output`. There is deliberately NO buildings/vegetation/exclusion section and no `output` key — running `npm run bake -- --city everest` (the OSM building extruder) against this file is expected to fail loudly rather than silently produce an empty tileset. The runtime twin is a terrain-ONLY entry in src/lib/globe/regions.ts: `variants: []`, so the enriched-buildings pipeline treats this ground exactly like unbaked ground (guarded in lib/globe/enrichedVariant.ts).",
+  "attribution": "Contains modified Copernicus DEM data; no OpenStreetMap data is baked for this region.",
+  "terrain": {
+    "terrainNote": "GLO-30 quantized-mesh patch, second region (first: dnipro 2026-08-18). Same pipeline, same datum handling: mago-3d-terrainer reads the COGs' own georeferencing and applies EGM2008 -> ellipsoid with its built-in geoid, so runtime seating needs no datum code. What differs from Dnipro is RELIEF: this box holds Everest (8,849 m), Lhotse, Nuptse, Cho Oyu's flank, the Khumbu icefall and valley floors near 4,000 m, so the bake's probe tolerances (which were written against a flat Ukrainian river plain) are region-scoped here - see probeBiasTolM / probeSpreadTolM below.",
+    "centre": [86.925278, 27.988056],
+    "centreNote": "Everest / Sagarmatha / Chomolungma summit, 27deg59'17\"N 86deg55'31\"E (Nepal-China border). cityBbox below is the 20 km-radius box around it: dLat = 20 km / 110.819 km/deg = 0.18048, dLon = 20 km / 98.376 km/deg = 0.20330 (meridian + parallel degree lengths evaluated at phi = 27.988), each edge rounded OUTWARD so the full 20 km disc is inside.",
+    "extentBbox": [86.0, 27.0, 88.0, 29.0],
+    "extentBboxNote": "The four whole 1x1-deg GLO-30 input tiles the city box needs (it straddles both 87E and 28N): N27_E086, N27_E087, N28_E086, N28_E087. Double Dnipro's 2-tile mosaic. Served fully-inside up to extentMaxDepth, rim-blended to CWT over blendKm at the edge.",
+    "extentMaxDepth": 13,
+    "cityBbox": [86.72, 27.805, 87.13, 28.17],
+    "cityBboxNote": "40.3 x 40.4 km. MUST stay equal to the `bbox` of the everest entry in src/lib/globe/regions.ts (regions.test.ts pins cityBbox === region.bbox).",
+    "maxDepthNote": "mago 1.14.2 clamps maxDepth to its raster-resolution heuristic - 13 for 30 m input (Dnipro asked 14 and got 13). L13 at this latitude posts 34 x 38 m against GLO-30's native 30 x 27 m, so 13 is already at source resolution; asking for more only interpolates.",
+    "maxDepth": 13,
+    "blendKm": 3,
+    "probeBiasTolM": 20,
+    "probeSpreadTolM": [40, 25],
+    "probeTolNote": "Verification tolerances, region-scoped (defaults 6 / [12,25] = the Dnipro numbers, still in force for every region that omits these keys). MEASURED on the shipped bake: city-centre bias +8.8 m / spread 10.2 m over a probe tile carrying 1,944 m of relief, extent-mid bias -2.0 m / spread 3.1 m. probeBiasTolM bounds the MEDIAN SIGNED error over a 9x9 grid - the DATUM gate, and the discriminating one: slope error is sign-symmetric and cancels in a median however steep the ground, so what survives is systematic. 20 sits above the +8.8 m the TIN's own decimation contributes and well below the +28.3 m a skipped geoid shift would add (local EGM2008 N = -28.34 m), which is exactly the signal it exists to catch. probeSpreadTolM = [cityTile, extentTile] bounds the MEDIAN ABSOLUTE error - the RESOLUTION gate - at ~4x and ~8x measured. That headroom is for a probe tile that MOVES (the tile is picked as the centre of the range, so editing cityBbox re-aims it at possibly steeper ground), not for sloppiness; a bake that silently lost two levels would roughly 4x the city spread and trip it.",
+    "output": "bakes/terrain/everest",
+    "attribution": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+  }
+}

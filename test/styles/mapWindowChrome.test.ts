@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // audit #3 C18: read/esc/ruleBody were triplicated across test/styles/*; C14: the fences were
 // keyed on prose, indentation, units and taste literals. Both live in _css.ts now.
-import { decl, fnBody, jsxElementEnd, num, read, ruleBody, VALUE } from "./_css";
+import { decl, fnBody, jsxElementEnd, num, read, ruleBody, stripComments, VALUE } from "./_css";
 
 /**
  * Owner micro-slice 2026-08-22 — the expanded-map chrome contract, fenced as text (the
@@ -147,6 +147,24 @@ describe("MapWindow — bottom-edge attribution (owner 2026-08-22 item 3)", () =
     // The dock handed its safe-area duty to the credit bar — paying it twice would leave a
     // dead band above the line on every notched iPhone.
     expect(ruleBody(fpvCss, "body.m.mw-open .md")).not.toContain("safe-area-inset-bottom");
+  });
+
+  it("LIFTS only — the scrubber's card chrome is state-INDEPENDENT (owner report 2026-08-22h)", () => {
+    // The regression this fences: carving `body.mw-open .ts` out of `.ts` (086ff37, owner QA
+    // item 4) MOVED the whole declaration list instead of adding a rule with only the delta, so
+    // the translucent fill + hairline existed only while the expanded map was open. Everywhere
+    // else the rail rendered as bare text — unreadable over a bright chart or a snow region.
+    // A state selector may carry the SEAT (z-index, bottom); the card must live on the base rule.
+    // Comments out first: `decl` anchors on `^`/`;`/`{`, so a docblock sitting immediately
+    // above a declaration hides it (the `*/` becomes the preceding character).
+    const base = stripComments(ruleBody(tsCss, ".ts"));
+    for (const prop of ["background", "border", "backdrop-filter", "border-radius", "padding", "width"]) {
+      expect(decl(base, prop), `.ts must carry ${prop} unconditionally`).not.toBeNull();
+    }
+    const open = stripComments(ruleBody(tsCss, "body.mw-open .ts"));
+    for (const prop of ["background", "border", "backdrop-filter"]) {
+      expect(decl(open, prop), `body.mw-open .ts must not re-declare ${prop}`).toBeNull();
+    }
   });
 });
 

@@ -57,6 +57,14 @@ export interface ViewPrefs {
    *  (scene/vectorFeatures). Street-name labels stay on their own presence — the toggle kills
    *  the wash, not the content (owner batch #4 item 7, 2026-08-21). */
   vectorsVisible?: boolean;
+  /** ULTRA HQ chip — DESKTOP-ONLY experimental (owner 2026-08-22h). Pins the quality tier to
+   *  maximum regardless of measured frame time and pushes tile detail past the normal ceiling.
+   *  **Default OFF** — the only key in this file whose default is false.
+   *  The `/m` shell has NO surface for it and must never act on it: this blob is ONE
+   *  localStorage key shared by both shells on the same origin, so a flag set on desktop IS
+   *  present on `/m` in the same browser. The fence is not here — it is the single `hqAllowed`
+   *  predicate every engine read is AND-ed with (StylizedTiles). Do not add a `/m` control. */
+  ultraQuality?: boolean;
   /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
   skyGhosts?: boolean;
   /** Ghost copies per time direction (1..15; the owner default is 4 each way = 8 total). */
@@ -99,6 +107,11 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   if (typeof r.aimVisible === "boolean") out.aimVisible = r.aimVisible;
   if (typeof r.savedPlacesOnMap === "boolean") out.savedPlacesOnMap = r.savedPlacesOnMap;
   if (typeof r.vectorsVisible === "boolean") out.vectorsVisible = r.vectorsVisible;
+  // The desktop experimental toggle. A plain read with NO `rearmed` term: that clause exists
+  // only to un-stick the four default-ON radar keys a 2026-08-19 build could persist false.
+  // Joining it here would resurrect an opt-out into an opt-in — i.e. it would silently enable
+  // a machine-hurting mode for users who never chose it.
+  if (typeof r.ultraQuality === "boolean") out.ultraQuality = r.ultraQuality;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
   if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
     out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));

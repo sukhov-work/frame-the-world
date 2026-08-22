@@ -54,13 +54,20 @@ function swapVariant(envUrl: string | undefined, variant: string): string {
 }
 
 /** The region the boot defaults to: the boot view's containing region wins (a #p= share into
- *  another baked city streams THAT city's best bake), else the env anchor, else the registry head. */
+ *  another baked city streams THAT city's best bake), else the env anchor, else the registry head.
+ *
+ *  A TERRAIN-ONLY region (`variants: []` — everest, 2026-08-22h) is skipped here on purpose. It
+ *  owns the ground for `regionContaining` (that lookup stays purely geometric, and the terrain
+ *  patch is selected elsewhere entirely — StylizedTiles reads `r.terrain` directly), but it has
+ *  no tileset to stream, so letting it win would have resolved `variants[0]` to `undefined` and
+ *  emitted a `…/enriched/undefined/tileset.json` request. Falling through instead makes standing
+ *  on Everest behave exactly like standing anywhere else with no enriched bake. */
 function defaultRegion(envUrl: string | undefined, bootLatDeg?: number, bootLonDeg?: number): BakedRegion {
   const byBoot =
     bootLatDeg !== undefined && bootLonDeg !== undefined
       ? regionContaining(bootLatDeg, bootLonDeg)
       : null;
-  if (byBoot) return byBoot;
+  if (byBoot?.variants.length) return byBoot;
   const anchor = envAnchorSegment(envUrl);
   return (anchor && regionOfVariant(anchor)) || BAKED_REGIONS[0];
 }

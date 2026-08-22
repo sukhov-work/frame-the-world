@@ -82,18 +82,44 @@ and upload-r2's extension filter).
    "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and
    Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights
    reserved".
+9. **A region may be TERRAIN-ONLY** (owner ask 2026-08-22h — `everest`, a second patch taken
+   purely to see what the height pipeline does with 8,849 m of relief). `variants: []` in the
+   registry; `resolveEnrichedSelection` skips a variant-less boot region so the buildings
+   pipeline treats that ground exactly like unbaked ground, which is the only honest answer
+   when there is no tileset to stream. Terrain-only entries go at the registry TAIL —
+   `BAKED_REGIONS[0]` is the last-resort enriched fallback and its `variants[0]` is read
+   unguarded (both pinned by `regions.test.ts`).
+10. **Relief sets the price, not area.** Dnipro: 2 sq-deg → 11.5 MB, because a river plain
+   decimates to ~190 verts/tile. Everest: 4 sq-deg → **210 MB**, because Himalayan tiles
+   cannot decimate (735 verts on the summit tile, ~17 KB/tile at both L12 and L13). Budget a
+   new mountain patch by RELIEF. The obvious lever — `extentMaxDepth` below `maxDepth`, so
+   deep tiles exist only over `cityBbox` — would cut it to ~41 MB and was REJECTED: it moves
+   the patch↔CWT boundary off the rim-blended extent edge and onto the un-blended `cityBbox`
+   edge, i.e. it buys 170 MB with a height cliff ringing the region. Ruling 5(a) is why
+   `extentMaxDepth == maxDepth`.
 
 ## 3. The terrain bake pipeline (`scripts/bake/terrain/`)
 
 ```
 npm run bake:terrain -- --city dnipro          # ~90 s warm, fully self-verifying
 node --env-file=.env.local scripts/bake/upload-r2.mjs --city dnipro --terrain
+node --env-file=.env.local scripts/bake/terrain/bake-terrain.mjs --city dnipro --probe-only
 ```
+
+`--probe-only` re-runs stages 5–6 against an output tree already on disk and writes NOTHING.
+That is how a change to the verification is proved harmless against an ALREADY-SHIPPED bake
+(re-baking to test a test changes the bytes under the thing being tested), and it is the only
+safe way to re-touch an existing tree at all: **stage 3 is not idempotent** — it pulls rim
+vertices toward CWT every time it runs.
 
 Config = the `terrain` block in `cities/<city>.json`
 (`extentBbox` · `extentMaxDepth` · `cityBbox` · `maxDepth` · `blendKm` · `output` ·
-`attribution`). Stages (all in `bake-terrain.mjs`):
+`attribution`, plus the optional `probeBiasTolM` / `probeSpreadTolM` / `rimTolM` overrides —
+absent = the Dnipro numbers). Stages (all in `bake-terrain.mjs`):
 
+0. **Pre-flight**: assert `geoid.mjs` holds a sample grid covering `extentBbox`, before
+   anything expensive happens. See the trap in §6 — this check exists because its absence cost
+   a full bake.
 1. **Fetch** (`glo30.mjs`): anonymous HTTPS GETs of the 1°×1° COG GeoTIFFs from the AWS Open
    Data bucket `copernicus-dem-30m` (eu-central-1), cached in `scripts/bake/.cache/glo30/`.
    The WBM water-mask aux files (§7) are cached alongside (~140 KB each) but NEVER fed to the
@@ -112,15 +138,34 @@ Config = the `terrain` block in `cities/<city>.json`
 5. **layer.json post**: attribution set; then the HARD ASSERT — the runtime's arithmetic
    serve-set (§5) must be CONTAINED in the baked availability at every level, so a
    bake/runtime mismatch dies at bake time, never in the field.
-6. **Probe verify** (receipts printed): decode real output tiles and compare — city-centre
-   and extent-mid against the source COG + the embedded EGM2008 verification grid
-   (`geoid.mjs`, bilinear over GeoidEval samples), and the westmost served tile's edge
-   against live CWT. Shipped receipts: Δ 0.2 m / Δ −0.7 m / rim Δ −0.5 m.
+6. **Probe verify** (receipts printed): decode the city-centre and extent-mid output tiles and
+   compare a **9×9 interior grid** (81 samples) against the source COG + the embedded EGM2008
+   grid (`geoid.mjs`, bilinear over GeoidEval samples), then the westmost served tile's edge
+   against live CWT. Rewritten 2026-08-22h from a SINGLE centre sample, which was a fair gate
+   on a river plain and an unfair one anywhere with relief — it measured one point's slope
+   error and called it accuracy. The grid separates the two failure modes:
+   - **bias** = median SIGNED error → the DATUM gate, and the discriminating one. Slope error
+     is sign-symmetric and cancels in a median however steep the ground; a skipped or
+     double-applied geoid shift does not.
+   - **spread** = median ABSOLUTE error → the RESOLUTION gate. This is the only one that has
+     to grow with relief.
+   - a **positive control**: all 81 samples must land inside a source COG, so a mosaic that
+     landed at −180/90 cannot pass with a median of nothing.
 7. **Emit**: `patch-info.json` + the exact `regions.ts` terrain block printed to console —
    copy it verbatim into the registry.
 
-Shipped artifact (2026-08-18): 7,329 files · 10.97 MB · levels 0–13 over 34–36°E × 48–49°N,
-rim-blended (19,045 verts / 535 tiles) — live at `terrain/dnipro/` on R2.
+Shipped artifacts:
+
+| Patch | Extent | Files | Size | Rim blend | Probe receipts (bias / spread / rim) |
+|---|---|---|---|---|---|
+| `terrain/dnipro/` (2026-08-18) | 34–36°E × 48–49°N, L0–13 | 7,329 | 10.97 MB | 19,045 verts / 535 tiles | +0.4 / 2.4 m · +0.3 / 1.6 m · −0.5 m |
+| `terrain/everest/` (2026-08-22h) | 86–88°E × 27–29°N, L0–13 | 13,487 | 210.1 MB | 271,382 verts / 683 tiles | +8.8 / 10.2 m · −2.0 / 3.1 m · **−0.0 m** |
+
+Dnipro's receipts are the same bake as 2026-08-18, re-measured under the new probe
+(`--probe-only`, nothing rewritten). Everest's +8.8 m city-centre bias is the TIN's own
+decimation over a probe tile carrying **1,944 m of relief** in 2.2 × 2.4 km — mago keeps 735
+vertices there. It is a resolution artefact (0.45 % of local relief), not a datum one, and the
+20 m gate sits deliberately between it and the +28.3 m a missed geoid shift would add.
 
 ## 4. `regions.ts` — the registry contract
 
@@ -131,8 +176,9 @@ unit-tested (`test/lib/globe/regions.test.ts`). It replaced `tuning.ENRICHED.bbo
 
 Per region: `id` · `bbox` (MUST equal the city bake bbox — it drives the OSM mask AND the
 enriched re-seat extent; the old mask-extent==bake-extent coupling now lives here) ·
-`variants` (R2 names under `enriched/`, BEST FIRST — `[0]` boots by default) · optional
-`terrain` (verbatim from the bake's console snippet).
+`variants` (R2 names under `enriched/`, BEST FIRST — `[0]` boots by default, **may be empty
+for a terrain-only region**, §2 ruling 9) · optional `terrain` (verbatim from the bake's
+console snippet).
 
 Consumers: `resolveEnrichedSelection` (buildings default + dev seam), the terrain-patch hook
 (ALL regions' terrain cfgs are hooked at once — serve sets are disjoint, so the composite is
@@ -141,10 +187,13 @@ region-agnostic), the OSM mask/clip prism, and the enriched seat extent.
 **Add-a-city runbook**
 1. `scripts/bake/cities/<city>.json` (+`<city>-o2w.json` extends) → run both building bakes →
    `upload-r2.mjs --city <city>` / `--city <city>-o2w`.
-2. Terrain (optional): add the `terrain` block → `npm run bake:terrain -- --city <city>` →
-   `upload-r2.mjs --city <city> --terrain`.
-3. Add ONE `BAKED_REGIONS` entry (bbox = bake bbox; variants best-first; paste the terrain
-   snippet). `npm test` pins the invariants + serve-set parity.
+2. Terrain (optional): add the `terrain` block → **sample an EGM2008 grid for the extent into
+   `terrain/geoid.mjs`** (recipe in its header; the bake's stage-0 pre-flight refuses to start
+   without one) → `npm run bake:terrain -- --city <city>` → `upload-r2.mjs --city <city>
+   --terrain`.
+3. Add ONE `BAKED_REGIONS` entry (bbox = bake bbox; variants best-first, or `[]` + tail
+   position for terrain-only; paste the terrain snippet). `npm test` pins the invariants +
+   serve-set parity.
 4. `wix release`. Nothing else: the Worker is path-agnostic, selection/masks/patch all key off
    the registry.
 
@@ -183,9 +232,11 @@ region-agnostic), the OSM mask/clip prism, and the enriched seat extent.
 - **Caching/versioning**: `.terrain`/`.glb` are `immutable` — a re-bake reuses filenames, so
   purge the Cloudflare cache or version the prefix on changes; `layer.json`/`tileset.json`
   self-heal in ≤5 min (300 s cache).
-- **Budgets** (free tier, comfortably): R2 10 GB (enriched ≈33 MB + terrain ≈11 MB), egress
-  free, Workers 100k req/day. A terrain-patch session pulls tens of tiles (~100 KB-class
-  total) — negligible next to the building GLBs.
+- **Budgets** (free tier, comfortably): R2 10 GB — enriched ≈33 MB + terrain ≈221 MB
+  (dnipro 11 MB + **everest 210 MB**, §2 ruling 10: relief, not area, sets the price) — egress
+  free, Workers 100k req/day. Still ~2.5 % of the bucket. Per-session traffic is unchanged:
+  streaming is LOD-driven, so a visit pulls the visible tiles only (Everest tiles are ~17 KB
+  against Dnipro's ~2 KB, so budget a Khumbu session at low single-digit MB).
 - **Verification**: `scripts/verify-terrain-patch.mjs` (raw-CDP; Node 20 needs
   `--experimental-websocket`) is the repeatable browser probe — REFINED-STATE GATED: it
   asserts only after deep (L12/13) tiles streamed and the city sample is stable, because
@@ -199,6 +250,20 @@ region-agnostic), the OSM mask/clip prism, and the enriched seat extent.
   tiles (the splice idiom) · mago silently clamps `-max` (30 m → 13) · WBM aux files must not
   reach mago's input dir · hash-only `Page.navigate` doesn't reload (the app reads `#p=` at
   boot — hop via about:blank) · verify-too-early = vacuous pass (see above).
+- **THE 2026-08-22h TRAP — a verification reference that silently answered out of range.**
+  `geoid.mjs` held ONE grid (lons 34–36, lats 48–49) and CLAMPED lookups to its nearest
+  corner. The Everest probe at 27.99 N / 86.93 E was therefore answered with the Dnipro grid's
+  36 E/48 N value, **+20.025 m, where the truth is −28.341 m**. A wholly correct bake failed
+  its own gate as a −39.3 m "datum fault", and the number was plausible enough to be believed.
+  Three things landed together so it cannot recur: the clamp is now a **throw**, the bake
+  **pre-flights grid coverage** before meshing (stage 0), and adding a grid is step 2 of the
+  add-a-city runbook. The general lesson is not about geoids: **a reference that extrapolates
+  silently turns "no data" into evidence**, and the evidence indicts the wrong component.
+  Sampling recipe (no bake-time dependency; the grids are checked in):
+  `brew install geographiclib` → `geographiclib-get-geoids -p ~/.geographiclib egm2008-5` →
+  `GEOGRAPHICLIB_GEOID_PATH=~/.geographiclib/geoids GeoidEval -n egm2008-5`. The 5′ model
+  reproduces all fifteen 2.5′-sampled Dnipro rows to within 1.6 mm; a 0.25° grid over the
+  Everest extent interpolates to 0.73 m max / 0.21 m RMS against dense samples.
 
 ## 7. GLO-30 auxiliary layers (cached, not yet consumed)
 

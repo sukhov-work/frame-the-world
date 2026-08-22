@@ -100,9 +100,10 @@ import {
   upsertOverride,
 } from "../../lib/globe/bldgOverrides";
 import {
-  lruCapBytesForTier,
+  lruCapBytesForUltra,
   queueCapsForTier,
   stickyOverlayPx,
+  ultraTileLevers,
   type QualityTier,
 } from "../../lib/globe/quality";
 import { makeLoadAim, makeTileLatencyProbe } from "../../lib/globe/loadPriority";
@@ -176,6 +177,11 @@ export interface TilesHandle {
   /** 2026-08-18e: true while the flat-map ENGINE treatment is active (/m 2D map, or desktop
    *  nadir under CONTROLS.mapFlatMaxAltM) — GlobeCanvas gates bloom off with it. */
   mapFlat: () => boolean;
+  /** ULTRA HQ (owner 2026-08-22h) — true only while the desktop chip is on AND the shell gate
+   *  allows it. This is the ONLY thing GlobeCanvas ever sees of the feature: it stays store-free
+   *  (its own standing rule), and the shell fence is already folded in here, so a `?? false` on
+   *  a null handle fails safe to OFF. */
+  ultraPin: () => boolean;
   /** Batch #5 item 3: the /m PiP hole (viewport CSS px; null = none) — GlobeCanvas renders a
    *  scaled whole-view pass into exactly this rect after the main composer pass. The store
    *  read lives HERE (the orchestrator owns store facts; GlobeCanvas stays store-free). */
@@ -418,9 +424,28 @@ export function attachStylizedTiles(opts: {
   // QA slice C (2026-08-21h): the EFFECTIVE composite px — sticky-up (see stickyOverlayPx).
   // Seeded 0 so frame 1 ratchets to the boot value (== the constructor px → a no-op write).
   let overlayPxEff = 0;
+  /** The tier currently applied — so the ULTRA edge can re-run the fan-out without waiting for
+   *  the governor to change its mind (it may never: on a `high` machine it is a no-op by design). */
+  let activeQualityTier: QualityTier = qualityTier;
+  /** ULTRA HQ mirror (owner 2026-08-22h) — written by stepUltraGate, published to GlobeCanvas
+   *  via `TilesHandle.ultraPin`.
+   *
+   *  DECLARED HERE, not beside `hqAllowed` where it belongs by topic: `applyQualityTier` reads
+   *  it and is CALLED during attach, hundreds of lines above the shell-gate block, so a
+   *  `let` down there put it in the temporal dead zone and the whole tileset failed to attach
+   *  with `ReferenceError: Cannot access 'ultraOn' before initialization`. Nothing catches that
+   *  loudly — GlobeCanvas's `.catch` logs it as a console.WARN and the app silently renders the
+   *  procedural placeholder. `astro check` cannot see it either; only running it can. */
+  let ultraOn = false;
   const applyQualityTier = (tier: QualityTier) => {
-    const q = QUALITY.tiers[tier];
-    const lru = lruCapBytesForTier(tier, q.lruBytesMB); // null on high → each renderer's captured default
+    activeQualityTier = tier;
+    // ULTRA HQ (owner 2026-08-22h): tile-detail overrides layered on top of the running tier —
+    // NOT a fourth tier (see lib/globe/quality.ultraTileLevers). With the chip off this returns
+    // `QUALITY.tiers[tier]` BY IDENTITY, so the whole expression is the previous line verbatim.
+    const q = ultraTileLevers(QUALITY.tiers[tier], ultraOn, QUALITY.ultraDesktop);
+    // The LRU pair likewise: `ultraOn === false` is DEFINED as lruCapBytesForTier, i.e. the
+    // untouched null-on-high "restore the library default" path.
+    const lru = lruCapBytesForUltra(tier, q.lruBytesMB, ultraOn, QUALITY.ultraDesktop.lruBytesMB);
     const qCaps = queueCapsForTier(tier, LOADING.queueCaps); // U5: same null-on-high rule for maxJobs
     buildings.setQualityTier(q.buildingErrorTarget, lru, qCaps);
     enriched?.setQualityTier(q.buildingErrorTarget, lru, qCaps);
@@ -430,7 +455,7 @@ export function attachStylizedTiles(opts: {
     // worsens jetsam) + the per-tier overlay composite resolution.
     ground.setQualityTier(
       q.groundErrorNear,
-      lruCapBytesForTier(tier, q.groundLruBytesMB),
+      lruCapBytesForUltra(tier, q.groundLruBytesMB, ultraOn, QUALITY.ultraDesktop.groundLruBytesMB),
       qCaps,
     );
     // QA-7b: the tier value is the BASE only — stepGroundUpdate is the ONE writer of the
@@ -630,6 +655,29 @@ export function attachStylizedTiles(opts: {
   //     isMobileShell false → mapMode stays "3d" → every U1 seam is inert. ------------------
   const isMobileShell =
     typeof document !== "undefined" && document.body.classList.contains("m");
+  // --- HQ 3D MAP + ULTRA HQ (owner 2026-08-22h) — THE ONE GATE for both experimental chips.
+  //
+  //     The owner's constraint was "nothing must change on mobile", said three times. Hiding
+  //     the chips is NOT isolation: `ftw:view-prefs:v1` is a single localStorage blob shared by
+  //     both shells on the same origin, `useCameraStore` is the same store, and /m mounts the
+  //     SAME GlobeCanvas + StylizedTiles modules. A user who enables a chip on desktop WILL
+  //     have the flag true when they open /m in that browser. So the fence has to live where
+  //     the ENGINE reads, not where the UI renders.
+  //
+  //     Both terms are load-bearing and neither alone is enough:
+  //       · `!isMobileShell` excludes the /m ROUTE — but index.astro deliberately keeps
+  //         tablets and touch laptops on desktop, and /m's DESKTOP chip sends a phone to
+  //         `/?d=1` permanently, so a phone CAN be running the desktop shell.
+  //       · `!coarsePointerShell` excludes that hardware. It is the same signal
+  //         `QUALITY.leanMobile` and `TILESETS.esriMaxLevelCoarse` already key on, and it tests
+  //         the PRIMARY pointer — a trackpad laptop with a touchscreen stays fine-pointer.
+  //
+  //     INVARIANT: every read of `hq3dMap` / `ultraQuality` anywhere in src/ sits on a line
+  //     that also names `hqAllowed`, and no file outside this one may name either field.
+  //     `test/components/globe/fences.test.ts` pins both halves.
+  const coarsePointerShell =
+    typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+  const hqAllowed = !isMobileShell && !coarsePointerShell;
   if (isMobileShell) {
     if (urlPose && urlPose.tiltDeg >= CONTROLS.twoDMaxTiltDeg) {
       useCameraStore.getState().setMapMode("3d"); // an OBLIQUE share keeps its exact 3D view
@@ -1995,6 +2043,15 @@ export function attachStylizedTiles(opts: {
         buildings: buildings.foveaSnapshot(),
         enriched: enriched?.foveaSnapshot() ?? null,
         ground: ground.foveaSnapshot(),
+      }),
+      // ULTRA HQ (owner 2026-08-22h). `allowed` is the shell gate and `pref` the RAW store flag —
+      // printing both is the point: on /m with a desktop-set pref this reads
+      // `{allowed:false, pref:true, on:false}`, which is the mobile-fence proof in one line.
+      ultra: () => ({
+        allowed: hqAllowed,
+        coarsePointer: coarsePointerShell,
+        pref: useCameraStore.getState().ultraQuality === true,
+        on: ultraOn,
       }),
       pins,
     };
@@ -3387,6 +3444,24 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  /** ULTRA HQ (owner 2026-08-22h) — the TILE half, applied on the chip's EDGE.
+   *
+   *  Split from the tier half on purpose. The tile levers (buildings SSE, street names, vector
+   *  lattice, both LRU caps) are cheap to re-apply and land immediately, INCLUDING inside FPV.
+   *  The tier half — the pin that stops the governor demoting — lives in GlobeCanvas and rides
+   *  its existing `pendingTier` deferral, because a composer realloc mid-viewfinder is the
+   *  owner-confirmed U2 "full re-render" bug.
+   *
+   *  Re-running `applyQualityTier(activeQualityTier)` rather than waiting for a governor change
+   *  matters: on a machine that detects `high` the governor is a documented no-op, so it may
+   *  never fire again and the chip would look dead. */
+  const stepUltraGate = () => {
+    const want = hqAllowed && useCameraStore.getState().ultraQuality === true;
+    if (want === ultraOn) return;
+    ultraOn = want;
+    applyQualityTier(activeQualityTier);
+  };
+
   const stepGroundUpdate = () => {
         // S7a: dark drape unless the user opted into the satellite look (SAT chip).
         ground.update(
@@ -4323,6 +4398,7 @@ export function attachStylizedTiles(opts: {
         stepFpvSolidity();
         stepFpvHudAndSkyMarkers();
         stepPoseMirrorAndViewport();
+        stepUltraGate();
         stepGroundUpdate();
         stepEphemerisResample();
         stepKeyLightAndShadow();
@@ -4364,6 +4440,7 @@ export function attachStylizedTiles(opts: {
     // 2026-08-18e: GlobeCanvas's bloom gate — true while the flat-map engine treatment is on
     // (/m 2D map, or desktop nadir below CONTROLS.mapFlatMaxAltM). Mirrored per frame.
     mapFlat: () => flatGround,
+    ultraPin: () => ultraOn,
     pipRect: () => useMiniMapStore.getState().pipRect,
     dispose() {
       window.removeEventListener("resize", onEngineResize);

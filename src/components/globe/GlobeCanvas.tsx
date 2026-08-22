@@ -360,6 +360,11 @@ export default function GlobeCanvas() {
     // three LRU re-caps are exactly the "full re-render" moment. It parks here and lands on the
     // first non-FPV frame. The DEV force() applies immediately (verification tool) and clears it.
     let pendingTier: QualityTier | null = null;
+    // ULTRA HQ (owner 2026-08-22h): the pin's LAST-SEEN state, so the tick only acts on edges.
+    // Note it deliberately overrides `ceiling` too — that cap exists because frame time cannot
+    // see memory pressure, and ULTRA's entire premise is "regardless of machine performance".
+    // It is reachable only by an explicit desktop click on a fine-pointer device.
+    let ultraPinned = false;
     const tierLog: Array<{ atMs: number; tier: QualityTier }> = []; // U2 instrumentation (DEV probe)
     if (import.meta.env.DEV)
       window.__quality = {
@@ -387,6 +392,7 @@ export default function GlobeCanvas() {
       setQualityTier: (t: QualityTier) => void;
       fpvActive: () => boolean; // U2/A9: governor tier steps defer while FPV owns the camera
       mapFlat: () => boolean; // 2026-08-18e: flat-map engine treatment → bloom off
+      ultraPin: () => boolean; // owner 2026-08-22h: ULTRA HQ — desktop gate already folded in
       pipRect: () => { x: number; y: number; w: number; h: number } | null; // batch #5 item 3
       dispose: () => void;
     } | null = null;
@@ -435,6 +441,9 @@ export default function GlobeCanvas() {
         },
         get mapFlat() {
           return tilesHandle?.mapFlat() ?? false;
+        },
+        get ultra() {
+          return ultraPinned;
         },
         lean: !!lean,
       };
@@ -487,7 +496,21 @@ export default function GlobeCanvas() {
       lastGovMs = nowMs;
       // U2/A9: park a governor step while FPV owns the camera; land it on the first non-FPV
       // frame (repeat steps while parked just overwrite — only the latest tier matters).
-      if (gov.changed) pendingTier = gov.tier;
+      // ULTRA HQ (owner 2026-08-22h) — the TIER half. `governor.force()` alone is not enough:
+      // it only moves the index and resets hysteresis, so on a machine that actually hurts
+      // (the whole point of the feature) the next over-budget streak walks the tier straight
+      // back down. So the governor keeps STEPPING — its EMA and hitch probes stay honest — and
+      // only its results are dropped while pinned. The OFF edge is an EXPLICIT re-seat to the
+      // device tier, never a hope that `changed` fires again: a suppressed governor can sit at
+      // its floor with nothing left to change.
+      const ultraNow = tilesHandle?.ultraPin() ?? false;
+      if (ultraNow !== ultraPinned) {
+        ultraPinned = ultraNow;
+        if (!ultraPinned) governor.force(deviceTier);
+        pendingTier = ultraPinned ? "high" : deviceTier;
+      } else if (gov.changed && !ultraPinned) {
+        pendingTier = gov.tier;
+      }
       if (pendingTier !== null && !(tilesHandle?.fpvActive() ?? false)) {
         applyTier(pendingTier);
         pendingTier = null;

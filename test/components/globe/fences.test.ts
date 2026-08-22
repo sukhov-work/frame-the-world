@@ -145,3 +145,74 @@ describe("per-frame waste (T38)", () => {
     expect(pip).toMatch(/renderer\.render\([\s\S]{0,200}?shadowMap\.autoUpdate\s*=\s*shadowAuto/);
   });
 });
+
+/**
+ * DESKTOP EXPERIMENTAL TOGGLES — the mobile fence (owner 2026-08-22h: "nothing must change on
+ * mobile", said three times).
+ *
+ * Hiding the chips is NOT isolation. `ftw:view-prefs:v1` is ONE localStorage blob shared by
+ * both shells on the same origin, `useCameraStore` is one store, and /m mounts the SAME
+ * GlobeCanvas + StylizedTiles modules — so a user who enables a chip on desktop genuinely has
+ * `hq3dMap: true` in their store when they open /m in that browser. The only thing that can
+ * stop the engine acting on it is a gate on the read itself, which is why these two rules pin
+ * WHERE the flags may be named and WHAT must be on the line when they are.
+ */
+describe("ULTRA HQ — desktop-only, fenced at the read", () => {
+  const FLAGS = ["ultraQuality"];
+  const srcDir = join(root, "src");
+  /** Files allowed to name the flags at all, and why. */
+  const OWNERS: Record<string, string> = {
+    "lib/prefs.ts": "the persisted key + its sanitiser clause",
+    "store/camera.ts": "the store field + setter",
+    "components/globe/StylizedTiles.ts": "the ONE engine reader — every read AND-ed with hqAllowed",
+    "components/panels/CameraTiltPanel.tsx": "the desktop chips (rendered behind the same predicate)",
+  };
+
+  const walk = (dir: string, out: string[] = []): string[] => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p, out);
+      else if (/\.(ts|tsx|astro)$/.test(e.name)) out.push(p);
+    }
+    return out;
+  };
+  const files = walk(srcDir);
+
+  it("only four files may name the flag at all", () => {
+    // POSITIVE CONTROL first: the probe must be able to match, or an empty offender list below
+    // would prove nothing (audit-2's zero-result-validation rule).
+    const named = files.filter((f) => FLAGS.some((k) => readFileSync(f, "utf8").includes(k)));
+    expect(named.length).toBeGreaterThan(0);
+    const offenders = named
+      .map((f) => f.slice(srcDir.length + 1).replace(/\\/g, "/"))
+      .filter((rel) => !(rel in OWNERS));
+    expect(offenders).toEqual([]);
+    // …and every sanctioned owner really does still carry one (a stale allow-list is a fence
+    // that has quietly stopped fencing).
+    const relNamed = new Set(named.map((f) => f.slice(srcDir.length + 1).replace(/\\/g, "/")));
+    expect([...Object.keys(OWNERS)].filter((k) => !relNamed.has(k))).toEqual([]);
+  });
+
+  it("every ENGINE read sits on a line that also names the shell gate", () => {
+    const orch = readFileSync(join(srcDir, "components/globe/StylizedTiles.ts"), "utf8");
+    // `hqAllowed` is `!isMobileShell && !coarsePointerShell`; both terms are load-bearing —
+    // the /m ROUTE alone is not enough (index.astro keeps touch laptops on desktop, and /m's
+    // DESKTOP chip sends a phone to /?d=1 permanently).
+    expect(orch).toMatch(/const hqAllowed =\s*!isMobileShell && !coarsePointerShell;/);
+    const unguarded = orch
+      .split("\n")
+      .map((line, i) => ({ line, n: i + 1 }))
+      // The declaration lines in the docblock/interface are prose, not reads: require an
+      // actual store access on the line.
+      .filter(({ line }) => /getState\(\)\.ultraQuality|camStore\.ultraQuality/.test(line))
+      .filter(({ line }) => !line.includes("hqAllowed"));
+    // The DEV probe prints the RAW pref deliberately (that is how /m proves `pref:true` with
+    // `on:false`), so it is the one exemption — and it must live inside the probe.
+    const probeOnly = unguarded.filter(({ n }) => {
+      const ctx = orch.split("\n").slice(Math.max(0, n - 12), n).join("\n");
+      return ctx.includes("ultra: () => ({");
+    });
+    expect(unguarded.filter((u) => !probeOnly.includes(u)).map((u) => `:${u.n} ${u.line.trim()}`)).toEqual([]);
+    expect(probeOnly.length).toBeGreaterThan(0); // the exemption is real, not a dead clause
+  });
+});

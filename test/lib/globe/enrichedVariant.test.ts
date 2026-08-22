@@ -43,6 +43,18 @@ describe("resolveEnrichedSelection — defaults", () => {
     expect(resolveEnrichedSelection(ENV, "?foo=bar").variant).toBe("dnipro-o2w");
     expect(resolveEnrichedSelection(ENV, "?enriched=").variant).toBe("dnipro-o2w");
   });
+
+  it("a boot point inside a TERRAIN-ONLY region never emits an undefined variant", () => {
+    // everest (2026-08-22h) carries a GLO-30 patch and NO buildings bake. `regionContaining`
+    // still claims the summit — the lookup is geometric — so without the variants-length skip
+    // in defaultRegion this resolved variants[0] to undefined and requested
+    // `…/enriched/undefined/tileset.json`. The right behaviour is the unbaked-ground one.
+    const sel = resolveEnrichedSelection(ENV, "", 27.988056, 86.925278);
+    expect(sel.variant).toBe("dnipro-o2w"); // fell through to the env anchor
+    expect(sel.regionId).toBe("dnipro");
+    expect(sel.url).not.toContain("undefined");
+    expect(sel.bbox).toEqual(DNIPRO_BBOX); // …and the mask went with it, never to the Khumbu
+  });
 });
 
 describe("resolveEnrichedSelection — the ?enriched= dev seam", () => {

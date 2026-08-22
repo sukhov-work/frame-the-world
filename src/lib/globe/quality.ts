@@ -119,6 +119,63 @@ export function stickyOverlayPx(
   return Math.max(prevPx, flat2d ? Math.max(tierPx, flat2dPx) : tierPx);
 }
 
+/**
+ * ULTRA HQ — the desktop-only, opt-in "make my machine hurt" override (owner 2026-08-22h).
+ *
+ * It is NOT a fourth tier. `QualityTier` / `TIER_ORDER` / `detectDeviceTier` / `makeGovernor`
+ * and every `tier === "high"` branch stay byte-identical, because a fourth rung would (a) make
+ * `caps[tier]` in `queueCapsForTier` a type error and (b) break the literal `TIER_ORDER`
+ * assertion the whole quality pass rests on. ULTRA is instead an override PROFILE applied on
+ * top of whatever tier the governor is running — the exact mirror of `QUALITY.leanMobile`.
+ *
+ * The subset below is deliberately small. Everything else was excluded because raising it
+ * would be inert, irreversible, or a lie:
+ *   · `dprCap` — inert. The apply site is `min(window.devicePixelRatio, cap, …)`, so the
+ *     native ratio is already the binding term. Real supersampling is a render-scale feature.
+ *   · `overlayResolutionPx` — `stickyOverlayPx` only ratchets UP, so an ULTRA raise could
+ *     never be undone within the session. That is a regression-when-off, and the flip itself
+ *     is the QA-7b overlay-rebuild storm.
+ *   · `shadowMapSize` / `shadowsEnabled` / AO / the 8k earth texture — construction-time. A
+ *     live flip recompiles every material; enabling them at boot costs users who never opted in.
+ *   · `foveation` — must stay null on high: a config there SOFTENS the periphery.
+ *   · queue caps — raising `parse` stacks main-thread glb decodes. That is hitches, not quality.
+ */
+export interface UltraTileLevers {
+  buildingErrorTarget: number;
+  maxStreetNames: number;
+  vectorLatticeBudget: number;
+}
+
+/**
+ * Merge the ULTRA overrides over a tier's levers. **When `on` is false this returns `base` BY
+ * IDENTITY** — not a copy, not an equal object — so the off-state proof is `toBe`, and no call
+ * site can accidentally observe a re-created object. Pure → unit-tested.
+ */
+export function ultraTileLevers<T extends UltraTileLevers>(
+  base: T,
+  on: boolean,
+  ultra: UltraTileLevers,
+): T {
+  if (!on) return base;
+  return { ...base, ...ultra };
+}
+
+/**
+ * LRU cap under ULTRA. `on === false` is DEFINED as `lruCapBytesForTier` — the same
+ * null-on-high "restore the library's own default" path, untouched. When on, the cap is passed
+ * explicitly so it can exceed that default; the caller must still pair it with
+ * `lruFloorBytesForCap`, or a working set above the cap re-enters the U2/A9
+ * parse → cache-full → discard → re-download loop. Pure → unit-tested.
+ */
+export function lruCapBytesForUltra(
+  tier: QualityTier,
+  lruBytesMB: number,
+  on: boolean,
+  ultraBytesMB: number,
+): number | null {
+  return on ? Math.round(ultraBytesMB * 1024 * 1024) : lruCapBytesForTier(tier, lruBytesMB);
+}
+
 // GPU-family heuristics. Deliberately conservative: an unknown string falls through to `mid`, and
 // the runtime governor is the real backstop — this only sets a sane STARTING tier so the first
 // seconds aren't jank while the governor settles. Strings come from WEBGL_debug_renderer_info.

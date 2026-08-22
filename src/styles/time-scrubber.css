@@ -12,18 +12,12 @@
   transform: translateX(-50%) translate(var(--drag-x, 0px), var(--drag-y, 0px));
   bottom: 2.2rem;
   z-index: 10;
-}
-
-/* Owner QA 2026-08-21 item 4: with the map window up (z 42) the scrubber rides ABOVE it —
-   the "time scrubber + date/time line at the very bottom of the expanded minimap" on desktop
-   is the REAL scrubber, not a twin. body.mw-open is set by MapWindow on both shells; /m has
-   no .ts (its dock rides the fpv.css rung instead). */
-body.mw-open .ts {
-  z-index: 43;
-  /* Owner micro-slice 2026-08-22 item 3: the map attribution owns the very bottom strip while
-     the window is open — lift the rail by exactly its height (map-window.css defines the var;
-     the fallback keeps this rule valid if that sheet ever loads late). */
-  bottom: calc(2.2rem + var(--mw-credit-h, 0.85rem));
+  /* THE CARD CHROME — unconditional (owner report 2026-08-22h). This block belongs to the base
+     rule, NOT to any state selector: without the translucent fill + hairline the rail is
+     unreadable over a bright chart or a snow/desert region. It was lost on 2026-08-21f (086ff37,
+     owner QA item 4) when the new `body.mw-open .ts` seat was carved out by MOVING the whole
+     declaration list instead of adding a rule holding only what differs, so the card only
+     existed while the expanded map was open. Fenced by test/styles/mapWindowChrome.test.ts. */
   width: min(38rem, calc(100vw - 34rem));
   padding: 0.55rem 0.95rem 0.5rem;
   border-radius: 10px;
@@ -33,6 +27,19 @@ body.mw-open .ts {
   -webkit-backdrop-filter: blur(6px);
   font-family: var(--font-mono);
   user-select: none;
+}
+
+/* Owner QA 2026-08-21 item 4: with the map window up (z 42) the scrubber rides ABOVE it —
+   the "time scrubber + date/time line at the very bottom of the expanded minimap" on desktop
+   is the REAL scrubber, not a twin. body.mw-open is set by MapWindow on both shells; /m has
+   no .ts (its dock rides the fpv.css rung instead). Carries ONLY what the open map changes —
+   the card chrome above is state-independent. */
+body.mw-open .ts {
+  z-index: 43;
+  /* Owner micro-slice 2026-08-22 item 3: the map attribution owns the very bottom strip while
+     the window is open — lift the rail by exactly its height (map-window.css defines the var;
+     the fallback keeps this rule valid if that sheet ever loads late). */
+  bottom: calc(2.2rem + var(--mw-credit-h, 0.85rem));
 }
 
 .ts-head {

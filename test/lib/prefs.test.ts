@@ -97,6 +97,20 @@ describe("sanitizeViewPrefs", () => {
   });
 
   // Batch #4 item 7 (owner 2026-08-21) — the VEC / ▤ VECTOR map-ink toggle.
+  it("keeps the DESKTOP EXPERIMENTAL flag, and never re-arms it", () => {
+    // owner 2026-08-22h. This is the only pref whose default is OFF, so the `rearmed` clause
+    // (which un-sticks persisted `false` for the four default-ON radar keys) must NOT apply:
+    // joining it would turn an opt-out into an opt-in and silently enable a machine-hurting
+    // mode for people who never chose it.
+    expect(sanitizeViewPrefs({ ultraQuality: true })).toEqual({ ultraQuality: true });
+    // A persisted FALSE survives verbatim on an UN-stamped (pre-rev-2) blob — the exact case
+    // the re-arm rewrites for aimTarget/aimSun/aimMoon/skyTargetVisible.
+    expect(sanitizeViewPrefs({ ultraQuality: false })).toEqual({ ultraQuality: false });
+    expect(sanitizeViewPrefs({ ultraQuality: 1 })).toEqual({});
+    // Absent = absent; the store supplies the `?? false` default, not the sanitiser.
+    expect(sanitizeViewPrefs({})).toEqual({});
+  });
+
   it("keeps vectorsVisible and drops wrong-typed ones", () => {
     expect(sanitizeViewPrefs({ vectorsVisible: false })).toEqual({ vectorsVisible: false });
     expect(sanitizeViewPrefs({ vectorsVisible: "off" })).toEqual({});

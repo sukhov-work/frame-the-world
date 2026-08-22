@@ -2,7 +2,14 @@
 // GLO-30 → quantized-mesh terrain patch bake (the U7→bake slice, design ruling 2026-08-18).
 //
 //   node --env-file=.env.local scripts/bake/terrain/bake-terrain.mjs --city dnipro [--refresh]
-//        [--skip-mago]
+//        [--skip-mago] [--probe-only]
+//
+// --probe-only re-runs ONLY the verification (step 6) + the containment assert against an
+// output tree that is already on disk, writing nothing. That is how a change to the probe is
+// proved harmless against an ALREADY-SHIPPED bake: re-baking to test a test would change the
+// bytes under the thing being tested. (The blend in step 3 is deliberately NOT idempotent —
+// it pulls rim vertices toward CWT every time it runs — so re-running the full bake over an
+// existing tree is never the right way to check anything.)
 //
 // Steps: fetch GLO-30 COGs (anonymous AWS Open Data; WBM aux cached alongside) → stage a
 // DEM-only input dir → mago-3d-terrainer (Java 21 jar, cached + sha256-verified; reads the COGs'
@@ -23,7 +30,7 @@ import { fileURLToPath } from "node:url";
 import { fromArrayBuffer } from "geotiff";
 import { blendRim } from "./blend.mjs";
 import { makeCwtSampler } from "./cwt.mjs";
-import { geoidN } from "./geoid.mjs";
+import { geoidCovers, geoidGridIds, geoidN } from "./geoid.mjs";
 import { ensureGlo30 } from "./glo30.mjs";
 import { decodeQuantizedMesh, sampleQuantizedHeight } from "./qmesh.mjs";
 import { tileBbox, tileRange, tileRangeInside } from "./tiling.mjs";
@@ -33,6 +40,7 @@ const args = process.argv.slice(2);
 const city = args.includes("--city") ? args[args.indexOf("--city") + 1] : null;
 const refresh = args.includes("--refresh");
 const skipMago = args.includes("--skip-mago");
+const probeOnly = args.includes("--probe-only");
 if (!city) {
   console.error("usage: node --env-file=.env.local scripts/bake/terrain/bake-terrain.mjs --city <name>");
   process.exit(1);
@@ -59,6 +67,24 @@ const demDir = join(workDir, "dem");
 const ionToken = process.env.PUBLIC_CESIUM_ION_TOKEN;
 if (!ionToken) throw new Error("PUBLIC_CESIUM_ION_TOKEN missing — run with --env-file=.env.local");
 
+// Verification tolerances (step 6), REGION-SCOPED with the Dnipro numbers as the defaults, so
+// every existing city keeps the exact gates it shipped with. They are two DIFFERENT questions
+// and only the second one is about relief:
+//   probeBiasTolM   — |median SIGNED error| over the probe grid. The DATUM gate. Slope error is
+//                     sign-symmetric, so it cancels in the median no matter how steep the ground
+//                     is; a skipped geoid shift does not (it is a constant −N offset). Raising
+//                     this for a mountain region does not weaken it as long as it stays well
+//                     under the local undulation.
+//   probeSpreadTolM — [cityTile, extentTile] bound on the median ABSOLUTE error. The RESOLUTION
+//                     gate, and the only one that genuinely has to grow with relief: a 38 m mesh
+//                     posting sampled against a nearest-neighbour COG lookup differs by
+//                     (horizontal offset × local slope), which is metres on a plain and tens of
+//                     metres on a Himalayan wall — both entirely correct.
+//   rimTolM         — patch-vs-CWT step at the served extent edge (the blend's own gate).
+const probeBiasTolM = t.probeBiasTolM ?? 6;
+const [probeSpreadCityM, probeSpreadExtentM] = t.probeSpreadTolM ?? [12, 25];
+const rimTolM = t.rimTolM ?? 4;
+
 async function ensureMagoJar() {
   await mkdir(cacheMago, { recursive: true });
   const jar = join(cacheMago, `mago-3d-terrainer-${MAGO_VERSION}.jar`);
@@ -79,13 +105,24 @@ async function ensureMagoJar() {
 console.log(
   `▶ bake-terrain --city ${city}  extent ${t.extentBbox} ≤L${t.extentMaxDepth}  city ${t.cityBbox} ≤L${t.maxDepth}`,
 );
+// PRE-FLIGHT: step 6 converts the source COGs to the ellipsoid with our own EGM2008 sample
+// grid, so a region with no grid can only be discovered AFTER a four-minute mesh — and, before
+// geoid.mjs learned to throw, not even then: it answered from another continent's grid and the
+// probe failed as a 39 m "datum fault" that was purely the reference's. Cost of finding out
+// here instead: microseconds.
+if (!geoidCovers(t.extentBbox)) {
+  throw new Error(
+    `no EGM2008 sample grid covers extentBbox ${t.extentBbox} (have: ${geoidGridIds().join(", ")}).\n` +
+      `Sample one into scripts/bake/terrain/geoid.mjs first — see its header for the GeoidEval recipe.`,
+  );
+}
 const demPaths = await ensureGlo30(t.extentBbox, cacheGlo, { refresh });
 await rm(demDir, { recursive: true, force: true });
 await mkdir(demDir, { recursive: true });
 for (const p of demPaths) await copyFile(p, join(demDir, basename(p)));
 
 // ---- 2. mago-3d-terrainer (its own COG georeferencing + built-in EGM2008 geoid) --------------
-if (!skipMago) {
+if (!skipMago && !probeOnly) {
   const jar = await ensureMagoJar();
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
@@ -99,20 +136,25 @@ if (!skipMago) {
 }
 
 // ---- 3. rim blend toward CWT (the spatial seam stitch) ---------------------------------------
-console.log(`▶ rim blend (${t.blendKm} km toward CWT at the extent edge)`);
+// The sampler is built either way — step 6's rim-continuity check needs it.
 const cwtHeight = await makeCwtSampler({ ionToken, cacheDir: cacheCwt });
-const blended = await blendRim({
-  outDir,
-  extentBbox: t.extentBbox,
-  extentMaxDepth: t.extentMaxDepth,
-  blendKm: t.blendKm,
-  cwtHeight,
-});
-console.log(`  blended ${blended.verts} verts across ${blended.tiles} rim tiles`);
+if (probeOnly) {
+  console.log("▶ rim blend SKIPPED (--probe-only; the blend is not idempotent)");
+} else {
+  console.log(`▶ rim blend (${t.blendKm} km toward CWT at the extent edge)`);
+  const blended = await blendRim({
+    outDir,
+    extentBbox: t.extentBbox,
+    extentMaxDepth: t.extentMaxDepth,
+    blendKm: t.blendKm,
+    cwtHeight,
+  });
+  console.log(`  blended ${blended.verts} verts across ${blended.tiles} rim tiles`);
+}
 
 // ---- 4. prune levels above extentMaxDepth outside the city bbox ------------------------------
 let pruned = 0;
-for (let z = t.extentMaxDepth + 1; z <= t.maxDepth; z++) {
+for (let z = probeOnly ? t.maxDepth + 1 : t.extentMaxDepth + 1; z <= t.maxDepth; z++) {
   const keep = tileRange(t.cityBbox, z);
   const lvlDir = join(outDir, String(z));
   for (const xDir of await readdir(lvlDir).catch(() => [])) {
@@ -126,7 +168,7 @@ for (let z = t.extentMaxDepth + 1; z <= t.maxDepth; z++) {
     }
   }
 }
-console.log(`▶ pruned ${pruned} deep tiles outside the city bbox`);
+console.log(probeOnly ? "▶ prune SKIPPED (--probe-only)" : `▶ pruned ${pruned} deep tiles outside the city bbox`);
 
 // ---- 5. layer.json post: attribution + serve-set ⊆ availability ------------------------------
 const layerPath = join(outDir, "layer.json");
@@ -152,8 +194,12 @@ for (let z = 0; z <= Math.min(t.maxDepth, bakedMax); z++) {
     );
   }
 }
-await writeFile(layerPath, JSON.stringify(layer, null, 2));
-console.log(`▶ layer.json: attribution set, serve-set containment verified (baked max L${bakedMax})`);
+// --probe-only asserts containment (read-only — and against the SHIPPED layer.json, which makes
+// it a real re-verification of an existing bake) but never rewrites the manifest.
+if (!probeOnly) await writeFile(layerPath, JSON.stringify(layer, null, 2));
+console.log(
+  `▶ layer.json: ${probeOnly ? "containment RE-verified, not rewritten" : "attribution set, serve-set containment verified"} (baked max L${bakedMax})`,
+);
 
 // ---- 6. probe verify against the SOURCE COG + geoid grid + CWT rim ---------------------------
 const srcCogs = [];
@@ -178,25 +224,65 @@ const srcEllipsoidalAt = (lon, lat) => {
   return null;
 };
 
-async function probeTile(z, x, y, label, tolM) {
+/** Median of a numeric array (copy-sorted; even length averages the middle pair). */
+const median = (a) => {
+  const q = [...a].sort((p, r) => p - r);
+  const m = q.length >> 1;
+  return q.length % 2 ? q[m] : (q[m - 1] + q[m]) / 2;
+};
+
+// A 9x9 interior grid — 81 samples, edges excluded so no sample lands on a tile boundary where
+// the barycentric lookup can fall through to its nearest-vertex path. The single CENTRE sample
+// this replaced was a fair gate on a river plain and an unfair one anywhere with relief: it
+// measured one point's slope error and called it accuracy. A grid separates the two failure
+// modes — a datum/georeferencing fault moves every sample the same way (bias), a resolution
+// limit moves them symmetrically (spread).
+const PROBE_GRID = 9;
+
+async function probeTile(z, x, y, label, spreadTolM) {
   const buf = await readFile(join(outDir, String(z), String(x), `${y}.terrain`));
   const mesh = decodeQuantizedMesh(buf);
   const [w, s, e, n] = tileBbox(z, x, y);
-  const lon = (w + e) / 2;
-  const lat = (s + n) / 2;
-  const got = sampleQuantizedHeight(mesh, 0.5, 0.5);
-  const want = srcEllipsoidalAt(lon, lat);
-  const d = want === null ? NaN : got - want;
+  const errs = [];
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 1; i <= PROBE_GRID; i++) {
+    for (let j = 1; j <= PROBE_GRID; j++) {
+      const tu = i / (PROBE_GRID + 1);
+      const tv = j / (PROBE_GRID + 1);
+      const want = srcEllipsoidalAt(w + tu * (e - w), s + tv * (n - s));
+      if (want === null) continue;
+      errs.push(sampleQuantizedHeight(mesh, tu, tv) - want);
+      if (want < lo) lo = want;
+      if (want > hi) hi = want;
+    }
+  }
+  // POSITIVE CONTROL. Both probe tiles sit at the centre of a range that is fully inside the
+  // source mosaic, so every sample MUST resolve against a COG. Anything less means the tile the
+  // bake produced is not where the bake thinks it is — the −180/90 mosaic failure, silently.
+  // Without this, a wholly mislocated bake yields an empty `errs`, and a median of nothing
+  // would sail through both gates below.
+  if (errs.length !== PROBE_GRID ** 2) {
+    throw new Error(`probe ${label}: ${errs.length}/${PROBE_GRID ** 2} samples fell inside the source COGs — georeferencing is wrong`);
+  }
+  const bias = median(errs);
+  const spread = median(errs.map(Math.abs));
   console.log(
-    `  probe ${label} L${z} ${x}/${y}: ${mesh.vertexCount} verts, centre ${got.toFixed(1)} vs COG+N ${want?.toFixed(1)} (Δ ${d.toFixed(1)} m)`,
+    `  probe ${label} L${z} ${x}/${y}: ${mesh.vertexCount} verts, source ${lo.toFixed(0)}..${hi.toFixed(0)} m ` +
+      `(relief ${(hi - lo).toFixed(0)} m) · bias ${bias.toFixed(1)} m (≤ ${probeBiasTolM}) · spread ${spread.toFixed(1)} m (≤ ${spreadTolM})`,
   );
-  if (!(Math.abs(d) <= tolM)) throw new Error(`probe ${label}: |Δ| ${Math.abs(d).toFixed(1)} > ${tolM} m`);
+  if (!(Math.abs(bias) <= probeBiasTolM)) {
+    throw new Error(`probe ${label}: median bias ${bias.toFixed(1)} m > ${probeBiasTolM} m — datum or georeferencing fault, not resolution`);
+  }
+  if (!(spread <= spreadTolM)) {
+    throw new Error(`probe ${label}: median |Δ| ${spread.toFixed(1)} m > ${spreadTolM} m`);
+  }
 }
 const cityDeep = Math.min(t.maxDepth, bakedMax);
 const cityR = tileRange(t.cityBbox, cityDeep);
-await probeTile(cityDeep, Math.floor((cityR.startX + cityR.endX) / 2), Math.floor((cityR.startY + cityR.endY) / 2), "city-centre", 12);
+await probeTile(cityDeep, Math.floor((cityR.startX + cityR.endX) / 2), Math.floor((cityR.startY + cityR.endY) / 2), "city-centre", probeSpreadCityM);
 const l13 = tileRangeInside(t.extentBbox, t.extentMaxDepth);
-await probeTile(t.extentMaxDepth, Math.floor((l13.startX + l13.endX) / 2), Math.floor((l13.startY + l13.endY) / 2), "extent-mid", 25);
+await probeTile(t.extentMaxDepth, Math.floor((l13.startX + l13.endX) / 2), Math.floor((l13.startY + l13.endY) / 2), "extent-mid", probeSpreadExtentM);
 
 // Rim continuity: the westmost served tile's west-edge vertex row must sit ON the CWT surface.
 {
@@ -211,7 +297,7 @@ await probeTile(t.extentMaxDepth, Math.floor((l13.startX + l13.endX) / 2), Math.
   console.log(
     `  rim continuity @ ${w.toFixed(3)},${latMid.toFixed(3)}: patch ${patchEdge.toFixed(1)} vs CWT ${cwtEdge.toFixed(1)} (Δ ${(patchEdge - cwtEdge).toFixed(1)} m)`,
   );
-  if (Math.abs(patchEdge - cwtEdge) > 4) throw new Error("rim seam exceeds 4 m — blend failed");
+  if (Math.abs(patchEdge - cwtEdge) > rimTolM) throw new Error(`rim seam exceeds ${rimTolM} m — blend failed`);
 }
 
 // ---- 7. summary + runtime registry snippet ---------------------------------------------------
@@ -240,6 +326,10 @@ const info = {
   files,
   bytes,
 };
+if (probeOnly) {
+  console.log(`✓ PROBE-ONLY verification passed: ${files} files · ${(bytes / 1e6).toFixed(1)} MB on disk, nothing written`);
+  process.exit(0);
+}
 await writeFile(join(outDir, "patch-info.json"), JSON.stringify(info, null, 2));
 console.log(`✓ bake complete: ${files} files · ${(bytes / 1e6).toFixed(1)} MB`);
 console.log(`  regions.ts terrain block: ${JSON.stringify({ path: city, extentBbox: info.extentBbox, extentMaxDepth: info.extentMaxDepth, cityBbox: info.cityBbox, maxDepth: info.maxDepth })}`);

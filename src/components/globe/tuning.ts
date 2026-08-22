@@ -497,6 +497,31 @@ export const QUALITY = {
      *  GlobeCanvas; judged on device (T1). Must stay ≤ tiers.mid.dprCap (test-locked). */
     dprCap2d: 1.5,
   },
+  /** ULTRA HQ (owner 2026-08-22h) — the desktop-only, EXPLICIT-OPT-IN "make my machine hurt"
+   *  override profile. Structurally the mirror of `leanMobile` above: overrides applied on top
+   *  of whatever tier the governor runs, never a fourth tier, never an edit to `tiers.*`. The
+   *  byte-identical `high` invariant is therefore untouched — with the chip off, not one lever
+   *  here is read (`lib/globe/quality.ultraTileLevers` returns its input BY IDENTITY).
+   *
+   *  These are TILE-detail levers only. The renderer levers a user would expect from a
+   *  "maximum quality" switch (DPR, shadow-map size, AO, MSAA, the 8k earth texture) are
+   *  either inert behind `min(devicePixelRatio, …)` or construction-time; raising them here
+   *  would be a lie or a boot-time cost for people who never opted in. See the exclusion list
+   *  in `lib/globe/quality.ts`.
+   *
+   *  First-guess values — the point is a visible step past the normal ceiling, judged by the
+   *  owner (T1). `lruBytesMB` deliberately exceeds the library's own 0.4 GB default, which is
+   *  the one thing tier `high` can never do (its `null` means "restore that default"); the
+   *  paired floor rides `lruFloorBytesForCap`, because a max-only raise is the U2/A9
+   *  parse → cache-full → discard → re-download loop. */
+  ultraDesktop: {
+    /** ion OSM buildings SSE 16 → 12 (~1.8× tiles); paired with the LRU raise below. */
+    buildingErrorTarget: 12,
+    maxStreetNames: 64,
+    vectorLatticeBudget: 12,
+    lruBytesMB: 600,
+    groundLruBytesMB: 600,
+  },
 } as const;
 
 /** UPLIFT U5 — closest-first progressive loading (owner point 7, 2026-08-18). Order and
@@ -1920,8 +1945,19 @@ export const FPV = {
   /** Temp-FPV eye elevation ceiling (m above the pin's ground): the ALTITUDE encoder (the
    *  ZOOM encoder's FPV identity) raises/lowers the viewpoint STRICTLY vertically in this
    *  mode; floor = FRUSTUM.eyeHeightM. Photo FPV uses the same ceiling for its vertical LIFT
-   *  off the frustum apex (lift 0 = the photographer's exact eye, the entry state). */
-  tempEyeMaxM: 400,
+   *  off the frustum apex (lift 0 = the photographer's exact eye, the entry state).
+   *
+   *  400 → 2000 (owner 2026-08-22h, "for convenience and fun"). This is the ONE ceiling: five
+   *  clamp sites read it (the two encoder branches, the two Space-lift branches, and the `#f=`
+   *  share parser at StylizedTiles.ts:2326), so a shared FPV link stays inside it by
+   *  construction. No rate change is needed — the encoders step by
+   *  `rate · dt · max(h, vertEncoderBaseM)`, i.e. exponentially, so at `spaceLiftRatePerS 1.1`
+   *  the climb from a 1.7 m eye reaches 2000 m in ≈5.0 s against ≈3.6 s for the old 400 m.
+   *  What DOES change is the view: the geometric horizon moves 71 → 160 km, so a maxed-out eye
+   *  pulls a visibly larger tile working set. That is the same distance-SSE far field the
+   *  2026-08-22h FPV audit measures (T43) — it does not create a new failure mode, it just
+   *  reaches further into the existing one. */
+  tempEyeMaxM: 2_000,
   /** FOCAL ZOOM encoder (S6): log-space FOV rate at full deflection (per s) — the panel twin
    *  of the wheel zoom; fov ×= exp(∓rate·dt), same 8–80° clamp. 0.9 ≈ ×2.5 focal per second. */
   fovRateMaxPerS: 0.9,
