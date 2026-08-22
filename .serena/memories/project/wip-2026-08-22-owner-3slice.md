@@ -189,7 +189,23 @@ shadows**. No ray tracing. Same standing rules: desktop only, experimental, opt-
 default, zero prod/mobile disruption.
 
 **Entry point: `.claude/claude-docs/ULTRA_PLAN.md`.** Backlog **T44** (textures) + **T45**
-(shadows).
+(light + shadows).
+
+**OWNER STEER, follow-up message — GI rejection ACCEPTED, with a condition:** *"just make sure
+that whatever we choose makes transitioning from day → dusk → night and vice versa more epic,
+not only in terms of shadows but general realistic atmosphere and global light feel."*
+**That is the acceptance criterion for the whole shadow half and it RE-RANKS it** — shadows are
+one contributor, not the objective. Light transport now outranks CSM and terrain casts:
+· **S9** kill `dayK = smoothstep(EARTH.termBand, sunUpDot)` (`imageryGround.ts:369`) — a
+  smoothstep over a DOT PRODUCT, almost certainly the root of "naive and linear" — and drive it
+  from REAL sun elevation + the twilight thresholds the ephemeris already computes for the
+  planner and the scrubber bands. Ground + buildings + key light must move TOGETHER.
+· **S10** key/ambient/hemisphere track the ephemeris (fixes audit gap #16: `HemisphereLight` is
+  along ECEF +Y, not local up — wrong everywhere but one meridian).
+· **S11** ease `toneMappingExposure` with sun elevation (static 1.0 today, live-writable).
+Order: **S9 → S11 → S4 → S10 → S2 → S5 → S3**; CSM only if S2+S5 fall short.
+**JUDGE AS A TIMELAPSE, NEVER SINGLE FRAMES** — fixed pose over a city and over Everest,
+scrub continuously through every twilight band and back, ULTRA off vs on.
 
 **The unlock, from the owner's own two words:**
 - *"very grayish"* = the PHOTOGRAPHIC GRADE. `photo = uFtwFlat2d * uFtwPhotoK * (1-uFtwDark)`

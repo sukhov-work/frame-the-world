@@ -110,12 +110,43 @@ lights and shadows visibly unchanged**, and `__overlayRebuilds` unchanged across
 
 ---
 
-## 2. THE SHADOW HALF — ULTRA only (new, owner 2026-08-22i)
+## 2. THE LIGHT HALF — ULTRA only (new, owner 2026-08-22i)
 
 Owner: *"current shadows ok for representation purposes, but they are quite naive and linear"*;
 wants crisper, more physically plausible building shadows, better sunrise/sunset/moonlight, and
 **terrain that casts shadows**. Explicitly: no ray tracing (an M3 would die) — research what
 game/3D engines actually do and what a browser can hold.
+
+### THE GOAL, restated by the owner after the GI ruling (2026-08-22i, second message)
+
+> *"Whatever we choose makes transitioning from day → dusk → night and vice versa more epic, not
+> only in terms of shadows but general realistic atmosphere and global light feel."*
+
+**This is the acceptance criterion for the whole half, and it re-ranks the work.** Shadows are
+one contributor to it, not the objective. GI stays rejected (owner: *"i am ok with your
+rulings"*) — but only on the condition that what replaces it delivers the transition. Two
+consequences for planning:
+
+1. **S4 (aerial perspective / scattering) is promoted to CO-PRIMARY with S2.** It is the single
+   biggest lever on how dusk reads, and it is entirely absent today.
+2. **A new sub-track — LIGHT TRANSPORT COHERENCE (S9–S11 below) — outranks S1/S3.** A perfectly
+   cascaded shadow under a key light that does not change colour or intensity as the sun sets
+   will still not feel epic.
+
+**Judge it as a TIMELAPSE, never as single frames.** The proof-of-done for §2 is: park the
+camera at a fixed pose over a city (and a second over Everest), scrub scene time continuously
+through day → golden → civil → nautical → astronomical → night and back, ULTRA off vs on, and
+watch the *sequence*. Single-frame A/Bs cannot show continuity, and continuity is the ask.
+Record per-frame ms across the same sweep.
+
+**The likely root of "naive and linear" is one line.** The whole day/night response hangs off
+`dayK = smoothstep(EARTH.termBand[0], EARTH.termBand[1], sunUpDot)`
+(`imageryGround.ts:369`) — a smoothstep over a **dot product**, with no physical meaning at the
+band edges. Meanwhile this app already computes real twilight thresholds in the ephemeris layer
+for the planner and the scrubber's light bands (sunset −0.833°, civil −6°, nautical −12°,
+astronomical −18°). **Driving the renderer from the same almanac the planner uses is both more
+physical and an architectural win** — one source of truth for the sun's elevation, and each
+twilight band gets its own colour/intensity response instead of one blended ramp.
 
 ### First, measure and read (do not code yet)
 
@@ -145,7 +176,18 @@ game/3D engines actually do and what a browser can hold.
 | S5 | **Shadow-map size / bias / normal-offset tuning under ULTRA** | Cheapest crispness win available; acne/peter-panning are mostly bias problems | **`shadowMapSize` and `shadowsEnabled` are CONSTRUCTION-TIME** (`GlobeCanvas.tsx:116, :222-226`) — a live flip recompiles every material. ULTRA may need to size the rig at BOOT from the persisted pref, which is a legitimate exception to "edge-applied" but must still be inert when off |
 | S6 | **GTAO** (already wired, default-OFF) | Contact darkening; complements shadows | Backlog **T10**. `AO.enabled` is a construction-time master switch — enabling it costs EVERY user at boot, so it must be read from the ULTRA pref at boot or stay off |
 | S7 | Screen-space contact shadows | Cheap small-scale contact detail | Only if S1–S3 leave headroom |
-| S8 | Real-time GI | Owner named it | **Recommend rejecting for v1** and saying why: the honest browser options (baked probes / SSGI) are either static-geometry-only or a large frame cost. S4 + S2 deliver most of the perceived realism at a fraction of the risk |
+| S8 | Real-time GI | Owner named it | **REJECTED for v1, owner-accepted 2026-08-22i.** The honest browser options (baked probes / SSGI) are either static-geometry-only — useless on a streaming tileset whose geometry arrives and evicts continuously — or a large frame cost. S4 + S9–S11 deliver the "global light feel" it was wanted for, at a fraction of the risk. **The condition of the ruling is that they actually do**; if the timelapse still reads flat after them, re-open with irradiance probes over the STATIC base earth only |
+
+### The light-transport sub-track (S9–S11) — added by the owner's transition steer
+
+These are what actually make dusk feel like dusk. All three are small next to CSM, and all three
+are `QUALITY.ultraDesktop`-gateable or boot-read.
+
+| # | Technique | What it buys | Notes for THIS codebase |
+|---|---|---|---|
+| **S9** | **Drive the day/night response from REAL SUN ELEVATION + the twilight bands**, replacing the `smoothstep(termBand, sunUpDot)` ramp | This is the "not linear" fix at its root. Sunset / civil / nautical / astronomical each get their own colour + intensity + ambient-floor response, so the sequence has *structure* instead of one blend | The almanac already exists and is already trusted by the planner and the scrubber's light bands — reuse it, do not re-derive. Touches `imageryGround.ts:369` (ground), `buildingMaterial.ts` (buildings) and the key-light step; they must move TOGETHER or the ground and buildings will disagree at the terminator — the exact incoherence that made forcing `dayK` a C2 breach in §1a |
+| **S10** | **Key + ambient + hemisphere light track the ephemeris**: warm/dim the sun key through golden hour, hand over to the moon key by K&S intensity, and orient the hemisphere along LOCAL UP | Audit gap **#16**, already verified: `HemisphereLight` sits along **ECEF +Y**, not local up, and never tracks the ephemeris. On a globe that means the sky/ground ambient split is wrong everywhere except one meridian — a permanent, invisible-until-you-look error in the "global light feel" | Small, self-contained, and it is a **visual delta everywhere**, so it must be ULTRA-gated even though it is arguably a bug fix. Keep the existing K&S-1991 moon intensity model |
+| **S11** | **Exposure adaptation** — ramp `toneMappingExposure` with sun elevation (optionally a slow eye-adaptation easing) | The cheapest "epic" lever there is. A camera opening up as the sun goes down is most of why a real timelapse feels cinematic. Also stops the night side reading as merely *dark* | `RENDERER.toneMappingExposure` is a static 1.0 with NeutralToneMapping. Live-writable, no recompile. **Must ease** — a per-frame exposure jump reads as a flicker — and must not fight `uFtwNightFloor` / the building night-lights model |
 
 ### Non-negotiables for the shadow slice
 
@@ -167,8 +209,13 @@ game/3D engines actually do and what a browser can hold.
    stamping 16 on live composites by hand. **M3 decides how much of §1b is worth building.**
 2. **§1 texture slice** — `uFtwPhoto3d` + anisotropy. Small, high payoff, directly answers the
    owner's "grayish / less resolution".
-3. **§2 shadows** — S2 (PCSS) → S5 (bias/size) → S3 (terrain casts, prototyped at Everest) →
-   S4 (aerial perspective). S1 (CSM) only if S2+S5 prove insufficient; S8 rejected with reasons.
+3. **§2 light + shadows**, in this order — the transition steer put the light first:
+   **S9** (real sun elevation + twilight bands) → **S11** (exposure ramp) → **S4** (aerial
+   perspective) → **S10** (ephemeris-tracking key/ambient/hemisphere) → **S2** (PCSS) →
+   **S5** (bias/size) → **S3** (terrain casts, prototyped at Everest). **S1 (CSM) only if S2+S5
+   prove insufficient. S8 rejected, owner-accepted, conditional on S4+S9–S11 landing the feel.**
+   Run the day→dusk→night timelapse after EACH of S9/S11/S4/S10 — they compose, and the point
+   is the sequence.
 4. Re-run the mobile fence and the `high`-tier identity tests after every step.
 
 Everest (`terrain/everest/`, live on R2 since 2026-08-22h) is the natural proving ground for
