@@ -76,6 +76,10 @@ export interface BuildingsHandle {
    *  with the terminator sweeping the city. City-scale — one factor across the skyline is right.
    *  `up` = the view-focus geodetic up; the emissive lights only walls perpendicular to it. */
   setNight(sunElevSin: number, up: THREE.Vector3): void;
+  /** ULTRA S4 aerial perspective (T45) — the SAME `haze` number the orchestrator hands the ground,
+   *  so the air over the city and the air over the ground it stands on are one atmosphere. 0 =
+   *  the pre-ULTRA look (the shared `ftwAerial` returns its input untouched). */
+  setUltraHaze(haze: number, col: THREE.Color, sunW: THREE.Vector3): void;
   dispose(): void;
 }
 
@@ -334,6 +338,11 @@ export function attachBuildings(
     setNight(sunElevSin, up) {
       uFtwNight.value = buildingNightFactor(sunElevSin, EARTH.lightsBand);
       uFtwUp.value.copy(up); // R3: facade gating up (view-focus geodetic up)
+    },
+    setUltraHaze(haze, col, sunW) {
+      uniforms.uFtwHaze.value = haze;
+      uniforms.uFtwHazeCol.value.copy(col);
+      uniforms.uFtwSunW.value.copy(sunW);
     },
     dispose() {
       tiles.dispose();

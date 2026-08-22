@@ -14,8 +14,9 @@ import {
   type FoveationTierCfg,
   type QueueCaps,
 } from "../../../lib/globe/quality";
-import { DRAPE, EARTH, FOVEATION, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS } from "../tuning";
-import { glf, glf3 } from "./glsl";
+import { bandCurveGlsl, easeK } from "../../../lib/globe/lightBands";
+import { DRAPE, EARTH, FOVEATION, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS, ULTRA } from "../tuning";
+import { FTW_AERIAL_GLSL, glf, glf3 } from "./glsl";
 import { makeTileFoveation } from "./tileFoveation";
 import { hookTerrainPatch, makeTerrainPatchFetchPlugin, type TerrainPatchOpts } from "./terrainPatch";
 
@@ -91,8 +92,54 @@ export interface ImageryGroundHandle {
   setFoveaPose(eyeWorld: THREE.Vector3, fwdWorld: THREE.Vector3): void;
   /** DEV probe (__globe.u6()). */
   foveaSnapshot(): { engaged: boolean; baseErrorTarget: number };
+  /** ULTRA look targets, pushed per frame by the orchestrator (T44 §1a + T45 S9/S4). All four
+   *  are RAW targets — this module owns the easing (so a chip flip or a time scrub dissolves
+   *  instead of stepping) and owns the altitude / flat-chart / dark-drape gates on the haze,
+   *  because it is where `alt`, `flat2d` and the live `uFtwDark` already are. Every field 0 /
+   *  neutral = the pre-ULTRA look, reached exactly (the easings snap to 0 under an epsilon). */
+  setUltraTargets(t: {
+    /** §1a photographic de-grade strength in 3D (0 = the shipped stylized grade). */
+    photo3d: number;
+    /** S9 how far to blend the day factor from the legacy termBand ramp to the band curve. */
+    light: number;
+    /** S4 aerial-perspective strength STRAIGHT FROM THE BAND CURVE — gates applied here. */
+    haze: number;
+    /** S4 haze tint for the current twilight band. */
+    hazeCol: THREE.Color;
+  }): void;
+  /** T44 §1b: anisotropic filtering on the drape composites. Stamped at texture CREATION only —
+   *  `anisotropy` is part of three's GL texture cache key, so changing it on a live texture
+   *  forces a full re-upload per composite; new tiles pick it up as you fly. 1 = the library
+   *  default (and therefore the identical cache key), so "off" costs nothing and changes nothing. */
+  setUltraAnisotropy(taps: number): void;
+  /** T45 S3: let the terrain tiles CAST into the shadow map, not only receive through their
+   *  ShadowMaterial twins. Applies to loaded tiles immediately and to every tile loaded after. */
+  setTerrainCast(on: boolean): void;
   dispose(): void;
 }
+
+/**
+ * T44 §1b — the anisotropy the drape composites are stamped with, shared by every attach.
+ *
+ * MODULE-SCOPED ON PURPOSE. The stamp is a wrap of `TiledRegionImageSource.prototype.fetchItem`
+ * (the library exposes no hook and does not export the class — `ImageOverlayPlugin`'s public
+ * surface is constructor options plus add/delete/reorder/reset), and a prototype patch is
+ * process-wide. Holding the wanted value here rather than in an attach closure means a
+ * dispose + re-attach cannot leave the live patch reading a dead closure's frozen value.
+ *
+ * `fetchItem` is the unique choke point: BOTH texture-creation paths return through it — the
+ * compose `CanvasTexture` and the single-tile `.clone()` fast path — and it is the only producer
+ * of the region `DataCache` entries the shader ultimately samples, so a wrap here cannot miss a
+ * path. It also runs exactly once per composite (cache-miss only) and before first bind, which
+ * is why stamping costs nothing: three computes the GL cache key once, with the final value.
+ *
+ * The value MUST be deterministic. Clones share their `.source`, and three keys GL textures by
+ * (source, cacheKey) — a per-tile or varying anisotropy would fragment that sharing and multiply
+ * GPU memory instead of saving it.
+ */
+const OVERLAY_ANISO = { wanted: 1 };
+/** Marks the prototype as already wrapped (a second attach must not nest wrappers). */
+const ANISO_STAMP_KEY = "__ftwAnisoStamped";
 
 export function attachImageryGround(
   scene: THREE.Scene,
@@ -311,6 +358,20 @@ export function attachImageryGround(
     uFtwAmbNight: { value: GROUND.ambientNightK },
     // QA-7a (owner 2026-08-21f): photographic-chart strength — see GROUND.flat2dPhotoK.
     uFtwPhotoK: { value: GROUND.flat2dPhotoK },
+    // --- ULTRA (T44 §1a + T45 S9/S4). ALL FOUR are seeded 0, and 0 is the identity of every
+    //     expression they appear in — `mix(legacy, ultra, 0.0)` is exactly `legacy`, `max(x, 0.0)`
+    //     is exactly `x`, and the haze block is skipped entirely. That is the off-state proof:
+    //     with the chip off this layer renders the same instructions it did before the track. ---
+    /** §1a — the photographic de-grade in 3D, ULTRA's own twin of the chart's uFtwFlat2d×uFtwPhotoK. */
+    uFtwPhoto3d: { value: 0 },
+    /** S9 — how far the day factor has moved from the legacy termBand ramp to the twilight-band
+     *  curve. Eased on the chip's edge (and SNAPPED to 0 below an epsilon, so "off" is exact). */
+    uFtwUltraLight: { value: 0 },
+    /** S4 — effective aerial-perspective strength: the band curve × the altitude gate × the
+     *  dark-drape scale, already eased by the orchestrator's target and this module's low-pass. */
+    uFtwHaze: { value: 0 },
+    /** S4 — the haze/scattering tint for the current twilight band (day → golden → blue → night). */
+    uFtwHazeCol: { value: new THREE.Color(tokens.skyHorizon) },
   };
   const gradeGround = (shader: any) => {
     shader.uniforms = { ...shader.uniforms, ...uniforms };
@@ -344,6 +405,20 @@ export function attachImageryGround(
         uniform vec3 uFtwAmbDay;
         uniform float uFtwAmbNight;
         uniform float uFtwPhotoK;
+        // ULTRA (T44 §1a + T45 S9/S4). THE TRAP THIS BLOCK EXISTS FOR: a uniform added to the
+        // JS shader.uniforms object but NOT declared here is a SILENT compile failure — the
+        // previous program keeps rendering and every poke is a no-op, with nothing logged.
+        uniform float uFtwPhoto3d;
+        uniform float uFtwUltraLight;
+        uniform float uFtwHaze;
+        uniform vec3 uFtwHazeCol;
+        // S9 — the twilight-band day curve, EMITTED from ULTRA.dayCurve by lib/globe/lightBands
+        // so the shader and its JS twin cannot drift (a unit test evaluates both and compares).
+        ${bandCurveGlsl("ftwUltraDayK", ULTRA.dayCurve)}
+        // S4 — the SHARED aerial-perspective function (scene/glsl.ts), byte-identical to the one
+        // the buildings compile, so the air over the city and the air over the ground it stands
+        // on can never diverge.
+        ${FTW_AERIAL_GLSL}
         float ftwBayer2(vec2 v) { return mod(3.0 * v.y + 2.0 * v.x, 4.0); }
         float ftwBayer4(vec2 v) {
           vec2 P1 = mod(v, 2.0);
@@ -367,14 +442,31 @@ export function attachImageryGround(
           float sunDot = dot(nS, normalize(uFtwSun));
           float sunUpDot = dot(nUp, normalize(uFtwSun));
           float dayK = smoothstep(${glf(EARTH.termBand[0])}, ${glf(EARTH.termBand[1])}, sunUpDot);
+          // S9 (ULTRA, T45): the legacy line above is a smoothstep over a DOT PRODUCT — 9.2° of
+          // solar elevation with no physical meaning at either edge, and the root of the owner's
+          // "naive and linear". ULTRA blends it toward a curve anchored on the SAME twilight
+          // thresholds the planner and the scrubber bands already use (+6/−4 golden, −6 civil,
+          // −12 nautical, −18 astronomical), spanning 36° instead of 9° — so day→dusk→night takes
+          // hours with structure instead of one ~37-minute blend. sunUpDot IS sin(solar
+          // elevation) at this fragment, so the curve is evaluated per-fragment and still draws a
+          // true terminator from orbit. mix(a, b, 0.0) is exactly the legacy value when off.
+          dayK = mix(dayK, ftwUltraDayK(sunUpDot), uFtwUltraLight);
           // /m 2D map (owner 2026-08-18): a planning chart reads around the clock — the eased
           // uFtwFlat2d forces day grading (and the moon/golden adds fade with their own gates).
+          // NOTE this stays OUTSIDE the ULTRA mix on purpose: forcing dayK is a C2 breach in 3D
+          // (it lights the night side in daylight while the buildings keep the sun/moon key,
+          // deleting the terminator, golden hour and moonlight). ULTRA drives photo instead.
           dayK = max(dayK, uFtwFlat2d);
           // QA-7a (owner 2026-08-21f): PHOTOGRAPHIC chart — on the /m 2D flat map the whole
           // stylized grade lerps OUT (raw Esri colorimetry, the MapWindow-canvas look). Gated
           // off under the dark CARTO drape (its flat grade IS the dark-mode look) and rides
           // the same eased uFtwFlat2d, so 2D↔3D dissolves. Strength: GROUND.flat2dPhotoK.
-          float photo = uFtwFlat2d * uFtwPhotoK * (1.0 - uFtwDark);
+          // T44 §1a (ULTRA): the SAME de-grade, now also reachable in 3D on its own uniform. This
+          // is the separation that unblocks T44 — uFtwFlat2d drove TWO independent effects and
+          // only this one is safe outside the chart. max (not +): on the /m chart both terms are
+          // live and the chart must not double-de-grade past 1.0; and max(x, 0.0) === x, so with
+          // ULTRA off the expression is byte-for-byte the one that shipped.
+          float photo = max(uFtwFlat2d * uFtwPhotoK, uFtwPhoto3d) * (1.0 - uFtwDark);
           float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
           // S7a dark drape: the Esri grade blends OUT and a UNIFORM flat shade blends IN as
           // uFtwDark rises (the CARTO overlay already owns diffuseColor by then) — the water
@@ -416,6 +508,13 @@ export function attachImageryGround(
           vec3 ambient = (uFtwAmbDay * dayK + uFtwMoonCol * (uFtwAmbNight * night))
             * (1.0 - uFtwHiAlt) * (1.0 - photo);
           diffuseColor.rgb = graded * shade + moonlit + ambient;
+          // S4 AERIAL PERSPECTIVE (ULTRA, T45) — promoted to co-primary by the owner's transition
+          // steer, and absent from this app entirely before now: there is no scene.fog, no
+          // distance term on ground or buildings, and the sky dome's own skyHazeBelow sits at
+          // camera.far × 0.45 (≈81 km) with depthTest on, so it is geometrically unreachable.
+          // vFtwW is the world position the geodetic-up term above already relies on, so this
+          // adds no varying; uFtwHaze is 0 whenever ULTRA is off and the function returns early.
+          diffuseColor.rgb = ftwAerial(diffuseColor.rgb, vFtwW, uFtwSun, uFtwHaze, uFtwHazeCol);
         }`,
     ).replace(
       /#include <dithering_fragment>/,
@@ -443,6 +542,41 @@ export function attachImageryGround(
   const shadowTwins = new Set<THREE.Mesh>();
   let shadowsActive = false;
 
+  // --- T45 S3 TERRAIN CASTS (ULTRA) — the owner's named killer feature -----------------------
+  //
+  // The ground RECEIVES today (the ShadowMaterial twins above) but never CASTS, which is why a
+  // mountain at low sun has no valley shadow. three renders a cast from any mesh with
+  // `castShadow` through a shared MeshDepthMaterial — the source material's lighting model is
+  // irrelevant — so an unlit MeshBasicMaterial tile casts fine. TWO traps make it not "just work":
+  //
+  //  1. THE SIDE FLIP, and it fails SILENTLY. `getDepthMaterial` sets
+  //     `side = material.shadowSide ?? shadowSide[material.side]`, where the map inverts
+  //     FrontSide → BackSide (right for closed volumes, wrong for a sheet). The terrain tiles are
+  //     single-sided sheets, so with the default the depth pass draws their back faces, culls
+  //     everything, and the terrain casts NOTHING — no error, no warning, just no shadows.
+  //     `shadowSide = FrontSide` is what makes the feature exist at all.
+  //  2. SELF-SHADOW ACNE. The caster and the receiver are the SAME geometry (the twin rides it),
+  //     so every slope shadows itself. It cannot be fixed with the global bias/normalBias without
+  //     peter-panning the BUILDING shadows those two are tuned for — hence a dedicated depth
+  //     material carrying its own polygon offset. `colorWrite: false` rides along: the shadow
+  //     target's RGBA8 colour attachment is written by the depth material and never read by
+  //     anything (the sampler reads the depth texture), so it is pure bandwidth.
+  //
+  // `customDepthMaterial` is returned verbatim by three, but `side`/`map`/`alphaTest`/`visible`
+  // are still overwritten onto it per object — which is why (1) must be set on the TILE material
+  // regardless of (2).
+  let terrainCastOn = false;
+  const terrainDepthMat = new THREE.MeshDepthMaterial({ colorWrite: false });
+  terrainDepthMat.polygonOffset = true;
+  terrainDepthMat.polygonOffsetFactor = ULTRA.terrainDepthOffset;
+  terrainDepthMat.polygonOffsetUnits = ULTRA.terrainDepthOffset;
+  const applyTerrainCast = (tileMesh: THREE.Mesh) => {
+    tileMesh.castShadow = terrainCastOn;
+    const mat = tileMesh.material as THREE.Material;
+    mat.shadowSide = terrainCastOn ? THREE.FrontSide : null;
+    tileMesh.customDepthMaterial = terrainCastOn ? terrainDepthMat : undefined;
+  };
+
   tiles.addEventListener("load-model", (e: any) => {
     e.scene.traverse((c: any) => {
       if (c.isMesh && c.material && swappedMats.has(c.material)) {
@@ -461,6 +595,7 @@ export function attachImageryGround(
         twin.raycast = () => {}; // heightAt() must hit the terrain, not the twin
         shadowTwins.add(twin);
         c.add(twin);
+        applyTerrainCast(c); // S3: a tile streaming in mid-session inherits the live cast state
       }
     });
   });
@@ -476,6 +611,53 @@ export function attachImageryGround(
   const _rayDir = new THREE.Vector3();
   const _raycaster = new THREE.Raycaster();
   let lastRevealMs = performance.now();
+
+  // --- ULTRA look state: RAW targets in, eased values out (see setUltraTargets) ---------------
+  let ultraPhotoTarget = 0;
+  let ultraLightTarget = 0;
+  let ultraHazeBand = 0; // the band-curve value; the gates below turn it into uFtwHaze
+
+  /**
+   * Install the anisotropy stamp (T44 §1b). Lazy AND once: nothing is patched until the chip
+   * asks for more than one tap, so a user who never touches ULTRA never runs a line of it.
+   * Reached through a live overlay because the library exports neither the region-source class
+   * nor any hook; patching the PROTOTYPE (not the instance) is what makes it survive
+   * `setOverlayResolution`, which deletes both overlays and builds fresh ones.
+   */
+  const installAnisoStamp = (overlay: unknown) => {
+    const ov = overlay as { init?: () => Promise<unknown>; regionImageSource?: unknown };
+    Promise.resolve(ov.init?.())
+      .then(() => {
+        // `regionImageSource` is null until the overlay's own init resolves.
+        const rs = ov.regionImageSource as { fetchItem?: unknown } | null | undefined;
+        if (!rs) return;
+        const proto = Object.getPrototypeOf(rs) as Record<string, unknown>;
+        if (proto[ANISO_STAMP_KEY]) return; // already wrapped — never nest
+        const original = proto.fetchItem;
+        if (typeof original !== "function") return; // library drift → skip, never break the ground
+        proto[ANISO_STAMP_KEY] = true;
+        proto.fetchItem = async function (this: unknown, ...args: unknown[]) {
+          const tex = (await (original as (...a: unknown[]) => Promise<unknown>).apply(
+            this,
+            args,
+          )) as THREE.Texture | null;
+          // `minFilter` is ALREADY LinearMipmapLinearFilter on both creation paths, which is the
+          // gate three requires before it will issue the anisotropy texParameterf — so setting
+          // this one field is sufficient and no filter change is needed. With generateMipmaps
+          // false the taps all land in level 0: a real but partial win (it fixes grazing-angle
+          // minification, which IS the tilt symptom, and leaves heavy minification aliasing).
+          // A capped mip chain is the remaining half and is deliberately NOT built here — each
+          // composite is an independent ClampToEdge canvas cleared TRANSPARENT, so a chain
+          // box-filters that border inward and clamps at coarse levels into a visible tile-seam
+          // grid. That needs hand-built levels and a browser judgement, not a flag.
+          if (tex && (tex as THREE.Texture).isTexture) tex.anisotropy = OVERLAY_ANISO.wanted;
+          return tex;
+        };
+      })
+      .catch(() => {
+        /* the stamp is a fidelity nicety — a failure here must never take the ground with it */
+      });
+  };
 
   return {
     tiles,
@@ -548,6 +730,28 @@ export function attachImageryGround(
     foveaSnapshot() {
       return { ...fovea.snapshot(), baseErrorTarget: tiles.errorTarget };
     },
+    setUltraTargets(t) {
+      ultraPhotoTarget = t.photo3d;
+      ultraLightTarget = t.light;
+      ultraHazeBand = t.haze;
+      (uniforms.uFtwHazeCol.value as THREE.Color).copy(t.hazeCol);
+    },
+    setUltraAnisotropy(taps) {
+      const want = Math.max(1, Math.round(taps));
+      if (want === OVERLAY_ANISO.wanted) return;
+      OVERLAY_ANISO.wanted = want;
+      if (want > 1) installAnisoStamp(esriOverlay);
+    },
+    setTerrainCast(on) {
+      if (on === terrainCastOn) return;
+      terrainCastOn = on;
+      // Every twin's PARENT is its tile mesh (the twin is added as a child of it), so the twin
+      // set doubles as the caster registry without a second collection to keep in sync.
+      for (const twin of shadowTwins) {
+        const parent = twin.parent as THREE.Mesh | null;
+        if (parent) applyTerrainCast(parent);
+      }
+    },
     update(alt, darkGround, flat2d) {
       // Active below GATES.groundActiveAlt; the layer screen-door-dissolves in across the fade band
       // so real terrain grows organically out of the stylized base (no switch), then keeps
@@ -612,6 +816,30 @@ export function attachImageryGround(
       uniforms.uFtwDark.value += (darkTarget - uniforms.uFtwDark.value) * kDark;
       // /m 2D-map day grading — same ease so the 2D↔3D flip dissolves, never snaps.
       uniforms.uFtwFlat2d.value += ((flat2d ? 1 : 0) - uniforms.uFtwFlat2d.value) * kDark;
+      // --- ULTRA look (T44 §1a + T45 S9/S4): ease every target, and SNAP to zero under an
+      //     epsilon. The snap is what makes "off" exact rather than asymptotic — an exponential
+      //     low-pass never reaches its target, and `mix(legacy, ultra, 3e-9)` is not `legacy`.
+      const kPhoto = easeK(dtMs, ULTRA.photoTauMs);
+      uniforms.uFtwPhoto3d.value += (ultraPhotoTarget - uniforms.uFtwPhoto3d.value) * kPhoto;
+      uniforms.uFtwUltraLight.value += (ultraLightTarget - uniforms.uFtwUltraLight.value) * kPhoto;
+      if (uniforms.uFtwPhoto3d.value < 1e-4) uniforms.uFtwPhoto3d.value = 0;
+      if (uniforms.uFtwUltraLight.value < 1e-4) uniforms.uFtwUltraLight.value = 0;
+      // Aerial perspective carries three gates the orchestrator cannot see from where it sits:
+      // the altitude ramp (above it the base earth + limb shader own the look and a second
+      // scattering model would double-count), the flat-chart cutout (a planning chart must stay
+      // a chart), and the dark-drape scale (the CARTO look is deliberately flat).
+      const hazeAlt = THREE.MathUtils.clamp(
+        (ULTRA.hazeGoneAltM - alt) / (ULTRA.hazeGoneAltM - ULTRA.hazeFullAltM),
+        0,
+        1,
+      );
+      const hazeTarget = flat2d
+        ? 0
+        : ultraHazeBand *
+          hazeAlt *
+          THREE.MathUtils.lerp(1, ULTRA.hazeDarkK, uniforms.uFtwDark.value);
+      uniforms.uFtwHaze.value += (hazeTarget - uniforms.uFtwHaze.value) * easeK(dtMs, ULTRA.hazeTauMs);
+      if (uniforms.uFtwHaze.value < 1e-4) uniforms.uFtwHaze.value = 0;
       // Dark-drape overlay lifecycle (2026-08-18 speed batch): attach on entering dark mode,
       // detach once the crossfade has fully eased back out — never mid-fade (the eased opacity
       // needs the overlay to exist to show it).
@@ -638,6 +866,7 @@ export function attachImageryGround(
       if (overlayRetryTimer !== null) clearTimeout(overlayRetryTimer);
       tiles.removeEventListener("load-error", onLoadError);
       shadowMat.dispose();
+      terrainDepthMat.dispose();
       shadowTwins.clear();
       tiles.dispose();
       scene.remove(tiles.group);

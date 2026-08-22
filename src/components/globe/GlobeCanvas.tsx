@@ -6,13 +6,14 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { tokens } from "../../lib/theme/tokens";
-import { AO, BLOOM, POSE, QUALITY, RENDERER, SHADOWS, SUN } from "./tuning";
+import { AO, BLOOM, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA } from "./tuning";
 import {
   detectDeviceTier,
   makeGovernor,
   type DeviceCaps,
   type QualityTier,
 } from "../../lib/globe/quality";
+import { ultraBootOn } from "../../lib/globe/ultraBoot";
 
 /** Read the device's rendering capabilities for the initial quality tier (RENDERING_QUALITY_PASS
  *  WS1). Browser-only (GL context + navigator) — the tier DECISION is the pure `detectDeviceTier`. */
@@ -110,10 +111,23 @@ export default function GlobeCanvas() {
     // cyan accent + additive atmosphere rim the way ACES/AgX would.
     renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.toneMappingExposure = RENDERER.toneMappingExposure;
+    // ULTRA (T45 S5) — the ONE construction-time read of the chip, taken from the PERSISTED pref
+    // rather than the store, because the shadow rig is built before any island has mounted.
+    // `ULTRA_PLAN.md` §2 sanctions exactly two paths for an ULTRA lever and forbids a third:
+    // edge-applied through `QUALITY.ultraDesktop`, or read from the pref at BOOT. Map size and
+    // `shadowMap.enabled` are the boot ones — three latches the depth target on first render and
+    // ignores a later `mapSize` write, and flipping `shadowMap.enabled` live recompiles every
+    // material in the scene. Everything else on the rig (radius, bias, normal bias, bounds,
+    // light distance) is a live uniform and is edge-applied by the orchestrator instead.
+    // The gate is folded inside `ultraBootOn()` — desktop shell AND fine pointer, the same two
+    // terms as the orchestrator's `hqAllowed`.
+    const ultraBoot = ultraBootOn();
     // Sun shadows (city scale). Default PCFShadowMap — r185 deprecated PCFSoft (hardware PCF is
     // already 4-tap), and VSM would drag the huge receiver tile meshes into the depth pass.
     // Gated by the quality tier (off on `low`; the orchestrator still gates castShadow by altitude).
-    renderer.shadowMap.enabled = QUALITY.tiers[deviceTier].shadowsEnabled;
+    // ULTRA overrides that tier gate deliberately: the chip's whole premise is "maximum quality
+    // regardless of measured performance", and a user who clicked it on a weak box asked for this.
+    renderer.shadowMap.enabled = QUALITY.tiers[deviceTier].shadowsEnabled || ultraBoot;
 
     const reduceMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -219,9 +233,18 @@ export default function GlobeCanvas() {
     // castShadow stays OFF until the orchestrator gates it on (low altitude + sun above horizon).
     sun.castShadow = false;
     // Lean profile caps the shadow map (heat lever) — shadows themselves stay tier-gated ON.
+    // ULTRA raises the edge to ULTRA.shadowMapSize (8192² ≈ 0.39 m/texel over the street-level
+    // 1.6 km half-extent, vs 0.78 m at 4096²). THE CLAMP IS LOAD-BEARING: three silently mutates
+    // `shadow.mapSize` DOWN when it exceeds maxTextureSize, so an unclamped request would leave
+    // the tuning constant and the live rig disagreeing — clamp here and the two always match.
+    // Cost note: a directional shadow target allocates an RGBA8 colour attachment AND a D24 depth
+    // texture, so 8192² is ~512 MiB, not the ~268 MB a depth-only reading suggests. That is the
+    // largest single cost on this track and the reason it only became shippable once the owner
+    // lifted the frame-rate ceiling (2026-08-22j). Rollback knob: ULTRA.shadowMapSize.
     const shadowPx = Math.min(
-      QUALITY.tiers[deviceTier].shadowMapSize,
+      ultraBoot ? ULTRA.shadowMapSize : QUALITY.tiers[deviceTier].shadowMapSize,
       lean ? QUALITY.leanMobile.shadowMapSize : Infinity,
+      renderer.capabilities.maxTextureSize,
     );
     sun.shadow.mapSize.set(shadowPx, shadowPx);
     sun.shadow.camera.left = -SHADOWS.boundsM;
@@ -235,13 +258,19 @@ export default function GlobeCanvas() {
     sun.shadow.radius = SHADOWS.radius;
     sun.shadow.camera.updateProjectionMatrix();
     // Hemisphere fill so night-side buildings aren't pure black (AmbientLight(water) was ~0).
-    scene.add(
-      new THREE.HemisphereLight(
-        new THREE.Color(tokens.landHi),
-        new THREE.Color(tokens.water),
-        SUN.hemiIntensity,
-      ),
+    // HELD IN A VARIABLE and handed to the orchestrator (was an inline `scene.add(new …)`) so
+    // ULTRA S10 can track it to the ephemeris — see audit gap #16: three reads a HemisphereLight's
+    // direction from its WORLD POSITION, and this light has never had one set, so its "sky" has
+    // always pointed along ECEF +Y. On a globe that is correct on exactly one meridian and
+    // progressively inverted everywhere else — the sky/ground ambient split is upside-down over
+    // half the planet. The orchestrator re-seats it onto the local up at the view focus, and
+    // restores this exact construction state when the chip goes off.
+    const hemi = new THREE.HemisphereLight(
+      new THREE.Color(tokens.landHi),
+      new THREE.Color(tokens.water),
+      SUN.hemiIntensity,
     );
+    scene.add(hemi);
 
     // --- soft bloom composer: RenderPass → UnrealBloom → OutputPass (tone map + sRGB move to the
     //     OutputPass; the renderer's own settings are read by it, so they stay untouched above).
@@ -410,6 +439,7 @@ export default function GlobeCanvas() {
             ionToken,
             reduceMotion,
             sunLight: sun,
+            hemiLight: hemi, // ULTRA S10 — ephemeris-tracked ambient (audit gap #16)
             qualityTier: activeTier, // start the tile knobs at the detected device tier (WS1)
             // Mobile texture tier (MOBILE_PLAN M0): phones report maxTextureSize ≥ 8192, so GPU
             // capability alone can't gate the ~280 MB of 8k swaps — the coarse-pointer signal does.
@@ -444,6 +474,12 @@ export default function GlobeCanvas() {
         },
         get ultra() {
           return ultraPinned;
+        },
+        ultraBoot,
+        // Read back from the LIGHT, not from tuning: three clamps mapSize down to
+        // maxTextureSize, so this is what the GPU actually holds.
+        get shadowMapPx() {
+          return sun.shadow.mapSize.x;
         },
         lean: !!lean,
       };

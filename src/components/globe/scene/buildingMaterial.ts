@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
 import { BUILDINGS, ENRICHED, FPV } from "../tuning";
-import { glf } from "./glsl";
+import { FTW_AERIAL_GLSL, glf } from "./glsl";
 
 /**
  * The ONE shared building-material construction (Slice 2 stylization reconcile): the global Cesium
@@ -73,6 +73,16 @@ interface BuildingMaterialUniforms {
   uFtwArmedId: { value: number };
   /** U8 tint colour (tokens.accent through the D14 bridge). */
   uFtwAccent: { value: THREE.Color };
+  /** ULTRA S4 aerial perspective — effective haze strength, ALREADY carrying the twilight-band
+   *  curve and every gate (the orchestrator hands the ground and the buildings the same number,
+   *  which is what keeps the air over the city and the air over the ground identical). 0 = the
+   *  pre-ULTRA look, and the shared `ftwAerial` returns its input untouched at 0. */
+  uFtwHaze: { value: number };
+  /** ULTRA S4 — haze tint for the current twilight band (day → golden → blue → night). */
+  uFtwHazeCol: { value: THREE.Color };
+  /** ULTRA S4 — world-space direction TO the sun, for the forward-scattering term. The buildings
+   *  never needed the sun VECTOR before (only its elevation, via `uFtwNight`). */
+  uFtwSunW: { value: THREE.Vector3 };
 }
 
 export interface BuildingMaterialSet {
@@ -132,6 +142,10 @@ export function createBuildingMaterials(
     // the OSM instance renders unchanged without any gating.
     uFtwArmedId: { value: -1 },
     uFtwAccent: { value: new THREE.Color(tokens.accent) },
+    // ULTRA S4 (T45) — all three inert at their defaults: `ftwAerial` early-returns at haze 0.
+    uFtwHaze: { value: 0 },
+    uFtwHazeCol: { value: new THREE.Color(tokens.skyHorizon) },
+    uFtwSunW: { value: new THREE.Vector3(0, 0, 1) },
   };
 
   fillMat.onBeforeCompile = (shader) => {
@@ -147,6 +161,9 @@ export function createBuildingMaterials(
     shader.uniforms.uFtwUp = uniforms.uFtwUp;
     shader.uniforms.uFtwArmedId = uniforms.uFtwArmedId;
     shader.uniforms.uFtwAccent = uniforms.uFtwAccent;
+    shader.uniforms.uFtwHaze = uniforms.uFtwHaze;
+    shader.uniforms.uFtwHazeCol = uniforms.uFtwHazeCol;
+    shader.uniforms.uFtwSunW = uniforms.uFtwSunW;
     // Pass 2 R2: carry a stable per-building key to the fragment. The b3dm batch id survives GLTF
     // load as `_batchid` (legacy) or `_feature_id_0` (3D Tiles 1.1 — also what the Slice-1 baker
     // writes per building) — whichever the tile has; the other defaults to 0 (three disables an
@@ -164,11 +181,16 @@ export function createBuildingMaterials(
         varying float vFtwBId;
         varying float vFtwFid;
         varying float vFtwOverride;
-        varying vec3 vFtwWNormal;`,
+        varying vec3 vFtwWNormal;
+        varying vec3 vFtwWPos;`,
       )
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
+        // ULTRA S4: world position for the aerial-perspective distance + scattering angle. Taken
+        // right after begin_vertex, where 'transformed' is the untouched local position (these
+        // tiles carry no morph/skin) and modelMatrix already folds in the 3D-Tiles transform.
+        vFtwWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vFtwBId = _batchid + _feature_id_0 + uFtwTileSeed;
         // U8: the RAW id (no seed — comparable against uFtwArmedId) + the committed-override
         // mask the enriched consumer writes per run (absent attribute → 0 → no tint).
@@ -197,8 +219,24 @@ export function createBuildingMaterials(
         varying float vFtwFid;
         varying float vFtwOverride;
         varying vec3 vFtwWNormal;
+        varying vec3 vFtwWPos;
+        uniform float uFtwHaze;
+        uniform vec3 uFtwHazeCol;
+        uniform vec3 uFtwSunW;
         ${FTW_BAYER_GLSL}
-        ${FTW_HASH_GLSL}`,
+        ${FTW_HASH_GLSL}
+        ${FTW_AERIAL_GLSL}`,
+      )
+      .replace(
+        // ULTRA S4 — after <opaque_fragment> (which writes gl_FragColor from outgoingLight) and
+        // BEFORE <tonemapping_fragment>/<colorspace_fragment>, so the haze mixes in LINEAR light
+        // exactly as it does on the ground. Anchoring at <fog_fragment> instead would land after
+        // both, and would then be correct in the composer pass (where three compiles them as
+        // no-ops for a render target) but WRONG in any direct-to-backbuffer pass — a trap, not a
+        // difference of taste.
+        "#include <opaque_fragment>",
+        /* glsl */ `#include <opaque_fragment>
+        gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol);`,
       )
       .replace(
         "#include <color_fragment>",
@@ -272,13 +310,35 @@ export function createBuildingMaterials(
   edgeMat.onBeforeCompile = (shader) => {
     shader.uniforms.uFtwNowMs = uniforms.uNowMs;
     shader.uniforms.uFtwEdgeBirthMs = uniforms.uEdgeBirthMs;
+    // ULTRA S4: the edges ride the SAME haze as the fill. Skipping them would leave the lit
+    // strokes at full contrast while the mass they outline recedes — a wireframe city floating in
+    // fog, which is a worse picture than no aerial perspective at all.
+    shader.uniforms.uFtwHaze = uniforms.uFtwHaze;
+    shader.uniforms.uFtwHazeCol = uniforms.uFtwHazeCol;
+    shader.uniforms.uFtwSunW = uniforms.uFtwSunW;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>\n        varying vec3 vFtwWPos;`)
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>\n        vFtwWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+      );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
         uniform float uFtwNowMs;
         uniform float uFtwEdgeBirthMs;
-        ${FTW_BAYER_GLSL}`,
+        uniform float uFtwHaze;
+        uniform vec3 uFtwHazeCol;
+        uniform vec3 uFtwSunW;
+        varying vec3 vFtwWPos;
+        ${FTW_BAYER_GLSL}
+        ${FTW_AERIAL_GLSL}`,
+      )
+      .replace(
+        "#include <opaque_fragment>",
+        /* glsl */ `#include <opaque_fragment>
+        gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol);`,
       )
       .replace(
         "#include <dithering_fragment>",

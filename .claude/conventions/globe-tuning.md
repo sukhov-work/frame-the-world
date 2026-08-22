@@ -200,3 +200,55 @@ consulted by no radar: a 15 %-covered profile fractured its bands like a complet
   at the uniform silently no-ops. It cost ~40 minutes once, and the sweep that proves the
   invariant is checklist item 23 (16 JS uniforms vs 16 header declarations in `imageryGround`;
   `buildingMaterial`'s `uFtwTileSeed` is a correct VERTEX-header declaration, not a miss).
+
+## The `ULTRA` family (added 2026-08-22j — T44 + T45, the desktop fidelity track)
+
+`tuning.ULTRA` is the LOOK half of the `ULT` chip; `QUALITY.ultraDesktop` is the TILE half. Both
+hang off the ONE gate (`hqAllowed` in `StylizedTiles`, plus its boot twin `lib/globe/ultraBoot.ts`).
+**With the chip off not one value in either block is read** — every shader term is
+`mix(legacy, ultra, 0.0)` and every eased uniform SNAPS to 0 under an epsilon, so "off" is exact
+rather than asymptotic. `scripts/verify-ultra.mjs` asserts that in the browser.
+
+| Group | Keys | Note |
+|---|---|---|
+| texture | `photo3dK` `photoTauMs` `anisotropy` | `photo3dK` drives the SAME `photo` term as the chart's `GROUND.flat2dPhotoK`, on its own uniform. **Never route ULTRA through `uFtwFlat2d`** — that also forces `dayK`, which is a C2 breach in 3D. |
+| light | `dayCurve` `exposureCurve` `hemiCurve` `hazeCurve` `tintStopsDeg` | Anchor tables in sun ELEVATION (deg), evaluated by `lib/globe/lightBands.ts`. Author HIGH→LOW, monotone. Knots are the almanac's thresholds (`lib/ephemeris/twilight.ts`) and a test asserts that. |
+| haze | `hazeDistM` `hazeMaxK` `hazeFullAltM` `hazeGoneAltM` `hazeSunPow` `hazeSunGain` `hazeTauMs` `hazeDarkK` | One shared `FTW_AERIAL_GLSL` (scene/glsl.ts) compiled into ground AND buildings — that sharing is what keeps them from diverging. |
+| shadow | `shadowMapSize` `shadowRadius` `shadowBiasM` `shadowNormalBias` | `shadowMapSize` is BOOT-only. `shadowRadius`/`shadowNormalBias` are live uniforms, edge-applied. |
+| terrain | `terrainCast` `terrainCastMaxAltM` `terrainDepthOffset` `boundsAltK` `maxBoundsM` `lightDistM` `depthMarginM` | The wide ortho + long light distance exist so a mountain fits the shadow camera at all. |
+
+### Five three.js facts these knobs encode (all source-verified against `node_modules/three` 0.185)
+
+1. **`PCFSoftShadowMap` is dead code.** `WebGLShadowMap.js:99-104` intercepts it, warns
+   "deprecated", and rewrites `this.type = PCFShadowMap`; there is no `SHADOWMAP_TYPE_PCF_SOFT`
+   define. The soft-shadow lever in r185 is **`shadow.radius`** on a 5-tap Vogel disk rotated per
+   pixel by interleaved gradient noise (~20 effective hardware-PCF taps for 5 fetches). It is a
+   live uniform, and a large radius degrades to NOISE, not banding — so it is safe to push.
+2. **`shadow.bias` is a FRACTION of the shadow camera's near→far range, not a length.** It is added
+   to `shadowCoord.z` after the divide, and an ortho shadow matrix maps to [0,1] linearly in view
+   depth. `SHADOWS.bias` −2e-4 over a 7,000 m range is −1.4 m; over ULTRA's ~96 km it would be
+   −19 m. Author it in METRES (`ULTRA.shadowBiasM`) and derive. **Changing `depthMarginM` silently
+   rescales any raw bias constant.**
+3. **`castShadow` on a single-sided sheet needs `material.shadowSide = FrontSide`.**
+   `getDepthMaterial` sets `side = shadowSide ?? invert[material.side]`, and the inversion culls a
+   ground sheet completely. **It fails silently** — no error, no warning, no shadows.
+4. **`shadow.mapSize` is LATCHED.** three reallocates the depth target only when `shadow.map` is
+   null or the TYPE changed, so a runtime `mapSize.set()` does nothing. Size the rig at BOOT. three
+   also silently clamps `mapSize` down past `maxTextureSize` — clamp at the call site or tuning and
+   the live rig disagree.
+5. **A directional shadow target costs 2× a depth-only reading**: default `RenderTarget` options
+   give it an RGBA8 COLOUR attachment (written by `MeshDepthMaterial`, sampled by nothing) plus a
+   D24 depth texture. 4096² ≈ 128 MiB; **8192² ≈ 512 MiB**.
+
+### Two more traps from this track
+
+- **Backticks inside an injected-GLSL template literal terminate it.** A `` `uniformName` `` in a
+  comment inside `gradeGround`/`onBeforeCompile` produced 17 phantom TS parse errors far from the
+  cause. Prose only inside those templates. (Companion to the existing injected-GLSL-header trap:
+  a uniform in `shader.uniforms` but NOT declared in the header is a SILENT compile failure.)
+- **`anisotropy` is part of three's GL texture cache key.** Changing it on a live texture forces a
+  full re-upload per texture, so the drape composites are stamped at CREATION only (by wrapping
+  `TiledRegionImageSource.prototype.fetchItem`, the unique choke point for both creation paths).
+  Documented consequence: **fly a little for the full effect**. The value must be DETERMINISTIC —
+  clones share their `.source`, and three keys GL textures by (source, cacheKey), so a varying
+  anisotropy fragments that sharing and multiplies GPU memory instead of saving it.

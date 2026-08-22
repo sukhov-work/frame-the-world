@@ -1,5 +1,39 @@
 # ULTRA PLAN — the desktop-only experimental fidelity track
 
+> ## AS BUILT — 2026-08-22j. **THE WHOLE PLAN SHIPPED.** Everything below is the CHARTER as
+> authored; this block records what actually happened to it. Full account: DECISIONS 2026-08-22j ·
+> `mem:project/wip-2026-08-22-ultra-track`. Gates: vitest 1,330/1,330 · astro 0 err/5 hints ·
+> knip exit-0 · `scripts/verify-ultra.mjs` **28/28**.
+>
+> **The owner lifted the frame-rate ceiling**, which is what made §2's construction-time levers
+> shippable: *"even if it is sub 15FPS but graphics fidelity improves and gives nicer richer
+> picture — worth it, user enables it in it's own volition anyways."* This **supersedes §2's
+> "a 12 fps ULTRA is a broken feature"**. Measured: city OFF 30.7 ms → ON 36.1 ms (+18%).
+>
+> **The open question in §1 is answered:** both halves folded under `ULT`, no separate HQ chip.
+>
+> **THE PLAN WAS WRONG ABOUT ITS OWN S2.** `PCFSoftShadowMap` is dead code in three 0.185 —
+> intercepted and rewritten to `PCFShadowMap`, with no shader branch left. Shipping S2 as written
+> would have been a no-op. The r185 soft-shadow lever is `shadow.radius` on a 5-tap Vogel disk
+> rotated per pixel, and it is a LIVE uniform — so S2 became cheaper AND edge-applied.
+>
+> **Four more findings the charter could not have known**, all source-verified: `shadow.bias`'s
+> unit is a FRACTION of the shadow camera's depth range (ULTRA's 96 km range would have turned the
+> shipped −2e-4 into −19 m of peter-panning) · terrain casting fails SILENTLY without
+> `shadowSide = FrontSide` · `mapSize` is LATCHED, so a live set is a no-op (the boot-read §2
+> sanctions is not optional, it is the only way) · a directional shadow target costs 2× a
+> depth-only reading, so 8192² is ~512 MiB, not ~268 MB.
+>
+> **S1 CSM, PCSS, VSM and S8 GI: all REJECTED with reasons in DECISIONS.** The headline reason CSM
+> was not needed: the shadow ortho already rides camera altitude, so street level clamps to 1.6 km
+> (0.39 m/texel at 8192²) while a mountain view spends the same texels on 11 km of relief — an
+> altitude cascade, for free.
+>
+> **Open tails (owner taste, not defects):** the `dayCurve` civil anchor 0.30 keeps the ground
+> bright at civil twilight · **the sky DOME was not touched**, so a warm ground haze meets the old
+> blue-grey dome at golden hour (a mild seam; `scene/atmosphere.ts` was outside this slice) · the
+> capped mip chain of §1b step 2 · `ULTRA.shadowMapSize` is the VRAM rollback knob.
+
 Authored 2026-08-22i as the handover for the NEXT session. Owner order, verbatim intent:
 
 > Bring crisp 3D high-fidelity textures to the tilted view — *"the visual difference between 2d

@@ -136,7 +136,32 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `wip-2026-08-22-audit3` · `wip-2026-08-22-audit3-fixslices`.
 
 ## Next step
-**THE GUIDE IS FINALIZED 2026-08-22g — all ten charter slices G-A…G-J shipped, the track is
+**THE ULTRA FIDELITY TRACK SHIPPED 2026-08-22j — T44 (textures) + T45 (light + shadows) both
+CLOSED, nine levers behind ONE desktop-only `ULT` chip, off by default.** Gates: **vitest
+1,330/1,330 (111 files)** · astro 0 err/5 hints · `npx knip` exit-0 · NEW `scripts/verify-ultra.mjs`
+**28/28**. Executed against `ULTRA_PLAN.md` (read its **AS BUILT** block before touching this track).
+**THE OWNER LIFTED THE FRAME-RATE CEILING** — *"even if it is sub 15FPS but graphics fidelity
+improves … worth it, user enables it in it's own volition anyways"* — which supersedes the plan's own
+"a 12 fps ULTRA is a broken feature" and is what made the construction-time shadow levers shippable.
+Measured: city OFF 30.7 ms -> ON 36.1 ms (+18%, 33 -> 28 fps).
+Shipped: photographic de-grade in 3D on its own uniform · anisotropy 16 on the drape composites ·
+a **twilight-band day curve** (36 deg of solar elevation vs EARTH.termBand's 9.2, anchored on the
+almanac's own thresholds) · an exposure ramp 1.00->1.46 · **aerial perspective, which did not exist
+before** · the HemisphereLight finally on local up and tracking the ephemeris (**audit gap #16
+dead**) · soft shadows · an 8192 map · and **TERRAIN CASTS SHADOWS** (the owner's named killer
+feature, browser-proven at Everest).
+**THE PLAN WAS WRONG IN FOUR PLACES, one of which would have shipped a no-op**: PCFSoftShadowMap
+is DEAD CODE in three 0.185 (intercepted and rewritten; the real lever is shadow.radius on a
+per-pixel-rotated Vogel disk, and it is LIVE) · shadow.bias's unit is a FRACTION of the shadow
+camera's depth range, so ULTRA's 96 km range would have turned -2e-4 into -19 m of peter-panning ·
+terrain casting fails SILENTLY without shadowSide = FrontSide · mapSize is LATCHED, so a live set
+is a no-op. CSM/PCSS/VSM/GI all rejected with reasons (CSM's job is already done for free by the
+altitude-adaptive shadow ortho). **OFF is EXACT and browser-proven**, and the mobile fence holds
+under the real leak condition (pref:true on /m => on:false, every lever at baseline).
+**NEXT: the RELEASE when the owner's domain fix lands**, then the ULTRA taste pass (dayCurve civil
+anchor 0.30 first), the sky-dome/ground-haze seam at golden hour, T1 device pass, T42, T34, then
+P8/P9/M4. Entry point: `NEXT_SESSION_PROMPT.md`; log: `mem:project/wip-2026-08-22-ultra-track`.
+Prior: **THE GUIDE IS FINALIZED 2026-08-22g — all ten charter slices G-A…G-J shipped, the track is
 CLOSED.** Gates: **vitest 1,292/1,292 (110 files)** · astro 0 err/5 hints · `npx knip` exit-0 ·
 NEW `scripts/verify-guide.mjs` **ALL PASS** (30 checks over desktop / `/m` / `/guide`, shots
 `guide-01..05`) · `verify-audit3` 16/16 regression PASS.
