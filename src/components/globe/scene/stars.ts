@@ -46,6 +46,10 @@ export interface StarsHandle {
     gastRad: number;
     /** Sun direction (ECEF, unit) from the current ephemeris sample — gates the night sky. */
     sunDir: THREE.Vector3;
+    /** Solar-eclipse daylight REMAINING, 0..1 (1 = no eclipse). Totality genuinely brings out the
+     *  bright stars and planets: the sky drops to roughly deep-twilight luminance for a couple of
+     *  minutes. Defaulted so every other caller and the tests are unaffected. */
+    eclipseK?: number;
     /** Show the asterism figures (S6 follow-up: an FPV planning layer — the caller gates it
      *  by FPV + the SKY toggle; the stars' own altitude/night fade still applies on top). */
     asterisms?: boolean;
@@ -430,6 +434,7 @@ export function attachStars(
       reduceMotion,
       gastRad,
       sunDir,
+      eclipseK: ctxEclipseK = 1,
       asterisms = false,
       constellation = null,
       mwBand = false,
@@ -458,7 +463,25 @@ export function attachStars(
         0,
         1,
       );
-      const fade = Math.max(altFade * (1 - dayK * (1 - STARS.dayDimFloor)), nightFade);
+      // Eclipse reveal. It MUST be folded in before the hard gate below: at the Burgos repro the
+      // sun is well up, so `fade` is exactly 0 and `update` returns before writing a single
+      // uniform — anything hung downstream of that would be unreachable. The ramp reuses the
+      // module's own night curve rather than inventing a second one: an eclipse that has taken
+      // (1 − eclipseK) of the daylight reveals stars as if the sun had sunk that far.
+      const eclipseFade =
+        ctxEclipseK >= 1
+          ? 0
+          : THREE.MathUtils.clamp(
+              (1 - ctxEclipseK - STARS.eclipseRevealStart) /
+                (1 - STARS.eclipseRevealStart),
+              0,
+              1,
+            ) * STARS.eclipseRevealMax;
+      const fade = Math.max(
+        altFade * (1 - dayK * (1 - STARS.dayDimFloor)),
+        nightFade,
+        eclipseFade,
+      );
       const visible = fade > 0.01;
       points.visible = visible;
       if (!visible) return;

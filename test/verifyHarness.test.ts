@@ -30,11 +30,33 @@ const verifyScripts = readdirSync(scriptsDir)
   .filter((f) => f !== "verify-chrome.mjs" && f !== "verify-cdp-cleanup.mjs");
 
 const src = (f: string) => readFileSync(join(scriptsDir, f), "utf8");
-const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+// Strip comments before matching — but NOT the "//" inside a URL scheme. The naive
+// `//[^\n]*` ate everything after `http://`, which silently DELETED the `/json/new` marker on
+// any script that inlines its CDP URL: the C11 opener check below then never fired for that
+// file. Measured on arrival: 22 of 24 scripts open a target and 21 were fenced — the one blind
+// spot was the newest script, i.e. the fence was decaying exactly as new scripts were added.
+// That is precisely the "checks that could not fail" class this file was written to kill, so the
+// fence had quietly become an instance of its own finding. The lookbehind keeps every real
+// line-comment stripped (positive control below).
+const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(?<![:\\])\/\/[^\n]*/g, "");
 
 describe("verify harness — CDP target hygiene (C11)", () => {
   it("there are verify scripts to check (probe validated)", () => {
     expect(verifyScripts.length).toBeGreaterThan(10);
+  });
+
+  it("the comment-stripper does not blind the probe (zero-result validation)", () => {
+    // Both halves matter: a stripper that eats URLs makes the opener check vacuous, and one that
+    // stops stripping comments makes it fire on prose. Pin both directions.
+    expect(code('const u = `http://127.0.0.1:${P}/json/new?about:blank`;')).toContain("/json/new");
+    expect(code('await http("/json/new?about:blank", "PUT");')).toContain("/json/new");
+    expect(code("const a = 1; // trackTarget( mentioned only in a comment")).not.toContain(
+      "trackTarget(",
+    );
+    expect(code("/* block\n trackTarget( */ const b = 2;")).not.toContain("trackTarget(");
+    // ...and the probe must actually SEE openers in the real corpus, or [] proves nothing.
+    const openers = verifyScripts.filter((f) => /\/json\/new/.test(code(src(f))));
+    expect(openers.length).toBeGreaterThan(10);
   });
 
   it("every script that OPENS a target registers it for cleanup", () => {
@@ -51,6 +73,19 @@ describe("verify harness — CDP target hygiene (C11)", () => {
     const offenders: string[] = [];
     for (const f of verifyScripts) {
       if (/\bprocess\.exit\(/.test(code(src(f)))) offenders.push(f);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every script that opens a target EXITS through finishVerify", () => {
+    // conventions/verify.md class (a) claims three things — imports the helper, calls
+    // trackTarget, and "ends on `await finishVerify(code)`". The first two were fenced here; the
+    // third was not, so a script could track its target and then fall off the end without ever
+    // closing it. This is the missing half.
+    const offenders: string[] = [];
+    for (const f of verifyScripts) {
+      const s = code(src(f));
+      if (/\/json\/new/.test(s) && !/finishVerify\(/.test(s)) offenders.push(f);
     }
     expect(offenders).toEqual([]);
   });

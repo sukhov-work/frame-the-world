@@ -400,6 +400,17 @@
   line-height: 1.5;
 }
 
+/* An eclipse in progress AT SCENE TIME — the one live reading in this section, so it carries the
+   accent the rest of the eclipse rows deliberately do not. */
+.tp-ecl-live {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+  color: var(--color-accent);
+  border-left: 2px solid var(--color-accent);
+  padding-left: 6px;
+}
+
 /* Keep the welcome landing clean (the PLAN / FPV-HUD precedent). */
 body.welcome-active .tp-root {
   display: none;

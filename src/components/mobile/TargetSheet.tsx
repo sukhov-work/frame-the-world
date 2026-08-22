@@ -3,7 +3,8 @@
  * skyline verdict, the next dark-sky windows, the SHOW/MARK/TRAIL/GHOSTS chips and the
  * ghost-chain steppers. Same stores + lib calls as the desktop TargetPanel (never the panel
  * itself); the compact card drops the per-kind fact blocks — those are desktop depth, the
- * phone loop needs "where is it, when do I go".
+ * phone loop needs "where is it, when do I go". The ONE exception is PREDICTED ECLIPSES (owner
+ * 2026-08-22k): an eclipse is a trip you plan weeks out, which is exactly the phone loop.
  *
  * Cost disciplines carried over: az/alt per MINUTE key (the fastest target crawls ~0.3°/day);
  * the ~10–20 ms targetWindows scan keyed to the hour + 0.05°-quantized eye + target — being
@@ -19,6 +20,13 @@ import { useCameraStore } from "../../store/camera";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { targetAzAlt } from "../../lib/ephemeris/targets";
 import { targetWindows, type TargetWindow } from "../../lib/ephemeris/planner";
+import {
+  lunarEclipseAt,
+  nextLunarEclipses,
+  nextSolarEclipses,
+  solarEclipseAt,
+  type EclipseRow,
+} from "../../lib/ephemeris/eclipse";
 import { cardinal } from "../../lib/format/readout";
 import "../../styles/mobile/chrome.css";
 
@@ -48,6 +56,40 @@ function WindowRow({ w, onJump }: { w: TargetWindow; onJump: (ms: number) => voi
       <span className="m-win__peak">
         PEAK {clockLabel(w.peakMs)} · {w.peakAltDeg.toFixed(1)}° {cardinal(w.peakAzDeg)} ·{" "}
         {moonNote}
+      </span>
+    </button>
+  );
+}
+
+/** Rows per body — the /m cap (the PlanSheet slice(0, 8) precedent, tightened for a phone). */
+const ECLIPSE_ROWS = 4;
+
+/** Eclipse dates carry the YEAR (desktop twin): the next eclipses at one site span decades, so a
+ *  bare "Aug 2" reads as "this year" and is a factual error. */
+function eclipseDateLabel(ms: number): string {
+  return new Date(ms).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** One eclipse row — the `.m-win` grammar, tap to pin scene time to greatest eclipse. */
+function EclipseRowView({ row, onJump }: { row: EclipseRow; onJump: (ms: number) => void }) {
+  return (
+    <button type="button" className="m-win" onClick={() => onJump(row.peakMs)}>
+      {/* WITH THE YEAR — this list spans decades, unlike the 8-night window list (desktop twin). */}
+      <span className="m-win__date">{eclipseDateLabel(row.peakMs)}</span>
+      <span>{row.phase.toUpperCase()}</span>
+      {/* A PENUMBRAL eclipse has zero UMBRAL coverage by definition, so "0%" here reads as
+          "nothing happens" for an event that is real and visible. The phase word already
+          carries the meaning; the honest cell is a dash, not a false zero. */}
+      <span className="m-win__score">
+        {row.phase === "penumbral" ? "—" : `${Math.round(row.coverage * 100)}%`}
+      </span>
+      <span className="m-win__peak">
+        {clockLabel(row.peakMs)}
+        {row.peakAltDeg > 0
+          ? ` · ${Math.round(row.peakAltDeg)}°`
+          : row.visible
+            ? " · SETS MID-ECLIPSE"
+            : " · BELOW HORIZON"}
       </span>
     </button>
   );
@@ -119,6 +161,38 @@ export default function TargetSheet({ onClose }: { onClose: () => void }) {
       ),
     [hourKey, latKey, lonKey, target],
   );
+
+  // PREDICTED ECLIPSES — sun/moon only. Gated on `target.kind`, NEVER on `target.facts.kind`:
+  // both bodies reuse the planet fact shape, so a facts gate would print eclipse rows on Mars.
+  // Keyed to the DAY (~6 ms per eclipse found) — never to nowMs or the raw focus.
+  const isSun = target.kind === "sun";
+  const isMoon = target.kind === "moon";
+  const dayKey = Math.floor(nowMs / 86_400_000);
+  const eclipses = useMemo(() => {
+    if (!isSun && !isMoon) return [];
+    const obs = { latDeg: latKey / 20, lonDeg: lonKey / 20, groundAltM: 0, eyeAboveGroundM: 1.6 };
+    const from = dayKey * 86_400_000;
+    return isSun
+      ? nextSolarEclipses(from, obs, ECLIPSE_ROWS)
+      : nextLunarEclipses(from, obs, ECLIPSE_ROWS);
+  }, [isSun, isMoon, dayKey, latKey, lonKey]);
+
+  // What is happening RIGHT NOW at scene time (no search — cheap enough to ride the minute).
+  const eclipseNow = useMemo(() => {
+    if (!isSun && !isMoon) return null;
+    if (isSun) {
+      const e = solarEclipseAt(minuteKey * 60_000, latKey / 20, lonKey / 20);
+      return e.phase === "none"
+        ? null
+        : `${e.phase.toUpperCase()} · ${(e.coverage * 100).toFixed(1)}% COVERED`;
+    }
+    const l = lunarEclipseAt(minuteKey * 60_000);
+    return l.phase === "none"
+      ? null
+      : l.phase === "penumbral"
+        ? `PENUMBRAL · ${(l.penumbralMag * 100).toFixed(0)}% INTO THE OUTER SHADOW`
+        : `${l.phase.toUpperCase()} · ${(l.umbralCoverage * 100).toFixed(1)}% IN THE UMBRA`;
+  }, [isSun, isMoon, minuteKey, latKey, lonKey]);
 
   const upNow = now.altDeg > 0;
   const s = now.state;
@@ -261,6 +335,20 @@ export default function TargetSheet({ onClose }: { onClose: () => void }) {
       >
         ✕ UNFOLLOW
       </button>
+
+      {(isSun || isMoon) && (
+        <>
+          <div className="m-section">
+            {isSun ? "ECLIPSES · FROM THIS ANCHOR" : "ECLIPSES · MOON IN EARTH'S SHADOW"}
+          </div>
+          {eclipseNow && <div className="m-ecl-live">NOW: {eclipseNow}</div>}
+          {eclipses.length > 0 ? (
+            eclipses.map((r) => <EclipseRowView key={r.peakMs} row={r} onJump={setTime} />)
+          ) : (
+            <div className="m-status-line">NO ECLIPSE FOUND IN THE SEARCH HORIZON</div>
+          )}
+        </>
+      )}
 
       <div className="m-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
       {windows.length > 0 ? (

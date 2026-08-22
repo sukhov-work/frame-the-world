@@ -64,6 +64,15 @@ shared anchor (`anchorLatDeg`/`anchorLonDeg`), `skylineClaimed` + the `coverage`
 behind it (A1-16), the focal cone's BufferGeometry ids (stable across an hFov sweep proves the
 T38 per-frame realloc is gone) and `shadowAutoUpdate`.
 
+New sub-seam (dated 2026-08-22k): **`__globe.eclipse()`** — the LIVE solar + lunar eclipse state,
+read out of the engine and never re-derived by a script. That is the point of it: the whole defect
+class this feature exists to fix is a geometry that disagrees with the pixels, so a verify that
+recomputed the ephemeris could go green while the screen showed nothing. It reports the classified
+phase/coverage/magnitude, the TOPOCENTRIC separation and both angular radii (the separation is the
+load-bearing number — geocentric would be 1.006° where the truth is 0.062°), the `eclipseK`
+daylight scalar as every consumer sees it, the sun fragment's own `uMoonOff`/`uMoonR` in sun-disc
+radii, and the lunar umbra/penumbra radii in moon radii.
+
 **Sub-seams** (dated 2026-08-18, audit-2 D6 — verify-recipe-consumed callables under the
 top-level globals; same removal/rename rule):
 
@@ -75,6 +84,7 @@ top-level globals; same removal/rename rule):
 | `__globe.map2d()` | `StylizedTiles.ts:1596` | U1/U3 2D-mode rendered truth (buildings group membership, not a flag) |
 | `__globe.u2()` | `StylizedTiles.ts:1605` | U2 FPV-stability discriminators (zoom bank, eased grounds, LRU, jump ring) |
 | `__globe.u5()` / `__globe.u5Mark()` | `StylizedTiles.ts:1633/1674` | U5 loading state (flags/aim/queues/latency) + time-to-first window |
+| `__globe.eclipse()` | `StylizedTiles.ts` (`window.__globe` block) | solar + lunar eclipse state + every light scalar it drives — `verify-eclipse.mjs` (37 checks) |
 | `__quality.governor.emaMs()` / `.hitchCount()` | `lib/globe/quality.ts:151–153` (exposed via `GlobeCanvas.tsx:348`) | frame-time EMA + hitch counter — U2/U5 soak gates |
 | `__quality.ao` | `GlobeCanvas.tsx:257` | GTAO look tuning in wix dev |
 

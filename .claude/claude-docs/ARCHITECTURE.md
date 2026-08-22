@@ -78,6 +78,25 @@ DNIPRO_3D_ENRICHMENT_PLAN.md` · `rendering/RENDERING_QUALITY_PASS.md`; mechanic
   corrections, the universal-variable comet/asteroid propagator, P7 meteor showers — IMO cal2026
   + λ☉ anchor + Jenniskens activity profile — and the U4 rise→set azimuth-sector sampler feeding
   the aim cones) alongside the original `planner`/`golden`/`moonlight`/`dayArc`.
+- **Eclipses (shipped 2026-08-22k) — the ONE derivation that cannot ride the shared sample.**
+  `lib/ephemeris/eclipse.ts` is pure and three-free: `discCoverage` (circle-circle lens area),
+  `solarEclipseFromDiscs`/`solarEclipseAt`, `lunarEclipseFromState`/`lunarEclipseAt` (Meeus ch.54
+  shadow cone, `SHADOW_ENLARGEMENT` 1.02), the forward walks `nextSolarEclipses` (LOCAL
+  circumstances at this observer) and `nextLunarEclipses` (a global event plus "is the moon up
+  here"), and `eclipseDaylightK`. **The solar geometry must be TOPOCENTRIC**, so it cannot ride
+  `SKY.sampleIntervalMs`: at the 2026-08-12 Burgos totality the GEOCENTRIC separation is 1.006°
+  against radii of 0.263°/0.272° — the discs do not touch — where the true topocentric separation
+  is 0.062° and 88% of the sun is gone. The orchestrator therefore derives it EVERY FRAME in
+  `stepEclipse()`, seated after `stepEphemerisResample` and BEFORE `stepKeyLightAndShadow`, from
+  geocentric `sunDirW` against topocentric `moonPosW − camera.position`. Its single output
+  `eclipseK` (daylight REMAINING, exactly 1 when nothing is happening, so every downstream
+  multiply is a provable no-op) is the second global light scalar after the ULTRA sample: key-light
+  intensity · ground shadow strength · ground `uFtwEclipse` (ALTITUDE-GATED — the umbra is a
+  street-level truth, and `baseEarth` is deliberately not wired; backlog T46) · atmosphere
+  `uEclipse` · the star reveal. LUNAR dimming instead multiplies `moonKs` at the sample — the one
+  write that moves every moonlight consumer together. Not an ULTRA lever: an eclipse is physics,
+  not a fidelity chip. Tunables `tuning.ECLIPSE`; DEV seam `__globe.eclipse()`; browser gate
+  `scripts/verify-eclipse.mjs` (37 checks).
 
 ## 5. Data model — Wix Data Collections (ADR D7) [as-built; rewritten 2026-08-13, audit D7]
 > No geospatial operator → geohash-prefix `hasSome` + client refine. Denormalize hot fields into `PublicPins`.
@@ -153,7 +172,9 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `FindPanel` (FIND v2/v3 — frame-as-query day scan + ghost projections + SUNSETS tab; replaced the
   FindCard deck row 2026-08-14), `FrameCard` (shoot-this-frame suggestions), `TodayCard` (daily
   chronology + ICS export), `MoonCalCard` (quarters/apsides/supermoons), `SpotStarsCard` (NPF),
-  `TargetPanel` (tracked sky target), `SkyContextMenu` (right-click/long-press sky menu),
+  `TargetPanel` (tracked sky target + PREDICTED ECLIPSES — `EclipseFacts`, gated on `target.kind`
+  sun/moon and NEVER on `facts.kind`, which is "planet" for both; `/m` twin in `TargetSheet`),
+  `SkyContextMenu` (right-click/long-press sky menu),
   `MiniMap` (FPV), `Marketplace` (browse panel), `Guide` (the in-app guide, G1 2026-08-15 —
   absorbed the former `Faq.tsx`/`faqContent.ts`/`faq.css`, now DELETED), `MeteorsCard` (P7
   shower windows + ZHR cards, 2026-08-17), `MapWindow` (U3 fullscreen slippy 2D map twin over
@@ -182,7 +203,7 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   radar anchor ladder, ONE function for all three surfaces (T36), **radarBands** — THE band
   allocation + future-ink rule, previously hand-copied ×3 with no fence (T35)), `ephemeris/` (bodies, stars,
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
-  sunEventFrame, moonCalendar, targets, topo, comet — see §4), `sky/` (catalog, searchIndex, messier,
+  sunEventFrame, moonCalendar, targets, topo, comet, eclipse — see §4), `sky/` (catalog, searchIndex, messier,
   openngc, ngcNames, constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache),
   `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant — best-variant
   selection, rewritten 2026-08-18p, regions — the baked-region REGISTRY: bboxes/variants/

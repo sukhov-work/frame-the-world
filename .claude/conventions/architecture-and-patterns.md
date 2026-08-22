@@ -47,7 +47,8 @@ src/
                            #   horizonProfile, occlusion, sizeDistance
     ephemeris/             # bodies, stars, asterisms, captureTime, dayArc, golden, moonlight, planner,
                            #   twilight, mwSeason, frameFinder, sunEventFrame, moonCalendar, targets,
-                           #   topo, comet (astronomy-engine + universal-variable kepler propagation)
+                           #   topo, comet, eclipse, showers, azSector
+                           #   (astronomy-engine + universal-variable kepler propagation)
     sky/                   # the search/catalog layer: catalog, searchIndex, messier, openngc, ngcNames,
                            #   constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache
     globe/                 # quality (device tier + frame governor), drift, buildingNight, enrichedMask, enrichedVariant

@@ -198,8 +198,11 @@ consulted by no radar: a 15 %-covered profile fractured its bands like a complet
   `shader.uniforms` is not enough: without `uniform float uFtwFoo;` in the injected header the
   new program fails to compile, tiles keep rendering the PREVIOUS program, and every live poke
   at the uniform silently no-ops. It cost ~40 minutes once, and the sweep that proves the
-  invariant is checklist item 23 (16 JS uniforms vs 16 header declarations in `imageryGround`;
-  `buildingMaterial`'s `uFtwTileSeed` is a correct VERTEX-header declaration, not a miss).
+  invariant is checklist item 23: **every entry in the JS `shader.uniforms` object has a matching
+  declaration in the injected fragment header** (`buildingMaterial`'s `uFtwTileSeed` is a correct
+  VERTEX-header declaration, not a miss). Stated as the invariant rather than as a COUNT on
+  purpose — the literal pair re-stales every time a uniform is added, and it did: `imageryGround`
+  gained `uFtwEclipse` on 2026-08-22k. Re-measure, do not trust a number written here.
 
 ## The `ULTRA` family (added 2026-08-22j — T44 + T45, the desktop fidelity track)
 
@@ -252,3 +255,29 @@ rather than asymptotic. `scripts/verify-ultra.mjs` asserts that in the browser.
   Documented consequence: **fly a little for the full effect**. The value must be DETERMINISTIC —
   clones share their `.source`, and three keys GL textures by (source, cacheKey), so a varying
   anisotropy fragments that sharing and multiplies GPU memory instead of saving it.
+
+## The `ECLIPSE` family (added 2026-08-22k — solar + lunar eclipses)
+
+`tuning.ECLIPSE` is the LOOK half; the PHYSICS is `lib/ephemeris/eclipse.ts` (pure, three-free,
+almanac-tested). Nothing in this block can move the eclipse — only how it reads. Unlike `ULTRA`
+this is **not chip-gated**: an eclipse is physics, not a fidelity lever, so it runs for everyone.
+
+| Group | Keys | Note |
+|---|---|---|
+| Daylight | `daylightGamma` 0.8 · `daylightFloor` 0.04 · `tauMs` 220 | gamma < 1 encodes LIMB DARKENING — the last sliver hidden is the sun's bright centre, so light holds through the partial phases and collapses at the end, which is how an eclipse is actually experienced. The floor is not zero: the umbral spot is ~100 km across and the sky above it is still lit for hundreds of km around |
+| Solar disc | `limbSoftFrac` 0.012 · `haloAtTotality` 0.06 | the lunar limb is knife-sharp (no atmosphere), so `limbSoftFrac` is pure anti-aliasing — ~1 px at the tightest reachable zoom (`FPV.minFovDeg` 2.75) |
+| Corona | `coronaOnCoverage` [0.985, 1] · `coronaGain` 1.15 · `coronaInnerFalloff` 0.34 · `coronaOuterPow` 2.6 · `coronaOuterGain` 0.42 · `coronaPetalAmp` 0.22 · `coronaWhiteMix` 0.72 · `chromoWidth` 0.018 · `chromoGain` 0.55 | the ramp is what keeps the corona strictly inside TOTALITY — the corona is ~1e-6 of the disc, so one surviving sliver of photosphere drowns it, and this also keeps it out of every ANNULAR eclipse where the ring never leaves. `coronaGain` sits just over `BLOOM.threshold` 0.9 so bloom carries the streamers, but it must still read where bloom is OFF (tier `low`, coarse pointer, flat map) |
+| Lunar umbra | `umbraLight` 0.055 · `umbraEdgeLift` 1.9 · `penumbraDim` 0.32 · `shadowSoftFrac` 0.09 | **`umbraLight` is a deliberate, named fudge**: the honest number is ~1e-4 of a full moon (10–12 magnitudes down), which renders invisible, while the real eclipsed moon is famously easy to SEE because the eye adapts. C2 is satisfied by applying that adaptation ONCE, in one place with its reasoning, instead of smearing it through the shader. `umbraEdgeLift` is physical, not taste: the outer umbra is lit by a wider arc of refracting atmosphere, so the limb nearest the shadow edge is markedly brighter and warmer — it is what makes the disc read as an eclipse rather than a red filter |
+
+Colours are TOKENS, never literals here (D14): `tokens.eclipseUmbra` (Danjon L=2 copper-red) and
+`tokens.eclipseChromo` (the chromosphere hairline). Two `STARS` keys join the family —
+`eclipseRevealStart` 0.9 / `eclipseRevealMax` 0.75 — and they live in `STARS` because the reveal
+reuses that module's own night curve rather than inventing a second one.
+
+**Traps.** The star reveal MUST be folded in BEFORE `stars.update`'s `fade > 0.01` hard return, or
+it is unreachable at any daytime sun elevation. `uEclipse` on the atmosphere applies only inside
+the low-altitude sky branch, and the ground's `uFtwEclipse` arrives ALTITUDE-GATED from the
+orchestrator — from orbit the umbra is a ~100 km spot, not a hemisphere (backlog T46). And the
+whole family must be a provable no-op when nothing is happening: `eclipseK` snaps to exactly 1
+(browser-asserted), so every downstream multiply is identity.
+

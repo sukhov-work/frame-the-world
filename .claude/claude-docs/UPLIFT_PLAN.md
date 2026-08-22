@@ -15,7 +15,8 @@ browser-verified both shells (gates 1,022/1,022); U7 measured CWT over Dnipro = 
 precision · Esri imagery licence rider) OPEN, defaults attached. U7b GLO-30 bake SHIPPED
 2026-08-18p (owner-approved, in-scene verdict POSITIVE 18r). **U8 SHIPPED 2026-08-19 — the
 10-point ladder is COMPLETE.** Next: the owner's announced batch of minor-to-medium
-improvements + UX fixes; then P8 conjunctions + P9 lunar eclipses (IMPLEMENTATION_PLAN
+improvements + UX fixes; then P8 conjunctions (**P9 lunar eclipses SHIPPED 2026-08-22k — solar
+too: occlusion + corona + world darkness + predicted-eclipse panels on both shells**) (IMPLEMENTATION_PLAN
 §Phase 8) + M4 mobile resume. T1 real-device exit gate unchanged and still owner-present.** *(Historical: PARKED 2026-08-18j for the audit/fix intermediate phase.)* Originally AUTHORED 2026-08-17 (design session; P7 meteors
 shipped the same session under IMPLEMENTATION_PLAN Phase 8c). Owner ask (2026-08-17, verbatim priority order):
 current mobile experience is "barely acceptable" on iPhone 17 Pro + Pixel 6 Pro — both

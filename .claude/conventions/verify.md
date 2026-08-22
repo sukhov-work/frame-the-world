@@ -46,6 +46,16 @@ filename (`verify-shots/<phase>-<nn>-<what>.jpeg`).
   (the `[hidden]` trap, 2026-08-13; fence: `test/styles/hiddenPairs.test.ts`).
 - Playwright MCP saves screenshots relative to the repo ROOT; /m strip chips fail Playwright
   actionability (canvas "intercepts pointer events") — dispatch `.click()` in evaluate.
+- **An EASED scalar is not its target yet — an "EXACTLY n" assertion must wait for the SNAP.**
+  Scene scalars ease toward their target and only snap inside a small epsilon, so the exact value
+  the off-state claim depends on arrives several time-constants late. `eclipseK` (τ 220 ms, snap
+  at 1e-3) needs ~6.2τ: a 1.2 s settle read 0.9983 and failed "must be exactly 1". The ease was
+  correct and the wait was not — which is the failure that looks most like a real bug. Waits for
+  steady-state assertions come from the tunable, never from a round number.
+- **A body 0.5° across is ~16 px at a wide FOV.** Verifying a lunar/solar disc detail (an umbral
+  edge, a copper gradient, a carved silhouette) at the default framing shoots a picture in which
+  the thing under test is invisible. Aim the pose at the almanac's OWN topocentric az/alt for that
+  instant and use FOV ~6° — and re-aim per phase, because the moon moves degrees between contacts.
 
 ## The six harness ENVIRONMENT classes (added 2026-08-22, audit #3 D9)
 

@@ -312,6 +312,17 @@
   color: var(--color-text-muted);
   margin: 0.45rem 0;
 }
+/* An eclipse in progress AT SCENE TIME — the /m twin of .tp-ecl-live. The one live reading in
+   the section, so it carries the accent the calendar rows deliberately do not. */
+.m-ecl-live {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+  border-left: 2px solid var(--color-accent);
+  padding-left: 0.4rem;
+  margin: 0.45rem 0;
+}
 .m-chips {
   display: flex;
   flex-wrap: wrap;
