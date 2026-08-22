@@ -1,11 +1,22 @@
 ---
 /**
  * /guide — the user guide as a standalone document (owner 2026-08-15e). The THIRD renderer of
- * src/lib/guide/guideContent.ts (desktop Guide panel · /m GuideSheet · this page): zero client
- * JS, plain server-rendered HTML with real anchors, so it is linkable, printable and readable
- * without the globe. Crosslinks become in-page #anchors; the goal router links chapters.
+ * src/lib/guide/guideContent.ts (desktop Guide panel · /m GuideSheet · this page): plain
+ * server-rendered HTML with real anchors, so it is linkable, printable and readable without
+ * the globe. Crosslinks become in-page #anchors; the goal router links the exact TOPIC.
  * Deliberately NOT Layout.astro (the app layout locks body scroll for the canvas) — this page
  * owns a minimal document shell with the same tokens + fonts.
+ *
+ * AMENDED 2026-08-22g. The original charter said "zero client JS". The owner's finalization
+ * order supersedes it: "all places for guide (desktop / mobile / standalone page) … support
+ * advanced search". This page now ships ONE bundled module script (~52 KB raw of text it
+ * already server-renders) that wires the same `searchGuide` ranker as both shells.
+ *
+ * What has NOT changed, and must not: the page still renders completely without JavaScript.
+ * Search is progressive enhancement — the form is hidden until the script runs, the full
+ * chapter→topic outline below it is a real anchor list, and every crosslink, goal route and
+ * heading is a plain `<a href="#id">`. A bundled script is not a server island and carries no
+ * `define:vars`, so T24's three properties are untouched (test/pages/guideAstroShape.test.ts).
  */
 import {
   GUIDE_CHAPTERS,
@@ -63,11 +74,24 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
   <body>
     <header class="g-top">
       <a class="g-brand" href="/"><img class="g-brand__mark" src="/logo/plux-mark.png" alt="" width="96" height="96" />Plux</a>
-      <span class="g-title">GUIDE</span>
+      {/* SURF-9: the page had NO h1 — both :75 and :95 were h2 and the title was a span. */}
+      <h1 class="g-title">GUIDE</h1>
       <nav class="g-topnav">
         <a href="/">Open the instrument</a>
         <a href="/m">Phone version</a>
       </nav>
+      {/* Progressive enhancement: hidden until the bundled script unhides it, so a no-JS
+          reader never sees a dead input. The outline below is their search. */}
+      <form class="g-find" id="g-find" hidden onsubmit="return false">
+        <input
+          id="g-find-q"
+          type="search"
+          autocomplete="off"
+          placeholder="SEARCH THE GUIDE…"
+          aria-label="Search the guide"
+        />
+        <div id="g-find-out" class="g-find__out" role="listbox" aria-live="polite"></div>
+      </form>
     </header>
 
     <main class="g-main">
@@ -77,15 +101,44 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
           {
             GUIDE_GOALS.map((g) => (
               <li>
-                <a href={`#${GUIDE_INDEX.get(g.target)?.chapterId ?? g.target}`}>
+                {/* SURF-3: this linked the CHAPTER, so the two shells opened the exact topic
+                    and the page dropped the reader at the top of a long article. Every goal
+                    target is guaranteed rendered (chapters + topics both carry ids) and
+                    `.g-topic` already has scroll-margin-top. */}
+                <a href={`#${g.target}`}>
                   {g.goal} <span aria-hidden="true">→</span>
                 </a>
+                {g.route && g.route.length > 1 && (
+                  <ol class="g-route">
+                    {g.route.map((id) => (
+                      <li>
+                        <a href={`#${id}`}>{GUIDE_INDEX.get(id)?.title ?? id}</a>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </li>
             ))
           }
         </ul>
-        <nav class="g-toc" aria-label="Chapters">
-          {GUIDE_CHAPTERS.map((c) => <a href={`#${c.id}`}>{c.title}</a>)}
+        {/* The chapter→topic outline. On a page with no JavaScript this IS the search: all
+            67 topics become browser-Ctrl+F targets and one-click anchors, instead of 11
+            chapter names hiding them. */}
+        <nav class="g-toc" aria-label="Contents">
+          {
+            GUIDE_CHAPTERS.map((c) => (
+              <div class="g-tocgroup">
+                <a class="g-tocch" href={`#${c.id}`}>
+                  {c.title}
+                </a>
+                <div class="g-toctopics">
+                  {c.topics.map((t) => (
+                    <a href={`#${t.id}`}>{t.title}</a>
+                  ))}
+                </div>
+              </div>
+            ))
+          }
         </nav>
       </section>
 
@@ -96,7 +149,11 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
             <p class="g-lead" set:html={inlineHtml(ch.lead)} />
             {ch.media && (
               <figure class={shotClass(ch.media)}>
-                <img src={ch.media.src} alt="" loading="lazy" width="720" />
+                {/* The real intrinsic size, per media entry. The hard-coded 720 this
+                    replaces was wrong for every /m shot on the page (360×783). */}
+                <a href={ch.media.src} target="_blank" rel="noopener">
+                  <img src={ch.media.src} alt="" loading="lazy" width={ch.media.w} height={ch.media.h} />
+                </a>
                 {ch.media.caption && <figcaption>{ch.media.caption}</figcaption>}
               </figure>
             )}
@@ -113,6 +170,26 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
                   </p>
                 )}
                 {t.body && <p class="g-body" set:html={inlineHtml(t.body)} />}
+                {t.list && (
+                  <ul class="g-list">
+                    {t.list.map((li) => (
+                      <li>
+                        {/* Rendered as real nodes, NOT a fifth set:html sink (T24): Astro
+                            escapes text children, and the anchor is the same regex-locked
+                            `#target` the inlineHtml path emits. */}
+                        {parseGuideInline(li).map((run) =>
+                          run.kind === "text" ? (
+                            run.text
+                          ) : (
+                            <a href={`#${run.target}`}>
+                              {run.label ?? GUIDE_INDEX.get(run.target)?.title ?? run.target}
+                            </a>
+                          ),
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {t.steps && (
                   <ol class="g-steps">
                     {t.steps.map((s) => (
@@ -123,7 +200,9 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
                 {t.tip && <p class="g-tip" set:html={inlineHtml(t.tip)} />}
                 {t.media?.map((m) => (
                   <figure class={shotClass(m)}>
-                    <img src={m.src} alt="" loading="lazy" />
+                    <a href={m.src} target="_blank" rel="noopener">
+                      <img src={m.src} alt="" loading="lazy" width={m.w} height={m.h} />
+                    </a>
                     {m.caption && <figcaption>{m.caption}</figcaption>}
                   </figure>
                 ))}
@@ -137,6 +216,82 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
         <a href="/">Plux — open the instrument</a>
       </footer>
     </main>
+
+    {/* Bundled module (the src/pages/index.astro idiom — a non-is:inline script importing a
+        lib). NOT a server island and no define:vars, so T24 is untouched. Everything above
+        renders and works without it. */}
+    <script>
+      import { capPerChapter, searchGuide } from "../lib/guide/search";
+
+      const form = document.getElementById("g-find") as HTMLFormElement | null;
+      const input = document.getElementById("g-find-q") as HTMLInputElement | null;
+      const out = document.getElementById("g-find-out");
+      if (form && input && out) {
+        form.hidden = false; // only now is the control real
+        const render = () => {
+          const q = input.value.trim();
+          out.replaceChildren();
+          if (!q) return;
+          const hits = capPerChapter(searchGuide(q, 12), 3).slice(0, 8);
+          if (hits.length === 0) {
+            const none = document.createElement("span");
+            none.className = "g-find__none";
+            none.textContent = "NO MATCHES";
+            out.append(none);
+            return;
+          }
+          for (const h of hits) {
+            // Built as NODES, never innerHTML — the page's one set:html contract stays
+            // exactly four compile-time sinks (T24).
+            const a = document.createElement("a");
+            a.className = "g-find__hit";
+            a.href = `#${h.id}`;
+            const title = document.createElement("span");
+            title.className = "g-find__t";
+            title.textContent = h.title;
+            const kind = document.createElement("span");
+            kind.className = "g-find__k";
+            kind.textContent = h.kind === "chapter" ? "CH" : "TOPIC";
+            title.append(kind);
+            const ch = document.createElement("span");
+            ch.className = "g-find__c";
+            ch.textContent = h.chapterTitle;
+            a.append(title, ch);
+            if (h.snip) {
+              const s = document.createElement("span");
+              s.className = "g-find__s";
+              s.textContent = h.snip;
+              a.append(s);
+            }
+            a.addEventListener("click", () => {
+              input.value = "";
+              out.replaceChildren();
+            });
+            out.append(a);
+          }
+        };
+        input.addEventListener("input", render);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") {
+            input.value = "";
+            out.replaceChildren();
+          }
+          if (e.key === "Enter") {
+            const first = out.querySelector("a");
+            if (first instanceof HTMLAnchorElement) first.click();
+          }
+        });
+        // `/` focuses search, matching the desktop panel.
+        document.addEventListener("keydown", (e) => {
+          const el = e.target as HTMLElement | null;
+          const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+          if (e.key === "/" && !typing) {
+            e.preventDefault();
+            input.focus();
+          }
+        });
+      }
+    </script>
   </body>
 </html>
 
@@ -165,6 +320,9 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
     top: 0;
     z-index: 2;
     display: flex;
+    /* The search form takes a full-width row of its own; without wrapping it squeezes the
+       brand and the nav onto two cramped lines (browser-caught 2026-08-22g). */
+    flex-wrap: wrap;
     align-items: baseline;
     gap: 14px;
     padding: 14px clamp(16px, 6vw, 48px);
@@ -221,7 +379,9 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
     grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
     gap: 6px;
   }
-  .g-goals a {
+  /* DIRECT child only. A descendant selector also caught every anchor of the nested `.g-route`
+     and dressed each reading step as a full goal card, five screens tall. */
+  .g-goals > li > a {
     display: flex;
     justify-content: space-between;
     gap: 8px;
@@ -232,19 +392,66 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
     color: var(--color-text-secondary);
     text-decoration: none;
   }
-  .g-goals a:hover {
+  .g-goals > li > a:hover {
     color: var(--color-accent);
     border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   }
-  .g-toc {
+  /* The goal's reading ROUTE — real anchors, so it works with no JavaScript at all.
+     INLINE, not a numbered block: fourteen goals × up to five steps turned the router into a
+     wall five screens tall. A counter keeps the reading ORDER visible at a fraction of the
+     height (browser-caught 2026-08-22g). */
+  .g-route {
+    list-style: none;
+    counter-reset: gstep;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 12px;
+    gap: 2px 8px;
+    margin: 3px 0 10px;
+    padding: 0 0 0 10px;
+    font-size: 0.74rem;
+  }
+  .g-route li {
+    counter-increment: gstep;
+  }
+  .g-route li::before {
+    content: counter(gstep) " ";
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--color-accent);
+  }
+  .g-route li:not(:last-child)::after {
+    content: " ›";
+    color: var(--color-text-muted);
+  }
+  .g-route a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+  }
+  .g-route a:hover {
+    color: var(--color-accent);
+  }
+
+  /* Chapter → topic outline (SURF-2). The no-JS reader's search surface. */
+  .g-toc {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding-bottom: 10px;
     border-bottom: 1px solid var(--color-border);
+  }
+  .g-tocch {
     font-family: var(--font-mono);
     font-size: 10px;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.14em;
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+  .g-toctopics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 3px;
+    font-size: 0.78rem;
   }
   .g-toc a {
     color: var(--color-text-secondary);
@@ -252,6 +459,96 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
   }
   .g-toc a:hover {
     color: var(--color-accent);
+  }
+
+  /* ————— search (SURF-1) — unhidden by the bundled script; absent without it ————— */
+
+  .g-find {
+    position: relative;
+    flex-basis: 100%;
+    order: 3;
+    margin-top: 6px;
+  }
+  .g-find input {
+    width: min(28rem, 100%);
+    box-sizing: border-box;
+    padding: 6px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+  .g-find input:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+  .g-find__out {
+    position: absolute;
+    z-index: 3;
+    width: min(28rem, 100%);
+    max-height: 60vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--color-bg) 96%, transparent);
+    backdrop-filter: blur(10px);
+    border-radius: 0 0 8px 8px;
+  }
+  .g-find__out:not(:empty) {
+    border: 1px solid var(--color-border);
+    border-top: none;
+  }
+  /* :global IS REQUIRED HERE, and the reason is not cosmetic. Astro scopes every selector in
+     this block with a `data-astro-cid-*` attribute stamped on server-rendered elements. The
+     result rows below are built by the bundled script at RUNTIME, so they carry no such
+     attribute and a scoped selector matches NOTHING — the dropdown renders as a stack of raw
+     underlined links (browser-caught 2026-08-22g). Every runtime-created class needs this. */
+  :global(.g-find__hit) {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 7px 10px;
+    text-decoration: none;
+    border-top: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+  }
+  :global(.g-find__hit:hover) {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  }
+  :global(.g-find__t) {
+    font-size: 0.86rem;
+    color: var(--color-text);
+  }
+  :global(.g-find__k) {
+    margin-left: 5px;
+    padding: 0 3px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    vertical-align: middle;
+    color: var(--color-bg);
+    background: var(--color-text-muted);
+  }
+  :global(.g-find__c) {
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.14em;
+    color: var(--color-accent);
+  }
+  :global(.g-find__s) {
+    font-size: 0.74rem;
+    line-height: 1.35;
+    color: var(--color-text-muted);
+  }
+  :global(.g-find__none) {
+    padding: 8px 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--color-text-muted);
   }
 
   .g-chapter {
@@ -316,6 +613,26 @@ function whereLines(t: GuideTopic): { k: string; v: string }[] {
   .g-steps li::marker {
     font-family: var(--font-mono);
     font-size: 0.75rem;
+    color: var(--color-accent);
+  }
+  /* Unordered enumerations (G-B) — the third renderer's twin of .gd-list / .m-glist. */
+  .g-list {
+    margin: 0 0 8px;
+    padding-left: 1.1rem;
+    font-size: 0.88rem;
+    color: var(--color-text-secondary);
+    max-width: 62ch;
+    list-style: none;
+  }
+  .g-list li {
+    position: relative;
+    margin: 3px 0;
+  }
+  .g-list li::before {
+    content: "·";
+    position: absolute;
+    left: -0.85rem;
+    font-family: var(--font-mono);
     color: var(--color-accent);
   }
   .g-tip {

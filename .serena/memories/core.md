@@ -128,12 +128,66 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
 - **Owner UX batches #2/#3 + PLUX launch grooming (2026-08-19 → 19d)** — digests of those
   names · `mem:project/wip-2026-08-19-owner-uxbatch2` · `wip-2026-08-19-owner-uxbatch3` ·
   `wip-2026-08-19-plux-launch-grooming`.
+- **GUIDE FINALIZATION — charter G-A…G-J (2026-08-22g, HOT)** — plan
+  `GUIDE_FINALIZATION_PLAN.md` · `mem:project/wip-2026-08-22-guide-final` ·
+  DECISIONS §Recent 2026-08-22g.
 - **Owner micro-slice + AUDIT #3 + its fix slices F1–F10 (2026-08-22a→e, HOT)** — report
   `audits/audit-batchseams-2026-08-22.md` · `mem:project/wip-2026-08-22-owner-microslice` ·
   `wip-2026-08-22-audit3` · `wip-2026-08-22-audit3-fixslices`.
 
 ## Next step
-**AUDIT #3 FIX SLICES F1–F10 ALL SHIPPED 2026-08-22e — the queue is EMPTY.** Gates: **vitest
+**THE GUIDE IS FINALIZED 2026-08-22g — all ten charter slices G-A…G-J shipped, the track is
+CLOSED.** Gates: **vitest 1,292/1,292 (110 files)** · astro 0 err/5 hints · `npx knip` exit-0 ·
+NEW `scripts/verify-guide.mjs` **ALL PASS** (30 checks over desktop / `/m` / `/guide`, shots
+`guide-01..05`) · `verify-audit3` 16/16 regression PASS.
+**THE HEADLINE: the charter was not enough.** `GUIDE_FINALIZATION_PLAN.md` was authored by a
+10-agent pass (58 findings, 0 refuted). A 12-agent **adversarial re-audit of the copy that
+charter produced** raised 44 more and **38 SURVIVED** — including that **`move-pin` claimed
+"PLAN reads the light at the pin" when `scene/planFeed.ts:342-351` has NO temp-pin rung**
+(`photoApex → fpvEye → focus` only; the pin seats the AIM, via `lib/geo/aimAnchor.ts:56-57`),
+that **`fpv-hud.where` named the wrong corner on BOTH shells** (desktop is bottom-left, `/m` is
+top), and that **`trust-airless` had the refraction sign backwards**. *Re-verify the copy you
+just wrote, not only the copy you inherited.* The charter was also **wrong once**: it scoped
+`find-sunsets` desktop-only, but `/m` ships SUNSETS IN FRAME inside the PLAN sheet
+(`PlanSheet.tsx:284-426`) — landing that "fix" would have created a fresh error.
+Headlines a future session must not relearn:
+· **THE LIVE BUG killed** — `nav()` wrote an identical `chapterId` for a same-chapter target,
+React bailed, and the `[chapterId, open]` scroll effect never re-ran, so **two shipped
+crosslinks did not scroll on either island**. Fixed with a monotonic `navSeq` in the deps,
+browser-proven with a trigger guard (target starts 1,742 px below the fold).
+· **Search rebuilt**: aliases + glyph/`/m`/`36h` query expansion + caption indexing (topic AND
+chapter) + fuzzy floor 5 + prefix minLen 3 + `w × idf` expansion caps + a six-tier identity
+ladder. **Two tiers were forced by measurement**: resolving a bare `[[fpv]]` to its TITLE (the
+parity fix) **deleted the literal token "fpv" from the corpus** → node **ids** are indexed at
+2.5; and `foc` lost to `move-search` because a rare incidental "focus" out-IDF'd "focal" *in
+the title and the id* → a title/id-prefix tier. Now every curated query, all **70** topic
+titles, all 11 chapter titles and all **14** goal phrases rank their own node first, negatives
+still `[]`. The charter's proposed LEXICAL alias fence was **rejected on measurement** (it
+permits only aliases for already-findable words); the BEHAVIOURAL fence shipped instead and
+caught 7 real over-claims on day one.
+· **All three surfaces at parity**: one content model, 15 fields × 3 renderers fenced by
+`test/components/guideParity.test.ts`; `/m` search hoisted above the index/chapter split;
+`/guide` gained goal→**topic** anchors, an `h1`, a 70-topic outline and — on the owner's
+explicit order, **reversing its own written "zero client JS" charter** — a bundled search.
+· **Anti-slop applied JUDICIOUSLY**: four new BANNED groups at **0 current hits** (a regression
+guard — 97 of ~120 stop-slop patterns already scored zero) + one-bounded-action-per-step.
+**REJECTED with counts**: the em-dash ban (4,647 in `src/**`; the skill breaks it in its own
+example), three-item lists, blanket `-ly`, `never` (the C6 privacy guarantee), "cut quotables"
+(the `tip` field's whole job).
+· **Three defects were caught by EYEBALLING SHOTS, not by tests**: Astro scopes `<style>` so
+the runtime-built `/guide` hit rows had no styles at all (`:global()`), the header did not
+wrap, and `.g-goals a` matched descendants and dressed 14 reading routes as full goal cards.
+· **A source fence must strip LINE comments FIRST** — block-first let a `//` line containing
+`components/mobile/**` open a phantom comment that ate ~100 lines of live code
+(`stripComments`, now shared in `test/styles/_css.ts`).
+**T41 CLOSED** (documented in both registers: guide topic `fpv-focal-axes` + a dated
+`globe-tuning.md` trap row). **T24 re-verified + dated** in the same commit as the
+`guide.astro` change, and now machine-checked every `npm test`. **T42 stays OPEN** (8
+owner-taste crops) but is annotated with what this session settled.
+**NEXT: the RELEASE when the owner's domain fix lands** (new rider — confirm `/guide`'s bundled
+search unhides in prod), then T1 device pass, T34, then P8/P9/M4 · U8 sync ladder.
+Entry point: `NEXT_SESSION_PROMPT.md`; log: `mem:project/wip-2026-08-22-guide-final`.
+Prior: **AUDIT #3 FIX SLICES F1–F10 ALL SHIPPED 2026-08-22e — the queue is EMPTY.** Gates: **vitest
 1,217/1,217 (107 files)** · astro 0 err/5 hints · **`npx knip` exit-0 clean** · all SEVEN
 regression suites PASS + NEW `scripts/verify-audit3.mjs` both shells (shots `a3-01..04`).
 Backlog **T32/T35/T36/T37/T38/T39/T40 CLOSED**; **T41 + T42 opened** (below).
