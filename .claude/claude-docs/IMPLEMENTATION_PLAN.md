@@ -252,18 +252,31 @@ per-sub-phase gate.
   showers ✅ SHIPPED 2026-08-17 desktop** (`lib/ephemeris/showers.ts` 21-row IMO/MDC bake ·
   λ☉ J2000 convention · radiant = tracked target `shower:<code>` · ZHR×sin(h) + Jenniskens
   profile · moon-scored peak nights · METEORS PlanPanel card · R12 rail intensity layer;
-  DECISIONS 2026-08-17; /m twin rides M4) · P8 conjunctions/oppositions finder · P9 lunar
-  eclipses (shadow-cone from the existing sun/moon; local visibility = the horizon test).
+  DECISIONS 2026-08-17; /m twin rides M4) · P8 conjunctions/oppositions finder · **P9 lunar
+  eclipses ✅ SHIPPED 2026-08-22k — BOTH shells in one pass, so its /m twin did NOT wait for M4**
+  (`lib/ephemeris/eclipse.ts`: Meeus ch.54 shadow cone, `SHADOW_ENLARGEMENT` 1.02, umbral
+  magnitude validated against the published 2025-03-14 totality contacts to the minute; the umbra
+  draws its real CURVED edge across the disc; `nextLunarEclipses` rows in the PREDICTED ECLIPSES
+  section of `TargetPanel` + `TargetSheet`. The SOLAR half rode along — see 8-tools below.
+  DECISIONS 2026-08-22k). **The box stays open on P8 alone.**
 > **Queue re-ruled 2026-08-17 (owner):** the mobile/desktop uplift ladder **`UPLIFT_PLAN.md`
 > U1–U8** (2D-first mobile · FPV stability · fullscreen map · direction cones · progressive/
 > foveated loading · terrain precision · building height overrides) takes the NEXT sessions;
-> P8/P9 + M4 resume after.
+> P8/P9 + M4 resume after. *(Status 2026-08-22k: U1–U8 COMPLETE 2026-08-19; **P9 landed out of
+> queue order**, with its /m twin, in the same pass — the shadow-cone geometry it needed was the
+> same code the SOLAR eclipse render required, so building one and not the other would have been
+> the more expensive choice. P8 + M4 still pending.)*
 - [ ] **8-tools/ambience** *(mobile twins: M5/M6)* — P10 sensor-frame/mosaic overlay on DSO
   targets (explicitly slid behind the QoL pass) · star-trail simulator (FPV-composed
   per-direction preview) · long-exposure/ND + timelapse calculators · What's-Up-Tonight ranking ·
   light-pollution drape + Bortle at the pin · ISS/satellite passes (SGP4 + cached `/api/tle`
   proxy) · web-push event alerts (headless has NO cron — external scheduler or on-open recompute,
-  decide at build) · **solar-eclipse umbra path on the globe** (the flagship visual).
+  decide at build) · **solar-eclipse umbra path on the globe** (the flagship visual — **NARROWED
+  2026-08-22k**: the LOCAL half shipped, i.e. standing under an eclipse now works end to end —
+  topocentric disc occlusion carved in the sun's own fragment, corona + chromosphere at totality,
+  and the world darkening around you. What remains is the GLOBE-SCALE half: the ~100 km umbral
+  SPOT drawn on the earth as seen from orbit. Tracked as backlog **T46**, with the reason the
+  ground dimming is altitude-gated and `baseEarth` deliberately unwired).
 
 **DoD per sub-phase:** lib math unit-tested against literature vectors · desktop surface
 browser-verified · gates green (`npm test` + `astro check` + `wix build`) · shipped features and

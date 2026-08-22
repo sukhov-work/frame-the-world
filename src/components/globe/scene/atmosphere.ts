@@ -60,6 +60,15 @@ export function attachAtmosphere(
     // physical scale heights read as a fat ring around the small disc: shrink widths and shift
     // the line toward Rayleigh blue — "distinct but elegant and subtle" (owner 2026-07-10).
     uOrbit: { value: 0 },
+    // ECLIPSE (2026-08-22k): daylight REMAINING, 0..1, pushed by the orchestrator's stepEclipse.
+    // Exactly 1 whenever nothing is happening, so every multiply below is a provable no-op. The
+    // sky dome is the single biggest lever for "the world went dark" — a total eclipse drops the
+    // sky to roughly deep-twilight luminance, which is why the stars come out.
+    //
+    // Applied ONLY inside the low-altitude sky regime, never to the orbital limb model: the umbra
+    // is a ~100 km spot on a 12,700 km planet, so dimming the whole lit limb from space would be a
+    // far bigger lie than leaving it alone. Being inside the shadow is a street-level truth.
+    uEclipse: { value: 1 },
   };
   const material = new THREE.ShaderMaterial({
     transparent: true,
@@ -90,6 +99,7 @@ export function attachAtmosphere(
       uniform float uOrbit;
       uniform vec3 uHorizonUp;
       uniform float uSinHor;
+      uniform float uEclipse;
       varying vec3 vW;
       void main() {
         // one shell layer per view ray: near (front) faces when outside, far (back) faces when inside
@@ -143,7 +153,8 @@ export function attachAtmosphere(
           vec3 Ds = normalize(vec3(D.xy, D.z * ${glf(WGS84_A / WGS84_B)}));
           float sRel = dot(Ds, uHorizonUp) - uSinHor;
           float sunEl = dot(normalize(uSunDir), upC); // sun elevation sine at the camera
-          float dayK = smoothstep(${glf(ATMOSPHERE.skyDawnLo)}, ${glf(ATMOSPHERE.skyDawnHi)}, sunEl);
+          float dayK = smoothstep(${glf(ATMOSPHERE.skyDawnLo)}, ${glf(ATMOSPHERE.skyDawnHi)}, sunEl)
+                     * uEclipse;
           // S7 feedback ("white mess at strong tilt"): the horizon anchor is no longer pure
           // near-white skyHorizon — it mixes toward the blue skyDay (skyHorizonWhiteness), the
           // haze itself pulls blue (skyHazeBlue), the very-low-altitude haze is dimmed

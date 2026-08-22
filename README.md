@@ -48,7 +48,9 @@ the deliverable.
 | <img src="docs/media/globe-leo.jpeg" alt="Default view: low Earth orbit" width="440"> | <img src="docs/media/photo-fpv.jpeg" alt="FPV camera view — standing inside the photo" width="440"> |
 | **A living globe.** Default POV is a spacecraft in low Earth orbit: NASA Blue Marble graded into a duotone, VIIRS city lights on the night side, a ray-traced atmosphere limb, and a real terminator. Descend and Cesium World Terrain, OSM buildings, and Esri imagery dissolve in organically. | **Stand inside your photo.** The EXIF-derived frustum places the camera at its true position, heading, and field of view. FPV mode puts your eye at the apex with a photographer's HUD: focal equivalent, bearings, sun/moon day-arcs, and off-frame body chips. |
 | <img src="docs/media/city-night-vector.jpeg" alt="Night city with vector streets, roads and water" width="440"> | <img src="docs/media/pins-community.jpeg" alt="Community pins with hover cards" width="440"> |
-| **A real night, computed.** `astronomy-engine` drives everything from scene time: golden-hour grading, moon-phase-scaled moonlight (Krisciunas–Schaefer photometry), moon shadows, 9,096 Yale BSC5 stars (as baked 2026-07-10), the Milky Way, 26 asterisms — plus vector streets, roads, and water pinned to real terrain. | **A community layer on Wix Data.** Members save pins (100 free / 1,000 premium, quota enforced server-side), publish them at reduced precision, and explore other photographers' frames — hover cards, per-author hues, an ambient Explore autopilot, and shareable URL camera poses. |
+| **A real night, computed.** `astronomy-engine` drives everything from scene time: golden-hour grading, moon-phase-scaled moonlight (Krisciunas–Schaefer photometry), moon shadows, 9,096 Yale BSC5 stars (as baked 2026-07-10), the Milky Way, 26 asterisms, and real eclipses — the moon occludes and dims the sun, a corona
+appears at totality, the world darkens under it, and Earth's umbra reddens the moon — plus vector
+streets, roads, and water pinned to real terrain. | **A community layer on Wix Data.** Members save pins (100 free / 1,000 premium, quota enforced server-side), publish them at reduced precision, and explore other photographers' frames — hover cards, per-author hues, an ambient Explore autopilot, and shareable URL camera poses. |
 
 More: live EXIF what-if re-projection (focal / heading / pitch / altitude sliders), ±12 h + multi-day
 time scrubbing, location search, street-level camera (2 m above the pavement), click-anywhere
@@ -160,10 +162,11 @@ Browser (the heavy half)                        Wix (the thin half)
 full UX batch, marketplace-light + the access batch) — plus the post-launch tracks: the
 astro-engine sky (comets, asteroids, Messier/NGC, SIMBAD/SBDB search), Phase 8a darkness & the
 galaxy, the planning-QoL pass (scrubber v2, TODAY, FIND v2/v3), §3.5 sunsets-in-frame, the
-`/m` mobile shell M0–M3, P7 meteor showers, and the UPLIFT ladder U1–U5 (2D-first mobile
+`/m` mobile shell M0–M3, P7 meteor showers, the UPLIFT ladder U1–U8 (2D-first mobile
 navigation, FPV stability, fullscreen 2D map + minimap FOV cone, direction lines + visibility
-cones, closest-first tile loading). Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11).
-Quality gates at head (2026-08-22): **1,144 vitest tests across 102 files, `astro check`
+cones, closest-first tile loading, terrain precision, building height overrides), the ULTRA
+desktop fidelity track, and real eclipses. Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11).
+Quality gates at head (2026-08-22): **1,373 vitest tests across 113 files, `astro check`
 0 errors / 0 warnings / 5 hints (dated baseline)**, browser flows verified over CDP on `wix dev`. The app is released and
 live on the Wix cloud (demo URL deliberately withheld — owner call pending).
 
@@ -192,7 +195,7 @@ Prereqs: Node ≥ 20.11, Wix CLI authed (`npx @wix/cli@latest whoami`).
 ```bash
 npm install --legacy-peer-deps    # pnpm fails against the @wix/cli template — proven, see conventions
 npm run dev                       # wix dev — local dev wired to a real Wix site sandbox
-npm test                          # 1,144 vitest unit tests (2026-08-22) — projection, geodesy, ephemeris, planner…
+npm test                          # 1,373 vitest unit tests (2026-08-22) — projection, geodesy, ephemeris, eclipses…
 npx astro check                   # typecheck (0 errors at head)
 npm run build && npm run release  # publish to Wix cloud — there is no other prod
 ```

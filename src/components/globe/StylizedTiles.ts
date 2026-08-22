@@ -114,6 +114,8 @@ import {
   DRAPE,
   DRIFT,
   EARTH,
+  ATMOSPHERE,
+  ECLIPSE,
   ENRICHED,
   FLIGHT,
   FOCALCONE,
@@ -144,6 +146,14 @@ import {
   WGS84_B,
 } from "./tuning";
 import { easeK, ultraLightAt } from "../../lib/globe/lightBands";
+import {
+  eclipseDaylightK,
+  lunarEclipseFromState,
+  NO_LUNAR_ECLIPSE,
+  solarEclipseFromDiscs,
+  type LunarEclipseState,
+  type SolarEclipseState,
+} from "../../lib/ephemeris/eclipse";
 
 /**
  * StylizedTiles — the real, geo-accurate globe (ADR D1), built to the PROJECT_SEED §2 signature
@@ -526,6 +536,24 @@ export function attachStylizedTiles(opts: {
   let targetHasPole = false;
   let targetState: TargetState | null = null;
   let lastTargetId = "";
+  // --- ECLIPSE state (2026-08-22k). `eclipseK` is the DAYLIGHT REMAINING scalar every light in
+  //     the scene multiplies by; it is exactly 1 whenever no eclipse is under way, so the whole
+  //     feature is a provable no-op on every ordinary frame. Unlike the ULTRA look this is NOT
+  //     gated on a chip: an eclipse is physics, not a fidelity lever.
+  //
+  //     DECLARED HERE, NOT WITH THE OTHER LOOK STATE ~1,300 LINES DOWN. `sampleEphemeris` below
+  //     runs at module init and writes `lunarEcl`; from the TDZ that threw
+  //     `ReferenceError: Cannot access 'lunarEcl' before initialization`, the dynamic import's
+  //     own .catch() swallowed it as "[globe] tiles disabled", and the WHOLE real-Earth globe
+  //     silently fell back to the procedural placeholder. Browser-caught, invisible to vitest and
+  //     to astro check — and the second time this exact trap has bitten in this file (see the
+  //     `ultraOn` note above). `solarEcl` is seeded disjoint (separation pi) so the off state is
+  //     honest before the first frame. ------------------------------------------------------------
+  let solarEcl: SolarEclipseState = solarEclipseFromDiscs(Math.PI, 1, 1);
+  let lunarEcl: LunarEclipseState = { ...NO_LUNAR_ECLIPSE };
+  let eclipseK = 1;
+  let lastEclipseMs = performance.now();
+  const _eclDelta = new THREE.Vector3();
   let lastSampleMs = -Infinity;
   const sampleEphemeris = (tMs: number) => {
     lastSampleMs = tMs;
@@ -550,6 +578,19 @@ export function attachStylizedTiles(opts: {
     moonIllum = s.moonIllumination;
     // Physical relative moonlight (S5 §Item 7): quarter ≈ 9% of full, not the linear 50%.
     moonKs = moonPhaseIntensity(s.moonPhaseAngleDeg);
+    // The Earth's shadow is a GEOCENTRIC object — no camera term, so unlike the solar case it
+    // rides this 1 Hz sample. `moonKs` is dimmed by it right here, which is the ONE write that
+    // reaches every moonlight consumer at once: uMoonGlow, uFtwMoonGlow, the moon-shadow key
+    // light, the ground shadow strength and sky.ts's moonLight. Dimming any one of them alone
+    // would leave a full-strength moon lighting the city under a blood-red disc.
+    lunarEcl = lunarEclipseFromState(s);
+    if (lunarEcl.phase !== "none") {
+      const umbral = Math.min(1, Math.max(0, lunarEcl.umbralCoverage));
+      const penumbral = Math.min(1, Math.max(0, lunarEcl.penumbralMag));
+      moonKs *=
+        (1 - ECLIPSE.penumbraDim * penumbral * (1 - umbral)) *
+        (1 - (1 - ECLIPSE.umbraLight) * umbral);
+    }
     const moonGlow = SKY.moonSceneGlow * moonKs;
     (earth.uniforms.uSunDir.value as THREE.Vector3).copy(sunDirW);
     (earth.uniforms.uMoonDir.value as THREE.Vector3).copy(moonDirW);
@@ -2115,6 +2156,40 @@ export function attachStylizedTiles(opts: {
       // engine — not a screenshot that looks the same. `hemiPos` is reported because audit gap
       // #16 is invisible in every other way: three derives a HemisphereLight's direction from its
       // world position, so [0,1,0] IS the bug and a focus-tracking unit vector IS the fix.
+      // ECLIPSE (2026-08-22k). Reported from the LIVE engine, never re-derived: the whole class
+      // of bug this feature exists to fix is a geometry that disagrees with the pixels, so a
+      // verify script that recomputed the ephemeris could pass while the screen showed nothing.
+      // `moonOff`/`moonR` are what the sun's fragment actually reads, in sun-disc radii — if the
+      // silhouette is not where the picture shows it, these two are why.
+      eclipse: () => ({
+        phase: solarEcl.phase,
+        coverage: solarEcl.coverage,
+        magnitude: solarEcl.magnitude,
+        sepDeg: THREE.MathUtils.radToDeg(solarEcl.sepRad),
+        sunRadDeg: THREE.MathUtils.radToDeg(solarEcl.sunRadRad),
+        moonRadDeg: THREE.MathUtils.radToDeg(solarEcl.moonRadRad),
+        daylightK: eclipseK,
+        moonOff: (sky.sunMesh.material as THREE.ShaderMaterial).uniforms.uMoonOff.value.toArray(),
+        moonR: (sky.sunMesh.material as THREE.ShaderMaterial).uniforms.uMoonR.value,
+        sunUEclipse: (sky.sunMesh.material as THREE.ShaderMaterial).uniforms.uEclipse.value,
+        moonDaySky: (sky.moonMesh.material as THREE.ShaderMaterial).uniforms.uDaySky.value,
+        groundEclipse: ground.uniforms.uFtwEclipse.value,
+        skyEclipse: atmosphere.uniforms.uEclipse.value,
+        keyIntensity: sunLight ? sunLight.intensity : null,
+        lunar: {
+          phase: lunarEcl.phase,
+          umbralCoverage: lunarEcl.umbralCoverage,
+          umbralMag: lunarEcl.umbralMag,
+          penumbralMag: lunarEcl.penumbralMag,
+          umbraOn: (sky.moonMesh.material as THREE.ShaderMaterial).uniforms.uUmbraOn.value,
+          umbraOff: (
+            sky.moonMesh.material as THREE.ShaderMaterial
+          ).uniforms.uUmbraOff.value.toArray(),
+          umbraR: (sky.moonMesh.material as THREE.ShaderMaterial).uniforms.uUmbraR.value,
+          penumbraR: (sky.moonMesh.material as THREE.ShaderMaterial).uniforms.uPenumbraR.value,
+          moonKs,
+        },
+      }),
       ultraLook: () => ({
         on: ultraOn,
         // ground (T44 §1a + S9 + S4) — these four are the off-state proof
@@ -3638,6 +3713,54 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  /** ECLIPSES (owner 2026-08-22k) — ONE derivation, pushed to every consumer, exactly like the
+   *  ULTRA light sample above.
+   *
+   *  It has to live HERE, before the key light and the sky bodies, for two reasons. The geometry
+   *  is CAMERA-relative, so it cannot ride `sampleEphemeris`'s 1 Hz cadence (the camera moves every
+   *  frame, and lunar parallax over a single flight is far larger than the whole eclipse); and the
+   *  key light is stepped before the sky bodies, so deriving it inside `scene/sky.ts` would light
+   *  the world with a frame-old eclipse.
+   *
+   *  The vectors are the ones the impostors are actually anchored on — geocentric `sunDirW` (solar
+   *  parallax 8.6", ignorable) against the TOPOCENTRIC `moonPosW − camera.position`. That
+   *  distinction is the entire bug: geocentrically the discs miss each other by 1.006° at the
+   *  owner's Burgos instant, where the true topocentric separation is 0.062° and 88% of the sun is
+   *  gone. A 1 s ephemeris sample is ample — the discs close at 1.7e-4 °/s, so a stale sample is
+   *  0.065 px even at the tightest reachable zoom. */
+  const stepEclipse = () => {
+        const moonAngRadNow = angularRadiusRad(
+          MOON_RADIUS_KM * 1000,
+          moonPosW.distanceTo(camera.position),
+        );
+        _eclDelta.copy(moonPosW).sub(camera.position).normalize().sub(sunDirW);
+        solarEcl = solarEclipseFromDiscs(_eclDelta.length(), sunAngRad, moonAngRadNow);
+        // Ease the DARKNESS only. The geometry itself is already smooth; this exists so a scrub or
+        // a time-jump across totality does not step the whole scene's lighting in a single frame.
+        const target = eclipseDaylightK(
+          solarEcl.coverage,
+          ECLIPSE.daylightGamma,
+          ECLIPSE.daylightFloor,
+        );
+        const nowMs = performance.now();
+        const dtMs = nowMs - lastEclipseMs;
+        lastEclipseMs = nowMs;
+        eclipseK += (target - eclipseK) * easeK(dtMs, ECLIPSE.tauMs);
+        // Snap the last thousandth so the OFF steady state is EXACTLY 1 and every downstream
+        // multiply is a provable no-op (the ULTRA settle idiom).
+        if (Math.abs(eclipseK - target) < 1e-3) eclipseK = target;
+        // The GROUND grade is altitude-gated on the same ramp the sky regime uses. "The world went
+        // dark" is a street-level truth: standing inside the umbra, everything you can see is
+        // eclipsed. From orbit it is a ~100 km spot on a 12,700 km planet, and dimming the whole
+        // day hemisphere would be a far bigger lie than leaving it alone — which is also why
+        // `baseEarth` (the orbital ellipsoid) is deliberately not wired at all.
+        const skyPresence =
+          1 - THREE.MathUtils.smoothstep(alt, ATMOSPHERE.skyFullAlt, ATMOSPHERE.skyGoneAlt);
+        ground.setEclipse(1 - skyPresence * (1 - eclipseK));
+        // The dome's own multiply already sits inside its low-altitude branch, so it needs no gate.
+        atmosphere.uniforms.uEclipse.value = eclipseK;
+  };
+
   /** ULTRA LOOK (T44 §1a + T45 S4/S9/S10/S11) — ONE light sample, pushed to every consumer.
    *
    *  Runs AFTER stepGroundUpdate on purpose: the ground owns the haze gates (altitude, flat
@@ -3776,12 +3899,15 @@ export function attachStylizedTiles(opts: {
             sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
             // Golden hour also BRIGHTENS the building key (warm rim-lit swell, not just a hue shift —
             // the biggest visible building-dusk win). keyBrighten 0 → ×1 = byte-identical.
-            sunLight.intensity = SUN.keyIntensity * (1 + goldenK * GOLDEN.keyBrighten);
+            // × eclipseK: the key light IS the sun, so an eclipse dims it first. This is the
+            // solar arm only — the moon arm above carries its own (lunar) dimming through moonKs.
+            sunLight.intensity =
+              SUN.keyIntensity * (1 + goldenK * GOLDEN.keyBrighten) * eclipseK;
             if (sunShadows) {
               sunLight.position.copy(_focus).addScaledVector(sunDirW, shadowLightDistM);
               sunLight.target.position.copy(_focus);
               ground.setShadowStrength(
-                THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01),
+                THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01) * eclipseK,
               );
             } else {
               // direction-only mode: keep the terminator agreement for building shading everywhere
@@ -3862,6 +3988,8 @@ export function attachStylizedTiles(opts: {
           sunAngRad,
           moonAngRad: angularRadiusRad(MOON_RADIUS_KM * 1000, moonPosW.distanceTo(camera.position)),
           moonIntensity: moonShadows ? 0 : moonKs, // the rig carries the key in moon-shadow mode
+          solar: solarEcl, // derived in stepEclipse from these same vectors, one frame earlier
+          lunar: lunarEcl,
         });
 
   };
@@ -4295,6 +4423,10 @@ export function attachStylizedTiles(opts: {
           reduceMotion,
           gastRad,
           sunDir: sunDirW,
+          // Totality genuinely brings out the bright stars and planets — the sky drops to roughly
+          // deep-twilight luminance. `eclipseK` is 1 whenever nothing is happening, so the star
+          // module's own night ramp is untouched on every ordinary frame.
+          eclipseK,
           // S6 follow-up: asterisms are an FPV planning layer, not ambient decoration —
           // shown only while standing in a viewpoint, and only with the SKY guides on.
           asterisms: fpvActive && camNow.skyGuides,
@@ -4676,6 +4808,7 @@ export function attachStylizedTiles(opts: {
         stepUltraGate();
         stepGroundUpdate();
         stepEphemerisResample();
+        stepEclipse();
         stepUltraLook(); // after the ground (it owns the haze gates) and the ephemeris resample
         stepKeyLightAndShadow();
         stepSkyBodies();

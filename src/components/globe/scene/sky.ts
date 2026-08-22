@@ -1,6 +1,11 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { ATMOSPHERE, SKY, WGS84_A, WGS84_B } from "../tuning";
+import {
+  eclipseDaylightK,
+  type LunarEclipseState,
+  type SolarEclipseState,
+} from "../../../lib/ephemeris/eclipse";
+import { ATMOSPHERE, ECLIPSE, SKY, WGS84_A, WGS84_B } from "../tuning";
 import { DITHER_GLSL, glf } from "./glsl";
 
 /**
@@ -42,6 +47,15 @@ export interface SkyHandle {
      *  drives the moonlight key. The orchestrator passes 0 while the shadow rig impersonates
      *  the moon (S5 source switch), so the night key is never doubled. */
     moonIntensity: number;
+    /** Solar-eclipse state for THIS camera, from the orchestrator's `stepEclipse` — derived from
+     *  the very `sunDir` / `moonPos` / radii passed here, so the carved silhouette and the world
+     *  darkness are guaranteed to be the same event. It arrives pre-computed only because the key
+     *  light is stepped BEFORE the sky bodies and must not read a frame-old eclipse. */
+    solar: SolarEclipseState;
+    /** Earth-shadow state from the orchestrator's ONE ephemeris sample (`lunarEclipseFromState`).
+     *  Geocentric by nature — the Earth's shadow belongs to the Earth, not to the observer — so
+     *  unlike the SOLAR case there is nothing camera-relative to re-derive here. */
+    lunar: LunarEclipseState;
   }): void;
   /** Hover affordance (qol3): per-frame ABSOLUTE brightness lift — uIntensity/uBrightness are
    *  write-once uniforms, so the setter re-derives them from the SKY constants (idempotent;
@@ -161,6 +175,26 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     // Horizon extinction (sunExtinctionK, CPU per frame) — dims core AND halo, so the bloom
     // driver dims with the disc. Separate from uIntensity: the hover lift must not fight it.
     uExtinct: { value: 1 },
+    // --- ECLIPSE (2026-08-22k). The moon has to be subtracted from the sun HERE, in the sun's own
+    // fragment: the moon impostor cannot do it. During a solar eclipse the moon's near side is a
+    // new moon (illuminated fraction ~8e-5), so its disc contributes no colour, and by day its
+    // alpha is 0 by construction — it discards entirely. No render-order, depth or blend change on
+    // the moon could occlude anything that is never drawn.
+    //
+    // Everything below is in SUN-DISC-RADIUS units, in the billboard's own plane. That is exact and
+    // free: the plane is billboarded to the camera, so its local axes ARE camera right/up, and the
+    // CPU can hand over the moon's offset as a plain vec2 (see update()). Working in the plane
+    // rather than with world rays also keeps the precision where it is needed — these are
+    // sub-arcminute separations, where `acos(dot)` of two near-parallel world directions is mush.
+    uMoonOff: { value: new THREE.Vector2(1e4, 1e4) }, // moon centre, offset from the sun's
+    uMoonR: { value: 1 }, // moon angular radius / sun angular radius
+    uEclipse: { value: 0 }, // covered fraction of the sun's disc AREA, 0..1
+    // The corona is Thomson-scattered PHOTOSPHERIC light, so it is near-white — much cooler than
+    // the warm scattered-by-air halo that shares the token. Mixed once, at construction.
+    uCorona: {
+      value: new THREE.Color(tokens.sunGlow).lerp(new THREE.Color(0xffffff), ECLIPSE.coronaWhiteMix),
+    },
+    uChromo: { value: new THREE.Color(tokens.eclipseChromo) },
     uHorizonUp,
     uSinHor,
     uHorizonBandSin,
@@ -174,20 +208,61 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     fragmentShader: /* glsl */ `
       uniform vec3 uCore;
       uniform vec3 uGlow;
+      uniform vec3 uCorona;
+      uniform vec3 uChromo;
       uniform float uIntensity;
       uniform float uExtinct;
+      uniform vec2 uMoonOff;
+      uniform float uMoonR;
+      uniform float uEclipse;
       varying vec2 vUv;
       varying vec3 vW;
       ${HORIZON_FADE_GLSL}
       void main() {
-        // r in disc-radius units: the plane spans sunGlowExtent disc radii.
-        float r = length(vUv - 0.5) * 2.0 * ${glf(SKY.sunGlowExtent)};
+        // p in disc-radius units: the plane spans sunGlowExtent disc radii, and because it is
+        // billboarded its axes are camera right/up — the same frame uMoonOff arrives in.
+        vec2 p = (vUv - 0.5) * 2.0 * ${glf(SKY.sunGlowExtent)};
+        float r = length(p);
         // limb-darkened core disc (real suns are ~30% dimmer at the limb)
         float disc = 1.0 - smoothstep(0.9, 1.0, r);
         float limb = mix(1.0, 0.7, smoothstep(0.0, 1.0, r));
         // tight shader halo — the WIDE glow is the bloom pass's job
         float halo = exp(-(max(r - 1.0, 0.0)) * 1.6) * ${glf(SKY.sunGlowGain)};
-        vec3 color = (uCore * disc * limb * uIntensity + uGlow * halo) * horizonFade(vW) * uExtinct;
+
+        // --- the moon, subtracted. q is measured from the MOON's centre, in MOON radii. ---
+        vec2 q = p - uMoonOff;
+        float rm = length(q) / max(uMoonR, 1e-6);
+        // The lunar limb is knife-sharp (no atmosphere) — this width is pure anti-aliasing.
+        float occ = 1.0 - smoothstep(
+          1.0 - ${glf(ECLIPSE.limbSoftFrac)}, 1.0 + ${glf(ECLIPSE.limbSoftFrac)}, rm);
+        // The glare AROUND the sun is scattered photospheric light, so it fades with the
+        // photosphere — but not to nothing: the rest of the sky stays lit.
+        float haloK = mix(1.0, ${glf(ECLIPSE.haloAtTotality)}, uEclipse);
+        vec3 color = (uCore * disc * limb * uIntensity + uGlow * halo * haloK) * (1.0 - occ);
+
+        // --- corona + chromosphere, strictly inside totality. The corona is ~1e-6 of the disc,
+        // so a single surviving sliver of photosphere would drown it; this ramp also keeps it out
+        // of every ANNULAR eclipse, where the ring never leaves. ---
+        float tot = smoothstep(
+          ${glf(ECLIPSE.coronaOnCoverage[0])}, ${glf(ECLIPSE.coronaOnCoverage[1])}, uEclipse);
+        if (tot > 0.0) {
+          float x = max(rm, 1.0);
+          float d = x - 1.0;
+          // Two terms: a tight exponential at the limb and a long power-law for the streamers.
+          float cor = exp(-d / ${glf(ECLIPSE.coronaInnerFalloff)})
+                    + ${glf(ECLIPSE.coronaOuterGain)} * pow(x, -${glf(ECLIPSE.coronaOuterPow)});
+          // Low-order angular structure so it is not a perfect annulus. Kept subtle on purpose —
+          // a strongly modulated ring reads as a graphic rather than as plasma.
+          float th = atan(q.y, q.x);
+          float petal = 1.0 + ${glf(ECLIPSE.coronaPetalAmp)}
+                      * (0.6 * sin(2.0 * th + 0.7) + 0.4 * sin(3.0 * th - 1.3));
+          color += uCorona * cor * petal * tot * ${glf(ECLIPSE.coronaGain)} * (1.0 - occ);
+          // The chromosphere: a hairline of hydrogen-alpha pink hugging the lunar limb.
+          float chromo = smoothstep(${glf(ECLIPSE.chromoWidth)}, 0.0, abs(rm - 1.0));
+          color += uChromo * chromo * tot * ${glf(ECLIPSE.chromoGain)};
+        }
+
+        color *= horizonFade(vW) * uExtinct;
         ${DITHER_GLSL}
         gl_FragColor = vec4(color, 1.0); // additive: rgb carries everything
         #include <colorspace_fragment>
@@ -212,7 +287,20 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     uBrightness: { value: SKY.moonBrightness as number }, // widened: setHoverGlow re-derives it
     uEarthshine: { value: SKY.moonEarthshine },
     // 0 night/space → 1 full daylight sky behind the disc (CPU per frame — see update()).
+    // Under a solar eclipse this is ALSO scaled by the daylight loss, which is what turns the disc
+    // opaque and dark exactly as fast as the sky behind it goes dark: one number, both effects,
+    // and no new alpha arm to keep in sync with the tested CPU twin.
     uDaySky: { value: 0 },
+    // --- LUNAR ECLIPSE (2026-08-22k): the Earth's shadow, drawn ON the disc. ---
+    // The umbra is ~2.7 lunar radii across, so a partial umbral phase shows a CURVED bite, not a
+    // straight terminator — the shape everyone recognises. Offsets/radii are in MOON RADII, in the
+    // disc's own (y, z) basis (see the vDisc varying), so the fragment does one length() to know
+    // exactly how deep into the shadow it sits.
+    uUmbraOff: { value: new THREE.Vector2(1e4, 1e4) },
+    uUmbraR: { value: 1 },
+    uPenumbraR: { value: 1 },
+    uUmbraOn: { value: 0 }, // 0 skips the whole branch on every ordinary night
+    uUmbraTint: { value: new THREE.Color(tokens.eclipseUmbra) },
     uHorizonUp,
     uSinHor,
     uHorizonBandSin,
@@ -245,10 +333,15 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       varying vec2 vUv;
       varying vec3 vNw;
       varying vec3 vW;
+      varying vec2 vDisc;
       void main() {
         vUv = uv;
         vNw = normalize(mat3(modelMatrix) * normal); // uniform scale — no normal-matrix needed
         vW = (modelMatrix * vec4(position, 1.0)).xyz;
+        // The mesh's basis is built every frame as (toward-camera, north, north x toward-camera),
+        // so object-space y/z ARE this fragment's offset across the visible disc, in units of the
+        // moon's own angular radius. That is the frame the Earth-shadow uniforms arrive in.
+        vDisc = position.yz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
@@ -257,9 +350,15 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       uniform float uBrightness;
       uniform float uEarthshine;
       uniform float uDaySky;
+      uniform vec2 uUmbraOff;
+      uniform float uUmbraR;
+      uniform float uPenumbraR;
+      uniform float uUmbraOn;
+      uniform vec3 uUmbraTint;
       varying vec2 vUv;
       varying vec3 vNw;
       varying vec3 vW;
+      varying vec2 vDisc;
       ${HORIZON_FADE_GLSL}
       void main() {
         float fade = horizonFade(vW);
@@ -267,6 +366,25 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         // soften the terminator a touch (regolith scattering reads better than a hard lambert)
         lit = pow(lit, 0.8);
         vec3 albedo = texture2D(uMap, vUv).rgb;
+
+        // --- Earth's shadow. Branch skipped entirely on every ordinary night. ---
+        if (uUmbraOn > 0.0) {
+          float dS = length(vDisc - uUmbraOff);
+          float soft = ${glf(ECLIPSE.shadowSoftFrac)};
+          float inUmb = 1.0 - smoothstep(uUmbraR - soft, uUmbraR + soft, dS);
+          float inPen = 1.0 - smoothstep(uPenumbraR - soft, uPenumbraR + soft, dS);
+          // Penumbra: a gentle gradient deepening toward the umbra. Real, and famously easy to
+          // miss — astronomy-engine reports obscuration 0 for a purely penumbral eclipse, which is
+          // exactly why the tint cannot be driven from that one scalar.
+          float penK = clamp((uPenumbraR - dS) / max(uPenumbraR - uUmbraR, 1e-4), 0.0, 1.0);
+          float pen = 1.0 - ${glf(ECLIPSE.penumbraDim)} * penK * inPen;
+          // Umbra: deep, copper, and BRIGHTER toward its own edge — the outer umbra is lit by a
+          // wider arc of refracting atmosphere, so the moon's limb nearest the shadow edge glows
+          // markedly warmer. That gradient is what makes this read as an eclipse and not a filter.
+          float edge = clamp(dS / max(uUmbraR, 1e-4), 0.0, 1.0);
+          float umbK = ${glf(ECLIPSE.umbraLight)} * (1.0 + ${glf(ECLIPSE.umbraEdgeLift)} * edge * edge);
+          albedo *= mix(pen, umbK, inUmb) * mix(vec3(1.0), uUmbraTint, inUmb);
+        }
         // Two premultiplied arms mixed by uDaySky (CPU twin: moonDiscArms — keep in lockstep).
         // NIGHT: the classic opaque star-occluding disc. DAY: additive-only reflected sunlight —
         // the dark side IS the sky, and no mid-lit pixel can ever be darker than the sky behind
@@ -293,7 +411,12 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   moonMesh.raycast = () => {};
   // Above the overlay tier (10) — the sunMesh note applies verbatim. Night arm: the opaque
   // disc now also replaces any ghost drawn behind it, which is exactly "ghosts BEHIND".
-  moonMesh.renderOrder = 11;
+  // 12, not 11 (2026-08-22k): at an equal renderOrder three falls through to a depth sort, and
+  // during an eclipse both impostors sit at the SAME anchor distance — their clip-space z differs
+  // by ~1e-6 and the winner flips with camera aim. The occlusion no longer depends on this (the
+  // sun carves itself), but the moon's opaque night arm must still land ON TOP of the sun's
+  // residual halo deterministically, not on whichever way the sort tipped that frame.
+  moonMesh.renderOrder = 12;
   scene.add(moonMesh);
 
   // --- Hover ring (qol3 round 3): a hairline broken ring that breathes in around the hovered
@@ -345,12 +468,18 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   const _x = new THREE.Vector3();
   const _y = new THREE.Vector3();
   const _z = new THREE.Vector3();
+  // Eclipse scratch (no per-frame allocation): camera right/up for the sun-plane projection, the
+  // sun→moon angular delta, and the moon→umbra delta.
+  const _right = new THREE.Vector3();
+  const _up = new THREE.Vector3();
+  const _delta = new THREE.Vector3();
+  const _axis = new THREE.Vector3();
 
   return {
     sunMesh,
     moonMesh,
     moonLight,
-    update({ camera, alt, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity }) {
+    update({ camera, alt, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity, solar, lunar }) {
       lastCamera = camera; // banked for setHoverGlow's ring billboard (called right after)
       // Horizon fade terms (float64 on the CPU — see HORIZON_FADE_GLSL): shared uniform holders,
       // one write covers the sun AND moon materials.
@@ -393,12 +522,57 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       _m.makeBasis(_x, _y, _z);
       moonMesh.quaternion.setFromRotationMatrix(_m);
       moonUniforms.uSunDir.value.copy(sunDir);
+
+      // --- SOLAR ECLIPSE. `solar` was derived by the orchestrator from these very vectors, so all
+      // that happens here is projecting the moon onto the sun's billboard plane. The plane is
+      // billboarded to the camera, so its local axes ARE camera right/up — the offset is two dot
+      // products, exact to the small-angle chord (~1e-5 relative at these separations).
+      //
+      // The geometry only works because `_dir` is TOPOCENTRIC by construction while `sunDir` is
+      // geocentric (solar parallax 8.6", ignorable). Lunar parallax is ~1° — the same size as the
+      // entire phenomenon — so a geocentric separation reports NO eclipse during totality. ---
+      _right.setFromMatrixColumn(camera.matrixWorld, 0); // camera right = the plane's local +X
+      _up.setFromMatrixColumn(camera.matrixWorld, 1); // camera up      = the plane's local +Y
+      _delta.copy(_dir).sub(sunDir); // chord between two unit vectors ≈ the angular offset
+      const invSun = 1 / Math.max(sunAngRad, 1e-9);
+      sunUniforms.uMoonOff.value.set(_delta.dot(_right) * invSun, _delta.dot(_up) * invSun);
+      sunUniforms.uMoonR.value = moonAngRad * invSun;
+      sunUniforms.uEclipse.value = solar.coverage;
+
       // Day-sky visibility for the dark-limb alpha (dark-disc fix, owner 2026-08-14): the SAME
       // sun-elevation ramp the atmosphere's dayK uses × the sky-regime altitude fade — the
       // disc's alpha story always matches the sky the dome paints behind it (sinSun/skyK are
       // the shared derivation above the sun anchor).
+      //
+      // × the eclipse's daylight loss (2026-08-22k). This ONE multiply is what turns the moon into
+      // the "proper dark disc" the owner asked for, and it does it honestly: the disc goes opaque
+      // at exactly the rate the sky behind it goes dark, because both read the same number. No
+      // second alpha arm, so the tested CPU twin (moonDiscArms) needs no new parameter.
       const dayK = THREE.MathUtils.smoothstep(sinSun, ATMOSPHERE.skyDawnLo, ATMOSPHERE.skyDawnHi);
-      moonUniforms.uDaySky.value = dayK * skyK;
+      moonUniforms.uDaySky.value =
+        dayK *
+        skyK *
+        eclipseDaylightK(solar.coverage, ECLIPSE.daylightGamma, ECLIPSE.daylightFloor);
+
+      // --- LUNAR ECLIPSE. The umbra is a geocentric object, so its offset arrives already
+      // computed; all that is left is projecting it into the disc's own (y, z) basis and handing
+      // the fragment three numbers in MOON RADII. ---
+      const umbraOn = lunar.phase !== "none";
+      moonUniforms.uUmbraOn.value = umbraOn ? 1 : 0;
+      if (umbraOn) {
+        const invMoon = 1 / Math.max(lunar.moonRadRad, 1e-9);
+        // Both ends of the offset are GEOCENTRIC: the shadow axis (antisolar) and the moon's true
+        // direction from the Earth's centre — moonPos IS that vector, so normalising it is the
+        // whole derivation. (_dir is the topocentric anchor and must not be touched here; the
+        // moonlight key still reads it below.)
+        _axis.copy(moonPos).normalize();
+        _delta.set(lunar.axisDir[0], lunar.axisDir[1], lunar.axisDir[2]).sub(_axis);
+        // _y/_z span the disc plane; the ≤1° tilt between the geocentric and topocentric moon
+        // directions foreshortens this by <0.02%, far under the umbra's own soft edge.
+        moonUniforms.uUmbraOff.value.set(_delta.dot(_y) * invMoon, _delta.dot(_z) * invMoon);
+        moonUniforms.uUmbraR.value = lunar.umbraRadRad * invMoon;
+        moonUniforms.uPenumbraR.value = lunar.penumbraRadRad * invMoon;
+      }
 
       // Moonlight follows the moon; intensity follows the K&S phase curve (quarter ≈ 9% of
       // full — physical relative scaling, calibrated at full moon by moonKeyIntensity).

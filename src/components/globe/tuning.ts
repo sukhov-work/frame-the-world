@@ -770,6 +770,87 @@ export const ULTRA = {
   depthMarginM: 30_000,
 } as const;
 
+/**
+ * ECLIPSES (owner 2026-08-22k) — the moon actually occluding the sun, the corona at totality, the
+ * world going dark under it, and the Earth's shadow reddening the moon.
+ *
+ * The physics lives in `lib/ephemeris/eclipse.ts` (pure, tested against the almanac); everything
+ * here is the LOOK. The scene derives its own geometry from the vectors it already draws with, so
+ * these knobs never move the eclipse — only how it reads.
+ *
+ * PROVENANCE. The defect was documented in `scene/sky.ts` as a "cosmetic edge" (the additive sun
+ * washing through the moon), but the measurement was worse: at the owner's repro instant the moon
+ * mesh is not drawn AT ALL. By day `uDaySky → 1`, so the disc runs its additive arm at alpha 0,
+ * and during a solar eclipse the near side is a new moon (illuminated fraction 8e-5) — so
+ * `lit ≈ 0`, the whole fragment falls under `SKY.moonAlphaDiscard`, and it discards. No render
+ * order, depth or blend change on the MOON could have fixed it: the sun has to carve itself.
+ */
+export const ECLIPSE = {
+  /** Solar coverage → daylight curve (`eclipseDaylightK`). GAMMA < 1 encodes limb darkening: the
+   *  last sliver hidden is the sun's bright centre, so illumination holds through the partial
+   *  phases and collapses at the end — which is exactly how an eclipse is experienced (80%
+   *  covered is barely noticeable; the light goes strange only in the final minute). */
+  daylightGamma: 0.8,
+  /** Daylight floor at totality. NOT zero: the umbral spot is ~100 km across and the sky above it
+   *  is still lit by the uneclipsed atmosphere for hundreds of km around — totality reads as a
+   *  deep, strange twilight, never as night. */
+  daylightFloor: 0.04,
+  /** Ease τ (ms) on the darkness scalar. Small — the geometry itself is smooth, and this only
+   *  exists so a scrub or a time-jump does not step the whole scene's exposure in one frame. */
+  tauMs: 220,
+  /** Soft edge on the carved lunar silhouette, as a fraction of the MOON's angular radius. The
+   *  real limb is knife-sharp (no lunar atmosphere), so this is pure anti-aliasing: at the tightest
+   *  reachable zoom (FPV.minFovDeg 2.75) the disc is ~89 px, so 0.012 ≈ 1 px. */
+  limbSoftFrac: 0.012,
+  /** How much of the sun's HALO survives at a given coverage. The glare around the sun is
+   *  photospheric light scattered by air, so it fades with the photosphere itself — but not
+   *  linearly, since the sky stays bright. Halo scale = mix(1, this, coverage). */
+  haloAtTotality: 0.06,
+  /** CORONA — visible only once the photosphere is gone. The corona is ~1e-6 of the disc, so it
+   *  cannot compete with even a sliver of photosphere: this ramp keeps it strictly inside the
+   *  totality window (and out of every annular eclipse, where the ring never leaves). */
+  coronaOnCoverage: [0.985, 1.0] as const,
+  /** Peak corona brightness at the limb, in the sun impostor's HDR units. Deliberately just over
+   *  BLOOM.threshold (0.9) so the bloom pass carries the outer streamers — but the shader term
+   *  alone still reads on the paths where bloom is off (tier `low`, coarse pointer, flat map). */
+  coronaGain: 1.15,
+  /** Inner (near-limb) exponential falloff, in moon radii. The real K-corona falls roughly as
+   *  r^-2.5 further out; these two terms together fit the visible structure without a texture. */
+  coronaInnerFalloff: 0.34,
+  /** Outer power-law exponent and its weight — the long streamers that reach several radii out. */
+  coronaOuterPow: 2.6,
+  coronaOuterGain: 0.42,
+  /** Angular petal structure: amplitude of the low-order harmonics that break the corona out of a
+   *  perfect annulus. Kept small — an obviously modulated ring reads as a graphic, not as plasma. */
+  coronaPetalAmp: 0.22,
+  /** Corona tint: the corona is very slightly cooler than the photosphere (it is Thomson-scattered
+   *  photospheric light, so near-white). Mixed from tokens.sunCore toward white by this much. */
+  coronaWhiteMix: 0.72,
+  /** Chromosphere / prominence hairline right at the limb — the pink-red flash a real totality
+   *  shows. Width in moon radii, and its gain. Colour = tokens.eclipseChromo (D14: every scene
+   *  colour comes from the token bridge, never from a hex literal in this file). */
+  chromoWidth: 0.018,
+  chromoGain: 0.55,
+
+  /* --- LUNAR: the Earth's shadow on the moon ------------------------------------------------- */
+  /** Umbral light factor — how bright the disc stays inside the umbra. The honest physical number
+   *  is ~1e-4 of a full moon (a totally eclipsed moon runs 10-12 magnitudes down), which would be
+   *  invisible here; but the eclipsed moon is famously EASY to see, because the eye adapts. C2
+   *  says accuracy AND beauty: this is the adaptation, applied once, in one named place. */
+  umbraLight: 0.055,
+  /** Brightening toward the umbra's EDGE. The umbra is not uniform: its outer parts are lit by a
+   *  larger arc of refracting atmosphere, so the limb of the moon nearest the shadow edge is
+   *  markedly brighter and more orange. This is the single detail that makes it read as a real
+   *  eclipse rather than a red filter. */
+  umbraEdgeLift: 1.9,
+  /** Penumbral dimming at full penumbral immersion. Real and visible, but subtle — a penumbral
+   *  eclipse is famously easy to miss, and astronomy-engine reports obscuration 0 for it. */
+  penumbraDim: 0.32,
+  /** Soft edge of the umbra/penumbra boundaries, in moon radii. The umbra's edge is genuinely
+   *  fuzzy (the atmosphere has no sharp top), unlike the moon's own limb. */
+  shadowSoftFrac: 0.09,
+} as const;
+
 /** UPLIFT U5 — closest-first progressive loading (owner point 7, 2026-08-18). Order and
  *  concurrency ONLY — every errorTarget stays untouched, so detail at rest is unchanged.
  *  3d-tiles-renderer 0.4.28, source-verified: `loadAncestors = false` alone flips a renderer
@@ -1260,6 +1341,15 @@ export const ATMOSPHERE = {
  *  sample so constellations sit correctly over the earth for the scene time. The procedural
  *  random field remains as the pre-load / fetch-failure fallback. */
 export const STARS = {
+  /** ECLIPSE REVEAL (2026-08-22k). Fraction of the daylight that must be gone before the stars
+   *  begin to show under a solar eclipse. 0.9 keeps them out of every partial phase — real
+   *  observers see nothing but Venus until the last moments — and brings them in over the final
+   *  stretch into totality. The reveal reuses this module's own night curve rather than a second
+   *  one: an eclipse that has taken this much daylight reveals stars as if the sun had sunk. */
+  eclipseRevealStart: 0.9,
+  /** Ceiling on that reveal. Below 1 on purpose: totality is deep twilight, not night — the
+   *  bright stars and planets come out, the full field does not. */
+  eclipseRevealMax: 0.75,
   /** Packed catalog asset (Float32 records; see lib/ephemeris/stars.ts for the layout). */
   catalogUrl: "/data/bsc5.bin",
   /** FALLBACK-ONLY procedural star count (until the catalog loads, or if the fetch fails). */

@@ -56,6 +56,10 @@ export interface ImageryGroundHandle {
    *  S7a: the orchestrator blends sun/moon opacity toward the DRAPE.*shadowOpacity knobs
    *  by darkBlend() before passing it in — per-mode shadow contrast. */
   setShadowStrength(opacity: number): void;
+  /** Solar-eclipse daylight REMAINING (0..1) scaling the day grade — 1 = no eclipse. The
+   *  orchestrator altitude-gates it before it arrives (`stepEclipse`): being inside the umbra is a
+   *  street-level truth, and from orbit the shadow is a ~100 km spot, not a hemisphere. */
+  setEclipse(k: number): void;
   /** Live dark-drape fraction (0 = Esri look, 1 = CARTO dark) — eased inside update(). */
   darkBlend(): number;
   /** DPR-aware SSE resolution (owner 2026-08-18 sharpness batch): setResolutionFromRenderer
@@ -345,6 +349,9 @@ export function attachImageryGround(
     uFtwMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
     uFtwMoonCol: { value: new THREE.Color(tokens.moonlight) },
     uFtwGoldenCol: { value: new THREE.Color(tokens.goldenHour) },
+    // ECLIPSE (2026-08-22k): daylight REMAINING, 0..1, already altitude-gated by the orchestrator
+    // (see stepEclipse). Exactly 1 whenever nothing is happening — a provable per-frame no-op.
+    uFtwEclipse: { value: 1 },
     uFtwNightFloor: { value: GROUND.nightFloor },
     uFtwDesat: { value: GROUND.desat },
     uFtwGain: { value: GROUND.gain },
@@ -398,6 +405,7 @@ export function attachImageryGround(
         uniform float uFtwMoonGlow;
         uniform vec3 uFtwMoonCol;
         uniform vec3 uFtwGoldenCol;
+        uniform float uFtwEclipse;
         uniform float uFtwNightFloor;
         uniform float uFtwDesat;
         uniform float uFtwGain;
@@ -457,6 +465,12 @@ export function attachImageryGround(
           // (it lights the night side in daylight while the buildings keep the sun/moon key,
           // deleting the terminator, golden hour and moonlight). ULTRA drives photo instead.
           dayK = max(dayK, uFtwFlat2d);
+          // The sun is partly gone: scale the day factor by what is left of it. This sits AFTER
+          // the flat-2d max on purpose — a planning chart must still read around the clock — and
+          // it is only coherent because the key light, the ground shadows and the sky dome are
+          // scaled by the SAME number in the same frame. Dimming dayK alone would be the
+          // mirror image of the documented C2 breach above.
+          dayK *= uFtwEclipse;
           // QA-7a (owner 2026-08-21f): PHOTOGRAPHIC chart — on the /m 2D flat map the whole
           // stylized grade lerps OUT (raw Esri colorimetry, the MapWindow-canvas look). Gated
           // off under the dark CARTO drape (its flat grade IS the dark-mode look) and rides
@@ -675,6 +689,9 @@ export function attachImageryGround(
     },
     setShadowStrength(opacity) {
       shadowMat.opacity = opacity; // ONE shared material — every twin follows
+    },
+    setEclipse(k) {
+      uniforms.uFtwEclipse.value = k;
     },
     darkBlend() {
       return uniforms.uFtwDark.value;

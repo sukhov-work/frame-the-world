@@ -24,6 +24,13 @@ import {
   visibilityClass,
 } from "../../lib/ephemeris/comet";
 import { targetWindows, type TargetWindow } from "../../lib/ephemeris/planner";
+import {
+  lunarEclipseAt,
+  nextLunarEclipses,
+  nextSolarEclipses,
+  solarEclipseAt,
+  type EclipseRow,
+} from "../../lib/ephemeris/eclipse";
 import { lambdaToMs } from "../../lib/ephemeris/showers";
 import { subjectDistanceForDiscMatch } from "../../lib/geo/sizeDistance";
 import { kindGlyph } from "../../lib/sky/searchIndex";
@@ -329,6 +336,140 @@ function ShowerFacts({ target, nowMs }: { target: SkyTarget; nowMs: number }) {
       </div>
     </>
   );
+}
+
+/** PREDICTED ECLIPSES (owner 2026-08-22k) — the sun and the moon ONLY.
+ *
+ *  GATED ON `target.kind`, never on `target.facts.kind`: the sun and the moon both carry
+ *  `facts.kind === "planet"` (they reuse the planet fact shape), so a facts gate would print
+ *  eclipse rows on Mars.
+ *
+ *  Solar rows are LOCAL CIRCUMSTANCES — this anchor's obscuration and contact times, which is the
+ *  only useful reading (a total eclipse somewhere else is a partial here, or nothing at all).
+ *  Lunar rows are global, so they carry a horizon verdict instead: everyone on the night side sees
+ *  the same eclipse, and the only local question is whether the moon is up.
+ */
+function EclipseFacts({
+  target,
+  nowMs,
+  latDeg,
+  lonDeg,
+  open,
+  onJump,
+}: {
+  target: SkyTarget;
+  nowMs: number;
+  latDeg: number;
+  lonDeg: number;
+  open: boolean;
+  onJump: (ms: number) => void;
+}) {
+  const isSun = target.kind === "sun";
+  const isMoon = target.kind === "moon";
+  // The forward walk costs ~6 ms per eclipse found, so it is keyed to the DAY and the rounded
+  // anchor — never to nowMs or the raw camera focus, which churn every frame (the FindPanel
+  // lesson: an ungated scan keyed on the focus froze the boot flight solid).
+  const dayKey = Math.floor(nowMs / 86_400_000);
+  const latKey = Math.round(latDeg * 20);
+  const lonKey = Math.round(lonDeg * 20);
+  const rows = useMemo(() => {
+    if (!open || (!isSun && !isMoon)) return [];
+    const obs = { latDeg: latKey / 20, lonDeg: lonKey / 20, groundAltM: 0, eyeAboveGroundM: 1.6 };
+    const from = dayKey * 86_400_000;
+    return isSun
+      ? nextSolarEclipses(from, obs, ECLIPSE_ROWS)
+      : nextLunarEclipses(from, obs, ECLIPSE_ROWS);
+  }, [open, isSun, isMoon, dayKey, latKey, lonKey]);
+
+  // What is happening RIGHT NOW at scene time — the reading that turns the card into an
+  // instrument rather than a calendar. Cheap (no search), so it rides the minute.
+  const live = useMemo(() => {
+    if (!isSun && !isMoon) return null;
+    if (isSun) {
+      const s = solarEclipseAt(nowMs, latKey / 20, lonKey / 20);
+      return s.phase === "none"
+        ? null
+        : `${s.phase.toUpperCase()} · ${(s.coverage * 100).toFixed(1)}% OF THE DISC COVERED · MAGNITUDE ${s.magnitude.toFixed(3)}`;
+    }
+    const l = lunarEclipseAt(nowMs);
+    return l.phase === "none"
+      ? null
+      : l.phase === "penumbral"
+        ? `PENUMBRAL · ${(l.penumbralMag * 100).toFixed(0)}% INTO THE OUTER SHADOW`
+        : `${l.phase.toUpperCase()} · ${(l.umbralCoverage * 100).toFixed(1)}% OF THE DISC IN THE UMBRA`;
+  }, [isSun, isMoon, Math.floor(nowMs / 60_000), latKey, lonKey]);
+
+  if (!isSun && !isMoon) return null;
+  return (
+    <>
+      <div className="tp-section">
+        {isSun ? "ECLIPSES · FROM THIS ANCHOR" : "ECLIPSES · MOON IN EARTH'S SHADOW"}
+      </div>
+      {live && <div className="tp-ecl-live">NOW: {live}</div>}
+      {rows.length > 0 ? (
+        rows.map((r) => <EclipseRowView key={r.peakMs} row={r} onJump={onJump} />)
+      ) : (
+        <div className="tp-status">NO ECLIPSE FOUND IN THE SEARCH HORIZON</div>
+      )}
+      <div className="tp-facts">
+        {isSun
+          ? "TAP A ROW TO FLY SCENE TIME TO GREATEST ECLIPSE. COVERAGE AND CONTACT TIMES ARE FOR THIS ANCHOR — THE SAME ECLIPSE IS A DIFFERENT EVENT A HUNDRED KILOMETRES AWAY."
+          : "TAP A ROW TO FLY SCENE TIME TO GREATEST ECLIPSE. A LUNAR ECLIPSE IS THE SAME EVERYWHERE ON THE NIGHT SIDE — THE ONLY LOCAL QUESTION IS WHETHER THE MOON IS UP."}
+      </div>
+    </>
+  );
+}
+
+/** One eclipse row — the `.tp-win` grammar (tap to pin scene time to the moment). */
+function EclipseRowView({ row, onJump }: { row: EclipseRow; onJump: (ms: number) => void }) {
+  const total = row.totalStartMs != null && row.totalEndMs != null;
+  return (
+    <button
+      type="button"
+      className="tp-win"
+      onClick={() => onJump(row.peakMs)}
+      title={
+        total
+          ? `Greatest eclipse ${clockLabel(row.peakMs)} · ${row.phase} phase ${clockLabel(row.totalStartMs!)}–${clockLabel(row.totalEndMs!)}`
+          : `Greatest eclipse ${clockLabel(row.peakMs)} · ${clockLabel(row.startMs)}–${clockLabel(row.endMs)}`
+      }
+    >
+      {/* WITH THE YEAR — unlike the dark-sky windows this list spans DECADES (a total eclipse
+          recurs at one site roughly every 360 years), and "Aug 2" alone is actively misleading. */}
+      <span className="tp-win__date">{eclipseDateLabel(row.peakMs)}</span>
+      <span className="tp-win__span">{row.phase.toUpperCase()}</span>
+      {/* A PENUMBRAL eclipse has zero UMBRAL coverage by definition, so "0%" here reads as
+          "nothing happens" for an event that is real and visible. The phase word already
+          carries the meaning; the honest cell is a dash, not a false zero. */}
+      <span className="tp-win__score">
+        {row.phase === "penumbral" ? "—" : `${Math.round(row.coverage * 100)}%`}
+      </span>
+      <span className="tp-win__peak">
+        {clockLabel(row.peakMs)}
+        {/* The altitude is the row's real verdict: an eclipse under the horizon is not an event. */}
+        {row.peakAltDeg > 0
+          ? ` · ${Math.round(row.peakAltDeg)}°`
+          : row.visible
+            ? " · SETS MID-ECLIPSE"
+            : " · BELOW HORIZON"}
+      </span>
+    </button>
+  );
+}
+
+/** Rows per body. The card is height-capped (`.tp-root` max-height), and NEXT SESSIONS plus the
+ *  honesty footnote sit below this section — the MoonCalCard/PlanSheet cap precedent. */
+const ECLIPSE_ROWS = 5;
+
+/** Eclipse dates carry the YEAR. `dateLabel` is month+day, which is right for the 8-night window
+ *  list it was written for and wrong here: the next five solar eclipses at one site can span a
+ *  decade, so a bare "Aug 2" reads as "this year" and is a factual error. */
+function eclipseDateLabel(ms: number): string {
+  return new Date(ms).toLocaleDateString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /** The constellation card (phase B): the marker tracks the figure's centre, not one object. */
@@ -672,6 +813,14 @@ export default function TargetPanel() {
             <AsteroidFacts target={target} nowMs={nowMs} />
             <ConstellationFacts target={target} />
             <ShowerFacts target={target} nowMs={nowMs} />
+            <EclipseFacts
+              target={target}
+              nowMs={nowMs}
+              latDeg={latDeg}
+              lonDeg={lonDeg}
+              open={open}
+              onJump={setTime}
+            />
 
             <div className="tp-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
             {windows.length > 0 ? (

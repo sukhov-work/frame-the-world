@@ -755,7 +755,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "On desktop: altitude and azimuth, celestial coordinates, distance, magnitude with " +
           "a naked-eye verdict, phase and true disc size; on /m the card keeps the " +
           "essentials. NEXT SESSIONS lists the coming dark-sky windows — press one to pin " +
-          "scene time to its peak. Rise and set jumps live in [[target-menu|the sky menu]].",
+          "scene time to its peak. Track the sun or the moon and the card adds PREDICTED " +
+          "ECLIPSES: the next five, each with the covered fraction and the body's altitude " +
+          "at greatest eclipse. Press a row to fly scene time to the moment and watch it. " +
+          "Rise and set jumps live in [[target-menu|the sky menu]].",
+        tip:
+          "The same solar eclipse is a different event a hundred kilometres away, so those " +
+          "rows are computed for your anchor — the percentage is what you would see there.",
       },
       {
         id: "target-toggles",

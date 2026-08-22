@@ -50,6 +50,8 @@
   --color-sun-core: #fff3d9; /* solar disc — warm white (bloom carries the blowout) */
   --color-sun-glow: #ffd9a0; /* solar halo / corona falloff — warmer than the disc */
   --color-moonlight: #bfd0e8; /* cool moonlight fill on the night side (intensity by phase) */
+  --color-eclipse-umbra: #8c2f14; /* the eclipsed moon inside Earth's umbra — Danjon L=2 deep copper-red */
+  --color-eclipse-chromo: #ff6a55; /* chromosphere/prominence hairline at a total solar eclipse's limb */
   --color-sky-day: #7fb8e8; /* low-altitude day-sky zenith — light blue dome at city zooms */
   --color-sky-horizon: #d8e6f2; /* low-altitude horizon haze — near-white aerial perspective */
   --color-milky-way: #e7e3d8; /* faint warm-white galactic band (subtle, near --color-star) */
