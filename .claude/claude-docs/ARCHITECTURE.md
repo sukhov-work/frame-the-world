@@ -122,7 +122,10 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `*Mobile` variants + `mobileRadiusK`, an `N` rim marker via `northOffsetK/northSizeK`, always-on
   `fillAlphaRest` washes, and **skyline occlusion GAPS** — `azSector.fractureRunsBySkyline` honoured
   only within `skylineGuardM` of the profile anchor), focalCone (the planned-shot cone, seeded from
-  boot out of `camera.plannedView`; maths in `lib/geo/plannedView.ts`), tileFoveation (U6),
+  boot out of `camera.plannedView`; maths in `lib/geo/plannedView.ts`), tangentOverlay (the
+  grammar aimCones and focalCone SHARE — the flat overlay material, the tangent-plane root and
+  its ECEF/ENU seat, the altitude presence ramp and the fade step; extracted 2026-08-22, audit
+  #3 A1-8/T35, ≈47 duplicated lines incl. a byte-identical material factory), tileFoveation (U6),
   bldgEditLabel + placeMarkers, tilePriority (U5 closest-first download
   comparator adapter + queue caps, 2026-08-18), terrainPatch (U7b GLO-30 composite — createChild
   wrap + fetchData claimer on the ONE ground renderer, 2026-08-18; domain doc
@@ -130,7 +133,12 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   **ONE geometry model, THREE surfaces:** the band/cone model above is read by the GL fan
   (`scene/aimCones`+`scene/focalCone`), the `MapWindow` canvas twin and the `MiniMap` radar —
   a band edit that lands in only one of them is a bug (`AIMCONES.mapRadiusHK` sizes the two
-  canvas twins as a fraction of canvas HEIGHT, the GL fan's rule).
+  canvas twins as a fraction of canvas HEIGHT, the GL fan's rule). Since audit #3 (2026-08-22)
+  the "one model" claim is STRUCTURAL, not a convention: the band allocation lives in
+  `lib/geo/radarBands`, the ANCHOR ladder in `lib/geo/aimAnchor` (T36 — the chart's private copy
+  had lost the placed-photo rung and reached the camera NADIR before the view focus), the canvas
+  painting in `panels/radarCanvas` (T35), and the skyline-gap gate — including the NEW
+  `PLAN.minCoverageForGaps` evidence floor (A1-16) — in `lib/geo/horizonProfile.skylineBinsFor`.
   **Sticky overlay resolution:** `stepGroundUpdate` is the ONE caller of
   `ground.setOverlayResolution`, and the effective px only ever RATCHETS UP
   (`lib/globe/quality.stickyOverlayPx`) — never lowered by a 2D↔FPV flip or a governor demote.
@@ -168,7 +176,11 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   shared logic lives in `lib/**` + `store/**` + **`components/controls/**`** — THREE shared tiers
   since 2026-08-21b (the two-shell drift guard; the third was undocumented until audit #3 D1/D6).
 - `lib/`: `decode/`, `geo/` (projection, frustum, geohash, precision, geocode, offscreen, terrain, screen,
-  heading, coerce, urlPose, horizonProfile, occlusion, sizeDistance), `ephemeris/` (bodies, stars,
+  heading, coerce, urlPose, horizonProfile, occlusion, sizeDistance, **plannedView** — the
+  planned-shot heading+hFov math behind "focal cone everywhere" incl. the FOV inverse pair and
+  the range contract, 2026-08-21b; and the audit-#3 hoists of 2026-08-22: **aimAnchor** — THE
+  radar anchor ladder, ONE function for all three surfaces (T36), **radarBands** — THE band
+  allocation + future-ink rule, previously hand-copied ×3 with no fence (T35)), `ephemeris/` (bodies, stars,
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
   sunEventFrame, moonCalendar, targets, topo, comet — see §4), `sky/` (catalog, searchIndex, messier,
   openngc, ngcNames, constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache),
@@ -180,7 +192,9 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   parity-tested, 2026-08-18p), `photo/` (npf), `market/`
   (listing), `guide/` (guideContent, inline — the guide content model, G1 2026-08-15), `export/` (ics),
   `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade), `api/`, `format/`,
-  `textures/`, `theme/` (GL token bridge), `prefs.ts`.
+  `textures/`, `theme/` (GL token bridge **`tokens.ts`** + **`cssInk.ts`** — the memoised
+  resolved-token cache the two CANVAS radars paint from; a 2D canvas cannot take a `var()`, and
+  resolving per paint forced ~320 style recalcs/s, T38), `prefs.ts`.
 - `pages/`: `index.astro` (desktop) + `m.astro` (mobile shell) + `guide.astro` (standalone server-rendered
   guide page over the same `guideContent`, 2026-08-15e) + `api/` (**9 routes**: photos, places,
   listings, market, upload-url, sbdb, ping, dev-seed, `building-overrides` (U8 LWW height-override
@@ -188,6 +202,14 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   the original endpoint contracts). Also under `public/`: **`sw.js`** — the iOS-ONLY, dev-gated,
   7-day-TTL tile cache (#15, batch #4 S3); registered dynamically at runtime, never imported, and
   policy-fenced by `test/swTileCache.test.ts`.
+- `components/panels/` also carries **`radarCanvas.ts`** — THE canvas radar painter shared by the
+  expanded chart and the FPV mini-map (≈95 duplicated lines before audit #3 A1-8/T35). It is a
+  plain module, not a component: the two surfaces own their transforms and hand it a centre, a
+  twist, a unit radius and their bodies.
+- `components/mobile/` also carries **`useSheetInputFocus.ts`** — the ONE way an input inside a
+  sliding sheet may take focus on iOS (same-commit focus + `preventScroll` + a layout-viewport
+  pin across the 400 ms slide and the keyboard settle). Fenced by `mobileFence` rule 4: no
+  React `autoFocus` and no bare `.focus()` anywhere in the shell (audit #3 A1-9).
 - `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member`, `plan`, `sky`,
   `skyAim` (rise/set camera aim), `find` (FIND v2 panel⇆globe ghost mirror + two-way hover), `market`,
   `minimap`, `places` (MY PLACES on-map mirror), `bldgEdit` (U8 height-override drag) — **14 stores**,

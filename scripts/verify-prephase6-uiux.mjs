@@ -4,6 +4,7 @@
 // C: Milky Way haze — SVS texture renders, aligned with the BSC5 stars (visual shots).
 // Screenshots → verify-shots/prephase6-*.jpeg. Usage: node scripts/verify-prephase6-uiux.mjs [cdpPort]
 import { writeFileSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 import * as Astronomy from "astronomy-engine";
 
 const PORT = process.argv[2] ?? "9333";
@@ -20,6 +21,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 
@@ -204,4 +207,4 @@ const errs = consoleErrors.filter((e) => !/favicon|manifest/i.test(e ?? ""));
 check("no console errors", errs.length === 0, errs.slice(0, 3).join(" | "));
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

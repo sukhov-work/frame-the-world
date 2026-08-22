@@ -1,6 +1,9 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+// audit #3 C18: read/esc/ruleBody were triplicated across test/styles/*; C14: the fences were
+// keyed on prose, indentation, units and taste literals. Both live in _css.ts now.
+import { decl, fnBody, jsxElementEnd, num, read, ruleBody, VALUE } from "./_css";
 
 /**
  * Owner micro-slice 2026-08-22 — the expanded-map chrome contract, fenced as text (the
@@ -17,25 +20,12 @@ import { describe, expect, it } from "vitest";
  *    inset must be paid exactly once (the credit bar owns it now, the dock no longer does).
  */
 const root = join(__dirname, "..", "..");
-const read = (p: string) => readFileSync(join(root, p), "utf8");
 
 const tsx = read("src/components/panels/MapWindow.tsx");
 const mwCss = read("src/styles/map-window.css");
 const tsCss = read("src/styles/time-scrubber.css");
 const fpvCss = read("src/styles/mobile/fpv.css");
 const index = read("src/pages/index.astro");
-
-/**
- * The body of the first CSS rule whose selector STARTS A LINE and equals `selector`. The
- * line anchor matters: a bare `.m-altcol` pattern otherwise matches inside
- * `body.mw-open .m-altcol` and returns the wrong rule's body.
- */
-const ruleBody = (css: string, selector: string): string => {
-  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = new RegExp(`(?:^|\\n)[ \\t]*${esc}\\s*{([^}]*)}`).exec(css);
-  expect(m, `rule "${selector}" is missing`).not.toBeNull();
-  return m![1];
-};
 
 describe("MapWindow — the permanent manual-pan override (owner 2026-08-22 item 1)", () => {
   it("carries NO eye-motion re-arm: the FOLLOW_REARM_M detector and its anchor are gone", () => {
@@ -82,10 +72,14 @@ describe("MapWindow — the permanent manual-pan override (owner 2026-08-22 item
 
   it("mirrors the latch into React on TRANSITIONS only — never per pan event or per frame", () => {
     expect(tsx).toMatch(/latchManualPan = \(\) => {\s*if \(manualPan\) return;/);
-    // draw() runs at ~20 Hz: no state write may live in it.
-    const draw = /const draw = \(\) => {([\s\S]*?)\n {4}};/.exec(tsx);
-    expect(draw).not.toBeNull();
-    expect(draw![1]).not.toContain("setPanned");
+    // draw() runs at ~20 Hz: no state write may live in it. Lifted by BRACE MATCHING (C14) —
+    // the old pattern ended at a 4-space-indented `};` and would have stopped fencing on any
+    // re-indent, silently.
+    const draw = fnBody(tsx, "draw");
+    expect(draw).not.toContain("setPanned");
+    // POSITIVE CONTROL: that really is draw()'s body and not an empty string — an empty
+    // capture would satisfy the assertion above for the wrong reason (the C4 class).
+    expect(draw).toContain("canvas.getContext");
   });
 });
 
@@ -93,11 +87,15 @@ describe("MapWindow — bottom-edge attribution (owner 2026-08-22 item 3)", () =
   it("the credit bar is a SIBLING of .mw, not a descendant of its transformed box", () => {
     // .mw carries the centring + drag transform on desktop — a position:fixed descendant would
     // be trapped in it and could never reach the screen's bottom edge.
+    // C14: proved by DEPTH, not by the comment that used to follow the close tag — that
+    // pattern went red the moment the comment was reworded or the file re-indented.
     const mwOpen = tsx.indexOf('<div className="mw"');
-    const mwClose = tsx.indexOf("</div>\n    {/* Item 3");
     expect(mwOpen).toBeGreaterThan(-1);
-    expect(mwClose).toBeGreaterThan(mwOpen);
-    expect(tsx.indexOf('className="mw-creditbar"')).toBeGreaterThan(mwClose);
+    const mwClose = jsxElementEnd(tsx, mwOpen);
+    const bar = tsx.indexOf('className="mw-creditbar"');
+    expect(bar).toBeGreaterThan(mwClose);
+    // POSITIVE CONTROL: the matcher CAN place something inside .mw — the canvas is in there.
+    expect(tsx.indexOf('className="mw-canvas"')).toBeLessThan(mwClose);
   });
 
   it("/m: pins one full-bleed line to the bottom edge that can never steal a drag", () => {
@@ -141,7 +139,7 @@ describe("MapWindow — bottom-edge attribution (owner 2026-08-22 item 3)", () =
   });
 
   it("LIFTS both bottom-anchored time surfaces by the var — no z-bump, no double inset", () => {
-    expect(mwCss).toMatch(/--mw-credit-h:\s*[\d.]+rem/); // the one definition
+    expect(mwCss).toMatch(new RegExp(`--mw-credit-h:\\s*${VALUE}`)); // the one definition
     expect(ruleBody(tsCss, "body.mw-open .ts")).toMatch(/bottom:\s*calc\([^)]*var\(--mw-credit-h/);
     expect(ruleBody(fpvCss, "body.m.mw-open .m-bottom")).toMatch(
       /bottom:\s*calc\([\s\S]*var\(--mw-credit-h/,
@@ -155,13 +153,15 @@ describe("MapWindow — bottom-edge attribution (owner 2026-08-22 item 3)", () =
 describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () => {
   it("is round, right-edge, and labelled", () => {
     const btn = ruleBody(mwCss, ".mw-recenter");
-    expect(btn).toMatch(/right:\s*0\.75rem/);
+    expect(decl(btn, "right")).not.toBeNull(); // right-edge seat; the exact inset is taste (C14)
     // Equal width/height under .mw-btn's border-radius:999px = a circle, not a pill.
     const w = /width:\s*([\d.]+)rem/.exec(btn);
     const h = /height:\s*([\d.]+)rem/.exec(btn);
     expect(w?.[1]).toBe(h?.[1]);
     expect(tsx).toMatch(/aria-label="Centre the map on me"/);
-    expect(tsx).toMatch(/className={`mw-btn mw-recenter\$\{panned \? " is-panned" : ""\}`}/);
+    // The lit/muted state must ride `panned`; how the template literal is spaced is not a
+    // contract (C14).
+    expect(tsx).toMatch(/mw-recenter[\s\S]{0,40}panned[\s\S]{0,40}is-panned/);
   });
 
   it("can never slide under the z-24 FPV altitude column (A1-2)", () => {
@@ -172,8 +172,9 @@ describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () =>
     expect(mBtn).toMatch(/var\(--m-altcol-bottom/);
     expect(mBtn).toMatch(/var\(--m-altcol-h/);
     // The tokens are published by the column's own rule, so the two cannot drift apart.
-    expect(fpvCss).toMatch(/--m-altcol-bottom:\s*[\d.]+rem/);
-    expect(fpvCss).toMatch(/--m-altcol-h:\s*\d+px/);
+    // Unit-agnostic (C14): 96px → 6rem is a harmless reformat, not a contract break.
+    expect(fpvCss).toMatch(new RegExp(`--m-altcol-bottom:\\s*${VALUE}`));
+    expect(fpvCss).toMatch(new RegExp(`--m-altcol-h:\\s*${VALUE}`));
     expect(ruleBody(fpvCss, ".m-altcol")).toMatch(/bottom:\s*calc\(var\(--m-altcol-bottom\)/);
   });
 
@@ -184,7 +185,7 @@ describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () =>
     expect(index).toMatch(/@media \(max-width: 60rem\)/);
     const narrow = /@media \(max-width: 60rem\) {([\s\S]*?)\n  }\n/.exec(index);
     expect(narrow).not.toBeNull();
-    expect(narrow![1]).toMatch(/--mw-credit-h:\s*[\d.]+rem/);
+    expect(narrow![1]).toMatch(new RegExp(`--mw-credit-h:\\s*${VALUE}`));
     expect(narrow![1]).toMatch(/white-space:\s*normal/);
   });
 
@@ -199,8 +200,14 @@ describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () =>
     // The /m right rail is ONE stack — [+ −] · [PiP] · [◉] — expressed through two shared
     // tokens rather than repeated literals, so nudging the top row moves all three together
     // (owner 2026-08-22b top-aligned the PiP with the pills; three literals would have drifted).
-    expect(mwCss).toMatch(/--mw-top-y:\s*[\d.]+rem/);
-    expect(mwCss).toMatch(/--mw-pip-h:\s*32dvh/);
+    expect(mwCss).toMatch(new RegExp(`--mw-top-y:\\s*${VALUE}`));
+    // The PiP is a TRUE miniature only while its vw and dvh fractions are EQUAL (equal
+    // fractions ⇒ its aspect equals the viewport's, so the same camera needs no projection
+    // swap). C14: pin that EQUALITY, not the taste value 32 — which the owner may retune.
+    const pipH = num(decl(ruleBody(mwCss, ":root"), "--mw-pip-h"));
+    const pipW = num(decl(ruleBody(mwCss, "body.m .mw-pip"), "width"));
+    expect(pipH).not.toBeNull();
+    expect(pipW).toBe(pipH);
     const top = ruleBody(mwCss, "body.m .mw-top");
     const pip = ruleBody(mwCss, "body.m .mw-pip");
     const mBtn = ruleBody(mwCss, "body.m .mw-recenter");
@@ -211,9 +218,12 @@ describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () =>
     expect(pip).toMatch(/height:\s*var\(--mw-pip-h\)/);
     // …and the button hangs off the PiP's bottom edge, derived from the same two tokens
     // (inside the min() whose second arm is the .m-altcol floor — see the A1-2 test).
-    expect(mBtn).toMatch(
-      /calc\(var\(--mw-top-y\) \+ var\(--mw-pip-h\) \+ [\d.]+rem \+ env\(safe-area-inset-top\)\)/,
-    );
+    // Derived from the SAME two tokens as the rung above it (C14: the tokens are the
+    // contract; the gap literal between them is taste).
+    const seat = decl(mBtn, "top") ?? "";
+    for (const token of ["--mw-top-y", "--mw-pip-h", "safe-area-inset-top"]) {
+      expect({ token, present: seat.includes(token) }).toEqual({ token, present: true });
+    }
     // The full-width top row must stay click-through, or it would swallow taps on the PiP
     // now that the two share a rung.
     expect(ruleBody(mwCss, ".mw-top")).toMatch(/pointer-events:\s*none/);

@@ -16,6 +16,7 @@
 //      the chart around them (live GL through the hole); tap → window closes back to FPV
 // Screenshots land in verify-shots/ (git-ignored).
 import { writeFileSync, mkdirSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
 const SHOTS = process.argv[3] ?? "verify-shots";
@@ -42,6 +43,8 @@ async function attach() {
   } catch {
     target = await http("/json/new?about:blank", "GET");
   }
+  // audit #3 C11: register for close — an abandoned target holds a WebGL context.
+  trackTarget(PORT, target.id);
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((res, rej) => ((ws.onopen = res), (ws.onerror = rej)));
   let seq = 0;
@@ -209,4 +212,4 @@ if (chipRect) {
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

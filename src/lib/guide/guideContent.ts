@@ -110,7 +110,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "The desktop shell at / carries every feature. The phone shell at /m carries the " +
           "full planning loop — sheets and touch controls instead of panels. Phones land on " +
           "/m automatically; the DESKTOP chip switches back and remembers the choice. Your " +
-          "tracked target and toggles carry across shells.",
+          "tracked target, your toggles AND your POSE carry across shells — switch while " +
+          "standing somewhere and you arrive at the same place, looking the same way.",
         tip: "Photo upload and the marketplace stay desktop-only by design.",
       },
       {
@@ -136,7 +137,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     media: {
       src: "/guide/orbit.webp",
       caption:
-        "Orbit view. Camera deck bottom-right, search top-left, mini-map bottom-left, time " +
+        "Orbit view over Dnipro. Camera deck bottom-right with the 2×4 layer grid, search " +
+        "top-centre, the planned focal cone and direction radar drawn on the ground, time " +
         "rail along the bottom.",
       shell: "desktop",
     },
@@ -169,6 +171,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Press Enter for a deeper search when the suggestions miss.",
           "Click a result. The camera flies there.",
         ],
+        tip:
+          "The empty field tells you what it wants: SKY offers examples like m31 · moon · " +
+          "orion, EARTH a place name. On /m the field takes focus the moment the sheet opens.",
       },
       {
         id: "move-pin",
@@ -202,7 +207,25 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "A small chart of where you stand, your view drawn as a translucent cone. " +
           "Click the map itself to open [[fpv-map|the full MAP window]]. On /m, tap its " +
-          "edge button to collapse it to a folded-map puck when it covers the view.",
+          "edge button to collapse it to a folded-map puck when it covers the view. The " +
+          "[[target-radar|direction radar]] and [[fpv-cone|your focal cone]] draw on it too, " +
+          "and the [[move-aimstick|AIM stick]] sits in its corner on desktop.",
+      },
+      {
+        id: "move-aimstick",
+        title: "The AIM stick",
+        where: {
+          desktop: "Corner of the mini-map",
+          mobile: "Left rail — above the walk stick in first-person view",
+        },
+        body:
+          "A round stick that aims the SHOT, not the walk. Push left or right to swing the " +
+          "heading; push up to go telephoto, down to go wide. It reads out the focal length " +
+          "in millimetres under the pad, and [[fpv-cone|the cone]] follows it live on every " +
+          "surface. Inside first-person view it steers the real camera; outside, the plan.",
+        tip:
+          "It is a RATE control, like the desktop encoder knobs: how far you push sets how " +
+          "fast it turns, and letting go eases to a stop rather than snapping.",
       },
     ],
   },
@@ -217,8 +240,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     media: {
       src: "/guide/fpv.webp",
       caption:
-        "Standing at street level. HUD top-left reads position, focal, heading, pitch and " +
-        "eye height; the compact deck stays bottom-right.",
+        "Standing at street level. The HUD reads position, ground, focal, heading, pitch and " +
+        "eye height; the mini-map carries the radar and the AIM stick; the compact deck stays " +
+        "bottom-right; the moon's day arc crosses the sky.",
       shell: "desktop",
     },
     topics: [
@@ -256,7 +280,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         media: [
           {
             src: "/guide/fpv-m.webp",
-            caption: "Touch controls on /m: joystick bottom-left, rise/sink pads, HUD row.",
+            caption:
+              "Touch controls on /m: the AIM stick above the WALK stick on the left rail, " +
+              "rise and sink pads on the right, the HUD row under the status strip, the " +
+              "mini-map with its radar, and the tracked target's row above the dock.",
             shell: "mobile",
           },
         ],
@@ -271,6 +298,23 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "The frame zooms from a wide 80° down to a 2.75° super-telephoto. Zoom changes " +
           "what fits the frame — and with it every [[find|FIND]] answer.",
+      },
+      {
+        id: "fpv-cone",
+        title: "The focal cone",
+        where: {
+          desktop: "On the map, the mini-map and the globe",
+          mobile: "Same three surfaces",
+        },
+        body:
+          "A rose-coloured wedge drawn from where you stand, exactly as wide as your frame. " +
+          "Inside first-person view it mirrors the live camera; outside it, it draws the shot " +
+          "you are PLANNING — the heading and focal length the [[move-aimstick|AIM stick]] " +
+          "sets. It reads through the world rather than over it, so buildings stay legible " +
+          "under it. Widen the focal and the wedge opens; go telephoto and it narrows to a line.",
+        tip:
+          "The cone shows from the moment the app boots, so you always have a frame to aim " +
+          "before you pick a subject.",
       },
       {
         id: "fpv-hud",
@@ -294,6 +338,53 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         tip:
           "On /m the walk joystick keeps working over the fullscreen map. On desktop, " +
           "Esc closes the map first, then exits the view.",
+      },
+      {
+        id: "fpv-map-controls",
+        title: "Controls on the MAP",
+        where: {
+          desktop: "Top row of the map window",
+          mobile: "Right rail — pills, live view, ◉",
+        },
+        body:
+          "The top row carries the title, + and −, and on desktop ✕ MINI-MAP. Below it on /m " +
+          "sits a live 3D window onto where you stand — tap it to go back there. Under that, " +
+          "the round ◉ button: muted while the chart is following you, lit once you have " +
+          "explored away. The time strip keeps working along the bottom, so you can scrub the " +
+          "sky without closing the map.",
+        steps: [
+          "Drag the chart anywhere — it now STAYS there. Walking will not pull it back.",
+          "Watch ◉ light up: that is the map telling you it is no longer following.",
+          "Tap ◉ to centre on yourself again and hand the follow back.",
+          "On /m, walk with the joystick — it keeps working over the fullscreen map.",
+          "Tap the live 3D window (or press Esc on desktop) to leave the map.",
+        ],
+        tip:
+          "Closing and reopening the map also hands the follow back — ◉ is the way to do it " +
+          "without losing your place.",
+        media: [
+          {
+            src: "/guide/fpv-map.webp",
+            caption:
+              "The expanded MAP on /m: MAP and ± pills top-left, the live 3D window top-right, " +
+              "the lit ◉ on the right edge after a pan, AIM over WALK on the left rail, your " +
+              "focal cone and radar drawn on the chart, and the time strip above the credit line.",
+            shell: "mobile",
+          },
+        ],
+      },
+      {
+        id: "fpv-map-gestures",
+        title: "Turn and zoom the MAP",
+        where: { desktop: "Wheel · drag", mobile: "Two fingers" },
+        body:
+          "Two fingers TWIST the chart to any bearing — N on the radar rim turns with it, so " +
+          "you always know which way is north. The pinch is continuous rather than stepped: " +
+          "the chart scales smoothly between levels instead of jumping. On desktop the wheel " +
+          "steps whole levels and a drag pans.",
+        tip:
+          "While the chart is turned, the walk stick works SCREEN-relative: push up and you " +
+          "walk toward the top of the map, whatever bearing that is on the ground.",
       },
       {
         id: "fpv-height",
@@ -378,8 +469,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           mobile: "Date jump + ◀ ▶ day steppers on the dock",
         },
         body:
-          "Pick any date, type an exact time, or step by day and hour with the ◀ ▶ " +
-          "steppers. The rail also answers the arrow keys when focused.",
+          "Pick any date, type an exact time, or step by day and hour with the ◀ ▶ steppers. " +
+          "The rail also answers the arrow keys when focused. On /m the dock carries the same " +
+          "pair — your phone's own date picker and its own time picker — so an exact moment " +
+          "takes two taps instead of a scrub.",
       },
       {
         id: "time-play",
@@ -402,8 +495,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     media: {
       src: "/guide/target.webp",
       caption:
-        "The TARGET panel with the moon tracked: object card, toggles, ghost chain across " +
-        "the sky.",
+        "The TARGET panel with the moon tracked: the object card, the GOTO · SHOW · MARK · " +
+        "TRAIL row, GHOSTS and TRACK, FIND IN FRAME and UNFOLLOW — and the banded direction " +
+        "radar on the ground below.",
       shell: "desktop",
     },
     topics: [
@@ -468,8 +562,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "BREAKS where buildings or terrain hide that body. The sky menu's ∠ DIRECTION " +
           "rows toggle single bodies.",
         tip:
-          "On desktop the radar appears below about 10 km of altitude — climb higher and " +
-          "it stands down.",
+          "On desktop the radar appears below about 10 km of altitude — climb higher and it " +
+          "stands down. On /m it draws smaller and the bands sit closer in, so it reads " +
+          "against a phone screen without swallowing the map.",
       },
       {
         id: "target-menu",
@@ -862,8 +957,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "back north. 🧭 MY LOC flies the chart to your device fix and arms " +
           "◎ LOOK FROM HERE.",
         tip:
-          "Buildings exist only in 3D — the ▦ 3D DETAIL toggle stands down while the " +
-          "chart is flat.",
+          "Buildings exist only in 3D — ▦ 3D DETAIL stands down while the chart is flat, " +
+          "which is also why the chart shows satellite imagery as photographed and one zoom " +
+          "level deeper than the globe.",
       },
       {
         id: "mobile-layout",

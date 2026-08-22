@@ -1,5 +1,17 @@
 # UX BATCH #4 — owner's post-real-device list (2026-08-21) — 15 items, mobile-heavy
 
+> **ARCHIVED 2026-08-22 (audit #3 D8).** Owner batch #4 shipped COMPLETE — S1 + S2 + S3, 18/18
+> items, DECISIONS 2026-08-21 / 21b / 21c. This file is kept for provenance (the as-built specs
+> and the design rationale behind the radar bands, the focal cone and the aim joystick); it is
+> **not** a live plan and its "next" language is historical.
+>
+> Where its still-live content now lives — the archive move waited on these landing first:
+> · `public/sw.js` (the iOS tile cache) → **ARCHITECTURE.md §7** (D1) and
+>   `conventions/contracts.md §7` (D7)
+> · the batch's TUNABLES (`AIMCONES.band*`, `FOCALCONE.*`, `GROUND.overlayResolution*`,
+>   `QUALITY.leanMobile.*`) → **`conventions/globe-tuning.md`** (D5)
+> · the DEV seams and `ftw:*` keys it introduced → **`conventions/contracts.md` §2/§3** (D7)
+
 Owner order: ALL 15 items required, no priority given, "don't break what's built", multi-session
 expected. Organized here into 6 tracks / 3 sessions. Evidence: 4 parallel scouts 2026-08-21
 (radar/aim · map/windows · mobile shell · tile network), all claims file:line-cited in the
@@ -46,8 +58,8 @@ session log + `mem:project/wip-2026-08-21-owner-uxbatch4`.
 | B Overlay & chrome quick wins | 6 (ray far) · 7 (vector transparency+toggle) · 8 (find-in-frame toggle) · 12 (time dock) | **S1 ✓ SHIPPED 2026-08-21** |
 | C Desktop windows | 13 (MapWindow drag/−10%) · 14 (guide resize) | **S1 ✓ SHIPPED 2026-08-21** |
 | D Radar unify (design) | 9 (zones/bands/dials/focal cone everywhere) · 11 (focal joystick) · 4-rotation (MapWindow twist — same draw() rewrite) · 16 (street labels ×0.5) | **S2 ✓ SHIPPED 2026-08-21** |
-| E FPV⇄map continuity | 1 (PiP hole in MapWindow) | S3 (after D reshapes MapWindow) |
-| F Network & iOS stability | 15 (SW tile cache + demand shrink + force-cache care) · 5 (iOS resilience: contextlost/pagehide/lean profile/heat) | S3 |
+| E FPV⇄map continuity | 1 (PiP hole in MapWindow) | **S3 ✓ SHIPPED 2026-08-21c** (self-contradiction fixed 2026-08-22, audit #3 D8 — this row still read "S3 (after D reshapes MapWindow)" while §S3 below recorded the batch CLOSED 18/18) |
+| F Network & iOS stability | 15 (SW tile cache + demand shrink + force-cache care) · 5 (iOS resilience: contextlost/pagehide/lean profile/heat) | **S3 ✓ SHIPPED 2026-08-21c** (same fix) |
 
 S2 verification: gates 1,088/1,088 · astro 0 err/5 hints · `scripts/verify-uxbatch4.mjs` (S1
 regression) ALL PASS · NEW `scripts/verify-uxbatch4-s2.mjs` 15/15 both shells (shots

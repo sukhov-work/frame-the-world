@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  chartTransform,
   chartWalkAzRad,
   lonLatToTileF,
   metersPerTilePx,
+  rotFwd,
+  rotInv,
   tileFToLonLat,
   zoomForMetersPerPx,
 } from "../../../src/lib/geo/slippy";
@@ -100,8 +103,10 @@ describe("chartWalkAzRad — stick direction → compass azimuth on a twisted ch
       // direction of that world walk must be straight up (0, -1).
       const az = chartWalkAzRad(0, 1, rot);
       const tile = { x: Math.sin(az), y: -Math.cos(az) }; // tile Δ of a unit walk along az
-      const sx = tile.x * Math.cos(rot) - tile.y * Math.sin(rot);
-      const sy = tile.x * Math.sin(rot) + tile.y * Math.cos(rot);
+      // audit #3 C8: pushed through the SHIPPED forward transform (lib/geo/slippy.rotFwd,
+      // which MapWindow.xformNow now delegates to) — this used to be a hand-transcribed copy,
+      // so a sign flip in the app left this test green.
+      const [sx, sy] = rotFwd(tile.x, tile.y, rot);
       expect(sx).toBeCloseTo(0, 12);
       expect(sy).toBeCloseTo(-1, 12);
     }
@@ -117,8 +122,7 @@ describe("chartWalkAzRad — stick direction → compass azimuth on a twisted ch
       ] as const) {
         const az = chartWalkAzRad(x, y, rot);
         const tile = { x: Math.sin(az), y: -Math.cos(az) };
-        const sx = tile.x * Math.cos(rot) - tile.y * Math.sin(rot);
-        const sy = tile.x * Math.sin(rot) + tile.y * Math.cos(rot);
+        const [sx, sy] = rotFwd(tile.x, tile.y, rot); // the shipped transform (C8)
         const len = Math.hypot(x, y);
         // Screen +y is DOWN, the input's y is UP — the round-trip must reproduce the input.
         expect(sx).toBeCloseTo(x / len, 12);
@@ -129,5 +133,53 @@ describe("chartWalkAzRad — stick direction → compass azimuth on a twisted ch
 
   it("a quarter-turn twist (rot = π/2, chart twisted CCW) sends stick-up along west", () => {
     expect(norm(chartWalkAzRad(0, 1, Math.PI / 2))).toBeCloseTo((3 * Math.PI) / 2, 12);
+  });
+});
+
+/**
+ * AUDIT #3 C8 → T35 — the chart transform, hoisted out of MapWindow's effect closure so the
+ * walk test above round-trips through SHIPPED code. These pin the pair itself.
+ *
+ * Mutation that makes them RED: flip a sign in `chartTransform`, or drop the `scale` from
+ * either half (the inverse divides where the forward multiplies).
+ */
+describe("chartTransform — the ONE rotation-aware chart pair (C8)", () => {
+  it("fwd ∘ inv = identity at any twist and any tile scale", () => {
+    for (const rot of [0, 0.37, -1.9, Math.PI, 2 * Math.PI + 0.5]) {
+      for (const scale of [1, 256, 383.5]) {
+        const X = chartTransform(rot, scale);
+        for (const [vx, vy] of [
+          [1, 0],
+          [0, 1],
+          [-0.4, 2.3],
+          [3.75, -1.25],
+        ] as const) {
+          const [dx, dy] = X.fwd(vx, vy);
+          const [bx, by] = X.inv(dx, dy);
+          expect(bx).toBeCloseTo(vx, 10);
+          expect(by).toBeCloseTo(vy, 10);
+        }
+      }
+    }
+  });
+
+  it("north-up (rot 0) is a plain scale: tile north (−y) points UP the screen", () => {
+    const X = chartTransform(0, 256);
+    expect(X.fwd(0, -1)).toEqual([0, -256]); // north → screen up
+    expect(X.fwd(1, 0)).toEqual([256, 0]); // east → screen right
+  });
+
+  it("a quarter-turn twist maps tile north onto screen LEFT", () => {
+    const [dx, dy] = chartTransform(Math.PI / 2, 1).fwd(0, -1);
+    expect(dx).toBeCloseTo(1, 12); // R(+90°) of (0,−1) in a y-down basis
+    expect(dy).toBeCloseTo(0, 12);
+  });
+
+  it("the free functions delegate to the factory — one definition, no fork", () => {
+    for (const rot of [0.2, -1.1]) {
+      const X = chartTransform(rot, 17);
+      expect(rotFwd(2, -3, rot, 17)).toEqual(X.fwd(2, -3));
+      expect(rotInv(2, -3, rot, 17)).toEqual(X.inv(2, -3));
+    }
   });
 });

@@ -1,6 +1,7 @@
 // UPGRADE flow probe: sign in as the test member, click the nav UPGRADE chip, and confirm
 // the redirect session opens the Wix-hosted PLAN checkout for the owner's plan id.
 import { readFileSync, writeFileSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 import { createClient, OAuthStrategy } from "@wix/sdk";
 
 const APP = "http://localhost:4321";
@@ -49,6 +50,8 @@ console.log("member session minted:", tokens.refreshToken.role);
 const http = (path, method = "GET") => fetch(`http://127.0.0.1:${CDP}${path}`, { method }).then((r) => r.json());
 let target;
 try { target = await http("/json/new?about:blank", "PUT"); } catch { target = await http("/json/new?about:blank", "GET"); }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 let seq = 0; const pending = new Map(); const nav = [];
@@ -78,3 +81,4 @@ const s = await send("Page.captureScreenshot", { format: "jpeg", quality: 82 });
 writeFileSync("verify-shots/phase69-06-plan-checkout.jpeg", Buffer.from(s.data, "base64"));
 console.log("shot: verify-shots/phase69-06-plan-checkout.jpeg");
 ws.close();
+await finishVerify(0); // audit #3 C11: return the CDP target

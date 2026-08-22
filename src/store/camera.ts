@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { UrlFpvPose } from "../lib/geo/urlPose";
+import { clampPlannedView } from "../lib/geo/plannedView";
 import { loadViewPrefs, saveViewPref } from "../lib/prefs";
+import { FOCALCONE } from "../components/globe/tuning";
 
 /**
  * Camera control seams — tilt (declination), heading (rotate-in-place) and zoom (altitude) — the
@@ -360,7 +362,13 @@ export const useCameraStore = create<CameraState>((set) => ({
   setZoomRate: (perS) => set({ zoomRatePerS: perS }),
   setFovRate: (perS) => set({ fovRatePerS: perS }),
   plannedView: null,
-  setPlannedView: (v) => set({ plannedView: v }),
+  // audit #3 A2-3 / T39: the ONE place the planned view's range contract is enforced. Four of
+  // the seven writers piped a raw horizontalFovDeg() through (measured 1.27° and 122.4°); the
+  // clamp lives here so an eighth writer inherits it instead of re-deriving it.
+  setPlannedView: (v) =>
+    set({
+      plannedView: v && clampPlannedView(v, FOCALCONE.minHFovDeg, FOCALCONE.maxHFovDeg),
+    }),
   plannedRates: null,
   setPlannedRates: (r) => set({ plannedRates: r }),
   fpvWalkInput: null,

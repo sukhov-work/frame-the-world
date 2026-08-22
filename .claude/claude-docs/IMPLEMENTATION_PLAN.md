@@ -268,7 +268,10 @@ per-sub-phase gate.
 **DoD per sub-phase:** lib math unit-tested against literature vectors · desktop surface
 browser-verified · gates green (`npm test` + `astro check` + `wix build`) · shipped features and
 perf regression-free (frozen chrome untouched) · only then does the mobile twin unblock.
-**Permanently out (owner 2026-08-11, unchanged):** Gaia-depth catalogs · GOTO · tides/rainbow ·
+**Permanently out (owner 2026-08-11, unchanged):** Gaia-depth catalogs · **telescope GOTO**
+(mount control / ASCOM-INDI slewing — disambiguated 2026-08-22, audit #3 D14: the SHIPPED
+`GOTO` pill on the TargetPanel and the viewport chips aims the app's own CAMERA at a tracked
+body and is emphatically not this) · tides/rainbow ·
 Skyfire · the Phase-7 AI panel.
 
 ---

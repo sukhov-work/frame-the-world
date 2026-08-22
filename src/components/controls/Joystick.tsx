@@ -136,6 +136,14 @@ export function AimJoystick({ variant }: { variant: "map" | "minimap" | "fpv" })
       if (!cam.plannedView) {
         // First touch with no plan yet: seed from the current view heading + the temp-FPV
         // default focal at the live viewport aspect (the jump-seed idiom).
+        // ENGINE-ABSENT GUARD, kept deliberately (audit #3 A2-4/A1-12, dated 2026-08-22): since
+        // the batch-#6 boot seed, `plannedView` is non-null by the first non-FPV orchestrator
+        // frame and nothing ever writes null back, so this branch is unreachable in the shipped
+        // configuration. It stays because a build without PUBLIC_CESIUM_ION_TOKEN never attaches
+        // the orchestrator (the sticks still mount) and a `#f=` FPV boot defers the seed to the
+        // first exit. The aspect comes from the window rather than `camera.aspect` because this
+        // leaf has no camera — and GlobeCanvas.onResize sets `camera.aspect` to exactly this
+        // ratio, so the two agree by construction.
         cam.setPlannedView({
           headingDeg: cam.headingDeg,
           hFovDeg: horizontalFovDeg(

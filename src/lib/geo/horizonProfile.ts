@@ -92,6 +92,51 @@ export function isBlocked(p: HorizonProfile, azDeg: number, altDeg: number): boo
   return altDeg < sampleProfile(p, azDeg);
 }
 
+/** Everything a radar surface knows about the mirrored profile, at the moment it paints. */
+export interface SkylineGate {
+  /** `store/plan.profileReady`. */
+  ready: boolean;
+  /** `store/plan.profileBins` — the mirrored per-bin skyline, or null. */
+  bins: readonly number[] | null;
+  /** `store/plan.profileCoverage` — fraction of bins with real evidence, 0..1. */
+  coverage: number;
+  /** The eye the profile was SWEPT at (photo apex / FPV eye). `null` — or a "focus" anchor,
+   *  which owns no profile — means there is nothing to claim. */
+  eye: { latDeg: number; lonDeg: number } | null;
+  /** Where this surface's radar is seated. */
+  anchor: { latDeg: number; lonDeg: number };
+  /** `AIMCONES.skylineGuardM` — how far the radar may sit from the swept eye. */
+  guardM: number;
+  /** `PLAN.minCoverageForGaps` — the evidence floor below which no gap is claimed. */
+  minCoverage: number;
+}
+
+/**
+ * THE skyline-gap gate — one rule, three radar surfaces (audit #3 A1-16, 2026-08-22).
+ *
+ * Returns the bins a radar may fracture its bands with, or `null` for "make no skyline claim".
+ * Three conditions, all of them the HONESTY CONTRACT above:
+ *
+ *  1. **a profile exists** and was swept at a real eye (a `focus` anchor never owns one);
+ *  2. **the eye is this radar's eye** — within `guardM`. A far-away eye must not lend its
+ *     skyline to another point's radar;
+ *  3. **NEW — the profile has enough evidence.** `profileCoverage` reached `planFeed`, the
+ *     store and the two PLAN panels, and was consulted by NO radar surface: a 15 %-covered
+ *     profile drew its gaps with exactly the authority of a complete one. The gaps themselves
+ *     are true (an unswept azimuth cannot fracture a band), so this was an under-claim rather
+ *     than a lie — but the *absence* of a gap in the other 85 % is ignorance drawn as clear
+ *     sky, and that is the claim the contract forbids. Below the floor the surface falls back
+ *     to the path it already takes for a null sampler: unfractured bands, no gap claimed.
+ */
+export function skylineBinsFor(g: SkylineGate): readonly number[] | null {
+  if (!g.ready || !g.bins || !g.eye) return null;
+  if (g.coverage < g.minCoverage) return null;
+  const dN = (g.anchor.latDeg - g.eye.latDeg) * 111_320;
+  const dE =
+    (g.anchor.lonDeg - g.eye.lonDeg) * 111_320 * Math.cos((g.anchor.latDeg * Math.PI) / 180);
+  return dN * dN + dE * dE <= g.guardM * g.guardM ? g.bins : null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Terrain march
 // ---------------------------------------------------------------------------------------------

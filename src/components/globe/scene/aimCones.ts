@@ -3,9 +3,18 @@ import { tokens } from "../../../lib/theme/tokens";
 import { AIMCONES } from "../tuning";
 import { fractureRunsBySkyline, sampleAimDay, type AimDay } from "../../../lib/ephemeris/azSector";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../../lib/ephemeris/targets";
-import { enuBasis, geodeticToEcef } from "../../../lib/geo/projection";
 import { sampleBins } from "../../../lib/geo/horizonProfile";
+import { bandFor, bandFutureInk } from "../../../lib/geo/radarBands";
 import { clampGroundM } from "../../../lib/geo/terrain";
+// audit #3 A1-8 / T35: the flat material, the tangent-plane root + seat, the presence ramp and
+// the fade step are the SHARED planning-overlay grammar (scene/focalCone is the twin).
+import {
+  easeFade,
+  makeFlatOverlayMaterial,
+  makeTangentGroup,
+  presenceForAlt,
+  seatTangentGroup,
+} from "./tangentOverlay";
 
 /**
  * Map direction lines + visibility cones (UPLIFT U4, owner point 3): from the plan anchor,
@@ -107,59 +116,17 @@ function makeSectorMaterial(futureHex: string): THREE.ShaderMaterial {
   });
 }
 
-/** Direction-line material — flat body-identity colour with a runtime alpha (paling). */
-function makeLineMaterial(color: string): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    depthTest: false,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uColor: { value: new THREE.Color(color) },
-      uAlpha: { value: 0 },
-    },
-    vertexShader: /* glsl */ `
-      void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uAlpha;
-      void main() {
-        if (uAlpha < 0.003) discard;
-        gl_FragColor = vec4(uColor, uAlpha);
-        #include <colorspace_fragment>
-      }`,
-  });
-}
+/** Direction-line material — flat body-identity colour with a runtime alpha (paling). THE
+ *  shared planning-overlay flat material since audit #3 A1-8 / T35 (scene/focalCone shipped a
+ *  byte-identical `makeFlatMaterial`). */
+const makeLineMaterial = makeFlatOverlayMaterial;
 
 const DEG = Math.PI / 180;
 
-/** Per-body annular band [inner, outer] as unit-radius fractions (pure — unit-tested; the
- *  MapWindow canvas twin + minimap radar consume the SAME allocation, one geometry model).
- *  On /m the sun/moon rings sit ~20% closer to the centre (owner batch #5 item 2). */
-export function bandFor(
-  key: "target" | "sun" | "moon",
-  mobile = false,
-): readonly [number, number] {
-  return key === "sun"
-    ? mobile
-      ? AIMCONES.bandSunMobile
-      : AIMCONES.bandSun
-    : key === "moon"
-      ? mobile
-        ? AIMCONES.bandMoonMobile
-        : AIMCONES.bandMoon
-      : mobile
-        ? AIMCONES.bandTargetMobile
-        : AIMCONES.bandTarget;
-}
-
-/** Band FUTURE ink per body (owner item 17, 2026-08-21b): the sun/moon bands wear their BODY
- *  colour on the still-to-come part (sunGlow / moonDial silver) against the shared inert-grey
- *  past; the target band keeps the scrubber future-blue. Pure — unit-tested; the MapWindow
- *  canvas twin + minimap radar apply the SAME rule (per-body ink is already on their models). */
-export function bandFutureInk(key: "target" | "sun" | "moon"): string {
-  return key === "sun" ? tokens.sunGlow : key === "moon" ? tokens.moonDial : tokens.timeFuture;
-}
+/** The band model moved to `lib/geo/radarBands` (audit #3 A1-7 / T35, 2026-08-22) — it was
+ *  hand-copied into BOTH canvas surfaces with no fence. Re-exported here so this module's
+ *  existing consumers and tests are untouched; `lib/geo/radarBands` is the one definition. */
+export { bandFor, bandFutureInk };
 
 /**
  * Terrain-seat ease (pure twin — tested). A null probe keeps the last seat; the FIRST finite
@@ -183,10 +150,7 @@ export function attachAimCones(opts: {
   scene: THREE.Scene;
   terrainHeightAt: (latDeg: number, lonDeg: number) => number | null;
 }): AimConesHandle {
-  const group = new THREE.Group();
-  group.visible = false;
-  group.matrixAutoUpdate = false;
-  opts.scene.add(group);
+  const group = makeTangentGroup(opts.scene);
 
   const bodies = (
     [
@@ -287,10 +251,6 @@ export function attachAimCones(opts: {
   let fade = 0;
   let radius = 0; // m — raw zoom function, recomputed every frame (see the update() note)
   let groundM = Number.NaN; // eased terrain seat at the anchor (NaN = unseeded)
-  const _ecef = new THREE.Vector3();
-  const _e = new THREE.Vector3();
-  const _n = new THREE.Vector3();
-  const _u = new THREE.Vector3();
 
   const targetFor = (key: AimKey, tracked: SkyTarget): SkyTarget =>
     key === "target" ? tracked : bodyTarget(key);
@@ -369,14 +329,9 @@ export function attachAimCones(opts: {
     update({ sceneMs, anchor, alt, band, enabled, target, aim, mobile, skylineBins, dtMs }) {
       mobileNow = mobile;
       const anyOn = aim.target || aim.sun || aim.moon;
-      const presence =
-        alt >= band.topAltM
-          ? 0
-          : alt <= band.fullAltM
-            ? 1
-            : 1 - (alt - band.fullAltM) / (band.topAltM - band.fullAltM);
+      const presence = presenceForAlt(alt, band);
       const want = enabled && anyOn && anchor !== null && presence > 0;
-      fade += ((want ? 1 : 0) - fade) * (1 - Math.exp(-dtMs / AIMCONES.fadeTauMs));
+      fade = easeFade(fade, want, dtMs, AIMCONES.fadeTauMs);
       if (fade < 0.01 && !want) {
         group.visible = false;
         return;
@@ -398,7 +353,12 @@ export function attachAimCones(opts: {
           anchorLon = anchor.lonDeg;
           builtTargetId = target.id;
           skylineNow = skylineBins;
-          groundM = Number.NaN; // re-seat at the new anchor
+          // audit #3 A1-5: ONLY a real anchor move invalidates the terrain seat. The other three
+          // triggers (day-cross, target swap, skyline arrival) rebuild the az GEOMETRY at the
+          // SAME point — dropping the seat there re-enters the unseeded state, and if
+          // terrainHeightAt happens to return null at that instant the whole radar snaps to
+          // ellipsoid 0 and pops underground until tiles answer again.
+          if (moved) groundM = Number.NaN; // re-seat at the new anchor
           for (const b of bodies) {
             rebuildBody(
               b,
@@ -433,16 +393,7 @@ export function attachAimCones(opts: {
 
         // Seat the group at the LIVE anchor — only the az curves ride the rebuild deadband
         // (azimuths barely move over 2 km; the seat visibly does).
-        const basis = enuBasis(anchor.latDeg, anchor.lonDeg);
-        const [x, y, z] = geodeticToEcef(
-          anchor.latDeg,
-          anchor.lonDeg,
-          Number.isNaN(groundM) ? 0 : groundM,
-        );
-        _e.set(basis.east[0], basis.east[1], basis.east[2]).multiplyScalar(radius);
-        _n.set(basis.north[0], basis.north[1], basis.north[2]).multiplyScalar(radius);
-        _u.set(basis.up[0], basis.up[1], basis.up[2]).multiplyScalar(radius);
-        group.matrix.makeBasis(_e, _n, _u).setPosition(_ecef.set(x, y, z));
+        seatTangentGroup(group, anchor.latDeg, anchor.lonDeg, groundM, radius);
       }
       group.visible = true;
 

@@ -17,6 +17,7 @@
 //   6. Item 6 reverse — DESKTOP chip carries the live hash back to /?d=1
 // Screenshots land in verify-shots/ (git-ignored).
 import { writeFileSync, mkdirSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
 const SHOTS = process.argv[3] ?? "verify-shots";
@@ -42,6 +43,8 @@ async function attach() {
   } catch {
     target = await http("/json/new?about:blank", "GET");
   }
+  // audit #3 C11: register for close — an abandoned target holds a WebGL context.
+  trackTarget(PORT, target.id);
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((res, rej) => ((ws.onopen = res), (ws.onerror = rej)));
   let seq = 0;
@@ -184,10 +187,14 @@ if (chipRect) {
   );
   const pipPublished = await m.evalJs(`window.__minimapStore.getState().pipRect !== null`);
   check("/m: PiP rect published to the engine (scaled pass armed)", pipPublished === true);
+  // audit #3 C16: the `|| "absent"` escape hatch is GONE. The rule this pins is exactly
+  // `body.m.mw-open .mm { visibility: hidden }` — the card must STAY MOUNTED (and subscribed)
+  // and merely be invisible. Accepting "absent" made a `display: none` regression, or a
+  // renamed class, pass silently — on the one thing the check exists to disprove.
   const mmHidden = await m.evalJs(
-    `(() => { const el = document.querySelector(".mm"); return el ? getComputedStyle(el).visibility : "absent"; })()`,
+    `(() => { const el = document.querySelector(".mm"); return el ? getComputedStyle(el).visibility : null; })()`,
   );
-  check("/m: minimap card hidden under the map (no minimap-in-minimap)", mmHidden === "hidden" || mmHidden === "absent", mmHidden);
+  check("/m: minimap card MOUNTED but hidden under the map (no minimap-in-minimap)", mmHidden === "hidden", String(mmHidden));
   await m.shoot("uxb5-04-m-pip-miniature");
 
   // Item 4 — long-press on the chart places the pin and STAYS in the map. Press point must
@@ -221,4 +228,4 @@ if (chipRect) {
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
-process.exit(failures === 0 ? 0 : 1);
+await finishVerify(failures === 0 ? 0 : 1);

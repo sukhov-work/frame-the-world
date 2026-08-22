@@ -3,9 +3,14 @@ import { horizontal } from "../../../src/lib/ephemeris/bodies";
 import { localDayWindow } from "../../../src/lib/ephemeris/dayArc";
 import {
   CIVIL_TWILIGHT_DEG,
+  clampObserverElevationM,
   dayEvents,
   goldenElevationsDeg,
   moonPhaseEvents,
+  OBSERVER_MAX_ELEV_M,
+  OBSERVER_MAX_EYE_M,
+  OBSERVER_MIN_ELEV_M,
+  planElevationsM,
   skylineState,
   targetSkylineState,
   type PlanEvent,
@@ -219,5 +224,81 @@ describe("targetSkylineState — any tracked SkyTarget vs the profile (ASTRO ENG
     const pit = targetSkylineState(VEGA, SOLSTICE_NOON_MS, DNIPRO, () => -90);
     expect(pit.blockedNow).toBe(false);
     expect(pit.nextBlockMs).toBeNull();
+  });
+});
+
+/**
+ * T32 (audit #3 F1, fixed 2026-08-22) — the OBSERVER ELEVATION range contract.
+ *
+ * The planner is fed the LIVE camera height. In the 2D shell the camera sits at LEO, so
+ * `groundAltM + eyeAboveGroundM` reaches millions of metres, and astronomy-engine's
+ * `Atmosphere()` — reached from every rise/set search through the Observer's elevation — throws
+ * `Invalid elevation` above +100 km. It was browser-caught during the U6 verify and survived
+ * only because the orchestrator's throttled frame catch swallowed it.
+ *
+ * Mutation that makes these RED: delete `OBSERVER_MAX_ELEV_M` from `clampObserverElevationM`
+ * (i.e. go back to the bare `Math.max(-400, …)`). The LEO case then throws exactly the string
+ * the positive control below pins, and the clamp cases return the raw input.
+ */
+describe("observer elevation clamp (T32)", () => {
+  it("clamps both ends and rejects non-finite input", () => {
+    expect(clampObserverElevationM(0)).toBe(0);
+    expect(clampObserverElevationM(1_234)).toBe(1_234);
+    expect(clampObserverElevationM(-9_999)).toBe(OBSERVER_MIN_ELEV_M);
+    expect(clampObserverElevationM(500_000)).toBe(OBSERVER_MAX_ELEV_M);
+    // The exact LEO value the 2D shell produces — far past the library's own +100 km limit.
+    expect(clampObserverElevationM(6_000_000)).toBe(OBSERVER_MAX_ELEV_M);
+    expect(clampObserverElevationM(Number.NaN)).toBe(0);
+    expect(clampObserverElevationM(Number.POSITIVE_INFINITY)).toBe(0);
+    // The band must stay INSIDE the library's own [-500, +100000] or the clamp buys nothing.
+    expect(OBSERVER_MIN_ELEV_M).toBeGreaterThan(-500);
+    expect(OBSERVER_MAX_ELEV_M).toBeLessThan(100_000);
+  });
+
+  it("the eye the rise/set search SUBTRACTS lands in band too", async () => {
+    // SearchRiseSet builds a SECOND observer at `obsM − eyeM` and runs THAT through Atmosphere.
+    // Clamping only the observer left `10_000 − 6_000_000` and still threw; this pins the pair.
+    const { Atmosphere } = await import("astronomy-engine");
+    const cases: [number, number][] = [
+      [100, 2], // the ordinary Dnipro fixture
+      [-400, 0], // Dead-Sea floor, eye on the ground
+      [9_000, 10_000], // both near their ceilings — the sum clips
+      [10_000_000, 6_000_000], // the LEO case that browser-caught during the U6 verify
+      [-1_000_000, -5], // absurd negatives (a bad terrain sample) and a negative eye
+      [Number.NaN, Number.NaN],
+    ];
+    for (const [groundAltM, eyeAboveGroundM] of cases) {
+      const { obsM, eyeM } = planElevationsM({ latDeg: 0, lonDeg: 0, groundAltM, eyeAboveGroundM });
+      expect(eyeM).toBeGreaterThanOrEqual(0);
+      expect(eyeM).toBeLessThanOrEqual(OBSERVER_MAX_EYE_M);
+      expect(obsM).toBeGreaterThanOrEqual(OBSERVER_MIN_ELEV_M);
+      expect(obsM).toBeLessThanOrEqual(OBSERVER_MAX_ELEV_M);
+      expect(() => Atmosphere(obsM)).not.toThrow();
+      expect(() => Atmosphere(obsM - eyeM)).not.toThrow(); // the ground observer
+    }
+  });
+
+  it("POSITIVE CONTROL: astronomy-engine really does throw at the un-clamped LEO elevation", async () => {
+    const { Atmosphere } = await import("astronomy-engine");
+    expect(() => Atmosphere(6_000_000)).toThrow(/Invalid elevation/);
+    expect(() => Atmosphere(Number.NaN)).toThrow(/Invalid elevation/);
+    // …and does NOT throw at the clamped value, so the clamp is a sufficient fix.
+    expect(() => Atmosphere(clampObserverElevationM(6_000_000))).not.toThrow();
+  });
+
+  it("a full almanac from LEO returns instead of throwing", () => {
+    const leo: PlanObserver = { ...DNIPRO, eyeAboveGroundM: 6_000_000 };
+    expect(() => dayEvents(SOLSTICE_NOON_MS, leo, CURVE)).not.toThrow();
+    expect(() => moonPhaseEvents(SOLSTICE_NOON_MS, leo)).not.toThrow();
+    // Still a real almanac — the clamp must not empty it out.
+    expect(dayEvents(SOLSTICE_NOON_MS, leo, CURVE).length).toBeGreaterThan(0);
+    // At the 10 km ceiling the sun rises EARLIER than at ground level (a deeper horizon dip),
+    // which also proves the elevation is still reaching the search at all.
+    const rise = (o: PlanObserver) =>
+      dayEvents(SOLSTICE_NOON_MS, o, CURVE).find((e) => e.kind === "sunrise")?.utcMs ?? null;
+    const [hi, lo] = [rise(leo), rise(DNIPRO)];
+    expect(hi).not.toBeNull();
+    expect(lo).not.toBeNull();
+    expect(hi!).toBeLessThan(lo!);
   });
 });

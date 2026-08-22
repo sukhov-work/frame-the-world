@@ -2,6 +2,7 @@
 // Asserts: no cinematic entry flight, no "entering" state, journey goes straight to
 // cruising, motion is continuous (no pose snaps), cruise omega in the doubled band.
 import { writeFileSync } from "node:fs";
+import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9333";
 const URL = "http://localhost:4321/";
@@ -16,6 +17,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 
@@ -154,4 +157,4 @@ if (maxFwdStepDegPerS > 25) failures.push(`look snap: ${maxFwdStepDegPerS.toFixe
 if (minTiltDeg < 35) failures.push(`nadir dip: tilt fell to ${minTiltDeg.toFixed(1)} deg`);
 console.log(failures.length ? "FAIL: " + failures.join("; ") : "PASS");
 ws.close();
-process.exit(failures.length ? 1 : 0);
+await finishVerify(failures.length ? 1 : 0);

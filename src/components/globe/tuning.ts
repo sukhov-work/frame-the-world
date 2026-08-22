@@ -2058,7 +2058,8 @@ export const AIMCONES = {
   /** EMPHASIS-swap ease (ms) — a focus tap breathes. The RADIUS deliberately does NOT ease
    *  (owner 2026-08-18: the circle must resize in lockstep with the wheel/pinch — the clamp is
    *  continuous in alt, so the raw value is already smooth). Since batch #4 S2 emphasis gates
-   *  FILL + rim brightness only (band radii are fixed — compactK retired). */
+   *  the FILL WASH ONLY (band radii are fixed — compactK retired). Corrected by audit #3 A2-6:
+   *  the rim carries NO emphasis term — `rimMat.uAlpha = AIMCONES.rimAlpha × overlayA`. */
   emphTauMs: 180,
   /** Concentric band allocation (unit-radius [inner, outer] fractions — owner batch #4 item 9,
    *  REORDERED + COMPACTED batch #6 2026-08-21e): MOON innermost, SUN directly above it, the
@@ -2415,6 +2416,14 @@ export const PLAN = {
    *  per-frame cost of a profile build (~1–4 ms each on M3); raise to build faster. */
   terrainBinsPerFrame: 3,
   meshesPerFrame: 2,
+  /** Evidence floor for CLAIMING skyline gaps on a radar surface (fraction of bins with real
+   *  evidence — `profileCoverage`). Added by audit #3 A1-16: no radar consulted coverage, so a
+   *  15 %-covered profile fractured its bands with the authority of a complete one. The gaps
+   *  drawn are true, but the CLEAR sky between them is ignorance, not knowledge — below this
+   *  floor the surfaces take the same path a missing profile already takes (unfractured bands,
+   *  no claim). 0.5 = "at least half the horizon has actually been swept"; the PLAN panels'
+   *  own numeric coverage readout is unaffected, it reports the truth at any value. */
+  minCoverageForGaps: 0.5,
   /** FPV eye drift (m) that invalidates the cached profile (arrow-key walking rebuilds). */
   rebuildDistM: 25,
   /** Default eye height above ground (m) when the anchor has no better answer (focus chips). */

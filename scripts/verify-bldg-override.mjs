@@ -14,6 +14,7 @@
 //   7. /m: double-tap arms + touch drag commits (the glass twin)
 // Screenshots in verify-shots/ (git-ignored).
 import { writeFileSync, mkdirSync } from "node:fs";
+import { trackTarget, finishVerify, VerifyFailure } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9333";
 const SHOTS = process.argv[3] ?? "verify-shots";
@@ -31,6 +32,8 @@ try {
 } catch {
   target = await http("/json/new?about:blank", "GET");
 }
+// audit #3 C11: register for close — an abandoned target holds a WebGL context.
+trackTarget(PORT, target.id);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 
@@ -62,9 +65,12 @@ const shoot = async (name) => {
   writeFileSync(`${SHOTS}/${name}`, Buffer.from(shot.data, "base64"));
   console.log(`shot: ${SHOTS}/${name}`);
 };
+/** audit #3 C11: THROW rather than `process.exit` — the throw unwinds to the cleanup handler
+ *  in verify-cdp-cleanup.mjs, which closes this script's CDP target and exits 1. (An `await
+ *  finishVerify()` here would NOT do: every call site is `if (x) fail(...)` with no await, so
+ *  an async fail would let the script carry on past its own failure.) */
 const fail = (msg) => {
-  console.error(`FAIL: ${msg}`);
-  process.exit(1);
+  throw new VerifyFailure(msg);
 };
 
 const ARMED = "window.__bldgEditStore ? window.__bldgEditStore.getState().armed : null";
@@ -294,3 +300,4 @@ console.log(
   `PASS: arm(dblclick+double-tap) · claimed drag (ghost, yaw pinned) · commit (mesh+storage, scale ${committedScale.toFixed(2)}) · RESET · Esc-in-FPV · reload re-apply · /m twin`,
 );
 ws.close();
+await finishVerify(0); // audit #3 C11: return the CDP target on the success path too

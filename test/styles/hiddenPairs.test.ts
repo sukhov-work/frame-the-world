@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { esc, read } from "./_css"; // audit #3 C18 — these were triplicated across test/styles
 
 /**
  * The `[hidden]` display trap (audit-2 C2(f); pinchHardening idiom): any authored
@@ -12,9 +11,6 @@ import { describe, expect, it } from "vitest";
  * display-styled element ships.
  */
 
-const root = join(__dirname, "..", "..");
-const read = (p: string) => readFileSync(join(root, p), "utf8");
-
 describe("[hidden] companion rules — audited pair list", () => {
   const pairs: Array<[file: string, selector: string]> = [
     ["src/pages/index.astro", ".m-banner"], // mobile-suggestion banner (M0 2026-08-13)
@@ -22,8 +18,7 @@ describe("[hidden] companion rules — audited pair list", () => {
 
   it.each(pairs)("%s: %s[hidden] forces display:none", (file, selector) => {
     const css = read(file);
-    const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    expect(css).toMatch(new RegExp(`${esc}\\[hidden\\]\\s*{[^}]*display:\\s*none`));
+    expect(css).toMatch(new RegExp(`${esc(selector)}\\[hidden\\]\\s*{[^}]*display:\\s*none`));
   });
 
   it("the pair list covers every hidden-toggled element that gets a display style (index.astro)", () => {

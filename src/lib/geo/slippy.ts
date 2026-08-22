@@ -46,6 +46,46 @@ export function zoomForMetersPerPx(
   return Math.min(maxZ, Math.max(minZ, Math.round(z)));
 }
 
+/**
+ * THE chart rotation transform (audit #3 C8 → T35, hoisted 2026-08-22).
+ *
+ * The expanded chart can be TWISTED with two fingers (batch #4 item 4b), and every consumer —
+ * the tile blit, the pan, point→lat/lon, tap-promote, the radar and the focal cone — runs
+ * through one rotation-aware pair. That pair lived inside a `useEffect` closure in
+ * `panels/MapWindow`, which made it UNIMPORTABLE: `chartWalkAzRad`'s round-trip test had to
+ * hand-transcribe it, so a sign flip in the app would have left the test green. It is the same
+ * arithmetic, lifted here and delegated to.
+ *
+ * Tile space is east +x, **SOUTH +y** (so north is −y at rot 0); `scale` is device px per tile.
+ * Forward: `screen = R(rot) · tileΔ · scale`. Inverse rides the transpose.
+ */
+export interface ChartTransform {
+  readonly rotRad: number;
+  readonly scale: number;
+  /** Tile-space delta from centre → device-px delta from canvas centre. */
+  fwd(vx: number, vy: number): [number, number];
+  /** Device-px delta from canvas centre → tile-space delta (Rᵀ). */
+  inv(dx: number, dy: number): [number, number];
+}
+
+export function chartTransform(rotRad: number, scale: number): ChartTransform {
+  const cos = Math.cos(rotRad);
+  const sin = Math.sin(rotRad);
+  return {
+    rotRad,
+    scale,
+    fwd: (vx, vy) => [(vx * cos - vy * sin) * scale, (vx * sin + vy * cos) * scale],
+    inv: (dx, dy) => [(dx * cos + dy * sin) / scale, (-dx * sin + dy * cos) / scale],
+  };
+}
+
+/** One-shot forward/inverse (the test + any caller that doesn't hold a transform). The factory
+ *  above is the ONE definition — these delegate so the pair cannot fork. */
+export const rotFwd = (vx: number, vy: number, rotRad: number, scale = 1): [number, number] =>
+  chartTransform(rotRad, scale).fwd(vx, vy);
+export const rotInv = (dx: number, dy: number, rotRad: number, scale = 1): [number, number] =>
+  chartTransform(rotRad, scale).inv(dx, dy);
+
 /** QA slice B (owner 2026-08-21g-end): SCREEN-relative walk on the expanded chart — the
  *  compass azimuth (rad) a screen-space walk input steers toward on a chart twisted by
  *  `rotRad` (screen-CCW; MapWindow `view.rot`). Input is (x right, y UP) — the joystick/arrow
