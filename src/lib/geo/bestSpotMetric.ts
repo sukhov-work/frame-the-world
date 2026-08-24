@@ -62,6 +62,22 @@
  *     geometry. §10 S1's first done-check would have become a check that cannot fail, which is the
  *     precise failure mode this repo has been bitten by six times. The window marker is domain-fixed
  *     and the weight ceiling is anchored at the OBSERVER's dip, so neither moves with the lie.
+ *
+ *  7. **A PROVENANCE GATE IS NOT A FRAMING TERM (owner ruling R5, S3b 2026-08-24).** `F_sil` gated
+ *     the whole term on `isBuiltSrc` and then SATURATED on whatever survived the gate. Measured: a
+ *     grazing 8 km mountain ridge scored **0.0000** — below a blank wall and below empty sea — while
+ *     a bridge deck and a blank wall both scored **0.846**, to the last bit, so `F ≈ P` for every
+ *     built cell in a city (corr 0.9985, r² 0.997) and the 0.30-weighted framing term carried almost
+ *     no ranking signal. The owner's actual interest is *"sun visibility over a LARGE RANGE OF
+ *     LANDSCAPES, OBJECTS, BUILDINGS"*. GRAZE replaces it with `cut × Q × dwell` — how LONG the body
+ *     rides an edge, weighted by whether that edge is worth photographing — and provenance survives
+ *     only as `Conf`, a soft weight. Re-measured on the same 66-cell fixture: corr **0.6268**,
+ *     r² 0.393; ratio spread 0.0619 → 0.5401.
+ *
+ *     THE TWO FAILURE MODES TO WATCH FOR IF THIS IS EVER TOUCHED AGAIN: a term that CANNOT fire (the
+ *     gate) and a term that ALWAYS fires (the saturation). They are indistinguishable from inside the
+ *     composition — both just move `S` by a constant — and only a SPREAD measurement across a fixture
+ *     of many geometries tells them apart. That is what `bestSpotGolden.test.ts` is.
  * ---------------------------------------------------------------------------------------------
  *
  * HONESTY CONTRACT. This kernel scores EVIDENCE, not reality. It cannot know about fences, gates,
@@ -74,11 +90,15 @@
 
 import { horizonDipDeg } from "./horizonProfile";
 import {
-  BESTSPOT_WEIGHTS,
-  type BestSpotWeights,
+  BESTSPOT_SCORING_V1,
+  type BestSpotScoring,
+  type BestSpotTermKey,
+} from "./bestSpotScoring";
+import {
   type CellAccess,
   type CellScore,
   type EventTrack,
+  type GrazeTauSplit,
   type OccluderSrc,
   type RayEvidence,
 } from "./bestSpotTypes";
@@ -87,12 +107,21 @@ const DEG = Math.PI / 180;
 
 // ---------------------------------------------------------------------------------------------
 // Named constants — every one of these is a number the spec fixed, with the reason it is that
-// number. They are deliberately NOT in `components/globe/tuning.ts`: §10 S1 is a pure-lib slice
-// and a slider that can move the gate edges is a slider that can paper over standing in a river.
+// number.
+//
+// **THEY ARE NO LONGER WHAT THE KERNEL READS (S3a, 2026-08-24).** Every one of them now has a twin
+// in `bestSpotScoring.BESTSPOT_SCORING_V1`, and the kernel reads the PROFILE — which rides the job,
+// so a taste pass can move it without a rebuild and the worker can never latch a stale copy. They
+// stay exported because they are still the documented SHIPPED values and `bestSpotScoring.test.ts`
+// pins the profile against them: a drift in either direction is a red test, not a silent fork.
+//
+// They are still deliberately NOT in `components/globe/tuning.ts` — §10 S1 is a pure-lib slice and
+// the whole kernel must be reproducible from a test fixture; `tuning.ts` only RE-EXPORTS the
+// profile for discoverability (the `WGS84_A/B` precedent).
 // ---------------------------------------------------------------------------------------------
 
 /** `G(V) = smoothstep(0.15, 0.75, V)` — the visibility GATE (§3.5). Soft, not a step, because the
- *  `F_sil` hero case INTENTIONALLY occults the disc for part of the track: a hard `V = 1` test
+ *  FRAMING hero case INTENTIONALLY occults the disc for part of the track: a hard `V = 1` test
  *  would delete every silhouette shot the feature exists to find. */
 export const V_GATE_LO = 0.15;
 export const V_GATE_HI = 0.75;
@@ -125,6 +154,26 @@ export const NOTCH_SHOULDER_DEG = 3;
 /** `f >= 0.5` is the "the disc is still there" threshold that defines `az*` / `alt*` (§3.4). */
 export const HALF_DISC = 0.5;
 
+/**
+ * Largest per-sample altitude step, in disc RADII, at which GRAZE's dwell integral is still
+ * TRUSTWORTHY (`CellScore.grazeStepRadii`). Above it the framing term is UNDER-RESOLVED and must be
+ * reported as **UNKNOWN** — a render class, never a low score, and never a saturated high one.
+ *
+ * TWO disc radii = one disc DIAMETER, because that is the width of a cut event: the body is being
+ * cut from the moment its lower limb reaches an edge until its upper limb clears it. A step wider
+ * than that can step over an entire cut, or land on one sample of it and charge the whole width.
+ *
+ * MEASURED on the shipped 0.25° azimuth lattice (S3b, real `eventTrack`, four dates each):
+ *  · Dnipro **1.19–1.25** — resolved with room to spare;
+ *  · Tromsø **0.47–0.53** — a shallow polar-ish sunset oversamples altitude for free;
+ *  · Sydney **2.07–2.09** — a steep mid-latitude sunset sits right ON the edge, and τ there still
+ *    agrees with the 0.05° lattice to within 10 % (pinned in `bestSpotGolden.test.ts`);
+ *  · Quito, equinox — **109**: the sun sets vertically, the azimuth reparameterisation collapses to
+ *    8 samples spanning 88° of altitude, and τ saturates `F_graze` to 1 on nothing at all. THIS is
+ *    the case the flag exists for.
+ */
+export const GRAZE_STEP_TRUST_RADII = 2;
+
 // ---------------------------------------------------------------------------------------------
 // Small pure helpers — exported because the tests pin their ENDPOINTS, and because the solver's
 // fused loop (§5) re-implements the same arithmetic inline and must be diffable against these.
@@ -150,15 +199,24 @@ export function wrapDeltaDeg(aDeg: number, bDeg: number): number {
   return ((((aDeg - bDeg + 180) % 360) + 360) % 360) - 180;
 }
 
-/** Is this setter MAN-MADE? `F_sil` is gated on it (§3.4).
+/**
+ * Is this setter MAN-MADE?
  *
- *  WHY A TAG AND NOT A THRESHOLD: the pre-correction design inferred "man-made" from
- *  `H > terrainBaseline + 0.1°`, i.e. a threshold on a HEIGHT difference of `1.745e-3·D` metres —
- *  2.6 m at 1.5 km — decided by the least reliable channel in the whole pipeline (~145 m-posted
- *  terrain; the Dnipro river tile decodes to 29 vertices). The tag is exact and free.
+ * **NO LONGER A GATE ON ANYTHING SCORED (owner ruling R5, S3b).** `F_sil` used to early-return on
+ * `!isBuiltSrc(...)`, and that gate is what scored a grazing 8 km mountain ridge at 0.0000 — below a
+ * blank wall and below empty sea. GRAZE replaced it: provenance is now the soft weight
+ * `graze.conf[src]` (terrain 1.00 · building 0.90 · deck 0.90 · tree 0.45), and RELIEF above the
+ * observer's own dip is what decides whether an edge is a frame at all.
  *
- *  TREES ARE NOT BUILT. 151,046 of Dnipro's 161,823 canopies are seeded scatter with jittered
- *  class-default heights (§8) — a "tangency with a tree" is a tangency with fiction. */
+ * It stays exported because it is still the right predicate for the SURFACE: the panel's row copy
+ * says "BEHIND A BRIDGE" for a built setter and "OPEN HORIZON" / "BEHIND THE RIDGE" otherwise, and
+ * that is a question about what the thing IS, not about how much it is worth.
+ *
+ * WHY A TAG AND NOT A THRESHOLD: the pre-correction design inferred "man-made" from
+ * `H > terrainBaseline + 0.1°`, i.e. a threshold on a HEIGHT difference of `1.745e-3·D` metres —
+ * 2.6 m at 1.5 km — decided by the least reliable channel in the whole pipeline (~145 m-posted
+ * terrain; the Dnipro river tile decodes to 29 vertices). The tag is exact and free.
+ */
 export function isBuiltSrc(src: OccluderSrc): boolean {
   return src === "building" || src === "deck";
 }
@@ -171,9 +229,24 @@ export function isBuiltSrc(src: OccluderSrc): boolean {
  * TANGENT TO. A deck and the far bank behind it are two different distances on one ray, and reading
  * the ray's single summary for both is how the bridge came to be weighted by the bank.
  */
-export function depthOfDistM(distM: number, trustRadiusM: number): number {
-  const ceil = Math.log(Math.max(trustRadiusM, DEPTH_NEAR_REF_M * Math.E) / DEPTH_NEAR_REF_M);
-  return clamp01(Math.log(Math.max(distM, 1e-6) / DEPTH_NEAR_REF_M) / ceil);
+export function depthOfDistM(
+  distM: number,
+  trustRadiusM: number,
+  nearRefM: number = DEPTH_NEAR_REF_M,
+): number {
+  return depthWithCeil(distM, nearRefM, depthLogCeil(trustRadiusM, nearRefM));
+}
+
+/** The log CEILING of `depthOfDistM` — constant for a whole cell, and it was being recomputed on
+ *  every single edge of every sample (18.3 ns of the 418 ns/cell-azimuth path). Split out so the
+ *  callers that run it in a loop can hoist it; `depthOfDistM` keeps the one-shot form for the tests
+ *  and the panel, which call it a handful of times. */
+function depthLogCeil(trustRadiusM: number, nearRefM: number): number {
+  return Math.log(Math.max(trustRadiusM, nearRefM * Math.E) / nearRefM);
+}
+
+function depthWithCeil(distM: number, nearRefM: number, ceil: number): number {
+  return clamp01(Math.log(Math.max(distM, 1e-6) / nearRefM) / ceil);
 }
 
 /**
@@ -187,9 +260,13 @@ export function depthOfDistM(distM: number, trustRadiusM: number): number {
  * It reads the ray's HEADLINE distance (the nearest of the ground setter and the bands, `RayEvidence`
  * pin 5), which is what "how deep is this view" means for a whole ray.
  */
-export function depthTerm(ev: RayEvidence, trustRadiusM: number): number {
+export function depthTerm(
+  ev: RayEvidence,
+  trustRadiusM: number,
+  nearRefM: number = DEPTH_NEAR_REF_M,
+): number {
   if (ev.openSky) return 1;
-  return depthOfDistM(ev.blockerDistM, trustRadiusM);
+  return depthOfDistM(ev.blockerDistM, trustRadiusM, nearRefM);
 }
 
 /**
@@ -209,9 +286,16 @@ export function contactLowness(
   return 1 - smoothstep(dipFloorDeg, ceilDeg, altStarDeg);
 }
 
-/** `G(V)` — the SOFT visibility gate (§3.5). Multiplies, but must never be a hard step. */
-export function visibilityGate(v: number): number {
-  return smoothstep(V_GATE_LO, V_GATE_HI, v);
+/** `G(V)` — the SOFT visibility gate (§3.5). Multiplies, but must never be a hard step.
+ *
+ *  The edges come from the profile so a taste pass can move them (`gates.vGateLo`/`vGateHi`);
+ *  `resolveScoring` keeps `vGateHi >= vGateLo + 0.05` because `smoothstep` degenerates to a hard
+ *  step WITHOUT throwing, and a hard `V` gate would delete every silhouette shot. */
+export function visibilityGate(
+  v: number,
+  gates: BestSpotScoring["gates"] = BESTSPOT_SCORING_V1.gates,
+): number {
+  return smoothstep(gates.vGateLo, gates.vGateHi, v);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -324,7 +408,7 @@ export function discVisibleFraction(
 }
 
 // ---------------------------------------------------------------------------------------------
-// §3.4 — F_sil, the tangency kernel
+// §1.1 — GRAZE, the framing kernel (owner ruling R5; replaced `F_sil`'s provenance-gated tangency)
 // ---------------------------------------------------------------------------------------------
 
 /** Distance (deg) from an elevation to the NEAREST silhouette edge on this ray: the ground horizon
@@ -332,10 +416,11 @@ export function discVisibleFraction(
  *  to the underside — that is the "sun under the bridge" frame, and a ground-max profile has no
  *  way to name it.
  *
- *  UNGATED BY DESIGN: it answers "how far is the nearest edge", which is what the panel prints. The
- *  BUILT gate and the per-edge depth weight belong to `silTangency`, which walks the same edges one
- *  by one — LENS B's finding was precisely that this function already returned the right ANGLE for a
- *  deck while the gate and the depth weight beside it read a ray-wide field that could not name one. */
+ *  UNGATED BY DESIGN: it answers "how far is the nearest edge", which is what the panel prints. It
+ *  is also GRAZE's inner loop — `grazeSampleInto` runs the same walk with the same tie-breaking and
+ *  keeps the winning edge's TAG and RANGE instead of discarding them, which is the one thing this
+ *  signature cannot express. Kept exported and behaviourally identical: the panel and three pins
+ *  read it. */
 export function nearestEdgeDeltaDeg(ev: RayEvidence, elDeg: number): number {
   let best = Math.abs(elDeg - ev.groundAltAppDeg);
   for (let k = 0; k < ev.bands.length; k++) {
@@ -349,74 +434,215 @@ export function nearestEdgeDeltaDeg(ev: RayEvidence, elDeg: number): number {
 }
 
 /**
- * `F_sil` — the TANGENCY kernel (§3.4): a triangular ramp of half-width ρ around a BUILT
- * silhouette edge, weighted by THAT EDGE's depth term `P`.
+ * `GRAZE` — the generalized framing kernel, ONE swept sample (`SPEC_V2 §1.1 ①②`, owner ruling R5).
  *
- * `max over built edges e of  (1 − clamp01(|altApp − e|/ρ)) · P(e)`
+ * ```
+ * cut = max( 4·f·(1−f) ,  1 − clamp01(δ / (ρ·tangentHalfWidthRadii)) )
+ *         ↑ AREA arm            ↑ TANGENT arm
+ * Q   = Relief(e) · Conf(s) · Depth(D)      for the edge (e, s, D) NEAREST the body's centre
+ * ```
  *
- * **PER EDGE, NOT PER RAY (LENS B, 2026-08-24).** The old form gated the whole ray on `isBuiltSrc(
- * ev.src)` and weighted it by the ray's single `depthTerm`. Both fields were bound to the GROUND
- * setter, and `localDsm` deliberately keeps floating solids out of the surface (its pin 2) — so a real
- * bridge deck reported `"terrain"`, this kernel early-returned 0, and the hero case the term was
- * WRITTEN for ("a deck has TWO edges and the body can be tangent to the underside") could not fire on
- * any deck the producer can actually emit. Measured on the F3 geometry: `f = 0`, `S = 0.60799` WITH
- * the bridge against `0.62306` with no bridge at all. Now each edge carries its own tag
- * (`groundSrc` / `bandSrc[k]`) and its own distance (`groundDistM` / `bandDistM[k]`).
+ * **WHY THIS REPLACED `silTangency` (owner ruling R5, 2026-08-24).** The shipped kernel gated every
+ * edge on `isBuiltSrc`, so a grazing 8 km mountain ridge measured **0.0000** — ranked below a blank
+ * wall and below empty sea — and the owner's actual interest is *"sun visibility over a LARGE RANGE
+ * OF LANDSCAPES, OBJECTS, BUILDINGS"*. It also SATURATED on any built edge the body's centre crossed
+ * (a bridge deck and a blank wall both measured 0.846, to the last bit), so `F ≈ P` for every built
+ * cell in a city — r² 0.997 — and the 0.30-weighted framing term carried almost no ranking signal.
+ * Provenance survives here ONLY as `Conf`, a soft weight.
  *
- * Half-width ONE DISC RADIUS, not one time-step: sampled on time instead of azimuth the kernel's
- * half-width is ~1.02 two-minute samples, so identical geometry scored anywhere between 0.51 and
- * 1.00 depending on where the samples happened to land. The azimuth reparameterisation of
- * `EventTrack` is what removes that aliasing — this function assumes it.
+ * **THE TWO ARMS ARE NOT REDUNDANT.**
+ *  · The AREA arm `4·f·(1−f)` is 1 when the disc is exactly HALF cut, 0 when it is fully clear OR
+ *    fully hidden, and it is ORIENTATION-AGNOSTIC: it fires on a vertical tower flank (where no edge
+ *    ever comes within ρ of the body's centre on the centre ray, so the tangent arm reads exactly 0)
+ *    just as it fires on a diagonal roofline. It is also free — `f` is `discVisibleFraction`, which
+ *    `cellScore` already computes for `V`, so the arm costs one multiply.
+ *  · The TANGENT arm is the shipped triangular kernel, kept as a FLOOR so a THIN occluder is not
+ *    lost: a 1.8 m deck slab at 1.5 km is 0.27 ρ and hides ~13 % of the disc's area, which the area
+ *    arm alone nearly throws away.
  *
- * `P` multiplies rather than sums: a silhouette against a fence 4 m away is not a composition.
+ * **Q IS PER EDGE, AND THE EDGE CARRIES ITS OWN TAG AND ITS OWN DISTANCE.** A deck and the far bank
+ * behind it are two different distances on one ray; reading the ray's single summary for both is how
+ * the bridge came to be weighted by the bank (LENS B). `Relief` is measured above the OBSERVER's own
+ * dip, not above 0 — that is what makes an open sea horizon score exactly 0 for the right reason
+ * (there is no edge standing above the horizon to ride) rather than for the old, wrong one
+ * (`isBuiltSrc("terrain") === false`).
  *
- * @param depthP        the ray's own `depthTerm(...)` — the weight used when no `trustRadiusM` is
- *                      supplied, so the kernel stays a pure function of two angles and a weight for
- *                      callers that have already priced the ray.
- * @param trustRadiusM  when given (`cellScore` always gives it), EVERY edge is re-weighted by its OWN
- *                      distance instead of by `depthP`. Omitting it is not a different rule, only a
- *                      coarser one: the headline distance is the NEAREST occluder on the ray, so
- *                      `depthP` is a LOWER BOUND on every edge's own weight and the 4-argument form
- *                      can only ever under-credit.
+ * @param dipFloorDeg   `horizonDipDeg(eyeM + liftM, k)` — the relief ramp's anchor.
+ * @param discFrac      `f` at this sample. `cellScore` SHARES the value it already computed for `V`;
+ *                      omit it and the kernel falls back to the centre ray's own
+ *                      `discVisibleFraction`, which is the horizontal-chord answer (no column
+ *                      lookup) and therefore blind to a vertical flank. Never recompute it in a hot
+ *                      loop — `discVisibleFraction` is the single most expensive call in the path.
  */
-export function silTangency(
+export function grazeSample(
   ev: RayEvidence,
   altAppDeg: number,
   rhoDeg: number,
-  depthP: number,
-  trustRadiusM?: number,
-): number {
-  if (ev.known !== 1) return 0; // ignorance is not a silhouette
-  if (!(rhoDeg > 0)) return 0;
-  const fallback = clamp01(depthP);
-  const weightFor = (distM: number): number =>
-    trustRadiusM === undefined ? fallback : depthOfDistM(distM, trustRadiusM);
-  const kernel = (edgeDeg: number): number => 1 - clamp01(Math.abs(altAppDeg - edgeDeg) / rhoDeg);
+  dipFloorDeg: number,
+  scoring: BestSpotScoring = BESTSPOT_SCORING_V1,
+  discFrac?: number,
+): GrazeSample {
+  const f =
+    discFrac ?? discVisibleFraction(ev, altAppDeg, rhoDeg, scoring.quadrature.discColumns);
+  const work = newGrazeWork();
+  grazeSampleInto(
+    ev,
+    altAppDeg,
+    rhoDeg,
+    dipFloorDeg,
+    f,
+    scoring.graze,
+    depthByDistance(scoring.curves.depthTrustRadiusM, scoring.curves.depthNearRefM),
+    work,
+  );
+  return { cut: work.cut, q: work.q, src: work.src, distM: work.distM };
+}
 
-  let best = 0;
-  // The GROUND edge is gated on `groundSrc`, NEVER on `ev.src`: the headline tag may name a nearer
-  // floating band, and crediting the water horizon under a bridge with the bridge's own tag is the
-  // mirror image of the bug this function was rewritten for.
-  if (isBuiltSrc(ev.groundSrc)) {
-    best = kernel(ev.groundAltAppDeg) * weightFor(ev.groundDistM);
+/** What one swept sample contributes to GRAZE, before the dwell weight `Δα/ρ` is applied. */
+export interface GrazeSample {
+  /** `max(AREA arm, TANGENT arm)`, 0..1 — is the disc being cut here, and by how much. */
+  cut: number;
+  /** `Relief · Conf · Depth` of the edge nearest the body's centre, 0..1 — is the thing doing the
+   *  cutting worth photographing. */
+  q: number;
+  /** Provenance of THAT edge. Not the ray's headline `src`, which may name a nearer band the body
+   *  is nowhere near. */
+  src: OccluderSrc;
+  /** …and THAT edge's own distance (m). */
+  distM: number;
+}
+
+/** The hot-loop shape: `GrazeSample` plus the confidence-free half of `Q`, which is what τ's four
+ *  provenance buckets carry (`GrazeTauSplit`). Reused across every sample of a cell — the kernel
+ *  runs 6.79 M times per disc and must not allocate. */
+interface GrazeWork extends GrazeSample {
+  /** `Relief · Depth` — `q` WITHOUT `Conf`, so `graze.conf.*` stays a RECOMPOSE. */
+  qBase: number;
+}
+
+function newGrazeWork(): GrazeWork {
+  return { cut: 0, q: 0, qBase: 0, src: "none", distM: 0 };
+}
+
+/** Per-edge depth weight, hoisted: the log CEILING is a constant of the CELL, so it is computed once
+ *  here rather than once per edge inside `depthOfDistM` (18.3 → 9.7 ns/call, ≈22 ms/solve). */
+function depthByDistance(trustRadiusM: number, nearRefM: number): (distM: number) => number {
+  const ceil = depthLogCeil(trustRadiusM, nearRefM);
+  return (distM) => depthWithCeil(distM, nearRefM, ceil);
+}
+
+/**
+ * `grazeSample`'s body, writing into a caller-owned scratch and taking the depth weight as a CLOSURE
+ * so `cellScore` builds both ONCE per cell instead of once per swept sample.
+ *
+ * ONE walk over the ray's edges serves BOTH halves: the nearest edge's DISTANCE-IN-ANGLE is the
+ * tangent arm's δ and that same edge's TAG and RANGE are `Q`'s. `nearestEdgeDeltaDeg` returns only
+ * the angle and stays exported and behaviourally identical (the panel prints it); this is the same
+ * walk with the same tie-breaking, carrying the winner rather than discarding it.
+ *
+ * The `Depth` log is evaluated ONLY when relief is non-zero — one `log` per cell-azimuth at most,
+ * never one per edge and never one per disc column.
+ */
+function grazeSampleInto(
+  ev: RayEvidence,
+  altAppDeg: number,
+  rhoDeg: number,
+  dipFloorDeg: number,
+  discFrac: number,
+  cfg: BestSpotScoring["graze"],
+  depthFor: (distM: number) => number,
+  out: GrazeWork,
+): GrazeWork {
+  out.cut = 0;
+  out.q = 0;
+  out.qBase = 0;
+  out.src = "none";
+  out.distM = 0;
+  if (ev.known !== 1) return out; // ignorance is not a frame
+  if (!(rhoDeg > 0)) return out; // a point body has no area to cut and no radii to dwell for
+
+  // ── the walk: nearest edge to the body's centre, with its own tag and its own range ──────────
+  let bestDelta = Math.abs(altAppDeg - ev.groundAltAppDeg);
+  let bestEdge = ev.groundAltAppDeg;
+  let bestSrc = ev.groundSrc;
+  let bestDist = ev.groundDistM;
+  const bands = ev.bands;
+  for (let k = 0; k < bands.length; k++) {
+    const b = bands[k];
+    // A band with no provenance is scored as `none` (conf 0) rather than inheriting the ground's
+    // tag: crediting a slab we cannot name with terrain's confidence is how the deck fixture lied.
+    const dLo = Math.abs(altAppDeg - b[0]);
+    if (dLo < bestDelta) {
+      bestDelta = dLo;
+      bestEdge = b[0];
+      bestSrc = ev.bandSrc[k] ?? "none";
+      bestDist = ev.bandDistM[k] ?? Infinity;
+    }
+    const dHi = Math.abs(altAppDeg - b[1]);
+    if (dHi < bestDelta) {
+      bestDelta = dHi;
+      bestEdge = b[1];
+      bestSrc = ev.bandSrc[k] ?? "none";
+      bestDist = ev.bandDistM[k] ?? Infinity;
+    }
   }
-  for (let k = 0; k < ev.bands.length; k++) {
-    if (!isBuiltSrc(ev.bandSrc[k])) continue;
-    const w = weightFor(ev.bandDistM[k]);
-    if (w <= 0) continue;
-    const b = ev.bands[k];
-    const v = Math.max(kernel(b[0]), kernel(b[1])) * w;
-    if (v > best) best = v;
+
+  // ── ① CUT — two arms, each individually switchable ──────────────────────────────────────────
+  let cut = 0;
+  if (cfg.areaArm) {
+    const f = clamp01(discFrac);
+    cut = 4 * f * (1 - f);
   }
-  return best;
+  if (cfg.tangentArm) {
+    const halfWidthDeg = rhoDeg * cfg.tangentHalfWidthRadii;
+    if (halfWidthDeg > 0) {
+      const tangent = 1 - clamp01(bestDelta / halfWidthDeg);
+      if (tangent > cut) cut = tangent;
+    }
+  }
+  out.cut = cut;
+
+  // ── ② Q — is the thing being cut worth photographing? ───────────────────────────────────────
+  const relief = smoothstep(cfg.reliefLoDeg, cfg.reliefHiDeg, bestEdge - dipFloorDeg);
+  out.src = bestSrc;
+  out.distM = bestDist;
+  if (!(relief > 0)) return out; // a flat horizon is not a frame — and the log is never evaluated
+  out.qBase = relief * depthFor(bestDist);
+  out.q = out.qBase * (cfg.conf[bestSrc] ?? 0);
+  return out;
+}
+
+/** τ recomposed from its four provenance buckets: `Σ_s conf[s]·bucket[s]`.
+ *
+ *  Exported because S3c's COMPOSE pass reads the term buffer rather than the rays, and the two must
+ *  agree bit for bit — one implementation, two callers, no second copy of the arithmetic. */
+export function grazeTauTotal(split: GrazeTauSplit, conf: BestSpotScoring["graze"]["conf"]): number {
+  return (
+    split.terrain * (conf.terrain ?? 0) +
+    split.building * (conf.building ?? 0) +
+    split.deck * (conf.deck ?? 0) +
+    split.tree * (conf.tree ?? 0)
+  );
+}
+
+/** `F_graze = 1 − exp(−τ/scaleRadii)` (`SPEC_V2 §1.1 ④`).
+ *
+ *  Saturating rather than linear because dwell has diminishing returns: the difference between
+ *  riding an edge for 1 radius and for 3 is the whole photograph; the difference between 8 and 10 is
+ *  nothing. `scaleRadii` is the ONE swept taste number in the group (6 values, §1.1). */
+export function grazeFromTau(tauRadii: number, scaleRadii: number): number {
+  if (!(tauRadii > 0)) return 0;
+  if (!(scaleRadii > 0)) return 1; // a zero e-folding scale is a hard step, never a NaN
+  return 1 - Math.exp(-tauRadii / scaleRadii);
 }
 
 // ---------------------------------------------------------------------------------------------
 // §3.4 — F_notch, the "moon rising between buildings" kernel
 // ---------------------------------------------------------------------------------------------
 
-/** Tunable half of `notchAt`. Defaults are the spec's numbers; they are parameters so the kernel
- *  stays testable at the endpoints rather than only at the shipped values. */
+/** Tunable half of `notchAt` — structurally the profile's `gap` group, so `cellScore` hands its own
+ *  `scoring.gap` straight in. Kept as its own interface because the kernel stays testable at the
+ *  endpoints rather than only at the shipped values. */
 export interface NotchOptions {
   /** `±3°` — how far out the flanking mass is looked for. */
   shoulderSpanDeg: number;
@@ -426,14 +652,17 @@ export interface NotchOptions {
   maxDepthDeg: number;
   /** `2°` — gap width at which the notch term dies. */
   maxWidthDeg: number;
+  /** Disc radii of clearance the body must have above the notch floor. Was `NOTCH_CLEARANCE_RADII`,
+   *  read from module scope at the one line below — the single `NOTCH_*` constant that missed this
+   *  interface when it was written. */
+  clearanceRadii: number;
+  /** How the two shoulders' own quality is combined into the notch weight. **Not read here** —
+   *  S3b applies `min(Q(sL), Q(sR))` in `cellScore` where the per-edge `Q` lives; it rides on this
+   *  interface so the whole `gap` group has ONE home. */
+  shoulderQuality: "min" | "mean" | "off";
 }
 
-export const NOTCH_DEFAULTS: NotchOptions = {
-  shoulderSpanDeg: NOTCH_SHOULDER_DEG,
-  salienceFloorDeg: NOTCH_SALIENCE_DEG,
-  maxDepthDeg: NOTCH_MAX_DEPTH_DEG,
-  maxWidthDeg: NOTCH_MAX_WIDTH_DEG,
-};
+export const NOTCH_DEFAULTS: NotchOptions = BESTSPOT_SCORING_V1.gap;
 
 /** Everything `notchAt` measured, not just the score — the panel prints "a 1.2° gap, 4° deep" and
  *  the tests pin the parts independently of the composition. */
@@ -447,6 +676,19 @@ export interface NotchResult {
   shoulderLDeg: number;
   /** Max `Hg` over `[az*+ρ, az*+3°]`. `−Infinity` when that shoulder was never sampled. */
   shoulderRDeg: number;
+  /**
+   * Index of the ray that SET `shoulderLDeg` (`−1` when that shoulder was never sampled).
+   *
+   * ADDITIVE, S3b: `notchAt` itself is unchanged — all eight PIN-2 tests stay verbatim — but the
+   * notch now has to be WEIGHTED by the quality of the two things that make it a gap (`F_gap =
+   * f · min(Q(sL), Q(sR))`, `SPEC_V2 §1.1 ⑤`). `Q` is per EDGE and lives in `cellScore` beside the
+   * profile and the dip floor, so what this kernel owes it is the IDENTITY of the shoulder, not a
+   * second opinion about its worth. A gap between two 15-storey blocks 1.5 km out and the same gap
+   * between two hedges are the same angles and different photographs.
+   */
+  shoulderLIdx: number;
+  /** Index of the ray that set `shoulderRDeg` (`−1` when unsampled). See `shoulderLIdx`. */
+  shoulderRIdx: number;
   /** `min(sL, sR) − floor`. `−Infinity` if either shoulder is unmeasured — ignorance is not depth. */
   depthDeg: number;
   /** Angular measure of the connected `{a : Hg(a) < alt*}` component containing `az*`. */
@@ -495,6 +737,8 @@ export function notchAt(
     floorDeg: 0,
     shoulderLDeg: -Infinity,
     shoulderRDeg: -Infinity,
+    shoulderLIdx: -1,
+    shoulderRIdx: -1,
     depthDeg: -Infinity,
     widthDeg: Infinity,
   };
@@ -524,14 +768,22 @@ export function notchAt(
   // part of what the body is setting INTO, not part of the frame around it.
   let shoulderLDeg = -Infinity;
   let shoulderRDeg = -Infinity;
+  let shoulderLIdx = -1;
+  let shoulderRIdx = -1;
   for (let i = 0; i < n; i++) {
     const r = rays[i];
     if (r.known !== 1) continue; // an unsampled shoulder is ignorance, not flat ground
     const d = wrapDeltaDeg(r.azDeg, az0);
     if (d <= -rhoDeg && d >= -opts.shoulderSpanDeg) {
-      if (r.groundAltAppDeg > shoulderLDeg) shoulderLDeg = r.groundAltAppDeg;
+      if (r.groundAltAppDeg > shoulderLDeg) {
+        shoulderLDeg = r.groundAltAppDeg;
+        shoulderLIdx = i;
+      }
     } else if (d >= rhoDeg && d <= opts.shoulderSpanDeg) {
-      if (r.groundAltAppDeg > shoulderRDeg) shoulderRDeg = r.groundAltAppDeg;
+      if (r.groundAltAppDeg > shoulderRDeg) {
+        shoulderRDeg = r.groundAltAppDeg;
+        shoulderRIdx = i;
+      }
     }
   }
   // min(): a notch with ONE tall flank is a corner, not a gap. −Infinity propagates by design.
@@ -568,7 +820,7 @@ export function notchAt(
     }
   }
 
-  const clears = altStarDeg - floorDeg >= NOTCH_CLEARANCE_RADII * rhoDeg ? 1 : 0;
+  const clears = altStarDeg - floorDeg >= opts.clearanceRadii * rhoDeg ? 1 : 0;
   const depthTermV = clamp01(
     (depthDeg - opts.salienceFloorDeg) / (opts.maxDepthDeg - opts.salienceFloorDeg),
   );
@@ -580,6 +832,8 @@ export function notchAt(
     floorDeg,
     shoulderLDeg,
     shoulderRDeg,
+    shoulderLIdx,
+    shoulderRIdx,
     depthDeg,
     widthDeg,
   };
@@ -589,41 +843,38 @@ export function notchAt(
 // §3.5 — the composition
 // ---------------------------------------------------------------------------------------------
 
-/** Everything `cellScore` needs that is not evidence. Explicit parameters, not a tuning import:
- *  §10 S1 is a pure-lib slice, and the whole kernel must be reproducible from a test fixture. The
- *  numbers below are mirrored from `components/globe/tuning.ts PLAN.*` — `bestSpotMetric.test.ts`
- *  asserts they still agree, so a drift in either direction is a RED test rather than a silent
- *  divergence between the worker and the shipped planner. */
+/**
+ * Everything `cellScore` needs that is not evidence, split along ONE line (§5.2):
+ *
+ *  · the **SITUATION** — where the eye is and what the air is doing. It changes when the user moves
+ *    a slider that moves the OBSERVER, and it invalidates the sweep (`resweep`) or the whole build.
+ *  · the **TASTE** — `scoring`, one frozen profile object that rides the JOB. Every leaf of it is
+ *    reachable, hashable and diffable, and changing one costs a recompose (0.272 ms) rather than a
+ *    rebuild. `trustRadiusM` / `minCoverage` / `discColumns` / `notch` / `weights` used to be
+ *    siblings of `eyeM` here; they are taste, and they moved.
+ *
+ * Still explicit parameters and not a tuning import: §10 S1 is a pure-lib slice and the whole kernel
+ * must be reproducible from a test fixture. `bestSpotMetric.test.ts` asserts the defaults still
+ * agree with `components/globe/tuning.ts PLAN.*`, so a drift in either direction is a RED test
+ * rather than a silent divergence between the worker and the shipped planner.
+ */
 export interface CellScoreOptions {
   /** Eye height above the CELL's ground (m). The pedestrian default is 1.7. */
   eyeM: number;
   /** Sheet LIFT above the cell's ground (m) — R3's altitude slider, 0 for the walked field. */
   liftM: number;
-  /** Terrestrial refraction coefficient k — `PLAN.refractionK`. */
+  /** Terrestrial refraction coefficient k — `PLAN.refractionK`. BESTSPOT_PHYSICS: it is folded into
+   *  three places that must agree, so it is NOT a profile leaf. */
   refractionK: number;
-  /** Geometry trust radius (m) — `PLAN.trustRadiusM`. The `P` term's log ceiling. */
-  trustRadiusM: number;
-  /** Evidence floor below which the cell is UNKNOWN — `PLAN.minCoverageForGaps`. */
-  minCoverage: number;
-  /** Quadrature columns across the disc (§3.3). */
-  discColumns: number;
-  /** Notch geometry. */
-  notch: NotchOptions;
-  /** Preference weights. Gates are NOT here — they multiply (§3.5). */
-  weights: BestSpotWeights;
+  /** The taste profile. Frozen and fully populated — `resolveScoring` never returns a partial. */
+  scoring: BestSpotScoring;
 }
 
 export const BESTSPOT_METRIC_DEFAULTS: CellScoreOptions = {
   eyeM: 1.7,
   liftM: 0,
   refractionK: 0.13,
-  trustRadiusM: 3_000,
-  minCoverage: 0.5,
-  // 8 columns removes the midpoint-rule bias on a partially-cut disc for ~8 interval subtractions
-  // per (cell, azimuth). It buys quadrature, never knowledge — the evidence step is the sweep's.
-  discColumns: 8,
-  notch: NOTCH_DEFAULTS,
-  weights: BESTSPOT_WEIGHTS,
+  scoring: BESTSPOT_SCORING_V1,
 };
 
 /**
@@ -631,7 +882,8 @@ export const BESTSPOT_METRIC_DEFAULTS: CellScoreOptions = {
  *
  * ```
  * IF C < minCoverage           -> verdict "unknown"   (a render class, NEVER a low score)
- * ELSE S = A_hard · A_soft^0.5 · M · G(V) · [ 0.15·V + 0.30·L + 0.25·P + 0.30·F ]
+ * ELSE S = A_hard · A_soft^0.5 · M_eff · G(V) · [ 0.15·V + 0.30·L + 0.25·P + 0.30·F ]
+ *      M_eff = worth.effectiveFloor + (1 − worth.effectiveFloor)·M          (owner ruling R7)
  * ```
  *
  * GATES MULTIPLY, PREFERENCES SUM, and the split is not cosmetic:
@@ -639,7 +891,9 @@ export const BESTSPOT_METRIC_DEFAULTS: CellScoreOptions = {
  *  · `G(V)` multiplies but is SOFT — "the body is not visible from here" is a gate, but the
  *    silhouette hero case deliberately occults the disc, so a hard test would delete it;
  *  · `M` (`track.worth`) multiplies — a 9 %-lit quarter moon rising in daylight is not a good spot
- *    however clean the horizon, and it is ONE SCALAR at zero per-cell cost;
+ *    however clean the horizon, and it is ONE SCALAR at zero per-cell cost — but it multiplies
+ *    THROUGH R7's floor (`effectiveWorth`), because raw it made the moon map black ~26 nights in
+ *    30. Sun kinds carry `worth = 1`, for which `M_eff` is exactly 1;
  *  · `L, P, F` SUM — a clean 30 km horizon (`P=1, F=0`) and a bridge silhouette (`F=1, P=0.9`) are
  *    BOTH correct answers to "where should I stand"; multiplying would zero the clean-horizon case
  *    the owner explicitly listed as good;
@@ -664,6 +918,22 @@ export function cellScore(
       `bestSpotMetric: rays (${n}) and track.samples (${samples.length}) must share one azimuth index`,
     );
   }
+
+  // ONE read of the profile per cell, hoisted out of every loop below it. `nearRefM`/`depthCeil`
+  // are the `P` kernel's two constants: the ceiling used to be recomputed inside `depthOfDistM` on
+  // every edge of every sample.
+  const sc = opts.scoring;
+  const nearRefM = sc.curves.depthNearRefM;
+  const trustRadiusM = sc.curves.depthTrustRadiusM;
+  const depthCeil = depthLogCeil(trustRadiusM, nearRefM);
+  const halfDisc = sc.gates.halfDiscFrac;
+  const graze = sc.graze;
+  const depthFor = depthByDistance(trustRadiusM, nearRefM);
+  const depthOfRay = (ev: RayEvidence): number =>
+    ev.openSky ? 1 : depthWithCeil(ev.blockerDistM, nearRefM, depthCeil);
+  // The relief ramp's anchor. Hoisted ABOVE the loop (it used to be read after the coverage gate):
+  // GRAZE needs it per sample, and it is a constant of the observer, not of the ray.
+  const dipFloorDeg = horizonDipDeg(opts.eyeM + opts.liftM, opts.refractionK);
 
   // A closure per CELL (not per sample): the column lookup walks outward from the sample currently
   // being scored, which is O(1) because a disc spans ~2 ray steps.
@@ -690,7 +960,13 @@ export function cellScore(
   const fAt = (i: number): number => {
     centreIdx = i;
     const s = samples[i];
-    return discVisibleFraction(rays[i], s.altAppDeg, s.rhoDeg, opts.discColumns, columnRayAt);
+    return discVisibleFraction(
+      rays[i],
+      s.altAppDeg,
+      s.rhoDeg,
+      sc.quadrature.discColumns,
+      columnRayAt,
+    );
   };
 
   // Which way does altitude run along the index? Monotone by the track's own contract, so ONE
@@ -703,13 +979,30 @@ export function cellScore(
   const winLo = Math.max(0, Math.min(n - 1, track.windowLo));
   const winHi = Math.max(winLo, Math.min(n - 1, track.windowHi));
 
+  // `Δα_i = |α_{i+1} − α_{i−1}| / 2` — the central difference of §1.1 ③, i.e. the ALTITUDE TRAVEL
+  // this sample stands for. Clamped at the ends to the one-sided step, so the quadrature is a
+  // trapezoid rather than a fiction. Measured over the FULL sample array (the track's own property),
+  // not over the window, so a window edge is not charged half a step.
+  const altStepAt = (i: number): number => {
+    const lo = i > 0 ? i - 1 : i;
+    const hi = i < n - 1 ? i + 1 : i;
+    return hi > lo ? Math.abs(samples[hi].altAppDeg - samples[lo].altAppDeg) / (hi - lo) : 0;
+  };
+
   let wSum = 0; // Σ w                — C denominator, over the FULL swept span
   let wKnown = 0; // Σ w·known        — C numerator
   let vNum = 0; // Σ known·w·f        — the WINDOW only (bug class 6)
   let vDen = 0; // Σ known·w          — bug class 4: unknown samples leave BOTH sums untouched
-  let fSil = 0;
   let starIdx = -1;
   let starAlt = Infinity;
+  // τ, SPLIT BY PROVENANCE and confidence-free (`GrazeTauSplit`) — that split is what makes
+  // `graze.conf.*` and `graze.scaleRadii` a recompose instead of a rescore.
+  const grazeTau: GrazeTauSplit = { terrain: 0, building: 0, deck: 0, tree: 0 };
+  const work = newGrazeWork(); // ONE scratch per cell; the kernel never allocates
+  let grazeStepRadii = 0;
+  let bestGraze = 0;
+  let grazeSrc: OccluderSrc = "none";
+  let grazeDistM = 0;
 
   for (let i = 0; i < n; i++) {
     const s = samples[i];
@@ -718,16 +1011,37 @@ export function cellScore(
     if (r.known !== 1) continue;
     wKnown += s.w;
     const f = fAt(i);
-    // `V` sees the WINDOW; the shoulders still feed `C`, `az*` and `F_notch` — the terms they were
+    // `V` sees the WINDOW; the shoulders still feed `C`, `az*` and `F_gap` — the terms they were
     // swept for. The below-horizon half of bug class 6 is fixed in the TRACK's own weights, NOT by a
     // per-cell altitude filter here: see the header note for the measurement that rules that out.
     if (i >= winLo && i <= winHi) {
       vNum += s.w * f;
       vDen += s.w;
+      // ── τ — GRAZE's dwell integral. Window + known only, exactly like `V`: the shoulders exist
+      // for `C` and for the notch's flanks, and charging dwell to a sample nobody looked at is the
+      // "ignorance is clear sky" defect wearing a different hat.
+      const stepRadii = s.rhoDeg > 0 ? altStepAt(i) / s.rhoDeg : 0;
+      if (stepRadii > grazeStepRadii) grazeStepRadii = stepRadii;
+      // `f` is SHARED from `V` above — never recomputed. That sharing is what makes the AREA arm
+      // cost one multiply instead of a second `discVisibleFraction`.
+      grazeSampleInto(r, s.altAppDeg, s.rhoDeg, dipFloorDeg, f, graze, depthFor, work);
+      const contribution = work.cut * work.qBase * stepRadii;
+      if (contribution > 0) {
+        if (work.src === "terrain") grazeTau.terrain += contribution;
+        else if (work.src === "building") grazeTau.building += contribution;
+        else if (work.src === "deck") grazeTau.deck += contribution;
+        else if (work.src === "tree") grazeTau.tree += contribution;
+        // The MAX-CONTRIBUTING edge is what the panel names ("…riding an 8 km ridge"), so it is
+        // ranked by the CONFIDENCE-WEIGHTED contribution — the same number the score sees.
+        const weighted = contribution * (graze.conf[work.src] ?? 0);
+        if (weighted > bestGraze) {
+          bestGraze = weighted;
+          grazeSrc = work.src;
+          grazeDistM = work.distM;
+        }
+      }
     }
-    const sil = silTangency(r, s.altAppDeg, s.rhoDeg, depthTerm(r, opts.trustRadiusM), opts.trustRadiusM);
-    if (sil > fSil) fSil = sil;
-    if (f >= HALF_DISC && s.altAppDeg < starAlt) {
+    if (f >= halfDisc && s.altAppDeg < starAlt) {
       starAlt = s.altAppDeg;
       starIdx = i;
     }
@@ -746,14 +1060,14 @@ export function cellScore(
     if (lowIdx >= 0 && lowIdx < n && rays[lowIdx].known === 1) {
       const fHere = fAt(starIdx);
       const fLow = fAt(lowIdx);
-      if (fLow < HALF_DISC && fHere > fLow) {
-        const t = (fHere - HALF_DISC) / (fHere - fLow);
+      if (fLow < halfDisc && fHere > fLow) {
+        const t = (fHere - halfDisc) / (fHere - fLow);
         altStarDeg = starAlt + (samples[lowIdx].altAppDeg - starAlt) * t;
       }
     }
   }
 
-  if (c < opts.minCoverage) {
+  if (c < sc.gates.minCoverage) {
     // §3.5 — a DISTINCT render class. No ink, excluded from the top-K, counted in "% UNMAPPED".
     // The preference terms are deliberately NOT evaluated: there is nothing to prefer. Consumers
     // MUST branch on `verdict`; `score` is 0 here only because the field is a number.
@@ -764,6 +1078,16 @@ export function cellScore(
       l: 0,
       p: 0,
       f: 0,
+      fGraze: 0,
+      fGap: 0,
+      grazeRadii: 0,
+      // τ's buckets are zeroed with the rest of the preference half — but `grazeStepRadii` is
+      // published for real, because it is a property of the TRACK (how finely the sky was sampled),
+      // not a preference about this cell, and the panel's honesty line reads it either way.
+      grazeTau: { terrain: 0, building: 0, deck: 0, tree: 0 },
+      grazeSrc: "none",
+      grazeDistM: 0,
+      grazeStepRadii,
       c,
       altStarDeg,
       dStarM: starRay ? starRay.blockerDistM : 0,
@@ -772,24 +1096,52 @@ export function cellScore(
     };
   }
 
-  const dipFloorDeg = horizonDipDeg(opts.eyeM + opts.liftM, opts.refractionK);
-  const l = starRay ? contactLowness(altStarDeg, dipFloorDeg) : 0;
-  const p = starRay ? depthTerm(starRay, opts.trustRadiusM) : 0;
-  const notch = starRay
-    ? notchAt(rays, starIdx, altStarDeg, samples[starIdx].rhoDeg, opts.notch)
-    : null;
-  const f = Math.max(fSil, notch ? notch.f : 0);
+  // The third argument is the one that used to be DEAD: `contactLowness` has always declared
+  // `ceilDeg`, and `cellScore` has always called it with two arguments.
+  const l = starRay ? contactLowness(altStarDeg, dipFloorDeg, sc.curves.lCeilDeg) : 0;
+  const p = starRay ? depthOfRay(starRay) : 0;
 
-  const w = opts.weights;
-  const wTotal = w.v + w.l + w.p + w.f;
+  // ── F = max(GRAZE, GAP) ──────────────────────────────────────────────────────────────────────
+  const grazeRadii = grazeTauTotal(grazeTau, graze.conf);
+  const fGraze = grazeFromTau(grazeRadii, graze.scaleRadii);
+  const notch = starRay
+    ? notchAt(rays, starIdx, altStarDeg, samples[starIdx].rhoDeg, sc.gap)
+    : null;
+  // `notchAt` is UNCHANGED (all eight PIN-2 tests stay verbatim); the weight is applied HERE,
+  // where the per-edge `Q` and the dip floor live. A gap is only as good as the two things that
+  // make it a gap — the same notch between two hedges is not the same photograph.
+  const fGap = notch
+    ? notch.f *
+      shoulderQualityOf(rays, notch, dipFloorDeg, graze, depthFor, sc.gap.shoulderQuality)
+    : 0;
+  const f = Math.max(fGraze, fGap);
+
+  // REGISTRY, not a hard-coded 4-term sum (§5.2): the composition iterates the keys of `weights`,
+  // so adding a term is one field plus a weight of 0 rather than an edit here. The iteration order
+  // is the record's own insertion order (v, l, p, f), which is exactly the order the hard-coded sum
+  // used — so this is bit-identical, not merely equivalent.
+  const terms: Record<BestSpotTermKey, number> = { v, l, p, f };
+  const w = sc.weights;
+  let wTotal = 0;
+  let wDotT = 0;
+  for (const key of Object.keys(w) as BestSpotTermKey[]) {
+    const t = terms[key];
+    // A NEWER profile read by an OLDER kernel carries a weight for a term this build cannot
+    // compute. Dropping it (rather than multiplying by `undefined`) is the difference between one
+    // stale term and a whole disc of NaN ink — the profile crosses `postMessage`, so the version
+    // skew is real, not hypothetical.
+    if (t === undefined) continue;
+    wTotal += w[key];
+    wDotT += w[key] * t;
+  }
   // Normalised by the weight sum so a custom blend cannot inflate S past 1 — the GL ramp reads
   // ABSOLUTE score (an all-bad disc must look all-bad), so the top of the scale has to mean 1.
-  const preference = wTotal > 0 ? (w.v * v + w.l * l + w.p * p + w.f * f) / wTotal : 0;
+  const preference = wTotal > 0 ? wDotT / wTotal : 0;
   const score = clamp01(
     (access.hard ? 1 : 0) *
-      Math.sqrt(clamp01(access.soft)) *
-      clamp01(track.worth) *
-      visibilityGate(v) *
+      accessSoftGain(clamp01(access.soft), sc.curves.accessSoftExponent) *
+      effectiveWorth(track.worth, sc.worth) *
+      visibilityGate(v, sc.gates) *
       preference,
   );
 
@@ -800,12 +1152,100 @@ export function cellScore(
     l,
     p,
     f,
+    fGraze,
+    fGap,
+    grazeRadii,
+    grazeTau,
+    grazeSrc,
+    grazeDistM,
+    grazeStepRadii,
     c,
     altStarDeg,
     dStarM: starRay ? starRay.blockerDistM : 0,
     srcStar: starRay ? starRay.src : "none",
     access,
   };
+}
+
+/**
+ * `min(Q(sL), Q(sR))` — how much the two shoulders are worth as a FRAME (`SPEC_V2 §1.1 ⑤`).
+ *
+ * `min` and not `mean` by default for the same reason `notchAt` takes `min(sL, sR)` as its depth: a
+ * gap with ONE good flank is a corner, not a gap. An unmeasured shoulder scores 0 — ignorance is
+ * not quality — which agrees with `notchAt`'s own `−Infinity` propagation rather than papering over
+ * it. `"off"` returns 1 and reproduces the shipped, unweighted `F_notch` exactly.
+ *
+ * Each shoulder is priced through the SAME `Relief · Conf · Depth` as a GRAZE edge, on that
+ * shoulder ray's own GROUND channel — the shoulder IS the ground horizon there by `notchAt`'s
+ * construction.
+ */
+function shoulderQualityOf(
+  rays: readonly RayEvidence[],
+  notch: NotchResult,
+  dipFloorDeg: number,
+  graze: BestSpotScoring["graze"],
+  depthFor: (distM: number) => number,
+  mode: BestSpotScoring["gap"]["shoulderQuality"],
+): number {
+  if (mode === "off") return 1;
+  const qL = groundEdgeQuality(rays, notch.shoulderLIdx, dipFloorDeg, graze, depthFor);
+  const qR = groundEdgeQuality(rays, notch.shoulderRIdx, dipFloorDeg, graze, depthFor);
+  return mode === "mean" ? (qL + qR) / 2 : Math.min(qL, qR);
+}
+
+/** `Q` for the GROUND edge of one ray — GRAZE's own quality kernel, addressed by index. */
+function groundEdgeQuality(
+  rays: readonly RayEvidence[],
+  idx: number,
+  dipFloorDeg: number,
+  graze: BestSpotScoring["graze"],
+  depthFor: (distM: number) => number,
+): number {
+  if (idx < 0 || idx >= rays.length) return 0;
+  const r = rays[idx];
+  if (r.known !== 1) return 0;
+  const relief = smoothstep(graze.reliefLoDeg, graze.reliefHiDeg, r.groundAltAppDeg - dipFloorDeg);
+  if (!(relief > 0)) return 0;
+  return relief * (graze.conf[r.groundSrc] ?? 0) * depthFor(r.groundDistM);
+}
+
+/**
+ * `A_soft ^ accessSoftExponent`. 36.1 % of a dense Dnipro box is UNKNOWN landcover, so raw
+ * multiplication makes the whole map read as a landcover map; the exponent is what turns landcover
+ * into a penalty rather than a decision.
+ *
+ * The `0.5` fast path is not a micro-optimisation. `Math.sqrt` is CORRECTLY ROUNDED by IEEE-754;
+ * `Math.pow(x, 0.5)` is implementation-approximated and may differ in the last ulp. Routing the
+ * shipped exponent through `sqrt` keeps the refactor bit-identical AND keeps the more accurate of
+ * the two functions on the default path.
+ */
+function accessSoftGain(soft: number, exponent: number): number {
+  return exponent === 0.5 ? Math.sqrt(soft) : Math.pow(soft, exponent);
+}
+
+/**
+ * `M_eff` — owner ruling **R7**, the ONE deliberate behaviour change of slice S3a.
+ *
+ * ```
+ * mode === "badge"  ->  1                                        (M leaves the product entirely)
+ * otherwise         ->  effectiveFloor + (1 − effectiveFloor)·M
+ * ```
+ *
+ * **Why.** Measured over 30 consecutive days at Dnipro, moonrise `worth` runs min 0.0003 / median
+ * 0.0290 / max 0.8639. Because `M` multiplied RAW, the best possible moon cell on a median night
+ * scored `0.029 × 0.7 ≈ 0.020` — 25× below the sheet's own legibility floor, i.e. **the moon map
+ * was black ~26 nights in 30**. R7: bad nights DIM rather than VANISH. At the shipped 0.35 a median
+ * night reads 0.369 (best cell ≈ 0.31) and a full moon 0.911 (≈ 0.77): separation preserved,
+ * nothing disappears.
+ *
+ * **Every sun number is untouched.** Sun kinds have `worth === 1` by construction
+ * (`bestSpotTrack.worthAt`), and `0.35 + (1 − 0.35)·1` is exactly 1 in IEEE doubles — not 1 to
+ * within an epsilon. `bestSpotScoring.test.ts` asserts that identity rather than assuming it.
+ */
+function effectiveWorth(worth: number, cfg: BestSpotScoring["worth"]): number {
+  if (cfg.mode === "badge") return 1;
+  const floor = clamp01(cfg.effectiveFloor);
+  return floor + (1 - floor) * clamp01(worth);
 }
 
 /** The track's ceiling — reported as `alt*` when the disc NEVER reached half-visible, so the panel
