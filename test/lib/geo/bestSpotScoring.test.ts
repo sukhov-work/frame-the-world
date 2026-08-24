@@ -594,7 +594,7 @@ describe("§5.8 EVERY FIELD IS LIVE — a re-inlined constant goes RED here", ()
     // leaves are unreachable from `cellScore` and the walk below silently stops testing them. This
     // is the assertion that guards the S3b re-tune: the body never crosses a shoulder in ALTITUDE
     // (it starts below both), so what is left of GRAZE is the two azimuth transitions at the gap's
-    // own edges — measured 0.3395 against the notch's 0.4662, a 27 % margin.
+    // own edges (τ = 0.6325 ρ) — measured GRAZE 0.30332 against GAP 0.46621, a 54 % margin.
     const starIdx = canyonEdgeIdx(canyon.track);
     const n = notchAt(rays, starIdx, canyonCell.altStarDeg, RHO, BESTSPOT_SCORING_V1.gap);
     expect(canyonCell.fGap).toBeGreaterThan(canyonCell.fGraze * 1.2);

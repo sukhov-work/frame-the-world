@@ -47,7 +47,13 @@ import type {
   VecLineFeat,
   VecPolyFeat,
 } from "../../components/globe/scene/vectorTiles";
-import { AERIAL_MIN_M, type CellAccess, type LandClass } from "./bestSpotTypes";
+import {
+  BESTSPOT_PHYSICS,
+  BESTSPOT_SAFETY,
+  BESTSPOT_SCORING_V1,
+  type BestSpotScoring,
+} from "./bestSpotScoring";
+import type { CellAccess, LandClass } from "./bestSpotTypes";
 import {
   enuFrameAt,
   enuOfLonLat,
@@ -109,12 +115,32 @@ export interface LandGrid {
   /** `LAND_CODE` values. Allocated zero-filled, and `LAND_CODE.unknown === 0` on purpose. */
   cls: Uint8Array;
   /**
-   * Soft preference × `SOFT_Q`. A SECOND byte rather than a lookup off `cls` because the ladder has
-   * demotions that are not classes: `surface=unpaved` and `foot=no` "demote; they never certify"
-   * (plan §4), and an unpaved footway is still a footway.
+   * PROVENANCE bits — `LAND_FLAG.demoted` (bit 0) and `LAND_FLAG.accessDenied` (bit 1).
+   *
+   * **§5.3(a), and it is the load-bearing half of the change.** This byte used to be `softQ`: the
+   * soft preference BAKED IN at paint time, so moving one rung of the ladder meant re-rastering the
+   * whole disc (2.2–31 ms). It is now pure provenance and `softAt` resolves the value from the
+   * PROFILE at read time — which drops `access.soft.*` / `access.demoteK` / `access.aerialMinM`
+   * from a re-raster to a RECOMPOSE (0.272 ms). Same byte count, same two arrays.
+   *
+   * The flag is needed because the ladder has demotions that are not classes: `surface=unpaved` and
+   * `foot=no` "demote; they never certify" (plan §4), and an unpaved footway is still a footway.
+   *
+   * `accessDenied` is ADDITIONAL provenance, never a replacement: `access=no`/`private` is still
+   * resolved EAGERLY into `paint("blocked")` at paint time, because that is what flips the SAFETY
+   * `hard` bit through the class. The bit only records WHY a cell reads `blocked`, for the panel.
    */
-  softQ: Uint8Array;
+  flags: Uint8Array;
 }
+
+/** Bits of `LandGrid.flags`. */
+export const LAND_FLAG = {
+  /** `surface=unpaved` or `foot=no` — multiply `soft` by `access.demoteK`. */
+  demoted: 1,
+  /** The cell was painted `blocked` because of `access=no` / `access=private`, rather than because
+   *  of its own class. Provenance for the panel's row copy; the hard bit already came from the class. */
+  accessDenied: 2,
+} as const;
 
 // ---------------------------------------------------------------------------------------------
 // Classes, codes, and the ground ladder
@@ -156,42 +182,35 @@ export const LAND_CODE: Record<LandClass, number> = {
  * 0.15 → 30, 0.1 → 20, and ×`DEMOTE_K` gives 140/126/119/84/63/21/14. No rounding drift means a
  * test can assert `soft === 0.85` instead of `toBeCloseTo`, which is the difference between a pin
  * that fails when the ladder changes and one that shrugs.
+ *
+ * **RETIRED AS A STORAGE FORMAT (§5.3(a)), KEPT AS THE LADDER'S EXACTNESS CONTRACT.** The grid no
+ * longer stores a quantised soft byte — `softAt` resolves the value from the profile at read time.
+ * The exactness property it was chosen for is still the reason the ladder's rungs are the numbers
+ * they are, and `landcoverRaster.test.ts` still asserts it, so the constant stays with its
+ * reasoning attached. It is `BESTSPOT_PHYSICS.softQ`; there is one copy of the number.
  */
-export const SOFT_Q = 200;
+export const SOFT_Q = BESTSPOT_PHYSICS.softQ;
 
 /**
  * `surface=unpaved` / `foot=no` demotion. The plan's words are "they never certify" — an unpaved
  * track is still walkable, so this is a multiplier, never a gate.
+ *
+ * The SHIPPED value; the live twin the code reads is `scoring.access.demoteK`.
  */
-export const DEMOTE_K = 0.7;
-
-interface GroundRule {
-  hard: 0 | 1;
-  soft: number;
-}
+export const DEMOTE_K = BESTSPOT_SCORING_V1.access.demoteK;
 
 /**
- * The GROUND ladder (plan §4). `hard = 0` kills the cell at any framing score — "a cell in the
- * Dnipro is not a spot".
+ * The HARD half of the GROUND ladder (plan §4). `hard = 0` kills the cell at any framing score —
+ * "a cell in the Dnipro is not a spot".
  *
- * `green` is the 0.9 BUCKET, not a colour claim: the plan reads "park/grass/beach 0.9", so a sand
- * beach lands here too. `wetland` sits at the very bottom (0.1) but is NOT hard-excluded — a marsh
- * is miserable, not impassable, and calling it impassable would be a claim about a water level this
- * data does not carry.
+ * **These 11 bits are `BESTSPOT_SAFETY` and are NOT patchable** (§5.5): flipping `water` makes the
+ * top-K tell a photographer to stand in a river, and `blocked` covers military / industrial /
+ * railway, which is C6-relevant. The SOFT half moved into `BestSpotScoring.access.soft` and IS
+ * tunable — `wetland` sits at the bottom of it (0.1) but is deliberately NOT hard-excluded, because
+ * a marsh is miserable rather than impassable and calling it impassable would be a claim about a
+ * water level this data does not carry.
  */
-const GROUND: Record<LandClass, GroundRule> = {
-  unknown: { hard: 1, soft: 0.45 },
-  water: { hard: 0, soft: 0.1 },
-  wetland: { hard: 1, soft: 0.1 },
-  building: { hard: 0, soft: 0.1 },
-  deck: { hard: 1, soft: 1 },
-  path: { hard: 1, soft: 1 },
-  road: { hard: 1, soft: 0.6 },
-  majorRoad: { hard: 1, soft: 0.15 },
-  green: { hard: 1, soft: 0.9 },
-  pitch: { hard: 1, soft: 0.85 },
-  blocked: { hard: 0, soft: 0.1 },
-};
+const GROUND_HARD = BESTSPOT_SAFETY.groundHard;
 
 /** OpenMapTiles transportation classes that are "primary/trunk/motorway 0.15" in the ladder. */
 const MAJOR_ROAD_CLASSES = new Set(["motorway", "trunk", "primary"]);
@@ -235,7 +254,16 @@ function centreIndex(n: number): number {
   return (n - 1) / 2;
 }
 
-/** Allocate an all-`unknown` grid for a spec. `n` is ODD via the DSM's own `oddSpanCells`. */
+/**
+ * Allocate an all-`unknown` grid for a spec. `n` is ODD via the DSM's own `oddSpanCells`.
+ *
+ * BOTH arrays are plain zero-filled allocations now. That is not a shortcut — it is the equivalence
+ * the §5.3(a) conversion rests on: `LAND_CODE.unknown === 0` and `LAND_FLAG` has no bit 0 meaning
+ * "not demoted", so a fresh grid reads as `unknown`, undemoted, and `softAt` resolves
+ * `access.soft.unknown = 0.45` — exactly what the old `.fill(round(0.45 · SOFT_Q)) = .fill(90)`
+ * produced (`90 / 200 === 0.45`). One fewer `fill` over 361k cells, and the ladder is now
+ * re-readable without re-rastering.
+ */
 export function makeLandGrid(spec: LandGridSpec): LandGrid {
   const cellM = spec.cellM;
   const n = oddSpanCells(spec.halfSpanM, cellM);
@@ -247,7 +275,7 @@ export function makeLandGrid(spec: LandGridSpec): LandGrid {
     centreLonDeg: spec.centreLonDeg,
     frame: enuFrameAt(spec.centreLatDeg, spec.centreLonDeg),
     cls: new Uint8Array(n * n),
-    softQ: new Uint8Array(n * n).fill(Math.round(GROUND.unknown.soft * SOFT_Q)),
+    flags: new Uint8Array(n * n),
   };
 }
 
@@ -311,10 +339,20 @@ export function classAt(grid: LandGrid, ix: number, iy: number): LandClass {
   return LAND_CLASSES[grid.cls[iy * grid.nx + ix]] ?? "unknown";
 }
 
-/** Soft preference of a cell, 0.1..1 (already de-quantised, demotions included). */
-export function softAt(grid: LandGrid, ix: number, iy: number): number {
-  if (!inGrid(grid, ix, iy)) return GROUND.unknown.soft;
-  return grid.softQ[iy * grid.nx + ix] / SOFT_Q;
+/**
+ * Soft preference of a cell, 0.1..1 — resolved from the PROFILE at read time (§5.3(a)), demotions
+ * included. Out of range reads the `unknown` rung, the same honest answer `classAt` gives.
+ */
+export function softAt(
+  grid: LandGrid,
+  ix: number,
+  iy: number,
+  scoring: BestSpotScoring = BESTSPOT_SCORING_V1,
+): number {
+  if (!inGrid(grid, ix, iy)) return scoring.access.soft.unknown;
+  const k = iy * grid.nx + ix;
+  const base = scoring.access.soft[LAND_CLASSES[grid.cls[k]] ?? "unknown"];
+  return (grid.flags[k] & LAND_FLAG.demoted) !== 0 ? base * scoring.access.demoteK : base;
 }
 
 /** Fraction of cells carrying a class, 0..1 — the "% UNMAPPED" status line, and the pin that says
@@ -368,13 +406,16 @@ export function accessAt(
   iy: number,
   sheetHeightAboveGroundM: number,
   inSolidInterior: boolean,
+  scoring: BestSpotScoring = BESTSPOT_SCORING_V1,
 ): CellAccess {
   const cls = classAt(grid, ix, iy);
-  const ground = GROUND[cls];
-  const groundReachable = ground.hard === 1;
+  // The HARD bit is BESTSPOT_SAFETY and comes from the module const, never from `scoring` — there
+  // is no key path from a patch to it. Only the SOFT rung and the aerial threshold are tunable.
+  const hard = GROUND_HARD[cls];
+  const groundReachable = hard === 1;
 
-  if (sheetHeightAboveGroundM < AERIAL_MIN_M) {
-    return { hard: ground.hard, soft: softAt(grid, ix, iy), cls, groundReachable };
+  if (sheetHeightAboveGroundM < scoring.access.aerialMinM) {
+    return { hard, soft: softAt(grid, ix, iy, scoring), cls, groundReachable };
   }
 
   // R1 aerial: the ONLY gate up here. Water stops masking, roofs stop masking, and `soft` is a flat
@@ -396,12 +437,15 @@ type RingXY = Float64Array;
 
 const ascending = (a: number, b: number) => a - b;
 
-/** Write one cell (class + soft byte). The ONLY writer — paint order is enforced by call order, so
- *  there is deliberately no priority test here to get out of sync with §4's list. */
-function put(grid: LandGrid, ix: number, iy: number, code: number, softByte: number): void {
+/** Write one cell (class + provenance flags). The ONLY writer — paint order is enforced by call
+ *  order, so there is deliberately no priority test here to get out of sync with §4's list.
+ *
+ *  The flags are ASSIGNED, not OR-ed: a later pass repainting a cell replaces the whole verdict,
+ *  and a demotion inherited from the road a footway crosses would be a claim about the wrong way. */
+function put(grid: LandGrid, ix: number, iy: number, code: number, flags: number): void {
   const k = iy * grid.nx + ix;
   grid.cls[k] = code;
-  grid.softQ[k] = softByte;
+  grid.flags[k] = flags;
 }
 
 /**
@@ -421,7 +465,7 @@ function fillPolygon(
   grid: LandGrid,
   rings: readonly RingXY[],
   code: number,
-  softByte: number,
+  flags: number,
 ): void {
   let minY = Infinity;
   let maxY = -Infinity;
@@ -457,7 +501,7 @@ function fillPolygon(
     for (let k = 0; k + 1 < xs.length; k += 2) {
       const ixa = Math.max(0, Math.ceil(xs[k] / grid.cellM + centreIndex(grid.nx)));
       const ixb = Math.min(grid.nx - 1, Math.floor(xs[k + 1] / grid.cellM + centreIndex(grid.nx)));
-      for (let ix = ixa; ix <= ixb; ix++) put(grid, ix, iy, code, softByte);
+      for (let ix = ixa; ix <= ixb; ix++) put(grid, ix, iy, code, flags);
     }
   }
 }
@@ -476,7 +520,7 @@ function stampPolyline(
   pts: RingXY,
   widthM: number,
   code: number,
-  softByte: number,
+  flags: number,
 ): void {
   const half = widthM / 2;
   if (!(half > 0)) return;
@@ -504,7 +548,7 @@ function stampPolyline(
         t = t < 0 ? 0 : t > 1 ? 1 : t;
         const dx = px - (ax + ex * t);
         const dy = py - (ay + ey * t);
-        if (dx * dx + dy * dy <= half2) put(grid, ix, iy, code, softByte);
+        if (dx * dx + dy * dy <= half2) put(grid, ix, iy, code, flags);
       }
     }
   }
@@ -521,13 +565,19 @@ export interface LandSource {
   areas: readonly VecAreaFeat[];
 }
 
-/** A class + its soft byte, already demoted. `null` = "no ruling — leave the cell alone", which is
- *  NOT the same as painting `unknown`: an unruled landuse ring must leave the park beneath it. */
-export type Paint = { code: number; softByte: number } | null;
+/** A class + its provenance flags. `null` = "no ruling — leave the cell alone", which is NOT the
+ *  same as painting `unknown`: an unruled landuse ring must leave the park beneath it.
+ *
+ *  It carried `softByte` until §5.3(a); the soft VALUE is now resolved from the profile at read
+ *  time, so what the paint pass records is only what it OBSERVED — the class, whether the way was
+ *  demoted, and whether `access` is what blocked it. */
+export type Paint = { code: number; flags: number } | null;
 
-function paint(cls: LandClass, demote = false): Paint {
-  const soft = GROUND[cls].soft * (demote ? DEMOTE_K : 1);
-  return { code: LAND_CODE[cls], softByte: Math.round(soft * SOFT_Q) };
+function paint(cls: LandClass, demote = false, accessDenied = false): Paint {
+  return {
+    code: LAND_CODE[cls],
+    flags: (demote ? LAND_FLAG.demoted : 0) | (accessDenied ? LAND_FLAG.accessDenied : 0),
+  };
 }
 
 /** Project a lon/lat ring into interleaved local metres — through `localOfLonLat`, never a second
@@ -555,7 +605,7 @@ function fillFeature(
       grid,
       rings.map((r) => ringXY(grid, r)),
       p.code,
-      p.softByte,
+      p.flags,
     );
   }
 }
@@ -564,7 +614,7 @@ function stampFeature(grid: LandGrid, feat: VecLineFeat, widthM: number, p: Pain
   if (!p || !(widthM > 0)) return;
   for (const part of feat.lines) {
     if (part.length < 2) continue;
-    stampPolyline(grid, ringXY(grid, part), widthM, p.code, p.softByte);
+    stampPolyline(grid, ringXY(grid, part), widthM, p.code, p.flags);
   }
 }
 
@@ -605,7 +655,7 @@ export function landusePaint(cls: string): Paint {
 /** transportation class → the ladder, for LINES. */
 function roadPaint(feat: VecLineFeat): Paint {
   const access = feat.access ?? "";
-  if (ACCESS_DENIED.has(access)) return paint("blocked");
+  if (ACCESS_DENIED.has(access)) return paint("blocked", false, true);
   // A live railway is a hard exclusion. The plan names `railway` only as a LANDUSE class; extending
   // it to the centreline is this module's inference, and it is the safe direction to be wrong in —
   // the alternative is a top-K row that tells a photographer in a war zone to stand on a track.
@@ -649,7 +699,9 @@ export function buildLandGrid(spec: LandGridSpec, sources: Iterable<LandSource>)
   for (const t of tiles) {
     for (const f of t.areas) {
       if (f.kind !== "landuse") continue;
-      const p = ACCESS_DENIED.has(f.access ?? "") ? paint("blocked") : landusePaint(f.cls);
+      const p = ACCESS_DENIED.has(f.access ?? "")
+        ? paint("blocked", false, true)
+        : landusePaint(f.cls);
       fillFeature(grid, f.polys, p);
     }
   }
@@ -696,7 +748,7 @@ export function buildLandGrid(spec: LandGridSpec, sources: Iterable<LandSource>)
   for (const t of tiles) {
     for (const f of t.areas) {
       if (f.kind !== "deck") continue;
-      const p = ACCESS_DENIED.has(f.access ?? "") ? paint("blocked") : paint("deck");
+      const p = ACCESS_DENIED.has(f.access ?? "") ? paint("blocked", false, true) : paint("deck");
       fillFeature(grid, f.polys, p);
     }
   }

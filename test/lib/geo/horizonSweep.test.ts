@@ -1014,11 +1014,11 @@ describe("horizonSweep × bestSpotMetric — ACCEPTANCE: the bridge OUTSCORES th
     // over 1.55° of altitude, `windowLo = 0, windowHi = n − 1`, hand-made weights — which is the
     // very thing `bestSpotComposition.test.ts` exists to stop standing in for the real chain. On the
     // REAL `eventTrack` the same scene measures a **0.12613** margin and that file asserts `> 0.1`
-    // unchanged. The number moved because GRAZE prices a 4 m slab by how long the sun rides it
-    // (F 0.8294 → 0.4318 here) instead of saturating on any built edge the centre crosses.
+    // unchanged. The number moved because GRAZE prices this 4 m slab by how long the sun rides it —
+    // measured F **0.50068**, τ 1.2154 ρ — instead of saturating on any edge the centre crosses.
     expect(withDeck.score - bare.score).toBeGreaterThan(0.05);
     // The channel that carries it — GRAZE fires on the DECK's own band edge, weighted by the DECK's
-    // own 1492 m, not by the far bank's 1700 m. S3b: `> 0.8` → `> 0.4` (measured 0.43176).
+    // own 1492 m, not by the far bank's 1700 m. S3b: `> 0.8` → `> 0.4` (measured 0.50068).
     expect(withDeck.f).toBeGreaterThan(0.4);
     expect(withDeck.grazeSrc).toBe<OccluderSrc>("deck");
     expect(withDeck.grazeDistM).toBeCloseTo(1492, 3);
