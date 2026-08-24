@@ -129,6 +129,56 @@ describe("sanitizeViewPrefs", () => {
     });
   });
 
+  // BEST SPOT (SPEC_V2 §5.7) — the one NESTED value in the blob. It rides `sanitizeScoringPatch`,
+  // so this block pins the seam (a patch survives, junk inside it does not), not the kernel's own
+  // clamp table, which `bestSpotScoring.test.ts` owns.
+  it("round-trips a bestSpotTuning PATCH and drops unknown keys inside it", () => {
+    expect(
+      sanitizeViewPrefs({ bestSpotTuning: { weights: { p: 0.4, f: 0.15 } } }),
+    ).toEqual({ bestSpotTuning: { weights: { p: 0.4, f: 0.15 } } });
+    // Shape-driven: keys the shipped profile does not have are never even looked at.
+    expect(
+      sanitizeViewPrefs({ bestSpotTuning: { weights: { p: 0.4 }, nonsense: 1, gates: { nope: 2 } } }),
+    ).toEqual({ bestSpotTuning: { weights: { p: 0.4 } } });
+    // A wrong-typed leaf cannot poison the Float32Array the GL sheet samples.
+    expect(sanitizeViewPrefs({ bestSpotTuning: { gates: { vGateLo: "0.2" } } })).toEqual({
+      bestSpotTuning: {},
+    });
+  });
+
+  it("neutralises a patch that reaches for a BESTSPOT_SAFETY path", () => {
+    // There is no key path from a patch to `groundHard` at all — it is a separate export, so the
+    // shape-driven copy never sees it. `aerialMinM` IS a patchable leaf and is CLAMPED, not
+    // banned: below ~2 m the R1 drone rules would apply to a standing person, water stops masking
+    // and the map sends someone into the Dnipro. `graze.conf.tree` is capped the same way
+    // (151,046 of Dnipro's 161,823 canopies are seeded scatter, not surveyed).
+    expect(
+      sanitizeViewPrefs({
+        bestSpotTuning: {
+          access: { aerialMinM: 0 },
+          graze: { conf: { tree: 1 } },
+          gates: { minCoverage: 0 },
+          groundHard: { water: 1 },
+        },
+      }),
+    ).toEqual({
+      bestSpotTuning: {
+        access: { aerialMinM: 2 },
+        graze: { conf: { tree: 0.6 } },
+        gates: { minCoverage: 0.5 },
+      },
+    });
+  });
+
+  it("ignores a non-object bestSpotTuning entirely", () => {
+    expect(sanitizeViewPrefs({ bestSpotTuning: null })).toEqual({});
+    expect(sanitizeViewPrefs({ bestSpotTuning: "custom" })).toEqual({});
+    expect(sanitizeViewPrefs({ bestSpotTuning: 7 })).toEqual({});
+    // An object that survives sanitize with nothing in it is still an object — the store treats
+    // an empty patch as "shipped default", so it costs nothing to keep the key honest here.
+    expect(sanitizeViewPrefs({ bestSpotTuning: {} })).toEqual({ bestSpotTuning: {} });
+  });
+
   it("new sky-target keys win over the comet-era fallbacks, trail is its own key", () => {
     expect(
       sanitizeViewPrefs({

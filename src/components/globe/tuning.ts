@@ -20,12 +20,20 @@
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
 //   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · ENRICHED · GROUND · DRAPE ·
 //   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
-//   AIMCONES · GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · ORCH
+//   AIMCONES · GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · BESTSPOT · ORCH
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
 // and guaranteed to match three's WGS84_ELLIPSOID, which the OSM building tiles extrude from).
 export { WGS84_A, WGS84_B } from "../../lib/geo/projection";
+
+// BESTSPOT — the SCORING profile (`lib/geo/bestSpotScoring.ts`, SPEC_V2 §5.2). Same precedent as
+// WGS84 above: the VALUE lives in `lib/` because the kernel must be reproducible from a test fixture
+// with no `components/` edge (and because `as const` on a nested profile is hostile to the
+// `DeepPartial` merge the hot-swap seam needs); this line is the discoverability half, so a taste
+// pass that starts in `tuning.ts` finds it. The RENDER half of BESTSPOT (ramps, alphas, contour
+// interval, plumb line) is a later slice and lands as a normal block below.
+export { BESTSPOT_SCORING_V1 } from "../../lib/geo/bestSpotScoring";
 export type Tuple3 = readonly [number, number, number];
 
 /** Sun lighting. `direction` is only the FIRST-FRAME fallback — since the pre-Phase-4 ephemeris
@@ -2814,6 +2822,269 @@ export const PLAN = {
    *  this many frames (settled, no easing), a ready profile built over the old geometry is
    *  invalidated ONCE and rebuilt — the skyline verdict must match what's rendered. */
   reseatQuietFrames: 90,
+} as const;
+
+/**
+ * BEST SPOT — the RENDER + LADDER half (`.claude/claude-docs/BESTSPOT_SPEC_V2.md` §6.11). The
+ * SCORING half is `lib/geo/bestSpotScoring.ts`, re-exported at the top of this file: nothing in
+ * THIS block can move a score, and nothing in this block is ever persisted (the persisted surface
+ * is the scoring PATCH, `prefs.bestSpotTuning`).
+ *
+ * Colour is a RAMP ID, never a literal — the file contract above. `lib/theme/tokens.ts` owns every
+ * colour the sheet paints and resolves the ramp BY NAME; a hex here would fork the palette.
+ *
+ * The three numbers most likely to be reached for first: `displayLo`/`displayHi` (the display
+ * normalisation that absorbs any scoring-function change without a re-tune of the look) and
+ * `inkMax` (see `bloomHeadroomNote`).
+ */
+export const BESTSPOT = {
+  /** Heat ramp id, resolved by the token bridge. Perceptually monotone + dark at the low end, so
+   *  a 97.7 %-black pedestrian disc (§2.3) reads as ground rather than as ink. */
+  rampId: "inferno",
+  /** The panel's A/B ramp (`.bsp-ab`, §6.9) — same data, a second LUT. Kept as a NAME for the
+   *  same reason as `rampId`: an owner A/B must not be able to introduce a colour literal. */
+  rampAltId: "turbo",
+  /** Display normalisation: score → ramp t is `smoothstep(displayLo, displayHi, S)`. **THE knob
+   *  that absorbs any scoring-function change** — if a metric revision moves the whole score
+   *  distribution, these two move and nothing else in the look has to. `displayLo` is also R6's
+   *  "clears the floor" test (`emptyFieldFrac` counts cells above it). */
+  displayLo: 0.15,
+  displayHi: 0.9,
+  /** INK — the heat wash's alpha range, `mix(inkMin, inkMax, t^inkGamma)`. `inkMin` is not 0: a
+   *  scored-but-bad cell must still read as SCORED, which is the whole UNKNOWN-vs-low-score
+   *  distinction (`bestSpotMetric.ts:757`). */
+  inkMin: 0.02,
+  inkMax: 0.34,
+  /** Named because it is the trap: raising `inkMax` past ~0.40 pushes the hottest cells over
+   *  `BLOOM.threshold` (0.9) and the sheet SMEARS into the buildings instead of reading as a
+   *  ground layer. Taste the ramp with `displayHi` first; `inkMax` is the last resort. */
+  bloomHeadroomNote: "inkMax > ~0.40 crosses BLOOM.threshold 0.9 and the sheet smears",
+  /** Gamma on the ink ramp — >1 holds the low end down so the top-K stand out of the wash. */
+  inkGamma: 1.4,
+  /** VEIL — the dark scrim under the sheet that keeps the wash legible over a bright backdrop
+   *  (the flat 2D photographic chart, `GROUND.flat2dPhotoK = 1`, is the brightest measured).
+   *  INDEPENDENT of ink by design: the veil answers "can I see the wash", the ink answers "how
+   *  good is this cell" — tying them makes a dark disc invisible on the chart. */
+  veilMin: 0.12,
+  veilMax: 0.3,
+  /** Iso-score contours: one line every `contourStep` of DISPLAY-normalised score, with the two
+   *  majors drawn heavier. 0.60/0.80 are the two thresholds the panel legend labels. */
+  contourStep: 0.1,
+  contourMajors: [0.6, 0.8],
+  /** Contour widths in SCREEN px (derived from screen-space score gradient, so the lines stay
+   *  1 px at every zoom): the core stroke, the darker halo behind it, and the major multiplier. */
+  coreWidthPx: 1.4,
+  haloWidthPx: 3.8,
+  majorWidthK: 1.7,
+  /** Contour alphas — the halo is what makes a hairline readable over both the dark drape and the
+   *  photographic chart without a second draw call. */
+  haloAlpha: 0.65,
+  coreAlpha: 0.95,
+  majorAlphaBoost: 0.15,
+  /**
+   * The UNMAPPED boundary's DASHED core alpha — a separate knob from `coreAlpha` (S3d).
+   *
+   * The sheet shipped borrowing `coreAlpha` (0.95) for it and documented the deviation. It is a
+   * genuinely different question: an iso-score contour is a MEASUREMENT and wants to be the
+   * crispest line on the surface, while the UNMAPPED boundary says "nobody looked past here" and
+   * must read as a softer edge than the data it borders — a hard 0.95 dash reads as a claim about
+   * the boundary's exact position, which is the one thing UNKNOWN is not making. 0.90 is the
+   * smallest step that reads as deliberate at the `unknownDuty 0.45` on-fraction.
+   *
+   * §6.7's OTHER two derivations are RATIFIED rather than promoted, and this is where that is
+   * written down (`SPEC_V2 §7 S3d` asks for one or the other, explicitly):
+   *  · **`chipMinM` is not added.** The sheet places the altitude chip on a smoothstep of
+   *    `(plumbPx − chipCapPx) / chipCapPx`, i.e. "is the plumb line long enough ON SCREEN to hang
+   *    a label on". A METRE threshold cannot answer that: at nadir a 400 m sheet projects to zero
+   *    pixels and a 1.7 m sheet at a grazing tilt projects to plenty, so any `chipMinM` is wrong
+   *    at one of the two ends. The cap-height rule is the honest version and needs no constant.
+   *  · **`chipTiltLerp` is not added.** Same reason: the derived form IS the tilt band, expressed
+   *    in the units the decision is actually made in, and it degenerates correctly at nadir where
+   *    a literal tilt band would put the chip on top of the ground tick.
+   */
+  dashCoreAlpha: 0.9,
+  /** Contour DENSITY dropout: where adjacent isolines converge to less than this fraction of the
+   *  core width in screen space, lines fade out rather than alias into a solid block (the far
+   *  half of an oblique view thins itself automatically, §6.10 (A)). */
+  densFadeLo: 0.35,
+  densFadeHi: 0.7,
+  /** Radial falloff at the disc rim, as a fraction of the radius (owner R4: the sheet must not
+   *  obscure the map, and a hard edge reads as a claim that the world stops there). */
+  rimFrac: 0.1,
+  /** UNMAPPED cells are drawn as a moving dotted hatch, never as a colour: screen-space dash
+   *  period (px) and the on-duty fraction. A cold colour would read as "bad spot", which is a
+   *  claim about geometry nobody looked at (§3.1). */
+  unknownDashPx: 9,
+  unknownDuty: 0.45,
+  /** Top-K shortlist: how many markers/rows, and the non-maximum-suppression separation (m) that
+   *  makes them eight PLACES rather than eight cells of one plateau (§6.8). */
+  topK: 8,
+  topKMinSepM: 25,
+  /** Row↔marker hover: the ease constant (ms, the `AIMCONES.emphTauMs` value — one hover feel
+   *  across the instrument) and the hovered marker's radius multiplier. */
+  hoverEaseTauMs: 180,
+  hoverRadiusK: 1.35,
+  /** Altitude chip cap height in px through `streetNames.labelScaleFor` — constant on screen at
+   *  every zoom. NOT the `PLACEMARKS.angularSize` clamp: that gives ~8.6 px at the natural
+   *  nadir altitude, too small for the chip's two lines (§6.7). */
+  chipCapPx: 13,
+  /** Plumb line half-width and the ground tick's arm length, both in screen px (§6.7 — the line
+   *  degenerates at nadir and the tick + scale spoke carry the reading). */
+  plumbHalfWidthPx: 1.5,
+  tickArmPx: 9,
+  /**
+   * renderOrder — §6.10, and the reason it is 4 and not 9. The shipped stack is Pins 0 · vector
+   * fills 1 · ribbons 2 · streetNames/placeMarkers 3 · **depth-free planning band 9**
+   * (`OVERLAY_RENDER_ORDER`, `scene/tangentOverlay.ts:18` — aimCones, focalCone, dayArcs) ·
+   * findGhosts/skyTrail 10 · sky 11-12. The sheet is depth-TESTED (a ground reading, so buildings
+   * must occlude it), and a depth-tested surface dropped into the depth-free band sorts by camera
+   * distance against `depthTest:false` siblings — **non-deterministic flicker against the radar**.
+   * 4/5 also keeps the radar and the focal cone reading OVER the sheet, which is the right
+   * hierarchy: they are the instrument, the sheet is the terrain reading.
+   */
+  renderOrder: 4,
+  /** Plumb line + top-K markers, one above the sheet so a marker is never z-fought by its own
+   *  cell. Still below the planning band. */
+  markerRenderOrder: 5,
+  /** `polygonOffsetFactor` / `polygonOffsetUnits` — the `scene/vectorFeatures` ribbon value (−3)
+   *  plus one, so the sheet sits above the ribbons it shares the ground plane with. */
+  polygonOffset: [-4, -4],
+  /** Presence band, RADIUS-derived (§6.10): full presence at/below `fullAltK × radiusM`, gone at
+   *  `topAltK × radiusM`, through `tangentOverlay.presenceForAlt`. At R = 300 m that is 2,400 /
+   *  4,200 m — where one 3 m cell measures 1.02 px, so the sheet vanishes exactly at its own
+   *  resolution limit instead of lying at half a pixel. */
+  fullAltK: 8,
+  topAltK: 14,
+  /** Whole-sheet fade (ms) — the AIMCONES/FOCALCONE `easeFade` idiom. */
+  fadeTauMs: 250,
+  /** Streaming-refinement debounce (frames): after terrain/vector tile arrivals go QUIET for this
+   *  long the disc is re-solved ONCE (§3.4 item 2 — mirrors `PLAN.reseatQuietFrames`, ≈1.5 s).
+   *  Without it a streaming burst triggers a ~680 ms solve every frame. */
+  rebuildQuietFrames: 90,
+  /**
+   * THE PROGRESSIVE LADDER (§2.3), coarse → fine, in metres per cell. Measured at Dnipro, R =
+   * 300 m: R0 24 m = 10.6 ms (**first ink at 55 ms** including prep) · 12 m = 41 ms · 6 m = 172 ms
+   * · 3 m = 680 ms (cumulative 948 ms, 731 ms with the disc mask).
+   *
+   * **The coarse FIELD is honest; the coarse TOP-K is not.** Against the 3 m field: 12 m scores
+   * Spearman ρ = 0.767 but only 10/20 of the top-20 survive; 6 m is ρ = 0.910 / 15 of 20. Mean S
+   * is identical to 4 dp at every rung. So the sheet paints from R0 and **the top-K list stays
+   * greyed (`RANKING…`) until the last rung lands** — that asymmetry is what this array is for.
+   */
+  ladderCellsM: [24, 12, 6, 3],
+  /** Cell size (m) held DURING a live drag of the altitude slider — the coarse rung re-solves in
+   *  21 ms, inside a frame budget; the full rung (343 ms) is paid on release (§2.3). */
+  dragCellM: 24,
+  /**
+   * Owner ruling **R8** — 1 m ULTRA is FORBIDDEN above this radius (m). 1 m at 500 m is 1001² =
+   * **1,002,001 cells ≈ 12.2 s** (extrapolated by cell count; UNVERIFIED as a run). ULTRA buys
+   * ρ = 0.969 against 3 m and changes 4 of the top 20 for 6.7× the wall clock — a SHORTLIST tool,
+   * not a field tool.
+   */
+  ultraMaxRadiusM: 300,
+  /** Store mirror cadence (frames) for the per-frame engine channels — the `PLAN` value, shared
+   *  deliberately so the two planning feeds never drift into two cadences. */
+  mirrorEveryFrames: PLAN.mirrorEveryFrames,
+  /** The radius chips (m) and the default (§6.9). 300 m is R3's default disc. */
+  radiiM: [100, 200, 300, 400, 500],
+  defaultRadiusM: 300,
+  /** Owner ruling **R6** — OPEN AT EYE LEVEL. `liftM` is metres ABOVE the pedestrian eye, so 0 is
+   *  the default and the sheet sits at `eyeM`. Measured: at 1.7 m a real central-Dnipro disc is
+   *  97.7 % black with max S = 0.381 — that IS the product (the top-8 markers are), and the panel
+   *  offers the lift rather than presetting it. */
+  defaultLiftM: 0,
+  /** Pedestrian eye height (m) — `sheetAltM = eyeM + liftM`. */
+  eyeM: 1.7,
+  /** The lift slider's LOG range (m), §6.9. `liftMinM` is positive because a log slider has no
+   *  0: the store admits an exact 0 (the pedestrian default and the double-click reset) and
+   *  treats anything in between as 0 — below half a metre there is no sheet to see. */
+  liftMinM: 0.5,
+  liftMaxM: 400,
+  /** DSM COLLAR (m) — how far the height field is rasterized BEYOND the disc rim. Measured: a
+   *  cell 290 m up-sun scores 0.0467 with the collar and **0.6619 without it, a 14× silent
+   *  error** (§3.1) — a truncated disc is indistinguishable from an open plain and reports
+   *  coverage 1.000 while doing it. This is the single most expensive number to get wrong. */
+  collarM: 400,
+  /** Cell size (m) per tier. `defaultCellM` is R3's ruling ("1 m was just a ballpark"); ULTRA is
+   *  the 1 m shortlist tier gated by `ultraMaxRadiusM`; `midCellM` is the reduced tier. */
+  ultraCellM: 1,
+  defaultCellM: 3,
+  midCellM: 6,
+  /** Owner ruling **R6**, the auto-suggested lift. When the fraction of SCORED cells above
+   *  `displayLo` falls under this, probe `liftProbesM` at the coarse `liftProbeCellM` rung
+   *  (~21 ms each, ≈85 ms total), take the LOWEST lift that clears the floor and offer it as one
+   *  chip. Measured: pedestrian Dnipro puts 2.3 % of cells above 0 and 0.2 % above 0.25, while a
+   *  57 m lift clears every cell — so 5 % sits well above the black disc and far below a useful
+   *  one. **The suggestion is COMPUTED, never a constant.** */
+  emptyFieldFrac: 0.05,
+  liftProbesM: [10, 20, 40, 80],
+  liftProbeCellM: 24,
+  /** §3.4 item 6 — the parsed-z14-tile floor. Below it the solver REFUSES and renders the whole
+   *  disc UNMAPPED. With ZERO sources `buildLandGrid` costs 0.03 ms and returns every cell
+   *  `unknown / soft 0.45 / **hard 1**` (`landcoverRaster.ts:182`) — i.e. the water mask
+   *  disappears and the top-K will send a photographer into the Dnipro. The disc footprint spans
+   *  1–4 z14 tiles (z14 at 48.46° is 1,621.6 m); the solver requires this many of the tiles it
+   *  actually OVERLAPS, so this is the absolute floor, not a coverage test. */
+  minTilesForSolve: 1,
+  /**
+   * **S7 — THE BUILT-DENSITY PRIOR'S FLOOR (buildings per km²).** Below it the disc is classed
+   * TERRAIN-ONLY and `SolveInput.builtEvidence` goes false, so a ray claiming OPEN SKY stops being
+   * credited as evidence (§3.2 case 3; the mechanism is documented on `builtEvidence`).
+   *
+   * **THE DERIVATION, from the only two populations anyone measured.** `parseTile` does
+   * `if (!layer) continue`, so "tile fetched, zero buildings" is byte-identical to "OSM never
+   * surveyed here" — density is the ONLY signal available, and it is free (`builtDensityOf` counts
+   * `polys.kind === "building"` off the tiles the disc already parsed). Measured over 3×3 z14 rings
+   * (≈21 km² at 48.5°): **Dnipro centre 558 buildings ⇒ 26.6/km² · rural UA 1 ⇒ 0.048/km² ·
+   * Everest 0**. The floor is the GEOMETRIC MEAN of the two non-zero measurements,
+   * √(26.6 × 0.048) = **1.13**, rounded down to **1.0** — i.e. 26.6× of headroom under the surveyed
+   * population and 21× over the unsurveyed one, which is as far from both as the data allows.
+   * Stated in the units the failure is stated in: one surveyed building per square kilometre is
+   * about three per z14 tile (a tile at 48.5° is 2.63 km²).
+   *
+   * Raising it makes the feature MORE cautious (more UNKNOWN, never more warm), lowering it is the
+   * direction that can lie — which is why it is a floor and not a window.
+   */
+  builtDensityFloorPerKm2: 1,
+  /**
+   * **S7 — `SolveInput.refuseBelowReachM`, ON at the measured safe ceiling (m).**
+   *
+   * §3.1: a disc whose DSM stops halfway scored **0.6633 against a truth of 0.0000** and claimed
+   * open sky on all 40 rays. `reachM` + the open-sky gate shipped in S3c and take that to 0.5530;
+   * this is the POLICY on top — "how far must a cell have looked before its answer is worth
+   * painting" — and it withdraws the claim entirely.
+   *
+   * **THE CEILING IS `collarM`, and it is a geometric fact rather than a taste choice.** On a
+   * fully-mapped disc a RIM cell has exactly the collar's worth of evidence up-sun and no more, so
+   * any threshold above the collar refuses the rim of a disc with nothing wrong with it. Measured
+   * on a fully-mapped 300 m disc (31,417 scored cells): 200 m → **0** refused · 380 m → **0** ·
+   * **400 m → 0** · 420 m → 175 · 500 m → 3,027. On the §3.1 truncation fixture at 400 m the centre
+   * cell goes 0.5530 → **0.0000**, `verdict: unknown`, `unmappedFrac` 0.000 → 0.723.
+   *
+   * It is the SAME NUMBER as `collarM` and must stay so — a taste pass that moved the collar and
+   * not this would start refusing the rim of a perfectly good disc. `as const` cannot self-
+   * reference, so the equality is held by a test instead of by an expression
+   * (`bestSpotHonesty.test.ts`, "the ceiling IS the collar"), which is also the only form that can
+   * FAIL if someone edits one of them.
+   */
+  refuseBelowReachM: 400,
+  /**
+   * Owner ruling **R8**, half one — how many top candidates get their ACCESSIBILITY re-solved at
+   * `ultraCellM` on EVERY solve (measured +52–59 ms, invisible). This is the half that says "stand
+   * on the footpath, not in the hedge", and 1 m is the resolution the landcover data actually
+   * supports (§8: MVT coordinates are sub-metre, but polylines are generalised at the 5–20 m chord
+   * scale, so class boundaries carry a 1–2 cell uncertainty ribbon — draw it, do not hide it).
+   *
+   * The OTHER half — 1 m OBSTRUCTION — is user-triggered (`REFINE THIS SPOT`), because it needs a
+   * 985 ms 1 m hull that must stream. 256 is ~0.8 % of the 3 m disc's 31,417 scored cells, i.e.
+   * deep enough that a cell demoted by the 1 m landcover has something to be replaced by.
+   */
+  shortlistCandidates: 256,
+  /** Scoring-patch persistence debounce (ms). `saveViewPref` runs a full `loadViewPrefs()`
+   *  (JSON.parse + sanitize of the whole blob) on EVERY write, so a taste slider under the
+   *  pointer must not write per frame. Long enough to swallow a drag, short enough that a reload
+   *  right after a release keeps the tune. */
+  persistDebounceMs: 400,
 } as const;
 
 /** Orchestrator per-frame loop constants (StylizedTiles.update) — cadences, mirror deadbands and

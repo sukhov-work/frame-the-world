@@ -76,6 +76,11 @@ import { planElevationsM, type PlanObserver } from "../ephemeris/planner";
 import { LIGHT_DEG, sunAltDeg } from "../ephemeris/twilight";
 import { horizonDipDeg } from "./horizonProfile";
 import {
+  BESTSPOT_HONESTY,
+  BESTSPOT_SCORING_V1,
+  type BestSpotScoring,
+} from "./bestSpotScoring";
+import {
   isRiseKind,
   kindBody,
   type BestSpotKind,
@@ -116,58 +121,138 @@ export function apparentAltDeg(airlessDeg: number): number {
 // Moon-event worth — ONE scene scalar (plan §3.4 `M`)
 // ---------------------------------------------------------------------------------------------
 
-/** Sun altitudes (deg, airless) bounding the twilight plateau where a moonrise photographs.
- *  Plan §3.4: gate = 1 on sunAlt ∈ [+0.5°, −6°]. The upper edge is just above the geometric
- *  horizon (the balanced-exposure moonrise happens with the sun on or just over it); the lower
- *  edge is civil twilight, `CIVIL_TWILIGHT_DEG` / `LIGHT_DEG.blue`. */
-const WORTH_GATE_HI_DEG = 0.5;
-const WORTH_GATE_LO_DEG = LIGHT_DEG.blue; // −6°, the shipped civil-twilight constant
+/**
+ * Sun altitudes (deg, airless) bounding the twilight plateau where a moonrise photographs.
+ * Plan §3.4: gate = 1 on sunAlt ∈ [+0.5°, −6°]. The upper edge is just above the geometric
+ * horizon (the balanced-exposure moonrise happens with the sun on or just over it); the lower
+ * edge is civil twilight, `CIVIL_TWILIGHT_DEG` / `LIGHT_DEG.blue`.
+ *
+ * **These five constants are the SHIPPED VALUES, not what the code reads (S3a).** Their live twins
+ * are `BESTSPOT_SCORING_V1.worth.*`, which rides the job so a taste pass can move the ramp without
+ * a rebuild. They stay here, exported through `bestSpotScoring.test.ts`'s cross-check, because a
+ * silently-widened ramp is the kind of drift that only ever shows up as "the moon map went quiet
+ * in March", and a literal beside its provenance is how that drift gets caught.
+ */
+export const WORTH_GATE_HI_DEG = 0.5;
+export const WORTH_GATE_LO_DEG = LIGHT_DEG.blue; // −6°, the shipped civil-twilight constant
 
 /** Where the gate reaches its floor on each side. The plan names the plateau and the floor value
  *  but not the ramp width, so both edges are pinned to constants the repo ALREADY ships rather
  *  than to taste: above, `LIGHT_DEG.goldenHi` (+6°) — past it the sun is out of the photographic
  *  golden band and the moon is a daylight moon; below, `LIGHT_DEG.nautical` (−12°) — past it the
  *  sky is simply dark and the moon is "a moon at night", not the event this feature ranks. */
-const WORTH_RAMP_HI_DEG = LIGHT_DEG.goldenHi; // +6°
-const WORTH_RAMP_LO_DEG = LIGHT_DEG.nautical; // −12°
+export const WORTH_RAMP_HI_DEG = LIGHT_DEG.goldenHi; // +6°
+export const WORTH_RAMP_LO_DEG = LIGHT_DEG.nautical; // −12°
 
 /** The floor the gate ramps DOWN to — never 0. A badly-timed moonrise is worth less, not nothing:
  *  a hard zero would delete whole months of the moon map, and "no ink" in this feature is reserved
- *  for UNKNOWN (no evidence), which is a different claim. */
-const WORTH_GATE_FLOOR = 0.25;
+ *  for UNKNOWN (no evidence), which is a different claim.
+ *
+ *  **NOT `worth.effectiveFloor`.** This one shapes `worth` ITSELF (the twilight gate's floor);
+ *  R7's `effectiveFloor` shapes how the finished `worth` enters the per-cell product. Two floors,
+ *  two jobs — see the `bestSpotScoring.ts` header. */
+export const WORTH_GATE_FLOOR = 0.25;
 
 /**
- * Twilight gate, 0.25..1, from the SUN's airless altitude at the moon event's contact instant.
- * Plateau `[+0.5°, −6°]`, linear ramps to `WORTH_GATE_FLOOR` at `+6°` / `−12°`.
+ * Twilight gate, `floor`..1, from the SUN's airless altitude at the moon event's contact instant.
+ * Plateau `[plateauLoDeg, plateauHiDeg]`, linear ramps to `floor` at `rampHiDeg` / `rampLoDeg`.
  *
- * Exported so the ramp itself is pinnable without driving a whole almanac — the plan gives the
- * plateau and the floor as literals, and a silently-widened ramp is the kind of drift that only
- * shows up as "the moon map went quiet in March".
+ * Exported so the ramp itself is pinnable without driving a whole almanac.
  */
-export function twilightGate(sunAltitudeDeg: number): number {
-  if (!Number.isFinite(sunAltitudeDeg)) return WORTH_GATE_FLOOR;
-  if (sunAltitudeDeg <= WORTH_GATE_HI_DEG && sunAltitudeDeg >= WORTH_GATE_LO_DEG) return 1;
+export function twilightGate(
+  sunAltitudeDeg: number,
+  worth: BestSpotScoring["worth"] = BESTSPOT_SCORING_V1.worth,
+): number {
+  if (!Number.isFinite(sunAltitudeDeg)) return worth.floor;
+  if (sunAltitudeDeg <= worth.plateauHiDeg && sunAltitudeDeg >= worth.plateauLoDeg) return 1;
   const [edge, floorAt] =
-    sunAltitudeDeg > WORTH_GATE_HI_DEG
-      ? [WORTH_GATE_HI_DEG, WORTH_RAMP_HI_DEG]
-      : [WORTH_GATE_LO_DEG, WORTH_RAMP_LO_DEG];
-  const t = Math.min(1, Math.abs(sunAltitudeDeg - edge) / Math.abs(floorAt - edge));
-  return 1 + (WORTH_GATE_FLOOR - 1) * t;
+    sunAltitudeDeg > worth.plateauHiDeg
+      ? [worth.plateauHiDeg, worth.rampHiDeg]
+      : [worth.plateauLoDeg, worth.rampLoDeg];
+  const span = Math.abs(floorAt - edge);
+  const t = span > 0 ? Math.min(1, Math.abs(sunAltitudeDeg - edge) / span) : 1;
+  return 1 + (worth.floor - 1) * t;
 }
 
 /**
- * Per-scene worth of ONE event at ONE instant — `moonPhaseIntensity(α) · twilightGate(sunAlt)`.
- * Exactly `1` for sun kinds (the sun is always worth photographing; `M` exists to rank MOON days
- * against each other, not sun days against moon days).
+ * The PHASE half of `worth`, as a function of the moon's phase angle (deg, 0 = full).
  *
- * The phase term is the repo's shipped Krisciunas–Schaefer 1991 curve (`moonlight.ts`), NOT the
- * illuminated fraction: **a quarter moon is ~9 % of full, not 50 %.** Without it the feature would
- * list 353 mostly-worthless moonrises a year with equal confidence.
+ * `"ks1991"` — the repo's shipped Krisciunas–Schaefer 1991 curve (`moonlight.ts`): **a quarter moon
+ * is ~9 % of full, not 50 %.** Without it the feature would list 353 mostly-worthless moonrises a
+ * year with equal confidence.
+ *
+ * `"illumFrac"` — the naive illuminated fraction `(1 + cos α)/2`. It exists ONLY so the owner can
+ * see the difference side by side; `sanitizeScoringPatch` refuses to persist it (§5.5).
+ *
+ * `"off"` — phase drops out entirely and `worth` becomes the twilight gate alone.
  */
-function worthAt(kind: BestSpotKind, contactMs: number, o: PlanObserver): number {
+export function moonPhaseTerm(
+  phaseAngleDeg: number,
+  curve: BestSpotScoring["worth"]["phaseCurve"],
+): number {
+  if (curve === "off") return 1;
+  if (curve === "illumFrac") {
+    const a = Math.min(Math.max(Math.abs(phaseAngleDeg), 0), 180);
+    return (1 + Math.cos(a * (Math.PI / 180))) / 2;
+  }
+  return moonPhaseIntensity(phaseAngleDeg);
+}
+
+/**
+ * §5.3(b) — the two ephemeris readings `worth` is a pure function of.
+ *
+ * Carrying them on the track is what moves the whole `worth.*` group from REBUILD (490 ms, the
+ * ephemeris has to be re-driven) to RECOMPOSE (0.272 ms): with these two numbers in hand,
+ * `worthFromParts` reproduces `M` exactly, for any profile, with no astronomy-engine call.
+ *
+ * The two readings live on `EventTrack` itself (`bestSpotTypes.ts`) as additive OPTIONAL fields, so
+ * a hand-written fixture need not supply them; this alias is the NON-optional view the producer and
+ * the recompose path both work in, and it is the reason `worthFromParts` can never be handed a
+ * half-populated track.
+ */
+export type EventTrackWorthParts = Required<
+  Pick<EventTrack, "sunAltAtT0Deg" | "moonPhaseAngleDeg">
+>;
+
+/**
+ * `M` from the two stored readings — pure, ephemeris-free, and the function the RECOMPOSE path
+ * calls. Exactly `1` for sun kinds (the sun is always worth photographing; `M` exists to rank MOON
+ * days against each other, not sun days against moon days).
+ */
+export function worthFromParts(
+  kind: BestSpotKind,
+  parts: EventTrackWorthParts,
+  scoring: BestSpotScoring = BESTSPOT_SCORING_V1,
+): number {
   if (kindBody(kind) === "sun") return 1;
-  const phase = moonPhaseIntensity(bodyStatesAt(contactMs).moonPhaseAngleDeg);
-  return phase * twilightGate(sunAltDeg(contactMs, o.latDeg, o.lonDeg));
+  return (
+    moonPhaseTerm(parts.moonPhaseAngleDeg, scoring.worth.phaseCurve) *
+    twilightGate(parts.sunAltAtT0Deg, scoring.worth)
+  );
+}
+
+/** The two readings, taken once per disc at the contact instant. */
+function worthPartsAt(
+  kind: BestSpotKind,
+  contactMs: number,
+  o: PlanObserver,
+): EventTrackWorthParts {
+  if (kindBody(kind) === "sun") return { sunAltAtT0Deg: 0, moonPhaseAngleDeg: 0 };
+  return {
+    sunAltAtT0Deg: sunAltDeg(contactMs, o.latDeg, o.lonDeg),
+    moonPhaseAngleDeg: bodyStatesAt(contactMs).moonPhaseAngleDeg,
+  };
+}
+
+/** Per-scene worth of ONE event at ONE instant — `phase(α) · twilightGate(sunAlt)`. */
+function worthAt(
+  kind: BestSpotKind,
+  contactMs: number,
+  o: PlanObserver,
+  scoring: BestSpotScoring = BESTSPOT_SCORING_V1,
+): number {
+  if (kindBody(kind) === "sun") return 1;
+  return worthFromParts(kind, worthPartsAt(kind, contactMs, o), scoring);
 }
 
 /**
@@ -182,10 +267,11 @@ export function moonWorth(
   dayMs: number,
   observer: PlanObserver,
   kind: BestSpotKind = "moonrise",
+  scoring: BestSpotScoring = BESTSPOT_SCORING_V1,
 ): number {
   if (kindBody(kind) === "sun") return 1;
   const t0 = eventInstantMs(kind, dayMs, observer);
-  return t0 == null ? 0 : worthAt(kind, t0, observer);
+  return t0 == null ? 0 : worthAt(kind, t0, observer, scoring);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -248,7 +334,12 @@ const TRACK_SHOULDER_AZ_STEP_DEG = 0.5;
 const TRACK_SHOULDER_SPAN_DEG = 3;
 /** e-folding scale of the altitude weight (deg). §3.1: `exp(−max(0, altApp)/2.5°)` — the last ~2°
  *  of the descent is what the photograph is about, and the +4° top of the window contributes ~20 %
- *  of a horizon sample rather than 0 (a hard cut would make the weight discontinuous at the edge). */
+ *  of a horizon sample rather than 0 (a hard cut would make the weight discontinuous at the edge).
+ *
+ *  The SHIPPED value; the live twin is `scoring.trackWeight.altScaleDeg`. It survives as the last
+ *  fallback in `eventTrack` on purpose — the profile crosses `postMessage` (§5.6, "the profile rides
+ *  the JOB"), and a structured clone of a hand-built partial must degrade to the shipped number
+ *  rather than to `NaN` weights. */
 const TRACK_WEIGHT_SCALE_DEG = 2.5;
 /**
  * Weight floor, as a fraction (LENS B, 2026-08-24). The HORIZON CEILING below reaches exactly 0 once
@@ -256,8 +347,12 @@ const TRACK_WEIGHT_SCALE_DEG = 2.5;
  * `C = Σ w·known / Σ w` — the honesty channel, which §3.4 defines over the FULL swept span. So the
  * ceiling is floored: 1e-3 is four orders below a window sample, i.e. invisible to `V`, while still
  * letting an unmapped shoulder register as ignorance rather than as nothing.
+ *
+ * It lives in `BESTSPOT_HONESTY` and is **not exposed on the tunable profile at all** (§5.5): the
+ * only direction it could be moved is toward hiding ignorance, which is the one thing this feature
+ * must never do.
  */
-const TRACK_MIN_WEIGHT_FRACTION = 1e-3;
+const TRACK_MIN_WEIGHT_FRACTION = BESTSPOT_HONESTY.minWeightFraction;
 /** Terrestrial refraction coefficient for the eye-dip anchor — `PLAN.refractionK`, the surveyor's
  *  standard. Mirrored rather than imported so this module stays free of `components/`;
  *  `bestSpotTrack.test.ts` pins the two together. */
@@ -308,8 +403,13 @@ export function trackWeightShape(
   rhoDeg: number,
   dipDeg: number,
   weightScaleDeg: number,
+  horizonCeiling: boolean = BESTSPOT_SCORING_V1.trackWeight.horizonCeiling,
 ): number {
   const above = Math.exp(-Math.max(0, altAppDeg) / weightScaleDeg);
+  // The KILL SWITCH (`trackWeight.horizonCeiling`). OFF is §3.1's literal exponential, which is the
+  // measured defect: 46.9 % of the normalised weight below a 1.7 m eye's own dip, `V = 0.5138` over
+  // a PERFECT open horizon. It exists so that measurement stays reproducible, not to be shipped.
+  if (!horizonCeiling) return above;
   if (!(rhoDeg > 0)) return above * (altAppDeg >= dipDeg ? 1 : TRACK_MIN_WEIGHT_FRACTION);
   const ceiling = discAboveFraction((dipDeg - altAppDeg) / rhoDeg);
   return above * Math.max(TRACK_MIN_WEIGHT_FRACTION, ceiling);
@@ -342,12 +442,44 @@ export interface EventTrackOptions {
   topAltDeg?: number;
   /** Lower window edge, in disc radii below the crossing altitude. Default `3`. */
   bottomRhoMultiple?: number;
-  /** e-folding scale of the altitude weight (deg). Default `2.5`. */
+  /** e-folding scale of the altitude weight (deg). Defaults to `scoring.trackWeight.altScaleDeg`
+   *  (2.5) — an explicit value here still wins, so a test can pin the kernel without a profile. */
   weightScaleDeg?: number;
   /** Terrestrial refraction coefficient for the dip anchor. Default `0.13` (`PLAN.refractionK`). */
   refractionK?: number;
   /** Hard sample ceiling. Default `4096`. */
   maxSamples?: number;
+  /**
+   * Place every lattice point on an **ABSOLUTE** azimuth grid (`k · azStepDeg`, anchored at 0°)
+   * instead of on a grid anchored at this day's own window edges. Default **false**.
+   *
+   * **WHY IT EXISTS — the residency ladder's T0.5 tier turns on it (SPEC_V2 §2.2).** The hulls are
+   * eye-free and time-free, so a scene-time scrub inside one local day re-queries them for 0 ms.
+   * But the SET OF AZIMUTHS is a function of the DAY: measured at Dnipro, +1 day moves `setAzDeg`
+   * by −0.534°, and because the shipped lattice is anchored on the window edges, **exact azimuth
+   * matches between consecutive days = 0 of 40.** Every hull is rebuilt for a one-day step. On the
+   * absolute grid the two days' lattices are subsets of ONE lattice, so a hull cache keyed on the
+   * snapped azimuth hits for everything the two windows share (measured 37 of 39, SPEC_V2 §2.2).
+   *
+   * **WHAT IT COSTS.** The shipped lattice puts its endpoints EXACTLY on the window edges and
+   * spreads the interior uniformly; the absolute grid cannot, so the window loses up to one
+   * `azStepDeg` at each end and the emitted `azDeg` is the LATTICE value rather than the
+   * re-evaluated ephemeris azimuth (`utcMs` / `altAppDeg` / `rhoDeg` stay exact at the instant the
+   * inversion returns, so the azimuth is exact and the ALTITUDE carries the ~1e-4° inversion error
+   * instead — the swept ray is then at exactly the azimuth its hull was built for, which is what a
+   * cache key needs). OFF by default so existing pins keep their spacing.
+   *
+   * It falls back to the relative lattice when the window is narrower than one `azStepDeg` (no
+   * absolute point would land inside it) — a degenerate track must not become a `null` track.
+   */
+  snapAzLattice?: boolean;
+  /**
+   * The taste profile. Reaches exactly three things in this module: `trackWeight.altScaleDeg`,
+   * `trackWeight.horizonCeiling` and the whole `worth.*` group. Everything else here is GEOMETRY
+   * (the lattice, the marches, the inversion grid) and stays an `EventTrackOptions` field, because
+   * changing it is a rebuild whatever the profile says.
+   */
+  scoring?: BestSpotScoring;
 }
 
 /** One raw ephemeris reading along the track, with azimuth kept CONTINUOUS (pin 5). */
@@ -484,13 +616,19 @@ export function eventTrack(
   kind: BestSpotKind,
   dayMs: number,
   opts: EventTrackOptions = {},
-): EventTrack | null {
+): (EventTrack & EventTrackWorthParts) | null {
+  // The intersection is deliberate: `EventTrack`'s two worth fields are OPTIONAL (a fixture need not
+  // supply them) but this PRODUCER always does, so callers of `eventTrack` get them non-optional.
+  const scoring = opts.scoring ?? BESTSPOT_SCORING_V1;
   const azStep = Math.max(1e-3, opts.azStepDeg ?? TRACK_AZ_STEP_DEG);
   const shoulderStep = Math.max(1e-3, opts.shoulderAzStepDeg ?? TRACK_SHOULDER_AZ_STEP_DEG);
   const shoulderSpan = Math.max(0, opts.shoulderSpanDeg ?? TRACK_SHOULDER_SPAN_DEG);
   const topAlt = opts.topAltDeg ?? TRACK_TOP_ALT_DEG;
   const bottomRho = Math.max(0, opts.bottomRhoMultiple ?? TRACK_BOTTOM_RHO);
-  const weightScale = Math.max(1e-6, opts.weightScaleDeg ?? TRACK_WEIGHT_SCALE_DEG);
+  const weightScale = Math.max(
+    1e-6,
+    opts.weightScaleDeg ?? scoring.trackWeight.altScaleDeg ?? TRACK_WEIGHT_SCALE_DEG,
+  );
   const refractionK = opts.refractionK ?? TRACK_REFRACTION_K;
   const maxSamples = Math.max(TRACK_MIN_SAMPLES, opts.maxSamples ?? TRACK_MAX_SAMPLES);
 
@@ -649,20 +787,62 @@ export function eventTrack(
   // a one-sample misclassification at the window's low edge would silently move the very boundary the
   // marker exists to make explicit.
   const inWindow: boolean[] = [];
-  const nLoShoulder = Math.max(0, Math.floor((uWinLo - uAllLo) / shoulderStep + EDGE_SLACK));
-  for (let k = nLoShoulder; k >= 1; k--) {
-    targets.push(uWinLo - k * shoulderStep);
-    inWindow.push(false);
-  }
-  const nWin = Math.max(1, Math.ceil((uWinHi - uWinLo) / azStep - EDGE_SLACK));
-  for (let i = 0; i <= nWin; i++) {
-    targets.push(uWinLo + ((uWinHi - uWinLo) * i) / nWin);
-    inWindow.push(true);
-  }
-  const nHiShoulder = Math.max(0, Math.floor((uAllHi - uWinHi) / shoulderStep + EDGE_SLACK));
-  for (let k = 1; k <= nHiShoulder; k++) {
-    targets.push(uWinHi + k * shoulderStep);
-    inWindow.push(false);
+
+  // ── ABSOLUTE lattice (opt-in, `snapAzLattice`) ────────────────────────────────────────────
+  // `Math.round(u/azStep)*azStep` stated as index arithmetic, so every emitted point is EXACTLY a
+  // multiple of `azStep` and two different days produce SUBSETS OF ONE LATTICE — which is the only
+  // thing that lets a hull cache survive a day step (SPEC_V2 §2.2: 0/40 matches without it).
+  // 360/0.25 = 1440 is an integer, so the grid is also consistent modulo a full turn, and the
+  // unwrapped branch (which may leave [0,360)) cannot shear it.
+  const kWinLo = Math.ceil(uWinLo / azStep - EDGE_SLACK);
+  const kWinHi = Math.floor(uWinHi / azStep + EDGE_SLACK);
+  // Shoulders keep their own coarser spacing, expressed in WHOLE lattice units so they stay on the
+  // same absolute grid: 0.5°/0.25° = 2. A non-integer ratio rounds, which costs a little shoulder
+  // resolution and buys the cache hit — the shoulders only ever feed running maxima and `C`.
+  const shoulderK = Math.max(1, Math.round(shoulderStep / azStep));
+  // A window narrower than one step has no absolute point inside it. Falling back is not a silent
+  // degradation: an option must never turn a real track into `null`.
+  const snapAz = (opts.snapAzLattice ?? false) && kWinHi > kWinLo;
+
+  if (snapAz) {
+    // The shoulders are anchored at ABSOLUTE MULTIPLES of `shoulderK` too, not counted outward from
+    // this day's own window edge. Anchoring them on `kWinLo` reintroduces the very defect the snap
+    // exists to fix, one level down: `kWinLo` moves ~2.14 lattice units per day, so an odd shift
+    // flips the shoulders' parity and they share NOTHING with the day before. Measured at Dnipro:
+    // window-anchored shoulders share 31 of 38 azimuths, absolute shoulders share 37.
+    const floorTo = (k: number): number => Math.floor(k / shoulderK) * shoulderK;
+    const loLimitK = uAllLo / azStep - EDGE_SLACK;
+    const loShoulderKs: number[] = [];
+    for (let k = floorTo(kWinLo - 1); k >= loLimitK; k -= shoulderK) loShoulderKs.push(k);
+    for (let i = loShoulderKs.length - 1; i >= 0; i--) {
+      targets.push(loShoulderKs[i] * azStep);
+      inWindow.push(false);
+    }
+    for (let k = kWinLo; k <= kWinHi; k++) {
+      targets.push(k * azStep);
+      inWindow.push(true);
+    }
+    const hiLimitK = uAllHi / azStep + EDGE_SLACK;
+    for (let k = floorTo(kWinHi + shoulderK); k <= hiLimitK; k += shoulderK) {
+      targets.push(k * azStep);
+      inWindow.push(false);
+    }
+  } else {
+    const nLoShoulder = Math.max(0, Math.floor((uWinLo - uAllLo) / shoulderStep + EDGE_SLACK));
+    for (let k = nLoShoulder; k >= 1; k--) {
+      targets.push(uWinLo - k * shoulderStep);
+      inWindow.push(false);
+    }
+    const nWin = Math.max(1, Math.ceil((uWinHi - uWinLo) / azStep - EDGE_SLACK));
+    for (let i = 0; i <= nWin; i++) {
+      targets.push(uWinLo + ((uWinHi - uWinLo) * i) / nWin);
+      inWindow.push(true);
+    }
+    const nHiShoulder = Math.max(0, Math.floor((uAllHi - uWinHi) / shoulderStep + EDGE_SLACK));
+    for (let k = 1; k <= nHiShoulder; k++) {
+      targets.push(uWinHi + k * shoulderStep);
+      inWindow.push(false);
+    }
   }
   if (targets.length > maxSamples) {
     // Decimate uniformly rather than truncate: a truncated track loses one whole shoulder, and the
@@ -694,11 +874,19 @@ export function eventTrack(
     const u = targets[ti];
     const tMs = timeAtAz(u);
     const p = airlessAzAlt(body, tMs, obs);
-    const azUnwrapDeg = az0Raw + deltaDeg(p.azDeg, az0Raw);
+    // SNAPPED: the azimuth IS the lattice point (that is the whole contract — a hull cache keyed on
+    // an azimuth that is only APPROXIMATELY the swept one is not a cache). The ~1e-4° inversion
+    // residual moves onto the altitude instead, which is 4e-4 of one azimuth step.
+    const azUnwrapDeg = snapAz ? u : az0Raw + deltaDeg(p.azDeg, az0Raw);
     // STRICT ascent is a contract, not a hope: a lattice point that clamps onto a grid end (or a
     // re-evaluation that lands a nanodegree behind its predecessor) would otherwise produce a
     // zero-width central difference and an infinite weight.
     if (raw.length > 0 && !(azUnwrapDeg > raw[raw.length - 1].azUnwrapDeg + 1e-9)) continue;
+    // …and on the snapped path the azimuths are strictly ascending BY CONSTRUCTION, so the guard
+    // above can no longer catch the case it was written for: two lattice points whose instants both
+    // CLAMPED onto the same end of the inversion grid. `dt = 0` there, which is a zero weight and a
+    // sample claiming an azimuth it was never at.
+    if (snapAz && raw.length > 0 && tMs === raw[raw.length - 1].tMs) continue;
     raw.push({
       tMs,
       azUnwrapDeg,
@@ -760,7 +948,14 @@ export function eventTrack(
     const dt = Math.abs(b.tMs - a.tMs);
     const density = dAz > 0 ? dt / dAz : 0;
     const wi =
-      density * trackWeightShape(kept[i].altAppDeg, kept[i].rhoDeg, dipDeg0, weightScale);
+      density *
+      trackWeightShape(
+        kept[i].altAppDeg,
+        kept[i].rhoDeg,
+        dipDeg0,
+        weightScale,
+        scoring.trackWeight.horizonCeiling,
+      );
     w[i] = wi;
     sum += wi;
   }
@@ -791,6 +986,11 @@ export function eventTrack(
     windowHi = kept.length - 1;
   }
 
+  // §5.3(b): the two readings ride ALONG with the resolved worth, so a later profile change can
+  // recompute `M` without touching the ephemeris — the whole `worth.*` group is then a recompose
+  // (0.272 ms) instead of a rebuild (490 ms).
+  const worthParts = worthPartsAt(kind, t0Ms, observer);
+
   return {
     kind,
     t0Ms,
@@ -798,7 +998,9 @@ export function eventTrack(
     windowLo,
     windowHi,
     setAzDeg: wrap360(az0Raw),
-    worth: worthAt(kind, t0Ms, observer),
+    worth: worthFromParts(kind, worthParts, scoring),
+    sunAltAtT0Deg: worthParts.sunAltAtT0Deg,
+    moonPhaseAngleDeg: worthParts.moonPhaseAngleDeg,
   };
 }
 

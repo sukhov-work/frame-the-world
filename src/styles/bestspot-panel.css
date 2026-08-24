@@ -1,0 +1,224 @@
+/* BEST SPOT panel (S5, `.claude/claude-docs/BESTSPOT_SPEC_V2.md` §6.9) — the THIRD face of the
+   shared PLAN / FIND / BEST SPOT window. `.bsp-root` / `.bsp` / `.bsp-scroll` are GEOMETRY TWINS of
+   `.pp-root` / `.pp` / `.pp-scroll` (plan-panel.css owns the canonical comments: the border-box
+   resize discipline, the mini-map cap, and why only the BODY scrolls). Same left column, same
+   `planfind` drag/resize session key — to the user it is one window whose content switches.
+
+   Everything else here is either one of the FIVE new classes §6.9 budgets (`.bsp-legend`,
+   `.bsp-legend__ramp`, `.bsp-legend__tick`, `.bsp-legend__cls`, `.bsp-ab`) or a `.bsp`-SCOPED
+   adjustment to a class this panel reuses verbatim. No new names for things that already have one.
+
+   Colour is `var(--color-*)` only (ADR D14) — the heat stops arrive as `var(--color-heat-N)`
+   through `lib/theme/heatPalette.ts`, whose entries carry the CSS and the GL face together so the
+   DOM legend and the GL sheet provably cannot drift. */
+
+.bsp-root {
+  position: fixed;
+  left: 1.6rem; /* the .pp-root spot — one window, one place */
+  top: 3.4rem;
+  z-index: 31; /* the PLAN / FIND / TARGET tier */
+  font-family: var(--font-mono);
+  user-select: none;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+
+.bsp {
+  position: absolute;
+  left: 0;
+  top: 0; /* the pill lives in the topnav toggle — the window opens right at the root */
+  box-sizing: border-box;
+  width: var(--win-w, 17.25rem);
+  height: var(--win-h, auto);
+  max-height: var(--win-h, max(11.9rem, min(27.9rem, calc(100vh - 39.8rem))));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+}
+
+/* Body scroll — the head stays put and the DragGrip tab must never be clipped (.pp-scroll rule). */
+.bsp-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ── The SCORE legend ────────────────────────────────────────────────────────────────────────
+   The one documented exception to the house no-rainbow rule, and the reason the ramp is read
+   through LIGHTNESS: `HEAT_INFERNO` is strictly monotone in OKLab L, so "brighter = better" holds
+   for every kind of colour vision. The `.bsp-ab` chip A/Bs it against TURBO, which is not. */
+.bsp-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+/* The 11 stops as ONE gradient built from the palette's own `css` faces — no literal, no second
+   copy of the scale. `height` matches the `.pp-mw__bar` rail so the legend and the score bars read
+   as the same instrument. */
+.bsp-legend__ramp {
+  height: 6px;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+/* Tick labels under the ramp: `displayLo`, the two contour MAJORS, `displayHi`. The majors are the
+   two thresholds the sheet draws heavier, so they are the two the legend bolds — <b>, not a sixth
+   class name. */
+.bsp-legend__tick {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.bsp-legend__tick b {
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+/* The two RENDER CLASSES that are not scores. UNKNOWN is never a low score and never a cold colour
+   (§3.1) — it gets a DOTTED swatch, because "nobody looked" is a different claim from "bad spot".
+   CAN'T STAND HERE is `A_hard = 0` and is HUELESS: it is not on the scale at all. */
+.bsp-legend__cls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+}
+.bsp-legend__cls i {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.bsp-legend__cls[data-cls="unmapped"] i {
+  border: 1px dashed var(--color-text-muted);
+  background: transparent;
+}
+.bsp-legend__cls[data-cls="blocked"] i {
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+}
+
+/* The ramp A/B (`[INFERNO]` → `[TURBO]`). Sits at the legend head's right edge, chip grammar in
+   miniature — it is a look switch, not a scoring control, and must not read as one. */
+.bsp-ab {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+.bsp-ab:hover {
+  color: var(--color-text-secondary);
+  border-color: var(--color-text-muted);
+}
+
+/* ── Scoped adjustments to REUSED classes ───────────────────────────────────────────────────── */
+
+/* The legend's head carries the A/B on its right edge, so it needs to be a row for `margin-left:
+   auto` to mean anything. `.pp-section` is a plain block everywhere else and stays one. */
+.bsp-legend .pp-section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* `.bsp-scroll` is a COLUMN flex, so a chip dropped straight into it would stretch to the full card
+   width and stop reading as a chip. The chip ROWS (`.pp-chips`) are already flex and unaffected. */
+.bsp-scroll > .pp-chip {
+  align-self: flex-start;
+  text-align: left;
+}
+
+/* `◎ HEATMAP ON` and `READING THE MAP` are READOUTS in chip clothing (spans, not buttons) — the
+   heatmap follows the window and the network chip is a state, so neither may advertise a click. */
+.bsp span.pp-chip {
+  cursor: default;
+}
+
+/* The relative score bar inside a shortlist row: `.pp-mw__bar` is sized by its grid cell in the
+   Milky-Way card, but a `.pp-day__jump` is a baseline flex row, where an unsized bar collapses. */
+.bsp .pp-day__jump .pp-mw__bar {
+  flex: 1 1 2.5rem;
+  min-width: 2rem;
+  align-self: center;
+}
+
+/* The slider grammar is `upload-flow.css`'s; inside a 17.25rem instrument card it needs neither the
+   sheet's 12px breathing room nor its divider (the section heads already divide). */
+.bsp .uf-slider {
+  padding: 6px 0;
+  border-bottom: 0;
+  gap: 4px;
+}
+/* The upload sheet reads its slider at 13px across a full-width card; a 17.25rem instrument window
+   reads it at the `.pp-day__*` scale. Size only — the rail, knob and accent stay the shared feel. */
+.bsp .uf-slider__value {
+  font-size: 11px;
+}
+.bsp .uf-slider__label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+/* A top-K row is TWO lines: the reading, then its provenance footnote. `.pp-day__row`'s two-column
+   grid exists for FIND's ⤓ export button, which this list does not have. */
+.bsp .pp-day__row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* RANKING… — the coarse FIELD is honest (Spearman ρ 0.910 at 6 m) but the coarse TOP-K is not
+   (10 of 20 survive at 12 m), so the list is INERT until the requested rung lands. Dimmed and
+   pointer-dead, never hidden: the rows are the shape of the answer that is coming. */
+.bsp-scroll [data-ranking="1"] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* The ONE justified spinner (R8): the explicit 1 m `REFINE THIS SPOT` re-solve, ~1.0–1.6 s because
+   it needs a 985 ms 1 m hull streamed in. Everything else on this panel reports progress with the
+   sheet itself, the determinate rung pip, or the `READING THE MAP` chip. */
+@keyframes bsp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.bsp .pp-chip[data-busy="1"] i {
+  display: inline-block;
+  animation: bsp-spin 900ms linear infinite;
+}
+
+/* Warnings (no rise/set solution, the empty-field lift offer) carry the instrument's warn voice. */
+.bsp .pp-status[data-tone="warn"] {
+  color: var(--color-warn);
+}
+
+/* Keep the welcome landing clean (the FPV-HUD precedent). */
+body.welcome-active .bsp-root {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .bsp-root {
+    left: 1rem; /* track the narrow-viewport .pp-root shift — same window, same spot */
+    top: 7.5rem;
+  }
+}

@@ -185,6 +185,12 @@ describe("BEST SPOT — COMPOSITION: the whole chain on the owner's hero case", 
    *              bare     S=0.69606  v=0.97371  l=1  p=1.00000  f=0        src="terrain"  d*=1780.76 m
    *              margin  +0.19247
    *
+   *   S3b — GRAZE replaces the saturating tangency (owner ruling R5). Re-measured on the same chain:
+   *              withDeck S=0.82219  f=0.59720  fGraze=0.59720  fGap=0  tau=1.5913 ρ  grazeSrc="deck"
+   *              bare     S=0.69606  f=0        (relief 0 — the water horizon is BELOW the dip)
+   *              margin  +0.12613   ⇒ smaller, and still a photographic lead. Every other term is
+   *              byte-identical: GRAZE touches `F` and nothing else.
+   *
    *   BLOCKER 1 REVERTED (the shipped pre-LENS-B state: `src` bound to the ground setter AND
    *   `silTangency` gated on that headline with no band walk):
    *              withDeck S=0.65264  f=0  src="terrain"      bare S=0.69606
@@ -207,10 +213,23 @@ describe("BEST SPOT — COMPOSITION: the whole chain on the owner's hero case", 
     // …by a photographic margin, not by 1e-9.
     expect(withDeck.score - bare.score).toBeGreaterThan(0.1);
 
-    // The CHANNEL that carries it: `F_sil` fires on the deck's own band edge. `F` is the term that
-    // was structurally dead on this exact geometry.
-    expect(withDeck.f).toBeGreaterThan(0.8);
+    // The CHANNEL that carries it: the framing term fires on the deck's own band edge. `F` is the
+    // term that was structurally dead on this exact geometry.
+    //
+    // S3b: `> 0.8` → `> 0.5`, measured **0.59720** (SPEC_V2 §1.1's independent forecast: 0.5972).
+    // The shipped `silTangency` returned 0.81832 here because its triangular kernel SATURATED on any
+    // built edge the body's centre crossed — a blank wall scored the same. GRAZE prices the deck by
+    // how long the sun rides it, and 0.597 is what a 6 m slab 1.5 km out is actually worth. Relaxing
+    // the threshold rather than dropping `graze.scaleRadii` to 1.00 is deliberate: discrimination
+    // between a deck and a wall is the whole point, and a scale that re-saturates would delete it.
+    expect(withDeck.f).toBeGreaterThan(0.5);
+    // …and the BARE cell is still EXACTLY 0 — for a better reason than before. It used to be 0
+    // because `isBuiltSrc("terrain")` was false; it is 0 now because the flat-water horizon sits at
+    // −0.0616° against a dip of −0.03904°, so `e − dipFloor` is −0.0226° and `smoothstep(0.05, 0.40)`
+    // is a hard 0. RELIEF, not provenance: there is no edge standing above the horizon to ride.
     expect(bare.f).toBe(0);
+    expect(bare.fGraze).toBe(0);
+    expect(bare.fGap).toBe(0);
     // The deck is the HEADLINE occluder — the tag the panel's "BEHIND A BRIDGE" row reads.
     expect(withDeck.srcStar).toBe<OccluderSrc>("deck");
     expect(bare.srcStar).toBe<OccluderSrc>("terrain");

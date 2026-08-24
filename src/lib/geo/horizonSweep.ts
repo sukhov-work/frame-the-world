@@ -66,6 +66,20 @@
  *  · A ray with no forward evidence reports `known = 0` AND `openSky = 0`. The stored altitude is the
  *    eye's own horizon dip — a FLOOR, not a measurement — and `openSky` is the flag that stops a
  *    consumer converting that floor into "clear sky" (bestSpotTypes pin 4).
+ *  · **`reachM` — HOW FAR THE RAY ACTUALLY LOOKED, and `openSky` is GATED ON IT (S3c, SPEC_V2 §3).**
+ *    `known` means "this ray found ≥ 1 forward sample". It has never meant "this ray was swept to
+ *    the trust radius", and until S3c nothing in the contract asked the second question — so a disc
+ *    whose DSM stops halfway still reported `known = 1` on every ray, `C = 1.000`, and `openSky` on
+ *    every ray. MEASURED (SPEC_V2 §3.1): a 30 m ridge 500 m up-sun with the DSM truncated at 350 m
+ *    scored **0.6633 against the truth's 0.0000** and was indistinguishable from a genuinely open
+ *    plain (0.6613). Missing data did not read as "unknown" — it read as THE BEST SPOT ON THE MAP.
+ *    `reachM` is the along-ray distance of the LAST KNOWN slot forward of the cell, and `openSky`
+ *    now additionally requires `reachM >= min(trustRadiusM, gridReachM)` where `gridReachM` is how
+ *    far this cell's own ray could POSSIBLY have reached inside the grid. The `min` is why the
+ *    400 m COLLAR is not optional: at the rim `gridReachM → 0`, the gate degenerates to "the sweep
+ *    did all it could", and only the collar puts real evidence in front of every scored cell.
+ *    (Measured, SPEC_V2 §3.1: a rim cell 290 m up-sun reads 0.0467 with the collar and 0.6619
+ *    without — a 14× silent error, with `reachM` the channel that makes it visible.)
  *  · `groundAltAppDeg` is SIGNED and is NOT floored at the dip: a cell on a bluff has a genuinely
  *    DEPRESSED horizon, which `createProfile`+`raiseBin` structurally cannot express (pin 3).
  *  · Distances are HORIZONTAL along-ray metres. At ≤ 2 km and ≤ 2° the slant range differs by < 0.1 %,
@@ -252,10 +266,25 @@ export interface BuildHullsOptions {
  * ONE azimuth's hulls. Serialisable, and **invariant in eye height and in scene time** — the whole
  * architecture rests on that (see the file docblock).
  *
- * Resident cost is `zs` (8 B) + `link` (4 B) = **12 B per cell per azimuth** — MEASURED 0.49 MB/az at
- * 201²/3 m (20 MB for K = 42) and 4.35 MB/az at 601²/1 m (**183 MB for K = 42**, i.e. the same order as
- * the 139 MB `(H, D)` slab §5 rejected on memory grounds; at 1 m the solver must stream azimuths or
- * cap K, and `hullBytes` exists so it can hold itself to that ledger rather than assume).
+ * Resident cost is `zs` (8 B) + `link` (4 B) = **12 B per cell per azimuth**.
+ *
+ * **THE LEDGER THAT USED TO BE HERE UNDERCOUNTED BY 5.4× — IT FORGOT THE COLLAR** (SPEC_V2 §2.1,
+ * corrected S3c). It quoted 0.49 MB/az at "201²/3 m" and 4.35 MB/az at "601²/1 m", which are the
+ * DISC grids — `oddSpanCells(radiusM, cellM)`. The grid a solve actually sweeps is
+ * `oddSpanCells(radiusM + 400 m collar, cellM)`, because a cell at the rim must have real evidence
+ * in front of it or `reachM` correctly refuses it open sky (see the HONESTY CONTRACT above). The
+ * true resident cost, at the two configurations §2.1 measures:
+ *
+ * | disc | sweep grid | cells | hull | K = 40 |
+ * |---|---|---|---|---|
+ * | 300 m @ 3 m (201² disc) | **469²** | 219,961 | **2.52 MiB/az** | **101 MiB** |
+ * | 500 m @ 3 m (335² disc) | 601² | 361,201 | 4.13 MiB/az | 165 MiB |
+ * | 300 m @ 1 m (601² disc, ULTRA) | **1401²** | 1,962,801 | **22.46 MiB/az** | **899 MiB** |
+ *
+ * **At 1 m the hulls CANNOT be resident.** 899 MiB is 6.5× the 139 MB `(H, D)` slab §5 rejected on
+ * memory grounds, so ULTRA must STREAM azimuths — build, sweep, score and release one at a time —
+ * and therefore re-pays `buildHulls` on every lift change (`bestSpotSolver.solveTerms`, mode
+ * `"stream"`). `hullBytes` exists so the solver can hold itself to this ledger rather than assume it.
  */
 export interface RayHulls {
   azDeg: number;
@@ -605,9 +634,21 @@ export interface RaySweepOut {
   groundSrc: Uint8Array;
   known: Uint8Array;
   /**
-   * 1 = a terrain-only horizon at or below the eye's own dip, with nothing floating over it. It is a
-   * claim about the NEAR/MID model only — the disc ends at its own radius, so "open" here means "the
-   * layered DSM holds nothing in the way", not "nothing on earth". §5's FAR zone (the shared
+   * **THE HONESTY CHANNEL (S3c).** Along-ray distance (m) of the LAST KNOWN slot forward of this
+   * cell — i.e. how far the evidence behind `known` actually reached. `0` when nothing forward was
+   * sampled (which is also `known = 0`).
+   *
+   * `known` says "≥ 1 sample was found". This says "…and it stopped HERE". Without the second
+   * number a disc whose DSM is truncated at 350 m reports `C = 1.000` and open sky on every ray
+   * (measured `S = 0.6633` against a truth of `0.0000`, SPEC_V2 §3.1), and — worse — a later
+   * refinement that fills the hole LOWERS the score, which the owner reads as a regression.
+   */
+  reachM: Float32Array;
+  /**
+   * 1 = a terrain-only horizon at or below the eye's own dip, with nothing floating over it, **AND
+   * the ray reached `min(trustRadiusM, gridReachM)`** (S3c). It is a claim about the NEAR/MID model
+   * only — the disc ends at its own radius, so "open" here means "the layered DSM holds nothing in
+   * the way as far as it was able to look", not "nothing on earth". §5's FAR zone (the shared
    * `marchTerrainBin` profile plus the per-cell parallax correction) is what answers the rest.
    */
   openSky: Uint8Array;
@@ -644,6 +685,7 @@ export function createSweepOut(cellCount: number, bandCapacity: number): RaySwee
     srcSlot: new Int32Array(cellCount),
     groundSrc: new Uint8Array(cellCount),
     known: new Uint8Array(cellCount),
+    reachM: new Float32Array(cellCount),
     openSky: new Uint8Array(cellCount),
     bandStart: new Int32Array(cellCount),
     bandN: new Int32Array(cellCount),
@@ -669,6 +711,37 @@ export interface SweepOptions {
    * bands nothing can honestly clear. The `sweepTreeInstances` "eye inside a canopy" precedent.
    */
   nearClipM?: number;
+  /**
+   * How far a ray must have REACHED (m) before a terrain-only horizon at the dip may be called OPEN
+   * SKY. Default 3000 — the shipped `scoring.curves.depthTrustRadiusM`, which is what "we looked as
+   * far as this metric claims to see" means. The solver passes the live profile's value.
+   *
+   * The effective threshold is `min(trustRadiusM, gridReachM)`: no disc is 3 km wide, so demanding
+   * the literal trust radius would refuse open sky to every cell on earth. See the HONESTY CONTRACT
+   * in the file docblock for why the COLLAR is the other half of this gate.
+   *
+   * It is an EVIDENCE-QUALITY threshold, so it stays here rather than on the tunable profile
+   * (`BESTSPOT_HONESTY`, SPEC_V2 §5.5) — alongside `openSkyTolDeg` and `nearClipM`.
+   */
+  trustRadiusM?: number;
+  /**
+   * OPTIONAL per-cell scoring mask over the SAME grid as `out` — 1 = score this cell, 0 = skip the
+   * per-cell binary peak search AND the band assembly and write the "no evidence" tuple instead.
+   *
+   * **THE CHEAPEST LEVER IN THE FEATURE** (SPEC_V2 §7 S3c-1). The sweep grid carries a 400 m collar
+   * that exists only so the DISC's rim cells have evidence in front of them, so just 14.3 % of the
+   * grid at 3 m/300 m is actually scored — and the peak search and the band assembly are pure
+   * overhead for the other 85.7 %. Measured **2.20× at 3 m/300 m (10.23 → 4.15 ms/az)**, 1.71× at
+   * 500 m, 2.30× at 1 m ⇒ **−243 ms per solve at the default and −2.2 s at ULTRA.**
+   *
+   * CONTRACT: with a FULL (all-1) mask the output is BYTE-IDENTICAL to the unmasked call — the mask
+   * may only ever remove work, never change an answer. `bestSpotSolver.test.ts` pins that on the
+   * serialised buffers.
+   *
+   * The monotone stack and the per-ray REACH are maintained for EVERY slot regardless of the mask:
+   * a masked cell is still a sample that the cells behind it see.
+   */
+  scoreMask?: ArrayLike<number> | null;
 }
 
 /**
@@ -709,6 +782,8 @@ export function sweepAzimuth(
   const dsM = sh.dsM;
   const tol = opts.openSkyTolDeg ?? 0.01;
   const nearClip = opts.nearClipM ?? 1;
+  const trustRadiusM = opts.trustRadiusM ?? 3000;
+  const scoreMask = opts.scoreMask ?? null;
   const scalarLift = typeof eyeHeights === "number";
   const { zs, link, ground } = hulls;
   const { surfaceSrc, floating } = dsm;
@@ -733,6 +808,11 @@ export function sweepAzimuth(
     const fFrom = hulls.floatStart[r];
     const fTo = hulls.floatStart[r + 1];
     let stackSize = 0;
+    // The FARTHEST known slot on this ray. Walking backward, the FIRST known slot we meet is the
+    // largest index there is, so this is written at most once per ray and every cell behind it
+    // reads its reach in O(1). (`known` here is the hull's own NaN marker on `zs` — the same
+    // channel the stack uses, so the reach can never disagree with the evidence.)
+    let farKnownSlot = -1;
 
     for (let li = len - 1; li >= 0; li--) {
       const slot = base + li;
@@ -740,8 +820,25 @@ export function sweepAzimuth(
       const g0 = ground[cell];
       const lift = scalarLift ? eyeHeights : eyeHeights[cell];
       const sc = li * dsM;
+      // How far this cell's ray COULD have reached inside the grid, and how far it DID.
+      const gridReachM = (len - 1 - li) * dsM;
+      const reachM = farKnownSlot >= 0 ? (farKnownSlot - slot) * dsM : 0;
 
-      if (g0 === g0) {
+      if (scoreMask !== null && scoreMask[cell] === 0) {
+        // MASKED — the collar, or anything outside the disc. Written as "no evidence" rather than
+        // left stale: `out` is reused across azimuths, and a stale row from the previous azimuth is
+        // exactly the kind of lie this file exists to refuse. The cost is 8 stores against a ~9-step
+        // binary search plus a band assembly, which is where the measured 2.20× comes from.
+        out.groundAltAppDeg[cell] = Number.NaN;
+        out.groundDistM[cell] = Infinity;
+        out.srcSlot[cell] = -1;
+        out.groundSrc[cell] = SRC_NONE;
+        out.known[cell] = 0;
+        out.reachM[cell] = 0;
+        out.openSky[cell] = 0;
+        out.bandStart[cell] = out.bandUsed;
+        out.bandN[cell] = 0;
+      } else if (g0 === g0) {
         const q = g0 - drop * sc * sc + lift;
         // --- ground horizon: binary peak search over the concave hull (unimodal, see queryRay).
         let bestSlot = -1;
@@ -771,7 +868,15 @@ export function sweepAzimuth(
           out.srcSlot[cell] = bestSlot;
           out.groundSrc[cell] = code;
           out.known[cell] = 1;
-          out.openSky[cell] = code === SRC_TERRAIN && alt <= dipDeg + tol ? 1 : 0;
+          out.reachM[cell] = reachM;
+          // S3c — the reach gate. `min(...)` because no disc is 3 km wide: the honest question is
+          // "did this ray get as far as it could, up to the trust radius", not "did it get 3 km".
+          out.openSky[cell] =
+            code === SRC_TERRAIN &&
+            alt <= dipDeg + tol &&
+            reachM >= (trustRadiusM < gridReachM ? trustRadiusM : gridReachM)
+              ? 1
+              : 0;
         } else {
           // pin 4/pin 5: no forward evidence. The value is the dip FLOOR, and `openSky` stays 0 so
           // nobody can read that floor as a measured clear horizon.
@@ -780,6 +885,7 @@ export function sweepAzimuth(
           out.srcSlot[cell] = -1;
           out.groundSrc[cell] = SRC_NONE;
           out.known[cell] = 0;
+          out.reachM[cell] = reachM;
           out.openSky[cell] = 0;
         }
 
@@ -864,12 +970,15 @@ export function sweepAzimuth(
           }
         }
       } else {
-        // The cell has no ground, so it has no eye. Everything about it is unknown (pin 3).
+        // The cell has no ground, so it has no eye. Everything about it is unknown (pin 3) — and
+        // `reachM` is 0, not the ray's forward reach: a cell we cannot stand on did not look
+        // anywhere. (The ray's geometry is still swept for the cells BEHIND it, below.)
         out.groundAltAppDeg[cell] = Number.NaN;
         out.groundDistM[cell] = Infinity;
         out.srcSlot[cell] = -1;
         out.groundSrc[cell] = SRC_NONE;
         out.known[cell] = 0;
+        out.reachM[cell] = 0;
         out.openSky[cell] = 0;
         out.bandStart[cell] = out.bandUsed;
         out.bandN[cell] = 0;
@@ -880,6 +989,7 @@ export function sweepAzimuth(
         const target = link[slot];
         while (stackSize > 0 && stack[stackSize - 1] !== target) stackSize--;
         stack[stackSize++] = slot;
+        if (farKnownSlot < 0) farKnownSlot = slot; // backward walk ⇒ the first known slot is the last
       }
     }
   }
@@ -964,6 +1074,7 @@ export function rayEvidenceAt(out: RaySweepOut, cell: number): RayEvidence {
     blockerDistM: bandWins ? nearestBandDistM : groundDistM,
     src: bandWins ? nearestBandSrc : groundSrc,
     known: out.known[cell] === 1 ? 1 : 0,
+    reachM: out.reachM[cell],
     openSky: out.openSky[cell] === 1,
   };
 }

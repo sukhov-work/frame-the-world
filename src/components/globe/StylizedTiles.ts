@@ -67,6 +67,17 @@ import { integratePlanned, plannedAtRest } from "../../lib/geo/plannedView";
 import { derivedFov } from "../../lib/decode/params";
 import { attachPlanFeed } from "./scene/planFeed";
 import { attachMinimapFeed, horizontalFovDeg } from "./scene/minimapFeed";
+import {
+  BESTSPOT_PRESETS,
+  resolveScoring,
+  sanitizeScoringPatch,
+  scoringDiff,
+  scoringHash,
+  type BestSpotScoringPatch,
+} from "../../lib/geo/bestSpotScoring";
+import { useBestSpotStore } from "../../store/bestSpot";
+import { attachBestSpotFeed } from "./scene/bestSpotFeed";
+import { attachBestSpotSheet } from "./scene/bestSpotSheet";
 import { attachGeoLabels } from "./scene/geoLabels";
 import { attachStreetNames } from "./scene/streetNames";
 import { attachVectorFeatures } from "./scene/vectorFeatures";
@@ -220,6 +231,29 @@ interface GlobeControlsInternal {
   getUpDirection(point: THREE.Vector3, target: THREE.Vector3): void;
   /** Rotate the camera about a pivot (azimuth, altitude) — the declination glide's rotation path. */
   _applyRotation(azimuth: number, altitude: number, pivot?: THREE.Vector3): void;
+}
+
+/**
+ * Deep-merge one scoring patch onto another (`__globe.bestSpotTuning`'s merge half, SPEC_V2 §5.6).
+ *
+ * Plain objects recurse; everything else — numbers, booleans, enum strings, arrays — REPLACES.
+ * Arrays replace deliberately: `quadrature.discColumns`-shaped fields are a whole sampling
+ * decision, and an element-wise merge would let a two-element edit leave a stale tail behind.
+ */
+function deepMergePatch(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    const prev = out[k];
+    out[k] =
+      v !== null && typeof v === "object" && !Array.isArray(v) &&
+      prev !== null && typeof prev === "object" && !Array.isArray(prev)
+        ? deepMergePatch(prev as Record<string, unknown>, v as Record<string, unknown>)
+        : v;
+  }
+  return out;
 }
 
 export function attachStylizedTiles(opts: {
@@ -382,6 +416,28 @@ export function attachStylizedTiles(opts: {
     ground: attachLoadProbe(ground.tiles),
     enriched: enriched ? attachLoadProbe(enriched.tiles) : null,
   };
+  /**
+   * BEST SPOT §3.4 item 1's MISSING RENDERER — a monotone counter on BUILDING tile arrivals and
+   * departures (OSM + enriched), the `imageryGround.terrainEpoch()` idiom for the tilesets that
+   * actually carry the obstruction mass.
+   *
+   * It exists because the feed's three streaming epochs were the GROUND tileset, the MVT version
+   * and the enriched RE-SEAT counter — not one of which moves when a building tile lands. A disc
+   * solved before the buildings streamed therefore stayed terrain-only forever, which (with
+   * `▦ 3D DETAIL` off, where the tilesets are detached and nothing ever streams) produced the
+   * measured 2026-08-24 failure: a 300 m Dnipro disc whose 31,417 scored cells all carried the
+   * identical score byte. `dispose-model` counts too: an LRU eviction changes the DSM exactly as
+   * much as an arrival does, and a re-solve that used a roof three has already thrown away is the
+   * same lie in the other direction.
+   */
+  let builtEpochN = 0;
+  const bumpBuiltEpoch = () => {
+    builtEpochN++;
+  };
+  for (const t of [buildings.tiles, ...(enriched ? [enriched.tiles] : [])]) {
+    t.addEventListener("load-model", bumpBuiltEpoch);
+    t.addEventListener("dispose-model", bumpBuiltEpoch);
+  }
   const sky = attachSky(scene);
   const skyTarget = attachSkyTarget(scene); // tracked sky target (ASTRO ENGINE) — 10P by default
   const skyTrail = attachSkyTrail(scene); // the target's day-arc trajectory (phase C, SHOW+TRAIL)
@@ -430,6 +486,20 @@ export function attachStylizedTiles(opts: {
   // FPV mini-map feed (owner 2026-07-14): the SAME shared MVT source, projected to local metres
   // around the walked viewer and mirrored into store/minimap for the MiniMap panel.
   const minimapFeed = attachMinimapFeed({ vtiles });
+  // BEST SPOT (SPEC_V2 §7 S3d): the disc solver's scene half. The FEED owns the long-lived worker,
+  // the six residency tiers and the store mirror; the SHEET owns the GL. Split because the sheet
+  // must be able to paint a field the feed is no longer solving (a cancelled ladder rung is still
+  // the truth on screen) and because the feed owns no scene objects at all.
+  const bestSpotFeed = attachBestSpotFeed({
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    groundGroup: ground.tiles.group,
+    buildingsGroup: buildings.tiles.group,
+    enrichedGroup: enriched?.tiles.group ?? null,
+  });
+  const bestSpotSheet = attachBestSpotSheet(scene, {
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    maxAniso,
+  });
 
   // --- Adaptive quality fan-out (RENDERING_QUALITY_PASS WS1): GlobeCanvas owns the device tier +
   //     governor + the renderer levers (DPR/bloom/shadows); here we push the tier's TILE knobs into
@@ -727,6 +797,16 @@ export function attachStylizedTiles(opts: {
   const coarsePointerShell =
     typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
   const hqAllowed = !isMobileShell && !coarsePointerShell;
+  //     BEST SPOT's own gate, and it is a SEPARATE constant on purpose: `hqAllowed` answers "may
+  //     this machine run the ULTRA tile levers", this answers "may this shell run a ~1 m planning
+  //     surface at all" (SPEC_V2 §7 S3d, plan §7). Same two terms, same reason they are AND-ed and
+  //     not a route check — `/m` mounts the SAME GlobeCanvas and `ftw:view-prefs` is ONE
+  //     localStorage key shared by both shells on the same origin, so a desktop session that
+  //     opened the panel genuinely has `open: true` in the store when the phone loads. The only
+  //     thing that can stop the engine acting on it is a gate ON THE READ, which is why this is
+  //     named here, in exactly ONE engine file, and AND-ed into every BEST SPOT engine read
+  //     below. `fences.test.ts` pins both halves.
+  const bestSpotAllowed = !isMobileShell && !coarsePointerShell;
   if (isMobileShell) {
     if (urlPose && urlPose.tiltDeg >= CONTROLS.twoDMaxTiltDeg) {
       useCameraStore.getState().setMapMode("3d"); // an OBLIQUE share keeps its exact 3D view
@@ -1973,6 +2053,47 @@ export function attachStylizedTiles(opts: {
     return THREE.MathUtils.radToDeg(Math.atan2(_fh.dot(_east), _fh.dot(_north)));
   };
 
+  /**
+   * `__globe.bestSpotTuning(patch | "preset" | null)` — SPEC_V2 §5.6, plus `.export()` and
+   * `.ab(A, B)`.
+   *
+   * The MERGE lives here and not in the store on purpose: the store REPLACES its patch (so "reset
+   * this one field" is expressible at all), and the seam is the thing that has both the current
+   * patch and the new one to merge from. `null` clears back to the shipped default.
+   */
+  const bestSpotTuning = Object.assign(
+    (patch: BestSpotScoringPatch | string | null): string => {
+      const st = useBestSpotStore.getState();
+      if (patch === null) {
+        st.setScoring(null);
+        return `bestSpot: SCORING reset to default · ${scoringHash(resolveScoring(null))}`;
+      }
+      const raw = typeof patch === "string" ? BESTSPOT_PRESETS[patch] : patch;
+      if (!raw) return `bestSpot: no such preset "${String(patch)}" — ${Object.keys(BESTSPOT_PRESETS).join(", ")}`;
+      // A PRESET replaces; a partial patch merges onto what is already tuned.
+      const merged =
+        typeof patch === "string" ? raw : deepMergePatch(st.scoringPatch ?? {}, sanitizeScoringPatch(raw));
+      st.setScoring(merged);
+      const next = useBestSpotStore.getState();
+      return `bestSpot: SCORING ${next.scoringPatch ? `custom (${scoringDiff(next.scoring).length} fields)` : "default"} · ${scoringHash(next.scoring)}`;
+    },
+    {
+      /** Paste-ready TS: the PATCH (what is persisted) and the full resolved profile. */
+      export: () => {
+        const st = useBestSpotStore.getState();
+        return [
+          `// bestSpotTuning patch — ${scoringHash(st.scoring)}`,
+          `const patch = ${JSON.stringify(st.scoringPatch ?? null, null, 2)} as BestSpotScoringPatch;`,
+          `const resolved = ${JSON.stringify(st.scoring, null, 2)};`,
+        ].join("\n");
+      },
+      /** Rank delta + Spearman ρ + top-10 survival between two patches. Two recomposes = 0.54 ms,
+       *  and it answers the question the owner actually has ("did the RANKING change?"). */
+      ab: (a: BestSpotScoringPatch | null, b: BestSpotScoringPatch | null) =>
+        bestSpotFeed.ab(resolveScoring(a), resolveScoring(b)),
+    },
+  );
+
   // Dev-only introspection so browser verification (Playwright) can read camera altitude and tile
   // state without reaching into the closure. No secrets, no behaviour change.
   if (import.meta.env.DEV) {
@@ -2035,6 +2156,35 @@ export function attachStylizedTiles(opts: {
       }),
       dayArcs,
       plan: () => planFeed.debug(),
+      // BEST SPOT §5.6 — the hot-swap seam. READ half: everything a verify script needs, out of
+      // the LIVE engine, never recomputed (the `__globe.ultraLook` lesson).
+      bestSpot: () => bestSpotFeed.debug(),
+      /**
+       * §7 S4's done-check surface — the LIVE material, textures, per-child `renderOrder` and the
+       * veil ceiling, read off the objects three is drawing with. It exists because `window.__globe`
+       * exposes no `scene`, so nothing in `scripts/**` could reach the sheet at all and every S4
+       * assertion was being made in vitest against a constructor argument (the `__globe.ultraLook`
+       * lesson: a material contract asserted against the arguments that built it is not the shipped
+       * state).
+       */
+      bestSpotSheet: () => bestSpotSheet.debug(),
+      /**
+       * The PUBLISHED field pack — the same object the GL sheet uploads, never a copy and never a
+       * recomputation (the `__globe.ultraLook` lesson again).
+       *
+       * It exists for exactly one reason: S7's done-check is stated as *"the fraction of cells with
+       * S > 0.6 is < 0.05"*, and nothing in the store carries a score DISTRIBUTION — the census
+       * counts render classes, not brightness. A verify script that recomputed `S` in page would be
+       * measuring its own arithmetic, so it reads `.r` off the texture the sheet is actually
+       * sampling and de-quantises with the `displayLo`/`displayHi` the pack itself echoes.
+       */
+      bestSpotField: () => bestSpotFeed.field(),
+      // …and the MUTATING half. Flow, in this exact order: sanitizeScoringPatch (clamps §5.5,
+      // drops unknown keys, warns on refused) → deep-merge onto the CURRENT patch →
+      // store.setScoring (resolves, bumps scoringEpoch, persists the PATCH — never the resolved
+      // profile) → stepBestSpotFeed sees the epoch move → scoringInvalidation decides whether that
+      // is a 0.272 ms recompose or a 490 ms rebuild.
+      bestSpotTuning,
       tempPin: () => ({
         pin: useCameraStore.getState().tempPin,
         groundM: tempPinGroundM,
@@ -4735,6 +4885,60 @@ export function attachStylizedTiles(opts: {
         });
   };
 
+  const stepBestSpotFeed = () => {
+        // BEST SPOT (SPEC_V2 §7 S3d) — the disc's solve ladder, its refinement epochs, its store
+        // mirror and the GL sheet, in that order.
+        //
+        // IT RUNS IMMEDIATELY AFTER stepPlanFeed AND LAST IN THE CHAIN, and both halves matter.
+        // The two planning feeds mirror on the SAME cadence (BESTSPOT.mirrorEveryFrames IS
+        // PLAN.mirrorEveryFrames), and `++frameCount` lives inside stepFrustumResnapAndTick, ~20
+        // steps earlier — so a step placed on the other side of it lands its cadence gate on the
+        // ALTERNATING frames from its twin and the panel's two halves update out of phase. Last,
+        // because like planFeed it reads post-update tile matrices and the post-resample scene
+        // time, and because the sheet seats on the ground this frame already moved.
+        //
+        // The centre is the SHARED aim ladder's (`lib/geo/aimAnchor`), resolved exactly as
+        // stepAimCones resolves it — never a fresh copy (audit #3 T36 removed three of those).
+        // Note the temp pin is NOT a plan anchor, so `plan.profileBins` may not be lent here: this
+        // disc owns its own evidence or renders UNKNOWN.
+        const bsFocusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
+        const bsAnchor = aimAnchorFor({
+          fpvActive,
+          camGeo: camNow.camGeo,
+          placement: (upNow.phase === "placed" && upNow.placement) || null,
+          tempPin: camNow.tempPin,
+          focus: { latDeg: bsFocusGeo.latDeg, lonDeg: bsFocusGeo.lonDeg },
+        });
+        bestSpotFeed.update({
+          sceneMs: tMs,
+          // THE READ IS THE GATE (see `bestSpotAllowed`).
+          allowed: bestSpotAllowed,
+          centreLatDeg: bsAnchor.latDeg,
+          centreLonDeg: bsAnchor.lonDeg,
+          // Owner R2: the toggle enables when a scratch pin exists OR FPV is live. Leaving FPV
+          // with no pin behind keeps the LAST field rather than clearing it — the feed holds that.
+          hasCentre: camNow.tempPin !== null || fpvActive,
+          terrainEpoch: ground.terrainEpoch(),
+          vectorVersion: vtiles.version(),
+          seatEpoch: enriched?.seatState().epoch ?? 0,
+          builtEpoch: builtEpochN,
+        });
+        bestSpotSheet.update({
+          camera,
+          altM: alt,
+          viewportHPx: dom.clientHeight || 1,
+          dtMs,
+          // THE READ IS THE GATE. `open` is the panel toggle; the other two are R2 and §6.10 (C).
+          enabled: bestSpotAllowed && useBestSpotStore.getState().open,
+          fpvActive,
+          mobileShell: isMobileShell,
+          field: bestSpotFeed.field(),
+          markers: bestSpotFeed.markers(),
+          hoverKey: useBestSpotStore.getState().hoverKey,
+          contactAzDeg: bestSpotFeed.contactAzDeg(),
+        });
+  };
+
   return {
     update() {
       // ── B19 · per-frame orchestrator: named step-closures (each stepX carries its own doc) ──
@@ -4768,7 +4972,8 @@ export function attachStylizedTiles(opts: {
       //                     post-resample tMs + the alt/focus frame) → GeoLabels → StreetNames →
       //                     BldgEdit (U8: RESET consume + pinned label + deadband chip mirror;
       //                     needs post-update matrices for the roof anchor) → VectorFeatures
-      //   feeds LAST        MinimapFeed → PlanFeed (reads post-update matrices)
+      //   feeds LAST        MinimapFeed → PlanFeed → BestSpotFeed (read post-update matrices;
+      //                     the two plan-family mirrors must stay on ONE side of ++frameCount)
       // Cross-band constraints:
       //   (a) idle-drift runs AFTER flight/explore/FPV writes but BEFORE the encoders (lastInteract).
       //   (b) camNow (FpvTransitions) and camStore (TiltGlide) are TWO deliberate store reads with
@@ -4832,6 +5037,7 @@ export function attachStylizedTiles(opts: {
         stepVectorFeatures();
         stepMinimapFeed();
         stepPlanFeed();
+        stepBestSpotFeed();
       } catch (err) {
         updateErrCount++;
         const tErr = performance.now();
@@ -4912,6 +5118,11 @@ export function attachStylizedTiles(opts: {
       vectorFeatures.dispose();
       minimapFeed.dispose();
       planFeed.dispose();
+      // BEFORE vtiles: the sheet holds GL the scene is still walking, and the feed terminates the
+      // solve worker — a worker left alive past the canvas keeps a whole thread and its resident
+      // DSM/hulls (up to ~100 MiB at 3 m).
+      bestSpotSheet.dispose();
+      bestSpotFeed.dispose();
       vtiles.dispose();
       earth.dispose();
       graticule.dispose();

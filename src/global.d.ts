@@ -15,6 +15,7 @@ import type { useMiniMapStore } from "./store/minimap";
 import type { usePinsStore } from "./store/pins";
 import type { usePlanStore } from "./store/plan";
 import type { useFindStore } from "./store/find";
+import type { useBestSpotStore } from "./store/bestSpot";
 import type { useSkyStore } from "./store/sky";
 import type { usePlacesMapStore } from "./store/places";
 import type { useSaveStore } from "./store/save";
@@ -75,6 +76,7 @@ declare global {
     __pinsStore?: typeof usePinsStore;
     __planStore?: typeof usePlanStore;
     __findStore?: typeof useFindStore;
+    __bestSpotStore?: typeof useBestSpotStore;
     __bldgEditStore?: typeof useBldgEditStore;
     __skyStore?: typeof useSkyStore;
     __placesStore?: typeof usePlacesMapStore;

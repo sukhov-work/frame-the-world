@@ -16,6 +16,7 @@ import {
 import { VECTOR } from "../../../src/components/globe/tuning";
 import type { MiniMapFill } from "../../../src/store/minimap";
 import { AERIAL_MIN_M, type LandClass } from "../../../src/lib/geo/bestSpotTypes";
+import { BESTSPOT_SCORING_V1 } from "../../../src/lib/geo/bestSpotScoring";
 import {
   accessAt,
   buildLandGrid,
@@ -308,9 +309,15 @@ describe("parser widening (b)–(e) — the five fields", () => {
     // other polygon layer's are. The widening changes what is PARSED, never how it is clipped.
     expect(landuse).toHaveLength(17);
     expect(landuse.some((l) => l.cls === "industrial")).toBe(true);
-    expect(landusePaint("military")).toEqual({ code: LAND_CODE.blocked, softByte: 20 });
-    expect(landusePaint("industrial")).toEqual({ code: LAND_CODE.blocked, softByte: 20 });
-    expect(landusePaint("pitch")).toEqual({ code: LAND_CODE.pitch, softByte: 170 });
+    // S3a §5.3(a): `Paint` carries PROVENANCE (the flag bits), not a baked soft byte — the soft
+    // value is resolved from the scoring profile at READ time, which is what turned the whole
+    // accessibility ladder from a re-raster into a recompose. The class is still what decides.
+    expect(landusePaint("military")).toEqual({ code: LAND_CODE.blocked, flags: 0 });
+    expect(landusePaint("industrial")).toEqual({ code: LAND_CODE.blocked, flags: 0 });
+    expect(landusePaint("pitch")).toEqual({ code: LAND_CODE.pitch, flags: 0 });
+    // …and the soft rungs those codes resolve to are unchanged.
+    expect(BESTSPOT_SCORING_V1.access.soft.blocked).toBe(0.1);
+    expect(BESTSPOT_SCORING_V1.access.soft.pitch).toBe(0.85);
     // A class with no ruling stays null — a `residential` ring covers half a city and must not
     // repaint the parks inside it.
     expect(landusePaint("residential")).toBeNull();
@@ -376,18 +383,23 @@ describe("parser widening (f) — the DEAD landcover filter", () => {
 
   it("PIN: reading the subclass changes the VERDICT — a pitch is 0.85, not grass at 0.9", () => {
     // Read via SUBCLASS: green, exactly as GREEN_CLASSES always intended.
-    expect(landcoverPaint("", "park")).toEqual({ code: LAND_CODE.green, softByte: 180 });
-    expect(landcoverPaint("", "meadow")).toEqual({ code: LAND_CODE.green, softByte: 180 });
+    // (S3a §5.3(a): `Paint` is `{ code, flags }` — the soft rung is resolved at read time. The
+    // VERDICT this pin is about is the CODE, which is untouched.)
+    expect(landcoverPaint("", "park")).toEqual({ code: LAND_CODE.green, flags: 0 });
+    expect(landcoverPaint("", "meadow")).toEqual({ code: LAND_CODE.green, flags: 0 });
     expect(landcoverPaint("", "recreation_ground")).toEqual({
       code: LAND_CODE.green,
-      softByte: 180,
+      flags: 0,
     });
     // The class-only read is not merely redundant, it is WRONG: OpenMapTiles files a sports pitch
     // as class "grass", and the ladder puts pitch/playground a rung below park/grass.
-    expect(landcoverPaint("grass", "pitch")).toEqual({ code: LAND_CODE.pitch, softByte: 170 });
-    expect(landcoverPaint("grass", "grass")).toEqual({ code: LAND_CODE.green, softByte: 180 });
+    expect(landcoverPaint("grass", "pitch")).toEqual({ code: LAND_CODE.pitch, flags: 0 });
+    expect(landcoverPaint("grass", "grass")).toEqual({ code: LAND_CODE.green, flags: 0 });
+    expect(BESTSPOT_SCORING_V1.access.soft.pitch).toBeLessThan(
+      BESTSPOT_SCORING_V1.access.soft.green,
+    );
     // A wetland is the bottom of the ladder and is NOT a hard exclusion.
-    expect(landcoverPaint("wetland", "wetland")).toEqual({ code: LAND_CODE.wetland, softByte: 20 });
+    expect(landcoverPaint("wetland", "wetland")).toEqual({ code: LAND_CODE.wetland, flags: 0 });
     // No ruling ⇒ no paint. Ignorance must not be scored.
     expect(landcoverPaint("farmland", "farmland")).toBeNull();
     expect(landcoverPaint("ice", "")).toBeNull();

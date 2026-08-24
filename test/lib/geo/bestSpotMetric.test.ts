@@ -22,13 +22,14 @@ import {
   cellScore,
   clamp01,
   contactLowness,
+  depthOfDistM,
   depthTerm,
   discVisibleFraction,
+  grazeSample,
   isBuiltSrc,
   nearestEdgeDeltaDeg,
   notchAt,
   NOTCH_SALIENCE_DEG,
-  silTangency,
   smoothstep,
   unblockedSpanDeg,
   visibilityGate,
@@ -36,6 +37,10 @@ import {
   V_GATE_LO,
   type ColumnRayAt,
 } from "../../../src/lib/geo/bestSpotMetric";
+import {
+  BESTSPOT_SCORING_V1,
+  resolveScoring,
+} from "../../../src/lib/geo/bestSpotScoring";
 import { BESTSPOT_WEIGHTS } from "../../../src/lib/geo/bestSpotTypes";
 import type {
   CellAccess,
@@ -55,6 +60,10 @@ const K = 0.13;
 
 /** Solar angular radius at 1 AU-ish, mid of the shipped 0.262–0.271° band (`TrackSample.rhoDeg`). */
 const RHO = 0.2635;
+
+/** The pedestrian eye's own geometric horizon (−0.03904°) — GRAZE's relief ramp is anchored HERE
+ *  and not at 0, which is what makes an open sea horizon score exactly 0 for the right reason. */
+const DIP = horizonDipDeg(1.7, K);
 
 /**
  * Measured at Dnipro (§3.1): the sun descends 0.1608°/min while its azimuth sweeps 5.5–7.5° over
@@ -150,6 +159,11 @@ function ray(azDeg: number, o: Partial<RayEvidence> = {}): RayEvidence {
     blockerDistM: 200_000,
     src: "terrain",
     known: 1,
+    // S3c — the ray SAYS HOW FAR IT LOOKED. A fixture that leaves this out is describing exactly
+    // the defect `reachM` exists to close (bestSpotTypes pin 7): "the sweep found something" is not
+    // "the sweep reached the trust radius". The default matches `groundDistM` — this base ray is a
+    // clean 200 km horizon, so it looked 200 km.
+    reachM: 200_000,
     openSky: true,
   };
   // `src`/`blockerDistM` follow the ground channel unless the caller overrides them explicitly, so a
@@ -367,26 +381,135 @@ describe("bestSpotMetric — gate and term endpoints", () => {
     expect(depthTerm(ray(0, { openSky: true, blockerDistM: 4 }), 3000)).toBe(1);
   });
 
-  it("F_sil is a TRIANGULAR tangency kernel of half-width ρ, gated on a BUILT setter", () => {
+  /**
+   * S3b, owner ruling **R5** — this describe REPLACED the one that pinned `F_sil` as *"a TRIANGULAR
+   * tangency kernel of half-width ρ, **gated on a BUILT setter**"*, asserting `terrain → 0` and
+   * `tree → 0`. That gate IS what the owner asked to remove: measured, it scored a grazing 8 km
+   * mountain ridge at 0.0000, below a blank wall and below empty sea. Provenance survives as `Conf`,
+   * a soft weight, and the shipped triangular kernel survives as ONE OF TWO ARMS of `cut`.
+   */
+  it("GRAZE `cut` — the TANGENT arm is the shipped triangular kernel, kept as a FLOOR", () => {
     const built = ray(0, {
       groundAltAppDeg: 0.5,
       src: "building",
       openSky: false,
       blockerDistM: 3000,
     });
-    expect(silTangency(built, 0.5, RHO, 1)).toBeCloseTo(1, 12); // dead tangent
-    expect(silTangency(built, 0.5 + RHO / 2, RHO, 1)).toBeCloseTo(0.5, 12); // triangular
-    expect(silTangency(built, 0.5 + RHO, RHO, 1)).toBeCloseTo(0, 12); // one radius out
-    expect(silTangency(built, 0.5 + 2 * RHO, RHO, 1)).toBe(0);
-    // …weighted by P, so a silhouette against a near fence is not a composition.
-    expect(silTangency(built, 0.5, RHO, 0.4)).toBeCloseTo(0.4, 12);
-    // …and TERRAIN is not built. Nor is a tree: 151,046 of Dnipro's 161,823 canopies are seeded
-    // scatter with jittered class-default heights (§8), so a "tangency" with one is fiction.
-    expect(silTangency(ray(0, { groundAltAppDeg: 0.5, src: "terrain" }), 0.5, RHO, 1)).toBe(0);
-    expect(silTangency(ray(0, { groundAltAppDeg: 0.5, src: "tree" }), 0.5, RHO, 1)).toBe(0);
-    // …and an unsampled ray is not a silhouette.
+    // `discFrac = 1` (the disc fully clear) parks the AREA arm at exactly 0, so what is measured
+    // here is the tangent arm alone — the same triangle, at the same half-width, as `silTangency`.
+    const cutAt = (offset: number): number =>
+      grazeSample(built, 0.5 + offset, RHO, DIP, BESTSPOT_SCORING_V1, 1).cut;
+    expect(cutAt(0)).toBeCloseTo(1, 12); // dead tangent
+    expect(cutAt(RHO / 2)).toBeCloseTo(0.5, 12); // triangular
+    expect(cutAt(RHO)).toBeCloseTo(0, 12); // one radius out
+    expect(cutAt(2 * RHO)).toBe(0);
+    // …and an unsampled ray is not a frame.
     const unknown = ray(0, { groundAltAppDeg: 0.5, src: "building", known: 0 });
-    expect(silTangency(unknown, 0.5, RHO, 1)).toBe(0);
+    expect(grazeSample(unknown, 0.5, RHO, DIP, BESTSPOT_SCORING_V1, 1).cut).toBe(0);
+  });
+
+  it("GRAZE `cut` — the AREA arm `4f(1−f)` fires where the tangent arm CANNOT: a vertical flank", () => {
+    // A 5° tower flank the body's centre never comes within a radius of: δ = 5° = 19 ρ, so the
+    // tangent arm is exactly 0 at every sample. The disc is still being cut in HALF by the flank's
+    // vertical edge, which is what `f` from the column integral knows and no angle on the centre
+    // ray can express.
+    const flank = ray(0, { groundAltAppDeg: 5, src: "building", groundDistM: 400, openSky: false });
+    expect(grazeSample(flank, 0, RHO, DIP, BESTSPOT_SCORING_V1, 0.5).cut).toBe(1); // exactly half
+    expect(grazeSample(flank, 0, RHO, DIP, BESTSPOT_SCORING_V1, 1).cut).toBe(0); // fully clear
+    expect(grazeSample(flank, 0, RHO, DIP, BESTSPOT_SCORING_V1, 0).cut).toBe(0); // fully hidden
+    expect(grazeSample(flank, 0, RHO, DIP, BESTSPOT_SCORING_V1, 0.85).cut).toBeCloseTo(0.51, 12);
+    // Both arms are individually switchable, and `max` means either can carry a sample alone.
+    const areaOff = resolveScoring({ graze: { areaArm: false } });
+    expect(grazeSample(flank, 0, RHO, DIP, areaOff, 0.5).cut).toBe(0);
+  });
+
+  it("GRAZE `Q` — provenance is a WEIGHT now, not a gate: terrain 1.00 · building 0.90 · tree 0.45", () => {
+    const at = (src: OccluderSrc): number =>
+      grazeSample(
+        ray(0, { groundAltAppDeg: 0.5, src, groundDistM: 3000, openSky: false }),
+        0.5,
+        RHO,
+        DIP,
+        BESTSPOT_SCORING_V1,
+        1,
+      ).q;
+    // Relief is saturated (0.54° above the dip) and Depth is 1 at the trust radius, so `Q` here IS
+    // `Conf`. TERRAIN — the case the shipped gate scored 0 — is now the MOST trusted source there is.
+    expect(at("terrain")).toBeCloseTo(1, 12);
+    expect(at("building")).toBeCloseTo(0.9, 12);
+    expect(at("deck")).toBeCloseTo(0.9, 12);
+    // A tree is a DISCOUNT, not a veto: 151,046 of Dnipro's 161,823 canopies are seeded scatter with
+    // jittered class-default heights (§8), so framing must not fire on fiction at full confidence —
+    // but a real tree line IS a silhouette, and the shipped hard 0 is what R5 deleted.
+    expect(at("tree")).toBeCloseTo(0.45, 12);
+    expect(BESTSPOT_SCORING_V1.graze.conf.tree).toBeLessThanOrEqual(0.6); // BESTSPOT_SAFETY
+    expect(at("none")).toBe(0); // an untagged edge is ignorance, not a frame
+  });
+
+  it("GRAZE `Q` — RELIEF is why an open horizon scores 0, and it is measured above the DIP", () => {
+    // THE replacement reason. A flat sea horizon sits AT the observer's own dip, so `e − dipFloor`
+    // is 0 and `smoothstep(0.05, 0.40, 0)` is a hard 0 — no edge stands above the horizon to ride.
+    // This survives when the same water is tagged `deck` by a bridge overhead, which the old
+    // provenance gate did not.
+    const sea = ray(0, { groundAltAppDeg: horizonDipDeg(1.7, K), src: "terrain" });
+    expect(grazeSample(sea, horizonDipDeg(1.7, K), RHO, DIP, BESTSPOT_SCORING_V1, 0.5).q).toBe(0);
+    const water = ray(0, { groundAltAppDeg: horizonDipDeg(1.7, K), src: "deck" });
+    expect(grazeSample(water, horizonDipDeg(1.7, K), RHO, DIP, BESTSPOT_SCORING_V1, 0.5).q).toBe(0);
+    // …and it is a RAMP, not a step: 0.05° above the dip is mesh noise, 0.40° is a silhouette.
+    const q = (heightAboveDip: number): number =>
+      grazeSample(
+        ray(0, {
+          groundAltAppDeg: DIP + heightAboveDip,
+          src: "terrain",
+          groundDistM: 3000,
+          openSky: false,
+        }),
+        DIP + heightAboveDip,
+        RHO,
+        DIP,
+        BESTSPOT_SCORING_V1,
+        1,
+      ).q;
+    expect(q(0.05)).toBe(0);
+    expect(q(0.4)).toBeCloseTo(1, 12);
+    expect(q(0.225)).toBeCloseTo(0.5, 12); // the ramp's midpoint
+    expect(q(0.15)).toBeGreaterThan(0);
+    expect(q(0.15)).toBeLessThan(0.5);
+  });
+
+  it("GRAZE `Q` — the edge carries its OWN tag and its OWN distance, per EDGE and not per ray", () => {
+    // The owner's hero ray: water at −0.04° tagged `terrain` 1700 m out, a deck slab floating at
+    // [0.31, 0.38]° 1500 m out, headline `deck`. Three probes, three different answers — a per-ray
+    // read cannot produce them.
+    const deck = ray(0, {
+      groundAltAppDeg: -0.04,
+      groundSrc: "terrain",
+      groundDistM: 1700,
+      bands: [[0.31, 0.38]],
+      bandSrc: ["deck"],
+      bandDistM: [1500],
+      src: "deck",
+      blockerDistM: 1500,
+      openSky: false,
+    });
+    const under = grazeSample(deck, 0.31, RHO, DIP, BESTSPOT_SCORING_V1, 0.5);
+    expect(under.src).toBe<OccluderSrc>("deck");
+    expect(under.distM).toBe(1500); // NOT the far bank's 1700
+    // `Q = Relief · Conf · Depth`, all three of them the DECK's own: relief off the underside's
+    // 0.349° above the dip (still on the ramp), conf 0.90, depth at 1500 m and not at 1700 m.
+    expect(under.q).toBeCloseTo(
+      smoothstep(0.05, 0.4, 0.31 - DIP) * 0.9 * depthOfDistM(1500, 3000),
+      12,
+    );
+    expect(under.q).toBeCloseTo(0.7206, 4);
+    // The WATER LINE on the same ray is terrain, and it has no relief — the mirror-image bug.
+    const water = grazeSample(deck, -0.05, RHO, DIP, BESTSPOT_SCORING_V1, 0.5);
+    expect(water.src).toBe<OccluderSrc>("terrain");
+    expect(water.distM).toBe(1700);
+    expect(water.q).toBe(0);
+    // …and the winning edge is exactly the one `nearestEdgeDeltaDeg` reports the angle of.
+    expect(nearestEdgeDeltaDeg(deck, 0.4)).toBeCloseTo(0.02, 12);
+    expect(grazeSample(deck, 0.4, RHO, DIP, BESTSPOT_SCORING_V1, 0.5).src).toBe<OccluderSrc>("deck");
   });
 });
 
@@ -510,8 +633,15 @@ describe("PIN 2 — F_notch is NOT identically zero", () => {
     );
     expect(starIdx).toBeGreaterThan(0);
     expect(rays[starIdx].groundAltAppDeg).toBe(4); // ← az* IS on the wall
-    expect(r.f).toBeCloseTo(0.3576, 3); // ← and the notch still fires
-    expect(r.f).toBeGreaterThan(0.3);
+    // ← and the notch still fires. S3b, THE NINTH CHANGED ASSERTION (SPEC_V2 §7 forecast this one
+    // would survive; measured, it does not): `F` is `max(GRAZE, GAP)` now, and on this canyon the
+    // two are 0.29842 and 0.27337 — GRAZE wins, because the disc is cut in HALF by the canyon's own
+    // wall edges as it slides across them. The claim the pin exists for is unchanged and is now
+    // asserted DIRECTLY on the published `fGap` rather than inferred from the composite.
+    expect(r.fGap).toBeCloseTo(0.2734, 3);
+    expect(r.fGap).toBeGreaterThan(0.25);
+    expect(r.f).toBeCloseTo(0.2984, 3);
+    expect(r.f).toBe(Math.max(r.fGraze, r.fGap));
   });
 
   it("the 0.1° salience floor is honoured — and is DEAD at solar/lunar ρ (see report)", () => {
@@ -606,7 +736,10 @@ describe("PIN 3 — a deck is NOT a wall (F3; the owner's hero location IS a bri
     // …and by a margin that survives a weight tweak, not by 1e-9. Measured: 0.905 vs 0.875, a
     // 3.4 % relative lead for the deck over the wall that shares its top edge.
     expect(a.score - b.score).toBeGreaterThan(0.025);
-    expect(a.score - b.score).toBeCloseTo(0.0299, 3);
+    // S3b: 0.0299 → 0.03575. The `> 0.025` guard above SURVIVES — only the pinned literal moved,
+    // and it moved UP: under GRAZE the deck's two band edges out-dwell the wall's single crossing
+    // (τ 0.9407 against 0.8830), where the shipped kernel gave both of them the same saturated F.
+    expect(a.score - b.score).toBeCloseTo(0.0357, 3);
     // The two channels that carry it: the body is visible far longer, and it reaches the WATER.
     expect(a.v).toBeGreaterThan(b.v + 0.15);
     expect(a.altStarDeg).toBeLessThan(b.altStarDeg);
@@ -661,7 +794,7 @@ describe("PIN 4 — ignorance is NOT clear sky", () => {
   it("the last 40 % of the azimuths unsampled ⇒ verdict UNKNOWN, never a number", () => {
     const r = cellScore(partial(0.4), track, OPEN_ACCESS, OPTS);
     expect(r.verdict).toBe("unknown");
-    expect(r.c).toBeLessThan(OPTS.minCoverage);
+    expect(r.c).toBeLessThan(OPTS.scoring.gates.minCoverage);
     // …and it is the WEIGHTING that makes 40 % of the azimuths more than 50 % of the evidence:
     // `exp(-max(0,alt)/2.5°)` puts the mass at the bottom of the track, which is exactly the part
     // an unswept far-side azimuth removes. C over the FULL swept span, not ±3° around contact.
@@ -680,7 +813,7 @@ describe("PIN 4 — ignorance is NOT clear sky", () => {
   it("exactly at the floor the cell is scored again — the gate is a threshold, not a mood", () => {
     // Coverage is a continuous channel: nudge the unswept fraction down until C crosses 0.5.
     const scored = cellScore(partial(0.3), track, OPEN_ACCESS, OPTS);
-    expect(scored.c).toBeGreaterThanOrEqual(OPTS.minCoverage);
+    expect(scored.c).toBeGreaterThanOrEqual(OPTS.scoring.gates.minCoverage);
     expect(scored.verdict).toBe("scored");
     expect(scored.v).toBeCloseTo(1, 6);
     expect(scored.score).toBeGreaterThan(0);
@@ -703,7 +836,7 @@ describe("PIN 4 — ignorance is NOT clear sky", () => {
     expect(r.f).toBe(0);
     // The coverage channel still reports the truth at any value — the panel prints "% UNMAPPED".
     expect(r.c).toBeGreaterThan(0);
-    expect(r.c).toBeLessThan(OPTS.minCoverage);
+    expect(r.c).toBeLessThan(OPTS.scoring.gates.minCoverage);
   });
 });
 
@@ -816,10 +949,38 @@ describe("bestSpotMetric §3.5 — gates MULTIPLY, preferences SUM", () => {
     expect(Math.sqrt(0.45)).toBeCloseTo(0.67, 2);
   });
 
-  it("M (track.worth) multiplies — a 9 %-lit quarter moon in daylight is not a good spot", () => {
+  it("M (track.worth) multiplies THROUGH R7's floor — a 9 %-lit quarter moon still ranks low", () => {
+    // OWNER RULING R7 (`BESTSPOT_PLAN.md:29`), the one deliberate behaviour change of S3a. `M` still
+    // MULTIPLIES — but through `M_eff = effectiveFloor + (1 − effectiveFloor)·M`, because raw it made
+    // the moon map black ~26 nights in 30 (measured: worth median 0.0290 over 30 days at Dnipro, so
+    // the best possible cell scored ~0.020, 25× under the sheet's legibility floor).
+    //
+    // BEFORE this line asserted `full * 0.09`. It now asserts `full * 0.4085` — a bad night DIMS
+    // instead of VANISHING. The ordering claim the pin exists for is unchanged and asserted below.
     const quarter: EventTrack = { ...track, kind: "moonrise", worth: 0.09 };
     const full = cellScore(GOOD, track, OPEN_ACCESS, OPTS).score;
-    expect(cellScore(GOOD, quarter, OPEN_ACCESS, OPTS).score).toBeCloseTo(full * 0.09, 12);
+    const ef = BESTSPOT_SCORING_V1.worth.effectiveFloor;
+    expect(ef).toBe(0.35);
+    expect(cellScore(GOOD, quarter, OPEN_ACCESS, OPTS).score).toBeCloseTo(
+      full * (ef + (1 - ef) * 0.09),
+      12,
+    );
+    // …and it is still a real penalty, not a rounding: 0.4085 of the full-moon score.
+    expect(cellScore(GOOD, quarter, OPEN_ACCESS, OPTS).score).toBeLessThan(full * 0.42);
+    expect(cellScore(GOOD, quarter, OPEN_ACCESS, OPTS).score).toBeGreaterThan(full * 0.4);
+
+    // THE INVARIANT THAT MAKES R7 SAFE: a sun kind carries `worth = 1`, and `0.35 + 0.65·1` is
+    // EXACTLY 1 in IEEE doubles — so not one sun number anywhere in this suite moved.
+    expect(ef + (1 - ef) * 1).toBe(1);
+    const sun: EventTrack = { ...track, worth: 1 };
+    expect(cellScore(GOOD, sun, OPEN_ACCESS, OPTS).score).toBe(full);
+  });
+
+  it("R7's `badge` mode takes M out of the per-cell product entirely (§8 Q1 option c)", () => {
+    const quarter: EventTrack = { ...track, kind: "moonrise", worth: 0.09 };
+    const badge = resolveScoring({ worth: { mode: "badge" } });
+    const full = cellScore(GOOD, track, OPEN_ACCESS, OPTS).score;
+    expect(cellScore(GOOD, quarter, OPEN_ACCESS, { ...OPTS, scoring: badge }).score).toBe(full);
   });
 
   it("G(V) multiplies but is SOFT — a heavily occulted cell is damped, not deleted", () => {
@@ -839,9 +1000,12 @@ describe("bestSpotMetric §3.5 — gates MULTIPLY, preferences SUM", () => {
   it("the preference weights are NORMALISED — a non-normalised blend cannot inflate S past 1", () => {
     expect(BESTSPOT_WEIGHTS.v + BESTSPOT_WEIGHTS.l + BESTSPOT_WEIGHTS.p + BESTSPOT_WEIGHTS.f)
       .toBeCloseTo(1, 12);
+    // S3a: the weights moved from `CellScoreOptions` into the scoring PROFILE (they are taste, not
+    // situation), so the override now goes through `resolveScoring` — which is also the path the
+    // hot-swap seam uses, so this pin now exercises the real one.
     const doubled = cellScore(GOOD, track, OPEN_ACCESS, {
       ...OPTS,
-      weights: { v: 0.3, l: 0.6, p: 0.5, f: 0.6 }, // the shipped blend ×2
+      scoring: resolveScoring({ weights: { v: 0.3, l: 0.6, p: 0.5, f: 0.6 } }), // the blend ×2
     });
     expect(doubled.score).toBeCloseTo(cellScore(GOOD, track, OPEN_ACCESS, OPTS).score, 12);
     expect(doubled.score).toBeLessThanOrEqual(1);
@@ -855,10 +1019,20 @@ describe("bestSpotMetric §3.5 — gates MULTIPLY, preferences SUM", () => {
     expect(clean.p).toBe(1);
     expect(clean.score).toBeGreaterThan(0.5);
 
+    // FIXTURE REPAIRED (S3b). As written this fixture had `bands: [[0.31, 0.38]]` with NO
+    // `bandSrc`/`bandDistM`, and the `ray()` helper above then silently retagged the GROUND edge as
+    // `"deck"` (`if (o.src !== undefined && o.groundSrc === undefined) merged.groundSrc = o.src`).
+    // So it described a ray no producer can emit: a water horizon labelled `deck` under an untagged
+    // slab. Measured against the repaired kernel it scored `f = 0` — the band edges are `none`
+    // (conf 0) and the ground edge has no relief. Spelled out per channel now, exactly like PIN 3.
     const bridge = cellScore(
       uniformRays(azs, {
         groundAltAppDeg: -0.04,
+        groundSrc: "terrain",
+        groundDistM: 1700,
         bands: [[0.31, 0.38]],
+        bandSrc: ["deck"],
+        bandDistM: [1500],
         src: "deck",
         blockerDistM: 1500,
         openSky: false,
@@ -867,7 +1041,10 @@ describe("bestSpotMetric §3.5 — gates MULTIPLY, preferences SUM", () => {
       OPEN_ACCESS,
       OPTS,
     );
-    expect(bridge.f).toBeGreaterThan(0.8);
+    // S3b: `> 0.8` → `> 0.4` (measured 0.41582). The shipped kernel returned 0.8465 for ANY built
+    // edge the body's centre crossed, which is precisely the saturation R5 removed.
+    expect(bridge.f).toBeGreaterThan(0.4);
+    expect(bridge.f).toBeCloseTo(0.4158, 4);
     expect(bridge.p).toBeLessThan(1);
     expect(bridge.score).toBeGreaterThan(0.5);
   });
@@ -936,9 +1113,18 @@ describe("bestSpotMetric — the module is WORKER-CLEAN", () => {
     expect(code).not.toMatch(/\b(document|window|localStorage|requestAnimationFrame)\b/);
   });
 
-  it("its only cross-module edges are horizonProfile and the shared contract", () => {
+  it("its only cross-module edges are horizonProfile, the shared contract and the profile", () => {
     const specifiers = [...source.matchAll(/^import[\s\S]*?from "([^"]+)";$/gm)].map((m) => m[1]);
-    expect([...new Set(specifiers)].sort()).toEqual(["./bestSpotTypes", "./horizonProfile"]);
+    // `./bestSpotScoring` joined the list in S3a. It is a PURE SIBLING LIB with zero imports of its
+    // own except `import type` — so the kernel is still three-free, store-free, DOM-free and
+    // clock-free, and the worker bundle still gains no `components/` edge. The point of this
+    // assertion is that the list stays SHORT and every entry is deliberate, not that it is frozen:
+    // if a fourth specifier appears, someone must come here and justify it.
+    expect([...new Set(specifiers)].sort()).toEqual([
+      "./bestSpotScoring",
+      "./bestSpotTypes",
+      "./horizonProfile",
+    ]);
   });
 });
 
@@ -949,35 +1135,62 @@ describe("bestSpotMetric — the kernel defaults still agree with the shipped pl
     // enforces the agreement at compile time. This test is that enforcement: if the planner's
     // refraction or trust radius moves, the worker's kernel must move with it or say why.
     expect(BESTSPOT_METRIC_DEFAULTS.refractionK).toBe(PLAN.refractionK);
-    expect(BESTSPOT_METRIC_DEFAULTS.trustRadiusM).toBe(PLAN.trustRadiusM);
-    expect(BESTSPOT_METRIC_DEFAULTS.minCoverage).toBe(PLAN.minCoverageForGaps);
+    // S3a: the trust radius and the coverage floor are TASTE and moved into the scoring profile;
+    // `refractionK` is BESTSPOT_PHYSICS and stayed on the SITUATION half. The cross-check is the
+    // same check, one level deeper.
+    expect(BESTSPOT_METRIC_DEFAULTS.scoring.curves.depthTrustRadiusM).toBe(PLAN.trustRadiusM);
+    expect(BESTSPOT_METRIC_DEFAULTS.scoring.gates.minCoverage).toBe(PLAN.minCoverageForGaps);
     expect(K).toBe(PLAN.refractionK);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// MEASURED FINDING (LENS B, 2026-08-24) — F_sil is very nearly a copy of P
+// MEASURED (LENS B, 2026-08-24) — F_sil was very nearly a copy of P. GRAZE fixed it (S3b).
 // ---------------------------------------------------------------------------------------------
 
 /**
- * NOT A FIX, A BASELINE. The reviewer's third finding: `F_sil = (1 − clamp01(|altApp − edge|/ρ)) · P`
- * reaches its ceiling for ANY built skyline whose edge the body's centre crosses — which, over a
- * track that descends through the whole 0–3° band, is essentially every built cell in a city. What is
- * left after the kernel saturates is `P`, so the 0.30-weighted FRAMING term reproduces the
- * 0.25-weighted DEPTH term and 0.55 of the preference weight rides on one signal: distance.
+ * **INVERTED IN S3b. This describe used to be a BASELINE and is now a REGRESSION GUARD.**
  *
- * This describe QUANTIFIES it so the honesty slice (§10 S7) can put a number in front of the owner,
- * and so a future kernel redesign has a before. It is deliberately NOT fixed in this pass.
+ * The finding it recorded: `F_sil = (1 − clamp01(|altApp − edge|/ρ)) · P` reached its ceiling for ANY
+ * built skyline whose edge the body's centre crossed — which, over a track descending through the
+ * whole 0–3° band, is essentially every built cell in a city. What was left after the kernel
+ * saturated was `P`, so the 0.30-weighted FRAMING term reproduced the 0.25-weighted DEPTH term and
+ * 0.55 of the preference weight rode on one signal: distance.
+ *
+ * THE RECORDED BEFORE, on this exact 66-cell fixture: `F ∈ [0.1993, 0.9976]`, `F/P ∈ [0.936, 0.998]`,
+ * ratio spread **0.0619**, `corr(F, P)` **0.9985** — r² 0.997.
+ *
+ * THE MEASURED AFTER, same fixture, GRAZE: `F ∈ [0.0038, 0.4479]`, `F/P ∈ [0.0179, 0.5580]`, ratio
+ * spread **0.5401**, `corr(F, P)` **0.6268** — r² 0.393. (SPEC_V2 §1.1's independent forecast for
+ * the same three numbers: 0.0171, 0.5408, 0.6260.) The assertions below are the OLD ones with their
+ * inequalities turned around, so a regression to a saturating kernel goes red here first.
  */
-describe("bestSpotMetric — MEASURED: F_sil saturates, so F ≈ P for a built cell (owner-visible, unfixed)", () => {
+describe("bestSpotMetric — GRAZE: F carries ranking signal P does not (was: F ≈ P, r² 0.997)", () => {
   const { track, azs } = makeTrack({ topAltDeg: 3, bottomAltDeg: -0.1 });
 
-  it("across a 66-cell city fixture, F/P stays inside [0.936, 0.998] — F adds ≤ 6.4 % of its own range", () => {
+  /** Pearson correlation — written out so the r² claim stands on arithmetic this file can be read
+   *  to verify rather than on a library. */
+  function correlation(a: readonly number[], b: readonly number[]): number {
+    const n = a.length;
+    const ma = a.reduce((x, y) => x + y, 0) / n;
+    const mb = b.reduce((x, y) => x + y, 0) / n;
+    let num = 0;
+    let da = 0;
+    let db = 0;
+    for (let i = 0; i < n; i++) {
+      num += (a[i] - ma) * (b[i] - mb);
+      da += (a[i] - ma) ** 2;
+      db += (b[i] - mb) ** 2;
+    }
+    return num / Math.sqrt(da * db);
+  }
+
+  it("across a 66-cell city fixture F/P now SPREADS by 0.54 and corr(F,P) falls to 0.63", () => {
     const ratios: number[] = [];
     const fs: number[] = [];
     const ps: number[] = [];
     // Skylines spanning the whole band the track crosses, at distances from a courtyard wall to the
-    // trust radius: 11 heights × 6 distances.
+    // trust radius: 11 heights × 6 distances. Unchanged from the baseline, deliberately.
     for (const heightDeg of [0.05, 0.1, 0.2, 0.4, 0.6, 0.9, 1.2, 1.6, 2.0, 2.5, 2.9]) {
       for (const distM of [80, 200, 400, 800, 1500, 3000]) {
         const rays = uniformRays(azs, {
@@ -987,27 +1200,30 @@ describe("bestSpotMetric — MEASURED: F_sil saturates, so F ≈ P for a built c
           openSky: false,
         });
         const r = cellScore(rays, track, OPEN_ACCESS, OPTS);
-        const p = depthTerm(rays[0], OPTS.trustRadiusM);
+        const p = depthTerm(rays[0], OPTS.scoring.curves.depthTrustRadiusM);
         fs.push(r.f);
         ps.push(p);
         ratios.push(r.f / p);
       }
     }
     expect(ratios).toHaveLength(66);
-    // F spans nearly its whole range across these cells — but so does P, and they are the SAME span.
-    expect(Math.min(...fs)).toBeCloseTo(0.1993, 3);
-    expect(Math.max(...fs)).toBeCloseTo(0.9976, 3);
+    // F no longer spans "nearly its whole range on every cell": a 0.05° kerb 3 km out is 0.0038 and
+    // a 2.9° tower block 80 m away is 0.1184 — two cells the old kernel could not tell apart.
+    expect(Math.min(...fs)).toBeCloseTo(0.0038, 4);
+    expect(Math.max(...fs)).toBeCloseTo(0.4479, 4);
     expect(Math.min(...ps)).toBeCloseTo(0.213, 3);
     expect(Math.max(...ps)).toBeCloseTo(1, 6);
-    // THE FINDING. Every one of the 66 cells has F within 6.4 % of P, and the residue is pure
-    // SAMPLING QUANTISATION — the kernel is `1 − |altApp − edge|/ρ` and the track's altitude step is
-    // 0.0345°, so the nearest sample to any edge is at most 0.0173° = 0.066ρ away.
-    expect(Math.min(...ratios)).toBeGreaterThan(0.93);
-    expect(Math.max(...ratios)).toBeLessThan(1.0);
-    expect(Math.max(...ratios) - Math.min(...ratios)).toBeLessThan(0.065);
+    // THE INVERSION. Was: `min ratio > 0.93`, `max − min < 0.065`.
+    expect(Math.min(...ratios)).toBeCloseTo(0.0179, 4);
+    expect(Math.max(...ratios)).toBeCloseTo(0.558, 4);
+    expect(Math.max(...ratios) - Math.min(...ratios)).toBeGreaterThan(0.3);
+    expect(Math.max(...ratios) - Math.min(...ratios)).toBeCloseTo(0.5401, 4);
+    // …and the correlation, which is the claim that actually matters for ranking. Was 0.9985.
+    expect(correlation(fs, ps)).toBeLessThan(0.8);
+    expect(correlation(fs, ps)).toBeCloseTo(0.6268, 4);
   });
 
-  it("…so the DECK and the WALL — the two objects F3 exists to separate — get the SAME F", () => {
+  it("…so the DECK and the WALL — the two objects F3 exists to separate — now get DIFFERENT F", () => {
     // The PIN 3 pair, rebuilt here so this finding stands on its own fixture.
     const deck = uniformRays(azs, {
       groundAltAppDeg: -0.04,
@@ -1026,12 +1242,13 @@ describe("bestSpotMetric — MEASURED: F_sil saturates, so F ≈ P for a built c
       groundDistM: 1500,
       openSky: false,
     });
-    // 0.8465 for both, to the last bit. The deck is still ranked higher overall, but by `V` and by
-    // `alt*` (PIN 3), NOT by the term named FRAMING. Whatever separates a bridge silhouette from a
-    // blank wall, this kernel is not currently it.
+    // WAS: 0.8465 for both, to the last bit — `expect(wallF).toBeCloseTo(deckF, 15)`. The deck was
+    // still ranked higher overall, but by `V` and by `alt*` (PIN 3), NOT by the term named FRAMING.
+    // NOW the deck wins on FRAMING too: two band edges to dwell on against the wall's one crossing.
     const deckF = cellScore(deck, track, OPEN_ACCESS, OPTS).f;
     const wallF = cellScore(wall, track, OPEN_ACCESS, OPTS).f;
-    expect(deckF).toBeCloseTo(0.8465, 4);
-    expect(wallF).toBeCloseTo(deckF, 15);
+    expect(deckF).toBeCloseTo(0.4158, 4);
+    expect(wallF).toBeCloseTo(0.3962, 4);
+    expect(deckF).toBeGreaterThan(wallF);
   });
 });

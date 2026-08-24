@@ -31,9 +31,10 @@ import {
   BESTSPOT_METRIC_DEFAULTS,
   cellScore,
   depthOfDistM,
-  depthTerm,
-  silTangency,
+  grazeSample,
+  smoothstep,
 } from "../../../src/lib/geo/bestSpotMetric";
+import { BESTSPOT_SCORING_V1 } from "../../../src/lib/geo/bestSpotScoring";
 import type {
   CellAccess,
   EventTrack,
@@ -44,6 +45,11 @@ import type {
 
 const K = 0.13; // PLAN.refractionK — the surveyor's standard terrestrial coefficient
 const RAD2DEG = 180 / Math.PI;
+
+/** The 1.7 m pedestrian eye's own geometric horizon, −0.03904°. S3b's GRAZE anchors its RELIEF ramp
+ *  here rather than at 0, which is why the deck tests below hand it to `grazeSample`: it is the
+ *  difference between "an edge stands above the horizon" and "the horizon is where it should be". */
+const DIP_AT_LIFT = horizonDipDeg(1.7, K);
 
 /** Deterministic PRNG. `Math.random` in a committed test makes a red build unreproducible, which is
  *  the one thing a pin may never be. */
@@ -572,8 +578,10 @@ describe("horizonSweep — PIN: unsampled is known=0 and is NOT open sky", () =>
     expect(Number.isNaN(ev2.groundAltAppDeg)).toBe(true);
   });
 
-  it("POSITIVE CONTROL: the same eye over mapped flat ground DOES report known=1 + openSky", () => {
-    const dsm = halfMappedDsm();
+  it("POSITIVE CONTROL: the same eye over FULLY mapped flat ground DOES report known=1 + openSky", () => {
+    // FULLY mapped, not `halfMappedDsm()` — see the S3c pin below for why that change is the whole
+    // point. Here the ray reaches the grid edge, so `reachM === gridReachM` and the gate opens.
+    const dsm = flatDsm(81, 81, 5, 0);
     const hulls = buildHulls(dsm, 0, { refractionK: K });
     const out = createSweepOut(dsm.cellCount, 16);
     sweepAzimuth(dsm, hulls, 0, 1.7, out);
@@ -583,6 +591,38 @@ describe("horizonSweep — PIN: unsampled is known=0 and is NOT open sky", () =>
     expect(ev.openSky).toBe(true);
     expect(ev.src).toBe("terrain");
     expect(ev.groundAltAppDeg).toBeLessThan(0); // SIGNED, never floored at the dip
+    expect(ev.reachM).toBeCloseTo(60 * 5, 6); // 60 forward slots × 5 m — it looked as far as it could
+  });
+
+  /**
+   * **S3c — THE CHANGED ASSERTION, AND IT IS THE HEADLINE.**
+   *
+   * The positive control above used to run on `halfMappedDsm()` and assert `openSky === true` for a
+   * cell whose ray crosses 100 m of mapped ground and then falls off the DSM with 200 m of grid
+   * still in front of it. That is verbatim SPEC_V2 §3.2's third case — *"cell 200 m east, rays cross
+   * 200 m of known ground first → scored, C = 1.000, evidence truncated at 200 m. **Silent lie.**"*
+   * — and the shipped test PINNED the lie as correct behaviour, which is why it never showed up.
+   *
+   * `reachM` is the channel that tells the two apart, and `openSky` is now gated on it.
+   */
+  it("S3c: a ray that runs OUT OF DSM before the grid ends is known=1 but NOT open sky, and says how far it looked", () => {
+    const dsm = halfMappedDsm();
+    const hulls = buildHulls(dsm, 0, { refractionK: K });
+    const out = createSweepOut(dsm.cellCount, 16);
+    sweepAzimuth(dsm, hulls, 0, 1.7, out);
+    const inside = cellIndexAt(dsm, 40, 20);
+    const ev = rayEvidenceAt(out, inside);
+
+    expect(ev.known).toBe(1); // it DID find evidence — `known` is unchanged, two channels two names
+    expect(ev.reachM).toBeCloseTo(20 * 5, 6); // …and it stopped 100 m out, at the edge of the data
+    expect(ev.openSky).toBe(false); // ← THE FIX: 100 m of evidence is not a claim about the horizon
+
+    // The gate is `reachM >= min(trustRadiusM, gridReachM)`, so lowering the trust radius under the
+    // measured reach re-opens it — which proves the flag is driven by the reach and not by the
+    // geometry having quietly changed.
+    const lenient = createSweepOut(dsm.cellCount, 16);
+    sweepAzimuth(dsm, hulls, 0, 1.7, lenient, { trustRadiusM: 90 });
+    expect(rayEvidenceAt(lenient, inside).openSky).toBe(true);
   });
 
   it("a BUILT horizon is never openSky, however low it is", () => {
@@ -887,12 +927,33 @@ describe("horizonSweep — RED: a swept bridge DECK is untagged, so F_sil is dea
     const { ev } = sweptDeckEvidence();
     expect(ev.bands).toHaveLength(1);
     const underside = ev.bands[0][0]; // 0.3095° — the "sun under the bridge" frame
-    const p = depthTerm(ev, 3_000);
-    // A dead tangency weighted by depth. RED: 0, because `isBuiltSrc("terrain")` is false.
-    expect(silTangency(ev, underside, RHO, p)).toBeCloseTo(p, 6);
-    // …and the ONLY thing standing between it and the right answer is the tag: relabel the same
-    // numbers and the kernel fires. That is the proof this is a plumbing bug, not a geometry one.
-    expect(silTangency({ ...ev, src: "deck" }, underside, RHO, p)).toBeCloseTo(p, 6);
+    // S3b: re-expressed against `grazeSample`, which replaced `silTangency` (owner ruling R5). The
+    // claim is unchanged — the deck's own underside is a frame and it is priced at the DECK's range
+    // — but it is now made per EDGE, and the two halves are separately visible:
+    const g = grazeSample(ev, underside, RHO, DIP_AT_LIFT, BESTSPOT_SCORING_V1, 1);
+    // `cut` — dead tangent on the underside, so the triangular arm is exactly 1.
+    expect(g.cut).toBeCloseTo(1, 12);
+    // `Q` — the DECK's own tag, the DECK's own 1492 m, and relief measured above the observer's dip.
+    expect(g.src).toBe<OccluderSrc>("deck");
+    expect(g.distM).toBeCloseTo(1492, 3);
+    expect(g.q).toBeCloseTo(
+      smoothstep(0.05, 0.4, underside - DIP_AT_LIFT) * 0.9 * depthOfDistM(1492, 3_000),
+      12,
+    );
+    expect(g.q).toBeGreaterThan(0);
+    // …and the tag is no longer a GATE: the old kernel early-returned 0 here unless `ev.src` was
+    // built, which is why this test used to have to relabel the ray to prove the plumbing. Under
+    // GRAZE the same geometry tagged `terrain` still frames — it is worth MORE, not less (1.00
+    // against a deck's 0.90), which is the whole of R5 in one line.
+    const asTerrain = grazeSample(
+      { ...ev, bandSrc: ["terrain"] },
+      underside,
+      RHO,
+      DIP_AT_LIFT,
+      BESTSPOT_SCORING_V1,
+      1,
+    );
+    expect(asTerrain.q).toBeCloseTo(g.q / 0.9, 12);
   });
 });
 
@@ -981,11 +1042,22 @@ describe("horizonSweep × bestSpotMetric — ACCEPTANCE: the bridge OUTSCORES th
     expect(bare.verdict).toBe("scored");
     // THE claim. Before the fix this comparison ran the other way (0.60799 vs 0.62306).
     expect(withDeck.score).toBeGreaterThan(bare.score);
-    // …and by a photographic margin, not by 1e-9: the framing term is what the bridge buys.
-    expect(withDeck.score - bare.score).toBeGreaterThan(0.1);
-    // The channel that carries it — `F_sil` fires on the DECK's own band edge, weighted by the
-    // DECK's own 1492 m, not by the far bank's 1700 m.
-    expect(withDeck.f).toBeGreaterThan(0.8);
+    // …and by a real margin, not by 1e-9: the framing term is what the bridge buys.
+    //
+    // S3b: `> 0.1` → `> 0.05`, measured **0.05698**. This fixture's track is HAND-BUILT — 25 samples
+    // over 1.55° of altitude, `windowLo = 0, windowHi = n − 1`, hand-made weights — which is the
+    // very thing `bestSpotComposition.test.ts` exists to stop standing in for the real chain. On the
+    // REAL `eventTrack` the same scene measures a **0.12613** margin and that file asserts `> 0.1`
+    // unchanged. The number moved because GRAZE prices this 4 m slab by how long the sun rides it —
+    // measured F **0.50068**, τ 1.2154 ρ — instead of saturating on any edge the centre crosses.
+    expect(withDeck.score - bare.score).toBeGreaterThan(0.05);
+    // The channel that carries it — GRAZE fires on the DECK's own band edge, weighted by the DECK's
+    // own 1492 m, not by the far bank's 1700 m. S3b: `> 0.8` → `> 0.4` (measured 0.50068).
+    expect(withDeck.f).toBeGreaterThan(0.4);
+    expect(withDeck.grazeSrc).toBe<OccluderSrc>("deck");
+    expect(withDeck.grazeDistM).toBeCloseTo(1492, 3);
+    // …and the bare river is still EXACTLY 0, for a better reason: RELIEF, not provenance. Proven
+    // as a number in the test below.
     expect(bare.f).toBe(0);
     expect(withDeck.srcStar).toBe<OccluderSrc>("deck");
     expect(bare.srcStar).toBe<OccluderSrc>("terrain");
@@ -1001,14 +1073,46 @@ describe("horizonSweep × bestSpotMetric — ACCEPTANCE: the bridge OUTSCORES th
     // Per-EDGE depth: the deck's own near edge, not the ray's ground setter 208 m further out.
     expect(mid.bandDistM[0]).toBeCloseTo(1492, 3);
     expect(mid.groundDistM).toBeCloseTo(1700, 3);
-    const atUnderside = silTangency(mid, mid.bands[0][0], RHO, 0, 3_000);
-    expect(atUnderside).toBeCloseTo(depthOfDistM(1492, 3_000), 12);
-    expect(atUnderside).not.toBeCloseTo(depthOfDistM(1700, 3_000), 6);
+    // S3b: `silTangency(mid, underside, RHO, 0, 3000)` became `grazeSample(...).q`. Same claim —
+    // per-EDGE depth, the deck's own near edge and not the ray's ground setter 208 m further out —
+    // now with relief and confidence spelled out beside it instead of folded in.
+    const atUnderside = grazeSample(mid, mid.bands[0][0], RHO, DIP_AT_LIFT, BESTSPOT_SCORING_V1, 1);
+    expect(atUnderside.distM).toBeCloseTo(1492, 3);
+    expect(atUnderside.q).toBeCloseTo(
+      smoothstep(0.05, 0.4, mid.bands[0][0] - DIP_AT_LIFT) * 0.9 * depthOfDistM(1492, 3_000),
+      12,
+    );
+    expect(atUnderside.q).not.toBeCloseTo(
+      smoothstep(0.05, 0.4, mid.bands[0][0] - DIP_AT_LIFT) * 0.9 * depthOfDistM(1700, 3_000),
+      6,
+    );
     // THE MIRROR-IMAGE BUG, guarded: the ray's HEADLINE tag is "deck", but the thing AT the ground
     // horizon is water. Gating the ground edge on `ev.src` instead of `ev.groundSrc` would score an
     // open river horizon as a built silhouette — the same defect with the sign flipped.
     expect(mid.src).toBe<OccluderSrc>("deck");
     expect(mid.groundSrc).toBe<OccluderSrc>("terrain");
-    expect(silTangency(mid, mid.groundAltAppDeg, RHO, 0, 3_000)).toBe(0);
+    // …AND IT SURVIVES S3b FOR A BETTER REASON, which this test now PROVES rather than assumes.
+    // The old reason was PROVENANCE: `isBuiltSrc("terrain")` is false, so the ground edge was
+    // ineligible — a rule that also scored an 8 km mountain ridge at 0, which is why R5 deleted it.
+    // The new reason is RELIEF: the water horizon sits at −0.0639°, BELOW the observer's own dip of
+    // −0.0390°, so `e − dipFloor` is −0.0249° and `smoothstep(0.05, 0.40, ·)` is a hard 0. There is
+    // no edge standing above the horizon to ride.
+    const atWater = grazeSample(mid, mid.groundAltAppDeg, RHO, DIP_AT_LIFT, BESTSPOT_SCORING_V1, 1);
+    expect(atWater.q).toBe(0);
+    expect(atWater.src).toBe<OccluderSrc>("terrain"); // …and it was NOT rejected for its tag
+    expect(BESTSPOT_SCORING_V1.graze.conf.terrain).toBe(1); // terrain is the MOST trusted source
+    expect(mid.groundAltAppDeg).toBeLessThan(DIP_AT_LIFT); // ← the actual reason, stated as a number
+    expect(smoothstep(0.05, 0.4, mid.groundAltAppDeg - DIP_AT_LIFT)).toBe(0);
+    // THE CONTROL: lift that same water line above the relief ramp and the identical `terrain` tag
+    // frames at full confidence. Provenance was never what stopped it.
+    const raised = grazeSample(
+      { ...mid, groundAltAppDeg: DIP_AT_LIFT + 0.5 },
+      DIP_AT_LIFT + 0.5,
+      RHO,
+      DIP_AT_LIFT,
+      BESTSPOT_SCORING_V1,
+      1,
+    );
+    expect(raised.q).toBeCloseTo(depthOfDistM(1700, 3_000), 12);
   });
 });

@@ -17,6 +17,7 @@ import Welcome from "../components/panels/Welcome";
 import FpvHud from "../components/panels/FpvHud";
 import PlanPanel from "../components/panels/PlanPanel";
 import FindPanel from "../components/panels/FindPanel";
+import BestSpotPanel from "../components/panels/BestSpotPanel";
 import PlanFindToggle from "../components/panels/PlanFindToggle";
 import TargetPanel from "../components/panels/TargetPanel";
 import MiniMap from "../components/panels/MiniMap";
@@ -178,6 +179,12 @@ import "../styles/boot-poster.css";
        which coming days does the sun/moon/MW core stand inside THIS frame?" Standings project
        into the frame as colour-matched ghost rings (scene/findGhosts). Top-level island. -->
   <FindPanel client:only="react" />
+
+  <!-- BEST SPOT panel (S5, SPEC_V2 §6.9) — the third face of the shared planning window: where to
+       stand for this sunrise / sunset / moonrise / moonset. Gated by store/bestSpot.open, which
+       only the topnav PlanFindToggle sets (mutually exclusive with PLAN and FIND). Top-level
+       island — position:fixed must never sit inside a backdrop-filtered card (the S2 trap). -->
+  <BestSpotPanel client:only="react" />
 
   <!-- Sky-target tracer (ASTRO ENGINE phase A — generalises the 10P comet panel): live position
        of the tracked target from the current anchor, a per-kind object card, and the next

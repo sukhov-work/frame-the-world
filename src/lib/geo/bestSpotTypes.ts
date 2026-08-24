@@ -41,6 +41,21 @@
  *     `bandDistM` alongside it, and §3.2's "the geometry that set Hg(a), OR the nearest band edge" is
  *     implemented on BOTH halves of that sentence.
  *
+ *  7. **MISSING DATA DOES NOT READ AS "UNKNOWN" — IT READS AS THE BEST SPOT ON THE MAP (S3c,
+ *     SPEC_V2 §3).** Pin 4 gave the sweep an evidence FLAG; it never gave it a RANGE. `known = 1`
+ *     means "this ray found ≥ 1 forward sample", which is true of a ray that saw 10 m of ground and
+ *     then fell off the edge of a truncated DSM. MEASURED, identical scene, identical track, centre
+ *     cell, 1.7 m eye, a real 30 m ridge 500 m up-sun: with the DSM out to 700 m (the TRUTH) the
+ *     cell scores **0.0000**; with the DSM truncated at 350 m it scores **0.6633**, reports
+ *     coverage **1.000**, and claims open sky on **all 40 rays** — indistinguishable from a
+ *     genuinely open plain (0.6613). At the rim the same shape costs 14×: a cell 290 m up-sun reads
+ *     0.0467 with the 400 m collar and 0.6619 without.
+ *
+ *     `reachM` is the missing range, `openSky` is gated on it, and `CellScore.minReachM` publishes
+ *     the worst direction so the panel can say it out loud. It is ALSO what makes refinement safe:
+ *     without it, a disc that gains data as tiles stream in silently LOWERS its scores, and the
+ *     owner reads that as a regression rather than as the truth arriving.
+ *
  *  6. **THE SHOULDERS ARE NOT PART OF THE VISIBILITY INTEGRAL (LENS B, 2026-08-24).** `EventTrack`
  *     spans the window PLUS azimuth shoulders that exist only for `F_notch`'s sL/sR and for the
  *     coverage term `C`. Carrying no marker for that boundary cost 47 % of the normalised weight to a
@@ -123,6 +138,17 @@ export interface EventTrack {
    * mostly-worthless moonrises a year with equal confidence.
    */
   worth: number;
+  /**
+   * SPEC_V2 §5.3(b) — the two ephemeris readings `worth` is a pure function of, carried on the track
+   * so the whole `worth.*` scoring group is a RECOMPOSE (0.272 ms) instead of a REBUILD (490 ms).
+   * Optional because a hand-written test fixture does not have to supply them; `worthFromParts`
+   * (`bestSpotTrack.ts`) is the one consumer and it is only reachable when they are present.
+   *
+   * Sun altitude (AIRLESS, deg) at `t0Ms` — the input to the twilight gate.
+   */
+  sunAltAtT0Deg?: number;
+  /** Moon phase angle (deg, 0 = full) at `t0Ms`. `0` for sun kinds, which never consult it. */
+  moonPhaseAngleDeg?: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -183,8 +209,19 @@ export interface RayEvidence {
   src: OccluderSrc;
   /** Evidence flag — 0 means NOTHING was sampled along this ray (pin 4). */
   known: 0 | 1;
+  /**
+   * **HOW FAR THIS RAY ACTUALLY LOOKED (m) — pin 7, S3c.** The along-ray distance of the LAST KNOWN
+   * sample forward of the cell; `0` when nothing forward was sampled.
+   *
+   * REQUIRED, not optional, and that is deliberate: a fixture that does not say how far it looked is
+   * exactly the defect this field exists to close. See pin 7 below.
+   */
+  reachM: number;
   /** The hull found nothing and the far profile is terrain-only: a genuinely open horizon. An explicit
-   *  boolean, never the fragile float test `alt === openSkyAltDeg`. */
+   *  boolean, never the fragile float test `alt === openSkyAltDeg`.
+   *
+   *  **GATED ON `reachM` SINCE S3c** (`reachM >= min(trustRadiusM, gridReachM)`): before that it
+   *  never asked how far the evidence reached, and a truncated disc claimed open sky on every ray. */
   openSky: boolean;
 }
 
@@ -237,6 +274,25 @@ export const AERIAL_MIN_M = 5;
  *  about geometry nobody has looked at. */
 export type CellVerdict = "scored" | "unknown";
 
+/**
+ * τ — GRAZE's dwell integral (`SPEC_V2 §1.1 ③`), **split by the provenance of the edge that earned
+ * each contribution** (S3b, owner ruling R5).
+ *
+ * Each bucket carries `Σ cut·Relief(e)·Depth(D)·Δα/ρ` — relief- and depth-weighted, with the
+ * per-source CONFIDENCE deliberately left OUT. That is the whole reason the split exists: `τ` is
+ * recovered as `Σ_s conf[s]·bucket[s]`, so moving `graze.conf.*` or `graze.scaleRadii` is a
+ * **recompose** (0.272 ms) rather than a rescore (177 ms) — and S3c's 59-byte-per-cell term buffer
+ * stores exactly these four f32s.
+ *
+ * `none` has no bucket: `conf.none` is 0 and an untagged edge is ignorance, not a silhouette.
+ */
+export interface GrazeTauSplit {
+  terrain: number;
+  building: number;
+  deck: number;
+  tree: number;
+}
+
 /** One cell's full result. The panel reads `score` + `terms`; the GL sheet reads `score` + `verdict`. */
 export interface CellScore {
   verdict: CellVerdict;
@@ -248,10 +304,47 @@ export interface CellScore {
   l: number;
   /** Depth/openness of the blocker, 0..1 — log-scaled in distance. */
   p: number;
-  /** Framing, 0..1 — `max(silhouette tangency, skyline notch)`. */
+  /** Framing, 0..1 — `max(GRAZE, GAP)` (`SPEC_V2 §1.1`, owner ruling R5). */
   f: number;
+  /** The GRAZE half of `f`: `1 − exp(−τ/graze.scaleRadii)` — how LONG the body rides an edge. */
+  fGraze: number;
+  /** The GAP half of `f`: `notchAt(...).f · min(Q(shoulderL), Q(shoulderR))`. */
+  fGap: number;
+  /** τ itself, in disc RADII of the body's own vertical travel, with confidence applied. */
+  grazeRadii: number;
+  /** τ before confidence, split by provenance — see `GrazeTauSplit`. */
+  grazeTau: GrazeTauSplit;
+  /** Provenance of the edge that contributed the MOST τ — the panel's "BEHIND A BRIDGE" copy reads
+   *  `srcStar` (the contact) and this (the frame); they are different questions and can disagree. */
+  grazeSrc: OccluderSrc;
+  /** …and that edge's own distance (m). */
+  grazeDistM: number;
+  /**
+   * `max over the summed window of Δα_i/ρ_i` — how coarsely the dwell integral was sampled.
+   *
+   * Above `GRAZE_STEP_TRUST_RADII` (2 — one disc DIAMETER, the width of a cut event) the body can
+   * step over an entire cut between two samples, so τ is not resolvable and the framing term is
+   * **UNKNOWN**: a render class, never a low score and never a saturated high one. At Quito's
+   * equinox the sun sets vertically, the azimuth reparameterisation collapses to 8 samples spanning
+   * 88° of altitude, and this reads **109** — which is exactly the reading the flag exists to make
+   * visible. The honesty channel for FRAMING, mirroring `c` for the sweep.
+   */
+  grazeStepRadii: number;
   /** Per-cell evidence coverage over the FULL swept span, 0..1. */
   c: number;
+  /**
+   * **The HONESTY RANGE (pin 7, S3c): the SMALLEST `RayEvidence.reachM` over the whole swept span**
+   * — how far the evidence reached in this cell's WORST direction (m).
+   *
+   * `c` says WHETHER we looked; this says HOW FAR. A cell can report `c = 1.000` on a disc whose
+   * DSM stops 350 m out, and did (measured `S = 0.6633` against a truth of `0.0000`, SPEC_V2 §3.1).
+   * `min` and not `mean` for the same reason `notchAt` takes `min(sL, sR)`: one blind direction is
+   * enough to invalidate the answer, and the sun only sets in one of them.
+   *
+   * Published on the UNKNOWN branch too — "we looked 40 m" is exactly what the panel must say about
+   * a cell it is refusing to score.
+   */
+  minReachM: number;
   /** Lowest apparent centre altitude at which the disc is still ≥50 % visible (deg). Signed. */
   altStarDeg: number;
   /** Distance (m) to the blocker at the contact azimuth — what "far in the distance" actually means. */
