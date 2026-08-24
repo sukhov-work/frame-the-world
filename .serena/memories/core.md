@@ -7,8 +7,15 @@ OSM buildings**; real-time EXIF what-if re-projection; ephemeris (sun/moon/stars
 save/publish pins; light RAW marketplace; premium AI shot-analysis. **Client-heavy** (WASM decode + three.js
 render + projection math all in-browser); Wix is a thin backend (auth/Data/Media/Pricing Plans/eCommerce/AI).
 Owner: Yevhen. Hackathon build. Language: TypeScript + Astro. No SSH/prod box — "prod" is Wix cloud via `wix release`.
-**UI-facing name = PLUX (owner 2026-08-19; supersedes working title SIDERA 2026-08-14), planning-first;
-domain `plux.today` (www = primary)** — the repo and every technical identifier stay "frame the world".
+**THE PRODUCT IS PLUX** (owner 2026-08-19; supersedes working title SIDERA 2026-08-14),
+planning-first; domain `plux.today` (www = primary). **Say PLUX in prose, docs and commit messages.**
+"Frame the World" / "FTW" is the REPO NAME ONLY (`headless-frame-the-world` + the git remote) and is
+not a synonym for the product. Internal identifiers deliberately keep it and must NOT be renamed:
+the six `ftw:*` localStorage keys are PERSISTED USER STATE (renaming wipes every browser), the ~20
+`uFtw*`/`vFtw*`/`FTW_*` shader identifiers fail SILENTLY if a rename is missed, and the `Ftw` Lean
+namespace is internal. Owner re-affirmed 2026-08-25 after a real leak shipped —
+`PRODID:-//Frame the World//…` and `UID:ftw-…@frame-the-world` were inside every exported .ics
+file. Both halves are now machine-checked by `test/brandFence.test.ts`.
 
 ## Status (compacted 2026-08-15 — era index + pointers; the old narrative Status lives in DECISIONS.md digests + DECISIONS_ARCHIVE.md)
 

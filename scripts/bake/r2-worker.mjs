@@ -1,5 +1,5 @@
 /**
- * Frame the World — R2 tiles gateway Worker (Cloudflare Workers, ES module).
+ * PLUX — R2 tiles gateway Worker (Cloudflare Workers, ES module).
  *
  * Fronts a PRIVATE R2 bucket (`frame-the-world-bucket`) and serves the baked 3D-Tiles
  * (`enriched/<city>/tileset.json` + `cell-<i>-<j>.glb`) with the CORS + Range semantics that

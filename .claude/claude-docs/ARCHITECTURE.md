@@ -1,4 +1,4 @@
-# Frame the World — Architecture (repo-native)
+# PLUX — Architecture (repo-native)  *(repo: `headless-frame-the-world`)*
 
 Distilled working reference (refreshed 2026-07-15). **Provenance:** `provenance/DEEP_RESEARCH.md`
 Part 1–2 (research + ASCII diagram + stack table + cost table) and `PROJECT_SEED.md` §4–5. Those are

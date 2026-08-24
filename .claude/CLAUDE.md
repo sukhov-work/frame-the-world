@@ -1,4 +1,4 @@
-# CLAUDE.md — Frame the World
+# CLAUDE.md — PLUX  *(repo: `headless-frame-the-world`)*
 
 Wix-managed **headless** (Astro 5) web app: upload a camera RAW/JPEG → extract EXIF → project the
 photo as an oriented **camera frustum + image plane** at its real capture location on a **stylized 3D
@@ -7,6 +7,19 @@ globe with real OSM buildings**; tweak EXIF (focal/heading/pitch/position/time) 
 shot-analysis *(Phase 7 — PARKED indefinitely, owner ruling 2026-08-11; out of all plans)*.
 **The client does the heavy lifting** (WASM decode, projection, rendering); Wix is the
 backend (auth, Data, Media, Pricing Plans, eCommerce, AI proxy).
+
+## The name (owner ruling 2026-08-19, re-affirmed + fenced 2026-08-25)
+**The product is PLUX** — `plux.today`. Say PLUX in prose, in docs, in commit messages, and in
+anything a person can see. *"Frame the World"* / *"FTW"* is the **repo name only**
+(`headless-frame-the-world`, and the git remote) — it is not a synonym for the product and must not
+be used as one.
+**Internal identifiers deliberately keep the old name and must NOT be renamed:** the six `ftw:*`
+localStorage keys hold persisted user state (view prefs, building-height overrides, the desktop
+opt-out, dismissed banners) so renaming them silently wipes every existing browser; the ~20
+`uFtw*` / `vFtw*` / `FTW_*` shader identifiers are a large GLSL surface where a missed rename fails
+**silently**; the `Ftw` Lean namespace is internal. The split is machine-checked both ways by
+`test/brandFence.test.ts` — it fails if a user-visible string says "Frame the World", **and** if an
+over-eager sweep renames the persisted keys.
 
 ## Knowledge — Search Order (stop at first hit)
 1. **Serena memories**: `list_memories` → read `mem:core` (graph root) → follow its index.

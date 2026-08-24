@@ -67,3 +67,19 @@ describe("buildIcs", () => {
     expect(folded).toContain("\r\n x");
   });
 });
+
+/**
+ * BRAND FENCE (2026-08-25). Everything a user can actually SEE says PLUX. The repo, the git
+ * remote and the internal identifiers still say "frame the world" by owner ruling — but an .ics
+ * file is a user artifact that leaves the app, so the two must not be confused here.
+ */
+describe("the exported calendar carries the UI-facing brand, not the repo name", () => {
+  it("PRODID and UID say PLUX", () => {
+    const ics = buildIcs([EVENT], NOW);
+    expect(ics).toContain("PRODID:-//PLUX//Shot Planner//EN");
+    expect(ics).toMatch(/UID:plux-[0-9TZ]+-[a-z0-9]+@plux\.today/);
+    // the probe can fail: the old strings must be gone from the whole payload
+    expect(ics.toLowerCase()).not.toContain("frame the world");
+    expect(ics.toLowerCase()).not.toContain("frame-the-world");
+  });
+});

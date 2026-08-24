@@ -5,8 +5,11 @@ import "../styles/global.css";
 interface Props {
   title?: string;
 }
-// Brand name "Plux" (owner 2026-08-19, supersedes working title "Sidera") — UI-facing name
-// only; the repo and every technical identifier stay "frame the world".
+// THE PRODUCT IS PLUX (owner 2026-08-19, supersedes the working title "Sidera"; re-affirmed
+// 2026-08-25). "Frame the World" is the REPO name only — never a synonym for the product, and
+// never a user-visible string. Internal identifiers (`ftw:*` storage keys, `uFtw*` uniforms) keep
+// the old name deliberately: the storage keys are persisted user state and a shader rename fails
+// silently. Both halves are fenced by `test/brandFence.test.ts`.
 const { title = "Plux" } = Astro.props;
 
 // Social / link previews. Wix's headless SEO layer injects og:title + twitter:card=

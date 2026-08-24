@@ -1,14 +1,18 @@
 <p align="center">
-  <img src="docs/media/welcome.jpeg" alt="Frame the World — see your photographs where the world took them" width="920">
+  <img src="docs/media/welcome.jpeg" alt="PLUX — see your photographs where the world took them" width="920">
 </p>
 
-# Frame the World
+# PLUX
 
-> **App name: Plux** — plux.today (2026-08-19; supersedes the working title "Sidera",
-> 2026-08-14). The product now leads with **planning,
-> photography and exploration** — stand anywhere, scrub time, frame the sky, find the day your
-> shot lines up. Uploading photos remains as a side path. "Frame the World" stays the repo /
-> technical name; the sections below describe the full stack including the upload pipeline.
+> **plux.today** (named 2026-08-19; supersedes the working title "Sidera", 2026-08-14). The product
+> leads with **planning, photography and exploration** — stand anywhere, scrub time, frame the sky,
+> find the day your shot lines up. Uploading photos remains as a side path; the sections below
+> describe the full stack including the upload pipeline.
+>
+> *The GitHub repository is still `headless-frame-the-world`, and internal identifiers
+> (`ftw:` storage keys, `uFtw*` shader uniforms, the `Ftw` proof namespace) keep that name —
+> renaming them would break persisted user state for no user-visible gain. **The product is
+> PLUX everywhere a person can see it.***
 
 Upload a photograph — a RAW file straight from the camera — and see it *where the world took it*:
 projected as a true camera frustum at its capture coordinates, on a stylized 3D globe with real

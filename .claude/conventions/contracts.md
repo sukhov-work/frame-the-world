@@ -1,4 +1,4 @@
-# Contract strings — the Hyrum inventory (Frame the World)
+# Contract strings — the Hyrum inventory (PLUX)
 
 Authored 2026-08-13 by the first full audit (backlog T23; checklists code.md item 12 + docs.md item 11).
 **These are the app's implicit public contracts** — every observable grammar below has real consumers

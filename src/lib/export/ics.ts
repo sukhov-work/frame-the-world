@@ -54,7 +54,11 @@ function uidFor(e: IcsEvent): string {
   let h = 5381;
   const s = `${e.summary}|${e.startMs}|${e.endMs}`;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return `ftw-${icsUtc(e.startMs)}-${h.toString(36)}@frame-the-world`;
+  // The right-hand side of a UID should be a real domain (RFC 5545 §3.8.4.7). `plux.today` is the
+  // shipped one. Renamed from `@frame-the-world` 2026-08-25 with the rest of the brand sweep —
+  // safe because prod is still dark, so no calendar anywhere holds a previously-exported UID that
+  // a re-import would now duplicate instead of update.
+  return `plux-${icsUtc(e.startMs)}-${h.toString(36)}@plux.today`;
 }
 
 /** Build a complete VCALENDAR (CRLF line endings — the RFC wire format). */
@@ -62,7 +66,9 @@ export function buildIcs(events: readonly IcsEvent[], nowMs: number): string {
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Frame the World//Shot Planner//EN",
+    // USER-VISIBLE BRAND: this string ships inside every downloaded .ics file and some calendar
+    // clients surface it. It must be the UI-facing name (PLUX), never the repo name.
+    "PRODID:-//PLUX//Shot Planner//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
   ];

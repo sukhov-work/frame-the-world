@@ -1,7 +1,8 @@
 ---
 name: frame
 description: >
-  Universal development skill for Frame the World (Wix headless / Astro 5 photo-on-3D-globe instrument).
+  Universal development skill for PLUX (Wix headless / Astro 5 photo-on-3D-globe instrument;
+  repo `headless-frame-the-world`).
   Handles feature implementation, architecture decisions, bug fixing, research, design, and whole-repo
   audits. Parallel-first with confidence tracking. Trigger on: "implement", "build", "add", "fix", "debug",
   "design", "plan", "investigate", "research", "audit", "comprehensive review", any IMPLEMENTATION_PLAN.md
@@ -12,7 +13,7 @@ argument-hint: <what to build, fix, investigate, or design>
 
 # frame: Parallel-First Development
 
-Implementing, designing, investigating, and fixing code for **Frame the World** — a Wix-managed headless
+Implementing, designing, investigating, and fixing code for **PLUX** — a Wix-managed headless
 (Astro 5) app that projects camera photos onto a stylized 3D globe with real OSM buildings; client-heavy
 (WASM decode + three.js), Wix as the backend. Design docs: `.claude/claude-docs/ARCHITECTURE.md` (canonical
 map), `.claude/claude-docs/IMPLEMENTATION_PLAN.md` (7-phase build). Conventions: `.claude/conventions/`

@@ -1,5 +1,8 @@
 /-
-  Ftw — machine-checked specifications for the load-bearing math of Frame the World.
+  Ftw — machine-checked specifications for the load-bearing math of PLUX.
+
+  (The `Ftw` namespace is an internal identifier and keeps the repo name, like `ftw:*` and
+  `uFtw*` elsewhere. The PRODUCT is PLUX.)
 
   Scope: the parts of BEST SPOT (the observability heatmap) whose correctness is an
   ALGEBRAIC claim rather than a numerical one. Anything that depends on IEEE-754

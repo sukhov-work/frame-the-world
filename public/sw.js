@@ -1,5 +1,5 @@
 /*
- * Frame the World — tile service worker (#15, owner batch #4 S3 — iOS-DIRECTED mitigation).
+ * PLUX — tile service worker (#15, owner batch #4 S3 — iOS-DIRECTED mitigation).
  *
  * WHY: iOS Safari's HTTP disk cache is small and pressure-pruned — a planning session that
  * wanders a city re-downloads its tile working set over and over (the ranked cause of the
