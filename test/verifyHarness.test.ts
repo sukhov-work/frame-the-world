@@ -23,11 +23,27 @@ import { describe, expect, it } from "vitest";
 
 const root = join(__dirname, "..");
 const scriptsDir = join(root, "scripts");
-const verifyScripts = readdirSync(scriptsDir)
-  .filter((f) => f.startsWith("verify-") && f.endsWith(".mjs"))
-  // verify-chrome is the LAUNCHER (it starts the browser; it never opens a CDP target), and
-  // verify-cdp-cleanup is the helper these rules are implemented in.
-  .filter((f) => f !== "verify-chrome.mjs" && f !== "verify-cdp-cleanup.mjs");
+
+/**
+ * Verify scripts that are NOT CDP scripts. C11 is about returning browser targets, so a script
+ * that never opens one is outside its scope — the rules below would be cargo-culting.
+ *
+ *  • `verify-chrome.mjs`   — the LAUNCHER (it starts the browser; it never opens a target)
+ *  • `verify-cdp-cleanup.mjs` — the helper these rules are implemented in
+ *  • `verify-proofs.mjs`   — the Lean/Mathlib proof gate (2026-08-24d). No browser at all: it
+ *    shells out to `lake`, and it legitimately ends on `process.exit(code)` because a CLI gate's
+ *    whole output IS its exit code.
+ *
+ * **This list cannot be used to smuggle a real CDP script out of the fence** — every member is
+ * asserted target-free below, on the same `/json/new` marker the fence itself keys on. Adding a
+ * name here that opens a target turns that test RED.
+ */
+const NON_CDP = new Set(["verify-chrome.mjs", "verify-cdp-cleanup.mjs", "verify-proofs.mjs"]);
+
+const allVerifyScripts = readdirSync(scriptsDir).filter(
+  (f) => f.startsWith("verify-") && f.endsWith(".mjs"),
+);
+const verifyScripts = allVerifyScripts.filter((f) => !NON_CDP.has(f));
 
 const src = (f: string) => readFileSync(join(scriptsDir, f), "utf8");
 // Strip comments before matching — but NOT the "//" inside a URL scheme. The naive
@@ -43,6 +59,31 @@ const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(?<![:\\
 describe("verify harness — CDP target hygiene (C11)", () => {
   it("there are verify scripts to check (probe validated)", () => {
     expect(verifyScripts.length).toBeGreaterThan(10);
+  });
+
+  it("the NON_CDP exclusions really are CDP-free — the list cannot hide a browser script", () => {
+    // Zero-result validation on the EXCLUSION itself, or "just exclude it" becomes the way this
+    // fence dies.
+    //
+    // The marker cannot be `/json/new`: both structural exemptions NAME that endpoint without
+    // ever calling it — `verify-chrome.mjs:132` prints the curl recipe as help text, and
+    // `verify-cdp-cleanup.mjs` quotes it in its docblock while only ever calling `/json/close`.
+    // Naming an endpoint is not driving a browser. The marker that separates them is whether the
+    // script SPEAKS the protocol. Measured 2026-08-24d: a real CDP script (`verify-bestspot.mjs`)
+    // scores 7, `verify-cdp-cleanup.mjs` 7 (it is the helper), `verify-chrome.mjs` 1 (it is the
+    // launcher), and `verify-proofs.mjs` **0**.
+    const CDP_DRIVING = /webSocketDebuggerUrl|Runtime\.evaluate|Page\.navigate|trackTarget\(|finishVerify\(/g;
+    // The two STRUCTURAL exemptions predate this check and are exempt by role, not by score.
+    const STRUCTURAL = new Set(["verify-chrome.mjs", "verify-cdp-cleanup.mjs"]);
+    for (const f of NON_CDP) {
+      expect(allVerifyScripts, `${f} is listed but does not exist`).toContain(f);
+      if (STRUCTURAL.has(f)) continue;
+      const hits = (code(src(f)).match(CDP_DRIVING) ?? []).length;
+      expect(hits, `${f} speaks CDP and may not be excluded from C11`).toBe(0);
+    }
+    // POSITIVE CONTROL: the probe must fire on a script that really does drive a browser, or
+    // "0 hits" proves nothing about the exclusions above.
+    expect((code(src("verify-bestspot.mjs")).match(CDP_DRIVING) ?? []).length).toBeGreaterThan(0);
   });
 
   it("the comment-stripper does not blind the probe (zero-result validation)", () => {

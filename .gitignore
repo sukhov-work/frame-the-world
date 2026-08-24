@@ -60,3 +60,20 @@ test/fixtures/**/*.heic
 
 # --- Demo-pin seed downloads (scripts/seed-demo-pins.mjs re-run cache) ---
 /.seed-cache/
+
+# --- Lean 4 proof project. THE WHOLE BUILD TREE — ~7.4 GB: the Mathlib git checkout, its prebuilt
+#     .olean artifacts, and our own build output. Regen offline, no hand-editing:
+#       lake exe cache get && lake build      # FROM THE REPO ROOT (see formal/README.md)
+#
+#     The Lake WORKSPACE root is the repo ROOT, not formal/ — IntelliJ's lean4ij plugin resolves
+#     the toolchain as <ideProjectRoot>/lean-toolchain, has no override setting, and then runs
+#     `lake serve -- <ideProjectRoot>`. `srcDir = "formal"` keeps every .lean SOURCE under formal/;
+#     the build tree lands here, at Lake's hardcoded workspace default (`defaultLakeDir` is
+#     documented "Currently not configurable"). Redirecting it with buildDir/packagesDir was tried
+#     and MEASURED: Lake honours packagesDir for LEAN_PATH but still materializes dependencies at
+#     the default, leaving a second 601 MB Mathlib clone. One location is the only sane layout.
+#
+#     THIS LINE MUST EXIST BEFORE ANY ROOT-LEVEL `lake` COMMAND EVER RUNS — `session-end-ship.sh`
+#     does `git add -A`, and one `lake build` materializes gigabytes here in seconds.
+#     Tracked instead: formal/**.lean, lakefile.toml, lean-toolchain, lake-manifest.json. ---
+/.lake/

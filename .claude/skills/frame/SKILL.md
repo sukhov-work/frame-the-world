@@ -90,6 +90,31 @@ Fix all failures before claiming success.
   `conventions/verify.md`.
 - **Wix cloud:** quota #11 rejection, resumable upload, geohash viewport query, digital purchase, AI credit
   cost — verify in `wix dev` / Wix test mode. `wix release` publishes to the live URL (there is no SSH box).
+### Machine-checked math — `npm run proofs` (RARELY; four conditions, all of them)
+`formal/` is a Lean 4 + Mathlib project (`.claude/claude-docs/FORMAL_VERIFICATION.md`). **It is not
+part of the normal loop** — it is not in `npm test`, and most sessions should never touch it. Run
+`npm run proofs` only when you changed `formal/**` or the math it mirrors.
+
+**Reach for a new theorem only when ALL FOUR hold** — otherwise a test is the right instrument:
+1. the claim is **algebraic** (no IEEE-754 rounding, no DEM raster, no ephemeris — those stay in vitest),
+2. it is **load-bearing** (an architecture or a safety property rests on it),
+3. it is currently pinned **only by examples**, and
+4. it is expressible in **exact arithmetic**.
+
+**Formalize the CLAIM, never the IMPLEMENTATION.** Proving the monotone-chain hull algorithm correct
+is 1–3 person-weeks (Mathlib has no computational upper hull); proving the *slope facts the hull
+exists to exploit* took under an hour and is what the code actually rests on. If a formalization
+looks like weeks, you are almost certainly formalizing the wrong thing — re-aim at the claim.
+
+**The payoff is the HYPOTHESES, not the proof.** Stating "`S ∈ [0,1]` and monotone in each term"
+forces you to write `0 ≤ w` and `conf ≤ 1` — and on 2026-08-24d neither was enforced at runtime,
+in code that 1,902 tests, `astro check`, `knip` and a 100-check browser harness all passed. *A test
+samples; a specification quantifies.* When a theorem needs a hypothesis, immediately go ask whether
+the shipped sanitizer actually enforces it.
+
+Traps: `export PATH="$HOME/.elan/bin:$PATH"` first · **`lake build` PASSES with a `sorry` in the
+file** — the axiom audit is the gate, not the build · a multi-line `by nlinarith [...]` inside
+parens breaks Lean's bracket parse, hoist it to a `have`.
 
 ## Phase 4: Record the decision (bookend-out — don't skip)
 1. `write_memory` under the taxonomy (`architecture/`, `decisions/`, `patterns/`, `bugs/`, `project/`):
@@ -118,3 +143,5 @@ See `conventions/wix-headless.md` for the full mechanics + recovery ladder.
 | Re-raising a tracked-backlog item as a discovery | Verify status against `references/tracked-backlog.md`, cite the row |
 | Empty tool/grep result treated as "nothing there" | Zero-result validation: prove the probe CAN match |
 | Verifying visibility/state via DOM properties | Rendered geometry + screenshots (the `[hidden]` trap, 2026-08-13) |
+| Reaching for Lean on ordinary work, or formalizing an ALGORITHM | Four conditions, all of them (Phase 3); formalize the CLAIM, not the implementation |
+| A theorem's hypothesis left unchecked against the shipped code | The hypothesis IS the finding — go verify the sanitizer enforces it |

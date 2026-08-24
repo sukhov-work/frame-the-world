@@ -14,6 +14,7 @@
     "skills": "wix skills",
     "test": "vitest run",
     "test:watch": "vitest",
+    "proofs": "node scripts/verify-proofs.mjs",
     "bake": "node scripts/bake/bake.mjs",
     "bake:terrain": "node --env-file=.env.local scripts/bake/terrain/bake-terrain.mjs"
   },

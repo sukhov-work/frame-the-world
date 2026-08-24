@@ -70,6 +70,12 @@ shot works — all client-side, off the same ephemeris/geometry libraries (`lib/
   live camera frustum, rendered as in-frame ghost projections (hairline identity rings,
   phase-accurate translucent body pictures, per-hit day-arc sky paths) plus sunsets-in-frame
   standings; click a hit to jump to its moment, camera unmoved.
+- **BEST SPOT** — *the frame answers "when"; this answers "where"*: a translucent heatmap over the
+  map scoring every cell inside a radius of your pin for SUNRISE / SUNSET / MOONRISE / MOONSET,
+  solved all-CPU in a long-lived worker off one local height field built from the terrain TIN, the
+  OSM buildings and the landcover raster. The per-ray upper convex hull is invariant in both scene
+  time **and** eye height, so the time scrubber and the altitude slider re-rank without re-solving.
+  It refuses to paint when it has no building geometry rather than showing a confident empty disc.
 - **TARGET tracking** — search and track any sky body (planets, comets, asteroids, Messier/NGC
   deep-sky objects, live SIMBAD / JPL-SBDB long-tail lookups) with reticle, trail, rise/set
   camera aim, and a temporal ghost chain; FPV mode keeps a tracking lock while you look around.
@@ -165,8 +171,9 @@ galaxy, the planning-QoL pass (scrubber v2, TODAY, FIND v2/v3), §3.5 sunsets-in
 `/m` mobile shell M0–M3, P7 meteor showers, the UPLIFT ladder U1–U8 (2D-first mobile
 navigation, FPV stability, fullscreen 2D map + minimap FOV cone, direction lines + visibility
 cones, closest-first tile loading, terrain precision, building height overrides), the ULTRA
-desktop fidelity track, and real eclipses. Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11).
-Quality gates at head (2026-08-22): **1,373 vitest tests across 113 files, `astro check`
+desktop fidelity track, real eclipses, and BEST SPOT — the observability heatmap that predicts
+where to stand. Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11).
+Quality gates at head (2026-08-24): **1,902 vitest tests across 130 files, `astro check`
 0 errors / 0 warnings / 5 hints (dated baseline)**, browser flows verified over CDP on `wix dev`. The app is released and
 live on the Wix cloud (demo URL deliberately withheld — owner call pending).
 
@@ -195,7 +202,7 @@ Prereqs: Node ≥ 20.11, Wix CLI authed (`npx @wix/cli@latest whoami`).
 ```bash
 npm install --legacy-peer-deps    # pnpm fails against the @wix/cli template — proven, see conventions
 npm run dev                       # wix dev — local dev wired to a real Wix site sandbox
-npm test                          # 1,373 vitest unit tests (2026-08-22) — projection, geodesy, ephemeris, eclipses…
+npm test                          # 1,902 vitest unit tests (2026-08-24) — projection, geodesy, ephemeris, eclipses, best-spot scoring…
 npx astro check                   # typecheck (0 errors at head)
 npm run build && npm run release  # publish to Wix cloud — there is no other prod
 ```

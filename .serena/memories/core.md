@@ -134,25 +134,61 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
 - **Owner micro-slice + AUDIT #3 + its fix slices F1–F10 (2026-08-22a→e, HOT)** — report
   `audits/audit-batchseams-2026-08-22.md` · `mem:project/wip-2026-08-22-owner-microslice` ·
   `wip-2026-08-22-audit3` · `wip-2026-08-22-audit3-fixslices`.
+- **Owner 3-slice + HQ map (2026-08-22h/i, HOT)** — DECISIONS §Recent ·
+  `mem:project/wip-2026-08-22-owner-3slice`.
+- **ULTRA fidelity track — T44 textures + T45 light/shadows (2026-08-22j, HOT)** — plan
+  `ULTRA_PLAN.md` (read its **AS BUILT** block first) · `mem:project/wip-2026-08-22-ultra-track` ·
+  `scripts/verify-ultra.mjs` 28/28. Nine levers behind ONE desktop-only `ULT` chip, off by default;
+  the owner LIFTED the frame-rate ceiling to buy them.
+- **ECLIPSES (2026-08-22k, HOT)** — the moon now OCCLUDES the sun (it was being DISCARDED, not
+  washed out) + corona + world darkness + copper umbra; works only because the scene is
+  TOPOCENTRIC (geocentric misses by 1°) · `mem:project/wip-2026-08-22-eclipses`.
+- **BEST SPOT — the observability heatmap, S1→S7 (2026-08-23 → 2026-08-24c, HOT)** — plans
+  `BESTSPOT_PLAN.md` (**AS BUILT appendix first**) + `BESTSPOT_SPEC_V2.md` ·
+  `mem:project/wip-2026-08-23-bestspot-heatmap` (design + pure-lib floor) ·
+  `wip-2026-08-24-bestspot-s3-s7` (worker → GL sheet → panel → residency → honesty; FEATURE
+  COMPLETE, browser-verified) · `scripts/verify-bestspot.mjs` 100/100. See §Next step.
+- **FORMAL VERIFICATION — Lean 4 + Mathlib proof project (2026-08-24d, HOT)** — `formal/` ·
+  `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**BEST SPOT — the observability heatmap — was DESIGNED and its whole PURE-LIB FLOOR SHIPPED
-2026-08-23 (S1+S2).** Predicts where to stand for SUNRISE/SUNSET/MOONRISE/MOONSET inside a radius of
-the `look from here` pin. Plan `.claude/claude-docs/BESTSPOT_PLAN.md` — **read its `AS BUILT` appendix
-BEFORE the body; building the plan proved it wrong in FIFTEEN places.** Log
-`mem:project/wip-2026-08-23-bestspot-heatmap`. Gates: **vitest 1,560/1,560 (119 files, +187)** ·
-astro 0 err / 5 hints · knip exit-0. **LOCAL ONLY — nothing has been in a browser yet.**
+**BEST SPOT — the observability heatmap — is FEATURE-COMPLETE AND BROWSER-VERIFIED. All seven
+slices S1→S7 SHIPPED (pure-lib floor S1+S2 2026-08-23; S3a→S7 2026-08-24).** Predicts where to stand
+for SUNRISE/SUNSET/MOONRISE/MOONSET inside a radius of the `look from here` pin, as a translucent
+heatmap over the map. Plan `.claude/claude-docs/BESTSPOT_PLAN.md` — **read its `AS BUILT` appendix
+BEFORE the body.** Logs `mem:project/wip-2026-08-24-bestspot-s3-s7` (the shipping session) +
+`mem:project/wip-2026-08-23-bestspot-heatmap` (the floor + design). DECISIONS §Recent 2026-08-24c.
+Gates: **vitest 1,902/1,902 (130 files, +342)** · astro check 0 err / 0 warn / 5 hints · knip exit-0 ·
+**`scripts/verify-bestspot.mjs` 100 PASS / 0 FAIL.** Tier: **LOCAL + BROWSER** (shots
+`verify-shots/bestspot-01…08`). Wix cloud UNVERIFIED — prod is dark behind the nameserver gate.
 **THE ARCHITECTURE: all-CPU, one long-lived worker, and the per-ray UPPER CONVEX HULL is invariant in
 BOTH scene time AND eye height** — which is what makes the scrubber and the altitude slider live.
 The GPU path was proposed and **REFUTED** (3 breakers); reusing the shadow map, 7. Do not re-propose.
-**THE HEADLINE: both BLOCKERs were at slice SEAMS and every per-slice suite passed** — the bridge
-scored as a pure LIABILITY (0.608 with the deck vs 0.623 without), and 47 % of the track's weight sat
-below the horizon, capping V at 0.51 so the best possible pedestrian cell rendered invisible. Both
-fixed + mutation-verified; `bestSpotComposition.test.ts` now drives the whole chain.
+**THE HEADLINE, AND THE MOST TRANSFERABLE LESSON THIS PROJECT HAS LEARNED: every unit gate was green
+while the FIELD WAS A CONSTANT.** The first browser run over dense central Dnipro measured the
+published RG8 at **`rMin === rMax === 187`** — one distinct value across all 31,417 scored cells —
+with 1,860 tests passing, `astro check` clean and `knip` clean. **No building geometry ever reached
+the worker's DSM**: (1) the `▦ 3D DETAIL` chip was OFF in that browser's prefs and
+`buildings.setActive(false)` *removes* `tiles.group` from the scene, so `flattenTin` traversed an
+empty group; (2) **no epoch watched building-tile ARRIVALS** (the three streaming epochs were ground,
+MVT version, and enriched *re-seat*). Fixed with `builtEpoch`; and because the engine knew both facts
+and said nothing, a disc with dense MVT and zero building meshes now **REFUSES**
+(`"no-built-geometry"`) instead of painting warm. After: 31 distinct score bytes, top-8 spread 0.4 %
+→ 56 %. **Nine more defects were browser-only**, including a `postMessage` transfer detaching a
+by-reference `conformM` — a class **vitest cannot express**, because `postMessage` there has no
+transfer semantics. The question is never "do the tests pass"; it is **"what did I read out of the
+live engine, and does its distribution have a spread?"**
+Prior-slice headline (still true): both S1/S2 BLOCKERs were at slice SEAMS with every per-slice suite
+passing — the bridge scored as a pure LIABILITY (0.608 with the deck vs 0.623 without), and 47 % of
+the track's weight sat below the horizon, capping V at 0.51.
 Owner rulings: drone semantics above 5 m · FPV is a centre source but renders nothing in the
 viewfinder · field 3 m with 1 m reserved for ULTRA · GL overlay only, plumb line instead of a cylinder.
-**NEXT: S3** (worker + tuning + store bridge + `stepBestSpotFeed` after `stepPlanFeed` + DEV seam +
-the desktop-only gate AT THE READ) → S4 GL sheet → S5 panel → S6 residency → S7 honesty.
+**NEXT: the TASTE PASS** — cheap by construction, every knob is a recompose (0.3–3 ms) or a repaint:
+`__globe.bestSpotTuning({...})` · `.ab()` · `.export()`. Primary targets `graze.conf` /
+`graze.reliefHiDeg` / `displayLo|Hi` / `worth.effectiveFloor` (all unswept judgements, now live).
+Judge it at BOTH lifts — a 1.7 m city disc is legitimately near-black (97.7 % at zero) and that is
+physics; at 56.7 m the mean score byte is 159. Then un-park T47/T46/T1/T42/T34/P8/M4/U8/T29/T31.
+S8 (`/m` twin) and S9 (MapWindow/MiniMap DOM twin) stay deferred by owner ruling.
 Entry point: `NEXT_SESSION_PROMPT.md`.
 Prior: **THE ULTRA FIDELITY TRACK SHIPPED 2026-08-22j — T44 (textures) + T45 (light + shadows) both
 CLOSED, nine levers behind ONE desktop-only `ULT` chip, off by default.** Gates: **vitest

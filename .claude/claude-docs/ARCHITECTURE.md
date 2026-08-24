@@ -126,7 +126,7 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
 | `POST /api/analyze` | premium-gate → Wix AI (Claude) + **downsized JPEG** + desired-condition prompt → suggestions | ~1 credit; never RAW. **PLANNED — Phase 7** |
 | `POST /api/moderate` | Claude moderation pass on a preview before publishing a public pin | C6 gate. **PLANNED — Phase 7** |
 
-## 7. Component responsibilities (`src/`, as built 2026-08-22)
+## 7. Component responsibilities (`src/`, as built 2026-08-24)
 - `components/globe/` (`client:only`, **design imports never write here**): `GlobeCanvas` (renderer/composer/
   bloom/GTAO seam + quality tier), `StylizedTiles` (orchestrator: camera, controls, the ~40-step per-frame
   loop, FPV, glides, pins/sky/plan sync — the `load-model` material override lives in
@@ -136,7 +136,10 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   skyTarget, skyTrail, skyGhosts, skyNames, findGhosts (FIND v2 in-frame standings — rings +
   phase-lit body pictures + per-hit day-arc paths, 2026-08-14), buildings, buildingMaterial,
   enrichedBuildings, imageryGround, vectorTiles, vectorFeatures, streetNames,
-  geoLabels, minimapFeed, planFeed, graticule, glsl, aimCones (U4 direction lines → since batch #4
+  geoLabels, minimapFeed, planFeed, bestSpotFeed + bestSpotSheet (BEST SPOT, 2026-08-24 — the
+  feed drives the long-lived solver worker off four streaming epochs and publishes an RG8 score
+  field; the sheet is the GL veil/ink surface at **`renderOrder` 4/5**, depth-TESTED, and
+  deliberately not the depth-free 9/10 band), graticule, glsl, aimCones (U4 direction lines → since batch #4
   S2 **concentric annular BANDS**: `AIMCONES.bandMoon/bandSun/bandTarget` innermost-outward with
   `*Mobile` variants + `mobileRadiusK`, an `N` rim marker via `northOffsetK/northSizeK`, always-on
   `fillAlphaRest` washes, and **skyline occlusion GAPS** — `azSector.fractureRunsBySkyline` honoured
@@ -178,11 +181,15 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `MiniMap` (FPV), `Marketplace` (browse panel), `Guide` (the in-app guide, G1 2026-08-15 —
   absorbed the former `Faq.tsx`/`faqContent.ts`/`faq.css`, now DELETED), `MeteorsCard` (P7
   shower windows + ZHR cards, 2026-08-17), `MapWindow` (U3 fullscreen slippy 2D map twin over
-  `lib/geo/slippy.ts` + `styles/map-window.css`, 2026-08-18).
+  `lib/geo/slippy.ts` + `styles/map-window.css`, 2026-08-18), `BestSpotPanel` (BEST SPOT — the
+  THIRD `planfind` segment beside PLAN and FIND: kind/radius/lift instruments, the top-K standings,
+  the honesty block and `REFINE THIS SPOT`, 2026-08-24).
   `components/ui/`: `Slider`, `Encoder`, `InfoDot`, `DragGrip`. *(`AiPanel` = Phase 7, PARKED — out of all plans per owner 2026-08-11.)*
 - **`components/controls/` — the THIRD shared tier (batch #4 S2, 2026-08-21b):** input instruments
-  whose FEEL must never fork between the shells. `Joystick.tsx` exports `Joystick` (the walk pad)
-  and `AimJoystick` (heading + focal for the planned shot, with an mm focal footer). Mounted by
+  whose FEEL must never fork between the shells. THREE files: `Joystick.tsx` exports `Joystick`
+  (the walk pad) and `AimJoystick` (heading + focal for the planned shot, with an mm focal
+  footer); `InstrumentSlider.tsx` + `ChipRow.tsx` (added 2026-08-24 by BEST SPOT — the panel's
+  radius/lift/kind instruments, put here so a future `/m` sheet cannot fork their feel). Mounted by
   BOTH shells — `MiniMap` (desktop mini-map footer) and `MobileShell`
   (`variant={fpvOn ? "fpv" : "map"}`). Fenced by `test/components/mobileFence.test.ts` rule 3:
   `controls/` is a PURE LEAF — react + stores + `lib/**` + `globe/tuning` + styles only, never a
@@ -201,7 +208,12 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   planned-shot heading+hFov math behind "focal cone everywhere" incl. the FOV inverse pair and
   the range contract, 2026-08-21b; and the audit-#3 hoists of 2026-08-22: **aimAnchor** — THE
   radar anchor ladder, ONE function for all three surfaces (T36), **radarBands** — THE band
-  allocation + future-ink rule, previously hand-copied ×3 with no fence (T35)), `ephemeris/` (bodies, stars,
+  allocation + future-ink rule, previously hand-copied ×3 with no fence (T35); and the BEST SPOT
+  stack of 2026-08-24: **bestSpotTypes / bestSpotTrack / bestSpotMetric / bestSpotScoring /
+  bestSpotSolver / bestSpotWorker / bestSpotWorkerClient**, plus the three height/landcover
+  sources they consume — **horizonSweep** (the per-azimuth upper-convex-hull sweep),
+  **localDsm** (the disc's height field, flattened out of the terrain TIN + building meshes) and
+  **landcoverRaster** (standability/accessibility classes)), `ephemeris/` (bodies, stars,
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
   sunEventFrame, moonCalendar, targets, topo, comet, eclipse — see §4), `sky/` (catalog, searchIndex, messier,
   openngc, ngcNames, constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache),
@@ -215,7 +227,8 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade), `api/`, `format/`,
   `textures/`, `theme/` (GL token bridge **`tokens.ts`** + **`cssInk.ts`** — the memoised
   resolved-token cache the two CANVAS radars paint from; a 2D canvas cannot take a `var()`, and
-  resolving per paint forced ~320 style recalcs/s, T38), `prefs.ts`.
+  resolving per paint forced ~320 style recalcs/s, T38 — plus **`findPalette.ts`** and
+  **`heatPalette.ts`**, the BEST SPOT score→ink ramps with GL and DOM twins), `prefs.ts`.
 - `pages/`: `index.astro` (desktop) + `m.astro` (mobile shell) + `guide.astro` (standalone server-rendered
   guide page over the same `guideContent`, 2026-08-15e) + `api/` (**9 routes**: photos, places,
   listings, market, upload-url, sbdb, ping, dev-seed, `building-overrides` (U8 LWW height-override
@@ -233,7 +246,9 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   React `autoFocus` and no bare `.focus()` anywhere in the shell (audit #3 A1-9).
 - `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member`, `plan`, `sky`,
   `skyAim` (rise/set camera aim), `find` (FIND v2 panel⇆globe ghost mirror + two-way hover), `market`,
-  `minimap`, `places` (MY PLACES on-map mirror), `bldgEdit` (U8 height-override drag) — **14 stores**,
+  `minimap`, `places` (MY PLACES on-map mirror), `bldgEdit` (U8 height-override drag), `bestSpot`
+  (BEST SPOT — kind/radius/lift + the scoring patch + the top-K mirror, 2026-08-24) — **14 stores
+  in 15 files** (`skyAim.ts` is a helper module, not a store),
   the reactive spine + the globe⇆React seam/mirror contract (see
   `conventions/architecture-and-patterns.md`).
 - `scripts/bake/` (offline, Node-only): `bake.mjs` (OSM footprints → C6 exclusion → roof-shaped extrusion →
@@ -277,6 +292,45 @@ its JS twin are generated from one table and unit-tested against each other), `l
 ground and the buildings, so the air over a city cannot diverge from the air over its ground).
 DEV seam: `__globe.ultraLook()` — reads terrain casting and anisotropy off the LIVE scene graph and
 LIVE textures, never off our own flags.
+
+## 7c. BEST SPOT — the observability heatmap (as built 2026-08-24) [BROWSER-VERIFIED]
+**Charter: `BESTSPOT_PLAN.md` (read its AS BUILT appendix BEFORE the body) + `BESTSPOT_SPEC_V2.md`.**
+Tunables: `conventions/globe-tuning.md` §BESTSPOT. Decisions: `DECISIONS.md` 2026-08-23 / 2026-08-24b /
+2026-08-24c. Proof obligations: `FORMAL_VERIFICATION.md`.
+
+PLAN answers *when* the sun clears that rooftop **from here**; BEST SPOT answers ***from where***.
+For every cell of a disc around the `look from here` pin it decides whether SUNRISE / SUNSET /
+MOONRISE / MOONSET will actually be visible and how good the shot is, and paints the result as a
+translucent sheet over the map with top-K markers. Desktop only, at the READ (the `/m` twin S8 and
+the DOM-canvas twin S9 are deferred by owner ruling).
+
+Four architectural facts that constrain anything touching it:
+- **All-CPU, in ONE long-lived module worker — the inverse of the decode worker.** The GPU path was
+  proposed and **REFUTED** on three breakers, and reusing the shadow map on seven; do not
+  re-propose. `bestSpotWorkerClient` spawns lazily and terminates only in `dispose()`, because the
+  resident state between jobs *is* the optimization. **Cancellation is cooperative, never
+  `terminate()`** — a `postMessage` cannot interrupt a running 680 ms rung, and terminating discards
+  exactly the state the next job needs.
+- **The per-ray UPPER CONVEX HULL is invariant in BOTH scene time AND eye height.** This is the
+  keystone: it is why the time scrubber and the altitude slider re-rank without re-solving. Measured:
+  a within-day scrub and a 2→400 m lift drag each build **ZERO** hulls. The hull cache is keyed on
+  DSM-source identity (`sourcesEpoch`), and S6 shipped RED because `solveRung` called `buildDsm`
+  unconditionally — a 2→400 m drag paid 39 hulls against a pinned 0.
+- **A ladder, not a solve**: 24 → 12 → 6 → 3 m rungs (1 m reserved for ULTRA), a 90-frame refinement
+  debounce, six residency tiers, and a 75 B/cell TERM buffer — never the composed score — so a
+  weights patch is a **recompose** (0.3–3 ms, exactly one job) rather than a rebuild.
+- **The honesty layer REFUSES rather than paints.** The single most dangerous failure mode of this
+  feature is a warm, confident, uniform field, and it fired on the owner's hero location with every
+  unit gate green: the first browser run measured `rMin === rMax === 187` across all 31,417 cells
+  because no building geometry ever reached the DSM. A disc with dense MVT and zero building meshes
+  now returns `"no-built-geometry"`. The built-density prior is an **evidence gate, never a score
+  penalty** — it withholds open-sky credit instead of subtracting from the score.
+
+New modules: `lib/geo/bestSpot{Types,Track,Metric,Scoring,Solver,Worker,WorkerClient}.ts` +
+`horizonSweep` / `localDsm` / `landcoverRaster`; `scene/bestSpotFeed` + `scene/bestSpotSheet`;
+`panels/BestSpotPanel`; `store/bestSpot`; `lib/theme/heatPalette`; `controls/{InstrumentSlider,ChipRow}`.
+DEV seams: `__globe.bestSpot()` · `bestSpotSheet()` (the LIVE material) · **`bestSpotField()` (the
+published RG8 — read its DISTRIBUTION, never a flag)** · `bestSpotTuning` + `.ab()` + `.export()`.
 
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to

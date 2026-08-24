@@ -34,11 +34,11 @@ the `/m` redirect; new 2026-08-15).
 | `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
 | `ftw:bldg-overrides:v1` | `src/lib/globe/…` → `scene/bldgEditLabel` + the U8 edit flow | new 2026-08-19 (U8 building-height override), missed by the 2026-08-15 sweep. Per-edit scale band 0.5×–3×, keyed `<variant>\|cell-<id>\|<osmId>`; a re-bake CHECKSUM invalidates the row rather than migrating it, so a stale key is dropped, never applied to the wrong building. The backend twin (`BuildingOverrides` + `/api/building-overrides`) is provisioned but DORMANT — this key is the live store |
 
-## 3. `window.__*` DEV seams (all DEV-gated; **20 top-level** as of 2026-08-22, audit #3 D7)
+## 3. `window.__*` DEV seams (all DEV-gated; **21 top-level** as of 2026-08-24)
 
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __cameraStore __timeStore __uploadStore __pinsStore __memberStore __planStore __saveStore
-__marketStore __minimapStore __skyStore __findStore __placesStore __bldgEditStore`
+__marketStore __minimapStore __skyStore __findStore __placesStore __bldgEditStore __bestSpotStore`
 
 Verify scripts and the NEXT_SESSION_PROMPT recipe consume these — removing/renaming one silently breaks
 the browser-verify tier. (NSP's list was 3 short at audit time — this file is the canonical set.)
@@ -87,6 +87,10 @@ top-level globals; same removal/rename rule):
 | `__globe.eclipse()` | `StylizedTiles.ts` (`window.__globe` block) | solar + lunar eclipse state + every light scalar it drives — `verify-eclipse.mjs` (37 checks) |
 | `__quality.governor.emaMs()` / `.hitchCount()` | `lib/globe/quality.ts:151–153` (exposed via `GlobeCanvas.tsx:348`) | frame-time EMA + hitch counter — U2/U5 soak gates |
 | `__quality.ao` | `GlobeCanvas.tsx:257` | GTAO look tuning in wix dev |
+| `__globe.bestSpot()` | `StylizedTiles.ts:2161` | `bestSpotFeed.debug()` — solve state, the four streaming epochs, residency tier |
+| `__globe.bestSpotSheet()` | `StylizedTiles.ts:2170` | the **LIVE** material/texture read-back. Added 2026-08-24 because `__globe` exposes no `scene`, so all seven S4 done-checks had been asserting constructor ARGUMENTS in vitest, never the shipped material |
+| `__globe.bestSpotField()` | `StylizedTiles.ts:2181` | the published RG8 score field itself — **the seam that caught `rMin === rMax === 187`** (one distinct value across 31,417 cells while 1,860 unit tests passed). Read the DISTRIBUTION, never a flag |
+| `__globe.bestSpotTuning` | `StylizedTiles.ts:2064`, exposed `:2187` | callable + `.export()` + `.ab()` — the 54-leaf scoring-patch console (SPEC_V2 §5.6); a weights patch costs exactly ONE job and is `recompose` |
 
 ## 4. Wix Data collection schemas (source of truth: `scripts/provision-collections.mjs`)
 

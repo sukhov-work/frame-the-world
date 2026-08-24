@@ -316,6 +316,30 @@ export const BESTSPOT_SAFETY = Object.freeze({
   aerialMinFloorM: 2,
   /** Ceiling on `graze.conf.tree` — see the `conf` docstring. */
   confTreeMax: 0.6,
+  /**
+   * Ceiling on EVERY `graze.conf.*` member (`conf.tree` takes the tighter `confTreeMax` on top).
+   *
+   * **Found 2026-08-24d by the Lean specification, not by a test** (`formal/Ftw/Score.lean`
+   * §6 `confBound` / `confBound_is_necessary`). `bestSpotTypes.CellScore.f` is documented
+   * "Framing, 0..1" and `F_graze = 1 − exp(−τ/s)` is bounded unconditionally — but
+   * `F_gap = notch.f · combineShoulderQuality(qL, qR)` with `q = relief · conf[src] · depth` is
+   * bounded ONLY IF `conf ≤ 1`. Nothing enforced that: `clampResolved` bounded `conf.tree` and
+   * nothing else, so `sanitizeScoringPatch({graze:{conf:{terrain:5}}})` resolved verbatim and
+   * published `f > 1` on `CellScore.f` — reachable from a persisted `ftw:view-prefs:v1` blob,
+   * which is precisely what this block's own docstring promises cannot happen.
+   */
+  confMax: 1,
+  /**
+   * Floor under every `weights.*` leaf.
+   *
+   * Same provenance (`formal/Ftw/Score.lean` §2b `weights_nonneg_is_necessary`). The composition
+   * normalises by `Σw`, which is what keeps `S ≤ 1` — but a NEGATIVE weight makes `S` **non-monotone
+   * in its own term**, so a cell with a better silhouette ranks lower, and `Σw = 0` short-circuits
+   * `preference` to 0, a discontinuity rather than a limit. Measured before the fix:
+   * `sanitizeScoringPatch({weights:{f:-1}})` resolved to a weight sum of −0.30000000000000004.
+   * A weight may be driven to exactly 0 (that is a legitimate "ignore this term"), never below.
+   */
+  weightMin: 0,
 } as const);
 
 /**
@@ -618,7 +642,19 @@ function clampResolved(s: PlainObject): void {
   // SAFETY.
   access.aerialMinM = Math.max(BESTSPOT_SAFETY.aerialMinFloorM, access.aerialMinM as number);
   const conf = graze.conf as PlainObject;
+  // EVERY conf member is bounded above by 1 — `F_gap` is a product of `conf` with two [0,1] factors,
+  // so `conf > 1` publishes `CellScore.f > 1` against its own documented range. `tree` then takes
+  // the tighter ceiling on top. (Lean: `formal/Ftw/Score.lean` §6.)
+  for (const k of Object.keys(conf)) {
+    conf[k] = Math.min(BESTSPOT_SAFETY.confMax, conf[k] as number);
+  }
   conf.tree = Math.min(BESTSPOT_SAFETY.confTreeMax, conf.tree as number);
+  // No weight may go negative: the blend is monotone in each term only for non-negative weights.
+  // (Lean: `formal/Ftw/Score.lean` §2/§2b.)
+  const weights = s.weights as PlainObject;
+  for (const k of Object.keys(weights)) {
+    weights[k] = Math.max(BESTSPOT_SAFETY.weightMin, weights[k] as number);
+  }
 
   // §1004's proposed ranges — pinned in the tests rather than trusted from the spec.
   gap.maxWidthDeg = Math.max(0.7, gap.maxWidthDeg as number);
@@ -725,6 +761,16 @@ function clampLeaf(leafPath: string, value: number): number {
       return Math.max(BESTSPOT_SAFETY.aerialMinFloorM, value);
     case "graze.conf.tree":
       return Math.min(BESTSPOT_SAFETY.confTreeMax, value);
+    case "graze.conf.none":
+    case "graze.conf.terrain":
+    case "graze.conf.building":
+    case "graze.conf.deck":
+      return Math.min(BESTSPOT_SAFETY.confMax, value);
+    case "weights.v":
+    case "weights.l":
+    case "weights.p":
+    case "weights.f":
+      return Math.max(BESTSPOT_SAFETY.weightMin, value);
     case "gap.maxWidthDeg":
       return Math.max(0.7, value);
     case "curves.lCeilDeg":

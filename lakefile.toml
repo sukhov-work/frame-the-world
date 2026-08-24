@@ -1,0 +1,32 @@
+# The Lake WORKSPACE ROOT is the repo root, not `formal/` — and that is deliberate.
+#
+# IntelliJ's lean4ij plugin resolves the toolchain as `<ideProjectRoot>/lean-toolchain` with NO
+# upward or downward walk, has no project-root / toolchain-path setting of any kind, and then runs
+# `lake serve -- <ideProjectRoot>` with cwd = <ideProjectRoot>. So with the repo root open in the
+# IDE, this file has to be here. A symlink is NOT a substitute: it silences the "Unable to locate
+# lean toolchain" balloon and then Lake finds no config, falls back to plain `lean --server` with
+# LAKE_INVALID_CONFIG, and every `import Mathlib.…` goes unresolved — strictly worse than an
+# honest error.
+#
+# `srcDir` keeps every .lean SOURCE under `formal/`; the build tree and the ~7.4 GB Mathlib
+# checkout go to the workspace default, `/.lake/`, which is gitignored.
+#
+# Do NOT try to redirect them back with `buildDir`/`packagesDir`. That was tried and measured:
+# Lake honours `packagesDir` when it computes LEAN_PATH, but MATERIALIZES dependencies at the
+# hardcoded `<workspaceDir>/.lake/packages` regardless — so you end up with a real 601 MB git clone
+# of Mathlib at the root *in addition to* the one you pointed at. One location, the default one, is
+# the only self-consistent layout, and it is the one that bootstraps correctly on a fresh clone.
+#
+# Consequence to know: `cd formal && lake build` does not work — Lake does not search parent
+# directories. Build from the repo root.
+name = "ftw"
+srcDir = "formal"
+defaultTargets = ["Ftw"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.33.1"
+
+[[lean_lib]]
+name = "Ftw"

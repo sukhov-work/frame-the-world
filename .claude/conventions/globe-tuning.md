@@ -281,3 +281,60 @@ orchestrator — from orbit the umbra is a ~100 km spot, not a hemisphere (backl
 whole family must be a provable no-op when nothing is happening: `eclipseK` snaps to exactly 1
 (browser-asserted), so every downstream multiply is identity.
 
+
+## The `BESTSPOT` family (added 2026-08-24 — the observability heatmap)
+
+**This family is SPLIT ACROSS TWO FILES, which is a deliberate contract, not drift.**
+`tuning.BESTSPOT` is the LOOK + LADDER half (construction-time and render-time, edited in the
+repo). `BESTSPOT_SCORING_V1`, re-exported from `tuning.ts:36` but *owned* by
+`lib/geo/bestSpotScoring.ts`, is the PHYSICS half — **54 leaves, patchable at RUNTIME** through
+`__globe.bestSpotTuning(patch)` and persisted into `ftw:view-prefs:v1` under `bestSpotTuning`.
+The split exists because the scoring half must survive a taste pass without a rebuild: every
+leaf carries a `CLASS_OF` entry saying whether changing it is a `recompose` (0.3–3 ms, one job),
+a `rescore`, a `resweep` or a full `rebuild`. Measured: reweigh 4.27 ms · rescore 177 ms ·
+resweep 343 ms · rebuild 490–548 ms.
+
+| Group | Keys | Note |
+|---|---|---|
+| Heat ramp | `rampId` "inferno" · `rampAltId` "turbo" · `displayLo` 0.15 / `displayHi` 0.9 | ramps are NAMES resolved by the token bridge, never colour literals (D14) — an owner A/B must not be able to introduce one. **`displayLo`/`displayHi` are THE knob**: score → t is `smoothstep(displayLo, displayHi, S)`, so a metric revision that moves the whole distribution is absorbed here and nothing else in the look has to move. `displayLo` doubles as R6's "clears the floor" test |
+| Ink | `inkMin` 0.02 · `inkMax` 0.34 · `inkGamma` 1.4 · `bloomHeadroomNote` | `inkMin` is deliberately **not 0**: a scored-but-bad cell must still read as SCORED — that is the whole UNKNOWN-vs-low-score distinction. **The trap is named in the block itself**: `inkMax` past ~0.40 pushes the hottest cells over `BLOOM.threshold` 0.9 and the sheet SMEARS into the buildings instead of reading as a ground layer. Taste `displayHi` first; `inkMax` is the last resort |
+| Veil | `veilMin` 0.12 · `veilMax` 0.3 | the dark scrim that keeps the wash legible over the brightest measured backdrop (the flat 2D photographic chart at `GROUND.flat2dPhotoK = 1`). **Independent of ink by design** — the veil answers "can I see the wash", the ink answers "how good is this cell"; tying them makes a dark disc invisible on the chart |
+| Contours | `contourStep` 0.1 · `contourMajors` [0.6, 0.8] · `coreWidthPx` 1.4 / `haloWidthPx` 3.8 / `majorWidthK` 1.7 · `coreAlpha` 0.95 / `haloAlpha` 0.65 / `majorAlphaBoost` 0.15 · `dashCoreAlpha` 0.9 · `unknownDashPx` 9 / `unknownDuty` 0.45 | widths are in SCREEN px off the screen-space score gradient (`fwidth`), so lines stay 1 px at every zoom. **`dashCoreAlpha` is a separate knob from `coreAlpha` on purpose**: an iso-score contour is a MEASUREMENT and wants to be the crispest line on the surface, while the UNMAPPED boundary says "nobody looked past here" and must read softer than the data it borders — a hard 0.95 dash is a claim about the boundary's exact position, which is the one thing UNKNOWN is not making |
+| Markers + plumb | `topK` 8 · `topKMinSepM` 25 · `hoverRadiusK` 1.35 / `hoverEaseTauMs` 180 · `chipCapPx` 13 · `plumbHalfWidthPx` 1.5 · `tickArmPx` 9 | the altitude chip hangs off a **screen-space** test (`(plumbPx − chipCapPx) / chipCapPx`), not a metre threshold — at nadir a 400 m sheet projects to zero pixels and a 1.7 m sheet at a grazing tilt projects to plenty, so any metre constant is wrong at one end. Two proposed knobs (`chipMinM`, `chipTiltLerp`) were **ratified as derivations rather than promoted** for exactly that reason |
+| Render seat | **`renderOrder` 4** · `markerRenderOrder` 5 · `polygonOffset` [-4, -4] · `fullAltK` 8 / `topAltK` 14 / `fadeTauMs` 250 · `rimFrac` 0.1 · `densFadeLo/Hi` 0.35/0.7 | see the renderOrder-ladder trap below — 4 is **not** 9 |
+| Ladder + residency | `ladderCellsM` [24, 12, 6, 3] · `defaultCellM` 3 · `midCellM` 6 · `dragCellM` 24 · `ultraCellM` 1 · `ultraMaxRadiusM` 300 · `rebuildQuietFrames` 90 · `mirrorEveryFrames` (borrowed from `PLAN`) | 1 m is reserved for ULTRA and capped to a 300 m radius. `rebuildQuietFrames` is the refinement debounce: the fine rung only runs after 90 quiet frames, which is what keeps a radius drag at +1.1 ms on the idle frame |
+| Disc geometry | `radiiM` [100…500] · `defaultRadiusM` 300 · `eyeM` 1.7 · `defaultLiftM` 0 · `liftMinM` 0.5 / `liftMaxM` 400 · `collarM` 400 | `eyeM` 1.7 is the pedestrian eye; above 5 m the panel switches to DRONE semantics (owner ruling). `collarM` is the evidence collar beyond the disc rim |
+| Honesty gates | `emptyFieldFrac` 0.05 · `liftProbesM` [10, 20, 40, 80] / `liftProbeCellM` 24 · `minTilesForSolve` 1 · **`builtDensityFloorPerKm2` 1** · **`refuseBelowReachM` 400** | these decide when the feature REFUSES or withholds credit rather than painting. The built-density floor is `√(26.6 × 0.048)` — the geometric mean of the two measured extremes — and it is an **evidence gate, never a score penalty**: it withholds open-sky credit instead of subtracting from the score. Calibration for `refuseBelowReachM`: 0 cells refused on a fully-mapped disc, 175 at 420 m, 3,027 at 500 m |
+| Scoring (runtime, `bestSpotScoring.ts`) | `weights` {v 0.15, l 0.30, p 0.25, f 0.30} · `gates` · `curves` · `graze` · `gap` · `trackWeight` · `worth` · `access` · `quadrature.discColumns` 8 | 54 leaves. **No key path from a patch reaches the PHYSICS/SAFETY/HONESTY blocks** — `sanitizeScoringPatch` makes that structural, so a hostile or stale persisted blob cannot disable a safety gate (`prefs.ts:88`, `:147`) |
+
+**The unswept judgements** (backlog T49, the taste-pass targets): `graze.conf` (terrain 1.00 ·
+building 0.90 · deck 0.90 · tree 0.45, tree clamped ≤ 0.6) · `graze.reliefHiDeg` 0.40 ·
+`displayLo/displayHi` · `worth.effectiveFloor` 0.35. These came from the AS-BUILT hero numbers,
+not from a solved disc.
+
+### Four traps from this track
+
+- **The `renderOrder` ladder is a CONTRACT, and 4 is not 9.** The bands in use: **3** ground
+  decals (`streetNames`, `placeMarkers`) · **4 / 5 the BEST SPOT sheet + its markers**, which are
+  `depthTest: true` / `depthWrite: false` · **9** the depth-free radar ink (`aimCones`) · **10**
+  depth-free sky overlays (`dayArcs`, `skyTrail`, `findGhosts`, `skyGhosts`) · **11 / 12** the sun
+  and moon discs · **20** enriched decorations. A **depth-tested** surface dropped into the
+  depth-free 9/10 band sorts by draw order instead of by depth and paints over the very buildings
+  it is supposed to sit under. And `renderOrder` is set **per OBJECT** — a `Group`'s does not
+  propagate to its children.
+- **A worker entry is a new Vite optimize-dep root.** Adding
+  `new Worker(new URL("./x.ts", import.meta.url), { type: "module" })` makes `wix dev` serve
+  `504 Outdated Optimize Dep` for **every** module, not just the new one — no island mounts and
+  the page looks merely blank. Restart `wix dev` before any browser work after adding one; if a
+  restart is not enough, move `node_modules/.vite` aside (T14).
+- **`postMessage` transfer lists DETACH, and vitest cannot see it.** A typed array handed out **by
+  reference** from long-lived resident state must be `.slice()`d before it enters a transfer list:
+  the first post detaches the worker's own copy and every later post throws `An ArrayBuffer is
+  detached and could not be cloned`. jsdom/node `postMessage` has **no transfer semantics**, so
+  this whole defect class is structurally invisible to the unit tier and belongs in the browser
+  gate. It shipped once, froze the on-screen `scoringHash`, and killed `.ab()`.
+- **Read the DISTRIBUTION of a published field, never a flag.** `__globe.bestSpotField()` exists
+  because the feature's most dangerous failure is a warm, confident, *uniform* disc — and it
+  happened, at `rMin === rMax === 187` across 31,417 cells, with 1,860 unit tests green. A
+  verify check that asserts "the field exists" or "solving === false" would have passed. Assert a
+  SPREAD.

@@ -26,7 +26,7 @@ Log: `mem:project/wip-2026-08-23-bestspot-heatmap`. Twin: DECISIONS 2026-08-23.
 |---|---|
 | **R5** | **GENERALIZE THE FRAMING TERM.** Owner: *"do not bind too much specifically to bridge — I am interested in sun visibility over a LARGE RANGE OF LANDSCAPES, OBJECTS, BUILDINGS etc."* `F_sil`'s `isBuiltSrc` provenance gate is **DELETED** — measured, it scored a grazing 8 km mountain ridge at **0.0000**, ranking it below a blank wall and below empty sea. Replaced by **GRAZE** (`SPEC_V2 §1.1`): `cut × Q × dwell`, where dwell is the body's travel in disc-radii while the edge cuts it. Provenance survives ONLY as a soft confidence weight (`terrain 1.00 · building 0.90 · deck 0.90 · tree 0.45`, tree clamped ≤ 0.6 because 151,046 of 161,823 canopies are synthetic scatter). Measured: the same ridge scores **0.9897** grazing / **0.4830** perpendicular, and F's correlation with P falls from **r² 0.997 to 0.392** — it finally carries independent ranking signal. Owner-facing name: **GRAZE**. |
 | **R6** | **OPEN AT 1.7 m, AND AUTO-SUGGEST THE LIFT.** Measured: at pedestrian height a real central-Dnipro disc is **97.7 % black, max score 0.381, median 0.000**; at 57 m every cell clears 0.5. Eye level is the honest default and the top-8 markers ARE the product. But when the field is nearly empty the panel must offer a way out: if the fraction of cells scoring above `displayLo` falls under `BESTSPOT.emptyFieldFrac`, probe a few lifts at the 24 m coarse rung (21 ms each — 10/20/40/80 m ≈ 85 ms total), pick the LOWEST lift that clears the floor, and show a one-tap chip — *"NOTHING CLEARS THE SKYLINE AT EYE LEVEL — TRY 30 m"*. The suggested altitude is **computed, never a constant**. |
-| **R7** | **MOON WORTH KEEPS MULTIPLYING, BUT THE FLOOR RISES.** Measured over 30 days at Dnipro, `worth` runs min 0.0003 / median 0.0290 / max 0.8639, so on a median night the best possible moon cell scored ~0.020 — 25× below the legibility floor, i.e. the moon map was black ~26 nights in 30. Owner ruling: **raise the floor so bad nights DIM rather than VANISH**, keeping the multiply. Shipped form `M_eff = worthFloor + (1 − worthFloor)·M`, `worthFloor = 0.35` (proposed, tunable): median night → 0.369 so the best cell reads 0.31, full moon → 0.91 so it reads 0.77. Separation preserved, nothing disappears. `worthFloor` is a **recompose-class** leaf (0.27 ms) so it is a taste-pass slider, not a rebuild. |
+| **R7** | **MOON WORTH KEEPS MULTIPLYING, BUT THE FLOOR RISES.** Measured over 30 days at Dnipro, `worth` runs min 0.0003 / median 0.0290 / max 0.8639, so on a median night the best possible moon cell scored ~0.020 — 25× below the legibility floor, i.e. the moon map was black ~26 nights in 30. Owner ruling: **raise the floor so bad nights DIM rather than VANISH**, keeping the multiply. Shipped form `M_eff = worth.effectiveFloor + (1 − worth.effectiveFloor)·M`, `worth.effectiveFloor = 0.35` (proposed, tunable): median night → 0.369 so the best cell reads 0.31, full moon → 0.91 so it reads 0.77. Separation preserved, nothing disappears. `worth.effectiveFloor` is a **recompose-class** leaf so it is a taste-pass slider, not a rebuild. *(Naming corrected 2026-08-24d: the leaf shipped as `worth.effectiveFloor` — `bestSpotScoring.ts:213,398`, `CLASS_OF` `:499` — and `worthFloor` appears nowhere in `src/`. **Beware the twin**: `worth.floor` is a DIFFERENT leaf with a DIFFERENT value (0.25) that shapes the twilight gate inside `bestSpotTrack`. The measured recompose cost is also ~4.27 ms for a reweigh, not 0.27 ms. And R7 is exactly 1 for sun kinds, so no sun number moved; the median moon night went 0.020 → 0.256.)* |
 | **R8** | **THE 1 m SHORTLIST SPLITS IN TWO.** Measured, 1 m vs 3 m is Spearman **ρ = 0.969**, mean \|ΔS\| 0.0054, and changes 4 of the top 20 — but the two halves cost wildly differently. **1 m ACCESSIBILITY on every solve** (+59 ms, invisible; it is what says "stand on the footpath, not in the hedge", and the resolution the landcover data actually supports). **1 m OBSTRUCTION only behind a user-triggered `REFINE THIS SPOT`** (~1.0–1.6 s: `queryRay` is 6.6 ms but it needs a 985 ms 1 m hull, 900 MB resident at K=40, so it must stream). **This is the one place a spinner is justified.** Rider: **forbid ULTRA above a 300 m radius** — 1 m @ 500 m is 1,002,001 cells at ~12.2 s. |
 
 ---
@@ -185,8 +185,12 @@ L   = 1 - smoothstep(dipFloor, +5°, alt*)                       CONTACT LOWNESS
       1.7 m -> -0.038° | 100 m -> -0.299° | 400 m -> -0.599° | 2000 m -> -1.339°
 P   = openSky ? 1 : clamp01( ln(D*/30) / ln(PLAN.trustRadiusM/30) )     DEPTH / OPENNESS
       log-scaled: apparent size and the alignment gradient are both ~1/D.
-F   = max(F_sil, F_notch)                                       FRAMING (the two hero kernels)
+F   = max(F_graze, F_notch)                                     FRAMING (the two hero kernels)
+  F_graze = 1 - exp(-tau / 1.75),  tau = Σ_a cut(a) · Q(a) · dwell(a)        [SHIPPED — S3b]
+            ** SUPERSEDES F_sil, WHICH NEVER SHIPPED. ** See the correction note below and
+            SPEC_V2 §1.1. `silTangency` does not exist in `src/` — it has zero call sites.
   F_sil   = max_a [ (1 - clamp01(|altApp(a) - edge(a)|/ρ)) · P(a) · isBuilt(src(a)) ]
+            [SUPERSEDED 2026-08-24 by S3b — kept only as the record of what was replaced]
             a triangular TANGENCY kernel of half-width one disc radius, gated on a BUILT setter.
   F_notch = [alt* - floor >= ρ]
             · clamp01((depth - 0.1°)/(3° - 0.1°))
@@ -214,11 +218,27 @@ S = A_hard · A_soft^0.5 · M · G(V) · [ 0.15·V + 0.30·L + 0.25·P + 0.30·F
     G(V) = smoothstep(0.15, 0.75, V)
 ```
 
+> **CORRECTED 2026-08-24d — the shipped composition differs in two load-bearing ways**
+> (`bestSpotMetric.ts:1168-1188`; the sketch above is kept because the *reasoning* under it still
+> holds term by term):
+> ```
+> S = A_hard · A_soft^accessSoftExponent · M_eff · G(V) · ( Σ_k w_k·T_k / Σ_k w_k )
+> ```
+> 1. **The preference bracket is a REGISTRY over the keys of `weights`, and it is NORMALISED by the
+>    weight sum** (`:1182` `const preference = wTotal > 0 ? wDotT / wTotal : 0;`). Adding a term is
+>    one field plus a weight of 0. Normalising by `Σw` is what stops a custom blend from inflating
+>    `S` past 1 — without it the safety argument for `S ∈ [0,1]` fails the moment an owner patches
+>    the weights, which `__globe.bestSpotTuning` invites them to do.
+> 2. **`M` is not `track.worth`** — it is `effectiveWorth(track.worth, sc.worth)` (`:1188`,
+>    `:1327-1331`), i.e. ruling **R7**: `M_eff = worth.effectiveFloor + (1 − worth.effectiveFloor)·worth`
+>    with `worth.effectiveFloor = 0.35`. This is exactly 1 for sun kinds, so **no sun number moved**;
+>    the median moon night went 0.020 → 0.256.
+
 - **`A_hard` multiplies** — a cell in the Dnipro is not a spot at any framing score. A sum would let
   `F = 1` paper over standing in the river.
 - **`G(V)` multiplies but is SOFT** — "the body is not visible from here" is a gate, not a preference.
-  It must be a smoothstep and not a step because the hero case `F_sil` **intentionally occults the
-  disc** for part of the track; a hard `V = 1` test would delete every silhouette shot.
+  It must be a smoothstep and not a step because the hero case (now `F_graze`, §3.4) **intentionally
+  occults the disc** for part of the track; a hard `V = 1` test would delete every silhouette shot.
 - **`M` multiplies** — a 9 %-lit quarter moon rising in daylight is not a good spot however clean the
   horizon, and it makes the moon map go quiet at the wrong times, which is honest and legible.
 - **`L, P, F` SUM** — these genuinely trade off. A clean 30 km horizon (`P=1, F=0`) and a bridge
@@ -288,6 +308,14 @@ no z), retaining walls, construction, seasonal ice, and the 36 % unclassified.
 
 ### Three residency tiers
 
+> **SUPERSEDED 2026-08-24d — SIX tiers shipped, not three, and the projected costs were off by 2×
+> and 12×.** The shipped statement of the ladder is `bestSpotFeed.ts:18-31` (T0 58 · T0.5 490 ·
+> T1 343 · T1′ 0 · T2 · T3) and SPEC_V2 §2.2. The "coarse-during-drag" tier is not a separate
+> ~6 ms path at all — it is the ladder's own 24 m rung, browser-measured at **35–49 ms**, which is
+> exactly why it must stay off the main thread. The pin that actually holds is *"a drag adds
+> < 12 ms to the idle frame"*, measured at **1.1 ms**. The table below is kept as the projection
+> that was made, because the *shape* of the argument (what invalidates what) is what survived.
+
 | Tier | Invalidated by | Contents | Cost (M3 Pro, projected @ 3 m) |
 |---|---|---|---|
 | **T0** | centre **or** radius | 1 m landcover raster + layered DSM + per-ray column **HULLS** (curvature folded in first, F4) | ~105 ms |
@@ -352,13 +380,23 @@ cannot follow terrain relief, and a planning overlay reads THROUGH the world."* 
 requirements — respect the terrain under each cell, and do not obscure the map — are the two things
 that grammar cannot do.
 
-- **Sheet:** a COARSE **terrain-conforming** grid (64×64 verts, heights from the same DSM, rewritten
+- **Sheet:** a COARSE **terrain-conforming** grid (**65×65 samples = 64×64 quads**, `CONFORM_N = 65`
+  at `bestSpotSolver.ts:395`; heights from the same DSM, rewritten
   **in place** on lift change — the `focalCone` allocate-once lesson), `depthTest TRUE` +
-  `polygonOffset` (the `vectorFeatures` precedent), `renderOrder 9` set **per object** (a Group's
+  `polygonOffset` (the `vectorFeatures` precedent), **`renderOrder 4`** set **per object** (a Group's
   renderOrder does not propagate), `raycast` disabled, `frustumCulled false`.
+  > **CORRECTED 2026-08-24d: the seat is `renderOrder` 4, and the markers 5 — NOT 9.** 9 is the
+  > depth-free planning band (`aimCones`), and a **depth-TESTED** surface dropped in there sorts by
+  > draw order against `depthTest:false` siblings, which is non-deterministic flicker against the
+  > radar. `tuning.ts:2944` / `:2947`; the full ladder is in `conventions/globe-tuning.md`.
 - **Score texture:** RG8 `DataTexture` (`.r` score, `.g` class/validity), `NoColorSpace`, allocated
-  once at the **max grid over the whole tier ladder** — note the largest grid is at the SMALLEST
-  radius (3 m @ 300 m = 201² beats 3 m @ 500 m = 334²… compute it, do not assume). **Full-surface
+  once at the **max grid over the whole tier ladder**.
+  > **CORRECTED 2026-08-24d — the parenthetical below was backwards, and it says "compute it, do not
+  > assume" while doing exactly that.** 201² = 40,401 is SMALLER than 335² = 112,225. The shipped
+  > allocation is **601²** (`SCORE_TEX_N`, `bestSpotSheet.ts:221`) = `2·ultraMaxRadiusM/ultraCellM + 1`,
+  > i.e. the 1 m ULTRA maximum under ruling R8 — 361,201 cells.
+  ~~note the largest grid is at the SMALLEST
+  radius (3 m @ 300 m = 201² beats 3 m @ 500 m = 334²… compute it, do not assume)~~. **Full-surface
   `texSubImage2D` only**: three 0.185 hard-codes `componentStride = 4` (`three.module.js:11804`), so
   ranged uploads on RG8 silently scramble rows.
 - **LUT:** a 256×1 `SRGBColorSpace` ramp. Data = `NoColorSpace`, colour = `SRGBColorSpace` — swapping
@@ -372,6 +410,16 @@ that grammar cannot do.
 - **Alpha:** score-keyed `a(s) = 0.04 + 0.58·s²`, fill capped at `BESTSPOT.fillAlphaMax ≤ 0.25` (the
   VECTOR ceiling, halved on owner order 2026-08-21). Below ~50 % score the sheet is literally
   indistinguishable from the map at contrast < 1.1.
+  > **SUPERSEDED 2026-08-24d — `fillAlphaMax` NEVER SHIPPED** (`grep -rn fillAlphaMax src/ test/` →
+  > zero hits), and neither did that curve. S4 shipped a **veil/ink split** instead: `inkMin 0.02` /
+  > `inkMax 0.34` / `inkGamma 1.4` for the score wash, and an INDEPENDENT `veilMin 0.12` /
+  > `veilMax 0.30` scrim underneath, on a `premultipliedAlpha` material with no
+  > `<premultiplied_alpha_fragment>` chunk. They are independent by design — the veil answers "can I
+  > see the wash", the ink answers "how good is this cell"; tying them makes a dark disc invisible on
+  > the bright chart. The live S4 check is `max sampled aVeil ≤ 0.30` (measured **0.3000**).
+  > **The contrast analysis in this section is also VOID**: it was computed over `#05070b` (deep
+  > space) in sRGB, while the default basemap is graded satellite imagery ~48× brighter and blending
+  > is LINEAR. SPEC_V2 §6.2 carries the redone version.
 - **Contours:** `fwidth`-antialiased isolines with a dark `tokens.bg` halo carrying the reading (the
   FOCALCONE doctrine + the `streetNames` halo recipe: measured 6.82:1 halo-vs-light-tile, 11.23:1
   ink-vs-halo). Alpha-blended, **never additive**. No stipple — the ground already carries two dither
@@ -651,6 +699,32 @@ grid. Fixed by clamping on whichever turning point comes first — lat 2/5/10/12
 
 ## Open, carried forward
 
+> **STATUS SWEEP 2026-08-24d — items 1, 2, 3, 6, 7 and 8 are CLOSED; 4 and 5 remain open.**
+> Closures, with the anchor that closed each:
+> - **1 CLOSED by S3b.** `F_sil` was not fixed, it was **replaced** by GRAZE (`cut × Q × dwell`,
+>   `bestSpotMetric.ts:477/555/628`). Both candidate fixes named here were folded in: the dwell
+>   weighting IS the `dwell` factor, and the provenance gate was dropped as unnecessary once the
+>   kernel stopped saturating. Measured: grazing 8 km ridge **0.0000 → 0.9912**, perpendicular
+>   0.4843, **F↔P r² 0.997 → 0.393** (the saturation this item describes, quantified and killed),
+>   lattice stability ±20.3 % → ±2.3 %. τ is stored SPLIT BY SOURCE so `graze.conf.*` stays a
+>   recompose. A RED golden table was committed before the kernel landed.
+> - **2 CLOSED by S4.** `TERM_FLAG.inSolid` (`bestSpotSolver.ts:1299`, via
+>   `insideSolidInterior(dsm, gc, sheetAltM)`) carries the fact per cell, so the drone inside the
+>   deck slab no longer reads as free air.
+> - **3 CLOSED by S4 — by deciding the item was mis-framed.** AERIAL is a property of the SHEET (one
+>   altitude for the whole disc), not of a cell, so it does not belong in `LandClass`. The per-cell
+>   fact that was actually needed is `groundReachable`, and it ships as the ordinal `.g` channel:
+>   `STAND_G = { unknown: 0, inaccessible: 85, scoredNotGroundReachable: 170, scoredReachable: 255 }`
+>   (`bestSpotSolver.ts:447-452`). **Note the trap this created**: `.g` INACCESSIBLE is **85**, not
+>   170 — at a 55 m sheet `hard = inSolid ? 0 : 1`, so the river becomes standable *air*.
+> - **6 CLOSED** — S3 knew; `accessAt`'s 5th parameter is wired.
+> - **7 CLOSED by measurement, and the projection was wrong** — see the §5 correction above and the
+>   MEASURED block below.
+> - **8 CLOSED**: the worker loads in a real browser Worker, and the bundle was measured at
+>   **126 KiB / 50.6 KiB gzipped** (astronomy-engine roughly half of it, no three).
+> Still open: **4** (`rail → blocked` and `intermittent → wetland` are still inferences, not owner
+> rulings) and **5** (multi-tile seam assembly still has no test).
+
 1. **`F_sil` SATURATES TRIVIALLY.** `1 − clamp01(|altApp − edge|/ρ)` reaches 1 for ANY built skyline
    whose edge the body's centre crosses, so in a city **`F ≈ P` for almost every cell** (measured
    0.846 for BOTH the deck and the wall) and the 0.30-weighted framing term carries almost no ranking
@@ -678,3 +752,132 @@ grid. Fixed by clamping on whichever turning point comes first — lat 2/5/10/12
 8. Worker import is verified by a static three-free source fence plus a Node/vitest ESM import — **not
    by loading inside a real Web Worker.** Note that `planElevationsM` drags comet/targets/showers into
    the worker chunk; S3 should measure the bundle.
+
+---
+
+# AS BUILT — S3a → S7 (2026-08-24), and the feature is COMPLETE
+
+**Read this before the body.** The body above was authored 2026-08-23 and amended in place where a
+claim was normative; everything else that moved is recorded here. Log
+`mem:project/wip-2026-08-24-bestspot-s3-s7`. Twin: DECISIONS §Recent **2026-08-24c**. The companion
+spec `BESTSPOT_SPEC_V2.md` was reconciled against the same code on 2026-08-24d.
+
+**Gates:** vitest **1,902/1,902 (130 files, +342 over the S2 baseline of 1,560/119)** · `astro check`
+0 err / 0 warn / 5 pre-existing hints · `npx knip` exit-0 · **`scripts/verify-bestspot.mjs` 100 PASS /
+0 FAIL, reproduced twice.** Tier **LOCAL + BROWSER**; shots `verify-shots/bestspot-01…08`.
+**Wix cloud UNVERIFIED** — prod is dark behind the nameserver gate (backlog T50).
+
+## THE HEADLINE — every unit gate was green while the field was a CONSTANT
+
+The first browser run over dense central Dnipro measured the published RG8 at
+**`rMin === rMax === 187`** — ONE distinct value across all 31,417 scored cells — beside a healthy
+`builtDensityPerKm2 54.7` and `heightProvenance {enriched: 0, osm: 0}`. Top-8 spread **0.4 %**.
+1,860 tests passed, `astro check` was clean, `knip` was clean. **This is §11's own "single most
+dangerous failure mode" — warm, confident, uniform — firing at the owner's hero location.**
+
+Two causes, both measured:
+1. **`▦ 3D DETAIL` was OFF in that browser's `ftw:view-prefs:v1`.** `buildings.setActive(false)`
+   **removes** `tiles.group` from the scene, so `flattenTin` traversed an empty group. Not a null,
+   not an error — an empty traversal, which is indistinguishable from a treeless plain.
+2. **No epoch watched building tile ARRIVALS.** The feed's three streaming epochs were the *ground*
+   tileset, the MVT version, and the enriched **re-seat** counter — re-seats of already-loaded
+   features, not arrivals. A disc solved before the buildings streamed never re-solved.
+
+Fixed with `builtEpoch` on both building tilesets' `load-model`/`dispose-model`. And because the
+engine *knew* both facts and said nothing, a disc with dense MVT and **zero** building meshes now
+**REFUSES** (`"no-built-geometry"`) rather than painting warm. After: **31 distinct score bytes**,
+mean byte **0 at the 1.7 m eye → 159 at a 56.7 m sheet** (the pre-fix disc read 187 at BOTH lifts —
+there was no mass to clear), top-8 spread **56 %**.
+
+**The rule this bought:** the question is never *"do the tests pass"*. It is **"what did I read out
+of the live engine, and does its distribution have a spread?"**
+
+## Nine more defects only a browser could find
+
+- **`postMessage` transferred `conformM`, which `composeField` hands out BY REFERENCE** from the
+  resident rung. The first post detached the worker's own copy; every later post threw
+  `An ArrayBuffer is detached and could not be cloned`, freezing the on-screen `scoringHash` and
+  killing `.ab()`. **Structurally un-catchable in vitest** — `postMessage` there has no transfer
+  semantics.
+- **`postingOf` returned `cellM` for every input ALGEBRAICALLY** (two `known` factors cancelled), so
+  the panel printed `OVER TERRAIN AT ~3 m` — **a C2 violation on screen**. Replaced by a TIN
+  vertex-density measure (`tinPostingM` → `terrainPostingM`): **58.5 m Dnipro vs 35.9 m Everest**,
+  where the old formula returned 3.0 at both.
+- The 1 m refine ran correctly, but **the store mirror rebuilt `topK` from the last *rung* message**
+  and threw the refined row away.
+- **`waitRefined` returned on `refinedMs > 0 && !solving`, neither of which carries solve identity**,
+  so the S6 checkpoints straddled a phase boundary. **The SCRIPT was wrong, not the engine**: with
+  only the wait replaced, scrub measures **+0** and radius **+156**.
+- The mid-reservoir negative control **was not on the water** (its 300 m disc scored 8,050 cells).
+  Hill-climbing the engine's own LandGrid found **48.479450, 35.048099** — 0 scored / 31,417 blocked.
+- **The cross-model check was vacuous twice**: asked at the scrubber's instant (sun 7.35° down), and
+  `blockedNow` is **structurally true at `t0Ms`** — the refracted contact, where the airless centre
+  is −0.87°, below any non-negative skyline. Re-expressed as a `skylineAltDeg` spread: **66.2°**
+  across the disc's own two extremes.
+- **`window.__globe.scene` was never exposed**, so **all seven of S4's "read the LIVE material"
+  done-checks lived only in vitest, against constructor arguments.** `__globe.bestSpotSheet()` now
+  asserts them live (max sampled `aVeil` **0.3000**, 601² `NoColorSpace` `LinearFilter`).
+- `.g` INACCESSIBLE was read as 170; it is **85** (see open-item 3 above).
+- Rural thresholds (`coverage < 0.5`, `unmapped > 0.3`) described REACH, but the shipped prior gates
+  **open-sky credit**. `coverage < 0.5` would also have made the EVEREST row unpassable by construction.
+
+## What shipped, by slice
+
+- **S3a** `lib/geo/bestSpotScoring.ts` — **54 leaves**, a `CLASS_OF` invalidation table,
+  `resolveScoring` / `sanitizeScoringPatch` / `scoringHash` / `scoringDiff`, and PHYSICS / SAFETY /
+  HONESTY blocks with **no key path from a patch**. Landing this *before* the solver is what makes
+  the taste pass cheap. **R7** `M_eff = 0.35 + 0.65·M` — exactly 1 for sun kinds.
+- **S3b GRAZE** replaces `silTangency`'s provenance gate (see open-item 1).
+- **S3c** `scoreMask` **1.80–1.91×** standalone (pinned ≥1.7× interleaved) · **`reachM`** + `openSky`
+  gated on it (truncated disc 0.6633 → 0.5530, `openSky` 40/40 → 0/40; with
+  `refuseBelowReachM = collarM = 400` it withdraws entirely and costs **0 cells** on a good disc) ·
+  the fused pass ≡ `cellScore` · **the 75 B/cell TERM BUFFER, never `S`** — 59 B was a lie, because
+  `gap.*` could not be recompose without `floorDeg`/`depthDeg`/`widthDeg`/`rhoStar` · absolute
+  azimuth snapping **0/40 → 36/39**.
+- **S3d** the long-lived module worker (**126 KiB / 50.6 KiB gz**) + client + feed + six tiers +
+  the 24/12/6/3 m ladder + a 90-frame refinement debounce. **Cancellation is cooperative, never
+  `terminate()`** — a `postMessage` cannot interrupt a running 680 ms rung, and terminating discards
+  exactly the state the next job needs.
+- **S4** the veil/ink split, ONE RG8 `LinearFilter` texture with the ordinal `.g`, `fwidth` contours
+  + density dropout, rim falloff, plumb line + **scale spoke** (`max(sin θ, cos θ) ≥ 0.707` at every
+  tilt — the nadir fix), top-K markers. **`renderOrder` 4, not 9.**
+- **S5** the third `planfind` segment + `controls/{InstrumentSlider,ChipRow}` (shared tier, pure leaf).
+- **S6** the residency pin — **it was RED as built**: `solveRung` called `buildDsm` unconditionally
+  and the hull cache is keyed on `dsm.ground` IDENTITY, so a 2→400 m drag paid 39 hulls against a
+  pinned 0. The kernel's own pin was green. Fixed with a `sourcesEpoch`.
+- **S7** the built-density prior (floor **1/km²** = √(26.6 × 0.048)) as an **evidence gate, never a
+  score penalty** — it withholds open-sky credit. Rural: 1,225,263 visits withheld, `S>0.6` fraction
+  **0.0000** (pre-fix 0.470–0.661, uniform). 1 m accessibility every solve; 1 m obstruction behind
+  `REFINE THIS SPOT` (measured **1,504 ms**).
+
+## MEASURED, in the browser
+
+first ink **45.4 ms** warm · refined **523.8 ms** · rungs 3/6/12/24 m = **356 / 90 / 23 / 6.7 ms** ·
+a within-day scrub and a 2→400 m lift drag each build **ZERO** hulls · a radius change **+156** ·
+a weights patch costs **exactly ONE job** and is `recompose` · a drag adds **1.1 ms** to the idle frame.
+
+**Perf pins are expressed in REFERENCE-MACHINE ms** (`test/lib/geo/_perf.ts`), because a wall-clock
+budget inside a 12-way-parallel vitest is a claim about the RUNNER: the same 3 m solve measures
+**646 ms standalone vs 1,335–1,522 in-suite**. Two rules the harness encodes, both learned the hard
+way — calibrate **per iteration** (contention is bursty; a single up-front sample read `k = 1.04`
+while the solves it normalised ran 1,335 ms), and keep the calibration workload **≥ ~15 ms**, because
+anything shorter fits inside one scheduler quantum and reports exactly 1.00 under any load.
+
+## Carried forward from this slice
+
+1. **`terrainPostingM` measures the RENDERED TIN (36–98 m), not the source DEM's information limit**
+   (~145 m for the L13 bake). Honest for the DSM, which is built from exactly those vertices — but
+   the panel's copy is a claim about *data quality*, and the renderer refines past L13 at a 1,200 m
+   camera. A source-limit read needs a per-tile LOD, not a vertex count. **Owner question: which
+   number should the panel print?**
+2. **`blockedNow` is unusable as the cross-model quantity at ANY instant** (see above).
+3. **`graze.conf` and `graze.reliefHiDeg` are unswept judgements and now LIVE** — with
+   `displayLo/displayHi` and `worth.effectiveFloor`, they are the taste pass (backlog **T49**).
+4. The mask-ratio pin (1.74× against a 1.7 floor under load) and the fused-score pin (428/450) are
+   the two thinnest. `spin()` cannot see memory-bandwidth contention — a 100 MB streaming pass reads
+   1.69 where register arithmetic reads 1.00 — so a streaming calibration is the fix if either goes red.
+5. **`wix dev` MUST be restarted after this lands.** A new worker entry is a new Vite optimize-dep
+   root: every dep 504s with "Outdated Optimize Dep", no island mounts, and the page looks merely
+   blank. It cost a cycle.
+6. **S8** (`/m` twin) and **S9** (MapWindow/MiniMap DOM twin) remain deferred by owner ruling
+   (backlog **T51**).

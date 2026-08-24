@@ -1305,3 +1305,67 @@ describe("R7 — the moon map dims instead of vanishing (BESTSPOT_PLAN.md:29)", 
     );
   });
 });
+
+/**
+ * THE LEAN-FOUND CLAMPS (2026-08-24d).
+ *
+ * Both of these were found by writing the composition down as a theorem in
+ * `formal/Ftw/Score.lean` and discovering that its HYPOTHESES were not enforced at runtime —
+ * not by any test, and not by inspection. `clampResolved`'s own docstring promises it "can be
+ * handed a raw, unsanitized patch and still cannot return an unsafe or dishonest profile", and
+ * `ftw:view-prefs:v1` feeds it a persisted blob on every boot, so both were reachable in the
+ * shipped product.
+ */
+describe("SAFETY — the clamps the Lean specification forced", () => {
+  it("graze.conf.* is bounded above by 1, so CellScore.f cannot exceed its documented range", () => {
+    // `F_gap = notch.f · (relief · conf[src] · depth)`. `notch.f`, `relief` and `depth` are all
+    // clamped to [0,1]; before this clamp `conf` was not, so conf = 2 published f = 1.6.
+    // Lean: `Ftw.confBound` (holds given conf ≤ 1) + `Ftw.confBound_is_necessary` (fails without).
+    const hostile = resolveScoring({
+      graze: { conf: { none: 3, terrain: 5, building: 2, deck: 1.5, tree: 9 } },
+    });
+    expect(hostile.graze.conf.none).toBeLessThanOrEqual(1);
+    expect(hostile.graze.conf.terrain).toBe(1);
+    expect(hostile.graze.conf.building).toBe(1);
+    expect(hostile.graze.conf.deck).toBe(1);
+    // the pre-existing, TIGHTER tree ceiling still wins over the new general one
+    expect(hostile.graze.conf.tree).toBe(BESTSPOT_SAFETY.confTreeMax);
+    expect(BESTSPOT_SAFETY.confTreeMax).toBeLessThan(BESTSPOT_SAFETY.confMax);
+
+    // and a legal profile is untouched — the clamp may only ever remove an out-of-range value
+    const shipped = resolveScoring(null);
+    expect(shipped.graze.conf).toEqual(BESTSPOT_SCORING_V1.graze.conf);
+
+    // the single-leaf path is clamped too (`__globe.bestSpotTuning` reaches this one)
+    expect(sanitizeScoringPatch({ graze: { conf: { terrain: 5 } } })).toEqual({
+      graze: { conf: { terrain: 1 } },
+    });
+  });
+
+  it("weights.* cannot go negative, so the blend stays monotone in every term", () => {
+    // The composition normalises by Σw, which keeps S ≤ 1 — but a NEGATIVE weight makes S
+    // non-monotone in its own term (a better silhouette would rank LOWER), and Σw = 0
+    // short-circuits `preference` to 0.
+    // Lean: `Ftw.preference_mono_f` (needs 0 ≤ w) + `Ftw.weights_nonneg_is_necessary`.
+    const hostile = resolveScoring({ weights: { v: -1, l: -0.5, p: 0.25, f: 0.3 } });
+    expect(hostile.weights.v).toBe(0);
+    expect(hostile.weights.l).toBe(0);
+    expect(hostile.weights.p).toBe(0.25);
+    expect(hostile.weights.f).toBe(0.3);
+    const sum =
+      hostile.weights.v + hostile.weights.l + hostile.weights.p + hostile.weights.f;
+    expect(sum).toBeGreaterThan(0);
+
+    // zero is still reachable — "ignore this term" is a legitimate tune, and both presets rely on
+    // being able to push a weight down hard
+    expect(resolveScoring({ weights: { f: 0 } }).weights.f).toBe(0);
+    expect(sanitizeScoringPatch({ weights: { f: -1 } })).toEqual({ weights: { f: 0 } });
+
+    // every shipped preset survives untouched
+    for (const [name, preset] of Object.entries(BESTSPOT_PRESETS)) {
+      const r = resolveScoring(preset);
+      const t = r.weights.v + r.weights.l + r.weights.p + r.weights.f;
+      expect(t, `preset ${name}`).toBeGreaterThan(0);
+    }
+  });
+});

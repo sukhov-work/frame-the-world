@@ -4,6 +4,21 @@ Supersedes `BESTSPOT_PLAN.md` §3.4 (framing), §5 (residency tiers, budget), §
 
 Provenance convention: `(A)`/`(B)`/`(C)`/`(D)` = measured by that agent in a `/tmp` harness against the shipped modules. `verified` = I re-read the code this session. `UNVERIFIED` = stated, not measured.
 
+> **RECONCILED 2026-08-24d AGAINST THE SHIPPED CODE (S3a→S7 landed).** This document was written as a
+> forecast; the feature then shipped and was browser-verified, and where the two disagree **the code
+> wins and this file has been corrected in place**. Classes of correction applied:
+> **(1) the term buffer is 75 B/cell, not 59** (§2.1, §5.3, §7 S3c — the 59 B layout stored the notch
+> as a finished product and froze five `gap.*` leaves the invalidation table files as `recompose`);
+> **(2) measured costs replace forecasts** — COMPOSE, `scoreMask`, the fused pass, the latency ladder
+> and the residency deltas are now browser- or vitest-measured numbers with the forecast kept beside
+> them; **(3) the HONESTY SUBSYSTEM that did not exist at forecast time** — three refusal reasons, the
+> built-density prior's floor and mechanism, and the `reachM` policy layer (§3.4, SHIPPED block);
+> **(4) the epoch set is FOUR, plus `sourcesEpoch`**, not two (§3.4); **(5) the `BESTSPOT` tuning
+> inventory is 60 keys, not 40** (§6.11), four of them honesty/safety rather than look; and
+> **(6) §8's three open questions are ANSWERED and shipped** — that section is a ruling record now,
+> not live design space.
+> Everything not marked corrected still stands as originally measured.
+
 ---
 
 # 1. THE FORMULA
@@ -97,15 +112,19 @@ S = A_hard · A_soft^accessSoftExponent(0.5) · M · G(V) · Σ_k w_k·T_k / Σ_
 
 | | shipped `F_sil` | GRAZE |
 |---|---|---|
-| grazing 8 km mountain ridge | **0.0000** (provenance gate: `isBuiltSrc(terrain) === false`, verified `bestSpotMetric.ts:162,400,404`) | **0.9897** (τ = 8.01 ρ) |
-| perpendicular 8 km ridge, same distance, same relief | 0.0000 | **0.4830** (τ = 1.15 ρ) |
-| low hills 0.25° @ 6 km | 0.0000 | 0.3958 |
-| tree line 0.9° @ 300 m | 0.0000 | 0.1381 (48 % soft penalty vs a hard 0) |
+| grazing 8 km mountain ridge | **0.0000** (provenance gate: `isBuiltSrc(terrain) === false`, verified `bestSpotMetric.ts:162,400,404`) | **0.9912** (τ = 8.2855 ρ) |
+| perpendicular 8 km ridge, same distance, same relief | 0.0000 | **0.4843** (τ = 1.1589 ρ) |
+| low hills 0.25° @ 6 km | 0.0000 | 0.3953 |
+| tree line 0.9° @ 300 m | 0.0000 | 0.1419 (48 % soft penalty vs a hard 0) |
 | open sea horizon | 0.0000 | **0.0000** — relief 0, not provenance |
-| bridge deck 6 m slab @ 1.5 km (hero) | 0.8294 | 0.5753 |
-| **F vs P independence**, 66-cell fixture | spread 0.0619, corr **0.9985** (r² 0.997) | spread **0.5408**, corr **0.6260** (r² 0.392) |
+| bridge deck 6 m slab @ 1.5 km (hero) | 0.8294 | 0.4261 on the synthetic slab · **0.59720 on the real swept chain** |
+| **F vs P independence**, 66-cell fixture | spread 0.0619, corr **0.9985** (r² 0.997) | spread **0.5401**, corr **0.6268** (r² 0.393) |
 | **height response**, fixed 1500 m, 11 heights 0.05→2.9° | 0.795…0.847 = lattice noise | 0.014 → 0.383, then saturated |
 | **lattice stability**, 0.25° vs 0.05° az step | mean \|Δ\| **20.3 %**, max **+67.9 %** | mean \|Δ\| **2.27 %**, max 9.6 % |
+
+> **All seventeen rows are now MEASURED, not forecast** *(corrected 2026-08-24d against `test/lib/geo/bestSpotGolden.test.ts:30-50`, the table committed RED before the kernel existed)*. Sixteen of the seventeen landed within **0.013** of the forecast from an independently-written fixture, which is the strongest available evidence that §1.1's closed form and the shipped kernel are the same object. The forecasts above were 0.9897 · 0.4830 · 0.3958 · 0.1381 · 0.5408 · 0.6260; the city-skyline row moved 0.3540 → 0.3542.
+>
+> **Row 07 BRIDGE DECK is the one real miss, and it is a FIXTURE difference, not a kernel difference.** §1.1 named its hero "a 6 m slab @ 1.5 km" without publishing the band angles; the golden file's slab is `[0.31°, 0.38°]` (the PIN 3 geometry, 0.266 ρ thick) on a synthetic sky and scores **0.4261**. Run against the **REAL swept composition chain** — a 6 m slab at 1493 m, `bestSpotComposition.test.ts` — the same kernel measures **0.59720** against §7's forecast for that exact fixture of **0.5972**. Four decimals. The spec's hero number IS reproducible on the geometry the spec meant.
 
 Ranking change the owner will see: a grazing mountain ridge moves from **rank 9 (below a blank wall and below empty sea)** to **rank 2**. A distant low-hill silhouette moves 7 → 3.
 
@@ -172,12 +191,14 @@ DSM/hull/sweep grid = `oddSpanCells(radius + 400 m collar, cellM)` (verified `lo
 | 9′ | `sweepAzimuth` × K, **masked to the disc** | | **166.0** (4.15/az) | 333.6 | 1,496.8 | T1 |
 | 10 | score, **shipped object API** | `bestSpotMetric.ts:654` | 651.3 (20.7 µs/cell) | 1,411.1 | 4,661.5 | T1 |
 | 10′ | score, **fused-arithmetic floor + GRAZE** | | **176.8** + ~7 (B) | 488.7 | 1,583.5 | T1 |
-| 11 | COMPOSE term buffer → S → RG8 pack | | **0.272** (6.7 ns/cell) | ~0.75 | 6.05 | T2 |
+| 11 | COMPOSE term buffer → S → RG8 pack | | **~2.5** measured (0.272 forecast) | | | T2 |
 | 12 | `postMessage` transfer (79 / 219 / 705 KB) | | free UNVERIFIED | | | — |
 | 13 | full-surface `texSubImage2D` + LUT upload | | **<0.1** | <0.1 | <0.5 | T3 |
 | 14 | draw (sheet+contours 1 call, plumb, markers) | | ~0 | | | T3 |
 
-Memory: hulls **2.53 MB/az → 101 MB at K=40** (a) · 4.15 → **166 MB** (b) · 22.50 → **900 MB** (c). DSM 5.2 / 8.6 / 46.8 MB. Term buffer 59 B/cell = **2.38 / 6.62 / 21.3 MB**.
+Memory: hulls **2.53 MB/az → 101 MB at K=40** (a) · 4.15 → **166 MB** (b) · 22.50 → **900 MB** (c). DSM 5.2 / 8.6 / 46.8 MB. Term buffer **75 B/cell = 3.03 / 8.42 / 27.1 MB** *(corrected 2026-08-24d against the shipped code — `bestSpotSolver.ts:247` `TERM_BYTES_PER_CELL = 75`; the 59 B forecast is superseded, see §5.3)*.
+
+> **Row 11 is the forecast, not the measurement.** COMPOSE measures **~2.5 ms at 201²** (`bestSpotSolver.test.ts:872,898-911`, pinned `< 5` reference-ms), not 0.272 ms: the modelled ~15 multiply-adds/cell missed one `exp`, one `sqrt`, two `smoothstep`s and — the dominant term — the 3 MB of term buffer streamed across fourteen typed arrays. A hand-inlined loop with every kernel call flattened runs 1.97 ms, so the gap is memory bandwidth, not call overhead. **The architectural claim survives untouched** (see §2.2).
 
 > **The plan's §5 budget (T0 ≈ 105 ms, T1 ≈ 90 ms) is off by 2× and 12×.** Correct it.
 >
@@ -189,7 +210,7 @@ The plan's §5 three-tier table is wrong in one specific way: **the hulls are ey
 
 Measured (A, Dnipro sunset, 0.25° lattice): same day +3 h → `eventTrack` returns a **byte-identical** track (it frames on `localDayWindow`, `bestSpotTrack.ts:213`). **+1 day → `setAzDeg` moves −0.534°, exact azimuth matches = 0/40.** +30 days → −17.04°, the two 12.6° spans are **disjoint**. Corroborated independently by C: annual sunset envelope [224.1°, 312.2°] = 88.1° → 353 hulls = 171 MB @ 3 m / 1.53 GB @ 1 m, so an all-azimuth resident hull set is impossible.
 
-**Fix: snap the track's azimuth lattice to an ABSOLUTE 0.25° grid** (`Math.round(u/azStep)*azStep` at `bestSpotTrack.ts:652-666`, behind an option so existing pins keep their spacing) and key a hull cache on the snapped azimuth. Then +1 day shares **37/39** azimuths instead of 0/40 (A).
+**Fix: snap the track's azimuth lattice to an ABSOLUTE 0.25° grid** (`Math.round(u/azStep)*azStep` at `bestSpotTrack.ts:652-666`, behind an option so existing pins keep their spacing) and key a hull cache on the snapped azimuth. Then +1 day shares **36 of 39** azimuths instead of 0/40 *(corrected 2026-08-24d against the shipped code — forecast 37/39, measured 36/39 at `bestSpotSolver.test.ts:1127-1137`; the `≥ 35` pin still passes)*.
 
 | tier | invalidated by | what re-runs | cost (a), achievable |
 |---|---|---|---|
@@ -197,10 +218,10 @@ Measured (A, Dnipro sunset, 0.25° lattice): same day +3 h → `eventTrack` retu
 | **T0.5** | **DAY or KIND** | track + hulls + sweep + score (3,8,9′,10′) | **490 ms** |
 | **T1** | lift, eye height | sweep + score (9′,10′), hulls resident | **343 ms** |
 | **T1′** | scene time **within the same local day** | nothing | **0 ms** — assert this |
-| **T2** | a scoring-profile patch (most knobs) | COMPOSE from the resident term buffer | **0.272 ms** |
+| **T2** | a scoring-profile patch (most knobs) | COMPOSE from the resident term buffer | **~2.5 ms** measured |
 | **T3** | a render/look tunable | LUT rebuild + one uniform | **<0.1 ms** |
 
-**RECOMPOSE is 1,260× cheaper than the cheapest achievable T1 re-solve** (0.272 vs 343 ms) and 1,800× cheaper than a T0.5 rebuild. That ratio is the entire answer to owner requirement (vii); §5 turns it into a property.
+**RECOMPOSE is > 200× cheaper than the cheapest re-solve** (2.5 vs 550 ms of sweep + score) and it fits inside one 16.7 ms frame with 6× to spare, so every taste knob is genuinely live. *(Corrected 2026-08-24d against the shipped code: the forecast said 0.272 ms and 1,260×; measured is ~2.5 ms and >200×, `bestSpotSolver.test.ts:872,898-911`. The ratio moved by 6×; **the conclusion did not move at all**, which is what §5 turns into a property.)*
 
 ## 2.3 What the user actually waits for — the progressive ladder
 
@@ -215,20 +236,20 @@ Measured (A, Dnipro sunset, 0.25° lattice): same day +3 h → `eventTrack` retu
 
 **The ladder, measured** (A; tiles parsed once, land grid built once at 3 m and reused across rungs):
 
-| rung | cell | grid | disc cells | rung ms | **cumulative** |
+| rung | cell | grid | disc cells | node FORECAST, rung ms | **BROWSER, as built** |
 |---|---|---|---|---|---|
-| prep | — | — | — | track 2.4 + parse 22.0 + land 20.2 = **44.6** | 44.6 |
-| **R0** | 24 m | 61² | 491 | **10.6** | **55 ms ← FIRST INK** |
-| R1 | 12 m | 119² | 1,963 | 41.0 | 96 ms |
-| R2 | 6 m | 235² | 7,854 | 172.1 | 268 ms |
-| R3 | 3 m | 469² | 31,416 | 679.7 | 948 ms |
-| R3′ | 3 m + disc mask (§7 S3c) | | | 462.3 | **731 ms ← REFINED** |
+| prep | — | — | — | track 2.4 + parse 22.0 + land 20.2 = **44.6** | — |
+| **R0** | 24 m | 61² | 491 | **10.6** (⇒ 55 ms first ink) | **6.7 ms** |
+| R1 | 12 m | 119² | 1,963 | 41.0 (⇒ 96 ms) | **23 ms** |
+| R2 | 6 m | 235² | 7,854 | 172.1 (⇒ 268 ms) | **90 ms** |
+| R3 | 3 m | 469² | 31,416 | 679.7 (⇒ 948 ms) | **356 ms** |
+| R3′ | 3 m + disc mask (§7 S3c) | | | 462.3 (⇒ 731 ms refined) | (the mask is in the 356) |
 
-**Wall clock the user experiences.**
-- **Warm tiles:** click → **55 ms to first ink** → **731–948 ms to fully refined.**
-- **Cold tiles:** click → ~260 ms of nothing (median network across Dnipro/Kyiv/Lviv) → ink at **~320 ms** → refined at **1.0–1.2 s**.
-- **Time scrub within a day:** 0 ms. **Day step:** 490 ms (T0.5). **Altitude drag:** 343 ms per release; use the 24 m rung during the drag at **21 ms**.
-- **A taste-pass slider:** 0.272 ms — genuinely live at both 3 m and (6.05 ms) 1 m.
+**Wall clock the user experiences.** *(Corrected 2026-08-24d: the left column above was a node forecast; the right column and these numbers are the BROWSER MEASUREMENT of the shipped worker.)*
+- **Warm tiles, MEASURED IN A BROWSER: first ink 45.4 ms · fully refined 523.8 ms.** Both beat the forecast (55 ms / 731–948 ms). The shipped gate is `scripts/verify-bestspot.mjs:338-343` — `firstInkMs > 0 && ≤ 120` and `refinedMs > 0 && ≤ 1200` — and both pass with 2.6× and 2.3× of headroom.
+- **Cold tiles:** click → ~260 ms of nothing (median network across Dnipro/Kyiv/Lviv) → ink at **~320 ms** → refined at **1.0–1.2 s**. *(Forecast; the browser run was warm.)*
+- **Time scrub within a day:** 0 ms, measured — zero hull builds. **Day step:** 490 ms (T0.5, forecast). **Altitude drag:** zero hull builds across a 2 → 400 m drag, measured; the drag adds **1.1 ms** to the idle frame against a `< 12 ms` pin, because the coarse rung stays off the main thread.
+- **A taste-pass slider:** ~2.5 ms — genuinely live, one frame with room to spare.
 - Mid-tier phone: ×5–10 ⇒ 6.3–12.7 s. **UNVERIFIED** (no mobile device profiled); moot in v1 because the feature is desktop-fenced.
 
 **Does the coarse rung tell the truth?** Measured at 55 m lift, 489 probes on a common lattice (A):
@@ -245,7 +266,7 @@ Mean S is identical to 4 dp at every tier. ⇒ **the coarse FIELD is honest; the
 
 **The worker is mandatory, not an optimisation:** even R0 (10.6 ms) plus prep (44.6 ms) exceeds a 16.7 ms frame, and R3 is 41 dropped frames.
 
-**S6's `coarse-solve p95 < 33 ms` pin is NOT met at 12 m** (83 ms as built, 54 ms fused) and **IS met at 24 m (21 ms)**. Re-pin to 24 m.
+**S6's `coarse-solve p95 < 33 ms` pin is NOT met at 12 m** (83 ms as built, 54 ms fused) and **IS met at 24 m (21 ms)**. Re-pin to 24 m. *(Corrected 2026-08-24d: browser-measured, the 24 m coarse rung costs **35–49 ms**, not 21 — `scripts/verify-bestspot.mjs:723`. It therefore **must not land on the main thread**, and the pin that actually holds is the one the shipped script asserts: **the drag adds < 12 ms to the idle frame**, measured **1.1 ms**. A wall-clock rung budget was the wrong pin; the frame-cost delta is the right one.)*
 
 **1 m buys ρ = 0.969 and changes 4 of the top 20, for 6.7× the wall clock** (3,369 vs 501 ms on the same probe set). ULTRA is a shortlist tool, not a field tool. **Forbid ULTRA above 300 m radius**: 1 m @ 500 m is 1001² = 1,002,001 cells and costs ~12.2 s (extrapolated by cell count, UNVERIFIED as a run).
 
@@ -302,11 +323,43 @@ Nothing in the shipped libs is incremental: `rasterizeTinGround` is a single cal
 ## 3.4 What S3 must build for refinement (six items)
 
 1. **`terrainEpoch`** — a counter bumped by a new `load-model` listener; **`vectorVersion`** — `vtiles.version()` (exists). `bestSpotFeed` holds `builtTerrainEpoch` / `builtVectorVersion`.
+
+   > **TWO EPOCHS WAS THE BUG. THE SHIPPED SET IS FOUR, PLUS A FIFTH ON A DIFFERENT AXIS** *(corrected 2026-08-24d against `bestSpotFeed.ts:685-693`)*. Compared per frame, all monotone integers, never a deep compare: **`terrainEpoch`** · **`vectorVersion`** (`vtiles.version()`) · **`seatEpoch`** (`seatState().epoch`) · **`builtEpoch`** — bumped by BOTH building tilesets' `load-model`/`dispose-model`. **`builtEpoch` is why the first browser run painted a constant field**: a disc solved before the buildings streamed never re-solved, and no epoch was watching them, so every cell saw the same open horizon and all 31,417 scored cells came back at score byte 187. It also makes the `"no-built-geometry"` refusal self-healing rather than sticky (~1.5 s after the tiles land).
+   >
+   > Separately and on a different axis: **`sourcesEpoch`** (`bestSpotFeed.ts:452,722`, `bestSpotWorker.ts:213`) is the **T1 hull-cache key** — this document names no such channel. It is the S6 fix: `solveRung` called `buildDsm` unconditionally and the hull cache is keyed on `dsm.ground` IDENTITY, so a fresh-but-identical DSM invalidated every hull and a 2 → 400 m lift drag paid 39 hull builds against a pinned 0. Keying T1 on `${sourcesEpoch}|${tiles.length}` — an epoch that moves only when something actually STREAMED — takes it to zero.
 2. On change → mark T0 stale → **debounce `BESTSPOT.rebuildQuietFrames = 90`** (mirror `PLAN.reseatQuietFrames`, ≈1.5 s) → re-solve. Without the debounce, a streaming burst triggers a 680 ms solve every frame.
 3. **Re-climb the ladder from R0**, do not restart at R3.
 4. **Rebuild the DSM, never accumulate it.** `rasterizeTinGround` merges by **MAX** for order-independence (`localDsm.ts:462`, docstring `:394-396`) — correct for a fixed tile set, but it means **a refined (lower) LOD can never bring the ground back down**. Terrain refinement therefore requires a fresh `createLocalDsm` (16 ms — cheap; the 144 ms hull rebuild is the real cost).
 5. **Add `reachM`** — the along-ray distance of the last KNOWN slot — to `RaySweepOut` / `RayEvidence`, and **gate `openSky` on it** (`openSky` requires `reachM ≥ min(trustRadiusM, gridReach)`). Publish per-cell `minReachM` on `CellScore`. Without it, refinement will silently *lower* scores as data arrives and the owner will read that as a regression. This channel also makes the collar's value provable (0.0467 with vs 0.6619 without).
 6. **Add a tile-coverage count.** The disc footprint needs ≤ 4 z14 tiles (z14 at 48.46° is 1,621.6 m; the 1,800 m box at (b) is inside `ensureRing(pin, 1)`'s guaranteed 1,622 m). Below a floor of parsed tiles, **refuse** — render the whole disc UNMAPPED — rather than paint an all-`unknown` grid with `hard = 1` everywhere.
+
+### SHIPPED — the honesty subsystem is bigger than the six items above *(added 2026-08-24d against the shipped code)*
+
+**(a) THERE ARE THREE REFUSAL REASONS, NOT ONE.** This document documents only the tile count. `bestSpotWorker.ts:338` types all three, and each is a genuinely different failure:
+
+| reason | fires when | why it is not the others |
+|---|---|---|
+| **`"no-landcover"`** | the `LandGrid` has **zero painted cells** (`bestSpotSolver.ts:690-700`) | **Zero painted is a FETCH FAILURE, not a rural site.** `vectorTiles` caches a failed fetch as permanently `"failed"`; `buildLandGrid` with zero sources costs 0.03 ms and returns every cell `unknown` — which carries **`hard = 1`** (`landcoverRaster.ts:182`), so the water mask disappears and the top-K will rank a cell in the middle of the Dnipro. A genuinely rural disc is NOT this case: Everest's 3×3 z14 ring still paints 13 green features and rural UA paints 7 water + 26 lines. Only a fetch failure paints nothing at all. |
+| **`"no-tiles"`** | parsed z14 tiles < `BESTSPOT.minTilesForSolve` | item 6 above — the absolute floor on the tiles the disc actually OVERLAPS, not a coverage test. |
+| **`"no-built-geometry"`** | a disc with **DENSE parsed MVT and ZERO building meshes** (`bestSpotWorker.ts:1362-1383`) | The sibling of item 6 that item 6 missed. Withholding open-sky credit (the prior, (b) below) is the right answer where the horizon is set by SKY — and it is **not enough over a city with real relief**, because every ray hits terrain, credit is never withheld, and the disc still paints warm, uniform and confident. **Measured at the owner's hero pin: 54.74 buildings/km² in the parsed tiles, zero meshes flattened, all 31,417 cells at score byte 187** (S ≈ 0.6991) with a top-8 spread of 0.4 %. That is §11's "single most dangerous failure mode" verbatim, and no ray bookkeeping fixes it, because **the missing evidence is the obstruction MASS ITSELF.** |
+
+All three render the whole disc UNMAPPED and never throw: UNKNOWN is a render class the surface already knows how to draw, and a thrown solve is a blank screen with no explanation. `"no-built-geometry"` **self-heals** via `builtEpoch` ~1.5 s after the building tiles land, and stays refused with `▦ 3D DETAIL` off — the honest answer to "solve a city I have switched the city off in". Panel copy, `BestSpotPanel.tsx:180`: `⚠ NO BUILDING GEOMETRY REACHED THIS DISC — TURN ▦ 3D DETAIL ON, OR WAIT FOR TILES`.
+
+**(b) THE BUILT-DENSITY PRIOR HAS A DERIVED FLOOR AND IT IS NOT A SCORE PENALTY.** §3.2 case 3 names the fix but not its number or its mechanism.
+
+- **Floor `BESTSPOT.builtDensityFloorPerKm2 = 1`** (`tuning.ts:3020-3045`), derived as the **GEOMETRIC MEAN of the only two non-zero populations anyone measured**: √(26.6 × 0.048) = **1.13**, rounded down to 1.0. That is 26.6× of headroom under the surveyed population (Dnipro centre, 558 buildings over ≈21 km²) and 21× over the unsurveyed one (rural UA, 1) — as far from both as the data allows. `parseTile` does `if (!layer) continue`, so "tile fetched, zero buildings" is byte-identical to "OSM never surveyed here"; density is the ONLY signal available and it is free off tiles the disc already parsed.
+- **MECHANISM — it is the COVERAGE channel, not a multiplier** (`bestSpotSolver.ts:670-686`). UNKNOWN is a render class and never a low score, so **the prior may not multiply `S` down — it has to withdraw the CLAIM.** `openSky` is exactly the claim that needs building data ("nothing stands between you and the horizon"); with no survey behind it that sentence is not a measurement, so the ray is **not credited as evidence**: `known` is withheld, `C` falls, and the cell lands in the UNKNOWN render class through machinery that already exists (`:1094-1101`).
+- **THE ASYMMETRY IS THE WHOLE POINT.** A ray whose horizon is set by **REAL RELIEF is untouched**. That is why Everest and a flat rural pin come back differently **from one rule**: Everest's rays are not `openSky` (a measured ridge sets them), so the disc still scores, terrain-only, with real relief — while the flat rural pin goes UNKNOWN. Measured rural: 1,225,263 ray visits withheld, fraction of cells with `S > 0.6` = **0.0000** (pre-fix: a uniform 0.470–0.661).
+
+**(c) `reachM` NEEDED A POLICY LAYER ON TOP OF THE CHANNEL.** Item 5 ships the channel and the `openSky` gate; they take the §3.1 truncation fixture from 0.6633 to 0.5530. **`BESTSPOT.refuseBelowReachM = 400`** (`tuning.ts:3047-3070`) is the policy — *how far must a cell have looked before its answer is worth painting* — and it withdraws the claim entirely: the same centre cell goes **0.5530 → 0.0000**, `verdict: unknown`, `unmappedFrac` 0.000 → 0.723.
+
+**THE CEILING IS `collarM`, AND THAT IS A GEOMETRIC FACT, NOT TASTE.** On a fully-mapped disc a RIM cell has exactly the collar's worth of evidence up-sun and no more, so any threshold above the collar refuses the rim of a disc with nothing wrong with it. Calibrated on a fully-mapped 300 m disc (31,417 scored cells):
+
+| `refuseBelowReachM` | 200 | 380 | **400** | 420 | 500 |
+|---|---|---|---|---|---|
+| cells refused | 0 | 0 | **0** | 175 | 3,027 |
+
+It is the SAME NUMBER as `collarM` and must stay so — a taste pass that moved the collar and not this would start refusing the rim of a perfectly good disc. `as const` cannot self-reference, so **the equality is held by a test** (`bestSpotHonesty.test.ts`, *"the ceiling IS the collar"*), which is also the only form that can FAIL when someone edits one of them.
 
 ---
 
@@ -390,6 +443,7 @@ export interface BestSpotScoring {
     readonly vGateLo: number;        // 0.15
     readonly vGateHi: number;        // 0.75   clamped >= vGateLo + 0.05
     readonly halfDiscFrac: number;   // 0.50
+    readonly minCoverage: number;    // 0.50   HONESTY: effective = max(0.5, patch)   <- was missing
   };
 
   readonly curves: {
@@ -431,7 +485,8 @@ export interface BestSpotScoring {
     readonly plateauLoDeg: number;      // -6
     readonly rampHiDeg: number;         // +6
     readonly rampLoDeg: number;         // -12
-    readonly floor: number;             // 0.25
+    readonly floor: number;             // 0.25   the TWILIGHT-GATE floor, inside bestSpotTrack
+    readonly effectiveFloor: number;    // 0.35   owner ruling R7, the COMPOSITION floor   <- was missing
     readonly mode: "multiply" | "badge";        // see §8 Q1
     readonly phaseCurve: "ks1991" | "illumFrac" | "off";  // DEV-only A/B, see §5.5
   };
@@ -447,13 +502,24 @@ export interface BestSpotScoring {
 
 export type BestSpotScoringPatch = DeepPartial<BestSpotScoring>;
 export function resolveScoring(patch?: BestSpotScoringPatch | null): BestSpotScoring;  // frozen, complete
-export function sanitizeScoringPatch(raw: unknown): BestSpotScoringPatch;  // the prefs.ts idiom
+export function sanitizeScoringPatch(raw: unknown, opts: { dev?: boolean } = {}): BestSpotScoringPatch;
 export function scoringHash(s: BestSpotScoring): string;   // FNV-1a over canonical JSON, toPrecision(12)
 export function scoringDiff(s: BestSpotScoring): { path: string; from: unknown; to: unknown }[];
 export function scoringInvalidation(prev, next): InvalidationClass;
+export function scoringLeafPaths(): string[];              // every leaf, for the EVERY-FIELD-IS-LIVE walk
+export const BESTSPOT_SCORING_VERSION = 1;                 // bumped only when a MEANING changes
+export const INVALIDATION_RANK: Readonly<Record<InvalidationClass, number>>;  // the order IS the contract
+export const CLASS_OF: Readonly<Record<string, InvalidationClass>>;           // §5.4's table, frozen
 export const BESTSPOT_PRESETS: Record<string, BestSpotScoringPatch>;
 export const BESTSPOT_PHYSICS, BESTSPOT_SAFETY, BESTSPOT_HONESTY;  // separate — no key path from a patch
 ```
+
+*(Corrected 2026-08-24d against `bestSpotScoring.ts`.)* **`sanitizeScoringPatch` takes a second argument, and that is what makes the DEV-seam / persisted-sanitizer split expressible at all** (`:650-653`, applied at `:696-704`): with `{ dev: true }` the console seam ACCEPTS `worth.phaseCurve: "illumFrac"` so the owner can see the difference in a session; without it the persisted sanitizer REFUSES it with a warning and — deliberately not a throw — keeps the rest of the saved tune. Four exports this section omitted are now listed: `INVALIDATION_RANK` (`:80`), `scoringLeafPaths` (`:753`), `CLASS_OF` (`:522`), `BESTSPOT_SCORING_VERSION` (`:63`).
+
+> **TWO FLOORS ARE NAMED `floor` AND THEY ARE DIFFERENT NUMBERS** (`bestSpotScoring.ts:40-53`) — conflating them is the obvious mistake and the doc comment exists to stop it.
+> · **`worth.floor` (0.25)** is the **TWILIGHT-GATE** floor: the value `twilightGate(sunAlt)` ramps down to when a moon event happens far outside the photographic twilight band. It shapes `worth` ITSELF, **inside `bestSpotTrack`**, and it is a shipped number (`WORTH_GATE_FLOOR`).
+> · **`worth.effectiveFloor` (0.35)** is owner ruling **R7** and it shapes how the finished `worth` ENTERS THE PER-CELL PRODUCT: `M_eff = effectiveFloor + (1 − effectiveFloor)·worth`.
+> Raising `worth.floor` compresses the honest signal (§8 Q1 option (b), which the owner did NOT pick); raising `worth.effectiveFloor` compresses only the RENDERED dynamic range and leaves the ranking **inside** a night untouched.
 
 **Merge rules.** Objects deep-merge; **`Record` maps replace key-by-key** (a partial ladder patches only the classes it names). Unknown keys are dropped silently (`sanitizeViewPrefs`, `prefs.ts:77-121`). `resolveScoring` returns a frozen, fully-populated profile; there is no partially-resolved state.
 
@@ -464,23 +530,26 @@ export const BESTSPOT_PHYSICS, BESTSPOT_SAFETY, BESTSPOT_HONESTY;  // separate �
 
 **The fused pass must write a per-cell TERM VECTOR, not `S`.** A separate trivial COMPOSE pass produces `S` and the RG8 texture. **Do not let the solver ship a fused pass that writes `S` directly — retrofitting the term buffer afterwards is exactly the "substantial architecture rework" the owner ruled out.**
 
-Layout, 59 B/cell:
+Layout, **75 B/cell — 18 × f32 + 3 × u8** *(corrected 2026-08-24d against the shipped code, `bestSpotSolver.ts:236-247` `TERM_BYTES_PER_CELL = 75`; the 59 B layout below it is superseded)*:
 
 | bytes | fields |
 |---|---|
-| 16 | `tauTerrain, tauBuilding, tauDeck, tauTree` (f32) — each already relief- and depth-weighted |
-| 32 | `notchRaw, notchQ, v, l, p, c, altStar, dStar` (f32) |
+| 16 | `tauTerrain, tauBuilding, tauDeck, tauTree` (f32) — already relief- and depth-weighted, with the per-source CONFIDENCE deliberately NOT applied |
+| 24 | `notchFloorDeg, notchDepthDeg, notchWidthDeg, rhoStar, notchQL, notchQR` (f32) — the GAP's raw GEOMETRY plus its two shoulder qualities, **uncombined** |
+| 24 | `v, l, p, c, altStar, dStar` (f32) |
 | 4 | `grazeDistM` (f32) — distance of the max-contributing edge, for the panel copy |
 | 4 | `minReachM` (f32) — the honesty channel (§3.4 item 5) |
 | 3 | `srcStar, cls, flags` (u8) — `cls` is the `LAND_CODE` byte so `accessAt` is recomputable |
 
-**2.38 MB @ 201² · 6.62 MB @ 335² · 21.3 MB @ 601².** Noise against 101 MB of hulls. §5's own 12 accumulators already cost 48 B/cell — this is **+11 B/cell, not a new memory tier**.
+**WHY 75 AND NOT 59: THE INVALIDATION TABLE WAS RIGHT AND THE BUFFER WAS THE LIE.** The 59 B layout stored the notch as a **finished product** (`notchRaw`, `notchQ`), which FROZE `gap.salienceFloorDeg / maxDepthDeg / maxWidthDeg / clearanceRadii / shoulderQuality` at solve time — while §5.4's `CLASS_OF` files all five as **recompose**. Paying 16 B/cell for the notch GEOMETRY and splitting `notchQ` into `notchQL`/`notchQR` makes all five true. The same discipline explains the τ block: confidence is withheld so `graze.conf.*` and `graze.scaleRadii` stay a recompose instead of a 177 ms rescore. The buffer stores numbers WITHHELD, shoulders UNCOMBINED, `altStar` rather than `L`, and `cls`+`flags` rather than a resolved `soft` — every one of those is a leaf the table promises is cheap.
 
-Compose is ~15 multiply-adds/cell ⇒ **0.272 ms measured at 201²** (C), 6.05 ms at 601².
+**3.03 MB @ 201² · 8.42 MB @ 335² · 27.1 MB @ 601²** (was 2.38 / 6.62 / 21.3). Noise against 101 MB of hulls. §5's own 12 accumulators already cost 48 B/cell — this is **+27 B/cell, not a new memory tier**, and it is the difference between a documented contract and a lie in a table.
+
+Compose was modelled at ~15 multiply-adds/cell ⇒ 0.272 ms at 201²; **MEASURED, it is ~2.5 ms at 201²**, pinned `< 5` reference-ms (`bestSpotSolver.test.ts:872,898-911`). The model missed one `exp`, one `sqrt`, two `smoothstep`s and the 3 MB streamed across fourteen typed arrays — a hand-inlined flattening buys only 1.3× (1.97 ms), so the cost is bandwidth, not kernel calls, and paying it back would cost the one-implementation-two-callers property the file is built on. **The architectural claim is untouched: > 200× cheaper than the cheapest re-solve, inside one frame.**
 
 Optional upgrade (UNVERIFIED, arithmetic only): bucket τ by 4 distance decades (<100 / 100–500 / 500–1500 / >1500 m) → 16 f32 = 64 B for the τ block, total ~104 B/cell = 4.2 MB @ 201². That moves `curves.depthNearRefM` / `depthTrustRadiusM` from RESCORE to RECOMPOSE. Not recommended for v1: rescore is 177 ms, which is fine on slider *release*.
 
-Two cheap conversions that move whole GROUPS into the 0.272 ms class — **do them in the same slice or they will never be done**:
+Two cheap conversions that move whole GROUPS into the recompose class — **do them in the same slice or they will never be done**:
 - **(a)** `LandGrid` carries `cls: Uint8Array` + `flags: Uint8Array` (bit0 demoted, bit1 accessDenied) and resolves `soft` at READ time from the profile. Kills `softQ`'s baking (`landcoverRaster.ts:250,:530`). Same byte count. **Re-raster (2.2–31 ms) → recompose.**
 - **(b)** `EventTrack` gains `sunAltAtT0Deg` + `moonPhaseAngleDeg` so the whole worth curve is recomputable without touching the ephemeris. **+2 numbers per disc. Rebuild → recompose.**
 
@@ -493,16 +562,18 @@ const CLASS_OF: Record<string /* leaf path */, InvalidationClass> = { … };
 
 The diff walker looks up each changed leaf path and returns the **strongest** class. **A path with no entry defaults to `"rebuild"`** — fail-safe: a new field is slow, never wrong. A test asserts every leaf of `BESTSPOT_SCORING_V1` has an entry.
 
+*(Costs corrected 2026-08-24d: every `0.272` below is measured at **~2.5 ms**. The CLASSES are unchanged — the shipped `CLASS_TABLE` at `bestSpotScoring.ts:450-520` agrees with this table row for row.)*
+
 | profile path | class | cost @ 3 m/300 m |
 |---|---|---|
-| `weights.*` | **recompose** | **0.272 ms** |
-| `gates.vGateLo` / `vGateHi` | recompose | 0.272 |
-| `curves.lCeilDeg`, `curves.accessSoftExponent` | recompose | 0.272 |
-| `graze.scaleRadii`, `graze.conf.*` | recompose | 0.272 (τ is stored split by source) |
-| `gap.salienceFloorDeg` / `maxDepthDeg` / `maxWidthDeg` / `clearanceRadii` / `shoulderQuality` | recompose | 0.272 |
-| `access.soft.*`, `access.demoteK`, `access.aerialMinM` | recompose **after §5.3(a)** | 0.272 (else re-raster 2.2–31) |
-| `worth.*` | recompose **after §5.3(b)** | 0.272 (else rebuild) |
-| honesty `minCoverage` (clamped ≥ 0.5) | recompose | 0.272 |
+| `weights.*` | **recompose** | **~2.5 ms** |
+| `gates.vGateLo` / `vGateHi` | recompose | ~2.5 |
+| `curves.lCeilDeg`, `curves.accessSoftExponent` | recompose | ~2.5 |
+| `graze.scaleRadii`, `graze.conf.*` | recompose | ~2.5 (τ is stored split by source, confidence withheld) |
+| `gap.salienceFloorDeg` / `maxDepthDeg` / `maxWidthDeg` / `clearanceRadii` / `shoulderQuality` | recompose | ~2.5 — **only because the buffer stores the notch GEOMETRY, §5.3** |
+| `access.soft.*`, `access.demoteK`, `access.aerialMinM` | recompose **after §5.3(a)** | ~2.5 (else re-raster 2.2–31) |
+| `worth.*` incl. `worth.floor` **and `worth.effectiveFloor`** | recompose **after §5.3(b)** | ~2.5 (else rebuild) |
+| honesty `gates.minCoverage` (clamped ≥ 0.5) | recompose | ~2.5 |
 | `render.*` (ramp id, alpha curves, contour interval, rim) | **repaint** | **<0.1 ms** |
 | `trackWeight.altScaleDeg`, `trackWeight.horizonCeiling` | **reweigh** | **4.27 ms** (+1.62 MB per-(cell,ray) `f` byte cache; ON at cellM ≥ 3, OFF at 1 m) |
 | `curves.depthNearRefM` / `depthTrustRadiusM` | **rescore** (P is recompose, but GRAZE's Depth is baked into τ) | **177 ms** |
@@ -538,6 +609,8 @@ These have **no key path from the patch**; the deep-merge literally cannot reach
 
 ```js
 __globe.bestSpot()                                        // { scoring, hash, diff, verdictCounts, lastClass, timings }
+__globe.bestSpotSheet()                                   // the LIVE material + textures + per-child renderOrder
+__globe.bestSpotField()                                   // the PUBLISHED RG8 pack, by reference — never a recompute
 __globe.bestSpotTuning({ weights: { p: 0.40, f: 0.15 } }) // deep-merge -> resolve -> persist -> re-score
 __globe.bestSpotTuning("depth-forward")                   // a named preset
 __globe.bestSpotTuning(null)                              // reset to shipped default, clear the patch
@@ -545,15 +618,23 @@ __globe.bestSpotTuning.export()                           // paste-ready TS: the
 __globe.bestSpotTuning.ab(A, B)                           // rank delta + Spearman rho + top-10 survival
 ```
 
+**THE TWO READ PROBES ARE NOT CONVENIENCES, AND WHY MATTERS** *(added 2026-08-24d — `StylizedTiles.ts:2170` and `:2181`)*. **`window.__globe` exposes no `scene`**, so without them nothing under `scripts/**` can reach the sheet at all — which is exactly how **seven of S4's "read the LIVE material" done-checks came to live only in vitest, asserting against the constructor arguments that built the material rather than the shipped state** (the `__globe.ultraLook` lesson, again). `bestSpotSheet()` answers them against the real objects; `bestSpotField()` hands out the same pack the GL sheet uploads, by reference, because S7's done-check is a claim about the score DISTRIBUTION and a verify script that recomputed `S` in page would be measuring its own arithmetic.
+
 Flow: `sanitizeScoringPatch` (clamps §5.5, drops unknown keys, warns on refused) → `resolveScoring(merge(current, patch))` → `store.setScoring(next)` (bumps `scoringEpoch`) → `saveViewPref("bestSpotTuning", patch)` → `stepBestSpotFeed` (FEEDS-LAST band, immediately after `stepPlanFeed`) sees the epoch change → `cls = scoringInvalidation(prev, next)` → `worker.postMessage({ type: "apply", jobId, epoch, scoring: next, from: cls })` → the worker runs ONLY the stages at/below `cls` over its resident state `{ parsedTiles, LandGrid, LocalDsm, RayHulls[K], sweepEvidence, termBuffer }` → result posts back with `scoringHash`.
+
+**The wire carries FOUR job types, not three** — `solve` · `apply` · **`refine`** (`BestSpotRefineJob`, `bestSpotWorker.ts:284` — R8's user-triggered 1 m obstruction re-solve of one shortlist row) · `cancel`.
 
 **`scoringHash` is echoed on every result and asserted against the store's current hash before the texture upload.** A mismatch means a stale job landed after a newer patch — drop it. That one integer is what stops "the picture disagrees with the numbers".
 
-**The profile rides the JOB, never a module read.** The worker is long-lived (a new pattern here — the shipped one is single-shot, `workerClient.ts:45,78-80`), so a module-scope read latches at spawn and is invisibly stale forever. ~45 leaves structured-cloned is microseconds against a 490 ms rebuild.
+**The profile rides the JOB, never a module read.** The worker is long-lived (a new pattern here — the shipped one is single-shot, `workerClient.ts:45,78-80`), so a module-scope read latches at spawn and is invisibly stale forever. **54 leaves** structured-cloned is microseconds against a 490 ms rebuild.
+
+**WORKER LIFECYCLE AND CANCELLATION** *(added 2026-08-24d — `bestSpotWorkerClient.ts:30-34`, `:164`)*. Spawn **lazily on the first job**, then **keep it alive**: a toggle that closes and re-opens the window would otherwise re-pay the whole T0 tier for nothing, and the worker already drops its geometry itself when the centre key changes (`residentKeyOf`), so the memory is released without the thread being torn down. **`terminate()` is reserved for `dispose()`** — the globe going away.
+
+> **CANCELLATION IS COOPERATIVE, NOT `terminate()`.** A `postMessage` cannot interrupt a running 680 ms rung — only `terminate()` can, and that throws away the resident state the next job needs. So `cancel(jobId)` **marks** the job and the worker checks **between rungs** (`bestSpotWorker.ts:506`, `:1281`, `:1391`), backstopped by the `scoringHash` echo for anything that slips out anyway. Worst case is one extra rung of latency (10–680 ms depending on where it was). The alternative — terminate and respawn on every pin drag — turns a 45 ms first ink into a 300 ms one. The cancelled set is PRUNED (`CANCEL_MEMORY = 64`): `jobId` is monotone and a live altitude drag cancels one job per frame, so an unbounded set would grow by 60 integers a second.
 
 **Fence it.** `test/components/globe/fences.test.ts` gains: `bestSpotWorker.ts` and `bestSpotSolver.ts` contain no `components/globe/tuning` import. Ribbon widths (`VECTOR.roadWidthM`, `waterwayWidthM`) ride on the job instead.
 
-`.ab(A, B)` earns its 20 lines: two recomposes = **0.54 ms**, and it answers the question the owner actually has ("did the *ranking* change?") rather than the one the console answers ("did the number change?").
+`.ab(A, B)` earns its 20 lines: two recomposes = **~5 ms**, and it answers the question the owner actually has ("did the *ranking* change?") rather than the one the console answers ("did the number change?").
 
 ## 5.7 Persistence, presets, migration
 
@@ -570,7 +651,7 @@ if (typeof r.bestSpotTuning === "object" && r.bestSpotTuning !== null)
 
 ## 5.8 The test that makes requirement (vii) enforceable
 
-**EVERY FIELD IS LIVE.** For every leaf path of `BESTSPOT_SCORING_V1`, perturb it (×1.3, flip a boolean, step an enum) on a fixed composition fixture and assert `cellScore` moves by > 1e-12. Any leaf that does not move the score is (a) dead, (b) still read from module scope, or (c) needs a richer fixture. Maintain an `EXPECT_INERT_ON_FIXTURE` allowlist with a written reason per entry.
+**EVERY FIELD IS LIVE.** For every leaf path of `BESTSPOT_SCORING_V1` — **54 of them as shipped**, and `CLASS_TABLE` (`bestSpotScoring.ts:450-520`) carries exactly 54 matching entries — perturb it (×1.3, flip a boolean, step an enum) on a fixed composition fixture and assert `cellScore` moves by > 1e-12. Any leaf that does not move the score is (a) dead, (b) still read from module scope, or (c) needs a richer fixture. Maintain an `EXPECT_INERT_ON_FIXTURE` allowlist with a written reason per entry.
 
 **This test cannot pass vacuously**, and it goes red the day someone re-inlines a constant — which is how all 37 unreachable numbers got there. Pair it with: every leaf has a `CLASS_OF` entry · `scoringInvalidation` returns what the table says · sanitize/resolve round-trip · a v0 patch with a removed field and an unknown field still resolves.
 
@@ -579,12 +660,12 @@ if (typeof r.bestSpotTuning === "object" && r.bestSpotTuning !== null)
 ```js
 __globe.bestSpotTuning({ weights: { p: 0.40, f: 0.15 } })
 // -> SCORING v1  hash 3f9a2c17 · 2 fields differ from default
-// -> class=recompose · 31,417 cells re-scored in 0.28 ms · hulls 40 (unchanged)
+// -> class=recompose · 31,417 cells re-scored in 2.5 ms · hulls 40 (unchanged)
 // -> top-K: 7 of 10 survive · Spearman rho 0.91 · new #1 moved 34 m NE
 ```
 Map updates next frame. Reload keeps it. `.export()` produces the diff for the next session. Shipping a tune is pasting the changed leaves into `BESTSPOT_SCORING_V1` — a no-op for the tuner, which is correct.
 
-**UI: console for 41 of the ~45 leaves, plus ONE 4-slider weights strip** behind a DEV-gated `TUNE` chip **in `panels/BestSpotPanel.tsx` — not in `components/controls/**`** (that is the third SHARED tier, enforced by `mobileFence.test.ts` rule 3; a DEV-only tuning control there would need a fence exception for a control that must never reach `/m`). Panels are not shared-tier, so the strip costs one file and zero fence edits.
+**UI: console for 50 of the 54 leaves, plus ONE 4-slider weights strip** behind a DEV-gated `TUNE` chip **in `panels/BestSpotPanel.tsx` — not in `components/controls/**`** (that is the third SHARED tier, enforced by `mobileFence.test.ts` rule 3; a DEV-only tuning control there would need a fence exception for a control that must never reach `/m`). Panels are not shared-tier, so the strip costs one file and zero fence edits.
 
 ---
 
@@ -630,7 +711,11 @@ Agent D booted the real app headless (CDP → Chrome 148 + SwiftShader) at Dnipr
 
 Monotone in OKLab L over all 11 stops. Min adjacent ΔL = 0.0779 (0.3→0.4), max 0.1524 (0.0→0.1). Test: `okL(heat[i+1]) > okL(heat[i])` for all i. **Verified: `src/styles/tokens.css` has zero `heat` tokens today** — 22 new tokens (11 + 11 alt) plus a `lib/theme/tokens.ts` regeneration.
 
-**TURBO behind an A/B chip only** (`--color-heat-alt-0…10`): `#30123B #4454C4 #4490FE #1FC8DE #29EFA2 #7DFF56 #C1F334 #F1CA3A #FE922A #EA4F0D #7A0403`. OKLab L peaks at t = 0.6 (0.8978) and falls to 0.3662 — **four monotonicity drops**. Composited: Turbo's peak lightness delta lands at **s = 0.65** and collapses to +0.002 at s = 0.95 ⇒ **the brightest thing on a Turbo map is a mediocre spot and the best spot disappears.** Working-band discrimination 0.071 / 0.022 vs Inferno's 0.166 / 0.095 — a **2.3–4.3× loss**. The chip ships with the tip: `TURBO — RAINBOW A/B. NOT MONOTONE: THE BEST SPOTS GO DARK RED.` *(UNVERIFIED: the 8 interior Turbo stops were reproduced from memory; regenerate from the canonical 256-entry table at implementation. The non-monotonicity conclusion does not depend on them.)*
+**TURBO behind an A/B chip only** (`--color-heat-alt-0…10`), the SHIPPED stops *(regenerated 2026-08-24d from Google's canonical 256-entry `turbo_srgb_floats` table and verified against `src/styles/tokens.css:113-123` — **all 8 interior stops differ from the from-memory list this section carried**; the endpoints `#30123B` / `#7A0403` were right)*:
+
+`#30123B #455ACD #3E9BFE #19D6CC #46F884 #A3FD3C #E1DD37 #FEA531 #F05B12 #C42503 #7A0403`
+
+OKLab L rises to **0.9036 at t = 0.5** (chartreuse, `#A3FD3C`) and collapses to 0.3662 at t = 1.0 — **five descending pairs**. So Turbo's lightness peak sits at the MIDDLE of the scale, not near the top: **the brightest thing on a Turbo map is a mediocre spot and the best spot goes dark red.** Working-band discrimination 0.071 / 0.022 vs Inferno's 0.166 / 0.095 — a **2.3–4.3× loss**. The chip ships with the tip: `TURBO — RAINBOW A/B. NOT MONOTONE: THE BEST SPOTS GO DARK RED.` The conclusion never depended on the stops, and `test/lib/theme/heatPalette.test.ts` now asserts the non-monotonicity so the two ramps can never be silently swapped. *(The forecast said a peak at t = 0.6 / s = 0.65 with four drops; corrected above. INFERNO's 11 stops match `tokens.css:88-98` exactly and stand as written.)*
 
 Assembly: `src/lib/theme/heatPalette.ts` (the `findPalette.ts:19-31` precedent) exporting `HEAT_INFERNO`, `HEAT_TURBO` and `buildHeatLut(stops): Uint8Array(256*3)`. **`tuning.ts` names ramps by id (`"inferno" | "turbo"`), never by colour.**
 
@@ -793,7 +878,7 @@ Window: `.bsp-root` / `.bsp` / `.bsp-scroll` are **geometry twins** of `.pp-root
 │ (100)(200)(300*)(400)(500) m             │ .pp-chips  (1 m ULTRA disabled above 300)
 │                                          │
 │ SHEET ALTITUDE            1.7 m          │ .uf-slider__head
-│ ▁▁▁●▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁      │ 0.5 … 400 m, log; dbl-click → 1.7 m
+│ ▁▁▁●▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁      │ 1.7 … 400 m, log; dbl-click → 1.7 m
 │                                          │
 │ ─────────────────────────────────────    │
 │ SCORE                          [INFERNO] │ .bsp-legend / .bsp-ab (A/B → TURBO)
@@ -825,6 +910,8 @@ Window: `.bsp-root` / `.bsp` / `.bsp-scroll` are **geometry twins** of `.pp-root
 │   ON THIS DATE                           │   measured null across the TROPICS, not the poles)
 └──────────────────────────────────────────┘
 ```
+**The lift slider's rail starts at `eyeM` (1.7 m), not at the 0.5 m this mock drew** *(corrected 2026-08-24d against `BestSpotPanel.tsx:492-499`, reason at `:400-403`)*: `min = BESTSPOT.eyeM`, `max = 400`, log, double-click → 1.7 m. The store carries `eyeM` (the pedestrian eye) and `liftM` (metres ABOVE it), so the number a person reads off the slider is their sum — and **`liftMinM 0.5` is the LOG slider's own domain floor (a log scale has no zero), not a place anybody can stand.** Drawing the rail from 0.5 m offered half a metre of altitude that means nothing.
+
 **Every row prints the ABSOLUTE score beside the relative bar** — §3.5's display-normalisation rule, non-negotiable.
 **Controls live in `src/components/controls/**` from day one.** `mobileFence.test.ts:77-93` allows only `react` · `store/` · `lib/` · `styles/` · `globe/tuning` — so `ui/Slider` is **unreachable**, and `controls/InstrumentSlider.tsx` must re-implement the `.uf-slider` grammar (rail 2 px, accent fill, 12 px knob, `ew-resize`, dbl-click reset, `role="slider"` + arrows/Home/End) importing only class names. `controls/ChipRow.tsx` serves both the event and radius rows.
 
@@ -835,7 +922,7 @@ Window: `.bsp-root` / `.bsp` / `.bsp-scroll` are **geometry twins** of `.pp-root
 
 **Presence band, radius-derived:** `fullAltM = 8 × radiusM`, `topAltM = 14 × radiusM` through `presenceForAlt` (`tangentOverlay.ts:63`) + `easeFade(…, 250 ms)`. For R = 300 m: full ≤ 2400 m, gone ≥ 4200 m — where a 3 m cell measures **1.02 px**, so the sheet vanishes exactly at the resolution limit rather than lying at 0.5 px. **AND-ed with `!isMobileShell && !coarsePointerShell` AT THE READ** (the `StylizedTiles.ts:729` `hqAllowed` idiom).
 
-**(A) 3D orbit / oblique.** The sheet conforms to terrain (64×64 verts from the same DSM, rewritten in place — the `focalCone` allocate-once lesson) and is depth-tested, so **buildings occlude it** — a cell inside a footprint is hidden by the building, which is the truthful rendering of `A_hard = 0`. Vertical line at full projected length above tilt 45°; the density dropout thins the far half automatically. *(UNVERIFIED: the oblique capture returned percentile statistics byte-identical to the nadir dark-drape capture, so oblique backdrop luminance is unmeasured. The dark drape is near-uniform, so it is unlikely to differ much; oblique SATELLITE is genuinely unmeasured.)*
+**(A) 3D orbit / oblique.** The sheet conforms to terrain (**`CONFORM_N = 65` ⇒ 65×65 SAMPLES = 64×64 quads**, from the same DSM, rewritten in place — the `focalCone` allocate-once lesson; *corrected 2026-08-24d against `bestSpotSolver.ts:393` — this section said "64×64 verts", which is the quad count, and a lattice off by one row is the same parity bug class as `oddSpanCells`*) and is depth-tested, so **buildings occlude it** — a cell inside a footprint is hidden by the building, which is the truthful rendering of `A_hard = 0`. Vertical line at full projected length above tilt 45°; the density dropout thins the far half automatically. *(UNVERIFIED: the oblique capture returned percentile statistics byte-identical to the nadir dark-drape capture, so oblique backdrop luminance is unmeasured. The dark drape is near-uniform, so it is unlikely to differ much; oblique SATELLITE is genuinely unmeasured.)*
 
 **(B) Desktop nadir / flat map.** Natural altitude for R = 300 m is ~900 m (disc = 951 px against a 982 px viewport). One 3 m cell = **4.75 px**, one 1 m ULTRA cell = **1.58 px** — both resolvable, so the tier ladder is honest at the altitude the user plans from. `mapFlat` is where `streetNames`/`vectorFeatures` drop `depthTest` (`streetNames.ts:351-354`, `vectorFeatures.ts:391-392`) — **the sheet does NOT follow them.** It stays depth-tested: it is a ground reading, not map ink, and drawing through buildings would paint scores onto roofs the solver excluded. The plumb line degenerates and the **scale spoke + ground tick + chip carry it** (§6.7 proof). The photographic 2D chart (`GROUND.flat2dPhotoK = 1`) is the brightest backdrop measured — this is the surface the veil/ink split exists for.
 
@@ -845,14 +932,21 @@ Window: `.bsp-root` / `.bsp` / `.bsp-scroll` are **geometry twins** of `.pp-root
 
 ## 6.11 The `BESTSPOT` tuning block (pure data, zero colour literals)
 
+*(Regenerated 2026-08-24d from the shipped block, `tuning.ts:2840-3088`. **This section listed 40 keys; the block has 60.** The 20 it never named are the whole SITUATION half of the feature — geometry, tiers, the ladder's inputs, and four honesty/safety numbers — which is exactly the half a "pure data, zero colour literals" heading invites a reader to skip.)*
+
 ```
+LOOK — the ramp and the sheet
 rampId "inferno" | rampAltId "turbo"
 displayLo 0.15 · displayHi 0.90          <- THE knob that absorbs any scoring-function change
 inkMin 0.02 · inkMax 0.34 · inkGamma 1.4
 veilMin 0.12 · veilMax 0.30              <- independent of ink
+bloomHeadroomNote  <- named line: raising inkMax past ~0.40 smears (BLOOM.threshold 0.9)
+
+LOOK — contours, classes, markers, presence
 contourStep 0.10 · contourMajors [0.60, 0.80]
 coreWidthPx 1.4 · haloWidthPx 3.8 · majorWidthK 1.7
 haloAlpha 0.65 · coreAlpha 0.95 · majorAlphaBoost 0.15
+dashCoreAlpha                            <- NEW: the UNKNOWN boundary's dash core (§6.6's halo pair)
 densFadeLo 0.35 · densFadeHi 0.70
 rimFrac 0.10
 unknownDashPx 9 · unknownDuty 0.45
@@ -860,9 +954,27 @@ topK 8 · topKMinSepM 25 · hoverEaseTauMs 180 · hoverRadiusK 1.35
 chipCapPx 13 · plumbHalfWidthPx 1.5 · tickArmPx 9
 renderOrder 4 · markerRenderOrder 5 · polygonOffset [-4, -4]
 fullAltK 8 · topAltK 14 · fadeTauMs 250
+
+ENGINE — the ladder, the mirror, persistence
 rebuildQuietFrames 90 · ladderCellsM [24, 12, 6, 3] · dragCellM 24 · ultraMaxRadiusM 300
-bloomHeadroomNote  <- named line: raising inkMax past ~0.40 smears (BLOOM.threshold 0.9)
+mirrorEveryFrames                        <- NEW: the store mirror's write throttle (S6: < 1 in 8)
+persistDebounceMs                        <- NEW
+shortlistCandidates 256                  <- NEW: R8's 1 m accessibility shortlist size
+
+GEOMETRY — the disc, the eye, the tiers
+radiiM · defaultRadiusM · defaultLiftM 0 · eyeM 1.7          <- ALL NEW
+liftMinM 0.5 · liftMaxM 400                                  <- NEW; liftMinM is the LOG DOMAIN floor
+ultraCellM 1 · defaultCellM 3 · midCellM 6                   <- NEW
+emptyFieldFrac 0.05 · liftProbesM [10,20,40,80] · liftProbeCellM 24   <- NEW: R6's COMPUTED lift chip
+
+★ HONESTY / SAFETY — these four are not look, and a taste pass must not treat them as look
+collarM 400                    <- the DSM collar. 0.0467 with it vs 0.6619 without: a 14× silent lie
+refuseBelowReachM 400          <- MUST EQUAL collarM (held by a test, not by an expression)
+minTilesForSolve 1             <- below it the disc REFUSES rather than painting hard=1 everywhere
+builtDensityFloorPerKm2 1      <- sqrt(26.6 x 0.048); withholds open-sky CREDIT, never multiplies S
 ```
+
+**The four starred keys are the ones to fence off.** `collarM` and `refuseBelowReachM` must move together or the rim of a perfectly good disc starts refusing; `minTilesForSolve` and `builtDensityFloorPerKm2` are the two thresholds standing between the feature and §11's "single most dangerous failure mode". Each carries its derivation in a docstring at the key, because none of them is a number anybody can re-guess from the rendered result.
 
 ---
 
@@ -887,16 +999,19 @@ Build: the `BestSpotScoring` interface + `BESTSPOT_SCORING_V1` with all values *
 **Files:** `bestSpotMetric.ts` · `bestSpotTypes.ts` · new `test/lib/geo/bestSpotGolden.test.ts` · 4 shipped test files.
 Depends on S3a (the `graze` profile group is its home).
 
-Build: replace `silTangency` with **`grazeSample(ev, altApp, rho, dipFloor, scoring) → { cut, q, src, distM }`** for ONE sample; `cellScore` accumulates `τ += cut·q·|Δα|/ρ` in the loop it already runs at `:714-734` (the `f` it needs is computed one line above at `:720`). Keep `isBuiltSrc` (`:162`) and `nearestEdgeDeltaDeg` (`:339`) **exported and unchanged** — `nearestEdgeDeltaDeg` becomes the kernel's inner loop and `isBuiltSrc` is still the right predicate for the panel's "BEHIND A BRIDGE" copy. Weight the notch **without touching `notchAt`**: extend `NotchResult` with `shoulderLIdx` / `shoulderRIdx` (additive) and apply `min(Q(sL), Q(sR))` in `cellScore` at `:781`. **Registry composition** at `:787` — iterate the keys of `weights`. Publish `fGraze`, `fGap`, `grazeRadii` (τ), `grazeSrc`, `grazeDistM` on `CellScore`. Hoist `depthOfDistM`'s constant `Math.log(trustRadiusM/30)` out of the call (verified `:175` recomputes it every call; 18.3 → 9.7 ns, ≈22 ms/solve, free) — and hoist the per-edge depths **out of** the 8-column disc loop: one `log` per cell-azimuth, not eight.
+Build: replace `silTangency` with **`grazeSample(ev, altApp, rho, dipFloor, scoring) → { cut, q, src, distM }`** for ONE sample; `cellScore` accumulates `τ += cut·q·|Δα|/ρ` in the loop it already runs at `:714-734` (the `f` it needs is computed one line above at `:720`). Keep `isBuiltSrc` (`:162`) and `nearestEdgeDeltaDeg` (`:339`) **exported and unchanged** — `nearestEdgeDeltaDeg` becomes the kernel's inner loop and `isBuiltSrc` is still the right predicate for the panel's "BEHIND A BRIDGE" copy. Weight the notch **without touching `notchAt`**: extend `NotchResult` with `shoulderLIdx` / `shoulderRIdx` (additive) and apply `min(Q(sL), Q(sR))` in `cellScore` at `:781`. **Registry composition** at `:787` — iterate the keys of `weights`. Publish `fGraze`, `fGap`, `grazeRadii` (τ), `grazeSrc`, `grazeDistM` on `CellScore` — **plus three this list omitted** *(corrected 2026-08-24d against `bestSpotTypes.ts`)*:
+- **`grazeTau: GrazeTauSplit`** (`:316`) — τ **before confidence, split four ways by provenance**. This is not a diagnostic: it is precisely what MAKES `graze.conf.*` and `graze.scaleRadii` a recompose instead of a 177 ms rescore. Store the sum and the class table becomes a lie.
+- **`minReachM`** (`:347`) — the honesty RANGE, `min` and not `mean` over the swept span, for the same reason `notchAt` takes `min(sL, sR)`: one blind direction invalidates the answer, and the sun only sets in one of them. Published on the UNKNOWN branch too — *"we looked 40 m"* is exactly what the panel must say about a cell it is refusing to score.
+- **`grazeStepRadii`** (`:332`) — **an honesty channel this document describes nowhere.** It is `max over the summed window of Δα_i/ρ_i`: how coarsely the dwell integral was sampled. Above `GRAZE_STEP_TRUST_RADII = 2` (one disc DIAMETER, the width of a cut event) the body can **step over an entire cut between two samples**, so τ is not resolvable and the framing term is **UNKNOWN — a render class, never a low score and never a saturated high one**. At Quito's equinox the sun sets vertically, the azimuth reparameterisation collapses to 8 samples spanning 88° of altitude, and this reads **109**. It is to FRAMING what `c` is to the sweep, and it is what turns done-check (4) below from a wish into a mechanism. Hoist `depthOfDistM`'s constant `Math.log(trustRadiusM/30)` out of the call (verified `:175` recomputes it every call; 18.3 → 9.7 ns, ≈22 ms/solve, free) — and hoist the per-edge depths **out of** the 8-column disc loop: one `log` per cell-azimuth, not eight.
 
-**DONE-CHECK:** (1) `bestSpotGolden.test.ts` pins the 17-scenario table (§1.1) to 4 dp against `scoringVersion "v1"`; **commit it RED first.** (2) The three headline separations: grazing vs perpendicular ridge **0.9897 vs 0.4830**; F/P spread **> 0.3** and `corr(F,P) < 0.8` (measured 0.5408 / 0.6260); F responds to height on the fixed-1500 m sweep. (3) Invariance: τ within 10 % across Dnipro/Tromsø/Sydney × 4 dates (measured spread 6.5 %) and within 10 % across the 0.25°/0.05° lattices (measured 0.8 %). (4) A degenerate track (Quito 2026-03-21, 8 samples, altitude step > ρ) reports **UNKNOWN-framing, not F = 0**.
+**DONE-CHECK:** (1) `bestSpotGolden.test.ts` pins the 17-scenario table (§1.1) to 4 dp against `scoringVersion "v1"`; **commit it RED first.** (2) The three headline separations: grazing vs perpendicular ridge **0.9912 vs 0.4843** *(measured; forecast 0.9897 / 0.4830)*; F/P spread **> 0.3** and `corr(F,P) < 0.8` (measured **0.5401 / 0.6268**, r² 0.393); F responds to height on the fixed-1500 m sweep. (3) Invariance: τ within 10 % across Dnipro/Tromsø/Sydney × 4 dates (measured spread 6.5 %) and within 10 % across the 0.25°/0.05° lattices (measured 0.8 %). (4) A degenerate track (Quito 2026-03-21, 8 samples, altitude step > ρ) reports **UNKNOWN-framing, not F = 0**.
 
 **SHIPPED TESTS THAT CHANGE — 8 assertions, all verified to exist at these lines:**
 
 | file:line | assertion today | what happens | why |
 |---|---|---|---|
 | `bestSpotMetric.test.ts:371-386` | `silTangency` "TRIANGULAR … gated on a BUILT setter"; `terrain → 0`, `tree → 0` | **rewrite** | that IS the gate the owner asked to remove. Re-express as the two-arm `cut` + relief/conf/depth `Q`. |
-| `bestSpotMetric.test.ts:972-1007` | `F/P` spread `< 0.065`, min ratio `> 0.93` | **INVERT** | the describe is explicitly "NOT A FIX, A BASELINE". New spread **0.5408**, min ratio 0.0171. Assert spread > 0.3 and corr < 0.8; move 0.0619/0.9985 into the docstring as the recorded before. |
+| `bestSpotMetric.test.ts:972-1007` | `F/P` spread `< 0.065`, min ratio `> 0.93` | **INVERT** | the describe is explicitly "NOT A FIX, A BASELINE". New spread **0.5401**, corr **0.6268**, min ratio **0.0179** *(measured; forecast 0.5408 / 0.6260 / 0.0171)*. Assert spread > 0.3 and corr < 0.8; move 0.0619/0.9985 into the docstring as the recorded before. |
 | `bestSpotMetric.test.ts:1010-1035` | `expect(wallF).toBeCloseTo(deckF, 15)` | **flip to `deckF > wallF`** | this is the defect being fixed (0.4158 vs 0.3962). |
 | `bestSpotMetric.test.ts:617` | `expect(a.score - b.score).toBeCloseTo(0.0299, 3)` | **new literal 0.0357** | the `> 0.025` guard on `:616` **survives**; only the pinned number moves. |
 | `bestSpotMetric.test.ts:855-868` | `expect(bridge.f).toBeGreaterThan(0.8)` | **repair the fixture, then `> 0.4`** | verified defect: `bands: [[0.31,0.38]]` with **no `bandSrc`/`bandDistM`**, and the `ray()` helper at `:162` (`if (o.src !== undefined && o.groundSrc === undefined) merged.groundSrc = o.src`) silently retags the GROUND edge as `"deck"`. Same fixture defect LENS B found in PIN 3. Repaired → F = 0.4158. |
@@ -913,21 +1028,25 @@ Build: replace `silTangency` with **`grazeSample(ev, altApp, rho, dipFloor, scor
 ### **S3c — SOLVER KERNEL: mask, reach, fused pass, term buffer** (pure lib)
 **Files:** `horizonSweep.ts` · new `src/lib/geo/bestSpotSolver.ts` · tests.
 
-1. **`sweepAzimuth(dsm, hulls, az, lift, out, { scoreMask })`** — one optional `Uint8Array`; skip the per-cell binary peak search and band assembly where the mask is 0. **Measured 2.20× at 3 m/300 m (10.23 → 4.15 ms/az), 1.71× at 500 m, 2.30× at 1 m.** Saves **243 ms** per solve at DEFAULT and **2.2 s** at ULTRA. **The cheapest single lever in the feature and a ~10-line change to a shipped, tested function.**
+1. **`sweepAzimuth(dsm, hulls, az, lift, out, { scoreMask })`** — one optional `Uint8Array`; skip the per-cell binary peak search and band assembly where the mask is 0. **Measured 1.80–1.91× standalone at 3 m/300 m** *(2.20× was the forecast; corrected 2026-08-24d against `bestSpotSolver.test.ts:334-358`)*. **The cheapest single lever in the feature and a ~10-line change to a shipped, tested function.**
+
+   > **The shipped pin is `≥ 1.7×` WITH THE TWO ARMS INTERLEAVED, and the interleaving is the whole fix.** A ratio is self-normalising only when both arms meet the SAME contention. Timed once each in sequence inside the 12-way-parallel runner, the same speedup reported **1.58×** — the unmasked arm ran while the box was quiet and the masked arm ran while three other workers woke up. The threshold never moved; what changed is that each round now pays for both arms back to back and the MEDIAN of the per-round ratios carries the claim.
 2. **`reachM`** on `RaySweepOut` / `RayEvidence` — the along-ray distance of the last KNOWN slot — and **gate `openSky` on it** (verified today's `openSky` at `horizonSweep.ts:774` never asks how far the evidence reached).
-3. **The fused score pass**, written against the four exported kernels so it stays diffable, emitting the **59 B/cell TERM BUFFER of §5.3 — never `S`.** Plus the trivial COMPOSE pass.
+3. **The fused score pass**, written against the four exported kernels so it stays diffable, emitting the **75 B/cell TERM BUFFER of §5.3 — never `S`** *(corrected 2026-08-24d: 59 B froze five `gap.*` leaves the class table calls recompose)*. Plus the trivial COMPOSE pass.
 4. **Absolute azimuth-lattice snapping** behind an option (`bestSpotTrack.ts:652-666`) + a hull cache keyed on the snapped azimuth.
 
-**DONE-CHECK:** (1) `sweepAzimuth` with a full mask is **byte-identical** to the unmasked call; with a disc mask it is ≥ 1.7× faster on a 469² grid. (2) The DSM-truncation pin: with the DSM truncated at 350 m, the cell reports `minReachM ≈ 350` and `openSky = 0` on all 40 rays — **today it reports openSky 40/40 and S = 0.6633 against the truth's 0.0000.** (3) The collar pin: a rim cell 290 m up-sun scores 0.0467 with the collar and 0.6619 without. (4) The fused pass reproduces `cellScore` to 1e-9 on the composition fixture, and its measured cost at 469²/K=40 is ≤ 250 ms. (5) COMPOSE from the term buffer reproduces `S` to 1e-12 and measures < 1 ms at 201². (6) With absolute snapping, a **+1-day** track shares ≥ 35 of 39 azimuths (measured 37/39); without it, 0/40.
+**DONE-CHECK:** (1) `sweepAzimuth` with a full mask is **byte-identical** to the unmasked call; with a disc mask it is ≥ 1.7× faster on a 469² grid. (2) The DSM-truncation pin: with the DSM truncated at 350 m, the cell reports `minReachM ≈ 350` and `openSky = 0` on all 40 rays — **today it reports openSky 40/40 and S = 0.6633 against the truth's 0.0000.** (3) The collar pin: a rim cell 290 m up-sun scores 0.0467 with the collar and 0.6619 without. (4) The fused pass reproduces `cellScore` to 1e-9 on the composition fixture, and its measured cost at 469²/K=40 is within **450 reference-ms for `scoreMs` and 700 reference-ms for sweep+score** (`bestSpotSolver.test.ts:687-745`). *(Corrected 2026-08-24d: this said ≤ 250 ms. **250 ms was the INLINED floor** — §2.1 row 10′. The shipped pass is deliberately the middle case, because §7 itself requires it "written against the four exported kernels so it stays diffable", so it pays a real `RayEvidence` shape and a real `discVisibleFraction` call per cell-azimuth and lands **1.7× above the inlined floor and 2.1× below the object API**. Closing that 1.7× means inlining the kernels — a trade against diffability, recorded rather than silently taken.)* (5) COMPOSE from the term buffer reproduces `S` to 1e-12 and measures **~2.5 ms** at 201², pinned `< 5` reference-ms *(the `< 1 ms` here came from the 0.272 ms model and is not achievable for this arithmetic — see §5.3)*. (6) With absolute snapping, a **+1-day** track shares ≥ 35 of 39 azimuths (**measured 36/39**); without it, 0/40.
+
+> **A WALL-CLOCK BUDGET INSIDE VITEST IS A CLAIM ABOUT THE RUNNER, NOT ABOUT THE CODE** *(added 2026-08-24d)*. Three of these pins went red under load with **zero regression behind them** — a 3 m solve measuring 646 ms standalone and 1,335–1,522 ms in a 12-way-parallel suite. **Every wall-clock budget in this slice is expressed in REFERENCE-MACHINE milliseconds via `test/lib/geo/_perf.ts`**, calibrated **per iteration** (a single up-front calibration was measured reporting `k = 1.04` while the solves it normalised ran 1,335 ms), with a calibration workload of **32 M iterations ≈ 27 ms** — anything shorter fits inside one scheduler quantum and reports exactly 1.00 under any load. Budgets unmoved; all five pins falsified by mutation.
 
 ---
 
 ### **S3d — WORKER + STORE + FEED + LADDER + REFINEMENT** (the plan's S3)
 **Files:** `lib/geo/bestSpotWorker.ts` · `scene/bestSpotFeed.ts` · `store/bestSpot.ts` · `tuning.ts` (`BESTSPOT` block) · `StylizedTiles.ts` · `prefs.ts` · `fences.test.ts` · `scripts/verify-bestspot.mjs`.
 
-Build: the long-lived module worker (transferable ArrayBuffers only, no SharedArrayBuffer) · the **six residency tiers** of §2.2 · the **progressive ladder** 24 → 12 → 6 → 3 m with the land grid and ring projections built ONCE and shared · **24 m for coarse-during-drag** · the **refinement machinery** of §3.4 (terrainEpoch + `vtiles.version()` + 90-frame debounce + re-climb from R0 + fresh DSM) · the **tile-coverage refusal** · the hot-swap seam and persistence of §5.6/§5.7 · `stepBestSpotFeed` in the FEEDS-LAST band immediately after `stepPlanFeed`.
+Build: the long-lived module worker (transferable ArrayBuffers only, no SharedArrayBuffer) · the **six residency tiers** of §2.2 · the **progressive ladder** 24 → 12 → 6 → 3 m with the land grid and ring projections built ONCE and shared · **24 m for coarse-during-drag** · the **refinement machinery** of §3.4 (**four epochs** — `terrainEpoch` + `vtiles.version()` + `seatEpoch` + **`builtEpoch`** — + 90-frame debounce + re-climb from R0 + fresh DSM, plus `sourcesEpoch` as the T1 hull-cache key) · **all three refusals** (`"no-landcover"` · `"no-tiles"` · `"no-built-geometry"`) · the hot-swap seam and persistence of §5.6/§5.7 · `stepBestSpotFeed` in the FEEDS-LAST band immediately after `stepPlanFeed`.
 
-**DONE-CHECK:** the plan's S3 cross-model check stands (seat FPV at the top-ranked non-deck cell via the shipped tempPin+tempFpv path, wait for `planFeed`'s own profile — raycasts + `sweepMeshEdges`, machinery this feature does NOT share — and assert `isBlocked(...) === false`; the lowest-ranked accessible cell asserts `true`). **Plus:** (1) first ink ≤ 120 ms warm, fully refined ≤ 1,200 ms warm (measured 55 / 731–948 ms, so this has headroom for worker overhead). (2) A pin mid-reservoir returns 0 candidates and every cell `A_hard = 0`. (3) **A disc with fewer than the floor of parsed z14 tiles renders entirely UNMAPPED — it does NOT paint a `hard = 1` grid** (verified `landcoverRaster.ts:182`: zero sources → every cell `unknown, soft 0.45, hard 1`). (4) `scoringHash` mismatch drops the job — inject a stale result and assert no upload. (5) A streaming burst of 20 `load-model` events triggers **exactly one** re-solve. (6) fences: `bestSpotFeed → store/bestSpot` added to the sanctioned store-bridge map; `bestSpotWorker.ts` / `bestSpotSolver.ts` contain no `components/globe/tuning` import; every BEST SPOT engine read AND-ed with `!isMobileShell && !coarsePointerShell`, the gate named in exactly ONE engine file. (7) Measure the worker bundle — `planElevationsM` drags comet/targets/showers into the chunk (AS-BUILT open item 8).
+**DONE-CHECK:** the plan's S3 cross-model check stands (seat FPV at the top-ranked non-deck cell via the shipped tempPin+tempFpv path, wait for `planFeed`'s own profile — raycasts + `sweepMeshEdges`, machinery this feature does NOT share — and assert `isBlocked(...) === false`; the lowest-ranked accessible cell asserts `true`). **Plus:** (1) first ink ≤ 120 ms warm, fully refined ≤ 1,200 ms warm — **shipped as `scripts/verify-bestspot.mjs:338-343` and BROWSER-measured at 45.4 ms / 523.8 ms**, so both pass with 2.6× and 2.3× of headroom *(the forecast was 55 / 731–948 ms; the browser beat it)*. (2) A pin mid-reservoir returns 0 candidates and every cell `A_hard = 0`. (3) **A disc with fewer than the floor of parsed z14 tiles renders entirely UNMAPPED — it does NOT paint a `hard = 1` grid** (verified `landcoverRaster.ts:182`: zero sources → every cell `unknown, soft 0.45, hard 1`). **Two more refusals ship beside it and each needs its own case:** a disc with ZERO painted landcover cells (`"no-landcover"` — a fetch failure, not a rural site) and a disc with **dense parsed MVT and zero building meshes** (`"no-built-geometry"` — the case that painted the owner's hero pin warm and uniform at score byte 187 while every unit gate was green; it must also SELF-HEAL via `builtEpoch` once the tiles land). (4) `scoringHash` mismatch drops the job — inject a stale result and assert no upload. (5) A streaming burst of 20 `load-model` events triggers **exactly one** re-solve. (6) fences: `bestSpotFeed → store/bestSpot` added to the sanctioned store-bridge map; `bestSpotWorker.ts` / `bestSpotSolver.ts` contain no `components/globe/tuning` import; every BEST SPOT engine read AND-ed with `!isMobileShell && !coarsePointerShell`, the gate named in exactly ONE engine file. (7) Measure the worker bundle — `planElevationsM` drags comet/targets/showers into the chunk (AS-BUILT open item 8). **ANSWERED: 126 KiB / 50.6 KiB gzipped, `astronomy-engine` roughly half of it, and no `three`.** The `three`-free property is the one that was actually at risk and it held; the remaining open question is not the size but the **cold cache on Wix's CDN**, which is untested because prod is still dark (backlog T50).
 
 ---
 
@@ -941,7 +1060,11 @@ Then: heat tokens (11 + 11) into `tokens.css` → regenerate `lib/theme/tokens.t
 
 ### **S5 — DESKTOP PANEL** (§6.9). Plan's S5 done-check stands, plus: the DEV-gated 4-slider `TUNE` weights strip lives in `panels/BestSpotPanel.tsx`, **never in `controls/**`**; `SCORING: default | custom (N fields) · <hash>` appears in the status line whenever a persisted patch is non-empty.
 
-### **S6 — LIVE SCRUB + LIVE LIFT.** **Re-pin, because the shipped pin cannot pass:** *"`hullBuilds` is EXACTLY 0 for a within-day scene-time scrub and for a 2 → 400 m lift drag, and grows by at most `ceil(Δaz/azStep)` for a day step (measured ≤ 2 of 39 with absolute lattice snapping, 40 of 40 without it), and increments exactly once on a radius change."* Plus: **coarse-solve p95 < 33 ms at 24 m** (measured 21 ms; 12 m is 54–83 ms and cannot pass) · full-solve p95 < 1,000 ms · mirror < 1 write per 8 frames · published grid ArrayBuffer identity stable across a no-op scrub · FRAME_PROBE median < 35 ms for the whole drag.
+### **S6 — LIVE SCRUB + LIVE LIFT.** **Re-pin, because the shipped pin cannot pass:** *"`hullBuilds` is EXACTLY 0 for a within-day scene-time scrub and for a 2 → 400 m lift drag, and grows by at most `ceil(Δaz/azStep)` for a day step (measured ≤ 2 of 39 with absolute lattice snapping, 40 of 40 without it)."* Both zeros are **browser-measured as built**.
+
+**A radius change does NOT "increment exactly once"** *(corrected 2026-08-24d)*. It rebuilds **K hulls PER LADDER RUNG**, and the ladder is four rungs `[24, 12, 6, 3]`, so the shipped engine measures **+156 across the climb** (`scripts/verify-bestspot.mjs:231`); a second frame at the same radius costs **0**. The +1 forecast confused "the tier fires once" with "the tier costs one hull". Note that this row is also the positive control for the two zeros above, and that reading it correctly required fixing the WAIT and not the engine: `waitRefined` returned on `refinedMs > 0 && !solving`, neither of which carries any solve identity, so the checkpoints straddled a phase boundary and reported `+8` for a scrub that must build zero and `+0` for a radius change that must build K. With `quiesce()` in its place and the engine untouched, the same two rows read **+0** and **+156**.
+
+Plus: **the coarse rung measures 35–49 ms, not 21** (`verify-bestspot.mjs:723`) — so it **must stay off the main thread**, and the pin that holds is **`drag adds < 12 ms to the idle frame`, measured 1.1 ms**, not a wall-clock rung budget. · full-solve p95 < 1,000 ms · mirror < 1 write per 8 frames · published grid ArrayBuffer identity stable across a no-op scrub · FRAME_PROBE median < 35 ms for the whole drag.
 
 ### **S7 — HONESTY LAYER.** Built-density prior (buildings/km² off the parsed tiles: 558/21 vs 1/21 vs 0 — free) · provenance badges · the `reachM` panel line · the 1 m shortlist re-solve (§8 Q3). Plan's S7 done-check stands, with the measured target corrected: **a rural pin's pre-fix uniform score is 0.470–0.661, not 0.70.**
 
@@ -953,9 +1076,24 @@ Then: heat tokens (11 + 11) into `tokens.css` → regenerate `lib/theme/tokens.t
 
 ---
 
-# 8. OPEN QUESTIONS FOR THE OWNER
+# 8. ANSWERED 2026-08-24 — all three were ruled, built and measured
+
+> **This section used to read "OPEN QUESTIONS FOR THE OWNER" and it no longer is one.** All three
+> were ruled, the rulings shipped, and each now has a leaf you can point at. It is left in place as
+> the RECORD — the measurements are the reason each ruling was made — but a reader arriving here
+> should not re-litigate any of it. The ruling and its shipped anchor lead each question; the
+> original analysis follows underneath, unchanged.
+
+| | question | **RULING** | shipped leaf | measured result |
+|---|---|---|---|---|
+| **Q1** | moon multiplier vs badge | **R7 — keep the multiply, RAISE THE FLOOR** (neither (a) nor (c) as recommended) | `worth.mode: "multiply"` (`bestSpotScoring.ts:399`) + `worth.effectiveFloor: 0.35` through `effectiveWorth` (`bestSpotMetric.ts:1327`) | `M_eff = 0.35 + 0.65·M`. The median moon night goes **0.020 → 0.256**; a full moon 0.864 → 0.911. **Exactly 1 for every sun kind** (`0.35 + 0.65·1` is 1 in IEEE doubles, asserted rather than assumed), so **no sun number moved**. The badge survives as a one-line A/B via `mode: "badge"`. |
+| **Q2** | open at 1.7 m? | **R6 — YES, open at eye level, and offer the way out in one tap** | `defaultLiftM: 0` at `eyeM: 1.7` (`tuning.ts:3000-3006`) + the lift-suggestion chip (`BestSpotPanel.tsx:507-517`) | The 97.7 %-black disc is physically correct and the eight markers ARE the product, so the default stands. When the engine has found a lift that clears `emptyFieldFrac`, the chip reads `NOTHING CLEARS THE SKYLINE AT EYE LEVEL — TRY N m`. **The number is COMPUTED** — the lowest of `liftProbesM [10,20,40,80]` at 24 m that clears the floor, ~21 ms each — **never a constant.** |
+| **Q3** | 1 m accessibility, or 1 m obstruction too? | **R8 — BOTH, on different triggers** (the split the question proposed) | `shortlistCandidates: 256` at `ultraCellM` every solve; obstruction behind `refineSpot(key)` (`store/bestSpot.ts:263`) | 1 m accessibility on **every** solve at +52–59 ms, invisible. 1 m obstruction only on the user-triggered `REFINE THIS SPOT` — **measured 1,504 ms**, `obstructionRefined: true`, and the one place in the feature a spinner is justified. |
+
+---
 
 ### Q1 — The moon map is black ~26 nights in 30. Keep `M` as a multiplier, or move it to a badge?
+**RULED: R7 — keep the multiply, raise the floor.** `worth.effectiveFloor 0.35`. The analysis below is why.
 
 Measured (A), 30 consecutive days at Dnipro: moonrise `worth` **min 0.0003, median 0.0290, max 0.8639**. Because `M` multiplies (verified `bestSpotMetric.ts:791`), the best possible moon cell on a **median** night scores `0.029 × 0.7 ≈ 0.020` — **25× below the sheet's own legibility floor**. On 2026-08-24: moonrise 0.0938, moonset 0.0770. The plan calls that "honest and legible"; measured, it reads as "the moon feature is broken".
 
@@ -966,7 +1104,10 @@ Three options, all cheap to build, but they are **different shapes** and picking
 
 Recommendation: **(c)**, with `worth.mode: "multiply" | "badge"` in the profile so it is a one-line A/B. This is the single largest taste lever in the metric.
 
+**The owner ruled otherwise, and the ruling is better than the recommendation** *(R7, 2026-08-24)*: **keep `M` in the product and raise a SECOND floor** — `worth.effectiveFloor 0.35`, applied as `M_eff = 0.35 + 0.65·M` at composition time and **not** to `worth` itself. That preserves what (c) would have thrown away (a bad night still ranks below a good one, everywhere, in one number) and fixes what (a) got wrong (a bad night now **DIMS rather than VANISHES**: median 0.020 → 0.256). Option (b) — raising `worth.floor` — is the mistake the two-floors note in §5.2 exists to prevent: it compresses the honest signal *inside* the twilight gate. `mode: "badge"` still ships as the one-line A/B.
+
 ### Q2 — Does BEST SPOT open at 1.7 m (a 97.7 %-black disc) or at a default lift?
+**RULED: R6 — open at 1.7 m, plus a COMPUTED lift-suggestion chip.**
 
 Measured (A), central Dnipro, R = 300 m, 3 m, real buildings:
 - **1.7 m:** 97.7 % of the disc scores exactly 0, 33.4 % is `A_hard = 0`, maximum **0.381**, median 0.000.
@@ -977,6 +1118,7 @@ Measured (A), central Dnipro, R = 300 m, 3 m, real buildings:
 This changes what gets built: the default `sheetAltM`, whether the panel leads with the slider, and whether the R0 rung is worth showing at 1.7 m at all (there is almost no ink to progressively reveal). It also decides whether `displayLo/displayHi` (0.15/0.90) are right — at 1.7 m the whole live population is in [0, 0.381].
 
 ### Q3 — R3 says the shortlist is ALWAYS 1 m. Does that mean 1 m ACCESSIBILITY, or 1 m OBSTRUCTION too?
+**RULED: R8 — 1 m accessibility on every solve (`shortlistCandidates 256`), 1 m obstruction behind `REFINE THIS SPOT` (measured 1,504 ms).** ULTRA above 300 m radius is forbidden, as recommended.
 
 Measured (A):
 - 1 m **accessibility-only** re-solve of the top ~256 candidates: **52–59 ms.** This is what tells you "stand on the footpath, not in the hedge" — the resolution the landcover data actually supports (§8: MVT coordinates are sub-metre but polylines are generalised at 5–20 m, so class boundaries carry a 1–2 cell ribbon).
@@ -989,7 +1131,7 @@ So: **1 m accessibility on every solve (+59 ms, invisible), and 1 m obstruction 
 
 ## UNVERIFIED — carried forward from all four agents
 
-- **Nothing in BEST SPOT has been in a browser.** Every timing is node v20.19.2 on an M3 Pro, main thread. Browser-worker vs node performance is assumed within ±20 % (same V8) — not measured. This is also plan open risk #8.
+- ~~**Nothing in BEST SPOT has been in a browser.**~~ — **RESOLVED 2026-08-24d.** The feature shipped and was browser-verified (`scripts/verify-bestspot.mjs`, 100 PASS / 0 FAIL, reproduced twice; shots `verify-shots/bestspot-01…08`). The forecasts held or were beaten (first ink 45.4 vs 55 ms, refined 523.8 vs 731–948 ms), **and the browser found what no node harness could**: nine defects invisible to vitest, headlined by a disc that scored every one of 31,417 cells at the same byte because no building geometry ever reached the worker's DSM — with every unit gate green. **Still UNVERIFIED: Wix cloud** (prod is dark behind the nameserver gate; backlog T50).
 - **Worker spawn cost** (module instantiation + first-message latency) was not measured; typically 5–30 ms, excluded from every wall-clock figure.
 - **The `force-cache` claim** that the worker's second MVT fetch is served from the browser disk cache is unverified — node's fetch has no HTTP cache, so all "warm network = 0 ms" rows were measured from a `/tmp` file.
 - **Mid-tier-phone ×5–10** is taken from the plan's framing, not measured. Moot under the desktop fence.
@@ -999,12 +1141,12 @@ So: **1 m accessibility on every solve (+59 ms, invisible), and 1 m obstruction 
 - **The 8 km / 6 km / 2.5 km ridge scenarios in §1.1's table are SYNTHETIC `RayEvidence`**, not swept from a real DSM (no producer can emit those distances today). Their Depth values (0.96–1.00) are a forecast of what the solver will emit, not a measurement of what it does emit.
 - **GRAZE was never run against a real dense-Dnipro DSM** — only against flat water with one deck (the composition fixture) and against synthetic skylines. The 13,383-building-ring case is unmeasured.
 - **The 15.6 ns/cell-azimuth GRAZE cost** was measured in a standalone loop with `f` supplied from a precomputed array; it approximates the fused loop but is not the fused loop, and it is not the net cost against the `silTangency` it replaces.
-- **The 59 B/cell term buffer and the ~0.6 ms compose** are arithmetic; C's 0.272 ms recompose figure is a faithful cost model of the proposed pass, not a run of code that exists. No term buffer exists.
+- ~~**The 59 B/cell term buffer and the ~0.6 ms compose** are arithmetic~~ — **RESOLVED 2026-08-24d, and the caveat was right to be there.** The buffer shipped at **75 B/cell** (the 59 B layout froze five `gap.*` leaves the class table calls recompose) and COMPOSE measures **~2.5 ms at 201²**, not 0.272. The cost model was faithful to the arithmetic it modelled and wrong about the machine: it counted ~15 multiply-adds and missed one `exp`, one `sqrt`, two `smoothstep`s and 3 MB of streamed buffer. **Both corrections leave the architectural claim exactly where it was** — recompose is > 200× cheaper than a re-solve and fits in one frame.
 - **`CONF` (terrain 1.0 / building 0.9 / deck 0.9 / tree 0.45)** and **`RELIEF_HI_DEG 0.40`** are judgements calibrated to plan §8's provenance statistics, not swept and not calibrated to any photographic outcome. `GRAZE_SCALE_RADII` **was** swept (6 values, §1.1). These are the primary taste-pass targets.
 - **`sanitizeScoringPatch`'s exact clamp ranges** (notch `maxWidthDeg ≥ 0.7` so the width denominator stays positive at max lunar ρ, `discColumns 1..64`, `lCeilDeg 0.5..30`) are proposed, not derived from a sweep — pin them in the endpoint tests rather than trusting them here.
 - **The forecast red/green status of the 8 changing assertions** was computed by reproducing each fixture in a scratch harness, not by running `npm test` against a modified `bestSpotMetric.ts`. Two of them (`horizonSweep.test.ts:886-896`, `:1004`) call a signature the proposal removes, so their status is "will not compile", which no harness can confirm. *(I did verify all 8 line references and the fixture defect at `:855-868` by reading the files this session.)*
 - **All D captures ran under headless Chrome with SwiftShader.** Rasterisation is spec-conformant so pixel values should match a GPU, but MSAA/bloom paths were not compared against a real GPU frame. **The oblique backdrop is unmeasured** (the oblique capture returned statistics byte-identical to the nadir dark-drape capture).
-- **The 8 interior TURBO stops** were reproduced from memory; endpoints match the canonical LUT. Regenerate at implementation. The non-monotonicity conclusion does not depend on them.
+- ~~**The 8 interior TURBO stops** were reproduced from memory~~ — **RESOLVED 2026-08-24d.** Regenerated from Google's canonical 256-entry table into `tokens.css:113-123`; all 8 differ, the endpoints matched, and the lightness peak relocates to t = 0.5. §6.1 now carries the shipped hexes.
 - **`displayLo/displayHi = 0.15/0.90`** come from the AS-BUILT hero numbers, not from a solved disc — see §8 Q2. They are exactly the two numbers a taste pass will move first.
 - **`topK = 8`** is derived from the `.pp` window's `max-height` formula, not from a rendered panel.
 - **`fwidth` availability:** the app's WebGL context version was not checked.
