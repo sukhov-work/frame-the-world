@@ -770,6 +770,8 @@ describe("BEST SPOT — RED: the shipped track's below-horizon tail caps V at ~0
       blockerDistM: 30_000,
       src: "terrain",
       known: 1,
+      // S3c — a PERFECT open horizon looked all the way out (bestSpotTypes pin 7).
+      reachM: 30_000,
       openSky: true,
     }));
     const access: CellAccess = { hard: 1, soft: 1, cls: "green", groundReachable: true };
@@ -832,6 +834,7 @@ describe("BEST SPOT — ACCEPTANCE: the shoulders stay out of V, and a blocked c
         blockerDistM: 30_000,
         src: "terrain",
         known: 1,
+        reachM: 30_000,
         openSky: g <= horizonDipDeg(EYE_M, 0.13) + 0.01,
       };
     });

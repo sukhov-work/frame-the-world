@@ -450,6 +450,30 @@ export interface EventTrackOptions {
   /** Hard sample ceiling. Default `4096`. */
   maxSamples?: number;
   /**
+   * Place every lattice point on an **ABSOLUTE** azimuth grid (`k · azStepDeg`, anchored at 0°)
+   * instead of on a grid anchored at this day's own window edges. Default **false**.
+   *
+   * **WHY IT EXISTS — the residency ladder's T0.5 tier turns on it (SPEC_V2 §2.2).** The hulls are
+   * eye-free and time-free, so a scene-time scrub inside one local day re-queries them for 0 ms.
+   * But the SET OF AZIMUTHS is a function of the DAY: measured at Dnipro, +1 day moves `setAzDeg`
+   * by −0.534°, and because the shipped lattice is anchored on the window edges, **exact azimuth
+   * matches between consecutive days = 0 of 40.** Every hull is rebuilt for a one-day step. On the
+   * absolute grid the two days' lattices are subsets of ONE lattice, so a hull cache keyed on the
+   * snapped azimuth hits for everything the two windows share (measured 37 of 39, SPEC_V2 §2.2).
+   *
+   * **WHAT IT COSTS.** The shipped lattice puts its endpoints EXACTLY on the window edges and
+   * spreads the interior uniformly; the absolute grid cannot, so the window loses up to one
+   * `azStepDeg` at each end and the emitted `azDeg` is the LATTICE value rather than the
+   * re-evaluated ephemeris azimuth (`utcMs` / `altAppDeg` / `rhoDeg` stay exact at the instant the
+   * inversion returns, so the azimuth is exact and the ALTITUDE carries the ~1e-4° inversion error
+   * instead — the swept ray is then at exactly the azimuth its hull was built for, which is what a
+   * cache key needs). OFF by default so existing pins keep their spacing.
+   *
+   * It falls back to the relative lattice when the window is narrower than one `azStepDeg` (no
+   * absolute point would land inside it) — a degenerate track must not become a `null` track.
+   */
+  snapAzLattice?: boolean;
+  /**
    * The taste profile. Reaches exactly three things in this module: `trackWeight.altScaleDeg`,
    * `trackWeight.horizonCeiling` and the whole `worth.*` group. Everything else here is GEOMETRY
    * (the lattice, the marches, the inversion grid) and stays an `EventTrackOptions` field, because
@@ -763,20 +787,62 @@ export function eventTrack(
   // a one-sample misclassification at the window's low edge would silently move the very boundary the
   // marker exists to make explicit.
   const inWindow: boolean[] = [];
-  const nLoShoulder = Math.max(0, Math.floor((uWinLo - uAllLo) / shoulderStep + EDGE_SLACK));
-  for (let k = nLoShoulder; k >= 1; k--) {
-    targets.push(uWinLo - k * shoulderStep);
-    inWindow.push(false);
-  }
-  const nWin = Math.max(1, Math.ceil((uWinHi - uWinLo) / azStep - EDGE_SLACK));
-  for (let i = 0; i <= nWin; i++) {
-    targets.push(uWinLo + ((uWinHi - uWinLo) * i) / nWin);
-    inWindow.push(true);
-  }
-  const nHiShoulder = Math.max(0, Math.floor((uAllHi - uWinHi) / shoulderStep + EDGE_SLACK));
-  for (let k = 1; k <= nHiShoulder; k++) {
-    targets.push(uWinHi + k * shoulderStep);
-    inWindow.push(false);
+
+  // ── ABSOLUTE lattice (opt-in, `snapAzLattice`) ────────────────────────────────────────────
+  // `Math.round(u/azStep)*azStep` stated as index arithmetic, so every emitted point is EXACTLY a
+  // multiple of `azStep` and two different days produce SUBSETS OF ONE LATTICE — which is the only
+  // thing that lets a hull cache survive a day step (SPEC_V2 §2.2: 0/40 matches without it).
+  // 360/0.25 = 1440 is an integer, so the grid is also consistent modulo a full turn, and the
+  // unwrapped branch (which may leave [0,360)) cannot shear it.
+  const kWinLo = Math.ceil(uWinLo / azStep - EDGE_SLACK);
+  const kWinHi = Math.floor(uWinHi / azStep + EDGE_SLACK);
+  // Shoulders keep their own coarser spacing, expressed in WHOLE lattice units so they stay on the
+  // same absolute grid: 0.5°/0.25° = 2. A non-integer ratio rounds, which costs a little shoulder
+  // resolution and buys the cache hit — the shoulders only ever feed running maxima and `C`.
+  const shoulderK = Math.max(1, Math.round(shoulderStep / azStep));
+  // A window narrower than one step has no absolute point inside it. Falling back is not a silent
+  // degradation: an option must never turn a real track into `null`.
+  const snapAz = (opts.snapAzLattice ?? false) && kWinHi > kWinLo;
+
+  if (snapAz) {
+    // The shoulders are anchored at ABSOLUTE MULTIPLES of `shoulderK` too, not counted outward from
+    // this day's own window edge. Anchoring them on `kWinLo` reintroduces the very defect the snap
+    // exists to fix, one level down: `kWinLo` moves ~2.14 lattice units per day, so an odd shift
+    // flips the shoulders' parity and they share NOTHING with the day before. Measured at Dnipro:
+    // window-anchored shoulders share 31 of 38 azimuths, absolute shoulders share 37.
+    const floorTo = (k: number): number => Math.floor(k / shoulderK) * shoulderK;
+    const loLimitK = uAllLo / azStep - EDGE_SLACK;
+    const loShoulderKs: number[] = [];
+    for (let k = floorTo(kWinLo - 1); k >= loLimitK; k -= shoulderK) loShoulderKs.push(k);
+    for (let i = loShoulderKs.length - 1; i >= 0; i--) {
+      targets.push(loShoulderKs[i] * azStep);
+      inWindow.push(false);
+    }
+    for (let k = kWinLo; k <= kWinHi; k++) {
+      targets.push(k * azStep);
+      inWindow.push(true);
+    }
+    const hiLimitK = uAllHi / azStep + EDGE_SLACK;
+    for (let k = floorTo(kWinHi + shoulderK); k <= hiLimitK; k += shoulderK) {
+      targets.push(k * azStep);
+      inWindow.push(false);
+    }
+  } else {
+    const nLoShoulder = Math.max(0, Math.floor((uWinLo - uAllLo) / shoulderStep + EDGE_SLACK));
+    for (let k = nLoShoulder; k >= 1; k--) {
+      targets.push(uWinLo - k * shoulderStep);
+      inWindow.push(false);
+    }
+    const nWin = Math.max(1, Math.ceil((uWinHi - uWinLo) / azStep - EDGE_SLACK));
+    for (let i = 0; i <= nWin; i++) {
+      targets.push(uWinLo + ((uWinHi - uWinLo) * i) / nWin);
+      inWindow.push(true);
+    }
+    const nHiShoulder = Math.max(0, Math.floor((uAllHi - uWinHi) / shoulderStep + EDGE_SLACK));
+    for (let k = 1; k <= nHiShoulder; k++) {
+      targets.push(uWinHi + k * shoulderStep);
+      inWindow.push(false);
+    }
   }
   if (targets.length > maxSamples) {
     // Decimate uniformly rather than truncate: a truncated track loses one whole shoulder, and the
@@ -808,11 +874,19 @@ export function eventTrack(
     const u = targets[ti];
     const tMs = timeAtAz(u);
     const p = airlessAzAlt(body, tMs, obs);
-    const azUnwrapDeg = az0Raw + deltaDeg(p.azDeg, az0Raw);
+    // SNAPPED: the azimuth IS the lattice point (that is the whole contract — a hull cache keyed on
+    // an azimuth that is only APPROXIMATELY the swept one is not a cache). The ~1e-4° inversion
+    // residual moves onto the altitude instead, which is 4e-4 of one azimuth step.
+    const azUnwrapDeg = snapAz ? u : az0Raw + deltaDeg(p.azDeg, az0Raw);
     // STRICT ascent is a contract, not a hope: a lattice point that clamps onto a grid end (or a
     // re-evaluation that lands a nanodegree behind its predecessor) would otherwise produce a
     // zero-width central difference and an infinite weight.
     if (raw.length > 0 && !(azUnwrapDeg > raw[raw.length - 1].azUnwrapDeg + 1e-9)) continue;
+    // …and on the snapped path the azimuths are strictly ascending BY CONSTRUCTION, so the guard
+    // above can no longer catch the case it was written for: two lattice points whose instants both
+    // CLAMPED onto the same end of the inversion grid. `dt = 0` there, which is a zero weight and a
+    // sample claiming an azimuth it was never at.
+    if (snapAz && raw.length > 0 && tMs === raw[raw.length - 1].tMs) continue;
     raw.push({
       tMs,
       azUnwrapDeg,

@@ -78,6 +78,50 @@
   --color-pin-lavender: #b0a6f0; /* lavender */
   --color-pin-warm: #e8bc7a; /* the rare warm voice (near --color-warn, softened) */
 
+  /* BEST SPOT semantic heat ramp (SPEC_V2 §6.1) — INFERNO, 11 stops at t = 0.0 … 1.0.
+     The ONE documented exception to the house no-rainbow rule, and it earns it by being a
+     QUANTITATIVE scale: the sheet answers "how good is it to stand HERE", so it must be read by
+     LIGHTNESS, never by hue memory. Inferno is strictly monotone in OKLab L over all 11 stops
+     (0.0482 → 0.9777, min adjacent ΔL 0.0779), so "brighter = better" survives a photographic
+     basemap, a phone in sunlight and every kind of colour vision. Bridged to GL as
+     tokens.heat0…heat10; `lib/theme/heatPalette.ts` builds the 256-entry LUT from these. */
+  --color-heat-0: #000004; /* t 0.0 — near-black, the floor ("not here") */
+  --color-heat-1: #160b39; /* t 0.1 — deep indigo */
+  --color-heat-2: #420a68; /* t 0.2 — violet */
+  --color-heat-3: #6a176e; /* t 0.3 — plum */
+  --color-heat-4: #932667; /* t 0.4 — magenta */
+  --color-heat-5: #bc3754; /* t 0.5 — crimson (the neutral crossover sits near here) */
+  --color-heat-6: #dd513a; /* t 0.6 — ember red */
+  --color-heat-7: #f37819; /* t 0.7 — orange */
+  --color-heat-8: #fca50a; /* t 0.8 — amber */
+  --color-heat-9: #f6d746; /* t 0.9 — gold */
+  --color-heat-10: #fcffa4; /* t 1.0 — pale straw, the peak ("stand here") */
+
+  /* TURBO — the A/B CHIP ONLY, never the default. It is a true rainbow and, unlike Inferno, it is
+     NOT monotone in lightness: measured OKLab L rises to 0.9036 at t = 0.5 and collapses to 0.3662
+     at t = 1.0 — FIVE descending pairs — so on a Turbo map the brightest cell is a mediocre spot
+     and the best spot goes dark red. That is exactly why it ships behind a chip carrying its own
+     warning, and why `test/lib/theme/heatPalette.test.ts` asserts the non-monotonicity: the two
+     ramps must never be silently swapped. (SPEC_V2 §6.1 predicted a peak at t = 0.6 with four
+     drops; that was computed from its own from-memory stops — the conclusion holds, the numbers
+     move.) PROVENANCE: derived 2026-08-24 from Google's canonical 256-entry `turbo_srgb_floats`
+     table (Anton Mikhailov, Apache-2.0, gist mikhailov-work/6a308c20e494d9e0ccc29036b28faa7a),
+     sampled with that gist's own interpolate() at t = k/10 and rounded to 8-bit — verified to
+     reproduce the companion `turbo_srgb_bytes` table exactly at all 256 integer indices. These are
+     NOT the stops listed in SPEC_V2 §6.1, which that line flags UNVERIFIED: all 8 interior stops
+     differ (endpoints agree). */
+  --color-heat-alt-0: #30123b; /* t 0.0 — indigo */
+  --color-heat-alt-1: #455acd; /* t 0.1 — blue */
+  --color-heat-alt-2: #3e9bfe; /* t 0.2 — azure */
+  --color-heat-alt-3: #19d6cc; /* t 0.3 — cyan */
+  --color-heat-alt-4: #46f884; /* t 0.4 — spring green */
+  --color-heat-alt-5: #a3fd3c; /* t 0.5 — chartreuse (Turbo's LIGHTNESS peak, not its top) */
+  --color-heat-alt-6: #e1dd37; /* t 0.6 — yellow */
+  --color-heat-alt-7: #fea531; /* t 0.7 — amber */
+  --color-heat-alt-8: #f05b12; /* t 0.8 — orange */
+  --color-heat-alt-9: #c42503; /* t 0.9 — red */
+  --color-heat-alt-10: #7a0403; /* t 1.0 — dark maroon (the best spot, and it reads as the worst) */
+
   /* Type (design board 02) — Space Grotesk for UI, IBM Plex Mono for readouts */
   --font-ui: "Space Grotesk", system-ui, -apple-system, "Helvetica Neue", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Menlo", monospace;

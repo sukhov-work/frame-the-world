@@ -188,6 +188,8 @@ function ray(azDeg: number, o: Partial<RayEvidence> = {}): RayEvidence {
     blockerDistM: 200_000,
     src: "terrain",
     known: 1,
+    /** S3c — how far the ray LOOKED (bestSpotTypes pin 7). Required, so it cannot be forgotten. */
+    reachM: 200_000,
     openSky: true,
     ...o,
   };

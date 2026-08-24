@@ -54,4 +54,32 @@ export const tokens = {
   pinMint: '#7FE8B4', // mint
   pinLavender: '#B0A6F0', // lavender
   pinWarm: '#E8BC7A', // the rare warm voice (near warn, softened)
+  // BEST SPOT heat ramp — INFERNO (SPEC_V2 §6.1), the shipping scale. The one sanctioned rainbow,
+  // because it is QUANTITATIVE and read by LIGHTNESS: strictly monotone in OKLab L across all 11
+  // stops (0.0482 → 0.9777). `lib/theme/heatPalette.ts` turns these into the 256-entry sheet LUT.
+  heat0: '#000004', // t 0.0 — near-black floor ("not here")
+  heat1: '#160B39', // t 0.1 — deep indigo
+  heat2: '#420A68', // t 0.2 — violet
+  heat3: '#6A176E', // t 0.3 — plum
+  heat4: '#932667', // t 0.4 — magenta
+  heat5: '#BC3754', // t 0.5 — crimson
+  heat6: '#DD513A', // t 0.6 — ember red
+  heat7: '#F37819', // t 0.7 — orange
+  heat8: '#FCA50A', // t 0.8 — amber
+  heat9: '#F6D746', // t 0.9 — gold
+  heat10: '#FCFFA4', // t 1.0 — pale straw peak ("stand here")
+  // BEST SPOT heat ramp — TURBO, A/B CHIP ONLY. NOT monotone in lightness (OKLab L peaks 0.9036 at
+  // t 0.5 and falls to 0.3662), so the best spot goes dark red — see the warning in tokens.css.
+  // Derived from Google's canonical 256-entry turbo_srgb_floats table; provenance in tokens.css.
+  heatAlt0: '#30123B', // t 0.0 — indigo
+  heatAlt1: '#455ACD', // t 0.1 — blue
+  heatAlt2: '#3E9BFE', // t 0.2 — azure
+  heatAlt3: '#19D6CC', // t 0.3 — cyan
+  heatAlt4: '#46F884', // t 0.4 — spring green
+  heatAlt5: '#A3FD3C', // t 0.5 — chartreuse (Turbo's lightness peak, not its top)
+  heatAlt6: '#E1DD37', // t 0.6 — yellow
+  heatAlt7: '#FEA531', // t 0.7 — amber
+  heatAlt8: '#F05B12', // t 0.8 — orange
+  heatAlt9: '#C42503', // t 0.9 — red
+  heatAlt10: '#7A0403', // t 1.0 — dark maroon (the peak, reading as the floor)
 } as const;

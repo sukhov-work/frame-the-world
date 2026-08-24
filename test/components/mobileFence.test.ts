@@ -77,6 +77,15 @@ describe("mobile shell fence (MOBILE_PLAN §2)", () => {
   it("controls/ stays a pure leaf: react + stores + lib + globe tunables + styles only", () => {
     const controlsFiles = all.filter((f) => f.includes(join("components", "controls")));
     expect(controlsFiles.length).toBeGreaterThan(0); // zero-result probe
+    // NAMED zero-result probe (BESTSPOT S5, 2026-08-24): the glob above would keep passing if a
+    // shared instrument were quietly moved back into `panels/` or `ui/`, which is precisely the
+    // drift rule 3 exists to stop. `InstrumentSlider` in particular is a deliberate
+    // RE-IMPLEMENTATION of `ui/Slider`'s `.uf-slider` grammar — the day someone "de-duplicates" it
+    // by importing `ui/Slider`, the offender list below goes red AND this list goes short.
+    const names = controlsFiles.map((f) => f.split(/[/\\]/).pop());
+    for (const expected of ["Joystick.tsx", "InstrumentSlider.tsx", "ChipRow.tsx"]) {
+      expect(names, `components/controls/${expected} left the shared tier`).toContain(expected);
+    }
     const offenders: string[] = [];
     for (const file of controlsFiles) {
       for (const spec of importSpecifiers(readFileSync(file, "utf8"))) {

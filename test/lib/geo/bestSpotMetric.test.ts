@@ -159,6 +159,11 @@ function ray(azDeg: number, o: Partial<RayEvidence> = {}): RayEvidence {
     blockerDistM: 200_000,
     src: "terrain",
     known: 1,
+    // S3c — the ray SAYS HOW FAR IT LOOKED. A fixture that leaves this out is describing exactly
+    // the defect `reachM` exists to close (bestSpotTypes pin 7): "the sweep found something" is not
+    // "the sweep reached the trust radius". The default matches `groundDistM` — this base ray is a
+    // clean 200 km horizon, so it looked 200 km.
+    reachM: 200_000,
     openSky: true,
   };
   // `src`/`blockerDistM` follow the ground channel unless the caller overrides them explicitly, so a

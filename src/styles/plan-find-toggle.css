@@ -1,7 +1,9 @@
-/* PLAN / FIND IN FRAME segmented toggle (owner 2026-08-15) — sits in the topnav beside the
-   wordmark; the .pp-pill grammar (mono caps, hairline border, bg-tinted pill) folded into one
-   two-segment switch. The shared window opens in the left column below (plan-panel.css /
-   find-panel.css). */
+/* PLAN / FIND IN FRAME / BEST SPOT segmented toggle (owner 2026-08-15; third segment BESTSPOT S5,
+   SPEC_V2 §6.9) — sits in the topnav beside the wordmark; the .pp-pill grammar (mono caps, hairline
+   border, bg-tinted pill) folded into one switch. The shared window opens in the left column below
+   (plan-panel.css / find-panel.css / bestspot-panel.css — one spot, one "planfind" session key).
+   The third segment needed no new rule: `.pft-seg + .pft-seg` already draws every divider, and
+   `.pft-ext` already frees the width it costs by dropping FIND's tail below 1100px. */
 
 .pft {
   display: inline-flex;

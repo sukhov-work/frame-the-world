@@ -51,6 +51,9 @@ export interface ImageryGroundHandle {
   /** Terrain height (m above the WGS84 ellipsoid) at a location, from loaded tiles; null while
    *  no tile covers it yet. Used to seat the photo frustum on the rendered ground. */
   heightAt(latDeg: number, lonDeg: number): number | null;
+  /** Monotone count of terrain tiles that have finished loading (BEST SPOT §3.4 item 1). Consumers
+   *  compare it per frame and rebuild on change — never a deep scene compare, never per frame. */
+  terrainEpoch(): number;
   /** Ground shadow darkness for the CURRENT shadow source (S5): the sun keeps
    *  SHADOWS.groundOpacity; moon-driven frames pass moonGroundOpacity × K&S intensity.
    *  S7a: the orchestrator blends sun/moon opacity toward the DRAPE.*shadowOpacity knobs
@@ -591,7 +594,14 @@ export function attachImageryGround(
     tileMesh.customDepthMaterial = terrainCastOn ? terrainDepthMat : undefined;
   };
 
+  // BEST SPOT §3.4 item 1 — the streaming epoch. Terrain has no version counter anywhere in the
+  // repo (buildings/enriched publish `seatState()`; this renderer published nothing), so the disc
+  // could not tell "the ground under me just got 4x finer" from "nothing happened" and would have
+  // kept answering off a DSM baked from a coarse LOD. THREE lines on a listener that already
+  // exists, monotone, compared per frame by `bestSpotFeed` — the `vtiles.version()` idiom.
+  let terrainEpochN = 0;
   tiles.addEventListener("load-model", (e: any) => {
+    terrainEpochN++;
     e.scene.traverse((c: any) => {
       if (c.isMesh && c.material && swappedMats.has(c.material)) {
         // CHAIN (never assign) — TilesFadePlugin has already wrapped onBeforeCompile for its fade.
@@ -687,6 +697,7 @@ export function attachImageryGround(
       if (!hit) return null;
       return WGS84_ELLIPSOID.getPositionElevation(hit.point);
     },
+    terrainEpoch: () => terrainEpochN,
     setShadowStrength(opacity) {
       shadowMat.opacity = opacity; // ONE shared material — every twin follows
     },

@@ -514,19 +514,26 @@ export interface GrazeSample {
 
 /** The hot-loop shape: `GrazeSample` plus the confidence-free half of `Q`, which is what τ's four
  *  provenance buckets carry (`GrazeTauSplit`). Reused across every sample of a cell — the kernel
- *  runs 6.79 M times per disc and must not allocate. */
-interface GrazeWork extends GrazeSample {
+ *  runs 6.79 M times per disc and must not allocate.
+ *
+ *  Exported for `bestSpotSolver`'s FUSED PASS only: §7 S3c requires the fused loop to be written
+ *  against these exported kernels rather than re-implementing them, so the two stay DIFFABLE and
+ *  `cellScore` remains the reference the fused pass is measured against. */
+export interface GrazeWork extends GrazeSample {
   /** `Relief · Depth` — `q` WITHOUT `Conf`, so `graze.conf.*` stays a RECOMPOSE. */
   qBase: number;
 }
 
-function newGrazeWork(): GrazeWork {
+/** One reusable `GrazeWork` scratch. See `GrazeWork` for why this is exported. */
+export function newGrazeWork(): GrazeWork {
   return { cut: 0, q: 0, qBase: 0, src: "none", distM: 0 };
 }
 
 /** Per-edge depth weight, hoisted: the log CEILING is a constant of the CELL, so it is computed once
- *  here rather than once per edge inside `depthOfDistM` (18.3 → 9.7 ns/call, ≈22 ms/solve). */
-function depthByDistance(trustRadiusM: number, nearRefM: number): (distM: number) => number {
+ *  here rather than once per edge inside `depthOfDistM` (18.3 → 9.7 ns/call, ≈22 ms/solve).
+ *
+ *  Exported for the fused pass, which hoists it once per SOLVE rather than once per cell. */
+export function depthByDistance(trustRadiusM: number, nearRefM: number): (distM: number) => number {
   const ceil = depthLogCeil(trustRadiusM, nearRefM);
   return (distM) => depthWithCeil(distM, nearRefM, ceil);
 }
@@ -542,8 +549,10 @@ function depthByDistance(trustRadiusM: number, nearRefM: number): (distM: number
  *
  * The `Depth` log is evaluated ONLY when relief is non-zero — one `log` per cell-azimuth at most,
  * never one per edge and never one per disc column.
+ *
+ * Exported for `bestSpotSolver`'s fused pass (§7 S3c): ONE implementation of GRAZE, two callers.
  */
-function grazeSampleInto(
+export function grazeSampleInto(
   ev: RayEvidence,
   altAppDeg: number,
   rhoDeg: number,
@@ -820,15 +829,8 @@ export function notchAt(
     }
   }
 
-  const clears = altStarDeg - floorDeg >= opts.clearanceRadii * rhoDeg ? 1 : 0;
-  const depthTermV = clamp01(
-    (depthDeg - opts.salienceFloorDeg) / (opts.maxDepthDeg - opts.salienceFloorDeg),
-  );
-  const widthTermV = clamp01(
-    (opts.maxWidthDeg - widthDeg) / (opts.maxWidthDeg - 2 * rhoDeg),
-  );
   return {
-    f: clears * depthTermV * widthTermV,
+    f: notchFFromParts(altStarDeg, floorDeg, depthDeg, widthDeg, rhoDeg, opts),
     floorDeg,
     shoulderLDeg,
     shoulderRDeg,
@@ -837,6 +839,42 @@ export function notchAt(
     depthDeg,
     widthDeg,
   };
+}
+
+/**
+ * `F_notch` from the GEOMETRY `notchAt` measured, with every tunable applied afresh.
+ *
+ * ```
+ * F_notch = [alt* − floor >= clearanceRadii·ρ]
+ *         · clamp01((depth − salienceFloorDeg) / (maxDepthDeg − salienceFloorDeg))
+ *         · clamp01((maxWidthDeg − width) / (maxWidthDeg − 2ρ))
+ * ```
+ *
+ * **THIS SPLIT IS WHAT MAKES `CLASS_OF`'s FOUR `gap.*` RECOMPOSE ENTRIES TRUE** (S3c). `notchAt`
+ * measures three things about the skyline — a floor, a depth and a width — and then applies four
+ * taste numbers to them. Storing only the PRODUCT froze those four at solve time, so the
+ * invalidation table said `recompose` while the buffer could only deliver a rescore. The term
+ * buffer now carries `floorDeg`, `depthDeg`, `widthDeg` and `rhoStar`, and COMPOSE calls THIS
+ * function — the same one `notchAt` calls — with the live profile.
+ *
+ * `depthDeg` and `widthDeg` may be `±Infinity` by `notchAt`'s design (an unmeasured shoulder is
+ * ignorance, an unbounded gap is open sky). `clamp01` collapses both to a dead term, and f32 storage
+ * preserves the infinities exactly, so the round trip through the buffer changes nothing.
+ */
+export function notchFFromParts(
+  altStarDeg: number,
+  floorDeg: number,
+  depthDeg: number,
+  widthDeg: number,
+  rhoDeg: number,
+  opts: NotchOptions,
+): number {
+  const clears = altStarDeg - floorDeg >= opts.clearanceRadii * rhoDeg ? 1 : 0;
+  const depthTermV = clamp01(
+    (depthDeg - opts.salienceFloorDeg) / (opts.maxDepthDeg - opts.salienceFloorDeg),
+  );
+  const widthTermV = clamp01((opts.maxWidthDeg - widthDeg) / (opts.maxWidthDeg - 2 * rhoDeg));
+  return clears * depthTermV * widthTermV;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1003,11 +1041,15 @@ export function cellScore(
   let bestGraze = 0;
   let grazeSrc: OccluderSrc = "none";
   let grazeDistM = 0;
+  // The HONESTY RANGE (bestSpotTypes pin 7). Measured over the FULL swept span exactly like `c`,
+  // and over ALL rays — an unsampled ray reaches 0, which is the reading that matters most.
+  let minReachM = n > 0 ? Infinity : 0;
 
   for (let i = 0; i < n; i++) {
     const s = samples[i];
     const r = rays[i];
     wSum += s.w;
+    if (r.reachM < minReachM) minReachM = r.reachM;
     if (r.known !== 1) continue;
     wKnown += s.w;
     const f = fAt(i);
@@ -1089,6 +1131,9 @@ export function cellScore(
       grazeDistM: 0,
       grazeStepRadii,
       c,
+      // Published on the UNKNOWN branch too: "we looked 40 m" is exactly what the panel must say
+      // about a cell it is refusing to score (bestSpotTypes pin 7).
+      minReachM: minReachM === Infinity ? 0 : minReachM,
       altStarDeg,
       dStarM: starRay ? starRay.blockerDistM : 0,
       srcStar: starRay ? starRay.src : "none",
@@ -1160,6 +1205,7 @@ export function cellScore(
     grazeDistM,
     grazeStepRadii,
     c,
+    minReachM: minReachM === Infinity ? 0 : minReachM,
     altStarDeg,
     dStarM: starRay ? starRay.blockerDistM : 0,
     srcStar: starRay ? starRay.src : "none",
@@ -1187,9 +1233,38 @@ function shoulderQualityOf(
   depthFor: (distM: number) => number,
   mode: BestSpotScoring["gap"]["shoulderQuality"],
 ): number {
+  const parts = shoulderQualityParts(rays, notch, dipFloorDeg, graze, depthFor);
+  return combineShoulderQuality(parts.qL, parts.qR, mode);
+}
+
+/** The two shoulders' qualities, UNCOMBINED.
+ *
+ *  Exported because `gap.shoulderQuality` is a **recompose** (`CLASS_OF`), and a recompose can only
+ *  be honest if the term buffer stores what the mode is a function OF. Storing the combined number
+ *  would freeze the mode at solve time and make the table a lie — S3c stores `qL` and `qR` and
+ *  combines them in COMPOSE. */
+export function shoulderQualityParts(
+  rays: readonly RayEvidence[],
+  notch: NotchResult,
+  dipFloorDeg: number,
+  graze: BestSpotScoring["graze"],
+  depthFor: (distM: number) => number,
+): { qL: number; qR: number } {
+  return {
+    qL: groundEdgeQuality(rays, notch.shoulderLIdx, dipFloorDeg, graze, depthFor),
+    qR: groundEdgeQuality(rays, notch.shoulderRIdx, dipFloorDeg, graze, depthFor),
+  };
+}
+
+/** `min` / `mean` / `off` over the two shoulder qualities — the ONE implementation of the mode, so
+ *  `cellScore` and COMPOSE cannot fork on it. `"off"` returns 1 and reproduces the shipped,
+ *  unweighted `F_notch` exactly. */
+export function combineShoulderQuality(
+  qL: number,
+  qR: number,
+  mode: BestSpotScoring["gap"]["shoulderQuality"],
+): number {
   if (mode === "off") return 1;
-  const qL = groundEdgeQuality(rays, notch.shoulderLIdx, dipFloorDeg, graze, depthFor);
-  const qR = groundEdgeQuality(rays, notch.shoulderRIdx, dipFloorDeg, graze, depthFor);
   return mode === "mean" ? (qL + qR) / 2 : Math.min(qL, qR);
 }
 
@@ -1218,8 +1293,11 @@ function groundEdgeQuality(
  * `Math.pow(x, 0.5)` is implementation-approximated and may differ in the last ulp. Routing the
  * shipped exponent through `sqrt` keeps the refactor bit-identical AND keeps the more accurate of
  * the two functions on the default path.
+ *
+ * Exported for the COMPOSE pass, which recomputes `accessAt` from the term buffer's stored `cls` /
+ * `flags` byte and must reproduce this arithmetic to the last bit.
  */
-function accessSoftGain(soft: number, exponent: number): number {
+export function accessSoftGain(soft: number, exponent: number): number {
   return exponent === 0.5 ? Math.sqrt(soft) : Math.pow(soft, exponent);
 }
 
@@ -1241,8 +1319,12 @@ function accessSoftGain(soft: number, exponent: number): number {
  * **Every sun number is untouched.** Sun kinds have `worth === 1` by construction
  * (`bestSpotTrack.worthAt`), and `0.35 + (1 − 0.35)·1` is exactly 1 in IEEE doubles — not 1 to
  * within an epsilon. `bestSpotScoring.test.ts` asserts that identity rather than assuming it.
+ *
+ * Exported for the COMPOSE pass: `worth.*` is a RECOMPOSE only because COMPOSE recovers `M` from the
+ * track's stored `sunAltAtT0Deg`/`moonPhaseAngleDeg` through `worthFromParts` and then through THIS
+ * function — the same one `cellScore` uses, so the two can never fork.
  */
-function effectiveWorth(worth: number, cfg: BestSpotScoring["worth"]): number {
+export function effectiveWorth(worth: number, cfg: BestSpotScoring["worth"]): number {
   if (cfg.mode === "badge") return 1;
   const floor = clamp01(cfg.effectiveFloor);
   return floor + (1 - floor) * clamp01(worth);

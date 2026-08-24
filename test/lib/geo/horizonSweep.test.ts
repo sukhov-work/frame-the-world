@@ -578,8 +578,10 @@ describe("horizonSweep — PIN: unsampled is known=0 and is NOT open sky", () =>
     expect(Number.isNaN(ev2.groundAltAppDeg)).toBe(true);
   });
 
-  it("POSITIVE CONTROL: the same eye over mapped flat ground DOES report known=1 + openSky", () => {
-    const dsm = halfMappedDsm();
+  it("POSITIVE CONTROL: the same eye over FULLY mapped flat ground DOES report known=1 + openSky", () => {
+    // FULLY mapped, not `halfMappedDsm()` — see the S3c pin below for why that change is the whole
+    // point. Here the ray reaches the grid edge, so `reachM === gridReachM` and the gate opens.
+    const dsm = flatDsm(81, 81, 5, 0);
     const hulls = buildHulls(dsm, 0, { refractionK: K });
     const out = createSweepOut(dsm.cellCount, 16);
     sweepAzimuth(dsm, hulls, 0, 1.7, out);
@@ -589,6 +591,38 @@ describe("horizonSweep — PIN: unsampled is known=0 and is NOT open sky", () =>
     expect(ev.openSky).toBe(true);
     expect(ev.src).toBe("terrain");
     expect(ev.groundAltAppDeg).toBeLessThan(0); // SIGNED, never floored at the dip
+    expect(ev.reachM).toBeCloseTo(60 * 5, 6); // 60 forward slots × 5 m — it looked as far as it could
+  });
+
+  /**
+   * **S3c — THE CHANGED ASSERTION, AND IT IS THE HEADLINE.**
+   *
+   * The positive control above used to run on `halfMappedDsm()` and assert `openSky === true` for a
+   * cell whose ray crosses 100 m of mapped ground and then falls off the DSM with 200 m of grid
+   * still in front of it. That is verbatim SPEC_V2 §3.2's third case — *"cell 200 m east, rays cross
+   * 200 m of known ground first → scored, C = 1.000, evidence truncated at 200 m. **Silent lie.**"*
+   * — and the shipped test PINNED the lie as correct behaviour, which is why it never showed up.
+   *
+   * `reachM` is the channel that tells the two apart, and `openSky` is now gated on it.
+   */
+  it("S3c: a ray that runs OUT OF DSM before the grid ends is known=1 but NOT open sky, and says how far it looked", () => {
+    const dsm = halfMappedDsm();
+    const hulls = buildHulls(dsm, 0, { refractionK: K });
+    const out = createSweepOut(dsm.cellCount, 16);
+    sweepAzimuth(dsm, hulls, 0, 1.7, out);
+    const inside = cellIndexAt(dsm, 40, 20);
+    const ev = rayEvidenceAt(out, inside);
+
+    expect(ev.known).toBe(1); // it DID find evidence — `known` is unchanged, two channels two names
+    expect(ev.reachM).toBeCloseTo(20 * 5, 6); // …and it stopped 100 m out, at the edge of the data
+    expect(ev.openSky).toBe(false); // ← THE FIX: 100 m of evidence is not a claim about the horizon
+
+    // The gate is `reachM >= min(trustRadiusM, gridReachM)`, so lowering the trust radius under the
+    // measured reach re-opens it — which proves the flag is driven by the reach and not by the
+    // geometry having quietly changed.
+    const lenient = createSweepOut(dsm.cellCount, 16);
+    sweepAzimuth(dsm, hulls, 0, 1.7, lenient, { trustRadiusM: 90 });
+    expect(rayEvidenceAt(lenient, inside).openSky).toBe(true);
   });
 
   it("a BUILT horizon is never openSky, however low it is", () => {

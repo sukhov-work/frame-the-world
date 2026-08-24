@@ -10,6 +10,11 @@
  * can't freeze the auto-hide as if the user chose it.
  */
 
+import {
+  sanitizeScoringPatch,
+  type BestSpotScoringPatch,
+} from "./geo/bestSpotScoring";
+
 export const VIEW_PREFS_KEY = "ftw:view-prefs:v1";
 
 export interface ViewPrefs {
@@ -71,6 +76,26 @@ export interface ViewPrefs {
   skyGhostCount?: number;
   /** Minutes between ghost copies (1..120). */
   skyGhostStepMin?: number;
+  /**
+   * BEST SPOT taste pass — the scoring **PATCH**, never the resolved profile (SPEC_V2 §5.7).
+   *
+   * Persisting the patch is what lets a future change to a shipped default propagate to every
+   * field the owner never touched; persisting the resolved profile would freeze all ~45 leaves at
+   * whatever they happened to be the day someone moved one slider. `sanitizeScoringPatch` copies
+   * only keys it KNOWS, so a field removed in a later version is dropped rather than fatal, and
+   * it applies the §5.5 safety/honesty clamps here at the READ — a hand-edited blob cannot smuggle
+   * `access.aerialMinM: 0` (stand in the river) or `gates.minCoverage: 0` (claim knowledge nobody
+   * has) past it. There is no key path from a patch to `BESTSPOT_SAFETY` at all.
+   *
+   * Same desktop-only caveat as `ultraQuality` above: `ftw:view-prefs:v1` is ONE localStorage key
+   * shared by both shells on the same origin, so a tune saved on desktop IS present on `/m` in the
+   * same browser. The fence is not here — it is the `!isMobileShell && !coarsePointerShell`
+   * predicate every BEST SPOT engine read is AND-ed with. Do not add a `/m` control.
+   *
+   * NOT joined to the `rearmed` clause: that exists only to un-stick four default-ON radar keys a
+   * 2026-08-19 build could persist false. This key has no boolean default to resurrect.
+   */
+  bestSpotTuning?: BestSpotScoringPatch;
 }
 
 /** Keep only known keys with the right types; clamp numerics. Pure — unit-tested directly. */
@@ -117,6 +142,10 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
     out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));
   if (typeof r.skyGhostStepMin === "number" && Number.isFinite(r.skyGhostStepMin))
     out.skyGhostStepMin = Math.max(1, Math.min(120, Math.round(r.skyGhostStepMin)));
+  // The BEST SPOT scoring patch — the one nested value in this blob, sanitized by its own module
+  // (shape-driven: unknown keys and wrong types are dropped, the §5.5 clamps are applied).
+  if (typeof r.bestSpotTuning === "object" && r.bestSpotTuning !== null)
+    out.bestSpotTuning = sanitizeScoringPatch(r.bestSpotTuning);
   return out;
 }
 

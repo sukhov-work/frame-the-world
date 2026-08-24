@@ -165,6 +165,10 @@ function ray(azDeg: number, o: Partial<RayEvidence> = {}): RayEvidence {
     blockerDistM: 4655,
     src: "terrain",
     known: 1,
+    // S3c — how far the ray LOOKED, not just whether it found something (bestSpotTypes pin 7).
+    // These synthetic scenarios are all "the evidence reached the trust radius"; the truncated-DSM
+    // case lives in `bestSpotSolver.test.ts`, where a real DSM can be cut short.
+    reachM: 200_000,
     openSky: true,
     ...o,
   };

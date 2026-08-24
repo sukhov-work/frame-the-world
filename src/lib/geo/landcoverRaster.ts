@@ -7,11 +7,22 @@
  *
  * Pure, three-free, store-free, DOM-free, clock-free — the `horizonProfile`/`occlusion` idiom, so
  * this imports cleanly inside the long-lived module worker (§5). The only cross-layer edges are
- * `components/globe/tuning` (VECTOR ribbon widths — the sanctioned edge, `tuning.ts` is verified
- * three-free) and a TYPE-ONLY import of the parser's feature shapes, which is erased at build time
- * and therefore costs the worker nothing. Types rather than a hand-copied structural mirror on
- * purpose: a duplicated shape is a shape that drifts, and this file's whole job is to consume the
- * five fields the 2026-08-24 parser widening stopped throwing away.
+ * `components/globe/tuning` (VECTOR ribbon widths) and a TYPE-ONLY import of the parser's feature
+ * shapes, which is erased at build time and therefore costs the worker nothing. Types rather than a
+ * hand-copied structural mirror on purpose: a duplicated shape is a shape that drifts, and this
+ * file's whole job is to consume the five fields the 2026-08-24 parser widening stopped throwing
+ * away.
+ *
+ * ── THE `VECTOR` IMPORT IS AN EXEMPTION, AND IT IS NEUTRALISED — DO NOT LEAVE IT AMBIGUOUS (S3d) ─
+ * `SPEC_V2 §5.6` fences `bestSpotWorker.ts` and `bestSpotSolver.ts` against a `components/globe/
+ * tuning` import, because a LONG-LIVED worker latches module scope at spawn and is invisibly stale
+ * forever. This module sits UNDER the worker and does import `VECTOR`, so the fence would have been
+ * true by the letter and false in effect. `buildLandGrid`'s third parameter is the fix:
+ * `widths: LandRibbonWidths = VECTOR`. Every shipped caller is byte-identical (the default IS the
+ * old read), the WORKER passes the widths that rode its job, and `fences.test.ts` walks the
+ * worker's whole static import graph and asserts the set of transitive tuning edges equals a
+ * written allow-list with a reason per entry — of which this is one, with THIS paragraph as the
+ * reason.
  *
  * ── THE FOUR THINGS THIS MODULE EXISTS TO GET RIGHT ─────────────────────────────────────────────
  *
@@ -558,6 +569,21 @@ function stampPolyline(
 // The paint passes
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * The two ribbon-width tables `buildLandGrid` stamps centrelines at.
+ *
+ * A PARAMETER rather than a module read (S3d) — see the header's exemption paragraph. `VECTOR`
+ * satisfies it structurally, which is why the default costs no caller anything.
+ */
+export interface LandRibbonWidths {
+  /** Metres per OpenMapTiles transportation class. A class absent here is never stamped. */
+  readonly roadWidthM: Readonly<Record<string, number>>;
+  /** Metres per waterway class; `stream` is the fallback the paint pass names explicitly, and it
+   *  resolves through the index signature — a required-property intersection here would refuse
+   *  `VECTOR`'s own `as Record<string, number>` annotation and break the default. */
+  readonly waterwayWidthM: Readonly<Record<string, number>>;
+}
+
 /** Everything one parsed MVT tile contributes. `ParsedVtile` satisfies this structurally. */
 export interface LandSource {
   lines: readonly VecLineFeat[];
@@ -679,7 +705,11 @@ function roadPaint(feat: VecLineFeat): Paint {
  * Buildings paint last unconditionally: a footprint is the one polygon in the schema that is a
  * physical solid rather than a surface classification.
  */
-export function buildLandGrid(spec: LandGridSpec, sources: Iterable<LandSource>): LandGrid {
+export function buildLandGrid(
+  spec: LandGridSpec,
+  sources: Iterable<LandSource>,
+  widths: LandRibbonWidths = VECTOR,
+): LandGrid {
   const grid = makeLandGrid(spec);
   const tiles = [...sources];
 
@@ -707,7 +737,7 @@ export function buildLandGrid(spec: LandGridSpec, sources: Iterable<LandSource>)
   }
 
   // 3 — WATER: polygons first (the Dnipro is a `class = "lake"` polygon, 2.03 km² on the hero
-  //     tile), then waterway CENTRELINES stamped at VECTOR.waterwayWidthM. An INTERMITTENT
+  //     tile), then waterway CENTRELINES stamped at `widths.waterwayWidthM`. An INTERMITTENT
   //     watercourse paints `wetland` (soft 0.1, hard 1) rather than `water` (hard 0): a dry ditch
   //     is bad ground, and hard-excluding it would be a claim about a water level nothing here
   //     measures.
@@ -722,12 +752,12 @@ export function buildLandGrid(spec: LandGridSpec, sources: Iterable<LandSource>)
       // mini-map keeps drawing what it always drew. A CULVERTED drain is under the ground you are
       // standing on and is not a hazard.
       if (f.brunnel === "tunnel") continue;
-      const widthM = VECTOR.waterwayWidthM[f.cls] ?? VECTOR.waterwayWidthM.stream;
+      const widthM = widths.waterwayWidthM[f.cls] ?? widths.waterwayWidthM.stream;
       stampFeature(grid, f, widthM, f.intermittent ? paint("wetland") : paint("water"));
     }
   }
 
-  // 4 / 5 — ROAD ribbons then PATH ribbons, at VECTOR.roadWidthM. Tunnels are skipped: a road in a
+  // 4 / 5 — ROAD ribbons then PATH ribbons, at `widths.roadWidthM`. Tunnels are skipped: a road in a
   //         tunnel says nothing about the surface above it. Classes absent from roadWidthM (or at
   //         width 0, i.e. `transit`) never reach here — the parser's own render filter dropped them.
   for (const pass of [false, true]) {
@@ -736,7 +766,7 @@ export function buildLandGrid(spec: LandGridSpec, sources: Iterable<LandSource>)
         if (f.kind !== "road" || f.brunnel === "tunnel") continue;
         const isPath = PATH_CLASSES.has(f.cls) || DECK_LINE_CLASSES.has(f.cls);
         if (isPath !== pass) continue;
-        stampFeature(grid, f, VECTOR.roadWidthM[f.cls] ?? 0, roadPaint(f));
+        stampFeature(grid, f, widths.roadWidthM[f.cls] ?? 0, roadPaint(f));
       }
     }
   }

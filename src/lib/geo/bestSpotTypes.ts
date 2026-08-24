@@ -41,6 +41,21 @@
  *     `bandDistM` alongside it, and §3.2's "the geometry that set Hg(a), OR the nearest band edge" is
  *     implemented on BOTH halves of that sentence.
  *
+ *  7. **MISSING DATA DOES NOT READ AS "UNKNOWN" — IT READS AS THE BEST SPOT ON THE MAP (S3c,
+ *     SPEC_V2 §3).** Pin 4 gave the sweep an evidence FLAG; it never gave it a RANGE. `known = 1`
+ *     means "this ray found ≥ 1 forward sample", which is true of a ray that saw 10 m of ground and
+ *     then fell off the edge of a truncated DSM. MEASURED, identical scene, identical track, centre
+ *     cell, 1.7 m eye, a real 30 m ridge 500 m up-sun: with the DSM out to 700 m (the TRUTH) the
+ *     cell scores **0.0000**; with the DSM truncated at 350 m it scores **0.6633**, reports
+ *     coverage **1.000**, and claims open sky on **all 40 rays** — indistinguishable from a
+ *     genuinely open plain (0.6613). At the rim the same shape costs 14×: a cell 290 m up-sun reads
+ *     0.0467 with the 400 m collar and 0.6619 without.
+ *
+ *     `reachM` is the missing range, `openSky` is gated on it, and `CellScore.minReachM` publishes
+ *     the worst direction so the panel can say it out loud. It is ALSO what makes refinement safe:
+ *     without it, a disc that gains data as tiles stream in silently LOWERS its scores, and the
+ *     owner reads that as a regression rather than as the truth arriving.
+ *
  *  6. **THE SHOULDERS ARE NOT PART OF THE VISIBILITY INTEGRAL (LENS B, 2026-08-24).** `EventTrack`
  *     spans the window PLUS azimuth shoulders that exist only for `F_notch`'s sL/sR and for the
  *     coverage term `C`. Carrying no marker for that boundary cost 47 % of the normalised weight to a
@@ -194,8 +209,19 @@ export interface RayEvidence {
   src: OccluderSrc;
   /** Evidence flag — 0 means NOTHING was sampled along this ray (pin 4). */
   known: 0 | 1;
+  /**
+   * **HOW FAR THIS RAY ACTUALLY LOOKED (m) — pin 7, S3c.** The along-ray distance of the LAST KNOWN
+   * sample forward of the cell; `0` when nothing forward was sampled.
+   *
+   * REQUIRED, not optional, and that is deliberate: a fixture that does not say how far it looked is
+   * exactly the defect this field exists to close. See pin 7 below.
+   */
+  reachM: number;
   /** The hull found nothing and the far profile is terrain-only: a genuinely open horizon. An explicit
-   *  boolean, never the fragile float test `alt === openSkyAltDeg`. */
+   *  boolean, never the fragile float test `alt === openSkyAltDeg`.
+   *
+   *  **GATED ON `reachM` SINCE S3c** (`reachM >= min(trustRadiusM, gridReachM)`): before that it
+   *  never asked how far the evidence reached, and a truncated disc claimed open sky on every ray. */
   openSky: boolean;
 }
 
@@ -306,6 +332,19 @@ export interface CellScore {
   grazeStepRadii: number;
   /** Per-cell evidence coverage over the FULL swept span, 0..1. */
   c: number;
+  /**
+   * **The HONESTY RANGE (pin 7, S3c): the SMALLEST `RayEvidence.reachM` over the whole swept span**
+   * — how far the evidence reached in this cell's WORST direction (m).
+   *
+   * `c` says WHETHER we looked; this says HOW FAR. A cell can report `c = 1.000` on a disc whose
+   * DSM stops 350 m out, and did (measured `S = 0.6633` against a truth of `0.0000`, SPEC_V2 §3.1).
+   * `min` and not `mean` for the same reason `notchAt` takes `min(sL, sR)`: one blind direction is
+   * enough to invalidate the answer, and the sun only sets in one of them.
+   *
+   * Published on the UNKNOWN branch too — "we looked 40 m" is exactly what the panel must say about
+   * a cell it is refusing to score.
+   */
+  minReachM: number;
   /** Lowest apparent centre altitude at which the disc is still ≥50 % visible (deg). Signed. */
   altStarDeg: number;
   /** Distance (m) to the blocker at the contact azimuth — what "far in the distance" actually means. */
