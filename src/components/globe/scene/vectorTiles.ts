@@ -13,12 +13,24 @@ import { STREETS, VECTOR } from "../tuning";
  * OpenMapTiles schema, maxzoom 14 (deeper tiles do not exist — probe-verified S7). Parsed layers:
  *   transportation_name → StreetLabelFeat (one candidate label per named line feature)
  *   transportation      → VecLineFeat kind "road" (class + brunnel; tunnels kept but flagged)
+ *                         …and, since 2026-08-24, its POLYGON features as VecAreaFeat kind "deck"
  *   waterway            → VecLineFeat kind "waterway" (river/stream lines)
  *   water               → VecPolyFeat kind "water" (river/lake surfaces — the Dnipro IS a polygon)
  *   landcover/park      → VecPolyFeat kind "green" (grass/wood/park fills)
+ *   landcover (rest)    → VecAreaFeat kind "landcover" (wetland/sand/farmland — NOT map ink)
+ *   landuse             → VecAreaFeat kind "landuse" (military/industrial/pitch/…)
  *   building            → VecPolyFeat kind "building" (footprints — the FPV mini-map's anchor
  *                         detail; probe-verified over Dnipro: ~1.5k rings per central z14 tile.
  *                         The 3D web ignores them — only the mini-map draws this kind.)
+ *
+ * ── THE 2026-08-24 WIDENING (BESTSPOT_PLAN §4, "parser widening") ────────────────────────────
+ * Five fields and one whole geometry class were being read off the wire and thrown on the floor.
+ * The widening is **ADDITIVE BY CONTRACT**: every field it adds is OPTIONAL, the new geometry
+ * lands in a NEW array (`areas`), and nothing an existing consumer already destructured changed
+ * value — `vectorFeatures`, `streetNames`, `minimapFeed` and `MiniMap` see byte-identical
+ * `lines`/`polys`/`labels`. Two consequences of that rule are load-bearing and are commented at
+ * their sites: `VecLineFeat.tunnel` still ignores waterway brunnels (see `brunnel`), and the
+ * landcover→"green" filter still admits exactly the same features (see GREEN_CLASSES).
  */
 
 export interface StreetLabelFeat {
@@ -36,28 +48,95 @@ export interface StreetLabelFeat {
   bLonDeg: number;
 }
 
-interface VecLineFeat {
+export interface VecLineFeat {
   kind: "road" | "waterway";
   /** OpenMapTiles class (motorway/primary/…/river/stream). */
   cls: string;
   bridge: boolean;
+  /** ROAD brunnels only — deliberately NOT set for waterways. `minimapFeed` skips `tunnel` lines,
+   *  so flipping this on for a culverted drain would DELETE it from the shipped FPV mini-map: a
+   *  behaviour change, which this widening is not allowed to make. Consumers that want the honest
+   *  answer for a waterway read `brunnel` instead. (Recorded 2026-08-24: the mini-map drawing a
+   *  culverted drain as a visible watercourse is a real, pre-existing, out-of-scope defect.) */
   tunnel: boolean;
+  /** Raw OpenMapTiles `brunnel` ("bridge" | "tunnel" | "ford"), for BOTH kinds. */
+  brunnel?: string;
+  /** OpenMapTiles `subclass` — the PEDESTRIAN taxonomy (footway / steps / path / cycleway) that
+   *  `class` flattens into a single "path". Measured in the Dnipro 3×3 ring: footway 88, pedestrian
+   *  31, steps 30, path 26, cycleway 17 — an accessibility ladder that cannot rank a staircase
+   *  against a promenade without this field. */
+  subclass?: string;
+  /** `surface` (paved / unpaved / gravel / …). Unpaved DEMOTES a way; it never certifies one. */
+  surface?: string;
+  /** `access` (no / private / customers / …) — a HARD exclusion for the BEST SPOT ground rules. */
+  access?: string;
+  /** `foot` (no / yes / designated). `foot=no` demotes. */
+  foot?: string;
+  /** OSM `layer` (…, −1, 0, 1, …). SIGNED, and absent stays `undefined` rather than collapsing to
+   *  0 — a tile that omits the tag is not asserting ground level. */
+  layer?: number;
+  /** `intermittent` — a seasonal watercourse is evidence of wet ground, not of standing water. */
+  intermittent?: boolean;
   /** Polylines as [lon, lat][][] (a feature may be a multiline). */
   lines: [number, number][][];
 }
 
-interface VecPolyFeat {
+export interface VecPolyFeat {
   kind: "water" | "green" | "building";
+  /** Polygons as GeoJSON-style rings: [polygon][ring][vertex][lon, lat] (ring 0 = outer). */
+  polys: [number, number][][][];
+  /** OpenMapTiles `class`. water: lake / river / pond / **swimming_pool** — "the Dnipro" and "a
+   *  hotel pool" were the same object before this field survived. landcover: grass / wood / sand. */
+  cls?: string;
+  /** OpenMapTiles `subclass`. landcover's park / meadow / pitch / recreation_ground live HERE and
+   *  NOT in `class` — see the GREEN_CLASSES note for the dead branch that hid them. */
+  subclass?: string;
+  /** water only — a seasonal pond is not a standing hazard. */
+  intermittent?: boolean;
+  /** building only: the extrusion envelope, present on EVERY z14 building feature (probed). A point
+   *  is inside a SOLID INTERIOR when `renderMinHeightM <= h < renderHeightM`, which is the whole of
+   *  owner ruling R1's aerial mask — a drone flies THROUGH the arch of a building on stilts. */
+  renderHeightM?: number;
+  renderMinHeightM?: number;
+}
+
+/**
+ * A polygon that is neither map ink nor a footprint — pure ACCESSIBILITY evidence, kept in its own
+ * array so the shipped `polys` consumers keep a closed 3-kind union and cannot be broken by it.
+ *
+ *  · "deck"      — the transportation layer's POLYGON features. `vectorTiles` threw these away for
+ *                  a year (`if (f.type !== 2) continue; // skip … plazas/piers`), and with them a
+ *                  29,039 m² bridge deck at 48.47831,35.05757 — the OWNER'S HERO LOCATION, the one
+ *                  standable strip over the Dnipro. Also piers, pedestrian plazas and platforms.
+ *  · "landuse"   — the whole landuse layer (military / industrial / railway / quarry / landfill /
+ *                  construction are hard exclusions; pitch / playground are soft ones). C6-relevant.
+ *  · "landcover" — the landcover features the "green" map-ink filter REJECTS (wetland, sand/beach,
+ *                  farmland, ice, rock). They are not ink, but "is this a swamp" is exactly the
+ *                  question the accessibility ladder asks. Geometry is never duplicated: a feature
+ *                  goes to `polys` as green OR here, never both.
+ */
+export interface VecAreaFeat {
+  kind: "deck" | "landuse" | "landcover";
+  /** OpenMapTiles `class` ("" when the tile omits it). */
+  cls: string;
+  /** OpenMapTiles `subclass` ("" when absent). */
+  subclass: string;
+  /** `access` (no / private / …) where the schema carries it. */
+  access?: string;
+  /** OSM `layer` — a bridge deck carries ≥ 1; absent stays `undefined` (see VecLineFeat.layer). */
+  layer?: number;
   /** Polygons as GeoJSON-style rings: [polygon][ring][vertex][lon, lat] (ring 0 = outer). */
   polys: [number, number][][][];
 }
 
-interface ParsedVtile {
+export interface ParsedVtile {
   tx: number;
   ty: number;
   labels: StreetLabelFeat[];
   lines: VecLineFeat[];
   polys: VecPolyFeat[];
+  /** ADDED 2026-08-24. A separate array on purpose — see VecAreaFeat. */
+  areas: VecAreaFeat[];
 }
 
 export interface VectorTilesHandle {
@@ -239,7 +318,275 @@ export function sampleLineAnchors(
   return out.length > 0 ? out : [{ a: line[mid], b: line[midNext] }];
 }
 
+/**
+ * Map-ink "green". Mixed on purpose: `grass`/`wood` are landcover **classes**, while
+ * `park`/`meadow`/`recreation_ground` are landcover **subclasses** (all three sit under
+ * `class = "grass"`).
+ *
+ * THE DEAD BRANCH (BESTSPOT_PLAN §4, fixed 2026-08-24): the filter used to be called with
+ * `String(f.properties.class ?? f.properties.subclass ?? "")`. EVERY landcover feature carries
+ * `class`, so `??` short-circuited on the first operand every single time and the subclass half of
+ * this set was unreachable code. `isGreen` now reads both explicitly. The set is deliberately left
+ * as-is: at OpenMapTiles' mapping the three subclasses all live under `class = "grass"`, which
+ * already matched — so the fix restores the INTENT without changing which features become ink,
+ * which is what keeps the widening additive.
+ */
 const GREEN_CLASSES = new Set(["grass", "wood", "park", "meadow", "recreation_ground"]);
+
+/** Green iff the class OR the subclass is green — the fix for the `class ?? subclass` dead branch. */
+const isGreen = (cls: string, subclass: string): boolean =>
+  GREEN_CLASSES.has(cls) || GREEN_CLASSES.has(subclass);
+
+/** MVT property → string, absent stays absent. `String(undefined)` yields the literal "undefined",
+ *  which is how a missing tag becomes a value that silently matches nothing forever. */
+const propStr = (v: number | string | boolean | undefined): string | undefined =>
+  v === undefined ? undefined : String(v);
+
+/** MVT property → finite number, absent/garbage stays absent (heights and `layer` are both signed
+ *  and both legitimately 0, so a 0 fallback would be indistinguishable from real data). */
+const propNum = (v: number | string | boolean | undefined): number | undefined => {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : Number.NaN;
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** MVT property → boolean. OpenMapTiles encodes `intermittent` as the integer 0/1, not a bool. */
+const propBool = (v: number | string | boolean | undefined): boolean | undefined => {
+  if (v === undefined) return undefined;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  return v === "true" || v === "1" || v === "yes";
+};
+
+const classRank = new Map<string, number>(STREETS.classPriority.map((c, i) => [c, i] as const));
+
+const toLonLat = (tx: number, ty: number, extent: number, p: { x: number; y: number }) => {
+  const { lonDeg, latDeg } = tileLocalToLonLat(STREETS.tileZ, tx, ty, extent, p.x, p.y);
+  return [lonDeg, latDeg] as [number, number];
+};
+
+/** Tile-local rings → clipped lon/lat polygons, GeoJSON-style ([polygon][ring][vertex]).
+ *  MVT emits a FLAT ring list: a positive-area ring opens a polygon, negative-area rings are
+ *  holes of the last one opened. Rings are clipped to the exact tile square FIRST — the
+ *  encoder's buffer otherwise overlaps the neighbour tile's fill (the "river flicker"). */
+const ringsOfFeature = (
+  f: { loadGeometry(): { x: number; y: number }[][] },
+  extent: number,
+  tx: number,
+  ty: number,
+): [number, number][][][] => {
+  const polys: [number, number][][][] = [];
+  for (const rawRing of f.loadGeometry()) {
+    if (rawRing.length < 4) continue;
+    const ring = clipRingToBounds(rawRing, 0, extent);
+    if (ring.length < 3) continue;
+    const outer = ringArea(ring) > 0;
+    const lonlat = ring.map((p) => toLonLat(tx, ty, extent, p));
+    if (outer || polys.length === 0) polys.push([lonlat]);
+    else polys[polys.length - 1].push(lonlat);
+  }
+  return polys;
+};
+
+/**
+ * Parse ONE z14 MVT tile into plain lon/lat data. Pure and GL-free (the scene-test twin rule):
+ * hoisted out of `attachVectorTiles`'s closure 2026-08-24 so a committed fixture tile can be run
+ * through the real parser in vitest — the deck/landuse/subclass widening is otherwise only
+ * observable through a network fetch, and an unfalsifiable check is the exact failure mode this
+ * feature's plan opens with.
+ */
+export const parseVectorTile = (buf: ArrayBuffer, tx: number, ty: number): ParsedVtile => {
+  const vt = new VectorTile(new PbfReader(new Uint8Array(buf)));
+  const out: ParsedVtile = { tx, ty, labels: [], lines: [], polys: [], areas: [] };
+
+  // --- transportation_name → label candidates (S7 v2 logic, geometry-free) -----------------
+  const nameLayer = vt.layers["transportation_name"];
+  if (nameLayer) {
+    for (let i = 0; i < nameLayer.length; i++) {
+      const f = nameLayer.feature(i);
+      const name = f.properties.name;
+      if (typeof name !== "string" || name.length === 0 || f.type !== 2) continue;
+      const rank = classRank.get(String(f.properties.class)) ?? STREETS.classPriority.length;
+      // Longest line of the (multi)line — its middle vertex anchors the label, the next
+      // vertex gives the street direction.
+      let line: { x: number; y: number }[] | null = null;
+      let lineLen = 0;
+      for (const cand of f.loadGeometry()) {
+        if (cand.length < 2) continue;
+        let len = 0;
+        for (let v = 1; v < cand.length; v++) {
+          len += Math.hypot(cand[v].x - cand[v - 1].x, cand[v].y - cand[v - 1].y);
+        }
+        if (len > lineLen) {
+          lineLen = len;
+          line = cand;
+        }
+      }
+      if (!line) continue;
+      // v4: repeat anchors along the line every STREETS.repeatEveryM (converted to extent
+      // units at this tile's latitude — a z14 tile is ~2.4 km wide at 48°N).
+      const centreLat = tileLocalToLonLat(
+        STREETS.tileZ,
+        tx,
+        ty,
+        nameLayer.extent,
+        nameLayer.extent / 2,
+        nameLayer.extent / 2,
+      ).latDeg;
+      const tileWidthM =
+        (40_075_016.686 * Math.cos((centreLat * Math.PI) / 180)) / 2 ** STREETS.tileZ;
+      const stepUnits = (STREETS.repeatEveryM / tileWidthM) * nameLayer.extent;
+      for (const { a: pA, b: pB } of sampleLineAnchors(
+        line,
+        stepUnits,
+        STREETS.maxAnchorsPerFeat,
+      )) {
+        const a = toLonLat(tx, ty, nameLayer.extent, pA);
+        const b = toLonLat(tx, ty, nameLayer.extent, pB);
+        out.labels.push({
+          name,
+          rank,
+          lineLen,
+          lonDeg: a[0],
+          latDeg: a[1],
+          bLonDeg: b[0],
+          bLatDeg: b[1],
+        });
+      }
+    }
+  }
+
+  // --- transportation → road lines + (2026-08-24) DECK polygons -----------------------------
+  const roadLayer = vt.layers["transportation"];
+  if (roadLayer) {
+    for (let i = 0; i < roadLayer.length; i++) {
+      const f = roadLayer.feature(i);
+      // The schema's POLYGON features. This branch sits ABOVE the roadWidthM gate on purpose:
+      // the hero deck's class is "bridge", which is not a ribbon width and never will be.
+      if (f.type === 3) {
+        const polys = ringsOfFeature(f, roadLayer.extent, tx, ty);
+        if (polys.length === 0) continue;
+        out.areas.push({
+          kind: "deck",
+          cls: String(f.properties.class ?? ""),
+          subclass: String(f.properties.subclass ?? ""),
+          access: propStr(f.properties.access),
+          layer: propNum(f.properties.layer),
+          polys,
+        });
+        continue;
+      }
+      if (f.type !== 2) continue;
+      const cls = String(f.properties.class ?? "");
+      if (!(cls in VECTOR.roadWidthM)) continue; // transit/aerialway/construction noise stays out
+      const brunnel = String(f.properties.brunnel ?? "");
+      const lines: [number, number][][] = [];
+      for (const part of f.loadGeometry()) {
+        if (part.length < 2) continue;
+        // Clip away the MVT buffer — neighbor tiles otherwise draw the same road twice.
+        for (const clipped of clipLineToBounds(part, 0, roadLayer.extent)) {
+          lines.push(clipped.map((p) => toLonLat(tx, ty, roadLayer.extent, p)));
+        }
+      }
+      if (lines.length === 0) continue;
+      out.lines.push({
+        kind: "road",
+        cls,
+        bridge: brunnel === "bridge",
+        tunnel: brunnel === "tunnel",
+        brunnel: propStr(f.properties.brunnel),
+        subclass: propStr(f.properties.subclass),
+        surface: propStr(f.properties.surface),
+        access: propStr(f.properties.access),
+        foot: propStr(f.properties.foot),
+        layer: propNum(f.properties.layer),
+        lines,
+      });
+    }
+  }
+
+  // --- waterway → river/stream lines --------------------------------------------------------
+  const waterwayLayer = vt.layers["waterway"];
+  if (waterwayLayer) {
+    for (let i = 0; i < waterwayLayer.length; i++) {
+      const f = waterwayLayer.feature(i);
+      if (f.type !== 2) continue;
+      const lines: [number, number][][] = [];
+      for (const part of f.loadGeometry()) {
+        if (part.length < 2) continue;
+        for (const clipped of clipLineToBounds(part, 0, waterwayLayer.extent)) {
+          lines.push(clipped.map((p) => toLonLat(tx, ty, waterwayLayer.extent, p)));
+        }
+      }
+      if (lines.length === 0) continue;
+      out.lines.push({
+        kind: "waterway",
+        cls: String(f.properties.class ?? "stream"),
+        // `bridge`/`tunnel` stay hard-false for waterways — see VecLineFeat.tunnel. The truth is
+        // in `brunnel`, which the accessibility raster reads to stop a CULVERTED drain from
+        // being scored as an open hazard.
+        bridge: false,
+        tunnel: false,
+        brunnel: propStr(f.properties.brunnel),
+        intermittent: propBool(f.properties.intermittent),
+        lines,
+      });
+    }
+  }
+
+  // --- water + landcover/park + building → fill polygons; landuse + rejected landcover → areas
+  const polyLayers: {
+    name: string;
+    kind: VecPolyFeat["kind"] | null;
+    /** Reads class AND subclass EXPLICITLY — the `class ?? subclass` dead branch (see isGreen). */
+    filter?: (cls: string, subclass: string) => boolean;
+    /** Where a feature the filter REJECTS goes instead. Nothing is duplicated: a landcover ring
+     *  is map ink (`polys`) or accessibility evidence (`areas`), never both. `kind: null` sends
+     *  the WHOLE layer to `areas` (landuse is never ink). */
+    rejectsTo?: VecAreaFeat["kind"];
+  }[] = [
+    { name: "water", kind: "water" },
+    { name: "landcover", kind: "green", filter: isGreen, rejectsTo: "landcover" },
+    { name: "park", kind: "green" },
+    { name: "building", kind: "building" }, // mini-map footprints (merged multipolygons at z14)
+    { name: "landuse", kind: null, rejectsTo: "landuse" }, // military/industrial/pitch — C6
+  ];
+  for (const { name, kind, filter, rejectsTo } of polyLayers) {
+    const layer = vt.layers[name];
+    if (!layer) continue;
+    for (let i = 0; i < layer.length; i++) {
+      const f = layer.feature(i);
+      if (f.type !== 3) continue;
+      const cls = String(f.properties.class ?? "");
+      const subclass = String(f.properties.subclass ?? "");
+      if (kind === null || (filter && !filter(cls, subclass))) {
+        if (!rejectsTo) continue;
+        const rejected = ringsOfFeature(f, layer.extent, tx, ty);
+        if (rejected.length === 0) continue;
+        out.areas.push({
+          kind: rejectsTo,
+          cls,
+          subclass,
+          access: propStr(f.properties.access),
+          layer: propNum(f.properties.layer),
+          polys: rejected,
+        });
+        continue;
+      }
+      const polys = ringsOfFeature(f, layer.extent, tx, ty);
+      if (polys.length === 0) continue;
+      out.polys.push({
+        kind,
+        polys,
+        cls: propStr(f.properties.class),
+        subclass: propStr(f.properties.subclass),
+        intermittent: propBool(f.properties.intermittent),
+        renderHeightM: propNum(f.properties.render_height),
+        renderMinHeightM: propNum(f.properties.render_min_height),
+      });
+    }
+  }
+  return out;
+};
 
 export function attachVectorTiles(): VectorTilesHandle {
   let tileTemplate: string | null = null;
@@ -253,159 +600,7 @@ export function attachVectorTiles(): VectorTilesHandle {
 
   const cache = new Map<string, ParsedVtile | "pending" | "failed">();
   let version = 0;
-  const classRank = new Map<string, number>(STREETS.classPriority.map((c, i) => [c, i] as const));
 
-  const toLonLat = (tx: number, ty: number, extent: number, p: { x: number; y: number }) => {
-    const { lonDeg, latDeg } = tileLocalToLonLat(STREETS.tileZ, tx, ty, extent, p.x, p.y);
-    return [lonDeg, latDeg] as [number, number];
-  };
-
-  const parseTile = (buf: ArrayBuffer, tx: number, ty: number): ParsedVtile => {
-    const vt = new VectorTile(new PbfReader(new Uint8Array(buf)));
-    const out: ParsedVtile = { tx, ty, labels: [], lines: [], polys: [] };
-
-    // --- transportation_name → label candidates (S7 v2 logic, geometry-free) -----------------
-    const nameLayer = vt.layers["transportation_name"];
-    if (nameLayer) {
-      for (let i = 0; i < nameLayer.length; i++) {
-        const f = nameLayer.feature(i);
-        const name = f.properties.name;
-        if (typeof name !== "string" || name.length === 0 || f.type !== 2) continue;
-        const rank = classRank.get(String(f.properties.class)) ?? STREETS.classPriority.length;
-        // Longest line of the (multi)line — its middle vertex anchors the label, the next
-        // vertex gives the street direction.
-        let line: { x: number; y: number }[] | null = null;
-        let lineLen = 0;
-        for (const cand of f.loadGeometry()) {
-          if (cand.length < 2) continue;
-          let len = 0;
-          for (let v = 1; v < cand.length; v++) {
-            len += Math.hypot(cand[v].x - cand[v - 1].x, cand[v].y - cand[v - 1].y);
-          }
-          if (len > lineLen) {
-            lineLen = len;
-            line = cand;
-          }
-        }
-        if (!line) continue;
-        // v4: repeat anchors along the line every STREETS.repeatEveryM (converted to extent
-        // units at this tile's latitude — a z14 tile is ~2.4 km wide at 48°N).
-        const centreLat = tileLocalToLonLat(
-          STREETS.tileZ,
-          tx,
-          ty,
-          nameLayer.extent,
-          nameLayer.extent / 2,
-          nameLayer.extent / 2,
-        ).latDeg;
-        const tileWidthM =
-          (40_075_016.686 * Math.cos((centreLat * Math.PI) / 180)) / 2 ** STREETS.tileZ;
-        const stepUnits = (STREETS.repeatEveryM / tileWidthM) * nameLayer.extent;
-        for (const { a: pA, b: pB } of sampleLineAnchors(
-          line,
-          stepUnits,
-          STREETS.maxAnchorsPerFeat,
-        )) {
-          const a = toLonLat(tx, ty, nameLayer.extent, pA);
-          const b = toLonLat(tx, ty, nameLayer.extent, pB);
-          out.labels.push({
-            name,
-            rank,
-            lineLen,
-            lonDeg: a[0],
-            latDeg: a[1],
-            bLonDeg: b[0],
-            bLatDeg: b[1],
-          });
-        }
-      }
-    }
-
-    // --- transportation → road lines (skip the schema's polygon features — plazas/piers) -----
-    const roadLayer = vt.layers["transportation"];
-    if (roadLayer) {
-      for (let i = 0; i < roadLayer.length; i++) {
-        const f = roadLayer.feature(i);
-        if (f.type !== 2) continue;
-        const cls = String(f.properties.class ?? "");
-        if (!(cls in VECTOR.roadWidthM)) continue; // transit/aerialway/construction noise stays out
-        const brunnel = String(f.properties.brunnel ?? "");
-        const lines: [number, number][][] = [];
-        for (const part of f.loadGeometry()) {
-          if (part.length < 2) continue;
-          // Clip away the MVT buffer — neighbor tiles otherwise draw the same road twice.
-          for (const clipped of clipLineToBounds(part, 0, roadLayer.extent)) {
-            lines.push(clipped.map((p) => toLonLat(tx, ty, roadLayer.extent, p)));
-          }
-        }
-        if (lines.length === 0) continue;
-        out.lines.push({
-          kind: "road",
-          cls,
-          bridge: brunnel === "bridge",
-          tunnel: brunnel === "tunnel",
-          lines,
-        });
-      }
-    }
-
-    // --- waterway → river/stream lines --------------------------------------------------------
-    const waterwayLayer = vt.layers["waterway"];
-    if (waterwayLayer) {
-      for (let i = 0; i < waterwayLayer.length; i++) {
-        const f = waterwayLayer.feature(i);
-        if (f.type !== 2) continue;
-        const lines: [number, number][][] = [];
-        for (const part of f.loadGeometry()) {
-          if (part.length < 2) continue;
-          for (const clipped of clipLineToBounds(part, 0, waterwayLayer.extent)) {
-            lines.push(clipped.map((p) => toLonLat(tx, ty, waterwayLayer.extent, p)));
-          }
-        }
-        if (lines.length === 0) continue;
-        out.lines.push({
-          kind: "waterway",
-          cls: String(f.properties.class ?? "stream"),
-          bridge: false,
-          tunnel: false,
-          lines,
-        });
-      }
-    }
-
-    // --- water + landcover/park → fill polygons (outer/hole split by ring winding) ------------
-    const polyLayers: { name: string; kind: VecPolyFeat["kind"]; filter?: (cls: string) => boolean }[] = [
-      { name: "water", kind: "water" },
-      { name: "landcover", kind: "green", filter: (c) => GREEN_CLASSES.has(c) },
-      { name: "park", kind: "green" },
-      { name: "building", kind: "building" }, // mini-map footprints (merged multipolygons at z14)
-    ];
-    for (const { name, kind, filter } of polyLayers) {
-      const layer = vt.layers[name];
-      if (!layer) continue;
-      for (let i = 0; i < layer.length; i++) {
-        const f = layer.feature(i);
-        if (f.type !== 3) continue;
-        if (filter && !filter(String(f.properties.class ?? f.properties.subclass ?? ""))) continue;
-        // MVT polygons arrive as a flat ring list: positive-area rings open a polygon,
-        // negative-area rings are holes of the last opened one. Rings are clipped to the
-        // exact tile square FIRST — the encoder's buffer otherwise overlaps the neighbor
-        // tile's fill (two translucent water surfaces z-fighting = the river flicker).
-        const polys: [number, number][][][] = [];
-        for (const rawRing of f.loadGeometry()) {
-          if (rawRing.length < 4) continue;
-          const ring = clipRingToBounds(rawRing, 0, layer.extent);
-          if (ring.length < 3) continue;
-          const outer = ringArea(ring) > 0;
-          const lonlat = ring.map((p) => toLonLat(tx, ty, layer.extent, p));
-          if (outer || polys.length === 0) polys.push([lonlat]);
-          else polys[polys.length - 1].push(lonlat);
-        }
-        if (polys.length) out.polys.push({ kind, polys });
-      }
-    }
-    return out;
-  };
 
   const ensureTile = (tx: number, ty: number) => {
     const key = `${tx}/${ty}`;
@@ -426,7 +621,7 @@ export function attachVectorTiles(): VectorTilesHandle {
       fetch(url, { signal: abort.signal, cache: "force-cache" })
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${r.status}`))))
         .then((buf) => {
-          cache.set(key, parseTile(buf, tx, ty));
+          cache.set(key, parseVectorTile(buf, tx, ty));
           version++;
         })
         .catch(() => cache.set(key, "failed")); // empty/failed tiles stay failed — no refetch churn
