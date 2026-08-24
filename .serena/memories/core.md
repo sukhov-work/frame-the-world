@@ -136,7 +136,25 @@ domain `plux.today` (www = primary)** — the repo and every technical identifie
   `wip-2026-08-22-audit3` · `wip-2026-08-22-audit3-fixslices`.
 
 ## Next step
-**THE ULTRA FIDELITY TRACK SHIPPED 2026-08-22j — T44 (textures) + T45 (light + shadows) both
+**BEST SPOT — the observability heatmap — was DESIGNED and its whole PURE-LIB FLOOR SHIPPED
+2026-08-23 (S1+S2).** Predicts where to stand for SUNRISE/SUNSET/MOONRISE/MOONSET inside a radius of
+the `look from here` pin. Plan `.claude/claude-docs/BESTSPOT_PLAN.md` — **read its `AS BUILT` appendix
+BEFORE the body; building the plan proved it wrong in FIFTEEN places.** Log
+`mem:project/wip-2026-08-23-bestspot-heatmap`. Gates: **vitest 1,560/1,560 (119 files, +187)** ·
+astro 0 err / 5 hints · knip exit-0. **LOCAL ONLY — nothing has been in a browser yet.**
+**THE ARCHITECTURE: all-CPU, one long-lived worker, and the per-ray UPPER CONVEX HULL is invariant in
+BOTH scene time AND eye height** — which is what makes the scrubber and the altitude slider live.
+The GPU path was proposed and **REFUTED** (3 breakers); reusing the shadow map, 7. Do not re-propose.
+**THE HEADLINE: both BLOCKERs were at slice SEAMS and every per-slice suite passed** — the bridge
+scored as a pure LIABILITY (0.608 with the deck vs 0.623 without), and 47 % of the track's weight sat
+below the horizon, capping V at 0.51 so the best possible pedestrian cell rendered invisible. Both
+fixed + mutation-verified; `bestSpotComposition.test.ts` now drives the whole chain.
+Owner rulings: drone semantics above 5 m · FPV is a centre source but renders nothing in the
+viewfinder · field 3 m with 1 m reserved for ULTRA · GL overlay only, plumb line instead of a cylinder.
+**NEXT: S3** (worker + tuning + store bridge + `stepBestSpotFeed` after `stepPlanFeed` + DEV seam +
+the desktop-only gate AT THE READ) → S4 GL sheet → S5 panel → S6 residency → S7 honesty.
+Entry point: `NEXT_SESSION_PROMPT.md`.
+Prior: **THE ULTRA FIDELITY TRACK SHIPPED 2026-08-22j — T44 (textures) + T45 (light + shadows) both
 CLOSED, nine levers behind ONE desktop-only `ULT` chip, off by default.** Gates: **vitest
 1,330/1,330 (111 files)** · astro 0 err/5 hints · `npx knip` exit-0 · NEW `scripts/verify-ultra.mjs`
 **28/28**. Executed against `ULTRA_PLAN.md` (read its **AS BUILT** block before touching this track).
