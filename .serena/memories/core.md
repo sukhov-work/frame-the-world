@@ -159,6 +159,16 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
+**EXECUTE THE RENDERING CHARTER (2026-08-25b).** Four owner bugs root-caused (Esri 200-placeholder
+tiles · totality square · sunset shadow snap at +0.46° · the `!!focusHit` shadow kill) + the FPV
+fidelity audit reconciled against HEAD into ONE execution ladder RC0–RC30 with an owner A/B queue
+AB1–AB7. **Read `.claude/claude-docs/rendering/RENDERING_CHARTER_2026-08-25.md` first**, then
+`mem:project/wip-2026-08-25-rendering-charter`, then DECISIONS 2026-08-25b. Start at RC0 (probes;
+M5 orders the seat-vs-bake groups) then the bug quartet RC1–RC5. Backlog T54; T38 closed dated;
+T43 redirected to the charter. BEST SPOT tails (T52/T49/T50) PARKED by owner order 2026-08-25.
+Zero code was written in the prep session — the gates below are unchanged.
+
+### Prior state (context)
 **BEST SPOT — the observability heatmap — is FEATURE-COMPLETE AND BROWSER-VERIFIED. All seven
 slices S1→S7 SHIPPED (pure-lib floor S1+S2 2026-08-23; S3a→S7 2026-08-24).** Predicts where to stand
 for SUNRISE/SUNSET/MOONRISE/MOONSET inside a radius of the `look from here` pin, as a translucent
