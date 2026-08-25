@@ -107,6 +107,16 @@ attachX(scene, opts) → { <objects/uniforms the orchestrator gates>, update?(ct
   tile fields live at `tile.traversal.*` / `tile.internal.*` (the old `__dunder` fields are
   GONE); a custom `priorityCallback` must stay total on non-tile items; `loadAncestors=false`
   must always pair with an explicit comparator. Crib: `mem:project/wip-2026-08-18-u5-loading`.
+- **`GlobeControls` feeds RADIANS into a degrees-expecting radius function — upstream, latent,
+  and not ours to patch locally** (audit #25, RC29 2026-08-25). `Ellipsoid.js:361` emits an
+  angle in radians; `:523` reads it as degrees, so the effective radius the dynamic far plane is
+  fitted from comes out **169.4 m (0.094 %) short at Dnipro**. It stays latent only because
+  `MIN_ELEVATION = 2550` already overshoots the true FPV horizon by ~39×, which swamps the
+  error. **Do not take `camera.far` over locally to fix it**: eight modules scale their impostor
+  anchors off `camera.far` (sun, moon, sky target, trail, ghosts, find rings, stars, atmosphere),
+  and a private far plane forks that contract silently. The disposition is this line plus an
+  upstream issue. Re-check on any version bump — if `MIN_ELEVATION` ever drops, this stops being
+  latent.
 - **LoadRegionPlugin (U6, 0.4.28 installed-source facts)**: regions are evaluated in the
   tiles-GROUP frame with NO matrixWorld fold-in — convert world poses through
   `group.matrixWorldInverse` (identity for buildings/ground; the enriched group carries its seat
@@ -255,6 +265,32 @@ rather than asymptotic. `scripts/verify-ultra.mjs` asserts that in the browser.
   Documented consequence: **fly a little for the full effect**. The value must be DETERMINISTIC —
   clones share their `.source`, and three keys GL textures by (source, cacheKey), so a varying
   anisotropy fragments that sharing and multiplies GPU memory instead of saving it.
+
+## The vertical-datum asymmetry — EXIF vs the bake (audit #26, RC29 2026-08-25)
+
+**Two halves of this app read altitude in two different datums, and only one of them is
+corrected.** Say so out loud rather than discovering it a third time:
+
+- **The BAKE is corrected.** GLO-30 heights are ORTHOMETRIC (EGM2008), the terrain the renderer
+  draws is ELLIPSOIDAL, and `ellipsoidal = orthometric + N`. `scripts/bake/terrain/geoid.mjs`
+  carries checked-in EGM2008 sample grids — one per baked region — precisely so the bake's
+  verification step converts between them without asking the terrainer what it did.
+- **EXIF is NOT corrected, deliberately.** A camera's `GPSAltitude` may be orthometric or
+  ellipsoidal depending on the device, regardless of what `GPSAltitudeRef` claims, and D4
+  (`PROJECT_SEED.md` §4) already declares EXIF vertical GPS untrustworthy. The sanctioned
+  mitigation is the `Math.max(sliderAlt, terrainH + 1.7)` clamp on the frustum apex and the
+  photo-FPV eye (`PhotoFrustum.ts:135-138`, `StylizedTiles.ts:2432`) — the blast radius is those
+  two consumers and nothing else.
+- **DO NOT ADD A RUNTIME GEOID.** D4 is binding, the correction (tens of metres at most) is
+  smaller than the vertical GPS noise D4 refuses to trust, and it would cost a ~1 MB grid in the
+  client bundle to make an untrustworthy number differently untrustworthy.
+
+**The trap that pays for this line:** `geoid.mjs` used to CLAMP an out-of-range lookup to the
+nearest grid corner. The Everest probe (27.99 N, 86.93 E) was answered with Dnipro's 36 E / 48 N
+corner — **+20.025 m where the truth is −28.341 m, a 48 m error that read as a plausible
+number** — and the bake, which was correct, was chased as "terrain 39 m too low". It now throws,
+because an out-of-range geoid lookup has no defensible answer. Any sampled-grid reference in this
+repo inherits that rule: **loud beats plausible.**
 
 ## The `ECLIPSE` family (added 2026-08-22k — solar + lunar eclipses)
 

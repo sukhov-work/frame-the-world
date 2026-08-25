@@ -96,6 +96,31 @@ export function effectiveDistance(tile: PriorityTile, aim: LoadAim, getCenter: T
 }
 
 /**
+ * RC7 — the same bias law, applied to a plain WORLD POINT instead of a tile.
+ *
+ * The seat sweep needs to rank CELLS (not queue items) by "how much does the viewer care about
+ * this right now", and the answer is already written down here: distance divided by how far
+ * down the look vector the thing sits. Sharing the law rather than re-deriving it is what keeps
+ * the streaming front and the seating front pointed the same way — a sweep that seated cells the
+ * loader was not fetching would spend its budget on geometry nobody can see.
+ *
+ * Falls back to the raw distance when the aim is inactive (orbit / 2D), which is exactly the
+ * pre-RC7 nearest-cell behaviour.
+ */
+export function lookBiasedDistance(
+  point: { x: number; y: number; z: number },
+  aim: LoadAim,
+): number {
+  const dx = point.x - aim.eye.x;
+  const dy = point.y - aim.eye.y;
+  const dz = point.z - aim.eye.z;
+  const raw = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (!aim.active || aim.k <= 0 || raw <= 0) return raw;
+  const dot = (dx * aim.fwd.x + dy * aim.fwd.y + dz * aim.fwd.z) / raw;
+  return dot > 0 ? raw / (1 + aim.k * dot) : raw;
+}
+
+/**
  * The download-queue comparator installed on buildings + enriched (scene modules, behind
  * `LOADING.closestFirst`). Mirrors `distancePriorityCallback` term-for-term — used first,
  * in-frustum first, external tilesets first, nearest first, shallowest first — with the

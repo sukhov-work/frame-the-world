@@ -236,6 +236,27 @@
   background: color-mix(in srgb, var(--color-warn) 12%, transparent);
 }
 
+/* RC26 — "toggled this session, reload for the full shadow rig". Three of ULTRA's shadow levers
+   are construction-time (three latches the map size on first render), so a live flip leaves the
+   rig on the boot profile. A hairline dot in the corner, not a badge: the state is informational,
+   the chip still works, and the tooltip carries the sentence. Rides the existing tip so nothing
+   new can occlude the panel. */
+.ct-ultra.needs-reload::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-warn);
+  opacity: 0.9;
+  pointer-events: none;
+}
+.ct-ultra {
+  position: relative; /* the dot's containing block */
+}
+
 /* The per-chip narrow cuts + the old flex-share single row retired (owner 2026-08-19): the
    4-column grid above owns the layout — two calm rows instead of eight crammed cells. */
 

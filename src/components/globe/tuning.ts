@@ -69,6 +69,17 @@ export const SKY = {
   impostorFarFrac: 0.5,
   /** Sun halo plane radius = disc radius × this (room for the shader falloff; bloom adds the rest). */
   sunGlowExtent: 7,
+  /** Quad-edge window on the sun impostor, as fractions of `sunGlowExtent` (owner bug B2,
+   *  2026-08-25 — "a square edge around the sun at totality"). The corona's outer power law
+   *  `0.42·x^-2.6` has no compact support (≈0.003 linear where the quad ends) and `DITHER_GLSL`
+   *  paints ±1/256 over every pixel of the plane, so the boundary truncated a live field into a
+   *  rectangle — readable only once the background falls to ECLIPSE.daylightFloor. The window
+   *  multiplies the final colour AFTER the dither and closes at `[1] × sunGlowExtent`, strictly
+   *  inside the plane's inscribed radius (`sunGlowExtent`), so window(sunGlowExtent) === 0.
+   *  Start ≥ ~0.7: at 0.72 × 7 = 5.04 disc radii the halo is ~3e-3 and the corona's own falloff
+   *  is already the dominant gradient, so the streamers keep their shape. See
+   *  `scene/glsl.impostorEdgeWindow`. */
+  sunQuadFade: [0.72, 0.98] as const,
   /** HDR multiplier on the sun core (>1 pushes it over BLOOM.threshold — the glow driver). */
   sunIntensity: 5,
   /** Halo gain inside the impostor shader (kept low — UnrealBloom carries the wide glow). */
@@ -204,6 +215,13 @@ export const SKY_TARGET = {
   /** Saturn ring-band additive gain relative to the disc (taste — the disc's phase is the
    *  treatment's star; the band should read as jewellery, not a searchlight). */
   ringGain: 0.55,
+  /** Quad-edge window on the tracer billboard, as fractions of its half-extent (the plane spans
+   *  p ∈ [-1,1]², so these ARE the radii). Same defect class as SKY.sunQuadFade: the DSO
+   *  ellipse's Gaussian and the unconditional dither are both alive where the quad ends. Start
+   *  must clear the widest mark the reticle can draw — ticks reach `reticleRadDeg ≤ SPAN/1.3`
+   *  × (1 + reticleTickFrac) = 0.908 of the half-extent — and the tail self-zeroes at 1.0 by its
+   *  own `pow(1 − t, 1.5)`, so 0.92 costs nothing that was drawn on purpose. */
+  quadFade: [0.92, 0.995] as const,
 } as const;
 
 /** Comet-LOOK params (temporal addition 2026-08-02, `lib/ephemeris/comet.ts`) — ONLY the coma +
@@ -318,7 +336,18 @@ export const BLOOM = {
  *  gated (city/street only — the self-lit earth at orbit has no use for screen-space AO). */
 export const AO = {
   /** Master switch. false = the GTAOPass is never constructed (zero VRAM/cost on every machine);
-   *  true = created at init, then gated by tier + altitude each frame. */
+   *  true = created at init, then gated by tier + altitude each frame.
+   *
+   *  RC27 — **IF THIS IS EVER FLIPPED ON, DECIDE FIRST WHETHER AO IS AN ULTRA LEVER**, because
+   *  the current wiring silently makes it one. `updateAoEnabled()` gates the pass on
+   *  `tier === "high"`, and the ULTRA chip PINS the tier to `high` (`GlobeCanvas.tsx`
+   *  `ultraPinned` → `pendingTier = "high"`). So on a machine the governor had stepped down to
+   *  `mid`, turning ULTRA on would ALSO turn AO on — a coupling nobody chose, that appears in no
+   *  tunable, and that would land in the middle of a track whose whole contract is "the chip off
+   *  changes no pixel". Two honest options when the time comes: name AO in `QUALITY.ultraDesktop`
+   *  so the coupling is explicit and testable, or gate it on the DEVICE tier the way shadows
+   *  already are (`applyTier`: "shadows follow the DEVICE tier, not the runtime governor") so it
+   *  is a capability, not a frame-rate lever. Do not leave it implicit. */
   enabled: false,
   /** Active only below this camera altitude (m) — buildings read as massing at city/street scale. */
   maxAltM: 12_000,
@@ -367,6 +396,25 @@ export const SHADOWS = {
   boundsAltK: 0.6,
   /** Cap on the adaptive half-extent (m) — beyond this the shadow map is too coarse to read. */
   maxBoundsM: 5_000,
+  /** RC4 (owner bug B4, 2026-08-25) — VIEW FIT. The rig used to centre its ortho box on the
+   *  screen-centre ellipsoid hit, with a half-extent that rode ALTITUDE only. Because the hit
+   *  distance also rides altitude, covering your own foreground needed a pitch of ≥ ~59° (base)
+   *  / ~42° (ULTRA) at EVERY altitude — so a street-level look down the road put a 1.6 km box
+   *  several kilometres ahead and left the pavement you are standing on fully lit, with a hard
+   *  edge where the box began. The box is now framed on the VIEW: half-extent
+   *  `clamp(max(alt·boundsAltK, viewFitK·d/2 + boundsM/2), boundsM, maxBoundsM)` and the centre
+   *  pushed `min(d/2, half − boundsM/2)` along the horizontal look, which keeps the near edge at
+   *  the viewer whenever the cap bites. `d` = eye→ellipsoid-hit distance, or the geometric
+   *  horizon when the look ray misses (the near-level case that used to disable shadows outright
+   *  — see the `!!focusHit` gate this replaces). 0 restores the pre-RC4 altitude-only extent
+   *  while keeping the re-centring; 1 fits the whole look. */
+  viewFitK: 1,
+  /** Quantum (m) the fitted half-extent is rounded UP to, above `boundsM`. The extent now moves
+   *  with the LOOK, not just with altitude, and a per-frame ortho extent makes shadow texels swim
+   *  on every look-drag; snapping to a ladder means `updateProjectionMatrix` (and the derived
+   *  metres-based ULTRA bias) also stay on the "only when it changed" path they were written for.
+   *  Rounding UP and offsetting from `boundsM` keeps the street-level value exactly `boundsM`. */
+  boundsQuantM: 128,
   /** Light sits this far (m) from the focus toward the sun. */
   lightDistM: 8_000,
   /** Shadow camera near/far margin (m) around the focus distance. */
@@ -386,6 +434,24 @@ export const SHADOWS = {
    *  persist through the GOLDEN/dusk hour (long raking shadows are the whole point at that time),
    *  down to nearly the horizon, instead of cutting off ~1.7° up. */
   minSunElevSin: 0.008,
+  /** RC2 (owner bug B3, 2026-08-25) — the width, in sine-of-elevation, of the band over which the
+   *  shadow field FADES before `minSunElevSin` flips `castShadow`. ≈ sin(3°), so shadows die
+   *  between +3.5° and +0.46° of source elevation instead of vanishing in one frame.
+   *
+   *  Why one frame was so loud: `minSunElevSin` sits at +0.46°, and the golden bell peaks flat at
+   *  1.0 there, so `SUN.keyIntensity × (1 + GOLDEN.keyBrighten)` = 2.025 — the key is at its
+   *  BRIGHTEST of the day at the exact instant a kilometres-long 0.75-opacity shadow field
+   *  disappeared. The enabler is that `shadow.intensity` is a LIVE per-frame light uniform in
+   *  three 0.185 (`LightShadow.js:41` → `WebGLLights.js:289` → `shadowmap_pars_fragment`
+   *  `mix(1.0, shadow, shadowIntensity)`), and `getShadowMask()` routes it through
+   *  `ShadowMaterial` too — so ONE write fades the building-received shadows and the ground
+   *  twins together, with no recompile and no second knob to keep in sync.
+   *
+   *  The same band carries the sun→moon SOURCE SWITCH: both arms trough their key contribution
+   *  to zero at the gate, so the direction teleport happens while the rig contributes nothing.
+   *  0 restores the pre-RC2 boolean snap. The raking-shadow loss in the last ~3° is owner A/B
+   *  item AB4. */
+  fadeBandSin: 0.0523,
   /** Ground shadow overlay darkness (ShadowMaterial opacity — invisible where unshadowed).
    *  The graded ground is dark: below ~0.5 the darkening is imperceptible (verified with a
    *  red-mask debug pass 2026-07-10 — the mask itself was always correct; re-verified for the
@@ -398,6 +464,10 @@ export const SHADOWS = {
   /** Moon shadows engage at/above this illuminated fraction (0.85 → 0.6 2026-07-13: moon shadows now
    *  appear across far more of the lunar month; the ×moonKs in the rig fades them in smoothly). */
   moonMinIllum: 0.6,
+  /** RC2 — how far below `moonMinIllum` the moon's "ready to take the key" weight starts ramping,
+   *  as a fraction of it. Exists only so a moon crossing its illumination threshold DURING the
+   *  sunset handoff band cannot itself step the trough that the handoff depends on. */
+  moonIllumSoftFrac: 0.15,
   /** Ground shadow opacity under a FULL moon (× the K&S phase intensity per frame) — kept BELOW the
    *  sun's 0.80 so moonlit shadows read as presence, not contrast. (0.55 → 0.62 2026-07-13.) */
   moonGroundOpacity: 0.62,
@@ -650,6 +720,14 @@ export const ULTRA = {
    *  it. The ground half of the hemisphere keeps `tokens.water` — bounce light off dark terrain
    *  has no reason to change colour with the sun. */
   hemiTintK: 0.6,
+  /** RC24 — how far the SKY DOME's horizon haze is pulled toward the band tint, as a multiplier
+   *  on the ground's own effective (gated, eased) haze fraction. This closes the one visible seam
+   *  the ULTRA track shipped with: the dome tints from GOLDEN's bell over solar elevation while
+   *  the ground tints from the four-stop band curve spanning 36°, and the two met at the
+   *  terrain/sky junction. Below `hemiTintK` on purpose — the dome is the BACKGROUND the golden
+   *  band is read against, and pulling it all the way to the ground's tint flattens the very
+   *  contrast the band curve exists to create. 0 restores the pre-RC24 dome exactly. */
+  domeTintK: 0.45,
 
   // --- S4 AERIAL PERSPECTIVE (co-primary with S9 — the biggest sunrise/sunset lever) ----------
   /** Aerial-perspective strength vs sun elevation. Absent entirely today: there is no `scene.fog`,
@@ -704,6 +782,20 @@ export const ULTRA = {
    *  could not ship before the owner lifted the frame-rate ceiling. Clamped at use to
    *  `renderer.capabilities.maxTextureSize`. */
   shadowMapSize: 8192,
+  /* RC27 — the ROLLBACK CRITERIA for the line above, written down while they are still cheap.
+   * 8192² is the single largest cost on this track (~268 MB of depth, plus the RGBA8 colour
+   * attachment three allocates alongside it and nothing ever reads — see SHADOWS.mapSize). Drop
+   * to 4096² if ANY of these turn up:
+   *   · a machine that cannot allocate it — the clamp to `maxTextureSize` silently gives 4096²
+   *     anyway, so a user on such a GPU is paying the ULTRA frame cost for a baseline map;
+   *   · VRAM pressure showing as tile-cache thrash rather than as frame time (the LRU rests at
+   *     its floor while GETs climb — the T34 signature) once ULTRA is on;
+   *   · RC25's capped mip chain landing, which adds ~33 % to every drape composite: if both are
+   *     on and something has to give, the mip chain buys sharpness at every zoom while the extra
+   *     shadow texels buy it only inside the ortho box.
+   * The measurement that decides it is `__globe.ultraLook().shadow.metresPerTexel` against the
+   * live `shadow.boundsM` — RC4 made the extent ride the VIEW, so the same map now covers
+   * anywhere from 1.6 km to the tier cap and the texel density is no longer a constant. */
   /**
    * PCF disk radius (texels) under ULTRA — **this is the whole "soft shadows" lever in r185**,
    * and it is a LIVE uniform (`WebGLLights.js:290-292`), so it edge-applies with no recompile.
@@ -1567,12 +1659,21 @@ export const ENRICHED = {
    *  matrix on the CPU so the occlusion sweeps, shadows and picks stay consistent. Requires
    *  `reseatPerCell`. */
   reseatPerFeature: true,
-  /** Terrain samples (down-ray raycasts) per frame for BUILDING footprints, spent nearest-cell
-   *  first (the cells you stand in seat within ~1 s; the horizon catches up over ~20 s). */
-  reseatFeatureSamplesPerFrame: 16,
+  /** Terrain samples (down-ray raycasts) per frame for BUILDING footprints, spent look-biased
+   *  first (RC7) and never-sampled first within a cell.
+   *
+   *  16 → 64 with RC11 (2026-08-25c). The budget was raycast-bound, and `lib/globe/heightMemo`
+   *  removed most of that cost: the sweep re-asks identical footprint coordinates every time the
+   *  round-robin wraps, and the memo answers those from a Map with no approximation (it is keyed
+   *  on the exact coordinates and dropped whole whenever `terrainEpoch` moves). Browser-measured
+   *  at a warm Dnipro FPV: 42 % of all terrain samples were already answered, and `heightAt`
+   *  itself costs 0.018–0.067 ms. 4× is deliberately short of the 5–10× the audit suggested —
+   *  the DRAIN of never-sampled footprints is still real raycasts, and that transient is what
+   *  sets the frame cost. */
+  reseatFeatureSamplesPerFrame: 64,
   /** Terrain samples per frame for TREE instances (cheaper visually — trees tolerate a coarser
    *  sweep; same nearest-cell priority). */
-  reseatTreeSamplesPerFrame: 10,
+  reseatTreeSamplesPerFrame: 40,
   /** Re-sort the per-feature sampling priority (cells by camera distance) every N frames. */
   reseatPriorityEveryFrames: 30,
   /** Plausibility bound (m) on a footprint sample vs its CELL seat — within-cell relief is
@@ -1580,6 +1681,33 @@ export const ENRICHED = {
    *  (browser-caught: a −134 m first sample snapped a building underground for seconds).
    *  Rejected samples keep the sticky last-good / the cell plane. */
   reseatFeatureMaxDeltaM: 45,
+  /** RC8 — how far past the relief a cell has ACTUALLY SHOWN the plausibility bound may stretch
+   *  (`max(reseatFeatureMaxDeltaM, observedRange × this)`). The flat 45 m bound was sized for
+   *  Dnipro's ±~20 m grid cells and is simply wrong for a mountain bake, where every real sample
+   *  exceeds it — and a gate rejecting 100 % of a cell's samples is indistinguishable, on screen,
+   *  from a cell nobody has swept yet. The range only grows from ACCEPTED samples, so a garbage
+   *  raycast can never widen the gate that would have caught it. `debugSeats().rejected` makes
+   *  the gate's own work visible for the first time (audit gap #5). */
+  reseatReliefK: 1.5,
+  /** RC7 — how many look-biased cells the per-feature sweep prioritises each frame. The pre-RC7
+   *  rule spent half the budget on the single nearest cell by pure distance, which in FPV is the
+   *  cell UNDER you rather than the ones you are looking at. Ranked with the same bias law the
+   *  download queue uses (`lib/globe/loadPriority.lookBiasedDistance`), so the seating front and
+   *  the streaming front point the same way. */
+  reseatPriorityCells: 4,
+  /** RC7 — fraction of the per-feature budget reserved for the global round-robin, so far cells
+   *  still converge instead of starving behind whatever the viewer is looking at. */
+  reseatRoundRobinShare: 0.25,
+  /** RC0 M5 — bin width (m) for `debugSeats().m5`, the applied-seat-delta histogram against
+   *  distance from the bake origin. 8 bins at 500 m covers a 4 km radius, which spans both
+   *  shipped Dnipro bakes and St Albans. A QUADRATIC growth across the bins means the tangent-
+   *  plane curvature error (RC12) dominates; a FLAT offset means the DSM bias (RC15) does. */
+  debugM5BinM: 500,
+  /** RC0 M5 — nominal half-span (m) of one baked cell, used ONLY to bound the tangent-plane
+   *  curvature residual the per-cell re-seat cannot absorb (`d · this / R`). The Dnipro bake is a
+   *  ~6 km bbox on a grid of ~0.9 km cells. Not a rendering knob: it exists so the measurement
+   *  that refuted RC12 can be re-derived rather than remembered. */
+  cellHalfSpanM: 450,
   /** One-time bounding-volume pad (m) on cell fill/edge geometry so raycast picks and the
    *  planner's trust-radius cull stay valid after per-feature verts shift by up to ~±15 m. */
   reseatBoundsPadM: 40,
@@ -1694,6 +1822,29 @@ export const GROUND = {
    *  = the S3 jetsam concern, judged on device (T1). Rollback: 256 here disables the raise
    *  entirely (chart rides the tier base; z18 cap + DPR keep most of the QA-7b crispness). */
   overlayResolution2dPx: 512,
+  /* RC22 (A/B-PREP, 2026-08-25e) — the MOBILE knob proposals. Nothing below is applied: this
+   * slice's whole contract is "values proposed + rationale recorded", because every one of them
+   * is judged on a real device under T1 and none of them can be judged from this machine.
+   *
+   *   1. `overlayResolution2dPx` 512 → 384 on the lean profile ONLY. The 512 raise exists because
+   *      the composite level chooser derives the Esri source zoom from resolution/rangeWidth, so
+   *      256 pinned the chart one level shallow. 384 still clears that rung (it is above the 256
+   *      that failed) while cutting composite VRAM and the per-rebuild cost by ~44 %. It is
+   *      STICKY-ratcheting, so a wrong value here cannot be undone within a session — which is
+   *      exactly why it is a device judgement and not a guess.
+   *   2. `QUALITY.leanMobile.shadowMaxAltM` — a NEW lean-only cap, proposed 8_000 against the
+   *      shared `SHADOWS.maxAltM` 30_000. On a phone the shadow pass runs from 30 km down, where
+   *      the ortho box is at its cap and the shadows are 2.4 m/texel smudges nobody reads; the
+   *      city band below ~8 km is where they earn their frame time. RC4 made this sharper, not
+   *      softer: the extent now rides the VIEW, so a high-altitude mobile frame can pay for a
+   *      5 km box it gets nothing from.
+   *   3. `LOADING.queueCaps.low` { download: 8, parse: 2 } → { download: 6, parse: 2 }. Parse is
+   *      main-thread glb decode and must not rise; download is the one that stacks on a phone's
+   *      radio and its memory at once. Leave `mid` alone — it is the coarse-pointer CEILING and
+   *      already measured acceptable.
+   *
+   * The measurement each of these needs is the same one T1 owes: sustained frame time and thermal
+   * behaviour on a real iPhone and a real Pixel, not a headless tier. */
   /** Moon fill that does NOT multiply by albedo (the old moonlit term is graded×moon — black
    *  stays black): fill = moonFillK × moonGlow × max(moonDir·up, 0) on the night side. */
   moonFillK: 0.7,
@@ -1750,6 +1901,25 @@ export const GROUND = {
   /** Failed Esri overlay fetches leave permanently blank tiles unless retried — debounce (ms)
    *  for calling resetFailedOverlays() after a load-error burst. */
   overlayRetryMs: 8_000,
+  /** RC11 — capacity of the exact terrain-height memo (`lib/globe/heightMemo`). On overflow it
+   *  drops wholesale (one refill sweep) and COUNTS it, so a wrong number here reads as
+   *  `overflows > 0` rather than as an unexplained frame cost.
+   *
+   *  20_000 → 100_000 (2026-08-25e), and the counter is why: the first value was guessed from
+   *  "a few thousand buildings" and the browser run measured the real working set at **39,302
+   *  buildings + 60,527 tree instances in 101 loaded cells at Dnipro alone** — the memo reached
+   *  18,457 live entries and then overflowed. Cost at the new cap: the keys are
+   *  `"lat,lon"` strings, so ~150 B per entry including Map overhead ⇒ ~15 MB fully populated,
+   *  against a ground LRU measured in hundreds of MB. It rarely gets there anyway: `terrainEpoch`
+   *  drops the whole memo on every finished terrain tile load, and a single browser leg saw 406
+   *  of those. */
+  heightMemoCapacity: 100_000,
+  /** RC5 (owner bug B1) — how many levels the placeholder fallback may walk UP looking for real
+   *  imagery to stand in for a "Map data not available" tile. Each level halves the substitute's
+   *  true resolution (3 levels = an 8× upscale of a 32 px quadrant), which is soft but is still
+   *  the right terrain in the right place; the alternative is Esri's grey text tile. 3 covers the
+   *  measured Everest case, where z19 is an island and z16–z18 are fully available. */
+  placeholderMaxLevelsUp: 3,
 } as const;
 
 /** Dark uniform "vaporwave" drape (Phase 5.5 S7a, §Item 2a — owner-approved CARTO dark_nolabels).
@@ -2351,6 +2521,16 @@ export const FPV = {
    *  deflection (speed = walkSpeedMps · this · d²): the rim sprints like Shift, ~58% deflection
    *  walks at arrow speed, the first centimetre creeps like Option. */
   walkStickMaxMult: 3,
+  /** RC10 (audit gap #8) — how far the walked eye may travel before its ground is re-sampled.
+   *  Distance, not time: standing still costs nothing and a sprint samples at a fixed SPATIAL
+   *  cadence whatever the frame rate. 4 m is well inside a terrain tile at street LOD and, at
+   *  `walkSpeedMps`, is a raycast every ~0.2 s of sprinting — against a per-frame budget that
+   *  RC11's memo has already made mostly free. */
+  walkReseatDistM: 4,
+  /** RC10 — per-frame ease on the walk re-seat correction (the `seatStep` law every other seat in
+   *  the app uses; the first real sample SNAPS). Slower than the cell ease on purpose: this one
+   *  moves the CAMERA, and the eye is the thing a viewer notices moving. */
+  walkReseatEaseK: 0.08,
   /** Stick deflections under this are ignored (finger-jitter deadband, fraction of the radius). */
   walkStickDeadband: 0.06,
   /** SPACE = ascend with hold-acceleration (QoL-1, owner 2026-08-14): vertical rate at FULL

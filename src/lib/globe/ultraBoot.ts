@@ -52,3 +52,25 @@ export function ultraShellAllowed(): boolean {
 export function ultraBootOn(): boolean {
   return ultraShellAllowed() && loadViewPrefs().ultraQuality === true;
 }
+
+/** Memoized across the session — see `ultraBootSnapshot`. */
+let bootSnapshot: boolean | null = null;
+
+/**
+ * RC26 — the same boot answer, frozen, so the UI can tell the user what the engine actually did.
+ *
+ * The chip's construction-time levers (`shadowMap.type`, `shadow.mapSize`, and AO if it is ever
+ * enabled) are decided once and cannot follow a live flip, so after a mid-session toggle the
+ * scene is running some of ULTRA and not the rest. Nothing surfaced that anywhere: the chip lit
+ * up and the shadow rig quietly stayed at the boot profile, which reads as "the feature is
+ * weaker than advertised" rather than as "reload for the rest of it".
+ *
+ * `pref !== ultraBootSnapshot()` is exactly that state. It memoizes on first call rather than
+ * re-reading, because the pref moves the moment the user clicks and a later read would answer
+ * "what is it now", not "what did we build with". Ordering is safe by construction: the chip
+ * lives in the panel, so the panel's first render necessarily precedes any toggle of it.
+ */
+export function ultraBootSnapshot(): boolean {
+  if (bootSnapshot === null) bootSnapshot = ultraBootOn();
+  return bootSnapshot;
+}

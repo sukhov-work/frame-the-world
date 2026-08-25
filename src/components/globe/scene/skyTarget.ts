@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
 import { COMET, SKY_TARGET } from "../tuning";
 import type { TargetKind } from "../../../lib/ephemeris/targets";
-import { DITHER_GLSL, glf } from "./glsl";
+import { DITHER_GLSL, glf, impostorEdgeWindowGlsl } from "./glsl";
 import { HORIZON_FADE_GLSL, horizonBandSin, horizonTerms } from "./sky";
 
 /**
@@ -154,6 +154,10 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
         // Ellipse: +Y = projected celestial north, rot carries the position angle.
         vec2 p = (vUv - 0.5) * 2.0;
         float r = length(p);
+        // Quad-edge window — the sun impostor's B2 fix, applied to its sibling (the DSO ellipse's
+        // Gaussian and the unconditional dither are both alive at the quad boundary here too).
+        float win = ${impostorEdgeWindowGlsl(SKY_TARGET.quadFade[0], SKY_TARGET.quadFade[1])};
+        if (win <= 0.0) discard;
 
         vec3 body = vec3(0.0);
         if (uMode < 0.5) {
@@ -227,6 +231,7 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
         float hf = horizonFade(vW);
         vec3 color = body * uBodyFade * hf + uMark * mark * uMarkFade * hf;
         ${DITHER_GLSL}
+        color *= win; // after the dither — see scene/glsl.impostorEdgeWindow
         gl_FragColor = vec4(color, 1.0); // additive: rgb carries everything
         #include <colorspace_fragment>
       }`,

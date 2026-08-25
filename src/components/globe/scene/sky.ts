@@ -6,7 +6,7 @@ import {
   type SolarEclipseState,
 } from "../../../lib/ephemeris/eclipse";
 import { ATMOSPHERE, ECLIPSE, SKY, WGS84_A, WGS84_B } from "../tuning";
-import { DITHER_GLSL, glf } from "./glsl";
+import { DITHER_GLSL, glf, impostorEdgeWindowGlsl } from "./glsl";
 
 /**
  * Sky bodies — the sun and the moon at their ASTRONOMICALLY CORRECT positions (lib/ephemeris,
@@ -223,6 +223,11 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         // billboarded its axes are camera right/up — the same frame uMoonOff arrives in.
         vec2 p = (vUv - 0.5) * 2.0 * ${glf(SKY.sunGlowExtent)};
         float r = length(p);
+        // Quad-edge window (owner bug B2, 2026-08-25 — the square at totality). Closes to EXACTLY
+        // zero at 0.98 × sunGlowExtent, inside the plane's inscribed radius; the corners (r up to
+        // ~9.9) discard outright. Applied to the final colour at the bottom, AFTER the dither.
+        float win = ${impostorEdgeWindowGlsl(SKY.sunQuadFade[0] * SKY.sunGlowExtent, SKY.sunQuadFade[1] * SKY.sunGlowExtent)};
+        if (win <= 0.0) discard;
         // limb-darkened core disc (real suns are ~30% dimmer at the limb)
         float disc = 1.0 - smoothstep(0.9, 1.0, r);
         float limb = mix(1.0, 0.7, smoothstep(0.0, 1.0, r));
@@ -264,6 +269,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
 
         color *= horizonFade(vW) * uExtinct;
         ${DITHER_GLSL}
+        // AFTER the dither, on purpose: the ±1/256 noise has to fade out with the signal. Gating
+        // the dither instead would just move the straight edge onto the gate.
+        color *= win;
         gl_FragColor = vec4(color, 1.0); // additive: rgb carries everything
         #include <colorspace_fragment>
       }`,
