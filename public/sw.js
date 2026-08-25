@@ -68,10 +68,35 @@ async function trim(cache) {
   for (let i = 0; i < excess; i++) await cache.delete(keys[i]);
 }
 
+/*
+ * RC5 sentinel carve-out (owner bug B1, 2026-08-25). Esri answers 200 OK outside its local
+ * coverage with a 2,521-byte "Map data not available" JPEG, byte-identical everywhere. Storing
+ * it here for seven days is why the tile "never healed" on iOS: a success response, indexed by
+ * the same URL as the real imagery that may appear tomorrow. Detect it by BYTES — Esri sends no
+ * Access-Control-Expose-Headers, so ETag is unreadable from a worker — and decline to cache.
+ *
+ * Constants duplicated from src/lib/globe/esriPlaceholder.ts (a worker file cannot import lib
+ * code); test/swTileCache.test.ts locks the two together.
+ */
+const ESRI_PLACEHOLDER_BYTES = 2521;
+const ESRI_PLACEHOLDER_FNV1A32 = 0x92d9118f;
+
+function isEsriPlaceholder(body) {
+  if (body.byteLength !== ESRI_PLACEHOLDER_BYTES) return false;
+  const bytes = new Uint8Array(body);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (h >>> 0) === ESRI_PLACEHOLDER_FNV1A32;
+}
+
 /** Stamp-and-store: Response headers are immutable, so re-wrap the body to carry the cached-at
  *  stamp the max-age check reads on match. */
 async function putStamped(cache, request, response) {
   const body = await response.arrayBuffer();
+  if (isEsriPlaceholder(body)) return; // never pin a coverage sentinel — see the note above
   const headers = new Headers(response.headers);
   headers.set("x-ftw-cached-at", String(Date.now()));
   await cache.put(

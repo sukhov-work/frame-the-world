@@ -21,9 +21,45 @@ export function glf3(v: readonly [number, number, number]): string {
 /**
  * Hash dither, ±1/256 — additive gradients on a near-black background band badly without it.
  * Appends to a `vec3 color` in scope. Structural (not a tunable).
+ *
+ * It is UNCONDITIONAL by design (a gate would band the gate's own edge), which is why every
+ * impostor that uses it must also carry an edge window — see `impostorEdgeWindow` below.
  */
 export const DITHER_GLSL = /* glsl */ `
         color += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 128.0;`;
+
+/**
+ * IMPOSTOR EDGE WINDOW — the one fix for the "square around the body" class of bug (owner B2,
+ * 2026-08-25: a square edge appeared around the sun at totality).
+ *
+ * Every camera-anchored impostor paints a QUAD, and several of the additive terms drawn on it have
+ * no compact support: an `exp()` halo, the corona's `x^-2.6` power law, a Gaussian ellipse. Each is
+ * still nonzero where the quad ends, so the quad's own boundary truncates a live field — a hard
+ * brightness step in the shape of a rectangle. `DITHER_GLSL` is worse: it paints ±1/256 of noise
+ * over the WHOLE quad, including every pixel where the signal is exactly zero. Both are invisible
+ * until the background drops near their level, which is why totality (ECLIPSE.daylightFloor 0.04)
+ * is where the owner first saw it.
+ *
+ * The window is applied to the FINAL colour, AFTER the dither, so the noise fades out with the
+ * signal instead of stopping at a line — and `end` sits strictly inside the quad's INSCRIBED
+ * radius (the half-extent, in whatever units `r` is measured), which makes `window(halfExtent)`
+ * exactly 0. Fragments past `end` discard: the corners of the quad reach halfExtent·√2 and now
+ * never run a ROP at all.
+ *
+ * CPU twin of `impostorEdgeWindowGlsl` — `test/components/globe/impostorEdge.test.ts` pins that
+ * the window closes before the edge for every impostor that uses it.
+ */
+export function impostorEdgeWindow(r: number, start: number, end: number): number {
+  if (r <= start) return 1;
+  if (r >= end) return 0;
+  const t = (r - start) / (end - start);
+  return 1 - t * t * (3 - 2 * t); // 1 − smoothstep(start, end, r)
+}
+
+/** GLSL emitter for `impostorEdgeWindow`; expects a `float r` in scope at the call site. */
+export function impostorEdgeWindowGlsl(start: number, end: number): string {
+  return `(1.0 - smoothstep(${glf(start)}, ${glf(end)}, r))`;
+}
 
 /**
  * ULTRA S4 — AERIAL PERSPECTIVE, the ONE definition (T45, owner 2026-08-22i).

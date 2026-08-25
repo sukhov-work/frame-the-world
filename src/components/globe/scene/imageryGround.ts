@@ -18,6 +18,17 @@ import { bandCurveGlsl, easeK } from "../../../lib/globe/lightBands";
 import { DRAPE, EARTH, FOVEATION, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS, ULTRA } from "../tuning";
 import { FTW_AERIAL_GLSL, glf, glf3 } from "./glsl";
 import { makeTileFoveation } from "./tileFoveation";
+import {
+  chooseTerrainHit,
+  stampTileDepth,
+  TerrainPickStats,
+} from "../../../lib/globe/terrainPick";
+import { HeightMemo, type HeightMemoStats } from "../../../lib/globe/heightMemo";
+import {
+  installEsriPlaceholderFallback,
+  type PlaceholderProbeResult,
+  type PlaceholderStats,
+} from "../../../lib/globe/esriPlaceholder";
 import { hookTerrainPatch, makeTerrainPatchFetchPlugin, type TerrainPatchOpts } from "./terrainPatch";
 
 /**
@@ -54,6 +65,20 @@ export interface ImageryGroundHandle {
   /** Monotone count of terrain tiles that have finished loading (BEST SPOT §3.4 item 1). Consumers
    *  compare it per frame and rebuild on change — never a deep scene compare, never per frame. */
   terrainEpoch(): number;
+  /** RC6 DEV probe (`__globe.terrainPickStats()`) — audit measurement M7: how often the nearest
+   *  terrain hit is NOT the finest one, i.e. how often a crossfading coarse parent would have
+   *  won the seat. DEV-only counting; the snapshot is safe to read anywhere. */
+  pickStats(): {
+    samples: number;
+    parentWins: number;
+    parentWinRate: number;
+    worstDeltaM: number;
+    hitsPerSample: number;
+  };
+  resetPickStats(): void;
+  /** RC11 DEV probe (`__globe.heightMemoStats()`) — the exact terrain-height memo's hit rate,
+   *  entry count and how often the terrain epoch dropped it. */
+  heightMemoStats(): HeightMemoStats;
   /** Ground shadow darkness for the CURRENT shadow source (S5): the sun keeps
    *  SHADOWS.groundOpacity; moon-driven frames pass moonGroundOpacity × K&S intensity.
    *  S7a: the orchestrator blends sun/moon opacity toward the DRAPE.*shadowOpacity knobs
@@ -122,8 +147,19 @@ export interface ImageryGroundHandle {
   /** T45 S3: let the terrain tiles CAST into the shadow map, not only receive through their
    *  ShadowMaterial twins. Applies to loaded tiles immediately and to every tile loaded after. */
   setTerrainCast(on: boolean): void;
+  /** RC5 DEV probe (`__globe.esriPlaceholder()`): what the placeholder fallback actually did this
+   *  session, read off the live wrapper. `null` before the first overlay is built. */
+  placeholderStats(): (PlaceholderStats & { sentinelTiles: number; blocks: number }) | null;
+  /** RC5 DEV probe (`__globe.esriProbe(z, x, y)`): run the SHIPPED wrapper against one real tile.
+   *  Whether a camera pose ever asks for a tile outside Esri's coverage depends on the terrain
+   *  tileset's own LOD there, so this is how a browser run reaches the substitution path against
+   *  the live service instead of against a scripted one. */
+  placeholderProbe(z: number, x: number, y: number): Promise<PlaceholderProbeResult | null>;
   dispose(): void;
 }
+
+/** The slice of the library's overlay this module reaches into (it exports no interface). */
+type EsriFetchLike = { fetch(url: string, options?: RequestInit): Promise<Response> };
 
 /**
  * T44 §1b — the anisotropy the drape composites are stamped with, shared by every attach.
@@ -251,12 +287,25 @@ export function attachImageryGround(
   // immutable-in-practice, so the per-reload revalidation round-trips buy nothing (measured
   // ~60/reload, scripts/measure-tile-cache.mjs).
   const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  // RC5 (owner bug B1): the live counters of the placeholder fallback, re-pointed on every
+  // overlay rebuild so `__globe.esriPlaceholder()` always reads the overlay actually fetching.
+  let esriPlaceholder: ReturnType<typeof installEsriPlaceholderFallback> | null = null;
   const makeEsriOverlay = () => {
     const o = new XYZTilesOverlay({
       url: TILESETS.esriImageryUrl,
       levels: (coarsePointer ? TILESETS.esriMaxLevelCoarse : TILESETS.esriMaxLevel) + 1,
     });
     o.fetchOptions = { cache: "force-cache" };
+    // Esri answers 200 with a "Map data not available" JPEG outside its local coverage, so the
+    // whole failure-driven fallback path in this file (load-error → resetFailedOverlays) never
+    // arms — see lib/globe/esriPlaceholder. Installed HERE, at construction, because
+    // ImageOverlayPlugin._initOverlay binds whatever `fetch` it finds into the download queue
+    // (ImageOverlayPlugin.js:922-930); wrapping later would nest inside the queue instead of
+    // under it, and `setOverlayResolution` builds fresh overlays that would miss it entirely.
+    esriPlaceholder = installEsriPlaceholderFallback(o as unknown as EsriFetchLike, {
+      urlTemplate: TILESETS.esriImageryUrl,
+      maxLevelsUp: GROUND.placeholderMaxLevelsUp,
+    });
     return o;
   };
   const makeCartoOverlay = () => {
@@ -600,8 +649,13 @@ export function attachImageryGround(
   // kept answering off a DSM baked from a coarse LOD. THREE lines on a listener that already
   // exists, monotone, compared per frame by `bestSpotFeed` — the `vtiles.version()` idiom.
   let terrainEpochN = 0;
+  const pickStats = new TerrainPickStats();
+  const heightMemo = new HeightMemo(GROUND.heightMemoCapacity);
   tiles.addEventListener("load-model", (e: any) => {
     terrainEpochN++;
+    // RC6: stamp the tile's hierarchy depth onto every mesh in it, so the samplers can pick the
+    // FINEST hit rather than the nearest one while a coarse parent is still crossfading out.
+    stampTileDepth(e.scene, e.tile?.internal?.depth ?? -1);
     e.scene.traverse((c: any) => {
       if (c.isMesh && c.material && swappedMats.has(c.material)) {
         // CHAIN (never assign) — TilesFadePlugin has already wrapped onBeforeCompile for its fade.
@@ -687,17 +741,47 @@ export function attachImageryGround(
     tiles,
     uniforms,
     heightAt(latDeg, lonDeg) {
+      // RC11: exact (epoch, lat, lon) memo. The seat sweep is a round-robin over a fixed set of
+      // footprints, so after one wrap it asks the SAME questions forever; the terrain epoch (the
+      // BEST SPOT tile-load counter that already lives next door) drops the whole memo the moment
+      // the ground refines, so a hit is exactly as fresh as a raycast would have been.
+      const cached = heightMemo.get(latDeg, lonDeg, terrainEpochN);
+      if (cached !== undefined) return cached;
       const latRad = (latDeg * Math.PI) / 180;
       const lonRad = (lonDeg * Math.PI) / 180;
       WGS84_ELLIPSOID.getCartographicToPosition(latRad, lonRad, 12_000, _rayOrigin);
       WGS84_ELLIPSOID.getCartographicToNormal(latRad, lonRad, _rayDir);
       _raycaster.set(_rayOrigin, _rayDir.negate());
       _raycaster.far = 24_000;
-      const hit = _raycaster.intersectObjects(tiles.group.children, true)[0];
-      if (!hit) return null;
-      return WGS84_ELLIPSOID.getPositionElevation(hit.point);
+      const hits = _raycaster.intersectObject(tiles.group, true);
+      // RC6: the DEEPEST tile wins, not the nearest hit. A coarse parent stays in the scene and
+      // raycastable for the whole crossfade after its children land, and over relief it can sit
+      // above the fine mesh — so `[0]` seated buildings on the LOD error until the fade ended.
+      const hit = chooseTerrainHit(hits);
+      if (!hit) return null; // deliberately NOT memoised — "no tile yet" is the answer to retry
+      const h = WGS84_ELLIPSOID.getPositionElevation(hit.point);
+      heightMemo.set(latDeg, lonDeg, terrainEpochN, h);
+      if (import.meta.env.DEV && hits.length > 0) {
+        pickStats.note(
+          hits.length,
+          hit === hits[0],
+          hit === hits[0] ? 0 : h - WGS84_ELLIPSOID.getPositionElevation(hits[0].point),
+        );
+      }
+      return h;
     },
+    pickStats: () => pickStats.snapshot(),
+    resetPickStats: () => {
+      pickStats.reset();
+      heightMemo.resetStats();
+    },
+    heightMemoStats: () => heightMemo.stats(),
     terrainEpoch: () => terrainEpochN,
+    placeholderStats: () =>
+      esriPlaceholder
+        ? { ...esriPlaceholder.stats, ...esriPlaceholder.memo.stats() }
+        : null,
+    placeholderProbe: (z, x, y) => esriPlaceholder?.probe({ z, x, y }) ?? Promise.resolve(null),
     setShadowStrength(opacity) {
       shadowMat.opacity = opacity; // ONE shared material — every twin follows
     },

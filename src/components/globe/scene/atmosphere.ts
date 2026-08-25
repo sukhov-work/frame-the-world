@@ -26,6 +26,10 @@ export interface AtmosphereHandle {
    *  shell would be far-plane-clipped at street level; the shader only uses ray DIRECTIONS, so
    *  the geometry swap is invisible). */
   update(camera: THREE.PerspectiveCamera, alt: number): void;
+  /** RC24 — ULTRA's band tint for the horizon haze, and how strongly to pull toward it. `k` is
+   *  the GROUND's own effective haze fraction (already gated + eased) times `ULTRA.domeTintK`,
+   *  so the dome cannot tint on a schedule the ground is not on. `k = 0` is an exact no-op. */
+  setUltraBand(k: number, col: THREE.Color): void;
   dispose(): void;
 }
 
@@ -69,6 +73,21 @@ export function attachAtmosphere(
     // is a ~100 km spot on a 12,700 km planet, so dimming the whole lit limb from space would be a
     // far bigger lie than leaving it alone. Being inside the shadow is a street-level truth.
     uEclipse: { value: 1 },
+    // --- RC24: the GOLDEN-HOUR DOME SEAM (ULTRA, 2026-08-25). -------------------------------
+    // The one visible seam the ULTRA track shipped with. This dome tints its horizon haze from
+    // GOLDEN's bell over solar elevation; ULTRA's ground tints its aerial perspective from a
+    // FOUR-STOP BAND CURVE spanning 36° of solar elevation. Two different curves meeting at the
+    // terrain/sky junction is a colour fork, right where the eye is looking at dusk.
+    //
+    // The coupling is deliberately not a second curve here: the orchestrator pushes the ground's
+    // OWN EFFECTIVE, already-gated, already-eased haze value and the band tint it is using — the
+    // same trick that keeps the ground and the buildings together (`FTW_AERIAL_GLSL` shares the
+    // emitted function, not the intent). So the dome moves when the ground moves, through the
+    // ground's altitude / flat-chart / dark-drape gates, and cannot drift onto its own schedule.
+    //
+    // OFF-STATE: `uFtwUltraK` is 0 whenever ULTRA is off, and `mix(x, y, 0.0)` is exactly `x`.
+    uFtwUltraK: { value: 0 },
+    uFtwUltraHaze: { value: new THREE.Color(0, 0, 0) },
   };
   const material = new THREE.ShaderMaterial({
     transparent: true,
@@ -100,6 +119,8 @@ export function attachAtmosphere(
       uniform vec3 uHorizonUp;
       uniform float uSinHor;
       uniform float uEclipse;
+      uniform float uFtwUltraK;
+      uniform vec3 uFtwUltraHaze;
       varying vec3 vW;
       void main() {
         // one shell layer per view ray: near (front) faces when outside, far (back) faces when inside
@@ -177,6 +198,10 @@ export function attachAtmosphere(
                       * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunEl));
           vec3 hazeBase = mix(uSkyHorizon, uSkyDay, ${glf(ATMOSPHERE.skyHazeBlue)});
           vec3 hazeCol = mix(hazeBase, uGoldenCol * ${glf(GOLDEN.castGain)}, hGold * ${glf(ATMOSPHERE.skyGoldStrength)});
+          // RC24 — the horizon haze is the band that MEETS the terrain, so it is the band that
+          // has to agree with the ground's ULTRA tint. The zenith is left alone: it is far from
+          // the junction, and pulling it would fight the skyBudget guard for no visible gain.
+          hazeCol = mix(hazeCol, uFtwUltraHaze, uFtwUltraK);
           vec3 skyCol = zenithCol * ${glf(ATMOSPHERE.skyDayGain)} * dayK
                       + hazeCol * haze * ${glf(ATMOSPHERE.skyHorizonGain)} * max(dayK, hGold);
           color = mix(color, skyCol, skyK);
@@ -198,6 +223,10 @@ export function attachAtmosphere(
 
   return {
     mesh,
+    setUltraBand(k, col) {
+      uniforms.uFtwUltraK.value = k;
+      (uniforms.uFtwUltraHaze.value as THREE.Color).copy(col);
+    },
     uniforms,
     update(camera, alt) {
       uniforms.uCamAlt.value = alt;

@@ -159,14 +159,21 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**EXECUTE THE RENDERING CHARTER (2026-08-25b).** Four owner bugs root-caused (Esri 200-placeholder
-tiles · totality square · sunset shadow snap at +0.46° · the `!!focusHit` shadow kill) + the FPV
-fidelity audit reconciled against HEAD into ONE execution ladder RC0–RC30 with an owner A/B queue
-AB1–AB7. **Read `.claude/claude-docs/rendering/RENDERING_CHARTER_2026-08-25.md` first**, then
-`mem:project/wip-2026-08-25-rendering-charter`, then DECISIONS 2026-08-25b. Start at RC0 (probes;
-M5 orders the seat-vs-bake groups) then the bug quartet RC1–RC5. Backlog T54; T38 closed dated;
-T43 redirected to the charter. BEST SPOT tails (T52/T49/T50) PARKED by owner order 2026-08-25.
-Zero code was written in the prep session — the gates below are unchanged.
+**FINISH THE RENDERING CHARTER — Group D (minus RC12) + RC18–RC21 + RC25 + RC30.**
+SHIPPED: Groups B (RC1–RC5) and C (RC6–RC11) on 2026-08-25c/d, Group F's four implementable
+slices + RC29 + RC22 on 2026-08-25e — all browser-proven. **TWO SLICES ARE REFUTED BY
+MEASUREMENT — do not build them:** **RC12** (curvature residual is 0.568 m against 14.20 m rms of
+within-cell relief = 4.0 % at the 3.5–4 km ring; every cell is re-seated at its own centre so the
+tangent-plane rise is bounded by the CELL radius, never the bake radius) and **RC28** (DEPTH_BITS
+24 over a 1.0 m near plane, no shimmer case in ten browser legs). A third refutation is recorded:
+**M7's crossfading-parent mechanism never fires** (hitsPerSample exactly 1.00 over 47k samples).
+Read `NEXT_SESSION_PROMPT.md` first, then `mem:project/wip-2026-08-25-rendering-charter-groupBC`
+and `…-groupF`, then DECISIONS §Recent 2026-08-25e/d/c.
+Gates: **vitest 1,996/1,996 (137 files)** · astro 0 err/0 warn/5 hints · knip exit-0 ·
+verify-ultra 29/29 · verify-eclipse 38/38 · `verify-rendering-charter.mjs` **70/70**.
+Three open tails: RC7's look-cone bar (50.3 % vs S4's 0.9 — null-terrain deferrals are uncounted),
+RC9's warm-restore browser leg (banking proven, restore not), and RC22's three mobile proposals
+(recorded in tuning, need a real device under T1).
 
 ### Prior state (context)
 **BEST SPOT — the observability heatmap — is FEATURE-COMPLETE AND BROWSER-VERIFIED. All seven

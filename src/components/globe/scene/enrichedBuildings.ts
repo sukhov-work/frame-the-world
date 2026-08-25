@@ -13,7 +13,11 @@ import {
   type FoveationTierCfg,
   type QueueCaps,
 } from "../../../lib/globe/quality";
-import { makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
+import {
+  lookBiasedDistance,
+  makeClosestFirstComparator,
+  type LoadAim,
+} from "../../../lib/globe/loadPriority";
 import {
   bboxCenterDeg,
   csrFromRunIds,
@@ -33,7 +37,7 @@ import {
   SCALE_MAX_K,
   SCALE_MIN_K,
 } from "../../../lib/globe/bldgOverrides";
-import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES } from "../tuning";
+import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES, WGS84_A } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
@@ -190,14 +194,41 @@ export interface EnrichedBuildingsHandle {
     located: number;
     features: number;
     featuresSampled: number;
-    featureAppliedMinM: number;
-    featureAppliedMaxM: number;
+    featureAppliedMinM: number | null;
+    featureAppliedMaxM: number | null;
     /** U8: features with a non-neutral height-scale target (browser-verify probe). */
     overridden: number;
     trees: number;
     treesSampled: number;
     epoch: number;
     quietFrames: number;
+    /** RC8 — samples the relief-scaled plausibility gate rejected (audit gap #5: this number
+     *  did not exist, so a gate rejecting everything looked like a cell nobody had swept). */
+    rejected: number;
+    /** RC7 — features still waiting for their FIRST terrain sample. */
+    unseated: number;
+    /** RC0 M5 — applied seat delta binned by distance from the bake origin. QUADRATIC growth
+     *  across the bins means the tangent-plane curvature error dominates (do RC12 first); a flat
+     *  offset means the DSM bias does (RC15 first). */
+    m5: Array<{
+      fromM: number;
+      toM: number;
+      cells: number;
+      meanDistM: number | null;
+      /** The curvature residual RC12 would remove, AFTER the per-cell re-seat has absorbed the
+       *  rest of it. Compare against `rmsReliefM` before re-opening RC12. */
+      curvatureResidualM: number | null;
+      n: number;
+      rmsReliefM: number | null;
+    }>;
+    /** RC7 — the look-cone convergence the audit's S4 asked for (S4's own denominator). */
+    nearFeatures: number;
+    nearFeaturesSampled: number;
+    priorityCells: number;
+    /** RC9 — warm starts vs cold starts across LRU evictions, and how many cells are banked. */
+    seatCacheHits: number;
+    seatCacheMisses: number;
+    seatCacheCells: number;
   };
   dispose(): void;
 }
@@ -349,6 +380,12 @@ export function attachEnrichedBuildings(
     runIdx: Map<number, number>; // baked feature id → features[] index (pick / override apply)
     extraPadM: number; // U8: bounds radius already grown past the base reseat pad
     cursor: number; // round-robin feature sampling cursor
+    /** RC7 — indices of features that have NEVER produced a seat, drained before any refresh.
+     *  A building with no seat at all sits on the cell plane and is visibly wrong; a building
+     *  with a slightly stale seat is not, so "never sampled" is strictly the more urgent work.
+     *  Poisoned-pair collapses push back onto this queue, which is why it is a queue and not a
+     *  one-shot scan. */
+    unseated: number[];
   }
   interface TreeSet {
     mesh: THREE.InstancedMesh;
@@ -357,6 +394,8 @@ export function attachEnrichedBuildings(
     seatM: Float32Array; // NaN = never sampled
     appliedM: Float32Array; // NaN = on the cell plane
     cursor: number;
+    /** RC7 — never-sampled instance indices, drained first (see MeshPart.unseated). */
+    unseated: number[];
   }
   interface CellSeat {
     scene: THREE.Object3D;
@@ -371,7 +410,58 @@ export function attachEnrichedBuildings(
     parts: MeshPart[]; // per-building re-seat registries (empty when the gate is off)
     trees: TreeSet[];
     located: boolean; // feature/tree footprints resolved to lat/lon (one-shot per cell)
+    /** RC8 — the relief this cell has actually SHOWN, as a running range of accepted samples
+     *  around its own seat. The flat 45 m plausibility bound was sized for Dnipro's ±20 m cells
+     *  and silently rejects every real sample in genuinely steep terrain, which reads as
+     *  buildings stuck on the cell plane rather than as a gate doing its job. The bound now
+     *  WIDENS from evidence and never narrows below the flat one. */
+    reliefLoM: number;
+    reliefHiM: number;
+    /** RC0 M5 — the height above the ellipsoid the BAKE itself put this cell at, with the group
+     *  lift removed. `cell.seatM − bakedElevM` is therefore the bake's vertical error against the
+     *  rendered terrain at this cell, and its SHAPE against distance from the bake origin is what
+     *  separates a tangent-plane curvature error (quadratic — RC12 first) from a DSM bias (flat —
+     *  RC15 first). Null until the group lift is real. */
+    bakedElevM: number | null;
+    /** RC8 — samples this cell has rejected as implausible. Published by `debugSeats()`; the
+     *  audit's gap #5 was that this number did not exist anywhere, so the gate could reject 100 %
+     *  of a cell's samples forever and look exactly like a cell nobody had swept yet. */
+    rejected: number;
   }
+  /**
+   * RC9 — the seat cache that survives an LRU eviction.
+   *
+   * Walking out of a street and back re-loads its cells PRISTINE: every footprint returns to
+   * `seatM = null`, drops onto the cell plane, and has to be re-sampled from scratch — so the
+   * street you already seated re-seats in front of you, which is precisely the "buildings settle
+   * as I walk" the fidelity audit was chasing. Terrain does not change while you turn around, so
+   * the seats do not need re-deriving; they need REMEMBERING.
+   *
+   * Keyed by the cell's baked content URI (env-invariant, the same identity U8's persisted height
+   * overrides use). Feature seats are keyed by baked feature id, so a re-bake that reshuffles ids
+   * simply misses — the same failure mode U8's checksum handles, and a miss costs one re-sample.
+   * The cache lives in this closure, so a VARIANT SWITCH (which disposes and re-attaches the
+   * handle) drops it wholesale, as it must: a different bake has different ground truth.
+   */
+  interface CachedCellSeat {
+    seatM: number | null;
+    appliedM: number | null;
+    reliefLoM: number;
+    reliefHiM: number;
+    /** RC0 M5 — the height above the ellipsoid the BAKE itself put this cell at, with the group
+     *  lift removed. `cell.seatM − bakedElevM` is therefore the bake's vertical error against the
+     *  rendered terrain at this cell, and its SHAPE against distance from the bake origin is what
+     *  separates a tangent-plane curvature error (quadratic — RC12 first) from a DSM bias (flat —
+     *  RC15 first). Null until the group lift is real. */
+    bakedElevM: number | null;
+    /** baked feature id → last-good footprint seat (m above the ellipsoid). */
+    features: Map<number, number>;
+    /** per-tree-set instance seats, in instance order (NaN = never sampled). */
+    trees: Float32Array[];
+  }
+  const seatCache = new Map<string, CachedCellSeat>();
+  let seatCacheHits = 0;
+  let seatCacheMisses = 0;
   const cellList: CellSeat[] = [];
   const cellByScene = new Map<THREE.Object3D, CellSeat>();
   // U8 registries: cell identity for the persistence key + mesh → registry for the pick path.
@@ -434,12 +524,22 @@ export function attachEnrichedBuildings(
   let rrCursor = 0;
   // Per-building re-seat state: sampling cursors + the settle telemetry for seatState().
   let frameNo = 0;
-  let nearestCell: CellSeat | null = null;
+  /** RC7 — the look-biased top-K cells the per-feature sweep prioritises (re-ranked every
+   *  `reseatPriorityEveryFrames`, or whenever one of them was evicted). */
+  let priorityCells: CellSeat[] = [];
   let cellSweep = 0; // global round-robin cell cursor (building sampling)
   let treeSweep = 0; // ditto for tree sampling
   let seatEpochN = 0;
   let seatQuietN = 0;
   const _w = new THREE.Vector3();
+  const _m5 = new THREE.Vector3(); // RC0 M5 scratch (bake-height capture, once per cell)
+  /** RC7 — cells sorted by look-biased distance, truncated to `reseatPriorityCells`. */
+  const rankPriorityCells = (): CellSeat[] =>
+    cellList
+      .map((c) => ({ c, d: lookBiasedDistance(c.ecef, opts.loadAim) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, ENRICHED.reseatPriorityCells)
+      .map((x) => x.c);
 
   tiles.addEventListener("load-model", (e: any) => {
     // One birth stamp per TILE (this load-model event) — the whole cell dissolves in as a unit
@@ -470,7 +570,25 @@ export function attachEnrichedBuildings(
         parts: [],
         trees: [],
         located: false,
+        reliefLoM: Infinity,
+        reliefHiM: -Infinity,
+        rejected: 0,
+        bakedElevM: null,
       };
+      // RC9: warm start. `appliedM` is restored as-is rather than eased back from null — the
+      // geometry is rebuilt from the bake anyway, so there is no slide to smooth, and easing
+      // from zero would reproduce exactly the settle this slice exists to remove.
+      const warm = uri ? seatCache.get(uri) : undefined;
+      if (warm) {
+        seatCacheHits++;
+        cell.seatM = warm.seatM;
+        cell.appliedM = warm.appliedM;
+        cell.bakedElevM = warm.bakedElevM;
+        cell.reliefLoM = warm.reliefLoM;
+        cell.reliefHiM = warm.reliefHiM;
+      } else if (uri) {
+        seatCacheMisses++;
+      }
       cellList.push(cell);
       cellByScene.set(e.scene, cell);
       if (uri) cellByUri.set(uri, cell);
@@ -498,7 +616,17 @@ export function attachEnrichedBuildings(
             seatM: new Float32Array(n).fill(NaN),
             appliedM: new Float32Array(n).fill(NaN),
             cursor: 0,
+            unseated: Array.from({ length: n }, (_v, i) => i), // RC7
           });
+          // RC9: banked tree seats, matched by tree-set order and instance index (both are
+          // fixed by the cell's own glb, so a mismatched length simply skips).
+          const warmTrees = cell.uri ? seatCache.get(cell.uri)?.trees : undefined;
+          const set = cell.trees[cell.trees.length - 1];
+          const banked = warmTrees?.[cell.trees.length - 1];
+          if (banked && banked.length === set.seatM.length) {
+            set.seatM.set(banked);
+            set.unseated = set.unseated.filter((i) => Number.isNaN(set.seatM[i]));
+          }
         }
         return;
       }
@@ -590,7 +718,20 @@ export function attachEnrichedBuildings(
               runIdx,
               extraPadM: 0,
               cursor: 0,
+              // RC7: everything starts unseated, in bake order.
+              unseated: features.map((_f, i) => i),
             };
+            // RC9: restore banked footprint seats before the sweep ever runs. Anything the cache
+            // knows drops out of the unseated drain, so a returning street spends its budget on
+            // what it has NOT seen rather than on what it already had.
+            const warmCell = cell.uri ? seatCache.get(cell.uri) : undefined;
+            if (warmCell) {
+              for (const [id, i] of runIdx) {
+                const seat = warmCell.features.get(id);
+                if (seat != null) features[i].seatM = seat;
+              }
+              part.unseated = part.unseated.filter((i) => features[i].seatM == null);
+            }
             cell.parts.push(part);
             partByMesh.set(c, { cell, part });
             // U8: re-apply persisted overrides — LRU-evicted cells come back pristine, so
@@ -617,6 +758,26 @@ export function attachEnrichedBuildings(
   tiles.addEventListener("dispose-model", (e: any) => {
     const cell = cellByScene.get(e.scene);
     if (cell) {
+      // RC9: bank the seats before the cell goes. Only cells that actually learned something are
+      // worth keeping — an unlocated cell has nothing to say and would just occupy the map.
+      if (cell.uri && cell.seatM != null) {
+        const features = new Map<number, number>();
+        for (const part of cell.parts) {
+          for (const [id, i] of part.runIdx) {
+            const seat = part.features[i]?.seatM;
+            if (seat != null) features.set(id, seat);
+          }
+        }
+        seatCache.set(cell.uri, {
+          seatM: cell.seatM,
+          appliedM: cell.appliedM,
+          bakedElevM: cell.bakedElevM,
+          reliefLoM: cell.reliefLoM,
+          reliefHiM: cell.reliefHiM,
+          features,
+          trees: cell.trees.map((t) => Float32Array.from(t.seatM)),
+        });
+      }
       cellByScene.delete(e.scene);
       // U8 registries + a mid-drag ghost die with their cell (the orchestrator's armed state
       // survives — the override re-applies when the cell streams back).
@@ -650,6 +811,19 @@ export function attachEnrichedBuildings(
     (centre.lonDeg * Math.PI) / 180,
     _up,
   );
+  /** RC0 M5 — the bake ORIGIN in ECEF (the point `projectEN` measures from), so `debugSeats` can
+   *  bin applied seat deltas by distance from it and separate a quadratic curvature error from a
+   *  flat DSM bias. */
+  const centreEcef = (() => {
+    const v = new THREE.Vector3();
+    WGS84_ELLIPSOID.getCartographicToPosition(
+      (centre.latDeg * Math.PI) / 180,
+      (centre.lonDeg * Math.PI) / 180,
+      0,
+      v,
+    );
+    return v;
+  })();
   let seatM = 0; // last-good terrain height (m above ellipsoid) at the bbox centre
   let centreSampled = false; // per-cell deltas are meaningless until the base seat is real
   // U2/A5: the group lift itself was the ONE unsmoothed layer — a terrain-LOD refine at the bbox
@@ -688,26 +862,74 @@ export function attachEnrichedBuildings(
     return true;
   };
 
-  /** Accept a footprint terrain sample only when it is plausible relative to the cell seat —
-   *  streaming-time raycasts can return coarse-LOD garbage (a −134 m first sample snapped a
-   *  building underground, browser-caught 2026-07-14); real within-cell relief is ±~20 m. */
-  const acceptSample = (h: number | null, cellSeatM: number): number | null => {
-    if (h == null) return null;
+  /**
+   * Accept a footprint terrain sample only when it is plausible relative to the cell seat —
+   * streaming-time raycasts can return coarse-LOD garbage (a −134 m first sample snapped a
+   * building underground, browser-caught 2026-07-14).
+   *
+   * RC8: the bound is no longer flat. `reseatFeatureMaxDeltaM` (45 m) was sized for Dnipro's
+   * ±~20 m grid cells; in genuinely steep terrain — the Khumbu, any mountain bake — a real sample
+   * routinely exceeds it, and a gate that rejects every real sample looks EXACTLY like a cell
+   * nobody has swept: buildings stay on the cell plane and nothing anywhere says why. The bound
+   * now widens from the relief this cell has actually shown (accepted samples only, so it can
+   * only grow on evidence) and never narrows below the flat one. Rejections are counted per cell
+   * and published by `debugSeats()` — the audit's gap #5 was that the number did not exist.
+   */
+  const cellGateM = (cell: CellSeat): number => {
+    const observed = cell.reliefHiM - cell.reliefLoM;
+    if (!Number.isFinite(observed) || observed <= 0) return ENRICHED.reseatFeatureMaxDeltaM;
+    return Math.max(ENRICHED.reseatFeatureMaxDeltaM, observed * ENRICHED.reseatReliefK);
+  };
+  const acceptSample = (h: number | null, cell: CellSeat): number | null => {
+    if (h == null || cell.seatM == null) return null;
     const c = clampGroundM(h);
-    return Math.abs(c - cellSeatM) <= ENRICHED.reseatFeatureMaxDeltaM ? c : null;
+    if (Math.abs(c - cell.seatM) > cellGateM(cell)) {
+      cell.rejected++;
+      return null;
+    }
+    if (c < cell.reliefLoM) cell.reliefLoM = c;
+    if (c > cell.reliefHiM) cell.reliefHiM = c;
+    return c;
   };
 
-  /** Spend up to `budget` terrain raycasts on a cell's BUILDING footprints (round-robin within
-   *  the cell). Returns samples spent. Sticky last-good + clampGroundM — the terrain discipline. */
+  /**
+   * Spend up to `budget` terrain raycasts on a cell's BUILDING footprints. Returns samples spent.
+   * Sticky last-good + `clampGroundM` — the terrain discipline.
+   *
+   * RC7: NEVER-SAMPLED features drain first. The pre-RC7 sweep was a pure round-robin, so a cell
+   * that had already sampled most of its buildings kept re-asking about them while its remaining
+   * unseated ones — the visibly wrong ones, sitting flat on the cell plane — waited their turn
+   * behind the whole list. Refreshes still happen, on whatever budget the drain leaves.
+   */
   const sampleFeatures = (cell: CellSeat, budget: number): number => {
     if (budget <= 0 || cell.seatM == null || !ensureLocated(cell)) return 0;
     let spent = 0;
+    // Pass 1 — the drain. A footprint whose terrain is not loaded yet answers null, and it must
+    // go to the BACK of the queue, never straight back onto the head: popping and re-pushing the
+    // same index retries it immediately, forever, and the whole budget vanishes into one
+    // unanswerable footprint while the rest of the street stays flat on the cell plane. (Measured
+    // 2026-08-25c: look-cone convergence stuck at 49.7 % with a full budget being spent.)
+    for (const part of cell.parts) {
+      if (part.unseated.length === 0) continue;
+      const deferred: number[] = [];
+      while (spent < budget && part.unseated.length > 0) {
+        const i = part.unseated.pop() as number;
+        const f = part.features[i];
+        spent++;
+        const c = acceptSample(opts.terrainHeightAt(f.latDeg, f.lonDeg), cell);
+        if (c != null) f.seatM = c;
+        else deferred.push(i); // try again next pass, behind everything not yet tried
+      }
+      for (const i of deferred) part.unseated.unshift(i);
+      if (spent >= budget) return spent;
+    }
+    // Pass 2 — refresh, round-robin within the cell (the pre-RC7 behaviour, on what is left).
     for (const part of cell.parts) {
       if (part.features.length === 0) continue;
       const k = Math.min(budget - spent, part.features.length);
       for (let i = 0; i < k; i++) {
         const f = part.features[part.cursor++ % part.features.length];
-        const c = acceptSample(opts.terrainHeightAt(f.latDeg, f.lonDeg), cell.seatM);
+        const c = acceptSample(opts.terrainHeightAt(f.latDeg, f.lonDeg), cell);
         if (c != null) f.seatM = c;
       }
       part.cursor %= Math.max(1, part.features.length);
@@ -717,17 +939,30 @@ export function attachEnrichedBuildings(
     return spent;
   };
 
-  /** Ditto for TREE instances. */
+  /** Ditto for TREE instances (same drain-then-refresh order). */
   const sampleTrees = (cell: CellSeat, budget: number): number => {
     if (budget <= 0 || cell.seatM == null || !ensureLocated(cell)) return 0;
     let spent = 0;
+    for (const t of cell.trees) {
+      if (t.unseated.length === 0) continue;
+      const deferred: number[] = [];
+      while (spent < budget && t.unseated.length > 0) {
+        const idx = t.unseated.pop() as number;
+        spent++;
+        const c = acceptSample(opts.terrainHeightAt(t.latDeg[idx], t.lonDeg[idx]), cell);
+        if (c != null) t.seatM[idx] = c;
+        else deferred.push(idx); // back of the queue — see sampleFeatures
+      }
+      for (const idx of deferred) t.unseated.unshift(idx);
+      if (spent >= budget) return spent;
+    }
     for (const t of cell.trees) {
       const n = t.seatM.length;
       if (n === 0) continue;
       const k = Math.min(budget - spent, n);
       for (let i = 0; i < k; i++) {
         const idx = t.cursor++ % n;
-        const c = acceptSample(opts.terrainHeightAt(t.latDeg[idx], t.lonDeg[idx]), cell.seatM);
+        const c = acceptSample(opts.terrainHeightAt(t.latDeg[idx], t.lonDeg[idx]), cell);
         if (c != null) t.seatM[idx] = c;
       }
       t.cursor %= n;
@@ -758,8 +993,10 @@ export function attachEnrichedBuildings(
             // when a feature samples — the pair then looks plausible until the cell corrects and
             // the stale feature seat drags the building tens of metres. An implausible delta at
             // APPLY time collapses back to the cell plane and re-samples on the next round-robin.
-            if (Math.abs(target) > ENRICHED.reseatFeatureMaxDeltaM) {
+            if (Math.abs(target) > cellGateM(cell)) {
               f.seatM = null;
+              cell.rejected++;
+              part.unseated.push(r); // RC7: back to the head of the drain, not the round-robin
               target = 0;
             }
             const next = seatStep(f.appliedM, target, ENRICHED.reseatEaseK);
@@ -818,8 +1055,10 @@ export function attachEnrichedBuildings(
           if (Number.isNaN(s)) continue;
           const applied = t.appliedM[i];
           let target = s - cell.seatM;
-          if (Math.abs(target) > ENRICHED.reseatFeatureMaxDeltaM) {
+          if (Math.abs(target) > cellGateM(cell)) {
             t.seatM[i] = NaN; // poisoned pair — back to the cell plane, re-sample later
+            cell.rejected++;
+            t.unseated.push(i); // RC7: re-queued at the head of the drain
             target = 0;
           }
           const next = Number.isNaN(applied) ? target : applied + (target - applied) * ENRICHED.reseatEaseK;
@@ -869,6 +1108,15 @@ export function attachEnrichedBuildings(
           if (rrCursor >= cellList.length) rrCursor %= cellList.length;
           for (const cell of cellList) {
             if (cell.seatM == null) continue; // unsampled → stays on the centre-seat plane
+            // RC0 M5 (once per cell): what height the BAKE claims for this cell, group lift
+            // removed. `basePos` is the position the library decomposed at load — pristine, and
+            // never written by the re-seat (which only ever adds `appliedM` on top of it).
+            if (cell.bakedElevM == null) {
+              tiles.group.updateMatrixWorld();
+              _m5.copy(cell.basePos).applyMatrix4(tiles.group.matrixWorld);
+              cell.bakedElevM =
+                WGS84_ELLIPSOID.getPositionElevation(_m5) - (seatRefM + ENRICHED.seatOffsetM);
+            }
             // U2/A5: target references the APPLIED group seat — while the group ease is mid-slide
             // a sampled cell's sum stays exactly on its own terrain (a centre refine is about the
             // centre, not this cell), and unsampled cells ride the group ease smoothly.
@@ -884,27 +1132,35 @@ export function attachEnrichedBuildings(
           // the camera — the street you stand on — half round-robin across all loaded cells),
           // then the cheap apply pass eases every sampled footprint onto its own ground.
           if (ENRICHED.reseatPerFeature) {
+            // RC7 — rank the cells the VIEWER cares about, not merely the nearest one. In FPV
+            // the nearest cell by pure distance is the one under your feet; the ones that read
+            // as broken are the ones down the street you are looking at. Same bias law as the
+            // download queue, so the seating front follows the streaming front.
             if (
               frameNo % ENRICHED.reseatPriorityEveryFrames === 1 ||
-              !nearestCell ||
-              !cellByScene.has(nearestCell.scene)
+              priorityCells.length === 0 ||
+              !priorityCells.every((c) => cellByScene.has(c.scene))
             ) {
-              nearestCell = null;
-              let best = Infinity;
-              for (const cell of cellList) {
-                const d = cell.ecef.distanceToSquared(opts.camera.position);
-                if (d < best) {
-                  best = d;
-                  nearestCell = cell;
-                }
-              }
+              priorityCells = rankPriorityCells();
             }
             let fb = ENRICHED.reseatFeatureSamplesPerFrame;
-            if (nearestCell) fb -= sampleFeatures(nearestCell, Math.ceil(fb / 2));
+            const fRr = Math.max(1, Math.round(fb * ENRICHED.reseatRoundRobinShare));
+            let fPri = fb - fRr;
+            for (const cell of priorityCells) {
+              if (fPri <= 0) break;
+              fPri -= sampleFeatures(cell, fPri);
+            }
+            fb = fRr + Math.max(0, fPri); // unspent priority budget falls through to the sweep
             for (let g = 0; g < cellList.length && fb > 0; g++)
               fb -= sampleFeatures(cellList[cellSweep++ % cellList.length], fb);
             let tb = ENRICHED.reseatTreeSamplesPerFrame;
-            if (nearestCell) tb -= sampleTrees(nearestCell, Math.ceil(tb / 2));
+            const tRr = Math.max(1, Math.round(tb * ENRICHED.reseatRoundRobinShare));
+            let tPri = tb - tRr;
+            for (const cell of priorityCells) {
+              if (tPri <= 0) break;
+              tPri -= sampleTrees(cell, tPri);
+            }
+            tb = tRr + Math.max(0, tPri);
             for (let g = 0; g < cellList.length && tb > 0; g++)
               tb -= sampleTrees(cellList[treeSweep++ % cellList.length], tb);
             if (cellList.length > 0) {
@@ -1079,17 +1335,63 @@ export function attachEnrichedBuildings(
       let hi = -Infinity;
       let trees = 0;
       let treesSampled = 0;
+      let rejected = 0;
+      let unseated = 0;
+      let nearFeatures = 0;
+      let nearFeaturesSampled = 0;
+      const nearSet = new Set(priorityCells);
+      // RC0 measurement M5 — THE §1.3 separator, and it came back with a REFUTATION.
+      //
+      // The audit could not tell a QUADRATIC seat error (F1: both bakers project onto a tangent
+      // plane and never subtract the curvature rise d²/2R) from a FLAT BIAS (F2: the DSM the bake
+      // was cut from includes the buildings it is seating) or a TIME-DECAYING one (F4: streaming),
+      // and those three want RC12, RC15 and RC7 first respectively.
+      //
+      // Measured 2026-08-25c over the shipped Dnipro bake: **F1 CANNOT BE THE DOMINANT TERM,
+      // because the per-cell re-seat already absorbs it.** The bake is deliberately laid at h≈0
+      // and every cell is independently re-seated onto the terrain at its own centre, so the
+      // curvature rise survives only as its VARIATION ACROSS ONE CELL — `d · r / R`, where r is
+      // the cell half-span, not the bake radius. At 4 km out with ~450 m cells that is 0.28 m,
+      // against a measured within-cell relief of 10–35 m rms. A ~1 % term does not justify
+      // re-baking three regions.
+      //
+      // So the two numbers below are the ones that matter, per distance ring: the WITHIN-CELL
+      // RELIEF the per-feature seat is correcting (the real work), and the curvature residual
+      // that RC12 would remove (the bound, computed from the same geometry). Anyone re-opening
+      // RC12 has to argue against the ratio of those two.
+      const BINS = 8;
+      const binStep = ENRICHED.debugM5BinM;
+      const sum = new Float64Array(BINS);
+      const sumSq = new Float64Array(BINS);
+      const count = new Int32Array(BINS);
+      // Within-cell relief, kept alongside so the two are never confused again.
+      const reliefSumSq = new Float64Array(BINS);
+      const reliefCount = new Int32Array(BINS);
       for (const cell of cellList) {
         if (cell.located) located++;
+        rejected += cell.rejected;
+        const cellDistM = cell.ecef.distanceTo(centreEcef);
+        const bin = Math.min(BINS - 1, Math.floor(cellDistM / binStep));
+        // The curvature residual RC12 would remove at this cell: the tangent-plane rise varies
+        // across the cell by d·r/R, and the per-cell seat has already removed its mean.
+        sum[bin] += (cellDistM * ENRICHED.cellHalfSpanM) / WGS84_A;
+        sumSq[bin] += cellDistM;
+        count[bin]++;
+        const isNear = nearSet.has(cell);
         for (const part of cell.parts) {
           features += part.features.length;
+          unseated += part.unseated.length;
+          if (isNear) nearFeatures += part.features.length;
           for (const f of part.features) {
             if (Math.abs(f.scaleK - 1) >= NEUTRAL_K_EPS) overridden++;
             if (f.seatM == null) continue;
             featuresSampled++;
+            if (isNear) nearFeaturesSampled++;
             if (f.appliedM != null) {
               lo = Math.min(lo, f.appliedM);
               hi = Math.max(hi, f.appliedM);
+              reliefSumSq[bin] += f.appliedM * f.appliedM;
+              reliefCount[bin]++;
             }
           }
         }
@@ -1098,18 +1400,52 @@ export function attachEnrichedBuildings(
           for (let i = 0; i < t.seatM.length; i++) if (!Number.isNaN(t.seatM[i])) treesSampled++;
         }
       }
+      const m5 = [];
+      for (let b = 0; b < BINS; b++) {
+        if (count[b] === 0 && reliefCount[b] === 0) continue;
+        m5.push({
+          fromM: b * binStep,
+          toM: (b + 1) * binStep,
+          cells: count[b],
+          /** Mean distance from the bake origin in this ring (m). */
+          meanDistM: count[b] ? +(sumSq[b] / count[b]).toFixed(1) : null,
+          /** What RC12 would remove: the tangent-plane curvature residual left AFTER the per-cell
+           *  re-seat, `d · cellHalfSpan / R`. This is the whole prize. */
+          curvatureResidualM: count[b] ? +(sum[b] / count[b]).toFixed(4) : null,
+          /** RMS within-cell relief the per-feature seat is correcting — the real work. */
+          n: reliefCount[b],
+          rmsReliefM: reliefCount[b] ? +Math.sqrt(reliefSumSq[b] / reliefCount[b]).toFixed(3) : null,
+        });
+      }
       return {
         cells: cellList.length,
         located,
         features,
         featuresSampled,
-        featureAppliedMinM: lo,
-        featureAppliedMaxM: hi,
+        featureAppliedMinM: Number.isFinite(lo) ? lo : null,
+        featureAppliedMaxM: Number.isFinite(hi) ? hi : null,
         overridden,
         trees,
         treesSampled,
         epoch: seatEpochN,
         quietFrames: seatQuietN,
+        /** RC8 — samples the plausibility gate threw away. Zero for a whole session over steep
+         *  terrain is itself the finding: it means the gate is not the reason nothing seated. */
+        rejected,
+        /** RC7 — features still waiting for their FIRST sample. Drains to 0 as the sweep runs. */
+        unseated,
+        /** RC0 M5 — applied seat delta binned by distance from the bake origin. */
+        m5,
+        /** RC7 — convergence IN THE LOOK CONE, which is the criterion the audit's S4 actually
+         *  set. A whole-city fraction is the wrong denominator: 39k buildings over 101 cells will
+         *  never all seat in five seconds and do not need to. */
+        nearFeatures,
+        nearFeaturesSampled,
+        priorityCells: priorityCells.length,
+        /** RC9 — cells that came back from an LRU eviction with their seats intact vs cold. */
+        seatCacheHits,
+        seatCacheMisses,
+        seatCacheCells: seatCache.size,
       };
     },
     setActive(on) {
@@ -1122,10 +1458,11 @@ export function attachEnrichedBuildings(
       hideGhostImpl();
       ghostMat.dispose();
       cellList.length = 0;
+      seatCache.clear(); // RC9: a variant switch must never carry another bake's ground truth
       cellByScene.clear();
       cellByUri.clear();
       partByMesh.clear();
-      nearestCell = null;
+      priorityCells.length = 0;
       tiles.dispose();
       styleMat.dispose();
       edgeMat.dispose();

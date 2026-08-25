@@ -13,7 +13,7 @@ import {
   type DeviceCaps,
   type QualityTier,
 } from "../../lib/globe/quality";
-import { ultraBootOn } from "../../lib/globe/ultraBoot";
+import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
 
 /** Read the device's rendering capabilities for the initial quality tier (RENDERING_QUALITY_PASS
  *  WS1). Browser-only (GL context + navigator) — the tier DECISION is the pure `detectDeviceTier`. */
@@ -121,7 +121,8 @@ export default function GlobeCanvas() {
     // light distance) is a live uniform and is edge-applied by the orchestrator instead.
     // The gate is folded inside `ultraBootOn()` — desktop shell AND fine pointer, the same two
     // terms as the orchestrator's `hqAllowed`.
-    const ultraBoot = ultraBootOn();
+    // RC26: the SNAPSHOT, so the ULT chip and the rig cannot disagree about what was built.
+    const ultraBoot = ultraBootSnapshot();
     // Sun shadows (city scale). Default PCFShadowMap — r185 deprecated PCFSoft (hardware PCF is
     // already 4-tap), and VSM would drag the huge receiver tile meshes into the depth pass.
     // Gated by the quality tier (off on `low`; the orchestrator still gates castShadow by altitude).

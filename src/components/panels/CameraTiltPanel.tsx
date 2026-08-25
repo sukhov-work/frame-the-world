@@ -14,8 +14,43 @@ import { CONTROLS, FPV } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal, formatAltM, formatEyeM } from "../../lib/format/readout";
 import { saveViewPref } from "../../lib/prefs";
+import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
 import "../../styles/camera-tilt.css";
 import "../../styles/tips.css";
+
+/**
+ * RC26 — the ULT chip, with the one state it never surfaced.
+ *
+ * Three of ULTRA's shadow levers are CONSTRUCTION-TIME (three latches a shadow map's size on
+ * first render and recompiles every material on a live `shadowMap.enabled` flip), so a
+ * mid-session toggle moves every eased lever immediately and leaves the shadow rig at whatever
+ * the page booted with. That is the documented behaviour — but nothing said so, so the chip lit
+ * up and the rig quietly did not, which reads as a weak feature rather than as a pending reload.
+ *
+ * The predicate is `pref !== ultraBootSnapshot()` — the boot answer, frozen (see that function
+ * for why it must be a snapshot and why the ordering is safe).
+ */
+function UltraChip({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  const needsReload = on !== ultraBootSnapshot();
+  return (
+    <button
+      type="button"
+      className={`ct-mode ct-ultra tip${on ? " is-on" : ""}${needsReload ? " needs-reload" : ""}`}
+      onClick={onToggle}
+      aria-pressed={on}
+      aria-label={on ? "Turn off ultra quality" : "Turn on ultra quality"}
+      data-tip={
+        needsReload
+          ? "ULTRA HQ (EXPERIMENTAL) — PINS QUALITY TO MAXIMUM WHATEVER THE FRAME RATE. RELOAD FOR THE FULL SHADOW RIG: THE 8K SHADOW MAP AND SOFT SHADOWS ARE BUILT ONCE AT PAGE LOAD AND CANNOT FOLLOW A LIVE FLIP."
+          : "ULTRA HQ (EXPERIMENTAL) — PINS QUALITY TO MAXIMUM WHATEVER THE FRAME RATE, AND PUSHES BUILDING / LABEL / VECTOR DETAIL PAST THE NORMAL CEILING. MAKE YOUR MACHINE HURT."
+      }
+      data-tip-pos="left"
+    >
+      ULT
+    </button>
+  );
+}
+
 
 /**
  * Camera panel — manual global camera controls (2026-07-10 owner asks; encoder rework + compass
@@ -231,17 +266,10 @@ export default function CameraTiltPanel() {
             never runs on /m) — the coarse-pointer half is what a phone on `/?d=1` needs. */}
         {hqExperimentsAllowed && (
           <>
-            <button
-              type="button"
-              className={`ct-mode ct-ultra tip${s.ultraQuality ? " is-on" : ""}`}
-              onClick={() => s.setUltraQuality(!s.ultraQuality)}
-              aria-pressed={s.ultraQuality}
-              aria-label={s.ultraQuality ? "Turn off ultra quality" : "Turn on ultra quality"}
-              data-tip="ULTRA HQ (EXPERIMENTAL) — PINS QUALITY TO MAXIMUM WHATEVER THE FRAME RATE, AND PUSHES BUILDING / LABEL / VECTOR DETAIL PAST THE NORMAL CEILING. MAKE YOUR MACHINE HURT."
-              data-tip-pos="left"
-            >
-              ULT
-            </button>
+            <UltraChip
+              on={s.ultraQuality}
+              onToggle={() => s.setUltraQuality(!s.ultraQuality)}
+            />
           </>
         )}
       </div>

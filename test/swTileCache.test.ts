@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { TILESETS, STREETS } from "../src/components/globe/tuning";
+import { ESRI_PLACEHOLDER } from "../src/lib/globe/esriPlaceholder";
 
 /**
  * #15 (owner batch #4 S3) — the iOS-directed tile service worker's URL POLICY, fenced as text
@@ -37,6 +38,18 @@ describe("public/sw.js — #15 tile-cache policy fence", () => {
     expect(sw).toMatch(/MAX_AGE_MS\s*=\s*\d/);
     expect(sw).toContain('method !== "GET"');
   });
+  it("declines to cache Esri's coverage sentinel, with the SAME fingerprint as the app (RC5)", () => {
+    // A worker file cannot import lib code, so the constants are duplicated. If they drift, the
+    // sentinel gets pinned for seven days again and the owner's Everest tiles never heal —
+    // which is exactly the bug, back through the side door.
+    expect(sw).toContain(`ESRI_PLACEHOLDER_BYTES = ${ESRI_PLACEHOLDER.byteLength}`);
+    expect(sw).toContain(
+      `ESRI_PLACEHOLDER_FNV1A32 = 0x${ESRI_PLACEHOLDER.fnv1a32.toString(16)}`,
+    );
+    // …and it must actually DECLINE, not merely detect.
+    expect(sw).toMatch(/isEsriPlaceholder\(body\)\s*\)\s*return;/);
+  });
+
   it("both layouts register it iOS-gated and dev-gated", () => {
     for (const layout of ["src/layouts/Layout.astro", "src/layouts/MobileLayout.astro"]) {
       const src = readFileSync(layout, "utf8");

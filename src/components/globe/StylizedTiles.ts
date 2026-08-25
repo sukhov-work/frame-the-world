@@ -43,6 +43,18 @@ import { chartWalkAzRad } from "../../lib/geo/slippy";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
+import {
+  fitShadowBox,
+  horizonDistanceM,
+  type ShadowFitProfile,
+} from "../../lib/globe/shadowFit";
+import {
+  aboveGateK,
+  moonRigTakeoverK,
+  sunKeyTroughK,
+  type KeyGateProfile,
+} from "../../lib/globe/keyHandoff";
+import { chooseTerrainHit } from "../../lib/globe/terrainPick";
 import { BAKED_REGIONS } from "../../lib/globe/regions";
 import { resolveTerrainBase } from "./scene/terrainPatch";
 import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
@@ -1111,7 +1123,10 @@ export function attachStylizedTiles(opts: {
   const _pickNdc = new THREE.Vector2();
   const pickGround = (ndcX: number, ndcY: number): readonly [number, number, number] | null => {
     _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
-    const hit = _pickRay.intersectObjects(ground.tiles.group.children, true)[0];
+    // RC6: the FINEST tile wins, not the nearest hit — see lib/globe/terrainPick. A pin dropped
+    // while a coarse parent was still crossfading out landed on the LOD error, by metres over
+    // relief, and then quietly disagreed with the seat every other consumer derived later.
+    const hit = chooseTerrainHit(_pickRay.intersectObject(ground.tiles.group, true));
     if (hit) return [hit.point.x, hit.point.y, hit.point.z];
     const d = _pickRay.ray.direction;
     return rayEllipsoidIntersect(
@@ -1420,6 +1435,19 @@ export function attachStylizedTiles(opts: {
   // the scalar form re-aimed the ACCUMULATED displacement on every head-turn, orbiting the eye
   // around the anchor at walk radius (the pivot-ellipse bug, owner 2026-08-11). Reset on FPV entry.
   const fpvWalkOffset = new THREE.Vector3();
+  // RC10 (audit gap #8) — the WALK re-seat. A temp FPV eye is built as
+  // `pinGround + up·eyeM + walkOffset`, and `walkOffset` is a fixed WORLD displacement — so the
+  // eye keeps the height of the ground under the PIN no matter how far you walk. Cross a balka
+  // and you are underground; climb out and you are floating, and `fpvEyeAboveGroundM` reports
+  // the nominal eye height either way, so nothing on screen says so. These three carry the
+  // correction: the sticky last-good ground at the WALKED point, the eased delta actually
+  // applied (`seatStep`, so a terrain-LOD refine slides instead of teleporting the eye — U2's
+  // discipline), and the point the last sample was taken at so the resample runs on distance,
+  // not on a timer.
+  let fpvWalkGroundM: number | null = null;
+  let fpvWalkAppliedM: number | null = null;
+  const _fpvWalkSampledAt = new THREE.Vector3();
+  let fpvWalkSampleValid = false;
   const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false, space: false };
   // SPACE hold time (ms, accumulated from frame dt — clock-epoch-free): the ascend rate ramps
   // quadratically over FPV.spaceRampS (QoL-1, owner 2026-08-14). Lives beside fpvKeysDown, NOT
@@ -1925,6 +1953,39 @@ export function attachStylizedTiles(opts: {
   const _camFwd = new THREE.Vector3();
   const _focus = new THREE.Vector3();
   const _focusUp = new THREE.Vector3();
+  // RC4 — the shadow rig's OWN focus. Deliberately separate from `_focus`: that vector is the
+  // pivot for the tilt/heading glides and the lat/lon source for PLAN/FIND/BEST SPOT, and its
+  // documented miss-fallback (the camera position itself → a pure look-rotation with no
+  // translation) is load-bearing for those consumers. The rig wants the opposite thing — a
+  // point on the GROUND framing the visible ground — so it gets its own.
+  const _shadowFocus = new THREE.Vector3();
+  const _eyeUp = new THREE.Vector3();
+  const _eyeGround = new THREE.Vector3();
+  const _fwdHoriz = new THREE.Vector3();
+  /** Fitted ortho half-extent (m) — quantized, so the projection block still runs on change only. */
+  let shadowBoundsM: number = SHADOWS.boundsM;
+  /** Fitted view distance behind the current ortho extent (m) — reported by `__globe.ultraLook`. */
+  let shadowViewFitM = 0;
+  const _shadowFitBase: ShadowFitProfile = {
+    boundsM: SHADOWS.boundsM,
+    boundsAltK: SHADOWS.boundsAltK,
+    maxBoundsM: SHADOWS.maxBoundsM,
+    viewFitK: SHADOWS.viewFitK,
+    quantM: SHADOWS.boundsQuantM,
+  };
+  const _shadowFitUltra: ShadowFitProfile = {
+    ..._shadowFitBase,
+    boundsAltK: ULTRA.boundsAltK,
+    maxBoundsM: ULTRA.maxBoundsM,
+  };
+  /** RC2 — the one elevation-gate profile the key/shadow handoff ramps read (lib/globe/keyHandoff).
+   *  ULTRA shares it deliberately: it shares the gate, so it must share the fade. */
+  const KEY_GATE: KeyGateProfile = {
+    gateSin: SHADOWS.minSunElevSin,
+    bandSin: SHADOWS.fadeBandSin,
+    moonMinIllum: SHADOWS.moonMinIllum,
+    moonIllumSoftFrac: SHADOWS.moonIllumSoftFrac,
+  };
   const _keyWhite = new THREE.Color(0xffffff);
   const _goldenCol = new THREE.Color(tokens.goldenHour);
   const _moonKeyCol = new THREE.Color(tokens.moonlight); // the key light's moon-shadow disguise
@@ -2019,6 +2080,10 @@ export function attachStylizedTiles(opts: {
   let focusLocked = false;
   let hasFocus = false;
   let moonShadows = false;
+  /** RC2 — how much of the moon key the RIG is carrying this frame (0 = all of it still on the
+   *  dedicated moonLight in scene/sky.ts). The two are complementary by construction, which is
+   *  what makes the source switch at sunset invisible instead of a one-frame flip. */
+  let moonRigTakeover = 0;
   let focusHit: ReturnType<typeof rayEllipsoidIntersect> = null;
   let upNow = useUploadStore.getState();
   let camNow = useCameraStore.getState();
@@ -2103,6 +2168,26 @@ export function attachStylizedTiles(opts: {
       tiles: buildings.tiles,
       enriched: enriched?.tiles ?? null, // Dnipro 3D enrichment (Slice 0) — null unless the URL is set
       enrichedSeats: () => enriched?.debugSeats() ?? null, // per-building re-seat coverage (2026-07-14)
+      // RC5: what the Esri coverage-sentinel fallback actually did — sentinels seen, how many
+      // were replaced by an upscaled ancestor, how many GETs the learned cap table skipped, and
+      // how many still drew. `drawn > 0` is the only state that can still show the owner a
+      // "Map data not available" tile.
+      // RC24: the sky dome's live ULTRA coupling, read off the uniforms the shader samples.
+      atmosphereUniforms: () => ({
+        uFtwUltraK: atmosphere.uniforms.uFtwUltraK.value as number,
+        uFtwUltraHaze: (atmosphere.uniforms.uFtwUltraHaze.value as THREE.Color).getHex(),
+        uEclipse: atmosphere.uniforms.uEclipse.value as number,
+      }),
+      // RC6 / audit measurement M7: how often the nearest terrain hit is NOT the finest one.
+      terrainPickStats: () => ground.pickStats(),
+      resetTerrainPickStats: () => ground.resetPickStats(),
+      // RC11: the exact terrain-height memo's hit rate — the number that says whether the seat
+      // budgets are still raycast-bound or have become bookkeeping.
+      heightMemoStats: () => ground.heightMemoStats(),
+      esriPlaceholder: () => ground.placeholderStats(),
+      // …and the probe that runs the SHIPPED wrapper against one real Esri tile, so a browser
+      // run can reach the substitution path without depending on the terrain tileset's LOD.
+      esriProbe: (z: number, x: number, y: number) => ground.placeholderProbe(z, x, y),
       ground: ground.tiles,
       groundUniforms: ground.uniforms,
       earthUniforms: earth.uniforms,
@@ -2152,6 +2237,11 @@ export function attachStylizedTiles(opts: {
         liftM: fpvLiftM,
         eyeM: fpvEyeM,
         eyeAboveGroundM: fpvEyeAboveGroundM,
+        // RC10 — the walk re-seat's own numbers: the ground found under the walked eye, and the
+        // eased correction currently applied to it. Both null while standing on the pin.
+        walkGroundM: fpvWalkGroundM,
+        walkAppliedM: fpvWalkAppliedM,
+        walkOffsetM: +fpvWalkOffset.length().toFixed(2),
         controlsEnabled: controls.enabled,
       }),
       dayArcs,
@@ -2366,6 +2456,14 @@ export function attachStylizedTiles(opts: {
               far: sunLight.shadow.camera.far,
               casting: sunLight.castShadow,
               biasMetres: -sunLight.shadow.bias * (sunLight.shadow.camera.far - sunLight.shadow.camera.near),
+              // RC4 view fit. `focusOffsetM` is the distance from the EYE'S GROUND POINT to the
+              // box centre — 0 at nadir, ~d/2 when the box holds the whole look, and pinned at
+              // `boundsM − boundsM/2` once the cap bites. `metresPerTexel` is the price paid:
+              // the crispness trade this slice makes is meant to be read, not assumed.
+              viewFitM: shadowViewFitM,
+              focusOffsetM: _shadowFocus.distanceTo(_eyeGround),
+              metresPerTexel:
+                (2 * sunLight.shadow.camera.right) / Math.max(1, sunLight.shadow.mapSize.x),
             }
           : null,
         // S3 terrain casts — counted off the LIVE scene graph rather than off our own flag, so
@@ -2657,6 +2755,9 @@ export function attachStylizedTiles(opts: {
               fpvYaw = 0;
               fpvPitch = 0;
               fpvWalkOffset.set(0, 0, 0);
+              fpvWalkGroundM = null; // RC10
+              fpvWalkAppliedM = null;
+              fpvWalkSampleValid = false;
               fpvLiftM = 0; // the photographer's exact eye — ALTITUDE lifts from here
               fpvDragId = null;
               controls.enabled = false;
@@ -2709,6 +2810,9 @@ export function attachStylizedTiles(opts: {
               fpvYaw = 0;
               fpvPitch = 0;
               fpvWalkOffset.set(0, 0, 0);
+              fpvWalkGroundM = null; // RC10
+              fpvWalkAppliedM = null;
+              fpvWalkSampleValid = false;
               fpvDragId = null;
               controls.enabled = false;
               controls.adjustHeight = false; // eye height 1.7 m is under cameraRadius
@@ -2873,6 +2977,9 @@ export function attachStylizedTiles(opts: {
                   fpvYaw = 0;
                   fpvPitch = elev;
                   fpvWalkOffset.set(0, 0, 0);
+                  fpvWalkGroundM = null; // RC10: a new pin is a new ground reference
+                  fpvWalkAppliedM = null;
+                  fpvWalkSampleValid = false;
                 }
                 camera.position.copy(pinP).addScaledVector(_tempUp0, fpvEyeM);
                 _fpvUpGeo.copy(_tempUp0);
@@ -3034,6 +3141,33 @@ export function attachStylizedTiles(opts: {
                 fpvSpaceHeldMs = 0;
               }
               camera.position.add(fpvWalkOffset);
+              // RC10 — re-seat the walked eye onto the ground it is actually over. Resampled on
+              // DISTANCE, not on a timer: standing still costs nothing, and a sprint samples at a
+              // fixed spatial cadence regardless of frame rate. `seatStep` is the same easing the
+              // temp pin and every cell seat use, so a terrain-LOD refine under a walking viewer
+              // slides the eye instead of teleporting it (the U2 point-6 jump, paid for once).
+              if (fpvKind === "temp" && fpvWalkOffset.lengthSq() > 0) {
+                if (
+                  !fpvWalkSampleValid ||
+                  camera.position.distanceToSquared(_fpvWalkSampledAt) >
+                    FPV.walkReseatDistM * FPV.walkReseatDistM
+                ) {
+                  _fpvWalkSampledAt.copy(camera.position);
+                  fpvWalkSampleValid = true;
+                  const g = ecefToGeodetic([
+                    camera.position.x,
+                    camera.position.y,
+                    camera.position.z,
+                  ]);
+                  const th = ground.heightAt(g.latDeg, g.lonDeg);
+                  if (th != null) fpvWalkGroundM = clampGroundM(th); // sticky: null holds last-good
+                }
+                if (fpvWalkGroundM != null) {
+                  const ref = tempPinAppliedM ?? tempPinGroundM;
+                  fpvWalkAppliedM = seatStep(fpvWalkAppliedM, fpvWalkGroundM - ref, FPV.walkReseatEaseK);
+                  camera.position.addScaledVector(_fpvUpGeo, fpvWalkAppliedM);
+                }
+              }
               camera.up.copy(_fpvUp);
               camera.lookAt(_fpvLook.copy(camera.position).add(_fpvFwd));
               camera.updateMatrixWorld();
@@ -3556,6 +3690,9 @@ export function attachStylizedTiles(opts: {
             }
             fpvEyeAboveGroundM = Math.max(0, alt - fpvAnchorGroundM);
           } else {
+            // RC10: with the walk re-seat live the eye really is `fpvEyeM` above the ground it
+            // stands on, wherever it has walked to — before RC10 this reported the nominal height
+            // while the eye could be tens of metres under or over the terrain.
             fpvEyeAboveGroundM = fpvEyeM;
           }
           const st = THREE.MathUtils.clamp(
@@ -3940,17 +4077,31 @@ export function attachStylizedTiles(opts: {
       _hazeCol.copy(_ultraZeroCol);
     }
 
-    // --- §1a + S9 + S4 targets to the ground (it eases and gates them) ---
+    // --- RC23: the ULTRA × ECLIPSE seam. -----------------------------------------------------
+    // Every ULTRA look term is driven by SOLAR ELEVATION, and an eclipse does not move the sun.
+    // So at totality the band curve still says "day": the aerial perspective went on painting a
+    // day-tinted haze over a world the eclipse had just darkened, and the hemisphere fill stayed
+    // warm-lit — ULTRA's own additions covering the event. The principle, and the reason this is
+    // three multiplies rather than a new curve: **under an eclipse ULTRA's day-driven additions
+    // fade toward BASELINE**, because the darkening itself already lives in the shaders baseline
+    // carries (`uFtwEclipse` on the ground, `uEclipse` on the dome, `× eclipseK` on the key).
+    // Off-state is untouched by construction — `light` null already zeroes these — and with no
+    // eclipse `eclipseK` is exactly 1, so the on-state is byte-identical too.
+    // Exposure is deliberately NOT scaled here: it is a taste lever and lives in owner A/B AB5.
     ground.setUltraTargets({
       photo3d: light ? ULTRA.photo3dK : 0,
       light: light ? 1 : 0,
-      haze: light ? light.hazeK : 0,
+      haze: light ? light.hazeK * eclipseK : 0,
       hazeCol: _hazeCol,
     });
     // --- S4 to the buildings: the ground's EFFECTIVE, already-gated, already-eased value ---
     const hazeNow = ground.uniforms.uFtwHaze.value as number;
     buildings.setUltraHaze(hazeNow, _hazeCol, sunDirW);
     enriched?.setUltraHaze(hazeNow, _hazeCol, sunDirW);
+    // --- RC24 to the SKY DOME: the same effective value, so the horizon haze the dome paints
+    //     above the terrain agrees with the aerial perspective the ground paints below it. This
+    //     is the one visible SEAM the ULTRA track shipped with (ULTRA_ARCHITECTURE §12).
+    atmosphere.setUltraBand(hazeNow * ULTRA.domeTintK, _hazeCol);
 
     // --- S11 exposure: the cheapest "epic" lever, and the one that MUST ease. A per-frame
     //     exposure step reads as a flicker, and while scrubbing the sun can cross a whole
@@ -3970,8 +4121,12 @@ export function attachStylizedTiles(opts: {
       // Sky half tracks the band tint (warm skylight at dusk is what keeps buildings coherent
       // with the ground's band curve); ground half stays put — bounce off dark terrain has no
       // reason to change colour with the sun.
+      // × eclipseK (RC23): the band tint is a function of solar elevation, so at totality it is
+      // still "day" and would keep the ambient warm over a darkened world. Scaling the MIX (not
+      // the colour) walks the hemisphere back to its baseline sky as the light goes — baseline is
+      // already eclipse-correct, so converging on it is the coherent answer.
       hemiLight.color.lerp(
-        light ? _hemiSky0.clone().lerp(_hazeCol, ULTRA.hemiTintK) : _hemiSky0,
+        light ? _hemiSky0.clone().lerp(_hazeCol, ULTRA.hemiTintK * eclipseK) : _hemiSky0,
         k,
       );
       hemiLight.groundColor.lerp(_hemiGround0, k);
@@ -4009,6 +4164,7 @@ export function attachStylizedTiles(opts: {
         // impersonates the moon (direction, cool colour, K&S phase intensity) and the
         // dedicated moonLight stands down so the night key is never doubled.
         moonShadows = false;
+        moonRigTakeover = 0;
         // ULTRA S5/S3: the light must stand far enough off the focus to clear the RELIEF, not
         // just the rooftops. `SHADOWS.lightDistM` 8 km puts the light inside Everest's own air
         // column, so a summit would sit behind the shadow camera's near plane and drop out of
@@ -4020,14 +4176,58 @@ export function attachStylizedTiles(opts: {
           // Flat map = no synthetic shadow rig (owner 2026-08-18e): the day-graded photo already
           // carries the real capture shadows; the depth pass + receiver draws bought a second,
           // contradicting set (and on /m 2D the casters are detached anyway).
-          const shadowEligible = alt < SHADOWS.maxAltM && !!focusHit && !flatGroundNow();
-          const sunUp = sunDirW.dot(_focusUp) > SHADOWS.minSunElevSin;
+          // RC3 (owner bug B4a): the `!!focusHit` term is GONE. It survived the ULTRA rewrite
+          // verbatim and was the single biggest shadow killer in FPV — any look at or slightly
+          // above level nulls the ellipsoid intersection, and one frame later `castShadow` was
+          // false AND `setTerrainCast(false)` had detached every terrain caster. Worst exactly
+          // where the owner reported it: over mountains `alt` is ellipsoidal, the ray exits
+          // through the relief, and a look at a facing peak barely above level killed all
+          // shadows while terrain filled the frame. The rig no longer needs a hit — RC4's
+          // `_shadowFocus` is built from the EYE, which always exists.
+          const shadowEligible = alt < SHADOWS.maxAltM && !flatGroundNow();
+          const sunDot = sunDirW.dot(_focusUp);
+          const moonDot = moonDirW.dot(_focusUp);
+          const sunUp = sunDot > SHADOWS.minSunElevSin;
           const sunShadows = shadowEligible && sunUp;
           moonShadows =
             shadowEligible &&
             !sunUp &&
-            moonDirW.dot(_focusUp) > SHADOWS.minSunElevSin &&
+            moonDot > SHADOWS.minSunElevSin &&
             moonIllum >= SHADOWS.moonMinIllum;
+          // --- RC2 (owner bug B3): kill the boolean snap at the elevation gate. -----------------
+          // Every hard flip that used to land on `minSunElevSin` — the shadow field, the sun→moon
+          // key handoff, the dedicated moonlight standing down — is scaled by one of the ramps in
+          // lib/globe/keyHandoff, which are built so that both arms reach zero contribution at the
+          // crossing frame. The handoff weight below is the share of the moon key the RIG carries;
+          // the dedicated light in scene/sky.ts carries the rest, so the two always sum to moonKs.
+          moonRigTakeover = moonShadows ? moonRigTakeoverK(sunDot, KEY_GATE) : 0;
+          // RC4 — frame the rig on the VIEW. `_shadowFocus` is a GROUND point built from the eye,
+          // never the screen-centre ellipsoid hit, so it exists at every pitch (see lib/globe/
+          // shadowFit for why pitch, not altitude, decided foreground coverage before this).
+          if (sunShadows || moonShadows) {
+            const eyeAlt = Math.max(alt, 0);
+            _eyeUp.copy(camera.position).normalize();
+            _eyeGround.copy(camera.position).addScaledVector(_eyeUp, -eyeAlt);
+            let viewDistM: number;
+            if (focusHit) {
+              _shadowFocus.set(focusHit[0], focusHit[1], focusHit[2]);
+              viewDistM = _shadowFocus.distanceTo(_eyeGround);
+            } else {
+              viewDistM = horizonDistanceM(eyeAlt, WGS84_A);
+            }
+            const fit = fitShadowBox(
+              eyeAlt,
+              viewDistM,
+              ultraOn ? _shadowFitUltra : _shadowFitBase,
+            );
+            shadowBoundsM = fit.halfExtentM;
+            shadowViewFitM = fit.viewDistM;
+            // Horizontal look direction. At nadir this degenerates to the zero vector, which
+            // three's normalize() leaves at zero — and `pushM` is ~0 there anyway, so the box
+            // lands centred under the eye exactly as it did before RC4.
+            _fwdHoriz.copy(_camFwd).addScaledVector(_eyeUp, -_camFwd.dot(_eyeUp)).normalize();
+            _shadowFocus.copy(_eyeGround).addScaledVector(_fwdHoriz, fit.pushM);
+          }
           // Per-mode shadow contrast (S7a): the flat dark drape carries a stronger overlay —
           // blended by the live dark fraction so the crossfade never steps the shadows.
           const dark01 = ground.darkBlend();
@@ -4035,27 +4235,42 @@ export function attachStylizedTiles(opts: {
             // Moon "golden hour": warm the cool moon key as the moon grazes the horizon (the SAME
             // golden bell, over MOON elevation) — mirrors the sun's dusk so both keys share one dusk
             // language across the cycle. GOLDEN.moonKeyStrength 0 → pure cool moonlight (no-op).
-            const moonGoldenK = goldenFactor(moonDirW.dot(_focusUp), GOLDEN);
+            const moonGoldenK = goldenFactor(moonDot, GOLDEN);
             sunLight.color.copy(_moonKeyCol).lerp(_goldenCol, moonGoldenK * GOLDEN.moonKeyStrength);
-            sunLight.intensity = SKY.moonKeyIntensity * moonKs;
-            sunLight.position.copy(_focus).addScaledVector(moonDirW, shadowLightDistM);
-            sunLight.target.position.copy(_focus);
+            // × moonRigTakeover (RC2): the rig only carries as much of the moon key as the
+            // dedicated moonLight has given up this frame — the two always sum to moonKs.
+            sunLight.intensity = SKY.moonKeyIntensity * moonKs * moonRigTakeover;
+            sunLight.position.copy(_shadowFocus).addScaledVector(moonDirW, shadowLightDistM);
+            sunLight.target.position.copy(_shadowFocus);
             ground.setShadowStrength(
               THREE.MathUtils.lerp(SHADOWS.moonGroundOpacity, DRAPE.moonShadowOpacity, dark01) *
                 moonKs,
             );
+            // RC2: fade the shadow field over BOTH gates the moon arm sits between — its own
+            // elevation, and how far the sun has committed to being down. At the crossing frame
+            // both are 0, which is where the sun arm's fade also lands.
+            sunLight.shadow.intensity = Math.min(aboveGateK(moonDot, KEY_GATE), moonRigTakeover);
           } else {
-            const goldenK = goldenFactor(sunDirW.dot(_focusUp), GOLDEN);
+            const goldenK = goldenFactor(sunDot, GOLDEN);
             sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
             // Golden hour also BRIGHTENS the building key (warm rim-lit swell, not just a hue shift —
             // the biggest visible building-dusk win). keyBrighten 0 → ×1 = byte-identical.
             // × eclipseK: the key light IS the sun, so an eclipse dims it first. This is the
             // solar arm only — the moon arm above carries its own (lunar) dimming through moonKs.
+            //
+            // RC2's trough: ONLY where a qualifying moon is about to take the key. With no moon
+            // waiting there is no source switch to hide, and troughing anyway would kill the
+            // phantom night key that the frozen night look currently depends on — that is owner
+            // A/B item AB1, not this slice's call.
             sunLight.intensity =
-              SUN.keyIntensity * (1 + goldenK * GOLDEN.keyBrighten) * eclipseK;
+              SUN.keyIntensity *
+              (1 + goldenK * GOLDEN.keyBrighten) *
+              eclipseK *
+              sunKeyTroughK(sunDot, moonDot, moonIllum, KEY_GATE);
+            sunLight.shadow.intensity = aboveGateK(sunDot, KEY_GATE);
             if (sunShadows) {
-              sunLight.position.copy(_focus).addScaledVector(sunDirW, shadowLightDistM);
-              sunLight.target.position.copy(_focus);
+              sunLight.position.copy(_shadowFocus).addScaledVector(sunDirW, shadowLightDistM);
+              sunLight.target.position.copy(_shadowFocus);
               ground.setShadowStrength(
                 THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01) * eclipseK,
               );
@@ -4080,11 +4295,11 @@ export function attachStylizedTiles(opts: {
             // building shadows this app has ever had), while a mountain view spends the same
             // texels on 11 km of relief. That altitude ramp is doing a cascade's job for free,
             // which is the other half of why CSM was not worth its blast radius here.
-            const b = THREE.MathUtils.clamp(
-              alt * (ultraOn ? ULTRA.boundsAltK : SHADOWS.boundsAltK),
-              SHADOWS.boundsM,
-              ultraOn ? ULTRA.maxBoundsM : SHADOWS.maxBoundsM,
-            );
+            //
+            // RC4 folded the VIEW DISTANCE into the same number (lib/globe/shadowFit): the
+            // altitude ramp is now a floor under a fit, and the result is quantized so this
+            // block still only runs when the extent actually moved.
+            const b = shadowBoundsM;
             const shCam = sunLight.shadow.camera;
             // The `shadowRigUltra` term is load-bearing: at street level `b` is identical under
             // both profiles, so a bounds-only comparison would leave near/far and the derived
@@ -4137,7 +4352,11 @@ export function attachStylizedTiles(opts: {
           moonPos: moonPosW,
           sunAngRad,
           moonAngRad: angularRadiusRad(MOON_RADIUS_KM * 1000, moonPosW.distanceTo(camera.position)),
-          moonIntensity: moonShadows ? 0 : moonKs, // the rig carries the key in moon-shadow mode
+          // RC2: was `moonShadows ? 0 : moonKs` — a same-frame flip at the sun's elevation gate,
+          // which is one half of what made sunset step. The dedicated light now gives up exactly
+          // the share the rig has taken (`moonRigTakeover`), so the moon key is continuous while
+          // the source changes underneath it and the night key is still never doubled.
+          moonIntensity: moonKs * (1 - moonRigTakeover),
           solar: solarEcl, // derived in stepEclipse from these same vectors, one frame earlier
           lunar: lunarEcl,
         });

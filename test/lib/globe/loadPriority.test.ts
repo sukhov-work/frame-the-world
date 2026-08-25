@@ -3,6 +3,7 @@ import {
   effectiveDistance,
   makeClosestFirstComparator,
   makeLoadAim,
+  lookBiasedDistance,
   makeTileLatencyProbe,
   type LoadAim,
   type PriorityTile,
@@ -221,5 +222,45 @@ describe("makeTileLatencyProbe", () => {
     expect(p.snapshot().recent.length).toBe(4);
     for (let i = 0; i < 600; i++) p.start({});
     expect(p.snapshot().pending).toBeLessThanOrEqual(512);
+  });
+});
+
+/**
+ * RC7 — the same bias law applied to a plain world point, so the SEAT sweep and the DOWNLOAD
+ * queue rank by one rule. A seat sweep that prioritised cells the loader was not fetching would
+ * spend its budget on geometry nobody can see.
+ */
+describe("lookBiasedDistance", () => {
+  const aim = (over: Partial<LoadAim> = {}): LoadAim => ({
+    active: true,
+    k: 1.5,
+    eye: { x: 0, y: 0, z: 0 },
+    fwd: { x: 1, y: 0, z: 0 },
+    epoch: 1,
+    ...over,
+  });
+
+  it("is the raw distance when the aim is inactive (orbit / 2D keep pure distance)", () => {
+    expect(lookBiasedDistance({ x: 100, y: 0, z: 0 }, aim({ active: false }))).toBe(100);
+    expect(lookBiasedDistance({ x: 100, y: 0, z: 0 }, aim({ k: 0 }))).toBe(100);
+  });
+
+  it("divides by (1 + k·dot) straight down the look", () => {
+    expect(lookBiasedDistance({ x: 100, y: 0, z: 0 }, aim())).toBeCloseTo(100 / 2.5, 9);
+  });
+
+  it("leaves anything behind or beside the viewer at its raw distance", () => {
+    expect(lookBiasedDistance({ x: -100, y: 0, z: 0 }, aim())).toBe(100);
+    expect(lookBiasedDistance({ x: 0, y: 100, z: 0 }, aim())).toBe(100);
+  });
+
+  it("ranks a far cell ahead of you above a near one beside you (the whole point)", () => {
+    const ahead = lookBiasedDistance({ x: 200, y: 0, z: 0 }, aim());
+    const beside = lookBiasedDistance({ x: 0, y: 150, z: 0 }, aim());
+    expect(ahead).toBeLessThan(beside);
+  });
+
+  it("is zero at the eye and never NaN", () => {
+    expect(lookBiasedDistance({ x: 0, y: 0, z: 0 }, aim())).toBe(0);
   });
 });
