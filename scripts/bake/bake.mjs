@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchBuildings, extractFootprints } from "./lib/overpass.mjs";
-import { enuBasis, projectEN } from "./lib/geo.mjs";
+import { enuBasis, projectEN, binFeature, cellOf } from "./lib/geo.mjs";
 import { inferBuilding, emitBuilding, skirtFor } from "./lib/buildings.mjs";
 import { makeExcluder } from "./lib/exclusion.mjs";
 import { encodeGlb, buildTileset, regionRad } from "./lib/gltf.mjs";
@@ -66,24 +66,36 @@ async function main() {
   const excluded = {};
   const cells = new Map(); // "gi,gj" → { buildings:[], minLon,maxLon,minLat,maxLat, maxH }
   const heightSources = {};
-  let featureId = 0, kept = 0;
+  let featureId = 0, kept = 0, straddlers = 0, droppedFar = 0;
 
   for (const b of footprints) {
     if (b.ring.length < 3) continue;
     let clon = 0, clat = 0;
-    for (const [lon, lat] of b.ring) { clon += lon; clat += lat; }
+    const bounds = { minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity };
+    for (const [lon, lat] of b.ring) {
+      clon += lon; clat += lat;
+      if (lon < bounds.minLon) bounds.minLon = lon; if (lon > bounds.maxLon) bounds.maxLon = lon;
+      if (lat < bounds.minLat) bounds.minLat = lat; if (lat > bounds.maxLat) bounds.maxLat = lat;
+    }
     clon /= b.ring.length; clat /= b.ring.length;
 
+    // C6 runs before the bin here (and after it in bake-osm2world.mjs). The kept set is identical
+    // either way — a feature dropped by both is dropped once — so each baker keeps its own order
+    // and its counters stay comparable to its own previous runs.
     const reason = excluder(b.tags, clon, clat);
     if (reason) { excluded[reason] = (excluded[reason] ?? 0) + 1; continue; }
+
+    // RC16 — the shared rule (lib/geo.mjs). `far` measures 0 here at all three cities because
+    // `way["building"](bbox)` only returns ways intersecting the bbox; the branch makes that
+    // guarantee local instead of inherited from the Overpass query.
+    const { bucket, key } = binFeature(cfg.bbox, grid, bounds, clon, clat);
+    if (bucket === "far") { droppedFar++; continue; }
+    if (bucket === "straddle") straddlers++;
 
     const params = inferBuilding(b.tags, cfg.buildings);
     heightSources[params.heightSource] = (heightSources[params.heightSource] ?? 0) + 1;
     const ringEN = b.ring.map(([lon, lat]) => projectEN(lat, lon, basis));
 
-    const gi = Math.min(grid - 1, Math.max(0, Math.floor(((clon - w) / (e - w)) * grid)));
-    const gj = Math.min(grid - 1, Math.max(0, Math.floor(((clat - s) / (n - s)) * grid)));
-    const key = `${gi},${gj}`;
     let cell = cells.get(key);
     if (!cell) { cell = { buildings: [], minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity, maxH: 0 }; cells.set(key, cell); }
     cell.buildings.push({ ringEN, params, featureId: featureId++, osm: b.osm });
@@ -98,6 +110,7 @@ async function main() {
   const excludedTotal = Object.values(excluded).reduce((a, x) => a + x, 0);
   console.log(`  C6    excluded ${excludedTotal}${excludedTotal ? " → " + JSON.stringify(excluded) : ""}`);
   console.log(`  infer heights ${JSON.stringify(heightSources)}  → kept ${kept} buildings in ${cells.size} cells`);
+  console.log(`  edge  ${straddlers} straddle the bbox (kept — the prism erased their Cesium twin's inside half) · ${droppedFar} disjoint dropped`);
 
   // 4b · trees (Slice 3, opt-in per city config) — OSM tree points / tree rows / green-polygon
   // scatter → per-cell EXT_mesh_gpu_instancing instances riding the SAME grid cells (streaming,
@@ -118,9 +131,9 @@ async function main() {
     totalTrees = placements.length;
     for (const p of placements) {
       const [pe, pn] = projectEN(p.lat, p.lon, basis);
-      const gi = Math.min(grid - 1, Math.max(0, Math.floor(((p.lon - w) / (e - w)) * grid)));
-      const gj = Math.min(grid - 1, Math.max(0, Math.floor(((p.lat - s) / (n - s)) * grid)));
-      const key = `${gi},${gj}`;
+      // A tree is a POINT, so ownership is not in question (scatterTrees already places inside the
+      // bbox) — only placement. Same clamped cell rule, one implementation.
+      const { key } = cellOf(cfg.bbox, grid, p.lon, p.lat);
       let cell = cells.get(key);
       if (!cell) { cell = { buildings: [], minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity, maxH: 0 }; cells.set(key, cell); }
       (cell.trees ??= []).push({ e: pe, n: pn, heightM: p.heightM, radiusM: p.radiusM, yawRad: p.yawRad });
@@ -211,7 +224,10 @@ async function main() {
     bbox: cfg.bbox,
     origin: { latDeg: originLat, lonDeg: originLon },
     grid,
-    counts: { osmFootprints: footprints.length, excluded, baked: kept, cells: children.length, verts: totalVerts, trees: totalTrees },
+    // RC16: `straddlers`/`droppedFar` are the edge baseline — without them a future rule change
+    // has nothing to regress against (the same omission is why RC16 had to be re-measured from
+    // the intermediates rather than read off a manifest).
+    counts: { osmFootprints: footprints.length, excluded, baked: kept, straddlers, droppedFar, cells: children.length, verts: totalVerts, trees: totalTrees },
     // RC13/RC17 receipts. `skirted` < `baked` is expected and meaningful: it counts the
     // `min_height` / `building:min_level` masses the skirt deliberately leaves alone.
     skirt: { m: skirtM, skirted, schema: META_SCHEMA },

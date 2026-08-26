@@ -159,6 +159,37 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
+**THE RENDERING CHARTER IS CLOSED — RC16 and RC21 both shipped 2026-08-26d and no RC row is open.**
+RC16 shipped **without the margin bake the audit sized it for**: `scripts/bake/measure-straddlers.mjs`
+decomposed `droppedOutside` and found it was **two populations wearing one name** — 96–99.9 % is
+DISJOINT geometry from OSM2World's relation-recursed extract (median 761 m / 40 km / 36 km outside,
+max 55 / 653 / 149 km), correctly dropped, and only **123 / 61 / 1** features were true straddlers
+whose drop left a half-building notch where the runtime prism had already erased their Cesium twin's
+inside half. Those straddlers were **already harvested** (`way["building"](bbox)` returns whole
+INTERSECTING ways with inline geometry), so there was no data gap — no re-fetch, no re-convert, no
+`marginM`, no `regions.ts` change. ONE rule now lives in `scripts/bake/lib/geo.mjs`: **ownership by
+bbox INTERSECTION, never by centroid; placement by the clamped centroid cell.** Predictions written
+BEFORE the re-bake hit to the unit (dnipro-o2w +123, st-albans-o2w +61, chernobyl-o2w +1) and the
+extruder bakes came out **byte-identical**. All three o2w bakes are LIVE on R2 and the recovered OSM
+ids were found in the shipped sidecars. **Residual left deliberately, measured:** an owned feature
+still pokes outside the prism where Cesium also draws it (0.03–0.42 % of features, median 3–10 m) —
+a duplicate sliver, not a hole; growing the prism to fix it punches a real hole.
+RC21 ships **OFF** (`GATE.enabled === false`, unit-locked): the charter's predicate premise is
+refused on the recon's own numbers (40+ per-frame change sources / 20 files / ~14 asymptotic eases
+with no snap — a false negative is a FROZEN GLOBE), so `pipCache`'s **heartbeat** shape is reused —
+`maxStaleMs` 200 ms is the safety net, the epsilons are only an optimisation, and the settle window
+`restMs` 6,000 ms is **sized** at 6.2 × `ULTRA.exposureTauMs` and pinned by a unit test. It buys
+**GPU and power, NOT CPU** (`tilesHandle.update()` runs above the gate every frame). The default
+flip is an owner call pending an ULTRA-timelapse soak via `window.__frameGate`.
+**Housekeeping: `./tmp/rc16-chernobyl/` (9.2 MB scratch) is still on disk — delete it.
+`bake.mjs --out` resolves against REPO_ROOT, so `--out /tmp/x` writes INSIDE the repo (`/tmp/` is
+now gitignored).**
+Read `NEXT_SESSION_PROMPT.md` first, then `mem:project/wip-2026-08-26-rc16-rc21`, then DECISIONS
+§Recent 2026-08-26d.
+Gates: **vitest 2,098/2,098 (141 files)** · astro 0 err/0 warn/6 hints · knip exit-0 ·
+verify-rendering-charter 85/85 · verify-bake-ladder 8/8 · verify-chernobyl 8/8.
+
+### Prior next step (context)
 **CLOSE THE RENDERING CHARTER — only RC16 and RC21 remain.** 2026-08-26c shipped **RC13** (base
 skirt) and **RC17** (meta.json sidecar consumption) across ALL FIVE building bakes — re-baked,
 re-uploaded and curl-verified LIVE on R2, which also CLOSED T55. RC13 ships as a TRANSLATION of the

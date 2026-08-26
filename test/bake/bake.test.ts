@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parseMeters, normalizeRoofShape, inferBuilding, signedArea, cleanRing, triangulate, obb, emitBuilding, skirtFor, skirtForSoup, SKIRT_MIN_EXTENT_M, SKIRT_MAX_BASE_M } from "../../scripts/bake/lib/buildings.mjs";
 import { yExtent, metaRow, cellMetaJson, META_SCHEMA } from "../../scripts/bake/lib/meta.mjs";
 import { makeExcluder, pointInPolygon } from "../../scripts/bake/lib/exclusion.mjs";
-import { enuBasis, projectEN, geodeticToEcef } from "../../scripts/bake/lib/geo.mjs";
+import { enuBasis, projectEN, geodeticToEcef, bboxIntersects, bboxContainsBounds, cellOf, binFeature } from "../../scripts/bake/lib/geo.mjs";
 import { encodeGlb, regionRad } from "../../scripts/bake/lib/gltf.mjs";
 
 // The bake is a reproducible offline pipeline (scripts/bake) — its pure geometry + inference logic is
@@ -290,6 +290,73 @@ describe("geo projection", () => {
     const p = geodeticToEcef(48.462, 35.045, 0);
     expect(Math.hypot(p[0], p[1], p[2])).toBeGreaterThan(6.35e6);
     expect(Math.hypot(p[0], p[1], p[2])).toBeLessThan(6.39e6);
+  });
+});
+
+// RC16 — the ONE binning rule. Until 2026-08-26d it was inline in both bakers' main(), the two
+// disagreed at the bbox edge, and it had zero coverage. `dnipro` ships both variants, so that
+// disagreement was live across the A/B seam.
+describe("binFeature — RC16 unified straddler rule", () => {
+  const bbox = [34.915, 48.37, 35.185, 48.55]; // the real dnipro bake bbox
+  const grid = 20;
+  const at = (minLon: number, minLat: number, maxLon: number, maxLat: number) => ({
+    minLon, minLat, maxLon, maxLat,
+  });
+  /** Centroid of a bounds box — fine for these fixtures; the bakers use their own definitions. */
+  const mid = (b: ReturnType<typeof at>) => [(b.minLon + b.maxLon) / 2, (b.minLat + b.maxLat) / 2] as const;
+  const bin = (b: ReturnType<typeof at>) => binFeature(bbox, grid, b, ...mid(b));
+
+  it("a feature wholly inside is `in` and lands in its own cell", () => {
+    const b = at(35.04, 48.46, 35.042, 48.462);
+    const r = bin(b);
+    expect(r.bucket).toBe("in");
+    expect(r.key).toBe(cellOf(bbox, grid, ...mid(b)).key);
+  });
+
+  it("OWNERSHIP is by intersection, not centroid: a centroid-OUTSIDE straddler is KEPT", () => {
+    // Pokes across the west edge with its centre outside — the adapter used to drop exactly this
+    // (`droppedOutside`), and the prism then ate the Cesium copy's inside half → a notch.
+    const b = at(34.9145, 48.46, 34.9153, 48.4602); // centre 34.9149, east bound 34.9153
+    const [cLon] = mid(b);
+    expect(cLon).toBeLessThan(bbox[0]);
+    expect(b.maxLon).toBeGreaterThan(bbox[0]); // …but it still pokes into the prism
+    const r = bin(b);
+    expect(r.bucket).toBe("straddle");
+    expect(r.gi).toBe(0); // clamped into the western edge column — one cell, not a teleport
+  });
+
+  it("a centroid-INSIDE straddler is kept too (both bakers already did this)", () => {
+    const b = at(34.9146, 48.46, 34.9162, 48.4602);
+    expect(mid(b)[0]).toBeGreaterThan(bbox[0]);
+    expect(bin(b).bucket).toBe("straddle");
+  });
+
+  it("a DISJOINT feature is dropped — this is what `droppedOutside` was really counting", () => {
+    // 96 % of the o2w bakes' drops sit a median 0.7–36 km out, from OSM2World's recursed extract.
+    expect(bin(at(34.5, 48.46, 34.52, 48.462)).bucket).toBe("far");
+    expect(bin(at(34.5, 48.46, 34.52, 48.462)).key).toBeNull();
+  });
+
+  it("the drop replaces an unbounded CLAMP: a far feature no longer teleports into an edge cell", () => {
+    // bake.mjs used to bin this at gi=0,gj=0 and grow that cell's bounding region to reach it.
+    const far = at(30.0, 45.0, 30.001, 45.001);
+    expect(cellOf(bbox, grid, ...mid(far)).key).toBe("0,0"); // what the old code did
+    expect(bin(far).key).toBeNull(); //                        what the rule does now
+  });
+
+  it("edges are inclusive, matching the runtime prism's `bboxContainsRad`", () => {
+    const touching = at(34.9, 48.46, 34.915, 48.462); // maxLon lands exactly on west
+    expect(bboxIntersects(bbox, touching)).toBe(true);
+    expect(bin(touching).bucket).toBe("straddle");
+    const flush = at(34.915, 48.37, 35.185, 48.55); // exactly the bbox
+    expect(bboxContainsBounds(bbox, flush)).toBe(true);
+    expect(bin(flush).bucket).toBe("in");
+  });
+
+  it("cellOf clamps both axes and never divides by a zero span", () => {
+    expect(cellOf(bbox, grid, 34.0, 48.0)).toEqual({ gi: 0, gj: 0, key: "0,0" });
+    expect(cellOf(bbox, grid, 36.0, 49.0)).toEqual({ gi: 19, gj: 19, key: "19,19" });
+    expect(cellOf([1, 1, 1, 1], 10, 1, 1)).toEqual({ gi: 0, gj: 0, key: "0,0" });
   });
 });
 

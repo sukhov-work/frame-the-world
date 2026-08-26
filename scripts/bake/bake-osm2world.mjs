@@ -25,7 +25,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, statSync, o
 import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { enuBasis, projectEN, DEG } from "./lib/geo.mjs";
+import { enuBasis, projectEN, binFeature, cellOf, DEG } from "./lib/geo.mjs";
 import { makeExcluder } from "./lib/exclusion.mjs";
 import { encodeGlb, buildTileset, regionRad } from "./lib/gltf.mjs";
 import { readGlb, readAccessor, readIndices } from "./lib/readGlb.mjs";
@@ -269,25 +269,34 @@ async function main() {
   // 3c · Re-bin features into the grid (contiguous _FEATURE_ID_0 per feature; C6 polygon gate) ------
   const cells = new Map(); // "gi,gj" → { positions, normals, featureIds, minLon,maxLon,minLat,maxLat, maxH }
   const classKept = {};
-  let featureId = 0, kept = 0, droppedOutside = 0, droppedPolygon = 0, skirted = 0;
+  let featureId = 0, kept = 0, straddlers = 0, droppedFar = 0, droppedPolygon = 0, skirted = 0;
   const skirtM = Math.max(0, cfg.buildings?.skirtM ?? 0);
   for (const f of feats) {
     const nv = f.pos.length / 3;
     // Exact per-vertex geo: invert the glb's own Mercator → lat/lon → our ENU (projectEN, exact).
     const lons = new Float64Array(nv), lats = new Float64Array(nv);
     let cLon = 0, cLat = 0;
+    const bounds = { minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity };
     for (let i = 0, v = 0; i < f.pos.length; i += 3, v++) {
       lons[v] = f.inv.lonOf(f.pos[i]);
       lats[v] = f.inv.latOf(signN * (-f.pos[i + 2]));
       cLon += lons[v]; cLat += lats[v];
+      if (lons[v] < bounds.minLon) bounds.minLon = lons[v]; if (lons[v] > bounds.maxLon) bounds.maxLon = lons[v];
+      if (lats[v] < bounds.minLat) bounds.minLat = lats[v]; if (lats[v] > bounds.maxLat) bounds.maxLat = lats[v];
     }
     cLon /= nv; cLat /= nv;
-    if (cLon < w || cLon > e || cLat < s || cLat > n) { droppedOutside++; continue; }
+    // RC16 — the shared rule (lib/geo.mjs) replaces this baker's centroid-outside drop. That drop
+    // was counting two unrelated populations under one name, `droppedOutside`: the overwhelming
+    // majority sit a MEDIAN 761 m (dnipro-o2w) / 40 km (st-albans-o2w) / 36 km (chernobyl-o2w)
+    // beyond the bbox, because OSM2World renders its whole relation-recursed extract — those are
+    // still dropped, as `droppedFar`. But 123 / 61 / 1 of them genuinely straddled the edge, and
+    // dropping THOSE left a half-building notch: the runtime prism had already erased the inside
+    // half of their Cesium twin. Measured by `scripts/bake/measure-straddlers.mjs`.
+    const { bucket, key } = binFeature(cfg.bbox, grid, bounds, cLon, cLat);
+    if (bucket === "far") { droppedFar++; continue; }
     // C6 second gate: the polygon rules with REAL coordinates (the XML pass could only match tags).
     if (excluder({}, cLon, cLat)) { droppedPolygon++; continue; }
-    const gi = Math.min(grid - 1, Math.max(0, Math.floor(((cLon - w) / (e - w)) * grid)));
-    const gj = Math.min(grid - 1, Math.max(0, Math.floor(((cLat - s) / (n - s)) * grid)));
-    const key = `${gi},${gj}`;
+    if (bucket === "straddle") straddlers++; // counted AFTER C6, so it only ever counts KEPT features
     let cell = cells.get(key);
     if (!cell) { cell = { positions: [], normals: [], featureIds: [], minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity, maxH: 0 }; cells.set(key, cell); }
     const id = featureId++;
@@ -324,7 +333,8 @@ async function main() {
     classKept[f.cls] = (classKept[f.cls] ?? 0) + 1;
     kept++;
   }
-  console.log(`  binned ${kept} features into ${cells.size} cells (outside bbox −${droppedOutside}, C6 polygon −${droppedPolygon})`);
+  console.log(`  binned ${kept} features into ${cells.size} cells (disjoint −${droppedFar}, C6 polygon −${droppedPolygon})`);
+  console.log(`  edge  ${straddlers} straddle the bbox (kept — the prism erased their Cesium twin's inside half)`);
   console.log(`  classes ${JSON.stringify(classKept)}`);
   console.log(`  skirt ${skirtM} m on ${skirted}/${kept} (rest are flat ribbons or founded above ground) · meta schema ${META_SCHEMA}`);
 
@@ -342,9 +352,8 @@ async function main() {
     totalTrees = placements.length;
     for (const p of placements) {
       const [pe, pn] = projectEN(p.lat, p.lon, basis);
-      const gi = Math.min(grid - 1, Math.max(0, Math.floor(((p.lon - w) / (e - w)) * grid)));
-      const gj = Math.min(grid - 1, Math.max(0, Math.floor(((p.lat - s) / (n - s)) * grid)));
-      const key = `${gi},${gj}`;
+      // A tree is a POINT — placement only, no ownership question. Same rule as bake.mjs.
+      const { key } = cellOf(cfg.bbox, grid, p.lon, p.lat);
       let cell = cells.get(key);
       if (!cell) { cell = { positions: [], normals: [], featureIds: [], minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity, maxH: 0 }; cells.set(key, cell); }
       (cell.trees ??= []).push({ e: pe, n: pn, heightM: p.heightM, radiusM: p.radiusM, yawRad: p.yawRad });
@@ -403,9 +412,10 @@ async function main() {
     bbox: cfg.bbox,
     origin: { latDeg: originLat, lonDeg: originLon },
     grid,
-    // `droppedOutside`/`droppedPolygon` were logged but never persisted, so there was no baseline
-    // to regress a straddler-rule change against. RC16 will need exactly these two numbers.
-    counts: { features: kept, classes: classKept, droppedClasses, dedupedAcrossSubBoxes: dupes, droppedOutside, droppedPolygon, cells: children.length, verts: totalVerts, trees: totalTrees },
+    // RC16 split the old `droppedOutside` into the two populations it was conflating: `droppedFar`
+    // (disjoint from the bbox — correctly dropped) and `straddlers` (now KEPT). Persisting both is
+    // what gives a future rule change something to regress against.
+    counts: { features: kept, classes: classKept, droppedClasses, dedupedAcrossSubBoxes: dupes, straddlers, droppedFar, droppedPolygon, cells: children.length, verts: totalVerts, trees: totalTrees },
     skirt: { m: skirtM, skirted, schema: META_SCHEMA },
     treeStats,
     osm2world: { lod: o2w.lod ?? 2, subGrid: o2w.subGrid ?? 2, excludeModules: o2w.excludeModules ?? [], dropClassesRegex: String(dropRe) },
