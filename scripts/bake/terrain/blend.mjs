@@ -11,6 +11,7 @@
 // pyramid stays self-consistent. Only the h stream + header min/max are rewritten (spliceHeights).
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { withFdRetry } from "./cwt.mjs";
 import { decodeQuantizedMesh, spliceHeights } from "./qmesh.mjs";
 import { tileBbox, tileRangeInside } from "./tiling.mjs";
 
@@ -33,7 +34,12 @@ export async function blendRim({ outDir, extentBbox, extentMaxDepth, blendKm, cw
         const dTile = Math.min((w - W) * lonKm, (E - e) * lonKm, (s - S) * LAT_KM, (N - n) * LAT_KM);
         if (dTile >= blendKm) continue;
         const file = join(outDir, String(z), String(x), `${y}.terrain`);
-        const buf = await readFile(file).catch(() => null);
+        // ENOENT only: a missing tile is a straddler-adjacent gap and legitimately skipped, but
+        // an ENFILE swallowed here would silently leave a rim tile UNBLENDED — a height step at
+        // the seam that nothing downstream would flag.
+        const buf = await withFdRetry(() =>
+          readFile(file).catch((e) => (e.code === "ENOENT" ? null : Promise.reject(e))),
+        );
         if (!buf) continue; // straddler-adjacent gap — not part of the serve set anyway
         const mesh = decodeQuantizedMesh(buf);
         const heights = Float64Array.from(mesh.heights);
@@ -48,7 +54,7 @@ export async function blendRim({ outDir, extentBbox, extentMaxDepth, blendKm, cw
           touched++;
         }
         if (touched > 0) {
-          await writeFile(file, spliceHeights(buf, mesh, heights));
+          await withFdRetry(() => writeFile(file, spliceHeights(buf, mesh, heights)));
           tilesTouched++;
           vertsBlended += touched;
         }

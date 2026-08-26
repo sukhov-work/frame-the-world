@@ -55,13 +55,6 @@ export function inferBuilding(tags, cfg = {}) {
   }
   height = clamp(height, 2, 400);
 
-  let base = parseMeters(tags.min_height);
-  if (base == null) {
-    const minLevel = parseFloat(tags["building:min_level"]);
-    if (Number.isFinite(minLevel) && minLevel > 0) base = minLevel * levelH;
-  }
-  base = clamp(base ?? 0, 0, height - 1);
-
   const roofShape = normalizeRoofShape(tags["roof:shape"]);
   let roofHeight = parseMeters(tags["roof:height"]);
   if (roofHeight == null) {
@@ -69,7 +62,36 @@ export function inferBuilding(tags, cfg = {}) {
     if (Number.isFinite(roofLevels) && roofLevels > 0) roofHeight = roofLevels * levelH;
   }
   // roofHeight null + non-flat → filled from footprint span × pitch in emitBuilding.
-  if (roofHeight != null) roofHeight = clamp(roofHeight, 0, height);
+  //
+  // `height` in OSM is the TOTAL height INCLUDING the roof, so when it is what we resolved
+  // against, the returned `height` must be the EAVE (total − roof:height) — emitBuilding raises
+  // its ridge to `height + roofHeight`, which then lands back on the tagged total. Capping
+  // roof:height at total − 1 (rather than at total) is what makes that exact: it leaves a 1 m
+  // wall for the cap to sit on instead of clamping the eave afterwards and overshooting by a
+  // metre. `building:levels` and the class defaults mean the OPPOSITE — storeys BELOW the roof —
+  // so for those the roof is correctly stacked on top and `height` already is the eave.
+  //
+  // Without the split every co-tagged building rendered too tall by exactly roof:height. Found
+  // 2026-08-26 on the Chernobyl bake, where the New Safe Confinement (w456732992, height=110
+  // roof:height=110 roof:shape=round → gabled) came out a 220 m ridge — the degenerate case,
+  // because there the whole structure IS the roof. Blast radius measured over every cached
+  // Overpass response: 1/1,275 footprints here, 164/128,649 in Dnipro (all ≤ 20 m rendered),
+  // 0/25,510 in St Albans. Dnipro's shipped bake predates this and is NOT re-baked yet.
+  if (roofHeight != null) {
+    roofHeight = clamp(roofHeight, 0, heightSource === "height" ? height - 1 : height);
+    if (heightSource === "height") height -= roofHeight;
+  }
+
+  let base = parseMeters(tags.min_height);
+  if (base == null) {
+    const minLevel = parseFloat(tags["building:min_level"]);
+    if (Number.isFinite(minLevel) && minLevel > 0) base = minLevel * levelH;
+  }
+  // Clamped against the EAVE, which is why the base block moved below the roof block: a building
+  // tagged height=20 min_height=15 roof:height=8 has an eave at 12, and clamping base against
+  // the pre-roof 20 would have left base=15 above its own wall top and inverted the quads.
+  base = clamp(base ?? 0, 0, height - 1);
+
   return { base, height, roofShape, roofHeight, heightSource };
 }
 

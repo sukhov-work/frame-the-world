@@ -51,7 +51,12 @@ declare global {
      *  name now says out loud; `mapFlat` is the engine's real flat-chart latch on every shell,
      *  so a desktop assertion on it can still fail. `dpr` is the renderer's effective ratio. */
     __globeQuality?: {
+      /** RC18: the RENDERER tier — what DPR, bloom, the AO gate and the composite base ran at. */
       readonly tier: "low" | "mid" | "high";
+      /** RC18: the TILE tier — error targets, LRU caps, queue caps, foveation, budgets. Equal to
+       *  `tier` except while a governor promote's renderer half is parked inside FPV; that
+       *  divergence is the whole point of the lever split, so it must be observable. */
+      readonly tileTier: "low" | "mid" | "high";
       readonly dpr: number;
       readonly leanFlat2d: boolean;
       readonly mapFlat: boolean;
@@ -69,6 +74,17 @@ declare global {
        *  asked for. */
       readonly ultraBoot: boolean;
       readonly shadowMapPx: number;
+    };
+    /** RC19 — the /m PiP scene cache. `renders` counts CACHE MISSES (a real second scene pass),
+     *  `blits` counts frames the miniature was painted; pre-RC19 the two were equal by
+     *  construction, so their ratio IS the saving. `maxStaleMs` is WRITABLE so a harness can run
+     *  the cost A/B against the pre-RC19 behaviour (`0`) on a single page load. */
+    __pipCache?: {
+      readonly active: boolean;
+      readonly renders: number;
+      readonly blits: number;
+      readonly rtPx: readonly [number, number] | null;
+      maxStaleMs: number;
     };
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;

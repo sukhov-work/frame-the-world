@@ -44,6 +44,76 @@ export function lruFloorBytesForCap(capBytes: number | null): number | null {
   return capBytes === null ? null : Math.round(capBytes * 0.75);
 }
 
+/** RC20/T34 — the flip-bank profile. Lives in `QUALITY.lruBank`. */
+export interface LruBankCfg {
+  /** Resting fraction of the LIVE cap while banking. Must be < 1 and > 0.75 (the library's own
+   *  ratio) or the lever banks nothing. */
+  bankFrac: number;
+  /** Bytes that must ALWAYS separate the banked floor from the cap. The absolute guard for small
+   *  caps, where a fraction alone leaves too little room for an in-flight parse burst. */
+  minHeadroomBytes: number;
+  /** How long the raised floor is held after an FPV boundary crossing (ms). */
+  holdMs: number;
+  /** Which tiers may bank. */
+  tiers: Readonly<Record<QualityTier, boolean>>;
+}
+
+/**
+ * RC20/T34 — the flip-bank floor for a live LRU cap, or `null` when the bank is off.
+ *
+ * THE MECHANISM, read out of the library rather than guessed (`LRUCache.js` 0.4.28):
+ * `hasBytesToUnload = unused && cachedBytes > minBytesSize || unloaded && cachedBytes > maxBytesSize`.
+ * The FIRST clause is T34 in one line — a SINGLE tile the current traversal did not visit, plus
+ * a cache above the FLOOR, is enough to start evicting, and the cap never enters into it. On a
+ * 2D↔FPV flip `TilesRendererBase.update()` marks the entire previous working set unused in one
+ * frame, so the whole other mode's ground drape drains to exactly `minBytesSize` and every tile
+ * is re-fetched (and every composite re-built) on the way back: ~600 Esri GETs per leg, measured.
+ *
+ * So the lever is the FLOOR, not the cap: hold it near the ceiling for a bounded window after
+ * each flip and the other mode's tiles survive the round trip.
+ *
+ * `null` is the EXACT off-state. The apply site keeps its shipped
+ * `lruFloorBytesForCap(cap) ?? captured` expression verbatim, so nothing is recomputed — which
+ * matters because the library's own default is `0.3 * 2**30 = 322122547.2`, a NON-INTEGER that
+ * `Math.round` would silently move.
+ *
+ * HARD INVARIANT, and the reason `minHeadroomBytes` exists: for any cap ≥ 2 the returned floor is
+ * strictly below the cap. A floor at or above the cap rests the cache at `isFull()`, and
+ * `TilesRendererBase` then discards every freshly parsed tile against it — the U2/A9 inversion
+ * this module already carries a scar from, re-created from the other direction.
+ *
+ * The `cap - 1` clamp is not theoretical tidiness: this function reads the LIVE `maxBytesSize`,
+ * and `verify-rendering-charter.mjs` squeezes that to a single byte to force eviction for RC9's
+ * banking leg. Without the clamp the fractional term rounds UP to the cap at tiny values
+ * (`round(2 × 0.92) === 2`). At cap ≤ 1 no integer is both > 0 and < cap, so the floor is 1 and
+ * the invariant genuinely cannot hold — which is fine, because a 1-byte cap is a test fixture
+ * whose whole purpose is to sit at `isFull()`. Pure → unit-tested.
+ */
+export function lruBankFloorBytes(
+  effectiveCapBytes: number,
+  banking: boolean,
+  cfg: LruBankCfg,
+): number | null {
+  if (!banking) return null;
+  const ceiling = Math.min(effectiveCapBytes - cfg.minHeadroomBytes, effectiveCapBytes - 1);
+  return Math.max(1, Math.min(Math.round(effectiveCapBytes * cfg.bankFrac), ceiling));
+}
+
+/**
+ * RC20 — the flip latch. `prevMs` is the window remaining; a mode boundary crossing re-arms it to
+ * the full `holdMs` (so a 2D→FPV→2D double flip cannot expire early), otherwise it drains by the
+ * frame's dt and floors at zero. The caller owns the `let`, exactly like `stickyOverlayPx`.
+ * Pure → unit-tested.
+ */
+export function bankWindowMsLeft(
+  prevMs: number,
+  dtMs: number,
+  flipped: boolean,
+  holdMs: number,
+): number {
+  return flipped ? holdMs : Math.max(0, prevMs - dtMs);
+}
+
 /** Per-renderer download/parse concurrency caps (UPLIFT U5). `download` throttles the network
  *  fetch queue; `parse` throttles the MAIN-THREAD parse queue — the one that hitches weak
  *  devices when five glb decodes land in one frame. */
@@ -174,6 +244,87 @@ export function lruCapBytesForUltra(
   ultraBytesMB: number,
 ): number | null {
   return on ? Math.round(ultraBytesMB * 1024 * 1024) : lruCapBytesForTier(tier, lruBytesMB);
+}
+
+/**
+ * RC18 — which HALF of a pending tier change may land right now.
+ *
+ * The pre-RC18 rule was all-or-nothing: `U2/A9` parks EVERY governor step while FPV owns the
+ * camera, because a tier change reallocates the composer's render targets (a DPR write) and
+ * re-caps three LRUs — the "full re-render" moment. That is the right rule for a DEMOTE and for
+ * the renderer levers, and the wrong rule for a promote's tile levers: a promote only ever
+ * LOWERS an error target (40 → 24 → 16) and RAISES an LRU cap (160 → 256 → the library's own
+ * 0.4 GiB default), so its tile half cannot evict anything and cannot rebuild anything — it just
+ * streams more detail into a session that measured the headroom to carry it. Parking it meant a
+ * promote's extra detail waited for FPV EXIT, which on a long street walk is never.
+ *
+ * The split mirrors the shipped ULTRA edge seam (`ultraTileLevers` + `stepUltraGate`), which
+ * already applies tile levers live and defers the construction-time ones.
+ *
+ * NOT in the tile half, deliberately:
+ *   · **`tierOverlayPx`** — `stickyOverlayPx` only ratchets UP, and a changed composite
+ *     resolution is a fresh-instance overlay rebuild (the QA-7b white-chart storm). It rides the
+ *     renderer half regardless of direction.
+ *   · **DPR** — `composer.setSize` reallocates every render target.
+ *   · **bloom / the AO tier gate** — composer-chain state, and a look change; they follow the
+ *     renderer tier so the frame the user is inside never re-composes under them.
+ *
+ * A DEMOTE never splits: shrinking an LRU cap mid-FPV is exactly the U2/A9
+ * parse → cache-full → discard → re-download loop this whole discipline exists to avoid
+ * (`LRUCache.js` evicts everything outside `usedSet` the moment `maxBytesSize` drops, and
+ * `TilesRendererBase.js` then discards each freshly parsed tile against the full cache).
+ * Pure → unit-tested.
+ */
+export interface TierApplyPlan {
+  /** Apply the TILE levers at this tier now (error targets, LRU caps, queue caps, foveation,
+   *  street/lattice budgets), or `null` for "nothing lands this frame". */
+  tiles: QualityTier | null;
+  /** Apply the RENDERER levers at this tier now (DPR/composer, bloom, AO gate, overlay px), or
+   *  `null` — which is what "parked" means. */
+  renderer: QualityTier | null;
+  /** What stays parked for the first non-FPV frame; `null` clears the pending slot. */
+  pending: QualityTier | null;
+}
+
+/** True when `to` is strictly more capable than `from` along `TIER_ORDER`. */
+export function tierPromotes(from: QualityTier, to: QualityTier): boolean {
+  return TIER_ORDER.indexOf(to) > TIER_ORDER.indexOf(from);
+}
+
+/**
+ * Decide what a pending tier change may do this frame.
+ *
+ * THE RE-CONVERGENCE GUARANTEE: outside FPV this ALWAYS returns both halves, even when `next`
+ * already equals `appliedTiles`. That is not a redundant write, it is the fix for the one hazard
+ * the split opens — promote inside FPV (tiles land at `high`), then demote inside FPV
+ * (`pending` becomes `low`), then exit. If the exit applied only the renderer half, the tile
+ * levers would be stranded at `high` for the rest of the session. Applying both on every exit
+ * re-unifies them by construction.
+ *
+ * @param next          the tier the governor (or the ULTRA pin) wants
+ * @param appliedTiles  the tier whose TILE levers are currently live — NOT the renderer tier;
+ *                      after a split promote the two disagree until FPV exits
+ * @param fpvActive     FPV owns the camera
+ * @param livePromote   `QUALITY.leverSplit.livePromoteInFpv` — the rollback knob. `false`
+ *                      restores the pre-RC18 all-or-nothing deferral without unwinding the
+ *                      function split, which is what to reach for if a promote's raised
+ *                      main-thread parse concurrency ever hitches on a real device.
+ */
+export function planTierApply(
+  next: QualityTier,
+  appliedTiles: QualityTier,
+  fpvActive: boolean,
+  livePromote: boolean,
+): TierApplyPlan {
+  // Outside FPV nothing has ever been deferred — the whole change lands and the slot clears.
+  if (!fpvActive) return { tiles: next, renderer: next, pending: null };
+  // Inside FPV the renderer half always parks. The tile half rides along only when it is a
+  // strict promote over what is already streaming, and only while the knob allows it.
+  return {
+    tiles: livePromote && tierPromotes(appliedTiles, next) ? next : null,
+    renderer: null,
+    pending: next,
+  };
 }
 
 // GPU-family heuristics. Deliberately conservative: an unknown string falls through to `mid`, and

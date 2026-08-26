@@ -10,12 +10,14 @@ import {
 } from "3d-tiles-renderer/three/plugins";
 import { tokens } from "../../../lib/theme/tokens";
 import {
+  lruBankFloorBytes,
   lruFloorBytesForCap,
   type FoveationTierCfg,
   type QueueCaps,
 } from "../../../lib/globe/quality";
 import { bandCurveGlsl, easeK } from "../../../lib/globe/lightBands";
-import { DRAPE, EARTH, FOVEATION, GATES, GOLDEN, GROUND, SHADOWS, SUN, TILESETS, ULTRA } from "../tuning";
+import { DRAPE, EARTH, FOVEATION, GATES, GOLDEN, GROUND, QUALITY, SHADOWS, SUN, TILESETS, ULTRA } from "../tuning";
+import { mipByteFactor, planMipSizes } from "../../../lib/globe/mipChain";
 import { FTW_AERIAL_GLSL, glf, glf3 } from "./glsl";
 import { makeTileFoveation } from "./tileFoveation";
 import {
@@ -107,6 +109,11 @@ export interface ImageryGroundHandle {
    *  way — this renderer KEEPS ancestors + library ordering (the terrain stand-in under the camera),
    *  only its concurrency rides the tier. */
   setQualityTier(errorNear: number, lruCapBytes: number | null, queueCaps: QueueCaps | null): void;
+  /** RC20/T34: hold the LRU floor near the cap for a bounded window after a 2D↔FPV flip, so the
+   *  OTHER mode's ground tiles survive the round trip instead of being rest-trimmed to
+   *  `minBytesSize` the frame the traversal stops visiting them. `false` restores the tier's own
+   *  U2/A9 paired floor exactly. Idempotent — a steady frame writes nothing. */
+  setLruBank(banking: boolean): void;
   /** #15 (batch #4 S3): per-tier ImageOverlayPlugin composite resolution (512 high / 256 mid+low).
    *  `resolution` is construction-time on the plugin, so a change swaps in FRESH overlay
    *  instances via the plugin's own delete→add idiom — loaded tiles re-composite at the new
@@ -144,6 +151,13 @@ export interface ImageryGroundHandle {
    *  forces a full re-upload per composite; new tiles pick it up as you fly. 1 = the library
    *  default (and therefore the identical cache key), so "off" costs nothing and changes nothing. */
   setUltraAnisotropy(taps: number): void;
+  /** RC25: hand-build a CAPPED mip chain on each new drape composite (`levels` TOTAL, level 0
+   *  included; `1` is off and is the untouched library state). Stamped at texture CREATION
+   *  through the same choke point as the anisotropy, so — exactly as for `setUltraAnisotropy` —
+   *  it changes what NEW composites get and leaves loaded ones alone. Also re-bills the LRU: the
+   *  library scales a texture's byte cost by 4/3 only for AUTO mipmaps, so a manual chain would
+   *  otherwise occupy 1.33× what the cache thinks it holds. */
+  setUltraMipLevels(levels: number): void;
   /** T45 S3: let the terrain tiles CAST into the shadow map, not only receive through their
    *  ShadowMaterial twins. Applies to loaded tiles immediately and to every tile loaded after. */
   setTerrainCast(on: boolean): void;
@@ -181,6 +195,19 @@ type EsriFetchLike = { fetch(url: string, options?: RequestInit): Promise<Respon
  * GPU memory instead of saving it.
  */
 const OVERLAY_ANISO = { wanted: 1 };
+/**
+ * RC25 — the capped mip chain, module-scoped for the same reason as `OVERLAY_ANISO` and stamped
+ * through the same `fetchItem` choke point. `1` means OFF and is the library's own state.
+ */
+const OVERLAY_MIPS = { levels: 1 };
+/** Structural clamp, not taste: a chain deeper than the composite can halve produces NO chain at
+ *  all (`buildMipChain` returns null), so a tuning typo would silently disable the feature rather
+ *  than fail. 5 is what a 256² composite (the mid/low tiers) can carry down to 16². */
+const MIP_LEVELS_MAX = 5;
+/** DEV probe: the min/max level count actually stamped on a live composite. `min !== max` would
+ *  mean two composites disagree, which under three's (source, cacheKey) sharing is a silent,
+ *  intermittent bug — so the case self-reports rather than being argued about. */
+const OVERLAY_MIP_SEEN = { min: 0, max: 0 };
 /** Marks the prototype as already wrapped (a second attach must not nest wrappers). */
 const ANISO_STAMP_KEY = "__ftwAnisoStamped";
 
@@ -203,6 +230,11 @@ export function attachImageryGround(
   // live near-altitude error endpoint (GROUND.errorTargetNear on high; raised on mid/low).
   const lruDefaultBytes = tiles.lruCache.maxBytesSize;
   const lruDefaultMinBytes = tiles.lruCache.minBytesSize; // U2/A9: min/max travel as a pair
+  // RC20/T34: the last cap the tier fan-out handed us, kept so `setLruBank(false)` can restore
+  // the tier's own paired floor EXACTLY rather than re-deriving it from the live max (which on
+  // `high` is the library's non-integer 0.4·2³⁰ and would round).
+  let lruCapBytesApplied: number | null = null;
+  let lruBanking = false;
   const dlJobsDefault = tiles.downloadQueue.maxJobs; // U5: restored on `high`
   const parseJobsDefault = tiles.parseQueue.maxJobs;
   let errorNearOverride: number = GROUND.errorTargetNear;
@@ -702,6 +734,108 @@ export function attachImageryGround(
    * nor any hook; patching the PROTOTYPE (not the instance) is what makes it survive
    * `setOverlayResolution`, which deletes both overlays and builds fresh ones.
    */
+  /**
+   * RC25 — hand-build the capped chain onto one freshly created composite.
+   *
+   * three's manual-mipmap path, verified in r185 source: with `generateMipmaps` false,
+   * `getMipLevels` returns `texture.mipmaps.length`, the upload allocates IMMUTABLE storage with
+   * `texStorage2D(TEXTURE_2D, levels, …)` sized from `mipmaps[0]`, and then uploads `mipmaps[i]`
+   * at level `i`. That is why level 0 is in the array.
+   *
+   * The "an incomplete chain renders black unless you set TEXTURE_MAX_LEVEL" fear does not apply:
+   * three never touches `TEXTURE_MAX_LEVEL`/`TEXTURE_BASE_LEVEL` anywhere (zero hits in the whole
+   * package), and it does not need to — an immutable-format texture is mipmap-complete over
+   * exactly its allocated levels, and this renderer is WebGL2-only. The failure mode belongs to
+   * the mutable `texImage2D` path, which is unreachable here.
+   *
+   * THE TRAP, recorded because it is the natural thing to try: do NOT get the levels by setting
+   * `generateMipmaps = true`. `getMipLevels` would then return the FULL log2(max)+1, so
+   * `texStorage2D` allocates ~10 levels while the loop fills 4 — and the upload forces the flag
+   * back to false BEFORE the generate-mipmaps check, so `generateMipmap` never runs and levels
+   * 4..9 stay allocated-but-undefined with nothing to stop the sampler reaching them.
+   */
+  const attachDrapeMips = (tex: THREE.Texture) => {
+    if (OVERLAY_MIPS.levels <= 1) return; // OFF — leave `mipmaps` at its `[]` library default
+    const img = tex.image as unknown;
+    // The single-tile fast path returns a `.clone()` sharing its `source` with the cache's base
+    // texture and with every other clone. three keys GL textures by (source, cacheKey) and the
+    // cache key does NOT include `mipmaps`, so whichever clone bound first would decide the level
+    // count for all of them, forever. Only stamp the COMPOSE path, whose canvas this composite
+    // owns outright. (Browser-measured: 452 of 452 live composites take the compose path.)
+    if (typeof HTMLCanvasElement === "undefined" || !(img instanceof HTMLCanvasElement)) return;
+    const sizes = planMipSizes(
+      img.width,
+      img.height,
+      Math.min(OVERLAY_MIPS.levels, MIP_LEVELS_MAX),
+    );
+    if (!sizes) return; // the size cannot carry the chain → stay on the library's own path
+    try {
+      // Halve with `drawImage` into successively smaller canvases. MEASURED, and the reason this
+      // is not a JS filter over `getImageData`: the readback path cost **5.36 ms per composite**
+      // on the main thread (4.10 ms readback + 1.26 ms filter) against **0.06 ms** for this one,
+      // and composites arrive in bursts of hundreds while flying. It is also the CORRECT filter
+      // here — canvas 2D composites in premultiplied alpha, so the downscale premultiplies before
+      // filtering, which is the inverse of the drape shader's sample-time `tint.rgb *= tint.a`
+      // and is what stops a dark ring forming at coverage edges.
+      const chain: unknown[] = [img];
+      let src: CanvasImageSource = img;
+      for (const { width, height } of sizes) {
+        const c = document.createElement("canvas");
+        c.width = width;
+        c.height = height;
+        const cx = c.getContext("2d");
+        if (!cx) return;
+        cx.imageSmoothingEnabled = true;
+        cx.imageSmoothingQuality = "high";
+        cx.drawImage(src, 0, 0, width, height);
+        chain.push(c);
+        src = c;
+      }
+      // Level 0 is the composite canvas itself: three sizes its IMMUTABLE `texStorage2D`
+      // allocation from `mipmaps[0]` and then uploads `mipmaps[i]` at level `i`.
+      tex.mipmaps = chain as unknown as THREE.Texture["mipmaps"];
+      tex.generateMipmaps = false; // already false; asserted because the branch depends on it
+      const n = chain.length;
+      OVERLAY_MIP_SEEN.max = Math.max(OVERLAY_MIP_SEEN.max, n);
+      OVERLAY_MIP_SEEN.min = OVERLAY_MIP_SEEN.min === 0 ? n : Math.min(OVERLAY_MIP_SEEN.min, n);
+    } catch {
+      /* a zero-sized or otherwise unusable canvas must never take the ground with it */
+    }
+  };
+
+  /**
+   * THE ONE WRITER of this renderer's LRU byte band. Three inputs move it and they must never
+   * fight: the tier fan-out (`setQualityTier`), the RC20 flip bank (`setLruBank`) and the RC25
+   * mip-chain re-billing (`setUltraMipLevels`). Before this was one function, each of them wrote
+   * `minBytesSize` from its own reading of the other two and the last caller won.
+   *
+   * The composition, in order:
+   *   1. the tier's cap (`null` → the captured library default — the byte-identical `high` path);
+   *   2. ÷ the mip factor, because a hand-built chain occupies 1.33× what the library's own
+   *      accounting bills for it (it scales by 4/3 only when `generateMipmaps` is true, and a
+   *      manual chain leaves that false). Unbilled, that is ~200 MB of drape parked past ULTRA's
+   *      600 MB ground cap — the U2/A9 parse → cache-full → discard → re-download loop, reached
+   *      from the accounting side instead of the config side. Slightly conservative on purpose:
+   *      a tile's quantized mesh does not grow with the chain, so this holds a few tiles fewer
+   *      than strictly necessary, which is the correct direction to be wrong in;
+   *   3. the floor — RC20's banked value if the window is open, otherwise the shipped U2/A9
+   *      `lruFloorBytesForCap(cap) ?? captured` expression, byte for byte.
+   *
+   * With mips off, `mipByteFactor(1)` is EXACTLY 1, so step 2 is an identity and the whole
+   * function reproduces the pre-RC25 pair-write — which is what keeps the ULTRA off-state exact
+   * and `high` byte-identical.
+   */
+  const applyLruBand = () => {
+    const factor = mipByteFactor(OVERLAY_MIPS.levels);
+    const capRaw = lruCapBytesApplied ?? lruDefaultBytes;
+    const cap = factor === 1 ? capRaw : Math.round(capRaw / factor);
+    tiles.lruCache.maxBytesSize = cap;
+    const shippedFloor = lruFloorBytesForCap(lruCapBytesApplied) ?? lruDefaultMinBytes;
+    tiles.lruCache.minBytesSize =
+      lruBankFloorBytes(cap, lruBanking, QUALITY.lruBank) ??
+      (factor === 1 ? shippedFloor : Math.round(shippedFloor / factor));
+  };
+
   const installAnisoStamp = (overlay: unknown) => {
     const ov = overlay as { init?: () => Promise<unknown>; regionImageSource?: unknown };
     Promise.resolve(ov.init?.())
@@ -724,11 +858,12 @@ export function attachImageryGround(
           // this one field is sufficient and no filter change is needed. With generateMipmaps
           // false the taps all land in level 0: a real but partial win (it fixes grazing-angle
           // minification, which IS the tilt symptom, and leaves heavy minification aliasing).
-          // A capped mip chain is the remaining half and is deliberately NOT built here — each
-          // composite is an independent ClampToEdge canvas cleared TRANSPARENT, so a chain
-          // box-filters that border inward and clamps at coarse levels into a visible tile-seam
-          // grid. That needs hand-built levels and a browser judgement, not a flag.
-          if (tex && (tex as THREE.Texture).isTexture) tex.anisotropy = OVERLAY_ANISO.wanted;
+          // RC25 lands the remaining half — a CAPPED, hand-built chain — right here, because
+          // anisotropy without mips can only supersample within level 0.
+          if (tex && (tex as THREE.Texture).isTexture) {
+            tex.anisotropy = OVERLAY_ANISO.wanted;
+            attachDrapeMips(tex);
+          }
           return tex;
         };
       })
@@ -821,14 +956,24 @@ export function attachImageryGround(
     },
     setQualityTier(errorNear, lruCapBytes, queueCaps) {
       errorNearOverride = errorNear; // consumed by the update() error-ramp near endpoint
-      tiles.lruCache.maxBytesSize = lruCapBytes ?? lruDefaultBytes; // null → captured default (high)
-      tiles.lruCache.minBytesSize = lruFloorBytesForCap(lruCapBytes) ?? lruDefaultMinBytes; // U2/A9
+      lruCapBytesApplied = lruCapBytes; // RC20/RC25: remembered so the band can be re-derived
+      applyLruBand();
       tiles.downloadQueue.maxJobs = queueCaps?.download ?? dlJobsDefault; // U5
       tiles.parseQueue.maxJobs = queueCaps?.parse ?? parseJobsDefault;
       // QA slice C: an error-target change on a parked camera is the same stall class — the
       // new target only applies on the next traversal, which UpdateOnChangePlugin would defer
       // until the camera moves. Kick once so a governor flip lands immediately.
       (uocPlugin as any).needsUpdate = true;
+    },
+    setLruBank(banking) {
+      if (banking === lruBanking) return; // identity guard — a steady frame writes nothing
+      lruBanking = banking;
+      applyLruBand();
+      // DELIBERATELY no `uocPlugin.needsUpdate` here, unlike setQualityTier/setOverlayResolution.
+      // The rest-trim is scheduled at the END of `TilesRendererBase.update()`, and
+      // UpdateOnChangePlugin returns from update() EARLY on a frame where nothing moved — which
+      // is exactly the behaviour the bank wants to keep. Kicking a traversal every frame would
+      // defeat the plugin and re-open the QA-7b class.
     },
     setFoveation(cfg) {
       fovea.configure(cfg);
@@ -853,6 +998,23 @@ export function attachImageryGround(
       if (want === OVERLAY_ANISO.wanted) return;
       OVERLAY_ANISO.wanted = want;
       if (want > 1) installAnisoStamp(esriOverlay);
+    },
+    setUltraMipLevels(levels) {
+      const want = Math.min(MIP_LEVELS_MAX, Math.max(1, Math.round(levels)));
+      if (want === OVERLAY_MIPS.levels) return;
+      OVERLAY_MIPS.levels = want;
+      if (want > 1) installAnisoStamp(esriOverlay); // the same fetchItem choke point
+      // RC25 — RE-BILL THE LRU. `MemoryUtils.getTextureByteLength` scales a texture by 4/3 only
+      // when `generateMipmaps` is TRUE; a manual chain bills at 1× while occupying 1.33×. Under
+      // ULTRA the ground cap is 600 MB, so leaving it unbilled would park ~200 MB of drape past
+      // the cap — the U2/A9 parse → cache-full → discard → re-download loop, arrived at from the
+      // accounting side instead of the config side. Shrinking the cap by the same factor keeps
+      // the REAL VRAM inside the budget the tier asked for.
+      //
+      // Slightly conservative on purpose: a ground tile's quantized mesh does not grow with the
+      // chain, so scaling the whole cap holds a few tiles fewer than strictly necessary. That is
+      // the correct direction to be wrong in — under-billing is the failure with teeth.
+      applyLruBand();
     },
     setTerrainCast(on) {
       if (on === terrainCastOn) return;

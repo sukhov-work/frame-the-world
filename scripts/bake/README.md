@@ -21,6 +21,12 @@ spatial-grid 3D Tiles 1.1 (per-cell glb, shared ENU frame)  →  bakes/enriched/
 - **Height inference** (the whole point — <10% of OSM buildings carry a height; ~47% in central Dnipro):
   `height` tag → `building:levels × levelHeightM` → per-class default → generic default. `min_height` /
   `building:min_level` set the base; `roof:height` / `roof:levels` or `span × roofPitch` the roof.
+  **The `height` vs `building:levels` asymmetry is load-bearing:** OSM's `height` is the TOTAL
+  including the roof, while `building:levels` counts storeys BELOW it. So a tagged `height` has
+  `roof:height` subtracted to find the eave, and levels/class-defaults get the roof stacked on
+  top. Conflating them made every co-tagged building render taller by exactly `roof:height`
+  (fixed 2026-08-26; it had doubled Chernobyl's New Safe Confinement to a 220 m ridge). Dnipro's
+  shipped bake predates the fix — T55.
 - **Roof shapes** from `roof:shape`: `flat` (ear-clipped cap), `gabled`/`round` (OBB ridge over a
   watertight cap), `hipped`/`pyramidal`/`dome`/… (centroid pyramid). Everything else → safe flat cap.
 - **C6 exclusion applied BEFORE tiling** (`lib/exclusion.mjs`): a built-in sensitive-tag blocklist
@@ -118,7 +124,7 @@ re-bin node classes into OUR grid (`lib/readGlb.mjs`; dedupe across sub-boxes; p
 Ships UNCOMPRESSED (spike-measured ≈1.4× the extruder bake); `gltf-transform weld+draco` gave 23× in
 the spike but needs a DRACOLoader wired into the enriched runtime — a deliberate non-change for now.
 
-### Onboarding another city (generic flow — worked example: St Albans, UK, LIVE on R2 2026-07-18)
+### Onboarding another city (generic flow — worked examples: St Albans 2026-07-18, Chernobyl 2026-08-26)
 
 Any number of cities coexist: each is a config + an output prefix, selected at runtime by
 `?enriched=<name>`. The existing cities' bakes, work caches and the default runtime path stay
@@ -153,6 +159,39 @@ untouched throughout. For city `<name>` (St Albans shipped exactly this way):
    `curl -I <worker>/enriched/<name>-o2w/tileset.json` → 200 + `access-control-allow-origin: *`.
    Production then serves `?enriched=<name>-o2w` on the SAME env URL (the resolver swaps the path
    segment). To make a city the DEFAULT instead, point `PUBLIC_ENRICHED_TILES_URL` at it.
+6. **Verify in the browser.** `scripts/verify-chernobyl.mjs` is the worked template — 8 checks
+   over one CDP session: region→variant selection, buildings streaming, terrain streaming + its
+   served max level, terrain heights in a plausible band, the `?enriched=<name>` / `?enriched=off`
+   A/B seam, and a geometry-height assert against the baked glb. Copy it and swap the poses.
+
+**Two traps that cost time in the Chernobyl run, both about PROBES rather than bakes:**
+`performance.getEntriesByType("resource")` caps at 250 entries and one settled globe frame
+issues ~1,700 requests (1,517 ArcGIS imagery alone) — a probe reading it reports an EMPTY
+resource list for a page that is streaming correctly. Use the CDP `Network.responseReceived`
+log. And the terrain patch is claimed by the ground renderer's `fetchData` hook only after the
+camera settles over the region, which is well after the buildings land — poll for its tiles,
+don't sample once.
+
+### Region #4 — Chernobyl / Pripyat (owner ask 2026-08-26, LIVE on R2)
+
+A 10×10 km box on 51.3973/30.0780, the midpoint of Pripyat city centre and ChNPP unit 4, so one
+box holds both (they are 3.45 km apart). First region since Dnipro to carry buildings AND a
+terrain patch. Measured: **1,275 OSM footprints** (56.5 % already carry `height` or
+`building:levels` — the best-mapped box here, the Pripyat community traced it building by
+building) · classic bake 1,212 buildings / 72 tiles / **9.2 MB** · o2w bake 1,688 features
+(1,172 Building, 379 HV pylons) / 74 tiles / 358k verts / **16.9 MB** · **166,599 trees** ·
+terrain 1,488 files / **3.6 MB** at L12, probe bias 0.3 m / spread 2.3 m, rim seam 0.5 m.
+
+Two things here are NOT the generic flow and are written up in `cities/chernobyl.json`:
+- **A narrow, deliberate C6 override.** `exclusion.tags` replaces the built-in blocklist with
+  the same list minus exactly one rule, `["power","generator"]`, which returns the four
+  permanently-shut RBMK reactor blocks (OSM tags three of them `disused:power=generator` with
+  their shutdown dates). 54 of the 63 matching footprints stay excluded. The structures that
+  actually read as "Chernobyl" — the New Safe Confinement, the sarcophagus, reactor 4's ruins,
+  the 800 m turbine hall — carry no `power=*` tag and were never excluded. Reverting is deleting
+  the `tags` key. Read the full `tagsNote` before touching it.
+- **The terrain patch tops out at L12, not L13**, because GLO-30 coarsens longitude sampling
+  above 50° N (`N51_E030` is 2400×3600 px) and mago clamps on pixels-per-degree. See T56.
 
 ## Higher-fidelity tiers (upgrade paths — same tileset contract)
 
@@ -233,7 +272,20 @@ maxDepth / blendKm / attribution). Pipeline facts that cost real time (full log:
   the runtime seat machinery needs zero datum handling); `geoid.mjs` is the verification twin.
 - The **rim blend** (3 km, w=smoothstep toward the DECODED CWT surface) is the spatial seam:
   served tiles meet their CWT neighbours with no height step at every level.
-- mago **silently clamps** `-max` to its resolution heuristic (30 m → L13 ≈ native posting).
+- mago **silently clamps** `-max` to its resolution heuristic (30 m → L13 ≈ native posting) —
+  and the heuristic counts PIXELS PER DEGREE, not ground metres, so above 50° N, where GLO-30
+  coarsens its longitude sampling to hold ~30 m on the ground (2400×3600 px tiles instead of
+  3600×3600), the same source lands one level shallower. Chernobyl asked 13 and got 12. The
+  bake now prints the real max and the probes clamp to it; put that number in BOTH the config
+  and `regions.ts`.
+- **`patch-info.json` is the only completion marker.** mago writes `layer.json` BEFORE the rim
+  blend, the prune, the availability post and the probe, so its presence proves only that the
+  mesher ran. `upload-r2.mjs --terrain` refuses a tree without `patch-info.json` for exactly
+  this reason (an interrupted bake otherwise uploads an unblended, unverified pyramid that looks
+  entirely normal).
+- The blend makes ~1,000 serial CWT fetches and is **not idempotent**, so a transient failure
+  means a full re-bake, not a resume. `withFdRetry` (cwt.mjs) absorbs `ENFILE`/`EMFILE` — the
+  system-wide file table, which a `lake serve` language server on the same machine can squeeze.
 - The runtime serve-set rule lives twice — `src/lib/geo/terrainTiles.ts` ⇄
   `terrain/tiling.mjs` — pinned by `test/lib/geo/terrainTiles.test.ts`; the bake ASSERTS its
   layer.json availability contains the rule's output, so mismatches die at bake time.

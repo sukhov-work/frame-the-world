@@ -1,0 +1,25 @@
+{
+  "extends": "chernobyl",
+  "city": "chernobyl-o2w",
+  "variantNote": "OSM2World highest-fidelity bake of the Pripyat / ChNPP box (region #4, owner ask 2026-08-26). Same pattern as dnipro-o2w and st-albans-o2w: inherits bbox / grid / vegetation / exclusion from cities/chernobyl.json — INCLUDING that file's narrow C6 `exclusion.tags` override, since bake-osm2world.mjs builds its excluder from the same merged config (bake-osm2world.mjs:126) — and bakes into a SIBLING output. The existing bakes and the default runtime path are untouched. This is variants[0] for the chernobyl region in src/lib/globe/regions.ts, so it is what boots there by default; the classic extruder bake stays uploaded as the ?enriched=chernobyl A/B seam.",
+  "output": "bakes/enriched/chernobyl-o2w",
+  "tilesetVersion": "chernobyl-o2w-1",
+  "osm2world": {
+    "jar": "scripts/bake/spike-osm2world/dist/OSM2World.jar",
+    "jarNote": "0.5.0-SNAPSHOT distro (git-ignored; re-fetch: curl -LO https://osm2world.org/download/files/latest/OSM2World-latest-bin.zip && unzip into scripts/bake/spike-osm2world/dist). Java 17+ required; the --add-exports flags in bake-osm2world.mjs are mandatory on Java 21.",
+    "lod": 2,
+    "xmxGb": 4,
+    "subGrid": 2,
+    "subGridNote": "2x2 extracts of ~5x5 km over the 10x10 km box — the same extract size as dnipro-o2w's 4x4 over 20x20 km, which is the largest that has been proven against the Overpass mirrors and the JVM heap here.",
+    "excludeModules": [
+      "TreeModule", "IndoorModule", "AerowayModule",
+      "RoadModule", "RailwayModule", "SurfaceAreaModule",
+      "WaterModule", "ParkingModule", "SportsModule", "GolfModule", "PoolModule",
+      "TrafficSignModule", "BicycleParkingModule", "BridgeModule", "TunnelModule"
+    ],
+    "excludeModulesNote": "Same list as dnipro-o2w / st-albans-o2w (all names verified against osm2world-core-0.5.0-SNAPSHOT.jar). Trees: our instanced set. Roads/rail/surfaces/water: the vector web renders those.",
+    "dropClassesRegex": "^(Road|Railway|Surface|Water|Parking|Traffic|Aeroway|Forest|Tree|PoleFence|ChainLinkFence)",
+    "dropClassesRegexNote": "Same belt as the other two bakes. PoleFence/ChainLinkFence stay dropped and it matters MORE here than anywhere: the exclusion zone is fenced along every perimeter, sub-perimeter and plant boundary, and per-post geometry measured 62% of ALL vertices on the Dnipro box while being sub-pixel beyond ~1 km. Revisit per-city once draco lands.",
+    "keepNote": "What this tier is FOR in this box: OSM2World reconstructs the Simple-3D-Buildings roof tags instead of approximating them, and the box's signature structure is exactly a roof-tag case the extruder cannot do — the New Safe Confinement (w456732992) is `roof:shape=round` over a 260 x 165 m plan at height 110 m, i.e. a barrel arch. The extruder's `round` falls back to a PCA-OBB ridge; OSM2World builds the arch."
+  }
+}

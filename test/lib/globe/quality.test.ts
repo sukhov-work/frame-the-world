@@ -4,7 +4,11 @@ import {
   lruCapBytesForTier,
   lruCapBytesForUltra,
   lruFloorBytesForCap,
+  bankWindowMsLeft,
+  lruBankFloorBytes,
   makeGovernor,
+  planTierApply,
+  tierPromotes,
   ultraTileLevers,
   peripheryErrorTarget,
   queueCapsForTier,
@@ -537,5 +541,312 @@ describe("ULTRA HQ — off is byte-identical, on is bounded", () => {
   it("ULTRA is not a tier — the three-rung ladder is untouched", () => {
     expect(TIER_ORDER).toEqual(["low", "mid", "high"]);
     expect(Object.keys(QUALITY.tiers).sort()).toEqual(["high", "low", "mid"]);
+  });
+});
+
+describe("RC18 — the governor lever split (planTierApply)", () => {
+  it("tierPromotes orders along TIER_ORDER and is strict", () => {
+    expect(tierPromotes("low", "mid")).toBe(true);
+    expect(tierPromotes("low", "high")).toBe(true);
+    expect(tierPromotes("mid", "high")).toBe(true);
+    expect(tierPromotes("high", "mid")).toBe(false);
+    expect(tierPromotes("mid", "low")).toBe(false);
+    expect(tierPromotes("mid", "mid")).toBe(false); // strict: a re-emit is not a promote
+  });
+
+  it("outside FPV the whole change lands and the pending slot clears (pre-RC18 behaviour)", () => {
+    for (const from of TIER_ORDER) {
+      for (const to of TIER_ORDER) {
+        expect(planTierApply(to, from, false, true)).toEqual({
+          tiles: to,
+          renderer: to,
+          pending: null,
+        });
+      }
+    }
+  });
+
+  it("a PROMOTE inside FPV lands its tile half NOW and parks the renderer half", () => {
+    expect(planTierApply("high", "mid", true, true)).toEqual({
+      tiles: "high",
+      renderer: null,
+      pending: "high",
+    });
+    expect(planTierApply("mid", "low", true, true)).toEqual({
+      tiles: "mid",
+      renderer: null,
+      pending: "mid",
+    });
+  });
+
+  it("a DEMOTE inside FPV never splits — shrinking an LRU cap mid-FPV is the U2/A9 loop", () => {
+    expect(planTierApply("low", "high", true, true)).toEqual({
+      tiles: null,
+      renderer: null,
+      pending: "low",
+    });
+    expect(planTierApply("mid", "high", true, true)).toEqual({
+      tiles: null,
+      renderer: null,
+      pending: "mid",
+    });
+  });
+
+  it("re-emitting the tier whose tiles already landed does not re-apply them, but keeps the renderer half parked", () => {
+    // The governor keeps stepping while parked; the split promote already moved the tile levers.
+    expect(planTierApply("high", "high", true, true)).toEqual({
+      tiles: null,
+      renderer: null,
+      pending: "high",
+    });
+  });
+
+  it("FPV exit is what unifies the two halves — the parked tier lands whole", () => {
+    // Sequence: promote inside FPV (tiles land), then FPV exits with the same pending tier.
+    const inFpv = planTierApply("high", "mid", true, true);
+    expect(inFpv.tiles).toBe("high");
+    const onExit = planTierApply(inFpv.pending!, inFpv.tiles!, false, true);
+    expect(onExit).toEqual({ tiles: "high", renderer: "high", pending: null });
+  });
+
+  it("livePromoteInFpv=false is the rollback — it restores the pre-RC18 all-or-nothing deferral", () => {
+    // The knob only ever REMOVES the live tile half; it never changes the non-FPV path, and it
+    // never turns a demote into something that lands.
+    expect(planTierApply("high", "mid", true, false)).toEqual({
+      tiles: null,
+      renderer: null,
+      pending: "high",
+    });
+    expect(planTierApply("low", "high", true, false)).toEqual({
+      tiles: null,
+      renderer: null,
+      pending: "low",
+    });
+    for (const from of TIER_ORDER) {
+      for (const to of TIER_ORDER) {
+        expect(planTierApply(to, from, false, false)).toEqual({
+          tiles: to,
+          renderer: to,
+          pending: null,
+        });
+      }
+    }
+  });
+
+  it("the DIVERGENCE HAZARD: promote-then-demote inside one FPV leg re-converges on exit", () => {
+    // Without the re-convergence guarantee the tile levers would be stranded at `high` forever.
+    let tileTier: (typeof TIER_ORDER)[number] = "low";
+    let pending: (typeof TIER_ORDER)[number] | null = null;
+
+    // 1. governor promotes to high inside FPV → the tile half lands, the renderer half parks.
+    let plan = planTierApply("high", tileTier, true, true);
+    if (plan.tiles) tileTier = plan.tiles;
+    pending = plan.pending;
+    expect(tileTier).toBe("high");
+    expect(pending).toBe("high");
+
+    // 2. the machine struggles; the governor demotes to low, still inside FPV → parks whole.
+    plan = planTierApply("low", tileTier, true, true);
+    expect(plan.tiles).toBeNull();
+    pending = plan.pending;
+    expect(tileTier).toBe("high"); // diverged: tiles high, pending low
+
+    // 3. FPV exits → both halves land at `low`. The tile half is NOT stranded at high.
+    plan = planTierApply(pending!, tileTier, false, true);
+    expect(plan).toEqual({ tiles: "low", renderer: "low", pending: null });
+  });
+
+  it("THE SAFETY PROPERTY: a split promote only ever raises LRU caps and lowers error targets", () => {
+    // This is WHY the tile half is safe mid-FPV. If a future tier table breaks it, the split
+    // becomes an eviction storm inside FPV — so the table is asserted here, not just described.
+    for (let i = 1; i < TIER_ORDER.length; i++) {
+      const lower = QUALITY.tiers[TIER_ORDER[i - 1]];
+      const upper = QUALITY.tiers[TIER_ORDER[i]];
+      expect(upper.buildingErrorTarget).toBeLessThan(lower.buildingErrorTarget);
+      expect(upper.groundErrorNear).toBeLessThan(lower.groundErrorNear);
+      expect(upper.lruBytesMB).toBeGreaterThan(lower.lruBytesMB);
+      expect(upper.groundLruBytesMB).toBeGreaterThan(lower.groundLruBytesMB);
+      expect(upper.maxStreetNames).toBeGreaterThan(lower.maxStreetNames);
+      expect(upper.vectorLatticeBudget).toBeGreaterThan(lower.vectorLatticeBudget);
+    }
+    // `high` resolves its caps to null = "restore the library's own default" (0.4 GiB), which is
+    // ABOVE mid's explicit cap — so promoting to high raises the cap too, it does not clear it
+    // to something smaller.
+    expect(lruCapBytesForTier("high", QUALITY.tiers.high.lruBytesMB)).toBeNull();
+    expect(0.4 * 2 ** 30).toBeGreaterThan(
+      lruCapBytesForTier("mid", QUALITY.tiers.mid.lruBytesMB)!,
+    );
+    expect(0.4 * 2 ** 30).toBeGreaterThan(
+      lruCapBytesForTier("mid", QUALITY.tiers.mid.groundLruBytesMB)!,
+    );
+  });
+
+  it("THE INERTNESS FENCE: no ULTRA lever may reach the DEFERRED half", () => {
+    // RC18 re-pointed `stepUltraGate` at the TILE half alone. That is inert only because every
+    // key in `ultraDesktop` is a tile lever — the merge is a spread, so an `overlayResolutionPx`
+    // (or any other deferred-half key) added there would leak through `q` and then SILENTLY stop
+    // being applied on an ULTRA flip. `quality.ts` already documents WHY overlay resolution can
+    // never be an ULTRA lever (stickyOverlayPx only ratchets up, so the flip could not be undone
+    // within the session); this makes that reasoning machine-checked in both directions.
+    const DEFERRED_HALF = ["overlayResolutionPx", "dprCap", "bloom", "shadowsEnabled", "shadowMapSize"];
+    for (const k of DEFERRED_HALF) {
+      expect(Object.keys(QUALITY.ultraDesktop)).not.toContain(k);
+    }
+    // And the merge really is a whole-object spread, so the check above is the load-bearing one.
+    const merged = ultraTileLevers(QUALITY.tiers.mid, true, QUALITY.ultraDesktop);
+    expect(merged.overlayResolutionPx).toBe(QUALITY.tiers.mid.overlayResolutionPx);
+    expect(merged.dprCap).toBe(QUALITY.tiers.mid.dprCap);
+  });
+
+  it("queue caps also only rise on a promote (a split promote never throttles the queues)", () => {
+    const low = queueCapsForTier("low", LOADING.queueCaps)!;
+    const mid = queueCapsForTier("mid", LOADING.queueCaps)!;
+    expect(mid.download).toBeGreaterThan(low.download);
+    expect(mid.parse).toBeGreaterThan(low.parse);
+    // high → null → the captured library defaults (25 download / 5 parse), above mid's.
+    expect(queueCapsForTier("high", LOADING.queueCaps)).toBeNull();
+    expect(25).toBeGreaterThan(mid.download);
+    expect(5).toBeGreaterThan(mid.parse);
+  });
+});
+
+describe("RC20/T34 — the ground-LRU flip bank", () => {
+  // Every cap this repo can actually put on the ground renderer, plus the two degenerate ones
+  // the RC9 harness reaches when it squeezes the cache to force eviction.
+  const REACHABLE_CAPS = [
+    0.4 * 2 ** 30, // the library's captured default (NON-INTEGER — 429496729.6)
+    QUALITY.tiers.high.groundLruBytesMB * 1024 * 1024,
+    QUALITY.tiers.mid.groundLruBytesMB * 1024 * 1024,
+    QUALITY.tiers.low.groundLruBytesMB * 1024 * 1024,
+    QUALITY.ultraDesktop.groundLruBytesMB * 1024 * 1024,
+    1024,
+    2,
+  ];
+
+  it("banking OFF returns null — the off-state is the SHIPPED expression, not a recomputation", () => {
+    // `null` is load-bearing: the apply site falls through to `lruFloorBytesForCap(cap) ??
+    // captured`, so the library's non-integer 0.3*2**30 default is never rounded away.
+    for (const cap of REACHABLE_CAPS) {
+      expect(lruBankFloorBytes(cap, false, QUALITY.lruBank)).toBeNull();
+    }
+    expect(0.3 * 2 ** 30).not.toBe(Math.round(0.3 * 2 ** 30)); // the reason null matters
+  });
+
+  it("HARD INVARIANT: the BANKED floor is strictly below the cap for every cap >= 2", () => {
+    // A floor at or above the cap rests the cache at isFull(), and TilesRendererBase then
+    // discards every freshly parsed tile against it — the U2/A9 loop, re-created from the other
+    // direction. This function reads the LIVE maxBytesSize, so the degenerate caps below are
+    // genuinely reachable: verify-rendering-charter squeezes it to a byte for RC9's leg.
+    for (const cap of REACHABLE_CAPS) {
+      const floor = lruBankFloorBytes(cap, true, QUALITY.lruBank)!;
+      expect(floor).toBeLessThan(cap);
+      expect(floor).toBeGreaterThan(0);
+      expect(Number.isFinite(floor)).toBe(true);
+    }
+  });
+
+  it("the OFF path keeps the U2/A9 floor below the cap on every cap the TIER FAN-OUT can produce", () => {
+    // Scoped deliberately to tier-derived caps rather than to REACHABLE_CAPS. `lruFloorBytesForCap`
+    // is `round(cap * 0.75)`, which INVERTS at cap 1 and 2 (round(1.5) === 2) — a boundary this
+    // sweep found. It is unreachable in shipped code: every input travels through
+    // `lruCapBytesForTier`/`lruCapBytesForUltra`, whose smallest MB constant is 160, and the
+    // browser squeeze writes `maxBytesSize` directly without going through this function. Left
+    // as-is rather than "fixed", because the function's exact arithmetic is locked elsewhere as
+    // the byte-identical restore path — but recorded here so the next reader does not re-find it.
+    for (const tier of TIER_ORDER) {
+      for (const mb of [QUALITY.tiers[tier].lruBytesMB, QUALITY.tiers[tier].groundLruBytesMB]) {
+        const cap = lruCapBytesForTier(tier, mb);
+        if (cap === null) continue; // `high` restores the captured library default
+        expect(lruFloorBytesForCap(cap)!).toBeLessThan(cap);
+        expect(lruFloorBytesForCap(cap)!).toBeGreaterThan(0);
+      }
+    }
+    expect(lruFloorBytesForCap(2)).toBe(2); // the boundary, pinned so it cannot drift unnoticed
+  });
+
+  it("keeps parse headroom under the cap (or, on a degenerate cap, still lands below it)", () => {
+    for (const cap of REACHABLE_CAPS) {
+      const floor = lruBankFloorBytes(cap, true, QUALITY.lruBank)!;
+      expect(cap - floor).toBeGreaterThanOrEqual(
+        Math.min(QUALITY.lruBank.minHeadroomBytes, cap - floor),
+      );
+      if (cap > QUALITY.lruBank.minHeadroomBytes * 2) {
+        expect(cap - floor).toBeGreaterThanOrEqual(QUALITY.lruBank.minHeadroomBytes);
+      }
+    }
+  });
+
+  it("banks strictly ABOVE the tier's own paired floor — otherwise the lever does nothing", () => {
+    // Zero-result validation on the lever itself: with bankFrac accidentally at 0.75 every other
+    // test here would still pass while the bank retained not one extra byte.
+    for (const tier of ["mid", "low"] as const) {
+      const cap = lruCapBytesForTier(tier, QUALITY.tiers[tier].groundLruBytesMB)!;
+      expect(lruBankFloorBytes(cap, true, QUALITY.lruBank)!).toBeGreaterThan(
+        lruFloorBytesForCap(cap)!,
+      );
+    }
+  });
+
+  it("survives the 1-byte cap the RC9 eviction squeeze actually uses", () => {
+    // Not hypothetical: verify-rendering-charter.mjs sets maxBytesSize tiny to force eviction.
+    expect(lruBankFloorBytes(2, true, QUALITY.lruBank)).toBe(1);
+    expect(lruBankFloorBytes(1024, true, QUALITY.lruBank)!).toBeLessThan(1024);
+    // At a 1-byte cap no integer is both > 0 and < cap; the fixture's whole purpose is to sit at
+    // isFull(), so the honest answer is 1 and the strict invariant starts at cap 2.
+    expect(lruBankFloorBytes(1, true, QUALITY.lruBank)).toBe(1);
+  });
+
+  it("the config itself can never invert the band (a taste-pass fence)", () => {
+    expect(QUALITY.lruBank.bankFrac).toBeLessThan(1);
+    expect(QUALITY.lruBank.bankFrac).toBeGreaterThan(0.75); // above the library's own ratio
+    expect(QUALITY.lruBank.minHeadroomBytes).toBeGreaterThan(0);
+    expect(QUALITY.lruBank.holdMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("the bank is OFF on `high` until the owner rules (M13) — and therefore OFF under ULTRA", () => {
+    // Two independent reasons, both worth failing a build over: the byte-identical-`high` fence,
+    // and M13 (the ~600-GET figure is a headless `low` measurement; the desktop cost is more
+    // likely re-composite latency than network). The ULTRA chip PINS the tier to `high`, so this
+    // one line is also what keeps the bank off the ULTRA surface entirely.
+    expect(QUALITY.lruBank.tiers.high).toBe(false);
+    expect(QUALITY.lruBank.tiers.mid).toBe(true);
+    expect(QUALITY.lruBank.tiers.low).toBe(true);
+  });
+});
+
+describe("RC20 — bankWindowMsLeft (the flip latch)", () => {
+  const HOLD = QUALITY.lruBank.holdMs;
+
+  it("a boundary crossing arms the full window", () => {
+    expect(bankWindowMsLeft(0, 16, true, HOLD)).toBe(HOLD);
+  });
+
+  it("drains by the frame dt and floors at zero", () => {
+    expect(bankWindowMsLeft(100, 16, false, HOLD)).toBe(84);
+    expect(bankWindowMsLeft(10, 16, false, HOLD)).toBe(0);
+    expect(bankWindowMsLeft(0, 16, false, HOLD)).toBe(0); // fixed point
+  });
+
+  it("a flip MID-window restarts the FULL window — a 2D→FPV→2D round trip cannot expire early", () => {
+    expect(bankWindowMsLeft(120, 16, true, HOLD)).toBe(HOLD);
+  });
+
+  it("holdMs: 0 disables the lever with no code change (the documented rollback)", () => {
+    expect(bankWindowMsLeft(0, 16, true, 0)).toBe(0);
+  });
+
+  it("composes with the floor: the bank reaches its OFF state exactly, never asymptotically", () => {
+    // The ULTRA settle idiom applied to a latch — assert the exact frame it turns off, so a
+    // drain that merely approaches zero would fail here rather than leak memory in a browser.
+    let left = bankWindowMsLeft(0, 16, true, HOLD);
+    let frames = 0;
+    while (left > 0 && frames < 100_000) {
+      expect(lruBankFloorBytes(192 * 1024 * 1024, true, QUALITY.lruBank)).not.toBeNull();
+      left = bankWindowMsLeft(left, 16, false, HOLD);
+      frames++;
+    }
+    expect(left).toBe(0);
+    expect(frames).toBe(Math.ceil(HOLD / 16));
+    expect(lruBankFloorBytes(192 * 1024 * 1024, false, QUALITY.lruBank)).toBeNull();
   });
 });

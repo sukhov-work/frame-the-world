@@ -281,16 +281,23 @@ async function probeTile(z, x, y, label, spreadTolM) {
 const cityDeep = Math.min(t.maxDepth, bakedMax);
 const cityR = tileRange(t.cityBbox, cityDeep);
 await probeTile(cityDeep, Math.floor((cityR.startX + cityR.endX) / 2), Math.floor((cityR.startY + cityR.endY) / 2), "city-centre", probeSpreadCityM);
-const l13 = tileRangeInside(t.extentBbox, t.extentMaxDepth);
-await probeTile(t.extentMaxDepth, Math.floor((l13.startX + l13.endX) / 2), Math.floor((l13.startY + l13.endY) / 2), "extent-mid", probeSpreadExtentM);
+// Clamped to bakedMax for the SAME reason cityDeep is. The city probe learned this and the
+// extent probe did not, so a bake that topped out below the configured extentMaxDepth printed
+// its "topped out at L{bakedMax}" note, sailed through the containment check (which is already
+// bakedMax-aware) and then died here on a raw ENOENT for a level that was never written —
+// 2026-08-26, Chernobyl at L12. The note is the finding; the probe should still run, one level
+// shallower, rather than crash after the bake is otherwise complete.
+const extentDeep = Math.min(t.extentMaxDepth, bakedMax);
+const extentR = tileRangeInside(t.extentBbox, extentDeep);
+await probeTile(extentDeep, Math.floor((extentR.startX + extentR.endX) / 2), Math.floor((extentR.startY + extentR.endY) / 2), "extent-mid", probeSpreadExtentM);
 
 // Rim continuity: the westmost served tile's west-edge vertex row must sit ON the CWT surface.
 {
-  const z = t.extentMaxDepth;
-  const y = Math.floor((l13.startY + l13.endY) / 2);
-  const buf = await readFile(join(outDir, String(z), String(l13.startX), `${y}.terrain`));
+  const z = extentDeep;
+  const y = Math.floor((extentR.startY + extentR.endY) / 2);
+  const buf = await readFile(join(outDir, String(z), String(extentR.startX), `${y}.terrain`));
   const mesh = decodeQuantizedMesh(buf);
-  const [w, s, , n] = tileBbox(z, l13.startX, y);
+  const [w, s, , n] = tileBbox(z, extentR.startX, y);
   const latMid = (s + n) / 2;
   const patchEdge = sampleQuantizedHeight(mesh, 0, 0.5);
   const cwtEdge = await cwtHeight(w, latMid);

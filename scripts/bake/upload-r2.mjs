@@ -59,6 +59,19 @@ if (!files.includes(rootFile)) {
   );
   process.exit(1);
 }
+// A terrain tree's layer.json is written by mago BEFORE the rim blend, the deep-level prune, the
+// availability post and the probe verify. So `layer.json` present proves only that the mesher
+// ran — it does NOT prove the bake finished. patch-info.json is the LAST thing bake-terrain.mjs
+// writes, which makes it the only honest completion marker. Without this gate an interrupted
+// bake uploads an unblended, unpruned, unverified pyramid that looks entirely normal (hit for
+// real 2026-08-26: the Chernobyl blend died on ENFILE and left exactly this tree on disk).
+if (terrainMode && !files.includes("patch-info.json")) {
+  console.error(
+    `${outDir} has layer.json but no patch-info.json — that bake did NOT complete (the blend/prune/probe steps never ran).\n` +
+      `Re-run it: npm run bake:terrain -- --city ${city}`,
+  );
+  process.exit(1);
+}
 
 // R2_* wins; CLOUDFLARE_* (the owner's .env.local names) is the fallback.
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID;
