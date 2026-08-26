@@ -509,8 +509,15 @@ const CLASS_TABLE: Record<string, InvalidationClass> = {
   "gap.shoulderQuality": "recompose",
   "gap.shoulderSpanDeg": "rescore",
 
-  "trackWeight.altScaleDeg": "reweigh",
-  "trackWeight.horizonCeiling": "reweigh",
+  // **`rescore`, not `reweigh` — corrected 2026-08-26g, and it was a live defect.** Both leaves are
+  // baked into `w_i` INSIDE `eventTrack` (`bestSpotTrack.ts:629-631, 950-957`), and `w` is what `V`
+  // is integrated against in `solveTerms`. `reweigh` routes through `runApply` → `composeRung`,
+  // which answers from the resident TERM BUFFER — where `V` already carries the old weights — and
+  // never rebuilds the track. So both leaves were silently inert until the scene crossed a local-day
+  // or kind boundary. The other half of the fix is `trackHash` in the worker's `trackKey`; without
+  // it a re-solve happily reuses the stale cached track. See `trackHash`'s docstring.
+  "trackWeight.altScaleDeg": "rescore",
+  "trackWeight.horizonCeiling": "rescore",
 
   // recompose only AFTER §5.3(b) — `EventTrack` carries `sunAltAtT0Deg` + `moonPhaseAngleDeg`, so
   // the whole worth curve is recomputable without touching the ephemeris. Without that it is a
@@ -835,7 +842,34 @@ function canonicalJson(node: unknown): string {
  * That one check is what stops "the picture disagrees with the numbers".
  */
 export function scoringHash(s: BestSpotScoring): string {
-  const text = canonicalJson(s);
+  return fnv1a(canonicalJson(s));
+}
+
+/**
+ * The TRACK sub-hash — the profile leaves `eventTrack` bakes into its per-sample weights.
+ *
+ * **This exists because those two leaves were silently dead.** The worker caches the resident
+ * `EventTrack` on `${kind}|${localDay}` alone (`bestSpotWorker.ts`, `trackKey`), and `w_i` is
+ * computed *inside* `eventTrack` from `trackWeight.altScaleDeg` + `trackWeight.horizonCeiling`
+ * (`bestSpotTrack.ts:629-631, 950-957`). So a taste pass on either one re-solved against the
+ * **previous** track and changed nothing until the scene crossed a local-day or kind boundary —
+ * with every gate green, because every recompose test asserts only that *some* score moved.
+ *
+ * Folding this into the cache key is the half that makes a re-solve actually rebuild the track;
+ * promoting the two leaves to `rescore` in `CLASS_OF` is the half that makes a re-solve happen at
+ * all. **Neither alone is a fix**: reclassifying without the key reuses the stale track, and the
+ * key without the reclassification is never reached, because `runApply` answers `reweigh` from the
+ * resident term buffer and `V` was already integrated with the old weights.
+ *
+ * Deliberately NOT `scoringHash(s)`: the whole point is a key that moves for these two leaves and
+ * for nothing else, so a `weights.v` tweak stays the 0.272 ms recompose it is supposed to be.
+ */
+export function trackHash(s: BestSpotScoring): string {
+  return fnv1a(canonicalJson(s.trackWeight));
+}
+
+/** FNV-1a over a string, as 8 lowercase hex digits. */
+function fnv1a(text: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);

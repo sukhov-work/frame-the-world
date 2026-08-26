@@ -86,6 +86,7 @@ import type {
   BestSpotHeightProvenance,
   BestSpotRungMsg,
   BestSpotWireSpot,
+  CanopyWire,
   TinMeshWire,
 } from "../../../lib/geo/bestSpotWorker";
 import { localDayWindow } from "../../../lib/ephemeris/dayArc";
@@ -238,6 +239,9 @@ export interface BestSpotDebug {
     terrainOnly: boolean;
     builtDensityPerKm2: number;
     openSkyUncredited: number;
+    /** The CANOPY twin (2026-08-26g) — how many visits a MODELLED tree cost. Without this the
+     *  UNMAPPED cells a disc gains after the canopy fix cannot be attributed to the trees. */
+    canopyUncredited: number;
     refusedShortReach: number;
     shortlistCellM: number;
   };
@@ -284,12 +288,30 @@ function flattenTin(
   budget: number,
   out: TinMeshWire[],
   sphere: THREE.Sphere,
+  canopies: CanopyWire[] | null = null,
 ): void {
   if (!root) return;
   root.traverse((c) => {
     if (out.length >= budget) return;
     const mesh = c as THREE.Mesh;
     if (!mesh.isMesh || !mesh.geometry || !mesh.parent) return;
+    // ── THE INSTANCED BRANCH, and it must come BEFORE the bounding-sphere reject ──────────────
+    //
+    // `InstancedMesh.isMesh` is TRUE (`scene/enrichedBuildings.ts:691-693` says so in its own
+    // comment), so before 2026-08-26g the baked trees fell straight through into the TIN path and
+    // BEST SPOT flattened the **shared unit prototype** at the cell's own `matrixWorld` — one
+    // ~1 m phantom solid per cell, tagged as a BUILDING, with every real canopy missing. The
+    // sibling feed got this right the whole time (`scene/planFeed.ts:239-251`).
+    //
+    // The order matters as much as the branch: `geom.boundingSphere` on an `InstancedMesh` is the
+    // PROTOTYPE's sphere — a ~0.5 m ball at the cell root — so the reject below deletes an entire
+    // tree set whose instances reach well inside the disc. A bare `isInstancedMesh` branch placed
+    // after it is a no-op at exactly the discs that have trees. The cull has to be PER INSTANCE.
+    const inst = mesh as THREE.InstancedMesh;
+    if (inst.isInstancedMesh) {
+      if (canopies) collectCanopyInstances(inst, centreEcef, radiusM, canopies);
+      return;
+    }
     const geom = mesh.geometry;
     if (!geom.boundingSphere) geom.computeBoundingSphere();
     if (!geom.boundingSphere) return;
@@ -306,6 +328,58 @@ function flattenTin(
   });
 }
 
+/**
+ * Copy the tree instances of one cell that actually reach the disc, in the cell's own frame.
+ *
+ * Two things here are load-bearing:
+ *
+ * **The cull is per instance.** An enriched cell spans hundreds of metres; its `matrixWorld` is the
+ * cell ROOT, and the instances are scattered around it. Culling on the root (or on the prototype's
+ * bounding sphere, which is what the TIN path would do) throws away whole cells whose trees stand
+ * inside the disc. `sweepTreeInstances` decodes the same 16-float TRS the same way — canopy centre
+ * at `CANOPY_CENTER_Y·h` above the base, `radius = |col0|·UNIT_CANOPY_R` — so the two feeds agree
+ * about which trees exist by construction rather than by coincidence.
+ *
+ * **`instanceMatrix.array` is COPIED, never transferred.** `scene/enrichedBuildings.ts` writes
+ * `m13` into that array during the tree re-seat and three renders from it every frame; handing the
+ * live buffer to the worker would detach it. Same rule, same reason, as `positions.slice()`.
+ */
+function collectCanopyInstances(
+  inst: THREE.InstancedMesh,
+  centreEcef: THREE.Vector3,
+  radiusM: number,
+  out: CanopyWire[],
+): void {
+  const src = inst.instanceMatrix?.array as ArrayLike<number> | undefined;
+  const count = inst.count | 0;
+  if (!src || count <= 0) return;
+  const e = inst.matrixWorld.elements;
+  const kept: number[] = [];
+  for (let i = 0; i < count && kept.length < CANOPY_BUDGET * 16; i++) {
+    const o = i * 16;
+    const lx = src[o + 12];
+    const ly = src[o + 13];
+    const lz = src[o + 14];
+    // cell → ECEF for the instance BASE (rigid transform: the bake contract is no cell scale).
+    const wx = e[0] * lx + e[4] * ly + e[8] * lz + e[12];
+    const wy = e[1] * lx + e[5] * ly + e[9] * lz + e[13];
+    const wz = e[2] * lx + e[6] * ly + e[10] * lz + e[14];
+    const dx = wx - centreEcef.x;
+    const dy = wy - centreEcef.y;
+    const dz = wz - centreEcef.z;
+    // `+ heightM` of slack, because the cull is on the BASE and the canopy sits above it.
+    const slack = src[o + 5];
+    if (Math.hypot(dx, dy, dz) > radiusM + slack) continue;
+    for (let k = 0; k < 16; k++) kept.push(src[o + k]);
+  }
+  if (kept.length === 0) return;
+  out.push({
+    instanceMatrices: Float32Array.from(kept),
+    count: kept.length / 16,
+    matrixWorld: Float64Array.from(e),
+  });
+}
+
 // ---------------------------------------------------------------------------------------------
 // The feed
 // ---------------------------------------------------------------------------------------------
@@ -314,6 +388,11 @@ function flattenTin(
  *  cannot turn one job into a 200 MB `postMessage`; 512 terrain tiles is ~40× what a 700 m disc
  *  ever overlaps at any LOD, so the cap is a safety rail rather than a policy. */
 const MESH_BUDGET = 512;
+
+/** Tree instances kept PER CELL. The same kind of rail as `MESH_BUDGET`, sized against the measured
+ *  bake: the densest enriched cell in the Dnipro set carries a few thousand, and a 700 m half-span
+ *  overlaps a handful of cells, so this bounds one job's canopy payload at ~4 MB. */
+const CANOPY_BUDGET = 8192;
 
 /**
  * R8 half two — the half-span (m) of the 1 m disc `REFINE THIS SPOT` solves around one cell.
@@ -521,13 +600,19 @@ export function attachBestSpotFeed(opts: {
 
     const terrain: TinMeshWire[] = [];
     const built: TinMeshWire[] = [];
+    const canopies: CanopyWire[] = [];
     flattenTin(opts.groundGroup, _centre, halfSpanM, MESH_BUDGET, terrain, _sphere);
-    flattenTin(opts.buildingsGroup, _centre, halfSpanM, MESH_BUDGET, built, _sphere);
+    flattenTin(opts.buildingsGroup, _centre, halfSpanM, MESH_BUDGET, built, _sphere, canopies);
     const osmMeshes = built.length;
-    flattenTin(opts.enrichedGroup, _centre, halfSpanM, MESH_BUDGET, built, _sphere);
+    flattenTin(opts.enrichedGroup, _centre, halfSpanM, MESH_BUDGET, built, _sphere, canopies);
     // S7's provenance badge, counted at the ONE place the two tilesets are still distinguishable:
     // once they are in `built` they are anonymous TIN, and nothing in `lib/**` can tell a surveyed
     // roof from an extruded footprint with a class-default height (~78 % of the OSM set).
+    //
+    // **`enriched` moved on 2026-08-26g and the move is a CORRECTION.** Before the instanced branch
+    // existed, every tree set fell into `built` and was counted here, so the badge inflated the
+    // "surveyed roof" count with vegetation. It now counts building meshes only. A future audit
+    // reading this number down should read it as the inflation being removed, not as a regression.
     const heightProvenance: BestSpotHeightProvenance = {
       enriched: built.length - osmMeshes,
       osm: osmMeshes,
@@ -537,6 +622,11 @@ export function attachBestSpotFeed(opts: {
     for (const m of [...terrain, ...built]) {
       transfer.push(m.positions.buffer as ArrayBuffer, m.matrixWorld.buffer as ArrayBuffer);
       if (m.index) transfer.push(m.index.buffer as ArrayBuffer);
+    }
+    // The canopy arrays are freshly allocated by `collectCanopyInstances` (never a view onto
+    // `instanceMatrix.array`, which three writes to every frame), so they are safe to transfer.
+    for (const c of canopies) {
+      transfer.push(c.instanceMatrices.buffer as ArrayBuffer, c.matrixWorld.buffer as ArrayBuffer);
     }
 
     // ULTRA cannot hold its hulls: 899 MiB at 1 m / K = 40 (`horizonSweep`'s ledger).
@@ -577,6 +667,7 @@ export function attachBestSpotFeed(opts: {
         minTilesForSolve: BESTSPOT.minTilesForSolve,
         terrain,
         built,
+        canopies,
         heightProvenance,
         sourcesEpoch,
         mode: ultra ? "stream" : "resident",
@@ -925,6 +1016,7 @@ export function attachBestSpotFeed(opts: {
           terrainOnly: lastMsg ? lastMsg.terrainOnly : false,
           builtDensityPerKm2: lastMsg ? lastMsg.builtDensityPerKm2 : 0,
           openSkyUncredited: lastMsg ? lastMsg.openSkyUncredited : 0,
+          canopyUncredited: lastMsg ? lastMsg.canopyUncredited : 0,
           refusedShortReach: lastMsg ? lastMsg.refusedShortReach : 0,
           shortlistCellM: lastMsg ? lastMsg.shortlistCellM : 0,
         },
