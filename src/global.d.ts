@@ -86,6 +86,17 @@ declare global {
       readonly rtPx: readonly [number, number] | null;
       maxStaleMs: number;
     };
+    /** RC21 — the main-view on-demand render gate. SHIPS OFF (`GATE.enabled === false`); `enabled`
+     *  is WRITABLE so a soak can flip it on one page, hold an ULTRA timelapse to prove no eased
+     *  uniform sticks, and flip back to compare. `draws`/`skips` are CUMULATIVE SINCE PAGE LOAD —
+     *  sample twice and difference, never once. */
+    __frameGate?: {
+      enabled: boolean;
+      readonly draws: number;
+      readonly skips: number;
+      readonly restMs: number;
+      maxStaleMs: number;
+    };
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;
     __minimapStore?: typeof useMiniMapStore;

@@ -7,13 +7,14 @@ import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { tokens } from "../../lib/theme/tokens";
-import { AO, BLOOM, PIP, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA } from "./tuning";
+import { AO, BLOOM, GATE, PIP, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA } from "./tuning";
 import {
   pipCapture,
   pipNeedsRender,
   pipRtSizePx,
   type PipPose,
 } from "../../lib/globe/pipCache";
+import { frameNeedsRender, framePoseChanged } from "../../lib/globe/frameGate";
 import {
   detectDeviceTier,
   makeGovernor,
@@ -332,6 +333,37 @@ export default function GlobeCanvas() {
     let pipDrawnMs = 0;
     let pipRenders = 0;
     let pipBlits = 0;
+
+    // --- RC21 on-demand render (charter Group E; lib/globe/frameGate.ts) ------------------------
+    // SHIPS OFF (`GATE.enabled === false`) — see the tuning block for why the default flip is an
+    // owner call. `gateDirty` starts true so the very first frame always draws.
+    //
+    // WHAT `markGateDirty` COVERS, and what it does not. It is wired to the visual changes that
+    // happen WITHOUT the camera or the sun moving and that GlobeCanvas can see locally: a tier
+    // apply, the bloom/flat-chart gate flip, the ULTRA chip, a resize, a context restore.
+    // Everything else — tile streaming, the drape crossfade, `uTime` twinkle, every eased uniform
+    // stepped inside StylizedTiles — is covered by `GATE.maxStaleMs` and by nothing else. That is
+    // the design (a predicate over 40+ sources in 20 files cannot be both cheap and complete), but
+    // it is also exactly why the heartbeat may not be raised casually.
+    let gateSeen: PipPose | null = null; // pose at the last DRAWN frame
+    let gateDrawnMs = 0; // when that frame was drawn
+    let gateQuietSinceMs = 0; // when the scene last changed — drives the settle window
+    let gateDirty = true;
+    let gateDraws = 0;
+    let gateSkips = 0;
+    const markGateDirty = () => {
+      gateDirty = true;
+    };
+    // DEV A/B seam, same shape as `pipStaleOverrideMs`: flip `enabled` from the console/harness so
+    // a soak can measure one page with the gate on and off without a rebuild. In prod the DEV
+    // branch is statically eliminated and `GATE` is read directly — so the shipped default is the
+    // frozen constant, not a mutable.
+    let gateEnabledOverride: boolean = GATE.enabled;
+    let gateStaleOverrideMs: number = GATE.maxStaleMs;
+    const gateCfg = () =>
+      import.meta.env.DEV
+        ? { ...GATE, enabled: gateEnabledOverride, maxStaleMs: gateStaleOverrideMs }
+        : GATE;
     const pipMat = new THREE.MeshBasicMaterial({
       depthTest: false,
       depthWrite: false,
@@ -367,6 +399,39 @@ export default function GlobeCanvas() {
         },
         set maxStaleMs(v: number) {
           pipStaleOverrideMs = v;
+        },
+      };
+
+    // RC21 DEV seam. `enabled` is writable so a soak can flip the gate on ONE page, hold an ULTRA
+    // timelapse, and prove no ease sticks — then flip it back and compare. `draws`/`skips` are
+    // CUMULATIVE SINCE PAGE LOAD: sample them TWICE and difference, never once (RC11's leg read a
+    // 9.8 % memo rate off a single sample of a counter that reads 87 % at two minutes).
+    if (import.meta.env.DEV)
+      window.__frameGate = {
+        get enabled() {
+          return gateEnabledOverride;
+        },
+        set enabled(v: boolean) {
+          gateEnabledOverride = v;
+          // Re-arm on every flip: turning the gate OFF must not leave a stale cached pose behind,
+          // and turning it ON must draw once before it is allowed to skip.
+          gateSeen = null;
+          gateDirty = true;
+        },
+        get draws() {
+          return gateDraws;
+        },
+        get skips() {
+          return gateSkips;
+        },
+        get maxStaleMs() {
+          return gateStaleOverrideMs;
+        },
+        set maxStaleMs(v: number) {
+          gateStaleOverrideMs = v;
+        },
+        get restMs() {
+          return GATE.restMs;
         },
       };
 
@@ -604,6 +669,7 @@ export default function GlobeCanvas() {
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight, false);
       composer.setSize(window.innerWidth, window.innerHeight); // logical px — composer applies DPR
+      markGateDirty(); // RC21: a resized backbuffer holds nothing to re-present
     };
     onResize();
     window.addEventListener("resize", onResize);
@@ -622,6 +688,10 @@ export default function GlobeCanvas() {
     const onCtxRestored = () => {
       ctxLost = false;
       composer.setSize(window.innerWidth, window.innerHeight);
+      // RC21: a restored context has a blank backbuffer — there is no previous frame to re-present,
+      // so the gate MUST NOT be allowed to skip the first one. Same reason as the resize hook.
+      gateSeen = null;
+      markGateDirty();
     };
     canvas.addEventListener("webglcontextlost", onCtxLost);
     canvas.addEventListener("webglcontextrestored", onCtxRestored);
@@ -656,6 +726,7 @@ export default function GlobeCanvas() {
       const ultraNow = tilesHandle?.ultraPin() ?? false;
       if (ultraNow !== ultraPinned) {
         ultraPinned = ultraNow;
+        markGateDirty(); // RC21: the chip repaints the whole look with the camera parked
         if (!ultraPinned) governor.force(deviceTier);
         pendingTier = ultraPinned ? "high" : deviceTier;
       } else if (gov.changed && !ultraPinned) {
@@ -676,6 +747,7 @@ export default function GlobeCanvas() {
         // carries the DPR mirrors, which must read the pixel ratio it has just written.
         if (plan.renderer !== null) applyTierRenderer(plan.renderer);
         if (plan.tiles !== null) applyTierTiles(plan.tiles);
+        if (plan.renderer !== null || plan.tiles !== null) markGateDirty(); // RC21
         pendingTier = plan.pending;
       }
       if (tilesHandle) {
@@ -687,7 +759,9 @@ export default function GlobeCanvas() {
       // ~12 fullscreen draws while the engine runs the flat treatment (/m 2D map, or desktop
       // nadir below CONTROLS.mapFlatMaxAltM — the LEO flagship keeps its atmosphere bloom).
       const flatNow = tilesHandle?.mapFlat() ?? false;
+      const bloomWas = bloomPass.enabled;
       bloomPass.enabled = tierBloom(activeTier) && !flatNow;
+      if (bloomPass.enabled !== bloomWas) markGateDirty(); // RC21: ~12 fullscreen draws appear/vanish
       // QA-7b: the lean DPR cap follows the chart latch — re-apply the tier on a flip (the
       // A9 guard inside applyTierRenderer makes it a no-op unless the EFFECTIVE DPR really
       // changes). RC18: the RENDERER half only. The flip is a pure DPR event, and the old
@@ -696,7 +770,48 @@ export default function GlobeCanvas() {
       if (lean && flatNow !== flatForDpr) {
         flatForDpr = flatNow;
         applyTierRenderer(activeTier);
+        markGateDirty(); // RC21: a DPR change repaints everything without moving the camera
       }
+
+      // RC21 — the gate. Note what is ABOVE this line and therefore never skipped: the governor
+      // step, the tier apply, and `tilesHandle.update()` (the whole 55-step chain). Only the two
+      // GPU draws below are conditional, which is why this buys GPU and power and NOT CPU.
+      //
+      // Skipping `composer.render()` and then blitting the PiP would draw into an undefined
+      // backbuffer — with `preserveDrawingBuffer: false` the buffer's contents are only guaranteed
+      // while the frame is untouched. So the two skip together, always; the PiP block below is
+      // inside the same branch on purpose.
+      const gateNow = gateCfg();
+      const gatePose: PipPose = {
+        view: camera.matrixWorld.elements,
+        proj: camera.projectionMatrix.elements,
+        sun: [
+          sun.position.x - sun.target.position.x,
+          sun.position.y - sun.target.position.y,
+          sun.position.z - sun.target.position.z,
+        ],
+      };
+      // The settle clock: any change — pose or explicit — restarts it, so an ease kicked off by
+      // that change is drawn at full rate for the whole `restMs` window while it converges.
+      if (gateSeen === null || gateDirty || framePoseChanged(gateSeen, gatePose, gateNow)) {
+        gateQuietSinceMs = nowMs;
+      }
+      const drawFrame = frameNeedsRender(
+        gateSeen,
+        gatePose,
+        nowMs - gateDrawnMs,
+        nowMs - gateQuietSinceMs,
+        gateDirty,
+        gateNow,
+      );
+      if (!drawFrame) {
+        gateSkips++;
+        return;
+      }
+      gateDraws++;
+      gateSeen = pipCapture(gatePose);
+      gateDrawnMs = nowMs;
+      gateDirty = false;
       composer.render();
       // Batch #5 item 3 — /m PiP: one scissored pass renders the WHOLE view scaled into the
       // map window's hole. The .mw-pip box is sized in EQUAL vw/dvh fractions, so its aspect

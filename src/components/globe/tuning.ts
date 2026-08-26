@@ -514,6 +514,43 @@ export const PIP = {
   sunDirEps: 1e-4,
 } as const;
 
+/** RC21 — on-demand render for the MAIN view (charter Group E; `lib/globe/frameGate.ts`).
+ *
+ *  **SHIPS OFF.** Not because it is unfinished, but because flipping it is a RISK decision rather
+ *  than a look decision, and that call is the owner's. The 2026-08-26 recon mapped **40+
+ *  independent per-frame visual-change sources across 20 files**, ~14 of them asymptotic eases
+ *  with no snap; a predicate over that surface cannot be both cheap and complete, and the cost of
+ *  a false negative is a FROZEN GLOBE. Wants a full ULTRA-timelapse soak before the default moves.
+ *
+ *  **It buys GPU and power, NOT CPU.** `tilesHandle.update()` — the whole 55-step chain and all
+ *  three `tiles.update()` calls — runs every frame regardless, because that is where streaming,
+ *  LOD, the per-cell re-seat and every eased uniform are stepped. Only `composer.render()` and the
+ *  PiP blit are skippable. Say it that way wherever the saving is claimed. */
+export const GATE = {
+  /** The seam. `false` ⇒ `frameNeedsRender` returns true unconditionally, i.e. byte-for-byte the
+   *  pre-RC21 loop. Unit-locked, so the off-state is proven rather than assumed. */
+  enabled: false,
+  /** Hard refresh cadence (ms) — the actual safety net, not the epsilons. Everything the predicate
+   *  structurally cannot see (tile streaming, `uTime` twinkle, un-hooked eases) is stale for at
+   *  most this long instead of forever, which turns any miss into a low frame rate rather than a
+   *  freeze. **THE SECOND ROLLBACK KNOB:** `0` ⇒ always render, same as `enabled: false`. */
+  maxStaleMs: 200,
+  /** Settle window (ms): the gate may only engage after the scene has been quiet this long. Sized,
+   *  not chosen — the repo's own settling convention is ≥6.2τ, and the slowest LOOK-only ease is
+   *  `ULTRA.exposureTauMs` (950 ms; haze 700, reveal 600, drape 350 all sit under it), so
+   *  6.2 × 950 ≈ 5,890 → 6,000. Camera eases (`altEaseTauMs` 2,600, `poseEaseTauMs` 1,200) are
+   *  deliberately NOT in that maximum: they move the camera, so the pose predicate already sees
+   *  them and holds the clock reset for their whole duration. */
+  restMs: 6_000,
+  /** Epsilons — same meaning and same magnitudes as `PIP`'s, against the same matrices. They are
+   *  if anything tighter than they need to be here: the main view is the whole screen, so erring
+   *  toward re-rendering costs one frame and erring the other way costs a visible stall. */
+  posEpsM: 0.02,
+  basisEps: 1e-4,
+  projEps: 1e-6,
+  sunDirEps: 1e-4,
+} as const;
+
 /** Adaptive rendering quality (rendering/RENDERING_QUALITY_PASS.md WS1 — the keystone). A device tier is
  *  picked at startup (`lib/globe/quality.detectDeviceTier`) and a runtime governor
  *  (`makeGovernor`) steps it up/down from smoothed frame time; GlobeCanvas applies the renderer

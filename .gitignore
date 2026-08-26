@@ -48,6 +48,10 @@ test/fixtures/**/*.heic
 /bakes/
 /public/enriched/
 /scripts/bake/.cache/
+# Both bakers resolve `--out` against REPO_ROOT (`join(REPO_ROOT, args.out)`), so an absolute-looking
+# scratch path like `--out /tmp/foo` lands INSIDE the repo at ./tmp/foo, not in the system /tmp.
+# Ignored so a throwaway A/B bake can never reach the session-end auto-ship. (2026-08-26d)
+/tmp/
 
 # --- OSM2World "Slice 1.5" spike scratch (478 MB jar + .zip/.osm/.glb binaries — regen offline). ---
 /scripts/bake/spike-osm2world/

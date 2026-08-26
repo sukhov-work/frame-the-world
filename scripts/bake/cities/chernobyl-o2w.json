@@ -3,7 +3,7 @@
   "city": "chernobyl-o2w",
   "variantNote": "OSM2World highest-fidelity bake of the Pripyat / ChNPP box (region #4, owner ask 2026-08-26). Same pattern as dnipro-o2w and st-albans-o2w: inherits bbox / grid / vegetation / exclusion from cities/chernobyl.json — INCLUDING that file's narrow C6 `exclusion.tags` override, since bake-osm2world.mjs builds its excluder from the same merged config (bake-osm2world.mjs:126) — and bakes into a SIBLING output. The existing bakes and the default runtime path are untouched. This is variants[0] for the chernobyl region in src/lib/globe/regions.ts, so it is what boots there by default; the classic extruder bake stays uploaded as the ?enriched=chernobyl A/B seam.",
   "output": "bakes/enriched/chernobyl-o2w",
-  "tilesetVersion": "chernobyl-o2w-2",
+  "tilesetVersion": "chernobyl-o2w-3",
   "osm2world": {
     "jar": "scripts/bake/spike-osm2world/dist/OSM2World.jar",
     "jarNote": "0.5.0-SNAPSHOT distro (git-ignored; re-fetch: curl -LO https://osm2world.org/download/files/latest/OSM2World-latest-bin.zip && unzip into scripts/bake/spike-osm2world/dist). Java 17+ required; the --add-exports flags in bake-osm2world.mjs are mandatory on Java 21.",

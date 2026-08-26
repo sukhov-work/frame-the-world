@@ -64,3 +64,87 @@ export function projectEN(latDeg, lonDeg, basis) {
     dx * basis.north[0] + dy * basis.north[1] + dz * basis.north[2],
   ];
 }
+
+/* ────────────────────────────────────────────────────────────────────────────────────────────
+ * RC16 — the ONE grid-binning rule, shared by both bakers.
+ *
+ * Until 2026-08-26d the rule lived inline in each baker's `main()` and the two DISAGREED at the
+ * bbox edge: bake.mjs clamped a centroid-outside feature into the nearest edge cell and kept it
+ * whole, while bake-osm2world.mjs dropped it (`droppedOutside`). Since `dnipro` ships BOTH
+ * variants, the default and its A/B fallback had different edge behaviour — and neither rule was
+ * importable or covered by a test.
+ *
+ * THE RULE, and why it is this one. The runtime seam is `bboxClipPrismEcef`
+ * (src/lib/globe/enrichedMask.ts): four ECEF planes that discard Cesium-OSM fragments INSIDE the
+ * bake bbox. So the contract the bake has to honour is exactly "the enriched tileset draws
+ * whatever the prism removed":
+ *
+ *   OWNERSHIP is by INTERSECTION with the bbox, never by the centroid. A feature that pokes into
+ *   the prism at all has its inside part erased from Cesium, so if the bake does not carry it the
+ *   result is a HOLE — a half-building notch at eye level.
+ *
+ *   PLACEMENT is the clamped centroid cell. Ownership already guarantees the feature touches the
+ *   bbox, so its centroid sits at most one feature-radius outside and the clamp moves it by at
+ *   most one cell. The clamp is a clamp, not a teleport.
+ *
+ * WHY THE OLD CENTROID DROP LOOKED NECESSARY, measured on the shipped intermediates
+ * (`scripts/bake/measure-straddlers.mjs`): `droppedOutside` was two populations wearing one name.
+ * Only 123 / 61 / 1 of dnipro-o2w's 2,741, st-albans-o2w's 289 and chernobyl-o2w's 1,664 are real
+ * straddlers; the other 2,618 / 228 / 1,663 sit a MEDIAN 761 m / 40 km / 36 km outside (max 55 km /
+ * 653 km / 149 km) because OSM2World renders its whole relation-recursed extract, whose data
+ * bounds inflate far past the sub-box. Dropping those is right and this rule still drops them —
+ * it just stops taking the other 185 features down with them.
+ *
+ * The extruder measures FAR = 0 at all three cities, because `way["building"](bbox)` only returns
+ * ways intersecting the bbox. Its unbounded clamp was therefore safe by a property of its INPUT,
+ * not of its code; the explicit `far` branch below makes that guarantee local.
+ *
+ * KNOWN RESIDUAL (measured, not hand-waved): an owned feature that pokes outside is still drawn
+ * twice out there — once by the bake, once by unclipped Cesium — on 0.03–0.42 % of features per
+ * bake (212 dnipro, 229 dnipro-o2w, 96 st-albans, 111 st-albans-o2w, 1 chernobyl), poking a median
+ * 3–10 m past the edge. That is a coincident-sliver duplicate, not a hole, and closing it needs
+ * the margin/crossfade ring the audit sketched. Growing the prism instead is NOT the fix: it
+ * would blank Cesium over a ring the bake does not cover, which punches a real hole.
+ * ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** A feature's lon/lat extent in DEGREES. */
+/** @typedef {{minLon:number,maxLon:number,minLat:number,maxLat:number}} LonLatBounds */
+
+/** Do `bounds` touch the bbox `[w,s,e,n]` at all? Inclusive on the edges, matching the runtime
+ *  prism's inclusive `bboxContainsRad`. */
+export function bboxIntersects(bbox, bounds) {
+  const [w, s, e, n] = bbox;
+  return !(bounds.maxLon < w || bounds.minLon > e || bounds.maxLat < s || bounds.minLat > n);
+}
+
+/** Are `bounds` wholly inside the bbox (no edge crossing)? */
+export function bboxContainsBounds(bbox, bounds) {
+  const [w, s, e, n] = bbox;
+  return bounds.minLon >= w && bounds.maxLon <= e && bounds.minLat >= s && bounds.maxLat <= n;
+}
+
+/** The grid cell of a lon/lat, clamped to `[0, grid-1]` on both axes. */
+export function cellOf(bbox, grid, lon, lat) {
+  const [w, s, e, n] = bbox;
+  const spanLon = e - w, spanLat = n - s;
+  const gi = spanLon > 0 ? Math.min(grid - 1, Math.max(0, Math.floor(((lon - w) / spanLon) * grid))) : 0;
+  const gj = spanLat > 0 ? Math.min(grid - 1, Math.max(0, Math.floor(((lat - s) / spanLat) * grid))) : 0;
+  return { gi, gj, key: `${gi},${gj}` };
+}
+
+/**
+ * Bin ONE feature. `bounds` is its full lon/lat extent; `cLon`/`cLat` its centroid (each baker
+ * keeps its own centroid definition — the extruder averages footprint ring vertices, the adapter
+ * averages the density-weighted 3D soup — because only ownership has to agree across the A/B
+ * seam; placement of an owned feature differs by at most a cell either way).
+ *
+ * @returns {{bucket:"in"|"straddle"|"far", gi:number, gj:number, key:string}
+ *          | {bucket:"far", gi:null, gj:null, key:null}}
+ *   `bucket === "far"` means DROP: nothing of this feature is inside the prism, so Cesium still
+ *   draws it and baking it would be a coincident duplicate.
+ */
+export function binFeature(bbox, grid, bounds, cLon, cLat) {
+  if (!bboxIntersects(bbox, bounds)) return { bucket: "far", gi: null, gj: null, key: null };
+  const bucket = bboxContainsBounds(bbox, bounds) ? "in" : "straddle";
+  return { bucket, ...cellOf(bbox, grid, cLon, cLat) };
+}
