@@ -30,6 +30,8 @@ import { makeExcluder } from "./lib/exclusion.mjs";
 import { encodeGlb, buildTileset, regionRad } from "./lib/gltf.mjs";
 import { readGlb, readAccessor, readIndices } from "./lib/readGlb.mjs";
 import { subBoxes, fetchOsmXml, c6FilterXml } from "./lib/osmXml.mjs";
+import { skirtForSoup, SKIRT_BAND_M } from "./lib/buildings.mjs";
+import { metaRow, cellMetaJson, META_SCHEMA } from "./lib/meta.mjs";
 import { fetchBuildings, extractFootprints } from "./lib/overpass.mjs";
 import {
   fetchVegetation,
@@ -193,7 +195,16 @@ async function main() {
     };
   };
 
-  const seenNames = new Set();
+  // Cross-sub-box dedupe. The key is `<class>|<osm id>`, NOT the glTF node name — and that
+  // distinction is a bug fix, not a preference. OSM2World names a node after the OSM `name` TAG
+  // whenever the element has one ("Building Sainsbury's", "Building Теплиця"), so a name-keyed set
+  // collides on genuinely different buildings that happen to share a name. Decoding the cached
+  // extracts, that silently dropped 48 distinct buildings from chernobyl-o2w and 26 from
+  // st-albans-o2w — 46 and 16 of them WITHIN a single sub-box, so they were never straddlers at
+  // all. `extras.osmId` is present on 100 % of named mesh nodes (0 missing in 2,428 Dnipro / 69
+  // Chernobyl nodes) and is already read four lines below for the sidecar. The class stays in the
+  // key so a `Building` and a `BuildingPart` on the same element cannot cannibalise each other.
+  const seenIds = new Set();
   const feats = []; // { name, cls, pos:Float32Array (osm-local), nrm:Float32Array, inv }
   const droppedClasses = {};
   let dupes = 0, transformWarned = false;
@@ -206,8 +217,14 @@ async function main() {
       if (node.mesh == null || !node.name) continue;
       const cls = classOf(node.name);
       if (dropRe.test(cls)) { droppedClasses[cls] = (droppedClasses[cls] ?? 0) + 1; continue; }
-      if (seenNames.has(node.name)) { dupes++; continue; }
-      seenNames.add(node.name);
+      // U8/RC17: the stable OSM element id — OSM2World stamps every kept node with extras.osmId
+      // ("w141472295"; artifact-verified 2026-08-19) and MOSTLY mirrors it in the node name. The
+      // name fallback is unsafe (it holds the `name` tag when there is one) and only survives
+      // because `extras` wins in practice; it stays as insurance against a version drift.
+      const osm = node.extras?.osmId ?? null;
+      const dedupeKey = `${cls}|${osm ?? node.name}`;
+      if (seenIds.has(dedupeKey)) { dupes++; continue; }
+      seenIds.add(dedupeKey);
       if ((node.matrix || node.translation || node.rotation || node.scale) && !transformWarned) {
         console.warn(`  ⚠ node "${node.name}" carries a transform — adapter assumes the flat OSM2World scene (ignored)`);
         transformWarned = true;
@@ -226,10 +243,6 @@ async function main() {
         }
       }
       if (pos.length === 0) continue;
-      // U8: the stable OSM element id — OSM2World stamps every kept node with extras.osmId
-      // ("w141472295"; artifact-verified 2026-08-19) and mirrors it in the node name
-      // ("Building w141472295"); either source survives a version drift.
-      const osm = node.extras?.osmId ?? node.name.split(" ")[1] ?? null;
       feats.push({ name: node.name, cls, osm, pos: Float32Array.from(pos), nrm: Float32Array.from(nrm), inv });
     }
   }
@@ -256,7 +269,8 @@ async function main() {
   // 3c · Re-bin features into the grid (contiguous _FEATURE_ID_0 per feature; C6 polygon gate) ------
   const cells = new Map(); // "gi,gj" → { positions, normals, featureIds, minLon,maxLon,minLat,maxLat, maxH }
   const classKept = {};
-  let featureId = 0, kept = 0, droppedOutside = 0, droppedPolygon = 0;
+  let featureId = 0, kept = 0, droppedOutside = 0, droppedPolygon = 0, skirted = 0;
+  const skirtM = Math.max(0, cfg.buildings?.skirtM ?? 0);
   for (const f of feats) {
     const nv = f.pos.length / 3;
     // Exact per-vertex geo: invert the glb's own Mercator → lat/lon → our ENU (projectEN, exact).
@@ -277,13 +291,29 @@ async function main() {
     let cell = cells.get(key);
     if (!cell) { cell = { positions: [], normals: [], featureIds: [], minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity, maxH: 0 }; cells.set(key, cell); }
     const id = featureId++;
-    // U8 identity sidecar row: featureId → OSM element id + class (fences/lamps get filtered
-    // by class once the runtime consumes this — today the pick uses a height floor instead).
-    (cell.meta ??= []).push({ id, osm: f.osm, cls: f.cls });
+    // RC13 — the skirt, decided from the feature's OWN Y extent because the adapter has geometry,
+    // not tags. Y passes through the ENU re-projection bit-identically (the transform touches only
+    // X/Z), so the soup's minimum here IS the runtime's base.
+    let minU = Infinity, maxU = -Infinity;
+    for (let v = 0; v < nv; v++) {
+      const u = f.pos[v * 3 + 1];
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+    }
+    const skirt = skirtForSoup(minU, maxU, cfg.buildings);
+    if (skirt > 0) skirted++;
+    // RC17 identity sidecar row — one schema with bake.mjs (lib/meta.mjs). `lo` is the SKIRTED
+    // minimum, which is what `metaRow` expects; it adds the skirt back to report the true base.
+    (cell.meta ??= []).push(
+      metaRow({ id, osm: f.osm, cls: f.cls, lo: minU - skirt, hi: maxU, skirt, src: "o2w" }),
+    );
     for (let v = 0; v < nv; v++) {
       const [E, N] = projectEN(lats[v], lons[v], basis);
       // our tileset local frame: gv(e,n,u) = [e, u, −n] — the identical convention to bake.mjs.
-      const u = f.pos[v * 3 + 1];
+      // The bottom rim (and only the bottom rim) drops by the skirt — see lib/buildings.mjs for
+      // why this is a translation rather than an appended course of quads.
+      const raw = f.pos[v * 3 + 1];
+      const u = raw <= minU + SKIRT_BAND_M ? raw - skirt : raw;
       cell.positions.push(E, u, -N);
       cell.normals.push(f.nrm[v * 3], f.nrm[v * 3 + 1], f.nrm[v * 3 + 2]);
       cell.featureIds.push(id);
@@ -296,6 +326,7 @@ async function main() {
   }
   console.log(`  binned ${kept} features into ${cells.size} cells (outside bbox −${droppedOutside}, C6 polygon −${droppedPolygon})`);
   console.log(`  classes ${JSON.stringify(classKept)}`);
+  console.log(`  skirt ${skirtM} m on ${skirted}/${kept} (rest are flat ribbons or founded above ground) · meta schema ${META_SCHEMA}`);
 
   // 4 · Trees — IDENTICAL inputs to bake.mjs (same caches, same seeds) → byte-identical placements,
   // so the A/B against the default bake differs only in structure geometry.
@@ -340,11 +371,10 @@ async function main() {
     const glb = encodeGlb(out);
     const uri = `cell-${key.replace(",", "-")}.glb`;
     writeFileSync(join(outDir, uri), glb);
-    // U8 identity sidecar (mirrors bake.mjs): featureId → stable OSM id per cell. Never in
-    // `_FEATURE_ID_0` itself — float32 tops out at 2^24, OSM way ids are ~10^9.
+    // RC17 identity sidecar — one schema with bake.mjs (rationale in lib/meta.mjs).
     writeFileSync(
       join(outDir, uri.replace(/\.glb$/, ".meta.json")),
-      JSON.stringify({ features: cell.meta ?? [] }),
+      cellMetaJson({ variant: cfg.city, skirtM, features: cell.meta ?? [] }),
     );
     totalVerts += cell.positions.length / 3;
     totalBytes += glb.length;
@@ -373,7 +403,10 @@ async function main() {
     bbox: cfg.bbox,
     origin: { latDeg: originLat, lonDeg: originLon },
     grid,
-    counts: { features: kept, classes: classKept, droppedClasses, dedupedAcrossSubBoxes: dupes, cells: children.length, verts: totalVerts, trees: totalTrees },
+    // `droppedOutside`/`droppedPolygon` were logged but never persisted, so there was no baseline
+    // to regress a straddler-rule change against. RC16 will need exactly these two numbers.
+    counts: { features: kept, classes: classKept, droppedClasses, dedupedAcrossSubBoxes: dupes, droppedOutside, droppedPolygon, cells: children.length, verts: totalVerts, trees: totalTrees },
+    skirt: { m: skirtM, skirted, schema: META_SCHEMA },
     treeStats,
     osm2world: { lod: o2w.lod ?? 2, subGrid: o2w.subGrid ?? 2, excludeModules: o2w.excludeModules ?? [], dropClassesRegex: String(dropRe) },
     seating: "runtime clamp-to-CWT (baked at ellipsoid h=0; scene/enrichedBuildings.ts re-seats)",

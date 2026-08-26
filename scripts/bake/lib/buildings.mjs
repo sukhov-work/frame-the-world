@@ -195,6 +195,58 @@ export function obb(poly) {
   };
 }
 
+// ── RC13 · the base skirt ─────────────────────────────────────────────────────────────────────────
+//
+// A building is baked at a nominal ground of u = 0 and SEATED onto terrain at runtime (per group,
+// per cell, then per footprint). Every rung of that ladder leaves a residual, and while a cell is
+// still streaming its features sit on the cell plane. Where the residual is positive the building
+// hovers and you see SKY UNDER ITS WALLS — the one artifact that reads as broken rather than as
+// imprecise. The skirt hides it with geometry: the walls simply start `skirtM` lower.
+//
+// IT COSTS NO VERTICES. The charter says "extrude a skirt", and the naive reading — append a quad
+// per bottom boundary edge — was measured on the real OSM2World intermediates at **+59 % vertices
+// bake-wide, +78 % on Building alone**, against the audit's own acceptance bar of "+≤10 %"
+// (S13). But the walls already HAVE a bottom rim; lowering it is the same picture for zero new
+// triangles, and it is what both bakers do. The audit's bar is met at +0 %.
+//
+// Two guards, both learned from the o2w classes (see `skirtForSoup`) rather than assumed.
+
+/** Y-extent (m) below which a feature is a flat ribbon with no wall to extend. */
+export const SKIRT_MIN_EXTENT_M = 0.5;
+/** Base height (m) above which a feature is deliberately founded off the ground — never fill that gap. */
+export const SKIRT_MAX_BASE_M = 0.25;
+/** Half-band (m) around a soup feature's own minimum Y that counts as "the bottom rim". */
+export const SKIRT_BAND_M = 0.05;
+
+/**
+ * Skirt depth (m) for a footprint-extruded building. `base > 0` means OSM `min_height` /
+ * `building:min_level`: the mass is authored to START above the ground (a tower over a podium, an
+ * arch, a building part), and the gap under it is intentional. Skirting those would fill a hole
+ * the mapper drew on purpose, so they get nothing.
+ */
+export function skirtFor(params, cfg = {}) {
+  const m = Math.max(0, cfg.skirtM ?? 0);
+  return params.base <= SKIRT_MAX_BASE_M ? m : 0;
+}
+
+/**
+ * Skirt depth (m) for an OSM2World triangle-soup feature, decided from its own Y extent because
+ * that is all the adapter has — OSM2World hands back geometry, not tags.
+ *
+ * The first guard is not hypothetical. The o2w bake runs with `createTerrain=false` and no SRTM
+ * directory, so its ground is the plane u = 0 — and `Cliff` (60 in the shipped Dnipro manifest)
+ * and `RetainingWall` (171) come back with `minY === maxY === 0`, flat ribbons with no height to
+ * express. Lowering their "bottom rim" is lowering the whole feature, which buries a surface that
+ * currently renders, and appending a skirt to one would hang a 4 m curtain off a zero-height line.
+ */
+export function skirtForSoup(minU, maxU, cfg = {}) {
+  const m = Math.max(0, cfg.skirtM ?? 0);
+  if (m <= 0) return 0;
+  if (maxU - minU < SKIRT_MIN_EXTENT_M) return 0;
+  if (minU > SKIRT_MAX_BASE_M) return 0;
+  return m;
+}
+
 // ── mesh emission (ENU → glTF Y-up) ────────────────────────────────────────────────────────────────
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -239,10 +291,12 @@ export function emitBuilding(footprintEN, params, featureId, out, cfg = {}) {
   };
   const pushQuad = (a, b, c, d) => { pushTri(a, b, c); pushTri(a, c, d); };
 
-  // Walls: one quad per footprint edge, base → eave.
+  // Walls: one quad per footprint edge, (base − skirt) → eave. RC13: the skirt lowers the rim
+  // rather than appending a second course of quads, so the wall count is unchanged.
+  const wallBottom = base - skirtFor(params, cfg);
   for (let i = 0; i < ring.length; i++) {
     const A = ring[i], B = ring[(i + 1) % ring.length];
-    pushQuad(gv(A[0], A[1], base), gv(B[0], B[1], base), gv(B[0], B[1], height), gv(A[0], A[1], height));
+    pushQuad(gv(A[0], A[1], wallBottom), gv(B[0], B[1], wallBottom), gv(B[0], B[1], height), gv(A[0], A[1], height));
   }
 
   // Roof.

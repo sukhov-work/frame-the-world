@@ -4,6 +4,8 @@
   "bboxNote": "St Albans, UK ~6 x 6 km centred on 51.75153/-0.32567 (owner experiment 2026-07-18). Covers the built-up city: cathedral/centre (~-0.34), Verulamium Park west edge (~-0.365), Marshalswick NE. grid 6 keeps cell size ~1.0x1.0 km (same streaming granularity as dnipro). bbox = [west,south,east,north] deg. The runtime mask extent for the VARIANT comes from ENRICHED.variantBboxes in src/components/globe/tuning.ts and MUST match this (mask extent == enriched extent, or they overlap/gap).",
   "grid": 6,
   "buildings": {
+    "skirtM": 4,
+    "skirtNote": "RC13 base skirt (m) — see scripts/bake/lib/buildings.mjs. Read by BOTH bakers (st-albans-o2w inherits this block through `extends`), which is the one part of this block bake-osm2world.mjs does use. Lowers the wall rim rather than appending quads, so it costs +0 vertices.",
     "levelHeightM": 3.0,
     "defaultHeightM": 7,
     "roofPitch": 0.5,
@@ -33,5 +35,5 @@
   },
   "attribution": "Contains information from OpenStreetMap © OpenStreetMap contributors, made available under the Open Database License (ODbL).",
   "output": "bakes/enriched/st-albans",
-  "tilesetVersion": "st-albans-1"
+  "tilesetVersion": "st-albans-2"
 }

@@ -127,6 +127,11 @@ console.log(`\n▶ verify-chernobyl  ${BASE}${POSE}`);
 // this check did exactly that and reported "enriched prefixes seen: []" against a page that was
 // streaming the bake correctly — a probe reading an emptied buffer FAILS OPEN.
 await goto(BASE + POSE);
+/** A cell glb request. NOT `endsWith(".glb")`: since 2026-08-26 the baker stamps a
+ *  `?v=<tilesetVersion>` cache-buster onto every content uri, and the old test silently matched
+ *  nothing — reporting "streamed ZERO cell glbs" against a page that was streaming them fine. */
+const isGlb = (url) => /\.glb(\?|$)/.test(url);
+
 /** Distinct `<prefix>` values seen under `/enriched/<prefix>/` or `/terrain/<prefix>/`. */
 const prefixes = (kind) => [
   ...new Set(net.filter((r) => r.url.includes(`/${kind}/`)).map((r) => r.url.split(`/${kind}/`)[1].split("/")[0])),
@@ -140,7 +145,7 @@ ok("region selection → chernobyl-o2w (not the dnipro head)", JSON.stringify(en
 
 // ── 2 · the o2w tileset and its cells really arrived ──────────────────────────────────────────
 const o2w = net.filter((r) => r.url.includes("/enriched/chernobyl-o2w/"));
-const o2wGlb = o2w.filter((r) => r.url.endsWith(".glb"));
+const o2wGlb = o2w.filter((r) => isGlb(r.url));
 const o2wBad = o2w.filter((r) => r.status >= 400);
 if (!o2w.some((r) => r.url.endsWith("tileset.json") && r.status === 200)) fail("no 200 for the o2w tileset.json");
 if (o2wGlb.length === 0) fail("the o2w tileset loaded but streamed ZERO cell glbs");
@@ -213,10 +218,10 @@ await shoot("chernobyl-01-reactor-o2w.jpeg");
 // ── 5 · the A/B seam: classic bake, then off ──────────────────────────────────────────────────
 await goto(BASE + "?enriched=chernobyl" + POSE);
 const classic = net.filter((r) => r.url.includes("/enriched/chernobyl/") && r.status === 200);
-if (!classic.some((r) => r.url.endsWith(".glb"))) fail("?enriched=chernobyl streamed no classic cell glbs");
+if (!classic.some((r) => isGlb(r.url))) fail("?enriched=chernobyl streamed no classic cell glbs");
 if (net.some((r) => r.url.includes("/enriched/chernobyl-o2w/")))
   fail("?enriched=chernobyl still pulled the o2w bake — the param did not swap the source");
-ok("?enriched=chernobyl → classic extruder bake", `${classic.filter((r) => r.url.endsWith(".glb")).length} cell glbs`);
+ok("?enriched=chernobyl → classic extruder bake", `${classic.filter((r) => isGlb(r.url)).length} cell glbs`);
 await shoot("chernobyl-02-reactor-classic.jpeg");
 
 await goto(BASE + "?enriched=off" + POSE, 8000);
@@ -227,7 +232,7 @@ await shoot("chernobyl-03-reactor-off.jpeg");
 
 // Pripyat itself, from the o2w bake — the other half of what the owner asked for.
 await goto(BASE + "#p=51.4053,30.0567,900,200,60&t=1782032400000");
-const pri = net.filter((r) => r.url.includes("/enriched/chernobyl-o2w/") && r.url.endsWith(".glb") && r.status === 200);
+const pri = net.filter((r) => r.url.includes("/enriched/chernobyl-o2w/") && isGlb(r.url) && r.status === 200);
 if (pri.length === 0) fail("no o2w cells streamed over Pripyat city centre");
 ok("Pripyat city centre streams the o2w bake", `${pri.length} cell glbs`);
 await shoot("chernobyl-04-pripyat-o2w.jpeg");

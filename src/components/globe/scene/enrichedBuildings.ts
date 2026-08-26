@@ -37,6 +37,13 @@ import {
   SCALE_MAX_K,
   SCALE_MIN_K,
 } from "../../../lib/globe/bldgOverrides";
+import {
+  type CellMeta,
+  cellUriOf,
+  isPickableClass,
+  metaUrlForGlb,
+  parseCellMeta,
+} from "../../../lib/globe/enrichedMeta";
 import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES, WGS84_A } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
 import { makeTileCenterReader } from "./tilePriority";
@@ -128,6 +135,12 @@ import { makeTileFoveation } from "./tileFoveation";
 export interface BuildingPick {
   cellUri: string;
   featureId: number;
+  /** RC17 stable OSM element id, null on a bake with no sidecar (or a feature the baker had none
+   *  for). This is the key U8 rows migrate to — `featureId` is bake-sequential and dies on a
+   *  re-bake, which is why the store still carries a centroid checksum alongside it. */
+  osm: string | null;
+  /** RC17 class token, null on a bake with no sidecar. */
+  cls: string | null;
   bakedHeightM: number;
   /** Committed scale target (1 = original). */
   currentK: number;
@@ -170,9 +183,11 @@ export interface EnrichedBuildingsHandle {
    *  `quietFrames` counts frames since the last write. The orchestrator invalidates a ready
    *  skyline profile once per settled epoch (PLAN.reseatQuietFrames). */
   seatState(): { epoch: number; quietFrames: number };
-  /** U8 pick: raycast the enriched fill meshes; the first qualifying hit (baked height ≥
-   *  ENRICHED.overrideMinPickHeightM — skips the o2w fences/lamps) resolves through the cached
-   *  run table. Null = no building under the ray. */
+  /** U8 pick: raycast the enriched fill meshes; the first qualifying hit resolves through the
+   *  cached run table. RC17 qualifies on the sidecar's CLASS token (Building family only, so an
+   *  o2w fence/lamp/pylon is skipped and whatever stands behind it answers), falling back to the
+   *  old `ENRICHED.overrideMinPickHeightM` height floor on a bake with no sidecar. Null = no
+   *  building under the ray. */
   pickBuilding(raycaster: THREE.Raycaster): BuildingPick | null;
   /** U8 commit: set a building's height-scale target (1 = original). The next frames ease the
    *  REAL mesh there inside applyFeatureSeats (fill + edge CSR + bounds pad + committed tint). */
@@ -229,6 +244,27 @@ export interface EnrichedBuildingsHandle {
     seatCacheHits: number;
     seatCacheMisses: number;
     seatCacheCells: number;
+    /** RC17 — sidecar coverage. `metaCells` counts cells whose `.meta.json` arrived AND parsed;
+     *  `metaMissing` counts cells that answered 404 or a schema this build refuses. On a bake
+     *  that predates the writers both the class fence and the true-base correction are inert, so
+     *  a check that reads a pick result without reading THESE is reading an unfenced pick and
+     *  cannot tell the difference. `metaFeatures` is the class histogram behind the fence. */
+    metaCells: number;
+    metaMissing: number;
+    metaFeatures: Record<string, number>;
+    /** RC13 — `minVertexY` should reach ≈ −skirtM while `baseYMin` stays ≈ 0. Both, or neither
+     *  half of the slice is real. */
+    skirt: { n: number; minVertexY: number | null; baseYMin: number | null; heightMaxM: number };
+    /** RC17 — `reclaimed` is the count of non-building features the old 2.5 m height floor was
+     *  admitting to a U8 rescale and the class token now refuses. The only non-tautological
+     *  number in this block. */
+    pickFence: {
+      features: number;
+      classed: number;
+      armable: number;
+      oldFloorArmable: number;
+      reclaimed: number;
+    };
   };
   dispose(): void;
 }
@@ -281,13 +317,61 @@ export function attachEnrichedBuildings(
   // Claim ONLY the .glb content fetches with HTTP force-cache (skips revalidation);
   // tileset.json declines → the default fetch keeps revalidating. Same claimer shape +
   // priority slot as FTW_TERRAIN_PATCH (no ion auth on this renderer to defer to).
+  // RC17 — the per-cell sidecar cache. `null` is a REAL answer ("this bake has no meta"), which
+  // is why the map holds nullable values instead of just missing keys: a legacy bake would
+  // otherwise re-probe every cell on every LRU reload. Dropped with the seat cache on a variant
+  // switch — another bake's class tokens are exactly as wrong as another bake's ground truth.
+  const metaByUri = new Map<string, CellMeta | null>();
+  const metaPending = new Map<string, Promise<void>>();
+  let metaCells = 0; // cells whose sidecar arrived and parsed
+  /** Fetch + cache one cell's sidecar. Never rejects — absence is a normal answer. */
+  const primeMeta = (glbUrl: string): Promise<void> => {
+    const uri = cellUriOf(glbUrl);
+    if (!uri || metaByUri.has(uri)) return Promise.resolve();
+    const pending = metaPending.get(uri);
+    if (pending) return pending;
+    const metaUrl = metaUrlForGlb(glbUrl);
+    if (!metaUrl) return Promise.resolve();
+    const p = fetch(metaUrl, { cache: "force-cache" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const parsed = j == null ? null : parseCellMeta(j);
+        metaByUri.set(uri, parsed);
+        if (parsed) metaCells++;
+      })
+      .catch(() => {
+        metaByUri.set(uri, null);
+      })
+      .finally(() => {
+        metaPending.delete(uri);
+      });
+    metaPending.set(uri, p);
+    return p;
+  };
+  // #15(c) (batch #4 S3): enriched cells are bake-content-addressed R2 binaries → immutable.
+  // Claim ONLY the .glb content fetches with HTTP force-cache (skips revalidation);
+  // tileset.json declines → the default fetch keeps revalidating. Same claimer shape +
+  // priority slot as FTW_TERRAIN_PATCH (no ion auth on this renderer to defer to).
+  //
+  // RC17 rides this claim to solve an ORDERING problem, not just to save a round trip. The
+  // sidecar is what tells `load-model` a feature's class and its true base — and load-model is
+  // where the pristine per-run capture happens and where persisted U8 overrides are re-applied.
+  // A sidecar that lands afterwards would mean the first pick on a fresh cell uses the old height
+  // floor, and a re-applied override would begin easing about the SKIRTED base and then have the
+  // pivot move underneath it mid-ease. Resolving the model's own fetch behind the sidecar removes
+  // the race outright. It costs nothing in practice: the two fetches run concurrently and the
+  // sidecar is kilobytes against the cell's megabytes, so the join is the glb either way.
   tiles.registerPlugin({
     name: "FTW_ENRICHED_FORCE_CACHE",
     priority: -500,
     fetchData(url: string | URL, options: RequestInit) {
       const u = String(url);
-      if (!u.endsWith(".glb")) return null;
-      return fetch(u, { ...options, cache: "force-cache" });
+      // Matched with a regex, not `endsWith`: since 2026-08-26 the baker stamps a `?v=<version>`
+      // cache-buster onto every content uri, and an `endsWith(".glb")` test would quietly stop
+      // matching — dropping the force-cache claim AND the sidecar prime, with nothing failing.
+      if (!/\.glb(\?|$)/.test(u)) return null;
+      const glb = fetch(u, { ...options, cache: "force-cache" });
+      return Promise.all([glb, primeMeta(u)]).then(([r]) => r);
     },
   } as never);
   // U6 foveated FPV loading (mirrors buildings.ts): regions tighten inside the fovea only; the
@@ -361,8 +445,15 @@ export function attachEnrichedBuildings(
     seatM: number | null; // sticky last-good terrain at the footprint
     appliedM: number | null; // delta currently baked into the geometry (null = on the cell plane)
     // U8 — pristine per-run capture (load-model, BEFORE any write; Y mutates afterward):
-    baseY: number; // pristine min local Y (the building's base)
-    topY: number; // pristine max local Y (baked height = topY − baseY)
+    /** The building's TRUE base in local Y. RC17 adds the RC13 skirt back onto the geometric
+     *  minimum when the sidecar is present, so this is ground contact rather than the buried rim
+     *  — which is what every consumer (scale pivot, ghost rebase, bounds growth) means by "base". */
+    baseY: number;
+    topY: number; // pristine max local Y (rendered height = topY − baseY)
+    /** RC17 sidecar class token ("Building", "StreetLamp", …), null on a bake with no sidecar. */
+    cls: string | null;
+    /** RC17 stable OSM element id — the re-bake-durable key U8 rows will migrate to. */
+    osm: string | null;
     cx: number; // pristine centroid X/Z (bake-local m) — checksum + ghost inflate centre
     cz: number;
     scaleK: number; // height-scale TARGET (1 = original; set by commit / persisted rows)
@@ -556,7 +647,10 @@ export function attachEnrichedBuildings(
       // U8: the baked content uri BASENAME ("cell-10-10.glb") — authored relative by the baker
       // and left untouched by the library, so it's byte-identical between the dev middleware
       // and the R2 worker (basename defensively, in case a library version absolutizes).
-      const uri = String(e.tile?.content?.uri ?? "").split("/").pop() ?? "";
+      // The `?v=<tilesetVersion>` cache-buster is stripped FIRST and deliberately: this string is
+      // the persistence key for U8 override rows and the banked cell seats, so leaving the
+      // version in would make a version bump alone drop every saved edit in the browser.
+      const uri = cellUriOf(String(e.tile?.content?.uri ?? ""));
       cell = {
         scene: e.scene,
         uri,
@@ -679,6 +773,12 @@ export function attachEnrichedBuildings(
             // before any seat write mutates Y. Baked height, checksum and ghost all read these.
             const posArr = posAttr.array as Float32Array;
             const runIdx = new Map<number, number>();
+            // RC17: the sidecar is guaranteed present by the time this runs (the fetch plugin
+            // resolves the model behind it), so `baseY` can be the building's TRUE base from the
+            // first frame rather than the geometric minimum RC13's skirt just moved 4 m down.
+            // Every downstream consumer — the U8 scale pivot, the ghost rebase, the bounds
+            // growth, the reported height — asks for "the building's base" and now gets it.
+            const cellMeta = cell.uri ? metaByUri.get(cell.uri) : undefined;
             const features: FeatureSeat[] = runs.map((run, i) => {
               runIdx.set(run.id, i);
               let baseY = Infinity;
@@ -693,14 +793,17 @@ export function attachEnrichedBuildings(
                 sz += posArr[v * 3 + 2];
               }
               const n = Math.max(1, run.count);
+              const m = cellMeta?.byId.get(run.id);
               return {
                 run,
                 latDeg: 0,
                 lonDeg: 0,
                 seatM: null,
                 appliedM: null,
-                baseY,
+                baseY: m ? baseY + m.skirt : baseY,
                 topY,
+                cls: m?.cls ?? null,
+                osm: m?.osm ?? null,
                 cx: sx / n,
                 cz: sz / n,
                 scaleK: 1,
@@ -1245,14 +1348,22 @@ export function attachEnrichedBuildings(
         if (r < 0) continue;
         const f = reg.part.features[r];
         const bakedHeightM = f.topY - f.baseY;
-        // The o2w bake keeps fences/walls/lamps as runs with no runtime class signal (yet —
-        // the meta sidecar lands at the next re-bake): a height floor keeps the gesture on
-        // actual massing, falling through to the building BEHIND the fence.
-        if (bakedHeightM < ENRICHED.overrideMinPickHeightM) continue;
+        // RC17 — the class fence. `continue`, not `return`: falling through to whatever stands
+        // BEHIND the lamp post is the behaviour the height floor had, and it is the right one.
+        //
+        // The floor it replaces was a geometric proxy for a semantic question and got both
+        // directions wrong — a single-storey outbuilding was unpickable, while every street lamp,
+        // flagpole and 30 m transmission pylon cleared 2.5 m easily and was fully RESCALABLE. It
+        // survives only as the fallback for a bake that predates the sidecar.
+        if (f.cls !== null) {
+          if (!isPickableClass(f.cls)) continue;
+        } else if (bakedHeightM < ENRICHED.overrideMinPickHeightM) continue;
         if (!reg.cell.uri) return null; // verbatim dev tileset — no stable identity
         return {
           cellUri: reg.cell.uri,
           featureId: f.run.id,
+          osm: f.osm,
+          cls: f.cls,
           bakedHeightM,
           currentK: f.scaleK,
           distance: hit.distance,
@@ -1443,6 +1554,69 @@ export function attachEnrichedBuildings(
         nearFeaturesSampled,
         priorityCells: priorityCells.length,
         /** RC9 — cells that came back from an LRU eviction with their seats intact vs cold. */
+        metaCells,
+        metaMissing: [...metaByUri.values()].filter((m) => m === null).length,
+        // RC13 — the skirt, read off the LIVE geometry and the live registry together. The two
+        // fields are the two halves of one claim and only mean something as a pair: vertices must
+        // reach below the base (or the skirt never baked), while the reported base must NOT (or
+        // the sidecar's skirt-undo is not being applied and every height is 4 m too tall).
+        skirt: (() => {
+          let minVertexY = Infinity;
+          let baseYMin = Infinity;
+          let heightMaxM = 0;
+          let n = 0;
+          for (const c of cellList)
+            for (const part of c.parts) {
+              const pos = part.posAttr.array as Float32Array;
+              for (const f of part.features) {
+                n++;
+                if (f.baseY < baseYMin) baseYMin = f.baseY;
+                const h = f.topY - f.baseY;
+                if (h > heightMaxM) heightMaxM = h;
+                // The run's own vertex minimum, in the pristine baked frame: seats translate the
+                // whole run, so the applied delta has to come back off to compare against baseY.
+                const dy = f.appliedM ?? 0;
+                for (let v = f.run.start; v < f.run.start + f.run.count; v++) {
+                  const y = pos[v * 3 + 1] - dy;
+                  if (y < minVertexY) minVertexY = y;
+                }
+              }
+            }
+          return {
+            n,
+            minVertexY: Number.isFinite(minVertexY) ? +minVertexY.toFixed(2) : null,
+            baseYMin: Number.isFinite(baseYMin) ? +baseYMin.toFixed(2) : null,
+            heightMaxM: +heightMaxM.toFixed(1),
+          };
+        })(),
+        // RC17 — what the class fence actually changed, measured rather than asserted.
+        // `armable` runs the SHIPPED gate; `oldFloorArmable` runs the pre-RC17 height floor over
+        // the same features. Their difference is the only number here that is not a tautology:
+        // it is the count of street lamps, pylons, walls and railings that WERE rescalable.
+        pickFence: (() => {
+          let features = 0, classed = 0, armable = 0, oldFloorArmable = 0;
+          for (const c of cellList)
+            for (const part of c.parts)
+              for (const f of part.features) {
+                features++;
+                const tall = f.topY - f.baseY >= ENRICHED.overrideMinPickHeightM;
+                if (tall) oldFloorArmable++;
+                if (f.cls !== null) {
+                  classed++;
+                  if (isPickableClass(f.cls)) armable++;
+                } else if (tall) armable++;
+              }
+          return { features, classed, armable, oldFloorArmable, reclaimed: oldFloorArmable - armable };
+        })(),
+        // Built from the LOADED cells rather than from the sidecar cache: the histogram should
+        // describe what is on screen and fenceable right now, not what has ever been fetched.
+        metaFeatures: (() => {
+          const h: Record<string, number> = {};
+          for (const c of cellList)
+            for (const part of c.parts)
+              for (const f of part.features) if (f.cls) h[f.cls] = (h[f.cls] ?? 0) + 1;
+          return h;
+        })(),
         seatCacheHits,
         seatCacheMisses,
         seatCacheCells: seatCache.size,
@@ -1459,6 +1633,8 @@ export function attachEnrichedBuildings(
       ghostMat.dispose();
       cellList.length = 0;
       seatCache.clear(); // RC9: a variant switch must never carry another bake's ground truth
+      metaByUri.clear(); // RC17: ditto for class tokens — cell uris repeat across variants
+      metaPending.clear();
       cellByScene.clear();
       cellByUri.clear();
       partByMesh.clear();

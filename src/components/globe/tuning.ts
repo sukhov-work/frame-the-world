@@ -1850,9 +1850,19 @@ export const ENRICHED = {
    *  a skyline pick doesn't teleport. */
   overrideDragMinDistM: 8,
   overrideDragMaxDistM: 500,
-  /** Minimum BAKED height (m) for a pick to arm — the o2w bake keeps fences/walls/street
-   *  furniture as runs (~4.5 % of features, no runtime class signal yet); a 2.5 m floor keeps
-   *  the gesture on actual massing. */
+  /** Minimum BAKED height (m) for a pick to arm — the FALLBACK path since RC17 (2026-08-26).
+   *
+   *  This was the whole pick fence, and it was a geometric proxy for a semantic question. It
+   *  failed in both directions: a single-storey outbuilding sat below 2.5 m and could not be
+   *  picked at all, while a street lamp, a flagpole or a 30 m transmission pylon cleared it
+   *  easily and was fully pickable AND rescalable. The "~4.5 % of features" this comment used to
+   *  claim was also wrong by nearly 7× — the shipped Chernobyl o2w bake is 30.6 % non-building
+   *  (516 of 1,688), 273 of them `HighVoltagePowerTower`.
+   *
+   *  RC17's `.meta.json` sidecar carries a per-feature CLASS token, so the fence is now
+   *  `isPickableClass(cls)` (lib/globe/enrichedMeta.ts) and this constant only applies to a bake
+   *  that predates the writers. Do not delete it until every uploaded bake carries a sidecar —
+   *  it is the honest answer when the class is unknown, not dead code. */
   overrideMinPickHeightM: 2.5,
   /** Armed-building tint strength (fill albedo mix toward accent while armed / overridden). */
   overrideTintK: 0.35,

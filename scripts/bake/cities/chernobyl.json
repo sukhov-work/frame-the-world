@@ -6,6 +6,8 @@
   "grid": 10,
   "gridNote": "10x10 cells over 10x10 km = ~1.0 x 1.0 km per cell, the proven streaming granularity (same cell size as dnipro's 20x20 over 20x20 km and st-albans' 6x6 over 6x6 km).",
   "buildings": {
+    "skirtM": 4,
+    "skirtNote": "RC13 base skirt (m) — see scripts/bake/lib/buildings.mjs. Read by BOTH bakers (chernobyl-o2w inherits this block through `extends`). Lowers the wall rim rather than appending quads, so it costs +0 vertices.",
     "buildingsNote": "Tuned against a measurement of the box, not against Dnipro. This is the best-mapped OSM data of any bake here: 721 of 1,275 footprints (56.5%) already carry `height` or `building:levels`, because the Pripyat mapping community has traced the city building by building. So classDefaultsM barely fires — only 554 footprints reach it, 457 of them `building=yes` with a MEDIAN footprint of 200 m2 (zone service sheds, garages, kiosks). Hence defaultHeightM 6 rather than Dnipro's 8: the modal tagged value in this box is `building:levels=1` (416 of 721), and over-tall generic boxes would bury the structures that are the point.",
     "levelHeightM": 3.0,
     "defaultHeightM": 6,
@@ -50,7 +52,7 @@
   },
   "attribution": "Contains information from OpenStreetMap © OpenStreetMap contributors, made available under the Open Database License (ODbL).",
   "output": "bakes/enriched/chernobyl",
-  "tilesetVersion": "chernobyl-1",
+  "tilesetVersion": "chernobyl-2",
   "terrain": {
     "terrainNote": "GLO-30 quantized-mesh patch, third region (dnipro 2026-08-18, everest 2026-08-22h). Same pipeline and same datum handling: mago-3d-terrainer reads the COGs' own georeferencing and applies EGM2008 -> ellipsoid with its built-in geoid, so runtime seating needs no datum code. Relief here is the mildest of the three — Polesian lowland, roughly 105-175 m, flatter than Dnipro — so the DEFAULT probe tolerances (6 m bias / [12,25] m spread) apply unchanged and probeBiasTolM/probeSpreadTolM are deliberately absent. What IS distinctive is water: the Pripyat river, the ChNPP cooling pond and the intake canals cover a large share of the box, and GLO-30 is a DSM whose water surfaces are flat-but-noisy. The WBM aux mask is cached beside the DEM and must never reach mago (it would be ingested as elevation).",
     "centre": [30.078, 51.3973],

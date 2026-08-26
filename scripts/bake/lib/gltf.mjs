@@ -164,10 +164,19 @@ export function buildTileset({ originLatDeg, originLonDeg, bboxRegionRad, rootGe
       boundingVolume: { region: bboxRegionRad },
       geometricError: rootGeometricError,
       refine: "ADD",
+      // CACHE BUST (2026-08-26, with the RC13/RC17 re-bake). The R2 worker serves `.glb` as
+      // `max-age=31536000, immutable` and re-bakes REUSE FILENAMES, so a browser that already
+      // holds a cell would never see a new bake — for a year. Stamping the tileset version into
+      // the content uri makes each bake a distinct cache key, and it propagates within the 5
+      // minutes `tileset.json` is cached. Safe against the loader: content dispatch reads the
+      // glTF MAGIC BYTES and only falls back to the extension (`TilesRenderer.parseTile`), and
+      // the working path is derived by stripping the last path segment.
+      // The RUNTIME strips this back off — `cell.uri` must stay the bare basename or every U8
+      // override row and every banked cell seat would be invalidated by a version bump alone.
       children: cells.map((c) => ({
         boundingVolume: { region: c.regionRad },
         geometricError: c.geometricError ?? 0,
-        content: { uri: c.contentUri },
+        content: { uri: version ? `${c.contentUri}?v=${encodeURIComponent(version)}` : c.contentUri },
       })),
     },
   };

@@ -14,9 +14,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchBuildings, extractFootprints } from "./lib/overpass.mjs";
 import { enuBasis, projectEN } from "./lib/geo.mjs";
-import { inferBuilding, emitBuilding } from "./lib/buildings.mjs";
+import { inferBuilding, emitBuilding, skirtFor } from "./lib/buildings.mjs";
 import { makeExcluder } from "./lib/exclusion.mjs";
 import { encodeGlb, buildTileset, regionRad } from "./lib/gltf.mjs";
+import { yExtent, metaRow, cellMetaJson, META_SCHEMA } from "./lib/meta.mjs";
 import {
   fetchVegetation,
   extractVegetation,
@@ -139,13 +140,37 @@ async function main() {
   // bbox-centre terrain) — over Dnipro's riverbank-to-hills relief that's a few tens of metres.
   // Pad the baked height span so the culler never clips a lifted cell (cost: negligibly earlier loads).
   const RESEAT_PAD_M = 80;
+  // RC13 — the base skirt (rationale in lib/buildings.mjs). Comfortably inside RESEAT_PAD_M, so
+  // the baked bounding volumes are unchanged and the audit's "region minH still inside the ±80 m
+  // pad" clause holds by construction rather than by measurement.
+  const skirtM = Math.max(0, cfg.buildings?.skirtM ?? 0);
 
   const treeGeometry = totalTrees > 0 ? unitTreeGeometry() : null;
   const children = [];
-  let totalVerts = 0, totalBytes = 0, globalMaxH = 0;
+  let totalVerts = 0, totalBytes = 0, globalMaxH = 0, skirted = 0;
   for (const [key, cell] of cells) {
     const out = { positions: [], normals: [], featureIds: [] };
-    for (const b of cell.buildings) emitBuilding(b.ringEN, b.params, b.featureId, out, cfg.buildings);
+    // RC17: the sidecar row is built from the vertices this feature ACTUALLY emitted, so `top`
+    // includes the roof the tags never state and `base` means the same thing it does in the o2w
+    // bake. `emitBuilding` can legitimately emit nothing (a ring that cleans to <3 points), which
+    // is why the extent is checked rather than assumed.
+    const metaRows = [];
+    for (const b of cell.buildings) {
+      const fromVert = out.positions.length / 3;
+      emitBuilding(b.ringEN, b.params, b.featureId, out, cfg.buildings);
+      const ext = yExtent(out.positions, fromVert);
+      if (!ext) continue;
+      if (skirtFor(b.params, cfg.buildings) > 0) skirted++;
+      metaRows.push(metaRow({
+        id: b.featureId,
+        osm: b.osm,
+        cls: "Building", // this baker only ever extrudes `building=*` footprints
+        lo: ext.lo,
+        hi: ext.hi,
+        skirt: skirtFor(b.params, cfg.buildings),
+        src: b.params.heightSource,
+      }));
+    }
     if (out.positions.length === 0 && !(cell.trees?.length > 0)) continue;
     if (cell.trees?.length > 0) {
       out.trees = { geometry: treeGeometry, ...packTreeInstances(cell.trees) };
@@ -153,22 +178,11 @@ async function main() {
     const glb = encodeGlb(out);
     const uri = `cell-${key.replace(",", "-")}.glb`;
     writeFileSync(join(outDir, uri), glb);
-    // U8 identity sidecar: featureId → stable OSM element id (+ inferred heights) per cell.
-    // The OSM id can NEVER ride `_FEATURE_ID_0` itself — the attribute is float32 (exact only
-    // to 2^24; way ids are ~10^9). Served/uploaded automatically (.json passes the dev
-    // middleware and upload-r2's extension filter); the runtime upgrade to OSM-keyed overrides
-    // is the next phase — this bake-side carry is what makes it possible.
+    // RC17 identity sidecar — schema + rationale in lib/meta.mjs. Served/uploaded automatically
+    // (.json passes the dev middleware and upload-r2's extension filter).
     writeFileSync(
       join(outDir, uri.replace(/\.glb$/, ".meta.json")),
-      JSON.stringify({
-        features: cell.buildings.map((b) => ({
-          id: b.featureId,
-          osm: b.osm ?? null,
-          base: b.params.base,
-          height: b.params.height,
-          heightSource: b.params.heightSource,
-        })),
-      }),
+      cellMetaJson({ variant: cfg.city, skirtM, features: metaRows }),
     );
     totalVerts += out.positions.length / 3;
     totalBytes += glb.length;
@@ -198,6 +212,9 @@ async function main() {
     origin: { latDeg: originLat, lonDeg: originLon },
     grid,
     counts: { osmFootprints: footprints.length, excluded, baked: kept, cells: children.length, verts: totalVerts, trees: totalTrees },
+    // RC13/RC17 receipts. `skirted` < `baked` is expected and meaningful: it counts the
+    // `min_height` / `building:min_level` masses the skirt deliberately leaves alone.
+    skirt: { m: skirtM, skirted, schema: META_SCHEMA },
     heightSources,
     treeStats,
     seating: "runtime clamp-to-CWT (baked at ellipsoid h=0; scene/enrichedBuildings.ts re-seats)",
@@ -207,6 +224,7 @@ async function main() {
   writeFileSync(join(outDir, "bake-manifest.json"), JSON.stringify(manifest, null, 2));
 
   console.log(`\n✓ baked ${children.length} tiles · ${totalVerts.toLocaleString()} verts · ${totalTrees.toLocaleString()} trees · ${(totalBytes / 1e6).toFixed(2)} MB · maxH ${globalMaxH.toFixed(0)} m`);
+  console.log(`  skirt ${skirtM} m on ${skirted.toLocaleString()}/${kept.toLocaleString()} (rest are min_height masses) · meta schema ${META_SCHEMA}`);
   console.log(`  → ${outDir.replace(REPO_ROOT + "/", "")}/tileset.json`);
   console.log(`  set PUBLIC_ENRICHED_TILES_URL=/${(args.out ?? cfg.output).replace(/^(public|bakes)\//, "")}/tileset.json + set ENRICHED.bbox to [${w},${s},${e},${n}]\n`);
 }
