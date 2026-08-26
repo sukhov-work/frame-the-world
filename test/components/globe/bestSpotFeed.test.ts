@@ -11,6 +11,7 @@ import type {
 import { unmappedFieldPack } from "../../../src/lib/geo/bestSpotWorker";
 import { attachBestSpotFeed } from "../../../src/components/globe/scene/bestSpotFeed";
 import { useBestSpotStore } from "../../../src/store/bestSpot";
+import { enuFrameAt } from "../../../src/lib/geo/localDsm";
 
 /**
  * BEST SPOT — THE FEED'S RESIDENCY LADDER AND ITS TWO HONESTY GATES (`SPEC_V2 §7 S3d`).
@@ -77,6 +78,7 @@ function rungFor(jobId: number, hash: string): BestSpotRungMsg {
     builtDensityPerKm2: 212,
     terrainOnly: false,
     openSkyUncredited: 0,
+    canopyUncredited: 0,
     refusedShortReach: 0,
     heightProvenance: { enriched: 3, osm: 11 },
     shortlistCellM: 1,
@@ -600,6 +602,162 @@ describe("lifecycle — spawn late, terminate once, and never leave a ghost", ()
     expect(posted.filter((m) => m.type === "cancel")).toHaveLength(1);
     expect(w?.terminated).toBe(0);
     expect(liveWorker).toBe(w); // the SAME worker, not a respawn
+    feed.dispose();
+  });
+});
+
+/**
+ * =============================================================================================
+ * **D1 — `InstancedMesh` IS A MESH, AND THAT COST US EVERY TREE.** (2026-08-26g)
+ * =============================================================================================
+ *
+ * `flattenTin` traversed on `mesh.isMesh` alone. `THREE.InstancedMesh` satisfies it — the sibling
+ * module says so in its own comment (`scene/enrichedBuildings.ts:691-693`) — so the baked trees
+ * fell into the TIN path and BEST SPOT flattened the **shared unit prototype** at the cell's own
+ * `matrixWorld`: one ~1 m phantom solid per cell, tagged as a BUILDING, with every real canopy
+ * missing. `scene/planFeed.ts:239-251` had the correct branch the whole time.
+ *
+ * **No existing test could have caught it**, and the reason is right here in this file:
+ * `mountSync()` mounts bare `THREE.Group`s, so nothing in the suite ever handed the feed an
+ * instanced mesh. These three cases are that gap.
+ */
+describe("D1 — tree instances reach the worker as CANOPIES, not as phantom buildings", () => {
+  /** A tree set in the slice-3 bake's own instance convention: yaw-only about +Y, scale
+   *  `(r/0.5, heightM, r/0.5)`, translation in the cell frame. `occlusion.sweepTreeInstances`
+   *  decodes exactly this, which is why the two feeds can be held to each other. */
+  function treeSet(
+    offsetsEnu: readonly [number, number][],
+    heightM: number,
+    radiusM: number,
+    cellOriginEcef: readonly [number, number, number],
+    frame: ReturnType<typeof enuFrameAt>,
+  ): THREE.InstancedMesh {
+    const geom = new THREE.BufferGeometry();
+    // The PROTOTYPE is a unit tree at the origin — this is the shape whose bounding sphere used to
+    // decide, wrongly, whether a whole cell was near the disc.
+    geom.setAttribute(
+      "position",
+      new THREE.BufferAttribute(Float32Array.from([-0.5, 0, 0, 0.5, 0, 0, 0, 1, 0]), 3),
+    );
+    const mesh = new THREE.InstancedMesh(geom, new THREE.MeshBasicMaterial(), offsetsEnu.length);
+    const m = new THREE.Matrix4();
+    const s = radiusM / 0.5;
+    offsetsEnu.forEach(([e, n], i) => {
+      m.set(s, 0, 0, e, 0, heightM, 0, 0, 0, 0, s, n, 0, 0, 0, 1);
+      // `Matrix4.set` is row-major; `elements` is column-major, which is the order the wire uses.
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    // Cell → ECEF: a rigid frame placed at `cellOriginEcef`, columns = the ENU basis.
+    mesh.matrix.set(
+      frame.east[0], frame.up[0], frame.north[0], cellOriginEcef[0],
+      frame.east[1], frame.up[1], frame.north[1], cellOriginEcef[1],
+      frame.east[2], frame.up[2], frame.north[2], cellOriginEcef[2],
+      0, 0, 0, 1,
+    );
+    mesh.matrixAutoUpdate = false;
+    mesh.matrixWorld.copy(mesh.matrix);
+    return mesh;
+  }
+
+  const CENTRE_LAT = baseCtx.centreLatDeg;
+  const CENTRE_LON = baseCtx.centreLonDeg;
+
+  function mountWithTrees(inst: THREE.InstancedMesh, alsoPlainMesh: boolean) {
+    const enriched = new THREE.Group();
+    enriched.add(inst);
+    if (alsoPlainMesh) {
+      const g = new THREE.BufferGeometry();
+      // A real building-ish TIN, comfortably inside the disc.
+      const f = enuFrameAt(CENTRE_LAT, CENTRE_LON, 120);
+      const p: number[] = [];
+      for (const [e, n] of [[-20, -20], [20, -20], [0, 20]] as const) {
+        p.push(
+          f.originEcef[0] + e * f.east[0] + n * f.north[0],
+          f.originEcef[1] + e * f.east[1] + n * f.north[1],
+          f.originEcef[2] + e * f.east[2] + n * f.north[2],
+        );
+      }
+      g.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(p), 3));
+      const plain = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+      plain.matrixAutoUpdate = false;
+      enriched.add(plain);
+    }
+    return attachBestSpotFeed({
+      terrainHeightAt: () => 120,
+      groundGroup: new THREE.Group(),
+      buildingsGroup: new THREE.Group(),
+      enrichedGroup: enriched,
+    });
+  }
+
+  it("an instanced tree set yields CANOPIES and ZERO TIN — and a plain mesh still yields TIN", () => {
+    const frame = enuFrameAt(CENTRE_LAT, CENTRE_LON, 120);
+    const inst = treeSet([[10, 10], [-30, 5], [0, -40]], 9, 3, frame.originEcef, frame);
+    const feed = mountWithTrees(inst, true);
+    feed.update({ ...baseCtx });
+    const job = solves()[0];
+    if (job.type !== "solve") throw new Error("no solve");
+
+    expect(job.canopies).toBeDefined();
+    expect(job.canopies!.reduce((a, c) => a + c.count, 0)).toBe(3);
+    // THE POSITIVE CONTROL — the plain mesh in the same group still becomes TIN, so "zero TIN from
+    // the instanced set" is a statement about the branch and not about an empty scene.
+    expect(job.built).toHaveLength(1);
+    // …and the phantom is gone: the only TIN present is the plain mesh's 3 vertices.
+    expect(job.built[0].positions.length).toBe(9);
+    feed.dispose();
+  });
+
+  it("THE PER-INSTANCE CULL — a far cell whose TREES reach the disc still yields them", () => {
+    // **This is the case a naive `isInstancedMesh` branch fails, and it is the whole point.**
+    // `geom.boundingSphere` on an InstancedMesh is the PROTOTYPE's — a ~1 m ball at the cell root.
+    // Enriched cells span hundreds of metres, so culling on that sphere (which is what the TIN path
+    // does) deletes an entire tree set whose instances stand inside the disc. Here the cell root is
+    // 1,200 m away and the trees are at the centre.
+    const frame = enuFrameAt(CENTRE_LAT, CENTRE_LON, 120);
+    const farOrigin: [number, number, number] = [
+      frame.originEcef[0] + 1200 * frame.east[0],
+      frame.originEcef[1] + 1200 * frame.east[1],
+      frame.originEcef[2] + 1200 * frame.east[2],
+    ];
+    // Offsets are expressed in the CELL frame, so −1,200 m east puts the trees back at the disc.
+    const inst = treeSet([[-1200, 0], [-1190, 12]], 11, 3.5, farOrigin, frame);
+    const feed = mountWithTrees(inst, false);
+    feed.update({ ...baseCtx });
+    const job = solves()[0];
+    if (job.type !== "solve") throw new Error("no solve");
+    expect(job.canopies!.reduce((a, c) => a + c.count, 0)).toBe(2);
+    feed.dispose();
+  });
+
+  it("`heightProvenance.enriched` counts BUILDINGS only — the tree sets no longer inflate it", () => {
+    // A quiet correction to a user-visible number: the badge used to count every tree set as a
+    // surveyed roof. Read a smaller `enriched` as the inflation being removed, not as a regression.
+    const frame = enuFrameAt(CENTRE_LAT, CENTRE_LON, 120);
+    const inst = treeSet([[5, 5], [6, 6]], 8, 2.5, frame.originEcef, frame);
+    const feed = mountWithTrees(inst, true);
+    feed.update({ ...baseCtx });
+    const job = solves()[0];
+    if (job.type !== "solve") throw new Error("no solve");
+    expect(job.heightProvenance.enriched).toBe(1); // the plain mesh, and nothing else
+    feed.dispose();
+  });
+
+  it("the canopy wire is a COPY — mutating the live instanceMatrix cannot reach the worker", () => {
+    // `scene/enrichedBuildings.ts` writes `m13` into `instanceMatrix.array` during the tree re-seat
+    // and three renders from it every frame. Transferring the live buffer would detach it; this is
+    // the same rule, and the same reason, as `positions.slice()` on the TIN path.
+    const frame = enuFrameAt(CENTRE_LAT, CENTRE_LON, 120);
+    const inst = treeSet([[4, 4]], 7, 2, frame.originEcef, frame);
+    const feed = mountWithTrees(inst, false);
+    feed.update({ ...baseCtx });
+    const job = solves()[0];
+    if (job.type !== "solve") throw new Error("no solve");
+    const before = job.canopies![0].instanceMatrices[5];
+    (inst.instanceMatrix.array as Float32Array)[5] = 999;
+    expect(job.canopies![0].instanceMatrices[5]).toBe(before);
+    expect(before).toBeCloseTo(7, 6); // m5 IS the height, per the bake contract
     feed.dispose();
   });
 });

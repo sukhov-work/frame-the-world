@@ -120,6 +120,7 @@ import {
   oddSpanCells,
   SRC_NAMES,
   SRC_NONE,
+  SRC_TREE,
   type LocalDsm,
 } from "./localDsm";
 
@@ -735,6 +736,15 @@ export interface SolveResult {
    *  bit withheld because the ray claimed open sky with no building survey behind it. 0 whenever
    *  `builtEvidence` is true (the default), so the prior's cost is always readable. */
   openSkyUncredited: number;
+  /**
+   * The CANOPY twin of `openSkyUncredited` (owner ruling 2026-08-26g): how many (cell, azimuth)
+   * visits had their `known` bit withheld because a modelled tree — not a surveyed one — was the
+   * thing blocking the body.
+   *
+   * Reported for exactly the reason the other counter is: it makes the policy's cost readable
+   * instead of assumed. If a park's disc goes UNMAPPED, this number says whether the trees did it.
+   */
+  canopyUncredited: number;
   /** Ground height (m above the ELLIPSOID) at the disc centre. `NaN` when the centre is unmapped. */
   centreGroundM: number;
   /** `CONFORM_N²` ground heights above the ELLIPSOID, row 0 = SOUTH. Null with no DSM coverage. */
@@ -1015,6 +1025,7 @@ export function solveTerms(input: SolveInput): SolveResult {
   // S7's BUILT-DENSITY PRIOR — see `SolveInput.builtEvidence`. Resolved once, read in the hot loop.
   const noBuiltEvidence = input.builtEvidence === false;
   let openSkyUncredited = 0;
+  let canopyUncredited = 0;
 
   const work = newGrazeWork();
   const hullOpts = { refractionK: input.refractionK, earthRadiusM: input.earthRadiusM };
@@ -1075,6 +1086,7 @@ export function solveTerms(input: SolveInput): SolveResult {
     const outKnown = out.known;
     const outReach = out.reachM;
     const outGroundSrc = out.groundSrc;
+    const outGroundAlt = out.groundAltAppDeg;
     const outOpenSky = out.openSky;
     const s = samples[j];
     const inWindow = j >= winLo && j <= winHi;
@@ -1100,6 +1112,43 @@ export function solveTerms(input: SolveInput): SolveResult {
         if (known && noBuiltEvidence && outOpenSky[gc] === 1) {
           known = false;
           openSkyUncredited++;
+        }
+        // ── THE CANOPY WITHDRAWAL (owner ruling 2026-08-26g) ─────────────────────────────────
+        //
+        // Second arm of the identical idiom, for the identical reason. Trees now occlude — they
+        // really do stand between the eye and the body — but **~99.93 % of the baked heights are a
+        // uniform random draw over a class range, not a survey** (118 integral values out of
+        // 161,823). So a ray whose horizon is a canopy, and whose body is actually behind that
+        // canopy, is not evidence: crediting it would let the instrument say "this is a bad spot"
+        // on the strength of a number nobody measured.
+        //
+        // It withdraws the KNOWN credit while `accWSum` above still counts the weight, so `C`
+        // falls and the cell reaches the render path that already exists — **UNMAPPED, never a low
+        // score and never a cold colour**, which is this feature's oldest rule (§3.1).
+        //
+        // **The two-sided test is the whole precision of it, and each side was paid for.**
+        //
+        // `outGroundSrc === SRC_TREE` alone would withdraw every ray that merely has trees on the
+        // skyline — including the ones where the moon rides 10° above them — and would turn a park
+        // with a perfectly good high view into UNMAPPED. Hence the UPPER bound: the ray is only
+        // compromised when the fabricated height is doing the blocking, i.e. when the disc's LOWER
+        // LIMB sits below the canopy top.
+        //
+        // And the LOWER bound, which a first cut of this rule missed: below the eye's own horizon
+        // dip the body is set behind **the planet**, not behind the tree. Without this term every
+        // sunset withdraws its whole tail — the window runs to `alt(t0) − 3ρ`, the weights are
+        // concentrated exactly there, and a 1.2 m hedge at 200 m measured `C = 0.412`, i.e.
+        // UNMAPPED, on a disc whose view is in truth wide open. So the canopy is only charged for
+        // occlusion it is actually responsible for: the body's UPPER limb must still be above the
+        // dip, which is precisely "you would have seen it if the tree were not there".
+        if (
+          known &&
+          outGroundSrc[gc] === SRC_TREE &&
+          s.altAppDeg - s.rhoDeg < outGroundAlt[gc] &&
+          s.altAppDeg + s.rhoDeg > dipFloorDeg
+        ) {
+          known = false;
+          canopyUncredited++;
         }
         const rb = (c * K + j) * 3;
 
@@ -1397,6 +1446,7 @@ export function solveTerms(input: SolveInput): SolveResult {
     minReachM: discMinReach === Infinity ? 0 : discMinReach,
     refusedShortReach,
     openSkyUncredited,
+    canopyUncredited,
     centreGroundM: centreGroundAboveEllipsoidM(dsm, input.frameAltM ?? 0),
     conformM: buildConformLattice(dsm, geo, input.frameAltM ?? 0),
     scratchBytes: ringBytes + ribbon.byteLength + terms.buffer.byteLength,
@@ -1441,6 +1491,7 @@ function refusedResult(
     minReachM: 0,
     refusedShortReach: 0,
     openSkyUncredited: 0,
+    canopyUncredited: 0,
     centreGroundM: centreGroundAboveEllipsoidM(dsm, input.frameAltM ?? 0),
     conformM: buildConformLattice(dsm, geo, input.frameAltM ?? 0),
     scratchBytes: terms.buffer.byteLength,

@@ -87,6 +87,7 @@ import {
 import {
   INVALIDATION_RANK,
   scoringHash as hashOf,
+  trackHash,
   type BestSpotScoring,
   type InvalidationClass,
 } from "./bestSpotScoring";
@@ -101,9 +102,12 @@ import {
   type LandGrid,
   type LandRibbonWidths,
 } from "./landcoverRaster";
+import { CANOPY_CENTER_Y, CANOPY_HALF_Y, UNIT_CANOPY_R } from "./occlusion";
 import {
+  addCanopy,
   createLocalDsm,
   enuFrameAt,
+  enuOfEcef,
   lonLatOfEnu,
   rasterizeTinGround,
   sealDsm,
@@ -139,6 +143,27 @@ export interface TinMeshWire {
   /** Triangle indices, or null for non-indexed geometry. */
   index: Uint32Array | null;
   /** Column-major 4×4 (`Matrix4.elements`) placing `positions` in ECEF. */
+  matrixWorld: Float64Array;
+}
+
+/**
+ * One cell's TREE INSTANCES, flattened on the main thread as a COPY (2026-08-26g).
+ *
+ * Canopies ride their own wire rather than joining `built` because they are a different KIND of
+ * evidence, not a different mesh: they go to the DSM's `canopyTop` layer and never to `solidMask`,
+ * they are tagged `SRC_TREE` so the honesty layer can find them again, and their heights are ~99.9 %
+ * a random draw over a class range rather than a survey. Folding them into `built` would make all
+ * three of those facts unrecoverable one function later.
+ *
+ * The decode contract is `occlusion.sweepTreeInstances`'s, verbatim: 16 floats per instance in the
+ * CELL frame, yaw-only about +Y, so `m5` is the height in metres and `|col0| · 0.5` is the canopy
+ * radius; `matrixWorld` is the rigid cell→ECEF transform.
+ */
+export interface CanopyWire {
+  /** Raw `InstancedMesh.instanceMatrix.array` slice — 16 floats per instance, cell-local. */
+  instanceMatrices: Float32Array;
+  count: number;
+  /** Column-major 4×4 placing the instances in ECEF. */
   matrixWorld: Float64Array;
 }
 
@@ -196,6 +221,12 @@ export interface BestSpotSolveJob {
   terrain: TinMeshWire[];
   /** Building TIN (OSM + enriched tilesets). Rasterised into the SOLID layer — see `buildDsm`. */
   built: TinMeshWire[];
+  /**
+   * Baked TREE instances covering the disc (2026-08-26g). Optional on the wire so every existing
+   * job literal — nine of them across the test suite — stays valid and keeps meaning exactly what
+   * it meant: a job with no canopies is a job whose DSM has no canopy layer.
+   */
+  canopies?: CanopyWire[];
   /** S7's badge — which tileset the `built` meshes came from. Counted on the main thread. */
   heightProvenance: BestSpotHeightProvenance;
   /**
@@ -354,6 +385,10 @@ export interface BestSpotRungMsg {
   /** How many (cell, azimuth) visits the prior withheld. 0 whenever `terrainOnly` is false — the
    *  prior's cost is always readable rather than inferred. */
   openSkyUncredited: number;
+  /** The CANOPY twin (2026-08-26g): visits withheld because a MODELLED tree — ~99.93 % of baked
+   *  heights are a random draw, not a survey — was what blocked the body. Published for the same
+   *  reason as its sibling: without it the UNMAPPED cells a disc gains are unattributable. */
+  canopyUncredited: number;
   /** How many cells `refuseBelowReachM` turned UNMAPPED on this rung (S7's §3.1 policy). */
   refusedShortReach: number;
   /** S7's badge — which building tileset stands under this disc. */
@@ -465,6 +500,7 @@ export interface Resident {
   frameAltM: number;
   terrain: TinMeshWire[];
   built: TinMeshWire[];
+  canopies: CanopyWire[];
   heightProvenance: BestSpotHeightProvenance;
   /**
    * THE T1 KEY, resolved: `job.sourcesEpoch` plus the number of tiles that have actually parsed.
@@ -726,7 +762,8 @@ export function buildDsm(
   frame: EnuFrame,
   terrain: readonly TinMeshWire[],
   built: readonly TinMeshWire[],
-): { dsm: LocalDsm; groundWrites: number } {
+  canopies: readonly CanopyWire[] = [],
+): { dsm: LocalDsm; groundWrites: number; canopyStamps: number } {
   const dsm = createLocalDsm({ nx: geo.nGrid, ny: geo.nGrid, cellM: geo.cellM });
   let groundWrites = 0;
   for (const m of terrain) {
@@ -750,8 +787,54 @@ export function buildDsm(
     }
   }
 
-  sealDsm(dsm);
-  return { dsm, groundWrites };
+  // ── CANOPIES (2026-08-26g) ──────────────────────────────────────────────────────────────────
+  //
+  // They go to `canopyTop`/`canopyMask` and **never** to `solidMask`, and that is not a stylistic
+  // choice — it is the difference between "a tree is between you and the sun" and "you may not
+  // stand here". `landcoverRaster.accessAt` reads the solid ENVELOPE through
+  // `localDsm.insideSolidInterior`, so a canopy written as a solid would make every tree-lined
+  // avenue INACCESSIBLE the moment the sheet is lifted to `access.aerialMinM` (5 m) — a drone
+  // "inside" a tree. The layered DSM already models this correctly; it simply had no caller.
+  //
+  // The decode mirrors `occlusion.sweepTreeInstances` exactly (`occlusion.ts:168-196`) so the
+  // BEST SPOT surface and the plan feed's horizon profile describe the same trees.
+  let canopyStamps = 0;
+  for (const set of canopies) {
+    const m = set.matrixWorld;
+    // Cell-local +Y in ECEF. The bake contract is a rigid cell transform, so this is a unit vector
+    // and the instance's own scale survives the compose.
+    const upX = m[4];
+    const upY = m[5];
+    const upZ = m[6];
+    for (let i = 0; i < set.count; i++) {
+      const o = i * 16;
+      const heightM = set.instanceMatrices[o + 5];
+      if (!(heightM > 0)) continue;
+      const radiusM =
+        Math.hypot(
+          set.instanceMatrices[o],
+          set.instanceMatrices[o + 1],
+          set.instanceMatrices[o + 2],
+        ) * UNIT_CANOPY_R;
+      const lx = set.instanceMatrices[o + 12];
+      const ly = set.instanceMatrices[o + 13];
+      const lz = set.instanceMatrices[o + 14];
+      const baseX = m[0] * lx + m[4] * ly + m[8] * lz + m[12];
+      const baseY = m[1] * lx + m[5] * ly + m[9] * lz + m[13];
+      const baseZ = m[2] * lx + m[6] * ly + m[10] * lz + m[14];
+      const cy = CANOPY_CENTER_Y * heightM;
+      const enu = enuOfEcef(frame, baseX + upX * cy, baseY + upY * cy, baseZ + upZ * cy);
+      canopyStamps += addCanopy(dsm, {
+        e: enu.e,
+        n: enu.n,
+        centerM: enu.up,
+        radiusM: Math.max(radiusM, CANOPY_HALF_Y * heightM),
+      });
+    }
+  }
+
+  sealDsm(dsm, { includeCanopy: true });
+  return { dsm, groundWrites, canopyStamps };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1015,6 +1098,25 @@ export function dayKeyOf(sceneMs: number, lonDeg: number): string {
   return String(localDayWindow(sceneMs, lonDeg).startMs);
 }
 
+/**
+ * THE T0.5 CACHE KEY — everything the resident `EventTrack` is a function of, and nothing else.
+ *
+ * Exported and pure so the contract is pinnable. It carries three terms and each one is load-bearing
+ * in a different direction:
+ *  · `kind` — the four windows are disjoint, so a kind change is a genuine rebuild;
+ *  · the LOCAL DAY — this is the term that makes a within-day scrub cost 0 ms and 0 hulls, which is
+ *    the falsifiable pin the whole architecture rests on (`bestSpotResidency.test.ts`);
+ *  · `trackHash` — **added 2026-08-26g as a defect fix.** `w_i` is baked inside `eventTrack` from
+ *    `trackWeight.altScaleDeg` + `.horizonCeiling`, so without this term a taste pass on either one
+ *    re-solved against the PREVIOUS track and moved nothing until the scene crossed a day boundary.
+ *
+ * It is deliberately NOT `scoringHash`: a `weights.v` tweak must stay the 0.272 ms recompose it is
+ * classed as, and folding the whole profile in here would rebuild the track for every taste knob.
+ */
+export function trackKeyOf(job: BestSpotSolveJob): string {
+  return `${job.kind}|${dayKeyOf(job.sceneMs, job.centreLonDeg)}|${trackHash(job.scoring)}`;
+}
+
 function residentKeyOf(job: BestSpotSolveJob): string {
   return [
     job.centreLatDeg.toFixed(7),
@@ -1112,12 +1214,19 @@ export function solveRung(
   res: Resident,
   cellM: number,
   reuseTerms = true,
-): (RungState & { hullBuilds: number; openSkyUncredited: number; refusedShortReach: number }) | null {
+): (RungState & {
+  hullBuilds: number;
+  openSkyUncredited: number;
+  canopyUncredited: number;
+  refusedShortReach: number;
+}) | null {
   const geo = discGeometry(job.radiusM, cellM, job.collarM);
   const prev = res.rungs.get(cellM);
   // ── T1: the sources survive a lift change, a scrub and a day step. See the docstring. ───────
   const sourcesFresh = prev !== undefined && prev.sourcesKey === res.sourcesKey;
-  const dsm = sourcesFresh ? prev.dsm : buildDsm(geo, res.frame, res.terrain, res.built).dsm;
+  const dsm = sourcesFresh
+    ? prev.dsm
+    : buildDsm(geo, res.frame, res.terrain, res.built, res.canopies).dsm;
   const land = sourcesFresh
     ? prev.land
     : buildLandGrid(
@@ -1192,6 +1301,7 @@ export function solveRung(
     sheetAltM: job.eyeM + job.liftM,
     hullBuilds: out.hullBuilds,
     openSkyUncredited: out.openSkyUncredited,
+    canopyUncredited: out.canopyUncredited,
     refusedShortReach: out.refusedShortReach,
   };
 }
@@ -1251,6 +1361,7 @@ async function runSolve(job: BestSpotSolveJob): Promise<void> {
       frameAltM: job.frameAltM,
       terrain: job.terrain,
       built: job.built,
+      canopies: job.canopies ?? [],
       heightProvenance: job.heightProvenance,
       sourcesKey: "",
       tiles: [],
@@ -1275,6 +1386,7 @@ async function runSolve(job: BestSpotSolveJob): Promise<void> {
     // replace it. Everything else survives.
     resident.terrain = job.terrain;
     resident.built = job.built;
+    resident.canopies = job.canopies ?? [];
     resident.heightProvenance = job.heightProvenance;
     resident.eyeM = job.eyeM;
     resident.liftM = job.liftM;
@@ -1316,9 +1428,9 @@ async function runSolve(job: BestSpotSolveJob): Promise<void> {
     needed,
   });
 
-  // T0.5: the TRACK is a function of the KIND and the LOCAL DAY. A scene-time scrub inside one
-  // local day re-uses it and re-runs NOTHING — `SPEC_V2 §2.2` T1′, 0 ms, asserted in the tests.
-  const trackKey = `${job.kind}|${dayKeyOf(job.sceneMs, job.centreLonDeg)}`;
+  // T0.5 — see `trackKeyOf`. A scene-time scrub inside one local day still re-uses the track and
+  // re-runs NOTHING (`SPEC_V2 §2.2` T1′, 0 ms, asserted in `bestSpotResidency.test.ts`).
+  const trackKey = trackKeyOf(job);
   if (res.trackKey !== trackKey) {
     res.trackKey = trackKey;
     res.track = eventTrack(
@@ -1452,6 +1564,7 @@ async function runSolve(job: BestSpotSolveJob): Promise<void> {
       builtDensityPerKm2: res.builtDensityPerKm2,
       terrainOnly: res.terrainOnly,
       openSkyUncredited: rung.openSkyUncredited,
+      canopyUncredited: rung.canopyUncredited,
       refusedShortReach: rung.refusedShortReach,
       heightProvenance: res.heightProvenance,
       shortlistCellM: fine ? fine.cellM : cellM,
@@ -1660,6 +1773,7 @@ function postRefusal(
       builtDensityPerKm2: res.builtDensityPerKm2,
       terrainOnly: res.terrainOnly,
       openSkyUncredited: 0,
+      canopyUncredited: 0,
       refusedShortReach: 0,
       heightProvenance: res.heightProvenance,
       shortlistCellM: cellM,
@@ -1730,6 +1844,7 @@ function runApply(job: BestSpotApplyJob): void {
       builtDensityPerKm2: res.builtDensityPerKm2,
       terrainOnly: res.terrainOnly,
       openSkyUncredited: 0,
+      canopyUncredited: 0,
       refusedShortReach: 0,
       heightProvenance: res.heightProvenance,
       shortlistCellM: fine ? fine.cellM : rung.cellM,
@@ -1766,7 +1881,7 @@ function runRefine(job: BestSpotRefineJob): void {
 
   const geo = discGeometry(job.radiusM, 1, res.collarM);
   const frame = enuFrameAt(ll.latDeg, ll.lonDeg, res.frameAltM);
-  const { dsm } = buildDsm(geo, frame, res.terrain, res.built);
+  const { dsm } = buildDsm(geo, frame, res.terrain, res.built, res.canopies);
   const land = buildLandGrid(
     {
       centreLatDeg: ll.latDeg,

@@ -146,10 +146,14 @@ export function sweepMeshEdges(
 // ---------------------------------------------------------------------------------------------
 
 /** Slice-3 unit tree (scripts/bake/lib/gltf.mjs): canopy spans y 0.22→1.0 at radius 0.5,
- *  instance scale = (radiusM/0.5, heightM, radiusM/0.5), rotation is yaw-only about +Y. */
-const CANOPY_CENTER_Y = 0.61;
-const CANOPY_HALF_Y = 0.39;
-const UNIT_CANOPY_R = 0.5;
+ *  instance scale = (radiusM/0.5, heightM, radiusM/0.5), rotation is yaw-only about +Y.
+ *
+ *  EXPORTED since 2026-08-26g: `bestSpotWorker.buildDsm` decodes the same instance TRS into the
+ *  BEST SPOT DSM's canopy layer. Two decoders with two private copies of these three numbers is
+ *  precisely how the plan feed and the disc would come to disagree about how tall a tree is. */
+export const CANOPY_CENTER_Y = 0.61;
+export const CANOPY_HALF_Y = 0.39;
+export const UNIT_CANOPY_R = 0.5;
 
 /**
  * Fold every tree instance of one cell into the profile as a sphere at the canopy centre.

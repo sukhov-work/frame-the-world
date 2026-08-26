@@ -75,12 +75,14 @@ import {
   type LandGrid,
 } from "../../../src/lib/geo/landcoverRaster";
 import {
+  addCanopy,
   cellAtEnu,
   createLocalDsm,
   discGridSpec,
   insideSolidInterior,
   oddSpanCells,
   sealDsm,
+  SRC_BUILDING,
   SRC_TERRAIN,
   type LocalDsm,
 } from "../../../src/lib/geo/localDsm";
@@ -1682,5 +1684,139 @@ describe("S3c — `oddSpanCells` parity and the sweep/disc offset", () => {
       expect(want).toBeLessThanOrEqual(1);
     }
     expect(SRC_TERRAIN).toBe(1); // the wire code the ribbon stores
+  });
+});
+
+/**
+ * =============================================================================================
+ * **THE CANOPY WITHDRAWAL** — owner ruling 2026-08-26g.
+ * =============================================================================================
+ *
+ * Trees now occlude, because they really do stand between the eye and the body. But the baked
+ * canopy heights are **~99.93 % a uniform random draw over a class range** (118 integral values in
+ * 161,823), so a cell whose view is killed *only* by modelled canopy has not been measured — it has
+ * been guessed at. The owner's ruling: that cell reads **UNMAPPED**, never a low score and never a
+ * cold colour, which is this feature's oldest rule (§3.1).
+ *
+ * The mechanism is deliberately the one that already ships for S7's built-density prior: withhold
+ * the ray's `known` bit while still counting its weight, so `C` falls through `gates.minCoverage`
+ * and the cell reaches the UNMAPPED render path without a second code path existing anywhere.
+ *
+ * The pair below is the whole claim. Same geometry, same blocking, different PROVENANCE — and only
+ * the fabricated one is withdrawn.
+ */
+describe("canopy honesty — a tree may block the view, but it may not decide the verdict", () => {
+  /**
+   * Flat ground, plus a ring of blockers at `distM`. `as` chooses the PROVENANCE only: the two
+   * rings are the same mass at the same place, one modelled as vegetation and one as a building.
+   *
+   * The canopy radius follows the BAKE's own geometry (`occlusion.ts`: centre at `0.61·h`,
+   * half-extent `0.39·h`, so the sphere's top is exactly `h`). An earlier version of this fixture
+   * floored the radius at 6 m "so it always stamps a cell" — which quietly turned a 1 mm tree into
+   * a 6 m blob and made the height argument meaningless. If a fixture has to distort the geometry
+   * to register, the GRID is too coarse; fix the grid.
+   */
+  function ringScene(
+    geo: DiscGeometry,
+    distM: number,
+    heightM: number,
+    as: "canopy" | "solid" | "bare",
+  ): LocalDsm {
+    const dsm = createLocalDsm({
+      nx: geo.nGrid,
+      ny: geo.nGrid,
+      cellM: geo.cellM,
+      originE: -((geo.nGrid - 1) / 2) * geo.cellM,
+      originN: -((geo.nGrid - 1) / 2) * geo.cellM,
+    });
+    for (let c = 0; c < geo.nGrid * geo.nGrid; c++) {
+      dsm.ground[c] = 0;
+      dsm.groundKnown[c] = 1;
+    }
+    if (as !== "bare") {
+      // A closed ring, dense in azimuth so every ray meets it.
+      for (let deg = 0; deg < 360; deg += 1) {
+        const r = (deg * Math.PI) / 180;
+        const e = distM * Math.sin(r);
+        const n = distM * Math.cos(r);
+        if (as === "canopy") {
+          addCanopy(dsm, { e, n, centerM: 0.61 * heightM, radiusM: 0.39 * heightM });
+        } else {
+          const ix = Math.round((e - dsm.originE) / geo.cellM);
+          const iy = Math.round((n - dsm.originN) / geo.cellM);
+          if (ix < 0 || iy < 0 || ix >= geo.nGrid || iy >= geo.nGrid) continue;
+          const c = iy * geo.nGrid + ix;
+          dsm.solidMask[c] = 1;
+          dsm.solidBase[c] = 0;
+          dsm.solidTop[c] = heightM;
+          dsm.solidSrc[c] = SRC_BUILDING;
+        }
+      }
+    }
+    sealDsm(dsm, { includeCanopy: true });
+    return dsm;
+  }
+
+  /** 3 m cells: a 22 m tree's canopy is 8.6 m across, so it registers without the fixture having
+   *  to lie about its size. */
+  const GEO = discGeometry(120, 3, 400);
+  const DIST = 200;
+  const TALL = 22; // 6.3° at 200 m — above the whole sunset window
+  const LOW = 5; // 1.43° at 200 m — the sun rides above it for most of the descent
+  const centreCell = ((GEO.n - 1) / 2) * GEO.n + (GEO.n - 1) / 2;
+
+  it("a tall canopy ring WITHDRAWS the evidence, and the disc goes UNMAPPED rather than bad", () => {
+    const track = sunsetTrack();
+    const res = solveTerms(solveInput(GEO, ringScene(GEO, DIST, TALL, "canopy"), track));
+    expect(res.canopyUncredited).toBeGreaterThan(0);
+    // `C` collapses through the gate that already exists — the cell is UNMAPPED, not low-scored.
+    expect(res.terms.c[centreCell]).toBeLessThan(SCORING.gates.minCoverage);
+  });
+
+  it("THE CONTROL — the SAME ring as a BUILDING is fully credited", () => {
+    // Identical mass, identical place, identical blocking. The only difference is that somebody
+    // actually surveyed it. If this went UNMAPPED too, the withdrawal would be a bug about
+    // occlusion rather than a ruling about provenance.
+    const track = sunsetTrack();
+    const bare = solveTerms(solveInput(GEO, ringScene(GEO, DIST, TALL, "bare"), track));
+    const solid = solveTerms(solveInput(GEO, ringScene(GEO, DIST, TALL, "solid"), track));
+    expect(solid.canopyUncredited).toBe(0);
+    expect(solid.terms.c[centreCell]).toBeCloseTo(bare.terms.c[centreCell], 6);
+    expect(solid.terms.c[centreCell]).toBeGreaterThanOrEqual(SCORING.gates.minCoverage);
+  });
+
+  it("THE PRECISION — a LOW canopy the body clears keeps most of its evidence", () => {
+    // The naive rule ("the horizon is a tree ⇒ withdraw") would turn every park with a good high
+    // view into UNMAPPED. The shipped rule charges the canopy only for occlusion it is actually
+    // responsible for: the disc's LOWER limb below the canopy top AND its UPPER limb still above
+    // the eye's own horizon dip — i.e. "you would have seen it if the tree were not there".
+    const track = sunsetTrack();
+    const bare = solveTerms(solveInput(GEO, ringScene(GEO, DIST, TALL, "bare"), track));
+    const low = solveTerms(solveInput(GEO, ringScene(GEO, DIST, LOW, "canopy"), track));
+    const tall = solveTerms(solveInput(GEO, ringScene(GEO, DIST, TALL, "canopy"), track));
+
+    expect(bare.canopyUncredited).toBe(0); // nothing to withdraw with no trees at all
+    expect(low.canopyUncredited).toBeGreaterThan(0);
+    expect(low.canopyUncredited).toBeLessThan(tall.canopyUncredited);
+    expect(low.terms.c[centreCell]).toBeGreaterThan(tall.terms.c[centreCell]);
+    // The 5 m ring keeps the cell MAPPED; the 22 m one does not. That is the whole rule in one
+    // pair of numbers, and it is what stops the policy from erasing every park with a high view.
+    expect(low.terms.c[centreCell]).toBeGreaterThanOrEqual(SCORING.gates.minCoverage);
+    expect(tall.terms.c[centreCell]).toBeLessThan(SCORING.gates.minCoverage);
+  });
+
+  it("THE DIP BOUND — the canopy is not charged for the planet's own occlusion", () => {
+    // **This pin is on the COUNTER, and deliberately so.** Measured on this fixture: dropping the
+    // `upper limb > dipFloor` term takes the 5 m ring from **39,078** withdrawals to **84,899** —
+    // 54 % of them spurious, every one a sample where the sun had already set and the tree was
+    // charged for it. It barely moves `C` (0.6169 → 0.6163), because `trackWeight.horizonCeiling`
+    // has already driven those samples' weight to ~0. So the bound does not change the verdict —
+    // **it changes the DIAGNOSIS**, and `canopyUncredited` exists precisely so a human can answer
+    // "did the trees do this?". A counter that is wrong by 2× is how the wrong re-bake gets sized;
+    // this repo has paid for that once already (`droppedOutside`, 2026-08-26d).
+    const track = sunsetTrack();
+    const low = solveTerms(solveInput(GEO, ringScene(GEO, DIST, LOW, "canopy"), track));
+    expect(low.canopyUncredited).toBeGreaterThan(20_000);
+    expect(low.canopyUncredited).toBeLessThan(60_000);
   });
 });

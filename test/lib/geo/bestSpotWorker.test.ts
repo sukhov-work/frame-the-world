@@ -26,10 +26,25 @@ import {
   tinPostingM,
   transfersOf,
   unmappedFieldPack,
+  type CanopyWire,
   type TinMeshWire,
 } from "../../../src/lib/geo/bestSpotWorker";
 import { buildLandGrid, LAND_CODE } from "../../../src/lib/geo/landcoverRaster";
-import { enuFrameAt, SRC_BUILDING, SRC_DECK, SRC_TERRAIN, SRC_TREE } from "../../../src/lib/geo/localDsm";
+import { R_MEAN_M } from "../../../src/lib/geo/horizonProfile";
+import {
+  cellAtEnu,
+  enuFrameAt,
+  insideSolidInterior,
+  SRC_BUILDING,
+  SRC_DECK,
+  SRC_TERRAIN,
+  SRC_TREE,
+} from "../../../src/lib/geo/localDsm";
+import {
+  CANOPY_CENTER_Y,
+  CANOPY_HALF_Y,
+  UNIT_CANOPY_R,
+} from "../../../src/lib/geo/occlusion";
 import type { ParsedVtile } from "../../../src/components/globe/scene/vectorTiles";
 
 /**
@@ -179,6 +194,140 @@ describe("the DSM keeps BUILT MASS out of `ground` — provenance survives", () 
     const centre = ((geo.nGrid - 1) / 2) * geo.nGrid + (geo.nGrid - 1) / 2;
     expect(dsm.solidMask[centre]).toBe(0);
     expect(dsm.surfaceSrc[centre]).toBe(SRC_TERRAIN);
+  });
+
+  /**
+   * D2 (2026-08-26g) — canopies reach the surface, and they reach it as their OWN LAYER.
+   *
+   * `addCanopy` and `sealDsm({includeCanopy})` shipped in `localDsm` with **zero production
+   * callers**; `buildDsm` tagged every solid `SRC_BUILDING` unconditionally, so `graze.conf.tree`,
+   * `SRC_TREE` and `noteOf(SRC_TREE)` were all unreachable and the spec's *"terrain, every
+   * building, bridge decks, trees"* was not what shipped. On a tree-lined avenue the model saw
+   * open sky.
+   */
+  const canopySet = (
+    frame: ReturnType<typeof enuFrameAt>,
+    offsets: readonly [number, number][],
+    heightM: number,
+    radiusM: number,
+  ): CanopyWire => {
+    const m: number[] = [];
+    const s = radiusM / UNIT_CANOPY_R;
+    for (const [e, n] of offsets) {
+      // Column-major, yaw-only about +Y — the slice-3 bake contract `sweepTreeInstances` decodes.
+      m.push(s, 0, 0, 0, 0, heightM, 0, 0, 0, 0, s, 0, e, 0, n, 1);
+    }
+    return {
+      instanceMatrices: Float32Array.from(m),
+      count: offsets.length,
+      // Cell → ECEF, columns = the ENU basis at the frame origin (rigid, per the bake contract).
+      matrixWorld: Float64Array.from([
+        frame.east[0], frame.east[1], frame.east[2], 0,
+        frame.up[0], frame.up[1], frame.up[2], 0,
+        frame.north[0], frame.north[1], frame.north[2], 0,
+        frame.originEcef[0], frame.originEcef[1], frame.originEcef[2], 1,
+      ]),
+    };
+  };
+
+  it("a canopy folds into `surfaceTop` as SRC_TREE — and NEVER into the solid mask", () => {
+    const geo = discGeometry(60, 20, 40);
+    const frame = enuFrameAt(48.4647, 35.0462, 0);
+    const { dsm, canopyStamps } = buildDsm(
+      geo,
+      frame,
+      [quad(frame, 90, 0)],
+      [],
+      [canopySet(frame, [[0, 0]], 12, 4)],
+    );
+    const centre = ((geo.nGrid - 1) / 2) * geo.nGrid + (geo.nGrid - 1) / 2;
+    expect(canopyStamps).toBeGreaterThan(0);
+    // The tree really is between the eye and the sun — it reaches the SWEPT surface…
+    expect(dsm.surfaceSrc[centre]).toBe(SRC_TREE);
+    expect(dsm.surfaceTop[centre]).toBeGreaterThan(6);
+    // …but it is NOT a solid, and this is the assertion that matters most.
+    expect(dsm.solidMask[centre]).toBe(0);
+    expect(dsm.canopyMask[centre]).toBe(1);
+  });
+
+  it("THE TRAP — you can still stand under a tree, at ground level AND at drone height", () => {
+    // `landcoverRaster.accessAt` decides the aerial gate through `localDsm.insideSolidInterior`.
+    // A canopy written into `solidMask` — the obvious way to make a tree "block" — would make
+    // every tree-lined avenue INACCESSIBLE the moment the sheet is lifted to `access.aerialMinM`
+    // (5 m): a drone declared to be *inside* a tree. The 6 m arm is the one that catches it; the
+    // 1.7 m arm alone passes even in the broken version, because the canopy starts above the eye.
+    const geo = discGeometry(60, 20, 40);
+    const frame = enuFrameAt(48.4647, 35.0462, 0);
+    const { dsm } = buildDsm(
+      geo,
+      frame,
+      [quad(frame, 90, 0)],
+      [],
+      [canopySet(frame, [[0, 0]], 12, 4)],
+    );
+    const centre = ((geo.nGrid - 1) / 2) * geo.nGrid + (geo.nGrid - 1) / 2;
+    expect(insideSolidInterior(dsm, centre, 1.7)).toBe(false);
+    expect(insideSolidInterior(dsm, centre, 6)).toBe(false);
+    // POSITIVE CONTROL — a real building at the same cell DOES report an interior at 6 m, so the
+    // two falses above are the canopy layering and not a dead predicate.
+    const withRoof = buildDsm(geo, frame, [quad(frame, 90, 0)], [quad(frame, 40, 25)]).dsm;
+    expect(insideSolidInterior(withRoof, centre, 6)).toBe(true);
+  });
+
+  it("a BUILDING taller than the canopy keeps the surface — the tree does not overwrite it", () => {
+    const geo = discGeometry(60, 20, 40);
+    const frame = enuFrameAt(48.4647, 35.0462, 0);
+    const { dsm } = buildDsm(
+      geo,
+      frame,
+      [quad(frame, 90, 0)],
+      [quad(frame, 40, 30)],
+      [canopySet(frame, [[0, 0]], 12, 4)],
+    );
+    const centre = ((geo.nGrid - 1) / 2) * geo.nGrid + (geo.nGrid - 1) / 2;
+    expect(dsm.surfaceSrc[centre]).toBe(SRC_BUILDING);
+    expect(dsm.surfaceTop[centre]).toBeCloseTo(30, 0);
+  });
+
+  it("PARITY — the DSM's canopy decode and `sweepTreeInstances` place the same tree", () => {
+    // `localDsm.ts:631-633` claims the two surfaces "agree by construction". Nothing enforced it,
+    // and they are now written by two different modules, so this is the enforcement. A canopy in
+    // the wrong vertical datum (the missing `(e²+n²)/2R` fall-away term) fails here by ~38 mm at
+    // the collar — small, silent, and exactly the "two conventions that look alike" bug class.
+    const frame = enuFrameAt(48.4647, 35.0462, 0);
+    const geo = discGeometry(60, 20, 40);
+    const H = 14;
+    const R = 5;
+    // ON a cell centre, deliberately: `addCanopy` stamps a cell only when the cell's CENTRE falls
+    // inside the sphere, and a 5 m canopy between two centres of a 20 m grid legitimately stamps
+    // nothing. The parity claim is about the DATUM, so the fixture must not also be a sampling test.
+    const set = canopySet(frame, [[20, -20]], H, R);
+    const { dsm } = buildDsm(geo, frame, [quad(frame, 200, 0)], [], [set]);
+
+    // What the DSM believes the canopy TOP is, right above the instance.
+    const c = cellAtEnu(dsm, 20, -20);
+    expect(c).toBeGreaterThanOrEqual(0);
+    expect(dsm.canopyMask[c]).toBe(1);
+
+    // What `sweepTreeInstances` believes, decoded with ITS constants from the same 16 floats.
+    const heightM = set.instanceMatrices[5];
+    const radiusM =
+      Math.hypot(set.instanceMatrices[0], set.instanceMatrices[1], set.instanceMatrices[2]) *
+      UNIT_CANOPY_R;
+    const sphereR = Math.max(radiusM, CANOPY_HALF_Y * heightM);
+    const expectedTop = CANOPY_CENTER_Y * heightM + sphereR;
+    expect(heightM).toBeCloseTo(H, 6);
+    expect(radiusM).toBeCloseTo(R, 6);
+
+    // **THE DATUM IS THE ASSERTION.** `sweepTreeInstances` works in raw ECEF, so its top is a
+    // plain tangent-plane height. The DSM measures every height above the SPHERE through the frame
+    // — `rasterizeTinGround`'s pin 5 — so the same tree legitimately reads `(e²+n²)/2R` HIGHER
+    // here: 62.8 µm at this cell, 38 mm at the 700 m collar. Subtracting the term and demanding
+    // equality pins the conversion in the direction that matters: drop it from `enuOfEcef` and the
+    // canopy lands in a different vertical datum from the terrain it stands on, and this goes red.
+    const fallAwayM = (20 * 20 + 20 * 20) / (2 * R_MEAN_M);
+    expect(fallAwayM).toBeGreaterThan(1e-5); // the fixture really does exercise the term
+    expect(dsm.canopyTop[c] - fallAwayM).toBeCloseTo(expectedTop, 6);
   });
 });
 

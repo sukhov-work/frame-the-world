@@ -3,12 +3,19 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { parseVectorTile, type ParsedVtile } from "../../../src/components/globe/scene/vectorTiles";
-import { BESTSPOT_SCORING_V1, scoringHash } from "../../../src/lib/geo/bestSpotScoring";
+import {
+  BESTSPOT_SCORING_V1,
+  CLASS_OF,
+  INVALIDATION_RANK,
+  scoringHash,
+  trackHash,
+} from "../../../src/lib/geo/bestSpotScoring";
 import { eventTrack } from "../../../src/lib/geo/bestSpotTrack";
 import type { BestSpotKind, EventTrack } from "../../../src/lib/geo/bestSpotTypes";
 import {
   builtDensityOf,
   solveRung,
+  trackKeyOf,
   type BestSpotSolveJob,
   type Resident,
   type TinMeshWire,
@@ -162,6 +169,9 @@ function resident(over: Partial<Resident> = {}): Resident {
     collarM: BESTSPOT.collarM,
     frame,
     frameAltM: 0,
+    // No canopies in this fixture — it is a residency pin, not a vegetation one, and an empty
+    // canopy list is exactly the pre-2026-08-26g DSM these numbers were measured against.
+    canopies: [],
     // 1,000 m half-width covers the 700 m sweep grid with room for the rim's own reach.
     terrain: [flatQuad(frame, 1_000)],
     built: [],
@@ -377,4 +387,73 @@ describe("S6 — the rung timings, at the rungs the plan actually pins", () => {
     // 5 s default expired mid-loop and reported a TIMEOUT rather than a number, which is the one
     // outcome a measurement pin must never produce.
   }, 180_000);
+});
+
+/**
+ * =============================================================================================
+ * **THE T0.5 KEY — and the two profile leaves that were silently dead until 2026-08-26g.**
+ * =============================================================================================
+ *
+ * `eventTrack` bakes `trackWeight.altScaleDeg` and `trackWeight.horizonCeiling` into its own
+ * per-sample weights `w_i` (`bestSpotTrack.ts:629-631, 950-957`), and `V` is integrated against
+ * `w`. But the resident track was cached on `${kind}|${localDay}` alone, and both leaves were
+ * classed `reweigh` — which `runApply` answers from the RESIDENT TERM BUFFER, where `V` already
+ * carries the old weights. So a taste pass on either leaf changed nothing at all until the scene
+ * crossed a local-day or kind boundary.
+ *
+ * **Nothing went red**, because every recompose/reweigh test in this repo asserts only that *some*
+ * score moved for *some* patch — never that a patch's own mechanism ran. These three cases are the
+ * missing assertions, and the third is the one that gives the other two meaning.
+ */
+describe("T0.5 — the track key covers what the track is a function of, and nothing else", () => {
+  it("a `trackWeight` leaf MOVES the key — and really does move the weights it claims to", () => {
+    const base = SCORING;
+    const patched: typeof SCORING = {
+      ...base,
+      trackWeight: { ...base.trackWeight, altScaleDeg: base.trackWeight.altScaleDeg * 2 },
+    };
+    expect(trackKeyOf(job({ scoring: base }))).not.toBe(trackKeyOf(job({ scoring: patched })));
+
+    // The key would be worth nothing if the leaf were inert in `eventTrack` too, so prove the
+    // mechanism end to end: rebuild the track under the patch and show a real weight moved.
+    const mk = (s: typeof SCORING) =>
+      eventTrack(
+        { latDeg: LAT, lonDeg: LON, groundAltM: 0, eyeAboveGroundM: BESTSPOT.eyeM },
+        "sunset",
+        DAY_MS,
+        { refractionK: K_REFRACT, scoring: s, snapAzLattice: true },
+      );
+    const a = mk(base);
+    const b = mk(patched);
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    // Same lattice (the absolute snap is unchanged), different weights — which is exactly the
+    // shape that makes this a `rescore` and not a `rebuild`.
+    expect(b!.samples.length).toBe(a!.samples.length);
+    const moved = a!.samples.filter((s, i) => s.w !== b!.samples[i].w).length;
+    expect(moved).toBeGreaterThan(0);
+  });
+
+  it("THE NEGATIVE CONTROL — a recompose leaf must NOT move the key", () => {
+    // Without this, folding the whole `scoringHash` into the key would pass the case above while
+    // making every 0.272 ms taste knob pay a full track rebuild. The key has to be narrow.
+    const base = SCORING;
+    const reweighted: typeof SCORING = {
+      ...base,
+      weights: { ...base.weights, v: base.weights.v + 0.1 },
+    };
+    expect(trackKeyOf(job({ scoring: reweighted }))).toBe(trackKeyOf(job({ scoring: base })));
+    expect(trackHash(reweighted)).toBe(trackHash(base));
+    // …and the key still moves for the two things it is *supposed* to track.
+    expect(trackKeyOf(job({ kind: "sunrise" }))).not.toBe(trackKeyOf(job()));
+  });
+
+  it("both `trackWeight` leaves are classed `rescore` — `reweigh` cannot honour them", () => {
+    // `reweigh` routes to `runApply` → `composeRung`, which never rebuilds the track. The class is
+    // the half of the fix that makes a re-solve HAPPEN; `trackKeyOf` is the half that makes the
+    // re-solve rebuild the track. Either alone is not a fix.
+    for (const leaf of ["trackWeight.altScaleDeg", "trackWeight.horizonCeiling"] as const) {
+      expect(INVALIDATION_RANK[CLASS_OF[leaf]]).toBeGreaterThanOrEqual(INVALIDATION_RANK.rescore);
+    }
+  });
 });

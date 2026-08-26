@@ -152,6 +152,40 @@ export function enuOfLonLat(frame: EnuFrame, lonDeg: number, latDeg: number): [n
 }
 
 /**
+ * ECEF → this frame's ENU, **including the DSM's own height datum** (2026-08-26g, for canopies).
+ *
+ * `enuOfLonLat` above answers the PLAN-VIEW question and deliberately drops `up`. This one is for
+ * callers that already hold an ECEF point and need the height too — the tree instances, whose
+ * position comes out of an `InstancedMesh` TRS rather than out of a lon/lat.
+ *
+ * **The `+ (e² + n²)/2R` term is not optional and it is the whole reason this is a shared function.**
+ * It is `rasterizeTinGround`'s pin 5: it undoes the tangent plane's fall-away so `ground` measures
+ * height above the SPHERE, which is the datum the apparent-elevation formula `h − d²(1−k)/2R` is
+ * written in. A canopy placed with the raw dot product would sit in a *different vertical datum* from
+ * the terrain it stands on — 7 mm out at 300 m, 38 mm at the 700 m collar. Small, and exactly the
+ * "two conventions that look alike" class this module's own header was written about, so it gets one
+ * implementation and a test that pins the two paths together rather than a comment asserting they
+ * agree. `rasterizeTinGround` keeps its inlined copy for the hot loop; `localDsm.test.ts` holds them
+ * to each other.
+ */
+export function enuOfEcef(
+  frame: EnuFrame,
+  x: number,
+  y: number,
+  z: number,
+  earthRadiusM: number = R_MEAN_M,
+): { e: number; n: number; up: number } {
+  const dx = x - frame.originEcef[0];
+  const dy = y - frame.originEcef[1];
+  const dz = z - frame.originEcef[2];
+  const e = dx * frame.east[0] + dy * frame.east[1] + dz * frame.east[2];
+  const n = dx * frame.north[0] + dy * frame.north[1] + dz * frame.north[2];
+  const u = dx * frame.up[0] + dy * frame.up[1] + dz * frame.up[2];
+  const invTwoR = earthRadiusM === Infinity ? 0 : 1 / (2 * earthRadiusM);
+  return { e, n, up: u + (e * e + n * n) * invTwoR };
+}
+
+/**
  * The exact inverse of `enuOfLonLat` — walk the tangent plane, read the geodetic point back.
  *
  * The walked point sits `r²/2R` above the ellipsoid (28 mm at 600 m), and `ecefToGeodetic` drops that

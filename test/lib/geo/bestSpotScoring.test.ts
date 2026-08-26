@@ -741,8 +741,16 @@ describe("§5.4 the invalidation-class table", () => {
       "worth.floor": "recompose",
       "worth.effectiveFloor": "recompose",
       "worth.mode": "recompose",
-      "trackWeight.altScaleDeg": "reweigh",
-      "trackWeight.horizonCeiling": "reweigh",
+      // **MOVED from `reweigh` to `rescore` on 2026-08-26g, and the move is the bug fix.**
+      // Both leaves are baked into `w_i` INSIDE `eventTrack` (`bestSpotTrack.ts:629-631, 950-957`),
+      // and `V` is integrated against `w`. `reweigh` is answered by `runApply` → `composeRung` from
+      // the RESIDENT TERM BUFFER — where `V` already carries the old weights — and never rebuilds
+      // the track, so both leaves were silently inert until the scene crossed a local-day or kind
+      // boundary. The companion half is `trackHash` inside `trackKeyOf`; the pins live in
+      // `test/lib/geo/bestSpotResidency.test.ts` ("T0.5 — the track key covers…"), including the
+      // negative control that stops the key from simply hashing the whole profile.
+      "trackWeight.altScaleDeg": "rescore",
+      "trackWeight.horizonCeiling": "rescore",
       "curves.depthNearRefM": "rescore",
       "curves.depthTrustRadiusM": "rescore",
       "graze.reliefLoDeg": "rescore",
