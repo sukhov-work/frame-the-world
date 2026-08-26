@@ -3,7 +3,7 @@
   "city": "dnipro-o2w",
   "variantNote": "OSM2World higher-fidelity VARIANT of the dnipro bake (fidelity tier 2 — dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md §9). Inherits bbox/grid/buildings/vegetation/exclusion from cities/dnipro.json so the mask extent, cells, and trees stay identical — an A/B differs ONLY in structure geometry. Baked by scripts/bake/bake-osm2world.mjs; the default pipeline (bake.mjs → bakes/enriched/dnipro) is untouched. Compare at runtime via ?enriched=dnipro-o2w (src/lib/globe/enrichedVariant.ts).",
   "output": "bakes/enriched/dnipro-o2w",
-  "tilesetVersion": "dnipro-o2w-2",
+  "tilesetVersion": "dnipro-o2w-3",
   "osm2world": {
     "jar": "scripts/bake/spike-osm2world/dist/OSM2World.jar",
     "jarNote": "0.5.0-SNAPSHOT distro (git-ignored; re-fetch: curl -LO https://osm2world.org/download/files/latest/OSM2World-latest-bin.zip && unzip into scripts/bake/spike-osm2world/dist). Java 17+ required; the --add-exports flags in bake-osm2world.mjs are mandatory on Java 21.",

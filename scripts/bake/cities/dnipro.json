@@ -4,6 +4,8 @@
   "bboxNote": "GREATER Dnipro ~20 x 20 km (~10 km radius from the city centre 48.46/35.05) — widened 2026-07-14 (owner ask) from the full-city ~7.4x8.9 km box. grid 10->20 keeps cell size ~1.0x1.0 km (streaming granularity + within-cell relief limit unchanged). bbox = [west,south,east,north] deg. ENRICHED.bbox in src/components/globe/tuning.ts MUST match this (mask extent == enriched extent, or they overlap/gap). Re-bake BOTH variants on change (bake.mjs + bake-osm2world.mjs — dnipro-o2w extends this file).",
   "grid": 20,
   "buildings": {
+    "skirtM": 4,
+    "skirtNote": "RC13 base skirt (m) — read by BOTH bakers (bake-osm2world.mjs inherits this block through `extends`). Walls start this far below the feature's base so residual sink/float after the group/cell/footprint re-seat ladder never shows sky under a building. It LOWERS the existing bottom rim rather than appending a course of quads: +0 vertices, against the measured +59 % an appended skirt costs on the OSM2World soup (audit S13 caps growth at +10 %). Guards and the full rationale: scripts/bake/lib/buildings.mjs. Set 0 to bake without it.",
     "levelHeightM": 3.0,
     "defaultHeightM": 8,
     "roofPitch": 0.42,
@@ -33,7 +35,7 @@
   },
   "attribution": "Contains information from OpenStreetMap © OpenStreetMap contributors, made available under the Open Database License (ODbL).",
   "output": "bakes/enriched/dnipro",
-  "tilesetVersion": "dnipro-real-3",
+  "tilesetVersion": "dnipro-real-4",
   "terrain": {
     "terrainNote": "GLO-30 quantized-mesh patch (design ruling 2026-08-18): extentBbox = whole input 1x1-deg GLO-30 tiles (served fully-inside up to extentMaxDepth, rim-blended to CWT over blendKm at the edge — blend.mjs, post-bake); cityBbox = the enriched bbox above (deep-detail area above extentMaxDepth — MUST stay equal to bbox, same mask-extent coupling). L13 64-seg posting is 38x25 m ~ GLO-30 native; L14 resolves the 20.5 m E-W arcsec detail city-only (mago may cap below — the bake warns and patch-info.json carries the real max). Heights become ELLIPSOIDAL via mago's built-in EGM2008 geoid (--geoid EGM2008) — same datum as CWT, so runtime seating needs no datum handling; geoid.mjs is the verification twin. C6: 30 m native = SRTM-class public data (owner ruling 2026-08-18); never bake finer without an explicit ruling. Runtime twin: src/lib/globe/regions.ts terrain block MUST match the bake console snippet.",
     "extentBbox": [34.0, 48.0, 36.0, 49.0],

@@ -705,7 +705,19 @@ ok(
 );
 
 // RC11 — the memo. The seat sweep is a round-robin, so after one wrap it should be mostly hits.
-const memo = await json(`window.__globe.heightMemoStats()`);
+//
+// POLLED, not sampled once (2026-08-26). The claim is "the round-robin re-asks the same
+// questions", which is a property of the WRAPPED sweep — but these counters are cumulative from
+// page load, and the leg above deliberately forces a tile refine, whose fresh terrain is all
+// misses. So the reading depends on how long ago the previous leg navigated, and a run that got
+// here quickly reported 9.8 % against an engine that measures 47 % at 10 s and 87 % at 120 s over
+// the same pose. Waiting for the sweep to wrap asserts the same thing without the race; a memo
+// that genuinely never re-asks will still sit at its floor for the whole window and fail.
+let memo = await json(`window.__globe.heightMemoStats()`);
+for (let i = 0; i < 60 && memo.hitRate <= 0.25; i++) {
+  await sleep(1000);
+  memo = await json(`window.__globe.heightMemoStats()`);
+}
 measured.RC11 = memo;
 note(
   `RC11 height memo: ${memo.hits} hits / ${memo.misses} misses (${(memo.hitRate * 100).toFixed(1)}%), ` +

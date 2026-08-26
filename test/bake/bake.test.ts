@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseMeters, normalizeRoofShape, inferBuilding, signedArea, cleanRing, triangulate, obb, emitBuilding } from "../../scripts/bake/lib/buildings.mjs";
+import { parseMeters, normalizeRoofShape, inferBuilding, signedArea, cleanRing, triangulate, obb, emitBuilding, skirtFor, skirtForSoup, SKIRT_MIN_EXTENT_M, SKIRT_MAX_BASE_M } from "../../scripts/bake/lib/buildings.mjs";
+import { yExtent, metaRow, cellMetaJson, META_SCHEMA } from "../../scripts/bake/lib/meta.mjs";
 import { makeExcluder, pointInPolygon } from "../../scripts/bake/lib/exclusion.mjs";
 import { enuBasis, projectEN, geodeticToEcef } from "../../scripts/bake/lib/geo.mjs";
 import { encodeGlb, regionRad } from "../../scripts/bake/lib/gltf.mjs";
@@ -157,6 +158,105 @@ describe("emitBuilding", () => {
     const out = { positions: [], normals: [], featureIds: [] };
     emitBuilding([[0, 0], [0.01, 0]], { base: 0, height: 10, roofShape: "flat" }, 0, out);
     expect(out.positions.length).toBe(0);
+  });
+});
+
+// RC13 — the base skirt. The point of these is the SHAPE of the fix as much as its effect: the
+// audit's acceptance clause for S13 is "cell vert count +≤10 %", and lowering the rim is what
+// makes that 0 % instead of the +59 % an appended course of quads measures on the o2w soup.
+describe("emitBuilding — RC13 base skirt", () => {
+  const square = [[0, 0], [10, 0], [10, 10], [0, 10]];
+  const bake = (params: Record<string, unknown>, cfg?: Record<string, unknown>) => {
+    const out: { positions: number[]; normals: number[]; featureIds: number[] } =
+      { positions: [], normals: [], featureIds: [] };
+    emitBuilding(square, params, 0, out, cfg);
+    const ys = out.positions.filter((_, i) => i % 3 === 1);
+    return { out, minY: Math.min(...ys), maxY: Math.max(...ys) };
+  };
+  const flat = { base: 0, height: 12, roofShape: "flat", roofHeight: null };
+
+  it("costs ZERO extra vertices — it lowers the rim, it does not append a course", () => {
+    const without = bake(flat, { skirtM: 0 });
+    const with4 = bake(flat, { skirtM: 4 });
+    expect(with4.out.positions.length).toBe(without.out.positions.length);
+    expect(with4.out.featureIds.length).toBe(without.out.featureIds.length);
+  });
+
+  it("drops the wall bottom by exactly skirtM and leaves the roof alone", () => {
+    expect(bake(flat, { skirtM: 0 })).toMatchObject({ minY: 0, maxY: 12 });
+    expect(bake(flat, { skirtM: 4 })).toMatchObject({ minY: -4, maxY: 12 });
+  });
+
+  it("leaves a min_height mass alone — that gap is drawn on purpose", () => {
+    // height=20 min_height=15 ⇒ a tower over a podium. Skirting it fills a hole the mapper meant.
+    const raised = { base: 15, height: 20, roofShape: "flat", roofHeight: null };
+    expect(bake(raised, { skirtM: 4 }).minY).toBe(15);
+  });
+
+  it("no config ⇒ no skirt (every pre-RC13 caller keeps its geometry)", () => {
+    expect(bake(flat).minY).toBe(0);
+    expect(bake(flat, {}).minY).toBe(0);
+  });
+
+  it("skirtFor: the rule is the base, not the height", () => {
+    expect(skirtFor({ base: 0 }, { skirtM: 4 })).toBe(4);
+    expect(skirtFor({ base: 0.2 }, { skirtM: 4 })).toBe(4); // inside SKIRT_MAX_BASE_M
+    expect(skirtFor({ base: 3 }, { skirtM: 4 })).toBe(0);
+    expect(skirtFor({ base: 0 }, { skirtM: 0 })).toBe(0);
+    expect(skirtFor({ base: 0 }, {})).toBe(0);
+  });
+});
+
+// The o2w half decides from geometry, because the adapter gets triangles and no tags.
+describe("skirtForSoup — the OSM2World half", () => {
+  const cfg = { skirtM: 4 };
+  it("skirts an ordinary wall-bearing feature", () => {
+    expect(skirtForSoup(0, 15, cfg)).toBe(4);
+    expect(skirtForSoup(-0.5, 9, cfg)).toBe(4);
+  });
+  it("refuses a flat ribbon — Cliff and RetainingWall come back at minY === maxY === 0", () => {
+    expect(skirtForSoup(0, 0, cfg)).toBe(0);
+    expect(skirtForSoup(0, SKIRT_MIN_EXTENT_M - 1e-6, cfg)).toBe(0);
+    expect(skirtForSoup(0, SKIRT_MIN_EXTENT_M, cfg)).toBe(4);
+  });
+  it("refuses a feature founded above the ground plane", () => {
+    expect(skirtForSoup(SKIRT_MAX_BASE_M + 1e-6, 20, cfg)).toBe(0);
+    expect(skirtForSoup(3, 20, cfg)).toBe(0);
+  });
+  it("is off by default", () => {
+    expect(skirtForSoup(0, 15, {})).toBe(0);
+    expect(skirtForSoup(0, 15, { skirtM: 0 })).toBe(0);
+  });
+});
+
+// RC17 — the sidecar schema. `base`/`top` are MEASURED from emitted vertices in both bakers, so
+// the row means the same thing whichever baker wrote it.
+describe("meta sidecar (RC17)", () => {
+  it("yExtent reads the Y column only, from a vertex offset", () => {
+    const positions = [0, 5, 0, 1, 9, 1, 2, -3, 2];
+    expect(yExtent(positions)).toEqual({ lo: -3, hi: 9 });
+    expect(yExtent(positions, 1)).toEqual({ lo: -3, hi: 9 });
+    expect(yExtent(positions, 2)).toEqual({ lo: -3, hi: -3 });
+    expect(yExtent([], 0)).toBeNull();
+    expect(yExtent(positions, 3)).toBeNull();
+  });
+
+  it("metaRow adds the skirt back, so `base` is the TRUE ground contact", () => {
+    // A 12 m building skirted 4 m emits vertices from −4 to 12; the row must say base 0, top 12.
+    expect(metaRow({ id: 3, osm: "w1", cls: "Building", lo: -4, hi: 12, skirt: 4, src: "levels" }))
+      .toEqual({ id: 3, osm: "w1", cls: "Building", base: 0, top: 12, skirt: 4, src: "levels" });
+  });
+
+  it("metaRow keeps `top - base` equal to the real rendered height", () => {
+    const r = metaRow({ id: 0, osm: null, cls: "Building", lo: 11, hi: 20, skirt: 0, src: "height" });
+    expect(r.top - r.base).toBe(9); // a min_height mass: unskirted, and its real height is 9 m
+    expect(r.osm).toBeNull();
+  });
+
+  it("cellMetaJson stamps the schema so the runtime can refuse a shape it does not know", () => {
+    const j = JSON.parse(cellMetaJson({ variant: "dnipro-o2w", skirtM: 4, features: [] }));
+    expect(j).toEqual({ schema: META_SCHEMA, variant: "dnipro-o2w", skirtM: 4, features: [] });
+    expect(META_SCHEMA).toBeGreaterThanOrEqual(2);
   });
 });
 

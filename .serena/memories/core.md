@@ -159,6 +159,38 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
+**CLOSE THE RENDERING CHARTER — only RC16 and RC21 remain.** 2026-08-26c shipped **RC13** (base
+skirt) and **RC17** (meta.json sidecar consumption) across ALL FIVE building bakes — re-baked,
+re-uploaded and curl-verified LIVE on R2, which also CLOSED T55. RC13 ships as a TRANSLATION of the
+existing wall rim rather than an appended course of quads: **+0 vertices**, against the measured
++59 % bake-wide / +78 % on `Building` an appended skirt costs on the o2w soup, so audit S13's own
+"+≤10 %" clause is met at 0 %. RC17 unifies the two bakers' split sidecar schemas (schema 2,
+`{id, osm, cls, base, top, skirt, src}`, base/top MEASURED from emitted vertices) and replaces the
+`ENRICHED.overrideMinPickHeightM` height floor with a per-feature class token — **89 non-building
+features reclaimed in one central-Dnipro view**, and the constant's own comment was wrong by ~7×
+(claimed 4.5 % street furniture; the Chernobyl o2w bake is 30.6 %, including 273 transmission
+pylons that were pickable AND rescalable). The correctness hinge is an ORDERING fix: the fetch
+plugin resolves the model behind its sidecar, so class and true base exist at `load-model`, where
+the pristine capture and the U8 override re-apply both happen.
+**RC15 IS REFUTED BY MEASUREMENT for buildings** (M11, taken with a negative control on random
+non-building pixels): footprints score a separable **+0.34 m** at Dnipro / **+0.49 m** at Chernobyl
+and their whole tail is control-dominated, because **95.7 % of Dnipro footprints cover exactly ONE
+30 m source pixel**. **The CANOPY half survives as T58** — contiguous wood measures +1.01 m at
+Dnipro and **+3.78 m at Chernobyl**, where the bake plants 166,599 trees on a surface that already
+IS the canopy.
+**Three defects with no charter row shipped fixed:** the o2w dedupe keyed on the glTF node NAME
+(which OSM2World fills from the OSM `name` tag) and silently dropped +231/+24/+18 buildings; a
+re-bake could never have reached a returning browser (`immutable` glbs + reused filenames →
+`?v=<tilesetVersion>` on every content uri, stripped back off by `cellUriOf` for the persistence
+key); and `droppedOutside`/`droppedPolygon` were logged but never persisted, so RC16 had no
+baseline. **`endsWith(".glb")` now fails SILENTLY against a `?v=` URL — use `/\.glb(\?|$)/`.**
+Read `NEXT_SESSION_PROMPT.md` first, then `mem:project/wip-2026-08-26-group-d-rc13-rc17`, then
+DECISIONS §Recent 2026-08-26c.
+Gates: **vitest 2,079/2,079 (140 files)** · astro 0 err/0 warn/6 hints · knip exit-0 ·
+**verify-rendering-charter 85/85** · NEW **verify-bake-ladder 8/8** · verify-chernobyl 8/8 ·
+verify-bldg-override PASS · verify-ultra + verify-eclipse ALL PASS.
+
+### Prior next step (context)
 **CLOSE THE RENDERING CHARTER — only Group D (RC13/RC15/RC16/RC17) and RC21 remain.**
 SHIPPED: Groups B (RC1–RC5) + C (RC6–RC11) on 2026-08-25c/d · Group F's four implementable slices
 + RC29 + RC22 on 2026-08-25e · **Group E (RC18/RC19/RC20) + RC25 + RC30 on 2026-08-26** — all

@@ -80,6 +80,33 @@ The bake is a **derived database** of OpenStreetMap. Any deployment that streams
 the UI (the app footer already credits © OpenStreetMap contributors; make the **ODbL** explicit when the
 enriched layer ships). The manifest carries the full string. Publish any redistributed derived DB under ODbL.
 
+## The base skirt, the sidecar, and the cache-buster (RC13 / RC17, 2026-08-26)
+
+Three things every bake now carries. All three are re-bake-forcing, and all five shipped bakes have them.
+
+- **`buildings.skirtM` (default in each city config: 4 m)** — the walls start that far BELOW the
+  feature's base, so residual sink/float after the group→cell→footprint re-seat ladder never shows
+  sky under a building. It **lowers the existing bottom rim; it does not append a course of quads**.
+  That is the whole design: an appended skirt measured **+59 % vertices bake-wide (+78 % on
+  `Building`)** on the OSM2World soup, against the audit's own "+≤10 %" bar — lowering the rim is
+  the same picture for **+0 vertices**. Guards (`lib/buildings.mjs`): a `min_height` mass is left
+  alone (that gap is drawn on purpose), and so is anything with a Y-extent under 0.5 m, because the
+  o2w bake's `Cliff` and `RetainingWall` come back at `minY === maxY === 0` and a skirt would hang a
+  4 m curtain off a zero-height line. Set `skirtM: 0` to bake without it.
+- **`cell-<i>-<j>.meta.json`** — the per-cell identity sidecar, ONE schema for both bakers
+  (`lib/meta.mjs`, schema 2): `{id, osm, cls, base, top, skirt, src}` under a
+  `{schema, variant, skirtM}` header. `base`/`top` are MEASURED from the emitted vertices, never
+  re-derived from tags — the extruder's `height` is the EAVE with the roof above it, and the adapter
+  has no tags at all. The runtime uses `cls` as the pick fence (replacing a 2.5 m height floor that
+  let every street lamp and transmission pylon through) and `skirt` to undo the skirt when it
+  reports a height or pivots a rescale. `.json` uploads and dev-serves automatically.
+- **`?v=<tilesetVersion>` on every content uri** — because the R2 worker serves `.glb` as
+  `max-age=31536000, immutable` and **re-bakes reuse filenames**, so without it a returning browser
+  would hold the previous bake for a year. **Bump `tilesetVersion` in the city config on every
+  re-bake.** It propagates within the 5 minutes `tileset.json` is cached, and it is safe because the
+  loader dispatches on the glTF magic bytes. Note the trap it creates: **`endsWith(".glb")` stops
+  matching and fails silently** — use `/\.glb(\?|$)/` in any script or plugin that filters URLs.
+
 ## Known limitations (v1) → fixes
 
 - **Single-point re-seat over a large bbox.** The runtime lift uses ONE terrain height (bbox centre). Over
