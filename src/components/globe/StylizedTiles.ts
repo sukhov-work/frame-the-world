@@ -123,6 +123,7 @@ import {
   upsertOverride,
 } from "../../lib/globe/bldgOverrides";
 import {
+  bankWindowMsLeft,
   lruCapBytesForUltra,
   queueCapsForTier,
   stickyOverlayPx,
@@ -206,9 +207,20 @@ export interface TilesHandle {
    *  vector-lattice budgets). GlobeCanvas owns the renderer-level levers (DPR/bloom/shadows) and
    *  calls this on each tier change. `high` restores every library default → byte-identical. */
   setQualityTier: (tier: QualityTier) => void;
-  /** U2/A9: true while ANY FPV (photo/temp) owns the camera. GlobeCanvas's governor defers tier
-   *  applications while set — composer-target realloc + LRU re-caps mid-FPV read as the point-6
-   *  "full re-render"; the pending tier lands on the first non-FPV frame. */
+  /** RC18 — the TILE half alone (error targets, LRU cap/floor pairs, queue caps, foveation,
+   *  street/lattice budgets). Every one of these moves monotonically with the tier, so a PROMOTE
+   *  can only stream more detail in; GlobeCanvas lands it immediately even inside FPV. */
+  setQualityTierTiles: (tier: QualityTier) => void;
+  /** RC18 — the DEFERRED half (`tierOverlayPx` + the two DPR mirrors). Always rides the
+   *  `pendingTier` deferral: a composite-resolution raise is a fresh-instance overlay rebuild. */
+  setQualityTierDeferred: (tier: QualityTier) => void;
+  /** RC18 — the tier whose TILE levers are live. Diverges from `__globeQuality.tier` (the
+   *  RENDERER tier) only while a split promote's renderer half is parked in FPV. */
+  tileTier: () => QualityTier;
+  /** U2/A9: true while ANY FPV (photo/temp) owns the camera. GlobeCanvas's governor defers the
+   *  RENDERER half of a tier application while set — composer-target realloc + a composite
+   *  rebuild mid-FPV read as the point-6 "full re-render"; it lands on the first non-FPV frame.
+   *  RC18: a governor PROMOTE's tile half no longer waits for that. */
   fpvActive: () => boolean;
   /** 2026-08-18e: true while the flat-map ENGINE treatment is active (/m 2D map, or desktop
    *  nadir under CONTROLS.mapFlatMaxAltM) — GlobeCanvas gates bloom off with it. */
@@ -524,6 +536,11 @@ export function attachStylizedTiles(opts: {
   // QA slice C (2026-08-21h): the EFFECTIVE composite px — sticky-up (see stickyOverlayPx).
   // Seeded 0 so frame 1 ratchets to the boot value (== the constructor px → a no-op write).
   let overlayPxEff = 0;
+  /** RC20/T34: ms left in the post-flip ground-LRU bank window, and the FPV key the latch
+   *  compares against. `-1` seeds "no flip on frame 1" — without it the first frame would read
+   *  as a boundary crossing and arm a 45 s bank nobody asked for. */
+  let groundBankMsLeft = 0;
+  let groundFpvKey = -1;
   /** The tier currently applied — so the ULTRA edge can re-run the fan-out without waiting for
    *  the governor to change its mind (it may never: on a `high` machine it is a no-op by design). */
   let activeQualityTier: QualityTier = qualityTier;
@@ -537,7 +554,16 @@ export function attachStylizedTiles(opts: {
    *  loudly — GlobeCanvas's `.catch` logs it as a console.WARN and the app silently renders the
    *  procedural placeholder. `astro check` cannot see it either; only running it can. */
   let ultraOn = false;
-  const applyQualityTier = (tier: QualityTier) => {
+  /**
+   * RC18 — the TILE half of a tier change: error targets, LRU cap/floor pairs, queue caps,
+   * foveation, and the street/lattice budgets. Every lever here moves MONOTONICALLY with the
+   * tier (a promote lowers every error target and raises every cap — locked by
+   * `quality.test.ts` "THE SAFETY PROPERTY"), which is what makes it safe to land while FPV
+   * owns the camera: a promote can only stream more detail in, never evict or rebuild.
+   *
+   * Deliberately NOT here — see `applyTierDeferred`.
+   */
+  const applyTierTiles = (tier: QualityTier) => {
     activeQualityTier = tier;
     // ULTRA HQ (owner 2026-08-22h): tile-detail overrides layered on top of the running tier —
     // NOT a fourth tier (see lib/globe/quality.ultraTileLevers). With the chip off this returns
@@ -558,11 +584,6 @@ export function attachStylizedTiles(opts: {
       lruCapBytesForUltra(tier, q.groundLruBytesMB, ultraOn, QUALITY.ultraDesktop.groundLruBytesMB),
       qCaps,
     );
-    // QA-7b: the tier value is the BASE only — stepGroundUpdate is the ONE writer of the
-    // effective composite resolution. QA slice C: the effective value is STICKY-UP (a promote
-    // to high may raise it once; a demote never lowers it — a lower write is a fresh-instance
-    // overlay rebuild, the white-chart storm class).
-    tierOverlayPx = q.overlayResolutionPx;
     // U6: per-tier foveation (null on high — byte-identical; regions/periphery only engage in
     // FPV via setFoveaActive). Safe mid-FPV: each module recomputes its base from (tier, cfg, on).
     buildings.setFoveation(q.foveation);
@@ -570,11 +591,42 @@ export function attachStylizedTiles(opts: {
     ground.setFoveation(q.foveation);
     streetNames.setMaxVisible(q.maxStreetNames);
     vectorFeatures.setLatticeBudget(q.vectorLatticeBudget);
+  };
+  /**
+   * RC18 — the DEFERRED half. Three levers that must NOT land while FPV owns the camera:
+   *
+   *  · `tierOverlayPx` — the composite-resolution BASE. `stickyOverlayPx` only ratchets UP, so a
+   *    raise reaches `ground.setOverlayResolution` on the very NEXT frame, and that call is a
+   *    fresh-instance overlay rebuild: every composited texture destroyed plus a tile refetch
+   *    storm (the QA-7b white-chart regression). `lib/globe/quality.ts` already excludes
+   *    `overlayResolutionPx` from the ULTRA lever set for exactly this reason — RC18 excludes it
+   *    from the live-promote set for the same one.
+   *  · `stars.setDpr` / `ground.refreshResolution` — DPR MIRRORS. Their whole reason for existing
+   *    is that GlobeCanvas has just written a new pixel ratio; with the renderer half parked the
+   *    DPR has not moved, so running them here would be a self-write pretending to be an update.
+   */
+  const applyTierDeferred = (tier: QualityTier) => {
+    // QA-7b: the tier value is the BASE only — stepGroundUpdate is the ONE writer of the
+    // effective composite resolution. QA slice C: the effective value is STICKY-UP (a promote
+    // to high may raise it once; a demote never lowers it — a lower write is a fresh-instance
+    // overlay rebuild, the white-chart storm class).
+    tierOverlayPx = ultraTileLevers(
+      QUALITY.tiers[tier],
+      ultraOn,
+      QUALITY.ultraDesktop,
+    ).overlayResolutionPx;
     // U2/A11: GlobeCanvas re-set the renderer pixel ratio just before this call (applyTier order)
     // — refresh the stars' captured uDpr so point sizes track the governor's DPR shed/restore,
     // and the ground's DEVICE-px SSE resolution (2026-08-18 sharpness batch) tracks it too.
     stars.setDpr(renderer.getPixelRatio());
     ground.refreshResolution();
+  };
+  /** Both halves, in the order GlobeCanvas's renderer-first sequencing depends on. The attach
+   *  seed and every non-FPV tier change go through here — see `planTierApply`'s re-convergence
+   *  guarantee, which is what keeps the two halves from stranding apart. */
+  const applyQualityTier = (tier: QualityTier) => {
+    applyTierTiles(tier);
+    applyTierDeferred(tier);
   };
   applyQualityTier(qualityTier);
 
@@ -2308,6 +2360,16 @@ export function attachStylizedTiles(opts: {
           ground: {
             min: ground.tiles.lruCache.minBytesSize,
             max: ground.tiles.lruCache.maxBytesSize,
+            // RC20/T34: the resting level itself. `cached === min` IS the defect — the charter's
+            // proof-of-done is literally "the cache no longer rests at exactly minBytesSize", and
+            // until now no probe published the number that sentence is about.
+            // Cast: 0.4.28 ships both fields at runtime (`LRUCache.js` assigns `this.itemSet`
+            // and `this.cachedBytes` in the constructor) but its `.d.ts` declares only the two
+            // *BytesSize knobs. DEV probe only — nothing in the render path reads these.
+            cached: (ground.tiles.lruCache as unknown as { cachedBytes: number }).cachedBytes,
+            items: (ground.tiles.lruCache as unknown as { itemSet: Map<unknown, unknown> }).itemSet
+              .size,
+            bankMsLeft: groundBankMsLeft,
           },
           enriched: enriched
             ? {
@@ -2491,13 +2553,56 @@ export function attachStylizedTiles(opts: {
           ) as { overlayInfo: Map<unknown, { tileInfo: Map<unknown, { target?: THREE.Texture }> }> } | undefined;
           if (!plug) return null;
           const seen: number[] = [];
+          // RC25: the mip-chain level count per live composite, plus the REAL texture bytes.
+          // `mipMin !== mipMax` would mean two composites disagree about their level count —
+          // under three's (source, cacheKey) sharing that is a silent, intermittent bug, so it
+          // is published rather than argued about. `bytes` is summed from the levels the texture
+          // actually carries, because the library's own accounting scales by 4/3 for AUTO
+          // mipmaps only and would under-report a hand-built chain by exactly the amount that
+          // matters. `mipmaps: []` (the off-state) reports 0, not 1 — the literal the off-state
+          // assertion wants.
+          const mips: number[] = [];
+          let bytes = 0;
+          // `baseBytes` is the SAME textures counted at level 0 only, so `bytes / baseBytes` is
+          // the chain's overhead and nothing else. Comparing an OFF reading against an ON reading
+          // does not give that: the ULTRA chip pins the tier to `high`, which also moves the
+          // composite resolution, and the first run of this check reported ×1.13 for a mix of a
+          // 256²→512² resolution change and the chain. A ratio has to be taken inside one sample.
+          let baseBytes = 0;
           plug.overlayInfo.forEach(({ tileInfo }) => {
             tileInfo.forEach((info) => {
-              if (info.target?.isTexture) seen.push(info.target.anisotropy);
+              const t = info.target;
+              if (!t?.isTexture) return;
+              seen.push(t.anisotropy);
+              const chain = (t.mipmaps ?? []) as Array<{ width: number; height: number }>;
+              mips.push(chain.length);
+              const img = t.image as { width?: number; height?: number } | undefined;
+              const w = img?.width ?? 0;
+              const h = img?.height ?? 0;
+              baseBytes += w * h * 4;
+              bytes += chain.length
+                ? chain.reduce((n, l) => n + l.width * l.height * 4, 0)
+                : w * h * 4;
             });
           });
-          if (seen.length === 0) return { n: 0, min: null, max: null };
-          return { n: seen.length, min: Math.min(...seen), max: Math.max(...seen) };
+          if (seen.length === 0)
+            return {
+              n: 0, min: null, max: null, mipMin: null, mipMax: null,
+              chained: 0, bytes: 0, baseBytes: 0,
+            };
+          return {
+            n: seen.length,
+            min: Math.min(...seen),
+            max: Math.max(...seen),
+            mipMin: Math.min(...mips),
+            mipMax: Math.max(...mips),
+            /** How many live composites carry a chain. The stamp is CREATION-time, so a mix is
+             *  the EXPECTED state after a flip until the cache turns over — `chained` is what
+             *  separates "the stamp is landing" from "the stamp is landing on everything". */
+            chained: mips.filter((m) => m > 0).length,
+            bytes,
+            baseBytes,
+          };
         })(),
       }),
       pins,
@@ -3945,7 +4050,13 @@ export function attachStylizedTiles(opts: {
     const want = hqAllowed && useCameraStore.getState().ultraQuality === true;
     if (want === ultraOn) return;
     ultraOn = want;
-    applyQualityTier(activeQualityTier);
+    // RC18: the TILE half only. Proven inert as a change, not assumed: at a CONSTANT tier the
+    // three lifted lines are all self-writes — ULTRA never overrides `overlayResolutionPx` (it is
+    // on `quality.ts`'s explicit exclusion list, because `stickyOverlayPx` could never undo the
+    // raise within the session), and `stars.setDpr` / `ground.refreshResolution` re-send the same
+    // pixel ratio the renderer already has. `test/components/globe/fences.test.ts` pins the
+    // exclusion so a future ULTRA overlay lever cannot silently stop being applied here.
+    applyTierTiles(activeQualityTier);
     // --- the LOOK half (T44 §1a + T45), all edge-applied ---
     // Wake the look step: while OFF it early-returns, and only an edge can un-settle it. Without
     // this the OFF→ON flip would leave exposure, ambient and haze frozen at their baselines.
@@ -3957,6 +4068,12 @@ export function attachStylizedTiles(opts: {
     // ceiling (16 on the owner's machine); 1 is three's default, so OFF restores the exact
     // cache key the library would have produced on its own.
     ground.setUltraAnisotropy(ultraOn ? Math.min(ULTRA.anisotropy, maxAniso) : 1);
+    // RC25 §1c — the capped mip chain, the other half of §1b. Anisotropy without mips can only
+    // supersample WITHIN level 0; the chain is what gives heavy minification something correct to
+    // sample. Same creation-time stamp, same "fly a little for the full effect" consequence, and
+    // the same exact off-state: `1` level leaves `texture.mipmaps` at its `[]` library default
+    // and `mipByteFactor(1)` is identically 1, so no ULTRA value changes a pixel OR a cached byte.
+    ground.setUltraMipLevels(ultraOn ? ULTRA.mipLevels : 1);
     // S2 — the soft-shadow lever. NOT a shadowMap.type change: `PCFSoftShadowMap` is deprecated
     // in three 0.185 and silently rewritten to `PCFShadowMap` on the first depth pass. What
     // replaced it is a 5-tap Vogel disk rotated per pixel by interleaved gradient noise, where
@@ -3991,6 +4108,25 @@ export function attachStylizedTiles(opts: {
           GROUND.overlayResolution2dPx,
         );
         ground.setOverlayResolution(overlayPxEff);
+        // RC20/T34: bank the OTHER mode's ground tiles across an FPV boundary. The library
+        // rest-trims everything the current traversal did not visit down to `minBytesSize`
+        // (`unused && cachedBytes > minBytesSize` — the cap is not consulted), so a flip costs
+        // ~600 Esri GETs on the way back plus a full re-composite. Hold a raised floor for
+        // QUALITY.lruBank.holdMs, then relax to the tier's own paired floor.
+        //
+        // The key is `fpvActive` and NOT `flatGround`: the flat latch carries an un-hysteresed
+        // altitude term, so a camera parked at exactly CONTROLS.mapFlatMaxAltM would re-arm the
+        // window every frame and silently turn the bounded bank into a permanent raised floor —
+        // with the iOS memory cost T34 explicitly worries about, and nobody's decision.
+        const fpvKey = fpvActive ? 1 : 0;
+        groundBankMsLeft = bankWindowMsLeft(
+          groundBankMsLeft,
+          dtMs,
+          groundFpvKey >= 0 && fpvKey !== groundFpvKey,
+          QUALITY.lruBank.holdMs,
+        );
+        groundFpvKey = fpvKey;
+        ground.setLruBank(groundBankMsLeft > 0 && QUALITY.lruBank.tiers[activeQualityTier]);
   };
 
   const stepEphemerisResample = () => {
@@ -5267,9 +5403,12 @@ export function attachStylizedTiles(opts: {
       }
     },
     setQualityTier: applyQualityTier,
-    // U2/A9: GlobeCanvas's governor DEFERS tier applications while this is true — a tier change
-    // reallocates composer targets and re-caps three LRU caches, and mid-FPV is the one moment
-    // that mass-evict reads as "the whole city re-rendered". Applied at the next non-FPV frame.
+    setQualityTierTiles: applyTierTiles, // RC18
+    setQualityTierDeferred: applyTierDeferred, // RC18
+    tileTier: () => activeQualityTier, // RC18 — read the authority, never a transcribed copy
+    // U2/A9: GlobeCanvas's governor DEFERS the RENDERER half of a tier application while this is
+    // true — it reallocates composer targets and rebuilds every drape composite, and mid-FPV is
+    // the one moment that reads as "the whole city re-rendered". Lands at the next non-FPV frame.
     fpvActive: () => fpvActive,
     // 2026-08-18e: GlobeCanvas's bloom gate — true while the flat-map engine treatment is on
     // (/m 2D map, or desktop nadir below CONTROLS.mapFlatMaxAltM). Mirrored per frame.

@@ -5,11 +5,19 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { tokens } from "../../lib/theme/tokens";
-import { AO, BLOOM, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA } from "./tuning";
+import { AO, BLOOM, PIP, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA } from "./tuning";
+import {
+  pipCapture,
+  pipNeedsRender,
+  pipRtSizePx,
+  type PipPose,
+} from "../../lib/globe/pipCache";
 import {
   detectDeviceTier,
   makeGovernor,
+  planTierApply,
   type DeviceCaps,
   type QualityTier,
 } from "../../lib/globe/quality";
@@ -72,7 +80,15 @@ export default function GlobeCanvas() {
     // ever degrades. The governor is a no-op whenever the frame time stays under budget.
     const deviceCaps = readDeviceCaps(renderer);
     const deviceTier = detectDeviceTier(deviceCaps);
+    // The tier whose RENDERER levers are live (DPR, bloom, the AO gate, the composite base).
+    // Every existing reader of `activeTier` is a renderer lever or an attach-time seed, so this
+    // is the right authority for all of them — but note the narrowed meaning: anything that
+    // means "how much detail is currently streaming" must read `tileTier`, not this.
     let activeTier: QualityTier = deviceTier;
+    // RC18 — the tier whose TILE levers are live. Equal to `activeTier` except while a governor
+    // promote's renderer half is parked inside FPV; FPV exit re-unifies them by construction
+    // (planTierApply returns both halves for every non-FPV call, including equal tiers).
+    let tileTier: QualityTier = deviceTier;
     // Ceiling: a `low` detection (weak GPU / ≤4 GB / software) is CAPPED — frame time can't see
     // memory pressure, so we never let it climb into the high LRU/8k-texture budget. `mid` (unknown
     // hardware, or a capable machine whose GPU string is privacy-blocked) may climb to `high` when
@@ -297,6 +313,63 @@ export default function GlobeCanvas() {
     // toggle passes / read bloom uniforms without reaching into this closure.
     if (import.meta.env.DEV) window.__composer = composer;
 
+    // --- RC19: the /m PiP's cached second pass ------------------------------------------------
+    // The miniature keeps being PAINTED every frame (composer.render overwrites the rect, so a
+    // skipped paint flickers); only the SCENE RENDER behind it is cached.
+    //
+    // THE COLOUR PATH, and the one place the banked design was wrong. three gives a material
+    // `NoToneMapping` whenever a render target is bound (`WebGLPrograms.js:178-186`:
+    // `if (material.toneMapped) { if (currentRenderTarget === null || isXRRenderTarget) … }`),
+    // and the output encode into an RT is `ColorManagement.workingColorSpace` — identity
+    // (`WebGLRenderer.js:2342`). So the RT can only ever hold RAW LINEAR HDR, and this blit to the
+    // DEFAULT framebuffer is the only remaining place `NeutralToneMapping` can be applied:
+    // `toneMapped` must stay TRUE. Setting it false — as the banked note said — would ship an
+    // untone-mapped, clipping miniature. `map.colorSpace` is LinearSRGB so the sampler does not
+    // decode, and the canvas's own `colorspace_fragment` then gives exactly ONE sRGB encode,
+    // which is the same single-encode path the main composer chain takes.
+    let pipRT: THREE.WebGLRenderTarget | null = null;
+    let pipSeen: PipPose | null = null;
+    let pipDrawnMs = 0;
+    let pipRenders = 0;
+    let pipBlits = 0;
+    const pipMat = new THREE.MeshBasicMaterial({
+      depthTest: false,
+      depthWrite: false,
+      fog: false,
+    });
+    // Shares three's module-level fullscreen triangle with the bloom/output/GTAO passes — which
+    // is exactly why `pipQuad.dispose()` is NEVER called: `FullScreenQuad.dispose()` disposes
+    // that SHARED geometry (`Pass.js`), and every other pass would lose its geometry with it.
+    const pipQuad = new FullScreenQuad(pipMat);
+    // DEV A/B seam. `maxStaleMs` is writable from the console/harness so the charter's
+    // "main-loop ms drop measured" is a real before/after on ONE page rather than a claim:
+    // set 0 (== the pre-RC19 every-frame pass), measure, restore, measure. In prod the DEV
+    // branch is statically eliminated and `PIP` is read directly.
+    let pipStaleOverrideMs: number = PIP.maxStaleMs;
+    const pipCfg = () =>
+      import.meta.env.DEV ? { ...PIP, maxStaleMs: pipStaleOverrideMs } : PIP;
+    if (import.meta.env.DEV)
+      window.__pipCache = {
+        get active() {
+          return pipRT !== null;
+        },
+        get renders() {
+          return pipRenders;
+        },
+        get blits() {
+          return pipBlits;
+        },
+        get rtPx() {
+          return pipRT ? ([pipRT.width, pipRT.height] as [number, number]) : null;
+        },
+        get maxStaleMs() {
+          return pipStaleOverrideMs;
+        },
+        set maxStaleMs(v: number) {
+          pipStaleOverrideMs = v;
+        },
+      };
+
     // R1 ambient occlusion (RENDERING_QUALITY_PASS): GTAOPass after RenderPass, before bloom.
     // Constructed ONLY when AO.enabled (DEFAULT OFF → zero VRAM/cost on every machine); then gated
     // by tier (high) AND altitude (aoControl, set by the orchestrator from the camera altitude —
@@ -357,10 +430,11 @@ export default function GlobeCanvas() {
       composer.insertPass(gtaoPass, 1); // after RenderPass(0), before UnrealBloomPass
     }
 
-    // Apply a quality tier's renderer-level levers (DPR / bloom / shadows) + the tile knobs (via
-    // the tiles handle) + the AO tier gate. Called by the governor on a tier change; `high` == the
-    // pre-pass state so a strong machine never sees any of this.
-    const applyTier = (t: QualityTier) => {
+    // RC18 — the RENDERER half of a tier change: DPR (→ composer-target realloc), bloom, the AO
+    // tier gate, and the tiles handle's own deferred levers (the composite-resolution base + the
+    // two DPR mirrors). This half ALWAYS parks while FPV owns the camera; `high` == the pre-pass
+    // state so a strong machine never sees any of it.
+    const applyTierRenderer = (t: QualityTier) => {
       activeTier = t;
       const s = QUALITY.tiers[t];
       const dpr = Math.min(window.devicePixelRatio, s.dprCap, leanDprCapNow());
@@ -381,14 +455,32 @@ export default function GlobeCanvas() {
       // even though sun.castShadow was true and 14/14 buildings + 32 ground twins were set up). Enable +
       // size are set once from `deviceTier` (line ~90 + the rig at init); the governor only sheds DPR,
       // bloom, and tile detail below. A device DETECTED as low (genuinely weak) still gets no shadows.
-      tilesHandle?.setQualityTier(t); // building/ground error targets, LRU caps, vector/street budgets
+      // RC18: the DEFERRED tile-side levers only — the composite-resolution base (a raise is a
+      // fresh-instance overlay rebuild) and the two DPR mirrors, which read the pixel ratio the
+      // block above may have just changed. The detail levers land through applyTierTiles.
+      tilesHandle?.setQualityTierDeferred(t);
       updateAoEnabled(); // AO is high-tier only
       tierLog.push({ atMs: Math.round(performance.now()), tier: t }); // U2 probe (bounded)
       if (tierLog.length > 50) tierLog.shift();
     };
-    // U2/A9: a governor tier change is NEVER applied mid-FPV — the composer-target realloc + the
-    // three LRU re-caps are exactly the "full re-render" moment. It parks here and lands on the
-    // first non-FPV frame. The DEV force() applies immediately (verification tool) and clears it.
+    // RC18 — the TILE half: error targets, LRU cap/floor pairs, queue caps, foveation, and the
+    // street/vector budgets. Safe to land mid-FPV on a PROMOTE (it only ever lowers an error
+    // target and raises a cap), which is the whole point of the split.
+    const applyTierTiles = (t: QualityTier) => {
+      tileTier = t;
+      tilesHandle?.setQualityTierTiles(t);
+    };
+    /** Both halves, renderer FIRST — the deferred half contains the DPR mirrors, which must read
+     *  the pixel ratio the renderer half has already written. */
+    const applyTier = (t: QualityTier) => {
+      applyTierRenderer(t);
+      applyTierTiles(t);
+    };
+    // U2/A9 + RC18: a governor tier change's RENDERER half is never applied mid-FPV — the
+    // composer-target realloc and the drape-composite rebuild are exactly the "full re-render"
+    // moment. It parks here and lands on the first non-FPV frame; a PROMOTE's tile half does not
+    // wait for that (planTierApply). The DEV force() applies BOTH immediately (it is the
+    // verification tool and must keep its pre-RC18 meaning) and clears the slot.
     let pendingTier: QualityTier | null = null;
     // ULTRA HQ (owner 2026-08-22h): the pin's LAST-SEEN state, so the tick only acts on edges.
     // Note it deliberately overrides `ceiling` too — that cap exists because frame time cannot
@@ -402,7 +494,12 @@ export default function GlobeCanvas() {
           return activeTier;
         },
         get pendingTier() {
-          return pendingTier; // U2: a deferred governor step waiting for FPV exit
+          return pendingTier; // U2/RC18: the RENDERER half waiting for FPV exit
+        },
+        get tileTier() {
+          // RC18: read the ENGINE's own value, never this closure's copy — a transcribed mirror
+          // is the class of probe that goes stale and reports a pass (audit #3 A2-5).
+          return tilesHandle?.tileTier() ?? tileTier;
         },
         tierLog,
         deviceTier,
@@ -414,12 +511,23 @@ export default function GlobeCanvas() {
           governor.force(t);
           applyTier(t);
         },
+        // RC18: `force` deliberately BYPASSES the deferral (it is the verification tool and every
+        // existing verify script depends on it landing immediately), so it cannot exercise the
+        // split. This routes through `pendingTier` instead — the only way a browser check can
+        // watch a promote land its tile half inside FPV.
+        governorPromote: (t: QualityTier) => {
+          governor.force(t);
+          pendingTier = t;
+        },
       };
 
     // --- optional real OSM-buildings globe (ion token gated; dynamic import) ---
     let tilesHandle: {
       update: () => void;
       setQualityTier: (t: QualityTier) => void;
+      setQualityTierTiles: (t: QualityTier) => void; // RC18 — the FPV-safe half
+      setQualityTierDeferred: (t: QualityTier) => void; // RC18 — the parked half
+      tileTier: () => QualityTier; // RC18 — the engine's own tile-tier authority
       fpvActive: () => boolean; // U2/A9: governor tier steps defer while FPV owns the camera
       mapFlat: () => boolean; // 2026-08-18e: flat-map engine treatment → bloom off
       ultraPin: () => boolean; // owner 2026-08-22h: ULTRA HQ — desktop gate already folded in
@@ -462,7 +570,12 @@ export default function GlobeCanvas() {
     if (import.meta.env.DEV)
       window.__globeQuality = {
         get tier() {
-          return activeTier;
+          return activeTier; // RC18: the RENDERER tier
+        },
+        get tileTier() {
+          // RC18: the TILE tier. Diverges from `tier` only while a split promote's renderer half
+          // is parked in FPV — that divergence IS the feature, so it has to be observable.
+          return tilesHandle?.tileTier() ?? tileTier;
         },
         get dpr() {
           return renderer.getPixelRatio();
@@ -548,9 +661,22 @@ export default function GlobeCanvas() {
       } else if (gov.changed && !ultraPinned) {
         pendingTier = gov.tier;
       }
-      if (pendingTier !== null && !(tilesHandle?.fpvActive() ?? false)) {
-        applyTier(pendingTier);
-        pendingTier = null;
+      // RC18 — the split. `planTierApply` is the pure decision: outside FPV both halves land and
+      // the slot clears (which is ALSO what re-unifies a pair that diverged during the leg); a
+      // promote inside FPV lands its tile half and KEEPS the slot, so the renderer half still
+      // arrives on exit; a demote inside FPV parks whole.
+      if (pendingTier !== null) {
+        const plan = planTierApply(
+          pendingTier,
+          tileTier,
+          tilesHandle?.fpvActive() ?? false,
+          QUALITY.leverSplit.livePromoteInFpv,
+        );
+        // Renderer first, for the same reason `applyTier` orders it that way: the deferred half
+        // carries the DPR mirrors, which must read the pixel ratio it has just written.
+        if (plan.renderer !== null) applyTierRenderer(plan.renderer);
+        if (plan.tiles !== null) applyTierTiles(plan.tiles);
+        pendingTier = plan.pending;
       }
       if (tilesHandle) {
         tilesHandle.update();
@@ -563,10 +689,13 @@ export default function GlobeCanvas() {
       const flatNow = tilesHandle?.mapFlat() ?? false;
       bloomPass.enabled = tierBloom(activeTier) && !flatNow;
       // QA-7b: the lean DPR cap follows the chart latch — re-apply the tier on a flip (the
-      // A9 guard inside applyTier makes it a no-op unless the EFFECTIVE DPR really changes).
+      // A9 guard inside applyTierRenderer makes it a no-op unless the EFFECTIVE DPR really
+      // changes). RC18: the RENDERER half only. The flip is a pure DPR event, and the old
+      // whole-tier re-apply re-wrote every tile lever to the value it already held — and kicked
+      // the ground renderer's UpdateOnChangePlugin — on EVERY 2D↔FPV leg of a lean session.
       if (lean && flatNow !== flatForDpr) {
         flatForDpr = flatNow;
-        applyTier(activeTier);
+        applyTierRenderer(activeTier);
       }
       composer.render();
       // Batch #5 item 3 — /m PiP: one scissored pass renders the WHOLE view scaled into the
@@ -580,20 +709,65 @@ export default function GlobeCanvas() {
       if (pip) {
         const vpW = window.innerWidth;
         const vpH = window.innerHeight;
+        // setViewport takes CSS px and multiplies by the pixel ratio internally, so this is the
+        // exact drawing-buffer footprint the old scissored pass covered — the blit is 1:1.
+        const want = pipRtSizePx(pip, renderer.getPixelRatio());
+        if (!pipRT) {
+          pipRT = new THREE.WebGLRenderTarget(want.w, want.h, { type: THREE.HalfFloatType });
+          pipMat.map = pipRT.texture;
+          pipMat.map.colorSpace = THREE.LinearSRGBColorSpace;
+          pipMat.needsUpdate = true;
+          pipSeen = null;
+        } else if (pipRT.width !== want.w || pipRT.height !== want.h) {
+          pipRT.setSize(want.w, want.h); // realloc — rare: the rect write is deadbanded to >0.5px
+          pipSeen = null;
+        }
+        const pose: PipPose = {
+          view: camera.matrixWorld.elements,
+          proj: camera.projectionMatrix.elements,
+          sun: [
+            sun.position.x - sun.target.position.x,
+            sun.position.y - sun.target.position.y,
+            sun.position.z - sun.target.position.z,
+          ],
+        };
+        if (pipNeedsRender(pipSeen, pose, nowMs - pipDrawnMs, pipCfg())) {
+          // audit #3 A2-2 / T38: three re-renders the SHADOW MAP on every `render()` unless
+          // `shadowMap.autoUpdate` is off, and `mid` (the coarse-pointer ceiling) has shadows on —
+          // so this second pass was paying a full 1024² depth pass per frame for a shadow map the
+          // composer pass rendered microseconds ago from the SAME camera and the SAME light. Skip
+          // it and restore, so nothing else in the app inherits the flag.
+          const shadowAuto = renderer.shadowMap.autoUpdate;
+          renderer.shadowMap.autoUpdate = false;
+          renderer.setRenderTarget(pipRT);
+          renderer.render(scene, camera);
+          renderer.shadowMap.autoUpdate = shadowAuto;
+          // MANDATORY, and the sharpest edge on this slice: EffectComposer restores whatever was
+          // bound when it started. Leave the PiP target bound and the WHOLE APP renders into a
+          // ~370 px texture on the next frame.
+          renderer.setRenderTarget(null);
+          pipSeen = pipCapture(pose);
+          pipDrawnMs = nowMs;
+          pipRenders++;
+        }
+        // The blit — EVERY frame the PiP is up. This is the anti-flicker half: it is what makes
+        // caching the scene render possible at all.
+        const autoClear = renderer.autoClear;
+        renderer.autoClear = false; // the quad covers the whole scissor rect; a clear is waste
         renderer.setScissorTest(true);
         renderer.setScissor(pip.x, vpH - (pip.y + pip.h), pip.w, pip.h);
         renderer.setViewport(pip.x, vpH - (pip.y + pip.h), pip.w, pip.h);
-        // audit #3 A2-2 / T38: three re-renders the SHADOW MAP on every `render()` unless
-        // `shadowMap.autoUpdate` is off, and `mid` (the coarse-pointer ceiling) has shadows on —
-        // so this second pass was paying a full 1024² depth pass per frame for a shadow map the
-        // composer pass rendered microseconds ago from the SAME camera and the SAME light. Skip
-        // it and restore, so nothing else in the app inherits the flag.
-        const shadowAuto = renderer.shadowMap.autoUpdate;
-        renderer.shadowMap.autoUpdate = false;
-        renderer.render(scene, camera);
-        renderer.shadowMap.autoUpdate = shadowAuto;
+        pipQuad.render(renderer);
         renderer.setScissorTest(false);
         renderer.setViewport(0, 0, vpW, vpH); // the composer's passes read this next frame
+        renderer.autoClear = autoClear;
+        pipBlits++;
+      } else if (pipRT) {
+        // Map window closed → hand the VRAM back. Steady state off /m is zero extra cost.
+        pipRT.dispose();
+        pipRT = null;
+        pipMat.map = null;
+        pipSeen = null;
       }
     };
     tick();
@@ -615,6 +789,11 @@ export default function GlobeCanvas() {
       bloomPass.dispose();
       composer.dispose();
       composeTarget.dispose();
+      // RC19. NOT `pipQuad.dispose()` — that disposes three's MODULE-LEVEL fullscreen triangle,
+      // which bloom, output and GTAO all draw with. The triangle is a page-lifetime singleton by
+      // three's own design; only the target and the material are ours to free.
+      pipRT?.dispose();
+      pipMat.dispose();
       renderer.dispose();
     };
   }, []);

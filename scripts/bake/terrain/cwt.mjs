@@ -8,6 +8,31 @@ import { join } from "node:path";
 import { decodeQuantizedMesh, sampleQuantizedHeight } from "./qmesh.mjs";
 import { tileAt, tileBbox } from "./tiling.mjs";
 
+/**
+ * Run `fn`, retrying on a file-descriptor exhaustion error with a short backoff.
+ *
+ * The rim blend makes one fetch + one cache write per CWT tile and needs on the order of a
+ * thousand of them, all serial — so it holds barely any descriptors itself and still died on
+ * 2026-08-26 with `ENFILE: file table overflow` partway through the Chernobyl blend, because
+ * ENFILE is the SYSTEM-WIDE table (a `lake serve` language server on the same machine was
+ * holding ~16k). EMFILE (per-process) is included for symmetry. Retrying is the right response
+ * to both: the squeeze is someone else's and it passes. This matters more than a normal
+ * transient because `blendRim` is deliberately NOT idempotent — a crash mid-blend cannot be
+ * resumed, only re-baked from scratch.
+ */
+export async function withFdRetry(fn, { tries = 6, baseMs = 400 } = {}) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if ((err?.code !== "ENFILE" && err?.code !== "EMFILE") || i >= tries - 1) throw err;
+      const wait = baseMs * 2 ** i;
+      console.warn(`  (${err.code} — file table squeezed; retry ${i + 1}/${tries - 1} in ${wait} ms)`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
 export async function makeCwtSampler({ ionToken, cacheDir, maxLevel = 13 }) {
   await mkdir(cacheDir, { recursive: true });
   const ep = await (await fetch(`https://api.cesium.com/v1/assets/1/endpoint?access_token=${ionToken}`)).json();
@@ -26,20 +51,24 @@ export async function makeCwtSampler({ ionToken, cacheDir, maxLevel = 13 }) {
     const key = `${z}/${x}/${y}`;
     if (meshes.has(key)) return meshes.get(key);
     const file = join(cacheDir, `cwt-${z}-${x}-${y}.terrain`);
-    let buf = await readFile(file).catch(() => null);
+    // `.catch(() => null)` here means "not cached yet" — but it also used to swallow an ENFILE
+    // into a spurious cache miss and a redundant refetch, so the read is narrowed to ENOENT.
+    let buf = await withFdRetry(() => readFile(file).catch((e) => (e.code === "ENOENT" ? null : Promise.reject(e))));
     if (!buf) {
-      const res = await fetch(new URL(`${z}/${x}/${y}.terrain?v=${version}`, ep.url), {
-        headers: {
-          authorization: `Bearer ${ep.accessToken}`,
-          accept: "application/vnd.quantized-mesh,application/octet-stream;q=0.9",
-        },
-      });
+      const res = await withFdRetry(() =>
+        fetch(new URL(`${z}/${x}/${y}.terrain?v=${version}`, ep.url), {
+          headers: {
+            authorization: `Bearer ${ep.accessToken}`,
+            accept: "application/vnd.quantized-mesh,application/octet-stream;q=0.9",
+          },
+        }),
+      );
       if (!res.ok) {
         meshes.set(key, null);
         return null;
       }
       buf = Buffer.from(await res.arrayBuffer());
-      await writeFile(file, buf);
+      await withFdRetry(() => writeFile(file, buf));
     }
     const mesh = decodeQuantizedMesh(buf);
     meshes.set(key, mesh);

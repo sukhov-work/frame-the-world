@@ -53,7 +53,49 @@ describe("inferBuilding", () => {
     expect(b.base).toBe(3);
     expect(b.roofShape).toBe("gabled");
     expect(b.roofHeight).toBe(4);
+    // The returned `height` is the EAVE: emitBuilding raises the ridge to height + roofHeight,
+    // so 8 + 4 lands exactly on the tagged total of 12.
+    expect(b.height).toBe(8);
   });
+
+  // OSM's `height` is the TOTAL including the roof; `building:levels` counts storeys BELOW it.
+  // Conflating the two made every co-tagged building render taller by exactly roof:height
+  // (2026-08-26, the Chernobyl bake's New Safe Confinement).
+  describe("roof:height is INSIDE a tagged height, but ON TOP of levels/defaults", () => {
+    const ridge = (t: Record<string, string>) => {
+      const b = inferBuilding(t, cfg);
+      return b.height + (b.roofHeight ?? 0);
+    };
+    it("a tagged total height is preserved, not exceeded", () => {
+      expect(ridge({ height: "20", "roof:shape": "gabled", "roof:height": "5" })).toBe(20);
+      expect(ridge({ height: "20", "roof:shape": "gabled", "roof:levels": "2" })).toBe(20);
+    });
+    it("levels and class defaults still stack the roof on top", () => {
+      expect(ridge({ "building:levels": "5", "roof:shape": "gabled", "roof:height": "4" })).toBe(19);
+      expect(ridge({ building: "church", "roof:shape": "gabled", "roof:height": "6" })).toBe(28);
+    });
+    it("a building that is ALL roof keeps its tagged total and a 1 m wall to cap", () => {
+      // w456732992, the New Safe Confinement: height=110 roof:height=110 roof:shape=round.
+      // It used to come out a 220 m ridge. The wall must not collapse to zero — emitBuilding
+      // caps the ring at the eave before raising the ridge.
+      const b = inferBuilding({ height: "110", "roof:shape": "round", "roof:height": "110" }, cfg);
+      expect(b.height).toBe(1);
+      expect(b.roofHeight).toBe(109);
+      expect(b.height + (b.roofHeight ?? 0)).toBe(110);
+    });
+    it("min_height is clamped against the EAVE, so walls never invert", () => {
+      // Pre-fix this clamped against the pre-roof total and could seat the base ABOVE the wall
+      // top, flipping every wall quad.
+      const b = inferBuilding({ height: "20", min_height: "15", "roof:shape": "gabled", "roof:height": "8" }, cfg);
+      expect(b.height).toBe(12);
+      expect(b.base).toBeLessThan(b.height);
+      expect(b.base).toBe(11);
+    });
+    it("no roof tags → untouched: height stays the eave and the pitch fills the roof", () => {
+      expect(inferBuilding({ height: "15" }, cfg)).toMatchObject({ height: 15, roofHeight: null });
+    });
+  });
+
   it("clamps insane heights", () => {
     expect(inferBuilding({ "building:levels": "9999" }, cfg).height).toBe(400);
     expect(inferBuilding({ height: "0" }, cfg).height).toBe(2);

@@ -58,6 +58,24 @@ const GRIDS = [
       [-28.5123, -29.417, -29.8756, -29.6032, -29.6844, -30.0861, -30.4491, -31.1609, -31.7481],
     ],
   },
+  {
+    // Chernobyl / Pripyat, extentBbox [30,51,31,52]. 0.25° — finer than this smooth a geoid
+    // needs (N moves only 3.5 m across the whole 1°×1° extent, 21.96 → 25.41), but the extent is
+    // one GLO-30 tile so a 5×5 grid is 25 samples and the residual is negligible: bilinear here
+    // reproduces GeoidEval at the bake's own probe point (51.397, 30.078) to 3.9 mm
+    // (24.0212 vs 24.0251). Sampled 2026-08-26 with `GeoidEval -n egm2008-5`.
+    id: "chernobyl",
+    lat0: 51.0,
+    lon0: 30.0,
+    step: 0.25,
+    n: [
+      [24.6269, 24.7635, 24.849, 25.0132, 25.0705],
+      [24.0804, 24.5251, 24.9893, 25.3185, 25.3401],
+      [23.6595, 24.3744, 24.8252, 25.2242, 25.4132],
+      [23.0488, 23.9403, 24.534, 24.8879, 24.8573],
+      [21.9566, 22.632, 23.2913, 23.5955, 23.4637],
+    ],
+  },
 ];
 
 /** The grid whose sampled extent contains (lon, lat), or null. */

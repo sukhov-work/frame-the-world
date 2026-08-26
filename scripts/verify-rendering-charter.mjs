@@ -64,11 +64,23 @@ ws.addEventListener("message", (e) => {
     pending.delete(m.id);
   }
 });
+// EVERY CDP call is timed out. Learned the hard way on 2026-08-26: the first RC25 stamp did a
+// `getImageData` readback per composite (5.36 ms each, hundreds per flight), which blocked the
+// page's main thread badly enough that `Runtime.evaluate` stopped returning — and with an
+// unbounded promise the harness sat silent for fifty minutes with zero output. A hang must
+// present as a FAILED CHECK, not as a script that never finishes.
+const CDP_TIMEOUT_MS = 90_000;
 const send = (method, params = {}) =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     const id = ++msgId;
     pending.set(id, resolve);
     ws.send(JSON.stringify({ id, method, params }));
+    setTimeout(() => {
+      if (pending.has(id)) {
+        pending.delete(id);
+        reject(new Error(`CDP timeout after ${CDP_TIMEOUT_MS} ms: ${method}`));
+      }
+    }, CDP_TIMEOUT_MS);
   });
 const evaluate = async (expression) => {
   const r = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
@@ -1042,6 +1054,195 @@ ok(
   backOff.domeK === 0,
   `RC24: and so did the dome's pull (got ${backOff.domeK}) — off is off, not almost off`,
 );
+
+// =============================================================================================
+// GROUP E + F — RC18 (the governor lever split), RC20 (the ground-LRU flip bank) and RC25
+//              (the capped mip chain). Each of these is a claim about behaviour the unit tests
+//              can only make about a PURE function; what follows is the engine actually doing it.
+// =============================================================================================
+
+await goto(`#f=${DNIPRO_FPV}`);
+
+// --- RC18 -------------------------------------------------------------------------------------
+// `force()` deliberately bypasses the deferral (it is the verification tool), so the split can
+// only be exercised through `governorPromote`, which routes via pendingTier like the governor does.
+await evaluate(`window.__quality.force("low")`);
+await ticks(8);
+// `__globe.fpv()` is a FUNCTION on the registry, not a field on `u2()`. The first run of this
+// leg probed `u2().fpv?.active`, got `undefined`, and reported "not in FPV" while the engine was
+// demonstrably in FPV (the split had already landed tileTier=high against tier=low). A probe that
+// reads a field that does not exist fails OPEN — it does not throw, it reports the safe-looking
+// answer. Read the seam that exists.
+const fpvOn = await evaluate(`!!window.__globe.fpv().active`).catch(() => null);
+const rebuildsBeforePromote = (await evaluate(`window.__overlayRebuilds ?? 0`)) ?? 0;
+const beforePromote = await json(`(async () => ({
+  tier: window.__globeQuality.tier,
+  tileTier: window.__globeQuality.tileTier,
+  dpr: window.__globeQuality.dpr,
+}))()`);
+ok(
+  beforePromote.tier === "low" && beforePromote.tileTier === "low",
+  `RC18: both halves start unified at the forced tier (${JSON.stringify(beforePromote)})`,
+);
+note(`RC18: fpvActive at promote time = ${fpvOn}`);
+
+await evaluate(`window.__quality.governorPromote("high")`);
+await ticks(10);
+const afterPromote = await json(`(async () => ({
+  tier: window.__globeQuality.tier,
+  tileTier: window.__globeQuality.tileTier,
+  pending: window.__quality.pendingTier,
+  dpr: window.__globeQuality.dpr,
+}))()`);
+measured.RC18 = { beforePromote, afterPromote };
+if (fpvOn) {
+  ok(
+    afterPromote.tileTier === "high",
+    `RC18: the PROMOTE's tile half landed INSIDE FPV (tileTier=${afterPromote.tileTier})`,
+  );
+  ok(
+    afterPromote.tier === "low" && afterPromote.pending === "high",
+    `RC18: and the renderer half stayed parked (tier=${afterPromote.tier}, pending=${afterPromote.pending})`,
+  );
+  ok(
+    afterPromote.dpr === beforePromote.dpr,
+    `RC18: no DPR change ⇒ no composer-target realloc mid-viewfinder (${afterPromote.dpr})`,
+  );
+} else {
+  note(`RC18: not in FPV at promote time — the split path was not exercised (both halves landed)`);
+  ok(
+    afterPromote.tier === afterPromote.tileTier,
+    `RC18: outside FPV the two halves are unified (${afterPromote.tier}/${afterPromote.tileTier})`,
+  );
+}
+// The charter's proof-of-done says "zero __overlayRebuilds". Read it as ZERO DURING THE FPV LEG:
+// once the renderer half lands on exit, tierOverlayPx ratchets 256→512 and the sticky composite
+// rebuilds exactly once. A global-zero assertion would fail on a CORRECT implementation.
+const rebuildsAfterPromote = (await evaluate(`window.__overlayRebuilds ?? 0`)) ?? 0;
+ok(
+  rebuildsAfterPromote === rebuildsBeforePromote,
+  `RC18: the split promote caused ZERO overlay rebuilds while parked (${rebuildsBeforePromote} → ${rebuildsAfterPromote})`,
+);
+
+// --- RC20 -------------------------------------------------------------------------------------
+// The defect in one number: the ground cache RESTS at exactly minBytesSize, so everything the
+// current traversal stopped visiting is already gone before the user flips back.
+const lruFpv = await json(`(async () => window.__globe.u2().lru.ground)()`);
+measured.RC20 = { fpv: lruFpv };
+ok(
+  lruFpv.min < lruFpv.max,
+  `RC20: the eviction band is never inverted — floor ${lruFpv.min} < cap ${lruFpv.max}`,
+);
+note(
+  `RC20: ground LRU at rest in FPV — cached ${(lruFpv.cached / 1e6).toFixed(1)} MB, floor ` +
+    `${(lruFpv.min / 1e6).toFixed(1)} MB, cap ${(lruFpv.max / 1e6).toFixed(1)} MB, ` +
+    `${lruFpv.items} items, bankMsLeft ${lruFpv.bankMsLeft}`,
+);
+// Desktop runs `high`, where the bank is deliberately OFF (byte-identical fence + M13). So the
+// assertion here is the OFF-STATE one: the library's own captured defaults, untouched, literally.
+const tierNow = await evaluate(`window.__globeQuality.tileTier`);
+if (tierNow === "high") {
+  ok(
+    lruFpv.max === 0.4 * 2 ** 30 && lruFpv.min === 0.3 * 2 ** 30,
+    `RC20 off-state on \`high\`: the captured library pair is untouched (${lruFpv.min}/${lruFpv.max})`,
+  );
+  ok(
+    lruFpv.bankMsLeft === 0,
+    `RC20: and the bank never armed on \`high\` (bankMsLeft=${lruFpv.bankMsLeft})`,
+  );
+  note(
+    `RC20: the ~600-GET churn was measured on the headless \`low\` tier; this desktop leg proves ` +
+      `the off-state only. The mid/low bank + the GET count belong to verify-qaslice-cab on /m (M13).`,
+  );
+} else {
+  note(`RC20: tier is ${tierNow} — bank enabled for it, bankMsLeft ${lruFpv.bankMsLeft}`);
+}
+
+// --- RC25 -------------------------------------------------------------------------------------
+// HOW THIS LEG HAD TO BE REWRITTEN, because the first two attempts measured nothing.
+//
+// The chain is stamped at texture CREATION, so a mid-session chip flip only reaches composites
+// built AFTERWARDS. Two ways of forcing that turned out not to work on this machine:
+//   · Flying away and back — RC9 already measured why: distance alone never evicts, because the
+//     whole Dnipro drape fits inside the desktop LRU. The return leg re-uses the same textures.
+//   · Squeezing the LRU to a byte — the tiles under the camera are in the renderer's `usedSet`
+//     and eviction skips them, so the composite count barely moved (2 of 321 turned over).
+// Both reported "the stamp is not landing" for a texture set that had simply never been rebuilt.
+// A direct probe settled it: with the chip already on at BOOT, 452 of 452 live composites carry
+// the 4-level chain.
+//
+// So the leg reloads between states. That is also the honest test, because it is the real user
+// path: the ULT pref persists, and RC26 already surfaces "reload for the full rig" for exactly
+// this class of construction-time lever.
+const ultraAvailable = await evaluate(
+  `(() => { try { return !!window.__globeQuality && window.__globeQuality.lean === false; } catch { return false; } })()`,
+);
+if (!ultraAvailable) {
+  note(`RC25: ULTRA unavailable on this shell — the mip-chain leg was NOT run`);
+} else {
+  const setUltraAndReload = async (on) => {
+    await evaluate(`window.__cameraStore.getState().setUltraQuality(${on})`).catch(() => null);
+    await ticks(4);
+    await goto(`#f=${DNIPRO_FPV}`);
+    await sleep(4000);
+    await ticks(10);
+  };
+
+  await setUltraAndReload(false);
+  const mipsOff = await json(`(async () => window.__globe.ultraLook().aniso)()`);
+  measured.RC25 = { off: mipsOff };
+  ok(
+    mipsOff && mipsOff.n > 0 && mipsOff.mipMax === 0,
+    `RC25 OFF-STATE: every live composite carries an EMPTY mipmaps array — the library's own ` +
+      `path, literally (n=${mipsOff?.n}, mipMax=${mipsOff?.mipMax})`,
+  );
+  ok(
+    mipsOff && mipsOff.baseBytes > 0 && mipsOff.bytes === mipsOff.baseBytes,
+    `RC25 OFF-STATE: and costs EXACTLY its level-0 bytes, not almost (${mipsOff?.bytes} vs ${mipsOff?.baseBytes})`,
+  );
+
+  await setUltraAndReload(true);
+  const mipsOn = await json(`(async () => window.__globe.ultraLook().aniso)()`);
+  measured.RC25.on = mipsOn;
+  ok(
+    mipsOn && mipsOn.mipMax === 4 && mipsOn.mipMin === 4,
+    `RC25: EVERY composite built under the chip carries the full 4-level chain ` +
+      `(min ${mipsOn?.mipMin}, max ${mipsOn?.mipMax}) — a split would be a silent ` +
+      `GL-cache-key bug, so this asserts min AND max`,
+  );
+  ok(
+    mipsOn && mipsOn.n > 0 && mipsOn.chained === mipsOn.n,
+    `RC25: it reached the whole working set — ${mipsOn?.chained}/${mipsOn?.n} chained`,
+  );
+  if (mipsOn?.baseBytes > 0) {
+    // Taken INSIDE one sample: chain bytes ÷ the same textures' level-0 bytes. An off-vs-on
+    // comparison cannot give this — the ULTRA chip pins the tier, which also moves the composite
+    // resolution 256 → 512, and an earlier version of this check reported ×1.13 for a mixture of
+    // that resolution change and the chain.
+    const ratio = mipsOn.bytes / mipsOn.baseBytes;
+    measured.RC25.vramRatio = ratio;
+    ok(
+      ratio <= 1.33,
+      `RC25: chain overhead is inside the <= +33% budget (×${ratio.toFixed(6)})`,
+    );
+    ok(
+      Math.abs(ratio - 85 / 64) < 1e-9,
+      `RC25: and it is EXACTLY 85/64 = 1.328125 — the arithmetic the cap was chosen from ` +
+        `(got ${ratio})`,
+    );
+  }
+  await shot("charter-11-rc25-mips-on");
+
+  await setUltraAndReload(false);
+  const mipsOff2 = await json(`(async () => window.__globe.ultraLook().aniso)()`);
+  measured.RC25.off2 = mipsOff2;
+  ok(
+    mipsOff2 && mipsOff2.mipMax === 0 && mipsOff2.bytes === mipsOff2.baseBytes,
+    `RC25: turning the chip back OFF returns composites to the library's own path, EXACTLY ` +
+      `(mipMax=${mipsOff2?.mipMax}, ${mipsOff2?.bytes} vs ${mipsOff2?.baseBytes} bytes)`,
+  );
+  await shot("charter-12-rc25-mips-off");
+}
 
 // =============================================================================================
 console.log(notes.join("\n"));

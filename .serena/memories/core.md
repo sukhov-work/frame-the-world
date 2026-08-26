@@ -159,18 +159,37 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**FINISH THE RENDERING CHARTER — Group D (minus RC12) + RC18–RC21 + RC25 + RC30.**
-SHIPPED: Groups B (RC1–RC5) and C (RC6–RC11) on 2026-08-25c/d, Group F's four implementable
-slices + RC29 + RC22 on 2026-08-25e — all browser-proven. **TWO SLICES ARE REFUTED BY
-MEASUREMENT — do not build them:** **RC12** (curvature residual is 0.568 m against 14.20 m rms of
-within-cell relief = 4.0 % at the 3.5–4 km ring; every cell is re-seated at its own centre so the
-tangent-plane rise is bounded by the CELL radius, never the bake radius) and **RC28** (DEPTH_BITS
-24 over a 1.0 m near plane, no shimmer case in ten browser legs). A third refutation is recorded:
-**M7's crossfading-parent mechanism never fires** (hitsPerSample exactly 1.00 over 47k samples).
-Read `NEXT_SESSION_PROMPT.md` first, then `mem:project/wip-2026-08-25-rendering-charter-groupBC`
-and `…-groupF`, then DECISIONS §Recent 2026-08-25e/d/c.
-Gates: **vitest 1,996/1,996 (137 files)** · astro 0 err/0 warn/5 hints · knip exit-0 ·
-verify-ultra 29/29 · verify-eclipse 38/38 · `verify-rendering-charter.mjs` **70/70**.
+**CLOSE THE RENDERING CHARTER — only Group D (RC13/RC15/RC16/RC17) and RC21 remain.**
+SHIPPED: Groups B (RC1–RC5) + C (RC6–RC11) on 2026-08-25c/d · Group F's four implementable slices
++ RC29 + RC22 on 2026-08-25e · **Group E (RC18/RC19/RC20) + RC25 + RC30 on 2026-08-26** — all
+browser-proven. **TWO SLICES ARE REFUTED BY MEASUREMENT — do not build them:** **RC12** (curvature
+residual 0.568 m against 14.20 m rms of within-cell relief = 4.0 % at the 3.5–4 km ring; every cell
+is re-seated at its own centre, so the tangent-plane rise is bounded by the CELL radius, never the
+bake radius) and **RC28** (DEPTH_BITS 24 over a 1.0 m near plane, no shimmer case in ten browser
+legs). Two more refutations are on record: **M7's crossfading-parent mechanism never fires**
+(hitsPerSample exactly 1.00 over 47k samples), and **M13/T34's desktop half does not exist** — on
+`high` the ground cache rests at 109.8 MB against a 322.1 MB floor, so the rest-trim condition
+never arises. **RC21 was deliberately not built**: 40+ per-frame visual-change sources across 20
+files, ~14 asymptotic eases with no snap, and a false negative is a frozen globe — build it
+heartbeat-first (the RC19 pattern) or not at all. **Group D is UNBLOCKED** — R2 credentials, Java
+21, the OSM2World jar, 1.7 GB of Overpass caches and the three existing bakes were all confirmed
+present 2026-08-26.
+**INTERRUPTION 2026-08-26b — an owner side-task shipped REGION #4, Chernobyl / Pripyat**
+(`cities/chernobyl{,-o2w}.json` + a GLO-30 patch, all three LIVE on R2; one `regions.ts` entry is
+the whole runtime cost). The charter was not touched, but it changed **three things inside the
+bake pipeline Group D works in**: `inferBuilding` now subtracts `roof:height` from a tagged
+`height` and the `min_height` clamp moved below the roof block (**RC13's skirt edits that same
+wall loop**; Dnipro's shipped bake predates it — T55); **RC17's writer half is already proven**,
+since Chernobyl is the first bake to emit `.meta.json` sidecars, leaving RC17 as schema
+unification + runtime consumption only; and `upload-r2.mjs --terrain` now demands
+`patch-info.json` while `cwt.mjs` exports `withFdRetry`. Read
+`mem:project/wip-2026-08-26-chernobyl-region` before any bake slice. New rows T55/T56/T57.
+Read `NEXT_SESSION_PROMPT.md` first, then `rendering/RENDERING_ARCHITECTURE.md` (the new as-built
+doc, RC30), then `mem:project/wip-2026-08-26-rendering-charter-groupE`, then DECISIONS §Recent
+2026-08-26.
+Gates: **vitest 2,050/2,050 (139 files)** · astro 0 err/0 warn/6 hints · knip exit-0 ·
+**`verify-rendering-charter.mjs` 85/85 ALL PASS** · verify-ultra 29/29 + verify-eclipse 38/38 green
+at 2026-08-25e (re-run both before claiming Group D done — a re-bake moves the seat machinery).
 Three open tails: RC7's look-cone bar (50.3 % vs S4's 0.9 — null-terrain deferrals are uncounted),
 RC9's warm-restore browser leg (banking proven, restore not), and RC22's three mobile proposals
 (recorded in tuning, need a real device under T1).

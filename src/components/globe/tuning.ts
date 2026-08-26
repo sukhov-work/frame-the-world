@@ -482,6 +482,38 @@ export const RENDERER = {
   toneMappingExposure: 1.0,
 } as const;
 
+/** RC19 — the /m picture-in-picture cache (charter Group E; `lib/globe/pipCache.ts`).
+ *
+ *  The /m map window punches a hole that shows a MINIATURE of the whole view, and batch #5 item 3
+ *  produced it by rendering the entire scene a second time, every frame, on the weakest hardware
+ *  in the product. Half-rate is not available: `composer.render()` overwrites the PiP rect every
+ *  frame, so a skipped second pass flickers between the miniature and the full-scale view
+ *  underneath. The scene render is therefore CACHED into a render target and the backbuffer gets
+ *  a one-triangle blit every frame; these knobs decide when the cache is stale.
+ *
+ *  The epsilons only see the camera and the sun. `maxStaleMs` is what covers everything they
+ *  cannot — tile streaming, the drape crossfade, `uTime` twinkle, every eased uniform. */
+export const PIP = {
+  /** Hard refresh cadence (ms) — the catch-all above. 250 ms is 4 Hz worst case on a parked
+   *  camera, which is where nearly all of the doubled render goes. **THE ROLLBACK KNOB:** `0`
+   *  makes the predicate return true unconditionally, i.e. byte-for-byte the pre-RC19
+   *  every-frame pass (unit-locked, not just asserted here). */
+  maxStaleMs: 250,
+  /** Camera translation epsilon in WORLD METRES (`matrixWorld.elements[12..14]`; world units are
+   *  metres on the tiles path, and the PiP cannot exist without it). 2 cm is far below one PiP
+   *  pixel at street level — the predicate deliberately errs toward re-rendering. */
+  posEpsM: 0.02,
+  /** Rotation epsilon on the unit basis columns (dimensionless). 1e-4 rad ≈ 0.006°; one PiP pixel
+   *  is ≈0.44° across the ~125 CSS-px box, so this sits ~70× under anything visible. */
+  basisEps: 1e-4,
+  /** Projection-matrix epsilon — catches FOV glides, aspect changes and near/far re-fits. */
+  projEps: 1e-6,
+  /** Sun DIRECTION epsilon, compared after normalising. Direction, not position: the key light is
+   *  parked kilometres out and ULTRA swaps `SHADOWS.lightDistM` by nearly an order of magnitude,
+   *  which a raw position compare would read as a view change while the shading is identical. */
+  sunDirEps: 1e-4,
+} as const;
+
 /** Adaptive rendering quality (rendering/RENDERING_QUALITY_PASS.md WS1 — the keystone). A device tier is
  *  picked at startup (`lib/globe/quality.detectDeviceTier`) and a runtime governor
  *  (`makeGovernor`) steps it up/down from smoothed frame time; GlobeCanvas applies the renderer
@@ -504,6 +536,20 @@ export const QUALITY = {
     upFrames: 240, // ~4 s of headroom before restoring (deliberately reluctant)
     cooldownMs: 2500, // min gap between changes — a DPR change reallocates render targets
     hitchMs: 50, // U5: raw dt above this counts a hitch (~3 missed 60 Hz frames) — A/B metric
+  },
+  /** RC18 — the governor lever split (charter Group E; `lib/globe/quality.planTierApply`). */
+  leverSplit: {
+    /** A governor PROMOTE lands its TILE levers immediately even while FPV owns the camera; the
+     *  RENDERER half (DPR → composer realloc, bloom, the AO gate, `overlayResolutionPx`) still
+     *  parks for the first non-FPV frame, and a DEMOTE parks whole. Rationale: a promote only
+     *  ever lowers an error target and raises an LRU cap, so it cannot evict or rebuild anything
+     *  — parking it meant the extra detail waited for FPV EXIT, which on a long street walk never
+     *  comes. `false` is the ROLLBACK: it restores the pre-RC18 all-or-nothing deferral without
+     *  unwinding the function split (same single-knob shape as `GROUND.overlayResolution2dPx`).
+     *  KNOWN COST when true, and what to weigh before flipping it off: a promote also raises
+     *  `LOADING.queueCaps.parse` (2 → 3 → 5) mid-viewfinder, and parse is MAIN-THREAD glb decode
+     *  — see the LOADING header. If a promote ever hitches on a real device, this is the switch. */
+    livePromoteInFpv: true,
   },
   tiers: {
     high: {
@@ -581,6 +627,44 @@ export const QUALITY = {
      *  GlobeCanvas; judged on device (T1). Must stay ≤ tiers.mid.dprCap (test-locked). */
     dprCap2d: 1.5,
   },
+  /** RC20/T34 — the ground-LRU FLIP BANK.
+   *
+   *  The defect, in the library's own words (`LRUCache.js` 0.4.28):
+   *  `hasBytesToUnload = unused && cachedBytes > minBytesSize || …`. One tile the current
+   *  traversal did not visit, plus a cache above the FLOOR, starts an eviction — the cap is not
+   *  consulted. A 2D↔FPV flip marks the entire previous working set unused in a single frame, so
+   *  the other mode's ground drape drains to exactly `minBytesSize` and is re-downloaded and
+   *  re-composited on the way back: ~600 Esri GETs per leg (measured 2026-08-21h on the headless
+   *  `low` tier, resting at 145/144 MB against a 192 MB cap).
+   *
+   *  So the lever is the FLOOR: hold it near the ceiling for a bounded window after each flip.
+   *  What that CANNOT do, stated honestly — the bank is capped by the cap. It can retain at most
+   *  `cap − minHeadroomBytes`; if the 2D and FPV working sets together exceed that, churn falls
+   *  but does not vanish, and the remaining lever is capacity (`tiers.*.groundLruBytesMB`) or a
+   *  victim-choice `lruCache.unloadPriorityCallback` (zero overrides in this repo today). */
+  lruBank: {
+    /** Resting fraction of the LIVE cap while banking, against the library's own 0.75 pair ratio.
+     *  Must be < 1: a fraction at 1 rests the cache at `isFull()` and every parse is then
+     *  discarded — the U2/A9 loop re-created from the other direction. */
+    bankFrac: 0.92,
+    /** The HARD U2/A9 guard — bytes that must always separate floor from cap so an in-flight
+     *  parse burst can land. Sized against the worst inflow between two traversals: parse
+     *  `maxJobs` is 2/3/5 by tier and a ground tile at a 512² composite costs ~1.5–3 MiB, so
+     *  16 MiB is ~5–10 tiles of slack. Binds instead of `bankFrac` on the small (low-tier) caps. */
+    minHeadroomBytes: 16 * 1024 * 1024,
+    /** How long the raised floor is held after an FPV boundary crossing. This is the honest limit
+     *  of the flip-freeze: stay in FPV longer than this and the 2D set is trimmed anyway. THE knob
+     *  to judge on device (T1) — T34 names iOS NETWORK cost as the concern and jetsam is the
+     *  counter-cost, and this trades one for the other. `0` disables the lever with no code
+     *  change; raising it toward Infinity converts it into a permanent raised floor. */
+    holdMs: 45_000,
+    /** Which tiers may bank. `high` is OFF at ship for two independent reasons: the
+     *  byte-identical-`high` fence, and M13 — the ~600 figure is a headless `low`-tier
+     *  measurement, and on `high` the pair is the library default 0.4/0.3 GiB where the cost is
+     *  more likely re-composite latency than network. Because the ULTRA chip PINS the tier to
+     *  `high`, this also keeps ULTRA out of the bank: no new ULTRA lever, no off-state surface. */
+    tiers: { low: true, mid: true, high: false },
+  },
   /** ULTRA HQ (owner 2026-08-22h) — the desktop-only, EXPLICIT-OPT-IN "make my machine hurt"
    *  override profile. Structurally the mirror of `leanMobile` above: overrides applied on top
    *  of whatever tier the governor runs, never a fourth tier, never an edit to `tiers.*`. The
@@ -657,6 +741,37 @@ export const ULTRA = {
    *  to 0.05, because desktop imagery is availability-capped (Esri z19 + patch L13). What a tilt
    *  loses is grazing-angle MINIFICATION, and that is what anisotropy fixes. */
   anisotropy: 16,
+
+  // --- §1c THE CAPPED MIP CHAIN (RC25 — the other half of §1b) -------------------------------
+  /** TOTAL mip levels (level 0 included) hand-built onto each drape composite. `1` is OFF and is
+   *  the EXACT library state (`generateMipmaps: false`, `mipmaps: []`) — the off-state proof is
+   *  `mipByteFactor(1) === 1`, an identity, not an epsilon.
+   *
+   *  4 is not a round number, it is the ceiling the ≤ +33 % VRAM budget allows: 3 extra levels
+   *  cost 1/4 + 1/16 + 1/64 = **+32.81 %**, a FIFTH level costs **+33.20 %** and breaches it, and
+   *  a full auto chain is +33.33 % and is banned outright for a different reason — every 3D tile
+   *  composites over its own bbox, so adjacent composites share no border texels and coarse
+   *  levels average DISJOINT texel sets on the two sides of a shared edge. The cap is what bounds
+   *  that disagreement: at 4 levels the coarsest texel spans 8 finest texels ≈ 1.6 % of a tile.
+   *  At the `high` tier's 512² composite the chain reaches 64² and costs 1.000 → 1.328 MiB.
+   *
+   *  BROWSER-MEASURED 2026-08-26, and it sharpens the §1b "fly a little for the full effect"
+   *  note into something stronger: on desktop a mid-session flip reaches almost NOTHING. The
+   *  stamp is creation-time, and the ground LRU never turns over — RC9 measured that the whole
+   *  Dnipro drape fits inside the desktop cap, and squeezing the cap does not help either
+   *  because the tiles under the camera sit in the renderer's `usedSet` and eviction skips them.
+   *  Flipping the chip mid-session left 2 of 321 composites chained; with the chip already on at
+   *  BOOT it was 452 of 452. The pref persists, so a RELOAD is what delivers this lever — the
+   *  same "reload for the full rig" state RC26 already surfaces on the ULT chip. */
+  mipLevels: 4,
+  /** No alpha knob, and that is a measured decision rather than an omission. The levels are
+   *  halved with canvas `drawImage`, and canvas 2D composites in PREMULTIPLIED alpha — so the
+   *  downscale premultiplies before filtering, which is exactly the inverse of the drape shader's
+   *  sample-time `tint.rgb *= tint.a` and is what stops a dark ring forming at coverage edges.
+   *  The alternative (read back with `getImageData`, filter in JS, choose max-vs-mean alpha) was
+   *  built first and measured at **5.36 ms per composite on the main thread** against **0.06 ms**
+   *  for `drawImage` — with hundreds of composites arriving per flight, an 89× cost for a knob
+   *  whose artefact the cheap path already avoids. */
 
   // --- S9 THE DAY CURVE (T45 — the root of "naive and linear") -------------------------------
   /** Ground/building day factor vs sun elevation, replacing
