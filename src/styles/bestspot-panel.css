@@ -8,6 +8,11 @@
    `.bsp-legend__ramp`, `.bsp-legend__tick`, `.bsp-legend__cls`, `.bsp-ab`) or a `.bsp`-SCOPED
    adjustment to a class this panel reuses verbatim. No new names for things that already have one.
 
+   The owner batch of 2026-08-26 adds four more, and each pays for itself: `.bsp-row` /
+   `.bsp-row--sel` / `.bsp-row__acts` / `.bsp-act` are the select-then-act shortlist row (items 1 +
+   5 — the row body no longer teleports the disc), and `.bsp-tip` is the canvas hover tip (item 3),
+   which cannot reuse `.ct-pinpop` because that one is the temp pin's popup with its own actions.
+
    Colour is `var(--color-*)` only (ADR D14) — the heat stops arrive as `var(--color-heat-N)`
    through `lib/theme/heatPalette.ts`, whose entries carry the CSS and the GL face together so the
    DOM legend and the GL sheet provably cannot drift. */
@@ -209,6 +214,124 @@
 /* Warnings (no rise/set solution, the empty-field lift offer) carry the instrument's warn voice. */
 .bsp .pp-status[data-tone="warn"] {
   color: var(--color-warn);
+}
+
+/* ── The shortlist ROW: select, then act (owner batch 2026-08-26, items 1 + 5) ─────────────────
+   Clicking a row used to drop the temp pin, which moved the disc centre, which re-solved the field
+   and destroyed the list the row came from. Selection and travel are now separate gestures, and the
+   actions appear to the RIGHT of the selected row — the owner's own proposal, and also what makes
+   REFINE unambiguous: the button sits on the cell it acts on.
+
+   `.pp-day__row` is a 2-column grid (body | tail). The actions take the tail column and the note is
+   pushed to its own full-width line, so a selected row grows downward rather than squeezing the
+   readout that made it worth selecting. */
+.bsp .bsp-row {
+  border-radius: 4px;
+}
+.bsp .bsp-row--sel {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--color-accent) 34%, transparent);
+}
+.bsp .bsp-row > .pp-day__meta {
+  grid-column: 1 / -1;
+  margin-left: 0;
+  padding: 0 4px 2px 22px; /* clears the swatch, so the note hangs under the row's text */
+}
+.bsp-row__acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 2px;
+}
+.bsp-act {
+  border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 2px 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bsp-act:hover:not(:disabled) {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
+}
+.bsp-act:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+.bsp-act--on {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+/* R8's spinner keeps its old home too — the refine button moved into the row, and with it the one
+   place on this panel a spinner is justified. */
+.bsp-act[data-busy="1"] {
+  animation: bsp-spin 900ms linear infinite;
+}
+
+/* The marker legend's inline caption — the `.bsp-ab` slot on the other side of a `.pp-section`,
+   carrying the sentence that would otherwise cost its own status row. This panel's scarcest
+   resource is the space above the shortlist. */
+.bsp-legend__cap {
+  margin-left: auto;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+
+/* ── The canvas hover tip (item 3) ─────────────────────────────────────────────────────────────
+   `position: fixed` at the marker's own projected px, which is why it is rendered as a SIBLING of
+   `.bsp-root` rather than inside it: that element carries the drag `transform`, and a transform
+   re-parents fixed descendants (the `.ct-pinpop` extraction's original bug).
+
+   `pointer-events: none` is not decoration. The tip appears UNDER the pointer by construction, so a
+   tip that could take the pointer would eat the very click it is advertising. */
+.bsp-tip {
+  position: fixed;
+  z-index: 32; /* one above `.bsp-root` — it explains a marker, not the window */
+  transform: translate(-50%, calc(-100% - 16px));
+  pointer-events: none;
+  /* 25rem, MEASURED rather than chosen: at 21rem the longest line the tip can carry
+     ("BEST FRAMED +4m37s FROM THE CONTACT · ACCESSIBILITY AT 1 m", 57 mono chars at 9 px) came back
+     from the browser ellipsised — and the clause it dropped was the resolution qualifier, which is
+     the one clause on this panel that may never be silently dropped. */
+  max-width: 25rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--font-mono);
+  transition: left 0.1s linear, top 0.1s linear;
+}
+.bsp-tip__line {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bsp-tip__line:first-child {
+  color: var(--color-text);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.bsp-tip__cta {
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--color-accent);
+  white-space: nowrap;
 }
 
 /* Keep the welcome landing clean (the FPV-HUD precedent). */

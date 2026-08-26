@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createElement, isValidElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import BestSpotPanel, {
+  BestSpotHoverTip,
   bestSpotStatusLines,
   countPatchLeaves,
   heatCssForScore,
   provenanceLine,
+  refineDeltaLabel,
   scoringLine,
   shortlistReady,
   SpotRow,
+  spotWhyLines,
 } from "../../src/components/panels/BestSpotPanel";
 import PlanFindToggle, { pickPlanFindSeg } from "../../src/components/panels/PlanFindToggle";
 import InstrumentSlider, {
@@ -16,12 +19,17 @@ import InstrumentSlider, {
   sliderNorm,
   sliderValue,
 } from "../../src/components/controls/InstrumentSlider";
-import { useBestSpotStore, type BestSpotSpot, type BestSpotState } from "../../src/store/bestSpot";
+import {
+  shortlistQuality,
+  useBestSpotStore,
+  type BestSpotSpot,
+  type BestSpotState,
+} from "../../src/store/bestSpot";
 import { useCameraStore } from "../../src/store/camera";
 import { useFindStore } from "../../src/store/find";
 import { usePlanStore } from "../../src/store/plan";
 import { BESTSPOT } from "../../src/components/globe/tuning";
-import { heatRampById } from "../../src/lib/theme/heatPalette";
+import { HEAT_SPOTS, heatRampById, spotQualityCss } from "../../src/lib/theme/heatPalette";
 import { read, stripComments } from "../styles/_css";
 
 /**
@@ -93,6 +101,8 @@ const spot = (over: Partial<BestSpotSpot> = {}): BestSpotSpot => ({
   // own pitch is not the field's. The panel names the two separately (§8's ladder).
   gridCellM: 1,
   obstructionRefined: false,
+  // Item 5's readout channel — null means "the 1 m obstruction pass has never run on this row".
+  refinedFromScore: null,
   ...over,
 });
 
@@ -117,6 +127,9 @@ function solved(over: Partial<BestSpotState> = {}): void {
 beforeEach(() => {
   useBestSpotStore.setState(BOOT, true);
   useBestSpotStore.getState().setOpen(true);
+  // Owner item 4: opening no longer arms. Every test below is about a disc that IS being solved,
+  // so the harness arms it explicitly — the OFF path has its own describe block.
+  useBestSpotStore.getState().setHeatmapOn(true);
   useCameraStore.getState().setTempPin({ latDeg: 48.4647, lonDeg: 35.0462 });
   usePlanStore.getState().setOpen(false);
   useFindStore.getState().setOpen(false);
@@ -298,6 +311,7 @@ describe("empty store and a null track both render honestly", () => {
 
   it("with no centre it says so instead of showing a warm empty field", () => {
     useCameraStore.getState().setTempPin(null);
+    useBestSpotStore.getState().setHeatmapOn(false);
     const html = render();
     expect(html).toContain("NO CENTRE YET");
     expect(html).toContain("OFF"); // ◎ HEATMAP OFF
@@ -346,13 +360,38 @@ describe("top-K — greyed until the requested rung lands, absolute score beside
     expect(html).toContain(`width:${Math.round((0.6 / 0.89) * 100)}%`);
   });
 
-  it("the row swatch is the cell's heat colour from the shared palette, never a literal", () => {
+  it("the sheet's heat colour is still the shared palette, through the shared normalisation", () => {
     const s = useBestSpotStore.getState();
     const css = heatCssForScore(0.89, s);
     expect(heatRampById(s.rampId).map((stop) => stop.css)).toContain(css);
     expect(css).toMatch(/^var\(--color-heat-/);
     // The display normalisation is smoothstep(displayLo, displayHi, S): the floor is the low stop.
     expect(heatCssForScore(0, s)).toBe(heatRampById(s.rampId)[0].css);
+  });
+
+  it("ITEM 2 — the ROW SWATCH is the marker ramp, so the row and its marker are the same colour", () => {
+    solved();
+    const html = render();
+    // The swatch goes through the SAME PAIR the GL marker does — `shortlistQuality` for the place
+    // on the ramp, `spotQualityCss` for the colour. Two faces, one formula.
+    //
+    // The span normalisation is the browser finding (2026-08-26): a real shortlist's `score ÷ best`
+    // spanned only 1.000 → 0.824, so a ratio-keyed hue used the top fifth of the ramp and the eight
+    // swatches came out near-identical creams. Over the shortlist's OWN span the best row takes the
+    // top stop and the worst takes the bottom, which is what "range depending on quality" means.
+    const scores = [0.89, 0.6];
+    expect(shortlistQuality(0.89, scores)).toBe(1);
+    expect(shortlistQuality(0.6, scores)).toBe(0);
+    expect(html).toContain(spotQualityCss(1));
+    expect(html).toContain(spotQualityCss(0));
+    // …and those two really are different colours, or the whole change is a no-op.
+    expect(spotQualityCss(1)).not.toBe(spotQualityCss(0));
+    // …and it is NOT the sheet's ramp any more: reusing INFERNO would paint every marker its own
+    // cell's colour, which is invisible, and the shortlist sits in its near-black foot anyway.
+    for (const stop of HEAT_SPOTS) expect(stop.css).not.toMatch(/^var\(--color-heat-\d/);
+    // §3.5's guard survives the renormalisation: the ABSOLUTE score is still printed on the row.
+    expect(html).toContain("0.89");
+    expect(html).toContain("0.60");
   });
 });
 
@@ -365,8 +404,14 @@ describe("hover flows BOTH ways", () => {
       relative: 1,
       swatchCss: "var(--color-heat-9)",
       hot: false,
+      selected: false,
+      previewing: false,
+      refining: false,
       onHover: (key) => useBestSpotStore.getState().setHoverKey(key),
-      onPick: () => {},
+      onSelect: () => {},
+      onGo: () => {},
+      onLook: () => {},
+      onRefine: () => {},
     });
     const row = findEl(tree, (p) => typeof p.onMouseEnter === "function");
     (propsOf(row).onMouseEnter as () => void)();
@@ -382,18 +427,149 @@ describe("hover flows BOTH ways", () => {
     expect(render()).toContain("fnd-row--hot");
   });
 
-  it("clicking a row drops the temp pin at that cell", () => {
+  /**
+   * ITEM 1 — the defect the owner reported, and the exact reason it mattered.
+   *
+   * Clicking a row used to call `setTempPin`, which is the disc's centre SOURCE
+   * (`aimAnchorFor` rung 3). So the click moved the centre, which re-keyed the feed's T0, which
+   * re-solved the whole disc — and threw away the very shortlist the row was read from. The row
+   * body is now a SELECT and nothing but `GO` may move the pin.
+   */
+  it("ITEM 1 — clicking a row SELECTS it and moves NOTHING; only GO drops the pin", () => {
     useCameraStore.getState().setTempPin(null);
-    const tree = SpotRow({
-      spot: spot({ latDeg: 1.25, lonDeg: 2.5 }),
-      relative: 1,
-      swatchCss: "var(--color-heat-9)",
-      hot: false,
-      onHover: () => {},
-      onPick: (hit) => useCameraStore.getState().setTempPin({ latDeg: hit.latDeg, lonDeg: hit.lonDeg }),
-    });
-    (propsOf(findEl(tree, (p) => typeof p.onClick === "function")).onClick as () => void)();
+    let picked: string | null = "unset";
+    const rowFor = (selected: boolean) =>
+      SpotRow({
+        spot: spot({ latDeg: 1.25, lonDeg: 2.5 }),
+        relative: 1,
+        swatchCss: "var(--color-heat-9)",
+        hot: false,
+        selected,
+        previewing: false,
+        refining: false,
+        onHover: () => {},
+        onSelect: (key) => {
+          picked = key;
+        },
+        onGo: (hit) =>
+          useCameraStore.getState().setTempPin({ latDeg: hit.latDeg, lonDeg: hit.lonDeg }),
+        onLook: () => {},
+        onRefine: () => {},
+      });
+
+    // Unselected: the row body is the ONLY button, and pressing it selects rather than travels.
+    const buttons = walk(rowFor(false)).filter((el) => el.type === "button");
+    expect(buttons).toHaveLength(1);
+    (propsOf(buttons[0]).onClick as () => void)();
+    expect(picked).toBe("12:34");
+    expect(useCameraStore.getState().tempPin).toBeNull(); // ← the whole point
+
+    // Selected: the actions appear, and GO is the one that commits.
+    const go = findEl(rowFor(true), (p) => p.children === "GO →");
+    (propsOf(go).onClick as () => void)();
     expect(useCameraStore.getState().tempPin).toEqual({ latDeg: 1.25, lonDeg: 2.5 });
+
+    // …and a second press on the row body DESELECTS, so the gesture is reversible.
+    (propsOf(walk(rowFor(true)).filter((el) => el.type === "button")[0]).onClick as () => void)();
+    expect(picked).toBeNull();
+  });
+
+  it("ITEM 5 — the refine's EFFECT is reported, and 'nothing to improve' is a real answer", () => {
+    // A refine that moved the score.
+    expect(refineDeltaLabel(spot({ obstructionRefined: true, score: 0.61, refinedFromScore: 0.42 }))).toBe(
+      "1 m: +0.19",
+    );
+    expect(refineDeltaLabel(spot({ obstructionRefined: true, score: 0.3, refinedFromScore: 0.42 }))).toBe(
+      "1 m: −0.12",
+    );
+    // …and one that did not. THIS is the case the old UI could not express: it looked exactly like
+    // a dead button. The threshold is the row's own printing precision (`toFixed(2)`), so a delta
+    // that cannot change the number beside it is never announced as a change.
+    expect(refineDeltaLabel(spot({ obstructionRefined: true, score: 0.42, refinedFromScore: 0.42 }))).toBe(
+      "1 m: NO CHANGE",
+    );
+    expect(
+      refineDeltaLabel(spot({ obstructionRefined: true, score: 0.4232, refinedFromScore: 0.42 })),
+    ).toBe("1 m: NO CHANGE");
+    // Never refined → no claim at all.
+    expect(refineDeltaLabel(spot())).toBeNull();
+    // …and it reaches the screen, on the ROW rather than on the button, so it survives the
+    // selection moving on.
+    solved({
+      topK: [spot({ obstructionRefined: true, score: 0.61, refinedFromScore: 0.42 })],
+    });
+    expect(render()).toContain("1 m: +0.19");
+  });
+});
+
+// ── 5b. The owner batch of 2026-08-26 ─────────────────────────────────────────────────────────
+
+describe("ITEM 4 — the heatmap switch is a SWITCH", () => {
+  it("is a real button, starts OFF with the window, and says nothing is being computed", () => {
+    // It used to be a `<span>` that printed ON whenever a centre existed and could not be pressed.
+    // (The shared harness arms it; opening it fresh is what `setOpen` does, and the store test
+    // pins that half — here we are about what the panel RENDERS in each state.)
+    useBestSpotStore.getState().setHeatmapOn(false);
+    const off = render();
+    expect(off).toContain("◎ HEATMAP");
+    expect(off).toContain("HEATMAP OFF — NOTHING IS BEING COMPUTED");
+    expect(off).toContain('aria-pressed="false"');
+    useBestSpotStore.getState().setHeatmapOn(true);
+    const on = render();
+    expect(on).not.toContain("HEATMAP OFF — NOTHING IS BEING COMPUTED");
+    expect(on).toContain('aria-pressed="true"');
+  });
+
+  it("armed without a centre says so rather than claiming ON", () => {
+    useCameraStore.getState().setTempPin(null);
+    useBestSpotStore.getState()._syncBestSpot({ centreLatDeg: null, centreLonDeg: null });
+    useBestSpotStore.getState().setHeatmapOn(true);
+    expect(render()).toContain("ARMED — NO CENTRE");
+  });
+});
+
+describe("ITEM 3 — the canvas hover tip", () => {
+  const tip = () => {
+    Object.assign(useBestSpotStore.getInitialState(), useBestSpotStore.getState());
+    return renderToStaticMarkup(createElement(BestSpotHoverTip));
+  };
+
+  it("renders nothing without BOTH a hovered key and a screen position for it", () => {
+    solved();
+    expect(tip()).toBe("");
+    useBestSpotStore.getState()._syncBestSpot({ sceneHoverKey: "12:34" });
+    expect(tip()).toBe(""); // a key with no position would float at the origin
+    useBestSpotStore.getState()._syncBestSpot({ sceneHoverScreen: { x: 400, y: 300 } });
+    expect(tip()).not.toBe("");
+    // A key the shortlist no longer has resolves to nothing, like every other stale key here.
+    useBestSpotStore.getState()._syncBestSpot({ sceneHoverKey: "99:99" });
+    expect(tip()).toBe("");
+  });
+
+  it("says WHY the cell is on the list, and every word of it comes from the row", () => {
+    solved();
+    useBestSpotStore
+      .getState()
+      ._syncBestSpot({ sceneHoverKey: "12:34", sceneHoverScreen: { x: 400, y: 300 } });
+    const html = tip();
+    expect(html).toContain("left:400px");
+    // The metric's own `contact` verdict, spelled out — never re-derived in the panel.
+    expect(html).toContain("THE EVENT GRAZES A SKYLINE EDGE FROM HERE");
+    expect(html).toContain("#1 · 0.89 · 62 m NE");
+    expect(html).toContain("ON A BRIDGE (modelled height)");
+    // The promise the whole preview mechanism exists to keep.
+    expect(html).toContain("CLICK TO LOOK FROM HERE — THE DISC STAYS PUT");
+    // …and the other two verdicts really are different sentences (a positive control on the map).
+    expect(spotWhyLines(spot({ contact: "open" }))[1]).toContain("OPEN HORIZON");
+    expect(spotWhyLines(spot({ contact: "gap" }))[1]).toContain("GAP");
+  });
+
+  it("the tip is pointer-transparent — it sits under the pointer and must not eat the click", () => {
+    const css = stripComments(read("src/styles/bestspot-panel.css"));
+    expect(css).toMatch(/\.bsp-tip\s*\{[^}]*pointer-events:\s*none/);
+    // …and it is FIXED, which is only correct because it renders OUTSIDE `.bsp-root` (that element
+    // carries the drag transform, and a transform re-parents fixed descendants).
+    expect(css).toMatch(/\.bsp-tip\s*\{[^}]*position:\s*fixed/);
   });
 });
 
@@ -471,8 +647,13 @@ describe("§2.3 — no spinner", () => {
 
   it("the ONE spinner is the explicit 1 m re-solve, and it is not spinning at rest", () => {
     solved();
+    // ITEM 5 — the refine button moved ONTO the selected row (it used to sit at the foot of the
+    // panel and silently act on whatever the pointer last touched, or on #1). So it exists only
+    // once a row is selected, which is the whole repair: the button now names its own target.
+    expect(render()).not.toContain("◠ REFINE");
+    useBestSpotStore.getState().setSelectedKey("12:34");
     const idle = render();
-    expect(idle).toContain("REFINE THIS SPOT");
+    expect(idle).toContain("◠ REFINE");
     expect(idle).toContain('data-busy="0"');
     expect(idle).not.toContain('data-busy="1"');
   });

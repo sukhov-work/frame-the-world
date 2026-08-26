@@ -134,6 +134,7 @@ import { makeLoadAim, makeTileLatencyProbe } from "../../lib/globe/loadPriority"
 import {
   AIMCONES,
   AO,
+  BESTSPOT,
   CONTROLS,
   DRAPE,
   DRIFT,
@@ -1231,6 +1232,120 @@ export function attachStylizedTiles(opts: {
     return true;
   };
 
+  // --- BEST SPOT shortlist markers on the canvas (owner batch 2026-08-26, item 3) ---------------
+  //
+  //     "on click - jump into it with FPV view WITHOUT making it current spot (so again we do not
+  //     recalculate full heatmap)". That sentence is the whole design, and the hard half is the
+  //     second clause, because owner ruling R2 makes FPV a CENTRE SOURCE: `aimAnchorFor` puts the
+  //     walked eye at rung 1, so simply standing at a shortlisted cell re-keys the feed's T0, bumps
+  //     `sourcesEpoch`, and re-solves the very disc the user was reading — and then keeps
+  //     re-solving on every step of the walk, because `camGeo` mirrors past a 0.11 m deadband.
+  //
+  //     THE PREVIEW IS THEREFORE A CENTRE LOCK, not a second FPV anchor. Three facts make that the
+  //     cheap repair rather than an engine fork:
+  //      · the disc's centre is read in exactly ONE place (`stepBestSpotFeed`), so freezing it is
+  //        one expression rather than a carve-out in the shared aim ladder — which `MapWindow`, the
+  //        radar fan and the focal cone all read too, and which `aimAnchor.test.ts` pins;
+  //      · the frozen value is the centre the engine ACTUALLY SOLVED (`store.centreLatDeg`), which
+  //        is echoed from the request verbatim — so `t0` is byte-identical across the preview and
+  //        the feed posts nothing at all;
+  //      · the temp pin is restored on exit, so the unlock lands on the same centre it locked.
+  //     R2 is not amended: inside the preview the sheet still renders nothing, and the disc is
+  //     still about the place it was always about. The panel says so on its own line.
+  let bsPreviewKey: string | null = null;
+  /** The temp pin the preview borrowed — restored VERBATIM (including `null`) when it ends. */
+  let bsPreviewRestorePin: { latDeg: number; lonDeg: number } | null = null;
+  /** The disc centre held frozen for the preview's duration; null = not previewing. */
+  let bsPreviewCentre: { latDeg: number; lonDeg: number } | null = null;
+  /**
+   * Have we yet SEEN the FPV latch this preview asked for? The exit test is "the FPV it rode has
+   * ended", and without this latch it would fire on the frame between the request and its
+   * consumption — `requestFpvJump` only posts, `setTempFpv(true)` happens inside
+   * `stepFpvTransitions`, and a pointerup lands between two frames.
+   */
+  let bsPreviewSeenFpv = false;
+  /**
+   * …and how long we have been waiting for it. A preview that never arms would hold the centre lock
+   * FOREVER, and a permanently frozen disc centre is a far worse failure than a preview that gives
+   * up: it would look like the heatmap had simply stopped following the pin. In practice the jump
+   * is consumed on the very next frame, so this rail never fires.
+   */
+  let bsPreviewArmFrames = 0;
+  /** Did the LAST marker-hover tick leave the canvas cursor as a pointer? Only then may this step
+   *  hand it back — `dom.style.cursor` is shared with the sky and pin hovers. */
+  let bsMarkerCursor = false;
+
+  const endBestSpotPreview = (): void => {
+    if (bsPreviewKey === null) return;
+    bsPreviewKey = null;
+    bsPreviewCentre = null;
+    bsPreviewSeenFpv = false;
+    bsPreviewArmFrames = 0;
+    const camS = useCameraStore.getState();
+    if (camS.tempFpv) camS.setTempFpv(false);
+    // VERBATIM, `null` included: `setTempPin(null)` is also what clears `tempFpv`/`tempPinScreen`,
+    // so restoring "there was no pin" is a real restore and not a no-op.
+    camS.setTempPin(bsPreviewRestorePin);
+    bsPreviewRestorePin = null;
+    useBestSpotStore.getState()._syncBestSpot({ previewKey: null });
+  };
+
+  /** Stand at a shortlisted cell in FPV without moving the disc. `null`, or the key already being
+   *  previewed, LEAVES the preview — so one entry point serves the marker, the panel and Escape. */
+  const startBestSpotPreview = (key: string | null): void => {
+    if (key === null || key === bsPreviewKey) {
+      endBestSpotPreview();
+      return;
+    }
+    const bs = useBestSpotStore.getState();
+    const spot = bs.topK.find((t) => t.key === key);
+    if (!spot) return;
+    const camS = useCameraStore.getState();
+    // Only the FIRST hop captures the restore state — hopping #4 → #6 inside one preview must not
+    // overwrite the pin we still owe the user.
+    if (bsPreviewKey === null) {
+      bsPreviewRestorePin = camS.tempPin;
+      bsPreviewCentre =
+        bs.centreLatDeg !== null && bs.centreLonDeg !== null
+          ? { latDeg: bs.centreLatDeg, lonDeg: bs.centreLonDeg }
+          : camS.tempPin;
+    }
+    bsPreviewKey = key;
+    bsPreviewSeenFpv = false;
+    bsPreviewArmFrames = 0;
+    bs._syncBestSpot({ previewKey: key });
+    camS.requestFpvJump({
+      latDeg: spot.latDeg,
+      lonDeg: spot.lonDeg,
+      // The EYE THE SOLVER SCORED FROM, not a pedestrian constant: `sheetAltM` is `eyeM + liftM`,
+      // and standing at a different height than the one the score is a statement about would make
+      // the preview disagree with the row that offered it.
+      eyeM: bs.sheetAltM,
+      // …facing the EVENT. This is the answer to "why this one" made physical: the contact azimuth
+      // is where the sun/moon actually touches the horizon for this disc.
+      headingDeg: bestSpotFeed.contactAzDeg(),
+      pitchDeg: 0,
+      fovDeg: camera.fov,
+    });
+  };
+  // The panel's own LEAVE PREVIEW / row PREVIEW actions come through the store seam, the
+  // `refineSpot` grammar — except that this one's owner is the orchestrator, because a preview is
+  // a CAMERA move and the feed owns no camera.
+  useBestSpotStore.getState()._syncBestSpot({ previewSpot: startBestSpotPreview });
+
+  const tryBestSpotMarkerClick = (ndcX: number, ndcY: number): boolean => {
+    const bs = useBestSpotStore.getState();
+    if (!bestSpotAllowed || !bs.open || !bs.heatmapOn) return false;
+    const hit = bestSpotSheet.pickMarker(ndcX, ndcY);
+    if (!hit) return false;
+    // Selection and travel stay separate everywhere (item 1): the click SELECTS the row — which is
+    // what lights the marker and reveals its GO / REFINE actions in the panel — and the preview is
+    // a look, not a move. Neither touches the disc.
+    bs.setSelectedKey(hit.key);
+    startBestSpotPreview(hit.key);
+    return true;
+  };
+
   // --- Right-click a sky body (QoL-2 ask 7, owner 2026-08-14): the same ANGULAR test as the
   //     marker click, extended to the sun and the moon (their meshes keep raycast disabled).
   //     A hit suppresses the browser menu and mirrors {kind, screen px, az/alt} into
@@ -1381,6 +1496,10 @@ export function attachStylizedTiles(opts: {
     if (trySkyMarkerClick(ndcX, ndcY)) return;
     // FIND ghost projections next (also sky-only — a faded ghost is click-transparent).
     if (tryFindGhostClick(ndcX, ndcY)) return;
+    // BEST SPOT shortlist markers (owner batch 2026-08-26, item 3). It has to sit ABOVE both the
+    // pin pick and the empty-map clear: the marker stands on the ground, and the clear below would
+    // otherwise eat the click and drop the temp pin the disc is centred on.
+    if (tryBestSpotMarkerClick(ndcX, ndcY)) return;
     // Tap-reveal (M3c): a TOUCH tap on the open sky parks the synthetic hover — the ghost
     // pick above just seated _pickRay for this exact tap, so the skyward test is free.
     if (
@@ -5256,17 +5375,38 @@ export function attachStylizedTiles(opts: {
         // stepAimCones resolves it — never a fresh copy (audit #3 T36 removed three of those).
         // Note the temp pin is NOT a plan anchor, so `plan.profileBins` may not be lent here: this
         // disc owns its own evidence or renders UNKNOWN.
+        // ITEM 3's LIFECYCLE. The preview ends when the FPV it rode ends — Escape's rung 3, the
+        // panel's LEAVE PREVIEW, a photo FPV taking over, anything at all. Reading the LIVE store
+        // rather than this frame's `camNow` snapshot is deliberate: `stepFpvTransitions` consumes
+        // the jump request and sets `tempFpv` several steps above here, in this same frame.
+        {
+          const camLive = useCameraStore.getState();
+          if (bsPreviewKey !== null) {
+            if (camLive.tempFpv) bsPreviewSeenFpv = true;
+            else if (bsPreviewSeenFpv) endBestSpotPreview();
+            else if (++bsPreviewArmFrames > BESTSPOT.previewArmFrames) endBestSpotPreview();
+          }
+        }
+        const bsNow = useBestSpotStore.getState();
         const bsFocusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
-        const bsAnchor = aimAnchorFor({
-          fpvActive,
-          camGeo: camNow.camGeo,
-          placement: (upNow.phase === "placed" && upNow.placement) || null,
-          tempPin: camNow.tempPin,
-          focus: { latDeg: bsFocusGeo.latDeg, lonDeg: bsFocusGeo.lonDeg },
-        });
+        // THE CENTRE LOCK (item 3). While a shortlist row is being previewed in FPV the disc keeps
+        // the centre it was SOLVED at, so `t0` never moves and the feed posts nothing — the field
+        // and the shortlist the user is exploring survive the trip. Outside a preview this is the
+        // shared aim ladder verbatim, resolved exactly as stepAimCones resolves it.
+        const bsAnchor =
+          bsPreviewCentre ??
+          aimAnchorFor({
+            fpvActive,
+            camGeo: camNow.camGeo,
+            placement: (upNow.phase === "placed" && upNow.placement) || null,
+            tempPin: camNow.tempPin,
+            focus: { latDeg: bsFocusGeo.latDeg, lonDeg: bsFocusGeo.lonDeg },
+          });
         bestSpotFeed.update({
           sceneMs: tMs,
-          // THE READ IS THE GATE (see `bestSpotAllowed`).
+          // THE READ IS THE GATE (see `bestSpotAllowed`). The panel's own `open` + `heatmapOn`
+          // switch is the feed's business — it owns the sanctioned store bridge and reads both
+          // there, beside the request bands they arm.
           allowed: bestSpotAllowed,
           centreLatDeg: bsAnchor.latDeg,
           centreLonDeg: bsAnchor.lonDeg,
@@ -5282,16 +5422,67 @@ export function attachStylizedTiles(opts: {
           camera,
           altM: alt,
           viewportHPx: dom.clientHeight || 1,
+          viewportWPx: dom.clientWidth || 1,
           dtMs,
-          // THE READ IS THE GATE. `open` is the panel toggle; the other two are R2 and §6.10 (C).
-          enabled: bestSpotAllowed && useBestSpotStore.getState().open,
+          // THE READ IS THE GATE. `open` is the window, `heatmapOn` the owner's arming switch
+          // (item 4 — the sheet must go away the frame it is disarmed, not merely stop solving);
+          // the other two are R2 and §6.10 (C).
+          enabled: bestSpotAllowed && bsNow.open && bsNow.heatmapOn,
           fpvActive,
           mobileShell: isMobileShell,
           field: bestSpotFeed.field(),
           markers: bestSpotFeed.markers(),
-          hoverKey: useBestSpotStore.getState().hoverKey,
+          // The cell outline follows whatever is being POINTED at, and falls back to the SELECTED
+          // row so a picked spot stays legible on the sheet after the pointer leaves it.
+          hoverKey: bsNow.hoverKey ?? bsNow.sceneHoverKey ?? bsNow.selectedKey,
+          selectedKey: bsNow.selectedKey,
           contactAzDeg: bestSpotFeed.contactAzDeg(),
         });
+
+        // --- item 3, first half: the marker under the pointer highlights its row AND anchors the
+        //     "why this one" tip. The `pins.setHover` block's shape verbatim — a cadence-gated pick
+        //     plus an `ORCH.screenMoveMinPx` identity guard, because this writes a React store.
+        //     It runs AFTER the sheet update so the pick ledger is THIS frame's, and the whole
+        //     thing is gated on the sheet actually drawing: no markers, no hover (FPV renders
+        //     nothing under R2, and a disarmed disc has nothing to point at).
+        if (frameCount % PINS.hoverEveryFrames === 0) {
+          const bsHoverable =
+            bestSpotAllowed && bsNow.open && bsNow.heatmapOn && !fpvActive && !anyPointerDown;
+          let hit: ReturnType<typeof bestSpotSheet.pickMarker> = null;
+          let hitX = 0;
+          let hitY = 0;
+          if (bsHoverable && Number.isFinite(hoverX)) {
+            const rect = dom.getBoundingClientRect();
+            const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
+            hit = bestSpotSheet.pickMarker(nx, ny);
+            if (hit) ({ x: hitX, y: hitY } = ndcToClient(hit.ndcX, hit.ndcY, rect));
+          }
+          const prev = bsNow.sceneHoverScreen;
+          if (
+            (hit?.key ?? null) !== bsNow.sceneHoverKey ||
+            (hit !== null &&
+              (!prev ||
+                Math.abs(prev.x - hitX) > ORCH.screenMoveMinPx ||
+                Math.abs(prev.y - hitY) > ORCH.screenMoveMinPx))
+          ) {
+            useBestSpotStore.getState()._syncBestSpot({
+              sceneHoverKey: hit?.key ?? null,
+              sceneHoverScreen: hit ? { x: hitX, y: hitY } : null,
+            });
+          }
+          // Cursor: claim it on a hit, and give it back only if WE were the one holding it (the
+          // sky and pin hovers manage the same property with the same courtesy).
+          if (hit) dom.style.cursor = "pointer";
+          else if (
+            bsMarkerCursor &&
+            dom.style.cursor === "pointer" &&
+            !skyHoverKind &&
+            !usePinsStore.getState().hoverPin
+          ) {
+            dom.style.cursor = "";
+          }
+          bsMarkerCursor = hit !== null;
+        }
   };
 
   return {

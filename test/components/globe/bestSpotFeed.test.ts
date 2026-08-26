@@ -117,13 +117,23 @@ beforeEach(() => {
   posted.length = 0;
   liveWorker = null;
   vi.stubGlobal("Worker", StubWorker);
-  useBestSpotStore.setState({ open: true, liftM: 0, radiusM: BESTSPOT.defaultRadiusM, kind: "sunset" });
+  // ARMED means BOTH now (owner batch 2026-08-26, item 4): the window open AND the heatmap switch
+  // on. `open` alone used to be the arming condition, which is exactly the defect item 4 reports —
+  // opening the window committed to a ~700 ms solve before the request had been composed.
+  useBestSpotStore.setState({
+    open: true,
+    heatmapOn: true,
+    selectedKey: null,
+    liftM: 0,
+    radiusM: BESTSPOT.defaultRadiusM,
+    kind: "sunset",
+  });
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   useBestSpotStore.getState().setScoring(null);
-  useBestSpotStore.setState({ open: false });
+  useBestSpotStore.setState({ open: false, heatmapOn: false });
 });
 
 describe("the residency tiers decide WHICH jobs exist", () => {
@@ -187,16 +197,45 @@ describe("the residency tiers decide WHICH jobs exist", () => {
     feed.dispose();
   });
 
-  it("a disarmed feed (panel closed, or the wrong shell) posts nothing at all", () => {
+  it("a disarmed feed (panel closed, the switch off, or the wrong shell) posts nothing at all", () => {
     const feed = mountSync();
     feed.update({ ...baseCtx, allowed: false });
     useBestSpotStore.setState({ open: false });
     feed.update({ ...baseCtx });
+    // ITEM 4's third term: the window may be WIDE OPEN and the switch still off, and that must post
+    // nothing at all — that is the whole point of arming being a separate act from opening.
+    useBestSpotStore.setState({ open: true, heatmapOn: false });
+    feed.update({ ...baseCtx });
     expect(posted).toHaveLength(0);
     // POSITIVE CONTROL: arming it DOES post, so the zero above is the gate and not a dead harness.
-    useBestSpotStore.setState({ open: true });
+    useBestSpotStore.setState({ open: true, heatmapOn: true });
     feed.update({ ...baseCtx });
     expect(solves()).toHaveLength(1);
+    feed.dispose();
+  });
+
+  it("ITEM 4 — disarming CLEARS the disc, and re-arming solves the NEW request, not the old job", () => {
+    const feed = mountSync();
+    feed.update({ ...baseCtx });
+    liveWorker?.deliver(rungFor(1, scoringHash(useBestSpotStore.getState().scoring)));
+    expect(feed.field()).not.toBeNull();
+    // OFF: the field is dropped and the panel's mirror zeroed — "closing the whole best spot window
+    // behaves ok" is the behaviour the owner asked the SWITCH to have too, without the closing.
+    useBestSpotStore.setState({ heatmapOn: false });
+    feed.update({ ...baseCtx });
+    expect(feed.field()).toBeNull();
+    expect(useBestSpotStore.getState().topK).toEqual([]);
+    // …then change the radius WHILE OFF, and re-arm. The re-solve must carry the NEW radius —
+    // the owner's wording is "if i disabled it, then changed spot, or radius etc, after enabled it
+    // should recalculate according to new params". Nothing was posted while it was off.
+    posted.length = 0;
+    useBestSpotStore.setState({ radiusM: 100 });
+    feed.update({ ...baseCtx });
+    expect(posted).toHaveLength(0);
+    useBestSpotStore.setState({ heatmapOn: true });
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(1);
+    expect((solves()[0] as unknown as { radiusM: number }).radiusM).toBe(100);
     feed.dispose();
   });
 

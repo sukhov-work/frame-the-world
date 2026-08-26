@@ -3,10 +3,15 @@ import InfoDot from "../ui/InfoDot";
 import DragGrip, { ResizeGrip, usePanelDrag, usePanelResize } from "../ui/DragGrip";
 import ChipRow, { type ChipOption } from "../controls/ChipRow";
 import InstrumentSlider from "../controls/InstrumentSlider";
-import { useBestSpotStore, type BestSpotSpot, type BestSpotState } from "../../store/bestSpot";
+import {
+  shortlistQuality,
+  useBestSpotStore,
+  type BestSpotSpot,
+  type BestSpotState,
+} from "../../store/bestSpot";
 import { useCameraStore } from "../../store/camera";
 import { BESTSPOT } from "../globe/tuning";
-import { heatRampById } from "../../lib/theme/heatPalette";
+import { HEAT_SPOTS, heatRampById, spotQualityCss } from "../../lib/theme/heatPalette";
 import {
   scoringHash,
   type BestSpotScoringPatch,
@@ -59,6 +64,10 @@ interface BestSpotPending {
   terrainPostingM?: number;
   refining?: boolean;
   refineSpot?: (key: string) => void;
+  /** Owner batch 2026-08-26 item 3 — installed by the ORCHESTRATOR, not the feed (a preview is a
+   *  camera move), so it is absent until the globe island mounts. */
+  previewSpot?: (key: string | null) => void;
+  previewKey?: string | null;
 }
 const pending = (s: BestSpotState): BestSpotPending => s as BestSpotState & BestSpotPending;
 
@@ -269,14 +278,71 @@ export function shortlistReady(s: BestSpotState): boolean {
 }
 
 /** `62 m` / `1.5 km` — the walk, in the unit a walker thinks in. */
-function distLabel(m: number): string {
+export function distLabel(m: number): string {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
 
 /** Offset from the event instant at which the disc is best framed from that cell: `+3m20s`. */
-function leadLabel(ms: number): string {
+export function leadLabel(ms: number): string {
   const total = Math.round(Math.abs(ms) / 1000);
   return `${ms < 0 ? "−" : "+"}${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s`;
+}
+
+/**
+ * WHY THIS CELL IS ON THE LIST, in one sentence — the metric's own `contact` verdict spelled out
+ * (owner batch 2026-08-26, item 3). Never re-derived here: the worker decided which of the three it
+ * is, and a second opinion computed in the panel is a second opinion that can disagree.
+ */
+const CONTACT_WHY: Record<BestSpotSpot["contact"], string> = {
+  graze: "THE EVENT GRAZES A SKYLINE EDGE FROM HERE — THE LONG, LOW CONTACT",
+  gap: "THE EVENT DROPS THROUGH A GAP IN THE SKYLINE FROM HERE",
+  open: "OPEN HORIZON ON THE CONTACT BEARING FROM HERE",
+};
+
+/**
+ * R8's re-solve, made VISIBLE (owner batch 2026-08-26, item 5: *"once pressed - need to see effect
+ * (or have feedback that nothing to improve)"*).
+ *
+ * The 1 m obstruction pass costs ~1.5 s and moved the row's score by hundredths, which is to say it
+ * was indistinguishable from a dead button. This is the missing readout, and the ZERO case is the
+ * important one: `NO CHANGE AT 1 m` is a real answer — the coarse pass was already right about this
+ * cell — and it is the answer the old UI could not give. Returns null before any refine.
+ *
+ * The 0.005 threshold is the row's own printing precision (`score.toFixed(2)`): a delta that cannot
+ * change the number beside it must not be announced as a change.
+ */
+export function refineDeltaLabel(spot: BestSpotSpot): string | null {
+  if (!spot.obstructionRefined) return null;
+  const from = spot.refinedFromScore;
+  if (from === null || from === undefined) return `SOLVED AT ${spot.gridCellM} m`;
+  const d = spot.score - from;
+  if (Math.abs(d) < 0.005) return `${spot.gridCellM} m: NO CHANGE`;
+  return `${spot.gridCellM} m: ${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(2)}`;
+}
+
+/**
+ * The canvas hover tip's lines (item 3) — pure, so the fence can prove every word on screen came
+ * from the store row rather than from a literal in the JSX.
+ *
+ * It is deliberately the SAME facts the panel row prints, in the same order, because the tip exists
+ * to answer "why is there a #4 over there?" without making the user hunt the list for row 4.
+ */
+export function spotWhyLines(spot: BestSpotSpot): string[] {
+  const out = [
+    `#${spot.rank} · ${spot.score.toFixed(2)} · ${distLabel(spot.distM)} ${cardinal(spot.bearingDeg)}`,
+    CONTACT_WHY[spot.contact],
+    `BEST FRAMED ${leadLabel(spot.leadMs)} FROM THE CONTACT · ACCESSIBILITY AT ${spot.gridCellM} m`,
+  ];
+  const note = [
+    spot.note,
+    spot.aerial ? "▲ AERIAL" : null,
+    spot.groundReachable ? null : "NO GROUND ACCESS BELOW",
+    refineDeltaLabel(spot),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  if (note) out.push(note);
+  return out;
 }
 
 /**
@@ -292,37 +358,61 @@ export function SpotRow({
   relative,
   swatchCss,
   hot,
+  selected,
+  previewing,
+  refining,
   onHover,
-  onPick,
+  onSelect,
+  onGo,
+  onLook,
+  onRefine,
 }: {
   spot: BestSpotSpot;
-  /** score ÷ the shortlist's best — the BAR only. Never the number. */
+  /** score ÷ the shortlist's best — the BAR and the SWATCH. Never the number. */
   relative: number;
   swatchCss: string;
+  /** The canvas pointer is on this row's marker. */
   hot: boolean;
+  /** The user PICKED this row (owner item 1) — its marker is lit on the globe. */
+  selected: boolean;
+  /** …and is currently standing at it in the FPV preview (item 3). */
+  previewing: boolean;
+  /** R8's 1 m obstruction re-solve is in flight (for THIS row — the store carries one at a time). */
+  refining: boolean;
   onHover: (key: string | null) => void;
-  onPick: (spot: BestSpotSpot) => void;
+  onSelect: (key: string | null) => void;
+  /** The EXPLICIT travel action — the only thing that moves the disc centre. */
+  onGo: (spot: BestSpotSpot) => void;
+  onLook: (spot: BestSpotSpot) => void;
+  onRefine: (spot: BestSpotSpot) => void;
 }) {
   // R1's secondary readout rides the provenance footnote: "a place I can climb to" is the owner's
   // stated preference, so a cell that is only reachable by air says so on the row that offers it.
+  // Item 5's refine delta joins it: it is a property of the ROW, not of the button, so it stays
+  // visible after the selection moves on.
   const note = [
     spot.note,
     spot.aerial ? "▲ AERIAL" : null,
     spot.groundReachable ? null : "NO GROUND ACCESS BELOW",
+    refineDeltaLabel(spot),
   ]
     .filter(Boolean)
     .join(" · ");
   return (
     <div
-      className={`pp-day__row${hot ? " fnd-row--hot" : ""}`}
+      className={`pp-day__row bsp-row${hot ? " fnd-row--hot" : ""}${selected ? " bsp-row--sel" : ""}`}
       onMouseEnter={() => onHover(spot.key)}
       onMouseLeave={() => onHover(null)}
     >
+      {/* THE ROW BODY IS NOW A SELECT, NOT A JUMP (owner item 1). Clicking used to drop the temp
+          pin, which moved the disc centre, which re-solved the field — and destroyed the very list
+          the row came from. A second click deselects, so the gesture is reversible. */}
       <button
         type="button"
         className="pp-day__jump"
-        onClick={() => onPick(spot)}
-        title={`Drop the pin here — ${distLabel(spot.distM)} ${cardinal(spot.bearingDeg)} of the centre`}
+        aria-pressed={selected}
+        onClick={() => onSelect(selected ? null : spot.key)}
+        title={`Select this spot — it lights up on the globe. Nothing moves until you press GO.`}
       >
         <span className="fnd-sw" style={{ background: swatchCss }} />
         <span className="pp-day__time">{spot.rank}</span>
@@ -334,7 +424,78 @@ export function SpotRow({
         <span className="pp-day__kind">{CONTACT_LABEL[spot.contact]}</span>
         <span className="pp-day__meta">{leadLabel(spot.leadMs)}</span>
       </button>
+      {/* The actions live to the RIGHT of the row and only on the SELECTED one — the owner's own
+          proposal, and it is also what makes REFINE unambiguous (item 5): the button names the
+          cell it acts on instead of silently following the last thing the pointer touched. */}
+      {selected && (
+        <span className="bsp-row__acts">
+          <button
+            type="button"
+            className="bsp-act"
+            onClick={() => onGo(spot)}
+            title={`Move the disc centre here — ${distLabel(spot.distM)} ${cardinal(spot.bearingDeg)} away. THIS re-solves the heatmap around the new centre.`}
+          >
+            GO →
+          </button>
+          <button
+            type="button"
+            className={`bsp-act${previewing ? " bsp-act--on" : ""}`}
+            aria-pressed={previewing}
+            onClick={() => onLook(spot)}
+            title="Stand here in first person WITHOUT moving the disc — the heatmap and this list survive. Escape returns."
+          >
+            {previewing ? "◎ BACK" : "◎ LOOK"}
+          </button>
+          <button
+            type="button"
+            className="bsp-act"
+            data-busy={refining ? "1" : "0"}
+            data-refined={spot.obstructionRefined ? "1" : "0"}
+            disabled={refining || spot.obstructionRefined}
+            onClick={() => onRefine(spot)}
+            title={
+              spot.obstructionRefined
+                ? `This cell's OBSTRUCTION has already been re-solved at ${spot.gridCellM} m.`
+                : `Re-solve THIS ONE cell's obstruction at ${BESTSPOT.ultraCellM} m — a small disc around this cell, NOT the whole area and NOT the whole disc. It needs a 985 ms streamed hull, so about a second.`
+            }
+          >
+            {spot.obstructionRefined ? "◠ 1 m ✓" : refining ? "◠ …" : "◠ REFINE"}
+          </button>
+        </span>
+      )}
       {note && <span className="pp-day__meta">{note}</span>}
+    </div>
+  );
+}
+
+/**
+ * The canvas hover tip (owner batch 2026-08-26, item 3) — *"on hover over suggested spot on map
+ * (e.g spot #4 in circle), show hint about why this one was chosen with basic info that you show in
+ * plan"*.
+ *
+ * Its own island slot, floating at the marker's projected screen position (`sceneHoverScreen`, the
+ * `camera.tempPinScreen` → `.ct-pinpop` recipe verbatim). It renders NOTHING unless the engine has
+ * both a hovered key and a position for it, so a disarmed disc, FPV or an off-screen marker all
+ * collapse to null without the panel having to know why.
+ *
+ * `pointer-events: none` in the CSS is load-bearing: the tip sits under the pointer by construction,
+ * and a tip that could take the pointer would steal the click that opens the preview.
+ */
+export function BestSpotHoverTip() {
+  const key = useBestSpotStore((s) => s.sceneHoverKey);
+  const at = useBestSpotStore((s) => s.sceneHoverScreen);
+  const topK = useBestSpotStore((s) => s.topK);
+  if (key === null || at === null) return null;
+  const spot = topK.find((t) => t.key === key);
+  if (!spot) return null;
+  return (
+    <div className="bsp-tip" role="status" style={{ left: at.x, top: at.y }}>
+      {spotWhyLines(spot).map((line) => (
+        <div className="bsp-tip__line" key={line}>
+          {line}
+        </div>
+      ))}
+      <div className="bsp-tip__cta">CLICK TO LOOK FROM HERE — THE DISC STAYS PUT</div>
     </div>
   );
 }
@@ -364,6 +525,10 @@ export default function BestSpotPanel() {
 
   const {
     setOpen,
+    heatmapOn,
+    setHeatmapOn,
+    selectedKey,
+    setSelectedKey,
     kind,
     setKind,
     radiusM,
@@ -376,7 +541,6 @@ export default function BestSpotPanel() {
     setLiftM,
     rampId,
     setRampId,
-    hoverKey,
     sceneHoverKey,
     topK,
     verdictCounts,
@@ -393,6 +557,9 @@ export default function BestSpotPanel() {
   } = s;
   const ready = shortlistReady(s);
   const bestScore = topK.length > 0 ? Math.max(...topK.map((t) => t.score)) : 1;
+  // Hoisted out of the row map: `shortlistQuality` needs the whole list, and re-deriving it per row
+  // would be eight passes over eight rows for one number that does not change between them.
+  const topKScores = topK.map((t) => t.score);
   const ladder = BESTSPOT.ladderCellsM;
   const rungFrac = ladder.length > 1 ? Math.min(1, Math.max(0, (ladderRung + 1) / ladder.length)) : 1;
   // SHEET ALTITUDE, settled: the store carries `eyeM` (1.7, the pedestrian eye) and `liftM` (metres
@@ -401,284 +568,361 @@ export default function BestSpotPanel() {
   // scale has no zero), not a place anybody can stand, and `BESTSPOT_METRIC_DEFAULTS` is
   // `{ eyeM: 1.7, liftM: 0 }`. Double-click returns to `liftM = 0`, i.e. eye level.
   const sheetAltM = BESTSPOT.eyeM + liftM;
-  const refineTarget = topK.find((t) => t.key === hoverKey) ?? topK[0] ?? null;
   const ultraAllowed = radiusM <= ultraMaxRadiusM;
+  // ITEM 1/5 — the selection is LOOKED UP, never cached. A re-solve replaces every row, so a key
+  // that no longer exists simply resolves to "nothing selected" and the actions disappear with it;
+  // there is no stale-selection clean-up pass anywhere, because there is nothing to clean.
+  const selected = topK.find((t) => t.key === selectedKey) ?? null;
+  const previewKey = p.previewKey ?? null;
 
   return (
-    <div className="bsp-root" style={drag.style}>
-      <DragGrip drag={drag} label="Move the planning window" tipPos="up" />
-      <aside className="bsp" aria-label="Best spot" style={resize.style}>
-        <div className="pp-head">
-          <span className="pp-title">BEST SPOT</span>
-          <span className="pp-anchor">
-            {hasCentre ? `${latDeg.toFixed(4)}, ${lonDeg.toFixed(4)}` : "—"}
-          </span>
-          <InfoDot
-            tip="Where to stand for this sunrise, sunset, moonrise or moonset. Every ground cell in the disc is scored for how good a place it is to watch the event from — real buildings, real terrain, real landcover. The sheet is the field; the eight markers are the shortlist, re-solved at 1 m. The status lines below say exactly how far the evidence goes."
-            pos="right"
-          />
-          <button
-            type="button"
-            className="pp-x"
-            aria-label="Close the planning window"
-            onClick={() => setOpen(false)}
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Scrolling lives on this INNER wrapper so the head's InfoDot tip is never clipped and the
-            DragGrip tab that overhangs the card is never cut off (the .pp-scroll discipline). */}
-        <div className="bsp-scroll">
-          <div className="pp-chips">
-            <span className={`pp-chip${hasCentre ? " pp-chip--on" : ""}`}>
-              {"◎ HEATMAP"}
-              <span className="pp-chip__kind">{hasCentre ? "ON" : "OFF"}</span>
+    <>
+      {/* ITEM 3's HOVER TIP — a SIBLING of `.bsp-root`, never a child. `.bsp-root` carries the drag
+          `transform`, and a transform (like a backdrop-filter) makes every `position: fixed`
+          descendant relative to it — the exact bug the `.ct-pinpop` island was extracted to avoid.
+          It floats at the marker's own projected position, so "why is there a #4 over there?" is
+          answered where the question is asked. */}
+      <BestSpotHoverTip />
+      <div className="bsp-root" style={drag.style}>
+        <DragGrip drag={drag} label="Move the planning window" tipPos="up" />
+        <aside className="bsp" aria-label="Best spot" style={resize.style}>
+          <div className="pp-head">
+            <span className="pp-title">BEST SPOT</span>
+            <span className="pp-anchor">
+              {hasCentre ? `${latDeg.toFixed(4)}, ${lonDeg.toFixed(4)}` : "—"}
             </span>
-            {/* §2.3 state 1 — the ONLY leg longer than a frame and the only one that can fail. */}
-            {tilesPending && <span className="pp-chip">READING THE MAP</span>}
+            <InfoDot
+              tip="Where to stand for this sunrise, sunset, moonrise or moonset. Every ground cell in the disc is scored for how good a place it is to watch the event from — real buildings, real terrain, real landcover. The sheet is the field; the eight markers are the shortlist, re-solved at 1 m. The status lines below say exactly how far the evidence goes."
+              pos="right"
+            />
+            <button
+              type="button"
+              className="pp-x"
+              aria-label="Close the planning window"
+              onClick={() => setOpen(false)}
+            >
+              ×
+            </button>
           </div>
 
-          {!hasCentre && (
-            <div className="pp-status">
-              NO CENTRE YET — DOUBLE-CLICK THE GROUND (OR STAND SOMEWHERE IN LOOK) TO SET ONE
-            </div>
-          )}
-
-          <div className="pp-section">EVENT</div>
-          <ChipRow options={KIND_OPTIONS} value={kind} onPick={setKind} ariaLabel="Event" />
-          {/* R7 — the moon multiplies but the FLOOR rises, so a bad night DIMS rather than vanishes.
-              The badge says which kind of night this is, because the sheet alone cannot. */}
-          {(kind === "moonrise" || kind === "moonset") && (
-            <div className="pp-status">
-              {p.moonWorth === undefined
-                ? "☾ MOON WORTH NOT PUBLISHED YET"
-                : `☾ THIS MOON IS WORTH ${p.moonWorth.toFixed(2)}`}
-            </div>
-          )}
-
-          <div className="pp-section">RADIUS (m)</div>
-          <ChipRow
-            options={radiiM.map((r) => ({ value: r, label: String(r), title: `${r} m disc` }))}
-            value={radiusM}
-            onPick={setRadiusM}
-            ariaLabel="Disc radius"
-          >
-            {/* R8 — 1 m ULTRA is a SHORTLIST tool, not a field tool: it buys ρ = 0.969 against 3 m
-                and changes 4 of the top 20 for 6.7× the wall clock, and at 500 m it is 1,002,001
-                cells ≈ 12.2 s. The chip stays visible above the ceiling so the ladder does not
-                silently change shape; it just cannot be armed. */}
-            <button
-              type="button"
-              className={`pp-chip${ultra ? " pp-chip--on" : ""}`}
-              aria-pressed={ultra}
-              disabled={!ultraAllowed}
-              onClick={() => setUltra(!ultra)}
-              title={
-                ultraAllowed
-                  ? `${BESTSPOT.ultraCellM} m field — the ULTRA tier`
-                  : `${BESTSPOT.ultraCellM} m is refused above a ${ultraMaxRadiusM} m radius (R8) — over a million cells`
-              }
-            >
-              {`${BESTSPOT.ultraCellM} m`}
-              <span className="pp-chip__kind">ULTRA</span>
-            </button>
-          </ChipRow>
-
-          <InstrumentSlider
-            label="SHEET ALTITUDE"
-            formatted={`${sheetAltM < 10 ? sheetAltM.toFixed(1) : Math.round(sheetAltM)} m`}
-            value={sheetAltM}
-            min={BESTSPOT.eyeM}
-            max={BESTSPOT.liftMaxM}
-            log
-            // R1: at and above 5 m the ground rules stop applying and the DRONE rules take over
-            // (only solid interiors are masked). The badge is where that switch becomes visible.
-            badge={sheetAltM >= AERIAL_MIN_M ? "▲ DRONE" : undefined}
-            onChange={(v) => setLiftM(v - BESTSPOT.eyeM)}
-            onReset={() => setLiftM(0)}
-            ariaLabel="Sheet altitude above the ground"
-          />
-
-          {/* R6 — at pedestrian height a real central-Dnipro disc is 97.7 % black with a maximum of
-              0.381. That is physically correct and the eight markers ARE the product; but when the
-              engine has found a lift that clears the floor, the way out is one tap. The number is
-              COMPUTED (the lowest probe that clears `emptyFieldFrac`) — never a constant. */}
-          {suggestedLiftM !== null && (
-            <button
-              type="button"
-              className="pp-chip"
-              onClick={() => setLiftM(suggestedLiftM)}
-              title="Lift the sheet to the lowest altitude that puts a readable fraction of the disc above the display floor"
-            >
-              {`NOTHING CLEARS THE SKYLINE AT EYE LEVEL — TRY ${Math.round(suggestedLiftM)} m`}
-            </button>
-          )}
-
-          <div className="bsp-legend">
-            <div className="pp-section">
-              SCORE
+          {/* Scrolling lives on this INNER wrapper so the head's InfoDot tip is never clipped and the
+              DragGrip tab that overhangs the card is never cut off (the .pp-scroll discipline). */}
+          <div className="bsp-scroll">
+            <div className="pp-chips">
+              {/* OWNER ITEM 4 — this was a READOUT wearing a chip's clothes: it printed ON whenever a
+                  centre existed, could not be clicked, and the thing that actually armed the solver
+                  was "the window is open". Now it is the switch it always looked like. Opening the
+                  window leaves it OFF (`setOpen` forces that), so the request can be composed for
+                  free; arming re-reads whatever the chips say NOW. It is deliberately NOT disabled
+                  without a centre — arming first and then double-clicking the ground is a legitimate
+                  order, and the line below says what is missing. */}
               <button
                 type="button"
-                className="bsp-ab"
-                onClick={() => setRampId(rampId === "inferno" ? "turbo" : "inferno")}
-                title="A/B the heat ramp. INFERNO is monotone in perceived lightness; TURBO is not — its brightest band sits mid-scale, which puts the best spot in dark red."
+                className={`pp-chip${heatmapOn ? " pp-chip--on" : ""}`}
+                aria-pressed={heatmapOn}
+                onClick={() => setHeatmapOn(!heatmapOn)}
+                title={
+                  heatmapOn
+                    ? "Turn the heatmap off. The window stays open and keeps your settings; turning it back on solves with whatever you have changed meanwhile."
+                    : "Solve this disc and paint the heatmap. Set the event, the radius and the sheet altitude first — while it is off, nothing is computed."
+                }
               >
-                [{rampId.toUpperCase()}]
+                {"◎ HEATMAP"}
+                <span className="pp-chip__kind">
+                  {heatmapOn ? (hasCentre ? "ON" : "ARMED — NO CENTRE") : "OFF"}
+                </span>
               </button>
+              {/* §2.3 state 1 — the ONLY leg longer than a frame and the only one that can fail. */}
+              {tilesPending && <span className="pp-chip">READING THE MAP</span>}
             </div>
-            <div
-              className="bsp-legend__ramp"
-              style={{
-                backgroundImage: `linear-gradient(to right, ${heatRampById(rampId)
-                  .map((stop) => stop.css)
-                  .join(", ")})`,
-              }}
-            />
-            {/* Ticks are DERIVED: the display floor, the two contour majors the sheet draws heavier,
-                and the display ceiling. Nothing here is a hand-placed number. */}
-            <div className="bsp-legend__tick">
-              <span>{s.displayLo.toFixed(2)}</span>
-              {BESTSPOT.contourMajors.map((m) => (
-                <b key={m}>{m.toFixed(2)}</b>
-              ))}
-              <span>{s.displayHi.toFixed(2)}</span>
-            </div>
-            <div className="bsp-legend__cls" data-cls="unmapped">
-              <i />
-              {`UNMAPPED — NOT SCORED${
-                verdictCounts.total > 0 ? ` · ${verdictCounts.unknown.toLocaleString("en-US")}` : ""
-              }`}
-            </div>
-            <div className="bsp-legend__cls" data-cls="blocked">
-              <i />
-              {`CAN'T STAND HERE${
-                verdictCounts.total > 0 ? ` · ${verdictCounts.blocked.toLocaleString("en-US")}` : ""
-              }`}
-            </div>
-          </div>
 
-          {bestSpotStatusLines(s).map((line) => (
-            <div className="pp-status" key={line}>
-              {line}
+            {!hasCentre && (
+              <div className="pp-status">
+                NO CENTRE YET — DOUBLE-CLICK THE GROUND (OR STAND SOMEWHERE IN LOOK) TO SET ONE
+              </div>
+            )}
+            {!heatmapOn && (
+              <div className="pp-status">
+                HEATMAP OFF — NOTHING IS BEING COMPUTED. SET THE EVENT, RADIUS AND ALTITUDE, THEN TURN
+                IT ON.
+              </div>
+            )}
+            {/* ITEM 3 — the preview is a MODE, and a mode with no visible state is a trap. The second
+                clause is the one that matters: it is the promise this whole mechanism exists to keep. */}
+            {previewKey !== null && (
+              <div className="pp-status" data-tone="warn">
+                {`◎ LOOKING FROM #${topK.find((t) => t.key === previewKey)?.rank ?? "?"} — THE DISC IS STILL CENTRED WHERE IT WAS, NOTHING IS BEING RE-SOLVED. ESC RETURNS.`}
+              </div>
+            )}
+
+            <div className="pp-section">EVENT</div>
+            <ChipRow options={KIND_OPTIONS} value={kind} onPick={setKind} ariaLabel="Event" />
+            {/* R7 — the moon multiplies but the FLOOR rises, so a bad night DIMS rather than vanishes.
+                The badge says which kind of night this is, because the sheet alone cannot. */}
+            {(kind === "moonrise" || kind === "moonset") && (
+              <div className="pp-status">
+                {p.moonWorth === undefined
+                  ? "☾ MOON WORTH NOT PUBLISHED YET"
+                  : `☾ THIS MOON IS WORTH ${p.moonWorth.toFixed(2)}`}
+              </div>
+            )}
+
+            <div className="pp-section">RADIUS (m)</div>
+            <ChipRow
+              options={radiiM.map((r) => ({ value: r, label: String(r), title: `${r} m disc` }))}
+              value={radiusM}
+              onPick={setRadiusM}
+              ariaLabel="Disc radius"
+            >
+              {/* R8 — 1 m ULTRA is a SHORTLIST tool, not a field tool: it buys ρ = 0.969 against 3 m
+                  and changes 4 of the top 20 for 6.7× the wall clock, and at 500 m it is 1,002,001
+                  cells ≈ 12.2 s. The chip stays visible above the ceiling so the ladder does not
+                  silently change shape; it just cannot be armed. */}
+              <button
+                type="button"
+                className={`pp-chip${ultra ? " pp-chip--on" : ""}`}
+                aria-pressed={ultra}
+                disabled={!ultraAllowed}
+                onClick={() => setUltra(!ultra)}
+                title={
+                  ultraAllowed
+                    ? `${BESTSPOT.ultraCellM} m field — the ULTRA tier`
+                    : `${BESTSPOT.ultraCellM} m is refused above a ${ultraMaxRadiusM} m radius (R8) — over a million cells`
+                }
+              >
+                {`${BESTSPOT.ultraCellM} m`}
+                <span className="pp-chip__kind">ULTRA</span>
+              </button>
+            </ChipRow>
+
+            <InstrumentSlider
+              label="SHEET ALTITUDE"
+              formatted={`${sheetAltM < 10 ? sheetAltM.toFixed(1) : Math.round(sheetAltM)} m`}
+              value={sheetAltM}
+              min={BESTSPOT.eyeM}
+              max={BESTSPOT.liftMaxM}
+              log
+              // R1: at and above 5 m the ground rules stop applying and the DRONE rules take over
+              // (only solid interiors are masked). The badge is where that switch becomes visible.
+              badge={sheetAltM >= AERIAL_MIN_M ? "▲ DRONE" : undefined}
+              onChange={(v) => setLiftM(v - BESTSPOT.eyeM)}
+              onReset={() => setLiftM(0)}
+              ariaLabel="Sheet altitude above the ground"
+            />
+
+            {/* R6 — at pedestrian height a real central-Dnipro disc is 97.7 % black with a maximum of
+                0.381. That is physically correct and the eight markers ARE the product; but when the
+                engine has found a lift that clears the floor, the way out is one tap. The number is
+                COMPUTED (the lowest probe that clears `emptyFieldFrac`) — never a constant. */}
+            {suggestedLiftM !== null && (
+              <button
+                type="button"
+                className="pp-chip"
+                onClick={() => setLiftM(suggestedLiftM)}
+                title="Lift the sheet to the lowest altitude that puts a readable fraction of the disc above the display floor"
+              >
+                {`NOTHING CLEARS THE SKYLINE AT EYE LEVEL — TRY ${Math.round(suggestedLiftM)} m`}
+              </button>
+            )}
+
+            <div className="bsp-legend">
+              <div className="pp-section">
+                SCORE
+                <button
+                  type="button"
+                  className="bsp-ab"
+                  onClick={() => setRampId(rampId === "inferno" ? "turbo" : "inferno")}
+                  title="A/B the heat ramp. INFERNO is monotone in perceived lightness; TURBO is not — its brightest band sits mid-scale, which puts the best spot in dark red."
+                >
+                  [{rampId.toUpperCase()}]
+                </button>
+              </div>
+              <div
+                className="bsp-legend__ramp"
+                style={{
+                  backgroundImage: `linear-gradient(to right, ${heatRampById(rampId)
+                    .map((stop) => stop.css)
+                    .join(", ")})`,
+                }}
+              />
+              {/* Ticks are DERIVED: the display floor, the two contour majors the sheet draws heavier,
+                  and the display ceiling. Nothing here is a hand-placed number. */}
+              <div className="bsp-legend__tick">
+                <span>{s.displayLo.toFixed(2)}</span>
+                {BESTSPOT.contourMajors.map((m) => (
+                  <b key={m}>{m.toFixed(2)}</b>
+                ))}
+                <span>{s.displayHi.toFixed(2)}</span>
+              </div>
+              <div className="bsp-legend__cls" data-cls="unmapped">
+                <i />
+                {`UNMAPPED — NOT SCORED${
+                  verdictCounts.total > 0 ? ` · ${verdictCounts.unknown.toLocaleString("en-US")}` : ""
+                }`}
+              </div>
+              <div className="bsp-legend__cls" data-cls="blocked">
+                <i />
+                {`CAN'T STAND HERE${
+                  verdictCounts.total > 0 ? ` · ${verdictCounts.blocked.toLocaleString("en-US")}` : ""
+                }`}
+              </div>
+              {/* OWNER ITEM 2's legend, and it has to be here or the markers become a second
+                  unlabelled rainbow. The ramp above reads the ABSOLUTE score; this one reads the
+                  eight against EACH OTHER, which is the only normalisation under which eight cells
+                  clustered in the low end of a real disc are told apart at all. Saying which is
+                  which is the whole cost of being allowed to renormalise — and it is said in TWO
+                  rows, not four: the scarcest thing on this panel is the vertical space above the
+                  shortlist, and the shortlist is the product (measured in the browser, the
+                  four-row version pushed row #1 below the fold at the default window height). */}
+              <div className="pp-section">
+                MARKERS
+                <span
+                  className="bsp-legend__cap"
+                  title="The marker's HUE spreads this shortlist across the whole ramp — best at the bright end, worst at the dim one — so eight spots can be ranked at a glance even when their scores are close. Its BRIGHTNESS is the ABSOLUTE score: eight faint markers mean eight poor spots, however colourful they are."
+                >
+                  HUE SPREADS THE EIGHT · BRIGHTNESS IS ABSOLUTE
+                </span>
+              </div>
+              <div
+                className="bsp-legend__ramp"
+                style={{
+                  backgroundImage: `linear-gradient(to right, ${HEAT_SPOTS.map((stop) => stop.css).join(", ")})`,
+                }}
+              />
+              <div className="bsp-legend__tick">
+                <span>#8</span>
+                <span>#1</span>
+              </div>
             </div>
-          ))}
-          {/* S7's built-density prior — the plan's own "single most dangerous failure mode in the
-              feature". `parseTile` does `if (!layer) continue`, so "tile fetched, zero buildings"
-              is byte-identical to "OSM never surveyed here", and before this line existed a
-              terrain-only rural disc rendered warm, uniform and confident at S = 0.470–0.661 while
-              reporting 100 % coverage. The engine publishes the verdict AND the density it was
-              measured from; the panel prints both so the claim is checkable. */}
-          {terrainOnly && (
-            <div className="pp-status" data-tone="warn">
-              {terrainOnlyLine(s)}
-            </div>
-          )}
-          {trackNull &&
-            TRACK_NULL_LINES.map((line) => (
-              <div className="pp-status" data-tone="warn" key={line}>
+
+            {bestSpotStatusLines(s).map((line) => (
+              <div className="pp-status" key={line}>
                 {line}
               </div>
             ))}
-
-          <div className="pp-section">
-            {`BEST SPOTS${ready ? "" : " · RANKING…"}${
-              verdictCounts.total > 0
-                ? ` · ${topK.length} OF ${verdictCounts.scored.toLocaleString("en-US")}`
-                : ""
-            }`}
-          </div>
-          {/* §2.3 state 2 — the determinate rung pip. The sheet is its own progress indicator; this
-              says how far down the ladder it has come, in the ladder's own units. */}
-          {!ready && (
-            <>
-              <span className="pp-mw__bar">
-                <i style={{ width: `${Math.round(rungFrac * 100)}%` }} />
-              </span>
-              <div className="pp-status">
-                {`${ladder[0]} m → ${cellM} m${ladderRung >= 0 ? ` · NOW ${gridCellM} m` : ""}`}
-              </div>
-            </>
-          )}
-          <div data-ranking={ready ? "0" : "1"}>
-            {topK.map((spot) => (
-              <SpotRow
-                key={spot.key}
-                spot={spot}
-                relative={spot.score / (bestScore || 1)}
-                swatchCss={heatCssForScore(spot.score, s)}
-                hot={sceneHoverKey === spot.key}
-                onHover={(key) => useBestSpotStore.getState().setHoverKey(key)}
-                onPick={(hit) =>
-                  useCameraStore.getState().setTempPin({ latDeg: hit.latDeg, lonDeg: hit.lonDeg })
-                }
-              />
-            ))}
-            {ready && topK.length === 0 && (
-              <div className="pp-status">
-                NOTHING IN THIS DISC SCORES ABOVE THE FLOOR — TRY ANOTHER EVENT, A WIDER RADIUS, OR
-                THE LIFT
+            {/* S7's built-density prior — the plan's own "single most dangerous failure mode in the
+                feature". `parseTile` does `if (!layer) continue`, so "tile fetched, zero buildings"
+                is byte-identical to "OSM never surveyed here", and before this line existed a
+                terrain-only rural disc rendered warm, uniform and confident at S = 0.470–0.661 while
+                reporting 100 % coverage. The engine publishes the verdict AND the density it was
+                measured from; the panel prints both so the claim is checkable. */}
+            {terrainOnly && (
+              <div className="pp-status" data-tone="warn">
+                {terrainOnlyLine(s)}
               </div>
             )}
-          </div>
-          {/* R8 — the ONE justified spinner: the 1 m obstruction re-solve needs a 985 ms hull it has
-              to stream, so it is user-triggered and it says so while it runs. */}
-          {refineTarget && (
-            <button
-              type="button"
-              className="pp-chip"
-              data-busy={p.refining ? "1" : "0"}
-              data-refined={refineTarget.obstructionRefined ? "1" : "0"}
-              disabled={p.refining || !p.refineSpot || refineTarget.obstructionRefined}
-              onClick={() => p.refineSpot?.(refineTarget.key)}
-              title={
-                p.refineSpot
-                  ? `This row's ACCESSIBILITY is already ${refineTarget.gridCellM} m. This re-solves its OBSTRUCTION at ${BESTSPOT.ultraCellM} m — a 985 ms hull it has to stream, so about a second.`
-                  : `The ${BESTSPOT.ultraCellM} m re-solve is not wired yet`
-              }
-            >
-              <i>◠</i>
-              {refineTarget.obstructionRefined
-                ? ` OBSTRUCTION SOLVED AT ${refineTarget.gridCellM} m`
-                : " REFINE THIS SPOT"}
-              <span className="pp-chip__kind">{`#${refineTarget.rank}`}</span>
-            </button>
-          )}
+            {trackNull &&
+              TRACK_NULL_LINES.map((line) => (
+                <div className="pp-status" data-tone="warn" key={line}>
+                  {line}
+                </div>
+              ))}
 
-          {/* §5.9 — the DEV taste strip. ONE 4-slider weights row; the other ~41 leaves stay on the
-              console. It lives HERE and not in `components/controls/**` because that tier is shared
-              with `/m` and a DEV-only control there would need a fence exception. */}
-          {import.meta.env.DEV && (
-            <>
-              <button
-                type="button"
-                className={`pp-chip${tuneOpen ? " pp-chip--on" : ""}`}
-                aria-pressed={tuneOpen}
-                onClick={() => setTuneOpen(!tuneOpen)}
-                title="DEV — the four preference weights. Recompose class: ~0.3 ms, live."
-              >
-                TUNE
-              </button>
-              {tuneOpen &&
-                TERM_SLIDERS.map((t) => (
-                  <InstrumentSlider
-                    key={t.key}
-                    label={t.label}
-                    formatted={scoring.weights[t.key].toFixed(2)}
-                    value={scoring.weights[t.key]}
-                    min={0}
-                    max={1}
-                    // §5.6: the store REPLACES the patch; the DEV seam owns the merge, because it
-                    // is the half that has `scoringPatch` to merge from.
-                    onChange={(v) => setScoring(withWeight(scoringPatch, t.key, v))}
-                    onReset={() => setScoring(withWeight(scoringPatch, t.key, undefined))}
-                  />
-                ))}
-            </>
-          )}
-        </div>
-        <ResizeGrip resize={resize} label="Resize the planning window" />
-      </aside>
-    </div>
+            <div className="pp-section">
+              {`BEST SPOTS${ready ? "" : " · RANKING…"}${
+                verdictCounts.total > 0
+                  ? ` · ${topK.length} OF ${verdictCounts.scored.toLocaleString("en-US")}`
+                  : ""
+              }`}
+            </div>
+            {/* §2.3 state 2 — the determinate rung pip. The sheet is its own progress indicator; this
+                says how far down the ladder it has come, in the ladder's own units. */}
+            {!ready && (
+              <>
+                <span className="pp-mw__bar">
+                  <i style={{ width: `${Math.round(rungFrac * 100)}%` }} />
+                </span>
+                <div className="pp-status">
+                  {`${ladder[0]} m → ${cellM} m${ladderRung >= 0 ? ` · NOW ${gridCellM} m` : ""}`}
+                </div>
+              </>
+            )}
+            <div data-ranking={ready ? "0" : "1"}>
+              {topK.map((spot) => (
+                <SpotRow
+                  key={spot.key}
+                  spot={spot}
+                  relative={spot.score / (bestScore || 1)}
+                  // The SAME two functions the GL marker goes through — `shortlistQuality` for the
+                  // place on the ramp and `spotQualityCss` for the colour — so the swatch beside a
+                  // row IS its marker on the globe. That binding is what replaces the old one flat
+                  // accent. §3.5 is unharmed: the ABSOLUTE score is printed 6 px to its right, and
+                  // the bar next to it still reads `score ÷ best`.
+                  swatchCss={spotQualityCss(shortlistQuality(spot.score, topKScores))}
+                  hot={sceneHoverKey === spot.key}
+                  selected={selectedKey === spot.key}
+                  previewing={previewKey === spot.key}
+                  refining={(p.refining ?? false) && selectedKey === spot.key}
+                  onHover={(key) => useBestSpotStore.getState().setHoverKey(key)}
+                  onSelect={setSelectedKey}
+                  // THE ONLY ACTION THAT MOVES THE DISC (item 1). Everything else on the row is a
+                  // look; this one is a commitment, and it is behind its own button because it costs
+                  // the shortlist the user is reading.
+                  onGo={(hit) => {
+                    // LEAVE ANY PREVIEW FIRST, and the order is load-bearing: ending a preview
+                    // RESTORES the temp pin it borrowed, so a GO issued from inside one would be
+                    // silently undone by that restore a frame later. Both writes are synchronous,
+                    // so restore-then-move lands on the move.
+                    p.previewSpot?.(null);
+                    useCameraStore.getState().setTempPin({ latDeg: hit.latDeg, lonDeg: hit.lonDeg });
+                  }}
+                  onLook={(hit) => p.previewSpot?.(previewKey === hit.key ? null : hit.key)}
+                  onRefine={(hit) => p.refineSpot?.(hit.key)}
+                />
+              ))}
+              {ready && topK.length === 0 && (
+                <div className="pp-status">
+                  NOTHING IN THIS DISC SCORES ABOVE THE FLOOR — TRY ANOTHER EVENT, A WIDER RADIUS, OR
+                  THE LIFT
+                </div>
+              )}
+            </div>
+            {/* ITEM 5 — the old `REFINE THIS SPOT` chip lived down here and silently acted on the last
+                row the pointer had touched (or #1). Its replacement is on the SELECTED row, where it
+                names its own target. This line is what is left: the instruction, and the answer to
+                "what does refine even do", stated once rather than hidden in a tooltip. */}
+            {ready && topK.length > 0 && selected === null && (
+              <div className="pp-status">
+                PICK A SPOT ABOVE TO LIGHT IT ON THE GLOBE — THEN GO THERE, LOOK FROM IT, OR REFINE
+                THAT ONE CELL AT {BESTSPOT.ultraCellM} m
+              </div>
+            )}
+
+            {/* §5.9 — the DEV taste strip. ONE 4-slider weights row; the other ~41 leaves stay on the
+                console. It lives HERE and not in `components/controls/**` because that tier is shared
+                with `/m` and a DEV-only control there would need a fence exception. */}
+            {import.meta.env.DEV && (
+              <>
+                <button
+                  type="button"
+                  className={`pp-chip${tuneOpen ? " pp-chip--on" : ""}`}
+                  aria-pressed={tuneOpen}
+                  onClick={() => setTuneOpen(!tuneOpen)}
+                  title="DEV — the four preference weights. Recompose class: ~0.3 ms, live."
+                >
+                  TUNE
+                </button>
+                {tuneOpen &&
+                  TERM_SLIDERS.map((t) => (
+                    <InstrumentSlider
+                      key={t.key}
+                      label={t.label}
+                      formatted={scoring.weights[t.key].toFixed(2)}
+                      value={scoring.weights[t.key]}
+                      min={0}
+                      max={1}
+                      // §5.6: the store REPLACES the patch; the DEV seam owns the merge, because it
+                      // is the half that has `scoringPatch` to merge from.
+                      onChange={(v) => setScoring(withWeight(scoringPatch, t.key, v))}
+                      onReset={() => setScoring(withWeight(scoringPatch, t.key, undefined))}
+                    />
+                  ))}
+              </>
+            )}
+          </div>
+          <ResizeGrip resize={resize} label="Resize the planning window" />
+        </aside>
+      </div>
+    </>
   );
 }

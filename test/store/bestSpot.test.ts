@@ -9,7 +9,7 @@
 //  · the PATCH is persisted, never the resolved profile (§5.7), and the write is debounced
 //    because `saveViewPref` re-parses the whole blob on every call.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useBestSpotStore, type BestSpotSpot } from "../../src/store/bestSpot";
+import { shortlistQuality, useBestSpotStore, type BestSpotSpot } from "../../src/store/bestSpot";
 import { useFindStore } from "../../src/store/find";
 import { usePlanStore } from "../../src/store/plan";
 import { BESTSPOT } from "../../src/components/globe/tuning";
@@ -211,6 +211,7 @@ describe("store/bestSpot — engine band", () => {
     leadMs: 200_000,
     gridCellM: 1,
     obstructionRefined: false,
+    refinedFromScore: null,
   });
 
   it("_syncBestSpot is a PARTIAL merge — a feed that learned one field blanks nothing", () => {
@@ -263,6 +264,86 @@ describe("store/bestSpot — engine band", () => {
     expect(s().hoverKey).toBe("12:9"); // the canvas did not steal the row's hover
     s().setHoverKey(null);
     expect(s().sceneHoverKey).toBe("40:3"); // …nor the row the canvas's
+  });
+});
+
+/**
+ * The owner batch of 2026-08-26 — the two REQUEST-band fields it adds, and the one invariant that
+ * makes them worth having.
+ */
+describe("store/bestSpot — the heatmap switch and the row selection (owner 2026-08-26)", () => {
+  const s = () => useBestSpotStore.getState();
+
+  it("ITEM 4 — the window OPENS with the heatmap off, in both directions", () => {
+    s().setOpen(true);
+    expect(s().open).toBe(true);
+    expect(s().heatmapOn).toBe(false); // …not "on because a centre exists", which is what it was
+    s().setHeatmapOn(true);
+    expect(s().heatmapOn).toBe(true);
+    // Closing (including `PlanFindToggle`'s mutual exclusion closing it from PLAN/FIND) disarms, so
+    // re-opening never inherits an arming decision the user made in a previous session.
+    s().setOpen(false);
+    expect(s().heatmapOn).toBe(false);
+    s().setOpen(true);
+    expect(s().heatmapOn).toBe(false);
+    s().setOpen(false);
+  });
+
+  it("ITEM 1 — a selection is a plain key, and closing the window drops it", () => {
+    s().setOpen(true);
+    s().setSelectedKey("12:34");
+    expect(s().selectedKey).toBe("12:34");
+    // It is DELIBERATELY not validated against `topK`: the panel looks the row up, so a key that a
+    // re-solve retired resolves to "nothing selected" with no clean-up pass anywhere.
+    expect(s().topK.find((t) => t.key === "12:34")).toBeUndefined();
+    s().setSelectedKey(null);
+    expect(s().selectedKey).toBeNull();
+    s().setSelectedKey("12:34");
+    s().setOpen(false);
+    expect(s().selectedKey).toBeNull();
+  });
+
+  /**
+   * ITEM 2's shared formula. It is a STORE export rather than a palette one because it is about the
+   * shortlist, not about colour — and because it is the only way the panel's swatch and the GL
+   * marker can be proved to use one normalisation (the panel may not import `scene/**`).
+   */
+  it("ITEM 2 — shortlistQuality spreads the list over its OWN span, and never returns NaN", () => {
+    // The browser finding: a real Dnipro shortlist. `score ÷ best` spans only 1.000 → 0.824, which
+    // confined the hue to the top fifth of the ramp; over the list's own span it uses all of it.
+    const real = [0.7336, 0.7259, 0.7011, 0.6968, 0.6771, 0.6303, 0.5936, 0.5885];
+    const q = real.map((s) => shortlistQuality(s, real));
+    expect(q[0]).toBe(1);
+    expect(q[real.length - 1]).toBe(0);
+    expect(Math.max(...q) - Math.min(...q)).toBe(1); // the FULL ramp, every time
+    // …and the ORDER is still the score order — the spread may not reshuffle anything.
+    expect([...q].sort((a, b) => b - a)).toEqual(q);
+    // The ratio it replaces would have used a fifth of the scale; this is the measurement that
+    // justified the change rather than a preference.
+    const ratio = real.map((s) => s / real[0]);
+    expect(Math.max(...ratio) - Math.min(...ratio)).toBeLessThan(0.2);
+
+    // Degenerate spans map to 1 ("all equal-best"), NEVER to NaN: a NaN reaching a vertex attribute
+    // is a silently black marker, and reaching a swatch is `undefined.css`.
+    expect(shortlistQuality(0.5, [0.5])).toBe(1);
+    expect(shortlistQuality(0.5, [0.5, 0.5, 0.5])).toBe(1);
+    expect(shortlistQuality(0.5, [])).toBe(1);
+    expect(shortlistQuality(NaN, real)).toBe(1);
+    for (const v of [...q, shortlistQuality(0.5, [0.5])]) expect(Number.isFinite(v)).toBe(true);
+    // Out-of-list scores clamp rather than running off the ramp.
+    expect(shortlistQuality(9, real)).toBe(1);
+    expect(shortlistQuality(-9, real)).toBe(0);
+  });
+
+  it("ITEM 3 — the preview seam is engine-installed and inert until the globe mounts", () => {
+    // The `refineSpot` grammar: the panel calls it unconditionally and a no-op absorbs the call
+    // before the island exists. (Its OWNER differs — the orchestrator, not the feed — because a
+    // preview is a camera move; the store cannot tell, and must not care.)
+    expect(() => s().previewSpot("12:34")).not.toThrow();
+    expect(s().previewKey).toBeNull();
+    s()._syncBestSpot({ previewKey: "12:34" });
+    expect(s().previewKey).toBe("12:34");
+    s()._syncBestSpot({ previewKey: null });
   });
 });
 

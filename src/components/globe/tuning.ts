@@ -3266,6 +3266,34 @@ export const BESTSPOT = {
    *  across the instrument) and the hovered marker's radius multiplier. */
   hoverEaseTauMs: 180,
   hoverRadiusK: 1.35,
+  /**
+   * The SELECTED marker's radius multiplier (owner batch 2026-08-26, item 1). Deliberately ABOVE
+   * `hoverRadiusK`: selection outlives the pointer, so it has to survive being looked away from,
+   * and a selected-and-hovered marker must still visibly answer the hover. Same ease constant.
+   */
+  selectRadiusK: 1.6,
+  /**
+   * How much of `PLACEMARKS.alpha` a marker keeps at the BOTTOM of the absolute display window
+   * (owner batch 2026-08-26, item 2). The marker's HUE carries shortlist-relative quality so the
+   * eight always differ; this carries the ABSOLUTE reading, so a disc whose best cell is still poor
+   * renders eight faint markers rather than a confident gold one. §3.5's rule ("an all-bad disc
+   * must read as all-bad") applied to the scene half of the shortlist.
+   */
+  markerDimK: 0.45,
+  /**
+   * Extra hit radius (px) around a marker's drawn disc for the canvas hover/click pick (item 3).
+   * `PLACEMARKS.minSizeM` markers measure a handful of px at planning altitudes; the ring is what
+   * the eye aims at and the pad is what makes it clickable without enlarging what is drawn.
+   */
+  markerPickPadPx: 6,
+  /**
+   * How many frames an FPV preview may wait for the FPV latch it asked for before giving up
+   * (item 3). The jump request is consumed on the very NEXT frame, so ~4 s is a rail rather than a
+   * timeout — but the failure it guards is bad enough to be worth one integer: an unarmed preview
+   * would hold the disc's centre lock forever, and a heatmap that had silently stopped following
+   * the pin is a far more confusing bug than a preview that declined to start.
+   */
+  previewArmFrames: 240,
   /** Altitude chip cap height in px through `streetNames.labelScaleFor` — constant on screen at
    *  every zoom. NOT the `PLACEMARKS.angularSize` clamp: that gives ~8.6 px at the natural
    *  nadir altitude, too small for the chip's two lines (§6.7). */

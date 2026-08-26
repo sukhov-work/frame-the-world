@@ -53,6 +53,95 @@ export const HEAT_TURBO: readonly HeatStop[] = [
   { css: "var(--color-heat-alt-10)", gl: tokens.heatAlt10 }, // t 1.0 — dark maroon
 ] as const;
 
+/**
+ * THE SHORTLIST-MARKER RAMP (owner batch 2026-08-26, item 2) — five stops, and it is deliberately
+ * NOT one of the two above.
+ *
+ * The markers used to be one flat `tokens.accent` cyan, with the docstring's reasoning that "the
+ * sheet under the marker already encodes the score". The owner overruled that: a shortlist of eight
+ * that all look identical carries no ranking at a glance. But re-using INFERNO for the markers is
+ * the wrong repair twice over:
+ *  · a marker painted its own cell's colour is *invisible* against its own cell, and
+ *  · the top-K live at the BOTTOM of the absolute display window in a real disc (a dense-Dnipro
+ *    pedestrian best measured 0.381 against `displayHi` 0.9, i.e. ramp t ≈ 0.31), so all eight
+ *    would come out inside INFERNO's near-black-to-violet foot — darker than the sheet they sit on.
+ *
+ * So the markers get their own scale, chosen against three constraints:
+ *  1. **Monotone in OKLab L** (0.7610 → 0.9668, min adjacent ΔL 0.0292) — the INFERNO discipline:
+ *     brighter = better, readable without hue memory. `heatPalette.test.ts` asserts it.
+ *  2. **Bright everywhere.** The dimmest stop is lighter than INFERNO's brightest, so a marker
+ *     always reads AS a marker over its own sheet cell rather than melting into it.
+ *  3. **No `tokens.accent`.** Cyan is the app's reserved signal ink and it is what the owner asked
+ *     to move away from; the arc goes lavender → ice → mint → sun-glow → sun-core instead, which is
+ *     the PIN family (these are places) walking into the sun family (the event).
+ *
+ * It is driven by SHORTLIST-RELATIVE quality (`score ÷ the best of the eight`) — the same quantity
+ * the panel row's bar has always drawn — precisely so the range is always visible. §3.5 is not
+ * weakened by that: the ABSOLUTE score still rides beside it on the row and in the marker's hover
+ * tip, and the marker's *vividness* is driven by the absolute display t, so an all-bad disc's eight
+ * markers are washed out rather than triumphant.
+ */
+export const HEAT_SPOTS: readonly HeatStop[] = [
+  { css: "var(--color-pin-lavender)", gl: tokens.pinLavender }, // q 0.00 — the eighth-best
+  { css: "var(--color-pin-ice)", gl: tokens.pinIce }, // q 0.25
+  { css: "var(--color-pin-mint)", gl: tokens.pinMint }, // q 0.50
+  { css: "var(--color-sun-glow)", gl: tokens.sunGlow }, // q 0.75
+  { css: "var(--color-sun-core)", gl: tokens.sunCore }, // q 1.00 — stand HERE
+] as const;
+
+/**
+ * Where a shortlist-relative quality lands on `HEAT_SPOTS`: the two stops it sits BETWEEN and how
+ * far along. Pure; clamps, and treats a non-finite input as the bottom of the scale (an empty
+ * shortlist divides by zero upstream, and a NaN in a vertex attribute is a silently black marker).
+ *
+ * It exists so the DOM swatch and the GL marker cannot drift: BOTH interpolate, both between the
+ * same pair, both by the same t, and both in **sRGB** — `color-mix(in srgb, …)` on one side and a
+ * byte lerp on the other. (Lerping two `THREE.Color`s instead would blend in the LINEAR working
+ * space and land on a different colour than the swatch beside it.)
+ */
+export function spotQualityStops(q: number): { lo: HeatStop; hi: HeatStop; t: number } {
+  const c = Math.min(1, Math.max(0, Number.isFinite(q) ? q : 0));
+  const x = c * (HEAT_SPOTS.length - 1);
+  const i = Math.min(HEAT_SPOTS.length - 2, Math.floor(x));
+  return { lo: HEAT_SPOTS[i], hi: HEAT_SPOTS[i + 1], t: x - i };
+}
+
+/**
+ * The marker ramp's DOM face at a shortlist-relative quality 0..1 — one door, so the row swatch and
+ * the GL marker cannot drift.
+ *
+ * CONTINUOUS, not the nearest of five stops, and that is a measured requirement rather than
+ * polish: a real Dnipro shortlist measured `score ÷ best` spanning 1.000 → 0.802, which snapping
+ * collapsed onto just **two** of the five stops — six markers identical, two identical, which is
+ * most of the way back to the one flat colour the owner asked to be rid of. `color-mix` keeps every
+ * face a token reference, so D14 holds.
+ */
+export function spotQualityCss(q: number): string {
+  const { lo, hi, t } = spotQualityStops(q);
+  if (t <= 0.001) return lo.css;
+  if (t >= 0.999) return hi.css;
+  return `color-mix(in srgb, ${hi.css} ${Math.round(t * 100)}%, ${lo.css})`;
+}
+
+/** …and its GL face: the same pair, the same t, lerped over sRGB BYTES so the two agree. Returns
+ *  an `#RRGGBB` string, which is what `THREE.Color.set` takes. Pure. */
+export function spotQualityGl(q: number): string {
+  const { lo, hi, t } = spotQualityStops(q);
+  const a = hexToRgb(lo.gl);
+  const b = hexToRgb(hi.gl);
+  return (
+    "#" +
+    [0, 1, 2]
+      .map((k) =>
+        Math.round(a[k] + (b[k] - a[k]) * t)
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+      .toUpperCase()
+  );
+}
+
 /** What `tuning.ts` and the store are allowed to hold: an ID, never a colour. */
 export type HeatRampId = "inferno" | "turbo";
 
