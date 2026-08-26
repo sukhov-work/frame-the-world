@@ -309,6 +309,15 @@ export interface BestSpotWireSpot {
   /** True once `refine` has re-solved this row's OBSTRUCTION at 1 m (R8's second half, the one
    *  place a spinner is justified). Distinct from `gridCellM`, which is about accessibility. */
   obstructionRefined: boolean;
+  /**
+   * The score this row carried immediately BEFORE that re-solve — absent until one lands.
+   *
+   * The WORKER never writes it: it is stamped by `bestSpotFeed.onRefined`, which is the only place
+   * that holds both the old row and the new answer at once. It rides the wire shape rather than a
+   * side-table so the feed's `liveSpots` stay ONE array — the 2026-08-24 defect was exactly a
+   * refine patch living somewhere the mirror did not read.
+   */
+  refinedFromScore?: number | null;
 }
 
 export interface BestSpotVerdictWire {

@@ -34,7 +34,14 @@ import {
 } from "../../../src/components/globe/scene/bestSpotSheet";
 import { BESTSPOT } from "../../../src/components/globe/tuning";
 import { AERIAL_MIN_M } from "../../../src/lib/geo/bestSpotTypes";
-import { HEAT_INFERNO, HEAT_LUT_SIZE, heatRampById, okLightness } from "../../../src/lib/theme/heatPalette";
+import { geodeticToEcef } from "../../../src/lib/geo/projection";
+import {
+  HEAT_INFERNO,
+  HEAT_LUT_SIZE,
+  HEAT_SPOTS,
+  heatRampById,
+  okLightness,
+} from "../../../src/lib/theme/heatPalette";
 
 /**
  * BEST SPOT S4 — the GL sheet (SPEC_V2 §6). vitest has no WebGL, so what is pinned here is the
@@ -99,12 +106,14 @@ function makeCamera(altM: number): THREE.PerspectiveCamera {
 const CTX_BASE = {
   altM: 900,
   viewportHPx: 982,
+  viewportWPx: 1512,
   dtMs: 16,
   enabled: true,
   fpvActive: false,
   mobileShell: false,
   markers: [] as readonly BestSpotSheetMarker[],
   hoverKey: null as string | null,
+  selectedKey: null as string | null,
   contactAzDeg: 62,
 };
 
@@ -371,10 +380,35 @@ describe("the marker + plumb materials", () => {
     expect(mat.premultipliedAlpha).toBe(true);
   });
 
-  it("marker colour is IDENTITY, not score: one ink uniform for all eight, no LUT in the shader", () => {
+  /**
+   * SUPERSEDED (owner batch 2026-08-26, item 2). The shipped rule was "colour is IDENTITY, not
+   * score: ONE ink uniform for all eight". The owner's finding is that eight identical cyan rings
+   * carry no ranking at a glance; the colour is now PER INSTANCE and it is quality.
+   *
+   * What replaces the old assertion is the reason the repair is not simply "sample the sheet's LUT
+   * in the marker shader": the marker must not wear the colour of the cell it stands on (it would
+   * vanish into it), and the shortlist lives in INFERNO's near-black foot in a real disc. So the
+   * marker still has NO `uLut` — the tint arrives as an attribute the CPU sampled from a DIFFERENT,
+   * always-bright ramp — and the placeMarkers anatomy is untouched.
+   */
+  it("ITEM 2 — marker colour is QUALITY, per instance, and still not the sheet's own LUT", () => {
     const mat = makeMarkerMaterial(null);
-    expect(Object.keys(mat.uniforms).sort()).toEqual(["uDigits", "uHalo", "uHasDigits", "uInk"]);
+    expect(Object.keys(mat.uniforms).sort()).toEqual([
+      "uDigits",
+      "uHalo",
+      "uHasDigits",
+      "uSelectRim",
+    ]);
+    // No LUT and no single ink uniform: the hue is an INSTANCED attribute now.
     expect(mat.fragmentShader).not.toContain("uLut");
+    expect(mat.fragmentShader).not.toContain("uniform vec3 uInk;");
+    for (const attr of ["aTint", "aVivid", "aSelect"]) {
+      expect(mat.vertexShader).toContain(`attribute ${attr === "aTint" ? "vec3" : "float"} ${attr};`);
+    }
+    // HUE and VIVIDNESS are separate channels — that separation is what keeps §3.5 true while the
+    // hue is renormalised: `markerDimK` is the floor an all-bad disc cannot climb out of.
+    expect(mat.fragmentShader).toContain("vTint");
+    expect(mat.fragmentShader).toContain(String(BESTSPOT.markerDimK));
     // The placeMarkers ring+core anatomy, verbatim.
     expect(mat.fragmentShader).toContain("smoothstep(0.98, 0.90, r) * smoothstep(0.68, 0.78, r)");
     expect(mat.fragmentShader).toContain("1.0 - smoothstep(0.22, 0.32, r)");
@@ -521,6 +555,8 @@ describe("the scene graph — renderOrder is per OBJECT (a Group's does not prop
       rank: i + 1,
       latDeg: 48.4647 + i * 1e-4,
       lonDeg: 35.462 + i * 1e-4,
+      score: 0.4 - i * 0.03,
+      quality: 1 - i * 0.08,
     }));
     handle.update({ ...CTX_BASE, camera, field: makePack(), markers: list, hoverKey: "102:102" });
     expect(markerMesh.count).toBe(BESTSPOT.topK);
@@ -532,6 +568,129 @@ describe("the scene graph — renderOrder is per OBJECT (a Group's does not prop
 
     handle.update({ ...CTX_BASE, camera, field: makePack(), markers: list, hoverKey: null });
     expect(hover.x).toBeLessThan(0); // negative = no hover, the shader's own gate
+    handle.dispose();
+  });
+
+  it("ITEM 2 — the eight markers carry DIFFERENT tints, from HEAT_SPOTS and not from the sheet's LUT", () => {
+    const scene = new THREE.Scene();
+    const handle = attachBestSpotSheet(scene);
+    const camera = makeCamera(900);
+    const mesh = handle.group.children.find(
+      (c) => c.name === "bestSpotMarkers",
+    ) as THREE.InstancedMesh;
+    // Eight rows at the SAME absolute score band a real dense-city disc produces (best 0.38 against
+    // a 0.9 display ceiling) — which is exactly the case where sampling the sheet's own INFERNO
+    // would give eight near-black, indistinguishable markers.
+    const list: BestSpotSheetMarker[] = Array.from({ length: BESTSPOT.topK }, (_, i) => ({
+      key: `${100 + i}:100`,
+      rank: i + 1,
+      latDeg: 48.4647 + i * 1e-4,
+      lonDeg: 35.462,
+      score: 0.38 - i * 0.02,
+      quality: 1 - i / (BESTSPOT.topK - 1),
+    }));
+    handle.update({ ...CTX_BASE, camera, field: makePack(), markers: list });
+    const tint = mesh.geometry.getAttribute("aTint") as THREE.InstancedBufferAttribute;
+    const vivid = mesh.geometry.getAttribute("aVivid") as THREE.InstancedBufferAttribute;
+    const seen = new Set<string>();
+    for (let i = 0; i < BESTSPOT.topK; i++) {
+      seen.add([tint.array[i * 3], tint.array[i * 3 + 1], tint.array[i * 3 + 2]].join(","));
+    }
+    // The POINT of the change: the ranking is legible from the colours alone.
+    expect(seen.size).toBeGreaterThanOrEqual(HEAT_SPOTS.length);
+    // Rank 1 takes the ramp's TOP stop, rank 8 its bottom — and both are BRIGHT (they must read
+    // against the sheet they stand on, which is the near-black end of INFERNO here).
+    const top = new THREE.Color(HEAT_SPOTS[HEAT_SPOTS.length - 1].gl);
+    const bot = new THREE.Color(HEAT_SPOTS[0].gl);
+    expect(tint.array[0]).toBeCloseTo(top.r, 5);
+    expect(tint.array[(BESTSPOT.topK - 1) * 3]).toBeCloseTo(bot.r, 5);
+    // …and VIVIDNESS is the ABSOLUTE reading, so §3.5 survives the renormalised hue: every one of
+    // these mediocre rows sits low on the display window.
+    for (let i = 0; i < BESTSPOT.topK; i++) expect(vivid.array[i]).toBeLessThan(0.4);
+    handle.dispose();
+  });
+
+  it("ITEM 1 — the SELECTED marker eases its own channel, independently of the hover", () => {
+    const scene = new THREE.Scene();
+    const handle = attachBestSpotSheet(scene);
+    const camera = makeCamera(900);
+    const mesh = handle.group.children.find(
+      (c) => c.name === "bestSpotMarkers",
+    ) as THREE.InstancedMesh;
+    const list: BestSpotSheetMarker[] = [0, 1].map((i) => ({
+      key: `${100 + i}:100`,
+      rank: i + 1,
+      latDeg: 48.4647 + i * 1e-4,
+      lonDeg: 35.462,
+      score: 0.3,
+      quality: 1 - i * 0.5,
+    }));
+    for (let f = 0; f < 40; f++) {
+      handle.update({
+        ...CTX_BASE,
+        camera,
+        field: makePack(),
+        markers: list,
+        hoverKey: "101:100",
+        selectedKey: "100:100",
+        dtMs: 32,
+      });
+    }
+    const sel = mesh.geometry.getAttribute("aSelect") as THREE.InstancedBufferAttribute;
+    const hov = mesh.geometry.getAttribute("aHover") as THREE.InstancedBufferAttribute;
+    // Two states, two markers, no crosstalk — one shared channel would make them fight.
+    expect(sel.array[0]).toBeGreaterThan(0.9);
+    expect(sel.array[1]).toBeLessThan(0.1);
+    expect(hov.array[0]).toBeLessThan(0.1);
+    expect(hov.array[1]).toBeGreaterThan(0.9);
+    handle.dispose();
+  });
+
+  /**
+   * ITEM 3's hit test. `THREE.Raycaster` cannot answer this question at all — every object in the
+   * group carries `raycast = () => {}`, and the marker is billboarded in the VERTEX SHADER, so a
+   * plane raycast would test geometry lying flat on the tangent basis. So the pick reproduces the
+   * shader's own projection, and this is what proves the reproduction is faithful.
+   */
+  it("ITEM 3 — pickMarker finds the marker under the pointer, and FAILS CLOSED when nothing draws", () => {
+    const scene = new THREE.Scene();
+    const handle = attachBestSpotSheet(scene);
+    const pack = makePack();
+    // A camera genuinely ABOVE the disc centre looking straight down it: a marker at the centre
+    // then sits exactly on the view axis, i.e. NDC (0, 0), which is a fact about the projection
+    // rather than about a hand-tuned number.
+    const eye = geodeticToEcef(pack.centreLatDeg, pack.centreLonDeg, pack.centreGroundM + 900);
+    const tgt = geodeticToEcef(pack.centreLatDeg, pack.centreLonDeg, pack.centreGroundM);
+    const camera = new THREE.PerspectiveCamera(60, 1512 / 982, 1, 1e7);
+    camera.position.set(eye[0], eye[1], eye[2]);
+    camera.up.set(0, 0, 1);
+    camera.lookAt(tgt[0], tgt[1], tgt[2]);
+    camera.updateMatrixWorld(true);
+
+    const list: BestSpotSheetMarker[] = [
+      {
+        key: "100:100",
+        rank: 1,
+        latDeg: pack.centreLatDeg,
+        lonDeg: pack.centreLonDeg,
+        score: 0.38,
+        quality: 1,
+      },
+    ];
+    handle.update({ ...CTX_BASE, camera, altM: 900, field: pack, markers: list });
+    const hit = handle.pickMarker(0, 0);
+    expect(hit?.key).toBe("100:100");
+    expect(hit?.rank).toBe(1);
+    expect(Math.hypot(hit!.ndcX, hit!.ndcY)).toBeLessThan(1e-3);
+    // Well away from it: a miss, not a nearest-neighbour answer.
+    expect(handle.pickMarker(0.9, -0.9)).toBeNull();
+
+    // FAIL CLOSED. Owner R2 renders nothing in FPV, so nothing may be picked there either — and
+    // the fade is exponential, so drive it past the floor rather than assuming one frame does it.
+    for (let i = 0; i < 200; i++) {
+      handle.update({ ...CTX_BASE, camera, altM: 900, field: pack, markers: list, fpvActive: true, dtMs: 32 });
+    }
+    expect(handle.pickMarker(0, 0)).toBeNull();
     handle.dispose();
   });
 

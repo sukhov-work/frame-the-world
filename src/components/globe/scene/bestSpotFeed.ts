@@ -91,6 +91,7 @@ import type {
 import { localDayWindow } from "../../../lib/ephemeris/dayArc";
 import { geodeticToEcef } from "../../../lib/geo/projection";
 import {
+  shortlistQuality,
   useBestSpotStore,
   type BestSpotSpot,
   type BestSpotVerdictCounts,
@@ -368,6 +369,27 @@ export function attachBestSpotFeed(opts: {
    *  store's LIVE hash at landing time — this is only kept for the DEV probe. */
   let postedHash = "";
 
+  /**
+   * Re-derive the sheet's marker list from `liveSpots` — ONE place, called from every event that
+   * moves a score (a landed rung AND R8's refine).
+   *
+   * `quality` is computed HERE and not in the sheet because the feed is the only holder of all
+   * eight rows at once, and a renormalisation done downstream is a renormalisation nobody can see.
+   * `shortlistQuality` is the shared formula — the panel's row swatch goes through the same one, so
+   * the swatch beside a row IS its marker on the globe.
+   */
+  const rebuildMarkers = (): void => {
+    const scores = liveSpots.map((s) => s.score);
+    liveMarkers = liveSpots.map((s) => ({
+      key: s.key,
+      rank: s.rank,
+      latDeg: s.latDeg,
+      lonDeg: s.lonDeg,
+      score: s.score,
+      quality: shortlistQuality(s.score, scores),
+    }));
+  };
+
   const client: BestSpotWorkerHandle = createBestSpotWorkerClient({
     onRung(msg) {
       // ── THE DROP (§5.6). One integer, checked before anything is published. ─────────────────
@@ -379,12 +401,7 @@ export function attachBestSpotFeed(opts: {
       lastMsg = msg;
       livePack = msg.field;
       liveSpots = msg.spots;
-      liveMarkers = msg.spots.map((s) => ({
-        key: s.key,
-        rank: s.rank,
-        latDeg: s.latDeg,
-        lonDeg: s.lonDeg,
-      }));
+      rebuildMarkers();
       contactAz = msg.contactAzDeg;
       ladderRung = msg.rungIndex;
       rungMs[String(msg.cellM)] = msg.ms;
@@ -419,6 +436,11 @@ export function attachBestSpotFeed(opts: {
       // R8 asked for — a 1 m answer for one cell, not a re-ranked list built from mixed tiers.
       // `obstructionRefined` is what lets the row say WHICH of the two 1 m halves it has had: the
       // accessibility one runs on every solve, the obstruction one only here.
+      //
+      // `refinedFromScore` is stamped HERE and nowhere else (owner batch 2026-08-26, item 5): this
+      // is the one moment both numbers exist. Without it the whole 1.5 s re-solve was unobservable
+      // — the score moved by hundredths and "the 1 m pass agreed with the 3 m one" was
+      // indistinguishable from "the button is broken".
       liveSpots = liveSpots.map((s) =>
         s.key === msg.key
           ? {
@@ -426,9 +448,15 @@ export function attachBestSpotFeed(opts: {
               score: msg.verdict === "scored" ? msg.score : 0,
               gridCellM: msg.cellM,
               obstructionRefined: true,
+              refinedFromScore: s.score,
             }
           : s,
       );
+      // The refine MOVES a score, so the marker tints move with it — the shortlist-relative quality
+      // of every row shifts when the denominator (or the row that set it) changes. Rebuilding here
+      // is the same lesson the mirror learned in 2026-08-24: a refine patch that only lands in one
+      // of the two derived arrays is a refine nobody can see.
+      rebuildMarkers();
       mirrorDirty = true;
     },
     onError(msg) {
@@ -640,6 +668,10 @@ export function attachBestSpotFeed(opts: {
       unmappedFrac: 0,
       reachM: 0,
       topK: topKMirror,
+      // A disarmed disc has no markers on the globe, so a hover that is still latched from the
+      // last frame would leave an orphan tip floating over empty ground.
+      sceneHoverKey: null,
+      sceneHoverScreen: null,
       solving: false,
       ladderRung: -1,
       tilesPending: false,
@@ -666,7 +698,12 @@ export function attachBestSpotFeed(opts: {
     frameCount++;
     frames++;
     const st = useBestSpotStore.getState();
-    const armed = ctx.allowed && st.open;
+    // OWNER ITEM 4 — `heatmapOn` is the third term, and it is a REQUEST-band field so it belongs
+    // here beside `open` rather than in `ctx.allowed` (which carries the shell gate). Disarming
+    // takes the same path as closing the window: cancel everything in flight, clear the mirror,
+    // release the sheet. Re-arming re-reads whatever the request bands say NOW, which is what makes
+    // "disable → change the radius → enable" solve the new radius rather than replay the old job.
+    const armed = ctx.allowed && st.open && st.heatmapOn;
 
     if (!armed) {
       if (livePack !== null || lastMirrorSig !== "") {
@@ -792,7 +829,12 @@ export function attachBestSpotFeed(opts: {
       // the row's `obstructionRefined` stayed FALSE forever because the very next mirror rebuilt it
       // from the last RUNG message. The refine was never broken; the mirror was reading the wrong
       // array, and `.ab()` was the only consumer that ever saw the patched one.
-      topKMirror = liveSpots.map((s) => ({ ...s }) as BestSpotSpot);
+      // `refinedFromScore` is normalised to an explicit `null` rather than left `undefined`: the
+      // panel branches on it, and `undefined` would make "never refined" and "the field is missing"
+      // the same value on a shape the store declares as required.
+      topKMirror = liveSpots.map(
+        (s) => ({ ...s, refinedFromScore: s.refinedFromScore ?? null }) as BestSpotSpot,
+      );
       countsMirror = { ...m.verdictCounts };
     }
     useBestSpotStore.getState()._syncBestSpot({

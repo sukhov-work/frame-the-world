@@ -4,7 +4,13 @@ import { AERIAL_MIN_M } from "../../../lib/geo/bestSpotTypes";
 import { enuBasis, geodeticToEcef } from "../../../lib/geo/projection";
 import { clampGroundM, sampleGroundM } from "../../../lib/geo/terrain";
 import { cssFontFamily } from "../../../lib/theme/cssInk";
-import { HEAT_LUT_SIZE, buildHeatLut, heatRampById, type HeatStop } from "../../../lib/theme/heatPalette";
+import {
+  HEAT_LUT_SIZE,
+  buildHeatLut,
+  heatRampById,
+  spotQualityGl,
+  type HeatStop,
+} from "../../../lib/theme/heatPalette";
 import { tokens } from "../../../lib/theme/tokens";
 import { BESTSPOT, PLACEMARKS } from "../tuning";
 import { glf } from "./glsl";
@@ -122,6 +128,22 @@ export interface BestSpotSheetMarker {
   rank: number;
   latDeg: number;
   lonDeg: number;
+  /** ABSOLUTE composite 0..1. Drives the marker's VIVIDNESS through `displayT` — never its hue. */
+  score: number;
+  /** `score ÷ the shortlist's best`, 0..1. Drives the marker's HUE through `HEAT_SPOTS`. Computed
+   *  by the FEED (it is the only place that holds all eight at once) so this module never
+   *  renormalises anything it was handed. */
+  quality: number;
+}
+
+/** What `BestSpotSheetHandle.pickMarker` answers — the shortlist row under a canvas pointer, plus
+ *  where it sits on screen so the hover tip can be anchored to it. */
+export interface BestSpotMarkerHit {
+  key: string;
+  rank: number;
+  /** The marker CENTRE in NDC, i.e. what the caller converts with its own `ndcToClient`. */
+  ndcX: number;
+  ndcY: number;
 }
 
 export interface BestSpotSheetCtx {
@@ -130,6 +152,9 @@ export interface BestSpotSheetCtx {
   altM: number;
   /** Viewport height in CSS px — the `worldPerPx` denominator. */
   viewportHPx: number;
+  /** Viewport width in CSS px. Only the marker PICK needs it: NDC x and y carry different pixel
+   *  scales, so a hit test in NDC alone is an ellipse on a non-square canvas. */
+  viewportWPx: number;
   dtMs: number;
   /** The BEST SPOT feature itself is on. */
   enabled: boolean;
@@ -142,6 +167,10 @@ export interface BestSpotSheetCtx {
   markers: readonly BestSpotSheetMarker[];
   /** `store/bestSpot.hoverKey` — stamps a 1-cell outline through ONE uniform, no re-upload. */
   hoverKey: string | null;
+  /** `store/bestSpot.selectedKey` — the row the user PICKED (owner item 1). Distinct from hover:
+   *  it outlives the pointer, so it gets its own eased channel and its own bright rim rather than
+   *  borrowing the hover's. */
+  selectedKey: string | null;
   /** The event's contact azimuth (deg, 0 = north) — the scale spoke's bearing. */
   contactAzDeg: number;
 }
@@ -166,6 +195,22 @@ export interface BestSpotSheetHandle {
    * not a spot reading.
    */
   debug(): BestSpotSheetDebug;
+  /**
+   * The shortlist marker under a canvas pointer (NDC), or null — owner batch 2026-08-26 item 3's
+   * hit test, and the reason it lives HERE rather than in a raycaster.
+   *
+   * `THREE.Raycaster` cannot answer this: every object in this group carries `raycast = () => {}`
+   * (they are decoration and GlobeControls must never pick them), and even without that, the marker
+   * is billboarded IN THE VERTEX SHADER — an InstancedMesh raycast would test the un-billboarded
+   * plane lying flat on the tangent basis and miss by the whole tilt. So the pick reproduces the
+   * shader's own arithmetic instead: `writeMarkers` records each live instance's projected NDC
+   * centre and its projected radius through the SAME view-space offset the vertex shader applies,
+   * and this compares in PIXELS (NDC x and y are not the same scale on a wide canvas).
+   *
+   * Returns null whenever nothing is drawn — a disarmed disc, FPV, `/m`, or an altitude past the
+   * presence band — because the honest answer to "what is under the pointer" is then "nothing".
+   */
+  pickMarker(ndcX: number, ndcY: number): BestSpotMarkerHit | null;
   dispose(): void;
 }
 
@@ -616,15 +661,30 @@ export function makePlumbMaterial(): THREE.ShaderMaterial {
 
 /**
  * Top-K markers: the `placeMarkers` ring+core billboard VERBATIM (the same annulus and core
- * smoothsteps), with three deliberate changes.
+ * smoothsteps), with four deliberate changes.
  *  · `depthTest: true` — the sheet is depth-tested, so a depth-free marker would shine through the
  *    buildings the sheet respects.
  *  · A `tokens.bg` outer halo ring, one band wider on both sides, entirely inside the quad.
- *  · COLOUR IS IDENTITY, NOT SCORE: `tokens.accent` for all eight, with the rank digit from a
- *    shared 8-glyph atlas in the core. The sheet under the marker already encodes the score;
- *    colouring the marker by it says the same thing twice and loses the row ↔ marker binding.
+ *  · **COLOUR IS QUALITY** (owner batch 2026-08-26, item 2 — this SUPERSEDES the shipped rule that
+ *    colour was identity). It used to be `tokens.accent` for all eight, on the argument that the
+ *    sheet beneath already encodes the score. The owner's finding is that eight identical cyan
+ *    rings carry no ranking at a glance, and re-using the sheet's own INFERNO would be worse still:
+ *    a marker painted its own cell's colour is invisible against that cell, and the whole shortlist
+ *    lives in INFERNO's near-black foot in a real disc. So the ring takes a per-instance tint from
+ *    `HEAT_SPOTS` (a separate, always-bright, lightness-monotone scale) keyed on SHORTLIST-RELATIVE
+ *    quality, and its INK STRENGTH from the ABSOLUTE display t — hue says "which of these eight",
+ *    vividness says "…and are any of them actually good". The rank digit still carries identity.
+ *  · **The digit atlas is neutral ink, not accent.** With a coloured ring the glyph can no longer
+ *    borrow the ring's hue (one atlas serves all eight instances), so it is drawn in
+ *    `tokens.textPrimary` on its own `tokens.bg` halo — legible over every stop of the ramp.
  * The verbatim core dot survives as the no-atlas fallback (SSR / headless), so the anatomy
  * degrades to the shipped one rather than to nothing.
+ *
+ * SELECTION (item 1) is the fourth channel and it reuses the anatomy rather than adding geometry:
+ * a selected marker's OUTER HALO flips from `tokens.bg` to `tokens.accent` — a bright rim where
+ * every other marker has a dark one — and it is scaled by `selectRadiusK`. There is no room for a
+ * further annulus (the quad spans [-1,1] and the halo already reaches r = 1.00 on the axes), and a
+ * ring drawn inside would cut through the digit's own square.
  */
 export function makeMarkerMaterial(digits: THREE.Texture | null): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -633,21 +693,33 @@ export function makeMarkerMaterial(digits: THREE.Texture | null): THREE.ShaderMa
     depthTest: true,
     depthWrite: false,
     uniforms: {
-      uInk: { value: new THREE.Color(tokens.accent) },
       uHalo: { value: new THREE.Color(tokens.bg) },
+      // The SELECTED marker's rim. Accent survives here and only here: it is now a STATE ink
+      // ("this is the one you picked"), which is what the token is reserved for, rather than the
+      // shortlist's identity colour.
+      uSelectRim: { value: new THREE.Color(tokens.accent) },
       uDigits: { value: digits },
       uHasDigits: { value: digits ? 1 : 0 },
     },
     vertexShader: /* glsl */ `
       attribute float aRank;
       attribute float aHover;
+      attribute float aSelect;
+      attribute vec3 aTint;
+      attribute float aVivid;
       varying vec2 vUvC;
       varying float vRank;
       varying float vHover;
+      varying float vSelect;
+      varying vec3 vTint;
+      varying float vVivid;
       void main() {
         vUvC = position.xy; // plane spans [-1, 1]^2
         vRank = aRank;
         vHover = aHover;
+        vSelect = aSelect;
+        vTint = aTint;
+        vVivid = aVivid;
         // Billboard in VIEW space (the Pins flare recipe, via placeMarkers): the centre keeps its
         // own view-space depth, so the marker is depth-tested where it actually stands.
         vec4 centre = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
@@ -655,27 +727,35 @@ export function makeMarkerMaterial(digits: THREE.Texture | null): THREE.ShaderMa
         gl_Position = projectionMatrix * vec4(centre.xyz + vec3(position.xy * scale, 0.0), 1.0);
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uInk;
       uniform vec3 uHalo;
+      uniform vec3 uSelectRim;
       uniform sampler2D uDigits;
       uniform float uHasDigits;
       varying vec2 vUvC;
       varying float vRank;
       varying float vHover;
+      varying float vSelect;
+      varying vec3 vTint;
+      varying float vVivid;
 ${OVER_GLSL}
       void main() {
         float r = length(vUvC);
         float ring = smoothstep(0.98, 0.90, r) * smoothstep(0.68, 0.78, r);
         float core = 1.0 - smoothstep(0.22, 0.32, r);
         float halo = smoothstep(1.00, 0.86, r) * smoothstep(0.62, 0.76, r);
-        float ink = mix(${glf(PLACEMARKS.alpha)}, 1.0, vHover);
+        // ABSOLUTE reading first (the floor a bad disc cannot climb out of), THEN the two
+        // attention states lift it to full — a hovered or selected marker is always readable.
+        float base = ${glf(PLACEMARKS.alpha)} * mix(${glf(BESTSPOT.markerDimK)}, 1.0, clamp(vVivid, 0.0, 1.0));
+        float ink = mix(base, 1.0, max(vHover, vSelect));
+        vec3 rimInk = mix(uHalo, uSelectRim, clamp(vSelect, 0.0, 1.0));
+        float rimA = mix(${glf(BESTSPOT.haloAlpha)}, ${glf(BESTSPOT.coreAlpha)}, clamp(vSelect, 0.0, 1.0));
         vec2 gUv = vUvC + 0.5;
         float inG = step(0.0, gUv.x) * step(gUv.x, 1.0) * step(0.0, gUv.y) * step(gUv.y, 1.0);
         vec4 d = texture2D(uDigits, vec2((gUv.x + vRank) / ${glf(BESTSPOT.topK)}, gUv.y));
         vec3 rgb = vec3(0.0);
         float a = 0.0;
-        over(rgb, a, uHalo, halo * ${glf(BESTSPOT.haloAlpha)});
-        over(rgb, a, uInk, max(ring, core * (1.0 - uHasDigits)) * ink);
+        over(rgb, a, rimInk, halo * rimA);
+        over(rgb, a, vTint, max(ring, core * (1.0 - uHasDigits)) * ink);
         over(rgb, a, d.rgb, d.a * inG * uHasDigits * ink);
         if (a < 0.004) discard;
         gl_FragColor = vec4(rgb, a);
@@ -719,8 +799,10 @@ function drawHaloText(
   ctx.fillText(text, x, y);
 }
 
-/** The shared 8-glyph rank atlas: one `CANVAS_CELL_PX` column per rank, accent ink on its own
- *  halo. One texture for all eight markers — the alternative is eight canvases per solve. */
+/** The shared 8-glyph rank atlas: one `CANVAS_CELL_PX` column per rank, NEUTRAL ink on its own
+ *  halo. One texture for all eight markers — the alternative is eight canvases per solve, and it
+ *  is also why the glyph cannot wear the ring's per-instance tint: `textPrimary` on a `bg` halo is
+ *  the one ink that stays legible across every stop of `HEAT_SPOTS`. */
 function makeDigitAtlas(font: string, maxAniso: number): THREE.CanvasTexture | null {
   const ctx = canvas2d(CANVAS_CELL_PX * BESTSPOT.topK, CANVAS_CELL_PX);
   if (!ctx) return null;
@@ -733,7 +815,7 @@ function makeDigitAtlas(font: string, maxAniso: number): THREE.CanvasTexture | n
       String(i + 1),
       i * CANVAS_CELL_PX + CANVAS_CELL_PX / 2,
       CANVAS_CELL_PX / 2,
-      tokens.accent,
+      tokens.textPrimary,
     );
   }
   const tex = new THREE.CanvasTexture(ctx.canvas);
@@ -864,8 +946,14 @@ export function attachBestSpotSheet(
   const markerGeo = new THREE.PlaneGeometry(2, 2);
   const markerRank = new THREE.InstancedBufferAttribute(new Float32Array(BESTSPOT.topK), 1);
   const markerHover = new THREE.InstancedBufferAttribute(new Float32Array(BESTSPOT.topK), 1);
+  const markerSelect = new THREE.InstancedBufferAttribute(new Float32Array(BESTSPOT.topK), 1);
+  const markerTint = new THREE.InstancedBufferAttribute(new Float32Array(BESTSPOT.topK * 3), 3);
+  const markerVivid = new THREE.InstancedBufferAttribute(new Float32Array(BESTSPOT.topK), 1);
   markerGeo.setAttribute("aRank", markerRank);
   markerGeo.setAttribute("aHover", markerHover);
+  markerGeo.setAttribute("aSelect", markerSelect);
+  markerGeo.setAttribute("aTint", markerTint);
+  markerGeo.setAttribute("aVivid", markerVivid);
   const markers = new THREE.InstancedMesh(markerGeo, markerMat, BESTSPOT.topK);
   markers.name = "bestSpotMarkers";
   markers.renderOrder = BESTSPOT.markerRenderOrder;
@@ -902,7 +990,22 @@ export function attachBestSpotSheet(
   let basis = enuBasis(0, 0);
   let centre: readonly [number, number, number] = [0, 0, 0];
   const hoverEase = new Float32Array(BESTSPOT.topK);
+  const selectEase = new Float32Array(BESTSPOT.topK);
   const camLocal = new THREE.Vector3();
+
+  // --- the marker PICK ledger (item 3). Written by `writeMarkers` from the SAME view-space offset
+  //     the vertex shader billboards with, so what is hit-tested is what is drawn. `pickCount` is
+  //     0 whenever nothing is on screen, which is what makes `pickMarker` fail closed.
+  const pickNdc = new Float32Array(BESTSPOT.topK * 2);
+  const pickRadNdcX = new Float32Array(BESTSPOT.topK);
+  const pickKeys: string[] = [];
+  const pickRanks = new Float32Array(BESTSPOT.topK);
+  let pickCount = 0;
+  let pickWPx = 1;
+  let pickHPx = 1;
+  const _mv = new THREE.Vector3();
+  const _mvEdge = new THREE.Vector3();
+  const _spotInk = new THREE.Color();
 
   /** Rewrite the conforming grid + re-upload the field. Never disposes, never reallocates. */
   function rebuild(pack: BestSpotFieldPack): void {
@@ -1087,18 +1190,27 @@ export function attachBestSpotSheet(
     chip.visible = true;
   }
 
-  /** Seat the top-K instances: angular-constant size (the `placeMarkers` clamp), hover easing on
-   *  ring alpha AND radius, and the rank digit as an instanced attribute. */
+  /**
+   * Seat the top-K instances: angular-constant size (the `placeMarkers` clamp), hover AND selection
+   * easing on ring alpha and radius, the rank digit, the quality tint — and the pick ledger.
+   *
+   * The two attention channels compose MULTIPLICATIVELY on radius rather than by `max`: a marker
+   * that is both selected and hovered has to answer the hover, or the pointer stops meaning
+   * anything the moment a row is picked.
+   */
   function writeMarkers(
     list: readonly BestSpotSheetMarker[],
     pack: BestSpotFieldPack,
     camLocal: THREE.Vector3,
     hoverKey: string | null,
+    selectedKey: string | null,
+    camera: THREE.PerspectiveCamera,
     dtMs: number,
   ): void {
     const n = Math.min(list.length, BESTSPOT.topK);
     const was = markers.count;
     markers.count = n;
+    pickCount = 0;
     if (n === 0) {
       if (was !== 0) markers.instanceMatrix.needsUpdate = true;
       return; // the coarse rungs paint the sheet with the top-K still greyed (`RANKING…`)
@@ -1109,23 +1221,69 @@ export function attachBestSpotSheet(
         opts.terrainHeightAt?.(spot.latDeg, spot.lonDeg),
         clampGroundM(pack.centreGroundM),
       );
-      toLocal(geodeticToEcef(spot.latDeg, spot.lonDeg, h + pack.sheetAltM), _v);
-      const want = hoverKey !== null && hoverKey === spot.key ? 1 : 0;
-      hoverEase[i] += (want - hoverEase[i]) * (1 - Math.exp(-dtMs / BESTSPOT.hoverEaseTauMs));
+      const ecef = geodeticToEcef(spot.latDeg, spot.lonDeg, h + pack.sheetAltM);
+      toLocal(ecef, _v);
+      const k = 1 - Math.exp(-dtMs / BESTSPOT.hoverEaseTauMs);
+      const wantHover = hoverKey !== null && hoverKey === spot.key ? 1 : 0;
+      const wantSel = selectedKey !== null && selectedKey === spot.key ? 1 : 0;
+      hoverEase[i] += (wantHover - hoverEase[i]) * k;
+      selectEase[i] += (wantSel - selectEase[i]) * k;
       markerHover.array[i] = hoverEase[i];
+      markerSelect.array[i] = selectEase[i];
       markerRank.array[i] = Math.min(BESTSPOT.topK, Math.max(1, spot.rank)) - 1;
+      // HUE from shortlist-relative quality (always a visible range across the eight), INK from the
+      // absolute display t (an all-bad disc reads as all-bad). Two facts, two channels, and the
+      // panel row prints the absolute number beside the same swatch.
+      // `spotQualityGl` INTERPOLATES between adjacent stops rather than snapping to the nearest of
+      // five, and that is a measured requirement: a real Dnipro shortlist spans `score ÷ best`
+      // 1.000 → 0.802, which snapping collapsed onto TWO stops — six identical markers and two
+      // identical markers, most of the way back to the one flat colour this replaced. It is also
+      // the one door the DOM swatch goes through (`spotQualityCss`), in the same sRGB space.
+      //
+      // It absorbs a non-finite `quality` itself: a NaN in a vertex attribute is a silently BLACK
+      // marker, so an upstream divide-by-an-empty-shortlist would present as "they disappeared".
+      _spotInk.set(spotQualityGl(spot.quality));
+      markerTint.array[i * 3] = _spotInk.r;
+      markerTint.array[i * 3 + 1] = _spotInk.g;
+      markerTint.array[i * 3 + 2] = _spotInk.b;
+      markerVivid.array[i] = Number.isFinite(spot.score) ? displayT(spot.score) : 0;
       const dist = _v.distanceTo(camLocal);
       const size =
         Math.min(
           PLACEMARKS.maxSizeM,
           Math.max(PLACEMARKS.minSizeM, dist * PLACEMARKS.angularSize),
-        ) * (1 + (BESTSPOT.hoverRadiusK - 1) * hoverEase[i]);
+        ) *
+        (1 + (BESTSPOT.hoverRadiusK - 1) * hoverEase[i]) *
+        (1 + (BESTSPOT.selectRadiusK - 1) * selectEase[i]);
       _m.compose(_v, _q, _s.setScalar(size));
       markers.setMatrixAt(i, _m);
+
+      // --- the pick ledger, through the vertex shader's own arithmetic: the centre goes to VIEW
+      // space, the edge is that centre offset by `size` along view X (which is exactly what the
+      // billboard does), and both are projected. World space here IS ECEF (that is what `toLocal`
+      // consumes), so the marker's own `ecef` is the world position — no dependence on whether the
+      // tangent group's `matrixWorld` has been refreshed this frame.
+      //
+      // `z < 0` is the in-front test in a right-handed view basis. A marker behind the eye MUST be
+      // skipped: projection folds it back onto the screen and would make dead ground clickable.
+      _mv.set(ecef[0], ecef[1], ecef[2]).applyMatrix4(camera.matrixWorldInverse);
+      if (_mv.z < 0) {
+        _mvEdge.set(_mv.x + size, _mv.y, _mv.z).applyMatrix4(camera.projectionMatrix);
+        _mv.applyMatrix4(camera.projectionMatrix);
+        const j = pickCount++;
+        pickNdc[j * 2] = _mv.x;
+        pickNdc[j * 2 + 1] = _mv.y;
+        pickRadNdcX[j] = Math.abs(_mvEdge.x - _mv.x);
+        pickKeys[j] = spot.key;
+        pickRanks[j] = spot.rank;
+      }
     }
     markers.instanceMatrix.needsUpdate = true;
     markerRank.needsUpdate = true;
     markerHover.needsUpdate = true;
+    markerSelect.needsUpdate = true;
+    markerTint.needsUpdate = true;
+    markerVivid.needsUpdate = true;
   }
 
   return {
@@ -1137,17 +1295,23 @@ export function attachBestSpotSheet(
       const want = ctx.enabled && !ctx.fpvActive && !ctx.mobileShell && ctx.field !== null;
       fade = easeFade(fade, want, ctx.dtMs, BESTSPOT.fadeTauMs);
       const pack = ctx.field;
+      // FAIL CLOSED on every early return: with nothing drawn there is nothing to hit, and a stale
+      // ledger would keep answering `pickMarker` after the disc was disarmed or FPV took the view.
       if (!pack) {
         group.visible = false;
+        pickCount = 0;
         return;
       }
       const presence = presenceForAlt(ctx.altM, presenceBand(pack.radiusM));
       const a = fade * presence;
       if (a < 0.01) {
         group.visible = false;
+        pickCount = 0;
         return;
       }
       group.visible = true;
+      pickWPx = Math.max(1, ctx.viewportWPx);
+      pickHPx = Math.max(1, ctx.viewportHPx);
 
       if (pack !== built) rebuild(pack);
 
@@ -1171,8 +1335,48 @@ export function attachBestSpotSheet(
       if (ctx.markers !== builtMarkers) {
         builtMarkers = ctx.markers;
         hoverEase.fill(0);
+        // The SELECT ease is reset with it: instance i is a different cell after a re-solve, so a
+        // carried-over ease would light the wrong marker for one tau (~180 ms) — the same reason
+        // the hover ease has always been cleared here.
+        selectEase.fill(0);
       }
-      writeMarkers(ctx.markers, pack, camLocal, ctx.hoverKey, ctx.dtMs);
+      writeMarkers(
+        ctx.markers,
+        pack,
+        camLocal,
+        ctx.hoverKey,
+        ctx.selectedKey,
+        ctx.camera,
+        ctx.dtMs,
+      );
+    },
+
+    pickMarker(ndcX, ndcY) {
+      if (!group.visible || pickCount === 0) return null;
+      // PIXELS, not NDC: on a 16:9 canvas one NDC unit is 1.78× wider than it is tall, so an
+      // NDC-space distance test is an ellipse and a marker is easier to hit from the side.
+      const px = (ndcX * pickWPx) / 2;
+      const py = (ndcY * pickHPx) / 2;
+      let bestI = -1;
+      let bestD = Infinity;
+      for (let i = 0; i < pickCount; i++) {
+        const mx = (pickNdc[i * 2] * pickWPx) / 2;
+        const my = (pickNdc[i * 2 + 1] * pickHPx) / 2;
+        const d = Math.hypot(px - mx, py - my);
+        // The drawn RING is what the eye aims at, so the hit disc is the marker's own radius plus
+        // a fixed pad — at planning altitudes `PLACEMARKS.minSizeM` is only a few px across.
+        if (d <= (pickRadNdcX[i] * pickWPx) / 2 + BESTSPOT.markerPickPadPx && d < bestD) {
+          bestD = d;
+          bestI = i;
+        }
+      }
+      if (bestI < 0) return null;
+      return {
+        key: pickKeys[bestI],
+        rank: pickRanks[bestI],
+        ndcX: pickNdc[bestI * 2],
+        ndcY: pickNdc[bestI * 2 + 1],
+      };
     },
 
     debug() {

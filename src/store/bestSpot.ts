@@ -76,6 +76,17 @@ export interface BestSpotSpot {
   /** …and whether its OBSTRUCTION has been re-solved at 1 m too. That half is user-triggered
    *  (`REFINE THIS SPOT`, ~1.0-1.6 s) because it needs a 985 ms streamed hull. */
   obstructionRefined: boolean;
+  /**
+   * The ABSOLUTE score this row carried immediately BEFORE its 1 m obstruction re-solve landed —
+   * null until one has (owner batch 2026-08-26, item 5).
+   *
+   * It exists because the refine was *invisible*: the button changed its own caption and the row's
+   * score moved by a few hundredths, and there was no way to tell "the 1 m pass found nothing to
+   * improve" from "the button did nothing". The panel prints `score - refinedFromScore` as a signed
+   * delta, and an exact 0 becomes the words `NO CHANGE AT 1 m` — the honest answer to "did that do
+   * anything?" rather than the absence of one.
+   */
+  refinedFromScore: number | null;
 }
 
 /**
@@ -111,6 +122,9 @@ type BestSpotFeedKeys =
   | "reachM"
   | "topK"
   | "sceneHoverKey"
+  | "sceneHoverScreen"
+  | "previewKey"
+  | "previewSpot"
   | "solving"
   | "ladderRung"
   | "tilesPending"
@@ -136,6 +150,37 @@ export interface BestSpotState {
    *  the OTHER two windows — plain, unconditional, no side effects, exactly like plan/find. */
   open: boolean;
   setOpen(open: boolean): void;
+  /**
+   * **THE HEATMAP SWITCH** (owner batch 2026-08-26, item 4) — the panel's `◎ HEATMAP` chip, and
+   * the feature's real arming gate.
+   *
+   * It used to be a passive readout that printed `ON` whenever a centre existed and could not be
+   * clicked at all, while the actual arming condition was "the window is open". So opening the
+   * window immediately committed to a ~700 ms solve at whatever radius/event/lift happened to be
+   * left over from last time, and there was no way to stop the disc re-solving while the request
+   * was being composed.
+   *
+   * Now: the window OPENS with this OFF (`setOpen` forces it false in BOTH directions — the owner
+   * asked for "by default internal toggle is off, until i pick all params and hit enable"), the
+   * user composes the request for free, and ONE click arms it. Once armed the live behaviour is
+   * unchanged — a radius, event, lift or centre change re-solves on the fly — and disarming
+   * releases the sheet without closing the window, so the next arm picks up the newest request.
+   */
+  heatmapOn: boolean;
+  setHeatmapOn(on: boolean): void;
+  /**
+   * The shortlist row the user has SELECTED (owner batch 2026-08-26, item 1), or null.
+   *
+   * Selection and travel used to be the same gesture: clicking a row dropped the temp pin, which
+   * moved the disc centre, which re-solved everything and *destroyed the very list the row came
+   * from*. So the two are now separate — a click SELECTS (the marker lights up on the globe and the
+   * row's own `GO` / `REFINE` actions appear beside it), and only `GO` moves the pin.
+   *
+   * A key that is no longer in `topK` simply resolves to no selection, so a re-solve needs no
+   * clean-up pass: the panel looks the row up rather than caching it.
+   */
+  selectedKey: string | null;
+  setSelectedKey(key: string | null): void;
   /** Which event the disc is scored for (§6.9's first chip row). One code path for all four. */
   kind: BestSpotKind;
   setKind(kind: BestSpotKind): void;
@@ -181,6 +226,29 @@ export interface BestSpotState {
   topK: readonly BestSpotSpot[];
   /** Marker under the canvas pointer → that row highlights (globe-written). */
   sceneHoverKey: string | null;
+  /**
+   * …and WHERE that marker is on screen, in client px (globe-written, null when nothing is under
+   * the pointer). The `camera.tempPinScreen` idiom verbatim: the hover tip floats NEXT TO the
+   * marker it explains instead of sitting in a fixed chrome slot, so the answer to "why this one?"
+   * is attached to the thing being asked about.
+   */
+  sceneHoverScreen: { x: number; y: number } | null;
+  /**
+   * **FPV PREVIEW** (owner batch 2026-08-26, item 3) — the shortlist row currently being LOOKED
+   * FROM, or null.
+   *
+   * Clicking a marker on the globe stands the camera at that cell in first-person WITHOUT making it
+   * the disc's centre: the orchestrator locks the solved centre for the duration and restores
+   * whatever temp pin was there on exit, so the field and the shortlist the user is exploring
+   * survive the trip. Escape (or the panel's own LEAVE PREVIEW) ends it.
+   *
+   * Engine-written, because the whole mechanism — the camera, the FPV latch, the centre lock — is
+   * the orchestrator's; the panel only reports it.
+   */
+  previewKey: string | null;
+  /** Ask for that preview by shortlist key. Installed by the orchestrator (a no-op until the globe
+   *  mounts, the `refineSpot` grammar). Calling it with the LIVE `previewKey` leaves the preview. */
+  previewSpot(key: string | null): void;
   /** A solve is in flight. NOT a spinner — the R0 sheet is its own progress indicator (§2.3). */
   solving: boolean;
   /** Index into `BESTSPOT.ladderCellsM` of the rung that last LANDED; −1 before first ink. The
@@ -291,6 +359,40 @@ export interface BestSpotState {
   displayHi: number;
 }
 
+/**
+ * A row's place on the marker ramp, 0 (the worst of the eight) → 1 (the best) — owner batch
+ * 2026-08-26, item 2. ONE formula, exported so the panel's row swatch and the GL marker cannot
+ * drift; `bestSpotFeed` is the only other caller.
+ *
+ * It normalises over the shortlist's OWN SPAN, not over `score ÷ best`, and that is a browser
+ * finding rather than a preference. Measured on a real Dnipro disc the eight rows scored
+ * 0.7336 → 0.6046, i.e. a ratio range of 1.000 → 0.824 — so a ratio-keyed hue used only the top
+ * fifth of the ramp and the eight swatches came out as near-identical creams. The lower stops were
+ * unreachable by construction: a top-K is by definition drawn from the top of the field.
+ *
+ * **Renormalising the HUE is honest here only because nothing else is renormalised with it.** The
+ * panel row prints the ABSOLUTE score beside the swatch (§3.5, non-negotiable), the relative BAR
+ * still reads `score ÷ best`, the marker's own brightness is driven by the absolute display t, and
+ * the legend says which is which. What this buys is the thing the owner actually asked for: eight
+ * markers you can rank at a glance.
+ *
+ * A degenerate span (one row, or eight identical scores) maps everything to 1 — they really are
+ * all equal-best — rather than dividing by zero into a NaN, which in a vertex attribute is a
+ * silently black marker.
+ */
+export function shortlistQuality(score: number, scores: readonly number[]): number {
+  if (scores.length === 0 || !Number.isFinite(score)) return 1;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const s of scores) {
+    if (!Number.isFinite(s)) continue;
+    if (s < lo) lo = s;
+    if (s > hi) hi = s;
+  }
+  if (!Number.isFinite(lo) || hi - lo < 1e-9) return 1;
+  return Math.min(1, Math.max(0, (score - lo) / (hi - lo)));
+}
+
 /** Nearest chip on the radius ladder — an off-ladder radius silently changes the cost model. */
 function snapRadiusM(m: number): number {
   if (!Number.isFinite(m)) return BESTSPOT.defaultRadiusM;
@@ -338,7 +440,16 @@ const bootPatch = storedPatch && Object.keys(storedPatch).length > 0 ? storedPat
 
 export const useBestSpotStore = create<BestSpotState>((set, get) => ({
   open: false,
-  setOpen: (open) => set({ open }),
+  // BOTH directions reset the switch and the selection. Opening must not commit to a solve the
+  // user has not asked for (owner item 4), and closing must not leave a stale row selected behind
+  // a hidden panel — `PlanFindToggle`'s mutual exclusion closes this window from the OTHER two.
+  setOpen: (open) => set({ open, heatmapOn: false, selectedKey: null }),
+
+  heatmapOn: false,
+  setHeatmapOn: (heatmapOn) => set({ heatmapOn }),
+
+  selectedKey: null,
+  setSelectedKey: (selectedKey) => set({ selectedKey }),
 
   kind: "sunset",
   setKind: (kind) => set({ kind }),
@@ -375,6 +486,11 @@ export const useBestSpotStore = create<BestSpotState>((set, get) => ({
   reachM: 0,
   topK: [],
   sceneHoverKey: null,
+  sceneHoverScreen: null,
+  previewKey: null,
+  // A no-op until the ORCHESTRATOR installs the real one — the `refineSpot` grammar, except that
+  // this seam's owner is `StylizedTiles` rather than the feed, because a preview is a CAMERA move.
+  previewSpot: () => {},
   solving: false,
   ladderRung: -1,
   tilesPending: false,

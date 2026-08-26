@@ -206,11 +206,18 @@ async function armSession() {
   return gate;
 }
 
-/** Drop the scratch pin and switch the panel on — the SHIPPED path, not a back door. */
+/**
+ * Drop the scratch pin, open the panel and ARM the heatmap — the SHIPPED path, not a back door.
+ *
+ * `setHeatmapOn(true)` joined this on 2026-08-26 (owner item 4). Opening the window used to be the
+ * arming condition all by itself; it now only opens the window, and `setOpen` deliberately forces
+ * the switch OFF in both directions, so the two calls must be in THIS order.
+ */
 async function openDiscAt(latDeg, lonDeg) {
   await evaluate(`(() => {
     window.__cameraStore.getState().setTempPin({ latDeg: ${latDeg}, lonDeg: ${lonDeg} });
     window.__bestSpotStore.getState().setOpen(true);
+    window.__bestSpotStore.getState().setHeatmapOn(true);
     return true;
   })()`);
 }
