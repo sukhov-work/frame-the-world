@@ -1,4 +1,4 @@
-/* BEST SPOT panel (S5, `.claude/claude-docs/BESTSPOT_SPEC_V2.md` §6.9) — the THIRD face of the
+/* BEST SPOT panel (S5, `.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md` §6.9) — the THIRD face of the
    shared PLAN / FIND / BEST SPOT window. `.bsp-root` / `.bsp` / `.bsp-scroll` are GEOMETRY TWINS of
    `.pp-root` / `.pp` / `.pp-scroll` (plan-panel.css owns the canonical comments: the border-box
    resize discipline, the mini-map cap, and why only the BODY scrolls). Same left column, same

@@ -1,5 +1,5 @@
 /**
- * BEST SPOT — the pure scoring kernel (`.claude/claude-docs/BESTSPOT_PLAN.md` §3, slice S1a).
+ * BEST SPOT — the pure scoring kernel (`.claude/claude-docs/bestspot/BESTSPOT_PLAN.md` §3, slice S1a).
  *
  * Consumes per-cell `RayEvidence[]` (what the sweep saw along each swept azimuth) plus the
  * per-disc `EventTrack` (where the body actually is, APPARENT), and returns one `CellScore`.
@@ -286,16 +286,39 @@ export function contactLowness(
   return 1 - smoothstep(dipFloorDeg, ceilDeg, altStarDeg);
 }
 
-/** `G(V)` — the SOFT visibility gate (§3.5). Multiplies, but must never be a hard step.
+/**
+ * `G(V)` — the SOFT visibility gate (§3.5). Multiplies, but must never be a hard step.
  *
- *  The edges come from the profile so a taste pass can move them (`gates.vGateLo`/`vGateHi`);
- *  `resolveScoring` keeps `vGateHi >= vGateLo + 0.05` because `smoothstep` degenerates to a hard
- *  step WITHOUT throwing, and a hard `V` gate would delete every silhouette shot. */
+ * The edges come from the profile so a taste pass can move them (`gates.vGateLo`/`vGateHi`);
+ * `resolveScoring` keeps `vGateHi >= vGateLo + 0.05` because `smoothstep` degenerates to a hard
+ * step WITHOUT throwing, and a hard `V` gate would delete every silhouette shot.
+ *
+ * **THE STAR FLOOR (2026-08-26i) — why the gate needed a second input at all.**
+ * `V` is a WEIGHTED MEAN of the visible disc fraction over the window, and the weight
+ * `exp(−alt/altScaleDeg)` puts almost all of its mass on the lowest samples. So a cell from which
+ * the body rises BEHIND a mass and then clears it reads a near-zero `V` — the blocked low samples
+ * own the mean — and because `G` MULTIPLIES, that cell is zeroed before `F`, the only term that
+ * could say *"and what it passes behind is a monument"*, is ever read. Measured at Dnipro
+ * 2026-08-26h: the owner's hand-picked cell sits in a `V ≈ 0` corridor that points at the Monument
+ * of Glory to within 0.23°. **The set of cells the metric zeroes is exactly the set from which the
+ * body passes behind a landmark** — the alignment locus is the shadow locus.
+ *
+ * `hasStar` is the discriminator, and it costs nothing: `TERM_FLAG.hasStar` already rides the term
+ * buffer and means *"at least half the disc was visible at some sampled instant"*. That is
+ * precisely the claim the gate exists to protect, so a starred cell is by definition NOT the blind
+ * cell the gate was built to delete. It is allowed to live at `gates.vStarFloor` and be ranked on
+ * its framing instead.
+ *
+ * **Inert twice over at the shipped default**: `hasStar` defaults to `false` for every caller that
+ * does not pass it, and `gates.vStarFloor` ships at `0`, so `max(g, 0) === g` even when it is.
+ */
 export function visibilityGate(
   v: number,
   gates: BestSpotScoring["gates"] = BESTSPOT_SCORING_V1.gates,
+  hasStar = false,
 ): number {
-  return smoothstep(gates.vGateLo, gates.vGateHi, v);
+  const g = smoothstep(gates.vGateLo, gates.vGateHi, v);
+  return hasStar && gates.vStarFloor > g ? gates.vStarFloor : g;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1186,7 +1209,9 @@ export function cellScore(
     (access.hard ? 1 : 0) *
       accessSoftGain(clamp01(access.soft), sc.curves.accessSoftExponent) *
       effectiveWorth(track.worth, sc.worth) *
-      visibilityGate(v, sc.gates) *
+      // `starRay !== null` IS `TERM_FLAG.hasStar` — the fused pass sets that bit from the same
+      // `starIdx >= 0` this expression reads, so the reference and the solver cannot drift.
+      visibilityGate(v, sc.gates, starRay !== null) *
       preference,
   );
 

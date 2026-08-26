@@ -1,5 +1,52 @@
 # BEST SPOT — SWEEP MODE, F_peak AND THE TREE DEFECTS: THE IMPLEMENTATION MAP
 
+> # ⚠ MOSTLY SUPERSEDED — read `README.md` and `BESTSPOT_TASTE_V1.md` § ADDENDUM 2026-08-26i FIRST
+>
+> **The premise of this map is measured FALSE.** It was written 2026-08-26g when the accepted
+> diagnosis was *"his moment is outside the swept window, so search more moments"*. Two later
+> measurements gutted it:
+>
+> - **ADDENDUM 2026-08-26h** cut the mode, the segment loop and the `TERM_BYTES_PER_CELL` refactor,
+>   promoting F_peak to be *the* fix.
+> - **ADDENDUM 2026-08-26i** then measured that his cell **already had a contact at the shipped 4°
+>   top**, that the gate is **not** the binding constraint (open it fully and he is still
+>   76th-percentile), and that `access.soft.unknown = 0.45` is a hard ceiling below the shortlist's
+>   entry price.
+>
+> **WHAT SURVIVES, verbatim and still correct:**
+> - **§4 SLICE 2 — F_peak, in full.** Files, kernel, the nine leaves, the `CLASS_OF` rows, the
+>   `clampResolved` loop, the Lean twin, the twenty golden rows committed RED first, and the PIN-2
+>   line that must break. **This is the doc's whole remaining value** — and F_peak is now a
+>   PRECONDITION with a measured target (`F: 0.406 → ~1.0` buys +0.178 of preference).
+> - **The five kernel traps inside slice 2**, especially `Number.isFinite(width)`: the notch's
+>   `Infinity` collapses to 0, the peak's **inverts** (`slender = prom/∞ = 0` → `1 − smoothstep(5,8,0)
+>   = 1`), i.e. a ridge scoring FULL credit. The naive dual is silently wrong exactly there.
+> - **§1 C1** — store `peakApexDeg` + `peakDistM` RAW, apply relief/conf/depth in COMPOSE.
+> - **§1 C4 / §3 N6** — the peak pass lives inside the `starIdx >= 0` guard but runs its **own**
+>   argmax over `notchRays[0..K-1]`, never index `starIdx`.
+> - **§3 N3 / N4** — a third arm of `max()`, not a fifth weight; `peak.conf.*` needs its own
+>   `clampResolved` loop, `clampLeaf` cases and a Lean `peakBound` twin (`clampLeaf` is fail-OPEN).
+> - **§1 C11 / §3 N15 / §7 item 6** — `peak.conf.tree = 0`, ceiling 0.2, **no distance gate**.
+> - **§2 assumptions 3, 5 and 9**, and **§6's control-validated finding that NO golden statistic in
+>   the repo is a function of tree geometry.**
+> - **§7 items 8 and 11** — no third marker channel for time; `peak.spanDeg` ships FROZEN.
+> - **Slices 0 and 1 as SHIPPED FACT** (they landed 2026-08-26g).
+>
+> **WHAT IS DEAD:** the whole premise and §7's ranking (which puts 3a/3b *above* F_peak) · the
+> DEVIATION note · **slice 3a in its entirety** · slice 3b's mode/toggle/store flag · slice 4's quota
+> · §5.A's sweep sizing (±90 min / +20°: measured 232 window samples, K = 244, ~615 MiB) · R3's
+> "`Relief · Depth · conf` already discounts clutter" (refuted — a 40 m chimney at 500 m scores
+> `Q = 0.550`, **above** the 20 m monument's 0.315; the discriminator is SLENDERNESS) · §4's
+> "report only, not fixed" framing for the two tree defects (both shipped 2026-08-26g) · §1.1's field
+> table (re-baselined: unknown 8,984 → 11,009, `unmappedFrac` 0.000 → 0.064) · §7 as an OPEN owner
+> question (answered in `DECISIONS.md` 2026-08-26g) · the `bestSpotWorker.ts:834` /
+> `bestSpotTrack.ts:319,323,626-627` line citations (drifted).
+>
+> **A note on `topAltDeg`:** the window's top DID ship, as a profile leaf (`trackWeight.topAltDeg`,
+> default 4, inert) rather than as this map's `EventTrackOptions` field — a deliberate deviation from
+> **C2**, valid only because slice 0's `trackHash` now covers the whole `trackWeight` group.
+
+
 **Produced 2026-08-26g** by a six-track parallel read + a consolidator, against the diagnosis in
 `BESTSPOT_TASTE_V1.md` and the owner's ruling that SWEEP is an ADDITIVE MODE (default OFF, the
 current static behaviour unchanged) with trees as OCCLUSION and never as subject.

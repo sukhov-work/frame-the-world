@@ -13,7 +13,7 @@ import { loadViewPrefs, saveViewPref } from "../lib/prefs";
 import type { HeatRampId } from "../lib/theme/heatPalette";
 
 /**
- * BEST SPOT seam (`.claude/claude-docs/BESTSPOT_SPEC_V2.md` §5.6/§6.8/§6.9) — the bridge between
+ * BEST SPOT seam (`.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md` §5.6/§6.8/§6.9) — the bridge between
  * the disc solver (worker → `scene/bestSpotFeed`) and the desktop panel. Three bands, and the
  * band a field is in decides WHO may write it:
  *

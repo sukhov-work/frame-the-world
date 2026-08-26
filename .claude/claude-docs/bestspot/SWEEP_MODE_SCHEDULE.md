@@ -1,5 +1,46 @@
 # BEST SPOT — THE SCHEDULE (sweep mode · solver-core parity refactor · browser · Lean · docs)
 
+> # ⚠ MOSTLY SUPERSEDED — read `README.md` and `BESTSPOT_TASTE_V1.md` § ADDENDUM 2026-08-26i FIRST
+>
+> **The seven-session plan in this document will not be executed.** Its premise — sweep mode — was
+> cut by ADDENDUM 2026-08-26h, and what remained was cut again by ADDENDUM 2026-08-26i, which
+> measured that the gate is not the binding constraint and that `access.soft.unknown = 0.45` is a
+> hard ceiling. **Do not follow §3's wave plan, §6's doc delta or §8's cut list as instructions.**
+>
+> **WHAT SURVIVES, and it is genuinely valuable:**
+> - **§2 THE PARITY CONTRACT** — the byte-level definition of *"OFF is unchanged"*: 13 surfaces
+>   (sha256 of the composed score field, of a fresh term buffer, of each of the 21 term fields
+>   separately, of the RG8 pack, …), **exact everywhere with `toBeCloseTo` banned on all of them**,
+>   the seven-fixture matrix **A–G** (G is the MOONRISE/ascending arm that flips
+>   `accFLow`/`accFPrev`), and the provenance-line discipline. Its two most valuable assertions —
+>   **IDEMPOTENCE** and **ORDER INDEPENDENCE** — cannot exist at T = 1, but the rest applies to any
+>   future change to the solver core.
+> - **§4 THE LEAN DECISION and THE HYPOTHESIS AUDIT.** Five of seven verdicts stand
+>   (`score_mem_Icc`, `conf_nonneg_is_necessary`, `max3_mem_Icc`, `peakBound`, and the TEST-INSTEAD
+>   refusal of the T = 1 parity claim). **Its three unenforced-bound defects are STILL LIVE IN THE
+>   TREE** — `conf` has a ceiling and no floor (so `graze.conf.terrain: -1` persists verbatim and
+>   inverts monotonicity), and `curves.accessSoftExponent` has no clamp at all. Plus the one
+>   generalizing test worth more than any theorem: a hostile-leaf sweep over `scoringLeafPaths()`.
+>   Plus the Lean gate traps (**`lake build` PASSES with a `sorry`** — the axiom audit is the gate;
+>   the theorem regex is `^theorem\s+` anchored at column 0).
+> - **§1 C-8's three script defects** — two unguarded `[0]` in `verify-bestspot.mjs` that turn an
+>   empty shortlist into a `TypeError` aborting at ~check 66 of 101, and a probe that coerces its
+>   port into its exit code.
+> - **§1 C-1** — the byte-identical hash host is `bestSpotSolver.test.ts` DONE-CHECK 4, **not**
+>   `bestSpotComposition.test.ts` (which imports no solver).
+> - **§1 C-3** — `alt*` is ALREADY a per-cell argmin while `V` and the four τ buckets average over
+>   the whole `inWindow` span. This is the code-level fact behind everything about the window.
+> - **§1 C-4's two memory pins** — 601² × 96 B = 34.68 MB passes the loose `< 101 MiB` pin and
+>   **fails** the exact `toBeCloseTo(27.09, 2)` pin, so any move of `TERM_BYTES_PER_CELL` must re-pin
+>   it in the same commit.
+> - **§5's browser trap list** and the measured red state (`verify-bestspot` 96/101 on clean master).
+> - **§6's sweep-independent rows D1–D4** and **§8 item 7** (the OSM landmark layer, deferred, with
+>   the measured fact that the bake filter is `way["building"]` so `historic=memorial` steles are
+>   invisible end to end).
+>
+> Most of the trap list has been consolidated into **`TRAPS.md`**, which is the durable home.
+
+
 **Produced 2026-08-26g** by four independent scoping passes + a reconciler, against
 `bestspot/SWEEP_MODE_MAP.md` (the spec) and `BESTSPOT_TASTE_V1.md` (the diagnosis).
 **Seven sessions, ≈ 48.5 h.**
@@ -64,6 +105,10 @@ $ git status --short
 ?? .claude/claude-docs/BESTSPOT_TASTE_V1.md
 ?? .claude/claude-docs/bestspot/            ← THE MAP IS UNTRACKED
 ?? scripts/probe-bestspot-taste.mjs
+# NOTE 2026-08-27: the two `.claude/claude-docs/BESTSPOT_TASTE_V1.md` / `bestspot/` paths above are a
+# VERBATIM TRANSCRIPT of the working tree on 2026-08-26g and are deliberately NOT updated for the
+# 2026-08-27 doc move. Rewriting them would falsify the evidence. Every doc named here now lives
+# under `.claude/claude-docs/bestspot/`.
 $ git log --oneline -1                → ebf11b7  (the owner QA batch)
 $ git show HEAD:src/lib/geo/bestSpotSolver.ts | grep -c canopyUncredited  → 0
 $ git show HEAD:src/lib/geo/bestSpotWorker.ts | grep -c trackKeyOf        → 0
@@ -493,9 +538,9 @@ Copy **ownerbatch's** `send()` with its 90 s timeout (`:104-113`) — `verify-be
 |---|---|---|
 | **1** | `.claude/claude-docs/bestspot/SWEEP_MODE_MAP.md` | **EDIT** — `:236` corrected per C-1 (the hash host is `bestSpotSolver.test.ts:594-602`, not `bestSpotComposition.test.ts`); `:289` the CUT list still says defer the canopy withdrawal its own header says shipped — **five CUT items are now four**; §4 slice 3a's file/line list still describes the per-segment term buffer the header deletes, so a reader following §4 verbatim rebuilds the thing that was ruled out; add C-4's note that the 96 B layout breaks `:1269`, not `:1273`. |
 | **1** | `.claude/claude-docs/DECISIONS.md` | **APPEND** 2026-08-26h — the landing, the wire fix, the `conf` floor, the parity contract. Never edits history. |
-| **7** | `.claude/claude-docs/BESTSPOT_SPEC_V2.md` | **EDIT IN PLACE + a `RECONCILED 2026-08-26n` block + a new `§9 SWEEP MODE`.** **No SPEC_V3** — a V-bump supersedes named sections when default behaviour is re-derived (`:3`), and sweep re-derives nothing: it is byte-identical OFF and that identity is fenced by a committed SHA-256, so a V3 would have to restate §1-§6 unchanged in order to be a spec. The repo already edits specs in place with a dated reconcile block (`:8-22`). Thirteen corrections: **D1** §1.2 step two (trees became real, and the mechanism — canopies fold into `canopyTop`/`canopyMask` and **never** `solidMask`, because a canopy written as solid makes every tree-lined avenue INACCESSIBLE at `access.aerialMinM`) · **D2** §1.2 bullet 2 is wrong in three ways (the 45 % tree discount was unreachable; 93 % is superseded by 118/161,823 = 0.073 %; it is now partly a **ban**) · **D3** §1.1's `C` block gains the third withdrawal producer with its two-sided bound and the `canopyUncredited` counter · **D4** §2.1 row 7c measured a design that had not shipped — re-measure or label UNMEASURED-AT-REAL-COUNTS · **D5** §5.4 `trackWeight.*` is `rescore`, and record that both leaves were **silently inert** and neither half of the fix works alone · **D6** §2.2 T0.5 is DAY-or-KIND-**or-the-track-sub-hash** · **D7** the "54 leaves" claim — **verify then pin, do not edit the number**: my count is 53 (41 recompose, 12 rescore, zero `reweigh`) and the test pins only `>= 50` (`bestSpotScoring.test.ts:555`) · **D8** §3.1/§3.4 gain the 26g re-baseline · **D9** §3.4(b) gains its companion asymmetry · **D10** §6.11 gains the canopy wire budget · **D11** the `F = max(…)` header goes 3-ary · **D12** §4 gains the sixth data-driven decision (window truncation from `upSign`, never the hemisphere) · **D13** §7's heading re-heads as a ruling record. |
-| **7** | `.claude/claude-docs/BESTSPOT_PLAN.md` | **EDIT** — record the `heightProvenance.enriched` correction (it quietly corrects a user-visible number); state **both** tree-provenance statistics with their definitions (151,046/161,823 "seeded scatter" vs 118/161,823 "integral heights") or the `graze.conf.tree` clamp cites the weaker one forever. |
-| **7** | `.claude/claude-docs/BESTSPOT_TASTE_V1.md` | **EDIT, one line, load-bearing** — `:227-228` *"A second instant costs a max-angle query + a score pass… never a hull"* is **false**: the hull cache key is an exact azimuth match (`bestSpotSolver.ts:1187-1196`). Replace with the superset property. This is the doc a future session would read to justify the cost model. Otherwise it stays as the diagnosis. |
+| **7** | `.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md` | **EDIT IN PLACE + a `RECONCILED 2026-08-26n` block + a new `§9 SWEEP MODE`.** **No SPEC_V3** — a V-bump supersedes named sections when default behaviour is re-derived (`:3`), and sweep re-derives nothing: it is byte-identical OFF and that identity is fenced by a committed SHA-256, so a V3 would have to restate §1-§6 unchanged in order to be a spec. The repo already edits specs in place with a dated reconcile block (`:8-22`). Thirteen corrections: **D1** §1.2 step two (trees became real, and the mechanism — canopies fold into `canopyTop`/`canopyMask` and **never** `solidMask`, because a canopy written as solid makes every tree-lined avenue INACCESSIBLE at `access.aerialMinM`) · **D2** §1.2 bullet 2 is wrong in three ways (the 45 % tree discount was unreachable; 93 % is superseded by 118/161,823 = 0.073 %; it is now partly a **ban**) · **D3** §1.1's `C` block gains the third withdrawal producer with its two-sided bound and the `canopyUncredited` counter · **D4** §2.1 row 7c measured a design that had not shipped — re-measure or label UNMEASURED-AT-REAL-COUNTS · **D5** §5.4 `trackWeight.*` is `rescore`, and record that both leaves were **silently inert** and neither half of the fix works alone · **D6** §2.2 T0.5 is DAY-or-KIND-**or-the-track-sub-hash** · **D7** the "54 leaves" claim — **verify then pin, do not edit the number**: my count is 53 (41 recompose, 12 rescore, zero `reweigh`) and the test pins only `>= 50` (`bestSpotScoring.test.ts:555`) · **D8** §3.1/§3.4 gain the 26g re-baseline · **D9** §3.4(b) gains its companion asymmetry · **D10** §6.11 gains the canopy wire budget · **D11** the `F = max(…)` header goes 3-ary · **D12** §4 gains the sixth data-driven decision (window truncation from `upSign`, never the hemisphere) · **D13** §7's heading re-heads as a ruling record. |
+| **7** | `.claude/claude-docs/bestspot/BESTSPOT_PLAN.md` | **EDIT** — record the `heightProvenance.enriched` correction (it quietly corrects a user-visible number); state **both** tree-provenance statistics with their definitions (151,046/161,823 "seeded scatter" vs 118/161,823 "integral heights") or the `graze.conf.tree` clamp cites the weaker one forever. |
+| **7** | `.claude/claude-docs/bestspot/BESTSPOT_TASTE_V1.md` | **EDIT, one line, load-bearing** — `:227-228` *"A second instant costs a max-angle query + a score pass… never a hull"* is **false**: the hull cache key is an exact azimuth match (`bestSpotSolver.ts:1187-1196`). Replace with the superset property. This is the doc a future session would read to justify the cost model. Otherwise it stays as the diagnosis. |
 | **7** | `.claude/claude-docs/ARCHITECTURE.md` §7c | **EDIT** — charter list gains the map + taste doc; `:313-318`'s "keystone" is true but **incomplete** (the hull is time-invariant, but the *set of azimuths is a function of the day*, so affordability rests on the absolute-lattice superset property — this under-statement is what produced the false cost claim above); `:322` becomes conditional (**in SWEEP mode a scoring patch is a `rescore`, never a `recompose`**); the honesty layer gains its fourth mechanism; `bestSpot` gains `sweepMode`; and say **explicitly** that the module list is unchanged, so the next reader does not hunt for a `bestSpotSweep.ts`. |
 | **7** | `.claude/claude-docs/IMPLEMENTATION_PLAN.md` | **CREATE a section** — **BEST SPOT is absent from all 309 lines** of the document `.claude/CLAUDE.md` names as the source of truth on *execution*. ~20 lines, `8-bestspot`, matching the `8-QoL-*` shape. Biggest structural gap in the docs. |
 | **7** | `.claude/conventions/globe-tuning.md` | **EDIT** — the leaf count; the scoring-groups row gains `peak`; **window params ride the job and are NOT patchable through `__globe.bestSpotTuning`**; the unswept-judgements list gains `peak.conf.*` and records that `graze.conf.tree = 0.45` was a listed taste target *while being dead code*; **a fifth trap, the best of the batch:** *`InstancedMesh.isMesh` is true, and a bounding-sphere reject placed before the instanced branch is a no-op at exactly the discs that have trees, because `geom.boundingSphere` is the shared unit **prototype's** — a ~0.5 m ball at the cell root. The cull has to be per instance.* Generic to every scene feed that flattens geometry, so it belongs in a conventions file. |

@@ -42,9 +42,17 @@ import {
   visibilityGate,
 } from "../../../src/lib/geo/bestSpotMetric";
 import { horizonDipDeg } from "../../../src/lib/geo/horizonProfile";
+import { resolveScoring } from "../../../src/lib/geo/bestSpotScoring";
 
 const DAY_MS = 86_400_000;
 const KINDS: readonly BestSpotKind[] = ["sunrise", "sunset", "moonrise", "moonset"];
+
+/** Total swept azimuth — window plus both shoulders — on the UNWRAPPED branch, so it is seam-safe
+ *  and reads the same quantity `C` is integrated over. */
+const spanOf = (t: EventTrack): number => {
+  const u = unwrapTrackAzDeg(t.samples);
+  return u[u.length - 1] - u[0];
+};
 
 /** The house Dnipro fixture, byte-identical to `planner.test.ts:23-28` so the refraction pins in
  *  this file and the shipped ones there are talking about the same observer. */
@@ -336,6 +344,155 @@ describe("eventTrack — the window: +4° above down to 3ρ below the crossing",
       return u[u.length - 1] - u[0];
     };
     expect(spanOf(capped)).toBeCloseTo(spanOf(full), 3);
+  });
+
+  // ── `trackWeight.topAltDeg` — the leaf `bestSpotScoring.test.ts` allowlists as unreachable ──
+  // `cellScore` is HANDED its samples, so the every-field-is-live walk structurally cannot reach a
+  // leaf that decides which samples exist. These four are the compensating pin it points at, and
+  // the reason the allowlist entry is a reachability claim rather than a relaxed assertion.
+
+  it("`trackWeight.topAltDeg` is LIVE: the profile leaf moves the window's top, and the shipped 4 is byte-identical to today's constant", () => {
+    const viaConstant = eventTrack(DNIPRO, "sunset", AUG_MS, { topAltDeg: 4 })!;
+    const viaProfile = eventTrack(DNIPRO, "sunset", AUG_MS)!; // BESTSPOT_SCORING_V1.trackWeight.topAltDeg
+    // INERTNESS, exactly: the leaf ships at the constant, so the default track is the old track.
+    expect(viaProfile.samples.map((s) => s.utcMs)).toEqual(viaConstant.samples.map((s) => s.utcMs));
+    expect(viaProfile.samples.map((s) => s.altAppDeg)).toEqual(
+      viaConstant.samples.map((s) => s.altAppDeg),
+    );
+
+    // …and LIVE: raising it through the PROFILE (not through `opts`) reaches the geometry.
+    const raised = eventTrack(DNIPRO, "sunset", AUG_MS, {
+      scoring: resolveScoring({ trackWeight: { topAltDeg: 10 } }),
+    })!;
+    const topOf = (t: EventTrack) => Math.max(...t.samples.map((s) => s.altAppDeg));
+    expect(topOf(raised)).toBeGreaterThan(apparentAltDeg(10) - 1e-6);
+    expect(topOf(raised)).toBeGreaterThan(topOf(viaProfile) + 5);
+    expect(raised.samples.length).toBeGreaterThan(viaProfile.samples.length);
+    // The BOTTOM is untouched — the top is the only edge that moved, so the contact and the whole
+    // weight mass are still in the window. A leaf that shifted the window would fail here.
+    expect(Math.min(...raised.samples.map((s) => s.altAppDeg))).toBeCloseTo(
+      Math.min(...viaProfile.samples.map((s) => s.altAppDeg)),
+      9,
+    );
+    // `opts.topAltDeg` still WINS over the profile — that is what lets a geometry test pin the
+    // kernel without building a profile, and every existing call in this file relies on it.
+    const optsWins = eventTrack(DNIPRO, "sunset", AUG_MS, {
+      topAltDeg: 4,
+      scoring: resolveScoring({ trackWeight: { topAltDeg: 10 } }),
+    })!;
+    expect(topOf(optsWins)).toBeCloseTo(topOf(viaConstant), 9);
+  });
+
+  it("THE SUPERSET PROPERTY — a raised top is a SUPERSET of the shipped window on the absolute lattice, which is the entire reason a wider window is affordable", () => {
+    // The hull cache keys on an EXACT azimuth match (`bestSpotSolver.ts:1187-1196`). A wider window
+    // is only cheap if its azimuths CONTAIN the old ones, so the K already resident stay hits and
+    // the cost is (K′ − K) builds rather than K′. Nothing asserted this before; the whole cost
+    // model rests on it, and it holds only because the lattice is ABSOLUTE (`snapAzLattice`).
+    const key = (d: number) => Math.round(d / 0.25); // the lattice index itself, seam-safe
+    const base = eventTrack(DNIPRO, "moonrise", AUG_MS, { snapAzLattice: true })!;
+    const wide = eventTrack(DNIPRO, "moonrise", AUG_MS, {
+      snapAzLattice: true,
+      scoring: resolveScoring({ trackWeight: { topAltDeg: 10 } }),
+    })!;
+    const wideKeys = new Set(wide.samples.map((s) => key(s.azDeg)));
+    const missing = base.samples.map((s) => key(s.azDeg)).filter((k) => !wideKeys.has(k));
+    expect(missing).toEqual([]);
+    expect(wideKeys.size).toBeGreaterThan(new Set(base.samples.map((s) => key(s.azDeg))).size);
+
+    // The NEGATIVE CONTROL, and it is what makes the assertion mean anything: without the absolute
+    // lattice the two windows are each anchored on their own edge and share almost nothing.
+    const baseFree = eventTrack(DNIPRO, "moonrise", AUG_MS)!;
+    const wideFree = eventTrack(DNIPRO, "moonrise", AUG_MS, {
+      scoring: resolveScoring({ trackWeight: { topAltDeg: 10 } }),
+    })!;
+    const wideFreeKeys = new Set(wideFree.samples.map((s) => s.azDeg.toFixed(9)));
+    const shared = baseFree.samples.filter((s) => wideFreeKeys.has(s.azDeg.toFixed(9))).length;
+    expect(shared).toBeLessThan(baseFree.samples.length / 2);
+  });
+
+  it("the SPAN BUDGET bounds K where the altitude top cannot, truncates from the NEW end, and leaves the window a SUPERSET", () => {
+    // A fixed altitude top is unbounded in sample count: near culmination the altitude barely moves
+    // while the azimuth runs away. Measured at the owner's own 2026-08-26 Dnipro moonrise, a 25°
+    // top sweeps 68.3° at K = 268 — and a 30° top buys nothing more, the march having clamped.
+    // This fixture is the 08-24 moonrise, where the same 25° top sweeps 54.5°.
+    const huge = eventTrack(DNIPRO, "moonrise", AUG_MS, {
+      snapAzLattice: true,
+      windowMaxSpanDeg: 17,
+      scoring: resolveScoring({ trackWeight: { topAltDeg: 25 } }),
+    })!;
+    const unbudgeted = eventTrack(DNIPRO, "moonrise", AUG_MS, {
+      snapAzLattice: true,
+      windowMaxSpanDeg: 1e9,
+      scoring: resolveScoring({ trackWeight: { topAltDeg: 25 } }),
+    })!;
+    // 17° of window + 3° of shoulder on each side. The shoulders have to follow the budgeted edge
+    // in: anchored on the UNBUDGETED march they measured 54.5° here and K stayed unbounded.
+    expect(spanOf(huge)).toBeLessThanOrEqual(17 + 6 + 1e-3);
+    expect(spanOf(unbudgeted)).toBeGreaterThan(50); // the runaway it is protecting against
+    expect(huge.samples.length).toBeLessThan(unbudgeted.samples.length / 2);
+
+    // TRUNCATED FROM THE NEW END: the contact and the low samples that carry the weight survive.
+    const base = eventTrack(DNIPRO, "moonrise", AUG_MS, { snapAzLattice: true })!;
+    expect(Math.min(...huge.samples.map((s) => s.altAppDeg))).toBeCloseTo(
+      Math.min(...base.samples.map((s) => s.altAppDeg)),
+      9,
+    );
+    // …and it is still a SUPERSET, i.e. the budget truncated rather than re-spaced. A budget applied
+    // through `maxSamples` (which thins UNIFORMLY) passes the span assertion above and fails here.
+    const key = (d: number) => Math.round(d / 0.25);
+    const hugeKeys = new Set(huge.samples.map((s) => key(s.azDeg)));
+    expect(base.samples.map((s) => key(s.azDeg)).filter((k) => !hugeKeys.has(k))).toEqual([]);
+  });
+
+  it("the budget's DEFAULT is inert on the shipped profile WORLDWIDE — a shallow high-latitude track legitimately sweeps 45.5°, and a cap sized for Dnipro's 16° silently deletes it", () => {
+    // The regression this pins actually happened: a 17° default (68 lattice points, the sizing that
+    // fits Dnipro's ladder) truncated every Tromsø and Reykjavík sunrise and took PIN c red with it.
+    // The runaway near culmination and the wide high-latitude sweep are the SAME physics — a shallow
+    // track — so a backstop against one must not re-decide the other. Measured over 2026: Dnipro
+    // 16.0° · Sydney 10.5° · Reykjavík 40.5° · Tromsø 45.5° (K = 176) · Quito and Singapore 6.1°.
+    for (const site of [DNIPRO, SYDNEY, REYKJAVIK, TROMSO]) {
+      for (const kind of KINDS) {
+        for (const d of [0, 90, 180, 270]) {
+          const ms = Date.UTC(2026, 0, 1, 12) + d * DAY_MS;
+          const capped = eventTrack(site, kind, ms, { snapAzLattice: true });
+          const free = eventTrack(site, kind, ms, { snapAzLattice: true, windowMaxSpanDeg: 1e9 });
+          if (!capped || !free) {
+            expect(capped).toBe(free); // both null, or the budget invented/destroyed a track
+            continue;
+          }
+          expect(capped.samples.map((s) => s.utcMs)).toEqual(free.samples.map((s) => s.utcMs));
+        }
+      }
+    }
+  });
+
+  it("the budget is a SPAN, not a sample count — refining the lattice must not silently truncate the SHIPPED window", () => {
+    // Sized in samples, a 68-point budget becomes 3.35° at the 0.05° lattice `bestSpotGolden`'s
+    // τ-invariance check runs on, and the shipped ~8° window is quietly cut to a third. That is a
+    // cap changing the DEFAULT track for anyone who refined the step, and it went red exactly there.
+    const coarse = eventTrack(DNIPRO, "sunset", AUG_MS)!;
+    for (const azStepDeg of [0.125, 0.05]) {
+      const fine = eventTrack(DNIPRO, "sunset", AUG_MS, { azStepDeg })!;
+      expect(spanOf(fine)).toBeCloseTo(spanOf(coarse), 2);
+    }
+  });
+
+  it("the budget truncates the LATE end in BOTH hemispheres — Sydney sweeps azimuth the other way, and a fix decided from `upSign` gets it backwards there", () => {
+    // `uTop` vs `uBottom` is definitional; `upSign` is not. In the south a rising body's unwrapped
+    // azimuth DECREASES, so the late end is the LOW index and a hemisphere-blind truncation would
+    // delete the contact instead of the sky above it.
+    for (const site of [DNIPRO, SYDNEY]) {
+      const base = eventTrack(site, "moonrise", AUG_MS, { snapAzLattice: true })!;
+      const huge = eventTrack(site, "moonrise", AUG_MS, {
+        snapAzLattice: true,
+        scoring: resolveScoring({ trackWeight: { topAltDeg: 25 } }),
+      })!;
+      const lowest = (t: EventTrack) => Math.min(...t.samples.map((s) => s.altAppDeg));
+      // The contact end survives in both. If truncation picked the wrong end, the budgeted track's
+      // floor would be metres of altitude ABOVE the base track's.
+      expect(lowest(huge)).toBeCloseTo(lowest(base), 9);
+      expect(huge.samples.length).toBeGreaterThan(base.samples.length);
+    }
   });
 
   it("ρ is PER-SAMPLE and per-date: the sun is 0.271° at perihelion and 0.262° at aphelion (a constant ρ fails)", () => {

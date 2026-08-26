@@ -1,5 +1,5 @@
 /**
- * BEST SPOT — THE SCORING PROFILE (`.claude/claude-docs/BESTSPOT_SPEC_V2.md` §5, slice S3a).
+ * BEST SPOT — THE SCORING PROFILE (`.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md` §5, slice S3a).
  *
  * Owner requirement (vii) is a HARD ARCHITECTURAL requirement: every number a taste pass touches
  * must be reachable, hot-swappable and hashable. The audit found **30 of 67 scoring numbers
@@ -103,6 +103,25 @@ export interface BestSpotScoring {
     readonly vGateLo: number;
     /** `V_GATE_HI`. Clamped to `>= vGateLo + 0.05` — see rule 5 in the header. */
     readonly vGateHi: number;
+    /**
+     * **THE STAR FLOOR.** The value `G` takes when the cell HAS a contact (`TERM_FLAG.hasStar`:
+     * the body reached `halfDiscFrac` at some sampled instant) but `V` — a weighted MEAN whose
+     * mass sits on the lowest samples — reads below the gate anyway. `G = max(G(V), vStarFloor)`.
+     *
+     * It exists because those two facts disagree on exactly one geometry, and it is the geometry
+     * the whole feature is for: a cell from which the body rises BEHIND a mass and then clears it.
+     * `V` collapses (the blocked low samples own the mean), `G` multiplies, and the cell is deleted
+     * before `F` — the only term that could say *"and what it passes behind is a monument"* — is
+     * read. Measured 2026-08-26h at Dnipro: the owner's own cell sits in a `V ≈ 0` corridor
+     * pointing at the Monument of Glory to 0.23°. See `bestSpotMetric.visibilityGate`.
+     *
+     * This floor does NOT say the cell is good. It says the cell is not BLIND, and hands the
+     * ranking to the preference blend. A cell with no star is untouched, so the gate keeps doing
+     * the one job it was built for.
+     *
+     * Ships at **0** — exactly today's behaviour, so the leaf is inert until a taste pass moves it.
+     */
+    readonly vStarFloor: number;
     /** `f >= this` is "the disc is still there", which is what defines `az*` / `alt*` (`HALF_DISC`). */
     readonly halfDiscFrac: number;
     /**
@@ -183,6 +202,26 @@ export interface BestSpotScoring {
   readonly trackWeight: {
     /** e-folding scale of the altitude weight, deg (`TRACK_WEIGHT_SCALE_DEG`). */
     readonly altScaleDeg: number;
+    /**
+     * **THE WINDOW'S TOP**, AIRLESS deg above the horizon (`TRACK_TOP_ALT_DEG`). The window runs
+     * from `alt(t0) − bottomRhoMultiple·ρ` up to here, and NOTHING above it is a sample — which is
+     * why `curves.altScaleDeg` could not reach the owner's own moment on 2026-08-26f: re-weighting
+     * cannot reach samples that do not exist. His frame was at **+5.90°**, 1.9° above the shipped
+     * top of 4°.
+     *
+     * It lives in the PROFILE rather than on the job (a deliberate deviation from
+     * `bestspot/SWEEP_MODE_MAP.md` C2) for two reasons that only became true after slice 0:
+     * `trackHash` now covers the whole `trackWeight` group, so a change here rebuilds the track
+     * instead of silently reusing the old one — which was C2's entire objection; and its two
+     * siblings are already profile leaves that shape the same track. Being a profile leaf is also
+     * what makes it MEASURABLE through `__globe.bestSpotTuning` without a new dev seam.
+     *
+     * **A raise is unbounded in K on its own** — at the owner's moonrise the moon culminates at
+     * 19.70°, so a top of 20° yields 232 window samples and ~615 MiB of hulls. The window is
+     * therefore capped by `TRACK_WINDOW_MAX_SAMPLES` lattice points, truncated from the NEW end.
+     * Ships at 4 — today's constant, so the leaf is inert until a taste pass moves it.
+     */
+    readonly topAltDeg: number;
     /**
      * KILL SWITCH for the AS-BUILT horizon-ceiling fix — a BOOLEAN, not a number, because the
      * ceiling has no free scale (it is the fraction of the disc a perfectly open eye could see).
@@ -378,6 +417,7 @@ export const BESTSPOT_SCORING_V1: BestSpotScoring = freezeDeep<BestSpotScoring>(
   gates: {
     vGateLo: 0.15, // V_GATE_LO
     vGateHi: 0.75, // V_GATE_HI
+    vStarFloor: 0, // INERT — today's gate exactly. See the leaf's docstring.
     halfDiscFrac: 0.5, // HALF_DISC
     minCoverage: 0.5, // PLAN.minCoverageForGaps
   },
@@ -410,6 +450,7 @@ export const BESTSPOT_SCORING_V1: BestSpotScoring = freezeDeep<BestSpotScoring>(
 
   trackWeight: {
     altScaleDeg: 2.5, // TRACK_WEIGHT_SCALE_DEG
+    topAltDeg: 4, // TRACK_TOP_ALT_DEG — INERT. See the leaf's docstring.
     horizonCeiling: true, // the AS-BUILT fix, ON
   },
 
@@ -428,6 +469,24 @@ export const BESTSPOT_SCORING_V1: BestSpotScoring = freezeDeep<BestSpotScoring>(
     aerialMinM: 5, // bestSpotTypes.AERIAL_MIN_M
     demoteK: 0.7, // landcoverRaster.DEMOTE_K
     soft: {
+      /**
+       * **THIS RUNG IS A HARD CEILING ON THE SHORTLIST, AND IT IS AN OPEN OWNER CALL (T59).**
+       *
+       * `unknown` is not a place — it is the raster failing to classify one. Charging it 0.45
+       * makes `A_soft^0.5 = 0.673`, and on the owner's own hand-picked cell that multiplier, with
+       * the field-wide daylight `M_eff = 0.512`, caps the cell at
+       * `S_max = 0.673 × 0.512 = 0.345` — **below the shortlist's 0.378 entry price, at a PERFECT
+       * preference of 1.0.** No gate change, no window change and no framing term can lift it
+       * while this number stands. Measured 2026-08-26j: `{unknown: 1}` ALONE reproduces a
+       * whole-ladder-off ablation exactly (0.2176 → 0.3235), while freeing `majorRoad`/`road`
+       * moved the field's best cell and left his byte-identical.
+       *
+       * It also contradicts the doctrine the rest of this engine obeys — `notchDepthDeg =
+       * −Infinity` because *"ignorance is not depth"*, and UNKNOWN is *"a RENDER CLASS, never a
+       * low score"* (`bestspot/BESTSPOT_SPEC_V2.md` §3.4). This ladder is the one place ignorance
+       * is priced as badness. **Do not change it without the owner** — it re-scores every
+       * unclassified cell in every region. See `bestspot/README.md` §1 and `MEASUREMENTS.md` §4/§5.
+       */
       unknown: 0.45,
       water: 0.1,
       wetland: 0.1,
@@ -481,6 +540,9 @@ const CLASS_TABLE: Record<string, InvalidationClass> = {
 
   "gates.vGateLo": "recompose",
   "gates.vGateHi": "recompose",
+  // The star floor reads `TERM_FLAG.hasStar`, which is already in the term buffer — so like its two
+  // siblings it is a pure compose-time arithmetic change and never needs the azimuth sweep re-run.
+  "gates.vStarFloor": "recompose",
   "gates.halfDiscFrac": "rescore",
   "gates.minCoverage": "recompose",
 
@@ -517,6 +579,10 @@ const CLASS_TABLE: Record<string, InvalidationClass> = {
   // or kind boundary. The other half of the fix is `trackHash` in the worker's `trackKey`; without
   // it a re-solve happily reuses the stale cached track. See `trackHash`'s docstring.
   "trackWeight.altScaleDeg": "rescore",
+  // The window's top decides WHICH samples exist, so it is strictly heavier than its two siblings
+  // (which only re-weigh samples that already do). `resweep` is the honest class: `trackHash`
+  // rebuilds the track, and every hull keyed on an azimuth the old window never swept is a miss.
+  "trackWeight.topAltDeg": "resweep",
   "trackWeight.horizonCeiling": "rescore",
 
   // recompose only AFTER §5.3(b) — `EventTrack` carries `sunAltAtT0Deg` + `moonPhaseAngleDeg`, so
@@ -645,6 +711,10 @@ function clampResolved(s: PlainObject): void {
     (gates.vGateLo as number) + BESTSPOT_HONESTY.vGateMinSpan,
     gates.vGateHi as number,
   );
+  // The star floor is a GATE VALUE, so it lives in [0,1] like the smoothstep it maxes against — a
+  // floor above 1 would publish `S > 1` against the GL ramp's absolute contract. `clampLeaf` does
+  // this one too, but `resolveScoring` is TOTAL by design and must not trust that it ran.
+  gates.vStarFloor = Math.min(1, Math.max(0, gates.vStarFloor as number));
 
   // SAFETY.
   access.aerialMinM = Math.max(BESTSPOT_SAFETY.aerialMinFloorM, access.aerialMinM as number);
@@ -662,6 +732,14 @@ function clampResolved(s: PlainObject): void {
   for (const k of Object.keys(weights)) {
     weights[k] = Math.max(BESTSPOT_SAFETY.weightMin, weights[k] as number);
   }
+
+  // The window's top is an ALTITUDE RAMP CEILING and takes the same [0.5, 30] range as `lCeilDeg`.
+  // The floor matters more than the ceiling: a top at or below the window's own bottom leaves
+  // `kWinHi <= kWinLo`, which turns off the absolute lattice snap (`snapAz`) and with it the hull
+  // cache — a silent 40× cost, not an error. The ceiling is belt-and-braces over
+  // `TRACK_WINDOW_MAX_SAMPLES`, which is what actually bounds K.
+  const trackWeight = s.trackWeight as PlainObject;
+  trackWeight.topAltDeg = Math.min(30, Math.max(0.5, trackWeight.topAltDeg as number));
 
   // §1004's proposed ranges — pinned in the tests rather than trusted from the spec.
   gap.maxWidthDeg = Math.max(0.7, gap.maxWidthDeg as number);
@@ -764,6 +842,10 @@ function clampLeaf(leafPath: string, value: number): number {
       );
     case "gates.vGateHi":
       return Math.max(BESTSPOT_SCORING_V1.gates.vGateLo + BESTSPOT_HONESTY.vGateMinSpan, value);
+    case "gates.vStarFloor":
+      return Math.min(1, Math.max(0, value));
+    case "trackWeight.topAltDeg":
+      return Math.min(30, Math.max(0.5, value));
     case "access.aerialMinM":
       return Math.max(BESTSPOT_SAFETY.aerialMinFloorM, value);
     case "graze.conf.tree":

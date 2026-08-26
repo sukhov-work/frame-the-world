@@ -3167,7 +3167,7 @@ export const PLAN = {
 } as const;
 
 /**
- * BEST SPOT — the RENDER + LADDER half (`.claude/claude-docs/BESTSPOT_SPEC_V2.md` §6.11). The
+ * BEST SPOT — the RENDER + LADDER half (`.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md` §6.11). The
  * SCORING half is `lib/geo/bestSpotScoring.ts`, re-exported at the top of this file: nothing in
  * THIS block can move a score, and nothing in this block is ever persisted (the persisted surface
  * is the scoring PATCH, `prefs.bestSpotTuning`).

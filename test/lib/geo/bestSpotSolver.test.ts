@@ -1081,6 +1081,28 @@ describe("S3c — the five `gap.*` paths are GENUINELY recompose (75 B/cell)", (
     expect(sawNegInf || sawPosInf).toBe(true);
   });
 
+  it("THE STAR FLOOR moves EXACTLY the cells the body clears — the fused pass reads `TERM_FLAG.hasStar`, not `v`", () => {
+    // `movedBy > 0` above proves the class table; it does not prove the gate is discriminating.
+    // A floor wired to `v` alone, or to no flag at all, moves every low-`V` cell and passes there.
+    const after = composeScores(res.terms, ctx, resolveScoring({ gates: { vStarFloor: 0.6 } }));
+    let movedStarred = 0;
+    let movedStarless = 0;
+    let starless = 0;
+    for (let i = 0; i < base.length; i++) {
+      const hasStar = (res.terms.flags[i] & TERM_FLAG.hasStar) !== 0;
+      if (!hasStar) starless++;
+      if (Math.abs(base[i] - after[i]) <= 1e-12) continue;
+      if (hasStar) movedStarred++;
+      else movedStarless++;
+    }
+    // The fixture must contain BOTH populations or the assertion below is vacuous in one direction.
+    expect(movedStarred).toBeGreaterThan(0);
+    expect(starless).toBeGreaterThan(0);
+    // …and not one starless cell may move. This is the honesty claim the whole floor rests on: a
+    // cell that never reached half-visibility is still deleted by the gate, exactly as before.
+    expect(movedStarless).toBe(0);
+  });
+
   it("`gap.shoulderSpanDeg` is correctly NOT recompose — it changes WHICH rays are the shoulders", () => {
     // The honest counter-case, and the reason this suite is a contract rather than a rubber stamp:
     // the span decides which rays `notchAt` even looks at, so no amount of stored geometry can
@@ -1095,6 +1117,10 @@ describe("S3c — the five `gap.*` paths are GENUINELY recompose (75 B/cell)", (
       ["graze.conf.terrain", { graze: { conf: { terrain: 0.4 } } }],
       ["curves.lCeilDeg", { curves: { lCeilDeg: 1.5 } }],
       ["gates.vGateHi", { gates: { vGateHi: 0.45 } }],
+      // The STAR FLOOR reads `TERM_FLAG.hasStar` off the buffer, so it must be deliverable by
+      // COMPOSE ALONE. This is the only assertion that exercises the FUSED path's third argument —
+      // `bestSpotMetric.test.ts` pins the kernel, and `cellScore` is the reference, not the ship.
+      ["gates.vStarFloor", { gates: { vStarFloor: 0.6 } }],
       ["weights.f", { weights: { f: 0.45 } }],
       ["access.soft.green", { access: { soft: { green: 0.3 } } }],
       ["curves.accessSoftExponent", { curves: { accessSoftExponent: 0.8 } }],

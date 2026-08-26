@@ -482,6 +482,15 @@ const EXPECT_INERT_ON_FIXTURE: Readonly<Record<string, string>> = {
     "fixture that moved it would be a fixture describing a ray the sweep cannot emit — which is " +
     "the LENS B defect re-opened, and costs more than the coverage is worth.",
 
+  "trackWeight.topAltDeg":
+    "ONE LEVEL ABOVE `cellScore` BY CONSTRUCTION. It decides WHICH samples the window contains, " +
+    "and `cellScore` is HANDED its samples — this fixture builds a synthetic track and hardcodes " +
+    "them (see `syntheticTrack`), so no value of the leaf can move a call that never runs " +
+    "`eventTrack`. Its two siblings ARE live here only because the fixture calls " +
+    "`trackWeightShape` itself, which re-weighs samples that already exist. Pinned instead against " +
+    "`eventTrack` directly — `bestSpotTrack.test.ts` asserts the window's top altitude, its sample " +
+    "count and the span budget all move with it, which is the reachability this walk cannot show.",
+
   "access.soft.water":
     "BESTSPOT_SAFETY: `groundHard.water = 0` kills the cell before any soft rung is read, and " +
     "above `aerialMinM` soft is a flat 1. Unreachable from `cellScore` BY DESIGN — pinned instead " +
