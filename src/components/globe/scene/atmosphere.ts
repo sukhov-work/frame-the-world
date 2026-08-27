@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { ATMOSPHERE, GOLDEN, SUN, WGS84_A, WGS84_B } from "../tuning";
+import { ATMOSPHERE, GOLDEN, SUN, ULTRA, WGS84_A, WGS84_B } from "../tuning";
+import { airLightGlsl } from "../../../lib/globe/duskLight";
 import { DITHER_GLSL, glf } from "./glsl";
 import { horizonTerms } from "./sky";
 
@@ -29,7 +30,20 @@ export interface AtmosphereHandle {
   /** RC24 — ULTRA's band tint for the horizon haze, and how strongly to pull toward it. `k` is
    *  the GROUND's own effective haze fraction (already gated + eased) times `ULTRA.domeTintK`,
    *  so the dome cannot tint on a schedule the ground is not on. `k = 0` is an exact no-op. */
-  setUltraBand(k: number, col: THREE.Color): void;
+  setUltraBand(
+    k: number,
+    col: THREE.Color,
+    /** The DIRECTIONAL arm's own weight (owner taste pass, 2026-08-27c) — no longer borrowed from
+     *  the RC24 tint coupling, which capped it at 0.38 and made the afterglow a lerp target
+     *  dimmer than the term it replaced. 0 skips the whole block. */
+    dirK: number,
+    /** Owner defect 2 (2026-08-27) — the anti-solar tint, the sky's luminance and the sun-side
+     *  afterglow that outlives it. Same sample as the ground's, so the dome and the terrain under
+     *  it can never disagree about what time of day the air thinks it is. */
+    cool: THREE.Color,
+    skyLevel: number,
+    afterglow: number,
+  ): void;
   dispose(): void;
 }
 
@@ -88,6 +102,39 @@ export function attachAtmosphere(
     // OFF-STATE: `uFtwUltraK` is 0 whenever ULTRA is off, and `mix(x, y, 0.0)` is exactly `x`.
     uFtwUltraK: { value: 0 },
     uFtwUltraHaze: { value: new THREE.Color(0, 0, 0) },
+    // --- OWNER DEFECT 2 (2026-08-27): THE DOME HAD NO AZIMUTH. -------------------------------
+    // `haze` below is a function of elevation above the true horizon and nothing else, and the
+    // golden warmth rides the SUN's elevation — both uniform around the compass. So the horizon
+    // ring glowed identically toward the sun and away from it, which is the owner's "the whole sky
+    // dome has same colour and luminosity … the opposite side of the sky should be darker".
+    //
+    // These four make it directional, and they arrive from the orchestrator's ONE light sample so
+    // the dome cannot drift onto its own schedule (the RC24 coupling, extended):
+    //   · uFtwSkyCool  — the anti-solar tint the warm band tint is lerped FROM;
+    //   · uFtwSkyLevel — the sky's own luminance, so the band dims as the sun sets instead of
+    //                    holding full brightness into the night;
+    //   · uFtwAfterglow— how much sun-side glow SURVIVES below the horizon. This is the "nice
+    //                    local sky afterglow when the sun has just set", and it is local because
+    //                    it rides the Mie lobe: it lives in the sun's azimuth and leaves the rest
+    //                    of the sky to go dark.
+    // All zero with the chip off, and `mix(x, y, 0.0)` / `× 1.0` keep the shipped dome exact.
+    uFtwSkyCool: { value: new THREE.Color(tokens.skyHorizon) },
+    uFtwSkyLevel: { value: 0 },
+    uFtwAfterglow: { value: 0 },
+    // TASTE PASS (2026-08-27c) — the directional arm's OWN weight, and why it needed one.
+    //
+    // It used to be blended in by `uFtwUltraK`, which is `groundHaze × ULTRA.domeTintK` and is
+    // therefore capped at 0.3825: the directional sky, and the afterglow riding it, were
+    // STRUCTURALLY a minority of the dome. Worse, they were a LERP TARGET DIMMER THAN THE TERM
+    // THEY REPLACED — the legacy omnidirectional band rides `max(dayK, hGold)`, and
+    // `GOLDEN.fadeInLo` = sin(−12.1°) holds `hGold` at 0.977 at −2°, so `mix()` SUBTRACTED and
+    // ULTRA could only make the dusk sun-side horizon DARKER than baseline. It first exceeds the
+    // legacy term at −9.45°, by which point the weight is 0.154 and the band is invisible.
+    //
+    // `uFtwUltraK` goes back to being exactly what its own docblock says — how far the dome's
+    // TINT is pulled toward the ground's band tint (RC24) — and stops doubling as the master gain
+    // on a light source. 0 with the chip off, so the whole directional block is skipped.
+    uFtwDirK: { value: 0 },
   };
   const material = new THREE.ShaderMaterial({
     transparent: true,
@@ -121,6 +168,11 @@ export function attachAtmosphere(
       uniform float uEclipse;
       uniform float uFtwUltraK;
       uniform vec3 uFtwUltraHaze;
+      uniform vec3 uFtwSkyCool;
+      uniform float uFtwSkyLevel;
+      uniform float uFtwAfterglow;
+      uniform float uFtwDirK;
+      ${airLightGlsl(ULTRA.airRayleighK, ULTRA.airMiePow, ULTRA.airMieGain)}
       varying vec3 vW;
       void main() {
         // one shell layer per view ray: near (front) faces when outside, far (back) faces when inside
@@ -204,6 +256,36 @@ export function attachAtmosphere(
           hazeCol = mix(hazeCol, uFtwUltraHaze, uFtwUltraK);
           vec3 skyCol = zenithCol * ${glf(ATMOSPHERE.skyDayGain)} * dayK
                       + hazeCol * haze * ${glf(ATMOSPHERE.skyHorizonGain)} * max(dayK, hGold);
+          // --- OWNER DEFECT 2: the AZIMUTHAL half of the dome, ULTRA-gated. -------------------
+          // Everything above is rotationally symmetric about the local up, which is why the
+          // anti-solar horizon glowed exactly as brightly as the solar one. This rebuilds the same
+          // horizon band as a DIRECTIONAL radiance and blends toward it by uFtwUltraK, so with the
+          // chip off mix(skyCol, dirSky, 0.0) is exactly the dome that shipped.
+          if (uFtwDirK > 0.0) {
+            // Angle between THIS view ray and the sun — in ellipsoid-scaled space, which is where
+            // sRel already lives, so the horizon and the glow share one frame.
+            float cosG = dot(Ds, normalize(uSunDir));
+            float sunSide = ftwAirSun(cosG);
+            // The band tint IS the sun-side colour; the cool tint owns the rest of the compass.
+            vec3 dirCol = mix(uFtwSkyCool, hazeCol, sunSide * ${glf(ULTRA.airWarmSwing)});
+            // The ordinary daylight band, made directional. The AFTERGLOW is no longer folded
+            // in here through a max() — as a lerp target it could only ever subtract (see the
+            // uFtwDirK note) — it is a separate ADDITIVE band below.
+            float lvl = uFtwSkyLevel * dayK;
+            vec3 dirSky = zenithCol * ${glf(ATMOSPHERE.skyDayGain)} * dayK * uFtwSkyLevel
+              + dirCol * haze * ${glf(ATMOSPHERE.skyHorizonGain)} * lvl * ftwAirLevel(cosG);
+            skyCol = mix(skyCol, dirSky, uFtwDirK);
+            // THE AFTERGLOW, on its own band and its own falloff. Reusing the daytime haze crest
+            // gave it a ~4.3 deg ribbon (ATMOSPHERE.skyHazeFalloff 0.075 in sine units) sitting
+            // under a flat zenith term twice as bright as itself; a real post-sunset arch spans
+            // 15-25 deg and dominates the sky it is in. afterglowTauSin 0.30 is ~17.5 deg. Below
+            // the horizon it still uses the dome's own skyHazeBelow, so the band dies into the
+            // ground rather than wrapping under it.
+            float hzA = exp(-max(sRel, 0.0) / ${glf(ULTRA.afterglowTauSin)})
+              * exp(min(sRel, 0.0) / ${glf(ATMOSPHERE.skyHazeBelow)}) * hazeAltK;
+            skyCol += dirCol * hzA * ${glf(ULTRA.afterglowGain)}
+              * uFtwAfterglow * sunSide * uFtwDirK;
+          }
           color = mix(color, skyCol, skyK);
         }
         ${DITHER_GLSL}
@@ -223,9 +305,13 @@ export function attachAtmosphere(
 
   return {
     mesh,
-    setUltraBand(k, col) {
+    setUltraBand(k, col, dirK, cool, skyLevel, afterglow) {
       uniforms.uFtwUltraK.value = k;
+      uniforms.uFtwDirK.value = dirK;
       (uniforms.uFtwUltraHaze.value as THREE.Color).copy(col);
+      (uniforms.uFtwSkyCool.value as THREE.Color).copy(cool);
+      uniforms.uFtwSkyLevel.value = skyLevel;
+      uniforms.uFtwAfterglow.value = afterglow;
     },
     uniforms,
     update(camera, alt) {

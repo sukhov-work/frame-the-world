@@ -147,6 +147,15 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `ULTRA_PLAN.md` (read its **AS BUILT** block first) · `mem:project/wip-2026-08-22-ultra-track` ·
   `scripts/verify-ultra.mjs` 28/28. Nine levers behind ONE desktop-only `ULT` chip, off by default;
   the owner LIFTED the frame-rate ceiling to buy them.
+  **EXTENDED 2026-08-27b — the owner's three immersion breakers, all three measured before they
+  were fixed** (`rendering/ULTRA_ARCHITECTURE.md` **§13**, `mem:project/wip-2026-08-27-ultra-render-batch`,
+  `scripts/verify-ultra-dusk.mjs` **21/21**): a nested CASCADE ladder (the single box covered
+  **8-35 %** of a mountain frame; `getShadowMask()`'s cascade-blind multiply is what makes nested
+  zero-intensity lights compose, so no `onBeforeCompile` is touched and the §10 CSM rejection
+  stands) · a real DUSK model (`lib/globe/duskLight` — physical chromaticity, authored level; the
+  air-light had **no LEVEL term**, so at sunset the far field was BRIGHTER than the foreground) ·
+  and the dark tile grid, which was the quantized-mesh **SKIRT** casting AND receiving in the
+  shadow pipeline (the mip chain and anisotropy were both measured innocent).
 - **ECLIPSES (2026-08-22k, HOT)** — the moon now OCCLUDES the sun (it was being DISCARDED, not
   washed out) + corona + world darkness + copper umbra; works only because the scene is
   TOPOCENTRIC (geocentric misses by 1°) · `mem:project/wip-2026-08-22-eclipses`.

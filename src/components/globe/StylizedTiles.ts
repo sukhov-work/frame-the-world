@@ -48,6 +48,8 @@ import {
   horizonDistanceM,
   type ShadowFitProfile,
 } from "../../lib/globe/shadowFit";
+import { cascadeNeedsRender, fitCascades } from "../../lib/globe/shadowCascade";
+import { solarChroma } from "../../lib/globe/duskLight";
 import {
   aboveGateK,
   moonRigTakeoverK,
@@ -170,7 +172,7 @@ import {
   WGS84_A,
   WGS84_B,
 } from "./tuning";
-import { easeK, ultraLightAt } from "../../lib/globe/lightBands";
+import { bandCurve, easeK, ultraLightAt } from "../../lib/globe/lightBands";
 import {
   eclipseDaylightK,
   lunarEclipseFromState,
@@ -290,6 +292,10 @@ export function attachStylizedTiles(opts: {
   /** GlobeCanvas's DirectionalLight (buildings key + shadow caster) — the orchestrator drives its
    *  direction from the ephemeris and its shadow rig from the view focus. */
   sunLight?: THREE.DirectionalLight;
+  /** The extra shadow-only cascades built at BOOT by GlobeCanvas (owner defect 1, 2026-08-27) —
+   *  zero-intensity DirectionalLights whose depth maps cover the view OUTSIDE `sunLight`'s own
+   *  capped box. Empty unless ULTRA was on at page load. See `lib/globe/shadowCascade`. */
+  shadowCascades?: THREE.DirectionalLight[];
   /** GlobeCanvas's HemisphereLight (the sky/ground ambient fill on the buildings). ULTRA S10
    *  re-seats it onto the LOCAL UP at the view focus and tracks its intensity/tint to the
    *  ephemeris; with the chip off it is never touched. */
@@ -313,6 +319,7 @@ export function attachStylizedTiles(opts: {
     ionToken,
     reduceMotion = false,
     sunLight,
+    shadowCascades = [],
     hemiLight,
     qualityTier = "high",
     allow8k = true,
@@ -2149,6 +2156,26 @@ export function attachStylizedTiles(opts: {
     boundsAltK: ULTRA.boundsAltK,
     maxBoundsM: ULTRA.maxBoundsM,
   };
+  // --- SHADOW CASCADES (owner defect 1, 2026-08-27). Declared HERE, above the ephemeris seam:
+  //     a `let` read by the frame loop but declared below it is a TDZ throw that this file
+  //     swallows into the silent-fallback path (the standing trap in this module).
+  //     One record per cascade light, holding what its LIVE depth map was rendered with — the
+  //     refresh test compares against these, never against a re-derivation.
+  const _cascadeState = shadowCascades.map(() => ({
+    halfExtentM: 0,
+    centre: new THREE.Vector3(),
+    keyDir: new THREE.Vector3(),
+    epoch: -1,
+    lastMs: 0,
+    /** Live for the DEV probe — a cascade dropped by the fit reports `active: false`. */
+    active: false,
+    metresPerTexel: 0,
+    biasM: 0,
+  }));
+  const _cascadeSwingRad = THREE.MathUtils.degToRad(ULTRA.cascadeRefreshDeg);
+  const _casKey = new THREE.Vector3();
+  /** The eye→focus distance the shadow ladder was fitted from this frame (m). */
+  let shadowViewDistM = 0;
   /** RC2 — the one elevation-gate profile the key/shadow handoff ramps read (lib/globe/keyHandoff).
    *  ULTRA shares it deliberately: it shares the gate, so it must share the fade. */
   const KEY_GATE: KeyGateProfile = {
@@ -2157,7 +2184,14 @@ export function attachStylizedTiles(opts: {
     moonMinIllum: SHADOWS.moonMinIllum,
     moonIllumSoftFrac: SHADOWS.moonIllumSoftFrac,
   };
+  /** The SHADOW FIELD's own gate under ULTRA (owner taste pass, 2026-08-27c). Same crossing point
+   *  as `KEY_GATE` — which is load-bearing, because that is where the rig's direction teleports
+   *  from the sun to the moon and the field has to be at zero when it does — but a band a fifth
+   *  as wide, so cast shadows survive the raking hour instead of dying from 3.5° up. */
+  const ULTRA_SHADOW_GATE: KeyGateProfile = { ...KEY_GATE, bandSin: ULTRA.shadowFadeBandSin };
   const _keyWhite = new THREE.Color(0xffffff);
+  /** Owner defect 2 — scratch for the physical extinction chromaticity applied to the key. */
+  const _keyChroma = new THREE.Color();
   const _goldenCol = new THREE.Color(tokens.goldenHour);
   const _moonKeyCol = new THREE.Color(tokens.moonlight); // the key light's moon-shadow disguise
   let frameCount = 0;
@@ -2181,7 +2215,23 @@ export function attachStylizedTiles(opts: {
   const _hazeBlueCol = new THREE.Color(tokens.atmosphereDeep);
   const _hazeNightCol = new THREE.Color(tokens.water);
   const _hazeCol = new THREE.Color();
+  /** Owner defect 2 — the ANTI-SOLAR air-light tint (the cool end of the directional swing). */
+  const _hazeCoolCol = new THREE.Color();
   const _ultraZeroCol = new THREE.Color(tokens.skyHorizon);
+  /** Owner defect 2 — the dusk sample. Declared HERE, above the ephemeris seam, for the standing
+   *  TDZ reason: a `let` read by the frame loop but declared below it throws into this module's
+   *  silent-fallback path. `directK` seeds at 1 so a frame that runs before the first sample
+   *  cannot darken the ground. */
+  let ultraSkyLevel = 0;
+  let ultraAfterglow = 0;
+  /** The sky dome's directional-arm weight, eased so a chip flip dissolves. */
+  let ultraDomeDir = 0;
+  /** The two dusk TROUGHS on the sun-blind facade terms. Exactly 1 with the chip off — the flat
+   *  parts of a building have to fall on the same curve the key falls on, or dimming the key just
+   *  flattens the city (measured front:back on a wall, before this: 1.28 at 3°, 1.08 at 0°). */
+  let ultraEmisK = 1;
+  let ultraEdgeK = 1;
+  let ultraDirectK = 1;
   /** The construction state of every live lever ULTRA writes, captured so the OFF edge is a
    *  RESTORE rather than a re-derivation. `hemiLight` in particular has no other record of where
    *  it started: three reads a HemisphereLight's direction from its world position, and its
@@ -2368,6 +2418,9 @@ export function attachStylizedTiles(opts: {
       skyTarget,
       findGhosts,
       sunLight,
+      // Owner defect 1 — the cascade lights, so a probe can suppress them for an exact A/B
+      // ("what the single capped box actually covered") without rebuilding the renderer.
+      cascadeLights: shadowCascades,
       bodies: () => ({
         sunDir: sunDirW.toArray(),
         moonDir: moonDirW.toArray(),
@@ -2618,6 +2671,21 @@ export function attachStylizedTiles(opts: {
         dayMix: ground.uniforms.uFtwUltraLight.value,
         haze: ground.uniforms.uFtwHaze.value,
         hazeCol: (ground.uniforms.uFtwHazeCol.value as THREE.Color).getHex(),
+        // DUSK (owner defect 2, 2026-08-27) — read off the LIVE uniforms and the LIVE key, never
+        // re-derived, because the defect being fixed was precisely a light model whose numbers and
+        // whose pixels disagreed. `skyLevel` is the one that has to fall with the sun; `keyLevel`
+        // is the key's measured intensity as a fraction of its own nominal, so "the sun is still
+        // too bright below 3-4°" becomes a number instead of an argument.
+        dusk: {
+          skyLevel: ground.uniforms.uFtwSkyLevel.value as number,
+          directK: ground.uniforms.uFtwDirectK.value as number,
+          afterglow: atmosphere.uniforms.uFtwAfterglow.value as number,
+          hazeCool: (ground.uniforms.uFtwHazeCool.value as THREE.Color).getHex(),
+          keyLevel: sunLight ? sunLight.intensity / SUN.keyIntensity : null,
+          keyCol: sunLight ? sunLight.color.getHex() : null,
+          sunDiscExtinct: (sky.sunMesh.material as THREE.ShaderMaterial).uniforms.uExtinct.value,
+          domeSkyLevel: atmosphere.uniforms.uFtwSkyLevel.value as number,
+        },
         // S11 exposure — live-written, so a stale value here means the step stopped running
         exposure: renderer.toneMappingExposure,
         // S10 hemisphere (audit gap #16)
@@ -2647,20 +2715,67 @@ export function attachStylizedTiles(opts: {
                 (2 * sunLight.shadow.camera.right) / Math.max(1, sunLight.shadow.mapSize.x),
             }
           : null,
+        // THE CASCADE LADDER (owner defect 1, 2026-08-27) — read off the LIVE lights, never off
+        // the fit that produced them, because the whole failure this fixes was a rig whose numbers
+        // and whose pixels disagreed. `reachM` is the headline: `boundsM + focusOffset` for
+        // cascade 0 and `halfExtentM` for the rest, so `coverM` vs `viewFitM` is the one ratio
+        // that says whether the frame is fully shadowed. `stale` counts frames since a cascade's
+        // map was last re-rendered — a number that only ever climbs would mean the refresh policy
+        // has stopped firing, which is invisible in a screenshot until you turn the camera.
+        cascades: shadowCascades.map((cl, i) => ({
+          casting: cl.castShadow,
+          active: _cascadeState[i].active,
+          mapPx: cl.shadow.mapSize.x,
+          boundsM: cl.shadow.camera.right,
+          near: cl.shadow.camera.near,
+          far: cl.shadow.camera.far,
+          radius: cl.shadow.radius,
+          intensity: cl.shadow.intensity,
+          normalBias: cl.shadow.normalBias,
+          biasMetres: _cascadeState[i].biasM,
+          metresPerTexel: _cascadeState[i].metresPerTexel,
+          // The one property that must hold for the ladder to compose: a cascade may never light
+          // anything. `intensity` 0 makes three's `uniforms.color` exactly black.
+          lightIntensity: cl.intensity,
+          ageMs: _cascadeState[i].lastMs > 0 ? performance.now() - _cascadeState[i].lastMs : null,
+        })),
+        /** Furthest ground distance (m) any live box reaches — against `shadow.viewFitM`. */
+        shadowCoverM: (() => {
+          let cover = sunLight
+            ? sunLight.shadow.camera.right + _shadowFocus.distanceTo(_eyeGround)
+            : 0;
+          for (let i = 0; i < shadowCascades.length; i++) {
+            if (shadowCascades[i].castShadow && _cascadeState[i].active) {
+              cover = Math.max(cover, _cascadeState[i].halfExtentM);
+            }
+          }
+          return cover;
+        })(),
         // S3 terrain casts — counted off the LIVE scene graph rather than off our own flag, so
         // the `shadowSide` trap (which fails silently and casts nothing) cannot pass this.
         terrain: (() => {
           let meshes = 0;
           let casting = 0;
           let frontSideShadow = 0;
+          // Owner defect 3 (2026-08-27): the quantized-mesh SKIRT is what drew a dark band along
+          // every tile boundary once terrain casting shipped. `skirtClipped` counts the casters
+          // that actually carry the depth-pass draw-range clip, and `skirtGroups` the ones whose
+          // geometry has the cap/skirt layout the clip depends on — if the library ever changes
+          // that layout, the two numbers separate instead of the fix silently doing nothing.
+          let skirtClipped = 0;
+          let skirtGroups = 0;
           ground.tiles.group.traverse((o: THREE.Object3D) => {
             const m = o as THREE.Mesh;
             if (!m.isMesh || (m.material as THREE.Material)?.type !== "MeshBasicMaterial") return;
             meshes++;
             if (m.castShadow) casting++;
             if ((m.material as THREE.Material).shadowSide === THREE.FrontSide) frontSideShadow++;
+            if (Object.prototype.hasOwnProperty.call(m, "onBeforeShadow")) skirtClipped++;
+            const g0 = m.geometry.groups[0];
+            const total = m.geometry.index?.count ?? 0;
+            if (g0 && g0.start === 0 && g0.count > 0 && g0.count < total) skirtGroups++;
           });
-          return { meshes, casting, frontSideShadow };
+          return { meshes, casting, frontSideShadow, skirtClipped, skirtGroups };
         })(),
         // §1b anisotropy — sampled off the LIVE composite textures the shader is sampling, not
         // off the value we asked for. Walks the overlay plugin's own maps (overlays → tileInfo →
@@ -4343,20 +4458,64 @@ export function attachStylizedTiles(opts: {
     // Off-state is untouched by construction — `light` null already zeroes these — and with no
     // eclipse `eclipseK` is exactly 1, so the on-state is byte-identical too.
     // Exposure is deliberately NOT scaled here: it is a taste lever and lives in owner A/B AB5.
+    // --- DUSK (owner defect 2, 2026-08-27): the three scalars that make the air-light LIGHT. ---
+    //
+    // One sample, one frame, every consumer — the standing rule of this track, now carrying the
+    // terms whose absence produced "you uniformly illuminate the whole scene in some piss very
+    // bright colour instead of naturally darkening scene and sky":
+    //   · skyLevel  — the sky's own luminance. `hazeK` says how much of the far field is air;
+    //                 this says how bright that air IS. Multiplying them is the fix.
+    //   · afterglow — sun-side glow that OUTLIVES the sky level, below the horizon. Local by
+    //                 construction: every consumer applies it through the Mie lobe.
+    //   · directK   — how much direct sun survives extinction, driving BOTH the key light and the
+    //                 ground's direct/ambient split so a wall and the ground it stands on dim
+    //                 together. The COLOUR half of extinction is physical (`solarChroma`); this
+    //                 level half is authored — see `ULTRA.keyExtinctCurve`.
+    // × eclipseK for the same reason RC23 gives: ULTRA's day-driven additions must fade toward
+    // baseline under an eclipse, because baseline already carries the darkening.
+    const sinSunFocus = sunDirW.dot(_focusUp);
+    ultraSkyLevel = light ? bandCurve(ULTRA.skyLevelCurve, sinSunFocus) * eclipseK : 0;
+    ultraAfterglow = light ? bandCurve(ULTRA.afterglowCurve, sinSunFocus) * eclipseK : 0;
+    ultraDirectK = light ? bandCurve(ULTRA.keyExtinctCurve, sinSunFocus) : 1;
+    ultraEmisK = light ? bandCurve(ULTRA.buildingEmisCurve, sinSunFocus) : 1;
+    ultraEdgeK = light ? bandCurve(ULTRA.buildingEdgeCurve, sinSunFocus) : 1;
+    ultraDomeDir +=
+      ((light ? ULTRA.domeDirK : 0) - ultraDomeDir) * easeK(dtMs, ULTRA.hazeTauMs);
+    if (ultraDomeDir < 1e-4) ultraDomeDir = 0; // snap, so "off" is exactly off
+    // The ANTI-SOLAR tint. The band ramp's own BLUE stop is exactly the right colour for the half
+    // of the sky the sun is not in — reusing it keeps both ends of the directional swing inside
+    // the palette (D14) instead of inventing a hue rotation nobody can tune.
+    _hazeCoolCol.copy(_hazeBlueCol).lerp(_hazeDayCol, light ? light.tint[0] : 1);
     ground.setUltraTargets({
       photo3d: light ? ULTRA.photo3dK : 0,
       light: light ? 1 : 0,
       haze: light ? light.hazeK * eclipseK : 0,
       hazeCol: _hazeCol,
+      hazeCool: _hazeCoolCol,
+      skyLevel: ultraSkyLevel,
+      afterglow: ultraAfterglow,
+      directK: ultraDirectK,
     });
     // --- S4 to the buildings: the ground's EFFECTIVE, already-gated, already-eased value ---
     const hazeNow = ground.uniforms.uFtwHaze.value as number;
-    buildings.setUltraHaze(hazeNow, _hazeCol, sunDirW);
-    enriched?.setUltraHaze(hazeNow, _hazeCol, sunDirW);
+    buildings.setUltraHaze(hazeNow, _hazeCol, sunDirW, _hazeCoolCol, ultraSkyLevel, ultraAfterglow,
+      ultraEmisK, ultraEdgeK);
+    enriched?.setUltraHaze(hazeNow, _hazeCol, sunDirW, _hazeCoolCol, ultraSkyLevel, ultraAfterglow,
+      ultraEmisK, ultraEdgeK);
     // --- RC24 to the SKY DOME: the same effective value, so the horizon haze the dome paints
     //     above the terrain agrees with the aerial perspective the ground paints below it. This
     //     is the one visible SEAM the ULTRA track shipped with (ULTRA_ARCHITECTURE §12).
-    atmosphere.setUltraBand(hazeNow * ULTRA.domeTintK, _hazeCol);
+    atmosphere.setUltraBand(
+      hazeNow * ULTRA.domeTintK,
+      _hazeCol,
+      // The directional arm's own weight (taste pass 2026-08-27c) — eased on the ground's haze τ
+      // so a chip flip dissolves, but NOT scaled by the haze value, which is what capped it at
+      // 0.38 and made the afterglow a lerp target dimmer than the term it was replacing.
+      ultraDomeDir,
+      _hazeCoolCol,
+      ultraSkyLevel,
+      ultraAfterglow,
+    );
 
     // --- S11 exposure: the cheapest "epic" lever, and the one that MUST ease. A per-frame
     //     exposure step reads as a flicker, and while scrubbing the sun can cross a whole
@@ -4404,8 +4563,15 @@ export function attachStylizedTiles(opts: {
           hemiLight.position.copy(_hemiPos0);
           hemiLight.intensity = _hemiIntensity0;
         }
-        buildings.setUltraHaze(0, _ultraZeroCol, sunDirW);
-        enriched?.setUltraHaze(0, _ultraZeroCol, sunDirW);
+        buildings.setUltraHaze(0, _ultraZeroCol, sunDirW, _ultraZeroCol, 0, 0, 1, 1);
+        enriched?.setUltraHaze(0, _ultraZeroCol, sunDirW, _ultraZeroCol, 0, 0, 1, 1);
+        ultraSkyLevel = 0;
+        ultraAfterglow = 0;
+        ultraDomeDir = 0;
+        ultraDirectK = 1;
+        ultraEmisK = 1;
+        ultraEdgeK = 1;
+        atmosphere.setUltraBand(0, _ultraZeroCol, 0, _ultraZeroCol, 0, 0);
         ultraLookSettled = true;
       }
     }
@@ -4477,6 +4643,7 @@ export function attachStylizedTiles(opts: {
             );
             shadowBoundsM = fit.halfExtentM;
             shadowViewFitM = fit.viewDistM;
+            shadowViewDistM = viewDistM;
             // Horizontal look direction. At nadir this degenerates to the zero vector, which
             // three's normalize() leaves at zero — and `pushM` is ~0 there anyway, so the box
             // lands centred under the eye exactly as it did before RC4.
@@ -4508,6 +4675,33 @@ export function attachStylizedTiles(opts: {
           } else {
             const goldenK = goldenFactor(sunDot, GOLDEN);
             sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
+            // --- DUSK (owner defect 2, 2026-08-27): the key finally dies, and reddens honestly.
+            //
+            // "the sun is still too bright when it is lower than around 3-4 degrees, make sure to
+            // realistically dim it and change color due to atmosphere refraction closer to the
+            // horizon." Both halves were missing: `sunExtinctionK` in scene/sky.ts dims only the
+            // DISC IMPOSTOR, and the line above actually BRIGHTENS the key by up to 35 % through
+            // the golden band and carries full strength to the horizon.
+            //
+            // The two halves are deliberately different in kind. The COLOUR is physics —
+            // Kasten-Young airmass through per-channel Rayleigh+aerosol optical depth
+            // (`lib/globe/solarChroma`), which is why the last light of the day is orange and not
+            // merely "the golden token, more of it". The LEVEL is an authored curve, because true
+            // transmittance at 0° is ~1 % of zenith and this renderer has an exposure ramp rather
+            // than an adapting eye (the full argument is on `ULTRA.keyExtinctCurve`).
+            //
+            // ULTRA-only, and inert by construction when off: `ultraDirectK` is seeded and reset
+            // to exactly 1, and the chroma lerp is skipped entirely.
+            if (ultraOn) {
+              const chroma = solarChroma(THREE.MathUtils.radToDeg(Math.asin(
+                THREE.MathUtils.clamp(sunDot, -1, 1),
+              )));
+              _keyChroma.setRGB(chroma[0], chroma[1], chroma[2]);
+              sunLight.color.lerp(
+                _keyChroma.multiply(sunLight.color),
+                ULTRA.keyChromaK,
+              );
+            }
             // Golden hour also BRIGHTENS the building key (warm rim-lit swell, not just a hue shift —
             // the biggest visible building-dusk win). keyBrighten 0 → ×1 = byte-identical.
             // × eclipseK: the key light IS the sun, so an eclipse dims it first. This is the
@@ -4521,13 +4715,40 @@ export function attachStylizedTiles(opts: {
               SUN.keyIntensity *
               (1 + goldenK * GOLDEN.keyBrighten) *
               eclipseK *
-              sunKeyTroughK(sunDot, moonDot, moonIllum, KEY_GATE);
-            sunLight.shadow.intensity = aboveGateK(sunDot, KEY_GATE);
+              sunKeyTroughK(sunDot, moonDot, moonIllum, KEY_GATE) *
+              // The extinction LEVEL. Exactly 1 with the chip off (`ultraDirectK` is seeded 1 and
+              // the settle path restores it), so the baseline key is byte-identical.
+              ultraDirectK;
+            // TASTE PASS (2026-08-27c) — "shadows that were there before should not just
+            // disappear, they should become darker and more global."
+            //
+            // `aboveGateK` fades the WHOLE shadow field out over `SHADOWS.fadeBandSin` = sin(3°):
+            // measured, the overlay is at 52 % by +2° and 9 % by +1°, which is precisely the band
+            // where a raking terrain shadow is the most dramatic thing in the frame. That loss is
+            // recorded on the tunable itself as owner A/B item AB4, deferred for a verdict; the
+            // verdict is now in.
+            //
+            // The band cannot just be deleted — it is also what hides the sun→moon SOURCE SWITCH,
+            // which teleports the rig's direction at `minSunElevSin`. So ULTRA gets its OWN,
+            // narrow band for the shadow field alone (still exactly 0 AT the gate, so the
+            // teleport still happens at zero contribution) while the key trough and the moon
+            // takeover keep the wide one. Byte-identical with the chip off.
+            sunLight.shadow.intensity = aboveGateK(sunDot, ultraOn ? ULTRA_SHADOW_GATE : KEY_GATE);
             if (sunShadows) {
               sunLight.position.copy(_shadowFocus).addScaledVector(sunDirW, shadowLightDistM);
               sunLight.target.position.copy(_shadowFocus);
+              // …and the overlay DEEPENS as the sun comes down the wide band — "darker", without
+              // touching the shadow's SHAPE (the elongated-projection failure mode RC4 and the
+              // cascades exist to avoid). `duskK` is 0 above the band, so this is exactly the
+              // shipped expression at any ordinary sun angle, and exactly it again with the chip
+              // off.
+              const duskK = ultraOn ? 1 - aboveGateK(sunDot, KEY_GATE) : 0;
               ground.setShadowStrength(
-                THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01) * eclipseK,
+                THREE.MathUtils.lerp(
+                  THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01),
+                  ULTRA.groundShadowDuskK,
+                  duskK,
+                ) * eclipseK,
               );
             } else {
               // direction-only mode: keep the terminator agreement for building shading everywhere
@@ -4579,6 +4800,91 @@ export function attachStylizedTiles(opts: {
                 : _shadowBias0;
             }
           }
+          // --- THE CASCADES (owner defect 1, 2026-08-27) -----------------------------------------
+          //
+          // Everything above frames ONE box and caps it, which is why the owner's mountain views
+          // showed a straight cut across the middle distance with everything beyond it fully lit:
+          // measured, `viewFitM` runs 100–430 km at his poses against an 18 km `boundsM`. These
+          // are the boxes outside it. The argument, the coverage table and the invariants are in
+          // `lib/globe/shadowCascade`; this block is the wiring, and it owns three rules:
+          //
+          //  · LOCKSTEP DOWN, NEVER UP. A cascade casts only while `sunLight` does. three indexes
+          //    `directionalShadow[]` by position among ALL directional lights and then truncates
+          //    to the CASTER COUNT, so a non-casting light in front of a casting one drops the
+          //    caster's shadow entirely (`WebGLLights.js:295-305,459-465`). `sun` is first, so
+          //    cascades-off-while-sun-on is fine and is how a chip flip lands; the reverse would
+          //    be a silent, position-dependent corruption and is structurally impossible here.
+          //  · MOVE ONLY WHEN REFRESHING. `shadow.autoUpdate` is false, and the skip in
+          //    `WebGLShadowMap.js:170` happens BEFORE `updateMatrices` — so a cascade that is not
+          //    re-rendered this frame keeps a shadow matrix that still matches its map. Moving the
+          //    light without setting `needsUpdate` would slide the sampled map off its geometry.
+          //  · CENTRED ON THE EYE, not pushed down the look like cascade 0. Two reasons and both
+          //    matter: the box then CONTAINS the eye at every pitch (so the ladder is strictly
+          //    nested and no gap between cascades is possible), and it does not move when the
+          //    camera merely turns — which is what makes a 1.5 s refresh cadence invisible.
+          if (shadowCascades.length > 0) {
+            const casting = sunLight.castShadow;
+            _casKey.copy(moonShadows ? moonDirW : sunDirW);
+            const epoch = ground.terrainEpoch();
+            const nowMs = performance.now();
+            const fits = fitCascades(
+              shadowViewDistM,
+              shadowBoundsM,
+              ULTRA.cascadeReliefM,
+              ULTRA.cascadeLightClearM,
+              ULTRA.cascades,
+            );
+            for (let i = 0; i < shadowCascades.length; i++) {
+              const cl = shadowCascades[i];
+              const st = _cascadeState[i];
+              const fit = casting && ultraOn ? fits[i] : null;
+              st.active = fit !== null;
+              if (!fit) {
+                cl.castShadow = false;
+                st.halfExtentM = 0; // force a full re-render when it comes back
+                continue;
+              }
+              cl.castShadow = true;
+              // The shadow FADE is cascade 0's, verbatim: the ladder must vanish over the same
+              // elevation gate the key does, or dusk would step at the edge of the near box.
+              cl.shadow.intensity = sunLight.shadow.intensity;
+              const stale = cascadeNeedsRender({
+                halfExtentM: fit.halfExtentM,
+                appliedHalfExtentM: st.halfExtentM,
+                centreDriftM: st.centre.distanceTo(_eyeGround),
+                keySwingRad: st.keyDir.angleTo(_casKey),
+                epoch,
+                appliedEpoch: st.epoch,
+                ageMs: nowMs - st.lastMs,
+                moveFrac: ULTRA.cascadeMoveFrac,
+                swingRad: _cascadeSwingRad,
+                maxStaleMs: ULTRA.cascadeMaxStaleMs,
+              });
+              if (!stale) continue;
+              const shCam = cl.shadow.camera;
+              if (shCam.right !== fit.halfExtentM) {
+                shCam.left = -fit.halfExtentM;
+                shCam.right = fit.halfExtentM;
+                shCam.top = fit.halfExtentM;
+                shCam.bottom = -fit.halfExtentM;
+                shCam.near = fit.nearM;
+                shCam.far = fit.farM;
+                shCam.updateProjectionMatrix();
+              }
+              cl.shadow.bias = fit.bias;
+              cl.shadow.normalBias = fit.normalBiasM;
+              cl.position.copy(_eyeGround).addScaledVector(_casKey, fit.lightDistM);
+              cl.target.position.copy(_eyeGround);
+              cl.shadow.needsUpdate = true;
+              st.halfExtentM = fit.halfExtentM;
+              st.centre.copy(_eyeGround);
+              st.keyDir.copy(_casKey);
+              st.epoch = epoch;
+              st.lastMs = nowMs;
+              st.metresPerTexel = fit.metresPerTexel;
+              st.biasM = fit.biasM;
+            }
+          }
           // S3 TERRAIN CASTS — the owner's named killer feature. Gated on the shadow pass being
           // live at all (no caster matters when nothing receives), on altitude, and off the flat
           // chart. `setTerrainCast` no-ops when unchanged, so this is a comparison per frame.
@@ -4611,7 +4917,21 @@ export function attachStylizedTiles(opts: {
           // which is one half of what made sunset step. The dedicated light now gives up exactly
           // the share the rig has taken (`moonRigTakeover`), so the moon key is continuous while
           // the source changes underneath it and the night key is still never doubled.
-          moonIntensity: moonKs * (1 - moonRigTakeover),
+          // A-BLD-5 (owner taste pass, 2026-08-27c): the dedicated moonlight had NO moon-elevation
+          // term anywhere on its path, so a BELOW-HORIZON moon still keyed every wall whose
+          // azimuth faced it — at sun elevation 0 that is 82 % of the sun key, and 33× stronger in
+          // the blue channel. The asymmetry is what proves it an oversight rather than a decision:
+          // the GROUND has gated its moon terms on moon elevation since S7 (`moonUp` in
+          // imageryGround), and the buildings never did, so the two disagreed about whether the
+          // moon was up. Same ramp the sun/moon handoff already uses; exactly 1 with the chip off.
+          moonIntensity:
+            moonKs *
+            (1 - moonRigTakeover) *
+            (ultraOn ? aboveGateK(moonDirW.dot(_focusUp), KEY_GATE) : 1),
+          // Owner taste pass (2026-08-27c) — the disc now carries its own authored LEVEL curve
+          // and an opacity ramp, because scaling an ADDITIVE impostor down can only ever dissolve
+          // it into the sky (see SKY.discLevelCurve). `false` restores the shipped disc exactly.
+          ultraDisc: ultraOn,
           solar: solarEcl, // derived in stepEclipse from these same vectors, one frame earlier
           lunar: lunarEcl,
         });

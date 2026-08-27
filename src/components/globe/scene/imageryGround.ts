@@ -26,6 +26,7 @@ import {
   TerrainPickStats,
 } from "../../../lib/globe/terrainPick";
 import { HeightMemo, type HeightMemoStats } from "../../../lib/globe/heightMemo";
+import { surfaceCapIndexCount } from "../../../lib/globe/terrainSkirt";
 import {
   installEsriPlaceholderFallback,
   type PlaceholderProbeResult,
@@ -143,8 +144,23 @@ export interface ImageryGroundHandle {
     light: number;
     /** S4 aerial-perspective strength STRAIGHT FROM THE BAND CURVE — gates applied here. */
     haze: number;
-    /** S4 haze tint for the current twilight band. */
+    /** S4 haze tint for the current twilight band — the SUN-SIDE half of the air-light swing. */
     hazeCol: THREE.Color;
+    /** Owner defect 2: the ANTI-SOLAR half. The air-light lerps between the two across the Mie
+     *  lobe, which is what stops a sunset painting the same colour in every direction. */
+    hazeCool: THREE.Color;
+    /** Owner taste pass: the sun-side afterglow, mirrored onto the ground so the land and the sky
+     *  it meets agree about the glow. */
+    afterglow: number;
+    /** Owner defect 2: the sky's own luminance (`ULTRA.skyLevelCurve` × afterglow). Air-light is
+     *  light — without this the far field stayed bright while the world went dark. NOT eased here:
+     *  it rides the same sample as `hazeCol`, and the haze fraction it multiplies is already
+     *  eased, so easing it twice would lag the tint behind its own brightness. */
+    skyLevel: number;
+    /** Owner defect 2: how much DIRECT sun reaches the ground (`ULTRA.keyExtinctCurve`), for the
+     *  direct/ambient split. Same number the key light is scaled by, so ground and buildings dim
+     *  together — the coherence rule this whole track is built on. */
+    directK: number;
   }): void;
   /** T44 §1b: anisotropic filtering on the drape composites. Stamped at texture CREATION only —
    *  `anisotropy` is part of three's GL texture cache key, so changing it on a live texture
@@ -463,6 +479,19 @@ export function attachImageryGround(
     uFtwHaze: { value: 0 },
     /** S4 — the haze/scattering tint for the current twilight band (day → golden → blue → night). */
     uFtwHazeCol: { value: new THREE.Color(tokens.skyHorizon) },
+    /** Owner defect 2 (2026-08-27) — the ANTI-SOLAR air-light tint, and the sky's own luminance.
+     *  Seeded so that with the chip off they are inert twice over: `uFtwHaze` is 0, which
+     *  early-returns out of `ftwAerial` before either is read, AND `uFtwSkyLevel` 0 would zero the
+     *  in-scatter anyway. Belt and braces on purpose — this is the one code path where a
+     *  mis-ordered gate would tint every pixel of a baseline frame. */
+    uFtwHazeCool: { value: new THREE.Color(tokens.skyHorizon) },
+    uFtwSkyLevel: { value: 0 },
+    /** Owner taste pass — the sun-side afterglow, so the far terrain catches the same glow the
+     *  dome above it is painting. 0 with the chip off, and max(x, 0.0) is exactly x. */
+    uFtwAfterglowG: { value: 0 },
+    /** Owner defect 2 — DIRECT sun reaching the ground, for the direct/ambient split. Only ever
+     *  read inside `mix(dayShade, dayShadeU, uFtwUltraLight)`, which is 0 with the chip off. */
+    uFtwDirectK: { value: 1 },
   };
   const gradeGround = (shader: any) => {
     shader.uniforms = { ...shader.uniforms, ...uniforms };
@@ -504,6 +533,16 @@ export function attachImageryGround(
         uniform float uFtwUltraLight;
         uniform float uFtwHaze;
         uniform vec3 uFtwHazeCol;
+        // Owner defect 2 (2026-08-27): the anti-solar half of the air-light tint, and the sky's
+        // own luminance level. Both are 0/neutral with the chip off, and both are read by the
+        // SHARED ftwAerial — so the ground, the buildings and the sky dome move as one air mass.
+        uniform vec3 uFtwHazeCool;
+        uniform float uFtwSkyLevel;
+        uniform float uFtwAfterglowG;
+        // The direct/ambient split (ULTRA.groundAmbientK / groundAmbientSkyK): how much DIRECT
+        // sun is reaching the ground now, after extinction. Pushed from the same curve that scales
+        // the key light, so a slope and the building standing on it dim together.
+        uniform float uFtwDirectK;
         // S9 — the twilight-band day curve, EMITTED from ULTRA.dayCurve by lib/globe/lightBands
         // so the shader and its JS twin cannot drift (a unit test evaluates both and compares).
         ${bandCurveGlsl("ftwUltraDayK", ULTRA.dayCurve)}
@@ -566,14 +605,80 @@ export function attachImageryGround(
           // ULTRA off the expression is byte-for-byte the one that shipped.
           float photo = max(uFtwFlat2d * uFtwPhotoK, uFtwPhoto3d) * (1.0 - uFtwDark);
           float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
+          // ULTRA (owner defect 2, 2026-08-27) — DIRECT vs AMBIENT, instead of one floored ramp.
+          //
+          // The legacy line above floors the slope term at EARTH.dayGradMin 0.78: a face pointing
+          // DIRECTLY AWAY from the sun keeps 78 % of what a face pointing into it gets, at every
+          // hour. That floor is a stand-in for ambient skylight and it is the reason the owner saw
+          // "opposite sides of the terrain … illuminated in the same way … while the sun is
+          // directly on the other side of them". Skylight and sunlight simply do not fade
+          // together, so they cannot share one number:
+          //   · AMBIENT survives sunset (it IS the blue hour) and is nearly omnidirectional, but a
+          //     valley wall sees less sky than a summit — hence the dot(n, up) sky-exposure term;
+          //   · DIRECT is Lambert and dies with uFtwDirectK, which carries the real extinction
+          //     collapse through the last few degrees.
+          // At noon uFtwDirectK is ~1 and the pair lands within a few percent of the legacy ramp,
+          // so the whole visible change is where the owner was looking. mix(·, ·, 0.0) is exactly
+          // the legacy value when the chip is off.
+          float skyExposure = mix(1.0, 0.5 + 0.5 * dot(nS, nUp), ${glf(ULTRA.groundAmbientSkyK)});
+          // TASTE PASS (2026-08-27c). The first pass's ambient half was a CONSTANT times a term
+          // that only knows which way is UP — so 68 % of the shade was provably identical on the
+          // sun-facing and the anti-sun face of the same ridge, at every hour. Measured at +2°,
+          // two 30° slopes came out at a ratio of 1.14 before the other three flatteners even
+          // ran. Two terms fix it, and neither is invented here:
+          //   LEVEL — the sky's own luminance, the same uniform the air-light already rides;
+          //   AZIMUTH — ftwAirLevel, the very lobe pair already compiled into this shader. A
+          //   slope facing away from a setting sun sees mostly the DARK half of the sky, and that
+          //   is the physical reason its ambient collapses while a summit's does not.
+          // A WRAP, not the air-light lobe. The first attempt reused ftwAirLevel here, and the
+          // JS twin caught it: that lobe is the sky's RADIANCE along one ray, and a surface
+          // integrates the whole hemisphere around its normal. With a Mie power of 3.5 a slope
+          // only 58 deg off the sun already sees almost none of the lobe, so the sun-facing and
+          // anti-sun faces came out at 0.50 vs 0.44 — no contrast at all. The cosine-weighted
+          // hemisphere integral of a sky that is bright on one side IS the wrap term.
+          //
+          // Its STRENGTH is the complement of direct transmittance, which is the physically right
+          // shape and costs nothing: the sky is very nearly isotropic at noon (directK 1 -> az 0,
+          // so a daytime frame is untouched) and at its most one-sided as the sun reaches the
+          // horizon (directK 0 -> az full). The sqrt makes it rise through the band the owner is
+          // watching rather than only after the sun has gone.
+          float skyAzK = ${glf(ULTRA.groundAmbientAzK)}
+            * pow(clamp(1.0 - uFtwDirectK, 0.0, 1.0), ${glf(ULTRA.groundAmbientAzPow)});
+          float skyAz = mix(1.0, 0.5 + 0.5 * dot(normalize(uFtwSun), nS), skyAzK);
+          float lambert = max(
+            (sunDot + ${glf(ULTRA.groundDirectWrap)}) / (1.0 + ${glf(ULTRA.groundDirectWrap)}), 0.0);
+          float dayShadeU =
+            ${glf(ULTRA.groundAmbientK)} * skyExposure * skyAz
+              * mix(1.0, uFtwSkyLevel, ${glf(ULTRA.groundAmbientLevelK)})
+            + (1.0 - ${glf(ULTRA.groundAmbientK)}) * uFtwDirectK * lambert;
+          dayShade = mix(dayShade, dayShadeU, uFtwUltraLight);
           // S7a dark drape: the Esri grade blends OUT and a UNIFORM flat shade blends IN as
           // uFtwDark rises (the CARTO overlay already owns diffuseColor by then) — the water
           // detection / desat / hiAlt harmonizer are Esri-colorimetry-specific and go with it.
           float shade = mix(
-            mix(uFtwNightFloor, dayShade, dayK),
+            // The floor is the S5/S7 navigability floor and stays exactly what it is by day; it
+            // simply stops RISING against a sky that has gone (mix(1.0, v, 0.0) is exactly 1).
+            mix(uFtwNightFloor * mix(1.0, uFtwSkyLevel, uFtwUltraLight), dayShade, dayK),
             mix(${glf(DRAPE.nightFloor)}, ${glf(DRAPE.dayShade)}, dayK),
             uFtwDark);
-          shade = mix(shade, 1.0, photo);
+          // (1) THE LARGEST FLATTENER, and it was hiding inside the TEXTURE half of the track.
+          // photo is ULTRA.photo3dK 0.6 in 3D satellite mode, and this line pulled the ENTIRE
+          // shade term 60 % of the way to 1.0 — direction-blind, so it lifted the anti-sun slope
+          // by exactly as much as the sun-facing one, and it erased 60 % of the contrast a CAST
+          // shadow is drawn against. Measured at +2°: it took two 30° slopes from a ratio of
+          // 1.112 to 1.031, i.e. the mountain in complete shadow rendering at 96.9 % of the one
+          // in full sun. photo3dK's own docblock lists shade-to-1 as part of the raw-Esri
+          // de-grade; only the COLORIMETRY half of that is defensible in 3D.
+          //
+          // The lift now rides directK^photo3dShadePow, which is exactly 1 at high sun — so the
+          // daytime look the owner explicitly likes is byte-identical — and 0.066 by +2°. The
+          // power has to be steep: mix(v, 1.0, k) lifts dark values more than bright ones, so a
+          // LINEAR ride still left the two faces at 0.78.
+          float photoShade = max(
+            uFtwFlat2d * uFtwPhotoK,
+            uFtwPhoto3d * mix(1.0, pow(clamp(uFtwDirectK, 0.0, 1.0), ${glf(ULTRA.photo3dShadePow)}),
+              uFtwUltraLight)) * (1.0 - uFtwDark);
+          shade = mix(shade, 1.0, photoShade);
           float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
           // high-altitude harmonizer: extra desaturation converges mixed Esri source zooms
           // (washed low-zoom mosaic vs crisp high-zoom texture) so they stop reading as patches
@@ -592,19 +697,38 @@ export function attachImageryGround(
           // Over SOLAR elevation (sunUpDot) — golden hour is a time of day, not a slope angle.
           float gold = smoothstep(${glf(GOLDEN.fadeInLo)}, ${glf(GOLDEN.fadeInHi)}, sunUpDot)
                      * (1.0 - smoothstep(${glf(GOLDEN.fadeOutLo)}, ${glf(GOLDEN.fadeOutHi)}, sunUpDot));
-          graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)}, gold * ${glf(GOLDEN.groundStrength)} * (1.0 - photo));
+          // (3) …and it was AZIMUTH-BLIND, which is the terrain twin of the bug already fixed for
+          // the buildings (ULTRA.hemiTintK 0.6 to 0.22 — a HemisphereLight is azimuth-free, so 0.6
+          // painted the band tint onto every wall in the city at once). tokens.goldenHour cuts
+          // the blue channel by a third at a 0.4 mix weight, on every fragment on the day side,
+          // whether or not the sun can see it. Under ULTRA it now rides the DIRECT term.
+          graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)},
+            gold * ${glf(GOLDEN.groundStrength)} * (1.0 - photo)
+              * mix(1.0, uFtwDirectK * lambert, uFtwUltraLight));
           // Night gate over solar elevation (twin of EARTH.lightsBand).
           float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunUpDot);
           float moonUp = max(dot(nUp, uFtwMoonDir), 0.0);
           // Moonlight, two terms (S7 feedback): the albedo-scaled sheen (graded×moon — black
           // stays black) + a small NON-albedo fill so the moon actually LIFTS the dark ground.
+          // NOTE the suppressor is photoShade, not photo — and that is load-bearing, not
+          // cosmetic. These two night terms are the S7 "ground jarringly black" fill, and the
+          // shade lift was the ONLY thing compensating for their de-grade suppression. Splitting
+          // the lift off (above) without splitting this would leave them at 40 % under a shade
+          // that no longer rises, making the ULTRA night ground strictly DARKER than the
+          // ULTRA-OFF one — a regression introduced by the fix, caught by the adversarial pass.
+          // With the chip off, and on the /m chart, photoShade IS photo, so this is exact.
           vec3 moonlit = (graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night)
             + uFtwMoonCol * (uFtwMoonGlow * ${glf(GROUND.moonFillK)} * moonUp * night))
-            * (1.0 - photo);
+            * (1.0 - photoShade);
           // Ambient sky fill — additive, so dark source pixels never multiply to black. Scaled
           // out through the orbital fade band (uFtwHiAlt→1) to stay continuous with the base.
-          vec3 ambient = (uFtwAmbDay * dayK + uFtwMoonCol * (uFtwAmbNight * night))
-            * (1.0 - uFtwHiAlt) * (1.0 - photo);
+          // (4) A purely ADDITIVE floor with no normal term and no level: at +2° it lifted a
+          // shaded slope by ~13 % with a cool near-white, which is part of the "weird tint" on
+          // faces that should be reading as silhouette — and at 0° it was still at 88 % of its
+          // +2° value. It now carries the same two terms the ambient half does.
+          vec3 ambient = (uFtwAmbDay * dayK * mix(1.0, skyExposure * skyAz * uFtwSkyLevel, uFtwUltraLight)
+            + uFtwMoonCol * (uFtwAmbNight * night))
+            * (1.0 - uFtwHiAlt) * (1.0 - photoShade);
           diffuseColor.rgb = graded * shade + moonlit + ambient;
           // S4 AERIAL PERSPECTIVE (ULTRA, T45) — promoted to co-primary by the owner's transition
           // steer, and absent from this app entirely before now: there is no scene.fog, no
@@ -612,7 +736,8 @@ export function attachImageryGround(
           // camera.far × 0.45 (≈81 km) with depthTest on, so it is geometrically unreachable.
           // vFtwW is the world position the geodetic-up term above already relies on, so this
           // adds no varying; uFtwHaze is 0 whenever ULTRA is off and the function returns early.
-          diffuseColor.rgb = ftwAerial(diffuseColor.rgb, vFtwW, uFtwSun, uFtwHaze, uFtwHazeCol);
+          diffuseColor.rgb = ftwAerial(diffuseColor.rgb, vFtwW, uFtwSun, uFtwHaze, uFtwHazeCol,
+            uFtwHazeCool, uFtwSkyLevel, uFtwAfterglowG);
         }`,
     ).replace(
       /#include <dithering_fragment>/,
@@ -668,11 +793,107 @@ export function attachImageryGround(
   terrainDepthMat.polygonOffset = true;
   terrainDepthMat.polygonOffsetFactor = ULTRA.terrainDepthOffset;
   terrainDepthMat.polygonOffsetUnits = ULTRA.terrainDepthOffset;
+
+  // --- THE SKIRT MUST NOT CAST (owner defect 3, 2026-08-27) — the dark grid between tiles. ----
+  //
+  // MEASURED, not reasoned into: at a 4.5 km oblique over farmland the drape showed a dark line
+  // along EVERY tile boundary at EVERY LOD. Killing the mip chain changed nothing; killing the
+  // TERRAIN CASTERS removed the grid completely (`verify-shots/seamab-{A,B,C}`). So the caster
+  // is the seam, and the caster's skirt is why.
+  //
+  // Every quantized-mesh tile carries a vertical APRON hanging down from its border, of length
+  // `tile.geometricError` by default (`QuantizedMeshPlugin.js:260,281` — hundreds of metres at
+  // the LODs a wide view uses). It exists to hide cracks between neighbouring LODs in the COLOUR
+  // pass. In the DEPTH pass it is a wall, and a wall standing on the tile edge occludes the
+  // neighbour's surface across a band of width ≈ skirtLength·cos(sun elevation): parameterise a
+  // 45° sun and the skirt point δ into the band is nearer to the light than the surface behind it
+  // by exactly 2δ. That band IS the owner's dark line, and it scales with the LOD — which is why
+  // it reproduces "on any part of the map at different zoom scales".
+  //
+  // The fix draws the SURFACE CAP ONLY into the shadow map. `geometry.groups[0]` is that cap in
+  // both producers (`QuantizedMeshLoader.js:136` adds it first at offset 0; the region clipper
+  // does the same at `QuantizedMeshClipper.js:238`), and the skirt group is always after it.
+  // `renderBufferDirect` intersects `geometry.drawRange` with the index count
+  // (`WebGLRenderer.js:1211-1227`), so clipping the range for the duration of the depth draw and
+  // restoring it after is exact — the colour pass never sees a clipped range, and nothing else
+  // in the frame runs between `onBeforeShadow` and `onAfterShadow` for this object.
+  //
+  // FAIL-SAFE: if the layout is not the one described (no groups, a cap that does not start at 0,
+  // or a cap that already covers the whole index buffer) the tile casts exactly as it did before.
+  // Losing the skirt from the depth pass can only leak LIGHT through an inter-LOD crack — a thin
+  // bright hairline in the rare mismatched case, against a dark band at every boundary always.
+  // The rule itself lives in `lib/globe/terrainSkirt` with the full provenance and a unit test,
+  // so a library upgrade that reorders the geometry groups fails a check instead of quietly
+  // un-fixing this seam.
+  const surfaceIndexCount = surfaceCapIndexCount as (g: THREE.BufferGeometry) => number;
+  const onBeforeShadowClipSkirt = function (
+    this: THREE.Mesh,
+    _renderer: unknown,
+    _object: unknown,
+    _camera: unknown,
+    _shadowCamera: unknown,
+    geometry: THREE.BufferGeometry,
+  ) {
+    const n = surfaceIndexCount(geometry);
+    if (n > 0) geometry.setDrawRange(0, n);
+  } as unknown as THREE.Object3D["onBeforeShadow"];
+  const onAfterShadowRestore = function (
+    this: THREE.Mesh,
+    _renderer: unknown,
+    _object: unknown,
+    _camera: unknown,
+    _shadowCamera: unknown,
+    geometry: THREE.BufferGeometry,
+  ) {
+    geometry.setDrawRange(0, Infinity);
+  } as unknown as THREE.Object3D["onAfterShadow"];
+
+  // …and the RECEIVER half of the same seam. Clipping only the caster took the wide band away but
+  // left a hairline on every boundary, and the sweep proved it is not the caster's bias: 2 → 1600
+  // `polygonOffsetUnits` on the depth material moved it not at all, while switching the shadow
+  // pass off removed it completely (`verify-shots/seam2-units-*` vs `seam2-noshadow`).
+  //
+  // What is left at a boundary once the skirt stops casting is the skirt still RECEIVING. The
+  // ShadowMaterial twin rides the tile's whole geometry, so it covers the apron too; the apron is
+  // a vertical sheet standing exactly on the border, and where its top edge is coincident with the
+  // neighbour's surface it samples that surface's own depth and reads as self-shadowed. The twin
+  // then paints its slate over a one-pixel sliver — a hairline, at every boundary, at every LOD.
+  // Clipping the twin's own draw to the cap keeps the skirt doing its colour-pass job (hiding
+  // inter-LOD cracks) while removing it from the shadow overlay entirely.
+  const onBeforeRenderClipSkirt = function (
+    this: THREE.Mesh,
+    _renderer: unknown,
+    _scene: unknown,
+    _camera: unknown,
+    geometry: THREE.BufferGeometry,
+  ) {
+    const n = surfaceIndexCount(geometry);
+    if (n > 0) geometry.setDrawRange(0, n);
+  } as unknown as THREE.Object3D["onBeforeRender"];
+  const onAfterRenderRestore = function (
+    this: THREE.Mesh,
+    _renderer: unknown,
+    _scene: unknown,
+    _camera: unknown,
+    geometry: THREE.BufferGeometry,
+  ) {
+    geometry.setDrawRange(0, Infinity);
+  } as unknown as THREE.Object3D["onAfterRender"];
+
   const applyTerrainCast = (tileMesh: THREE.Mesh) => {
     tileMesh.castShadow = terrainCastOn;
     const mat = tileMesh.material as THREE.Material;
     mat.shadowSide = terrainCastOn ? THREE.FrontSide : null;
     tileMesh.customDepthMaterial = terrainCastOn ? terrainDepthMat : undefined;
+    if (terrainCastOn) {
+      tileMesh.onBeforeShadow = onBeforeShadowClipSkirt;
+      tileMesh.onAfterShadow = onAfterShadowRestore;
+    } else {
+      // Restore three's own no-ops — and the range, in case the chip went off mid-pass.
+      delete (tileMesh as unknown as Record<string, unknown>).onBeforeShadow;
+      delete (tileMesh as unknown as Record<string, unknown>).onAfterShadow;
+      tileMesh.geometry.setDrawRange(0, Infinity);
+    }
   };
 
   // BEST SPOT §3.4 item 1 — the streaming epoch. Terrain has no version counter anywhere in the
@@ -703,6 +924,9 @@ export function attachImageryGround(
         twin.receiveShadow = true;
         twin.visible = shadowsActive;
         twin.raycast = () => {}; // heightAt() must hit the terrain, not the twin
+        // The shadow overlay covers the SURFACE only — never the skirt (see the seam note above).
+        twin.onBeforeRender = onBeforeRenderClipSkirt;
+        twin.onAfterRender = onAfterRenderRestore;
         shadowTwins.add(twin);
         c.add(twin);
         applyTerrainCast(c); // S3: a tile streaming in mid-session inherits the live cast state
@@ -992,6 +1216,10 @@ export function attachImageryGround(
       ultraLightTarget = t.light;
       ultraHazeBand = t.haze;
       (uniforms.uFtwHazeCol.value as THREE.Color).copy(t.hazeCol);
+      (uniforms.uFtwHazeCool.value as THREE.Color).copy(t.hazeCool);
+      uniforms.uFtwSkyLevel.value = t.skyLevel;
+      uniforms.uFtwAfterglowG.value = t.afterglow;
+      uniforms.uFtwDirectK.value = t.directK;
     },
     setUltraAnisotropy(taps) {
       const want = Math.max(1, Math.round(taps));

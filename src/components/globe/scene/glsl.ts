@@ -3,6 +3,7 @@
  */
 
 import { ULTRA } from "../tuning";
+import { airLightGlsl } from "../../../lib/globe/duskLight";
 
 /**
  * Format a JS number as a GLSL ES float literal — `2` → `"2.0"`. GLSL ES rejects `float x = 2;`
@@ -70,10 +71,17 @@ export function impostorEdgeWindowGlsl(start: number, end: number): string {
  * incoherence that made forcing `dayK` a C2 breach. Sharing the emitted function rather than the
  * intent is what makes that structural instead of a review promise.
  *
- * Two terms, and the second is what makes it read as dusk rather than as grey fog:
+ * Three terms, and 2026-08-27 (owner defect 2) is when the last two became separable:
  *   · EXTINCTION — `1 − exp(−d / hazeDistM)`, the classic exponential air column;
- *   · FORWARD (Mie-like) SCATTERING — the haze BRIGHTENS toward the sun, so a low sun backlights
- *     the far field. Without it, "more haze at sunset" just desaturates the frame.
+ *   · DIRECTION — the two scattering lobes from `lib/globe/duskLight` (broad Rayleigh + tight
+ *     forward Mie), which decide both how BRIGHT and how WARM the in-scattered light is for this
+ *     particular view ray. The shipped version had only a `pow(·, 7)` glint on a fixed colour, so
+ *     the air looked identical facing into a sunset and facing away from it;
+ *   · LEVEL (`skyLevel`) — air-light is light, and it has to go out with the sun. Without this
+ *     term the far field mixed toward a bright palette stop at up to `hazeMaxK` 0.72 and ended up
+ *     BRIGHTER than the foreground at dusk: the owner's "uniformly illuminating the whole scene in
+ *     some piss very bright colour". It is a uniform, not a curve, so ground/buildings/dome all
+ *     read the same number in the same frame.
  *
  * `hazeK` arrives already carrying the twilight-band curve and every gate (altitude, flat chart,
  * dark drape), so `hazeK <= 0.0` — the ULTRA-off state — returns the input colour untouched and
@@ -82,11 +90,29 @@ export function impostorEdgeWindowGlsl(start: number, end: number): string {
  * `<opaque_fragment>`, both before tone mapping.
  */
 export const FTW_AERIAL_GLSL = /* glsl */ `
-  vec3 ftwAerial(vec3 col, vec3 wpos, vec3 sunW, float hazeK, vec3 hazeCol) {
+  ${airLightGlsl(ULTRA.airRayleighK, ULTRA.airMiePow, ULTRA.airMieGain)}
+  vec3 ftwAerial(vec3 col, vec3 wpos, vec3 sunW, float hazeK, vec3 hazeCol,
+                 vec3 hazeColCool, float skyLevel, float afterglow) {
     if (hazeK <= 0.0) return col;
     vec3 toFrag = wpos - cameraPosition;
     float dist = length(toFrag);
     float f = min((1.0 - exp(-dist / ${glf(ULTRA.hazeDistM)})) * hazeK, ${glf(ULTRA.hazeMaxK)});
-    float mie = pow(max(dot(toFrag / max(dist, 1.0), normalize(sunW)), 0.0), ${glf(ULTRA.hazeSunPow)});
-    return mix(col, hazeCol * (1.0 + ${glf(ULTRA.hazeSunGain)} * mie), f);
+    // Direction to the fragment vs direction to the sun: the ONE term whose absence made a
+    // sunset's air-light look the same whether you faced into it or away from it.
+    float cosG = dot(toFrag / max(dist, 1.0), normalize(sunW));
+    // COLOUR: cool away from the sun, warm toward it. hazeColCool is the anti-solar tint the
+    // orchestrator supplies alongside the band tint, so both ends of the swing come from the
+    // palette rather than from a hue rotation nobody can tune.
+    vec3 tint = mix(hazeColCool, hazeCol, ftwAirSun(cosG) * ${glf(ULTRA.airWarmSwing)});
+    // LEVEL: air-light is LIGHT. skyLevel collapses it as the sun goes down, which is the whole
+    // fix for "uniformly illuminating the whole scene in some piss very bright colour" — before
+    // this the far field was mixed toward a fixed bright palette stop and ended up BRIGHTER than
+    // the foreground at the exact moment the world should be going dark.
+    // AFTERGLOW (taste pass 2026-08-27c). The dome was painting a post-sunset glow that the
+    // distant terrain under it knew nothing about — skyLevel is 0.22 at -6 deg while the dome's
+    // afterglow is 0.49, a 2.2x disagreement at exactly the terrain/sky junction RC24 exists to
+    // close. max() rather than a sum: the afterglow does not stack on a still-bright sky, it is
+    // what is left once the sky has gone. max(x, 0.0) is exactly x with the chip off.
+    vec3 inScatter = tint * max(skyLevel, afterglow * ftwAirSun(cosG)) * ftwAirLevel(cosG);
+    return mix(col, inScatter, f);
   }`;

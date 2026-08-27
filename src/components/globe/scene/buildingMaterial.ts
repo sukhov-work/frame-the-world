@@ -80,6 +80,13 @@ interface BuildingMaterialUniforms {
   uFtwHaze: { value: number };
   /** ULTRA S4 — haze tint for the current twilight band (day → golden → blue → night). */
   uFtwHazeCol: { value: THREE.Color };
+  /** Owner defect 2 (2026-08-27): the anti-solar air-light tint and the sky's own luminance —
+   *  the two terms that make the shared `ftwAerial` directional and make it go out with the sun.
+   *  Inert with the chip off, twice over: `uFtwHaze` 0 early-returns, and `uFtwSkyLevel` 0 would
+   *  zero the in-scatter regardless. */
+  uFtwHazeCool: { value: THREE.Color };
+  uFtwSkyLevel: { value: number };
+  uFtwAfterglowG: { value: number };
   /** ULTRA S4 — world-space direction TO the sun, for the forward-scattering term. The buildings
    *  never needed the sun VECTOR before (only its elevation, via `uFtwNight`). */
   uFtwSunW: { value: THREE.Vector3 };
@@ -145,6 +152,9 @@ export function createBuildingMaterials(
     // ULTRA S4 (T45) — all three inert at their defaults: `ftwAerial` early-returns at haze 0.
     uFtwHaze: { value: 0 },
     uFtwHazeCol: { value: new THREE.Color(tokens.skyHorizon) },
+    uFtwHazeCool: { value: new THREE.Color(tokens.skyHorizon) },
+    uFtwSkyLevel: { value: 0 },
+    uFtwAfterglowG: { value: 0 },
     uFtwSunW: { value: new THREE.Vector3(0, 0, 1) },
   };
 
@@ -163,6 +173,9 @@ export function createBuildingMaterials(
     shader.uniforms.uFtwAccent = uniforms.uFtwAccent;
     shader.uniforms.uFtwHaze = uniforms.uFtwHaze;
     shader.uniforms.uFtwHazeCol = uniforms.uFtwHazeCol;
+    shader.uniforms.uFtwHazeCool = uniforms.uFtwHazeCool;
+    shader.uniforms.uFtwSkyLevel = uniforms.uFtwSkyLevel;
+    shader.uniforms.uFtwAfterglowG = uniforms.uFtwAfterglowG;
     shader.uniforms.uFtwSunW = uniforms.uFtwSunW;
     // Pass 2 R2: carry a stable per-building key to the fragment. The b3dm batch id survives GLTF
     // load as `_batchid` (legacy) or `_feature_id_0` (3D Tiles 1.1 — also what the Slice-1 baker
@@ -222,6 +235,9 @@ export function createBuildingMaterials(
         varying vec3 vFtwWPos;
         uniform float uFtwHaze;
         uniform vec3 uFtwHazeCol;
+        uniform vec3 uFtwHazeCool;
+        uniform float uFtwSkyLevel;
+        uniform float uFtwAfterglowG;
         uniform vec3 uFtwSunW;
         ${FTW_BAYER_GLSL}
         ${FTW_HASH_GLSL}
@@ -236,7 +252,8 @@ export function createBuildingMaterials(
         // difference of taste.
         "#include <opaque_fragment>",
         /* glsl */ `#include <opaque_fragment>
-        gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol);`,
+        gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol,
+          uFtwHazeCool, uFtwSkyLevel, uFtwAfterglowG);`,
       )
       .replace(
         "#include <color_fragment>",
@@ -315,6 +332,9 @@ export function createBuildingMaterials(
     // fog, which is a worse picture than no aerial perspective at all.
     shader.uniforms.uFtwHaze = uniforms.uFtwHaze;
     shader.uniforms.uFtwHazeCol = uniforms.uFtwHazeCol;
+    shader.uniforms.uFtwHazeCool = uniforms.uFtwHazeCool;
+    shader.uniforms.uFtwSkyLevel = uniforms.uFtwSkyLevel;
+    shader.uniforms.uFtwAfterglowG = uniforms.uFtwAfterglowG;
     shader.uniforms.uFtwSunW = uniforms.uFtwSunW;
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `#include <common>\n        varying vec3 vFtwWPos;`)
@@ -330,6 +350,9 @@ export function createBuildingMaterials(
         uniform float uFtwEdgeBirthMs;
         uniform float uFtwHaze;
         uniform vec3 uFtwHazeCol;
+        uniform vec3 uFtwHazeCool;
+        uniform float uFtwSkyLevel;
+        uniform float uFtwAfterglowG;
         uniform vec3 uFtwSunW;
         varying vec3 vFtwWPos;
         ${FTW_BAYER_GLSL}
@@ -338,7 +361,8 @@ export function createBuildingMaterials(
       .replace(
         "#include <opaque_fragment>",
         /* glsl */ `#include <opaque_fragment>
-        gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol);`,
+        gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol,
+          uFtwHazeCool, uFtwSkyLevel, uFtwAfterglowG);`,
       )
       .replace(
         "#include <dithering_fragment>",
