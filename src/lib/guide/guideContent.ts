@@ -118,6 +118,16 @@ export const GUIDE_GOALS: GuideGoal[] = [
     route: ["plan", "move-pin", "plan-verdicts", "plan-today", "save-ics"],
   },
   {
+    goal: "Score the ground around me for where to stand",
+    target: "bestspot",
+    route: ["bestspot", "spot-open", "spot-read", "spot-shortlist", "spot-actions"],
+  },
+  {
+    goal: "Watch an eclipse before it happens",
+    target: "target-eclipses",
+    route: ["target-eclipses", "target-search", "target-eclipse-scene", "time-scrub"],
+  },
+  {
     goal: "Scout a location before I go",
     target: "fpv",
     route: ["fpv", "fpv-enter", "fpv-walk", "fpv-focal", "fpv-map"],
@@ -217,8 +227,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "tracked target, your toggles AND your POSE carry across shells — switch while " +
           "standing somewhere and you arrive at the same place, looking the same way.",
         tip:
-          "The phone leaves out photo upload, the marketplace, the Milky-Way season card, " +
-          "the meteor card and calendar export.",
+          "The phone leaves out photo upload, the marketplace, [[bestspot|BEST SPOT]], the " +
+          "Milky-Way season card, the meteor card and calendar export.",
       },
       {
         id: "start-real",
@@ -342,7 +352,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         where: { desktop: "Bottom-right stack" },
         keys: ["toggles", "layers", "compass", "bearing", "north", "satellite", "imagery"],
         body:
-          "Eight toggles and the compass rose, over four columns. The deck compacts in " +
+          "Nine toggles and the compass rose, over four columns. The deck compacts in " +
           "first-person view to what matters there.",
         list: [
           "The compass rose — click it to face north.",
@@ -350,14 +360,30 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "☀☾ — the sun and moon sky guides.",
           "SAT — satellite imagery on the ground.",
           "PIN — everyone's public [[photo-pins|photo pins]].",
-          "BLD — the 3D buildings; the best model for where you look loads on its own.",
+          "BLD — the 3D buildings; the best model for where you look loads on its own " +
+            "([[trust-detail|where that is deepest]]).",
           "AIM — [[target-radar|the direction radar]].",
           "PLC — [[save-onmap|your saved places on the map]].",
           "VEC — the road, river and park ink over the ground.",
+          "ULT — [[move-ultra|the experimental quality mode]].",
         ],
         tip:
           "The knobs change with the mode: CAM TILT above the row, ROTATE and ZOOM below " +
           "it in orbit; ALTITUDE, FOCAL ZOOM and BUILDINGS in first-person view.",
+      },
+      {
+        id: "move-ultra",
+        title: "ULT — the experimental quality mode",
+        where: { desktop: "ULT, last on the camera deck" },
+        keys: ["quality", "ultra", "hq", "frame rate", "detail"],
+        body:
+          "The scene normally sheds detail to hold a frame rate on whatever machine it finds. " +
+          "ULT pins quality to its maximum whatever that costs, and pushes building, label and " +
+          "vector detail past the usual ceiling. It is experimental, desktop-only, off by " +
+          "default, and it will make a slower machine work hard.",
+        tip:
+          "Flipping it mid-session moves everything except the shadow rig: the big shadow map is " +
+          "built once at page load, so reload to get that half.",
       },
       {
         id: "move-minimap",
@@ -442,6 +468,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Walk with WASD or the arrow keys.",
           "Hold Shift to stride at triple speed, Option/Alt to creep at half.",
           "Hold Space to rise, Shift+Space to sink — a short tap nudges by a centimetre.",
+          "Drag the deck's ALTITUDE encoder right to rise, left to descend.",
           "On /m, use the ⤒ and ⤓ pads on the right rail to rise and sink.",
         ],
         tip: "On /m the joystick keeps walking while your other finger drags the view.",
@@ -755,13 +782,58 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "On desktop: altitude and azimuth, celestial coordinates, distance, magnitude with " +
           "a naked-eye verdict, phase and true disc size; on /m the card keeps the " +
           "essentials. NEXT SESSIONS lists the coming dark-sky windows — press one to pin " +
-          "scene time to its peak. Track the sun or the moon and the card adds PREDICTED " +
-          "ECLIPSES: the next five, each with the covered fraction and the body's altitude " +
-          "at greatest eclipse. Press a row to fly scene time to the moment and watch it. " +
-          "Rise and set jumps live in [[target-menu|the sky menu]].",
+          "scene time to its peak. Track the sun or the moon and the card grows an " +
+          "[[target-eclipses|ECLIPSES]] section. Rise and set jumps live in " +
+          "[[target-menu|the sky menu]].",
+      },
+      {
+        id: "target-eclipses",
+        title: "Eclipses",
+        where: {
+          desktop: "ECLIPSES, in the TARGET panel — with the sun or the moon tracked",
+          mobile: "The same section on the target sheet",
+        },
+        keys: ["eclipse", "totality", "annular", "obscuration", "umbra"],
+        body:
+          "Track the sun and the card lists the coming SOLAR eclipses as they will happen from " +
+          "where you stand; track the moon and it lists the lunar ones. Five rows on desktop, " +
+          "four on the phone. A NOW line appears above them whenever scene time is inside an " +
+          "eclipse, reading the live phase and coverage. Press a row and scene time flies to " +
+          "greatest eclipse.",
+        list: [
+          "The date, carrying its year — the eclipses ahead at one site can span decades.",
+          "The phase: TOTAL, ANNULAR, PARTIAL or PENUMBRAL.",
+          "How much of the disc is covered, and a dash for a penumbral one, which covers none.",
+          "The clock time of greatest eclipse, and how high the body stands then.",
+          "SETS MID-ECLIPSE, or BELOW HORIZON when it is not an event you can watch from here.",
+        ],
         tip:
-          "The same solar eclipse is a different event a hundred kilometres away, so those " +
-          "rows are computed for your anchor — the percentage is what you would see there.",
+          "A solar eclipse is a different event a hundred kilometres away, so those rows are " +
+          "computed for your anchor. A lunar one is the same for everyone on the night side.",
+      },
+      {
+        id: "target-eclipse-scene",
+        title: "What an eclipse does to the scene",
+        keys: ["corona", "chromosphere", "blood moon", "darkening", "shadow"],
+        body:
+          "There is no eclipse toggle. The darkness comes from the same sun and moon positions " +
+          "the scene already draws with, so flying scene time into one changes the light " +
+          "everywhere at once. Daylight holds through the partial phases and collapses in the " +
+          "last minute, the way a real one is experienced, and totality reads as a deep, strange " +
+          "twilight rather than as night.",
+        list: [
+          "The corona appears only once the last sliver of the sun is covered, and never in an " +
+            "annular eclipse, where the ring stays.",
+          "A pink chromosphere hairline sits on the limb through totality.",
+          "Stars come out over the final stretch — the bright ones only, because the sky is still " +
+            "lit for hundreds of kilometres around.",
+          "An eclipsed moon goes copper inside the Earth's shadow, brightest and most orange " +
+            "along the shadow's edge.",
+          "A penumbral eclipse is a faint dimming, as subtle here as it is overhead.",
+        ],
+        tip:
+          "Press a totality on the [[target-eclipses|eclipse list]], stand under it in " +
+          "[[fpv|first-person view]], then [[time-play|play]] the sequence.",
       },
       {
         id: "target-toggles",
@@ -905,13 +977,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Open it",
         keys: ["open plan", "window", "resize", "drag"],
         where: {
-          desktop: "PLAN | FIND IN FRAME toggle beside the Plux wordmark",
+          desktop: "The ☀ PLAN · ⌖ FIND IN FRAME · ◎ BEST SPOT toggle beside the Plux wordmark",
           mobile: "PLAN tab",
         },
         body:
-          "PLAN and [[find|FIND]] share one window: drag it by the grip, resize it by the " +
-          "◢ corner, double-click the corner to reset, × to close. It keeps its place " +
-          "across the switch.",
+          "PLAN, [[find|FIND]] and [[bestspot|BEST SPOT]] are three faces of one window: drag it " +
+          "by the grip, resize it by the ◢ corner, double-click the corner to reset, × to close. " +
+          "It keeps its place and its size across every switch.",
       },
       {
         id: "plan-verdicts",
@@ -1111,6 +1183,172 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "The same scan at touch scale. Collapsing the sheet keeps the standings " +
           "projected in the frame, so you can compose against them full-screen.",
+      },
+    ],
+  },
+
+  // ————————————————————————————————————————————————————— WHERE TO STAND
+  {
+    id: "bestspot",
+    title: "BEST SPOT",
+    lead:
+      "PLAN and FIND answer for the spot you are already on. BEST SPOT answers where to go " +
+      "instead — pick a sunrise, sunset, moonrise or moonset, and every patch of ground around " +
+      "you is scored for how good a place it is to watch it from.",
+    topics: [
+      {
+        id: "spot-open",
+        title: "Solve a disc",
+        where: { desktop: "◎ BEST SPOT, beside the Plux wordmark" },
+        keys: ["heatmap", "heat map", "where to stand", "best place", "disc"],
+        body:
+          "The window opens with the heatmap OFF and nothing being computed, so you can set the " +
+          "event, the radius and the sheet height before anything is solved. ◎ HEATMAP is the " +
+          "switch that starts the work. BEST SPOT is desktop only.",
+        steps: [
+          "Press ◎ BEST SPOT beside the Plux wordmark — it shares one window with [[plan|PLAN]] " +
+            "and [[find|FIND]].",
+          "Double-click the ground to set the disc centre, or stand somewhere in " +
+            "[[fpv|first-person view]].",
+          "Pick the event: ☀ SUNRISE, ☀ SUNSET, ☾ M.RISE or ☾ M.SET.",
+          "Pick a radius — 100 m to 500 m, 300 m by default.",
+          "Press ◎ HEATMAP — a coarse wash appears at once and sharpens over about a second.",
+        ],
+        tip:
+          "Turned on before you have a centre, the chip reads ARMED — NO CENTRE. Drop the pin and " +
+          "it solves.",
+      },
+      {
+        id: "spot-read",
+        title: "Read the wash",
+        keys: ["colours", "ramp", "contours", "inferno", "hatch"],
+        body:
+          "Colour is the score: dark ground is a poor place to stand, bright ground a good one. " +
+          "Contour lines run along equal scores, and the two the legend labels are drawn heavier. " +
+          "A street-level disc in a city comes out mostly black, which is the true answer — at " +
+          "eye height a skyline hides the event from nearly everywhere, and the eight markers are " +
+          "what you came for.",
+        list: [
+          "The SCORE ramp — the absolute score, with its floor and ceiling printed at the ends.",
+          "Contours — one line per step of score, thicker at the two labelled values.",
+          "A moving dotted hatch — UNMAPPED. Nobody looked there, so it is left uncoloured.",
+          "A flat dim with no hue — CAN'T STAND HERE: a roof, a wall, water.",
+          "A rim that dissolves instead of ending on a line — the disc edge is a compute budget, " +
+            "not a finding.",
+        ],
+        tip:
+          "[INFERNO] swaps to [TURBO] and back. TURBO's brightest band sits mid-scale, so under " +
+          "it the best spot comes out dark red.",
+      },
+      {
+        id: "spot-markers",
+        title: "The eight markers",
+        keys: ["eight markers", "eight best", "ranked cells", "swatch"],
+        body:
+          "The eight best cells stand on the globe as numbered markers, kept at least 25 m apart " +
+          "so they land on eight different places instead of eight cells of the same good patch. " +
+          "Their colour carries two readings at once, and the MARKERS legend says which is which.",
+        list: [
+          "HUE spreads these eight across the whole ramp — #1 at the bright end, #8 at the dim " +
+            "one — so close scores are still told apart.",
+          "BRIGHTNESS is the absolute score, so eight faint markers mean eight poor spots, " +
+            "however colourful they are.",
+        ],
+        tip:
+          "Hover a marker and a tip opens at it with the same facts its row prints, so you can " +
+          "read #4 without hunting the list for it.",
+      },
+      {
+        id: "spot-shortlist",
+        title: "Read the shortlist",
+        keys: ["graze", "gap", "open horizon", "lead time", "rank"],
+        body:
+          "BEST SPOTS lists those eight as rows, and every row says why that cell earned its " +
+          "place. The number beside the bar is the ABSOLUTE score; the bar is only that row " +
+          "against the best of these eight, so a full bar on a poor disc is still a poor spot.",
+        list: [
+          "Its rank, and its absolute score.",
+          "A bar — the score divided by the best score in this shortlist.",
+          "How far away it is, and on what bearing.",
+          "GRAZE, GAP or OPEN HORIZON — what the skyline does on the contact bearing.",
+          "A lead like +3m20s — how far from the event instant that cell frames it best.",
+        ],
+        tip:
+          "The list stays inert and reads RANKING… until the finest pass lands. A coarse pass " +
+          "gets the field right but shuffles which eight cells come out on top.",
+      },
+      {
+        id: "spot-actions",
+        title: "GO, LOOK and REFINE",
+        keys: ["go there", "refine", "select", "preview", "look from"],
+        body:
+          "Click a row to select it — its marker lights up on the globe and three actions appear " +
+          "beside it. Selecting moves nothing on its own, because moving the centre re-solves the " +
+          "disc and would destroy the list you are reading.",
+        list: [
+          "GO → moves the disc centre to that cell. This is the one action that re-solves the " +
+            "heatmap.",
+          "◎ LOOK stands you there in first person with the disc left where it is — ◎ BACK or " +
+            "Escape returns.",
+          "◠ REFINE re-solves that ONE cell's obstruction at 1 m and prints what it moved.",
+        ],
+        tip:
+          "NO CHANGE at 1 m means the coarse pass was already right about that cell — the button " +
+          "worked, the answer held.",
+      },
+      {
+        id: "spot-altitude",
+        title: "Lift the sheet",
+        where: { desktop: "SHEET ALTITUDE, under the radius chips" },
+        keys: ["drone", "aerial", "lift", "eye level"],
+        body:
+          "The sheet sits at eye height, 1.7 m, and the slider raises it to 400 m. At 5 m the " +
+          "badge reads ▲ DRONE and the rules change: only the solid interiors of buildings stay " +
+          "masked, because up there you are no longer walking. Double-click the slider to drop " +
+          "back to eye level.",
+        tip:
+          "When a disc is too dark to read, a chip offers the lowest lift that clears the display " +
+          "floor — that number is probed on your disc, never a preset.",
+      },
+      {
+        id: "spot-honesty",
+        title: "What the status lines admit",
+        keys: ["coverage", "unmapped", "evidence", "provenance", "posting"],
+        body:
+          "Under the legend sits a block of status lines. Each names a limit of the evidence " +
+          "rather than a property of the place, so you can tell how far the wash can be trusted.",
+        list: [
+          "How much of the disc is UNMAPPED, and the coverage figure.",
+          "The cell size the obstruction was solved at, and the finer one the shortlist used.",
+          "The terrain posting under this disc — usually far coarser than the cells drawn on it.",
+          "That a vertical building edge resolves to about half a solar disc.",
+          "That landcover edges carry a one-to-two-cell ribbon, because map lines are generalised.",
+          "How far the evidence reaches, and that past it everything is unknown.",
+          "Where the building heights came from — surveyed, or map-derived with class defaults — " +
+            "and that the trees are modelled rather than surveyed.",
+        ],
+        tip:
+          "There is no single resolution to quote. Obstruction, accessibility, terrain and " +
+          "landcover each resolve at their own scale, and all four are printed.",
+      },
+      {
+        id: "spot-limits",
+        title: "When it refuses",
+        keys: ["rural", "no buildings", "tropics", "nothing found", "warning"],
+        body:
+          "Some discs have no honest score, and the panel names the reason rather than painting " +
+          "over the gap.",
+        list: [
+          "⚠ RURAL — TERRAIN ONLY: too few mapped buildings here, so the score is terrain alone.",
+          "⚠ NO BUILDING GEOMETRY REACHED THIS DISC: the buildings are mapped but none arrived. " +
+            "Turn the BLD toggle on, or wait for the tiles.",
+          "⚠ NO RISE/SET SOLUTION AT THIS LATITUDE ON THIS DATE: a tropics case, where the " +
+            "azimuth barely moves along the horizon.",
+          "Nothing above the floor: try another event, a wider radius, or the lift.",
+        ],
+        tip:
+          "That building warning names ▦ 3D DETAIL, which is the phone's label for the layer. On " +
+          "the desktop deck beside this window, the same toggle is BLD.",
       },
     ],
   },
@@ -1389,6 +1627,21 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "brightness forecasting carries real uncertainty. Building heights you " +
           "[[fpv-height|edit]] apply only in your browser — verdicts then measure the " +
           "edited skyline.",
+      },
+      {
+        id: "trust-detail",
+        title: "Where the model goes deepest",
+        keys: ["dnipro", "chernobyl", "pripyat", "everest", "st albans"],
+        body:
+          "Buildings and terrain come from open map data everywhere on Earth, and four places " +
+          "carry a purpose-built model on top of that: Dnipro, Pripyat with the Chernobyl " +
+          "reactor, St Albans, and the Khumbu around Everest. The first three get roof shapes " +
+          "and building parts, where elsewhere a footprint is raised to its mapped height. " +
+          "Dnipro, Chernobyl and Everest also carry their own 30 m elevation patch. The right " +
+          "model loads on its own when you fly there — there is nothing to choose.",
+        tip:
+          "Everest is terrain only, and deliberately so: no building bake exists for the Khumbu. " +
+          "Stand on the summit and read the light instead.",
       },
       {
         id: "trust-airless",

@@ -346,6 +346,95 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 
 ## Recent sessions (verbatim, newest first)
 
+### 2026-08-27d — THE GUIDE HAD NOT ONE WORD ABOUT BEST SPOT: a whole shipped subsystem, its owner QA batch and the ULT chip all landed AFTER the guide froze on 2026-08-22, so the manual has been describing a version of the app that stopped existing five days ago
+
+**Pure docs session.** One runtime file edited — `src/lib/guide/guideContent.ts`, which is content
+data — plus two backlog rows. No behaviour touched, nothing to browser-verify. Gates:
+**vitest 2,210/2,210** (146 files) · `astro check` 0 err / 0 warn / 8 hints · `npx knip` exit-0.
+
+**THE GAP, MEASURED.** `guideContent.ts` was last written 2026-08-22 22:46. BEST SPOT shipped
+S1→S7 on 2026-08-23/24 and its owner QA batch on 2026-08-26; the ULT chip landed 2026-08-22h,
+*hours* after the freeze; Chernobyl and Everest were baked 2026-08-26 and 2026-08-22h. None of it
+was in the guide. Eclipses had exactly one sentence, buried in `target-card`, and that sentence
+was already **factually wrong** — it promised "the next five" on both shells, while `/m` renders
+four (`TargetSheet.tsx:65` `ECLIPSE_ROWS = 4` against `TargetPanel.tsx:462`'s `5`).
+
+**WHAT SHIPPED — one new chapter, 13 new topics, 2 new router goals.**
+- **Chapter `bestspot` (BEST SPOT)**, eight topics, placed after FIND because that is where it
+  sits in the toggle: `spot-open` (the disc, the four event chips, the radius ladder, and that
+  the window opens with the heatmap OFF and nothing computed) · `spot-read` (colour IS the score;
+  contours; the dotted UNMAPPED hatch that is deliberately never given a colour; the dissolving
+  rim; **that a street-level city disc comes out mostly black and that is the true answer**) ·
+  `spot-markers` (25 m separation; HUE spreads the eight, BRIGHTNESS is absolute) ·
+  `spot-shortlist` (rank · absolute score · relative bar · distance and bearing · GRAZE/GAP/OPEN
+  HORIZON · the `+3m20s` lead) · `spot-actions` (**GO is the only action that moves the centre**,
+  which is why selecting a row does nothing on its own) · `spot-altitude` (1.7 m eye height →
+  400 m; ▲ DRONE at 5 m; the computed lift suggestion) · `spot-honesty` (all seven status lines,
+  as the reason the picture can be trusted) · `spot-limits` (RURAL · no building geometry ·
+  the TROPICS rise/set case · nothing above the floor).
+- **`target-eclipses`** — five rows desktop / four phone, the year on every date, TOTAL/ANNULAR/
+  PARTIAL/PENUMBRAL, the dash for a penumbral's zero umbral coverage, greatest-eclipse time with
+  the body's altitude, SETS MID-ECLIPSE / BELOW HORIZON, the live NOW line, and the local-vs-global
+  split (solar rows are computed for YOUR anchor; a lunar one is the same for everyone on the
+  night side).
+- **`target-eclipse-scene`** — the half nobody had written down: there is no eclipse toggle, the
+  darkness is derived from the sun and moon positions the scene already draws with. Daylight holds
+  through the partials and collapses in the last minute (`ECLIPSE.daylightGamma 0.8`); totality is
+  deep twilight, not night (`daylightFloor 0.04`); the corona appears only once the last sliver is
+  covered and **never in an annular**; the pink chromosphere hairline; bright stars only
+  (`STARS.eclipseRevealStart 0.9`, `eclipseRevealMax 0.75`); the copper moon brightest at the
+  shadow's edge (`umbraEdgeLift`).
+- **`move-ultra`** — the ULT chip, and the one state it never surfaced: a mid-session flip moves
+  everything **except** the shadow rig, so a reload is what buys the 8K map.
+- **`trust-detail`** — the four baked regions (Dnipro · Pripyat + the Chernobyl reactor ·
+  St Albans · the Khumbu around Everest), which of them carry buildings versus a 30 m elevation
+  patch, and that Everest is terrain-only on purpose.
+- Goals: *"Score the ground around me for where to stand"* → `bestspot`; *"Watch an eclipse before
+  it happens"* → `target-eclipses`.
+
+**FIVE STALE CLAIMS CORRECTED IN EXISTING COPY** — each one was a statement about the live UI that
+had stopped being true: `move-deck` said **eight** toggles (ULT made it nine) · `plan-open` said
+PLAN and FIND share one window and named a two-segment toggle (it is three: `☀ PLAN · ⌖ FIND IN
+FRAME · ◎ BEST SPOT`) · `start-shells` did not list BEST SPOT among what the phone leaves out ·
+`target-card` carried the wrong eclipse count · `fpv-walk` never mentioned the deck's **ALTITUDE
+encoder**, which is a real way to rise and sink on desktop.
+
+**THE SEARCH FENCE IS THE REAL COST OF A NEW TOPIC, AND IT BIT FOUR TIMES.** New copy re-ranks
+existing queries, so `guideSearchGolden.test.ts` fails on additions that are individually correct:
+1. **`fpv-walk:"altitude"` went orphan** — `spot-altitude`, whose `where` line is the verbatim
+   label `SHEET ALTITUDE`, took the top slot and pushed `fpv-walk` out of the required top 5.
+   Deleting my own `"sheet altitude"` alias did **not** fix it; the `where` line alone outranks.
+   The fix was to make `fpv-walk` genuinely stronger by documenting the ALTITUDE encoder it had
+   always omitted — **the content gap and the ranking bug were the same bug**.
+2. **A bare number in an alias reaches nothing** — `"1 m"` returns `[]` outright and `"top 8"`
+   returned pure noise. Never author an alias containing a lone digit.
+3. **`"re-solve"` stole the shipped golden row `"re-centre" → fpv-map-controls`** through the fuzzy
+   ladder. A new alias must be checked against the GOLDEN table's near-neighbours, not only
+   against its own topic.
+4. **The shipped goal phrase *"Read when the light is right at a spot"* started resolving to
+   `spot-markers`**, because "spot" is now a chapter-wide word. Fixed inside the new topic's
+   `keys` (`ranked spots` → `ranked cells`) rather than by rewording a goal the owner has seen.
+
+**THE /no-slop PASS FOUND NINE PATTERNS IN MY OWN DRAFT** and the repo's banned-phrase lint then
+caught the pass itself: the rewrite introduced *"cannot be scored honestly"*, and `honestly` is on
+the intensifier list. Cut: two fake-profound kickers, a rhetorical question in a tip
+(*"why is there a #4 over there?"*), a negative-parallelism opener (*"An eclipse is not a layer you
+switch on"*), unfalsifiable comparative puffery (*"a block of lines most tools would leave out"*),
+a superlative (*"the worst thing this feature could do"*), and two vague quantities that became
+plain ones. **The lint walks `keys` too — aliases are authored prose and drift the same way.**
+
+**ONE DEFECT FOUND, NOT FIXED — T71.** `BestSpotPanel.tsx:179-180` tells the user to
+*"TURN ▦ 3D DETAIL ON"*. `▦ 3D DETAIL` is the **/m LAYERS** chip; BEST SPOT mounts only from
+`index.astro` and is gated desktop-only, where the same layer is the camera deck's **BLD**. The
+message names a control that cannot be on screen when it is shown. `spot-limits.tip` documents the
+mismatch verbatim, so the string fix and that tip must move together. **T72** records that all four
+new subjects ship text-only: `guideContent.test.ts:185` pins `allMedia()` at exactly 13, and a shot
+of the heatmap, the shortlist or an eclipsed sky needs a `wix dev` shoot session — it rides T42.
+
+**Files:** `src/lib/guide/guideContent.ts` (+13 topics, +1 chapter, +2 goals, 5 corrections) ·
+`.claude/skills/frame/references/tracked-backlog.md` (T71, T72). **Verification tier:
+local-runnable only** — vitest + `astro check` + knip. No browser leg was needed or claimed.
+
 ### 2026-08-27c — THE TASTE PASS, AND THE LESSON IT COST: dimming the key is only HALF a dusk, because contrast is `direct / (direct + flat)` and 2026-08-27b divided the numerator by five while holding every flat term fixed — the definition of flattening
 
 The owner tested 2026-08-27b and reported four things still wrong: the sun disc "too white and transparent"; the "weird tint, especially on backside of objects" still there, with "mountains just below the sun which should be in complete shadow" reading bright; cast shadows that "should become darker and more global, not just disappear"; and the afterglow still missing. **Every one turned out to be a term LEFT OUT of the first pass rather than a knob set badly** — which is exactly why the first pass could not have been tuned into correctness.
