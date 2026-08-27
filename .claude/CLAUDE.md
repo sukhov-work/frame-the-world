@@ -26,6 +26,9 @@ over-eager sweep renames the persisted keys.
 2. **`.claude/claude-docs/`** — `DECISIONS.md` (recent state, top-first) · `ARCHITECTURE.md` +
    `IMPLEMENTATION_PLAN.md` (repo-native working docs) · `PROJECT_SEED.md` + `provenance/DEEP_RESEARCH.md`
    (canonical provenance — intent & research) · `provenance/CLAUDE_DESIGN_MEMO.md` (design workflow).
+   **Per-subsystem bundles live in subdirectories and each owns its own entry point:**
+   `bestspot/` (BEST SPOT / the heatmap — **PARKED; start at its `README.md`**) · `rendering/` ·
+   `audits/` · `dnipro-enrichment/` · `archive/`.
 3. **`.claude/conventions/`** — `wix-headless.md` (the distilled Wix mechanics) · architecture · testing · naming · errors · `globe-tuning.md` (globe scene modules + tunables contract).
 4. **Codebase**: Serena semantic tools → `Grep` → `Read`.
 5. **External**: Wix MCP / Wix Skills (framework APIs — never fabricate signatures), `gh` CLI, web.

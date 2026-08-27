@@ -301,6 +301,12 @@ judgement, not a flag.
 
 ## 10. Rejected, with reasons — do not re-attempt without new information
 
+> **AMENDED 2026-08-27 (owner defect 1).** The CSM row below still stands *as a rejection of that
+> library*, and none of its facts have changed. What changed is that a CASCADE LADDER shipped
+> anyway, by a different route — see §13. Read the row as "not `three/examples/jsm/csm`", not as
+> "not cascades"; and note that its last sentence ("its job is already done for free") was
+> **measured false** and is the defect §13 fixes.
+
 | Technique | Why not |
 |---|---|
 | **CSM** (`three/examples/jsm/csm/`) | `setupMaterial()` **ASSIGNS** `onBeforeCompile`, clobbering the buildings' **15**-uniform fill injection (S4 took it from 12 to 15 — this very track) and the ground's explicitly-CHAINED one; the edge material carries a further 5-uniform injection, though as a `LineBasicMaterial` it would never be handed to `setupMaterial`. `ShadowMaterial` (the ground twins) resolves through `getShadowMask()`, which **multiplies all cascades with no cascade dispatch**. It creates 3 extra DirectionalLights ⇒ full scene recompile + 3 depth passes. Zero reach into the ~19 raw ShaderMaterials. **And its job is already done for free:** the shadow ortho rides camera altitude, so street level clamps to 1.6 km (0.39 m/texel at 8192²) while a mountain view spends the same texels on 11 km of relief — an altitude cascade. |
@@ -348,3 +354,235 @@ judgement, not a flag.
 | **The sky DOME was not touched**, so at golden hour a warm ground haze meets the old blue-grey dome above the horizon — a mild seam. Fixing it means reaching into `scene/atmosphere.ts`, outside this slice. | — |
 | Capped mip chain (§9) | — |
 | VRAM rollback if 512 MiB proves too much | `ULTRA.shadowMapSize` `8192` |
+
+---
+
+## 13. THE 2026-08-27 BATCH — the owner's three immersion breakers
+
+Shipped in one session against a verbatim owner report. Gate: **`scripts/verify-ultra-dusk.mjs`
+21/21**, alongside an unchanged `verify-ultra.mjs` 28/28 and `verify-rendering-charter.mjs` 85/85.
+Decision log: `DECISIONS.md` §Recent **2026-08-27b**. Session log:
+`mem:project/wip-2026-08-27-ultra-render-batch`.
+
+### 13.1 Shadow cascades — "shadows are cropped, sliced, hollow and incomplete"
+
+**Measured first.** `__globe.ultraLook()` at the owner's own poses, ULTRA on, before any change:
+
+| pose | `viewFitM` | `boundsM` | covered |
+|---|---|---|---|
+| Fuji, 5.2 km, 84° tilt | 148,757 m | 18,000 m | **24 %** |
+| Fuji, 15 km, 68° tilt | 427,828 m | 18,000 m | **8 %** |
+| mountains, 3.5 km, dusk | 100,163 m | 18,000 m | **35 %** |
+
+Everything past the box renders fully lit (three r185 `shadowmap_pars_fragment` returns 1.0 outside
+`[0,1]`) with a straight cut where the box ends. That is the "gap" in Mount Fuji's own shadow and
+the "only this spot has a shadow" frame. RC4 anticipated it — "full visible-frustum fit stays in
+reserve, build only if shots after RC4 still show hard shadow edges inside the frame".
+
+**How it ships without CSM.** Each extra cascade is a plain `DirectionalLight` at `intensity = 0`,
+added at BOOT right after `sun`. It contributes no light to any lit material; it only owns a depth
+map. The ground receives through `ShadowMaterial` twins, and `getShadowMask()` **multiplies every
+directional shadow mask with no cascade dispatch** — §10 lists that as a reason CSM could not work
+here, and for NESTED boxes it is exactly the mechanism: a fragment outside a cascade's box gets 1.0
+from it, so the product is the UNION and a coarse cascade can only add shadow a finer one agrees
+with. No `onBeforeCompile` is touched, so the buildings' 15-uniform injection and the ground's
+chained one are untouched, and the ~19 raw `ShaderMaterial`s are unaffected as before.
+
+Three invariants, each machine-checked:
+- **Lockstep down, never up.** `WebGLLights.js:295-305,459-465` indexes `directionalShadow[]` by
+  position among ALL directional lights and then truncates to the CASTER COUNT — a non-casting
+  light in front of a casting one silently drops the caster's shadow. `sun` is always first, so
+  cascades-off-while-sun-on is safe and is how a chip flip lands; the reverse is impossible by
+  construction.
+- **Move only when refreshing.** Cascades run `shadow.autoUpdate = false`; the skip at
+  `WebGLShadowMap.js:170` happens BEFORE `updateMatrices`, so a cascade that did not re-render this
+  frame keeps a matrix that still matches its map. Refresh triggers: extent changed · terrain epoch
+  changed · eye drifted > `cascadeMoveFrac` of the half-extent · key swung > `cascadeRefreshDeg` ·
+  `cascadeMaxStaleMs` (the RC21-shaped safety net — a missed trigger costs bounded staleness, never
+  a frozen shadow).
+- **Centred on the EYE**, not pushed down the look like cascade 0: the box then contains the eye at
+  every pitch (strict nesting, no inter-cascade gap is possible) and does not move when the camera
+  merely turns, which is what makes a 1.5 s cadence invisible.
+
+**Cost, measured (dev build, 1600×950 @ DPR 2, owner's machine):** mountain 31.2 → **34.2 ms
+(+3.0 ms, +9.6 %)**; city 47.0 → **50.3 ms (+3.3 ms, +7 %)**. VRAM **+168 MB** (4096² + 2048², each
+an RGBA8 colour attachment plus a D24 depth texture) on top of cascade 0's 536 MB. Rollback ladder
+is on `ULTRA.cascades`; `cascades: []` restores the shipped single-box rig exactly.
+
+### 13.2 The dusk light model — "some piss very bright colour"
+
+Four mechanisms, all in the shipped code, all now answered. The split worth remembering: the
+**chromaticity** of low sunlight is physics (`lib/globe/duskLight` — Kasten-Young airmass through
+per-channel Rayleigh + aerosol optical depth); the **level** is an authored curve, because true
+transmittance at 0° is ~1 % of zenith and this renderer has an exposure ramp rather than an
+adapting eye.
+
+| Defect | Mechanism | Fix |
+|---|---|---|
+| the key never died, and *brightened* 35 % through the golden band | `SUN.keyIntensity × (1 + goldenK × keyBrighten)`, no elevation term; `sunExtinctionK` dims only the DISC | `ULTRA.keyExtinctCurve` scales the key AND the disc; `solarChroma` reddens it |
+| "opposite sides of terrain lit the same" | `EARTH.dayGradMin` 0.78 floors the slope ramp at every hour | direct/ambient split (`ULTRA.groundAmbient*`), direct dies with `directK` |
+| "uniformly illuminating the whole scene" | `ftwAerial` mixed toward a fixed palette stop at up to `hazeMaxK` 0.72 with **no level term** — the far field came out BRIGHTER than the foreground at dusk | `skyLevel` (`ULTRA.skyLevelCurve`) multiplies the in-scatter |
+| "whole sky dome has same colour and luminosity" | the dome's horizon haze is a function of elevation above the horizon ONLY | two normalised scattering lobes shared by the dome and the aerial perspective, plus `afterglowCurve` for the local post-sunset glow |
+
+Measured sweep at the mountain pose (ULTRA on):
+
+| band | sun | skyLevel | directK | afterglow | keyLevel | disc |
+|---|---|---|---|---|---|---|
+| high | 26.8° | 1.000 | 1.000 | 0.000 | 1.000 | 1.000 |
+| low | 9.5° | 0.973 | 0.959 | 0.000 | 1.294 | 0.954 |
+| horizon | 3.4° | 0.806 | 0.668 | 0.001 | 0.902 | 0.378 |
+| set | −0.5° | 0.580 | 0.166 | 0.352 | 0.002 | 0.066 |
+| civil | −5.4° | 0.282 | 0.000 | 0.550 | 0.029 | 0.028 |
+
+Two shipped tuning values were RE-ANCHORED, not merely extended, and both are recorded in place:
+`ULTRA.hemiCurve` (peaked at 1.15 at 0° — the ambient fill was brighter at sunset than at noon) and
+`ULTRA.hemiTintK` (0.6 → 0.22 — a HemisphereLight is azimuth-free, so 0.6 painted the band tint on
+every wall in the city at once: the owner's "backs of the building lit with the same ugly tint").
+
+### 13.3 The tile seam — "dark lines/gaps between tiles"
+
+Not the RC25 mip chain (killing it changed nothing) and not anisotropy. It was the quantized-mesh
+**skirt**, on BOTH sides of the shadow pipeline, and only visible once S3 let terrain cast:
+
+1. **It cast.** A wall standing on the tile edge occludes the neighbour's surface across a band of
+   width ≈ `skirtLength · cos(sun elevation)`, and `skirtLength` defaults to `tile.geometricError`
+   — hundreds of metres at the LODs a wide view uses.
+2. **It received.** Clipping (1) left a hairline; sweeping the caster's `polygonOffsetUnits`
+   2 → 1600 moved it not at all while switching the shadow pass off removed it. The apron's top
+   edge is coincident with the neighbour's surface, samples that surface's depth, reads as
+   self-shadowed, and the `ShadowMaterial` twin paints its slate over the visible sliver.
+
+Both fixed by drawing the SURFACE CAP ONLY (`geometry.groups[0]`) for the duration of one draw —
+`onBeforeShadow`/`onAfterShadow` for the caster, `onBeforeRender`/`onAfterRender` for the twin. The
+colour pass never sees a clipped range, so the skirt keeps doing its real job (hiding inter-LOD
+cracks). The contract lives in `lib/globe/terrainSkirt` with a unit test, and fails SAFE: an
+unrecognised group layout casts and receives exactly as before.
+
+---
+
+## 14. THE TASTE PASS — what the first dusk batch got wrong (2026-08-27c)
+
+§13 shipped, the owner tested it, and four things were still wrong. Every one turned out to be a
+term that had been left OUT of the first pass rather than a knob set badly, which is why the first
+pass could not be tuned into correctness. Gate: `verify-ultra-dusk` (unchanged, 21/21) plus
+`test/components/globe/{sunDisc,duskShadeRatio}.test.ts`.
+
+**The finding that reframes the whole batch (and it is a lesson, not a line):** `keyExtinctCurve`
+divides the DIRECT term by five through the dusk band, and §13 scaled nothing else. Directional
+contrast is `direct / (direct + flat)`, so dividing the numerator while holding the denominator is
+*the definition of flattening*. Measured front-wall:back-wall on a building, in red, on the surface
+alone: **1.28 at 3°, 1.21 at 2°, 1.08 at 0°** — the contrast collapses across exactly the band the
+extinction curve was added to. **Dimming the key is only half a dusk; the flat terms have to fall
+on the same curve.**
+
+### 14.1 The terrain — a ratio of 0.969
+
+Four independently direction-blind terms compounded. At +2° two 30° slopes, one facing the sun and
+one facing DIRECTLY AWAY, rendered at **0.859 vs 0.833 — the shadowed mountain at 96.9 % of the lit
+one.** In order of size:
+
+| # | Term | Why it was invisible |
+|---|---|---|
+| 1 | `shade = mix(shade, 1.0, photo)` at `photo3dK` 0.6 | It lives in the TEXTURE half of the track. `photo3dK`'s docblock lists "shade→1" as part of the raw-Esri de-grade — the shading half was bundled with the colour half, and only the colour half is defensible in 3D. It alone took the ratio from 1.112 to 1.031. |
+| 2 | the ambient half of §13's own direct/ambient split | A constant × a term that only knows which way is UP. At dusk it was **worse than the `EARTH.dayGradMin` 0.78 ramp it replaced**, because 0.78 was at least reached through `sqrt(sunDot)` on the lit side. |
+| 3 | the golden-hour cast | A bell over SOLAR elevation multiplied into every fragment on the day side. The terrain twin of the `hemiTintK` bug §13 fixed for buildings, left in place. |
+| 4 | the additive `uFtwAmbDay` floor | No normal term at all, and still at 88 % of its +2° value at 0°. |
+
+The shade lift now rides `directK^3` — exactly 1 at high sun, so the daytime frame the owner likes
+is byte-identical, and 0.066 by +2°. The power has to be steep because `mix(x, 1.0, k)` lifts DARK
+values more than bright ones: a linear ride still left the two faces at 0.78.
+
+The ambient gained a LEVEL and an AZIMUTH. The azimuth is a **wrap**, `0.5 + 0.5·dot(n, sun)`, and
+the first attempt at it is worth recording: it reused `ftwAirLevel`, the air-light's own lobe pair —
+and the JS twin measured the result at 0.50 vs 0.44, no contrast at all. That lobe is the sky's
+RADIANCE ALONG ONE RAY; a surface integrates the whole hemisphere around its normal, and the
+cosine-weighted integral of a one-sided sky *is* the wrap. Its strength is `(1 − directK)^0.5`,
+which is the physically right shape and free: the sky is isotropic at noon (so noon is provably
+untouched) and most one-sided as the sun reaches the horizon.
+
+**Measured after:** ratio **0.685 at +2°**, 0.653 at 0°, and monotone from 10° down. Absolute lit
+shade falls 0.99 → 0.49 → 0.31 over the same band, so the ratio was not bought by lifting the
+shadow side. Pinned by `duskShadeRatio.test.ts`, which is also the file that caught a sign error in
+its own geometry and then refuted the first azimuth term.
+
+### 14.2 The city — a constant floor 3.6× the sun
+
+`BUILDINGS.emissiveIntensity` 0.1 on `tokens.land` is a CONSTANT (0.0087, 0.0148, 0.0107) added
+straight to `outgoingLight` with no albedo, no normal and no sun term
+(`meshphysical.glsl.js:168,198`). **At a 3° sun a wall pointed straight into the sun receives about
+3.6× more light from its own emissive than from the sun**, and it is ~100× the entire
+HemisphereLight contribution on the same wall.
+
+That last number also settles a question §13 raised: the hemisphere is **0.18 % of a facade pixel**,
+so re-anchoring `hemiTintK` could not have fixed the owner's picture, and tilting the hemisphere
+toward the sun — an idea that looked elegant — would have moved nothing. It was dropped for that
+reason and no other.
+
+Shipped instead: `buildingEmisCurve` and `buildingEdgeCurve`, both **troughs** (the emissive floor
+IS the night look, so it has to come back after twilight), applied through ONE authority per module
+so they cannot fight the ghost-mode and FPV-solidity writers that already own edge opacity. Plus
+`moonLight` finally gets a moon-ELEVATION gate: it had none, so a below-horizon moon still keyed
+every wall whose azimuth faced it — 82 % of the sun key at 0° sun, and 33× stronger in blue. The
+ground had gated its moon terms on elevation since S7; the buildings never did, and that asymmetry
+is what marks it an oversight rather than a decision.
+
+### 14.3 The sun disc — additive has no dim-but-solid state
+
+*"the sun disk becomes too white and transparent."* The impostor was `AdditiveBlending`, so its
+result is literally `disc + sky`: **dimming it and dissolving it into the sky are the same
+operation.** §13 scaled the additive level down and got exactly what addition promises — a flat pale
+plate the colour of the sky behind it (measured: core radiance 5.00 at 14° → 1.11 at 1.6°, spread
+uniformly by the flat-topped `1 − smoothstep(0.9, 1.0, r)` mask).
+
+It now carries a PREMULTIPLIED arm as well — the moon's `ONE / ONE_MINUS_SRC_ALPHA` triple,
+verbatim, but on a different axis: the moon switches day↔night, the sun switches
+bright-and-additive ↔ dim-and-solid. Four things this required, three of which are traps:
+
+- **`uSolid` is EXACTLY 0 above `discSolidHiDeg` 6°**, so `DST' = rgb + DST·1` and the premultiplied
+  path degenerates to the addition it replaces. That makes it a provable superset at the blend
+  equation rather than a look change at noon.
+- **ONE coverage scalar.** Under addition every mask could safely be applied to colour alone,
+  because colour 0 already means invisible. Under premultiplied "over" a fragment with rgb 0 and
+  a 1 is BLACK — so the disc mask, the carved lunar silhouette and the horizon fade all have to
+  reach ALPHA too, or the fix punches a black bite at the eclipse silhouette and at the setting
+  limb. `verify-eclipse` 37/0 is the proof it does not.
+- **The halo contributes to rgb only.** It is an `exp()` with no compact support (still ~3e-3 at 5
+  disc radii, which is why the edge window exists); an alpha built from total brightness would make
+  ~14 solar diameters of sky partly opaque.
+- **The chroma is FLOORED.** Raw `solarChroma` at 0° is (1.000, 0.212, 0.005): multiplied into
+  `sunCore` that is crimson with a dead blue channel, not the orange he asked for.
+
+`discLevelCurve` replaces the `sunExtinctionK × keyExtinctCurve` product — that product started at
+10° (not "earlier") and its `ultraExtinctFloor` left the core at 0.028, about half the brightness of
+the sky behind it. The new anchors put the `BLOOM.threshold` 0.9 crossing at ~5.5°, deliberately
+ABOVE the band the owner watches, so losing bloom reads as a shrinking flare rather than a pop.
+**Measured after:** level 0.771 → 0.115 across 14° → 1.6°, `solid` 0 → 0.95, `haloK` 0.60 → 0.013,
+tint white → `#ffd6bb`.
+
+### 14.4 The afterglow — a lerp target dimmer than the term it replaced
+
+The directional dome arm was blended in by `hazeNow × domeTintK`, **capped at 0.3825**. Worse, the
+legacy omnidirectional band it was lerping against rides `max(dayK, hGold)`, and
+`GOLDEN.fadeInLo` = sin(−12.1°) holds `hGold` at 0.977 at −2°. Since 0.75 < 0.977, **`mix()`
+SUBTRACTED**: ULTRA could only ever make the dusk sun-side horizon DARKER than baseline. It first
+exceeds the legacy term at −9.45°, where the weight has fallen to 0.154 and the band is invisible.
+
+Fixed three ways: the directional arm gets its own weight (`domeDirK`), so `domeTintK` goes back to
+being what its docblock says — the TINT coupling, not a master gain on a light source; the afterglow
+becomes an ADDITIVE band with `afterglowTauSin` 0.30 (~17.5°) instead of borrowing the daytime haze
+crest's ~4.3° ribbon; and it is passed into `ftwAerial` as well, because the dome was painting a glow
+the terrain under it knew nothing about (0.49 against a far-field level of 0.22 at −6° — the same
+terrain/sky seam RC24 exists to close).
+
+### 14.5 Open, and honest about it
+
+- **The "sun set behind a MOUNTAIN" half of the owner's afterglow ask is NOT shipped.** A
+  terrain-horizon sampler exists and is O(1) (`lib/geo/horizonProfile`, 120 azimuth bins), but it is
+  built only for a photo apex or an FPV eye, time-sliced over 40+ frames and coverage-gated —
+  nothing cheap exists for a free orbit. Backlog **T68**.
+- `A-BLD-4` (the edge-stroke trough) is the one finding whose adversarial verification **errored
+  out** rather than returning a verdict. It shipped on the strength of its own arithmetic and a
+  single-authority refactor; treat it as the least-verified line in this batch.
+- The audit's `A5`/`A-BLD-3` — that the aerial perspective replaces up to 72 % of a far surface and
+  so erases contrast at distance regardless of what the surface does — is real, measured, and NOT
+  addressed here. Backlog **T69**.

@@ -1,6 +1,6 @@
 /**
  * BEST SPOT — the shared contract between the SWEEP (which produces per-cell ray evidence) and the
- * METRIC (which scores it). See `.claude/claude-docs/BESTSPOT_PLAN.md` for the full design.
+ * METRIC (which scores it). See `.claude/claude-docs/bestspot/BESTSPOT_PLAN.md` for the full design.
  *
  * Pure, three-free, store-free, explicit-epoch-ms — the `horizonProfile`/`occlusion` idiom, so the
  * whole kernel is unit-testable in vitest without WebGL and importable from a Web Worker.

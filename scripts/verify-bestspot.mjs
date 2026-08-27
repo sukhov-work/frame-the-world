@@ -1,6 +1,32 @@
 // Browser verification for BEST SPOT — the disc solver's WORKER + FEED + LADDER + REFINEMENT
 // (BESTSPOT_SPEC_V2.md §7 S3d, done-checks 1-7 plus §2.2's T1').
 //
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ⚠ THIS SCRIPT IS KNOWN-RED AT 96/101, AND IT IS NOT YOUR REGRESSION.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// The D8 CROSS-MODEL block (3-5 checks: `:922-925`, `:976-980`, `:986-989`, `:990-994`) fails on
+// CLEAN MASTER — confirmed 2026-08-26 by stashing an entire batch and re-running. Its fixture was
+// recorded 2026-08-24 (hero rank-1 `S` 0.065, hero skyline 40.31 deg); RC16's straddler recovery and
+// RC17's pick-height removal both landed AFTER that and moved the building geometry the two models
+// share. Measured now: `S` 0.3159, skyline 0.97 deg. The disc is BETTER than the fixture assumes, so
+// the check's PRECONDITIONS are what fail — the check is stale, not the engine.
+//
+//   * DO NOT "FIX" IT BY LOOSENING THE THRESHOLDS. Re-derive the pin: hill-climb for a cell the
+//     CURRENT geometry genuinely walls in, exactly the way the mid-reservoir pin was re-sited.
+//   * THE OBJECTIVE IS NOISY, so a hill-climb converges on noise unless each candidate is measured
+//     >= 2x after quiescing on streaming: hero `S` measured 0.3161 -> 0.3338 over four consecutive
+//     runs, and the field improves as tiles arrive.
+//   * NEVER RE-DERIVE D8 AGAINST `__globe.plan()` ALONE. At the owner's Dnipro cell the planner's
+//     120-bin profile reads the skyline as 0.09 deg where a 20 m mass stands 87 m away at 125.7 deg
+//     — the planner is MISSING THE MONUMENT and the disc is right. Separate, unfixed defect.
+//
+// The other 96 checks are green and the harness is otherwise trustworthy. Full context and every
+// measured number: `.claude/claude-docs/bestspot/README.md` §7 + `MEASUREMENTS.md`.
+//
+// KNOWN LATENT CRASH (undeclared, still present): `heroRanked[0]` at ~:916 and `ranked[0]` at ~:945
+// are unguarded after an `ok()` that only RECORDS. An empty shortlist throws a TypeError ->
+// `finishVerify(1)`, aborting at ~check 66 of 101 and SILENTLY SKIPPING the last four sites.
+//
 // WHAT THIS SCRIPT IS FOR, IN ONE SENTENCE: the whole slice is a set of DECISIONS about what does
 // and does not re-run, and none of them is visible in a screenshot. A disc that re-solves on every
 // scrub looks identical to one that does not. A disc painted from a stale scoring profile looks

@@ -6,6 +6,8 @@ import {
   type SolarEclipseState,
 } from "../../../lib/ephemeris/eclipse";
 import { ATMOSPHERE, ECLIPSE, SKY, WGS84_A, WGS84_B } from "../tuning";
+import { bandCurve } from "../../../lib/globe/lightBands";
+import { solarChroma } from "../../../lib/globe/duskLight";
 import { DITHER_GLSL, glf, impostorEdgeWindowGlsl } from "./glsl";
 
 /**
@@ -43,6 +45,11 @@ export interface SkyHandle {
     /** True apparent angular radii (rad) from the ephemeris distances. */
     sunAngRad: number;
     moonAngRad: number;
+    /** ULTRA (owner taste pass, 2026-08-27c): drive the disc from `SKY.discLevelCurve` + the
+     *  opacity ramp instead of the shipped additive-only extinction. `false` (the default) is the
+     *  disc exactly as it shipped — `uSolid` 0 makes the premultiplied blend degenerate to the
+     *  addition it replaced, and `uCoreTint` stays white. */
+    ultraDisc?: boolean;
     /** K&S-1991 phase-scaled lunar intensity 0..1 (`lib/ephemeris/moonlight`, 1 = full moon) —
      *  drives the moonlight key. The orchestrator passes 0 while the shadow rig impersonates
      *  the moon (S5 source switch), so the night key is never doubled. */
@@ -138,6 +145,38 @@ export function moonDiscArms(
 }
 
 /**
+ * CPU twin of the SUN disc's two arms (owner taste pass, 2026-08-27c) — the sibling of
+ * `moonDiscArms`, and it exists for the same reason: the blend is premultiplied, so "how bright"
+ * and "how opaque" are two different numbers and getting them out of step is invisible in review.
+ *
+ * THE AXIS IS NOT THE MOON'S. The moon switches DAY (additive) ↔ NIGHT (opaque) on one scalar.
+ * The sun does not need a day/night switch — it needs a BRIGHT-AND-ADDITIVE ↔ DIM-AND-SOLID one,
+ * because the defect was that an additive impostor has no dim-but-solid state at all: its result
+ * is literally `disc + sky`, so dimming it and dissolving it into the sky are the same operation.
+ *
+ *  · `cover` is the GEOMETRIC coverage — the disc mask × the carved lunar silhouette × the horizon
+ *    fade. Every geometric mask lives in it exactly once, so rgb and alpha cannot disagree. This
+ *    is what stops the fix punching a black hole: under premultiplied "over" a fragment with
+ *    rgb = 0 and a = 1 is BLACK, not invisible, so a mask applied to colour alone (as all four
+ *    were, correctly, under addition) would show as a dark bite at the eclipse silhouette and at
+ *    the setting limb.
+ *  · `level` is the authored radiance (`SKY.discLevelCurve` × `sunIntensity`, hover-liftable).
+ *  · `solid` is 0 at high sun — so alpha is 0, `DST' = rgb + DST·1`, and the premultiplied path
+ *    degenerates EXACTLY to the addition that shipped.
+ *  · the halo contributes to rgb ONLY. It has no compact support (`exp()` to 7 disc radii), so an
+ *    alpha derived from total brightness would make ~14 solar diameters of sky partly opaque.
+ */
+export function sunDiscArms(
+  cover: number,
+  level: number,
+  solid: number,
+  halo: number,
+): { rgb: number; alpha: number } {
+  const alpha = cover * solid;
+  return { rgb: level * cover + halo, alpha };
+}
+
+/**
  * CPU twin of the sun's horizon-extinction factor (owner 2026-08-14: a setting sun should dim
  * "like the real atmosphere does"). `sunAltDeg` = sun altitude at the camera (deg); `skyK` =
  * the atmosphere-presence altitude fade (1 at street level, 0 in space — the moon dayK's
@@ -171,10 +210,19 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   const sunUniforms = {
     uCore: { value: new THREE.Color(tokens.sunCore) },
     uGlow: { value: new THREE.Color(tokens.sunGlow) },
-    uIntensity: { value: SKY.sunIntensity as number }, // widened: setHoverGlow re-derives it
-    // Horizon extinction (sunExtinctionK, CPU per frame) — dims core AND halo, so the bloom
-    // driver dims with the disc. Separate from uIntensity: the hover lift must not fight it.
+    // The disc's authored radiance: SKY.sunIntensity × the extinction level, hover-liftable.
+    // (Was `uIntensity` × `uExtinct`; collapsed into one so `setHoverGlow` cannot fight the level
+    // and so the bloom drive is a single readable number — see SKY.discLevelCurve.)
+    uCoreLevel: { value: SKY.sunIntensity as number },
+    // Reported by the DEV probe and by verify; kept as its own uniform so a harness can read the
+    // LEVEL without inferring it back out of uCoreLevel.
     uExtinct: { value: 1 },
+    /** Extinction chromaticity on the core — white at high sun (exactly), orange at dusk. */
+    uCoreTint: { value: new THREE.Color(1, 1, 1) },
+    /** 0 = the shipped pure-additive disc. 1 = a solid disc that REPLACES the sky it covers. */
+    uSolid: { value: 0 },
+    /** Halo scale — falls as level^SKY.haloExtinctPow, so the glow leaves before the core dims. */
+    uHaloK: { value: 1 },
     // --- ECLIPSE (2026-08-22k). The moon has to be subtracted from the sun HERE, in the sun's own
     // fragment: the moon impostor cannot do it. During a solar eclipse the moon's near side is a
     // new moon (illuminated fraction ~8e-5), so its disc contributes no colour, and by day its
@@ -203,15 +251,27 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     uniforms: sunUniforms,
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    // PREMULTIPLIED custom blend — the moon's triple (sky.ts, `moonMat`), verbatim and for the
+    // same reason, but on a different axis (see `sunDiscArms`). `DST' = rgb + DST·(1 − a)`, so at
+    // `uSolid = 0` (every frame with the chip off, and every frame above SKY.discSolidHiDeg) this
+    // is ONE/ONE — byte-identical to the AdditiveBlending it replaces. Going solid is therefore a
+    // strict superset of the shipped behaviour, provable at the blend equation rather than by
+    // review.
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     vertexShader: IMPOSTOR_VERTEX_GLSL,
     fragmentShader: /* glsl */ `
       uniform vec3 uCore;
       uniform vec3 uGlow;
       uniform vec3 uCorona;
       uniform vec3 uChromo;
-      uniform float uIntensity;
-      uniform float uExtinct;
+      uniform float uCoreLevel;
+      uniform vec3 uCoreTint;
+      uniform float uSolid;
+      uniform float uHaloK;
       uniform vec2 uMoonOff;
       uniform float uMoonR;
       uniform float uEclipse;
@@ -231,8 +291,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         // limb-darkened core disc (real suns are ~30% dimmer at the limb)
         float disc = 1.0 - smoothstep(0.9, 1.0, r);
         float limb = mix(1.0, 0.7, smoothstep(0.0, 1.0, r));
-        // tight shader halo — the WIDE glow is the bloom pass's job
-        float halo = exp(-(max(r - 1.0, 0.0)) * 1.6) * ${glf(SKY.sunGlowGain)};
+        // tight shader halo — the WIDE glow is the bloom pass's job. uHaloK leaves EARLIER than
+        // the core dims (level^haloExtinctPow): "keep some brightness and very little glow".
+        float halo = exp(-(max(r - 1.0, 0.0)) * 1.6) * ${glf(SKY.sunGlowGain)} * uHaloK;
 
         // --- the moon, subtracted. q is measured from the MOON's centre, in MOON radii. ---
         vec2 q = p - uMoonOff;
@@ -243,7 +304,23 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         // The glare AROUND the sun is scattered photospheric light, so it fades with the
         // photosphere — but not to nothing: the rest of the sky stays lit.
         float haloK = mix(1.0, ${glf(ECLIPSE.haloAtTotality)}, uEclipse);
-        vec3 color = (uCore * disc * limb * uIntensity + uGlow * halo * haloK) * (1.0 - occ);
+        // ONE geometric coverage scalar (taste pass 2026-08-27c). Under ADDITION every mask could
+        // safely be applied to colour alone, because colour 0 already means invisible. Under
+        // premultiplied "over" that is false — rgb 0 with a 1 is BLACK — so the disc mask, the
+        // carved lunar silhouette and the horizon fade all live here exactly once and drive BOTH
+        // arms. (win, the quad-edge window, is applied to both at the very bottom, after the
+        // dither, so the B2 ordering note still holds.)
+        float fade = horizonFade(vW);
+        float cover = disc * (1.0 - occ) * fade;
+        // OPAQUE ARM: the photosphere, premultiplied by its own coverage. limb (real suns are
+        // ~30 % dimmer at the limb) stays on the COLOUR only — it is a radiance term, not a
+        // coverage one, and folding it into alpha would make the disc's rim see-through.
+        vec3 color = uCore * uCoreTint * uCoreLevel * cover * limb;
+        // ADDITIVE ARM: the glow. rgb only — the halo has no compact support (it is still ~3e-3
+        // at 5 disc radii, which is why the edge window exists), so an alpha built from total
+        // brightness would make ~14 solar diameters of sky partly opaque.
+        color += uGlow * halo * haloK * (1.0 - occ) * fade;
+        float alpha = cover * uSolid;
 
         // --- corona + chromosphere, strictly inside totality. The corona is ~1e-6 of the disc,
         // so a single surviving sliver of photosphere would drown it; this ramp also keeps it out
@@ -261,18 +338,18 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
           float th = atan(q.y, q.x);
           float petal = 1.0 + ${glf(ECLIPSE.coronaPetalAmp)}
                       * (0.6 * sin(2.0 * th + 0.7) + 0.4 * sin(3.0 * th - 1.3));
-          color += uCorona * cor * petal * tot * ${glf(ECLIPSE.coronaGain)} * (1.0 - occ);
+          color += uCorona * cor * petal * tot * ${glf(ECLIPSE.coronaGain)} * (1.0 - occ) * fade;
           // The chromosphere: a hairline of hydrogen-alpha pink hugging the lunar limb.
           float chromo = smoothstep(${glf(ECLIPSE.chromoWidth)}, 0.0, abs(rm - 1.0));
-          color += uChromo * chromo * tot * ${glf(ECLIPSE.chromoGain)};
+          color += uChromo * chromo * tot * ${glf(ECLIPSE.chromoGain)} * fade;
         }
-
-        color *= horizonFade(vW) * uExtinct;
         ${DITHER_GLSL}
         // AFTER the dither, on purpose: the ±1/256 noise has to fade out with the signal. Gating
-        // the dither instead would just move the straight edge onto the gate.
+        // the dither instead would just move the straight edge onto the gate. Alpha rides the
+        // window too, or the quad's rim would replace sky the colour has already stopped painting.
         color *= win;
-        gl_FragColor = vec4(color, 1.0); // additive: rgb carries everything
+        alpha *= win;
+        gl_FragColor = vec4(color, alpha);
         #include <colorspace_fragment>
       }`,
   });
@@ -470,6 +547,11 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
   scene.add(moonLight);
   scene.add(moonLight.target);
 
+  /** The per-frame disc level and hover lift, banked so `setHoverGlow` (called AFTER update) can
+   *  re-derive `uCoreLevel` absolutely instead of compounding into it. */
+  let discLevelNow = 1;
+  let hoverSunK = 0;
+  const _discTint = new THREE.Color();
   const _dir = new THREE.Vector3();
   const _pole = new THREE.Vector3(0, 0, 1); // ECEF +Z ≈ lunar north for a 0.5° disc
   const _m = new THREE.Matrix4();
@@ -487,7 +569,8 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     sunMesh,
     moonMesh,
     moonLight,
-    update({ camera, alt, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity, solar, lunar }) {
+    update({ camera, alt, sunDir, moonPos, sunAngRad, moonAngRad, moonIntensity, solar, lunar,
+             ultraDisc = false }) {
       lastCamera = camera; // banked for setHoverGlow's ring billboard (called right after)
       // Horizon fade terms (float64 on the CPU — see HORIZON_FADE_GLSL): shared uniform holders,
       // one write covers the sun AND moon materials.
@@ -516,7 +599,48 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       sunMesh.quaternion.copy(camera.quaternion); // billboard
       // Horizon extinction (owner 2026-08-14): a setting sun dims like the real atmosphere.
       const sunAltDeg = Math.asin(THREE.MathUtils.clamp(sinSun, -1, 1)) * (180 / Math.PI);
-      sunUniforms.uExtinct.value = sunExtinctionK(sunAltDeg, skyK);
+      // THE DISC'S LEVEL (owner taste pass, 2026-08-27c).
+      //
+      // Baseline keeps `sunExtinctionK` untouched — it is a BASE feature (2026-08-14) applied on
+      // every path, and moving it would change a frame nobody complained about. ULTRA swaps in an
+      // authored curve, shaped the way the owner asked: start earlier (15° rather than 10°), fall
+      // proportionally, and hold FLAT from 1° down so there is a stable "solid orange disk"
+      // instead of a fade to nothing. `1 − skyK·(1 − level)` is `sunExtinctionK`'s own altitude
+      // relaxation, reused verbatim — from orbit there is no air in the way, so the disc must go
+      // back to full whichever curve is driving it.
+      const discLevel = ultraDisc
+        ? 1 - skyK * (1 - bandCurve(SKY.discLevelCurve, sinSun))
+        : sunExtinctionK(sunAltDeg, skyK);
+      sunUniforms.uExtinct.value = discLevel;
+      discLevelNow = discLevel;
+      sunUniforms.uCoreLevel.value = SKY.sunIntensity * discLevel * (1 + hoverSunK);
+      // SOLIDITY. Exactly 0 at and above `discSolidHiDeg` — and therefore on every baseline frame
+      // and every daytime ULTRA frame — which is what makes the premultiplied path a provable
+      // superset of the additive one rather than a look change at noon.
+      const solid = ultraDisc
+        ? 1 - THREE.MathUtils.smoothstep(sunAltDeg, SKY.discSolidLoDeg, SKY.discSolidHiDeg)
+        : 0;
+      sunUniforms.uSolid.value = solid;
+      // The glow leaves before the core dims: level^haloExtinctPow, and exactly 1 at high sun.
+      sunUniforms.uHaloK.value = ultraDisc
+        ? Math.pow(THREE.MathUtils.clamp(discLevel, 0, 1), SKY.haloExtinctPow)
+        : 1;
+      // CHROMA. `solarChroma` at 0° is (1.000, 0.212, 0.005) — multiplied into `sunCore` that is a
+      // nearly monochromatic red with a dead blue channel, i.e. crimson, not the orange he asked
+      // for. So it is floored per channel and mixed at `discChromaK`, and the mix rides `solid` so
+      // the tint is EXACTLY white wherever the disc is still the shipped additive one.
+      if (ultraDisc && solid > 0) {
+        const ch = solarChroma(sunAltDeg);
+        const f = SKY.discChromaFloor;
+        _discTint.setRGB(
+          Math.max(ch[0], f[0]),
+          Math.max(ch[1], f[1]),
+          Math.max(ch[2], f[2]),
+        );
+        sunUniforms.uCoreTint.value.setRGB(1, 1, 1).lerp(_discTint, SKY.discChromaK * solid);
+      } else {
+        sunUniforms.uCoreTint.value.setRGB(1, 1, 1);
+      }
 
       // Moon: true position is finite (≈384,000 km) — derive the per-camera direction, then
       // anchor inside the far plane at the true apparent size.
@@ -589,7 +713,11 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       moonLight.intensity = SKY.moonKeyIntensity * moonIntensity;
     },
     setHoverGlow(sunK, moonK) {
-      sunUniforms.uIntensity.value = SKY.sunIntensity * (1 + sunK);
+      // The lift rides the LEVEL, never `uSolid` — an already-opaque disc cannot get more opaque,
+      // and tying the affordance to alpha would make hovering do nothing at dusk. Still ABSOLUTE
+      // (re-derived from the banked per-frame level), so repeated calls cannot compound.
+      hoverSunK = sunK;
+      sunUniforms.uCoreLevel.value = SKY.sunIntensity * discLevelNow * (1 + sunK);
       moonUniforms.uBrightness.value = SKY.moonBrightness * (1 + moonK);
       // The faint frame: follow whichever body is (more) hovered; k is already eased upstream,
       // so the ring breathes in/out with the glow. Ring radius = disc radius × hoverRingRadFrac

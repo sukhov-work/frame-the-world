@@ -26,7 +26,7 @@ import "../../styles/bestspot-panel.css";
 import "../../styles/tips.css";
 
 /**
- * BEST SPOT panel (S5, `.claude/claude-docs/BESTSPOT_SPEC_V2.md` §6.9) — the third face of the
+ * BEST SPOT panel (S5, `.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md` §6.9) — the third face of the
  * shared planning window: WHERE TO STAND for this sunrise / sunset / moonrise / moonset. The disc
  * solver publishes into `store/bestSpot`; this panel is the readout, the request surface, and — the
  * part that is not decoration — the HONESTY surface.

@@ -79,7 +79,22 @@ export interface BuildingsHandle {
   /** ULTRA S4 aerial perspective (T45) — the SAME `haze` number the orchestrator hands the ground,
    *  so the air over the city and the air over the ground it stands on are one atmosphere. 0 =
    *  the pre-ULTRA look (the shared `ftwAerial` returns its input untouched). */
-  setUltraHaze(haze: number, col: THREE.Color, sunW: THREE.Vector3): void;
+  setUltraHaze(
+    haze: number,
+    col: THREE.Color,
+    sunW: THREE.Vector3,
+    /** Owner defect 2 (2026-08-27) — the anti-solar tint and the sky's luminance level, so the
+     *  air over the city is the SAME air the ground under it is rendering. */
+    cool: THREE.Color,
+    skyLevel: number,
+    afterglow: number,
+    /** Owner taste pass (2026-08-27c) — the DUSK TROUGHS on the two flat, sun-blind terms that
+     *  dominate a facade at low sun: the constant emissive floor (about 3.6x the sun key on a
+     *  wall pointed straight into a 3 deg sun) and the unlit edge strokes (about 6.4x the lit
+     *  surface they outline). Both exactly 1 with the chip off. */
+    emisK: number,
+    edgeK: number,
+  ): void;
   dispose(): void;
 }
 
@@ -229,6 +244,22 @@ export function attachBuildings(
   // has no distance falloff worth a custom shader); setGhostSolid blends it back toward the
   // normal stroke as the viewpoint climbs.
   let ghostEdgeOpacity: number = BUILDINGS.edgeOpacity;
+  /** Owner taste pass (2026-08-27c) — the dusk troughs on the two SUN-BLIND terms that dominate a
+   *  facade at low sun. Banked by `setUltraHaze` and applied through `applyEdgeOpacity`, which
+   *  is the ONE authority on the edge material's opacity: ghost mode and the FPV solidity
+   *  slider both route through it, so a third writer cannot fight them. Both exactly 1 with the
+   *  chip off, so every expression below is byte-identical to what shipped. */
+  let ultraEmisK = 1;
+  let ultraEdgeK = 1;
+  /** The single place the edge opacity is written. Re-derives ABSOLUTELY from the ghost state, so
+   *  it is idempotent and cannot compound across frames. */
+  const applyEdgeOpacity = () => {
+    const base =
+      uGhostK.value > 0
+        ? ghostEdgeOpacity + (BUILDINGS.edgeOpacity - ghostEdgeOpacity) * uSolidK.value
+        : BUILDINGS.edgeOpacity;
+    edgeMat.opacity = base * ultraEdgeK;
+  };
   // Pass 2 R2: a low-discrepancy per-tile seed sequence (golden-ratio increment — well-spread, no
   // Math.random) so tone doesn't repeat across tiles even when b3dm batch ids restart at 0 per tile.
   let tileSeedSeq = 0;
@@ -300,16 +331,11 @@ export function attachBuildings(
       uGhostK.value = ghost ? 1 : 0;
       if (ghost) uGhostAlpha.value = ghost.fillOpacity;
       ghostEdgeOpacity = ghost ? ghost.edgeOpacity : BUILDINGS.edgeOpacity;
-      edgeMat.opacity = ghost
-        ? ghost.edgeOpacity + (BUILDINGS.edgeOpacity - ghost.edgeOpacity) * uSolidK.value
-        : BUILDINGS.edgeOpacity;
+      applyEdgeOpacity();
     },
     setGhostSolid(k) {
       uSolidK.value = THREE.MathUtils.clamp(k, 0, 1);
-      if (uGhostK.value > 0) {
-        edgeMat.opacity =
-          ghostEdgeOpacity + (BUILDINGS.edgeOpacity - ghostEdgeOpacity) * uSolidK.value;
-      }
+      if (uGhostK.value > 0) applyEdgeOpacity();
     },
     setQualityTier(errorTarget, lruCapBytes, queueCaps) {
       tierErrorTarget = errorTarget; // U6: base recomputes through the periphery rule
@@ -339,9 +365,18 @@ export function attachBuildings(
       uFtwNight.value = buildingNightFactor(sunElevSin, EARTH.lightsBand);
       uFtwUp.value.copy(up); // R3: facade gating up (view-focus geodetic up)
     },
-    setUltraHaze(haze, col, sunW) {
+    setUltraHaze(haze, col, sunW, cool, skyLevel, afterglow, emisK, edgeK) {
       uniforms.uFtwHaze.value = haze;
       uniforms.uFtwHazeCol.value.copy(col);
+      uniforms.uFtwHazeCool.value.copy(cool);
+      uniforms.uFtwSkyLevel.value = skyLevel;
+      uniforms.uFtwAfterglowG.value = afterglow;
+      // Banked, then applied through the EXISTING opacity writers below rather than written here:
+      // edge opacity already has two authors (ghost / FPV solidity) and a third would fight them.
+      ultraEmisK = emisK;
+      ultraEdgeK = edgeK;
+      styleMat.emissiveIntensity = BUILDINGS.emissiveIntensity * emisK;
+      applyEdgeOpacity();
       uniforms.uFtwSunW.value.copy(sunW);
     },
     dispose() {

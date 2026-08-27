@@ -1,5 +1,39 @@
 # BEST SPOT — TASTE & COVERAGE
 
+> # ⚠ READ THE ADDENDA FIRST — THE BODY BELOW IS PARTLY MEASURED FALSE
+>
+> This document ACCRETED three passes, and **each addendum measured the one before it wrong.**
+> Read front-to-back it will actively mislead you.
+>
+> **START AT § ADDENDUM 2026-08-26i (at the end). It is the only current diagnosis.**
+> Then § ADDENDUM 2026-08-26h for the corridor measurement (the alignment locus *is* the shadow
+> locus, pointing at `way/1202608487` to 0.23°) and its still-unfixed side finding that the PLANNER
+> is missing the monument.
+>
+> **THE BODY'S CENTRAL CLAIM IS DEAD.** §5's ordering — *"A is the enabler: B and C cannot rescue a
+> cell whose score is exactly zero, so nothing else matters until the moment becomes a dimension"* —
+> was the premise of `SWEEP_MODE_MAP.md` and `SWEEP_MODE_SCHEDULE.md`, and it is **measured false**:
+> his cell already had a contact at the shipped 4° window top, and opening the gate fully still
+> leaves him 76th-percentile. The blocker is `access.soft.unknown = 0.45`. See `README.md` §1.
+>
+> **WHAT IN THE BODY IS STILL TRUE AND WORTH READING:**
+> - **§2** — the proximate MECHANISM of the zero: `V ≤ 0.15` → `G(V) = 0` → `S = 0` exactly, and
+>   `shortlist()` drops the cell at `if (!(scores[i] > 0)) continue` before ranking. `G` MULTIPLIES.
+> - **§1.4** — **the shortlist is FAITHFUL to the field.** 89.8 % of cells scoring ≥ 90 % of the
+>   field best sit within 25 m of a marker, 100 % within 60 m. **More markers, a wider disc or a
+>   looser NMS would never have found his spot** — this is why "coverage" was the wrong diagnosis.
+> - **§1.1 / §1.3** — the field is FLAT (best cell 0.400 against a window to 0.90; 46.9 % clipped to
+>   `displayLo`) and the shortlist carries almost no information (eight rows span 5 %, six of eight
+>   peak at the same minute).
+> - **§3** — what the metric cannot see even at the right moment: **`F_gap` is the exact DUAL of an
+>   apex shot** (a lone spire at `az*` gives `F_gap = 0` exactly), `F_graze` saturates, `P` says near
+>   is bad, and there is **no landmark data anywhere** in the vocabulary.
+> - The **ephemeris is sound** — the disc's `contactMs` agrees with `astronomy-engine` to 20 s.
+>
+> Full measured tables: **`MEASUREMENTS.md`** (§7 is this document's ablation ladder, transcribed
+> because `verify-shots/` is gitignored).
+
+
 **Design note, 2026-08-26f.** Written against the owner's QA report of the same day. Supersedes
 nothing; `BESTSPOT_SPEC_V2.md` remains the shipped spec, and §1.1 of it is the objective this note
 argues about. Nothing here is implemented — the recommendations are ordered, costed and gated on
@@ -418,3 +452,144 @@ window segments and a solver-core refactor. Against this finding that is the wro
 shortlist, and what they cost every other cell. The gate exists for a reason — it is what stops a
 cell that genuinely cannot see the event from ranking — so softening it needs its own falsification
 pass, not an assumption.
+
+---
+
+# ADDENDUM 2026-08-26i — THE GATE WAS NEVER THE BINDING CONSTRAINT, AND IGNORANCE IS COSTING HIM 33 %
+
+**This is the falsification pass § ADDENDUM 2026-08-26h asked for, and it REFUTES the change set
+that addendum proposed.** Both mechanisms it named were built (inert by default) purely so they
+could be measured; the measurement says they cannot do the job, and it names what can.
+
+Instruments: `scripts/probe-bestspot-gate.mjs`, three passes, raw numbers in
+`verify-shots/probe-bestspot-gate{,-decompose,-unknown}.json`. Same disc, same instant, same pick as
+2026-08-26f: `p=48.45125,35.07101,477,135.1,38.0&t=1787762683150`, **MOONRISE**, pick
+`48.451827,35.070311`.
+
+## 1. HIS CELL ALREADY HAD A CONTACT. The window was never the reason it read zero.
+
+The decisive arm is the **STAR MAP** — `{vGateLo: 1, vGateHi: 1.05, vStarFloor: 1}` makes `G = 1`
+exactly when `TERM_FLAG.hasStar` is set and `0` otherwise, so a cell renders non-zero **iff** the
+body reaches half-visibility somewhere in the window. It is a direct read of the flag, not an
+inference from a score.
+
+| window top | pick reads | ⇒ |
+|---|---|---|
+| **4° (shipped)** | **r = 20, S ≥ 0.209** | **the cell ALREADY has a star today** |
+| 10° | r = 23, S ≥ 0.218 | the raise adds ~4 % |
+| 14° | r = 23, S ≥ 0.218 | and then stops adding |
+
+So 2026-08-26h's dependency story is half wrong. `hasStar` was already true; what the window raise
+buys is `V`, measured directly by `S ≡ V`: **0.15 → 0.2735** going from top 4° to 10°. Real, and far
+too small to matter, because —
+
+## 2. WITH THE GATE FORCED FULLY OPEN HE IS STILL AT THE 76th PERCENTILE
+
+`S = 0.2176` against a field best of `0.400`, with **5,749 cells strictly better**. Every arm that
+combined the two new leaves — `top ∈ {4,10,14} × vStarFloor ∈ {0.35, 0.50}` — left the pick at
+**display byte 0** and the eight shortlist rows **unchanged to the fourth decimal**.
+
+> **The gate is what makes his cell EXACTLY ZERO. It is not what keeps it out of the ranking.**
+> Those are two different failures and only the first one was diagnosed. No value of `vStarFloor`
+> can fix the second, because `G ≤ 1` and `G · 0.2176 < 0.378`, the shortlist's entry price.
+
+## 3. WHERE THE 0.2176 GOES — and the finding no prior doc contains
+
+`S = A_hard · A_soft^0.5 · M · G · preference`. With `G = 1` forced, peeling the factors off one at
+a time:
+
+| arm | pick | what it isolates |
+|---|---|---|
+| star-map | 0.2176 | — |
+| + `majorRoad/road: 1` | **0.2176 (unmoved)** | he is NOT on a road. Field best moved 0.400 → 0.441, so the patch fired |
+| + whole soft ladder off | 0.3235 | ⇒ his `A_soft^0.5` = **0.673** |
+| + `worth.effectiveFloor: 1` | 0.6324 | ⇒ `M_eff` = **0.512** (the daylight haircut, field-wide) |
+
+`accessSoftGain` is `soft^0.5`, so `soft = 0.673² = 0.453`. Exactly one rung sits there:
+
+> ### `access.soft.unknown = 0.45`. **His cell is charged a third of its score because the landcover
+> raster does not know what it is.**
+
+Confirmed by the sharpest available test rather than left as arithmetic: `{unknown: 1}` **alone**
+reproduces the whole-ladder-off value **exactly** — 0.2176 → 0.3235 — while every other class stays
+penalised, and it moves him from the 76th to the 87.5th percentile.
+
+**This contradicts a rule the codebase enforces everywhere else.** `notchDepthDeg = −Infinity`
+because *"ignorance is not depth"*; UNKNOWN is *"a RENDER CLASS, never a low score"*; the
+2026-08-26g canopy withdrawal made canopy-only occlusion UNMAPPED rather than a low score. The soft
+ladder is the one place ignorance is priced as badness, and it is doing so on the cell the owner
+hand-picked. **It is an owner call, not ours** — it re-scores every unclassified cell in every
+region — but it is now a measured number rather than a suspicion.
+
+## 4. HIS FOUR TERMS, MEASURED — and `L` is the surprise
+
+Each read directly with the whole preference weight on one term (ladder off, worth 1, gate open):
+
+| term | pick | percentile | note |
+|---|---|---|---|
+| `V` | 0.2735 | 0.42 | at top = 10 |
+| **`L`** | **≥ 0.90** | **1.0000 — ZERO cells better** | **his cell is the best in the entire field on contact lowness** |
+| `P` | 0.6765 | 0.86 | |
+| `F` | 0.4059 | 0.85 | his weakest term, and the one F_peak exists to move |
+
+The blend closes against the measurement: `0.15·0.2735 + 0.30·0.90 + 0.25·0.6765 + 0.30·0.4059
+= 0.602` versus 0.6324 measured (the gap is byte quantisation — every term is read at ≥ its
+dequantised floor). **The model is not lying about him. It ranks him 83rd-percentile on preference
+and then multiplies that by 0.673 for not knowing what he is standing on.**
+
+## 5. THE CEILING, and it is the number that decides the design
+
+Even at a **perfect** preference of 1.0 with the gate fully open:
+
+```
+S_max = A_soft^0.5 · M_eff = 0.673 × 0.512 = 0.345   <   0.378  (shortlist entry price)
+```
+
+**So no gate change, no window change and no framing term can put his cell in the top 8 while
+`unknown` charges it 0.45.** That is a hard, arithmetic ceiling from two measured factors, and it
+is why this pass reorders the work.
+
+With `unknown: 1` the ceiling becomes `0.512 × preference`; he measures 0.6324 → **0.324**, and
+rank 4 in that same arm is **0.4223**. Closing that needs preference ≈ 0.825. `F_peak` taking `F`
+from 0.406 to ~1.0 adds `0.30 × 0.594 = 0.178` → **0.810**. Within 2 % of rank 4 — which is the
+first arithmetic in this whole investigation that reaches his photograph.
+
+## 6. WHAT SHIPPED THIS SESSION, AND WHY IT IS INERT
+
+Both mechanisms, tested and **byte-identical on the shipped profile**, because they had to exist
+before they could be measured and the measurement says do not turn them on yet:
+
+- **`gates.vStarFloor`** (default **0**) — `G = max(G(V), vStarFloor)` when `TERM_FLAG.hasStar`.
+  Inert twice over: `hasStar` defaults `false` at the kernel, and the leaf ships at 0. `recompose`,
+  proven on the FUSED path — and proven to move **starred cells only**, zero starless cells, which
+  is the honesty claim the floor rests on.
+- **`trackWeight.topAltDeg`** (default **4**) — the window's top, in the profile rather than on the
+  job (a deliberate deviation from `SWEEP_MODE_MAP.md` C2, now that slice 0's `trackHash` covers the
+  whole `trackWeight` group and rebuilds the track). Class `resweep`. Bounded by
+  `TRACK_WINDOW_MAX_SPAN_DEG = 48`, truncated from the NEW end so the contact always survives, and
+  the window stays a **superset** of the shipped one on the absolute lattice — pinned for the first
+  time, since the whole hull-cache cost model rests on it.
+
+Cost of a raise, measured at Dnipro moonrise: top 4° → K = 41 · 8° → 63 · **10° → 76** · 12° → 90 ·
+20° → 162 · 25° → 268 (the march clamps at culmination; 30° buys nothing).
+
+**Two traps paid, both worth carrying forward.** The budget was first written as a SAMPLE count and
+silently truncated the shipped window at any refined lattice (`bestSpotGolden`'s 0.05° τ-invariance
+check went red); it is a SPAN. And sized for Dnipro's 16° it deleted every high-latitude sunrise —
+the shipped worldwide maximum is **45.5° at Tromsø, K = 176** — because the culmination runaway and
+the wide polar sweep are *the same physics*. Both are now pinned.
+
+## 7. THE ORDER THE NEXT SESSION SHOULD WORK IN
+
+1. **Put `access.soft.unknown` in front of the owner.** It is the hard ceiling, it is one number,
+   and it is a product decision about every unclassified cell in every region. Nothing else can
+   succeed while it stands.
+2. **`F_peak`** — `SWEEP_MODE_MAP.md` slice 2 is unaffected and its twenty golden rows still apply.
+   It is now a PRECONDITION with a measured target: `F: 0.406 → ~1.0`, worth +0.178 of preference.
+3. **Then, and only then, tune `vStarFloor` and `topAltDeg` together.** They are built, gated and
+   inert; turning them on before 1 and 2 moves nothing but the field's zero-set.
+4. **`L = 1.0000` at his cell, best in the field, is worth its own look.** Either the metric already
+   agrees with him more than anyone assumed, or `L` saturates too easily.
+
+**Tier:** LOCAL (vitest + `astro check` + `knip`) + BROWSER (three probe passes, `wix dev` +
+CDP Chrome). Wix cloud UNVERIFIED (prod is dark behind the nameserver gate).

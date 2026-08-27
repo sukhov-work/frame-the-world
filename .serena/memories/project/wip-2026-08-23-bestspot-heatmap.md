@@ -2,7 +2,7 @@
 
 Owner order 2026-08-23 (`/frame` + investigate-design-v3): PARK the eclipse taste pass, T46 LEO umbra
 and the small fixes. This session = ONE new planning feature + map enrichment.
-**Plan doc = `.claude/claude-docs/BESTSPOT_PLAN.md` — READ ITS `AS BUILT` APPENDIX FIRST.** The body
+**Plan doc = `.claude/claude-docs/bestspot/\1` — READ ITS `AS BUILT` APPENDIX FIRST.** The body
 above it was written by a design pass and **building it proved the plan wrong in FIFTEEN places**;
 the appendix has every correction, measured. Twin: DECISIONS §Recent 2026-08-23.
 
@@ -101,7 +101,7 @@ assertions were not weakened. Commit red tests before handing them to a fix pass
    watercourses** (`minimapFeed` skips `line.tunnel`; the waterway kind hard-codes `tunnel:false`).
 
 ## Owner rulings R5-R8 (2026-08-24, second round) + SPEC_V2
-**`.claude/claude-docs/BESTSPOT_SPEC_V2.md` (1,013 lines) SUPERSEDES plan §3.4 / §5 / §6 / §10.**
+**`.claude/claude-docs/bestspot/\1` (1,013 lines) SUPERSEDES plan §3.4 / §5 / §6 / §10.**
 Produced by a 5-agent measurement pass (latency · framing · tuning · visual → consolidator).
 - **R5 GRAZE replaces F_sil.** The `isBuiltSrc` provenance gate is DELETED — measured, it scored a
   grazing 8 km mountain ridge **0.0000**, below a blank wall and below empty sea. New kernel

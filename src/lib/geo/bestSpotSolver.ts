@@ -1775,7 +1775,7 @@ export function composeScores(
         : clamp01(
             accessSoftGain(clamp01(soft), softExp) *
               mEff *
-              visibilityGate(v, gates) *
+              visibilityGate(v, gates, hasStar) *
               (wDotT * invWTotal),
           );
   }

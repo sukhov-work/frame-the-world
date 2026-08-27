@@ -315,8 +315,45 @@ export function eventInstantMs(
 // The track
 // ---------------------------------------------------------------------------------------------
 
-/** Upper altitude edge of the window (deg, AIRLESS — the quantity the plan names). §3.1. */
+/** Upper altitude edge of the window (deg, AIRLESS — the quantity the plan names). §3.1.
+ *  The LAST-RESORT default only: `trackWeight.topAltDeg` carries the shipped value and is what a
+ *  taste pass moves. Kept here so a caller with no profile at all still gets the documented one. */
 const TRACK_TOP_ALT_DEG = 4;
+/**
+ * **THE WINDOW'S SPAN BUDGET** (deg of swept azimuth) — the hard bound a top ALTITUDE cannot give.
+ *
+ * A fixed altitude top is unbounded in sample count: raising it walks the body along its own track
+ * until it reaches that altitude, and near culmination the altitude barely moves while the azimuth
+ * runs away. Measured at the owner's Dnipro moonrise (culmination 19.70°), a top of 20° yields
+ * **232 window samples, K = 244, ~615 MiB of resident hulls** — the top misses clamping by 0.3° and
+ * the cost is several times the whole ladder's budget.
+ *
+ * **48° is set by MEASUREMENT, and by the one thing this cap must not do: re-decide the shipped
+ * geometry.** A shallow track widens the sweep for real, which is the physics `PIN c` exists to
+ * document — so the same runaway that this cap targets near culmination ALSO occurs at high
+ * latitude on today's 4° top. Swept over 2026 at six sites, the widest shipped window is **45.5°
+ * (Tromsø sunrise, K = 176)**, with Reykjavík at 40.5° and Dnipro at 16.0°. A cap sized for
+ * Dnipro's ladder (17°, i.e. 68 lattice points) is therefore NOT inert: it silently truncates every
+ * high-latitude sunrise. 48° clears the measured worst case and still bounds the case it was built
+ * for — at Dnipro moonrise a 25° top sweeps **68.3°, K = 268**.
+ *
+ * It is a backstop, not the sizing knob. What actually keeps a raise affordable is the value of
+ * `trackWeight.topAltDeg`, measured at Dnipro moonrise: top 4° → K = 41 (shipped) · 8° → 63 ·
+ * **10° → 76** · 12° → 90 · 20° → 162 · 25° → 268 (the march clamps at culmination and 30° buys
+ * nothing more).
+ *
+ * **It is a SPAN and not a sample count on purpose.** Sized in samples it would scale with
+ * `azStepDeg`, so the 0.05° lattice the τ-invariance golden runs on (`bestSpotGolden.test.ts`)
+ * would see a fifth of the window and the shipped one would be silently truncated — the cap would
+ * change the DEFAULT track for anyone who refined the lattice. In span it is a statement about the
+ * geometry, and it is inert at the shipped top under every step.
+ *
+ * **It truncates from the NEW end, and it must run BEFORE `maxSamples`.** `maxSamples` decimates
+ * UNIFORMLY — right for keeping both shoulder ends, fatal here: a thinned window is no longer a
+ * subset of the absolute lattice, so every hull misses and the cache that makes a wider window
+ * affordable stops existing.
+ */
+const TRACK_WINDOW_MAX_SPAN_DEG = 48;
 /** How many disc RADII below the crossing altitude the window's lower edge sits. The lower
  *  extension exists so a LIFTED sheet or a cell on a bluff — both of which see a DEPRESSED
  *  horizon — can still be scored instead of falling off the end of the track. §3.1. */
@@ -438,8 +475,12 @@ export interface EventTrackOptions {
   shoulderAzStepDeg?: number;
   /** How far past each window edge the shoulders reach (deg). Default `3`. */
   shoulderSpanDeg?: number;
-  /** Upper (AIRLESS) altitude edge of the window (deg). Default `4`. */
+  /** Upper (AIRLESS) altitude edge of the window (deg). Defaults to `scoring.trackWeight.topAltDeg`
+   *  (4) — an explicit value here still wins, so a test can pin the geometry without a profile. */
   topAltDeg?: number;
+  /** Hard cap on the WINDOW's swept azimuth (deg), truncated from the NEW end and applied before
+   *  the uniform `maxSamples` decimation. Default `48` (`TRACK_WINDOW_MAX_SPAN_DEG`). */
+  windowMaxSpanDeg?: number;
   /** Lower window edge, in disc radii below the crossing altitude. Default `3`. */
   bottomRhoMultiple?: number;
   /** e-folding scale of the altitude weight (deg). Defaults to `scoring.trackWeight.altScaleDeg`
@@ -623,7 +664,8 @@ export function eventTrack(
   const azStep = Math.max(1e-3, opts.azStepDeg ?? TRACK_AZ_STEP_DEG);
   const shoulderStep = Math.max(1e-3, opts.shoulderAzStepDeg ?? TRACK_SHOULDER_AZ_STEP_DEG);
   const shoulderSpan = Math.max(0, opts.shoulderSpanDeg ?? TRACK_SHOULDER_SPAN_DEG);
-  const topAlt = opts.topAltDeg ?? TRACK_TOP_ALT_DEG;
+  const topAlt = opts.topAltDeg ?? scoring.trackWeight.topAltDeg ?? TRACK_TOP_ALT_DEG;
+  const windowMaxSpanDeg = Math.max(azStep, opts.windowMaxSpanDeg ?? TRACK_WINDOW_MAX_SPAN_DEG);
   const bottomRho = Math.max(0, opts.bottomRhoMultiple ?? TRACK_BOTTOM_RHO);
   const weightScale = Math.max(
     1e-6,
@@ -758,11 +800,30 @@ export function eventTrack(
   };
 
   // ── The azimuth lattice: 0.25° over the window, 0.5° over the shoulders ───────────────────
-  const uWinLo = Math.min(uTop, uBottom);
-  const uWinHi = Math.max(uTop, uBottom);
+  let uWinLo = Math.min(uTop, uBottom);
+  let uWinHi = Math.max(uTop, uBottom);
   const uAllLo = gridU[0];
   const uAllHi = gridU[gridN - 1];
   if (!(uWinHi > uWinLo)) return null; // no azimuth sweep at all — degenerate
+
+  // ── THE WINDOW BUDGET (`TRACK_WINDOW_MAX_SPAN_DEG`) ───────────────────────────────────────
+  // Applied to the AZIMUTH bounds, so both lattice paths and the shoulders that anchor on these
+  // edges see one window. Truncate from the end the body reaches LAST — decided from `uTop` vs
+  // `uBottom`, the two ends' own unwrapped azimuths, and NEVER from `upSign` or the hemisphere, so
+  // it holds in both and across the 0°/360° seam. The LOW end is the one that must survive: it
+  // holds the contact itself, `alt*`'s search start, and essentially the whole weight mass
+  // (`exp(−alt/2.5°)`); truncating it would delete the event to keep the sky above it.
+  if (uWinHi - uWinLo > windowMaxSpanDeg) {
+    if (uTop >= uBottom) uWinHi = uWinLo + windowMaxSpanDeg;
+    else uWinLo = uWinHi - windowMaxSpanDeg;
+  }
+  // The shoulders are `±shoulderSpan` PAST THE WINDOW EDGE, so they have to follow it in. `uAllLo`
+  // /`uAllHi` come from marches launched off the UNBUDGETED edges, and leaving the emit loops
+  // anchored on them re-opens the whole hole: at a 25° top the window truncates to 17° and the
+  // shoulder still runs to the old top, measuring a 54.5° sweep and an unbounded K. Both clamps are
+  // INERT when the budget did not bite, because the un-truncated march lands exactly here.
+  const uShoulderLo = Math.max(uAllLo, uWinLo - shoulderSpan);
+  const uShoulderHi = Math.min(uAllHi, uWinHi + shoulderSpan);
 
   // Endpoints are placed EXACTLY on the window edges and the interior is spread uniformly at
   // ~azStep, rather than stepping from one edge and appending the other: a stride that lands
@@ -794,8 +855,16 @@ export function eventTrack(
   // thing that lets a hull cache survive a day step (SPEC_V2 §2.2: 0/40 matches without it).
   // 360/0.25 = 1440 is an integer, so the grid is also consistent modulo a full turn, and the
   // unwrapped branch (which may leave [0,360)) cannot shear it.
-  const kWinLo = Math.ceil(uWinLo / azStep - EDGE_SLACK);
-  const kWinHi = Math.floor(uWinHi / azStep + EDGE_SLACK);
+  let kWinLo = Math.ceil(uWinLo / azStep - EDGE_SLACK);
+  let kWinHi = Math.floor(uWinHi / azStep + EDGE_SLACK);
+  // The budget again, in the units the snap path actually counts in. The azimuth clamp above bounds
+  // the span, but `ceil`/`floor` against the ABSOLUTE lattice can round one point back in on either
+  // side, so the count is bounded only to within one. Truncate the same end, for the same reason.
+  const kWinBudget = Math.floor(windowMaxSpanDeg / azStep) + 1;
+  if (kWinHi - kWinLo + 1 > kWinBudget) {
+    if (uTop >= uBottom) kWinHi = kWinLo + kWinBudget - 1;
+    else kWinLo = kWinHi - kWinBudget + 1;
+  }
   // Shoulders keep their own coarser spacing, expressed in WHOLE lattice units so they stay on the
   // same absolute grid: 0.5°/0.25° = 2. A non-integer ratio rounds, which costs a little shoulder
   // resolution and buys the cache hit — the shoulders only ever feed running maxima and `C`.
@@ -811,7 +880,7 @@ export function eventTrack(
     // flips the shoulders' parity and they share NOTHING with the day before. Measured at Dnipro:
     // window-anchored shoulders share 31 of 38 azimuths, absolute shoulders share 37.
     const floorTo = (k: number): number => Math.floor(k / shoulderK) * shoulderK;
-    const loLimitK = uAllLo / azStep - EDGE_SLACK;
+    const loLimitK = uShoulderLo / azStep - EDGE_SLACK;
     const loShoulderKs: number[] = [];
     for (let k = floorTo(kWinLo - 1); k >= loLimitK; k -= shoulderK) loShoulderKs.push(k);
     for (let i = loShoulderKs.length - 1; i >= 0; i--) {
@@ -822,13 +891,13 @@ export function eventTrack(
       targets.push(k * azStep);
       inWindow.push(true);
     }
-    const hiLimitK = uAllHi / azStep + EDGE_SLACK;
+    const hiLimitK = uShoulderHi / azStep + EDGE_SLACK;
     for (let k = floorTo(kWinHi + shoulderK); k <= hiLimitK; k += shoulderK) {
       targets.push(k * azStep);
       inWindow.push(false);
     }
   } else {
-    const nLoShoulder = Math.max(0, Math.floor((uWinLo - uAllLo) / shoulderStep + EDGE_SLACK));
+    const nLoShoulder = Math.max(0, Math.floor((uWinLo - uShoulderLo) / shoulderStep + EDGE_SLACK));
     for (let k = nLoShoulder; k >= 1; k--) {
       targets.push(uWinLo - k * shoulderStep);
       inWindow.push(false);
@@ -838,7 +907,7 @@ export function eventTrack(
       targets.push(uWinLo + ((uWinHi - uWinLo) * i) / nWin);
       inWindow.push(true);
     }
-    const nHiShoulder = Math.max(0, Math.floor((uAllHi - uWinHi) / shoulderStep + EDGE_SLACK));
+    const nHiShoulder = Math.max(0, Math.floor((uShoulderHi - uWinHi) / shoulderStep + EDGE_SLACK));
     for (let k = 1; k <= nHiShoulder; k++) {
       targets.push(uWinHi + k * shoulderStep);
       inWindow.push(false);

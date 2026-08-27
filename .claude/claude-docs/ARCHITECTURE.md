@@ -293,10 +293,17 @@ ground and the buildings, so the air over a city cannot diverge from the air ove
 DEV seam: `__globe.ultraLook()` — reads terrain casting and anisotropy off the LIVE scene graph and
 LIVE textures, never off our own flags.
 
-## 7c. BEST SPOT — the observability heatmap (as built 2026-08-24) [BROWSER-VERIFIED]
-**Charter: `BESTSPOT_PLAN.md` (read its AS BUILT appendix BEFORE the body) + `BESTSPOT_SPEC_V2.md`.**
+## 7c. BEST SPOT — the observability heatmap (as built 2026-08-24) [BROWSER-VERIFIED] · **PARKED 2026-08-27**
+> **START AT `bestspot/README.md`.** Every BEST SPOT document now lives in `.claude/claude-docs/bestspot/`,
+> and that README is the index, the park brief and the resume ladder. The feature is built and
+> verified; the effort is parked on ONE owner decision (`access.soft.unknown = 0.45` is a hard
+> ceiling below the shortlist's entry price). **`scripts/verify-bestspot.mjs` is 96/101 BY DESIGN.**
+
+**Charter: `bestspot/BESTSPOT_PLAN.md` (read its AS BUILT appendix BEFORE the body) +
+`bestspot/BESTSPOT_SPEC_V2.md`.** Current diagnosis: `bestspot/BESTSPOT_TASTE_V1.md` § ADDENDUM
+2026-08-26i. Measured numbers: `bestspot/MEASUREMENTS.md`. Traps: `bestspot/TRAPS.md`.
 Tunables: `conventions/globe-tuning.md` §BESTSPOT. Decisions: `DECISIONS.md` 2026-08-23 / 2026-08-24b /
-2026-08-24c. Proof obligations: `FORMAL_VERIFICATION.md`.
+2026-08-24c, then 2026-08-26f→j. Proof obligations: `FORMAL_VERIFICATION.md`.
 
 PLAN answers *when* the sun clears that rooftop **from here**; BEST SPOT answers ***from where***.
 For every cell of a disc around the `look from here` pin it decides whether SUNRISE / SUNSET /

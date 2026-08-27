@@ -3,7 +3,7 @@
 Owner order, still mid-QA of the heatmap: *"no suggested spots in the middle of the avenue, although
 here is my hand picked spot… how do we improve taste and coverage."* Explicitly general, not about
 the moon or that location. Twin: DECISIONS §Recent **2026-08-26f**. Doc:
-`.claude/claude-docs/BESTSPOT_TASTE_V1.md`. Predecessors:
+`.claude/claude-docs/bestspot/BESTSPOT_TASTE_V1.md`. Predecessors:
 [[project/wip-2026-08-26-bestspot-ownerbatch]] · [[project/wip-2026-08-24-bestspot-s3-s7]].
 
 ## GATES

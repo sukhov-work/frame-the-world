@@ -40,6 +40,7 @@ import {
 import {
   BESTSPOT_SCORING_V1,
   resolveScoring,
+  sanitizeScoringPatch,
 } from "../../../src/lib/geo/bestSpotScoring";
 import { BESTSPOT_WEIGHTS } from "../../../src/lib/geo/bestSpotTypes";
 import type {
@@ -367,6 +368,52 @@ describe("bestSpotMetric — gate and term endpoints", () => {
     expect(visibilityGate(0.3)).toBeLessThan(0.5);
     expect(visibilityGate(0.6)).toBeGreaterThan(0.5);
     expect(visibilityGate(0.6)).toBeLessThan(1);
+  });
+
+  it("THE STAR FLOOR is INERT twice over on the shipped profile — `hasStar` defaults false, and `vStarFloor` ships at 0", () => {
+    // Two independent inertness guarantees, because the leaf is a gate and a gate that moved
+    // silently would move every disc. Either one alone would be enough; neither is trusted.
+    for (const v of [0, 0.02, V_GATE_LO, 0.3, 0.45, 0.6, V_GATE_HI, 1]) {
+      expect(visibilityGate(v, BESTSPOT_SCORING_V1.gates, true)).toBe(visibilityGate(v));
+      expect(visibilityGate(v, resolveScoring({ gates: { vStarFloor: 0.9 } }).gates, false)).toBe(
+        visibilityGate(v),
+      );
+    }
+  });
+
+  it("THE STAR FLOOR opens the gate for a cell the body CLEARS and leaves a blind cell at exactly 0 — the alignment locus is the shadow locus", () => {
+    // The geometry: from the owner's Dnipro cell the moon rises BEHIND the Monument of Glory and
+    // clears it. `V` is a weighted MEAN whose mass sits on the blocked low samples, so it reads
+    // ~0.02 and `G` — a MULTIPLIER — deletes the cell before `F`, the only term that could say
+    // "and what it passes behind is a monument", is ever read (measured 2026-08-26h).
+    const gates = resolveScoring({ gates: { vStarFloor: 0.35 } }).gates;
+    const shadowed = 0.02;
+
+    expect(visibilityGate(shadowed, gates, true)).toBe(0.35);
+    // THE NEGATIVE CONTROL, and it is the whole reason the floor is defensible: a cell that never
+    // reaches half-visibility has no star, so the gate does the one job it was built for.
+    expect(visibilityGate(shadowed, gates, false)).toBe(0);
+
+    // It is a FLOOR, not a replacement — a cell that already sees the event is never dragged down.
+    expect(visibilityGate(V_GATE_HI, gates, true)).toBe(1);
+    expect(visibilityGate(0.45, gates, true)).toBeCloseTo(0.5, 12);
+    // …and it never inverts the ordering it floors: still monotone non-decreasing in V.
+    let prev = -1;
+    for (let v = 0; v <= 1.0001; v += 0.01) {
+      const g = visibilityGate(v, gates, true);
+      expect(g).toBeGreaterThanOrEqual(prev);
+      expect(g).toBeLessThanOrEqual(1);
+      prev = g;
+    }
+  });
+
+  it("THE STAR FLOOR is clamped to [0,1] — a floor above 1 would publish `S > 1` against the GL ramp's absolute contract", () => {
+    expect(resolveScoring({ gates: { vStarFloor: 4 } }).gates.vStarFloor).toBe(1);
+    expect(resolveScoring({ gates: { vStarFloor: -2 } }).gates.vStarFloor).toBe(0);
+    // `sanitizeScoringPatch` is the PERSISTED path and clamps the leaf on its own — `resolveScoring`
+    // must not be the only thing standing between a hand-edited blob and an out-of-range gate.
+    expect(sanitizeScoringPatch({ gates: { vStarFloor: 4 } }).gates?.vStarFloor).toBe(1);
+    expect(visibilityGate(0, resolveScoring({ gates: { vStarFloor: 4 } }).gates, true)).toBe(1);
   });
 
   it("P is log-scaled: 0 at 30 m, 1 at the trust radius, 1 for open sky", () => {

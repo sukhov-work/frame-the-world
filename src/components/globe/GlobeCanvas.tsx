@@ -275,6 +275,58 @@ export default function GlobeCanvas() {
     sun.shadow.normalBias = SHADOWS.normalBias; // world-metres — absorbs float32 quantisation at ECEF scale
     sun.shadow.radius = SHADOWS.radius;
     sun.shadow.camera.updateProjectionMatrix();
+
+    // --- SHADOW CASCADES (owner defect 1, 2026-08-27) — the boxes OUTSIDE the rig above. --------
+    //
+    // Construction-time for the same reason `shadowMapSize` is: three latches a shadow's depth
+    // target on first render and ignores a later `mapSize` write, and adding a light changes
+    // `NUM_DIR_LIGHTS`/`NUM_DIR_LIGHT_SHADOWS` — a full scene recompile. So the ladder is built
+    // here, from the same `ultraBootSnapshot()` the shadow rig reads, and a mid-session chip flip
+    // gets the same honest "reload for the full shadow rig" state RC26 already surfaces.
+    //
+    // THREE PROPERTIES THIS BLOCK IS RESPONSIBLE FOR, all source-verified against three 0.185.0:
+    //
+    //  1. ORDER. `WebGLLights.setup` indexes `state.directionalShadow[]` by a light's position
+    //     among ALL directional lights but then truncates the array to `numDirectionalShadows`
+    //     (`WebGLLights.js:295-305,459-465`). A non-casting directional light placed BEFORE a
+    //     casting one therefore silently drops the caster's shadow. The cascades go in
+    //     immediately after `sun`, and the only other directional light in the scene — the
+    //     moonlight in `scene/sky.ts` — is added later still, by the orchestrator. The
+    //     orchestrator additionally never lets a cascade cast while `sun` is not (see
+    //     `stepShadowCascades`); the reverse is safe and is how a chip-off flip lands.
+    //  2. NO LIGHT. `intensity = 0` makes `uniforms.color` exactly black
+    //     (`WebGLLights.js:281`), so a cascade cannot brighten any lit material. It exists only to
+    //     own a depth map, which `getShadowMask()` then multiplies into the ground's
+    //     `ShadowMaterial` twins regardless of intensity — the mechanism the whole design rests on.
+    //  3. THROTTLED. `autoUpdate = false` means a cascade re-renders only when the orchestrator
+    //     sets `needsUpdate` (`WebGLShadowMap.js:170`). That skip happens BEFORE
+    //     `shadow.updateMatrices`, so a skipped cascade keeps a shadow matrix that still matches
+    //     the map it rendered — which is why the orchestrator must not move the light on a frame
+    //     it does not also refresh.
+    const shadowCascades: THREE.DirectionalLight[] = [];
+    if (ultraBoot) {
+      for (const c of ULTRA.cascades) {
+        const px = Math.min(c.mapPx, renderer.capabilities.maxTextureSize);
+        const cl = new THREE.DirectionalLight(0xffffff, 0);
+        cl.castShadow = false; // the orchestrator gates it, in lockstep with `sun`
+        cl.shadow.autoUpdate = false;
+        cl.shadow.mapSize.set(px, px);
+        cl.shadow.radius = c.radius;
+        // Seeded so the very first `updateProjectionMatrix` has a sane box even if a frame
+        // renders before the orchestrator's first fit; the real numbers arrive per refresh.
+        cl.shadow.camera.left = -c.reachM;
+        cl.shadow.camera.right = c.reachM;
+        cl.shadow.camera.top = c.reachM;
+        cl.shadow.camera.bottom = -c.reachM;
+        cl.shadow.camera.near = ULTRA.cascadeLightClearM;
+        cl.shadow.camera.far = 4 * c.reachM;
+        cl.shadow.camera.updateProjectionMatrix();
+        scene.add(cl);
+        scene.add(cl.target);
+        shadowCascades.push(cl);
+      }
+    }
+
     // Hemisphere fill so night-side buildings aren't pure black (AmbientLight(water) was ~0).
     // HELD IN A VARIABLE and handed to the orchestrator (was an inline `scene.add(new …)`) so
     // ULTRA S10 can track it to the ephemeris — see audit gap #16: three reads a HemisphereLight's
@@ -613,6 +665,8 @@ export default function GlobeCanvas() {
             ionToken,
             reduceMotion,
             sunLight: sun,
+            // Owner defect 1 — the boxes outside the one rig. Empty unless ULTRA booted on.
+            shadowCascades,
             hemiLight: hemi, // ULTRA S10 — ephemeris-tracked ambient (audit gap #16)
             qualityTier: activeTier, // start the tile knobs at the detected device tier (WS1)
             // Mobile texture tier (MOBILE_PLAN M0): phones report maxTextureSize ≥ 8192, so GPU

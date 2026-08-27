@@ -554,7 +554,7 @@ to FAIL — this repo has been bitten five times by checks that could not.
 
 > **SUPERSEDED IN PART, 2026-08-24 — read `BESTSPOT_SPEC_V2.md` alongside this file.**
 > A four-agent measurement pass (latency · framing kernel · tuning architecture · visual) produced
-> `.claude/claude-docs/BESTSPOT_SPEC_V2.md`, which **supersedes §3.4 (framing), §5 (residency tiers and
+> `.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md`, which **supersedes §3.4 (framing), §5 (residency tiers and
 > budget), §6 (render) and §10 (S3–S7)** wherever they conflict, and closes AS BUILT open items 1 and 3.
 > Headlines: the §5 budget is off by 2× and 12× · **missing data currently renders as the BEST spot on
 > the map** (a truncated disc scores 0.6633 against a true 0.0000) · at pedestrian height a real city

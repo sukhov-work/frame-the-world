@@ -147,14 +147,33 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `ULTRA_PLAN.md` (read its **AS BUILT** block first) · `mem:project/wip-2026-08-22-ultra-track` ·
   `scripts/verify-ultra.mjs` 28/28. Nine levers behind ONE desktop-only `ULT` chip, off by default;
   the owner LIFTED the frame-rate ceiling to buy them.
+  **EXTENDED 2026-08-27b — the owner's three immersion breakers, all three measured before they
+  were fixed** (`rendering/ULTRA_ARCHITECTURE.md` **§13**, `mem:project/wip-2026-08-27-ultra-render-batch`,
+  `scripts/verify-ultra-dusk.mjs` **21/21**): a nested CASCADE ladder (the single box covered
+  **8-35 %** of a mountain frame; `getShadowMask()`'s cascade-blind multiply is what makes nested
+  zero-intensity lights compose, so no `onBeforeCompile` is touched and the §10 CSM rejection
+  stands) · a real DUSK model (`lib/globe/duskLight` — physical chromaticity, authored level; the
+  air-light had **no LEVEL term**, so at sunset the far field was BRIGHTER than the foreground) ·
+  and the dark tile grid, which was the quantized-mesh **SKIRT** casting AND receiving in the
+  shadow pipeline (the mip chain and anisotropy were both measured innocent).
 - **ECLIPSES (2026-08-22k, HOT)** — the moon now OCCLUDES the sun (it was being DISCARDED, not
   washed out) + corona + world darkness + copper umbra; works only because the scene is
   TOPOCENTRIC (geocentric misses by 1°) · `mem:project/wip-2026-08-22-eclipses`.
-- **BEST SPOT — the observability heatmap, S1→S7 (2026-08-23 → 2026-08-24c, HOT)** — plans
-  `BESTSPOT_PLAN.md` (**AS BUILT appendix first**) + `BESTSPOT_SPEC_V2.md` ·
-  `mem:project/wip-2026-08-23-bestspot-heatmap` (design + pure-lib floor) ·
-  `wip-2026-08-24-bestspot-s3-s7` (worker → GL sheet → panel → residency → honesty; FEATURE
-  COMPLETE, browser-verified) · `scripts/verify-bestspot.mjs` 100/100. See §Next step.
+- **BEST SPOT — the observability heatmap, S1→S7 shipped, then PARKED 2026-08-27 (COLD)** —
+  **ALL DOCS NOW LIVE IN `.claude/claude-docs/bestspot/`. READ ITS `README.md` FIRST — it is the
+  index, the park brief and the resume ladder.** The feature is built and browser-verified, but a
+  five-session investigation (2026-08-26f→j) measured that **it answers a different question than
+  the owner asked**, and the park waits on ONE owner decision (`access.soft.unknown = 0.45` charges
+  an unclassified cell 33 %, giving a hard ceiling `S_max = 0.345` below the shortlist's 0.378 entry
+  price). **`scripts/verify-bestspot.mjs` is 96/101 BY DESIGN — the D8 block is pre-existing and
+  confirmed red on clean master; it is NOT your regression.**
+  Docs: `bestspot/README.md` → `BESTSPOT_TASTE_V1.md` (§ ADDENDUM 2026-08-26i is the only current
+  diagnosis) · `MEASUREMENTS.md` (every browser number; `verify-shots/` is gitignored) ·
+  `TRAPS.md` · `BESTSPOT_PLAN.md` (**AS BUILT appendix first**) · `BESTSPOT_SPEC_V2.md` ·
+  `SWEEP_MODE_MAP.md` + `SWEEP_MODE_SCHEDULE.md` (both **mostly superseded** — banners say what
+  survives). Memories: `wip-2026-08-23-bestspot-heatmap` · `wip-2026-08-24-bestspot-s3-s7` ·
+  `wip-2026-08-26-bestspot-ownerbatch` · `wip-2026-08-26-bestspot-taste` · `wip-2026-08-26-sweep-mode`
+  · `wip-2026-08-26-sweep-schedule` · `wip-2026-08-26-gate-star-floor`.
 - **FORMAL VERIFICATION — Lean 4 + Mathlib proof project (2026-08-24d, HOT)** — `formal/` ·
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
@@ -258,14 +277,36 @@ RC9's warm-restore browser leg (banking proven, restore not), and RC22's three m
 (recorded in tuning, need a real device under T1).
 
 ### Prior state (context)
-**BEST SPOT — the observability heatmap — is FEATURE-COMPLETE AND BROWSER-VERIFIED. All seven
-slices S1→S7 SHIPPED (pure-lib floor S1+S2 2026-08-23; S3a→S7 2026-08-24).** Predicts where to stand
-for SUNRISE/SUNSET/MOONRISE/MOONSET inside a radius of the `look from here` pin, as a translucent
-heatmap over the map. Plan `.claude/claude-docs/BESTSPOT_PLAN.md` — **read its `AS BUILT` appendix
-BEFORE the body.** Logs `mem:project/wip-2026-08-24-bestspot-s3-s7` (the shipping session) +
-`mem:project/wip-2026-08-23-bestspot-heatmap` (the floor + design). DECISIONS §Recent 2026-08-24c.
-Gates: **vitest 1,902/1,902 (130 files, +342)** · astro check 0 err / 0 warn / 5 hints · knip exit-0 ·
-**`scripts/verify-bestspot.mjs` 100 PASS / 0 FAIL.** Tier: **LOCAL + BROWSER** (shots
+**BEST SPOT — the observability heatmap — is BUILT and BROWSER-VERIFIED (all seven slices S1→S7
+shipped 2026-08-23/24) and is now PARKED, owner order 2026-08-27.** Predicts where to stand for
+SUNRISE/SUNSET/MOONRISE/MOONSET inside a radius of the `look from here` pin, as a translucent
+heatmap over the map.
+
+> **DO NOT START HERE. START AT `.claude/claude-docs/bestspot/README.md`** — the index, the park
+> brief and the resume ladder. Everything BEST SPOT now lives in that one directory.
+
+**Two things this memory used to say that are FALSE, and each costs a session if believed:**
+1. *"`verify-bestspot.mjs` 100 PASS / 0 FAIL"* — it is **96/101**. The D8 cross-model block is
+   PRE-EXISTING and confirmed red on clean master (RC16/RC17 moved the building geometry after the
+   2026-08-24 fixture was recorded). It is not your regression, and **do not fix it by loosening
+   thresholds.**
+2. *"NEXT: the TASTE PASS → `graze.conf` / `graze.reliefHiDeg` / `displayLo|Hi` /
+   `worth.effectiveFloor`"* — those four were **MEASURED INERT** on the bug the owner actually
+   reported (`bestspot/MEASUREMENTS.md` §7, arms H1–H5; `altScaleDeg: 30` produced a
+   **byte-identical field**). Read that table before touching any knob.
+
+**What the investigation found (2026-08-26f→j, five sessions):** the owner's hand-picked spot scores
+zero, and the cause is not the gate, the window or the framing term — it is
+`access.soft.unknown = 0.45`, which charges a cell 33 % because the landcover raster cannot classify
+it, giving a hard ceiling `S_max = 0.673 × 0.512 = 0.345 < 0.378` (the shortlist's entry price) at a
+PERFECT preference. **One owner decision unblocks the effort; nothing else can succeed before it.**
+
+Plan `.claude/claude-docs/bestspot/BESTSPOT_PLAN.md` — **read its `AS BUILT` appendix BEFORE the
+body.** Logs `mem:project/wip-2026-08-24-bestspot-s3-s7` (the shipping session) +
+`mem:project/wip-2026-08-23-bestspot-heatmap` (the floor + design), then the five 2026-08-26
+memories listed in §Subsystems. DECISIONS §Recent 2026-08-24c, then 2026-08-26f→j.
+Gates at the park: **vitest 2,144/2,144 (141 files)** · astro check 0 err / 0 warn / 6 hints ·
+knip exit-0 · **`verify-bestspot.mjs` 96/101 BY DESIGN.** Tier: **LOCAL + BROWSER** (shots
 `verify-shots/bestspot-01…08`). Wix cloud UNVERIFIED — prod is dark behind the nameserver gate.
 **THE ARCHITECTURE: all-CPU, one long-lived worker, and the per-ray UPPER CONVEX HULL is invariant in
 BOTH scene time AND eye height** — which is what makes the scrubber and the altitude slider live.
@@ -289,9 +330,12 @@ passing — the bridge scored as a pure LIABILITY (0.608 with the deck vs 0.623 
 the track's weight sat below the horizon, capping V at 0.51.
 Owner rulings: drone semantics above 5 m · FPV is a centre source but renders nothing in the
 viewfinder · field 3 m with 1 m reserved for ULTRA · GL overlay only, plumb line instead of a cylinder.
-**NEXT: the TASTE PASS** — cheap by construction, every knob is a recompose (0.3–3 ms) or a repaint:
-`__globe.bestSpotTuning({...})` · `.ab()` · `.export()`. Primary targets `graze.conf` /
-`graze.reliefHiDeg` / `displayLo|Hi` / `worth.effectiveFloor` (all unswept judgements, now live).
+**SUPERSEDED 2026-08-27 — the taste pass RAN, and it refuted its own target list.** It is left here
+only because the sentence below it is still true. The four "primary targets" (`graze.conf` /
+`graze.reliefHiDeg` / `displayLo|Hi` / `worth.effectiveFloor`) were **measured NOT to move the case
+the owner reported** — see `bestspot/MEASUREMENTS.md` §7. **BEST SPOT is PARKED; start at
+`.claude/claude-docs/bestspot/README.md`.** The seam itself is unchanged and still the way in:
+`__globe.bestSpotTuning({...})` · `.ab()` · `.export()`.
 Judge it at BOTH lifts — a 1.7 m city disc is legitimately near-black (97.7 % at zero) and that is
 physics; at 56.7 m the mean score byte is 159. Then un-park T47/T46/T1/T42/T34/P8/M4/U8/T29/T31.
 S8 (`/m` twin) and S9 (MapWindow/MiniMap DOM twin) stay deferred by owner ruling.

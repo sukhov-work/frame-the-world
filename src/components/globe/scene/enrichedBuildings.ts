@@ -174,7 +174,22 @@ export interface EnrichedBuildingsHandle {
   setNight(sunElevSin: number, up: THREE.Vector3): void;
   /** ULTRA S4 aerial perspective (T45) — mirrors BuildingsHandle.setUltraHaze; the orchestrator
    *  pushes ONE haze number to the ground and both building sets, so they cannot drift. */
-  setUltraHaze(haze: number, col: THREE.Color, sunW: THREE.Vector3): void;
+  setUltraHaze(
+    haze: number,
+    col: THREE.Color,
+    sunW: THREE.Vector3,
+    /** Owner defect 2 (2026-08-27) — the anti-solar tint and the sky's luminance level, so the
+     *  air over the city is the SAME air the ground under it is rendering. */
+    cool: THREE.Color,
+    skyLevel: number,
+    afterglow: number,
+    /** Owner taste pass (2026-08-27c) — the DUSK TROUGHS on the two flat, sun-blind terms that
+     *  dominate a facade at low sun: the constant emissive floor (about 3.6x the sun key on a
+     *  wall pointed straight into a 3 deg sun) and the unlit edge strokes (about 6.4x the lit
+     *  surface they outline). Both exactly 1 with the chip off. */
+    emisK: number,
+    edgeK: number,
+  ): void;
   /** /m 2D map mode (UPLIFT U1) — mirrors BuildingsHandle.setActive: `false` removes the group
    *  from the scene graph and freezes update() (no traversal/streaming/re-seat work); loaded
    *  cells stay LRU-cached for an instant re-attach. Desktop never calls this. */
@@ -398,6 +413,25 @@ export function attachEnrichedBuildings(
     edgeColor: ENRICHED.debugDistinctEdges ? tokens.accent : tokens.landHi,
     edgeOpacity: ENRICHED.edgeOpacity,
   });
+  /** The as-constructed emissive floor, captured so the dusk trough is a RESTORE rather than a
+   *  re-derivation (the same discipline the ULTRA hemisphere restore uses). */
+  const ENRICHED_EMISSIVE = styleMat.emissiveIntensity;
+  /** Owner taste pass (2026-08-27c) — the dusk troughs on the two SUN-BLIND facade terms (the
+   *  constant emissive floor and the unlit edge strokes). Banked by `setUltraHaze` and applied
+   *  through `applyEdgeOpacity`, the ONE authority on the edge material's opacity — the FPV
+   *  solidity slider routes through it too, so the two cannot fight. Exactly 1 with the chip
+   *  off, so every expression stays byte-identical to what shipped. */
+  let ultraEmisK = 1;
+  let ultraEdgeK = 1;
+  /** Absolute, so repeated calls cannot compound. `solidityK` is null when the slider is idle. */
+  let solidityK: number | null = null;
+  const applyEdgeOpacity = () => {
+    const base =
+      solidityK == null
+        ? ENRICHED.edgeOpacity
+        : ENRICHED.edgeOpacity + (0.14 - ENRICHED.edgeOpacity) * solidityK;
+    edgeMat.opacity = base * ultraEdgeK;
+  };
   // Slice 3 trees: the baker writes an EXT_mesh_gpu_instancing node per cell → three loads it as an
   // InstancedMesh; ONE shared flat-shaded canopy material (vecGreen — the vector-web vegetation
   // family), night-dimmed CPU-side in setNight (one colour write per ephemeris sample — no shader).
@@ -1312,14 +1346,15 @@ export function attachEnrichedBuildings(
       // uniform) — fill and canopy stay OPAQUE and depth-writing at every k, so there is no
       // transparent-sort and no binary depthWrite threshold (the old flip at k>0.55 made every
       // mesh read instantly solid between two slider ticks).
+      solidityK = k;
       if (k == null) {
         uniforms.uFlatAlpha.value = 1;
-        edgeMat.opacity = ENRICHED.edgeOpacity;
+        applyEdgeOpacity();
         uTreeAlpha.value = 1;
         return;
       }
       uniforms.uFlatAlpha.value = 0.28 + 0.72 * k;
-      edgeMat.opacity = ENRICHED.edgeOpacity + (0.14 - ENRICHED.edgeOpacity) * k;
+      applyEdgeOpacity();
       // Trees follow the same slider (owner FPV ask: nothing may occlude the framed subject at 0).
       uTreeAlpha.value = TREES.fpvMinOpacity + (1 - TREES.fpvMinOpacity) * k;
     },
@@ -1331,9 +1366,18 @@ export function attachEnrichedBuildings(
       // mirrors the vector web's night dimming; no shader work needed).
       treeMat.color.copy(treeBaseColor).multiplyScalar(1 - TREES.nightDim * night);
     },
-    setUltraHaze(haze, col, sunW) {
+    setUltraHaze(haze, col, sunW, cool, skyLevel, afterglow, emisK, edgeK) {
       uniforms.uFtwHaze.value = haze;
       uniforms.uFtwHazeCol.value.copy(col);
+      uniforms.uFtwHazeCool.value.copy(cool);
+      uniforms.uFtwSkyLevel.value = skyLevel;
+      uniforms.uFtwAfterglowG.value = afterglow;
+      // Banked, then applied through the EXISTING opacity writers below rather than written here:
+      // edge opacity already has two authors (ghost / FPV solidity) and a third would fight them.
+      ultraEmisK = emisK;
+      ultraEdgeK = edgeK;
+      styleMat.emissiveIntensity = ENRICHED_EMISSIVE * emisK;
+      applyEdgeOpacity();
       uniforms.uFtwSunW.value.copy(sunW);
     },
     seatState: () => ({ epoch: seatEpochN, quietFrames: seatQuietN }),

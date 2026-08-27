@@ -10,7 +10,7 @@ updates for next session."* Twin: DECISIONS §Recent **2026-08-26h**. Predecesso
    Goal · Entry gate · Work items (files + hours) · Exit gate (exact commands + numbers) · Artifacts.
    **Its ORCHESTRATOR'S CORRECTIONS block overrides the body** — six MEASURED facts.
 2. `.claude/claude-docs/bestspot/SWEEP_MODE_MAP.md` — the spec the schedule executes.
-3. `.claude/claude-docs/BESTSPOT_TASTE_V1.md` — why any of it exists.
+3. `.claude/claude-docs/bestspot/BESTSPOT_TASTE_V1.md` — why any of it exists.
 
 ## GATES
 **vitest 2,134/2,134 (141 files)** · `astro check` 0 err / 0 warn / 6 hints · `npx knip` exit-0.

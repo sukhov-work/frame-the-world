@@ -94,6 +94,63 @@ export const SKY = {
   sunExtinctAltHiDeg: 10,
   /** Extinction floor at 0° altitude (and below) — "a little bit", not astronomy. */
   sunExtinctFloor: 0.4,
+
+  // --- THE DISC AT DUSK (owner taste pass, 2026-08-27c) --------------------------------------
+  //
+  // *"the sun disk becomes too white and transparent … keep it solid and even keep some
+  //  brightness and very little glow — start diminishing it earlier and keep diminishing it
+  //  proportionally up until some point e.g 1 degree to horizon, then can do a solid orange
+  //  disk."*
+  //
+  // THE MECHANISM THAT MADE IT TRANSPARENT, and why a level knob alone could never fix it: the
+  // impostor is `AdditiveBlending`, so its result is literally `disc + sky`. "Dim the disc" and
+  // "dissolve the disc into the sky" are the SAME operation — there is no state of an additive
+  // material that is both dim and solid. The first pass scaled the additive level down and got
+  // exactly what addition promises: a flat pale wash the colour of the sky it sits on. (Measured
+  // at the owner's band: core radiance 5.00 at 14° → 1.11 at 1.6°, and the flat-topped disc mask
+  // `1 - smoothstep(0.9, 1.0, r)` spreads that uniformly, which is why it reads as a grey plate
+  // rather than as a dim sun.)
+  //
+  // So the disc now carries a PREMULTIPLIED arm as well — the same `ONE / ONE_MINUS_SRC_ALPHA`
+  // blend the MOON in this file has used since 2026-08-14 — and `discSolid` is what fades between
+  // them. At high sun `discSolid` is EXACTLY 0, alpha is 0, and premultiplied "over" degenerates
+  // to the addition that shipped; nothing about a daytime frame moves.
+
+  /** Core LEVEL vs sun elevation, ULTRA only — replaces the `sunExtinctionK × keyExtinctCurve`
+   *  product the first pass used. Authored as one curve because that product was doing two jobs
+   *  badly: it started at 10° (not "earlier"), and its `ultraExtinctFloor` left the core at 0.028
+   *  below the horizon — about half the brightness of the sky behind it, i.e. the ghost.
+   *  The value the last three anchors hold is chosen against `BLOOM.threshold` 0.9: core
+   *  luminance = `sunIntensity 5 × v × lum(sunCore) 0.904`, so v = 0.13 gives 0.59 — under the
+   *  threshold ("very little glow"), roughly 2× the sky, and OPAQUE ("solid, some brightness").
+   *  Keep the 0.9 crossing UP at 5-8° where the disc is a few pixels wide, so losing bloom reads
+   *  as a shrinking flare rather than as a pop inside the band the owner is watching. */
+  discLevelCurve: [
+    { elevDeg: 20, v: 1 },
+    { elevDeg: 12, v: 0.72 },
+    { elevDeg: 8, v: 0.34 },
+    { elevDeg: 5, v: 0.185 },
+    { elevDeg: 3, v: 0.145 },
+    { elevDeg: 1, v: 0.105 },
+    { elevDeg: -2, v: 0.105 },
+  ],
+  /** The opacity ramp: 0 at/above `discSolidHiDeg` (so the disc is the shipped pure-additive one
+   *  and a daytime frame is byte-identical), 1 at/below `discSolidLoDeg` — the owner's "then can
+   *  do a solid orange disk". */
+  discSolidHiDeg: 6,
+  discSolidLoDeg: 1,
+  /** How far the core is pulled toward the PHYSICAL extinction chromaticity (`solarChroma`).
+   *  Deliberately below the key's `ULTRA.keyChromaK` 0.85 and floored per channel below: at 0°
+   *  `solarChroma` is (1.000, 0.212, 0.005), which multiplied into `sunCore` is a nearly
+   *  monochromatic red with a dead blue channel — crimson, not the orange he asked for. */
+  discChromaK: 0.6,
+  /** Per-channel floor under that chroma, so the disc stays orange rather than going crimson. */
+  discChromaFloor: [1, 0.35, 0.12] as const,
+  /** The halo (the in-shader glow; the WIDE glow is the bloom pass) falls as `level^this`.
+   *  >1 so the glow leaves EARLIER than the core dims — "keep some brightness and very little
+   *  glow". At level 0.4 (4°) the halo is already at 0.16. Exactly 1 at high sun, so the
+   *  daytime halo is untouched. */
+  haloExtinctPow: 2,
   /** Moon albedo multiplier (>1 pushes the lit limb into bloom; raised 2026-07-10 "moon
    *  brighter", again for the S5 night pass, again S6 (owner: "brighter, organically") — the
    *  gain rides the existing albedo·(N·sun)^0.8 curve so maria contrast and the phase shape
@@ -851,12 +908,20 @@ export const ULTRA = {
   /** `SUN.hemiIntensity` multiplier vs sun elevation. The fill exists so night-side buildings
    *  aren't pure black; today it is a CONSTANT, so the sky/ground ambient split never changes
    *  from noon to midnight. */
+  /*  RE-ANCHORED 2026-08-27 (owner defect 2). The shipped table peaked at 1.15 at 0° and held
+   *  0.95 through civil dusk — i.e. the ambient fill was BRIGHTER at sunset than at noon and
+   *  barely moved after the sun had gone. With `hemiTintK` warming its sky half, that fill is
+   *  what lit "the backs of the buildings with the same ugly tint instead of being in deep
+   *  shadow": a HemisphereLight has no azimuth, so every wall gets it, including the ones the sun
+   *  cannot see. Dusk skylight IS the brightest skylight of the day, so the small bump at +3°
+   *  stays — what goes is the claim that it survives undimmed into the night. */
   hemiCurve: [
     { elevDeg: 12, v: 1 },
-    { elevDeg: 0, v: 1.15 },
-    { elevDeg: -6, v: 0.95 },
-    { elevDeg: -12, v: 0.7 },
-    { elevDeg: -18, v: 0.6 },
+    { elevDeg: 3, v: 1.05 },
+    { elevDeg: 0, v: 0.9 },
+    { elevDeg: -6, v: 0.55 },
+    { elevDeg: -12, v: 0.34 },
+    { elevDeg: -18, v: 0.28 },
   ],
   /** Orient the HemisphereLight along LOCAL UP at the view focus instead of ECEF +Y (audit gap
    *  #16, already verified: `new THREE.HemisphereLight(...)` is added at the default position, so
@@ -870,8 +935,14 @@ export const ULTRA = {
    *  (it is lit by the SKY, not the sun). Also the coherence fix for S9: the ground's band curve
    *  keeps the ground at 0.30 through civil twilight, and this is what keeps the buildings with
    *  it. The ground half of the hemisphere keeps `tokens.water` — bounce light off dark terrain
-   *  has no reason to change colour with the sun. */
-  hemiTintK: 0.6,
+   *  has no reason to change colour with the sun.
+   *  0.6 → 0.22 on 2026-08-27 (owner defect 2). The reasoning above is sound for the LIT side and
+   *  wrong for the rest of the sphere: a HemisphereLight is azimuth-free, so 0.6 painted the band
+   *  tint onto every wall in the city at once — the owner's "backs of the building lit with the
+   *  same ugly tint". Skylight on a wall facing away from a setting sun is BLUE. The warmth is
+   *  now carried where it belongs and where it is directional: the key light (reddened on real
+   *  extinction, `keyChromaK`) and the air-light's Mie lobe (`airWarmSwing`). */
+  hemiTintK: 0.22,
   /** RC24 — how far the SKY DOME's horizon haze is pulled toward the band tint, as a multiplier
    *  on the ground's own effective (gated, eased) haze fraction. This closes the one visible seam
    *  the ULTRA track shipped with: the dome tints from GOLDEN's bell over solar elevation while
@@ -1020,6 +1091,320 @@ export const ULTRA = {
    *  sit behind the shadow camera's near plane and vanish from the depth pass. */
   lightDistM: 60_000,
   depthMarginM: 30_000,
+
+  // --- SHADOW CASCADES (owner defect 1, 2026-08-27) — "make sure every part of the map in the
+  //     current view is correctly shadowed". -----------------------------------------------------
+  //
+  // Cascade 0 is the rig above, untouched. These are the boxes OUTSIDE it, one extra
+  // zero-intensity `DirectionalLight` each; the ground's `ShadowMaterial` twins multiply every
+  // directional shadow mask, so nested boxes compose into a union for free. The full argument,
+  // the measured coverage table and the "no caster behind the light" invariant live in
+  // `lib/globe/shadowCascade`.
+  //
+  // WHY TWO, AND WHY THESE REACHES. `viewFitM` at the owner's mountain poses runs 100–430 km, and
+  // ULTRA's own aerial perspective (`hazeDistM` 55 km, capped at `hazeMaxK` 0.72) has washed the
+  // far field to 72 % tint by ~160 km — past that a shadow contributes under a third of its
+  // contrast, so a third cascade would buy VRAM-priced pixels nobody can see. 60 km then 260 km
+  // puts the split where the picture actually changes.
+  //
+  // VRAM, stated because it is the real cost and the rollback knob. A directional shadow target
+  // is an RGBA8 colour attachment PLUS a D24 depth texture (see `SHADOWS.mapSize`), so
+  // 4096² ≈ 134 MB and 2048² ≈ 34 MB: the ladder adds ~168 MB on top of cascade 0's 8192² ≈ 536 MB
+  // (+31 %). ROLLBACK, in order of preference: drop cascade 1 to 2048² (−100 MB, 59 m/texel at
+  // reach — still ~3.7 screen px at 40 km); then drop `ULTRA.shadowMapSize` to 4096² per RC27,
+  // which with cascades costs far less than it did before because cascade 0 no longer has to
+  // stretch to hold the whole view; then set `cascades: []`, which restores the shipped single-box
+  // rig exactly (the extra lights are never constructed).
+  //
+  // `mapPx` is CONSTRUCTION-TIME like `shadowMapSize` — three latches a shadow's depth target on
+  // first render and ignores a later `mapSize` write — so the ladder is built at BOOT from the
+  // persisted pref, through the same `ultraBootOn()` gate.
+  cascades: [
+    {
+      /** Mid field: past cascade 0's 18 km cap, out to where haze starts to take over. */
+      reachM: 60_000,
+      maxBoundsM: 60_000,
+      mapPx: 4096,
+      /** 29 m/texel at reach ≈ 1.8 screen px at 40 km — a soft edge, not a stair. */
+      radius: 3,
+      /** Coarse steps: the box only moves in 4 km jumps, so it re-renders rarely and its texels
+       *  do not swim while the camera turns. */
+      quantM: 4_000,
+      biasTexels: 0.6,
+      normalBiasTexels: 1.5,
+    },
+    {
+      /** Far field: the rest of a mountain horizon. 250 km is the geometric horizon at ~5 km. */
+      reachM: 260_000,
+      maxBoundsM: 260_000,
+      mapPx: 2048,
+      radius: 2,
+      quantM: 16_000,
+      biasTexels: 0.6,
+      normalBiasTexels: 1.5,
+    },
+  ],
+  /** How far (m) terrain may reach above or below a cascade's centre. Everest is 8,849 m, so this
+   *  covers the planet; it sizes the shadow camera's depth range and its stand-off distance. */
+  cascadeReliefM: 9_000,
+  /** Clearance (m) between the light plane and the nearest possible caster — the cascade's `near`. */
+  cascadeLightClearM: 2_000,
+  /** REFRESH POLICY (see `cascadeNeedsRender`). A cascade map is re-rendered when the fitted extent
+   *  changes, when terrain streams in, when the eye drifts this fraction of the half-extent, when
+   *  the key direction swings this far, or when it goes this stale. At 60 km the eye may travel
+   *  7.2 km before a refresh; at 260 km, 31 km. */
+  cascadeMoveFrac: 0.12,
+  cascadeRefreshDeg: 0.25,
+  /** Safety net in RC21's shape: a missed trigger costs bounded staleness, never a frozen shadow. */
+  cascadeMaxStaleMs: 1_500,
+
+  // ═══ DUSK (owner defect 2, 2026-08-27) ═════════════════════════════════════════════════════
+  // "too much yellow tint … you uniformly illuminate the whole scene in some piss very bright
+  // colour instead of naturally darkening scene and sky … the whole sky dome has the same colour
+  // and luminosity … the sun is still too bright when it is lower than around 3-4 degrees."
+  // The physics (airmass, per-channel extinction, the two scattering lobes) lives in
+  // `lib/globe/duskLight`; every number below is the LOOK.
+
+  /** THE KEY LIGHT'S LEVEL vs sun elevation — the answer to "still too bright below 3-4°".
+   *
+   *  It replaces nothing and multiplies everything: `sunLight.intensity` keeps its golden swell
+   *  and its eclipse term and is then scaled by this. The hue is NOT here — that comes from
+   *  `solarChroma`, which is real Kasten-Young extinction, so the light reddens on physics and
+   *  dims on taste.
+   *
+   *  THE HONEST NUMBER WOULD BE 0.01 AT 0°: true transmittance at a geometric elevation of zero is
+   *  about 1 % of zenith, which is exactly why you can look at a setting sun. A camera survives
+   *  that on seven stops of exposure; this renderer has an exposure RAMP (`exposureCurve`, ×1.12
+   *  at 0°), not an eye, so a physical level would simply black the scene out at the moment the
+   *  owner most wants to look at it. These anchors keep the SHAPE of extinction — a fast collapse
+   *  through the last few degrees — at a level the frame can hold. Raise the −0.5° anchor above 0
+   *  and a below-horizon sun starts lighting things again, which is the defect. */
+  keyExtinctCurve: [
+    { elevDeg: 12, v: 1 },
+    { elevDeg: 6, v: 0.85 },
+    { elevDeg: 3, v: 0.62 },
+    { elevDeg: 1, v: 0.34 },
+    { elevDeg: 0, v: 0.18 },
+    { elevDeg: -0.5, v: 0 },
+  ],
+  /** How far the key's colour is pushed to the PHYSICAL extinction chromaticity (0 = today's
+   *  single `tokens.goldenHour` lerp only). 1 is defensible; below it because the shipped golden
+   *  cast is still doing part of the job and two full-strength warm terms compound. */
+  keyChromaK: 0.85,
+
+  /** THE SKY'S OWN LUMINANCE vs sun elevation — the master scale on all in-scattered light (the
+   *  aerial perspective, the dome's horizon band, the ambient fill).
+   *
+   *  This is the single number whose absence caused "uniformly illuminating the whole scene in
+   *  some piss very bright colour": `ftwAerial` mixed toward a palette stop at up to `hazeMaxK`
+   *  0.72 with NO level term, so distant terrain at sunset was 72 % bright orange and *brighter
+   *  than the foreground*. Air-light is light — it has to go out with the sun.
+   *
+   *  It stays well above zero through civil twilight on purpose: a blue hour is not black, and the
+   *  night floor keeps a far city from reading as a hole cut in the frame. */
+  skyLevelCurve: [
+    { elevDeg: 12, v: 1 },
+    { elevDeg: 3, v: 0.8 },
+    { elevDeg: 0, v: 0.58 },
+    { elevDeg: -4, v: 0.34 },
+    { elevDeg: -6, v: 0.22 },
+    { elevDeg: -12, v: 0.08 },
+    { elevDeg: -18, v: 0.03 },
+  ],
+  /** AFTERGLOW — how much of the sky's level survives ON THE SUN'S SIDE below the horizon, over
+   *  and above `skyLevelCurve`. This is the "nice local sky afterglow when the sun has just set"
+   *  the owner asked for, and it is why the glow is LOCAL: it rides the Mie lobe, so it lives in
+   *  the sun's azimuth and leaves the rest of the sky to darken. Peaks just under the horizon,
+   *  where the real one does. */
+  afterglowCurve: [
+    // The 0 at +4° is load-bearing housekeeping, not shape: `bandCurve` HOLDS its highest anchor
+    // above the table, so a table starting at 0° would report an afterglow of 0.35 at noon. It is
+    // harmless where it is consumed (`max(skyLevel·dayK, afterglow·sunSide)` is dominated by the
+    // first term in daylight) — and a probe reading 0.35 at midday is a number that looks like a
+    // bug forever after.
+    { elevDeg: 4, v: 0 },
+    { elevDeg: 0, v: 0.35 },
+    { elevDeg: -2, v: 0.75 },
+    { elevDeg: -5, v: 0.55 },
+    { elevDeg: -9, v: 0.15 },
+    { elevDeg: -14, v: 0 },
+  ],
+
+  /** THE TWO SCATTERING LOBES (`lib/globe/duskLight.airLightGlsl`) — shared by the aerial
+   *  perspective and the sky dome so the air over the terrain and the air above the horizon are
+   *  one model. `miePow` sets how TIGHT the sun-side glow is: the shipped `hazeSunPow` 7 is a
+   *  glint, not a glow, and a real sunset's warm sector spans 60-90° of azimuth. 3.5 is that. */
+  airMiePow: 3.5,
+  airMieGain: 1.35,
+  /** The broad (Rayleigh-shaped) lobe's weight, against the Mie lobe's `airMieGain`. Together
+   *  they set the DIRECTIONAL CONTRAST of the sky, which is the whole of "the opposite side of
+   *  the sky should be darker": the pair is normalised so looking straight at the sun reads 1, and
+   *  these values then give ~0.25 at 90° from the sun and ~0.50 directly away from it. Raise it
+   *  toward 2 to flatten the sky back out (and re-create the defect); lower it for a harsher,
+   *  more graphic sunset. */
+  airRayleighK: 0.9,
+  /** How far the air-light colour swings from its COOL (anti-sun) tint to its WARM (sun-side)
+   *  tint across the Mie lobe. 0 restores a direction-independent tint, i.e. the defect. */
+  airWarmSwing: 0.85,
+
+  /** GROUND DIRECT/AMBIENT SPLIT — the answer to "you illuminate in the same way opposite sides of
+   *  the terrain … while the sun is directly on the other side of them".
+   *
+   *  The shipped ground shade is `mix(EARTH.dayGradMin 0.78, 1, sqrt(max(sunDot,0)))`: a slope
+   *  facing DIRECTLY AWAY from the sun keeps 78 % of the light a slope facing INTO it gets, at
+   *  every hour of the day. That floor exists for a real reason — a noon hillside must not fall to
+   *  the night floor — but it is a stand-in for ambient skylight, and ambient skylight is exactly
+   *  the term that survives sunset while the direct term does not. Splitting them is what lets the
+   *  anti-sun face go dark at dusk while noon is untouched.
+   *
+   *  `ambientK` is the skylight floor at full daylight, and it is deliberately CLOSE to
+   *  `dayGradMin`: at noon the split reproduces roughly the shipped look, and the whole visible
+   *  change lands in the last few degrees, which is where the owner is looking. */
+  groundAmbientK: 0.68,
+  /** How much of the ambient half tracks the fragment's own sky exposure (`0.5 + 0.5·n·up`), so a
+   *  valley wall sees less sky than a summit. 0 = a flat ambient, which is what shipped. */
+  groundAmbientSkyK: 0.45,
+  /** Direct-sun wrap. `sqrt()` in the shipped line is a strong half-lambert that flattens relief;
+   *  a smaller wrap sharpens the terminator on a slope as the sun lowers. 0 = pure lambert. */
+  groundDirectWrap: 0.18,
+
+  // --- THE SECOND PASS (owner taste pass, 2026-08-27c) ---------------------------------------
+  //
+  // *"weird tint, especially on backside of objects is still there — notice how bright are the
+  //  mountains just below the sun which should be in complete shadow at this point … shadows that
+  //  were there before should not just disappear, they should become darker and more global."*
+  //
+  // He is right, and the arithmetic is brutal. At +2° solar elevation, two 30° slopes — one
+  // facing the sun, one facing DIRECTLY AWAY — came out of the first pass at **0.859 vs 0.833**:
+  // the mountain in complete shadow rendered at **96.9 %** of the one in full sun. Four terms
+  // were each independently direction-blind, and they compounded:
+  //   1. the §1a shade lift (`shade = mix(shade, 1.0, photo)` at `photo3dK` 0.6) — the largest by
+  //      far, and it also erases 60 % of the contrast a CAST shadow is drawn against, which is
+  //      the other half of "shadows disappear";
+  //   2. the ambient half of the direct/ambient split — `groundAmbientK · skyExposure` with no
+  //      level and no azimuth, so 68 % of the shade was provably identical on both faces at every
+  //      hour (the fix that was supposed to CURE this was, at dusk, worse than the
+  //      `EARTH.dayGradMin` 0.78 ramp it replaced);
+  //   3. the golden-hour cast, a bell over SOLAR elevation multiplied into every fragment on the
+  //      planet's day side — the terrain twin of the `hemiTintK` bug already fixed for buildings;
+  //   4. the additive `uFtwAmbDay` floor, which has no normal term at all.
+
+  /** (1) The §1a de-grade's SHADE lift now rides `directK^this`, so the photographic look the
+   *  owner likes at high sun is byte-identical (`directK` is exactly 1 there) and the relief comes
+   *  back exactly where he complained. 3 puts the lift at 0.066 of its full 0.6 by +2°.
+   *  `mix(x, 1.0, k)` lifts DARK values more than bright ones, so this has to fall FAST — a
+   *  linear ride still left the two faces at a ratio of 0.78. */
+  photo3dShadePow: 3,
+  /** (2a) How far the ambient half tracks the sky's own luminance. 1 = fully; 0 restores the
+   *  first pass's constant ambient. */
+  groundAmbientLevelK: 1,
+  /** (2b) …and how far it tracks the sky's ANISOTROPY — reusing `ftwAirLevel`, the very lobe pair
+   *  already compiled into this shader for the air-light and the dome. Real skylight at dusk is
+   *  2-4× brighter in the sun's azimuth than away from it; a slope facing away from a setting sun
+   *  sees mostly the dark half of the sky, and that is the physical reason its ambient collapses
+   *  while a summit's does not. 0 = a flat ambient (the first pass). */
+  groundAmbientAzK: 0.8,
+  /** …and the exponent on `(1 − directK)` that shapes WHEN that anisotropy arrives. The sky is
+   *  isotropic at noon and one-sided at sunset, so the strength is the complement of direct
+   *  transmittance; `0.5` makes it rise through the raking band rather than only after the sun is
+   *  gone. 1 = linear (weaker exactly where the owner is looking); 0 = always full, which would
+   *  change the daytime frame. */
+  groundAmbientAzPow: 0.5,
+
+  // --- CAST SHADOWS THROUGH THE RAKING HOUR ---------------------------------------------------
+  //
+  // *"shadows that were there before should not just disappear, they should become darker and
+  //  more global (do not bring back that super elongated naive shadows we fixed before)."*
+  //
+  // `sunLight.shadow.intensity = aboveGateK(sunDot, KEY_GATE)` fades the whole shadow field out
+  // over `SHADOWS.fadeBandSin` = sin(3°): the overlay is at 52 % by +2° and 9 % by +1° — exactly
+  // the band where a raking terrain shadow is the most dramatic thing in the frame. That loss is
+  // recorded on `SHADOWS.fadeBandSin` as owner A/B item **AB4**, deferred for a verdict. The
+  // owner has now given it, and the answer is no.
+  //
+  // The band cannot simply be deleted: it is also what hides the sun→moon SOURCE SWITCH, which
+  // teleports the rig's direction at `minSunElevSin`. So ULTRA gets its own NARROW band for the
+  // shadow field alone — still exactly 0 at the gate, so the teleport still happens at zero
+  // contribution — while the key trough and the moon takeover keep the wide one.
+
+  /** Shadow-field fade band under ULTRA, in sine-of-elevation units. sin(0.6°); the base rig's is
+   *  sin(3°). Full shadows survive to 1° instead of dying from 3.5°. */
+  shadowFadeBandSin: 0.0105,
+  /** …and the overlay DEEPENS as the sun sets ("darker and more global"). The ground shadow
+   *  opacity is lerped from `SHADOWS.groundOpacity` 0.75 toward this, by how far the sun has come
+   *  down the WIDE gate band. Nothing about the shadow's SHAPE changes — this is contrast, not
+   *  the elongated-projection failure mode that RC4 and the cascades exist to avoid. */
+  groundShadowDuskK: 0.88,
+
+  // --- THE AFTERGLOW, AND WHY IT WAS INVISIBLE ------------------------------------------------
+  //
+  // *"still missing some nice sky afterglow immediately when sun is set behind horizon."*
+  //
+  // The directional dome arm was blended in by `hazeNow × domeTintK`, which is capped at
+  // **0.3825** — so the afterglow was structurally a minority of the dome. Worse, it was a LERP
+  // TARGET that is DIMMER than the term it replaces: the legacy omnidirectional band rides
+  // `max(dayK, hGold)`, and `GOLDEN.fadeInLo` = sin(−12.1°) keeps `hGold` at 0.977 at −2°. Since
+  // 0.75 < 0.977, `mix()` SUBTRACTED — ULTRA could only make the dusk sun-side horizon DARKER
+  // than baseline, never brighter. It first exceeds the legacy term at −9.45°, where the blend
+  // weight has fallen to 0.154 and the band is invisible anyway.
+  //
+  // Two changes: the directional arm gets its OWN weight (below), and the afterglow becomes an
+  // ADDITIVE band with its own much wider falloff. `domeTintK` goes back to being what its own
+  // docblock says it is — how far the dome's TINT is pulled toward the ground's band tint — and
+  // stops doubling as the master gain on a light source.
+
+  /** The directional dome arm's own blend weight under ULTRA. 1 = fully directional. */
+  domeDirK: 0.9,
+  /** Additive afterglow gain, on top of `afterglowCurve`. */
+  afterglowGain: 1.15,
+  // --- THE CITY AT DUSK — why the first pass made buildings WORSE, not better ------------------
+  //
+  // Stated as a ratio, because that is what the eye reads: directional contrast on a facade is
+  // `direct / (direct + flat)`. `keyExtinctCurve` divides the NUMERATOR by five through the dusk
+  // band and nothing touched the denominator, which is the definition of flattening. Measured
+  // front-wall:back-wall in red, on the surface alone: **1.28 at 3°, 1.21 at 2°, 1.08 at 0°** —
+  // the contrast collapses across exactly the band the extinction curve was added to.
+  //
+  // And the flat part is enormous. `BUILDINGS.emissiveIntensity` 0.1 on `tokens.land` is a
+  // CONSTANT (0.0087, 0.0148, 0.0107) added straight to `outgoingLight` with no albedo, no
+  // normal, no sun term (`meshphysical.glsl.js:168,198`). At a 3° sun a wall pointed STRAIGHT
+  // INTO the sun receives about **3.6× more light from its own emissive than from the sun**. It
+  // is ~100× the entire HemisphereLight contribution on the same wall — which is also why
+  // re-anchoring `hemiTintK` last pass could not have fixed the owner's picture: the hemisphere
+  // is 0.18 % of a facade pixel.
+  //
+  // So the flat terms have to fall on the SAME curve the key falls on. Both curves below are
+  // TROUGHS, not ramps: the emissive floor IS the night look (the frozen "dark mass, lit edges"
+  // idiom), so it must come back after twilight or the city goes black.
+
+  /** `BUILDINGS.emissiveIntensity` multiplier vs sun elevation. Holds 1 by day and by night;
+   *  troughs through the dusk band so the sun key can be seen against it. */
+  buildingEmisCurve: [
+    { elevDeg: 12, v: 1 },
+    { elevDeg: 6, v: 0.6 },
+    { elevDeg: 1, v: 0.3 },
+    { elevDeg: -4, v: 0.42 },
+    { elevDeg: -10, v: 0.85 },
+    { elevDeg: -16, v: 1 },
+  ],
+  /** …and the same for the EDGE strokes, which are an unlit `LineBasicMaterial` carrying no sun
+   *  term at all: at a 3° sun an edge pixel is **6.4× the entire lit surface of the wall it
+   *  outlines**, so at dusk a city reads as flat dark masses wrapped in bright sage wireframe.
+   *  Shallower than the emissive trough — the lit-edge idiom is the building look and the point
+   *  is to stop it SHOUTING at dusk, not to delete it. */
+  buildingEdgeCurve: [
+    { elevDeg: 12, v: 1 },
+    { elevDeg: 3, v: 0.72 },
+    { elevDeg: -2, v: 0.5 },
+    { elevDeg: -8, v: 0.7 },
+    { elevDeg: -14, v: 1 },
+  ],
+
+  /** e-folding of the afterglow band in SINE-of-elevation-above-horizon units. 0.30 ≈ 17.5°,
+   *  against the daytime haze crest's `ATMOSPHERE.skyHazeFalloff` 0.075 ≈ 4.3°. A real
+   *  post-sunset arch spans 15-25° of elevation and dominates the sky it sits in; reusing the
+   *  daytime crest gave a thin ribbon under a zenith term 2× brighter than itself. */
+  afterglowTauSin: 0.3,
 } as const;
 
 /**
@@ -3167,7 +3552,7 @@ export const PLAN = {
 } as const;
 
 /**
- * BEST SPOT — the RENDER + LADDER half (`.claude/claude-docs/BESTSPOT_SPEC_V2.md` §6.11). The
+ * BEST SPOT — the RENDER + LADDER half (`.claude/claude-docs/bestspot/BESTSPOT_SPEC_V2.md` §6.11). The
  * SCORING half is `lib/geo/bestSpotScoring.ts`, re-exported at the top of this file: nothing in
  * THIS block can move a score, and nothing in this block is ever persisted (the persisted surface
  * is the scoring PATCH, `prefs.bestSpotTuning`).
