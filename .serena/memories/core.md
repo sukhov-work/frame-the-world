@@ -178,7 +178,24 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02: MESH SUITE MS0 DONE + MS1 BUILT** — the ONE empirical Wix Media MODEL3D probe
+**2026-09-02d: MESH SUITE MS2 BUILT — the gizmo UI.** Blender-style MOVE / ROTATE / SCALE on the
+armed building: three's `TransformControls` on the engine's ghost RIG (anchor = translation in
+the cell's ENU frame, body = yaw + scale), fed pointers by the FPV gesture table (no DOM
+listeners, no camera layer — GlobeControls is off throughout FPV), rails + the U8 per-edit band
+on every scale axis (`clampGizmoEdit`), commit on release through `commitBldgTransform`. Entry:
+right-click / long-press a building → context menu (MOVE / ROTATE / SCALE / EXTRUDE / REVERT ALL /
+DONE) · the chip's op strip · G/R/S/E keys · Shift snaps · Esc cancels a live drag. The chip shows
+every op's current vs original with a per-op ↺ + RESET ALL; the pinned label adds an op line.
+EXTRUDE = the U8 drag verbatim and the default op on arm (byte-identical U8). New module
+`scene/bldgGizmo.ts`; docs `MESH_SUITE_PLAN.md` §7 · `mem:project/wip-2026-09-02-mesh-suite-ms2`
+· DECISIONS 2026-09-02d · T74. Gates: vitest 2,284/2,284 (151 files) · astro 0/0/8 ·
+**`verify-meshedit.mjs` 14/14** (real CDP drags) · the §4a-4 sweep per DECISIONS 2026-09-02d.
+**Next session starts MS3 (D2 activation + the osmId dual key) on the §6 fields.** Chernobyl:
+harness retired 2026-09-02d and the REGION DELETED 2026-09-02e on the owner's one-line
+confirmation (`regions.ts` entry, bake configs, geoid grid, guide copy, 1,785 R2 objects via the
+new `scripts/bake/delete-r2.mjs`; T75 closed). Only the LOCAL gitignored bake dirs (~136 MB)
+remain — the tool gate blocked `rm -rf`; the owner removes them by hand.
+Prior: **2026-09-02: MESH SUITE MS0 DONE + MS1 BUILT** — the ONE empirical Wix Media MODEL3D probe
 (`scripts/probe-model3d.mjs`) answered all four platform unknowns with bytes (ingest READY on
 the PUT itself · NO `urlExpirationDate`, immutable 180-day cache · wixstatic CORS `*` + Range
 206 + `model/gltf-binary` · **PRIVATE 3D refused 400** → D3 hide/delete are record-level);
@@ -189,9 +206,9 @@ neutrality across all components, rails as contract), per-SEGMENT edge CSR, `add
 `setTransform`/`featureState` + DEV seam, `verify-meshedit.mjs` 6/6 · `verify-bldg-override`
 byte-identical · vitest 2,259 · astro 0 · knip 0. Docs: `MESH_SUITE_PLAN.md` §6 (as-built) ·
 `mem:project/wip-2026-09-02-mesh-suite-ms0-ms1` · DECISIONS 2026-09-02 · T74.
-**Next session starts MS2 (the gizmo UI) on the §6 seams.** Freshest state always
+(MS2 landed 2026-09-02d — see the top of this section.) Freshest state always
 `NEXT_SESSION_PROMPT.md`. **Owner ruling 2026-09-02c: the CHERNOBYL slice has NO verification
-and NO support any more ("a curious test") — retire its harness from every roster, T75 DROPPED;
+and NO support any more ("a curious test") — harness retired 2026-09-02d, T75 DROPPED;
 the DNIPRO slice is the highest priority in ANY feature.**
 Prior: **2026-09-01: the DBG DEBUG HUD SHIPPED** — desktop-only `DBG` chip (off by default, beside ULT)
 → floating/resizable/filterable window: 151 metrics + 3 actions across 15 groups, every one

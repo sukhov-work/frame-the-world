@@ -34,6 +34,7 @@
  */
 
 import {
+  clampXf,
   isIdentityTransform,
   normalizeDeg,
   XF_NEUTRAL_EPS,
@@ -303,6 +304,22 @@ export function dragScaleK(
   const deltaM = dyPx * cfg.gainPerM * d;
   const proposed = editStartK + deltaM / Math.max(1, bakedHeightM);
   return clampEditK(editStartK, proposed);
+}
+
+/** MESH SUITE MS2 — clamp a gizmo's live read-back: the rails (`clampXf`: translate radius,
+ *  lift band, rotation wrap, absolute scale band on X/Z) PLUS the per-edit 0.5×/3× band about
+ *  the value each scale axis STARTED the drag at (`clampEditK`, the U8 rule applied to every
+ *  axis — a drag re-anchors on the committed scale, so ten drags can still reach the absolute
+ *  rail, one cannot). The Y band is the engine's own commit clamp, applied here so the PREVIEW
+ *  never shows what the commit would refuse. Pure. */
+export function clampGizmoEdit(raw: FeatureTransform, start: FeatureTransform): FeatureTransform {
+  const xf = clampXf(raw, XF_RAILS);
+  return {
+    ...xf,
+    sx: clampEditK(start.sx, xf.sx),
+    sz: clampEditK(start.sz, xf.sz),
+    sy: clampEditK(start.sy, Number.isFinite(raw.sy) ? raw.sy : 1),
+  };
 }
 
 /** Rows the next-phase batch sync still needs to push (never synced, or edited since). */

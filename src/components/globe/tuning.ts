@@ -2278,7 +2278,7 @@ export const ENRICHED = {
    *  failed in both directions: a single-storey outbuilding sat below 2.5 m and could not be
    *  picked at all, while a street lamp, a flagpole or a 30 m transmission pylon cleared it
    *  easily and was fully pickable AND rescalable. The "~4.5 % of features" this comment used to
-   *  claim was also wrong by nearly 7× — the shipped Chernobyl o2w bake is 30.6 % non-building
+   *  claim was also wrong by nearly 7× — the 2026-08-26 Chernobyl o2w bake (retired 2026-09-02) was 30.6 % non-building
    *  (516 of 1,688), 273 of them `HighVoltagePowerTower`.
    *
    *  RC17's `.meta.json` sidecar carries a per-feature CLASS token, so the fence is now
@@ -2299,6 +2299,17 @@ export const ENRICHED = {
    *  rails themselves (translate radius, lift ceiling, scale band) are CONTRACT, not taste —
    *  lib/globe/bldgOverrides.ts. */
   editUpdateRangeMaxRuns: 8,
+  // --- MESH SUITE MS2 (2026-09-02): the MOVE / ROTATE / SCALE gizmo (three's TransformControls
+  //     on the ghost rig; design MESH_SUITE_PLAN.md §7). Feel knobs only — the rails (translate
+  //     radius, lift band, scale bands) are CONTRACT in lib/globe/bldgOverrides.ts. -----------
+  /** Gizmo screen size (TransformControls.size; 1 = library default). 0.8: the building's own
+   *  footprint is the reference — the handles must not out-size a small house at street range. */
+  gizmoSize: 0.8,
+  /** Shift-held snaps: translation step (m), rotation step (deg), scale step (×). Blender's
+   *  Ctrl-snap idiom on the key that FPV already mirrors (`fpvKeysDown.shift`). */
+  gizmoSnapM: 1,
+  gizmoSnapDeg: 15,
+  gizmoSnapScale: 0.1,
   /** Screen-space error target (px) for the enriched renderer (library default 16). Lower = sharper. */
   errorTarget: 16,
   /** Hard-crease threshold (deg) for the enriched building edge strokes (mirrors BUILDINGS.edgeAngleDeg). */

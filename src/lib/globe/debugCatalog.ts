@@ -745,7 +745,7 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     label: "GLO-30 tiles",
     group: "terrain",
     fmt: "int",
-    note: "Tile content URIs rewritten to the GLO-30 patch (Dnipro ≤z13, Chernobyl ≤z12). 0 inside a patched region = the patch is dead and CWT is silently serving.",
+    note: "Tile content URIs rewritten to the GLO-30 patch (Dnipro ≤z13, Everest ≤z13). 0 inside a patched region = the patch is dead and CWT is silently serving.",
   },
 
   // ---- BUILDINGS ---------------------------------------------------------------------------

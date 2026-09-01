@@ -33,7 +33,7 @@
  * distribution rather than a max — one 4 km outlier must not size a ring for 20 m straddlers.
  *
  *   node scripts/bake/measure-straddlers.mjs --city dnipro
- *   node scripts/bake/measure-straddlers.mjs --city chernobyl-o2w
+ *   node scripts/bake/measure-straddlers.mjs --city st-albans-o2w
  */
 
 import { readFileSync, existsSync } from "node:fs";

@@ -10,8 +10,8 @@
  *   1. THE PICK FENCE. `ENRICHED.overrideMinPickHeightM` (2.5 m) is a height floor standing in for
  *      "is this a building". It fails in both directions. A single-storey outbuilding is below it
  *      and cannot be picked; a street lamp, a flagpole or a 30 m transmission pylon sails over it
- *      and is fully pickable AND rescalable. That is not hypothetical — the shipped Chernobyl o2w
- *      bake is 30.6 % non-building features (516 of 1,688), including 273 `HighVoltagePowerTower`.
+ *      and is fully pickable AND rescalable. That is not hypothetical — the 2026-08-26 Chernobyl o2w
+ *      bake (retired 2026-09-02) was 30.6 % non-building features (516 of 1,688), including 273 `HighVoltagePowerTower`.
  *      The floor was sized against an assumed 4.5 %.
  *   2. THE HEIGHT. `topY − baseY` over a feature's vertex run is the geometric extent, which RC13
  *      has just made 4 m taller than the building by lowering its wall rim below ground. The

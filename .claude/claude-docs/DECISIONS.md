@@ -346,6 +346,115 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 
 ## Recent sessions (verbatim, newest first)
 
+### 2026-09-02e — CHERNOBYL REGION DELETED on the owner's one-line confirmation: the `regions.ts` entry, both bake configs, the geoid grid, and 1,785 R2 objects gone (0 remain); the guide copy now names three modelled places
+
+Owner, same day, on being asked: "Yes, delete the Chernobyl region, bakes and R2 objects."
+Done: the `chernobyl` entry removed from `src/lib/globe/regions.ts` (a dated comment marks where
+it lived; `regions.test.ts` needed no change — its bbox/terrain pins are generic);
+`scripts/bake/cities/chernobyl.json` + `chernobyl-o2w.json` removed from git; the Chernobyl grid
+removed from `scripts/bake/terrain/geoid.mjs`; the guide's `trust-detail` topic rewritten
+(three places carry a purpose-built model — Dnipro, St Albans, the Khumbu — and Dnipro + Everest
+carry the 30 m patch); the DBG catalogue note (`terrain.patchRewrites`) names Dnipro + Everest;
+the `enrichedMeta` fixture variant is `dnipro-o2w`; the README's region #4 section is a
+retirement note (the RC17 class fence and the >50° N depth clamp it taught stay); historical
+comments in `enrichedMeta.ts` / `tuning.ts` / the bake scripts keep their measured numbers,
+dated. **R2:** NEW `scripts/bake/delete-r2.mjs` (the retirement twin of `upload-r2.mjs`: pure
+SigV4, `--prefix` must end in `/`, dry-run by default, lists first, deletes 6-wide, re-lists to
+prove zero; `lib/s3sign.mjs` gained an optional canonical `query` for the signed ListObjectsV2)
+removed **146** objects (8.89 MB) under `enriched/chernobyl/`, **150** (16.37 MB) under
+`enriched/chernobyl-o2w/` and **1,489** (3.46 MB) under `terrain/chernobyl/` — 0 remain under each.
+**Not done:** the LOCAL, gitignored copies (`bakes/enriched/chernobyl{,-o2w}`,
+`bakes/terrain/chernobyl`, `scripts/bake/.cache/o2w/chernobyl-o2w` + four `o2w-51.*.osm`
+extracts, ~136 MB) — the `rm -rf` was blocked by the tool permission gate twice; the owner runs
+it by hand (nothing ships either way). Gates after the removal: vitest 2,284/2,284 · astro 0/0/8 ·
+knip 0 · the globe boots at the Dnipro FPV pose with no exceptions. T75 fully closed.
+
+### 2026-09-02d — MESH SUITE MS2 BUILT: the Blender-style MOVE / ROTATE / SCALE gizmo on the armed building (three's TransformControls on the ghost RIG, fed by the FPV gesture table), context menu + op strip + G/R/S/E, per-op revert, the U8 extrude byte-identical — 14/14 real-pointer legs green; plus the CHERNOBYL harness retired per the owner ruling
+
+**Chernobyl slice (owner memo 2026-09-02c, first thing):** `scripts/verify-chernobyl.mjs` DELETED;
+the Chernobyl leg dropped from `verify-bake-ladder.mjs` (7 legs now); `scripts/bake/README.md`
+re-pointed at the ladder as the worked template; T75's mechanics marked done. NOT done — awaits a
+one-line owner confirmation because it deletes user-visible content: the `chernobyl` entry in
+`src/lib/globe/regions.ts`, the local bakes (`bakes/enriched/chernobyl{,-o2w}`,
+`bakes/terrain/chernobyl`) and the R2 objects.
+
+**MS2 — the design (full as-built: `MESH_SUITE_PLAN.md` §7).** The gizmo's proxy IS the engine's
+ghost, split into a RIG: an `anchor` Group under the cell mesh (the bake-local ENU frame — +X east,
++Y up, −Z north — carrying the translation) and its child `body` (the ghost mesh: yaw + scale, XZ
+inflated). MOVE attaches `TransformControls` to the anchor (arrows that never turn with the
+building), ROTATE / SCALE to the body (the Y ring and the boxes follow the building's own frame —
+the frame the recompose applies S and R in). Every drag is a plain Object3D edit:
+`rigToTransform` (featureTransform.ts) is the exact inverse of the engine's `placeGhost`
+(`transformToRig` pins the pair; yaw from the quaternion — Euler `.y` is wrong past ±90°),
+`clampGizmoEdit` (bldgOverrides.ts) rails it — the rails AND the U8 per-edit 0.5×/3× band on
+every scale axis — and the clamped value is written BACK to the rig so a handle stops at the rail.
+The controls get NO DOM listeners: constructed without a domElement, they are FED
+`pointerHover/Down/Move/Up({x,y,button})` by the FPV handlers that already arbitrate the
+look-drag, the pinch and the U8 claimed height drag — one gesture table, and /m gets the gizmo
+for free; `space: "local"` (three's "world" is raw ECEF). No camera layer: a building can only be
+armed inside FPV, where GlobeControls is already disabled; the visible gizmo/helper meshes get a
+no-op raycast, the pickers and the drag plane keep theirs. EXTRUDE is the U8 drag verbatim and the
+default op on arm (§4a-1: height-only editing byte-identical — `verify-bldg-override.mjs`
+unchanged); in a spatial op an off-handle drag is a look-around and a tap still disarms. Entry:
+right-click (desktop) / long-press (glass) a building → arms it (another re-targets) and opens
+the context menu at the press point (MOVE / ROTATE / SCALE / EXTRUDE / REVERT ALL / DONE — the
+`.skymenu` cut); the chip's op strip; Blender's G / R / S (+ E) while armed (S shadows walk-back
+for the armed session — an [ASSUMPTION] the owner may swap for 1/2/3/4); Shift = snap (1 m / 15°
+/ 0.1×). Escape rungs: menu → cancel a live drag (rig back, nothing commits) → disarm. The chip
+grew one row per op (current · original · ↺ when that op is edited) + RESET ALL; the pinned label
+an op line (metres E/N/↑, COMPASS-sense yaw = −rotDeg, XZ scales). Lift rail twice (`minY/maxY` on
+the anchor in parent = bake-local space, and the clamp). The ghost body shows only while dragging;
+the rig is re-placed from the committed target each frame between drags (it rides the easing
+seat), re-created when an evicted cell streams back, and released BEFORE `hideGhost` on disarm.
+Only new taste knobs: `ENRICHED.gizmoSize` 0.8, `gizmoSnapM/Deg/Scale` 1 / 15 / 0.1.
+
+**Files.** New `scene/bldgGizmo.ts` · `scene/enrichedBuildings.ts` (rig; `showGhost(…,
+bodyVisible)`, `setGhostTransform`, `setGhostBodyVisible`, `ghostRig()`, ghost seeds from the
+TARGET, `featureState.seated`) · `scene/bldgEditLabel.ts` · `StylizedTiles.ts` (op state,
+`applyBldgOp` / `finishGizmoDrag` / `revertBldg`, pointer routing, contextmenu + long-press,
+keys, Escape rungs, `stepBldgEdit`, DEV `__globe.bldgGizmo()` with `handlePx` / `originPx` /
+`debug`) · `store/bldgEdit.ts` (ops, `committed`/`live`, `revertRequest` / `menu` /
+`disarmRequest`, `requestReset` kept) · `panels/BuildingEditChip.tsx` (island → pure
+`BuildingEditChipView` + `BuildingEditMenu`) · `styles/building-edit.css` ·
+`lib/globe/featureTransform.ts` · `lib/globe/bldgOverrides.ts` · `tuning.ts` · docs
+(MESH_SUITE_PLAN §3/§5/§7, conventions/globe-tuning MS2 family, contracts §3 seam row,
+ARCHITECTURE, backlog T74/T75) · tests (`featureTransform` +5, `bldgOverrides` +5,
+`test/store/bldgEdit` new 9, `test/components/buildingEditChip` new 6) · `verify-meshedit.mjs`
+legs 7–14.
+
+**Verified.** Unit: vitest **2,284/2,284 (151 files)** (was 2,259/149) · `astro check` 0 err / 0
+warn / 8 hints. Browser (fresh headless Chrome :9333 per suite, `wix dev`, the Dnipro-o2w FPV
+pose): **`verify-meshedit.mjs` 14/14** — arm+cellUri · seam edit · rails · RESET · reload
+re-apply · legacy k→sy (the MS1 six) · right-click menu → MOVE (mirror + DOM, chip tab lit, rig
+present with the body hidden) · a REAL X-arrow drag: hover highlights (axis X, cursor grab), the
+live transform moves, the chip mirrors `dragging`, release commits **−9.41 m E** (row agrees) and
+the camera never turned · an OFF-handle drag looks around (yaw 0 → −17.1°) with the building
+untouched and still armed · R + a ring drag → **84.2°** committed + persisted · S + a box drag →
+**sx 3.000** (the per-edit band held) · the chip's ↺ reverts ROTATE alone (row rewritten without
+`rotDeg`, the move + scale intact) · Escape mid-drag cancels (target unchanged, still armed, FPV
+intact) · RESET ALL → identity, row gone, spatial 0, still armed with the gizmo · menu DONE →
+disarmed, gizmo detached, op ask back to EXTRUDE, FPV intact. Shots `verify-shots/meshedit-04..06`.
+The §4a-4 sweep (one fresh headless Chrome per suite, ultra on the profile ultra-dusk warmed): `verify-bldg-override` PASS (the U8 flow byte-identical: dblclick + double-tap arm, claimed drag, commit at 3.00, RESET, Esc-in-FPV, reload, /m twin) · `verify-debughud` ALL PASS · `verify-eclipse` PASS · `verify-bestspot-ownerbatch` 45/45 · `verify-rendering-charter` 85/85 (228 s) · `verify-ultra-dusk` ALL PASS (226 s) · `verify-ultra` 28/28 on its THIRD run on the same warm profile (runs 1–2 red on §1b only — anisotropy max 1 / chained 0 — the harness's cold-imagery-cache confound recorded 2026-09-02b; run 3: max 16, chained 34, ALL PASS) · `verify-bake-ladder` 7/7 (the trimmed roster, fresh Chrome) · knip 0.
+
+**Three things the browser caught that the unit tier could not.** (1) A no-op-raycast sweep over
+"every non-picker helper mesh" silenced the controls' DRAG PLANE (a plain Mesh child of the
+helper root): `dragging` read true, the plane never intersected, nothing moved — scope the no-op
+to `_gizmo.gizmo[*]` + `_gizmo.helper[*]`. (2) The rig rides the building and the building rides
+its terrain seat: the RC7 drain landed the armed feature's FIRST sample mid-leg and the run dropped
+by the cell's relief (47 m), moving the handles from under the harness's press — correct UX, so
+the harness now waits for `featureState.seated` + a still rig base (the seam grew `seated`). (3)
+The rotate ring's picker is a torus: its bounding-sphere centre is the hole and its farthest
+projected vertex is the tube's outer silhouette where a ray only grazes — `handlePx` returns the
+centre-line point (0.5/0.6 of the outer radius). Two more traps: zustand 5 serves a store hook its
+INITIAL state under `renderToStaticMarkup` (component tests render the props view), and
+`tc.dispose()` with no domElement throws (`getHelper().dispose()` instead).
+
+**Taste calls surfaced, not decided:** `TRANSLATE_MAX_M` 60 (the tile-level culling volume is not
+grown by a move) · the fully shared party-wall post follows the lower run under a move · three's
+rotate speed (20/distance — a 70 px drag ≈ 84° at street range) and scale gain (a 60 px drag
+saturates the 3× band) · the Y ring is near edge-on from a street-level eye · G/R/S vs 1/2/3/4 ·
+bloom on the gizmo at ULTRA.
+
 ### 2026-09-02c — OWNER RULING: the CHERNOBYL slice loses all verification and support ("a curious test, nothing special"); the DNIPRO slice is the highest priority in ANY feature
 
 Owner, at the close of the MS0/MS1 session, on being told `verify-chernobyl` is red on bare

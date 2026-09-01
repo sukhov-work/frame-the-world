@@ -51,27 +51,9 @@ export const BAKED_REGIONS: readonly BakedRegion[] = [
     bbox: [-0.3692, 51.7244, -0.2821, 51.7787],
     variants: ["st-albans-o2w"],
   },
-  {
-    // Pripyat + the Chernobyl reactor (owner ask 2026-08-26) — a 10×10 km box centred on the
-    // midpoint of the two, 51.3973/30.0780. Buildings AND a GLO-30 patch, so this is the first
-    // region since dnipro to carry both. Values verbatim from the bake console snippets —
-    // scripts/bake/cities/chernobyl.json (bbox === terrain.cityBbox, pinned by regions.test.ts).
-    id: "chernobyl",
-    bbox: [30.006, 51.352, 30.15, 51.442],
-    // o2w first, same rule as dnipro: the detailed bake IS the default; the classic extruder
-    // bake stays uploaded as the ?enriched=chernobyl fallback / A-B seam.
-    variants: ["chernobyl-o2w", "chernobyl"],
-    // maxDepth 12, not the 13 the other two patches ship: GLO-30 coarsens longitude sampling
-    // above 50° N (the N51_E030 COG is 2400×3600 px, not 3600×3600), and mago's clamp counts
-    // pixels per degree rather than ground metres. See chernobyl.json maxDepthNote.
-    terrain: {
-      path: "chernobyl",
-      extentBbox: [30.0, 51.0, 31.0, 52.0],
-      extentMaxDepth: 12,
-      cityBbox: [30.006, 51.352, 30.15, 51.442],
-      maxDepth: 12,
-    },
-  },
+  // (Region #4, Chernobyl / Pripyat, lived here 2026-08-26 → 2026-09-02: RETIRED on the owner's
+  //  ruling — no verification, no support; the entry, the bake configs, the local bakes and the
+  //  R2 objects were all removed. Git history has the recipe if such a region is wanted again.)
   {
     // TERRAIN-ONLY (owner ask 2026-08-22h — a second true-heights bake to exercise the height
     // pipeline where it actually has something to say: 8,849 m of it). No enriched buildings

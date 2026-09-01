@@ -221,19 +221,5 @@ if (cCls.length !== 1 || cCls[0] !== "Building")
 ok("classic variant carries the unified schema too", `${cSeats.metaCells} cells, classes ${JSON.stringify(cCls)}`);
 await shoot("bakeladder-02-dnipro-classic.jpeg");
 
-// ── 8 · Chernobyl: the region that exercises the fence hardest (30.6 % non-Building) ────────────
-await goto(BASE + "#p=51.3893,30.0988,900,20,55&t=1782032400000");
-const kSeats = await until(
-  () => evalJs(`(() => { const d = window.__globe.enrichedSeats(); return { metaCells: d.metaCells, metaMissing: d.metaMissing, metaFeatures: d.metaFeatures }; })()`),
-  (v) => v && v.metaCells > 0,
-);
-if (!kSeats?.metaCells) fail("no sidecars parsed over the ChNPP");
-const kTowers = Object.entries(kSeats.metaFeatures ?? {})
-  .filter(([k]) => /Tower|Pole|Lamp/.test(k))
-  .reduce((a, [, v]) => a + v, 0);
-if (kTowers === 0) fail("no pylons/lamps loaded over the switchyard — this pose cannot exercise the fence");
-ok("Chernobyl streams the fence's hardest case", `${kSeats.metaCells} cells · ${kTowers} pylon/lamp features fenced`);
-await shoot("bakeladder-03-chernobyl-switchyard.jpeg");
-
 console.log(`\n✓ verify-bake-ladder: ${passed}/${passed} checks passed`);
 await finishVerify();

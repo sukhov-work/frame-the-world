@@ -78,7 +78,8 @@ describe("isPickableClass", () => {
   });
   it("refuses the street furniture the 2.5 m height floor let through", () => {
     // Every one of these is TALLER than overrideMinPickHeightM, which is the whole point: the
-    // floor could not see them. 273 HighVoltagePowerTower shipped in the Chernobyl o2w bake.
+    // floor could not see them. 273 HighVoltagePowerTower shipped in the 2026-08 Chernobyl o2w bake
+    // (the region is retired; the class fence it forced stays).
     for (const cls of [
       "HighVoltagePowerTower",
       "PowerTower",
@@ -159,7 +160,7 @@ describe("writer ⇄ reader contract", () => {
     // Exactly what bake.mjs / bake-osm2world.mjs emit: a 12 m building whose walls were lowered
     // 4 m, so its vertices span −4..12 and the row must read base 0 / top 12.
     const json = cellMetaJson({
-      variant: "chernobyl-o2w",
+      variant: "dnipro-o2w",
       skirtM: 4,
       features: [
         metaRow({ id: 0, osm: "w456732992", cls: "Building", lo: -4, hi: 12, skirt: 4, src: "o2w" }),
@@ -169,7 +170,7 @@ describe("writer ⇄ reader contract", () => {
     });
     const m = parseCellMeta(JSON.parse(json))!;
     expect(m).not.toBeNull();
-    expect(m.variant).toBe("chernobyl-o2w");
+    expect(m.variant).toBe("dnipro-o2w");
 
     const b = m.byId.get(0)!;
     expect(b.base).toBe(0);

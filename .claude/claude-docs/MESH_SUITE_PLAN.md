@@ -203,7 +203,7 @@ Next session starts at **MS0** below.
 |---|---|---|
 | **MS0 — ratify + probes** | **DONE 2026-09-02.** Rulings ratified (§4, 2026-09-01c/d); the ONE empirical media probe ran (§1 — all four unknowns answered, private 3D refused); the two contracts.md drifts fixed (+ a third: BuildingOverrides was missing from §4); the §4a-2 sidecar census ran (§6.1: 100 % coverage on all five live variants). | — |
 | **MS1 — transform substrate** | **BUILT 2026-09-02 (§6).** Pristine-snapshot + absolute recompose in `applyFeatureSeats`; `addUpdateRange`; sphere+box bounds; re-locate after move; per-SEGMENT edge attribution (the party-wall fix, in place of a rebuild); `OverrideRow` v2 + sanitize + multi-component neutrality; rails; pure-math unit tests (the scene-test twin rule); generalized ghost; `setTransform`/`featureState` engine API + DEV seam; browser leg `verify-meshedit.mjs`. | MS0 |
-| **MS2 — gizmo UI** | Building context menu (armed building → MOVE/ROTATE/SCALE/EXTRUDE/RESET); TransformControls proxy (ENU quaternion, local space, layer isolation, dragging↔GlobeControls, minY/maxY rails); generalized ghost preview; extended label (per-op current + original, revert per-op / revert all); extrude unchanged; `verify-meshedit.mjs` harness. | MS1 |
+| **MS2 — gizmo UI** | **BUILT 2026-09-02 (§7).** Building context menu (right-click / long-press → MOVE / ROTATE / SCALE / EXTRUDE / REVERT ALL / DONE) + the chip's op strip + G/R/S/E keys; TransformControls on the ghost RIG (anchor + body under the cell mesh, `space: local` = ENU, pointers FED by the FPV gesture table — no DOM listeners, no camera layer needed: GlobeControls is off throughout FPV), `minY/maxY` = the lift rail, per-edit scale band on every axis; ghost-body preview while dragging, commit on release through `commitBldgTransform`; the chip shows every op's current vs original with a per-op ↺ + RESET ALL, the pinned label grows an op line; EXTRUDE = the U8 drag verbatim and the default op on arm; Escape cancels a live drag; `verify-meshedit.mjs` legs 7–14. | MS1 |
 | **MS3 — D2 activation** | Run provisioning; boot fetch + merge; SYNC affordance + login gate + 402/401 UX; markSynced; tint ladder + subtle original-params indication; re-bake-loss note in UI copy; extend wire/collection with MS1 fields; harness leg. | MS1 (fields), not MS2 |
 | **MS4 — D3 upload pipeline** | Modal fork photo\|model; loaders + normalize-to-GLB + validation + auto-decimate; readiness state; `UserModels` collection + endpoints (quota wall); `/api/upload-url` kind:"model" + first mime allowlist. | MS0 answers |
 | **MS5 — D3 placement** | `scene/userModels.ts`; centroid ground-fit + resnap; MS2 gizmo reused for final fit at upload; clamps; LOD/culling/shadow flags; load-with-tiles streaming; **the MDL deck chip (all custom models on/off, ON by default — BLD-chip recipe)**; **the physical-density warning** (owner 2026-09-01c: no quota — warn instead; design the metric: resident models / on-screen user-model tris / per-cell count). | MS2 + MS4 |
@@ -244,8 +244,9 @@ Concretely, each slice's done-gate includes:
    applies, displays and syncs identically under the v2 record — a legacy-read test is part
    of MS1's unit tier, and the U8 drag/extrude UX is byte-identical when only height is edited.
 2. **All variants, worldwide**: verify schema-2 `cell-*.meta.json` sidecar coverage (and
-   per-feature `osm` presence rate) for EVERY live bake — dnipro, dnipro-o2w, st-albans-o2w,
-   chernobyl(+o2w) — before keying anything by osmId; features without an osm id keep the
+   per-feature `osm` presence rate) for EVERY live bake — dnipro, dnipro-o2w, st-albans-o2w
+   (chernobyl(+o2w) counted at the time; the region was DELETED 2026-09-02e) — before keying
+   anything by osmId; features without an osm id keep the
    fingerprint key as fallback (dual-key read, never a hard cutover).
 3. **Seat/re-seat pipeline**: the absolute-recompose path must reproduce the incremental
    writer's results exactly for identity transforms (the 99 % untouched fast path stays);
@@ -263,13 +264,14 @@ Concretely, each slice's done-gate includes:
    behaviour unchanged for untouched buildings — spot-check with the DBG window's frame
    brackets before/after.
 
-## §5 Session-start recipe (MS2 onward)
+## §5 Session-start recipe (MS3 onward)
 
-1. Read this file (§6 is the MS1 as-built), then `mem:project/wip-2026-09-02-mesh-suite-ms0-ms1`
+1. Read this file (§6 = the MS1 as-built, §7 = the MS2 as-built), then
+   `mem:project/wip-2026-09-02-mesh-suite-ms2`, `mem:project/wip-2026-09-02-mesh-suite-ms0-ms1`
    and `mem:project/wip-2026-09-01-mesh-suite-plan` (research digests).
-2. MS2 = the gizmo UI on top of the §6 substrate: `enriched.setTransform` / `featureState` /
-   `setGhostXf` / `buildingTopWorld(…, xf)` are the engine seams; the DEV seam
-   `__globe.enrichedSetTransform` is the same commit path a gizmo release must take.
+2. MS3 = the D2 activation on the §6 fields (it needs MS1, not MS2): provisioning, boot fetch +
+   merge, SYNC + login gate, markSynced, the tint ladder, the osmId dual key (§4a-2 census: 100 %
+   coverage on every live variant). The wire/collection grow by the v2 row's spatial fields.
 3. The DBG window (2026-09-01) is the instrument for all of this — seat deferrals/rejections,
    cell counts, frame costs are live in it; open it before profiling anything.
 
@@ -286,8 +288,8 @@ Concretely, each slice's done-gate includes:
 | dnipro | 386 | 386 | 127,890 | 100 % | src default/levels/class/height |
 | dnipro-o2w | 389 | 389 | 133,437 | 100 % | **5 osm ids appear TWICE inside one cell** — all `PowerTower` + `HighVoltagePowerTower` pairs (n1782058413 · n3266155632 · n3197676042 · n6923575054 · n6923575053): OSM2World emits two features for one power-tower node. None is a `Building*` class, so none is pickable. |
 | st-albans-o2w | 36 | 36 | 26,187 | 100 % | |
-| chernobyl | 72 | 72 | 1,212 | 100 % | |
-| chernobyl-o2w | 74 | 74 | 1,707 | 100 % | |
+| chernobyl | 72 | 72 | 1,212 | 100 % | region DELETED 2026-09-02e (owner ruling) |
+| chernobyl-o2w | 74 | 74 | 1,707 | 100 % | region DELETED 2026-09-02e (owner ruling) |
 
 No osm id is shared ACROSS cells in any variant (the RC16 straddler residual is geometry, not
 identity); `featureId` is unique per variant (bake-sequential, 0..N−1). **Consequence for MS3's
@@ -382,3 +384,94 @@ isolation, `dragging-changed` → controls off, `minY/maxY` = the lift rail) · 
 label (per-op current vs original, revert per-op / revert all) · a compass-heading readout
 (negate `rotDeg` at the UI) · the tile-level culling caveat behind `TRANSLATE_MAX_M`
 (owner may raise it; the fix would grow the tile bounding volume, not the mesh bounds).
+
+---
+
+## §7 MS2 AS BUILT — the gizmo UI (2026-09-02)
+
+### §7.1 Design decisions (recorded as [ASSUMPTION]s where the owner has not ruled; surface, not re-open)
+
+1. **The proxy IS the ghost rig.** MS1's ghost already carried the live transform as Object3D
+   writes; MS2 splits it into an `anchor` (a `Group` under the cell mesh — the bake-local ENU
+   frame, +X east / +Y up / −Z north — carrying the translation) and its child `body` (the ghost
+   mesh: yaw + scale, X/Z inflated by `overrideGhostInflate`). **MOVE attaches
+   `TransformControls` to the anchor** (arrows that never turn with the building — Blender's
+   global-space feel), **ROTATE and SCALE to the body** (the Y ring / the boxes follow the
+   building's own frame, which is the frame the recompose applies S and R in). Every drag is a
+   plain Object3D edit; `rigToTransform` (featureTransform.ts) is the exact inverse of the
+   engine's `placeGhost` (`transformToRig` pins the pair), `clampGizmoEdit` (bldgOverrides.ts)
+   rails it — the rails AND the U8 per-edit 0.5×/3× band on every scale axis — and the clamped
+   value is written BACK to the rig so a handle stops at the rail. Yaw is read from the
+   quaternion (`2·atan2(qy, qw)`), never Euler `.y` (wrong past ±90°).
+2. **No DOM listeners on the controls; the orchestrator FEEDS them.** three 0.185's
+   `TransformControls` exposes `pointerHover/Down/Move/Up({x, y, button})`; constructed without a
+   domElement it registers nothing, so the FPV handlers that already arbitrate the look-drag, the
+   pinch and the U8 claimed height drag arbitrate the gizmo too — ONE gesture table, and the /m
+   touch shell gets the gizmo for free. `space: "local"` (three's "world" is raw ECEF); the rig's
+   world quaternion already carries the ENU basis through the cell mesh's matrixWorld.
+3. **No camera layer.** The research trap (GlobeControls raycasts the whole scene; three's
+   `Raycaster` ignores `visible`, so the invisible pickers would catch globe drags) is real but
+   moot: a building can only be armed INSIDE FPV, where `controls.enabled` is already false. The
+   visible gizmo/helper meshes get a no-op `raycast` anyway; the pickers keep theirs (the
+   controls hit-test exactly those). Bloom may glow the helper on the ULTRA tier — accepted.
+4. **EXTRUDE is the default op on arm and the U8 drag verbatim** (§4a-1: height-only editing is
+   byte-identical — `verify-bldg-override.mjs` re-run unchanged). In a spatial op an OFF-handle
+   drag is a plain look-around (the handles are explicit; the screen is no longer the gesture)
+   and a tap still disarms; a handle press claims the pointer, the ghost body shows for the
+   drag, release COMMITS through `commitBldgTransform` (engine first, row read back post-clamp).
+5. **Entry points:** right-click a building (desktop) / long-press it (glass) → arms it (another
+   building re-targets) and opens the context menu at the press point (the `.skymenu` cut:
+   floats up-right so a finger's release lands outside it); the chip's op strip; Blender's
+   **G / R / S** (+ **E** for extrude) while armed — **S shadows walk-back for the armed
+   session** (the chip hint says so) [ASSUMPTION — owner may prefer 1/2/3/4]. **Shift = snap**
+   (1 m / 15° / 0.1×, `ENRICHED.gizmoSnap*`). Escape rungs: menu → cancel a live drag (rig back
+   where it began, nothing commits) → disarm → (the FPV unwind, unchanged).
+6. **"Modified AND original values always visible; revert per-op and revert-all":** the chip
+   grows one row per op (current · original · ↺ when that op is edited) + RESET ALL; the pinned
+   label adds an op line (metres E/N/↑, the COMPASS-sense yaw = −rotDeg, the XZ scales) above
+   the two U8 height lines. Per-op ownership: MOVE = tE/tN/tU · ROTATE = rotDeg · SCALE = sx/sz ·
+   EXTRUDE = sy (`opIsEdited` / `revertOp`, store/bldgEdit.ts).
+7. **The lift rail is structural twice:** `minY/maxY` on the anchor (parent space = the cell's
+   bake-local frame, floor = the seated base, ceiling = `LIFT_MAX_M`) stops the drag itself, and
+   `clampGizmoEdit` catches the centre-handle free move.
+8. **Ghost body visible only while dragging** (U8's "preview appears on the first move" feel);
+   the gizmo helper alone marks a spatial op between drags. The rig is re-placed from the
+   committed target every frame between drags (it rides the easing seat), is re-created when
+   an LRU-evicted cell streams back (the ghost dies with its cell — engine rule), and the gizmo
+   lets go of it BEFORE `hideGhost` on disarm.
+
+Taste calls surfaced, not decided: `TRANSLATE_MAX_M` 60 (the tile-level culling volume is not
+grown by a move — the owner may raise it; the fix would grow the tile bounding volume) · the
+fully shared party-wall post follows the lower run under a move (the neighbour loses that one
+stroke) · the rotate ring is seen nearly edge-on from a street-level eye (still hittable: the
+torus has thickness; a higher eye or a wider FOV opens it) · G/R/S vs numeric keys.
+
+### §7.2 Files
+
+`scene/bldgGizmo.ts` (new — the controls on the rig; DEV `handleScreenPx` / `originPx` reach
+`TransformControls._gizmo`, version-pinned to three 0.185) · `scene/enrichedBuildings.ts` (the
+rig: `showGhost(…, bodyVisible)`, `setGhostTransform`, `setGhostBodyVisible`, `ghostRig()`; the
+ghost now seeds from the TARGET) · `scene/bldgEditLabel.ts` (op line) · `StylizedTiles.ts`
+(op state, `applyBldgOp` / `finishGizmoDrag` / `revertBldg`, pointer routing in the FPV
+handlers, the contextmenu + long-press entry, G/R/S/E, Escape rungs, `stepBldgEdit`, DEV
+`__globe.bldgGizmo()`) · `store/bldgEdit.ts` (ops, `committed`/`live` on the mirror,
+`revertRequest` / `menu` / `disarmRequest` one-shots, `opIsEdited` / `revertOp`) ·
+`panels/BuildingEditChip.tsx` + `styles/building-edit.css` (the op strip, the rows, the menu;
+the island wraps a pure `BuildingEditChipView`) · `lib/globe/featureTransform.ts`
+(`yawDegFromQuaternion`, `rigToTransform` / `transformToRig`) · `lib/globe/bldgOverrides.ts`
+(`clampGizmoEdit`) · `tuning.ts` (`ENRICHED.gizmoSize` 0.8, `gizmoSnapM/Deg/Scale`) · tests:
+`featureTransform.test.ts` (+5), `bldgOverrides.test.ts` (+5), `test/store/bldgEdit.test.ts`
+(new, 9), `test/components/buildingEditChip.test.ts` (new, 6) · `scripts/verify-meshedit.mjs`
+legs 7–14.
+
+### §7.3 Verification receipt
+
+See DECISIONS 2026-09-02d for the numbers (unit tier · `verify-meshedit.mjs` 14 legs ·
+`verify-bldg-override.mjs` byte-identical re-run · the §4a-4 sweep).
+
+### §7.4 Left for MS3+ (deliberately)
+
+The SYNC of spatial rows (MS3 grows the wire/collection by the v2 fields) · user meshes reuse
+this gizmo at MS5 (attach to the model's own Object3D — no rig needed) · a numeric-entry field
+per op (type a heading) · trees.
+

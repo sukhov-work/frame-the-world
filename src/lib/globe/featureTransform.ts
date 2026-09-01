@@ -328,3 +328,76 @@ export function boundsGrowthM(xf: SpatialXf, sy: number, rXZ: number, heightM: n
     Math.max(0, (sy - 1) * heightM)
   );
 }
+
+// ── MESH SUITE MS2 (2026-09-02) — the gizmo rig read-back ────────────────────────────────────
+// The gizmo's proxy is the engine's ghost RIG: an `anchor` (a Group under the cell mesh, ENU
+// frame — +X east, +Y up, −Z north — carrying the translation) and its child `body` (the ghost
+// mesh, carrying the yaw + the scale, XZ inflated a hair). TransformControls writes plain
+// Object3D fields on whichever of the two it is attached to; these helpers turn those numbers
+// back into a `FeatureTransform` (pure, three-free, unit-pinned as the exact inverse of the
+// engine's `placeGhost` writes).
+
+/** Yaw in degrees ((−180, 180], three's makeRotationY sense) of a quaternion that is a pure
+ *  rotation about +Y: q = (0, sin θ/2, 0, cos θ/2) ⇒ θ = 2·atan2(qy, qw). Reading Euler
+ *  `rotation.y` instead is WRONG past ±90° — an XYZ decomposition of R_y(120°) is
+ *  (180°, 60°, 180°) — while the quaternion read is exact over the whole circle and tolerant of
+ *  float dust on x/z. */
+export function yawDegFromQuaternion(qy: number, qw: number): number {
+  return normalizeDeg((2 * Math.atan2(qy, qw) * 180) / Math.PI);
+}
+
+/** The rig as Object3D numbers (what the gizmo left behind). */
+export interface RigPose {
+  /** anchor.position — bake-local metres. */
+  ax: number;
+  ay: number;
+  az: number;
+  /** body.quaternion y / w (a pure Y rotation). */
+  qy: number;
+  qw: number;
+  /** body.scale — X/Z carry the ghost inflate factor, Y is the height scale itself. */
+  sx: number;
+  sy: number;
+  sz: number;
+}
+
+export interface RigFrame {
+  /** Pristine centroid (the pivot) and the LIVE base the drag started from. */
+  cx: number;
+  cz: number;
+  liveBaseY: number;
+  /** The ghost's XZ inflate factor (`ENRICHED.overrideGhostInflate`). */
+  inflate: number;
+}
+
+/** Raw (unclamped) read-back — the inverse of `placeGhost`: anchor = (cx + tE, liveBase + tU,
+ *  cz − tN), body = R_y(rotDeg) · diag(inflate·sx, sy, inflate·sz). Clamp the result with
+ *  `clampGizmoEdit` (bldgOverrides.ts) before it touches the mesh or a row. */
+export function rigToTransform(rig: RigPose, frame: RigFrame): FeatureTransform {
+  const inv = frame.inflate > 0 && Number.isFinite(frame.inflate) ? 1 / frame.inflate : 1;
+  return {
+    sx: rig.sx * inv,
+    sz: rig.sz * inv,
+    sy: rig.sy,
+    rotDeg: yawDegFromQuaternion(rig.qy, rig.qw),
+    tE: rig.ax - frame.cx,
+    tN: frame.cz - rig.az, // (not −(az − cz): a −0 would survive JSON as "0" but fail ===)
+    tU: rig.ay - frame.liveBaseY,
+  };
+}
+
+/** The forward map (`placeGhost` in numbers) — kept beside its inverse so the pair is pinned
+ *  together; the engine's writes must agree with it. */
+export function transformToRig(t: FeatureTransform, frame: RigFrame): RigPose {
+  const rad = (t.rotDeg * Math.PI) / 180;
+  return {
+    ax: frame.cx + t.tE,
+    ay: frame.liveBaseY + t.tU,
+    az: frame.cz - t.tN,
+    qy: Math.sin(rad / 2),
+    qw: Math.cos(rad / 2),
+    sx: frame.inflate * t.sx,
+    sy: t.sy,
+    sz: frame.inflate * t.sz,
+  };
+}

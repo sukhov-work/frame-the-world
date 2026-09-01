@@ -167,6 +167,18 @@ export interface BuildingPick {
   cz: number;
   vc: number;
 }
+/** MS2 — the ghost rig as the gizmo (scene/bldgGizmo.ts) needs it. `anchor` carries the
+ *  translation in the cell's bake-local frame (+X east, +Y up, −Z north), `body` the yaw + the
+ *  scale (X/Z inflated by `inflate`); `cx/cz` the pristine pivot, `liveBaseY` the seated base the
+ *  rig was last placed on. Pure Object3D references — the gizmo never touches geometry. */
+export interface GhostRig {
+  anchor: THREE.Object3D;
+  body: THREE.Object3D;
+  cx: number;
+  cz: number;
+  liveBaseY: number;
+  inflate: number;
+}
 export interface EnrichedBuildingsHandle {
   tiles: TilesRenderer;
   /** Per-frame: R1 re-seat to the rendered terrain + tile streaming/LOD. */
@@ -254,15 +266,27 @@ export interface EnrichedBuildingsHandle {
     cz: number;
     vc: number;
     bakedHeightM: number;
+    /** MS2: the run has its terrain seat (the RC7 first sample landed and is applied). Before it,
+     *  the building — and the ghost rig on it — still sits on the cell plane and can jump by the
+     *  cell's relief when the sample lands; a harness presses handles only after this is true. */
+    seated: boolean;
   } | null;
   /** U8 ghost preview (drag-time). `showGhost` builds the rebased semi-transparent copy over the
    *  solid original (false = cell not loaded); `setGhostK` is the live drag scale; `hideGhost`
    *  removes + disposes. At most one ghost exists. MS1: the ghost is the PRISTINE run about its
    *  pivot and carries the feature's live transform as Object3D writes, so `setGhostXf` (the MS2
    *  gizmo preview) drives position / yaw / XZ scale with zero geometry rewrites. */
-  showGhost(cellUri: string, featureId: number): boolean;
+  showGhost(cellUri: string, featureId: number, bodyVisible?: boolean): boolean;
   setGhostK(k: number): void;
   setGhostXf(xf: SpatialXf): void;
+  /** MS2: place the whole rig from a full transform (height + spatial) — the per-frame keep-up
+   *  between gizmo drags (the seat eases under it) and the clamp write-back during one. */
+  setGhostTransform(t: FeatureTransform): void;
+  /** MS2: show/hide the ghost MESH while the rig (and the gizmo on it) stays. */
+  setGhostBodyVisible(on: boolean): void;
+  /** MS2: the rig the gizmo attaches to, or null while no ghost exists / the cell is evicted
+   *  (the ghost dies with its cell — the caller re-shows it when the cell streams back). */
+  ghostRig(): GhostRig | null;
   hideGhost(): void;
   /** U8 armed-run tint — the RAW baked feature id (null = disarm). */
   setArmedId(featureId: number | null): void;
@@ -669,13 +693,20 @@ export function attachEnrichedBuildings(
   const partByMesh = new Map<THREE.Mesh, { cell: CellSeat; part: MeshPart }>();
   // U8 ghost (at most one — the drag preview). Owns its geometry; material is shared below.
   // MS1: also carries the feature it previews + the live transform it is showing.
+  // MS2: the ghost is a RIG — `anchor` (a Group under the cell mesh, ENU frame, carries the
+  // translation) + its child `body` (the mesh: yaw + scale). It is the TransformControls proxy
+  // (scene/bldgGizmo.ts): MOVE drags the anchor, ROTATE / SCALE the body, and the numbers read
+  // straight back into a FeatureTransform (lib/globe/featureTransform `rigToTransform`).
   let ghost: {
-    mesh: THREE.Mesh;
+    anchor: THREE.Group;
+    body: THREE.Mesh;
     geom: THREE.BufferGeometry;
     cellScene: THREE.Object3D;
     f: FeatureSeat;
     xf: SpatialXf;
     sy: number;
+    /** The seated base the rig was last placed on (the lift rail's floor for the gizmo). */
+    liveBaseY: number;
   } | null = null;
   const ghostMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color(tokens.accent), // D14: GL colour through the token bridge
@@ -687,7 +718,7 @@ export function attachEnrichedBuildings(
   });
   const hideGhostImpl = () => {
     if (!ghost) return;
-    ghost.mesh.parent?.remove(ghost.mesh);
+    ghost.anchor.parent?.remove(ghost.anchor);
     ghost.geom.dispose();
     ghost = null;
   };
@@ -812,10 +843,13 @@ export function attachEnrichedBuildings(
     const liveBase = f.baseY + (f.appliedM ?? 0);
     ghost.xf = xf;
     ghost.sy = sy;
-    ghost.mesh.position.set(f.cx + xf.tE, liveBase + xf.tU, f.cz - xf.tN);
-    ghost.mesh.rotation.y = (xf.rotDeg * Math.PI) / 180;
-    ghost.mesh.scale.set(inflate * xf.sx, Math.max(0.05, sy), inflate * xf.sz);
-    ghost.mesh.updateMatrixWorld(true);
+    ghost.liveBaseY = liveBase;
+    // The forward map `transformToRig` (featureTransform.ts) in Object3D writes — the gizmo's
+    // read-back is its exact inverse, so the two must never drift apart.
+    ghost.anchor.position.set(f.cx + xf.tE, liveBase + xf.tU, f.cz - xf.tN);
+    ghost.body.rotation.set(0, (xf.rotDeg * Math.PI) / 180, 0);
+    ghost.body.scale.set(inflate * xf.sx, Math.max(0.05, sy), inflate * xf.sz);
+    ghost.anchor.updateMatrixWorld(true);
   };
   /** U8: resolve (cellUri, featureId) → the live registry entry, or null while unloaded. */
   const findFeature = (
@@ -1734,9 +1768,10 @@ export function attachEnrichedBuildings(
         cz: f.cz,
         vc: f.run.count,
         bakedHeightM: f.topY - f.baseY,
+        seated: f.seatM !== null && f.appliedM !== null,
       };
     },
-    showGhost(cellUri, featureId) {
+    showGhost(cellUri, featureId, bodyVisible = true) {
       hideGhostImpl();
       const found = findFeature(cellUri, featureId);
       if (!found) return false;
@@ -1767,12 +1802,29 @@ export function attachEnrichedBuildings(
       }
       const geom = new THREE.BufferGeometry();
       geom.setAttribute("position", new THREE.BufferAttribute(arr, 3));
-      const mesh = new THREE.Mesh(geom, ghostMat);
-      mesh.raycast = () => {}; // GlobeControls raycasts the scene — never pick the preview
-      mesh.renderOrder = 20; // draw after the opaque city (depthTest is off anyway)
-      mesh.frustumCulled = false; // one short-lived mesh; not worth re-deriving scaled bounds
-      part.mesh.add(mesh); // parented to part.mesh → group/cell seats apply for free
-      ghost = { mesh, geom, cellScene: cell.scene, f, xf: f.axf ?? IDENTITY_XF, sy: f.appliedK };
+      const body = new THREE.Mesh(geom, ghostMat);
+      body.raycast = () => {}; // GlobeControls raycasts the scene — never pick the preview
+      body.renderOrder = 20; // draw after the opaque city (depthTest is off anyway)
+      body.frustumCulled = false; // one short-lived mesh; not worth re-deriving scaled bounds
+      // MS2: the body hides between gizmo drags (the gizmo alone marks the op; the preview
+      // appears on the first move, U8's feel) — a hidden mesh still composes its matrix, which
+      // the gizmo's read-back and the label anchor rely on.
+      body.visible = bodyVisible;
+      const anchor = new THREE.Group();
+      anchor.add(body);
+      part.mesh.add(anchor); // parented to part.mesh → group/cell seats apply for free
+      // MS2: seed from the TARGET (what the next edit builds on), not the applied state — a
+      // commit still easing in would otherwise show the ghost lagging the handle it carries.
+      ghost = {
+        anchor,
+        body,
+        geom,
+        cellScene: cell.scene,
+        f,
+        xf: f.xf ?? IDENTITY_XF,
+        sy: f.scaleK,
+        liveBaseY: f.baseY + (f.appliedM ?? 0),
+      };
       // TilesGroup trap (module header): updateMatrixWorld does NOT recurse into cell children
       // unless the GROUP matrix changed — placeGhost forces the ghost's own compose or it
       // renders with an identity local matrix (browser-caught 2026-08-19: invisible ghost).
@@ -1786,6 +1838,24 @@ export function attachEnrichedBuildings(
     setGhostXf(xf) {
       if (!ghost) return;
       placeGhost(xf, ghost.sy);
+    },
+    setGhostTransform(t) {
+      if (!ghost) return;
+      placeGhost(t, t.sy);
+    },
+    setGhostBodyVisible(on) {
+      if (ghost) ghost.body.visible = on;
+    },
+    ghostRig() {
+      if (!ghost) return null;
+      return {
+        anchor: ghost.anchor,
+        body: ghost.body,
+        cx: ghost.f.cx,
+        cz: ghost.f.cz,
+        liveBaseY: ghost.liveBaseY,
+        inflate: ENRICHED.overrideGhostInflate,
+      };
     },
     hideGhost: hideGhostImpl,
     setArmedId(featureId) {

@@ -1633,14 +1633,14 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "trust-detail",
         title: "Where the model goes deepest",
-        keys: ["dnipro", "chernobyl", "pripyat", "everest", "st albans"],
+        keys: ["dnipro", "everest", "st albans"],
         body:
-          "Buildings and terrain come from open map data everywhere on Earth, and four places " +
-          "carry a purpose-built model on top of that: Dnipro, Pripyat with the Chernobyl " +
-          "reactor, St Albans, and the Khumbu around Everest. The first three get roof shapes " +
-          "and building parts, where elsewhere a footprint is raised to its mapped height. " +
-          "Dnipro, Chernobyl and Everest also carry their own 30 m elevation patch. The right " +
-          "model loads on its own when you fly there — there is nothing to choose.",
+          "Buildings and terrain come from open map data everywhere on Earth, and three places " +
+          "carry a purpose-built model on top of that: Dnipro, St Albans, and the Khumbu " +
+          "around Everest. The first two get roof shapes and building parts, where elsewhere " +
+          "a footprint is raised to its mapped height. Dnipro and Everest also carry their own " +
+          "30 m elevation patch. The right model loads on its own when you fly there — there " +
+          "is nothing to choose.",
         tip:
           "Everest is terrain only, and deliberately so: no building bake exists for the Khumbu. " +
           "Stand on the summit and read the light instead.",

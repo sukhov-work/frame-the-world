@@ -233,3 +233,58 @@ describe("featureTransform — pivot, radius, bounds", () => {
     );
   });
 });
+
+// ── MESH SUITE MS2 — the gizmo rig read-back ────────────────────────────────────────────────
+import {
+  rigToTransform,
+  transformToRig,
+  yawDegFromQuaternion,
+  type FeatureTransform,
+  type RigFrame,
+} from "../../../src/lib/globe/featureTransform";
+
+describe("MS2 rig read-back (the exact inverse of placeGhost)", () => {
+  const FRAME: RigFrame = { cx: 120.5, cz: -44, liveBaseY: 3.25, inflate: 1.015 };
+  const T: FeatureTransform = { sx: 1.2, sz: 0.9, sy: 1.4, rotDeg: 25, tE: 6, tN: -4, tU: 1.5 };
+
+  it("yaw from a pure-Y quaternion is exact over the whole circle (Euler .y is not)", () => {
+    for (const deg of [0, 30, 90, 120, 179, -45, -120, -179.5]) {
+      const rad = (deg * Math.PI) / 180;
+      expect(yawDegFromQuaternion(Math.sin(rad / 2), Math.cos(rad / 2))).toBeCloseTo(deg, 9);
+    }
+    // 180° lands on +180 (the (−180, 180] convention) whichever way the quaternion signs it.
+    expect(Math.abs(yawDegFromQuaternion(1, 0))).toBe(180);
+    expect(Math.abs(yawDegFromQuaternion(-1, 0))).toBe(180);
+    // The identity quaternion never yields −0 (a −0 would survive JSON as "0" but fail ===).
+    expect(Object.is(yawDegFromQuaternion(0, 1), 0)).toBe(true);
+  });
+
+  it("transformToRig ∘ rigToTransform is the identity on every component", () => {
+    const back = rigToTransform(transformToRig(T, FRAME), FRAME);
+    for (const k of Object.keys(T) as (keyof FeatureTransform)[]) expect(back[k]).toBeCloseTo(T[k], 9);
+  });
+
+  it("the rig numbers are placeGhost's writes: anchor = pivot + t, body = R_y · S·inflate", () => {
+    const rig = transformToRig(T, FRAME);
+    expect(rig.ax).toBeCloseTo(FRAME.cx + T.tE, 12);
+    expect(rig.ay).toBeCloseTo(FRAME.liveBaseY + T.tU, 12);
+    expect(rig.az).toBeCloseTo(FRAME.cz - T.tN, 12); // −Z is north
+    expect(rig.sx).toBeCloseTo(FRAME.inflate * T.sx, 12);
+    expect(rig.sz).toBeCloseTo(FRAME.inflate * T.sz, 12);
+    expect(rig.sy).toBe(T.sy); // Y carries no inflate
+    expect(2 * Math.atan2(rig.qy, rig.qw)).toBeCloseTo((T.rotDeg * Math.PI) / 180, 12);
+  });
+
+  it("an untouched rig reads back as the identity transform", () => {
+    const id: FeatureTransform = { sx: 1, sz: 1, sy: 1, rotDeg: 0, tE: 0, tN: 0, tU: 0 };
+    const back = rigToTransform(transformToRig(id, FRAME), FRAME);
+    expect(back).toEqual(id);
+  });
+
+  it("a bad inflate degrades to 1 instead of dividing by zero", () => {
+    const rig = transformToRig(T, { ...FRAME, inflate: 1 });
+    const back = rigToTransform(rig, { ...FRAME, inflate: 0 });
+    expect(back.sx).toBeCloseTo(T.sx, 12);
+    expect(back.sz).toBeCloseTo(T.sz, 12);
+  });
+});

@@ -1,8 +1,10 @@
-/* U8 building height edit chip (owner 2026-08-18) — the Δ + RESET readout shown while a
-   building is armed in FPV, both shells. Instrument idiom (fpv-hud.css family): mono numerals,
-   token colours, restrained glow. Top-level island — position:fixed must never sit inside a
-   backdrop-filtered card (the S2 containing-block trap). The mesh-pinned dual-height label is
-   NOT this: it's the orchestrator-owned DOM layer (scene/bldgEditLabel.ts). */
+/* Building edit chip (U8 owner 2026-08-18; MESH SUITE MS2 2026-09-02) — the readout + controls
+   shown while a building is armed in FPV, both shells. Instrument idiom (fpv-hud.css family):
+   mono numerals, token colours, restrained glow. Top-level island — position:fixed must never
+   sit inside a backdrop-filtered card (the S2 containing-block trap). The mesh-pinned label is
+   NOT this: it's the orchestrator-owned DOM layer (scene/bldgEditLabel.ts).
+   MS2: an op strip, one row per op (current · original · ↺), RESET ALL, and the `.bldg-menu`
+   context menu (the .skymenu cut). */
 
 .bldg-edit-chip {
   position: fixed;
@@ -12,16 +14,16 @@
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0.55rem 0.9rem;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0.5rem 0.8rem 0.55rem;
   border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
   font-family: var(--font-mono);
   color: var(--color-text);
   user-select: none;
-  pointer-events: none; /* annotate, don't intercept — RESET re-enables itself */
+  pointer-events: none; /* annotate, don't intercept — the buttons re-enable themselves */
   white-space: nowrap;
 }
 
@@ -29,21 +31,128 @@
   border-color: var(--color-accent);
 }
 
-.bec-title {
-  font-size: 0.58rem;
+/* ── the op strip ─────────────────────────────────────────────────────────────────────── */
+.bec-ops {
+  display: flex;
+  gap: 4px;
+}
+
+.bec-op {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: none;
+  font: 600 0.58rem var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.bec-op kbd,
+.bldg-menu__item kbd {
+  font: 500 0.5rem var(--font-mono);
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--color-text-muted) 85%, transparent);
+}
+
+.bec-op:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.bec-op.is-on {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+}
+
+.bec-op.is-edited::after {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  align-self: center;
+}
+
+/* ── one row per op: key · current · original · ↺ ────────────────────────────────────── */
+.bec-rows {
+  display: grid;
+  grid-template-columns: auto auto auto 1.3rem;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: baseline;
+}
+
+.bec-row {
+  display: contents;
+}
+
+.bec-k {
+  font-size: 0.55rem;
   letter-spacing: 0.18em;
   color: var(--color-text-secondary);
 }
 
-.bec-delta {
-  font-size: 0.85rem;
+.bec-v {
+  font-size: 0.72rem;
   font-weight: 600;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bec-row.is-on .bec-v {
   color: var(--color-accent);
 }
 
-.bec-range {
-  font-size: 0.68rem;
-  color: var(--color-text-secondary);
+.bec-row.is-edited .bec-v {
+  color: var(--color-text);
+}
+
+.bec-row.is-on.is-edited .bec-v {
+  color: var(--color-accent);
+}
+
+.bec-was {
+  font-size: 0.55rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bec-revert {
+  pointer-events: auto;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: none;
+  font: 600 0.62rem var(--font-mono);
+  line-height: 1.1;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.bec-revert:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.bec-revert--void {
+  pointer-events: none;
+  border-color: transparent;
+}
+
+/* ── foot: RESET ALL + the gesture hint ───────────────────────────────────────────────── */
+.bec-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 1rem;
 }
 
 .bec-reset {
@@ -70,29 +179,103 @@
   color: color-mix(in srgb, var(--color-text-secondary) 75%, transparent);
 }
 
-/* Shell-specific hint copy: the one sanctioned shell probe is body.m (MobileLayout).
-   (The --m variant is currently dormant — /m hides hints entirely below — but the twin-copy
-   machinery stays for the day the /m slot grows.) */
+/* Shell-specific hint copy: the one sanctioned shell probe is body.m (MobileLayout). */
 .bec-hint--m,
 body.m .bec-hint--desktop {
   display: none;
 }
 
 /* /m: the narrow slot between the FPV info strip and the EXIT VIEW button (browser-measured
-   2026-08-19, u8-06) — hints and the range drop entirely; the double-tap already taught the
-   gesture and the pinned mesh label carries both heights. Narrow chip clears the right-anchored
-   buttons. */
+   2026-08-19, u8-06) — hints and the "was" column drop; the double-tap already taught the
+   gesture and the pinned mesh label carries both heights. */
 body.m .bldg-edit-chip {
   bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
 }
 
 body.m .bec-hint,
-body.m .bec-range {
+body.m .bec-was {
   display: none;
 }
 
+body.m .bec-rows {
+  grid-template-columns: auto auto 1.3rem;
+}
+
 @media (max-width: 480px) {
-  .bec-range {
-    display: none; /* the pinned mesh label already carries both heights */
+  .bec-was {
+    display: none;
   }
+  .bec-rows {
+    grid-template-columns: auto auto 1.3rem;
+  }
+}
+
+/* ── the building context menu (right-click / long-press) — the .skymenu cut ─────────── */
+.bldg-menu {
+  position: fixed;
+  z-index: 30;
+  transform: translate(10px, calc(-100% - 6px));
+  min-width: 9.5rem;
+  padding: 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 24%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: var(--font-mono);
+  user-select: none;
+  touch-action: none;
+}
+
+.bldg-menu__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 6px 6px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 4px;
+}
+
+.bldg-menu__name {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--color-accent);
+}
+
+.bldg-menu__pos {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bldg-menu__item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-align: left;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.bldg-menu__item kbd {
+  margin-left: auto;
+}
+
+.bldg-menu__item:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-text);
+}
+
+.bldg-menu__item.is-on {
+  color: var(--color-accent);
 }

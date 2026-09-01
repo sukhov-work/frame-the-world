@@ -42,6 +42,9 @@ export function sigV4Headers({
   region = "auto",
   service = "s3",
   now = new Date(),
+  /** Already-CANONICAL query string (`k=v&k2=v2`, keys sorted, RFC 3986-encoded), or "" —
+   *  ListObjectsV2 (`list-type=2&prefix=…`) needs it signed; every PUT/DELETE sends none. */
+  query = "",
 }) {
   const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); // YYYYMMDDTHHMMSSZ
   const shortDate = amzDate.slice(0, 8);
@@ -49,7 +52,7 @@ export function sigV4Headers({
   const canonicalRequest = [
     method,
     encodeS3Path(path),
-    "", // no query string
+    query, // "" for PUT/DELETE; the canonical query for a signed list
     `host:${host}`,
     `x-amz-content-sha256:${payloadHash}`,
     `x-amz-date:${amzDate}`,

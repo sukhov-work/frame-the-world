@@ -148,7 +148,7 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   grammar aimCones and focalCone SHARE — the flat overlay material, the tangent-plane root and
   its ECEF/ENU seat, the altitude presence ramp and the fade step; extracted 2026-08-22, audit
   #3 A1-8/T35, ≈47 duplicated lines incl. a byte-identical material factory), tileFoveation (U6),
-  bldgEditLabel + placeMarkers, tilePriority (U5 closest-first download
+  bldgEditLabel + bldgGizmo (MESH SUITE MS2: TransformControls on the ghost rig) + placeMarkers, tilePriority (U5 closest-first download
   comparator adapter + queue caps, 2026-08-18), terrainPatch (U7b GLO-30 composite — createChild
   wrap + fetchData claimer on the ONE ground renderer, 2026-08-18; domain doc
   `BAKED_ASSETS.md`)).

@@ -400,3 +400,28 @@ Three facts the substrate encodes (source-verified 2026-09-02):
   segment to the run owning BOTH its ends (a fully shared post still goes to the lowest run).
   Applies to every cell, edited or not — a cm-scale difference on party walls during a
   re-seat, and the only correct answer under a move.
+
+## The MESH SUITE MS2 family (added 2026-09-02 — the gizmo UI)
+
+`ENRICHED.gizmoSize` (0.8, three's `TransformControls.size`) and the Shift-held snaps
+`gizmoSnapM` 1 / `gizmoSnapDeg` 15 / `gizmoSnapScale` 0.1 are the ONLY new taste knobs. The
+rails stay CONTRACT in `lib/globe/bldgOverrides.ts`; `clampGizmoEdit` there adds the U8
+per-edit 0.5×/3× band to every scale axis (about the value each axis STARTED the drag at — ten
+drags reach the absolute rail, one cannot).
+
+Three facts the gizmo encodes (source-verified against three 0.185 `TransformControls.js`):
+- **The controls take fed pointers.** `pointerHover/Down/Move/Up({x, y, button})` are public and
+  take NDC; constructed with no domElement they register nothing, so the orchestrator's FPV
+  handlers own the gesture (one table for look-drag, pinch, U8 claim, gizmo). `pointerMove`
+  early-returns unless `button === -1`, `pointerDown/Up` unless `button === 0`.
+- **`minY/maxY` clamp in PARENT space.** The anchor's parent is the cell mesh, so the lift rail
+  is stated in bake-local metres: floor = the seated base, ceiling = base + `LIFT_MAX_M`.
+- **Hiding X and Z hides the screen-space E ring too** (three shows `E` only with all three
+  axes on); `showXYZE = false` removes the trackball. Invisible handles are not hit-testable
+  (`intersectObjectWithRay` checks the child's `visible`), so a hidden axis cannot be dragged.
+- **Do not call `tc.dispose()` with no domElement** — its `disconnect()` dereferences null;
+  `getHelper().dispose()` frees the geometries and materials.
+- **`_gizmo` is an underscore field.** The harness accessor `handleScreenPx` reads
+  `_gizmo.picker[mode]` (a torus for the rotate ring — take the on-screen extreme vertex, not
+  the bounding-sphere centre, which is the ring's hole). A three bump re-verifies it.
+

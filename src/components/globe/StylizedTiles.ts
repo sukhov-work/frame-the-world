@@ -36,7 +36,7 @@ import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore, type AdjustableParams } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
-import { useBldgEditStore } from "../../store/bldgEdit";
+import { revertOp, useBldgEditStore, type BldgEditOp } from "../../store/bldgEdit";
 import { useMiniMapStore } from "../../store/minimap";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { chartWalkAzRad } from "../../lib/geo/slippy";
@@ -70,7 +70,7 @@ import { attachGraticule } from "./scene/graticule";
 import { attachAtmosphere } from "./scene/atmosphere";
 import { attachStars } from "./scene/stars";
 import { attachBuildings } from "./scene/buildings";
-import { attachEnrichedBuildings } from "./scene/enrichedBuildings";
+import { attachEnrichedBuildings, type BuildingPick } from "./scene/enrichedBuildings";
 import { attachImageryGround } from "./scene/imageryGround";
 import { attachSky } from "./scene/sky";
 import { attachSkyTarget } from "./scene/skyTarget";
@@ -79,6 +79,7 @@ import { attachSkyGhosts } from "./scene/skyGhosts";
 import { attachFindGhosts } from "./scene/findGhosts";
 import { attachSkyNames } from "./scene/skyNames";
 import { attachBldgEditLabel } from "./scene/bldgEditLabel";
+import { attachBldgGizmo } from "./scene/bldgGizmo";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachAimCones } from "./scene/aimCones";
 import { attachFocalCone } from "./scene/focalCone";
@@ -123,7 +124,6 @@ import {
   deleteOverride,
   dragScaleK,
   loadOverrides,
-  NEUTRAL_K_EPS,
   overrideKey,
   parseOverrideKey,
   roundCentroidM,
@@ -131,7 +131,11 @@ import {
   transformFields,
   upsertOverride,
 } from "../../lib/globe/bldgOverrides";
-import { IDENTITY_TRANSFORM, type FeatureTransform } from "../../lib/globe/featureTransform";
+import {
+  IDENTITY_TRANSFORM,
+  isIdentityTransform,
+  type FeatureTransform,
+} from "../../lib/globe/featureTransform";
 import {
   bankWindowMsLeft,
   lruCapBytesForUltra,
@@ -1431,7 +1435,23 @@ export function attachStylizedTiles(opts: {
     const rect = dom.getBoundingClientRect();
     const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
     const best = pickSkyBody(ndcX, ndcY);
-    if (!best) return;
+    if (!best) {
+      // MESH SUITE MS2: right-click a building in FPV → arm it (another building re-targets) and
+      // open the edit menu (MOVE / ROTATE / SCALE / EXTRUDE / revert / done); a right-click
+      // elsewhere with nothing armed keeps the native browser menu.
+      if (fpvActive && enriched) {
+        const pick = pickBuildingAt(e.clientX, e.clientY);
+        if (pick && !isArmedPick(pick)) {
+          disarmBuilding();
+          armPick(pick);
+        }
+        if (bldgArmed && bldgGizmoDragId === null) {
+          e.preventDefault();
+          openBldgMenu(e.clientX, e.clientY);
+        }
+      }
+      return;
+    }
     const { azDeg, altDeg } = dirToAzAltAtCamera(best.dir);
     if (altDeg < ORCH.skyMenuMinAltDeg) return; // below the horizon — that click was terrain
     e.preventDefault();
@@ -1683,38 +1703,92 @@ export function attachStylizedTiles(opts: {
   let bldgLastTapMs = 0; // glass double-tap detector (no synthesized dblclick on the canvas)
   let bldgLastTapX = 0;
   let bldgLastTapY = 0;
+  // ── MESH SUITE MS2 — the MOVE / ROTATE / SCALE gizmo (owner 2026-09-01; MESH_SUITE_PLAN §7) ──
+  // Four OPS on the armed building. EXTRUDE is the U8 drag above, verbatim, and the DEFAULT op on
+  // arm (the U8 UX stays byte-identical when only height is edited — §4a-1). MOVE / ROTATE /
+  // SCALE ride three's TransformControls on the engine's ghost RIG (scene/bldgGizmo.ts): the
+  // controls get NO DOM listeners — the FPV handlers below FEED them pointers, so one gesture
+  // table arbitrates the look-drag, the pinch, the U8 claim and the gizmo. In a spatial op an
+  // off-handle drag is a normal look-around (the handles are explicit; the screen is no longer
+  // the gesture), a tap still disarms, a handle drag previews on the ghost and COMMITS on release
+  // through commitBldgTransform. GlobeControls is disabled throughout FPV (the only place a
+  // building can be armed), so its whole-scene raycast never meets the gizmo pickers.
+  let bldgOp: BldgEditOp = "extrude";
+  let bldgGizmoDragId: number | null = null; // the claimed pointer while a gizmo drag is live
+  let bldgLive: FeatureTransform | null = null; // the gizmo's clamped read-back mid-drag (else null)
+  let bldgMenuDismiss = false; // the current press only closed the context menu (not a tap-away)
+  const bldgGizmo = attachBldgGizmo(scene, camera, {
+    place: (t) => enriched?.setGhostTransform(t),
+    onChange: (t) => {
+      bldgLive = t;
+    },
+  });
+  /** The armed building's committed edit target — engine truth, or the armed capture's height
+   *  when the cell has been LRU-evicted mid-edit (the row re-applies when it streams back). */
+  const bldgCommitted = (a: { cellUri: string; featureId: number; committedK: number }): FeatureTransform =>
+    enriched?.featureState(a.cellUri, a.featureId)?.target ?? { ...IDENTITY_TRANSFORM, sy: a.committedK };
+  /** Deadband for the chip's live-transform mirror (never a 60 fps React churn). */
+  const liveDiffers = (a: FeatureTransform, b: FeatureTransform) =>
+    Math.abs(a.tE - b.tE) >= 0.01 ||
+    Math.abs(a.tN - b.tN) >= 0.01 ||
+    Math.abs(a.tU - b.tU) >= 0.01 ||
+    Math.abs(a.rotDeg - b.rotDeg) >= 0.05 ||
+    Math.abs(a.sx - b.sx) >= 0.005 ||
+    Math.abs(a.sz - b.sz) >= 0.005 ||
+    Math.abs(a.sy - b.sy) >= 0.005;
   const syncBldgEdit = () => {
     const a = bldgArmed;
-    useBldgEditStore.getState()._syncArmed(
-      a
-        ? {
-            featureId: a.featureId,
-            cellUri: a.cellUri,
-            originalHeightM: a.bakedHeightM,
-            liveHeightM: a.bakedHeightM * a.liveK,
-            deltaM: a.bakedHeightM * (a.liveK - 1),
-            dragging: bldgDragId !== null && bldgDragMoved,
-            overridden: Math.abs(a.liveK - 1) >= NEUTRAL_K_EPS,
-          }
-        : null,
-    );
+    if (!a) {
+      useBldgEditStore.getState()._syncArmed(null);
+      return;
+    }
+    const committed = bldgCommitted(a);
+    // MS2: the live transform is the gizmo's clamped read-back during a drag; otherwise the
+    // committed target with the U8 drag's live height on top (identical to U8 for height-only).
+    const live: FeatureTransform = bldgLive ?? { ...committed, sy: a.liveK };
+    useBldgEditStore.getState()._syncArmed({
+      featureId: a.featureId,
+      cellUri: a.cellUri,
+      originalHeightM: a.bakedHeightM,
+      liveHeightM: a.bakedHeightM * live.sy,
+      deltaM: a.bakedHeightM * (live.sy - 1),
+      dragging: (bldgDragId !== null && bldgDragMoved) || bldgGizmoDragId !== null,
+      // ANY component off the original (the U8 `|k−1| ≥ NEUTRAL_K_EPS` test, generalized).
+      overridden: !isIdentityTransform({ ...committed, sy: a.liveK }),
+      op: bldgOp,
+      committed,
+      live,
+    });
   };
   const disarmBuilding = () => {
     if (!bldgArmed) return;
     bldgArmed = null;
     bldgDragId = null;
     bldgDragMoved = false;
+    // MS2: a live gizmo drag dies with the session (nothing commits), the gizmo lets go of the
+    // rig BEFORE the rig goes, and the next arm starts at EXTRUDE (the store resets its ask).
+    if (bldgGizmoDragId !== null) {
+      bldgGizmoDragId = null;
+      bldgGizmo.cancel();
+    }
+    bldgGizmo.setTarget(null, "extrude");
+    bldgOp = "extrude";
+    bldgLive = null;
+    if (dom.style.cursor === "grab") dom.style.cursor = "";
     enriched?.setArmedId(null);
     enriched?.hideGhost();
     syncBldgEdit();
   };
-  const tryArmBuilding = (clientX: number, clientY: number): boolean => {
-    if (!enriched || !fpvActive || !useCameraStore.getState().buildings3d) return false;
+  /** The enriched building under a client point — null when none, or when arming is not
+   *  possible here (no engine, not in FPV, BLD off). Picks only; `armPick` arms. */
+  const pickBuildingAt = (clientX: number, clientY: number): BuildingPick | null => {
+    if (!enriched || !fpvActive || !useCameraStore.getState().buildings3d) return null;
     const rect = dom.getBoundingClientRect();
     const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
     _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
-    const pick = enriched.pickBuilding(_pickRay);
-    if (!pick) return false;
+    return enriched.pickBuilding(_pickRay);
+  };
+  const armPick = (pick: BuildingPick) => {
     bldgArmed = {
       cellUri: pick.cellUri,
       featureId: pick.featureId,
@@ -1726,10 +1800,18 @@ export function attachStylizedTiles(opts: {
       liveK: pick.currentK,
       distM: pick.distance,
     };
-    enriched.setArmedId(pick.featureId);
+    enriched?.setArmedId(pick.featureId);
     syncBldgEdit();
+  };
+  const tryArmBuilding = (clientX: number, clientY: number): boolean => {
+    const pick = pickBuildingAt(clientX, clientY);
+    if (!pick) return false;
+    armPick(pick);
     return true;
   };
+  /** MS2: is this pick the armed building? (a right-click / long-press on ANOTHER re-targets.) */
+  const isArmedPick = (pick: BuildingPick) =>
+    !!bldgArmed && bldgArmed.cellUri === pick.cellUri && bldgArmed.featureId === pick.featureId;
   /** MESH SUITE MS1: apply + persist ONE building's FULL edit target — the path the U8 height
    *  commit, the RESET, the MS2 gizmo release and the DEV seam all take. The engine clamps to
    *  the rails first and the persisted row is read back from it, so storage never disagrees
@@ -1772,6 +1854,71 @@ export function attachStylizedTiles(opts: {
     commitBldgTransform(a.cellUri, a.featureId, { ...cur, sy: a.liveK }, a);
     syncBldgEdit();
   };
+  /** MS2: switch the armed building's op. EXTRUDE = the U8 drag (no rig, no gizmo); the three
+   *  spatial ops share ONE rig — created here if missing (body hidden until a drag starts) and
+   *  the gizmo re-targeted onto it. Refused under a live drag (the frame service retries). */
+  const applyBldgOp = (op: BldgEditOp) => {
+    if (!bldgArmed || !enriched || bldgGizmoDragId !== null) return;
+    bldgOp = op;
+    if (op === "extrude") {
+      bldgGizmo.setTarget(null, op);
+      enriched.hideGhost();
+      if (dom.style.cursor === "grab") dom.style.cursor = "";
+    } else {
+      if (!enriched.ghostRig()) enriched.showGhost(bldgArmed.cellUri, bldgArmed.featureId, false);
+      bldgGizmo.setTarget(enriched.ghostRig(), op); // null while the cell is unloaded — retried per frame
+    }
+    syncBldgEdit();
+  };
+  /** MS2: a gizmo drag ended — commit the clamped result through the ONE commit path (a cancel
+   *  puts the rig back where the drag began instead). The ghost body hides again; the real mesh
+   *  eases to the target inside applyFeatureSeats exactly as after a U8 release. */
+  const finishGizmoDrag = (t: FeatureTransform | null, commit: boolean) => {
+    if (!bldgArmed || !enriched) return;
+    const a = bldgArmed;
+    enriched.setGhostBodyVisible(false);
+    if (t && commit) {
+      commitBldgTransform(a.cellUri, a.featureId, t, a);
+      const sy = enriched.featureState(a.cellUri, a.featureId)?.target.sy ?? t.sy;
+      a.liveK = sy;
+      a.committedK = sy;
+    } else if (t) {
+      enriched.setGhostTransform(t);
+    }
+    bldgLive = null;
+    syncBldgEdit();
+  };
+  /** MS2: revert ONE op's components (or everything — the U8 RESET) to the original through the
+   *  same commit path: an identity result deletes the row and the tint clears. */
+  const revertBldg = (which: BldgEditOp | "all") => {
+    if (!bldgArmed || !enriched) return;
+    const a = bldgArmed;
+    const next = revertOp(bldgCommitted(a), which);
+    if (bldgOp === "extrude") enriched.hideGhost(); // the U8 RESET path (commitBldgHeight hid it)
+    commitBldgTransform(a.cellUri, a.featureId, next, a);
+    const sy = enriched.featureState(a.cellUri, a.featureId)?.target.sy ?? next.sy;
+    a.liveK = sy;
+    a.committedK = sy;
+    syncBldgEdit();
+  };
+  const openBldgMenu = (clientX: number, clientY: number) =>
+    useBldgEditStore.getState()._setMenu({ screenX: clientX, screenY: clientY });
+  /** MS2: the pinned label's op line — the live numbers of the active spatial op (the two U8
+   *  height lines stay under it; EXTRUDE adds nothing, so that label is byte-identical). The
+   *  yaw is shown in COMPASS sense (clockwise from above = the negative of `rotDeg`). */
+  const bldgOpLine = (t: FeatureTransform): string | null => {
+    const sg = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`;
+    switch (bldgOp) {
+      case "move":
+        return `↔ ${sg(t.tE)} E · ${sg(t.tN)} N · ↑ ${t.tU.toFixed(1)} m`;
+      case "rotate":
+        return `↻ ${sg(-t.rotDeg)}° cw`;
+      case "scale":
+        return `⤢ ${t.sx.toFixed(2)} × ${t.sz.toFixed(2)}`;
+      default:
+        return null;
+    }
+  };
   const onFpvPointerDown = (e: PointerEvent) => {
     if (!fpvActive) return;
     if (!e.isPrimary) {
@@ -1796,9 +1943,35 @@ export function attachStylizedTiles(opts: {
     fpvPinchedDuringDrag = false;
     // A direct look-drag always beats a pending sky-look glide (never fight the user).
     if (useCameraStore.getState().skyLook) useCameraStore.getState()._clearSkyLook();
+    // MS2: a canvas press closes the building context menu (the island closes itself on presses
+    // elsewhere — canvas presses are left to this handler so the release below can tell a
+    // "close the menu" tap from a tap-away).
+    {
+      const bs = useBldgEditStore.getState();
+      bldgMenuDismiss = bs.menu !== null;
+      if (bldgMenuDismiss) bs.closeMenu();
+    }
     // U8: while armed the primary pointer is CLAIMED for the height drag (a press that never
     // crosses clickDragPx stays a tap — tap-away — see onFpvPointerMove/End).
+    // MS2: in a spatial op the press goes to the GIZMO first — on a handle it claims the pointer
+    // (the drag is that handle's transform, previewed on the ghost); off a handle the look-drag
+    // stays free and a tap still disarms (onFpvPointerEnd).
     if (bldgArmed) {
+      if (bldgOp !== "extrude") {
+        if (enriched && bldgGizmo.attached) {
+          const rect = dom.getBoundingClientRect();
+          const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+          const rig = enriched.ghostRig();
+          const start = bldgCommitted(bldgArmed);
+          if (rig && bldgGizmo.down(nx, ny, rig.liveBaseY, start)) {
+            bldgGizmoDragId = e.pointerId;
+            bldgLive = start;
+            enriched.setGhostBodyVisible(true);
+            syncBldgEdit();
+          }
+        }
+        return;
+      }
       bldgDragId = e.pointerId;
       bldgDragStartY = e.clientY;
       bldgDragStartK = bldgArmed.liveK;
@@ -1807,6 +1980,21 @@ export function attachStylizedTiles(opts: {
   };
   const onFpvPointerMove = (e: PointerEvent) => {
     if (!fpvActive) return;
+    // MS2: a live gizmo drag consumes its pointer BEFORE any look math (the U8 claim's twin).
+    if (bldgArmed && bldgGizmoDragId === e.pointerId) {
+      const rect = dom.getBoundingClientRect();
+      const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+      bldgGizmo.move(nx, ny, e.shiftKey);
+      return;
+    }
+    // MS2: hover affordance over the handles (mouse/pen only — touch has no hover and re-tests
+    // at the press). A resting pointer costs one raycast against a handful of picker meshes.
+    if (bldgArmed && bldgOp !== "extrude" && fpvDragId === null && e.pointerType !== "touch") {
+      const rect = dom.getBoundingClientRect();
+      const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+      if (bldgGizmo.hover(nx, ny)) dom.style.cursor = "grab";
+      else if (dom.style.cursor === "grab") dom.style.cursor = "";
+    }
     // U8: the claimed height drag consumes its pointer BEFORE any look math (the pinch
     // precedent) — the camera never turns while armed-and-pressing. The ghost preview appears
     // on the first move past the click slack; below it, the press is still a candidate tap.
@@ -1878,6 +2066,13 @@ export function attachStylizedTiles(opts: {
     if (fpvDragId !== e.pointerId) return;
     fpvDragId = null;
     fpvPinchId = null; // a pinch cannot outlive its anchor finger
+    // MS2: releasing a gizmo drag COMMITS; a pointercancel restores the rig instead.
+    if (bldgArmed && bldgGizmoDragId === e.pointerId) {
+      bldgGizmoDragId = null;
+      const cancel = e.type === "pointercancel";
+      finishGizmoDrag(cancel ? bldgGizmo.cancel() : bldgGizmo.up(), !cancel);
+      return;
+    }
     // U8: releasing the claimed height drag COMMITS; a press that never moved falls through to
     // the tap path below (tap-away / double-tap re-target).
     if (bldgArmed && bldgDragId === e.pointerId) {
@@ -1917,6 +2112,10 @@ export function attachStylizedTiles(opts: {
         }
       }
       if (bldgArmed) {
+        if (bldgMenuDismiss) {
+          bldgMenuDismiss = false; // MS2: that tap only closed the context menu
+          return;
+        }
         disarmBuilding(); // U8 tap-away — the edit session is modal; nothing else on this tap
         return;
       }
@@ -1963,6 +2162,27 @@ export function attachStylizedTiles(opts: {
       // typing surface is focused; arrows additionally yield to an EXPLICIT tabindex owner
       // (the scrubber rail scrubs with ◀▶ — native buttons don't use arrows, so they still walk).
       const ae = document.activeElement as HTMLElement | null;
+      // MESH SUITE MS2: Blender's G / R / S (+ E for the U8 extrude) switch the armed op — only
+      // while a building is armed (the session is modal; S shadows walk-back for its duration,
+      // which the chip hint says out loud). Routed through the store so the chip tabs, the menu
+      // and the keys are ONE path (the frame service applies it).
+      if (bldgArmed && !typingTarget(ae)) {
+        const op: BldgEditOp | null =
+          e.code === "KeyG"
+            ? "move"
+            : e.code === "KeyR"
+              ? "rotate"
+              : e.code === "KeyS"
+                ? "scale"
+                : e.code === "KeyE"
+                  ? "extrude"
+                  : null;
+        if (op) {
+          useBldgEditStore.getState().setOp(op);
+          e.preventDefault();
+          return;
+        }
+      }
       fpvKeysDown.shift = e.shiftKey;
       fpvKeysDown.alt = e.altKey;
       const isArrow = e.key.startsWith("Arrow");
@@ -2001,7 +2221,19 @@ export function attachStylizedTiles(opts: {
       return;
     }
     // U8: an armed building edit owns the next Escape — finishing the edit must not exit FPV.
+    // MS2 rungs inside it: an open context menu closes first; a live gizmo drag is CANCELLED
+    // (the rig returns to where the drag began, nothing commits); only then Escape disarms.
     if (bldgArmed) {
+      const bs = useBldgEditStore.getState();
+      if (bs.menu) {
+        bs.closeMenu();
+        return;
+      }
+      if (bldgGizmoDragId !== null) {
+        bldgGizmoDragId = null;
+        finishGizmoDrag(bldgGizmo.cancel(), false);
+        return;
+      }
       disarmBuilding();
       return;
     }
@@ -2090,7 +2322,21 @@ export function attachStylizedTiles(opts: {
           return;
         }
       }
-      if (fpvActive) return; // ground long-press stays orbit-only (FPV owns its pointer)
+      if (fpvActive) {
+        // MS2: a long-press on a building (or anywhere while one is armed) opens the edit menu —
+        // the right-click twin on glass; another building re-targets. A ground long-press with
+        // nothing armed stays orbit-only (FPV owns its pointer).
+        const pick = pickBuildingAt(clientX, clientY);
+        if (pick && !isArmedPick(pick)) {
+          disarmBuilding();
+          armPick(pick);
+        }
+        if (bldgArmed && bldgGizmoDragId === null) {
+          longPressFired = true;
+          openBldgMenu(clientX, clientY);
+        }
+        return;
+      }
       longPressFired = true;
       dropTempPinAt(clientX, clientY);
     }, ORCH.longPressMs);
@@ -2532,6 +2778,26 @@ export function attachStylizedTiles(opts: {
           bldgArmed.committedK = sy;
         }
         syncBldgEdit();
+      },
+      // MESH SUITE MS2 (2026-09-02): the gizmo's live state + the handles' screen positions, so
+      // a harness can drive it with REAL pointer events through the FPV gesture table.
+      bldgGizmo: () => {
+        const rig = enriched?.ghostRig() ?? null;
+        return {
+          op: bldgOp,
+          attached: bldgGizmo.attached,
+          dragging: bldgGizmo.dragging,
+          axis: bldgGizmo.axis,
+          live: bldgLive,
+          rig: rig ? { liveBaseY: rig.liveBaseY, bodyVisible: rig.body.visible } : null,
+          handlePx: (name: string) => bldgGizmo.handleScreenPx(name, dom.getBoundingClientRect()),
+          originPx: () => bldgGizmo.originPx(dom.getBoundingClientRect()),
+          debug: (clientX?: number, clientY?: number) => {
+            if (clientX === undefined || clientY === undefined) return bldgGizmo.debug();
+            const [nx, ny] = clientToNdc(clientX, clientY, dom.getBoundingClientRect());
+            return bldgGizmo.debug(nx, ny);
+          },
+        };
       },
       // RC5: what the Esri coverage-sentinel fallback actually did — sentinels seen, how many
       // were replaced by an upscaled ancestor, how many GETs the learned cap table skipped, and
@@ -5949,37 +6215,59 @@ export function attachStylizedTiles(opts: {
   };
 
   const stepBldgEdit = () => {
-        // U8: per-frame service of the armed building edit — consume the chip's RESET one-shot,
-        // re-anchor the mesh-pinned dual-height label (per-frame: it tracks a live drag), and
-        // mirror the chip numbers at a deadband (React must never re-render at 60 fps).
+        // U8: per-frame service of the armed building edit — consume the chip's one-shots,
+        // re-anchor the mesh-pinned label (per-frame: it tracks a live drag), and mirror the chip
+        // numbers at a deadband (React must never re-render at 60 fps). MS2: apply a requested op
+        // switch, and keep the rig (with the gizmo on it) alive and seated between drags.
         const bs = useBldgEditStore.getState();
-        if (bs.resetRequest) {
-          bs._consumeResetRequest();
-          if (bldgArmed && enriched) {
-            bldgArmed.liveK = 1;
-            commitBldgHeight(); // neutral k → the persisted row is deleted, tint clears
-          }
+        if (bs.revertRequest) {
+          const which = bs.revertRequest;
+          bs._consumeRevertRequest();
+          if (bldgArmed && enriched && bldgGizmoDragId === null) revertBldg(which);
+        }
+        if (bs.disarmRequest) {
+          bs._consumeDisarmRequest();
+          disarmBuilding();
         }
         if (!bldgArmed) {
           bldgEditLabel.update(null, 0, 0, camera);
           return;
         }
+        if (bs.op !== bldgOp) applyBldgOp(bs.op);
         const a = bldgArmed;
-        const anchored = enriched?.buildingTopWorld(a.cellUri, a.featureId, a.liveK, _bldgTop);
+        if (bldgOp !== "extrude" && enriched && bldgGizmoDragId === null) {
+          // The rig dies with an LRU-evicted cell (engine rule) — re-show it when the cell streams
+          // back; between drags re-place it from the committed target so it rides the easing seat.
+          if (!enriched.ghostRig()) enriched.showGhost(a.cellUri, a.featureId, false);
+          bldgGizmo.setTarget(enriched.ghostRig(), bldgOp); // idempotent per (rig, op)
+          if (enriched.ghostRig()) enriched.setGhostTransform(bldgCommitted(a));
+        }
+        const live = bldgLive;
+        const liveK = live ? live.sy : a.liveK;
+        const anchored = enriched?.buildingTopWorld(
+          a.cellUri,
+          a.featureId,
+          liveK,
+          _bldgTop,
+          live ?? undefined,
+        );
         bldgEditLabel.update(
           anchored ? _bldgTop : null,
           a.bakedHeightM,
-          a.bakedHeightM * a.liveK,
+          a.bakedHeightM * liveK,
           camera,
+          bldgOpLine(live ?? bldgCommitted(a)),
         );
         const mirror = bs.armed;
-        const liveM = a.bakedHeightM * a.liveK;
-        const dragging = bldgDragId !== null && bldgDragMoved;
+        const liveM = a.bakedHeightM * liveK;
+        const dragging = (bldgDragId !== null && bldgDragMoved) || bldgGizmoDragId !== null;
         if (
           !mirror ||
           mirror.featureId !== a.featureId ||
           mirror.dragging !== dragging ||
-          Math.abs(mirror.liveHeightM - liveM) >= 0.05
+          mirror.op !== bldgOp ||
+          Math.abs(mirror.liveHeightM - liveM) >= 0.05 ||
+          (live !== null && liveDiffers(mirror.live, live))
         )
           syncBldgEdit();
   };
@@ -6342,6 +6630,7 @@ export function attachStylizedTiles(opts: {
       findGhosts.dispose();
       skyNames.dispose();
       bldgEditLabel.dispose();
+      bldgGizmo.dispose();
       dayArcs.dispose();
       aimCones.dispose();
       focalCone.dispose();

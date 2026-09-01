@@ -274,3 +274,47 @@ describe("bldgOverrides — sync prep (next-phase batch DB sync)", () => {
     expect(loadOverrides()[a].s).toBe(400);
   });
 });
+
+// ── MESH SUITE MS2 — the gizmo's live clamp ─────────────────────────────────────────────────
+import { clampGizmoEdit } from "../../../src/lib/globe/bldgOverrides";
+
+describe("clampGizmoEdit (rails + the per-edit band on every scale axis)", () => {
+  const start = { ...IDENTITY_TRANSFORM };
+
+  it("inside the rails and the band it is the identity map", () => {
+    const t = { sx: 1.2, sz: 0.9, sy: 1.4, rotDeg: 25, tE: 6, tN: -4, tU: 1.5 };
+    expect(clampGizmoEdit(t, start)).toEqual(t);
+  });
+
+  it("applies the 0.5×/3× per-edit band about the START value on X, Z and Y", () => {
+    const t = { sx: 9, sz: 0.05, sy: 3.4, rotDeg: 0, tE: 0, tN: 0, tU: 0 };
+    const c = clampGizmoEdit(t, start);
+    expect(c.sx).toBe(EDIT_MAX_K); // 3 = start 1 × 3
+    expect(c.sz).toBe(EDIT_MIN_K); // 0.5
+    expect(c.sy).toBe(EDIT_MAX_K);
+    // A second drag re-anchors on the committed value — ten drags reach the absolute rail.
+    const c2 = clampGizmoEdit({ ...t, sx: 9 }, { ...start, sx: 3 });
+    expect(c2.sx).toBe(9);
+    const c3 = clampGizmoEdit({ ...t, sx: 40 }, { ...start, sx: 5 });
+    expect(c3.sx).toBe(SCALE_MAX_K); // the absolute rail wins over 5 × 3
+  });
+
+  it("shortens an over-long translation keeping its direction, caps the lift, wraps the yaw", () => {
+    const c = clampGizmoEdit({ sx: 1, sz: 1, sy: 1, rotDeg: 370, tE: 300, tN: 400, tU: 99 }, start);
+    expect(Math.hypot(c.tE, c.tN)).toBeCloseTo(TRANSLATE_MAX_M, 9);
+    expect(c.tE / c.tN).toBeCloseTo(0.75, 12);
+    expect(c.tU).toBe(LIFT_MAX_M);
+    expect(c.rotDeg).toBeCloseTo(10, 9);
+  });
+
+  it("a mirrored (negative) scale from a handle crossing the origin lands on the band floor", () => {
+    const c = clampGizmoEdit({ sx: -2, sz: 1, sy: -1, rotDeg: 0, tE: 0, tN: 0, tU: 0 }, start);
+    expect(c.sx).toBe(EDIT_MIN_K);
+    expect(c.sy).toBe(EDIT_MIN_K);
+  });
+
+  it("non-finite input degrades to identity per component, never NaN", () => {
+    const c = clampGizmoEdit({ sx: NaN, sz: 1, sy: NaN, rotDeg: NaN, tE: NaN, tN: 0, tU: NaN }, start);
+    expect(c).toEqual({ ...IDENTITY_TRANSFORM });
+  });
+});
