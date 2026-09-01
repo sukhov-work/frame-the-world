@@ -23,6 +23,12 @@ import {
   type QualityTier,
 } from "../../lib/globe/quality";
 import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
+import {
+  debugFeedActive,
+  debugPush,
+  registerDebugProvider,
+} from "../../lib/globe/debugFeed";
+import { createGpuTimer } from "../../lib/globe/debugGpuTimer";
 
 /** Read the device's rendering capabilities for the initial quality tier (RENDERING_QUALITY_PASS
  *  WS1). Browser-only (GL context + navigator) — the tier DECISION is the pure `detectDeviceTier`. */
@@ -151,6 +157,16 @@ export default function GlobeCanvas() {
       "(prefers-reduced-motion: reduce)",
     ).matches;
     if (import.meta.env.DEV) window.__renderer = renderer;
+
+    // DEBUG HUD (owner 2026-09-01) — `renderer.info` is read by NOTHING else in the app
+    // (grep-verified at ship), so the HUD owns its reset policy: autoReset would zero the
+    // counters at the START of every `render()` call, leaving only the LAST pass's numbers
+    // (this frame has up to three: shadow map, composer chain, PiP). With autoReset off the
+    // tick resets once per rAF just before the draw block, so calls/triangles are whole-frame
+    // truth. The GPU timer is the EXT_disjoint_timer_query ring — `supported: false` on
+    // Firefox/Safari, and the HUD shows "—" there rather than a fake number.
+    renderer.info.autoReset = false;
+    const gpuTimer = createGpuTimer(renderer.getContext() as WebGL2RenderingContext);
 
     const scene = new THREE.Scene();
     // The space backdrop MUST be scene.background, not the renderer clear color (S5 §Item 15 —
@@ -717,6 +733,75 @@ export default function GlobeCanvas() {
         lean: !!lean,
       };
 
+    // DEBUG HUD (owner 2026-09-01) — the canvas-side provider: quality/governor/gate/PiP
+    // state, polled by the DebugPanel at its own cadence (≤4 Hz), NEVER per frame. Unlike the
+    // `window.__*` seams above this is NOT DEV-gated — the ULT precedent: compiled everywhere,
+    // read only while the DBG chip is on. Every value is a plain field read; the cumulative
+    // counters (gateDraws/gateSkips, pipRenders/pipBlits, hitchCount) are differenced into
+    // rates PANEL-side (the RC11 single-sample rule).
+    const unregCanvasDbg = registerDebugProvider("canvas", () => ({
+      tier: activeTier,
+      tileTier: tilesHandle?.tileTier() ?? tileTier,
+      pendingTier,
+      deviceTier,
+      dpr: renderer.getPixelRatio(),
+      devicePixelRatio: window.devicePixelRatio,
+      bloom: bloomPass.enabled,
+      gtao: gtaoPass ? gtaoPass.enabled : null,
+      shadowsOn: renderer.shadowMap.enabled,
+      shadowMapPx: sun.shadow.mapSize.x,
+      lean: !!lean,
+      leanFlat2d: flatForDpr,
+      mapFlat: tilesHandle?.mapFlat() ?? false,
+      fpvActive: tilesHandle?.fpvActive() ?? false,
+      ultra: ultraPinned,
+      ultraBoot,
+      emaMs: governor.emaMs(),
+      hitches: governor.hitchCount(),
+      budgetMs: QUALITY.governor.budgetMs,
+      restoreMs: QUALITY.governor.restoreMs,
+      tierChanges: tierLog.length,
+      lastTierChange: tierLog.length
+        ? `${tierLog[tierLog.length - 1].tier} @ ${(tierLog[tierLog.length - 1].atMs / 1000).toFixed(1)}s`
+        : null,
+      gateEnabled: gateCfg().enabled,
+      gateDraws,
+      gateSkips,
+      gateQuietAgeMs: Math.round(performance.now() - gateQuietSinceMs),
+      gateRestMs: GATE.restMs,
+      pipActive: pipRT !== null,
+      pipRenders,
+      pipBlits,
+      pipRtPx: pipRT ? `${pipRT.width}×${pipRT.height}` : null,
+      ctxLost,
+      hidden: document.hidden,
+      gpuTimer: gpuTimer.supported,
+      infoGeometries: renderer.info.memory.geometries,
+      infoTextures: renderer.info.memory.textures,
+      infoPrograms: renderer.info.programs?.length ?? null,
+    }));
+    // The static half — read once at mount (a getParameter call can force a GPU sync, so
+    // none of these may sit on a poll path, let alone a frame).
+    const glCtx = renderer.getContext();
+    const glAttrs = glCtx.getContextAttributes();
+    const caps = renderer.capabilities;
+    const systemSnap = {
+      gpu: deviceCaps.rendererString ?? "(blocked)",
+      cores: deviceCaps.cores ?? null,
+      deviceMemoryGB: deviceCaps.deviceMemoryGB ?? null,
+      coarsePointer: deviceCaps.coarsePointer,
+      maxTextureSize: caps.maxTextureSize,
+      maxCubemapSize: caps.maxCubemapSize,
+      maxTextures: caps.maxTextures,
+      maxSamples: caps.maxSamples,
+      msaaSamples: caps.samples,
+      precision: caps.precision,
+      antialiasCtx: glAttrs?.antialias ?? null,
+      powerPreference: glAttrs?.powerPreference ?? null,
+      logDepth: caps.logarithmicDepthBuffer,
+    };
+    const unregSystemDbg = registerDebugProvider("system", () => systemSnap);
+
     // --- resize ---
     const onResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -766,6 +851,11 @@ export default function GlobeCanvas() {
       // Adaptive-quality governor: smoothed frame time steps the tier down under load / back up
       // with headroom. No-op on capable hardware (frame time stays under budget → never fires).
       const nowMs = performance.now();
+      // DEBUG HUD — dt rides the governor's own clock read (zero extra cost), and it is pushed
+      // BEFORE the frame gate so a skipped frame still counts: with the gate on, sampling only
+      // drawn frames would read 200 fps on a globe drawing 5.
+      const dbgOn = debugFeedActive();
+      if (dbgOn) debugPush("frame.dt", nowMs - lastGovMs);
       const gov = governor.step(nowMs - lastGovMs);
       lastGovMs = nowMs;
       // U2/A9: park a governor step while FPV owns the camera; land it on the first non-FPV
@@ -805,7 +895,16 @@ export default function GlobeCanvas() {
         pendingTier = plan.pending;
       }
       if (tilesHandle) {
-        tilesHandle.update();
+        // DEBUG HUD — the orchestrator bracket. This is the half RC21's gate can never skip
+        // (`update()` runs every frame by design), so it is the number that explains a slow
+        // frame the draw bracket can't.
+        if (dbgOn) {
+          const t0 = performance.now();
+          tilesHandle.update();
+          debugPush("frame.cpu", performance.now() - t0);
+        } else {
+          tilesHandle.update();
+        }
       } else if (!reduceMotion) {
         globe.rotation.y += 0.0006; // ~0.03 deg/frame idle rotation
       }
@@ -866,6 +965,13 @@ export default function GlobeCanvas() {
       gateSeen = pipCapture(gatePose);
       gateDrawnMs = nowMs;
       gateDirty = false;
+      // DEBUG HUD — the draw bracket opens here so it covers the shadow pass (inside
+      // composer.render), the composer chain AND the PiP pass/blit below. info.reset() runs
+      // unconditionally (4 assignments) so the counters never accumulate unboundedly while the
+      // HUD is closed; pushes are gated.
+      renderer.info.reset();
+      const dbgDrawT0 = dbgOn ? performance.now() : 0;
+      if (dbgOn) gpuTimer.begin();
       composer.render();
       // Batch #5 item 3 — /m PiP: one scissored pass renders the WHOLE view scaled into the
       // map window's hole. The .mw-pip box is sized in EQUAL vw/dvh fractions, so its aspect
@@ -938,6 +1044,17 @@ export default function GlobeCanvas() {
         pipMat.map = null;
         pipSeen = null;
       }
+      // DEBUG HUD — close the draw bracket: whole-frame submit ms, whole-frame draw-call and
+      // triangle counts (reset ran just before composer.render), and the async GPU-time
+      // harvest (a result is 1–5 frames old; the series is honest about that in its note).
+      if (dbgOn) {
+        gpuTimer.end();
+        debugPush("frame.draw", performance.now() - dbgDrawT0);
+        debugPush("frame.calls", renderer.info.render.calls);
+        debugPush("frame.tris", renderer.info.render.triangles);
+        const gpuMs = gpuTimer.poll();
+        if (gpuMs !== null) debugPush("frame.gpu", gpuMs);
+      }
     };
     tick();
 
@@ -946,6 +1063,9 @@ export default function GlobeCanvas() {
       window.removeEventListener("resize", onResize);
       canvas.removeEventListener("webglcontextlost", onCtxLost);
       canvas.removeEventListener("webglcontextrestored", onCtxRestored);
+      unregCanvasDbg();
+      unregSystemDbg();
+      gpuTimer.dispose();
       tilesHandle?.dispose();
       earth.geometry.dispose();
       (earth.material as THREE.Material).dispose();

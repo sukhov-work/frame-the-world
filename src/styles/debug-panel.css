@@ -1,0 +1,225 @@
+/* DEBUG PANEL — the DBG chip's floating metrics window (owner 2026-09-01).
+   Window grammar = the Guide's resizable-window class (guide.css:31-49): fixed + centred,
+   the centring translate composing with the drag offsets in ONE transform, --win-w/--win-h
+   from usePanelResize, scroll on the INNER wrapper only (the ⠿/⤡ grip tabs overhang the
+   window box and would be clipped by overflow on the root — the DragGrip trap). z-index 42 =
+   the Guide's rung: the debug window must float over PLAN/FIND (31) and the docked chrome (10). */
+
+.dbg-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 42;
+  transform: translate(calc(-50% + var(--drag-x, 0px)), calc(-50% + var(--drag-y, 0px)));
+  box-sizing: border-box;
+  width: var(--win-w, min(34rem, 92vw));
+  height: var(--win-h, min(82vh, 52rem));
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg) 93%, transparent);
+  backdrop-filter: blur(10px);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+/* ————— header: title · filter · pause · close ————— */
+
+.dbg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.dbg-title {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--color-warn); /* the experimental-instrument colour — matches the lit chip */
+}
+
+.dbg-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+
+.dbg-filter::placeholder {
+  color: var(--color-text-muted);
+}
+
+.dbg-filter:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+.dbg-btn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dbg-btn:hover {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+.dbg-btn.is-on {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-warn) 60%, transparent);
+  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
+}
+
+/* ————— the FRAME statistics strip ————— */
+
+.dbg-hdr {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 4px 2px 8px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.dbg-hdr__cell b {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ————— the metric list (inner scroll wrapper — never the panel root) ————— */
+
+.dbg-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 6px;
+}
+
+.dbg-group {
+  margin-bottom: 6px;
+}
+
+.dbg-group__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dbg-group__head:hover {
+  color: var(--color-text);
+}
+
+.dbg-group__chev {
+  width: 10px;
+  color: var(--color-text-muted);
+}
+
+.dbg-group__n {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 9px;
+}
+
+.dbg-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Row grid: label · value · sparkline · info dot. Tabular numerals so a ticking value does
+   not wobble the row; the value column is fixed-width for the same reason. */
+.dbg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem 148px 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 2px;
+  min-height: 20px;
+  font-size: 10.5px;
+}
+
+.dbg-row:nth-child(odd) {
+  background: color-mix(in srgb, var(--color-surface) 30%, transparent);
+}
+
+.dbg-row__label {
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbg-row__value {
+  color: var(--color-text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dbg-row__value.is-warn {
+  color: var(--color-warn);
+}
+
+.dbg-row__spark {
+  display: block;
+  justify-self: end;
+}
+
+.dbg-row__spacer {
+  width: 148px;
+}
+
+.dbg-row--action {
+  grid-template-columns: max-content 18px;
+  justify-content: start;
+  padding: 4px 2px;
+}
+
+.dbg-action-out {
+  margin: 4px 0 6px;
+  padding: 6px 8px;
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+  color: var(--color-text-secondary);
+  font-size: 9.5px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dbg-empty {
+  color: var(--color-text-muted);
+  font-size: 10.5px;
+  padding: 8px 2px;
+}

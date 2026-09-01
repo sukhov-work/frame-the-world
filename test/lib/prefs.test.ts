@@ -111,6 +111,14 @@ describe("sanitizeViewPrefs", () => {
     expect(sanitizeViewPrefs({})).toEqual({});
   });
 
+  // Owner 2026-09-01 — the DBG debug-HUD chip: the second off-by-default instrument, same
+  // contract as ultraQuality above (plain clause, NO re-arm, persisted false survives).
+  it("keeps debugHud verbatim and never re-arms it", () => {
+    expect(sanitizeViewPrefs({ debugHud: true })).toEqual({ debugHud: true });
+    expect(sanitizeViewPrefs({ debugHud: false })).toEqual({ debugHud: false });
+    expect(sanitizeViewPrefs({ debugHud: "on" })).toEqual({});
+  });
+
   it("keeps vectorsVisible and drops wrong-typed ones", () => {
     expect(sanitizeViewPrefs({ vectorsVisible: false })).toEqual({ vectorsVisible: false });
     expect(sanitizeViewPrefs({ vectorsVisible: "off" })).toEqual({});

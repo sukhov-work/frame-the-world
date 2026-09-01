@@ -270,6 +270,20 @@ export default function CameraTiltPanel() {
               on={s.ultraQuality}
               onToggle={() => s.setUltraQuality(!s.ultraQuality)}
             />
+            {/* DBG (owner 2026-09-01) — the debug HUD window. Observation-only (no engine
+                lever), so unlike ULT it needs no reload state; same warn-amber lit treatment
+                because it is an instrument, not a view preference. */}
+            <button
+              type="button"
+              className={`ct-mode ct-dbg tip${s.debugHud ? " is-on" : ""}`}
+              onClick={() => s.setDebugHud(!s.debugHud)}
+              aria-pressed={s.debugHud}
+              aria-label={s.debugHud ? "Close the debug window" : "Open the debug window"}
+              data-tip="DEBUG WINDOW — LIVE ENGINE METRICS: FRAME TIMES, TILE STREAMING, SHADOWS, EPHEMERIS, PLANNING. READ-ONLY; COSTS A LITTLE CPU WHILE OPEN."
+              data-tip-pos="left"
+            >
+              DBG
+            </button>
           </>
         )}
       </div>

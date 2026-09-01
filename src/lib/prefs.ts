@@ -70,6 +70,13 @@ export interface ViewPrefs {
    *  present on `/m` in the same browser. The fence is not here — it is the single `hqAllowed`
    *  predicate every engine read is AND-ed with (StylizedTiles). Do not add a `/m` control. */
   ultraQuality?: boolean;
+  /** DBG chip — the DESKTOP-ONLY debug HUD window (owner 2026-09-01). Same posture as
+   *  `ultraQuality` above: **default OFF**, an instrument rather than a feature, and the blob
+   *  is shared by both shells so the flag WILL be present on `/m` — the fence is the
+   *  `hqExperimentsAllowed` predicate at the chip and the panel's own desktop gate, never this
+   *  key. Observation-only: it opens a metrics window and activates the debugFeed collection
+   *  hooks; it moves no look/tile lever. */
+  debugHud?: boolean;
   /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
   skyGhosts?: boolean;
   /** Ghost copies per time direction (1..15; the owner default is 4 each way = 8 total). */
@@ -137,6 +144,10 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   // Joining it here would resurrect an opt-out into an opt-in — i.e. it would silently enable
   // a machine-hurting mode for users who never chose it.
   if (typeof r.ultraQuality === "boolean") out.ultraQuality = r.ultraQuality;
+  // Same rule as ultraQuality: a plain read, NO `rearmed` term — an off-by-default instrument
+  // has no boolean default to resurrect, and joining the re-arm would turn an opt-out into an
+  // opt-in.
+  if (typeof r.debugHud === "boolean") out.debugHud = r.debugHud;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
   if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
     out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));

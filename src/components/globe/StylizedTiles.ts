@@ -58,7 +58,12 @@ import {
 } from "../../lib/globe/keyHandoff";
 import { chooseTerrainHit } from "../../lib/globe/terrainPick";
 import { BAKED_REGIONS } from "../../lib/globe/regions";
-import { resolveTerrainBase } from "./scene/terrainPatch";
+import { resolveTerrainBase, terrainPatchStats } from "./scene/terrainPatch";
+import {
+  registerDebugAction,
+  registerDebugProvider,
+  type DebugSnapshot,
+} from "../../lib/globe/debugFeed";
 import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
 import { attachBaseEarth } from "./scene/baseEarth";
 import { attachGraticule } from "./scene/graticule";
@@ -2380,6 +2385,94 @@ export function attachStylizedTiles(opts: {
     },
   );
 
+  // DEBUG HUD (owner 2026-09-01) — the two EXPENSIVE censuses, extracted so the DEV
+  // `ultraLook()` probe below and the HUD's on-demand ACTIONS share one implementation
+  // (the DEV block is statically eliminated from release builds; the HUD is not). Both
+  // TRAVERSE — the terrain one walks the whole ground tile group, the aniso one every live
+  // overlay composite — so neither may ever sit on a poll, let alone a frame.
+  const terrainCastCensus = () => {
+    let meshes = 0;
+    let casting = 0;
+    let frontSideShadow = 0;
+    // Owner defect 3 (2026-08-27): the quantized-mesh SKIRT is what drew a dark band along
+    // every tile boundary once terrain casting shipped. `skirtClipped` counts the casters
+    // that actually carry the depth-pass draw-range clip, and `skirtGroups` the ones whose
+    // geometry has the cap/skirt layout the clip depends on — if the library ever changes
+    // that layout, the two numbers separate instead of the fix silently doing nothing.
+    let skirtClipped = 0;
+    let skirtGroups = 0;
+    ground.tiles.group.traverse((o: THREE.Object3D) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m.material as THREE.Material)?.type !== "MeshBasicMaterial") return;
+      meshes++;
+      if (m.castShadow) casting++;
+      if ((m.material as THREE.Material).shadowSide === THREE.FrontSide) frontSideShadow++;
+      if (Object.prototype.hasOwnProperty.call(m, "onBeforeShadow")) skirtClipped++;
+      const g0 = m.geometry.groups[0];
+      const total = m.geometry.index?.count ?? 0;
+      if (g0 && g0.start === 0 && g0.count > 0 && g0.count < total) skirtGroups++;
+    });
+    return { meshes, casting, frontSideShadow, skirtClipped, skirtGroups };
+  };
+  const anisoCensus = () => {
+    const plugins = (ground.tiles as unknown as { plugins?: unknown[] }).plugins ?? [];
+    const plug = plugins.find(
+      (p) => (p as { overlayInfo?: unknown }).overlayInfo instanceof Map,
+    ) as { overlayInfo: Map<unknown, { tileInfo: Map<unknown, { target?: THREE.Texture }> }> } | undefined;
+    if (!plug) return null;
+    const seen: number[] = [];
+    // RC25: the mip-chain level count per live composite, plus the REAL texture bytes.
+    // `mipMin !== mipMax` would mean two composites disagree about their level count —
+    // under three's (source, cacheKey) sharing that is a silent, intermittent bug, so it
+    // is published rather than argued about. `bytes` is summed from the levels the texture
+    // actually carries, because the library's own accounting scales by 4/3 for AUTO
+    // mipmaps only and would under-report a hand-built chain by exactly the amount that
+    // matters. `mipmaps: []` (the off-state) reports 0, not 1 — the literal the off-state
+    // assertion wants.
+    const mips: number[] = [];
+    let bytes = 0;
+    // `baseBytes` is the SAME textures counted at level 0 only, so `bytes / baseBytes` is
+    // the chain's overhead and nothing else. Comparing an OFF reading against an ON reading
+    // does not give that: the ULTRA chip pins the tier to `high`, which also moves the
+    // composite resolution, and the first run of this check reported ×1.13 for a mix of a
+    // 256²→512² resolution change and the chain. A ratio has to be taken inside one sample.
+    let baseBytes = 0;
+    plug.overlayInfo.forEach(({ tileInfo }) => {
+      tileInfo.forEach((info) => {
+        const t = info.target;
+        if (!t?.isTexture) return;
+        seen.push(t.anisotropy);
+        const chain = (t.mipmaps ?? []) as Array<{ width: number; height: number }>;
+        mips.push(chain.length);
+        const img = t.image as { width?: number; height?: number } | undefined;
+        const w = img?.width ?? 0;
+        const h = img?.height ?? 0;
+        baseBytes += w * h * 4;
+        bytes += chain.length
+          ? chain.reduce((n, l) => n + l.width * l.height * 4, 0)
+          : w * h * 4;
+      });
+    });
+    if (seen.length === 0)
+      return {
+        n: 0, min: null, max: null, mipMin: null, mipMax: null,
+        chained: 0, bytes: 0, baseBytes: 0,
+      };
+    return {
+      n: seen.length,
+      min: Math.min(...seen),
+      max: Math.max(...seen),
+      mipMin: Math.min(...mips),
+      mipMax: Math.max(...mips),
+      /** How many live composites carry a chain. The stamp is CREATION-time, so a mix is
+       *  the EXPECTED state after a flip until the cache turns over — `chained` is what
+       *  separates "the stamp is landing" from "the stamp is landing on everything". */
+      chained: mips.filter((m) => m > 0).length,
+      bytes,
+      baseBytes,
+    };
+  };
+
   // Dev-only introspection so browser verification (Playwright) can read camera altitude and tile
   // state without reaching into the closure. No secrets, no behaviour change.
   if (import.meta.env.DEV) {
@@ -2753,91 +2846,13 @@ export function attachStylizedTiles(opts: {
         })(),
         // S3 terrain casts — counted off the LIVE scene graph rather than off our own flag, so
         // the `shadowSide` trap (which fails silently and casts nothing) cannot pass this.
-        terrain: (() => {
-          let meshes = 0;
-          let casting = 0;
-          let frontSideShadow = 0;
-          // Owner defect 3 (2026-08-27): the quantized-mesh SKIRT is what drew a dark band along
-          // every tile boundary once terrain casting shipped. `skirtClipped` counts the casters
-          // that actually carry the depth-pass draw-range clip, and `skirtGroups` the ones whose
-          // geometry has the cap/skirt layout the clip depends on — if the library ever changes
-          // that layout, the two numbers separate instead of the fix silently doing nothing.
-          let skirtClipped = 0;
-          let skirtGroups = 0;
-          ground.tiles.group.traverse((o: THREE.Object3D) => {
-            const m = o as THREE.Mesh;
-            if (!m.isMesh || (m.material as THREE.Material)?.type !== "MeshBasicMaterial") return;
-            meshes++;
-            if (m.castShadow) casting++;
-            if ((m.material as THREE.Material).shadowSide === THREE.FrontSide) frontSideShadow++;
-            if (Object.prototype.hasOwnProperty.call(m, "onBeforeShadow")) skirtClipped++;
-            const g0 = m.geometry.groups[0];
-            const total = m.geometry.index?.count ?? 0;
-            if (g0 && g0.start === 0 && g0.count > 0 && g0.count < total) skirtGroups++;
-          });
-          return { meshes, casting, frontSideShadow, skirtClipped, skirtGroups };
-        })(),
+        // (Shared with the DEBUG HUD's on-demand action — extracted above the DEV block.)
+        terrain: terrainCastCensus(),
         // §1b anisotropy — sampled off the LIVE composite textures the shader is sampling, not
         // off the value we asked for. Walks the overlay plugin's own maps (overlays → tileInfo →
         // target); a `null` here means the reach broke, which is itself the finding.
-        aniso: (() => {
-          const plugins = (ground.tiles as unknown as { plugins?: unknown[] }).plugins ?? [];
-          const plug = plugins.find(
-            (p) => (p as { overlayInfo?: unknown }).overlayInfo instanceof Map,
-          ) as { overlayInfo: Map<unknown, { tileInfo: Map<unknown, { target?: THREE.Texture }> }> } | undefined;
-          if (!plug) return null;
-          const seen: number[] = [];
-          // RC25: the mip-chain level count per live composite, plus the REAL texture bytes.
-          // `mipMin !== mipMax` would mean two composites disagree about their level count —
-          // under three's (source, cacheKey) sharing that is a silent, intermittent bug, so it
-          // is published rather than argued about. `bytes` is summed from the levels the texture
-          // actually carries, because the library's own accounting scales by 4/3 for AUTO
-          // mipmaps only and would under-report a hand-built chain by exactly the amount that
-          // matters. `mipmaps: []` (the off-state) reports 0, not 1 — the literal the off-state
-          // assertion wants.
-          const mips: number[] = [];
-          let bytes = 0;
-          // `baseBytes` is the SAME textures counted at level 0 only, so `bytes / baseBytes` is
-          // the chain's overhead and nothing else. Comparing an OFF reading against an ON reading
-          // does not give that: the ULTRA chip pins the tier to `high`, which also moves the
-          // composite resolution, and the first run of this check reported ×1.13 for a mix of a
-          // 256²→512² resolution change and the chain. A ratio has to be taken inside one sample.
-          let baseBytes = 0;
-          plug.overlayInfo.forEach(({ tileInfo }) => {
-            tileInfo.forEach((info) => {
-              const t = info.target;
-              if (!t?.isTexture) return;
-              seen.push(t.anisotropy);
-              const chain = (t.mipmaps ?? []) as Array<{ width: number; height: number }>;
-              mips.push(chain.length);
-              const img = t.image as { width?: number; height?: number } | undefined;
-              const w = img?.width ?? 0;
-              const h = img?.height ?? 0;
-              baseBytes += w * h * 4;
-              bytes += chain.length
-                ? chain.reduce((n, l) => n + l.width * l.height * 4, 0)
-                : w * h * 4;
-            });
-          });
-          if (seen.length === 0)
-            return {
-              n: 0, min: null, max: null, mipMin: null, mipMax: null,
-              chained: 0, bytes: 0, baseBytes: 0,
-            };
-          return {
-            n: seen.length,
-            min: Math.min(...seen),
-            max: Math.max(...seen),
-            mipMin: Math.min(...mips),
-            mipMax: Math.max(...mips),
-            /** How many live composites carry a chain. The stamp is CREATION-time, so a mix is
-             *  the EXPECTED state after a flip until the cache turns over — `chained` is what
-             *  separates "the stamp is landing" from "the stamp is landing on everything". */
-            chained: mips.filter((m) => m > 0).length,
-            bytes,
-            baseBytes,
-          };
-        })(),
+        // (Shared with the DEBUG HUD's on-demand action — extracted above the DEV block.)
+        aniso: anisoCensus(),
       }),
       pins,
     };
@@ -2849,6 +2864,303 @@ export function attachStylizedTiles(opts: {
   // 60 fps — log the first, then at most once per ORCH.errorLogThrottleMs with a rolling count.
   let updateErrCount = 0;
   let lastUpdateErrLogMs = -Infinity;
+
+  // ---- DEBUG HUD (owner 2026-09-01) ----------------------------------------------------------
+  // The runtime-gated twin of the DEV `window.__globe` block above: NOT DEV-gated (the ULT
+  // precedent — compiled everywhere, read only while the DBG chip is on), registered with
+  // lib/globe/debugFeed and polled by DebugPanel at ≤4 Hz. Snapshots are FLAT (one key = one
+  // metric row in the panel; display metadata lives in lib/globe/debugCatalog). Cheap field
+  // reads only — the scene walks are the ACTIONS at the bottom. Cumulative counters here are
+  // differenced into rates panel-side; never "fixed" to deltas at the source.
+  const dbgUnregs: Array<() => void> = [];
+  {
+    // Per-renderer queue/stats/LRU snapshot, flattened under a prefix. Same narrow casts as the
+    // DEV u5()/u2() probes: 0.4.28 ships these fields at runtime but declares few of them.
+    const tilesSnap = (out: DebugSnapshot, p: string, t: unknown) => {
+      const r = t as {
+        downloadQueue: { maxJobs: number; items?: unknown[]; currJobs?: number; autoUpdate?: boolean };
+        parseQueue: { maxJobs: number; items?: unknown[]; currJobs?: number; autoUpdate?: boolean };
+        stats?: Record<string, number>;
+        loadProgress?: number;
+        lruCache: {
+          minBytesSize: number;
+          maxBytesSize: number;
+          cachedBytes?: number;
+          itemSet?: Map<unknown, unknown>;
+        };
+      };
+      out[`${p}.dlLen`] = r.downloadQueue.items?.length ?? 0;
+      out[`${p}.dlJobs`] = r.downloadQueue.currJobs ?? 0;
+      out[`${p}.dlMax`] = r.downloadQueue.maxJobs;
+      out[`${p}.parseLen`] = r.parseQueue.items?.length ?? 0;
+      out[`${p}.parseJobs`] = r.parseQueue.currJobs ?? 0;
+      out[`${p}.parseMax`] = r.parseQueue.maxJobs;
+      out[`${p}.frozen`] = r.downloadQueue.autoUpdate === false;
+      out[`${p}.queued`] = r.stats?.queued ?? 0;
+      out[`${p}.downloading`] = r.stats?.downloading ?? 0;
+      out[`${p}.parsing`] = r.stats?.parsing ?? 0;
+      out[`${p}.inCache`] = r.stats?.inCache ?? 0;
+      out[`${p}.visible`] = r.stats?.visible ?? 0;
+      out[`${p}.used`] = r.stats?.used ?? 0;
+      out[`${p}.inFrustum`] = r.stats?.inFrustum ?? 0;
+      out[`${p}.failed`] = r.stats?.failed ?? 0;
+      out[`${p}.progress`] = r.loadProgress ?? null;
+      out[`${p}.lruMB`] = r.lruCache.cachedBytes != null ? r.lruCache.cachedBytes / 1048576 : null;
+      out[`${p}.lruMinMB`] = r.lruCache.minBytesSize / 1048576;
+      out[`${p}.lruMaxMB`] = r.lruCache.maxBytesSize / 1048576;
+      out[`${p}.lruItems`] = r.lruCache.itemSet?.size ?? null;
+    };
+    // The imagery-composite reach (overlay plugin → overlayInfo → tileInfo): live composite
+    // count + the Esri source-z span the level chooser is resolving to. `null`s mean the reach
+    // broke — reported, never thrown (the esriPlaceholder rule).
+    const imageryReach = (out: DebugSnapshot) => {
+      const plugins = (ground.tiles as unknown as { plugins?: unknown[] }).plugins ?? [];
+      const plug = plugins.find(
+        (p) => (p as { overlayInfo?: unknown }).overlayInfo instanceof Map,
+      ) as
+        | {
+            overlayInfo: Map<
+              { calculateLevel?: (range: number[]) => number },
+              { tileInfo: Map<unknown, { range?: number[] | null; target?: unknown }> }
+            >;
+            processQueue?: { items?: unknown[]; currJobs?: number; maxJobs?: number };
+          }
+        | undefined;
+      if (!plug) {
+        out["img.composites"] = null;
+        return;
+      }
+      let composites = 0;
+      let zMin = Infinity;
+      let zMax = -Infinity;
+      plug.overlayInfo.forEach(({ tileInfo }, overlay) => {
+        tileInfo.forEach((info) => {
+          if (!info.target) return;
+          composites++;
+          if (info.range && typeof overlay.calculateLevel === "function") {
+            const z = overlay.calculateLevel(info.range);
+            if (Number.isFinite(z)) {
+              if (z < zMin) zMin = z;
+              if (z > zMax) zMax = z;
+            }
+          }
+        });
+      });
+      out["img.composites"] = composites;
+      out["img.zMin"] = Number.isFinite(zMin) ? zMin : null;
+      out["img.zMax"] = Number.isFinite(zMax) ? zMax : null;
+      // The 10th queue — the overlay compositor's own PriorityQueue (maxJobs 10), which the
+      // visibilitychange freeze does NOT cover (it lives on the plugin, not the renderer).
+      out["img.queueLen"] = plug.processQueue?.items?.length ?? null;
+      out["img.queueJobs"] = plug.processQueue?.currJobs ?? null;
+    };
+    dbgUnregs.push(
+      registerDebugProvider("tiles", () => {
+        const out: DebugSnapshot = {};
+        tilesSnap(out, "bld", buildings.tiles);
+        tilesSnap(out, "gnd", ground.tiles);
+        if (enriched) tilesSnap(out, "enr", enriched.tiles);
+        out["aim.active"] = loadAim.active;
+        out["aim.k"] = loadAim.k;
+        out["lat.bldMeanMs"] = loadProbes.buildings.snapshot().meanMs;
+        out["lat.gndMeanMs"] = loadProbes.ground.snapshot().meanMs;
+        out["lat.enrMeanMs"] = loadProbes.enriched?.snapshot().meanMs ?? null;
+        out["lat.pending"] =
+          loadProbes.buildings.snapshot().pending +
+          loadProbes.ground.snapshot().pending +
+          (loadProbes.enriched?.snapshot().pending ?? 0);
+        out["fovea.on"] = foveaOn;
+        out["fovea.bld"] = buildings.foveaSnapshot().engaged;
+        out["fovea.gnd"] = ground.foveaSnapshot().engaged;
+        out["gnd.bankMsLeft"] = groundBankMsLeft;
+        imageryReach(out);
+        return out;
+      }),
+      registerDebugProvider("ultra", () => ({
+        on: ultraOn,
+        allowed: hqAllowed,
+        settled: ultraLookSettled,
+        sunElevDeg: THREE.MathUtils.radToDeg(
+          Math.asin(THREE.MathUtils.clamp(sunDirW.dot(_focusUp), -1, 1)),
+        ),
+        exposure: renderer.toneMappingExposure,
+        keyLevel: sunLight ? sunLight.intensity / SUN.keyIntensity : null,
+        directK: ultraDirectK,
+        skyLevel: ultraSkyLevel,
+        afterglow: ultraAfterglow,
+        haze: ground.uniforms.uFtwHaze.value as number,
+        photo3d: ground.uniforms.uFtwPhoto3d.value as number,
+        dayMix: ground.uniforms.uFtwUltraLight.value as number,
+        dark: ground.uniforms.uFtwDark.value as number,
+        fade: ground.uniforms.uFtwFade.value as number,
+        "shadow.casting": sunLight ? sunLight.castShadow : null,
+        "shadow.mapPx": sunLight ? sunLight.shadow.mapSize.x : null,
+        "shadow.radius": sunLight ? sunLight.shadow.radius : null,
+        "shadow.boundsM": sunLight ? sunLight.shadow.camera.right : null,
+        "shadow.mPerTexel": sunLight
+          ? (2 * sunLight.shadow.camera.right) / Math.max(1, sunLight.shadow.mapSize.x)
+          : null,
+        "shadow.viewFitM": shadowViewFitM,
+        "shadow.coverM": (() => {
+          let cover = sunLight
+            ? sunLight.shadow.camera.right + _shadowFocus.distanceTo(_eyeGround)
+            : 0;
+          for (let i = 0; i < shadowCascades.length; i++) {
+            if (shadowCascades[i].castShadow && _cascadeState[i].active) {
+              cover = Math.max(cover, _cascadeState[i].halfExtentM);
+            }
+          }
+          return cover;
+        })(),
+        "cas1.active": _cascadeState[0]?.active ?? null,
+        "cas1.mPerTexel": _cascadeState[0]?.metresPerTexel ?? null,
+        "cas1.ageMs":
+          _cascadeState[0] && _cascadeState[0].lastMs > 0
+            ? performance.now() - _cascadeState[0].lastMs
+            : null,
+        "cas2.active": _cascadeState[1]?.active ?? null,
+        "cas2.mPerTexel": _cascadeState[1]?.metresPerTexel ?? null,
+        "cas2.ageMs":
+          _cascadeState[1] && _cascadeState[1].lastMs > 0
+            ? performance.now() - _cascadeState[1].lastMs
+            : null,
+      })),
+      registerDebugProvider("astro", () => ({
+        sampleAgeMs: Number.isFinite(lastSampleMs)
+          ? Math.abs(sceneTimeMs() - lastSampleMs)
+          : null,
+        sunElevDeg: THREE.MathUtils.radToDeg(
+          Math.asin(THREE.MathUtils.clamp(sunDirW.dot(_focusUp), -1, 1)),
+        ),
+        moonElevDeg: THREE.MathUtils.radToDeg(
+          Math.asin(THREE.MathUtils.clamp(moonDirW.dot(_focusUp), -1, 1)),
+        ),
+        moonIllum,
+        moonKs,
+        gastDeg: THREE.MathUtils.radToDeg(gastRad),
+        targetId: lastTargetId,
+        targetMag: targetState?.magnitude ?? null,
+        targetVisible: skyTarget.mesh.visible,
+        "ecl.phase": solarEcl.phase,
+        "ecl.coverage": solarEcl.coverage,
+        "ecl.magnitude": solarEcl.magnitude,
+        "ecl.sepDeg": THREE.MathUtils.radToDeg(solarEcl.sepRad),
+        "ecl.daylightK": eclipseK,
+        "lun.phase": lunarEcl.phase,
+        "lun.umbralMag": lunarEcl.umbralMag,
+        "lun.penumbralMag": lunarEcl.penumbralMag,
+      })),
+      registerDebugProvider("camera", () => ({
+        altM: WGS84_ELLIPSOID.getPositionElevation(camera.position),
+        nearM: camera.near,
+        farM: camera.far,
+        fovDeg: camera.fov,
+        controlsEnabled: controls.enabled,
+        flightActive: flight.active(),
+        exploreState: explore.state(),
+        exploreLegs: explore.legsFlown(),
+        "fpv.active": fpvActive,
+        "fpv.kind": fpvKind,
+        "fpv.yawDeg": THREE.MathUtils.radToDeg(fpvYaw),
+        "fpv.pitchDeg": THREE.MathUtils.radToDeg(fpvPitch),
+        "fpv.eyeM": fpvEyeM,
+        "fpv.eyeAboveGroundM": fpvEyeAboveGroundM,
+        "fpv.walkOffsetM": +fpvWalkOffset.length().toFixed(2),
+        frameCount,
+        updateErrors: updateErrCount,
+      })),
+      registerDebugProvider("terrain", () => {
+        const memo = ground.heightMemoStats();
+        const pick = ground.pickStats();
+        const ph = ground.placeholderStats();
+        return {
+          epoch: ground.terrainEpoch(),
+          overlayRebuilds: ground.overlayRebuilds(),
+          overlayPxEff,
+          "memo.hits": memo.hits,
+          "memo.misses": memo.misses,
+          "memo.entries": memo.entries,
+          "memo.invalidations": memo.invalidations,
+          "memo.overflows": memo.overflows,
+          "pick.samples": pick.samples,
+          "pick.parentWinRate": pick.parentWinRate,
+          "esri.sentinels": ph?.sentinels ?? null,
+          "esri.substituted": ph?.substituted ?? null,
+          "esri.drawn": ph?.drawn ?? null,
+          patchRewrites: terrainPatchStats().rewrites,
+        };
+      }),
+      registerDebugProvider("buildings", () => {
+        const c = enriched?.debugCounts() ?? null;
+        const s = enriched?.seatState() ?? null;
+        return {
+          attached: buildings.tiles.group.parent !== null,
+          enrichedAttached: enriched ? enriched.tiles.group.parent !== null : null,
+          cells: c?.cells ?? null,
+          priorityCells: c?.priorityCells ?? null,
+          deferred: c?.deferred ?? null,
+          rejected: c?.rejected ?? null,
+          seatCacheHits: c?.seatCacheHits ?? null,
+          seatCacheMisses: c?.seatCacheMisses ?? null,
+          seatEpoch: s?.epoch ?? null,
+          seatQuietFrames: s?.quietFrames ?? null,
+        };
+      }),
+      registerDebugProvider("vector", () => {
+        let parsed = 0;
+        let pending = 0;
+        let failed = 0;
+        vtiles.tiles().forEach((v) => {
+          if (v === "pending") pending++;
+          else if (v === "failed") failed++;
+          else parsed++;
+        });
+        const labels = streetNames.census();
+        return {
+          "mvt.parsed": parsed,
+          "mvt.pending": pending,
+          "mvt.failed": failed,
+          "mvt.version": vtiles.version(),
+          "labels.entries": labels.entries,
+          "labels.dying": labels.dying,
+          "labels.budget": labels.budget,
+        };
+      }),
+      registerDebugProvider("planning", () => {
+        const p = planFeed.debug();
+        const bs = bestSpotFeed.debug();
+        return {
+          anchorKind: p.anchorKind,
+          building: p.building,
+          coverage: p.coverage,
+          terrainBin: p.terrainBin,
+          azBins: p.azBins,
+          meshIdx: p.meshIdx,
+          meshCount: p.meshCount,
+          scanAgeMs: p.scanAgeMs,
+          "bs.spawned": bs.workerSpawned,
+          "bs.inFlight": bs.inFlight,
+          "bs.jobs": bs.jobs,
+          "bs.drops": bs.drops,
+          "bs.firstInkMs": bs.timings.firstInkMs,
+          "bs.refinedMs": bs.timings.refinedMs,
+          "bs.ladderRung": bs.ladderRung,
+          // Store-side worker flags served from HERE, not from DebugPanel: store/bestSpot is
+          // VALUE-import-fenced to the seam's owners (fences.test.ts) and this file is one.
+          "bs.solving": useBestSpotStore.getState().solving,
+          "bs.tilesPending": useBestSpotStore.getState().tilesPending,
+        };
+      }),
+      registerDebugAction("buildings.seats", () =>
+        enriched ? enriched.debugSeats() : { error: "no enriched tileset attached" },
+      ),
+      registerDebugAction("ultra.terrainCensus", () => terrainCastCensus()),
+      registerDebugAction(
+        "ultra.anisoCensus",
+        () => anisoCensus() ?? { error: "overlay plugin reach broke" },
+      ),
+    );
+  }
 
   const stepFrameTiming = () => {
         now = performance.now();
@@ -5992,6 +6304,7 @@ export function attachStylizedTiles(opts: {
       // DSM/hulls (up to ~100 MiB at 3 m).
       bestSpotSheet.dispose();
       bestSpotFeed.dispose();
+      for (const u of dbgUnregs) u(); // DEBUG HUD providers/actions die with the globe
       vtiles.dispose();
       earth.dispose();
       graticule.dispose();

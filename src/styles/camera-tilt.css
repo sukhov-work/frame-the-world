@@ -225,12 +225,13 @@
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
-/* The EXPERIMENTAL chip (owner 2026-08-22h, desktop-only, off by default) lights in
-   warn-amber rather than the accent — the same colour the scrubber's pinned knob and the
-   TimeReadout dot use for "this is not the resting state". It is an opt-in experiment that
-   costs tiles and frames, so it should not read as an ordinary view preference. Rendered only
-   when `hqExperimentsAllowed` (CameraTiltPanel), so on /m this selector never matches. */
-.ct-ultra.is-on {
+/* The EXPERIMENTAL chips (ULT owner 2026-08-22h; DBG owner 2026-09-01 — desktop-only, off by
+   default) light in warn-amber rather than the accent — the same colour the scrubber's pinned
+   knob and the TimeReadout dot use for "this is not the resting state". Opt-in instruments
+   that cost frames, so they should not read as ordinary view preferences. Rendered only when
+   `hqExperimentsAllowed` (CameraTiltPanel), so on /m these selectors never match. */
+.ct-ultra.is-on,
+.ct-dbg.is-on {
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-warn) 60%, transparent);
   background: color-mix(in srgb, var(--color-warn) 12%, transparent);

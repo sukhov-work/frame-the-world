@@ -352,7 +352,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         where: { desktop: "Bottom-right stack" },
         keys: ["toggles", "layers", "compass", "bearing", "north", "satellite", "imagery"],
         body:
-          "Nine toggles and the compass rose, over four columns. The deck compacts in " +
+          "Ten toggles and the compass rose, over four columns. The deck compacts in " +
           "first-person view to what matters there.",
         list: [
           "The compass rose — click it to face north.",
@@ -366,6 +366,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "PLC — [[save-onmap|your saved places on the map]].",
           "VEC — the road, river and park ink over the ground.",
           "ULT — [[move-ultra|the experimental quality mode]].",
+          "DBG — a live engine-metrics window for the curious: frame times, tile " +
+            "streaming, shadows, sky positions. Read-only, desktop-only.",
         ],
         tip:
           "The knobs change with the mode: CAM TILT above the row, ROTATE and ZOOM below " +
@@ -374,7 +376,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "move-ultra",
         title: "ULT — the experimental quality mode",
-        where: { desktop: "ULT, last on the camera deck" },
+        where: { desktop: "ULT, on the camera deck" },
         keys: ["quality", "ultra", "hq", "frame rate", "detail"],
         body:
           "The scene normally sheds detail to hold a frame rate on whatever machine it finds. " +

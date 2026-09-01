@@ -70,6 +70,12 @@ export interface PlanFeedHandle {
     building: boolean;
     coverage: number;
     binAltDeg: number[] | null;
+    /** DEBUG HUD (2026-09-01): the sliced build's numerators + the crossing-scan age. */
+    terrainBin: number | null;
+    azBins: number;
+    meshIdx: number | null;
+    meshCount: number | null;
+    scanAgeMs: number | null;
   };
   dispose(): void;
 }
@@ -459,6 +465,14 @@ export function attachPlanFeed(opts: {
       building: !!build && !build.ready,
       coverage: build ? profileCoverage(build.profile) : 0,
       binAltDeg: build ? Array.from(build.profile.altDeg) : null,
+      // DEBUG HUD (owner 2026-09-01): the sliced build's REAL numerators (terrainBin / azBins,
+      // then meshIdx / meshCount) — the "why is the skyline not ready" fraction nothing showed —
+      // plus the crossing-scan's age against PLAN.scanStaleMs.
+      terrainBin: build ? build.terrainBin : null,
+      azBins: PLAN.azBins,
+      meshIdx: build ? build.meshIdx : null,
+      meshCount: build?.meshes?.length ?? null,
+      scanAgeMs: Number.isFinite(lastScanRealMs) ? performance.now() - lastScanRealMs : null,
     }),
     dispose() {
       build = null;

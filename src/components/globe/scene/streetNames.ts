@@ -46,6 +46,9 @@ export interface StreetNamesHandle {
   /** Adaptive quality (RENDERING_QUALITY_PASS WS1): cap the simultaneous label budget on weaker
    *  tiers (STREETS.maxVisible on `high`; fewer on mid/low → fewer textures + selection work). */
   setMaxVisible(n: number): void;
+  /** DEBUG HUD (owner 2026-09-01): live label census — resident entries (dying ones still fade
+   *  in the scene), how many are fading out, and the tier budget. O(entries), poll-safe. */
+  census(): { entries: number; dying: number; budget: number };
   dispose(): void;
 }
 
@@ -410,6 +413,13 @@ export function attachStreetNames(opts: {
     },
     setMaxVisible(n) {
       maxVisibleOverride = Math.max(1, Math.floor(n));
+    },
+    census() {
+      let dying = 0;
+      live.forEach((e) => {
+        if (e.dying) dying++;
+      });
+      return { entries: live.size, dying, budget: maxVisibleOverride };
     },
     dispose() {
       for (const e of [...live.values()]) dropEntry(e);

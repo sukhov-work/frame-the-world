@@ -67,12 +67,23 @@ export function hookTerrainPatch(
       for (const cfg of cfgs) {
         if (patchServesTile(cfg, level, x, y)) {
           tile.content = { uri: patchTileUri(cfg, base, level, x, y) };
+          patchRewrites++;
           break;
         }
       }
     }
     return tile;
   };
+}
+
+// DEBUG HUD (owner 2026-09-01): before this counter, GLO-30 patch tiles were runtime-
+// indistinguishable from CWT ones — a 404'd patch tile degrades silently into a dead leaf.
+// Module-level is fine: one globe per page, and a re-attach keeps counting monotonically.
+let patchRewrites = 0;
+
+/** How many tile content URIs the patch hook has rewritten to GLO-30 this session. */
+export function terrainPatchStats(): { rewrites: number } {
+  return { rewrites: patchRewrites };
 }
 
 /** The fetch claimer — register on the ground TilesRenderer at attach time. */

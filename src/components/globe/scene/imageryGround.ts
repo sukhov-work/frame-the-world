@@ -68,6 +68,9 @@ export interface ImageryGroundHandle {
   /** Monotone count of terrain tiles that have finished loading (BEST SPOT §3.4 item 1). Consumers
    *  compare it per frame and rebuild on change — never a deep scene compare, never per frame. */
   terrainEpoch(): number;
+  /** DEBUG HUD (owner 2026-09-01): overlay fresh-instance rebuild count — the non-DEV twin of
+   *  `window.__overlayRebuilds` (invariant: ≤1 per rung post-boot; any climb is the QA-7b storm). */
+  overlayRebuilds(): number;
   /** RC6 DEV probe (`__globe.terrainPickStats()`) — audit measurement M7: how often the nearest
    *  terrain hit is NOT the finest one, i.e. how often a crossfading coarse parent would have
    *  won the seat. DEV-only counting; the snapshot is safe to read anywhere. */
@@ -1096,9 +1099,15 @@ export function attachImageryGround(
       });
   };
 
+  // DEBUG HUD (owner 2026-09-01) — the NON-DEV twin of `window.__overlayRebuilds`: the HUD is
+  // compiled in release builds where the DEV seam is statically eliminated, and the invariant
+  // it watches (≤1 rebuild per rung post-boot — the QA-7b storm detector) matters most there.
+  let overlayRebuildsN = 0;
+
   return {
     tiles,
     uniforms,
+    overlayRebuilds: () => overlayRebuildsN,
     heightAt(latDeg, lonDeg) {
       // RC11: exact (epoch, lat, lon) memo. The seat sweep is a round-robin over a fixed set of
       // footprints, so after one wrap it asks the SAME questions forever; the terrain epoch (the
@@ -1174,6 +1183,7 @@ export function attachImageryGround(
       // DEV probe (global.d.ts registry): the sticky-composite invariant is "≤1 rebuild per
       // session post-boot" — browser verification asserts THIS counter, because raw Esri GET
       // counts also carry the pre-existing LRU rest-trim churn and can't isolate the storm.
+      overlayRebuildsN++;
       if (import.meta.env.DEV) {
         window.__overlayRebuilds = (window.__overlayRebuilds ?? 0) + 1;
       }

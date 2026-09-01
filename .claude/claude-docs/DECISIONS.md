@@ -346,6 +346,134 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 
 ## Recent sessions (verbatim, newest first)
 
+### 2026-09-01d — BOTH MESH-SUITE RECOMMENDATIONS RATIFIED + the NO-REGRESSION CONTRACT made binding; session closed, next one starts MS0
+
+Owner ratified: **osmId migration folds into MS3 pre-activation** (zero data migration while
+the table is empty) and **XZ-scale semantics** (`sy` replaces legacy `k` with legacy-read
+kept; XZ about the centroid; neighbour overlap accepted). **Binding constraint added as
+`MESH_SUITE_PLAN.md` §4a**: the migration and the 3-axis scale must support everything that
+already exists worldwide and feature-wise with NO regression into rendering, re-seating, the
+custom OSM building pipelines, or astro/planning/FPV — concretely: legacy `k`-rows behave
+identically · dual-key osmId+fingerprint with per-variant sidecar-coverage verification
+FIRST (never a hard cutover) · identity transforms reproduce the incremental writer exactly
+· every existing verify harness stays green · zero per-frame cost on unedited cells. Owner
+will re-auth the connected MCPs + mcp-s CLI before the next session. MS0 remainder: the one
+empirical media probe + two doc-drift fixes → `/frame` design into MS1. Backlog T74 updated.
+
+### 2026-09-01c — MESH SUITE rulings landed the same evening: D3 ships as a FULLY OPEN POC with NO model quota (a density WARNING + a new default-ON "all custom models" deck chip instead), and the four platform unknowns collapsed into one empirical probe
+
+Owner rulings on the 2026-09-01b plan: **(1) D3 governance = fully open POC** — no
+moderation now, moderate later if needed (subsumes U8's open vandalism-posture question);
+**(2) model quota = NO LIMITS** — replaced by a physical-density warning (metric designed at
+MS5) plus a **new deck chip toggling all custom models on/off, ON by default** (BLD recipe);
+per-file caps stay as upload validation. Explained on request and left as MS0 ratifications
+with recommendations attached: the re-bake silent-drop mechanism and the **osmId migration
+(recommended INTO MS3, pre-activation — the server table is empty so it costs zero data
+migration)**, and XZ-scale semantics (recommended: `sy` replaces `k` in v2, XZ about the
+centroid, neighbour overlap accepted). Platform probe (public dev.wix.com + support docs;
+the internal docs-schema MCP needs an SSO re-login): **MODEL3D confirmed as a public
+mediaType enum; .gltf/.glb supported; 25 MB is the only published size figure (File-Share-
+sourced, soft)**; URL-expiry semantics, wixstatic CORS/Range for GLB, the true 3D cap and
+the ingest-status walk are documented no further — **all four now = ONE 15-minute empirical
+MS0 probe** (upload a tiny GLB → descriptor verbatim → curl -I with Origin+Range → re-curl
+for expiry). `MESH_SUITE_PLAN.md` §1/§3/§4 updated in place; memory
+`mem:project/wip-2026-09-01-mesh-suite-plan` §rulings.
+
+### 2026-09-01b — MESH SUITE PLANNED: gizmos (D1) · world-synced overrides (D2) · user-uploaded models (D3) — four research tracks, a slice ladder MS0–MS6, and the finding that D2 is an ACTIVATION of a backend that already exists
+
+**Owner order (same session, after DBG shipped):** build on U8 in three directions — full
+move/rotate/scale gizmo suite per mesh (Blender-style, reversible, originals always shown,
+extrude stays) · server-persisted world-shared overrides (login-gated, last-committer-wins,
+distinct highlight) · logged-in users upload their OWN meshes (auto ground-fit, D1 tooling
+for final fit, UPLOAD HERE modal forked photo|model, format + storage research, per-uploader
+delete/hide, everyone can re-edit). **Canonical plan: `MESH_SUITE_PLAN.md`** ·
+`mem:project/wip-2026-09-01-mesh-suite-plan`. Four parallel research tracks (88–92 %):
+**(1) U8 substrate** — key grammar is `<variant>|<cellUri>|<featureId>` and LWW is structural
+(FNV-1a `_id` + bulkSave); contracts.md's `osmId` + "LWW by updatedAt" claims are DOC DRIFT
+(fix at MS0). The D2 endpoint/validation/dirty-tracking are WRITTEN AND TESTED with zero
+callers; provisioning has never run (both verbs 502); the boot-fetch injection point
+(`enrichedBuildings.ts:892`) needs zero engine change — **D2 is an activation, not a build.**
+The scalar neutrality rule (`|k−1|<0.005` deletes the row) would wrongly delete a
+rotated-but-unscaled row — must become identity-across-all-components.
+**(2) Mesh anatomy** — the one writer (`applyFeatureSeats`) is INCREMENTAL and only survives
+because Y-translate/Y-scale commute; D1's design is lazy pristine-snapshot + ABSOLUTE
+recompose about pivot `(cx+tx, baseY, cz+tz)`, preview on a generalized ghost, commit on
+release, `addUpdateRange` for drags. The glTF local frame is gizmo-perfect (+X east, +Y up,
+−Z north). Landmines named: one-shot `ensureLocated` (a moved feature re-seats to its OLD
+footprint), sphere-only bounds (raycast checks the BOX → unpickable-but-visible), party-wall
+edge-CSR collisions, whole-buffer re-upload, pristine `cx/cz` = the checksum. **Stock ion
+tiles are NOT feature-addressable — building edits scope to enriched + user meshes; trees
+deferred (yaw/uniform-XZ only when taken).**
+**(3) Gizmo/formats** — three 0.185 TransformControls (r169+ class) fits: `getHelper()`,
+`dragging-changed`→GlobeControls.enabled, and `minY/maxY` clamps ARE the ground/sky rail;
+TRAP: GlobeControls raycasts the whole scene and Raycaster ignores `visible` → the gizmo
+needs a dedicated camera LAYER; proxy carries an ENU quaternion, space:'local'. **GLB
+canonical**; accept glb/gltf/obj/fbx and normalize client-side (GLTFExporter, free texture
+downscale); **MeshoptSimplifier ships with embedded wasm → auto-decimate over-budget
+uploads**; decoder wasm follows the libraw hashed-asset pattern (no `public/wasm/`). Caps
+proposed for ratification: 100k tris / 2048² ≤8 tex / ≤25 meshes / 15 MB raw / 8 MB GLB.
+**(4) Platform/storage** — the photo|model fork seam is `DropStep.onFiles`+ACCEPT+a new
+store phase (today there is NO file validation anywhere — models add the first server mime
+allowlist). **Storage verdict: Option C** — Wix Media holds the bytes (MODEL3D is
+first-class), a new `UserModels` collection is the source of truth, R2 stays in reserve (the
+Worker is strictly read-only with no auth primitive). ★ Four blocking platform unknowns for
+Wix MCP at MS0: public MODEL3D `urlExpirationDate`; wixstatic CORS+Range for
+`model/gltf-binary`; per-file cap; GLB ingest readiness (`onFileDescriptorFileReady` has
+NEVER been wired). **Governance is an owner decision before D3 ships**: no moderation, no
+takedown, no attribution exists today (dated accepted POC risk); plus U8's open vandalism
+posture + label field; plus re-bakes silently DROP shared world edits (checksum). Slice
+ladder: MS0 ratify+probes → MS1 transform substrate → MS2 gizmo UI → MS3 D2 activation →
+MS4 upload pipeline → MS5 placement → MS6 management/world-edit. Backlog **T74**. Next
+session starts at MS0 (`MESH_SUITE_PLAN.md` §5 has the recipe).
+
+### 2026-09-01 — THE DBG CHIP: a game-engine-grade debug window (151 metrics + 3 actions, every one with a technical note), built on an ALWAYS-COMPILED twin of the DEV seams — plus two owner rulings recorded (BEST SPOT is sufficient as-is; the shadow issue is NOT closed)
+
+**Owner rulings first (both change standing plans):** (1) **BEST SPOT / the heatmap is
+sufficient as implemented** — UX + algorithm improvements maybe later; the park stands and T59
+stays open but un-urgent. (2) **The 2026-08-27b/c shadow work did NOT fully fix the owner's
+issue** — the topic re-opens in a later session; do not treat that round as closing it.
+
+**Shipped: the desktop-only `DBG` chip (off by default, warn-amber beside ULT) opening a
+floating, resizable, filterable debug window** — design + AS BUILT: `DEBUG_HUD_PLAN.md`;
+memory `mem:project/wip-2026-09-01-dbg-hud`. The architecture call that shapes everything:
+the DEV `window.__*` seams are statically eliminated from release builds, so the HUD rides a
+NEW always-compiled seam, `lib/globe/debugFeed.ts` (the ULT precedent — runtime chip-gated,
+ships everywhere), with three surfaces matched to three cost classes: per-frame SERIES
+(pre-allocated rings; one boolean per push site while off) · flat-snapshot PROVIDERS polled
+by the panel at 250 ms/1 s (throw→null, never a crash) · ACTIONS for the scene walks
+(debugSeats, the terrain/aniso censuses — extracted OUT of the DEV `ultraLook()` block so
+DEV probe and HUD share one implementation). Counter discipline is structural:
+`makeRateTracker` differences every cumulative counter into a rate in ONE place (RC11).
+`renderer.info` — read by NOTHING before this session (grep-proven) — now runs
+`autoReset=false` with one reset per rAF before the draw block, so calls/triangles truthfully
+cover shadow+composer+PiP; GPU time is a real `EXT_disjoint_timer_query_webgl2` ring
+(`lib/globe/debugGpuTimer.ts`, measured 7.3 ms in the harness, "—" where unsupported). The
+panel (`panels/DebugPanel.tsx`, Guide window grammar, drag/resize key "dbg", z 42) re-renders
+React ONLY on filter/collapse — values and sparklines are imperative ref writes at 10 Hz, so
+the store-mirror discipline holds. New cheap engine seams the research ranked highest:
+`enrichedBuildings` **`deferred`/`rejected` running counters** (the null-terrain burn rate
+that would have shown the RC7 49.7 % stall) + `debugCounts()` · `imageryGround.
+overlayRebuilds()` (non-DEV twin of the QA-7b storm detector) · `terrainPatchStats()` (0
+rewrites inside a patched region = GLO-30 silently dead) · planFeed build progress
+(terrainBin/120 — the "why is the skyline not ready" fraction) + scan age ·
+`streetNames.census()` · the imagery reach (live composite count, Esri source-z min/max via
+`calculateLevel`, and the 10th queue — ImageOverlayPlugin's own processQueue, which the
+visibility freeze does NOT cover). Pref `debugHud` = the ultraQuality recipe verbatim.
+**Fence catches:** `store/bestSpot` is VALUE-import-fenced to seam owners — the panel may not
+import it (worker flags ride the engine `planning` provider); `.ct-dbg.is-on` hand-added to
+the lit list (the twice-shipped trap). Guide `move-deck` corrected Nine→Ten toggles + a DBG
+line; `move-ultra` is no longer "last on the deck" (goldens survived, 97/97).
+**Gates: vitest 2,231/2,231 (148 files, +21) · astro 0 err/0 warn/8 hints · knip exit-0 ·
+NEW `scripts/verify-debughud.mjs` 17/17 ALL PASS** (headless :9333; shots
+`verify-shots/debughud-01..04`): chip renders/lights/persists both ways, panel mounts/unmounts,
+FPS header + frame-Δt numeric and MOVING between samples, gnd-visible 29 + sun −13.1° engine
+truth, filter 154→19 rows, terrain-census action runs. **Two new traps, encoded in the
+harness:** the WELCOME overlay covers the chrome so DOM assertions pass under a screenshot of
+the landing (dismiss `.wl-btn--primary` first, shoot after the rings fill); CDP
+`Runtime.evaluate` without `awaitPromise:true` returns the PROMISE and every field reads
+undefined. Tails (T73, non-blocking): imagery-z full histogram · geoLabels census · an
+/m-negative harness leg · owner taste pass on density/order/default size.
+
 ### 2026-08-27d — THE GUIDE HAD NOT ONE WORD ABOUT BEST SPOT: a whole shipped subsystem, its owner QA batch and the ULT chip all landed AFTER the guide froze on 2026-08-22, so the manual has been describing a version of the app that stopped existing five days ago
 
 **Pure docs session.** One runtime file edited — `src/lib/guide/guideContent.ts`, which is content

@@ -198,6 +198,17 @@ export interface EnrichedBuildingsHandle {
    *  `quietFrames` counts frames since the last write. The orchestrator invalidates a ready
    *  skyline profile once per settled epoch (PLAN.reseatQuietFrames). */
   seatState(): { epoch: number; quietFrames: number };
+  /** DEBUG HUD (owner 2026-09-01): cheap running counters — plain field reads, poll-safe.
+   *  `deferred` counts null-TERRAIN sample deferrals (the burn rate debugSeats()'s `unseated`
+   *  backlog cannot show); `rejected` is the running twin of the per-cell gate counter. */
+  debugCounts(): {
+    cells: number;
+    priorityCells: number;
+    deferred: number;
+    rejected: number;
+    seatCacheHits: number;
+    seatCacheMisses: number;
+  };
   /** U8 pick: raycast the enriched fill meshes; the first qualifying hit resolves through the
    *  cached run table. RC17 qualifies on the sidecar's CLASS token (Building family only, so an
    *  o2w fence/lamp/pylon is skipped and whatever stands behind it answers), falling back to the
@@ -656,6 +667,10 @@ export function attachEnrichedBuildings(
   let treeSweep = 0; // ditto for tree sampling
   let seatEpochN = 0;
   let seatQuietN = 0;
+  // DEBUG HUD (owner 2026-09-01) — running totals for the cheap `debugCounts()` accessor: the
+  // per-cell twins live on CellSeat and are only reachable through debugSeats()'s full walk.
+  let deferredN = 0; // null-TERRAIN sample deferrals (acceptSample h == null)
+  let rejectedN = 0; // plausibility-gate rejections (twin of the per-cell `rejected`)
   const _w = new THREE.Vector3();
   const _m5 = new THREE.Vector3(); // RC0 M5 scratch (bake-height capture, once per cell)
   /** RC7 — cells sorted by look-biased distance, truncated to `reseatPriorityCells`. */
@@ -1018,10 +1033,18 @@ export function attachEnrichedBuildings(
     return Math.max(ENRICHED.reseatFeatureMaxDeltaM, observed * ENRICHED.reseatReliefK);
   };
   const acceptSample = (h: number | null, cell: CellSeat): number | null => {
-    if (h == null || cell.seatM == null) return null;
+    // DEBUG HUD (owner 2026-09-01): `null` here has TWO causes and only rejection was counted —
+    // the RC7 convergence stall (49.7 % with a full budget spent) was exactly the uncounted one,
+    // a budget burning on footprints whose terrain had not loaded. Count the burn rate.
+    if (h == null) {
+      deferredN++;
+      return null;
+    }
+    if (cell.seatM == null) return null;
     const c = clampGroundM(h);
     if (Math.abs(c - cell.seatM) > cellGateM(cell)) {
       cell.rejected++;
+      rejectedN++;
       return null;
     }
     if (c < cell.reliefLoM) cell.reliefLoM = c;
@@ -1381,6 +1404,17 @@ export function attachEnrichedBuildings(
       uniforms.uFtwSunW.value.copy(sunW);
     },
     seatState: () => ({ epoch: seatEpochN, quietFrames: seatQuietN }),
+    // DEBUG HUD (owner 2026-09-01) — the CHEAP counters: plain field reads, safe at poll
+    // cadence. Everything richer (per-cell breakdowns, m5 rings, skirt/pickFence walks) stays
+    // behind debugSeats(), which walks every cell × part × feature and is action-only.
+    debugCounts: () => ({
+      cells: cellList.length,
+      priorityCells: priorityCells.length,
+      deferred: deferredN,
+      rejected: rejectedN,
+      seatCacheHits,
+      seatCacheMisses,
+    }),
     pickBuilding(raycaster) {
       // Fill meshes keep default raycast; edges/trees/ghost are noop'd — hits here are either
       // registered building fills or upstream scenery, and only the former resolve.

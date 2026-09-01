@@ -223,6 +223,15 @@ export interface CameraState {
    *  StylizedTiles. Nothing outside that file may read this field — `fences.test.ts` pins it. */
   ultraQuality: boolean;
   setUltraQuality: (on: boolean) => void;
+  /** DBG — the DESKTOP-ONLY debug HUD chip (owner 2026-09-01). Defaults **false** like its
+   *  `ultraQuality` neighbour and for the same reason: an opt-in instrument, never a default.
+   *  The same shared-blob caveat applies — the value WILL be true on `/m` for a user who
+   *  enabled it on desktop; the fence is the desktop predicate at the chip
+   *  (`hqExperimentsAllowed`) and the DebugPanel's own gate, not this field. Unlike
+   *  `ultraQuality` it is observation-only (opens the metrics window + activates debugFeed
+   *  collection) and moves no engine lever, so the ULTRA `OWNERS` fence does not apply. */
+  debugHud: boolean;
+  setDebugHud: (on: boolean) => void;
   /** One-shot "stand in this first-person viewpoint" request (saved places, owner 2026-07-15):
    *  the full `#f=` pose. The orchestrator consumes it next frame — drops a temp pin at the
    *  location and enters temp-pin FPV through the exact share-link path (same basis/eye/FOV
@@ -344,6 +353,12 @@ export const useCameraStore = create<CameraState>((set) => ({
   setUltraQuality: (on) => {
     saveViewPref("ultraQuality", on);
     set({ ultraQuality: on });
+  },
+  // `?? false` on purpose — the debug HUD is an opt-in instrument (see the interface docblock).
+  debugHud: stored.debugHud ?? false,
+  setDebugHud: (on) => {
+    saveViewPref("debugHud", on);
+    set({ debugHud: on });
   },
   fpvJumpRequest: null,
   requestFpvJump: (pose) => set({ fpvJumpRequest: pose }),

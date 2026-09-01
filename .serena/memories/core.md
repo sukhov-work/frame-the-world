@@ -178,7 +178,20 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**THE RENDERING CHARTER IS CLOSED — RC16 and RC21 both shipped 2026-08-26d and no RC row is open.**
+**2026-09-01: the DBG DEBUG HUD SHIPPED** — desktop-only `DBG` chip (off by default, beside ULT)
+→ floating/resizable/filterable window: 151 metrics + 3 actions across 15 groups, every one
+with a technical note, on the NEW always-compiled `lib/globe/debugFeed` seam (the ULT
+precedent — the DEV `window.__*` seams are release-eliminated). Gates 2,231/2,231 · astro 0/0/8
+· knip 0 · NEW `verify-debughud.mjs` 17/17. Docs: `DEBUG_HUD_PLAN.md` ·
+`mem:project/wip-2026-09-01-dbg-hud` · DECISIONS 2026-09-01 · tails T73.
+**Owner rulings 2026-09-01: BEST SPOT is SUFFICIENT as implemented (improvements later, owner-
+initiated); the 2026-08-27 shadow round did NOT close the shadow issue — it re-opens later.**
+**NEXT TRACK ORDERED (2026-09-01b): the MESH SUITE** — D1 move/rotate/scale gizmos ·
+D2 world-synced overrides (an ACTIVATION of the dormant U8 backend) · D3 user-uploaded
+models. Plan: `MESH_SUITE_PLAN.md` (slices MS0–MS6) · `mem:project/wip-2026-09-01-mesh-suite-plan`
+· DECISIONS 2026-09-01b · backlog T74. **Next session starts at MS0** (owner rulings +
+4 Wix MCP platform probes + 2 doc-drift fixes). Freshest state always `NEXT_SESSION_PROMPT.md`.
+Prior: **THE RENDERING CHARTER IS CLOSED — RC16 and RC21 both shipped 2026-08-26d and no RC row is open.**
 RC16 shipped **without the margin bake the audit sized it for**: `scripts/bake/measure-straddlers.mjs`
 decomposed `droppedOutside` and found it was **two populations wearing one name** — 96–99.9 % is
 DISJOINT geometry from OSM2World's relation-recursed extract (median 761 m / 40 km / 36 km outside,

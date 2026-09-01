@@ -3902,3 +3902,30 @@ export const ORCH = {
    *  with a rolling count — a persistent error must not flood the console at 60 fps (B26). */
   errorLogThrottleMs: 2_000,
 } as const;
+
+/** DEBUG HUD — the desktop-only `DBG` chip's floating metrics window (owner 2026-09-01;
+ *  design: claude-docs/DEBUG_HUD_PLAN.md). Cadence contract: the ENGINE pushes only the
+ *  per-frame series (lib/globe/debugFeed) — everything else is PULLED by the panel at the
+ *  cadences below, so closing the window (or never opening it) costs the frame loop exactly
+ *  one boolean check per push site. All values browser-VERIFIED at ship (2026-09-01). */
+export const DEBUGHUD = {
+  /** Per-frame ring capacity (samples). 240 ≈ 4 s at 60 fps — enough for p95/1 %-low to be
+   *  meaningful without smearing a tier flip across the whole graph. Must stay ≤ 4096 (the
+   *  stats scratch in debugFeed). */
+  ringCapacity: 240,
+  /** UI repaint cadence (ms) — sparkline redraw + value text writes, imperative (no React
+   *  re-render). 100 ms = 10 Hz: readable motion, ~0.3 ms per pass measured. */
+  uiTickMs: 100,
+  /** Fast provider poll (ms) — cheap engine snapshots (queues, uniforms, pose). */
+  fastPollMs: 250,
+  /** Slow provider poll (ms) — snapshots that walk something bounded (MVT census O(56),
+   *  imagery-z reach over live composites) or call an ephemeris entry point (astro az/alt:
+   *  the 1 Hz floor mirrors SKY.sampleIntervalMs — never put astronomy-engine on a frame). */
+  slowPollMs: 1_000,
+  /** Sparkline geometry (CSS px) — device-pixel-snapped at draw time. */
+  sparkWidthPx: 148,
+  sparkHeightPx: 26,
+  /** GPU timer query ring depth — results arrive 1–5 frames late, so the ring must hold a
+   *  few in flight; 8 covers the worst observed lag with slack. */
+  gpuQueryRing: 8,
+} as const;
