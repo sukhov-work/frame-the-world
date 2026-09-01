@@ -52,6 +52,15 @@ filename (`verify-shots/<phase>-<nn>-<what>.jpeg`).
   at 1e-3) needs ~6.2τ: a 1.2 s settle read 0.9983 and failed "must be exactly 1". The ease was
   correct and the wait was not — which is the failure that looks most like a real bug. Waits for
   steady-state assertions come from the tunable, never from a round number.
+- **A cold profile is a different machine (2026-09-02).** `verify-ultra` §1b ("anisotropy
+  stamped on composites created after the flip") went red twice on a fresh headless profile
+  and green on a warm one — the flip window streams too few NEW composites on a cold imagery
+  cache, so `aniso.max` stays 1 with nothing wrong. A fresh profile per suite retires the
+  context-exhaustion and pref-carry-over traps, but a suite whose assertion counts what streams
+  inside a window must run on a WARMED profile (run it second, or twice). And a comparator is
+  only a comparator on the SAME warmth: stash-vs-tree on different caches proved nothing.
+- **A diagnostic Chrome beside a timed suite is contention.** Two headless instances on one
+  GPU halved the tile counts of the suite that was running; run diagnostics between suites.
 - **A body 0.5° across is ~16 px at a wide FOV.** Verifying a lunar/solar disc detail (an umbral
   edge, a copper gradient, a carved silhouette) at the default framing shoots a picture in which
   the thing under test is invisible. Aim the pose at the almanac's OWN topocentric az/alt for that

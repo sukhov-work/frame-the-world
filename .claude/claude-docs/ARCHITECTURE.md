@@ -217,7 +217,7 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
   sunEventFrame, moonCalendar, targets, topo, comet, eclipse — see §4), `sky/` (catalog, searchIndex, messier,
   openngc, ngcNames, constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache),
-  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant — best-variant
+  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant, `featureTransform` + `bldgOverrides` (MESH SUITE MS1 2026-09-02: the per-building spatial edit — v2 rows, rails, the absolute recompose math; as-built `MESH_SUITE_PLAN.md` §6) — best-variant
   selection, rewritten 2026-08-18p, regions — the baked-region REGISTRY: bboxes/variants/
   terrain patches, the ONE source (2026-08-18p, `BAKED_ASSETS.md` §4), loadPriority — the U5
   pure download comparator, 0.4.28-parity, 2026-08-18), `geo/` also carries `slippy` (U3 tile

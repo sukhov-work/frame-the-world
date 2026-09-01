@@ -7,6 +7,7 @@ import {
   bboxToRadians,
   csrFromRunIds,
   featureRunsOf,
+  mapSegmentsToRuns,
   mapVertsToRuns,
   planeDistance,
   regionCenterDeg,
@@ -14,6 +15,7 @@ import {
   runIndexOfVertex,
   seatStep,
   vertexKeyToRun,
+  vertexKeyToRunWithCollisions,
   type GeoBbox,
 } from "../../../src/lib/globe/enrichedMask";
 import { geodeticToEcef, length } from "../../../src/lib/geo/projection";
@@ -223,5 +225,50 @@ describe("enrichedMask — per-feature run helpers (owner 2026-07-14 per-buildin
     const keyMap = vertexKeyToRun(src, runs);
     expect(keyMap.get("5|0|0")).toBe(0); // first wins
     expect(Array.from(mapVertsToRuns([5, 0, 0], keyMap))).toEqual([0]);
+  });
+});
+
+describe("enrichedMask — party-wall edge attribution (MESH SUITE MS1, 2026-09-02)", () => {
+  // Two prisms A (run 0, x 0..5) and B (run 1, x 5..9) sharing the wall x = 5: the two posts
+  // (5,0,0) / (5,3,0) are claimed by both. The "edge geometry" is non-indexed segments, two
+  // vertices each, exactly as EdgesGeometry emits them.
+  const fill = [
+    0, 0, 0, 5, 0, 0, 5, 3, 0, 0, 3, 0, // A
+    5, 0, 0, 9, 0, 0, 9, 3, 0, 5, 3, 0, // B
+  ];
+  const runs = featureRunsOf([1, 1, 1, 1, 2, 2, 2, 2]);
+
+  it("vertexKeyToRunWithCollisions keeps first-wins and lists every claimant of a shared position", () => {
+    const { map, collisions } = vertexKeyToRunWithCollisions(fill, runs);
+    expect(map.get("5|0|0")).toBe(0);
+    expect(map.get("9|0|0")).toBe(1);
+    expect(collisions.get("5|0|0")).toEqual([0, 1]);
+    expect(collisions.get("5|3|0")).toEqual([0, 1]);
+    expect(collisions.has("0|0|0")).toBe(false);
+    expect(collisions.size).toBe(2);
+  });
+
+  it("mapSegmentsToRuns keeps B's stroke on B when one end is the shared corner; the shared post goes to the first run", () => {
+    const { map, collisions } = vertexKeyToRunWithCollisions(fill, runs);
+    const edges = [
+      0, 0, 0, 5, 0, 0, // A's bottom edge (one end shared) → A
+      5, 0, 0, 9, 0, 0, // B's bottom edge (one end shared) → B — first-wins said A and stretched it
+      5, 0, 0, 5, 3, 0, // the party-wall post (both ends shared) → lowest claimant, A
+      9, 0, 0, 9, 3, 0, // B-only → B
+      7, 7, 7, 8, 8, 8, // foreign → −1
+    ];
+    expect(Array.from(mapSegmentsToRuns(edges, map, collisions))).toEqual([
+      0, 0, 1, 1, 0, 0, 1, 1, -1, -1,
+    ]);
+    // the legacy per-vertex answer for B's bottom edge really was split across the two runs
+    expect(Array.from(mapVertsToRuns(edges, map)).slice(2, 4)).toEqual([0, 1]);
+    // and the CSR built from the per-segment answer is well-formed
+    const csr = csrFromRunIds(mapSegmentsToRuns(edges, map, collisions), runs.length);
+    expect(Array.from(csr.offsets)).toEqual([0, 4, 8]);
+  });
+
+  it("an odd trailing vertex (never emitted by EdgesGeometry) is left unmatched, not crashed on", () => {
+    const { map, collisions } = vertexKeyToRunWithCollisions(fill, runs);
+    expect(Array.from(mapSegmentsToRuns([0, 0, 0, 5, 0, 0, 9, 0, 0], map, collisions))).toEqual([0, 0, -1]);
   });
 });

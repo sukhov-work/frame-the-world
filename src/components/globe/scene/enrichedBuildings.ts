@@ -22,12 +22,12 @@ import {
   bboxCenterDeg,
   csrFromRunIds,
   featureRunsOf,
-  mapVertsToRuns,
+  mapSegmentsToRuns,
   regionCenterDeg,
   runCentroid,
   runIndexOfVertex,
   seatStep,
-  vertexKeyToRun,
+  vertexKeyToRunWithCollisions,
   type FeatureRun,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
@@ -36,7 +36,23 @@ import {
   NEUTRAL_K_EPS,
   SCALE_MAX_K,
   SCALE_MIN_K,
+  XF_RAILS,
 } from "../../../lib/globe/bldgOverrides";
+import {
+  boundsGrowthM,
+  clampXf,
+  easeXf,
+  IDENTITY_XF,
+  isExactIdentityXf,
+  isIdentityXf,
+  pristineFromIncremental,
+  pristineIndexed,
+  recomposeIndexed,
+  recomposeVerts,
+  runRadiusXZ,
+  type FeatureTransform,
+  type SpatialXf,
+} from "../../../lib/globe/featureTransform";
 import {
   type CellMeta,
   cellUriOf,
@@ -142,8 +158,10 @@ export interface BuildingPick {
   /** RC17 class token, null on a bake with no sidecar. */
   cls: string | null;
   bakedHeightM: number;
-  /** Committed scale target (1 = original). */
+  /** Committed height-scale target (1 = original) — `current.sy`, kept for the U8 callers. */
   currentK: number;
+  /** MS1: the committed FULL edit target (height scale + spatial components). */
+  current: FeatureTransform;
   distance: number;
   cx: number;
   cz: number;
@@ -218,17 +236,46 @@ export interface EnrichedBuildingsHandle {
   /** U8 commit: set a building's height-scale target (1 = original). The next frames ease the
    *  REAL mesh there inside applyFeatureSeats (fill + edge CSR + bounds pad + committed tint). */
   setHeightScale(cellUri: string, featureId: number, k: number): void;
+  /** MESH SUITE MS1: set a building's FULL edit target — height scale + the spatial components
+   *  (rails applied: absolute scale band, translate radius, lift ≥ 0). Spatial components put
+   *  the run on the absolute-recompose path (pristine snapshot on first use); an identity
+   *  target lets it fall back to the incremental fast path once the ease settles. The ONE
+   *  entry point the load re-apply, the U8 height commit and the MS2 gizmo share. */
+  setTransform(cellUri: string, featureId: number, t: FeatureTransform): void;
+  /** MS1: the committed TARGET, the currently APPLIED transform (easing toward it) and the
+   *  row-building facts (pristine checksum triple + baked height), or null while unloaded. */
+  featureState(
+    cellUri: string,
+    featureId: number,
+  ): {
+    target: FeatureTransform;
+    applied: FeatureTransform;
+    cx: number;
+    cz: number;
+    vc: number;
+    bakedHeightM: number;
+  } | null;
   /** U8 ghost preview (drag-time). `showGhost` builds the rebased semi-transparent copy over the
    *  solid original (false = cell not loaded); `setGhostK` is the live drag scale; `hideGhost`
-   *  removes + disposes. At most one ghost exists. */
+   *  removes + disposes. At most one ghost exists. MS1: the ghost is the PRISTINE run about its
+   *  pivot and carries the feature's live transform as Object3D writes, so `setGhostXf` (the MS2
+   *  gizmo preview) drives position / yaw / XZ scale with zero geometry rewrites. */
   showGhost(cellUri: string, featureId: number): boolean;
   setGhostK(k: number): void;
+  setGhostXf(xf: SpatialXf): void;
   hideGhost(): void;
   /** U8 armed-run tint — the RAW baked feature id (null = disarm). */
   setArmedId(featureId: number | null): void;
   /** U8: world position of the building's roof centre at height-scale `k` (the pinned
-   *  dual-height label anchor). False when the cell isn't loaded. */
-  buildingTopWorld(cellUri: string, featureId: number, k: number, out: THREE.Vector3): boolean;
+   *  dual-height label anchor). False when the cell isn't loaded. MS1: follows the APPLIED
+   *  spatial transform, or `xf` when the caller previews one (the MS2 gizmo drag). */
+  buildingTopWorld(
+    cellUri: string,
+    featureId: number,
+    k: number,
+    out: THREE.Vector3,
+    xf?: SpatialXf,
+  ): boolean;
   /** DEV introspection (window.__globe) — per-feature re-seat coverage + applied-delta spread. */
   debugSeats(): {
     cells: number;
@@ -239,6 +286,8 @@ export interface EnrichedBuildingsHandle {
     featureAppliedMaxM: number | null;
     /** U8: features with a non-neutral height-scale target (browser-verify probe). */
     overridden: number;
+    /** MS1: features currently on the absolute-recompose path (carrying a spatial transform). */
+    spatial: number;
     trees: number;
     treesSampled: number;
     epoch: number;
@@ -315,7 +364,7 @@ export function attachEnrichedBuildings(
     overrides?: {
       forCell(
         cellUri: string,
-      ): Array<{ featureId: number; k: number; cx: number; cz: number; vc: number }>;
+      ): Array<{ featureId: number; xf: FeatureTransform; cx: number; cz: number; vc: number }>;
       onInvalid(cellUri: string, featureId: number): void;
     };
   },
@@ -501,8 +550,18 @@ export function attachEnrichedBuildings(
     osm: string | null;
     cx: number; // pristine centroid X/Z (bake-local m) — checksum + ghost inflate centre
     cz: number;
+    /** MS1: pristine XZ radius about the centroid — the bounds-growth arm for an XZ scale. */
+    rXZ: number;
     scaleK: number; // height-scale TARGET (1 = original; set by commit / persisted rows)
     appliedK: number; // scale currently baked into the geometry (eases toward scaleK)
+    // MESH SUITE MS1 — the spatial components (lib/globe/featureTransform.ts). `xf` is the
+    // TARGET (null = identity), `axf` the APPLIED state: non-null ⇔ the run is on the
+    // absolute-recompose path and owns a pristine snapshot. Both null for the 99 % of features
+    // nobody has touched, which is the whole no-regression contract: one null check per frame.
+    xf: SpatialXf | null;
+    axf: SpatialXf | null;
+    pristine: Float32Array | null; // the run's pristine fill verts (count × 3)
+    pristineEdge: Float32Array | null; // its edge-CSR bucket, packed in bucket order
   }
   interface MeshPart {
     mesh: THREE.Mesh;
@@ -515,6 +574,11 @@ export function attachEnrichedBuildings(
     features: FeatureSeat[];
     runIdx: Map<number, number>; // baked feature id → features[] index (pick / override apply)
     extraPadM: number; // U8: bounds radius already grown past the base reseat pad
+    /** MS1: per-run [min, max] EDGE vertex index (hi = −1 when the run has no strokes) — the
+     *  partial-upload range for a run's strokes. */
+    edgeSpan: Int32Array | null;
+    /** MS1: run indices written this frame (reused, truncated per frame — no allocation). */
+    touchedRuns: number[];
     cursor: number; // round-robin feature sampling cursor
     /** RC7 — indices of features that have NEVER produced a seat, drained before any refresh.
      *  A building with no seat at all sits on the cell plane and is visibly wrong; a building
@@ -604,8 +668,15 @@ export function attachEnrichedBuildings(
   const cellByUri = new Map<string, CellSeat>();
   const partByMesh = new Map<THREE.Mesh, { cell: CellSeat; part: MeshPart }>();
   // U8 ghost (at most one — the drag preview). Owns its geometry; material is shared below.
-  let ghost: { mesh: THREE.Mesh; geom: THREE.BufferGeometry; cellScene: THREE.Object3D } | null =
-    null;
+  // MS1: also carries the feature it previews + the live transform it is showing.
+  let ghost: {
+    mesh: THREE.Mesh;
+    geom: THREE.BufferGeometry;
+    cellScene: THREE.Object3D;
+    f: FeatureSeat;
+    xf: SpatialXf;
+    sy: number;
+  } | null = null;
   const ghostMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color(tokens.accent), // D14: GL colour through the token bridge
     transparent: true,
@@ -635,14 +706,116 @@ export function attachEnrichedBuildings(
     attr.needsUpdate = true;
   };
   /** U8: a tall override can outgrow the one-time reseat bounds pad — grow the fill+edge
-   *  bounding spheres by the extra height (monotonic; shrink never un-grows, harmless). */
-  const growBoundsFor = (part: MeshPart, f: FeatureSeat, k: number) => {
-    const need = Math.max(0, (f.topY - f.baseY) * (k - 1));
+   *  bounds by what the edit needs (monotonic; shrink never un-grows, harmless). MS1: the growth
+   *  is the full `boundsGrowthM` (translation + lift + XZ growth + height growth), and the
+   *  bounding BOX is grown alongside the sphere when one exists — `Mesh.raycast` early-outs on
+   *  the box too (three 0.185 Mesh.js:260), so a sphere-only pad could leave a moved building
+   *  visible but unpickable. */
+  const growBoundsFor = (part: MeshPart, f: FeatureSeat, xf: SpatialXf, sy: number) => {
+    const need = boundsGrowthM(xf, sy, f.rXZ, f.topY - f.baseY);
     if (need <= part.extraPadM) return;
     for (const g of [part.mesh.geometry as THREE.BufferGeometry, part.edgeGeom]) {
       if (g?.boundingSphere) g.boundingSphere.radius += need - part.extraPadM;
+      if (g?.boundingBox) g.boundingBox.expandByScalar(need - part.extraPadM);
     }
     part.extraPadM = need;
+  };
+  /** MS1: capture a run's PRISTINE fill + edge vertices by inverting the incremental writer's
+   *  state (at load-model — seat delta 0, scale 1 — that inverse is a plain copy). Idempotent. */
+  const ensureSnapshot = (part: MeshPart, f: FeatureSeat, runI: number) => {
+    if (f.pristine) return;
+    const dyM = f.appliedM ?? 0;
+    f.pristine = pristineFromIncremental(
+      part.posAttr.array as Float32Array,
+      f.run.start,
+      f.run.count,
+      f.baseY,
+      dyM,
+      f.appliedK,
+    );
+    if (part.edgeAttr && part.edgeCsr) {
+      const { offsets, verts } = part.edgeCsr;
+      f.pristineEdge = pristineIndexed(
+        part.edgeAttr.array as Float32Array,
+        verts,
+        offsets[runI],
+        offsets[runI + 1],
+        f.baseY,
+        dyM,
+        f.appliedK,
+      );
+    }
+  };
+  /** MS1: leave the absolute path (the array already holds the identity recompose, which IS the
+   *  incremental invariant — the fast path continues from it seamlessly). */
+  const dropSnapshot = (f: FeatureSeat) => {
+    f.axf = null;
+    f.pristine = null;
+    f.pristineEdge = null;
+  };
+  /** A feature's terrain sample point → lat/lon. Unedited features keep the exact array-centroid
+   *  read they always had (vertical writes never move a footprint); a feature with a TARGET
+   *  translation samples where it is GOING (the array may be mid-ease) — MS1 landmine #1: a
+   *  moved building must not keep seating on its old footprint forever. */
+  const locateFeature = (part: MeshPart, f: FeatureSeat) => {
+    if (f.xf) {
+      _w.set(f.cx + f.xf.tE, f.baseY, f.cz - f.xf.tN);
+    } else {
+      const ctr = runCentroid(part.posAttr.array as ArrayLike<number>, f.run);
+      _w.set(ctr[0], ctr[1], ctr[2]);
+    }
+    _w.applyMatrix4(part.mesh.matrixWorld);
+    const g = ecefToGeodetic([_w.x, _w.y, _w.z]);
+    f.latDeg = g.latDeg;
+    f.lonDeg = g.lonDeg;
+  };
+  /** MS1: the ONE entry point that sets a feature's edit target — load re-apply, the U8 height
+   *  commit and the MS2 gizmo all land here. Rails first; then the path decision (spatial ⇒
+   *  snapshot + absolute recompose; identity ⇒ fast path, immediately when nothing is left to
+   *  ease); a changed translation re-locates the footprint and re-queues its terrain sample;
+   *  bounds + committed tint last. */
+  const applyTransformTarget = (
+    cell: CellSeat,
+    part: MeshPart,
+    runI: number,
+    t: FeatureTransform,
+  ) => {
+    const f = part.features[runI];
+    const sy = Number.isFinite(t.sy) ? Math.max(SCALE_MIN_K, Math.min(SCALE_MAX_K, t.sy)) : 1;
+    const clamped = clampXf(t, XF_RAILS);
+    const spatial = isIdentityXf(clamped) ? null : clamped;
+    const prev = f.xf;
+    f.scaleK = sy;
+    f.xf = spatial;
+    if (spatial && !f.axf) {
+      ensureSnapshot(part, f, runI);
+      f.axf = { ...IDENTITY_XF };
+    } else if (!spatial && f.axf && isExactIdentityXf(f.axf)) {
+      dropSnapshot(f);
+    }
+    const moved =
+      (prev?.tE ?? 0) !== (spatial?.tE ?? 0) || (prev?.tN ?? 0) !== (spatial?.tN ?? 0);
+    if (moved && cell.located) {
+      locateFeature(part, f);
+      f.seatM = null; // re-sample at the new footprint; the applied lift stays until it lands
+      if (!part.unseated.includes(runI)) part.unseated.push(runI);
+    }
+    growBoundsFor(part, f, spatial ?? IDENTITY_XF, sy);
+    setOverrideTint(part, runI, spatial !== null || Math.abs(sy - 1) >= NEUTRAL_K_EPS);
+  };
+  /** MS1: place the ghost from a transform — pure Object3D writes (position / yaw / scale about
+   *  the pivot the geometry was rebased to). Every write forces its own matrix (TilesGroup trap). */
+  const placeGhost = (xf: SpatialXf, sy: number) => {
+    if (!ghost) return;
+    const f = ghost.f;
+    const inflate = ENRICHED.overrideGhostInflate;
+    const liveBase = f.baseY + (f.appliedM ?? 0);
+    ghost.xf = xf;
+    ghost.sy = sy;
+    ghost.mesh.position.set(f.cx + xf.tE, liveBase + xf.tU, f.cz - xf.tN);
+    ghost.mesh.rotation.y = (xf.rotDeg * Math.PI) / 180;
+    ghost.mesh.scale.set(inflate * xf.sx, Math.max(0.05, sy), inflate * xf.sz);
+    ghost.mesh.updateMatrixWorld(true);
   };
   /** U8: resolve (cellUri, featureId) → the live registry entry, or null while unloaded. */
   const findFeature = (
@@ -807,11 +980,31 @@ export function attachEnrichedBuildings(
             posAttr.array instanceof Float32Array;
           if (fid && plainF32) {
             const runs = featureRunsOf(fid.array);
-            const keyMap = vertexKeyToRun(posAttr.array, runs);
+            // MS1: collision-aware key map + per-SEGMENT attribution — a party-wall corner's
+            // stroke stays with the building whose other end it touches, so a move/rotate never
+            // stretches a neighbour's edge (enrichedMask.mapSegmentsToRuns).
+            const { map: keyMap, collisions } = vertexKeyToRunWithCollisions(posAttr.array, runs);
             const edgeAttr = edges.geometry.getAttribute("position") as THREE.BufferAttribute | null;
             const edgeCsr = edgeAttr
-              ? csrFromRunIds(mapVertsToRuns(edgeAttr.array, keyMap), runs.length)
+              ? csrFromRunIds(mapSegmentsToRuns(edgeAttr.array, keyMap, collisions), runs.length)
               : null;
+            // MS1: per-run [min, max] edge vertex index — the partial-upload range of a run's
+            // strokes (a run's crease segments are emitted contiguously by EdgesGeometry).
+            let edgeSpan: Int32Array | null = null;
+            if (edgeCsr) {
+              edgeSpan = new Int32Array(runs.length * 2);
+              for (let r = 0; r < runs.length; r++) {
+                let lo = Infinity;
+                let hi = -1;
+                for (let j = edgeCsr.offsets[r]; j < edgeCsr.offsets[r + 1]; j++) {
+                  const v = edgeCsr.verts[j];
+                  if (v < lo) lo = v;
+                  if (v > hi) hi = v;
+                }
+                edgeSpan[r * 2] = hi < 0 ? 0 : lo;
+                edgeSpan[r * 2 + 1] = hi;
+              }
+            }
             // One-time bounds pad: verts will shift by up to ~±15 m — picks and the planner's
             // trust-radius cull must keep seeing the cell (region volumes are baker-padded).
             for (const g of [c.geometry, edges.geometry]) {
@@ -834,15 +1027,27 @@ export function attachEnrichedBuildings(
               let topY = -Infinity;
               let sx = 0;
               let sz = 0;
+              let minX = Infinity;
+              let maxX = -Infinity;
+              let minZ = Infinity;
+              let maxZ = -Infinity;
               for (let v = run.start; v < run.start + run.count; v++) {
+                const x = posArr[v * 3];
                 const y = posArr[v * 3 + 1];
+                const z = posArr[v * 3 + 2];
                 if (y < baseY) baseY = y;
                 if (y > topY) topY = y;
-                sx += posArr[v * 3];
-                sz += posArr[v * 3 + 2];
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (z < minZ) minZ = z;
+                if (z > maxZ) maxZ = z;
+                sx += x;
+                sz += z;
               }
               const n = Math.max(1, run.count);
               const m = cellMeta?.byId.get(run.id);
+              const cx = sx / n;
+              const cz = sz / n;
               return {
                 run,
                 latDeg: 0,
@@ -853,10 +1058,15 @@ export function attachEnrichedBuildings(
                 topY,
                 cls: m?.cls ?? null,
                 osm: m?.osm ?? null,
-                cx: sx / n,
-                cz: sz / n,
+                cx,
+                cz,
+                rXZ: runRadiusXZ(cx, cz, minX, maxX, minZ, maxZ),
                 scaleK: 1,
                 appliedK: 1,
+                xf: null,
+                axf: null,
+                pristine: null,
+                pristineEdge: null,
               };
             });
             const part: MeshPart = {
@@ -869,6 +1079,8 @@ export function attachEnrichedBuildings(
               features,
               runIdx,
               extraPadM: 0,
+              edgeSpan,
+              touchedRuns: [],
               cursor: 0,
               // RC7: everything starts unseated, in bake order.
               unseated: features.map((_f, i) => i),
@@ -897,9 +1109,9 @@ export function attachEnrichedBuildings(
                   opts.overrides.onInvalid(cell.uri, row.featureId);
                   continue;
                 }
-                f.scaleK = Math.max(SCALE_MIN_K, Math.min(SCALE_MAX_K, row.k));
-                growBoundsFor(part, f, f.scaleK);
-                setOverrideTint(part, i as number, true);
+                // MS1: the full v2 target (height + spatial) through the one entry point — the
+                // array is pristine here, so the spatial snapshot is a straight copy.
+                applyTransformTarget(cell, part, i as number, row.xf);
               }
             }
           }
@@ -991,16 +1203,7 @@ export function attachEnrichedBuildings(
   const ensureLocated = (cell: CellSeat): boolean => {
     if (cell.located) return true;
     if (cell.appliedM == null) return false;
-    for (const part of cell.parts) {
-      const arr = part.posAttr.array as ArrayLike<number>;
-      for (const f of part.features) {
-        const ctr = runCentroid(arr, f.run);
-        _w.set(ctr[0], ctr[1], ctr[2]).applyMatrix4(part.mesh.matrixWorld);
-        const g = ecefToGeodetic([_w.x, _w.y, _w.z]);
-        f.latDeg = g.latDeg;
-        f.lonDeg = g.lonDeg;
-      }
-    }
+    for (const part of cell.parts) for (const f of part.features) locateFeature(part, f);
     for (const t of cell.trees) {
       const arr = t.mesh.instanceMatrix.array as ArrayLike<number>;
       for (let i = 0; i < t.seatM.length; i++) {
@@ -1176,32 +1379,85 @@ export function attachEnrichedBuildings(
             ratio = nextK / f.appliedK;
             f.appliedK = nextK;
           }
-          if (dy === 0 && ratio === 1) continue; // settled
+          // MESH SUITE MS1: a feature carrying a spatial transform (`axf`) eases every component
+          // here and is recomposed ABSOLUTELY from its pristine snapshot below — the incremental
+          // writer cannot express a rotation or an XZ scale. `f.axf === null` for every untouched
+          // building: this branch costs them one null check.
+          let xfMoved = false;
+          let xfSettledIdentity = false;
+          if (f.axf) {
+            const e = easeXf(f.axf, f.xf ?? IDENTITY_XF, ENRICHED.overrideEaseK);
+            f.axf = e.next;
+            xfMoved = e.moved;
+            xfSettledIdentity = e.settled && f.xf === null;
+          }
+          if (dy === 0 && ratio === 1 && !xfMoved) continue; // settled
           const liveBase = f.baseY + (f.appliedM ?? 0);
           const { start, count } = f.run;
-          if (ratio === 1) {
-            for (let i = start; i < start + count; i++) pos[i * 3 + 1] += dy;
-          } else {
-            for (let i = start; i < start + count; i++) {
-              const y = pos[i * 3 + 1] + dy;
-              pos[i * 3 + 1] = liveBase + (y - liveBase) * ratio;
+          if (f.axf && f.pristine) {
+            // Absolute recompose (lib/globe/featureTransform.ts). For the identity spatial state
+            // it lands exactly on the incremental invariant below, so a settled RESET can drop
+            // the snapshot and hand the run back to the fast path with no seam.
+            recomposeVerts(f.pristine, 0, pos, start * 3, count, f, f.axf, f.appliedK, f.appliedM ?? 0);
+            if (edgePos && part.edgeCsr && f.pristineEdge) {
+              const { offsets, verts } = part.edgeCsr;
+              recomposeIndexed(
+                f.pristineEdge,
+                edgePos,
+                verts,
+                offsets[r],
+                offsets[r + 1],
+                f,
+                f.axf,
+                f.appliedK,
+                f.appliedM ?? 0,
+              );
             }
-          }
-          touchedFill = true;
-          if (edgePos && part.edgeCsr) {
-            const { offsets, verts } = part.edgeCsr;
+            if (xfSettledIdentity) dropSnapshot(f);
+          } else {
             if (ratio === 1) {
-              for (let j = offsets[r]; j < offsets[r + 1]; j++) edgePos[verts[j] * 3 + 1] += dy;
+              for (let i = start; i < start + count; i++) pos[i * 3 + 1] += dy;
             } else {
-              for (let j = offsets[r]; j < offsets[r + 1]; j++) {
-                const vi = verts[j] * 3 + 1;
-                const y = edgePos[vi] + dy;
-                edgePos[vi] = liveBase + (y - liveBase) * ratio;
+              for (let i = start; i < start + count; i++) {
+                const y = pos[i * 3 + 1] + dy;
+                pos[i * 3 + 1] = liveBase + (y - liveBase) * ratio;
+              }
+            }
+            if (edgePos && part.edgeCsr) {
+              const { offsets, verts } = part.edgeCsr;
+              if (ratio === 1) {
+                for (let j = offsets[r]; j < offsets[r + 1]; j++) edgePos[verts[j] * 3 + 1] += dy;
+              } else {
+                for (let j = offsets[r]; j < offsets[r + 1]; j++) {
+                  const vi = verts[j] * 3 + 1;
+                  const y = edgePos[vi] + dy;
+                  edgePos[vi] = liveBase + (y - liveBase) * ratio;
+                }
               }
             }
           }
+          touchedFill = true;
+          part.touchedRuns.push(r);
         }
         if (touchedFill) {
+          // MS1: when few runs moved (a committed edit easing in, a late seat refinement) upload
+          // only their byte ranges; a settling cell that touched many keeps the whole-buffer
+          // upload it always had. three merges + clears the ranges after the upload.
+          if (part.touchedRuns.length <= ENRICHED.editUpdateRangeMaxRuns) {
+            for (const tr of part.touchedRuns) {
+              const run = part.runs[tr];
+              part.posAttr.addUpdateRange(run.start * 3, run.count * 3);
+              if (part.edgeAttr && part.edgeSpan && part.edgeSpan[tr * 2 + 1] >= 0) {
+                const lo = part.edgeSpan[tr * 2];
+                const hi = part.edgeSpan[tr * 2 + 1];
+                part.edgeAttr.addUpdateRange(lo * 3, (hi - lo + 1) * 3);
+              }
+            }
+          } else {
+            part.posAttr.clearUpdateRanges();
+            part.edgeAttr?.clearUpdateRanges();
+          }
+          part.touchedRuns.length = 0;
           part.posAttr.needsUpdate = true;
           if (part.edgeAttr) part.edgeAttr.needsUpdate = true;
           wrote = true;
@@ -1444,6 +1700,7 @@ export function attachEnrichedBuildings(
           cls: f.cls,
           bakedHeightM,
           currentK: f.scaleK,
+          current: { sy: f.scaleK, ...(f.xf ?? IDENTITY_XF) },
           distance: hit.distance,
           cx: f.cx,
           cz: f.cz,
@@ -1455,30 +1712,58 @@ export function attachEnrichedBuildings(
     setHeightScale(cellUri, featureId, k) {
       const found = findFeature(cellUri, featureId);
       if (!found) return;
-      const clamped = Math.max(SCALE_MIN_K, Math.min(SCALE_MAX_K, k));
-      found.f.scaleK = clamped;
-      growBoundsFor(found.part, found.f, clamped);
-      setOverrideTint(found.part, found.runI, Math.abs(clamped - 1) >= NEUTRAL_K_EPS);
+      // U8 callers change the height only — the spatial components ride along untouched.
+      applyTransformTarget(found.cell, found.part, found.runI, {
+        ...(found.f.xf ?? IDENTITY_XF),
+        sy: k,
+      });
+    },
+    setTransform(cellUri, featureId, t) {
+      const found = findFeature(cellUri, featureId);
+      if (!found) return;
+      applyTransformTarget(found.cell, found.part, found.runI, t);
+    },
+    featureState(cellUri, featureId) {
+      const found = findFeature(cellUri, featureId);
+      if (!found) return null;
+      const { f } = found;
+      return {
+        target: { sy: f.scaleK, ...(f.xf ?? IDENTITY_XF) },
+        applied: { sy: f.appliedK, ...(f.axf ?? IDENTITY_XF) },
+        cx: f.cx,
+        cz: f.cz,
+        vc: f.run.count,
+        bakedHeightM: f.topY - f.baseY,
+      };
     },
     showGhost(cellUri, featureId) {
       hideGhostImpl();
       const found = findFeature(cellUri, featureId);
       if (!found) return false;
       const { cell, part, f } = found;
-      const pos = part.posAttr.array as Float32Array;
-      const { start, count } = f.run;
-      const liveBase = f.baseY + (f.appliedM ?? 0);
-      const inflate = ENRICHED.overrideGhostInflate;
-      // Rebase the run so the building base sits at local y=0 and spans are BAKED-relative
-      // (divide out the committed appliedK) — the whole drag is then `scale.y = k`, zero
-      // per-frame geometry writes. XZ inflates a hair about the centroid so the ghost's walls
-      // sit just proud of the original's (no coincident-face shimmer).
+      const { count } = f.run;
+      // MS1: the ghost is the PRISTINE run rebased to its pivot (centroid at the true base) —
+      // the snapshot when the feature is on the absolute path, otherwise the inverse of the
+      // incremental state (a temporary; a height-only drag never retains one). The feature's
+      // live transform then rides the ghost OBJECT (`placeGhost`: position / yaw / scale), so
+      // the whole drag is Object3D writes — `setGhostK` scales Y, `setGhostXf` (MS2) the rest.
+      // XZ inflates a hair about the pivot so the ghost's walls sit just proud of the
+      // original's (no coincident-face shimmer).
+      const src =
+        f.pristine ??
+        pristineFromIncremental(
+          part.posAttr.array as Float32Array,
+          f.run.start,
+          count,
+          f.baseY,
+          f.appliedM ?? 0,
+          f.appliedK,
+        );
       const arr = new Float32Array(count * 3);
       for (let i = 0; i < count; i++) {
-        const s = (start + i) * 3;
-        arr[i * 3] = (pos[s] - f.cx) * inflate + f.cx;
-        arr[i * 3 + 1] = (pos[s + 1] - liveBase) / f.appliedK;
-        arr[i * 3 + 2] = (pos[s + 2] - f.cz) * inflate + f.cz;
+        arr[i * 3] = src[i * 3] - f.cx;
+        arr[i * 3 + 1] = src[i * 3 + 1] - f.baseY;
+        arr[i * 3 + 2] = src[i * 3 + 2] - f.cz;
       }
       const geom = new THREE.BufferGeometry();
       geom.setAttribute("position", new THREE.BufferAttribute(arr, 3));
@@ -1486,32 +1771,34 @@ export function attachEnrichedBuildings(
       mesh.raycast = () => {}; // GlobeControls raycasts the scene — never pick the preview
       mesh.renderOrder = 20; // draw after the opaque city (depthTest is off anyway)
       mesh.frustumCulled = false; // one short-lived mesh; not worth re-deriving scaled bounds
-      mesh.position.y = liveBase; // parented to part.mesh → group/cell seats apply for free
-      mesh.scale.y = f.appliedK;
-      part.mesh.add(mesh);
+      part.mesh.add(mesh); // parented to part.mesh → group/cell seats apply for free
+      ghost = { mesh, geom, cellScene: cell.scene, f, xf: f.axf ?? IDENTITY_XF, sy: f.appliedK };
       // TilesGroup trap (module header): updateMatrixWorld does NOT recurse into cell children
-      // unless the GROUP matrix changed — force the ghost's own compose or it renders with an
-      // identity local matrix (browser-caught 2026-08-19: invisible ghost, label correct).
-      mesh.updateMatrixWorld(true);
-      ghost = { mesh, geom, cellScene: cell.scene };
+      // unless the GROUP matrix changed — placeGhost forces the ghost's own compose or it
+      // renders with an identity local matrix (browser-caught 2026-08-19: invisible ghost).
+      placeGhost(ghost.xf, ghost.sy);
       return true;
     },
     setGhostK(k) {
       if (!ghost) return;
-      ghost.mesh.scale.y = Math.max(0.05, k);
-      ghost.mesh.updateMatrixWorld(true); // same TilesGroup trap — every write forces
+      placeGhost(ghost.xf, k);
+    },
+    setGhostXf(xf) {
+      if (!ghost) return;
+      placeGhost(xf, ghost.sy);
     },
     hideGhost: hideGhostImpl,
     setArmedId(featureId) {
       uniforms.uFtwArmedId.value = featureId ?? -1;
     },
-    buildingTopWorld(cellUri, featureId, k, out) {
+    buildingTopWorld(cellUri, featureId, k, out, xf) {
       const found = findFeature(cellUri, featureId);
       if (!found) return false;
       const { f } = found;
+      const x = xf ?? f.axf ?? IDENTITY_XF;
       const liveBase = f.baseY + (f.appliedM ?? 0);
       out
-        .set(f.cx, liveBase + (f.topY - f.baseY) * k, f.cz)
+        .set(f.cx + x.tE, liveBase + x.tU + (f.topY - f.baseY) * k, f.cz - x.tN)
         .applyMatrix4(found.part.mesh.matrixWorld);
       return true;
     },
@@ -1520,6 +1807,7 @@ export function attachEnrichedBuildings(
       let features = 0;
       let featuresSampled = 0;
       let overridden = 0;
+      let spatial = 0; // MS1: runs on the absolute-recompose path
       let lo = Infinity;
       let hi = -Infinity;
       let trees = 0;
@@ -1572,7 +1860,8 @@ export function attachEnrichedBuildings(
           unseated += part.unseated.length;
           if (isNear) nearFeatures += part.features.length;
           for (const f of part.features) {
-            if (Math.abs(f.scaleK - 1) >= NEUTRAL_K_EPS) overridden++;
+            if (Math.abs(f.scaleK - 1) >= NEUTRAL_K_EPS || f.xf) overridden++;
+            if (f.axf) spatial++;
             if (f.seatM == null) continue;
             featuresSampled++;
             if (isNear) nearFeaturesSampled++;
@@ -1614,6 +1903,7 @@ export function attachEnrichedBuildings(
         featureAppliedMinM: Number.isFinite(lo) ? lo : null,
         featureAppliedMaxM: Number.isFinite(hi) ? hi : null,
         overridden,
+        spatial,
         trees,
         treesSampled,
         epoch: seatEpochN,

@@ -226,6 +226,72 @@ export function mapVertsToRuns(
   return out;
 }
 
+/** `vertexKeyToRun` plus the COLLISION list: every exact position claimed by ≥ 2 runs (party-wall
+ *  corners, shared wall edges) with all its claimants in ascending run order. `map` keeps the
+ *  first-wins answer; `collisions` is what lets a SEGMENT be attributed to the right building. */
+export function vertexKeyToRunWithCollisions(
+  positions: ArrayLike<number>,
+  runs: readonly FeatureRun[],
+): { map: Map<string, number>; collisions: Map<string, number[]> } {
+  const map = new Map<string, number>();
+  const collisions = new Map<string, number[]>();
+  for (let r = 0; r < runs.length; r++) {
+    const run = runs[r];
+    for (let i = run.start; i < run.start + run.count; i++) {
+      const key = `${positions[i * 3]}|${positions[i * 3 + 1]}|${positions[i * 3 + 2]}`;
+      const have = map.get(key);
+      if (have === undefined) map.set(key, r);
+      else if (have !== r) {
+        const list = collisions.get(key);
+        if (!list) collisions.set(key, [have, r]);
+        else if (list[list.length - 1] !== r) list.push(r); // runs ascend, so a repeat is the tail
+      }
+    }
+  }
+  return { map, collisions };
+}
+
+/** Per-SEGMENT run attribution for a NON-INDEXED line-segment geometry (`EdgesGeometry` emits two
+ *  vertices per segment and shares nothing). A segment belongs to the run that owns BOTH its
+ *  endpoints: with plain first-wins per vertex a party-wall corner claimed by building A dragged
+ *  B's stroke endpoint along whenever A moved (harmless at the cm scale of a re-seat, a visible
+ *  stretch under a MESH SUITE move/rotate). A segment whose both endpoints are shared (the party
+ *  wall's own edge) goes to the lowest claimant — deterministic and the same answer first-wins
+ *  gave. Unmatched → −1. Output is per VERTEX (both endpoints alike) so `csrFromRunIds` consumes
+ *  it unchanged. */
+export function mapSegmentsToRuns(
+  positions: ArrayLike<number>,
+  map: ReadonlyMap<string, number>,
+  collisions: ReadonlyMap<string, number[]>,
+): Int32Array {
+  const n = Math.floor(positions.length / 3);
+  const out = new Int32Array(n).fill(-1);
+  const keyOf = (i: number) => `${positions[i * 3]}|${positions[i * 3 + 1]}|${positions[i * 3 + 2]}`;
+  for (let a = 0; a + 1 < n; a += 2) {
+    const b = a + 1;
+    const ka = keyOf(a);
+    const kb = keyOf(b);
+    const ra = map.get(ka) ?? -1;
+    const rb = map.get(kb) ?? -1;
+    let r = ra;
+    if (ra !== rb) {
+      const A = collisions.get(ka) ?? (ra >= 0 ? [ra] : []);
+      const B = collisions.get(kb) ?? (rb >= 0 ? [rb] : []);
+      let common = -1;
+      for (const x of A) {
+        if (B.includes(x)) {
+          common = x;
+          break;
+        }
+      }
+      r = common >= 0 ? common : ra >= 0 ? ra : rb;
+    }
+    out[a] = r;
+    out[b] = r;
+  }
+  return out;
+}
+
 /** CSR buckets: vertex indices grouped by run id (−1 entries dropped) — the per-building
  *  apply loop touches ONLY its own edge verts instead of rescanning the whole array. */
 export function csrFromRunIds(

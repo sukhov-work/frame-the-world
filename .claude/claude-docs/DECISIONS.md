@@ -346,6 +346,144 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 
 ## Recent sessions (verbatim, newest first)
 
+### 2026-09-02c — OWNER RULING: the CHERNOBYL slice loses all verification and support ("a curious test, nothing special"); the DNIPRO slice is the highest priority in ANY feature
+
+Owner, at the close of the MS0/MS1 session, on being told `verify-chernobyl` is red on bare
+master (T75): drop every verification of and all support for the Chernobyl slice — it was a
+curious test, nothing about that region is special — and treat the Dnipro slice as the highest
+priority in every feature from here on. Consequences recorded: T75 is CLOSED as DROPPED (no
+bisect of PRs #88/#90 on its account); `verify-chernobyl.mjs` leaves every harness roster
+(MESH_SUITE_PLAN §4a-4, the NSP state lines, the DECISIONS "state of the tree" lines) as a
+small slice at the start of the next session; the region entry in `regions.ts`, the local
+bakes and the R2 objects are consistent removals but delete user-visible content, so the next
+session confirms that step with the owner in one line before deleting. Supersedes the
+"user-visible sink at Chernobyl" concern in 2026-09-02b. Design, verify and taste-pass against
+Dnipro (dnipro-o2w default) first, always.
+
+### 2026-09-02b — the §4a-4 harness sweep for MS1: green everywhere it could be, and the two reds resolved by comparator — ULTRA's was the harness's own cold-cache confound, CHERNOBYL's is a PRE-EXISTING terrain-height regression on master (T75)
+
+Sweep (one fresh headless Chrome per suite, Node 24, `wix dev` :4321): `verify-rendering-charter`
+**85/85** (229 s) · `verify-ultra-dusk` **ALL PASS** (225 s) · `verify-eclipse` **PASS** (20 s) ·
+`verify-bestspot-ownerbatch` **45/45** (43 s) · `verify-debughud` **ALL PASS** (11 s) · plus the
+two run first: `verify-meshedit` 6/6 · `verify-bldg-override` PASS. Two reds. **(1)
+`verify-ultra` §1b** ("anisotropy stamped on composites created after the flip") failed in the
+sweep and again alone on a fresh profile (`aniso.max` 1, n 209/227, half the terrain meshes of
+a passing run); the stashed BASELINE passed 28/28 — on a WARM profile; my tree re-run on that
+same warm profile: **28/28** (§1b max 16, chained 96). Verdict: cold-imagery-cache timing in
+the check's flip window, not MS1 — and the comparator itself was invalid until both sides ran
+on the same warmth (recorded as a trap in `conventions/verify.md`). **(2) `verify-chernobyl`**
+fails deterministically — `terrainHeightAt` answers −557.2 / −562.8 / −560.3 / −555.4 / −603 m
+at the ChNPP pose, identical to the digit on every run, while the o2w cells and the GLO-30 patch
+both stream 200 — and fails IDENTICALLY with the MS1 diff stashed (bare master `2d38658`). A
+page-exception probe found zero exceptions at that pose. Verdict: PRE-EXISTING on master (last
+recorded pass 2026-08-27; suspects PR #88 `terrainSkirt`/`imageryGround`, PR #90 counters);
+buildings there seat at `clampGroundM(−557) = 0`, a user-visible sink — **backlog T75**, outside
+the MESH SUITE scope, not a blocker for MS2. Final gates on the finished tree: vitest
+2,259/2,259 · astro 0 err / 0 warn / 8 hints · knip 0. Harness facts encoded: fresh profile
+per suite retires context exhaustion + pref carry-over, but a windowed streaming assertion
+needs a WARMED profile; never a diagnostic Chrome beside a timed suite (it halved the tile
+counts of the running suite).
+
+### 2026-09-02 — MESH SUITE MS0 DONE (the MODEL3D probe answered all four unknowns with bytes — and found that PRIVATE 3D files do not exist on Wix Media) + MS1 BUILT (the spatial-edit substrate: v2 rows, absolute recompose from a pristine snapshot, per-segment edge CSR, rails), unit + harness verified
+
+**MS0.** `scripts/probe-model3d.mjs` (site-scoped CLI token, REST paths taken from the
+installed SDK build — `/site-media/v1/files/generate-upload-url` · `/get-file-by-id`) uploaded
+a ~118 KB procedurally written GLB to the live site. Answers: **(1) ingest is synchronous** —
+the PUT response itself carried `mediaType MODEL3D · mimeType model/gltf-binary ·
+operationStatus READY` (get-file-by-id agreed on the first poll, 485 ms) and a 256² PNG
+preview is generated for free; **(2) no expiry** — no `urlExpirationDate` anywhere on a public
+MODEL3D descriptor, URL `https://static.wixstatic.com/3d/<id>.glb`, `Cache-Control: public,
+max-age=15552000, immutable`, unchanged on a 23.8-min re-curl; **(3) wixstatic is
+loader-ready** — `Content-Type model/gltf-binary`, `Access-Control-Allow-Origin: *` (Origin
+plux.today and localhost:4321 alike), `Accept-Ranges: bytes`, `Range: bytes=0-1023` → 206 with a
+correct Content-Range (no R2 needed for serving; Option C stands, R2 stays reserve); **(4)
+PRIVATE 3D is REFUSED** — `private:true` + `model/gltf-binary` → 400 (an HTML "400 Error: Bad
+Request"), deterministic ×3 with/without `sizeInBytes` (request ids
+`1788296476.8309367376941413` / `1788296477.3859500443411418`), comparators the same minute:
+private JPEG 200 · public GLB 200 · public `model/gltf+json` 200. Consequence for D3: hide /
+delete are RECORD-level (`UserModels.hidden`; delete = `bulkDeleteFiles` + record), hidden
+bytes stay fetchable by URL under the open-POC ruling — say so in MS6 copy. Not probed: the
+true 3D per-file cap (moot under the 8 MB normalized cap; a 30 MB probe would burn quota). The
+probe file `plux-probe-public-2026-09-01T21-00-30-609Z.glb`
+(`166a86_a0a4cbd3cd044e278d9d8f4484c3f38d.glb`) stays in the Media Manager for the expiry leg;
+report `verify-shots/probe-model3d-2026-09-01T21-00-30-609Z.json` (git-ignored). **§4a-2
+sidecar census** (`bakes/enriched/*/cell-*.meta.json`): schema 2 on 100 % of cells and `osm` on
+100 % of features for all five live variants (dnipro 127,890 · dnipro-o2w 133,437 ·
+st-albans-o2w 26,187 · chernobyl 1,212 · chernobyl-o2w 1,707); no osm id crosses a cell; 5 ids
+appear twice INSIDE one dnipro-o2w cell, all PowerTower+HighVoltagePowerTower pairs (never
+pickable) → `variant|osm` is unique for every pickable building (MS3's dual key). **Doc drifts
+fixed** in `conventions/contracts.md`: §2 key grammar (`<variant>|<cellUri>|<featureId>`, not
+osmId), §7 LWW (structural FNV-1a-128 `_id` + bulkSave upsert, not `updatedAt`), and
+BuildingOverrides added to §4 (it was missing).
+
+**MS1 — the design (full as-built: `MESH_SUITE_PLAN.md` §6).** New pure module
+`lib/globe/featureTransform.ts`: `SpatialXf {sx, sz, rotDeg, tE, tN, tU}` (+X east, +Y up, −Z
+north; `rotDeg` in three's `makeRotationY` sense — CCW from above, a compass heading is its
+NEGATIVE; `tU` a lift ≥ 0, so "never underground" is structural), `clampXf`/`easeXf` (short way
+round), `recomposeVerts`/`recomposeIndexed` (`p = pivot + R_y·S·(p0 − pivot) + (tE, dyM + tU,
+−tN)`, pivot = pristine centroid at the TRUE base), `pristineFromIncremental` (the snapshot is
+the INVERSE of the incremental writer's state — y0 = baseY + (y − baseY − dyM)/sy — a plain
+copy at load-model, so no second copy of a cell buffer ever exists), `boundsGrowthM`. **Two
+paths in `applyFeatureSeats`:** `f.axf === null` ⇒ the U8 incremental writer verbatim (every
+untouched building, every height-only edit — one null check per frame is the whole new cost);
+a spatial component ⇒ snapshot + absolute recompose each changed frame; identity spatial IS the
+incremental invariant (unit-pinned), so a settled RESET drops the snapshot and the run returns
+to the fast path with no seam. **v2 `OverrideRow`** `{sy, sx?, sz?, rotDeg?, tE?, tN?, tU?, cx,
+cz, vc, hM, t, s?}` under the SAME key `ftw:bldg-overrides:v1`: legacy `k` is READ as `sy`
+(`sanitizeRow`, never migrated in place), identity components are OMITTED on write
+(`transformFields` — a height-only edit persists exactly as U8 did), **neutrality across ALL
+components** (`isNeutralRow` — the scalar rule would have deleted a rotated-but-unscaled row).
+**Rails are CONTRACT constants** (`XF_RAILS`: scale band 0.1–10 per axis, `TRANSLATE_MAX_M` 60 —
+the tile-level culling volume is not grown by a move — `LIFT_MAX_M` 25); a row outside them is
+dropped on read. Only new taste knob `ENRICHED.editUpdateRangeMaxRuns` 8. **The five landmines:**
+re-locate after move (`locateFeature` samples at the pristine centroid + TARGET translation,
+seat nulled + re-queued at the RC7 drain head) · bounds grow by `boundsGrowthM` and the bounding
+BOX alongside the sphere (`Mesh.raycast` early-outs on the box, three 0.185 `Mesh.js:260`) ·
+party-wall edge CSR attributed per SEGMENT (`enrichedMask.mapSegmentsToRuns` — `EdgesGeometry`
+emits 2 verts/segment, shares nothing; applies to every cell, cm-scale under a re-seat, the only
+correct answer under a move; the fully shared post follows the lower run) · `addUpdateRange`
+per touched run when ≤ 8 runs moved (three merges + clears after upload,
+`WebGLAttributes.js:147`) · `cx/cz` never written (live pivot derived; the ghost is the pristine
+run rebased about the pivot with the transform on the Object3D — `placeGhost`/`setGhostXf`).
+Engine API: `setTransform` (the ONE entry point → `applyTransformTarget`; `setHeightScale` is a
+height-only call into it), `featureState`, `setGhostXf`, `buildingTopWorld(…, xf?)`,
+`BuildingPick.current`, `debugSeats().spatial`; `opts.overrides.forCell` rows carry `xf`.
+Orchestrator: `commitBldgTransform` (engine first, row read BACK post-clamp so storage never
+disagrees with the mesh; the armed capture as the LRU-evicted fallback). DEV seams
+`__globe.enrichedState()` / `__globe.enrichedSetTransform()` (contracts.md §3) and
+`__bldgEditStore.armed.cellUri`. Files: NEW `lib/globe/featureTransform.ts` ·
+`test/lib/globe/featureTransform.test.ts` · `scripts/verify-meshedit.mjs` ·
+`scripts/probe-model3d.mjs`; EDITED `lib/globe/bldgOverrides.ts` · `lib/globe/enrichedMask.ts`
+(`vertexKeyToRunWithCollisions`, `mapSegmentsToRuns`) · `scene/enrichedBuildings.ts` ·
+`StylizedTiles.ts` · `store/bldgEdit.ts` · `tuning.ts` · `verify-bldg-override.mjs` (`r.sy ??
+r.k`) · conventions `contracts.md` + `globe-tuning.md` (MS1 family) · `MESH_SUITE_PLAN.md`
+(§1/§3/§5/§6) · backlog T74.
+
+**Verification (fresh, this session).** Unit: `featureTransform.test.ts` 21 (identity ≡
+incremental, inversion round trip, rotation sense, composition order, rails, ease) ·
+`bldgOverrides.test.ts` +4 (legacy k→sy, rails, multi-component neutrality, transformFields
+round trip) · `enrichedMask.test.ts` +3 (the two-prism party wall) · **full vitest 2,259/2,259
+(149 files; baseline 2,231 re-run first, green)** · `astro check` 0 err / 0 warn / 8 hints ·
+knip exit 0. Browser (wix dev + headless verify Chrome :9333, fresh scratchpad profile, Node
+24): **`verify-meshedit.mjs` 6/6 legs PASS** — arm carries `cellUri`; a seam edit lands its exact
+target, persists a v2 row with no `k` and no identity components, re-queues the footprint the
+same tick (unseated +1), settles on every component, `spatial` 1; rails clip |t| to 60 m keeping
+direction and lift to 25 m with the ROW agreeing; RESET deletes the row and returns the run to
+the fast path (`spatial` 0); reload re-applies the spatial row with no gesture; a hand-written
+legacy `{k:2}` row re-applies as `sy` 2 on the fast path with the stored row untouched (§4a-1) —
+shots `verify-shots/meshedit-01..03` (01 shows the rotated building intersecting its neighbour:
+overlap accepted by the 2026-09-01d ruling). **`verify-bldg-override.mjs` PASS byte-identical**
+(live 45.0 m = the 3× clamp, row scale 3.00, RESET, Esc-in-FPV, reload re-apply, /m twin). The
+§4a-4 sweep (chernobyl · rendering-charter · ultra · ultra-dusk · eclipse · bestspot-ownerbatch
+· debughud, one fresh Chrome each) is recorded in the 2026-09-02b line.
+
+**Traps this session.** A `\bk: ` regex sweep over a test file also rewrote `(k: string)` arrow
+params in the fakeStorage helper (3 silent astro errors + storage tests red) — scope such
+sweeps. `x === -0` draws an esbuild warning; `x === 0 ? 0 : x` folds −0 the same way. A
+`pkill -f <pattern>` inside a heredoc-launched command kills the launching shell (its argv
+holds the pattern) — exit 144 with the job still running. The probe's REST paths must come
+from the SDK build, not memory: `get-file-by-id` is a query-param GET, not `/files/{id}`.
+
 ### 2026-09-01d — BOTH MESH-SUITE RECOMMENDATIONS RATIFIED + the NO-REGRESSION CONTRACT made binding; session closed, next one starts MS0
 
 Owner ratified: **osmId migration folds into MS3 pre-activation** (zero data migration while

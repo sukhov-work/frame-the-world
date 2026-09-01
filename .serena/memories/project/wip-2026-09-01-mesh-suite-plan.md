@@ -1,6 +1,6 @@
 # WIP 2026-09-01b — MESH SUITE roadmap (D1 gizmos · D2 world sync · D3 user models) — PLANNED
 
-**Status: PLAN COMPLETE, implementation starts next session at MS0.**
+**Status: PLAN COMPLETE → MS0 DONE + MS1 BUILT 2026-09-02 (see `mem:project/wip-2026-09-02-mesh-suite-ms0-ms1`; MESH_SUITE_PLAN §6 is the MS1 as-built). Next: MS2.**
 Canonical doc: `.claude/claude-docs/MESH_SUITE_PLAN.md` (findings + architecture + slice
 ladder MS0–MS6 + owner questions). Owner order: end of the 2026-09-01 DBG session.
 

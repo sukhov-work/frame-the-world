@@ -77,7 +77,7 @@ const ARMED = "window.__bldgEditStore ? window.__bldgEditStore.getState().armed 
 const SEATS = "window.__globe && window.__globe.enrichedSeats ? window.__globe.enrichedSeats() : null";
 const ROWS =
   "(() => { try { const m = JSON.parse(localStorage.getItem('ftw:bldg-overrides:v1') ?? '{}');" +
-  " return Object.entries(m).map(([k, r]) => ({ k, scale: r.k })); } catch { return null; } })()";
+  " return Object.entries(m).map(([k, r]) => ({ k, scale: r.sy ?? r.k })); } catch { return null; } })()"; // MS1: v2 rows say `sy` (legacy `k` still read)
 
 const waitBoot = async (label, wantFpv) => {
   const t0 = Date.now();

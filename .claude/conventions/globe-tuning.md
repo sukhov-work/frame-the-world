@@ -374,3 +374,29 @@ not from a solved disc.
   happened, at `rMin === rMax === 187` across 31,417 cells, with 1,860 unit tests green. A
   verify check that asserts "the field exists" or "solving === false" would have passed. Assert a
   SPREAD.
+
+## The MESH SUITE MS1 family (added 2026-09-02 — the spatial-edit substrate)
+
+`ENRICHED.editUpdateRangeMaxRuns` (8) is the ONLY new taste knob: when a frame's seat/edit
+writes touch at most this many runs of a cell, the GPU upload covers just their byte ranges
+(`BufferAttribute.addUpdateRange`; three 0.185 merges the ranges, uploads them, then CLEARS
+the list — so a frame that touches more runs falls back to the whole-buffer upload it always
+had, and the next frame starts clean). The rails of an edit are CONTRACT, not taste, and live
+in `lib/globe/bldgOverrides.ts`: `SCALE_MIN_K/MAX_K` (every scale axis), `TRANSLATE_MAX_M` 60,
+`LIFT_MAX_M` 25 — a persisted row outside them is DROPPED on read (the `k` precedent), so
+loosening a rail is a compatibility event and tightening one silently sheds rows.
+
+Three facts the substrate encodes (source-verified 2026-09-02):
+- **Rotation sense is three's.** `rotDeg` follows `Matrix4.makeRotationY` — positive turns +X
+  (east) toward −Z (north): counter-clockwise seen from above. A compass heading is the
+  NEGATIVE of it; convert at the UI, never in the row.
+- **The absolute recompose IS the incremental writer for identity.** `recomposeVerts` with
+  identity spatial components is exactly `y = baseY + dyM + (y0 − baseY)·sy`, X/Z untouched —
+  `featureTransform.test.ts` pins it, and it is what lets a RESET building drop back to the
+  fast path with no seam. Untouched buildings never leave that path: one null check per frame.
+- **Edge strokes are attributed per SEGMENT.** `EdgesGeometry` emits two vertices per segment
+  and shares nothing; the load-time key map is first-wins per POSITION, so a party-wall corner
+  claimed by building A used to drag B's stroke endpoint along. `mapSegmentsToRuns` gives a
+  segment to the run owning BOTH its ends (a fully shared post still goes to the lowest run).
+  Applies to every cell, edited or not — a cm-scale difference on party walls during a
+  re-seat, and the only correct answer under a move.

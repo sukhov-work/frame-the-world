@@ -11,6 +11,9 @@ import { create } from "zustand";
 /** The armed building as the chip needs it — plain display data, no engine references. */
 export interface BldgEditArmed {
   featureId: number;
+  /** MESH SUITE MS1: the armed building's cell identity (with `featureId`, the override key
+   *  minus the variant) — plain display data; lets a verify harness address the building. */
+  cellUri: string;
   /** Baked ("original") height, m. */
   originalHeightM: number;
   /** Current LIVE height, m (tracks the drag; equals the committed height between drags). */

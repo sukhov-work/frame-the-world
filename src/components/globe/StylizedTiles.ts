@@ -127,8 +127,11 @@ import {
   overrideKey,
   parseOverrideKey,
   roundCentroidM,
+  rowTransform,
+  transformFields,
   upsertOverride,
 } from "../../lib/globe/bldgOverrides";
+import { IDENTITY_TRANSFORM, type FeatureTransform } from "../../lib/globe/featureTransform";
 import {
   bankWindowMsLeft,
   lruCapBytesForUltra,
@@ -405,14 +408,26 @@ export function attachStylizedTiles(opts: {
   const bldgOverridesSeam = enrichedSel.variant
     ? {
         forCell: (cellUri: string) => {
-          const rows: Array<{ featureId: number; k: number; cx: number; cz: number; vc: number }> =
-            [];
+          const rows: Array<{
+            featureId: number;
+            xf: FeatureTransform;
+            cx: number;
+            cz: number;
+            vc: number;
+          }> = [];
           const prefix = `${enrichedSel.variant}|${cellUri}|`;
           for (const [key, row] of Object.entries(bldgOverrideMap)) {
             if (!key.startsWith(prefix)) continue;
             const parsed = parseOverrideKey(key);
+            // MS1: the v2 row resolves to a FULL transform (absent components = identity).
             if (parsed)
-              rows.push({ featureId: parsed.featureId, k: row.k, cx: row.cx, cz: row.cz, vc: row.vc });
+              rows.push({
+                featureId: parsed.featureId,
+                xf: rowTransform(row),
+                cx: row.cx,
+                cz: row.cz,
+                vc: row.vc,
+              });
           }
           return rows;
         },
@@ -1674,6 +1689,7 @@ export function attachStylizedTiles(opts: {
       a
         ? {
             featureId: a.featureId,
+            cellUri: a.cellUri,
             originalHeightM: a.bakedHeightM,
             liveHeightM: a.bakedHeightM * a.liveK,
             deltaM: a.bakedHeightM * (a.liveK - 1),
@@ -1714,28 +1730,46 @@ export function attachStylizedTiles(opts: {
     syncBldgEdit();
     return true;
   };
-  /** Apply + persist the armed building's liveK (drag release / RESET-to-1). The stored row is
-   *  C6-clean: scale + bake-local checksum only — no coordinates, nothing that could leak. */
+  /** MESH SUITE MS1: apply + persist ONE building's FULL edit target — the path the U8 height
+   *  commit, the RESET, the MS2 gizmo release and the DEV seam all take. The engine clamps to
+   *  the rails first and the persisted row is read back from it, so storage never disagrees
+   *  with the mesh. `fallback` = the armed pick's captured checksum facts, used when the cell
+   *  has been LRU-evicted mid-edit (the armed state survives; the row re-applies on reload).
+   *  The stored row is C6-clean: scales / metres of offset / degrees + the bake-local checksum —
+   *  no coordinates, nothing that could leak. */
+  const commitBldgTransform = (
+    cellUri: string,
+    featureId: number,
+    t: FeatureTransform,
+    fallback?: { cx: number; cz: number; vc: number; bakedHeightM: number },
+  ) => {
+    if (!enriched || !enrichedSel.variant) return;
+    enriched.setTransform(cellUri, featureId, t);
+    const st = enriched.featureState(cellUri, featureId);
+    const facts = st ?? fallback;
+    if (!facts) return;
+    upsertOverride(
+      bldgOverrideMap,
+      overrideKey(enrichedSel.variant, cellUri, featureId),
+      {
+        ...transformFields(st?.target ?? t),
+        cx: roundCentroidM(facts.cx),
+        cz: roundCentroidM(facts.cz),
+        vc: facts.vc,
+        hM: Math.round(facts.bakedHeightM * 10) / 10,
+      },
+      Date.now(),
+    );
+  };
+  /** Apply + persist the armed building's liveK (drag release / RESET-to-1) — the height-only
+   *  edit; any spatial components it already carries ride along untouched. */
   const commitBldgHeight = () => {
     if (!bldgArmed || !enriched) return;
     const a = bldgArmed;
     a.committedK = a.liveK;
     enriched.hideGhost();
-    enriched.setHeightScale(a.cellUri, a.featureId, a.liveK);
-    if (enrichedSel.variant) {
-      upsertOverride(
-        bldgOverrideMap,
-        overrideKey(enrichedSel.variant, a.cellUri, a.featureId),
-        {
-          k: a.liveK,
-          cx: roundCentroidM(a.cx),
-          cz: roundCentroidM(a.cz),
-          vc: a.vc,
-          hM: Math.round(a.bakedHeightM * 10) / 10,
-        },
-        Date.now(),
-      );
-    }
+    const cur = enriched.featureState(a.cellUri, a.featureId)?.target ?? IDENTITY_TRANSFORM;
+    commitBldgTransform(a.cellUri, a.featureId, { ...cur, sy: a.liveK }, a);
     syncBldgEdit();
   };
   const onFpvPointerDown = (e: PointerEvent) => {
@@ -2482,6 +2516,23 @@ export function attachStylizedTiles(opts: {
       tiles: buildings.tiles,
       enriched: enriched?.tiles ?? null, // Dnipro 3D enrichment (Slice 0) — null unless the URL is set
       enrichedSeats: () => enriched?.debugSeats() ?? null, // per-building re-seat coverage (2026-07-14)
+      // MESH SUITE MS1 (2026-09-02): read / drive ONE building's edit target without the gizmo.
+      // `enrichedSetTransform` takes the SAME commit path as a drag release (engine target +
+      // persisted row), so a harness can prove a spatial edit applies, persists and re-applies.
+      // cellUri + featureId come from the armed mirror (`__bldgEditStore`).
+      enrichedState: (cellUri: string, featureId: number) =>
+        enriched?.featureState(cellUri, featureId) ?? null,
+      enrichedSetTransform: (cellUri: string, featureId: number, t: FeatureTransform) => {
+        commitBldgTransform(cellUri, featureId, t);
+        // Keep the armed state's height in step when the seam edits the armed building, so the
+        // chip / label read the committed value (the gizmo will do the same at MS2).
+        if (bldgArmed && bldgArmed.cellUri === cellUri && bldgArmed.featureId === featureId) {
+          const sy = enriched?.featureState(cellUri, featureId)?.target.sy ?? t.sy;
+          bldgArmed.liveK = sy;
+          bldgArmed.committedK = sy;
+        }
+        syncBldgEdit();
+      },
       // RC5: what the Esri coverage-sentinel fallback actually did — sentinels seen, how many
       // were replaced by an upscaled ancestor, how many GETs the learned cap table skipped, and
       // how many still drew. `drawn > 0` is the only state that can still show the owner a

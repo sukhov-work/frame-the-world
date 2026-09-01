@@ -2291,6 +2291,14 @@ export const ENRICHED = {
   /** Persistent tint on committed overrides — subtler than armed (they should read as "edited",
    *  not "selected"). */
   overrideTintCommittedK: 0.16,
+  /** MESH SUITE MS1 (2026-09-02): when a frame's seat/edit writes touch at most this many runs of
+   *  a cell, the GPU upload is limited to those runs' byte ranges (`BufferAttribute.addUpdateRange`
+   *  — three 0.185 merges the ranges, uploads them, then clears the list); above it the whole
+   *  buffer uploads exactly as before. 8 ≈ one committed edit easing in plus a few late seat
+   *  refinements; a settling cell (dozens of runs per frame) keeps the full upload. The spatial
+   *  rails themselves (translate radius, lift ceiling, scale band) are CONTRACT, not taste —
+   *  lib/globe/bldgOverrides.ts. */
+  editUpdateRangeMaxRuns: 8,
   /** Screen-space error target (px) for the enriched renderer (library default 16). Lower = sharper. */
   errorTarget: 16,
   /** Hard-crease threshold (deg) for the enriched building edge strokes (mirrors BUILDINGS.edgeAngleDeg). */

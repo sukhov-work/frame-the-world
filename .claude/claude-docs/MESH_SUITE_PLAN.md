@@ -126,24 +126,39 @@ Next session starts at **MS0** below.
   Secrets is the future shape if needed). Content-hashed keys would sidestep R2's immutable-
   cache purge issue. Serving via R2 is better on every measured axis (CORS *, Range/206,
   correct model mime) but is new auth surface — wrong FIRST step, right eventual home.
-- **Platform unknowns — PARTIALLY RESOLVED by a docs probe (2026-09-01c, public dev.wix.com
-  + support articles):** ✅ `MODEL3D` is a documented public `mediaType` enum value on the
-  REST FileDescriptor; ✅ supported 3D formats are **.gltf/.glb**; the only published size
-  figure is **25 MB** (from the File Share app article — the main Media Manager article lists
-  no 3D row, so treat 25 MB as a soft signal; our 8 MB normalized cap is comfortably under
-  either way). ⚠️ STILL UNKNOWN, docs exhausted (`urlExpirationDate` is documented only as
-  "when relevant" with no conditions): (1) whether a PUBLIC MODEL3D URL actually expires;
-  (2) wixstatic CORS + **Range** for `model/gltf-binary`; (3) the real Media Manager 3D
-  per-file cap; (4) the GLB `operationStatus` walk (`onFileDescriptorFileReady` has NEVER
-  been wired — the record needs a readiness state regardless).
-  **→ These four are now ONE empirical probe, the decisive MS0 instrument (15 min, wix dev +
-  signed-in member or site-token REST): mint `kind:"model"` upload URL → PUT a ~100 KB GLB →
-  poll the descriptor to READY and print `media.model3d` verbatim (incl. urlExpirationDate) →
-  `curl -I` the URL with `Origin:` and `Range:` headers → record CORS/Accept-Ranges/
-  Content-Type → re-curl later for expiry.** Wix Data per-item byte cap + pagination-past-
-  1000 remain docs questions (internal docs-schema MCP needs an SSO re-login:
-  https://mcp-s-connect.wewix.net/api/login ; Bilbo — the wix-private code-answering MCP —
-  is available for "what does wixstatic actually serve" if the probe ever disagrees with docs).
+- **Platform unknowns — RESOLVED EMPIRICALLY (2026-09-02, `scripts/probe-model3d.mjs` against
+  the live site with a site-scoped CLI token; report `verify-shots/probe-model3d-2026-09-01T21-00-30-609Z.json`,
+  git-ignored):** a ~118 KB procedurally written GLB was minted (`POST
+  /site-media/v1/files/generate-upload-url`, `mimeType: model/gltf-binary`, `private: false`),
+  PUT, and read back — the four answers, with bytes:
+  1. **Ingest is SYNCHRONOUS for a small GLB**: the PUT response itself carried the descriptor
+     with `mediaType: "MODEL3D"`, `mimeType: "model/gltf-binary"`, `operationStatus: "READY"`,
+     and `get-file-by-id` agreed on the first poll (485 ms). A 256×256 PNG preview thumbnail is
+     generated for free (`additionalProperties.model3d.preview.status: READY`) — the "my
+     uploads" list gets its thumbnail without rendering anything.
+  2. **No expiry on a PUBLIC MODEL3D URL**: the descriptor has NO `urlExpirationDate` at any
+     level; the URL is a plain `https://static.wixstatic.com/3d/<id>.glb` served with
+     `Cache-Control: public, max-age=15552000, immutable` (180 days). The `--recheck` leg of the
+     probe re-curls the same URL later in the session for the age check.
+  3. **wixstatic serves GLB exactly as a three loader needs**: `Content-Type:
+     model/gltf-binary`, `Access-Control-Allow-Origin: *` (with `Origin: https://www.plux.today`
+     AND `http://localhost:4321`), `Accept-Ranges: bytes`, and `Range: bytes=0-1023` → **206**
+     with a correct `Content-Range` — streaming/partial fetches work; no R2 needed for serving.
+  4. **PRIVATE 3D files are NOT supported**: `generate-upload-url` with `private: true` and
+     `mimeType: model/gltf-binary` returns **400** (an HTML "400 Error: Bad Request" page) —
+     deterministic across three attempts, with and without `sizeInBytes`, request ids
+     `1788296476.8309367376941413` / `1788296477.3859500443411418`; the comparators in the same
+     minute were `private: true` + `image/jpeg` → 200, `private: false` + `model/gltf-binary` →
+     200, `model/gltf+json` public → 200. **Consequence for D3**: "hide" and "delete" are
+     RECORD-level (`UserModels.hidden`, and delete = `bulkDeleteFiles` + record delete); the
+     bytes of a hidden model stay world-fetchable by anyone holding the URL (accepted under the
+     open-POC ruling — say so in the UI copy at MS6).
+  Not probed, deliberately: the true Media Manager 3D per-file cap (our 8 MB normalized cap sits
+  under every published figure, and a 30 MB probe would burn the owner's media quota). The
+  probe file `plux-probe-public-2026-09-01T21-00-30-609Z.glb`
+  (id `166a86_a0a4cbd3cd044e278d9d8f4484c3f38d.glb`) is left in the Media Manager for the
+  expiry re-check — the owner may delete it afterwards. Wix Data per-item byte cap +
+  pagination-past-1000 remain docs questions for MS3.
 - **Governance (C6) — owner decision required before D3 ships**: there is NO moderation
   (accepted POC risk, dated), NO takedown surface, NO public attribution (memberId stripped
   by design). "Globally visible user meshes, last-committer-wins, no attribution, no
@@ -186,8 +201,8 @@ Next session starts at **MS0** below.
 
 | Slice | Scope | Depends on |
 |---|---|---|
-| **MS0 — ratify + probes** | Governance + quota RULED (see §4). Left: ratify §2 + the two §4 recommendations (osmId-into-MS3, XZ semantics); run the ONE empirical media probe (§1 — GLB upload → descriptor → headers → expiry); fix the two doc drifts (contracts.md key grammar + LWW). Small. | — |
-| **MS1 — transform substrate** | Pristine-snapshot + absolute recompose in `applyFeatureSeats`; `addUpdateRange`; sphere+box bounds; re-locate after move; edge-rebuild-on-transform; `OverrideRow` v2 + sanitize + multi-component neutrality; rails; pure-math unit tests (the scene-test twin rule). | MS0 |
+| **MS0 — ratify + probes** | **DONE 2026-09-02.** Rulings ratified (§4, 2026-09-01c/d); the ONE empirical media probe ran (§1 — all four unknowns answered, private 3D refused); the two contracts.md drifts fixed (+ a third: BuildingOverrides was missing from §4); the §4a-2 sidecar census ran (§6.1: 100 % coverage on all five live variants). | — |
+| **MS1 — transform substrate** | **BUILT 2026-09-02 (§6).** Pristine-snapshot + absolute recompose in `applyFeatureSeats`; `addUpdateRange`; sphere+box bounds; re-locate after move; per-SEGMENT edge attribution (the party-wall fix, in place of a rebuild); `OverrideRow` v2 + sanitize + multi-component neutrality; rails; pure-math unit tests (the scene-test twin rule); generalized ghost; `setTransform`/`featureState` engine API + DEV seam; browser leg `verify-meshedit.mjs`. | MS0 |
 | **MS2 — gizmo UI** | Building context menu (armed building → MOVE/ROTATE/SCALE/EXTRUDE/RESET); TransformControls proxy (ENU quaternion, local space, layer isolation, dragging↔GlobeControls, minY/maxY rails); generalized ghost preview; extended label (per-op current + original, revert per-op / revert all); extrude unchanged; `verify-meshedit.mjs` harness. | MS1 |
 | **MS3 — D2 activation** | Run provisioning; boot fetch + merge; SYNC affordance + login gate + 402/401 UX; markSynced; tint ladder + subtle original-params indication; re-bake-loss note in UI copy; extend wire/collection with MS1 fields; harness leg. | MS1 (fields), not MS2 |
 | **MS4 — D3 upload pipeline** | Modal fork photo\|model; loaders + normalize-to-GLB + validation + auto-decimate; readiness state; `UserModels` collection + endpoints (quota wall); `/api/upload-url` kind:"model" + first mime allowlist. | MS0 answers |
@@ -240,17 +255,130 @@ Concretely, each slice's done-gate includes:
    and `buildingTopWorld` anchors read the SAME arrays — the existing regression harnesses
    are the gate and ALL must stay green: `verify-bldg-override` · `verify-ultra` 28/28 ·
    `verify-ultra-dusk` 21/21 · `verify-rendering-charter` 85/85 · `verify-eclipse` 37/0 ·
-   `verify-chernobyl` 8/8 · `verify-bestspot-ownerbatch` 45/45 · full vitest · astro check.
+   ~~`verify-chernobyl` 8/8~~ (DROPPED from every roster by owner ruling 2026-09-02c — the
+   Chernobyl slice has no verification or support; Dnipro is the priority in every feature) ·
+   `verify-bestspot-ownerbatch` 45/45 · full vitest · astro check.
 5. **Rendering**: no per-frame cost on unedited cells (one boolean/early-continue), no
    whole-buffer uploads outside an active drag (`addUpdateRange`), shadow/edge/tint
    behaviour unchanged for untouched buildings — spot-check with the DBG window's frame
    brackets before/after.
 
-## §5 Session-start recipe (MS0/MS1)
+## §5 Session-start recipe (MS2 onward)
 
-1. Read this file, then `mem:project/wip-2026-09-01-mesh-suite-plan` (research digests) and
-   the four full agent reports referenced there if needed.
-2. MS0: AskUserQuestion the §4 items · Wix MCP the §1 platform unknowns · fix the two doc
-   drifts · then `/frame` design-first into MS1.
+1. Read this file (§6 is the MS1 as-built), then `mem:project/wip-2026-09-02-mesh-suite-ms0-ms1`
+   and `mem:project/wip-2026-09-01-mesh-suite-plan` (research digests).
+2. MS2 = the gizmo UI on top of the §6 substrate: `enriched.setTransform` / `featureState` /
+   `setGhostXf` / `buildingTopWorld(…, xf)` are the engine seams; the DEV seam
+   `__globe.enrichedSetTransform` is the same commit path a gizmo release must take.
 3. The DBG window (2026-09-01) is the instrument for all of this — seat deferrals/rejections,
    cell counts, frame costs are live in it; open it before profiling anything.
+
+---
+
+## §6 MS1 AS BUILT — the transform substrate (2026-09-02)
+
+### §6.1 The §4a-2 census (run BEFORE keying anything by osmId)
+
+`bakes/enriched/*/cell-*.meta.json`, every live variant (the same files R2 serves):
+
+| variant | cells | sidecars (schema 2) | features | with `osm` | notes |
+|---|---|---|---|---|---|
+| dnipro | 386 | 386 | 127,890 | 100 % | src default/levels/class/height |
+| dnipro-o2w | 389 | 389 | 133,437 | 100 % | **5 osm ids appear TWICE inside one cell** — all `PowerTower` + `HighVoltagePowerTower` pairs (n1782058413 · n3266155632 · n3197676042 · n6923575054 · n6923575053): OSM2World emits two features for one power-tower node. None is a `Building*` class, so none is pickable. |
+| st-albans-o2w | 36 | 36 | 26,187 | 100 % | |
+| chernobyl | 72 | 72 | 1,212 | 100 % | |
+| chernobyl-o2w | 74 | 74 | 1,707 | 100 % | |
+
+No osm id is shared ACROSS cells in any variant (the RC16 straddler residual is geometry, not
+identity); `featureId` is unique per variant (bake-sequential, 0..N−1). **Consequence for MS3's
+dual key:** `variant|osm` is unique for every pickable building today; the fingerprint
+(`cx/cz/vc`) stays the tie-breaker and the fallback, never a hard cutover (§4a-2).
+
+### §6.2 The model — what a row means
+
+`OverrideRow` v2 (`lib/globe/bldgOverrides.ts`): `{ sy, sx?, sz?, rotDeg?, tE?, tN?, tU?, cx,
+cz, vc, hM, t, s? }`. `sy` is the U8 height scale renamed (legacy `k` is READ as `sy` by
+`sanitizeRow`, never migrated in place — the read-old-keys precedent; a legacy row sanitizes to
+a byte-identical v2 row minus the rename, unit-pinned). Spatial components are OPTIONAL and
+absent = identity, so a height-only edit persists exactly as U8 did. Semantics
+(`lib/globe/featureTransform.ts`): local +X east, +Y up, −Z north; `tE/tN` metres; `rotDeg` in
+three's `makeRotationY` sense (CCW from above); `tU` a lift ≥ 0 above the seated base — the
+owner's "never underground" rule is structural, ground contact stays owned by the terrain seat.
+Rails are CONTRACT constants there (`XF_RAILS`: scale band 0.1–10 on every axis, `TRANSLATE_MAX_M`
+60 — the tile-level culling volume is not grown by a move — `LIFT_MAX_M` 25); a persisted row
+outside them is dropped on read, the `k` precedent. **Neutrality is judged across ALL
+components** (`isNeutralRow`) — the scalar rule that would have deleted a rotated-but-unscaled
+row is gone. `transformFields` writes only non-identity components (sub-threshold gizmo noise
+never lands); `rowTransform` resolves a row to the full `FeatureTransform`.
+
+### §6.3 The two paths in `applyFeatureSeats` (the §4a-3/5 contract)
+
+- **Fast path (unchanged, byte-identical):** a feature with `axf === null` runs the incremental
+  writer exactly as U8 shipped — seat `+= dy`, Y-scale about the live base. This is every
+  untouched building and every height-only edit; the only new per-frame cost is one null check.
+- **Absolute path:** a feature carrying a spatial target gets a PRISTINE snapshot of its run
+  (fill + its edge-CSR bucket) on first use — `pristineFromIncremental` INVERTS the incremental
+  state (`y0 = baseY + (y − baseY − dyM)/sy`, X/Z untouched; a plain copy at load-model), so no
+  second copy of the cell buffer ever exists. Each frame anything changes (seat dy, height ease,
+  spatial ease) the run is recomposed from the snapshot: `p = pivot + R_y(rot)·S·(p0 − pivot) +
+  (tE, dyM + tU, −tN)`, pivot = (cx, baseY, cz). For identity components this is EXACTLY the
+  incremental invariant (`featureTransform.test.ts`), which is what makes RESET seamless: the
+  spatial ease settles at identity → the snapshot is dropped → the run is back on the fast path
+  with the array already holding the fast path's numbers. Every component eases with
+  `overrideEaseK` and snaps its tail (rotation the short way round).
+- **Poisoned-pair collapse, plausibility gate, seat epoch / quiet frames:** untouched — the
+  spatial branch consumes the SAME `dy` the seat step produced.
+
+### §6.4 The five landmines, as closed
+
+1. **Re-locate after move** — `locateFeature`: a feature with a target translation samples
+   terrain at `(cx + tE, baseY, cz − tN)` (the pristine centroid offset by where it is GOING,
+   never the mid-ease array); on a changed translation its seat is nulled and it is re-queued
+   at the head of the RC7 drain. Unedited features keep the exact array-centroid read.
+2. **Bounds** — `growBoundsFor` grows by `boundsGrowthM` (translation + lift + XZ growth +
+   height growth, monotone) and grows the bounding BOX alongside the sphere when one exists
+   (`Mesh.raycast` early-outs on the box, three 0.185 `Mesh.js:260`). Per-feature `rXZ` is
+   captured in the same load pass as the centroid (min/max extents, no second sweep).
+3. **Party-wall edge CSR** — attributed per SEGMENT instead of rebuilt: `EdgesGeometry` emits
+   two vertices per segment and shares nothing, so `mapSegmentsToRuns` gives a segment to the
+   run owning BOTH its ends (the fully shared post goes to the lowest run). Applies to every
+   cell (cm-scale on a re-seat, the only correct answer under a move); unit-pinned on a
+   two-prism party wall.
+4. **Whole-buffer upload** — `part.touchedRuns` collects the runs written this frame; at most
+   `ENRICHED.editUpdateRangeMaxRuns` (8) → `addUpdateRange` per run (fill: the run's slice;
+   edges: the run's `[min, max]` stroke span, captured at load); more → `clearUpdateRanges`
+   and the whole-buffer upload a settling cell always had. three merges + clears the ranges
+   after each upload (`WebGLAttributes.js:147`).
+5. **Pristine `cx/cz`** — never written; the live pivot is derived (`xfPivotLocal`,
+   `buildingTopWorld(…, xf)`), and the ghost is the pristine run rebased about the pivot with
+   the transform carried on the Object3D (`placeGhost`: position / `rotation.y` / scale — the
+   MS2 preview is `setGhostXf`, zero geometry rewrites).
+
+### §6.5 Engine API + wiring
+
+`EnrichedBuildingsHandle`: `setTransform(cellUri, featureId, t)` (the ONE entry point —
+load re-apply, `setHeightScale`, the DEV seam and the MS2 gizmo all land in
+`applyTransformTarget`) · `featureState(cellUri, featureId) → { target, applied, cx, cz, vc,
+bakedHeightM } | null` · `setGhostXf(xf)` · `buildingTopWorld(…, xf?)` · `BuildingPick.current`
+· `debugSeats().spatial`. `opts.overrides.forCell` rows now carry `xf: FeatureTransform`.
+Orchestrator (`StylizedTiles.ts`): `commitBldgTransform(cellUri, featureId, t, fallback?)` —
+engine target first, then the row read BACK from `featureState` (post-clamp, so storage never
+disagrees with the mesh; the armed pick's capture is the fallback when the cell was
+LRU-evicted mid-edit); `commitBldgHeight` is now a height-only call into it. DEV seams
+`__globe.enrichedState()` / `__globe.enrichedSetTransform()` (contracts.md §3);
+`__bldgEditStore.armed.cellUri` added so a harness can address the armed building.
+
+### §6.6 Verification receipt
+
+See DECISIONS 2026-09-02 for the numbers: unit tier (`featureTransform.test.ts` 21,
+`bldgOverrides.test.ts` +4 v2 cases, `enrichedMask.test.ts` +3 party-wall cases, full vitest,
+`astro check`, knip) · browser tier (`verify-bldg-override.mjs` byte-identical U8 UX,
+`verify-meshedit.mjs` the MS1 leg, plus the §4a-4 harness list).
+
+### §6.7 Left for MS2 (deliberately)
+
+The context menu + `TransformControls` proxy (ENU quaternion, `space:'local'`, camera-layer
+isolation, `dragging-changed` → controls off, `minY/maxY` = the lift rail) · the generalized
+label (per-op current vs original, revert per-op / revert all) · a compass-heading readout
+(negate `rotDeg` at the UI) · the tile-level culling caveat behind `TRANSLATE_MAX_M`
+(owner may raise it; the fix would grow the tile bounding volume, not the mesh bounds).

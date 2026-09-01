@@ -178,7 +178,22 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-01: the DBG DEBUG HUD SHIPPED** — desktop-only `DBG` chip (off by default, beside ULT)
+**2026-09-02: MESH SUITE MS0 DONE + MS1 BUILT** — the ONE empirical Wix Media MODEL3D probe
+(`scripts/probe-model3d.mjs`) answered all four platform unknowns with bytes (ingest READY on
+the PUT itself · NO `urlExpirationDate`, immutable 180-day cache · wixstatic CORS `*` + Range
+206 + `model/gltf-binary` · **PRIVATE 3D refused 400** → D3 hide/delete are record-level);
+the §4a-2 sidecar census is 100 % on all five live variants; contracts.md drifts fixed. MS1 =
+the spatial-edit substrate: `lib/globe/featureTransform.ts` (absolute recompose from a pristine
+snapshot; identity ≡ the incremental writer), v2 `OverrideRow` (`sy` replaces `k`, legacy read,
+neutrality across all components, rails as contract), per-SEGMENT edge CSR, `addUpdateRange`,
+`setTransform`/`featureState` + DEV seam, `verify-meshedit.mjs` 6/6 · `verify-bldg-override`
+byte-identical · vitest 2,259 · astro 0 · knip 0. Docs: `MESH_SUITE_PLAN.md` §6 (as-built) ·
+`mem:project/wip-2026-09-02-mesh-suite-ms0-ms1` · DECISIONS 2026-09-02 · T74.
+**Next session starts MS2 (the gizmo UI) on the §6 seams.** Freshest state always
+`NEXT_SESSION_PROMPT.md`. **Owner ruling 2026-09-02c: the CHERNOBYL slice has NO verification
+and NO support any more ("a curious test") — retire its harness from every roster, T75 DROPPED;
+the DNIPRO slice is the highest priority in ANY feature.**
+Prior: **2026-09-01: the DBG DEBUG HUD SHIPPED** — desktop-only `DBG` chip (off by default, beside ULT)
 → floating/resizable/filterable window: 151 metrics + 3 actions across 15 groups, every one
 with a technical note, on the NEW always-compiled `lib/globe/debugFeed` seam (the ULT
 precedent — the DEV `window.__*` seams are release-eliminated). Gates 2,231/2,231 · astro 0/0/8
