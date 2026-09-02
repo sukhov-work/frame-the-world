@@ -24,6 +24,7 @@ import MiniMap from "../components/panels/MiniMap";
 import MapWindow from "../components/panels/MapWindow";
 import SkyContextMenu from "../components/panels/SkyContextMenu";
 import BuildingEditChip from "../components/panels/BuildingEditChip";
+import ModelEditChip from "../components/panels/ModelEditChip";
 import DebugPanel from "../components/panels/DebugPanel";
 // Hover tips (tips batch 2026-07-11) — imported here so the Astro-rendered nav links get
 // the same glass tip pills the React panels use.
@@ -207,6 +208,7 @@ import "../styles/boot-poster.css";
   <!-- U8 building height edit (owner 2026-08-18) — Δ + RESET chip while a building is armed
        (dbl-click in FPV). Top-level island (same trap); the same island mounts on /m. -->
   <BuildingEditChip client:only="react" />
+  <ModelEditChip client:only="react" />
 
   <!-- DEBUG HUD (owner 2026-09-01) — the DBG chip's floating metrics window. Desktop-only,
        off by default; renders null until the chip flips camera.debugHud. NOT mounted on /m. -->

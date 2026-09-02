@@ -177,6 +177,9 @@ const COLLECTIONS = [
       num("lat", "Placement Latitude"),
       num("lon", "Placement Longitude"),
       text("geohash9", "Placement Geohash (p9)"),
+      // MESH SUITE MS5 (2026-09-02): the world-read cell — `hasSome` on this column is the
+      // pins' gh4/gh6 precedent (equality on a set; a p9 hash cannot be prefix-queried).
+      text("gh5", "Placement Geohash (p5)"),
       num("rotDeg", "Yaw (deg)"),
       num("scale", "Uniform Scale"),
     ],

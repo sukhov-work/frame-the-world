@@ -4,6 +4,7 @@ import Encoder from "../ui/Encoder";
 import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useCameraStore } from "../../store/camera";
+import { useUserModelsStore } from "../../store/userModels";
 import { useSkyStore } from "../../store/sky";
 import { usePlacesMapStore } from "../../store/places";
 import { useMemberStore } from "../../store/member";
@@ -243,6 +244,7 @@ export default function CameraTiltPanel() {
         >
           BLD
         </button>
+        <ModelsChip />
         <AimVisibleChip />
         <PlacesOnMapChip />
         {/* Vector map-ink on/off (owner batch #4 item 7): the road/river/green ribbons washed
@@ -532,6 +534,34 @@ function PlacesOnMapChip() {
       data-tip-pos="left"
     >
       PLC
+    </button>
+  );
+}
+
+/** MDL — everyone's uploaded 3D models on/off (MESH SUITE MS5; owner 2026-09-01c: ON by
+ *  default, no quota — the chip carries the PHYSICAL-DENSITY warning instead: amber with the
+ *  count the triangle budget had to skip nearby, or when the resident load alone is heavy). */
+function ModelsChip() {
+  const on = useCameraStore((s) => s.modelsVisible);
+  const setOn = useCameraStore((s) => s.setModelsVisible);
+  const density = useUserModelsStore((s) => s.density);
+  const warn = on && density.warn;
+  const tip = warn
+    ? `CUSTOM MODELS — HEAVY AREA: ${density.skipped > 0 ? `${density.skipped} NEARBY MODEL${density.skipped === 1 ? "" : "S"} SKIPPED` : "THE RESIDENT LOAD IS HEAVY"} TO PROTECT THE FRAME.`
+    : "CUSTOM MODELS — SHOW OR HIDE EVERYONE'S UPLOADED 3D MODELS.";
+  return (
+    <button
+      type="button"
+      className={`ct-mode ct-mdl tip${on ? " is-on" : ""}${warn ? " is-warn" : ""}`}
+      onClick={() => setOn(!on)}
+      aria-pressed={on}
+      aria-label={on ? "Hide uploaded 3D models" : "Show uploaded 3D models"}
+      data-tip={tip}
+      data-tip-pos="left"
+      data-density={warn ? "warn" : "ok"}
+      data-resident={density.resident}
+    >
+      MDL
     </button>
   );
 }

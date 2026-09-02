@@ -231,7 +231,7 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   **`heatPalette.ts`**, the BEST SPOT score→ink ramps with GL and DOM twins), `prefs.ts`.
 - `pages/`: `index.astro` (desktop) + `m.astro` (mobile shell) + `guide.astro` (standalone server-rendered
   guide page over the same `guideContent`, 2026-08-15e) + `api/` (**9 routes**: photos, places,
-  listings, market, upload-url, sbdb, ping, dev-seed, `models` (MESH SUITE MS4 2026-09-02h — the `UserModels` lifecycle: owner GET · descriptor-verified POST · DELETE; `upload-url` grew kind:"model", the first server-side mime allowlist), `building-overrides` (U8 LWW height-override
+  listings, market, upload-url, sbdb, ping, dev-seed, `models` (MESH SUITE MS4 2026-09-02h — the `UserModels` lifecycle: owner GET · descriptor-verified POST · DELETE; `upload-url` grew kind:"model", the first server-side mime allowlist; **MS5 2026-09-02i added the owner PATCH** — placement + the two seats, clamped, both geohash columns re-derived), **`world-models`** (MS5 — the PUBLIC world read: `GET ?cells=<gh5,…>` → READY, un-hidden rows by `hasSome` on the denormalized p5 cell, `ownerMemberId`/file ids stripped; what every visitor streams into `scene/userModels.ts`), `building-overrides` (U8 LWW height-override
   bulkSave, 2026-08-19 → LIVE at MESH SUITE MS3 2026-09-02f: paged public GET + member POST,
   the collection provisioned) — full route inventory in `conventions/contracts.md §7`; §6 above keeps
   the original endpoint contracts). Also under `public/`: **`sw.js`** — the iOS-ONLY, dev-gated,

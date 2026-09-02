@@ -744,7 +744,10 @@ try {
   if (r17.removed < 1) fail(`the tombstone's removal did not land: ${JSON.stringify(r17)}`);
   if (Object.keys(await evalJs(ROWS)).length !== 0) fail("the landed tombstone must be gone locally");
   const ss17 = await evalJs(`(({ shared, dirty }) => ({ shared, dirty }))(${SS})`);
-  if (ss17.dirty !== 0 || ss17.shared !== 0) fail(`after the removal: ${JSON.stringify(ss17)}`);
+  // Relative to the world as found: the collection is the PRODUCTION world (2026-09-02i: a
+  // member's real synced edit sat beside the seed and an absolute `shared === 0` read it as a
+  // regression) — the removal takes exactly the seeded row, everything else stays.
+  if (ss17.dirty !== 0 || ss17.shared !== ss15.shared - 1) fail(`after the removal: ${JSON.stringify(ss17)} (world held ${ss15.shared} before)`);
   await worldRowEventually(F.cell, F.fid, (o) => o === null, "row gone after the removal synced");
   // The pill shows the outcome ("✓ SYNCED n") for SYNC_RESULT_MS, then — nothing pending — it goes.
   const done17 = await evalJs("document.querySelector('.bldg-sync-pill .bec-sync')?.dataset.sync ?? ''");

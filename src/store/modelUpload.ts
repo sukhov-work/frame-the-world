@@ -35,6 +35,7 @@ import { titleFromFileName } from "../lib/save/pinBody";
 import { safeModelFileName } from "../lib/wix/modelRecords";
 import { useCameraStore } from "./camera";
 import { useUploadStore } from "./upload";
+import { useUserModelsStore } from "./userModels";
 
 export type ModelPhase =
   | "idle"
@@ -386,6 +387,29 @@ export const useModelUploadStore = create<ModelUploadStore>((set, get) => ({
       set({
         phase: "stored",
         stored: { modelId: res.modelId, url: res.url, thumbnailUrl: res.thumbnailUrl ?? null, readiness: res.readiness },
+      });
+      // MS5: the row is MINE now — armable in FPV, and in the world at once when it was seeded
+      // (the optimistic swap; the world read catches up past the read lag).
+      useUserModelsStore.getState().addMine({
+        id: res.modelId,
+        title: s.title.trim() || titleFromFileName(s.fileName),
+        url: res.url,
+        thumbnailUrl: res.thumbnailUrl ?? null,
+        fileName: s.fileName ?? null,
+        sourceFormat: s.format,
+        glbBytes: glb.size,
+        tris: s.stats.tris,
+        meshes: s.stats.meshes,
+        textures: s.stats.textures,
+        decimatedFromTris: s.decimatedFromTris,
+        bbox: s.stats.bbox,
+        readiness: res.readiness === "READY" || res.readiness === "FAILED" ? res.readiness : "PENDING",
+        hidden: false,
+        lat: s.placement?.latDeg ?? null,
+        lon: s.placement?.lonDeg ?? null,
+        rotDeg: 0,
+        scale: 1,
+        createdAt: null,
       });
     } catch (e) {
       if (my !== seq) return;

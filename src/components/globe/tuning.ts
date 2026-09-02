@@ -20,7 +20,7 @@
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
 //   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · ENRICHED · GROUND · DRAPE ·
 //   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
-//   AIMCONES · GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · BESTSPOT · ORCH
+//   AIMCONES · GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · BESTSPOT · ORCH · MODELS
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Re-exported so globe code has ONE source for the ellipsoid (kept in lib/geo — pure, unit-tested,
@@ -3937,6 +3937,67 @@ export const ORCH = {
  *  per-frame series (lib/globe/debugFeed) — everything else is PULLED by the panel at the
  *  cadences below, so closing the window (or never opening it) costs the frame loop exactly
  *  one boolean check per push site. All values browser-VERIFIED at ship (2026-09-01). */
+// MODELS — MESH SUITE MS5 (D3 placement, 2026-09-02): user-uploaded models in the world
+// (`scene/userModels.ts` + `store/userModels.ts`). The RAILS of an edit (uniform scale band,
+// the per-drag move radius, the world-read precision) are CONTRACT and live in
+// `lib/models/modelPlacement.ts`; these are the taste + budget knobs. No quota anywhere
+// (owner 2026-09-01c) — the triangle BUDGET below is what protects the frame, and what it has
+// to refuse nearby is the physical-density warning.
+export const MODELS = {
+  /** Half-side (m) of the square of p5 cells the world read asks for around the camera's
+   *  ground focus. ≈ 4.9 km cells → 4–9 cells per query. */
+  fetchRadiusM: 4_000,
+  /** Above this camera altitude (m) nothing is fetched or shown — a 100 m object is under a
+   *  pixel from there, and the pins' global tier has no model twin. */
+  fetchMaxAltM: 40_000,
+  /** Most cells one world query names (the `hasSome` list); the nearest win. */
+  maxCells: 16,
+  /** The viewport report is THROTTLED (not debounced — the pins lesson) to one query per this
+   *  window; a query fires only when the cover changed or `repollMs` passed. */
+  queryThrottleMs: 600,
+  /** Idle re-poll (ms) so another member's placement appears without a camera move. */
+  repollMs: 90_000,
+  /** A row this browser just PATCHed outranks the fetched copy for this long — Wix Data reads
+   *  lag writes by ~1 s (browser-measured 2026-09-02f); the MS3 grace, reused. */
+  readLagGraceMs: 15_000,
+  /** A model inside this camera distance (m) wants to be RESIDENT (GLB fetched + in the
+   *  scene)… */
+  loadRadiusM: 3_000,
+  /** …and a resident one is released only past this (hysteresis — no thrash at the edge). */
+  unloadRadiusM: 4_000,
+  /** Resident-model count cap and the TRIANGLE budget (closest first; ≈ 15 max-size uploads).
+   *  Both are frame protection, not a quota. */
+  maxResident: 24,
+  triBudget: 1_500_000,
+  /** The MDL chip turns amber at this resident load even when nothing was skipped. */
+  densityWarnTris: 1_000_000,
+  /** Concurrent GLB fetches (each ≤ 8 MiB). */
+  maxConcurrentLoads: 2,
+  /** Residency re-plan cadence (frames) — distances change slowly; the plan is O(world). */
+  residencyEveryFrames: 12,
+  /** Terrain re-ask cadence (frames) for models whose seat is not yet REAL (tiles refine);
+   *  the Pins idiom. */
+  resnapEveryFrames: 60,
+  /** Seat ease (per-frame k) from the fallback / coarse height onto the refined terrain, so a
+   *  LOD refine slides the model instead of teleporting it (the temp-pin idiom). */
+  seatEaseK: 0.18,
+  /** Below this remaining seat delta (m) the ease lands exactly. */
+  seatSnapM: 0.005,
+  /** Committed-seat ease (per-frame k) for a yaw / scale that changed by a PATCH or a revert
+   *  (a drag previews live on the rig; the ease is for the OTHER changes). */
+  xfEaseK: 0.2,
+  /** Ground height used until the terrain answers (m above the ellipsoid). */
+  fallbackGroundM: 120,
+  /** Armed highlight — an emissive lift on every mesh of the armed model (token colour at the
+   *  use site; tuning names no colour). 0 = off. */
+  armedEmissive: 0.22,
+  /** Density / residency mirror into the store (frames; the chip badge, never 60 fps). */
+  densityMirrorEveryFrames: 30,
+  /** Hover pick throttle (ms) for the "MODEL · title" note over an un-armed model in FPV
+   *  (mouse/pen only) — rides the same cadence as the building hover note. */
+  hoverPickMs: 120,
+} as const;
+
 export const DEBUGHUD = {
   /** Per-frame ring capacity (samples). 240 ≈ 4 s at 60 fps — enough for p95/1 %-low to be
    *  meaningful without smearing a tier flip across the whole graph. Must stay ≤ 4096 (the

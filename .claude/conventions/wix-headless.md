@@ -111,7 +111,15 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
   with CORS `*`, `Accept-Ranges` + 206, `model/gltf-binary`, immutable 180-day cache, NO
   `urlExpirationDate`. The app's `/api/upload-url` kind `"model"` allowlists exactly that mime
   (the client normalizes every format to GLB) and `/api/models` re-verifies the descriptor
-  server-side before a `UserModels` row exists — `contracts.md §7`.
+  server-side before a `UserModels` row exists — `contracts.md §7`. **The world read (MESH SUITE
+  MS5, 2026-09-02i):** `UserModels` is ADMIN-everything, so visitors stream models through the
+  elevated public `GET /api/world-models?cells=` — a `hasSome` on a denormalized p5 geohash
+  column (`gh5`; `hasSome` is equality-on-a-set — the PublicPins gh4/gh6 precedent, a p9 hash
+  cannot be prefix-queried), READY + un-hidden, one page, `complete` flagged; the mapper strips
+  `ownerMemberId` and every file id. A placement moves through the owner `PATCH /api/models`
+  (read-modify-write `items.update`, both cells re-derived, seats clamped). The GLB itself is
+  fetched by the browser straight from `static.wixstatic.com/3d/` (CORS `*`) with three's
+  `GLTFLoader` — the platform's 403 "thumbnail" is never touched.
 
 ## 10. eCommerce (marketplace-light) — AS BUILT on Catalog **V3** (Phase 6, 2026-07-16)
 - **The site is Catalog V3, not V1** — the gateway hard-rejects every V1 call (`428

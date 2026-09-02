@@ -210,6 +210,11 @@ export interface CameraState {
    *  labels are content, not wash, and stay on their own presence. Persisted (VEC / ▤ VECTOR). */
   vectorsVisible: boolean;
   setVectorsVisible: (on: boolean) => void;
+  /** MDL chip (MESH SUITE MS5, owner 2026-09-01c): everyone's uploaded 3D models on/off, ON by
+   *  default — the BLD recipe (a plain live gate in the orchestrator; off releases every
+   *  resident model and ends an armed model edit). Persisted. */
+  modelsVisible: boolean;
+  setModelsVisible: (on: boolean) => void;
   /** ULTRA HQ — the DESKTOP-ONLY experimental chip (owner 2026-08-22h).
    *
    *  This is the ONLY flag in this store that defaults to **false**; every other chip above
@@ -347,6 +352,11 @@ export const useCameraStore = create<CameraState>((set) => ({
   setVectorsVisible: (on) => {
     saveViewPref("vectorsVisible", on);
     set({ vectorsVisible: on });
+  },
+  modelsVisible: stored.modelsVisible ?? true,
+  setModelsVisible: (on) => {
+    saveViewPref("modelsVisible", on);
+    set({ modelsVisible: on });
   },
   // `?? false` on purpose (see the interface docblock) — an opt-in experiment, never a default.
   ultraQuality: stored.ultraQuality ?? false,

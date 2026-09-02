@@ -6,7 +6,8 @@
 // platform classified as a public MODEL3D — a client cannot register an arbitrary URL — and
 // "hide" / "delete" are RECORD operations (private 3D files do not exist on the platform; MS0).
 // No quota (owner 2026-09-01c): per-file health caps only, re-checked here against the
-// descriptor's own byte count. The world read (visitors streaming placed models) is MS5.
+// descriptor's own byte count. The world read (visitors streaming placed models) is the sibling
+// public route /api/world-models (MESH SUITE MS5); PATCH here is the owner's placement writer.
 import type { APIRoute } from "astro";
 import { items } from "@wix/data";
 import { auth } from "@wix/essentials";
@@ -15,9 +16,11 @@ import { json, requireMember } from "../../lib/api/http";
 import {
   MODEL_PAGE,
   MODELS_COLLECTION,
+  applyModelPlacement,
   modelListItem,
   modelRecord,
   parseCreateModelBody,
+  parsePlacementBody,
   verifyModelDescriptor,
   verifyThumbnailDescriptor,
   type ModelListItem,
@@ -107,6 +110,32 @@ export const POST: APIRoute = async ({ request }) => {
   } catch (e) {
     console.error("[models]", e);
     return json({ error: "SAVE_FAILED", message: "could not register the model" }, 502);
+  }
+};
+
+// PATCH /api/models — MESH SUITE MS5: place / re-place an owned model and set its seats. The
+// photos precedent: read the owned row, re-derive the placement columns (both geohash cells),
+// clamp the seats, `items.update` the WHOLE row. Answers the owner's list row so the client can
+// swap it in without a second GET.
+export const PATCH: APIRoute = async ({ request }) => {
+  const member = await requireMember();
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to place models" }, 401);
+
+  const parsed = parsePlacementBody(await request.json().catch(() => null));
+  if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
+  const body = parsed.body;
+
+  try {
+    const existing = await ownedModel(body.id, member._id);
+    if (!existing) return json({ error: "NOT_FOUND", message: "no such model of yours" }, 404);
+    const record = applyModelPlacement(existing as Record<string, unknown>, body);
+    const saved = await auth.elevate(items.update)(MODELS_COLLECTION, record as { _id: string });
+    const model = modelListItem((saved ?? record) as Record<string, unknown>) ?? modelListItem(record);
+    if (!model) return json({ error: "UPDATE_FAILED", message: "the stored row is unreadable" }, 502);
+    return json({ model });
+  } catch (e) {
+    console.error("[models:place]", e);
+    return json({ error: "UPDATE_FAILED", message: "could not place the model" }, 502);
   }
 };
 

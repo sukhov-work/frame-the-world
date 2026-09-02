@@ -14,7 +14,7 @@
  * Photo uploads are ASYNC on the Wix side (descriptor may report PENDING before READY); the
  * save flow stores ids/urls and does not block on readiness.
  */
-import { MODEL_MIME } from "../wix/modelRecords";
+import { MODEL_MIME, type ModelListItem, type PublicModel } from "../wix/modelRecords";
 
 export interface UploadedFile {
   fileId: string | null;
@@ -206,4 +206,33 @@ export async function postModelRecord(body: Record<string, unknown>): Promise<{
   existing?: boolean;
 }> {
   return postJson("/api/models", body);
+}
+
+/** MESH SUITE MS5: PATCH /api/models — place / re-place an owned model (+ its seats). */
+export async function patchModelPlacement(body: {
+  id: string;
+  lat: number;
+  lon: number;
+  rotDeg?: number;
+  scale?: number;
+}): Promise<{ model: ModelListItem }> {
+  return requestJson("/api/models", "PATCH", body);
+}
+
+/** MESH SUITE MS5: GET /api/models — the member's own models (ids feed the "mine" set). */
+export async function fetchMyModels(): Promise<{ models: ModelListItem[] }> {
+  return requestJson("/api/models", "GET");
+}
+
+/** MESH SUITE MS5: GET /api/world-models?cells= — the public world read for a geohash cover. */
+export async function fetchWorldModels(cells: readonly string[]): Promise<{ models: PublicModel[]; complete: boolean }> {
+  const res = await fetch(`/api/world-models?cells=${encodeURIComponent(cells.join(","))}`, { cache: "no-store" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(json?.message ?? `HTTP ${res.status}`);
+    (err as Error & { code?: string; status?: number }).code = json?.error;
+    (err as Error & { code?: string; status?: number }).status = res.status;
+    throw err;
+  }
+  return json;
 }

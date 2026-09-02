@@ -34,6 +34,10 @@ export interface BldgEditLabelHandle {
   ): void;
   /** MS3: the hover note at the projected `world` point (`null` hides it). */
   hover(world: THREE.Vector3 | null, text: string, camera: THREE.PerspectiveCamera): void;
+  /** MESH SUITE MS5: the same pinned label with FREE lines — a user model's op line, its live
+   *  readout and its "was" line (a model has no height pair). `null` hides it; `update` and
+   *  `pin` share the element, so only one of them is shown at a time. */
+  pin(world: THREE.Vector3 | null, lines: { op?: string | null; live: string; orig: string }, camera: THREE.PerspectiveCamera): void;
   dispose(): void;
 }
 
@@ -100,16 +104,11 @@ export function attachBldgEditLabel(): BldgEditLabelHandle {
   let lastOp = "";
   let lastHover = "";
 
-  return {
-    update(world, origM, liveM, camera, opLine = null) {
-      const px = world ? projectPx(world, camera) : null;
+  const show = (px: { x: number; y: number } | null, live: string, orig: string, op: string) => {
       if (!px) {
         el.style.display = "none";
         return;
       }
-      const live = `${liveM.toFixed(1)} m`;
-      const orig = `↳ was ${origM.toFixed(1)} m`;
-      const op = opLine ?? "";
       if (live !== lastLive) {
         liveEl.textContent = live;
         lastLive = live;
@@ -126,6 +125,15 @@ export function attachBldgEditLabel(): BldgEditLabelHandle {
       el.style.left = `${px.x.toFixed(1)}px`;
       el.style.top = `${px.y.toFixed(1)}px`;
       el.style.display = "block";
+  };
+
+  return {
+    update(world, origM, liveM, camera, opLine = null) {
+      // The U8 strings, byte-identical: the live height and "↳ was" the mapped one.
+      show(world ? projectPx(world, camera) : null, `${liveM.toFixed(1)} m`, `↳ was ${origM.toFixed(1)} m`, opLine ?? "");
+    },
+    pin(world, lines, camera) {
+      show(world ? projectPx(world, camera) : null, lines.live, lines.orig, lines.op ?? "");
     },
     hover(world, text, camera) {
       const px = world ? projectPx(world, camera) : null;

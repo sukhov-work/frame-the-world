@@ -22,9 +22,10 @@ import {
   type AdjustableKey,
 } from "../../store/upload";
 import { useModelUploadStore } from "../../store/modelUpload";
+import { useUserModelsStore } from "../../store/userModels";
 import { classifyDrop, MODEL_ACCEPT } from "../../lib/models/modelCaps";
 import PhotoDetailPanel, { PlacementHint } from "./PhotoDetailPanel";
-import ModelUploadStep, { MODEL_STEPS, modelStepIndex } from "./ModelUploadStep";
+import ModelUploadStep, { MODEL_STEPS, ModelPlacementHint, modelStepIndex } from "./ModelUploadStep";
 import {
   formatLatLon,
   formatFocal,
@@ -60,6 +61,7 @@ export default function UploadFlow() {
   const open = useUploadStore((s) => s.open);
   const phase = useUploadStore((s) => s.phase);
   const modelPhase = useModelUploadStore((s) => s.phase);
+  const modelPlacing = useUserModelsStore((s) => s.placing !== null);
   // A model in flight or under review owns the overlay; an errored model drop falls back to the
   // dropzone (which shows the refusal), exactly like an unreadable photo does.
   const modelActive = modelPhase !== "idle" && modelPhase !== "error";
@@ -75,6 +77,11 @@ export default function UploadFlow() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      const um = useUserModelsStore.getState();
+      if (um.placing) {
+        um.cancelPlacing(); // MS5: a model placing cancels first (the overlay is already closed)
+        return;
+      }
       const s = useUploadStore.getState();
       if (s.phase === "placing") s.cancelPlacing(); // back to the overlay / the viewed pin
       else s.closePanel();
@@ -90,6 +97,7 @@ export default function UploadFlow() {
   if (!open) {
     // The overlay is closed but the flow may live on the globe: the docked tweak panel while
     // placed, the click-to-place hint while placing (both render over the visible globe).
+    if (modelPlacing) return <ModelPlacementHint />; // MS5: a stored model awaits its click
     if (phase === "placed") return <PhotoDetailPanel />;
     if (phase === "placing") return <PlacementHint />;
     // Idle globe: nothing — the nav Upload chip + the temp-pin "UPLOAD HERE" + the welcome

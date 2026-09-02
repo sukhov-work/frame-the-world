@@ -217,6 +217,7 @@
 .ct-sat.is-on,
 .ct-pins.is-on,
 .ct-bld.is-on,
+.ct-mdl.is-on,
 .ct-aim.is-on,
 .ct-vec.is-on,
 .ct-places.is-on {
@@ -443,4 +444,12 @@
   .ct {
     width: 11rem;
   }
+}
+
+/* MDL (MESH SUITE MS5) — the physical-density warning (owner 2026-09-01c: no quota, warn):
+   the lit chip turns warn-amber while the triangle budget had to skip a model nearby or the
+   resident load alone is heavy. The tip carries the number. */
+.ct-mdl.is-on.is-warn {
+  border-color: color-mix(in srgb, var(--color-warn) 60%, transparent);
+  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
 }

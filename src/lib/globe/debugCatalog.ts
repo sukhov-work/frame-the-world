@@ -13,6 +13,8 @@
  * labels and notes, sane thresholds.
  */
 
+import { MODELS } from "../../components/globe/tuning";
+
 export type DebugGroupId =
   | "frame"
   | "renderer"
@@ -22,6 +24,7 @@ export type DebugGroupId =
   | "imagery"
   | "terrain"
   | "buildings"
+  | "models"
   | "vector"
   | "camera"
   | "time"
@@ -39,6 +42,7 @@ export const DEBUG_GROUPS: ReadonlyArray<{ id: DebugGroupId; title: string }> = 
   { id: "imagery", title: "IMAGERY" },
   { id: "terrain", title: "TERRAIN" },
   { id: "buildings", title: "BUILDINGS" },
+  { id: "models", title: "USER MODELS" },
   { id: "vector", title: "VECTOR · LABELS" },
   { id: "camera", title: "CAMERA" },
   { id: "time", title: "TIME" },
@@ -755,6 +759,68 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     group: "buildings",
     fmt: "bool",
     note: "Cesium OSM buildings group is in the scene (BLD chip + /m 2D auto-detach compose here). Rendered truth — group membership, not a flag.",
+  },
+  // ---- USER MODELS — MESH SUITE MS5: residency IS the density story ---------------------------
+  {
+    id: "models.world",
+    label: "world rows",
+    group: "models",
+    fmt: "int",
+    note: "Model records the world read answered for the current geohash cover (p5 cells around the ground focus); 0 above the fetch ceiling.",
+  },
+  {
+    id: "models.resident",
+    label: "resident",
+    group: "models",
+    fmt: "int",
+    budget: MODELS.maxResident,
+    note: "Models with their GLB fetched and in the scene — closest first under the count cap and the triangle budget, with hysteresis on the radius.",
+  },
+  {
+    id: "models.loading",
+    label: "loading",
+    group: "models",
+    fmt: "int",
+    note: "GLB fetches in flight (each ≤ 8 MiB, concurrency-capped); a burst after a camera move is normal.",
+  },
+  {
+    id: "models.skipped",
+    label: "skipped nearby",
+    group: "models",
+    fmt: "int",
+    warnAbove: 0,
+    note: "Models inside the load radius the triangle budget or count cap refused — the physical-density warning's number (the MDL chip turns amber).",
+  },
+  {
+    id: "models.tris",
+    label: "resident tris",
+    group: "models",
+    fmt: "int",
+    budget: MODELS.triBudget,
+    warnAbove: MODELS.densityWarnTris,
+    note: "Triangles of the resident models (the records' counts) against the budget that protects the frame — no quota (owner 2026-09-01c), a warning instead.",
+  },
+  {
+    id: "models.failed",
+    label: "failed loads",
+    group: "models",
+    fmt: "int",
+    warnAbove: 0,
+    note: "GLB fetches that errored — never retried by the plan until the row changes; a served-URL or CORS problem to chase.",
+  },
+  {
+    id: "models.cover",
+    label: "cover cells",
+    group: "models",
+    fmt: "int",
+    note: "Geohash p5 cells the last world read named (≤ 16; a 4 km cover is 4–9 cells).",
+  },
+  {
+    id: "models.mine",
+    label: "mine",
+    group: "models",
+    fmt: "int",
+    note: "The member's own model rows — the only armable ones at MS5; 0 while anonymous or unresolved.",
   },
   {
     id: "buildings.cells",

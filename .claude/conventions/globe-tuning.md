@@ -450,3 +450,38 @@ Traps the slice recorded:
   `skip()` so every page is its own elevated call.
 - **The collection is the production world even from `wix dev`** — a harness that writes a row
   removes it in `finally` and proves the world clean.
+
+## The MESH SUITE MS5 family (added 2026-09-02i — user models in the world)
+
+`MODELS` is a new group (`scene/userModels.ts` + `store/userModels.ts`). The RAILS of an edit are
+CONTRACT and live in `lib/models/modelPlacement.ts` (`MODEL_SCALE_MIN/MAX` = the building scale
+rails, `MODEL_MOVE_MAX_M` 250 per drag, `MODEL_COVER_PRECISION` 5 — the `gh5` column); these are
+the taste + budget knobs: the world-read cover (`fetchRadiusM` 4000 · `fetchMaxAltM` 40 000 ·
+`maxCells` 16 · `queryThrottleMs` 600 · `repollMs` 90 000 · `readLagGraceMs` 15 000), residency
+(`loadRadiusM` 3000 / `unloadRadiusM` 4000 hysteresis · `maxResident` 24 · **`triBudget`
+1 500 000** · `densityWarnTris` 1 000 000 · `maxConcurrentLoads` 2 · `residencyEveryFrames` 12),
+seating (`resnapEveryFrames` 60 · `seatEaseK` 0.18 · `seatSnapM` 0.005 · `xfEaseK` 0.2 ·
+`fallbackGroundM` 120), the armed highlight (`armedEmissive` 0.22 — the accent TOKEN at the use
+site), and the mirrors (`densityMirrorEveryFrames` 30 · `hoverPickMs` 120).
+
+Three facts the module encodes (source-verified 2026-09-02i):
+- **`hasSome` is equality-on-a-set.** The world read cannot prefix-match a p9 hash; a placement
+  writes a denormalized p5 cell beside `geohash9` (the pins' gh4/gh6 precedent), and the cover is
+  the ≤ 16 nearest p5 cells of a square around the ground focus.
+- **The rig IS the model.** `frame` (ECEF + the ENU quaternion from `Matrix4.makeBasis(east,
+  up, −north)`) → `anchor` (the live move offset) → `body` (yaw + uniform scale) → the GLB root
+  re-based by `groundFitOffset`. The MS2 gizmo attaches to `anchor`/`body` through a
+  GhostRig-shaped `{ cx: 0, cz: 0, liveBaseY: 0, inflate: 1 }`; three's scale mode writes
+  `scaleStart × offset` on the dragged axis only, so `uniformScaleFrom` takes the axis that moved
+  most in log space. `attachBldgGizmo` grew `clamp` / `lift` options for it (defaults unchanged).
+- **The budget is the density warning.** `planResidency` walks closest-first; what it refuses
+  inside the load radius is `skipped`, and `densityWarning(skipped, tris, warnTris)` is the MDL
+  chip's amber and the DBG `models.skipped` warn.
+
+Traps the slice recorded:
+- **The scene fence**: `scene/userModels.ts` reads NO store — the orchestrator pushes `world`
+  and the MDL gate down, and the residency counts come back up through `_syncDensity`.
+- **A late GLB fetch for a released model** must be disposed, not attached — the entry's `gen`
+  counter is bumped on every unload.
+- **Disposing a loaded GLB** walks geometries, materials AND their texture maps; three's loaders
+  allocate all three.

@@ -61,6 +61,7 @@ const SLOW_PROVIDERS = [
   "astro",
   "terrain",
   "buildings",
+  "models",
   "vector",
   "planning",
   "system",

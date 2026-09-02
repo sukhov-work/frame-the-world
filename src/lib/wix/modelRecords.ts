@@ -20,12 +20,27 @@
 
 import { numOrNull, strOrNull } from "../geo/coerce";
 import { encodeGeohash } from "../geo/geohash";
+import { normalizeDeg } from "../globe/featureTransform";
 import { MODEL_CAPS, MODEL_FORMATS, type ModelCaps, type ModelFormat } from "../models/modelCaps";
+import {
+  MODEL_COVER_PRECISION,
+  MODEL_SCALE_MAX,
+  MODEL_SCALE_MIN,
+  isIdentityModelTransform,
+  sanitizeModelTransform,
+} from "../models/modelPlacement";
 import { titleFromFileName } from "../save/pinBody";
 
 export const MODELS_COLLECTION = "UserModels";
-/** Owner GET page — a member's own models (the world read is an MS5 concern). */
+/** Owner GET page — a member's own models. */
 export const MODEL_PAGE = 200;
+/** MESH SUITE MS5 — the public world read: one page per cover query (a POC world; `complete`
+ *  tells the client when a cell holds more than this). */
+export const MODEL_WORLD_PAGE = 200;
+/** Most `gh5` cells one world query may name (the `hasSome` list — a 4 km cover needs ≤ 9). */
+export const MODEL_WORLD_MAX_CELLS = 16;
+/** A geohash cell of the world-read precision: base-32 digits, exactly p5 characters. */
+export const GH5_RE = /^[0-9b-hjkmnp-z]{5}$/;
 /** The ONE mime type the allowlist admits — the normalized GLB. */
 export const MODEL_MIME = "model/gltf-binary";
 /** Media Manager folder the mint files models under (created on first use by the platform). */
@@ -272,9 +287,125 @@ export function modelRecord(
     lat: placed ? body.lat : null,
     lon: placed ? body.lon : null,
     geohash9: placed ? encodeGeohash(body.lat as number, body.lon as number, 9) : null,
+    // MS5: the world-read cell (`hasSome` is equality-on-a-set — the pins' gh4/gh6 precedent).
+    gh5: placed ? encodeGeohash(body.lat as number, body.lon as number, MODEL_COVER_PRECISION) : null,
     // Transform seats (MS5/MS6) — null = identity, the BuildingOverrides convention.
     rotDeg: null,
     scale: null,
+  };
+}
+
+// ── MESH SUITE MS5 (2026-09-02) — placement + the public world read ─────────────────────────
+
+/** What the owner PATCHes: a placement (both coordinates, always) and optionally the two seats. */
+export interface PlacementBody {
+  id: string;
+  lat: number;
+  lon: number;
+  /** Absent = leave the stored seat alone. */
+  rotDeg?: number;
+  scale?: number;
+}
+
+/** Validate an untrusted PATCH body. The seats are CLAMPED onto the rails (the overrides
+ *  precedent: clamped, not rejected); a coordinate outside its range is refused. */
+export function parsePlacementBody(raw: unknown): { body: PlacementBody } | { error: string } {
+  if (typeof raw !== "object" || raw === null) return { error: "body must be a JSON object" };
+  const r = raw as Record<string, unknown>;
+  const id = str(r.id, 64);
+  if (id === null) return { error: "id must be the model's record id" };
+  const lat = num(r.lat, -90, 90);
+  const lon = num(r.lon, -180, 180);
+  if (lat === null || lon === null) return { error: "lat/lon must be numbers in [-90, 90] / [-180, 180]" };
+  const body: PlacementBody = { id, lat, lon };
+  if (r.rotDeg != null) {
+    if (typeof r.rotDeg !== "number" || !Number.isFinite(r.rotDeg)) return { error: "rotDeg must be a finite number" };
+    body.rotDeg = normalizeDeg(r.rotDeg);
+  }
+  if (r.scale != null) {
+    if (typeof r.scale !== "number" || !Number.isFinite(r.scale) || r.scale <= 0) return { error: "scale must be a positive number" };
+    body.scale = Math.max(MODEL_SCALE_MIN, Math.min(MODEL_SCALE_MAX, r.scale));
+  }
+  return { body };
+}
+
+/** The stored row after a placement PATCH: coordinates + BOTH geohash columns re-derived, the
+ *  seats replaced when given (identity is stored as null — the record convention). `items.update`
+ *  replaces the whole item, so the existing row rides along untouched (the photos precedent). */
+export function applyModelPlacement(existing: Record<string, unknown>, body: PlacementBody): Record<string, unknown> {
+  const next: Record<string, unknown> = {
+    ...existing,
+    lat: body.lat,
+    lon: body.lon,
+    geohash9: encodeGeohash(body.lat, body.lon, 9),
+    gh5: encodeGeohash(body.lat, body.lon, MODEL_COVER_PRECISION),
+  };
+  if (body.rotDeg !== undefined || body.scale !== undefined) {
+    const cur = sanitizeModelTransform(existing.rotDeg, existing.scale);
+    const t = { rotDeg: body.rotDeg ?? cur.rotDeg, scale: body.scale ?? cur.scale };
+    const identity = isIdentityModelTransform(t);
+    next.rotDeg = identity || Math.abs(t.rotDeg) < 0.05 ? null : t.rotDeg;
+    next.scale = identity || Math.abs(t.scale - 1) < 0.005 ? null : t.scale;
+  }
+  return next;
+}
+
+/** `?cells=` of the world read → the cell list, or the offending input. */
+export function parseWorldCells(param: string | null): { cells: string[] } | { error: string } {
+  if (!param) return { error: "cells query param required" };
+  const cells = [...new Set(param.split(",").map((c) => c.trim().toLowerCase()).filter((c) => c.length > 0))];
+  if (cells.length === 0 || cells.length > MODEL_WORLD_MAX_CELLS)
+    return { error: `cells must name 1..${MODEL_WORLD_MAX_CELLS} geohash cells` };
+  const bad = cells.find((c) => !GH5_RE.test(c));
+  if (bad) return { error: `"${bad}" is not a p${MODEL_COVER_PRECISION} geohash cell` };
+  return { cells };
+}
+
+/** A world-visible model as every visitor sees it — C6-clean: the CHOSEN placement of a public
+ *  object, the seats, the streaming facts, and NEVER the owner's member id or file ids. */
+export interface PublicModel {
+  id: string;
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  tris: number;
+  glbBytes: number | null;
+  bbox: [number, number, number] | null;
+  lat: number;
+  lon: number;
+  rotDeg: number;
+  scale: number;
+  updatedAt: string | null;
+}
+
+/** Map a stored row to its public shape; null for anything the world must not stream (no URL,
+ *  unplaced, hidden, not READY — re-checked here even though the query filters them). */
+export function publicModel(item: Record<string, unknown>): PublicModel | null {
+  if (typeof item._id !== "string") return null;
+  const url = strOrNull(item.url);
+  const lat = numOrNull(item.lat);
+  const lon = numOrNull(item.lon);
+  if (!url || lat === null || lon === null) return null;
+  if (item.hidden === true || item.readiness !== "READY") return null;
+  const bx = numOrNull(item.bboxX);
+  const by = numOrNull(item.bboxY);
+  const bz = numOrNull(item.bboxZ);
+  const t = sanitizeModelTransform(item.rotDeg, item.scale);
+  const updated = item._updatedDate;
+  return {
+    id: item._id,
+    title: strOrNull(item.title) ?? "Untitled model",
+    url,
+    thumbnailUrl: strOrNull(item.thumbnailUrl),
+    tris: numOrNull(item.tris) ?? 0,
+    glbBytes: numOrNull(item.glbBytes),
+    bbox: bx !== null && by !== null && bz !== null ? [bx, by, bz] : null,
+    lat,
+    lon,
+    rotDeg: t.rotDeg,
+    scale: t.scale,
+    updatedAt:
+      updated instanceof Date ? updated.toISOString() : typeof updated === "string" ? updated : null,
   };
 }
 
@@ -296,6 +427,9 @@ export interface ModelListItem {
   hidden: boolean;
   lat: number | null;
   lon: number | null;
+  /** MS5: the transform seats as stored (identity when null on the row). */
+  rotDeg: number;
+  scale: number;
   createdAt: string | null;
 }
 
@@ -309,6 +443,7 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
   const bz = numOrNull(item.bboxZ);
   const created = item._createdDate;
   const readiness = item.readiness;
+  const t = sanitizeModelTransform(item.rotDeg, item.scale);
   return {
     id: item._id,
     title: strOrNull(item.title) ?? "Untitled model",
@@ -326,6 +461,8 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
     hidden: item.hidden === true,
     lat: numOrNull(item.lat),
     lon: numOrNull(item.lon),
+    rotDeg: t.rotDeg,
+    scale: t.scale,
     createdAt:
       created instanceof Date ? created.toISOString() : typeof created === "string" ? created : null,
   };

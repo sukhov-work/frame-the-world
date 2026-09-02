@@ -37,6 +37,17 @@ import { useUploadStore, type AdjustableParams } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { revertOp, useBldgEditStore, type BldgEditOp } from "../../store/bldgEdit";
+import { restingEdit, revertModelOp, useModelEditStore, type ModelEditOp } from "../../store/modelEdit";
+import { useUserModelsStore } from "../../store/userModels";
+import {
+  IDENTITY_MODEL_TRANSFORM,
+  clampModelEdit,
+  editToFeatureTransform,
+  isIdentityModelTransform,
+  offsetGeodetic,
+  type ModelEdit,
+  type ModelTransform,
+} from "../../lib/models/modelPlacement";
 import { useMiniMapStore } from "../../store/minimap";
 import { headingDeltaDeg, wrapHeadingDeg } from "../../lib/geo/heading";
 import { chartWalkAzRad } from "../../lib/geo/slippy";
@@ -80,6 +91,7 @@ import { attachFindGhosts } from "./scene/findGhosts";
 import { attachSkyNames } from "./scene/skyNames";
 import { attachBldgEditLabel } from "./scene/bldgEditLabel";
 import { attachBldgGizmo } from "./scene/bldgGizmo";
+import { attachUserModels, type UserModelPick } from "./scene/userModels";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachAimCones } from "./scene/aimCones";
 import { attachFocalCone } from "./scene/focalCone";
@@ -200,6 +212,7 @@ import {
   ULTRA,
   WGS84_A,
   WGS84_B,
+  MODELS,
 } from "./tuning";
 import { bandCurve, easeK, ultraLightAt } from "../../lib/globe/lightBands";
 import {
@@ -1222,6 +1235,33 @@ export function attachStylizedTiles(opts: {
     if (usePlacesMapStore.getState().onMap) usePlacesMapStore.getState().ensureLoaded();
   }, PLACEMARKS.fetchIdleMs);
 
+  // --- USER MODELS (MESH SUITE MS5, D3 placement 2026-09-02): the world's uploaded GLBs.
+  //     store/userModels holds the cover-driven world read (mirrored from the same focus the
+  //     pins query rides) and MINE; the scene module owns residency/seating/the rig. The store
+  //     is PUSHED down (the scene fence) — the module never reads it. MINE resolves once the
+  //     member session is known (a member's own models are the only armable ones at MS5).
+  const userModels = attachUserModels(scene, {
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+  });
+  userModels.setModels(useUserModelsStore.getState().world);
+  let _prevWorldModels = useUserModelsStore.getState().world;
+  const unsubUserModels = useUserModelsStore.subscribe((s) => {
+    if (s.world !== _prevWorldModels) {
+      _prevWorldModels = s.world;
+      userModels.setModels(s.world);
+    }
+  });
+  let _prevMemberPhaseModels = useMemberStore.getState().phase;
+  const unsubMemberModels = useMemberStore.subscribe((s) => {
+    if (s.phase === _prevMemberPhaseModels) return;
+    _prevMemberPhaseModels = s.phase;
+    if (s.phase === "member") void useUserModelsStore.getState().loadMine();
+  });
+  if (_prevMemberPhaseModels === "member") void useUserModelsStore.getState().loadMine();
+  /** MS5: a click-to-place is armed for a stored model OR a GPS-less photo — one crosshair. */
+  const placingNow = (): boolean =>
+    useUploadStore.getState().phase === "placing" || useUserModelsStore.getState().placing !== null;
+
   // --- Explore ambient pin journey (Phase 5.5 S4, §Item 11): armed by the nav toggle via
   //     camera.exploreActive; the controller owns the camera while cruising (drift + glides
   //     stand down) and ANY direct interaction exits — it never fights the user. ------------
@@ -1571,6 +1611,23 @@ export function attachStylizedTiles(opts: {
       // MESH SUITE MS2: right-click a building in FPV → arm it (another building re-targets) and
       // open the edit menu (MOVE / ROTATE / SCALE / EXTRUDE / revert / done); a right-click
       // elsewhere with nothing armed keeps the native browser menu.
+      if (fpvActive) {
+        // MS5: a user model under the cursor comes first (it stands in front of the building it
+        // is placed beside); an un-armable one (not mine) keeps the native menu.
+        const mp = pickModelAt(e.clientX, e.clientY);
+        if (mp) {
+          if (armModel(mp) && modelGizmoDragId === null) {
+            e.preventDefault();
+            openModelMenu(e.clientX, e.clientY);
+          }
+          return;
+        }
+        if (modelArmed && modelGizmoDragId === null) {
+          e.preventDefault();
+          openModelMenu(e.clientX, e.clientY);
+          return;
+        }
+      }
       if (fpvActive && enriched) {
         const pick = pickBuildingAt(e.clientX, e.clientY);
         if (pick && !isArmedPick(pick)) {
@@ -1662,6 +1719,14 @@ export function attachStylizedTiles(opts: {
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a click
     const rect = dom.getBoundingClientRect();
     const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+    if (useUserModelsStore.getState().placing) {
+      // MS5: a stored model is being placed — cast at the rendered ground, PATCH its placement.
+      const hit = pickGround(ndcX, ndcY);
+      if (!hit) return; // clicked past the limb — stay in placing mode
+      const g = ecefToGeodetic(hit);
+      void useUserModelsStore.getState().setPlacement(g.latDeg, g.lonDeg);
+      return;
+    }
     if (useUploadStore.getState().phase === "placing") {
       // Placing wins the click: cast at the rendered ground and drop the photo there.
       const hit = pickGround(ndcX, ndcY);
@@ -1727,8 +1792,16 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("pointerleave", noteLeave);
   // Crosshair while the globe waits for the placement click.
   const unsubCursor = useUploadStore.subscribe((s) => {
-    dom.style.cursor = s.phase === "placing" ? "crosshair" : "";
-    if (s.phase !== "placing") placingMarker.visible = false;
+    const placing = s.phase === "placing" || useUserModelsStore.getState().placing !== null;
+    dom.style.cursor = placing ? "crosshair" : "";
+    if (!placing) placingMarker.visible = false;
+  });
+  // MS5: the model placing drives the same crosshair + marker.
+  const unsubModelCursor = useUserModelsStore.subscribe((s, prev) => {
+    if ((s.placing !== null) === (prev.placing !== null)) return;
+    const placing = s.placing !== null || useUploadStore.getState().phase === "placing";
+    dom.style.cursor = placing ? "crosshair" : "";
+    if (!placing) placingMarker.visible = false;
   });
   // (Idle drift is now dt-normalized — driftRadiansForDt(DRIFT.degPerSec, dtMs) per frame, F5.)
 
@@ -1864,6 +1937,165 @@ export function attachStylizedTiles(opts: {
       bldgLive = t;
     },
   });
+  // --- MESH SUITE MS5: the armed USER MODEL session — the building session's twin, kept
+  //     separate so the U8/MS2/MS3 code above stays byte-identical. The model's own
+  //     anchor/body ARE the gizmo rig (no ghost, no recompose); a release folds the drag's ENU
+  //     offset into a new placement and PATCHes the record (own models only at MS5).
+  let modelArmed: { id: string; title: string; mine: boolean } | null = null;
+  let modelOp: ModelEditOp = "move";
+  let modelLive: ModelEdit | null = null; // the gizmo's clamped read-back mid-drag (else null)
+  let modelGizmoDragId: number | null = null;
+  let modelMenuDismiss = false;
+  let modelHoverId: string | null = null;
+  let modelHoverAtMs = 0;
+  let modelSaving = false;
+  let modelSaveError: string | null = null;
+  const _modelTop = new THREE.Vector3();
+  const modelCommitted = (): ModelTransform =>
+    (modelArmed && userModels.info(modelArmed.id)?.seats) || { ...IDENTITY_MODEL_TRANSFORM };
+  const modelGizmo = attachBldgGizmo(scene, camera, {
+    place: (t) => {
+      if (modelArmed) userModels.placeRig(modelArmed.id, t);
+    },
+    onChange: (t) => {
+      if (modelArmed) modelLive = clampModelEdit(t, modelCommitted());
+    },
+    // The model rails: ONE uniform scale (any handle), no lift, a wider move.
+    clamp: (raw, start) => editToFeatureTransform(clampModelEdit(raw, { rotDeg: start.rotDeg, scale: start.sx })),
+    lift: false,
+  });
+  const modelLiveDiffers = (a: ModelEdit, b: ModelEdit) =>
+    Math.abs(a.tE - b.tE) >= 0.01 ||
+    Math.abs(a.tN - b.tN) >= 0.01 ||
+    Math.abs(a.rotDeg - b.rotDeg) >= 0.05 ||
+    Math.abs(a.scale - b.scale) >= 0.005;
+  const syncModelEdit = () => {
+    const a = modelArmed;
+    if (!a) {
+      useModelEditStore.getState()._syncArmed(null);
+      return;
+    }
+    const info = userModels.info(a.id);
+    const committed = info?.seats ?? { ...IDENTITY_MODEL_TRANSFORM };
+    useModelEditStore.getState()._syncArmed({
+      id: a.id,
+      title: a.title,
+      mine: a.mine,
+      lat: info?.lat ?? 0,
+      lon: info?.lon ?? 0,
+      sizeM: info?.sizeM ?? null,
+      dragging: modelGizmoDragId !== null,
+      overridden: !isIdentityModelTransform(committed),
+      op: modelOp,
+      committed,
+      live: modelLive ?? restingEdit(committed),
+      saving: modelSaving,
+      saveError: modelSaveError,
+    });
+  };
+  const disarmModel = () => {
+    if (!modelArmed) return;
+    const id = modelArmed.id;
+    modelArmed = null;
+    if (modelGizmoDragId !== null) {
+      modelGizmoDragId = null;
+      modelGizmo.cancel();
+    }
+    userModels.setDragging(id, false);
+    modelGizmo.setTarget(null, "extrude");
+    modelOp = "move";
+    modelLive = null;
+    userModels.setArmed(null);
+    if (dom.style.cursor === "grab") dom.style.cursor = "";
+    syncModelEdit();
+  };
+  /** The user model under a client point — null when none, or when arming is not possible
+   *  here (not in FPV, MDL off). Picks only; `armModel` arms. */
+  const pickModelAt = (clientX: number, clientY: number): UserModelPick | null => {
+    if (!fpvActive || !useCameraStore.getState().modelsVisible) return null;
+    const rect = dom.getBoundingClientRect();
+    const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
+    _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
+    return userModels.pick(_pickRay);
+  };
+  /** Arm a picked model: MS5 arms OWN models only (the public read carries no owner — the
+   *  "mine" set comes from the owner list). False when the pick is not armable. */
+  const armModel = (pick: UserModelPick): boolean => {
+    const info = userModels.info(pick.id);
+    if (!info || !useUserModelsStore.getState().isMine(pick.id)) return false;
+    if (modelArmed && modelArmed.id === pick.id) return true;
+    disarmBuilding();
+    disarmModel();
+    modelArmed = { id: pick.id, title: info.title, mine: true };
+    modelOp = "move";
+    modelLive = null;
+    modelHoverId = null;
+    userModels.setArmed(pick.id);
+    modelGizmo.setTarget(userModels.rig(pick.id), modelOp);
+    syncModelEdit();
+    return true;
+  };
+  const tryArmModel = (clientX: number, clientY: number): boolean => {
+    const pick = pickModelAt(clientX, clientY);
+    return pick ? armModel(pick) : false;
+  };
+  const applyModelOp = (op: ModelEditOp) => {
+    if (!modelArmed || modelGizmoDragId !== null) return;
+    modelOp = op;
+    modelGizmo.setTarget(userModels.rig(modelArmed.id), op);
+    syncModelEdit();
+  };
+  const persistModel = async (id: string, patch: { lat: number; lon: number; rotDeg: number; scale: number }) => {
+    modelSaving = true;
+    modelSaveError = null;
+    syncModelEdit();
+    const row = await useUserModelsStore.getState().commitPlacement(id, patch);
+    modelSaving = false;
+    modelSaveError = row ? null : "SAVE FAILED";
+    syncModelEdit();
+  };
+  /** A model gizmo drag ended: fold the ENU offset into a new placement, snap the seats, PATCH. */
+  const finishModelDrag = (t: FeatureTransform | null, commit: boolean) => {
+    if (!modelArmed) return;
+    const a = modelArmed;
+    userModels.setDragging(a.id, false);
+    if (t && commit) {
+      const e = clampModelEdit(t, modelCommitted());
+      const info = userModels.info(a.id);
+      if (info) {
+        const at = offsetGeodetic(info.lat, info.lon, e.tE, e.tN);
+        userModels.rebase(a.id, at.latDeg, at.lonDeg);
+        userModels.setSeats(a.id, { rotDeg: e.rotDeg, scale: e.scale }, true);
+        void persistModel(a.id, { lat: at.latDeg, lon: at.lonDeg, rotDeg: e.rotDeg, scale: e.scale });
+      }
+    }
+    modelLive = null;
+    syncModelEdit();
+  };
+  const revertModel = (which: ModelEditOp | "all") => {
+    if (!modelArmed) return;
+    const a = modelArmed;
+    const next = revertModelOp(modelCommitted(), which);
+    userModels.setSeats(a.id, next, false);
+    const info = userModels.info(a.id);
+    if (info) void persistModel(a.id, { lat: info.lat, lon: info.lon, rotDeg: next.rotDeg, scale: next.scale });
+    syncModelEdit();
+  };
+  const openModelMenu = (clientX: number, clientY: number) =>
+    useModelEditStore.getState()._setMenu({ screenX: clientX, screenY: clientY });
+  const modelOpLine = (e: ModelEdit): string | null => {
+    const sg = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`;
+    switch (modelOp) {
+      case "move":
+        return `↔ ${sg(e.tE)} E · ${sg(e.tN)} N`;
+      case "rotate":
+        return `↻ ${sg(-e.rotDeg)}° cw`;
+      case "scale":
+        return `⤢ ${e.scale.toFixed(2)}×`;
+      default:
+        return null;
+    }
+  };
   /** The armed building's committed edit target — engine truth, or the armed capture's height
    *  when the cell has been LRU-evicted mid-edit (the row re-applies when it streams back). */
   const bldgCommitted = (a: { cellUri: string; featureId: number; committedK: number }): FeatureTransform =>
@@ -1933,6 +2165,7 @@ export function attachStylizedTiles(opts: {
     return enriched.pickBuilding(_pickRay);
   };
   const armPick = (pick: BuildingPick) => {
+    disarmModel(); // MS5: the two edit sessions are exclusive
     bldgArmed = {
       cellUri: pick.cellUri,
       featureId: pick.featureId,
@@ -2104,6 +2337,25 @@ export function attachStylizedTiles(opts: {
       const bs = useBldgEditStore.getState();
       bldgMenuDismiss = bs.menu !== null;
       if (bldgMenuDismiss) bs.closeMenu();
+      const ms = useModelEditStore.getState();
+      modelMenuDismiss = ms.menu !== null;
+      if (modelMenuDismiss) ms.closeMenu();
+    }
+    // MS5: an armed model — the press goes to ITS gizmo (on a handle it claims the pointer;
+    // off a handle the look-drag stays free and a tap still disarms).
+    if (modelArmed) {
+      if (modelGizmo.attached) {
+        const rect = dom.getBoundingClientRect();
+        const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+        const committed = modelCommitted();
+        if (userModels.rig(modelArmed.id) && modelGizmo.down(nx, ny, 0, editToFeatureTransform(restingEdit(committed)))) {
+          modelGizmoDragId = e.pointerId;
+          modelLive = restingEdit(committed);
+          userModels.setDragging(modelArmed.id, true);
+          syncModelEdit();
+        }
+      }
+      return;
     }
     // U8: while armed the primary pointer is CLAIMED for the height drag (a press that never
     // crosses clickDragPx stays a tap — tap-away — see onFpvPointerMove/End).
@@ -2134,6 +2386,28 @@ export function attachStylizedTiles(opts: {
   };
   const onFpvPointerMove = (e: PointerEvent) => {
     if (!fpvActive) return;
+    // MS5: a live MODEL gizmo drag consumes its pointer the same way.
+    if (modelArmed && modelGizmoDragId === e.pointerId) {
+      const rect = dom.getBoundingClientRect();
+      const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+      modelGizmo.move(nx, ny, e.shiftKey);
+      return;
+    }
+    if (modelArmed && fpvDragId === null && e.pointerType !== "touch") {
+      const rect = dom.getBoundingClientRect();
+      const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+      if (modelGizmo.hover(nx, ny)) dom.style.cursor = "grab";
+      else if (dom.style.cursor === "grab") dom.style.cursor = "";
+    }
+    // MS5: the hover note over an un-armed user model ("MODEL · title") — throttled like the
+    // building note; a building under the pointer keeps its own note (checked below).
+    if (!modelArmed && !bldgArmed && fpvDragId === null && e.pointerType !== "touch") {
+      const now = performance.now();
+      if (now - modelHoverAtMs >= MODELS.hoverPickMs) {
+        modelHoverAtMs = now;
+        modelHoverId = pickModelAt(e.clientX, e.clientY)?.id ?? null;
+      }
+    }
     // MS2: a live gizmo drag consumes its pointer BEFORE any look math (the U8 claim's twin).
     if (bldgArmed && bldgGizmoDragId === e.pointerId) {
       const rect = dom.getBoundingClientRect();
@@ -2231,6 +2505,13 @@ export function attachStylizedTiles(opts: {
     if (fpvDragId !== e.pointerId) return;
     fpvDragId = null;
     fpvPinchId = null; // a pinch cannot outlive its anchor finger
+    // MS5: releasing a model gizmo drag COMMITS (PATCH); a pointercancel restores the rig.
+    if (modelArmed && modelGizmoDragId === e.pointerId) {
+      modelGizmoDragId = null;
+      const cancel = e.type === "pointercancel";
+      finishModelDrag(cancel ? modelGizmo.cancel() : modelGizmo.up(), !cancel);
+      return;
+    }
     // MS2: releasing a gizmo drag COMMITS; a pointercancel restores the rig instead.
     if (bldgArmed && bldgGizmoDragId === e.pointerId) {
       bldgGizmoDragId = null;
@@ -2273,8 +2554,18 @@ export function attachStylizedTiles(opts: {
         bldgLastTapY = e.clientY;
         if (isDoubleTap) {
           disarmBuilding(); // re-target: the second tap's building wins
+          disarmModel();
+          if (tryArmModel(e.clientX, e.clientY)) return; // MS5: a model in front wins
           if (tryArmBuilding(e.clientX, e.clientY)) return;
         }
+      }
+      if (modelArmed) {
+        if (modelMenuDismiss) {
+          modelMenuDismiss = false; // that tap only closed the model menu
+          return;
+        }
+        disarmModel(); // MS5 tap-away — modal, like the building session
+        return;
       }
       if (bldgArmed) {
         if (bldgMenuDismiss) {
@@ -2331,6 +2622,15 @@ export function attachStylizedTiles(opts: {
       // while a building is armed (the session is modal; S shadows walk-back for its duration,
       // which the chip hint says out loud). Routed through the store so the chip tabs, the menu
       // and the keys are ONE path (the frame service applies it).
+      if (modelArmed && !typingTarget(ae)) {
+        const op: ModelEditOp | null =
+          e.code === "KeyG" ? "move" : e.code === "KeyR" ? "rotate" : e.code === "KeyS" ? "scale" : null;
+        if (op) {
+          useModelEditStore.getState().setOp(op);
+          e.preventDefault();
+          return;
+        }
+      }
       if (bldgArmed && !typingTarget(ae)) {
         const op: BldgEditOp | null =
           e.code === "KeyG"
@@ -2388,6 +2688,20 @@ export function attachStylizedTiles(opts: {
     // U8: an armed building edit owns the next Escape — finishing the edit must not exit FPV.
     // MS2 rungs inside it: an open context menu closes first; a live gizmo drag is CANCELLED
     // (the rig returns to where the drag began, nothing commits); only then Escape disarms.
+    if (modelArmed) {
+      const ms = useModelEditStore.getState();
+      if (ms.menu) {
+        ms.closeMenu();
+        return;
+      }
+      if (modelGizmoDragId !== null) {
+        modelGizmoDragId = null;
+        finishModelDrag(modelGizmo.cancel(), false);
+        return;
+      }
+      disarmModel();
+      return;
+    }
     if (bldgArmed) {
       const bs = useBldgEditStore.getState();
       if (bs.menu) {
@@ -2435,7 +2749,7 @@ export function attachStylizedTiles(opts: {
   const dropTempPinAt = (clientX: number, clientY: number) => {
     if (fpvActive) return;
     const up = useUploadStore.getState();
-    if (up.phase === "placing") return;
+    if (placingNow()) return;
     if (up.phase === "placed" && !up.viewingPinId) return; // don't disturb an editing session
     const rect = dom.getBoundingClientRect();
     const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
@@ -2452,6 +2766,8 @@ export function attachStylizedTiles(opts: {
       // FPV) — it now arms the building under the cursor for a height edit; a dblclick on
       // another building re-targets; on empty ground/sky it just disarms.
       disarmBuilding();
+      disarmModel();
+      if (tryArmModel(e.clientX, e.clientY)) return; // MS5: a user model in front wins
       tryArmBuilding(e.clientX, e.clientY);
       return;
     }
@@ -2491,6 +2807,20 @@ export function attachStylizedTiles(opts: {
         // MS2: a long-press on a building (or anywhere while one is armed) opens the edit menu —
         // the right-click twin on glass; another building re-targets. A ground long-press with
         // nothing armed stays orbit-only (FPV owns its pointer).
+        // MS5: a user model under the finger first (own models only).
+        const mp = pickModelAt(clientX, clientY);
+        if (mp && armModel(mp)) {
+          if (modelGizmoDragId === null) {
+            longPressFired = true;
+            openModelMenu(clientX, clientY);
+          }
+          return;
+        }
+        if (modelArmed && modelGizmoDragId === null) {
+          longPressFired = true;
+          openModelMenu(clientX, clientY);
+          return;
+        }
         const pick = pickBuildingAt(clientX, clientY);
         if (pick && !isArmedPick(pick)) {
           disarmBuilding();
@@ -2944,6 +3274,36 @@ export function attachStylizedTiles(opts: {
         }
         syncBldgEdit();
       },
+      // MESH SUITE MS5 (2026-09-02): the world models' residency + seats, and the MODEL gizmo's
+      // live state (its own instance; the same handle projection as the building one below).
+      userModels: () => userModels.debug(),
+      modelGizmo: () => ({
+        armed: modelArmed,
+        op: modelOp,
+        attached: modelGizmo.attached,
+        dragging: modelGizmo.dragging,
+        axis: modelGizmo.axis,
+        live: modelLive,
+        saving: modelSaving,
+        saveError: modelSaveError,
+        hoverId: modelHoverId,
+        // A pick at client px through the SAME gate + ray as the pointer path (diagnostics).
+        pickAt: (clientX: number, clientY: number) => pickModelAt(clientX, clientY),
+        handlePx: (name: string) => modelGizmo.handleScreenPx(name, dom.getBoundingClientRect()),
+        originPx: () => modelGizmo.originPx(dom.getBoundingClientRect()),
+        // Client px of a resident model's mid-height point (the harness right-clicks it).
+        modelPx: (id: string) => {
+          const rig = userModels.rig(id);
+          if (!rig || !userModels.topWorld(id, _modelTop)) return null;
+          const base = rig.anchor.getWorldPosition(new THREE.Vector3());
+          const mid = base.lerp(_modelTop, 0.5);
+          const vc = mid.clone().applyMatrix4(camera.matrixWorldInverse);
+          if (vc.z >= 0) return null;
+          const ndc = mid.clone().project(camera);
+          const rect = dom.getBoundingClientRect();
+          return { x: rect.left + (ndc.x * 0.5 + 0.5) * rect.width, y: rect.top + (-ndc.y * 0.5 + 0.5) * rect.height };
+        },
+      }),
       // MESH SUITE MS2 (2026-09-02): the gizmo's live state + the handles' screen positions, so
       // a harness can drive it with REAL pointer events through the FPV gesture table.
       bldgGizmo: () => {
@@ -3580,6 +3940,25 @@ export function attachStylizedTiles(opts: {
           patchRewrites: terrainPatchStats().rewrites,
         };
       }),
+      registerDebugProvider("models", () => {
+        // MESH SUITE MS5: the user-model residency — resident/loading/skipped are the density
+        // story (skipped = refused by the triangle budget inside the load radius).
+        const c = userModels.counts();
+        const st = useUserModelsStore.getState();
+        return {
+          world: c.world,
+          resident: c.resident,
+          loading: c.loading,
+          skipped: c.skipped,
+          tris: c.tris,
+          failed: c.failed,
+          warn: c.warn,
+          visible: c.visible,
+          cover: st.cover?.length ?? 0,
+          phase: st.worldPhase,
+          mine: st.mine.length,
+        };
+      }),
       registerDebugProvider("buildings", () => {
         const c = enriched?.debugCounts() ?? null;
         const s = enriched?.seatState() ?? null;
@@ -3837,6 +4216,7 @@ export function attachStylizedTiles(opts: {
             buildings.setGhost(null);
             enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
             disarmBuilding(); // U8: the height-edit session cannot outlive FPV
+            disarmModel(); // MS5: nor the model session
             camNow.clearAllTargets(); // targets set during FPV must not fire now
             // A held walk stick must not survive the exit either (clearAllTargets deliberately
             // spares it — the stick component's unmount is the usual clear; this is the backstop).
@@ -5011,6 +5391,7 @@ export function attachStylizedTiles(opts: {
           // the geocoding bias (location finder ranks results near what you're looking at).
           const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
           usePinsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
+          useUserModelsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt); // MS5
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
           if (!fpvActive) mirrorCamGeo(); // viewer ground point — FPV writes it at HUD cadence
           // URL pose (S7 feedback #2): mirror the SETTLED pose into the hash — the address bar
@@ -5844,7 +6225,7 @@ export function attachStylizedTiles(opts: {
         const tapLatch = tapRevealUntil > performance.now() && !Number.isFinite(hoverX);
         const hx = tapLatch ? tapRevealX : hoverX;
         const hy = tapLatch ? tapRevealY : hoverY;
-        const eligible = Number.isFinite(hx) && !anyPointerDown && upNow.phase !== "placing";
+        const eligible = Number.isFinite(hx) && !anyPointerDown && !placingNow();
         if (!eligible) {
           skyHoverKind = null;
           skyGhostKey = null;
@@ -6011,7 +6392,7 @@ export function attachStylizedTiles(opts: {
         // the pins store so the HTML details card floats next to it (PinHoverCard). Stands
         // down in FPV and while placing (the drop point owns the pointer there).
         {
-          const hoverEligible = !fpvActive && upNow.phase !== "placing" && Number.isFinite(hoverX);
+          const hoverEligible = !fpvActive && !placingNow() && Number.isFinite(hoverX);
           const pinsStore = usePinsStore.getState();
           if (!hoverEligible) {
             if (pinsStore.hoverPin) {
@@ -6104,7 +6485,7 @@ export function attachStylizedTiles(opts: {
         // Live placement marker (Phase 5.5 S3): while the store is `placing`, an accent dot
         // hugs the rendered ground under the pointer — the user sees the drop point before
         // committing the click. Re-picked at low cadence (picking raycasts the tile set).
-        if (upNow.phase === "placing" && !fpvActive) {
+        if (placingNow() && !fpvActive) {
           if (frameCount % PLACING.repickEveryFrames === 0 && Number.isFinite(hoverX)) {
             const rect = dom.getBoundingClientRect();
             const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
@@ -6462,6 +6843,79 @@ export function attachStylizedTiles(opts: {
           syncBldgEdit();
   };
 
+  const stepUserModels = () => {
+        // MESH SUITE MS5: the MDL gate (the BLD recipe: a plain live on/off composed with the
+        // /m 2D auto-detach), residency + seat eases, the low-cadence terrain re-ask, the
+        // density mirror for the chip, then the armed-model session service.
+        const cam = useCameraStore.getState();
+        const shellOn = !isMobileShell || fpvActive || cam.mapMode === "3d";
+        const on = shellOn && cam.modelsVisible;
+        userModels.setVisible(on);
+        if (!on) disarmModel();
+        userModels.update(camera, frameCount);
+        if (frameCount % MODELS.resnapEveryFrames === 0) userModels.resnap();
+        if (frameCount % MODELS.densityMirrorEveryFrames === 0) {
+          const c = userModels.counts();
+          useUserModelsStore.getState()._syncDensity({
+            world: c.world,
+            resident: c.resident,
+            loading: c.loading,
+            skipped: c.skipped,
+            tris: c.tris,
+            warn: c.warn,
+          });
+        }
+        const ms = useModelEditStore.getState();
+        if (ms.revertRequest) {
+          const which = ms.revertRequest;
+          ms._consumeRevertRequest();
+          if (modelArmed && modelGizmoDragId === null) revertModel(which);
+        }
+        if (ms.disarmRequest) {
+          ms._consumeDisarmRequest();
+          disarmModel();
+        }
+        if (!modelArmed) {
+          // The hover note over an un-armed model — only when no building note is showing
+          // (stepBldgEdit above owns that slot and clears it when nothing is hovered).
+          const hid = fpvActive && !bldgArmed && !bldgHover ? modelHoverId : null;
+          const hInfo = hid ? userModels.info(hid) : null;
+          if (hid && hInfo && userModels.topWorld(hid, _modelTop)) {
+            const own = useUserModelsStore.getState().isMine(hid);
+            bldgEditLabel.hover(_modelTop, `MODEL · ${hInfo.title}${own ? " · yours" : ""}`, camera);
+          }
+          return;
+        }
+        const a = modelArmed;
+        if (ms.op !== modelOp) applyModelOp(ms.op);
+        // The rig dies with a released model (the residency plan) — re-target when it is back.
+        if (modelGizmoDragId === null) modelGizmo.setTarget(userModels.rig(a.id), modelOp);
+        const committed = modelCommitted();
+        const live = modelLive ?? restingEdit(committed);
+        const info = userModels.info(a.id);
+        const anchored = userModels.topWorld(a.id, _modelTop);
+        bldgEditLabel.pin(
+          anchored ? _modelTop : null,
+          {
+            op: modelOpLine(live),
+            live: a.title,
+            orig: `↳ ${live.scale.toFixed(2)}× · ${(info?.sizeM ?? 0).toFixed(1)} m`,
+          },
+          camera,
+        );
+        const mirror = ms.armed;
+        const dragging = modelGizmoDragId !== null;
+        if (
+          !mirror ||
+          mirror.id !== a.id ||
+          mirror.dragging !== dragging ||
+          mirror.op !== modelOp ||
+          mirror.saving !== modelSaving ||
+          (modelLive !== null && modelLiveDiffers(mirror.live, modelLive))
+        )
+          syncModelEdit();
+  };
+
   const stepVectorFeatures = () => {
         // Vector feature web (S7 feedback): roads / rivers / water / green from the SAME parsed
         // tiles, ribbons + fills on the rendered terrain below VECTOR.topAltM. Night-dimmed by
@@ -6741,6 +7195,7 @@ export function attachStylizedTiles(opts: {
         stepGeoLabels();
         stepStreetNames();
         stepBldgEdit();
+        stepUserModels();
         stepVectorFeatures();
         stepMinimapFeed();
         stepPlanFeed();
@@ -6821,6 +7276,11 @@ export function attachStylizedTiles(opts: {
       skyNames.dispose();
       bldgEditLabel.dispose();
       bldgGizmo.dispose();
+      modelGizmo.dispose();
+      unsubUserModels();
+      unsubMemberModels();
+      unsubModelCursor();
+      userModels.dispose();
       dayArcs.dispose();
       aimCones.dispose();
       focalCone.dispose();

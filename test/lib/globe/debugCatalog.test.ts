@@ -53,6 +53,7 @@ describe("debugCatalog — the DBG window's display contract", () => {
       "camera",
       "terrain",
       "buildings",
+      "models",
       "vector",
       "planning",
       // Panel-local sources (stores / browser APIs read by DebugPanel itself):

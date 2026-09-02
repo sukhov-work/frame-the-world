@@ -178,7 +178,32 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02h: MESH SUITE MS4 BUILT — the D3 UPLOAD PIPELINE.** The UPLOAD modal forks on the
+**2026-09-02i: MESH SUITE MS5 BUILT — D3 PLACEMENT: user models stand in the WORLD.** The public
+cover read `GET /api/world-models?cells=` (`hasSome` on a NEW denormalized `gh5` column —
+equality-on-a-set, the pins' precedent; `UserModels` = 25 fields, provisioned live; READY +
+un-hidden, `ownerMemberId`/file ids stripped) + the owner `PATCH /api/models` (placement + the two
+seats, clamped); `store/userModels` (the THROTTLED cover read off the pins' focus, MINE, click-to-
+place, the density mirror) + `store/modelEdit` (the bldgEdit twin); `scene/userModels.ts` (ECEF
+frame + ENU quaternion → anchor → body → the ground-fitted GLB; closest-first residency under a
+1.5 M-tri budget with hysteresis; `sampleGroundM` + `seatStep` seat; own pick; shadows; NO lift
+seat — the model always stands on the terrain); the MS2 gizmo instance reused on the model's own
+rig (`clampModelEdit`: uniform scale = the axis that moved most; a move folds into a NEW placement
+via `offsetGeodetic` and ONE PATCH); the third edit session in the orchestrator (right-click /
+dblclick / long-press — a model under the cursor first; G/R/S; Escape rungs) + `ModelEditChip`;
+PLACE ON GLOBE (orbit click-to-place); the MDL chip ON by default carrying the physical-density
+warning (skipped-by-budget nearby); DBG `models.*`; guide `fpv-models`. MS5 arms OWN models only.
+Verified: vitest 2,411/2,411 (161 files) · astro 0/0/9 · knip 0 · `verify-usermodels.mjs` 10/10
+against the LIVE collection (cleanup proven) · `verify-bldg-override` PASS.
+**Next session starts with the OWNER BATCH MS5b (2026-09-02j, plan §11 — metres on the SCALE
+rows · per-edit RELATIVE rails with the move raised to 100 m · the context menu closing on
+right-button RELEASE, `mem:bugs/bldg-menu-right-release` · the orbit drag going slow after an FPV
+edit — the detached gizmo's 100 km drag plane catches GlobeControls' pivot raycast,
+`mem:bugs/orbit-drag-after-fpv-edit`), THEN MS6 (the my-uploads list with
+hide/delete/title, every member editing user meshes through the MS3 sync machinery, a lift seat
+if wanted).** Digest `mem:project/wip-2026-09-02-mesh-suite-ms5`; plan §10 + §11; DECISIONS
+2026-09-02i/j.
+
+Prior: **2026-09-02h: MESH SUITE MS4 BUILT — the D3 UPLOAD PIPELINE.** The UPLOAD modal forks on the
 file type (`classifyDrop`; the photo path byte-identical): a model is loaded (GLTF+meshopt /
 OBJ+MTL / FBX), audited against the `MODEL_CAPS` contract, DECIMATED over budget (MeshoptSimplifier
 + compaction), packed to ONE GLB by `GLTFExporter` on a 2048→1024→512 texture ladder, thumbnailed

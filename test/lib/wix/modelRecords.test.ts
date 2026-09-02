@@ -2,13 +2,19 @@ import { describe, expect, it } from "vitest";
 import { encodeGeohash } from "../../../src/lib/geo/geohash";
 import { MODEL_CAPS } from "../../../src/lib/models/modelCaps";
 import {
+  GH5_RE,
   MODEL_MIME,
   MODEL_PAGE,
+  MODEL_WORLD_MAX_CELLS,
   MODELS_COLLECTION,
+  applyModelPlacement,
   checkModelUploadRequest,
   modelListItem,
   modelRecord,
   parseCreateModelBody,
+  parsePlacementBody,
+  parseWorldCells,
+  publicModel,
   safeModelFileName,
   verifyModelDescriptor,
   verifyThumbnailDescriptor,
@@ -216,7 +222,7 @@ describe("modelRecord + modelListItem", () => {
     expect(Object.keys(row)).toEqual([
       "title", "ownerMemberId", "fileId", "url", "thumbnailFileId", "thumbnailUrl", "fileName", "sourceFormat",
       "rawBytes", "glbBytes", "tris", "meshes", "textures", "decimatedFromTris",
-      "bboxX", "bboxY", "bboxZ", "readiness", "hidden", "lat", "lon", "geohash9", "rotDeg", "scale",
+      "bboxX", "bboxY", "bboxZ", "readiness", "hidden", "lat", "lon", "geohash9", "gh5", "rotDeg", "scale",
     ]);
   });
 
@@ -258,5 +264,104 @@ describe("modelRecord + modelListItem", () => {
     expect(modelListItem({ ...stored, readiness: "weird" })!.readiness).toBe("PENDING");
     expect(MODELS_COLLECTION).toBe("UserModels");
     expect(MODEL_PAGE).toBe(200);
+  });
+});
+
+// MESH SUITE MS5 — placement: the PATCH body, the row after a placement, the world read's cell
+// list, and the PUBLIC shape (C6: never the owner's member id, never a file id).
+describe("modelRecords (MS5 placement + the public world read)", () => {
+  const stored = (): Record<string, unknown> => {
+    const parsed = parseCreateModelBody(validBody);
+    if ("error" in parsed) throw new Error(parsed.error);
+    return {
+      ...modelRecord(parsed.body, verified, "member-1"),
+      _id: "row-1",
+      _createdDate: new Date("2026-09-02T12:00:00.000Z"),
+      _updatedDate: new Date("2026-09-02T12:30:00.000Z"),
+    };
+  };
+
+  it("a placed record carries BOTH geohash columns; an unplaced one neither", () => {
+    const row = stored();
+    expect(row.gh5).toBe(encodeGeohash(48.4647, 35.0462, 5));
+    expect((row.gh5 as string).length).toBe(5);
+    const parsed = parseCreateModelBody({ ...validBody, lat: null, lon: null });
+    if ("error" in parsed) throw new Error(parsed.error);
+    expect(modelRecord(parsed.body, verified, "m").gh5).toBeNull();
+  });
+
+  it("parses a placement body: id + both coordinates required, seats optional and CLAMPED", () => {
+    expect(parsePlacementBody(null)).toEqual({ error: "body must be a JSON object" });
+    expect("error" in parsePlacementBody({ lat: 1, lon: 2 })).toBe(true);
+    expect("error" in parsePlacementBody({ id: "r", lat: 91, lon: 2 })).toBe(true);
+    expect("error" in parsePlacementBody({ id: "r", lat: 1 })).toBe(true);
+    expect("error" in parsePlacementBody({ id: "r", lat: 1, lon: 2, rotDeg: "x" })).toBe(true);
+    expect("error" in parsePlacementBody({ id: "r", lat: 1, lon: 2, scale: 0 })).toBe(true);
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2 })).toEqual({ body: { id: "r", lat: 1, lon: 2 } });
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, rotDeg: 370, scale: 50 })).toEqual({
+      body: { id: "r", lat: 1, lon: 2, rotDeg: 10, scale: 10 },
+    });
+  });
+
+  it("applies a placement: coordinates + both cells re-derived, seats replaced, identity stored as null", () => {
+    const row = stored();
+    const moved = applyModelPlacement(row, { id: "row-1", lat: 51.75, lon: -0.34, rotDeg: 90, scale: 2 });
+    expect(moved.lat).toBe(51.75);
+    expect(moved.lon).toBe(-0.34);
+    expect(moved.geohash9).toBe(encodeGeohash(51.75, -0.34, 9));
+    expect(moved.gh5).toBe(encodeGeohash(51.75, -0.34, 5));
+    expect(moved.rotDeg).toBe(90);
+    expect(moved.scale).toBe(2);
+    expect(moved.ownerMemberId).toBe("member-1"); // the rest of the row rides along
+    expect(moved._id).toBe("row-1");
+    // A placement-only PATCH leaves the seats alone; a reset writes null.
+    const seated = { ...row, rotDeg: 45, scale: 1.5 };
+    expect(applyModelPlacement(seated, { id: "row-1", lat: 1, lon: 2 })).toMatchObject({ rotDeg: 45, scale: 1.5 });
+    expect(applyModelPlacement(seated, { id: "row-1", lat: 1, lon: 2, rotDeg: 0, scale: 1 })).toMatchObject({ rotDeg: null, scale: null });
+    expect(applyModelPlacement(seated, { id: "row-1", lat: 1, lon: 2, rotDeg: 0 })).toMatchObject({ rotDeg: null, scale: 1.5 });
+  });
+
+  it("parses the world read's cell list: 1..N distinct p5 cells, lower-cased", () => {
+    expect("error" in parseWorldCells(null)).toBe(true);
+    expect("error" in parseWorldCells("")).toBe(true);
+    expect("error" in parseWorldCells("u8vw")).toBe(true); // p4
+    expect("error" in parseWorldCells("u8vwa")).toBe(true); // 'a' is not base-32
+    expect(parseWorldCells("U8VWX, u8vwx ,u8vwy")).toEqual({ cells: ["u8vwx", "u8vwy"] });
+    expect("error" in parseWorldCells(Array.from({ length: MODEL_WORLD_MAX_CELLS + 1 }, (_, i) => `u8vw${"0123456789bcdefghjkmnp"[i]}`).join(","))).toBe(true);
+    expect(GH5_RE.test(encodeGeohash(48.4647, 35.0462, 5))).toBe(true);
+  });
+
+  it("the public shape carries the placement, the seats and the facts — never the owner or a file id", () => {
+    const row = { ...stored(), rotDeg: 30, scale: 1.5 };
+    const pub = publicModel(row)!;
+    expect(pub).toEqual({
+      id: "row-1",
+      title: "Water tower",
+      url: verified.url,
+      thumbnailUrl: verified.thumbnailUrl,
+      tris: 84_000,
+      glbBytes: verified.sizeBytes,
+      bbox: [12.4, 31.2, 8],
+      lat: 48.4647,
+      lon: 35.0462,
+      rotDeg: 30,
+      scale: 1.5,
+      updatedAt: "2026-09-02T12:30:00.000Z",
+    });
+    expect(Object.keys(pub)).not.toContain("ownerMemberId");
+    expect(Object.keys(pub)).not.toContain("fileId");
+    expect(Object.keys(pub)).not.toContain("thumbnailFileId");
+    expect(publicModel({ ...row, rotDeg: null, scale: null })).toMatchObject({ rotDeg: 0, scale: 1 });
+    // Anything the world must not stream is dropped even if the query let it through.
+    expect(publicModel({ ...row, hidden: true })).toBeNull();
+    expect(publicModel({ ...row, readiness: "PENDING" })).toBeNull();
+    expect(publicModel({ ...row, lat: null, lon: null })).toBeNull();
+    expect(publicModel({ ...row, url: null })).toBeNull();
+  });
+
+  it("the owner list row surfaces the seats (identity when the row holds null)", () => {
+    const row = stored();
+    expect(modelListItem(row)).toMatchObject({ rotDeg: 0, scale: 1 });
+    expect(modelListItem({ ...row, rotDeg: -20, scale: 0.5 })).toMatchObject({ rotDeg: -20, scale: 0.5 });
   });
 });

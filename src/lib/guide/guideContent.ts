@@ -352,7 +352,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         where: { desktop: "Bottom-right stack" },
         keys: ["toggles", "layers", "compass", "bearing", "north", "satellite", "imagery"],
         body:
-          "Ten toggles and the compass rose, over four columns. The deck compacts in " +
+          "Eleven toggles and the compass rose, over four columns. The deck compacts in " +
           "first-person view to what matters there.",
         list: [
           "The compass rose — click it to face north.",
@@ -362,6 +362,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "PIN — everyone's public [[photo-pins|photo pins]].",
           "BLD — the 3D buildings; the best model for where you look loads on its own " +
             "([[trust-detail|where that is deepest]]).",
+          "MDL — everyone's uploaded [[fpv-models|3D models]]; amber where they crowd an area.",
           "AIM — [[target-radar|the direction radar]].",
           "PLC — [[save-onmap|your saved places on the map]].",
           "VEC — the road, river and park ink over the ground.",
@@ -651,6 +652,29 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Unsynced edits live only in this browser; synced ones reach every visitor (last sync " +
           "wins), keyed to the building's map id — most survive a re-bake, one whose shape " +
           "changed can still drop.",
+      },
+      {
+        id: "fpv-models",
+        title: "Place your own 3D model",
+        where: { desktop: "UPLOAD → drop a GLB, OBJ or FBX" },
+        body:
+          "Drop a 3D model in the UPLOAD window and it is checked, trimmed to budget and stored " +
+          "as a public GLB. Start from a temporary pin's UPLOAD HERE and it stands there at once; " +
+          "otherwise press PLACE ON GLOBE and click the ground. In first-person view, right-click " +
+          "your model for MOVE, ROTATE and SCALE — the same gizmo as [[fpv-height|a building edit]]. " +
+          "It always stands on the terrain; there is no lift.",
+        keys: ["3d model", "glb", "obj", "fbx", "upload model", "place model", "custom model", "mdl"],
+        steps: [
+          "Open UPLOAD and drop a .glb, .gltf, .obj or .fbx — textures and a .mtl ride along.",
+          "Read the CHECK card: triangles, textures and the guessed source units; pick another unit if the size looks wrong.",
+          "Press UPLOAD MODEL (sign in first).",
+          "Press PLACE ON GLOBE and click where it should stand.",
+          "Enter first-person view near it and right-click it to move, turn or resize it.",
+          "Toggle MDL on the camera deck to hide every custom model.",
+        ],
+        tip:
+          "The deck's MDL chip turns amber where models crowd an area — the ones the frame budget " +
+          "cannot afford are skipped, nearest first.",
       },
       {
         id: "fpv-exit",

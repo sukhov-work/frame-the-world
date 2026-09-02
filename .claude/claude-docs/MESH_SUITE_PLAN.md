@@ -210,7 +210,8 @@ Next session starts at **MS0** below.
 | **MS2 — gizmo UI** | **BUILT 2026-09-02 (§7).** Building context menu (right-click / long-press → MOVE / ROTATE / SCALE / EXTRUDE / REVERT ALL / DONE) + the chip's op strip + G/R/S/E keys; TransformControls on the ghost RIG (anchor + body under the cell mesh, `space: local` = ENU, pointers FED by the FPV gesture table — no DOM listeners, no camera layer needed: GlobeControls is off throughout FPV), `minY/maxY` = the lift rail, per-edit scale band on every axis; ghost-body preview while dragging, commit on release through `commitBldgTransform`; the chip shows every op's current vs original with a per-op ↺ + RESET ALL, the pinned label grows an op line; EXTRUDE = the U8 drag verbatim and the default op on arm; Escape cancels a live drag; `verify-meshedit.mjs` legs 7–14. | MS1 |
 | **MS3 — D2 activation** | **BUILT 2026-09-02f (§8).** `BuildingOverrides` PROVISIONED on the live site (17 fields); the wire + collection carry the v2 row's spatial fields (server re-clamps, identity omitted) + the **OSM-keyed `_id`** (dual key — fingerprint fallback, never a cutover); boot fetch (paged GET, `complete` flag) + the MERGE POLICY (local pending wins · shared wins over my synced copy · a RESET of a shared edit is a TOMBSTONE); SYNC affordance in the chip foot, the context menu and a standalone PILL, sign-in gated (401 → SIGN IN); the `_ftw_override` byte LADDER (mine 255 / shared 128) + an origin badge + a hover note ("EDITED · shared · was …"); the OSM recovery sweep at load-model; `reapplyOverrides()`; `verify-meshedit.mjs` legs 15–18 against the LIVE collection. | MS1 (fields), not MS2 |
 | **MS4 — D3 upload pipeline** | **BUILT 2026-09-02h (§9).** The dropzone forks on the file type (`classifyDrop`; the photo path byte-identical); a SEPARATE `store/modelUpload` walks load → inspect → audit → decimate → pack → thumbnail → review → upload → stored through ONE lazy import of `lib/models/normalizeModel` (GLTF/OBJ+MTL/FBX loaders, MeshoptSimplifier decimation + compaction, GLTFExporter on a 2048→1024→512 texture ladder, a disposable-renderer thumbnail); the caps are contract constants (`MODEL_CAPS`, pure audit); source units are a review-time choice; `/api/upload-url` kind:"model" = the first server-side mime allowlist (one entry); **`UserModels` PROVISIONED (24 fields)** + `/api/models` GET/POST/DELETE with the descriptor fetched server-side as the structural allowlist; our own thumbnail uploaded as a public image (the platform's is a permanent 403); NO quota; `verify-modelupload.mjs` 8 legs against the live collection. | MS0 answers |
-| **MS5 — D3 placement** | `scene/userModels.ts`; centroid ground-fit + resnap; MS2 gizmo reused for final fit at upload; clamps; LOD/culling/shadow flags; load-with-tiles streaming; **the MDL deck chip (all custom models on/off, ON by default — BLD-chip recipe)**; **the physical-density warning** (owner 2026-09-01c: no quota — warn instead; design the metric: resident models / on-screen user-model tris / per-cell count). | MS2 + MS4 |
+| **MS5 — D3 placement** | **BUILT 2026-09-02i (§10).** The public world read (`GET /api/world-models?cells=` — `hasSome` on a NEW denormalized `gh5` column, the pins' precedent; READY + un-hidden; `ownerMemberId` stripped) + the owner `PATCH /api/models` (placement + the two seats, clamped, the photos read-modify-write shape); `store/userModels` (the cover-driven THROTTLED world read mirrored from the pins' focus, MINE, click-to-place, the residency mirror) + `store/modelEdit` (the bldgEdit twin); `scene/userModels.ts` (frame → anchor → body → the ground-fitted GLB; closest-first residency under a TRIANGLE BUDGET with radius hysteresis; the eased terrain seat; own pick; shadows); the MS2 gizmo instance reused on the model's own rig (uniform scale, no lift, the move folds into a new placement); the FPV session (right-click / dblclick / long-press, G/R/S, Escape rungs, `ModelEditChip`); PLACE ON GLOBE (orbit click-to-place); **the MDL chip ON by default** (camera store + pref + `.ct-mdl.is-on` + the engine gate) carrying **the physical-density warning** (skipped-by-budget nearby / heavy resident load); the DBG `models.*` group; a guide topic; `verify-usermodels.mjs` 10 legs against the LIVE collection. | MS2 + MS4 |
+| **MS5b — owner tuning batch** (ordered 2026-09-02j after testing MS5; **runs BEFORE MS6**) | (1) real-world DIMENSIONS in metres on the SCALE rows — current and original footprint (buildings: `w × d m`, the height row already does it; models: `w × d × h m`); (2) the RAILS become PER-EDIT and RELATIVE, the extrude editing model: move ≤ **100 m per edit** (was 60 m absolute), scale 0.1×–10× per edit about the COMMITTED value, no absolute cap — repeated edits compound; per-op / all revert stays; (3) the context menu closes the moment the right button is RELEASED (stays only under a right-drag) — a right-button press claims the FPV pointer and its tap-release disarms; (4) orbit drag goes slow / barely moves after an FPV edit — the detached gizmo's invisible 100 km drag PLANE stays in the scene at the edited building and GlobeControls' first-hit pivot raycast lands on it; see §11. | MS5 |
 | **MS6 — D3 management + world edit** | My-uploads list (delete/hide); other users edit user-mesh transforms per D1 (overrides ON user meshes — same record machinery); perf polish; full harness. | MS5 + MS3 |
 
 Deliberately OUT: stock-tile editing (separate project) · trees (post-MVP) · KTX2 encode ·
@@ -275,11 +276,13 @@ Concretely, each slice's done-gate includes:
    and `mem:project/wip-2026-09-01-mesh-suite-plan` (research digests).
 2. MS3 (the D2 activation) is BUILT — §8 is the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms3`
    the digest. **MS4 (the D3 upload pipeline) is BUILT — §9 is the as-built;
-   `mem:project/wip-2026-09-02-mesh-suite-ms4` the digest.** Next: **MS5** (D3 placement:
-   `scene/userModels.ts` streaming the world's placed models — a geohash-prefix `hasSome` on
-   `UserModels.geohash9`, the pins precedent, through a new public GET that strips
-   `ownerMemberId`; centroid ground-fit + resnap; the MS2 gizmo for the final fit; the MDL deck
-   chip ON by default; the physical-density warning) on the §9 record.
+   `mem:project/wip-2026-09-02-mesh-suite-ms4` the digest. MS5 (D3 placement) is BUILT — §10 is
+   the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5` the digest.** Next: **MS5b FIRST**
+   (the owner's three observations after testing MS5 — §11 — dimensions on the SCALE rows, per-edit
+   relative rails with the move raised to 100 m, the right-release context-menu bug), then **MS6** (the
+   my-uploads list on `GET /api/models` — thumbnails are ours; hide / delete / title edits; other
+   members editing user-mesh transforms through the MS3 sync machinery; a lift seat if the owner
+   wants one — a provisioned field) on the §10 record.
 3. The DBG window (2026-09-01) is the instrument for all of this — seat deferrals/rejections,
    cell counts, frame costs are live in it; open it before profiling anything.
 
@@ -747,3 +750,358 @@ the my-uploads list on `GET /api/models`, hide/delete/title edits, transforms on
 the MS3 sync machinery (MS6) · a Worker for the loaders (only if a real file proves the main-thread
 assumption wrong) · DRACO/KTX2 decode (needs shipped wasm) · a guide chapter (when the feature is
 visible in the world).
+
+
+---
+
+## §10 MS5 AS BUILT — D3 placement: the world's user models (2026-09-02i)
+
+**Mode:** implement (design-first, investigate-design-v3 spine on `/frame`), tier Deep — a public
+endpoint + an owner PATCH, two stores, a scene module, the orchestrator's third edit session, a
+chip, and a browser harness against the LIVE collection. Everything below was measured in this
+session; nothing is remembered. Research: four parallel tracks (platform/API · scene substrate ·
+UI/stores · verify conventions), confidences 88–92 %, every claim `file:line`-cited.
+
+### §10.1 The design decisions (recorded; [ASSUMPTION]s are the owner's to re-open)
+
+1. **The world read is a COVER query on a denormalized `gh5` column.** `hasSome` is
+   equality-on-a-set (the pins' `gh4`/`gh6` precedent — `test/store/pins.test.ts` pins the
+   exact cell length); a p9 hash cannot be prefix-queried, and `startsWith` + `or` chains are
+   unexercised on this platform. So `UserModels` grew ONE column (`gh5`, provisioned live
+   2026-09-02i by the incremental `create-field` path of `provision-collections.mjs` — 25 fields
+   now), written by `modelRecord` at POST and `applyModelPlacement` at PATCH. The client plans
+   the cover from the same ground focus the pins query rides (`planModelCover`: the p5 cells
+   — ≈ 4.9 km squares — of a 4 km half-side square, ≤ 16 nearest; `null` above 40 km where a
+   model is sub-pixel) and re-queries only when the cover changed or the 90 s idle re-poll is
+   due — THROTTLED, not debounced (the pins lesson). One page (`MODEL_WORLD_PAGE` 200);
+   `complete: false` says a cell holds more (a POC world).
+2. **The public row is C6-clean by construction.** `publicModel` emits `id title url
+   thumbnailUrl tris glbBytes bbox lat lon rotDeg scale updatedAt` — never `ownerMemberId`,
+   never a file id; READY + un-hidden re-checked in the mapper even though the query filters
+   them (`.eq("readiness","READY").ne("hidden", true)`). The placement is the member's CHOSEN
+   spot for a world-visible object (§9.1-8), not a capture GPS. "Mine" is therefore resolved
+   from the OWNER list (`GET /api/models` once the member session is known) and intersected
+   client-side — the world never learns who placed what.
+3. **`PATCH /api/models` is the ONE placement writer** — `{ id, lat, lon, rotDeg?, scale? }`,
+   owner-gated (`ownedModel`, 404 otherwise), the photos read-modify-write shape
+   (`items.update` replaces the whole item, so the stored row rides along); both geohash
+   columns re-derived; the seats CLAMPED onto the rails (never rejected — the overrides
+   precedent) and stored as `null` when identity (the record convention). Answers the owner's
+   list row (now carrying `rotDeg`/`scale`) so the client swaps it in without a second GET.
+4. **No lift seat.** A model always stands on the rendered terrain at its footprint centre:
+   `groundFitOffset` re-bases the GLB so its bounds centre sits on the origin and its lowest
+   point at y = 0 (the owner's "auto ground-fit at the mesh centroid"), the terrain seat owns
+   the height (`sampleGroundM` + `seatStep` — a LOD refine slides, never teleports; a seat not
+   yet REAL re-asks at `MODELS.resnapEveryFrames`), and the gizmo's MOVE hides the Y arrow
+   (`attachBldgGizmo` grew `lift: false`; `minY = maxY = 0` as the belt to that brace). The
+   owner's "never pushable irreversibly underground or into the sky" is thus structural: an
+   edit cannot change a model's height above ground at all. [ASSUMPTION 2026-09-02i: a lift
+   seat is MS6-if-ever — it needs a provisioned field.]
+5. **The rig IS the model** (§7.4 as promised). `scene/userModels.ts` builds `frame` (ECEF
+   position at the seated ground point; quaternion = the local ENU basis via
+   `Matrix4.makeBasis(east, up, −north)` — +X east, +Y up, −Z north, the glTF convention the
+   baker maps enriched cells into) → `anchor` (the LIVE move offset in ENU metres, 0 at rest)
+   → `body` (yaw + UNIFORM scale) → the re-based GLB root. `rig(id)` hands the MS2 gizmo a
+   GhostRig-shaped `{ anchor, body, cx: 0, cz: 0, liveBaseY: 0, inflate: 1 }`, so
+   `rigToTransform` reads a drag back with no ghost and no recompose (unit-pinned round trip).
+   The orchestrator runs a SECOND `attachBldgGizmo` instance with the model clamp
+   (`clampModelEdit`: the per-axis read-back collapses to ONE uniform factor — the axis that
+   moved most in log space, since three's scale mode writes `scaleStart × offset` on the
+   dragged axis only — railed by the building band `clampEditK` 0.5×/3× per edit, 0.1×..10×
+   absolute; the yaw wrapped; the move shortened to `MODEL_MOVE_MAX_M` 250 with its direction
+   kept; the lift dropped). Precision: vertices stay model-local, the ECEF cancellation happens
+   in the CPU's float64 model-view product (the frustum/pins idiom).
+6. **A move commits as a NEW PLACEMENT, never a stored offset.** On release the clamped ENU
+   offset folds into lat/lon on the WGS-84 ellipsoid (`offsetGeodetic`: meridional radius for
+   north, prime-vertical × cos φ for east — unit-pinned to the centimetre at Dnipro), the
+   frame re-seats there, the anchor returns to zero, the seats snap, and ONE PATCH carries
+   `lat lon rotDeg scale`. The store swaps the answered row into `mine` and `world` at once
+   (optimistic); a row this browser patched outranks the fetched copy for
+   `MODELS.readLagGraceMs` 15 s — Wix Data reads lag writes by ~1 s (browser-measured 2026-09-02f).
+7. **Residency is closest-first under a TRIANGLE BUDGET** (`planResidency`: `loadRadiusM`
+   3000 / `unloadRadiusM` 4000 hysteresis, `maxResident` 24, `triBudget` 1.5 M — ≈ 15
+   max-size uploads; deterministic, ties by id). What the budget or the cap refuses INSIDE the
+   load radius is `skipped`, and `densityWarning(skipped, residentTris, warnTris 1 M)` IS the
+   owner's physical-density warning (2026-09-01c: no quota — warn): the MDL chip turns
+   warn-amber with the count in its tip, the STORED card's hint says HEAVY AREA, the DBG
+   `models.*` group carries the numbers (`skipped` warnAbove 0, `tris` against the budget).
+   GLB fetches are concurrency-capped (2); a failed fetch is a FAILED entry, never retried
+   until its row changes; a fetch landing after its model was released is disposed (a gen
+   counter). Zero per-frame cost with nothing resident (`update` early-returns) — §4a-5.
+8. **Materials.** A GLB keeps its own PBR materials — the scene's lights, shadows
+   (`castShadow`/`receiveShadow` on every mesh) and tone mapping apply; the enriched
+   `uFtw*` haze / FPV dissolve / tint injections do NOT [ASSUMPTION: chaining `onBeforeCompile`
+   for the aerial haze is a taste call for the owner]. The armed model gets an emissive lift in
+   the accent token (`MODELS.armedEmissive`), restored on disarm. Disposal walks geometries,
+   materials and their texture maps (the loaders leak otherwise).
+9. **The third edit session is the building session's twin, kept separate** so U8/MS2/MS3
+   stay byte-identical: `store/modelEdit` (armed mirror at deadband cadence, `op` /
+   `revertRequest` / `menu` / `disarmRequest` one-shots), three ops (MOVE the placement ·
+   ROTATE · SCALE — no EXTRUDE; MOVE has no "original", so its row shows the coordinates and
+   RESET ALL restores the upload's yaw 0 / scale 1), the same entry points (right-click ·
+   FPV dblclick · glass long-press — a model under the cursor comes FIRST, it stands in front
+   of the building it was placed beside; an un-armable one keeps the native menu), G/R/S,
+   the Escape rungs (menu → cancel drag → disarm), tap-away, FPV exit and MDL-off disarm.
+   Arming a building disarms a model and vice versa. `panels/ModelEditChip.tsx` reuses the
+   building chip's CSS (`.bldg-edit-chip` / `.bec-*` / `.bldg-menu`) with a `data-kind="model"`
+   root, a YOURS / SAVING… / SAVE FAILED badge instead of the origin badge, and no SYNC (a
+   PATCH saves on every release). Desktop-only mount (index.astro): models have no /m entry.
+   The label reuses `bldgEditLabel` through a new generic `pin()` (the `update()` strings stay
+   byte-identical); an un-armed model under the pointer shows "MODEL · title · yours".
+10. **Placement is an ORBIT click; the fit is FPV** — two modes by construction (the photo
+    `placing` idiom: FPV owns its pointer). The STORED card's primary action became PLACE ON
+    GLOBE / MOVE IT ON THE GLOBE (`beginModelPlacement`: the overlay closes, FPV yields to
+    orbit, the crosshair + ground marker take over through `placingNow()` — the ONE predicate
+    the orchestrator's five placing gates now read), the `.pd-hint` pill says CLICK THE GLOBE
+    TO PLACE “TITLE”, Escape cancels (the model keeps its spot), the click PATCHes. An
+    UPLOAD HERE seed still stands the model up at once (the upload flow's `addMine` puts the
+    optimistic row in the world before the read lag).
+11. **MS5 arms OWN models only.** MS6 opens editing to every member through the MS3 sync
+    machinery (the owner's D3 "every other logged-in user can re-edit any mesh").
+12. **The MDL chip follows the BLD recipe exactly**: `camera.modelsVisible` (default ON,
+    `saveViewPref`), a plain sanitize clause (no re-arm join), the hand-added `.ct-mdl.is-on`
+    line (+ `.is-warn`), the engine gate in `stepUserModels` (`shellOn && cam.modelsVisible`
+    → `setVisible`, which releases every resident model and ends an armed session), the
+    guide's deck list (now "Eleven toggles"). Streaming cadence: the world focus is mirrored at
+    `ORCH.mirrorEveryFrames` beside the pins call; residency re-plans every 12 frames.
+
+### §10.2 Verification receipt (fresh, 2026-09-02i)
+- Unit: NEW `modelPlacement` 15 · `modelRecords` +6 (MS5 placement + the public shape: the
+  owner/file-id strip, both cells, the PATCH parser's clamps) · NEW `store/modelEdit` 4 · NEW
+  `store/userModels` 8 (the throttled cover read with fake timers, a superseded answer dropped,
+  MINE incl. the 401 → anonymous, click-to-place → PATCH, the read-lag grace) · NEW
+  `scene/userModels` 4 (headless three: the ENU frame + ground-fit, the eased seat, the pick,
+  the rig round-trip, seats/rebase/armed, residency + budget + the MDL gate, a late fetch
+  dropped) · NEW `modelEditChip` 6 · `prefs` +1 · `debugCatalog` (the `models` provider) ·
+  guide (new topic + the deck line) · full vitest **2,411/2,411 (161 files)** (baseline
+  2,367/156) · `astro check` 0 err / 0 warn / 9 hints · knip 0 · `verifyHarness` fences the new
+  script.
+- Browser (`scripts/verify-usermodels.mjs`, headless Chrome :9333 fresh profile, `wix dev`, the
+  Dnipro FPV pose, the LIVE `UserModels` collection with cleanup): see the DECISIONS 2026-09-02i
+  line for the leg-by-leg numbers.
+
+### §10.3 Files
+NEW `lib/models/modelPlacement.ts` (the contract: rails, `clampModelEdit`, `offsetGeodetic`,
+`groundFitOffset`, `planModelCover`, `planResidency`, `densityWarning`) · `lib/wix/modelRecords.ts`
+(`gh5`, `parsePlacementBody`, `applyModelPlacement`, `parseWorldCells`, `PublicModel` +
+`publicModel`, the list row's seats) · NEW `pages/api/world-models.ts` · `pages/api/models.ts`
+(PATCH) · `lib/save/uploadMedia.ts` (`patchModelPlacement`, `fetchMyModels`, `fetchWorldModels`) ·
+`scripts/provision-collections.mjs` (`gh5`) · NEW `store/userModels.ts` · NEW `store/modelEdit.ts` ·
+`store/camera.ts` + `lib/prefs.ts` (`modelsVisible`) · `store/modelUpload.ts` (`addMine`) · NEW
+`scene/userModels.ts` · `scene/bldgGizmo.ts` (`clamp` / `lift` options) · `scene/bldgEditLabel.ts`
+(`pin()`) · `StylizedTiles.ts` (attach + subscriptions, `placingNow`, the model session, the
+pointer/key/Escape/menu twins, `stepUserModels`, the `models` DBG provider, the
+`__globe.userModels()` / `__globe.modelGizmo()` seams) · `tuning.ts` (`MODELS`) · NEW
+`panels/ModelEditChip.tsx` · `panels/CameraTiltPanel.tsx` (`ModelsChip`) ·
+`panels/ModelUploadStep.tsx` (`beginModelPlacement`, `ModelPlacementHint`, the STORED card) ·
+`panels/UploadFlow.tsx` · `panels/DebugPanel.tsx` · `styles/camera-tilt.css` · `lib/globe/debugCatalog.ts`
+· `lib/guide/guideContent.ts` (`fpv-models`) · `global.d.ts` (`__modelEditStore`, `__userModelsStore`)
+· `pages/index.astro` · tests NEW `test/lib/models/modelPlacement.test.ts` · `test/lib/wix/modelRecords.test.ts`
+· NEW `test/store/{userModels,modelEdit}.test.ts` · NEW `test/components/globe/userModels.test.ts` ·
+NEW `test/components/modelEditChip.test.ts` · `test/lib/prefs.test.ts` · `test/lib/globe/debugCatalog.test.ts`
+· NEW `scripts/verify-usermodels.mjs` (10 legs, member recipe, cleanup in `finally`).
+
+### §10.4 Left for MS6+ (deliberately)
+The my-uploads list on `GET /api/models` (thumbnails are ours) with hide / delete / title edits ·
+every member editing user-mesh transforms (the MS3 sync machinery, LWW) · a lift seat (a
+provisioned field) · haze/dissolve chaining on foreign materials · an orbit-mode pick/hover for
+models (today: FPV only) · a per-model LOD (the upload cap is the LOD today) · a Worker for the
+loaders (only if a real file proves the main-thread assumption wrong).
+
+
+---
+
+## §11 MS5b — the owner's observations after testing MS5 (ordered 2026-09-02j; build BEFORE MS6)
+
+Verbatim intent, then what each item means in code. "Rest is working fine."
+
+### §11.1 Real-world size on the SCALE rows
+> "When scaling meshes, add real world size (dimensions) in meters (current and original values,
+> you already do that for height anyway), so it is easier to understand scale properly."
+
+- **Buildings**: the SCALE row prints `w × d m` for the CURRENT footprint and `was w × d m` for the
+  mapped one (the EXTRUDE row's `24.5 m (+2.0) · was 15.0 m` precedent). The engine captures
+  `minX/maxX/minZ/maxZ` per run at load (`enrichedBuildings.ts` ~1149–1182) but keeps only
+  `rXZ` — keep two more floats per feature (`dx`, `dz`, bake-local metres; the pristine extents,
+  unaffected by the incremental writer) and surface them on `BuildingPick` / `featureState` →
+  `bldgArmed` → `BldgEditArmed` (`footprintM: [dx, dz]`); current = `dx·sx × dz·sz`. Keep the
+  `1.20 × 1.00` factors as the secondary readout (or the label's op line) — the metres are the
+  headline. The pinned label's scale op line gets the same metres.
+- **Models**: the SCALE row prints `w × d × h m` (the loaded bounds × the uniform scale; the record's
+  `bbox` before residency) and `was …` the upload's size; `ModelEditArmed` grows `sizeM3: [w, d, h]`
+  (today only `sizeM` = max(w, d)). The menu head and the pinned label use the same triple.
+- Tests: `opReadout` / `modelOpReadout` fixtures; the chip tests assert the metres.
+
+### §11.2 Per-edit, RELATIVE rails (the extrude editing model), move raised to 100 m
+> "apply same editing model that we have for extruding: keep current limits (60 m for move (make
+> it 100 btw)) and 10x for scale) but once they are applied, you can edit new model size and now
+> limits apply to `new` dimensions / positions, so they stop being absolute, after testing I found
+> them quite limiting. Still of course I can revert each individual param to origin, or all of
+> them — this is good feature."
+
+- Today (`lib/globe/bldgOverrides.ts` `XF_RAILS` + `clampXf`): `|(tE, tN)| ≤ 60 m` ABSOLUTE from the
+  pristine centroid, scale 0.1×..10× ABSOLUTE, lift 0..25 m; `clampGizmoEdit` adds the per-edit
+  0.5×/3× scale band about the drag's start. The owner's rule: **each edit is bounded relative to
+  the COMMITTED state, and the bounds compound** — move ≤ **100 m per edit** from where the
+  building stands now; scale 0.1×..10× per edit about the committed scale (no absolute cap; the
+  per-edit 0.5×/3× band goes — 10× IS the per-edit band now); lift unchanged (not mentioned —
+  [ASSUMPTION] keep 0..25 m absolute; ask). Extrude: the owner names it as the model to copy —
+  today it also carries the absolute 0.1×..10× rail on top of the 0.5×/3× band; [ASSUMPTION]
+  make its band 0.1×..10× per edit and drop the absolute cap too, so all four ops share ONE rule
+  (confirm with the owner: "extrude too?").
+- Mechanics: `clampGizmoEdit(raw, start)` already re-anchors on `start` (the committed transform)
+  → replace `clampXf`'s absolute translate radius by `|Δ(tE, tN)| ≤ 100 m` relative to `start`, and
+  the absolute scale band by `start·[0.1, 10]`. `clampXf` (the READ sanitizer + the server's
+  re-clamp on SYNC) needs a LOOSE sanity rail instead of the old absolute one, or garbage gets in:
+  [proposal] `|t| ≤ 5 000 m`, scale 0.001..1 000, lift 0..25 — a persisted row outside THAT is
+  dropped (the `k` precedent); loosening is a compatibility event (a DECISIONS line + contracts §2).
+  The server (`overrideRecords.ts`) clamps onto the same loose rail. Rows written under the old
+  rails stay valid (they are inside the loose one).
+- The engine caveat stays true and must be stated to the owner: a building moved far from its
+  cell's REGION bounding volume can be culled with its cell at the view edge (the tile-level
+  volume is not grown by a move — `growBoundsFor` grows only the mesh bounds). With compounding
+  moves this is reachable; the fix is to grow the cell's tile bounding volume by the same pad, or
+  to accept the pop and say so in the guide. Decide at the slice.
+- Models (`lib/models/modelPlacement.ts`): `MODEL_MOVE_MAX_M` 250 is already per drag (a move
+  folds into a new placement — inherently relative); raise nothing unless the owner asks. Scale:
+  the per-edit band today = `clampEditK` 0.5×/3× about the committed scale + the absolute
+  0.1×..10× → make it 0.1×..10× per edit about the committed scale, no absolute cap (the same
+  loose sanity rail on read + PATCH). The chip copy and the guide (`fpv-height`, `fpv-models`)
+  say "between a tenth and ten times its current size, repeated edits compound".
+- Tests: `featureTransform` / `bldgOverrides` / `modelPlacement` rails; `verify-meshedit` leg
+  "rails: |t| 60 m" (the harness asserts the OLD numbers — rewrite to the per-edit rule: two
+  consecutive 100 m moves land at ~200 m).
+
+### §11.3 The context menu closes on right-button RELEASE (bug)
+> "Context menu on a mesh looks fine, has all options and appears correctly on right click, but
+> it is flaky, often unexpectedly disappears immediately after I release right mouse button and
+> stays on screen ONLY when I hold right mouse and drag camera around — fix this bug."
+
+- **Diagnosis (code-read 2026-09-02j, browser-UNVERIFIED — verify first with REAL right-button
+  events):** the FPV pointer table has NO button guard — `grep "e\.button" StylizedTiles.ts` is
+  empty. On macOS Chrome `contextmenu` fires on the right button's mousedown, so the sequence is
+  `pointerdown(right)` → `onFpvPointerDown` claims `fpvDragId` and samples `bldgMenuDismiss =
+  (menu !== null)` = **false** (the menu is not open yet) → `contextmenu` → the menu opens →
+  `pointerup(right)` → `onFpvPointerEnd`'s TAP path (no travel, `pointerup`) → `if (bldgArmed) {
+  if (bldgMenuDismiss) … ; disarmBuilding(); return; }` → the disarm resets the store, which nulls
+  `menu` → the menu vanishes on release. Hold-and-drag travels past `ORCH.clickDragPx`, so the
+  release is not a tap and the menu survives — exactly the owner's observation. The model session
+  (MS5) mirrors the same path and has the same bug. The harnesses never caught it because they
+  open the menu with a synthetic `contextmenu` MouseEvent and no pointer pair.
+- **Fix:** a right-button press never enters the FPV gesture table — `if (e.button === 2) return;`
+  at the top of `onFpvPointerDown` (and the orbit `notePointerDown`/`onPointerUp` twins if they
+  gate on presses), so `fpvDragId` stays unclaimed and the release has no tap path; the
+  `contextmenu` handler alone opens the menu. Consequence: a right-drag no longer looks around
+  (it never should have). Keep the `bldgMenuDismiss` / `modelMenuDismiss` logic for a LEFT press
+  that closes the menu (that path is right). Pin it: `verify-meshedit` and `verify-usermodels`
+  open the menu with a REAL CDP right-button press + release (`Input.dispatchMouseEvent`
+  `button: "right"`, `mousePressed` then `mouseReleased`) and assert the menu is still open 300 ms
+  after the release; then a left tap away closes it.
+
+### §11.4 Orbit drag goes slow / barely moves after an FPV edit session (bug)
+> "check why after some editing of meshes in FPV when I move back to 3D map dragging around it
+> becomes too slow and sometimes it just doesn't (or barely) drags around, nothing hangs but
+> something breaks with drag sensitivity."
+
+- **Diagnosis (code-read 2026-09-02j against the installed sources; browser-UNVERIFIED — verify
+  first):** `TransformControls` keeps a DRAG PLANE — `TransformControlsPlane`, a
+  `PlaneGeometry(100000, 100000)` mesh (three 0.185 `TransformControls.js:1915`) — as a child of
+  the helper that MS2 adds to the scene at boot and never removes; MS2 deliberately left the
+  plane's `raycast` intact (a no-op silenced every drag, browser-caught 2026-09-02) while the
+  visible gizmo meshes got the no-op. The plane follows the attached object: after ANY FPV edit
+  it sits at that building's ECEF position on the surface (before an edit it sits at the Earth's
+  centre, where the terrain wins). `GlobeControls` (`3d-tiles-renderer` `EnvironmentControls.js:475/848`)
+  finds its drag PIVOT and its camera-height point with `raycaster.intersectObject(scene)[0]`,
+  `firstHitOnly = true` — three's Raycaster does NOT skip invisible objects, so from most orbit
+  angles the 100 km invisible plane at the edited building is the FIRST hit, ahead of the terrain.
+  The pivot lands on the plane at a wrong depth (or the height guard reads a wrong ground) and
+  the drag math scales off it — slow, erratic, "barely drags", never a hang. MS2 judged the
+  research trap moot ("arming happens inside FPV where the controls are off") — true for the
+  pickers WHILE armed, wrong for the plane AFTER the session. MS5's second gizmo instance (the
+  model rig) doubles the exposure.
+- **Confirm in one probe:** in orbit after an FPV edit, `window.__globe.controls.pivotPoint` after a
+  press vs the terrain height at that point; or `helper.traverse(o => o.raycast = () => {})`
+  from the console — if the drag recovers at once, this is it.
+- **Fix:** take the helper OUT of the scene whenever nothing is attached — `scene.remove(helper)`
+  on `setTarget(null, …)` / disarm and `scene.add(helper)` on attach (both gizmo instances) — or,
+  equivalently, swap the plane's `raycast` to a no-op while detached and restore it on attach. The
+  first is simpler and also stops the detached gizmo from drawing anything. Alternative kept in
+  reserve: a dedicated camera LAYER for the helper that GlobeControls' raycaster mask excludes
+  (`tc.getRaycaster().layers` must then include it). Pin it: `verify-meshedit` + `verify-usermodels`
+  grow an ORBIT leg after the FPV edit — a fixed-length drag must move the focus (`__cameraStore`
+  focus / heading delta) by the same amount as a baseline drag before any edit (±10 %), and
+  `controls.pivotPoint` after a press must sit on the terrain (height within a metre of
+  `terrainHeightAt`), not on a plane.
+
+
+---
+
+## §12 Scale limits of user models — the owner's question (2026-09-02k) and the levers for the post-MS6 audit
+
+Owner: "what are current practical limits for added models (e.g. people will keep adding meshes
+with 2–10k polygons), when will the scene explode, what we can do about it? After this feature
+we will have a thorough architectural and performance audit and revamp." Estimates below are
+code-derived; every measured number is marked, everything else is an order-of-magnitude estimate
+for the audit to replace with DBG readings (`models.*`, `frame.calls`, `frame.tris`, `mem.*`).
+
+### §12.1 What bounds the client TODAY (as built)
+- **Per file (MS4 caps):** 100k tris · ≤ 8 MiB GLB · ≤ 8 textures at ≤ 2048² · ≤ 25 meshes.
+- **Per area (MS5 residency):** at most **24 resident** models within 3 km (hysteresis 4 km),
+  under **1.5 M resident triangles**, nearest first; the rest are `skipped` (the density warning).
+  At 2–10k tris per model the triangle budget never binds — **the count cap of 24 binds first**
+  (24 × 10k = 240k tris, a fraction of the enriched city). Fetches: ≤ 2 in flight.
+- **Per cover (the world read):** ONE page of **200 rows** (oldest first) for the ≤ 16 p5 cells
+  around the focus. Past 200 placed models inside a ~8 km square the NEWEST placements are not
+  even offered to the residency plan — a FUNCTIONAL cliff that arrives before any performance
+  cliff in a popular city.
+- **Worldwide:** unbounded (no quota, owner 2026-09-01c); the collection grows freely
+  (500 KB per item, 1 000 per query page are the platform caps; the plan's item allowance is an
+  [OPEN] platform question).
+
+### §12.2 Where it "explodes" (the real cliffs, in order of arrival)
+1. **Texture memory, not polygons.** A 2048² RGBA texture is ≈ 21 MB in VRAM with mips; 24 resident
+   models × 4 textures ≈ 2 GB → WebGL context loss on ordinary laptops, far earlier on phones
+   (~1 GB total). At 1024² ≈ 5 MB each → 0.5 GB — survivable on desktop, marginal on mobile.
+   2–10k-poly models are geometry-cheap (≈ 0.1–0.5 MB each); their textures are the load.
+2. **Draw calls + the shadow pass.** Each model mesh is one draw (no batching, no instancing: every
+   GLB keeps its own materials), and every caster is drawn AGAIN per shadow map (the sun map, plus
+   one per active ULTRA cascade). 24 models × 1–25 meshes = 24–600 main draws, doubled or tripled
+   by shadows; three's per-draw CPU overhead (~10–30 µs) makes 600 extra draws ≈ 6–18 ms — a
+   halved frame rate on integrated GPUs. The `maxMeshes` 25 cap is generous for a 2–10k model
+   (typically 1–5 meshes).
+3. **Main-thread hitches on arrival.** `GLTFLoader.parseAsync` + the GPU texture uploads run on the
+   main thread: 20–200 ms per model (a 2048² upload alone is tens of ms). Flying into a dense area
+   streams up to 24 models → a stutter burst spread over a few seconds (the concurrency cap
+   bounds overlap, not the total).
+4. **Bandwidth.** First visit to a dense area: up to 24 × 8 MiB = 192 MB; typical 2–10k models with
+   1–2 textures are 0.5–3 MB → 12–72 MB. wixstatic serves immutable 180-day cache, so a re-visit is
+   free.
+5. **The 200-row page** (§12.1) — invisible newest models in a popular cell.
+6. **Wrong "nearest 24" under the page cap:** the page is by creation date, the plan by distance —
+   with > 200 rows in the cover the 24 chosen are the nearest of the OLDEST 200, not of all.
+
+### §12.3 Levers, by payoff (the audit's shopping list)
+- **Textures first:** default the export ladder to 1024² (2048² only when the byte budget and a
+  size heuristic justify it); record `textureBytes` on the row at upload and make residency
+  plan by **VRAM bytes** as well as tris and count; GPU-compressed **KTX2/Basis** (4–8× less VRAM,
+  no decode hitch — needs the transcoder wasm the DRACO/KTX2 decision deferred).
+- **A GLB cache + instancing:** cache parsed GLBs by URL for the session; N placements of the
+  same asset become ONE geometry/material set (`InstancedMesh` per material) → the common
+  "people place the same lamp 40 times" case costs one model.
+- **Merge per material at load** (`BufferGeometryUtils.mergeGeometries`) → 1 draw per material;
+  cap materials at upload.
+- **Shadows on a leash:** cast only within ~300 m and above a size threshold; drop user models
+  from the far cascades (layers).
+- **LOD + impostors:** the meshopt simplifier already runs at upload — emit 2–3 LOD rungs; beyond
+  ~1 km swap to a billboard impostor rendered from the model's own thumbnail (already painted).
+- **Screen-space priority:** order residency by projected size (bbox / distance), not distance
+  alone — a 100 m statue at 2 km outranks a 1 m cup at 100 m; the tiles' error-target idiom.
+- **Tier-aware budgets:** the quality governor's tier (low / mid / high, ULTRA pin) scales
+  `maxResident` / `triBudget` / the VRAM budget (e.g. 8 / 300k on low, 48 / 3 M on ULTRA).
+- **Off-thread arrival:** parse GLBs in a Worker (geometry buffers transfer; textures via
+  `ImageBitmap`), attach at most one model per frame.
+- **The world read:** smaller cells (p6) with a bigger page (the platform max 1 000) and newest
+  first, or several pages; longer term a per-cell aggregate the upload card reads ("this block
+  already holds N models") — the density warning at UPLOAD time, not only at view time.
+- **Governance (owner's call):** the warning stays the policy; a soft per-member cap or a
+  per-cell cap are the levers if a city fills.

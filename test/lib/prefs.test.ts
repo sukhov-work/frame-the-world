@@ -249,3 +249,14 @@ describe("loadViewPrefs / saveViewPref", () => {
     expect(() => saveViewPref("skyGuides", false)).not.toThrow();
   });
 });
+
+// MESH SUITE MS5 — the MDL chip's key rides the same blob (a plain clause; default ON is the
+// store's `?? true`, so an absent key never persists an off).
+describe("view prefs — modelsVisible (MS5)", () => {
+  it("keeps a boolean modelsVisible and drops anything else", () => {
+    expect(sanitizeViewPrefs({ modelsVisible: false }).modelsVisible).toBe(false);
+    expect(sanitizeViewPrefs({ modelsVisible: true }).modelsVisible).toBe(true);
+    expect("modelsVisible" in sanitizeViewPrefs({ modelsVisible: "no" })).toBe(false);
+    expect("modelsVisible" in sanitizeViewPrefs({})).toBe(false);
+  });
+});

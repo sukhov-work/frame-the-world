@@ -14,6 +14,8 @@ import { MODEL_UNITS, formatTris, type ModelUnit } from "../../lib/models/modelC
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { useModelUploadStore, type ModelPhase } from "../../store/modelUpload";
 import { useUploadStore } from "../../store/upload";
+import { useCameraStore } from "../../store/camera";
+import { useUserModelsStore } from "../../store/userModels";
 import InfoDot from "../ui/InfoDot";
 
 const STAGE_LABEL: Partial<Record<ModelPhase, string>> = {
@@ -219,10 +221,42 @@ function CheckCard() {
   );
 }
 
+/** MS5: hand a stored model to the globe's click-to-place — the overlay closes, FPV yields to
+ *  orbit (placing is a ground click), the crosshair + ground marker take over. */
+export function beginModelPlacement(): void {
+  const st = useModelUploadStore.getState();
+  if (!st.stored) return;
+  useUserModelsStore.getState().beginPlacing(st.stored.modelId, st.title.trim() || titleFromStored(st.fileName));
+  const up = useUploadStore.getState();
+  if (up.viewMode === "fpv") up.setViewMode("orbit");
+  const cam = useCameraStore.getState();
+  if (cam.tempFpv) cam.setTempFpv(false);
+  st.clear();
+  up.closePanel();
+}
+const titleFromStored = (fileName?: string) => (fileName ? fileName.replace(/\.[^.]+$/, "") : "this model");
+
+/** The placing-mode pill for a stored model (the photo PlacementHint's twin, same `.pd-hint`
+ *  chrome): the globe waits for a ground click; ESC cancels — the model keeps its old spot. */
+export function ModelPlacementHint() {
+  const placing = useUserModelsStore((s) => s.placing);
+  if (!placing) return null;
+  return (
+    <div className="pd-hint" role="status" data-kind="model">
+      <span className="pd-hint__pulse" aria-hidden="true" />
+      <span className="uf-mono">CLICK THE GLOBE TO PLACE “{placing.title.toUpperCase()}”</span>
+      <button className="pd-hint__cancel" onClick={() => useUserModelsStore.getState().cancelPlacing()}>
+        ESC · CANCEL
+      </button>
+    </div>
+  );
+}
+
 function StoredCard() {
   const s = useModelUploadStore();
   const stored = s.stored;
   const stats = s.stats;
+  const densityWarn = useUserModelsStore((st) => st.density.warn);
   // The local blob is the same picture and can never 403: the platform's preview derivative
   // takes seconds to render after the PUT (browser-caught 2026-09-02h) — it is for the MS6 list.
   const thumb = s.thumbnailUrl ?? stored?.thumbnailUrl;
@@ -231,8 +265,9 @@ function StoredCard() {
       <div className="uf-review__left">
         <h2 className="uf-h2">Model stored</h2>
         <p className="uf-body">
-          Packed as GLB and saved to your account. Placing it on the globe — and editing it there with the
-          building tools — arrives with the next step of this track.
+          {s.placement
+            ? "Packed as GLB, saved to your account and standing at your pin. Walk up to it in first-person view and right-click it to move, turn or resize it."
+            : "Packed as GLB and saved to your account. Place it on the globe with one click; then walk up to it in first-person view and right-click it to move, turn or resize it."}
         </p>
         <div className="uf-preview uf-preview--model">
           {thumb ? (
@@ -258,7 +293,10 @@ function StoredCard() {
           />
         </div>
         <div className="uf-actions">
-          <button className="uf-btn uf-btn--primary" onClick={() => useModelUploadStore.getState().clear()}>
+          <button className="uf-btn uf-btn--primary" data-act="place" onClick={beginModelPlacement}>
+            {s.placement ? "MOVE IT ON THE GLOBE" : "PLACE ON GLOBE"}&nbsp;&nbsp;→
+          </button>
+          <button className="uf-btn uf-btn--ghost" onClick={() => useModelUploadStore.getState().clear()}>
             UPLOAD ANOTHER&nbsp;&nbsp;→
           </button>
           <button
@@ -271,7 +309,11 @@ function StoredCard() {
             ← GLOBE
           </button>
         </div>
-        <span className="uf-actions__hint">THE MODEL IS PUBLIC BY URL — HIDING OR DELETING IT LATER REMOVES IT FROM THE WORLD, NOT FROM THE LINK</span>
+        <span className="uf-actions__hint">
+          {densityWarn
+            ? "HEAVY AREA — MODELS NEARBY ALREADY EXCEED THE FRAME BUDGET; SOME ARE SKIPPED (NEAREST FIRST)"
+            : "THE MODEL IS PUBLIC BY URL — HIDING OR DELETING IT LATER REMOVES IT FROM THE WORLD, NOT FROM THE LINK"}
+        </span>
       </div>
     </section>
   );
