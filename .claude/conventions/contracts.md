@@ -34,7 +34,7 @@ the `/m` redirect; new 2026-08-15).
 | `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
 | `ftw:bldg-overrides:v1` | `src/lib/globe/…` → `scene/bldgEditLabel` + the U8 edit flow | new 2026-08-19 (U8 building-height override), missed by the 2026-08-15 sweep. Per-edit scale band 0.5×–3×, keyed **`<variant>\|<cellUri>\|<featureId>`** (`src/lib/globe/bldgOverrides.ts` `overrideKey`/`parseOverrideKey`; `cellUri` = the baked content basename `cell-<x>-<y>.glb`, `featureId` = the bake-sequential `_FEATURE_ID_0` — NOT an OSM id; this row said `osmId` from 2026-08-22 to 2026-09-02 and that was doc drift). A re-bake CHECKSUM (`cx/cz/vc`) invalidates the row rather than migrating it, so a stale key is dropped, never applied to the wrong building; the RC17 sidecars carry the OSM id (`osm`, 100 % coverage on every live bake as of 2026-09-02) and the MESH SUITE MS3 slice adopts it as the re-bake-stable RECOVERY key (dual-key, never a hard cutover — `MESH_SUITE_PLAN.md` §4a). Row shape is versioned (v2 = `sy/sx/sz/tE/tN/rotDeg`, legacy `k` read as `sy`, MS1 2026-09-02). **MS3 (2026-09-02f):** two more optional fields — `o` = the building's OSM element id (the re-bake-stable recovery key; `/^[nwr]\d{1,16}$/`, a malformed one drops the field, never the row) and `d: 1` = a TOMBSTONE (a pending REMOVAL of a world-shared edit: identity transform, kept although neutral, masks the shared row locally, rides the next SYNC as a `removes` entry, deleted once it lands). `s` (synced-at) is now stamped by a real SYNC. This key holds MINE only (dirty edits, pending resets, synced copies); the WORLD's rows are fetched from `/api/building-overrides` at boot and held in memory (`lib/globe/bldgSync.ts`), never persisted. The backend twin is LIVE (provisioned 2026-09-02f) |
 
-## 3. `window.__*` DEV seams (all DEV-gated; **22 top-level** as of 2026-09-02f — `__bldgSyncStore` joined)
+## 3. `window.__*` DEV seams (all DEV-gated; **23 top-level** as of 2026-09-02h — `__modelUploadStore` joined after `__bldgSyncStore`)
 
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __cameraStore __timeStore __uploadStore __pinsStore __memberStore __planStore __saveStore
@@ -115,6 +115,16 @@ top-level globals; same removal/rename rule):
   re-clamps onto `XF_RAILS` and omits identity components); `_id` is the deterministic override
   hash (§7 — OSM-keyed when `osmId` is set). `cx/cz` are BAKE-LOCAL checksum metres, never
   geographic (C6); `memberId` is stamped server-side and never emitted by the public GET.
+- **UserModels** (ADMIN everything; the elevated `/api/models` is the only reader/writer;
+  **PROVISIONED 2026-09-02h, 23 fields** — MESH SUITE MS4, D3): `title ownerMemberId fileId url
+  thumbnailUrl fileName sourceFormat rawBytes glbBytes tris meshes textures decimatedFromTris
+  bboxX bboxY bboxZ readiness hidden lat lon geohash9 rotDeg scale` — ONE row per uploaded model;
+  the BYTES are a PUBLIC Wix Media MODEL3D file (the platform refuses private 3D — MS0), so
+  `hidden`/delete are record-level. `url`/`thumbnailUrl`/`glbBytes` are copied SERVER-side from
+  the descriptor `/api/models` fetched itself (the allowlist is structural); `readiness` mirrors
+  the descriptor's `operationStatus` (READY | PENDING | FAILED). `lat/lon/geohash9` = the member's
+  CHOSEN placement of a world-visible object (the UPLOAD HERE seed at MS4; MS5 places), never a
+  capture GPS — C6-clean; `rotDeg`/`scale` are the MS5/MS6 transform seats (null = identity).
 - There is **no Listings collection** — listing fields ride Photos/PublicPins (ARCHITECTURE §5 corrected
   by the 2026-08-13 audit).
 - Schema changes land in the provision script FIRST (platform.md item 13; `extensions.dataCollections`
@@ -139,11 +149,19 @@ top-level globals; same removal/rename rule):
 
 ## 7. HTTP surface
 
-- **9 API routes** under `src/pages/api/` as of 2026-08-22 (audit #3 D7 re-count; the
-  2026-08-13 "26 routes" figure was the whole `wix build` route table): `/api/photos`
-  (GET/POST/PATCH/DELETE), `/api/places`, `/api/listings`, `/api/market` (public GET),
-  `/api/upload-url`, `/api/sbdb` (param-allowlisted JPL relay), `/api/ping` (the release canary
-  — never delete), `/api/dev-seed` (DEV-gated 404 in prod), and **`/api/building-overrides`**
+- **10 API routes** under `src/pages/api/` as of 2026-09-02h (audit #3 D7 re-count gave 9 on
+  2026-08-22; the 2026-08-13 "26 routes" figure was the whole `wix build` route table):
+  `/api/photos` (GET/POST/PATCH/DELETE), `/api/places`, `/api/listings`, `/api/market` (public
+  GET), `/api/upload-url`, `/api/sbdb` (param-allowlisted JPL relay), `/api/ping` (the release
+  canary — never delete), `/api/dev-seed` (DEV-gated 404 in prod), **`/api/models`** (MESH SUITE
+  MS4, 2026-09-02h — member-only GET own list · POST `{ fileId, title, fileName, sourceFormat,
+  rawBytes, glbBytes, tris, meshes, textures, decimatedFromTris, bbox, lat, lon }` → `{ modelId,
+  url, thumbnailUrl, readiness }` after the server fetches the Media descriptor and refuses
+  anything but a public `model/gltf-binary` MODEL3D under the byte cap (400 with the verdict
+  code `NOT_A_MODEL | WRONG_MIME | PRIVATE_FILE | TOO_LARGE | NO_URL | INGEST_FAILED`; 404
+  `FILE_NOT_FOUND`; a re-POST of the same fileId answers the existing row with `existing: true`,
+  another member's fileId 409 `ALREADY_REGISTERED`) · DELETE `?id=` → `{ deleted, mediaDeleted }`
+  — record first, media best-effort), and **`/api/building-overrides`**
   (U8, new 2026-08-19; **LIVE since MESH SUITE MS3, 2026-09-02f**): the world-shared twin of the
   `ftw:bldg-overrides:v1` local store, admin-elevated. **GET `?variant=`** (public) pages by
   `skip()` at 1000 per page up to 10 pages and answers `{ overrides: PublicOverride[], complete }`
@@ -169,6 +187,11 @@ top-level globals; same removal/rename rule):
   is fenced by `test/swTileCache.test.ts`. ToS posture is an ACCEPTED, dated risk (T17; A2-10
   asks to extend that row's host list with Cesium ion, whose content this now caches).
   Unprobed in production: the `Content-Type` Wix hosting serves for `/sw.js` (release rider).
+- **`/api/upload-url` kind `"model"`** (MS4): the repo's FIRST server-side mime allowlist — ONE
+  entry, `model/gltf-binary` (the client normalizes glb/gltf/obj/fbx to GLB), a `.glb` name
+  (sanitized: basename, `[A-Za-z0-9._-]`, ≤ 200), size 1..8 MiB, else 400 `UNSUPPORTED_MODEL`;
+  mints a PUBLIC plain-PUT URL filed under `/plux/models` and answers `{ kind, uploadUrl,
+  fileName }`. The 401 message is now "sign in to upload" for every kind.
 - Response shape note: `quota:{used,limit}` rides photos responses (limit currently always the free
   tier — audit finding B7).
 - **Place quota DELETED (owner 2026-08-15c):** the `/api/places` POST 402 gate (old 50-cap) is

@@ -178,7 +178,23 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02f: MESH SUITE MS3 BUILT — D2 ACTIVATED, world-shared building edits are LIVE.**
+**2026-09-02h: MESH SUITE MS4 BUILT — the D3 UPLOAD PIPELINE.** The UPLOAD modal forks on the
+file type (`classifyDrop`; the photo path byte-identical): a model is loaded (GLTF+meshopt /
+OBJ+MTL / FBX), audited against the `MODEL_CAPS` contract, DECIMATED over budget (MeshoptSimplifier
++ compaction), packed to ONE GLB by `GLTFExporter` on a 2048→1024→512 texture ladder, thumbnailed
+by a disposable renderer, then PUT as a public Wix Media MODEL3D through `/api/upload-url`
+kind:"model" — the repo's FIRST server-side mime allowlist (one entry) — and registered in the
+PROVISIONED `UserModels` collection (24 fields) by `/api/models`, which fetches the descriptor
+ITSELF and refuses anything but a public GLB-typed MODEL3D under the cap. Finding: the platform's
+MODEL3D thumbnail URL is a permanent 403 → we upload our own thumbnail as a public image. No
+quota (owner). Docs `MESH_SUITE_PLAN.md` §9 · `mem:project/wip-2026-09-02-mesh-suite-ms4` ·
+DECISIONS 2026-09-02h · T74 (+ T76: `verify-pin-reframe` pre-existing red). Gates: vitest
+2,367/2,367 (156 files) · astro 0/0/8 · knip 0 · **`verify-modelupload.mjs` 8/8** against the LIVE
+collection with cleanup (decimated to exactly 100,000; STORED READY in 11.2 s; the served GLB
+exporter-generated and compacted 50,999/80,601 vertices) · `verify-bldg-override` PASS.
+**Next session starts MS5 (D3 placement: public world read by `geohash9`, `scene/userModels.ts`,
+click-to-place, the MS2 gizmo for the fit, the MDL chip ON by default, the density warning).**
+Prior: **2026-09-02f: MESH SUITE MS3 BUILT — D2 ACTIVATED, world-shared building edits are LIVE.**
 `BuildingOverrides` PROVISIONED on the live site (17 fields, born v2 with the spatial fields);
 rows are OSM-keyed (`variant|osm|<id>` `_id`, fingerprint fallback — the §4a-2 dual key) and the
 engine's load-model apply recovers a row whose bake-sequential key died by its OSM id. Merge

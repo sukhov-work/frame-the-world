@@ -81,5 +81,12 @@ keyboard arrows/Home/End/Backspace; dblclick reset. Phone focal 6.9 mm below the
 knob clamps 0%, reset still exact (known, fine). Playwright: use `setInputFiles` on the hidden input;
 files must live under repo roots.
 
+## The photo|model fork (MESH SUITE MS4, 2026-09-02h)
+The SAME dropzone forks on the file type: `classifyDrop` (`lib/models/modelCaps.ts`, pure) sends
+any drop carrying a `.glb/.gltf/.obj/.fbx` to the SEPARATE `store/modelUpload` (+ `panels/
+ModelUploadStep.tsx`); a drop with no model file keeps this photo path byte-identical. The two
+share only `useUploadStore.open` and the UPLOAD HERE `pendingPlacement` seed. The input is now
+`multiple` (companions). Digest: `mem:project/wip-2026-09-02-mesh-suite-ms4`.
+
 Related: `mem:core` · `mem:patterns/design-system` · `mem:decisions/adr-000-locked-stack` (D3/D4) ·
 DECISIONS 2026-07-10 (Phase 2 decode entry) · `THIRD_PARTY.md` (LGPL/CDDL notes).

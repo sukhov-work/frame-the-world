@@ -141,6 +141,48 @@ const COLLECTIONS = [
     permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
   },
   {
+    // MESH SUITE MS4 (2026-09-02, D3 — user-uploaded models): ONE row per uploaded model = the
+    // source of truth for an object whose BYTES live in Wix Media (MODEL3D, PUBLIC — the platform
+    // refuses private 3D files, MS0 probe 2026-09-02). ADMIN everything — the photos posture: all
+    // access through the elevated /api/models (owner-filtered GET/POST/DELETE; the MS5 world read
+    // strips ownerMemberId). `url`/`thumbnailUrl` are copied SERVER-side from the verified MODEL3D
+    // descriptor, never from the client. Placement (lat/lon/geohash9) and the transform seats
+    // (rotDeg/scale) are the MS5/MS6 fields, provisioned now so the record is born complete.
+    // C6: lat/lon here is the member's CHOSEN placement of a world-visible object, not a capture
+    // GPS — nothing about the member's own location is stored.
+    id: "UserModels",
+    displayName: "User Models",
+    fields: [
+      text("title", "Title"),
+      text("ownerMemberId", "Owner Member Id", true),
+      text("fileId", "Media File Id", true),
+      text("url", "Static GLB URL"),
+      // Our OWN rendered card thumbnail (a public IMAGE beside the GLB) — the platform's MODEL3D
+      // "thumbnail" URL answers 403 forever (measured 2026-09-02h), so it is never stored.
+      text("thumbnailFileId", "Thumbnail File Id"),
+      text("thumbnailUrl", "Thumbnail URL"),
+      text("fileName", "Source File Name"),
+      text("sourceFormat", "Source Format"),
+      num("rawBytes", "Source Size (bytes)"),
+      num("glbBytes", "GLB Size (bytes)"),
+      num("tris", "Triangles"),
+      num("meshes", "Meshes"),
+      num("textures", "Textures"),
+      num("decimatedFromTris", "Decimated From (triangles)"),
+      num("bboxX", "Bounds X (m)"),
+      num("bboxY", "Bounds Y (m)"),
+      num("bboxZ", "Bounds Z (m)"),
+      text("readiness", "Readiness"),
+      bool("hidden", "Hidden"),
+      num("lat", "Placement Latitude"),
+      num("lon", "Placement Longitude"),
+      text("geohash9", "Placement Geohash (p9)"),
+      num("rotDeg", "Yaw (deg)"),
+      num("scale", "Uniform Scale"),
+    ],
+    permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
+  },
+  {
     // Saved first-person viewpoints (owner 2026-07-15): photo-less FPV bookmarks — exactly the
     // `#f=` share-hash pose + an optional pinned scene time. Member-private (ADMIN everything;
     // all access through the elevated /api/places, owner-filtered) — never published (C6).

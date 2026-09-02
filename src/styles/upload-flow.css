@@ -587,3 +587,75 @@
   }
 }
 
+
+/* ── MESH SUITE MS4 — the model branch (ModelUploadStep) ────────────────────── */
+.uf-progress--model {
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.uf-preview--model {
+  aspect-ratio: 1 / 1;
+  max-height: 440px;
+  background:
+    radial-gradient(ellipse at 50% 62%, rgba(56, 225, 208, 0.09), transparent 68%),
+    var(--color-bg-raise);
+}
+.uf-preview--model .uf-preview__img {
+  object-fit: contain;
+  padding: 28px;
+  box-sizing: border-box;
+}
+.uf-units {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.uf-units__label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+  margin-right: 4px;
+}
+button.uf-chip {
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease;
+}
+button.uf-chip:hover:not(:disabled) {
+  border-color: var(--color-accent-600);
+  color: var(--color-text);
+}
+.uf-chip--on,
+button.uf-chip.uf-chip--on {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.uf-title {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.uf-title__input {
+  background: var(--color-bg-raise);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 12px 14px;
+  transition: border-color 180ms ease;
+}
+.uf-title__input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+a.uf-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}

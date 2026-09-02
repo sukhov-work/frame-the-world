@@ -104,6 +104,14 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
   cap at 10GB total storage. Errors to handle: `FILE_SIZE_OVER_LIMIT`, `SITE_QUOTA_EXCEEDED`.
 - Confirmed RAW extensions: `.arw .srw .nef .cr2 .cr3 .crw .rwl .rw2 .raw .raf .pef .orf .mrw .dng .sr2 .srf
   .kdc .k25 .dcr .x3f .erf .3fr` + HEIC/HEIF. **Exact per-file MB cap is TODO-VERIFY.**
+- **3D models (MESH SUITE MS0 probe 2026-09-02, measured):** `MODEL3D` is first-class — mint with
+  `mimeType: "model/gltf-binary"`, PUT, and the PUT response already carries the descriptor with
+  `operationStatus: READY` for a small GLB (plus a free 256² PNG `thumbnailUrl`). **Private 3D
+  is REFUSED (400)** → hide/delete are record-level. Served from `static.wixstatic.com/3d/<id>.glb`
+  with CORS `*`, `Accept-Ranges` + 206, `model/gltf-binary`, immutable 180-day cache, NO
+  `urlExpirationDate`. The app's `/api/upload-url` kind `"model"` allowlists exactly that mime
+  (the client normalizes every format to GLB) and `/api/models` re-verifies the descriptor
+  server-side before a `UserModels` row exists — `contracts.md §7`.
 
 ## 10. eCommerce (marketplace-light) — AS BUILT on Catalog **V3** (Phase 6, 2026-07-16)
 - **The site is Catalog V3, not V1** — the gateway hard-rejects every V1 call (`428

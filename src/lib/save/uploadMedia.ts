@@ -1,15 +1,20 @@
 /**
- * Client → Wix Media upload steps for the save-pin flow (Phase 5). Browser-only.
+ * Client → Wix Media upload steps for the save-pin flow (Phase 5) and, since MESH SUITE MS4
+ * (D3, 2026-09-02), the user-model flow. Browser-only.
  *
  * Bytes go DIRECTLY to Wix Media (C1 — the thin /api/upload-url endpoint only mints URLs):
  *  • preview  — small derived JPEG, single PUT against a generateFileUploadUrl URL;
  *  • original — the untouched camera file; >10MB REQUIRES the resumable TUS protocol
  *    (tus-js-client against a generateFileResumableUploadUrl URL, then a finalize PUT that
- *    returns the file descriptor) — platform rule from conventions/wix-headless.md §9.
+ *    returns the file descriptor) — platform rule from conventions/wix-headless.md §9;
+ *  • model    — the normalized GLB (≤ 8 MB, under the TUS threshold), single PUT against a
+ *    kind:"model" mint; the PUT response already carries the MODEL3D descriptor (ingest is
+ *    synchronous for a small GLB — the MS0 probe), and /api/models re-reads it server-side.
  *
- * Both uploads are ASYNC on the Wix side (descriptor may report PENDING before READY); the
+ * Photo uploads are ASYNC on the Wix side (descriptor may report PENDING before READY); the
  * save flow stores ids/urls and does not block on readiness.
  */
+import { MODEL_MIME } from "../wix/modelRecords";
 
 export interface UploadedFile {
   fileId: string | null;
@@ -58,17 +63,18 @@ export async function downscaleToJpeg(
   }
 }
 
-/** Upload the small preview JPEG (plain PUT). Returns the descriptor id + static URL. */
-export async function uploadPreview(blob: Blob, fileName: string): Promise<UploadedFile> {
+/** Upload a small public preview image (plain PUT) — the pin's JPEG derivative, or (MESH SUITE
+ *  MS4) a model's rendered PNG card thumbnail. Returns the descriptor id + static URL. */
+export async function uploadPreview(blob: Blob, fileName: string, mimeType = "image/jpeg"): Promise<UploadedFile> {
   const { uploadUrl } = await postJson("/api/upload-url", {
     kind: "preview",
     fileName,
-    mimeType: "image/jpeg",
+    mimeType,
     sizeBytes: blob.size,
   });
   const res = await fetch(`${uploadUrl}?filename=${encodeURIComponent(fileName)}`, {
     method: "PUT",
-    headers: { "Content-Type": "image/jpeg" },
+    headers: { "Content-Type": mimeType },
     body: blob,
   });
   const json = await res.json().catch(() => ({}));
@@ -154,4 +160,50 @@ export async function postListing(
 /** DELETE /api/listings — unlist an owned pin (removes the Stores product). */
 export async function deleteListing(photoId: string): Promise<{ unlisted: boolean }> {
   return requestJson(`/api/listings?photoId=${encodeURIComponent(photoId)}`, "DELETE");
+}
+
+/** What the model PUT handed back — the record POST needs only the id (it re-reads the rest). */
+export interface UploadedModelFile {
+  fileId: string;
+  url: string | null;
+  thumbnailUrl: string | null;
+  operationStatus: string | null;
+}
+
+/** MESH SUITE MS4: upload the packed GLB (plain PUT) against a kind:"model" mint. */
+export async function uploadModelGlb(glb: Blob, fileName: string): Promise<UploadedModelFile> {
+  const minted = await postJson("/api/upload-url", {
+    kind: "model",
+    fileName,
+    mimeType: MODEL_MIME,
+    sizeBytes: glb.size,
+  });
+  const name: string = typeof minted?.fileName === "string" ? minted.fileName : fileName;
+  const res = await fetch(`${minted.uploadUrl}?filename=${encodeURIComponent(name)}`, {
+    method: "PUT",
+    headers: { "Content-Type": MODEL_MIME },
+    body: glb,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`model upload failed: HTTP ${res.status}`);
+  const file = json?.file ?? json;
+  const fileId = file?.id ?? file?._id;
+  if (typeof fileId !== "string" || fileId.length === 0) throw new Error("model upload returned no file id");
+  return {
+    fileId,
+    url: file?.media?.model3d?.url ?? file?.url ?? null,
+    thumbnailUrl: file?.media?.model3d?.thumbnail?.url ?? file?.thumbnailUrl ?? null,
+    operationStatus: file?.operationStatus ?? null,
+  };
+}
+
+/** POST /api/models — register the stored GLB; the server verifies the descriptor itself. */
+export async function postModelRecord(body: Record<string, unknown>): Promise<{
+  modelId: string;
+  url: string;
+  thumbnailUrl: string | null;
+  readiness: string;
+  existing?: boolean;
+}> {
+  return postJson("/api/models", body);
 }

@@ -135,7 +135,11 @@ Next session starts at **MS0** below.
      with `mediaType: "MODEL3D"`, `mimeType: "model/gltf-binary"`, `operationStatus: "READY"`,
      and `get-file-by-id` agreed on the first poll (485 ms). A 256×256 PNG preview thumbnail is
      generated for free (`additionalProperties.model3d.preview.status: READY`) — the "my
-     uploads" list gets its thumbnail without rendering anything.
+     uploads" list gets its thumbnail without rendering anything. **FALSIFIED 2026-09-02h (MS4):
+     the descriptor's thumbnail URL (`static.wixstatic.com/media/<hash>.png`) answers 403
+     text/plain — plain, browser-UA, referer and the `/v1/fill/` transform alike — a day after
+     the upload, while `preview.status` still says READY (the probe never fetched it). MS4
+     uploads its OWN rendered card thumbnail as a public IMAGE beside the GLB (§9.1-11).**
   2. **No expiry on a PUBLIC MODEL3D URL**: the descriptor has NO `urlExpirationDate` at any
      level; the URL is a plain `https://static.wixstatic.com/3d/<id>.glb` served with
      `Cache-Control: public, max-age=15552000, immutable` (180 days). The `--recheck` leg of the
@@ -205,7 +209,7 @@ Next session starts at **MS0** below.
 | **MS1 — transform substrate** | **BUILT 2026-09-02 (§6).** Pristine-snapshot + absolute recompose in `applyFeatureSeats`; `addUpdateRange`; sphere+box bounds; re-locate after move; per-SEGMENT edge attribution (the party-wall fix, in place of a rebuild); `OverrideRow` v2 + sanitize + multi-component neutrality; rails; pure-math unit tests (the scene-test twin rule); generalized ghost; `setTransform`/`featureState` engine API + DEV seam; browser leg `verify-meshedit.mjs`. | MS0 |
 | **MS2 — gizmo UI** | **BUILT 2026-09-02 (§7).** Building context menu (right-click / long-press → MOVE / ROTATE / SCALE / EXTRUDE / REVERT ALL / DONE) + the chip's op strip + G/R/S/E keys; TransformControls on the ghost RIG (anchor + body under the cell mesh, `space: local` = ENU, pointers FED by the FPV gesture table — no DOM listeners, no camera layer needed: GlobeControls is off throughout FPV), `minY/maxY` = the lift rail, per-edit scale band on every axis; ghost-body preview while dragging, commit on release through `commitBldgTransform`; the chip shows every op's current vs original with a per-op ↺ + RESET ALL, the pinned label grows an op line; EXTRUDE = the U8 drag verbatim and the default op on arm; Escape cancels a live drag; `verify-meshedit.mjs` legs 7–14. | MS1 |
 | **MS3 — D2 activation** | **BUILT 2026-09-02f (§8).** `BuildingOverrides` PROVISIONED on the live site (17 fields); the wire + collection carry the v2 row's spatial fields (server re-clamps, identity omitted) + the **OSM-keyed `_id`** (dual key — fingerprint fallback, never a cutover); boot fetch (paged GET, `complete` flag) + the MERGE POLICY (local pending wins · shared wins over my synced copy · a RESET of a shared edit is a TOMBSTONE); SYNC affordance in the chip foot, the context menu and a standalone PILL, sign-in gated (401 → SIGN IN); the `_ftw_override` byte LADDER (mine 255 / shared 128) + an origin badge + a hover note ("EDITED · shared · was …"); the OSM recovery sweep at load-model; `reapplyOverrides()`; `verify-meshedit.mjs` legs 15–18 against the LIVE collection. | MS1 (fields), not MS2 |
-| **MS4 — D3 upload pipeline** | Modal fork photo\|model; loaders + normalize-to-GLB + validation + auto-decimate; readiness state; `UserModels` collection + endpoints (quota wall); `/api/upload-url` kind:"model" + first mime allowlist. | MS0 answers |
+| **MS4 — D3 upload pipeline** | **BUILT 2026-09-02h (§9).** The dropzone forks on the file type (`classifyDrop`; the photo path byte-identical); a SEPARATE `store/modelUpload` walks load → inspect → audit → decimate → pack → thumbnail → review → upload → stored through ONE lazy import of `lib/models/normalizeModel` (GLTF/OBJ+MTL/FBX loaders, MeshoptSimplifier decimation + compaction, GLTFExporter on a 2048→1024→512 texture ladder, a disposable-renderer thumbnail); the caps are contract constants (`MODEL_CAPS`, pure audit); source units are a review-time choice; `/api/upload-url` kind:"model" = the first server-side mime allowlist (one entry); **`UserModels` PROVISIONED (24 fields)** + `/api/models` GET/POST/DELETE with the descriptor fetched server-side as the structural allowlist; our own thumbnail uploaded as a public image (the platform's is a permanent 403); NO quota; `verify-modelupload.mjs` 8 legs against the live collection. | MS0 answers |
 | **MS5 — D3 placement** | `scene/userModels.ts`; centroid ground-fit + resnap; MS2 gizmo reused for final fit at upload; clamps; LOD/culling/shadow flags; load-with-tiles streaming; **the MDL deck chip (all custom models on/off, ON by default — BLD-chip recipe)**; **the physical-density warning** (owner 2026-09-01c: no quota — warn instead; design the metric: resident models / on-screen user-model tris / per-cell count). | MS2 + MS4 |
 | **MS6 — D3 management + world edit** | My-uploads list (delete/hide); other users edit user-mesh transforms per D1 (overrides ON user meshes — same record machinery); perf polish; full harness. | MS5 + MS3 |
 
@@ -270,9 +274,12 @@ Concretely, each slice's done-gate includes:
    `mem:project/wip-2026-09-02-mesh-suite-ms2`, `mem:project/wip-2026-09-02-mesh-suite-ms0-ms1`
    and `mem:project/wip-2026-09-01-mesh-suite-plan` (research digests).
 2. MS3 (the D2 activation) is BUILT — §8 is the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms3`
-   the digest. Next: **MS4** (the D3 upload pipeline: modal fork photo|model, loaders +
-   normalize-to-GLB + validation + auto-decimate, readiness, the `UserModels` collection +
-   endpoints, `/api/upload-url` kind:"model" + the first mime allowlist) on the MS0 answers (§1).
+   the digest. **MS4 (the D3 upload pipeline) is BUILT — §9 is the as-built;
+   `mem:project/wip-2026-09-02-mesh-suite-ms4` the digest.** Next: **MS5** (D3 placement:
+   `scene/userModels.ts` streaming the world's placed models — a geohash-prefix `hasSome` on
+   `UserModels.geohash9`, the pins precedent, through a new public GET that strips
+   `ownerMemberId`; centroid ground-fit + resnap; the MS2 gizmo for the final fit; the MDL deck
+   chip ON by default; the physical-density warning) on the §9 record.
 3. The DBG window (2026-09-01) is the instrument for all of this — seat deferrals/rejections,
    cell counts, frame costs are live in it; open it before profiling anything.
 
@@ -606,3 +613,137 @@ The DBG window has no sync metrics yet (`__bldgSyncStore` is the seam; a `edit.*
 T73-class tail) · an `updatedAt`/"edited by" display (memberId is never emitted — a display label
 would need a denormalized author field, a C6-shaped decision) · a per-user "my edits" list ·
 the MS6 reuse of this exact machinery for user-mesh transforms.
+
+---
+
+## §9 MS4 AS BUILT — the D3 upload pipeline (2026-09-02h)
+
+**Mode:** implement (design-first, investigate-design-v3 spine on `/frame`), tier Deep — three
+surfaces (a client pipeline on three, a store + panel, a collection + two endpoints) and a browser
+harness. Everything below was measured in this session; nothing is remembered.
+
+### §9.1 The design decisions (recorded; [ASSUMPTION]s are the owner's to re-open)
+
+1. **The fork lives in the dropzone, not in a second modal.** `DropStep.onFiles` → `classifyDrop`
+   (pure, `lib/models/modelCaps.ts`): a drop that carries ANY model file (`.glb .gltf .obj .fbx`)
+   is a model drop — every other file rides along as a companion resolved by basename (a `.bin`
+   buffer, an `.mtl`, textures); extra model files are named + ignored. A drop with no model
+   file keeps the photo path byte-identical (`files[0]`, exactly as before). `ACCEPT` grew the
+   model extensions + `.bin,.mtl`; the input is `multiple`; the chips gained `GLB · GLTF · OBJ ·
+   FBX`; the title reads "Drop a RAW, an image — or a 3D model".
+2. **A SEPARATE store, `store/modelUpload.ts`** — not new phases in `useUploadStore`: 17 modules
+   read the photo store and 15 sites branch on its `phase` to drive the frustum, the placing hint
+   and the detail panel (counted 2026-09-02). The two share the overlay (`open`) and the UPLOAD
+   HERE seed (`pendingPlacement`, consumed at review exactly as a GPS-less photo's ingest does —
+   temp pin retired). Phase machine: `idle → loading → inspecting → decimating? → packing → review
+   → uploading → stored`, `error` = a named refusal back on the dropzone (the dropzone shows
+   "Could not take that model — …" beside the photo notice). Binary state (the loaded scene, the
+   packed GLB) lives in MODULE scope, never in zustand.
+3. **The pipeline runs on the MAIN thread through ONE lazy import** (`lib/models/normalizeModel.ts`;
+   the store's `ModelPipeline` seam is injectable — unit tests drive a fake). [ASSUMPTION]:
+   FBXLoader resolves textures through `TextureLoader` → `<img>`, which a Worker lacks; inputs are
+   ≤ 15 MB and every step but the exporter's texture re-encode is tens of ms (measured §9.4). The
+   C1 Worker rule is about RAW demosaic.
+4. **GLB canonical, normalized client-side.** GLTFLoader (+ the embedded-wasm `MeshoptDecoder` for
+   EXT_meshopt_compression) · OBJLoader (+ MTLLoader when an `.mtl` companion is present) ·
+   FBXLoader → `GLTFExporter.parseAsync(root, { binary, maxTextureSize, onlyVisible })`. DRACO /
+   KTX2 need decoder wasm the app does not ship → refused with `UNSUPPORTED_COMPRESSION` copy (the
+   architecture doc forbids a casual `public/wasm/`; MS-later if ever).
+5. **The caps are CONTRACT constants** (`MODEL_CAPS`: 100k tris · 2048² · 8 textures · 25 meshes ·
+   15 MiB raw · 8 MiB GLB) and the verdict is pure (`auditModelStats`): triangles over budget are
+   DECIMATED (proportional per-mesh plan, `decimationPlan`; MeshoptSimplifier with `LockBorder`
+   over the error rungs 1 % → 5 % → 25 % → 100 %, then attribute COMPACTION so orphan vertices do
+   not bust the byte cap; multi-material / drawRange meshes are locked — if the locked ones alone
+   bust the cap the refusal is `TOO_MANY_TRIS`); oversize textures are DOWNSCALED by the exporter
+   on a **2048 → 1024 → 512 ladder** until the GLB fits (an untextured model is judged on the first
+   rung); animations are DROPPED (warning); skinned / morph-target meshes, > 25 meshes, > 8
+   textures, an empty scene, > 15 MiB source and a GLB still > 8 MiB at 512² are REFUSED with
+   member-facing copy (`violationMessage`). The raw-size gate runs BEFORE a byte is parsed.
+6. **Source units are a review-time choice** with a heuristic guess (`suggestUnit`: raw longest
+   extent ≤ 600 → m · ≤ 60 000 → cm · else mm; glTF is metres by spec but OBJ/FBX carry whatever
+   the tool used). The unit is BAKED into the root node's scale at export; a change re-packs.
+   [ASSUMPTION] the thresholds.
+7. **Storage = Option C as ratified**: the bytes are a PUBLIC Wix Media MODEL3D (private 3D is
+   refused — MS0), plain PUT (≤ 8 MiB sits under the TUS threshold) against a **kind:"model" mint**
+   — the repo's FIRST server-side mime allowlist, with exactly ONE entry (`model/gltf-binary`), a
+   sanitized `.glb` name and the byte cap (400 `UNSUPPORTED_MODEL`), filed under `/plux/models`
+   (the `filePath` mint option — verified live: the descriptor's `parentFolderId` ≠ `media-root`).
+   The **`UserModels` record (23 fields, ADMIN everything, PROVISIONED 2026-09-02h)** is the source
+   of truth; `/api/models` is its ONLY writer and the allowlist is STRUCTURAL there: POST fetches
+   the descriptor itself (`files.getFileDescriptor`, elevated) and refuses anything but a public,
+   GLB-typed, size-capped MODEL3D with a static URL (`verifyModelDescriptor` — codes `NOT_A_MODEL
+   | WRONG_MIME | PRIVATE_FILE | TOO_LARGE | NO_URL | INGEST_FAILED`); `url`, `thumbnailUrl` and the
+   byte count are copied from THAT descriptor, never from the client. `readiness` mirrors
+   `operationStatus` (READY on the PUT itself for these sizes). A re-POST of the same fileId answers
+   the existing row (`existing: true`); another member's fileId → 409. DELETE removes the row then
+   the media best-effort (`mediaDeleted` in the answer). GET = the owner's list (MS6's surface).
+   No quota anywhere (owner 2026-09-01c).
+8. **The record is born complete**: placement (`lat lon geohash9` — the UPLOAD HERE seed at MS4;
+   MS5 places; C6-clean: a chosen placement of a world-visible object, never a capture GPS) and the
+   transform seats (`rotDeg scale`, null = identity) are provisioned now, so MS5/MS6 need no schema
+   change.
+9. **Sign-in gating** is UI + structural: the CHECK card's primary action is `UPLOAD MODEL` for a
+   member, a `SIGN IN TO UPLOAD` login link (`loginUrl(returnHereUrl())`) for a visitor (with the
+   honest hint that signing in reloads the page — the packed model is module state); the
+   endpoint's 401 is the gate that cannot be bypassed (the seam's `upload()` while anonymous lands
+   back in `review` with `SIGNED_OUT` and the packed model intact).
+10. **The card says what the platform makes true**: "STORED MODELS ARE PUBLIC — ANYONE EXPLORING THE
+    GLOBE WILL SEE THEM ONCE PLACED" and, after storing, "PUBLIC BY URL — HIDING OR DELETING IT LATER
+    REMOVES IT FROM THE WORLD, NOT FROM THE LINK" (the MS0 consequence, surfaced as promised).
+11. **A card thumbnail is painted by a DISPOSABLE WebGLRenderer on an OffscreenCanvas** (three-quarter
+    view, hemisphere + key light, transparent PNG; context released before it resolves) — the
+    member's only confirmation that the loader read the right thing (a wrong up-axis FBX shows at
+    once). The platform's own 256² preview replaces it on the STORED card.
+
+### §9.2 Verification receipt (fresh, 2026-09-02h)
+- Unit: NEW `modelCaps` 18 · NEW `modelRecords` 18 · NEW `store/modelUpload` 19 (a fake pipeline
+  drives the phase machine, the caps, the texture ladder, the seed hand-off, the upload wire incl.
+  the thumbnail leg) · full vitest **2,367/2,367 (156 files)** (baseline 2,312/153) · `astro check` 0 err / 0 warn /
+  8 hints · knip 0.
+- Browser (`scripts/verify-modelupload.mjs`, headless Chrome :9333 fresh profile, `wix dev`, the
+  Dnipro FPV pose): **8/8 legs PASS** — (1) a 6,240-tri procedural GLB → CHECK card in **1.7 s**
+  (loader chunk fetch included): exact tris, 1 mesh, 0 textures, metres, 178 KB packed, a blob
+  thumbnail, the header lit at 2 CHECK; (2) a 159,200-tri textured sphere → **DECIMATED to exactly
+  100,000 in 0.8 s**, texture kept, 2.7 MB packed; (3) an OBJ+MTL 3,000-unit cube → 12 tris, unit
+  GUESSED cm (30 m), the M chip re-packs to 3,000 m; (4) a 16 MiB file → `RAW_TOO_LARGE` before any
+  parse, notice shown, zero `/api` requests; (5) anonymous → the `SIGN IN TO UPLOAD` login link and
+  `upload()` → 401 `SIGNED_OUT` with the packed model intact; (6) member: the allowlist 400s
+  image/jpeg, a `.gltf` name and an over-cap size, a valid mint answers a sanitized name
+  (`Дніпро kiosk (v2).glb` → `kiosk-v2.glb`), a bogus fileId → 404; (7) member upload of the dense
+  textured sphere with an UPLOAD HERE seed → **STORED in 11.2 s** (a 2.8 MB PUT + the thumbnail
+  PUT + the record): `readiness READY`, `https://static.wixstatic.com/3d/<id>.glb`, listed by GET
+  with the facts + the seed (48.4647, 35.0462) + bbox 12 m; the served GLB answers 200
+  `model/gltf-binary` ACAO `*`, generator `THREE.GLTFExporter r185`, 1 image, 0 animations,
+  **POSITION 50,999 vertices (source 80,601) — compaction proven on the stored bytes**; our
+  thumbnail serves `image/png` after 270 ms while the platform's answers 403; a re-POST answers
+  the existing row; the descriptor sits in the `/plux/models` folder (`parentFolderId`
+  `f204ebecab51489e92ea8e9af543ae9d`); (8) cleanup: DELETE → `{ deleted, mediaDeleted: true }`, GET
+  no longer lists it — the world and the Media Manager left as found. Shots
+  `verify-shots/modelupload-01..03`.
+- Regression smoke on the shared surfaces: `verify-bldg-override` PASS (the U8/FPV path). The
+  photo-path harness `verify-pin-reframe.mjs` is RED — **identically on bare master** (stash
+  comparator: `terrain heightAt(pin) = −2047`, `loaded=false`, the correction never needed) → a
+  PRE-EXISTING, environment-shaped red logged as **T76**, not MS4's. The engine-facing §4a-4 sweep
+  was not re-run: MS4 touches no scene module (fenced by construction — `panels/`, `store/`,
+  `lib/models`, `lib/wix`, `pages/api` only).
+
+### §9.3 Files
+NEW `lib/models/modelCaps.ts` (pure contract) · NEW `lib/models/normalizeModel.ts` (three, browser
+tier) · NEW `lib/models/three-examples.d.ts` (MeshoptSimplifier types transcribed from the installed
+source) · NEW `lib/wix/modelRecords.ts` (body parser · mint gate · descriptor verdict · record ·
+list row) · NEW `pages/api/models.ts` (GET/POST/DELETE) · `pages/api/upload-url.ts` (kind:"model") ·
+`lib/save/uploadMedia.ts` (`uploadModelGlb` · `postModelRecord`) · NEW `store/modelUpload.ts` ·
+NEW `panels/ModelUploadStep.tsx` · `panels/UploadFlow.tsx` (the fork) · `styles/upload-flow.css` ·
+`global.d.ts` (`__modelUploadStore`) · `scripts/provision-collections.mjs` (`UserModels`) ·
+`conventions/contracts.md` §3/§4/§7 · `conventions/wix-headless.md` §9 · tests: NEW
+`test/lib/models/modelCaps.test.ts` (18) · NEW `test/lib/wix/modelRecords.test.ts` (17) · NEW
+`test/store/modelUpload.test.ts` (19) · NEW `scripts/verify-modelupload.mjs` (8 legs, member recipe,
+cleanup in `finally`).
+
+### §9.4 Left for MS5+ (deliberately)
+The world read (visitors streaming placed models — a geohash-prefix `hasSome` on `geohash9`, the
+pins precedent) · `scene/userModels.ts` + placement + the MDL chip + the density warning (MS5) ·
+the my-uploads list on `GET /api/models`, hide/delete/title edits, transforms on user meshes through
+the MS3 sync machinery (MS6) · a Worker for the loaders (only if a real file proves the main-thread
+assumption wrong) · DRACO/KTX2 decode (needs shipped wasm) · a guide chapter (when the feature is
+visible in the world).

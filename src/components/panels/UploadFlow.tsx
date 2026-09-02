@@ -6,6 +6,10 @@
  * Decode is the real Phase-2 pipeline (`lib/decode/extract.ts`): exifr metadata + embedded-JPEG
  * instant preview, then libraw-wasm / libheif-js in a disposable Web Worker for RAW/HEIC. The store
  * (`store/upload.ts`) holds the Phase-3 contract: EXIF baseline + adjustable params + D4 flags.
+ *
+ * MESH SUITE MS4 (D3, 2026-09-02): the SAME dropzone forks on the file type — a drop that carries
+ * a 3D model (`classifyDrop`) goes to `store/modelUpload` and renders `ModelUploadStep`
+ * (check → store) instead of the EXIF review; the photo path is byte-identical.
  */
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
@@ -17,7 +21,10 @@ import {
   derivedFov,
   type AdjustableKey,
 } from "../../store/upload";
+import { useModelUploadStore } from "../../store/modelUpload";
+import { classifyDrop, MODEL_ACCEPT } from "../../lib/models/modelCaps";
 import PhotoDetailPanel, { PlacementHint } from "./PhotoDetailPanel";
+import ModelUploadStep, { MODEL_STEPS, modelStepIndex } from "./ModelUploadStep";
 import {
   formatLatLon,
   formatFocal,
@@ -37,8 +44,10 @@ import InfoDot from "../ui/InfoDot";
 import "../../styles/upload-flow.css";
 import "../../styles/tips.css";
 
-const FORMAT_CHIPS = ["DNG", "ARW", "CR3", "NEF", "RAF", "JPG · PNG · HEIC"];
-const ACCEPT = ".arw,.dng,.cr3,.nef,.raf,.jpg,.jpeg,.png,.webp,.heic,.heif";
+const FORMAT_CHIPS = ["DNG", "ARW", "CR3", "NEF", "RAF", "JPG · PNG · HEIC", "GLB · GLTF · OBJ · FBX"];
+const PHOTO_ACCEPT = ".arw,.dng,.cr3,.nef,.raf,.jpg,.jpeg,.png,.webp,.heic,.heif";
+const ACCEPT = `${PHOTO_ACCEPT},${MODEL_ACCEPT}`;
+const PHOTO_STEPS = ["1 UPLOAD", "2 REVIEW", "3 PLACE"] as const;
 
 const PARAM_LABEL: Record<AdjustableKey, string> = {
   focalLengthMm: "FOCAL LENGTH",
@@ -50,6 +59,10 @@ const PARAM_LABEL: Record<AdjustableKey, string> = {
 export default function UploadFlow() {
   const open = useUploadStore((s) => s.open);
   const phase = useUploadStore((s) => s.phase);
+  const modelPhase = useModelUploadStore((s) => s.phase);
+  // A model in flight or under review owns the overlay; an errored model drop falls back to the
+  // dropzone (which shows the refusal), exactly like an unreadable photo does.
+  const modelActive = modelPhase !== "idle" && modelPhase !== "error";
 
   // The nav "Upload" link lives in Astro-rendered markup — delegate instead of coupling.
   useEffect(() => {
@@ -84,10 +97,11 @@ export default function UploadFlow() {
     return null;
   }
 
-  const step = phase === "review" ? 1 : 0;
+  const steps: readonly string[] = modelActive ? MODEL_STEPS : PHOTO_STEPS;
+  const step = modelActive ? modelStepIndex(modelPhase) : phase === "review" ? 1 : 0;
 
   return (
-    <div className="uf" role="dialog" aria-modal="true" aria-label="Upload a photo">
+    <div className="uf" role="dialog" aria-modal="true" aria-label="Upload a photo or a 3D model">
       <header className="uf-top">
         <div className="uf-top__left">
           <button
@@ -105,11 +119,11 @@ export default function UploadFlow() {
           <InfoDot
             pos="down"
             label="About the upload flow"
-            tip="Drop a photo → we read its EXIF (location, lens, time) → place it as a real camera frustum on the globe. RAW files decode right in your browser."
+            tip="Drop a photo → we read its EXIF (location, lens, time) → place it as a real camera frustum on the globe. RAW files decode right in your browser. Drop a 3D model (GLB · glTF · OBJ · FBX) → we check it, pack it as GLB and store it for placing."
           />
         </div>
         <div className="uf-steps">
-          {["1 UPLOAD", "2 REVIEW", "3 PLACE"].map((s, i) => (
+          {steps.map((s, i) => (
             <span key={s} className="uf-steps__group">
               {i > 0 && <span className="uf-steps__dash">──</span>}
               <span className={`uf-steps__step${i === step ? " uf-steps__step--active" : ""}`}>{s}</span>
@@ -117,7 +131,7 @@ export default function UploadFlow() {
           ))}
         </div>
       </header>
-      {phase === "review" ? <ReviewStep /> : <DropStep />}
+      {modelActive ? <ModelUploadStep /> : phase === "review" ? <ReviewStep /> : <DropStep />}
     </div>
   );
 }
@@ -129,12 +143,23 @@ function DropStep() {
   const decodeProgress = useUploadStore((s) => s.decodeProgress);
   const previewUrl = useUploadStore((s) => s.previewUrl);
   const loadError = useUploadStore((s) => s.loadError);
+  const modelError = useModelUploadStore((s) => (s.phase === "error" ? s.error : undefined));
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const onFiles = (files: FileList | null) => {
-    const file = files?.[0];
-    if (file) void useUploadStore.getState().loadFile(file);
+    if (!files || files.length === 0) return;
+    const list = Array.from(files);
+    const drop = classifyDrop(list);
+    if (drop.kind === "model") {
+      // MESH SUITE MS4 — the photo|model fork. A placed photo stays on the globe untouched.
+      void useModelUploadStore.getState().begin(list, drop.index, drop.format);
+      return;
+    }
+    if (drop.kind === "photo") {
+      useModelUploadStore.getState().clear(); // a fresh photo retires a refused model's notice
+      void useUploadStore.getState().loadFile(list[drop.index]);
+    }
   };
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -159,9 +184,10 @@ function DropStep() {
           ↑
         </div>
         <div className="uf-dropzone__copy">
-          <span className="uf-dropzone__title">Drop a RAW or image file</span>
+          <span className="uf-dropzone__title">Drop a RAW, an image — or a 3D model</span>
           <span className="uf-dropzone__sub">
-            We read the EXIF and place your camera on the globe. <span className="uf-link">Browse files</span>
+            Photos: we read the EXIF and place your camera on the globe. Models: checked, packed and stored
+            for placing. <span className="uf-link">Browse files</span>
           </span>
         </div>
         <div className="uf-chips">
@@ -176,6 +202,7 @@ function DropStep() {
         ref={inputRef}
         type="file"
         accept={ACCEPT}
+        multiple
         hidden
         onChange={(e) => {
           onFiles(e.target.files);
@@ -201,6 +228,12 @@ function DropStep() {
         <div className="uf-notice">
           <div className="uf-notice__dot" aria-hidden="true" />
           <span>Could not read that file — {loadError}</span>
+        </div>
+      )}
+      {modelError && (
+        <div className="uf-notice">
+          <div className="uf-notice__dot" aria-hidden="true" />
+          <span>Could not take that model — {modelError}</span>
         </div>
       )}
       <span className="uf-privacy">FILES STAY PRIVATE UNTIL YOU PLACE THEM</span>
