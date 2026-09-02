@@ -292,6 +292,9 @@ export function modelRecord(
     // Transform seats (MS5/MS6) — null = identity, the BuildingOverrides convention.
     rotDeg: null,
     scale: null,
+    // MS6: the last editor of the transform — the owner at birth; any member's placement PATCH
+    // re-stamps it (LWW). Server-side only; never on the public wire (C6).
+    editorMemberId: ownerMemberId,
   };
 }
 
@@ -331,8 +334,14 @@ export function parsePlacementBody(raw: unknown): { body: PlacementBody } | { er
 
 /** The stored row after a placement PATCH: coordinates + BOTH geohash columns re-derived, the
  *  seats replaced when given (identity is stored as null — the record convention). `items.update`
- *  replaces the whole item, so the existing row rides along untouched (the photos precedent). */
-export function applyModelPlacement(existing: Record<string, unknown>, body: PlacementBody): Record<string, unknown> {
+ *  replaces the whole item, so the existing row rides along untouched (the photos precedent).
+ *  MS6: the PATCH is open to every member (LWW), so the caller passes the EDITOR's member id and
+ *  the row records it (`editorMemberId`); absent = left as stored. */
+export function applyModelPlacement(
+  existing: Record<string, unknown>,
+  body: PlacementBody,
+  editorMemberId?: string,
+): Record<string, unknown> {
   const next: Record<string, unknown> = {
     ...existing,
     lat: body.lat,
@@ -340,6 +349,7 @@ export function applyModelPlacement(existing: Record<string, unknown>, body: Pla
     geohash9: encodeGeohash(body.lat, body.lon, 9),
     gh5: encodeGeohash(body.lat, body.lon, MODEL_COVER_PRECISION),
   };
+  if (editorMemberId !== undefined) next.editorMemberId = editorMemberId;
   if (body.rotDeg !== undefined || body.scale !== undefined) {
     const cur = sanitizeModelTransform(existing.rotDeg, existing.scale);
     const t = { rotDeg: body.rotDeg ?? cur.rotDeg, scale: body.scale ?? cur.scale };
@@ -348,6 +358,67 @@ export function applyModelPlacement(existing: Record<string, unknown>, body: Pla
     next.scale = identity || Math.abs(t.scale - 1) < 0.005 ? null : t.scale;
   }
   return next;
+}
+
+// ── MESH SUITE MS6 (2026-09-02m) — management: title / hidden, owner-only ──────────────────
+
+/** What the OWNER patches about a model besides its placement: a new title and/or the hidden
+ *  flag (hidden = withdrawn from the world read; the bytes stay public by URL — MS0). */
+export interface ManageBody {
+  id: string;
+  title?: string;
+  hidden?: boolean;
+}
+
+/** A PATCH body carrying `lat` or `lon` is a PLACEMENT (any member, `parsePlacementBody`);
+ *  anything else is MANAGEMENT (owner-only, `parseManageBody`). The one dispatch rule. */
+export function isPlacementPatch(raw: unknown): boolean {
+  if (typeof raw !== "object" || raw === null) return false;
+  const r = raw as Record<string, unknown>;
+  return r.lat !== undefined || r.lon !== undefined;
+}
+
+/** Title rule: trimmed, 1–120 characters (the CHECK card's input cap). */
+export const MODEL_TITLE_MAX = 120;
+
+/** Validate an untrusted management body: the id, and at least one of a title / the hidden
+ *  flag. A title is trimmed and must keep 1..MODEL_TITLE_MAX characters. */
+export function parseManageBody(raw: unknown): { body: ManageBody } | { error: string } {
+  if (typeof raw !== "object" || raw === null) return { error: "body must be a JSON object" };
+  const r = raw as Record<string, unknown>;
+  const id = str(r.id, 64);
+  if (id === null) return { error: "id must be the model's record id" };
+  const body: ManageBody = { id };
+  if (r.title !== undefined) {
+    if (typeof r.title !== "string") return { error: "title must be a string" };
+    const title = r.title.trim();
+    if (title.length === 0 || title.length > MODEL_TITLE_MAX) return { error: `title must keep 1..${MODEL_TITLE_MAX} characters` };
+    body.title = title;
+  }
+  if (r.hidden !== undefined) {
+    if (typeof r.hidden !== "boolean") return { error: "hidden must be a boolean" };
+    body.hidden = r.hidden;
+  }
+  if (body.title === undefined && body.hidden === undefined) return { error: "nothing to change — give a title or hidden" };
+  return { body };
+}
+
+/** The stored row after a management PATCH: the title / hidden flag replaced, everything else
+ *  (placement, seats, the editor stamp) riding along — `items.update` replaces the whole item. */
+export function applyModelManage(existing: Record<string, unknown>, body: ManageBody): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...existing };
+  if (body.title !== undefined) next.title = body.title;
+  if (body.hidden !== undefined) next.hidden = body.hidden;
+  return next;
+}
+
+/** What `PATCH /api/models` answers (MS6): whether the caller owns the row, the OWNER-shaped
+ *  list row (only to the owner — it carries file facts and the hidden flag) and the PUBLIC row
+ *  (to everyone; null when the model is not world-visible — unplaced / hidden / not READY). */
+export interface ModelPatchAnswer {
+  own: boolean;
+  model: ModelListItem | null;
+  public: PublicModel | null;
 }
 
 /** `?cells=` of the world read → the cell list, or the offending input. */
@@ -431,6 +502,11 @@ export interface ModelListItem {
   rotDeg: number;
   scale: number;
   createdAt: string | null;
+  /** MS6: the row's last write (`_updatedDate` — a placement, a rename, a hide). */
+  updatedAt: string | null;
+  /** MS6: another member re-edited the transform (the last placement PATCH was not the
+   *  owner's) — derived server-side; the editor's id itself reaches nobody. */
+  editedByOther: boolean;
 }
 
 export function modelListItem(item: Record<string, unknown>): ModelListItem | null {
@@ -442,8 +518,11 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
   const by = numOrNull(item.bboxY);
   const bz = numOrNull(item.bboxZ);
   const created = item._createdDate;
+  const updated = item._updatedDate;
   const readiness = item.readiness;
   const t = sanitizeModelTransform(item.rotDeg, item.scale);
+  const editor = strOrNull(item.editorMemberId);
+  const owner = strOrNull(item.ownerMemberId);
   return {
     id: item._id,
     title: strOrNull(item.title) ?? "Untitled model",
@@ -465,5 +544,9 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
     scale: t.scale,
     createdAt:
       created instanceof Date ? created.toISOString() : typeof created === "string" ? created : null,
+    updatedAt:
+      updated instanceof Date ? updated.toISOString() : typeof updated === "string" ? updated : null,
+    // A legacy row (no stamp) reads as owner-edited.
+    editedByOther: editor !== null && owner !== null && editor !== owner,
   };
 }

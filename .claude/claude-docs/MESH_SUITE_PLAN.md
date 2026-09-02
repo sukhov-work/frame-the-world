@@ -212,7 +212,7 @@ Next session starts at **MS0** below.
 | **MS4 — D3 upload pipeline** | **BUILT 2026-09-02h (§9).** The dropzone forks on the file type (`classifyDrop`; the photo path byte-identical); a SEPARATE `store/modelUpload` walks load → inspect → audit → decimate → pack → thumbnail → review → upload → stored through ONE lazy import of `lib/models/normalizeModel` (GLTF/OBJ+MTL/FBX loaders, MeshoptSimplifier decimation + compaction, GLTFExporter on a 2048→1024→512 texture ladder, a disposable-renderer thumbnail); the caps are contract constants (`MODEL_CAPS`, pure audit); source units are a review-time choice; `/api/upload-url` kind:"model" = the first server-side mime allowlist (one entry); **`UserModels` PROVISIONED (24 fields)** + `/api/models` GET/POST/DELETE with the descriptor fetched server-side as the structural allowlist; our own thumbnail uploaded as a public image (the platform's is a permanent 403); NO quota; `verify-modelupload.mjs` 8 legs against the live collection. | MS0 answers |
 | **MS5 — D3 placement** | **BUILT 2026-09-02i (§10).** The public world read (`GET /api/world-models?cells=` — `hasSome` on a NEW denormalized `gh5` column, the pins' precedent; READY + un-hidden; `ownerMemberId` stripped) + the owner `PATCH /api/models` (placement + the two seats, clamped, the photos read-modify-write shape); `store/userModels` (the cover-driven THROTTLED world read mirrored from the pins' focus, MINE, click-to-place, the residency mirror) + `store/modelEdit` (the bldgEdit twin); `scene/userModels.ts` (frame → anchor → body → the ground-fitted GLB; closest-first residency under a TRIANGLE BUDGET with radius hysteresis; the eased terrain seat; own pick; shadows); the MS2 gizmo instance reused on the model's own rig (uniform scale, no lift, the move folds into a new placement); the FPV session (right-click / dblclick / long-press, G/R/S, Escape rungs, `ModelEditChip`); PLACE ON GLOBE (orbit click-to-place); **the MDL chip ON by default** (camera store + pref + `.ct-mdl.is-on` + the engine gate) carrying **the physical-density warning** (skipped-by-budget nearby / heavy resident load); the DBG `models.*` group; a guide topic; `verify-usermodels.mjs` 10 legs against the LIVE collection. | MS2 + MS4 |
 | **MS5b — owner tuning batch** (ordered 2026-09-02j after testing MS5; **runs BEFORE MS6**) | (1) real-world DIMENSIONS in metres on the SCALE rows — current and original footprint (buildings: `w × d m`, the height row already does it; models: `w × d × h m`); (2) the RAILS become PER-EDIT and RELATIVE, the extrude editing model: move ≤ **100 m per edit** (was 60 m absolute), scale 0.1×–10× per edit about the COMMITTED value, no absolute cap — repeated edits compound; per-op / all revert stays; (3) the context menu closes the moment the right button is RELEASED (stays only under a right-drag) — a right-button press claims the FPV pointer and its tap-release disarms; (4) orbit drag goes slow / barely moves after an FPV edit — the detached gizmo's invisible 100 km drag PLANE stays in the scene at the edited building and GlobeControls' first-hit pivot raycast lands on it; see §11. **BUILT 2026-09-02l — §11.5 is the as-built.** | MS5 |
-| **MS6 — D3 management + world edit** | My-uploads list (delete/hide); other users edit user-mesh transforms per D1 (overrides ON user meshes — same record machinery); perf polish; full harness. | MS5 + MS3 |
+| **MS6 — D3 management + world edit** | **BUILT 2026-09-02m (§13).** MY PINS · MODELS tab (our thumbnail · title · size × scale + tris · badges · ✎ rename inline · HIDE / SHOW · ✕ → SURE?; a row click stands beside the model in FPV or places an unplaced one); the placement PATCH opened to EVERY signed-in member — LWW structural, `editorMemberId` stamped (a NEW live field, 26), the owner's list says EDITED; a MANAGEMENT body (title / hidden) owner-only; YOURS / SHARED badge; orbit hover + click; a vanished row disarms; haze + FPV-dissolve chained onto GLB materials (`MODELS.chainShader`); the two-member harness leg through a DEV-only `/api/dev-seed kind:"model"`; `verify-usermodels.mjs` 18 legs + a shader-error console gate. NOT built: the lift seat (owner to rule). | MS5 + MS3 |
 
 Deliberately OUT: stock-tile editing (separate project) · trees (post-MVP) · KTX2 encode ·
 R2 write path (reserve) · moderation tooling (owner decision first).
@@ -279,10 +279,10 @@ Concretely, each slice's done-gate includes:
    `mem:project/wip-2026-09-02-mesh-suite-ms4` the digest. MS5 (D3 placement) is BUILT — §10 is
    the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5` the digest. MS5b (the owner's four
    fixes/tunings) is BUILT — §11.5 is the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5b`
-   the digest.** Next: **MS6** (the
-   my-uploads list on `GET /api/models` — thumbnails are ours; hide / delete / title edits; other
-   members editing user-mesh transforms through the MS3 sync machinery; a lift seat if the owner
-   wants one — a provisioned field) on the §10 record.
+   the digest. MS6 (management + world edit) is BUILT — §13 is the as-built;
+   `mem:project/wip-2026-09-02-mesh-suite-ms6` the digest.** The ladder is COMPLETE. Next: **T77**
+   (the architecture + performance audit and revamp; §12 is the lead-in — replace its estimates
+   with DBG readings at 0 / 6 / 24 resident models before deciding).
 3. The DBG window (2026-09-01) is the instrument for all of this — seat deferrals/rejections,
    cell counts, frame costs are live in it; open it before profiling anything.
 
@@ -1179,3 +1179,155 @@ for the audit to replace with DBG readings (`models.*`, `frame.calls`, `frame.tr
   already holds N models") — the density warning at UPLOAD time, not only at view time.
 - **Governance (owner's call):** the warning stays the policy; a soft per-member cap or a
   per-cell cap are the levers if a city fills.
+
+---
+
+## §13 MS6 AS BUILT — D3 management + world edit on the §10 record (2026-09-02m)
+
+**Mode:** implement (design-first, investigate-design-v3 spine on `/frame`), tier Deep — a
+record field, the PATCH split into two authorities, a fourth tab on the MY PINS panel, the
+orchestrator's orbit hover/pick + member-open arming, a DEV-only seed for the two-member harness
+leg, and the browser harness against the LIVE collection. Research: four parallel tracks
+(platform/API/record · scene/orchestrator · UI/stores/list precedents · verify/tests/docs),
+confidences 88–90 %, every claim `file:line`-cited; the cruxes (the scene's row diff, the PATCH
+gate, the `items.get` typing) re-read by hand. §13.3 = the receipt, §13.4 = what stayed out.
+
+### §13.1 The design decisions (recorded; [ASSUMPTION]s are the owner's to re-open)
+
+1. **World edit = the PATCH opened to every member, LWW structural — NOT the MS3 sync
+   machinery.** The record IS the world row (one row per model, born server-first at MS4), a
+   PATCH already ships per release (MS5), `items.update` replaces the whole item keyed by `_id`
+   (the installed SDK: `wix-data-items-sdk …items.universal.d.ts:63-69`), so the last writer wins
+   by construction — no dirty map, no batch, no tombstone, no SYNC button. The MS3 machinery
+   exists because building edits pre-dated their server table and are pushed in bulk; nothing of
+   that applies here. The owner's D3 ("every other logged-in user can re-edit any mesh's params
+   per D1") is read as the TRANSFORM only — MOVE / ROTATE / SCALE; hide, title and delete stay the
+   owner's. RESET ALL on another member's model is allowed [ASSUMPTION: under LWW it is one more
+   edit]. The ~1 s Wix Data read lag leaves a read-modify-write window between two members'
+   releases on the same model (a stale `existing` resurrects the earlier seats) — accepted for
+   the POC world; the typed-but-unexercised primitives (`WixDataUpdateOptions.condition`,
+   `items.patch`, `consistentRead`) are recorded in §13.4, not used.
+2. **The PATCH dispatches on the body's SHAPE.** A body with `lat`/`lon` is a PLACEMENT
+   (`parsePlacementBody`, unchanged) → any signed-in member (401 anonymous; the row by id,
+   404 `NOT_FOUND` "no such model"); a body without them is MANAGEMENT
+   (`parseManageBody`: `{ id, title?: 1–120 chars trimmed, hidden?: boolean }`, at least one) →
+   owner-only (`ownedModel`, 404 "no such model of yours"). A placement stamps
+   **`editorMemberId = member._id`** (a NEW provisioned TEXT field — the BuildingOverrides
+   `memberId` precedent; `modelRecord` writes it as the owner at POST so a row is born complete;
+   a legacy row without it reads as owner-edited). The PATCH answers
+   `{ own, model: ModelListItem | null, public: PublicModel | null }` — the owner-shaped list row
+   ONLY to the owner, the public row to everyone; `PublicModel` is byte-identical to MS5 and
+   never carries an editor (C6). The owner's list row gains `updatedAt` (`_updatedDate`) and
+   `editedByOther` (a boolean derived server-side — the raw editor GUID reaches nobody).
+3. **Arming: any signed-in member arms any resident model; `armed.mine` becomes the badge.**
+   The orchestrator's gate (`armModel`) is the member phase, not `isMine`; the chip badge reads
+   `YOURS` (`data-origin="mine"`) or `SHARED` (`data-origin="shared"` — the MS3 word for "the
+   world's", with the MS3 voice in its tooltip); the hover note keeps " · yours" for own models
+   only. A foreign commit swaps the PUBLIC row into `world` and leaves `mine` alone (the MS5
+   `commitPlacement` prepended the answered row into `mine` unconditionally — correct only while
+   the editor was the owner). Anonymous: unchanged (cannot arm; the PATCH would 401 anyway).
+4. **MY UPLOADS = a fourth tab, MODELS, on the MY PINS panel** (`panels/MyModelsTab.tsx`, a
+   props-driven view + a connected wrapper) — the panel already owns the member gate, Escape,
+   the drag grip, the 60 vh inner scroll, the row anatomy and the two-press delete; the guide
+   already teaches "MY PINS panel · PLACES tab". Rejected: a tab inside the UPLOAD modal (a
+   full-screen stepper that closes while placing) and a deck panel (the by-hand `.is-on` grid +
+   "Eleven toggles"). The tab reads `store/userModels` (`mine` / `minePhase`) instead of a
+   per-open fetch, so hide / rename / delete swap the world at once; it calls `loadMine()` when
+   opened. Row: our thumbnail (the platform's is a permanent 403) or the dashed placeholder ·
+   title · `w × d × h m · N tris` · badges HIDDEN / PROCESSING / FAILED / NOT PLACED / EDITED
+   (another member re-edited it) · trailing `✎` (rename, inline — the SavePlaceControl idiom:
+   Enter saves, Escape cancels, `stopPropagation`) · HIDE / SHOW · `✕` → SURE?. A row click
+   STANDS BESIDE a placed model (5) or begins click-to-place for an unplaced one. The foot says
+   what the platform makes true whenever a row is hidden: hidden models leave the world, not the
+   link. Rename is the product's first post-save rename [ASSUMPTION: 1–120 chars, trimmed].
+5. **"Fly to it" = stand beside it in first-person view** (`requestFpvJump`, the PLACES-row
+   precedent — FPV is where editing works): `modelStandpoint` (pure, `lib/models/modelPlacement`)
+   puts the eye `clamp(3 × the model's longest scaled extent, 6, 120)` m away along the given
+   heading, 1.7 m up, pitched at the model's mid-height, FOV 60; the list uses heading 0 (stand
+   south, look north), the orbit click the camera's current heading. Rejected: an orbit
+   `requestFly` arrival (a 3 m model is sub-pixel from the 52° arrival pose) [ASSUMPTION].
+6. **Orbit hover + click for models** (orchestrator only; the scene module is mode-agnostic):
+   `stepModelHover` mirrors `stepPinHover` (eligible when not in FPV, not placing, a pointer
+   over the canvas, no pin hovered; cadence `PINS.hoverEveryFrames`; the note on the
+   `bldgEditLabel` hover slot — "MODEL · title · yours"; the pointer cursor with the pins'
+   hand-back rule). A left click on a model in orbit stands beside it (5) — the pins' "click
+   opens it" idiom — tested before the pin pick; a dblclick on a model does not drop a temp pin
+   under it. `pickModelAt` lost its FPV gate (the MDL gate stays); the DEV `pickAt` inherits.
+7. **A row that leaves the world disarms its session**: `setModels` already dropped `armedId`
+   when a row vanished while the orchestrator's `modelArmed` persisted (re-targeting a null rig,
+   pinning an unanchored label) — reachable now through HIDE / DELETE; `stepUserModels` disarms
+   when `userModels.info(id)` is null.
+8. **The two-member harness leg rides `/api/dev-seed`** (the house pattern: DEV-gated 404 in
+   prod, the demo-pins owner `yevhens@wix.com` who signs in with Google and has no password):
+   `POST { kind: "model", ownerEmail, model }` inserts a `UserModels` row owned by that member
+   (elevated, `ownerMemberId` explicit — elevated writes run as the APP identity), reusing the
+   harness's own uploaded GLB; `DELETE ?kind=model&id=` removes the ROW only (the media belongs
+   to the owned row, deleted last by the real DELETE). The pins path of the route is untouched.
+9. **Haze / FPV-dissolve chaining on foreign materials** — see §13.2 (built if the receipt says
+   so; `MODELS.chainShader` is the switch) [ASSUMPTION: a taste call; ON by default so a model
+   2 km out sits in the same air as the buildings beside it].
+10. **NOT built: the lift seat.** The owner has not ruled (§11.5 "lift stays 0–25 m absolute?",
+    §10.1-4); it needs a live field (`num("tU", "Lift (m)")` — the BuildingOverrides name) plus
+    the chain in §13.4. The structural "a model always stands on the terrain" guarantee holds.
+
+### §13.2 Haze / dissolve chaining on foreign materials (built, `MODELS.chainShader` ON)
+
+Every loaded GLB material's `onBeforeCompile` is CHAINED (never assigned — the `imageryGround`
+idiom; GLTFLoader sets none, but the habit stays) with ONE named function, `patchModelShader`
+(`scene/userModels.ts`): three folds `onBeforeCompile.toString()` into the program cache key
+(`Material.customProgramCacheKey`, 0.185), so identical source across materials means one
+program per material-parameter set. The patch binds module-level HOLDER uniforms by reference
+(`uFtwHaze uFtwHazeCol uFtwHazeCool uFtwSkyLevel uFtwAfterglowG uFtwSunW uFtwModelAlpha` — the
+brand fence's `uFtw` shader namespace; every holder is DECLARED in the `<common>` header, since a
+uniform bound but undeclared fails silently), carries the world position from `<begin_vertex>`,
+applies the shared `ftwAerial` right after `<opaque_fragment>` (in LINEAR light, before
+tonemapping — the buildings' anchor; `<fog_fragment>` is the recorded trap) and the FPV
+BUILDINGS-slider law as the buildings' SCREEN-DOOR dissolve at `<color_fragment>`
+(`uFtwModelAlpha` = 0.28 + 0.72 k; 1 outside FPV — the enriched set's flat law, so one slider
+position reads the same on a building and on the model beside it). The orchestrator pushes the
+ground's EFFECTIVE haze to `userModels.setUltraHaze` beside the two building sets (and zero with
+the chip off) and `setSolidity` beside `enriched.setSolidity` (null on FPV exit). Not chained: the
+ghost curve (a model the member walks up to stays solid), the tint ladder, the tile reveal. Known
+property: the depth pass has no hook, so a dissolved model still casts a full shadow — the
+buildings share it. Anchors are three-version-pinned (a bump re-verifies, as the gizmo does).
+[ASSUMPTION: ON by default — a taste call; `chainShader: false` restores the MS5 look.]
+
+### §13.3 Verification receipt (fresh, 2026-09-02m)
+- Unit: `modelRecords` +5 (the shape dispatch, the manage parser, `applyModelManage`, the editor stamp
+  + `editedByOther`, no identity on the public wire) · `store/userModels` +3 (a foreign commit leaves
+  `mine` alone; rename / hide / show swap `mine` + `world` through a stale fetch; remove) ·
+  `modelEditChip` +1 (SHARED) · `modelPlacement` +2 (`modelStandpoint`) · `scene/userModels` +1 (the
+  chained patch's anchors, holders bound by reference, the setters) · NEW `myModelsTab` 5 · full
+  vitest **2,428/2,428 (162 files)** (baseline 2,411/161) · `astro check` **0 / 0 / 8 hints** (dev
+  server stopped) · knip 0 · `verifyHarness` fences the grown script.
+- Live: `provision-collections.mjs` → `+ UserModels.editorMemberId field added` (26 fields).
+- Browser (`verify-usermodels.mjs`, ONE fresh headless Chrome :9333, `wix dev`, the Dnipro FPV pose,
+  the LIVE collection): **PASS, 18 legs** on the final tree — DECISIONS 2026-09-02m carries the
+  leg-by-leg numbers (the tab row `9.31 × 9.31 × 15.5 m · 12 TRIS` · rename agreed without a reload ·
+  HIDE out of the world read + the scene at once · stood 46.6 m south · the foreign model armed as
+  SHARED, ROTATE 79.0° for everyone, the owner's row EDITED · orbit hover + click · the list's delete
+  · no shader error logged). Runs 1–3 were harness-environment reds, each fixed (a missed handle
+  press · the hover slot lost to an edited building → the precedence rule · the "no button held"
+  gate stuck by the harness's synthetic press → dropped). Smokes: `verify-bldg-override` PASS ·
+  `verify-modelupload` 8/8 (re-run after the leaked-cookie harness fix). NOT re-run: the §4a-4 sweep.
+
+### §13.4 Left for later (deliberately)
+- **The lift seat** — the owner's call (§11.5 open list): `num("tU", "Lift (m)")` on `UserModels`
+  (the BuildingOverrides name), `modelRecord` → `tU: null`, `PlacementBody.tU?` clamped onto
+  `[0, LIFT_MAX_M]`, `applyModelPlacement` null-when-identity, `ModelTransform.liftM` +
+  `sanitizeModelTransform`, `clampModelEdit` keeps `raw.tU`, `editToFeatureTransform` stops pinning
+  `tU: 0`, the scene writes `anchor.position.y` (`placeRig` / `setDragging(false)` / `rebase` / the
+  ease), the gizmo attaches with `lift: true` (`minY 0 / maxY 25` already there), `publicModel` /
+  `modelListItem` / `publicFromMine` emit it — §4 count 27.
+- **Concurrency primitives** typed in the installed SDK but unexercised: `WixDataUpdateOptions.condition`
+  (compare-and-set), `items.patch` (field-level), `consistentRead` on `items.get` — the ~1 s
+  read-modify-write window between two members' releases on one model stays open until one is
+  measured live.
+- **`readiness` never advances after POST** — a PENDING row is PROCESSING in the MODELS tab
+  forever; a re-check (descriptor re-read on GET) is a tail.
+- **A denormalized editor LABEL** (who edited — a C6-shaped decision, plan §8.6): the row carries
+  only the boolean today.
+- **The DEV `dismissWelcome` trap**: the harness's synthetic `pointerdown` has no release — a
+  "no button held" hover gate stays shut in a harness; `anyPointerDown` gates remain sky-only.
+- **A per-model LOD / a Worker for the loaders / DRACO-KTX2 decode** — unchanged from §10.4.
+

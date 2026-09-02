@@ -288,3 +288,88 @@
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
+
+/* MODELS tab (MESH SUITE MS6): a trailing ACTION GROUP beside the row — ✎ rename · HIDE / SHOW ·
+   ✕ delete — on the delete control's look; the rename row swaps the open button for an inline
+   input (Enter saves, Escape cancels — the SAVE PLACE idiom). */
+.mp-acts {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.mp-act {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.mp-act:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+.mp-act:disabled,
+.mp-del:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.mp-act[aria-pressed="true"] {
+  color: var(--color-warn, #e8b465);
+  border-color: color-mix(in srgb, var(--color-warn, #e8b465) 55%, transparent);
+}
+.mp-item--rename {
+  cursor: default;
+}
+.mp-rename {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.mp-rename__input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+.mp-rename__input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+/* A model row without a thumbnail keeps the rhythm with a quiet glyph (the place-row idiom). */
+.mp-thumb--model {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+  font-size: 12px;
+}
+/* Row badges: HIDDEN and the platform states read as warnings; EDITED (another member) as accent;
+   NOT PLACED stays quiet. */
+.mp-badge.is-hidden,
+.mp-badge.is-processing,
+.mp-badge.is-failed {
+  color: var(--color-warn, #e8b465);
+  border-color: color-mix(in srgb, var(--color-warn, #e8b465) 55%, transparent);
+}
+.mp-badge.is-edited {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.mp-row[data-hidden="true"] .mp-thumb {
+  opacity: 0.55;
+}

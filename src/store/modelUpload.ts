@@ -410,6 +410,8 @@ export const useModelUploadStore = create<ModelUploadStore>((set, get) => ({
         rotDeg: 0,
         scale: 1,
         createdAt: null,
+        updatedAt: null,
+        editedByOther: false,
       });
     } catch (e) {
       if (my !== seq) return;

@@ -134,6 +134,50 @@ export function editToFeatureTransform(e: ModelEdit): FeatureTransform {
 const DEG = Math.PI / 180;
 const WGS84_E2 = 1 - (WGS84_B * WGS84_B) / (WGS84_A * WGS84_A);
 
+/** MESH SUITE MS6 — "stand beside it": the first-person pose from which a model is seen whole
+ *  and can be right-clicked at once. The eye stands `dist` metres from the placement along the
+ *  OPPOSITE of `headingDeg` (so the view looks along `headingDeg` at the model), `dist` = three
+ *  times the model's longest SCALED extent inside [minM, maxM] (a 3 m box → 15 m; a 30 m tower →
+ *  90 m), 1.7 m up, pitched at the model's mid-height. `sizeM3` = `[w, d, h]` at scale 1 (the
+ *  record's bbox as `[x, z, y]`); null → the floor distance. Pure. */
+export interface Standpoint {
+  latDeg: number;
+  lonDeg: number;
+  eyeM: number;
+  headingDeg: number;
+  pitchDeg: number;
+  fovDeg: number;
+  /** The eye's distance from the placement (m) — diagnostics. */
+  distM: number;
+}
+export const STANDPOINT = Object.freeze({ eyeM: 1.7, fovDeg: 60, minM: 6, maxM: 120, factor: 3 });
+export function modelStandpoint(
+  latDeg: number,
+  lonDeg: number,
+  sizeM3: readonly [number, number, number] | null,
+  scale: number,
+  headingDeg = 0,
+): Standpoint {
+  const k = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const longest = sizeM3 ? Math.max(sizeM3[0], sizeM3[1], sizeM3[2]) * k : 0;
+  const distM = Math.max(STANDPOINT.minM, Math.min(STANDPOINT.maxM, STANDPOINT.factor * longest));
+  const h = normalizeDeg(Number.isFinite(headingDeg) ? headingDeg : 0);
+  const rad = (h * Math.PI) / 180;
+  // The eye sits BEHIND the viewer's line of sight: opposite the heading from the model.
+  const at = offsetGeodetic(latDeg, lonDeg, -distM * Math.sin(rad), -distM * Math.cos(rad));
+  const midH = sizeM3 ? (sizeM3[2] * k) / 2 : STANDPOINT.eyeM;
+  const pitchDeg = (Math.atan2(midH - STANDPOINT.eyeM, distM) * 180) / Math.PI;
+  return {
+    latDeg: at.latDeg,
+    lonDeg: at.lonDeg,
+    eyeM: STANDPOINT.eyeM,
+    headingDeg: h < 0 ? h + 360 : h,
+    pitchDeg: Math.max(-89, Math.min(89, pitchDeg)),
+    fovDeg: STANDPOINT.fovDeg,
+    distM,
+  };
+}
+
 /** Move a geodetic point by ENU metres on the WGS-84 ellipsoid (meridional radius for north,
  *  prime-vertical radius × cos φ for east — exact to the millimetre at the drag scale). The
  *  latitude is clamped to ±90, the longitude wrapped to (−180, 180]. */

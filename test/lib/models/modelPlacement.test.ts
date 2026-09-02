@@ -18,6 +18,8 @@ import {
   sameCover,
   sanitizeModelTransform,
   uniformScaleFrom,
+  STANDPOINT,
+  modelStandpoint,
 } from "../../../src/lib/models/modelPlacement";
 
 // MESH SUITE MS5 — the placement contract: the uniform-scale read-back, the rails, the geodetic
@@ -97,6 +99,43 @@ describe("modelPlacement — geodesy", () => {
   it("re-bases a GLB so its footprint centre is the origin and its lowest point is y = 0", () => {
     expect(groundFitOffset([-2, 3, -4], [6, 9, 4])).toEqual([-2, -3, 0]);
     expect(groundFitOffset([Number.NaN, Number.NaN, Number.NaN], [1, 1, 1])).toEqual([0, 0, 0]);
+  });
+});
+
+describe("modelPlacement — the MS6 standpoint (stand beside a model)", () => {
+  it("stands three longest-extents back along the opposite of the heading, eye 1.7 m, pitched at mid-height", () => {
+    // A 3 × 5 × 3 m box (w, d, h) at scale 1: the longest extent is 5 → 15 m out, heading 0 → the
+    // eye sits 15 m SOUTH, looking north; mid-height 1.5 m is below the eye → a slight down pitch.
+    const p = modelStandpoint(48.4647, 35.0462, [3, 5, 3], 1, 0);
+    expect(p.distM).toBe(15);
+    expect(p.headingDeg).toBe(0);
+    expect(p.eyeM).toBe(STANDPOINT.eyeM);
+    expect(p.fovDeg).toBe(STANDPOINT.fovDeg);
+    expect(p.lonDeg).toBeCloseTo(35.0462, 9);
+    expect(p.latDeg).toBeLessThan(48.4647);
+    const back = offsetGeodetic(p.latDeg, p.lonDeg, 0, 15);
+    expect(back.latDeg).toBeCloseTo(48.4647, 8);
+    expect(p.pitchDeg).toBeCloseTo((Math.atan2(1.5 - 1.7, 15) * 180) / Math.PI, 6);
+    // Heading 90 (look east): the eye stands WEST of the model.
+    const e = modelStandpoint(48.4647, 35.0462, [3, 5, 3], 1, 90);
+    expect(e.lonDeg).toBeLessThan(35.0462);
+    expect(e.latDeg).toBeCloseTo(48.4647, 8);
+    expect(e.headingDeg).toBe(90);
+  });
+
+  it("scales with the committed scale, clamps to [6, 120] m, and tolerates an unknown size or a bad heading", () => {
+    expect(modelStandpoint(0, 0, [3, 5, 3], 3, 0).distM).toBe(45);
+    expect(modelStandpoint(0, 0, [0.5, 0.5, 0.5], 1, 0).distM).toBe(STANDPOINT.minM);
+    expect(modelStandpoint(0, 0, [80, 10, 10], 1, 0).distM).toBe(STANDPOINT.maxM);
+    const unknown = modelStandpoint(0, 0, null, 1, 0);
+    expect(unknown.distM).toBe(STANDPOINT.minM);
+    expect(unknown.pitchDeg).toBe(0); // mid-height defaults to the eye
+    expect(modelStandpoint(0, 0, null, Number.NaN, Number.NaN).headingDeg).toBe(0);
+    expect(modelStandpoint(0, 0, null, 1, 370).headingDeg).toBe(10);
+    expect(modelStandpoint(0, 0, null, 1, -90).headingDeg).toBe(270);
+    // A tall model pitches the eye UP, within the FPV rails.
+    expect(modelStandpoint(0, 0, [10, 10, 200], 1, 0).pitchDeg).toBeGreaterThan(30);
+    expect(modelStandpoint(0, 0, [10, 10, 200], 1, 0).pitchDeg).toBeLessThanOrEqual(89);
   });
 });
 

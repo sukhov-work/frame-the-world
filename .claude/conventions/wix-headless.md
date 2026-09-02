@@ -106,7 +106,8 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
   .kdc .k25 .dcr .x3f .erf .3fr` + HEIC/HEIF. **Exact per-file MB cap is TODO-VERIFY.**
 - **3D models (MESH SUITE MS0 probe 2026-09-02, measured):** `MODEL3D` is first-class — mint with
   `mimeType: "model/gltf-binary"`, PUT, and the PUT response already carries the descriptor with
-  `operationStatus: READY` for a small GLB (plus a free 256² PNG `thumbnailUrl`). **Private 3D
+  `operationStatus: READY` for a small GLB (its `thumbnailUrl` is a permanent 403 — the app paints
+  and uploads its own PNG thumbnail beside the GLB, MS4). **Private 3D
   is REFUSED (400)** → hide/delete are record-level. Served from `static.wixstatic.com/3d/<id>.glb`
   with CORS `*`, `Accept-Ranges` + 206, `model/gltf-binary`, immutable 180-day cache, NO
   `urlExpirationDate`. The app's `/api/upload-url` kind `"model"` allowlists exactly that mime
@@ -119,7 +120,14 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
   `ownerMemberId` and every file id. A placement moves through the owner `PATCH /api/models`
   (read-modify-write `items.update`, both cells re-derived, seats clamped). The GLB itself is
   fetched by the browser straight from `static.wixstatic.com/3d/` (CORS `*`) with three's
-  `GLTFLoader` — the platform's 403 "thumbnail" is never touched.
+  `GLTFLoader` — the platform's 403 "thumbnail" is never touched. **Management + world edit
+  (MESH SUITE MS6, 2026-09-02m):** the placement PATCH is open to EVERY signed-in member — LWW is
+  structural (`items.update` replaces the whole row keyed by `_id`; no revision primitive exists in
+  the installed SDK — `WixDataUpdateOptions.condition` / `items.patch` / `consistentRead` are typed
+  but unexercised) and the row records `editorMemberId` (never emitted; the owner's list shows a
+  derived `editedByOther`); a MANAGEMENT body (title / hidden) stays the owner's; hide = withdrawn
+  from the world read, the bytes stay public by URL. The ~1 s read lag leaves a read-modify-write
+  window between two members' releases on one model — accepted for the POC world.
 
 ## 10. eCommerce (marketplace-light) — AS BUILT on Catalog **V3** (Phase 6, 2026-07-16)
 - **The site is Catalog V3, not V1** — the gateway hard-rejects every V1 call (`428

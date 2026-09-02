@@ -14,7 +14,7 @@
  * Photo uploads are ASYNC on the Wix side (descriptor may report PENDING before READY); the
  * save flow stores ids/urls and does not block on readiness.
  */
-import { MODEL_MIME, type ModelListItem, type PublicModel } from "../wix/modelRecords";
+import { MODEL_MIME, type ModelListItem, type ModelPatchAnswer, type PublicModel } from "../wix/modelRecords";
 
 export interface UploadedFile {
   fileId: string | null;
@@ -208,15 +208,29 @@ export async function postModelRecord(body: Record<string, unknown>): Promise<{
   return postJson("/api/models", body);
 }
 
-/** MESH SUITE MS5: PATCH /api/models — place / re-place an owned model (+ its seats). */
+/** MESH SUITE MS5: PATCH /api/models — place / re-place a model (+ its seats). MS6: open to
+ *  every signed-in member (LWW); the answer says whether the caller owns the row and carries the
+ *  owner-shaped list row only then, the public row always. */
 export async function patchModelPlacement(body: {
   id: string;
   lat: number;
   lon: number;
   rotDeg?: number;
   scale?: number;
-}): Promise<{ model: ModelListItem }> {
+}): Promise<ModelPatchAnswer> {
   return requestJson("/api/models", "PATCH", body);
+}
+
+/** MESH SUITE MS6: PATCH /api/models with a MANAGEMENT body — rename and/or hide an OWNED model
+ *  (a body without coordinates; the server dispatches on the shape). */
+export async function patchModelMeta(body: { id: string; title?: string; hidden?: boolean }): Promise<ModelPatchAnswer> {
+  return requestJson("/api/models", "PATCH", body);
+}
+
+/** MESH SUITE MS6: DELETE /api/models?id= — remove an owned model: the row, then the media
+ *  best-effort (`mediaDeleted` says whether the bytes went too). */
+export async function deleteModelRecord(id: string): Promise<{ deleted: boolean; mediaDeleted: boolean }> {
+  return requestJson(`/api/models?id=${encodeURIComponent(id)}`, "DELETE");
 }
 
 /** MESH SUITE MS5: GET /api/models — the member's own models (ids feed the "mine" set). */

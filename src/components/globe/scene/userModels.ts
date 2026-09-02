@@ -13,7 +13,9 @@ import {
 import type { PublicModel } from "../../../lib/wix/modelRecords";
 import { tokens } from "../../../lib/theme/tokens";
 import { MODELS } from "../tuning";
+import { FTW_BAYER_GLSL } from "./buildingMaterial";
 import type { GhostRig } from "./enrichedBuildings";
+import { FTW_AERIAL_GLSL } from "./glsl";
 
 /**
  * userModels — MESH SUITE MS5 (D3 placement, 2026-09-02): the world's user-uploaded GLBs in the
@@ -47,8 +49,16 @@ import type { GhostRig } from "./enrichedBuildings";
  * the ground by an edit: there is no lift seat (MESH_SUITE_PLAN §10).
  *
  * MATERIALS. A GLB keeps its own PBR materials (the scene's lights, shadows and tone mapping
- * apply; the enriched `uFtw*` haze/dissolve/tint injections do not — [ASSUMPTION] recorded).
- * Every mesh casts + receives shadows; the armed model gets an emissive lift in the accent token.
+ * apply). MESH SUITE MS6 (2026-09-02m, `MODELS.chainShader`): every material's `onBeforeCompile`
+ * is CHAINED (never assigned — the imageryGround idiom) with `patchModelShader`, ONE named
+ * function whose source is the program cache key, binding module-level holder uniforms: the
+ * ULTRA aerial perspective (`ftwAerial` after `<opaque_fragment>`, in linear light — the
+ * buildings' anchor, `buildingMaterial.ts`) and the FPV BUILDINGS-slider law as a screen-door
+ * dissolve at `<color_fragment>` (`uFtwModelAlpha` = 0.28 + 0.72 k, 1 outside FPV — a model must
+ * not occlude the framed subject either). The tint / ghost-curve / reveal injections of the
+ * enriched set stay building-only. The depth pass has no hook: a dissolved model still casts a
+ * full shadow (the buildings share this). Every mesh casts + receives shadows; the armed model
+ * gets an emissive lift in the accent token.
  */
 
 export interface UserModelPick {
@@ -115,6 +125,12 @@ export interface UserModelsHandle {
   rebase(id: string, latDeg: number, lonDeg: number): void;
   /** Emissive highlight on the armed model (null = none). */
   setArmed(id: string | null): void;
+  /** MS6: the ULTRA aerial perspective — the orchestrator pushes the ground's EFFECTIVE haze
+   *  (the same number the buildings get) so a model sits in the same air as the city around it. */
+  setUltraHaze(haze: number, col: THREE.Color, sunW: THREE.Vector3, cool: THREE.Color, skyLevel: number, afterglow: number): void;
+  /** MS6: the FPV BUILDINGS slider (0 = wireframe … 1 = solid) as the models' dissolve; `null`
+   *  restores solid (outside FPV). */
+  setSolidity(k: number | null): void;
   /** The label anchor: the model's top centre in world space (false when not resident). */
   topWorld(id: string, out: THREE.Vector3): boolean;
   info(id: string): UserModelInfo | null;
@@ -154,6 +170,82 @@ const _u = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _emissive = new THREE.Color();
 const MODEL_RIG_FRAME = { cx: 0, cz: 0, liveBaseY: 0, inflate: 1 } as const;
+
+/** The holder uniforms every chained model material binds by reference (MS6) — written by
+ *  `setUltraHaze` / `setSolidity`, read by every program; the `uFtw` prefix is the brand fence's
+ *  shader namespace. Inert defaults: haze 0 (`ftwAerial` returns its input), alpha 1 (no discard). */
+const MODEL_SHADER_UNIFORMS = {
+  uFtwHaze: { value: 0 },
+  uFtwHazeCol: { value: new THREE.Color(tokens.skyHorizon) },
+  uFtwHazeCool: { value: new THREE.Color(tokens.skyHorizon) },
+  uFtwSkyLevel: { value: 0 },
+  uFtwAfterglowG: { value: 0 },
+  uFtwSunW: { value: new THREE.Vector3(0, 0, 1) },
+  uFtwModelAlpha: { value: 1 },
+};
+export type ModelShader = { uniforms: Record<string, unknown>; vertexShader: string; fragmentShader: string };
+/** The ONE patch (its `toString()` is three's program cache key — keep it a named function with
+ *  no captured per-model state). Anchors: `<common>` (declarations + the shared GLSL), `<begin_vertex>`
+ *  (the world position for the aerial distance), `<color_fragment>` (the dissolve), and
+ *  `<opaque_fragment>` (the haze, BEFORE tonemapping — anchoring at `<fog_fragment>` is the trap
+ *  `buildingMaterial.ts` records). A uniform in `shader.uniforms` but not declared in GLSL fails
+ *  silently — every holder is declared here. */
+export function patchModelShader(shader: ModelShader): void {
+  for (const k of Object.keys(MODEL_SHADER_UNIFORMS) as Array<keyof typeof MODEL_SHADER_UNIFORMS>) shader.uniforms[k] = MODEL_SHADER_UNIFORMS[k];
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      "#include <common>",
+      /* glsl */ `#include <common>
+      varying vec3 vFtwWPos;`,
+    )
+    .replace(
+      "#include <begin_vertex>",
+      /* glsl */ `#include <begin_vertex>
+      vFtwWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      "#include <common>",
+      /* glsl */ `#include <common>
+      varying vec3 vFtwWPos;
+      uniform float uFtwHaze;
+      uniform vec3 uFtwHazeCol;
+      uniform vec3 uFtwHazeCool;
+      uniform float uFtwSkyLevel;
+      uniform float uFtwAfterglowG;
+      uniform vec3 uFtwSunW;
+      uniform float uFtwModelAlpha;
+      ${FTW_BAYER_GLSL}
+      ${FTW_AERIAL_GLSL}`,
+    )
+    .replace(
+      "#include <color_fragment>",
+      /* glsl */ `#include <color_fragment>
+      if (uFtwModelAlpha < 0.999) {
+        // The FPV BUILDINGS-slider law as the buildings' SCREEN-DOOR dissolve (opaque, depth-writing).
+        float ftwFb = (ftwBayer4(floor(mod(gl_FragCoord.xy, 4.0))) + 0.5) / 16.0;
+        if (ftwFb > uFtwModelAlpha) discard;
+      }`,
+    )
+    .replace(
+      "#include <opaque_fragment>",
+      /* glsl */ `#include <opaque_fragment>
+      gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol,
+        uFtwHazeCool, uFtwSkyLevel, uFtwAfterglowG);`,
+    );
+}
+/** Materials already chained (a material may be shared by several meshes of one GLB). */
+const chainedMaterials = new WeakSet<THREE.Material>();
+function chainModelMaterial(m: THREE.Material): void {
+  if (chainedMaterials.has(m)) return;
+  chainedMaterials.add(m);
+  const prev = m.onBeforeCompile;
+  m.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev.call(m, shader, renderer);
+    patchModelShader(shader as unknown as ModelShader);
+  };
+  m.needsUpdate = true;
+}
 
 /** The default GLB fetch — lazy so neither the globe boot bundle nor a test carries the loader. */
 const defaultLoader: ModelLoader = {
@@ -314,6 +406,10 @@ export function attachUserModels(
       mesh.receiveShadow = true;
       e.meshes.push(mesh);
       meshEntry.set(mesh, e);
+      if (MODELS.chainShader) {
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) if (m) chainModelMaterial(m);
+      }
     });
     e.root = root;
     e.body.add(root);
@@ -533,6 +629,20 @@ export function attachUserModels(
       e.anchor.updateMatrixWorld(true);
       dirty = true;
     },
+    setUltraHaze(haze, col, sunW, cool, skyLevel, afterglow) {
+      const u = MODEL_SHADER_UNIFORMS;
+      u.uFtwHaze.value = haze;
+      u.uFtwHazeCol.value.copy(col);
+      u.uFtwHazeCool.value.copy(cool);
+      u.uFtwSunW.value.copy(sunW);
+      u.uFtwSkyLevel.value = skyLevel;
+      u.uFtwAfterglowG.value = afterglow;
+    },
+    setSolidity(k) {
+      // The enriched set's flat law (0.28 + 0.72 k), so one slider position reads the same on a
+      // building and on the model beside it.
+      MODEL_SHADER_UNIFORMS.uFtwModelAlpha.value = k === null ? 1 : 0.28 + 0.72 * Math.max(0, Math.min(1, k));
+    },
     setArmed(id) {
       if (armedId === id) return;
       const prev = armedId ? entries.get(armedId) : null;
@@ -598,7 +708,12 @@ export function attachUserModels(
           tris: e.row.tris,
         });
       }
-      return { ...this.counts(), armedId, models };
+      return {
+        ...this.counts(),
+        armedId,
+        models,
+        shader: { chained: MODELS.chainShader, haze: MODEL_SHADER_UNIFORMS.uFtwHaze.value, alpha: MODEL_SHADER_UNIFORMS.uFtwModelAlpha.value },
+      };
     },
     dispose() {
       for (const e of entries.values()) unload(e);

@@ -50,8 +50,15 @@ const mine = (id: string, over: Partial<ModelListItem> = {}): ModelListItem => (
   rotDeg: 0,
   scale: 1,
   createdAt: null,
+  updatedAt: null,
+  editedByOther: false,
   ...over,
 });
+/** The public shape of an own list row, as the server would answer it. */
+const pubOf = (m: ModelListItem): PublicModel | null =>
+  m.lat === null || m.lon === null || m.hidden || m.readiness !== "READY"
+    ? null
+    : { id: m.id, title: m.title, url: m.url, thumbnailUrl: m.thumbnailUrl, tris: m.tris ?? 0, glbBytes: m.glbBytes, bbox: m.bbox, lat: m.lat, lon: m.lon, rotDeg: m.rotDeg, scale: m.scale, updatedAt: "2026-09-02T12:00:00.000Z" };
 
 interface FakeApi extends UserModelsApi {
   worldCalls: string[][];
@@ -59,6 +66,10 @@ interface FakeApi extends UserModelsApi {
   mineRows: ModelListItem[];
   mineStatus: number;
   patches: Array<Record<string, unknown>>;
+  metaPatches: Array<Record<string, unknown>>;
+  deletes: string[];
+  /** Ids the fake treats as ANOTHER member's (MS6): a placement PATCH answers `own: false`. */
+  foreign: Set<string>;
   gate: Array<() => void>;
   hold: boolean;
 }
@@ -69,6 +80,9 @@ const makeApi = (): FakeApi => {
     mineRows: [],
     mineStatus: 200,
     patches: [],
+    metaPatches: [],
+    deletes: [],
+    foreign: new Set(),
     gate: [],
     hold: false,
     fetchWorld: async (cells) => {
@@ -88,7 +102,21 @@ const makeApi = (): FakeApi => {
     patchPlacement: async (body) => {
       api.patches.push({ ...body });
       const base = api.mineRows.find((m) => m.id === body.id) ?? mine(body.id);
-      return { model: { ...base, lat: body.lat, lon: body.lon, rotDeg: body.rotDeg ?? base.rotDeg, scale: body.scale ?? base.scale } };
+      const model = { ...base, lat: body.lat, lon: body.lon, rotDeg: body.rotDeg ?? base.rotDeg, scale: body.scale ?? base.scale };
+      if (api.foreign.has(body.id)) return { own: false, model: null, public: pubOf(model) };
+      return { own: true, model, public: pubOf(model) };
+    },
+    patchMeta: async (body) => {
+      api.metaPatches.push({ ...body });
+      const base = api.mineRows.find((m) => m.id === body.id) ?? mine(body.id);
+      const model = { ...base, title: body.title ?? base.title, hidden: body.hidden ?? base.hidden };
+      api.mineRows = [model, ...api.mineRows.filter((m) => m.id !== body.id)];
+      return { own: true, model, public: pubOf(model) };
+    },
+    deleteModel: async (id) => {
+      api.deletes.push(id);
+      api.mineRows = api.mineRows.filter((m) => m.id !== id);
+      return { deleted: true, mediaDeleted: true };
     },
   };
   return api;
@@ -252,6 +280,81 @@ describe("store/userModels", () => {
       throw new Error("nope");
     };
     expect(await useUserModelsStore.getState().commitPlacement("m1", { lat: 1, lon: 2 })).toBeNull();
+  });
+
+  it("MS6: a FOREIGN commit swaps the public row into the world and never touches mine", async () => {
+    api.mineRows = [mine("own")];
+    api.worldRows = [pub("own"), pub("theirs", { rotDeg: 0, scale: 1 })];
+    api.foreign.add("theirs");
+    const s = useUserModelsStore.getState();
+    await s.loadMine();
+    s.reportViewport(48.4647, 35.0462, 500);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    await flush();
+    const row = await useUserModelsStore.getState().commitPlacement("theirs", { lat: 48.4647, lon: 35.0462, rotDeg: 90, scale: 3 });
+    expect(row).toMatchObject({ id: "theirs", rotDeg: 90, scale: 3 });
+    expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["own"]); // not mine, still
+    expect(useUserModelsStore.getState().isMine("theirs")).toBe(false);
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "theirs")).toMatchObject({ rotDeg: 90, scale: 3 });
+    // The fresh foreign row outranks a stale fetch inside the grace, like an own one.
+    s.refresh();
+    await flush();
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "theirs")).toMatchObject({ rotDeg: 90, scale: 3 });
+  });
+
+  it("MS6: rename swaps the title into mine and the world; hide leaves the world at once (and stays gone through a stale fetch); show brings it back", async () => {
+    api.mineRows = [mine("m1")];
+    api.worldRows = [pub("m1"), pub("other")];
+    const s = useUserModelsStore.getState();
+    await s.loadMine();
+    s.reportViewport(48.4647, 35.0462, 500);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    await flush();
+    const renamed = await useUserModelsStore.getState().rename("m1", "Kiosk");
+    expect(renamed?.title).toBe("Kiosk");
+    expect(api.metaPatches).toEqual([{ id: "m1", title: "Kiosk" }]);
+    expect(useUserModelsStore.getState().mine[0].title).toBe("Kiosk");
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")?.title).toBe("Kiosk");
+    const hidden = await useUserModelsStore.getState().setHidden("m1", true);
+    expect(hidden?.hidden).toBe(true);
+    expect(useUserModelsStore.getState().mine[0].hidden).toBe(true);
+    expect(useUserModelsStore.getState().world.map((m) => m.id)).toEqual(["other"]);
+    // A re-fetch that still lists it (the read lag) keeps it out of the world inside the grace…
+    s.refresh();
+    await flush();
+    expect(useUserModelsStore.getState().world.map((m) => m.id)).toEqual(["other"]);
+    // …and SHOW puts it straight back.
+    await useUserModelsStore.getState().setHidden("m1", false);
+    expect(useUserModelsStore.getState().mine[0].hidden).toBe(false);
+    expect(useUserModelsStore.getState().world.map((m) => m.id).sort()).toEqual(["m1", "other"]);
+    // A failed meta PATCH answers null and changes nothing.
+    api.patchMeta = async () => {
+      throw new Error("nope");
+    };
+    expect(await useUserModelsStore.getState().rename("m1", "x")).toBeNull();
+    expect(useUserModelsStore.getState().mine[0].title).toBe("Kiosk");
+  });
+
+  it("MS6: remove deletes the row and drops it from mine and the world at once", async () => {
+    api.mineRows = [mine("m1"), mine("m2")];
+    api.worldRows = [pub("m1"), pub("m2")];
+    const s = useUserModelsStore.getState();
+    await s.loadMine();
+    s.reportViewport(48.4647, 35.0462, 500);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    await flush();
+    expect(await useUserModelsStore.getState().remove("m1")).toBe(true);
+    expect(api.deletes).toEqual(["m1"]);
+    expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
+    expect(useUserModelsStore.getState().world.map((m) => m.id)).toEqual(["m2"]);
+    // The stale fetch inside the grace cannot resurrect it.
+    api.worldRows = [pub("m1"), pub("m2")];
+    s.refresh();
+    await flush();
+    expect(useUserModelsStore.getState().world.map((m) => m.id)).toEqual(["m2"]);
+    api.deleteModel = async () => ({ deleted: false, mediaDeleted: false });
+    expect(await useUserModelsStore.getState().remove("m2")).toBe(false);
+    expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
   });
 
   it("publicFromMine + mergeWorld are pure", () => {

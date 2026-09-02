@@ -23,7 +23,20 @@
 //   8. anonymous reload: the model is resident, MINE is empty, a right-click does NOT arm it
 //   9. the MDL gate (store → engine): off releases the model, on brings it back
 //  10. orbit click-to-place: beginPlacing + a ground click PATCHes a new placement
-//  11. cleanup (finally): DELETE removes the row + media; the world read no longer lists it
+//  MESH SUITE MS6 (2026-09-02m) — management + world edit:
+//  11. MY PINS · MODELS lists the model (our row: title, size × scale + tris, no badge, ✎ / HIDE / ✕)
+//  12. ✎ RENAME inline (Enter) → the own list, the world read and the scene's row agree (no reload)
+//  13. HIDE → the own list says hidden, the world read and the scene drop it, the foot note shows;
+//      SHOW → back in the world read and the scene
+//  14. a row click STANDS BESIDE the model: FPV, the eye south of it looking north, ~3 heights back
+//  15. FOREIGN EDIT: a row seeded (DEV-only /api/dev-seed) as ANOTHER member's model, reusing the
+//      stored GLB — not in MINE, hover note without "yours", a real right-click ARMS it with the
+//      SHARED badge, ROTATE PATCHes (LWW), the world read reflects it, the owner's list (a DEV read)
+//      says EDITED by another member; the seed row is removed (row only) and leaves the world read
+//  16. ORBIT hover (label + pointer cursor) and click → stands beside it in FPV
+//  17. ✕ → SURE? in the list DELETES the model (row + media) — the list, the own API and the world
+//      read all drop it
+//  18. cleanup (finally): the seed row (if any) and, unless leg 17 did it, DELETE — the world left clean
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -104,13 +117,25 @@ await new Promise((res, rej) => {
 });
 let seq = 0;
 const pending = new Map();
+// MS6: the page's error console — a shader that fails to compile (the chained model materials)
+// logs through three's console.error and never throws; the run must not pass over it.
+const consoleErrors = [];
+const noteConsole = (text) => {
+  if (typeof text !== "string") return;
+  if (/THREE\.WebGLProgram|Shader Error|THREE\.WebGLShader|Program Info Log/i.test(text)) consoleErrors.push(text.slice(0, 400));
+};
 ws.onmessage = (ev) => {
   const msg = JSON.parse(ev.data);
   if (msg.id && pending.has(msg.id)) {
     const { res, rej } = pending.get(msg.id);
     pending.delete(msg.id);
     msg.error ? rej(new Error(msg.error.message)) : res(msg.result);
+    return;
   }
+  if (msg.method === "Runtime.consoleAPICalled" && (msg.params?.type === "error" || msg.params?.type === "warning"))
+    noteConsole((msg.params.args ?? []).map((a) => a.value ?? a.description ?? "").join(" "));
+  if (msg.method === "Log.entryAdded") noteConsole(msg.params?.entry?.text);
+  if (msg.method === "Runtime.exceptionThrown") noteConsole(msg.params?.exceptionDetails?.exception?.description ?? msg.params?.exceptionDetails?.text);
 };
 const send = (method, params = {}) =>
   new Promise((res, rej) => {
@@ -418,9 +443,31 @@ const loadUrl = async (url, label, { member }) => {
   }
 };
 
+// ── MS6 helpers: the MY PINS · MODELS tab ─────────────────────────────────────────────────────
+const openModelsTab = async (label) => {
+  await evalJs("(document.querySelector('.mp-toggle') || {click(){}}).click(), true");
+  await waitUntil(`${label}: the MY PINS panel`, "!!document.querySelector('.mp-panel')", 10_000);
+  await evalJs("document.querySelector('.mp-tab[data-tab=\"models\"]').click(), true");
+  await waitUntil(`${label}: the MODELS tab`, "!!document.querySelector('.mp-list[data-tab=\"models\"]') || !!document.querySelector('.mp-panel .mp-note')", 20_000);
+};
+const rowSel = (id) => `.mp-row[data-model-id="${id}"]`;
+const rowText = (id, sel) => evalJs(`document.querySelector(${JSON.stringify(`${rowSel(id)} ${sel}`)})?.textContent ?? null`);
+const clickIn = (id, sel) => evalJs(`(document.querySelector(${JSON.stringify(`${rowSel(id)} ${sel}`)}) || {click(){}}).click(), true`);
+const ownListLacks = async (id, label, timeoutMs = 15_000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    const res = await pageApi("/api/models");
+    if (res.status === 200 && !res.body?.models?.some((m) => m.id === id)) return;
+    await sleep(700);
+  }
+  fail(`${label}: the own list still carries ${id}`);
+};
+const standDistance = (sizeH, scale) => Math.max(6, Math.min(120, 3 * sizeH * scale));
+
 mkdirSync(SHOTS, { recursive: true });
 await send("Page.enable");
 await send("Runtime.enable");
+await send("Log.enable");
 await send("DOM.enable");
 await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
 // Clean slate: the view prefs (the MDL chip default is ON) — a reused profile keeps them.
@@ -432,7 +479,10 @@ await loadUrl(FPV_URL, "boot", { member: true });
 await waitFpv("boot");
 
 let modelId = null;
+let foreignId = null; // MS6 leg 15: the DEV-seeded row owned by ANOTHER member (row only)
+let deletedViaUi = false; // MS6 leg 17 removed the own row through the list
 let cleanupProblem = null;
+const FOREIGN_OWNER = "yevhens@wix.com"; // the demo-pins owner: signs in with Google, no password (dev-seed.ts)
 try {
   // --- 1: upload the box with the seed ------------------------------------------------------------
   await openOverlay("leg 1");
@@ -467,7 +517,9 @@ try {
   // coarse tile — T76's shape); the contract is a REAL, clamped sample, not a surveyed height.
   if (!seat.seatReal || !(seat.appliedM >= 0 && seat.appliedM <= 9000)) fail(`leg 2: the seat is not a real terrain sample: ${JSON.stringify(seat)}`);
   if (Math.abs(seat.heightM - 5) > 0.01 || Math.abs(seat.sizeM - 3) > 0.01) fail(`leg 2: ground-fit bounds ${seat.heightM} × ${seat.sizeM}`);
-  console.log(`leg 2: public row clean · resident (${res2.tris} tris) · seated at ${seat.appliedM.toFixed(2)} m (real) · cover cell ${cell}`);
+  const shader2 = await evalJs(`${UM}.shader`);
+  if (!shader2 || shader2.chained !== true) fail(`leg 2: the model materials are not chained onto the haze/dissolve patch: ${JSON.stringify(shader2)}`);
+  console.log(`leg 2: public row clean · resident (${res2.tris} tris) · seated at ${seat.appliedM.toFixed(2)} m (real) · cover cell ${cell} · shader chained (haze ${shader2.haze}, alpha ${shader2.alpha})`);
 
   // --- 3: right-click arms the model --------------------------------------------------------------
   // The upload's review step retired the temp pin (the GPS-less photo idiom) — and the `#f=` boot
@@ -634,9 +686,223 @@ try {
   const dM = Math.hypot((own10.lat - moved.lat) * 111_320, (own10.lon - moved.lon) * 111_320 * Math.cos((moved.lat * Math.PI) / 180));
   if (own10.rotDeg !== moved.rotDeg || own10.scale !== moved.scale) fail("leg 10: click-to-place touched the seats");
   console.log(`leg 10: click-to-place moved it ${dM.toFixed(0)} m · seats kept`);
+
+  // ═══ MESH SUITE MS6 — management + world edit ═══════════════════════════════════════════════════
+  // --- 11: MY PINS · MODELS — the my-uploads list -----------------------------------------------------
+  await openModelsTab("leg 11");
+  await waitUntil("leg 11: the row", `!!document.querySelector(${JSON.stringify(rowSel(modelId))})`, 15_000);
+  const name11 = await rowText(modelId, ".mp-name");
+  if (name11 !== "MS5 verify box") fail(`leg 11: the row's title reads ${JSON.stringify(name11)}`);
+  const sub11 = await rowText(modelId, ".mp-sub");
+  if (!/ m · 12 TRIS$/.test(sub11 ?? "")) fail(`leg 11: the fact line reads ${JSON.stringify(sub11)} (expected "… m · 12 TRIS")`);
+  const w11 = 3 * own10.scale;
+  if (!(sub11 ?? "").startsWith(`${w11 >= 10 ? w11.toFixed(1) : w11.toFixed(2)} × `)) fail(`leg 11: the fact line does not start with the scaled width: ${JSON.stringify(sub11)}`);
+  const badges11 = await evalJs(`[...document.querySelectorAll(${JSON.stringify(`${rowSel(modelId)} .mp-badge`)})].map((b) => b.textContent)`);
+  if (badges11.length !== 0) fail(`leg 11: a placed, ready, own model wears badges ${JSON.stringify(badges11)}`);
+  const acts11 = await evalJs(`[...document.querySelectorAll(${JSON.stringify(`${rowSel(modelId)} [data-act]`)})].map((b) => b.dataset.act)`);
+  if (JSON.stringify(acts11) !== JSON.stringify(["rename", "hide", "delete"])) fail(`leg 11: the action group is ${JSON.stringify(acts11)}`);
+  const tab11 = await evalJs("document.querySelector('.mp-tab[data-tab=\"models\"]')?.textContent ?? ''");
+  if (!/^MODELS · \d+$/.test(tab11)) fail(`leg 11: the tab label reads ${JSON.stringify(tab11)}`);
+  await shoot("usermodels-04-models-tab.jpeg");
+  console.log(`leg 11: MODELS tab lists ${JSON.stringify(name11)} · "${sub11}" · no badges · ✎ HIDE ✕ · tab "${tab11}"`);
+
+  // --- 12: ✎ RENAME inline --------------------------------------------------------------------------
+  const NEW_TITLE = "MS6 renamed box";
+  await clickIn(modelId, '[data-act="rename"]');
+  await waitUntil("leg 12: the rename input", `!!document.querySelector(${JSON.stringify(`${rowSel(modelId)} .mp-rename__input`)})`, 5_000);
+  await evalJs(
+    `(() => { const el = document.querySelector(${JSON.stringify(`${rowSel(modelId)} .mp-rename__input`)});` +
+      ` const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, ${JSON.stringify(NEW_TITLE)});` +
+      ` el.dispatchEvent(new Event("input", { bubbles: true })); el.focus(); return el.value; })()`,
+  );
+  await sleep(150);
+  await key("Enter", "Enter", 13);
+  await waitUntil("leg 12: the row renamed", `document.querySelector(${JSON.stringify(`${rowSel(modelId)} .mp-name`)})?.textContent === ${JSON.stringify(NEW_TITLE)}`, 15_000);
+  const own12 = await ownRowEventually(modelId, (r) => r.title === NEW_TITLE, "leg 12");
+  const cell12 = await gh5Of(own10.lat, own10.lon);
+  await worldRowEventually(cell12, modelId, (r) => r?.title === NEW_TITLE, "leg 12");
+  const info12 = await modelInfo(modelId);
+  if (info12?.title !== NEW_TITLE) fail(`leg 12: the scene's row did not take the new title without a reload: ${JSON.stringify(info12?.title)}`);
+  if (own12.rotDeg !== own10.rotDeg || own12.scale !== own10.scale || !near(own12.lat, own10.lat, 1e-9)) fail("leg 12: the rename touched the placement or the seats");
+  console.log(`leg 12: renamed → "${NEW_TITLE}" · own list, world read and the scene agree · seats + placement untouched`);
+
+  // --- 13: HIDE / SHOW ------------------------------------------------------------------------------
+  await clickIn(modelId, '[data-act="hide"]');
+  await ownRowEventually(modelId, (r) => r.hidden === true, "leg 13");
+  await waitUntil("leg 13: HIDDEN badge + the foot note", `!!document.querySelector(${JSON.stringify(`${rowSel(modelId)} .mp-badge.is-hidden`)}) && !!document.querySelector('[data-note="hidden"]')`, 10_000);
+  await worldRowEventually(cell12, modelId, (r) => r === null, "leg 13 (hidden → out of the world read)");
+  await waitUntil("leg 13: the scene dropped it", `!${UM}.models.some((m) => m.id === ${JSON.stringify(modelId)})`, 15_000);
+  const hideBtn13 = await rowText(modelId, '[data-act="hide"]');
+  if (hideBtn13 !== "SHOW") fail(`leg 13: the hide control reads ${JSON.stringify(hideBtn13)} while hidden`);
+  await shoot("usermodels-05-hidden.jpeg");
+  await clickIn(modelId, '[data-act="hide"]');
+  await ownRowEventually(modelId, (r) => r.hidden === false, "leg 13 (show)");
+  await worldRowEventually(cell12, modelId, (r) => !!r, "leg 13 (shown → back in the world read)");
+  await waitUntil("leg 13: back in the scene", `${UM}.models.some((m) => m.id === ${JSON.stringify(modelId)})`, 15_000);
+  if (await evalJs("!!document.querySelector('[data-note=\"hidden\"]')")) fail("leg 13: the hidden foot note outlived SHOW");
+  console.log("leg 13: HIDE left the world read + the scene at once (badge + note) · SHOW brought it back");
+
+  // --- 14: a row click STANDS BESIDE the model ----------------------------------------------------
+  await clickIn(modelId, ".mp-item");
+  await waitUntil("leg 14: the panel closed", "!document.querySelector('.mp-panel')", 5_000);
+  await waitFpv("leg 14");
+  await waitUntil("leg 14: the entry flight settles", "!window.__globe.flight.active()", 30_000);
+  await sleep(1200);
+  const geo14 = await evalJs(`(() => { const cs = ${CS}; return { lat: cs.camGeo?.latDeg ?? null, lon: cs.camGeo?.lonDeg ?? null, heading: cs.fpvHud?.headingDeg ?? cs.headingDeg }; })()`);
+  if (geo14.lat === null) fail("leg 14: no camGeo in FPV");
+  const d14 = distM({ lat: own10.lat, lon: own10.lon }, geo14);
+  const want14 = standDistance(5, own10.scale);
+  if (!(d14 > want14 * 0.5 && d14 < want14 * 1.6 + 5)) fail(`leg 14: the eye stands ${d14.toFixed(1)} m from the model (expected ≈ ${want14.toFixed(1)} m)`);
+  if (geo14.lat >= own10.lat) fail("leg 14: the eye is not SOUTH of the model");
+  const hd14 = ((geo14.heading % 360) + 360) % 360;
+  if (Math.min(hd14, 360 - hd14) > 12) fail(`leg 14: the eye looks ${hd14.toFixed(1)}°, not north`);
+  await waitResident(modelId, "leg 14");
+  await sleep(600);
+  const px14 = await evalJs(`${GZ}.modelPx(${JSON.stringify(modelId)})`);
+  if (!px14) fail("leg 14: the model is not in front of the eye");
+  await shoot("usermodels-06-stand-beside.jpeg");
+  console.log(`leg 14: stood beside it — ${d14.toFixed(1)} m south (≈ ${want14.toFixed(1)} m), heading ${hd14.toFixed(1)}°, the model on screen at (${px14.x.toFixed(0)}, ${px14.y.toFixed(0)})`);
+
+  // --- 15: FOREIGN EDIT — another member's model, seeded DEV-only ----------------------------------
+  const seedLat = SEED.lat + 22 / 111_320; // 22 m north of the eye
+  const seedBody = {
+    kind: "model",
+    ownerEmail: FOREIGN_OWNER,
+    model: {
+      fileId: `plux-ms6-foreign-${Date.now()}.glb`, // a row-only seed: the bytes are the own row's
+      thumbnailFileId: null,
+      title: "MS6 foreign box",
+      fileName: null,
+      sourceFormat: "glb",
+      rawBytes: null,
+      glbBytes: own10.glbBytes ?? 1000,
+      tris: 12,
+      meshes: 1,
+      textures: 0,
+      decimatedFromTris: null,
+      bbox: [3, 5, 3],
+      lat: seedLat,
+      lon: SEED.lon,
+      url: own10.url,
+    },
+  };
+  const seeded = await postJson("/api/dev-seed", seedBody);
+  if (seeded.status !== 200 || !seeded.body?.modelId) fail(`leg 15: dev-seed answered ${seeded.status} ${JSON.stringify(seeded.body)}`);
+  foreignId = seeded.body.modelId;
+  await loadUrl(FPV_URL, "leg 15", { member: true });
+  await waitFpv("leg 15");
+  await waitResident(foreignId, "leg 15");
+  await waitSeatedStill(foreignId, "leg 15");
+  if (await evalJs(`${US}.mine.some((m) => m.id === ${JSON.stringify(foreignId)})`)) fail("leg 15: another member's model joined MINE");
+  const pxF = await evalJs(`${GZ}.modelPx(${JSON.stringify(foreignId)})`);
+  if (!pxF) fail("leg 15: the foreign model is not on screen");
+  await hover(pxF.x, pxF.y);
+  await sleep(300);
+  const noteF = await evalJs("document.querySelector('.bldg-edit-label')?.textContent ?? ''");
+  if (!noteF.includes("MODEL · MS6 foreign box") || noteF.includes("yours")) {
+    const diagF = await evalJs(`(() => { const g = ${GZ}; return { px: ${JSON.stringify(pxF)}, hoverId: g.hoverId, pickAt: g.pickAt(${pxF.x}, ${pxF.y}), bldgArmed: !!window.__bldgEditStore.getState().armed, fpv: window.__globe.fpv().active, label: document.querySelector('.bldg-edit-label')?.innerHTML ?? null }; })()`);
+    fail(`leg 15: the hover note over a foreign model reads ${JSON.stringify(noteF)} — ${JSON.stringify(diagF)}`);
+  }
+  const pressF = await rightClick(pxF.x, pxF.y);
+  await sleep(300);
+  let af = await armed();
+  if (!af || af.id !== foreignId || af.mine !== false) fail(`leg 15: the right-click did not arm the foreign model as SHARED: ${JSON.stringify(af)}`);
+  if (!(await evalJs(`${ES}.menu !== null`))) fail(`leg 15: the menu is not open after the release (open at press: ${pressF})`);
+  const badgeF = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-origin')?.textContent ?? ''");
+  const originF = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-origin')?.dataset.origin ?? ''");
+  if (badgeF !== "SHARED" || originF !== "shared") fail(`leg 15: the badge reads ${JSON.stringify(badgeF)} / ${JSON.stringify(originF)}`);
+  await shoot("usermodels-07-foreign-armed.jpeg");
+  await mouse("mousePressed", 300, 140, { clickCount: 1 });
+  await mouse("mouseReleased", 300, 140, { clickCount: 1 });
+  await sleep(200);
+  if (!(await armed())) fail("leg 15: the left tap that closed the menu disarmed the foreign model");
+  await key("KeyR", "r", 82);
+  await sleep(300);
+  await waitSeatedStill(foreignId, "leg 15");
+  const hYF = await handleDir("Y");
+  await dragFrom(hYF.hp, 0.95, -0.3, 70, 7);
+  af = await waitSaved("leg 15");
+  if (Math.abs(af.committed.rotDeg) < 1) fail(`leg 15: the foreign ROTATE did not commit: ${JSON.stringify(af.committed)}`);
+  const cellF = await gh5Of(seedLat, SEED.lon);
+  await worldRowEventually(cellF, foreignId, (r) => !!r && Math.abs(r.rotDeg - af.committed.rotDeg) < 1e-6, "leg 15 (LWW landed)");
+  const ownerList = await pageApi(`/api/dev-seed?ownerEmail=${encodeURIComponent(FOREIGN_OWNER)}&kind=model`);
+  const ownerRow = ownerList.body?.models?.find((m) => m.id === foreignId) ?? null;
+  if (!ownerRow || ownerRow.editedByOther !== true) fail(`leg 15: the owner's row does not say EDITED by another member: ${JSON.stringify(ownerRow)}`);
+  if (Math.abs(ownerRow.rotDeg - af.committed.rotDeg) > 1e-6) fail("leg 15: the owner's row does not carry the foreign yaw");
+  const ownList15 = await pageApi("/api/models");
+  if (ownList15.body?.models?.some((m) => m.id === foreignId)) fail("leg 15: the own list carries the foreign row");
+  await evalJs(`${ES}.requestDisarm(), true`);
+  await sleep(200);
+  const delF = await pageApi(`/api/dev-seed?kind=model&id=${encodeURIComponent(foreignId)}`, { method: "DELETE" });
+  if (delF.body?.deleted !== true) fail(`leg 15: the seed row could not be removed: ${JSON.stringify(delF)}`);
+  await worldRowEventually(cellF, foreignId, (r) => r === null, "leg 15 (seed removed → out of the world read)");
+  foreignId = null;
+  console.log(`leg 15: foreign model armed as SHARED (menu open at press ${pressF}) · ROTATE ${af.committed.rotDeg.toFixed(1)}° landed for everyone · owner's row EDITED by another member · MINE clean · seed removed`);
+
+  // --- 16: ORBIT hover + click → stand beside it --------------------------------------------------
+  await loadUrl(ORBIT_URL, "leg 16", { member: true });
+  await sleep(2000);
+  await evalJs(`${CS}.requestFly({ latDeg: ${own10.lat}, lonDeg: ${own10.lon}, altM: 220 }), true`);
+  await sleep(3000);
+  await waitUntil("leg 16: the fly-in settles", "!window.__globe.flight.active()", 30_000);
+  await waitResident(modelId, "leg 16");
+  await sleep(1000);
+  const px16 = await evalJs(`${GZ}.modelPx(${JSON.stringify(modelId)})`);
+  if (!px16) fail("leg 16: the model is not on screen in orbit");
+  await hover(px16.x, px16.y);
+  await sleep(150);
+  await hover(px16.x + 1, px16.y);
+  await sleep(450);
+  const hov16 = await evalJs(`${GZ}.hoverId`);
+  const cur16 = await evalJs("document.querySelector('canvas').style.cursor");
+  const note16 = await evalJs("document.querySelector('.bldg-edit-label')?.textContent ?? ''");
+  if (hov16 !== modelId) fail(`leg 16: the orbit hover did not pick the model (hoverId ${JSON.stringify(hov16)}, pickAt ${JSON.stringify(await evalJs(`${GZ}.pickAt(${px16.x}, ${px16.y})`))})`);
+  if (cur16 !== "pointer") fail(`leg 16: the cursor over a model in orbit is ${JSON.stringify(cur16)}`);
+  if (!note16.includes(`MODEL · ${NEW_TITLE}`) || !note16.includes("yours")) fail(`leg 16: the orbit hover note reads ${JSON.stringify(note16)}`);
+  await shoot("usermodels-08-orbit-hover.jpeg");
+  await mouse("mousePressed", px16.x + 1, px16.y, { clickCount: 1 });
+  await mouse("mouseReleased", px16.x + 1, px16.y, { clickCount: 1 });
+  await waitFpv("leg 16");
+  await waitUntil("leg 16: the entry flight settles", "!window.__globe.flight.active()", 30_000);
+  await sleep(1200);
+  const geo16 = await evalJs(`(() => { const cs = ${CS}; return { lat: cs.camGeo?.latDeg ?? null, lon: cs.camGeo?.lonDeg ?? null }; })()`);
+  const d16 = distM({ lat: own10.lat, lon: own10.lon }, geo16);
+  if (!(d16 > want14 * 0.5 && d16 < want14 * 1.6 + 5)) fail(`leg 16: the click did not stand beside the model (${d16.toFixed(1)} m, expected ≈ ${want14.toFixed(1)} m)`);
+  console.log(`leg 16: orbit hover picked it (cursor pointer, note "${note16}") · the click stood ${d16.toFixed(1)} m from it in FPV`);
+
+  // --- 17: ✕ → SURE? in the list DELETES the model ------------------------------------------------
+  await loadUrl(ORBIT_URL, "leg 17", { member: true });
+  await sleep(1500);
+  await openModelsTab("leg 17");
+  await waitUntil("leg 17: the row", `!!document.querySelector(${JSON.stringify(rowSel(modelId))})`, 15_000);
+  await clickIn(modelId, '[data-act="delete"]');
+  await sleep(150);
+  const sure17 = await rowText(modelId, '[data-act="delete"]');
+  if (sure17 !== "SURE?") fail(`leg 17: the first press did not arm the delete (${JSON.stringify(sure17)})`);
+  await clickIn(modelId, '[data-act="delete"]');
+  await waitUntil("leg 17: the row gone", `!document.querySelector(${JSON.stringify(rowSel(modelId))})`, 20_000);
+  await ownListLacks(modelId, "leg 17");
+  await worldRowEventually(cell12, modelId, (r) => r === null, "leg 17 (deleted → out of the world read)");
+  deletedViaUi = true;
+  console.log("leg 17: the list's ✕ → SURE? deleted the model — the list, the own API and the world read all dropped it");
 } finally {
-  // --- 11: cleanup — the collection is the PRODUCTION world even from wix dev -----------------------
-  if (modelId) {
+  // --- 18: cleanup — the collection is the PRODUCTION world even from wix dev -----------------------
+  if (foreignId) {
+    // The DEV-seeded foreign row (row only — its bytes are the own row's) goes FIRST.
+    try {
+      const delF = await pageApi(`/api/dev-seed?kind=model&id=${encodeURIComponent(foreignId)}`, { method: "DELETE" });
+      if (delF.body?.deleted !== true) cleanupProblem = `cleanup: the seeded foreign row could not be removed ${JSON.stringify(delF)}`;
+      else console.log(`cleanup: seeded foreign row ${foreignId} removed`);
+    } catch (e) {
+      cleanupProblem = `cleanup (seed) threw: ${e?.message ?? e}`;
+    }
+  }
+  if (modelId && deletedViaUi) {
+    console.log(`cleanup: ${modelId} was deleted through the list in leg 17 (row + media) — nothing left to remove`);
+    // The member cookie must not outlive the run: the profile is shared with the next suite (a
+    // leaked session made verify-modelupload's anonymous leg read a member, 2026-09-02m).
+    await clearCookie().catch(() => {});
+  } else if (modelId) {
     try {
       await setCookie();
       const del = await pageApi(`/api/models?id=${encodeURIComponent(modelId)}`, { method: "DELETE" });
@@ -663,6 +929,8 @@ try {
   rmSync(FIX, { recursive: true, force: true });
 }
 if (cleanupProblem) fail(cleanupProblem);
-console.log("PASS: verify-usermodels — 11 legs (upload → world read → real right-click arms, menu survives the release → rotate / scale (0.1×–10×, metres on the row) / move PATCH → orbit drag after the session (helpers out, control seen) → reload → anonymous → MDL gate → click-to-place → cleanup)");
+if (consoleErrors.length > 0) fail(`the page logged ${consoleErrors.length} shader/program error(s) — the chained model materials do not compile: ${consoleErrors[0]}`);
+console.log(`console: no shader/program errors logged across the run`);
+console.log("PASS: verify-usermodels — 18 legs (upload → world read → real right-click arms, menu survives the release → rotate / scale (0.1×–10×, metres on the row) / move PATCH → orbit drag after the session (helpers out, control seen) → reload → anonymous → MDL gate → click-to-place → MS6: MODELS tab → rename → hide/show → stand beside → foreign member edits as SHARED (LWW, owner sees EDITED) → orbit hover + click → list delete → cleanup)");
 ws.close();
 await finishVerify(0);

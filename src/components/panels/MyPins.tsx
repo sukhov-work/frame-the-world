@@ -13,6 +13,8 @@ import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal } from "../../lib/format/readout";
 import { formatPrice } from "../../lib/market/listing";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
+import MyModelsTab from "./MyModelsTab";
+import { useUserModelsStore } from "../../store/userModels";
 import "../../styles/my-pins.css";
 import "../../styles/tips.css";
 
@@ -27,6 +29,9 @@ import "../../styles/tips.css";
  *
  * SALES tab (Phase 6.9): the member's for-sale listings + a PAID-order count each — the first
  * client consumer of GET /api/listings. Display-only rows (the pin itself opens from MY PINS).
+ *
+ * MODELS tab (MESH SUITE MS6, 2026-09-02m): the member's uploaded 3D models — `MyModelsTab`
+ * (rename · hide/show · delete · stand beside it / place it), fed by `store/userModels`.
  */
 
 /** One GET /api/listings row (the endpoint's response shape). */
@@ -42,7 +47,7 @@ interface SalesRow {
 export default function MyPins() {
   const memberPhase = useMemberStore((s) => s.phase);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"pins" | "places" | "sales">("pins");
+  const [tab, setTab] = useState<"pins" | "places" | "sales" | "models">("pins");
   const [photos, setPhotos] = useState<PhotoListItem[] | null>(null);
   const [places, setPlaces] = useState<PlaceListItem[] | null>(null);
   const [sales, setSales] = useState<SalesRow[] | null>(null);
@@ -50,13 +55,17 @@ export default function MyPins() {
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const drag = usePanelDrag("my-pins");
+  const modelCount = useUserModelsStore((s) => s.mine.length);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
     setArmedDeleteId(null);
     let stale = false;
-    if (tab === "pins") {
+    if (tab === "models") {
+      // MS6: the tab reads the store; re-ask the own list on open (the other tabs' fresh-fetch).
+      void useUserModelsStore.getState().loadMine();
+    } else if (tab === "pins") {
       setPhotos(null);
       fetch("/api/photos")
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -192,21 +201,22 @@ export default function MyPins() {
     return p.timeMs != null ? `${coords} · ${focal} · ⏱` : `${coords} · ${focal}`;
   };
 
-  const count = tab === "pins" ? photos?.length : tab === "places" ? places?.length : sales?.length;
+  const count =
+    tab === "pins" ? photos?.length : tab === "places" ? places?.length : tab === "sales" ? sales?.length : modelCount;
 
   return (
     <span className="mp">
       <button
         className="mp-toggle tip"
         aria-expanded={open}
-        data-tip="YOUR SAVED PINS & PLACES — CLICK ONE TO FLY THERE."
+        data-tip="YOUR SAVED PINS, PLACES & 3D MODELS — CLICK ONE TO FLY THERE."
         data-tip-pos="down"
         onClick={() => setOpen((o) => !o)}
       >
         My pins
       </button>
       {open && (
-        <div className="mp-panel" style={drag.style} role="dialog" aria-label="My pins and places">
+        <div className="mp-panel" style={drag.style} role="dialog" aria-label="My pins, places and models">
           <DragGrip drag={drag} label="Move the pins list" tipPos="left" />
           {/* Scrolling lives on this INNER wrapper: an overflow root would clip the drag
               grip's outside-the-window tab (owner 2026-07-14 uniform handles). */}
@@ -236,6 +246,15 @@ export default function MyPins() {
                 onClick={() => setTab("sales")}
               >
                 SALES{tab === "sales" && count != null ? ` · ${count}` : ""}
+              </button>
+              <button
+                className={`mp-tab${tab === "models" ? " is-active" : ""}`}
+                role="tab"
+                aria-selected={tab === "models"}
+                data-tab="models"
+                onClick={() => setTab("models")}
+              >
+                MODELS{tab === "models" && count != null ? ` · ${count}` : ""}
               </button>
             </div>
             <button className="mp-close" aria-label="Close" onClick={() => setOpen(false)}>
@@ -337,6 +356,7 @@ export default function MyPins() {
               SAVE PLACE on the camera deck.
             </div>
           )}
+          {tab === "models" && <MyModelsTab onClose={() => setOpen(false)} />}
           {!error && tab === "places" && places && places.length > 0 && (
             <ul className="mp-list">
               {places.map((p) => (

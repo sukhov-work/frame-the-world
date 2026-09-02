@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { MODELS } from "../components/globe/tuning";
 import { planModelCover, sameCover } from "../lib/models/modelPlacement";
-import type { ModelListItem, PublicModel } from "../lib/wix/modelRecords";
+import type { ModelListItem, ModelPatchAnswer, PublicModel } from "../lib/wix/modelRecords";
 
 /**
  * MESH SUITE MS5 (D3 placement, 2026-09-02) — the WORLD's user models as the client sees them.
@@ -17,7 +17,14 @@ import type { ModelListItem, PublicModel } from "../lib/wix/modelRecords";
  *    orchestrator shows the crosshair + ground marker in orbit and calls `setPlacement` on the
  *    click) and the gizmo's commit (`commitPlacement`): both PATCH the record, swap the row into
  *    `mine` and `world` at once (optimistic — a Wix Data read lags the write by ~1 s, so a
- *    freshly patched row outranks the fetched copy for `MODELS.readLagGraceMs`).
+ *    freshly patched row outranks the fetched copy for `MODELS.readLagGraceMs`);
+ *  • MANAGEMENT (MESH SUITE MS6, 2026-09-02m) — the MODELS tab of the MY PINS panel reads `mine`
+ *    and drives `rename` / `setHidden` / `remove`; each PATCH/DELETE answers, and the row is
+ *    swapped into `mine` AND the world at once (a hidden or deleted model leaves the world here
+ *    before the read lag lets the next fetch confirm it).
+ *
+ * MS6 opened the placement PATCH to EVERY signed-in member (LWW): the server answers `own`, and
+ * a foreign commit swaps the PUBLIC row into `world` and never touches `mine`.
  *
  * The scene module never reads this store (the scene fence): the orchestrator subscribes and
  * pushes `world` down; the engine's residency numbers come back up through `_syncDensity`.
@@ -51,17 +58,28 @@ export interface PlacementPatch {
   scale?: number;
 }
 
+export interface MetaPatch {
+  title?: string;
+  hidden?: boolean;
+}
+
 /** The wire, injectable (tests drive a fake; the default lazily imports the upload-media module). */
 export interface UserModelsApi {
   fetchWorld(cells: readonly string[]): Promise<{ models: PublicModel[]; complete: boolean }>;
   fetchMine(): Promise<{ models: ModelListItem[] }>;
-  patchPlacement(body: PlacementPatch & { id: string }): Promise<{ model: ModelListItem }>;
+  patchPlacement(body: PlacementPatch & { id: string }): Promise<ModelPatchAnswer>;
+  /** MS6: rename / hide an OWNED model. */
+  patchMeta(body: MetaPatch & { id: string }): Promise<ModelPatchAnswer>;
+  /** MS6: delete an OWNED model (row + media best-effort). */
+  deleteModel(id: string): Promise<{ deleted: boolean; mediaDeleted: boolean }>;
 }
 
 const defaultApi: UserModelsApi = {
   fetchWorld: async (cells) => (await import("../lib/save/uploadMedia")).fetchWorldModels(cells),
   fetchMine: async () => (await import("../lib/save/uploadMedia")).fetchMyModels(),
   patchPlacement: async (body) => (await import("../lib/save/uploadMedia")).patchModelPlacement(body),
+  patchMeta: async (body) => (await import("../lib/save/uploadMedia")).patchModelMeta(body),
+  deleteModel: async (id) => (await import("../lib/save/uploadMedia")).deleteModelRecord(id),
 };
 let api: UserModelsApi = defaultApi;
 
@@ -141,8 +159,16 @@ export interface UserModelsState {
   cancelPlacing(): void;
   /** The placing click: PATCH the placement of the armed model; clears `placing`. */
   setPlacement(latDeg: number, lonDeg: number): Promise<ModelListItem | null>;
-  /** The gizmo commit path (and the click-to-place one): PATCH + the optimistic swap. */
-  commitPlacement(id: string, patch: PlacementPatch): Promise<ModelListItem | null>;
+  /** The gizmo commit path (and the click-to-place one): PATCH + the optimistic swap. MS6: a
+   *  foreign model (the server answers `own: false`) swaps the public row into `world` only;
+   *  the answer is the public row then (the owner-shaped list row is the owner's). */
+  commitPlacement(id: string, patch: PlacementPatch): Promise<ModelListItem | PublicModel | null>;
+  /** MS6: rename an owned model — the list row + the world swap at once; null on failure. */
+  rename(id: string, title: string): Promise<ModelListItem | null>;
+  /** MS6: hide / show an owned model — hidden leaves the world at once; null on failure. */
+  setHidden(id: string, hidden: boolean): Promise<ModelListItem | null>;
+  /** MS6: delete an owned model — gone from `mine` and the world at once; false on failure. */
+  remove(id: string): Promise<boolean>;
   /** Orchestrator-only: the residency mirror. */
   _syncDensity(d: ModelDensity): void;
 }
@@ -175,6 +201,22 @@ async function runQuery(cover: string[], set: (p: Partial<UserModelsState>) => v
     console.warn("[userModels] world query failed", e);
     set({ worldPhase: "error" });
   }
+}
+
+/** An answered OWN list row replaces its twin in `mine` and its public shape joins / leaves
+ *  `world` at once (null when the row is not world-visible any more — hidden, unplaced). */
+function swapOwn(
+  id: string,
+  model: ModelListItem,
+  set: (p: Partial<UserModelsState>) => void,
+  get: () => UserModelsState,
+): void {
+  const mine = [model, ...get().mine.filter((m) => m.id !== model.id)];
+  const row = publicFromMine(model, new Date().toISOString());
+  localRows.set(id, { row, atMs: nowMs() });
+  const world = get().world.filter((m) => m.id !== id);
+  if (row) world.push(row);
+  set({ mine, minePhase: "ready", world });
 }
 
 export const useUserModelsStore = create<UserModelsState>((set, get) => ({
@@ -271,22 +313,66 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
     const p = get().placing;
     if (!p) return null;
     set({ placing: null });
-    return get().commitPlacement(p.id, { lat: latDeg, lon: lonDeg });
+    // Placing is an OWN-model gesture (the STORED card / the MODELS row) — the answer is the
+    // owner's list row; a foreign answer (never expected here) reads as "not placed".
+    const row = await get().commitPlacement(p.id, { lat: latDeg, lon: lonDeg });
+    return row && "readiness" in row ? row : null;
   },
 
   commitPlacement: async (id, patch) => {
     try {
-      const { model } = await api.patchPlacement({ id, ...patch });
-      const mine = [model, ...get().mine.filter((m) => m.id !== model.id)];
-      const row = publicFromMine(model, new Date().toISOString());
+      const answer = await api.patchPlacement({ id, ...patch });
+      if (answer.own && answer.model) {
+        swapOwn(id, answer.model, set, get);
+        return answer.model;
+      }
+      // Another member's model (MS6): the public row is the truth we hold — never `mine`.
+      const row = answer.public ? { ...answer.public, updatedAt: new Date().toISOString() } : null;
       localRows.set(id, { row, atMs: nowMs() });
       const world = get().world.filter((m) => m.id !== id);
       if (row) world.push(row);
-      set({ mine, minePhase: "ready", world });
-      return model;
+      set({ world });
+      return row;
     } catch (e) {
       console.warn("[userModels] placement failed", e);
       return null;
+    }
+  },
+
+  rename: async (id, title) => {
+    try {
+      const answer = await api.patchMeta({ id, title });
+      if (!answer.own || !answer.model) return null;
+      swapOwn(id, answer.model, set, get);
+      return answer.model;
+    } catch (e) {
+      console.warn("[userModels] rename failed", e);
+      return null;
+    }
+  },
+
+  setHidden: async (id, hidden) => {
+    try {
+      const answer = await api.patchMeta({ id, hidden });
+      if (!answer.own || !answer.model) return null;
+      swapOwn(id, answer.model, set, get);
+      return answer.model;
+    } catch (e) {
+      console.warn("[userModels] hide failed", e);
+      return null;
+    }
+  },
+
+  remove: async (id) => {
+    try {
+      const res = await api.deleteModel(id);
+      if (!res.deleted) return false;
+      localRows.set(id, { row: null, atMs: nowMs() });
+      set({ mine: get().mine.filter((m) => m.id !== id), world: get().world.filter((m) => m.id !== id) });
+      return true;
+    } catch (e) {
+      console.warn("[userModels] delete failed", e);
+      return false;
     }
   },
 

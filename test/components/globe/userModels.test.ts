@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { ecefToGeodetic, geodeticToEcef } from "../../../src/lib/geo/projection";
 import { rigToTransform } from "../../../src/lib/globe/featureTransform";
 import { MODELS } from "../../../src/components/globe/tuning";
-import { attachUserModels, type ModelLoader } from "../../../src/components/globe/scene/userModels";
+import { attachUserModels, patchModelShader, type ModelLoader, type ModelShader } from "../../../src/components/globe/scene/userModels";
 import type { PublicModel } from "../../../src/lib/wix/modelRecords";
 
 // MESH SUITE MS5 — the scene module driven headlessly (real three objects, no renderer, the
@@ -240,6 +240,49 @@ describe("scene/userModels", () => {
     h2.update(cam, MODELS.residencyEveryFrames);
     expect(h2.counts().failed).toBe(1);
     h2.dispose();
+    h.dispose();
+  });
+
+  it("MS6: chains the haze + dissolve patch onto a loaded GLB's materials and drives it through the handle", async () => {
+    const scene = new THREE.Scene();
+    const loader = makeLoader();
+    const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
+    h.setModels([row("a")]);
+    h.update(cameraNear(), 0);
+    await flush();
+    const mesh = scene.getObjectByName("userModels")!.getObjectByProperty("type", "Mesh") as THREE.Mesh;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    expect(typeof mat.onBeforeCompile).toBe("function");
+    // Drive the hook with a shader skeleton carrying the anchors three's materials all have.
+    const shader: ModelShader = {
+      uniforms: {},
+      vertexShader: "#include <common>\nvoid main(){\n#include <begin_vertex>\n}",
+      fragmentShader: "#include <common>\nvoid main(){\n#include <color_fragment>\n#include <opaque_fragment>\n}",
+    };
+    mat.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain("vFtwWPos = (modelMatrix * vec4(transformed, 1.0)).xyz");
+    expect(shader.fragmentShader).toContain("ftwAerial(gl_FragColor.rgb, vFtwWPos");
+    expect(shader.fragmentShader).toContain("if (ftwFb > uFtwModelAlpha) discard;");
+    for (const k of ["uFtwHaze", "uFtwHazeCol", "uFtwHazeCool", "uFtwSkyLevel", "uFtwAfterglowG", "uFtwSunW", "uFtwModelAlpha"]) {
+      expect(shader.uniforms[k]).toBeDefined();
+      expect(shader.fragmentShader).toContain(`uniform ${k === "uFtwHazeCol" || k === "uFtwHazeCool" || k === "uFtwSunW" ? "vec3" : "float"} ${k};`);
+    }
+    // The holders are bound by reference: the handle's setters reach every program.
+    h.setUltraHaze(0.4, new THREE.Color("#ff8800"), new THREE.Vector3(0, 1, 0), new THREE.Color("#0044ff"), 0.7, 0.2);
+    expect((shader.uniforms.uFtwHaze as { value: number }).value).toBe(0.4);
+    expect((shader.uniforms.uFtwSkyLevel as { value: number }).value).toBe(0.7);
+    h.setSolidity(0);
+    expect((shader.uniforms.uFtwModelAlpha as { value: number }).value).toBeCloseTo(0.28, 6);
+    h.setSolidity(0.5);
+    expect((shader.uniforms.uFtwModelAlpha as { value: number }).value).toBeCloseTo(0.64, 6);
+    h.setSolidity(null);
+    expect((shader.uniforms.uFtwModelAlpha as { value: number }).value).toBe(1);
+    // The patch is ONE named function (three's program cache key is its source) and idempotent on
+    // the anchors: a second material gets the same text.
+    const twin: ModelShader = { uniforms: {}, vertexShader: shader.vertexShader.replace(/vFtwWPos[^\n]*\n/g, ""), fragmentShader: "#include <common>\n#include <color_fragment>\n#include <opaque_fragment>" };
+    patchModelShader(twin);
+    expect(twin.fragmentShader).toContain("ftwAerial(");
+    expect(h.debug()).toMatchObject({ shader: { chained: true, alpha: 1 } });
     h.dispose();
   });
 });

@@ -178,7 +178,18 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02l: MESH SUITE MS5b BUILT — the owner's four fixes/tunings after testing MS5.** Metres on
+**2026-09-02m: MESH SUITE MS6 BUILT — D3 management + world edit; the ladder MS0–MS6 is COMPLETE.**
+MY PINS · MODELS tab (rename inline · HIDE/SHOW · ✕ → SURE? · a row click stands beside the model in
+FPV / places an unplaced one); the placement PATCH opened to EVERY signed-in member — LWW structural
+(`items.update` by `_id`), `editorMemberId` stamped (a NEW live field, 26), the owner's list says
+EDITED; a management body (title / hidden) owner-only; YOURS / SHARED badge; orbit hover + click;
+haze + FPV-dissolve chained onto GLB materials (`MODELS.chainShader`); the two-member harness leg
+through a DEV-only `/api/dev-seed kind:"model"`; `verify-usermodels` 18 legs + a shader console gate.
+NOT built: the lift seat (owner to rule). **NEXT: T77** — the ARCHITECTURE + PERFORMANCE audit and
+revamp (owner 2026-09-02k; `MESH_SUITE_PLAN.md` §12 is the lead-in; DBG readings at 0 / 6 / 24
+resident models first). `mem:project/wip-2026-09-02-mesh-suite-ms6` · plan §13 · DECISIONS 2026-09-02m.
+
+Prior: **2026-09-02l: MESH SUITE MS5b BUILT — the owner's four fixes/tunings after testing MS5.** Metres on
 both SCALE rows (`footprintM` / `sizeM3`, one `formatDims`); the rails are PER EDIT about the committed
 transform (`EDIT_MOVE_MAX_M` 100, `EDIT_MIN_K..MAX_K` 0.1–10 on every scale axis incl. extrude and the
 model's uniform scale, compounding, no absolute cap) under a loose SANITY rail (5 km · 0.001–1000× ·

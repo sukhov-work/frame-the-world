@@ -7,11 +7,15 @@ import {
   MODEL_PAGE,
   MODEL_WORLD_MAX_CELLS,
   MODELS_COLLECTION,
+  MODEL_TITLE_MAX,
+  applyModelManage,
   applyModelPlacement,
   checkModelUploadRequest,
+  isPlacementPatch,
   modelListItem,
   modelRecord,
   parseCreateModelBody,
+  parseManageBody,
   parsePlacementBody,
   parseWorldCells,
   publicModel,
@@ -219,10 +223,12 @@ describe("modelRecord + modelListItem", () => {
     expect(row.bboxZ).toBe(8);
     expect(row.rotDeg).toBeNull();
     expect(row.scale).toBeNull();
+    expect(row.editorMemberId).toBe("member-1"); // MS6: born owner-edited
     expect(Object.keys(row)).toEqual([
       "title", "ownerMemberId", "fileId", "url", "thumbnailFileId", "thumbnailUrl", "fileName", "sourceFormat",
       "rawBytes", "glbBytes", "tris", "meshes", "textures", "decimatedFromTris",
       "bboxX", "bboxY", "bboxZ", "readiness", "hidden", "lat", "lon", "geohash9", "gh5", "rotDeg", "scale",
+      "editorMemberId",
     ]);
   });
 
@@ -259,6 +265,8 @@ describe("modelRecord + modelListItem", () => {
       lat: 48.4647,
       lon: 35.0462,
       createdAt: "2026-09-02T12:00:00.000Z",
+      updatedAt: null,
+      editedByOther: false,
     });
     expect(modelListItem({ ...stored, url: null })).toBeNull();
     expect(modelListItem({ ...stored, readiness: "weird" })!.readiness).toBe("PENDING");
@@ -363,5 +371,78 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
     const row = stored();
     expect(modelListItem(row)).toMatchObject({ rotDeg: 0, scale: 1 });
     expect(modelListItem({ ...row, rotDeg: -20, scale: 0.5 })).toMatchObject({ rotDeg: -20, scale: 0.5 });
+  });
+});
+
+// MESH SUITE MS6 — management (title / hidden, owner-only) and the member-open placement: the
+// dispatch on the body's shape, the manage parser, the editor stamp, the owner list's
+// `updatedAt` / `editedByOther`, and the public shape still carrying no identity.
+describe("modelRecords (MS6 management + the member-open placement)", () => {
+  const stored = (): Record<string, unknown> => {
+    const parsed = parseCreateModelBody(validBody);
+    if ("error" in parsed) throw new Error(parsed.error);
+    return {
+      ...modelRecord(parsed.body, verified, "member-1"),
+      _id: "row-1",
+      _createdDate: new Date("2026-09-02T12:00:00.000Z"),
+      _updatedDate: new Date("2026-09-02T12:30:00.000Z"),
+    };
+  };
+
+  it("dispatches on the body's shape: coordinates → placement, otherwise management", () => {
+    expect(isPlacementPatch({ id: "r", lat: 1, lon: 2 })).toBe(true);
+    expect(isPlacementPatch({ id: "r", lat: 1 })).toBe(true); // a half body is still a placement (and fails its parser)
+    expect(isPlacementPatch({ id: "r", title: "x" })).toBe(false);
+    expect(isPlacementPatch({ id: "r", hidden: true, rotDeg: 3 })).toBe(false);
+    expect(isPlacementPatch(null)).toBe(false);
+  });
+
+  it("parses a management body: the id, a trimmed 1..120-char title and/or a boolean hidden — never nothing", () => {
+    expect(parseManageBody(null)).toEqual({ error: "body must be a JSON object" });
+    expect("error" in parseManageBody({ title: "x" })).toBe(true);
+    expect("error" in parseManageBody({ id: "r" })).toBe(true);
+    expect("error" in parseManageBody({ id: "r", title: "   " })).toBe(true);
+    expect("error" in parseManageBody({ id: "r", title: "x".repeat(MODEL_TITLE_MAX + 1) })).toBe(true);
+    expect("error" in parseManageBody({ id: "r", title: 7 })).toBe(true);
+    expect("error" in parseManageBody({ id: "r", hidden: "yes" })).toBe(true);
+    expect(parseManageBody({ id: "r", title: "  Water tower  " })).toEqual({ body: { id: "r", title: "Water tower" } });
+    expect(parseManageBody({ id: "r", hidden: true })).toEqual({ body: { id: "r", hidden: true } });
+    expect(parseManageBody({ id: "r", title: "T", hidden: false })).toEqual({ body: { id: "r", title: "T", hidden: false } });
+  });
+
+  it("applies a management body: title / hidden replaced, the placement, seats and editor riding along", () => {
+    const row = { ...stored(), rotDeg: 30, scale: 1.5, editorMemberId: "member-2" };
+    const hidden = applyModelManage(row, { id: "row-1", hidden: true });
+    expect(hidden).toMatchObject({ hidden: true, title: "Water tower", rotDeg: 30, scale: 1.5, editorMemberId: "member-2", lat: 48.4647 });
+    const renamed = applyModelManage(row, { id: "row-1", title: "Tower" });
+    expect(renamed).toMatchObject({ title: "Tower", hidden: false });
+    expect(publicModel(hidden)).toBeNull(); // hidden = withdrawn from the world
+    expect(publicModel(renamed)).toMatchObject({ title: "Tower" });
+  });
+
+  it("a placement PATCH stamps the editor; the owner list says another member edited it; a legacy row reads as the owner's", () => {
+    const row = stored();
+    const byOwner = applyModelPlacement(row, { id: "row-1", lat: 1, lon: 2, rotDeg: 10 }, "member-1");
+    expect(byOwner.editorMemberId).toBe("member-1");
+    expect(modelListItem(byOwner)!.editedByOther).toBe(false);
+    const byOther = applyModelPlacement(row, { id: "row-1", lat: 1, lon: 2, rotDeg: 10 }, "member-2");
+    expect(byOther.editorMemberId).toBe("member-2");
+    expect(byOther.ownerMemberId).toBe("member-1");
+    expect(modelListItem(byOther)!.editedByOther).toBe(true);
+    // No editor given: the stamp is left as stored (the MS5 call shape).
+    expect(applyModelPlacement({ ...row, editorMemberId: "member-2" }, { id: "row-1", lat: 1, lon: 2 }).editorMemberId).toBe("member-2");
+    const { editorMemberId: _e, ...legacy } = row;
+    expect(modelListItem(legacy)!.editedByOther).toBe(false);
+  });
+
+  it("the owner list row carries updatedAt; the public row still carries no identity at all", () => {
+    const row = { ...stored(), editorMemberId: "member-2" };
+    const item = modelListItem(row)!;
+    expect(item.updatedAt).toBe("2026-09-02T12:30:00.000Z");
+    expect(Object.keys(item)).not.toContain("editorMemberId");
+    const pub = publicModel(row)!;
+    expect(Object.keys(pub)).not.toContain("editorMemberId");
+    expect(Object.keys(pub)).not.toContain("ownerMemberId");
+    expect(Object.keys(pub)).not.toContain("editedByOther");
   });
 });

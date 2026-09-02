@@ -12,8 +12,9 @@ import { formatDims } from "../../lib/format/readout";
 import "../../styles/building-edit.css";
 
 /**
- * Model edit chip (MESH SUITE MS5, 2026-09-02) — the readout + controls while one of the
- * member's OWN uploaded models is armed in FPV: the BuildingEditChip's twin on the same CSS
+ * Model edit chip (MESH SUITE MS5, 2026-09-02) — the readout + controls while an uploaded model
+ * is armed in FPV (MS6: any signed-in member arms any model — the badge says YOURS or SHARED,
+ * the MS3 word for "the world's"): the BuildingEditChip's twin on the same CSS
  * (`.bldg-edit-chip` / `.bec-*` / `.bldg-menu`), kept a separate island so the building chip,
  * its harness and the U8 UX stay byte-identical. Desktop-only mount (index.astro): models have
  * no /m entry. Reads the orchestrator's deadband `armed` mirror (store/modelEdit); writes back
@@ -29,6 +30,12 @@ export const MODEL_OP_KEY: Record<ModelEditOp, string> = { move: "G", rotate: "R
 const MODEL_OP_GLYPH: Record<ModelEditOp, string> = { move: "↔", rotate: "↻", scale: "⤢" };
 
 const sg = (v: number, d = 1) => `${v > 0 ? "+" : ""}${v.toFixed(d)}`;
+
+/** The origin badge's one-line titles (MS6): the MS3 register — SHARED is the world's. */
+export const MODEL_ORIGIN_TITLE = {
+  mine: "Your model — edits save to your account as you release a handle.",
+  shared: "Another member placed this model. Your edits replace its spot, turn and size for everyone as you release a handle.",
+} as const;
 
 /** One op's CURRENT value as the chip prints it. MOVE shows the drag offset while dragging,
  *  else the placement; the yaw is COMPASS sense (clockwise from above = −rotDeg). MS5b (owner
@@ -117,8 +124,12 @@ export function ModelEditChipView({
               <kbd>{MODEL_OP_KEY[op]}</kbd>
             </button>
           ))}
-          <span className="bec-origin" data-origin={armed.saving ? "saving" : armed.saveError ? "failed" : "mine"} title={armed.saveError ?? "Your model — edits save to your account as you release a handle."}>
-            {armed.saving ? "SAVING…" : armed.saveError ? "SAVE FAILED" : "YOURS"}
+          <span
+            className="bec-origin"
+            data-origin={armed.saving ? "saving" : armed.saveError ? "failed" : armed.mine ? "mine" : "shared"}
+            title={armed.saveError ?? (armed.mine ? MODEL_ORIGIN_TITLE.mine : MODEL_ORIGIN_TITLE.shared)}
+          >
+            {armed.saving ? "SAVING…" : armed.saveError ? "SAVE FAILED" : armed.mine ? "YOURS" : "SHARED"}
           </span>
         </div>
         <div className="bec-rows">
@@ -220,7 +231,8 @@ export function ModelEditMenu({
             ? formatDims(armed.sizeM3.map((v) => v * armed.committed.scale))
             : armed.sizeM !== null
               ? `${armed.sizeM.toFixed(1)} m`
-              : "yours"}
+              : armed.mine ? "yours" : "shared"}
+          {armed.mine ? "" : " · shared"}
           {armed.overridden ? " · edited" : ""}
         </span>
       </div>

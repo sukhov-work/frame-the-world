@@ -7,7 +7,11 @@
 // "hide" / "delete" are RECORD operations (private 3D files do not exist on the platform; MS0).
 // No quota (owner 2026-09-01c): per-file health caps only, re-checked here against the
 // descriptor's own byte count. The world read (visitors streaming placed models) is the sibling
-// public route /api/world-models (MESH SUITE MS5); PATCH here is the owner's placement writer.
+// public route /api/world-models (MESH SUITE MS5). PATCH here has TWO authorities since MESH
+// SUITE MS6 (2026-09-02m): a PLACEMENT body (lat/lon + the seats) is open to EVERY signed-in
+// member — the owner's D3 ("any other logged-in user can re-edit any mesh's params"), last writer
+// wins by construction (`items.update` replaces the whole row) and the row records the editor —
+// while a MANAGEMENT body (title / hidden) stays the owner's.
 import type { APIRoute } from "astro";
 import { items } from "@wix/data";
 import { auth } from "@wix/essentials";
@@ -16,14 +20,19 @@ import { json, requireMember } from "../../lib/api/http";
 import {
   MODEL_PAGE,
   MODELS_COLLECTION,
+  applyModelManage,
   applyModelPlacement,
+  isPlacementPatch,
   modelListItem,
   modelRecord,
   parseCreateModelBody,
+  parseManageBody,
   parsePlacementBody,
+  publicModel,
   verifyModelDescriptor,
   verifyThumbnailDescriptor,
   type ModelListItem,
+  type ModelPatchAnswer,
 } from "../../lib/wix/modelRecords";
 
 /** The member's own UserModels row, or null when missing / owned by someone else. */
@@ -113,31 +122,54 @@ export const POST: APIRoute = async ({ request }) => {
   }
 };
 
-// PATCH /api/models — MESH SUITE MS5: place / re-place an owned model and set its seats. The
-// photos precedent: read the owned row, re-derive the placement columns (both geohash cells),
-// clamp the seats, `items.update` the WHOLE row. Answers the owner's list row so the client can
-// swap it in without a second GET.
+// PATCH /api/models — MESH SUITE MS5 placement + MS6 management, dispatched on the body's SHAPE.
+// PLACEMENT (`lat`/`lon` present — the seats optional): ANY signed-in member may move / turn /
+// resize ANY model (MS6, the owner's D3): the row by id, the placement columns re-derived (both
+// geohash cells), the seats clamped, `editorMemberId` stamped from the session, `items.update`
+// the WHOLE row (last writer wins — structural). MANAGEMENT (no coordinates — `title` and/or
+// `hidden`): the OWNER's only. Both answer `{ own, model, public }`: the owner-shaped list row
+// ONLY to the owner, the public row to everyone (C6 — no editor, no owner, no file id).
 export const PATCH: APIRoute = async ({ request }) => {
   const member = await requireMember();
-  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to place models" }, 401);
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to edit models" }, 401);
 
-  const parsed = parsePlacementBody(await request.json().catch(() => null));
-  if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
-  const body = parsed.body;
-
+  const raw = await request.json().catch(() => null);
   try {
+    if (isPlacementPatch(raw)) {
+      const parsed = parsePlacementBody(raw);
+      if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
+      const body = parsed.body;
+      const existing = await auth.elevate(items.get)(MODELS_COLLECTION, body.id).catch(() => null);
+      if (!existing) return json({ error: "NOT_FOUND", message: "no such model" }, 404);
+      const record = applyModelPlacement(existing as Record<string, unknown>, body, member._id);
+      const saved = await auth.elevate(items.update)(MODELS_COLLECTION, record as { _id: string });
+      return json(patchAnswer((saved ?? record) as Record<string, unknown>, record, member._id));
+    }
+    const parsed = parseManageBody(raw);
+    if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
+    const body = parsed.body;
     const existing = await ownedModel(body.id, member._id);
     if (!existing) return json({ error: "NOT_FOUND", message: "no such model of yours" }, 404);
-    const record = applyModelPlacement(existing as Record<string, unknown>, body);
+    const record = applyModelManage(existing as Record<string, unknown>, body);
     const saved = await auth.elevate(items.update)(MODELS_COLLECTION, record as { _id: string });
-    const model = modelListItem((saved ?? record) as Record<string, unknown>) ?? modelListItem(record);
-    if (!model) return json({ error: "UPDATE_FAILED", message: "the stored row is unreadable" }, 502);
-    return json({ model });
+    return json(patchAnswer((saved ?? record) as Record<string, unknown>, record, member._id));
   } catch (e) {
-    console.error("[models:place]", e);
-    return json({ error: "UPDATE_FAILED", message: "could not place the model" }, 502);
+    console.error("[models:patch]", e);
+    return json({ error: "UPDATE_FAILED", message: "could not update the model" }, 502);
   }
 };
+
+/** The PATCH answer from the saved row (falling back to the record we sent when the platform
+ *  answers nothing readable): the list row only for the owner, the public row for everyone. */
+function patchAnswer(saved: Record<string, unknown>, sent: Record<string, unknown>, memberId: string): ModelPatchAnswer {
+  const row = typeof saved._id === "string" ? saved : sent;
+  const own = row.ownerMemberId === memberId;
+  return {
+    own,
+    model: own ? modelListItem(row) ?? modelListItem(sent) : null,
+    public: publicModel(row) ?? publicModel(sent),
+  };
+}
 
 // DELETE /api/models?id= — owner-gated removal: the row, then the media file best-effort (a
 // stuck file must never leave a ghost row — the photos precedent; the Media Manager keeps the

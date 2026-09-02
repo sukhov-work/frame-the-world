@@ -484,9 +484,25 @@ Three facts the module encodes (source-verified 2026-09-02i):
   inside the load radius is `skipped`, and `densityWarning(skipped, tris, warnTris)` is the MDL
   chip's amber and the DBG `models.skipped` warn.
 
+MS6 (2026-09-02m) added ONE `MODELS` knob — **`chainShader`** (true): every loaded GLB material is
+chained onto `patchModelShader` (the ULTRA `ftwAerial` haze after `<opaque_fragment>` + the FPV
+BUILDINGS-slider screen-door dissolve at `<color_fragment>`, holder uniforms `uFtw*` bound by
+reference; `setUltraHaze` / `setSolidity` on the handle, pushed beside the building sets). The
+ORBIT hover of a user model rides the pins' cadence
+(`PINS.hoverEveryFrames`) and the FPV hover keeps `hoverPickMs`; the "stand beside it" pose is
+CONTRACT (`STANDPOINT` in `lib/models/modelPlacement.ts`: eye 1.7 m, FOV 60, 3 × the longest scaled
+extent inside 6..120 m). `pickModelAt` lost its FPV gate (the MDL gate stays) — in orbit a click on a
+model stands beside it in FPV, a dblclick never drops a temp pin under it, and the arming gate is
+the MEMBER PHASE (any signed-in member; `mine` is the YOURS / SHARED badge).
+
 Traps the slice recorded:
 - **The scene fence**: `scene/userModels.ts` reads NO store — the orchestrator pushes `world`
   and the MDL gate down, and the residency counts come back up through `_syncDensity`.
+- **A row that leaves the world must end its session** (MS6): `setModels` drops `armedId` when a
+  row vanishes (hidden / deleted from the list, the cover moved on) while the orchestrator's
+  `modelArmed` persists — `stepUserModels` disarms when `userModels.info(id)` is null.
+- **The pointer cursor is shared** (sky · pins · gizmo grab · the MS6 orbit model hover): set it
+  only when it is empty, hand it back only when you set it.
 - **A late GLB fetch for a released model** must be disposed, not attached — the entry's `gen`
   counter is bumped on every unload.
 - **Disposing a loaded GLB** walks geometries, materials AND their texture maps; three's loaders

@@ -85,6 +85,20 @@ describe("ModelEditChip (MS5)", () => {
     expect(view(armed({ saveError: "SAVE FAILED" }))).toContain("SAVE FAILED");
   });
 
+  it("MS6: another member's model wears the SHARED badge (the MS3 word) and says so in the menu head", () => {
+    const own = view(armed());
+    expect(own).toContain('data-origin="mine"');
+    expect(own).toContain("YOURS");
+    const theirs = view(armed({ mine: false }));
+    expect(theirs).toContain('data-origin="shared"');
+    expect(theirs).toContain("SHARED");
+    expect(theirs).not.toContain("YOURS");
+    const menu = renderToStaticMarkup(createElement(ModelEditMenu, { armed: armed({ mine: false }), menu: { screenX: 0, screenY: 0 }, actions }));
+    expect(menu).toContain("· shared");
+    const ownMenu = renderToStaticMarkup(createElement(ModelEditMenu, { armed: armed(), menu: { screenX: 0, screenY: 0 }, actions }));
+    expect(ownMenu).not.toContain("· shared");
+  });
+
   it("the menu carries the title, the size, the ops, REVERT ALL when edited, and DONE", () => {
     const menu = renderToStaticMarkup(createElement(ModelEditMenu, { armed: armed({ overridden: true }), menu: { screenX: 10, screenY: 20 }, actions }));
     expect(menu).toContain("MODEL · KIOSK");

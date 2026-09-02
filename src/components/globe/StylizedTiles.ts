@@ -45,6 +45,7 @@ import {
   clampModelEdit,
   editToFeatureTransform,
   isIdentityModelTransform,
+  modelStandpoint,
   offsetGeodetic,
   type ModelEdit,
   type ModelTransform,
@@ -1240,7 +1241,8 @@ export function attachStylizedTiles(opts: {
   //     store/userModels holds the cover-driven world read (mirrored from the same focus the
   //     pins query rides) and MINE; the scene module owns residency/seating/the rig. The store
   //     is PUSHED down (the scene fence) — the module never reads it. MINE resolves once the
-  //     member session is known (a member's own models are the only armable ones at MS5).
+  //     member session is known — since MS6 it is the YOURS / SHARED badge, no longer the
+  //     arming gate (any signed-in member arms any model; the PATCH is open, LWW).
   const userModels = attachUserModels(scene, {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
   });
@@ -1622,7 +1624,7 @@ export function attachStylizedTiles(opts: {
       // elsewhere with nothing armed keeps the native browser menu.
       if (fpvActive) {
         // MS5: a user model under the cursor comes first (it stands in front of the building it
-        // is placed beside); an un-armable one (not mine) keeps the native menu.
+        // is placed beside); an un-armable one (a visitor's click) keeps the native menu.
         const mp = pickModelAt(e.clientX, e.clientY);
         if (mp) {
           if (armModel(mp) && modelGizmoDragId === null) {
@@ -1768,6 +1770,12 @@ export function attachStylizedTiles(opts: {
       tapRevealX = e.clientX;
       tapRevealY = e.clientY;
       tapRevealUntil = performance.now() + ORCH.tapRevealMs;
+    }
+    // MESH SUITE MS6: a click on a USER MODEL in orbit stands beside it in first-person view
+    // (the pins' "a click opens it" idiom; a model stands in front of the pins and the ground).
+    {
+      const mp = pickModelAt(e.clientX, e.clientY);
+      if (mp && standBesideModel(mp.id)) return;
     }
     // Otherwise: a click on a public pin opens it as the placed camera view (Phase 5.1) —
     // the store transition triggers the frustum rebuild, the detail panel, and the flight.
@@ -1964,6 +1972,7 @@ export function attachStylizedTiles(opts: {
   let modelMenuDismiss = false;
   let modelHoverId: string | null = null;
   let modelHoverAtMs = 0;
+  let modelHoverCursor = false; // MS6: did the orbit model hover set the pointer cursor?
   let modelSaving = false;
   let modelSaveError: string | null = null;
   const _modelTop = new THREE.Vector3();
@@ -2026,24 +2035,26 @@ export function attachStylizedTiles(opts: {
     if (dom.style.cursor === "grab") dom.style.cursor = "";
     syncModelEdit();
   };
-  /** The user model under a client point — null when none, or when arming is not possible
-   *  here (not in FPV, MDL off). Picks only; `armModel` arms. */
+  /** The user model under a client point — null when none, or with the MDL chip off. Picks
+   *  only (`armModel` arms, in FPV; in orbit a click stands beside it — MS6). */
   const pickModelAt = (clientX: number, clientY: number): UserModelPick | null => {
-    if (!fpvActive || !useCameraStore.getState().modelsVisible) return null;
+    if (!useCameraStore.getState().modelsVisible) return null;
     const rect = dom.getBoundingClientRect();
     const [ndcX, ndcY] = clientToNdc(clientX, clientY, rect);
     _pickRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
     return userModels.pick(_pickRay);
   };
-  /** Arm a picked model: MS5 arms OWN models only (the public read carries no owner — the
-   *  "mine" set comes from the owner list). False when the pick is not armable. */
+  /** Arm a picked model. MS6 (the owner's D3): ANY signed-in member arms ANY model — the PATCH
+   *  is open, last writer wins; `mine` (from the owner list — the public read carries no owner)
+   *  is the chip's YOURS / SHARED badge. False for a visitor (the PATCH would 401 anyway) or a
+   *  row the scene no longer knows. */
   const armModel = (pick: UserModelPick): boolean => {
     const info = userModels.info(pick.id);
-    if (!info || !useUserModelsStore.getState().isMine(pick.id)) return false;
+    if (!info || useMemberStore.getState().phase !== "member") return false;
     if (modelArmed && modelArmed.id === pick.id) return true;
     disarmBuilding();
     disarmModel();
-    modelArmed = { id: pick.id, title: info.title, mine: true };
+    modelArmed = { id: pick.id, title: info.title, mine: useUserModelsStore.getState().isMine(pick.id) };
     modelOp = "move";
     modelLive = null;
     modelHoverId = null;
@@ -2055,6 +2066,23 @@ export function attachStylizedTiles(opts: {
   const tryArmModel = (clientX: number, clientY: number): boolean => {
     const pick = pickModelAt(clientX, clientY);
     return pick ? armModel(pick) : false;
+  };
+  /** MS6 "stand beside it": a one-shot first-person pose a few model-heights back from the
+   *  placement along the CURRENT heading (the PLACES-row jump path — FPV is where editing
+   *  works). The orbit click; the MY PINS · MODELS row builds the same pose with heading 0. */
+  const standBesideModel = (id: string): boolean => {
+    const info = userModels.info(id);
+    if (!info) return false;
+    const pose = modelStandpoint(info.lat, info.lon, info.sizeM3, info.seats.scale, useCameraStore.getState().headingDeg);
+    useCameraStore.getState().requestFpvJump({
+      latDeg: pose.latDeg,
+      lonDeg: pose.lonDeg,
+      eyeM: pose.eyeM,
+      headingDeg: pose.headingDeg,
+      pitchDeg: pose.pitchDeg,
+      fovDeg: pose.fovDeg,
+    });
+    return true;
   };
   const applyModelOp = (op: ModelEditOp) => {
     if (!modelArmed || modelGizmoDragId !== null) return;
@@ -2809,6 +2837,9 @@ export function attachStylizedTiles(opts: {
       tryArmBuilding(e.clientX, e.clientY);
       return;
     }
+    // MS6: the first click of a dblclick on a model already asked to stand beside it — never
+    // drop a temp pin under the model on top of that.
+    if (pickModelAt(e.clientX, e.clientY)) return;
     dropTempPinAt(e.clientX, e.clientY);
   };
   // Long-press = the dblclick twin on glass (MOBILE_PLAN §4.3, M1; sky menu M3c). Gated on
@@ -3329,6 +3360,8 @@ export function attachStylizedTiles(opts: {
         hoverId: modelHoverId,
         // A pick at client px through the SAME gate + ray as the pointer path (diagnostics).
         pickAt: (clientX: number, clientY: number) => pickModelAt(clientX, clientY),
+        // MS6: the "stand beside it" one-shot (the orbit click / the MODELS row path).
+        standBeside: (id: string) => standBesideModel(id),
         handlePx: (name: string) => modelGizmo.handleScreenPx(name, dom.getBoundingClientRect()),
         originPx: () => modelGizmo.originPx(dom.getBoundingClientRect()),
         // Client px of a resident model's mid-height point (the harness right-clicks it).
@@ -4257,6 +4290,7 @@ export function attachStylizedTiles(opts: {
             buildings.setGhostSolid(0); // next FPV entry starts on the ghost curve again
             buildings.setGhost(null);
             enriched?.setSolidity(null); // restore the opaque non-FPV enriched look
+            userModels.setSolidity(null); // MS6: the models too
             disarmBuilding(); // U8: the height-edit session cannot outlive FPV
             disarmModel(); // MS5: nor the model session
             camNow.clearAllTargets(); // targets set during FPV must not fire now
@@ -5269,6 +5303,7 @@ export function attachStylizedTiles(opts: {
           const sld = useCameraStore.getState().fpvBuildingSolidity;
           buildings.setGhostSolid(Math.max(st * st * (3 - 2 * st), sld));
           enriched?.setSolidity(sld);
+          userModels.setSolidity(sld); // MS6: a model must not occlude the framed subject either
         }
   };
 
@@ -5727,6 +5762,7 @@ export function attachStylizedTiles(opts: {
       ultraEmisK, ultraEdgeK);
     enriched?.setUltraHaze(hazeNow, _hazeCol, sunDirW, _hazeCoolCol, ultraSkyLevel, ultraAfterglow,
       ultraEmisK, ultraEdgeK);
+    userModels.setUltraHaze(hazeNow, _hazeCol, sunDirW, _hazeCoolCol, ultraSkyLevel, ultraAfterglow); // MS6
     // --- RC24 to the SKY DOME: the same effective value, so the horizon haze the dome paints
     //     above the terrain agrees with the aerial perspective the ground paints below it. This
     //     is the one visible SEAM the ULTRA track shipped with (ULTRA_ARCHITECTURE §12).
@@ -5790,6 +5826,7 @@ export function attachStylizedTiles(opts: {
         }
         buildings.setUltraHaze(0, _ultraZeroCol, sunDirW, _ultraZeroCol, 0, 0, 1, 1);
         enriched?.setUltraHaze(0, _ultraZeroCol, sunDirW, _ultraZeroCol, 0, 0, 1, 1);
+        userModels.setUltraHaze(0, _ultraZeroCol, sunDirW, _ultraZeroCol, 0, 0); // MS6
         ultraSkyLevel = 0;
         ultraAfterglow = 0;
         ultraDomeDir = 0;
@@ -6837,8 +6874,10 @@ export function attachStylizedTiles(opts: {
         if (!bldgArmed) {
           bldgEditLabel.update(null, 0, 0, camera);
           // MS3: the hover note — an edited building under a resting pointer (cleared when FPV
-          // ends or the pick moves off it; arming hands the building to the label above).
-          const h = fpvActive ? bldgHover : null;
+          // ends or the pick moves off it; arming hands the building to the label above). MS6: a
+          // USER MODEL under the pointer wins the slot — it stands in front of the building it was
+          // placed beside (the right-click precedence, applied to the note).
+          const h = fpvActive && !modelHoverId ? bldgHover : null;
           if (h && enriched?.buildingTopWorld(h.cellUri, h.featureId, h.current.sy, _bldgTop, h.current)) {
             const hk = enrichedSel.variant ? overrideKey(enrichedSel.variant, h.cellUri, h.featureId) : null;
             bldgEditLabel.hover(_bldgTop, bldgHoverText(h, hk ? originOf(bldgOverrideMap, bldgShared, hk) : "none"), camera);
@@ -6918,9 +6957,33 @@ export function attachStylizedTiles(opts: {
           disarmModel();
         }
         if (!modelArmed) {
-          // The hover note over an un-armed model — only when no building note is showing
-          // (stepBldgEdit above owns that slot and clears it when nothing is hovered).
-          const hid = fpvActive && !bldgArmed && !bldgHover ? modelHoverId : null;
+          // MS6: the ORBIT hover (the stepPinHover idiom, same eligibility) — a throttled pick under
+          // the resting pointer while nothing else owns it (not FPV, not placing, no pin hovered);
+          // the FPV hover stays event-driven (onFpvPointerMove). The pointer cursor is handed back
+          // only when this step set it (shared with the sky + pin hovers). No "button held" gate:
+          // the pins have none, and a synthetic press with no release would pin it shut.
+          if (!fpvActive) {
+            const eligible = on && !placingNow() && Number.isFinite(hoverX) && !usePinsStore.getState().hoverPin;
+            if (!eligible) {
+              modelHoverId = null;
+            } else if (frameCount % PINS.hoverEveryFrames === 0) {
+              modelHoverId = pickModelAt(hoverX, hoverY)?.id ?? null;
+            }
+            if (modelHoverId) {
+              if (dom.style.cursor === "") dom.style.cursor = "pointer";
+              modelHoverCursor = dom.style.cursor === "pointer";
+            } else if (modelHoverCursor) {
+              if (dom.style.cursor === "pointer") dom.style.cursor = "";
+              modelHoverCursor = false;
+            }
+          } else if (modelHoverCursor) {
+            if (dom.style.cursor === "pointer") dom.style.cursor = "";
+            modelHoverCursor = false;
+          }
+          // The hover note over an un-armed model — the model under the pointer wins the slot
+          // (stepBldgEdit above yields it whenever `modelHoverId` is set); never beside an armed
+          // building's label.
+          const hid = !bldgArmed ? modelHoverId : null;
           const hInfo = hid ? userModels.info(hid) : null;
           if (hid && hInfo && userModels.topWorld(hid, _modelTop)) {
             const own = useUserModelsStore.getState().isMine(hid);
@@ -6929,6 +6992,12 @@ export function attachStylizedTiles(opts: {
           return;
         }
         const a = modelArmed;
+        // MS6: the row left the world (hidden / deleted from the list, the cover moved on) — the
+        // scene dropped its `armedId` already; end the session instead of re-targeting a null rig.
+        if (!userModels.info(a.id)) {
+          disarmModel();
+          return;
+        }
         if (ms.op !== modelOp) applyModelOp(ms.op);
         // The rig dies with a released model (the residency plan) — re-target when it is back.
         if (modelGizmoDragId === null) modelGizmo.setTarget(userModels.rig(a.id), modelOp);

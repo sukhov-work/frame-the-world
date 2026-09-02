@@ -95,7 +95,7 @@ top-level globals; same removal/rename rule):
 | `__globe.bestSpotTuning` | `StylizedTiles.ts:2064`, exposed `:2187` | callable + `.export()` + `.ab()` — the 54-leaf scoring-patch console (SPEC_V2 §5.6); a weights patch costs exactly ONE job and is `recompose` |
 | `__globe.enrichedState(cellUri, featureId)` / `__globe.enrichedSetTransform(cellUri, featureId, t)` | `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS1 2026-09-02) | read one building's edit TARGET + APPLIED transform + checksum facts; DRIVE a full transform (`{sy,sx,sz,rotDeg,tE,tN,tU}`) through the SAME commit path as a drag release (engine target + persisted `ftw:bldg-overrides:v1` row). `__bldgEditStore.armed` now also carries `cellUri`, so a harness can address the armed building. Consumer: `verify-meshedit.mjs` |
 | `__bldgSyncStore` · `__globe.bldgSync.{fetch,sync,shared,local}()` | `store/bldgSync.ts` · `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS3 2026-09-02f) | the world-sync counters (`world` fetch phase · `shared` · `complete` · `dirty` · `syncing` · the last push's `result`) + `requestSync()` (the one-shot the chip / pill / menu fire); `__globe.bldgSync.fetch()` / `.sync()` force the world fetch / the member push without the UI, `.shared()` / `.local()` dump the two maps. `enrichedState(...)` grew `osm` + `tint` (0 none · 1 world-shared · 2 mine), `enrichedSeats()` grew `shared`. Consumer: `verify-meshedit.mjs` legs 15–18 |
-| `__modelEditStore` · `__userModelsStore` · `__globe.userModels()` · `__globe.modelGizmo()` | `store/modelEdit.ts` · `store/userModels.ts` · `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS5 2026-09-02i) | the armed USER MODEL mirror (`armed.{id,title,mine,lat,lon,sizeM,dragging,overridden,op,committed,live,saving,saveError}` + the `setOp` / `requestRevert` / `requestReset` / `requestDisarm` / `closeMenu` requests) · the world store (`world` / `worldPhase` / `cover` / `complete` · `mine` / `minePhase` · `placing` + `beginPlacing()` / `cancelPlacing()` / `setPlacement()` · `density`) · `__globe.userModels()` = the scene module's residency + per-model seat/rig state (`{ world, resident, loading, skipped, tris, failed, visible, warn, armedId, models[] }`) · `__globe.modelGizmo()` = the MODEL gizmo instance's live state (`armed, op, attached, dragging, axis, live, saving, saveError`) + `handlePx(name)` / `originPx()` / **`modelPx(id)`** (client px of a resident model's mid-height point — the harness right-clicks it). Consumer: `verify-usermodels.mjs` |
+| `__modelEditStore` · `__userModelsStore` · `__globe.userModels()` · `__globe.modelGizmo()` | `store/modelEdit.ts` · `store/userModels.ts` · `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS5 2026-09-02i) | the armed USER MODEL mirror (`armed.{id,title,mine,lat,lon,sizeM,dragging,overridden,op,committed,live,saving,saveError}` + the `setOp` / `requestRevert` / `requestReset` / `requestDisarm` / `closeMenu` requests) · the world store (`world` / `worldPhase` / `cover` / `complete` · `mine` / `minePhase` · `placing` + `beginPlacing()` / `cancelPlacing()` / `setPlacement()` · `density`) · `__globe.userModels()` = the scene module's residency + per-model seat/rig state (`{ world, resident, loading, skipped, tris, failed, visible, warn, armedId, models[] }`) · `__globe.modelGizmo()` = the MODEL gizmo instance's live state (`armed, op, attached, dragging, axis, live, saving, saveError`) + `handlePx(name)` / `originPx()` / **`modelPx(id)`** (client px of a resident model's mid-height point — the harness right-clicks it). Consumer: `verify-usermodels.mjs` **MS6 (2026-09-02m):** `modelGizmo().standBeside(id)` (the "stand beside it" one-shot — an FPV pose from `modelStandpoint`), `userModels().shader` (`{ chained, haze, alpha }` — the chained GLB material patch's holders); `armed.mine` is now the YOURS / SHARED badge (any signed-in member arms any model). |
 | `__globe.bldgGizmo()` | `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS2 2026-09-02) | the gizmo's live state — `{ op, attached, dragging, axis, live, rig: { liveBaseY, bodyVisible } \| null, handlePx(name), originPx() }`; `handlePx` projects a TransformControls picker (`X` / `Y` / `Z` / `XZ` / `XYZ` …; the rotate ring's centre-line) to client px so `verify-meshedit.mjs` legs 7–14 drive the gizmo with REAL CDP pointer events through the FPV gesture table (it only READS; no seam writes the gizmo); `debug(clientX?, clientY?)` dumps the controls' drag internals + a drag-plane probe at a point (the seam that caught the plane's silenced raycast, 2026-09-02). `enrichedState(...)` grew `seated` (the RC7 first sample has landed — the rig, hence the handles, can jump by the cell's relief before it). `__bldgEditStore` grew `op` / `setOp` / `revertRequest` / `menu` / `disarmRequest` + `armed.{op, committed, live}` |
 
 ## 4. Wix Data collection schemas (source of truth: `scripts/provision-collections.mjs`)
@@ -119,11 +119,16 @@ top-level globals; same removal/rename rule):
   hash (§7 — OSM-keyed when `osmId` is set). `cx/cz` are BAKE-LOCAL checksum metres, never
   geographic (C6); `memberId` is stamped server-side and never emitted by the public GET.
 - **UserModels** (ADMIN everything; the elevated `/api/models` (owner) and `/api/world-models`
-  (public) are the only readers, `/api/models` the only writer; **PROVISIONED 2026-09-02h, 24
-  fields + `gh5` added 2026-09-02i = 25** — MESH SUITE MS4/MS5, D3): `title ownerMemberId fileId
-  url thumbnailFileId thumbnailUrl fileName sourceFormat rawBytes glbBytes tris meshes textures
-  decimatedFromTris bboxX bboxY bboxZ readiness hidden lat lon geohash9 gh5 rotDeg scale` — ONE
-  row per uploaded model; **`gh5`** (MS5) is the denormalized p5 cell of the placement the public
+  (public) are the only readers, `/api/models` the only writer — plus the DEV-gated `/api/dev-seed`
+  `kind: "model"` seed/remove for the two-member harness leg; **PROVISIONED 2026-09-02h, 24
+  fields + `gh5` added 2026-09-02i + `editorMemberId` added 2026-09-02m = 26** — MESH SUITE
+  MS4/MS5/MS6, D3): `title ownerMemberId fileId url thumbnailFileId thumbnailUrl fileName
+  sourceFormat rawBytes glbBytes tris meshes textures decimatedFromTris bboxX bboxY bboxZ readiness
+  hidden lat lon geohash9 gh5 rotDeg scale editorMemberId` — ONE row per uploaded model;
+  **`editorMemberId`** (MS6) is the LAST EDITOR of the transform — the owner at POST, re-stamped
+  server-side from the session by every placement PATCH (any signed-in member; LWW) — and is
+  NEVER emitted: the public row carries no identity, the owner's list row only a derived
+  `editedByOther` boolean (C6); **`gh5`** (MS5) is the denormalized p5 cell of the placement the public
   world read matches by `hasSome` (equality-on-a-set — the pins' gh4/gh6 precedent; a p9 hash
   cannot be prefix-queried), re-derived beside `geohash9` on every placement write;
   the BYTES are a PUBLIC Wix Media MODEL3D file (the platform refuses private 3D — MS0), so
@@ -164,12 +169,18 @@ top-level globals; same removal/rename rule):
   ∧ `hidden ≠ true`, one page of 200 oldest-first, `complete: false` when a cell holds more; a
   `PublicModel` is `{ id, title, url, thumbnailUrl, tris, glbBytes, bbox, lat, lon, rotDeg, scale,
   updatedAt }` and NEVER carries `ownerMemberId` or a file id (C6). And **`PATCH /api/models`**
-  (MS5): `{ id, lat, lon, rotDeg?, scale? }` (member-only 401 `SIGNED_OUT`; 400 names the field;
-  404 `NOT_FOUND` "no such model of yours") re-derives `geohash9` + `gh5`, CLAMPS the seats onto
-  the sanity rail (0.001×..1000× since MS5b 2026-09-02l — the 0.1×–10× band is per EDIT about the
-  committed scale, client-side; yaw wrapped; identity stored as null), replaces the whole row and answers
-  `{ model: ModelListItem }` (the list row now carries `rotDeg`/`scale`); 502 `UPDATE_FAILED`.
-  Placement `lat/lon` on the wire is the member's CHOSEN spot of a world-visible object.
+  (MS5, split in TWO authorities at MS6 2026-09-02m — dispatched on the body's SHAPE): a
+  PLACEMENT body `{ id, lat, lon, rotDeg?, scale? }` (coordinates present) is open to EVERY
+  signed-in member (401 `SIGNED_OUT`; 400 names the field; 404 `NOT_FOUND` "no such model") —
+  re-derives `geohash9` + `gh5`, CLAMPS the seats onto the sanity rail (0.001×..1000× since MS5b
+  2026-09-02l — the 0.1×–10× band is per EDIT about the committed scale, client-side; yaw
+  wrapped; identity stored as null), stamps `editorMemberId` from the session and replaces the
+  whole row (`items.update` — last writer wins by construction); a MANAGEMENT body
+  `{ id, title?: 1–120 chars trimmed, hidden?: boolean }` (no coordinates, at least one field) is
+  the OWNER's only (404 "no such model of yours"). Both answer `{ own, model, public }` — the
+  owner-shaped `ModelListItem` (now with `updatedAt` + `editedByOther`) ONLY to the owner, the
+  `PublicModel` (or null when not world-visible) to everyone; 502 `UPDATE_FAILED`. Placement
+  `lat/lon` on the wire is the member's CHOSEN spot of a world-visible object.
   `/api/photos` (GET/POST/PATCH/DELETE), `/api/places`, `/api/listings`, `/api/market` (public
   GET), `/api/upload-url`, `/api/sbdb` (param-allowlisted JPL relay), `/api/ping` (the release
   canary — never delete), `/api/dev-seed` (DEV-gated 404 in prod), **`/api/models`** (MESH SUITE
@@ -180,7 +191,11 @@ top-level globals; same removal/rename rule):
   code `NOT_A_MODEL | WRONG_MIME | PRIVATE_FILE | TOO_LARGE | NO_URL | INGEST_FAILED`; 404
   `FILE_NOT_FOUND`; a re-POST of the same fileId answers the existing row with `existing: true`,
   another member's fileId 409 `ALREADY_REGISTERED`) · DELETE `?id=` → `{ deleted, mediaDeleted }`
-  — record first, media best-effort), and **`/api/building-overrides`**
+  — record first, media best-effort; the MY PINS · MODELS row's ✕ → SURE? calls it since MS6),
+  `/api/dev-seed` grew (MS6) `POST { kind: "model", ownerEmail, model }` → a `UserModels` row owned
+  by that member (row only, reusing a stored GLB's url) · `GET ?ownerEmail=&kind=model` → that
+  member's list rows · `DELETE ?kind=model&id=` → the row (never media) — all DEV-gated 404 in
+  prod, and **`/api/building-overrides`**
   (U8, new 2026-08-19; **LIVE since MESH SUITE MS3, 2026-09-02f**): the world-shared twin of the
   `ftw:bldg-overrides:v1` local store, admin-elevated. **GET `?variant=`** (public) pages by
   `skip()` at 1000 per page up to 10 pages and answers `{ overrides: PublicOverride[], complete }`

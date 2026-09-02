@@ -226,12 +226,20 @@ function CheckCard() {
 export function beginModelPlacement(): void {
   const st = useModelUploadStore.getState();
   if (!st.stored) return;
-  useUserModelsStore.getState().beginPlacing(st.stored.modelId, st.title.trim() || titleFromStored(st.fileName));
+  const id = st.stored.modelId;
+  const title = st.title.trim() || titleFromStored(st.fileName);
+  st.clear();
+  startModelPlacement(id, title);
+}
+
+/** MS6: the same hand-off for ANY stored model (the MY PINS · MODELS row) — arm click-to-place,
+ *  leave FPV for orbit, close the upload overlay if it is open. */
+export function startModelPlacement(id: string, title: string): void {
+  useUserModelsStore.getState().beginPlacing(id, title);
   const up = useUploadStore.getState();
   if (up.viewMode === "fpv") up.setViewMode("orbit");
   const cam = useCameraStore.getState();
   if (cam.tempFpv) cam.setTempFpv(false);
-  st.clear();
   up.closePanel();
 }
 const titleFromStored = (fileName?: string) => (fileName ? fileName.replace(/\.[^.]+$/, "") : "this model");

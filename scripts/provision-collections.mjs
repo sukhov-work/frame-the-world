@@ -182,6 +182,11 @@ const COLLECTIONS = [
       text("gh5", "Placement Geohash (p5)"),
       num("rotDeg", "Yaw (deg)"),
       num("scale", "Uniform Scale"),
+      // MESH SUITE MS6 (2026-09-02m): the LAST EDITOR of the transform — any signed-in member may
+      // move / turn / resize any model (LWW), so the owner's list can say "edited by another
+      // member". Stamped server-side from the session (the BuildingOverrides `memberId`
+      // precedent); NEVER emitted by the public world read (C6); the owner at POST.
+      text("editorMemberId", "Last Editor Member Id"),
     ],
     permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
   },

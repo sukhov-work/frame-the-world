@@ -3998,6 +3998,11 @@ export const MODELS = {
   /** Hover pick throttle (ms) for the "MODEL · title" note over an un-armed model in FPV
    *  (mouse/pen only) — rides the same cadence as the building hover note. */
   hoverPickMs: 120,
+  /** MS6 (taste, owner to re-open): chain the ULTRA aerial haze + the FPV BUILDINGS-slider
+   *  dissolve onto every loaded model's materials, so a model 2 km out sits in the same air as
+   *  the buildings beside it and melts with them under the slider. false = the MS5 look (the
+   *  GLB's own materials, untouched). */
+  chainShader: true,
 } as const;
 
 export const DEBUGHUD = {
