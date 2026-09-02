@@ -217,14 +217,14 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   asterisms, dayArc, golden, moonlight, captureTime, planner, twilight, mwSeason, frameFinder,
   sunEventFrame, moonCalendar, targets, topo, comet, eclipse — see §4), `sky/` (catalog, searchIndex, messier,
   openngc, ngcNames, constellations, starNames, hoverNames, asteroids, comets, simbad, sbdb, ttlCache),
-  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant, `featureTransform` + `bldgOverrides` (MESH SUITE MS1 2026-09-02: the per-building spatial edit — v2 rows, rails, the absolute recompose math; as-built `MESH_SUITE_PLAN.md` §6) — best-variant
+  `globe/` (quality, drift, buildingNight, enrichedMask, enrichedVariant, `featureTransform` + `bldgOverrides` (MESH SUITE MS1 2026-09-02: the per-building spatial edit — v2 rows, rails, the absolute recompose math; as-built `MESH_SUITE_PLAN.md` §6) + `bldgSync` (MESH SUITE MS3 2026-09-02f: the world-shared merge policy — local pending wins, shared wins over my synced copy, a reset of a shared edit is a tombstone; the per-cell + by-OSM-id index the engine's load-model seam reads; §8) — best-variant
   selection, rewritten 2026-08-18p, regions — the baked-region REGISTRY: bboxes/variants/
   terrain patches, the ONE source (2026-08-18p, `BAKED_ASSETS.md` §4), loadPriority — the U5
   pure download comparator, 0.4.28-parity, 2026-08-18), `geo/` also carries `slippy` (U3 tile
   math for the 2D map twins) + `terrainTiles` (terrain-patch serve-set math, bake-twin
   parity-tested, 2026-08-18p), `photo/` (npf), `market/`
   (listing), `guide/` (guideContent, inline — the guide content model, G1 2026-08-15), `export/` (ics),
-  `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade), `api/`, `format/`,
+  `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade, overrideRecords — the building-overrides wire: OSM-keyed `_id`, server-side rails), `api/`, `format/`,
   `textures/`, `theme/` (GL token bridge **`tokens.ts`** + **`cssInk.ts`** — the memoised
   resolved-token cache the two CANVAS radars paint from; a 2D canvas cannot take a `var()`, and
   resolving per paint forced ~320 style recalcs/s, T38 — plus **`findPalette.ts`** and
@@ -232,7 +232,8 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
 - `pages/`: `index.astro` (desktop) + `m.astro` (mobile shell) + `guide.astro` (standalone server-rendered
   guide page over the same `guideContent`, 2026-08-15e) + `api/` (**9 routes**: photos, places,
   listings, market, upload-url, sbdb, ping, dev-seed, `building-overrides` (U8 LWW height-override
-  bulkSave, 2026-08-19) — full route inventory in `conventions/contracts.md §7`; §6 above keeps
+  bulkSave, 2026-08-19 → LIVE at MESH SUITE MS3 2026-09-02f: paged public GET + member POST,
+  the collection provisioned) — full route inventory in `conventions/contracts.md §7`; §6 above keeps
   the original endpoint contracts). Also under `public/`: **`sw.js`** — the iOS-ONLY, dev-gated,
   7-day-TTL tile cache (#15, batch #4 S3); registered dynamically at runtime, never imported, and
   policy-fenced by `test/swTileCache.test.ts`.

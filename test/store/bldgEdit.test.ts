@@ -22,6 +22,7 @@ const armed = (over: Partial<BldgEditArmed> = {}): BldgEditArmed => ({
   op: "extrude",
   committed: { ...IDENTITY_TRANSFORM },
   live: { ...IDENTITY_TRANSFORM },
+  origin: "none",
   ...over,
 });
 

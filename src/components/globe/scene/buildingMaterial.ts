@@ -289,8 +289,12 @@ export function createBuildingMaterials(
           // reads stronger than a COMMITTED override (the per-vertex mask) — "selected" vs
           // "edited". Accent through the D14 token bridge; both no-op at their defaults.
           float ftwArm = (uFtwArmedId >= 0.0 && abs(vFtwFid - uFtwArmedId) < 0.5) ? 1.0 : 0.0;
-          float ftwOvK = max(ftwArm * ${glf(ENRICHED.overrideTintK)},
-            vFtwOverride * ${glf(ENRICHED.overrideTintCommittedK)});
+          // MESH SUITE MS3: the committed mask is a byte LADDER — 255 = my edit, 128 = a
+          // world-shared edit (fainter), 0 = original — read as two thresholds (a run's vertices
+          // all carry one byte, so nothing interpolates onto a third level).
+          float ftwOvLvl = vFtwOverride > 0.75 ? ${glf(ENRICHED.overrideTintCommittedK)}
+            : (vFtwOverride > 0.25 ? ${glf(ENRICHED.overrideTintSharedK)} : 0.0);
+          float ftwOvK = max(ftwArm * ${glf(ENRICHED.overrideTintK)}, ftwOvLvl);
           diffuseColor.rgb = mix(diffuseColor.rgb, uFtwAccent, ftwOvK);
         }`,
       )

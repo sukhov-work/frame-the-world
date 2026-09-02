@@ -425,3 +425,28 @@ Three facts the gizmo encodes (source-verified against three 0.185 `TransformCon
   `_gizmo.picker[mode]` (a torus for the rotate ring — take the on-screen extreme vertex, not
   the bounding-sphere centre, which is the ring's hole). A three bump re-verifies it.
 
+## The MESH SUITE MS3 family (added 2026-09-02f — world-shared edits)
+
+Two knobs: **`ENRICHED.overrideTintSharedK`** (0.13) is the WORLD-SHARED level of the
+`_ftw_override` byte ladder (byte 128) — `overrideTintCommittedK` (byte 255, MINE) was raised
+0.16 → 0.24 on the owner's "highlighted more distinctly than today"; the armed run keeps
+`overrideTintK`. The fragment reads the ladder as two thresholds (0.25 / 0.75 of the normalized
+byte), never as a multiplier, so nothing interpolates onto a third level — a run's vertices all
+carry one byte. **`ENRICHED.hoverPickMs`** (120) throttles the hover pick that anchors the
+"EDITED · shared · 34.3 m · was 24.5 m" note over an edited building nobody has armed (mouse/pen
+only, never during a look-drag; a resting pointer costs nothing).
+
+Not knobs (contract, `lib/wix/overrideRecords.ts`): `SYNC_MAX` 1000 (the platform bulk cap AND
+the query page size), `GET_MAX_PAGES` 10 (10k rows before the GET answers `complete: false`, on
+which the client never deletes). The merge policy is code, not tuning (`lib/globe/bldgSync.ts`).
+
+Traps the slice recorded:
+- **`astro check` re-optimizes Vite's dep cache under a running `wix dev`** ("Re-optimizing
+  dependencies because vite config has changed") — every `node_modules/.vite/deps/*` module then
+  answers `504 Outdated Optimize Dep` and the globe never boots. Same recipe as a new
+  globe-bundle import: stop `wix dev`, move `.vite/deps` aside, restart. Run `astro check`
+  before the dev server, or restart after it.
+- **A result's `next()` runs outside `auth.elevate`** — page an ADMIN-read collection with
+  `skip()` so every page is its own elevated call.
+- **The collection is the production world even from `wix dev`** — a harness that writes a row
+  removes it in `finally` and proves the world clean.

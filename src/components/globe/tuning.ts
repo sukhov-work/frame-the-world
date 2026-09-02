@@ -2290,7 +2290,12 @@ export const ENRICHED = {
   overrideTintK: 0.35,
   /** Persistent tint on committed overrides — subtler than armed (they should read as "edited",
    *  not "selected"). */
-  overrideTintCommittedK: 0.16,
+  overrideTintCommittedK: 0.24,
+  /** MESH SUITE MS3 (2026-09-02): the WORLD-SHARED level of the `_ftw_override` byte ladder (byte
+   *  128) — a fainter accent than my own committed edits (byte 255, the knob above, raised from
+   *  0.16 per the owner's "highlighted more distinctly than today"), so a visitor can tell "someone
+   *  edited this" from "I edited this" at a glance. */
+  overrideTintSharedK: 0.13,
   /** MESH SUITE MS1 (2026-09-02): when a frame's seat/edit writes touch at most this many runs of
    *  a cell, the GPU upload is limited to those runs' byte ranges (`BufferAttribute.addUpdateRange`
    *  — three 0.185 merges the ranges, uploads them, then clears the list); above it the whole
@@ -2310,6 +2315,11 @@ export const ENRICHED = {
   gizmoSnapM: 1,
   gizmoSnapDeg: 15,
   gizmoSnapScale: 0.1,
+  // --- MESH SUITE MS3 (2026-09-02): world-shared edits ---
+  /** Min interval (ms) between the hover picks that anchor the "EDITED · shared · was …" note
+   *  over an edited building nobody has armed — one raycast against the enriched meshes per
+   *  tick while the mouse moves; a resting pointer costs nothing. */
+  hoverPickMs: 120,
   /** Screen-space error target (px) for the enriched renderer (library default 16). Lower = sharper. */
   errorTarget: 16,
   /** Hard-crease threshold (deg) for the enriched building edge strokes (mirrors BUILDINGS.edgeAngleDeg). */

@@ -9,6 +9,7 @@
  * poked at runtime and typing them would couple this file to three; the stores are typed precisely.
  */
 import type { useBldgEditStore } from "./store/bldgEdit";
+import type { useBldgSyncStore } from "./store/bldgSync";
 import type { useCameraStore } from "./store/camera";
 import type { useTimeStore } from "./store/time";
 import type { useMiniMapStore } from "./store/minimap";
@@ -105,6 +106,9 @@ declare global {
     __findStore?: typeof useFindStore;
     __bestSpotStore?: typeof useBestSpotStore;
     __bldgEditStore?: typeof useBldgEditStore;
+    /** MESH SUITE MS3 — the world-sync counters (world fetch phase, shared/dirty rows, the last
+     *  push's outcome) + `requestSync()`; `verify-meshedit.mjs` legs 15+ drive SYNC through it. */
+    __bldgSyncStore?: typeof useBldgSyncStore;
     __skyStore?: typeof useSkyStore;
     __placesStore?: typeof usePlacesMapStore;
     __saveStore?: typeof useSaveStore;

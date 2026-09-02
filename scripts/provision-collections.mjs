@@ -120,9 +120,17 @@ const COLLECTIONS = [
       text("variant", "Bake Variant", true),
       text("cell", "Cell URI", true),
       num("featureId", "Baked Feature Id"),
-      // Reserved for the OSM-keyed upgrade (the bakers now emit cell-*.meta.json sidecars).
+      // MESH SUITE MS3 (2026-09-02): the OSM element id IS the `_id` key when present (the
+      // re-bake-stable identity; the fingerprint below stays as locator + checksum).
       text("osmId", "OSM Element Id"),
       num("heightScale", "Height Scale (vs baked)"),
+      // MS3: the v2 row's spatial components (lib/globe/featureTransform.ts) — null = identity.
+      num("sx", "Scale X (east)"),
+      num("sz", "Scale Z (north)"),
+      num("rotDeg", "Yaw (deg, three sense)"),
+      num("tE", "Offset East (m)"),
+      num("tN", "Offset North (m)"),
+      num("tU", "Lift (m)"),
       num("cx", "Centroid X (bake-local m)"),
       num("cz", "Centroid Z (bake-local m)"),
       num("vc", "Run Vertex Count"),

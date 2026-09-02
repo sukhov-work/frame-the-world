@@ -631,20 +631,26 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "Map data gets heights wrong; your eyes know better. One drag rescales a building " +
           "between half and triple its CURRENT height, and repeated edits compound — down to " +
-          "a tenth of the mapped height, or up to ten times it. Edits re-measure every " +
+          "a tenth of the mapped height, or up to ten times it. Right-click the armed building " +
+          "(hold it on /m) for the rest of the suite: MOVE, ROTATE and SCALE its footprint with " +
+          "a three-axis gizmo, and revert one op or all of them. Edits re-measure every " +
           "[[plan-verdicts|skyline verdict]].",
-        keys: ["height", "scale", "rescale", "too short", "too tall", "wrong height", "osm"],
+        keys: ["height", "scale", "rescale", "too short", "too tall", "wrong height", "osm", "sync", "gizmo", "move building", "rotate building"],
         steps: [
           "Double-click a building — it arms with a highlight.",
           "Drag up or down to rescale it — a translucent ghost previews the new height over " +
             "the solid original.",
           "Read the pinned label: the live height, with \"↳ was\" the mapped one.",
-          "The HEIGHT chip shows the delta — RESET restores the mapped height.",
+          "Right-click it for MOVE / ROTATE / SCALE; the chip lists every op's current and " +
+            "original value with a ↺ each — RESET ALL restores the mapped building.",
+          "Press SYNC (sign in first) to share your edits with everyone — buildings other " +
+            "people edited carry a fainter tint, and hovering one tells you what changed.",
           "Click away, tap away on /m, or press Esc when done.",
         ],
         tip:
-          "Edits live only in this browser — up to 1,000 buildings. They survive " +
-          "reloads, not a change of device.",
+          "Unsynced edits live only in this browser; synced ones reach every visitor (last sync " +
+          "wins), keyed to the building's map id — most survive a re-bake, one whose shape " +
+          "changed can still drop.",
       },
       {
         id: "fpv-exit",

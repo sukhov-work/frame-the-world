@@ -123,14 +123,31 @@ import { seatStep } from "../../lib/globe/enrichedMask";
 import {
   deleteOverride,
   dragScaleK,
+  isNeutralRow,
   loadOverrides,
   overrideKey,
-  parseOverrideKey,
   roundCentroidM,
-  rowTransform,
+  saveOverrides,
+  tombstoneOverride,
   transformFields,
   upsertOverride,
+  type OverrideRow,
 } from "../../lib/globe/bldgOverrides";
+import {
+  applySyncResult,
+  dirtyCount,
+  originOf,
+  OverrideIndex,
+  reconcileShared,
+  sharedRowFromPublic,
+  syncPayload,
+  type EffectiveOverride,
+  type OverrideOriginLabel,
+  type SharedMap,
+} from "../../lib/globe/bldgSync";
+import type { PublicOverride } from "../../lib/wix/overrideRecords";
+import { useBldgSyncStore, type BldgSyncResult } from "../../store/bldgSync";
+import { useMemberStore } from "../../store/member";
 import {
   IDENTITY_TRANSFORM,
   isIdentityTransform,
@@ -404,45 +421,61 @@ export function attachStylizedTiles(opts: {
     // no-ops instead of rebuilding the overlay stack it just built.
     overlayResolution: QUALITY.tiers[qualityTier].overlayResolutionPx,
   });
-  // U8 per-building height overrides (owner 2026-08-18): the localStorage map for the RESOLVED
-  // variant, handed to the enriched module (checksum-validated per cell at load-model; a
-  // mismatch — a re-bake reshuffled the bake-sequential ids — drops the stored row here).
+  // U8 per-building overrides (owner 2026-08-18) → MESH SUITE MS3 (2026-09-02): the localStorage
+  // map is MINE (dirty edits, pending resets, synced copies); the WORLD's rows for the resolved
+  // variant are fetched from /api/building-overrides at boot (`bldgShared`, memory only) and
+  // merged by lib/globe/bldgSync's policy — local pending wins, shared wins over my synced copy.
+  // The engine consults `forCell` per cell at load-model (checksum-validated; a mismatch on a
+  // row with no OSM id drops it) and `byOsm` for the recovery sweep (a row whose bake-sequential
+  // key died in a re-bake finds its building by OSM id and is re-keyed here with fresh facts).
   // The verbatim `?enriched=<url>` dev seam has no stable variant identity → seam omitted.
   const bldgOverrideMap = loadOverrides();
-  const bldgOverridesSeam = enrichedSel.variant
-    ? {
-        forCell: (cellUri: string) => {
-          const rows: Array<{
-            featureId: number;
-            xf: FeatureTransform;
-            cx: number;
-            cz: number;
-            vc: number;
-          }> = [];
-          const prefix = `${enrichedSel.variant}|${cellUri}|`;
-          for (const [key, row] of Object.entries(bldgOverrideMap)) {
-            if (!key.startsWith(prefix)) continue;
-            const parsed = parseOverrideKey(key);
-            // MS1: the v2 row resolves to a FULL transform (absent components = identity).
-            if (parsed)
-              rows.push({
-                featureId: parsed.featureId,
-                xf: rowTransform(row),
-                cx: row.cx,
-                cz: row.cz,
-                vc: row.vc,
-              });
-          }
-          return rows;
-        },
-        onInvalid: (cellUri: string, featureId: number) => {
-          deleteOverride(
-            bldgOverrideMap,
-            overrideKey(enrichedSel.variant as string, cellUri, featureId),
-          );
-        },
-      }
-    : undefined;
+  const bldgShared: SharedMap = new Map();
+  const bldgIndex = enrichedSel.variant
+    ? new OverrideIndex(enrichedSel.variant, bldgOverrideMap, bldgShared)
+    : null;
+  const refreshBldgDirty = () =>
+    useBldgSyncStore.getState()._set({ dirty: dirtyCount(bldgOverrideMap), shared: bldgShared.size });
+  const bldgOverridesSeam =
+    bldgIndex && enrichedSel.variant
+      ? {
+          forCell: (cellUri: string) => bldgIndex.forCell(cellUri),
+          byOsm: (osm: string) => bldgIndex.byOsmId(osm),
+          onInvalid: (cellUri: string, featureId: number) => {
+            const key = overrideKey(enrichedSel.variant as string, cellUri, featureId);
+            if (bldgOverrideMap[key]) deleteOverride(bldgOverrideMap, key);
+            bldgShared.delete(key);
+            bldgIndex.invalidate();
+            refreshBldgDirty();
+          },
+          onRecovered: (
+            row: EffectiveOverride,
+            cellUri: string,
+            featureId: number,
+            facts: { cx: number; cz: number; vc: number; bakedHeightM: number },
+          ) => {
+            // The row's fingerprint died (a re-bake) and its OSM id found the building: re-key
+            // it with the fresh facts so the next fingerprint pass passes on the checksum.
+            const key = overrideKey(enrichedSel.variant as string, cellUri, featureId);
+            const fresh: OverrideRow = {
+              ...row.row,
+              cx: roundCentroidM(facts.cx),
+              cz: roundCentroidM(facts.cz),
+              vc: facts.vc,
+              hM: Math.round(facts.bakedHeightM * 10) / 10,
+            };
+            if (row.origin === "mine") {
+              delete bldgOverrideMap[row.key];
+              bldgOverrideMap[key] = fresh;
+              saveOverrides(bldgOverrideMap);
+            } else {
+              bldgShared.delete(row.key);
+              bldgShared.set(key, fresh);
+            }
+            bldgIndex.invalidate();
+          },
+        }
+      : undefined;
   const enriched =
     enrichedUrl && enrichedBbox
       ? attachEnrichedBuildings(scene, {
@@ -455,6 +488,105 @@ export function attachStylizedTiles(opts: {
           overrides: bldgOverridesSeam,
         })
       : null;
+  // MESH SUITE MS3: the world fetch + the member SYNC. Both fail OPEN — local rows keep applying;
+  // a fetch that never lands leaves the world invisible, never the user's own edits. The fetch
+  // runs at boot (cells streamed before it lands are covered by `reapplyOverrides`) and again
+  // before every push (fetch-before-push — the reconciliation honours last-committer-wins; a
+  // failed fetch does not block the push, LWW keeps an un-reconciled push safe).
+  const bldgFetchShared = async (): Promise<boolean> => {
+    if (!bldgIndex || !enrichedSel.variant) return false;
+    useBldgSyncStore.getState()._set({ world: "fetching" });
+    try {
+      const res = await fetch(
+        `/api/building-overrides?variant=${encodeURIComponent(enrichedSel.variant)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { overrides?: unknown[]; complete?: boolean };
+      const now = Date.now();
+      const rows: Array<{ key: string; row: OverrideRow }> = [];
+      for (const raw of Array.isArray(body.overrides) ? body.overrides : []) {
+        const r = sharedRowFromPublic(raw as PublicOverride, now);
+        if (r) rows.push(r);
+      }
+      const complete = body.complete === true;
+      const { changed } = reconcileShared(bldgOverrideMap, bldgShared, rows, complete, now);
+      if (changed > 0) saveOverrides(bldgOverrideMap);
+      bldgIndex.invalidate();
+      enriched?.reapplyOverrides();
+      useBldgSyncStore.getState()._set({ world: "ready", complete });
+      refreshBldgDirty();
+      return true;
+    } catch (e) {
+      console.warn("[bldg-sync] world fetch failed", e);
+      useBldgSyncStore.getState()._set({ world: "error" });
+      refreshBldgDirty();
+      return false;
+    }
+  };
+  let bldgSyncBusy = false;
+  const bldgSyncNow = async (): Promise<void> => {
+    if (bldgSyncBusy || !bldgIndex || !enrichedSel.variant) return;
+    bldgSyncBusy = true;
+    useBldgSyncStore.getState()._set({ syncing: true, result: null });
+    const done = (result: BldgSyncResult) => {
+      bldgSyncBusy = false;
+      useBldgSyncStore.getState()._set({ syncing: false, result });
+      refreshBldgDirty();
+      syncBldgEdit(); // the armed building's origin badge (UNSYNCED → SYNCED)
+    };
+    const outcome = (kind: BldgSyncResult["kind"], upserted = 0, removed = 0, message?: string): BldgSyncResult =>
+      message ? { kind, upserted, removed, atMs: Date.now(), message } : { kind, upserted, removed, atMs: Date.now() };
+    try {
+      // The login gate: the member store mirrors the session; resolve it once if nobody has.
+      const ms = useMemberStore.getState();
+      if (ms.phase === "unknown" || ms.phase === "loading") await ms.refresh();
+      if (useMemberStore.getState().phase !== "member") {
+        done(outcome("signed-out"));
+        return;
+      }
+      await bldgFetchShared();
+      const payload = syncPayload(bldgOverrideMap, bldgShared);
+      if (payload.upserts.length === 0 && payload.removes.length === 0) {
+        if (payload.sent.length > 0) {
+          // Only stale tombstones (the world already lost those rows) — they die here.
+          applySyncResult(bldgOverrideMap, bldgShared, payload, Date.now());
+          saveOverrides(bldgOverrideMap);
+          bldgIndex.invalidate();
+        }
+        done(outcome("nothing"));
+        return;
+      }
+      const res = await fetch("/api/building-overrides", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ upserts: payload.upserts, removes: payload.removes }),
+      });
+      if (res.status === 401) {
+        useMemberStore.getState()._setAnonymous();
+        done(outcome("signed-out"));
+        return;
+      }
+      if (res.status === 400) {
+        const b = (await res.json().catch(() => ({}))) as { message?: string };
+        done(outcome("rejected", 0, 0, b.message));
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { inserted?: number; updated?: number; removed?: number };
+      applySyncResult(bldgOverrideMap, bldgShared, payload, Date.now());
+      saveOverrides(bldgOverrideMap);
+      bldgIndex.invalidate();
+      done(outcome("synced", (body.inserted ?? 0) + (body.updated ?? 0), body.removed ?? 0));
+    } catch (e) {
+      console.warn("[bldg-sync] push failed", e);
+      done(outcome("failed"));
+    }
+  };
+  if (bldgIndex) {
+    refreshBldgDirty();
+    void bldgFetchShared();
+  }
   // U5 instrumentation: per-renderer download→model latency probes (tile-download-start pairs
   // with load-model per tile; load-error forgets the entry). Counters only — the DEV seam
   // (__globe.u5) reads snapshots; u5Mark() starts a time-to-first window for a scripted A/B.
@@ -1692,6 +1824,7 @@ export function attachStylizedTiles(opts: {
     cx: number; // pristine checksum capture from the pick (rounded at persist time)
     cz: number;
     vc: number;
+    osm: string | null; // MS3: the RC17 OSM id — the persisted row's recovery key
     committedK: number; // the scale each edit re-anchors on (the owner's 0.5×/3× band)
     liveK: number; // live drag value (== committedK between drags)
     distM: number; // pick distance — scales the drag gain
@@ -1717,6 +1850,14 @@ export function attachStylizedTiles(opts: {
   let bldgGizmoDragId: number | null = null; // the claimed pointer while a gizmo drag is live
   let bldgLive: FeatureTransform | null = null; // the gizmo's clamped read-back mid-drag (else null)
   let bldgMenuDismiss = false; // the current press only closed the context menu (not a tap-away)
+  // MS3: the edited building under a resting pointer while NOTHING is armed (the hover note).
+  let bldgHover: BuildingPick | null = null;
+  let bldgHoverAtMs = 0;
+  const bldgHoverText = (pick: BuildingPick, origin: OverrideOriginLabel): string => {
+    const word =
+      origin === "shared" ? "shared" : origin === "dirty" ? "unsynced" : origin === "synced" ? "synced" : "edited";
+    return `EDITED · ${word} · ${(pick.bakedHeightM * pick.current.sy).toFixed(1)} m · was ${pick.bakedHeightM.toFixed(1)} m`;
+  };
   const bldgGizmo = attachBldgGizmo(scene, camera, {
     place: (t) => enriched?.setGhostTransform(t),
     onChange: (t) => {
@@ -1746,7 +1887,10 @@ export function attachStylizedTiles(opts: {
     // MS2: the live transform is the gizmo's clamped read-back during a drag; otherwise the
     // committed target with the U8 drag's live height on top (identical to U8 for height-only).
     const live: FeatureTransform = bldgLive ?? { ...committed, sy: a.liveK };
+    // MS3: where the committed edit lives (world-shared / mine pending / mine pushed / none).
+    const originKey = enrichedSel.variant ? overrideKey(enrichedSel.variant, a.cellUri, a.featureId) : null;
     useBldgEditStore.getState()._syncArmed({
+      origin: originKey ? originOf(bldgOverrideMap, bldgShared, originKey) : "none",
       featureId: a.featureId,
       cellUri: a.cellUri,
       originalHeightM: a.bakedHeightM,
@@ -1796,10 +1940,12 @@ export function attachStylizedTiles(opts: {
       cx: pick.cx,
       cz: pick.cz,
       vc: pick.vc,
+      osm: pick.osm,
       committedK: pick.currentK,
       liveK: pick.currentK,
       distM: pick.distance,
     };
+    bldgHover = null; // MS3: the hover note yields to the armed label
     enriched?.setArmedId(pick.featureId);
     syncBldgEdit();
   };
@@ -1823,25 +1969,33 @@ export function attachStylizedTiles(opts: {
     cellUri: string,
     featureId: number,
     t: FeatureTransform,
-    fallback?: { cx: number; cz: number; vc: number; bakedHeightM: number },
+    fallback?: { cx: number; cz: number; vc: number; bakedHeightM: number; osm: string | null },
   ) => {
-    if (!enriched || !enrichedSel.variant) return;
+    if (!enriched || !enrichedSel.variant || !bldgIndex) return;
     enriched.setTransform(cellUri, featureId, t);
     const st = enriched.featureState(cellUri, featureId);
     const facts = st ?? fallback;
     if (!facts) return;
-    upsertOverride(
-      bldgOverrideMap,
-      overrideKey(enrichedSel.variant, cellUri, featureId),
-      {
-        ...transformFields(st?.target ?? t),
-        cx: roundCentroidM(facts.cx),
-        cz: roundCentroidM(facts.cz),
-        vc: facts.vc,
-        hM: Math.round(facts.bakedHeightM * 10) / 10,
-      },
-      Date.now(),
-    );
+    const key = overrideKey(enrichedSel.variant, cellUri, featureId);
+    const fields = transformFields(st?.target ?? t);
+    const rowFacts = {
+      cx: roundCentroidM(facts.cx),
+      cz: roundCentroidM(facts.cz),
+      vc: facts.vc,
+      hM: Math.round(facts.bakedHeightM * 10) / 10,
+      ...(facts.osm ? { o: facts.osm } : {}),
+    };
+    if (isNeutralRow(fields)) {
+      // MS3: a RESET of a building the world knows is a pending REMOVAL — a tombstone masks the
+      // shared row here and rides the next SYNC; a reset of a purely local edit just deletes.
+      const known = bldgShared.has(key) || bldgOverrideMap[key]?.s !== undefined;
+      if (known) tombstoneOverride(bldgOverrideMap, key, rowFacts, Date.now());
+      else deleteOverride(bldgOverrideMap, key);
+    } else {
+      upsertOverride(bldgOverrideMap, key, { ...fields, ...rowFacts }, Date.now());
+    }
+    bldgIndex.invalidate();
+    refreshBldgDirty();
   };
   /** Apply + persist the armed building's liveK (drag release / RESET-to-1) — the height-only
    *  edit; any spatial components it already carries ride along untouched. */
@@ -1994,6 +2148,17 @@ export function attachStylizedTiles(opts: {
       const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
       if (bldgGizmo.hover(nx, ny)) dom.style.cursor = "grab";
       else if (dom.style.cursor === "grab") dom.style.cursor = "";
+    }
+    // MESH SUITE MS3: the hover NOTE over an edited building nobody has armed (mouse/pen only,
+    // never during a look-drag) — one throttled pick, so a resting pointer costs nothing and a
+    // moving one at most ~8 raycasts a second against the enriched meshes.
+    if (!bldgArmed && fpvDragId === null && e.pointerType !== "touch" && enriched) {
+      const now = performance.now();
+      if (now - bldgHoverAtMs >= ENRICHED.hoverPickMs) {
+        bldgHoverAtMs = now;
+        const pick = pickBuildingAt(e.clientX, e.clientY);
+        bldgHover = pick && !isIdentityTransform(pick.current) ? pick : null;
+      }
     }
     // U8: the claimed height drag consumes its pointer BEFORE any look math (the pinch
     // precedent) — the camera never turns while armed-and-pressing. The ghost preview appears
@@ -2798,6 +2963,14 @@ export function attachStylizedTiles(opts: {
             return bldgGizmo.debug(nx, ny);
           },
         };
+      },
+      // MESH SUITE MS3 (2026-09-02): force the world fetch / the member push without the UI
+      // (the counters + outcome ride `__bldgSyncStore`); `bldgShared()` lists the world rows held.
+      bldgSync: {
+        fetch: () => bldgFetchShared(),
+        sync: () => bldgSyncNow(),
+        shared: () => Object.fromEntries(bldgShared),
+        local: () => ({ ...bldgOverrideMap }),
       },
       // RC5: what the Esri coverage-sentinel fallback actually did — sentinels seen, how many
       // were replaced by an upscaled ancestor, how many GETs the learned cap table skipped, and
@@ -6219,6 +6392,15 @@ export function attachStylizedTiles(opts: {
         // re-anchor the mesh-pinned label (per-frame: it tracks a live drag), and mirror the chip
         // numbers at a deadband (React must never re-render at 60 fps). MS2: apply a requested op
         // switch, and keep the rig (with the gizmo on it) alive and seated between drags.
+        // MS3: the SYNC one-shot (chip foot / menu / pill) — serviced whether or not a building
+        // is armed; the push is async and reports through the sync store.
+        {
+          const ss = useBldgSyncStore.getState();
+          if (ss.syncRequest) {
+            ss._consumeSyncRequest();
+            void bldgSyncNow();
+          }
+        }
         const bs = useBldgEditStore.getState();
         if (bs.revertRequest) {
           const which = bs.revertRequest;
@@ -6231,8 +6413,16 @@ export function attachStylizedTiles(opts: {
         }
         if (!bldgArmed) {
           bldgEditLabel.update(null, 0, 0, camera);
+          // MS3: the hover note — an edited building under a resting pointer (cleared when FPV
+          // ends or the pick moves off it; arming hands the building to the label above).
+          const h = fpvActive ? bldgHover : null;
+          if (h && enriched?.buildingTopWorld(h.cellUri, h.featureId, h.current.sy, _bldgTop, h.current)) {
+            const hk = enrichedSel.variant ? overrideKey(enrichedSel.variant, h.cellUri, h.featureId) : null;
+            bldgEditLabel.hover(_bldgTop, bldgHoverText(h, hk ? originOf(bldgOverrideMap, bldgShared, hk) : "none"), camera);
+          } else bldgEditLabel.hover(null, "", camera);
           return;
         }
+        bldgEditLabel.hover(null, "", camera);
         if (bs.op !== bldgOp) applyBldgOp(bs.op);
         const a = bldgArmed;
         if (bldgOp !== "extrude" && enriched && bldgGizmoDragId === null) {

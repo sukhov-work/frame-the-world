@@ -1,16 +1,18 @@
-// /api/building-overrides — U8 backend prep (owner 2026-08-19): the NEXT phase's batch-sync
-// surface for per-building height overrides. GET is public (persisted overrides apply for ALL
-// users — the globe will fetch its variant's rows at boot next phase); POST is the member
-// batch sync (any logged-in member may overwrite any building — LWW via bulkSave's `_id`
-// upsert). Thin per C1: validate → auth → bulk write; everything unit-testable lives in
+// /api/building-overrides — the world-shared building edits (U8 backend prep, owner 2026-08-19;
+// ACTIVATED at MESH SUITE MS3, 2026-09-02). GET is public (persisted overrides apply for ALL
+// users — the globe fetches its variant's rows at boot and before every SYNC); POST is the member
+// batch sync (any logged-in member may overwrite any building — LWW via bulkSave's `_id` upsert).
+// Thin per C1: validate → auth → bulk write; everything unit-testable lives in
 // lib/wix/overrideRecords. This endpoint is the ONLY writer of BuildingOverrides (ADMIN-only
-// platform-side, the /api/photos posture). NOTE: the collection is provisioned by
-// `node scripts/provision-collections.mjs` — until that runs, both verbs 502.
+// platform-side, the /api/photos posture). The collection is provisioned by
+// `node scripts/provision-collections.mjs` (run 2026-09-02, MS3) — until it exists, both verbs 502
+// and the client fails OPEN (local rows keep applying).
 import type { APIRoute } from "astro";
 import { items } from "@wix/data";
 import { auth } from "@wix/essentials";
 import { json, requireMember } from "../../lib/api/http";
 import {
+  GET_MAX_PAGES,
   overrideId,
   overrideRecord,
   OVERRIDES_COLLECTION,
@@ -21,20 +23,33 @@ import {
 } from "../../lib/wix/overrideRecords";
 
 // GET /api/building-overrides?variant= — the world-shared overrides for one bake variant.
-// Public by design (they apply for everyone); memberId never leaves the elevated read.
+// Public by design (they apply for everyone); memberId never leaves the elevated read. Pages
+// by `skip()` (each page its own elevated call — a result's `next()` would run outside the
+// elevation) up to GET_MAX_PAGES; `complete: false` tells the client the world is larger than
+// what it got, so it must not treat "absent" as "removed".
 export const GET: APIRoute = async ({ url }) => {
   const variant = url.searchParams.get("variant");
   if (!variant || variant.length > 64)
     return json({ error: "BAD_REQUEST", message: "variant query param required" }, 400);
   try {
-    const res = await auth.elevate(items.query)(OVERRIDES_COLLECTION)
-      .eq("variant", variant)
-      .limit(SYNC_MAX)
-      .find();
-    const overrides = (res.items as Record<string, unknown>[])
-      .map(publicOverride)
-      .filter((o): o is PublicOverride => o !== null);
-    return json({ overrides });
+    const overrides: PublicOverride[] = [];
+    let complete = false;
+    for (let page = 0; page < GET_MAX_PAGES; page++) {
+      const res = await auth.elevate(items.query)(OVERRIDES_COLLECTION)
+        .eq("variant", variant)
+        .limit(SYNC_MAX)
+        .skip(page * SYNC_MAX)
+        .find();
+      for (const it of res.items as Record<string, unknown>[]) {
+        const o = publicOverride(it);
+        if (o) overrides.push(o);
+      }
+      if (!res.hasNext()) {
+        complete = true;
+        break;
+      }
+    }
+    return json({ overrides, complete });
   } catch (e) {
     console.error("[building-overrides:list]", e);
     return json({ error: "LIST_FAILED", message: "could not list overrides" }, 502);
@@ -66,7 +81,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (parsed.removes.length > 0) {
       const res = await auth.elevate(items.bulkRemove)(
         OVERRIDES_COLLECTION,
-        parsed.removes.map((r) => overrideId(r.variant, r.cell, r.featureId)),
+        parsed.removes.map((r) => overrideId(r.variant, r.cell, r.featureId, r.osmId)),
       );
       removed = res.removed ?? 0;
     }

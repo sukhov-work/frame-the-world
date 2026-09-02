@@ -19,6 +19,11 @@ import { IDENTITY_TRANSFORM, type FeatureTransform } from "../lib/globe/featureT
 export type BldgEditOp = "move" | "rotate" | "scale" | "extrude";
 export const BLDG_EDIT_OPS: readonly BldgEditOp[] = ["move", "rotate", "scale", "extrude"];
 
+/** MESH SUITE MS3: where the armed building's committed edit lives — "none" (original) ·
+ *  "shared" (the world's row applies, nothing pending here) · "dirty" (mine, not yet pushed —
+ *  including a pending RESET of a shared edit) · "synced" (mine, pushed). The chip's badge. */
+export type BldgEditOrigin = "none" | "shared" | "dirty" | "synced";
+
 /** The armed building as the chip needs it — plain display data, no engine references. */
 export interface BldgEditArmed {
   featureId: number;
@@ -41,6 +46,8 @@ export interface BldgEditArmed {
   committed: FeatureTransform;
   /** MS2: the LIVE transform — the gizmo's clamped read-back during a drag, else `committed`. */
   live: FeatureTransform;
+  /** MS3: where the committed edit lives (world-shared · mine pending · mine pushed · none). */
+  origin: BldgEditOrigin;
 }
 
 /** The context menu anchor (client px of the right-click / long-press; a static point). */

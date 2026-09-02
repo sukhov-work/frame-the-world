@@ -11,7 +11,10 @@ import {
   clampEditK,
   deleteOverride,
   dragScaleK,
+  finishSync,
   isNeutralRow,
+  isOsmId,
+  isTombstone,
   LIFT_MAX_M,
   loadOverrides,
   markSynced,
@@ -21,6 +24,7 @@ import {
   rowTransform,
   sanitizeOverrides,
   saveOverrides,
+  tombstoneOverride,
   TRANSLATE_MAX_M,
   transformFields,
   unsyncedEntries,
@@ -316,5 +320,57 @@ describe("clampGizmoEdit (rails + the per-edit band on every scale axis)", () =>
   it("non-finite input degrades to identity per component, never NaN", () => {
     const c = clampGizmoEdit({ sx: NaN, sz: 1, sy: NaN, rotDeg: NaN, tE: NaN, tN: 0, tU: NaN }, start);
     expect(c).toEqual({ ...IDENTITY_TRANSFORM });
+  });
+});
+
+// ── MESH SUITE MS3 (2026-09-02): the OSM recovery key `o`, TOMBSTONES `d`, and the SYNC bookends ──
+describe("bldgOverrides — MS3 row grammar (o / d) + the SYNC bookends", () => {
+  it("sanitizeRow keeps a well-formed OSM id and drops a malformed one (the field, never the row)", () => {
+    expect(sanitizeOverrides({ "v|c|1": { ...row(), o: "w141472295" } })["v|c|1"].o).toBe("w141472295");
+    expect(sanitizeOverrides({ "v|c|1": { ...row(), o: "building-7" } })["v|c|1"]).toEqual(row());
+    expect(sanitizeOverrides({ "v|c|1": { ...row(), o: 42 } })["v|c|1"].o).toBeUndefined();
+  });
+
+  it("a tombstone survives sanitize although it is neutral, with only the facts", () => {
+    const tomb = { d: 1, sy: 1, cx: 1, cz: 2, vc: 3, hM: 4, t: 9, o: "n5", sx: 3, rotDeg: 40 };
+    const out = sanitizeOverrides({ "v|c|1": tomb })["v|c|1"];
+    expect(out).toEqual({ sy: 1, d: 1, cx: 1, cz: 2, vc: 3, hM: 4, t: 9, o: "n5" }); // the spatial junk is dropped
+    expect(isTombstone(out)).toBe(true);
+    expect(rowTransform(out)).toEqual(IDENTITY_TRANSFORM);
+    expect(isNeutralRow(out)).toBe(true);
+    expect(sanitizeOverrides({ "v|c|1": { d: 1, sy: 1 } })).toEqual({}); // no facts → junk
+  });
+
+  it("upsertOverride stores a tombstone (neutral by construction) and a later real edit replaces it", () => {
+    const map: OverrideMap = {};
+    tombstoneOverride(map, "v|c|1", { cx: 1, cz: 2, vc: 3, hM: 4, o: "w1" }, 100);
+    expect(map["v|c|1"]).toEqual({ sy: 1, d: 1, cx: 1, cz: 2, vc: 3, hM: 4, t: 100, o: "w1" });
+    expect(unsyncedEntries(map)).toHaveLength(1); // a pending removal is pending
+    upsertOverride(map, "v|c|1", { ...row({ sy: 2, o: "w1" }) }, 200);
+    expect(map["v|c|1"].d).toBeUndefined();
+    expect(map["v|c|1"].sy).toBe(2);
+    upsertOverride(map, "v|c|1", { ...row({ sy: 1 }) }, 300); // a plain neutral row still deletes
+    expect(map["v|c|1"]).toBeUndefined();
+  });
+
+  it("finishSync stamps only the rows still as sent, and deletes landed tombstones", () => {
+    const map: OverrideMap = { "v|c|1": row({ t: 100 }), "v|c|2": row({ t: 100 }) };
+    tombstoneOverride(map, "v|c|3", { cx: 1, cz: 2, vc: 3, hM: 4 }, 100);
+    const sent: Array<[string, number]> = [["v|c|1", 100], ["v|c|2", 100], ["v|c|3", 100], ["v|c|9", 100]];
+    map["v|c|2"] = row({ t: 150 }); // edited while in flight
+    finishSync(map, sent, 900);
+    expect(map["v|c|1"].s).toBe(900);
+    expect(map["v|c|2"].s).toBeUndefined();
+    expect(map["v|c|3"]).toBeUndefined();
+    expect(unsyncedEntries(map).map(([k]) => k)).toEqual(["v|c|2"]);
+  });
+
+  it("isOsmId accepts node/way/relation ids only", () => {
+    expect(isOsmId("w141472295")).toBe(true);
+    expect(isOsmId("n1")).toBe(true);
+    expect(isOsmId("r99")).toBe(true);
+    expect(isOsmId("141472295")).toBe(false);
+    expect(isOsmId("w")).toBe(false);
+    expect(isOsmId("x12")).toBe(false);
   });
 });

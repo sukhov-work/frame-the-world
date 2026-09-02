@@ -47,12 +47,14 @@ import {
   isIdentityXf,
   pristineFromIncremental,
   pristineIndexed,
+  IDENTITY_TRANSFORM,
   recomposeIndexed,
   recomposeVerts,
   runRadiusXZ,
   type FeatureTransform,
   type SpatialXf,
 } from "../../../lib/globe/featureTransform";
+import type { EffectiveOverride } from "../../../lib/globe/bldgSync";
 import {
   type CellMeta,
   cellUriOf,
@@ -253,7 +255,16 @@ export interface EnrichedBuildingsHandle {
    *  the run on the absolute-recompose path (pristine snapshot on first use); an identity
    *  target lets it fall back to the incremental fast path once the ease settles. The ONE
    *  entry point the load re-apply, the U8 height commit and the MS2 gizmo share. */
-  setTransform(cellUri: string, featureId: number, t: FeatureTransform): void;
+  setTransform(
+    cellUri: string,
+    featureId: number,
+    t: FeatureTransform,
+    origin?: "mine" | "shared",
+  ): void;
+  /** MESH SUITE MS3: re-run the override apply over EVERY loaded cell — the world fetch landed
+   *  (rows for cells already streamed), or a SYNC / reconcile changed what applies. Idempotent;
+   *  a feature no row covers any more eases back to the original. O(features) once per call. */
+  reapplyOverrides(): void;
   /** MS1: the committed TARGET, the currently APPLIED transform (easing toward it) and the
    *  row-building facts (pristine checksum triple + baked height), or null while unloaded. */
   featureState(
@@ -266,10 +277,14 @@ export interface EnrichedBuildingsHandle {
     cz: number;
     vc: number;
     bakedHeightM: number;
+    /** MS3: the RC17 sidecar's OSM element id (the row's `o`), null on a bake without one. */
+    osm: string | null;
     /** MS2: the run has its terrain seat (the RC7 first sample landed and is applied). Before it,
      *  the building — and the ghost rig on it — still sits on the cell plane and can jump by the
      *  cell's relief when the sample lands; a harness presses handles only after this is true. */
     seated: boolean;
+    /** MS3: the committed-tint level written to the mesh (0 none · 1 world-shared · 2 mine). */
+    tint: 0 | 1 | 2;
   } | null;
   /** U8 ghost preview (drag-time). `showGhost` builds the rebased semi-transparent copy over the
    *  solid original (false = cell not loaded); `setGhostK` is the live drag scale; `hideGhost`
@@ -310,6 +325,8 @@ export interface EnrichedBuildingsHandle {
     featureAppliedMaxM: number | null;
     /** U8: features with a non-neutral height-scale target (browser-verify probe). */
     overridden: number;
+    /** MS3: of those, the ones applied from the WORLD's rows (tint level 1). */
+    shared: number;
     /** MS1: features currently on the absolute-recompose path (carrying a spatial transform). */
     spatial: number;
     trees: number;
@@ -381,15 +398,25 @@ export function attachEnrichedBuildings(
     terrainHeightAt: (latDeg: number, lonDeg: number) => number | null;
     /** UPLIFT U5: the shared download-priority aim state (mirrors attachBuildings.loadAim). */
     loadAim: LoadAim;
-    /** U8: persisted height overrides for THIS variant — consulted per cell at load-model (LRU
-     *  reloads re-apply for free). A checksum mismatch (re-bake reshuffled ids) reports through
-     *  `onInvalid` so the orchestrator drops the stored row. Omit = overrides disabled (the
-     *  `?enriched=<url>` verbatim dev seam has no stable variant identity). */
+    /** U8: persisted overrides for THIS variant — consulted per cell at load-model (LRU reloads
+     *  re-apply for free) and by `reapplyOverrides()`. A checksum mismatch (re-bake reshuffled
+     *  ids) on a row with NO OSM id reports through `onInvalid` so the orchestrator drops it.
+     *  MESH SUITE MS3: the rows are the EFFECTIVE merge of the local map and the world's fetched
+     *  rows (lib/globe/bldgSync — origin `mine` / `shared` drives the tint ladder); `byOsm` is the
+     *  RECOVERY lookup the load-model sweep runs for every feature the fingerprint pass left
+     *  unclaimed, and `onRecovered` hands a re-found row back with fresh facts to be re-keyed.
+     *  Omit = overrides disabled (the `?enriched=<url>` verbatim dev seam has no stable variant
+     *  identity). */
     overrides?: {
-      forCell(
-        cellUri: string,
-      ): Array<{ featureId: number; xf: FeatureTransform; cx: number; cz: number; vc: number }>;
+      forCell(cellUri: string): EffectiveOverride[];
       onInvalid(cellUri: string, featureId: number): void;
+      byOsm?(osm: string): EffectiveOverride | null;
+      onRecovered?(
+        row: EffectiveOverride,
+        cellUri: string,
+        featureId: number,
+        facts: { cx: number; cz: number; vc: number; bakedHeightM: number },
+      ): void;
     };
   },
 ): EnrichedBuildingsHandle {
@@ -586,6 +613,9 @@ export function attachEnrichedBuildings(
     axf: SpatialXf | null;
     pristine: Float32Array | null; // the run's pristine fill verts (count × 3)
     pristineEdge: Float32Array | null; // its edge-CSR bucket, packed in bucket order
+    /** MS3: the committed-tint level written to `_ftw_override` — 0 none · 1 world-shared
+     *  (byte 128) · 2 mine (byte 255). Cached so an unchanged level never touches the buffer. */
+    ov: 0 | 1 | 2;
   }
   interface MeshPart {
     mesh: THREE.Mesh;
@@ -723,17 +753,22 @@ export function attachEnrichedBuildings(
     ghost = null;
   };
   /** U8: committed-override tint mask (`_ftw_override`, Uint8 normalized — the shared building
-   *  shader zero-fills geometries without it, so the attribute is created lazily on first use). */
-  const setOverrideTint = (part: MeshPart, runI: number, on: boolean) => {
+   *  shader zero-fills geometries without it, so the attribute is created lazily on first use).
+   *  MS3: a byte LADDER — 0 none · 128 world-shared · 255 mine (buildingMaterial.ts reads it as
+   *  two thresholds); the level is cached per feature so a no-change apply never re-uploads. */
+  const setOverrideTint = (part: MeshPart, runI: number, level: 0 | 1 | 2) => {
+    const f = part.features[runI];
+    if (f.ov === level) return;
+    f.ov = level;
     const geom = part.mesh.geometry as THREE.BufferGeometry;
     let attr = geom.getAttribute("_ftw_override") as THREE.BufferAttribute | undefined;
     if (!attr) {
-      if (!on) return;
+      if (level === 0) return;
       attr = new THREE.BufferAttribute(new Uint8Array(part.posAttr.count), 1, true);
       geom.setAttribute("_ftw_override", attr);
     }
-    const { start, count } = part.features[runI].run;
-    (attr.array as Uint8Array).fill(on ? 255 : 0, start, start + count);
+    const { start, count } = f.run;
+    (attr.array as Uint8Array).fill(level === 2 ? 255 : level === 1 ? 128 : 0, start, start + count);
     attr.needsUpdate = true;
   };
   /** U8: a tall override can outgrow the one-time reseat bounds pad — grow the fill+edge
@@ -810,6 +845,7 @@ export function attachEnrichedBuildings(
     part: MeshPart,
     runI: number,
     t: FeatureTransform,
+    origin: "mine" | "shared" = "mine",
   ) => {
     const f = part.features[runI];
     const sy = Number.isFinite(t.sy) ? Math.max(SCALE_MIN_K, Math.min(SCALE_MAX_K, t.sy)) : 1;
@@ -832,7 +868,56 @@ export function attachEnrichedBuildings(
       if (!part.unseated.includes(runI)) part.unseated.push(runI);
     }
     growBoundsFor(part, f, spatial ?? IDENTITY_XF, sy);
-    setOverrideTint(part, runI, spatial !== null || Math.abs(sy - 1) >= NEUTRAL_K_EPS);
+    const edited = spatial !== null || Math.abs(sy - 1) >= NEUTRAL_K_EPS;
+    setOverrideTint(part, runI, edited ? (origin === "shared" ? 1 : 2) : 0);
+  };
+  /** MESH SUITE MS3: apply the EFFECTIVE override rows to one loaded cell part — the ONE re-entry
+   *  point for load-model (LRU-evicted cells come back pristine) and for `reapplyOverrides` (a
+   *  world fetch or a SYNC changed what applies). Three passes: (1) the rows keyed to this cell by
+   *  fingerprint — a checksum miss on a row with NO OSM id drops it (the U8 rule), a row WITH one
+   *  is left to (2) the RECOVERY sweep, which asks `byOsm` for every feature still unclaimed, so a
+   *  row whose bake-sequential key died in a re-bake finds its building by OSM id and is re-keyed
+   *  with fresh facts (first feature wins when a bake gives one OSM id to several runs); (3) a
+   *  feature that still carries an edit no row covers any more eases back to the original. */
+  const applyCellOverrides = (cell: CellSeat, part: MeshPart) => {
+    const ov = opts.overrides;
+    if (!ov || !cell.uri) return;
+    const claimed = new Set<number>();
+    const claimedKeys = new Set<string>();
+    for (const row of ov.forCell(cell.uri)) {
+      const i = part.runIdx.get(row.featureId);
+      const f = i === undefined ? undefined : part.features[i];
+      if (!f || !checksumMatches(row.row, f.cx, f.cz, f.run.count)) {
+        if (!row.row.o) ov.onInvalid(cell.uri, row.featureId);
+        continue;
+      }
+      applyTransformTarget(cell, part, i as number, row.xf, row.origin);
+      claimed.add(i as number);
+      claimedKeys.add(row.key);
+    }
+    if (ov.byOsm) {
+      for (let i = 0; i < part.features.length; i++) {
+        if (claimed.has(i)) continue;
+        const f = part.features[i];
+        if (!f.osm) continue;
+        const row = ov.byOsm(f.osm);
+        if (!row || claimedKeys.has(row.key)) continue;
+        applyTransformTarget(cell, part, i, row.xf, row.origin);
+        claimed.add(i);
+        claimedKeys.add(row.key);
+        ov.onRecovered?.(row, cell.uri, f.run.id, {
+          cx: f.cx,
+          cz: f.cz,
+          vc: f.run.count,
+          bakedHeightM: f.topY - f.baseY,
+        });
+      }
+    }
+    for (let i = 0; i < part.features.length; i++) {
+      if (claimed.has(i)) continue;
+      const f = part.features[i];
+      if (f.xf !== null || f.scaleK !== 1) applyTransformTarget(cell, part, i, IDENTITY_TRANSFORM);
+    }
   };
   /** MS1: place the ghost from a transform — pure Object3D writes (position / yaw / scale about
    *  the pivot the geometry was rebased to). Every write forces its own matrix (TilesGroup trap). */
@@ -1101,6 +1186,7 @@ export function attachEnrichedBuildings(
                 axf: null,
                 pristine: null,
                 pristineEdge: null,
+                ov: 0,
               };
             });
             const part: MeshPart = {
@@ -1133,21 +1219,11 @@ export function attachEnrichedBuildings(
             cell.parts.push(part);
             partByMesh.set(c, { cell, part });
             // U8: re-apply persisted overrides — LRU-evicted cells come back pristine, so
-            // load-model is the ONE re-entry point. A checksum miss (re-bake reshuffled the
-            // bake-sequential ids) invalidates the stored row instead of rescaling a stranger.
-            if (opts.overrides && cell.uri) {
-              for (const row of opts.overrides.forCell(cell.uri)) {
-                const i = runIdx.get(row.featureId);
-                const f = i === undefined ? undefined : features[i];
-                if (!f || !checksumMatches(row, f.cx, f.cz, f.run.count)) {
-                  opts.overrides.onInvalid(cell.uri, row.featureId);
-                  continue;
-                }
-                // MS1: the full v2 target (height + spatial) through the one entry point — the
-                // array is pristine here, so the spatial snapshot is a straight copy.
-                applyTransformTarget(cell, part, i as number, row.xf);
-              }
-            }
+            // load-model is a re-entry point (MS3: `reapplyOverrides` is the other). A checksum
+            // miss (re-bake reshuffled the bake-sequential ids) invalidates a fingerprint-only
+            // row instead of rescaling a stranger; a row with an OSM id is recovered by it. The
+            // array is pristine here, so the spatial snapshot is a straight copy.
+            applyCellOverrides(cell, part);
           }
         }
       }
@@ -1752,10 +1828,13 @@ export function attachEnrichedBuildings(
         sy: k,
       });
     },
-    setTransform(cellUri, featureId, t) {
+    setTransform(cellUri, featureId, t, origin = "mine") {
       const found = findFeature(cellUri, featureId);
       if (!found) return;
-      applyTransformTarget(found.cell, found.part, found.runI, t);
+      applyTransformTarget(found.cell, found.part, found.runI, t, origin);
+    },
+    reapplyOverrides() {
+      for (const cell of cellList) for (const part of cell.parts) applyCellOverrides(cell, part);
     },
     featureState(cellUri, featureId) {
       const found = findFeature(cellUri, featureId);
@@ -1768,7 +1847,9 @@ export function attachEnrichedBuildings(
         cz: f.cz,
         vc: f.run.count,
         bakedHeightM: f.topY - f.baseY,
+        osm: f.osm,
         seated: f.seatM !== null && f.appliedM !== null,
+        tint: f.ov,
       };
     },
     showGhost(cellUri, featureId, bodyVisible = true) {
@@ -1877,6 +1958,7 @@ export function attachEnrichedBuildings(
       let features = 0;
       let featuresSampled = 0;
       let overridden = 0;
+      let shared = 0; // MS3: of those, applied from the world's rows
       let spatial = 0; // MS1: runs on the absolute-recompose path
       let lo = Infinity;
       let hi = -Infinity;
@@ -1931,6 +2013,7 @@ export function attachEnrichedBuildings(
           if (isNear) nearFeatures += part.features.length;
           for (const f of part.features) {
             if (Math.abs(f.scaleK - 1) >= NEUTRAL_K_EPS || f.xf) overridden++;
+            if (f.ov === 1) shared++;
             if (f.axf) spatial++;
             if (f.seatM == null) continue;
             featuresSampled++;
@@ -1973,6 +2056,7 @@ export function attachEnrichedBuildings(
         featureAppliedMinM: Number.isFinite(lo) ? lo : null,
         featureAppliedMaxM: Number.isFinite(hi) ? hi : null,
         overridden,
+        shared,
         spatial,
         trees,
         treesSampled,

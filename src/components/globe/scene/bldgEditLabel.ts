@@ -16,6 +16,10 @@ import { tokens } from "../../../lib/theme/tokens";
  * numbers of the active gizmo op (metres east/north/up, the compass-sense yaw, the XZ scales)
  * while the chip carries every op's current vs original. Null/empty hides it, which is what
  * the U8 extrude op passes, so the label stays byte-identical there.
+ *
+ * MESH SUITE MS3 (2026-09-02): a second, muted HOVER note for an edited building nobody has
+ * armed ("EDITED · shared · 34.3 m · was 24.5 m") — the owner's "subtle indication of original
+ * vs overridden params" for the buildings the tint ladder marks. Same layer, same projection.
  */
 export interface BldgEditLabelHandle {
   /** Place/refresh the label at the projected `world` point. `origM` = baked height,
@@ -28,11 +32,28 @@ export interface BldgEditLabelHandle {
     camera: THREE.PerspectiveCamera,
     opLine?: string | null,
   ): void;
+  /** MS3: the hover note at the projected `world` point (`null` hides it). */
+  hover(world: THREE.Vector3 | null, text: string, camera: THREE.PerspectiveCamera): void;
   dispose(): void;
 }
 
 const _ndc = new THREE.Vector3();
 const _vc = new THREE.Vector3();
+
+/** geoLabels guard sequence: behind-camera cull first (project() alone mirrors points behind
+ *  the eye into the frame), then NDC → client px. Null = not on screen. */
+const projectPx = (
+  world: THREE.Vector3,
+  camera: THREE.PerspectiveCamera,
+): { x: number; y: number } | null => {
+  _vc.copy(world).applyMatrix4(camera.matrixWorldInverse);
+  if (_vc.z >= 0) return null;
+  _ndc.copy(world).project(camera);
+  return {
+    x: (_ndc.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-_ndc.y * 0.5 + 0.5) * window.innerHeight,
+  };
+};
 
 export function attachBldgEditLabel(): BldgEditLabelHandle {
   const layer = document.createElement("div");
@@ -64,26 +85,28 @@ export function attachBldgEditLabel(): BldgEditLabelHandle {
   el.appendChild(origEl);
   layer.appendChild(el);
 
+  // MS3: the hover note — muted, one line, same anchor rule (just above the roof point).
+  const hovEl = document.createElement("div");
+  hovEl.style.cssText =
+    "position:absolute;left:0;top:0;white-space:nowrap;display:none;" +
+    "transform:translate(-50%,-130%);" +
+    "font:500 0.55rem var(--font-mono,monospace);letter-spacing:0.1em;" +
+    `color:${tokens.textSecondary};text-shadow:0 0 6px ${tokens.bg},0 0 2px ${tokens.bg};` +
+    "text-align:center;";
+  layer.appendChild(hovEl);
+
   let lastLive = "";
   let lastOrig = "";
   let lastOp = "";
+  let lastHover = "";
 
   return {
     update(world, origM, liveM, camera, opLine = null) {
-      if (!world) {
+      const px = world ? projectPx(world, camera) : null;
+      if (!px) {
         el.style.display = "none";
         return;
       }
-      // geoLabels guard sequence: behind-camera cull first (project() alone mirrors points
-      // behind the eye into the frame), then NDC → client px.
-      _vc.copy(world).applyMatrix4(camera.matrixWorldInverse);
-      if (_vc.z >= 0) {
-        el.style.display = "none";
-        return;
-      }
-      _ndc.copy(world).project(camera);
-      const x = (_ndc.x * 0.5 + 0.5) * window.innerWidth;
-      const y = (-_ndc.y * 0.5 + 0.5) * window.innerHeight;
       const live = `${liveM.toFixed(1)} m`;
       const orig = `↳ was ${origM.toFixed(1)} m`;
       const op = opLine ?? "";
@@ -100,9 +123,23 @@ export function attachBldgEditLabel(): BldgEditLabelHandle {
         opEl.style.display = op ? "block" : "none";
         lastOp = op;
       }
-      el.style.left = `${x.toFixed(1)}px`;
-      el.style.top = `${y.toFixed(1)}px`;
+      el.style.left = `${px.x.toFixed(1)}px`;
+      el.style.top = `${px.y.toFixed(1)}px`;
       el.style.display = "block";
+    },
+    hover(world, text, camera) {
+      const px = world ? projectPx(world, camera) : null;
+      if (!px || !text) {
+        hovEl.style.display = "none";
+        return;
+      }
+      if (text !== lastHover) {
+        hovEl.textContent = text;
+        lastHover = text;
+      }
+      hovEl.style.left = `${px.x.toFixed(1)}px`;
+      hovEl.style.top = `${px.y.toFixed(1)}px`;
+      hovEl.style.display = "block";
     },
     dispose() {
       layer.remove();

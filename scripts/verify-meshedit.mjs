@@ -32,8 +32,27 @@
 //  12. Escape MID-DRAG cancels: target unchanged, drag ended, still armed
 //  13. RESET ALL → identity, row gone, fast path, still armed
 //  14. menu → DONE disarms; FPV intact; gizmo detached
+//   MESH SUITE MS3 (world-shared edits — D2 activation, 2026-09-02; against the LIVE
+//   BuildingOverrides collection, so every row this harness writes is removed in `finally`;
+//   a member session is minted node-side — the verify-places-member recipe — and installed as
+//   the `wixSession` cookie; needs TEST_MEMBER_EMAIL / TEST_MEMBER_PASSWORD / WIX_CLIENT_ID in
+//   .env.local):
+//  15. a row seeded on the SERVER (as the member) applies for an ANONYMOUS visitor with NO
+//      local row: the world fetch lands (`__bldgSyncStore.world === "ready"`, shared ≥ 1), the
+//      building carries the seeded rotation + height, its tint level is SHARED (1), the hover
+//      note over it says "EDITED · shared", the pill is absent (nothing pending)
+//  16. LOCAL PENDING WINS: a seam edit of the shared building applies as MINE (tint 2, dirty 1,
+//      the row carries the OSM id, the pill says SIGN IN TO SYNC 1 while anonymous); a RESET of
+//      it leaves a TOMBSTONE (identity applied, tint 0, still pending) that masks the world's
+//      row across a reload
+//  17. SYNC as the member: the pill's SYNC pushes the tombstone (the world row is REMOVED —
+//      server GET agrees; local tombstone gone; shared 0; dirty 0); a fresh edit + SYNC lands
+//      the upsert (server GET: heightScale + osmId; the local row is stamped synced)
+//  18. anonymous again: a dirty local edit masks the world's row (local wins) and the pill
+//      offers SIGN IN TO SYNC; then the harness removes its rows and proves the world is clean
 // Screenshots in verify-shots/ (git-ignored).
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { createClient, OAuthStrategy } from "@wix/sdk";
 import { trackTarget, finishVerify, VerifyFailure } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9333";
@@ -210,6 +229,7 @@ if ("k" in row1) fail("v2 row still carries legacy `k`");
 for (const k of ["sy", "sx", "rotDeg", "tE", "tN", "tU"]) if (row1[k] !== T1[k]) fail(`row.${k} = ${row1[k]}, wanted ${T1[k]}`);
 if ("sz" in row1) fail("identity component `sz` must be OMITTED from the row");
 console.log(`row: ${keys[0]} → ${JSON.stringify(row1)}`);
+const VARIANT = keys[0].split("|")[0]; // the resolved bake variant (the MS3 legs seed the world under it)
 const s1 = await waitSettled(cellUri, fid, "spatial ease");
 let seats = await evalJs(SEATS);
 if (seats.spatial !== 1) fail(`spatial should be 1 after the edit, got ${seats.spatial}`);
@@ -553,9 +573,242 @@ if ((await evalJs(`${BS}.op`)) !== "extrude") fail("the store's op ask did not r
 if (!(await evalJs("window.__globe.fpv().active"))) fail("DONE exited FPV");
 console.log("DONE: disarmed · gizmo detached · op ask back to EXTRUDE · FPV intact");
 
+// ═══ MESH SUITE MS3 — world-shared edits, against the LIVE collection ═══════════════════════
+// Member session (the verify-places-member recipe): OAuthStrategy login → session token →
+// prompt=none authorize (code harvested from the redirect) → member tokens → wixSession cookie.
+const SITE = process.env.FTW_SITE_URL || "https://www.plux.today";
+const envLocal = readFileSync(".env.local", "utf-8");
+const envVal = (k) => envLocal.match(new RegExp(`^${k}=(.+)$`, "m"))?.[1]?.trim().replace(/^["']|["']$/g, "");
+const TEST_MEMBER = { email: envVal("TEST_MEMBER_EMAIL"), password: envVal("TEST_MEMBER_PASSWORD") };
+const clientId = envVal("WIX_CLIENT_ID");
+if (!TEST_MEMBER.email || !TEST_MEMBER.password || !clientId)
+  fail("MS3 legs need TEST_MEMBER_EMAIL / TEST_MEMBER_PASSWORD / WIX_CLIENT_ID in .env.local (audit B2)");
+const sdk = createClient({ auth: OAuthStrategy({ clientId }) });
+const login = await sdk.auth.login({ email: TEST_MEMBER.email, password: TEST_MEMBER.password });
+if (login.loginState !== "SUCCESS") fail(`member login state ${login.loginState}`);
+const REDIRECT = "http://localhost:4321/api/auth/callback";
+const oauthData = sdk.auth.generateOAuthData(REDIRECT, "http://localhost:4321/");
+const authorizeUrl =
+  `${SITE}/_api/oauth2/authorize?clientId=${clientId}&responseType=code&state=${oauthData.state}` +
+  `&redirectUri=${encodeURIComponent(REDIRECT)}&scope=offline_access&responseMode=query` +
+  `&codeChallenge=${oauthData.codeChallenge}&codeChallengeMethod=S256&prompt=none&sessionToken=${login.data.sessionToken}`;
+const authRes = await fetch(authorizeUrl, { redirect: "manual" });
+const loc = authRes.headers.get("location");
+if (!loc) fail(`authorize gave no redirect (${authRes.status})`);
+const memberTokens = await sdk.auth.getMemberTokens(
+  new URL(loc).searchParams.get("code"),
+  new URL(loc).searchParams.get("state"),
+  oauthData,
+);
+const cookieVal = encodeURIComponent(JSON.stringify({ clientId, tokens: memberTokens }));
+console.log(`MS3: member tokens minted (${memberTokens.refreshToken.role})`);
+
+const SS = "window.__bldgSyncStore.getState()";
+const setCookie = () => evalJs(`document.cookie = "wixSession=${cookieVal}; path=/; max-age=10800", true`);
+const clearCookie = () => evalJs(`document.cookie = "wixSession=; path=/; max-age=0", true`);
+/** The API through the PAGE (it carries the cookie): `{ status, body }`. */
+const pageApi = (path, init = null) =>
+  evalJs(
+    `fetch(${JSON.stringify(path)}, ${init ? JSON.stringify(init) : "undefined"}).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }))`,
+  );
+const worldRow = async (cell, fid) => {
+  const r = await pageApi(`/api/building-overrides?variant=${encodeURIComponent(VARIANT)}`);
+  if (r.status !== 200) fail(`world GET ${r.status}: ${JSON.stringify(r.body)}`);
+  return (r.body.overrides ?? []).find((o) => o.cell === cell && o.featureId === fid) ?? null;
+};
+/** Wix Data reads lag writes (~1 s, measured 2026-09-02f): poll the world GET until `pred(row)`
+ *  holds (row may be null), else fail with the last thing seen. */
+const worldRowEventually = async (cell, fid, pred, label, timeoutMs = 15_000) => {
+  const t0 = Date.now();
+  let last = null;
+  while (Date.now() - t0 < timeoutMs) {
+    last = await worldRow(cell, fid);
+    if (pred(last)) return last;
+    await sleep(700);
+  }
+  fail(`${label}: world GET never showed the expected row (last ${JSON.stringify(last)})`);
+};
+const reload = async (label, opts = {}) => {
+  await send("Page.navigate", { url: "about:blank" });
+  await sleep(400);
+  await send("Page.navigate", { url: FPV_URL });
+  await waitBoot(label);
+  await dismissWelcome();
+  const t0 = Date.now();
+  while (Date.now() - t0 < 30_000) {
+    const w = await evalJs(`${SS}.world`).catch(() => null);
+    if (w === "ready" || w === "error") {
+      if (w === "error") fail(`${label}: the world fetch failed (world === "error")`);
+      break;
+    }
+    await sleep(250);
+  }
+  if (opts.member) {
+    const t1 = Date.now();
+    while ((await evalJs("window.__memberStore.getState().phase")) !== "member" && Date.now() - t1 < 15_000) await sleep(400);
+    if ((await evalJs("window.__memberStore.getState().phase")) !== "member") fail(`${label}: no member session in the page`);
+  }
+};
+const waitFor = async (label, expr, timeoutMs = 15_000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (await evalJs(expr).catch(() => false)) return;
+    await sleep(200);
+  }
+  fail(`${label}: ${expr} never became true`);
+};
+// The fixture building = the one the gizmo legs armed (its screen point is `lastArmPx`).
+const F = { cell: armedG.cellUri, fid: armedG.featureId };
+const sF = await state(F.cell, F.fid);
+if (!sF || typeof sF.osm !== "string" || !/^[nwr]\d+$/.test(sF.osm)) fail(`fixture building has no OSM id on the seam: ${JSON.stringify(sF)}`);
+const facts = { cx: Math.round(sF.cx * 2) / 2, cz: Math.round(sF.cz * 2) / 2, vc: sF.vc, bakedHeightM: Math.round(sF.bakedHeightM * 10) / 10 };
+const removeKey = { variant: VARIANT, cell: F.cell, featureId: F.fid, osmId: sF.osm };
+let cleanupProblem = null;
+const syncViaPill = async (label) => {
+  if (!(await evalJs("!!document.querySelector('.bldg-sync-pill .bec-sync[data-sync=\"sync\"]')")))
+    fail(`${label}: the pill offers no SYNC button (${await evalJs("document.querySelector('.bldg-sync-pill')?.textContent ?? 'no pill'")})`);
+  // Clear the previous outcome FIRST: the click is consumed on the next frame, so a wait that
+  // starts now would read the last push's result (run 4, 2026-09-02f) — the outcome to await is
+  // the one written after this click.
+  await evalJs(`${SS}._set({ result: null }), true`);
+  await evalJs("document.querySelector('.bldg-sync-pill .bec-sync').click(), true");
+  await waitFor(`${label}: push outcome`, `${SS}.result !== null && ${SS}.syncing === false`, 20_000);
+  const r = await evalJs(`${SS}.result`);
+  if (r.kind !== "synced") fail(`${label}: push outcome ${JSON.stringify(r)}`);
+  return r;
+};
+
+try {
+  // --- 15: a SERVER row applies for an anonymous visitor with no local row (SHARED tint) --------
+  await setCookie();
+  const seed = await pageApi("/api/building-overrides", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ upserts: [{ ...removeKey, heightScale: 1.5, rotDeg: 40, ...facts }] }),
+  });
+  if (seed.status !== 200 || (seed.body.inserted ?? 0) + (seed.body.updated ?? 0) < 1) fail(`seed POST ${seed.status}: ${JSON.stringify(seed.body)}`);
+  const seeded = await worldRowEventually(F.cell, F.fid, (o) => !!o && o.rotDeg === 40 && o.heightScale === 1.5 && o.osmId === sF.osm, "seed visible");
+  if ("memberId" in (seeded ?? {})) fail("the public GET leaked memberId (C6)");
+  console.log(`seeded ${F.cell}|${F.fid} (osm ${sF.osm}): rotDeg 40 · heightScale 1.5 · updatedAt ${seeded.updatedAt ?? "—"}`);
+  await clearCookie();
+  await evalJs(`localStorage.removeItem(${JSON.stringify(KEY)}), true`);
+  await reload("world");
+  const ss15 = await evalJs(`(({ world, shared, complete, dirty }) => ({ world, shared, complete, dirty }))(${SS})`);
+  if (ss15.world !== "ready" || ss15.shared < 1 || ss15.dirty !== 0 || ss15.complete !== true) fail(`sync store after boot: ${JSON.stringify(ss15)}`);
+  await waitFor("shared row applied", `(() => { const s = window.__globe.enrichedState(${JSON.stringify(F.cell)}, ${F.fid}); return !!s && s.target.rotDeg === 40 && s.target.sy === 1.5 && s.tint === 1; })()`, 45_000);
+  const seats15 = await evalJs(SEATS);
+  if (seats15.shared < 1 || seats15.overridden < 1) fail(`enrichedSeats after the world fetch: shared ${seats15.shared} overridden ${seats15.overridden}`);
+  if (Object.keys(await evalJs(ROWS)).length !== 0) fail("a shared row must not land in the LOCAL map");
+  if (await evalJs("!!document.querySelector('.bldg-sync-pill')")) fail("the pill shows with nothing pending");
+  await waitSettled(F.cell, F.fid, "shared ease", 10_000);
+  await hover(lastArmPx.x, lastArmPx.y);
+  await sleep(400);
+  await hover(lastArmPx.x + 2, lastArmPx.y + 1);
+  await sleep(400);
+  const hovTxt = await evalJs("document.querySelector('.bldg-edit-label')?.textContent ?? ''");
+  if (!/EDITED · shared/.test(hovTxt)) fail(`hover note over the shared building: "${hovTxt}"`);
+  console.log(`world: ${ss15.shared} shared row(s) · applied rotDeg 40 / sy 1.5 · tint SHARED · hover "${hovTxt.trim()}" · no pill`);
+  await sleep(300);
+  await shoot("meshedit-07-shared-applied.jpeg");
+
+  // --- 16: LOCAL PENDING WINS + a RESET becomes a TOMBSTONE that masks the world row ----------
+  await setXf(F.cell, F.fid, { sy: 1, sx: 1, sz: 1, rotDeg: 10, tE: 0, tN: 0, tU: 0 });
+  const s16 = await state(F.cell, F.fid);
+  if (s16.target.rotDeg !== 10 || s16.tint !== 2) fail(`local edit of a shared building: ${JSON.stringify(s16)}`);
+  let rows16 = await evalJs(ROWS);
+  const k16 = Object.keys(rows16)[0];
+  if (!k16 || rows16[k16].o !== sF.osm || rows16[k16].rotDeg !== 10 || "d" in rows16[k16]) fail(`local row after the edit: ${JSON.stringify(rows16)}`);
+  if ((await evalJs(`${SS}.dirty`)) !== 1) fail("dirty should be 1 after a local edit");
+  await sleep(300);
+  const pill16 = await evalJs("document.querySelector('.bldg-sync-pill .bec-sync')?.textContent ?? ''");
+  if (!/SIGN IN TO SYNC 1/.test(pill16)) fail(`anonymous pill copy: "${pill16}"`);
+  await setXf(F.cell, F.fid, { sy: 1, sx: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: 0 }); // RESET
+  rows16 = await evalJs(ROWS);
+  if (rows16[k16]?.d !== 1 || rows16[k16].o !== sF.osm) fail(`RESET of a shared building must leave a tombstone: ${JSON.stringify(rows16)}`);
+  const s16b = await state(F.cell, F.fid);
+  if (s16b.target.rotDeg !== 0 || s16b.target.sy !== 1 || s16b.tint !== 0) fail(`tombstone must apply identity: ${JSON.stringify(s16b)}`);
+  if ((await evalJs(`${SS}.dirty`)) !== 1) fail("a tombstone is pending (dirty 1)");
+  await reload("tombstone");
+  await sleep(1500);
+  const s16c = await state(F.cell, F.fid);
+  if (!s16c || s16c.target.rotDeg !== 0 || s16c.target.sy !== 1) fail(`the tombstone did not mask the world row across a reload: ${JSON.stringify(s16c)}`);
+  if ((await evalJs(`${SS}.shared`)) < 1) fail("the world row must still be held (masked, not deleted)");
+  if ((await evalJs(ROWS))[k16]?.d !== 1) fail("the tombstone did not survive the reload");
+  console.log("local wins: edit → tint MINE, dirty 1, pill SIGN IN · RESET → tombstone (identity, masks the world row across a reload)");
+
+  // --- 17: SYNC as the member — the tombstone removes the world row; a fresh edit lands ---------
+  await setCookie();
+  await reload("member", { member: true });
+  await sleep(600);
+  const r17 = await syncViaPill("sync tombstone");
+  if (r17.removed < 1) fail(`the tombstone's removal did not land: ${JSON.stringify(r17)}`);
+  if (Object.keys(await evalJs(ROWS)).length !== 0) fail("the landed tombstone must be gone locally");
+  const ss17 = await evalJs(`(({ shared, dirty }) => ({ shared, dirty }))(${SS})`);
+  if (ss17.dirty !== 0 || ss17.shared !== 0) fail(`after the removal: ${JSON.stringify(ss17)}`);
+  await worldRowEventually(F.cell, F.fid, (o) => o === null, "row gone after the removal synced");
+  // The pill shows the outcome ("✓ SYNCED n") for SYNC_RESULT_MS, then — nothing pending — it goes.
+  const done17 = await evalJs("document.querySelector('.bldg-sync-pill .bec-sync')?.dataset.sync ?? ''");
+  if (done17 !== "done") fail(`the pill must show the push outcome first (data-sync "${done17}")`);
+  await waitFor("pill gone after the outcome expired", "!document.querySelector('.bldg-sync-pill')", 8000);
+  await setXf(F.cell, F.fid, { sy: 1.3, sx: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: 0 });
+  await sleep(300);
+  const r17b = await syncViaPill("sync edit");
+  if (r17b.upserted < 1) fail(`the edit did not land: ${JSON.stringify(r17b)}`);
+  const w17 = await worldRowEventually(F.cell, F.fid, (o) => !!o && o.heightScale === 1.3 && o.osmId === sF.osm && !("rotDeg" in o), "row visible after the push");
+  const rows17 = await evalJs(ROWS);
+  const l17 = rows17[Object.keys(rows17)[0]];
+  if (!l17 || !(l17.s >= l17.t) || l17.sy !== 1.3) fail(`the local row was not stamped synced: ${JSON.stringify(l17)}`);
+  if ((await evalJs(`${SS}.dirty`)) !== 0) fail("dirty should be 0 after a landed push");
+  const s17 = await state(F.cell, F.fid);
+  if (s17.tint !== 2 || s17.target.sy !== 1.3) fail(`after the push the building is still MINE: ${JSON.stringify(s17)}`);
+  console.log(`member SYNC: tombstone → world row removed (removed ${r17.removed}) · edit → upserted ${r17b.upserted} (heightScale 1.3, osmId ${w17.osmId}) · local stamped synced`);
+  await sleep(300);
+  await shoot("meshedit-08-synced.jpeg");
+
+  // --- 18: anonymous again — a dirty local edit masks the world's row; SIGN IN offered ---------
+  await clearCookie();
+  await evalJs(`localStorage.removeItem(${JSON.stringify(KEY)}), true`); // a fresh browser sees the world's row…
+  await reload("anon");
+  await waitFor("world row for the fresh browser", `(() => { const s = window.__globe.enrichedState(${JSON.stringify(F.cell)}, ${F.fid}); return !!s && s.target.sy === 1.3 && s.tint === 1; })()`, 45_000);
+  await setXf(F.cell, F.fid, { sy: 1.6, sx: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: 0 }); // …and edits over it
+  const s18 = await state(F.cell, F.fid);
+  if (s18.target.sy !== 1.6 || s18.tint !== 2) fail(`local edit over a world row: ${JSON.stringify(s18)}`);
+  await sleep(300);
+  const pill18 = await evalJs("document.querySelector('.bldg-sync-pill .bec-sync')?.textContent ?? ''");
+  if (!/SIGN IN TO SYNC 1/.test(pill18)) fail(`anonymous pill copy: "${pill18}"`);
+  console.log(`anonymous: world sy 1.3 (tint SHARED) → local edit sy 1.6 wins (tint MINE) · pill "${pill18.trim()}"`);
+} finally {
+  // The collection is the production world: remove what this harness wrote, whatever happened.
+  // Never throw in here (it would mask the leg that failed) — record, and fail after the block.
+  // A remove issued within ~1 s of the row's insert counts 0 (reads lag writes) → retry until
+  // the world GET shows it gone.
+  try {
+    await setCookie();
+    let left = "unknown";
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      const rm = await pageApi("/api/building-overrides", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ removes: [removeKey] }),
+      });
+      await sleep(1200);
+      left = await worldRow(F.cell, F.fid);
+      console.log(`cleanup ${attempt}: removes → ${rm.status} ${JSON.stringify(rm.body)} · world row now ${left === null ? "gone" : JSON.stringify(left)}`);
+      if (left === null) break;
+    }
+    if (left !== null) cleanupProblem = `cleanup left a row on the world: ${JSON.stringify(left)}`;
+  } catch (e) {
+    cleanupProblem = `cleanup threw: ${e?.message ?? e}`;
+  }
+  await evalJs(`localStorage.removeItem(${JSON.stringify(KEY)}), true`).catch(() => {});
+  await clearCookie().catch(() => {});
+}
+if (cleanupProblem) fail(cleanupProblem);
+
 console.log(
   "PASS: arm+cellUri · seam edit (exact target, v2 row, re-queued sample, settled ease, spatial 1) · rails (60 m / 25 m, row agrees) · RESET (row gone, fast path) · reload re-apply · legacy k→sy" +
-    " · MS2: menu→MOVE · X-arrow drag commits (camera pinned) · off-handle look · R ring yaw · S box scale (band) · per-op ↺ · Esc cancels · RESET ALL · DONE",
+    " · MS2: menu→MOVE · X-arrow drag commits (camera pinned) · off-handle look · R ring yaw · S box scale (band) · per-op ↺ · Esc cancels · RESET ALL · DONE" +
+    " · MS3: world row applies (SHARED tint, hover note, no pill) · local wins + tombstone masks · member SYNC removes + upserts (server agrees, osmId keyed) · anonymous sign-in gate · world left clean",
 );
 ws.close();
 await finishVerify(0);

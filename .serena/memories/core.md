@@ -178,7 +178,24 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02d: MESH SUITE MS2 BUILT — the gizmo UI.** Blender-style MOVE / ROTATE / SCALE on the
+**2026-09-02f: MESH SUITE MS3 BUILT — D2 ACTIVATED, world-shared building edits are LIVE.**
+`BuildingOverrides` PROVISIONED on the live site (17 fields, born v2 with the spatial fields);
+rows are OSM-keyed (`variant|osm|<id>` `_id`, fingerprint fallback — the §4a-2 dual key) and the
+engine's load-model apply recovers a row whose bake-sequential key died by its OSM id. Merge
+policy (`lib/globe/bldgSync.ts`): local map = MINE, world rows = in-memory `SharedMap`; local
+pending wins · shared wins over my synced copy on a complete fetch (15 s read-lag grace) · a
+RESET of a shared building is a TOMBSTONE that masks and becomes a `removes` on SYNC. SYNC
+(`syncButtonState`) in the chip foot / menu / a standalone pill, sign-in gated; origin badge;
+hover note; `_ftw_override` byte ladder 255 mine / 128 shared. Measured live: Wix Data honours
+a client `_id` on bulkSave (LWW is real) and reads lag writes ~1 s. Docs `MESH_SUITE_PLAN.md`
+§8 · `mem:project/wip-2026-09-02-mesh-suite-ms3` · DECISIONS 2026-09-02f · T74. Gates: vitest
+2,312/2,312 (153 files) · astro 0/0/8 · knip 0 · **`verify-meshedit.mjs` 18/18** (legs 15–18
+against the LIVE collection, cleaned up) · the §4a-4 sweep 7/7 suites green (bldg-override
+byte-identical · debughud · eclipse · bestspot-ownerbatch 45/45 · rendering-charter 85/85 ·
+ultra-dusk · ultra 28/28 on its third warm run; DECISIONS 2026-09-02g).
+**Next session starts MS4 (the D3 upload pipeline) on the MS0 answers.** New trap: `astro
+check` re-optimizes Vite's dep cache under a running `wix dev` → 504 on every module (restart).
+Prior: **2026-09-02d: MESH SUITE MS2 BUILT — the gizmo UI.** Blender-style MOVE / ROTATE / SCALE on the
 armed building: three's `TransformControls` on the engine's ghost RIG (anchor = translation in
 the cell's ENU frame, body = yaw + scale), fed pointers by the FPV gesture table (no DOM
 listeners, no camera layer — GlobeControls is off throughout FPV), rails + the U8 per-edit band

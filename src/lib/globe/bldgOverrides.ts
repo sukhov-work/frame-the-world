@@ -29,8 +29,16 @@
  * OSM ids (next phase).
  *
  * C6 note: overrides describe OSM building geometry — no user GPS, no coordinates beyond the
- * bake-local checksum. Local-only this phase; the batch DB sync (next phase) reuses these rows
- * via `unsyncedEntries`/`markSynced`.
+ * bake-local checksum.
+ *
+ * MESH SUITE MS3 (2026-09-02): this map holds MY rows — dirty edits, pending resets and synced
+ * copies of what I pushed. The WORLD's rows live in memory (lib/globe/bldgSync.ts `SharedMap`,
+ * fetched from /api/building-overrides at boot) and the merge policy lives there too. Two new
+ * optional fields: `o` = the building's OSM element id (the re-bake-STABLE recovery key — the
+ * fingerprint above dies with a re-bake, the OSM id does not) and `d: 1` = a TOMBSTONE, the
+ * pending removal of a world-shared edit (identity transform; masks the shared row locally; rides
+ * the next SYNC as a `removes` entry; deleted once that lands). `unsyncedEntries` / `finishSync`
+ * are the SYNC's bookends.
  */
 
 import {
@@ -97,9 +105,21 @@ export interface OverrideRow {
   hM: number;
   /** Updated-at (epoch ms). */
   t: number;
-  /** Synced-at (epoch ms) — set by the next-phase batch DB sync; absent/older than `t` = dirty. */
+  /** Synced-at (epoch ms) — stamped by a successful SYNC (MS3); absent/older than `t` = dirty. */
   s?: number;
+  /** MS3: the building's OSM element id ("w141472295") when the bake's sidecar carried one — the
+   *  re-bake-stable RECOVERY key (MESH_SUITE_PLAN §4a-2 dual key; the fingerprint stays primary). */
+  o?: string;
+  /** MS3: TOMBSTONE — a pending REMOVAL of a world-shared edit. The transform is identity, the
+   *  row masks the shared row for this building until the next SYNC pushes the removal, and it is
+   *  deleted once that lands. Kept by `sanitizeRow` even though it is neutral. */
+  d?: 1;
 }
+
+/** OSM element ids as the RC17 sidecars write them: a node/way/relation letter + digits. */
+export const OSM_ID_RE = /^[nwr]\d{1,16}$/;
+export const isOsmId = (v: unknown): v is string => typeof v === "string" && OSM_ID_RE.test(v);
+export const isTombstone = (row: Pick<OverrideRow, "d">): boolean => row.d === 1;
 
 /** key = `${variant}|${cellUri}|${featureId}` (variant/cell names are slugs — no `|`). */
 export type OverrideMap = Record<string, OverrideRow>;
@@ -138,9 +158,12 @@ const inBand = (v: number): boolean => v >= SCALE_MIN_K && v <= SCALE_MAX_K;
 /** ONE untrusted row → a valid `OverrideRow` or null. v2 shape; legacy `k` is read as `sy` (the
  *  read-old-keys precedent — never migrated in place); spatial components are optional and, when
  *  PRESENT, must be finite and inside their rail — a junk component drops the whole row (the `k`
- *  precedent: a store never half-applies). Unknown fields are dropped silently. */
+ *  precedent: a store never half-applies). Unknown fields are dropped silently. MS3: a tombstone
+ *  (`d: 1`) keeps only the facts (identity transform, kept although neutral); a malformed `o`
+ *  drops the FIELD, never the row (the fingerprint still identifies the building). */
 export function sanitizeRow(r: Record<string, unknown>): OverrideRow | null {
-  const sy = fin(r.sy) ? r.sy : fin(r.k) ? r.k : null;
+  const tomb = r.d === 1 || r.d === true;
+  const sy = tomb ? 1 : fin(r.sy) ? r.sy : fin(r.k) ? r.k : null;
   const { cx, cz, vc, hM, t } = r;
   if (
     sy === null || !inBand(sy) ||
@@ -151,6 +174,12 @@ export function sanitizeRow(r: Record<string, unknown>): OverrideRow | null {
   )
     return null;
   const row: OverrideRow = { sy, cx, cz, vc, hM, t };
+  if (tomb) {
+    row.d = 1;
+    if (isOsmId(r.o)) row.o = r.o;
+    if (fin(r.s)) row.s = r.s;
+    return row;
+  }
   if (r.sx !== undefined) {
     if (!fin(r.sx) || !inBand(r.sx)) return null;
     row.sx = r.sx;
@@ -176,6 +205,7 @@ export function sanitizeRow(r: Record<string, unknown>): OverrideRow | null {
   }
   if (isNeutralRow(row)) return null;
   if (fin(r.s)) row.s = r.s;
+  if (isOsmId(r.o)) row.o = r.o;
   return row;
 }
 
@@ -245,15 +275,30 @@ export function saveOverrides(map: OverrideMap): void {
   }
 }
 
-/** Upsert (or delete, when the row is neutral across all components) + persist in one step. */
+/** Upsert (or delete, when the row is neutral across all components) + persist in one step.
+ *  MS3: a tombstone row (`d: 1`) is neutral by construction and is STORED, not deleted. */
 export function upsertOverride(
   map: OverrideMap,
   key: string,
   row: Omit<OverrideRow, "t">,
   nowMs: number,
 ): void {
-  if (isNeutralRow(row)) delete map[key];
+  if (isNeutralRow(row) && !isTombstone(row)) delete map[key];
   else map[key] = { ...row, t: nowMs };
+  saveOverrides(map);
+}
+
+/** MS3: record a building's RESET as a pending removal of its world-shared edit — the row the
+ *  next SYNC turns into a `removes` entry. Until then it masks the shared row locally. */
+export function tombstoneOverride(
+  map: OverrideMap,
+  key: string,
+  facts: Pick<OverrideRow, "cx" | "cz" | "vc" | "hM" | "o">,
+  nowMs: number,
+): void {
+  const row: OverrideRow = { sy: 1, d: 1, cx: facts.cx, cz: facts.cz, vc: facts.vc, hM: facts.hM, t: nowMs };
+  if (facts.o) row.o = facts.o;
+  map[key] = row;
   saveOverrides(map);
 }
 
@@ -322,13 +367,31 @@ export function clampGizmoEdit(raw: FeatureTransform, start: FeatureTransform): 
   };
 }
 
-/** Rows the next-phase batch sync still needs to push (never synced, or edited since). */
+/** Rows the SYNC still needs to push (never synced, or edited since) — tombstones included. */
 export function unsyncedEntries(map: OverrideMap): Array<[string, OverrideRow]> {
   return Object.entries(map).filter(([, r]) => r.s === undefined || r.s < r.t);
 }
 
-/** Stamp rows as synced (called by the next-phase sync on success). Persists. */
+/** Stamp rows as synced. Persists. (`finishSync` is the SYNC's bookend; this stays for callers
+ *  that know the rows did not change under them.) */
 export function markSynced(map: OverrideMap, keys: readonly string[], atMs: number): void {
   for (const k of keys) if (map[k]) map[k].s = atMs;
+  saveOverrides(map);
+}
+
+/** MS3: a SYNC landed — stamp each pushed row synced ONLY if it is still the row that was sent
+ *  (`t` unchanged; an edit made while the request was in flight stays dirty), and delete the
+ *  tombstones whose removal landed. `sent` = the `[key, t]` pairs the payload was built from. */
+export function finishSync(
+  map: OverrideMap,
+  sent: ReadonlyArray<readonly [string, number]>,
+  atMs: number,
+): void {
+  for (const [k, t] of sent) {
+    const row = map[k];
+    if (!row || row.t !== t) continue;
+    if (isTombstone(row)) delete map[k];
+    else row.s = atMs;
+  }
   saveOverrides(map);
 }

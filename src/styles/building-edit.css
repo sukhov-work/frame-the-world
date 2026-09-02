@@ -179,6 +179,115 @@
   color: color-mix(in srgb, var(--color-text-secondary) 75%, transparent);
 }
 
+/* ── MESH SUITE MS3: the SYNC button (chip foot + the standalone pill) + the origin badge ── */
+.bec-sync {
+  pointer-events: auto;
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  font: 600 0.58rem var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--color-accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bec-sync:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.bec-sync:disabled {
+  cursor: default;
+}
+
+/* Sign-in gate: the button is a LINK in spirit — neutral ink, accent on hover. */
+.bec-sync--signin {
+  border-color: var(--color-border);
+  background: none;
+  color: var(--color-text);
+}
+
+.bec-sync--signin:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.bec-sync--busy {
+  opacity: 0.7;
+}
+
+.bec-sync--done {
+  border-color: transparent;
+  background: none;
+  color: var(--color-text-secondary);
+}
+
+.bec-sync--retry {
+  border-color: color-mix(in srgb, var(--color-warn) 60%, var(--color-border));
+  background: color-mix(in srgb, var(--color-warn) 10%, transparent);
+  color: var(--color-warn);
+}
+
+/* The origin badge sits at the end of the op strip: SHARED (the world's edit) · UNSYNCED (mine,
+   pending) · SYNCED (mine, pushed). Badge, not button — it only annotates. */
+.bec-origin {
+  align-self: center;
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font: 600 0.5rem var(--font-mono);
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.bec-origin[data-origin="shared"] {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+}
+
+.bec-origin[data-origin="dirty"] {
+  color: var(--color-warn);
+  border-color: color-mix(in srgb, var(--color-warn) 50%, var(--color-border));
+}
+
+.bec-origin[data-origin="synced"] {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+}
+
+/* Nothing armed, edits pending: a small pill in the chip's slot, both shells. */
+.bldg-sync-pill {
+  position: fixed;
+  left: 50%;
+  bottom: 11rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  user-select: none;
+  pointer-events: none; /* the button re-enables itself */
+  white-space: nowrap;
+}
+
+.bldg-sync-pill__k {
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+}
+
+body.m .bldg-sync-pill {
+  bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
+}
+
 /* Shell-specific hint copy: the one sanctioned shell probe is body.m (MobileLayout). */
 .bec-hint--m,
 body.m .bec-hint--desktop {

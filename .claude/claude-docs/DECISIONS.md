@@ -346,6 +346,120 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 
 ## Recent sessions (verbatim, newest first)
 
+### 2026-09-02g — the §4a-4 harness sweep for MS3: green on all seven suites, and the final gates on the finished tree
+
+One fresh headless Chrome per suite (:9333, `wix dev` restarted with `.vite/deps` moved aside
+after the `astro check` clobber), Node 24: `verify-bldg-override` **PASS** (the U8 flow
+byte-identical — dblclick + double-tap arm, claimed drag, commit at 3.00, RESET, Esc-in-FPV,
+reload, /m twin; 41 s) · `verify-debughud` **ALL PASS** (13 s) · `verify-eclipse` **PASS** (20 s)
+· `verify-bestspot-ownerbatch` **45/45** (47 s) · `verify-rendering-charter` **85/85** (228 s) ·
+`verify-ultra-dusk` **ALL PASS** (225 s) · `verify-ultra` **28/28 on its THIRD run on the same
+warm profile** — runs 1–2 red on the documented cold-imagery-cache confound (run 1: ground
+uniforms not yet exactly zero, the hemisphere light not yet flipped, drape anisotropy 1; run 2:
+§1b only, max 1 / chained 0; run 3: max 16 / chained 33 / n 377, ALL PASS — the same three-run
+shape as 2026-09-02d). Before it, `verify-meshedit` 18/18 (2026-09-02f). Final gates on the
+finished tree: vitest **2,312/2,312 (153 files)** · `astro check` 0 err / 0 warn / 8 hints ·
+knip 0 · the live `BuildingOverrides` collection holds **0 rows** (the harness cleaned up; the
+one leftover from a masked-failure run was removed over REST).
+
+### 2026-09-02f — MESH SUITE MS3 BUILT: D2 ACTIVATED — world-shared building edits are LIVE on a provisioned `BuildingOverrides` (OSM-keyed LWW rows carrying the v2 spatial fields), with a boot fetch + a merge policy (local pending wins · shared wins over my synced copy · a reset of a shared edit is a TOMBSTONE), a sign-in-gated SYNC in the chip, the menu and a standalone pill, and a tint ladder + origin badge + hover note — 18/18 harness legs green against the LIVE collection
+
+**Boot fact first:** the MS2 tree was not on origin/master when this session started — the
+session-end hook fired on `/clear` and ran concurrently (PR #92 landed 02:48; local master →
+`878e782`, tree clean). Nothing was edited until the log said "local checkout back on master".
+
+**Platform facts the design rests on** (docs + the installed SDK, never memory): Wix Data query
+`limit()` default 50 / max 1000, paging by `next()/hasNext()` or `skip()`; bulk ops 1000 items
+per call; item cap 500 KB [`@wix/wix-data-items-sdk …items.universal.d.ts`, dev.wix.com
+wix-data-query/limit]. Two things measured LIVE this session: **Wix Data honours a
+client-supplied `_id` on `bulkSave`** (the row's `_id` inspected over REST equals the FNV hash —
+LWW-by-`_id` is real, not assumed) and **reads lag writes by about a second** (a GET right after
+a landed push does not list the row; a remove of it counts 0). `scripts/provision-collections.mjs`
+RAN: `+ BuildingOverrides created (17 fields)` — the six spatial NUMBER fields were added to the
+schema first, so the collection was born v2 (the §4 ruling's zero-migration premise held).
+
+**The design (as-built `MESH_SUITE_PLAN.md` §8).** *Identity:* the server `_id` hashes
+`variant|osm|<osmId>` when the row carries an OSM id (100 % of pickable buildings on every live
+bake, §6.1), else the legacy `variant|cell|featureId` fingerprint — the §4a-2 dual key, never a
+cutover; the fingerprint stays in the row as locator + checksum. Local rows gained `o` (written at
+every commit from the pick / `featureState.osm`), and the engine's load-model apply became THREE
+passes (`applyCellOverrides`): fingerprint-keyed rows (a checksum miss drops only a row WITHOUT
+an OSM id — the U8 rule), the OSM RECOVERY sweep (`byOsm` for every unclaimed feature; a re-found
+row is re-keyed through `onRecovered` with fresh facts; first feature wins when a bake gives one
+id to several runs), then any edited feature no row covers eases back to identity. One `Map.get`
+per feature per cell LOAD, nothing per frame (§4a-5). *Merge policy* (`lib/globe/bldgSync.ts`,
+pure, 13 unit cases): the LOCAL map is MINE (dirty edits, pending resets, synced copies); the
+WORLD's rows are an in-memory `SharedMap` fetched at boot and before every push, never persisted.
+Local pending wins (nothing a member did is replaced by a fetch); shared wins over my synced copy
+on a COMPLETE fetch (the server's version refreshes the cache; a synced row the server lost is
+deleted — past a 15 s read-lag grace); a RESET of a building the world knows is a TOMBSTONE
+(`d: 1`: identity transform, kept by `sanitizeRow` although neutral, masks the shared row by key
+AND by OSM id, becomes a `removes` entry keyed the way the SERVER knows the row, dies when the
+removal lands) — without it the shared row would re-apply at the next load and RESET would look
+broken. Fetch-before-push keeps the reconciliation honest; a failed fetch does not block the push
+(LWW keeps it safe). `finishSync` stamps a pushed row synced only if it is still the row that was
+sent. *Wire:* `OverrideSyncEntry` grew `osmId` + optional `sx sz rotDeg tE tN tU` (the server
+re-clamps through `clampXf` onto `XF_RAILS` and omits identity components — a height-only edit
+lands exactly as U8 sent it); `PublicOverride` grew `osmId`, the spatial fields, `bakedHeightM`,
+`updatedAt`; the GET pages by `skip()` (each page its own `auth.elevate` call — a result's
+`next()` would run outside it) up to `GET_MAX_PAGES` and answers `complete`, on which the client
+never deletes. *UI:* one state machine (`syncButtonState`) in three places — the chip foot, the
+context menu, and a standalone PILL in the chip's slot while nothing is armed [ASSUMPTION — a deck
+chip is the alternative]: `⇅ SYNC n` · `SIGN IN TO SYNC n` (anonymous or a 401; the button is the
+`loginUrl(returnHereUrl())` round-trip, the rows wait in storage) · `SYNCING…` · `✓ SYNCED n` /
+`✓ IN SYNC` (4 s) · `SYNC FAILED · RETRY n`; an ORIGIN badge on the op strip and the menu head
+(SHARED · UNSYNCED · SYNCED); the `_ftw_override` mask is a byte LADDER — 255 mine
+(`overrideTintCommittedK` 0.16 → 0.24 on "highlighted more distinctly than today"), 128 shared
+(`overrideTintSharedK` 0.13, new), read as two thresholds in the fragment; a HOVER NOTE ("EDITED ·
+shared · 22.5 m · was 15.0 m") over an edited building nobody has armed, from one throttled pick
+(`ENRICHED.hoverPickMs` 120). The re-bake caveat is the SYNC button's title and the guide's
+`fpv-height` topic (rewritten for MS2 + MS3). Everything fails OPEN — a fetch that never lands
+leaves the world invisible and the user's own rows applying.
+
+**Files.** `lib/globe/bldgOverrides.ts` (`o`/`d`, `isOsmId`, `tombstoneOverride`, `finishSync`) ·
+NEW `lib/globe/bldgSync.ts` · `lib/wix/overrideRecords.ts` · `pages/api/building-overrides.ts` ·
+`scripts/provision-collections.mjs` · NEW `store/bldgSync.ts` (+ `__bldgSyncStore`) ·
+`store/bldgEdit.ts` (`origin`) · `scene/enrichedBuildings.ts` (`ov` level, `applyCellOverrides`,
+`reapplyOverrides`, `featureState.osm/tint`, `debugSeats().shared`) · `scene/buildingMaterial.ts` ·
+`scene/bldgEditLabel.ts` (`hover`) · `StylizedTiles.ts` (the seam with `byOsm`/`onRecovered`,
+`bldgFetchShared`, `bldgSyncNow` + the login gate, tombstones in `commitBldgTransform`, the hover
+pick, the SYNC one-shot in `stepBldgEdit`, DEV `__globe.bldgSync`) · `panels/BuildingEditChip.tsx`
++ `styles/building-edit.css` · `tuning.ts` · guide · docs (MESH_SUITE_PLAN §3/§5/§8, contracts
+§2/§3/§4/§7, globe-tuning MS3 family, ARCHITECTURE, backlog T74) · tests (`bldgOverrides` +5, NEW
+`bldgSync` 13, `overrideRecords` rewritten 9, NEW `store/bldgSync` 3, `bldgEdit` fixture,
+`buildingEditChip` +4) · `verify-meshedit.mjs` legs 15–18 (+ the member-session recipe).
+
+**Verified.** Unit: vitest **2,311/2,311 (153 files)** (was 2,284/151) · `astro check` 0 err / 0
+warn / 8 hints · knip 0. Live through `wix dev`: GET `{"overrides":[],"complete":true}`, missing
+variant 400, anonymous POST 401. Browser (fresh headless Chrome :9333, the Dnipro-o2w FPV pose):
+**`verify-meshedit.mjs` 18/18** — the MS1 six and MS2 eight unchanged, then (15) a row seeded on
+the SERVER applies for an ANONYMOUS visitor with no local row (rotDeg 40 / sy 1.5, tint SHARED,
+`enrichedSeats().shared` 1, hover "EDITED · shared · 22.5 m · was 15.0 m", no pill) · (16) a local
+edit wins (tint MINE, dirty 1, pill "SIGN IN TO SYNC 1") and a RESET leaves a tombstone that masks
+the world row across a reload · (17) member SYNC: the tombstone removes the world row (`removed 1`,
+server GET agrees) and a fresh edit lands (`upserted 1`, heightScale 1.3, osmId w82966753, local
+row stamped synced) · (18) anonymous again: world sy 1.3 (SHARED) → local sy 1.6 wins (MINE), pill
+SIGN IN; the harness removed its row and proved the world clean. Shots
+`verify-shots/meshedit-07-shared-applied.jpeg`, `meshedit-08-synced.jpeg`. The §4a-4 sweep is
+recorded in the 2026-09-02g line ABOVE it (this line was written while it ran).
+
+**What the browser caught (four runs to green).** (1) `astro check` re-optimizes Vite's dep cache
+UNDER a running `wix dev` — every `.vite/deps/*` module then 504s (`Outdated Optimize Dep`) and the
+globe never boots; same recipe as a new globe import (stop, move `.vite/deps` aside, restart; a
+plain `kill` of the listener may not take — `kill -9` the pids by number). (2) The pill shows a
+push's outcome for 4 s before hiding — a "nothing pending → no pill" assert must follow the
+`done` state. (3) Wix Data reads lag writes: a world GET issued right after a push missed the row
+and the cleanup's remove counted 0 — every harness world-read now polls, the cleanup retries, and
+the app grew `SYNC_READ_LAG_GRACE_MS` so a double SYNC within a second cannot delete a just-synced
+local copy. (4) A `finally` that throws masks the leg that failed; a SYNC click is consumed on the
+NEXT frame, so a wait that starts at the click reads the previous outcome — clear `result` first.
+
+**Taste calls surfaced, not decided:** the standalone pill vs a deck chip · the 4 s "✓ SYNCED"
+during which a fresh edit cannot be pushed · no author on shared edits (memberId is never emitted;
+a display name would be a C6-shaped decision) · no pristine-footprint ghost on every edited
+building · a re-keyed "mine" row is not marked dirty (the server's locator stays stale until the
+next edit; the OSM key makes that harmless).
+
 ### 2026-09-02e — CHERNOBYL REGION DELETED on the owner's one-line confirmation: the `regions.ts` entry, both bake configs, the geoid grid, and 1,785 R2 objects gone (0 remain); the guide copy now names three modelled places
 
 Owner, same day, on being asked: "Yes, delete the Chernobyl region, bakes and R2 objects."

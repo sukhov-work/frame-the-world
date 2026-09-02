@@ -204,7 +204,7 @@ Next session starts at **MS0** below.
 | **MS0 — ratify + probes** | **DONE 2026-09-02.** Rulings ratified (§4, 2026-09-01c/d); the ONE empirical media probe ran (§1 — all four unknowns answered, private 3D refused); the two contracts.md drifts fixed (+ a third: BuildingOverrides was missing from §4); the §4a-2 sidecar census ran (§6.1: 100 % coverage on all five live variants). | — |
 | **MS1 — transform substrate** | **BUILT 2026-09-02 (§6).** Pristine-snapshot + absolute recompose in `applyFeatureSeats`; `addUpdateRange`; sphere+box bounds; re-locate after move; per-SEGMENT edge attribution (the party-wall fix, in place of a rebuild); `OverrideRow` v2 + sanitize + multi-component neutrality; rails; pure-math unit tests (the scene-test twin rule); generalized ghost; `setTransform`/`featureState` engine API + DEV seam; browser leg `verify-meshedit.mjs`. | MS0 |
 | **MS2 — gizmo UI** | **BUILT 2026-09-02 (§7).** Building context menu (right-click / long-press → MOVE / ROTATE / SCALE / EXTRUDE / REVERT ALL / DONE) + the chip's op strip + G/R/S/E keys; TransformControls on the ghost RIG (anchor + body under the cell mesh, `space: local` = ENU, pointers FED by the FPV gesture table — no DOM listeners, no camera layer needed: GlobeControls is off throughout FPV), `minY/maxY` = the lift rail, per-edit scale band on every axis; ghost-body preview while dragging, commit on release through `commitBldgTransform`; the chip shows every op's current vs original with a per-op ↺ + RESET ALL, the pinned label grows an op line; EXTRUDE = the U8 drag verbatim and the default op on arm; Escape cancels a live drag; `verify-meshedit.mjs` legs 7–14. | MS1 |
-| **MS3 — D2 activation** | Run provisioning; boot fetch + merge; SYNC affordance + login gate + 402/401 UX; markSynced; tint ladder + subtle original-params indication; re-bake-loss note in UI copy; extend wire/collection with MS1 fields; harness leg. | MS1 (fields), not MS2 |
+| **MS3 — D2 activation** | **BUILT 2026-09-02f (§8).** `BuildingOverrides` PROVISIONED on the live site (17 fields); the wire + collection carry the v2 row's spatial fields (server re-clamps, identity omitted) + the **OSM-keyed `_id`** (dual key — fingerprint fallback, never a cutover); boot fetch (paged GET, `complete` flag) + the MERGE POLICY (local pending wins · shared wins over my synced copy · a RESET of a shared edit is a TOMBSTONE); SYNC affordance in the chip foot, the context menu and a standalone PILL, sign-in gated (401 → SIGN IN); the `_ftw_override` byte LADDER (mine 255 / shared 128) + an origin badge + a hover note ("EDITED · shared · was …"); the OSM recovery sweep at load-model; `reapplyOverrides()`; `verify-meshedit.mjs` legs 15–18 against the LIVE collection. | MS1 (fields), not MS2 |
 | **MS4 — D3 upload pipeline** | Modal fork photo\|model; loaders + normalize-to-GLB + validation + auto-decimate; readiness state; `UserModels` collection + endpoints (quota wall); `/api/upload-url` kind:"model" + first mime allowlist. | MS0 answers |
 | **MS5 — D3 placement** | `scene/userModels.ts`; centroid ground-fit + resnap; MS2 gizmo reused for final fit at upload; clamps; LOD/culling/shadow flags; load-with-tiles streaming; **the MDL deck chip (all custom models on/off, ON by default — BLD-chip recipe)**; **the physical-density warning** (owner 2026-09-01c: no quota — warn instead; design the metric: resident models / on-screen user-model tris / per-cell count). | MS2 + MS4 |
 | **MS6 — D3 management + world edit** | My-uploads list (delete/hide); other users edit user-mesh transforms per D1 (overrides ON user meshes — same record machinery); perf polish; full harness. | MS5 + MS3 |
@@ -233,7 +233,7 @@ R2 write path (reserve) · moderation tooling (owner decision first).
    the v2 record (legacy rows still read), XZ scale about the centroid, uniform-XZ default
    gesture with per-axis available; neighbour overlap accepted.
 
-## §4a THE NO-REGRESSION CONTRACT (owner 2026-09-01d — BINDING for MS1 and MS3)
+## §4a THE NO-REGRESSION CONTRACT (owner 2026-09-01d — BINDING for MS1 and MS3; MS3 receipt in §8.5)
 
 The osmId migration and the XZ/3-axis scale must support **everything that already exists,
 worldwide and feature-wise**, and introduce **no regression** into rendering, re-seating,
@@ -269,9 +269,10 @@ Concretely, each slice's done-gate includes:
 1. Read this file (§6 = the MS1 as-built, §7 = the MS2 as-built), then
    `mem:project/wip-2026-09-02-mesh-suite-ms2`, `mem:project/wip-2026-09-02-mesh-suite-ms0-ms1`
    and `mem:project/wip-2026-09-01-mesh-suite-plan` (research digests).
-2. MS3 = the D2 activation on the §6 fields (it needs MS1, not MS2): provisioning, boot fetch +
-   merge, SYNC + login gate, markSynced, the tint ladder, the osmId dual key (§4a-2 census: 100 %
-   coverage on every live variant). The wire/collection grow by the v2 row's spatial fields.
+2. MS3 (the D2 activation) is BUILT — §8 is the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms3`
+   the digest. Next: **MS4** (the D3 upload pipeline: modal fork photo|model, loaders +
+   normalize-to-GLB + validation + auto-decimate, readiness, the `UserModels` collection +
+   endpoints, `/api/upload-url` kind:"model" + the first mime allowlist) on the MS0 answers (§1).
 3. The DBG window (2026-09-01) is the instrument for all of this — seat deferrals/rejections,
    cell counts, frame costs are live in it; open it before profiling anything.
 
@@ -475,3 +476,133 @@ The SYNC of spatial rows (MS3 grows the wire/collection by the v2 fields) · use
 this gizmo at MS5 (attach to the model's own Object3D — no rig needed) · a numeric-entry field
 per op (type a heading) · trees.
 
+
+---
+
+## §8 MS3 AS BUILT — the D2 activation: world-shared building edits (2026-09-02f)
+
+The dormant U8 backend is live. A signed-in member pushes every pending building edit to ONE
+world-shared Wix Data collection; every visitor's globe fetches its variant's rows at boot and
+applies them at cell load; the last person to sync a building wins. Rows are keyed by the
+building's OSM id, so they survive a re-bake. The ladder row in §3 is the summary; this is the
+design, recorded as decisions ([ASSUMPTION] where the owner has not ruled — surface, not re-open).
+
+### §8.1 The platform facts the design rests on (docs + the installed SDK, not memory)
+
+- Wix Data `query.limit()` default 50, **max 1000** [dev.wix.com wix-data-query/limit];
+  pages by `next()/hasNext()` or `skip()`; bulk operations **1000 items per call**; item size
+  cap **500 KB** [`@wix/wix-data-items-sdk …items.universal.d.ts`] (the error-codes page says
+  512 KB — a row here is ~300 B either way). The public GET pages by `skip()` — each page its
+  own `auth.elevate` call (a result's `next()` would run outside the elevation) — up to
+  `GET_MAX_PAGES` (10 × 1000) and answers `complete: false` past that, which the client treats
+  as "never delete on absence".
+- `scripts/provision-collections.mjs` RAN 2026-09-02f: `+ BuildingOverrides created (17 fields)`
+  — the six spatial NUMBER fields (`sx sz rotDeg tE tN tU`) were added to the schema first, so
+  the collection was born v2 (zero data migration — the §4 ruling's premise held).
+- `checkOrigin` is inert in dev and JSON `fetch` writes are exempt in the build (wix-headless
+  §12b) — the SYNC POST is a same-origin JSON fetch carrying the `wixSession` cookie.
+
+### §8.2 Identity: the OSM-keyed `_id` (the §4a-2 dual key, as shipped)
+
+`overrideId(variant, cell, featureId, osmId)` hashes `variant|osm|<osmId>` when the row carries
+an OSM id, else the legacy `variant|cell|featureId` fingerprint (a cell uri is never the literal
+`osm`, so the namespaces cannot collide). The census (§6.1) gives 100 % of pickable buildings an
+OSM id on every live bake, so every row the world will see is OSM-keyed from day one; the
+fingerprint (`cell`, `featureId`, `cx`, `cz`, `vc`) stays IN the row as the locator + checksum.
+Client side, the local row grammar (`ftw:bldg-overrides:v1`) grew `o` (the OSM id, written at
+every commit from the pick / `featureState.osm`) and the engine's load-model apply became THREE
+passes (`applyCellOverrides`): (1) the rows keyed to the cell by fingerprint — a checksum miss on
+a row WITHOUT an OSM id drops it (the U8 rule), a row WITH one is left to (2) the RECOVERY sweep,
+which asks `byOsm` for every feature the fingerprint pass left unclaimed, so a row whose
+bake-sequential key died in a re-bake finds its building by OSM id and is RE-KEYED with fresh
+facts (`onRecovered`; first feature wins when a bake gives one id to several runs — the
+dnipro-o2w power-tower pairs, none pickable); (3) a feature still carrying an edit no row covers
+any more eases back to the original. Cost: one `Map.get` per feature per cell LOAD — nothing per
+frame (§4a-5).
+
+### §8.3 The merge policy (the §2-5 starting point, decided)
+
+Two maps. The LOCAL map (`ftw:bldg-overrides:v1`) holds MINE: dirty edits, pending resets and
+synced copies of what I pushed. The WORLD's rows (`SharedMap`, `lib/globe/bldgSync.ts`) live in
+memory only — fetched at boot and before every push, never persisted (a stale persisted world
+would show deleted rows). The effective row for a building is `local ?? shared`, with three rules:
+
+1. **LOCAL PENDING WINS.** A dirty row is my edit in flight: it applies here, masks the world's
+   row, and rides the next SYNC — where LWW on the server means mine lands last. Nothing a
+   member did is ever replaced by a fetch.
+2. **SHARED WINS OVER MY SYNCED COPY.** A synced local row is only a cache of what I pushed; on
+   a COMPLETE fetch the server's version replaces it (someone may have re-edited since) and a
+   synced row the server no longer has is deleted (someone reset it). A partial fetch never
+   deletes. The cache is what keeps my pushed edits visible offline / on a 502.
+3. **A RESET of a building the world knows is a TOMBSTONE** (`d: 1` in the local row grammar —
+   identity transform, kept by `sanitizeRow` although neutral; masks the shared row by key AND by
+   OSM id so a re-baked twin cannot come back through the sweep; becomes a `removes` entry on
+   SYNC, keyed the way the SERVER knows the row; dies once the removal lands). Without it the
+   shared row would simply re-apply at the next load and RESET would look broken. A reset of a
+   purely local edit stays a plain delete. [ASSUMPTION: a tombstone is dirty and counts toward
+   the SYNC number — "1 pending" after a reset of a shared building is truthful.]
+
+Fetch-before-push keeps the reconciliation honest; a failed fetch does not block the push (LWW
+makes an un-reconciled push safe, merely opinionated). `finishSync` stamps a pushed row synced
+ONLY if it is still the row that was sent (`t` unchanged — an edit made while the request was in
+flight stays dirty). `OverrideIndex` (per cell + by OSM id) is rebuilt lazily after any change.
+
+### §8.4 The affordances (owner: "login required to sync, all meshes synced at once")
+
+- **SYNC** lives in three places, one state machine (`syncButtonState`, unit-tested): the chip
+  foot while a building is armed, the context menu (`⇅ SYNC n`), and a standalone PILL in the
+  chip's slot while NOTHING is armed but edits are pending — so pending edits are never hidden
+  behind "arm a building first" [ASSUMPTION: the pill; the owner may prefer a deck chip]. States:
+  `⇅ SYNC n` · `SIGN IN TO SYNC n` (anonymous, or a 401 — the button is the login round-trip via
+  `loginUrl(returnHereUrl())`; the rows wait in storage) · `SYNCING…` · `✓ SYNCED n` / `✓ IN SYNC`
+  (4 s) · `SYNC FAILED · RETRY n` (5xx / network / a 400 contract drift). 402 does not exist here
+  (no quota on overrides — the owner's no-limits ruling applies).
+- **The tint ladder**: `_ftw_override` is now a byte LADDER — 255 mine (`overrideTintCommittedK`
+  raised 0.16 → 0.24 per "highlighted more distinctly than today"), 128 world-shared
+  (`overrideTintSharedK` 0.13, new), 0 original — read in the fragment as two thresholds (a run's
+  vertices all carry one byte, nothing interpolates onto a third level). The armed run keeps its
+  stronger `overrideTintK`.
+- **"A subtle indication of original vs overridden params"**: an ORIGIN badge on the chip's op
+  strip (SHARED · UNSYNCED · SYNCED, each with a one-line title) and the menu head, plus a HOVER
+  NOTE over an edited building nobody has armed — "EDITED · shared · 34.3 m · was 24.5 m" on the
+  mesh-pinned label layer, fed by one throttled pick (`ENRICHED.hoverPickMs` 120, mouse/pen only,
+  never during a look-drag). [ASSUMPTION: no pristine-footprint ghost for every edited building —
+  a taste option for later.]
+- **The re-bake note** is the SYNC button's title (one sentence: most edits survive a re-bake
+  through the OSM key; one whose building changed shape can still be dropped) and the guide's
+  `fpv-height` topic.
+- Fails OPEN everywhere: a fetch that never lands (502 before provisioning, offline) leaves the
+  world invisible and the user's own rows applying; `world: "error"` is observable in
+  `__bldgSyncStore`.
+
+### §8.5 Files + verification receipt
+
+`lib/globe/bldgOverrides.ts` (`o`/`d`, `isOsmId`, `isTombstone`, `tombstoneOverride`,
+`finishSync`) · NEW `lib/globe/bldgSync.ts` (the policy: `sharedRowFromPublic`, `reconcileShared`,
+`OverrideIndex`, `syncPayload`, `applySyncResult`, `originOf`, `dirtyCount`) ·
+`lib/wix/overrideRecords.ts` (v2 wire, `overrideId(…, osmId)`, `clampXf` server-side,
+`OverrideRemoveKey`, `publicOverride` + `updatedAt`, `GET_MAX_PAGES`) ·
+`pages/api/building-overrides.ts` (paged GET + `complete`) · `scripts/provision-collections.mjs`
+(six spatial fields; RAN) · NEW `store/bldgSync.ts` (+ `__bldgSyncStore` in `global.d.ts`) ·
+`store/bldgEdit.ts` (`origin`) · `scene/enrichedBuildings.ts` (`ov` level, the ladder,
+`applyCellOverrides`, `reapplyOverrides`, `featureState.osm/tint`, `debugSeats().shared`,
+`setTransform(…, origin)`) · `scene/buildingMaterial.ts` (the two-threshold ladder) ·
+`scene/bldgEditLabel.ts` (`hover`) · `StylizedTiles.ts` (the seam with `byOsm`/`onRecovered`,
+`bldgFetchShared`, `bldgSyncNow` + the login gate, tombstones in `commitBldgTransform`, the hover
+pick, the SYNC one-shot in `stepBldgEdit`, DEV `__globe.bldgSync`) · `panels/BuildingEditChip.tsx`
++ `styles/building-edit.css` (SYNC button/pill/menu item, origin badge) · `tuning.ts`
+(`overrideTintSharedK`, `hoverPickMs`) · guide `fpv-height` · tests: `bldgOverrides` +5,
+NEW `bldgSync` (12), `overrideRecords` (rewritten, 9), NEW `store/bldgSync` (3), `bldgEdit`
+fixture, `buildingEditChip` +4 · `scripts/verify-meshedit.mjs` legs 15–18.
+
+Receipt: DECISIONS 2026-09-02f (unit tier · the live endpoint probes · `verify-meshedit` 18 legs
+against the LIVE collection with cleanup) + 2026-09-02g (the §4a-4 sweep: bldg-override PASS ·
+debughud · eclipse · bestspot-ownerbatch 45/45 · rendering-charter 85/85 · ultra-dusk · ultra
+28/28 on its third warm run; final gates vitest 2,312/2,312 · astro 0/0/8 · knip 0).
+
+### §8.6 Left for MS4+ (deliberately)
+
+The DBG window has no sync metrics yet (`__bldgSyncStore` is the seam; a `edit.*` group is a
+T73-class tail) · an `updatedAt`/"edited by" display (memberId is never emitted — a display label
+would need a denormalized author field, a C6-shaped decision) · a per-user "my edits" list ·
+the MS6 reuse of this exact machinery for user-mesh transforms.

@@ -32,9 +32,9 @@ the `/m` redirect; new 2026-08-15).
 | `ftw:sbdb:v1` | `src/lib/sky/sbdb.ts` | TTL cache |
 | `ftw:m-banner-dismissed` | `src/pages/index.astro` | new 2026-08-13 (M0) |
 | `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
-| `ftw:bldg-overrides:v1` | `src/lib/globe/…` → `scene/bldgEditLabel` + the U8 edit flow | new 2026-08-19 (U8 building-height override), missed by the 2026-08-15 sweep. Per-edit scale band 0.5×–3×, keyed **`<variant>\|<cellUri>\|<featureId>`** (`src/lib/globe/bldgOverrides.ts` `overrideKey`/`parseOverrideKey`; `cellUri` = the baked content basename `cell-<x>-<y>.glb`, `featureId` = the bake-sequential `_FEATURE_ID_0` — NOT an OSM id; this row said `osmId` from 2026-08-22 to 2026-09-02 and that was doc drift). A re-bake CHECKSUM (`cx/cz/vc`) invalidates the row rather than migrating it, so a stale key is dropped, never applied to the wrong building; the RC17 sidecars carry the OSM id (`osm`, 100 % coverage on every live bake as of 2026-09-02) and the MESH SUITE MS3 slice adopts it as the re-bake-stable RECOVERY key (dual-key, never a hard cutover — `MESH_SUITE_PLAN.md` §4a). Row shape is versioned (v2 = `sy/sx/sz/tE/tN/rotDeg`, legacy `k` read as `sy`, MS1 2026-09-02). The backend twin (`BuildingOverrides` + `/api/building-overrides`) is written and tested but DORMANT (provisioning never ran) — this key is the live store |
+| `ftw:bldg-overrides:v1` | `src/lib/globe/…` → `scene/bldgEditLabel` + the U8 edit flow | new 2026-08-19 (U8 building-height override), missed by the 2026-08-15 sweep. Per-edit scale band 0.5×–3×, keyed **`<variant>\|<cellUri>\|<featureId>`** (`src/lib/globe/bldgOverrides.ts` `overrideKey`/`parseOverrideKey`; `cellUri` = the baked content basename `cell-<x>-<y>.glb`, `featureId` = the bake-sequential `_FEATURE_ID_0` — NOT an OSM id; this row said `osmId` from 2026-08-22 to 2026-09-02 and that was doc drift). A re-bake CHECKSUM (`cx/cz/vc`) invalidates the row rather than migrating it, so a stale key is dropped, never applied to the wrong building; the RC17 sidecars carry the OSM id (`osm`, 100 % coverage on every live bake as of 2026-09-02) and the MESH SUITE MS3 slice adopts it as the re-bake-stable RECOVERY key (dual-key, never a hard cutover — `MESH_SUITE_PLAN.md` §4a). Row shape is versioned (v2 = `sy/sx/sz/tE/tN/rotDeg`, legacy `k` read as `sy`, MS1 2026-09-02). **MS3 (2026-09-02f):** two more optional fields — `o` = the building's OSM element id (the re-bake-stable recovery key; `/^[nwr]\d{1,16}$/`, a malformed one drops the field, never the row) and `d: 1` = a TOMBSTONE (a pending REMOVAL of a world-shared edit: identity transform, kept although neutral, masks the shared row locally, rides the next SYNC as a `removes` entry, deleted once it lands). `s` (synced-at) is now stamped by a real SYNC. This key holds MINE only (dirty edits, pending resets, synced copies); the WORLD's rows are fetched from `/api/building-overrides` at boot and held in memory (`lib/globe/bldgSync.ts`), never persisted. The backend twin is LIVE (provisioned 2026-09-02f) |
 
-## 3. `window.__*` DEV seams (all DEV-gated; **21 top-level** as of 2026-08-24)
+## 3. `window.__*` DEV seams (all DEV-gated; **22 top-level** as of 2026-09-02f — `__bldgSyncStore` joined)
 
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __cameraStore __timeStore __uploadStore __pinsStore __memberStore __planStore __saveStore
@@ -92,6 +92,7 @@ top-level globals; same removal/rename rule):
 | `__globe.bestSpotField()` | `StylizedTiles.ts:2181` | the published RG8 score field itself — **the seam that caught `rMin === rMax === 187`** (one distinct value across 31,417 cells while 1,860 unit tests passed). Read the DISTRIBUTION, never a flag |
 | `__globe.bestSpotTuning` | `StylizedTiles.ts:2064`, exposed `:2187` | callable + `.export()` + `.ab()` — the 54-leaf scoring-patch console (SPEC_V2 §5.6); a weights patch costs exactly ONE job and is `recompose` |
 | `__globe.enrichedState(cellUri, featureId)` / `__globe.enrichedSetTransform(cellUri, featureId, t)` | `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS1 2026-09-02) | read one building's edit TARGET + APPLIED transform + checksum facts; DRIVE a full transform (`{sy,sx,sz,rotDeg,tE,tN,tU}`) through the SAME commit path as a drag release (engine target + persisted `ftw:bldg-overrides:v1` row). `__bldgEditStore.armed` now also carries `cellUri`, so a harness can address the armed building. Consumer: `verify-meshedit.mjs` |
+| `__bldgSyncStore` · `__globe.bldgSync.{fetch,sync,shared,local}()` | `store/bldgSync.ts` · `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS3 2026-09-02f) | the world-sync counters (`world` fetch phase · `shared` · `complete` · `dirty` · `syncing` · the last push's `result`) + `requestSync()` (the one-shot the chip / pill / menu fire); `__globe.bldgSync.fetch()` / `.sync()` force the world fetch / the member push without the UI, `.shared()` / `.local()` dump the two maps. `enrichedState(...)` grew `osm` + `tint` (0 none · 1 world-shared · 2 mine), `enrichedSeats()` grew `shared`. Consumer: `verify-meshedit.mjs` legs 15–18 |
 | `__globe.bldgGizmo()` | `StylizedTiles.ts` (`window.__globe` block, MESH SUITE MS2 2026-09-02) | the gizmo's live state — `{ op, attached, dragging, axis, live, rig: { liveBaseY, bodyVisible } \| null, handlePx(name), originPx() }`; `handlePx` projects a TransformControls picker (`X` / `Y` / `Z` / `XZ` / `XYZ` …; the rotate ring's centre-line) to client px so `verify-meshedit.mjs` legs 7–14 drive the gizmo with REAL CDP pointer events through the FPV gesture table (it only READS; no seam writes the gizmo); `debug(clientX?, clientY?)` dumps the controls' drag internals + a drag-plane probe at a point (the seam that caught the plane's silenced raycast, 2026-09-02). `enrichedState(...)` grew `seated` (the RC7 first sample has landed — the rig, hence the handles, can jump by the cell's relief before it). `__bldgEditStore` grew `op` / `setOp` / `revertRequest` / `menu` / `disarmRequest` + `armed.{op, committed, live}` |
 
 ## 4. Wix Data collection schemas (source of truth: `scripts/provision-collections.mjs`)
@@ -108,9 +109,11 @@ top-level globals; same removal/rename rule):
 - **SavedPlaces**: `title ownerMemberId lat lon eyeM headingDeg pitchDeg fovDeg timeMs` — one contract
   with the `#f=` grammar (same fields, same clamps).
 - **BuildingOverrides** (ADMIN everything; the elevated `/api/building-overrides` is the only
-  reader/writer; **in the provision script since 2026-08-19 but NEVER PROVISIONED** — MS3 runs
-  it): `variant cell featureId osmId heightScale cx cz vc bakedHeightM region memberId` — `_id`
-  is the deterministic override hash (§7). `cx/cz` are BAKE-LOCAL checksum metres, never
+  reader/writer; **PROVISIONED 2026-09-02f, 17 fields** — MESH SUITE MS3): `variant cell
+  featureId osmId heightScale sx sz rotDeg tE tN tU cx cz vc bakedHeightM region memberId` —
+  the six spatial NUMBER fields are the v2 row's components (null = identity; the server
+  re-clamps onto `XF_RAILS` and omits identity components); `_id` is the deterministic override
+  hash (§7 — OSM-keyed when `osmId` is set). `cx/cz` are BAKE-LOCAL checksum metres, never
   geographic (C6); `memberId` is stamped server-side and never emitted by the public GET.
 - There is **no Listings collection** — listing fields ride Photos/PublicPins (ARCHITECTURE §5 corrected
   by the 2026-08-13 audit).
@@ -141,15 +144,22 @@ top-level globals; same removal/rename rule):
   (GET/POST/PATCH/DELETE), `/api/places`, `/api/listings`, `/api/market` (public GET),
   `/api/upload-url`, `/api/sbdb` (param-allowlisted JPL relay), `/api/ping` (the release canary
   — never delete), `/api/dev-seed` (DEV-gated 404 in prod), and **`/api/building-overrides`**
-  (U8, new 2026-08-19): the batch-sync twin of the `ftw:bldg-overrides:v1` local store —
-  WRITTEN AND TESTED BUT DORMANT (the collection provision script has not been run — both
-  verbs 502 until `node scripts/provision-collections.mjs`), admin-elevated. **Last-committer-
-  wins is STRUCTURAL, not timestamp-compared** (doc drift 2026-08-22 → 2026-09-02 said "LWW by
-  `updatedAt`"): one row per building whose `_id` is the deterministic FNV-1a-128 hash of
-  `variant|cell|featureId` (`src/lib/wix/overrideRecords.ts` `overrideId`) and `items.bulkSave`
-  upserts by `_id` replacing the WHOLE item — the last sync to land wins, no field is compared.
-  It is a route on disk and in the build's route table, so it counts here; it is not yet a
-  live contract (activation = MESH SUITE MS3).
+  (U8, new 2026-08-19; **LIVE since MESH SUITE MS3, 2026-09-02f**): the world-shared twin of the
+  `ftw:bldg-overrides:v1` local store, admin-elevated. **GET `?variant=`** (public) pages by
+  `skip()` at 1000 per page up to 10 pages and answers `{ overrides: PublicOverride[], complete }`
+  — `complete: false` means the world is larger than the page cap and the client must not treat
+  "absent" as "removed"; a `PublicOverride` is `{ variant, cell, featureId, osmId, heightScale,
+  sx?, sz?, rotDeg?, tE?, tN?, tU?, cx, cz, vc, bakedHeightM, updatedAt? }` and NEVER carries
+  `memberId` (C6). **POST** `{ upserts: OverrideSyncEntry[], removes: OverrideRemoveKey[] }`
+  (member-only → 401 `SIGNED_OUT`; 400 names the offending index; ≤ 1000 each — the platform bulk
+  cap) answers `{ inserted, updated, removed }`. **Last-committer-wins is STRUCTURAL, not
+  timestamp-compared** (doc drift 2026-08-22 → 2026-09-02 said "LWW by `updatedAt`"): one row per
+  building whose `_id` is the deterministic FNV-1a-128 hash of **`variant|osm|<osmId>` when the
+  row carries an OSM id (every pickable building on every live bake does — MESH_SUITE_PLAN §6.1),
+  else the legacy `variant|cell|featureId` fingerprint** (`src/lib/wix/overrideRecords.ts`
+  `overrideId` — the §4a-2 dual key, never a hard cutover), and `items.bulkSave` upserts by `_id`
+  replacing the WHOLE item — the last sync to land wins, no field is compared. A `removes` entry
+  carries the same identity (its `osmId` is the one the SERVER knows the row by).
 - **`public/sw.js` — a same-origin STATIC asset, not a route, but a contract all the same**
   (re-homed here 2026-08-22 from `UXBATCH4_PLAN.md` before it was archived — audit #3 D7/D8).
   iOS-ONLY registration (coarse-pointer + Apple UA), dev-gated (never registers on localhost),
