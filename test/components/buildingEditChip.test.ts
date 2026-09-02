@@ -43,6 +43,7 @@ const armed = (over: Partial<BldgEditArmed> = {}): BldgEditArmed => ({
   featureId: 7,
   cellUri: "cell-10-10.glb",
   originalHeightM: 24.5,
+  footprintM: [20, 12],
   liveHeightM: 24.5,
   deltaM: 0,
   dragging: false,
@@ -133,6 +134,10 @@ describe("BuildingEditChip (MS2)", () => {
     expect(opOriginal("extrude", 24.5)).toBe("24.5 m");
     expect(opReadout("rotate", IDENTITY_TRANSFORM, 1)).toBe("0.0° cw");
     expect(opReadout("scale", { ...IDENTITY_TRANSFORM, sx: 1.25, sz: 0.8 }, 1)).toBe("1.25 × 0.80");
+    // MS5b: with the mapped footprint known the SCALE row leads with METRES (current vs original).
+    expect(opReadout("scale", { ...IDENTITY_TRANSFORM, sx: 1.25, sz: 0.8 }, 1, [20, 12])).toBe("25.0 × 9.60 m (1.25 × 0.80)");
+    expect(opOriginal("scale", 1, [20, 12])).toBe("20.0 × 12.0 m");
+    expect(opOriginal("scale", 1)).toBe("1.00 × 1.00");
     expect(opReadout("move", { ...IDENTITY_TRANSFORM, tE: -3.25, tN: 2, tU: 1.5 }, 1)).toBe("-3.3 E · +2.0 N · ↑1.5 m");
   });
 });

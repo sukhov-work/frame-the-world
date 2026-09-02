@@ -18,6 +18,7 @@ const armed = (): ModelEditArmed => ({
   lat: 48.4647,
   lon: 35.0462,
   sizeM: 12,
+  sizeM3: [12, 8, 4],
   dragging: false,
   overridden: false,
   op: "move",

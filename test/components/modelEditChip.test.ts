@@ -28,6 +28,7 @@ const armed = (over: Partial<ModelEditArmed> = {}): ModelEditArmed => ({
   lat: 48.4647,
   lon: 35.0462,
   sizeM: 12.4,
+  sizeM3: [12.4, 8, 3.5],
   dragging: false,
   overridden: false,
   op: "move",
@@ -54,10 +55,10 @@ describe("ModelEditChip (MS5)", () => {
     expect(html).toContain('data-kind="model"');
     expect(html).toContain("48.46470, 35.04620");
     expect(html).toContain("-30.0° cw");
-    expect(html).toContain("1.50×");
+    expect(html).toContain("18.6 × 12.0 × 5.25 m (1.50×)"); // MS5b: metres first, the factor beside
     expect(html).toContain("was where you dropped it");
     expect(html).toContain("was 0.0° cw");
-    expect(html).toContain("was 1.00×");
+    expect(html).toContain("was 12.4 × 8.00 × 3.50 m");
     expect(html).not.toContain("EXTRUDE");
     expect(html).toContain("YOURS");
     // A ↺ for the two edited ops, never for MOVE; RESET ALL in the foot.
@@ -87,7 +88,7 @@ describe("ModelEditChip (MS5)", () => {
   it("the menu carries the title, the size, the ops, REVERT ALL when edited, and DONE", () => {
     const menu = renderToStaticMarkup(createElement(ModelEditMenu, { armed: armed({ overridden: true }), menu: { screenX: 10, screenY: 20 }, actions }));
     expect(menu).toContain("MODEL · KIOSK");
-    expect(menu).toContain("12.4 m");
+    expect(menu).toContain("12.4 × 8.00 × 3.50 m"); // MS5b: the size triple at the committed scale
     expect(menu).toContain('data-act="revert-all"');
     expect(menu).toContain('data-act="done"');
     expect(menu).toContain('data-op="rotate"');
@@ -101,5 +102,8 @@ describe("ModelEditChip (MS5)", () => {
     expect(modelOpReadout("rotate", { rotDeg: -45, scale: 1, tE: 0, tN: 0 }, { lat: 0, lon: 0 })).toBe("+45.0° cw");
     expect(modelOpReadout("scale", { rotDeg: 0, scale: 0.5, tE: 0, tN: 0 }, { lat: 0, lon: 0 })).toBe("0.50×");
     expect(modelOpOriginal("scale")).toBe("1.00×");
+    // MS5b: the size triple × the scale, w × d × h.
+    expect(modelOpReadout("scale", { rotDeg: 0, scale: 2, tE: 0, tN: 0 }, { lat: 0, lon: 0, sizeM3: [3, 5, 4] })).toBe("6.00 × 10.0 × 8.00 m (2.00×)");
+    expect(modelOpOriginal("scale", [3, 5, 4])).toBe("3.00 × 5.00 × 4.00 m");
   });
 });

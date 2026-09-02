@@ -11,6 +11,7 @@ import {
 import { useBldgSyncStore, type BldgSyncResult } from "../../store/bldgSync";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import type { FeatureTransform } from "../../lib/globe/featureTransform";
+import { formatDims } from "../../lib/format/readout";
 import "../../styles/building-edit.css";
 
 /**
@@ -65,29 +66,39 @@ export const SYNC_TITLE =
 const sg = (v: number, d = 1) => `${v > 0 ? "+" : ""}${v.toFixed(d)}`;
 
 /** One op's CURRENT value as the chip prints it. The yaw is shown in COMPASS sense (clockwise
- *  from above = the negative of the row's three-sense `rotDeg`); heights as U8 printed them. */
-export function opReadout(op: BldgEditOp, t: FeatureTransform, originalHeightM: number): string {
+ *  from above = the negative of the row's three-sense `rotDeg`); heights as U8 printed them.
+ *  MS5b (owner 2026-09-02j): the SCALE row leads with the current footprint in METRES
+ *  (`footprintM` × the live scale — the HEIGHT row's precedent) and keeps the factors beside it. */
+export function opReadout(
+  op: BldgEditOp,
+  t: FeatureTransform,
+  originalHeightM: number,
+  footprintM?: readonly [number, number] | null,
+): string {
   switch (op) {
     case "move":
       return `${sg(t.tE)} E · ${sg(t.tN)} N · ↑${t.tU.toFixed(1)} m`;
     case "rotate":
       return `${sg(-t.rotDeg)}° cw`;
     case "scale":
-      return `${t.sx.toFixed(2)} × ${t.sz.toFixed(2)}`;
+      return footprintM
+        ? `${formatDims([footprintM[0] * t.sx, footprintM[1] * t.sz])} (${t.sx.toFixed(2)} × ${t.sz.toFixed(2)})`
+        : `${t.sx.toFixed(2)} × ${t.sz.toFixed(2)}`;
     case "extrude":
       return `${(originalHeightM * t.sy).toFixed(1)} m (${sg(originalHeightM * (t.sy - 1))})`;
   }
 }
 
-/** One op's ORIGINAL (the baked building) as the chip prints it. */
-export function opOriginal(op: BldgEditOp, originalHeightM: number): string {
+/** One op's ORIGINAL (the baked building) as the chip prints it — the SCALE original is the
+ *  mapped footprint in metres when known (MS5b). */
+export function opOriginal(op: BldgEditOp, originalHeightM: number, footprintM?: readonly [number, number] | null): string {
   switch (op) {
     case "move":
       return "0.0 E · 0.0 N · ↑0.0 m";
     case "rotate":
       return "0.0° cw";
     case "scale":
-      return "1.00 × 1.00";
+      return footprintM ? formatDims(footprintM) : "1.00 × 1.00";
     case "extrude":
       return `${originalHeightM.toFixed(1)} m`;
   }
@@ -280,8 +291,8 @@ export function BuildingEditChipView({
                 data-op={op}
               >
                 <span className="bec-k">{op === "extrude" ? "HEIGHT" : OP_LABEL[op]}</span>
-                <span className="bec-v">{opReadout(op, armed.live, armed.originalHeightM)}</span>
-                <span className="bec-was">was {opOriginal(op, armed.originalHeightM)}</span>
+                <span className="bec-v">{opReadout(op, armed.live, armed.originalHeightM, armed.footprintM)}</span>
+                <span className="bec-was">was {opOriginal(op, armed.originalHeightM, armed.footprintM)}</span>
                 {edited && !armed.dragging ? (
                   <button
                     type="button"

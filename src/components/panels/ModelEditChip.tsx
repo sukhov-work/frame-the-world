@@ -8,6 +8,7 @@ import {
   type ModelEditOp,
 } from "../../store/modelEdit";
 import type { ModelEdit } from "../../lib/models/modelPlacement";
+import { formatDims } from "../../lib/format/readout";
 import "../../styles/building-edit.css";
 
 /**
@@ -30,8 +31,14 @@ const MODEL_OP_GLYPH: Record<ModelEditOp, string> = { move: "↔", rotate: "↻"
 const sg = (v: number, d = 1) => `${v > 0 ? "+" : ""}${v.toFixed(d)}`;
 
 /** One op's CURRENT value as the chip prints it. MOVE shows the drag offset while dragging,
- *  else the placement; the yaw is COMPASS sense (clockwise from above = −rotDeg). */
-export function modelOpReadout(op: ModelEditOp, live: ModelEdit, armed: { lat: number; lon: number }): string {
+ *  else the placement; the yaw is COMPASS sense (clockwise from above = −rotDeg). MS5b (owner
+ *  2026-09-02j): the SCALE row leads with the current size in METRES (`sizeM3` × the live
+ *  scale, `w × d × h`) and keeps the factor beside it. */
+export function modelOpReadout(
+  op: ModelEditOp,
+  live: ModelEdit,
+  armed: { lat: number; lon: number; sizeM3?: readonly [number, number, number] | null },
+): string {
   switch (op) {
     case "move":
       return Math.abs(live.tE) >= 0.05 || Math.abs(live.tN) >= 0.05
@@ -40,19 +47,22 @@ export function modelOpReadout(op: ModelEditOp, live: ModelEdit, armed: { lat: n
     case "rotate":
       return `${sg(-live.rotDeg)}° cw`;
     case "scale":
-      return `${live.scale.toFixed(2)}×`;
+      return armed.sizeM3
+        ? `${formatDims(armed.sizeM3.map((v) => v * live.scale))} (${live.scale.toFixed(2)}×)`
+        : `${live.scale.toFixed(2)}×`;
   }
 }
 
-/** One op's ORIGINAL (the upload) as the chip prints it. */
-export function modelOpOriginal(op: ModelEditOp): string {
+/** One op's ORIGINAL (the upload) as the chip prints it — the SCALE original is the upload's
+ *  size in metres when known (MS5b). */
+export function modelOpOriginal(op: ModelEditOp, sizeM3?: readonly [number, number, number] | null): string {
   switch (op) {
     case "move":
       return "where you dropped it";
     case "rotate":
       return "0.0° cw";
     case "scale":
-      return "1.00×";
+      return sizeM3 ? formatDims(sizeM3) : "1.00×";
   }
 }
 
@@ -122,7 +132,7 @@ export function ModelEditChipView({
               >
                 <span className="bec-k">{MODEL_OP_LABEL[op]}</span>
                 <span className="bec-v">{modelOpReadout(op, armed.live, armed)}</span>
-                <span className="bec-was">was {modelOpOriginal(op)}</span>
+                <span className="bec-was">was {modelOpOriginal(op, armed.sizeM3)}</span>
                 {edited && !armed.dragging ? (
                   <button
                     type="button"
@@ -206,7 +216,11 @@ export function ModelEditMenu({
       <div className="bldg-menu__head">
         <span className="bldg-menu__name">MODEL · {armed.title.toUpperCase()}</span>
         <span className="bldg-menu__pos">
-          {armed.sizeM !== null ? `${armed.sizeM.toFixed(1)} m` : "yours"}
+          {armed.sizeM3
+            ? formatDims(armed.sizeM3.map((v) => v * armed.committed.scale))
+            : armed.sizeM !== null
+              ? `${armed.sizeM.toFixed(1)} m`
+              : "yours"}
           {armed.overridden ? " · edited" : ""}
         </span>
       </div>

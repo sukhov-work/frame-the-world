@@ -1,37 +1,40 @@
-# BUG (owner report 2026-09-02j, OPEN — fix at MS5b, before MS6): the building/model context menu closes the moment the right mouse button is RELEASED; it survives only while the right button is held and dragged
+# BUG (owner report 2026-09-02j) — FIXED 2026-09-02l (MS5b §11.3): the building/model context menu closed the moment the right mouse button was RELEASED; it survived only while the right button was held and dragged
 
 ## Symptom (owner, desktop FPV)
-"Context menu on a mesh looks fine, has all options and appears correctly on right click, but it
-is flaky, often unexpectedly disappears immediately after I release right mouse button and stays
-on screen ONLY when I hold right mouse and drag camera around."
+"Context menu on a mesh looks fine … but it is flaky, often unexpectedly disappears immediately after I
+release right mouse button and stays on screen ONLY when I hold right mouse and drag camera around."
 
-## Diagnosis (code-read 2026-09-02j; browser-UNVERIFIED — verify with REAL right-button events first)
-`src/components/globe/StylizedTiles.ts`: the FPV pointer table has NO button guard
-(`grep "e\.button"` is empty). Sequence on macOS Chrome (`contextmenu` fires on the right
-button's mousedown):
-1. `pointerdown` (right) → `onFpvPointerDown`: claims `fpvDragId = e.pointerId`, samples
-   `bldgMenuDismiss = (useBldgEditStore.menu !== null)` = **false** (nothing open yet).
-2. `contextmenu` → `onSkyContextMenu` → `armPick` + `openBldgMenu` (the menu opens).
-3. `pointerup` (right, no travel) → `onFpvPointerEnd` TAP path (`e.type === "pointerup"` and
-   travel ≤ `ORCH.clickDragPx`) → `if (bldgArmed) { if (bldgMenuDismiss) {…return;} disarmBuilding(); return; }`
-   → `disarmBuilding()` → `_syncArmed(null)` resets `menu: null` → the menu vanishes.
-A held right-drag travels past `clickDragPx`, so the release is not a tap → the menu survives —
-exactly the owner's observation. The MS5 model session (`modelMenuDismiss` / `disarmModel`)
-mirrors the same path and has the same bug.
+## Cause (code-read 2026-09-02j, CONFIRMED by the harness's real right-button legs 2026-09-02l)
+`src/components/globe/StylizedTiles.ts`: the FPV pointer table had NO button guard. On macOS Chrome
+`contextmenu` fires on the right button's PRESS, so: `pointerdown`(right) → `onFpvPointerDown` claimed
+`fpvDragId` and sampled `bldgMenuDismiss = (menu !== null)` = false (nothing open yet) → `contextmenu`
+→ `onSkyContextMenu` armed + opened the menu → `pointerup`(right, no travel) → the TAP path →
+`disarmBuilding()` → `_syncArmed(null)` → `menu: null`. A held right-drag travelled past
+`ORCH.clickDragPx` (6 px), so the release was not a tap and the menu lived. The model session had
+the same shape. "Often", not always: with the menu ALREADY open at the press the dismiss flag
+read true and the release only closed-and-reopened. Never caught because both harnesses opened the
+menu with a synthetic `contextmenu` MouseEvent and no pointer pair.
 
-## Why no harness caught it
-`verify-meshedit.mjs` and `verify-usermodels.mjs` open the menu with a synthetic
-`new MouseEvent('contextmenu', …)` on the canvas — no pointerdown/pointerup pair.
+## Fix (as built — `StylizedTiles.ts`)
+- `onFpvPointerDown`: `if (e.button === 2) { closeMenu ×2; return; }` — a right press closes any
+  open edit menu (the press invariant; `onSkyContextMenu` re-opens it where the click lands) and
+  NEVER claims `fpvDragId`: no tap path on the release, no right-drag look-around (it never should).
+- The orbit twin `onPointerUp`: `if (e.button === 2) return;` — a right release is never a CLICK in
+  orbit (no pin open, no placing drop, no empty-map clear). A behaviour change stated to the owner.
+- Belt to the braces: `menuConsumesPress()` — when `onSkyContextMenu` opens a building/model menu
+  while a primary press is live (`fpvDragId !== null`, e.g. a Ctrl+click reported as button 0) it
+  sets the M3c `longPressFired` flag, so the release ends nothing. `onFpvPointerEnd` now reads that
+  flag ONCE per release (`pressConsumed`) whichever branch ends the gesture — a gizmo/height release
+  used to leave it set for the NEXT release to swallow.
+- Pinned by REAL CDP right-button legs (`Input.dispatchMouseEvent` `button: "right"`, press →
+  release): `verify-meshedit` legs 7 + 14, `verify-usermodels` legs 3 + 8 — the menu must still be
+  open 300 ms after the release, a left tap then closes it and keeps the session armed; the leg logs
+  whether the menu was already open at the press (the platform's `contextmenu` timing).
 
-## Fix (planned)
-`if (e.button === 2) return;` at the top of `onFpvPointerDown` (a right press never enters the
-gesture table, so `fpvDragId` stays unclaimed and the release has no tap path; the `contextmenu`
-handler alone opens the menu). Check the orbit twins (`notePointerDown` / `onPointerUp`) for the
-same shape. Consequence: a right-drag no longer looks around (it never should have). Keep the
-left-press `bldgMenuDismiss` / `modelMenuDismiss` logic (a left tap that only closes the menu
-must not disarm — that path is right). Pin it: both harnesses open the menu with a REAL CDP
-right-button press + release (`Input.dispatchMouseEvent` `button: "right"`, `mousePressed` →
-`mouseReleased`) and assert the menu is still open 300 ms after the release, then a left tap
-away closes it.
+## How to apply
+Any new pointer table that opens a menu on `contextmenu` must (a) ignore non-primary buttons in its
+press/tap path and (b) treat "a menu opened during this press" as a consumed gesture. Test menus
+with a real press + release, never a synthetic `contextmenu` alone.
 
-Related: `mem:project/wip-2026-09-02-mesh-suite-ms5`, MESH_SUITE_PLAN §11.3, DECISIONS 2026-09-02j.
+Related: `mem:project/wip-2026-09-02-mesh-suite-ms5b` (receipt), `mem:bugs/orbit-drag-after-fpv-edit`
+(the same batch), MESH_SUITE_PLAN §11.3 + §11.5, DECISIONS 2026-09-02l.

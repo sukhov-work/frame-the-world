@@ -160,7 +160,7 @@ describe("scene/userModels", () => {
     // A committed seat snaps; a later one eases.
     h.setSeats("a", { rotDeg: 90, scale: 2 }, true);
     expect(r.body.scale.x).toBe(2);
-    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2 }, resident: true, sizeM: 4 });
+    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
     h.setSeats("a", { rotDeg: 0, scale: 1 });
     h.update(cam, 6);
     expect(r.body.scale.x).toBeLessThan(2);

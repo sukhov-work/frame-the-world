@@ -160,6 +160,9 @@ export interface BuildingPick {
   /** RC17 class token, null on a bake with no sidecar. */
   cls: string | null;
   bakedHeightM: number;
+  /** MS5b: the PRISTINE footprint extents `[dx, dz]` (bake-local metres, the mapped building's
+   *  east–west × north–south size) — the SCALE rows print `dx·sx × dz·sz` against them. */
+  footprintM: [number, number];
   /** Committed height-scale target (1 = original) — `current.sy`, kept for the U8 callers. */
   currentK: number;
   /** MS1: the committed FULL edit target (height scale + spatial components). */
@@ -277,6 +280,8 @@ export interface EnrichedBuildingsHandle {
     cz: number;
     vc: number;
     bakedHeightM: number;
+    /** MS5b: the pristine footprint extents `[dx, dz]` (bake-local metres). */
+    footprintM: [number, number];
     /** MS3: the RC17 sidecar's OSM element id (the row's `o`), null on a bake without one. */
     osm: string | null;
     /** MS2: the run has its terrain seat (the RC7 first sample landed and is applied). Before it,
@@ -603,6 +608,10 @@ export function attachEnrichedBuildings(
     cz: number;
     /** MS1: pristine XZ radius about the centroid — the bounds-growth arm for an XZ scale. */
     rXZ: number;
+    /** MS5b: pristine footprint extents (bake-local m) — display only (the SCALE rows' metres);
+     *  captured with `rXZ` before any writer touches the array, never mutated after. */
+    dx: number;
+    dz: number;
     scaleK: number; // height-scale TARGET (1 = original; set by commit / persisted rows)
     appliedK: number; // scale currently baked into the geometry (eases toward scaleK)
     // MESH SUITE MS1 — the spatial components (lib/globe/featureTransform.ts). `xf` is the
@@ -1180,6 +1189,8 @@ export function attachEnrichedBuildings(
                 cx,
                 cz,
                 rXZ: runRadiusXZ(cx, cz, minX, maxX, minZ, maxZ),
+                dx: Number.isFinite(maxX - minX) ? maxX - minX : 0,
+                dz: Number.isFinite(maxZ - minZ) ? maxZ - minZ : 0,
                 scaleK: 1,
                 appliedK: 1,
                 xf: null,
@@ -1809,6 +1820,7 @@ export function attachEnrichedBuildings(
           osm: f.osm,
           cls: f.cls,
           bakedHeightM,
+          footprintM: [f.dx, f.dz],
           currentK: f.scaleK,
           current: { sy: f.scaleK, ...(f.xf ?? IDENTITY_XF) },
           distance: hit.distance,
@@ -1847,6 +1859,7 @@ export function attachEnrichedBuildings(
         cz: f.cz,
         vc: f.run.count,
         bakedHeightM: f.topY - f.baseY,
+        footprintM: [f.dx, f.dz],
         osm: f.osm,
         seated: f.seatM !== null && f.appliedM !== null,
         tint: f.ov,

@@ -30,8 +30,9 @@ describe("modelPlacement — transform seats", () => {
   it("sanitizes a stored row's seats: null = identity, garbage = identity, scale clamped onto the rails", () => {
     expect(sanitizeModelTransform(null, null)).toEqual({ rotDeg: 0, scale: 1 });
     expect(sanitizeModelTransform("x", Number.NaN)).toEqual({ rotDeg: 0, scale: 1 });
-    expect(sanitizeModelTransform(370, 50)).toEqual({ rotDeg: 10, scale: MODEL_SCALE_MAX });
-    expect(sanitizeModelTransform(-180, 0.001).scale).toBe(MODEL_SCALE_MIN);
+    expect(sanitizeModelTransform(370, 50)).toEqual({ rotDeg: 10, scale: 50 }); // inside the loose sanity rail (MS5b)
+    expect(sanitizeModelTransform(370, 5000)).toEqual({ rotDeg: 10, scale: MODEL_SCALE_MAX });
+    expect(sanitizeModelTransform(-180, 0.0001).scale).toBe(MODEL_SCALE_MIN);
     expect(isIdentityModelTransform({ rotDeg: 0.01, scale: 1.001 })).toBe(true);
     expect(isIdentityModelTransform({ rotDeg: 12, scale: 1 })).toBe(false);
   });
@@ -45,16 +46,17 @@ describe("modelPlacement — transform seats", () => {
   });
 
   it("clamps a read-back: the per-edit band about the start, the yaw wrapped, the move shortened, the lift dropped", () => {
-    const e = clampModelEdit({ sx: 4, sy: 1, sz: 1, rotDeg: 370, tE: 300, tN: 400, tU: 9 }, { rotDeg: 0, scale: 1 });
-    expect(e.scale).toBe(3); // 3× per edit
+    const e = clampModelEdit({ sx: 40, sy: 1, sz: 1, rotDeg: 370, tE: 300, tN: 400, tU: 9 }, { rotDeg: 0, scale: 1 });
+    expect(e.scale).toBe(10); // 10× per edit (MS5b — was 3×)
     expect(e.rotDeg).toBe(10);
     expect(Math.hypot(e.tE, e.tN)).toBeCloseTo(MODEL_MOVE_MAX_M, 9);
     expect(e.tE / e.tN).toBeCloseTo(0.75, 9); // direction kept
     expect("tU" in e).toBe(false);
-    // Ten drags reach the absolute rail, one cannot.
+    // Edits compound about the committed scale with no absolute cap — only the loose sanity rail.
     // (three's scale mode leaves the undragged axes at the START scale — 4 here, not 1.)
     expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 9, sy: 4, sz: 4 }, { rotDeg: 0, scale: 4 }).scale).toBe(9);
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 40, sy: 4, sz: 4 }, { rotDeg: 0, scale: 4 }).scale).toBe(MODEL_SCALE_MAX);
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 40, sy: 4, sz: 4 }, { rotDeg: 0, scale: 4 }).scale).toBe(40);
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 5000, sy: 400, sz: 400 }, { rotDeg: 0, scale: 400 }).scale).toBe(MODEL_SCALE_MAX);
     expect(clampModelEdit({ ...IDENTITY_TRANSFORM }, { rotDeg: 0, scale: 1 })).toEqual(IDENTITY_MODEL_EDIT);
   });
 

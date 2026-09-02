@@ -61,7 +61,7 @@ describe("sharedRowFromPublic — the wire → the local row grammar", () => {
     expect(sharedRowFromPublic(pub({ updatedAt: undefined }), 9999)!.row.t).toBe(9999);
     expect(sharedRowFromPublic(pub({ cell: "a|b" }), 1)).toBeNull();
     expect(sharedRowFromPublic(pub({ featureId: -1 }), 1)).toBeNull();
-    expect(sharedRowFromPublic(pub({ heightScale: 99 }), 1)).toBeNull();
+    expect(sharedRowFromPublic(pub({ heightScale: 5000 }), 1)).toBeNull(); // past the loose sanity rail (MS5b)
     expect(sharedRowFromPublic(pub({ osmId: null }), 1)!.row.o).toBeUndefined();
   });
 });

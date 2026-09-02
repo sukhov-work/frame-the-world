@@ -211,7 +211,7 @@ Next session starts at **MS0** below.
 | **MS3 — D2 activation** | **BUILT 2026-09-02f (§8).** `BuildingOverrides` PROVISIONED on the live site (17 fields); the wire + collection carry the v2 row's spatial fields (server re-clamps, identity omitted) + the **OSM-keyed `_id`** (dual key — fingerprint fallback, never a cutover); boot fetch (paged GET, `complete` flag) + the MERGE POLICY (local pending wins · shared wins over my synced copy · a RESET of a shared edit is a TOMBSTONE); SYNC affordance in the chip foot, the context menu and a standalone PILL, sign-in gated (401 → SIGN IN); the `_ftw_override` byte LADDER (mine 255 / shared 128) + an origin badge + a hover note ("EDITED · shared · was …"); the OSM recovery sweep at load-model; `reapplyOverrides()`; `verify-meshedit.mjs` legs 15–18 against the LIVE collection. | MS1 (fields), not MS2 |
 | **MS4 — D3 upload pipeline** | **BUILT 2026-09-02h (§9).** The dropzone forks on the file type (`classifyDrop`; the photo path byte-identical); a SEPARATE `store/modelUpload` walks load → inspect → audit → decimate → pack → thumbnail → review → upload → stored through ONE lazy import of `lib/models/normalizeModel` (GLTF/OBJ+MTL/FBX loaders, MeshoptSimplifier decimation + compaction, GLTFExporter on a 2048→1024→512 texture ladder, a disposable-renderer thumbnail); the caps are contract constants (`MODEL_CAPS`, pure audit); source units are a review-time choice; `/api/upload-url` kind:"model" = the first server-side mime allowlist (one entry); **`UserModels` PROVISIONED (24 fields)** + `/api/models` GET/POST/DELETE with the descriptor fetched server-side as the structural allowlist; our own thumbnail uploaded as a public image (the platform's is a permanent 403); NO quota; `verify-modelupload.mjs` 8 legs against the live collection. | MS0 answers |
 | **MS5 — D3 placement** | **BUILT 2026-09-02i (§10).** The public world read (`GET /api/world-models?cells=` — `hasSome` on a NEW denormalized `gh5` column, the pins' precedent; READY + un-hidden; `ownerMemberId` stripped) + the owner `PATCH /api/models` (placement + the two seats, clamped, the photos read-modify-write shape); `store/userModels` (the cover-driven THROTTLED world read mirrored from the pins' focus, MINE, click-to-place, the residency mirror) + `store/modelEdit` (the bldgEdit twin); `scene/userModels.ts` (frame → anchor → body → the ground-fitted GLB; closest-first residency under a TRIANGLE BUDGET with radius hysteresis; the eased terrain seat; own pick; shadows); the MS2 gizmo instance reused on the model's own rig (uniform scale, no lift, the move folds into a new placement); the FPV session (right-click / dblclick / long-press, G/R/S, Escape rungs, `ModelEditChip`); PLACE ON GLOBE (orbit click-to-place); **the MDL chip ON by default** (camera store + pref + `.ct-mdl.is-on` + the engine gate) carrying **the physical-density warning** (skipped-by-budget nearby / heavy resident load); the DBG `models.*` group; a guide topic; `verify-usermodels.mjs` 10 legs against the LIVE collection. | MS2 + MS4 |
-| **MS5b — owner tuning batch** (ordered 2026-09-02j after testing MS5; **runs BEFORE MS6**) | (1) real-world DIMENSIONS in metres on the SCALE rows — current and original footprint (buildings: `w × d m`, the height row already does it; models: `w × d × h m`); (2) the RAILS become PER-EDIT and RELATIVE, the extrude editing model: move ≤ **100 m per edit** (was 60 m absolute), scale 0.1×–10× per edit about the COMMITTED value, no absolute cap — repeated edits compound; per-op / all revert stays; (3) the context menu closes the moment the right button is RELEASED (stays only under a right-drag) — a right-button press claims the FPV pointer and its tap-release disarms; (4) orbit drag goes slow / barely moves after an FPV edit — the detached gizmo's invisible 100 km drag PLANE stays in the scene at the edited building and GlobeControls' first-hit pivot raycast lands on it; see §11. | MS5 |
+| **MS5b — owner tuning batch** (ordered 2026-09-02j after testing MS5; **runs BEFORE MS6**) | (1) real-world DIMENSIONS in metres on the SCALE rows — current and original footprint (buildings: `w × d m`, the height row already does it; models: `w × d × h m`); (2) the RAILS become PER-EDIT and RELATIVE, the extrude editing model: move ≤ **100 m per edit** (was 60 m absolute), scale 0.1×–10× per edit about the COMMITTED value, no absolute cap — repeated edits compound; per-op / all revert stays; (3) the context menu closes the moment the right button is RELEASED (stays only under a right-drag) — a right-button press claims the FPV pointer and its tap-release disarms; (4) orbit drag goes slow / barely moves after an FPV edit — the detached gizmo's invisible 100 km drag PLANE stays in the scene at the edited building and GlobeControls' first-hit pivot raycast lands on it; see §11. **BUILT 2026-09-02l — §11.5 is the as-built.** | MS5 |
 | **MS6 — D3 management + world edit** | My-uploads list (delete/hide); other users edit user-mesh transforms per D1 (overrides ON user meshes — same record machinery); perf polish; full harness. | MS5 + MS3 |
 
 Deliberately OUT: stock-tile editing (separate project) · trees (post-MVP) · KTX2 encode ·
@@ -277,9 +277,9 @@ Concretely, each slice's done-gate includes:
 2. MS3 (the D2 activation) is BUILT — §8 is the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms3`
    the digest. **MS4 (the D3 upload pipeline) is BUILT — §9 is the as-built;
    `mem:project/wip-2026-09-02-mesh-suite-ms4` the digest. MS5 (D3 placement) is BUILT — §10 is
-   the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5` the digest.** Next: **MS5b FIRST**
-   (the owner's three observations after testing MS5 — §11 — dimensions on the SCALE rows, per-edit
-   relative rails with the move raised to 100 m, the right-release context-menu bug), then **MS6** (the
+   the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5` the digest. MS5b (the owner's four
+   fixes/tunings) is BUILT — §11.5 is the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5b`
+   the digest.** Next: **MS6** (the
    my-uploads list on `GET /api/models` — thumbnails are ours; hide / delete / title edits; other
    members editing user-mesh transforms through the MS3 sync machinery; a lift seat if the owner
    wants one — a provisioned field) on the §10 record.
@@ -1033,6 +1033,80 @@ Verbatim intent, then what each item means in code. "Rest is working fine."
   `controls.pivotPoint` after a press must sit on the terrain (height within a metre of
   `terrainHeightAt`), not on a plane.
 
+
+### §11.5 MS5b AS BUILT (2026-09-02l) — all four items, browser-verified
+
+**§11.1 metres.** The engine keeps the pristine footprint extents beside `rXZ` at load
+(`FeatureSeat.dx/dz`, bake-local metres, captured before any writer touches the array and never
+mutated) and surfaces them as `BuildingPick.footprintM` / `featureState().footprintM` →
+`bldgArmed.footprintM` → `BldgEditArmed.footprintM` → the chip's `opReadout` / `opOriginal` (the
+SCALE row: `24.0 × 12.0 m (1.20 × 1.00)` · `was 20.0 × 12.0 m`) and the pinned label's op line
+(`⤢ 24.0 × 12.0 m · 1.20 × 1.00`); the factors stay as the secondary readout. Models: the scene
+keeps `Entry.sizeM3 = [w, d, h]` (X, Z, Y extents at scale 1 — from the loaded bounds, before
+residency from the record's `bbox [x, y, z]`), `UserModelInfo.sizeM3` → `ModelEditArmed.sizeM3` →
+`modelOpReadout` / `modelOpOriginal` (`4.50 × 7.50 × 4.50 m (1.50×)` · `was 3.00 × 5.00 × 3.00 m`),
+the menu head (the triple × the committed scale) and the label (`⤢ … m · 1.50×`, the orig line
+`↳ 1.50× · … m`). ONE formatter, `formatMetres` / `formatDims` in `lib/format/readout.ts` (2 dp
+under 10 m, 1 dp under 100 m, whole metres above — the upload step's FOOTPRINT precedent; the
+upload step now imports it). `sizeM` stays for the harness. Nothing persists: display only.
+
+**§11.2 rails — two layers.** The GESTURE rails are PER EDIT about the COMMITTED transform (the
+`start` a drag re-anchors on): `EDIT_MOVE_MAX_M` **100** (new; `clampGizmoEdit` shortens the drag's
+OFFSET from `start`, direction kept), `EDIT_MIN_K` / `EDIT_MAX_K` **0.1 / 10** (was 0.5 / 3) on every
+scale axis — the footprint X/Z, the EXTRUDE height (`dragScaleK` → `clampEditK`) and a model's
+uniform scale (`clampModelEdit`) share the ONE rule [ASSUMPTION: extrude too — the owner named it as
+the model]; edits COMPOUND, there is no absolute cap; a non-finite read-back means "unchanged" (the
+start), never a jump. The SANITY rail is the contract a persisted row is checked against —
+`SCALE_MIN_K` / `SCALE_MAX_K` **0.001 / 1000** (was 0.1 / 10), `TRANSLATE_MAX_M` **5000** (was 60),
+`LIFT_MAX_M` **25** unchanged and still absolute [ASSUMPTION: the owner's underground/sky rule;
+ask] — applied by `sanitizeRow` (drop on read), `parseSyncEntry` (the server's SYNC re-clamp),
+`applyTransformTarget` (the engine's commit), `sanitizeModelTransform` (the model read) and
+`parsePlacementBody` (the PATCH). `MODEL_MOVE_MAX_M` 250 per drag unchanged. The DEV seam
+`enrichedSetTransform` IS the commit path and therefore sees only the sanity rail — relative
+semantics are a property of the gesture, proved with real drags (harness leg 8c). Compatibility:
+every row written under the old rails lies inside the new sanity rail; the loosening is recorded in
+`contracts.md` §2 / §7 and `globe-tuning.md`. **The tile-volume caveat is ACCEPTED, not fixed**:
+`growBoundsFor` pads the mesh bounds only, the cell's tile volume is not grown, so a building
+carried far from its cell can pop with the cell at the view edge — the guide (`fpv-height`) says so.
+
+**§11.3 the right-button release.** Diagnosis CONFIRMED in the browser: on macOS Chrome the
+`contextmenu` fires on the press, so the menu was open before the release — and the release's tap
+path disarmed. `onFpvPointerDown` now returns for `e.button === 2` after closing any open edit menu
+(the press invariant; `onSkyContextMenu` re-opens it where the click lands): the right button never
+claims `fpvDragId`, so the release has no tap path and a right-drag no longer looks around. The
+orbit twin `onPointerUp` ignores a right release too — a right-click is no longer a CLICK in orbit
+(no pin open, no placing drop, no empty-map clear; a behaviour change stated to the owner). Belt
+to the braces: opening an edit menu while a primary press is live CONSUMES the press
+(`menuConsumesPress` → the M3c `longPressFired` rule), so a Ctrl+click reported as button 0 cannot
+disarm either; the flag is now read ONCE per release whichever branch ends the gesture (a gizmo or
+height release used to leave it set for the next release to swallow). Harness legs 7 / 14 (buildings)
+and 3 / 8 (models) open the menu with a REAL CDP right-button press + release and assert it is still
+open 300 ms after the release, then that a left tap closes it and keeps the session armed.
+
+**§11.4 the parked drag plane.** Mechanism CONFIRMED against the installed sources (three 0.185.0 ·
+3d-tiles-renderer 0.4.28): `detach()` only flips `_root.visible`; the plane keeps the last
+`worldPosition`; `Raycaster` ignores `visible`; `EnvironmentControls._raycast` takes
+`intersectObject(scene)[0]`. Fix: the helper is a scene child ONLY while something is attached —
+`setTarget` adds it on attach (and refreshes its matrices for a same-frame hover/press) and removes
+it on detach, in the ONE `attachBldgGizmo` both instances share; `inScene` on the handle and both DEV
+seams; `helperRoot()` (DEV) lets a harness re-add it for one raycast as a POSITIVE CONTROL. Harness
+leg 14b (buildings) / 6b (models): an in-page FPV exit (`setTempFpv(false)` — never a reload, which
+would discard a parked helper and hide the bug), a fixed 220 px ground drag, the focus delta against
+a baseline drag taken before any session (±25 %), GlobeControls' own raycaster's first hit under the
+press pixel is not a gizmo object, `inScene` false for both gizmos, and the control sees the helper
+once it is re-added.
+
+**Harness rule promoted:** `verify-meshedit` now measures every world-level counter (`spatial`,
+`overridden`) RELATIVE to what boot found (`worldBaseline`, after the world fetch settles) — the
+collection is the production world and carried five members' rows at boot on 2026-09-02l; an
+absolute "0 after RESET" read them as a regression (the leg-17 lesson, now everywhere).
+
+**Receipt:** see DECISIONS 2026-09-02l (vitest · astro · knip · the three harness runs and their numbers).
+
+**Open with the owner (not decided here):** lift stays 0–25 m absolute? · extrude shares the
+0.1×–10× per-edit rule (assumed)? · the sanity numbers (5 km · 0.001–1000×) — a world-shared
+1000× building or model is a moderation matter, not a rail · a right-click is no longer a click in
+orbit · the tile-volume pop is accepted, not fixed.
 
 ---
 

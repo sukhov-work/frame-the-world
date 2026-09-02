@@ -33,12 +33,19 @@ import type { GhostRig } from "./enrichedBuildings";
  * ENU basis (the cell mesh's matrixWorld), so local = ENU.
  *
  * WHY NO CAMERA LAYER. The research trap ("GlobeControls raycasts the whole scene and three's
- * Raycaster ignores `visible`, so the invisible pickers catch globe drags") is real but moot: a
- * building can only be armed inside FPV, where `controls.enabled` is already false (the
- * orchestrator owns the pointer there). The visible gizmo meshes still get a no-op `raycast` so no
- * other scene-wide raycast (a pick, a probe) ever sees them; the pickers keep theirs — the
- * controls hit-test exactly those. Rendering: three draws the helper depth-free at
- * `renderOrder Infinity`; bloom may glow it on the ULTRA tier (accepted, §7).
+ * Raycaster ignores `visible`, so the invisible pickers catch globe drags") is real and only HALF
+ * moot: a building can only be armed inside FPV, where `controls.enabled` is already false (the
+ * orchestrator owns the pointer there) — true for the pickers WHILE armed. It was wrong for the
+ * helper AFTER the session (owner bug 2026-09-02j, MESH_SUITE_PLAN §11.4): the DRAG PLANE (a
+ * 100 km `PlaneGeometry`, a helper child whose raycast must stay live for the drag maths) and the
+ * pickers stay in the scene at the last edited building once `detach()` runs (`detach` only flips
+ * `_root.visible`; three's Raycaster ignores `visible`), and GlobeControls' first-hit pivot /
+ * camera-height raycasts then land on the plane instead of the terrain — an orbit drag "barely
+ * moves". So the helper is IN THE SCENE ONLY WHILE SOMETHING IS ATTACHED (`setTarget`), and out
+ * of it — no raycast target, nothing drawn — the rest of the time. The visible gizmo meshes still
+ * get a no-op `raycast` so no other scene-wide raycast (a pick, a probe) ever sees them while
+ * attached; the pickers keep theirs — the controls hit-test exactly those. Rendering: three draws
+ * the helper depth-free at `renderOrder Infinity`; bloom may glow it on the ULTRA tier (accepted, §7).
  *
  * VERSION PIN. `handleScreenPx` (a DEV/harness accessor) and the raycast no-op reach into
  * `TransformControls._gizmo` — an underscore field of three 0.185; a bump re-verifies it (the
@@ -49,6 +56,9 @@ export interface BldgGizmoHandle {
    *  (rig, op) so the orchestrator may call it every frame; refused under a live drag. */
   setTarget(rig: GhostRig | null, op: BldgEditOp): void;
   readonly attached: boolean;
+  /** The helper (gizmo meshes + pickers + the drag plane) is a scene child — true exactly while
+   *  attached (MS5b §11.4); a detached helper in the scene is the orbit-drag bug. */
+  readonly inScene: boolean;
   readonly dragging: boolean;
   /** The handle under the pointer / being dragged (`X`, `Y`, `Z`, `XZ`, `XYZ`, …), else null. */
   readonly axis: string | null;
@@ -74,6 +84,9 @@ export interface BldgGizmoHandle {
   originPx(rect: DOMRect): { x: number; y: number } | null;
   /** DEV: the controls' drag internals + a plane probe at an NDC point (diagnostics only). */
   debug(ndcX?: number, ndcY?: number): Record<string, unknown>;
+  /** DEV (harness POSITIVE CONTROL, §11.4): the helper root itself — a harness re-adds it to the
+   *  scene for one raycast to prove its probe CAN see a parked drag plane, then removes it. */
+  helperRoot(): THREE.Object3D;
   dispose(): void;
 }
 
@@ -114,8 +127,10 @@ export function attachBldgGizmo(
   const tc = new TransformControls(camera); // no domElement — pointers are fed (module header)
   tc.space = "local";
   tc.size = ENRICHED.gizmoSize;
+  // NOT added to the scene here — `setTarget` adds it on attach and removes it on detach (MS5b
+  // §11.4, module header): a parked helper is an invisible 100 km raycast target at the last
+  // edited building, and GlobeControls' pivot raycast finds it before the terrain.
   const helper = tc.getHelper();
-  scene.add(helper);
 
   const internals = (): GizmoInternals | null =>
     (tc as unknown as { _gizmo?: GizmoInternals })._gizmo ?? null;
@@ -233,13 +248,21 @@ export function attachBldgGizmo(
       rigRef = obj ? rig : null;
       if (!obj) {
         tc.detach();
+        if (helper.parent) helper.parent.remove(helper); // out of every scene-wide raycast (§11.4)
         return;
       }
       applyMode(op);
       tc.attach(obj);
+      if (helper.parent !== scene) scene.add(helper);
+      // Fresh picker/plane matrices for a hover or press landing in this same frame (the scene
+      // walk that normally refreshes them runs at the next render).
+      helper.updateMatrixWorld(true);
     },
     get attached() {
       return attachedObj !== null;
+    },
+    get inScene() {
+      return helper.parent === scene;
     },
     get dragging() {
       return tc.dragging;
@@ -400,15 +423,19 @@ export function attachBldgGizmo(
         planeVisible: t._plane.visible,
         planeParent: t._plane.parent === helper,
         helperVisible: helper.visible,
+        helperInScene: helper.parent === scene,
         plane,
         startT,
         live,
       };
     },
+    helperRoot() {
+      return helper;
+    },
     dispose() {
       tc.removeEventListener("objectChange", onObjectChange);
       tc.detach();
-      scene.remove(helper);
+      if (helper.parent) helper.parent.remove(helper);
       // Not `tc.dispose()`: with no domElement its disconnect() dereferences null (three 0.185
       // TransformControls.js `disconnect`). The root owns every geometry/material.
       helper.dispose();

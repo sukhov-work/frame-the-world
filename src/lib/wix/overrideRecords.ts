@@ -18,8 +18,8 @@
  *    never partial. The public GET pages by `skip()` (query `limit()` max 1000 [dev.wix.com
  *    wix-data-query/limit]) up to GET_MAX_PAGES and says whether it reached the end.
  *  · MS3: the wire carries the v2 row's spatial components (`sx sz rotDeg tE tN tU`, absent =
- *    identity). The server RE-CLAMPS onto the shared rails (`clampXf` + the absolute scale band)
- *    and never rejects drift; identity components are OMITTED (the `transformFields` rule), so a
+ *    identity). The server RE-CLAMPS onto the shared SANITY rail (`clampXf` + the scale rail —
+ *    loose since MS5b 2026-09-02l; the per-edit band is a client gesture rule) and never rejects drift; identity components are OMITTED (the `transformFields` rule), so a
  *    height-only edit lands exactly as U8 sent it.
  *  · C6-clean: rows carry the bake-local centroid checksum (cx/cz metres in the bake frame —
  *    NOT geographic coordinates) and no member GPS of any kind. `memberId` (last editor,

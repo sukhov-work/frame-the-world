@@ -66,6 +66,9 @@ export interface UserModelInfo {
   /** Footprint size (m, the larger of X/Z after the unit scale), from the loaded bounds or the
    *  record's bbox; null when neither is known. */
   sizeM: number | null;
+  /** MS5b: the size `[w, d, h]` (m: X, Z, Y extents at scale 1) from the loaded bounds or the
+   *  record's bbox `[x, y, z]`; null when neither is known. */
+  sizeM3: [number, number, number] | null;
   resident: boolean;
 }
 
@@ -140,6 +143,7 @@ interface Entry {
   dragging: boolean;
   heightM: number;
   sizeM: number | null;
+  sizeM3: [number, number, number] | null;
   meshes: THREE.Mesh[];
 }
 
@@ -252,6 +256,7 @@ export function attachUserModels(
       dragging: false,
       heightM: 0,
       sizeM: row.bbox ? Math.max(row.bbox[0], row.bbox[2]) : null,
+      sizeM3: row.bbox ? [row.bbox[0], row.bbox[2], row.bbox[1]] : null,
       meshes: [],
     };
     const s = seatFor(row);
@@ -300,6 +305,7 @@ export function attachUserModels(
     root.position.set(off[0], off[1], off[2]);
     e.heightM = _box.max.y - _box.min.y;
     e.sizeM = Math.max(_box.max.x - _box.min.x, _box.max.z - _box.min.z);
+    e.sizeM3 = [_box.max.x - _box.min.x, _box.max.z - _box.min.z, e.heightM];
     e.meshes = [];
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -553,6 +559,7 @@ export function attachUserModels(
         lon: e.row.lon,
         seats: { ...e.target },
         sizeM: e.sizeM,
+        sizeM3: e.sizeM3 ? [e.sizeM3[0], e.sizeM3[1], e.sizeM3[2]] : null,
         resident: e.state === "ready",
       };
     },
@@ -586,6 +593,7 @@ export function attachUserModels(
           bodyScale: e.body.scale.x,
           heightM: e.heightM,
           sizeM: e.sizeM,
+          sizeM3: e.sizeM3,
           dragging: e.dragging,
           tris: e.row.tris,
         });

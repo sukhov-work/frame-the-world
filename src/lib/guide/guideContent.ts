@@ -631,10 +631,12 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         },
         body:
           "Map data gets heights wrong; your eyes know better. One drag rescales a building " +
-          "between half and triple its CURRENT height, and repeated edits compound — down to " +
-          "a tenth of the mapped height, or up to ten times it. Right-click the armed building " +
-          "(hold it on /m) for the rest of the suite: MOVE, ROTATE and SCALE its footprint with " +
-          "a three-axis gizmo, and revert one op or all of them. Edits re-measure every " +
+          "between a tenth and ten times its CURRENT height, and repeated edits compound with " +
+          "no ceiling. Right-click the armed building (hold it on /m) for the rest of the suite: " +
+          "MOVE (up to 100 m per drag from where it stands), ROTATE and SCALE its footprint (a " +
+          "tenth to ten times per drag, shown in metres) with a three-axis gizmo, and revert one " +
+          "op or all of them. A building carried far from its own map cell can blink out at the " +
+          "edge of the view — bring it back or accept it. Edits re-measure every " +
           "[[plan-verdicts|skyline verdict]].",
         keys: ["height", "scale", "rescale", "too short", "too tall", "wrong height", "osm", "sync", "gizmo", "move building", "rotate building"],
         steps: [
@@ -661,8 +663,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Drop a 3D model in the UPLOAD window and it is checked, trimmed to budget and stored " +
           "as a public GLB. Start from a temporary pin's UPLOAD HERE and it stands there at once; " +
           "otherwise press PLACE ON GLOBE and click the ground. In first-person view, right-click " +
-          "your model for MOVE, ROTATE and SCALE — the same gizmo as [[fpv-height|a building edit]]. " +
-          "It always stands on the terrain; there is no lift.",
+          "your model for MOVE, ROTATE and SCALE — the same gizmo as [[fpv-height|a building edit]]: " +
+          "one drag resizes it between a tenth and ten times its current size, repeated edits " +
+          "compound, and the SCALE row shows its size in metres. It always stands on the terrain; " +
+          "there is no lift.",
         keys: ["3d model", "glb", "obj", "fbx", "upload model", "place model", "custom model", "mdl"],
         steps: [
           "Open UPLOAD and drop a .glb, .gltf, .obj or .fbx — textures and a .mtl ride along.",

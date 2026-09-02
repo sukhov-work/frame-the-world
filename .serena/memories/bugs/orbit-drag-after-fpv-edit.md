@@ -1,49 +1,50 @@
-# BUG (owner report 2026-09-02j, OPEN — fix at MS5b, before MS6): after editing meshes in FPV, an ORBIT ("3D map") drag goes too slow or barely moves — nothing hangs, the drag SENSITIVITY breaks
+# BUG (owner report 2026-09-02j) — FIXED 2026-09-02l (MS5b §11.4): after editing meshes in FPV, an ORBIT ("3D map") drag went too slow or barely moved — nothing hung, the drag SENSITIVITY broke
 
 ## Symptom (owner, desktop)
 "after some editing of meshes in FPV when I move back to 3D map dragging around it becomes too
-slow and sometimes it just doesn't (or barely) drags around, nothing hangs but something breaks
-with drag sensitivity."
+slow and sometimes it just doesn't (or barely) drags around, nothing hangs."
 
-## Diagnosis (code-read 2026-09-02j against the INSTALLED sources; browser-UNVERIFIED — verify first)
-- `TransformControls` (three 0.185) owns a DRAG PLANE: `TransformControlsPlane`, a
-  `PlaneGeometry(100000, 100000, 2, 2)` mesh (`TransformControls.js:1915`), a child of the helper
-  (`tc.getHelper()`), invisible, positioned every frame at the attached object's world position
-  (`worldPosition`) and oriented by the current axis/eye.
-- MS2 (`scene/bldgGizmo.ts`) adds the helper to the scene at BOOT (`scene.add(helper)`) and never
-  removes it; it no-ops `raycast` on the visible gizmo/helper meshes but DELIBERATELY leaves the
-  plane's raycast intact (a no-op there silenced every drag — browser-caught 2026-09-02). Before
-  any edit the plane sits at the Earth's centre (worldPosition 0), so the terrain is the nearer
-  hit; after ANY FPV edit it sits at that building's ECEF surface position. `tc.detach()` does not
-  move it back.
-- `GlobeControls` (`3d-tiles-renderer` `EnvironmentControls.js`): the drag PIVOT (`:475 →
-  pivotPoint.copy(hit.point)`) and the camera-height point (`_getPointBelowCamera`, `:848`) come
-  from `this._raycast(raycaster)` = `raycaster.intersectObject(scene)[0]` with
-  `raycaster.firstHitOnly = true` (`:268`). three's Raycaster does NOT skip invisible objects, so
-  from most orbit angles over the edited city the 100 km plane is the FIRST hit, ahead of the
-  terrain → the pivot lands on the plane at a wrong depth (or the height guard reads a wrong
-  ground) → the drag math scales off it: slow, erratic, "barely drags", never a hang.
-- MS2's note called the research trap moot ("a building can only be armed INSIDE FPV, where
-  `controls.enabled` is already false") — true for the PICKERS while armed, wrong for the PLANE
-  after the session ends. MS5's second gizmo instance (the model rig, `modelGizmo`) doubles the
-  exposure.
+## Mechanism (CONFIRMED against the installed sources: three 0.185.0 · 3d-tiles-renderer 0.4.28)
+- `TransformControls` owns a DRAG PLANE: `TransformControlsPlane`, a `PlaneGeometry(100000, 100000)`
+  Mesh whose MATERIAL is invisible but whose `raycast` is intact (`examples/jsm/controls/
+  TransformControls.js` ~1910), a child of the helper root (`getHelper()`).
+- `detach()` only flips `_root.visible`; `TransformControlsRoot.updateMatrixWorld` refreshes
+  `worldPosition` ONLY while an object is attached, so after any FPV edit the plane (and the pickers)
+  stay parked at that building's ECEF surface position; its orientation is whatever the last axis
+  drag left (`_dirVector` is module-global) — the "sometimes".
+- three's `Raycaster` ignores `visible` (`Raycaster.js` `intersect()` gates on layers only;
+  `Mesh.raycast` has no visible check). `EnvironmentControls._raycast` =
+  `raycaster.intersectObject(scene)[0]` (`firstHitOnly` only shortens the tiles traversal); the
+  drag PIVOT (pointerdown `pivotPoint.copy(hit.point)`), `getPivotPoint` and `_getPointBelowCamera`
+  all use it; `GlobeControls._raycast` only adds an ellipsoid FALLBACK when there is no hit.
+- MS2 added the helper to the scene at boot and never removed it (the no-op raycast sweep
+  deliberately spared the plane — a no-op there silenced every drag). Before any edit the plane sat
+  at the ECEF origin, 6,371 km behind the terrain — which is why MS2 shipped clean; after an edit it
+  sat ON the city and won the first hit from most orbit angles. A wrong pivot → a wrong drag sphere
+  (`GlobeControls._updatePosition`) → the ground lags the pointer; a ray that misses the pivot
+  sphere ends the drag (`resetState`) — "sometimes it just doesn't". MS5's second gizmo instance
+  (the model rig) doubled the exposure.
 
-## Confirm in one probe
-In orbit after an FPV edit: press on the ground and read `window.__globe.controls.pivotPoint`
-against `terrainHeightAt` there (a plane hit sits off the terrain); or from the console
-`__globe`-reach the helper and `helper.traverse(o => o.raycast = () => {})` — if the drag
-recovers at once, this is it.
+## Fix (as built — `scene/bldgGizmo.ts`, the ONE `attachBldgGizmo` both instances share)
+The helper is a scene child ONLY while something is attached: `setTarget` adds it on attach
+(`scene.add(helper)` + `helper.updateMatrixWorld(true)` so a same-frame hover/press sees fresh
+picker matrices) and removes it on detach (`helper.parent.remove(helper)`); nothing of the gizmo is
+raycastable or drawn between sessions. `inScene` on the handle (`readonly`) and on both DEV seams
+(`__globe.bldgGizmo().inScene`, `__globe.modelGizmo().inScene`); `helperRoot()` (DEV) hands a
+harness the root for a POSITIVE CONTROL. Pinned: `verify-meshedit` leg 14b + `verify-usermodels` leg
+6b — an IN-PAGE FPV exit (`__cameraStore.setTempFpv(false)`; a reload would discard a parked helper
+and hide the bug), a fixed 220 px ground drag measured by the CAMERA's own ground point (`camGeo` +
+`camera.position` — the store's `focusLatDeg` mirror stays pinned on a temp pin), compared with a
+baseline drag taken before any session (±25 %, meshedit); GlobeControls' own raycaster's first hit
+under the press pixel is not a gizmo object; `inScene` false for both gizmos; the control sees the
+helper once re-added.
 
-## Fix (planned)
-The helper leaves the scene whenever nothing is attached: `scene.remove(helper)` on
-`setTarget(null, …)` / disarm and `scene.add(helper)` on attach — in BOTH `attachBldgGizmo`
-instances (the building one and MS5's model one). Equivalent alternative: swap the plane's
-`raycast` to a no-op while detached and restore it on attach. Reserve: a dedicated camera LAYER
-for the helper excluded from GlobeControls' raycaster mask (then `tc.getRaycaster().layers` must
-include it). Pin: `verify-meshedit` + `verify-usermodels` grow an ORBIT leg after the FPV edit —
-a fixed-length drag moves the focus (`__cameraStore` focus/heading delta) by the same amount as a
-pre-edit baseline drag (±10 %), and `controls.pivotPoint` after a press sits on the terrain
-(within a metre of `terrainHeightAt`).
+## How to apply
+A helper/proxy object with a live `raycast` must leave the scene graph when its session ends —
+`visible = false` hides nothing from a Raycaster. Reserve alternative if ever needed: a camera
+layer excluded from `controls.raycaster.layers` (three's TransformControls shares one module-level
+`_raycaster` whose layers must then include it).
 
-Related: `mem:bugs/bldg-menu-right-release` (the same batch), `mem:project/wip-2026-09-02-mesh-suite-ms5`,
-MESH_SUITE_PLAN §11.4, DECISIONS 2026-09-02j.
+Related: `mem:project/wip-2026-09-02-mesh-suite-ms5b` (receipt), `mem:bugs/bldg-menu-right-release`,
+`mem:project/wip-2026-09-02-mesh-suite-ms2` (the no-op raycast trap), MESH_SUITE_PLAN §11.4 + §11.5,
+DECISIONS 2026-09-02l.

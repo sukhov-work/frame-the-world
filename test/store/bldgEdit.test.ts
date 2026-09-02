@@ -15,6 +15,7 @@ const armed = (over: Partial<BldgEditArmed> = {}): BldgEditArmed => ({
   featureId: 7,
   cellUri: "cell-10-10.glb",
   originalHeightM: 24.5,
+  footprintM: [20, 12],
   liveHeightM: 24.5,
   deltaM: 0,
   dragging: false,

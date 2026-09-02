@@ -32,6 +32,9 @@ export interface BldgEditArmed {
   cellUri: string;
   /** Baked ("original") height, m. */
   originalHeightM: number;
+  /** MS5b: the mapped footprint `[dx, dz]` (m) — the SCALE row prints the current size
+   *  `dx·sx × dz·sz` against it (the HEIGHT row's metres precedent). */
+  footprintM: [number, number];
   /** Current LIVE height, m (tracks the drag; equals the committed height between drags). */
   liveHeightM: number;
   /** liveHeightM − originalHeightM (the chip's Δ readout). */

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GlobeControls, WGS84_ELLIPSOID } from "3d-tiles-renderer";
+import { formatDims } from "../../lib/format/readout";
 import {
   angularRadiusRad,
   bodyStatesAt,
@@ -1603,6 +1604,14 @@ export function attachStylizedTiles(opts: {
     }
     return best;
   };
+  /** MS5b (§11.3, the belt to the `e.button` braces): opening an edit menu CONSUMES a live FPV
+   *  press — the glass long-press rule (`longPressFired`) applied to a `contextmenu` that arrives
+   *  while a primary-button press is still down (a macOS Ctrl+click in a browser that reports it
+   *  as button 0). The release then ends nothing: no tap-away, no disarm. A right press never
+   *  claims the pointer (onFpvPointerDown), so for the mouse's own right button this is a no-op. */
+  const menuConsumesPress = () => {
+    if (fpvDragId !== null) longPressFired = true;
+  };
   const onSkyContextMenu = (e: MouseEvent) => {
     const rect = dom.getBoundingClientRect();
     const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
@@ -1619,12 +1628,14 @@ export function attachStylizedTiles(opts: {
           if (armModel(mp) && modelGizmoDragId === null) {
             e.preventDefault();
             openModelMenu(e.clientX, e.clientY);
+            menuConsumesPress();
           }
           return;
         }
         if (modelArmed && modelGizmoDragId === null) {
           e.preventDefault();
           openModelMenu(e.clientX, e.clientY);
+          menuConsumesPress();
           return;
         }
       }
@@ -1637,6 +1648,7 @@ export function attachStylizedTiles(opts: {
         if (bldgArmed && bldgGizmoDragId === null) {
           e.preventDefault();
           openBldgMenu(e.clientX, e.clientY);
+          menuConsumesPress();
         }
       }
       return;
@@ -1715,6 +1727,9 @@ export function attachStylizedTiles(opts: {
       if (!fpvActive) longPressFired = false;
       return;
     }
+    // MS5b (§11.3, the orbit twin): a right-button release is never a CLICK — the placing drop,
+    // the pin pick and the empty-map clear are left-button gestures; `contextmenu` owns the right.
+    if (e.button === 2) return;
     if (fpvActive) return; // FPV owns the pointer (look-around) — no placing, no pin-picking
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a click
     const rect = dom.getBoundingClientRect();
@@ -1894,11 +1909,12 @@ export function attachStylizedTiles(opts: {
     cellUri: string;
     featureId: number;
     bakedHeightM: number;
+    footprintM: [number, number]; // MS5b: the pristine footprint (m) — the SCALE readouts' metres
     cx: number; // pristine checksum capture from the pick (rounded at persist time)
     cz: number;
     vc: number;
     osm: string | null; // MS3: the RC17 OSM id — the persisted row's recovery key
-    committedK: number; // the scale each edit re-anchors on (the owner's 0.5×/3× band)
+    committedK: number; // the scale each edit re-anchors on (the per-edit 0.1×/10× band, MS5b)
     liveK: number; // live drag value (== committedK between drags)
     distM: number; // pick distance — scales the drag gain
   } | null = null;
@@ -1984,6 +2000,7 @@ export function attachStylizedTiles(opts: {
       lat: info?.lat ?? 0,
       lon: info?.lon ?? 0,
       sizeM: info?.sizeM ?? null,
+      sizeM3: info?.sizeM3 ?? null,
       dragging: modelGizmoDragId !== null,
       overridden: !isIdentityModelTransform(committed),
       op: modelOp,
@@ -2083,7 +2100,8 @@ export function attachStylizedTiles(opts: {
   };
   const openModelMenu = (clientX: number, clientY: number) =>
     useModelEditStore.getState()._setMenu({ screenX: clientX, screenY: clientY });
-  const modelOpLine = (e: ModelEdit): string | null => {
+  /** MS5b: the SCALE line leads with the current size in metres (`sizeM3` × the live scale). */
+  const modelOpLine = (e: ModelEdit, sizeM3: readonly [number, number, number] | null): string | null => {
     const sg = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`;
     switch (modelOp) {
       case "move":
@@ -2091,7 +2109,9 @@ export function attachStylizedTiles(opts: {
       case "rotate":
         return `↻ ${sg(-e.rotDeg)}° cw`;
       case "scale":
-        return `⤢ ${e.scale.toFixed(2)}×`;
+        return sizeM3
+          ? `⤢ ${formatDims(sizeM3.map((v) => v * e.scale))} · ${e.scale.toFixed(2)}×`
+          : `⤢ ${e.scale.toFixed(2)}×`;
       default:
         return null;
     }
@@ -2126,6 +2146,7 @@ export function attachStylizedTiles(opts: {
       featureId: a.featureId,
       cellUri: a.cellUri,
       originalHeightM: a.bakedHeightM,
+      footprintM: a.footprintM,
       liveHeightM: a.bakedHeightM * live.sy,
       deltaM: a.bakedHeightM * (live.sy - 1),
       dragging: (bldgDragId !== null && bldgDragMoved) || bldgGizmoDragId !== null,
@@ -2170,6 +2191,7 @@ export function attachStylizedTiles(opts: {
       cellUri: pick.cellUri,
       featureId: pick.featureId,
       bakedHeightM: pick.bakedHeightM,
+      footprintM: pick.footprintM,
       cx: pick.cx,
       cz: pick.cz,
       vc: pick.vc,
@@ -2292,8 +2314,9 @@ export function attachStylizedTiles(opts: {
     useBldgEditStore.getState()._setMenu({ screenX: clientX, screenY: clientY });
   /** MS2: the pinned label's op line — the live numbers of the active spatial op (the two U8
    *  height lines stay under it; EXTRUDE adds nothing, so that label is byte-identical). The
-   *  yaw is shown in COMPASS sense (clockwise from above = the negative of `rotDeg`). */
-  const bldgOpLine = (t: FeatureTransform): string | null => {
+   *  yaw is shown in COMPASS sense (clockwise from above = the negative of `rotDeg`). MS5b: the
+   *  SCALE line leads with the current footprint in metres (`footprintM` × the live scale). */
+  const bldgOpLine = (t: FeatureTransform, footprintM: readonly [number, number]): string | null => {
     const sg = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`;
     switch (bldgOp) {
       case "move":
@@ -2301,13 +2324,26 @@ export function attachStylizedTiles(opts: {
       case "rotate":
         return `↻ ${sg(-t.rotDeg)}° cw`;
       case "scale":
-        return `⤢ ${t.sx.toFixed(2)} × ${t.sz.toFixed(2)}`;
+        return `⤢ ${formatDims([footprintM[0] * t.sx, footprintM[1] * t.sz])} · ${t.sx.toFixed(2)} × ${t.sz.toFixed(2)}`;
       default:
         return null;
     }
   };
   const onFpvPointerDown = (e: PointerEvent) => {
     if (!fpvActive) return;
+    // MS5b (owner bug 2026-09-02j, MESH_SUITE_PLAN §11.3): a RIGHT press never enters the gesture
+    // table. It used to claim `fpvDragId` and sample the menu-dismiss flags BEFORE `contextmenu`
+    // (macOS Chrome fires it on the press) opened the menu, so the tap-shaped release below read
+    // as a tap-away and DISARMED — the menu vanished the moment the right button came up and
+    // survived only under a right-DRAG (the travel skipped the tap path). The `contextmenu`
+    // handler alone owns the right button now; it closes any open edit menu here (the press
+    // invariant) and `onSkyContextMenu` re-opens it where the click lands. A right-drag no
+    // longer looks around — it never should have.
+    if (e.button === 2) {
+      useBldgEditStore.getState().closeMenu();
+      useModelEditStore.getState().closeMenu();
+      return;
+    }
     if (!e.isPrimary) {
       if (bldgArmed) return; // U8: no pinch mid-edit — second fingers are ignored while armed
       // Second finger while the look finger is down = a pinch begins (M2). Anything past two
@@ -2505,6 +2541,11 @@ export function attachStylizedTiles(opts: {
     if (fpvDragId !== e.pointerId) return;
     fpvDragId = null;
     fpvPinchId = null; // a pinch cannot outlive its anchor finger
+    // The long-press / menu-open consumption flag is read ONCE per release, whichever branch
+    // below ends the gesture (MS5b: a gizmo or height release used to leave it set for the NEXT
+    // release to swallow).
+    const pressConsumed = longPressFired;
+    longPressFired = false;
     // MS5: releasing a model gizmo drag COMMITS (PATCH); a pointercancel restores the rig.
     if (modelArmed && modelGizmoDragId === e.pointerId) {
       modelGizmoDragId = null;
@@ -2529,10 +2570,7 @@ export function attachStylizedTiles(opts: {
         return;
       }
     }
-    if (longPressFired) {
-      longPressFired = false; // the sky-menu long-press consumed this gesture (M3c)
-      return;
-    }
+    if (pressConsumed) return; // the sky-menu long-press / a menu opening consumed this gesture (M3c, MS5b)
     // FPV has no pin/ground picking, but a CLICK (not a look-drag) can still hit the tracked
     // sky marker: glide the look onto it + front the panel (phase C, owner feedback #2).
     // Never after a pinch — those two fingers were a zoom, not a tap.
@@ -3281,6 +3319,8 @@ export function attachStylizedTiles(opts: {
         armed: modelArmed,
         op: modelOp,
         attached: modelGizmo.attached,
+        inScene: modelGizmo.inScene, // MS5b §11.4: true exactly while attached
+        helperRoot: () => modelGizmo.helperRoot(),
         dragging: modelGizmo.dragging,
         axis: modelGizmo.axis,
         live: modelLive,
@@ -3311,6 +3351,8 @@ export function attachStylizedTiles(opts: {
         return {
           op: bldgOp,
           attached: bldgGizmo.attached,
+          inScene: bldgGizmo.inScene, // MS5b §11.4: true exactly while attached
+          helperRoot: () => bldgGizmo.helperRoot(), // MS5b: the harness's positive control
           dragging: bldgGizmo.dragging,
           axis: bldgGizmo.axis,
           live: bldgLive,
@@ -6827,7 +6869,7 @@ export function attachStylizedTiles(opts: {
           a.bakedHeightM,
           a.bakedHeightM * liveK,
           camera,
-          bldgOpLine(live ?? bldgCommitted(a)),
+          bldgOpLine(live ?? bldgCommitted(a), a.footprintM),
         );
         const mirror = bs.armed;
         const liveM = a.bakedHeightM * liveK;
@@ -6897,9 +6939,12 @@ export function attachStylizedTiles(opts: {
         bldgEditLabel.pin(
           anchored ? _modelTop : null,
           {
-            op: modelOpLine(live),
+            op: modelOpLine(live, info?.sizeM3 ?? null),
             live: a.title,
-            orig: `↳ ${live.scale.toFixed(2)}× · ${(info?.sizeM ?? 0).toFixed(1)} m`,
+            // MS5b: the current size in metres (the upload's bounds × the live scale).
+            orig: info?.sizeM3
+              ? `↳ ${live.scale.toFixed(2)}× · ${formatDims(info.sizeM3.map((v) => v * live.scale))}`
+              : `↳ ${live.scale.toFixed(2)}× · ${(info?.sizeM ?? 0).toFixed(1)} m`,
           },
           camera,
         );

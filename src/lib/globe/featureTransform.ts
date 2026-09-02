@@ -27,10 +27,12 @@
  * owned by the terrain seat, an edit can only add height above it.
  *
  * Rails (the contract half — `lib/globe/bldgOverrides.ts` owns the numbers): scales inside the
- * absolute band, |(tE, tN)| inside a translate radius (the cell's tile-level culling volume is
- * NOT grown by a move — beyond the radius a building could pop with its cell at the view edge),
- * lift inside [0, liftMax]. The per-edit 0.5×/3× band applies to every scale axis via the same
- * `clampEditK`.
+ * SANITY rail, |(tE, tN)| inside a sanity translate radius, lift inside [0, liftMax] — `clampXf`
+ * is parametric and clamps onto whatever rails it is handed. The GESTURE rails are per edit about
+ * the committed transform (MS5b 2026-09-02l: a move ≤ `EDIT_MOVE_MAX_M` from where the building
+ * stands, every scale axis a tenth to ten times its committed value via the same `clampEditK`,
+ * compounding). The cell's tile-level culling volume is NOT grown by a move — far from its cell a
+ * building can pop with the cell at the view edge (accepted, said in the guide).
  */
 
 /** Spatial components of one feature edit. Absent/identity ⇒ the feature never leaves the

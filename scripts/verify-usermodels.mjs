@@ -11,10 +11,14 @@
 //      UPLOAD HERE seed 14 m ahead of the eye → STORED READY; the row joins MINE at once
 //   2. the public world read (/api/world-models?cells=<gh5>) lists it within the read lag — no
 //      ownerMemberId, no fileId — and the scene makes it RESIDENT with a REAL terrain seat
-//   3. right-click the model → armed (the model chip, the menu); screenshot
+//   3. a REAL right-click (press + release) arms the model — the menu SURVIVES the release (MS5b
+//      §11.3), a left tap closes it and keeps the model armed; screenshot
 //   4. R → ROTATE: a drag on the Y ring commits a yaw → PATCH lands (the own list agrees)
-//   5. S → SCALE: a drag on the X box scales UNIFORMLY inside the per-edit band
+//   5. S → SCALE: a drag on the X box scales UNIFORMLY inside the 0.1×–10× per-edit band; the
+//      SCALE row leads with the size in metres (MS5b §11.1)
 //   6. G → MOVE: a drag on the X arrow moves the placement (new lat/lon, never a stored offset)
+//   6b. MS5b §11.4: an in-page FPV exit, then an ORBIT drag moves the focus; no gizmo helper is
+//      left in the scene; a positive control proves the probe can see one that is
 //   7. reload (member): the seats + the placement re-apply from the world read
 //   8. anonymous reload: the model is resident, MINE is empty, a right-click does NOT arm it
 //   9. the MDL gate (store → engine): off releases the model, on brings it back
@@ -220,8 +224,89 @@ const handleDir = async (name) => {
   const uy = dy / len;
   return { hp: { x: hp.x - uy * 4, y: hp.y + ux * 4 }, centre: hp, o, ux, uy };
 };
-const contextMenuAt = (x, y) =>
-  evalJs(`document.querySelector('canvas').dispatchEvent(new MouseEvent('contextmenu', { clientX: ${x}, clientY: ${y}, bubbles: true, cancelable: true })), true`);
+/** MS5b §11.3: a REAL right-button click — press, then release with no travel. Returns whether
+ *  the model menu was already open at the press (macOS Chrome fires `contextmenu` on the press). */
+const rightClick = async (x, y) => {
+  await hover(x, y);
+  await sleep(40);
+  await mouse("mousePressed", x, y, { button: "right", buttons: 2, clickCount: 1 });
+  const atPress = await evalJs(`${ES}.menu !== null`);
+  await sleep(60);
+  await mouse("mouseReleased", x, y, { button: "right", buttons: 0, clickCount: 1 });
+  return atPress;
+};
+// MS5b §11.4 — the orbit-drag probe (the verify-meshedit idiom; in-page FPV exit, never a reload).
+const CS = "window.__cameraStore.getState()";
+const distM = (a, b) => Math.hypot((b.lat - a.lat) * 111_320, (b.lon - a.lon) * 111_320 * Math.cos((a.lat * Math.PI) / 180));
+/** The camera's own ground point + ECEF position. NOT the store's `focusLatDeg` mirror: while a
+ *  temp pin is set (the `#f=` boot keeps one) that mirror stays pinned on the pin (probed 2026-09-02l
+ *  — the camera moved 110 m, the mirror 0). */
+const focus = () => evalJs(`(() => { const cs = ${CS}; const p = window.__globe.camera.position; return { lat: cs.camGeo?.latDeg ?? 0, lon: cs.camGeo?.lonDeg ?? 0, pos: [p.x, p.y, p.z] }; })()`);
+const waitUntil = async (label, expr, timeoutMs = 15_000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (await evalJs(expr).catch(() => false)) return;
+    await sleep(200);
+  }
+  fail(`${label}: ${expr} never became true`);
+};
+const raycastAt = (x, y) =>
+  evalJs(
+    `(() => { const g = window.__globe, c = g.controls; const r = document.querySelector('canvas').getBoundingClientRect();` +
+      ` const ndc = { x: ((${x} - r.left) / r.width) * 2 - 1, y: -((${y} - r.top) / r.height) * 2 + 1 };` +
+      ` const isGizmo = (o) => { for (let p = o; p; p = p.parent) if (p.isTransformControlsRoot || p.isTransformControlsPlane) return true; return false; };` +
+      ` c.raycaster.setFromCamera(ndc, g.camera); const first = c.raycaster.intersectObject(c.scene, true)[0] ?? null;` +
+      ` const all = new c.raycaster.constructor(); all.setFromCamera(ndc, g.camera); const hits = all.intersectObject(c.scene, true);` +
+      ` return { first: first ? { type: first.object.type, distance: first.distance, gizmo: isGizmo(first.object) } : null, hits: hits.length, gizmoHits: hits.filter((h) => isGizmo(h.object)).length }; })()`,
+  );
+const ORBIT_PX = { x: 800, y: 640 };
+/** POSITIVE CONTROL for the probe: re-add a gizmo's helper root and cast a ray from the camera AT
+ *  the parked drag plane's centre — the hit list must then contain a gizmo object. Removes the root
+ *  again. `which` = "bldgGizmo" | "modelGizmo". */
+const controlSeesHelper = (which) =>
+  evalJs(
+    `(() => { const g = window.__globe, c = g.controls; const root = g.${which}().helperRoot(); c.scene.add(root); root.updateMatrixWorld(true);` +
+      ` const plane = (() => { let p = null; root.traverse((o) => { if (o.isTransformControlsPlane) p = o; }); return p; })();` +
+      ` const isGizmo = (o) => { for (let q = o; q; q = q.parent) if (q.isTransformControlsRoot || q.isTransformControlsPlane) return true; return false; };` +
+      ` const V = c.pivotPoint.constructor; const target = plane ? plane.getWorldPosition(new V()) : null;` +
+      ` const rc = new c.raycaster.constructor(); let hits = [];` +
+      ` if (target) { rc.set(g.camera.position.clone(), target.clone().sub(g.camera.position).normalize()); hits = rc.intersectObject(c.scene, true); }` +
+      ` c.scene.remove(root);` +
+      ` return { planeFound: !!plane, planeDistM: target ? target.distanceTo(g.camera.position) : null, hits: hits.length, gizmoHits: hits.filter((h) => isGizmo(h.object)).length, first: hits[0] ? { type: hits[0].object.type, distance: hits[0].distance, gizmo: isGizmo(hits[0].object) } : null }; })()`,
+  );
+const orbitDragProbe = async (label) => {
+  await evalJs(`${CS}.setTempFpv(false), true`);
+  await waitUntil(`${label}: FPV exit`, "!window.__globe.fpv().active && window.__globe.fpv().controlsEnabled", 20_000);
+  await waitUntil(`${label}: fly-out settles`, "!window.__globe.flight.active()", 30_000);
+  // The fly-out lands wherever the FPV look left it — re-seat on ONE fixed orbit pose so the
+  // baseline and the post-edit drag are comparable (the s5-night fly idiom).
+  await evalJs(`${CS}.requestFly({ latDeg: 48.4647, lonDeg: 35.0462, altM: 700 }), true`);
+  await sleep(3500);
+  await waitUntil(`${label}: fly-in settles`, "!window.__globe.flight.active()", 30_000);
+  await evalJs("window.__cameraStore.setState({ targetTiltDeg: 40, targetHeadingDeg: 25 }), true");
+  await sleep(3000);
+  await sleep(2500); // terrain streams at the orbit pose — the pivot must land on real ground
+  let ray = null;
+  for (let i = 0; i < 20 && !(ray && ray.first); i++) {
+    ray = await raycastAt(ORBIT_PX.x, ORBIT_PX.y);
+    if (!ray.first) await sleep(500);
+  }
+  if (!ray || !ray.first) fail(`${label}: nothing under the press pixel (${JSON.stringify(ray)})`);
+  const before = await focus();
+  await hover(ORBIT_PX.x, ORBIT_PX.y);
+  await sleep(60);
+  await mouse("mousePressed", ORBIT_PX.x, ORBIT_PX.y, { buttons: 1, clickCount: 1 });
+  await sleep(40);
+  for (let i = 1; i <= 8; i++) {
+    await mouse("mouseMoved", ORBIT_PX.x + (220 * i) / 8, ORBIT_PX.y, { buttons: 1 });
+    await sleep(40);
+  }
+  await mouse("mouseReleased", ORBIT_PX.x + 220, ORBIT_PX.y, { buttons: 0, clickCount: 1 });
+  await sleep(900);
+  const after = await focus();
+  const camM = Math.hypot(after.pos[0] - before.pos[0], after.pos[1] - before.pos[1], after.pos[2] - before.pos[2]);
+  return { ray, dM: Math.max(distM(before, after), camM), camM, before, after };
+};
 const modelInfo = (id) => evalJs(`(${UM}.models.find((m) => m.id === ${JSON.stringify(id)}) ?? null)`);
 /** The model becomes RESIDENT (its GLB fetched) — the wixstatic round trip takes a few seconds. */
 const waitResident = async (id, label, timeoutMs = 45_000) => {
@@ -409,17 +494,24 @@ try {
     const diag = await evalJs(`(() => { const g = ${GZ}; return { px: ${JSON.stringify(px)}, hoverId: g.hoverId, pickAt: g.pickAt(${px.x}, ${px.y}), fpv: window.__globe.fpv().active, modelsVisible: window.__cameraStore.getState().modelsVisible, counts: (() => { const u = ${UM}; return { resident: u.resident, visible: u.visible }; })(), label: document.querySelector('.bldg-edit-label')?.innerHTML ?? null }; })()`);
     fail(`leg 3: no hover note over the model (${JSON.stringify(hoverNote)}) — ${JSON.stringify(diag)}`);
   }
-  await contextMenuAt(px.x, px.y);
+  const press3 = await rightClick(px.x, px.y);
   await sleep(300);
   let a = await armed();
-  if (!a || a.id !== modelId || !a.mine) fail(`leg 3: right-click did not arm the model: ${JSON.stringify(a)}`);
-  if (!(await evalJs(`${ES}.menu !== null`))) fail("leg 3: the model menu did not open");
+  if (!a || a.id !== modelId || !a.mine) fail(`leg 3: the right-click did not arm the model (or its release disarmed it — §11.3): ${JSON.stringify(a)}`);
+  if (!(await evalJs(`${ES}.menu !== null`))) fail(`leg 3: the model menu is not open 300 ms after the right button was RELEASED (open at press: ${press3}) — the §11.3 bug`);
   if (!(await evalJs("!!document.querySelector('.bldg-edit-chip[data-kind=\"model\"]') && !!document.querySelector('.bldg-menu[data-kind=\"model\"]')")))
     fail("leg 3: the model chip / menu are not in the DOM");
   if (await evalJs("!!window.__bldgEditStore.getState().armed")) fail("leg 3: a building is armed alongside the model");
   await shoot("usermodels-01-armed.jpeg");
-  await evalJs(`${ES}.closeMenu(), true`);
-  console.log(`leg 3: armed ${a.title} (op ${a.op}, size ${a.sizeM} m)`);
+  // A LEFT tap while the menu is open only closes the menu — the model stays armed.
+  await mouse("mousePressed", 300, 140, { clickCount: 1 });
+  await mouse("mouseReleased", 300, 140, { clickCount: 1 });
+  await sleep(200);
+  if (await evalJs(`${ES}.menu !== null`)) fail("leg 3: a left tap did not close the model menu");
+  if (!(await armed())) fail("leg 3: the left tap that closed the menu also disarmed the model");
+  const head3 = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-row[data-op=\"scale\"] .bec-v')?.textContent ?? ''");
+  if (!/^3\.00 × 3\.00 × 5\.00 m \(1\.00×\)$/.test(head3)) fail(`leg 3: the SCALE row must print the box's size in metres (MS5b §11.1): "${head3}"`);
+  console.log(`leg 3: armed ${a.title} (op ${a.op}, size ${a.sizeM} m, ${JSON.stringify(a.sizeM3)}) · menu open at press ${press3}, survived the release · left tap closed it · SCALE row "${head3}"`);
 
   // --- 4: R → ROTATE, a ring drag commits a yaw and PATCHes -----------------------------------------
   await key("KeyR", "r", 82);
@@ -446,11 +538,14 @@ try {
   await dragFrom(hX.hp, hX.ux, hX.uy, 60, 6);
   a = await waitSaved("leg 5");
   if (Math.abs(a.committed.scale - 1) < 0.05) fail(`leg 5: the X box drag did not scale: ${JSON.stringify(a.committed)}`);
-  if (a.committed.scale < 0.5 || a.committed.scale > 3) fail(`leg 5: scale ${a.committed.scale} escaped the per-edit band`);
+  if (a.committed.scale < 0.1 || a.committed.scale > 10) fail(`leg 5: scale ${a.committed.scale} escaped the 0.1×–10× per-edit band`);
   const m5 = await modelInfo(modelId);
   if (Math.abs(m5.bodyScale - a.committed.scale) > 1e-6) fail(`leg 5: the rig scale ${m5.bodyScale} ≠ committed ${a.committed.scale} (not uniform?)`);
   await ownRowEventually(modelId, (r) => Math.abs(r.scale - a.committed.scale) < 1e-6, "leg 5");
-  console.log(`leg 5: SCALE ${a.committed.scale.toFixed(3)}× uniform · band held · own list agrees`);
+  const row5 = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-row[data-op=\"scale\"] .bec-v')?.textContent ?? ''");
+  const w5 = 3 * a.committed.scale;
+  if (!row5.startsWith(`${w5 >= 10 ? w5.toFixed(1) : w5.toFixed(2)} × `) || !row5.endsWith(`m (${a.committed.scale.toFixed(2)}×)`)) fail(`leg 5: the SCALE row does not show the scaled size in metres: "${row5}"`);
+  console.log(`leg 5: SCALE ${a.committed.scale.toFixed(3)}× uniform · inside 0.1×–10× · own list agrees · row "${row5}"`);
 
   // --- 6: G → MOVE, an arrow drag moves the PLACEMENT ---------------------------------------------
   await key("KeyG", "g", 71);
@@ -474,6 +569,17 @@ try {
   await sleep(200);
   if (await armed()) fail("leg 6: DONE did not disarm");
 
+  // --- 6b: MS5b §11.4 — leave FPV in-page; an ORBIT drag must work after the model session ------
+  const gzOut = await evalJs("(({ bldgGizmo, modelGizmo }) => ({ b: bldgGizmo().inScene, m: modelGizmo().inScene }))(window.__globe)");
+  if (gzOut.b || gzOut.m) fail(`leg 6b: a detached gizmo helper is still in the scene: ${JSON.stringify(gzOut)}`);
+  const post = await orbitDragProbe("leg 6b");
+  if (post.ray.first.gizmo || post.ray.gizmoHits !== 0) fail(`leg 6b: the parked model gizmo answers the orbit raycast (the §11.4 bug): ${JSON.stringify(post.ray)}`);
+  console.log(`leg 6b: orbit drag after the session → ${post.dM.toFixed(1)} m (camera ${post.camM.toFixed(1)} m) · first hit ${post.ray.first.type} @ ${post.ray.first.distance.toFixed(0)} m · ${post.ray.hits} hits, ${post.ray.gizmoHits} gizmo`);
+  const ctl = await controlSeesHelper("modelGizmo");
+  if (!ctl.planeFound || ctl.gizmoHits === 0) fail(`leg 6b: positive control — the probe cannot see a helper that IS in the scene (${JSON.stringify(ctl)})`);
+  if (post.dM < 30) fail(`leg 6b: the orbit drag moved the focus only ${post.dM.toFixed(1)} m (${JSON.stringify(post)})`);
+  console.log(`leg 6b: helpers out of the scene · control: plane ${ctl.planeDistM.toFixed(0)} m away, ${ctl.gizmoHits} gizmo hit(s) of ${ctl.hits}`);
+
   // --- 7: reload (member): the seats + the placement re-apply from the world read ----------------
   await loadUrl(FPV_URL, "leg 7", { member: true });
   await waitFpv("leg 7");
@@ -492,7 +598,7 @@ try {
   if ((await evalJs(`${US}.mine.length`)) !== 0) fail("leg 8: an anonymous visitor has MINE rows");
   const px8 = await evalJs(`${GZ}.modelPx(${JSON.stringify(modelId)})`);
   if (!px8) fail("leg 8: the model is not on screen");
-  await contextMenuAt(px8.x, px8.y);
+  await rightClick(px8.x, px8.y);
   await sleep(300);
   if (await armed()) fail("leg 8: a visitor armed someone else's model");
   console.log("leg 8: anonymous sees the model, cannot arm it");
@@ -557,6 +663,6 @@ try {
   rmSync(FIX, { recursive: true, force: true });
 }
 if (cleanupProblem) fail(cleanupProblem);
-console.log("PASS: verify-usermodels — 10 legs (upload → world read → arm → rotate/scale/move PATCH → reload → anonymous → MDL gate → click-to-place → cleanup)");
+console.log("PASS: verify-usermodels — 11 legs (upload → world read → real right-click arms, menu survives the release → rotate / scale (0.1×–10×, metres on the row) / move PATCH → orbit drag after the session (helpers out, control seen) → reload → anonymous → MDL gate → click-to-place → cleanup)");
 ws.close();
 await finishVerify(0);

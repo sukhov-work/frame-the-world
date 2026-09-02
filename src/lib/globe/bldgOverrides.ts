@@ -1,7 +1,8 @@
 /**
  * U8 per-building height overrides — the localStorage-backed store (UPLIFT_PLAN §2/U8).
  * Pure + three-free: key/row shapes, sanitize, the capped persistence, the owner's per-edit
- * clamp band ("twice as low or triple as high", 2026-08-18), the drag→scale mapping, and the
+ * band (a tenth to ten times the COMMITTED value, compounding — 2026-09-02j, the extrude editing
+ * model; it was "twice as low or triple as high" from 2026-08-18), the drag→scale mapping, and the
  * rounded-centroid checksum that invalidates rows when a re-bake reshuffles feature ids.
  *
  * NOT the prefs blob: `sanitizeViewPrefs` keeps only known fixed keys, so an unbounded
@@ -55,14 +56,23 @@ export const BLDG_OVERRIDES_KEY = "ftw:bldg-overrides:v1";
 /** Max persisted overrides — oldest-updated rows are trimmed at write (ttlCache discipline). */
 export const OVERRIDES_CAP = 1000;
 
-/** Per-EDIT clamp band (owner 2026-08-18: one edit may halve or triple the CURRENT height).
- *  Edits compound across sessions; the absolute band below is the safety rail. */
-export const EDIT_MIN_K = 0.5;
-export const EDIT_MAX_K = 3;
+/** Per-EDIT band — the extrude editing model (owner 2026-09-02j, MESH_SUITE_PLAN §11.2; supersedes
+ *  the 2026-08-18 0.5×/3× band): ONE edit may take any scale axis — the footprint X/Z, the EXTRUDE
+ *  height, a model's uniform scale — to a tenth or ten times the value it STARTED at, i.e. the
+ *  COMMITTED value. Edits compound; nothing but the sanity rail below caps the compound. */
+export const EDIT_MIN_K = 0.1;
+export const EDIT_MAX_K = 10;
+/** Per-EDIT move (m): one drag carries a building up to this far from where it STANDS (the
+ *  committed position — never the mapped centroid). Owner: "60 → make it 100". */
+export const EDIT_MOVE_MAX_M = 100;
 
-/** Absolute scale band vs the BAKED height — keeps compounded edits sane. */
-export const SCALE_MIN_K = 0.1;
-export const SCALE_MAX_K = 10;
+/** The LOOSE sanity rail on every scale axis — CONTRACT, not a design limit: a persisted row
+ *  outside it is dropped on read (the `k` precedent), the server re-clamps onto it, the engine's
+ *  commit clamps onto it. It catches garbage (NaN, 1e9), never a compounded edit anyone meant.
+ *  Loosened 2026-09-02l from the absolute 0.1×..10× — a compatibility event: every row written
+ *  under the old rail is inside this one. */
+export const SCALE_MIN_K = 0.001;
+export const SCALE_MAX_K = 1000;
 
 /** Checksum tolerance (m) on the stored 0.5 m-rounded centroid — loose enough to survive
  *  rounding-boundary flapping, tight enough that a reshuffled id lands on a different footprint. */
@@ -71,11 +81,15 @@ export const CENTROID_TOL_M = 1.5;
 /** |k − 1| below this = "back to original" → the row is deleted, not stored. */
 export const NEUTRAL_K_EPS = 0.005;
 
-/** MS1 spatial rails (contract). Translate radius: the cell's TILE-level culling volume is not
- *  grown by a move, so past a few building widths an edited building could pop with its cell at
- *  the view edge — 60 m is a generous nudge, not a relocation. Lift: a couple of storeys above
- *  the seated base; the base itself can never go below the terrain (lift is ≥ 0 by construction). */
-export const TRANSLATE_MAX_M = 60;
+/** MS1 spatial rails (contract) — since 2026-09-02l the translate radius is the LOOSE sanity rail
+ *  on the ABSOLUTE offset from the mapped centroid (the per-edit gesture rail is `EDIT_MOVE_MAX_M`
+ *  about the committed position, and moves compound). Caveat that stays true: the cell's
+ *  TILE-level culling volume is not grown by a move (`growBoundsFor` pads the mesh bounds only),
+ *  so a building carried far from its cell can pop with the cell at the view edge — accepted and
+ *  said in the guide (MESH_SUITE_PLAN §11.2). Lift: a couple of storeys above the seated base,
+ *  ABSOLUTE (0..25 m per the owner's underground/sky rule); the base itself can never go below
+ *  the terrain (lift is ≥ 0 by construction). */
+export const TRANSLATE_MAX_M = 5000;
 export const LIFT_MAX_M = 25;
 export const XF_RAILS: Readonly<XfRails> = Object.freeze({
   scaleMin: SCALE_MIN_K,
@@ -327,7 +341,8 @@ export function checksumMatches(
   );
 }
 
-/** The per-edit clamp (owner band about the height the edit STARTED at, then the absolute rail). */
+/** The per-edit clamp: the band about the value the edit STARTED at (the committed one), inside
+ *  the sanity rail. `clampEditK(3, 100)` = 30; `clampEditK(500, 1e6)` = 1000 (the rail). */
 export function clampEditK(editStartK: number, proposedK: number): number {
   const lo = Math.max(SCALE_MIN_K, editStartK * EDIT_MIN_K);
   const hi = Math.min(SCALE_MAX_K, editStartK * EDIT_MAX_K);
@@ -351,19 +366,35 @@ export function dragScaleK(
   return clampEditK(editStartK, proposed);
 }
 
-/** MESH SUITE MS2 — clamp a gizmo's live read-back: the rails (`clampXf`: translate radius,
- *  lift band, rotation wrap, absolute scale band on X/Z) PLUS the per-edit 0.5×/3× band about
- *  the value each scale axis STARTED the drag at (`clampEditK`, the U8 rule applied to every
- *  axis — a drag re-anchors on the committed scale, so ten drags can still reach the absolute
- *  rail, one cannot). The Y band is the engine's own commit clamp, applied here so the PREVIEW
- *  never shows what the commit would refuse. Pure. */
+/** MESH SUITE MS2 — clamp a gizmo's live read-back. MS5b (owner 2026-09-02j, §11.2): every rail
+ *  is PER EDIT about `start`, the committed transform the drag re-anchors on — the extrude editing
+ *  model. The move OFFSET from `start` is shortened to `EDIT_MOVE_MAX_M` (direction kept), each
+ *  scale axis (X/Z and the Y height) stays inside `start × [EDIT_MIN_K, EDIT_MAX_K]`, so ten drags
+ *  go ten times further than one and only the loose sanity rail (`clampXf` on the absolute
+ *  vector, `SCALE_MIN_K/MAX_K`) ever caps the compound; the lift stays absolute (0..LIFT_MAX_M).
+ *  A non-finite component reads as "unchanged" (the start), never as a jump. The PREVIEW never
+ *  shows what the commit would refuse. Pure. */
 export function clampGizmoEdit(raw: FeatureTransform, start: FeatureTransform): FeatureTransform {
-  const xf = clampXf(raw, XF_RAILS);
+  const fin = (v: number, d: number) => (Number.isFinite(v) ? v : d);
+  let tE = fin(raw.tE, start.tE);
+  let tN = fin(raw.tN, start.tN);
+  const dE = tE - start.tE;
+  const dN = tN - start.tN;
+  const d = Math.hypot(dE, dN);
+  if (d > EDIT_MOVE_MAX_M) {
+    const k = EDIT_MOVE_MAX_M / d;
+    tE = start.tE + dE * k;
+    tN = start.tN + dN * k;
+  }
+  const xf = clampXf(
+    { sx: fin(raw.sx, start.sx), sz: fin(raw.sz, start.sz), rotDeg: raw.rotDeg, tE, tN, tU: raw.tU },
+    XF_RAILS,
+  );
   return {
     ...xf,
     sx: clampEditK(start.sx, xf.sx),
     sz: clampEditK(start.sz, xf.sz),
-    sy: clampEditK(start.sy, Number.isFinite(raw.sy) ? raw.sy : 1),
+    sy: clampEditK(start.sy, fin(raw.sy, start.sy)),
   };
 }
 

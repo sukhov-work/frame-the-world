@@ -382,9 +382,13 @@ writes touch at most this many runs of a cell, the GPU upload covers just their 
 (`BufferAttribute.addUpdateRange`; three 0.185 merges the ranges, uploads them, then CLEARS
 the list — so a frame that touches more runs falls back to the whole-buffer upload it always
 had, and the next frame starts clean). The rails of an edit are CONTRACT, not taste, and live
-in `lib/globe/bldgOverrides.ts`: `SCALE_MIN_K/MAX_K` (every scale axis), `TRANSLATE_MAX_M` 60,
-`LIFT_MAX_M` 25 — a persisted row outside them is DROPPED on read (the `k` precedent), so
-loosening a rail is a compatibility event and tightening one silently sheds rows.
+in `lib/globe/bldgOverrides.ts`. Since MS5b (2026-09-02l) they come in two layers: the GESTURE
+rails are PER EDIT about the committed transform (`EDIT_MOVE_MAX_M` 100 m per drag,
+`EDIT_MIN_K/MAX_K` 0.1×/10× per drag on every scale axis — edits compound, no absolute cap),
+and the SANITY rail (`SCALE_MIN_K/MAX_K` 0.001/1000, `TRANSLATE_MAX_M` 5000, `LIFT_MAX_M` 25 —
+the lift stays absolute) is what a persisted row is checked against: outside it the row is
+DROPPED on read (the `k` precedent), so loosening that rail is a compatibility event and
+tightening it silently sheds rows. (Before MS5b: absolute 60 m / 0.1×–10× + a 0.5×/3× band.)
 
 Three facts the substrate encodes (source-verified 2026-09-02):
 - **Rotation sense is three's.** `rotDeg` follows `Matrix4.makeRotationY` — positive turns +X
@@ -405,9 +409,10 @@ Three facts the substrate encodes (source-verified 2026-09-02):
 
 `ENRICHED.gizmoSize` (0.8, three's `TransformControls.size`) and the Shift-held snaps
 `gizmoSnapM` 1 / `gizmoSnapDeg` 15 / `gizmoSnapScale` 0.1 are the ONLY new taste knobs. The
-rails stay CONTRACT in `lib/globe/bldgOverrides.ts`; `clampGizmoEdit` there adds the U8
-per-edit 0.5×/3× band to every scale axis (about the value each axis STARTED the drag at — ten
-drags reach the absolute rail, one cannot).
+rails stay CONTRACT in `lib/globe/bldgOverrides.ts`; `clampGizmoEdit` there rails the drag PER
+EDIT about the committed transform (MS5b: the move offset ≤ 100 m, every scale axis 0.1×–10×
+about the value it STARTED the drag at — ten drags go ten times further than one; only the
+loose sanity rail caps the compound).
 
 Three facts the gizmo encodes (source-verified against three 0.185 `TransformControls.js`):
 - **The controls take fed pointers.** `pointerHover/Down/Move/Up({x, y, button})` are public and
@@ -455,7 +460,8 @@ Traps the slice recorded:
 
 `MODELS` is a new group (`scene/userModels.ts` + `store/userModels.ts`). The RAILS of an edit are
 CONTRACT and live in `lib/models/modelPlacement.ts` (`MODEL_SCALE_MIN/MAX` = the building scale
-rails, `MODEL_MOVE_MAX_M` 250 per drag, `MODEL_COVER_PRECISION` 5 — the `gh5` column); these are
+SANITY rail — the 0.1×–10× band is per edit about the committed scale since MS5b, compounding;
+`MODEL_MOVE_MAX_M` 250 per drag, `MODEL_COVER_PRECISION` 5 — the `gh5` column); these are
 the taste + budget knobs: the world-read cover (`fetchRadiusM` 4000 · `fetchMaxAltM` 40 000 ·
 `maxCells` 16 · `queryThrottleMs` 600 · `repollMs` 90 000 · `readLagGraceMs` 15 000), residency
 (`loadRadiusM` 3000 / `unloadRadiusM` 4000 hysteresis · `maxResident` 24 · **`triBudget`

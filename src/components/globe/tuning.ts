@@ -2253,8 +2253,9 @@ export const ENRICHED = {
   seatOffsetM: 0,
   // --- U8 per-building height override (owner 2026-08-18: double-click/tap an enriched building
   //     in FPV → drag to rescale it; original stays SOLID, a semi-transparent ghost previews the
-  //     new height; release commits + persists). The clamp BAND (0.5×/3× per edit) is contract,
-  //     not taste — it lives in lib/globe/bldgOverrides.ts; these are the feel knobs. -----------
+  //     new height; release commits + persists). The clamp BAND (0.1×/10× per edit about the
+  //     committed value since MS5b 2026-09-02l) is contract, not taste — it lives in
+  //     lib/globe/bldgOverrides.ts; these are the feel knobs. -----------------------------------
   /** Per-frame exponential ease of a committed height change (the same seatStep law the re-seat
    *  uses; 0.18 ≈ settles ~0.35 s at 60 Hz — snappier than terrain, it's a direct user action). */
   overrideEaseK: 0.18,
@@ -2305,8 +2306,9 @@ export const ENRICHED = {
    *  lib/globe/bldgOverrides.ts. */
   editUpdateRangeMaxRuns: 8,
   // --- MESH SUITE MS2 (2026-09-02): the MOVE / ROTATE / SCALE gizmo (three's TransformControls
-  //     on the ghost rig; design MESH_SUITE_PLAN.md §7). Feel knobs only — the rails (translate
-  //     radius, lift band, scale bands) are CONTRACT in lib/globe/bldgOverrides.ts. -----------
+  //     on the ghost rig; design MESH_SUITE_PLAN.md §7). Feel knobs only — the rails (the per-edit
+  //     move radius + scale band, the lift band, the sanity rail) are CONTRACT in
+  //     lib/globe/bldgOverrides.ts. ------------------------------------------------------------
   /** Gizmo screen size (TransformControls.size; 1 = library default). 0.8: the building's own
    *  footprint is the reference — the handles must not out-size a small house at street range. */
   gizmoSize: 0.8,

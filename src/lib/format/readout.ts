@@ -61,6 +61,19 @@ export function formatPitch(deg?: number): string {
 }
 
 /** `96 M` */
+/** MS5b (2026-09-02l): a length in metres at a precision that reads at any scale — 2 dp under
+ *  10 m, 1 dp under 100 m, whole metres above (the upload step's FOOTPRINT precedent). */
+export function formatMetres(v: number): string {
+  if (!Number.isFinite(v)) return EM_DASH;
+  const a = Math.abs(v);
+  return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2);
+}
+
+/** `w × d m` / `w × d × h m` from metre extents — the SCALE rows' headline (MS5b §11.1). */
+export function formatDims(dims: readonly number[]): string {
+  return `${dims.map(formatMetres).join(" × ")} m`;
+}
+
 export function formatAltitude(m?: number): string {
   return m === undefined ? EM_DASH : `${Math.round(m)} M`;
 }

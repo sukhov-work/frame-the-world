@@ -9,7 +9,7 @@
  */
 
 import { useEffect } from "react";
-import { EM_DASH, formatBytes, formatLatLon } from "../../lib/format/readout";
+import { EM_DASH, formatBytes, formatLatLon, formatMetres } from "../../lib/format/readout";
 import { MODEL_UNITS, formatTris, type ModelUnit } from "../../lib/models/modelCaps";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { useModelUploadStore, type ModelPhase } from "../../store/modelUpload";
@@ -35,7 +35,7 @@ export function modelStepIndex(phase: ModelPhase): number {
   return 0;
 }
 
-const fmtM = (v: number): string => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
+const fmtM = formatMetres; // the shared metres precision (lib/format/readout, MS5b)
 
 export default function ModelUploadStep() {
   const phase = useModelUploadStore((s) => s.phase);

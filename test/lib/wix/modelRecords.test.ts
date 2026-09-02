@@ -298,8 +298,8 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
     expect("error" in parsePlacementBody({ id: "r", lat: 1, lon: 2, rotDeg: "x" })).toBe(true);
     expect("error" in parsePlacementBody({ id: "r", lat: 1, lon: 2, scale: 0 })).toBe(true);
     expect(parsePlacementBody({ id: "r", lat: 1, lon: 2 })).toEqual({ body: { id: "r", lat: 1, lon: 2 } });
-    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, rotDeg: 370, scale: 50 })).toEqual({
-      body: { id: "r", lat: 1, lon: 2, rotDeg: 10, scale: 10 },
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, rotDeg: 370, scale: 5000 })).toEqual({
+      body: { id: "r", lat: 1, lon: 2, rotDeg: 10, scale: 1000 }, // the loose sanity rail (MS5b)
     });
   });
 

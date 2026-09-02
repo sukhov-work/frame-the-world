@@ -19,9 +19,10 @@
  * yields `{ tE, tN, tU, rotDeg, sx, sy, sz }` and `clampModelEdit` turns that into a ModelEdit:
  * the per-axis scales collapse to ONE uniform factor (the axis that moved most from the start —
  * three's scale mode writes `scaleStart × offset` on the dragged axis only, so any handle scales
- * the model uniformly), railed by the building band (`clampEditK`: 0.5×/3× per edit about the
- * start, 0.1×..10× absolute); the yaw wraps; the move is a bounded ENU offset that the COMMIT
- * folds into a new placement (`offsetGeodetic`), never a stored offset; the lift is discarded.
+ * the model uniformly), railed by the building band (`clampEditK`: 0.1×..10× PER EDIT about the
+ * committed scale, compounding, under the loose 0.001×..1000× sanity rail — MS5b 2026-09-02l); the
+ * yaw wraps; the move is a bounded ENU offset that the COMMIT folds into a new placement
+ * (`offsetGeodetic`), never a stored offset; the lift is discarded.
  *
  * STREAMING. The world read is a geohash-cover query (`planModelCover`: the p5 cells — ≈ 4.9 km
  * squares — around the camera's ground focus, none above `maxAltM` where a model is sub-pixel)
@@ -35,8 +36,9 @@ import { normalizeDeg, type FeatureTransform } from "../globe/featureTransform";
 import { decodeGeohash, geohashesForViewport } from "../geo/geohash";
 import { WGS84_A, WGS84_B } from "../geo/projection";
 
-/** Uniform-scale rails — the building rails' twins (contract: a stored value outside them is
- *  clamped onto them on read; the server clamps on PATCH). */
+/** Uniform-scale SANITY rail — the building rail's twin (contract: a stored value outside it is
+ *  clamped onto it on read; the server clamps on PATCH). The gesture rail is the per-edit band
+ *  (`clampEditK`), not this. */
 export const MODEL_SCALE_MIN = SCALE_MIN_K;
 export const MODEL_SCALE_MAX = SCALE_MAX_K;
 /** Max |(tE, tN)| of ONE move drag (m): keeps the flat-ENU offset exact to the centimetre
@@ -101,9 +103,9 @@ export function uniformScaleFrom(sx: number, sy: number, sz: number, start: numb
 }
 
 /** Clamp a gizmo read-back (a FeatureTransform from `rigToTransform` on the model's rig) onto the
- *  model rails: ONE uniform scale inside the per-edit band about `start.scale` and the absolute
- *  rails, the yaw wrapped, the move shortened to `MODEL_MOVE_MAX_M` (direction kept), the lift
- *  dropped. Pure; never throws. */
+ *  model rails: ONE uniform scale inside the per-edit band about `start.scale` (the committed
+ *  scale — edits compound under the sanity rail only), the yaw wrapped, the move shortened to
+ *  `MODEL_MOVE_MAX_M` (direction kept), the lift dropped. Pure; never throws. */
 export function clampModelEdit(raw: FeatureTransform, start: ModelTransform): ModelEdit {
   const uniform = uniformScaleFrom(raw.sx, raw.sy, raw.sz, start.scale);
   let tE = fin(raw.tE, 0);

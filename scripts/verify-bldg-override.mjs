@@ -75,6 +75,19 @@ const fail = (msg) => {
 
 const ARMED = "window.__bldgEditStore ? window.__bldgEditStore.getState().armed : null";
 const SEATS = "window.__globe && window.__globe.enrichedSeats ? window.__globe.enrichedSeats() : null";
+/** MS5b 2026-09-02l: the collection is the PRODUCTION world — other members' synced rows apply at
+ *  boot (5 seen), so `overridden` is asserted RELATIVE to what boot found, after the world fetch. */
+const worldBaseline = async (label) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < 30_000) {
+    const w = await evalJs("window.__bldgSyncStore ? window.__bldgSyncStore.getState().world : null").catch(() => null);
+    if (w === "ready" || w === "error") break;
+    await sleep(250);
+  }
+  const seats = await evalJs(SEATS);
+  console.log(`${label}: world as found — overridden ${seats.overridden} (the relative baseline)`);
+  return seats.overridden;
+};
 const ROWS =
   "(() => { try { const m = JSON.parse(localStorage.getItem('ftw:bldg-overrides:v1') ?? '{}');" +
   " return Object.entries(m).map(([k, r]) => ({ k, scale: r.sy ?? r.k })); } catch { return null; } })()"; // MS1: v2 rows say `sy` (legacy `k` still read)
@@ -135,6 +148,7 @@ await send("Page.navigate", { url: "about:blank" });
 await sleep(300);
 await send("Page.navigate", { url: FPV_URL });
 await waitBoot("desktop", true);
+const W0 = await worldBaseline("desktop");
 // Welcome overlay eats pointer events + shot #1 — a canvas pointerdown dismisses (no-op if gone).
 await evalJs("document.querySelector('canvas')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })), true");
 await sleep(4000); // let nearest-cell seats settle so the pick's committedK/heights are real
@@ -187,11 +201,11 @@ const afterCommit = await evalJs(ARMED);
 if (afterCommit?.dragging) fail("release did not end the drag");
 if (!afterCommit?.overridden) fail("release did not mark the building overridden");
 let seats = await evalJs(SEATS);
-if (!(seats.overridden >= 1)) fail(`commit did not reach the mesh (overridden=${seats.overridden})`);
+if (!(seats.overridden >= W0 + 1)) fail(`commit did not reach the mesh (overridden=${seats.overridden}, world ${W0})`);
 let rows = await evalJs(ROWS);
 if (!rows || rows.length !== 1) fail(`expected exactly 1 stored row, got ${JSON.stringify(rows)}`);
 if (!rows[0].k.startsWith("dnipro-o2w|cell-")) fail(`row key shape wrong: ${rows[0].k}`);
-if (!(rows[0].scale > 1.2 && rows[0].scale <= 3.001)) fail(`stored scale ${rows[0].scale} outside the expected (1.2, 3] band`);
+if (!(rows[0].scale > 1.2 && rows[0].scale <= 10.001)) fail(`stored scale ${rows[0].scale} outside the expected (1.2, 10] per-edit band (MS5b: 0.1×–10× per edit)`);
 console.log(`committed: row ${rows[0].k} scale ${rows[0].scale.toFixed(2)} · mesh overridden ${seats.overridden}`);
 const committedScale = rows[0].scale;
 await shoot("u8-03-committed.jpeg");
@@ -204,7 +218,7 @@ await sleep(1500);
 rows = await evalJs(ROWS);
 seats = await evalJs(SEATS);
 if (rows.length !== 0) fail(`RESET left rows behind: ${JSON.stringify(rows)}`);
-if (seats.overridden !== 0) fail(`RESET did not restore the mesh (overridden=${seats.overridden})`);
+if (seats.overridden !== W0) fail(`RESET did not restore the mesh (overridden=${seats.overridden}, world ${W0})`);
 console.log("RESET: row deleted · mesh back to baked height");
 
 // --- re-establish an override for the reload test (same armed building, fresh drag) ----------
@@ -235,10 +249,10 @@ const t3 = Date.now();
 let reSeats = null;
 while (Date.now() - t3 < 45_000) {
   reSeats = await evalJs(SEATS).catch(() => null);
-  if (reSeats && reSeats.overridden >= 1) break;
+  if (reSeats && reSeats.overridden >= W0 + 1) break;
   await sleep(1000);
 }
-if (!(reSeats && reSeats.overridden >= 1)) fail("reload: persisted override never re-applied");
+if (!(reSeats && reSeats.overridden >= W0 + 1)) fail(`reload: persisted override never re-applied (${JSON.stringify(reSeats)}, world ${W0})`);
 console.log(`reload: override re-applied (overridden=${reSeats.overridden})`);
 await sleep(2500);
 await shoot("u8-04-reload-reapplied.jpeg");
@@ -250,6 +264,7 @@ await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, devi
 await send("Emulation.setTouchEmulationEnabled", { enabled: true });
 await send("Page.navigate", { url: M_FPV_URL });
 await waitBoot("/m", true);
+const W0m = await worldBaseline("/m");
 await sleep(4000);
 const touch = (type, points) => send("Input.dispatchTouchEvent", { type, touchPoints: points });
 const tapAt = async (x, y) => {
@@ -293,8 +308,12 @@ const mRows = await evalJs(ROWS);
 const mSeats = await evalJs(SEATS);
 if (!(mRows.length > rowsBefore || mRows.some((r) => Math.abs(r.scale - 1) > 0.01)))
   fail(`/m commit did not store (rows ${JSON.stringify(mRows)})`);
-if (!(mSeats.overridden >= 1)) fail("/m commit did not reach the mesh");
-console.log(`/m committed: ${mRows.length} row(s) · mesh overridden ${mSeats.overridden}`);
+// The fixture building already carries the desktop legs' persisted row (re-applied at the /m boot), so
+// the COUNT cannot grow — assert the building's own engine target instead (MS5b: relative counts).
+const mState = await evalJs(`window.__globe.enrichedState(${JSON.stringify(mMid.cellUri)}, ${mMid.featureId})`);
+if (!mState || !(mState.target.sy > 1.01)) fail(`/m commit did not reach the mesh (target ${JSON.stringify(mState?.target)})`);
+if (!(mSeats.overridden >= W0m)) fail(`/m: overridden fell below the world baseline (${mSeats.overridden}, world ${W0m})`);
+console.log(`/m committed: ${mRows.length} row(s) · target sy ${mState.target.sy.toFixed(3)} · mesh overridden ${mSeats.overridden} (world ${W0m})`);
 
 console.log(
   `PASS: arm(dblclick+double-tap) · claimed drag (ghost, yaw pinned) · commit (mesh+storage, scale ${committedScale.toFixed(2)}) · RESET · Esc-in-FPV · reload re-apply · /m twin`,

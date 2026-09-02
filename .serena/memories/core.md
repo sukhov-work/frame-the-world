@@ -178,7 +178,23 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02i: MESH SUITE MS5 BUILT — D3 PLACEMENT: user models stand in the WORLD.** The public
+**2026-09-02l: MESH SUITE MS5b BUILT — the owner's four fixes/tunings after testing MS5.** Metres on
+both SCALE rows (`footprintM` / `sizeM3`, one `formatDims`); the rails are PER EDIT about the committed
+transform (`EDIT_MOVE_MAX_M` 100, `EDIT_MIN_K..MAX_K` 0.1–10 on every scale axis incl. extrude and the
+model's uniform scale, compounding, no absolute cap) under a loose SANITY rail (5 km · 0.001–1000× ·
+lift 25 absolute) on read / SYNC / commit / PATCH; the right-release context-menu bug (no `e.button`
+guard — CONFIRMED: macOS fires `contextmenu` on the press) fixed with a right-button guard + a
+menu-opening-consumes-the-press rule; the orbit-drag-after-edit bug (the detached gizmo's 100 km drag
+plane parked in the scene caught GlobeControls' pivot raycast — CONFIRMED against three 0.185 /
+3d-tiles-renderer 0.4.28) fixed by keeping the helper in the scene only while attached. Harnesses:
+real right-click legs, orbit-drag A/B legs with a positive control, world counters RELATIVE to boot
+(the production world carried 5 members' rows). `verify-meshedit` 22 legs PASS · `verify-usermodels`
+11/11 · vitest 2,411 · astro 0/0/9. **NEXT: MS6** (design-first: the my-uploads list, hide/delete/title,
+every member editing user meshes, a lift seat if wanted, orbit hover/pick) then **T77** (the
+architecture + performance audit). `mem:project/wip-2026-09-02-mesh-suite-ms5b` · plan §11.5 ·
+DECISIONS 2026-09-02l. Open with the owner: lift 0–25 absolute? · extrude in the per-edit rule? ·
+the sanity numbers · a right-click is no longer a click in orbit · the tile-volume pop accepted.
+Prior: **2026-09-02i: MESH SUITE MS5 BUILT — D3 PLACEMENT: user models stand in the WORLD.** The public
 cover read `GET /api/world-models?cells=` (`hasSome` on a NEW denormalized `gh5` column —
 equality-on-a-set, the pins' precedent; `UserModels` = 25 fields, provisioned live; READY +
 un-hidden, `ownerMemberId`/file ids stripped) + the owner `PATCH /api/models` (placement + the two

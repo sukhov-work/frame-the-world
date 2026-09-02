@@ -53,12 +53,13 @@ describe("overrideId — the deterministic LWW upsert key (dual: OSM id, else th
 describe("parseSyncEntry", () => {
   it("accepts a valid entry and clamps heightScale to the shared band (never rejects drift)", () => {
     expect(parseSyncEntry(entry())).toMatchObject({ heightScale: 2, osmId: "w141472295" });
-    expect(parseSyncEntry(entry({ heightScale: 99 }))?.heightScale).toBe(SCALE_MAX_K);
-    expect(parseSyncEntry(entry({ heightScale: 0.001 }))?.heightScale).toBe(SCALE_MIN_K);
+    expect(parseSyncEntry(entry({ heightScale: 99 }))?.heightScale).toBe(99); // inside the loose sanity rail (MS5b)
+    expect(parseSyncEntry(entry({ heightScale: 5000 }))?.heightScale).toBe(SCALE_MAX_K);
+    expect(parseSyncEntry(entry({ heightScale: 0.0001 }))?.heightScale).toBe(SCALE_MIN_K);
   });
 
   it("MS3: clamps the spatial components onto the rails and OMITS identity ones", () => {
-    const e = parseSyncEntry(entry({ tE: 300, tN: 400, tU: 99, sx: 50, sz: 0.5, rotDeg: 370 }))!;
+    const e = parseSyncEntry(entry({ tE: 30_000, tN: 40_000, tU: 99, sx: 5000, sz: 0.5, rotDeg: 370 }))!;
     expect(Math.hypot(e.tE!, e.tN!)).toBeCloseTo(TRANSLATE_MAX_M, 6);
     expect(e.tE! / e.tN!).toBeCloseTo(0.75, 9); // direction kept
     expect(e.tU).toBe(LIFT_MAX_M);

@@ -4,6 +4,7 @@ import {
   CENTROID_TOL_M,
   EDIT_MAX_K,
   EDIT_MIN_K,
+  EDIT_MOVE_MAX_M,
   OVERRIDES_CAP,
   SCALE_MAX_K,
   SCALE_MIN_K,
@@ -131,7 +132,7 @@ describe("bldgOverrides — v2 rows (MESH SUITE MS1, 2026-09-02)", () => {
   it("keeps spatial components inside their rails; a junk component drops the WHOLE row", () => {
     const key = overrideKey("v", "c", 1);
     const base = row({ sy: 1 });
-    const ok = { ...base, rotDeg: 370, tE: 30, tN: -40, tU: 2, sx: 1.5 }; // |t| = 50 ≤ 60
+    const ok = { ...base, rotDeg: 370, tE: 30, tN: -40, tU: 2, sx: 1.5 }; // |t| = 50 ≤ TRANSLATE_MAX_M
     expect(sanitizeOverrides({ [key]: ok })[key]).toEqual({
       ...base,
       rotDeg: 10,
@@ -141,7 +142,7 @@ describe("bldgOverrides — v2 rows (MESH SUITE MS1, 2026-09-02)", () => {
       sx: 1.5,
     });
     const bad: Array<Record<string, unknown>> = [
-      { ...base, tE: 50, tN: 50 }, // 70.7 m > TRANSLATE_MAX_M
+      { ...base, tE: 4000, tN: 4000 }, // 5657 m > TRANSLATE_MAX_M (the loose sanity rail, MS5b)
       { ...base, tE: TRANSLATE_MAX_M + 0.01, tN: 0 },
       { ...base, tU: -1 },
       { ...base, tU: LIFT_MAX_M + 1 },
@@ -234,16 +235,20 @@ describe("bldgOverrides — checksum", () => {
   });
 });
 
-describe("bldgOverrides — clamp + drag mapping (owner band 2026-08-18)", () => {
-  it("one edit is bounded to [0.5×, 3×] of the height it STARTED at", () => {
-    expect(clampEditK(1, 10)).toBe(EDIT_MAX_K);
+describe("bldgOverrides — clamp + drag mapping (per-edit band: owner 2026-09-02j, the extrude editing model)", () => {
+  it("one edit is bounded to [0.1×, 10×] of the value it STARTED at — the committed one", () => {
+    expect(EDIT_MIN_K).toBe(0.1);
+    expect(EDIT_MAX_K).toBe(10);
+    expect(clampEditK(1, 100)).toBe(EDIT_MAX_K);
     expect(clampEditK(1, 0.01)).toBe(EDIT_MIN_K);
     expect(clampEditK(1, 2.2)).toBe(2.2);
-    // Compounding: a second edit re-anchors at the current scale…
+    // Compounding: a second edit re-anchors at the current scale, with NO absolute cap…
     expect(clampEditK(3, 100)).toBe(3 * EDIT_MAX_K);
-    // …but never escapes the absolute rail.
-    expect(clampEditK(9, 100)).toBe(SCALE_MAX_K);
-    expect(clampEditK(0.15, 0.001)).toBe(SCALE_MIN_K);
+    expect(clampEditK(9, 100)).toBe(90);
+    expect(clampEditK(0.15, 0.001)).toBeCloseTo(0.015, 12);
+    // …short of the loose sanity rail (garbage, not taste).
+    expect(clampEditK(500, 1e6)).toBe(SCALE_MAX_K);
+    expect(clampEditK(0.005, 1e-9)).toBe(SCALE_MIN_K);
   });
 
   it("dragScaleK: up grows, down shrinks, distance scales the gain, clamp applies", () => {
@@ -251,14 +256,16 @@ describe("bldgOverrides — clamp + drag mapping (owner band 2026-08-18)", () =>
     const hM = 20;
     // 100 px up at 100 m: ΔM = 100·0.002·100 = 20 m → k = 1 + 20/20 = 2.
     expect(dragScaleK(1, 100, 100, hM, cfg)).toBeCloseTo(2);
-    expect(dragScaleK(1, -50, 100, hM, cfg)).toBeCloseTo(0.5); // exactly the edit floor
+    expect(dragScaleK(1, -50, 100, hM, cfg)).toBeCloseTo(0.5); // −10 m on 20 m (unclamped)
     // Same px at 10× the distance moves 10× the metres (before clamping).
     expect(dragScaleK(1, 10, 500, hM, cfg)).toBeCloseTo(1.5);
     // Distance is clamped into [minDistM, maxDistM].
     expect(dragScaleK(1, 10, 1, hM, cfg)).toBeCloseTo(1 + (10 * 0.002 * 8) / hM);
     expect(dragScaleK(1, 10, 9999, hM, cfg)).toBeCloseTo(1.5);
-    // A huge drag hits the per-edit ceiling.
+    // A huge drag hits the per-edit ceiling (ten times the start), a huge downward one the floor.
     expect(dragScaleK(1, 10_000, 100, hM, cfg)).toBe(EDIT_MAX_K);
+    expect(dragScaleK(1, -10_000, 100, hM, cfg)).toBe(EDIT_MIN_K);
+    expect(dragScaleK(4, 10_000, 100, hM, cfg)).toBe(40);
   });
 });
 
@@ -282,7 +289,7 @@ describe("bldgOverrides — sync prep (next-phase batch DB sync)", () => {
 // ── MESH SUITE MS2 — the gizmo's live clamp ─────────────────────────────────────────────────
 import { clampGizmoEdit } from "../../../src/lib/globe/bldgOverrides";
 
-describe("clampGizmoEdit (rails + the per-edit band on every scale axis)", () => {
+describe("clampGizmoEdit (per-edit rails about the COMMITTED transform — MS5b 2026-09-02l)", () => {
   const start = { ...IDENTITY_TRANSFORM };
 
   it("inside the rails and the band it is the identity map", () => {
@@ -290,25 +297,42 @@ describe("clampGizmoEdit (rails + the per-edit band on every scale axis)", () =>
     expect(clampGizmoEdit(t, start)).toEqual(t);
   });
 
-  it("applies the 0.5×/3× per-edit band about the START value on X, Z and Y", () => {
-    const t = { sx: 9, sz: 0.05, sy: 3.4, rotDeg: 0, tE: 0, tN: 0, tU: 0 };
+  it("applies the 0.1×/10× per-edit band about the START value on X, Z and Y; edits compound with no absolute cap", () => {
+    const t = { sx: 40, sz: 0.05, sy: 12, rotDeg: 0, tE: 0, tN: 0, tU: 0 };
     const c = clampGizmoEdit(t, start);
-    expect(c.sx).toBe(EDIT_MAX_K); // 3 = start 1 × 3
-    expect(c.sz).toBe(EDIT_MIN_K); // 0.5
+    expect(c.sx).toBe(EDIT_MAX_K); // 10 = start 1 × 10
+    expect(c.sz).toBe(EDIT_MIN_K); // 0.1
     expect(c.sy).toBe(EDIT_MAX_K);
-    // A second drag re-anchors on the committed value — ten drags reach the absolute rail.
+    // A second drag re-anchors on the committed value — the old absolute 10× cap is gone.
     const c2 = clampGizmoEdit({ ...t, sx: 9 }, { ...start, sx: 3 });
     expect(c2.sx).toBe(9);
-    const c3 = clampGizmoEdit({ ...t, sx: 40 }, { ...start, sx: 5 });
-    expect(c3.sx).toBe(SCALE_MAX_K); // the absolute rail wins over 5 × 3
+    const c3 = clampGizmoEdit({ ...t, sx: 60 }, { ...start, sx: 5 });
+    expect(c3.sx).toBe(50); // 5 × 10, past the old absolute rail
+    // Only the loose sanity rail ever caps the compound.
+    const c4 = clampGizmoEdit({ ...t, sx: 5000 }, { ...start, sx: 500 });
+    expect(c4.sx).toBe(SCALE_MAX_K);
   });
 
-  it("shortens an over-long translation keeping its direction, caps the lift, wraps the yaw", () => {
+  it("the MOVE rail is per edit: the OFFSET from the committed position is shortened to EDIT_MOVE_MAX_M, direction kept", () => {
+    expect(EDIT_MOVE_MAX_M).toBe(100);
     const c = clampGizmoEdit({ sx: 1, sz: 1, sy: 1, rotDeg: 370, tE: 300, tN: 400, tU: 99 }, start);
-    expect(Math.hypot(c.tE, c.tN)).toBeCloseTo(TRANSLATE_MAX_M, 9);
+    expect(Math.hypot(c.tE, c.tN)).toBeCloseTo(EDIT_MOVE_MAX_M, 9);
     expect(c.tE / c.tN).toBeCloseTo(0.75, 12);
-    expect(c.tU).toBe(LIFT_MAX_M);
+    expect(c.tU).toBe(LIFT_MAX_M); // the lift stays absolute
     expect(c.rotDeg).toBeCloseTo(10, 9);
+    // Re-anchored: a building standing 90 m east (past the old 60 m absolute rail) goes on to 190 m.
+    const far = { ...start, tE: 90, tN: 0 };
+    const c2 = clampGizmoEdit({ ...far, tE: 300 }, far);
+    expect(c2.tE).toBeCloseTo(190, 9);
+    expect(c2.tN).toBe(0);
+    // Inside the per-edit radius nothing is touched, wherever the building stands.
+    const c3 = clampGizmoEdit({ ...far, tE: 150, tN: -30 }, far);
+    expect(c3.tE).toBe(150);
+    expect(c3.tN).toBe(-30);
+    // The loose sanity rail on the ABSOLUTE offset still holds (5 km).
+    const edge = { ...start, tE: 4990, tN: 0 };
+    const c4 = clampGizmoEdit({ ...edge, tE: 5050 }, edge);
+    expect(c4.tE).toBeCloseTo(TRANSLATE_MAX_M, 9);
   });
 
   it("a mirrored (negative) scale from a handle crossing the origin lands on the band floor", () => {
@@ -317,9 +341,12 @@ describe("clampGizmoEdit (rails + the per-edit band on every scale axis)", () =>
     expect(c.sy).toBe(EDIT_MIN_K);
   });
 
-  it("non-finite input degrades to identity per component, never NaN", () => {
+  it("non-finite input degrades to the START per component (identity from identity), never NaN", () => {
     const c = clampGizmoEdit({ sx: NaN, sz: 1, sy: NaN, rotDeg: NaN, tE: NaN, tN: 0, tU: NaN }, start);
     expect(c).toEqual({ ...IDENTITY_TRANSFORM });
+    const s2 = { ...start, sx: 3, sy: 2, tE: 40, tN: -10 };
+    const c2 = clampGizmoEdit({ sx: NaN, sz: 1, sy: NaN, rotDeg: 0, tE: NaN, tN: NaN, tU: 0 }, s2);
+    expect(c2).toEqual({ ...s2, sz: 1, rotDeg: 0, tU: 0 });
   });
 });
 

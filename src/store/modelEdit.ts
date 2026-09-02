@@ -33,8 +33,11 @@ export interface ModelEditArmed {
   /** The COMMITTED placement (the record's). */
   lat: number;
   lon: number;
-  /** Footprint size (m, the record's bbox X/Z max) — the menu head; null when unknown. */
+  /** Footprint size (m, the record's bbox X/Z max) — kept for the harness; null when unknown. */
   sizeM: number | null;
+  /** MS5b: the upload's size `[w, d, h]` (m: X, Z, Y of the bounds at scale 1) — the SCALE row,
+   *  the menu head and the label print it × the scale; null when unknown. */
+  sizeM3: [number, number, number] | null;
   /** A gizmo drag is in progress. */
   dragging: boolean;
   /** The committed seats differ from the upload — RESET ALL is meaningful. */
