@@ -45,8 +45,11 @@ import { FTW_AERIAL_GLSL } from "./glsl";
  *
  * SEATING. The rendered terrain at the placement (`terrainHeightAt`, clamped by `sampleGroundM`),
  * eased with `seatStep` (a LOD refine slides, never teleports); models whose seat is not yet
- * REAL re-ask at `resnap()` cadence — the Pins idiom. A model never sinks below or floats above
- * the ground by an edit: there is no lift seat (MESH_SUITE_PLAN §10).
+ * REAL re-ask at `resnap()` cadence — the Pins idiom. MESH SUITE MS7 (owner 2026-09-03): the
+ * third seat is the LIFT — the anchor's own Y in metres above that terrain seat (0 = on the
+ * ground; the row's `tU`), railed by `sanitizeModelTransform` against the model's scaled height
+ * (the loaded bounds once resident, the record's bbox before) so a sunk model always keeps part
+ * of itself above the ground. It rides the seat ease like the ground does.
  *
  * MATERIALS. A GLB keeps its own PBR materials (the scene's lights, shadows and tone mapping
  * apply). MESH SUITE MS6 (2026-09-02m, `MODELS.chainShader`): every material's `onBeforeCompile`
@@ -114,14 +117,15 @@ export interface UserModelsHandle {
   pick(raycaster: THREE.Raycaster): UserModelPick | null;
   /** The gizmo's rig for a RESIDENT model (null otherwise). */
   rig(id: string): GhostRig | null;
-  /** The gizmo's `place` callback: write a live transform onto the rig (uniform scale, no lift). */
+  /** The gizmo's `place` callback: write a live transform onto the rig (uniform scale; `tU` is
+   *  the live lift — MS7). */
   placeRig(id: string, t: FeatureTransform): void;
   /** A drag is in flight on this model's rig — the per-frame writes leave it alone. */
   setDragging(id: string, on: boolean): void;
   /** The COMMITTED seats (eased in; `snap` lands them at once — a drag release). */
   setSeats(id: string, t: ModelTransform, snap?: boolean): void;
-  /** The COMMITTED placement moved: the frame re-seats at the new point, the anchor returns
-   *  to zero (the offset is now in the placement). */
+  /** The COMMITTED placement moved: the frame re-seats at the new point, the anchor's east/north
+   *  return to zero (the offset is now in the placement); its Y stays the applied lift. */
   rebase(id: string, latDeg: number, lonDeg: number): void;
   /** Emissive highlight on the armed model (null = none). */
   setArmed(id: string | null): void;
@@ -324,13 +328,24 @@ export function attachUserModels(
     e.body.updateMatrixWorld(true);
   };
 
+  /** MS7: the anchor at rest — east/north zero, Y = the applied lift (a drag writes it live). */
+  const writeAnchor = (e: Entry) => {
+    e.anchor.position.set(0, e.applied.liftM, 0);
+    e.anchor.updateMatrixWorld(true);
+  };
+
+  /** The model's height at scale 1 as best known — the loaded bounds once resident, the record's
+   *  bbox before, null when neither (the lift floor pins then). */
+  const heightFor = (e: Entry): number | null =>
+    e.state === "ready" && e.heightM > 0 ? e.heightM : e.sizeM3 ? e.sizeM3[2] : null;
+
   const makeEntry = (row: PublicModel): Entry => {
     const frame = new THREE.Group();
     const anchor = new THREE.Group();
     const body = new THREE.Group();
     frame.add(anchor);
     anchor.add(body);
-    const seats = sanitizeModelTransform(row.rotDeg, row.scale);
+    const seats = sanitizeModelTransform(row.rotDeg, row.scale, row.tU, row.bbox ? row.bbox[1] : null);
     const e: Entry = {
       row,
       frame,
@@ -357,6 +372,7 @@ export function attachUserModels(
     e.appliedM = s.h;
     placeFrame(e);
     writeBody(e);
+    writeAnchor(e);
     return e;
   };
 
@@ -415,6 +431,13 @@ export function attachUserModels(
     e.body.add(root);
     group.add(e.frame);
     e.state = "ready";
+    // MS7: the lift floor is re-taken at the REAL height (the bbox was the client's estimate).
+    const seats = sanitizeModelTransform(e.target.rotDeg, e.target.scale, e.target.liftM, e.heightM);
+    if (seats.liftM !== e.target.liftM) {
+      e.target = seats;
+      e.applied = { ...e.applied, liftM: seats.liftM };
+    }
+    if (!e.dragging) writeAnchor(e);
     resident.add(e.row.id);
     residentTris += e.row.tris;
     e.frame.updateMatrixWorld(true);
@@ -514,8 +537,8 @@ export function attachUserModels(
         }
         if (e.row === row) continue;
         const moved = e.row.lat !== row.lat || e.row.lon !== row.lon;
-        const seats = sanitizeModelTransform(row.rotDeg, row.scale);
-        const reseated = seats.rotDeg !== e.target.rotDeg || seats.scale !== e.target.scale;
+        const seats = sanitizeModelTransform(row.rotDeg, row.scale, row.tU, heightFor(e));
+        const reseated = seats.rotDeg !== e.target.rotDeg || seats.scale !== e.target.scale || seats.liftM !== e.target.liftM;
         const urlChanged = e.row.url !== row.url;
         e.row = row;
         if (urlChanged) {
@@ -555,12 +578,15 @@ export function attachUserModels(
         if (e.dragging) continue; // the gizmo owns the rig until release
         const a = e.applied;
         const t = e.target;
-        if (a.rotDeg !== t.rotDeg || a.scale !== t.scale) {
+        if (a.rotDeg !== t.rotDeg || a.scale !== t.scale || a.liftM !== t.liftM) {
           const rot = easeDeg(a.rotDeg, t.rotDeg, MODELS.xfEaseK);
           let sc = a.scale + (t.scale - a.scale) * MODELS.xfEaseK;
           if (Math.abs(t.scale - sc) < 0.002) sc = t.scale;
-          e.applied = { rotDeg: rot, scale: sc };
+          let lf = a.liftM + (t.liftM - a.liftM) * MODELS.xfEaseK;
+          if (Math.abs(t.liftM - lf) < 0.005) lf = t.liftM;
+          e.applied = { rotDeg: rot, scale: sc, liftM: lf };
           writeBody(e);
+          writeAnchor(e);
         }
       }
     },
@@ -592,7 +618,7 @@ export function attachUserModels(
       const e = entries.get(id);
       if (!e || e.state !== "ready") return;
       const r = transformToRig(t, MODEL_RIG_FRAME);
-      e.anchor.position.set(r.ax, 0, r.az); // no lift seat: ay is always the seated base
+      e.anchor.position.set(r.ax, r.ay, r.az); // MS7: ay = the live lift (liveBaseY is 0)
       e.body.quaternion.set(0, r.qy, 0, r.qw);
       e.body.scale.set(r.sx, r.sy, r.sz);
       e.anchor.updateMatrixWorld(true);
@@ -603,25 +629,26 @@ export function attachUserModels(
       e.dragging = on;
       if (!on) {
         // The rig falls back onto the committed seats (a cancelled drag re-places from them).
-        e.anchor.position.set(0, 0, 0);
         writeBody(e);
+        writeAnchor(e);
       }
     },
     setSeats(id, t, snap = false) {
       const e = entries.get(id);
       if (!e) return;
-      const seats = sanitizeModelTransform(t.rotDeg, t.scale);
+      const seats = sanitizeModelTransform(t.rotDeg, t.scale, t.liftM, heightFor(e));
       e.target = seats;
       if (snap || e.state !== "ready") {
         e.applied = { ...seats };
         writeBody(e);
+        writeAnchor(e);
       }
     },
     rebase(id, latDeg, lonDeg) {
       const e = entries.get(id);
       if (!e) return;
       if (e.row.lat !== latDeg || e.row.lon !== lonDeg) e.row = { ...e.row, lat: latDeg, lon: lonDeg };
-      e.anchor.position.set(0, 0, 0);
+      writeAnchor(e); // east/north back to zero; the Y keeps the applied lift
       const s = seatFor(e.row);
       e.seatM = s.h;
       e.seatReal = s.real;

@@ -311,6 +311,10 @@
   cursor: pointer;
   transition: color 0.2s ease, border-color 0.2s ease;
 }
+/* MESH SUITE MS7: a MODELS row carries five actions (✎ GOTO RESET HIDE ✕) — tighter pads. */
+.mp-list[data-tab="models"] .mp-act {
+  padding: 0 6px;
+}
 .mp-act:hover:not(:disabled) {
   color: var(--color-text);
   border-color: var(--color-accent);

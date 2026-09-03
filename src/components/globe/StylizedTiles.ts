@@ -42,9 +42,11 @@ import { restingEdit, revertModelOp, useModelEditStore, type ModelEditOp } from 
 import { useUserModelsStore } from "../../store/userModels";
 import {
   IDENTITY_MODEL_TRANSFORM,
+  MODEL_LIFT_MAX_M,
   clampModelEdit,
   editToFeatureTransform,
   isIdentityModelTransform,
+  liftFloorM,
   modelStandpoint,
   offsetGeodetic,
   type ModelEdit,
@@ -1964,7 +1966,10 @@ export function attachStylizedTiles(opts: {
   // --- MESH SUITE MS5: the armed USER MODEL session — the building session's twin, kept
   //     separate so the U8/MS2/MS3 code above stays byte-identical. The model's own
   //     anchor/body ARE the gizmo rig (no ghost, no recompose); a release folds the drag's ENU
-  //     offset into a new placement and PATCHes the record (own models only at MS5).
+  //     offset into a new placement and PATCHes the record (own models only at MS5; any member
+  //     since MS6). MESH SUITE MS7 (owner 2026-09-03): the Y arrow is the LIFT — the anchor's
+  //     own Y, stored as the row's `tU`, railed against the model's scaled height so a sunk
+  //     model always keeps part of itself above the ground (`liftFloorM`).
   let modelArmed: { id: string; title: string; mine: boolean } | null = null;
   let modelOp: ModelEditOp = "move";
   let modelLive: ModelEdit | null = null; // the gizmo's clamped read-back mid-drag (else null)
@@ -1978,20 +1983,31 @@ export function attachStylizedTiles(opts: {
   const _modelTop = new THREE.Vector3();
   const modelCommitted = (): ModelTransform =>
     (modelArmed && userModels.info(modelArmed.id)?.seats) || { ...IDENTITY_MODEL_TRANSFORM };
+  /** MS7: the armed model's height at scale 1 (the loaded bounds once resident) — the lift
+   *  floor's input; null pins the lift. */
+  const modelHeightM = (): number | null => (modelArmed ? userModels.info(modelArmed.id)?.sizeM3?.[2] ?? null : null);
   const modelGizmo = attachBldgGizmo(scene, camera, {
     place: (t) => {
       if (modelArmed) userModels.placeRig(modelArmed.id, t);
     },
     onChange: (t) => {
-      if (modelArmed) modelLive = clampModelEdit(t, modelCommitted());
+      if (modelArmed) modelLive = clampModelEdit(t, modelCommitted(), modelHeightM());
     },
-    // The model rails: ONE uniform scale (any handle), no lift, a wider move.
-    clamp: (raw, start) => editToFeatureTransform(clampModelEdit(raw, { rotDeg: start.rotDeg, scale: start.sx })),
-    lift: false,
+    // The model rails: ONE uniform scale (any handle), a wider move, and (MS7) the lift on its
+    // height-aware floor under the absolute ceiling — `start` is the committed transform the
+    // drag began on (`sx` = the uniform scale, `tU` = the committed lift).
+    clamp: (raw, start) =>
+      editToFeatureTransform(clampModelEdit(raw, { rotDeg: start.rotDeg, scale: start.sx, liftM: start.tU }, modelHeightM())),
+    lift: true,
+    liftRail: (start) => {
+      const h = modelHeightM();
+      return { minM: liftFloorM(h !== null ? h * start.sx : null), maxM: MODEL_LIFT_MAX_M };
+    },
   });
   const modelLiveDiffers = (a: ModelEdit, b: ModelEdit) =>
     Math.abs(a.tE - b.tE) >= 0.01 ||
     Math.abs(a.tN - b.tN) >= 0.01 ||
+    Math.abs(a.liftM - b.liftM) >= 0.01 ||
     Math.abs(a.rotDeg - b.rotDeg) >= 0.05 ||
     Math.abs(a.scale - b.scale) >= 0.005;
   const syncModelEdit = () => {
@@ -2073,7 +2089,7 @@ export function attachStylizedTiles(opts: {
   const standBesideModel = (id: string): boolean => {
     const info = userModels.info(id);
     if (!info) return false;
-    const pose = modelStandpoint(info.lat, info.lon, info.sizeM3, info.seats.scale, useCameraStore.getState().headingDeg);
+    const pose = modelStandpoint(info.lat, info.lon, info.sizeM3, info.seats.scale, useCameraStore.getState().headingDeg, info.seats.liftM);
     useCameraStore.getState().requestFpvJump({
       latDeg: pose.latDeg,
       lonDeg: pose.lonDeg,
@@ -2090,7 +2106,7 @@ export function attachStylizedTiles(opts: {
     modelGizmo.setTarget(userModels.rig(modelArmed.id), op);
     syncModelEdit();
   };
-  const persistModel = async (id: string, patch: { lat: number; lon: number; rotDeg: number; scale: number }) => {
+  const persistModel = async (id: string, patch: { lat: number; lon: number; rotDeg: number; scale: number; tU: number }) => {
     modelSaving = true;
     modelSaveError = null;
     syncModelEdit();
@@ -2105,13 +2121,13 @@ export function attachStylizedTiles(opts: {
     const a = modelArmed;
     userModels.setDragging(a.id, false);
     if (t && commit) {
-      const e = clampModelEdit(t, modelCommitted());
+      const e = clampModelEdit(t, modelCommitted(), modelHeightM());
       const info = userModels.info(a.id);
       if (info) {
         const at = offsetGeodetic(info.lat, info.lon, e.tE, e.tN);
         userModels.rebase(a.id, at.latDeg, at.lonDeg);
-        userModels.setSeats(a.id, { rotDeg: e.rotDeg, scale: e.scale }, true);
-        void persistModel(a.id, { lat: at.latDeg, lon: at.lonDeg, rotDeg: e.rotDeg, scale: e.scale });
+        userModels.setSeats(a.id, { rotDeg: e.rotDeg, scale: e.scale, liftM: e.liftM }, true);
+        void persistModel(a.id, { lat: at.latDeg, lon: at.lonDeg, rotDeg: e.rotDeg, scale: e.scale, tU: e.liftM });
       }
     }
     modelLive = null;
@@ -2123,7 +2139,7 @@ export function attachStylizedTiles(opts: {
     const next = revertModelOp(modelCommitted(), which);
     userModels.setSeats(a.id, next, false);
     const info = userModels.info(a.id);
-    if (info) void persistModel(a.id, { lat: info.lat, lon: info.lon, rotDeg: next.rotDeg, scale: next.scale });
+    if (info) void persistModel(a.id, { lat: info.lat, lon: info.lon, rotDeg: next.rotDeg, scale: next.scale, tU: next.liftM });
     syncModelEdit();
   };
   const openModelMenu = (clientX: number, clientY: number) =>
@@ -2133,7 +2149,7 @@ export function attachStylizedTiles(opts: {
     const sg = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`;
     switch (modelOp) {
       case "move":
-        return `↔ ${sg(e.tE)} E · ${sg(e.tN)} N`;
+        return `↔ ${sg(e.tE)} E · ${sg(e.tN)} N · ↑ ${sg(e.liftM)} m`;
       case "rotate":
         return `↻ ${sg(-e.rotDeg)}° cw`;
       case "scale":

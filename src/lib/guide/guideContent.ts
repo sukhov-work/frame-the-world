@@ -666,15 +666,15 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "any model — yours or another member's — for MOVE, ROTATE and SCALE, the same gizmo as " +
           "[[fpv-height|a building edit]]: one drag resizes it between a tenth and ten times its " +
           "current size, repeated edits compound, the SCALE row shows its size in metres, and the " +
-          "last edit wins for everyone. It always stands on the terrain; [[my-models|your own list]] " +
-          "renames, hides and deletes.",
+          "last edit wins for everyone. It stands on the terrain until MOVE's green arrow lifts or " +
+          "sinks it — it can never sink out of sight, and [[my-models|your own list]] resets it.",
         keys: ["3d model", "glb", "obj", "fbx", "upload model", "place model", "custom model", "mdl"],
         steps: [
           "Open UPLOAD and drop a .glb, .gltf, .obj or .fbx — textures and a .mtl ride along.",
           "Read the CHECK card: triangles, textures and the guessed source units; pick another unit if the size looks wrong.",
           "Press UPLOAD MODEL (sign in first).",
           "Press PLACE ON GLOBE and click where it should stand.",
-          "Enter first-person view near it and right-click it to move, turn or resize it.",
+          "Enter first-person view near it and right-click it to move, turn, resize, lift or sink it.",
           "Toggle MDL on the camera deck to hide every custom model.",
         ],
         tip:
@@ -685,17 +685,19 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "my-models",
         title: "Manage your models",
         where: { desktop: "MY PINS panel · MODELS tab" },
-        keys: ["my models", "rename model", "hide model", "delete model", "models list", "my uploads"],
+        keys: ["my models", "rename model", "hide model", "delete model", "models list", "my uploads", "goto model", "reset model"],
         body:
           "Every model you stored is listed under MY PINS · MODELS with its size, its triangle count " +
-          "and a badge when another member has edited it. Click a row to stand beside the model in " +
-          "first-person view, or to place one that is not on the globe yet. The pencil renames it, " +
-          "HIDE withdraws it from the world and SHOW brings it back, and a second press on ✕ deletes " +
-          "it for good. A hidden or deleted model leaves the world, not the link — the file itself " +
-          "stays public by URL.",
+          "and a badge when another member has edited it. Click a row or GOTO to stand beside the " +
+          "model in first-person view, or click an unplaced row to place it. RESET puts a model back " +
+          "as uploaded — turn, size and ground seat — where it stands, even one sunk or lifted by " +
+          "someone else. The pencil renames it, HIDE withdraws it from the world and SHOW brings it " +
+          "back, and a second press on ✕ deletes it for good. A hidden or deleted model leaves the " +
+          "world, not the link — the file itself stays public by URL.",
         steps: [
           "Open MY PINS in the top bar and pick the MODELS tab.",
-          "Click a row to stand beside the model, or to place one that has no spot yet.",
+          "Click a row or GOTO to stand beside the model, or click an unplaced row to give it a spot.",
+          "Press RESET to undo every turn, resize and lift at once.",
           "Press the pencil, type a new name and hit Enter.",
           "Press HIDE to take it out of the world; SHOW returns it.",
           "Press ✕ twice to delete it.",

@@ -15,10 +15,11 @@ import {
  * the U8 UX stay byte-identical (the §4a posture). The globe writes the `armed` mirror at deadband
  * cadence; the chip writes back only REQUESTS (the op to switch to, revert one-shots, DONE).
  *
- * A model has three ops — MOVE (the placement itself: the drag's ENU offset folds into a new
- * lat/lon on release), ROTATE (yaw) and SCALE (uniform) — and no EXTRUDE: its height is its own.
- * "Original" for a model is the upload (yaw 0, scale 1); MOVE has no original to revert to (the
- * placement is wherever the member last dropped it), so its row shows the coordinates only.
+ * A model has three ops — MOVE (the placement itself: the drag's east/north offset folds into a
+ * new lat/lon on release; MS7 2026-09-03: its Y arrow is the LIFT, the third stored seat), ROTATE
+ * (yaw) and SCALE (uniform) — and no EXTRUDE: its height is its own. "Original" for a model is the
+ * upload (yaw 0, scale 1, on the ground); MOVE's placement has no original to revert to (it is
+ * wherever the member last dropped it) — its ↺ puts the model back ON THE GROUND (lift 0).
  */
 
 export type ModelEditOp = "move" | "rotate" | "scale";
@@ -102,11 +103,11 @@ export const useModelEditStore = create<ModelEditState>((set) => ({
 }));
 
 /** Which seat an op owns — the chip's per-row "is this op edited" test and the orchestrator's
- *  per-op revert share it. MOVE owns the placement, which has no original. */
+ *  per-op revert share it. MOVE owns the placement (no original) and, since MS7, the LIFT. */
 export function modelOpIsEdited(op: ModelEditOp, t: ModelTransform): boolean {
   switch (op) {
     case "move":
-      return false;
+      return Math.abs(t.liftM) >= MODEL_XF_EPS.liftM;
     case "rotate":
       return Math.abs(t.rotDeg) >= MODEL_XF_EPS.rotDeg;
     case "scale":
@@ -120,7 +121,7 @@ export function revertModelOp(t: ModelTransform, which: ModelEditOp | "all"): Mo
     case "all":
       return { ...IDENTITY_MODEL_TRANSFORM };
     case "move":
-      return { ...t };
+      return { ...t, liftM: 0 }; // back on the ground; the placement stays
     case "rotate":
       return { ...t, rotDeg: 0 };
     case "scale":
@@ -130,7 +131,7 @@ export function revertModelOp(t: ModelTransform, which: ModelEditOp | "all"): Mo
 
 /** The resting live edit for committed seats (no drag in flight). */
 export function restingEdit(t: ModelTransform): ModelEdit {
-  return { ...IDENTITY_MODEL_EDIT, rotDeg: t.rotDeg, scale: t.scale };
+  return { ...IDENTITY_MODEL_EDIT, rotDeg: t.rotDeg, scale: t.scale, liftM: t.liftM };
 }
 
 // Dev-only introspection (the window.__* DEV-seam registry) — browser verification reads the

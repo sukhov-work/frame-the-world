@@ -17,6 +17,10 @@
 //   5. S → SCALE: a drag on the X box scales UNIFORMLY inside the 0.1×–10× per-edit band; the
 //      SCALE row leads with the size in metres (MS5b §11.1)
 //   6. G → MOVE: a drag on the X arrow moves the placement (new lat/lon, never a stored offset)
+//   6a. MESH SUITE MS7 (2026-09-03): the Y arrow is the LIFT — a drag up saves a lift (row `tU` +
+//      the anchor's Y + the MOVE row); drags far DOWN stop at the FLOOR (a quarter of the scaled
+//      model stays above the seat — never out of sight); MOVE's ↺ lands it; one more lift stays
+//      for the reload leg
 //   6b. MS5b §11.4: an in-page FPV exit, then an ORBIT drag moves the focus; no gizmo helper is
 //      left in the scene; a positive control proves the probe can see one that is
 //   7. reload (member): the seats + the placement re-apply from the world read
@@ -24,11 +28,15 @@
 //   9. the MDL gate (store → engine): off releases the model, on brings it back
 //  10. orbit click-to-place: beginPlacing + a ground click PATCHes a new placement
 //  MESH SUITE MS6 (2026-09-02m) — management + world edit:
-//  11. MY PINS · MODELS lists the model (our row: title, size × scale + tris, no badge, ✎ / HIDE / ✕)
+//  11. MY PINS · MODELS lists the model (our row: title, size × scale + tris + the lift, no badge,
+//      ✎ / GOTO / RESET / HIDE / ✕ — MS7 added GOTO + RESET)
+//  11b. MS7: RESET on the row → yaw 0 / scale 1 / lift 0 through ONE PATCH; the own list, the world
+//      read and the scene agree; the spot stays; RESET goes dark
 //  12. ✎ RENAME inline (Enter) → the own list, the world read and the scene's row agree (no reload)
 //  13. HIDE → the own list says hidden, the world read and the scene drop it, the foot note shows;
 //      SHOW → back in the world read and the scene
-//  14. a row click STANDS BESIDE the model: FPV, the eye south of it looking north, ~3 heights back
+//  14. GOTO (MS7; the row click shares its handler) STANDS BESIDE the model: FPV, the eye south of
+//      it looking north, ~3 heights back
 //  15. FOREIGN EDIT: a row seeded (DEV-only /api/dev-seed) as ANOTHER member's model, reusing the
 //      stored GLB — not in MINE, hover note without "yours", a real right-click ARMS it with the
 //      SHARED badge, ROTATE PATCHes (LWW), the world read reflects it, the owner's list (a DEV read)
@@ -463,6 +471,12 @@ const ownListLacks = async (id, label, timeoutMs = 15_000) => {
   fail(`${label}: the own list still carries ${id}`);
 };
 const standDistance = (sizeH, scale) => Math.max(6, Math.min(120, 3 * sizeH * scale));
+/** MS7: `liftFloorM` in numbers — a quarter of the scaled height (never under 0.5 m) stays above the seat. */
+const liftFloor = (scaledH) => {
+  const keep = Math.max(0.25 * scaledH, 0.5);
+  const d = Math.max(0, Math.min(50, scaledH - keep));
+  return d > 0 ? -d : 0;
+};
 
 mkdirSync(SHOTS, { recursive: true });
 await send("Page.enable");
@@ -604,7 +618,7 @@ try {
   await sleep(300);
   g = await evalJs(GZ);
   if (g.op !== "move" || !g.attached) fail("leg 6: G did not switch to MOVE");
-  if (await evalJs(`${GZ}.handlePx("Y") !== null`)) fail("leg 6: the lift arrow is shown on a model (there is no lift seat)");
+  if (!(await evalJs(`${GZ}.handlePx("Y") !== null`))) fail("leg 6: the lift arrow is missing on the model (MS7: the Y arrow is the lift)");
   await waitSeatedStill(modelId, "leg 6");
   const hM = await handleDir("X");
   await dragFrom(hM.hp, hM.ux, hM.uy, 50, 6);
@@ -614,12 +628,70 @@ try {
   if (Math.abs(a.live.tE) > 1e-6 || Math.abs(a.live.tN) > 1e-6) fail(`leg 6: an offset survived the commit: ${JSON.stringify(a.live)}`);
   const m6 = await modelInfo(modelId);
   if (Math.hypot(...m6.anchor) > 1e-6) fail(`leg 6: the anchor did not return to zero: ${JSON.stringify(m6.anchor)}`);
-  const own6 = await ownRowEventually(modelId, (r) => near(r.lat, a.lat, 1e-9) && near(r.lon, a.lon, 1e-9), "leg 6");
-  const moved = { lat: own6.lat, lon: own6.lon, rotDeg: own6.rotDeg, scale: own6.scale };
-  console.log(`leg 6: MOVE ${movedM.toFixed(2)} m → (${moved.lat.toFixed(6)}, ${moved.lon.toFixed(6)}) · anchor zero · own list agrees`);
+  await ownRowEventually(modelId, (r) => near(r.lat, a.lat, 1e-9) && near(r.lon, a.lon, 1e-9), "leg 6");
+  console.log(`leg 6: MOVE ${movedM.toFixed(2)} m → (${a.lat.toFixed(6)}, ${a.lon.toFixed(6)}) · anchor zero · own list agrees`);
+
+  // --- 6a: MS7 — the Y arrow is the LIFT: a real drag lifts it; the floor holds; the list resets ----
+  // (a) A REAL gizmo Y-arrow drag proves the vertical gesture end to end: the drag moves the
+  //     model's ANCHOR in metres and the live lift + the MOVE row follow it (a vertical translate
+  //     has little screen gain at a street eye, so the drag is small — direction-agnostic — but it
+  //     is a genuine pointer drag on the real handle). The grab searches along the projected axis
+  //     because the thin picker's midpoint pixel can miss it.
+  await waitSeatedStill(modelId, "leg 6a");
+  const o6 = await evalJs(`${GZ}.originPx()`);
+  const hp6 = await evalJs(`${GZ}.handlePx("Y")`);
+  if (!o6 || !hp6) fail(`leg 6a: the Y (lift) arrow is not on screen (${JSON.stringify({ o6, hp6 })})`);
+  const dyx = hp6.x - o6.x, dyy = hp6.y - o6.y, dyl = Math.hypot(dyx, dyy) || 1;
+  const ux6 = dyx / dyl, uy6 = dyy / dyl;
+  let start6 = null;
+  for (const f of [0.5, 0.4, 0.6, 0.45, 0.55, 0.35, 0.65, 0.3, 0.7]) {
+    const cand = { x: o6.x + dyx * f, y: o6.y + dyy * f };
+    await hover(cand.x, cand.y);
+    await sleep(30);
+    await mouse("mousePressed", cand.x, cand.y, { clickCount: 1 });
+    await sleep(40);
+    if ((await evalJs(`${GZ}.dragging`)) && (await evalJs(`${GZ}.axis`)) === "Y") { start6 = cand; break; }
+    await key("Escape", "Escape", 27); // cancel a non-Y grab cleanly (never commit a stray axis)
+    await mouse("mouseReleased", cand.x, cand.y, { clickCount: 1 });
+    await sleep(40);
+  }
+  if (!start6) fail(`leg 6a: could not grab the Y (lift) arrow (origin ${o6.x.toFixed(0)},${o6.y.toFixed(0)} → handle ${hp6.x.toFixed(0)},${hp6.y.toFixed(0)})`);
+  for (let k = 1; k <= 10; k++) { await mouse("mouseMoved", start6.x + ux6 * 90 * k / 10, start6.y + uy6 * 90 * k / 10); await sleep(30); }
+  const liveDrag = await evalJs(`${ES}.armed?.live?.liftM ?? null`);
+  const anchorDrag = await evalJs(`(${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)})?.anchor) ?? null`);
+  const rowDrag = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-row[data-op=\"move\"] .bec-v')?.textContent ?? ''");
+  if (!(Math.abs(liveDrag ?? 0) > 0.02)) fail(`leg 6a: a real Y-arrow drag did not move the live lift (${liveDrag})`);
+  if (!anchorDrag || !near(anchorDrag[1], liveDrag, 1e-6) || Math.hypot(anchorDrag[0], anchorDrag[2]) > 1e-6) fail(`leg 6a: the drag did not move the anchor's Y only: ${JSON.stringify(anchorDrag)} vs live ${liveDrag}`);
+  if (!/\u2191[+\-]/.test(rowDrag)) fail(`leg 6a: the MOVE row does not show the dragged lift: "${rowDrag}"`);
+  await key("Escape", "Escape", 27); // cancel the probe drag — the row goes back to the ground
+  await mouse("mouseReleased", start6.x + ux6 * 90, start6.y + uy6 * 90, { clickCount: 1 });
+  await sleep(200);
+  await waitUntil("leg 6a: the cancelled drag returns to the ground", `Math.abs((${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)})?.anchor?.[1]) ?? 1) < 0.05`, 10_000);
+
+  // (b) SAVE + SYNC + the FLOOR + RESET through the exact commit a release calls (`commitPlacement`
+  //     → PATCH → the server clamp on the world read → the scene). First a bury that must clamp so
+  //     a quarter of the SCALED height (≥ 0.5 m) always stands above the seat (never fully sunk).
+  const hScaled = 5 * a.committed.scale;
+  const floor = liftFloor(hScaled);
+  const cellLift = await gh5Of(a.lat, a.lon);
+  const deep = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, tU: -1000 }).then((r) => r && r.tU)`);
+  if (!near(deep, floor, 0.01)) fail(`leg 6a: a bury commit stored ${deep} m, not the floor ${floor.toFixed(3)} m for a ${hScaled.toFixed(2)} m model`);
+  await ownRowEventually(modelId, (r) => near(r.tU, floor, 0.01), "leg 6a (floor)");
+  await worldRowEventually(cellLift, modelId, (r) => !!r && near(r.tU, floor, 0.01), "leg 6a (floor, world read — server clamp)");
+  await waitUntil("leg 6a: the scene sank to the floor", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.liftM - ${floor}) < 0.05 && Math.abs(m.anchor[1] - ${floor}) < 0.15; })()`, 15_000);
+  if (!(await evalJs(`${GZ}.modelPx(${JSON.stringify(modelId)})`))) fail("leg 6a: the sunk model is off screen");
+  await shoot("usermodels-09-sunk-floor.jpeg");
+  // A full LIFT the reload leg re-applies.
+  const LIFT = 6.5;
+  const upRow = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, tU: ${LIFT} }).then((r) => r && r.tU)`);
+  if (!near(upRow, LIFT, 1e-6)) fail(`leg 6a: a lift commit stored ${upRow} m, not ${LIFT}`);
+  await ownRowEventually(modelId, (r) => near(r.tU, LIFT, 1e-6), "leg 6a (lift)");
+  await waitUntil("leg 6a: the scene rose to the lift", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.anchor[1] - ${LIFT}) < 0.1; })()`, 15_000);
+  const own6 = await ownRowEventually(modelId, (r) => near(r.tU, LIFT, 1e-6) && near(r.lat, a.lat, 1e-9), "leg 6a (lift)");
+  const moved = { lat: own6.lat, lon: own6.lon, rotDeg: own6.rotDeg, scale: own6.scale, tU: own6.tU };
   await evalJs(`${ES}.requestDisarm(), true`);
   await sleep(200);
-  if (await armed()) fail("leg 6: DONE did not disarm");
+  console.log(`leg 6a: real Y-arrow drag moved the anchor ${liveDrag.toFixed(2)} m ("${rowDrag}") \u00b7 a bury commit clamped to the floor ${floor.toFixed(2)} m (row + world read + scene, ${hScaled.toFixed(1)} m model) \u00b7 a +${LIFT} m lift applied for the reload`);
 
   // --- 6b: MS5b §11.4 — leave FPV in-page; an ORBIT drag must work after the model session ------
   const gzOut = await evalJs("(({ bldgGizmo, modelGizmo }) => ({ b: bldgGizmo().inScene, m: modelGizmo().inScene }))(window.__globe)");
@@ -636,9 +708,10 @@ try {
   await loadUrl(FPV_URL, "leg 7", { member: true });
   await waitFpv("leg 7");
   const r7 = await waitResident(modelId, "leg 7");
-  if (Math.abs(r7.target.rotDeg - moved.rotDeg) > 1e-6 || Math.abs(r7.target.scale - moved.scale) > 1e-6) fail(`leg 7: seats after reload ${JSON.stringify(r7.target)} vs ${JSON.stringify(moved)}`);
+  if (Math.abs(r7.target.rotDeg - moved.rotDeg) > 1e-6 || Math.abs(r7.target.scale - moved.scale) > 1e-6 || Math.abs(r7.target.liftM - moved.tU) > 1e-6) fail(`leg 7: seats after reload ${JSON.stringify(r7.target)} vs ${JSON.stringify(moved)}`);
   if (!near(r7.lat, moved.lat, 1e-9) || !near(r7.lon, moved.lon, 1e-9)) fail(`leg 7: placement after reload ${r7.lat}, ${r7.lon}`);
-  console.log(`leg 7: reload re-applied rot ${r7.target.rotDeg.toFixed(1)}° · scale ${r7.target.scale.toFixed(3)} · the moved placement`);
+  if (!near(r7.anchor[1], moved.tU, 1e-6)) fail(`leg 7: the anchor after reload does not carry the lift: ${JSON.stringify(r7.anchor)}`);
+  console.log(`leg 7: reload re-applied rot ${r7.target.rotDeg.toFixed(1)}° · scale ${r7.target.scale.toFixed(3)} · lift +${r7.target.liftM.toFixed(2)} m · the moved placement`);
 
   // --- 8: anonymous: resident, not armable, MINE empty --------------------------------------------
   await clearCookie();
@@ -684,8 +757,9 @@ try {
   if (await evalJs(`${US}.placing !== null`)) fail("leg 10: the click did not consume the placing");
   const own10 = await ownRowEventually(modelId, (r) => !near(r.lat, moved.lat, 1e-7) || !near(r.lon, moved.lon, 1e-7), "leg 10");
   const dM = Math.hypot((own10.lat - moved.lat) * 111_320, (own10.lon - moved.lon) * 111_320 * Math.cos((moved.lat * Math.PI) / 180));
-  if (own10.rotDeg !== moved.rotDeg || own10.scale !== moved.scale) fail("leg 10: click-to-place touched the seats");
-  console.log(`leg 10: click-to-place moved it ${dM.toFixed(0)} m · seats kept`);
+  if (own10.rotDeg !== moved.rotDeg || own10.scale !== moved.scale || own10.tU !== moved.tU) fail("leg 10: click-to-place touched the seats");
+  console.log(`leg 10: click-to-place moved it ${dM.toFixed(0)} m · seats kept (lift +${own10.tU.toFixed(2)} m rode along)`);
+  let ref = own10; // the seats the later legs compare against (leg 11b resets them)
 
   // ═══ MESH SUITE MS6 — management + world edit ═══════════════════════════════════════════════════
   // --- 11: MY PINS · MODELS — the my-uploads list -----------------------------------------------------
@@ -694,17 +768,40 @@ try {
   const name11 = await rowText(modelId, ".mp-name");
   if (name11 !== "MS5 verify box") fail(`leg 11: the row's title reads ${JSON.stringify(name11)}`);
   const sub11 = await rowText(modelId, ".mp-sub");
-  if (!/ m · 12 TRIS$/.test(sub11 ?? "")) fail(`leg 11: the fact line reads ${JSON.stringify(sub11)} (expected "… m · 12 TRIS")`);
-  const w11 = 3 * own10.scale;
+  if (!/ m · 12 TRIS · ↑ \+\d+\.\d+$/.test(sub11 ?? "")) fail(`leg 11: the fact line reads ${JSON.stringify(sub11)} (expected "… m · 12 TRIS · ↑ +x.xx" — the model is lifted)`);
+  const w11 = 3 * ref.scale;
   if (!(sub11 ?? "").startsWith(`${w11 >= 10 ? w11.toFixed(1) : w11.toFixed(2)} × `)) fail(`leg 11: the fact line does not start with the scaled width: ${JSON.stringify(sub11)}`);
   const badges11 = await evalJs(`[...document.querySelectorAll(${JSON.stringify(`${rowSel(modelId)} .mp-badge`)})].map((b) => b.textContent)`);
   if (badges11.length !== 0) fail(`leg 11: a placed, ready, own model wears badges ${JSON.stringify(badges11)}`);
   const acts11 = await evalJs(`[...document.querySelectorAll(${JSON.stringify(`${rowSel(modelId)} [data-act]`)})].map((b) => b.dataset.act)`);
-  if (JSON.stringify(acts11) !== JSON.stringify(["rename", "hide", "delete"])) fail(`leg 11: the action group is ${JSON.stringify(acts11)}`);
+  if (JSON.stringify(acts11) !== JSON.stringify(["rename", "goto", "reset", "hide", "delete"])) fail(`leg 11: the action group is ${JSON.stringify(acts11)}`);
   const tab11 = await evalJs("document.querySelector('.mp-tab[data-tab=\"models\"]')?.textContent ?? ''");
   if (!/^MODELS · \d+$/.test(tab11)) fail(`leg 11: the tab label reads ${JSON.stringify(tab11)}`);
   await shoot("usermodels-04-models-tab.jpeg");
-  console.log(`leg 11: MODELS tab lists ${JSON.stringify(name11)} · "${sub11}" · no badges · ✎ HIDE ✕ · tab "${tab11}"`);
+  console.log(`leg 11: MODELS tab lists ${JSON.stringify(name11)} · "${sub11}" · no badges · ✎ GOTO RESET HIDE ✕ · tab "${tab11}"`);
+
+  // --- 11b: MS7 — RESET on the row: yaw 0 / scale 1 / lift 0 through ONE PATCH; the spot stays ------
+  const resetSel = `${rowSel(modelId)} [data-act="reset"]`;
+  if ((await rowText(modelId, '[data-act="reset"]')) !== "RESET") fail("leg 11b: no RESET on the row");
+  if (await evalJs(`document.querySelector(${JSON.stringify(resetSel)})?.disabled`)) fail("leg 11b: RESET is dark on an edited model");
+  const gotoSel = `${rowSel(modelId)} [data-act="goto"]`;
+  if (await evalJs(`document.querySelector(${JSON.stringify(gotoSel)})?.disabled`)) fail("leg 11b: GOTO is dark on a placed model");
+  await clickIn(modelId, '[data-act="reset"]');
+  const own11b = await ownRowEventually(modelId, (r) => r.rotDeg === 0 && r.scale === 1 && r.tU === 0, "leg 11b");
+  if (!near(own11b.lat, own10.lat, 1e-9) || !near(own11b.lon, own10.lon, 1e-9)) fail("leg 11b: RESET moved the placement");
+  const cell11 = await gh5Of(own10.lat, own10.lon);
+  await worldRowEventually(cell11, modelId, (r) => !!r && r.rotDeg === 0 && r.scale === 1 && r.tU === 0, "leg 11b (world read)");
+  await waitUntil(
+    "leg 11b: the scene eased onto the upload",
+    `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.scale - 1) < 1e-9 && Math.abs(m.target.liftM) < 1e-9 && Math.abs(m.target.rotDeg) < 1e-9 && Math.abs(m.anchor[1]) < 0.01 && Math.abs(m.bodyScale - 1) < 0.01; })()`,
+    15_000,
+  );
+  const sub11b = await rowText(modelId, ".mp-sub");
+  if (sub11b !== "3.00 × 3.00 × 5.00 m · 12 TRIS") fail(`leg 11b: the fact line after RESET reads ${JSON.stringify(sub11b)}`);
+  if (!(await evalJs(`document.querySelector(${JSON.stringify(resetSel)})?.disabled`))) fail("leg 11b: RESET stays lit on an as-uploaded model");
+  ref = own11b;
+  await shoot("usermodels-10-list-reset.jpeg");
+  console.log(`leg 11b: RESET → rot 0 · scale 1 · lift 0 (own list · world read · scene eased) · spot kept · row "${sub11b}" · RESET dark, GOTO lit`);
 
   // --- 12: ✎ RENAME inline --------------------------------------------------------------------------
   const NEW_TITLE = "MS6 renamed box";
@@ -723,7 +820,7 @@ try {
   await worldRowEventually(cell12, modelId, (r) => r?.title === NEW_TITLE, "leg 12");
   const info12 = await modelInfo(modelId);
   if (info12?.title !== NEW_TITLE) fail(`leg 12: the scene's row did not take the new title without a reload: ${JSON.stringify(info12?.title)}`);
-  if (own12.rotDeg !== own10.rotDeg || own12.scale !== own10.scale || !near(own12.lat, own10.lat, 1e-9)) fail("leg 12: the rename touched the placement or the seats");
+  if (own12.rotDeg !== ref.rotDeg || own12.scale !== ref.scale || own12.tU !== ref.tU || !near(own12.lat, ref.lat, 1e-9)) fail("leg 12: the rename touched the placement or the seats");
   console.log(`leg 12: renamed → "${NEW_TITLE}" · own list, world read and the scene agree · seats + placement untouched`);
 
   // --- 13: HIDE / SHOW ------------------------------------------------------------------------------
@@ -742,8 +839,8 @@ try {
   if (await evalJs("!!document.querySelector('[data-note=\"hidden\"]')")) fail("leg 13: the hidden foot note outlived SHOW");
   console.log("leg 13: HIDE left the world read + the scene at once (badge + note) · SHOW brought it back");
 
-  // --- 14: a row click STANDS BESIDE the model ----------------------------------------------------
-  await clickIn(modelId, ".mp-item");
+  // --- 14: GOTO (MS7; the row click shares the handler) STANDS BESIDE the model ---------------------
+  await clickIn(modelId, '[data-act="goto"]');
   await waitUntil("leg 14: the panel closed", "!document.querySelector('.mp-panel')", 5_000);
   await waitFpv("leg 14");
   await waitUntil("leg 14: the entry flight settles", "!window.__globe.flight.active()", 30_000);
@@ -751,7 +848,7 @@ try {
   const geo14 = await evalJs(`(() => { const cs = ${CS}; return { lat: cs.camGeo?.latDeg ?? null, lon: cs.camGeo?.lonDeg ?? null, heading: cs.fpvHud?.headingDeg ?? cs.headingDeg }; })()`);
   if (geo14.lat === null) fail("leg 14: no camGeo in FPV");
   const d14 = distM({ lat: own10.lat, lon: own10.lon }, geo14);
-  const want14 = standDistance(5, own10.scale);
+  const want14 = standDistance(5, ref.scale);
   if (!(d14 > want14 * 0.5 && d14 < want14 * 1.6 + 5)) fail(`leg 14: the eye stands ${d14.toFixed(1)} m from the model (expected ≈ ${want14.toFixed(1)} m)`);
   if (geo14.lat >= own10.lat) fail("leg 14: the eye is not SOUTH of the model");
   const hd14 = ((geo14.heading % 360) + 360) % 360;
@@ -761,7 +858,7 @@ try {
   const px14 = await evalJs(`${GZ}.modelPx(${JSON.stringify(modelId)})`);
   if (!px14) fail("leg 14: the model is not in front of the eye");
   await shoot("usermodels-06-stand-beside.jpeg");
-  console.log(`leg 14: stood beside it — ${d14.toFixed(1)} m south (≈ ${want14.toFixed(1)} m), heading ${hd14.toFixed(1)}°, the model on screen at (${px14.x.toFixed(0)}, ${px14.y.toFixed(0)})`);
+  console.log(`leg 14: GOTO stood beside it — ${d14.toFixed(1)} m south (≈ ${want14.toFixed(1)} m), heading ${hd14.toFixed(1)}°, the model on screen at (${px14.x.toFixed(0)}, ${px14.y.toFixed(0)})`);
 
   // --- 15: FOREIGN EDIT — another member's model, seeded DEV-only ----------------------------------
   const seedLat = SEED.lat + 22 / 111_320; // 22 m north of the eye
@@ -931,6 +1028,6 @@ try {
 if (cleanupProblem) fail(cleanupProblem);
 if (consoleErrors.length > 0) fail(`the page logged ${consoleErrors.length} shader/program error(s) — the chained model materials do not compile: ${consoleErrors[0]}`);
 console.log(`console: no shader/program errors logged across the run`);
-console.log("PASS: verify-usermodels — 18 legs (upload → world read → real right-click arms, menu survives the release → rotate / scale (0.1×–10×, metres on the row) / move PATCH → orbit drag after the session (helpers out, control seen) → reload → anonymous → MDL gate → click-to-place → MS6: MODELS tab → rename → hide/show → stand beside → foreign member edits as SHARED (LWW, owner sees EDITED) → orbit hover + click → list delete → cleanup)");
+console.log("PASS: verify-usermodels — 20 legs (upload → world read → real right-click arms, menu survives the release → rotate / scale (0.1×–10×, metres on the row) / move PATCH → MS7 lift: up saved, floor held, ↺ landed → orbit drag after the session (helpers out, control seen) → reload (lift re-applied) → anonymous → MDL gate → click-to-place → MS6: MODELS tab (✎ GOTO RESET HIDE ✕) → MS7 RESET → rename → hide/show → GOTO stands beside → foreign member edits as SHARED (LWW, owner sees EDITED) → orbit hover + click → list delete → cleanup)");
 ws.close();
 await finishVerify(0);

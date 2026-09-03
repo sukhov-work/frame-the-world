@@ -121,10 +121,11 @@ top-level globals; same removal/rename rule):
 - **UserModels** (ADMIN everything; the elevated `/api/models` (owner) and `/api/world-models`
   (public) are the only readers, `/api/models` the only writer — plus the DEV-gated `/api/dev-seed`
   `kind: "model"` seed/remove for the two-member harness leg; **PROVISIONED 2026-09-02h, 24
-  fields + `gh5` added 2026-09-02i + `editorMemberId` added 2026-09-02m = 26** — MESH SUITE
-  MS4/MS5/MS6, D3): `title ownerMemberId fileId url thumbnailFileId thumbnailUrl fileName
-  sourceFormat rawBytes glbBytes tris meshes textures decimatedFromTris bboxX bboxY bboxZ readiness
-  hidden lat lon geohash9 gh5 rotDeg scale editorMemberId` — ONE row per uploaded model;
+  fields + `gh5` added 2026-09-02i + `editorMemberId` added 2026-09-02m + `tU` added 2026-09-03
+  = 27** — MESH SUITE MS4/MS5/MS6/MS7, D3): `title ownerMemberId fileId url thumbnailFileId
+  thumbnailUrl fileName sourceFormat rawBytes glbBytes tris meshes textures decimatedFromTris bboxX
+  bboxY bboxZ readiness hidden lat lon geohash9 gh5 rotDeg scale tU editorMemberId` — ONE row per
+  uploaded model;
   **`editorMemberId`** (MS6) is the LAST EDITOR of the transform — the owner at POST, re-stamped
   server-side from the session by every placement PATCH (any signed-in member; LWW) — and is
   NEVER emitted: the public row carries no identity, the owner's list row only a derived
@@ -136,7 +137,11 @@ top-level globals; same removal/rename rule):
   the descriptor `/api/models` fetched itself (the allowlist is structural); `readiness` mirrors
   the descriptor's `operationStatus` (READY | PENDING | FAILED). `lat/lon/geohash9` = the member's
   CHOSEN placement of a world-visible object (the UPLOAD HERE seed at MS4; MS5 places), never a
-  capture GPS — C6-clean; `rotDeg`/`scale` are the MS5/MS6 transform seats (null = identity).
+  capture GPS — C6-clean; `rotDeg`/`scale` are the MS5/MS6 transform seats (null = identity);
+  **`tU`** (MS7, 2026-09-03) is the LIFT above the terrain seat in metres (null = on the ground; the
+  BuildingOverrides name), railed on every path onto `[liftFloorM(bboxY × scale), MODEL_LIFT_MAX_M
+  50]` — the floor keeps a quarter of the scaled height (never under 0.5 m) above the seat, so a
+  sunk model is always visible and recoverable; a row without `bboxY` is pinned to the ground.
 - There is **no Listings collection** — listing fields ride Photos/PublicPins (ARCHITECTURE §5 corrected
   by the 2026-08-13 audit).
 - Schema changes land in the provision script FIRST (platform.md item 13; `extensions.dataCollections`
@@ -168,13 +173,15 @@ top-level globals; same removal/rename rule):
   answers `{ models: PublicModel[], complete }` — `hasSome("gh5", cells)` ∧ `readiness === "READY"`
   ∧ `hidden ≠ true`, one page of 200 oldest-first, `complete: false` when a cell holds more; a
   `PublicModel` is `{ id, title, url, thumbnailUrl, tris, glbBytes, bbox, lat, lon, rotDeg, scale,
-  updatedAt }` and NEVER carries `ownerMemberId` or a file id (C6). And **`PATCH /api/models`**
-  (MS5, split in TWO authorities at MS6 2026-09-02m — dispatched on the body's SHAPE): a
-  PLACEMENT body `{ id, lat, lon, rotDeg?, scale? }` (coordinates present) is open to EVERY
-  signed-in member (401 `SIGNED_OUT`; 400 names the field; 404 `NOT_FOUND` "no such model") —
-  re-derives `geohash9` + `gh5`, CLAMPS the seats onto the sanity rail (0.001×..1000× since MS5b
-  2026-09-02l — the 0.1×–10× band is per EDIT about the committed scale, client-side; yaw
-  wrapped; identity stored as null), stamps `editorMemberId` from the session and replaces the
+  tU, updatedAt }` (`tU` since MS7 2026-09-03) and NEVER carries `ownerMemberId` or a file id (C6).
+  And **`PATCH /api/models`** (MS5, split in TWO authorities at MS6 2026-09-02m — dispatched on the
+  body's SHAPE): a PLACEMENT body `{ id, lat, lon, rotDeg?, scale?, tU? }` (coordinates present) is
+  open to EVERY signed-in member (401 `SIGNED_OUT`; 400 names the field; 404 `NOT_FOUND` "no such
+  model") — re-derives `geohash9` + `gh5`, CLAMPS the seats onto the sanity rail (0.001×..1000×
+  since MS5b 2026-09-02l — the 0.1×–10× band is per EDIT about the committed scale, client-side;
+  yaw wrapped; the lift `tU` onto `[−50, 50]` at parse and onto the row's height-aware floor
+  `liftFloorM(bboxY × the NEW scale)` in `applyModelPlacement` — a shrink re-rails a sunk model;
+  identity stored as null), stamps `editorMemberId` from the session and replaces the
   whole row (`items.update` — last writer wins by construction); a MANAGEMENT body
   `{ id, title?: 1–120 chars trimmed, hidden?: boolean }` (no coordinates, at least one field) is
   the OWNER's only (404 "no such model of yours"). Both answer `{ own, model, public }` — the

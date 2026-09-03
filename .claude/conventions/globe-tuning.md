@@ -461,7 +461,11 @@ Traps the slice recorded:
 `MODELS` is a new group (`scene/userModels.ts` + `store/userModels.ts`). The RAILS of an edit are
 CONTRACT and live in `lib/models/modelPlacement.ts` (`MODEL_SCALE_MIN/MAX` = the building scale
 SANITY rail — the 0.1×–10× band is per edit about the committed scale since MS5b, compounding;
-`MODEL_MOVE_MAX_M` 250 per drag, `MODEL_COVER_PRECISION` 5 — the `gh5` column); these are
+`MODEL_MOVE_MAX_M` 250 per drag; **MS7 (2026-09-03) `MODEL_LIFT_MAX_M` 50** — the lift's absolute
+rail both ways — and **`MODEL_LIFT_KEEP` { frac 0.25, minM 0.5 }**, the "never fully into the
+texture" rule: `liftFloorM(scaled height)` keeps that much of the model above its terrain seat on
+EVERY path (live drag, commit, server PATCH, every read); `MODEL_COVER_PRECISION` 5 — the `gh5`
+column); these are
 the taste + budget knobs: the world-read cover (`fetchRadiusM` 4000 · `fetchMaxAltM` 40 000 ·
 `maxCells` 16 · `queryThrottleMs` 600 · `repollMs` 90 000 · `readLagGraceMs` 15 000), residency
 (`loadRadiusM` 3000 / `unloadRadiusM` 4000 hysteresis · `maxResident` 24 · **`triBudget`
@@ -479,7 +483,11 @@ Three facts the module encodes (source-verified 2026-09-02i):
   re-based by `groundFitOffset`. The MS2 gizmo attaches to `anchor`/`body` through a
   GhostRig-shaped `{ cx: 0, cz: 0, liveBaseY: 0, inflate: 1 }`; three's scale mode writes
   `scaleStart × offset` on the dragged axis only, so `uniformScaleFrom` takes the axis that moved
-  most in log space. `attachBldgGizmo` grew `clamp` / `lift` options for it (defaults unchanged).
+  most in log space. `attachBldgGizmo` grew `clamp` / `lift` options for it (defaults unchanged)
+  and, at MS7, **`liftRail(start)`** — MOVE's Y-arrow rail in metres about the seated base; the
+  building default is `[0, LIFT_MAX_M]` (byte-identical), the model instance hands
+  `[liftFloorM(height × start.sx), MODEL_LIFT_MAX_M]`. The model's anchor Y IS the stored lift
+  (`liveBaseY` 0 → `tU = anchor.y`); the lift eases like the other seats (`xfEaseK`).
 - **The budget is the density warning.** `planResidency` walks closest-first; what it refuses
   inside the load radius is `skipped`, and `densityWarning(skipped, tris, warnTris)` is the MDL
   chip's amber and the DBG `models.skipped` warn.
@@ -491,7 +499,7 @@ reference; `setUltraHaze` / `setSolidity` on the handle, pushed beside the build
 ORBIT hover of a user model rides the pins' cadence
 (`PINS.hoverEveryFrames`) and the FPV hover keeps `hoverPickMs`; the "stand beside it" pose is
 CONTRACT (`STANDPOINT` in `lib/models/modelPlacement.ts`: eye 1.7 m, FOV 60, 3 × the longest scaled
-extent inside 6..120 m). `pickModelAt` lost its FPV gate (the MDL gate stays) — in orbit a click on a
+extent inside 6..120 m; MS7: the distance is at least 3 × |lift| and the aim rides the lift). `pickModelAt` lost its FPV gate (the MDL gate stays) — in orbit a click on a
 model stands beside it in FPV, a dblclick never drops a temp pin under it, and the arming gate is
 the MEMBER PHASE (any signed-in member; `mine` is the YOURS / SHARED badge).
 

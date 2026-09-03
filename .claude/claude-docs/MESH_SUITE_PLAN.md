@@ -1331,3 +1331,91 @@ buildings share it. Anchors are three-version-pinned (a bump re-verifies, as the
   "no button held" hover gate stays shut in a harness; `anyPointerDown` gates remain sky-only.
 - **A per-model LOD / a Worker for the loaders / DRACO-KTX2 decode** — unchanged from §10.4.
 
+
+---
+
+## §14 MS7 AS BUILT — the LIFT seat + MODELS-row GOTO / RESET (owner order 2026-09-03)
+
+**Mode:** implement (design-first, investigate-design-v3 spine on `/frame`), tier Standard. Owner,
+after testing MS6: allow moving a model **vertically** (its imported base/centre is often at the
+wrong height), default pinned to the terrain seat; it may go **partly** under the ground but must
+**never fully** sink out of reach; add **GOTO** (navigate to the model) and **RESET** (RESET ALL's
+twin) buttons to the MY PINS · MODELS rows. No regression to the other controls, placement, or the
+world; saved / synced / processed correctly. This closes §13.4's first bullet (the lift seat) and
+§11.5's "lift?" open question.
+
+### §14.1 The design decisions
+
+1. **The lift is the THIRD stored seat — `UserModels.tU` (metres above the terrain seat).** The
+   BuildingOverrides name; provisioned live 2026-09-03 (`+ UserModels.tU field added` — **27
+   fields**). `ModelTransform` gained `liftM`; the record stores `null` for identity (on the
+   ground). The gizmo already had a lift rail (`down()`'s `minY/maxY` on the anchor's own Y with
+   `liveBaseY = 0`), so the anchor's Y **is** the stored lift — `tU = anchor.position.y`,
+   `transformToRig`/`rigToTransform` already carry `tU`. The scene writes it in ONE place
+   (`writeAnchor(e)` — east/north zero, Y = the applied lift), rides the seat ease
+   (`MODELS.xfEaseK`), and `rebase` keeps the Y while zeroing east/north.
+2. **"Never fully into the texture" is a HEIGHT-AWARE FLOOR, railed on every path.**
+   `liftFloorM(scaledHeight)` (pure, `lib/models/modelPlacement.ts`) returns the lowest lift that
+   keeps `MODEL_LIFT_KEEP` = **max(0.25 × the scaled height, 0.5 m)** of the model above the seat;
+   `MODEL_LIFT_MAX_M` = **50** is the absolute rail both ways. `clampLiftM(tU, scaledHeight)` clamps
+   onto `[floor, 50]`. It is applied at EVERY entry: the live gizmo drag (`clampModelEdit` takes the
+   height and rails against `height × the CLAMPED scale`, so a SHRINK re-rails a sunk model up
+   instead of burying it), the engine commit, the server `applyModelPlacement` (floor at `bboxY ×
+   the new scale`), and every read (`sanitizeModelTransform(rotDeg, scale, tU, heightM)` —
+   `publicModel`/`modelListItem`/the scene). **An unknown height pins the lift to 0** (a row with no
+   `bboxY`, or before the GLB's bounds are known — nothing proves the model would stay visible, so
+   it does not sink). The gizmo's Y arrow is now SHOWN (`lift: true`) and its rail comes from a new
+   `attachBldgGizmo` option **`liftRail(start)`** = `{ minM: liftFloorM(height × start.sx), maxM: 50
+   }` (the building instance keeps the byte-identical `[0, LIFT_MAX_M]` default).
+3. **MOVE owns the lift in the edit session.** No new op: the Y arrow rides MOVE (the placement op).
+   `modelOpIsEdited("move", …)` is now true when off the ground; MOVE's per-op `↺` lands the model
+   (`revertModelOp("move")` sets `liftM: 0`, keeps the placement); RESET ALL zeroes it with the
+   other seats. The chip's MOVE row and the pinned label append `↑±x m`; `modelStandpoint` (GOTO /
+   stand-beside) raises its aim and its minimum distance by the lift so a rooftop model is in frame.
+4. **GOTO = the row's stand-beside, on its own button.** `MyModelsActions.goto` is the placed half
+   of the existing row click (`modelStandpoint` → `requestFpvJump`), now with the committed lift; the
+   row body still calls it. Disabled on an unplaced row.
+5. **RESET = RESET ALL's twin outside the edit session.** `store/userModels.resetTransform(id)` sends
+   ONE placement PATCH `{ lat, lon (kept), rotDeg: 0, scale: 1, tU: 0 }` through `commitPlacement`
+   (own OR shared row — the optimistic swap), so a member can straighten a model another member sank
+   without arming it in FPV. Lit only when the row is placed AND its seats differ from the upload
+   (`modelRowResettable`).
+6. **No regression.** The building gizmo, U8/MS2/MS3 and the building harness are byte-identical (the
+   `lift`/`liftRail` defaults reproduce the old `[0, LIFT_MAX_M]` rail; `clampGizmoEdit` unchanged).
+   Every member editing heights is the same LWW posture as MS6 (the floor is re-derived from the
+   row's own bbox on the server, so a foreign shrink cannot bury a model either). C6: `tU` is a
+   height above a CHOSEN placement, never a capture datum.
+
+### §14.2 Files
+`scripts/provision-collections.mjs` (`tU`, RAN live — 27) · `lib/models/modelPlacement.ts`
+(`MODEL_LIFT_MAX_M`, `MODEL_LIFT_KEEP`, `liftFloorM`, `clampLiftM`, `ModelTransform.liftM`,
+`sanitizeModelTransform`/`clampModelEdit`/`editToFeatureTransform`/`modelStandpoint` lift-aware) ·
+`lib/wix/modelRecords.ts` (`PlacementBody.tU`, `parsePlacementBody`/`applyModelPlacement`,
+`PublicModel.tU`/`ModelListItem.tU`, `modelRecord` `tU: null`) · `store/modelEdit.ts` (MOVE owns the
+lift; `revertModelOp`/`restingEdit`) · `store/userModels.ts` (`PlacementPatch.tU`,
+`resetTransform`, `publicFromMine.tU`) · `lib/save/uploadMedia.ts` (`patchModelPlacement` body) ·
+`store/modelUpload.ts` (`addMine` `tU: 0`) · `components/globe/scene/bldgGizmo.ts` (`liftRail`) ·
+`components/globe/scene/userModels.ts` (`writeAnchor`, `heightFor`, the lift through
+seat/place/rebase/ease, real-height re-rail on load) · `components/globe/StylizedTiles.ts`
+(`lift: true` + `liftRail`, `modelHeightM`, the lift through commit/revert/persist, MOVE readout,
+`modelStandpoint` lift) · `components/panels/ModelEditChip.tsx` (MOVE readout + original) ·
+`components/panels/MyModelsTab.tsx` (`goto`/`reset` actions, GOTO/RESET buttons, `modelRowResettable`,
+the lift on the fact line) · `styles/my-pins.css` (five-action row padding) ·
+`lib/guide/guideContent.ts` (`fpv-models` + `my-models`) · docs: this §14, contracts §4/§7,
+globe-tuning MODELS, ARCHITECTURE routes, backlog T74 · tests: modelPlacement (+2), modelRecords
+(+1 lift apply), modelEdit (+1), userModels store (+1 reset), modelEditChip (+1), myModelsTab (+1),
+scene/userModels (+1), all liftM-updated fixtures · `scripts/verify-usermodels.mjs` legs 6a + 11b
+(**20 legs**).
+
+### §14.3 Verification receipt
+- Unit: vitest **2,435/2,435 (162 files)** (baseline 2,428) · `astro check` 0 / 0 / 8 hints (dev
+  server stopped) · knip 0.
+- Live: `provision-collections.mjs` → `+ UserModels.tU field added` (27 fields).
+- Browser: `verify-usermodels.mjs` (headless Chrome :9333, `wix dev`, the Dnipro FPV pose, the LIVE
+  collection) — receipt in DECISIONS 2026-09-03 / `mem:project/wip-2026-09-03-model-lift-goto-reset`.
+
+### §14.4 Owner taste calls surfaced (not decided)
+`MODEL_LIFT_MAX_M` 50 m (wider than the buildings' 25) · the floor keeps 25 % / ≥ 0.5 m of the
+scaled height · a foreign member may sink/lift a model (same LWW posture as MS6) · RESET on the
+MODELS row acts on a SHARED model too (one more LWW edit) · GOTO + RESET sit as plain `.mp-act`
+buttons (no icon).

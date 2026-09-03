@@ -182,6 +182,8 @@ const COLLECTIONS = [
       text("gh5", "Placement Geohash (p5)"),
       num("rotDeg", "Yaw (deg)"),
       num("scale", "Uniform Scale"),
+      // MESH SUITE MS7 (2026-09-03): the lift above the terrain seat — the BuildingOverrides name.
+      num("tU", "Lift (m)"),
       // MESH SUITE MS6 (2026-09-02m): the LAST EDITOR of the transform — any signed-in member may
       // move / turn / resize any model (LWW), so the owner's list can say "edited by another
       // member". Stamped server-side from the session (the BuildingOverrides `memberId`

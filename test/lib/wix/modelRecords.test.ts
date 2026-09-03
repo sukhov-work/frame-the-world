@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { encodeGeohash } from "../../../src/lib/geo/geohash";
 import { MODEL_CAPS } from "../../../src/lib/models/modelCaps";
+import { MODEL_LIFT_MAX_M } from "../../../src/lib/models/modelPlacement";
 import {
   GH5_RE,
   MODEL_MIME,
@@ -223,11 +224,12 @@ describe("modelRecord + modelListItem", () => {
     expect(row.bboxZ).toBe(8);
     expect(row.rotDeg).toBeNull();
     expect(row.scale).toBeNull();
+    expect(row.tU).toBeNull(); // MS7: born on the ground
     expect(row.editorMemberId).toBe("member-1"); // MS6: born owner-edited
     expect(Object.keys(row)).toEqual([
       "title", "ownerMemberId", "fileId", "url", "thumbnailFileId", "thumbnailUrl", "fileName", "sourceFormat",
       "rawBytes", "glbBytes", "tris", "meshes", "textures", "decimatedFromTris",
-      "bboxX", "bboxY", "bboxZ", "readiness", "hidden", "lat", "lon", "geohash9", "gh5", "rotDeg", "scale",
+      "bboxX", "bboxY", "bboxZ", "readiness", "hidden", "lat", "lon", "geohash9", "gh5", "rotDeg", "scale", "tU",
       "editorMemberId",
     ]);
   });
@@ -309,6 +311,11 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
     expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, rotDeg: 370, scale: 5000 })).toEqual({
       body: { id: "r", lat: 1, lon: 2, rotDeg: 10, scale: 1000 }, // the loose sanity rail (MS5b)
     });
+    // MS7: the lift — finite, clamped onto the absolute rail here (the floor needs the row's height).
+    expect("error" in parsePlacementBody({ id: "r", lat: 1, lon: 2, tU: "up" })).toBe(true);
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, tU: -3.5 })).toEqual({ body: { id: "r", lat: 1, lon: 2, tU: -3.5 } });
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, tU: 900 })).toEqual({ body: { id: "r", lat: 1, lon: 2, tU: MODEL_LIFT_MAX_M } });
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, tU: -900 })).toEqual({ body: { id: "r", lat: 1, lon: 2, tU: -MODEL_LIFT_MAX_M } });
   });
 
   it("applies a placement: coordinates + both cells re-derived, seats replaced, identity stored as null", () => {
@@ -327,6 +334,25 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
     expect(applyModelPlacement(seated, { id: "row-1", lat: 1, lon: 2 })).toMatchObject({ rotDeg: 45, scale: 1.5 });
     expect(applyModelPlacement(seated, { id: "row-1", lat: 1, lon: 2, rotDeg: 0, scale: 1 })).toMatchObject({ rotDeg: null, scale: null });
     expect(applyModelPlacement(seated, { id: "row-1", lat: 1, lon: 2, rotDeg: 0 })).toMatchObject({ rotDeg: null, scale: 1.5 });
+  });
+
+  it("MS7 — applies a lift: the floor is the row's bboxY × the NEW scale, identity stored as null, unknown height pins", () => {
+    const row = stored(); // bbox [12.4, 31.2, 8] → 31.2 m tall at 1×
+    expect(applyModelPlacement(row, { id: "row-1", lat: 1, lon: 2, tU: -5 })).toMatchObject({ tU: -5 });
+    // Too deep: the floor keeps a quarter of 31.2 m above the seat → −23.4.
+    expect(applyModelPlacement(row, { id: "row-1", lat: 1, lon: 2, tU: -30 })).toMatchObject({ tU: -23.4 });
+    // A shrink re-rails the STORED lift: 31.2 m sunk 20 m, scaled to 0.1× (3.12 m tall) → −2.34.
+    const sunk = { ...row, tU: -20 };
+    expect(applyModelPlacement(sunk, { id: "row-1", lat: 1, lon: 2, scale: 0.1 })).toMatchObject({ scale: 0.1, tU: -2.34 });
+    // A placement-only PATCH leaves the lift alone; back on the ground writes null.
+    expect(applyModelPlacement(sunk, { id: "row-1", lat: 1, lon: 2 })).toMatchObject({ tU: -20 });
+    expect(applyModelPlacement(sunk, { id: "row-1", lat: 1, lon: 2, tU: 0 })).toMatchObject({ tU: null });
+    expect(applyModelPlacement(sunk, { id: "row-1", lat: 1, lon: 2, rotDeg: 0, scale: 1, tU: 0 })).toMatchObject({ rotDeg: null, scale: null, tU: null });
+    // No bbox on the row → nothing proves the model would stay visible → pinned to the ground.
+    expect(applyModelPlacement({ ...row, bboxY: null }, { id: "row-1", lat: 1, lon: 2, tU: -5 })).toMatchObject({ tU: null });
+    expect(applyModelPlacement({ ...row, bboxY: null }, { id: "row-1", lat: 1, lon: 2, tU: 5 })).toMatchObject({ tU: 5 });
+    // Born on the ground.
+    expect(row.tU).toBeNull();
   });
 
   it("parses the world read's cell list: 1..N distinct p5 cells, lower-cased", () => {
@@ -354,12 +380,16 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
       lon: 35.0462,
       rotDeg: 30,
       scale: 1.5,
+      tU: 0,
       updatedAt: "2026-09-02T12:30:00.000Z",
     });
+    // MS7: the lift rides the public row, railed on read against the row's height × scale.
+    expect(publicModel({ ...row, tU: -4 })!.tU).toBe(-4);
+    expect(publicModel({ ...row, tU: -400 })!.tU).toBe(-(31.2 * 1.5 - 0.25 * 31.2 * 1.5)); // the floor at 1.5×
     expect(Object.keys(pub)).not.toContain("ownerMemberId");
     expect(Object.keys(pub)).not.toContain("fileId");
     expect(Object.keys(pub)).not.toContain("thumbnailFileId");
-    expect(publicModel({ ...row, rotDeg: null, scale: null })).toMatchObject({ rotDeg: 0, scale: 1 });
+    expect(publicModel({ ...row, rotDeg: null, scale: null, tU: null })).toMatchObject({ rotDeg: 0, scale: 1, tU: 0 });
     // Anything the world must not stream is dropped even if the query let it through.
     expect(publicModel({ ...row, hidden: true })).toBeNull();
     expect(publicModel({ ...row, readiness: "PENDING" })).toBeNull();
@@ -369,8 +399,10 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
 
   it("the owner list row surfaces the seats (identity when the row holds null)", () => {
     const row = stored();
-    expect(modelListItem(row)).toMatchObject({ rotDeg: 0, scale: 1 });
+    expect(modelListItem(row)).toMatchObject({ rotDeg: 0, scale: 1, tU: 0 });
     expect(modelListItem({ ...row, rotDeg: -20, scale: 0.5 })).toMatchObject({ rotDeg: -20, scale: 0.5 });
+    expect(modelListItem({ ...row, tU: -6 })).toMatchObject({ tU: -6 });
+    expect(modelListItem({ ...row, tU: -60 })).toMatchObject({ tU: -23.4 }); // railed on read (31.2 m tall)
   });
 });
 

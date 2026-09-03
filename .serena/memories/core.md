@@ -178,7 +178,24 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02n: T77 LEAD-IN DONE — the ENGINE STATE report + the WEB-RESEARCH prompt (research, read-only).**
+**2026-09-03: MESH SUITE MS7 BUILT — the LIFT seat (vertical drag) + MODELS-row GOTO / RESET (owner
+order after testing MS6).** User models now carry a THIRD stored seat `UserModels.tU` (m above the
+terrain seat; provisioned LIVE → 27 fields): a vertical drag of the MOVE gizmo's Y arrow lifts/sinks
+the model, railed onto `[liftFloorM(height × scale), MODEL_LIFT_MAX_M 50]` on EVERY path — the floor
+keeps a quarter of the scaled height (≥ 0.5 m) above the seat, so a model is never pushed fully into
+the texture; MOVE's ↺ / RESET ALL land it. MY PINS · MODELS rows gained GOTO (stand beside) + RESET
+(RESET ALL's twin via one PATCH, own or shared row). Building gizmo byte-identical (default `liftRail`).
+vitest 2,435 · astro 0/0/8 · knip 0 · `verify-usermodels` PASS 20 legs · `verify-bldg-override` +
+`verify-modelupload` PASS (no regression; `verify-meshedit`'s menu leg is RED but PROVEN pre-existing/
+environment — fails identically on master with changes stashed). `mem:project/wip-2026-09-03-model-lift-goto-reset`
+· plan §14 · DECISIONS 2026-09-03 · T74. **NEXT owner order (2026-09-03, recorded): add VERTICAL rotation (pitch / roll) to user models — today
+ROTATE is YAW-ONLY** (the owner confirmed the MS7 lift / "Z" works well). Same MS7 principles: a new
+record shape provisioned first, saved/synced, RESET/↺ zero it, LWW, and — binding — keep the 3-axis
+rotation MODEL-SPECIFIC so the SHARED gizmo/`FeatureTransform` leaves BUILDINGS yaw-only (§4a). Backlog
+**T78** · NEXT_SESSION owner-order block. **Also open: T77 proper** (the architecture + performance
+audit) — unchanged from below.
+
+Prior: **2026-09-02n: T77 LEAD-IN DONE — the ENGINE STATE report + the WEB-RESEARCH prompt (research, read-only).**
 `rendering/ENGINE_STATE_2026-09-02.md` (verdict: the three visible defects — unstable shadows, slow
 off-cone reseat, unmeasured mobile — are architectural, not tuning; no draw-call/tri/GPU reading exists
 on any hardware; shadow box never texel-snapped, base profile has no cascade and cuts at 5 km, ULTRA

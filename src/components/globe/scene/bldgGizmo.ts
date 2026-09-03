@@ -117,9 +117,14 @@ export function attachBldgGizmo(
     /** Rail the raw read-back. Default = the building rails (`clampGizmoEdit`); MESH SUITE MS5
      *  hands a user model its own (uniform scale, no lift, a wider move). */
     clamp?(raw: FeatureTransform, start: FeatureTransform): FeatureTransform;
-    /** MOVE shows the Y (lift) arrow. Default true; a user model has no lift seat (MS5), so
-     *  its instance hides it — the X/Z arrows and the ground plane stay. */
+    /** MOVE shows the Y (lift) arrow. Default true; an instance without a lift seat hides it —
+     *  the X/Z arrows and the ground plane stay. (MS5's model instance hid it; MS7 shows it.) */
     lift?: boolean;
+    /** MOVE's Y-arrow rail in METRES about the seated base (`down()`'s `liveBaseY`; parent-space
+     *  Y = liveBaseY + m). Default = the building rail `[0, LIFT_MAX_M]`. MESH SUITE MS7: a user
+     *  model hands its height-aware floor (a sunk model keeps part of itself above the ground)
+     *  and its own ceiling, both from the transform the drag starts on. */
+    liftRail?(start: FeatureTransform): { minM: number; maxM: number };
   },
 ): BldgGizmoHandle {
   const clamp = cb.clamp ?? clampGizmoEdit;
@@ -284,10 +289,12 @@ export function attachBldgGizmo(
       live = null;
       changed = false;
       // The lift rail on the anchor's own Y (parent = the cell mesh, so parent space IS the
-      // bake-local frame the seat lives in): never below the seated base, never past LIFT_MAX_M.
+      // bake-local frame the seat lives in): the building never below its seated base nor past
+      // LIFT_MAX_M; a rig without a lift seat is pinned; MS7's model rail comes from `liftRail`.
       const move = attachedOp === "move";
-      tc.minY = move ? liveBaseY : -Infinity;
-      tc.maxY = move ? liveBaseY + (lift ? LIFT_MAX_M : 0) : Infinity;
+      const rail = lift && move ? (cb.liftRail?.(start) ?? { minM: 0, maxM: LIFT_MAX_M }) : { minM: 0, maxM: 0 };
+      tc.minY = move ? liveBaseY + rail.minM : -Infinity;
+      tc.maxY = move ? liveBaseY + rail.maxM : Infinity;
       tc.pointerDown(asPointer({ x: ndcX, y: ndcY, button: 0 }));
       if (!tc.dragging) {
         startT = null;

@@ -24,6 +24,7 @@ const row = (id: string, over: Partial<PublicModel> = {}): PublicModel => ({
   lon: LON,
   rotDeg: 0,
   scale: 1,
+  tU: 0,
   updatedAt: "2026-09-02T12:00:00.000Z",
   ...over,
 });
@@ -158,10 +159,10 @@ describe("scene/userModels", () => {
     expect(r.anchor.position.length()).toBe(0);
     expect(r.body.scale.x).toBe(1);
     // A committed seat snaps; a later one eases.
-    h.setSeats("a", { rotDeg: 90, scale: 2 }, true);
+    h.setSeats("a", { rotDeg: 90, scale: 2, liftM: 0 }, true);
     expect(r.body.scale.x).toBe(2);
-    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
-    h.setSeats("a", { rotDeg: 0, scale: 1 });
+    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2, liftM: 0 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: 0 });
     h.update(cam, 6);
     expect(r.body.scale.x).toBeLessThan(2);
     expect(r.body.scale.x).toBeGreaterThan(1);
@@ -179,6 +180,63 @@ describe("scene/userModels", () => {
     h.setArmed(null);
     expect(mat.emissiveIntensity).toBe(1);
     expect(mat.emissive.getHex()).toBe(0x000000);
+    h.dispose();
+  });
+
+  it("MS7 — the lift is the anchor's Y: railed on read against the model's height × scale, live through placeRig, eased on a row change", async () => {
+    const scene = new THREE.Scene();
+    const loader = makeLoader();
+    const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
+    // bbox [4, 6, 4] → 6 m tall → the floor keeps 1.5 m above the seat → −4.5.
+    h.setModels([row("a", { tU: -2 }), row("b", { tU: -40 }), row("c", { tU: 400 })]);
+    const cam = cameraNear();
+    h.update(cam, 0);
+    await flush();
+    h.update(cam, MODELS.residencyEveryFrames); // the third fetch waits for the next re-plan (2 concurrent loads)
+    await flush();
+    const ra = h.rig("a")!;
+    expect(ra.anchor.position.y).toBe(-2);
+    expect(h.info("a")?.seats.liftM).toBe(-2);
+    expect(h.rig("b")!.anchor.position.y).toBe(-4.5);
+    expect(h.rig("c")!.anchor.position.y).toBe(50);
+    // The loaded bounds outrank the record's bbox for the floor (the box is 6 m, so unchanged here).
+    expect(h.info("b")?.sizeM3).toEqual([4, 4, 6]);
+    // A live drag writes the lift straight onto the anchor and reads back as tU.
+    h.setDragging("a", true);
+    h.placeRig("a", { sx: 1, sy: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: 3 });
+    expect(ra.anchor.position.y).toBe(3);
+    const back = rigToTransform(
+      { ax: ra.anchor.position.x, ay: ra.anchor.position.y, az: ra.anchor.position.z, qy: ra.body.quaternion.y, qw: ra.body.quaternion.w, sx: ra.body.scale.x, sy: ra.body.scale.y, sz: ra.body.scale.z },
+      { cx: 0, cz: 0, liveBaseY: 0, inflate: 1 },
+    );
+    expect(back.tU).toBe(3);
+    // A cancelled drag falls back on the committed lift; a snapped commit lands at once (railed).
+    h.setDragging("a", false);
+    expect(ra.anchor.position.y).toBe(-2);
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -10 }, true);
+    expect(ra.anchor.position.y).toBe(-4.5);
+    // A shrink re-rails the floor: at 0.5× the box is 3 m → floor −2.25.
+    h.setSeats("a", { rotDeg: 0, scale: 0.5, liftM: -4.5 }, true);
+    expect(ra.anchor.position.y).toBe(-2.25);
+    // A row change (a RESET from the list / another member) eases the lift back to the ground.
+    h.setModels([row("a", { tU: 0, updatedAt: "2026-09-03T00:00:00.000Z" }), row("b", { tU: -40 }), row("c", { tU: 400 })]);
+    h.update(cam, 1);
+    expect(ra.anchor.position.y).toBeGreaterThan(-2.25);
+    expect(ra.anchor.position.y).toBeLessThan(0);
+    for (let f = 2; f < 300; f++) h.update(cam, f);
+    expect(ra.anchor.position.y).toBe(0);
+    // The label anchor rides the lift (the top of a lifted model is higher).
+    const top = new THREE.Vector3();
+    h.setSeats("c", { rotDeg: 0, scale: 1, liftM: 50 }, true);
+    expect(h.topWorld("c", top)).toBe(true);
+    const frameC = h.rig("c")!.anchor.parent as THREE.Group;
+    const upC = new THREE.Vector3(0, 1, 0).applyQuaternion(frameC.quaternion);
+    expect(top.clone().sub(frameC.position).dot(upC)).toBeCloseTo(56, 6); // 50 lift + 6 tall
+    // Rebase keeps the lift (only east/north return to zero).
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -1 }, true);
+    h.rebase("a", LAT + 0.001, LON);
+    expect(ra.anchor.position.x).toBe(0);
+    expect(ra.anchor.position.y).toBe(-1);
     h.dispose();
   });
 

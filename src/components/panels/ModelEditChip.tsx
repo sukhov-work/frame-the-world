@@ -21,8 +21,9 @@ import "../../styles/building-edit.css";
  * only REQUESTS (the op to switch to, per-op revert, RESET ALL, DONE).
  *
  * Three ops: MOVE (the placement — a drag's east/north offset folds into new coordinates on
- * release; there is no "original" to revert to), ROTATE (yaw) and SCALE (uniform). No lift: a
- * model always stands on the terrain (MESH_SUITE_PLAN §10).
+ * release; there is no "original" placement to revert to — and, MESH SUITE MS7 2026-09-03, the
+ * LIFT: the Y arrow raises or sinks the model about its terrain seat, railed so it never sinks
+ * out of sight; its ↺ puts it back on the ground), ROTATE (yaw) and SCALE (uniform).
  */
 
 export const MODEL_OP_LABEL: Record<ModelEditOp, string> = { move: "MOVE", rotate: "ROTATE", scale: "SCALE" };
@@ -38,19 +39,21 @@ export const MODEL_ORIGIN_TITLE = {
 } as const;
 
 /** One op's CURRENT value as the chip prints it. MOVE shows the drag offset while dragging,
- *  else the placement; the yaw is COMPASS sense (clockwise from above = −rotDeg). MS5b (owner
- *  2026-09-02j): the SCALE row leads with the current size in METRES (`sizeM3` × the live
- *  scale, `w × d × h`) and keeps the factor beside it. */
+ *  else the placement — plus the lift (MS7) whenever it is not on the ground; the yaw is COMPASS
+ *  sense (clockwise from above = −rotDeg). MS5b (owner 2026-09-02j): the SCALE row leads with the
+ *  current size in METRES (`sizeM3` × the live scale, `w × d × h`) and keeps the factor beside it. */
 export function modelOpReadout(
   op: ModelEditOp,
   live: ModelEdit,
   armed: { lat: number; lon: number; sizeM3?: readonly [number, number, number] | null },
 ): string {
   switch (op) {
-    case "move":
+    case "move": {
+      const lift = Math.abs(live.liftM) >= 0.005 ? ` · ↑${sg(live.liftM)} m` : "";
       return Math.abs(live.tE) >= 0.05 || Math.abs(live.tN) >= 0.05
-        ? `${sg(live.tE)} E · ${sg(live.tN)} N`
-        : `${armed.lat.toFixed(5)}, ${armed.lon.toFixed(5)}`;
+        ? `${sg(live.tE)} E · ${sg(live.tN)} N${lift}`
+        : `${armed.lat.toFixed(5)}, ${armed.lon.toFixed(5)}${lift}`;
+    }
     case "rotate":
       return `${sg(-live.rotDeg)}° cw`;
     case "scale":
@@ -65,7 +68,7 @@ export function modelOpReadout(
 export function modelOpOriginal(op: ModelEditOp, sizeM3?: readonly [number, number, number] | null): string {
   switch (op) {
     case "move":
-      return "where you dropped it";
+      return "where you dropped it, on the ground";
     case "rotate":
       return "0.0° cw";
     case "scale":

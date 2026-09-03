@@ -409,6 +409,7 @@ export const useModelUploadStore = create<ModelUploadStore>((set, get) => ({
         lon: s.placement?.lonDeg ?? null,
         rotDeg: 0,
         scale: 1,
+        tU: 0,
         createdAt: null,
         updatedAt: null,
         editedByOther: false,

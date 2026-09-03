@@ -3,9 +3,9 @@ import { useCameraStore } from "../../store/camera";
 import { useUserModelsStore, type MinePhase } from "../../store/userModels";
 import type { ModelListItem } from "../../lib/wix/modelRecords";
 import { MODEL_TITLE_MAX } from "../../lib/wix/modelRecords";
-import { formatDims } from "../../lib/format/readout";
+import { formatDims, formatMetres } from "../../lib/format/readout";
 import { formatTris } from "../../lib/models/modelCaps";
-import { modelStandpoint } from "../../lib/models/modelPlacement";
+import { MODEL_XF_EPS, isIdentityModelTransform, modelStandpoint } from "../../lib/models/modelPlacement";
 import { startModelPlacement } from "./ModelUploadStep";
 
 /**
@@ -15,12 +15,14 @@ import { startModelPlacement } from "./ModelUploadStep";
  * the world at once (the store's optimistic path). Desktop-only by mount: models have no /m entry.
  *
  * A row: OUR thumbnail (the platform's is a permanent 403) or the dashed placeholder · the title ·
- * `w × d × h m · N tris` at the committed scale · badges (HIDDEN · PROCESSING · FAILED · NOT PLACED
- * · EDITED — another member re-edited it) · trailing ✎ (rename inline: Enter saves, Escape cancels)
- * · HIDE / SHOW · ✕ → SURE? (the two-press delete). A click on a PLACED row stands beside the model
- * in first-person view (the PLACES-row jump — FPV is where editing works); an UNPLACED row starts
- * click-to-place on the globe. Hidden models leave the world, not the link (the MS0 consequence —
- * the foot says so whenever a row is hidden).
+ * `w × d × h m · N tris` at the committed scale (· `↑ ±x m` when lifted or sunk — MS7) · badges
+ * (HIDDEN · PROCESSING · FAILED · NOT PLACED · EDITED — another member re-edited it) · trailing ✎
+ * (rename inline: Enter saves, Escape cancels) · GOTO (MS7, owner 2026-09-03: stand beside it) ·
+ * RESET (MS7: RESET ALL's twin — yaw 0, scale 1, back on the ground, the spot kept; lit only when
+ * the seats differ from the upload) · HIDE / SHOW · ✕ → SURE? (the two-press delete). A click on a
+ * PLACED row stands beside the model in first-person view (the PLACES-row jump — FPV is where
+ * editing works); an UNPLACED row starts click-to-place on the globe. Hidden models leave the
+ * world, not the link (the MS0 consequence — the foot says so whenever a row is hidden).
  *
  * The view takes its state as props (zustand 5 serves a hook its INITIAL state under
  * renderToStaticMarkup); the connected component owns the per-row UI state.
@@ -29,6 +31,10 @@ import { startModelPlacement } from "./ModelUploadStep";
 export interface MyModelsActions {
   /** Row click: stand beside a placed model / start placing an unplaced one. */
   open(m: ModelListItem): void;
+  /** MS7 GOTO: stand beside a PLACED model in first-person view (the row click's placed half). */
+  goto(m: ModelListItem): void;
+  /** MS7 RESET: the upload's yaw / size / ground seat back through ONE placement PATCH. */
+  reset(m: ModelListItem): void;
   beginRename(m: ModelListItem): void;
   cancelRename(): void;
   setDraft(title: string): void;
@@ -55,16 +61,22 @@ const BADGE_TITLE = {
   processing: "The platform is still processing the file",
   failed: "The platform could not process the file",
   unplaced: "Not on the globe yet — click the row to place it",
-  edited: "Another member moved, turned or resized this model",
+  edited: "Another member moved, turned, resized or lifted this model",
 } as const;
 
-/** The row's fact line: the CURRENT size (the upload's bounds × the committed scale, w × d × h)
- *  and the triangle count. */
+/** The row's fact line: the CURRENT size (the upload's bounds × the committed scale, w × d × h),
+ *  the triangle count, and (MS7) the lift when the model is not on the ground. */
 export function modelRowSub(m: ModelListItem): string {
   const parts: string[] = [];
   if (m.bbox) parts.push(formatDims([m.bbox[0] * m.scale, m.bbox[2] * m.scale, m.bbox[1] * m.scale]));
   if (m.tris !== null) parts.push(`${formatTris(m.tris)} TRIS`);
+  if (Math.abs(m.tU) >= MODEL_XF_EPS.liftM) parts.push(`↑ ${m.tU > 0 ? "+" : "−"}${formatMetres(Math.abs(m.tU))}`);
   return parts.join(" · ");
+}
+
+/** MS7: RESET is meaningful only for a PLACED model whose seats differ from the upload. */
+export function modelRowResettable(m: ModelListItem): boolean {
+  return m.lat !== null && m.lon !== null && !isIdentityModelTransform({ rotDeg: m.rotDeg, scale: m.scale, liftM: m.tU });
 }
 
 /** The badges a row wears, in display order. */
@@ -172,6 +184,32 @@ export function MyModelsTabView({ state, actions }: { state: MyModelsViewState; 
                   <button
                     type="button"
                     className="mp-act"
+                    data-act="goto"
+                    title={placed ? "Stand beside it in first-person view" : "Not on the globe yet — click the row to place it"}
+                    aria-label={`Go to ${m.title}`}
+                    disabled={busy || !placed}
+                    onClick={() => actions.goto(m)}
+                  >
+                    GOTO
+                  </button>
+                  <button
+                    type="button"
+                    className="mp-act"
+                    data-act="reset"
+                    title={
+                      modelRowResettable(m)
+                        ? "Back to the upload — turn 0°, size 1×, standing on the ground; the spot stays"
+                        : "As uploaded — nothing to reset"
+                    }
+                    aria-label={`Reset ${m.title}`}
+                    disabled={busy || !modelRowResettable(m)}
+                    onClick={() => actions.reset(m)}
+                  >
+                    {busy ? "…" : "RESET"}
+                  </button>
+                  <button
+                    type="button"
+                    className="mp-act"
                     data-act="hide"
                     title={m.hidden ? "Show it in the world again" : "Hide it from the world (the file stays public by URL)"}
                     aria-pressed={m.hidden}
@@ -224,9 +262,14 @@ export default function MyModelsTab({ onClose }: { onClose: () => void }) {
         onClose();
         return;
       }
-      // Stand south of it, looking north, a few model-heights back (the size at the committed scale).
+      actions.goto(m);
+    },
+    goto: (m) => {
+      if (m.lat === null || m.lon === null) return;
+      // Stand south of it, looking north, a few model-heights back (the size at the committed
+      // scale; a lifted model is aimed at where it actually is — MS7).
       const size = m.bbox ? ([m.bbox[0], m.bbox[2], m.bbox[1]] as [number, number, number]) : null;
-      const pose = modelStandpoint(m.lat, m.lon, size, m.scale, 0);
+      const pose = modelStandpoint(m.lat, m.lon, size, m.scale, 0, m.tU);
       useCameraStore.getState().requestFpvJump({
         latDeg: pose.latDeg,
         lonDeg: pose.lonDeg,
@@ -236,6 +279,15 @@ export default function MyModelsTab({ onClose }: { onClose: () => void }) {
         fovDeg: pose.fovDeg,
       });
       onClose();
+    },
+    reset: async (m) => {
+      if (!modelRowResettable(m)) return;
+      setArmedDeleteId(null);
+      setBusyId(m.id);
+      setError(null);
+      const row = await useUserModelsStore.getState().resetTransform(m.id);
+      setBusyId(null);
+      if (!row) setError("reset failed");
     },
     beginRename: (m) => {
       setArmedDeleteId(null);
