@@ -348,7 +348,9 @@ Traps these harnesses have paid for, in the order they will bite again:
   chained; with the chip on at boot, 452 of 452. These levers are delivered by a **reload**.
 - **A building is still a rigid box translated by one scalar at one centroid.** On a slope the
   downhill edge hangs and the uphill edge buries by ±(slope × half-diagonal). The bake-side base
-  skirt that would hide the residual is not built.
+  skirt that hides the downhill residual shipped as RC13 on 2026-08-26c (the wall rim lowered 4 m
+  below the base, +0 vertices); the uphill burial remains. *(Sentence corrected 2026-09-02n — it
+  previously said the skirt was not built.)*
 - **Depth encoding is unchanged** and, per §2.1, has no evidence behind changing it.
 - **Post-process AA is absent.** There is no FXAA/SMAA/TAA anywhere; MSAA on the composer target is
   the only anti-aliasing.

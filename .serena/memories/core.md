@@ -178,7 +178,21 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-02m: MESH SUITE MS6 BUILT — D3 management + world edit; the ladder MS0–MS6 is COMPLETE.**
+**2026-09-02n: T77 LEAD-IN DONE — the ENGINE STATE report + the WEB-RESEARCH prompt (research, read-only).**
+`rendering/ENGINE_STATE_2026-09-02.md` (verdict: the three visible defects — unstable shadows, slow
+off-cone reseat, unmeasured mobile — are architectural, not tuning; no draw-call/tri/GPU reading exists
+on any hardware; shadow box never texel-snapped, base profile has no cascade and cuts at 5 km, ULTRA
+cascades multiplied with no dispatch; height memo dropped city-wide on every terrain tile; eases have no
+dt term; `(pointer: coarse)` is the only phone signal; verified absences: worker tile parse, HLOD,
+occlusion culling, BVH, model instancing, compressed textures, post-AA, `compileAsync`, VRAM accounting,
+WebGPU) + `rendering/WEB_RESEARCH_PROMPT_2026-09-02.md` (self-contained; the owner runs it on web Claude →
+`rendering/WEB_RESEARCH_REPORT_<date>.md`). **NEXT: T77 proper** — reconcile the web report against
+ENGINE_STATE §5/§6, then audit step 1 = MEASURE (DBG at Dnipro/ULTRA/Everest//m × 0/6/24 models × ULTRA ×
+shadows × tiers; then the iPhone 17 Pro via Safari remote inspector), then the §11 slices (shadows → seats
+→ streaming/workers → mobile), each a separate read-only-audit-then-sliced-fix session.
+`mem:project/wip-2026-09-02-t77-engine-state-report` · DECISIONS 2026-09-02n.
+
+Prior: **2026-09-02m: MESH SUITE MS6 BUILT — D3 management + world edit; the ladder MS0–MS6 is COMPLETE.**
 MY PINS · MODELS tab (rename inline · HIDE/SHOW · ✕ → SURE? · a row click stands beside the model in
 FPV / places an unplaced one); the placement PATCH opened to EVERY signed-in member — LWW structural
 (`items.update` by `_id`), `editorMemberId` stamped (a NEW live field, 26), the owner's list says
