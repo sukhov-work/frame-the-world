@@ -219,6 +219,9 @@ export async function patchModelPlacement(body: {
   scale?: number;
   /** MS7: the lift (m). */
   tU?: number;
+  /** MS8: the vertical rotation (degrees). */
+  pitchDeg?: number;
+  rollDeg?: number;
 }): Promise<ModelPatchAnswer> {
   return requestJson("/api/models", "PATCH", body);
 }

@@ -49,6 +49,8 @@ const item = (id: string, over: Partial<ModelListItem> = {}): ModelListItem => (
   rotDeg: 0,
   scale: 1,
   tU: 0,
+  pitchDeg: 0,
+  rollDeg: 0,
   createdAt: null,
   updatedAt: null,
   editedByOther: false,
@@ -112,9 +114,14 @@ describe("MyModelsTab (MS6)", () => {
     expect(modelRowSub(item("s", { tU: -1.5 }))).toBe("12.4 × 8.00 × 31.2 m · 84.0K TRIS · ↑ −1.50");
     expect(modelRowSub(item("l", { tU: 12 }))).toBe("12.4 × 8.00 × 31.2 m · 84.0K TRIS · ↑ +12.0");
     expect(modelRowSub(item("g", { tU: 0.004 }))).toBe("12.4 × 8.00 × 31.2 m · 84.0K TRIS"); // under the 1 cm eps
+    // MS8: the tilt on the fact line only when tilted (integer degrees, signed).
+    expect(modelRowSub(item("t", { pitchDeg: 30.4, rollDeg: -5 }))).toBe("12.4 × 8.00 × 31.2 m · 84.0K TRIS · ⟲ +30° · −5°");
+    expect(modelRowSub(item("t2", { tU: 12, pitchDeg: 0, rollDeg: 180 }))).toBe("12.4 × 8.00 × 31.2 m · 84.0K TRIS · ↑ +12.0 · ⟲ 0° · +180°");
+    expect(modelRowSub(item("u", { pitchDeg: 0.02 }))).toBe("12.4 × 8.00 × 31.2 m · 84.0K TRIS");
     expect(modelRowResettable(item("a"))).toBe(false);
     expect(modelRowResettable(item("a", { rotDeg: 15 }))).toBe(true);
     expect(modelRowResettable(item("a", { tU: -0.5 }))).toBe(true);
+    expect(modelRowResettable(item("a", { rollDeg: 90 }))).toBe(true); // MS8: a tilt alone lights RESET
     expect(modelRowResettable(item("a", { scale: 2, lat: null, lon: null }))).toBe(false);
   });
 

@@ -7,6 +7,7 @@ import {
   type FeatureTransform,
   type RigFrame,
 } from "../../../lib/globe/featureTransform";
+import { eulerFromQuaternion } from "../../../lib/models/modelPlacement";
 import type { BldgEditOp } from "../../../store/bldgEdit";
 import type { GhostRig } from "./enrichedBuildings";
 
@@ -82,6 +83,11 @@ export interface BldgGizmoHandle {
   handleScreenPx(name: string, rect: DOMRect): { x: number; y: number } | null;
   /** DEV (harness): client px of the gizmo origin (the attached object's world position). */
   originPx(rect: DOMRect): { x: number; y: number } | null;
+  /** DEV (harness, MESH SUITE MS8): `count` client-px points along a ROTATE ring's centre-line
+   *  (the picker torus named `name` — `X` / `Y` / `Z`), for a hover-search where three rings
+   *  overlap on screen. Points behind the camera are dropped; empty when unattached / not in
+   *  rotate mode / the ring hidden. */
+  ringPx(name: string, rect: DOMRect, count?: number): Array<{ x: number; y: number }>;
   /** DEV: the controls' drag internals + a plane probe at an NDC point (diagnostics only). */
   debug(ndcX?: number, ndcY?: number): Record<string, unknown>;
   /** DEV (harness POSITIVE CONTROL, §11.4): the helper root itself — a harness re-adds it to the
@@ -125,10 +131,18 @@ export function attachBldgGizmo(
      *  model hands its height-aware floor (a sunk model keeps part of itself above the ground)
      *  and its own ceiling, both from the transform the drag starts on. */
     liftRail?(start: FeatureTransform): { minM: number; maxM: number };
+    /** MESH SUITE MS8 (owner 2026-09-03): ROTATE shows the X and Z rings too (pitch / roll about
+     *  the body's OWN axes — `space` is local) and the read-back decomposes the body's FULL
+     *  quaternion into the canonical YXZ triple (`eulerFromQuaternion`), handing `pitchDeg` /
+     *  `rollDeg` beside the yaw to `clamp`. Default false = the yaw-only ring and the pure-Y
+     *  read (`yawDegFromQuaternion` via `rigToTransform`) — the BUILDING instance, byte-identical
+     *  (§4a: buildings stay yaw-only). */
+    tilt?: boolean;
   },
 ): BldgGizmoHandle {
   const clamp = cb.clamp ?? clampGizmoEdit;
   const lift = cb.lift !== false;
+  const tilt = cb.tilt === true;
   const tc = new TransformControls(camera); // no domElement — pointers are fed (module header)
   tc.space = "local";
   tc.size = ENRICHED.gizmoSize;
@@ -173,10 +187,13 @@ export function attachBldgGizmo(
       tc.showXZ = true;
     } else if (op === "rotate") {
       // Yaw only: hiding X and Z also hides the screen-space E ring (three shows it only with
-      // all three axes on); XYZE (free trackball) off explicitly.
+      // all three axes on); XYZE (free trackball) off explicitly. MS8: a `tilt` instance shows
+      // the X (pitch) and Z (roll) rings as well — and then turns the E ring off by name
+      // (`showE`), since three would show it with all three axes on.
       tc.setMode("rotate");
-      tc.showX = tc.showZ = false;
+      tc.showX = tc.showZ = tilt;
       tc.showY = true;
+      tc.showE = !tilt;
       tc.showXYZE = false;
     } else if (op === "scale") {
       // Per-axis X/Z (footprint) + Y (height, the extrude twin), the XZ plane (uniform
@@ -195,7 +212,9 @@ export function attachBldgGizmo(
     a.rotDeg === b.rotDeg &&
     a.tE === b.tE &&
     a.tN === b.tN &&
-    a.tU === b.tU;
+    a.tU === b.tU &&
+    (a.pitchDeg ?? 0) === (b.pitchDeg ?? 0) &&
+    (a.rollDeg ?? 0) === (b.rollDeg ?? 0);
 
   const onObjectChange = () => {
     if (!rigRef || !frame || !startT || !tc.dragging) return;
@@ -214,6 +233,15 @@ export function attachBldgGizmo(
       },
       frame,
     );
+    if (tilt) {
+      // MS8: the body may carry pitch / roll now — the pure-Y read above is wrong for it; take
+      // the canonical YXZ triple of the whole quaternion instead.
+      const q = b.quaternion;
+      const e = eulerFromQuaternion(q.x, q.y, q.z, q.w);
+      raw.rotDeg = e.yawDeg;
+      raw.pitchDeg = e.pitchDeg;
+      raw.rollDeg = e.rollDeg;
+    }
     const clamped = clamp(raw, startT);
     if (!sameT(clamped, raw)) cb.place(clamped); // the handle stops at the rail
     live = clamped;
@@ -363,6 +391,22 @@ export function attachBldgGizmo(
       if (!attachedObj) return null;
       attachedObj.getWorldPosition(_v);
       return toPx(_v, rect);
+    },
+    ringPx(name, rect, count = 24) {
+      const g = internals();
+      if (!g || !attachedObj || tc.mode !== "rotate") return [];
+      const child = g.picker.rotate?.children.find((c) => c.name === name) as THREE.Mesh | undefined;
+      if (!child || !child.visible) return [];
+      // three's picker is `TorusGeometry(0.5, 0.1, …)` — the centre-line is the radius-0.5
+      // circle in the torus's local XY plane (version-pinned, like `handleScreenPx`).
+      const out: Array<{ x: number; y: number }> = [];
+      for (let i = 0; i < count; i++) {
+        const th = (i / count) * Math.PI * 2;
+        _v.set(0.5 * Math.cos(th), 0.5 * Math.sin(th), 0).applyMatrix4(child.matrixWorld);
+        const p = toPx(_v, rect);
+        if (p) out.push(p);
+      }
+      return out;
     },
     debug(ndcX, ndcY) {
       const t = tc as unknown as {

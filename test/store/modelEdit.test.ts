@@ -22,8 +22,8 @@ const armed = (): ModelEditArmed => ({
   dragging: false,
   overridden: false,
   op: "move",
-  committed: { rotDeg: 0, scale: 1, liftM: 0 },
-  live: { rotDeg: 0, scale: 1, liftM: 0, tE: 0, tN: 0 },
+  committed: { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 },
+  live: { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0, tE: 0, tN: 0 },
   saving: false,
   saveError: null,
 });
@@ -67,26 +67,35 @@ describe("store/modelEdit", () => {
   });
 
   it("MS7 — MOVE owns the lift: edited when off the ground, its revert lands the model, RESET ALL zeroes it too", () => {
-    const sunk = { rotDeg: 30, scale: 1.5, liftM: -2 };
+    const sunk = { rotDeg: 30, scale: 1.5, liftM: -2, pitchDeg: 0, rollDeg: 0 };
     expect(modelOpIsEdited("move", sunk)).toBe(true);
-    expect(modelOpIsEdited("move", { rotDeg: 0, scale: 1, liftM: 0.005 })).toBe(false); // under the 1 cm eps
-    expect(revertModelOp(sunk, "move")).toEqual({ rotDeg: 30, scale: 1.5, liftM: 0 });
-    expect(revertModelOp(sunk, "rotate")).toEqual({ rotDeg: 0, scale: 1.5, liftM: -2 }); // the lift survives another op's ↺
-    expect(revertModelOp(sunk, "all")).toEqual({ rotDeg: 0, scale: 1, liftM: 0 });
-    expect(restingEdit(sunk)).toEqual({ rotDeg: 30, scale: 1.5, liftM: -2, tE: 0, tN: 0 });
+    expect(modelOpIsEdited("move", { rotDeg: 0, scale: 1, liftM: 0.005, pitchDeg: 0, rollDeg: 0 })).toBe(false); // under the 1 cm eps
+    expect(revertModelOp(sunk, "move")).toEqual({ rotDeg: 30, scale: 1.5, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(revertModelOp(sunk, "rotate")).toEqual({ rotDeg: 0, scale: 1.5, liftM: -2, pitchDeg: 0, rollDeg: 0 }); // the lift survives another op's ↺
+    expect(revertModelOp(sunk, "all")).toEqual({ rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(restingEdit(sunk)).toEqual({ rotDeg: 30, scale: 1.5, liftM: -2, pitchDeg: 0, rollDeg: 0, tE: 0, tN: 0 });
   });
 
   it("knows which op is edited (MOVE only through the lift) and reverts per op or all", () => {
-    const t = { rotDeg: 30, scale: 1.5, liftM: 0 };
+    const t = { rotDeg: 30, scale: 1.5, liftM: 0, pitchDeg: 0, rollDeg: 0 };
     expect(modelOpIsEdited("move", t)).toBe(false);
     expect(modelOpIsEdited("rotate", t)).toBe(true);
     expect(modelOpIsEdited("scale", t)).toBe(true);
-    expect(modelOpIsEdited("rotate", { rotDeg: 0.01, scale: 1, liftM: 0 })).toBe(false);
-    expect(modelOpIsEdited("scale", { rotDeg: 0, scale: 1.001, liftM: 0 })).toBe(false);
-    expect(revertModelOp(t, "rotate")).toEqual({ rotDeg: 0, scale: 1.5, liftM: 0 });
-    expect(revertModelOp(t, "scale")).toEqual({ rotDeg: 30, scale: 1, liftM: 0 });
+    expect(modelOpIsEdited("rotate", { rotDeg: 0.01, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toBe(false);
+    expect(modelOpIsEdited("scale", { rotDeg: 0, scale: 1.001, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toBe(false);
+    expect(revertModelOp(t, "rotate")).toEqual({ rotDeg: 0, scale: 1.5, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(revertModelOp(t, "scale")).toEqual({ rotDeg: 30, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
     expect(revertModelOp(t, "move")).toEqual(t);
-    expect(revertModelOp(t, "all")).toEqual({ rotDeg: 0, scale: 1, liftM: 0 });
-    expect(restingEdit(t)).toEqual({ rotDeg: 30, scale: 1.5, liftM: 0, tE: 0, tN: 0 });
+    expect(revertModelOp(t, "all")).toEqual({ rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(restingEdit(t)).toEqual({ rotDeg: 30, scale: 1.5, liftM: 0, pitchDeg: 0, rollDeg: 0, tE: 0, tN: 0 });
+    // MS8: ROTATE owns the tilt too — a tipped-but-unturned model reads as edited, its ↺ stands it
+    // upright AND unturned, the other ops' ↺ leave the tilt alone, and the resting edit carries it.
+    const tipped = { rotDeg: 0, scale: 1.5, liftM: -2, pitchDeg: 30, rollDeg: -5 };
+    expect(modelOpIsEdited("rotate", tipped)).toBe(true);
+    expect(modelOpIsEdited("rotate", { ...tipped, pitchDeg: 0.01, rollDeg: -0.04 })).toBe(false);
+    expect(revertModelOp(tipped, "rotate")).toEqual({ rotDeg: 0, scale: 1.5, liftM: -2, pitchDeg: 0, rollDeg: 0 });
+    expect(revertModelOp({ ...tipped, rotDeg: 40 }, "scale")).toEqual({ rotDeg: 40, scale: 1, liftM: -2, pitchDeg: 30, rollDeg: -5 });
+    expect(revertModelOp(tipped, "move")).toEqual({ ...tipped, liftM: 0 });
+    expect(restingEdit(tipped)).toEqual({ ...tipped, tE: 0, tN: 0 });
   });
 });

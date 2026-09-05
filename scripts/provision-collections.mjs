@@ -184,6 +184,11 @@ const COLLECTIONS = [
       num("scale", "Uniform Scale"),
       // MESH SUITE MS7 (2026-09-03): the lift above the terrain seat — the BuildingOverrides name.
       num("tU", "Lift (m)"),
+      // MESH SUITE MS8 (2026-09-05): the VERTICAL rotation — pitch about the model's own +X, roll
+      // about its own +Z (degrees; with `rotDeg` the intrinsic YXZ triple, `lib/models/
+      // modelPlacement.ts`). Models only: BuildingOverrides stays yaw-only (§4a).
+      num("pitchDeg", "Pitch (deg, about X)"),
+      num("rollDeg", "Roll (deg, about Z)"),
       // MESH SUITE MS6 (2026-09-02m): the LAST EDITOR of the transform — any signed-in member may
       // move / turn / resize any model (LWW), so the owner's list can say "edited by another
       // member". Stamped server-side from the session (the BuildingOverrides `memberId`

@@ -54,6 +54,13 @@ export interface SpatialXf {
 export interface FeatureTransform extends SpatialXf {
   /** Height (Y) scale vs the baked height (1 = original) — the U8 fast-path scalar. */
   sy: number;
+  /** MESH SUITE MS8 (2026-09-05) — USER MODELS ONLY: the vertical rotation (pitch about local
+   *  +X, roll about local +Z, degrees; `lib/models/modelPlacement.ts` owns the YXZ contract).
+   *  A BUILDING transform never carries them — the recompose, the rails, the ease and the sync
+   *  above ignore them, and the gizmo's building instance never sets them (§4a: yaw-only). They
+   *  ride this type only so the shared gizmo can hand a model's read-back to its own clamp. */
+  pitchDeg?: number;
+  rollDeg?: number;
 }
 
 export const IDENTITY_XF: Readonly<SpatialXf> = Object.freeze({

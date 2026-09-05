@@ -410,6 +410,8 @@ export const useModelUploadStore = create<ModelUploadStore>((set, get) => ({
         rotDeg: 0,
         scale: 1,
         tU: 0,
+        pitchDeg: 0,
+        rollDeg: 0,
         createdAt: null,
         updatedAt: null,
         editedByOther: false,

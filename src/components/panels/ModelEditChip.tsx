@@ -7,7 +7,7 @@ import {
   type ModelEditArmed,
   type ModelEditOp,
 } from "../../store/modelEdit";
-import type { ModelEdit } from "../../lib/models/modelPlacement";
+import { isTilted, type ModelEdit } from "../../lib/models/modelPlacement";
 import { formatDims } from "../../lib/format/readout";
 import "../../styles/building-edit.css";
 
@@ -23,7 +23,9 @@ import "../../styles/building-edit.css";
  * Three ops: MOVE (the placement — a drag's east/north offset folds into new coordinates on
  * release; there is no "original" placement to revert to — and, MESH SUITE MS7 2026-09-03, the
  * LIFT: the Y arrow raises or sinks the model about its terrain seat, railed so it never sinks
- * out of sight; its ↺ puts it back on the ground), ROTATE (yaw) and SCALE (uniform).
+ * out of sight; its ↺ puts it back on the ground), ROTATE (yaw — and, MESH SUITE MS8 2026-09-05,
+ * the X / Z rings tip and bank it: the pitch and the roll print beside the yaw whenever the model
+ * is not upright; its ↺ stands it upright and unturned) and SCALE (uniform).
  */
 
 export const MODEL_OP_LABEL: Record<ModelEditOp, string> = { move: "MOVE", rotate: "ROTATE", scale: "SCALE" };
@@ -35,13 +37,14 @@ const sg = (v: number, d = 1) => `${v > 0 ? "+" : ""}${v.toFixed(d)}`;
 /** The origin badge's one-line titles (MS6): the MS3 register — SHARED is the world's. */
 export const MODEL_ORIGIN_TITLE = {
   mine: "Your model — edits save to your account as you release a handle.",
-  shared: "Another member placed this model. Your edits replace its spot, turn and size for everyone as you release a handle.",
+  shared: "Another member placed this model. Your edits replace its spot, turn, tilt and size for everyone as you release a handle.",
 } as const;
 
 /** One op's CURRENT value as the chip prints it. MOVE shows the drag offset while dragging,
  *  else the placement — plus the lift (MS7) whenever it is not on the ground; the yaw is COMPASS
- *  sense (clockwise from above = −rotDeg). MS5b (owner 2026-09-02j): the SCALE row leads with the
- *  current size in METRES (`sizeM3` × the live scale, `w × d × h`) and keeps the factor beside it. */
+ *  sense (clockwise from above = −rotDeg), and (MS8) the pitch / roll follow it whenever the
+ *  model is tilted. MS5b (owner 2026-09-02j): the SCALE row leads with the current size in
+ *  METRES (`sizeM3` × the live scale, `w × d × h`) and keeps the factor beside it. */
 export function modelOpReadout(
   op: ModelEditOp,
   live: ModelEdit,
@@ -55,7 +58,9 @@ export function modelOpReadout(
         : `${armed.lat.toFixed(5)}, ${armed.lon.toFixed(5)}${lift}`;
     }
     case "rotate":
-      return `${sg(-live.rotDeg)}° cw`;
+      return isTilted(live)
+        ? `${sg(-live.rotDeg)}° cw · pitch ${sg(live.pitchDeg)}° · roll ${sg(live.rollDeg)}°`
+        : `${sg(-live.rotDeg)}° cw`;
     case "scale":
       return armed.sizeM3
         ? `${formatDims(armed.sizeM3.map((v) => v * live.scale))} (${live.scale.toFixed(2)}×)`
@@ -70,7 +75,7 @@ export function modelOpOriginal(op: ModelEditOp, sizeM3?: readonly [number, numb
     case "move":
       return "where you dropped it, on the ground";
     case "rotate":
-      return "0.0° cw";
+      return "0.0° cw, upright";
     case "scale":
       return sizeM3 ? formatDims(sizeM3) : "1.00×";
   }

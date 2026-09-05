@@ -122,10 +122,10 @@ top-level globals; same removal/rename rule):
   (public) are the only readers, `/api/models` the only writer — plus the DEV-gated `/api/dev-seed`
   `kind: "model"` seed/remove for the two-member harness leg; **PROVISIONED 2026-09-02h, 24
   fields + `gh5` added 2026-09-02i + `editorMemberId` added 2026-09-02m + `tU` added 2026-09-03
-  = 27** — MESH SUITE MS4/MS5/MS6/MS7, D3): `title ownerMemberId fileId url thumbnailFileId
-  thumbnailUrl fileName sourceFormat rawBytes glbBytes tris meshes textures decimatedFromTris bboxX
-  bboxY bboxZ readiness hidden lat lon geohash9 gh5 rotDeg scale tU editorMemberId` — ONE row per
-  uploaded model;
+  + `pitchDeg` / `rollDeg` added 2026-09-05 = 29** — MESH SUITE MS4/MS5/MS6/MS7/MS8, D3): `title
+  ownerMemberId fileId url thumbnailFileId thumbnailUrl fileName sourceFormat rawBytes glbBytes tris
+  meshes textures decimatedFromTris bboxX bboxY bboxZ readiness hidden lat lon geohash9 gh5 rotDeg
+  scale tU pitchDeg rollDeg editorMemberId` — ONE row per uploaded model;
   **`editorMemberId`** (MS6) is the LAST EDITOR of the transform — the owner at POST, re-stamped
   server-side from the session by every placement PATCH (any signed-in member; LWW) — and is
   NEVER emitted: the public row carries no identity, the owner's list row only a derived
@@ -142,6 +142,14 @@ top-level globals; same removal/rename rule):
   BuildingOverrides name), railed on every path onto `[liftFloorM(bboxY × scale), MODEL_LIFT_MAX_M
   50]` — the floor keeps a quarter of the scaled height (never under 0.5 m) above the seat, so a
   sunk model is always visible and recoverable; a row without `bboxY` is pinned to the ground.
+  **`pitchDeg` / `rollDeg`** (MS8, 2026-09-05) are the VERTICAL rotation in degrees (null =
+  upright): with `rotDeg` the intrinsic YXZ Euler triple R = R_y(yaw)·R_x(pitch)·R_z(roll) (three's
+  order "YXZ"), stored CANONICAL (pitch in [−90, 90]; a tip past 90° folds into yaw+180 / pitch
+  mirrored / roll+180 — the same rotation). Since MS8 the lift floor is TILT-AWARE: it is taken
+  from the box `[bboxX, bboxZ, bboxY] × scale` rotated by the pitch / roll (`tiltedExtent` →
+  `liftFloorFor`: `min(keep, span) − top`), so a model on its side may sink half its depth and a
+  FLIPPED one is HELD UP a quarter of its span (the pivot is the footprint centre on the ground) —
+  upright it is the MS7 number to the bit; a row without all three bbox columns is pinned.
 - There is **no Listings collection** — listing fields ride Photos/PublicPins (ARCHITECTURE §5 corrected
   by the 2026-08-13 audit).
 - Schema changes land in the provision script FIRST (platform.md item 13; `extensions.dataCollections`
@@ -173,9 +181,12 @@ top-level globals; same removal/rename rule):
   answers `{ models: PublicModel[], complete }` — `hasSome("gh5", cells)` ∧ `readiness === "READY"`
   ∧ `hidden ≠ true`, one page of 200 oldest-first, `complete: false` when a cell holds more; a
   `PublicModel` is `{ id, title, url, thumbnailUrl, tris, glbBytes, bbox, lat, lon, rotDeg, scale,
-  tU, updatedAt }` (`tU` since MS7 2026-09-03) and NEVER carries `ownerMemberId` or a file id (C6).
+  tU, pitchDeg, rollDeg, updatedAt }` (`tU` since MS7 2026-09-03; `pitchDeg` / `rollDeg` since MS8
+  2026-09-05, canonical, 0 = upright) and NEVER carries `ownerMemberId` or a file id (C6).
   And **`PATCH /api/models`** (MS5, split in TWO authorities at MS6 2026-09-02m — dispatched on the
-  body's SHAPE): a PLACEMENT body `{ id, lat, lon, rotDeg?, scale?, tU? }` (coordinates present) is
+  body's SHAPE): a PLACEMENT body `{ id, lat, lon, rotDeg?, scale?, tU?, pitchDeg?, rollDeg? }`
+  (coordinates present; the tilt finite + wrapped at parse, made canonical with the yaw and the
+  lift floor re-taken from the TILTED box in `applyModelPlacement` — MS8) is
   open to EVERY signed-in member (401 `SIGNED_OUT`; 400 names the field; 404 `NOT_FOUND` "no such
   model") — re-derives `geohash9` + `gh5`, CLAMPS the seats onto the sanity rail (0.001×..1000×
   since MS5b 2026-09-02l — the 0.1×–10× band is per EDIT about the committed scale, client-side;

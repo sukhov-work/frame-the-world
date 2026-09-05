@@ -225,12 +225,14 @@ describe("modelRecord + modelListItem", () => {
     expect(row.rotDeg).toBeNull();
     expect(row.scale).toBeNull();
     expect(row.tU).toBeNull(); // MS7: born on the ground
+    expect(row.pitchDeg).toBeNull(); // MS8: born upright
+    expect(row.rollDeg).toBeNull();
     expect(row.editorMemberId).toBe("member-1"); // MS6: born owner-edited
     expect(Object.keys(row)).toEqual([
       "title", "ownerMemberId", "fileId", "url", "thumbnailFileId", "thumbnailUrl", "fileName", "sourceFormat",
       "rawBytes", "glbBytes", "tris", "meshes", "textures", "decimatedFromTris",
       "bboxX", "bboxY", "bboxZ", "readiness", "hidden", "lat", "lon", "geohash9", "gh5", "rotDeg", "scale", "tU",
-      "editorMemberId",
+      "pitchDeg", "rollDeg", "editorMemberId",
     ]);
   });
 
@@ -316,6 +318,45 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
     expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, tU: -3.5 })).toEqual({ body: { id: "r", lat: 1, lon: 2, tU: -3.5 } });
     expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, tU: 900 })).toEqual({ body: { id: "r", lat: 1, lon: 2, tU: MODEL_LIFT_MAX_M } });
     expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, tU: -900 })).toEqual({ body: { id: "r", lat: 1, lon: 2, tU: -MODEL_LIFT_MAX_M } });
+    // MS8: the tilt — finite numbers, wrapped (canonical folding happens in the apply, where the yaw is).
+    expect("error" in parsePlacementBody({ id: "r", lat: 1, lon: 2, pitchDeg: "tip" })).toBe(true);
+    expect("error" in parsePlacementBody({ id: "r", lat: 1, lon: 2, rollDeg: Number.POSITIVE_INFINITY })).toBe(true);
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, pitchDeg: 30, rollDeg: -370 })).toEqual({
+      body: { id: "r", lat: 1, lon: 2, pitchDeg: 30, rollDeg: -10 },
+    });
+    expect(parsePlacementBody({ id: "r", lat: 1, lon: 2, pitchDeg: null })).toEqual({ body: { id: "r", lat: 1, lon: 2 } });
+  });
+
+  it("MS8 — applies a tilt: stored beside the yaw, identity as null, canonical (a pitch past 90° folds), the floor from the TILTED box", () => {
+    const row = stored(); // bbox [12.4, 31.2, 8] → w 12.4, d 8, h 31.2
+    const tipped = applyModelPlacement(row, { id: "row-1", lat: 1, lon: 2, pitchDeg: 30, rollDeg: -5 });
+    expect(tipped).toMatchObject({ pitchDeg: 30, rollDeg: -5, rotDeg: null, scale: null, tU: null });
+    // A placement-only PATCH leaves the tilt alone; an upright PATCH writes null; a near-zero reads as upright.
+    const stored30 = { ...row, pitchDeg: 30, rollDeg: -5 };
+    expect(applyModelPlacement(stored30, { id: "row-1", lat: 1, lon: 2 })).toMatchObject({ pitchDeg: 30, rollDeg: -5 });
+    expect(applyModelPlacement(stored30, { id: "row-1", lat: 1, lon: 2, pitchDeg: 0, rollDeg: 0 })).toMatchObject({ pitchDeg: null, rollDeg: null });
+    expect(applyModelPlacement(stored30, { id: "row-1", lat: 1, lon: 2, pitchDeg: 0.01, rollDeg: -0.02 })).toMatchObject({ pitchDeg: null, rollDeg: null });
+    // A pitch of 120° is the same rotation as yaw+180 / pitch 60 / roll+180 — stored canonical.
+    expect(applyModelPlacement({ ...row, rotDeg: 20 }, { id: "row-1", lat: 1, lon: 2, pitchDeg: 120 })).toMatchObject({
+      rotDeg: -160,
+      pitchDeg: 60,
+      rollDeg: 180,
+    });
+    // The floor follows the tilt: flipped (roll 180) the 31.2 m model is HELD UP a quarter (7.8 m)
+    // even from a stored lift of −20; on its side (pitch 90) the 8 m depth straddles the pivot
+    // (top 4, span 8 → keep 2 → floor −2) — a stored −20 comes up to −2.
+    const sunk = { ...row, tU: -20 };
+    expect(applyModelPlacement(sunk, { id: "row-1", lat: 1, lon: 2, rollDeg: 180 })).toMatchObject({ rollDeg: 180, tU: 7.8 });
+    expect(applyModelPlacement(sunk, { id: "row-1", lat: 1, lon: 2, pitchDeg: 90 })).toMatchObject({ pitchDeg: 90, tU: -2 });
+    // And a RESET (upright, on the ground) clears every seat at once.
+    expect(
+      applyModelPlacement({ ...sunk, pitchDeg: 90 }, { id: "row-1", lat: 1, lon: 2, rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 }),
+    ).toMatchObject({ rotDeg: null, scale: null, tU: null, pitchDeg: null, rollDeg: null });
+    // No bbox: the tilt is stored, the lift pinned (nothing proves the model would stay visible).
+    expect(applyModelPlacement({ ...row, bboxX: null }, { id: "row-1", lat: 1, lon: 2, rollDeg: 180, tU: -3 })).toMatchObject({ rollDeg: 180, tU: null });
+    // Born upright.
+    expect(row.pitchDeg).toBeNull();
+    expect(row.rollDeg).toBeNull();
   });
 
   it("applies a placement: coordinates + both cells re-derived, seats replaced, identity stored as null", () => {
@@ -381,6 +422,8 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
       rotDeg: 30,
       scale: 1.5,
       tU: 0,
+      pitchDeg: 0,
+      rollDeg: 0,
       updatedAt: "2026-09-02T12:30:00.000Z",
     });
     // MS7: the lift rides the public row, railed on read against the row's height × scale.
@@ -389,7 +432,11 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
     expect(Object.keys(pub)).not.toContain("ownerMemberId");
     expect(Object.keys(pub)).not.toContain("fileId");
     expect(Object.keys(pub)).not.toContain("thumbnailFileId");
-    expect(publicModel({ ...row, rotDeg: null, scale: null, tU: null })).toMatchObject({ rotDeg: 0, scale: 1, tU: 0 });
+    expect(publicModel({ ...row, rotDeg: null, scale: null, tU: null })).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
+    // MS8: the tilt rides the public row (canonical), and the read floor follows it (flipped → held up 7.8 m at 1×… × 1.5 = 11.7).
+    expect(publicModel({ ...row, pitchDeg: 30, rollDeg: -5 })).toMatchObject({ pitchDeg: 30, rollDeg: -5 });
+    expect(publicModel({ ...row, pitchDeg: 120, rollDeg: null })).toMatchObject({ rotDeg: -150, pitchDeg: 60, rollDeg: 180 });
+    expect(publicModel({ ...row, rollDeg: 180, tU: -4 })!.tU).toBeCloseTo(0.25 * 31.2 * 1.5, 9);
     // Anything the world must not stream is dropped even if the query let it through.
     expect(publicModel({ ...row, hidden: true })).toBeNull();
     expect(publicModel({ ...row, readiness: "PENDING" })).toBeNull();
@@ -399,7 +446,8 @@ describe("modelRecords (MS5 placement + the public world read)", () => {
 
   it("the owner list row surfaces the seats (identity when the row holds null)", () => {
     const row = stored();
-    expect(modelListItem(row)).toMatchObject({ rotDeg: 0, scale: 1, tU: 0 });
+    expect(modelListItem(row)).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(modelListItem({ ...row, pitchDeg: -45, rollDeg: 10 })).toMatchObject({ pitchDeg: -45, rollDeg: 10 });
     expect(modelListItem({ ...row, rotDeg: -20, scale: 0.5 })).toMatchObject({ rotDeg: -20, scale: 0.5 });
     expect(modelListItem({ ...row, tU: -6 })).toMatchObject({ tU: -6 });
     expect(modelListItem({ ...row, tU: -60 })).toMatchObject({ tU: -23.4 }); // railed on read (31.2 m tall)

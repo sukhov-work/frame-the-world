@@ -28,9 +28,11 @@ import {
   MODEL_SCALE_MAX,
   MODEL_SCALE_MIN,
   MODEL_XF_EPS,
-  clampLiftM,
+  canonicalTilt,
+  clampLiftFor,
   isIdentityModelTransform,
   sanitizeModelTransform,
+  tiltedExtent,
   type ModelTransform,
 } from "../models/modelPlacement";
 import { titleFromFileName } from "../save/pinBody";
@@ -293,11 +295,13 @@ export function modelRecord(
     geohash9: placed ? encodeGeohash(body.lat as number, body.lon as number, 9) : null,
     // MS5: the world-read cell (`hasSome` is equality-on-a-set — the pins' gh4/gh6 precedent).
     gh5: placed ? encodeGeohash(body.lat as number, body.lon as number, MODEL_COVER_PRECISION) : null,
-    // Transform seats (MS5/MS6; MS7 the lift `tU`) — null = identity, the BuildingOverrides
-    // convention.
+    // Transform seats (MS5/MS6; MS7 the lift `tU`; MS8 the tilt `pitchDeg` / `rollDeg`) — null =
+    // identity, the BuildingOverrides convention.
     rotDeg: null,
     scale: null,
     tU: null,
+    pitchDeg: null,
+    rollDeg: null,
     // MS6: the last editor of the transform — the owner at birth; any member's placement PATCH
     // re-stamps it (LWW). Server-side only; never on the public wire (C6).
     editorMemberId: ownerMemberId,
@@ -317,6 +321,11 @@ export interface PlacementBody {
   /** MS7 (2026-09-03): the lift above the terrain seat (m). Clamped onto the absolute rail here
    *  and onto the height-aware floor in `applyModelPlacement` (the row knows its bbox). */
   tU?: number;
+  /** MS8 (2026-09-05): the vertical rotation — pitch about the model's own +X, roll about its
+   *  own +Z (degrees; `lib/models/modelPlacement.ts` owns the YXZ contract). Wrapped here, made
+   *  canonical (pitch inside [−90, 90]) with the yaw in `applyModelPlacement`. */
+  pitchDeg?: number;
+  rollDeg?: number;
 }
 
 /** Validate an untrusted PATCH body. The seats are CLAMPED onto the rails (the overrides
@@ -342,6 +351,14 @@ export function parsePlacementBody(raw: unknown): { body: PlacementBody } | { er
     if (typeof r.tU !== "number" || !Number.isFinite(r.tU)) return { error: "tU must be a finite number" };
     body.tU = Math.max(-MODEL_LIFT_MAX_M, Math.min(MODEL_LIFT_MAX_M, r.tU));
   }
+  if (r.pitchDeg != null) {
+    if (typeof r.pitchDeg !== "number" || !Number.isFinite(r.pitchDeg)) return { error: "pitchDeg must be a finite number" };
+    body.pitchDeg = normalizeDeg(r.pitchDeg);
+  }
+  if (r.rollDeg != null) {
+    if (typeof r.rollDeg !== "number" || !Number.isFinite(r.rollDeg)) return { error: "rollDeg must be a finite number" };
+    body.rollDeg = normalizeDeg(r.rollDeg);
+  }
   return { body };
 }
 
@@ -363,23 +380,44 @@ export function applyModelPlacement(
     gh5: encodeGeohash(body.lat, body.lon, MODEL_COVER_PRECISION),
   };
   if (editorMemberId !== undefined) next.editorMemberId = editorMemberId;
-  if (body.rotDeg !== undefined || body.scale !== undefined || body.tU !== undefined) {
-    // MS7: the lift floor is the model's SCALED height (the row's bboxY × the NEW scale) — a
-    // shrink re-rails a sunk model instead of burying it; an unknown height pins the lift.
-    const heightM = numOrNull(existing.bboxY);
-    const cur = sanitizeModelTransform(existing.rotDeg, existing.scale, existing.tU, heightM);
+  if (
+    body.rotDeg !== undefined ||
+    body.scale !== undefined ||
+    body.tU !== undefined ||
+    body.pitchDeg !== undefined ||
+    body.rollDeg !== undefined
+  ) {
+    // MS7: the lift floor is the model's SCALED box (the row's bbox × the NEW scale) — a shrink
+    // re-rails a sunk model instead of burying it; an unknown box pins the lift. MS8: the box is
+    // TILTED by the NEW pitch / roll (a flip is held up so a quarter of it still shows).
+    const sizeM3 = modelSizeM3(existing);
+    const cur = sanitizeModelTransform(existing.rotDeg, existing.scale, existing.tU, sizeM3, existing.pitchDeg, existing.rollDeg);
     const scale = body.scale ?? cur.scale;
+    const tilt = canonicalTilt(body.pitchDeg ?? cur.pitchDeg, body.rollDeg ?? cur.rollDeg);
     const t: ModelTransform = {
-      rotDeg: body.rotDeg ?? cur.rotDeg,
+      rotDeg: normalizeDeg((body.rotDeg ?? cur.rotDeg) + tilt.yawAddDeg),
       scale,
-      liftM: clampLiftM(body.tU ?? cur.liftM, heightM !== null ? heightM * scale : null),
+      liftM: clampLiftFor(body.tU ?? cur.liftM, tiltedExtent(sizeM3, scale, tilt.pitchDeg, tilt.rollDeg)),
+      pitchDeg: tilt.pitchDeg,
+      rollDeg: tilt.rollDeg,
     };
     const identity = isIdentityModelTransform(t);
-    next.rotDeg = identity || Math.abs(t.rotDeg) < 0.05 ? null : t.rotDeg;
-    next.scale = identity || Math.abs(t.scale - 1) < 0.005 ? null : t.scale;
+    next.rotDeg = identity || Math.abs(t.rotDeg) < MODEL_XF_EPS.rotDeg ? null : t.rotDeg;
+    next.scale = identity || Math.abs(t.scale - 1) < MODEL_XF_EPS.scale ? null : t.scale;
     next.tU = identity || Math.abs(t.liftM) < MODEL_XF_EPS.liftM ? null : t.liftM;
+    next.pitchDeg = identity || Math.abs(t.pitchDeg) < MODEL_XF_EPS.rotDeg ? null : t.pitchDeg;
+    next.rollDeg = identity || Math.abs(t.rollDeg) < MODEL_XF_EPS.rotDeg ? null : t.rollDeg;
   }
   return next;
+}
+
+/** The row's box as the scene's `[w, d, h]` (X, Z, Y extents at scale 1) — the lift floor's
+ *  input; null unless all three are stored. */
+export function modelSizeM3(item: Record<string, unknown>): [number, number, number] | null {
+  const bx = numOrNull(item.bboxX);
+  const by = numOrNull(item.bboxY);
+  const bz = numOrNull(item.bboxZ);
+  return bx !== null && by !== null && bz !== null ? [bx, bz, by] : null;
 }
 
 // ── MESH SUITE MS6 (2026-09-02m) — management: title / hidden, owner-only ──────────────────
@@ -470,6 +508,9 @@ export interface PublicModel {
   scale: number;
   /** MS7: the lift above the terrain seat (m; 0 = on the ground). */
   tU: number;
+  /** MS8: the vertical rotation (degrees; 0 / 0 = upright). */
+  pitchDeg: number;
+  rollDeg: number;
   updatedAt: string | null;
 }
 
@@ -485,7 +526,7 @@ export function publicModel(item: Record<string, unknown>): PublicModel | null {
   const bx = numOrNull(item.bboxX);
   const by = numOrNull(item.bboxY);
   const bz = numOrNull(item.bboxZ);
-  const t = sanitizeModelTransform(item.rotDeg, item.scale, item.tU, by);
+  const t = sanitizeModelTransform(item.rotDeg, item.scale, item.tU, modelSizeM3(item), item.pitchDeg, item.rollDeg);
   const updated = item._updatedDate;
   return {
     id: item._id,
@@ -500,6 +541,8 @@ export function publicModel(item: Record<string, unknown>): PublicModel | null {
     rotDeg: t.rotDeg,
     scale: t.scale,
     tU: t.liftM,
+    pitchDeg: t.pitchDeg,
+    rollDeg: t.rollDeg,
     updatedAt:
       updated instanceof Date ? updated.toISOString() : typeof updated === "string" ? updated : null,
   };
@@ -523,10 +566,13 @@ export interface ModelListItem {
   hidden: boolean;
   lat: number | null;
   lon: number | null;
-  /** MS5: the transform seats as stored (identity when null on the row); MS7 the lift (m). */
+  /** MS5: the transform seats as stored (identity when null on the row); MS7 the lift (m);
+   *  MS8 the tilt (degrees). */
   rotDeg: number;
   scale: number;
   tU: number;
+  pitchDeg: number;
+  rollDeg: number;
   createdAt: string | null;
   /** MS6: the row's last write (`_updatedDate` — a placement, a rename, a hide). */
   updatedAt: string | null;
@@ -546,7 +592,7 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
   const created = item._createdDate;
   const updated = item._updatedDate;
   const readiness = item.readiness;
-  const t = sanitizeModelTransform(item.rotDeg, item.scale, item.tU, by);
+  const t = sanitizeModelTransform(item.rotDeg, item.scale, item.tU, modelSizeM3(item), item.pitchDeg, item.rollDeg);
   const editor = strOrNull(item.editorMemberId);
   const owner = strOrNull(item.ownerMemberId);
   return {
@@ -569,6 +615,8 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
     rotDeg: t.rotDeg,
     scale: t.scale,
     tU: t.liftM,
+    pitchDeg: t.pitchDeg,
+    rollDeg: t.rollDeg,
     createdAt:
       created instanceof Date ? created.toISOString() : typeof created === "string" ? created : null,
     updatedAt:

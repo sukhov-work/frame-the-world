@@ -634,6 +634,10 @@ await key("KeyR", "r", 82);
 await sleep(300);
 g = await gz();
 if (g.op !== "rotate" || !g.attached) fail(`R did not switch to ROTATE: ${JSON.stringify(g)}`);
+// §4a (MESH SUITE MS8, 2026-09-05): a BUILDING stays yaw-only — the Y ring alone, no X / Z (the
+// pitch / roll rings are the user-model gizmo's, `tilt: true`), no screen-space E ring.
+const ringsB = await evalJs(`({ X: ${GZ}.handlePx("X") !== null, Y: ${GZ}.handlePx("Y") !== null, Z: ${GZ}.handlePx("Z") !== null, E: ${GZ}.handlePx("E") !== null })`);
+if (ringsB.X || !ringsB.Y || ringsB.Z || ringsB.E) fail(`the building's ROTATE rings are ${JSON.stringify(ringsB)} (expected the Y ring alone — §4a yaw-only)`);
 await waitSeatedStill(cellUri, fid, "rotate");
 const hY = await handleDir("Y");
 // The ring's rotation direction is screen-horizontal (axis × eye); a diagonal drag has a
@@ -646,7 +650,7 @@ rows = await evalJs(ROWS);
 const row9 = rows[Object.keys(rows)[0]];
 if (row9.rotDeg !== s9.target.rotDeg) fail(`row rotDeg ${row9.rotDeg} vs target ${s9.target.rotDeg}`);
 await waitSettled(cellUri, fid, "rotate ease");
-console.log(`ROTATE: ${s9.target.rotDeg.toFixed(1)}° (three sense) · row agrees`);
+console.log(`ROTATE: ${s9.target.rotDeg.toFixed(1)}° (three sense) · row agrees · rings Y only (no X / Z / E — §4a)`);
 await sleep(300);
 await shoot("meshedit-05-gizmo-rotate.jpeg");
 

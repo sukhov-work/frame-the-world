@@ -261,7 +261,7 @@ describe("MS2 rig read-back (the exact inverse of placeGhost)", () => {
 
   it("transformToRig ∘ rigToTransform is the identity on every component", () => {
     const back = rigToTransform(transformToRig(T, FRAME), FRAME);
-    for (const k of Object.keys(T) as (keyof FeatureTransform)[]) expect(back[k]).toBeCloseTo(T[k], 9);
+    for (const k of Object.keys(T) as (keyof FeatureTransform)[]) expect(back[k]).toBeCloseTo(T[k] as number, 9);
   });
 
   it("the rig numbers are placeGhost's writes: anchor = pivot + t, body = R_y · S·inflate", () => {

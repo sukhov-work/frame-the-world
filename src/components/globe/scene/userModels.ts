@@ -2,12 +2,15 @@ import * as THREE from "three";
 import { enuBasis, geodeticToEcef } from "../../../lib/geo/projection";
 import { sampleGroundM } from "../../../lib/geo/terrain";
 import { seatStep } from "../../../lib/globe/enrichedMask";
-import { normalizeDeg, transformToRig, type FeatureTransform } from "../../../lib/globe/featureTransform";
+import { transformToRig, type FeatureTransform } from "../../../lib/globe/featureTransform";
 import {
   densityWarning,
   groundFitOffset,
   planResidency,
+  quaternionFromTilt,
   sanitizeModelTransform,
+  tiltedExtent,
+  type ModelSize,
   type ModelTransform,
 } from "../../../lib/models/modelPlacement";
 import type { PublicModel } from "../../../lib/wix/modelRecords";
@@ -27,7 +30,8 @@ import { FTW_AERIAL_GLSL } from "./glsl";
  * local ENU basis: +X east, +Y up, −Z north — the glTF convention the baker maps enriched cells
  * into, so a model's own +Y is geodetic up) → `anchor` (the LIVE move offset of a gizmo drag in
  * ENU metres; 0 at rest — a commit folds it into a new placement, never a stored offset) → `body`
- * (yaw + UNIFORM scale, the record's two seats) → the loaded GLB root, re-based so its footprint
+ * (the rotation + UNIFORM scale — the record's yaw and, MESH SUITE MS8, pitch / roll as ONE
+ * quaternion, `quaternionFromTilt`) → the loaded GLB root, re-based so its footprint
  * centre sits on the origin and its lowest point at y = 0 (`groundFitOffset`: the owner's
  * "auto ground-fit at the mesh centroid"). Vertices stay model-local; the ECEF cancellation
  * happens in the CPU's float64 model-view product — the frustum/pins precision idiom.
@@ -47,9 +51,11 @@ import { FTW_AERIAL_GLSL } from "./glsl";
  * eased with `seatStep` (a LOD refine slides, never teleports); models whose seat is not yet
  * REAL re-ask at `resnap()` cadence — the Pins idiom. MESH SUITE MS7 (owner 2026-09-03): the
  * third seat is the LIFT — the anchor's own Y in metres above that terrain seat (0 = on the
- * ground; the row's `tU`), railed by `sanitizeModelTransform` against the model's scaled height
- * (the loaded bounds once resident, the record's bbox before) so a sunk model always keeps part
- * of itself above the ground. It rides the seat ease like the ground does.
+ * ground; the row's `tU`), railed by `sanitizeModelTransform` against the model's scaled box
+ * (the loaded bounds once resident, the record's bbox before) — TILTED by its pitch / roll since
+ * MS8, so a tipped or flipped model still keeps part of itself above the ground. It rides the
+ * seat ease like the ground does; the rotation eases as a quaternion SLERP (a foreign 180° roll
+ * turns the short way, never through a tumble of Euler components).
  *
  * MATERIALS. A GLB keeps its own PBR materials (the scene's lights, shadows and tone mapping
  * apply). MESH SUITE MS6 (2026-09-02m, `MODELS.chainShader`): every material's `onBeforeCompile`
@@ -160,6 +166,10 @@ interface Entry {
   appliedM: number | null;
   target: ModelTransform;
   applied: ModelTransform;
+  /** MS8: the rotation the body carries / eases toward, as quaternions (the Euler `applied`
+   *  rotation is the target's once settled; mid-ease only the quaternion is exact). */
+  appliedQ: THREE.Quaternion;
+  targetQ: THREE.Quaternion;
   dragging: boolean;
   heightM: number;
   sizeM: number | null;
@@ -322,10 +332,14 @@ export function attachUserModels(
   };
 
   const writeBody = (e: Entry) => {
-    const rad = (e.applied.rotDeg * Math.PI) / 180;
-    e.body.quaternion.set(0, Math.sin(rad / 2), 0, Math.cos(rad / 2));
+    e.body.quaternion.copy(e.appliedQ);
     e.body.scale.setScalar(Math.max(0.001, e.applied.scale));
     e.body.updateMatrixWorld(true);
+  };
+  /** MS8: the three angles as the body's quaternion (YXZ — `quaternionFromTilt`). */
+  const setQ = (q: THREE.Quaternion, t: ModelTransform) => {
+    const v = quaternionFromTilt(t.rotDeg, t.pitchDeg, t.rollDeg);
+    q.set(v[0], v[1], v[2], v[3]);
   };
 
   /** MS7: the anchor at rest — east/north zero, Y = the applied lift (a drag writes it live). */
@@ -334,10 +348,12 @@ export function attachUserModels(
     e.anchor.updateMatrixWorld(true);
   };
 
-  /** The model's height at scale 1 as best known — the loaded bounds once resident, the record's
-   *  bbox before, null when neither (the lift floor pins then). */
-  const heightFor = (e: Entry): number | null =>
-    e.state === "ready" && e.heightM > 0 ? e.heightM : e.sizeM3 ? e.sizeM3[2] : null;
+  /** The model's size `[w, d, h]` at scale 1 as best known — the loaded bounds once resident,
+   *  the record's bbox before, null when neither (the lift floor pins then). MS8: the whole box,
+   *  so the floor can follow a tilt. */
+  const sizeFor = (e: Entry): ModelSize | null => (e.sizeM3 ? e.sizeM3 : null);
+  const sameSeats = (a: ModelTransform, b: ModelTransform) =>
+    a.rotDeg === b.rotDeg && a.scale === b.scale && a.liftM === b.liftM && a.pitchDeg === b.pitchDeg && a.rollDeg === b.rollDeg;
 
   const makeEntry = (row: PublicModel): Entry => {
     const frame = new THREE.Group();
@@ -345,7 +361,8 @@ export function attachUserModels(
     const body = new THREE.Group();
     frame.add(anchor);
     anchor.add(body);
-    const seats = sanitizeModelTransform(row.rotDeg, row.scale, row.tU, row.bbox ? row.bbox[1] : null);
+    const sizeM3: [number, number, number] | null = row.bbox ? [row.bbox[0], row.bbox[2], row.bbox[1]] : null;
+    const seats = sanitizeModelTransform(row.rotDeg, row.scale, row.tU, sizeM3, row.pitchDeg, row.rollDeg);
     const e: Entry = {
       row,
       frame,
@@ -360,12 +377,16 @@ export function attachUserModels(
       appliedM: null,
       target: seats,
       applied: { ...seats },
+      appliedQ: new THREE.Quaternion(),
+      targetQ: new THREE.Quaternion(),
       dragging: false,
       heightM: 0,
       sizeM: row.bbox ? Math.max(row.bbox[0], row.bbox[2]) : null,
-      sizeM3: row.bbox ? [row.bbox[0], row.bbox[2], row.bbox[1]] : null,
+      sizeM3,
       meshes: [],
     };
+    setQ(e.targetQ, seats);
+    e.appliedQ.copy(e.targetQ);
     const s = seatFor(row);
     e.seatM = s.h;
     e.seatReal = s.real;
@@ -431,8 +452,8 @@ export function attachUserModels(
     e.body.add(root);
     group.add(e.frame);
     e.state = "ready";
-    // MS7: the lift floor is re-taken at the REAL height (the bbox was the client's estimate).
-    const seats = sanitizeModelTransform(e.target.rotDeg, e.target.scale, e.target.liftM, e.heightM);
+    // MS7: the lift floor is re-taken at the REAL box (the bbox was the client's estimate).
+    const seats = sanitizeModelTransform(e.target.rotDeg, e.target.scale, e.target.liftM, e.sizeM3, e.target.pitchDeg, e.target.rollDeg);
     if (seats.liftM !== e.target.liftM) {
       e.target = seats;
       e.applied = { ...e.applied, liftM: seats.liftM };
@@ -517,13 +538,6 @@ export function attachUserModels(
     }
   };
 
-  const easeDeg = (a: number, t: number, k: number) => {
-    const target = a + normalizeDeg(t - a);
-    let n = a + (target - a) * k;
-    if (Math.abs(target - n) < 0.02) n = target;
-    return normalizeDeg(n);
-  };
-
   return {
     setModels(rows) {
       const seen = new Set<string>();
@@ -537,8 +551,8 @@ export function attachUserModels(
         }
         if (e.row === row) continue;
         const moved = e.row.lat !== row.lat || e.row.lon !== row.lon;
-        const seats = sanitizeModelTransform(row.rotDeg, row.scale, row.tU, heightFor(e));
-        const reseated = seats.rotDeg !== e.target.rotDeg || seats.scale !== e.target.scale || seats.liftM !== e.target.liftM;
+        const seats = sanitizeModelTransform(row.rotDeg, row.scale, row.tU, sizeFor(e), row.pitchDeg, row.rollDeg);
+        const reseated = !sameSeats(seats, e.target);
         const urlChanged = e.row.url !== row.url;
         e.row = row;
         if (urlChanged) {
@@ -578,13 +592,26 @@ export function attachUserModels(
         if (e.dragging) continue; // the gizmo owns the rig until release
         const a = e.applied;
         const t = e.target;
-        if (a.rotDeg !== t.rotDeg || a.scale !== t.scale || a.liftM !== t.liftM) {
-          const rot = easeDeg(a.rotDeg, t.rotDeg, MODELS.xfEaseK);
+        if (!sameSeats(a, t) || !e.appliedQ.equals(e.targetQ)) {
+          // MS8: the rotation eases as a SLERP toward the target quaternion (the short way for
+          // every component at once); the Euler read lands on the target when it snaps.
+          let landed = false;
+          if (e.appliedQ.equals(e.targetQ)) landed = true;
+          else if (e.appliedQ.angleTo(e.targetQ) < (0.02 * Math.PI) / 180) {
+            e.appliedQ.copy(e.targetQ);
+            landed = true;
+          } else e.appliedQ.slerp(e.targetQ, MODELS.xfEaseK);
           let sc = a.scale + (t.scale - a.scale) * MODELS.xfEaseK;
           if (Math.abs(t.scale - sc) < 0.002) sc = t.scale;
           let lf = a.liftM + (t.liftM - a.liftM) * MODELS.xfEaseK;
           if (Math.abs(t.liftM - lf) < 0.005) lf = t.liftM;
-          e.applied = { rotDeg: rot, scale: sc, liftM: lf };
+          e.applied = {
+            rotDeg: landed ? t.rotDeg : a.rotDeg,
+            pitchDeg: landed ? t.pitchDeg : a.pitchDeg,
+            rollDeg: landed ? t.rollDeg : a.rollDeg,
+            scale: sc,
+            liftM: lf,
+          };
           writeBody(e);
           writeAnchor(e);
         }
@@ -619,7 +646,10 @@ export function attachUserModels(
       if (!e || e.state !== "ready") return;
       const r = transformToRig(t, MODEL_RIG_FRAME);
       e.anchor.position.set(r.ax, r.ay, r.az); // MS7: ay = the live lift (liveBaseY is 0)
-      e.body.quaternion.set(0, r.qy, 0, r.qw);
+      // MS8: the whole rotation — yaw + pitch + roll as one YXZ quaternion (a building's
+      // `transformToRig` gives the pure-Y pair; the model composes its own).
+      const q = quaternionFromTilt(t.rotDeg, t.pitchDeg ?? 0, t.rollDeg ?? 0);
+      e.body.quaternion.set(q[0], q[1], q[2], q[3]);
       e.body.scale.set(r.sx, r.sy, r.sz);
       e.anchor.updateMatrixWorld(true);
     },
@@ -636,10 +666,12 @@ export function attachUserModels(
     setSeats(id, t, snap = false) {
       const e = entries.get(id);
       if (!e) return;
-      const seats = sanitizeModelTransform(t.rotDeg, t.scale, t.liftM, heightFor(e));
+      const seats = sanitizeModelTransform(t.rotDeg, t.scale, t.liftM, sizeFor(e), t.pitchDeg, t.rollDeg);
       e.target = seats;
+      setQ(e.targetQ, seats);
       if (snap || e.state !== "ready") {
         e.applied = { ...seats };
+        e.appliedQ.copy(e.targetQ);
         writeBody(e);
         writeAnchor(e);
       }
@@ -681,9 +713,14 @@ export function attachUserModels(
     topWorld(id, out) {
       const e = entries.get(id);
       if (!e || e.state !== "ready") return false;
-      e.body.updateMatrixWorld(true);
-      out.set(0, e.heightM, 0);
-      e.body.localToWorld(out);
+      // MS8: the HIGHEST point of the tilted box above the pivot (anchor space — the lift rides
+      // in), so a tipped or flipped model's label sits over it, never under the ground. Upright
+      // this is body-local (0, h, 0) exactly as before.
+      const t = e.target;
+      const ext = tiltedExtent(e.sizeM3, t.scale, t.pitchDeg, t.rollDeg);
+      e.anchor.updateMatrixWorld(true);
+      out.set(0, ext ? ext.topM : e.heightM * Math.max(0.001, t.scale), 0);
+      e.anchor.localToWorld(out);
       return true;
     },
     info(id) {
@@ -727,6 +764,7 @@ export function attachUserModels(
           target: e.target,
           applied: e.applied,
           anchor: e.anchor.position.toArray(),
+          bodyQ: e.body.quaternion.toArray(),
           bodyScale: e.body.scale.x,
           heightM: e.heightM,
           sizeM: e.sizeM,

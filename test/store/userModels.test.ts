@@ -28,6 +28,8 @@ const pub = (id: string, over: Partial<PublicModel> = {}): PublicModel => ({
   rotDeg: 0,
   scale: 1,
   tU: 0,
+  pitchDeg: 0,
+  rollDeg: 0,
   updatedAt: "2026-09-02T12:00:00.000Z",
   ...over,
 });
@@ -51,6 +53,8 @@ const mine = (id: string, over: Partial<ModelListItem> = {}): ModelListItem => (
   rotDeg: 0,
   scale: 1,
   tU: 0,
+  pitchDeg: 0,
+  rollDeg: 0,
   createdAt: null,
   updatedAt: null,
   editedByOther: false,
@@ -60,7 +64,7 @@ const mine = (id: string, over: Partial<ModelListItem> = {}): ModelListItem => (
 const pubOf = (m: ModelListItem): PublicModel | null =>
   m.lat === null || m.lon === null || m.hidden || m.readiness !== "READY"
     ? null
-    : { id: m.id, title: m.title, url: m.url, thumbnailUrl: m.thumbnailUrl, tris: m.tris ?? 0, glbBytes: m.glbBytes, bbox: m.bbox, lat: m.lat, lon: m.lon, rotDeg: m.rotDeg, scale: m.scale, tU: m.tU, updatedAt: "2026-09-02T12:00:00.000Z" };
+    : { id: m.id, title: m.title, url: m.url, thumbnailUrl: m.thumbnailUrl, tris: m.tris ?? 0, glbBytes: m.glbBytes, bbox: m.bbox, lat: m.lat, lon: m.lon, rotDeg: m.rotDeg, scale: m.scale, tU: m.tU, pitchDeg: m.pitchDeg, rollDeg: m.rollDeg, updatedAt: "2026-09-02T12:00:00.000Z" };
 
 interface FakeApi extends UserModelsApi {
   worldCalls: string[][];
@@ -104,7 +108,16 @@ const makeApi = (): FakeApi => {
     patchPlacement: async (body) => {
       api.patches.push({ ...body });
       const base = api.mineRows.find((m) => m.id === body.id) ?? mine(body.id);
-      const model = { ...base, lat: body.lat, lon: body.lon, rotDeg: body.rotDeg ?? base.rotDeg, scale: body.scale ?? base.scale, tU: body.tU ?? base.tU };
+      const model = {
+        ...base,
+        lat: body.lat,
+        lon: body.lon,
+        rotDeg: body.rotDeg ?? base.rotDeg,
+        scale: body.scale ?? base.scale,
+        tU: body.tU ?? base.tU,
+        pitchDeg: body.pitchDeg ?? base.pitchDeg,
+        rollDeg: body.rollDeg ?? base.rollDeg,
+      };
       if (api.foreign.has(body.id)) return { own: false, model: null, public: pubOf(model) };
       return { own: true, model, public: pubOf(model) };
     },
@@ -255,21 +268,25 @@ describe("store/userModels", () => {
     expect(api.patches.length).toBe(1);
   });
 
-  it("MS7 — the MODELS row's RESET is ONE placement PATCH (spot kept, yaw 0 / scale 1 / lift 0); an unplaced row is a no-op", async () => {
-    api.mineRows = [mine("m1", { rotDeg: 45, scale: 2, tU: -1.5 }), mine("m2", { lat: null, lon: null })];
+  it("MS7 — the MODELS row's RESET is ONE placement PATCH (spot kept, yaw 0 / scale 1 / lift 0, MS8 upright); an unplaced row is a no-op", async () => {
+    api.mineRows = [mine("m1", { rotDeg: 45, scale: 2, tU: -1.5, pitchDeg: 30, rollDeg: -10 }), mine("m2", { lat: null, lon: null })];
     await useUserModelsStore.getState().loadMine();
     const row = await useUserModelsStore.getState().resetTransform("m1");
-    expect(row).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, lat: 48.4647, lon: 35.0462 });
-    expect(api.patches).toEqual([{ id: "m1", lat: 48.4647, lon: 35.0462, rotDeg: 0, scale: 1, tU: 0 }]);
-    expect(useUserModelsStore.getState().mine.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, scale: 1, tU: 0 });
-    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, scale: 1, tU: 0 });
+    expect(row).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0, lat: 48.4647, lon: 35.0462 });
+    expect(api.patches).toEqual([{ id: "m1", lat: 48.4647, lon: 35.0462, rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 }]);
+    expect(useUserModelsStore.getState().mine.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
     expect(await useUserModelsStore.getState().resetTransform("m2")).toBeNull();
     expect(await useUserModelsStore.getState().resetTransform("nope")).toBeNull();
     expect(api.patches.length).toBe(1);
-    // The lift rides the gizmo commit too.
+    // The lift rides the gizmo commit too — and (MS8) so does the tilt, into `mine` and the world.
     await useUserModelsStore.getState().commitPlacement("m1", { lat: 48.4647, lon: 35.0462, tU: -0.8 });
     expect(api.patches[1]).toEqual({ id: "m1", lat: 48.4647, lon: 35.0462, tU: -0.8 });
     expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ tU: -0.8 });
+    await useUserModelsStore.getState().commitPlacement("m1", { lat: 48.4647, lon: 35.0462, pitchDeg: 90, rollDeg: -15 });
+    expect(api.patches[2]).toEqual({ id: "m1", lat: 48.4647, lon: 35.0462, pitchDeg: 90, rollDeg: -15 });
+    expect(useUserModelsStore.getState().mine.find((m) => m.id === "m1")).toMatchObject({ pitchDeg: 90, rollDeg: -15 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ pitchDeg: 90, rollDeg: -15 });
   });
 
   it("the gizmo commit PATCHes the seats and the fresh row outranks the fetched copy inside the grace", async () => {

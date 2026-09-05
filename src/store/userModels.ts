@@ -58,6 +58,9 @@ export interface PlacementPatch {
   scale?: number;
   /** MS7: the lift above the terrain seat (m). */
   tU?: number;
+  /** MS8: the vertical rotation (degrees). */
+  pitchDeg?: number;
+  rollDeg?: number;
 }
 
 export interface MetaPatch {
@@ -109,6 +112,8 @@ export function publicFromMine(item: ModelListItem, updatedAt: string): PublicMo
     rotDeg: item.rotDeg,
     scale: item.scale,
     tU: item.tU,
+    pitchDeg: item.pitchDeg,
+    rollDeg: item.rollDeg,
     updatedAt,
   };
 }
@@ -167,8 +172,8 @@ export interface UserModelsState {
    *  the answer is the public row then (the owner-shaped list row is the owner's). */
   commitPlacement(id: string, patch: PlacementPatch): Promise<ModelListItem | PublicModel | null>;
   /** MS7: the MODELS row's RESET — RESET ALL's twin outside the edit session: the placement kept,
-   *  yaw 0 / scale 1 / lift 0 through ONE placement PATCH (own or shared row; null when the model
-   *  is not placed or the PATCH failed). */
+   *  yaw 0 / scale 1 / lift 0 (MS8: upright too) through ONE placement PATCH (own or shared row;
+   *  null when the model is not placed or the PATCH failed). */
   resetTransform(id: string): Promise<ModelListItem | PublicModel | null>;
   /** MS6: rename an owned model — the list row + the world swap at once; null on failure. */
   rename(id: string, title: string): Promise<ModelListItem | null>;
@@ -350,7 +355,7 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
     const own = get().mine.find((m) => m.id === id);
     const row = own ?? get().world.find((m) => m.id === id) ?? null;
     if (!row || row.lat === null || row.lon === null) return null;
-    return get().commitPlacement(id, { lat: row.lat, lon: row.lon, rotDeg: 0, scale: 1, tU: 0 });
+    return get().commitPlacement(id, { lat: row.lat, lon: row.lon, rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
   },
 
   rename: async (id, title) => {

@@ -25,6 +25,8 @@ const row = (id: string, over: Partial<PublicModel> = {}): PublicModel => ({
   rotDeg: 0,
   scale: 1,
   tU: 0,
+  pitchDeg: 0,
+  rollDeg: 0,
   updatedAt: "2026-09-02T12:00:00.000Z",
   ...over,
 });
@@ -159,10 +161,10 @@ describe("scene/userModels", () => {
     expect(r.anchor.position.length()).toBe(0);
     expect(r.body.scale.x).toBe(1);
     // A committed seat snaps; a later one eases.
-    h.setSeats("a", { rotDeg: 90, scale: 2, liftM: 0 }, true);
+    h.setSeats("a", { rotDeg: 90, scale: 2, liftM: 0, pitchDeg: 0, rollDeg: 0 }, true);
     expect(r.body.scale.x).toBe(2);
-    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2, liftM: 0 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: 0 });
+    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2, liftM: 0, pitchDeg: 0, rollDeg: 0 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
     h.update(cam, 6);
     expect(r.body.scale.x).toBeLessThan(2);
     expect(r.body.scale.x).toBeGreaterThan(1);
@@ -213,10 +215,10 @@ describe("scene/userModels", () => {
     // A cancelled drag falls back on the committed lift; a snapped commit lands at once (railed).
     h.setDragging("a", false);
     expect(ra.anchor.position.y).toBe(-2);
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -10 }, true);
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -10, pitchDeg: 0, rollDeg: 0 }, true);
     expect(ra.anchor.position.y).toBe(-4.5);
     // A shrink re-rails the floor: at 0.5× the box is 3 m → floor −2.25.
-    h.setSeats("a", { rotDeg: 0, scale: 0.5, liftM: -4.5 }, true);
+    h.setSeats("a", { rotDeg: 0, scale: 0.5, liftM: -4.5, pitchDeg: 0, rollDeg: 0 }, true);
     expect(ra.anchor.position.y).toBe(-2.25);
     // A row change (a RESET from the list / another member) eases the lift back to the ground.
     h.setModels([row("a", { tU: 0, updatedAt: "2026-09-03T00:00:00.000Z" }), row("b", { tU: -40 }), row("c", { tU: 400 })]);
@@ -227,16 +229,88 @@ describe("scene/userModels", () => {
     expect(ra.anchor.position.y).toBe(0);
     // The label anchor rides the lift (the top of a lifted model is higher).
     const top = new THREE.Vector3();
-    h.setSeats("c", { rotDeg: 0, scale: 1, liftM: 50 }, true);
+    h.setSeats("c", { rotDeg: 0, scale: 1, liftM: 50, pitchDeg: 0, rollDeg: 0 }, true);
     expect(h.topWorld("c", top)).toBe(true);
     const frameC = h.rig("c")!.anchor.parent as THREE.Group;
     const upC = new THREE.Vector3(0, 1, 0).applyQuaternion(frameC.quaternion);
     expect(top.clone().sub(frameC.position).dot(upC)).toBeCloseTo(56, 6); // 50 lift + 6 tall
     // Rebase keeps the lift (only east/north return to zero).
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -1 }, true);
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -1, pitchDeg: 0, rollDeg: 0 }, true);
     h.rebase("a", LAT + 0.001, LON);
     expect(ra.anchor.position.x).toBe(0);
     expect(ra.anchor.position.y).toBe(-1);
+    h.dispose();
+  });
+
+  it("MS8 — the tilt: the body carries the YXZ quaternion of yaw/pitch/roll, live through placeRig, slerp-eased on a row change, the floor follows a flip", async () => {
+    const scene = new THREE.Scene();
+    const loader = makeLoader();
+    const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
+    // bbox [4, 6, 4] → w 4, d 4, h 6. "b" is flipped on the row at lift 0 → held up a quarter (1.5 m).
+    h.setModels([row("a", { rotDeg: 30, pitchDeg: 20, rollDeg: -10 }), row("b", { rollDeg: 180, tU: 0 })]);
+    const cam = cameraNear();
+    h.update(cam, 0);
+    await flush();
+    const ra = h.rig("a")!;
+    const expectQ = (q: THREE.Quaternion, yaw: number, pitch: number, roll: number) => {
+      const e = new THREE.Euler().setFromQuaternion(q, "YXZ");
+      expect((e.y * 180) / Math.PI).toBeCloseTo(yaw, 6);
+      expect((e.x * 180) / Math.PI).toBeCloseTo(pitch, 6);
+      expect((e.z * 180) / Math.PI).toBeCloseTo(roll, 6);
+    };
+    expectQ(ra.body.quaternion, 30, 20, -10);
+    expect(h.info("a")?.seats).toMatchObject({ rotDeg: 30, pitchDeg: 20, rollDeg: -10, liftM: 0 });
+    // The flipped row: the tilt applied, the lift railed UP to the floor (top 0, span 6 → keep 1.5).
+    const rb = h.rig("b")!;
+    expectQ(rb.body.quaternion, 0, 0, 180);
+    expect(rb.anchor.position.y).toBe(1.5);
+    expect(h.info("b")?.seats.liftM).toBe(1.5);
+    // A live drag writes the whole rotation onto the body (three's Euler agrees on the triple).
+    h.setDragging("a", true);
+    h.placeRig("a", { sx: 1, sy: 1, sz: 1, rotDeg: -60, tE: 0, tN: 0, tU: 0, pitchDeg: 45, rollDeg: 90 });
+    expectQ(ra.body.quaternion, -60, 45, 90);
+    // A building-shaped place (no tilt fields) reads as upright — the yaw alone.
+    h.placeRig("a", { sx: 1, sy: 1, sz: 1, rotDeg: 15, tE: 0, tN: 0, tU: 0 });
+    expectQ(ra.body.quaternion, 15, 0, 0);
+    // A cancelled drag falls back on the committed rotation; a snapped commit lands at once.
+    h.setDragging("a", false);
+    expectQ(ra.body.quaternion, 30, 20, -10);
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 90, rollDeg: 0 }, true);
+    expectQ(ra.body.quaternion, 0, 90, 0);
+    // On its side the 4 m depth straddles the pivot: the floor is −1 (top 2, span 4, keep 1) — a
+    // deeper commit comes up to it.
+    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -5, pitchDeg: 90, rollDeg: 0 }, true);
+    expect(ra.anchor.position.y).toBe(-1);
+    // A row change (another member stood it up) eases the rotation as a slerp: monotone, lands exactly.
+    h.setModels([row("a", { rotDeg: 0, pitchDeg: 0, rollDeg: 0, tU: 0, updatedAt: "2026-09-05T00:00:00.000Z" }), row("b", { rollDeg: 180, tU: 0 })]);
+    const target = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0, "YXZ"));
+    let prev = ra.body.quaternion.angleTo(target);
+    h.update(cam, 1);
+    let now = ra.body.quaternion.angleTo(target);
+    expect(now).toBeLessThan(prev);
+    expect(now).toBeGreaterThan(0);
+    for (let f = 2; f < 400; f++) {
+      h.update(cam, f);
+      const a = ra.body.quaternion.angleTo(target);
+      expect(a).toBeLessThanOrEqual(prev + 1e-9);
+      prev = a;
+    }
+    expect(ra.body.quaternion.angleTo(target)).toBe(0);
+    expect(h.info("a")?.seats).toMatchObject({ rotDeg: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(ra.anchor.position.y).toBe(0);
+    // The label anchor is the tilted box's HIGHEST point: the flipped "b" (held up 1.5 m, its top
+    // AT the pivot) pins at 1.5 m; upright "a" at its 6 m height (the MS7 number).
+    const top = new THREE.Vector3();
+    const upOf = (id: string) => {
+      const frame = h.rig(id)!.anchor.parent as THREE.Group;
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(frame.quaternion);
+      expect(h.topWorld(id, top)).toBe(true);
+      return top.clone().sub(frame.position).dot(up);
+    };
+    expect(upOf("b")).toBeCloseTo(1.5, 6);
+    expect(upOf("a")).toBeCloseTo(6, 6);
+    h.setSeats("a", { rotDeg: 0, scale: 2, liftM: 0, pitchDeg: 90, rollDeg: 0 }, true); // on its side at 2×: top = d/2 × 2 = 4
+    expect(upOf("a")).toBeCloseTo(4, 6);
     h.dispose();
   });
 

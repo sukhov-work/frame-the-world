@@ -46,9 +46,11 @@ import {
   clampModelEdit,
   editToFeatureTransform,
   isIdentityModelTransform,
-  liftFloorM,
+  isTilted,
+  liftFloorFor,
   modelStandpoint,
   offsetGeodetic,
+  tiltedExtent,
   type ModelEdit,
   type ModelTransform,
 } from "../../lib/models/modelPlacement";
@@ -1968,8 +1970,10 @@ export function attachStylizedTiles(opts: {
   //     anchor/body ARE the gizmo rig (no ghost, no recompose); a release folds the drag's ENU
   //     offset into a new placement and PATCHes the record (own models only at MS5; any member
   //     since MS6). MESH SUITE MS7 (owner 2026-09-03): the Y arrow is the LIFT — the anchor's
-  //     own Y, stored as the row's `tU`, railed against the model's scaled height so a sunk
-  //     model always keeps part of itself above the ground (`liftFloorM`).
+  //     own Y, stored as the row's `tU`, railed against the model's scaled box so a sunk
+  //     model always keeps part of itself above the ground (`liftFloorFor`). MESH SUITE MS8
+  //     (owner 2026-09-03): ROTATE's X / Z rings are the PITCH / ROLL — two more stored seats
+  //     (`pitchDeg` / `rollDeg`, the YXZ triple with the yaw), the box tilted for the floor.
   let modelArmed: { id: string; title: string; mine: boolean } | null = null;
   let modelOp: ModelEditOp = "move";
   let modelLive: ModelEdit | null = null; // the gizmo's clamped read-back mid-drag (else null)
@@ -1983,32 +1987,50 @@ export function attachStylizedTiles(opts: {
   const _modelTop = new THREE.Vector3();
   const modelCommitted = (): ModelTransform =>
     (modelArmed && userModels.info(modelArmed.id)?.seats) || { ...IDENTITY_MODEL_TRANSFORM };
-  /** MS7: the armed model's height at scale 1 (the loaded bounds once resident) — the lift
-   *  floor's input; null pins the lift. */
-  const modelHeightM = (): number | null => (modelArmed ? userModels.info(modelArmed.id)?.sizeM3?.[2] ?? null : null);
+  /** MS7: the armed model's size `[w, d, h]` at scale 1 (the loaded bounds once resident) — the
+   *  lift floor's input; null pins the lift. MS8: the whole box, so the floor follows a tilt. */
+  const modelSizeM3 = (): [number, number, number] | null => (modelArmed ? userModels.info(modelArmed.id)?.sizeM3 ?? null : null);
+  /** The committed seats as the gizmo's `start` transform speaks them (`sx` = the uniform scale,
+   *  `tU` = the committed lift, MS8 `pitchDeg` / `rollDeg` = the committed tilt). */
+  const startToModel = (start: FeatureTransform): ModelTransform => ({
+    rotDeg: start.rotDeg,
+    scale: start.sx,
+    liftM: start.tU,
+    pitchDeg: start.pitchDeg ?? 0,
+    rollDeg: start.rollDeg ?? 0,
+  });
   const modelGizmo = attachBldgGizmo(scene, camera, {
     place: (t) => {
       if (modelArmed) userModels.placeRig(modelArmed.id, t);
     },
     onChange: (t) => {
-      if (modelArmed) modelLive = clampModelEdit(t, modelCommitted(), modelHeightM());
+      if (modelArmed) modelLive = clampModelEdit(t, modelCommitted(), modelSizeM3());
     },
     // The model rails: ONE uniform scale (any handle), a wider move, and (MS7) the lift on its
     // height-aware floor under the absolute ceiling — `start` is the committed transform the
-    // drag began on (`sx` = the uniform scale, `tU` = the committed lift).
-    clamp: (raw, start) =>
-      editToFeatureTransform(clampModelEdit(raw, { rotDeg: start.rotDeg, scale: start.sx, liftM: start.tU }, modelHeightM())),
+    // drag began on. MS8: the tilt rides the read-back (`tilt: true` — the X / Z rings), and the
+    // floor is taken from the box TILTED by it.
+    clamp: (raw, start) => editToFeatureTransform(clampModelEdit(raw, startToModel(start), modelSizeM3())),
     lift: true,
     liftRail: (start) => {
-      const h = modelHeightM();
-      return { minM: liftFloorM(h !== null ? h * start.sx : null), maxM: MODEL_LIFT_MAX_M };
+      const st = startToModel(start);
+      return { minM: liftFloorFor(tiltedExtent(modelSizeM3(), st.scale, st.pitchDeg, st.rollDeg)), maxM: MODEL_LIFT_MAX_M };
     },
+    tilt: true,
   });
+  const modelSeatsDiffer = (a: ModelTransform, b: ModelTransform) =>
+    Math.abs(a.liftM - b.liftM) >= 0.01 ||
+    Math.abs(a.rotDeg - b.rotDeg) >= 0.05 ||
+    Math.abs(a.pitchDeg - b.pitchDeg) >= 0.05 ||
+    Math.abs(a.rollDeg - b.rollDeg) >= 0.05 ||
+    Math.abs(a.scale - b.scale) >= 0.005;
   const modelLiveDiffers = (a: ModelEdit, b: ModelEdit) =>
     Math.abs(a.tE - b.tE) >= 0.01 ||
     Math.abs(a.tN - b.tN) >= 0.01 ||
     Math.abs(a.liftM - b.liftM) >= 0.01 ||
     Math.abs(a.rotDeg - b.rotDeg) >= 0.05 ||
+    Math.abs(a.pitchDeg - b.pitchDeg) >= 0.05 ||
+    Math.abs(a.rollDeg - b.rollDeg) >= 0.05 ||
     Math.abs(a.scale - b.scale) >= 0.005;
   const syncModelEdit = () => {
     const a = modelArmed;
@@ -2106,7 +2128,10 @@ export function attachStylizedTiles(opts: {
     modelGizmo.setTarget(userModels.rig(modelArmed.id), op);
     syncModelEdit();
   };
-  const persistModel = async (id: string, patch: { lat: number; lon: number; rotDeg: number; scale: number; tU: number }) => {
+  const persistModel = async (
+    id: string,
+    patch: { lat: number; lon: number; rotDeg: number; scale: number; tU: number; pitchDeg: number; rollDeg: number },
+  ) => {
     modelSaving = true;
     modelSaveError = null;
     syncModelEdit();
@@ -2121,13 +2146,21 @@ export function attachStylizedTiles(opts: {
     const a = modelArmed;
     userModels.setDragging(a.id, false);
     if (t && commit) {
-      const e = clampModelEdit(t, modelCommitted(), modelHeightM());
+      const e = clampModelEdit(t, modelCommitted(), modelSizeM3());
       const info = userModels.info(a.id);
       if (info) {
         const at = offsetGeodetic(info.lat, info.lon, e.tE, e.tN);
         userModels.rebase(a.id, at.latDeg, at.lonDeg);
-        userModels.setSeats(a.id, { rotDeg: e.rotDeg, scale: e.scale, liftM: e.liftM }, true);
-        void persistModel(a.id, { lat: at.latDeg, lon: at.lonDeg, rotDeg: e.rotDeg, scale: e.scale, tU: e.liftM });
+        userModels.setSeats(a.id, { rotDeg: e.rotDeg, scale: e.scale, liftM: e.liftM, pitchDeg: e.pitchDeg, rollDeg: e.rollDeg }, true);
+        void persistModel(a.id, {
+          lat: at.latDeg,
+          lon: at.lonDeg,
+          rotDeg: e.rotDeg,
+          scale: e.scale,
+          tU: e.liftM,
+          pitchDeg: e.pitchDeg,
+          rollDeg: e.rollDeg,
+        });
       }
     }
     modelLive = null;
@@ -2139,7 +2172,16 @@ export function attachStylizedTiles(opts: {
     const next = revertModelOp(modelCommitted(), which);
     userModels.setSeats(a.id, next, false);
     const info = userModels.info(a.id);
-    if (info) void persistModel(a.id, { lat: info.lat, lon: info.lon, rotDeg: next.rotDeg, scale: next.scale, tU: next.liftM });
+    if (info)
+      void persistModel(a.id, {
+        lat: info.lat,
+        lon: info.lon,
+        rotDeg: next.rotDeg,
+        scale: next.scale,
+        tU: next.liftM,
+        pitchDeg: next.pitchDeg,
+        rollDeg: next.rollDeg,
+      });
     syncModelEdit();
   };
   const openModelMenu = (clientX: number, clientY: number) =>
@@ -2151,7 +2193,8 @@ export function attachStylizedTiles(opts: {
       case "move":
         return `↔ ${sg(e.tE)} E · ${sg(e.tN)} N · ↑ ${sg(e.liftM)} m`;
       case "rotate":
-        return `↻ ${sg(-e.rotDeg)}° cw`;
+        // MS8: the tilt beside the yaw whenever the model is not upright.
+        return isTilted(e) ? `↻ ${sg(-e.rotDeg)}° cw · pitch ${sg(e.pitchDeg)}° · roll ${sg(e.rollDeg)}°` : `↻ ${sg(-e.rotDeg)}° cw`;
       case "scale":
         return sizeM3
           ? `⤢ ${formatDims(sizeM3.map((v) => v * e.scale))} · ${e.scale.toFixed(2)}×`
@@ -3380,6 +3423,8 @@ export function attachStylizedTiles(opts: {
         standBeside: (id: string) => standBesideModel(id),
         handlePx: (name: string) => modelGizmo.handleScreenPx(name, dom.getBoundingClientRect()),
         originPx: () => modelGizmo.originPx(dom.getBoundingClientRect()),
+        // MS8: points along a ROTATE ring (the harness hover-searches the X ring among three).
+        ringPx: (name: string, count?: number) => modelGizmo.ringPx(name, dom.getBoundingClientRect(), count),
         // Client px of a resident model's mid-height point (the harness right-clicks it).
         modelPx: (id: string) => {
           const rig = userModels.rig(id);
@@ -7041,7 +7086,10 @@ export function attachStylizedTiles(opts: {
           mirror.dragging !== dragging ||
           mirror.op !== modelOp ||
           mirror.saving !== modelSaving ||
-          (modelLive !== null && modelLiveDiffers(mirror.live, modelLive))
+          (modelLive !== null && modelLiveDiffers(mirror.live, modelLive)) ||
+          // MS8: the COMMITTED seats moved under the session (another member's edit arriving, a
+          // store-side commit) — the chip's rows follow them (the same deadband, on the seats).
+          modelSeatsDiffer(mirror.committed, committed)
         )
           syncModelEdit();
   };

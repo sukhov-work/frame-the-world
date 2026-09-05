@@ -178,7 +178,47 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-03: MESH SUITE MS7 BUILT — the LIFT seat (vertical drag) + MODELS-row GOTO / RESET (owner
+**2026-09-05b: THE MESH TRACK IS CLOSED (owner: MS8 deployed + tested manually; "this concludes all
+mesh-related work at the moment" — T74 / T78 closed, taste calls parked). T77 IS THE ONLY OPEN TRACK
+and its prep is COMPLETE:** the owner's web research is on disk
+(`rendering/WEB_RESEARCH_PERFORMANCE_RESULT_2026_09_05.md` — 24 ranked levers, Rq-1..17, the iPhone
+JETSAM reframe: the tile storms / reloads are a MEMORY kill, not a frame-rate ceiling; do-not-do list;
+8 experiments) and the reconciliation with ENGINE_STATE is written: **`rendering/T77_AUDIT_PLAN_2026-09-05.md`**
+(23-lever merged ledger with slice + gate per row; 8 seams resolved — shadow caching depends on
+per-tile memo invalidation, `heightAt` stays the vertical authority, MSAA stays the mobile AA, the
+Hillaire sky is LAST, the tier-force seam is `window.__globeQuality`; the MEASURE protocol; the slice
+ladder A shadows → B seats → C streaming+workers → D mobile → E later). **NEXT SESSION = T77 step 1
+MEASURE** (`/frame` Audit, READ-ONLY on `src/`): `scripts/verify-perf-baseline.mjs` on a HEADED Chrome
+(headless governs to `low`) over the harness poses × 0/6/24 realistic models × ULTRA × shadows × tiers,
+plus two new metrics (shadow shimmer, reseat-settle), the device-free proxies (`renderer.info.memory`
+bytes per pose; desktop Safari for WebKit correctness) and part A of the phone checklist
+(`rendering/IPHONE_BASELINE_CHECKLIST_2026-09-05.md`: the ngrok tunnel — `wix dev` binds loopback only —,
+a runtime-gated read snapshot behind `debugHud`, the model-ramp script) → `rendering/MEASUREMENTS_<date>.md`.
+**Owner 2026-09-05c: the 17 Pro is borrowed later (short window); a cloud device farm is APPROVED
+(paying OK) for the real-phone stages; the kill point / soak / A19 frame times stay UNKNOWN until one runs.** `mem:project/wip-2026-09-05-t77-audit-plan` · DECISIONS 2026-09-05b ·
+NEXT_SESSION_PROMPT (the READ FIRST block).
+
+Prior: **2026-09-05: MESH SUITE MS8 BUILT — VERTICAL ROTATION (pitch / roll) for user models (owner order
+2026-09-03 after testing MS7).** Two more stored seats `UserModels.pitchDeg` / `rollDeg` (degrees, null =
+upright; provisioned LIVE → 29 fields) form the intrinsic YXZ triple with the yaw (three's `Euler`
+"YXZ"; the three-free pair `quaternionFromTilt` / `eulerFromQuaternion` in `lib/models/modelPlacement.ts`,
+canonical read-back: pitch in [−90, 90]). The shared gizmo grew `tilt` (default false): the model's
+ROTATE shows the X + Z rings and reads the body's FULL quaternion back; `FeatureTransform.pitchDeg? /
+rollDeg?` are OPTIONAL and model-only; the BUILDING instance is byte-identical and its yaw-only rings
+are PINNED by `verify-meshedit` (§4a). The scene composes ONE quaternion and SLERP-eases. The lift floor
+is TILT-AWARE (`tiltedExtent` → `liftFloorFor`): upright = MS7 to the bit; on its side half the depth may
+sink; FLIPPED the model is HELD UP a quarter of its span — "never fully into the texture" under any
+rotation, on every path. ROTATE owns the tilt (↺ / RESET ALL / list RESET stand it upright); the chip row
++ label + list fact line carry it; the label anchors at the tilted box's highest point; the chip follows
+a store-side seat commit while armed. vitest 2,444 · astro 0/0/8 · knip 0 · `verify-usermodels` PASS
+21 legs (a REAL X-ring drag; pitch 90 saved+synced; a flip held up +1.25 m) · `verify-meshedit` PASS ·
+`verify-bldg-override` PASS. Harness traps: template-literal `\+` collapse (regexes Node-side); three
+overlapping rings → hover-search `ringPx`; the T76-class COARSE-EYE trap after a `#f=` reload (proven on
+master) → `modelPxOnScreen` stands beside the model. `mem:project/wip-2026-09-05-model-pitch-roll-ms8` ·
+plan §15 · DECISIONS 2026-09-05 · T78 BUILT. **NEXT: T77 proper** (the audit — below; the owner's web
+research report is the gate for step 0, then MEASURE).
+
+Prior: **2026-09-03: MESH SUITE MS7 BUILT — the LIFT seat (vertical drag) + MODELS-row GOTO / RESET (owner
 order after testing MS6).** User models now carry a THIRD stored seat `UserModels.tU` (m above the
 terrain seat; provisioned LIVE → 27 fields): a vertical drag of the MOVE gizmo's Y arrow lifts/sinks
 the model, railed onto `[liftFloorM(height × scale), MODEL_LIFT_MAX_M 50]` on EVERY path — the floor

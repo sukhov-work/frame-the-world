@@ -464,7 +464,10 @@ SANITY rail — the 0.1×–10× band is per edit about the committed scale sinc
 `MODEL_MOVE_MAX_M` 250 per drag; **MS7 (2026-09-03) `MODEL_LIFT_MAX_M` 50** — the lift's absolute
 rail both ways — and **`MODEL_LIFT_KEEP` { frac 0.25, minM 0.5 }**, the "never fully into the
 texture" rule: `liftFloorM(scaled height)` keeps that much of the model above its terrain seat on
-EVERY path (live drag, commit, server PATCH, every read); `MODEL_COVER_PRECISION` 5 — the `gh5`
+EVERY path (live drag, commit, server PATCH, every read) — **MS8 (2026-09-05) made it TILT-AWARE**:
+`tiltedExtent(size, scale, pitch, roll)` → `liftFloorFor({ topM, extentM })` = `min(keep, span) −
+top`, upright the MS7 number to the bit, on its side half the depth may sink, FLIPPED the model is
+HELD UP a quarter of its span; `MODEL_COVER_PRECISION` 5 — the `gh5`
 column); these are
 the taste + budget knobs: the world-read cover (`fetchRadiusM` 4000 · `fetchMaxAltM` 40 000 ·
 `maxCells` 16 · `queryThrottleMs` 600 · `repollMs` 90 000 · `readLagGraceMs` 15 000), residency
@@ -488,6 +491,18 @@ Three facts the module encodes (source-verified 2026-09-02i):
   building default is `[0, LIFT_MAX_M]` (byte-identical), the model instance hands
   `[liftFloorM(height × start.sx), MODEL_LIFT_MAX_M]`. The model's anchor Y IS the stored lift
   (`liveBaseY` 0 → `tU = anchor.y`); the lift eases like the other seats (`xfEaseK`).
+- **MS8 (2026-09-05) — the tilt.** `attachBldgGizmo` grew **`tilt`** (default false): ROTATE shows
+  the X (pitch) and Z (roll) rings too, turns the screen-space E ring off by name (`showE` — three
+  shows it whenever all three axes are on) and decomposes the body's FULL quaternion into the
+  canonical YXZ triple (`eulerFromQuaternion`, `lib/models/modelPlacement.ts`) as `raw.rotDeg /
+  pitchDeg / rollDeg` — the pure-Y `yawDegFromQuaternion` read is wrong for a tilted body.
+  `FeatureTransform.pitchDeg? / rollDeg?` are OPTIONAL and USER-MODELS ONLY; the building instance
+  never sets them and its ROTATE is byte-identical (the Y ring alone — pinned by `verify-meshedit`).
+  The scene composes ONE quaternion (`quaternionFromTilt`, three's `Euler` "YXZ") and eases a row
+  change as a SLERP (`appliedQ.slerp(targetQ, xfEaseK)`, snap under 0.02°) — a foreign 180° roll
+  turns the short way, never through a tumble of Euler components. The label anchors at the tilted
+  box's highest point. DEV seam `__globe.modelGizmo().ringPx(name, n)` lists points along a ring —
+  three rings overlap on screen, so a harness HOVER-searches for `axis === "X"` before it presses.
 - **The budget is the density warning.** `planResidency` walks closest-first; what it refuses
   inside the load radius is `skipped`, and `densityWarning(skipped, tris, warnTris)` is the MDL
   chip's amber and the DBG `models.skipped` warn.

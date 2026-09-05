@@ -280,9 +280,10 @@ Concretely, each slice's done-gate includes:
    the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5` the digest. MS5b (the owner's four
    fixes/tunings) is BUILT — §11.5 is the as-built; `mem:project/wip-2026-09-02-mesh-suite-ms5b`
    the digest. MS6 (management + world edit) is BUILT — §13 is the as-built;
-   `mem:project/wip-2026-09-02-mesh-suite-ms6` the digest.** The ladder is COMPLETE. Next: **T77**
-   (the architecture + performance audit and revamp; §12 is the lead-in — replace its estimates
-   with DBG readings at 0 / 6 / 24 resident models before deciding).
+   `mem:project/wip-2026-09-02-mesh-suite-ms6` the digest.** The ladder is COMPLETE; MS7 (§14, the
+   lift) and MS8 (§15, the tilt) landed on top by owner order. Next: **T77** (the architecture +
+   performance audit and revamp; §12 is the lead-in — replace its estimates with DBG readings at
+   0 / 6 / 24 resident models before deciding).
 3. The DBG window (2026-09-01) is the instrument for all of this — seat deferrals/rejections,
    cell counts, frame costs are live in it; open it before profiling anything.
 
@@ -1419,3 +1420,137 @@ scene/userModels (+1), all liftM-updated fixtures · `scripts/verify-usermodels.
 scaled height · a foreign member may sink/lift a model (same LWW posture as MS6) · RESET on the
 MODELS row acts on a SHARED model too (one more LWW edit) · GOTO + RESET sit as plain `.mp-act`
 buttons (no icon).
+
+---
+
+## §15 MS8 AS BUILT — VERTICAL ROTATION (pitch / roll) for user models (owner order 2026-09-03, built 2026-09-05)
+
+**Mode:** implement (design-first, investigate-design-v3 spine on `/frame`), tier Standard. Owner,
+after testing MS7 ("works well"): ROTATE was YAW-ONLY — add rotation about the horizontal axes so
+a model that arrived on its side (a Z-up export) can be stood up, banked, or flipped; "same
+principles as the lift": a new record shape provisioned FIRST, saved / synced / processed, RESET
+ALL and the per-op ↺ zero it, the chip and the label carry it, LWW open to every member, C6
+unchanged, and BUILDINGS stay yaw-only (§4a). Backlog T78.
+
+### §15.1 The design decisions
+
+1. **Two more stored seats — `UserModels.pitchDeg` / `UserModels.rollDeg`** (degrees; null =
+   upright), provisioned LIVE 2026-09-05 (`+ UserModels.pitchDeg field added`, `+ UserModels.rollDeg
+   field added` → **29 fields**). NOT a stored quaternion: the yaw column stays what it is, legacy
+   rows read as upright, the chip / the list / RESET all speak degrees, and the per-op ↺ ("stand it
+   upright and unturned") needs the triple anyway. `ModelTransform` gained `pitchDeg` + `rollDeg`
+   (required — every fixture updated, the MS7 precedent).
+2. **The rotation is the intrinsic YXZ Euler triple, R = R_y(yaw) · R_x(pitch) · R_z(roll)** —
+   three's `Euler` order `"YXZ"`: turn it to face its way, then tip it, then bank it. The pure pair
+   `quaternionFromTilt` / `eulerFromQuaternion` (`lib/models/modelPlacement.ts`, three-free,
+   unit-pinned as exact inverses) mirrors three's `setFromEuler` / `setFromRotationMatrix('YXZ')`,
+   so the scene's body quaternion and the harness's `THREE.Euler` agree to the ulp. **Every stored
+   / read-back triple is CANONICAL:** pitch inside [−90°, 90°], a tip past 90° folds into the SAME
+   rotation with yaw + 180 / pitch mirrored / roll + 180 (`canonicalTilt`, applied in
+   `sanitizeModelTransform`, `clampModelEdit` and the server apply). At the gimbal pole (|pitch| =
+   90°) three's rule holds: the roll reads 0 and the yaw carries the rest — the rotation is the
+   same; only the readout is ambiguous there (accepted).
+3. **The gizmo's `tilt` instance (`attachBldgGizmo` option, default false).** ROTATE shows the X
+   (pitch, red) and Z (roll, blue) rings beside the Y ring, turns the screen-space E ring OFF by name
+   (`showE` — three shows it whenever all three axes are on) and keeps XYZE off; the read-back
+   decomposes the body's FULL quaternion (`eulerFromQuaternion`) into `raw.rotDeg` / `raw.pitchDeg`
+   / `raw.rollDeg` — the pure-Y `yawDegFromQuaternion` read is wrong for a tilted body. `space` stays
+   local, so each ring turns the model about ITS OWN axis. `FeatureTransform` grew two OPTIONAL
+   fields `pitchDeg?` / `rollDeg?` (documented USER-MODELS ONLY) so the shared gizmo can hand a
+   model's read-back to its own clamp; `rigToTransform` / `transformToRig` are untouched; the
+   BUILDING instance never sets them and its ROTATE is byte-identical (the Y ring alone — now PINNED
+   by `verify-meshedit`: rings `{X:false, Y:true, Z:false, E:false}` — §4a).
+4. **The scene composes ONE quaternion and eases it as a SLERP.** `scene/userModels.ts` `writeBody`
+   copies `appliedQ`; `setQ` = `quaternionFromTilt(yaw, pitch, roll)`; `placeRig` composes the whole
+   rotation from the transform (a building-shaped place with no tilt fields reads as upright); a row
+   change eases `appliedQ.slerp(targetQ, xfEaseK)` and snaps under 0.02° — a foreign 180° roll turns
+   the short way, never through a tumble of Euler components. The Euler `applied` triple is the
+   target's once landed.
+5. **"Never fully into the texture" now holds under ANY rotation — the floor is TILT-AWARE.** The
+   pivot every seat acts about is the footprint centre ON THE GROUND, so a tipped model puts part
+   of itself below the pivot and a flipped one ALL of itself. `tiltedExtent(size, scale, pitch,
+   roll)` gives the rotated box's `topM` (highest corner above the pivot) and `extentM` (full span)
+   in closed form (the second row of R is `(cos p·sin r, cos p·cos r, −sin p)`; yaw changes nothing);
+   `liftFloorFor(ext)` = `min(keep, extent) − top` with keep = max(0.25 × extent, 0.5 m), railed to
+   ±50 — **upright it is the MS7 number to the bit** (`liftFloorM(h)` = `liftFloorFor({h, h})`, unit
+   pinned), on its side the depth straddles the pivot (a 5 m × 3 m box: floor −0.75 m), and
+   FLIPPED it is POSITIVE: the model is HELD UP `keep` above the seat so a quarter of it shows. The
+   floor is re-taken from the box tilted by the NEW pitch / roll on every path: the live drag
+   (`clampModelEdit` takes the full `[w, d, h]` now — `ModelSize` = a bare height (the MS7 shape,
+   read as a pole) or the triple), the engine commit, MOVE's Y-arrow rail (`liftRail` from the
+   committed tilt), the server (`applyModelPlacement` from `bboxX/Z/Y`), and every read
+   (`sanitizeModelTransform(rotDeg, scale, tU, size, pitchDeg, rollDeg)`). An unknown box still pins
+   the lift to 0.
+6. **ROTATE owns the tilt.** `modelOpIsEdited("rotate")` is true for a yaw OR a tilt; its ↺
+   (`revertModelOp("rotate")`) zeroes all three; RESET ALL and the MODELS-row RESET (`resetTransform`
+   → ONE PATCH `{ lat, lon, rotDeg 0, scale 1, tU 0, pitchDeg 0, rollDeg 0 }`) stand it upright. The
+   chip's ROTATE row and the pinned label append `· pitch ±x° · roll ±y°` whenever the model is not
+   upright (`isTilted`, 0.05° eps — the yaw's), the "was" reads `0.0° cw, upright`; the MODELS row's
+   fact line appends `⟲ ±p° · ±r°` and RESET lights for a tilt alone. The chip now also FOLLOWS a
+   store-side commit of the seats while armed (a foreign edit arriving, a list RESET): the per-frame
+   deadband compares the whole committed seats (`modelSeatsDiffer`) — a pre-MS8 gap closed on the way.
+7. **The label anchor is the tilted box's HIGHEST point** (`topWorld`: anchor-local
+   `(0, tiltedExtent.topM, 0)` — a flipped model's label sits over it, never under the ground; upright
+   it is body-local `(0, h, 0)` as before).
+8. **Wire + LWW + C6.** `PlacementBody.pitchDeg? / rollDeg?` (finite, wrapped at parse; canonical
+   with the yaw in the apply; identity stored as null under the 0.05° eps); `PublicModel` /
+   `ModelListItem` / `PlacementPatch` / `patchModelPlacement` / `addMine` / `publicFromMine` carry
+   them; any member's PATCH replaces the tilt (the MS6 posture — the server re-derives the floor
+   from the row's own box, so a foreign flip is held up too). A tilt is an orientation of a placed
+   object, never a capture datum (C6).
+
+### §15.2 Files
+`scripts/provision-collections.mjs` (`pitchDeg` / `rollDeg`, RAN live — 29) · `lib/models/
+modelPlacement.ts` (`ModelTransform.pitchDeg/rollDeg`, `ModelSize`, `VerticalExtent`,
+`tiltedExtent`, `liftFloorFor` / `clampLiftFor` (the upright `liftFloorM` / `clampLiftM` kept as the
+named case), `canonicalTilt`, `isTilted`, `quaternionFromTilt` / `eulerFromQuaternion`,
+tilt-aware `sanitizeModelTransform` / `clampModelEdit` / `editToFeatureTransform`) ·
+`lib/globe/featureTransform.ts` (`FeatureTransform.pitchDeg? / rollDeg?`, model-only) ·
+`lib/wix/modelRecords.ts` (`PlacementBody`, `parsePlacementBody`, `applyModelPlacement`,
+`modelSizeM3`, `PublicModel` / `ModelListItem`, `modelRecord` nulls) · `store/modelEdit.ts`
+(ROTATE owns the tilt) · `store/userModels.ts` (`PlacementPatch`, `resetTransform`,
+`publicFromMine`) · `lib/save/uploadMedia.ts` · `store/modelUpload.ts` · `scene/bldgGizmo.ts`
+(`tilt` option, the full-quaternion read-back, `sameT`, the DEV `ringPx`) · `scene/userModels.ts`
+(`appliedQ` / `targetQ`, `setQ`, slerp ease, `sizeFor`, `placeRig`, `topWorld`, `bodyQ` in `debug`)
+· `StylizedTiles.ts` (`tilt: true`, `modelSizeM3`, `startToModel`, `liftRail` from the tilted box,
+commit / revert / persist the tilt, the ROTATE label line, `modelSeatsDiffer` in the deadband, the
+`ringPx` seam) · `ModelEditChip.tsx` (ROTATE readout + original, the SHARED title) ·
+`MyModelsTab.tsx` (`modelRowSub` ⟲, `modelRowResettable`, the EDITED title) · guide (`fpv-models`
++ `my-models`) · docs (this §15, contracts §4/§7, globe-tuning MODELS, backlog T78) · tests:
+`modelPlacement` (+7: the quaternion pair, canonical folding, `tiltedExtent`, `liftFloorFor`,
+sanitize, `clampModelEdit`), `modelRecords` (+1 apply + parse/public/list assertions), `modelEdit`,
+store/userModels (RESET + commit), `modelEditChip`, `myModelsTab`, scene/userModels (+1: the
+quaternion body, placeRig, slerp ease, the flip floor, the label anchor), every pitch/roll fixture ·
+`scripts/verify-usermodels.mjs` leg 4a + the 11b tilt (**21 legs**; + `modelPxOnScreen`, the
+coarse-eye fallback) · `scripts/verify-meshedit.mjs` (the building's yaw-only ring pin).
+
+### §15.3 Verification receipt
+- Unit: vitest **2,444/2,444 (162 files)** (baseline 2,435) · `astro check` 0 / 0 / 8 hints (dev
+  server stopped) · knip 0.
+- Live: `provision-collections.mjs` → `+ UserModels.pitchDeg field added` + `+ UserModels.rollDeg
+  field added` (29 fields).
+- Browser: `verify-usermodels.mjs` **PASS 21 legs** (run 7; headless Chrome :9333, `wix dev`, the
+  Dnipro FPV pose, the LIVE collection) — leg 4a: rings X + Y + Z (no E); a REAL X-ring drag tilted
+  the live triple to pitch +60.8° (the ROTATE row "-86.4° cw · pitch +60.8° · roll 0.0°", the body
+  quaternion matched it within 0.5°), Escape-cancelled; pitch 90 saved + synced (own row, world
+  read, the scene's quaternion, the chip row); a bury on its side stopped at the tilted floor
+  −0.75 m; a FLIP at −1000 m was held up +1.25 m (own row, world read — the server floor — and the
+  scene); upright again (null on the row, the pure-yaw quaternion, the row back to the yaw alone).
+  Leg 11b: the fact line "… · ↑ +6.50 · ⟲ +25° · −10°", RESET → upright too (own list, world read,
+  scene). Runs 1–6 were harness-environment reds, each classified: a `\+` inside a template literal
+  handed to the page collapses to `+` (regex moved Node-side); the X-ring grab missed among three
+  overlapping rings (a hover-search along `ringPx`); and the T76-class coarse-eye trap (after a `#f=`
+  reload the eye sits on a coarse tile while the model's seat refined ~60 m lower, so the model
+  projects thousands of px below the frame — `verify-usermodels` on MASTER with MS8 stashed reds the
+  same way at leg 3; `modelPxOnScreen` stands beside the model when that happens).
+- NO-REGRESSION: `verify-bldg-override` **PASS** · `verify-meshedit` **PASS** (including the
+  right-click-menu leg that was environment-red at MS7, and the new ring pin). Shots
+  `verify-shots/usermodels-11-tilted-side.jpeg`, `-12-flipped-floor.jpeg`.
+
+### §15.4 Owner taste calls surfaced (not decided)
+The YXZ order (yaw first) and the canonical pitch range ±90° (a tip past 90° READS as yaw+180 /
+roll+180 — same rotation) · no rail on the tilt at all (any angle; the floor is what keeps it
+visible) · the pitch / roll print only when tilted (the row stays "x° cw" upright) · `⟲ ±p° · ±r°`
+as the list glyph · GOTO / stand-beside still aims at `lift + h·scale/2` (a flipped model's true
+mid-height is below the pivot — a taste tail) · the E (screen-space) ring off · the label at the
+tilted box's highest corner height, centred on the pivot.

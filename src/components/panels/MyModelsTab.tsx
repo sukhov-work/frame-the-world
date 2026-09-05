@@ -5,7 +5,7 @@ import type { ModelListItem } from "../../lib/wix/modelRecords";
 import { MODEL_TITLE_MAX } from "../../lib/wix/modelRecords";
 import { formatDims, formatMetres } from "../../lib/format/readout";
 import { formatTris } from "../../lib/models/modelCaps";
-import { MODEL_XF_EPS, isIdentityModelTransform, modelStandpoint } from "../../lib/models/modelPlacement";
+import { MODEL_XF_EPS, isIdentityModelTransform, isTilted, modelStandpoint } from "../../lib/models/modelPlacement";
 import { startModelPlacement } from "./ModelUploadStep";
 
 /**
@@ -15,10 +15,11 @@ import { startModelPlacement } from "./ModelUploadStep";
  * the world at once (the store's optimistic path). Desktop-only by mount: models have no /m entry.
  *
  * A row: OUR thumbnail (the platform's is a permanent 403) or the dashed placeholder · the title ·
- * `w × d × h m · N tris` at the committed scale (· `↑ ±x m` when lifted or sunk — MS7) · badges
+ * `w × d × h m · N tris` at the committed scale (· `↑ ±x m` when lifted or sunk — MS7 · `⟲ pitch ·
+ * roll` when tilted — MS8) · badges
  * (HIDDEN · PROCESSING · FAILED · NOT PLACED · EDITED — another member re-edited it) · trailing ✎
  * (rename inline: Enter saves, Escape cancels) · GOTO (MS7, owner 2026-09-03: stand beside it) ·
- * RESET (MS7: RESET ALL's twin — yaw 0, scale 1, back on the ground, the spot kept; lit only when
+ * RESET (MS7: RESET ALL's twin — yaw 0, upright, scale 1, back on the ground, the spot kept; lit only when
  * the seats differ from the upload) · HIDE / SHOW · ✕ → SURE? (the two-press delete). A click on a
  * PLACED row stands beside the model in first-person view (the PLACES-row jump — FPV is where
  * editing works); an UNPLACED row starts click-to-place on the globe. Hidden models leave the
@@ -61,22 +62,29 @@ const BADGE_TITLE = {
   processing: "The platform is still processing the file",
   failed: "The platform could not process the file",
   unplaced: "Not on the globe yet — click the row to place it",
-  edited: "Another member moved, turned, resized or lifted this model",
+  edited: "Another member moved, turned, tilted, resized or lifted this model",
 } as const;
 
 /** The row's fact line: the CURRENT size (the upload's bounds × the committed scale, w × d × h),
- *  the triangle count, and (MS7) the lift when the model is not on the ground. */
+ *  the triangle count, (MS7) the lift when the model is not on the ground, and (MS8) the tilt
+ *  when it is not upright. */
 export function modelRowSub(m: ModelListItem): string {
   const parts: string[] = [];
   if (m.bbox) parts.push(formatDims([m.bbox[0] * m.scale, m.bbox[2] * m.scale, m.bbox[1] * m.scale]));
   if (m.tris !== null) parts.push(`${formatTris(m.tris)} TRIS`);
   if (Math.abs(m.tU) >= MODEL_XF_EPS.liftM) parts.push(`↑ ${m.tU > 0 ? "+" : "−"}${formatMetres(Math.abs(m.tU))}`);
+  if (isTilted(m)) parts.push(`⟲ ${sgDeg(m.pitchDeg)} · ${sgDeg(m.rollDeg)}`);
   return parts.join(" · ");
 }
+const sgDeg = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(0)}°`;
 
 /** MS7: RESET is meaningful only for a PLACED model whose seats differ from the upload. */
 export function modelRowResettable(m: ModelListItem): boolean {
-  return m.lat !== null && m.lon !== null && !isIdentityModelTransform({ rotDeg: m.rotDeg, scale: m.scale, liftM: m.tU });
+  return (
+    m.lat !== null &&
+    m.lon !== null &&
+    !isIdentityModelTransform({ rotDeg: m.rotDeg, scale: m.scale, liftM: m.tU, pitchDeg: m.pitchDeg, rollDeg: m.rollDeg })
+  );
 }
 
 /** The badges a row wears, in display order. */

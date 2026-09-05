@@ -14,6 +14,11 @@
 //   3. a REAL right-click (press + release) arms the model — the menu SURVIVES the release (MS5b
 //      §11.3), a left tap closes it and keeps the model armed; screenshot
 //   4. R → ROTATE: a drag on the Y ring commits a yaw → PATCH lands (the own list agrees)
+//   4a. MESH SUITE MS8 (2026-09-05): the model's ROTATE shows the X + Z rings too (no E ring); a
+//      REAL X-ring drag moves the live pitch / roll, the body quaternion and the ROTATE row follow
+//      it (cancelled); a tilt SAVES + SYNCS through the exact commit a release makes (own row,
+//      world read, the scene's quaternion, the chip row); a FLIP at "−1000 m" is HELD UP to the
+//      tilt-aware floor (a quarter of the model shows — never out of sight); upright again after
 //   5. S → SCALE: a drag on the X box scales UNIFORMLY inside the 0.1×–10× per-edit band; the
 //      SCALE row leads with the size in metres (MS5b §11.1)
 //   6. G → MOVE: a drag on the X arrow moves the placement (new lat/lon, never a stored offset)
@@ -31,7 +36,8 @@
 //  11. MY PINS · MODELS lists the model (our row: title, size × scale + tris + the lift, no badge,
 //      ✎ / GOTO / RESET / HIDE / ✕ — MS7 added GOTO + RESET)
 //  11b. MS7: RESET on the row → yaw 0 / scale 1 / lift 0 through ONE PATCH; the own list, the world
-//      read and the scene agree; the spot stays; RESET goes dark
+//      read and the scene agree; the spot stays; RESET goes dark. MS8: a tilt set first shows on
+//      the fact line (⟲) and RESET zeroes it with the rest
 //  12. ✎ RENAME inline (Enter) → the own list, the world read and the scene's row agree (no reload)
 //  13. HIDE → the own list says hidden, the world read and the scene drop it, the foot note shows;
 //      SHOW → back in the world read and the scene
@@ -371,6 +377,26 @@ const waitSeatedStill = async (id, label, timeoutMs = 30_000) => {
   fail(`${label}: the model never seated on real terrain and settled (last ${last})`);
 };
 const armed = () => evalJs(`${ES}.armed`);
+/** A model's mid-height client px, INSIDE the viewport. T76-shaped trap (2026-09-05, seen on
+ *  master too): right after a `#f=` reload the eye can sit on a COARSE terrain tile while the
+ *  model's seat has refined ~60 m lower, so the model projects thousands of px below the frame.
+ *  When that happens, stand beside it (the MS6 one-shot re-seats the eye on a warm page) and
+ *  re-take the point; fail with the shape if it is still off. */
+const modelPxOnScreen = async (id, label) => {
+  const take = () => evalJs(`(() => { const p = ${GZ}.modelPx(${JSON.stringify(id)}); return p && { x: p.x, y: p.y, w: window.innerWidth, h: window.innerHeight }; })()`);
+  let p = await take();
+  const off = (q) => !q || q.x < 0 || q.y < 0 || q.x > q.w || q.y > q.h;
+  if (off(p)) {
+    console.log(`${label}: the model projects off screen after the reload (${JSON.stringify(p)}) — standing beside it (the coarse-eye trap)`);
+    await evalJs(`${GZ}.standBeside(${JSON.stringify(id)})`);
+    await waitFpv(label);
+    await sleep(1500);
+    await waitSeatedStill(id, label);
+    p = await take();
+  }
+  if (off(p)) fail(`${label}: the model is not on screen (${JSON.stringify(p)})`);
+  return { x: p.x, y: p.y };
+};
 const waitSaved = async (label, timeoutMs = 20_000) => {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
@@ -472,6 +498,17 @@ const ownListLacks = async (id, label, timeoutMs = 15_000) => {
 };
 const standDistance = (sizeH, scale) => Math.max(6, Math.min(120, 3 * sizeH * scale));
 /** MS7: `liftFloorM` in numbers — a quarter of the scaled height (never under 0.5 m) stays above the seat. */
+/** MS8: three's Euler 'YXZ' quaternion of (yaw, pitch, roll) in degrees — `quaternionFromTilt`. */
+const quatYXZ = (y, p, r) => {
+  const hy = (y * Math.PI) / 360, hp = (p * Math.PI) / 360, hr = (r * Math.PI) / 360;
+  const cy = Math.cos(hy), sy = Math.sin(hy), cp = Math.cos(hp), sp = Math.sin(hp), cr = Math.cos(hr), sr = Math.sin(hr);
+  return [sp * cy * cr + cp * sy * sr, cp * sy * cr - sp * cy * sr, cp * cy * sr - sp * sy * cr, cp * cy * cr + sp * sy * sr];
+};
+/** The angle (deg) between two quaternions (either sign — q and −q are one rotation). */
+const quatAngleDeg = (a, b) => {
+  const d = Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]));
+  return (2 * Math.acos(d) * 180) / Math.PI;
+};
 const liftFloor = (scaledH) => {
   const keep = Math.max(0.25 * scaledH, 0.5);
   const d = Math.max(0, Math.min(50, scaledH - keep));
@@ -551,8 +588,7 @@ try {
     }
     if (!(await evalJs(`${US}.mine.some((m) => m.id === ${JSON.stringify(modelId)})`))) fail("leg 3: MINE never listed the model after the reload");
   }
-  const px = await evalJs(`${GZ}.modelPx(${JSON.stringify(modelId)})`);
-  if (!px) fail("leg 3: the model is not on screen");
+  const px = await modelPxOnScreen(modelId, "leg 3");
   await hover(px.x, px.y);
   await sleep(200);
   const hoverNote = await evalJs("document.querySelector('.bldg-edit-label')?.textContent ?? ''");
@@ -593,6 +629,105 @@ try {
   const own4 = await ownRowEventually(modelId, (r) => Math.abs(r.rotDeg - a.committed.rotDeg) < 1e-6, "leg 4");
   await shoot("usermodels-02-rotated.jpeg");
   console.log(`leg 4: ROTATE ${a.committed.rotDeg.toFixed(1)}° (three sense) · own list rotDeg ${own4.rotDeg}`);
+
+  // --- 4a: MESH SUITE MS8 — the X / Z rings tip + bank the model; the tilt saves, syncs, floors, resets --
+  // (a) The model's ROTATE gizmo shows all three rings; the screen-space E ring stays off.
+  const rings4a = await evalJs(`({ X: ${GZ}.handlePx("X") !== null, Y: ${GZ}.handlePx("Y") !== null, Z: ${GZ}.handlePx("Z") !== null, E: ${GZ}.handlePx("E") !== null })`);
+  if (!rings4a.X || !rings4a.Y || !rings4a.Z || rings4a.E) fail(`leg 4a: the model's ROTATE rings are ${JSON.stringify(rings4a)} (expected X + Y + Z, no E)`);
+  // (b) A REAL X-ring drag moves the live tilt (direction-agnostic — the ring may be near edge-on at
+  //     a street eye, the MS7 trap), the body quaternion follows it and the ROTATE row prints the
+  //     pitch / roll; Escape cancels the probe drag so the committed yaw stays what leg 4 stored.
+  await waitSeatedStill(modelId, "leg 4a");
+  // Three rings overlap on screen now: HOVER-search the X ring's centre-line for a point where the
+  // controls answer axis "X" (a hover claims nothing — no Escape / release churn), then press there.
+  const ringPts = await evalJs(`${GZ}.ringPx("X", 36)`);
+  if (!ringPts || ringPts.length === 0) fail("leg 4a: the X ring has no on-screen points");
+  let grabAt = null;
+  for (const p of ringPts) {
+    await hover(p.x, p.y);
+    await sleep(25);
+    if ((await evalJs(`${GZ}.axis`)) === "X") { grabAt = p; break; }
+  }
+  if (!grabAt) fail(`leg 4a: no point of the X (pitch) ring answers axis X on hover (${ringPts.length} points tried)`);
+  let tiltDrag = null;
+  for (const [ux, uy] of [[0.95, -0.3], [-0.3, -0.95], [-0.95, 0.3], [0.3, 0.95]]) {
+    let grabbed = false;
+    for (const cand of [grabAt, { x: grabAt.x + 2, y: grabAt.y }, { x: grabAt.x, y: grabAt.y + 2 }]) {
+      await hover(cand.x, cand.y);
+      await sleep(30);
+      await mouse("mousePressed", cand.x, cand.y, { clickCount: 1 });
+      await sleep(40);
+      if ((await evalJs(`${GZ}.dragging`)) && (await evalJs(`${GZ}.axis`)) === "X") { grabbed = cand; break; }
+      await key("Escape", "Escape", 27);
+      await mouse("mouseReleased", cand.x, cand.y, { clickCount: 1 });
+      await sleep(40);
+    }
+    if (!grabbed) fail(`leg 4a: could not grab the X (pitch) ring at ${JSON.stringify(grabAt)}`);
+    for (let k = 1; k <= 8; k++) { await mouse("mouseMoved", grabbed.x + ux * 80 * k / 8, grabbed.y + uy * 80 * k / 8); await sleep(30); }
+    const live = await evalJs(`${ES}.armed?.live ?? null`);
+    const q = await evalJs(`(${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)})?.bodyQ) ?? null`);
+    const row = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-row[data-op=\"rotate\"] .bec-v')?.textContent ?? ''");
+    const tilted = live && (Math.abs(live.pitchDeg) >= 1 || Math.abs(live.rollDeg) >= 1);
+    if (tilted) {
+      const want = quatYXZ(live.rotDeg, live.pitchDeg, live.rollDeg);
+      if (!q || quatAngleDeg(q, want) > 0.5) fail(`leg 4a: the body quaternion ${JSON.stringify(q)} is not the live triple ${JSON.stringify(live)} (${JSON.stringify(want)})`);
+      if (!/pitch [+\-]\d+\.\d°/.test(row)) fail(`leg 4a: the ROTATE row does not print the live tilt: "${row}"`);
+      tiltDrag = { live, row };
+    }
+    await key("Escape", "Escape", 27); // cancel the probe drag — the yaw of leg 4 stays committed
+    await mouse("mouseReleased", grabbed.x + ux * 80, grabbed.y + uy * 80, { clickCount: 1 });
+    await sleep(200);
+    if (tiltDrag) break;
+  }
+  if (!tiltDrag) fail("leg 4a: a real X-ring drag never moved the live pitch / roll in any of four directions");
+  await waitUntil("leg 4a: the cancelled drag falls back on the committed (upright) rotation", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.pitchDeg) < 1e-9 && Math.abs(m.target.rollDeg) < 1e-9; })()`, 5_000);
+  // (c) SAVE + SYNC through the exact commit a release makes: pitch 90 → the own row, the world read
+  //     (the server's canonical read), the scene's quaternion and the chip's ROTATE row all agree.
+  const cell4a = await gh5Of(a.lat, a.lon);
+  const yaw4a = a.committed.rotDeg;
+  const tip = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, pitchDeg: 90, rollDeg: 0 }).then((r) => r && { pitchDeg: r.pitchDeg, rollDeg: r.rollDeg, rotDeg: r.rotDeg, tU: r.tU })`);
+  if (!tip || !near(tip.pitchDeg, 90, 1e-6) || tip.rollDeg !== 0 || !near(tip.rotDeg, yaw4a, 1e-6)) fail(`leg 4a: a pitch commit answered ${JSON.stringify(tip)}`);
+  await ownRowEventually(modelId, (r) => near(r.pitchDeg, 90, 1e-6) && r.rollDeg === 0, "leg 4a (pitch)");
+  await worldRowEventually(cell4a, modelId, (r) => !!r && near(r.pitchDeg, 90, 1e-6) && near(r.rotDeg, yaw4a, 1e-6), "leg 4a (pitch, world read)");
+  const wantTip = quatYXZ(yaw4a, 90, 0);
+  await waitUntil("leg 4a: the scene turned the model onto its side", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); if (!m || !m.bodyQ) return false; const q = m.bodyQ, w = ${JSON.stringify(wantTip)}; const d = Math.min(1, Math.abs(q[0]*w[0]+q[1]*w[1]+q[2]*w[2]+q[3]*w[3])); return (2 * Math.acos(d) * 180) / Math.PI < 0.5; })()`, 15_000);
+  {
+    // (the regex lives in Node — a `\+` inside a template literal handed to the page collapses to `+`)
+    const t0 = Date.now();
+    let rowNow = "";
+    while (Date.now() - t0 < 10_000) {
+      rowNow = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-row[data-op=\"rotate\"] .bec-v')?.textContent ?? ''");
+      if (/pitch \+90\.0°/.test(rowNow)) break;
+      await sleep(200);
+    }
+    if (!/pitch \+90\.0°/.test(rowNow)) {
+      const diag = await evalJs(`(() => { const a = ${ES}.armed; const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return { committed: a?.committed, live: a?.live, dragging: a?.dragging, op: a?.op, target: m?.target, dragFlag: m?.dragging }; })()`);
+      fail(`leg 4a: the chip's ROTATE row never showed the committed pitch — row "${rowNow}" · ${JSON.stringify(diag)}`);
+    }
+  }
+  // On its side the 3 m depth straddles the pivot (top 1.5, span 3 → keep 0.75): the floor is −0.75.
+  const side = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, tU: -1000 }).then((r) => r && r.tU)`);
+  if (!near(side, -0.75 * a.committed.scale, 0.01)) fail(`leg 4a: a bury on its side stored ${side} m, not the tilted floor ${(-0.75 * a.committed.scale).toFixed(3)} m`);
+  await shoot("usermodels-11-tilted-side.jpeg");
+  // (d) A FLIP (roll 180) is HELD UP: at "−1000 m" the lift lands at +keep (a quarter of the 5 m
+  //     box, ≥ 0.5 m) — the top of the model sits AT the pivot, so that much of it shows.
+  const keep4a = Math.max(0.25 * 5 * a.committed.scale, 0.5);
+  const flip = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, pitchDeg: 0, rollDeg: 180, tU: -1000 }).then((r) => r && { rollDeg: r.rollDeg, tU: r.tU })`);
+  if (!flip || !near(Math.abs(flip.rollDeg), 180, 1e-6) || !near(flip.tU, keep4a, 0.01)) fail(`leg 4a: a flip commit answered ${JSON.stringify(flip)} (expected roll 180, lift +${keep4a.toFixed(2)})`);
+  await ownRowEventually(modelId, (r) => near(Math.abs(r.rollDeg), 180, 1e-6) && near(r.tU, keep4a, 0.01), "leg 4a (flip)");
+  await worldRowEventually(cell4a, modelId, (r) => !!r && near(Math.abs(r.rollDeg), 180, 1e-6) && near(r.tU, keep4a, 0.01), "leg 4a (flip, world read — server floor)");
+  await waitUntil("leg 4a: the scene held the flipped model up to its floor", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.liftM - ${keep4a}) < 0.05 && Math.abs(m.anchor[1] - ${keep4a}) < 0.15 && Math.abs(Math.abs(m.target.rollDeg) - 180) < 1e-6; })()`, 15_000);
+  if (!(await evalJs(`${GZ}.modelPx(${JSON.stringify(modelId)})`))) fail("leg 4a: the flipped model is off screen");
+  await shoot("usermodels-12-flipped-floor.jpeg");
+  // (e) Upright again, on the ground — the row stores null (read as 0), the scene's quaternion is
+  //     the pure yaw of leg 4, the chip row is back to the yaw alone.
+  const up4a = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, pitchDeg: 0, rollDeg: 0, tU: 0 }).then((r) => r && { pitchDeg: r.pitchDeg, rollDeg: r.rollDeg, tU: r.tU, rotDeg: r.rotDeg })`);
+  if (!up4a || up4a.pitchDeg !== 0 || up4a.rollDeg !== 0 || up4a.tU !== 0 || !near(up4a.rotDeg, yaw4a, 1e-6)) fail(`leg 4a: the upright commit answered ${JSON.stringify(up4a)}`);
+  await ownRowEventually(modelId, (r) => r.pitchDeg === 0 && r.rollDeg === 0 && r.tU === 0, "leg 4a (upright)");
+  const wantUp = quatYXZ(yaw4a, 0, 0);
+  await waitUntil("leg 4a: the scene stood the model up", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); if (!m || !m.bodyQ) return false; const q = m.bodyQ, w = ${JSON.stringify(wantUp)}; const d = Math.min(1, Math.abs(q[0]*w[0]+q[1]*w[1]+q[2]*w[2]+q[3]*w[3])); return (2 * Math.acos(d) * 180) / Math.PI < 0.5 && Math.abs(m.anchor[1]) < 0.05; })()`, 15_000);
+  await waitUntil("leg 4a: the chip's ROTATE row is the yaw alone again", `!/pitch/.test(document.querySelector('.bldg-edit-chip[data-kind="model"] .bec-row[data-op="rotate"] .bec-v')?.textContent ?? 'pitch')`, 10_000);
+  console.log(`leg 4a: rings X+Y+Z (no E) · a real X-ring drag tilted live to pitch ${tiltDrag.live.pitchDeg.toFixed(1)}° / roll ${tiltDrag.live.rollDeg.toFixed(1)}° ("${tiltDrag.row}") · pitch 90 saved + synced (row, world, scene, chip) · side floor ${side.toFixed(2)} m · a flip held up +${keep4a.toFixed(2)} m · upright again`);
 
   // --- 5: S → SCALE, uniform inside the band ------------------------------------------------------
   await key("KeyS", "s", 83);
@@ -786,14 +921,28 @@ try {
   if (await evalJs(`document.querySelector(${JSON.stringify(resetSel)})?.disabled`)) fail("leg 11b: RESET is dark on an edited model");
   const gotoSel = `${rowSel(modelId)} [data-act="goto"]`;
   if (await evalJs(`document.querySelector(${JSON.stringify(gotoSel)})?.disabled`)) fail("leg 11b: GOTO is dark on a placed model");
+  // MS8: a tilt set through the store shows on the fact line (⟲ pitch · roll) and RESET zeroes it too.
+  const tilt11 = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${own10.lat}, lon: ${own10.lon}, pitchDeg: 25, rollDeg: -10 }).then((r) => r && { pitchDeg: r.pitchDeg, rollDeg: r.rollDeg })`);
+  if (!tilt11 || tilt11.pitchDeg !== 25 || tilt11.rollDeg !== -10) fail(`leg 11b: the tilt commit answered ${JSON.stringify(tilt11)}`);
+  {
+    const t0 = Date.now();
+    let subNow = "";
+    while (Date.now() - t0 < 10_000) {
+      subNow = (await rowText(modelId, ".mp-sub")) ?? "";
+      if (/⟲ \+25° · −10°$/.test(subNow)) break;
+      await sleep(200);
+    }
+    if (!/⟲ \+25° · −10°$/.test(subNow)) fail(`leg 11b: the fact line never showed the tilt: ${JSON.stringify(subNow)}`);
+  }
+  const sub11t = await rowText(modelId, ".mp-sub");
   await clickIn(modelId, '[data-act="reset"]');
-  const own11b = await ownRowEventually(modelId, (r) => r.rotDeg === 0 && r.scale === 1 && r.tU === 0, "leg 11b");
+  const own11b = await ownRowEventually(modelId, (r) => r.rotDeg === 0 && r.scale === 1 && r.tU === 0 && r.pitchDeg === 0 && r.rollDeg === 0, "leg 11b");
   if (!near(own11b.lat, own10.lat, 1e-9) || !near(own11b.lon, own10.lon, 1e-9)) fail("leg 11b: RESET moved the placement");
   const cell11 = await gh5Of(own10.lat, own10.lon);
-  await worldRowEventually(cell11, modelId, (r) => !!r && r.rotDeg === 0 && r.scale === 1 && r.tU === 0, "leg 11b (world read)");
+  await worldRowEventually(cell11, modelId, (r) => !!r && r.rotDeg === 0 && r.scale === 1 && r.tU === 0 && r.pitchDeg === 0 && r.rollDeg === 0, "leg 11b (world read)");
   await waitUntil(
     "leg 11b: the scene eased onto the upload",
-    `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.scale - 1) < 1e-9 && Math.abs(m.target.liftM) < 1e-9 && Math.abs(m.target.rotDeg) < 1e-9 && Math.abs(m.anchor[1]) < 0.01 && Math.abs(m.bodyScale - 1) < 0.01; })()`,
+    `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.scale - 1) < 1e-9 && Math.abs(m.target.liftM) < 1e-9 && Math.abs(m.target.rotDeg) < 1e-9 && Math.abs(m.target.pitchDeg) < 1e-9 && Math.abs(m.target.rollDeg) < 1e-9 && Math.abs(m.anchor[1]) < 0.01 && Math.abs(m.bodyScale - 1) < 0.01 && m.bodyQ && Math.abs(m.bodyQ[3]) > 0.99999; })()`,
     15_000,
   );
   const sub11b = await rowText(modelId, ".mp-sub");
@@ -801,7 +950,7 @@ try {
   if (!(await evalJs(`document.querySelector(${JSON.stringify(resetSel)})?.disabled`))) fail("leg 11b: RESET stays lit on an as-uploaded model");
   ref = own11b;
   await shoot("usermodels-10-list-reset.jpeg");
-  console.log(`leg 11b: RESET → rot 0 · scale 1 · lift 0 (own list · world read · scene eased) · spot kept · row "${sub11b}" · RESET dark, GOTO lit`);
+  console.log(`leg 11b: tilt row "${sub11t}" · RESET → rot 0 · upright · scale 1 · lift 0 (own list · world read · scene eased) · spot kept · row "${sub11b}" · RESET dark, GOTO lit`);
 
   // --- 12: ✎ RENAME inline --------------------------------------------------------------------------
   const NEW_TITLE = "MS6 renamed box";
@@ -891,8 +1040,7 @@ try {
   await waitResident(foreignId, "leg 15");
   await waitSeatedStill(foreignId, "leg 15");
   if (await evalJs(`${US}.mine.some((m) => m.id === ${JSON.stringify(foreignId)})`)) fail("leg 15: another member's model joined MINE");
-  const pxF = await evalJs(`${GZ}.modelPx(${JSON.stringify(foreignId)})`);
-  if (!pxF) fail("leg 15: the foreign model is not on screen");
+  const pxF = await modelPxOnScreen(foreignId, "leg 15");
   await hover(pxF.x, pxF.y);
   await sleep(300);
   const noteF = await evalJs("document.querySelector('.bldg-edit-label')?.textContent ?? ''");
@@ -1028,6 +1176,6 @@ try {
 if (cleanupProblem) fail(cleanupProblem);
 if (consoleErrors.length > 0) fail(`the page logged ${consoleErrors.length} shader/program error(s) — the chained model materials do not compile: ${consoleErrors[0]}`);
 console.log(`console: no shader/program errors logged across the run`);
-console.log("PASS: verify-usermodels — 20 legs (upload → world read → real right-click arms, menu survives the release → rotate / scale (0.1×–10×, metres on the row) / move PATCH → MS7 lift: up saved, floor held, ↺ landed → orbit drag after the session (helpers out, control seen) → reload (lift re-applied) → anonymous → MDL gate → click-to-place → MS6: MODELS tab (✎ GOTO RESET HIDE ✕) → MS7 RESET → rename → hide/show → GOTO stands beside → foreign member edits as SHARED (LWW, owner sees EDITED) → orbit hover + click → list delete → cleanup)");
+console.log("PASS: verify-usermodels — 21 legs (upload → world read → real right-click arms, menu survives the release → rotate → MS8 tilt: X+Z rings, a real X-ring drag, pitch 90 saved + synced, a flip held up to the floor, upright again → scale (0.1×–10×, metres on the row) / move PATCH → MS7 lift: up saved, floor held, ↺ landed → orbit drag after the session (helpers out, control seen) → reload (lift re-applied) → anonymous → MDL gate → click-to-place → MS6: MODELS tab (✎ GOTO RESET HIDE ✕) → MS7 RESET (MS8: the tilt too) → rename → hide/show → GOTO stands beside → foreign member edits as SHARED (LWW, owner sees EDITED) → orbit hover + click → list delete → cleanup)");
 ws.close();
 await finishVerify(0);
