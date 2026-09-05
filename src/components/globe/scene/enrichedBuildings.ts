@@ -233,6 +233,27 @@ export interface EnrichedBuildingsHandle {
    *  `quietFrames` counts frames since the last write. The orchestrator invalidates a ready
    *  skyline profile once per settled epoch (PLAN.reseatQuietFrames). */
   seatState(): { epoch: number; quietFrames: number };
+  /** T77 MEASURE (2026-09-05) — the RESEAT-SETTLE read seam. Per-frame residuals taken inside
+   *  `applyFeatureSeats()` (which already visits every resident feature every frame, so this
+   *  costs two compares per feature and allocates nothing): `maxResidualM` = the largest
+   *  |target − applied| left after this frame's ease over every seated feature; `movedFeatures` =
+   *  how many features WROTE a seat delta this frame (the engine's own 1 cm write gate); the
+   *  `near*` twins are scoped to the RC7 look-cone priority cells — the only scope a settle bar
+   *  can be held to (ENGINE_STATE §2.5: the city-wide round-robin cannot clear 1 cm in a test
+   *  window). `frame` is this module's apply counter; pair every read with it. Plain field
+   *  reads — poll-safe at any cadence; a harness never has to walk debugSeats() per frame. */
+  seatSettle(): {
+    frame: number;
+    maxResidualM: number;
+    movedFeatures: number;
+    nearMaxResidualM: number;
+    nearMovedFeatures: number;
+    nearCells: number;
+    epoch: number;
+    quietFrames: number;
+    deferred: number;
+    rejected: number;
+  };
   /** DEBUG HUD (owner 2026-09-01): cheap running counters — plain field reads, poll-safe.
    *  `deferred` counts null-TERRAIN sample deferrals (the burn rate debugSeats()'s `unseated`
    *  backlog cannot show); `rejected` is the running twin of the per-cell gate counter. */
@@ -972,6 +993,14 @@ export function attachEnrichedBuildings(
   // per-cell twins live on CellSeat and are only reachable through debugSeats()'s full walk.
   let deferredN = 0; // null-TERRAIN sample deferrals (acceptSample h == null)
   let rejectedN = 0; // plausibility-gate rejections (twin of the per-cell `rejected`)
+  // T77 MEASURE (2026-09-05) — seatSettle() accumulators, rewritten by every applyFeatureSeats()
+  // pass. `prioritySet` mirrors `priorityCells` (rebuilt only when the ranking is), so the
+  // near-scope test inside the apply loop is one Set.has per CELL, never an allocation per frame.
+  let applyMaxResidualM = 0;
+  let applyMovedN = 0;
+  let applyNearMaxResidualM = 0;
+  let applyNearMovedN = 0;
+  let prioritySet: Set<CellSeat> = new Set();
   const _w = new THREE.Vector3();
   const _m5 = new THREE.Vector3(); // RC0 M5 scratch (bake-height capture, once per cell)
   /** RC7 — cells sorted by look-biased distance, truncated to `reseatPriorityCells`. */
@@ -1461,8 +1490,14 @@ export function attachEnrichedBuildings(
    *  Cheap compares over everything loaded (~0.2 ms); writes touch only pending runs. */
   const applyFeatureSeats = (): boolean => {
     let wrote = false;
+    // T77 MEASURE: the settle accumulators are per-PASS — reset here, read by seatSettle().
+    applyMaxResidualM = 0;
+    applyMovedN = 0;
+    applyNearMaxResidualM = 0;
+    applyNearMovedN = 0;
     for (const cell of cellList) {
       if (cell.seatM == null || !cell.located) continue;
+      const near = prioritySet.has(cell);
       for (const part of cell.parts) {
         let touchedFill = false;
         const pos = part.posAttr.array as Float32Array;
@@ -1487,7 +1522,13 @@ export function attachEnrichedBuildings(
             if (f.appliedM == null || Math.abs(next - f.appliedM) >= 0.01) {
               dy = next - (f.appliedM ?? 0);
               f.appliedM = next;
+              applyMovedN++;
+              if (near) applyNearMovedN++;
             }
+            // T77 MEASURE: the residual LEFT after this frame's ease (0 once the ease has landed).
+            const resid = Math.abs(target - (f.appliedM ?? 0));
+            if (resid > applyMaxResidualM) applyMaxResidualM = resid;
+            if (near && resid > applyNearMaxResidualM) applyNearMaxResidualM = resid;
           }
           // U8 height-override step: ease appliedK toward the committed target. The write is a
           // scale about the LIVE base (baseY + appliedM) — it commutes with the translation
@@ -1679,6 +1720,7 @@ export function attachEnrichedBuildings(
               !priorityCells.every((c) => cellByScene.has(c.scene))
             ) {
               priorityCells = rankPriorityCells();
+              prioritySet = new Set(priorityCells); // T77: the seatSettle() near-scope mirror
             }
             let fb = ENRICHED.reseatFeatureSamplesPerFrame;
             const fRr = Math.max(1, Math.round(fb * ENRICHED.reseatRoundRobinShare));
@@ -1781,6 +1823,19 @@ export function attachEnrichedBuildings(
       uniforms.uFtwSunW.value.copy(sunW);
     },
     seatState: () => ({ epoch: seatEpochN, quietFrames: seatQuietN }),
+    // T77 MEASURE (2026-09-05) — the reseat-settle read seam (see the interface doc).
+    seatSettle: () => ({
+      frame: frameNo,
+      maxResidualM: applyMaxResidualM,
+      movedFeatures: applyMovedN,
+      nearMaxResidualM: applyNearMaxResidualM,
+      nearMovedFeatures: applyNearMovedN,
+      nearCells: priorityCells.length,
+      epoch: seatEpochN,
+      quietFrames: seatQuietN,
+      deferred: deferredN,
+      rejected: rejectedN,
+    }),
     // DEBUG HUD (owner 2026-09-01) — the CHEAP counters: plain field reads, safe at poll
     // cadence. Everything richer (per-cell breakdowns, m5 rings, skirt/pickFence walks) stays
     // behind debugSeats(), which walks every cell × part × feature and is action-only.
@@ -2174,6 +2229,7 @@ export function attachEnrichedBuildings(
       cellByUri.clear();
       partByMesh.clear();
       priorityCells.length = 0;
+      prioritySet.clear();
       tiles.dispose();
       styleMat.dispose();
       edgeMat.dispose();

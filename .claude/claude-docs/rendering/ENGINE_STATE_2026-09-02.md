@@ -368,6 +368,8 @@ on Safari. Parse concurrency is the only hitch lever, and RC18's live promote ra
 
 ## 4. Measured-number ledger (what we actually know)
 
+> **2026-09-06:** the T77 MEASURE session replaced the ESTIMATED rows and the "never measured" list below with readings — see `MEASUREMENTS_2026-09-05.md` §10 (the ESTIMATED → MEASURED ledger). This section stays as the 2026-09-02 provenance.
+
 Hardware key: **OM** owner's M3 Pro Mac (dev build 1600×950 @ DPR 2) · **HL** headless tier-low
 Chrome on :9333 · **WC** warm cache. No real phone number exists.
 

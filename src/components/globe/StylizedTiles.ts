@@ -3385,6 +3385,15 @@ export function attachStylizedTiles(opts: {
       tiles: buildings.tiles,
       enriched: enriched?.tiles ?? null, // Dnipro 3D enrichment (Slice 0) — null unless the URL is set
       enrichedSeats: () => enriched?.debugSeats() ?? null, // per-building re-seat coverage (2026-07-14)
+      // T77 MEASURE (2026-09-05) — the RESEAT-SETTLE read seam: this frame's seat residuals from
+      // the apply pass (plain field reads, safe inside a per-frame rAF probe — unlike
+      // enrichedSeats(), which walks ~39k features), paired with the orchestrator frame and the
+      // terrain epoch whose bump re-arms every target. `scripts/verify-temporal-stability.mjs`.
+      seatSettle: () => ({
+        frameCount,
+        terrainEpoch: ground.terrainEpoch(),
+        enriched: enriched?.seatSettle() ?? null,
+      }),
       // MESH SUITE MS1 (2026-09-02): read / drive ONE building's edit target without the gizmo.
       // `enrichedSetTransform` takes the SAME commit path as a drag release (engine target +
       // persisted row), so a harness can prove a spatial edit applies, persists and re-applies.

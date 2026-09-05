@@ -1,0 +1,11 @@
+{
+  "name": "plux-devicefarm-tools",
+  "private": true,
+  "type": "module",
+  "description": "T77 phone baseline on AWS Device Farm (Remote Access + Appium endpoint) — kept out of the app's package.json so knip and the Wix build never see it. `npm install` here once.",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@aws-sdk/client-device-farm": "^3.900.0",
+    "webdriverio": "^9.20.0"
+  }
+}

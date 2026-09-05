@@ -26,8 +26,11 @@ import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
 import {
   debugFeedActive,
   debugPush,
+  publishDebugFeedSeam,
   registerDebugProvider,
+  setDebugFeedActive,
 } from "../../lib/globe/debugFeed";
+import { debugHudBootOn } from "../../lib/globe/debugBoot";
 import { createGpuTimer } from "../../lib/globe/debugGpuTimer";
 
 /** Read the device's rendering capabilities for the initial quality tier (RENDERING_QUALITY_PASS
@@ -801,6 +804,14 @@ export default function GlobeCanvas() {
       logDepth: caps.logarithmicDepthBuffer,
     };
     const unregSystemDbg = registerDebugProvider("system", () => systemSnap);
+    // T77 MEASURE (2026-09-05) — the runtime-gated READ seam for shells that never mount the
+    // panel (/m, coarse pointers, a release build): the `debugHud` pref, read once at boot the
+    // way `ultraBootSnapshot()` reads the chip, activates the feed and publishes
+    // `window.__debugFeed`. On the desktop shell DebugPanel's mount does the same — idempotent.
+    if (debugHudBootOn()) {
+      setDebugFeedActive(true);
+      publishDebugFeedSeam(true);
+    }
 
     // --- resize ---
     const onResize = () => {

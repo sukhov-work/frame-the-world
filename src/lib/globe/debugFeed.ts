@@ -22,6 +22,18 @@
  * displayed from one read — `makeRateTracker` differences two samples into a per-second rate
  * (the RC11 lesson: a single sample of a since-page-load counter read 9.8 % where the truth
  * was 87 %).
+ *
+ * THE READ SEAM (T77 MEASURE, 2026-09-05). Until this session the ONLY reader was the panel's
+ * DOM: a harness had to open the HUD and scrape formatted strings out of `.dbg-row__value`
+ * spans, and on `/m` (no panel) nothing could read the feed at all. `window.__debugFeed`
+ * (`publishDebugFeedSeam`) exposes the same three surfaces as functions — every provider's raw
+ * snapshot, the series order statistics, the actions — plus `snapshot()`, which flattens all of
+ * it into ONE record for a scripted probe. Two publishers, the ULT precedent: DEV builds publish
+ * it unconditionally (the harness's seam); a release build publishes it only when the `debugHud`
+ * pref was ON at boot (`lib/globe/debugBoot.ts` → GlobeCanvas), which is also what ACTIVATES the
+ * feed on a shell that never mounts the panel — the phone-baseline checklist's console read
+ * (`rendering/IPHONE_BASELINE_CHECKLIST_2026-09-05.md` §A.3). No behaviour: nothing in the
+ * engine reads this module's state; it is written from and read into probes.
  */
 
 import { DEBUGHUD } from "../../components/globe/tuning";
@@ -37,6 +49,16 @@ export type DebugSeriesId =
   | "frame.gpu" // EXT_disjoint_timer_query result (ms), a few frames late; absent = unsupported
   | "frame.calls" // renderer.info.render.calls, whole frame (shadow + composer + PiP passes)
   | "frame.tris"; // renderer.info.render.triangles, whole frame
+
+/** Every series id, for `debugFeedSnapshot()` — kept in step with the union (a unit test pins it). */
+export const DEBUG_SERIES_IDS: readonly DebugSeriesId[] = [
+  "frame.dt",
+  "frame.cpu",
+  "frame.draw",
+  "frame.gpu",
+  "frame.calls",
+  "frame.tris",
+];
 
 interface Ring {
   buf: Float32Array;
@@ -195,6 +217,76 @@ export function makeRateTracker(): {
     },
   };
 }
+
+/**
+ * T77 MEASURE — ONE flat record of everything the feed knows right now: every provider's
+ * snapshot as `<provider>.<key>` (an unreachable provider reads as `<provider>.__unreachable =
+ * true`, the esriPlaceholder rule) and every series' order statistics as `<series>.<stat>`.
+ * Series entries exist only while the feed is (or was) active — a cold read carries none, and
+ * `feed.active` says which. Cumulative counters come back RAW: a probe differences two calls.
+ */
+export function debugFeedSnapshot(): DebugSnapshot {
+  const out: DebugSnapshot = { "feed.active": feedActive };
+  for (const id of providers.keys()) {
+    const snap = readDebugProvider(id);
+    if (snap === null) {
+      out[`${id}.__unreachable`] = true;
+      continue;
+    }
+    for (const k of Object.keys(snap)) out[`${id}.${k}`] = snap[k];
+  }
+  for (const sid of DEBUG_SERIES_IDS) {
+    const st = debugSeriesStatsOf(sid);
+    if (!st) continue;
+    out[`${sid}.n`] = st.n;
+    out[`${sid}.last`] = st.last;
+    out[`${sid}.avg`] = st.avg;
+    out[`${sid}.p50`] = st.p50;
+    out[`${sid}.p95`] = st.p95;
+    out[`${sid}.max`] = st.max;
+    out[`${sid}.worst1`] = st.worst1;
+  }
+  return out;
+}
+
+/** The `window.__debugFeed` surface — functions, never frozen values (live reads only). */
+export interface DebugFeedSeam {
+  snapshot: () => DebugSnapshot;
+  read: (id: string) => DebugSnapshot | null;
+  ids: () => string[];
+  series: (id: DebugSeriesId) => DebugSeriesStats | null;
+  action: (id: string) => unknown;
+  actionIds: () => string[];
+  readonly active: boolean;
+  setActive: (on: boolean) => void;
+}
+
+/**
+ * Publish (or withdraw) `window.__debugFeed`. Idempotent; SSR-safe (no window → no-op). DEV
+ * builds call it once at import below; release builds reach it only through the boot-time pref
+ * read (`debugBoot.ts`), so a shipped page carries nothing on `window` unless the user asked.
+ */
+export function publishDebugFeedSeam(on: boolean): void {
+  if (typeof window === "undefined") return;
+  if (!on) {
+    delete window.__debugFeed;
+    return;
+  }
+  window.__debugFeed = {
+    snapshot: debugFeedSnapshot,
+    read: readDebugProvider,
+    ids: debugProviderIds,
+    series: debugSeriesStatsOf,
+    action: runDebugAction,
+    actionIds: debugActionIds,
+    get active() {
+      return feedActive;
+    },
+    setActive: setDebugFeedActive,
+  };
+}
+
+if (import.meta.env.DEV) publishDebugFeedSeam(true);
 
 /** Test seam — wipe all state (rings, providers, actions, the active flag). */
 export function __resetDebugFeedForTests(): void {

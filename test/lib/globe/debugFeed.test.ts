@@ -1,19 +1,25 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   __resetDebugFeedForTests,
+  DEBUG_SERIES_IDS,
   debugActionIds,
   debugFeedActive,
+  debugFeedSnapshot,
   debugProviderIds,
   debugPush,
   debugSeriesRead,
   debugSeriesStatsOf,
   makeRateTracker,
+  publishDebugFeedSeam,
   readDebugProvider,
   registerDebugAction,
   registerDebugProvider,
   runDebugAction,
   setDebugFeedActive,
+  type DebugSeriesId,
 } from "../../../src/lib/globe/debugFeed";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { DEBUGHUD } from "../../../src/components/globe/tuning";
 
 beforeEach(() => __resetDebugFeedForTests());
@@ -147,5 +153,82 @@ describe("debugFeed — rate tracker (the cumulative-counter discipline)", () =>
     t.rate("b", 0, 0);
     expect(t.rate("a", 10, 1000)).toBe(10);
     expect(t.rate("b", 20, 1000)).toBe(20);
+  });
+});
+
+describe("debugFeed — the READ seam (T77 MEASURE, 2026-09-05)", () => {
+  it("DEBUG_SERIES_IDS is in step with the DebugSeriesId union (source-pinned, both directions)", () => {
+    // The snapshot walks this list; a series added to the union but not the list would silently
+    // fall out of every harness read. Parse the union out of the source rather than trusting a
+    // hand copy — the same "read the app's own encoder" rule the verify scripts follow.
+    const src = readFileSync(join(__dirname, "../../../src/lib/globe/debugFeed.ts"), "utf8");
+    // The union's members are the `  | "a.b"` lines (a trailing `;` inside a comment — the
+    // "frame.gpu" note — is why the block is walked by LINE SHAPE, not cut at the first `;`).
+    const from = src.indexOf("export type DebugSeriesId =");
+    const inUnion = src
+      .slice(from, src.indexOf("\n\n", from))
+      .split("\n")
+      .map((l) => l.match(/^\s*\|\s*"([a-z]+\.[a-z]+)"/)?.[1])
+      .filter((x): x is string => !!x)
+      .sort();
+    expect(inUnion.length).toBeGreaterThan(3); // zero-result validation: the regex CAN match
+    expect([...DEBUG_SERIES_IDS].sort()).toEqual(inUnion);
+  });
+
+  it("snapshot() flattens every provider as <id>.<key>, an unreachable one as <id>.__unreachable", () => {
+    registerDebugProvider("canvas", () => ({ tier: "high", dpr: 2 }));
+    registerDebugProvider("tiles", () => {
+      throw new Error("reach broke");
+    });
+    const snap = debugFeedSnapshot();
+    expect(snap["canvas.tier"]).toBe("high");
+    expect(snap["canvas.dpr"]).toBe(2);
+    expect(snap["tiles.__unreachable"]).toBe(true);
+    expect(snap["feed.active"]).toBe(false);
+  });
+
+  it("snapshot() carries series statistics only once the feed has pushed (a cold read has none)", () => {
+    const cold = debugFeedSnapshot();
+    expect(Object.keys(cold).some((k) => k.startsWith("frame."))).toBe(false);
+    setDebugFeedActive(true);
+    for (const v of [10, 20, 30, 40]) debugPush("frame.dt", v);
+    const warm = debugFeedSnapshot();
+    expect(warm["feed.active"]).toBe(true);
+    expect(warm["frame.dt.n"]).toBe(4);
+    expect(warm["frame.dt.avg"]).toBe(25);
+    expect(warm["frame.dt.max"]).toBe(40);
+    expect(warm["frame.dt.last"]).toBe(40);
+    // Series never pushed stay absent — an "absent" is honest, a zero would be a fabricated read.
+    expect(warm["frame.gpu.n"]).toBeUndefined();
+  });
+
+  it("publishDebugFeedSeam() installs live functions on window and withdraws them cleanly", () => {
+    const w = globalThis as unknown as { window?: unknown };
+    const hadWindow = "window" in globalThis;
+    const fake: Record<string, unknown> = {};
+    (globalThis as unknown as { window: unknown }).window = fake;
+    try {
+      publishDebugFeedSeam(true);
+      const seam = fake.__debugFeed as {
+        snapshot: () => Record<string, unknown>;
+        ids: () => string[];
+        series: (id: DebugSeriesId) => unknown;
+        active: boolean;
+        setActive: (on: boolean) => void;
+      };
+      expect(typeof seam.snapshot).toBe("function");
+      registerDebugProvider("models", () => ({ resident: 6 }));
+      expect(seam.ids()).toEqual(["models"]);
+      expect(seam.snapshot()["models.resident"]).toBe(6); // LIVE — registered after publish
+      expect(seam.active).toBe(false);
+      seam.setActive(true);
+      expect(seam.active).toBe(true);
+      expect(debugFeedActive()).toBe(true);
+      publishDebugFeedSeam(false);
+      expect("__debugFeed" in fake).toBe(false);
+    } finally {
+      if (hadWindow) (globalThis as unknown as { window: unknown }).window = w.window;
+      else delete (globalThis as unknown as { window?: unknown }).window;
+    }
   });
 });

@@ -34,13 +34,13 @@ the `/m` redirect; new 2026-08-15).
 | `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
 | `ftw:bldg-overrides:v1` | `src/lib/globe/…` → `scene/bldgEditLabel` + the U8 edit flow | new 2026-08-19 (U8 building-height override), missed by the 2026-08-15 sweep. Rails since MS5b (2026-09-02l): PER-EDIT about the COMMITTED transform — move ≤ 100 m per drag, every scale axis 0.1×–10× per drag, compounding with no absolute cap — under a LOOSE sanity rail on read / SYNC / commit (\|t\| ≤ 5 000 m · scale 0.001–1 000 · lift 0–25 m; a persisted row outside THAT is dropped; it was the absolute 60 m / 0.1×–10× rail plus a 0.5×–3× per-edit band — loosening is a compatibility event, every old row is inside the new rail), keyed **`<variant>\|<cellUri>\|<featureId>`** (`src/lib/globe/bldgOverrides.ts` `overrideKey`/`parseOverrideKey`; `cellUri` = the baked content basename `cell-<x>-<y>.glb`, `featureId` = the bake-sequential `_FEATURE_ID_0` — NOT an OSM id; this row said `osmId` from 2026-08-22 to 2026-09-02 and that was doc drift). A re-bake CHECKSUM (`cx/cz/vc`) invalidates the row rather than migrating it, so a stale key is dropped, never applied to the wrong building; the RC17 sidecars carry the OSM id (`osm`, 100 % coverage on every live bake as of 2026-09-02) and the MESH SUITE MS3 slice adopts it as the re-bake-stable RECOVERY key (dual-key, never a hard cutover — `MESH_SUITE_PLAN.md` §4a). Row shape is versioned (v2 = `sy/sx/sz/tE/tN/rotDeg`, legacy `k` read as `sy`, MS1 2026-09-02). **MS3 (2026-09-02f):** two more optional fields — `o` = the building's OSM element id (the re-bake-stable recovery key; `/^[nwr]\d{1,16}$/`, a malformed one drops the field, never the row) and `d: 1` = a TOMBSTONE (a pending REMOVAL of a world-shared edit: identity transform, kept although neutral, masks the shared row locally, rides the next SYNC as a `removes` entry, deleted once it lands). `s` (synced-at) is now stamped by a real SYNC. This key holds MINE only (dirty edits, pending resets, synced copies); the WORLD's rows are fetched from `/api/building-overrides` at boot and held in memory (`lib/globe/bldgSync.ts`), never persisted. The backend twin is LIVE (provisioned 2026-09-02f) |
 
-## 3. `window.__*` DEV seams (all DEV-gated; **27 top-level** as of 2026-09-02i — the MESH SUITE MS5 count re-enumerated `src/global.d.ts`: `__pipCache` and `__frameGate` had been declared there since RC19/RC21 without joining this list, and `__modelEditStore` + `__userModelsStore` joined now)
+## 3. `window.__*` DEV seams (all DEV-gated except `__debugFeed`; **28 top-level** as of 2026-09-05 (T77 MEASURE added `__debugFeed`) — the MESH SUITE MS5 count re-enumerated `src/global.d.ts`: `__pipCache` and `__frameGate` had been declared there since RC19/RC21 without joining this list, and `__modelEditStore` + `__userModelsStore` joined now)
 
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __pipCache __frameGate __cameraStore __timeStore __uploadStore __pinsStore __memberStore
 __planStore __saveStore __marketStore __minimapStore __skyStore __findStore __placesStore
 __bldgEditStore __bldgSyncStore __bestSpotStore __modelUploadStore __modelEditStore
-__userModelsStore`
+__userModelsStore __debugFeed`
 
 Verify scripts and the NEXT_SESSION_PROMPT recipe consume these — removing/renaming one silently breaks
 the browser-verify tier. (NSP's list was 3 short at audit time — this file is the canonical set.)
@@ -50,6 +50,20 @@ global` next to its owner and never behind an `as unknown as` cast. Both drifts 
 audit #3: `__globeQuality` shipped through the exact cast the registry exists to replace (A2-5)
 and `__memberStore` was declared locally in `store/member.ts`, which is why this section
 under-counted by five. Both are seated now.
+
+**`__debugFeed` (T77 MEASURE, 2026-09-05) is the one RUNTIME-gated seam** (the ULT precedent):
+owner `lib/globe/debugFeed.ts` `publishDebugFeedSeam`; `{ snapshot(), read(id), ids(), series(id),
+action(id), actionIds(), active, setActive(on) }` — every DBG provider's RAW snapshot (cumulative
+counters come back raw: difference two reads), the six per-frame series' order statistics, the
+actions. DEV builds publish it at import; a release build publishes it only when the `debugHud`
+pref was on at boot (`lib/globe/debugBoot.ts` → `GlobeCanvas`), which also ACTIVATES the feed on
+a shell that never mounts the panel (`/m`, coarse pointers) — the phone-baseline console read.
+Consumers: `scripts/verify-perf-baseline.mjs`, `scripts/verify-temporal-stability.mjs`,
+`rendering/IPHONE_BASELINE_CHECKLIST_2026-09-05.md` §A.3. New sub-seam the same day:
+**`__globe.seatSettle()`** — `{ frameCount, terrainEpoch, enriched: { frame, maxResidualM,
+movedFeatures, nearMaxResidualM, nearMovedFeatures, nearCells, epoch, quietFrames, deferred,
+rejected } }`, the per-frame seat residuals taken inside `applyFeatureSeats()` (plain field reads,
+safe in a per-frame rAF probe — `enrichedSeats()` is a 39k-feature walk and is not).
 
 The five added since the 2026-08-15 count:
 

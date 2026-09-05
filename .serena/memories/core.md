@@ -178,25 +178,27 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
 
 ## Next step
-**2026-09-05b: THE MESH TRACK IS CLOSED (owner: MS8 deployed + tested manually; "this concludes all
-mesh-related work at the moment" — T74 / T78 closed, taste calls parked). T77 IS THE ONLY OPEN TRACK
-and its prep is COMPLETE:** the owner's web research is on disk
-(`rendering/WEB_RESEARCH_PERFORMANCE_RESULT_2026_09_05.md` — 24 ranked levers, Rq-1..17, the iPhone
-JETSAM reframe: the tile storms / reloads are a MEMORY kill, not a frame-rate ceiling; do-not-do list;
-8 experiments) and the reconciliation with ENGINE_STATE is written: **`rendering/T77_AUDIT_PLAN_2026-09-05.md`**
-(23-lever merged ledger with slice + gate per row; 8 seams resolved — shadow caching depends on
-per-tile memo invalidation, `heightAt` stays the vertical authority, MSAA stays the mobile AA, the
-Hillaire sky is LAST, the tier-force seam is `window.__globeQuality`; the MEASURE protocol; the slice
-ladder A shadows → B seats → C streaming+workers → D mobile → E later). **NEXT SESSION = T77 step 1
-MEASURE** (`/frame` Audit, READ-ONLY on `src/`): `scripts/verify-perf-baseline.mjs` on a HEADED Chrome
-(headless governs to `low`) over the harness poses × 0/6/24 realistic models × ULTRA × shadows × tiers,
-plus two new metrics (shadow shimmer, reseat-settle), the device-free proxies (`renderer.info.memory`
-bytes per pose; desktop Safari for WebKit correctness) and part A of the phone checklist
-(`rendering/IPHONE_BASELINE_CHECKLIST_2026-09-05.md`: the ngrok tunnel — `wix dev` binds loopback only —,
-a runtime-gated read snapshot behind `debugHud`, the model-ramp script) → `rendering/MEASUREMENTS_<date>.md`.
-**Owner 2026-09-05c: the 17 Pro is borrowed later (short window); a cloud device farm is APPROVED
-(paying OK) for the real-phone stages; the kill point / soak / A19 frame times stay UNKNOWN until one runs.** `mem:project/wip-2026-09-05-t77-audit-plan` · DECISIONS 2026-09-05b ·
-NEXT_SESSION_PROMPT (the READ FIRST block).
+**2026-09-06: T77 STEP 1 MEASURE IS DONE — `rendering/MEASUREMENTS_2026-09-05.md` (verdict §0, the
+ESTIMATED → MEASURED ledger §10, the SLICE-ORDER SUPERSESSION §12). The numbers reordered the plan:**
+(1) every `#p=` orbit pose is CPU-bound in the CONTROLS — 31–47 ms/frame at a static pose at every tier
+(the `/m` chart too), 84 % of the frame in `GlobeControls.update → adjustCamera → _getPointBelowCamera →
+raycaster.intersectObject(scene)` (the controls hold the WHOLE scene, `StylizedTiles.ts:1086`; brute-force
+raycast over the 7.7 M-vertex enriched soup) — **T79**; (2) bloom is the largest GPU consumer (−13…−25 ms
+GPU off; the FPV frame IS the GPU) — **T80**; (3) shadows are cheap but the SHIMMER is measured (18.5 %
+of the shadow mask flips every frame under a 0.0083°/frame sun, rate-independent) and seats STALL 8.3 cm
+short by construction (1 cm write gate vs `reseatEaseK` 0.12) and never settle at the FPV eye (writes in
+98 % of frames, 1,210 rejections/70 s, terrain epoch 1.9–4.8 bumps/s) — **T81**. 24 realistic models cost
+nothing measurable (MESH_SUITE §12's texture cliff refuted at the count cap). **2026-09-06c: the PHONE FLOW is built and dry-run-verified (Device Farm project + the owner's "Iphone 17pro" pool → iPhone 17 Pro iOS 26.3.1; AWS profile `plux` = the ROOT key, Device-Farm-only calls, never printed; `tools/devicefarm/ios-baseline.mjs`; the Pixel 6 Pro via `verify-perf-baseline.mjs 9444 --device` over adb). NEXT SESSION = STEP 1 the phone baseline RUNS (farm, then Pixel) → MEASUREMENTS §11, THEN STEP 2 = T77 slice 0,
+THE ORBIT FRAME (a FIX slice: T79 the controls' raycast target — owner call on the rooftop clearance
+`cameraRadius` gives today — then T80 bloom — owner call on pixels at `high`), gated by
+`scripts/verify-perf-baseline.mjs --quick` (orbit cpu ≤ 5 ms, was 42) + the §8 harness list; then A
+(shadows, gate = the shimmer baseline in `verify-temporal-stability.mjs --shimmer`), then B (seats,
+`--reseat`).** Instruments shipped: `verify-perf-baseline.mjs`, `verify-temporal-stability.mjs`,
+`probe-cpu-profile.mjs`, `t77-model-ramp.mjs`; DEV read seams `window.__debugFeed` (runtime-gated via the
+`debugHud` pref — the phone's console read) + `__globe.seatSettle()`. The phone (1b): checklist §A DONE
+(tunnel recipe, pose URLs, read seam, ramp tool); §B — the jetsam kill point, the soak, A19 frame times —
+UNKNOWN until a device or the approved farm runs it. `mem:project/wip-2026-09-05-t77-measure` · DECISIONS
+2026-09-06 · NEXT_SESSION_PROMPT (the READ FIRST block).
 
 Prior: **2026-09-05: MESH SUITE MS8 BUILT — VERTICAL ROTATION (pitch / roll) for user models (owner order
 2026-09-03 after testing MS7).** Two more stored seats `UserModels.pitchDeg` / `rollDeg` (degrees, null =

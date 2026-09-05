@@ -26,6 +26,7 @@ import type { useMemberStore } from "./store/member";
 import type { useModelUploadStore } from "./store/modelUpload";
 import type { useModelEditStore } from "./store/modelEdit";
 import type { useUserModelsStore } from "./store/userModels";
+import type { DebugFeedSeam } from "./lib/globe/debugFeed";
 
 declare global {
   interface Window {
@@ -101,6 +102,13 @@ declare global {
       readonly restMs: number;
       maxStaleMs: number;
     };
+    /** T77 MEASURE (2026-09-05): the debug feed's READ seam — every provider's raw snapshot,
+     *  the per-frame series statistics, the actions, and `snapshot()` flattening all of it into
+     *  one record. UNLIKE every other seam here it is RUNTIME-gated, not only DEV-gated (the
+     *  ULT precedent): DEV publishes it always; a release build publishes it only when the
+     *  `debugHud` pref was on at boot (`lib/globe/debugBoot.ts`) — the phone-baseline console
+     *  read. Functions and a live getter only — never a value frozen at publish time. */
+    __debugFeed?: DebugFeedSeam;
     __timeStore?: typeof useTimeStore;
     __cameraStore?: typeof useCameraStore;
     __minimapStore?: typeof useMiniMapStore;

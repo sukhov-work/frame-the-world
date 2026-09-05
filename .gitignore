@@ -81,3 +81,7 @@ test/fixtures/**/*.heic
 #     does `git add -A`, and one `lake build` materializes gigabytes here in seconds.
 #     Tracked instead: formal/**.lean, lakefile.toml, lean-toolchain, lake-manifest.json. ---
 /.lake/
+
+# --- T77 phone-baseline tools (tools/devicefarm has its OWN package.json; deps stay local) ---
+tools/devicefarm/node_modules/
+tools/devicefarm/package-lock.json
