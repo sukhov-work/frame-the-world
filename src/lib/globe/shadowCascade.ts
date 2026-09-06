@@ -88,6 +88,69 @@ function quantizeUp(v: number, q: number): number {
 }
 
 /**
+ * World size (m) of one shadow texel — ortho extent ÷ map edge. The price every shadow number is
+ * really denominated in, exported so nobody re-derives it: `lib/globe/shadowSnap` snaps to this
+ * lattice, cascade 0's metric bias scales by it, and `__globe.ultraLook().shadow.metresPerTexel`
+ * reports it.
+ */
+export function texelSizeM(halfExtentM: number, mapPx: number): number {
+  return (2 * halfExtentM) / Math.max(1, mapPx);
+}
+
+export interface TexelBias {
+  /** `light.shadow.bias` — three's unit is a FRACTION of near→far, so it is derived, never authored. */
+  bias: number;
+  /** The same depth bias expressed in metres, which is the number a human can judge. */
+  biasM: number;
+  /** `light.shadow.normalBias` in world metres, after the contact-preserving cap. */
+  normalBiasM: number;
+}
+
+/**
+ * THE ONE metric-bias derivation — the ladder's and cascade 0's (T77 slice A1, 2026-09-06).
+ *
+ * Both biases are authored in TEXELS and resolved here, and the reason is the same one
+ * `ULTRA.shadowBiasM` was written for: neither of three's units is stable under this rig.
+ *
+ *  · `bias` is added to `shadowCoord.z` AFTER the perspective divide, and an ORTHOGRAPHIC shadow
+ *    matrix maps to [0,1] LINEARLY in view depth (`LightShadow.js:227-232`), so its unit is a
+ *    fraction of near→far and it silently rescales whenever the depth range moves. The base rig's
+ *    −2e-4 is −1.4 m over its 7 km range and would be −19 m over ULTRA's ~96 km.
+ *  · `normalBias` is in world metres, which is stable — but the ACNE it exists to kill is not: the
+ *    depth-compare error scales with the texel, so a constant metric offset is over-biased at
+ *    street level (peter-panning) and under-biased at altitude (acne). The T77 measurement made
+ *    that concrete: 62–75 % of the shimmer flips are ISOLATED pixels, i.e. depth-compare acne, and
+ *    the base rig's 0.75 m is only **0.31 texel** at the FPV pose's 2.44 m/texel while ULTRA's
+ *    0.45 m is **0.13 texel** at the city pose's 3.36 m — an order of magnitude under the 1.5
+ *    texels the cascade ladder derives for itself and has never shown acne at.
+ *
+ * `normalBiasMaxM` is the contact-preserving cap, and it only ever binds on cascade 0. Normal
+ * offset is what PETER-PANS a shadow off its wall base — the artefact that makes buildings read as
+ * floating — so the near rig, the only box whose contact points a viewer can stand next to, gets a
+ * ceiling in metres. The coarse cascades pass `Infinity`: at 29–127 m/texel there is no contact to
+ * preserve and erring toward lit is invisible under the finer box (the union semantics this
+ * module's header argues).
+ */
+export function texelBias(args: {
+  metresPerTexel: number;
+  /** `far − near` of the shadow camera the bias will be written to. */
+  depthRangeM: number;
+  biasTexels: number;
+  normalBiasTexels: number;
+  /** Cap (m) on the normal offset. `Infinity` = uncapped (the cascades). */
+  normalBiasMaxM?: number;
+}): TexelBias {
+  const mpt = Math.max(args.metresPerTexel, 0);
+  const biasM = args.biasTexels * mpt;
+  const cap = args.normalBiasMaxM ?? Infinity;
+  return {
+    bias: -biasM / Math.max(1, args.depthRangeM),
+    biasM,
+    normalBiasM: Math.min(args.normalBiasTexels * mpt, cap),
+  };
+}
+
+/**
  * Fit one cascade around an eye that sits at the box centre.
  *
  * `minHalfM` is the previous cascade's half-extent: this one must strictly contain it, or the two
@@ -117,20 +180,25 @@ export function fitCascade(
   const lightDistM = halfExtentM + relief + clear;
   const nearM = clear;
   const farM = lightDistM + halfExtentM + relief;
-  const metresPerTexel = (2 * halfExtentM) / Math.max(1, p.mapPx);
-  const biasM = p.biasTexels * metresPerTexel;
+  const metresPerTexel = texelSizeM(halfExtentM, p.mapPx);
+  // Authored in texels, derived here — the same discipline `ULTRA.shadowBiasM` established for
+  // cascade 0, and since T77 slice A1 literally the same function that cascade 0 now calls.
+  // Uncapped on purpose: `normalBiasMaxM` is a CONTACT guard, and a 29–127 m texel has no contact
+  // to guard (see `texelBias`).
+  const tb = texelBias({
+    metresPerTexel,
+    depthRangeM: farM - nearM,
+    biasTexels: p.biasTexels,
+    normalBiasTexels: p.normalBiasTexels,
+  });
   return {
     halfExtentM,
     lightDistM,
     nearM,
     farM,
-    // three adds this to `shadowCoord.z` AFTER the divide and an ortho shadow matrix maps to [0,1]
-    // LINEARLY in view depth (`LightShadow.js:227-232`), so the unit is a fraction of near→far and
-    // it silently rescales whenever the range moves. Authored in texels, derived here — the same
-    // discipline `ULTRA.shadowBiasM` established for cascade 0.
-    bias: -biasM / Math.max(1, farM - nearM),
-    normalBiasM: p.normalBiasTexels * metresPerTexel,
-    biasM,
+    bias: tb.bias,
+    normalBiasM: tb.normalBiasM,
+    biasM: tb.biasM,
     metresPerTexel,
   };
 }

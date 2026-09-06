@@ -512,3 +512,102 @@ terrain after), and whether slice 0 ships before or after the owner's first look
   hand-copied geohash for the eye cell was wrong (`u8vx7` → the encoder says `ub8gt`): import the
   app's encoder (Node 22.6+ strips the types).
 - **The Node 24 PATH** is needed for `WebSocket` and for importing `.ts` from a script.
+
+## 14. After the slices — 2026-09-06h (T80 built · slice A A0–A3 · slice B NEW-3, 5, 6, 4a–4e, 5c · the sunset fix; all on the owner's pose catalogue)
+
+Everything below was run on the integrated tree of 2026-09-06h against `wix dev`, on the two
+headless verify Chromes (:9333 / :9334, tier-V/D runs in parallel) and the owner's headed :9222
+(tier-T runs alone). The poses are the catalogue's (`scripts/lib/poses.mjs`); the legacy five are
+still in every table as `legacy-*`.
+
+### 14.1 Shimmer (`verify-temporal-stability --shimmer`, the slice-A gate) — three findings that reframe §8
+
+1. **The shimmer is the light FRAME, not the box.** At a frozen camera `fitShadowBox` is constant
+   (`boundsSteps 0` in every stored leg); what moves is `sunLight.position`, so three's `lookAt`
+   rotates the light-space basis with the sun and the whole texel grid re-projects: 0.29 texel/frame
+   at the box edge for the harness's 0.0082°/frame step, against 0.0009 texel of true shadow-edge
+   motion. Every flipped pixel in §8 was re-rasterisation. The base rig also re-rendered its depth
+   map EVERY frame (`renderer.shadowMap.autoUpdate` never false in the loop) — the `noUpdate` cells
+   in §3 (−1.7 ms fpv high, −6.9 ULTRA fpv, −5.4 city, −7.5 orbit ULTRA) were that prize.
+2. **A demand-driven cascade 0 (A2: per-light `autoUpdate=false`, a key-swing quantum, a float64
+   centre snap) cannot register at the harness's 2000 ms/frame step** — a 1-texel quantum at 8192²
+   is 0.0099° of key swing ≈ 1.2 harness frames, so the rig refreshes almost every frame with a
+   full-texel jump and reads WORSE (city.u1 0.116 → 0.189, everest.u1 0.077 → 0.147). At a
+   realistic timelapse (`--step 200`, ×12 real time) it does exactly what it is for:
+
+   | leg (ULTRA, rig quanta 1/1) | churn p50 | churn mean | frames with flips | 4×/1× (mean) |
+   |---|---|---|---|---|
+   | everest.u1 scrub | **0.0000** (§8: 0.077) | 0.0076 | 102 / 599 | **4.41** — tracks the sun |
+   | city.u1 scrub | **0.0014** (§8: 0.116) | 0.0283 | 599 / 599 (seats still draining, see 14.2) | 1.93 |
+   | fpv.u0 (base, identity) | 0.184 (unchanged) | 0.190 | 599 / 599 | 1.59 |
+
+   Between refreshes the frame is deterministic; at a refresh the map moves by one texel (2.6 m at
+   the Everest 8192² box, sub-pixel at those ranges). Real-time viewing (×1) refreshes every ~1.2 s.
+   The metric's own gate ("p50 ≤ 0.05 at 2000 ms/frame") is inconsistent with ANY quantised rig —
+   the slice's `churnMean` + `rateLinearity` on the mean are the honest numbers (A0).
+3. **The metric bias (A1) made it worse at these values.** With the rig every-frame (`--rig 0,0`) and
+   `ULTRA.shadowNormalBiasTexels 1.5 / shadowBiasTexels 0.6` the Everest scrub read 0.141 (§8: 0.077).
+   PARKED at 0 (the 2026-08-27 pair `normalBias 0.45 / bias 0.6 m` ships); the tunables stay.
+   Frozen controls: everest.u1 one popped frame in 239 (62 flips of 41 M); city.u1 ~0.001 p50 with
+   the seat drain writing buildings every frame (14.2) — not the rig.
+
+### 14.2 Seats (`--reseat`, the slice-B gate) — before → after
+
+| leg | near residual at the end | collapses (4a, new) | sample rejections | city p95 / at the end | writes/frames |
+|---|---|---|---|---|---|
+| arrival (orbit) | **0.083 → 0.000 m** | (unmeasured) → **0** | +104 → 0 | 30.7 → 34.3 m (streaming transients; the leg's epoch bumps vary 30–72 run to run, T95) | 20 % → 60 % |
+| drag (meshedit) | 0.083 → **0.000 m** | → **0** | 0 → 0 | 0.51 → 5.0 m | 8 % → 54 % |
+| FPV eye + 6 models | 0.083 → **0.000 m**, near settled @1179 (was NEVER) | **4,277 → 1,779 (4b/4c) → 0 (4e)** | +1,210 → +1,324 (boot-only: 0 after quiet) | 39.4 / 3.4 → 25.1 / 4.1 m | 98 % → 100 % (the drain, then the 5c budget) |
+
+The mechanism, browser-attributed (`scripts/probe-seat-loop.mjs`, `__globe.enrichedCellSeats()`):
+at the FPV boot the terrain refines depth 7 → 8 → 9 → 15 → 17 → 18 and the cell plane goes
+0 → 45 → 86 m; every plane move over the 45 m gate collapsed every feature of that cell to the
+plane and re-drained it (889 + 968 collapses in two seconds), forever while tiles arrived. **4e**
+carries a plane move into every held seat (`shiftCellSeats`) so the pair stays continuous; **4c**
+holds during the plane's settle window; **4b** freezes-and-requeues instead of dropping to the
+plane. The depth guard (4d) was built, measured (orbit arrival p95 0.00 → 33.5 m: a settled
+traversal is COARSER than the finest tile it streamed through, and the seat must follow what is
+drawn) and parked OFF. What remains is throughput: the one-time refinement of shifted seats drains
+at the 5c budget; the city-wide "p95 < 0.1 m within 600 frames" gate is not met while tiles keep
+arriving (4.8/s for ~70 s at DPR 2) — slice C material (streaming quiet), not a seat defect.
+
+### 14.3 The sunset release (`verify-ultra-dusk.mjs --ladder`, the owner's Everest FPV pose)
+
+Twelve rungs solved to geometric elevation with `SearchAltitude` (the +1.3° and −0.14° rungs land
+within 0.7 s / 0.14 s of the owner's two frames). With the fix (ULTRA-only, byte-identical off):
+the field is full at +0.9°, `shadow.intensity` fades on the shadow-length guard, the rig still
+casts at −0.5° and stands down at −0.9° (gate −0.833°, the true upper-limb sunset), the ground
+overlay retires 0.53 → 0.34 → 0.21 → 0.16 → 0 with the direct sun instead of holding 0.855 until a
+cliff. The in-shadow ground's A→B brightening went **× 5.22 → × 1.16**. The luma band (a real CDP
+screenshot — the in-page canvas read returned zeros, a fail-open probe now fixed) still shows a
+×1.16 bump between +0.5° (67.0) and 0° (78.0): the overlay's last retirement plus the AUTHORED
+rises in `ULTRA.exposureCurve` (1.116 → 1.150), `hazeCurve` (peaks at 0°) and `afterglowCurve`
+(0.27 → 0.72) — the T66 taste knobs, the owner's to turn. 32/32 harness checks when run ALONE;
+run alongside two other GPU-bound harnesses the ULTRA chip was demoted mid-run (the ULTRA gate is
+frame-time-sensitive), which is the one tier-V harness that is NOT parallel-safe.
+
+### 14.4 T80 — see the `t80` cells appended below by the timed run.
+
+### 14.4 T80 — the half-resolution bloom is NOT the lever (timed, :9222 alone, `--post-ab --bloom-scale 0.5`)
+
+| cell (`high`, DPR 2, 3200×1900) | dt p50 | GPU | bloom cost vs off |
+|---|---|---|---|
+| fpv on (stock, scale 1) | 23.0 ms | **25.2** | 13.1 ms |
+| fpv `bloomCheap` — the mip chain at 0.5 (bright target 800×475, verified off the pass's own target) | 22.0 | **23.6** | 11.5 ms |
+| fpv bloomOff | 15.6 | 12.1 | — |
+| orbit on | 18.7 | 23.2 | 13.8 ms |
+| orbit `bloomCheap` | 18.2 | 21.7 | 12.3 ms |
+| orbit bloomOff | 11.3 | 9.4 | — |
+
+Halving every mip target — 12 of the pass's 13 draws and all 12 clears — recovers **1.6 ms of 13**.
+The bloom's cost is the one draw the scale cannot touch: the full-resolution additive blend INTO the
+4× MSAA HalfFloat read buffer, and the second MSAA resolve it forces (`UnrealBloomPass.js:351-368`,
+`RenderPass.needsSwap === false`). So the owner's "may bloom change pixels at `high`" ruling is moot
+for THIS lever: a visible pixel change for 1.6 ms is not worth asking for. T80 stays OPEN with a new
+direction — the composer's buffer contract (blend after the resolve / a non-MSAA bloom source, the
+research's option g), which is a structural change to `GlobeCanvas.tsx`'s composer and touches the
+`/m` PiP blit. `bloomScale` ships as a no-op at `high` (exact identity, unit-fenced) and 0.5 on
+`mid` / `low` / lean; the `__quality.bloomScale(s?)` seam and the `bloomCheap` cell stay as the
+instrument. Side reading: `frame.cpu` at the FPV eye is **4.4 ms (was 2.1)** and 1.3 at orbit
+(was 42 → 1.2 after T79) — the slice-B drain budget and memo work are on the main thread now;
+profile it in slice C (`probe-cpu-profile --pose fpv`).

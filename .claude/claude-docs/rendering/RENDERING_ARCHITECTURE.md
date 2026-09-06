@@ -202,6 +202,13 @@ survives to tone mapping. The renderer itself is constructed `antialias: false`:
 the default framebuffer is OutputPass's fullscreen triangle, which has no internal edges, so a
 multisampled default backbuffer would be pure VRAM waste.
 
+The bloom pass costs 13 draws and 12 clears, and **only the last one — the additive blend back
+into the MSAA read buffer — is full-resolution**. The other twelve run on the mip chain, which is
+therefore the half worth scaling: `ScaledBloomPass` (T80, `scene/scaledBloom.ts`) applies a
+per-tier `bloomScale` inside `setSize`, because the pass's constructor `resolution` is inert once
+`composer.setSize` re-derives every target from the drawing buffer. `high` runs at scale 1 and
+forwards those arguments untouched, so it stays byte-identical to the stock pass.
+
 The space backdrop must be `scene.background` and not the renderer clear colour. `setClearColor`
 converts to the renderer's *output* space, and `EffectComposer` runs with autoClear off, so those
 sRGB values landed in the linear HalfFloat buffer and were read back as linear — `#05070B` rendered

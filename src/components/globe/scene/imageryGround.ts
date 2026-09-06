@@ -22,6 +22,7 @@ import { FTW_AERIAL_GLSL, glf, glf3 } from "./glsl";
 import { makeTileFoveation } from "./tileFoveation";
 import {
   chooseTerrainHit,
+  hitDepth,
   stampTileDepth,
   TerrainPickStats,
 } from "../../../lib/globe/terrainPick";
@@ -65,9 +66,21 @@ export interface ImageryGroundHandle {
   /** Terrain height (m above the WGS84 ellipsoid) at a location, from loaded tiles; null while
    *  no tile covers it yet. Used to seat the photo frustum on the rendered ground. */
   heightAt(latDeg: number, lonDeg: number): number | null;
+  /** T77 slice B 4d — `heightAt` plus the DEPTH of the terrain tile that answered (the traversal
+   *  depth `terrainPick.stampTileDepth` writes; `-1` when unknown). Same memo, same raycast: a
+   *  seat consumer uses the depth to refuse a coarser answer than the one it already holds. */
+  sampleAt(latDeg: number, lonDeg: number): { h: number; depth: number } | null;
   /** Monotone count of terrain tiles that have finished loading (BEST SPOT §3.4 item 1). Consumers
    *  compare it per frame and rebuild on change — never a deep scene compare, never per frame. */
   terrainEpoch(): number;
+  /** T77 lever 6 — DRAIN the ring of terrain regions that arrived or were disposed since the last
+   *  call, as `[west, south, east, north]` in DEGREES. `terrainEpoch()` says only THAT the ground
+   *  changed; this says WHERE, which is what a consumer needs to invalidate its own spatial cache
+   *  instead of rebuilding city-wide (the height memo already invalidates itself internally on
+   *  the same signal — this is the seam for the next consumer, the BEST SPOT DSM). Drained: each
+   *  region is handed out once, and the ring drops the OLDEST entries on overflow, so a consumer
+   *  that stops polling degrades into "you missed some", never into unbounded growth. */
+  terrainDirtyRegions(): [number, number, number, number][];
   /** DEBUG HUD (owner 2026-09-01): overlay fresh-instance rebuild count — the non-DEV twin of
    *  `window.__overlayRebuilds` (invariant: ≤1 per rung post-boot; any climb is the QA-7b storm). */
   overlayRebuilds(): number;
@@ -83,13 +96,26 @@ export interface ImageryGroundHandle {
   };
   resetPickStats(): void;
   /** RC11 DEV probe (`__globe.heightMemoStats()`) — the exact terrain-height memo's hit rate,
-   *  entry count and how often the terrain epoch dropped it. */
+   *  entry count and how often it dropped work (T77 lever 6 splits that last number into
+   *  per-tile `regionInvalidations` vs whole-map `fullDrops`). */
   heightMemoStats(): HeightMemoStats;
+  /** T77 lever 6 (DEV) — the memo's own falsification counter: how many memo HITS were audited
+   *  against a fresh raycast (`GROUND.heightMemoStaleAuditEvery`) and how many DISAGREED. A
+   *  mismatch means per-tile invalidation under-dropped, i.e. something is seated on terrain that
+   *  no longer exists. Zero in release builds — the audit is DEV-gated. */
+  heightMemoAudit(): { staleChecks: number; staleMismatches: number };
   /** Ground shadow darkness for the CURRENT shadow source (S5): the sun keeps
    *  SHADOWS.groundOpacity; moon-driven frames pass moonGroundOpacity × K&S intensity.
    *  S7a: the orchestrator blends sun/moon opacity toward the DRAPE.*shadowOpacity knobs
    *  by darkBlend() before passing it in — per-mode shadow contrast. */
   setShadowStrength(opacity: number): void;
+  /** The overlay opacity the shared `ShadowMaterial` is ACTUALLY wearing — read off the material,
+   *  never a transcribed copy of what was last written. Published as `ultra.shadow.groundOpacity`
+   *  (sunset shadow-release, 2026-09-06): the release cliff was arguable rather than measurable
+   *  partly because this number was unreadable, and it is STALE below the elevation gate —
+   *  `setShadowStrength` is only called inside `if (sunShadows)`, so a transcribed twin would
+   *  report a value the material no longer has. */
+  shadowStrength(): number;
   /** Solar-eclipse daylight REMAINING (0..1) scaling the day grade — 1 = no eclipse. The
    *  orchestrator altitude-gates it before it arrives (`stepEclipse`): being inside the umbra is a
    *  street-level truth, and from orbit the shadow is a ~100 km spot, not a hemisphere. */
@@ -906,9 +932,42 @@ export function attachImageryGround(
   // exists, monotone, compared per frame by `bestSpotFeed` — the `vtiles.version()` idiom.
   let terrainEpochN = 0;
   const pickStats = new TerrainPickStats();
-  const heightMemo = new HeightMemo(GROUND.heightMemoCapacity);
+  const heightMemo = new HeightMemo(
+    GROUND.heightMemoCapacity,
+    GROUND.heightMemoBucketDeg,
+    GROUND.heightMemoMaxAgeMs,
+  );
+  // T77 lever 6 — DEV audit of the memo (see `heightMemoAudit` on the handle).
+  let memoStaleChecks = 0;
+  let memoStaleMismatches = 0;
+  let memoHitN = 0;
+  // T77 lever 6 — the drained dirty-region ring (`terrainDirtyRegions`). Fixed capacity: a
+  // consumer that stops polling must cost bounded memory, and "you missed some" is a recoverable
+  // state for every consumer of this seam (they can always fall back to a full rebuild).
+  const DIRTY_RING = 64;
+  const dirtyRegions: [number, number, number, number][] = [];
+  const RAD2DEG = 180 / Math.PI;
+  /** Record a tile's region (radians in, degrees out) as dirty, and drop the buckets the height
+   *  memo holds inside it. ONE function for the two events that change the ground under a
+   *  coordinate — arrival and disposal — because forgetting either is a silently wrong height. */
+  const noteTerrainRegion = (region: readonly number[] | undefined | null) => {
+    heightMemo.invalidateRegionRad(region, GROUND.heightMemoMaxInvalidateBuckets);
+    if (!region || region.length < 4) return;
+    if (dirtyRegions.length >= DIRTY_RING) dirtyRegions.shift();
+    dirtyRegions.push([
+      region[0] * RAD2DEG,
+      region[1] * RAD2DEG,
+      region[2] * RAD2DEG,
+      region[3] * RAD2DEG,
+    ]);
+  };
   tiles.addEventListener("load-model", (e: any) => {
     terrainEpochN++;
+    // BEST SPOT + the ULTRA cascade key still read `terrainEpoch()` and its meaning is unchanged:
+    // a monotone count of FINISHED terrain tile loads. T77 lever 6 only stops the height memo
+    // from treating that city-wide pulse as "everything you know is stale".
+    heightMemo.noteEpoch(terrainEpochN);
+    noteTerrainRegion(e.tile?.boundingVolume?.region);
     // RC6: stamp the tile's hierarchy depth onto every mesh in it, so the samplers can pick the
     // FINEST hit rather than the nearest one while a coarse parent is still crossfading out.
     stampTileDepth(e.scene, e.tile?.internal?.depth ?? -1);
@@ -937,6 +996,15 @@ export function attachImageryGround(
     });
   });
   tiles.addEventListener("dispose-model", (e: any) => {
+    // T77 lever 6: a REMOVED tile changes the answer under its region exactly as much as an
+    // arriving one does — the raycast now lands on whatever coarse ancestor is left, or on
+    // nothing. Traced before relying on it: every terrain removal path in the library funnels
+    // through `TilesRendererBase.disposeTile`, which is invoked from the LRU's own per-item
+    // removal callback (`LRUCache.remove` / `unloadTiles` → `invokeAllPlugins`, and
+    // `invokeAllPlugins` includes the renderer itself), and it dispatches this event whenever the
+    // tile ever had a scene. A 404'd patch tile never gets one, so there is nothing to drop.
+    // `terrainEpochN` is deliberately NOT bumped: its contract is finished LOADS.
+    noteTerrainRegion(e.tile?.boundingVolume?.region);
     e.scene.traverse((c: any) => {
       if (c.isMesh && swappedMats.has(c.material)) c.material.dispose(); // our per-tile Basic swap
       if (c.isMesh && c.material === shadowMat) shadowTwins.delete(c);
@@ -1104,47 +1172,85 @@ export function attachImageryGround(
   // it watches (≤1 rebuild per rung post-boot — the QA-7b storm detector) matters most there.
   let overlayRebuildsN = 0;
 
+  /** The UNMEMOISED down-ray sample: the raycast `heightAt` memoises, and the one the T77 lever-6
+   *  staleness audit re-runs against a memo hit. Split out so both callers provably ask the SAME
+   *  question — an audit that drifted from the real sampler would prove nothing. */
+  /** T77 4d — the depth of the tile the LAST `rawHeightAt` hit (−1 = none); consumed only by
+   *  `sampleAt`, synchronously, before any other raycast can run. */
+  let lastRawDepth = -1;
+  const rawHeightAt = (latDeg: number, lonDeg: number): number | null => {
+    const latRad = (latDeg * Math.PI) / 180;
+    const lonRad = (lonDeg * Math.PI) / 180;
+    WGS84_ELLIPSOID.getCartographicToPosition(latRad, lonRad, 12_000, _rayOrigin);
+    WGS84_ELLIPSOID.getCartographicToNormal(latRad, lonRad, _rayDir);
+    _raycaster.set(_rayOrigin, _rayDir.negate());
+    _raycaster.far = 24_000;
+    const hits = _raycaster.intersectObject(tiles.group, true);
+    // RC6: the DEEPEST tile wins, not the nearest hit. A coarse parent stays in the scene and
+    // raycastable for the whole crossfade after its children land, and over relief it can sit
+    // above the fine mesh — so `[0]` seated buildings on the LOD error until the fade ended.
+    const hit = chooseTerrainHit(hits);
+    if (!hit) return null;
+    lastRawDepth = hitDepth(hit); // T77 4d — read by `sampleAt` right after this returns
+    const h = WGS84_ELLIPSOID.getPositionElevation(hit.point);
+    if (import.meta.env.DEV && hits.length > 0) {
+      pickStats.note(
+        hits.length,
+        hit === hits[0],
+        hit === hits[0] ? 0 : h - WGS84_ELLIPSOID.getPositionElevation(hits[0].point),
+      );
+    }
+    return h;
+  };
+
   return {
     tiles,
     uniforms,
     overlayRebuilds: () => overlayRebuildsN,
     heightAt(latDeg, lonDeg) {
-      // RC11: exact (epoch, lat, lon) memo. The seat sweep is a round-robin over a fixed set of
-      // footprints, so after one wrap it asks the SAME questions forever; the terrain epoch (the
-      // BEST SPOT tile-load counter that already lives next door) drops the whole memo the moment
-      // the ground refines, so a hit is exactly as fresh as a raycast would have been.
-      const cached = heightMemo.get(latDeg, lonDeg, terrainEpochN);
-      if (cached !== undefined) return cached;
-      const latRad = (latDeg * Math.PI) / 180;
-      const lonRad = (lonDeg * Math.PI) / 180;
-      WGS84_ELLIPSOID.getCartographicToPosition(latRad, lonRad, 12_000, _rayOrigin);
-      WGS84_ELLIPSOID.getCartographicToNormal(latRad, lonRad, _rayDir);
-      _raycaster.set(_rayOrigin, _rayDir.negate());
-      _raycaster.far = 24_000;
-      const hits = _raycaster.intersectObject(tiles.group, true);
-      // RC6: the DEEPEST tile wins, not the nearest hit. A coarse parent stays in the scene and
-      // raycastable for the whole crossfade after its children land, and over relief it can sit
-      // above the fine mesh — so `[0]` seated buildings on the LOD error until the fade ended.
-      const hit = chooseTerrainHit(hits);
-      if (!hit) return null; // deliberately NOT memoised — "no tile yet" is the answer to retry
-      const h = WGS84_ELLIPSOID.getPositionElevation(hit.point);
-      heightMemo.set(latDeg, lonDeg, terrainEpochN, h);
-      if (import.meta.env.DEV && hits.length > 0) {
-        pickStats.note(
-          hits.length,
-          hit === hits[0],
-          hit === hits[0] ? 0 : h - WGS84_ELLIPSOID.getPositionElevation(hits[0].point),
-        );
+      // RC11: exact (lat, lon) memo. The seat sweep is a round-robin over a fixed set of
+      // footprints, so after one wrap it asks the SAME questions forever. T77 lever 6: freshness
+      // is now PER TILE — the memo drops the buckets a terrain tile covers when it arrives or is
+      // disposed (`noteTerrainRegion`), instead of dropping the whole city on the terrain-epoch
+      // pulse that fires 1.9–4.8 times a second. A hit is still exactly as fresh as a raycast.
+      const cached = heightMemo.get(latDeg, lonDeg);
+      if (cached !== undefined) {
+        // …and the DEV audit that says so: every Nth hit is re-raycast and compared, so
+        // under-invalidation surfaces as a counter rather than as a mis-seated city months later.
+        if (!import.meta.env.DEV || ++memoHitN % GROUND.heightMemoStaleAuditEvery !== 0) {
+          return cached;
+        }
+        memoStaleChecks++;
+        // (This adds one real sample to `pickStats` too — it IS a real sample, so the RC6
+        // parent-win rate stays honest; at 1-in-512 hits it does not move the reading.)
+        const fresh = rawHeightAt(latDeg, lonDeg);
+        if (fresh !== null && Math.abs(fresh - cached) > 0.01) memoStaleMismatches++;
+        return cached; // the memo stays authoritative — the audit only COUNTS
       }
+      const h = rawHeightAt(latDeg, lonDeg);
+      if (h === null) return null; // deliberately NOT memoised — "no tile yet" is the answer to retry
+      heightMemo.set(latDeg, lonDeg, h, lastRawDepth);
       return h;
+    },
+    sampleAt(latDeg, lonDeg) {
+      // The same memo and the same raycast as `heightAt` (it IS `heightAt`), plus the depth the
+      // memo keeps beside the height. A hit answers from the memo's depth; a miss from the
+      // raycast's. `-1` = unknown — the consumer treats that as "cannot be judged, accept".
+      const h = this.heightAt(latDeg, lonDeg);
+      if (h === null) return null;
+      return { h, depth: heightMemo.getDepth(latDeg, lonDeg) };
     },
     pickStats: () => pickStats.snapshot(),
     resetPickStats: () => {
       pickStats.reset();
       heightMemo.resetStats();
+      memoStaleChecks = 0;
+      memoStaleMismatches = 0;
     },
     heightMemoStats: () => heightMemo.stats(),
+    heightMemoAudit: () => ({ staleChecks: memoStaleChecks, staleMismatches: memoStaleMismatches }),
     terrainEpoch: () => terrainEpochN,
+    terrainDirtyRegions: () => dirtyRegions.splice(0, dirtyRegions.length),
     placeholderStats: () =>
       esriPlaceholder
         ? { ...esriPlaceholder.stats, ...esriPlaceholder.memo.stats() }
@@ -1152,6 +1258,9 @@ export function attachImageryGround(
     placeholderProbe: (z, x, y) => esriPlaceholder?.probe({ z, x, y }) ?? Promise.resolve(null),
     setShadowStrength(opacity) {
       shadowMat.opacity = opacity; // ONE shared material — every twin follows
+    },
+    shadowStrength() {
+      return shadowMat.opacity;
     },
     setEclipse(k) {
       uniforms.uFtwEclipse.value = k;

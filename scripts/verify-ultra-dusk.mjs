@@ -20,6 +20,7 @@
 // Usage: wix dev on :4321 + CDP Chrome, then
 //   node --experimental-websocket scripts/verify-ultra-dusk.mjs [cdpPort] [shotsDir]
 import { writeFileSync, mkdirSync } from "node:fs";
+import { Body, Observer, SearchAltitude } from "astronomy-engine";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
@@ -121,6 +122,8 @@ await evalJs(`(() => { const k = "ftw:view-prefs:v1";
   o.ultraQuality = true; localStorage.setItem(k, JSON.stringify(o)); })()`);
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+const LADDER_ONLY = process.argv.includes("--ladder"); // §4 alone (the sunset ladder), ~3 min
+if (!LADDER_ONLY) {
 console.log("\n=== 1. SHADOW CASCADES — every part of the visible map is inside a box ===");
 const MOUNTAIN = [35.3606, 138.7274, 5000, 300, 84, Date.UTC(2026, 7, 21, 8, 15)];
 if (!(await goto(...MOUNTAIN))) {
@@ -266,6 +269,199 @@ for (const [name, head] of [["toward", 285], ["away", 105]]) {
   if (!(await goto(35.5, 138.35, 3500, head, 86, Date.UTC(2026, 7, 21, 9, 25)))) continue;
   await shoot(`ultradusk-04-set-${name}`);
   console.log(`shot  ${SHOTS}/ultradusk-04-set-${name}.jpeg`);
+}
+
+}
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// 4. THE SUNSET SHADOW-RELEASE LADDER — an ELEVATION ladder, at the owner's own pose.
+//
+// Section 3 above is a TIME ladder, and that is exactly why it could not see this defect: its five
+// stamps land at +26.8° / +9.5° / +3.4° / −0.5° / −5.4°, so two consecutive samples straddle a
+// 3.9° gap that contains the entire shadow release band (report §10). Everything the release did
+// happened inside that gap — the field went 1.000 → 0.000 between +1.06° and +0.4584° while the
+// ground overlay was at its deepest ever, and the terrain that had been in shadow came back
+// × 5.22 brighter. `mono("skyLevel")` and `mono("directK")` passed throughout.
+//
+// So this leg walks ELEVATION, not the clock: `astronomy-engine`'s `SearchAltitude` solves the
+// instant at which the sun's CENTRE descends through each angle. That is the right function
+// because it is airless and centre-based — the same convention the engine's own `sunDirW` uses
+// (`lib/ephemeris/bodies.ts:101,139`, "no refraction argument = airless"), which is the whole
+// reason the shipped gate fired 0.83° early. `SearchAltitude` is topocentric and `sunDot` is
+// geocentric, but solar parallax is 8.8″ = 0.0024°, two orders below the ladder's resolution.
+console.log("\n=== 4. THE RELEASE BAND — an elevation ladder at the owner's Everest FPV pose ===");
+// `#f=<lat>,<lon>,<eyeM>,<headingDeg>,<pitchDeg>,<fovDeg>` (lib/geo/urlPose) — the owner's frame.
+const EVEREST = { lat: 27.989179, lon: 86.925144, eye: 27.6, head: 276.7, pitch: -1.9, fov: 42.0 };
+const LADDER_DEG = [3, 2, 1.3, 1.06, 0.9, 0.5, 0.2, 0, -0.14, -0.5, -0.9, -1.5];
+// The owner's two frames are 2026-09-06T12:18Z and T12:24Z; seed the search before that evening's
+// descent and let it find each crossing on the way DOWN (direction −1).
+const SEED = new Date(Date.UTC(2026, 8, 6, 6, 0, 0));
+const OBS = new Observer(EVEREST.lat, EVEREST.lon, 0);
+const stops = LADDER_DEG.map((deg) => {
+  const t = SearchAltitude(Body.Sun, OBS, -1, SEED, 1, deg);
+  return { deg, ms: t ? t.date.getTime() : null };
+});
+check(
+  "every ladder elevation resolved to a real instant",
+  stops.every((s) => s.ms !== null),
+  stops.map((s) => `${s.deg}:${s.ms ?? "unsolved"}`).join(" "),
+);
+// The lower band of the frame, 320×180, Rec.709 — `probe-dusk.mjs`'s window, promoted to a check.
+// At this pose it is terrain, most of it in the shadow of the ridge the sun is behind.
+// NOT `drawImage(canvas)`: the WebGL canvas has no `preserveDrawingBuffer`, so a 2D copy taken
+// outside the render callback reads ZEROS — measured 2026-09-06h, the whole ladder came back
+// luma 0 and the monotone check passed on nothing (the fail-open probe trap). The frame is taken
+// through CDP `Page.captureScreenshot` (the compositor's copy) and decoded as an image in-page.
+const groundLuma = async () => {
+  const shot = await send("Page.captureScreenshot", { format: "png" });
+  return evalJs(`(async () => {
+    const im = new Image();
+    await new Promise((res, rej) => { im.onload = res; im.onerror = rej; im.src = "data:image/png;base64,${shot.data}"; });
+    const w = 320, h = 180;
+    const off = document.createElement("canvas");
+    off.width = w; off.height = h;
+    const g = off.getContext("2d", { willReadFrequently: true });
+    g.drawImage(im, 0, 0, w, h);
+    const px = g.getImageData(0, 0, w, h).data;
+    let s = 0, n = 0;
+    for (let y = 105; y < 165; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      s += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+      n++;
+    }
+    return +(s / n).toFixed(2);
+  })()`);
+};
+
+/** FPV twin of `goto` — the arrival is a cinematic flight, so the rig must not be sampled until
+ *  it has landed or every scalar below is read off an orbit camera. */
+const gotoFpv = async (t) => {
+  await send("Page.navigate", { url: "about:blank" });
+  await sleep(400);
+  await send("Page.navigate", {
+    url:
+      `http://localhost:4321/#f=${EVEREST.lat},${EVEREST.lon},${EVEREST.eye},` +
+      `${EVEREST.head},${EVEREST.pitch},${EVEREST.fov}&t=${t}`,
+  });
+  if (!(await waitFor(`!!window.__globe && !!window.__globeQuality`))) return false;
+  await evalJs(`window.__cameraStore.getState().setUltraQuality(true)`);
+  for (let i = 0; i < 80; i++) {
+    await sleep(250);
+    if (!(await evalJs(`!!window.__globe.flight.active()`).catch(() => true))) break;
+  }
+  await sleep(22000); // stream terrain, settle the eased ULTRA terms
+  return true;
+};
+
+const rungs = [];
+for (const stop of stops) {
+  if (stop.ms === null) continue;
+  if (!(await gotoFpv(stop.ms))) continue;
+  const look = await evalJs(LOOK);
+  rungs.push({
+    want: stop.deg,
+    sunAlt: await evalJs(SUN_ALT),
+    intensity: look.shadow?.intensity,
+    casting: look.shadow?.casting,
+    groundOpacity: look.shadow?.groundOpacity,
+    directShareK: look.shadow?.directShareK,
+    gateSin: look.shadow?.gateSin,
+    directK: look.dusk?.directK,
+    luma: await groundLuma(),
+  });
+  await shoot(`ultradusk-05-elev-${String(stop.deg).replace(".", "p").replace("-", "m")}`);
+}
+console.table(rungs);
+check("the elevation ladder ran every rung", rungs.length === stops.length, `${rungs.length}/${stops.length}`);
+if (rungs.length === stops.length) {
+  const at = (deg) => rungs.find((r) => r.want === deg);
+  // Every rung must have LANDED on the elevation it asked for, or the ladder measured a different
+  // sunset than the one it names and every assertion below is about the wrong frames.
+  check(
+    "each rung is at the elevation it solved for (±0.06°)",
+    rungs.every((r) => Math.abs(r.sunAlt - r.want) < 0.06),
+    rungs.map((r) => `${r.want}→${r.sunAlt}`).join(" "),
+  );
+  // (a) THE FIELD SURVIVES THE RAKING HOUR. The shipped rig is at 0.000 by +0.4584° — measured
+  // 1.000 at +1.06° and 0.014 at +0.5°, the whole field gone in 0.6° of elevation while a quarter
+  // of the direct sun was still on the ground. The fixed rig holds full strength until the shadow
+  // it throws stops fitting the box, whose knee is atan(shadowLengthCasterM / boundsM) — 0.54° at
+  // this pose's ~10.7 km fit — and then fades on that geometry.
+  check(
+    "the field is still FULL at +0.9°, where the shipped rig had already deleted it",
+    [3, 2, 1.3, 1.06, 0.9].every((d) => (at(d)?.intensity ?? 0) >= 0.9),
+    [3, 2, 1.3, 1.06, 0.9].map((d) => `${d}:${(at(d)?.intensity ?? 0).toFixed(3)}`).join(" "),
+  );
+  check(
+    "…and still substantially present at +0.5°, where the shipped rig measured 0.014",
+    (at(0.5)?.intensity ?? 0) > 0.3,
+    `+0.5°: ${(at(0.5)?.intensity ?? 0).toFixed(3)}`,
+  );
+  check(
+    "the field only ever falls down the ladder — it never comes back",
+    rungs.every((r, i) => i === 0 || (r.intensity ?? 0) <= (rungs[i - 1].intensity ?? 0) + 1e-6),
+    rungs.map((r) => (r.intensity ?? 0).toFixed(3)).join(" → "),
+  );
+  // (b) THE GATE ITSELF, now `ULTRA.shadowGateSin` = sin(−0.8333°) — the sun's own upper limb.
+  // The rig therefore still casts half a degree BELOW the geometric horizon and stands down at
+  // true sunset, by which point the field has been at zero for a quarter-degree: the one remaining
+  // boolean flips where it cannot be seen.
+  check(
+    "the rig still casts at −0.5° and has stood down below true sunset",
+    at(-0.5)?.casting === true && at(-0.9)?.casting === false && at(-1.5)?.casting === false,
+    `−0.5:${at(-0.5)?.casting} −0.9:${at(-0.9)?.casting} −1.5:${at(-1.5)?.casting}`,
+  );
+  check(
+    "the live gate is the ULTRA one, read off the engine rather than assumed",
+    Math.abs((Math.asin(at(0)?.gateSin ?? 0) * 180) / Math.PI + 0.8333) < 0.01,
+    `gateSin=${at(0)?.gateSin}`,
+  );
+  // (c) THE PIXELS — the whole point. The frame the owner photographed got BRIGHTER as the sun
+  // went down: in-shadow terrain × 5.22 between +1.3° and −0.14°, × 6.5 across the release band.
+  // Two codes of tolerance covers dither and any tile that streamed in between navigations.
+  const lumas = rungs.map((r) => r.luma ?? 0);
+  check(
+    "the ground band never brightens while the field is at full strength",
+    rungs
+      .filter((r) => r.want >= 0.9)
+      .every((r, i, a) => i === 0 || (r.luma ?? 0) <= (a[i - 1].luma ?? 0) + 2),
+    rungs.filter((r) => r.want >= 0.9).map((r) => `${r.want}:${r.luma}`).join(" "),
+  );
+  // Below that the field is retiring — `keyExtinctCurve` collapses to 0 by −0.5°, and a shadow
+  // with no direct light left to remove is not a shadow, so in-shadow and lit ground MUST meet.
+  // The law is that they meet as a RAMP. Stated as the two numbers the report used: the worst
+  // brightening anywhere down the ladder, and the worst single step.
+  const worstRise = lumas.reduce(
+    (acc, v) => ({ min: Math.min(acc.min, v), rise: Math.max(acc.rise, v / Math.max(acc.min, 1)) }),
+    { min: lumas[0], rise: 1 },
+  ).rise;
+  const worstStep = Math.max(
+    ...lumas.slice(1).map((v, i) => v / Math.max(lumas[i], 1)),
+  );
+  check(
+    "the release is a RAMP, not a cliff — worst brightening anywhere on the ladder",
+    worstRise < 1.35,
+    `worst rise × ${worstRise.toFixed(2)} (the shipped rig measured × 5.22 across two of these ` +
+      `same rungs); series ${rungs.map((r) => `${r.want}:${r.luma}`).join(" ")}`,
+  );
+  check(
+    "…and no single rung-to-rung step is a jump",
+    worstStep < 1.25,
+    `worst step × ${worstStep.toFixed(2)}`,
+  );
+  // (d) The light model itself is still monotone through the band the TIME ladder skipped.
+  check(
+    "directK falls monotonically across every rung of the release band",
+    rungs.every((r, i) => i === 0 || (r.directK ?? 0) <= (rungs[i - 1].directK ?? 0) + 1e-6),
+    rungs.map((r) => (r.directK ?? 0).toFixed(3)).join(" → "),
+  );
+  // F1's own number, live: the overlay is bounded by the direct share, so it retires with the sun
+  // instead of peaking at 0.88 the instant before the field is deleted.
+  check(
+    "the ground overlay retires with the direct sun rather than peaking at its deletion",
+    (at(3)?.groundOpacity ?? 0) > (at(0.2)?.groundOpacity ?? 1) &&
+      (at(0)?.directShareK ?? 1) < 0.4,
+    rungs.map((r) => `${r.want}:${(r.groundOpacity ?? 0).toFixed(3)}`).join(" "),
+  );
 }
 
 // "APP errors" means errors from OUR bundle. The verify Chrome is the owner's persistent

@@ -13,12 +13,15 @@ import {
   regionCenterDeg,
   runCentroid,
   runIndexOfVertex,
+  seatLand,
   seatStep,
   vertexKeyToRun,
   vertexKeyToRunWithCollisions,
   type GeoBbox,
 } from "../../../src/lib/globe/enrichedMask";
 import { geodeticToEcef, length } from "../../../src/lib/geo/projection";
+import { easeK } from "../../../src/lib/globe/lightBands";
+import { ENRICHED } from "../../../src/components/globe/tuning";
 
 // The Slice-0 mask bbox (matches ENRICHED.bbox in tuning.ts — a touch larger than the sample
 // tileset extent so it fully covers the OSM buildings under every enriched building).
@@ -106,6 +109,118 @@ describe("enrichedMask — seatStep (per-cell seat easing)", () => {
 
   it("is a fixed point at the target (no drift once settled)", () => {
     expect(seatStep(-31.7, -31.7, 0.12)).toBe(-31.7);
+  });
+});
+
+describe("enrichedMask — seatLand (T77 NEW-3: the seat actually LANDS)", () => {
+  const K = ENRICHED.reseatEaseK;
+  const SNAP = ENRICHED.seatSnapM;
+
+  it("PINS THE OLD FLOOR: the ease's own step falls under the 1 cm write gate at 8.3 cm", () => {
+    // This is the measured failure, expressed as arithmetic. Every seat writer guarded its write
+    // with `|next − applied| >= 0.01`, so the ease stopped writing as soon as its STEP fell below
+    // 1 cm — at a residual of gate/k = 0.01/0.12 = 0.0833 m. The browser leg (2026-09-05 §9) then
+    // ended at exactly 0.083 m on every leg, forever. If someone reinstates the gate, this line
+    // is the reason it cannot work.
+    expect(Math.abs(seatStep(0, 0.0833, K))).toBeLessThan(0.01);
+  });
+
+  it("lands EXACTLY on the target from a −31.7 m leg, within 70 frames", () => {
+    let applied: number | null = 0;
+    let n = 0;
+    while (applied !== -31.7 && n < 200) {
+      applied = seatLand(applied, -31.7, K, SNAP);
+      n++;
+    }
+    expect(applied).toBe(-31.7); // strict equality — "close enough" is what the gate did
+    expect(n).toBeLessThanOrEqual(70);
+  });
+
+  it("never moves again once landed (the settled state is real, not a rounding accident)", () => {
+    let applied: number | null = 0;
+    for (let i = 0; i < 200; i++) applied = seatLand(applied, -31.7, K, SNAP);
+    const landed = applied;
+    for (let i = 0; i < 600; i++) {
+      applied = seatLand(applied, -31.7, K, SNAP);
+      expect(applied).toBe(landed); // `next === applied` IS the engine's settled test
+    }
+  });
+
+  it("still SNAPS on the first sample (a streaming-in cell must land, not float up)", () => {
+    expect(seatLand(null, -23.4, K, SNAP)).toBe(-23.4);
+    expect(seatLand(null, 0, K, SNAP)).toBe(0);
+  });
+
+  it("is a fixed point at the target", () => {
+    expect(seatLand(-31.7, -31.7, K, SNAP)).toBe(-31.7);
+  });
+
+  it("a 1 mm terrain refine lands in ONE step instead of easing for a second", () => {
+    // The common case by far: a LOD refine moves the ground by millimetres. The plain ease would
+    // spend ~40 frames of writes crawling toward it and then park short of it anyway.
+    expect(seatLand(-31.7, -31.701, K, SNAP)).toBe(-31.701);
+  });
+});
+
+describe("enrichedMask — frame-rate-independent seat easing (T77 lever 5)", () => {
+  const SNAP = ENRICHED.seatSnapM;
+  const TAU = ENRICHED.reseatEaseTauMs;
+  const FRAME60 = 1000 / 60;
+
+  it("the τ tunable IS the 60 Hz equivalent of the documented k", () => {
+    // τ = −16.667/ln(1 − k) rounded to a whole millisecond, so the two agree to 3.3e-4.
+    expect(easeK(FRAME60, TAU)).toBeCloseTo(ENRICHED.reseatEaseK, 3);
+  });
+
+  it("60 Hz ladders on τ and on k reach the same landing (agreement < 1e-6)", () => {
+    let viaTau: number | null = 0;
+    let viaK: number | null = 0;
+    const k = easeK(FRAME60, TAU);
+    for (let i = 0; i < 80; i++) {
+      viaTau = seatLand(viaTau, -31.7, k, SNAP);
+      viaK = seatLand(viaK, -31.7, ENRICHED.reseatEaseK, SNAP);
+    }
+    expect(Math.abs(viaTau - viaK)).toBeLessThan(1e-6);
+    expect(viaTau).toBe(-31.7); // both LAND, which is the only agreement that matters at the end
+  });
+
+  it("THE LEVER: 30 steps at 33.3 ms and 60 steps at 16.7 ms reach the same residual", () => {
+    // The whole point. Under the old per-frame k a 30 fps machine settled at half the rate of a
+    // 60 fps one, so every settle budget measured at 60 Hz was meaningless on the device ladder.
+    // Equal WALL-CLOCK time (1000.02 ms either way) must now give the same seat.
+    let slow: number | null = 0;
+    let fast: number | null = 0;
+    const kSlow = easeK(2 * FRAME60, TAU);
+    const kFast = easeK(FRAME60, TAU);
+    for (let i = 0; i < 30; i++) slow = seatLand(slow, -31.7, kSlow, SNAP);
+    for (let i = 0; i < 60; i++) fast = seatLand(fast, -31.7, kFast, SNAP);
+    expect(Math.abs(slow - fast)).toBeLessThan(1e-9);
+    expect(Math.abs(-31.7 - fast)).toBeGreaterThan(SNAP); // …and neither had SNAPPED yet
+  });
+
+  it("a 100 ms hitch is ONE large step, not an overshoot", () => {
+    // `ORCH.maxFrameDtMs` clamps the delta at 100 ms; the ease must spend that as a single step
+    // worth six 60 Hz frames, and must never cross the target (an overshoot would read as the
+    // building punching through the ground).
+    const hitch = seatLand(0, -31.7, easeK(100, TAU), SNAP);
+    let sixFrames: number | null = 0;
+    for (let i = 0; i < 6; i++) sixFrames = seatLand(sixFrames, -31.7, easeK(FRAME60, TAU), SNAP);
+    expect(hitch).toBeCloseTo(sixFrames, 3);
+    expect(hitch).toBeLessThan(0); // moved toward the target…
+    expect(hitch).toBeGreaterThan(-31.7); // …and not past it
+  });
+
+  it("a background-tab gap or a clock hiccup resolves to a bounded step", () => {
+    // `easeK` clamps dt into [0, 250] — a stalled tab resolves to one full-ish step and a
+    // non-monotonic clock to a zero step, never to a negative or >1 coefficient. (A NaN dt is
+    // out of contract and propagates; the orchestrator's `Math.min(now − last, maxFrameDtMs)`
+    // over `performance.now()` cannot produce one.)
+    for (const dt of [0, -5, 5_000]) {
+      const k = easeK(dt, TAU);
+      expect(k).toBeGreaterThanOrEqual(0);
+      expect(k).toBeLessThanOrEqual(1);
+      expect(Number.isFinite(seatLand(0, -31.7, k, SNAP))).toBe(true);
+    }
   });
 });
 

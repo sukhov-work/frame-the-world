@@ -9,7 +9,7 @@
  * BASELINES, the thresholds are frozen from these numbers afterwards (the plan §3).
  *
  *   node scripts/verify-temporal-stability.mjs [PORT] [--shimmer] [--reseat] [--frames 600]
- *        [--step 2000] [--px 640] [--only <regex>] [--label warm|cold] [--owner <email>]
+ *        [--step 2000] [--px 640] [--pan 0.02] [--only <regex>] [--label warm|cold] [--owner <email>]
  *
  * (no leg flag = both legs). Preconditions as `verify-perf-baseline.mjs`: `wix dev` on :4321,
  * the owner's HEADED CDP Chrome on :9222 (never killed), Node ≥ 22. Never alongside another
@@ -39,6 +39,18 @@
  * each preceded by a FROZEN CONTROL (no scrub: churn must be exactly 0 — any nondeterminism
  * shows here first) and followed by a 4× STEP leg (rate-linearity: the signal must track the sun).
  *
+ * T77 slice A0 (2026-09-06) added a FOURTH leg, `pan`: the sun frozen and the CAMERA turning
+ * instead (`--pan`, default 0.02°/frame, driven through the engine's own ROTATE encoder). The
+ * three original legs all hold the camera still, so `_shadowFocus` never moves and the rig's
+ * CENTRE never drifts — which means they cannot see a centre-snap lever at all, in either
+ * direction. The pan leg is the one that can. It is last in each pose, and it restores the
+ * heading rate on every exit path, so it cannot contaminate a frozen leg.
+ *
+ * The leg summary also grew the leg-LEVEL statistics (`churnMean`, `flipsTotal`, `unionTotal`,
+ * `churnPooled`, `speckleWeighted`) and a per-row `casRefresh`, all computed in
+ * `./shimmer-summary.mjs` so a stored run can be re-summarized without a browser. Rate-linearity
+ * is now taken over the MEAN (the p50 ratio is kept beside it) — see that module's header.
+ *
  * ── B. RESEAT-SETTLE — frames from an arrival / a drag until every near seat is < 1 cm off
  *
  * Read through the new `__globe.seatSettle()` seam (this session): the per-frame residuals the
@@ -55,6 +67,10 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { trackTarget, finishVerify, VerifyFailure } from "./verify-cdp-cleanup.mjs";
+// T77 slice A0 (2026-09-06): the shimmer leg's arithmetic lives in a plain module so a stored run
+// can be re-summarized OFFLINE — this file is a top-level-await CDP script and importing it opens
+// a browser target, which made the §8 baseline reproducible only by re-running the harness.
+import { pct, rateLinearity, summarizeShimmer } from "./shimmer-summary.mjs";
 
 const args = process.argv.slice(2);
 const PORT = args.find((a) => /^\d+$/.test(a)) ?? "9222";
@@ -70,6 +86,16 @@ const STEP_MS = Number(opt("--step", "2000"));
 const PX = Number(opt("--px", "640"));
 const ONLY = opt("--only", null) ? new RegExp(opt("--only")) : null;
 const LABEL = opt("--label", "warm");
+/** T77 A0 — the PAN leg's requested camera yaw, in DEGREES PER FRAME. 0.02°/frame is ~1.2°/s at
+ *  60 Hz: a slow deliberate look-around, an order of magnitude under a drag, and enough to walk
+ *  cascade 0's pushed box centre across several texels per second at every shipped pose. It is a
+ *  REQUEST — the drive goes through the engine's rate encoder and the achieved angle is measured
+ *  and reported (`panDegP50`), because this probe's own frame costs 48–103 ms. */
+const PAN_DEG_PER_FRAME = Number(opt("--pan", "0.02"));
+/** T77 slice A A/B: `--rig <keySnapTexels>,<moveTexels>` pins cascade 0's demand-driven quanta after
+ *  every boot through `__globe.shadowRig()` (0,0 = the library's every-frame re-render; null =
+ *  the tier value). Recorded in the artefact so a run is self-describing. */
+const RIG = opt("--rig", null) ? opt("--rig").split(",").map((v) => (v === "null" ? null : Number(v))) : null;
 const OWNER_EMAIL = opt("--owner", "yevhens@wix.com");
 const DEV = "http://localhost:4321";
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -156,10 +182,6 @@ const check = (label, ok, detail = "") => {
   return ok;
 };
 const fmt = (v, d = 3) => (v === null || v === undefined || Number.isNaN(v) ? "—" : typeof v === "number" ? v.toFixed(d) : String(v));
-const pct = (arr, p) => {
-  const s = arr.filter((x) => typeof x === "number" && !Number.isNaN(x)).sort((a, b) => a - b);
-  return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : null;
-};
 const results = { stamp: STAMP, label: LABEL, args, shimmer: [], reseat: [] };
 
 // ─── Boot (the baseline harness's recipe) ────────────────────────────────────────────────────
@@ -182,6 +204,10 @@ async function boot(poseKey, ultra) {
   await evalJs(`(document.querySelector('.wl-btn--primary') || {click(){}}).click(), document.querySelector('canvas')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })), true`);
   await waitFor(`!window.__globe.flight || !window.__globe.flight.active()`, 60_000, "flight settled");
   if (pose.kind === "fpv") await waitFor(`!!window.__globe.fpv && window.__globe.fpv().active`, 60_000, "FPV active");
+  if (RIG && (await evalJs(`typeof window.__globe.shadowRig === "function"`))) {
+    const r = await evalJs(`JSON.stringify(window.__globe.shadowRig({ keySnapTexels: ${RIG[0]}, moveTexels: ${RIG[1]} }))`);
+    console.log(`  rig override → ${r}`);
+  }
   const q = await evalJs(`(() => { const q = window.__globeQuality; return { tier: q.tier, dpr: q.dpr, ultraBoot: q.ultraBoot, shadowMapPx: q.shadowMapPx }; })()`);
   return q;
 }
@@ -216,7 +242,7 @@ const FREEZE = `(() => {
 })()`;
 // The probe. Runs FRAMES rAF callbacks after the engine's own (registered later → runs later in
 // the same frame, and each re-registration keeps that order). Returns per-frame rows.
-const SHIMMER_PROBE = (frames, stepMs, px, controlOnly) => `new Promise((resolve, reject) => {
+const SHIMMER_PROBE = (frames, stepMs, px, controlOnly, panDegPerFrame = 0) => `new Promise((resolve, reject) => {
   const g = window.__globe, R = window.__renderer, C = window.__composer, T = window.__timeStore.getState();
   const feed = window.__debugFeed;
   const lights = [g.sunLight, ...(g.cascadeLights || [])].filter(Boolean);
@@ -231,6 +257,16 @@ const SHIMMER_PROBE = (frames, stepMs, px, controlOnly) => `new Promise((resolve
   const cam0 = Array.from(g.camera.matrixWorld.elements);
   let k = 0;
   const luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+  // PAN leg (T77 A0). The camera's own forward (−Z of matrixWorld) frame to frame, so the leg
+  // REPORTS the yaw it achieved instead of assuming the one it asked for: the drive goes through
+  // the engine's ROTATE encoder (\`camera.setHeadingRate\`), which low-passes toward the stick at
+  // CONTROLS.rateEaseTauMs and integrates in SECONDS — and this probe's own frame costs 48–103 ms
+  // (two extra composer renders), so a constant deg/s would not be a constant deg/frame. The
+  // request is re-derived from the measured dt every frame and the achieved angle is recorded.
+  const PAN = ${panDegPerFrame};
+  const fwd = () => { const e = g.camera.matrixWorld.elements; return [-e[8], -e[9], -e[10]]; };
+  let prevFwd = null, prevMs = performance.now();
+  const restorePan = () => { if (PAN > 0) { try { window.__cameraStore.getState().setHeadingRate(null); } catch {} } };
   const tick = () => {
     try {
       const tFrame = performance.now();
@@ -262,23 +298,37 @@ const SHIMMER_PROBE = (frames, stepMs, px, controlOnly) => `new Promise((resolve
           const n = (x > 0 && F[i - 1]) || (x < W - 1 && F[i + 1]) || (y > 0 && F[i - W]) || (y < H - 1 && F[i + W]); if (!n) isolated++; }
       }
       const u = feed ? feed.read("ultra") : null;
+      const f = fwd();
+      const panDeg = prevFwd ? (Math.acos(Math.max(-1, Math.min(1, prevFwd[0] * f[0] + prevFwd[1] * f[1] + prevFwd[2] * f[2]))) * 180) / Math.PI : null;
+      const dtMs = tFrame - prevMs;
+      prevMs = tFrame; prevFwd = f;
       rows.push({
-        k, maskFrac: maskN / N, flips, union, churn: prev && union > 0 ? flips / union : (prev ? 0 : null), speckle: flips > 0 ? isolated / flips : null,
+        k, maskFrac: maskN / N, flips, union, churn: prev && union > 0 ? flips / union : (prev ? 0 : null),
+        // \`isolated\` is stored RAW from 2026-09-06 so the leg-level \`speckleWeighted\` (Σisolated /
+        // Σflips) is exact rather than reconstructed from a per-frame ratio.
+        isolated: prev ? isolated : null, speckle: flips > 0 ? isolated / flips : null,
         sampleMs: g.bodies().sampleMs, sunElev: u ? u.sunElevDeg : null,
         boundsM: u ? u["shadow.boundsM"] : null, mPerTexel: u ? u["shadow.mPerTexel"] : null,
         cas1Age: u ? u["cas1.ageMs"] : null, cas2Age: u ? u["cas2.ageMs"] : null, casting: u ? u["shadow.casting"] : null,
-        abMs: tAB,
+        // T77 A2's own instruments — cascade 0's refresh policy, read off the DBG feed like the
+        // cascade ages beside them. \`rigRefreshes\` is CUMULATIVE: difference two rows.
+        rigRefreshes: u ? u["shadow.rig.refreshes"] ?? null : null,
+        rigAgeMs: u ? u["shadow.rig.ageMs"] ?? null : null,
+        rigSnapTexels: u ? u["shadow.rig.snapTexels"] ?? null : null,
+        panDeg, dtMs, abMs: tAB,
       });
       prev = mask;
       k++;
       if (k >= ${frames}) {
         const cam1 = Array.from(g.camera.matrixWorld.elements);
-        resolve({ rows, W, H, cam0, cam1, camFrozen: cam0.every((v, i) => v === cam1[i]), lights: lights.length, t0 });
+        restorePan();
+        resolve({ rows, W, H, cam0, cam1, camFrozen: cam0.every((v, i) => v === cam1[i]), lights: lights.length, t0, pan: PAN });
         return;
       }
       ${controlOnly ? "" : "T.setTime(t0 + (k + 1) * " + stepMs + ");"}
+      if (PAN > 0) window.__cameraStore.getState().setHeadingRate((PAN * 1000) / Math.max(16, dtMs));
       requestAnimationFrame(tick);
-    } catch (e) { reject(e); }
+    } catch (e) { restorePan(); reject(e); }
   };
   requestAnimationFrame(tick);
 })`;
@@ -296,47 +346,59 @@ async function shimmerLeg(poseKey, ultra, label) {
   const sunElev = await evalJs(`(() => { const u = window.__debugFeed.read("ultra"); return u ? u.sunElevDeg : null; })()`);
   const casting = await evalJs(`window.__globe.sunLight.castShadow`);
   check(`${id}: sun above the fade band (≥ 10°) and casting`, sunElev !== null && sunElev >= 10 && casting === true, `elev ${fmt(sunElev, 1)}° casting ${casting}`);
-  const tuning = await evalJs(`(async () => { const t = await import("/src/components/globe/tuning.ts"); return { sampleIntervalMs: t.SKY.sampleIntervalMs, cascadeMaxStaleMs: t.ULTRA.cascadeMaxStaleMs ?? null, gateEnabled: t.GATE.enabled }; })()`);
+  // The tunables the run was made under, so a stored JSON is self-describing and an A/B cannot be
+  // read against the wrong policy. T77 slice A added the rig levers; every one of them ships at 0
+  // on the base profile, so a `high` run recording zeroes IS the identity leg.
+  const tuning = await evalJs(`(async () => { const t = await import("/src/components/globe/tuning.ts"); return {
+    sampleIntervalMs: t.SKY.sampleIntervalMs, cascadeMaxStaleMs: t.ULTRA.cascadeMaxStaleMs ?? null, gateEnabled: t.GATE.enabled,
+    rig: { biasTexels: t.SHADOWS.biasTexels, normalBiasTexels: t.SHADOWS.normalBiasTexels, normalBiasMaxM: t.SHADOWS.normalBiasMaxM,
+           keySnapTexels: t.SHADOWS.rigKeySnapTexels, moveTexels: t.SHADOWS.rigMoveTexels, maxStaleMs: t.SHADOWS.rigMaxStaleMs, localUp: t.SHADOWS.rigLocalUp },
+    rigUltra: { biasTexels: t.ULTRA.shadowBiasTexels, normalBiasTexels: t.ULTRA.shadowNormalBiasTexels,
+                keySnapTexels: t.ULTRA.shadowRigKeySnapTexels, moveTexels: t.ULTRA.shadowRigMoveTexels },
+  }; })()`);
   const legs = [
-    { name: "control", frames: Math.min(FRAMES, 240), step: 0, control: true },
-    { name: "scrub", frames: FRAMES, step: STEP_MS, control: false },
-    { name: "scrub4x", frames: Math.min(FRAMES, 300), step: STEP_MS * 4, control: false },
+    { name: "control", frames: Math.min(FRAMES, 240), step: 0, control: true, pan: 0 },
+    { name: "scrub", frames: FRAMES, step: STEP_MS, control: false, pan: 0 },
+    { name: "scrub4x", frames: Math.min(FRAMES, 300), step: STEP_MS * 4, control: false, pan: 0 },
+    // PAN (T77 A0). The sun is FROZEN and the camera turns instead — the only leg where a CENTRE
+    // snap can register at all. The other three hold the camera still, so `_shadowFocus` never
+    // moves and `rigMoveTexels` is untestable by construction; the pan is what makes the box
+    // centre travel while the key direction does not, which is the axis slice A2's centre-snap
+    // lever acts on. Kept LAST in the pose so the heading-rate drive cannot contaminate a frozen
+    // leg even if its restore were to fail.
+    { name: "pan", frames: Math.min(FRAMES, 300), step: 0, control: true, pan: PAN_DEG_PER_FRAME },
   ];
   const out = { id, pose: poseKey, ultra, label, q, settle: st, sunElev, tuning, legs: {} };
   for (const leg of legs) {
     await ticks(4);
-    const r = await evalJs(SHIMMER_PROBE(leg.frames, leg.step, PX, leg.control));
-    const rows = r.rows.slice(1); // the first row has no predecessor
-    const churn = rows.map((x) => x.churn);
-    const nz = churn.filter((c) => c !== null && c > 0);
-    const speckle = rows.map((x) => x.speckle).filter((x) => x !== null);
-    const sunMoved = rows.length > 1 ? rows[rows.length - 1].sunElev - rows[0].sunElev : 0;
-    const resamples = rows.filter((x, i) => i > 0 && x.sampleMs !== rows[i - 1].sampleMs).length;
-    const boundsSteps = rows.filter((x, i) => i > 0 && x.boundsM !== rows[i - 1].boundsM).length;
-    const p50 = pct(churn, 0.5), p95 = pct(churn, 0.95), max = pct(churn, 1);
-    const summary = {
-      frames: rows.length, maskFracP50: pct(rows.map((x) => x.maskFrac), 0.5), churnP50: p50, churnP95: p95, churnMax: max,
-      p95OverP50: p50 ? p95 / p50 : null, maxOverP50: p50 ? max / p50 : null, framesWithFlips: nz.length,
-      speckleP50: pct(speckle, 0.5), sunMovedDeg: sunMoved, resamples, boundsSteps, abMsP50: pct(rows.map((x) => x.abMs), 0.5),
-      camFrozen: r.camFrozen, lights: r.lights, W: r.W, H: r.H,
-    };
+    const r = await evalJs(SHIMMER_PROBE(leg.frames, leg.step, PX, leg.control, leg.pan));
+    // Row 0 is dropped (no predecessor → no churn) and `casRefresh` is stamped, both inside the
+    // shared summarizer so a stored run re-derives to exactly this.
+    const summary = { ...summarizeShimmer(r.rows), camFrozen: r.camFrozen, lights: r.lights, W: r.W, H: r.H, pan: r.pan };
+    const rows = r.rows.slice(1);
     out.legs[leg.name] = { summary, rows: r.rows };
-    console.log(`  ${leg.name.padEnd(8)} frames ${summary.frames}  mask ${fmt(summary.maskFracP50, 3)}  churn p50 ${fmt(p50, 4)} p95 ${fmt(p95, 4)} max ${fmt(max, 4)}  flips>0 in ${nz.length} frames  speckle p50 ${fmt(summary.speckleP50, 2)}  sun ${sunMoved >= 0 ? "+" : ""}${fmt(sunMoved, 3)}°  resamples ${resamples}  extent steps ${boundsSteps}  A/B ${fmt(summary.abMsP50, 1)} ms  camFrozen ${r.camFrozen}`);
-    check(`${id}/${leg.name}: camera frozen for the whole leg`, r.camFrozen === true);
-    check(`${id}/${leg.name}: a shadow mask exists (the A/B sees shadows)`, summary.maskFracP50 !== null && summary.maskFracP50 > 0.002, `mask ${fmt(summary.maskFracP50, 4)}`);
-    if (leg.control) {
-      check(`${id}/control: NO churn with sun and camera frozen (determinism)`, max === 0, `max churn ${fmt(max, 5)} over ${rows.length} frames`);
+    console.log(`  ${leg.name.padEnd(8)} frames ${summary.frames}  mask ${fmt(summary.maskFracP50, 3)}  churn p50 ${fmt(summary.churnP50, 4)} mean ${fmt(summary.churnMean, 4)} p95 ${fmt(summary.churnP95, 4)} max ${fmt(summary.churnMax, 4)}  pooled ${fmt(summary.churnPooled, 4)}  flips>0 in ${summary.framesWithFlips} frames (Σ ${summary.flipsTotal} / ${summary.unionTotal})  speckle p50 ${fmt(summary.speckleP50, 2)} wtd ${fmt(summary.speckleWeighted, 2)}  sun ${summary.sunMovedDeg >= 0 ? "+" : ""}${fmt(summary.sunMovedDeg, 3)}°  resamples ${summary.resamples}  extent steps ${summary.boundsSteps}  cas refresh ${summary.casRefreshes} (${summary.casRefreshPops} popped)  rig ${fmt(rows.length ? rows[rows.length - 1].rigRefreshes : null, 0)} refreshes  pan ${fmt(summary.panDegP50, 4)}°/frame  A/B ${fmt(summary.abMsP50, 1)} ms  camFrozen ${r.camFrozen}`);
+    if (leg.pan > 0) {
+      // The pan is driven through the engine's own rate encoder, which eases toward the stick, so
+      // the ASSERTION is on the achieved angle, never on the request. A leg that did not turn is
+      // worthless (it would silently become a second control leg and read as a pass).
+      check(`${id}/pan: the camera actually turned`, r.camFrozen === false && summary.panDegP50 !== null && summary.panDegP50 > leg.pan * 0.5, `${fmt(summary.panDegP50, 4)}°/frame requested ${leg.pan}, total ${fmt(summary.panDegTotal, 1)}°`);
     } else {
+      check(`${id}/${leg.name}: camera frozen for the whole leg`, r.camFrozen === true);
+    }
+    check(`${id}/${leg.name}: a shadow mask exists (the A/B sees shadows)`, summary.maskFracP50 !== null && summary.maskFracP50 > 0.002, `mask ${fmt(summary.maskFracP50, 4)}`);
+    if (leg.name === "control") {
+      check(`${id}/control: NO churn with sun and camera frozen (determinism)`, summary.churnMax === 0, `max churn ${fmt(summary.churnMax, 5)} over ${summary.frames} frames`);
+    } else if (!leg.control) {
       // The sun may be DESCENDING at the pose's instant (the FPV instant is local afternoon) —
       // the magnitude is what proves the scrub landed, never the sign.
-      check(`${id}/${leg.name}: the sun actually moved (resample every frame)`, Math.abs(sunMoved) > 0 && resamples >= rows.length * 0.9, `${sunMoved >= 0 ? "+" : ""}${fmt(sunMoved, 3)}°, ${resamples}/${rows.length} resamples`);
+      check(`${id}/${leg.name}: the sun actually moved (resample every frame)`, Math.abs(summary.sunMovedDeg) > 0 && summary.resamples >= summary.frames * 0.9, `${summary.sunMovedDeg >= 0 ? "+" : ""}${fmt(summary.sunMovedDeg, 3)}°, ${summary.resamples}/${summary.frames} resamples`);
     }
   }
   const s1 = out.legs.scrub?.summary, s4 = out.legs.scrub4x?.summary;
-  if (s1 && s4 && s1.churnP50) {
-    const ratio = s4.churnP50 / s1.churnP50;
-    out.rateLinearity = ratio;
-    console.log(`  rate-linearity: churn p50 at 4× step / 1× step = ${fmt(ratio, 2)} (tracks the sun if ≈ 4; noise if ≈ 1)`);
+  if (s1 && s4) {
+    Object.assign(out, rateLinearity(s1, s4));
+    console.log(`  rate-linearity: churn MEAN at 4× step / 1× step = ${fmt(out.rateLinearity, 2)} (p50 ratio ${fmt(out.rateLinearityP50, 2)}) — tracks the sun if ≈ 4; the RIG is moving if ≈ 1`);
   }
   results.shimmer.push(out);
 }
@@ -361,7 +423,8 @@ const RESEAT_PROBE = (maxFrames, quietFrames) => `new Promise((resolve, reject) 
       rows.push({ k, dt: n - last, frameCount: s.frameCount, terrainEpoch: s.terrainEpoch,
         near: e ? e.nearMaxResidualM : null, nearMoved: e ? e.nearMovedFeatures : null, nearCells: e ? e.nearCells : null,
         city: e ? e.maxResidualM : null, moved: e ? e.movedFeatures : null, seatEpoch: e ? e.epoch : null, quietFrames: e ? e.quietFrames : null,
-        deferred: e ? e.deferred : null, rejected: e ? e.rejected : null, modelResid,
+        deferred: e ? e.deferred : null, rejected: e ? e.rejected : null, collapsed: e ? e.collapsed : null, shallow: e && e.shallow !== undefined ? e.shallow : null,
+        cellResid: e ? e.cellMaxResidualM : null, modelResid,
         gndParse: gnd.parse.len, gndDl: gnd.dl.len, gndVisible: gnd.stats.visible, enrParse: u5.enriched ? u5.enriched.parse.len : 0 });
       last = n;
       const nearOk = e && e.nearMaxResidualM < 0.01 && e.nearMovedFeatures === 0;
@@ -388,6 +451,13 @@ function summarizeReseat(r, quietFrames) {
     cityP50: pct(rows.map((x) => x.city), 0.5), cityP95: pct(rows.map((x) => x.city), 0.95), cityMax: pct(rows.map((x) => x.city), 1),
     cityAtEnd: rows.length ? rows[rows.length - 1].city : null, writesFrac, nearWritesFrac, epochBumps, streamingQuietAt,
     movedP50: pct(rows.map((x) => x.moved), 0.5), rejectedDelta: rows.length ? rows[rows.length - 1].rejected - rows[0].rejected : null,
+    // T77 4a: the APPLY-time collapses on their own. `rejectedDelta` mixed them with discarded
+    // samples, so "the gate fired N times" could not be read as "N buildings visibly dropped".
+    collapsedDelta: rows.length && rows[0].collapsed !== null ? rows[rows.length - 1].collapsed - rows[0].collapsed : null,
+    shallowDelta: rows.length && rows[0].shallow != null ? rows[rows.length - 1].shallow - rows[0].shallow : null,
+    // T77 NEW-3: the CELL layer's residual — feature residuals are measured against it, so they
+    // are silent about a cell plane that never lands.
+    cellP95: pct(rows.map((x) => x.cellResid), 0.95), cellAtEnd: rows.length ? rows[rows.length - 1].cellResid : null,
     deferredDelta: rows.length ? rows[rows.length - 1].deferred - rows[0].deferred : null, modelSettledAt: modelSettled < 0 ? null : modelSettled,
     modelResidMax: pct(rows.map((x) => x.modelResid), 1), dtP50: pct(rows.map((x) => x.dt), 0.5),
   };
@@ -428,12 +498,12 @@ async function reseatLegs() {
     console.log(`\n=== RESEAT arrival (orbit pose) ===`);
     await boot("orbit", false);
     const quietFrames = await evalJs(`(async () => { const t = await import("/src/components/globe/tuning.ts"); return t.PLAN.reseatQuietFrames; })()`);
-    const easeK = await evalJs(`(async () => { const t = await import("/src/components/globe/tuning.ts"); return { reseatEaseK: t.ENRICHED.reseatEaseK, perFrame: t.ENRICHED.reseatFeatureSamplesPerFrame, trees: t.ENRICHED.reseatTreeSamplesPerFrame, cells: t.ENRICHED.reseatSamplesPerFrame, priorityEvery: t.ENRICHED.reseatPriorityEveryFrames, modelEase: t.MODELS.seatEaseK, modelSnap: t.MODELS.seatSnapM }; })()`);
+    const easeK = await evalJs(`(async () => { const t = await import("/src/components/globe/tuning.ts"); return { reseatEaseK: t.ENRICHED.reseatEaseK, reseatEaseTauMs: t.ENRICHED.reseatEaseTauMs, seatSnapM: t.ENRICHED.seatSnapM, perFrame: t.ENRICHED.reseatFeatureSamplesPerFrame, trees: t.ENRICHED.reseatTreeSamplesPerFrame, cells: t.ENRICHED.reseatSamplesPerFrame, priorityEvery: t.ENRICHED.reseatPriorityEveryFrames, modelEase: t.MODELS.seatEaseK, modelEaseTauMs: t.MODELS.seatEaseTauMs, modelSnap: t.MODELS.seatSnapM }; })()`);
     await ticks(2);
     const r = await evalJs(RESEAT_PROBE(maxFrames, quietFrames));
     const s = summarizeReseat(r, quietFrames);
     results.reseat.push({ leg: "arrival", tuning: easeK, summary: s, rows: r.rows });
-    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta}  dt p50 ${fmt(s.dtP50, 1)}`);
+    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
     check(`arrival: the seam reads (enriched attached, near cells ranked)`, r.rows.some((x) => x.near !== null && x.nearCells > 0));
   }
   // ── drag ──
@@ -457,7 +527,7 @@ async function reseatLegs() {
     const r = await evalJs(RESEAT_PROBE(maxFrames, quietFrames));
     const s = summarizeReseat(r, quietFrames);
     results.reseat.push({ leg: "drag", pre, summary: s, rows: r.rows });
-    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta}  dt p50 ${fmt(s.dtP50, 1)}`);
+    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
     check(`drag: the camera moved (the drag landed)`, (await evalJs(`window.__globe.seatSettle().frameCount`)) > pre.frameCount);
   }
   // ── models ──
@@ -474,6 +544,8 @@ async function reseatLegs() {
       const um = await evalJs(`(() => { const u = window.__globe.userModels(); return { world: u.world, resident: u.resident, loading: u.loading, skipped: u.skipped }; })()`);
       results.reseat.push({ leg: "models", summary: s, models: um, rows: r.rows });
       console.log(`  frames ${s.frames}  models ${JSON.stringify(um)}  model residual max ${fmt(s.modelResidMax, 3)} m  models <1cm @${s.modelSettledAt}  near settled @${s.settled}  city <1cm @${s.cityUnder1cm}`);
+      // T77 slice B: the city-wide convergence line the §9 gate reads (p95 < 0.1 m, rejections → 0).
+      console.log(`  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  moved p50 ${s.movedP50}  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
       check(`models: the seeded rows became resident`, um.resident >= 6 && um.loading === 0, JSON.stringify(um));
     } finally {
       const n = await unseedAll();

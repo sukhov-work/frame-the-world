@@ -6,6 +6,11 @@ import { MODELS } from "../../../src/components/globe/tuning";
 import { attachUserModels, patchModelShader, type ModelLoader, type ModelShader } from "../../../src/components/globe/scene/userModels";
 import type { PublicModel } from "../../../src/lib/wix/modelRecords";
 
+/** One 60 Hz frame in ms. T77 lever 5 made `update` take the orchestrator's CLAMPED frame delta
+ *  instead of easing by a per-frame fraction, and `easeK(16.667, MODELS.seatEaseTauMs)` = 0.1800
+ *  against the 0.18 these expectations were written at — the settle counts below are unchanged. */
+const DT = 1000 / 60;
+
 // MESH SUITE MS5 — the scene module driven headlessly (real three objects, no renderer, the
 // skyGhosts precedent): residency under the budget, the ENU frame + ground-fit re-base, the
 // eased seat, the pick, the gizmo rig round-trip, seats/rebase/armed, visibility and disposal.
@@ -74,7 +79,7 @@ describe("scene/userModels", () => {
     h.setModels([row("a")]);
     expect(h.counts()).toMatchObject({ world: 1, resident: 0, loading: 0 });
     const cam = cameraNear();
-    h.update(cam, 0);
+    h.update(cam, 0, DT);
     expect(loader.calls).toEqual([row("a").url]);
     expect(h.counts().loading).toBe(1);
     await flush();
@@ -110,11 +115,11 @@ describe("scene/userModels", () => {
     // The terrain answers 90 m: resnap + a few frames ease the frame down (never a teleport).
     terrain = 90;
     h.resnap();
-    h.update(cam, 1);
+    h.update(cam, 1, DT);
     const g1 = ecefToGeodetic([frame.position.x, frame.position.y, frame.position.z]);
     expect(g1.altM).toBeLessThan(MODELS.fallbackGroundM);
     expect(g1.altM).toBeGreaterThan(90);
-    for (let f = 2; f < 400; f++) h.update(cam, f);
+    for (let f = 2; f < 400; f++) h.update(cam, f, DT);
     const g2 = ecefToGeodetic([frame.position.x, frame.position.y, frame.position.z]);
     expect(g2.altM).toBeCloseTo(90, 2);
     expect(h.debug()).toMatchObject({ resident: 1, armedId: null });
@@ -128,7 +133,7 @@ describe("scene/userModels", () => {
     const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
     h.setModels([row("a")]);
     const cam = cameraNear();
-    h.update(cam, 0);
+    h.update(cam, 0, DT);
     await flush();
     // A ray straight down onto the model from 50 m above its top.
     const frame = h.rig("a")!.anchor.parent as THREE.Group;
@@ -154,7 +159,7 @@ describe("scene/userModels", () => {
     expect(back.rotDeg).toBeCloseTo(30, 9);
     expect(back.sx).toBeCloseTo(1.5, 9);
     // While dragging the per-frame writes leave the rig alone…
-    h.update(cam, 5);
+    h.update(cam, 5, DT);
     expect(r.anchor.position.x).toBeCloseTo(4, 9);
     // …and the release re-places from the committed seats (the anchor returns to zero).
     h.setDragging("a", false);
@@ -165,10 +170,10 @@ describe("scene/userModels", () => {
     expect(r.body.scale.x).toBe(2);
     expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2, liftM: 0, pitchDeg: 0, rollDeg: 0 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
     h.setSeats("a", { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
-    h.update(cam, 6);
+    h.update(cam, 6, DT);
     expect(r.body.scale.x).toBeLessThan(2);
     expect(r.body.scale.x).toBeGreaterThan(1);
-    for (let f = 7; f < 300; f++) h.update(cam, f);
+    for (let f = 7; f < 300; f++) h.update(cam, f, DT);
     expect(r.body.scale.x).toBe(1);
     // Rebase moves the frame at once and zeroes the anchor.
     h.rebase("a", LAT + 0.001, LON);
@@ -192,9 +197,9 @@ describe("scene/userModels", () => {
     // bbox [4, 6, 4] → 6 m tall → the floor keeps 1.5 m above the seat → −4.5.
     h.setModels([row("a", { tU: -2 }), row("b", { tU: -40 }), row("c", { tU: 400 })]);
     const cam = cameraNear();
-    h.update(cam, 0);
+    h.update(cam, 0, DT);
     await flush();
-    h.update(cam, MODELS.residencyEveryFrames); // the third fetch waits for the next re-plan (2 concurrent loads)
+    h.update(cam, MODELS.residencyEveryFrames, DT); // the third fetch waits for the next re-plan (2 concurrent loads)
     await flush();
     const ra = h.rig("a")!;
     expect(ra.anchor.position.y).toBe(-2);
@@ -222,10 +227,10 @@ describe("scene/userModels", () => {
     expect(ra.anchor.position.y).toBe(-2.25);
     // A row change (a RESET from the list / another member) eases the lift back to the ground.
     h.setModels([row("a", { tU: 0, updatedAt: "2026-09-03T00:00:00.000Z" }), row("b", { tU: -40 }), row("c", { tU: 400 })]);
-    h.update(cam, 1);
+    h.update(cam, 1, DT);
     expect(ra.anchor.position.y).toBeGreaterThan(-2.25);
     expect(ra.anchor.position.y).toBeLessThan(0);
-    for (let f = 2; f < 300; f++) h.update(cam, f);
+    for (let f = 2; f < 300; f++) h.update(cam, f, DT);
     expect(ra.anchor.position.y).toBe(0);
     // The label anchor rides the lift (the top of a lifted model is higher).
     const top = new THREE.Vector3();
@@ -249,7 +254,7 @@ describe("scene/userModels", () => {
     // bbox [4, 6, 4] → w 4, d 4, h 6. "b" is flipped on the row at lift 0 → held up a quarter (1.5 m).
     h.setModels([row("a", { rotDeg: 30, pitchDeg: 20, rollDeg: -10 }), row("b", { rollDeg: 180, tU: 0 })]);
     const cam = cameraNear();
-    h.update(cam, 0);
+    h.update(cam, 0, DT);
     await flush();
     const ra = h.rig("a")!;
     const expectQ = (q: THREE.Quaternion, yaw: number, pitch: number, roll: number) => {
@@ -285,12 +290,12 @@ describe("scene/userModels", () => {
     h.setModels([row("a", { rotDeg: 0, pitchDeg: 0, rollDeg: 0, tU: 0, updatedAt: "2026-09-05T00:00:00.000Z" }), row("b", { rollDeg: 180, tU: 0 })]);
     const target = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0, "YXZ"));
     let prev = ra.body.quaternion.angleTo(target);
-    h.update(cam, 1);
+    h.update(cam, 1, DT);
     let now = ra.body.quaternion.angleTo(target);
     expect(now).toBeLessThan(prev);
     expect(now).toBeGreaterThan(0);
     for (let f = 2; f < 400; f++) {
-      h.update(cam, f);
+      h.update(cam, f, DT);
       const a = ra.body.quaternion.angleTo(target);
       expect(a).toBeLessThanOrEqual(prev + 1e-9);
       prev = a;
@@ -323,7 +328,7 @@ describe("scene/userModels", () => {
     const near = row("near", { tris: 10 });
     h.setModels([far, heavy, near]);
     const cam = cameraNear();
-    h.update(cam, 0);
+    h.update(cam, 0, DT);
     await flush();
     // `near` (10 tris) loads first; `heavy` would bust the budget → skipped → the warning.
     expect(loader.calls).toEqual([near.url]);
@@ -331,11 +336,11 @@ describe("scene/userModels", () => {
     expect(h.info("far")?.resident).toBe(false);
     // The MDL chip off releases everything and stops loading; on brings it back.
     h.setVisible(false);
-    h.update(cam, 1);
+    h.update(cam, 1, DT);
     expect(h.counts()).toMatchObject({ resident: 0, visible: false, skipped: 0 });
     expect(scene.getObjectByName("userModels")!.visible).toBe(false);
     h.setVisible(true);
-    h.update(cam, 2);
+    h.update(cam, 2, DT);
     await flush();
     expect(h.counts().resident).toBe(1);
     // A removed row unloads; a moved row rebases; a re-seated row eases.
@@ -343,7 +348,7 @@ describe("scene/userModels", () => {
     expect(h.counts().world).toBe(1);
     expect(h.info("near")?.seats.rotDeg).toBe(45);
     h.setModels([]);
-    h.update(cam, 3);
+    h.update(cam, 3, DT);
     expect(h.counts()).toMatchObject({ world: 0, resident: 0 });
     h.dispose();
   });
@@ -355,7 +360,7 @@ describe("scene/userModels", () => {
     const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
     h.setModels([row("a")]);
     const cam = cameraNear();
-    h.update(cam, 0);
+    h.update(cam, 0, DT);
     expect(h.counts().loading).toBe(1);
     h.setModels([]); // released while the bytes are in flight
     loader.gates[0]();
@@ -366,10 +371,10 @@ describe("scene/userModels", () => {
     const failing: ModelLoader = { load: async () => { throw new Error("404"); } };
     const h2 = attachUserModels(scene, { terrainHeightAt: () => 100, loader: failing });
     h2.setModels([row("b")]);
-    h2.update(cam, 0);
+    h2.update(cam, 0, DT);
     await flush();
     expect(h2.counts()).toMatchObject({ resident: 0, loading: 0, failed: 1 });
-    h2.update(cam, MODELS.residencyEveryFrames);
+    h2.update(cam, MODELS.residencyEveryFrames, DT);
     expect(h2.counts().failed).toBe(1);
     h2.dispose();
     h.dispose();
@@ -380,7 +385,7 @@ describe("scene/userModels", () => {
     const loader = makeLoader();
     const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
     h.setModels([row("a")]);
-    h.update(cameraNear(), 0);
+    h.update(cameraNear(), 0, DT);
     await flush();
     const mesh = scene.getObjectByName("userModels")!.getObjectByProperty("type", "Mesh") as THREE.Mesh;
     const mat = mesh.material as THREE.MeshStandardMaterial;

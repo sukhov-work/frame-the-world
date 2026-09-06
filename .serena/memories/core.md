@@ -12,36 +12,42 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-06g
-- **T77, the rendering-performance audit, is PARKED after slice 0** (T79, the below-camera raycast
-  gate, is built and CLOSED). T77 resumes at **T80** — owner ruling pending: may a cheaper bloom
-  change pixels at `high`? — then slice A shadows, then slice B seats.
+## Status — 2026-09-06h
+- **T77 RESUMED and four slices landed in one session** (2026-09-06h, `mem:project/wip-2026-09-06-t77-resume-harness-sunset`):
+  T80 measured (a half-res bloom recovers 1.6 of 13 ms — moot; the cost is the full-res blend into
+  the MSAA buffer), slice A A0–A3 (demand-driven cascade 0, ULTRA-on / base-identity; the shimmer
+  reframed: the light FRAME rotates, not the box), slice B (the 8.3 cm stall gone, dt eases,
+  per-tile memo, collapses 4,277 → 0), the sunset release fixed ULTRA-only (×5.22 → ×1.16).
+  **Every harness now draws poses from the owner's catalogue `scripts/lib/poses.mjs`** and
+  `verify-visual-sweep.mjs` makes contact sheets — the standing order for all sessions.
+  Owner rulings 2026-09-06i ALL YES: T96 (the base rig takes the ULTRA light/shadow model), T66
+  (flatten the rises through 0°), the A2 cadence. Next session = six worktrees (BASE · C-1 · T80-g ·
+  A-rest · T94 · sheet defects), `NEXT_SESSION_PROMPT.md`. MEASUREMENTS §14.
 - **MESH SUITE CLOSED 2026-09-05b** — MS0–MS8 shipped (gizmos, world-synced building overrides, user
   models); `MESH_SUITE_PLAN.md` §4a, the no-regression contract, stays binding.
 - **BEST SPOT PARKED 2026-08-27** (owner 2026-09-01: sufficient as implemented) · **Phase 7, AI shot
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-06g: vitest **2,463/2,463** (164 files) · `astro check` **0/0/9** · knip **0**.
+- Gates 2026-09-06h: vitest **2,584/2,584** (167 files) · `astro check` **0/0/9** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T90).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T96).
 
-## Next step — T77 resumes here (full brief: `NEXT_SESSION_PROMPT.md`)
-1. **T80 bloom — measure first, whatever the ruling.** Time a half-resolution / fewer-mip / cheaper
-   `UnrealBloomPass` against the `bloomOff` cells (`verify-perf-baseline --post-ab`), and pixel-diff
-   the glow at three poses. Gate: FPV `gpu` ≤ 15 ms at `high`, bloom ON (25.1 ms today). If pixel
-   changes at `high` are refused: ULTRA first, or park T80 and start slice A.
-2. **Slice A, shadows**, gated by `verify-temporal-stability.mjs 9222 --shimmer`: churn p50 at the
-   FPV eye 0.185 → ≤ 0.05 · control legs exactly 0 (ULTRA cascade included) · 4×/1× ≥ 3 · speckle ≤
-   0.3.
-3. **Slice B, seats** (`--reseat`): no 8.3 cm stall floor.
+## Next step — T77 slice C (full brief: `NEXT_SESSION_PROMPT.md`)
+1. **Read the contact sheets first** (`node scripts/verify-visual-sweep.mjs 9333 --sheet`) — the
+   owner's poses, never the bland legacy five alone; T92/T93 are the defects they exposed.
+2. **Slice C — streaming quiet + the seat drain + the FPV main thread** (`frame.cpu` 2.1 → 4.4 ms
+   after slice B; `probe-cpu-profile --pose fpv`), then slice B's 5a/5b/5d/5e, then T80 direction g
+   (blend after the MSAA resolve), then slice A's ladder/dispatch, then T94 (deterministic capture).
+3. **Slice BASE first (T96 + T66, ruled YES 2026-09-06i)** — the light/shadow model on the base rig.
 **Constraints:** no regression of behaviour, accuracy, calculations, plans, predictions or sky
 features · `high` byte-identical · ULTRA off-state exact · `ENGINE_STATE_2026-09-02.md` §8 harness
 list per slice · DNIPRO slice first (owner 2026-09-02c) · the audit is read-only.
-**Instruments** in `scripts/`: `verify-perf-baseline.mjs`, `probe-below-camera.mjs`,
-`verify-temporal-stability.mjs`, `probe-cpu-profile.mjs`, `t77-model-ramp.mjs`; DEV seams
-`__debugFeed`, `__globe.seatSettle()`, `__globe.controls.belowCameraGate()`.
+**Instruments** in `scripts/`: `lib/poses.mjs` + `verify-visual-sweep.mjs` (the catalogue + sheets),
+`verify-perf-baseline.mjs`, `verify-temporal-stability.mjs` (`--rig`, `--step`), `verify-ultra-dusk.mjs --ladder`,
+`probe-seat-loop.mjs`, `probe-shadow-rig.mjs`; DEV seams `__debugFeed`, `__globe.seatSettle()`,
+`__globe.shadowRig()`, `__globe.enrichedCellSeats()`, `__quality.bloomScale()`.
 **Owner calls open:** T80 · T85 (`baseEarth` `raycast = () => {}`) · the rooftop-clearance lever.
 **Phones:** `tools/devicefarm/README.md` + `MEASUREMENTS_2026-09-05.md` §11; first phone item is
 **T83**, the iPhone 17 Pro `#f=` FPV page dying 40–60 s after load.
@@ -107,7 +113,9 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   `rendering/` `T77_AUDIT_PLAN_2026-09-05` · `MEASUREMENTS_2026-09-05`
   (§0 verdict · §7 CPU · §11 phones · §12 slice order) · `T77_SLICE0_ORBIT_FRAME_2026-09-06` ·
   09-05-t77-{audit-plan,measure} · 09-06-t77-phone-baseline-slice0
-- **Docs + memory hygiene sweep (09-06g, HOT)** · 09-06-docs-hygiene
+- **Docs + memory hygiene sweep (09-06g)** · 09-06-docs-hygiene
+- **T77 RESUMED: catalogue + sweep, T80, slices A/B, the sunset fix (09-06h, HOT)** ·
+  `rendering/SUNSET_LIGHTPATH_2026-09-06` · MEASUREMENTS §14 · 09-06-t77-resume-harness-sunset
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

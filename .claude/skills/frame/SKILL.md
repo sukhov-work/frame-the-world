@@ -88,7 +88,11 @@ Fix all failures before claiming success.
 - **Browser:** globe render, cinematic flight, `libraw-wasm`/HEIC decode, WebGPU fallback, mobile memory —
   verify in `wix dev` on desktop Chrome (+ a real device for mobile decode). **Launch via
   `node scripts/verify-chrome.mjs`** (port-ownership check + occlusion flags); recipe + traps:
-  `conventions/verify.md`.
+  `conventions/verify.md`. **Poses come from the catalogue `scripts/lib/poses.mjs`** (the owner's
+  real-experience views — descent, cityscape, FPV 10–50 m, the 200 mm horizon sweep, Everest at
+  tilt 73°, the sunset pair; owner order 2026-09-06h): run `scripts/verify-visual-sweep.mjs --sheet`
+  first and read the contact sheets; never invent a bland pose (`conventions/verify.md` §The view
+  catalogue).
 - **Wix cloud:** quota #11 rejection, resumable upload, geohash viewport query, digital purchase, AI credit
   cost — verify in `wix dev` / Wix test mode. `wix release` publishes to the live URL (there is no SSH box).
 ### Machine-checked math — `npm run proofs` (RARELY; four conditions, all of them)

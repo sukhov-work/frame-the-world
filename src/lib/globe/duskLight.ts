@@ -143,3 +143,132 @@ export function airLevel(
     (rayleighK * 1.5 + mieGain)
   );
 }
+
+// --- THE SHADOW'S OWN DUSK (sunset shadow-release, 2026-09-06) ----------------------------------
+//
+// The two pure bounds the shadow field needs once it is allowed to live past +0.46°. They sit
+// here, beside the extinction maths, and not in `lib/globe/shadowFit` (which owns the ortho BOX)
+// because both are answers to the same question the dusk model asks every frame — *how much of
+// this shadow is still real?* — and both are read in the same four lines of
+// `stepKeyLightAndShadow`.
+//
+// THE DEFECT THEY ANSWER, measured (`verify-shots/sunset-lightpath-report.md` §4/§6): between
+// geometric sun +1.30° and −0.14° the terrain that was in shadow got **5.22× BRIGHTER**, and it
+// did so in a 0.60° window (× 6.5 between +1.06° and +0.46°, ≈ 2.7 minutes). Two mechanisms, and
+// the dominant one is the second:
+//   1. the field was RELEASED at `SHADOWS.minSunElevSin` (+0.4584°) while 25 % of the direct sun
+//      was still there — 5.9 minutes before the upper limb actually sets (−0.833°);
+//   2. the ground overlay is a `ShadowMaterial` twin, i.e. a multiplier on the WHOLE composite,
+//      while a shadow physically removes only the DIRECT arm of `imageryGround`'s split
+//      (`dayShadeU = groundAmbientK·ambient + (1−groundAmbientK)·directK·lambert`, :648-657).
+// §6's shadow-budget table is why moving the gate alone cannot work: at ANY gate the shipped
+// overlay is 3.1–6.5× deeper than the direct light it stands for, so releasing it always
+// brightens. Bounding it by the direct share removes the step wherever the gate is put.
+
+/**
+ * The ground overlay's DIRECT SHARE — how much of a lit surface's brightness the direct sun is
+ * still responsible for, normalised to the reference sun, so the `ShadowMaterial` can never
+ * darken more than the arm it stands for.
+ *
+ * The shader's per-fragment split (`scene/imageryGround.ts:648-657`) is
+ *
+ *     dayShadeU = a·skyExposure·skyAz·mix(1, skyLevel, levelK)  +  (1−a)·directK·lambert
+ *                 └──────────────── ambient ─────────────────┘     └───── direct ─────┘
+ *
+ * with `a = ULTRA.groundAmbientK`. The exact share is `direct / (ambient + direct)`, which needs
+ * the fragment's own normal (`skyExposure`, `skyAz`, `lambert`) — and the overlay is one shared
+ * material opacity written once per frame on the CPU, so it gets a SCALAR. The scalar evaluates
+ * that ratio for the REFERENCE receiver — a flat surface under an overhead sun, where
+ * `skyExposure = skyAz = lambert = 1` and the ambient level is its own unit — and normalises by
+ * its own value there:
+ *
+ *     s(d) = (1−a)·d / (a + (1−a)·d)        s(1) = 1−a        k(d) = s(d)/s(1) = d / (a + (1−a)·d)
+ *
+ * TWO PROPERTIES THIS BUYS, and both are pinned in `test/lib/globe/duskLight.test.ts`:
+ *   · **k(1) is EXACTLY 1.** `a + (1−a)·1 = 1` with no rounding, so the daytime overlay is
+ *     byte-identical — and with the ULT chip OFF `ultraDirectK` is seeded and re-settled to
+ *     exactly 1 (`StylizedTiles.stepUltraLook`), so the off-state overlay is byte-identical too.
+ *     That exactness is the whole off-state contract; `d/(a + (1−a)d)` was chosen over every
+ *     other shape partly because it delivers it without a clamp.
+ *   · **k(0) = 0.** When no direct light survives there is nothing for a shadow to remove, so the
+ *     overlay retires on its own — which is what lets the gate move below the horizon at all.
+ *
+ * WHY THE AMBIENT LEVEL IS HELD AT ITS REFERENCE and not fed the live `skyLevel`: letting the
+ * ambient arm dim with the sky pushes the ratio the wrong way — measured at +3° with
+ * `A = skyLevel·skyAz` the formula returns **k = 1.008**, i.e. it would ask for MORE overlay than
+ * ships today and re-open the cliff it exists to close. Conversely, folding in the receiver's own
+ * `lambert` (0.159 at a grazing sun) collapses the overlay to 0.13 at +3° against the shipped
+ * 0.758 — that deletes exactly the raking-hour terrain shadow the 2026-08-27c taste pass was
+ * written to preserve ("shadows that were there before should not just disappear"). The scalar
+ * sits between those two failures on purpose.
+ *
+ * Measured effect on the in-shadow ground at the owner's Everest pose (the twin in
+ * `test/components/globe/duskShadeRatio.test.ts` computes both columns from the shipped tunables,
+ * so neither is transcribed): across `[+3, +2, +1.06, +0.5, +0.4584, 0, −0.5]` the worst
+ * brightening anywhere on the ladder falls from **× 6.479 to × 1.255**, the owner's own two frames
+ * go from **× 5.22 to × 1.16**, and +3° → +0.7° becomes strictly decreasing.
+ *
+ * @param directK  `ultraDirectK` — the `ULTRA.keyExtinctCurve` level, 1 at high sun, 0 by −0.5°.
+ * @param ambientK `ULTRA.groundAmbientK` — the shader's own ambient weight (0.68).
+ */
+export function shadowDirectShareK(directK: number, ambientK: number): number {
+  const d = Math.min(1, Math.max(0, directK));
+  const a = Math.min(1, Math.max(0, ambientK));
+  const denom = a + (1 - a) * d;
+  // The guard is reachable only at a = 0 AND d = 0 — an all-direct ground with no direct light,
+  // which is 0 overlay either way. At a = 1 (an all-ambient ground) the expression degrades to a
+  // plain linear `directK` rather than to 0/0, which is the right degenerate limit: there is no
+  // reference direct arm to normalise against, so the fade is simply the extinction level.
+  return denom > 0 ? d / denom : 0;
+}
+
+/**
+ * The shadow-LENGTH guard — the bound that makes a gate BELOW the horizon safe.
+ *
+ * `verify-shots/sunset-lightpath-report.md` §7 ruled out every other candidate for "a
+ * below-horizon sun projects garbage" (`tuning.ts:490`) with numbers — no near-plane clipping, no
+ * ortho degeneracy from a light 872 m under the focus plane, acne already handled by
+ * `ULTRA.terrainDepthOffset` — and found exactly one real failure: **projected length diverges**.
+ * A 100 m caster's shadow is 1 908 m at +3°, 12 499 m at the old gate, 28 648 m at +0.2°,
+ * 57 296 m at +0.1° and INFINITE at 0°. Past the box it is not a long shadow, it is a hard-edged
+ * kilometre-scale slab thrown from the box edge — the "super elongated naive shadows we fixed
+ * before" the owner named as a do-not-return.
+ *
+ * So the field fades on GEOMETRY rather than on an authored elevation: `min(1, reach / (h/tan ε))`,
+ * which is 1 while the box can hold the shadow, falls as 1/length once it cannot, and is 0 at and
+ * below the horizon where the length is infinite or the ray travels upward. It is inert above
+ * `atan(casterM / reachM)` — 0.54° at the Everest FPV fit (reach 10 688 m), 0.32° at the
+ * `ULTRA.maxBoundsM` cap — so it costs nothing through the raking hour and only bites in the last
+ * half-degree, where `shadowDirectShareK` has already taken the overlay down to a fifth.
+ *
+ * Its real job is the FUTURE: `ULTRA.keyExtinctCurve` reaches 0 at −0.5° today, so nothing draws a
+ * shadow below the horizon anyway; if a later curve keeps `directK > 0` down there, this is what
+ * still stops the slab.
+ *
+ * Never NaN: ε ≤ 0 returns 0 before any division, a zero/absent box returns 1 (no bound rather
+ * than a silent blackout on the first frames, where `shadowBoundsM` is still 0), and a sun at the
+ * zenith returns 1 without dividing by cos = 0.
+ *
+ * @param sinElev Sine of the GEOMETRIC solar elevation over the focus — `sunDirW · focusUp`.
+ * @param casterM Reference caster height (m) — `ULTRA.shadowLengthCasterM`.
+ * @param reachM  Ground distance (m) the live shadow box can hold — the fitted half-extent.
+ */
+export function shadowLengthK(
+  sinElev: number,
+  casterM: number,
+  reachM: number,
+  horizonSin = 0,
+): number {
+  if (!(casterM > 0) || !(reachM > 0)) return 1;
+  // 2026-09-06h, measured on the owner's strip: with the horizon at GEOMETRIC 0° this guard zeroed
+  // the field at frame B (−0.14°) while the disc was still up (apparent +0.36°) — the release the
+  // whole fix exists to remove, re-introduced one term later. The shadow is thrown by the DISC,
+  // so the elevation that matters is measured from where the disc sets (`horizonSin`, the ULTRA
+  // gate's sin −0.833°): a sun 0.7° above true sunset throws a long, real, beautiful shadow.
+  const s = sinElev - horizonSin;
+  if (!(s > 0)) return 0;
+  const cosElev = Math.sqrt(Math.max(0, 1 - s * s));
+  if (cosElev <= 0) return 1; // sun at the zenith: the shadow is a point
+  // reach / (casterM/tan ε), written without tan so the zenith case cannot divide by zero.
+  return Math.min(1, (reachM * s) / (casterM * cosElev));
+}

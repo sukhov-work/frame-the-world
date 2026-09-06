@@ -136,6 +136,33 @@ export function queueCapsForTier(
   return tier === "high" ? null : caps[tier];
 }
 
+/**
+ * T80 — the bloom mip chain's resolution scale for a tier, clamped by the lean-mobile profile.
+ *
+ * WHY A SCALE AT ALL. `UnrealBloomPass` takes a `resolution` in its constructor and then IGNORES
+ * it forever: `composer.setSize` calls `pass.setSize`, which re-derives every render target from
+ * the drawing buffer (`round(w/2)` for the bright extract, halving down five mips). So the only
+ * place a cheaper chain can be expressed is a scale applied INSIDE `setSize` — which is what
+ * `components/globe/scene/scaledBloom.ts` does. Of the pass's 13 draws only the final additive
+ * blend writes into the full-res MSAA read buffer; the other 12 (and their 12 clears) ride this
+ * scale, so 0.5 buys roughly a quarter of the bloom fill for a softening the shape does not show.
+ *
+ * `high` off a coarse pointer returns the literal `1` through its own branch — a STRICT IDENTITY
+ * FENCE, not an arithmetic accident. `scaledBloom` short-circuits at exactly 1 and never computes
+ * `round(w * s)`, so `high` keeps the byte-identical invariant this module rests on even when the
+ * drawing buffer is a non-integer size. Everything else is `min(tier, lean)`: the lean profile may
+ * only ever make the chain cheaper, never richer. Pure → unit-tested.
+ */
+export function bloomScaleForTier(
+  tier: QualityTier,
+  lean: boolean,
+  tiers: Readonly<Record<QualityTier, { bloomScale: number }>>,
+  leanMobile: { bloomScale: number },
+): number {
+  if (tier === "high" && !lean) return 1;
+  return Math.min(tiers[tier].bloomScale, lean ? leanMobile.bloomScale : 1);
+}
+
 /** Per-tier foveated-loading levers (UPLIFT U6, owner point 8 — mobile-first). `null` on `high`:
  *  foveation is a weak-device budget re-allocation (spend tile detail where the user looks), and
  *  the byte-identical invariant keeps a capable machine untouched. Lives in `QUALITY.tiers`. */

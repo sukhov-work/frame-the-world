@@ -380,6 +380,10 @@ export const BLOOM = {
   threshold: 0.9,
   /** MSAA samples on the composer's HalfFloat target (the default 0 would alias building edges). */
   msaaSamples: 4,
+  // T80: the pass's RESOLUTION is deliberately NOT here — it is per-tier
+  // (`QUALITY.tiers[t].bloomScale`, applied by `scene/scaledBloom.ts`), because
+  // `UnrealBloomPass`'s own `resolution` constructor argument is inert the moment
+  // `composer.setSize` runs and re-sizes every target from the drawing buffer.
 } as const;
 
 /** Ambient occlusion (RENDERING_QUALITY_PASS R1 — the highest-ROI aesthetic move: turns the flat
@@ -483,6 +487,75 @@ export const SHADOWS = {
    *  ~0.5 m float32@6.4e6 acne while anchoring the shadow to the wall base. Browser-revert to 1.0 if
    *  acne returns — it's the one shadow value with an acne/contact tradeoff.) */
   normalBias: 0.75,
+
+  // --- T77 SLICE A1 (2026-09-06) — the two biases above, re-authored in TEXELS. ----------------
+  //
+  // The shimmer measurement (`rendering/MEASUREMENTS_2026-09-05.md` §8) reports 62–75 % of the
+  // per-frame shadow-mask flips as ISOLATED pixels — depth-compare ACNE, not edge motion. The
+  // constants above are what fights that acne, and neither of them is scaled to the thing acne
+  // actually scales with, the TEXEL: `normalBias` 0.75 m is **0.31 texel** at the FPV pose's
+  // 2.44 m/texel, and ULTRA's 0.45 m is **0.13 texel** at the city pose's 3.36 m — against the
+  // 1.5 texels the cascade ladder has derived for itself since 2026-08-27 without ever showing
+  // acne. The derivation is `lib/globe/shadowCascade.texelBias`, shared with the ladder so there
+  // is ONE of it.
+  //
+  // OFF BY DEFAULT AND BYTE-IDENTICAL: 0 means "keep the raw constant above", which is not a
+  // near-equal value but literally the shipped write. The owner's law is that `high` does not
+  // change pixels until he rules on the A/B, so the base profile ships at the identity and the
+  // ULTRA twin (`ULTRA.shadowBiasTexels` / `shadowNormalBiasTexels`) ships ON.
+  /** Depth bias in texels of the rig's own map (0 → keep `bias` above verbatim). */
+  biasTexels: 0,
+  /** World normal offset in texels of the rig's own map (0 → keep `normalBias` above verbatim). */
+  normalBiasTexels: 0,
+  /** Cap (m) on the DERIVED normal offset — the contact guard, and the reason cascade 0 may use
+   *  the ladder's 1.5 texels at all. Normal offset is what PETER-PANS a shadow off its wall base,
+   *  and cascade 0 is the only box whose contact points a viewer can stand next to: at the city
+   *  pose 1.5 texels is 5.0 m of offset, which would float every building. 1.5 m is ~2× the
+   *  shipped 0.75 m — enough to cover the float32-at-ECEF quantisation the texel term is being
+   *  scaled for, small enough to keep the wall-base contact 2026-07-13 tuned `normalBias` down to
+   *  protect. Shared by both profiles; the cascades pass Infinity (no contact to preserve). */
+  normalBiasMaxM: 1.5,
+
+  // --- T77 SLICE A2 (2026-09-06) — the rig's REFRESH POLICY, in the cascades' shape. -----------
+  //
+  // The other half of the same measurement: with the camera frozen the box is constant
+  // (`boundsSteps` 0 in every stored leg) but `sunLight.position` is re-placed every frame, so
+  // `LightShadow.updateMatrices` re-runs `lookAt` and the whole grid re-projects — 0.29 texel per
+  // frame at the box edge for a sun that moved the true shadow edge 0.0009 texel. The base rig
+  // also re-renders its 4096²/8192² depth map EVERY frame, which the perf baseline prices at
+  // −1.7 ms (fpv high), −6.9 (fpv ULTRA), −5.4 (city high) and −7.5 ms GPU (orbit ULTRA) if it
+  // stops. Both are the same fix: refresh the rig on DEMAND, exactly as the cascades already do
+  // (`lib/globe/shadowCascade.cascadeNeedsRender`), and land each refresh on a texel lattice
+  // (`lib/globe/shadowSnap.snapCentreDelta`).
+  //
+  // THE FLAG IS PER-LIGHT, NEVER `renderer.shadowMap.autoUpdate`: that renderer-level flag is
+  // asserted TRUE at rest by `verify-audit3.mjs:256-259` (the PiP bracket's restore contract) and
+  // turning it off would silence the cascades and the moonlight too.
+  /** Key-direction swing quantum, in texels of grid motion at the box corner, before the rig is
+   *  re-placed and its map re-rendered. **0 = the light follows the sun every frame** (today's
+   *  behaviour, byte-identical). ULTRA ships 1. */
+  rigKeySnapTexels: 0,
+  /** Centre-drift quantum, in texels, before the rig is re-placed. **0 = the centre follows the
+   *  eye every frame** (today's behaviour, byte-identical). ULTRA ships 1. */
+  rigMoveTexels: 0,
+  /** Staleness safety net (ms) in RC21's shape: a missed trigger costs bounded staleness, never a
+   *  frozen shadow. Tighter than the cascades' 1,500 ms because cascade 0 is the box the viewer is
+   *  standing in. Shared by both profiles — a demand-driven rig is a demand-driven rig. */
+  rigMaxStaleMs: 1_000,
+  /** A3 — build the shadow camera's basis from the FOCUS UP instead of three's constructed ECEF
+   *  +Y (`OrthographicCamera`'s default `up`).
+   *
+   *  Why it is a lever at all: `lookAt` crosses `up` with the key direction, so with a fixed ECEF
+   *  +Y the texel grid's orientation is a function of WHERE ON THE PLANET you are — and it is
+   *  degenerate near the subsolar point at 0°N 90°E (and its antipode), where the sun direction is
+   *  parallel to ECEF Y and x̂ = up × ẑ collapses and flips sign. A focus-local up makes the grid
+   *  orientation a property of the view instead, which is what a texel snap wants.
+   *
+   *  **False in BOTH profiles for this slice, deliberately.** Turning it on rotates the ULTRA texel
+   *  grid, which moves every pixel `verify-ultra` pins — that is a separate A/B with its own
+   *  browser evidence, not a rider on the snap. The tunable, the code path and the degeneracy test
+   *  land now so the A/B is a one-line flip. */
+  rigLocalUp: false,
   /** PCF blur radius (texels) — soft penumbra edge (3 → 2 verified 2026-07-10: crisp contact, natural
    *  soft edge; NOT stair-stepped). */
   radius: 2,
@@ -666,6 +739,13 @@ export const QUALITY = {
       /** #15: ground-renderer LRU (MB) — its OWN budget, decoupled from lruBytesMB. On high it
        *  equals lruBytesMB (the null-restore path never reads it). */
       groundLruBytesMB: 400,
+      /** T80: the bloom mip chain's resolution scale. **1 is the EXACT off-state**, and the
+       *  short-circuit that makes it exact is structural, not a rounding coincidence:
+       *  `ScaledBloomPass.setSize` hands `super.setSize(w, h)` the untouched arguments at 1 and
+       *  never computes `Math.round(w * 1)`, so a non-integer drawing-buffer size (retina DPR on
+       *  an odd viewport) cannot drift a single mip. `high` therefore stays byte-identical to the
+       *  stock `UnrealBloomPass`, which is the whole quality-pass safety rule. */
+      bloomScale: 1,
     },
     mid: {
       dprCap: 1.5,
@@ -686,6 +766,11 @@ export const QUALITY = {
       /** U6 foveated FPV loading (see tuning.FOVEATION for the shared region errorTargets).
        *  First-guess radii — judged on device with the owner (T1), like fpvBiasK. */
       foveation: { rayRangeM: 1400, eyeRadiusM: 160, peripheryFactor: 1.5 },
+      /** T80: half-resolution bloom. The mip chain — the bright extract plus five horizontal/
+       *  vertical blur pairs, 13 draws and 12 clears — then runs at a QUARTER of the pixels; the
+       *  additive blend back into the MSAA read buffer is the one step that stays full-res, so
+       *  the glow keeps its shape and radius and only its finest detail softens. */
+      bloomScale: 0.5,
     },
     low: {
       dprCap: 1.25,
@@ -703,6 +788,9 @@ export const QUALITY = {
       overlayResolutionPx: 256,
       /** #15: +20% over lruBytesMB, same modest-raise rationale as mid. */
       groundLruBytesMB: 192,
+      /** T80: the same half-res chain as mid. INERT while `bloom: false` — this is the resolution
+       *  the pass would run at, not a second switch, and it keeps the tier table monotone. */
+      bloomScale: 0.5,
     },
   },
   /** #5 iOS lean profile (batch #4 S3): coarse-pointer devices run HOT — bloom's ~12 fullscreen
@@ -720,6 +808,11 @@ export const QUALITY = {
      *  fragments only. FPV/3D keep the 1.25 heat cap. Applied via TilesHandle.mapFlat() in
      *  GlobeCanvas; judged on device (T1). Must stay ≤ tiers.mid.dprCap (test-locked). */
     dprCap2d: 1.5,
+    /** T80: the knob to pair with `bloom: true` if phones are ever given a cheap glow back.
+     *  INERT today (bloom is off on every coarse pointer). Like every other lean lever it can
+     *  only CLAMP — `bloomScaleForTier` takes the min against the running tier's scale — so
+     *  raising it could never lift a phone above what its tier already grants. */
+    bloomScale: 0.5,
   },
   /** RC20/T34 — the ground-LRU FLIP BANK.
    *
@@ -1062,6 +1155,41 @@ export const ULTRA = {
    *  artefact that makes buildings read as floating — and the 8k map needs less of it. */
   shadowNormalBias: 0.45,
 
+  // --- T77 SLICE A (2026-09-06) — the ULTRA twins of the base rig's stability levers. ----------
+  //
+  // ULTRA-FIRST, which is the standing order for this whole track: the base profile ships every
+  // lever at its identity and ULTRA carries the change, so the owner judges the A/B on the chip
+  // rather than on a `high` regression. Every number here matches what the CASCADE LADDER has
+  // shipped since 2026-08-27 (`cascades[].biasTexels` 0.6, `normalBiasTexels` 1.5) — cascade 0 was
+  // the only box in the rig still on hand-authored constants, which is exactly why its bias sits
+  // at 0.13 texel while the ladder's sits at 1.5.
+  //
+  // CONSEQUENCE, STATED BECAUSE IT IS A PIXEL CHANGE, NOT A NO-OP: at the city ULTRA pose
+  // (b = 13,760 m, 8192², 3.36 m/texel — measured, `temporal-warm-2026-09-05T20-50-21.json`) these
+  // give normalBias `min(1.5 × 3.36, SHADOWS.normalBiasMaxM)` = **1.5 m** (was 0.45) and a depth
+  // bias of `0.6 × 3.36` = **2.02 m** (was 0.6). `verify-ultra.mjs` no longer asserts the old
+  // literals; it derives the expectation from these tunables through `shadowCascade.texelBias`,
+  // so the check moves with the tuning instead of freezing one pose's answer.
+  //
+  // MEASURED 2026-09-06h AND PARKED AT 0: with the texel bias ON (and the demand-driven rig OFF,
+  // `--rig 0,0`) the Everest ULTRA scrub churn p50 went 0.077 → **0.141** — the metric bias made
+  // the frame-to-frame mask LESS stable, not more, at these values (the receiver sample point
+  // moves 1.5 m along the normal on 30° relief and re-rolls which texel it lands in). The lever
+  // stays tunable for a later A/B with smaller texel counts; the shipped ULTRA bias is the
+  // 2026-08-27 pair again (`shadowNormalBias` 0.45 / `shadowBiasM` 0.6).
+  /** Depth bias in texels of the ULTRA rig's own map (0 → fall back to `shadowBiasM` above). */
+  shadowBiasTexels: 0,
+  /** World normal offset in texels, capped by `SHADOWS.normalBiasMaxM` (0 → `shadowNormalBias`). */
+  shadowNormalBiasTexels: 0,
+  /** Key-swing quantum (texels of grid motion at the box corner) before the ULTRA rig is re-placed
+   *  and its 8192² map re-rendered. 1 texel at 8192² is 0.0099° of key swing — ~1.2 frames of the
+   *  harness scrub (0.0082°/frame), and ~2.4 s of real time at the sun's 0.0042°/s, so the rig
+   *  re-rasterises a few times a minute instead of 60 times a second. */
+  shadowRigKeySnapTexels: 1,
+  /** Centre-drift quantum (texels) before the ULTRA rig is re-placed. 1 texel at the city pose is
+   *  3.36 m of eye motion — a walk, not a look. */
+  shadowRigMoveTexels: 1,
+
   // --- S3 TERRAIN CASTS (the owner's named killer feature) ------------------------------------
   /** Let the terrain tiles CAST into the shadow map, not just receive. The ground is unlit
    *  `MeshBasicMaterial` + a `ShadowMaterial` twin, so today it receives and never casts — which
@@ -1327,13 +1455,66 @@ export const ULTRA = {
   // shadow field alone — still exactly 0 at the gate, so the teleport still happens at zero
   // contribution — while the key trough and the moon takeover keep the wide one.
 
-  /** Shadow-field fade band under ULTRA, in sine-of-elevation units. sin(0.6°); the base rig's is
-   *  sin(3°). Full shadows survive to 1° instead of dying from 3.5°. */
-  shadowFadeBandSin: 0.0105,
+  // SUNSET SHADOW-RELEASE (2026-09-06). The 2026-08-27c pass above narrowed the BAND but left the
+  // GATE where it has been since 2026-07-13, and `verify-shots/sunset-lightpath-report.md` §1/§5
+  // measured what that costs: the code's sun is GEOMETRIC (`lib/ephemeris/bodies.ts:101,139`,
+  // "no refraction argument = airless"), so `minSunElevSin` 0.008 fires at +0.4584° of TRUE
+  // geometric elevation — and the sun's upper limb does not set until **−0.833°** (34′ of
+  // refraction + 16′ of semidiameter). The whole shadow field therefore died **5.9 minutes before
+  // sunset**, with 25 % of the direct sun still on the ground, and the terrain that had been in
+  // shadow came back **5.22× brighter** between the owner's two Everest frames (§4).
+  //
+  // The direction is NOT refracted to fix this — `sunDirW` also anchors the sun impostor, the
+  // eclipse geometry and every shader's `uFtwSun`, and the anchor tables declare themselves
+  // airless by contract (`lib/globe/lightBands.ts:32-33`). The ANCHORS move instead, and only
+  // under ULTRA: the base rig keeps `SHADOWS.minSunElevSin` byte-identical.
+
+  /** The shadow field's own gate under ULTRA, in sine-of-elevation units — sin(−0.8333°), i.e.
+   *  34′ refraction + 16′ semidiameter = 50′ below the geometric horizon, which is where the
+   *  upper limb of a GEOMETRIC-elevation sun actually sets. Replaces `SHADOWS.minSunElevSin`
+   *  (+0.4584°) for `sunUp`, for the key/moon handoff profile and for the field's own fade band
+   *  whenever the chip is on; the base rig never reads it.
+   *
+   *  Safe below the horizon because three separate terms have already retired by then and one new
+   *  one guards the rest: `keyExtinctCurve` is 0 at −0.5° (so the key, and with it every RECEIVED
+   *  building shadow, is gone), `shadowDirectShareK` takes the ground overlay to 0 with it, and
+   *  `shadowLengthCasterM` below bounds the projected length geometrically. What the move buys is
+   *  that `castShadow` — the one remaining boolean — now flips at an elevation where the field has
+   *  been at exactly zero for a quarter-degree, so the flip is provably invisible. */
+  shadowGateSin: -0.014544,
+  /** Reference caster height (m) for the shadow-LENGTH guard (`lib/globe/duskLight.shadowLengthK`).
+   *  A shadow is `h / tan ε` long: at 100 m that is 1.9 km at +3°, 12.5 km at the OLD gate and
+   *  infinite at 0°, so past the box it stops being a shadow and becomes a hard-edged slab thrown
+   *  from the box edge (report §7 — the only one of five candidate below-horizon failures that
+   *  survives arithmetic). The guard is inert above `atan(casterM / half-extent)` — 0.54° at the
+   *  Everest FPV fit, 0.32° at the `maxBoundsM` cap — so it costs nothing through the raking hour.
+   *  Larger = fades earlier (a taller reference caster); 0 disables the bound entirely. */
+  shadowLengthCasterM: 100,
+  /** The TASTE knob on the direct-share bound (2026-09-06h, owner call). The physical share
+   *  (`shadowDirectShareK`, exponent 1) lifts the ground shadow to 45 % of its dusk depth by the
+   *  owner's frame A (+1.3°, `directK` 0.36) — the raking shadows the 2026-08-27c pass made "darker
+   *  and more global" read lighter through the whole band, though the cliff is gone. An exponent
+   *  below 1 keeps them darker longer (0.5 ≈ 67 % at frame A) at the price of a larger in-shadow
+   *  rise once the direct sun is gone (the ×1.16 → ~×1.5 tail). Exactly 1 at directK 1 for any
+   *  exponent, so the high-sun overlay and the chip-off state are untouched. Judge on the
+   *  `everest-fpv-sunset-ab` strip. */
+  shadowDirectSharePow: 1,
+  /** Shadow-field fade band under ULTRA, in sine-of-elevation units, anchored on `shadowGateSin`.
+   *  sin(−0.30°) − sin(−0.8333°) = 0.00930 — the half-degree the horizon takes to eat the solar
+   *  disc, so the field softens as the disc is bisected rather than dying while it is whole. Was
+   *  0.0105 (sin 0.6°) on the +0.4584° gate, where "full shadows survive to 1°" meant they were
+   *  gone 5.9 minutes early; full shadows now survive to −0.30°. The base rig keeps sin(3°). */
+  shadowFadeBandSin: 0.0093,
   /** …and the overlay DEEPENS as the sun sets ("darker and more global"). The ground shadow
    *  opacity is lerped from `SHADOWS.groundOpacity` 0.75 toward this, by how far the sun has come
    *  down the WIDE gate band. Nothing about the shadow's SHAPE changes — this is contrast, not
-   *  the elongated-projection failure mode that RC4 and the cascades exist to avoid. */
+   *  the elongated-projection failure mode that RC4 and the cascades exist to avoid.
+   *
+   *  2026-09-06: this is now a CEILING rather than the delivered opacity — under ULTRA the result
+   *  is scaled by `duskLight.shadowDirectShareK`, because the overlay is a `ShadowMaterial` twin
+   *  multiplying the WHOLE composite while a shadow removes only the direct arm. Measured, this
+   *  knob was at its deepest ever (0.855, on its way to 0.88) in the frame BEFORE the field was
+   *  deleted, which is what made the release read as × 5.22 rather than as a fade. */
   groundShadowDuskK: 0.88,
 
   // --- THE AFTERGLOW, AND WHY IT WAS INVISIBLE ------------------------------------------------
@@ -2193,8 +2374,26 @@ export const ENRICHED = {
   reseatSamplesPerFrame: 6,
   /** Per-frame exponential ease toward a cell's refreshed seat delta (first sample SNAPS — the
    *  cell is still streaming in). 0.12 ≈ settles ~0.5 s at 60 Hz; keeps terrain-LOD refinements
-   *  from popping buildings mid-view. */
+   *  from popping buildings mid-view.
+   *
+   *  T77 lever 5: this is now the **60 Hz equivalent** of `reseatEaseTauMs`, kept as the number
+   *  the feel was tuned at (and read by `scripts/verify-temporal-stability.mjs`). The engine
+   *  eases through `easeK(dtMs, reseatEaseTauMs)`, so a 30 fps machine no longer settles at half
+   *  the speed of a 60 fps one. */
   reseatEaseK: 0.12,
+  /** T77 lever 5 — the seat ease as a TIME CONSTANT (ms), which is what it always meant. A
+   *  per-frame k is a frame-rate-dependent law: at 30 fps `reseatEaseK` halves the settle rate
+   *  and at 120 fps doubles it, so the same terrain refine slides at four different speeds across
+   *  the device ladder and the settle budgets measured at 60 Hz mean nothing anywhere else.
+   *  τ = −16.667/ln(1 − k) converts the tuned k: 0.12 → 130 ms. Consumed via `easeK(dtMs, τ)`
+   *  from `lib/globe/lightBands` — the ONE such helper in the repo (never write a second). */
+  reseatEaseTauMs: 130,
+  /** T77 NEW-3 — the residual (m) below which a seat ease LANDS EXACTLY instead of asymptoting.
+   *  Without it the 1 cm write gate parks every seat at gate/reseatEaseK = 8.3 cm and nothing
+   *  ever writes again (measured city-wide 2026-09-05: every leg ended at exactly 0.083 m). 5 mm
+   *  is the same epsilon `MODELS.seatSnapM` lands models on, and is an order of magnitude below
+   *  the ±10 m within-cell relief error the per-feature seat exists to remove. */
+  seatSnapM: 0.005,
   /** PER-BUILDING re-seat (owner 2026-07-14: "buildings sunk/levitating"): the per-cell plane
    *  still leaves within-cell relief error (±10 m on steep ~0.9 km cells) — so each building
    *  (one contiguous `_feature_id_0` vertex run) and each tree instance ADDITIONALLY lifts by
@@ -2217,6 +2416,19 @@ export const ENRICHED = {
   /** Terrain samples per frame for TREE instances (cheaper visually — trees tolerate a coarser
    *  sweep; same nearest-cell priority). */
   reseatTreeSamplesPerFrame: 40,
+  /** T77 slice B 5c (2026-09-06h) — the sampling budget's CEILING in milliseconds per frame, and
+   *  the multiple of the per-frame counts it may reach while the drain is non-empty. The counts
+   *  above are the floor (they were sized for raycasts); a drain that re-asks memoised questions
+   *  (the 4e plane-shift re-queue) is microseconds per sample and should finish in hundreds of
+   *  frames, not forty seconds. At a quiet pose the drain is empty and this costs nothing. */
+  reseatBudgetMs: 1.0,
+  reseatBudgetMaxMul: 8,
+  /** T77 slice B 4d — refuse a terrain answer from a SHALLOWER tile than the seat we hold. OFF:
+   *  measured 2026-09-06h it turns the orbit arrival's city-wide p95 from 0.00 m into 33.5 m,
+   *  because a settled traversal is coarser than the finest tile it streamed through and the
+   *  seat must follow what is DRAWN (see `shallowerThanHeld` in scene/enrichedBuildings). The
+   *  depth plumbing stays for `enrichedCellSeats()` diagnostics and the `shallow` counter. */
+  reseatDepthGuard: false,
   /** Re-sort the per-feature sampling priority (cells by camera distance) every N frames. */
   reseatPriorityEveryFrames: 30,
   /** Plausibility bound (m) on a footprint sample vs its CELL seat — within-cell relief is
@@ -2232,6 +2444,16 @@ export const ENRICHED = {
    *  raycast can never widen the gate that would have caught it. `debugSeats().rejected` makes
    *  the gate's own work visible for the first time (audit gap #5). */
   reseatReliefK: 1.5,
+  /** T77 slice B 4c (2026-09-06h) — the cell-plane SETTLE window. A cell whose sweep sample moves
+   *  its plane by more than `reseatCellSettleM` is "unsettled" for `reseatCellSettleFrames`; while
+   *  it is, the apply-time plausibility gate HOLDS an implausible feature (its applied seat stays
+   *  put) instead of collapsing it to the plane. The pair is expected to disagree exactly then —
+   *  the feature sampled against the OLD plane — and collapsing on that disagreement was the
+   *  poisoned-pair steady state MEASUREMENTS §9(c) describes (writes in 98 % of frames for 70 s;
+   *  4,277 collapses in 1,512 frames once 4a counted them). After the window an implausible pair
+   *  FREEZES in place and re-queues (4b) — never the drop-to-plane-and-climb-back of before. */
+  reseatCellSettleM: 0.5,
+  reseatCellSettleFrames: 8,
   /** RC7 — how many look-biased cells the per-feature sweep prioritises each frame. The pre-RC7
    *  rule spent half the budget on the single nearest cell by pure distance, which in FPV is the
    *  cell UNDER you rather than the ones you are looking at. Ranked with the same bias law the
@@ -2263,8 +2485,14 @@ export const ENRICHED = {
   //     committed value since MS5b 2026-09-02l) is contract, not taste — it lives in
   //     lib/globe/bldgOverrides.ts; these are the feel knobs. -----------------------------------
   /** Per-frame exponential ease of a committed height change (the same seatStep law the re-seat
-   *  uses; 0.18 ≈ settles ~0.35 s at 60 Hz — snappier than terrain, it's a direct user action). */
+   *  uses; 0.18 ≈ settles ~0.35 s at 60 Hz — snappier than terrain, it's a direct user action).
+   *  T77 lever 5: kept as the 60 Hz equivalent of `overrideEaseTauMs`, which is what the engine
+   *  actually eases through. */
   overrideEaseK: 0.18,
+  /** T77 lever 5 — the override ease as a TIME CONSTANT (ms): τ = −16.667/ln(1 − 0.18) = 84.
+   *  This one is a DIRECT USER ACTION, so frame-rate dependence is felt rather than inferred —
+   *  the same drag-release settles in half the time on a 120 Hz laptop as on a 30 fps phone. */
+  overrideEaseTauMs: 84,
   /** Ghost preview opacity (MeshBasicMaterial, depthTest OFF so it reads "on top" through the
    *  solid original in both grow AND shrink). 0.45 — browser-tuned 2026-08-19: at 0.32 a
    *  distant extension over bright sky compressed to near-invisible (u8-02 shot). */
@@ -2496,8 +2724,47 @@ export const GROUND = {
    *  `"lat,lon"` strings, so ~150 B per entry including Map overhead ⇒ ~15 MB fully populated,
    *  against a ground LRU measured in hundreds of MB. It rarely gets there anyway: `terrainEpoch`
    *  drops the whole memo on every finished terrain tile load, and a single browser leg saw 406
-   *  of those. */
-  heightMemoCapacity: 100_000,
+   *  of those.
+   *
+   *  100_000 → 250_000 (T77 lever 6, 2026-09-06) and this raise is REQUIRED, not cosmetic: the
+   *  last sentence above is exactly what lever 6 deletes. The memo no longer drops city-wide on
+   *  every tile arrival — only the buckets a tile actually covers — so the working set now
+   *  ACCUMULATES to its true size (the measured 39_302 buildings + 60_527 tree instances, plus
+   *  the frustum/PLAN/tempPin asks) instead of being cleared 406 times a leg. At 100k that set
+   *  would overflow and `verify-rendering-charter.mjs` asserts `overflows === 0`. ~150 B/entry
+   *  ⇒ ~37 MB fully populated, against a ground LRU measured in hundreds of MB. */
+  heightMemoCapacity: 250_000,
+  /** T77 lever 6 — the memo's spatial bucket size (degrees) for per-tile invalidation. Entries
+   *  are indexed into `floor(lat/deg) | floor(lon/deg)` cells so a terrain tile arriving or being
+   *  evicted drops only the buckets its own bounding region covers, instead of the whole city.
+   *  0.002° ≈ 220 m N–S (≈150 m E–W at Dnipro): fine enough that a street-LOD tile touches a
+   *  handful of buckets, coarse enough that the index stays a few thousand Sets rather than one
+   *  per coordinate. Over-invalidation is always SAFE (a dropped live entry costs one raycast);
+   *  under-invalidation is not, which is why the bucket grid is deliberately coarser than the
+   *  tiles that drive it. */
+  heightMemoBucketDeg: 0.002,
+  /** T77 lever 6 — above this many buckets, `invalidateRegionRad` gives up on the spatial path
+   *  and drops the whole memo. A ROOT terrain tile's region is a hemisphere: walking its buckets
+   *  would be ~10^10 iterations to delete a few thousand entries, i.e. catastrophically worse
+   *  than the wholesale drop it replaced. 4096 buckets ≈ a 0.13° box (~14 km) — comfortably
+   *  above any street-LOD tile and far below the first coarse ancestor. */
+  heightMemoMaxInvalidateBuckets: 4096,
+  /** T77 lever 6 — whole-map staleness backstop (ms). Per-tile invalidation is only as correct as
+   *  the eviction signal behind it: `dispose-model` covers every LRU/unload path we could trace
+   *  (`TilesRendererBase.disposeTile` runs from the LRU's own removal callback), but the memo now
+   *  survives arbitrarily long, so a single missed removal path would freeze a wrong height
+   *  forever instead of for one tile load. 60 s bounds that blast radius at one refill sweep per
+   *  minute — invisible next to the hit rates the memo runs at, and it turns "a path we missed"
+   *  into a transient rather than a permanent wrong seat. Evaluated on writes and invalidations
+   *  (both ride terrain churn), never on the hot `get`. */
+  heightMemoMaxAgeMs: 60_000,
+  /** T77 lever 6 (DEV only) — audit every Nth memo HIT against a fresh raycast and count the
+   *  disagreements (`memo.staleChecks` / `memo.staleMismatches` in the DBG terrain group). This
+   *  is the number that would falsify the whole lever: if per-tile invalidation ever under-drops,
+   *  mismatches climb off zero and say so, instead of the bug surfacing months later as buildings
+   *  seated on terrain that no longer exists. 512 keeps the extra raycasts under ~0.1/frame at
+   *  the measured 30–45 samples/frame. */
+  heightMemoStaleAuditEvery: 512,
   /** RC5 (owner bug B1) — how many levels the placeholder fallback may walk UP looking for real
    *  imagery to stand in for a "Map data not available" tile. Each level halves the substitute's
    *  true resolution (3 levels = an 8× upscale of a 32 px quadrant), which is soft but is still
@@ -2638,6 +2905,11 @@ export const STREETS = {
    *  re-seat eases (never snaps) when the sample moves ≥ reseatEpsM. */
   reseatEveryFrames: 240,
   reseatEpsM: 2.5,
+  /** T77 lever 5 — the label re-seat ease as a TIME CONSTANT (ms). It used to be a BARE `0.15`
+   *  inlined in `streetNames.ts` (the only ease in the engine with no tunable at all), so it was
+   *  both frame-rate dependent and invisible to the tuning contract. τ = −16.667/ln(1 − 0.15)
+   *  = 103 ms preserves the 60 Hz feel it was written at (~0.25 s to settle). */
+  groundEaseTauMs: 103,
   /** Upright-flip hysteresis (dot of text-up vs camera tangent) — labels flip to stay readable
    *  when the camera crosses the street axis, with a dead band so they never flicker. */
   flipHysteresis: 0.08,
@@ -3115,6 +3387,12 @@ export const FPV = {
    *  the app uses; the first real sample SNAPS). Slower than the cell ease on purpose: this one
    *  moves the CAMERA, and the eye is the thing a viewer notices moving. */
   walkReseatEaseK: 0.08,
+  /** T77 lever 5 — the walk re-seat ease as a TIME CONSTANT (ms): τ = −16.667/ln(1 − 0.08) = 200.
+   *  `walkReseatEaseK` stays as the 60 Hz equivalent the feel was tuned at. This ease moves the
+   *  EYE, so the frame-rate dependence it removes is the one a viewer can actually see: on a
+   *  30 fps phone the correction used to crawl at half speed through the very legs (streaming
+   *  under a walking viewer) where frame time is worst. */
+  walkReseatEaseTauMs: 200,
   /** Stick deflections under this are ignored (finger-jitter deadband, fraction of the radius). */
   walkStickDeadband: 0.06,
   /** SPACE = ascend with hold-acceleration (QoL-1, owner 2026-08-14): vertical rate at FULL
@@ -3505,6 +3783,10 @@ export const TEMPPIN = {
    *  first real sample still snaps (seatStep — the marker must land, not float up), refinements
    *  slide. Matches ENRICHED.reseatEaseK (0.12 ≈ settles ~0.5 s at 60 Hz). */
   groundEaseK: 0.12,
+  /** T77 lever 5 — the same ease as a TIME CONSTANT (ms): τ = −16.667/ln(1 − 0.12) = 130, the
+   *  twin of `ENRICHED.reseatEaseTauMs` (these two must not drift: the temp pin IS the reference
+   *  the walked eye's seat is measured against). `groundEaseK` stays as the 60 Hz equivalent. */
+  groundEaseTauMs: 130,
 } as const;
 
 /** Location finder (Phase 5.5 S1) — free geocoding behind a swap-friendly adapter
@@ -3989,11 +4271,20 @@ export const MODELS = {
   /** Seat ease (per-frame k) from the fallback / coarse height onto the refined terrain, so a
    *  LOD refine slides the model instead of teleporting it (the temp-pin idiom). */
   seatEaseK: 0.18,
+  /** T77 lever 5 — the seat ease as a TIME CONSTANT (ms): τ = −16.667/ln(1 − 0.18) = 84.
+   *  `seatEaseK` stays as the 60 Hz equivalent (and is read by
+   *  `scripts/verify-temporal-stability.mjs`); the engine eases through `easeK(dtMs, τ)`. */
+  seatEaseTauMs: 84,
   /** Below this remaining seat delta (m) the ease lands exactly. */
   seatSnapM: 0.005,
   /** Committed-seat ease (per-frame k) for a yaw / scale that changed by a PATCH or a revert
    *  (a drag previews live on the rig; the ease is for the OTHER changes). */
   xfEaseK: 0.2,
+  /** T77 lever 5 — the committed-seat ease as a TIME CONSTANT (ms): τ = −16.667/ln(1 − 0.2) = 75.
+   *  `xfEaseK` stays as the 60 Hz equivalent. Drives the position/scale lerp AND the rotation
+   *  SLERP, which must stay on one clock or a revert would rotate and translate at different
+   *  rates on the same machine. */
+  xfEaseTauMs: 75,
   /** Ground height used until the terrain answers (m above the ellipsoid). */
   fallbackGroundM: 120,
   /** Armed highlight — an emissive lift on every mesh of the armed model (token colour at the

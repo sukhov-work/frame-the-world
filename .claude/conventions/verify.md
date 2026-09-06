@@ -66,6 +66,76 @@ filename (`verify-shots/<phase>-<nn>-<what>.jpeg`).
   the thing under test is invisible. Aim the pose at the almanac's OWN topocentric az/alt for that
   instant and use FOV ~6° — and re-aim per phase, because the moon moves degrees between contacts.
 
+## The view catalogue and the acceleration model (added 2026-09-06h, owner order)
+
+**Why.** The owner reviewed the T77 MEASURE poses and ruled that they were "very contained bland
+views, often without any details or in dull spots and angles". From this date every visual or
+performance harness draws its poses from ONE catalogue, **`scripts/lib/poses.mjs`** (14 poses:
+the owner's nine real-experience views verbatim + the five legacy ones, each with `kind`, `tags`,
+`region`, a pinned `t`, and an optional `leg`), consumed through `poseUrl` / `byTag` / `byId`.
+A harness may not invent a pose; adding a view the owner asks for is one catalogue line and every
+consumer inherits it. `test/scripts/poses.test.ts` pins the owner ids and the hash grammar.
+
+**The bland-view ban, as a rule a reviewer can apply:** a Dnipro pose shows the enriched city from
+tilt ≥ 30° or an FPV eye 10–50 m above ground; a mountain pose shows the horizon (tilt ≥ 50° or
+FPV); a time-of-day pose pins `&t=` to a golden, sunset or night instant, never noon by default; a
+stress LEG (the 31.8 km → 1.5 km descent, the 200 mm FPV horizon sweep, the sunset time sweep) is
+preferred over a still wherever the defect class is loading, seating or lighting continuity.
+
+**The sweep harness.** `node scripts/verify-visual-sweep.mjs [9333] [--ids a,b] [--tags fpv,dnipro]
+[--ultra 0|1|both] [--tier high|mid|low] [--label L] [--golden] [--compare L] [--sheet] [--no-legs]
+[--quiet-s N]` boots each pose (about:blank bounce, ULTRA pref pre-boot, tier pin), quiet-waits,
+captures a JPEG + a 640×360 PNG + a metrics JSON (`__debugFeed.snapshot()`, `__renderer.info`,
+`__globe.seatSettle()`, a 3 s rAF sample), runs the legs (descent = `__cameraStore.requestFly` +
+heading/tilt/zoom targets; zoom sweep = one `#f=` reboot per heading, since no FPV look WRITER seam
+exists; time sweep = `__timeStore.setTime` inside one boot), and writes `report.md` / `report.json`
+plus **contact sheets** (`--sheet`, 3×3 with id + fps captions) and a strip per leg under
+`verify-shots/sweep/<label>/`. Measured 2026-09-06: **~13.5 s per pose headless, 3.2 min for the
+catalogue without legs, ~6.5 min with; `--ultra both` doubles the pose half**. Shared CDP
+boilerplate lives in `scripts/lib/cdp.mjs`.
+
+**Contact sheets replace file-by-file review.** A reviewer (a session, or the owner) reads sheets;
+the full-size JPEGs exist for the defect that needs them. The first sheet of the owner's poses
+surfaced four defects the legacy five never showed (see the 2026-09-06h DECISIONS line).
+
+**Goldens: what they can and cannot gate (measured 2026-09-06h).** The canvas is NOT
+frame-deterministic: two captures of one settled boot two rAF apart differ in ~30 % of pixels
+(dither, streaming, animated sky), so `--compare --tolerance 0` gates only the UI chrome today.
+Use `--golden` / `--compare` for the perceptual before/after (the diff image + `fraction` +
+`maxDelta` are recorded), and read a byte-identical-`high` claim from the tunables' identity
+branches and the unit fences until a DETERMINISTIC CAPTURE seam exists (freeze the frame-seeded
+dithers and the sky animation for one frame — backlog T94). Post-processing levers (bloom) must be
+diffed at the native drawing buffer; a 640×360 downsample hides them.
+
+**Three harness tiers, three concurrency rules.** Browser verification was slow because everything
+ran as if it were a timed measurement. It is not:
+
+| Tier | Harnesses | What it measures | May run in parallel? |
+|---|---|---|---|
+| **V — visual / functional** | `verify-visual-sweep`, the charter, ultra, meshedit, usermodels, qaslice suites | pixels, state, counters | **Yes** — N headless Chromes on :9333, :9334, … each with its own profile dir (`/tmp/ftw-cdp-N`); GPU contention changes timing, never pixels |
+| **D — deterministic per-frame metrics** | `verify-temporal-stability --shimmer` / `--reseat`, `verify-ultra-dusk`'s elevation ladder | frame-synchronous XOR churn, seat residuals, light scalars | **Yes**, one per Chrome — the metric does not read the clock |
+| **T — timed** | `verify-perf-baseline`, `probe-cpu-profile`, `probe-below-camera` | ms, fps, the GPU timer | **No** — solo on the GPU, nothing else rendering, the HEADED :9222 |
+
+Two further exclusions: harnesses that seed the PRODUCTION world (`dev-seed`) are exclusive with
+each other, and nothing edits `src/` in the checkout `wix dev` serves while any harness runs (HMR
+reloads the page). Implementation therefore happens in **git worktrees with a symlinked
+`node_modules`** (`git worktree add -b claude/<slice> ../ftw-wt-<slice> master && ln -s
+<main>/node_modules ../ftw-wt-<slice>/node_modules`; copy `.env.local` + `.env.development.local`);
+vitest and `astro check` run there, the dev server never sees the edits, and the diff comes back
+onto master with `git diff | git apply --3way` when the harness is quiet.
+
+**Mobile: the Pixel is the per-slice gate, the iPhone is per slice-group.** The Pixel 6 Pro over
+adb is free and local (`verify-perf-baseline.mjs 9444 --device --quick`, ~15 min); Device Farm
+bills 8–10 minutes per session even when stopped early and ~78 of 1,000 trial minutes are spent.
+Chrome's device emulation with 4× CPU throttling is a FUNCTIONAL proxy only, never a timing source.
+
+**The session shape that fits the plan into few sessions.** Measure once (goldens + the timed
+baseline) → several levers implemented in parallel worktrees by opus agents from a read-only plan
+with `file:line` anchors (unit tests green in the worktree) → integrate one slice at a time onto
+master → ONE tier-V sweep (parallel) + ONE tier-D gate + ONE tier-T run (solo, `--quick`) per
+slice → the slice's DECISIONS line. Budget: ≈ 25 minutes of browser time per slice, four slices a
+session, instead of a session per slice.
+
 ## The six harness ENVIRONMENT classes (added 2026-08-22, audit #3 D9)
 
 `checklists/tests.md` item 10 requires this page to name all six. It named none — so the

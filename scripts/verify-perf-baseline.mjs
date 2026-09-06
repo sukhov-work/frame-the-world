@@ -10,7 +10,8 @@
  *
  *   node scripts/verify-perf-baseline.mjs [PORT] [--quick] [--only <regex>] [--label warm|cold]
  *        [--settle 90] [--sample 10] [--feed 6] [--models 0,6,24] [--glb <https url>]
- *        [--owner <member email>] [--no-models] [--dsf 2] [--post-ab] [--device] [--no-gate-ab] [--cleanup-seeds <ids.json>]
+ *        [--owner <member email>] [--no-models] [--dsf 2] [--post-ab] [--bloom-scale 0.5] [--device]
+ *        [--no-gate-ab] [--cleanup-seeds <ids.json>]
  *
  * Preconditions: `wix dev` on :4321 (the `window.__*` seams are DEV-only) and the owner's headed
  * CDP Chrome on :9222 (`node scripts/verify-chrome.mjs`; NEVER killed). Node ≥ 22 (global
@@ -45,9 +46,13 @@
  *             counts are asserted (resident === N, skipped === 0), never assumed.
  *   --dsf   — the viewport's deviceScaleFactor (default 2, the owner's retina). `--dsf 1` re-runs
  *             the same boots at a quarter of the pixels: the fill-bound A/B the GPU timer needs.
- *   --post-ab — two more samples per desktop boot: `aoOff` (`__quality.ao.enabled=false`, the live
- *             GTAOPass; high tier + low altitude only) and `bloomOff` (the UnrealBloomPass), each
- *             restored after — the GPU timer split between geometry and post-processing.
+ *   --post-ab — three more samples per desktop boot: `aoOff` (`__quality.ao.enabled=false`, the live
+ *             GTAOPass; high tier + low altitude only), `bloomOff` (the whole UnrealBloomPass) and
+ *             `bloomCheap` (T80 — the pass still ON, its mip chain pinned to `--bloom-scale` via
+ *             `__quality.bloomScale`), each restored after. `bloomOff` is the GPU timer's split
+ *             between geometry and post; `bloomCheap` is the half of that split T80 can actually
+ *             buy, since only the pass's final additive blend is full-resolution.
+ *   --bloom-scale — the scale `bloomCheap` pins (default 0.5). 1 would be the identity (no A/B).
  *   --device — a REAL PHONE's Chrome over adb (T1 / the T77 phone baseline, Android half). No
  *             viewport or touch emulation, no tier override (the device's own detection is the
  *             measurement: coarse pointer → lean, tier capped `mid`), one boot per pose × ULTRA
@@ -104,7 +109,8 @@ const MODEL_STEPS = flag("--no-models") ? [0] : opt("--models", QUICK ? "0" : "0
 const OWNER_EMAIL = opt("--owner", "yevhens@wix.com");
 const CLEANUP_FILE = opt("--cleanup-seeds", null);
 const DSF = Number(opt("--dsf", "2"));
-const POST_AB = flag("--post-ab"); // + the GTAO-off and bloom-off samples per boot (GPU attribution)
+const POST_AB = flag("--post-ab"); // + the GTAO-off, bloom-off and bloom-cheap samples per boot (GPU attribution)
+const BLOOM_SCALE = Number(opt("--bloom-scale", "0.5")); // T80: the scale the `bloomCheap` cell pins
 const DEVICE = flag("--device"); // a real phone's Chrome over adb: no emulation, no tier override
 const DEV = "http://localhost:4321";
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -544,7 +550,7 @@ function writeArtefacts() {
   for (const r of results) {
     const s = r.frame;
     lines.push(
-      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
+      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "bloomCheap" ? `·bloom ×${r.bloom ? r.bloom.scale : "?"} (${r.bloom ? `${r.bloom.brightW}×${r.bloom.brightH}` : "unread"})` : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
     );
   }
   writeFileSync(
@@ -627,6 +633,21 @@ try {
         await evalJs(TRAP(BLOOM, false));
         await sampleCell(b, "bloomOff", { bootMs });
         await evalJs(TRAP(BLOOM, true));
+        // T80 — the RESOLUTION A/B, and the useful half of the bloom split: the pass stays ON and
+        // only its mip chain shrinks. No getter trap is needed here; `__quality.bloomScale(s)` PINS
+        // the scale in the closure (`devScaleOverride`), so the governor pin's re-force re-applies
+        // the pinned value rather than the tier's. `brightW`/`brightH` come off the pass's own
+        // renderTargetBright — that is the proof the lever fired, not a repeat of the request.
+        // `bloomScale(null)` releases the pin back to the tier before the next cell.
+        const SCALE_SEAM = `(window.__quality && typeof window.__quality.bloomScale === "function")`;
+        if (await evalJs(`!!${SCALE_SEAM}`)) {
+          await evalJs(`window.__quality.bloomScale(${BLOOM_SCALE}), true`);
+          const cheapRow = await sampleCell(b, "bloomCheap", { bootMs });
+          cheapRow.bloom = await evalJs(`window.__quality.bloomScale()`);
+          console.log(`  bloomCheap: ${JSON.stringify(cheapRow.bloom)}`);
+          await evalJs(`window.__quality.bloomScale(null), true`);
+          writeArtefacts();
+        }
       }
     }
     if (shadowsOnAtBoot && (b.pose !== "m" || DEVICE)) {

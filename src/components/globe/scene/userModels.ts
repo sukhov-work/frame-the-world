@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { enuBasis, geodeticToEcef } from "../../../lib/geo/projection";
 import { sampleGroundM } from "../../../lib/geo/terrain";
 import { seatStep } from "../../../lib/globe/enrichedMask";
+// T77 lever 5: dt → per-frame ease coefficient (the ONE such helper in the repo).
+import { easeK } from "../../../lib/globe/lightBands";
 import { transformToRig, type FeatureTransform } from "../../../lib/globe/featureTransform";
 import {
   densityWarning,
@@ -115,8 +117,11 @@ export interface UserModelsHandle {
   /** The MDL chip: off hides the group AND releases every resident model. */
   setVisible(on: boolean): void;
   /** Per frame (frameCount from the orchestrator): residency re-plan at cadence, seat + seat
-   *  eases for resident models. Early-returns with nothing resident. */
-  update(camera: THREE.PerspectiveCamera, frameCount: number): void;
+   *  eases for resident models. Early-returns with nothing resident. `dtMs` is the orchestrator's
+   *  clamped frame delta — T77 lever 5: both eases below run on wall-clock time
+   *  (`MODELS.seatEaseTauMs` / `xfEaseTauMs`), so a model settles at the same rate on every
+   *  device instead of at whatever fraction of it the frame rate happens to be. */
+  update(camera: THREE.PerspectiveCamera, frameCount: number, dtMs: number): void;
   /** Re-ask the terrain under every resident model (low cadence). */
   resnap(): void;
   /** The resident model under a ray, nearest first. */
@@ -576,14 +581,18 @@ export function attachUserModels(
       group.visible = on;
       dirty = true;
     },
-    update(camera, frameCount) {
+    update(camera, frameCount, dtMs) {
       if (dirty || frameCount % MODELS.residencyEveryFrames === 0) replan(camera);
       if (resident.size === 0) return;
+      // T77 lever 5: ONE pair of coefficients per frame, shared by every resident model — a
+      // per-model `easeK` would be a `Math.exp` per model per frame for a frame-constant value.
+      const kSeat = easeK(dtMs, MODELS.seatEaseTauMs);
+      const kXf = easeK(dtMs, MODELS.xfEaseTauMs);
       for (const id of resident) {
         const e = entries.get(id);
         if (!e || e.state !== "ready") continue;
         // The seat: ease the applied ground toward the sampled one (a refine slides).
-        const next = seatStep(e.appliedM, e.seatM, MODELS.seatEaseK);
+        const next = seatStep(e.appliedM, e.seatM, kSeat);
         const landed = Math.abs(e.seatM - next) < MODELS.seatSnapM ? e.seatM : next;
         if (landed !== e.appliedM) {
           e.appliedM = landed;
@@ -600,10 +609,10 @@ export function attachUserModels(
           else if (e.appliedQ.angleTo(e.targetQ) < (0.02 * Math.PI) / 180) {
             e.appliedQ.copy(e.targetQ);
             landed = true;
-          } else e.appliedQ.slerp(e.targetQ, MODELS.xfEaseK);
-          let sc = a.scale + (t.scale - a.scale) * MODELS.xfEaseK;
+          } else e.appliedQ.slerp(e.targetQ, kXf);
+          let sc = a.scale + (t.scale - a.scale) * kXf;
           if (Math.abs(t.scale - sc) < 0.002) sc = t.scale;
-          let lf = a.liftM + (t.liftM - a.liftM) * MODELS.xfEaseK;
+          let lf = a.liftM + (t.liftM - a.liftM) * kXf;
           if (Math.abs(t.liftM - lf) < 0.005) lf = t.liftM;
           e.applied = {
             rotDeg: landed ? t.rotDeg : a.rotDeg,

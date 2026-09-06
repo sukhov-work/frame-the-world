@@ -135,6 +135,39 @@ const FRAME_PROBE = (ms) => `new Promise((res) => {
 })`;
 
 const LOOK = `(() => { try { return window.__globe.ultraLook(); } catch (e) { return { err: String(e) }; } })()`;
+/**
+ * T77 slice A1 (2026-09-06) — the shadow rig's EXPECTED bias, DERIVED, not transcribed.
+ *
+ * The two checks below used to pin literals (`normalBias === 0.45`, `biasMetres ≈ 0.6`). Those
+ * literals were correct only while the bias was a hand-authored constant; slice A1 re-authored
+ * both in TEXELS, so the right answer is now a function of the pose (at the Dnipro city pose,
+ * b = 13,760 m over 8192² = 3.36 m/texel → normalBias `min(1.5 × 3.36, SHADOWS.normalBiasMaxM)`
+ * = 1.5 m and a depth bias of `0.6 × 3.36` = 2.02 m). A literal would now be asserting a pose,
+ * not a contract.
+ *
+ * So the expectation is computed IN THE PAGE, from the shipped tunables through the SAME
+ * `shadowCascade.texelBias` the rig calls, against the LIVE shadow camera. That keeps the check
+ * honest in both directions: it moves when the tuning moves, and it still fails if the rig stops
+ * applying its own derivation (the arm that matters — the failure mode is a rig that agrees with
+ * nothing, not a tunable that changed). With every texel tunable at 0 it reduces to exactly the
+ * old literals, which is what the OFF-state check relies on.
+ */
+const SHADOW_EXPECT = (ultra) => `(async () => {
+  const t = await import("/src/components/globe/tuning.ts");
+  const c = await import("/src/lib/globe/shadowCascade.ts");
+  const L = window.__globe.sunLight, cam = L.shadow.camera;
+  const u = ${ultra ? "true" : "false"};
+  const mpt = c.texelSizeM(cam.right, L.shadow.mapSize.x);
+  const bT = u ? t.ULTRA.shadowBiasTexels : t.SHADOWS.biasTexels;
+  const nT = u ? t.ULTRA.shadowNormalBiasTexels : t.SHADOWS.normalBiasTexels;
+  const tb = c.texelBias({ metresPerTexel: mpt, depthRangeM: cam.far - cam.near, biasTexels: bT, normalBiasTexels: nT, normalBiasMaxM: t.SHADOWS.normalBiasMaxM });
+  return {
+    radius: u ? t.ULTRA.shadowRadius : t.SHADOWS.radius,
+    normalBias: nT > 0 ? tb.normalBiasM : (u ? t.ULTRA.shadowNormalBias : t.SHADOWS.normalBias),
+    biasMetres: bT > 0 ? tb.biasM : (u ? t.ULTRA.shadowBiasM : -t.SHADOWS.bias * (cam.far - cam.near)),
+    mPerTexel: mpt, biasTexels: bT, normalBiasTexels: nT, boundsM: cam.right, mapPx: L.shadow.mapSize.x,
+  };
+})()`;
 const QUAL = `(() => { const q = window.__globeQuality; return q ? { tier: q.tier, dpr: q.dpr, ultra: q.ultra, ultraBoot: q.ultraBoot, shadowMapPx: q.shadowMapPx } : null; })()`;
 
 const goto = async (p, tMs) => {
@@ -185,10 +218,18 @@ check(
   Array.isArray(off.hemiPos) && off.hemiPos[0] === 0 && off.hemiPos[1] === 1 && off.hemiPos[2] === 0,
   JSON.stringify(off.hemiPos),
 );
+const offExpect = await evalJs(SHADOW_EXPECT(false));
 check(
-  "shadow rig on the BASE profile (radius 2 / normalBias 0.75)",
-  off.shadow && off.shadow.radius === 2 && Math.abs(off.shadow.normalBias - 0.75) < 1e-9,
-  JSON.stringify(off.shadow),
+  `shadow rig on the BASE profile (radius ${offExpect.radius} / normalBias ${offExpect.normalBias} — derived from SHADOWS, ${offExpect.normalBiasTexels} texels @ ${offExpect.mPerTexel.toFixed(3)} m)`,
+  off.shadow &&
+    off.shadow.radius === offExpect.radius &&
+    Math.abs(off.shadow.normalBias - offExpect.normalBias) < 1e-9,
+  `${JSON.stringify(off.shadow)} vs ${JSON.stringify(offExpect)}`,
+);
+check(
+  "BASE profile depth bias matches its own derivation (0 texels ⇒ the shipped SHADOWS.bias constant)",
+  off.shadow && Math.abs(off.shadow.biasMetres - offExpect.biasMetres) < 1e-6,
+  `biasMetres=${off.shadow?.biasMetres} expected ${offExpect.biasMetres} over near..far ${off.shadow?.near}..${off.shadow?.far}`,
 );
 check(
   "no terrain tile casts, and none carries the shadowSide override",
@@ -229,15 +270,18 @@ check(
   Array.isArray(onDay.hemiPos) && Math.abs(onDay.hemiPos[1] - 1) > 0.05,
   JSON.stringify(onDay.hemiPos),
 );
+const onExpect = await evalJs(SHADOW_EXPECT(true));
 check(
-  "S2 soft-shadow radius + S5 normal bias on the ULTRA profile",
-  onDay.shadow && onDay.shadow.radius === 4 && Math.abs(onDay.shadow.normalBias - 0.45) < 1e-9,
-  JSON.stringify(onDay.shadow),
+  `S2 soft-shadow radius + S5/A1 normal bias on the ULTRA profile (radius ${onExpect.radius} / normalBias ${onExpect.normalBias} = ${onExpect.normalBiasTexels} texels @ ${onExpect.mPerTexel.toFixed(3)} m, capped)`,
+  onDay.shadow &&
+    onDay.shadow.radius === onExpect.radius &&
+    Math.abs(onDay.shadow.normalBias - onExpect.normalBias) < 1e-9,
+  `${JSON.stringify(onDay.shadow)} vs ${JSON.stringify(onExpect)}`,
 );
 check(
-  "S5 bias re-derived in METRES against the live depth range (~0.6 m, not −19 m)",
-  onDay.shadow && Math.abs(onDay.shadow.biasMetres - 0.6) < 0.05,
-  `biasMetres=${onDay.shadow?.biasMetres} over near..far ${onDay.shadow?.near}..${onDay.shadow?.far}`,
+  `S5/A1 bias re-derived in METRES against the live depth range (${onExpect.biasMetres.toFixed(3)} m from ${onExpect.biasTexels} texels, not −19 m)`,
+  onDay.shadow && Math.abs(onDay.shadow.biasMetres - onExpect.biasMetres) < 0.01 * Math.max(1, onExpect.biasMetres),
+  `biasMetres=${onDay.shadow?.biasMetres} expected ${onExpect.biasMetres} over near..far ${onDay.shadow?.near}..${onDay.shadow?.far}`,
 );
 check(
   "S3 terrain tiles CAST, and carry shadowSide=FrontSide (the silent-failure trap)",

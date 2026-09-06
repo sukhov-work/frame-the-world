@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
@@ -16,12 +15,14 @@ import {
 } from "../../lib/globe/pipCache";
 import { frameNeedsRender, framePoseChanged } from "../../lib/globe/frameGate";
 import {
+  bloomScaleForTier,
   detectDeviceTier,
   makeGovernor,
   planTierApply,
   type DeviceCaps,
   type QualityTier,
 } from "../../lib/globe/quality";
+import { ScaledBloomPass } from "./scene/scaledBloom";
 import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
 import {
   debugFeedActive,
@@ -372,7 +373,7 @@ export default function GlobeCanvas() {
     const composer = new EffectComposer(renderer, composeTarget);
     composer.setPixelRatio(renderer.getPixelRatio());
     composer.addPass(new RenderPass(scene, camera));
-    const bloomPass = new UnrealBloomPass(
+    const bloomPass = new ScaledBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
       BLOOM.strength,
       BLOOM.radius,
@@ -381,6 +382,10 @@ export default function GlobeCanvas() {
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
     bloomPass.enabled = tierBloom(deviceTier); // off on `low` + lean mobile (12 fullscreen draws)
+    // T80: the mip chain's resolution. `high` off a coarse pointer resolves to exactly 1, which
+    // ScaledBloomPass forwards untouched — the byte-identical rule. The resolution argument above
+    // is inert either way (composer.setSize re-derives every target from the drawing buffer).
+    bloomPass.setScale(bloomScaleForTier(deviceTier, !!lean, QUALITY.tiers, QUALITY.leanMobile));
     // DEV-only introspection (same pattern as __renderer/__globe): browser verification can
     // toggle passes / read bloom uniforms without reaching into this closure.
     if (import.meta.env.DEV) window.__composer = composer;
@@ -583,6 +588,10 @@ export default function GlobeCanvas() {
         composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
       }
       bloomPass.enabled = tierBloom(t);
+      // T80: and its RESOLUTION follows the same tier. A no-op unless the scale really moved
+      // (setScale short-circuits), so a governor step that keeps the same scale never
+      // re-allocates the six mip targets. `devScaleOverride` is the DEV A/B pin only.
+      bloomPass.setScale(devScaleOverride ?? bloomScaleForTier(t, !!lean, QUALITY.tiers, QUALITY.leanMobile));
       // Shadows follow the DEVICE tier (capability), NOT the runtime governor. Shadows are a core
       // aesthetic, not a frame-rate-degradable lever like DPR/bloom/tile-detail — so the governor must
       // NOT switch them off. BUG (owner-confirmed 2026-07-13): the frame governor throttled an M3 Pro all
@@ -618,6 +627,10 @@ export default function GlobeCanvas() {
     // wait for that (planTierApply). The DEV force() applies BOTH immediately (it is the
     // verification tool and must keep its pre-RC18 meaning) and clears the slot.
     let pendingTier: QualityTier | null = null;
+    // T80 — the DEV bloom-resolution PIN (`__quality.bloomScale(s)`). `null` means "no pin, follow
+    // the tier"; any number holds that scale across governor steps and tier applies, which is what
+    // makes a same-boot A/B possible at all (a plain `setScale` would be undone by the next apply).
+    let devScaleOverride: number | null = null;
     // ULTRA HQ (owner 2026-08-22h): the pin's LAST-SEEN state, so the tick only acts on edges.
     // Note it deliberately overrides `ceiling` too — that cap exists because frame time cannot
     // see memory pressure, and ULTRA's entire premise is "regardless of machine performance".
@@ -654,6 +667,28 @@ export default function GlobeCanvas() {
         governorPromote: (t: QualityTier) => {
           governor.force(t);
           pendingTier = t;
+        },
+        // T80 — the bloom RESOLUTION A/B seam. `bloomScale(0.5)` pins the mip chain at half res
+        // for the rest of the session (surviving governor steps, unlike a raw setScale);
+        // `bloomScale(null)` releases the pin back to the running tier; `bloomScale()` only reads.
+        // `brightW`/`brightH` come off the pass's OWN target, so they are the proof the lever
+        // actually fired — a returned `scale` alone would only report what was asked for.
+        bloomScale: (s?: number | null) => {
+          if (s !== undefined) {
+            devScaleOverride = s;
+            bloomPass.setScale(
+              devScaleOverride ?? bloomScaleForTier(activeTier, !!lean, QUALITY.tiers, QUALITY.leanMobile),
+            );
+          }
+          return {
+            scale: bloomPass.scale,
+            tierScale: bloomScaleForTier(activeTier, !!lean, QUALITY.tiers, QUALITY.leanMobile),
+            override: devScaleOverride,
+            enabled: bloomPass.enabled,
+            brightW: bloomPass.renderTargetBright.width,
+            brightH: bloomPass.renderTargetBright.height,
+            nMips: bloomPass.nMips,
+          };
         },
       };
 
@@ -750,6 +785,7 @@ export default function GlobeCanvas() {
       dpr: renderer.getPixelRatio(),
       devicePixelRatio: window.devicePixelRatio,
       bloom: bloomPass.enabled,
+      bloomScale: bloomPass.scale,
       gtao: gtaoPass ? gtaoPass.enabled : null,
       shadowsOn: renderer.shadowMap.enabled,
       shadowMapPx: sun.shadow.mapSize.x,

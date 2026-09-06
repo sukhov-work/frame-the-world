@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { bandCurve } from "../../../src/lib/globe/lightBands";
-import { EARTH, GROUND, ULTRA } from "../../../src/components/globe/tuning";
+import { aboveGateK, type KeyGateProfile } from "../../../src/lib/globe/keyHandoff";
+import { shadowDirectShareK, shadowLengthK } from "../../../src/lib/globe/duskLight";
+import { DRAPE, EARTH, GROUND, SHADOWS, ULTRA } from "../../../src/components/globe/tuning";
 
 /**
  * THE NUMBER THE OWNER IS ACTUALLY LOOKING AT (taste pass, 2026-08-27c).
@@ -140,5 +142,161 @@ describe("the anti-sun / sun-facing shade ratio", () => {
     // caught the first time it was written.
     expect(Math.abs(ratioAt(2, true, { groundAmbientLevelK: 0 }) - base)).toBeLessThan(0.02);
     expect(lit(2, true, { groundAmbientLevelK: 0 })).toBeGreaterThan(lit(2, true) * 1.15);
+  });
+});
+
+/**
+ * SUNSET SHADOW-RELEASE (2026-09-06) — the OTHER number the owner is looking at, and the one the
+ * ratio above cannot see: the ABSOLUTE brightness of ground that is inside a cast shadow.
+ *
+ * *"notice how bright are the mountains just below the sun"* — measured at his own Everest FPV
+ * pose between geometric sun +1.30° and −0.14°, in-shadow terrain got **× 5.22 brighter**, and
+ * across the shipped release band (+1.06° → +0.4584°, 2.7 minutes) **× 6.5**. That is not the
+ * ratio this file was written for; both faces of the ridge were correct, and the frame still
+ * inverted, because the shadow FIELD was deleted 5.9 minutes before sunset while the ground it
+ * darkened was still lit.
+ *
+ * The twin below is the shipped composition of the three terms that decide an in-shadow pixel —
+ * the `ShadowMaterial` overlay opacity (`StylizedTiles.stepKeyLightAndShadow`), the field strength
+ * `sunLight.shadow.intensity` that `getShadowMask()` multiplies it by, and the exposure ramp — laid
+ * over the same `shadeAt` chain. It reproduces the report's ULTRA table exactly, which is what
+ * makes the "before" numbers below quotable rather than asserted.
+ */
+const EXPOSURE = (deg: number) => bandCurve(ULTRA.exposureCurve, sinDeg(deg));
+const DIRECT_K = (deg: number) => bandCurve(ULTRA.keyExtinctCurve, sinDeg(deg));
+/** The ULTRA half-extent at the owner's Everest FPV pose (report §7) — the live `shadowBoundsM`. */
+const EVEREST_FIT_M = 10_688;
+
+const BASE_GATE: KeyGateProfile = {
+  gateSin: SHADOWS.minSunElevSin,
+  bandSin: SHADOWS.fadeBandSin,
+  moonMinIllum: SHADOWS.moonMinIllum,
+  moonIllumSoftFrac: SHADOWS.moonIllumSoftFrac,
+};
+
+/** `false` = the pre-fix rig, so every "before" number here is computed, not transcribed. */
+function inShadowGround(elevDeg: number, fixed: boolean): number {
+  const sinElev = sinDeg(elevDeg);
+  const gate = fixed ? ULTRA.shadowGateSin : SHADOWS.minSunElevSin;
+  const keyGate: KeyGateProfile = { ...BASE_GATE, gateSin: gate };
+  const fieldGate: KeyGateProfile = { ...keyGate, bandSin: ULTRA.shadowFadeBandSin };
+  // The field. F2 moves its crossing to true sunset; F3 sizes its band to the solar disc; the
+  // length guard is the geometric bound that makes a below-horizon gate safe at all.
+  const field =
+    aboveGateK(sinElev, fieldGate) *
+    (fixed ? shadowLengthK(sinElev, ULTRA.shadowLengthCasterM, EVEREST_FIT_M) : 1);
+  // The overlay. `dark01` = 0 (satellite imagery, not the CARTO drape); `eclipseK` = 1.
+  const duskK = 1 - aboveGateK(sinElev, keyGate);
+  const opacity =
+    mix(mix(SHADOWS.groundOpacity, DRAPE.shadowOpacity, 0), ULTRA.groundShadowDuskK, duskK) *
+    // F1: the overlay multiplies the WHOLE composite, so it is bounded by the DIRECT share.
+    (fixed ? shadowDirectShareK(DIRECT_K(elevDeg), ULTRA.groundAmbientK) : 1);
+  const lit = shadeAt(elevDeg, 0, true, true) * EXPOSURE(elevDeg);
+  // Below the gate `castShadow` is false and the mask is 1 everywhere — nothing is in shadow.
+  return sinElev > gate ? lit * (1 - opacity * field) : lit;
+}
+
+/** The worst brightening anywhere down a ladder: how far above its own running minimum a later
+ *  (lower) sample climbs. 1 = never brightens. This is the defect, as one number. */
+const worstRise = (series: number[]): number => {
+  let worst = 1;
+  let min = series[0];
+  for (const v of series.slice(1)) {
+    worst = Math.max(worst, v / min);
+    min = Math.min(min, v);
+  }
+  return worst;
+};
+
+describe("the in-shadow ground across sunset", () => {
+  const LADDER = [3, 2, 1.06, 0.5, 0.4584, 0, -0.5];
+
+  it("REGRESSION — the shipped rig brightens in-shadow ground × 6.5 as the field is released", () => {
+    // The "before", recomputed from the shipped tunables so it cannot rot into a stale comment.
+    const before = LADDER.map((d) => inShadowGround(d, false));
+    expect(worstRise(before)).toBeGreaterThan(6);
+    // …and it is a CLIFF, not a ramp: two adjacent stops 0.60° apart carry the whole of it.
+    expect(inShadowGround(1.06, false)).toBeLessThan(0.05);
+    expect(inShadowGround(0.4584, false)).toBeGreaterThan(0.29);
+  });
+
+  it("the fixed rig turns that cliff into a bounded ramp", () => {
+    const after = LADDER.map((d) => inShadowGround(d, true));
+    expect(worstRise(after)).toBeLessThan(1.35);
+    // The step that WAS the defect — the two frames either side of the old gate — is now flat to
+    // within 1 %, against × 6.5 before.
+    const across = inShadowGround(0.4584, true) / inShadowGround(1.06, true);
+    expect(across).toBeGreaterThan(0.9);
+    expect(across).toBeLessThan(1.01);
+  });
+
+  it("falls monotonically through the raking hour, which is where the cliff was", () => {
+    // +3° → +0.7° is the band the report measured and the owner photographed: the direct arm is
+    // still 30-62 % of its high-sun level, the shadow is the most dramatic thing in the frame, and
+    // the fixed rig is now STRICTLY decreasing across every stop of it. The shipped rig inverts
+    // inside this same window (0.047 at +1.06° → 0.302 at +0.4584°).
+    const seq = [3, 2.5, 2, 1.63, 1.2975, 1.06, 0.7].map((d) => inShadowGround(d, true));
+    for (let i = 1; i < seq.length; i++) expect(seq[i]).toBeLessThan(seq[i - 1]);
+    expect(seq[0]).toBeCloseTo(0.263, 2);
+    expect(seq.at(-1)!).toBeCloseTo(0.219, 2);
+  });
+
+  it("PRICES the bound: a shadow loses depth between 12° and 3.5°, and by how much", () => {
+    // The honest cost of F1, stated as a number so nobody has to rediscover it. `keyExtinctCurve`
+    // leaves 1 only above 12°, so the overlay starts shallowing there and an in-shadow pixel
+    // brightens ~16 % on the way down to 3.5° — against a scene that darkens 37 % over the same
+    // stretch, so CONTRAST falls throughout and only the absolute value drifts. Deeper shapes for
+    // the bound flatten this and pay for it in the tail (sqrt(directK) measured: this drift 0.4 %,
+    // the post-sunset convergence × 1.46 instead of × 1.29). The share is the derived one and sits
+    // between them; this test exists so a future taste pass changes it deliberately.
+    const hi = inShadowGround(12, true);
+    const lo = inShadowGround(3.457, true);
+    expect(lo / hi).toBeGreaterThan(1.1);
+    expect(lo / hi).toBeLessThan(1.2);
+    // …and it is exactly the shipped value at 12°, where the extinction curve is still 1.
+    expect(hi).toBe(inShadowGround(12, false));
+    // And the shadow's DEPTH relative to the ground it sits in shrinks monotonically the whole
+    // way down — never reversing. That direction is the physics the bound encodes: as the direct
+    // arm dies a shadow has less and less to remove, so in-shadow/lit must climb toward 1.
+    const contrast = (d: number) =>
+      inShadowGround(d, true) / (shadeAt(d, 0, true, true) * EXPOSURE(d));
+    const cs = [12, 8, 6, 4, 3.457, 2].map(contrast);
+    for (let i = 1; i < cs.length; i++) expect(cs[i]).toBeGreaterThan(cs[i - 1]);
+  });
+
+  it("and the last degree CONVERGES rather than steps — which is the physics, not a fudge", () => {
+    // Below +0.5° `keyExtinctCurve` collapses to 0 at −0.5°, so "in shadow" and "lit" become the
+    // same surface: there is no direct light left to remove. The in-shadow value therefore has to
+    // climb back to the lit one, and the only question is whether it does so in a step or a ramp.
+    // No step here may exceed 8 % — the shipped rig's single worst step is × 6.5.
+    const tail = [0.5, 0.4584, 0.36, 0.3, 0.2, 0.1, 0, -0.1403, -0.3, -0.5];
+    const vals = tail.map((d) => inShadowGround(d, true));
+    for (let i = 1; i < vals.length; i++) expect(vals[i] / vals[i - 1]).toBeLessThan(1.08);
+    // It lands ON the lit ground, exactly — the release itself is a no-op by then.
+    expect(inShadowGround(-0.5, true)).toBe(shadeAt(-0.5, 0, true, true) * EXPOSURE(-0.5));
+    // …and the lit ground it lands on is itself still falling, so nothing brightens in absolute
+    // terms once the two have met.
+    const litTail = [0, -0.5, -1, -2].map((d) => shadeAt(d, 0, true, true) * EXPOSURE(d));
+    for (let i = 1; i < litTail.length; i++) expect(litTail[i]).toBeLessThan(litTail[i - 1]);
+  });
+
+  it("high sun is BYTE-identical — the overlay bound is exactly 1 where directK is 1", () => {
+    // `shadowDirectShareK(1, a)` is exactly 1 and the length guard is exactly 1 far from the
+    // horizon, so a daytime frame gets the shipped expression back with no rounding at all.
+    for (const d of [50, 30, 12]) {
+      expect(inShadowGround(d, true)).toBe(inShadowGround(d, false));
+      expect(DIRECT_K(d)).toBe(1);
+    }
+  });
+
+  it("the gate really did move to the sun's own upper limb, and only under ULTRA", () => {
+    const gateDeg = (Math.asin(ULTRA.shadowGateSin) * 180) / Math.PI;
+    expect(gateDeg).toBeCloseTo(-0.8333, 3); // 34' refraction + 16' semidiameter
+    // The band now fades the field over the half-degree the horizon takes to eat the disc.
+    const topDeg = (Math.asin(ULTRA.shadowGateSin + ULTRA.shadowFadeBandSin) * 180) / Math.PI;
+    expect(topDeg).toBeCloseTo(-0.3, 2);
+    // The BASE rig's gate is untouched, which is what keeps `high` byte-identical.
+    expect(SHADOWS.minSunElevSin).toBe(0.008);
+    expect((Math.asin(SHADOWS.minSunElevSin) * 180) / Math.PI).toBeCloseTo(0.4584, 3);
   });
 });

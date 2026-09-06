@@ -5,6 +5,8 @@ import {
   airLightGlsl,
   airSun,
   airMass,
+  shadowDirectShareK,
+  shadowLengthK,
   solarChroma,
   solarTransmittance,
 } from "../../../src/lib/globe/duskLight";
@@ -197,5 +199,123 @@ describe("the dusk curves — the shape the owner asked for", () => {
     // defect: legacy gave it 0.78 of the facing slope at every hour of the day.
     const awayAtDusk = ambient * (0.5 + 0.5 * 0) + direct * at(ULTRA.keyExtinctCurve, 0) * 0;
     expect(awayAtDusk).toBeLessThan(0.78 * 0.5);
+  });
+});
+
+/**
+ * SUNSET SHADOW-RELEASE (2026-09-06) — the two bounds that let the shadow field live to true
+ * sunset without the release being visible.
+ *
+ * The measured defect these answer (`verify-shots/sunset-lightpath-report.md` §4): between the
+ * owner's two Everest frames — geometric sun +1.30° and −0.14° — terrain that had been in shadow
+ * came back **× 5.22 brighter**, because the field was deleted at +0.4584° while a quarter of the
+ * direct sun was still on the ground AND the ground overlay was at its deepest-ever 0.855 the
+ * frame before it vanished.
+ */
+describe("shadowDirectShareK — the overlay may never be deeper than the arm it stands for", () => {
+  const a = ULTRA.groundAmbientK;
+
+  it("is EXACTLY 1 at full direct sun — the off-state contract, not an approximation", () => {
+    // `a + (1 − a)·1 = 1` with no rounding, which is what makes the daytime overlay byte-identical
+    // and — because `ultraDirectK` is seeded and re-settled to exactly 1 with the chip off — makes
+    // the OFF-state overlay byte-identical too. toBe, not toBeCloseTo, on purpose.
+    expect(shadowDirectShareK(1, a)).toBe(1);
+    expect(shadowDirectShareK(1, 0.5)).toBe(1);
+    expect(shadowDirectShareK(1, 0)).toBe(1);
+  });
+
+  it("is 0 when no direct sun survives — a shadow of nothing removes nothing", () => {
+    expect(shadowDirectShareK(0, a)).toBe(0);
+    expect(shadowDirectShareK(-1, a)).toBe(0); // clamped, never negative opacity
+  });
+
+  it("is monotone increasing in directK, and always inside [0, 1]", () => {
+    let prev = -1;
+    for (let d = 0; d <= 1.0001; d += 0.005) {
+      const k = shadowDirectShareK(d, a);
+      expect(k).toBeGreaterThanOrEqual(prev);
+      expect(k).toBeGreaterThanOrEqual(0);
+      expect(k).toBeLessThanOrEqual(1);
+      prev = k;
+    }
+    expect(shadowDirectShareK(2, a)).toBe(1); // clamped above, too
+  });
+
+  it("bites hardest exactly where the cliff was — the last degree of sunlight", () => {
+    // `keyExtinctCurve` levels at the elevations in the report's ULTRA table.
+    const at = (deg: number) => bandCurve(ULTRA.keyExtinctCurve, Math.sin((deg * Math.PI) / 180));
+    expect(shadowDirectShareK(at(3), a)).toBeCloseTo(0.706, 2);
+    expect(shadowDirectShareK(at(1.06), a)).toBeCloseTo(0.432, 2); // the darkest frame, 0.047
+    expect(shadowDirectShareK(at(0.4584), a)).toBeCloseTo(0.329, 2); // the old gate, 0.302
+    expect(shadowDirectShareK(at(-0.5), a)).toBe(0); // extinction is over; so is the overlay
+  });
+
+  it("never NaN, whatever the ambient weight", () => {
+    for (const ak of [0, 0.5, 1, -1, 2]) {
+      for (const d of [0, 0.3, 1]) {
+        expect(Number.isNaN(shadowDirectShareK(d, ak))).toBe(false);
+      }
+    }
+    // a = 1 is an all-ambient ground: there is no reference direct arm to normalise against, so
+    // the expression degrades to a plain linear `directK` instead of to 0/0.
+    expect(shadowDirectShareK(0.5, 1)).toBe(0.5);
+    // a = 0 with d = 0 is the only input that reaches the guard, and it is 0 either way.
+    expect(shadowDirectShareK(0, 0)).toBe(0);
+  });
+});
+
+describe("shadowLengthK — the field fades when its own shadow stops fitting", () => {
+  const CASTER = ULTRA.shadowLengthCasterM;
+  const sinDeg = (d: number) => Math.sin((d * Math.PI) / 180);
+  const EVEREST_FIT_M = 10_688; // the ULTRA half-extent at the owner's FPV pose (report §7)
+
+  it("is exactly 1 at any ordinary sun — the raking hour is untouched", () => {
+    for (const deg of [90, 30, 6, 3, 1]) {
+      expect(shadowLengthK(sinDeg(deg), CASTER, EVEREST_FIT_M)).toBe(1);
+    }
+  });
+
+  it("is 0 at and below the horizon, where the projected length is infinite or inverted", () => {
+    expect(shadowLengthK(0, CASTER, EVEREST_FIT_M)).toBe(0);
+    expect(shadowLengthK(sinDeg(-0.5), CASTER, EVEREST_FIT_M)).toBe(0);
+    expect(shadowLengthK(-1, CASTER, EVEREST_FIT_M)).toBe(0);
+  });
+
+  it("falls as 1/length once the box cannot hold the shadow", () => {
+    // Knee at atan(caster / reach) = 0.536° for this box; halved at twice that length.
+    const knee = (Math.atan(CASTER / EVEREST_FIT_M) * 180) / Math.PI;
+    expect(knee).toBeCloseTo(0.536, 2);
+    expect(shadowLengthK(sinDeg(knee), CASTER, EVEREST_FIT_M)).toBeCloseTo(1, 3);
+    expect(shadowLengthK(sinDeg(knee / 2), CASTER, EVEREST_FIT_M)).toBeCloseTo(0.5, 2);
+    expect(shadowLengthK(sinDeg(knee / 4), CASTER, EVEREST_FIT_M)).toBeCloseTo(0.25, 2);
+  });
+
+  it("measured from TRUE SUNSET with the ladder's reach, the owner's frame B still casts (2026-09-06h)", () => {
+    // The first cut zeroed the field at geometric 0° while the disc was still up — frame B is
+    // −0.14° geometric = +0.36° apparent. With the horizon at the ULTRA gate (−0.833°) and the
+    // 260 km cascade as the reach, the knee is atan(100 / 260 000) = 0.022° above true sunset.
+    const REACH = Math.max(EVEREST_FIT_M, ...ULTRA.cascades.map((c) => c.maxBoundsM));
+    expect(REACH).toBeGreaterThan(100_000);
+    expect(shadowLengthK(sinDeg(-0.14), CASTER, REACH, ULTRA.shadowGateSin)).toBe(1);
+    expect(shadowLengthK(sinDeg(-0.5), CASTER, REACH, ULTRA.shadowGateSin)).toBe(1);
+    expect(shadowLengthK(sinDeg(-0.8), CASTER, REACH, ULTRA.shadowGateSin)).toBeGreaterThan(0.9);
+    expect(shadowLengthK(ULTRA.shadowGateSin, CASTER, REACH, ULTRA.shadowGateSin)).toBe(0);
+    expect(shadowLengthK(sinDeg(-1.5), CASTER, REACH, ULTRA.shadowGateSin)).toBe(0);
+  });
+
+  it("is monotone in elevation and never NaN, including the degenerate inputs", () => {
+    let prev = -1;
+    for (let deg = -2; deg <= 5; deg += 0.01) {
+      const k = shadowLengthK(sinDeg(deg), CASTER, EVEREST_FIT_M);
+      expect(Number.isNaN(k)).toBe(false);
+      expect(k).toBeGreaterThanOrEqual(prev - 1e-12);
+      prev = k;
+    }
+    // A zero/absent box is NO BOUND, not a blackout: `shadowBoundsM` is 0 on the first frames.
+    expect(shadowLengthK(sinDeg(0.2), CASTER, 0)).toBe(1);
+    expect(shadowLengthK(sinDeg(0.2), 0, EVEREST_FIT_M)).toBe(1);
+    // …and a sun at the zenith divides by cos = 0 if written naively.
+    expect(shadowLengthK(1, CASTER, EVEREST_FIT_M)).toBe(1);
+    expect(Number.isNaN(shadowLengthK(1, CASTER, EVEREST_FIT_M))).toBe(false);
   });
 });

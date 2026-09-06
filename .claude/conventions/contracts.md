@@ -65,6 +65,20 @@ movedFeatures, nearMaxResidualM, nearMovedFeatures, nearCells, epoch, quietFrame
 rejected } }`, the per-frame seat residuals taken inside `applyFeatureSeats()` (plain field reads,
 safe in a per-frame rAF probe — `enrichedSeats()` is a 39k-feature walk and is not).
 
+New sub-seam (dated 2026-09-06, T77 slice A2): **`__globe.shadowRig(opts?)`** — cascade 0's refresh
+policy, READ and LIVE-OVERRIDDEN. Read: `{ keySnapTexels, moveTexels, refreshes, ageMs, autoUpdate,
+snapTexels, demand }` — the quanta the frame loop ACTUALLY used (never the tunables re-derived by
+the caller: the `__globe.ultraLook` lesson), the cumulative depth-map re-render count, the age of
+the live map, and the per-light `sunLight.shadow.autoUpdate` (the renderer-level flag is a
+different thing and stays true — `verify-audit3.mjs` asserts it). Write: `{ keySnapTexels?,
+moveTexels? }` overrides the tier's quanta without a reload and `null` restores the tier value; any
+write forces one refresh so the next frame renders under the new policy. It exists because the only
+other way to change the rig is the ULTRA chip, which moves a dozen levers at once and the shimmer
+metric could not tell them apart. "Did the lever fire?" is `autoUpdate === false && refreshes`
+climbing far slower than the frame count. Mirrored as the DBG rows `ultra.shadow.rig.{refreshes,
+ageMs, snapTexels}` (release-visible through `__debugFeed`, which is what
+`scripts/verify-temporal-stability.mjs` reads per frame).
+
 New sub-seam (dated 2026-09-06, T77 slice 0 / T79): **`__globe.controls.belowCameraGate(enabled?)`** —
 the below-camera GATE's counters `{ gated, exact, seen, skipped, skipBox, skipSphere, skipScan,
 boxesBuilt, scans, lastMs, enabled }` (`scene/pluxGlobeControls.ts`); passing a boolean toggles the
@@ -110,6 +124,7 @@ top-level globals; same removal/rename rule):
 | `__globe.eclipse()` | `StylizedTiles.ts` (`window.__globe` block) | solar + lunar eclipse state + every light scalar it drives — `verify-eclipse.mjs` (37 checks) |
 | `__quality.governor.emaMs()` / `.hitchCount()` | `lib/globe/quality.ts:151–153` (exposed via `GlobeCanvas.tsx:348`) | frame-time EMA + hitch counter — U2/U5 soak gates |
 | `__quality.ao` | `GlobeCanvas.tsx:257` | GTAO look tuning in wix dev |
+| `__quality.bloomScale(s?)` | `GlobeCanvas.tsx` (`window.__quality` block, T80 2026-09-06) | the T80 bloom-RESOLUTION A/B seam. `bloomScale(0.5)` PINS the `ScaledBloomPass` mip chain at half res for the rest of the session (it survives governor steps and tier applies, which a raw `setScale` would not); **`bloomScale(null)` restores the tier value**; no argument only reads. Returns `{ scale, tierScale, override, enabled, brightW, brightH, nMips }` — `brightW`/`brightH` are read off the pass's OWN `renderTargetBright`, so they are the proof the lever fired rather than a repeat of what was asked for. Consumer: `scripts/verify-perf-baseline.mjs` (`--post-ab`'s `bloomCheap` cell) |
 | `__globe.bestSpot()` | `StylizedTiles.ts:2161` | `bestSpotFeed.debug()` — solve state, the four streaming epochs, residency tier |
 | `__globe.bestSpotSheet()` | `StylizedTiles.ts:2170` | the **LIVE** material/texture read-back. Added 2026-08-24 because `__globe` exposes no `scene`, so all seven S4 done-checks had been asserting constructor ARGUMENTS in vitest, never the shipped material |
 | `__globe.bestSpotField()` | `StylizedTiles.ts:2181` | the published RG8 score field itself — **the seam that caught `rMin === rMax === 187`** (one distinct value across 31,417 cells while 1,860 unit tests passed). Read the DISTRIBUTION, never a flag |

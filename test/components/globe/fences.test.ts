@@ -112,6 +112,75 @@ describe("InstancedMesh.boundingSphere caching — the Pins raycast trap (three 
 });
 
 /**
+ * FRAME-RATE-INDEPENDENT EASES (T77 lever 5, 2026-09-06).
+ *
+ * A per-frame `v += (target − v) * k` is a frame-rate-dependent law: at 30 fps it settles at half
+ * the rate of 60 fps and at 120 fps at twice. Every seat, every override tail and the walked eye
+ * eased that way, so the settle budgets in `rendering/MEASUREMENTS_2026-09-05.md` — all measured
+ * at 60 Hz — described exactly one machine, and the same terrain refine slid at four different
+ * speeds across the device ladder. The fix is a TIME constant per ease plus the one shared
+ * `easeK(dtMs, tauMs)` helper (`lib/globe/lightBands.ts`), fed the orchestrator's clamped `dtMs`.
+ *
+ * The `*EaseK` tunables deliberately SURVIVE as the documented 60 Hz equivalents (and
+ * `scripts/verify-temporal-stability.mjs` reads two of them), which is precisely why a fence is
+ * needed: nothing stops a future edit from reaching for the k again, and the result would be
+ * silent — correct-looking on the author's 60 Hz display.
+ *
+ * Mutation that makes this RED: write `applied + (target − applied) * ENRICHED.reseatEaseK` (or
+ * any other `*EaseK`) back into a scene module. It was red on four such lines before this landed.
+ */
+describe("frame-rate-independent eases (T77 lever 5)", () => {
+  const sceneFiles = readdirSync(sceneDir).filter((f) => f.endsWith(".ts"));
+  // The shape the lever removes: multiplying a delta by a per-frame `k` tunable.
+  const MUL_BY_EASE_K = /\*\s*[A-Z]+\.\w*EaseK\b/;
+  // Strip comments before the stronger check — the `*EaseK` names are still DOCUMENTED in prose
+  // (they are the 60 Hz equivalents), and a fence that cannot tell code from a doc-comment would
+  // have to be weakened until it stopped catching anything.
+  const code = (src: string) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(?<![:\\])\/\/[^\n]*/g, "");
+
+  it("there are scene modules to check (probe validated)", () => {
+    expect(sceneFiles.length).toBeGreaterThan(10);
+  });
+
+  it("no scene module multiplies by a per-frame *EaseK tunable", () => {
+    const offenders = sceneFiles.filter((f) =>
+      MUL_BY_EASE_K.test(readFileSync(join(sceneDir, f), "utf8")),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("…and none READS one as a value at all (comments excluded)", () => {
+    const offenders = sceneFiles.filter((f) =>
+      /\b[A-Z]+\.\w*EaseK\b/.test(code(readFileSync(join(sceneDir, f), "utf8"))),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the probe really does match the shape it forbids", () => {
+    expect(MUL_BY_EASE_K.test("applied + (target - applied) * ENRICHED.reseatEaseK;")).toBe(true);
+    expect(MUL_BY_EASE_K.test("let sc = a.scale + (t.scale - a.scale) * MODELS.xfEaseK;")).toBe(
+      true,
+    );
+    // …and that the comment stripper leaves real code alone.
+    expect(code("const k = MODELS.xfEaseK; // MODELS.xfEaseK")).toMatch(/MODELS\.xfEaseK/);
+    expect(code("// only MODELS.xfEaseK here")).not.toMatch(/MODELS\.xfEaseK/);
+  });
+
+  it("the eases that were converted go through the ONE shared helper on a τ tunable", () => {
+    // The other way this could go green wrongly: delete the ease instead of converting it.
+    for (const f of ["enrichedBuildings.ts", "userModels.ts", "streetNames.ts"]) {
+      const src = readFileSync(join(sceneDir, f), "utf8");
+      expect({ f, easeK: /from "\.\.\/\.\.\/\.\.\/lib\/globe\/lightBands"/.test(src) }).toEqual({
+        f,
+        easeK: true,
+      });
+      expect({ f, tau: /easeK\(dtMs,\s*[A-Z]+\.\w*TauMs\)/.test(src) }).toEqual({ f, tau: true });
+    }
+  });
+});
+
+/**
  * PER-FRAME WASTE fences (audit #3 T38 — A1-10 / A1-11 / A2-2, fixed 2026-08-22).
  *
  * All three regressions are invisible in a screenshot and cheap in a unit test: they are
@@ -560,5 +629,45 @@ describe("BEST SPOT — step order and the drag rung", () => {
     // Deliberately shared (`BESTSPOT.mirrorEveryFrames: PLAN.mirrorEveryFrames`) so the panel's
     // two halves can never update out of phase; the adjacency test above is the other half of it.
     expect(BESTSPOT.mirrorEveryFrames).toBe(PLAN.mirrorEveryFrames);
+  });
+});
+
+/**
+ * T80 — the bloom RESOLUTION is always a RESOLVED value, never a literal.
+ *
+ * `bloomScaleForTier` carries the identity fence (`high` off a coarse pointer returns exactly 1,
+ * the value `ScaledBloomPass` short-circuits on) and the lean clamp. A hard-coded `setScale(0.5)`
+ * anywhere in the apply path would route around both — and would be invisible on the author's
+ * machine, because the only visible symptom is a `high` tier that is no longer byte-identical.
+ *
+ * Mutation that makes this RED: `bloomPass.setScale(0.5)`, or any expression that does not come
+ * out of the resolver.
+ */
+describe("T80 — every setScale argument comes from bloomScaleForTier", () => {
+  const src = readFileSync(join(root, "src/components/globe/GlobeCanvas.tsx"), "utf8");
+
+  it("no literal or ad-hoc scale reaches the bloom pass", () => {
+    // The first 40 characters of each call's argument, whitespace-collapsed so a wrapped call
+    // reads the same as an inline one.
+    const calls = [...src.matchAll(/setScale\(\s*([\s\S]{0,40})/g)].map((m) =>
+      m[1].replace(/\s+/g, " ").trim(),
+    );
+    expect(calls.length).toBeGreaterThan(0); // the probe can match
+    const ok = /^(devScaleOverride \?\? )?bloomScaleForTier\(/;
+    expect(calls.filter((c) => !ok.test(c))).toEqual([]);
+    // Both shapes are actually present: the plain resolver (boot) and the DEV-pin form (applies).
+    expect(calls.some((c) => c.startsWith("bloomScaleForTier("))).toBe(true);
+    expect(calls.some((c) => c.startsWith("devScaleOverride ?? bloomScaleForTier("))).toBe(true);
+    // POSITIVE CONTROL: the accepting pattern really rejects the mutation it exists to catch.
+    expect(ok.test("0.5")).toBe(false);
+    expect(ok.test("QUALITY.tiers[t].bloomScale")).toBe(false);
+    expect(ok.test("s ?? bloomScaleForTier(activeTier, …")).toBe(false);
+  });
+
+  it("the pass is the SUBCLASS — the stock UnrealBloomPass is no longer constructed here", () => {
+    // A revert to `new UnrealBloomPass(...)` would leave every `setScale` call above dangling on
+    // a type error, but only after the import came back; pin the construction directly.
+    expect(src).toMatch(/new ScaledBloomPass\(/);
+    expect(src).not.toMatch(/new UnrealBloomPass\(/);
   });
 });

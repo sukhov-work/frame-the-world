@@ -3,9 +3,11 @@ import {
   cascadeNeedsRender,
   fitCascade,
   fitCascades,
+  texelBias,
+  texelSizeM,
   type CascadeProfile,
 } from "../../../src/lib/globe/shadowCascade";
-import { ULTRA } from "../../../src/components/globe/tuning";
+import { SHADOWS, ULTRA } from "../../../src/components/globe/tuning";
 
 const P = (over: Partial<CascadeProfile> = {}): CascadeProfile => ({
   reachM: 60_000,
@@ -169,5 +171,75 @@ describe("cascadeNeedsRender", () => {
 
   it("does nothing while the camera is parked and nothing streams", () => {
     expect(cascadeNeedsRender(base)).toBe(false);
+  });
+});
+
+/**
+ * T77 slice A1 (2026-09-06) — the bias derivation, now SHARED with cascade 0.
+ *
+ * It was the ladder's private arithmetic; the shipped rig biased itself by hand and ended up an
+ * order of magnitude under the ladder (`SHADOWS.normalBias` 0.75 m = 0.31 texel at the FPV pose,
+ * `ULTRA.shadowNormalBias` 0.45 m = 0.13 texel at the city pose, against 1.5 texels here) — which
+ * is one of the two mechanisms behind the 62–75 % isolated-pixel flips in `MEASUREMENTS` §8. These
+ * pin the properties cascade 0 now depends on, including the ONE thing it needs that the ladder
+ * does not: a cap, because it is the only box with contact points a viewer can stand next to.
+ */
+describe("texelSizeM / texelBias — the one metric-bias derivation", () => {
+  it("texelSizeM is the extent-to-map ratio, and never divides by zero", () => {
+    expect(texelSizeM(1_600, 4096)).toBeCloseTo(0.78125, 9);
+    expect(texelSizeM(5_000, 4096)).toBeCloseTo(2.44140625, 9); // the FPV pose, §8's 2.44 m
+    expect(texelSizeM(13_760, 8192)).toBeCloseTo(3.359375, 9); // the city ULTRA pose, §8's 3.36 m
+    expect(texelSizeM(1_000, 0)).toBe(2_000);
+  });
+
+  it("both biases are monotone (strictly increasing) in the texel size", () => {
+    let prevN = -Infinity;
+    let prevB = -Infinity;
+    for (const mpt of [0.39, 0.78, 2.44, 3.36, 29, 127]) {
+      const t = texelBias({ metresPerTexel: mpt, depthRangeM: 96_000, biasTexels: 0.6, normalBiasTexels: 1.5 });
+      expect(t.normalBiasM).toBeGreaterThan(prevN);
+      expect(t.biasM).toBeGreaterThan(prevB);
+      prevN = t.normalBiasM;
+      prevB = t.biasM;
+    }
+  });
+
+  it("the CAP binds only where it is meant to — cascade 0, not the ladder", () => {
+    // At the city ULTRA pose 1.5 texels is 5.04 m of normal offset, which would float every
+    // building off its own base. Cascade 0 passes the cap; the cascades pass nothing.
+    const mpt = texelSizeM(13_760, 8192);
+    const capped = texelBias({ metresPerTexel: mpt, depthRangeM: 96_000, biasTexels: 0.6, normalBiasTexels: 1.5, normalBiasMaxM: SHADOWS.normalBiasMaxM });
+    expect(1.5 * mpt).toBeCloseTo(5.039, 3);
+    expect(capped.normalBiasM).toBe(SHADOWS.normalBiasMaxM);
+    const uncapped = texelBias({ metresPerTexel: mpt, depthRangeM: 96_000, biasTexels: 0.6, normalBiasTexels: 1.5 });
+    expect(uncapped.normalBiasM).toBeCloseTo(5.039, 3);
+    // …and at street level, where contact is everything, the cap does not bind at all.
+    const street = texelBias({ metresPerTexel: texelSizeM(1_600, 8192), depthRangeM: 96_000, biasTexels: 0.6, normalBiasTexels: 1.5, normalBiasMaxM: SHADOWS.normalBiasMaxM });
+    expect(street.normalBiasM).toBeLessThan(SHADOWS.normalBiasMaxM);
+    expect(street.normalBiasM).toBeCloseTo(1.5 * texelSizeM(1_600, 8192), 9);
+  });
+
+  it("the depth bias round-trips through three's fraction-of-range unit", () => {
+    const t = texelBias({ metresPerTexel: 3.359375, depthRangeM: 96_000, biasTexels: 0.6, normalBiasTexels: 1.5 });
+    expect(-t.bias * 96_000).toBeCloseTo(t.biasM, 9);
+    expect(t.bias).toBeLessThan(0); // negative pulls surfaces TOWARD the light — kills acne
+  });
+
+  it("0 texels is exactly 0 metres — the identity arm the base profile ships on", () => {
+    const t = texelBias({ metresPerTexel: 2.44140625, depthRangeM: 7_000, biasTexels: 0, normalBiasTexels: 0 });
+    expect(t.biasM).toBe(0);
+    expect(t.bias).toBe(-0); // the caller never uses this arm; it takes the raw constant instead
+    expect(t.normalBiasM).toBe(0);
+  });
+
+  it("the LADDER's own fits still come out of the shared function unchanged", () => {
+    // The refactor must be byte-identical for the cascades or it silently re-tunes them.
+    const f = fitCascade(60_000, 18_000, RELIEF, CLEAR, P());
+    const t = texelBias({ metresPerTexel: f.metresPerTexel, depthRangeM: f.farM - f.nearM, biasTexels: P().biasTexels, normalBiasTexels: P().normalBiasTexels });
+    expect(f.bias).toBe(t.bias);
+    expect(f.biasM).toBe(t.biasM);
+    expect(f.normalBiasM).toBe(t.normalBiasM);
+    // Uncapped by construction: 1.5 texels at 29 m/texel is 44 m, far past SHADOWS.normalBiasMaxM.
+    expect(f.normalBiasM).toBeGreaterThan(SHADOWS.normalBiasMaxM);
   });
 });

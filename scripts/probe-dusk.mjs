@@ -90,6 +90,12 @@ const SWEEP = process.env.FTW_CITY
 // Mean luminance of a rectangle of the frame, read from the canvas itself — the number that says
 // "the scene darkened" without a human in the loop. Two windows: the SKY band above the horizon
 // and the TERRAIN below it.
+//
+// This stays a RESEARCH probe — it prints, it does not judge, and its ladder is a coarse TIME
+// sweep. The ground window below is the measurement that finally caught the sunset shadow-release
+// (the terrain band brightening × 5.22 as the sun set); it is promoted to a real assertion, on a
+// solved ELEVATION ladder at the owner's own pose, in
+// `scripts/verify-ultra-dusk.mjs` §4 — go there for the gate, come here to look around.
 const LUMA = `(() => {
   const c = document.querySelector("canvas");
   if (!c) return null;

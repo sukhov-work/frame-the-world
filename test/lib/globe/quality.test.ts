@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  bloomScaleForTier,
   detectDeviceTier,
   lruCapBytesForTier,
   lruCapBytesForUltra,
@@ -231,6 +232,25 @@ describe("QUALITY.tiers.high INVARIANT — must equal the pre-pass constants", (
   it("U6: foveation is OFF on high (null — a capable machine stays byte-identical)", () => {
     expect(high.foveation).toBeNull();
   });
+  it("T80: bloomScale on high is EXACTLY 1 — the value ScaledBloomPass short-circuits on", () => {
+    // `toBe`, not `toBeCloseTo`: 0.999 would be arithmetically harmless and would still take the
+    // `round(w × s)` branch, which is what moves a non-integer drawing-buffer size. The identity
+    // is the number, not the neighbourhood.
+    expect(high.bloomScale).toBe(1);
+    // …and the resolver agrees on the desktop path, through its own strict branch.
+    expect(bloomScaleForTier("high", false, QUALITY.tiers, QUALITY.leanMobile)).toBe(1);
+  });
+  it("T80: the lean profile can only ever make `high`'s chain CHEAPER, never richer", () => {
+    const leanHigh = bloomScaleForTier("high", true, QUALITY.tiers, QUALITY.leanMobile);
+    expect(leanHigh).toBeLessThanOrEqual(QUALITY.leanMobile.bloomScale);
+    expect(leanHigh).toBeLessThanOrEqual(1);
+    // Every tier, both pointer classes: lean is a clamp, so it is never above the dry value.
+    for (const t of ["low", "mid", "high"] as const) {
+      const dry = bloomScaleForTier(t, false, QUALITY.tiers, QUALITY.leanMobile);
+      expect(bloomScaleForTier(t, true, QUALITY.tiers, QUALITY.leanMobile)).toBeLessThanOrEqual(dry);
+      expect(dry).toBeGreaterThan(0);
+    }
+  });
   it("#15 overlayResolutionPx: high == GROUND.overlayResolution (byte-identical); mid/low shrink", () => {
     expect(high.overlayResolutionPx).toBe(GROUND.overlayResolution);
     expect(QUALITY.tiers.mid.overlayResolutionPx).toBe(256);
@@ -276,6 +296,12 @@ describe("QUALITY.tiers.high INVARIANT — must equal the pre-pass constants", (
     expect(m.vectorLatticeBudget).toBeGreaterThanOrEqual(l.vectorLatticeBudget);
     expect(h.lruBytesMB).toBeGreaterThanOrEqual(m.lruBytesMB);
     expect(m.lruBytesMB).toBeGreaterThanOrEqual(l.lruBytesMB);
+    // T80: the bloom chain eases the same way — high ≥ mid ≥ low, and nothing exceeds the
+    // stock-pass scale of 1 (a value above 1 would SUPERSAMPLE the mip chain, not cheapen it).
+    expect(h.bloomScale).toBeGreaterThanOrEqual(m.bloomScale);
+    expect(m.bloomScale).toBeGreaterThanOrEqual(l.bloomScale);
+    expect(h.bloomScale).toBeLessThanOrEqual(1);
+    expect(l.bloomScale).toBeGreaterThan(0);
     expect(TIER_ORDER).toEqual(["low", "mid", "high"]);
   });
 });

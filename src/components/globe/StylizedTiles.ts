@@ -65,8 +65,19 @@ import {
   horizonDistanceM,
   type ShadowFitProfile,
 } from "../../lib/globe/shadowFit";
-import { cascadeNeedsRender, fitCascades } from "../../lib/globe/shadowCascade";
-import { solarChroma } from "../../lib/globe/duskLight";
+import {
+  cascadeNeedsRender,
+  fitCascades,
+  texelBias,
+  texelSizeM,
+} from "../../lib/globe/shadowCascade";
+import {
+  keySwingQuantumRad,
+  rigDemandDriven,
+  rigUpDegenerate,
+  snapCentreDelta,
+} from "../../lib/globe/shadowSnap";
+import { shadowDirectShareK, shadowLengthK, solarChroma } from "../../lib/globe/duskLight";
 import {
   aboveGateK,
   moonRigTakeoverK,
@@ -504,6 +515,9 @@ export function attachStylizedTiles(opts: {
           url: enrichedUrl,
           bbox: enrichedBbox,
           terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+          // T77 slice B 4d: the depth-aware twin, so a seat taken against a fine tile survives the
+          // LRU evicting that tile and its coarse parent answering in its place.
+          terrainSampleAt: (latDeg, lonDeg) => ground.sampleAt(latDeg, lonDeg),
           loadAim,
           overrides: bldgOverridesSeam,
         })
@@ -1329,7 +1343,14 @@ export function attachStylizedTiles(opts: {
     }
     if (tempPinSampled && tempPinEaseStamp !== now) {
       tempPinEaseStamp = now;
-      tempPinAppliedM = seatStep(tempPinAppliedM, tempPinGroundM, TEMPPIN.groundEaseK);
+      // T77 lever 5: the ease is a TIME constant, not a per-frame fraction — `groundEaseK` is
+      // its 60 Hz equivalent. The frame stamp above still guarantees exactly one advance per
+      // frame however many callers ask for the point.
+      tempPinAppliedM = seatStep(
+        tempPinAppliedM,
+        tempPinGroundM,
+        easeK(dtMs, TEMPPIN.groundEaseTauMs),
+      );
     }
     return _tempPinEcef.fromArray(
       geodeticToEcef(pin.latDeg, pin.lonDeg, tempPinAppliedM ?? tempPinGroundM),
@@ -3085,21 +3106,81 @@ export function attachStylizedTiles(opts: {
   }));
   const _cascadeSwingRad = THREE.MathUtils.degToRad(ULTRA.cascadeRefreshDeg);
   const _casKey = new THREE.Vector3();
+  /**
+   * T77 SLICE A2 (2026-09-06) — CASCADE 0's own refresh record, in `_cascadeState`'s shape and
+   * declared beside it for the same TDZ reason.
+   *
+   * It holds what the LIVE depth map was rendered with, so the refresh test compares against the
+   * map on screen rather than against a re-derivation. `lightPos`/`targetPos` are the LATCH, and
+   * they are the part cascade 0 needs that the ladder does not: the sun and moon arms place this
+   * light ~130 lines before the refresh decision is taken, so "do not move the light on a frame
+   * you do not re-render" (`lib/globe/shadowCascade` rule 2) has to be enforced by restoring the
+   * latched pose, not by declining to write one.
+   */
+  const _rig0 = {
+    halfExtentM: 0,
+    centre: new THREE.Vector3(),
+    keyDir: new THREE.Vector3(),
+    lightPos: new THREE.Vector3(),
+    targetPos: new THREE.Vector3(),
+    epoch: -1,
+    lastMs: 0,
+    /** Cumulative depth-map re-renders — a DBG row, so "did the policy fire?" is a number. */
+    refreshes: 0,
+    /** |Δ| of the last applied centre snap in TEXELS (0 = the light was already on the lattice). */
+    snapTexels: 0,
+    /** The quanta the loop actually used this frame — tier value, or a live `shadowRig` override. */
+    keySnapTexels: 0,
+    moveTexels: 0,
+    /** False = the identity: `shadow.autoUpdate` back to true, this record never consulted. */
+    demand: false,
+  };
+  /** DEV A/B overrides for `__globe.shadowRig({...})`; null = take the tier's value. */
+  const _rigOverride: { keySnapTexels: number | null; moveTexels: number | null } = {
+    keySnapTexels: null,
+    moveTexels: null,
+  };
+  const _rigKey = new THREE.Vector3();
+  const _rigSnap = new THREE.Vector3();
+  const _rigNorth = new THREE.Vector3();
   /** The eye→focus distance the shadow ladder was fitted from this frame (m). */
   let shadowViewDistM = 0;
   /** RC2 — the one elevation-gate profile the key/shadow handoff ramps read (lib/globe/keyHandoff).
-   *  ULTRA shares it deliberately: it shares the gate, so it must share the fade. */
+   *  The BASE rig's, and byte-frozen: everything below that moves, moves only under ULTRA. */
   const KEY_GATE: KeyGateProfile = {
     gateSin: SHADOWS.minSunElevSin,
     bandSin: SHADOWS.fadeBandSin,
     moonMinIllum: SHADOWS.moonMinIllum,
     moonIllumSoftFrac: SHADOWS.moonIllumSoftFrac,
   };
-  /** The SHADOW FIELD's own gate under ULTRA (owner taste pass, 2026-08-27c). Same crossing point
-   *  as `KEY_GATE` — which is load-bearing, because that is where the rig's direction teleports
-   *  from the sun to the moon and the field has to be at zero when it does — but a band a fifth
-   *  as wide, so cast shadows survive the raking hour instead of dying from 3.5° up. */
-  const ULTRA_SHADOW_GATE: KeyGateProfile = { ...KEY_GATE, bandSin: ULTRA.shadowFadeBandSin };
+  // --- THE ULTRA GATE TWINS ---------------------------------------------------------------------
+  //
+  // Owner taste pass (2026-08-27c) gave the shadow field its own NARROW band, so cast shadows
+  // survive the raking hour instead of dying from 3.5° up. SUNSET SHADOW-RELEASE (2026-09-06) then
+  // moved the CROSSING POINT of both ULTRA profiles to true sunset: `SHADOWS.minSunElevSin` is
+  // +0.4584° of GEOMETRIC solar elevation, and the upper limb does not set until −0.833° (34′
+  // refraction + 16′ semidiameter), so the shipped gates fired 5.9 minutes early — with a quarter
+  // of the direct sun still on the ground, which is why the release read as a × 5.22 brightening
+  // of everything that had been in shadow rather than as a fade (report §4/§5).
+  //
+  // BOTH ULTRA profiles move together, and that is the reason there are two twins rather than one.
+  // Moving the field's gate alone would put its zero at −0.833° while the key still troughed and
+  // the rig still handed off to the moon at +0.4584° — the sun→moon direction teleport would then
+  // happen with the field wide open, which is the exact discontinuity RC2 exists to prevent and
+  // which `test/lib/globe/keyHandoff.test.ts` pins ("both arms reach zero at the gate").
+  // `moonShadows` stays `!sunUp`-gated, so the two arms remain mutually exclusive for free.
+  //
+  // Both are selected by `ultraOn` at every consumer; with the chip off neither is ever read.
+  /** The key trough / moon takeover profile under ULTRA — `KEY_GATE`'s wide band on the sunset
+   *  crossing point. */
+  const ULTRA_KEY_GATE: KeyGateProfile = { ...KEY_GATE, gateSin: ULTRA.shadowGateSin };
+  /** …and the SHADOW FIELD's own, on the same crossing point (load-bearing — that is where the
+   *  rig's direction teleports and the field has to be at zero when it does) with a band sized to
+   *  the solar disc rather than to the wide handoff. */
+  const ULTRA_SHADOW_GATE: KeyGateProfile = {
+    ...ULTRA_KEY_GATE,
+    bandSin: ULTRA.shadowFadeBandSin,
+  };
   const _keyWhite = new THREE.Color(0xffffff);
   /** Owner defect 2 — scratch for the physical extinction chromaticity applied to the key. */
   const _keyChroma = new THREE.Color();
@@ -3216,6 +3297,17 @@ export function attachStylizedTiles(opts: {
    *  dedicated moonLight in scene/sky.ts). The two are complementary by construction, which is
    *  what makes the source switch at sunset invisible instead of a one-frame flip. */
   let moonRigTakeover = 0;
+  /** SUNSET SHADOW-RELEASE — the live `duskLight.shadowDirectShareK` factor the ground overlay was
+   *  scaled by this frame (1 with the chip off, and at any high sun). Published as
+   *  `ultra.shadow.directShareK`: no id has ever carried the numbers behind the overlay, which is
+   *  most of why the release cliff was arguable rather than measurable. Read off the value that
+   *  was USED, never re-derived. */
+  let ultraShadowDirectShareK = 1;
+  /** …and the elevation gate the rig actually used this frame (sine of elevation). Published as
+   *  `__globe.ultraLook().shadow.gateSin` so a harness reads the crossing off the engine instead
+   *  of hardcoding one — `scripts/verify-rendering-charter.mjs` did, and would have gone red on a
+   *  verify Chrome that happened to boot with the chip on. */
+  let shadowGateSinNow: number = SHADOWS.minSunElevSin;
   let focusHit: ReturnType<typeof rayEllipsoidIntersect> = null;
   let upNow = useUploadStore.getState();
   let camNow = useCameraStore.getState();
@@ -3388,6 +3480,7 @@ export function attachStylizedTiles(opts: {
       tiles: buildings.tiles,
       enriched: enriched?.tiles ?? null, // Dnipro 3D enrichment (Slice 0) — null unless the URL is set
       enrichedSeats: () => enriched?.debugSeats() ?? null, // per-building re-seat coverage (2026-07-14)
+      enrichedCellSeats: (limit?: number) => enriched?.debugCellSeats(limit) ?? null, // T77 slice B (DEV)
       // T77 MEASURE (2026-09-05) — the RESEAT-SETTLE read seam: this frame's seat residuals from
       // the apply pass (plain field reads, safe inside a per-frame rAF probe — unlike
       // enrichedSeats(), which walks ~39k features), paired with the orchestrator frame and the
@@ -3397,6 +3490,36 @@ export function attachStylizedTiles(opts: {
         terrainEpoch: ground.terrainEpoch(),
         enriched: enriched?.seatSettle() ?? null,
       }),
+      /**
+       * T77 SLICE A2 (2026-09-06) — the shadow rig's refresh policy, READ and LIVE-OVERRIDDEN.
+       *
+       * Read: what the loop actually used this frame (never the tunables re-derived by the
+       * caller — the `__globe.ultraLook` lesson), plus the cumulative refresh count and the age of
+       * the live depth map. "Did the lever fire?" is `refreshes` climbing slower than the frame
+       * count with `autoUpdate === false`.
+       *
+       * Write: `{ keySnapTexels?, moveTexels? }` overrides the tier's quanta for a live A/B
+       * WITHOUT a reload, because the alternative — flipping ULTRA to change the rig — moves a
+       * dozen other levers at the same time and the shimmer metric could not tell them apart.
+       * `null` restores the tier value. Any write forces one refresh, so the next frame is
+       * rendered under the new policy rather than under a map latched by the old one.
+       */
+      shadowRig: (opts?: { keySnapTexels?: number | null; moveTexels?: number | null }) => {
+        if (opts) {
+          if ("keySnapTexels" in opts) _rigOverride.keySnapTexels = opts.keySnapTexels ?? null;
+          if ("moveTexels" in opts) _rigOverride.moveTexels = opts.moveTexels ?? null;
+          _rig0.halfExtentM = 0;
+        }
+        return {
+          keySnapTexels: _rig0.keySnapTexels,
+          moveTexels: _rig0.moveTexels,
+          refreshes: _rig0.refreshes,
+          ageMs: _rig0.lastMs > 0 ? performance.now() - _rig0.lastMs : null,
+          autoUpdate: sunLight ? sunLight.shadow.autoUpdate : null,
+          snapTexels: _rig0.snapTexels,
+          demand: _rig0.demand,
+        };
+      },
       // MESH SUITE MS1 (2026-09-02): read / drive ONE building's edit target without the gizmo.
       // `enrichedSetTransform` takes the SAME commit path as a drag release (engine target +
       // persisted row), so a harness can prove a spatial edit applies, persists and re-applies.
@@ -3492,6 +3615,8 @@ export function attachStylizedTiles(opts: {
       }),
       // RC6 / audit measurement M7: how often the nearest terrain hit is NOT the finest one.
       terrainPickStats: () => ground.pickStats(),
+      /** T77 slice B 4d (DEV) — one depth-aware terrain sample, exactly what the seat sweep sees. */
+      terrainSample: (latDeg: number, lonDeg: number) => ground.sampleAt(latDeg, lonDeg),
       resetTerrainPickStats: () => ground.resetPickStats(),
       // RC11: the exact terrain-height memo's hit rate — the number that says whether the seat
       // budgets are still raycast-bound or have become bookkeeping.
@@ -3795,6 +3920,18 @@ export function attachStylizedTiles(opts: {
               near: sunLight.shadow.camera.near,
               far: sunLight.shadow.camera.far,
               casting: sunLight.castShadow,
+              // SUNSET SHADOW-RELEASE (2026-09-06) — the four numbers the release cliff was
+              // invisible without. `intensity` IS the field (three's `mix(1.0, shadow,
+              // shadowIntensity)`, one write reaching the building shadows and the ground twins
+              // together) and had no readable copy anywhere except a cascade that may not exist;
+              // `groundOpacity` comes off the `ShadowMaterial` itself, so it reports the STALE
+              // value below the gate honestly instead of the value last written;
+              // `directShareK` is F1's live bound; `gateSin` says WHICH rig's gate is in play, so
+              // a harness never has to hardcode +0.4584° again.
+              intensity: sunLight.shadow.intensity,
+              groundOpacity: ground.shadowStrength(),
+              directShareK: ultraShadowDirectShareK,
+              gateSin: shadowGateSinNow,
               biasMetres: -sunLight.shadow.bias * (sunLight.shadow.camera.far - sunLight.shadow.camera.near),
               // RC4 view fit. `focusOffsetM` is the distance from the EYE'S GROUND POINT to the
               // box centre — 0 at nadir, ~d/2 when the box holds the whole look, and pinned at
@@ -3992,6 +4129,11 @@ export function attachStylizedTiles(opts: {
         dark: ground.uniforms.uFtwDark.value as number,
         fade: ground.uniforms.uFtwFade.value as number,
         "shadow.casting": sunLight ? sunLight.castShadow : null,
+        // The three ids the sunset shadow-release defect was invisible without (report §10):
+        // the field's own strength, the overlay the ground twins actually wear, and F1's bound.
+        "shadow.intensity": sunLight ? sunLight.shadow.intensity : null,
+        "shadow.groundOpacity": ground.shadowStrength(),
+        "shadow.directShareK": ultraShadowDirectShareK,
         "shadow.mapPx": sunLight ? sunLight.shadow.mapSize.x : null,
         "shadow.radius": sunLight ? sunLight.shadow.radius : null,
         "shadow.boundsM": sunLight ? sunLight.shadow.camera.right : null,
@@ -4010,6 +4152,14 @@ export function attachStylizedTiles(opts: {
           }
           return cover;
         })(),
+        // T77 A2 — the rig's own refresh policy. `refreshes` is CUMULATIVE (the feed's counter
+        // discipline: difference two reads, never display one), `ageMs` is the staleness clock the
+        // 1,000 ms safety net rides, and `snapTexels` is how far the last refresh had to slide the
+        // box to land on the lattice — it should sit well under 1, and a value that does not is
+        // the tell that the grid is being rebuilt rather than reused.
+        "shadow.rig.refreshes": _rig0.refreshes,
+        "shadow.rig.ageMs": _rig0.lastMs > 0 ? performance.now() - _rig0.lastMs : null,
+        "shadow.rig.snapTexels": _rig0.snapTexels,
         "cas1.active": _cascadeState[0]?.active ?? null,
         "cas1.mPerTexel": _cascadeState[0]?.metresPerTexel ?? null,
         "cas1.ageMs":
@@ -4069,6 +4219,7 @@ export function attachStylizedTiles(opts: {
       })),
       registerDebugProvider("terrain", () => {
         const memo = ground.heightMemoStats();
+        const memoAudit = ground.heightMemoAudit();
         const pick = ground.pickStats();
         const ph = ground.placeholderStats();
         return {
@@ -4079,7 +4230,12 @@ export function attachStylizedTiles(opts: {
           "memo.misses": memo.misses,
           "memo.entries": memo.entries,
           "memo.invalidations": memo.invalidations,
+          "memo.regionInvalidations": memo.regionInvalidations,
+          "memo.bucketsDropped": memo.bucketsDropped,
+          "memo.fullDrops": memo.fullDrops,
           "memo.overflows": memo.overflows,
+          "memo.staleChecks": memoAudit.staleChecks,
+          "memo.staleMismatches": memoAudit.staleMismatches,
           "pick.samples": pick.samples,
           "pick.parentWinRate": pick.parentWinRate,
           "esri.sentinels": ph?.sentinels ?? null,
@@ -4117,6 +4273,7 @@ export function attachStylizedTiles(opts: {
           priorityCells: c?.priorityCells ?? null,
           deferred: c?.deferred ?? null,
           rejected: c?.rejected ?? null,
+          collapsed: c?.collapsed ?? null, // T77 4a
           seatCacheHits: c?.seatCacheHits ?? null,
           seatCacheMisses: c?.seatCacheMisses ?? null,
           seatEpoch: s?.epoch ?? null,
@@ -4277,7 +4434,7 @@ export function attachStylizedTiles(opts: {
   const stepEnrichedUpdate = () => {
         // Dnipro 3D enrichment (Slice 0): stream the enriched tileset + R1 re-seat to the rendered
         // terrain. No-op when PUBLIC_ENRICHED_TILES_URL is unset (enriched === null).
-        enriched?.update();
+        enriched?.update(dtMs);
 
   };
 
@@ -4834,7 +4991,14 @@ export function attachStylizedTiles(opts: {
                 }
                 if (fpvWalkGroundM != null) {
                   const ref = tempPinAppliedM ?? tempPinGroundM;
-                  fpvWalkAppliedM = seatStep(fpvWalkAppliedM, fpvWalkGroundM - ref, FPV.walkReseatEaseK);
+                  // T77 lever 5: `walkReseatEaseK` is the 60 Hz equivalent; the eye correction
+                  // now runs on wall-clock time, so it does not crawl on the slow frames that
+                  // streaming under a walking viewer produces in the first place.
+                  fpvWalkAppliedM = seatStep(
+                    fpvWalkAppliedM,
+                    fpvWalkGroundM - ref,
+                    easeK(dtMs, FPV.walkReseatEaseTauMs),
+                  );
                   camera.position.addScaledVector(_fpvUpGeo, fpvWalkAppliedM);
                 }
               }
@@ -5648,7 +5812,25 @@ export function attachStylizedTiles(opts: {
     // per-pixel rotated a large radius degrades to noise rather than to banding.
     if (sunLight) {
       sunLight.shadow.radius = ultraOn ? ULTRA.shadowRadius : _shadowRadius0;
-      sunLight.shadow.normalBias = ultraOn ? ULTRA.shadowNormalBias : _shadowNormalBias0;
+      // T77 A1: the normal offset is METRIC when its texel tunable is on, and only the rig block
+      // knows the live extent, so it owns the write in that case. Writing the constant here too
+      // would put a visibly wrong offset on screen for the frames between a chip flip and the next
+      // CASTING frame (the rig block is gated on `castShadow`) — a flip at night would arrive at
+      // dawn with 0.45 m instead of the derived 1.5.
+      const nBiasT = ultraOn ? ULTRA.shadowNormalBiasTexels : SHADOWS.normalBiasTexels;
+      if (!(nBiasT > 0)) {
+        sunLight.shadow.normalBias = ultraOn ? ULTRA.shadowNormalBias : _shadowNormalBias0;
+      }
+      // T77 A2: the OFF edge restores three's every-frame path explicitly. The frame loop also
+      // self-heals (it re-reads the quanta from the live profile every frame), but a lever whose
+      // restore depends on the loop reaching a particular branch is the shape of the ULTRA
+      // off-state bugs this file has already paid for once.
+      if (!rigDemandDriven(
+        ultraOn ? ULTRA.shadowRigKeySnapTexels : SHADOWS.rigKeySnapTexels,
+        ultraOn ? ULTRA.shadowRigMoveTexels : SHADOWS.rigMoveTexels,
+      )) {
+        sunLight.shadow.autoUpdate = true;
+      }
     }
   };
 
@@ -5943,20 +6125,33 @@ export function attachStylizedTiles(opts: {
           const shadowEligible = alt < SHADOWS.maxAltM && !flatGroundNow();
           const sunDot = sunDirW.dot(_focusUp);
           const moonDot = moonDirW.dot(_focusUp);
-          const sunUp = sunDot > SHADOWS.minSunElevSin;
+          // THE gate, and the one line the whole sunset-release fix turns on. `sunDot` is
+          // sin(GEOMETRIC elevation) — `sunDirW` comes from `GeoVector(Body.Sun, …)`, airless by
+          // contract — so `SHADOWS.minSunElevSin` 0.008 is +0.4584° of real geometry and the sun's
+          // upper limb is still 5.9 minutes from setting there. Under ULTRA the gate is
+          // `ULTRA.shadowGateSin` = sin(−0.8333°), true sunset; the base rig is untouched.
+          const gateSin = ultraOn ? ULTRA.shadowGateSin : SHADOWS.minSunElevSin;
+          shadowGateSinNow = gateSin;
+          const sunUp = sunDot > gateSin;
           const sunShadows = shadowEligible && sunUp;
+          // The moon reads the SAME gate, and must: `moonReadyK` inside `sunKeyTroughK` ramps the
+          // moon's elevation against whichever profile is live, so a different threshold here
+          // would trough the sun key for a moon that then never takes over. It is also the more
+          // correct number — the lunar upper limb sets within an arc-minute of the solar one
+          // (34′ refraction + ~15.5′ semidiameter).
           moonShadows =
-            shadowEligible &&
-            !sunUp &&
-            moonDot > SHADOWS.minSunElevSin &&
-            moonIllum >= SHADOWS.moonMinIllum;
+            shadowEligible && !sunUp && moonDot > gateSin && moonIllum >= SHADOWS.moonMinIllum;
           // --- RC2 (owner bug B3): kill the boolean snap at the elevation gate. -----------------
           // Every hard flip that used to land on `minSunElevSin` — the shadow field, the sun→moon
           // key handoff, the dedicated moonlight standing down — is scaled by one of the ramps in
           // lib/globe/keyHandoff, which are built so that both arms reach zero contribution at the
           // crossing frame. The handoff weight below is the share of the moon key the RIG carries;
           // the dedicated light in scene/sky.ts carries the rest, so the two always sum to moonKs.
-          moonRigTakeover = moonShadows ? moonRigTakeoverK(sunDot, KEY_GATE) : 0;
+          // 2026-09-06: every SUN-driven ramp below reads `keyGate`, the ULTRA twin whose zero
+          // sits at true sunset. The MOON's own elevation ramps keep `KEY_GATE`'s band shape
+          // through the same object, because the twin differs only in where the crossing is.
+          const keyGate = ultraOn ? ULTRA_KEY_GATE : KEY_GATE;
+          moonRigTakeover = moonShadows ? moonRigTakeoverK(sunDot, keyGate) : 0;
           // RC4 — frame the rig on the VIEW. `_shadowFocus` is a GROUND point built from the eye,
           // never the screen-centre ellipsoid hit, so it exists at every pitch (see lib/globe/
           // shadowFit for why pitch, not altitude, decided foreground coverage before this).
@@ -5988,6 +6183,14 @@ export function attachStylizedTiles(opts: {
           // Per-mode shadow contrast (S7a): the flat dark drape carries a stronger overlay —
           // blended by the live dark fraction so the crossfade never steps the shadows.
           const dark01 = ground.darkBlend();
+          // F1's live bound, computed once per frame rather than inside the `sunShadows` arm, so
+          // `ultra.shadow.directShareK` reports THIS frame on a moon or non-casting frame instead
+          // of whatever the last sunlit one left behind. The moon arm carries its own opacity and
+          // no direct-sun arm at all, so its share is 1 by definition.
+          ultraShadowDirectShareK =
+            ultraOn && !moonShadows
+              ? Math.pow(shadowDirectShareK(ultraDirectK, ULTRA.groundAmbientK), ULTRA.shadowDirectSharePow)
+              : 1;
           if (moonShadows) {
             // Moon "golden hour": warm the cool moon key as the moon grazes the horizon (the SAME
             // golden bell, over MOON elevation) — mirrors the sun's dusk so both keys share one dusk
@@ -6006,7 +6209,7 @@ export function attachStylizedTiles(opts: {
             // RC2: fade the shadow field over BOTH gates the moon arm sits between — its own
             // elevation, and how far the sun has committed to being down. At the crossing frame
             // both are 0, which is where the sun arm's fade also lands.
-            sunLight.shadow.intensity = Math.min(aboveGateK(moonDot, KEY_GATE), moonRigTakeover);
+            sunLight.shadow.intensity = Math.min(aboveGateK(moonDot, keyGate), moonRigTakeover);
           } else {
             const goldenK = goldenFactor(sunDot, GOLDEN);
             sunLight.color.lerpColors(_keyWhite, _goldenCol, goldenK * GOLDEN.keyStrength);
@@ -6050,7 +6253,7 @@ export function attachStylizedTiles(opts: {
               SUN.keyIntensity *
               (1 + goldenK * GOLDEN.keyBrighten) *
               eclipseK *
-              sunKeyTroughK(sunDot, moonDot, moonIllum, KEY_GATE) *
+              sunKeyTroughK(sunDot, moonDot, moonIllum, keyGate) *
               // The extinction LEVEL. Exactly 1 with the chip off (`ultraDirectK` is seeded 1 and
               // the settle path restores it), so the baseline key is byte-identical.
               ultraDirectK;
@@ -6068,7 +6271,30 @@ export function attachStylizedTiles(opts: {
             // narrow band for the shadow field alone (still exactly 0 AT the gate, so the
             // teleport still happens at zero contribution) while the key trough and the moon
             // takeover keep the wide one. Byte-identical with the chip off.
-            sunLight.shadow.intensity = aboveGateK(sunDot, ultraOn ? ULTRA_SHADOW_GATE : KEY_GATE);
+            //
+            // SUNSET SHADOW-RELEASE (2026-09-06) — and the band is now anchored on TRUE SUNSET
+            // (`ULTRA_SHADOW_GATE`), with a second, GEOMETRIC bound stacked on it. `aboveGateK`
+            // answers "how far above its gate is the sun"; `shadowLengthK` answers the question
+            // the box actually cares about — "does the shadow this sun throws still FIT". A 100 m
+            // caster's shadow is 1.9 km at +3° and infinite at 0°, so past the fitted extent the
+            // field stops being a shadow and becomes a hard-edged slab thrown from the box edge
+            // (report §7, the only below-horizon failure mode that survives arithmetic). Inert
+            // above `atan(casterM / boundsM)` ≈ 0.54° at the Everest fit, so the raking hour the
+            // taste pass bought is untouched; exactly 1 with the chip off, where the guard is
+            // never consulted at all.
+            sunLight.shadow.intensity = ultraOn
+              ? aboveGateK(sunDot, ULTRA_SHADOW_GATE) *
+                shadowLengthK(
+                  sunDot,
+                  ULTRA.shadowLengthCasterM,
+                  // The reach is the LADDER's, not cascade 0's: under ULTRA the far cascades
+                  // (60 / 260 km) are what a kilometres-long sunset shadow lands in.
+                  shadowCascades.length > 0
+                    ? Math.max(shadowBoundsM, ...ULTRA.cascades.map((c) => c.maxBoundsM))
+                    : shadowBoundsM,
+                  ULTRA.shadowGateSin,
+                )
+              : aboveGateK(sunDot, KEY_GATE);
             if (sunShadows) {
               sunLight.position.copy(_shadowFocus).addScaledVector(sunDirW, shadowLightDistM);
               sunLight.target.position.copy(_shadowFocus);
@@ -6077,13 +6303,27 @@ export function attachStylizedTiles(opts: {
               // cascades exist to avoid). `duskK` is 0 above the band, so this is exactly the
               // shipped expression at any ordinary sun angle, and exactly it again with the chip
               // off.
-              const duskK = ultraOn ? 1 - aboveGateK(sunDot, KEY_GATE) : 0;
+              //
+              // F1, THE ONE FIX THAT REMOVES THE BRIGHTENING AT ANY GATE (2026-09-06). The lerp
+              // below is a `ShadowMaterial` opacity, i.e. a multiplier on the WHOLE composite,
+              // while a shadow physically removes only the DIRECT arm of the ground's split
+              // (`scene/imageryGround.ts:648-657`). Measured, the shipped overlay is 3.1–6.5×
+              // deeper than the direct light it stands for at every gate (report §6's budget
+              // table) — which is why MOVING the gate cannot fix this on its own, and why the
+              // in-shadow terrain came back × 5.22 brighter between the owner's two frames.
+              // `shadowDirectShareK` renormalises it onto the direct share, and the numbers that
+              // make it safe are exact rather than close: at `directK` 1 the factor is EXACTLY 1
+              // (the daytime overlay is byte-identical), and with the chip off `ultraDirectK` is
+              // seeded and re-settled to exactly 1, so the off-state is byte-identical too.
+              const duskK = ultraOn ? 1 - aboveGateK(sunDot, keyGate) : 0;
               ground.setShadowStrength(
                 THREE.MathUtils.lerp(
                   THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01),
                   ULTRA.groundShadowDuskK,
                   duskK,
-                ) * eclipseK,
+                ) *
+                  eclipseK *
+                  ultraShadowDirectShareK,
               );
             } else {
               // direction-only mode: keep the terminator agreement for building shading everywhere
@@ -6130,9 +6370,166 @@ export function attachStylizedTiles(opts: {
               // near→far range*, and it silently rescales whenever that range moves. The base
               // rig's −2e-4 over 7,000 m is −1.4 m; over ULTRA's ~96 km the SAME constant would
               // be −19 m and detach every shadow from its caster. Derive it from metres instead.
-              sunLight.shadow.bias = ultraOn
-                ? -ULTRA.shadowBiasM / Math.max(1, shCam.far - shCam.near)
-                : _shadowBias0;
+              //
+              // T77 SLICE A1 (2026-09-06) — and derive the METRES from TEXELS, through the same
+              // `texelBias` the cascade ladder has used since 2026-08-27, because that is the unit
+              // the artefact scales with. 62–75 % of the measured shimmer flips are ISOLATED
+              // pixels (`MEASUREMENTS` §8) — depth-compare acne — and cascade 0 was the only box
+              // in the rig still biased by hand: `SHADOWS.normalBias` 0.75 m is 0.31 texel at the
+              // FPV pose's 2.44 m/texel and `ULTRA.shadowNormalBias` 0.45 m is 0.13 texel at the
+              // city pose's 3.36 m, against the ladder's 1.5. This is the only place the extent
+              // (hence the texel size) is known to have changed, which is why the derivation lives
+              // inside the changed-only guard rather than on the per-frame path.
+              //
+              // BOTH ARMS KEEP THE OLD CONSTANT AT 0 TEXELS, and that arm is the literal shipped
+              // write, not an equal-looking value — the base profile ships at 0 (byte-identical
+              // `high`) and ULTRA ships the ladder's 0.6 / 1.5.
+              const mPerTexel = texelSizeM(b, sunLight.shadow.mapSize.x);
+              const biasT = ultraOn ? ULTRA.shadowBiasTexels : SHADOWS.biasTexels;
+              const nBiasT = ultraOn ? ULTRA.shadowNormalBiasTexels : SHADOWS.normalBiasTexels;
+              const tb = texelBias({
+                metresPerTexel: mPerTexel,
+                depthRangeM: shCam.far - shCam.near,
+                biasTexels: biasT,
+                normalBiasTexels: nBiasT,
+                // The contact guard. Cascade 0 is the only box whose contact points a viewer can
+                // stand next to, so unlike the ladder it is capped: 1.5 texels at the city pose is
+                // 5.0 m of normal offset, which would float every building off its own base.
+                normalBiasMaxM: SHADOWS.normalBiasMaxM,
+              });
+              sunLight.shadow.bias =
+                biasT > 0
+                  ? tb.bias
+                  : ultraOn
+                    ? -ULTRA.shadowBiasM / Math.max(1, shCam.far - shCam.near)
+                    : _shadowBias0;
+              sunLight.shadow.normalBias =
+                nBiasT > 0 ? tb.normalBiasM : ultraOn ? ULTRA.shadowNormalBias : _shadowNormalBias0;
+            }
+          }
+          // --- T77 SLICE A2/A3 (2026-09-06) — CASCADE 0 ON DEMAND, ON A TEXEL LATTICE. ----------
+          //
+          // MEASURED (`rendering/MEASUREMENTS_2026-09-05.md` §8): camera frozen, sun scrubbed
+          // 0.0082°/frame, and 8–19 % of the screen-space shadow mask flips EVERY frame while the
+          // true shadow edge moves ~0.0009 texel. The box is not what moves — `fitShadowBox` is a
+          // pure function of (alt, viewDist, profile) and every stored leg reports `boundsSteps`
+          // 0. The LIGHT is: the arms above re-place `sunLight.position` along the key every
+          // frame, `LightShadow.updateMatrices` re-runs `shadowCamera.lookAt(target)`
+          // (`LightShadow.js:206-213`), the light-space basis ROTATES, and the grid sweeps 0.29
+          // texel at the box edge — every flipped pixel is a re-rasterisation of an unchanged
+          // scene from a new sub-texel offset. The rig also re-renders its 4096²/8192² depth map
+          // every frame (`shadowMap.autoUpdate` is never cleared for it — only the cascades are
+          // demand-driven), which the perf baseline prices at −1.7 ms (fpv high), −6.9 (fpv
+          // ULTRA), −5.4 (city high) and −7.5 ms GPU (orbit ULTRA) if it stops.
+          //
+          // Four rules, three of them the ladder's own and one new:
+          //
+          //  · PER-LIGHT FLAG ONLY. `renderer.shadowMap.autoUpdate` is untouched:
+          //    `verify-audit3.mjs:256-259` asserts it TRUE at rest (the PiP bracket's restore
+          //    contract), and clearing it would silence the cascades and the moonlight too.
+          //  · MOVE ONLY WHEN REFRESHING. `WebGLShadowMap.js:170` skips a shadow whose
+          //    `autoUpdate` and `needsUpdate` are both false BEFORE `updateMatrices`, so a skipped
+          //    rig keeps a shadow matrix that still matches the map it rendered. Sampling a matrix
+          //    that no longer matches its map slides every shadow off its caster.
+          //  · SNAP JOINTLY. The centre delta goes onto the light AND its target, so the key
+          //    DIRECTION is unchanged and the box slides sideways by whole texels. It is purely
+          //    in-plane (`shadowSnap` pins `Δ·ẑ = 0`), so the light→focus distance — and therefore
+          //    the near/far the block above just derived — survives it exactly.
+          //  · THE OFF EDGE IS THE SHIPPED PATH. Both quanta 0 restores `shadow.autoUpdate = true`
+          //    and never consults the record, so `high` is byte-identical rather than merely
+          //    equivalent. That also covers the ULTRA chip flipping OFF: the quanta are re-read
+          //    from the live profile every frame, so the base 0/0 lands the frame after the flip
+          //    (`stepUltraGate` restores its own levers on the edge; this one self-heals).
+          _rigKey.copy(moonShadows ? moonDirW : sunDirW);
+          // A3 — the basis three will build `lookAt` from. OFF by default in BOTH profiles: an
+          // ECEF +Y `up` makes the texel grid's orientation a function of where on the planet you
+          // are, and it is degenerate at the subsolar point near 0°N 90°E (and its antipode) where
+          // the key is parallel to ECEF Y and x̂ = up × ẑ collapses and flips sign. Turning it on
+          // rotates the ULTRA grid and moves every pixel `verify-ultra` pins, so it is its own A/B.
+          if (sunLight.castShadow && SHADOWS.rigLocalUp) {
+            const shUp = sunLight.shadow.camera.up;
+            if (!rigUpDegenerate(_rigKey.dot(_focusUp))) {
+              shUp.copy(_focusUp);
+            } else {
+              // Local north: the ECEF spin axis, de-projected off the local up. Degenerate at the
+              // poles in turn (up IS ±Z), where three's constructed +Y is already a fine basis.
+              _rigNorth.set(0, 0, 1).addScaledVector(_focusUp, -_focusUp.z);
+              if (_rigNorth.lengthSq() > 1e-12) shUp.copy(_rigNorth.normalize());
+            }
+          }
+          {
+            const rigKeyT =
+              _rigOverride.keySnapTexels ??
+              (ultraOn ? ULTRA.shadowRigKeySnapTexels : SHADOWS.rigKeySnapTexels);
+            const rigMoveT =
+              _rigOverride.moveTexels ??
+              (ultraOn ? ULTRA.shadowRigMoveTexels : SHADOWS.rigMoveTexels);
+            _rig0.keySnapTexels = rigKeyT;
+            _rig0.moveTexels = rigMoveT;
+            _rig0.demand = rigDemandDriven(rigKeyT, rigMoveT) && sunLight.castShadow;
+            if (!_rig0.demand) {
+              sunLight.shadow.autoUpdate = true;
+              // A non-casting rig is skipped by three entirely, so there is no live map to keep in
+              // step — but the next casting frame must re-render from scratch. Same idiom the
+              // ladder uses for a dropped cascade.
+              if (!sunLight.castShadow) _rig0.halfExtentM = 0;
+            } else {
+              sunLight.shadow.autoUpdate = false;
+              const mapPx = sunLight.shadow.mapSize.x;
+              const mPerTexel = texelSizeM(shadowBoundsM, mapPx);
+              const epoch = ground.terrainEpoch();
+              const nowMs = performance.now();
+              const need = cascadeNeedsRender({
+                halfExtentM: shadowBoundsM,
+                appliedHalfExtentM: _rig0.halfExtentM,
+                centreDriftM: _rig0.centre.distanceTo(_shadowFocus),
+                keySwingRad: _rig0.keyDir.angleTo(_rigKey),
+                epoch,
+                appliedEpoch: _rig0.epoch,
+                ageMs: nowMs - _rig0.lastMs,
+                // The shared predicate takes the move quantum as a FRACTION of the half-extent (it
+                // was written for boxes whose texel size spans two orders of magnitude); express
+                // the texel quantum in those units rather than forking a tested predicate.
+                moveFrac: (rigMoveT * mPerTexel) / Math.max(1, shadowBoundsM),
+                swingRad: keySwingQuantumRad(rigKeyT, mapPx),
+                maxStaleMs: SHADOWS.rigMaxStaleMs,
+              });
+              if (need) {
+                const d = snapCentreDelta(
+                  [sunLight.position.x, sunLight.position.y, sunLight.position.z],
+                  [
+                    sunLight.target.position.x,
+                    sunLight.target.position.y,
+                    sunLight.target.position.z,
+                  ],
+                  [
+                    sunLight.shadow.camera.up.x,
+                    sunLight.shadow.camera.up.y,
+                    sunLight.shadow.camera.up.z,
+                  ],
+                  shadowBoundsM,
+                  mapPx,
+                );
+                _rigSnap.set(d[0], d[1], d[2]);
+                sunLight.position.add(_rigSnap);
+                sunLight.target.position.add(_rigSnap);
+                sunLight.shadow.needsUpdate = true;
+                _rig0.lightPos.copy(sunLight.position);
+                _rig0.targetPos.copy(sunLight.target.position);
+                _rig0.halfExtentM = shadowBoundsM;
+                _rig0.centre.copy(_shadowFocus);
+                _rig0.keyDir.copy(_rigKey);
+                _rig0.epoch = epoch;
+                _rig0.lastMs = nowMs;
+                _rig0.refreshes++;
+                _rig0.snapTexels = mPerTexel > 0 ? _rigSnap.length() / mPerTexel : 0;
+              } else {
+                // The whole point: restore the pose the live map was rendered from. Anything else
+                // — including the arms' own perfectly correct fresh placement — samples a matrix
+                // that no longer matches the map.
+                sunLight.position.copy(_rig0.lightPos);
+                sunLight.target.position.copy(_rig0.targetPos);
+              }
             }
           }
           // --- THE CASCADES (owner defect 1, 2026-08-27) -----------------------------------------
@@ -6259,10 +6656,13 @@ export function attachStylizedTiles(opts: {
           // the GROUND has gated its moon terms on moon elevation since S7 (`moonUp` in
           // imageryGround), and the buildings never did, so the two disagreed about whether the
           // moon was up. Same ramp the sun/moon handoff already uses; exactly 1 with the chip off.
+          // 2026-09-06: on the ULTRA twin, so it keeps agreeing with the rig's own moon gate now
+          // that `moonShadows` reads `ULTRA.shadowGateSin` — a lunar upper limb also sets ~50′
+          // below the geometric horizon.
           moonIntensity:
             moonKs *
             (1 - moonRigTakeover) *
-            (ultraOn ? aboveGateK(moonDirW.dot(_focusUp), KEY_GATE) : 1),
+            (ultraOn ? aboveGateK(moonDirW.dot(_focusUp), ULTRA_KEY_GATE) : 1),
           // Owner taste pass (2026-08-27c) — the disc now carries its own authored LEVEL curve
           // and an opacity ramp, because scaling an ADDITIVE impostor down can only ever dissolve
           // it into the sky (see SKY.discLevelCurve). `false` restores the shipped disc exactly.
@@ -6917,6 +7317,7 @@ export function attachStylizedTiles(opts: {
           enabled: !fpvActive,
           mapFlat: mapFlatNow(),
           viewportH: dom.clientHeight || 1,
+          dtMs,
         });
   };
 
@@ -7006,7 +7407,7 @@ export function attachStylizedTiles(opts: {
         const on = shellOn && cam.modelsVisible;
         userModels.setVisible(on);
         if (!on) disarmModel();
-        userModels.update(camera, frameCount);
+        userModels.update(camera, frameCount, dtMs);
         if (frameCount % MODELS.resnapEveryFrames === 0) userModels.resnap();
         if (frameCount % MODELS.densityMirrorEveryFrames === 0) {
           const c = userModels.counts();

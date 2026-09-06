@@ -72,6 +72,23 @@ describe("debugCatalog — the DBG window's display contract", () => {
     }
   });
 
+  it("the SUNSET SHADOW-RELEASE ids are present — the defect was invisible without them", () => {
+    // `verify-shots/sunset-lightpath-report.md` §10: the ground came back × 5.22 brighter as the
+    // shadow field was released and NOTHING in the catalogue could show it — there was no id for
+    // `sunLight.shadow.intensity` and none for the ground twins' opacity, so the only readable
+    // copy of the field's strength was a cascade that may not exist. Named individually rather
+    // than counted, because "three shadow ids" is satisfied by the wrong three.
+    const ids = new Set(DEBUG_METRICS.map((m) => m.id));
+    for (const id of [
+      "ultra.shadow.intensity",
+      "ultra.shadow.groundOpacity",
+      "ultra.shadow.directShareK",
+    ]) {
+      expect(ids.has(id), `missing debug id ${id}`).toBe(true);
+      expect(DEBUG_METRICS.find((m) => m.id === id)!.group).toBe("shadow");
+    }
+  });
+
   it("thresholds are sane: warnAbove/budget are finite when present", () => {
     for (const m of DEBUG_METRICS) {
       if (m.budget !== undefined) expect(Number.isFinite(m.budget)).toBe(true);

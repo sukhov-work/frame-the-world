@@ -71,6 +71,38 @@ export function seatStep(appliedM: number | null, targetM: number, easeK: number
   return appliedM + (targetM - appliedM) * easeK;
 }
 
+/**
+ * T77 NEW-3 — `seatStep` WITH A TAIL SNAP, so a seat actually LANDS.
+ *
+ * An exponential ease never reaches its target, and every seat writer in this app guards its
+ * write with a 1 cm "did anything move?" gate. Those two facts multiply: the ease writes only
+ * while its own step is ≥ the gate, so it parks the instant the STEP falls below it — at a
+ * residual of gate/easeK, which for the enriched seat is 0.01/0.12 = **8.3 cm**. Measured
+ * city-wide 2026-09-05 (`rendering/MEASUREMENTS_2026-09-05.md` §9): every settle leg ended at
+ * exactly 0.083 m, on every leg, forever. The building is 8 cm off the ground and nothing will
+ * ever move it again.
+ *
+ * The fix is not a smaller gate (that just moves the park point and pays more writes) but the
+ * idiom the rest of the repo already uses for the same tail: land exactly once the REMAINING
+ * distance is below a snap epsilon — `userModels.ts` (`MODELS.seatSnapM`), `featureTransform
+ * .easeXf`, and the U8 height-override tail all end this way. With the snap in place the write
+ * gate is redundant AND harmful, so callers drop it and compare against the previous applied
+ * value instead: once landed, `seatLand` returns that value unchanged and the write stops of its
+ * own accord, which is also what makes "settled" a real state rather than a rounding accident.
+ *
+ * `snapM` is the residual the seat is allowed to keep, not the step size — at the enriched ease
+ * (k 0.12, snap 5 mm) a −31.7 m leg lands exactly in ~69 frames instead of parking at 8.3 cm.
+ */
+export function seatLand(
+  appliedM: number | null,
+  targetM: number,
+  easeK: number,
+  snapM: number,
+): number {
+  const next = seatStep(appliedM, targetM, easeK);
+  return Math.abs(targetM - next) < snapM ? targetM : next;
+}
+
 /** An ECEF plane for three's `Material.clippingPlanes`: signed distance d(p) = normal·p + constant.
  *  three clips fragments with d < 0 (with `clipIntersection` only where ALL planes agree). */
 export interface EcefPlane {

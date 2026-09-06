@@ -26,7 +26,7 @@ import {
   regionCenterDeg,
   runCentroid,
   runIndexOfVertex,
-  seatStep,
+  seatLand,
   vertexKeyToRunWithCollisions,
   type FeatureRun,
   type GeoBbox,
@@ -55,6 +55,9 @@ import {
   type SpatialXf,
 } from "../../../lib/globe/featureTransform";
 import type { EffectiveOverride } from "../../../lib/globe/bldgSync";
+// T77 lever 5: dt → per-frame ease coefficient. The ONE such helper in the repo — every ease that
+// is frame-rate independent goes through it so the law cannot fork (`lightBands.ts:187`).
+import { easeK } from "../../../lib/globe/lightBands";
 import {
   type CellMeta,
   cellUriOf,
@@ -90,7 +93,7 @@ import { makeTileFoveation } from "./tileFoveation";
  * centre (`ENRICHED.reseatSamplesPerFrame` bounds the raycast cost), and offset the cell's scene in
  * the GROUP frame along the cell's geodetic up by (cell seat − centre seat) — the identical frame
  * and up-vector construction the browser-verified group lift uses, just per cell. First sample
- * snaps, refinements ease (`seatStep`). TRAP: `TilesGroup.updateMatrixWorld` only recurses into
+ * snaps, refinements ease (`seatLand`). TRAP: `TilesGroup.updateMatrixWorld` only recurses into
  * children when the GROUP matrix changed — every scene.position write must force
  * `scene.updateMatrixWorld(true)` itself (the library does the same on visibility flips).
  * The cell content shifts against its static bounding volume by |delta| ≤ a few tens of metres;
@@ -125,7 +128,7 @@ import { makeTileFoveation } from "./tileFoveation";
  * Sampling is budgeted (reseatFeatureSamplesPerFrame / reseatTreeSamplesPerFrame): half the budget
  * always goes to the cell NEAREST the camera (the street you stand on seats in ~1 s), half sweeps
  * all loaded cells round-robin. First sample SNAPS (tile is still streaming in), refinements ease
- * (`seatStep`); geometry bounding volumes get a one-time pad (reseatBoundsPadM). `seatState()`
+ * (`seatLand`); geometry bounding volumes get a one-time pad (reseatBoundsPadM). `seatState()`
  * exposes an epoch + quiet-frames counter so the orchestrator can invalidate a skyline profile
  * built over pre-seat geometry exactly once, after the writes settle.
  *
@@ -186,8 +189,11 @@ export interface GhostRig {
 }
 export interface EnrichedBuildingsHandle {
   tiles: TilesRenderer;
-  /** Per-frame: R1 re-seat to the rendered terrain + tile streaming/LOD. */
-  update(): void;
+  /** Per-frame: R1 re-seat to the rendered terrain + tile streaming/LOD. `dtMs` is the frame delta
+   *  ALREADY clamped by the orchestrator (`ORCH.maxFrameDtMs`) — T77 lever 5: every seat ease in
+   *  here is `easeK(dtMs, τ)`, so a 30 fps machine settles at the same wall-clock rate as a
+   *  120 fps one instead of at a quarter of it. */
+  update(dtMs: number): void;
   /** Adaptive quality (mirrors BuildingsHandle): raise screen-space error + bound LRU bytes on weaker
    *  tiers. `lruCapBytes` null → restore the captured library default. U5: `queueCaps` bounds the
    *  download/parse concurrency the same way (null → captured defaults). */
@@ -241,7 +247,13 @@ export interface EnrichedBuildingsHandle {
    *  `near*` twins are scoped to the RC7 look-cone priority cells — the only scope a settle bar
    *  can be held to (ENGINE_STATE §2.5: the city-wide round-robin cannot clear 1 cm in a test
    *  window). `frame` is this module's apply counter; pair every read with it. Plain field
-   *  reads — poll-safe at any cadence; a harness never has to walk debugSeats() per frame. */
+   *  reads — poll-safe at any cadence; a harness never has to walk debugSeats() per frame.
+   *
+   *  T77 NEW-3 adds `cellMaxResidualM` — the CELL layer's own largest residual. Without it this
+   *  object was checkable but not SUFFICIENT: every feature residual is measured against its own
+   *  cell plane, so a cell layer parked 8 cm off terrain reads as a perfectly settled city.
+   *  T77 4a adds `collapsed`, the APPLY-time poisoned-pair collapses `rejected` used to swallow
+   *  (a discarded sample moves nothing on screen; a collapse visibly drops a seated building). */
   seatSettle(): {
     frame: number;
     maxResidualM: number;
@@ -249,19 +261,23 @@ export interface EnrichedBuildingsHandle {
     nearMaxResidualM: number;
     nearMovedFeatures: number;
     nearCells: number;
+    cellMaxResidualM: number;
     epoch: number;
     quietFrames: number;
     deferred: number;
     rejected: number;
+    collapsed: number;
   };
   /** DEBUG HUD (owner 2026-09-01): cheap running counters — plain field reads, poll-safe.
    *  `deferred` counts null-TERRAIN sample deferrals (the burn rate debugSeats()'s `unseated`
-   *  backlog cannot show); `rejected` is the running twin of the per-cell gate counter. */
+   *  backlog cannot show); `rejected` is the running twin of the per-cell gate counter, and
+   *  `collapsed` (T77 4a) its apply-time half. */
   debugCounts(): {
     cells: number;
     priorityCells: number;
     deferred: number;
     rejected: number;
+    collapsed: number;
     seatCacheHits: number;
     seatCacheMisses: number;
   };
@@ -342,6 +358,20 @@ export interface EnrichedBuildingsHandle {
     xf?: SpatialXf,
   ): boolean;
   /** DEV introspection (window.__globe) — per-feature re-seat coverage + applied-delta spread. */
+  /** T77 slice B (DEV diagnostic) — the cells with the most plausibility-gate hits, each with its
+   *  plane (`seatM`, depth, gate width, dirty frames) and its worst features (`seatM`, depth,
+   *  applied, residual). The loop's ATTRIBUTION instrument: which cell, which tile depth, how far. */
+  debugCellSeats(limit?: number): Array<{
+    uri: string;
+    seatM: number | null;
+    seatDepth: number;
+    gateM: number;
+    reliefM: number;
+    rejected: number;
+    dirtyFrames: number;
+    features: number;
+    worst: Array<{ seatM: number | null; seatDepth: number; appliedM: number | null; residM: number }>;
+  }>;
   debugSeats(): {
     cells: number;
     located: number;
@@ -422,6 +452,10 @@ export function attachEnrichedBuildings(
     bbox: GeoBbox;
     /** Rendered-CWT ellipsoidal height sampler (ground.heightAt); null while tiles load. */
     terrainHeightAt: (latDeg: number, lonDeg: number) => number | null;
+    /** T77 slice B 4d — the same sampler with the answering tile's DEPTH (`ImageryGroundHandle.
+     *  sampleAt`). Optional so the /m twin and the tests' stubs keep the plain sampler; without
+     *  it every answer is depth `-1` = "cannot be judged", and the gate behaves as before. */
+    terrainSampleAt?: (latDeg: number, lonDeg: number) => { h: number; depth: number } | null;
     /** UPLIFT U5: the shared download-priority aim state (mirrors attachBuildings.loadAim). */
     loadAim: LoadAim;
     /** U8: persisted overrides for THIS variant — consulted per cell at load-model (LRU reloads
@@ -614,6 +648,9 @@ export function attachEnrichedBuildings(
     latDeg: number; // footprint sample point (lazy — needs a settled cell matrixWorld)
     lonDeg: number;
     seatM: number | null; // sticky last-good terrain at the footprint
+    /** T77 4d — the tile depth `seatM` was taken from (−1 = unknown). A SHALLOWER answer never
+     *  overwrites it: the fine tile was evicted, not the ground. */
+    seatDepth: number;
     appliedM: number | null; // delta currently baked into the geometry (null = on the cell plane)
     // U8 — pristine per-run capture (load-model, BEFORE any write; Y mutates afterward):
     /** The building's TRUE base in local Y. RC17 adds the RC13 skirt back onto the geometric
@@ -670,6 +707,11 @@ export function attachEnrichedBuildings(
      *  Poisoned-pair collapses push back onto this queue, which is why it is a queue and not a
      *  one-shot scan. */
     unseated: number[];
+    /** T77 4e — SEATED features whose held seat was carried through a cell-plane move and now
+     *  wants one refinement against the finer tile. Drained after `unseated` (a stale seat is not
+     *  the emergency an absent one is) and kept apart from it so RC7's invariant — the drain plus
+     *  the seated count never exceeds the feature total — stays true (it caught the first cut). */
+    refine: number[];
   }
   interface TreeSet {
     mesh: THREE.InstancedMesh;
@@ -677,9 +719,12 @@ export function attachEnrichedBuildings(
     lonDeg: Float64Array;
     seatM: Float32Array; // NaN = never sampled
     appliedM: Float32Array; // NaN = on the cell plane
+    seatDepth: Int16Array; // T77 4d — per instance, −1 = unknown (see FeatureSeat.seatDepth)
     cursor: number;
     /** RC7 — never-sampled instance indices, drained first (see MeshPart.unseated). */
     unseated: number[];
+    /** T77 4e — seated instances queued for one refinement (see MeshPart.refine). */
+    refine: number[];
   }
   interface CellSeat {
     scene: THREE.Object3D;
@@ -711,6 +756,14 @@ export function attachEnrichedBuildings(
      *  audit's gap #5 was that this number did not exist anywhere, so the gate could reject 100 %
      *  of a cell's samples forever and look exactly like a cell nobody had swept yet. */
     rejected: number;
+    /** T77 slice B 4c — frames left in which this cell's own plane is UNSETTLED (its sweep
+     *  sample just moved it by more than `ENRICHED.reseatCellSettleM`). While > 0 the apply-time
+     *  plausibility gate HOLDS an implausible feature instead of collapsing it: the pair is
+     *  expected to disagree exactly then, and collapsing on that disagreement was the
+     *  poisoned-pair loop (4,277 collapses in 1,512 frames at the FPV eye, 2026-09-06h). */
+    seatDirtyFrames: number;
+    /** T77 4d — the tile depth the cell's own `seatM` came from (−1 = unknown). */
+    seatDepth: number;
   }
   /**
    * RC9 — the seat cache that survives an LRU eviction.
@@ -993,6 +1046,19 @@ export function attachEnrichedBuildings(
   // per-cell twins live on CellSeat and are only reachable through debugSeats()'s full walk.
   let deferredN = 0; // null-TERRAIN sample deferrals (acceptSample h == null)
   let rejectedN = 0; // plausibility-gate rejections (twin of the per-cell `rejected`)
+  // T77 step 4a (2026-09-06) — the POISONED-PAIR collapses, counted separately from `rejectedN`.
+  // Both names describe a plausibility-gate failure, but they are different events with different
+  // costs: `rejectedN` is a SAMPLE thrown away at acceptSample time (the footprint keeps its old
+  // seat and nothing on screen moves), while this one fires at APPLY time, when a feature that
+  // was already seated is COLLAPSED back onto the cell plane — i.e. a building visibly drops by
+  // up to the cell gate and must be re-sampled from the head of the drain. Folding both into one
+  // counter is why the measurement could not tell "the gate is doing its job" from "buildings are
+  // being yanked around", so they are now two numbers. `rejectedN`'s meaning is unchanged; the
+  // per-cell `cell.rejected` still counts BOTH (it is the per-cell health total).
+  let collapsedN = 0;
+  /** T77 4d — answers refused because a SHALLOWER tile than the held seat's produced them (the
+   *  LRU had evicted the fine tile). Not a rejection: the ground did not move, the cache did. */
+  let shallowN = 0;
   // T77 MEASURE (2026-09-05) — seatSettle() accumulators, rewritten by every applyFeatureSeats()
   // pass. `prioritySet` mirrors `priorityCells` (rebuilt only when the ranking is), so the
   // near-scope test inside the apply loop is one Set.has per CELL, never an allocation per frame.
@@ -1000,6 +1066,11 @@ export function attachEnrichedBuildings(
   let applyMovedN = 0;
   let applyNearMaxResidualM = 0;
   let applyNearMovedN = 0;
+  // T77 NEW-3: the CELL layer's own residual. The feature residuals above are measured against
+  // (feature seat − cell seat), so a cell plane that never lands is invisible to them even though
+  // it moves every building on it — the metric was checkable but not SUFFICIENT. Reset by the
+  // per-cell pass in update(), read by seatSettle().
+  let applyCellMaxResidualM = 0;
   let prioritySet: Set<CellSeat> = new Set();
   const _w = new THREE.Vector3();
   const _m5 = new THREE.Vector3(); // RC0 M5 scratch (bake-height capture, once per cell)
@@ -1046,6 +1117,8 @@ export function attachEnrichedBuildings(
         reliefLoM: Infinity,
         reliefHiM: -Infinity,
         rejected: 0,
+        seatDirtyFrames: 0,
+        seatDepth: -1,
         bakedElevM: null,
       };
       // RC9: warm start. `appliedM` is restored as-is rather than eased back from null — the
@@ -1088,8 +1161,10 @@ export function attachEnrichedBuildings(
             lonDeg: new Float64Array(n),
             seatM: new Float32Array(n).fill(NaN),
             appliedM: new Float32Array(n).fill(NaN),
+            seatDepth: new Int16Array(n).fill(-1),
             cursor: 0,
             unseated: Array.from({ length: n }, (_v, i) => i), // RC7
+            refine: [],
           });
           // RC9: banked tree seats, matched by tree-set order and instance index (both are
           // fixed by the cell's own glb, so a mismatched length simply skips).
@@ -1210,6 +1285,7 @@ export function attachEnrichedBuildings(
                 latDeg: 0,
                 lonDeg: 0,
                 seatM: null,
+                seatDepth: -1,
                 appliedM: null,
                 baseY: m ? baseY + m.skirt : baseY,
                 topY,
@@ -1244,6 +1320,7 @@ export function attachEnrichedBuildings(
               cursor: 0,
               // RC7: everything starts unseated, in bake order.
               unseated: features.map((_f, i) => i),
+              refine: [], // T77 4e
             };
             // RC9: restore banked footprint seats before the sweep ever runs. Anything the cache
             // knows drops out of the unseated drain, so a returning street spends its budget on
@@ -1342,7 +1419,7 @@ export function attachEnrichedBuildings(
   let centreSampled = false; // per-cell deltas are meaningless until the base seat is real
   // U2/A5: the group lift itself was the ONE unsmoothed layer — a terrain-LOD refine at the bbox
   // centre stepped the whole city in a single frame (the "buildings re-seat at a new altitude"
-  // jump; cells/features already ease). The APPLIED seat now rides the same seatStep discipline
+  // jump; cells/features already ease). The APPLIED seat now rides the same seatLand discipline
   // (first sample snaps, refinements ease), and the per-cell targets reference the APPLIED value
   // so the sum (group + cell + feature) still converges on each footprint's own terrain.
   let seatAppliedM: number | null = null;
@@ -1385,6 +1462,50 @@ export function attachEnrichedBuildings(
     if (!Number.isFinite(observed) || observed <= 0) return ENRICHED.reseatFeatureMaxDeltaM;
     return Math.max(ENRICHED.reseatFeatureMaxDeltaM, observed * ENRICHED.reseatReliefK);
   };
+  /** T77 4e — a cell plane moved by `dM`: shift every held seat with it and queue the lot for a
+   *  fresh sample at the drain's TAIL (the head is the array END — `unseated.pop()`). O(features)
+   *  once per plane move; never touches an unsampled feature (its seat is the plane itself). */
+  const shiftCellSeats = (cell: CellSeat, dM: number): void => {
+    for (const part of cell.parts) {
+      const requeue: number[] = [];
+      for (let r = 0; r < part.features.length; r++) {
+        const f = part.features[r];
+        if (f.seatM == null) continue;
+        f.seatM += dM;
+        requeue.push(r);
+      }
+      if (requeue.length) part.refine = requeue.concat(part.refine);
+    }
+    for (const t of cell.trees) {
+      const requeue: number[] = [];
+      for (let i = 0; i < t.seatM.length; i++) {
+        if (Number.isNaN(t.seatM[i])) continue;
+        t.seatM[i] += dM;
+        requeue.push(i);
+      }
+      if (requeue.length) t.refine = requeue.concat(t.refine);
+    }
+  };
+  /** T77 4d — one terrain sample with its tile depth; the plain sampler when the depth-aware one
+   *  is not wired (depth −1). */
+  const sampleAt = (latDeg: number, lonDeg: number): { h: number; depth: number } | null => {
+    if (opts.terrainSampleAt) return opts.terrainSampleAt(latDeg, lonDeg);
+    const h = opts.terrainHeightAt(latDeg, lonDeg);
+    return h == null ? null : { h, depth: -1 };
+  };
+  /** T77 4d — may this answer replace the seat we hold? Only a depth that is KNOWN on both sides
+   *  and strictly shallower is refused; unknowns always pass (the pre-4d behaviour).
+   *
+   *  OFF by default (`ENRICHED.reseatDepthGuard`), and the browser said why (2026-09-06h): the
+   *  orbit ARRIVAL leg went from a city-wide p95 of 0.00 m to 33.5 m with the guard on. At 700 m
+   *  the traversal SETTLES coarser than the finest tile it passed through on the way, so the fine
+   *  tile is legitimately disposed — and a seat that refuses the resident tile's answer is a seat
+   *  against ground that is no longer drawn. Worse, the CELL plane and its features refuse at
+   *  different moments, which is the poisoned pair by another name (578 refusals, cell p95 8 m).
+   *  The seat must follow the RENDERED terrain, whatever its depth; LRU thrash at a static pose
+   *  is the LRU's defect (slice C/D), not the seat's. The counter stays as a diagnostic. */
+  const shallowerThanHeld = (heldDepth: number, depth: number): boolean =>
+    ENRICHED.reseatDepthGuard && heldDepth >= 0 && depth >= 0 && depth < heldDepth;
   const acceptSample = (h: number | null, cell: CellSeat): number | null => {
     // DEBUG HUD (owner 2026-09-01): `null` here has TWO causes and only rejection was counted —
     // the RC7 convergence stall (49.7 % with a full budget spent) was exactly the uncounted one,
@@ -1429,11 +1550,40 @@ export function attachEnrichedBuildings(
         const i = part.unseated.pop() as number;
         const f = part.features[i];
         spent++;
-        const c = acceptSample(opts.terrainHeightAt(f.latDeg, f.lonDeg), cell);
-        if (c != null) f.seatM = c;
-        else deferred.push(i); // try again next pass, behind everything not yet tried
+        const smp = sampleAt(f.latDeg, f.lonDeg);
+        if (smp && shallowerThanHeld(f.seatDepth, smp.depth) && f.seatM != null) {
+          shallowN++; // 4d: the fine tile left, the ground did not — keep the seat we hold
+          continue;
+        }
+        const c = acceptSample(smp ? smp.h : null, cell);
+        if (c != null) {
+          f.seatM = c;
+          f.seatDepth = smp ? smp.depth : -1;
+        } else deferred.push(i); // try again next pass, behind everything not yet tried
       }
       for (const i of deferred) part.unseated.unshift(i);
+      if (spent >= budget) return spent;
+    }
+    // Pass 1b (T77 4e) — the refinement queue: seated features carried through a plane move.
+    for (const part of cell.parts) {
+      while (spent < budget && part.refine.length > 0) {
+        const i = part.refine.pop() as number;
+        const f = part.features[i];
+        if (f.seatM == null) continue; // collapsed meanwhile — it is in `unseated` now
+        spent++;
+        const smp = sampleAt(f.latDeg, f.lonDeg);
+        if (smp && shallowerThanHeld(f.seatDepth, smp.depth)) {
+          shallowN++;
+          continue;
+        }
+        const c = acceptSample(smp ? smp.h : null, cell);
+        if (c != null) {
+          f.seatM = c;
+          f.seatDepth = smp ? smp.depth : -1;
+        }
+        // A refused/absent answer is NOT re-queued: the carried seat is a fine estimate and the
+        // round-robin below revisits it anyway.
+      }
       if (spent >= budget) return spent;
     }
     // Pass 2 — refresh, round-robin within the cell (the pre-RC7 behaviour, on what is left).
@@ -1442,8 +1592,16 @@ export function attachEnrichedBuildings(
       const k = Math.min(budget - spent, part.features.length);
       for (let i = 0; i < k; i++) {
         const f = part.features[part.cursor++ % part.features.length];
-        const c = acceptSample(opts.terrainHeightAt(f.latDeg, f.lonDeg), cell);
-        if (c != null) f.seatM = c;
+        const smp = sampleAt(f.latDeg, f.lonDeg);
+        if (smp && shallowerThanHeld(f.seatDepth, smp.depth) && f.seatM != null) {
+          shallowN++;
+          continue;
+        }
+        const c = acceptSample(smp ? smp.h : null, cell);
+        if (c != null) {
+          f.seatM = c;
+          f.seatDepth = smp ? smp.depth : -1;
+        }
       }
       part.cursor %= Math.max(1, part.features.length);
       spent += k;
@@ -1462,11 +1620,37 @@ export function attachEnrichedBuildings(
       while (spent < budget && t.unseated.length > 0) {
         const idx = t.unseated.pop() as number;
         spent++;
-        const c = acceptSample(opts.terrainHeightAt(t.latDeg[idx], t.lonDeg[idx]), cell);
-        if (c != null) t.seatM[idx] = c;
-        else deferred.push(idx); // back of the queue — see sampleFeatures
+        const smp = sampleAt(t.latDeg[idx], t.lonDeg[idx]);
+        if (smp && shallowerThanHeld(t.seatDepth[idx], smp.depth) && !Number.isNaN(t.seatM[idx])) {
+          shallowN++;
+          continue;
+        }
+        const c = acceptSample(smp ? smp.h : null, cell);
+        if (c != null) {
+          t.seatM[idx] = c;
+          t.seatDepth[idx] = smp ? smp.depth : -1;
+        } else deferred.push(idx); // back of the queue — see sampleFeatures
       }
       for (const idx of deferred) t.unseated.unshift(idx);
+      if (spent >= budget) return spent;
+    }
+    for (const t of cell.trees) {
+      // T77 4e — the refinement queue (see sampleFeatures pass 1b).
+      while (spent < budget && t.refine.length > 0) {
+        const idx = t.refine.pop() as number;
+        if (Number.isNaN(t.seatM[idx])) continue;
+        spent++;
+        const smp = sampleAt(t.latDeg[idx], t.lonDeg[idx]);
+        if (smp && shallowerThanHeld(t.seatDepth[idx], smp.depth)) {
+          shallowN++;
+          continue;
+        }
+        const c = acceptSample(smp ? smp.h : null, cell);
+        if (c != null) {
+          t.seatM[idx] = c;
+          t.seatDepth[idx] = smp ? smp.depth : -1;
+        }
+      }
       if (spent >= budget) return spent;
     }
     for (const t of cell.trees) {
@@ -1475,8 +1659,16 @@ export function attachEnrichedBuildings(
       const k = Math.min(budget - spent, n);
       for (let i = 0; i < k; i++) {
         const idx = t.cursor++ % n;
-        const c = acceptSample(opts.terrainHeightAt(t.latDeg[idx], t.lonDeg[idx]), cell);
-        if (c != null) t.seatM[idx] = c;
+        const smp = sampleAt(t.latDeg[idx], t.lonDeg[idx]);
+        if (smp && shallowerThanHeld(t.seatDepth[idx], smp.depth) && !Number.isNaN(t.seatM[idx])) {
+          shallowN++;
+          continue;
+        }
+        const c = acceptSample(smp ? smp.h : null, cell);
+        if (c != null) {
+          t.seatM[idx] = c;
+          t.seatDepth[idx] = smp ? smp.depth : -1;
+        }
       }
       t.cursor %= n;
       spent += k;
@@ -1487,8 +1679,13 @@ export function attachEnrichedBuildings(
 
   /** Apply pass: ease every sampled building/tree toward (its seat − the CELL's target seat) —
    *  the cell scene supplies the rest, so the sum converges on the footprint's own terrain.
-   *  Cheap compares over everything loaded (~0.2 ms); writes touch only pending runs. */
-  const applyFeatureSeats = (): boolean => {
+   *  Cheap compares over everything loaded (~0.2 ms); writes touch only pending runs.
+   *
+   *  T77 lever 5: `kSeat` / `kXf` are the frame's ease coefficients, computed ONCE per frame by
+   *  `update()` from `dtMs`. They are passed in rather than recomputed here because this pass
+   *  runs over every resident feature — an `easeK()` per feature would be tens of thousands of
+   *  `Math.exp` calls a frame for a value that is constant across the pass by construction. */
+  const applyFeatureSeats = (kSeat: number, kXf: number): boolean => {
     let wrote = false;
     // T77 MEASURE: the settle accumulators are per-PASS — reset here, read by seatSettle().
     applyMaxResidualM = 0;
@@ -1513,13 +1710,27 @@ export function attachEnrichedBuildings(
             // the stale feature seat drags the building tens of metres. An implausible delta at
             // APPLY time collapses back to the cell plane and re-samples on the next round-robin.
             if (Math.abs(target) > cellGateM(cell)) {
+              // T77 slice B 4b/4c (2026-09-06h): NEVER drop the building to the cell plane. The
+              // old `target = 0` slammed a feature whose OWN ground had not moved down onto the
+              // plane and then eased it back up as soon as the drain re-sampled it — two large
+              // writes and a visible drop, per collapse, forever at a streaming pose. Now: while
+              // the cell's plane is itself unsettled (4c) the pair is EXPECTED to disagree, so
+              // hold the applied seat and say nothing; once it has settled and the pair is still
+              // implausible (4b), freeze the applied seat, forget the feature's sample and put it
+              // at the head of the drain — it re-seats from wherever it stands.
+              if (cell.seatDirtyFrames > 0) continue;
               f.seatM = null;
               cell.rejected++;
+              collapsedN++; // T77 4a: an APPLY-time collapse, not a discarded sample
               part.unseated.push(r); // RC7: back to the head of the drain, not the round-robin
-              target = 0;
+              continue;
             }
-            const next = seatStep(f.appliedM, target, ENRICHED.reseatEaseK);
-            if (f.appliedM == null || Math.abs(next - f.appliedM) >= 0.01) {
+            // T77 NEW-3: `seatLand`, and NO 1 cm write gate. The gate was what stopped the seat
+            // landing (it parked every ease at 0.01/k = 8.3 cm and then never wrote again); with
+            // the tail snap the ease reaches the target exactly and `next === f.appliedM` becomes
+            // the settled test — self-terminating, and true rather than approximately true.
+            const next = seatLand(f.appliedM, target, kSeat, ENRICHED.seatSnapM);
+            if (next !== f.appliedM) {
               dy = next - (f.appliedM ?? 0);
               f.appliedM = next;
               applyMovedN++;
@@ -1536,7 +1747,7 @@ export function attachEnrichedBuildings(
           // the poisoned-pair collapse is a pure translation and passes through the scale intact.
           let ratio = 1;
           if (f.scaleK !== f.appliedK) {
-            let nextK = f.appliedK + (f.scaleK - f.appliedK) * ENRICHED.overrideEaseK;
+            let nextK = f.appliedK + (f.scaleK - f.appliedK) * kXf;
             if (Math.abs(f.scaleK - nextK) < 0.002) nextK = f.scaleK; // snap the ease tail
             ratio = nextK / f.appliedK;
             f.appliedK = nextK;
@@ -1548,7 +1759,7 @@ export function attachEnrichedBuildings(
           let xfMoved = false;
           let xfSettledIdentity = false;
           if (f.axf) {
-            const e = easeXf(f.axf, f.xf ?? IDENTITY_XF, ENRICHED.overrideEaseK);
+            const e = easeXf(f.axf, f.xf ?? IDENTITY_XF, kXf);
             f.axf = e.next;
             xfMoved = e.moved;
             xfSettledIdentity = e.settled && f.xf === null;
@@ -1634,13 +1845,21 @@ export function attachEnrichedBuildings(
           const applied = t.appliedM[i];
           let target = s - cell.seatM;
           if (Math.abs(target) > cellGateM(cell)) {
-            t.seatM[i] = NaN; // poisoned pair — back to the cell plane, re-sample later
+            // T77 slice B 4b/4c — the buildings' rule, verbatim: hold while the cell plane is
+            // unsettled, otherwise freeze in place and re-queue (never drop to the plane).
+            if (cell.seatDirtyFrames > 0) continue;
+            t.seatM[i] = NaN; // poisoned pair — forget the sample, re-seat from where it stands
             cell.rejected++;
+            collapsedN++; // T77 4a: an APPLY-time collapse, not a discarded sample
             t.unseated.push(i); // RC7: re-queued at the head of the drain
-            target = 0;
+            continue;
           }
-          const next = Number.isNaN(applied) ? target : applied + (target - applied) * ENRICHED.reseatEaseK;
-          if (!Number.isNaN(applied) && Math.abs(next - applied) < 0.01) continue;
+          // T77 NEW-3: same landing law as the buildings (the tree array carries its "unseated"
+          // state as NaN rather than null, hence the conversion). `next === applied` is false for
+          // a NaN `applied` — NaN !== NaN — so a first sample still writes and still snaps.
+          const prev = Number.isNaN(applied) ? null : applied;
+          const next = seatLand(prev, target, kSeat, ENRICHED.seatSnapM);
+          if (next === applied) continue; // settled: the ease has landed, nothing to write
           arr[i * 16 + 13] += next - (Number.isNaN(applied) ? 0 : applied);
           t.appliedM[i] = next;
           touched = true;
@@ -1659,18 +1878,27 @@ export function attachEnrichedBuildings(
 
   return {
     tiles,
-    update() {
+    update(dtMs) {
       if (!active) return; // detached: no reveal clock, no streaming, no re-seat writes
       uniforms.uNowMs.value = performance.now(); // F1: advance the shared reveal clock before the draw
       frameNo++;
+      // T77 lever 5: ONE `easeK` per frame for the whole tileset — the group seat, every cell
+      // seat, every building and every tree ride the same coefficient by construction, so they
+      // cannot slide at different rates on a slow frame. `dtMs` arrives already clamped by the
+      // orchestrator (`ORCH.maxFrameDtMs`), and `easeK` clamps again for safety.
+      const kSeat = easeK(dtMs, ENRICHED.reseatEaseTauMs);
+      const kXf = easeK(dtMs, ENRICHED.overrideEaseTauMs);
       if (ENRICHED.reseatToTerrain) {
         const h = opts.terrainHeightAt(centre.latDeg, centre.lonDeg);
         if (h != null) {
           seatM = clampGroundM(h); // sticky; ignore null/garbage
           centreSampled = true;
         }
-        // U2/A5: apply the EASED seat (seatStep: first real sample snaps, refinements slide).
-        if (centreSampled) seatAppliedM = seatStep(seatAppliedM, seatM, ENRICHED.reseatEaseK);
+        // U2/A5: apply the EASED seat (first real sample snaps, refinements slide). T77 NEW-3:
+        // `seatLand`, so the GROUP seat lands too — every cell and feature target is expressed
+        // relative to it, so a group ease that asymptotes leaves the whole city short by the
+        // same residual and no per-feature landing can recover it.
+        if (centreSampled) seatAppliedM = seatLand(seatAppliedM, seatM, kSeat, ENRICHED.seatSnapM);
         const seatRefM = seatAppliedM ?? seatM;
         tiles.group.position.copy(_up).multiplyScalar(seatRefM + ENRICHED.seatOffsetM);
 
@@ -1680,11 +1908,39 @@ export function attachEnrichedBuildings(
           const n = Math.min(ENRICHED.reseatSamplesPerFrame, cellList.length);
           for (let i = 0; i < n; i++) {
             const cell = cellList[rrCursor++ % cellList.length];
-            const ch = opts.terrainHeightAt(cell.latDeg, cell.lonDeg);
-            if (ch != null) cell.seatM = clampGroundM(ch);
+            const cs = sampleAt(cell.latDeg, cell.lonDeg);
+            // T77 4d: a cell plane taken from a fine tile is never replaced by its coarse parent.
+            if (cs && shallowerThanHeld(cell.seatDepth, cs.depth) && cell.seatM != null) {
+              shallowN++;
+            } else if (cs) {
+              cell.seatDepth = cs.depth;
+              const nextSeat = clampGroundM(cs.h);
+              // T77 slice B 4c: a cell plane that just moved by more than the settle bound is
+              // UNSETTLED for a few frames — the apply-time gate holds instead of collapsing while
+              // the features under it re-sample against the new plane.
+              if (
+                cell.seatM != null &&
+                Math.abs(nextSeat - cell.seatM) > ENRICHED.reseatCellSettleM
+              ) {
+                cell.seatDirtyFrames = ENRICHED.reseatCellSettleFrames;
+                // T77 slice B 4e (2026-09-06h, browser-attributed): CARRY the plane move. Every
+                // feature seat in this cell was sampled against the OLD plane, so the pair
+                // `f.seatM − cell.seatM` is about to disagree by exactly this delta — the whole
+                // poisoned-pair mechanism, measured at the FPV boot as the terrain refined depth
+                // 7 → 8 → 9 → 15 → 17 (plane 0 → 45 → 86 m): each step collapsed every feature
+                // of every cell it moved (889 + 968 collapses in two ticks) and re-drained them
+                // all. Shifting the held seats by the same delta keeps every target CONTINUOUS
+                // (no collapse, no jump — the building rides the cell ease), and queueing them at
+                // the drain's TAIL refines each one exactly once against the finer tile.
+                shiftCellSeats(cell, nextSeat - cell.seatM);
+              }
+              cell.seatM = nextSeat;
+            }
           }
           if (rrCursor >= cellList.length) rrCursor %= cellList.length;
+          applyCellMaxResidualM = 0; // T77 NEW-3: per-PASS, like the feature accumulators
           for (const cell of cellList) {
+            if (cell.seatDirtyFrames > 0) cell.seatDirtyFrames--; // T77 4c: one frame of grace
             if (cell.seatM == null) continue; // unsampled → stays on the centre-seat plane
             // RC0 M5 (once per cell): what height the BAKE claims for this cell, group lift
             // removed. `basePos` is the position the library decomposed at load — pristine, and
@@ -1698,8 +1954,17 @@ export function attachEnrichedBuildings(
             // U2/A5: target references the APPLIED group seat — while the group ease is mid-slide
             // a sampled cell's sum stays exactly on its own terrain (a centre refine is about the
             // centre, not this cell), and unsampled cells ride the group ease smoothly.
-            const next = seatStep(cell.appliedM, cell.seatM - seatRefM, ENRICHED.reseatEaseK);
-            if (cell.appliedM != null && Math.abs(next - cell.appliedM) < 0.01) continue; // settled
+            const cellTarget = cell.seatM - seatRefM;
+            // T77 NEW-3: land the cell plane exactly (see `seatLand`). The 1 cm gate that used to
+            // guard this write parked every cell 8.3 cm off its own terrain, and every building
+            // on it inherited that error on top of its own.
+            const next = seatLand(cell.appliedM, cellTarget, kSeat, ENRICHED.seatSnapM);
+            // The residual LEFT after this frame's ease (same reading as the feature residuals):
+            // 0 once the plane has landed, so a stuck cell layer shows up as a number instead of
+            // hiding behind feature residuals that are measured RELATIVE to it.
+            const cellResid = Math.abs(cellTarget - next);
+            if (cellResid > applyCellMaxResidualM) applyCellMaxResidualM = cellResid;
+            if (next === cell.appliedM) continue; // settled
             cell.appliedM = next;
             cell.scene.position.copy(cell.basePos).addScaledVector(cell.up, next);
             // TilesGroup only recurses into children when ITS matrix changed — force the update.
@@ -1722,31 +1987,66 @@ export function attachEnrichedBuildings(
               priorityCells = rankPriorityCells();
               prioritySet = new Set(priorityCells); // T77: the seatSettle() near-scope mirror
             }
-            let fb = ENRICHED.reseatFeatureSamplesPerFrame;
-            const fRr = Math.max(1, Math.round(fb * ENRICHED.reseatRoundRobinShare));
-            let fPri = fb - fRr;
-            for (const cell of priorityCells) {
-              if (fPri <= 0) break;
-              fPri -= sampleFeatures(cell, fPri);
+            // T77 slice B 5c (2026-09-06h): the per-frame COUNT is a floor, a MILLISECOND budget
+            // is the ceiling. The count was sized for raycasts (0.02–0.07 ms each); a drain of
+            // plane-shifted seats (4e) re-asks questions the memo already holds, at microseconds
+            // each, and at 64 a frame the 39k-feature / 60k-tree refinement took ~40 s after the
+            // stream had quieted — the one thing left between the FPV eye and "no write 90 frames
+            // after quiet". So: spend the count, then keep draining while there is something
+            // queued AND `reseatBudgetMs` of this frame is unspent, up to `reseatBudgetMaxMul`×.
+            const sampleT0 = performance.now();
+            const budgetMs = ENRICHED.reseatBudgetMs;
+            const runFeatureRound = (budget: number): number => {
+              let fb = budget;
+              const fRr = Math.max(1, Math.round(fb * ENRICHED.reseatRoundRobinShare));
+              let fPri = fb - fRr;
+              for (const cell of priorityCells) {
+                if (fPri <= 0) break;
+                fPri -= sampleFeatures(cell, fPri);
+              }
+              fb = fRr + Math.max(0, fPri); // unspent priority budget falls through to the sweep
+              for (let g = 0; g < cellList.length && fb > 0; g++)
+                fb -= sampleFeatures(cellList[cellSweep++ % cellList.length], fb);
+              return budget - fb;
+            };
+            const runTreeRound = (budget: number): number => {
+              let tb = budget;
+              const tRr = Math.max(1, Math.round(tb * ENRICHED.reseatRoundRobinShare));
+              let tPri = tb - tRr;
+              for (const cell of priorityCells) {
+                if (tPri <= 0) break;
+                tPri -= sampleTrees(cell, tPri);
+              }
+              tb = tRr + Math.max(0, tPri);
+              for (let g = 0; g < cellList.length && tb > 0; g++)
+                tb -= sampleTrees(cellList[treeSweep++ % cellList.length], tb);
+              return budget - tb;
+            };
+            const drainPending = (): boolean => {
+              for (const cell of cellList) {
+                for (const part of cell.parts)
+                  if (part.unseated.length > 0 || part.refine.length > 0) return true;
+                for (const t of cell.trees) if (t.unseated.length > 0 || t.refine.length > 0) return true;
+              }
+              return false;
+            };
+            runFeatureRound(ENRICHED.reseatFeatureSamplesPerFrame);
+            runTreeRound(ENRICHED.reseatTreeSamplesPerFrame);
+            for (
+              let extra = 1;
+              extra < ENRICHED.reseatBudgetMaxMul &&
+              performance.now() - sampleT0 < budgetMs &&
+              drainPending();
+              extra++
+            ) {
+              runFeatureRound(ENRICHED.reseatFeatureSamplesPerFrame);
+              runTreeRound(ENRICHED.reseatTreeSamplesPerFrame);
             }
-            fb = fRr + Math.max(0, fPri); // unspent priority budget falls through to the sweep
-            for (let g = 0; g < cellList.length && fb > 0; g++)
-              fb -= sampleFeatures(cellList[cellSweep++ % cellList.length], fb);
-            let tb = ENRICHED.reseatTreeSamplesPerFrame;
-            const tRr = Math.max(1, Math.round(tb * ENRICHED.reseatRoundRobinShare));
-            let tPri = tb - tRr;
-            for (const cell of priorityCells) {
-              if (tPri <= 0) break;
-              tPri -= sampleTrees(cell, tPri);
-            }
-            tb = tRr + Math.max(0, tPri);
-            for (let g = 0; g < cellList.length && tb > 0; g++)
-              tb -= sampleTrees(cellList[treeSweep++ % cellList.length], tb);
             if (cellList.length > 0) {
               cellSweep %= cellList.length;
               treeSweep %= cellList.length;
             }
-            if (applyFeatureSeats()) {
+            if (applyFeatureSeats(kSeat, kXf)) {
               seatEpochN++;
               seatQuietN = 0;
             } else {
@@ -1831,10 +2131,15 @@ export function attachEnrichedBuildings(
       nearMaxResidualM: applyNearMaxResidualM,
       nearMovedFeatures: applyNearMovedN,
       nearCells: priorityCells.length,
+      // T77 NEW-3: the CELL layer's residual, so "is the seat settled?" is answerable from this
+      // one object. Feature residuals are relative to the cell plane and are silent about it.
+      cellMaxResidualM: applyCellMaxResidualM,
       epoch: seatEpochN,
       quietFrames: seatQuietN,
       deferred: deferredN,
       rejected: rejectedN,
+      collapsed: collapsedN, // T77 4a
+      shallow: shallowN, // T77 4d: coarse-parent answers refused (the LRU, not the ground, moved)
     }),
     // DEBUG HUD (owner 2026-09-01) — the CHEAP counters: plain field reads, safe at poll
     // cadence. Everything richer (per-cell breakdowns, m5 rings, skirt/pickFence walks) stays
@@ -1844,6 +2149,7 @@ export function attachEnrichedBuildings(
       priorityCells: priorityCells.length,
       deferred: deferredN,
       rejected: rejectedN,
+      collapsed: collapsedN, // T77 4a
       seatCacheHits,
       seatCacheMisses,
     }),
@@ -2020,6 +2326,40 @@ export function attachEnrichedBuildings(
         .set(f.cx + x.tE, liveBase + x.tU + (f.topY - f.baseY) * k, f.cz - x.tN)
         .applyMatrix4(found.part.mesh.matrixWorld);
       return true;
+    },
+    debugCellSeats(limit = 8) {
+      const rows = [...cellList]
+        .sort((a, b) => b.rejected - a.rejected)
+        .slice(0, limit)
+        .map((cell) => {
+          const worst: Array<{ seatM: number | null; seatDepth: number; appliedM: number | null; residM: number }> = [];
+          let features = 0;
+          for (const part of cell.parts) {
+            for (const f of part.features) {
+              features++;
+              const target = f.seatM != null && cell.seatM != null ? f.seatM - cell.seatM : 0;
+              const residM = Math.abs(target - (f.appliedM ?? 0));
+              if (worst.length < 4 || residM > worst[worst.length - 1].residM) {
+                worst.push({ seatM: f.seatM, seatDepth: f.seatDepth, appliedM: f.appliedM, residM });
+                worst.sort((a, b) => b.residM - a.residM);
+                if (worst.length > 4) worst.pop();
+              }
+            }
+          }
+          const reliefM = cell.reliefHiM - cell.reliefLoM;
+          return {
+            uri: cell.uri,
+            seatM: cell.seatM,
+            seatDepth: cell.seatDepth,
+            gateM: cellGateM(cell),
+            reliefM: Number.isFinite(reliefM) ? reliefM : 0,
+            rejected: cell.rejected,
+            dirtyFrames: cell.seatDirtyFrames,
+            features,
+            worst,
+          };
+        });
+      return rows;
     },
     debugSeats() {
       let located = 0;

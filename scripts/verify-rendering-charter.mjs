@@ -235,6 +235,11 @@ const gateProbe = `(() => {
     castShadow: L.castShadow,
     colorHex: L.color.getHex(),
     boundsM: s ? s.boundsM : null,
+    // The rig's LIVE gate, published since the 2026-09-06 sunset shadow-release. Hardcoding
+    // +0.4584° here would make this check fire on whichever rig the verify Chrome happened to
+    // boot with: under ULTRA the crossing is now ULTRA.shadowGateSin = sin(−0.8333°), the sun's
+    // own upper limb, while the base rig keeps SHADOWS.minSunElevSin.
+    gateSin: s ? s.gateSin : null,
     sunAltDeg: ${SUN_ALT_DEG},
   };
 })()`;
@@ -303,12 +308,13 @@ ok(
   `RC2: the key light is continuous through the source switch too (max step ${keyStep.toFixed(4)})`,
 );
 // The headline: the trough is where the rig CHANGES SOURCE, and both arms are at zero there.
+const gateDeg = (Math.asin(trough.gateSin ?? 0.008) * 180) / Math.PI;
 note(
   `RC2 the trough sits at sun elevation ${trough.sunAltDeg.toFixed(3)} deg — ` +
-    `SHADOWS.minSunElevSin is asin(0.008) = 0.458 deg`,
+    `the rig reports its gate as asin(${trough.gateSin}) = ${gateDeg.toFixed(3)} deg`,
 );
 ok(
-  Math.abs(trough.sunAltDeg - 0.458) < 0.1,
+  trough.gateSin !== null && Math.abs(trough.sunAltDeg - gateDeg) < 0.1,
   "RC2: the trough lands exactly on the source gate, not somewhere else",
 );
 ok(
@@ -725,7 +731,8 @@ for (let i = 0; i < 60 && memo.hitRate <= 0.25; i++) {
 measured.RC11 = memo;
 note(
   `RC11 height memo: ${memo.hits} hits / ${memo.misses} misses (${(memo.hitRate * 100).toFixed(1)}%), ` +
-    `${memo.entries} entries at epoch ${memo.epoch}, ${memo.invalidations} epoch drops, ` +
+    `${memo.entries} entries at epoch ${memo.epoch}, ${memo.invalidations} drops ` +
+    `(${memo.regionInvalidations} per-tile / ${memo.fullDrops} whole-map, ${memo.bucketsDropped} buckets), ` +
     `${memo.overflows} overflows`,
 );
 ok(memo.hits + memo.misses > 0, "RC11: the memo is in the path");

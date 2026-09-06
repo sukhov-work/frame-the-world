@@ -7,7 +7,7 @@ import {
   sunKeyTroughK,
   type KeyGateProfile,
 } from "../../../src/lib/globe/keyHandoff";
-import { GOLDEN, SHADOWS, SKY, SUN } from "../../../src/components/globe/tuning";
+import { GOLDEN, SHADOWS, SKY, SUN, ULTRA } from "../../../src/components/globe/tuning";
 import { goldenFactor } from "../../../src/lib/ephemeris/golden";
 
 /**
@@ -155,5 +155,65 @@ describe("the sunset handoff is continuous", () => {
     // …and the sun key is untroughed well above the gate, moon or no moon.
     expect(sunKeyTroughK(sinDeg(30), sinDeg(40), 0.95, P)).toBe(1);
     expect(aboveGateK(sinDeg(30), P)).toBe(1);
+  });
+});
+
+/**
+ * SUNSET SHADOW-RELEASE (2026-09-06) — the SAME invariants, on the ULTRA twins.
+ *
+ * `StylizedTiles` now builds two more profiles: `ULTRA_KEY_GATE` (the wide handoff band) and
+ * `ULTRA_SHADOW_GATE` (the field's own, disc-wide band), both crossing at `ULTRA.shadowGateSin`
+ * = sin(−0.8333°) instead of `SHADOWS.minSunElevSin` = sin(+0.4584°), because the code's sun is
+ * GEOMETRIC and the upper limb does not set until 50′ below the geometric horizon.
+ *
+ * The property that made moving the gate safe is the one above: BOTH ARMS REACH ZERO AT THE GATE.
+ * These re-run it on the moved crossing, which is the only thing about the twins that is
+ * load-bearing — everything else is band width.
+ */
+const U: KeyGateProfile = { ...P, gateSin: ULTRA.shadowGateSin };
+const U_FIELD: KeyGateProfile = { ...U, bandSin: ULTRA.shadowFadeBandSin };
+
+describe("the ULTRA gate twins", () => {
+  it("cross at the sun's upper limb, not at +0.4584°", () => {
+    expect((Math.asin(U.gateSin) * 180) / Math.PI).toBeCloseTo(-0.8333, 3);
+    // 34' of refraction + 16' of solar semidiameter = 50' = 0.8333°.
+    expect(U.gateSin).toBeCloseTo(-Math.sin((50 / 60) * (Math.PI / 180)), 6);
+    // The BASE profile is untouched — that is the byte-identical-`high` half of the contract.
+    expect(P.gateSin).toBe(SHADOWS.minSunElevSin);
+  });
+
+  it("BOTH arms still reach zero AT the gate — the invariant the whole move rests on", () => {
+    for (const prof of [U, U_FIELD]) {
+      expect(aboveGateK(prof.gateSin, prof)).toBe(0); // the sun arm's field and key trough
+      expect(belowGateK(prof.gateSin, prof)).toBe(0); // the rig's moon takeover
+      expect(moonRigTakeoverK(prof.gateSin, prof)).toBe(0);
+      expect(moonReadyK(prof.gateSin, 0.95, prof)).toBe(0);
+      // …and with a bright moon waiting, the sun key troughs to nothing there too, so the
+      // direction teleport still happens while the rig delivers no light.
+      expect(sunKeyTroughK(prof.gateSin, 0.5, 0.95, prof)).toBe(0);
+    }
+  });
+
+  it("the field's band is the solar DISC, and the handoff band is still the wide one", () => {
+    const deg = (v: number) => (Math.asin(v) * 180) / Math.PI;
+    // Full shadows now survive to −0.30° instead of dying from +1.06°.
+    expect(deg(U_FIELD.gateSin + U_FIELD.bandSin)).toBeCloseTo(-0.3, 2);
+    expect(deg(U.gateSin + U.bandSin)).toBeGreaterThan(1.9); // the ~3° handoff band, unchanged
+    expect(U.bandSin).toBe(SHADOWS.fadeBandSin);
+  });
+
+  it("the moved field still never STEPS — the RC2 scrub, re-run on the twin", () => {
+    let prev = aboveGateK(sinDeg(6), U_FIELD);
+    let worst = 0;
+    for (let deg = 6; deg >= -6; deg -= 1 / 3600) {
+      const now = aboveGateK(sinDeg(deg), U_FIELD);
+      worst = Math.max(worst, Math.abs(now - prev));
+      prev = now;
+    }
+    // The band is a fifth of the base one, so a single arc-second may move it five times as far —
+    // still four orders of magnitude below anything a frame can show.
+    expect(worst).toBeLessThan(5e-3);
+    expect(aboveGateK(sinDeg(-1), U_FIELD)).toBe(0);
+    expect(aboveGateK(sinDeg(-0.29), U_FIELD)).toBe(1);
   });
 });

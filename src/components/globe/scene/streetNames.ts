@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
 import { geodeticToEcef } from "../../../lib/geo/projection";
 import { clampGroundM } from "../../../lib/geo/terrain";
+// T77 lever 5: dt → per-frame ease coefficient (the ONE such helper in the repo).
+import { easeK } from "../../../lib/globe/lightBands";
 import { STREETS } from "../tuning";
 import type { StreetLabelFeat, VectorTilesHandle } from "./vectorTiles";
 
@@ -42,6 +44,9 @@ export interface StreetNamesHandle {
     mapFlat: boolean;
     /** Viewport CSS height (px) — the v4 legibility scale's screen reference. */
     viewportH: number;
+    /** T77 lever 5 — the orchestrator-clamped frame delta (ms). The label re-seat ease runs on
+     *  wall-clock time (`STREETS.groundEaseTauMs`), not on a per-frame fraction. */
+    dtMs: number;
   }): void;
   /** Adaptive quality (RENDERING_QUALITY_PASS WS1): cap the simultaneous label budget on weaker
    *  tiers (STREETS.maxVisible on `high`; fewer on mid/low → fewer textures + selection work). */
@@ -344,7 +349,7 @@ export function attachStreetNames(opts: {
   };
 
   return {
-    update({ camera, alt, focusLatDeg, focusLonDeg, enabled, mapFlat, viewportH }) {
+    update({ camera, alt, focusLatDeg, focusLonDeg, enabled, mapFlat, viewportH, dtMs }) {
       frame++;
       const presence = enabled ? streetPresence(alt) : 0;
       group.visible = presence > 0.01;
@@ -386,10 +391,14 @@ export function attachStreetNames(opts: {
           else if (Math.abs(m - e.groundM) >= STREETS.reseatEpsM) e.easeToM = m;
         }
       }
+      // T77 lever 5: ONE coefficient for the whole label pass — the bare `0.15` this replaces
+      // was the only ease in the engine with neither a tunable nor a clock (see
+      // `STREETS.groundEaseTauMs`, whose 60 Hz equivalent it is).
+      const kGround = easeK(dtMs, STREETS.groundEaseTauMs);
       for (const e of entries) {
         // Ease a re-seat (terrain refined under the label) — pinned means no snapping either.
         if (e.easeToM !== null && e.groundM !== null) {
-          const next = e.groundM + (e.easeToM - e.groundM) * 0.15;
+          const next = e.groundM + (e.easeToM - e.groundM) * kGround;
           seatEntry(e, Math.abs(next - e.easeToM) < 0.05 ? e.easeToM : next);
           if (e.groundM === e.easeToM) e.easeToM = null;
         }

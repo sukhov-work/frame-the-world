@@ -187,9 +187,19 @@ the band mapping itself lives in `lib/geo/radarBands` since audit #3 A1-7):
 - ground LRU floors (`groundLruBytesMB`, per-tier) — see T34: the cache rests at exactly
   `minBytesSize` and re-fetches on every 2D↔FPV flip.
 
+**`QUALITY.tiers[t].bloomScale` — the bloom mip chain's resolution** (T80): `high` 1, `mid`/`low`
+0.5, and `QUALITY.leanMobile.bloomScale` clamps on top (min, never a raise). **1 is the EXACT
+off-state and is enforced twice** — `bloomScaleForTier` returns the literal 1 for `high` off a
+coarse pointer, and `scene/scaledBloom.ts` forwards `setSize`'s arguments untouched at 1 rather
+than computing `round(w × 1)`, which a non-integer drawing-buffer size would move. The pass's own
+`resolution` constructor argument is inert (`composer.setSize` re-derives every target), so this
+is the only place the chain's cost can be expressed. DEV A/B: `__quality.bloomScale(s)` pins it,
+`null` restores the tier.
+
 **`QUALITY.leanMobile` — the coarse-pointer profile**: `dprCap` (heat), `dprCap2d` (relaxed
 only while the flat chart is up — the chart has bloom/GTAO/shadow twins off already, so the
-budget goes to crispness), `bloom`, shadow size. Desktop is untouched by design.
+budget goes to crispness), `bloom`, `bloomScale` (inert while `bloom` is false — the resolution a
+restored phone glow would run at), shadow size. Desktop is untouched by design.
 
 **`PLAN.minCoverageForGaps`** (audit #3 A1-16) — the evidence floor below which NO radar
 surface claims skyline gaps. `profileCoverage` reached the store and both PLAN panels and was
