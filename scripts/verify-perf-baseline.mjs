@@ -280,6 +280,23 @@ const ticks = async (frames = 6) => {
 };
 let bootScriptId = null;
 await attach();
+if (DEVICE) {
+  // T98 ON THE PHONE (2026-09-07b): `adb reverse` carries only `localhost:4321` — the terrain comes
+  // from Cesium ion over the PHONE'S OWN network, and the Dnipro ISP address is blocked (403). Two
+  // Pixel runs (2026-09-05, 2026-09-07) read a bare base sphere (317k tris, `visible gnd 0`) at
+  // city / everest as if it were the pose. The desktop route's `verify-chrome.mjs` ion curl never
+  // sees the phone's network, so the phone asks ion itself, before the first boot: 403 = the
+  // phone's VPN is off → refuse (exit 3), like the desktop budget guard.
+  const ion = await evalJs(
+    `fetch("https://api.cesium.com/v1/assets/1/endpoint", { cache: "no-store" }).then((r) => r.status).catch((e) => "error " + e.message)`,
+  ).catch((e) => `error ${e.message}`);
+  const country = await evalJs(`fetch("https://ipinfo.io/country", { cache: "no-store" }).then((r) => r.text()).then((t) => t.trim()).catch(() => "?")`).catch(() => "?");
+  console.log(`phone network: api.cesium.com → ${ion} · exit country ${country}`);
+  if (ion !== 200 && ion !== 401) {
+    console.log(`REFUSED: the phone's network cannot reach Cesium ion (${ion}) — enable the phone's VPN (T98); every terrain pose would read a bare sphere.`);
+    await finishVerify(3);
+  }
+}
 
 // ─── Reporting ───────────────────────────────────────────────────────────────────────────────
 const results = [];
@@ -514,6 +531,11 @@ async function sampleCell(b, shadowsMode, extra) {
   const pinned = b.tier === "auto" ? false : await evalJs(PIN_GOVERNOR(b.tier));
   await ticks(3);
   const st = await settle();
+  // The terrain is part of every pose but the FPV eye (whose ground is the enriched Dnipro cell):
+  // a settled orbit / city / everest / `/m` frame with `visible gnd 0` is a bare base sphere, not
+  // the pose — two Pixel runs (2026-09-05, 2026-09-07, T98 on the phone's own network) read exactly
+  // that as a measurement. A FAIL on the boot's first cell keeps a vacuous cell from passing again.
+  if (b.pose !== "fpv" && shadowsMode === "on") check(`${id}: terrain tiles visible after settle (not a bare sphere)`, (st.visible?.gnd ?? 0) > 0, `visible bld/gnd/enr ${st.visible?.bld ?? "?"}/${st.visible?.gnd ?? "?"}/${st.visible?.enr ?? "?"}`);
   const qStart = await evalJs(QUAL);
   const s = await evalJs(SAMPLER(SAMPLE_MS));
   const feed = await evalJs(FEED_SAMPLE(FEED_MS));

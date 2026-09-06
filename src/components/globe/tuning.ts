@@ -1997,6 +1997,13 @@ export const CONTROLS = {
   /** Declination-slider easing time-constant (ms) — how fast the camera glides to a slider-set
    *  tilt (0° = straight down, 90° = horizon). */
   tiltEaseTauMs: 240,
+  /** How often a tilt glide re-finds the ground point it rotates about (ms). The pivot is, by
+   *  construction, a FIXED point (the view centre stays put while the pitch eases), so the
+   *  per-frame `controls.getPivotPoint` — a centre-screen raycast through the terrain TIN's
+   *  triangle loop, 27–33 ms per arrival frame on the descent (T77 phone/descent profile
+   *  2026-09-07b, MEASUREMENTS §21) — is refreshed at this cadence instead: a tile landing under
+   *  the centre moves the pivot within one refresh, never per frame. */
+  tiltGlidePivotRefreshMs: 500,
   /** Slider range (deg). Max stays inside GlobeControls' maxAltitude clamp (π/2) minus a hair
    *  so the per-frame clamp never fights the eased approach. */
   tiltMinDeg: 0,

@@ -1093,3 +1093,126 @@ parse-phase frames). Lever 9 (KTX2 user textures) is a memory lever — the grou
 308 MB is the big number here, and it is the imagery tiles, not the user models — so it is
 re-aimed at the imagery path or parked. Lever 11 (instanced models) does not appear in this leg
 (3 models). The Pixel's read of the same leg is owed with its re-measure.
+
+## 21. Session 2026-09-07b — T83 classified (a jetsam kill), the Pixel re-measured WITH terrain, the descent and `/m` CPU profiles on both a phone and the desktop (lever 10 closed; T107 fixed; T106 opened)
+
+Instruments new this session: `scripts/probe-cpu-profile.mjs --leg descent [--device]` (the profiler over the
+owner's descent, every sample bucketed leaf → root into parse / compile / upload / seats / app / orchestrator /
+render / controls / gc / program / idle, frames delimited by in-profile MARKERS — 16 rotating named 0.7 ms
+spins the sampler sees in its own clock, alignment ±0.2 ms; the first version aligned by bracketing
+`Profiler.start` and was off by 165 ms–3.3 s because the CDP command runs on the busy main thread) ·
+`scripts/probe-memory-footprint.mjs` (the renderer's and the GPU process's physical footprint via
+`/usr/bin/footprint`, V8's heap + ArrayBuffer backing store, an in-page walk of the three LRU caches and the
+scene for geometry bytes and DECODED-IMAGE bytes, one tab, a pose sequence or a soak, the 17 Pro's profile) ·
+`verify-perf-baseline --device` asks Cesium ion from the PHONE's page before the first boot (exit 3 on 403)
+and FAILs a non-FPV cell that settles with `visible gnd 0`.
+
+### 21.1 T83 — the iPhone 17 Pro `#f=` page: a JETSAM KILL at the WebContent per-process limit
+
+The Device Farm API lists the artifacts once a session is COMPLETED (not while STOPPING). All four sessions'
+device syslogs carry the same kernel line (device-local PDT; `…/ed840495…` is 2026-09-07a's run):
+
+```
+memorystatus: com.apple.WebKit.WebContent [556] exceeded mem limit: ActiveHard 2048 MB (fatal)
+memorystatus: killing process 556 [com.apple.WebKit.WebContent] in high band FOREGROUND (100) - memorystatus_available_pages: 184783
+memorystatus: killing_specific_process pid 556 [com.apple.WebKit.WebContent] (per-process-limit 100 176s rf:- type:app) 2097154KB
+ReportSystemMemory: Process com.apple.WebKit.WebContent [556] killed by jetsam reason per-process-limit
+```
+
+| session | run shape (same-origin loads in ONE WebContent) | process age at the kill | kill relative to the last load |
+|---|---|---|---|
+| `19deb1e4…` (2026-09-05 farm1) | fpv · orbit · city · everest · /m · ramp fpv | 198 s | the ramp's fpv |
+| `c90c3fd4…` (farm2) | fpv · fpv · ramp fpv | 88 s | the third load |
+| `34f083b4…` (farm3) | fpv · soak fpv | 70 s | ~20 s into the soak |
+| `ed840495…` (2026-09-07a) | fpv · orbit · city · everest · /m · ramp fpv | 176 s | **14 s** after the ramp's fpv navigation (21:30:28Z → 21:30:42Z) |
+| `9b042dcb…` (this session, `--poses fpv --ramp 0 --soak-min 3`) | fpv (34 s) · soak fpv (the soak RE-BOOTS the eye) | **99 s** (pid 683, born at the first fpv 23:12:50Z) | **63 s** after the second load (23:13:26Z → the kill 23:14:29Z; 2,097,170 KB; 194,716 pages free) — the log's last row was 0.5 min at 23:14:23Z |
+
+Facts the lines settle (five sessions, five identical lines): (1) a KILL, not a hang — `type:app`, `per-process-limit`, `2,097,154 KB`; (2) the
+PER-PROCESS cap, not system pressure — 184,783 free 16 KB pages ≈ 2.9 GB free; (3) the Appium log shows every
+pose navigation (about:blank → pose) went through the SAME WebContent (pid 556 was born at the FIRST pose,
+21:27:46Z, and lived 176 s); (4) the kill came 14–25 s after the SECOND `#f=` load in that process, every time.
+
+**The desktop twin** (`probe-memory-footprint`, house Chrome, the 17 Pro's profile — 402×714 @ 3, touch, 4 cores):
+
+| run | rows (renderer footprint MB → · GPU process MB) | read |
+|---|---|---|
+| ONE fpv page, 3-min soak | 290 (boot) → **592** at 15 s (streaming) → 507–558 flat to 190 s → 424 after a forced GC · GPU 835 → 1030 → 916 | one FPV document is ~½ GB and does NOT grow; the JS heap is 60–140 MB, ArrayBuffers 130–137 MB, decoded images kept in `texture.image` 146 MB (16 textures — the 8k earth set), tile geometry 74 MB (405 geometries, 253 LRU tiles 4.4 / 46.5 / 36.9 MB) |
+| fpv → orbit → city → everest → /m → fpv, DIRECT navigations | 557 (fpv) → the `#p=` hashes did not reload → **609 → 752** (/m) → **801 → 1,196** (fpv#2) → **926 after a forced GC**, ArrayBuffers 130 → 260 · GPU 820 → 1,686 | two earlier documents stay resident in the renderer after direct same-origin navigations (Chrome's back/forward cache holds them); the GPU process stacks ~470 MB per page load |
+| fpv → /m → fpv WITH an about:blank hop (the farm tool's shape) | 527 → 410 → 568 → 473 after GC, ArrayBuffers back to 26 MB at each boot · **GPU 838 → 1,025 → 1,265 → 1,450 → 1,747 → 1,781** | the renderer frees the previous document, the GPU process does NOT: each destroyed page's WebGL context keeps its textures and buffers until the canvas is collected (Chrome loses the oldest context only at 16) — +940 MB over two extra loads |
+
+**Reading.** On iOS the 2 GB is charged to ONE process. A single FPV page is ~½ GB of renderer-side memory on
+Chrome; the second load in the same process is what dies on the phone, and on Chrome the GPU-side resources of
+the destroyed document (≈ 470 MB per load) are exactly what lingers. Whether WebKit 26 keeps WebGL memory in
+WebContent or its GPU process, the lever is the same and cheap: **release on `pagehide`** — `renderer.dispose()`
++ `forceContextLoss()`, `lruCache.unloadAll()` on the three tilesets, drop the 8k `texture.image`s — so a document
+leaving the screen holds little; `Cache-Control: no-store` on the HTML disables the page cache outright (a
+blunter tool). For users: a reload or a route change (`/` ↔ `/m` ↔ `/guide`) is the trigger, not time in the
+FPV. The fifth session (stopped by hand at 23:16Z when the log went quiet — the tool's six `LOOK` calls each stall
+120 s on a dead page, 12 min of billing per soak row; 13.2 device minutes) is the cleanest point: ONE prior FPV
+page of 34 s, then the soak's second load, killed 63 s in at a process age of 99 s. **What is still
+unmeasured: a SINGLE FPV page's survival on iOS** — in every session the first page was navigated away at
+34–45 s (the tool's soak re-boots the eye before soaking), so "one page ≈ 1 GB, two ≈ the cap" and "one page
+grows to 2 GB in ~100 s" are both still open; a `--soak-no-reboot` (soak the page already up) decides it in
+one ~8-minute session. T83 stays OPEN with its lever named.
+
+### 21.2 The Pixel 6 Pro re-measured — WITH terrain (the first run of the session was a bare sphere)
+
+The owner caught it: `adb reverse` carries only `localhost:4321`, so the Pixel fetches ion over its OWN
+network, and the Dnipro mobile address is blocked (T98 on the phone lane). The first run of the session AND
+§11's 2026-09-05 Pixel run read `visible gnd 0` at every pose but the FPV eye — city and everest at 317,323 /
+317,359 tris = the base sphere (294,144) plus chrome. Both are void for city / everest / `/m`. With the phone's
+VPN on (exit FI, ion 401 from the page; `verify-perf-baseline-pixel6pro-t100b-vpn-…`, 19 cells / 7.7 min):
+
+| pose | §11 (2026-09-05, bare sphere for 3 of 5) | **today, terrain on** — dt p50/p95 · cpu · tier | gate OFF (T79 A/B) | read |
+|---|---|---|---|---|
+| fpv | 27.5 / 81.9 · cpu 1.3 · GPU-bound | **21.5 / 40.6 · 3.5 · mid** (42 fps) | — | GPU-bound on the Mali-G78 (shadows on / noUpdate / off: 21.5 / 20.5 / 21.2 — the shadow pass is not the cost); 995k tris, enr 47 visible |
+| orbit | 80.6 · cpu 77.9 | **16.7 / 18.6 · 2.4 · mid** (60 fps) | 119.4 (8 fps) | T79 is worth ~100 ms per frame on this phone |
+| city | (bare) 79.8 | **16.8 / 20.6 · 15.2 · low** (58 fps) | 126.9 (8 fps) | at the cap; `frame.cpu` 15 ms while the city streams (settle 21 s); the governor demoted to `low` during the stream |
+| everest | (bare) 88.2 | **16.7 / 20.4 · 2.5 · mid** (58 fps) | 154.8 (6 fps) | at the cap |
+| `/m` | (bare) 100.6 | **59.3 / 63.4 · cpu 57.6 · low (16 fps)** → after T107 **16.6 / 18.7 · 1.1 · mid (60 fps)** | 171.9 (6 fps) | the terrain-less first run read 16.7 — the cost only appears WITH terrain: §21.4 |
+
+### 21.3 The descent CPU profile — desktop `high` and the Pixel (lever 10's decision)
+
+Desktop, house :9333, `--leg descent`, three runs (the ledgers agree within 2 %); the run before T107:
+
+| bucket | whole leg (10.3 s of main thread, 471–541 frames) | HITCH frames (86 frames > 33 ms, 3.08 s) | the app frame above the library leaf (hitch frames) |
+|---|---|---|---|
+| **seats** | 2,488–2,871 ms · **27–28 %** | 493–511 ms · 16 % | `applyFeatureSeats` 424 · `update` 41 · `sampleAt` 18 |
+| **controls** (raycasts) | 1,308–1,474 ms · 14 % | **670–748 ms · 24 %** | **`stepTiltGlide` 497** (the per-frame `getPivotPoint`, 27–33 ms in every arrival frame) · `rawHeightAt` 156 · the gated `_getPointBelowCamera` 14 |
+| render | 1,008–1,140 · 11 % | 377–383 · 12 % | `resolvedComposer.render` |
+| **upload** | 462–481 · 4.5–5.2 % | **373–384 · 12 %** | `bufferSubData` under `resolvedComposer.render` — the seat pass's rewritten attributes uploading at draw |
+| orchestrator (`frame.cpu`) | 942–977 · 9.5–10 % | 200–223 · 7 % | traversal, `calculateTileViewError` |
+| **app** | 857–872 · 8.4–9.3 % | **398–418 · 13 %** | `buildings.ts:110` (the OSM `load-model` handler: `EdgesGeometry` 109) 143 · `ringsOfFeature` 66 + `parseVectorTile` 24 (vector tiles parse on the main thread) · esri fetch 16 · `heightMemo` 14 |
+| program / gc / idle | 869–919 / 81–113 / 164–689 | 181 / 63 / 24 | |
+| compile | 90–94 · 0.9 % | 78–94 · 2.6–4 % | two frames near the start (57 + 16 ms `getProgramInfoLog`) — `compileAsync`, plan lever 4 |
+| **parse (glTF, images)** | **104–122 ms · 1.0–1.3 %** | **16–21 ms · 0.7 %** | `createImageBitmap` (already async), `parseTile` 1.6 ms |
+
+**Lever 10 (worker tile decode) is CLOSED, not built**: the glTF parse is 0.7 % of the hitch frames'
+main-thread time. §20's "every hitch is parse-phase" was a correlation — the tiles landing TRIGGER the seat pass,
+the height raycasts, the edge geometry and the uploads; those are the hitch. After T107 (the tilt glide's pivot at
+a 500 ms cadence): hitches **86 → 64 frames**, hitch-window main thread **3.08 → 2.31 s**, `stepTiltGlide`
+**497 → 74 ms**, controls 670 → 209 ms; dt p50 / p95 unchanged at 16.7 / 33.4.
+
+The Pixel 6 Pro, same leg, terrain on (`--device`, 146 frames, 8.1 s of main thread): dt p50 / p95 / max
+**16.7 / 316.7 / 848.5 ms**, 57 hitch frames carrying 6.73 s — **seats 2,460 ms (37 %): `enrichedBuildings.ts`
+`load-model` 2,261** (the per-cell traverse, fingerprint pass, U8 recovery — served line 423 → source 1187+) ·
+**app 1,857 ms (28 %): `enrichedMask` `vertexKeyToRunWithCollisions` 522 + `mapSegmentsToRuns` 282, `buildings.ts`
+load handler 325, vector tiles 202** · controls 715 (`stepTiltGlide` 394 — at ~100 ms per raycast on this CPU
+the 500 ms cadence still costs 3–4 hitches per glide; `rawHeightAt` 291) · orchestrator 316 · render 276 · gc 240 ·
+**parse 91 ms (1.4 %)**. → **T106**: the enriched cell's landing work is the phone's descent hitch — bake the mask
+runs / fingerprints into the sidecar (lever 7's shape), or slice the handler across frames, or both.
+
+### 21.4 `/m` — the 26 ms (iPhone) / 58 ms (Pixel) was one call
+
+`probe-cpu-profile --pose m --device` on the Pixel, terrain on, 8 s: **87 % of the main thread under
+`controls.getPivotPoint`** — `stepMobile2dLocks` (StylizedTiles.ts) measured the live tilt with a centre-screen
+raycast EVERY frame, before its own deadband; the ray walks the terrain TIN's triangles (`intersectTriangle`,
+`getVertexPosition`, `checkGeometryIntersection` — no BVH; the T79 gate arms only inside `_getPointBelowCamera`).
+On a terrain-less page the ray hit nothing, which is why the bare-sphere runs read 16.7 ms. Fixed (**T107**): the
+deadband is judged from the ellipsoid normal under the camera (≤ 0.003° from the pivot's; the deadband is 0.2°),
+the raycast runs only in frames that rotate. Pixel `/m`: **59.3 / 63.4 ms, cpu 57.6, tier low → 16.6 / 18.7,
+cpu 1.1, tier mid** (16 → 60 fps). The iPhone's 26 ms (§19) is the same call; unmeasured after the fix.
+
+**Gates for the session:** vitest 2,767/2,767 (176 files) · `astro check` 0/0/11 · knip 0 · post sweep
+`post-2026-09-07b` 10/14 byte-identical under the freeze (Δ1 ease steps + T103), sheets read; the descent's
+arrival pose identical to 0.02° pre vs post (the tilt glide lands where it did), its worst frame 99 → 82 ms.

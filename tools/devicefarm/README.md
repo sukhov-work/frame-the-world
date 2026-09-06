@@ -70,7 +70,18 @@ one; `--poses fpv,fpv` boots a pose twice in one Safari session (slot `fpv#2`); 
 ramp. Always launch it DETACHED (`nohup … &`): a tool timeout that kills it mid-run leaves a billing
 session and seeded rows — stop stragglers with `aws devicefarm stop-remote-access-session --arn … --profile
 plux` and `DELETE /api/dev-seed?kind=model&id=<id>` for each id in `verify-shots/perf/seeds-farm-<stamp>.json`.
-The kill ramp and the soak curve are still UNMEASURED on iOS.
+The kill ramp and the soak curve are still UNMEASURED on iOS. **2026-09-07b — T83 CLASSIFIED from the
+syslogs (five sessions):** `memorystatus: com.apple.WebKit.WebContent [pid] exceeded mem limit: ActiveHard 2048 MB
+(fatal) … killed by jetsam reason per-process-limit` — a kill at WebContent's per-process cap, always 14–63 s
+after the SECOND `#f=` load in one WebContent (Safari keeps ONE process across the run's same-origin
+navigations; the soak RE-BOOTS the eye, so `--soak-min` is itself a second load). Read them with
+`aws devicefarm list-artifacts --arn <session> --type FILE` (the syslogs, the Appium log, the video — listed
+once the session is COMPLETED; STOPPING can take 15 min) and `grep 'exceeded mem limit\|killed by jetsam'`;
+the Appium log's `POST /session/*/url` lines are the navigation timeline. **Billing trap:** on a dead page every
+Appium call stalls 120 s — the soak's six `LOOK` calls per row are 12 minutes; when a soak row is > 60 s late,
+`pkill -f ios-baseline` and `aws devicefarm stop-remote-access-session --arn … --profile plux`. A single page's
+survival is still unmeasured (every first page was navigated away at 34–45 s) — a `--soak-no-reboot` is the
+next tool change. Details: `rendering/MEASUREMENTS_2026-09-05.md` §21.1.
 
 ## B. Pixel 6 Pro over adb — the desktop harness, unchanged, pointed at the phone
 
@@ -102,3 +113,11 @@ opened (any `localhost:4321` page tab) and re-navigates it per boot, never creat
 the phone; and the phone DOZES with its screen off — `adb shell input keyevent KEYCODE_WAKEUP` plus
 `adb shell settings put global stay_on_while_plugged_in 7` before a run (set it back to 0 after).
 `performance.memory` is QUANTIZED on Android Chrome (every cell read 202 MB) — not a measurement.
+**The phone has its OWN network (2026-09-07b):** `adb reverse` carries only `localhost:4321`; Cesium ion, R2 and
+the imagery are fetched over the phone's connection, and the Dnipro mobile address is blocked by Cesium's WAF
+(T98) exactly like the ISP address — two Pixel runs read a BARE BASE SPHERE (317k tris, `visible gnd 0`) at
+city / everest / `/m` as if it were the pose. Turn the phone's VPN on first; the harness now asks ion from the
+phone's page before the first boot (403 → exit 3) and FAILs any non-FPV cell that settles with no ground tiles
+visible. Re-run WITH terrain (`MEASUREMENTS` §21.2): orbit / city / everest at the 60 Hz cap, FPV 42 fps
+GPU-bound, `/m` 16 → 60 fps after T107. `scripts/probe-cpu-profile.mjs 9444 --device --pose m` and
+`--device --leg descent` profile the phone's own main thread (V8 samples on the device).

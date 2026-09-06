@@ -12,7 +12,21 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07a
+## Status — 2026-09-07b
+- **2026-09-07b (`mem:project/wip-2026-09-07-t77-phones-lever10`):** **T83 CLASSIFIED** — a jetsam kill at
+  WebContent's 2,048 MB per-process cap (four Device Farm syslogs, the same line; always the SECOND `#f=`
+  load in one process; one FPV page is ~½ GB and flat on the desktop twin `probe-memory-footprint.mjs`;
+  the GPU-side memory of a destroyed page lingers ~470 MB per load) → lever named, not built: release on
+  `pagehide`. **The Pixel re-measured WITH terrain** (the owner caught the first run reading a bare sphere
+  — T98 on the phone lane; §11's Pixel city/everest/`/m` rows VOID; `verify-perf-baseline --device` now asks
+  ion from the phone and FAILs a terrain-less cell): orbit/city/everest at the 60 Hz cap (gate off 6–8 fps),
+  fpv 42 fps GPU-bound. **Lever 10 CLOSED, not built** — `probe-cpu-profile --leg descent` (exact frame
+  markers): glTF parse 0.7 % (desktop) / 1.4 % (Pixel) of the hitch frames' main thread. **T107 FIXED** —
+  `controls.getPivotPoint` ran every frame in `stepMobile2dLocks` (87 % of `/m`: the iPhone's 26 ms, the
+  Pixel's 58) and `stepTiltGlide` (27–33 ms per arrival frame): Pixel `/m` 16 → 60 fps, descent hitches
+  86 → 64. **T106 OPENED** — the Pixel's descent hitch is the enriched cell's `load-model` work (2.26 s +
+  0.8 s mask runs in 57 hitch frames). vitest 2,767/176 · astro 0/0/11 · knip 0. Backlog T1–T107.
+  **DECISIONS §Recent is 137 KB → compaction round 6 FIRST next session.**
 - **2026-09-07a (`mem:project/wip-2026-09-07-t100a-overlay-tail`):** **T100 CLOSED under ruling (a)** —
   the ground overlay's OWN extinction tail (`duskLight.overlayReleaseK`, `max()`-ed with `directK`
   on the chip's cascade reach; `ULTRA.overlayReleaseStartSin` +0.2°, `overlayReleasePow` 0.9) and
@@ -89,15 +103,16 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T105).
 
-## Next step — T77 after T100 (full brief: `NEXT_SESSION_PROMPT.md`)
-1. Boot: VPN + ion curl (T98), `--budget`, ONE Chrome, `wix dev` with `.vite` aside, sweep
-   `--sheet --golden --quiet-s 25`; if the previous ship hook is still running (it fires on
-   `/clear`), wait — and read `ftw-session-ship.log` for an ABORT (a loaded machine flakes the
-   BEST SPOT timing tests; re-run `npm test` quiet before assuming a real red).
-2. T100 is CLOSED (2026-09-07a). Nothing is blocking. Next in order: **T83's diagnosis** (the
-   Device Farm console session's video + syslog, then ONE targeted ~10-minute session) · the
-   **descent CPU profile** (`probe-cpu-profile` over the leg: parse vs upload → lever 10 or not) ·
-   the **Pixel's owed re-measure** (adb) · `/m`'s 26 ms.
+## Next step — T77 after the phone/descent profiles (full brief: `NEXT_SESSION_PROMPT.md`)
+1. **DECISIONS compaction round 6 FIRST** (§Recent 137 KB > 135). Then boot: VPN on the Mac AND the
+   phone (the Pixel fetches ion over its own network), ion curl, `--budget`, ONE Chrome, `wix dev`
+   with `.vite` aside, the pre sweep; the ship hook fires on `/clear` — wait for it.
+2. Nothing is blocking. Next in order: **T83's lever — the `pagehide` release** (dispose the
+   renderer, unload the three LRU caches, drop the 8k images; measure with
+   `probe-memory-footprint --sequence fpv,m,fpv`, then ONE farm session `--poses fpv,fpv --ramp 0`) ·
+   **T106** (the enriched cell's `load-model` work on phones: bake or slice; `probe-cpu-profile --leg
+   descent --device`) · the iPhone's `/m` after T107 (one farm session) · `compileAsync` (two compile
+   frames at the descent's start).
 3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
    — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
    then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77

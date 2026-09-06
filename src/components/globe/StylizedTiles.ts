@@ -5382,6 +5382,12 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  // The ground point a tilt glide rotates about, found by `controls.getPivotPoint` at most every
+  // CONTROLS.tiltGlidePivotRefreshMs — see stepTiltGlide. Its own vector: `_pivot` is a shared
+  // scratch other steps overwrite within the frame.
+  const _tiltGlidePivot = new THREE.Vector3();
+  let tiltGlidePivotAtMs = -Infinity;
+
   const stepTiltGlide = () => {
         // Manual declination (slider): glide the pitch toward the requested tilt around the view
         // focus. Grabbing the globe (noteInteract) or a flight cancels the glide. Sign verified
@@ -5393,7 +5399,19 @@ export function attachStylizedTiles(opts: {
           // views) and leaves the target STALE — rotating around that garbage pivot flew the
           // camera 8 km → 128 km in verification. Fall back to the view focus (which itself
           // falls back to the camera position — a pure look-rotation, no translation).
-          if (controls.getPivotPoint(_pivot) === null) _pivot.copy(_focus);
+          // The pivot is a FIXED point for the glide's life (the view centre stays put while the
+          // pitch eases; a concurrent zoom dollies along the same ray, a heading glide turns
+          // about the same up) — so it is raycast at most every CONTROLS.tiltGlidePivotRefreshMs,
+          // not per frame: the per-frame call walked the terrain TIN's triangles for 27–33 ms in
+          // every arrival frame of the descent, the leg's largest single hitch source (T77
+          // profile 2026-09-07b, MEASUREMENTS §21), and let each landing tile move the rotation
+          // centre mid-glide. The cadence still follows a tile landing under the centre.
+          const nowMs = performance.now();
+          if (nowMs - tiltGlidePivotAtMs >= CONTROLS.tiltGlidePivotRefreshMs) {
+            if (controls.getPivotPoint(_tiltGlidePivot) === null) _tiltGlidePivot.copy(_focus);
+            tiltGlidePivotAtMs = nowMs;
+          }
+          _pivot.copy(_tiltGlidePivot);
           zc.getUpDirection(_pivot, _pivotUp);
           _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld); // camera +Z = backward
           const pitchRad = _pivotUp.angleTo(_camBack);
@@ -5407,11 +5425,14 @@ export function attachStylizedTiles(opts: {
           const delta = pitchRad - targetRad;
           if (Math.abs(delta) < CONTROLS.tiltArriveRad) {
             camStore.clearTargetTilt(); // arrived — hand the camera back
+            tiltGlidePivotAtMs = -Infinity; // the next glide starts from a fresh pivot
           } else {
             const kt = 1 - Math.exp(-dtMs / CONTROLS.tiltEaseTauMs);
             zc._applyRotation(0, delta * kt, _pivot);
             camera.updateMatrixWorld();
           }
+        } else {
+          tiltGlidePivotAtMs = -Infinity; // no glide this frame: a later one re-finds its pivot
         }
 
   };
@@ -5472,9 +5493,16 @@ export function attachStylizedTiles(opts: {
           mobile2dFreeHeading = false; // re-arm the north lock for the next 2D entry
           return;
         }
-        // Live tilt — the stepTiltGlide measurement (pivot up vs camera-backward).
-        if (controls.getPivotPoint(_pivot) === null) _pivot.copy(_focus);
-        zc.getUpDirection(_pivot, _pivotUp);
+        // Live tilt — the stepTiltGlide measurement (pivot up vs camera-backward). The PITCH
+        // needs only an UP direction, and the ellipsoid normal under the camera is within
+        // ~1e-5 rad of the pivot's on a locked nadir map (the pivot sits a few hundred metres
+        // from the sub-camera point at most; the deadband is 0.2°) — so the deadband is judged
+        // WITHOUT `controls.getPivotPoint`. That call is a centre-screen raycast that walks the
+        // terrain TIN's triangles (no BVH): 26 ms per frame on the iPhone 17 Pro and 55 ms on
+        // the Pixel 6 Pro — the WHOLE of the `/m` shell's CPU cost, 87 % of its main thread
+        // (T77 phone profile 2026-09-07b, MEASUREMENTS §21). It now runs only in the frames
+        // that actually rotate, where `_applyRotation` needs the exact pivot.
+        zc.getUpDirection(camera.position, _pivotUp);
         _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
         const pitchRad = _pivotUp.angleTo(_camBack);
         const touchRotate = zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch();
@@ -5483,6 +5511,9 @@ export function attachStylizedTiles(opts: {
           camStore.targetTiltDeg === null &&
           pitchRad > THREE.MathUtils.degToRad(MOBILE2D.lockTiltEpsDeg)
         ) {
+          // The correction rotates about the ground under the screen centre — the one place
+          // the raycast is worth its price (a horizon miss falls back to the view focus).
+          if (controls.getPivotPoint(_pivot) === null) _pivot.copy(_focus);
           // Mid-gesture the fingers' vertical component must die the SAME frame (kk = 1) or
           // the ease reads as a wobble; outside a gesture the usual glide cleans up drift.
           const kk = touchRotate ? 1 : 1 - Math.exp(-dtMs / MOBILE2D.lockEaseTauMs);
