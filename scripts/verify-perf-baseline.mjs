@@ -10,7 +10,7 @@
  *
  *   node scripts/verify-perf-baseline.mjs [PORT] [--quick] [--only <regex>] [--label warm|cold]
  *        [--settle 90] [--sample 10] [--feed 6] [--models 0,6,24] [--glb <https url>]
- *        [--owner <member email>] [--no-models] [--dsf 2] [--post-ab] [--device] [--cleanup-seeds <ids.json>]
+ *        [--owner <member email>] [--no-models] [--dsf 2] [--post-ab] [--device] [--no-gate-ab] [--cleanup-seeds <ids.json>]
  *
  * Preconditions: `wix dev` on :4321 (the `window.__*` seams are DEV-only) and the owner's headed
  * CDP Chrome on :9222 (`node scripts/verify-chrome.mjs`; NEVER killed). Node ≥ 22 (global
@@ -188,15 +188,27 @@ const CDP_TIMEOUT_MS = 90_000; // the charter's lesson: a stalled main thread mu
  *  old target is closed over HTTP (works with a dead renderer) and a fresh renderer process takes
  *  the next boot — the run continues and the failure is recorded, never re-raised as a crash. */
 async function attach() {
-  if (target) await fetch(`http://127.0.0.1:${PORT}/json/close/${target.id}`).catch(() => {});
+  if (target && !DEVICE) await fetch(`http://127.0.0.1:${PORT}/json/close/${target.id}`).catch(() => {});
   for (const [, p] of pending) p.rej(new Error("target replaced"));
   pending.clear();
-  try {
-    target = await http("/json/new?about:blank", "PUT");
-  } catch {
-    target = await http("/json/new?about:blank", "GET");
+  if (DEVICE) {
+    // Android Chrome's DevTools endpoint over adb answers `PUT /json/new` with "Could not create
+    // new page" (Pixel 6 Pro, Chrome 152, 2026-09-06) — so the phone half drives the tab the
+    // recipe opened with `am start … http://localhost:4321/` (or any page tab), re-navigating it
+    // per boot instead of replacing it. Nothing is closed on the owner's phone.
+    const list = await http("/json/list");
+    const pages = list.filter((t) => t.type === "page" && t.webSocketDebuggerUrl);
+    target = pages.find((t) => /localhost:4321/.test(t.url)) ?? pages[0];
+    if (!target) throw new Error("no page tab on the phone — open http://localhost:4321/ in Chrome first (see tools/devicefarm/README.md §B)");
+    console.log(`attached to the phone tab ${target.id} ${target.url}`);
+  } else {
+    try {
+      target = await http("/json/new?about:blank", "PUT");
+    } catch {
+      target = await http("/json/new?about:blank", "GET");
+    }
+    trackTarget(PORT, target.id);
   }
-  trackTarget(PORT, target.id);
   ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((res, rej) => ((ws.onopen = res), (ws.onerror = rej)));
   ws.onmessage = (ev) => {
@@ -532,7 +544,7 @@ function writeArtefacts() {
   for (const r of results) {
     const s = r.frame;
     lines.push(
-      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : r.shadows === "bloomOff" ? "·bloom off" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
+      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
     );
   }
   writeFileSync(
@@ -576,7 +588,23 @@ try {
     check(`${b.id}: ULTRA boot pref ${DEVICE && q.lean ? "REFUSED on a coarse pointer" : "as requested"}`, DEVICE && q.lean ? q.ultraBoot === false : q.ultraBoot === b.ultra, `ultraBoot=${q.ultraBoot} lean=${q.lean}`);
     if (b.pose === "m" && !DEVICE) check(`${b.id}: /m is the coarse-pointer lean profile`, q.lean === true, `lean=${q.lean}`);
     const shadowsOnAtBoot = await evalJs(`window.__renderer.shadowMap.enabled`);
-    await sampleCell(b, shadowsOnAtBoot ? "on" : "offBoot", { bootMs });
+    const onRow = await sampleCell(b, shadowsOnAtBoot ? "on" : "offBoot", { bootMs });
+    // T79 (T77 slice 0, 2026-09-06): the controls' below-camera GATE. When the seam exists, the `on`
+    // cell records the gate's counters (did it fire? how much did it skip?) and a `gateOff` cell
+    // samples the same pose with the gate disabled — the library's brute-force down-raycast — so
+    // the orbit frame's CPU has its before/after inside one boot. `--no-gate-ab` skips the A/B.
+    const GATE = `(window.__globe && window.__globe.controls && typeof window.__globe.controls.belowCameraGate === "function")`;
+    if (await evalJs(GATE)) {
+      onRow.gate = await evalJs(`window.__globe.controls.belowCameraGate()`);
+      writeArtefacts();
+      console.log(`  gate: ${JSON.stringify(onRow.gate)}`);
+      if (!flag("--no-gate-ab") && b.pose !== "fpv") {
+        await evalJs(`window.__globe.controls.belowCameraGate(false), true`);
+        const offRow = await sampleCell(b, "gateOff", { bootMs });
+        offRow.gate = await evalJs(`window.__globe.controls.belowCameraGate(true)`); // re-enable; the counters are the OFF window's
+        writeArtefacts();
+      }
+    }
     if (POST_AB && (b.pose !== "m" || DEVICE)) {
       // The two POST-PROCESS A/Bs (each restored before the next): GTAO (high tier + low altitude
       // only — `__quality.ao` is the live GTAOPass, null when AO is off) and bloom. Both are pure

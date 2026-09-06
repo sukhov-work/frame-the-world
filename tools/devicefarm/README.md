@@ -57,9 +57,20 @@ delete the root key — a root key on a laptop is the one credential that cannot
 phone rows carry no JS-heap and no GPU-ms column — the memory number is the kill ramp's last-good
 count and the session's syslog; frame time is `frame.dt` from the app's own rAF ring. The synthetic
 look-around dispatches pointer events on the canvas (the FPV gesture path) — if the phone shows no
-camera motion in the video, the soak is a static soak and says so. **Status 2026-09-06:** the dry run
-passed against the real account; no session has been opened yet — the first real run classifies the
-tunnel reach, the Safari capabilities and the seam read on the device.
+camera motion in the video, the soak is a static soak and says so. **Status 2026-09-06 (later the same day — five sessions run):** the flow WORKS on the fleet's iPhone 17 Pro:
+the tunnel served `wix dev`, Safari accepted the caps, the seam read and the boot marker held, and all
+five poses were read (`MEASUREMENTS_2026-09-05.md` §11). Learned the hard way, now encoded here: **run
+`cloudflared` with `--protocol http2`** (QUIC to the edge is blocked on the owner's network → HTTP 530);
+a session bills 8–10 device minutes even when stopped a minute after RUNNING; **the `#f=` FPV page on
+the 17 Pro dies 40–60 s after load** — with or without seeded models — after which every Appium command
+stalls 120 s (backlog T83; the console session video + syslog classify kill vs hang), so the tool now
+uses `connectionRetryCount: 0`, classifies a stalled debugger (`pageUnresponsive`), records a stalled
+ramp step as its kill-class event, skips the soak on a dead page and never calls `deleteSession` on
+one; `--poses fpv,fpv` boots a pose twice in one Safari session (slot `fpv#2`); `--ramp 0` skips the
+ramp. Always launch it DETACHED (`nohup … &`): a tool timeout that kills it mid-run leaves a billing
+session and seeded rows — stop stragglers with `aws devicefarm stop-remote-access-session --arn … --profile
+plux` and `DELETE /api/dev-seed?kind=model&id=<id>` for each id in `verify-shots/perf/seeds-farm-<stamp>.json`.
+The kill ramp and the soak curve are still UNMEASURED on iOS.
 
 ## B. Pixel 6 Pro over adb — the desktop harness, unchanged, pointed at the phone
 
@@ -84,4 +95,10 @@ node scripts/probe-cpu-profile.mjs 9444 --pose orbit                            
 pointer → lean profile, tier capped `mid`; the ULTRA pref is REFUSED there and the boot asserts the
 refusal). `performance.memory` exists on Android Chrome; `frame.gpu` is usually absent. Chrome must
 be in the foreground with the screen on (the harness calls `Page.bringToFront`; Android throttles rAF
-in background tabs). Untested on a device at the time of writing — the Pixel was not attached.
+in background tabs). Run 2026-09-06 on the owner's Pixel 6 Pro (Android 16, Chrome 152): 15 cells / 0 failures in 6 min
+(`MEASUREMENTS` §11). Two facts the recipe needed: **Android Chrome answers `PUT /json/new` with "Could
+not create new page"** — so in `--device` mode the harness attaches to the tab the `am start` line
+opened (any `localhost:4321` page tab) and re-navigates it per boot, never creating or closing tabs on
+the phone; and the phone DOZES with its screen off — `adb shell input keyevent KEYCODE_WAKEUP` plus
+`adb shell settings put global stay_on_while_plugged_in 7` before a run (set it back to 0 after).
+`performance.memory` is QUANTIZED on Android Chrome (every cell read 202 MB) — not a measurement.

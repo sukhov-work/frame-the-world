@@ -40,6 +40,7 @@
  *   --soak-min minutes with a synthetic look-around between reads.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { remote } from "webdriverio";
 import {
   DeviceFarmClient,
@@ -71,7 +72,9 @@ const LABEL = opt("--label", "farm");
 const DEV = "http://localhost:4321"; // the Mac's own wix dev — for dev-seed and the tunnel preflight
 const OWNER_EMAIL = opt("--owner", "yevhens@wix.com");
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-const OUT_DIR = "../../verify-shots/perf";
+// Anchored to THIS FILE, not the cwd: the README runs the tool from the repo root, and a cwd-relative
+// "../../" landed farm1's first JSON outside the repo (2026-09-06).
+const OUT_DIR = fileURLToPath(new URL("../../verify-shots/perf", import.meta.url));
 mkdirSync(OUT_DIR, { recursive: true });
 if (!HOST && !DRY) throw new Error("--host https://<tunnel-host> is required (the phone cannot reach localhost)");
 
@@ -244,7 +247,9 @@ async function waitRunning(arn) {
 }
 
 // ─── the phone probes (all run INSIDE Safari via executeScript; each < 4 min) ────────────────
-const BOOT_MARK = `window.__t77boot = ${JSON.stringify(STAMP)}; sessionStorage.setItem("t77", ${JSON.stringify(STAMP)}); true`;
+// A COMMA expression, not statements: `js()` wraps every probe in `return (…)` and JavaScriptCore rejects
+// `return (a; b)` with "Expected ')' to end a compound expression" (farm1 attempt 1, 2026-09-06).
+const BOOT_MARK = `(window.__t77boot = ${JSON.stringify(STAMP)}, sessionStorage.setItem("t77", ${JSON.stringify(STAMP)}), true)`;
 const READY = `!!(window.__debugFeed && (window.__globe || document.querySelector("canvas")))`;
 const SNAP = `(() => {
   const f = window.__debugFeed; if (!f) return { err: "no __debugFeed" };
@@ -279,6 +284,10 @@ async function drive(endpoint) {
     path: u.pathname + u.search,
     logLevel: "warn",
     connectionRetryTimeout: 240_000,
+    // ONE attempt per command: after a WebContent kill or a JS hang the remote debugger answers
+    // nothing for 120 s, and the default three retries turned one dead page into eight device
+    // minutes (farm1 attempt 2, 2026-09-06). The tool classifies the stall itself instead.
+    connectionRetryCount: 0,
     capabilities: {
       platformName: "iOS",
       "appium:automationName": "XCUITest",
@@ -312,14 +321,27 @@ async function drive(endpoint) {
     }
     return { settleMs: maxS * 1000, capped: true };
   };
+  let pageUnresponsive = false; // set when Safari's remote debugger stopped answering (kill or hang)
+  const STALL = /did not respond|JavaScript execution is blocked/i;
   const boot = async (poseKey) => {
     const t0 = Date.now();
-    await driver.url("about:blank");
-    await sleep(300);
-    await driver.url(POSE_URL[poseKey]);
-    await waitFor(READY, 120_000, `${poseKey} seams`);
-    await js(BOOT_MARK);
-    await js(`window.__debugFeed.setActive(true), true`); // the per-frame series (no panel on a phone)
+    try {
+      await driver.url("about:blank");
+      await sleep(300);
+      await driver.url(POSE_URL[poseKey]);
+      await waitFor(READY, 120_000, `${poseKey} seams`);
+      await js(BOOT_MARK);
+      await js(`window.__debugFeed.setActive(true), true`); // the per-frame series (no panel on a phone)
+    } catch (e) {
+      // A 120 s "remote Safari debugger did not respond" = the page's WebContent process is gone
+      // (jetsam) or its main thread is blocked. Either way nothing more can be read from this
+      // session — record it and let the caller decide; never retry into another two minutes.
+      if (STALL.test(String(e))) {
+        pageUnresponsive = true;
+        throw new Error(`boot ${poseKey}: the remote Safari debugger stopped responding (WebContent kill or a JS hang — the console session video decides)`);
+      }
+      throw e;
+    }
     // the desktop route on a phone shows the welcome overlay only without a hash — the poses carry one
     return Date.now() - t0;
   };
@@ -341,21 +363,43 @@ async function drive(endpoint) {
 
   try {
     // ── the poses ──
+    const seenPose = {};
     for (const poseKey of POSES) {
-      const bootMs = await boot(poseKey);
+      const n = (seenPose[poseKey] = (seenPose[poseKey] ?? 0) + 1);
+      const slot = n === 1 ? poseKey : `${poseKey}#${n}`; // fpv,fpv = a second `#f=` boot in ONE Safari session
+      let bootMs;
+      try {
+        bootMs = await boot(poseKey);
+      } catch (e) {
+        results.poses[slot] = { pose: poseKey, error: String(e) };
+        results.notes.push(`${slot}: ${String(e)}`);
+        save();
+        log(`${slot}: ${String(e)}`);
+        if (pageUnresponsive) throw e; // nothing more can be read from this session
+        continue;
+      }
       const st = await settle(SETTLE_S);
       await sleep(5000); // let the series rings fill (240 samples)
       const r = await read(poseKey, { bootMs, settle: st });
-      results.poses[poseKey] = r;
+      results.poses[slot] = r;
       save();
       log(poseLine(r));
-      if (r.snap.booted !== true) results.notes.push(`${poseKey}: the page RELOADED during the read (boot marker gone) — a WebContent kill?`);
+      if (r.snap.booted !== true) results.notes.push(`${slot}: the page RELOADED during the read (boot marker gone) — a WebContent kill?`);
     }
     // ── the kill ramp at the FPV eye ──
     for (const N of RAMP) {
       await seedTo(N);
       log(`ramp: ${seedIds.length} rows seeded → reload the FPV eye`);
-      const bootMs = await boot("fpv");
+      let bootMs;
+      try {
+        bootMs = await boot("fpv");
+      } catch (e) {
+        results.ramp.push({ N: seedIds.length, alive: false, killed: true, unresponsive: true, error: String(e) });
+        results.notes.push(`kill ramp: the debugger stopped responding at N=${seedIds.length} resident rows (last good ${results.ramp.filter((x) => !x.killed).at(-1)?.N ?? 0}) — kill vs hang: see the session video`);
+        save();
+        log(`ramp N=${seedIds.length}: UNRESPONSIVE — ${String(e)}`);
+        break;
+      }
       await sleep(20_000);
       const alive = await js(`window.__t77boot === ${JSON.stringify(STAMP)}`).catch(() => false);
       let r;
@@ -365,7 +409,11 @@ async function drive(endpoint) {
         r = { pose: "fpv", tag: `ramp${N}`, seeded: seedIds.length, error: String(e) };
       }
       const killed = !alive || r.error || r.snap?.booted !== true;
-      results.ramp.push({ N: seedIds.length, alive, killed, ...r });
+      // farm2 (2026-09-06): the page BOOTED with 9 resident helmets (seams answered, marker set),
+      // then went silent inside the 20 s wait — every later command stalls 120 s. That silence is
+      // the kill-class event itself; flag the page so the soak is skipped and the session stops now.
+      if (r.error && STALL.test(String(r.error))) pageUnresponsive = true;
+      results.ramp.push({ N: seedIds.length, alive, killed, unresponsive: pageUnresponsive, ...r });
       save();
       log(`ramp N=${seedIds.length}: ${killed ? "KILLED / RELOADED" : "alive"} ${r.snap ? `models ${r.snap.models?.join("/")} tex ${r.snap.textures} lru ${r.snap.lruMB?.map((x) => Math.round(x ?? 0)).join("/")} dt ${r.snap.dt?.[0]?.toFixed?.(1)}` : r.error ?? ""}`);
       if (killed) {
@@ -375,7 +423,7 @@ async function drive(endpoint) {
     }
     await unseedAll();
     // ── the soak at the FPV eye, 0 seeded models ──
-    if (SOAK_MIN > 0) {
+    if (SOAK_MIN > 0 && !pageUnresponsive) {
       await boot("fpv");
       await settle(SETTLE_S);
       const t0 = Date.now();
@@ -394,7 +442,9 @@ async function drive(endpoint) {
       }
     }
   } finally {
-    await driver.deleteSession().catch(() => {});
+    // deleteSession on an unresponsive page is another 120 s stall per attempt; the remote-access
+    // session stop (the outer finally) tears the browser down regardless.
+    if (!pageUnresponsive) await driver.deleteSession().catch(() => {});
   }
 }
 

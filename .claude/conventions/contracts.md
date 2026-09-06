@@ -65,6 +65,13 @@ movedFeatures, nearMaxResidualM, nearMovedFeatures, nearCells, epoch, quietFrame
 rejected } }`, the per-frame seat residuals taken inside `applyFeatureSeats()` (plain field reads,
 safe in a per-frame rAF probe — `enrichedSeats()` is a 39k-feature walk and is not).
 
+New sub-seam (dated 2026-09-06, T77 slice 0 / T79): **`__globe.controls.belowCameraGate(enabled?)`** —
+the below-camera GATE's counters `{ gated, exact, seen, skipped, skipBox, skipSphere, skipScan,
+boxesBuilt, scans, lastMs, enabled }` (`scene/pluxGlobeControls.ts`); passing a boolean toggles the
+gate (a DEV A/B kill-switch — `false` restores the library's brute-force down-raycast) and resets the
+counters. Consumers: `scripts/verify-perf-baseline.mjs` (the `on` cell's `gate` field + the `gateOff`
+cell), `scripts/probe-below-camera.mjs`. "Did the lever fire?" is `gated > 0 && skipped === seen`.
+
 The five added since the 2026-08-15 count:
 
 | Seam | Owner | Purpose |

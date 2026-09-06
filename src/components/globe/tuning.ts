@@ -1602,6 +1602,12 @@ export const CONTROLS = {
    *  street level is the instrument's point — the orchestrator's terrain guard owns the
    *  underground case, this only cushions rooftop grazes). */
   cameraRadius: 2.5,
+  /** T79 (T77 slice 0, 2026-09-06) — the below-camera GATE's safety margin (m). The gate skips a
+   *  mesh's triangle loop when its bounding volume tops out more than `cameraRadius +
+   *  actionHeightOffset + this` below the camera; any positive value keeps the gate EXACT (the
+   *  bounds are upper bounds), a larger one only costs triangle tests. 0.5 m covers float error in
+   *  the corner / support arithmetic with room to spare. `scene/pluxGlobeControls.ts`. */
+  belowCameraGateMarginM: 0.5,
   /** Trackpad-pinch zoom rate (library default 1 is painfully slow; verified 5). */
   zoomSpeed: 5,
   /** GlobeControls pitches the camera toward nadir while zooming in (it rotates the camera around

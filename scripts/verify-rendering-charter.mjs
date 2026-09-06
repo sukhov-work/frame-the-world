@@ -343,10 +343,14 @@ await shot("charter-02-rc2-after-gate");
 // the FPV orientation from its own `fpvPitch`, so poking `camera.lookAt` from outside is
 // overwritten on the next frame (or, with rAF asleep, silently sticks and reads back a frozen
 // rig — which is exactly how the first run of this script produced nine identical samples).
+// The sweep pins its scene time to Dnipro midday (the perf baseline's `T_FPV`): a bare `#f=` hash
+// reads the REAL clock, and the rig is (correctly) off at night — the 2026-09-06 02:45 run read
+// `casting=false` at every pitch and failed RC3/RC4 on the time of day, not on the rig.
+const SWEEP_T = 1787133600000;
 const pitches = [-25, -8, -2, -0.2, 0, 1.5, 9];
 const sweep = [];
 for (const p of pitches) {
-  await goto(`#f=48.4647,35.0462,1.7,250.0,${p.toFixed(1)},50.0`);
+  await goto(`#f=48.4647,35.0462,1.7,250.0,${p.toFixed(1)},50.0&t=${SWEEP_T}`);
   const s = await json(`(() => {
     const g = window.__globe, L = g.sunLight, u = g.ultraLook();
     return {

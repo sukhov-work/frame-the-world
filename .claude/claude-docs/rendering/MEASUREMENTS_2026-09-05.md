@@ -319,6 +319,18 @@ the engine's own memoised `heightAt` (the vertical authority, D4). The expected 
 30–47 ms: the orbit frame would become GPU-bound at ~36 ms (high) / 21 (mid) / 5 (low), and then
 bloom (§4) is the next 15–25 ms.
 
+**2026-09-06 CORRECTION (T77 slice 0, `scripts/probe-below-camera.mjs` — the down-ray timed per
+scene object, 5 reps, desktop):** the culprit above is mis-attributed. The enriched cells cost 3.1 ms
+per call at the orbit pose (85 k tris / 11 tile scenes under the ray), the OSM building tiles 2.1 ms
+(79 k / 10), the terrain traversal 0.02 ms — and **the stylized BASE EARTH costs 15.9 ms per call:
+`baseEarth.ts:183` `SphereGeometry(1, EARTH.segments = 384, 384)`, 294,144 triangles, sunk 1.9 km
+under the terrain as a backdrop, with a LIVE default `Mesh.raycast`** (every other backdrop noops it).
+Its bounding sphere and box are the whole planet, so three's early-outs never fire and every vertical
+ray tests all 294 k triangles. Per pose: orbit 21.0 ms/call (15.9 base earth), `/m` 12.1 (12.1),
+Everest 15.0 (14.8 — the "210 MB TIN" costs 0.06), city 18.7 (15.2 + 3.6 OSM tiles). Two calls a
+frame = the 31–47 ms above. `MEASUREMENTS` §12's slice 0 lever NEW-1 is built as the below-camera
+GATE (`lib/globe/belowCameraGate.ts`, `scene/pluxGlobeControls.ts` — see `T77_SLICE0_ORBIT_FRAME_2026-09-06.md`).
+
 ## 8. Shimmer — baseline (`verify-temporal-stability.mjs --shimmer`, 640×360 mask, 480 frames)
 
 The mask is the screen-space shadow term (A/B on `shadow.intensity` inside one rAF — §1); churn is
@@ -393,23 +405,67 @@ the LRU churn.
 | `mid`/`low` on real weak hardware | STILL NONE — the tier ladder here is the tier's WORK on an M3 Pro, not a weak GPU's frame |
 | total VRAM · a dense-metro pose · prod render performance · `EdgesGeometry` per stock tile · the RC22 knobs | STILL NONE |
 
-## 11. The phone (step 1b) — part A DONE on the Mac, part B not run
+## 11. The phone (step 1b) — BOTH DEVICES RUN 2026-09-06 (rewritten from the device JSONs; the 2026-09-05 text is superseded)
 
-Done (`IPHONE_BASELINE_CHECKLIST_2026-09-05.md` §A, rewritten with the built recipes): the tunnel
-recipe (`ngrok http 4321` + `wix dev --allowed-hosts <host>`, both halves verified present), the
-pose URLs, **the runtime read seam** (`window.__debugFeed`, published in DEV always and in a release
-build when the `debugHud` pref was on at boot — the console recipe is in the checklist), and **the
-ramp tool** (`scripts/t77-model-ramp.mjs to N / clear`, journaled). Device-free proxies recorded
-here: JS heap 400–490 MB at the FPV eye and 840–920 MB at the city view at DPR 2 (the M3 Pro's
-numbers, an upper bound on a phone's at DPR 1.25–1.5 with the lean caps); `renderer.info.memory`
-228–358 textures / 544–1,432 geometries at the Dnipro poses; the ground LRU at its 410 MB cap; the
-`/m` chart at 100 MB heap, 66 MB ground LRU, 20 textures. Against the published iOS ceilings (web
-report §3: a 2–3 GB page including GPU on a 17 Pro, a practical crash range far lower on older
-devices), the city view's ~0.9 GB heap plus ~0.7 GB of LRU is the pose to fear. Desktop Safari on
-the M3 Pro (WebKit correctness) was NOT run this session. **Still UNKNOWN until a device or a farm
-runs §B: the jetsam kill point, the thermal soak curve, A19 frame times.**
+Two real phones read the same seam the desktop harness reads (`window.__debugFeed.snapshot()`), so
+the columns are §2's. **iPhone 17 Pro** (AWS Device Farm Remote Access session, Safari 26.3.1,
+`tools/devicefarm/ios-baseline.mjs`, JSON `verify-shots/perf/devicefarm-farm1-2026-09-05T22-32-34.json`;
+CSS viewport 402×714, `devicePixelRatio` 3, `hardwareConcurrency` 4, coarse pointer → deviceTier
+`mid`, lean, DPR 1.25, shadow 1024 px, bloom off, `Apple GPU`; no `performance.memory`, no GPU timer).
+**Pixel 6 Pro** (adb + `verify-perf-baseline.mjs 9444 --device --quick`, Android 16, Chrome 152,
+Mali-G78, `deviceMemory` 8, CSS 411×794 @ 3.5, `hardwareConcurrency` 8 → deviceTier `mid`, lean, DPR
+1.25; JSON `baseline-pixel6pro-dsf2-2026-09-05T23-13-05.{json,md}`; `performance.memory` present but
+QUANTIZED — every cell reads 202 MB — no GPU timer). Desktop columns from §2 (`high`, DPR 2, M3 Pro)
+beside them:
 
-**2026-09-06 update:** the flow is BUILT and the account is reachable — `tools/devicefarm/ios-baseline.mjs` (a Device Farm Remote Access session's Appium endpoint driving Safari on the fleet's iPhone 17 Pro, iOS 26.3.1; `--dry-run` resolved the project, the owner's pool and the device read-only) and `verify-perf-baseline.mjs --device` for the owner's Pixel 6 Pro over adb. Neither has run on a device yet; their JSON lands beside the desktop baseline in `verify-shots/perf/`, and this section is rewritten from it.
+| pose | device | tier (governor) | dt p50 / p95 ms | fps | cpu p50 | draw | calls | tris | tex / geo | LRU bld/gnd/enr MB | models |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| fpv | iPhone 17 Pro | mid | 17 / 17 (60 Hz cap) | 60 | 2 | 2 | 390 | 1.65 M | 119 / 284 | 4 / 47 / 37 | 3 |
+| fpv | Pixel 6 Pro | mid | 27.5 / 81.9 | 30 | 1.3 | 2.8 | 223 | 1.47 M | 12 / 149 | – / – / 37 | 3 |
+| fpv | desktop high | high | 23 / – | 43 | 2 | – | – | – | – | – | 3 |
+| orbit | iPhone 17 Pro | low (demoted) | 91 / 112 | 11 | **84** | 1 | 109 | 740 k | 65 / 117 | 5 / 27 / 6 | 3 |
+| orbit | Pixel 6 Pro | low (demoted) | 80.6 / 85.6 | 12 | **78** | 1.3 | 59 | 565 k | 20 / 45 | – / – / 6 | 3 |
+| orbit | desktop high | high | 43 / – | 23 | **42** | – | – | – | – | – | 3 |
+| city | iPhone 17 Pro | low | 97 / 200 | 10 | **91** | 1 | 158 | 602 k | 77 / 673 | 7 / 49 / 121 | 0 |
+| city | Pixel 6 Pro | low | 79.8 / 97.8 | 12 | **78** | 0.9 | 40 | 317 k | 21 / 588 | – / – / 121 | 0 |
+| everest | iPhone 17 Pro | low | 79 / 99 | 13 | **74** | 0 | 49 | 370 k | 36 / 65 | 0 / 31 / 0 | 0 |
+| everest | Pixel 6 Pro | low | 88.2 / 91.9 | 11 | **86** | 1.0 | 24 | 317 k | 12 / 27 | – | 0 |
+| /m | iPhone 17 Pro | low | 111 / 130 | 9 | **105** | 0 | 28 | 324 k | 16 / 37 | 0 / 78 / 0 | 0 |
+| /m | Pixel 6 Pro | low | 100.6 / 112.6 | 10 | **109** | 0.9 | 25 | 317 k | 11 / 28 | – | 0 |
+| /m | desktop mid | mid | 37 / – | 27 | **37** | – | – | – | – | – | 0 |
+
+(Pixel bld/gnd LRU columns read 0 — a feed read the `--device` path does not resolve yet; recorded, not
+interpreted. The Pixel's shadow legs at the FPV eye: `noUpdate` dt 22.8, `off` 22.1 → the shadow
+pass is ~5 ms of the 27.5 ms Mali frame; the OSM/enriched arrival adds the rest.)
+
+**The verdict the phones deliver.** The FPV eye is fine on both (the 17 Pro pinned at its 60 Hz
+cap with 2 ms of CPU; the Pixel GPU-bound at 30 fps). **Every orbit pose is 9–13 fps on BOTH
+phones and CPU-bound in the controls' down-raycast — 74–109 ms of main thread per frame** — and
+the governor's demotion to `low` did nothing for it (a controls-bound frame ignores DPR). T79 is the
+mobile lever; §7's correction below says where those milliseconds actually go.
+
+**What did not classify — the iPhone kill ramp and the soak.** Three sessions (`19deb1e4-67fe-435e-8ad1-cecddd6a8d78`,
+`c90c3fd4-e386-47bc-9b30-539bd7cb1d09`, farm3's): every `#f=` FPV page on the 17 Pro answered the
+seams, took the boot marker, was READ at ~40 s — and then, 40–60 s after load, Safari's remote
+debugger stopped answering for good (every later Appium command stalls 120 s). It happened with 6
+seeded + 3 world helmets (the ramp's first step, twice), and with 0 seeds during the soak's
+look-around; a SECOND plain `#f=` boot in one Safari session was read fine, so neither the reload
+nor the models is the trigger — the page's own life at the FPV eye is ~40–60 s. Kill (jetsam) vs
+JS hang is [OPEN]: the Device Farm console keeps each session's video and device syslog. Hypothesis
+to test first: a late background load landing (the base earth's S5 8k texture swap ≈ +250 MB GPU;
+the streaming LRU). The Pixel (Chrome, `performance.memory` quantized to 202 MB) did NOT die in six
+boots of ~2.5 min each. Boots on the 17 Pro 7–11 s, settle 13–27 s. Device minutes spent ≈ 78 of
+the 1,000-minute trial (a session bills 8–10 minutes even when stopped within a minute of RUNNING).
+
+**Harness facts learned (all encoded in the tools):** `cloudflared` must run `--protocol http2` on
+this network (QUIC to the edge is blocked → HTTP 530); the tunnel host changes per restart and
+`wix dev --allowed-hosts` must follow it; JavaScriptCore rejects a statement list inside `return (…)`
+("Expected ')' to end a compound expression") — probes are expressions; WebdriverIO's 3 retries turn
+one dead page into eight device minutes (`connectionRetryCount: 0` + a stall classifier); Android
+Chrome refuses `PUT /json/new` over adb ("Could not create new page") — the harness drives the tab
+the recipe opened; the Pixel dozes with its screen off — `stay_on_while_plugged_in 7` before a run.
+NOT run on the Pixel this session: `verify-temporal-stability --shimmer` (slice A material) and
+`probe-cpu-profile --pose orbit` (moot — §7's correction attributes the frame without it).
 
 ## 12. Slice order after MEASURE — a dated SUPERSESSION of `T77_AUDIT_PLAN_2026-09-05.md` §1 / §4
 

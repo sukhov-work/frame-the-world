@@ -176,9 +176,47 @@ file. Both halves are now machine-checked by `test/brandFence.test.ts`.
   · `wip-2026-08-26-sweep-schedule` · `wip-2026-08-26-gate-star-floor`.
 - **FORMAL VERIFICATION — Lean 4 + Mathlib proof project (2026-08-24d, HOT)** — `formal/` ·
   `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
+- **T77 RENDERING PERF — MEASURE → the phones → slice 0 (2026-09-05→06, HOT)** — `rendering/T77_AUDIT_PLAN_2026-09-05.md`
+  (the lever ledger) · `rendering/MEASUREMENTS_2026-09-05.md` (§0 verdict · §7 CPU profile + its
+  2026-09-06 correction · §11 the phones · §12 slice order) · `rendering/T77_SLICE0_ORBIT_FRAME_2026-09-06.md`
+  (T79 the below-camera gate, as-built + receipt + owner calls) · `tools/devicefarm/README.md` (the iPhone /
+  Pixel recipes). Memories: `wip-2026-09-05-t77-audit-plan` · `wip-2026-09-05-t77-measure` ·
+  `wip-2026-09-06-t77-phone-baseline-slice0`. Backlog T77 · T79 CLOSED · T80 · T81 · T82 · T83–T86.
 
 ## Next step
-**2026-09-06: T77 STEP 1 MEASURE IS DONE — `rendering/MEASUREMENTS_2026-09-05.md` (verdict §0, the
+**OWNER ORDER 2026-09-06f — the NEXT session is a ONE-SESSION docs + memory HYGIENE SWEEP (audit mode) plus
+the GUIDE feature gap, `no-slop` on everything written; T77 is PARKED with a dated pointer at the top of
+`rendering/T77_AUDIT_PLAN_2026-09-05.md` and resumes right after at T80 (owner call: pixels at `high`) →
+slice A.** The charter, the measured baseline (DECISIONS §Recent 418 KB → compaction round 5 = T40; THIS
+memory 90 KB vs its 12 KB cap; 130 wip leaves; `rendering/` without a README; the guide's 126 topics vs
+features shipped since 2026-08-22g), tracks E · D1–D5, gates and traps: `NEXT_SESSION_PROMPT.md`
+§"THE NEXT SESSION". Backlog **T87**. DECISIONS 2026-09-06f.
+
+Prior (2026-09-06d/e): **2026-09-06d/e: T77 STEP 1b THE PHONES ARE MEASURED + SLICE 0 / T79 IS BUILT, RECEIPTED AND CLOSED.**
+Both phones read (`MEASUREMENTS` §11): iPhone 17 Pro over AWS Device Farm (`tools/devicefarm/ios-baseline.mjs`)
+and Pixel 6 Pro over adb (`verify-perf-baseline.mjs 9444 --device --quick`, 15 cells / 0 failures) — FPV fine
+on both (60 Hz cap / 30 fps GPU-bound), **every orbit pose 9–13 fps on BOTH, 74–109 ms of main thread in
+the controls' down-raycast**; the iPhone `#f=` page dies 40–60 s after load with or without seeded models
+(**T83**, kill vs hang → the console videos; ≈ 78 of 1,000 trial minutes spent). **T79 re-attributed:**
+`scripts/probe-below-camera.mjs` puts 15.9 of 21 ms per call in the BASE EARTH (`baseEarth.ts:183`
+`SphereGeometry(1, 384, 384)`, 294 k tris, sunk 1.9 km, the one backdrop with a live default `raycast`),
+3.1 in the enriched cells, 2.1 in OSM tiles, 0.02 in terrain (MEASURE §7's "enriched soup" was wrong;
+dated correction there). **Fix = the below-camera GATE** — `lib/globe/belowCameraGate.ts` wraps
+`THREE.Mesh.prototype.raycast` once; armed only inside `scene/pluxGlobeControls.ts` (`PluxGlobeControls
+extends GlobeControls`, `_getPointBelowCamera` + `_updateZoom` overridden) a mesh proven to top out below
+`cameraRadius + actionHeightOffset + CONTROLS.belowCameraGateMarginM` skips its triangle loop via three
+exact bounds (position-attribute AABB → O(1) ellipsoid support for `SphereGeometry` → cached vertex scan).
+EXACT by construction (the callers consume one bit, `dist < cameraRadius`; ellipsoid pre-check; zoom path
+untouched) → rooftop clearance byte-identical, NO owner call spent. Receipt: vitest 2,463 · astro 0/0/9 ·
+knip 0 · perf `--quick` 32/32 with `gateOff` A/B cells — orbit dt 44.5→18.1 cpu 43.3→1.2 · Everest
+32.2→17.9 · `/m` 35.8→12.1 (**T84** residual) · city 49→37 (GPU-bound) · FPV unchanged · charter 85/85
+(its RC3/4 sweep now pins midday — it read the real clock and failed at night) · ultra 28/28 · meshedit ·
+usermodels 21 · cab 65/65 · pin-reframe RED = T76. Backlog T79 CLOSED, **T83–T86 new** (T85 = owner call
+`baseEarth` `raycast = () => {}`). **NEXT: T80 bloom (owner call on pixels at `high` FIRST), then slice A
+shadows (shimmer gate), then B seats.** `mem:project/wip-2026-09-06-t77-phone-baseline-slice0` ·
+`rendering/T77_SLICE0_ORBIT_FRAME_2026-09-06.md` · DECISIONS 2026-09-06d/e · NEXT_SESSION_PROMPT.
+
+Prior: **2026-09-06: T77 STEP 1 MEASURE IS DONE — `rendering/MEASUREMENTS_2026-09-05.md` (verdict §0, the
 ESTIMATED → MEASURED ledger §10, the SLICE-ORDER SUPERSESSION §12). The numbers reordered the plan:**
 (1) every `#p=` orbit pose is CPU-bound in the CONTROLS — 31–47 ms/frame at a static pose at every tier
 (the `/m` chart too), 84 % of the frame in `GlobeControls.update → adjustCamera → _getPointBelowCamera →

@@ -73,6 +73,15 @@ in T77 step 1 runs on the desktop (`T77_AUDIT_PLAN_2026-09-05.md` §3).
    have them on screen to compare (the `renderer.info.memory` gauges and the LRU bytes per pose
    are the device-free memory proxy; the `/m` rows are the closest desktop stand-in for the phone).
 
+## B0. STATUS 2026-09-06 — §B ran unattended on the farm (rows 0–10) and on the Pixel; rows 18–40 did not classify on iOS
+
+The five poses were READ on the iPhone 17 Pro and the Pixel 6 Pro (`MEASUREMENTS_2026-09-05.md` §11 —
+the verdict: FPV fine, every orbit pose 9–13 fps controls-bound; fixed the same day by T79). The kill
+ramp (row 18) and the soak (row 30) did NOT classify on iOS: the `#f=` FPV page dies 40–60 s after
+load with or without seeded models (backlog **T83** — the Device Farm console videos decide kill vs
+hang). Rows 0/3/8 (Safari inspector, timelines, Memory instrument) remain the owner's-hands path for
+the page-total number iOS never exposes to a script.
+
 ## B. With the phone (the owner's hands; ~35 minutes)
 
 | min | Step | Record (verbatim) |

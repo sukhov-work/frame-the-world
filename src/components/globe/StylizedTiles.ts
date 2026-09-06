@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GlobeControls, WGS84_ELLIPSOID } from "3d-tiles-renderer";
+import { WGS84_ELLIPSOID } from "3d-tiles-renderer";
 import { formatDims } from "../../lib/format/readout";
 import {
   angularRadiusRad,
@@ -83,6 +83,7 @@ import {
 } from "../../lib/globe/debugFeed";
 import { clientToNdc, ndcToClient } from "../../lib/geo/screen";
 import { attachBaseEarth } from "./scene/baseEarth";
+import { PluxGlobeControls } from "./scene/pluxGlobeControls";
 import { attachGraticule } from "./scene/graticule";
 import { attachAtmosphere } from "./scene/atmosphere";
 import { attachStars } from "./scene/stars";
@@ -1083,7 +1084,9 @@ export function attachStylizedTiles(opts: {
   }
 
   // --- GlobeControls — documented ellipsoid binding, damping for a premium feel, snappy zoom. --
-  const controls = new GlobeControls(scene, camera, renderer.domElement);
+  //     T79 (2026-09-06): the subclass arms the below-camera GATE around the library's twice-a-frame
+  //     whole-scene down-raycast (`scene/pluxGlobeControls.ts`) — same hits, same pushes, ~0 ms.
+  const controls = new PluxGlobeControls(scene, camera, renderer.domElement);
   controls.setEllipsoid(
     (buildings.tiles as unknown as { ellipsoid?: typeof WGS84_ELLIPSOID }).ellipsoid ??
       WGS84_ELLIPSOID,
