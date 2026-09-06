@@ -20,7 +20,7 @@ tunnel to this Mac's `wix dev` — a DEV build, so every `window.__*` seam is pr
 cd tools/devicefarm && npm install
 
 # every session — three terminals on the Mac
-cloudflared tunnel --url http://localhost:4321          # → https://<random>.trycloudflare.com  (no interstitial)
+cloudflared tunnel --protocol http2 --url http://localhost:4321   # → https://<random>.trycloudflare.com; QUIC to the edge is blocked on this network (HTTP 530 without the flag, §11)
 npx wix dev --allowed-hosts <random>.trycloudflare.com  # the Host allowlist; restart wix dev if it was up
 AWS_PROFILE=plux node tools/devicefarm/ios-baseline.mjs --dry-run                                  # project + device resolve; no session, no minutes
 AWS_PROFILE=plux node tools/devicefarm/ios-baseline.mjs --host https://<random>.trycloudflare.com  # ~25–35 min of device time

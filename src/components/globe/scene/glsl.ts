@@ -115,6 +115,31 @@ export const FTW_AERIAL_GLSL = /* glsl */ `
     // what is left once the sky has gone. max(x, 0.0) is exactly x with the LOOK off (T96,
     // 2026-09-06i: the afterglow uniform rides the lookOn() selector, so it is live on the
     // base rig).
-    vec3 inScatter = tint * max(skyLevel, afterglow * ftwAirSun(cosG)) * ftwAirLevel(cosG);
+    // T93 — THE LIMB (owner ruling 2026-09-06m (a), 2026-09-06n): past ULTRA.limbStartM the
+    // directional LEVEL lobe relaxes toward 1 (isotropic air-light — the sky's own brightness at
+    // the horizon), fully by ULTRA.limbEndM. The normalised lobe reads ~0.25–0.5 for a horizontal
+    // ray under a high sun, which hazed 300–500 km of terrain toward an in-scatter DARKER than the
+    // terrain (the hard band at everest-orbit-73, luma ~88 under a ~205 sky). mix(x, 1, 0) is
+    // exactly x, so everything nearer than the start is byte-identical; the tint's swing and the
+    // dusk terms are untouched. (No backticks in this comment: it lives inside a template literal.)
+    float limb = ${limbGlsl(ULTRA.limbStartM, ULTRA.limbEndM)};
+    float lobe = mix(ftwAirLevel(cosG), 1.0, limb);
+    vec3 inScatter = tint * max(skyLevel, afterglow * ftwAirSun(cosG)) * lobe;
     return mix(col, inScatter, f);
   }`;
+
+/** T93 — the limb ramp's GLSL, with the disabled case folded at emit time (a `smoothstep` whose
+ *  edges are not ordered is undefined in GLSL ES, so it is never emitted). Pure, tested. */
+export function limbGlsl(startM: number, endM: number): string {
+  if (!(endM > startM)) return "0.0";
+  return `smoothstep(${glf(startM)}, ${glf(endM)}, dist)`;
+}
+
+/** JS twin of the emitted limb ramp — `smoothstep(start, end, dist)`, 0 when disabled. */
+export function limbK(distM: number, startM: number, endM: number): number {
+  if (!(endM > startM)) return 0;
+  if (distM <= startM) return 0;
+  if (distM >= endM) return 1;
+  const t = (distM - startM) / (endM - startM);
+  return t * t * (3 - 2 * t);
+}

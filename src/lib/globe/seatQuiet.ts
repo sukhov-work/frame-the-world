@@ -18,6 +18,12 @@
  *   • `idleSweepNow` (5d) — whether the refresh round-robin runs on this frame at all.
  *   • `regionArmsCell` (5e) — whether a drained terrain dirty region covers a cell's footprint.
  *
+ * T101 (2026-09-06n) adds a fourth, for the STREAMING side of the same drain:
+ *
+ *   • `deepAnswerVerdict` — what to do with a footprint answer that is implausible against its
+ *     cell plane but came from a DEEPER tile than the plane: correct the plane, HOLD the cell
+ *     until something else does, or reject the sample outright.
+ *
  * The scene module owns the state (which cell, which frame, which queues); this module owns the
  * arithmetic. Tunables are passed in rather than imported so a test can sweep them.
  */
@@ -95,4 +101,53 @@ export function regionArmsCell(
     cellLatDeg >= region[1] - padLat &&
     cellLatDeg <= region[3] + padLat
   );
+}
+
+/**
+ * T101 (2026-09-06n, owner ruling 2026-09-06m option (a)) — the DEEP-ANSWER verdict.
+ *
+ * The C-1 deep-answer rule (`reseatResampleCellOnDeep`) is right about WHAT a deeper
+ * implausible answer means — the cell PLANE is stale, not the sample — and it corrects the plane
+ * out of turn, at most once per cell per frame and at most `maxPerFrame` raycasts a frame. What
+ * it got wrong is the fall-through: a sample the cap could not serve was counted as a REJECTION,
+ * the feature went back into its queue, and the next frame raycast it and rejected it again,
+ * against the same stale plane, until the 6-per-frame round-robin finally reached the cell. At
+ * the orbit ARRIVAL every resident cell's plane refines at once, so the cap is saturated for the
+ * whole burst and the drain burns its budget on re-rejections: `rejected` climbed **+39,629**
+ * over the 479-frame leg (measured 2026-09-06k2; it was 0 before C-1), with no accuracy to show
+ * for it (end residual 0.000 m, collapses 0, city p95 29.7 m — all unchanged).
+ *
+ * The verdict, for an answer ALREADY known to be implausible against the plane:
+ *
+ *   • `"reject"`   — not a deeper answer at all (the rule is off, a depth is unknown, or the
+ *                    sample is no finer than the plane): the ordinary plausibility rejection.
+ *                    A plane that is already at the sample's depth is never held — the answer
+ *                    is not evidence of staleness, so the hold has no say (T101 pin (c)).
+ *   • `"resample"` — deeper, the cell has not been corrected this frame and the frame's budget
+ *                    is unspent: re-sample the plane NOW and re-test (the C-1 behaviour).
+ *   • `"hold"`     — deeper, but the budget is spent or the cell was already corrected this
+ *                    frame without satisfying this sample: the cell WAITS. The caller parks the
+ *                    whole cell (no raycast until its plane is next re-sampled through any path)
+ *                    and does NOT count a rejection — `rejected` keeps meaning "implausible
+ *                    against a CURRENT plane". With `holdOn` false this is `"reject"`, which is
+ *                    exactly the pre-T101 per-frame re-rejection.
+ *
+ * Depth −1 means "unknown" on either side (the plain sampler, a never-sampled plane). `spent`
+ * and `maxPerFrame` are raycast counts for THIS frame; a cap of 0 disables correction entirely,
+ * and with the hold on it parks every deeper-disagreeing cell until the round-robin, which is the
+ * documented meaning of `reseatDeepResampleMaxPerFrame: 0` made cheaper rather than changed.
+ */
+export function deepAnswerVerdict(
+  resampleOn: boolean,
+  holdOn: boolean,
+  depth: number,
+  planeDepth: number,
+  resampledThisFrame: boolean,
+  spent: number,
+  maxPerFrame: number,
+): "resample" | "hold" | "reject" {
+  if (!resampleOn) return "reject";
+  if (!(depth >= 0) || !(planeDepth >= 0) || !(depth > planeDepth)) return "reject";
+  if (!resampledThisFrame && spent < maxPerFrame) return "resample";
+  return holdOn ? "hold" : "reject";
 }

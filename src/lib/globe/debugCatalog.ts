@@ -458,6 +458,13 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     note: "F1's bound: the overlay multiplies the WHOLE composite while a shadow removes only the direct arm, so it rides directK/(a+(1-a)directK). Exactly 1 at high sun and with the chip off; 0 once no direct sun survives.",
   },
   {
+    id: "ultra.shadow.overlayTailK",
+    label: "overlay tail",
+    group: "shadow",
+    fmt: "float3",
+    note: "T100 (a): the overlay's OWN extinction tail, max()-ed with directK under the chip's cascade reach — keyLevel(+0.2°) × x^pow from +0.2° to the gate. 0 with the chip off and at or below the gate, clamped at its top (under the key) above +0.2°; the number that out-holds directK between −0.5° and true sunset.",
+  },
+  {
     id: "ultra.shadow.mapPx",
     label: "shadow map px",
     group: "shadow",

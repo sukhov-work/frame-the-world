@@ -77,7 +77,7 @@ import {
   rigUpDegenerate,
   snapCentreDelta,
 } from "../../lib/globe/shadowSnap";
-import { shadowDirectShareK, shadowLengthK, solarChroma } from "../../lib/globe/duskLight";
+import { overlayReleaseK, shadowDirectShareK, shadowLengthK, solarChroma } from "../../lib/globe/duskLight";
 import {
   aboveGateK,
   moonRigTakeoverK,
@@ -121,7 +121,7 @@ import { attachBldgGizmo } from "./scene/bldgGizmo";
 import { attachUserModels, type UserModelPick } from "./scene/userModels";
 import { attachDayArcs } from "./scene/dayArcs";
 import { attachAimCones } from "./scene/aimCones";
-import { attachFocalCone } from "./scene/focalCone";
+import { attachFocalCone, focalConeFillTiltK } from "./scene/focalCone";
 import { integratePlanned, plannedAtRest } from "../../lib/geo/plannedView";
 import { derivedFov } from "../../lib/decode/params";
 import { attachPlanFeed } from "./scene/planFeed";
@@ -3253,6 +3253,36 @@ export function attachStylizedTiles(opts: {
     ...ULTRA_KEY_GATE,
     bandSin: ULTRA.shadowFadeBandSin,
   };
+  /** T100 (owner ruling 2026-09-06m) — the same disc-wide band, slid UP to start at
+   *  `ULTRA.shadowReleaseStartSin`, for the CHIP's rig only. `aboveGateK` reads a profile's
+   *  `gateSin` as the band's ZERO, so this profile's `gateSin` is the start minus the width,
+   *  clamped so the band can never end below the rig's real gate (the field must be 0 where the
+   *  direction teleports). With the tunable at or below `shadowGateSin + shadowFadeBandSin` this
+   *  IS `ULTRA_SHADOW_GATE`, digit for digit. */
+  const ULTRA_FIELD_RELEASE: KeyGateProfile = {
+    ...ULTRA_SHADOW_GATE,
+    bandSin: ULTRA.shadowReleaseBandSin,
+    gateSin:
+      Math.max(ULTRA.shadowReleaseStartSin, ULTRA.shadowGateSin + ULTRA.shadowReleaseBandSin) -
+      ULTRA.shadowReleaseBandSin,
+  };
+  /** The profile the shadow FIELD reads this frame: the chip's slid band (T100), the LOOK's
+   *  gate-anchored band, or the pre-T96 base band. Published on `ultraLook().shadow` as
+   *  `fieldBandTopSin` so a ladder reads where the release starts off the engine.
+   *  T96 fence: the slide is a BOX / REACH lever, not a model one — it is read on exactly the
+   *  condition the length guard's reach is (`ultraOn && shadowCascades.length > 0`), because it
+   *  exists to do the job the geometric guard cannot once the ladder's 260 km reach has made
+   *  `shadowLengthK` inert. The base rig's 5 km box still ramps on geometry and never reads it. */
+  const fieldProfile = (): KeyGateProfile =>
+    lookOn()
+      ? ultraOn && shadowCascades.length > 0
+        ? ULTRA_FIELD_RELEASE
+        : ULTRA_SHADOW_GATE
+      : KEY_GATE;
+  /** T100 (a) — the top of the ground overlay's own extinction tail: the key's `directK` at
+   *  `ULTRA.overlayReleaseStartSin`, read off `keyExtinctCurve` once so the tail meets the key
+   *  exactly where it starts (`lib/globe/duskLight.overlayReleaseK`). */
+  const OVERLAY_TAIL_TOP = bandCurve(ULTRA.keyExtinctCurve, ULTRA.overlayReleaseStartSin);
   const _keyWhite = new THREE.Color(0xffffff);
   /** Owner defect 2 — scratch for the physical extinction chromaticity applied to the key. */
   const _keyChroma = new THREE.Color();
@@ -3388,6 +3418,10 @@ export function attachStylizedTiles(opts: {
    *  most of why the release cliff was arguable rather than measurable. Read off the value that
    *  was USED, never re-derived. */
   let ultraShadowDirectShareK = 1;
+  /** T100 (a) — the overlay's own extinction tail this frame (`overlayReleaseK`; 0 with the
+   *  chip off and at or below the gate, clamped at its top — under the key — above its start).
+   *  Published so a ladder reads the tail that was USED against the `directK` it out-held. */
+  let ultraOverlayTailK = 0;
   /** …and the elevation gate the rig actually used this frame (sine of elevation). Published as
    *  `__globe.ultraLook().shadow.gateSin` so a harness reads the crossing off the engine instead
    *  of hardcoding one — `scripts/verify-rendering-charter.mjs` did, and would have gone red on a
@@ -3807,6 +3841,11 @@ export function attachStylizedTiles(opts: {
         focalGeoIds: focalCone.group.children.map((c) =>
           c instanceof THREE.Mesh ? c.geometry.uuid : null,
         ),
+        // T92 — the live orbit tilt fed to the cone this frame and the FILL multiplier it
+        // resolved (1 below FOCALCONE.fillTiltFadeStartDeg, 0 from fillTiltFadeEndDeg); the
+        // `probe-focalcone` gate reads these, it does not re-derive the smoothstep.
+        focalTiltDeg: lastFocalTiltDeg,
+        focalFillTiltK: focalConeFillTiltK(lastFocalTiltDeg),
         shadowAutoUpdate: renderer.shadowMap.autoUpdate,
       }),
       alt: () => WGS84_ELLIPSOID.getPositionElevation(camera.position),
@@ -4087,6 +4126,11 @@ export function attachStylizedTiles(opts: {
               groundOpacity: ground.shadowStrength(),
               directShareK: ultraShadowDirectShareK,
               gateSin: shadowGateSinNow,
+              // T100 — where the field's release band STARTS (its top, sine of elevation): the
+              // chip's slid band, the LOOK's gate-anchored one, or the base band.
+              fieldBandTopSin: fieldProfile().gateSin + fieldProfile().bandSin,
+              // T100 (a) — the overlay's own tail, the value `max(directK, tail)` read this frame.
+              overlayTailK: ultraOverlayTailK,
               biasMetres: -sunLight.shadow.bias * (sunLight.shadow.camera.far - sunLight.shadow.camera.near),
               // RC4 view fit. `focusOffsetM` is the distance from the EYE'S GROUND POINT to the
               // box centre — 0 at nadir, ~d/2 when the box holds the whole look, and pinned at
@@ -4290,6 +4334,7 @@ export function attachStylizedTiles(opts: {
         "shadow.intensity": sunLight ? sunLight.shadow.intensity : null,
         "shadow.groundOpacity": ground.shadowStrength(),
         "shadow.directShareK": ultraShadowDirectShareK,
+        "shadow.overlayTailK": ultraOverlayTailK,
         "shadow.mapPx": sunLight ? sunLight.shadow.mapSize.x : null,
         "shadow.radius": sunLight ? sunLight.shadow.radius : null,
         "shadow.boundsM": sunLight ? sunLight.shadow.camera.right : null,
@@ -4437,6 +4482,12 @@ export function attachStylizedTiles(opts: {
           frozen: c?.frozen ?? null, // T77 5b
           idleCells: c?.idleCells ?? null, // T77 5a
           deepResamples: c?.deepResamples ?? null, // T77 slice C-1
+          // T101 — the deep-pending hold: `deepHeld` climbs through a streaming burst in place of
+          // the +39,629 `rejected` the C-1 fall-through produced, and `deepPendingCells` must
+          // read 0 at a quiet pose (a held cell after quiet is a centre answering coarser than
+          // its footprints, forever — see `deepAnswerVerdict`).
+          deepHeld: c?.deepHeld ?? null, // T101
+          deepPendingCells: c?.deepPendingCells ?? null, // T101
           seatCacheHits: c?.seatCacheHits ?? null,
           seatCacheMisses: c?.seatCacheMisses ?? null,
           seatEpoch: s?.epoch ?? null,
@@ -6400,9 +6451,32 @@ export function attachStylizedTiles(opts: {
           // no direct-sun arm at all, so its share is 1 by definition.
           // T96: the LOOK. F1 is the one fix that removes the sunset brightening AT ANY GATE, and
           // it is arithmetic on `ultraDirectK` — which is now the base rig's direct level too.
+          // T100 (owner ruling 2026-09-06o, option a): under the CHIP the overlay's bound reads
+          // `max(directK, its own tail)` — the key's authored tail is 0 by −0.5° and, with the
+          // ladder's 260 km of terrain under the overlay, retired all of it in one ladder rung
+          // (§15.5 / §17.2). The tail is read on the cascade REACH condition, the same
+          // condition as the length guard's reach and the slid band: it exists because of the
+          // ladder, and the base rig's 5 km box never sees it (its ladder is byte-identical).
+          // Above the tail's start it is clamped at its top, under the key, and `max()` returns
+          // `ultraDirectK` unchanged; with the LOOK off `ultraDirectK` is exactly 1, so the share
+          // is exactly 1.
+          const overlayTailK =
+            ultraOn && shadowCascades.length > 0
+              ? overlayReleaseK(
+                  sunDot,
+                  ULTRA.overlayReleaseStartSin,
+                  ULTRA.shadowGateSin,
+                  ULTRA.overlayReleasePow,
+                  OVERLAY_TAIL_TOP,
+                )
+              : 0;
+          ultraOverlayTailK = overlayTailK;
           ultraShadowDirectShareK =
             lookOn() && !moonShadows
-              ? Math.pow(shadowDirectShareK(ultraDirectK, ULTRA.groundAmbientK), ULTRA.shadowDirectSharePow)
+              ? Math.pow(
+                  shadowDirectShareK(Math.max(ultraDirectK, overlayTailK), ULTRA.groundAmbientK),
+                  ULTRA.shadowDirectSharePow,
+                )
               : 1;
           if (moonShadows) {
             // Moon "golden hour": warm the cool moon key as the moon grazes the horizon (the SAME
@@ -6499,8 +6573,11 @@ export function attachStylizedTiles(opts: {
             // never consulted at all.
             // T96: the LOOK. The narrow band and the length guard are the shape of a real sunset,
             // not a cost; the BASE rig gets them and pays nothing.
+            // T100 (owner ruling 2026-09-06m): the CHIP's band starts at
+            // `ULTRA.shadowReleaseStartSin` (+0.2°) — `fieldProfile()` picks it on `ultraOn`, the
+            // base rig keeps the gate-anchored band below and stays byte-identical.
             sunLight.shadow.intensity = lookOn()
-              ? aboveGateK(sunDot, ULTRA_SHADOW_GATE) *
+              ? aboveGateK(sunDot, fieldProfile()) *
                 shadowLengthK(
                   sunDot,
                   ULTRA.shadowLengthCasterM,
@@ -7410,6 +7487,9 @@ export function attachStylizedTiles(opts: {
   /** DEV probe mirrors for the radar seam (audit #3 F4 / A1-16) — written by stepAimCones. */
   let lastAimAnchor: { latDeg: number; lonDeg: number } | null = null;
   let lastAimSkyline: readonly number[] | null = null;
+  /** T92 — the live orbit tilt the focal cone was fed this frame, and the FILL multiplier it
+   *  resolved from it. Probe-read (`aim().focalTiltDeg` / `focalFillTiltK`), never re-derived. */
+  let lastFocalTiltDeg = Number.NaN;
 
   const stepAimCones = () => {
         // U4 direction lines + visibility cones — LIVE anchor, owner lag report 2026-08-18:
@@ -7480,6 +7560,15 @@ export function attachStylizedTiles(opts: {
         });
         // S2 focal cone — same anchor, band and master switch as the radar (one planning
         // instrument); draws the planned view, which only exists outside FPV on this surface.
+        // T92 (owner 2026-09-06m (a)): the cone's FILL fades as the view goes grazing, driven
+        // by the LIVE orbit tilt — the same angle the `#p=` hash writes (stepPoseMirrorAndViewport:
+        // geodetic up at the camera vs the camera's +Z), read HERE every frame rather than off
+        // `camStore.tiltDeg`, which is the 12-frame / 0.25°-deadband readout mirror — the same
+        // "a mirror is a panel readout, never a per-frame geometric seat" rule as the anchor
+        // above. This step runs after every pose step, so the matrix is this frame's final one.
+        zc.getUpDirection(camera.position, _pivotUp);
+        _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld); // camera +Z = backward
+        lastFocalTiltDeg = THREE.MathUtils.radToDeg(_pivotUp.angleTo(_camBack));
         focalCone.update({
           anchor: aimAnchor,
           alt,
@@ -7488,6 +7577,7 @@ export function attachStylizedTiles(opts: {
           headingDeg: camNow.plannedView?.headingDeg ?? null,
           hFovDeg: camNow.plannedView?.hFovDeg ?? null,
           mobile: isMobileShell,
+          tiltDeg: lastFocalTiltDeg,
           dtMs,
         });
   };

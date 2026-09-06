@@ -155,6 +155,14 @@ const toggles = [
   ["overlay-off", `${LOCK} const s=${SCENE}; let n=0;
       s.traverse((o)=>{if(o.visible&&o.material&&o.renderOrder>=8){window.__lock(o,'visible',false);n++;}});
       return n;`, `window.__unlockAll();`],
+  // T93 (2026-09-06n) — the ATMOSPHERE DOME. In sky-dome mode it is a camera-centred sphere at
+  // `camera.far × domeFarFrac` (~240 km at the Everest orbit) drawn ADDITIVELY with depthTest on,
+  // so it is the only thing painted where the terrain has been clipped by the far plane. The k2
+  // toggles (ground-off keeps the band, earth-off keeps it, far ×8 fills it with terrain) leave
+  // the dome as the last candidate; this toggle is the test. Matched by its `uCamAlt` uniform.
+  ["atmo-off", `${LOCK} const s=${SCENE}; let n=0;
+      s.traverse((o)=>{if(o.isMesh&&o.visible&&o.material&&o.material.uniforms&&o.material.uniforms.uCamAlt){window.__lock(o,'visible',false);n++;}});
+      return n;`, `window.__unlockAll();`],
 ];
 
 const results = {};

@@ -94,6 +94,36 @@ console.log(
   }`,
 );
 
+// T92 (owner ruling 2026-09-06m (a), built 2026-09-06n): the FILL fades with the live orbit TILT
+// (`FOCALCONE.fillTiltFadeStartDeg` 50 → `fillTiltFadeEndDeg` 70), the boundary rays do not. Read
+// off the engine — `aim().focalTiltDeg` / `focalFillTiltK` are what the cone was fed this frame —
+// and against the meshes' RESOLVED alphas, so a stale multiplier cannot pass on a fresh number.
+{
+  const tilt = found.aim?.focalTiltDeg;
+  const k = found.aim?.focalFillTiltK;
+  const fillMesh = found.meshes.find((m) => m.tris > 4);
+  const edgeMesh = found.meshes.find((m) => m.tris <= 4);
+  const grazing = typeof tilt === "number" && tilt >= 70;
+  const expectFill = grazing ? 0 : null;
+  console.log(
+    `${typeof tilt === "number" && typeof k === "number" ? "PASS" : "FAIL"}  T92 probe fields present — focalTiltDeg ${tilt} focalFillTiltK ${k}`,
+  );
+  if (grazing) {
+    console.log(
+      `${k === 0 && fillMesh && fillMesh.alpha === 0 ? "PASS" : "FAIL"}  T92 — at a grazing tilt (${tilt?.toFixed(1)}° ≥ 70°) the FILL multiplier is 0 and the fill mesh's alpha is 0 — k ${k}, fill alpha ${fillMesh?.alpha}`,
+    );
+    console.log(
+      `${edgeMesh && edgeMesh.alpha > 0.6 ? "PASS" : "FAIL"}  T92 — …and the boundary rays keep their alpha (edgeAlpha 0.7 × presence) — edge alpha ${edgeMesh?.alpha}`,
+    );
+  } else if (typeof tilt === "number" && tilt <= 50) {
+    console.log(
+      `${k === 1 ? "PASS" : "FAIL"}  T92 — below the band (${tilt.toFixed(1)}° ≤ 50°) the FILL multiplier is EXACTLY 1 (byte-identical) — k ${k}`,
+    );
+  } else {
+    console.log(`....  T92 — tilt ${tilt} is inside the fade band; k ${k} (${expectFill === null ? "no verdict at this pose" : ""})`);
+  }
+}
+
 await shot("00-base");
 // Each condition RETURNS the count of meshes it actually touched, not a blind 'ok' — a probe
 // that reports "ok" whether it modified 2 objects or 0 is exactly the fail-open shape the

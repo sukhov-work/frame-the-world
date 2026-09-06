@@ -12,7 +12,32 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-06l
+## Status — 2026-09-07a
+- **2026-09-07a (`mem:project/wip-2026-09-07-t100a-overlay-tail`):** **T100 CLOSED under ruling (a)** —
+  the ground overlay's OWN extinction tail (`duskLight.overlayReleaseK`, `max()`-ed with `directK`
+  on the chip's cascade reach; `ULTRA.overlayReleaseStartSin` +0.2°, `overlayReleasePow` 0.9) and
+  ruling (b)'s slid field band SUPERSEDED back to the disc (`shadowReleaseStartSin` at its
+  identity): §17.2's four arms showed the ShadowMaterial's per-cascade mask product
+  (`opacity × (1 − (1 − field)³)`) zeroes the overlay wherever the field is 0, so no field band
+  could reach the −0.5° rung. Ladder `--ultra 1` **19/19, T66 4.23 → 1.48** (series 67.4 68.4 68.6
+  70.1 71.5 73.0), `--ultra 0` 19/19 byte-identical, charter 84/85, ultra 30/30, sweep 13/14 (T103).
+  **T105** (the ladder's positionals wrote shots into `./--ladder`) fixed. Session n's ship had
+  ABORTED (load-flaky `bestSpotHonesty` timeouts, now 60 s) — both sessions ship together.
+  **The iPhone RE-MEASURED on Device Farm (§19):** orbit / city / everest 9–13 fps → 60 / 50 / 60
+  at `mid`, 3–4 ms CPU (T79 reached the phone); `/m` 26 ms CPU of its own; **T83 REPRODUCED**
+  (the ramp's first step kills the `#f=` page; T80's −245 MB did not move it) — the console
+  session `…/ed840495-…/00000` decides kill vs hang; the Pixel was not attached (owed). **The
+  streaming columns (§20)** in the descent leg: all 22 hitches are parse-phase with `frame.cpu`
+  5–11 ms → the time is outside the orchestrator; `probe-cpu-profile` over the leg decides
+  lever 10. vitest 2,761/175 · astro 0/0/10 · knip 0. Backlog T1–T105.
+- **2026-09-06n (`mem:project/wip-2026-09-06-t77-five-rulings`):** the five rulings executed. T80 CLOSED
+  + T104 (`dt−gpu` column; the T77 gate on dt p50 ≤ 15, MET 14.2) · **T101 DONE** (per-cell
+  `deepPending`: arrival rejections +39,629 → +2) · **T92 DONE** (fill fades on live tilt 50→70°) ·
+  **T93 RE-CLASSIFIED** (far TERRAIN hazed dark by the directional in-scatter lobe — not the earth)
+  **and fixed** (`ULTRA.limbStartM/limbEndM` 40/120 km in the shared aerial fn; band 84–89 → 149–153)
+  · **T100 built as ruled, gate NOT met** (T66 4.94 → 4.23; A/B 4.67/3.82; the rise is the OVERLAY
+  retiring with directShareK — owner call, `NEXT_SESSION_PROMPT.md` §OWNER CALL). vitest 2,748/175
+  · astro 0/0/9 · knip 0. Backlog T1–T104.
 - **2026-09-06l (`mem:project/wip-2026-09-07-t77-e1-e2-t80h`):** E1 + E2 run → lever 2 and A1 CLOSED
   (with E3, slice A is complete). **T80-h SHIPPED — `BLOOM.path` "fused"** (`ScaledBloomPass.deferBlend`
   + `scene/fusedOutput.ts`; the brief's "blur at full res" premise was false, the lever removed the two
@@ -62,15 +87,21 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 - Gates 2026-09-06h: vitest **2,584/2,584** (167 files) · `astro check` **0/0/9** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T104).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T105).
 
-## Next step — T77 after E1/E2 + T80-h (full brief: `NEXT_SESSION_PROMPT.md`)
-1. Boot: VPN + ion curl (T98), `--budget`, ONE Chrome, `wix dev` with `.vite` aside, sweep `--sheet --golden`.
-2. **Execute the five rulings (2026-09-06m), in order:** T80 close + T104 (docs + one harness column) →
-   T100 band start ~+0.2° → T101 `deepPending` → T92 fill fade → T93 limb tint; each with its gate
-   (`NEXT_SESSION_PROMPT.md` §OWNER RULINGS).
-3. The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
-   (Pixel `--device --quick`, then T83 on the iPhone 17 Pro).
+## Next step — T77 after T100 (full brief: `NEXT_SESSION_PROMPT.md`)
+1. Boot: VPN + ion curl (T98), `--budget`, ONE Chrome, `wix dev` with `.vite` aside, sweep
+   `--sheet --golden --quiet-s 25`; if the previous ship hook is still running (it fires on
+   `/clear`), wait — and read `ftw-session-ship.log` for an ABORT (a loaded machine flakes the
+   BEST SPOT timing tests; re-run `npm test` quiet before assuming a real red).
+2. T100 is CLOSED (2026-09-07a). Nothing is blocking. Next in order: **T83's diagnosis** (the
+   Device Farm console session's video + syslog, then ONE targeted ~10-minute session) · the
+   **descent CPU profile** (`probe-cpu-profile` over the leg: parse vs upload → lever 10 or not) ·
+   the **Pixel's owed re-measure** (adb) · `/m`'s 26 ms.
+3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
+   — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
+   then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77
+   stands. Tails: T93's FPV wedge, T102, T103.
 **Constraints:** no regression of behaviour, accuracy, calculations, plans, predictions or sky
 features · `high` byte-identical · ULTRA off-state exact · `ENGINE_STATE_2026-09-02.md` §8 harness
 list per slice · DNIPRO slice first (owner 2026-09-02c) · the audit is read-only.
@@ -150,6 +181,10 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   09-06-t77-six-worktrees
 - **T77 E1/E2 closed + T80-h fused bloom + T104 GPU-timer finding (09-06l, HOT)** · MEASUREMENTS §16 ·
   `mem:project/wip-2026-09-07-t77-e1-e2-t80h`
+- **T77 the five rulings executed: T80/T104, T101, T92 done; T93 re-classified + fixed; T100 built, gate
+  unmet → owner call (09-06n, HOT)** · MEASUREMENTS §17 · `mem:project/wip-2026-09-06-t77-five-rulings`
+- **T100 CLOSED (a): the overlay's own extinction tail; the (b) band superseded; T105 (09-07a, HOT)** ·
+  MEASUREMENTS §18 · `mem:project/wip-2026-09-07-t100a-overlay-tail`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

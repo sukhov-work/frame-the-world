@@ -509,6 +509,8 @@ const RESEAT_PROBE = (maxFrames, quietFrames) => `new Promise((resolve, reject) 
         near: e ? e.nearMaxResidualM : null, nearMoved: e ? e.nearMovedFeatures : null, nearCells: e ? e.nearCells : null,
         city: e ? e.maxResidualM : null, moved: e ? e.movedFeatures : null, seatEpoch: e ? e.epoch : null, quietFrames: e ? e.quietFrames : null,
         deferred: e ? e.deferred : null, rejected: e ? e.rejected : null, collapsed: e ? e.collapsed : null, shallow: e && e.shallow !== undefined ? e.shallow : null,
+        // T101 (2026-09-06n): the deep-answer HOLD — hold events, and cells parked right now (must be 0 after quiet).
+        deepHeld: e && e.deepHeld !== undefined ? e.deepHeld : null, deepPendingCells: e && e.deepPendingCells !== undefined ? e.deepPendingCells : null,
         cellResid: e ? e.cellMaxResidualM : null, modelResid,
         gndParse: gnd.parse.len, gndDl: gnd.dl.len, gndVisible: gnd.stats.visible, enrParse: u5.enriched ? u5.enriched.parse.len : 0 });
       last = n;
@@ -540,6 +542,8 @@ function summarizeReseat(r, quietFrames) {
     // samples, so "the gate fired N times" could not be read as "N buildings visibly dropped".
     collapsedDelta: rows.length && rows[0].collapsed !== null ? rows[rows.length - 1].collapsed - rows[0].collapsed : null,
     shallowDelta: rows.length && rows[0].shallow != null ? rows[rows.length - 1].shallow - rows[0].shallow : null,
+    deepHeldDelta: rows.length && rows[0].deepHeld != null ? rows[rows.length - 1].deepHeld - rows[0].deepHeld : null,
+    deepPendingAtEnd: rows.length ? rows[rows.length - 1].deepPendingCells : null,
     // T77 NEW-3: the CELL layer's residual — feature residuals are measured against it, so they
     // are silent about a cell plane that never lands.
     cellP95: pct(rows.map((x) => x.cellResid), 0.95), cellAtEnd: rows.length ? rows[rows.length - 1].cellResid : null,
@@ -588,7 +592,7 @@ async function reseatLegs() {
     const r = await evalJs(RESEAT_PROBE(maxFrames, quietFrames));
     const s = summarizeReseat(r, quietFrames);
     results.reseat.push({ leg: "arrival", tuning: easeK, summary: s, rows: r.rows });
-    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
+    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta} deepHeld +${s.deepHeldDelta} pendingCells@end ${s.deepPendingAtEnd}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
     check(`arrival: the seam reads (enriched attached, near cells ranked)`, r.rows.some((x) => x.near !== null && x.nearCells > 0));
   }
   // ── drag ──
@@ -612,7 +616,7 @@ async function reseatLegs() {
     const r = await evalJs(RESEAT_PROBE(maxFrames, quietFrames));
     const s = summarizeReseat(r, quietFrames);
     results.reseat.push({ leg: "drag", pre, summary: s, rows: r.rows });
-    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
+    console.log(`  frames ${s.frames}  streaming quiet @${s.streamingQuietAt}  near firstQuiet @${s.firstQuiet} settled(${quietFrames}q) @${s.settled}  city <10cm @${s.cityUnder10cm} <1cm @${s.cityUnder1cm}  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta} deepHeld +${s.deepHeldDelta} pendingCells@end ${s.deepPendingAtEnd}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
     check(`drag: the camera moved (the drag landed)`, (await evalJs(`window.__globe.seatSettle().frameCount`)) > pre.frameCount);
   }
   // ── models ──
@@ -630,7 +634,7 @@ async function reseatLegs() {
       results.reseat.push({ leg: "models", summary: s, models: um, rows: r.rows });
       console.log(`  frames ${s.frames}  models ${JSON.stringify(um)}  model residual max ${fmt(s.modelResidMax, 3)} m  models <1cm @${s.modelSettledAt}  near settled @${s.settled}  city <1cm @${s.cityUnder1cm}`);
       // T77 slice B: the city-wide convergence line the §9 gate reads (p95 < 0.1 m, rejections → 0).
-      console.log(`  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  moved p50 ${s.movedP50}  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
+      console.log(`  city p50/p95/max ${fmt(s.cityP50, 2)}/${fmt(s.cityP95, 2)}/${fmt(s.cityMax, 2)} m  end ${fmt(s.cityAtEnd, 3)} m  writes in ${(s.writesFrac * 100).toFixed(0)}% of frames (near ${(s.nearWritesFrac * 100).toFixed(0)}%)  moved p50 ${s.movedP50}  epoch bumps ${s.epochBumps}  rejected +${s.rejectedDelta} collapsed +${s.collapsedDelta} shallow +${s.shallowDelta} deepHeld +${s.deepHeldDelta} pendingCells@end ${s.deepPendingAtEnd}  cell p95/end ${fmt(s.cellP95, 3)}/${fmt(s.cellAtEnd, 3)} m  dt p50 ${fmt(s.dtP50, 1)}`);
       check(`models: the seeded rows became resident`, um.resident >= 6 && um.loading === 0, JSON.stringify(um));
     } finally {
       const n = await unseedAll();

@@ -396,7 +396,7 @@ describe("S7 — `refuseBelowReachM` is ON, at the one threshold that costs noth
     console.log(
       `[S7 refuse] fully-mapped 300 m disc at ${BESTSPOT.refuseBelowReachM} m, per rung: ${rows.join("  ")}`,
     );
-  });
+  }, 60_000);
 
   it("…and the TRUNCATED disc withdraws its claim, which is the whole point of §3.1", () => {
     // §3.1's headline: missing data does not read as "unknown", it reads as THE BEST SPOT ON THE
@@ -424,7 +424,7 @@ describe("S7 — `refuseBelowReachM` is ON, at the one threshold that costs noth
     // WITHDRAWN, not down-scored: the refused cells report zero COVERAGE, which is what makes them
     // the UNKNOWN render class rather than a cold patch.
     expect(on.terms.c[c]).toBe(0);
-  });
+  }, 60_000);
 });
 
 // =============================================================================================
@@ -471,7 +471,7 @@ describe("S7/R8 — 1 m ACCESSIBILITY on every solve; 1 m OBSTRUCTION only on de
     // "1 m" when the pass did not run is exactly the C2 violation §8 names.
     const coarse = shortlist(res.terms, scores, SCORING, geo, frame, TRACK, EYE_M, 8, 25, null);
     for (const r of coarse) expect(r.gridCellM).toBe(3);
-  });
+  }, 60_000);
 
   it("a candidate the 1 m grid puts in the water is DROPPED — the whole point of the pass", () => {
     // "Stand on the footpath, not in the hedge", stated as the failure it prevents. The fine grid
@@ -506,7 +506,7 @@ describe("S7/R8 — 1 m ACCESSIBILITY on every solve; 1 m OBSTRUCTION only on de
       candidates: BESTSPOT.shortlistCandidates,
     });
     expect(alive.length).toBeGreaterThan(0);
-  });
+  }, 60_000);
 
   it("MEASURED — what the 1 m accessibility pass costs, and what it changes", () => {
     const { res, scores } = field(LAND_CODE.green);
@@ -537,7 +537,7 @@ describe("S7/R8 — 1 m ACCESSIBILITY on every solve; 1 m OBSTRUCTION only on de
     );
     // §8 Q3 budgets the whole thing at +52-59 ms and calls it invisible. The grid is the cost.
     expect(gridMs + passMs).toBeLessThan(250);
-  });
+  }, 60_000);
 
   it("ULTRA stays FORBIDDEN above a 300 m radius — in the SOLVER, not only in the store", () => {
     // R8's rider, and it is enforced twice on purpose: `store/bestSpot` clears the flag when the

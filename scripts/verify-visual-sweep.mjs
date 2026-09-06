@@ -289,12 +289,20 @@ const REC_START = `(() => {
   const rec = { rows: [], stop: false, t0: performance.now(), last: performance.now(), error: null };
   window.__sweepRec = rec;
   const q = (r) => (r ? r.dl.len + r.parse.len + r.stats.queued + r.stats.downloading + r.stats.parsing : 0);
+  // T77 slice C (the streaming measurement that gates levers 9–11, 2026-09-07): the DBG feed's
+  // \`tiles\` provider and its \`frame.cpu\` series — one provider read (plain field reads off the
+  // three tilesets' queues + the LRU's byte count) and one ring read per frame; the feed is
+  // switched on for the leg so the series exists, and off again in REC_STOP.
+  const F = window.__debugFeed; if (F) F.setActive(true);
   const tick = () => {
     if (rec.stop) return;
     try {
       const n = performance.now();
       const s = g.seatSettle(); const e = s.enriched; const u = g.u5();
       const c = window.__cameraStore ? window.__cameraStore.getState() : null;
+      const T = F ? F.read("tiles") : null;
+      const cpu = F ? F.series("frame.cpu") : null;
+      const mb = (k) => (T && T[k] != null ? +T[k].toFixed(2) : null);
       rec.rows.push({
         ms: Math.round(n - rec.t0), dt: +(n - rec.last).toFixed(2),
         altM: Math.round(g.alt()),
@@ -308,6 +316,15 @@ const REC_START = `(() => {
         seatNearM: e ? +e.nearMaxResidualM.toFixed(4) : null,
         seatCityM: e ? +e.maxResidualM.toFixed(4) : null,
         seatMoved: e ? e.movedFeatures : null,
+        // the streaming columns — DOWNLOAD side: queued items + jobs in flight; PARSE side: the
+        // same; the LRU in MB; the orchestrator's main-thread ms for the frame
+        dlLen: u.buildings.dl.len + u.ground.dl.len + (u.enriched ? u.enriched.dl.len : 0),
+        dlJobs: u.buildings.dl.jobs + u.ground.dl.jobs + (u.enriched ? u.enriched.dl.jobs : 0),
+        parseLen: u.buildings.parse.len + u.ground.parse.len + (u.enriched ? u.enriched.parse.len : 0),
+        parseJobs: u.buildings.parse.jobs + u.ground.parse.jobs + (u.enriched ? u.enriched.parse.jobs : 0),
+        lruBldMB: mb("bld.lruMB"), lruGndMB: mb("gnd.lruMB"), lruEnrMB: mb("enr.lruMB"),
+        inCache: u.buildings.stats.inCache + u.ground.stats.inCache + (u.enriched ? u.enriched.stats.inCache : 0),
+        cpuMs: cpu && cpu.last != null ? +cpu.last.toFixed(2) : null,
       });
       rec.last = n;
     } catch (err) { rec.error = String(err); }
@@ -317,6 +334,7 @@ const REC_START = `(() => {
   return true;
 })()`;
 const REC_STOP = `(() => { const r = window.__sweepRec; if (!r) return null; r.stop = true;
+  if (window.__debugFeed) window.__debugFeed.setActive(false);
   return { rows: r.rows, error: r.error }; })()`;
 
 // ─── Attach ──────────────────────────────────────────────────────────────────────────────────
@@ -678,19 +696,56 @@ async function runDescent(pose, dir) {
     `dt p50 ${fmt(p(0.5))} / p95 ${fmt(p(0.95))} / max ${fmt(dts[dts.length - 1])} ms · ` +
     `arrival heading ${fmt(pose1.headingDeg)}° tilt ${fmt(pose1.tiltDeg)}° · ` +
     `${quietAtEnd ? "settled" : `STILL BUSY (${endBusy.busy} queued)`} at the leg's end`;
+  // The STREAMING read-out (T77 slice C, levers 9–11): where the leg spent its frames. A frame is
+  // "download-bound" when items wait in the download queue with no parse in flight, and
+  // "parse-bound" when the parse queue holds work (the main thread or the worker pool is the
+  // limit). The LRU peak and the parse-frame CPU say what the lever would buy.
+  const streaming = (() => {
+    const busyRows = rowsRec.filter((r) => r.busy > 0);
+    const dlBound = busyRows.filter((r) => r.dlLen + r.dlJobs > 0 && r.parseLen + r.parseJobs === 0).length;
+    const parseBound = busyRows.filter((r) => r.parseLen + r.parseJobs > 0).length;
+    const peakBusy = rowsRec.reduce((m, r) => Math.max(m, r.busy), 0);
+    const peakDl = rowsRec.reduce((m, r) => Math.max(m, r.dlLen + r.dlJobs), 0);
+    const peakParse = rowsRec.reduce((m, r) => Math.max(m, r.parseLen + r.parseJobs), 0);
+    const lru = (k) => rowsRec.reduce((m, r) => (r[k] != null ? Math.max(m, r[k]) : m), 0);
+    const cpuOf = (rows) => {
+      const v = rows.map((r) => r.cpuMs).filter((x) => x != null).sort((a, b) => a - b);
+      return v.length ? { p50: v[Math.floor(v.length * 0.5)], p95: v[Math.floor(v.length * 0.95)], n: v.length } : null;
+    };
+    const parseFrames = rowsRec.filter((r) => r.parseJobs > 0);
+    const quietFrames = rowsRec.filter((r) => r.busy === 0);
+    const dtParse = parseFrames.map((r) => r.dt).sort((a, b) => a - b);
+    const dtQuiet = quietFrames.map((r) => r.dt).sort((a, b) => a - b);
+    const p50 = (v) => (v.length ? v[Math.floor(v.length * 0.5)] : null);
+    return {
+      frames: rowsRec.length, busyFrames: busyRows.length, dlBoundFrames: dlBound, parseBoundFrames: parseBound,
+      peakBusy, peakDl, peakParse,
+      lruPeakMB: { bld: lru("lruBldMB"), gnd: lru("lruGndMB"), enr: lru("lruEnrMB") },
+      cpuParseFrames: cpuOf(parseFrames), cpuQuietFrames: cpuOf(quietFrames),
+      dtP50ParseFrames: p50(dtParse), dtP50QuietFrames: p50(dtQuiet),
+    };
+  })();
   writeFileSync(
     join(dir, "leg.json"),
     JSON.stringify(
-      { type: "descent", drive, end, quietAtEnd, endBusy, arrivalFile, frames: frames.map(({ b64, ...f }) => f), rows: rowsRec, recError: rec?.error ?? null, arrival: pose1 },
+      { type: "descent", drive, end, quietAtEnd, endBusy, arrivalFile, frames: frames.map(({ b64, ...f }) => f), rows: rowsRec, recError: rec?.error ?? null, arrival: pose1, streaming },
       null,
       2,
     ),
   );
   writeFileSync(
     join(dir, "leg.csv"),
-    ["ms,dt,altM,headingDeg,tiltDeg,flight,busy,visBld,visGnd,visEnr,calls,tris,terrainEpoch,seatNearM,seatCityM,seatMoved"]
-      .concat(rowsRec.map((r) => [r.ms, r.dt, r.altM, r.headingDeg, r.tiltDeg, r.flight ? 1 : 0, r.busy, r.visBld, r.visGnd, r.visEnr, r.calls, r.tris, r.terrainEpoch, r.seatNearM, r.seatCityM, r.seatMoved].join(",")))
+    ["ms,dt,altM,headingDeg,tiltDeg,flight,busy,visBld,visGnd,visEnr,calls,tris,terrainEpoch,seatNearM,seatCityM,seatMoved,dlLen,dlJobs,parseLen,parseJobs,lruBldMB,lruGndMB,lruEnrMB,inCache,cpuMs"]
+      .concat(rowsRec.map((r) => [r.ms, r.dt, r.altM, r.headingDeg, r.tiltDeg, r.flight ? 1 : 0, r.busy, r.visBld, r.visGnd, r.visEnr, r.calls, r.tris, r.terrainEpoch, r.seatNearM, r.seatCityM, r.seatMoved, r.dlLen, r.dlJobs, r.parseLen, r.parseJobs, r.lruBldMB, r.lruGndMB, r.lruEnrMB, r.inCache, r.cpuMs].join(",")))
       .join("\n"),
+  );
+  writeFileSync(join(dir, "streaming.json"), JSON.stringify(streaming, null, 2));
+  console.log(
+    `  streaming  busy ${streaming.busyFrames}/${streaming.frames} frames · download-bound ${streaming.dlBoundFrames} · parse-bound ${streaming.parseBoundFrames} · ` +
+      `peak queue ${streaming.peakBusy} (dl ${streaming.peakDl} / parse ${streaming.peakParse}) · ` +
+      `LRU peak MB bld ${fmt(streaming.lruPeakMB.bld)} gnd ${fmt(streaming.lruPeakMB.gnd)} enr ${fmt(streaming.lruPeakMB.enr)} · ` +
+      `frame.cpu p50 parse-frames ${fmt(streaming.cpuParseFrames?.p50)} / quiet ${fmt(streaming.cpuQuietFrames?.p50)} ms · ` +
+      `dt p50 parse-frames ${fmt(streaming.dtP50ParseFrames)} / quiet ${fmt(streaming.dtP50QuietFrames)} ms`,
   );
   check(
     `${pose.id}: descent recorded frames`,

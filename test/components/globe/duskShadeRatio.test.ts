@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bandCurve } from "../../../src/lib/globe/lightBands";
 import { aboveGateK, type KeyGateProfile } from "../../../src/lib/globe/keyHandoff";
-import { shadowDirectShareK, shadowLengthK } from "../../../src/lib/globe/duskLight";
+import { overlayReleaseK, shadowDirectShareK, shadowLengthK } from "../../../src/lib/globe/duskLight";
 import { DRAPE, EARTH, GROUND, SHADOWS, ULTRA } from "../../../src/components/globe/tuning";
 
 /**
@@ -335,5 +335,86 @@ describe("the in-shadow ground across sunset", () => {
       (Math.asin(SHADOWS.minSunElevSin) * 180) / Math.PI -
         (Math.asin(ULTRA.shadowGateSin) * 180) / Math.PI,
     ).toBeCloseTo(1.2917, 3);
+  });
+});
+
+/**
+ * T100 (owner ruling 2026-09-06o, option a) — the CHIP's arm of the same twin. Two things differ
+ * under the chip and both are in `StylizedTiles`: the cascade ladder's reach makes the length
+ * guard inert (260 km holds any sunset shadow), and the ground twins' `ShadowMaterial` mask is
+ * `mix(1, shadow, intensity)` per cascade, so a texel under all three nested cascades is darkened
+ * by `opacity × (1 − (1 − field)³)`. The overlay's bound then reads `max(directK, tail)`
+ * (`duskLight.overlayReleaseK`, chip-gated on that same reach). Computed from the tunables.
+ */
+function inShadowGroundChip(elevDeg: number, tail: boolean): number {
+  const sinElev = sinDeg(elevDeg);
+  const keyGate: KeyGateProfile = { ...BASE_GATE, gateSin: ULTRA.shadowGateSin };
+  const fieldGate: KeyGateProfile = { ...keyGate, bandSin: ULTRA.shadowFadeBandSin };
+  // The ruling-(a) field band is the disc band on both rigs (`shadowReleaseStartSin` at its
+  // identity), so the chip reads `ULTRA_SHADOW_GATE` — and its reach is the ladder's.
+  const reachM = Math.max(...ULTRA.cascades.map((c) => c.maxBoundsM));
+  const field =
+    aboveGateK(sinElev, fieldGate) *
+    // The engine hands the guard the rig's gate as its horizon (`StylizedTiles`), so a shadow
+    // thrown by a sun between 0° and true sunset is measured against where the disc really sets.
+    shadowLengthK(sinElev, ULTRA.shadowLengthCasterM, reachM, ULTRA.shadowGateSin);
+  const mask = 1 - Math.pow(1 - field, 3);
+  const duskK = 1 - aboveGateK(sinElev, keyGate);
+  const top = bandCurve(ULTRA.keyExtinctCurve, ULTRA.overlayReleaseStartSin);
+  const tailK = tail
+    ? overlayReleaseK(sinElev, ULTRA.overlayReleaseStartSin, ULTRA.shadowGateSin, ULTRA.overlayReleasePow, top)
+    : 0;
+  const opacity =
+    mix(mix(SHADOWS.groundOpacity, DRAPE.shadowOpacity, 0), ULTRA.groundShadowDuskK, duskK) *
+    shadowDirectShareK(Math.max(DIRECT_K(elevDeg), tailK), ULTRA.groundAmbientK);
+  const lit = shadeAt(elevDeg, 0, true, true) * EXPOSURE(elevDeg);
+  return sinElev > ULTRA.shadowGateSin ? lit * (1 - opacity * mask) : lit;
+}
+
+describe("T100 (a) — the in-shadow ground under the CHIP, with the overlay's own tail", () => {
+  const RUNGS = [3, 2, 1.3, 1.06, 0.9, 0.5, 0.2, 0, -0.14, -0.5, -0.9, -1.5];
+
+  it("above +0.2° the tail changes NOTHING — the raking hour is byte-identical", () => {
+    for (const d of [12, 6, 3, 2, 1.3, 1.06, 0.9, 0.5, 0.3]) {
+      expect(inShadowGroundChip(d, true)).toBe(inShadowGroundChip(d, false));
+    }
+  });
+
+  it("without the tail the −0.5° rung is the bare lit ground — the cliff T66 measured", () => {
+    const lit = shadeAt(-0.5, 0, true, true) * EXPOSURE(-0.5);
+    expect(inShadowGroundChip(-0.5, false)).toBe(lit);
+    // …and one rung above it the overlay is still there: that one step is the rise.
+    const lit14 = shadeAt(-0.14, 0, true, true) * EXPOSURE(-0.14);
+    expect(inShadowGroundChip(-0.14, false)).toBeLessThan(lit14 * 0.9);
+
+  });
+
+  it("with the tail an overlay is LEFT at −0.5° and the step down to the gate is spread", () => {
+    const lit = shadeAt(-0.5, 0, true, true) * EXPOSURE(-0.5);
+    const held = inShadowGroundChip(-0.5, true);
+    expect(held).toBeLessThan(lit);
+    expect(held).toBeGreaterThan(lit * 0.9); // a little overlay — not a second cliff
+    // The step that WAS the rise (−0.14° → −0.5°) is smaller with the tail than without, and
+    // the step it hands the rest to (−0.5° → the gate) is smaller than the one it removed.
+    const ratio = (a: number, b: number, tail: boolean) =>
+      inShadowGroundChip(b, tail) / inShadowGroundChip(a, tail);
+    expect(ratio(-0.14, -0.5, true)).toBeLessThan(ratio(-0.14, -0.5, false));
+    expect(ratio(-0.5, -0.9, true)).toBeLessThan(ratio(-0.14, -0.5, false));
+  });
+
+  it("the tail is a CHIP lever: the LOOK's own twin (`inShadowGround`) is untouched by it", () => {
+    // `inShadowGround` models the base rig's box and mask; the tail never enters it.
+    for (const d of [0.5, 0, -0.14, -0.3, -0.5]) {
+      expect(inShadowGround(d, true)).toBe(inShadowGround(d, true));
+    }
+    expect(inShadowGround(-0.5, true)).toBe(shadeAt(-0.5, 0, true, true) * EXPOSURE(-0.5));
+  });
+
+  it("is exactly 0 at and below the gate on the chip too — `castShadow` flips at no contribution", () => {
+    // (−0.8333° in degrees lands 3e-7 ABOVE the gate's sine; the exact-gate case is pinned on the
+    // pure function in `duskLight.test.ts`.)
+    for (const d of [-0.834, -0.9, -1.5]) {
+      expect(inShadowGroundChip(d, true)).toBe(shadeAt(d, 0, true, true) * EXPOSURE(d));
+    }
   });
 });

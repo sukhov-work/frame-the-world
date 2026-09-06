@@ -272,3 +272,56 @@ export function shadowLengthK(
   // reach / (casterM/tan ε), written without tan so the zenith case cannot divide by zero.
   return Math.min(1, (reachM * s) / (casterM * cosElev));
 }
+
+/**
+ * T100 (owner ruling 2026-09-06o, option a) — the ground OVERLAY's own extinction tail.
+ *
+ * F1 bounds the overlay by the direct share of the key, `shadowDirectShareK(directK)`, and
+ * `directK` is the authored `ULTRA.keyExtinctCurve`, whose last anchor puts the key at 0 by
+ * −0.5° — a LEVEL curve written for the light, not for the overlay standing on it. Under the chip
+ * the far cascades (60 / 260 km) put kilometres of terrain under that overlay at sunset, and the
+ * key's last step (0.14 → 0 over 0.36°) retired all of it in one ladder rung: the +4.9-code rise
+ * of MEASUREMENTS §15.5, moved but not removed by the slid field band (§17.2, 4.23). The four
+ * measured arms of §17.2 also showed WHY no field band can fix it: the ground twins are a stock
+ * `ShadowMaterial`, whose mask is `mix(1, shadow, intensity)` per cascade, so the delivered
+ * darkening is `opacity × (1 − (1 − field)³)` — nearly blind to the field until it is below 0.5,
+ * and exactly 0 wherever the field is 0.
+ *
+ * This is the overlay's own tail: from `startSin` (the ruled +0.2°) down to the rig's gate
+ * (−0.833°, where the upper limb sets and `castShadow` flips) it delivers
+ * `levelAtStart × x^pow`, with `x` the sun's position in that band (1 at the start, 0 at the
+ * gate). The consumer takes `max(directK, tail)`, so:
+ *   · above the start it is BELOW the key's own level and changes nothing — the raking hour, the
+ *     daytime overlay and F1's exactness at `directK` 1 are untouched;
+ *   · at the start it EQUALS the key's level (`levelAtStart` is `keyExtinctCurve` read at the
+ *     start, computed rather than transcribed), so `max()` is continuous there;
+ *   · below −0.5°, where the key is 0, it is what keeps a little overlay on the ground until the
+ *     disc has actually set — spread over the rungs T66 measures instead of one;
+ *   · it is exactly 0 at and below the gate, where the rig's direction teleports and the field
+ *     has to be at zero anyway (`keyHandoff.test.ts`).
+ * `pow` shapes the tail: 1 is linear in sine, > 1 hugs zero longer (the −0.5° rung reads less
+ * overlay). Identity: `startSin ≤ gateSin` (or a non-positive level) returns 0 everywhere, which
+ * hands the consumer back `directK` alone — the 2026-09-06l overlay, digit for digit.
+ *
+ * Never NaN: the band is validated before any division; `x` is clamped to [0, 1] and a NaN
+ * elevation falls out as 0; a non-positive (or NaN) `pow` is read as 1 rather than as `x^0 = 1`
+ * (which would be a step AT the gate).
+ *
+ * @param sinElev      Sine of the GEOMETRIC solar elevation over the focus (`sunDot`).
+ * @param startSin     Where the tail starts (sine) — `ULTRA.overlayReleaseStartSin`.
+ * @param gateSin      The rig's gate (sine) — `ULTRA.shadowGateSin`; the tail is 0 at and below it.
+ * @param pow          The tail's exponent — `ULTRA.overlayReleasePow`.
+ * @param levelAtStart The key's own `directK` at `startSin` — the tail's top.
+ */
+export function overlayReleaseK(
+  sinElev: number,
+  startSin: number,
+  gateSin: number,
+  pow: number,
+  levelAtStart: number,
+): number {
+  if (!(startSin > gateSin) || !(levelAtStart > 0)) return 0;
+  const x = Math.min(1, Math.max(0, (sinElev - gateSin) / (startSin - gateSin)));
+  if (!(x > 0)) return 0; // at/below the gate — and a NaN elevation reads as "no tail", never NaN
+  return levelAtStart * Math.pow(x, pow > 0 ? pow : 1);
+}

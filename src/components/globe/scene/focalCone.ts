@@ -44,6 +44,10 @@ export interface FocalConeHandle {
     hFovDeg: number | null;
     /** /m shell (orchestrator-pushed) — the reach rides the radar's mobile radius (item 2). */
     mobile: boolean;
+    /** Live ORBIT tilt (deg; 0 = nadir, 88 = the clamp) — the `#p=` hash's tilt, read per
+     *  frame. Drives the FILL-only grazing fade (T92, owner ruling 2026-09-06m (a)); the
+     *  boundary rays ignore it. */
+    tiltDeg: number;
     dtMs: number;
   }): void;
   dispose(): void;
@@ -54,6 +58,29 @@ const DEG = Math.PI / 180;
 const SEGMENTS = 48;
 /** Rebuild deadband (deg) — the joystick sweeps hFov continuously; sub-0.1° never shows. */
 const HFOV_EPS_DEG = 0.1;
+
+/**
+ * FILL tilt multiplier (pure twin — tested; T92, owner ruling 2026-09-06m option (a)). The
+ * wedge's on-screen size is ≈constant at nadir (reach ∝ altitude), so the magenta haze at
+ * `dnipro-cityscape` (tilt 74.9°) is the GRAZING view stretching the ground fan toward the
+ * horizon — hence the driver is the orbit tilt, not the altitude. EXACTLY 1 at or below
+ * `startDeg` (poses under the band render byte-identical to before — a 0.9999 there would
+ * not), smoothstep 1 → 0 across the band, 0 at or above `endDeg`. A NaN tilt is "no
+ * opinion" ⇒ 1. `startDeg >= endDeg` DISABLES the fade (1 everywhere) — the documented safe
+ * semantics of a degenerate band, and the reason there is no division by `end − start`
+ * before that guard. The boundary rays never pass through here (they carry the reading).
+ */
+export function focalConeFillTiltK(
+  tiltDeg: number,
+  startDeg: number = FOCALCONE.fillTiltFadeStartDeg,
+  endDeg: number = FOCALCONE.fillTiltFadeEndDeg,
+): number {
+  if (!(startDeg < endDeg)) return 1; // degenerate / disabled band
+  if (!(tiltDeg > startDeg)) return 1; // at/below the band start (and NaN): full fill, exactly
+  if (tiltDeg >= endDeg) return 0;
+  const t = (tiltDeg - startDeg) / (endDeg - startDeg);
+  return 1 - t * t * (3 - 2 * t);
+}
 
 export function attachFocalCone(opts: {
   scene: THREE.Scene;
@@ -129,7 +156,7 @@ export function attachFocalCone(opts: {
 
   return {
     group,
-    update({ anchor, alt, band, enabled, headingDeg, hFovDeg, mobile, dtMs }) {
+    update({ anchor, alt, band, enabled, headingDeg, hFovDeg, mobile, tiltDeg, dtMs }) {
       const presence = presenceForAlt(alt, band);
       const want =
         enabled && anchor !== null && headingDeg !== null && hFovDeg !== null && presence > 0;
@@ -162,7 +189,10 @@ export function attachFocalCone(opts: {
       }
       group.visible = true;
       const overlayA = fade * presence;
-      fillMat.uniforms.uAlpha.value = FOCALCONE.fillAlpha * overlayA;
+      // T92 (owner 2026-09-06m (a)): the FILL alone fades out as the view goes grazing — the
+      // multiplier is exactly 1 below the band, so every pose under it renders as before.
+      const fillTiltK = focalConeFillTiltK(tiltDeg);
+      fillMat.uniforms.uAlpha.value = FOCALCONE.fillAlpha * overlayA * fillTiltK;
       edgeMat.uniforms.uAlpha.value = FOCALCONE.edgeAlpha * overlayA;
     },
     dispose() {

@@ -475,7 +475,7 @@ this session hands to the fix sessions (each READ-ONLY audit → sliced fix unde
 
 | slice | levers (plan # or NEW) | measured gain to claim | gate |
 |---|---|---|---|
-| **0. The orbit frame (NEW)** | NEW-1 the controls' raycast target (terrain-only / layers / memoised `heightAt`) · NEW-2 bloom (plan 13, promoted): half-res, fewer mips, or a cheaper pass · plan 4 `compileAsync` | orbit `frame.cpu` 31–47 → < 5 ms; GPU −13…−25 ms at DPR 2 everywhere | `verify-perf-baseline` re-run: orbit dt ≤ 20 ms at high; FPV GPU ≤ 15 ms; byte-identical `high` look where the lever is a pass RESOLUTION change is an owner call (bloom at half-res is a pixel change) |
+| **0. The orbit frame (NEW)** | NEW-1 the controls' raycast target (terrain-only / layers / memoised `heightAt`) · NEW-2 bloom (plan 13, promoted): half-res, fewer mips, or a cheaper pass · plan 4 `compileAsync` | orbit `frame.cpu` 31–47 → < 5 ms; GPU −13…−25 ms at DPR 2 everywhere | `verify-perf-baseline` re-run: orbit dt ≤ 20 ms at high; FPV GPU ≤ 15 ms **(SUPERSEDED 2026-09-06n by ruling T104: read as FPV FRAME TIME dt p50 ≤ 15 ms — met at 14.2, §17.1)**; byte-identical `high` look where the lever is a pass RESOLUTION change is an owner call (bloom at half-res is a pixel change) |
 | **A. Shadows (quality)** | 1, 2, 3, then 12 | the shimmer §8: churn p50 0.185 → ≤ 0.05, control 0 incl. cascade refreshes, 4×/1× ≥ 3 | `verify-temporal-stability --shimmer` + the plan's harness list |
 | **B. Seats** | 5 (dt eases), 6 (per-tile invalidation), NEW-3 the 8.3 cm stall (write gate vs ease), 7, 8 | §9: no stall floor, no writes 90 frames after quiet, city p95 < 0.1 m within 600 frames at the FPV eye, rejections → 0 | `verify-temporal-stability --reseat` |
 | C. Streaming + workers | 9, 10, 11 | the city pose's 3,300-tile boot (63–68 s), the 1.9–4.8 epoch bumps/s, `frame.draw` 9 ms at the city | the model numbers here are the "before" |
@@ -659,7 +659,7 @@ earth, or an implied number waiting for its timed run.
 
 | Slice | Implied number | The run that decides |
 |---|---|---|
-| T80-g | post-geometry bandwidth ~873 → ~194 MB/frame at 3200×1900 ⇒ fpv GPU ≈ 14–18 ms (was 25.2; gate ≤ 15) · rt1 ~243 → ~49 MB VRAM | `verify-perf-baseline 9222 --quick --only "^fpv" --post-ab` (the new `bloomMsaa` cell − `on` IS the lever) · `probe-bloom-path 9333` (signal vs noise floor at threshold 0) |
+| T80-g | post-geometry bandwidth ~873 → ~194 MB/frame at 3200×1900 ⇒ fpv GPU ≈ 14–18 ms (was 25.2; gate ≤ 15 — **re-stated on dt p50 2026-09-06n, T104/§17.1**) · rt1 ~243 → ~49 MB VRAM | `verify-perf-baseline 9222 --quick --only "^fpv" --post-ab` (the new `bloomMsaa` cell − `on` IS the lever) · `probe-bloom-path 9333` (signal vs noise floor at threshold 0) |
 | C-1 | `frame.cpu` at the FPV eye 4.4 → ≤ 2.5 ms; `bufferSubData` off 56.7 % of self time; `rejectedDelta` ≪ +1,324; city p95 < 0.1 m within 600 frames of quiet | `probe-cpu-profile --pose fpv` · `verify-temporal-stability --reseat` (+ the `frozen/idleCells/deepResamples` counters) |
 | BASE ruling 3 | base `fpv.u0` churn p50 0.184 → ~0, rate-linearity ≥ 3 | `verify-temporal-stability --shimmer --step 200` |
 | T94 | `n/m poses re-shot BYTE-IDENTICAL` under `--freeze`; a `--compare --tolerance 0` that gates | `verify-visual-sweep --golden` then `--compare` in one boot |
@@ -819,3 +819,277 @@ everywhere else; the bloom's glow at everest-fpv-sunset and the west-sunset FPV 
 | `verify-uxbatch4-s3` | **16/16** | both bloom-pass reads pass (desktop LEO on, `/m` lean off) |
 | `verify-temporal-stability --shimmer --step 200 --only fpv.u0` | control churn p50 0.0000 · mean 0.0000 · **max 0.00075 (one pixel, one frame of 239; k2 read 0.00000)** · scrub p50 0.0000 | the base rig at the FPV eye still reads zero; the single flip is the Δ1 rounding class |
 | `probe-bloom-path --paths msaa,resolved,fused` (2 runs) | cityscape: fused vs the others 0.13 % / 0.79 % at Δ ≤ 2, **0 px > 3**; msaa vs resolved 1,378 px Δ1 | the rounding residual; west-sunset uninformative (control 0 px — no visible bloom there) |
+
+## 17. Session 2026-09-06n — the five owner rulings (2026-09-06m) executed
+
+Same tree as §16 (master 71af0b7, the l session landed as PR #106). House headless Chrome :9333,
+`wix dev` restarted with `.vite` aside, VPN on (FI), ion 401. Pre sweep `pre-2026-09-06n` at
+`--quiet-s 25` (the §16.4 lesson: a golden shot under the 8 s cap can be byte-identical AND
+mid-reveal).
+
+### 17.1 T80 CLOSED as a frame-time lever · T104 — every T77 GPU cell re-read on dt p50
+
+Ruling (2026-09-06m, option a): bloom is **2.1 ms of frame time** on the fused path (§16.3,
+`bloomFused` 14.2 vs `bloomOff` 12.1 base; ULTRA 15.9 vs 14.4); the remaining pass-count lever
+changes pixels and is NOT taken. `verify-perf-baseline` now prints a `dt−gpu (T104)` column in the
+console line and the markdown table — `dt p50 − frame.gpu p50` in ms, flagged `!` when the timer
+exceeds the frame interval, which a real per-frame GPU duration cannot do.
+
+The §15.5 (k2) and §16.3 (l) fpv cells, re-read with that column (headed :9222, `high`, DPR 2):
+
+| cell | `frame.gpu` p50 | dt p50 | dt−gpu | reading |
+|---|---|---|---|---|
+| k2 base `on` (T80-g) | 19.8 | 15.9 | **−3.9!** | over-count |
+| k2 base `bloomOff` | 9.8 | 12.6 | +2.8 | sane (single big passes) |
+| k2 base `bloomCheap` | 18.4 | 15.0 | **−3.4!** | over-count |
+| k2 base `bloomMsaa` | 22.5 | 19.9 | **−2.6!** | over-count |
+| k2 ULTRA `on` | 21.4 | 17.6 | **−3.8!** | over-count |
+| k2 ULTRA `bloomOff` | 10.7 | 13.6 | +2.9 | sane |
+| l base `bloomFused` | 18.3 | 14.2 | **−4.1!** | over-count |
+| l base `bloomResolved` | 19.8 | 15.4 | **−4.4!** | over-count |
+| l base `bloomMsaa` | 22.4 | 19.2 | **−3.2!** | over-count |
+| l base `bloomOff` | 10.0 | 12.1 | +2.1 | sane |
+| l base `bloomMips` (nMips 2) | 12.0 | 15.2 | +3.2 | the six dropped passes were TIMER, not frame |
+| l ULTRA `bloomFused` | 19.3 | 15.9 | **−3.4!** | over-count |
+| l ULTRA `bloomOff` | 11.2 | 14.4 | +3.2 | sane |
+
+Every cell with the bloom chain ON reads `gpu > dt` by 2.6–4.4 ms; every bloom-OFF cell reads
+`gpu < dt` by 2–3 ms (the CPU share). The pattern is the §16.3 diagnosis, now visible at a glance:
+`EXT_disjoint_timer_query` on ANGLE/Metal brackets command-buffer queueing between the many small
+post passes. **The T77 GPU gates are re-stated on dt p50** (`T77_AUDIT_PLAN` §12 row 0 and the
+T80-g row, by supersession): "fpv frame time ≤ 15 ms at `high` DPR 2" — **MET**, 14.2 base (§16.3);
+ULTRA 15.9 (the ULTRA rig has its own budget and no gate was ever written for it). `frame.gpu`
+stays in the table as a RELATIVE instrument for single big passes (the shadow and geometry cells,
+where it agrees with dt) and is never read alone for a pass-count lever.
+
+### 17.2 T100 — the slid release band (ruling b), and what the ladder actually measures
+
+**Frame challenge, found in the k2 ladder logs before the first edit.** At the failing rung (−0.5°)
+the ULTRA field still read 0.636, but `groundOpacity`, `directShareK` and `directK` were ALL 0 —
+the ground overlay had already retired with the key's extinction (`keyExtinctCurve` → 0 at −0.5°;
+overlay 0.164 → 0 between the −0.14° and −0.5° rungs). The base rig retires the same overlay
+(0.164 → 0, same digits) and reads a 0.00-code rise only because the base LOOK darkens ~40 codes
+across the ladder (108.9 → 68.4) while the ULTRA look is nearly flat (73.8 → 68.4): a release of any
+kind shows under the chip. The charter's RC2 fade step (0.0508) is measured with the chip OFF (the
+charter's pref precondition), so an ULTRA-only band cannot move it.
+
+**Built (as ruled):** `ULTRA.shadowReleaseStartSin` (sin +0.2° = 0.00349) and
+`ULTRA.shadowReleaseBandSin` (0.0093 = `shadowFadeBandSin`, the width kept) → a fourth profile
+`ULTRA_FIELD_RELEASE` in `StylizedTiles`, read by `fieldProfile()` on the CHIP's reach condition
+(`ultraOn && shadowCascades.length > 0`, the T96 allow-list twin of the length guard's reach —
+the slide replaces the geometric guard the ladder's 260 km reach makes inert); clamped so the band
+can never end below the gate; published as `ultraLook().shadow.fieldBandTopSin`; the ladder gained a
+T100 check on both rigs (19 checks now). Unit: `keyHandoff.test.ts` "T100 — the chip's slid
+release band" (5 tests, computed from the same expression).
+
+**Ladder `--ultra 1`, alone (house :9333, 5.3 min):** the band landed — `bandTop` 0.200°, field
+1.000 (+0.5°) → 0.997 (+0.2°) → 0.637 (0°) → 0.254 (−0.14°) → 0 (−0.5°). **T66 still FAILS: worst
+rise 4.23 codes**, series `… 0.5:67.4 0.2:68.4 0:69.3 −0.14:73.5 −0.5:75.0 −0.9:73.0`. The rise
+moved from the −0.5° rung (4.94, k2/l) to the −0.14° rung (4.23): a field released while the key
+still delivers `directK` 0.14–0.19 brightens the shadowed terrain by returning its direct arm, and a
+0.53° band lands most of that in one rung; the endpoint (75.0 at −0.5°, overlay 0 and directK 0) is
+the same number on both bands. **Ladder `--ultra 0`: 19/19, luma series identical to k2's digit for
+digit** — the base rig is byte-identical, as the ruling required.
+
+**A/B for the owner (same ladder, the tunables only; the ruled default is restored after):**
+
+| arm | band top | band bottom | T66 worst rise | series 0.5 → −0.9 |
+|---|---|---|---|---|
+| k2/l (gate-anchored, −0.30° → −0.83°) | −0.30° | −0.83° | **4.94** at −0.5° | 67.4 68.4 68.6 70.1 75.0 73.0 |
+| **ruled (b)**: +0.2°, width kept (→ −0.33°) | +0.2° | −0.33° | **4.23** at −0.14° | 67.4 68.4 69.3 73.5 75.0 73.0 |
+| E-a: +0.2°, run down to the gate (width 1.03°) | +0.2° | −0.83° | **4.67** at −0.5° | 67.4 68.4 68.7 70.3 75.0 73.0 |
+| E-b: +0.5°, run down to the gate (width 1.33°) | +0.5° | −0.83° | **3.82** at −0.5° | 67.4 68.5 69.2 71.2 75.0 73.0 |
+
+**Reading.** The in-shadow band reads 67.4 at +0.5° and **75.0 at −0.5° on every arm** — the
+endpoint is fixed by the overlay and the key both being 0 there — so the ~7 codes between them
+have to be spread over the four rungs +0.5 / +0.2 / 0 / −0.14 / −0.5°; even a perfectly even spread
+is 1.9 per rung, and every arm's worst step is the −0.14° → −0.5° rung, where the OVERLAY retires
+(0.164 → 0 with `directShareK`) whatever the field does. The field band is not the lever T66 needs
+at this pose; the overlay's retirement (`shadowDirectShareK` following `keyExtinctCurve`'s last
+step, 0.138 → 0 over 0.36°) is — an owner call, since it is the F1 bound / the look's extinction
+tail. **Shipped: the ruled (b) default** (start +0.2°, width 0.0093) — T66 4.94 → 4.23, base rig
+byte-identical, the tunables carry the A/B. The ULTRA ladder reads 18/19 (T66) as k2/l read
+17/18.
+
+### 17.3 T101 — the per-cell `deepPending` hold (ruling a)
+
+Built in `enrichedBuildings.ts` + the pure `deepAnswerVerdict()` in `lib/globe/seatQuiet.ts` (the
+C-1 leaf; +8 tests, +6 wiring fences); `ENRICHED.reseatDeepPendingHold: true` (`false` = the k2
+per-frame re-rejection, exactly). A deep answer the per-frame cap cannot resample this frame parks
+its CELL (`deepPending`), the sampling passes skip parked cells, `refreshCellPlane` re-opens the
+cell ON ENTRY and `touchCell`s it once; nothing is re-queued because nothing left its queue.
+Counters `deepHeld` / `deepPendingCells` on `seatSettle().enriched`, `debugCounts()` and the
+`__debugFeed` "buildings" provider; the reseat harness prints `deepHeld +N pendingCells@end N`.
+
+`verify-temporal-stability --reseat` (house :9333):
+
+| leg | k2 (C-1) | 2026-09-06n |
+|---|---|---|
+| orbit ARRIVAL `rejected` | **+39,629** | **+2** (`deepHeld` +2, `pendingCells@end` 0, collapsed 0, end 0.000 m) |
+| arrival city p95 (streaming) | 29.7 m | 42.3 m (run 1) · **35.0 m** (run 2: rejected +1, `deepHeld` +1) — the streaming spread (h read 34.3) |
+| FPV eye (models leg) | rejected +0, collapsed 0, end 0.000 | rejected +2, `deepHeld` +2, collapsed 0, near end 0.000 m, city end 6.8 m (streaming; k2 6.0) |
+| drag leg | — | rejected +0, city p95 0.71 m, end 0.000 m |
+
+### 17.4 T92 — the focal cone's FILL fades with the orbit tilt (ruling a)
+
+`FOCALCONE.fillTiltFadeStartDeg` 50 → `fillTiltFadeEndDeg` 70, the pure `focalConeFillTiltK()`
+(exactly 1 at/below the start, smoothstep to 0, NaN ⇒ 1, start ≥ end disables), the live orbit
+tilt computed in `stepAimCones` with the `#p=` hash writer's own expression (never the 0.25°
+deadband readout mirror), published as `aim().focalTiltDeg` / `focalFillTiltK`. 8 tests.
+`probe-focalcone 9333 dnipro-cityscape`: tilt **74.904°**, multiplier **0**, fill mesh alpha **0**,
+edge mesh alpha **0.700** — the wedge is two rays. The catalogue's orbit tilts: descent 29.3° → 54.9°
+(0.85 on arrival), `legacy-orbit` 40° (1, exact), cityscape 74.9° (0).
+
+### 17.5 T93 — the horizon band: RE-CLASSIFIED, then the aerial LIMB (ruling a, transposed)
+
+**The k2 classification was wrong, and the toggles say so** (`probe-sheets 9333 everest-orbit-73`,
+luma profile down the frame's centre third, rows as % of height):
+
+| rows | base | ground-off | earth-off (7 spheres) | atmo-off (the dome) | far ×4 | overlay-off |
+|---|---|---|---|---|---|---|
+| 17–19 % (sky) | 205 | 186–197 | **88–92** | **88–92** | 92–97 | 205 |
+| 22–28 % (THE BAND) | **84–89** | 52–64 (the earth's brown) | 84–89 | 84–89 | 84–89 | 84–89 |
+| 29–45 % (near terrain) | 112–135 | 36–64 | 112–135 | 112–135 | 112–135 | 112–135 |
+
+Hiding every sphere (the earth included) leaves the band; hiding the atmosphere dome alone leaves
+it (and turns the SKY rows into the same grey — the dome is what paints 205 over far terrain that is
+itself grey); the far plane ×4 leaves it; only hiding the GROUND replaces it, with the base earth's
+brown. **The band is far terrain, drawn, at RGB ≈ (78, 90, 102).** Mechanism: `ftwAerial` hazes far
+terrain toward `tint × ftwAirLevel(cosG)`; the lobe is normalised to 1 looking INTO the sun and
+reads ~0.25–0.5 for a horizontal ray under a high sun (the pose is 14:56 local), so by ~100 km
+(`hazeDistM` 55 km, `hazeMaxK` 0.72) the terrain has converged on an in-scatter DARKER than
+itself. Since T96 the LOOK is on at `high`, so the band shows on both rigs — as the row said.
+
+**The fix, the ruling transposed onto the surface that actually draws the band:** in the ONE shared
+aerial function the LEVEL lobe relaxes toward 1 (isotropic — the sky's own brightness) past
+`ULTRA.limbStartM`, fully by `limbEndM`; the tint keeps its cool/warm swing and every dusk term
+is untouched; `mix(lobe, 1, 0)` is exactly the lobe, so everything nearer than the start is
+byte-identical. First try 150/350 km lifted only the far third (rows 22–25 %: 88 → 92–105; rows
+26–28 % stayed 84–89 — the darkening is complete by ~100 km); **shipped 40/120 km**: rows 22–28 %
+**84–89 → 149–153**, rows 29–45 % 112–135 → 138–164 (the ramp, 40–120 km), the bottom fifth of the
+frame (< 40 km) unchanged but for boot-to-boot Δ1 noise. Same-boot byte-identity for the near
+field is by construction (`aerialLimb.test.ts` pins the geometry at `POSE.fovDeg` 38: the FPV
+horizon 35 km, the descent 36 km, `legacy-everest` 16 km — none reaches the start; `everest-orbit-52`
+at 21.8 km reaches ~63 km at sea level at the top of its frame = the ramp's foot, and the post
+sweep measured Δ ≤ 6 on its top decile; the cityscape's horizon is 84 km, so its far field is on
+the ruled surface too). By eye:
+the dark slab with its hard edge is a blue-grey haze meeting the sky. The "halftone" at the
+boundary is the far tiles' reveal, a separate shape; the zoom sweep's "black polygon wedge" is
+FPV (< 40 km) and is NOT addressed by this term.
+
+### 17.6 The regression suites on the n tree (house :9333, one after another)
+
+| suite | result | note |
+|---|---|---|
+| `verify-ultra-dusk --ladder --ultra 0` | **19/19** | luma series identical to k2 digit for digit — the base rig untouched by T100 |
+| `verify-ultra-dusk --ladder --ultra 1` | **18/19** | T66 4.23 (T100, §17.2) |
+| `verify-rendering-charter` | **84/85** | RC2's fade 0.0508 (chip off; T100's tail, unchanged); the T93 limb moved none of the 85 sites |
+| `verify-ultra` (alone) | **30/30** | the limb term does not move the ULTRA composites |
+| `verify-temporal-stability --reseat` ×2 | arrival rejected +2 / +1, `deepHeld` +2 / +1, pendingCells@end 0, end 0.000 m; FPV eye rejected +2 / +0 | T101 |
+| `verify-uxbatch4-s3` | **16/16** | |
+| `probe-focalcone dnipro-cityscape` | 7/7 | tilt 74.904°, fill alpha 0, edge 0.700 |
+| `probe-horizonband everest-orbit-73` | PASS (mechanical) | the far-plane geometry unchanged (reach untouched, as ruled) |
+| post sweep `post-2026-09-06n --golden --compare pre-2026-09-06n --quiet-s 25` | **12/14** byte-identical (`legacy-city` Δ1 ease step, `legacy-m` T103) | the compare fails all 14 at tolerance 0: the ruled changes (73's far field, the cityscape wedge, orbit-52's top decile Δ ≤ 6) + boot-to-boot loading states (the descent's building layer, the cityscape's vector water fill, `legacy-everest` tiles) — T95's class |
+
+
+## 18. Session 2026-09-07 — T100 (a): the ground overlay's own extinction tail (ruling 2026-09-06o)
+
+### 18.1 What the four §17.2 arms actually said (re-read before the first edit)
+
+The rung table of every arm carries `intensity` (the field), `groundOpacity` (the overlay), `directShareK`, `directK` and the band luma. Laid side by side at the rungs where the arms differ ONLY in the field:
+
+| rung | k2/l field → luma | (b) field → luma | E-a field → luma | E-b field → luma |
+|---|---|---|---|---|
+| 0° | 1.000 → 68.59 | 0.637 → 69.29 | 0.886 → 68.65 | 0.666 → 69.17 |
+| −0.14° | 1.000 → 70.07 | 0.254 → 73.52 | 0.724 → 70.34 | 0.511 → 71.19 |
+| −0.5° | 0.636 → 75.01 | 0 → 75.00 | 0.223 → 75.01 | 0.142 → 75.01 |
+
+At 0° the field falls 1.000 → 0.637 and the luma moves 0.7 codes; a single-light overlay scaled by the field would have moved ~6. The ground twins are a stock `ShadowMaterial`, whose mask is `mix(1, shadow, intensity)` PER LIGHT, and the ULTRA rig has three nested cascade lights over the band — so the delivered darkening of a texel under all three is `opacity × (1 − (1 − field)³)`: 0.952 of the opacity at field 0.637, 0.585 at 0.254, and exactly 0 wherever the field is 0. That predicts E-a's −0.14° rung at 70.3 (measured 70.34) and says two things the ruling needed: (1) the field band is nearly irrelevant to T66 until it is below ~0.5, and (2) **no field band that reaches 0 at −0.33° can let any overlay survive to the −0.5° rung** — which is why every arm read 75.0 there. The lever really is the overlay's own opacity, i.e. F1's bound on the key's authored tail, and the field band has to be non-zero at −0.5° for that lever to reach the rung at all.
+
+### 18.2 Built
+
+- `lib/globe/duskLight.overlayReleaseK(sinElev, startSin, gateSin, pow, levelAtStart)` — `levelAtStart × x^pow`, `x` the sun's position in the `[gate, start]` band (1 at the start, 0 at the gate), 0 at/below the gate, identity (0 everywhere) when `start ≤ gate`. `StylizedTiles` reads `shadowDirectShareK(max(ultraDirectK, tail))` under the chip's cascade REACH condition (`ultraOn && shadowCascades.length > 0`, the fence's third entry on that condition); `levelAtStart` is `keyExtinctCurve` read at the start once at boot, so the tail meets the key exactly where it begins and is clamped BELOW the key above it — the raking hour, the daytime overlay and the off-state are byte-identical. Published as `ultraLook().shadow.overlayTailK` and `ultra.shadow.overlayTailK` on the DBG chip.
+- `ULTRA.overlayReleaseStartSin` sin(+0.2°) · `ULTRA.overlayReleasePow` 0.9 · **`ULTRA.shadowReleaseStartSin` back at its identity** (`shadowGateSin + shadowFadeBandSin` = sin −0.30°): ruling (b)'s slid field band is SUPERSEDED — the band is on the disc again on both rigs (full while the disc is whole, 0.636 at −0.5°, 0 at the gate). The knob and its clamp stay; `keyHandoff.test.ts` pins both the identity and the (b) shape.
+- Tests: `duskLight.test.ts` +7 (the tail's contract) · `keyHandoff.test.ts` T100 block rewritten (5) · `duskShadeRatio.test.ts` +5 (a CHIP arm of the twin: the cascade mask product, the length guard with the gate as its horizon, the tail) · `fences.test.ts` +1 allow-list entry · `debugCatalog` +1 row. `verify-ultra-dusk`: the T100 check re-pointed (disc band on both rigs) + a T100 (a) check (tail under the key above +0.2°, under the key at −0.14°, > 0 at −0.5° with `directK` 0, 0 at −0.9°; base rig: 0 at every rung); its two positionals are now option-safe (T105).
+
+### 18.3 The ladder, three exponents (house :9333, `--ladder --ultra 1`, alone, ~5 min each)
+
+| `overlayReleasePow` | tail / overlay at −0.5° | series +0.5 → −0.9 | steps | T66 worst rise |
+|---|---|---|---|---|
+| (b), no tail (§17.2) | 0 / 0 | 67.4 68.4 69.3 73.5 75.0 73.0 | 0.9 0.9 **4.2** 1.5 −2.0 | 4.23 FAIL |
+| 1.4 | 0.037 / 0.047 | 67.4 68.4 68.6 70.1 73.1 73.0 | 0.9 0.2 1.5 **3.0** −0.1 | 3.01 FAIL |
+| 1.0 | 0.060 / 0.075 | 67.4 68.4 68.6 70.1 71.9 73.0 | 0.9 0.2 1.5 **1.85** 1.0 | 1.85 PASS |
+| **0.9 (shipped)** | 0.068 / 0.084 | 67.4 68.4 68.6 70.1 **71.5** 73.0 | 0.9 0.2 1.5 1.4 1.4 | **1.48 PASS** |
+
+Every rung above −0.3° is the l/n digit (the key rules there: tail 0.134 < `directK` 0.138 at −0.14°). The −0.5° rung is the only one the tail moves, and it moves it by only ~55 % of the opacity it adds (a 0.084 overlay reads −3.5 codes on a 75.0 composite, not −6.3): the band T66 samples is not fully under the cascade masks. That is why the model's 1.4 (chosen for a −0.5° rung near 71.6) landed at 73.1 and the value was walked down on the ladder. **19/19 on the ULTRA rig.** By eye (the ladder's own −0.5° shots, n vs now): indistinguishable — no shadow shape, no edge, the far ridges a shade deeper.
+
+### 18.4 The regression suites on the (a) tree (house :9333, one after another)
+
+| suite | result | note |
+|---|---|---|
+| `verify-ultra-dusk --ladder --ultra 1` | **19/19** | T66 1.48 (above) |
+| `verify-ultra-dusk --ladder --ultra 0` | **19/19** | luma series identical to §17.6 digit for digit; `overlayTailK` 0 at every rung — the base rig untouched |
+| `verify-rendering-charter` | **84/85** | RC2's fade 0.0508, chip off, unchanged since k2 (the tail is chip-gated and cannot move it) |
+| `verify-ultra` (alone) | **30/30** | |
+| post sweep `post-2026-09-07-t100a --golden --compare post-2026-09-06n --quiet-s 25` | see DECISIONS 2026-09-07 | the sweep runs the chip OFF, where the tail is inert |
+
+Reversal: `ULTRA.overlayReleaseStartSin ≤ shadowGateSin` (the tail is 0 everywhere; the l/n overlay digit for digit).
+
+## 19. The phone RE-MEASURE on the T79 / T80-g/h / C-1 / T101 tree — iPhone 17 Pro, Device Farm, 2026-09-07 (§11's iPhone column, re-read)
+
+Same harness, same seam, same poses (`tools/devicefarm/ios-baseline.mjs --label t100a-remeasure`; JSON
+`verify-shots/perf/devicefarm-t100a-remeasure-2026-09-06T21-25-38.json` + PNGs; session ARN
+`…:session:69e9a004-b773-4e76-87d5-259381e752df/ed840495-122f-4465-82a0-cb803fc13d7a/00000`, ~10 device
+minutes). Safari 26.3.1, CSS 402×714 @ 3, 4 cores, coarse pointer → deviceTier `mid`, lean, DPR 1.25,
+shadow 1024 px, bloom off, `Apple GPU`. The Pixel 6 Pro was NOT attached over adb this session (its
+half of the re-measure is still owed). §11's iPhone row beside today's:
+
+| pose | §11 (2026-09-06) tier · dt p50/p95 · cpu | **today** tier · dt p50/p95/max · cpu p50/p95 | calls · tris · LRU bld/gnd/enr MB | read |
+|---|---|---|---|---|
+| fpv | mid · 17 / 17 · 2 | **mid · 17 / 19 / 36 · 3 / 5** | 287 · 0.98 M · 4 / 47 / 37 | the 60 Hz cap, unchanged; 25 hitches during the 15 s settle |
+| orbit | **low (demoted) · 91 / 112 · 84** | **mid · 17 / 17 / — · 4 / —** | 101 · 0.54 M · 5 / 27 / 6 | **9–13 fps → the 60 Hz cap; T79 reached the phone** (the controls' raycast was the 84 ms) |
+| city | **low · 97 / 200 · 91** | **mid · 20 / 49 / — · 4 / —** | 823 · 4.59 M · 7 / 49 / 134 | 10 → 50 fps at `mid`, drawing 7.6× the triangles the demoted `low` frame drew |
+| everest | **low · 79 / 99 · 74** | **mid · 17 / 17 / — · 3 / —** | 81 · 0.39 M · 0 / 31 / 0 | 13 fps → the cap |
+| /m | **low · 111 / 130 · 105** | **mid · 29 / 32 / — · 26 / —** | 31 · 0.33 M · 0 / 78 / 0 | 9 → 34 fps, and STILL CPU-bound at 26 ms — the `/m` shell has a main-thread cost of its own (T103's animations are the first suspect; `probe-cpu-profile` on `/m` decides) |
+
+**Verdict.** The desktop slices reached the phone: every orbit pose that read 9–13 fps CPU-bound is
+at (or, for the city, near) the 60 Hz cap with 3–4 ms of main thread, and the governor no longer
+demotes. What is left on the iPhone is `/m` (26 ms CPU) and **T83, reproduced on this tree**: the
+kill ramp's first step (6 seeded rows, reload the `#f=` FPV eye) took the boot marker and then
+Safari's remote debugger stopped answering inside the 120 s window, twice — the same shape as §11's
+three sessions. T80-g/h's −245 MB of VRAM did not change it, so "a late GPU texture landing" is
+weakened as the hypothesis; kill (jetsam) vs JS hang is still [OPEN] and the session's video +
+device syslog on the Device Farm console page are the next read (the API lists no artifacts for a
+remote-access session while it is STOPPING). Boot 12.3 s, settle 15.1 s at the FPV eye.
+
+## 20. The streaming measurement (T77 slice C, levers 9–11) — the descent leg's per-frame streaming columns, 2026-09-07
+
+`verify-visual-sweep --ids dnipro-descent` now records per rAF frame, next to dt / busy / visible:
+the three tilesets' download queue (items + jobs in flight), parse queue (items + jobs), LRU MB per
+tileset, `inCache`, and the DBG feed's `frame.cpu` (the orchestrator's `update()` bracket) —
+`leg.csv`, and a `streaming.json` read-out (busy / download-bound / parse-bound frames, the queue
+peaks, the LRU peaks, `frame.cpu` and dt on parse frames vs quiet). Desktop `high`, chip off, house
+:9333, `--quiet-s 25` (`verify-shots/sweep/streaming-2026-09-07/dnipro-descent/`):
+
+| phase (per frame) | frames | dt p50 / p95 / max ms | `frame.cpu` p50 / p95 / max ms |
+|---|---|---|---|
+| quiet (no queue work) | 447 | 16.7 / 19.9 / 26.1 | 6.0 / 7.7 / 9.0 |
+| download only (items or jobs, no parse) | 5 | 19.9 / 27.6 / 27.6 | 6.1 / 7.1 / 7.1 |
+| parse (parse items or jobs in flight) | 164 | 17.8 / **37.6 / 78.4** | 6.8 / 27.5 / 28.4 |
+
+Peaks: queue 749 (download 550 / parse 159) at 7–13 km on the way down; `inCache` 805 tiles; LRU
+bld 8.8 / **gnd 308.0** / enr 207.3 MB. The streaming span runs 0.64 → 4.35 s of the leg; the
+flight itself ends at 2.27 s, so the tiles trail the arrival by ~2 s. **Every one of the 22 hitches
+(dt > 33 ms) is a parse-phase frame — none is download-only, none is quiet** — and in the eight worst
+frames (dt 40–78 ms) `frame.cpu` reads 5–11 ms: the hitch is main-thread work OUTSIDE the
+orchestrator's bracket, i.e. the tile parse landing (glTF parse in the loader callback) and/or the
+first-draw GPU upload of the landed geometry and imagery. The download side keeps up (5 frames).
+
+**What this decides.** Lever 10 (worker tile decode) is aimed at exactly the frames that hitch —
+but only if the time is the PARSE and not the UPLOAD, which this column set cannot split; the one
+measurement left before building it is `probe-cpu-profile` over the descent leg (the main-thread
+profile attributes `GLTFLoader.parse` vs `WebGLRenderer` `texImage2D` / buffer uploads in the
+parse-phase frames). Lever 9 (KTX2 user textures) is a memory lever — the ground imagery LRU at
+308 MB is the big number here, and it is the imagery tiles, not the user models — so it is
+re-aimed at the imagery path or parked. Lever 11 (instanced models) does not appear in this leg
+(3 models). The Pixel's read of the same leg is owed with its re-measure.

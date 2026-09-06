@@ -1150,6 +1150,34 @@ export const ULTRA = {
   /** Hard ceiling on the haze fraction, so distant terrain never fully dissolves into flat tint
    *  (the "grey mush" C2 risk the ULTRA_PLAN flags in both directions). */
   hazeMaxK: 0.72,
+  /** T93 — THE LIMB (owner ruling 2026-09-06m, option a: "tint the limb to the horizon haze at
+   *  grazing angles … the same haze inputs, no second haze"; built 2026-09-06n). The classification
+   *  moved once the toggles were measured on `everest-orbit-73` (MEASUREMENTS §17.4): the hard band
+   *  along the horizon is NOT the base earth (hiding every sphere leaves it; hiding the GROUND
+   *  replaces it with the earth's brown) and NOT the far-plane clip (far ×4 leaves it) — it is far
+   *  TERRAIN, drawn, hazed by `ftwAerial` toward `tint × ftwAirLevel(cosG)`. The directional lobe
+   *  is normalised to 1 looking INTO the sun and reads ~0.25–0.5 for a horizontal ray under a
+   *  high sun, so 300–500 km of terrain saturates (`hazeMaxK`) toward an in-scatter DARKER than
+   *  the terrain itself (measured luma 84–89 across the band) while the dome paints its horizon at
+   *  ~205 one row above. Real air-light at the horizon is the sky's own brightness, not the Mie
+   *  lobe's. So past `limbStartM` the LEVEL lobe relaxes toward 1 (isotropic) and is fully
+   *  isotropic by `limbEndM`; the tint keeps its cool/warm swing and every dusk term (`skyLevel`,
+   *  the afterglow max) is untouched, so the sunset semantics are exactly the shipped ones. Only
+   *  terrain further than `limbStartM` can be affected — from any altitude the terrain is drawn at,
+   *  that is the last few degrees above the horizon — and `mix(lobe, 1, 0)` is exactly `lobe`, so
+   *  every fragment nearer than the start is byte-identical. The start is set by the catalogue's
+   *  reach (`POSE.fovDeg` 38): the FPV horizon is ~35 km away (95 m eye), the descent's top ray
+   *  meets sea level at ~36 km, `legacy-everest`'s at ~16 km — those cannot reach 40 km and are
+   *  byte-identical; `everest-orbit-52` (21.8 km, tilt 52°) reaches ~63 km at the top of its frame,
+   *  the ramp's FOOT, and its top rows move by a few codes (measured Δ ≤ 6 on the top decile);
+   *  the cityscape (553 m, tilt 74.9°, horizon 84 km) and the tilt-73 pose are the ruled surface
+   *  (`aerialLimb.test.ts` pins the geometry). Measured first at 150/350 km: the band's near half
+   *  (60–140 km out, where `hazeMaxK` has already saturated) stayed at luma 84–89 and only the far
+   *  third lifted — the darkening is complete by ~100 km, so the ramp has to live inside it.
+   *  `limbEndM <= limbStartM` disables the term (the emitter writes a constant 0). Units: metres
+   *  from the camera. */
+  limbStartM: 40_000,
+  limbEndM: 120_000,
   /** Full strength at/below this camera altitude (m)… */
   hazeFullAltM: 20_000,
   /** …zero at/above this one. The base earth + limb shader own the look from orbit; layering a
@@ -1603,6 +1631,59 @@ export const ULTRA = {
    *  0.0105 (sin 0.6°) on the +0.4584° gate, where "full shadows survive to 1°" meant they were
    *  gone 5.9 minutes early; full shadows now survive to −0.30°. The base rig keeps sin(3°). */
   shadowFadeBandSin: 0.0093,
+  /** T100 — where the ULTRA CHIP's shadow-field release band STARTS, in sine of solar
+   *  elevation; the band keeps `shadowReleaseBandSin`'s width and slides up from the gate to
+   *  here. Ruling (b) of 2026-09-06m put it at sin(+0.2°) so the FIELD's release was spread over
+   *  the +0.2 / 0 / −0.14 / −0.5° rungs; the ladder on that band (MEASUREMENTS §17.2) moved the
+   *  T66 rise from the −0.5° rung (4.94) to the −0.14° rung (4.23) and did not remove it, and its
+   *  four measured arms showed why no field band can: the ground twins are a stock
+   *  `ShadowMaterial` whose mask is `mix(1, shadow, intensity)` PER CASCADE, so the overlay's
+   *  delivered darkening is `opacity × (1 − (1 − field)³)` — nearly blind to the field above 0.5
+   *  and exactly 0 wherever the field is 0. A band that ends at −0.33° therefore zeroes the
+   *  overlay at −0.5° whatever `overlayReleaseStartSin` below asks for, and the −0.5° rung reads
+   *  the bare composite (75.0 on every arm). SUPERSEDED by ruling (a) of 2026-09-06o: the band is
+   *  back on the DISC — this value is exactly `shadowGateSin + shadowFadeBandSin` (sin −0.30°),
+   *  which the clamp in `StylizedTiles` reads as the gate-anchored band of 2026-09-06h digit for
+   *  digit (the field is full while the disc is whole and softens as the horizon bisects it) —
+   *  and the overlay gets its OWN tail (`overlayReleaseStartSin`). CHIP-gated (`ultraOn`), never
+   *  `lookOn()`: the base rig is untouched. Any value ≤ `shadowGateSin + shadowFadeBandSin` is
+   *  this identity; a higher value re-slides the band (the clamp still holds: the band can never
+   *  end below the gate — the field must be 0 where the rig's direction teleports;
+   *  keyHandoff.test.ts). */
+  shadowReleaseStartSin: -0.014544 + 0.0093,
+  /** …and the slid band's own WIDTH (sine units), kept equal to `shadowFadeBandSin` so the
+   *  identity above holds. It exists because the first ladder on a slid band (2026-09-06n,
+   *  MEASUREMENTS §17.2) needed the A/B of a band run down to the gate (start − `shadowGateSin`);
+   *  it stays as that A/B's knob. */
+  shadowReleaseBandSin: 0.0093,
+  /** T100 (owner ruling 2026-09-06o, option a) — where the ground OVERLAY's own extinction tail
+   *  STARTS, in sine of solar elevation (`lib/globe/duskLight.overlayReleaseK`). sin(+0.2°) =
+   *  0.00349, the band top the ruling names. The overlay is F1-bounded by the key's direct share,
+   *  and the key's authored `keyExtinctCurve` is 0 by −0.5° — its last step (0.14 → 0 over
+   *  0.36°) retired the whole overlay in one ladder rung under the chip, where the far cascades
+   *  put kilometres of terrain beneath it (the +4.9 / 4.23-code T66 rises of §15.5 / §17.2).
+   *  From here down to the rig's gate (−0.833°, true sunset) the overlay reads
+   *  `max(directK, keyLevel(start) × x^overlayReleasePow)` instead — equal to the key at the
+   *  start, clamped at that level (so below the key) everywhere above it (the raking hour and
+   *  the daytime overlay are byte-identical, and F1's exactness at `directK` 1 holds), a little
+   *  overlay left on the ground between −0.5° and the set of the disc, exactly 0 at the gate. CHIP-gated on the
+   *  cascade REACH condition (`ultraOn && shadowCascades.length > 0`), never `lookOn()`: it exists
+   *  because of the ladder's reach, and the base rig's 5 km box — which reads 0.00 codes on this
+   *  ladder — never sees it. Identity: any value ≤ `shadowGateSin` (the tail is 0 everywhere, the
+   *  2026-09-06l overlay digit for digit). Gate: `verify-ultra-dusk --ladder --ultra 1` T66 ≤ 2
+   *  at every rung; `--ultra 0` 19/19 byte-identical. */
+  overlayReleaseStartSin: 0.00349,
+  /** …and the tail's exponent. 1 is LINEAR in sine of elevation; above 1 the tail hugs zero
+   *  longer, so the −0.5° rung keeps less overlay; below 1 it keeps more. Measured on the
+   *  ladder (MEASUREMENTS §18): at 1.4 the −0.5° rung kept an overlay of 0.047 and read 73.1
+   *  against 70.1 one rung up and 73.0 at −0.9° (T66 3.01) — the overlay's delivered darkening
+   *  on the band T66 samples is only ~55 % of its opacity there (the band's shadow coverage ×
+   *  the cascade mask product), so the tail has to leave about twice that. Linear left 0.075
+   *  and read 71.9 (T66 1.85, all of it on the −0.14 → −0.5° step while −0.5 → −0.9° carried
+   *  1.0); 0.9 leaves ≈ 0.09 and puts the rung near 71.4, so the two steps either side of it
+   *  balance at ≈ 1.4–1.6. At −0.14° the tail (0.134) is still under the key's own 0.138, so
+   *  nothing above −0.3° moves. The ladder is the judge, not the model. */
+  overlayReleasePow: 0.9,
   /** …and the overlay DEEPENS as the sun sets ("darker and more global"). The ground shadow
    *  opacity is lerped from `SHADOWS.groundOpacity` 0.75 toward this, by how far the sun has come
    *  down the WIDE gate band. Nothing about the shadow's SHAPE changes — this is contrast, not
@@ -2586,6 +2667,25 @@ export const ENRICHED = {
    *  the two together stay ≈ 12 plane raycasts a frame; what is deferred arrives on the next
    *  frame through the same path. Units: raycasts per frame. 0 disables the correction. */
   reseatDeepResampleMaxPerFrame: 6,
+  /** T101 (2026-09-06, owner ruling 2026-09-06m option (a)) — the per-cell DEEP-PENDING HOLD.
+   *  "What is deferred arrives on the next frame" above was true of the CORRECTION and false of
+   *  the COST: a deeper answer the cap could not serve fell through to `rejected`, went back into
+   *  its queue, and was raycast and rejected again every frame against the same stale plane until
+   *  the 6-per-frame round-robin reached its cell. At the orbit ARRIVAL every resident cell's
+   *  plane refines at once, so the cap is saturated for the whole burst and the sampling budget
+   *  is burnt on re-rejections while the tiles are still streaming: `rejected` +39,629 over the
+   *  479-frame leg (2026-09-06k2; 0 before C-1), for no accuracy (end 0.000 m, collapses 0, city
+   *  p95 29.7 m unchanged). With this on, a cell whose deeper answer could not be served this
+   *  frame is HELD (`CellSeat.deepPending`): none of its footprints or trees is raycast until its
+   *  plane is next re-sampled through `refreshCellPlane` — the round-robin, the dirty-first sweep
+   *  or the deep rule itself, all one path — and the held sample is counted as `deepHeld`, never
+   *  as a rejection (`rejected` keeps meaning "implausible against a CURRENT plane"). The
+   *  features stay where they are in `unseated`/`refine`, so "re-queue once" is simply "stop
+   *  skipping". The plane sweep's ORDER is untouched: a held cell waits at most one rotation
+   *  (⌈cells / reseatSamplesPerFrame⌉ frames, ~17 at the 101-cell orbit), which was already the
+   *  fastest path a capped cell had. `reseatDeepResampleMaxPerFrame` stays 6. false restores the
+   *  per-frame re-rejection exactly. */
+  reseatDeepPendingHold: true,
   /** T77 slice B 4d — refuse a terrain answer from a SHALLOWER tile than the seat we hold. OFF:
    *  measured 2026-09-06h it turns the orbit arrival's city-wide p95 from 0.00 m into 33.5 m,
    *  because a settled traversal is coarser than the finest tile it streamed through and the
@@ -3731,6 +3831,25 @@ export const AIMCONES = {
 export const FOCALCONE = {
   /** Fill alpha — "very transparent" (owner): the boundary carries the reading. */
   fillAlpha: 0.05,
+  /** FILL-only TILT fade band (deg of ORBIT tilt: 0 = nadir, 88 = CONTROLS.tiltMaxDeg) — T92,
+   *  owner ruling 2026-09-06m option (a), shipped 2026-09-06. At `dnipro-cityscape`
+   *  (`#p=48.46008,35.07720,553,276.7,74.9` — 553 m, tilt 74.9°, looking west) the fill read
+   *  as a translucent magenta wedge over the right third of the frame (`probe-focalcone`
+   *  cone-off removed it — classified 2026-09-06k2). NOT an altitude problem: the reach is the
+   *  radar radius × AIMCONES.rayLenK and the radius rides `alt × radiusAltK`, so the fan's
+   *  on-screen size is ≈constant at nadir at every zoom — it is the GRAZING tilt that
+   *  stretches the ground fan toward the horizon until the 0.05 wash reads as haze. The fill
+   *  multiplier is EXACTLY 1 at or below `start` (every pose under it — `legacy-orbit` 40°,
+   *  the descent's 29.3° start — renders byte-identical to before; the descent ARRIVAL 54.9°
+   *  and the 3D toggle's 55° sit just inside the band at ≈0.85 / ≈0.84), smoothsteps to 0 at
+   *  `end` and stays 0 up to the clamp (the cityscape's 74.9° ⇒ 0). The two boundary rays
+   *  (edgeAlpha) NEVER fade — they carry the reading (owner: "keep the two boundary rays");
+   *  the 2D twins (MapWindow, minimap) are untouched — a chart has no tilt. Driver = the live
+   *  orbit tilt the `#p=` hash writes (StylizedTiles `stepPoseMirrorAndViewport`), read per
+   *  frame, not the 12-frame / 0.25°-deadband store mirror. `start >= end` DISABLES the fade
+   *  (multiplier 1 at every tilt) — the one safe semantics, never a divide-by-zero. */
+  fillTiltFadeStartDeg: 50,
+  fillTiltFadeEndDeg: 70,
   /** Boundary edge alpha ("highlighted boundary") + edge half-width as a reach fraction.
    *  The reach is the RAY-EXTENDED radius (radar radius × AIMCONES.rayLenK 6), so in radar
    *  units the half-width is ×6: 0.000625 ⇒ 0.00375 ≈ 1.25× the radar direction line's

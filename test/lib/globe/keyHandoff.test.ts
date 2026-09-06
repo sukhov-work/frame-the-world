@@ -217,3 +217,109 @@ describe("the ULTRA gate twins", () => {
     expect(aboveGateK(sinDeg(-0.29), U_FIELD)).toBe(1);
   });
 });
+
+/**
+ * T100 — the CHIP's field release band, and its supersession.
+ *
+ * Ruling (b) of 2026-09-06m slid the band's top to +0.2° (`ULTRA.shadowReleaseStartSin`) so the
+ * FIELD's release was spread over the +0.2 / 0 / −0.14 / −0.5° rungs. The ladder on it
+ * (MEASUREMENTS §17.2) moved the T66 rise from the −0.5° rung (4.94) to the −0.14° rung (4.23)
+ * and did not remove it, and its four measured arms showed why no field band can: the ground
+ * twins are a stock `ShadowMaterial` whose mask is `mix(1, shadow, intensity)` PER CASCADE, so the
+ * overlay's delivered darkening is `opacity × (1 − (1 − field)³)` — blind to the field above 0.5
+ * and exactly 0 wherever the field is 0. Ruling (a) of 2026-09-06o put the band back on the DISC
+ * (the tunable at its identity, `shadowGateSin + shadowFadeBandSin`) and gave the OVERLAY its own
+ * tail (`duskLight.overlayReleaseK`, pinned in `duskLight.test.ts`). The construction below is
+ * the expression `StylizedTiles` uses, so the pins are computed, not transcribed; the slide
+ * itself stays as a knob, and the block keeps proving it still works.
+ */
+const U_RELEASE: KeyGateProfile = {
+  ...U_FIELD,
+  bandSin: ULTRA.shadowReleaseBandSin,
+  gateSin:
+    Math.max(ULTRA.shadowReleaseStartSin, ULTRA.shadowGateSin + ULTRA.shadowReleaseBandSin) -
+    ULTRA.shadowReleaseBandSin,
+};
+
+/** The (b) band, rebuilt from its ruled value so the knob's behaviour stays pinned. */
+const U_RELEASE_B: KeyGateProfile = {
+  ...U_FIELD,
+  bandSin: ULTRA.shadowReleaseBandSin,
+  gateSin:
+    Math.max(0.00349, ULTRA.shadowGateSin + ULTRA.shadowReleaseBandSin) -
+    ULTRA.shadowReleaseBandSin,
+};
+
+describe("T100 — the chip's field release band (ruling b, superseded by ruling a)", () => {
+  const deg = (v: number) => (Math.asin(v) * 180) / Math.PI;
+
+  it("SHIPS at its identity: the band is back on the disc, −0.30° down to the gate", () => {
+    expect(ULTRA.shadowReleaseStartSin).toBe(ULTRA.shadowGateSin + ULTRA.shadowFadeBandSin);
+    expect(ULTRA.shadowReleaseBandSin).toBe(ULTRA.shadowFadeBandSin);
+    expect(U_RELEASE.gateSin).toBe(U_FIELD.gateSin); // digit for digit — the clamp's identity
+    expect(deg(U_RELEASE.gateSin + U_RELEASE.bandSin)).toBeCloseTo(-0.3, 2); // the top
+    expect(deg(U_RELEASE.gateSin)).toBeCloseTo(-0.8333, 3); // the zero — true sunset
+    for (const d of [1, 0.5, 0.2, 0, -0.14, -0.3, -0.5, -0.8333, -1]) {
+      expect(aboveGateK(sinDeg(d), U_RELEASE)).toBe(aboveGateK(sinDeg(d), U_FIELD));
+    }
+  });
+
+  it("…which keeps the FIELD full at every rung the overlay's tail has to hold (the shader product)", () => {
+    // `opacity × (1 − (1 − field)³)`: with the field ≥ 0.63 at −0.5° the overlay's tail delivers
+    // ≥ 95 % of itself there; on the (b) band the field was 0 at −0.5° and the tail would have
+    // delivered nothing (the −0.5° rung read the bare composite on every arm of §17.2).
+    expect(aboveGateK(sinDeg(-0.14), U_RELEASE)).toBe(1);
+    expect(aboveGateK(sinDeg(-0.5), U_RELEASE)).toBeGreaterThan(0.6);
+    expect(aboveGateK(sinDeg(-0.5), U_RELEASE_B)).toBe(0);
+    const g3 = (f: number) => 1 - Math.pow(1 - f, 3);
+    expect(g3(aboveGateK(sinDeg(-0.5), U_RELEASE))).toBeGreaterThan(0.95);
+  });
+
+  it("the (b) knob still works when asked for: +0.2°, the disc-wide width, a zero above the gate", () => {
+    expect(deg(U_RELEASE_B.gateSin + U_RELEASE_B.bandSin)).toBeCloseTo(0.2, 2);
+    expect(deg(U_RELEASE_B.gateSin)).toBeCloseTo(-0.333, 2);
+    expect(U_RELEASE_B.gateSin).toBeGreaterThan(ULTRA.shadowGateSin);
+    expect(aboveGateK(ULTRA.shadowGateSin, U_RELEASE_B)).toBe(0);
+    const k0 = aboveGateK(sinDeg(0), U_RELEASE_B);
+    const k14 = aboveGateK(sinDeg(-0.14), U_RELEASE_B);
+    expect(k0).toBeGreaterThan(0.6);
+    expect(k0).toBeLessThan(0.75);
+    expect(k14).toBeGreaterThan(0.25);
+    expect(k14).toBeLessThan(0.35);
+  });
+
+  it("is ZERO at and below the rig's gate — the direction teleport still happens at no contribution", () => {
+    for (const p of [U_RELEASE, U_RELEASE_B]) {
+      expect(aboveGateK(ULTRA.shadowGateSin, p)).toBe(0);
+      expect(aboveGateK(sinDeg(-0.9), p)).toBe(0);
+      expect(aboveGateK(sinDeg(-1.5), p)).toBe(0);
+    }
+  });
+
+  it("a start at or below the gate-anchored top restores ULTRA_SHADOW_GATE digit for digit", () => {
+    for (const start of [ULTRA.shadowGateSin + ULTRA.shadowFadeBandSin, ULTRA.shadowGateSin, -1]) {
+      const restored: KeyGateProfile = {
+        ...U_FIELD,
+        bandSin: ULTRA.shadowReleaseBandSin,
+        gateSin:
+          Math.max(start, ULTRA.shadowGateSin + ULTRA.shadowReleaseBandSin) -
+          ULTRA.shadowReleaseBandSin,
+      };
+      expect(restored.gateSin).toBe(U_FIELD.gateSin);
+      for (const d of [1, 0, -0.14, -0.3, -0.5, -0.8333, -1]) {
+        expect(aboveGateK(sinDeg(d), restored)).toBe(aboveGateK(sinDeg(d), U_FIELD));
+      }
+    }
+  });
+
+  it("never STEPS either — the RC2 scrub on the slid band", () => {
+    let prev = aboveGateK(sinDeg(6), U_RELEASE_B);
+    let worst = 0;
+    for (let d = 6; d >= -6; d -= 1 / 3600) {
+      const now = aboveGateK(sinDeg(d), U_RELEASE_B);
+      worst = Math.max(worst, Math.abs(now - prev));
+      prev = now;
+    }
+    expect(worst).toBeLessThan(5e-3);
+  });
+});

@@ -31,7 +31,12 @@ import {
   type FeatureRun,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
-import { idleSweepNow, regionArmsCell, seatFreezeM } from "../../../lib/globe/seatQuiet";
+import {
+  deepAnswerVerdict,
+  idleSweepNow,
+  regionArmsCell,
+  seatFreezeM,
+} from "../../../lib/globe/seatQuiet";
 import {
   checksumMatches,
   NEUTRAL_K_EPS,
@@ -274,6 +279,11 @@ export interface EnrichedBuildingsHandle {
     frozen: number;
     /** T77 slice C-1 — cell planes corrected out of turn by a deeper footprint answer. */
     deepResamples: number;
+    /** T101 — deeper-disagreeing answers the cap could not serve: the cell was HELD, the sample
+     *  was not counted as rejected. Climbs through a streaming burst, never after quiet. */
+    deepHeld: number;
+    /** T101 — resident cells the sampling passes are skipping right now (`deepPending`). */
+    deepPendingCells: number;
     /** T77 slice C-1 5a — resident cells the apply pass skipped this frame as fixed points. */
     idleCells: number;
     /** T77 slice C-1 5d — did the refresh round-robin run this frame? */
@@ -293,6 +303,9 @@ export interface EnrichedBuildingsHandle {
     frozen: number;
     idleCells: number;
     deepResamples: number;
+    /** T101 — the deep-pending hold's two numbers (see `seatSettle`). */
+    deepHeld: number;
+    deepPendingCells: number;
     seatCacheHits: number;
     seatCacheMisses: number;
   };
@@ -388,6 +401,8 @@ export interface EnrichedBuildingsHandle {
     applyIdle: boolean;
     terrainDirtyFrames: number;
     pending: number;
+    /** T101 — is this cell HELD (skipped by the sampling passes until its plane re-samples)? */
+    deepPending: boolean;
     features: number;
     worst: Array<{ seatM: number | null; seatDepth: number; appliedM: number | null; residM: number }>;
   }>;
@@ -811,6 +826,16 @@ export function attachEnrichedBuildings(
     /** T77 slice C-1 — the frame in which this cell's plane was last re-sampled OUT of turn by
      *  the deep-answer rule, so one stale plane costs at most one extra raycast per frame. */
     deepResampleFrame: number;
+    /** T101 (2026-09-06, owner ruling (a)) — this cell is HELD: a footprint answered from a DEEPER
+     *  tile than the plane, disagreed with it, and the deep-answer rule could not re-sample the
+     *  plane this frame (`reseatDeepResampleMaxPerFrame` spent, or the cell already corrected once
+     *  this frame). Every sample against that plane is a foregone rejection, so `sampleFeatures` /
+     *  `sampleTrees` skip the cell entirely — the raycast budget was the thing being wasted
+     *  (+39,629 re-rejections over the 479-frame orbit arrival, 2026-09-06k2). One flag, not a
+     *  count: set by `acceptSample`, cleared by `refreshCellPlane` — the single plane-move law, so
+     *  ANY path that re-samples the plane (round-robin, dirty-first sweep, the deep rule itself)
+     *  re-opens the cell, and its features are still where they were in `unseated`/`refine`. */
+    deepPending: boolean;
   }
   /**
    * RC9 — the seat cache that survives an LRU eviction.
@@ -1126,6 +1151,13 @@ export function attachEnrichedBuildings(
    *  spent against `ENRICHED.reseatDeepResampleMaxPerFrame`; what it defers arrives one frame
    *  later through the same path. */
   let deepResampleSpent = 0;
+  /** T101 (2026-09-06) — deeper-disagreeing answers the cap could NOT serve, whose cell was HELD
+   *  instead of the sample being rejected. Not a rejection (the plane, not the answer, is the
+   *  stale half) and not a deferral (the terrain answered): the cell waits for its plane. The
+   *  number that says the hold is working is this one climbing through the arrival burst while
+   *  `rejected` stays near the resident cell count instead of +39,629; a climb after quiet means
+   *  a cell's centre is answering coarser than its footprints, forever (see `deepAnswerVerdict`). */
+  let deepHeldN = 0;
   /** T77 4d — answers refused because a SHALLOWER tile than the held seat's produced them (the
    *  LRU had evicted the fine tile). Not a rejection: the ground did not move, the cache did. */
   let shallowN = 0;
@@ -1196,6 +1228,7 @@ export function attachEnrichedBuildings(
         terrainDirtyFrames: 0,
         planeDirty: false, // T77 5e: the round-robin owns a brand-new cell's first plane sample
         deepResampleFrame: -1,
+        deepPending: false, // T101: nothing has disagreed with a plane that does not exist yet
       };
       // RC9: warm start. `appliedM` is restored as-is rather than eased back from null — the
       // geometry is rebuilt from the bake anyway, so there is no slide to smooth, and easing
@@ -1551,6 +1584,21 @@ export function attachEnrichedBuildings(
     for (const cell of cellList) if (cell.applyIdle) n++;
     return n;
   };
+  /** T101 — how many resident cells the sampling passes are currently skipping because their
+   *  plane is known-stale (`deepPending`). Non-zero only while tiles are refining under cells the
+   *  6-per-frame plane sweep has not reached; at a quiet pose it must read 0. Same O(cells) walk
+   *  and the same seams as `idleCellCount`. */
+  const deepPendingCellCount = (): number => {
+    let n = 0;
+    for (const cell of cellList) if (cell.deepPending) n++;
+    return n;
+  };
+  /** T101 — is this cell HELD right now? The one predicate the sampling passes consult, at entry
+   *  and after every `acceptSample` (the hold is set INSIDE that call, and the pass must stop at
+   *  the first held answer rather than spend the rest of its budget on the same stale plane).
+   *  Gated on the tunable so `reseatDeepPendingHold: false` never skips anything, even if a stale
+   *  flag were somehow left on a cell. */
+  const cellHeld = (cell: CellSeat): boolean => ENRICHED.reseatDeepPendingHold && cell.deepPending;
   /** T77 slice C-1 5a — does this cell still owe the drain anything? Early-exits on the first
    *  non-empty queue, so a settled cell costs one walk of its (few) parts and tree sets. */
   const cellHasPending = (cell: CellSeat): boolean => {
@@ -1640,6 +1688,20 @@ export function attachEnrichedBuildings(
    *  correct a stale plane OUT OF TURN through exactly the same path: there must be one
    *  plane-move law, or the pair `f.seatM − cell.seatM` goes poisoned again by a second route. */
   const refreshCellPlane = (cell: CellSeat): void => {
+    // T101 (2026-09-06) — RELEASE a held cell on entry, i.e. on the ATTEMPT rather than on a
+    // successful answer. The hold exists because its plane was known-stale; this is the one place
+    // the plane is re-sampled, through every path (round-robin, dirty-first sweep, the deep rule
+    // itself), so it is the one place the hold can end. Releasing on the attempt is what keeps a
+    // held cell from wedging: a centre that answers null (its tile mid-refine) or is refused by
+    // the 4d guard re-opens the cell for exactly one feature sample per plane-sweep rotation —
+    // the round-robin's own rate — instead of parking it until the centre answers, which for a
+    // permanently unanswerable centre is never. Nothing is re-queued: the held features never
+    // left `unseated`/`refine`, so "re-queue once" is "stop skipping". `touchCell` is the 5a
+    // contract — a re-opened cell may have work again — and is a no-op if it already had some.
+    if (cell.deepPending) {
+      cell.deepPending = false;
+      touchCell(cell);
+    }
     const cs = sampleAt(cell.latDeg, cell.lonDeg);
     if (!cs) return;
     // T77 4d: a cell plane taken from a fine tile is never replaced by its coarse parent.
@@ -1690,18 +1752,38 @@ export function attachEnrichedBuildings(
       // terrain refines depth 7 → 18 under a cell long before its centre comes round again, and
       // the gate rejected +1,324 REAL samples on the way in. Correct the plane once per cell per
       // frame (through `refreshCellPlane`, so 4c/4e still hold) and re-test against it.
-      if (
-        ENRICHED.reseatResampleCellOnDeep &&
-        depth >= 0 &&
-        cell.seatDepth >= 0 &&
-        depth > cell.seatDepth &&
-        cell.deepResampleFrame !== frameNo &&
-        deepResampleSpent < ENRICHED.reseatDeepResampleMaxPerFrame
-      ) {
+      //
+      // T101 (2026-09-06, owner ruling (a)) — and when the correction CANNOT run this frame (the
+      // per-frame cap is spent, or this cell was already corrected once this frame and the plane
+      // still disagrees), HOLD THE CELL instead of rejecting the sample. Falling through to
+      // `rejected` was the C-1 fall-through: the feature went back into its queue and was raycast
+      // and rejected again every frame against the same stale plane until the round-robin reached
+      // the cell — +39,629 re-rejections over the 479-frame orbit arrival (2026-09-06k2), the
+      // sampling budget burnt while the tiles were still streaming. A held sample is NOT a
+      // rejection: `rejected` keeps meaning "implausible against a CURRENT plane", and the FPV
+      // eye's `rejected +0` reading keeps its meaning. The feature keeps its sticky seat exactly
+      // as a rejected one does; the cell is skipped by the sampling passes until
+      // `refreshCellPlane` re-opens it. The decision itself is `deepAnswerVerdict`
+      // (lib/globe/seatQuiet — pure, unit-gated); `reseatDeepPendingHold: false` turns "hold"
+      // back into "reject" and reproduces the per-frame re-rejection exactly.
+      const verdict = deepAnswerVerdict(
+        ENRICHED.reseatResampleCellOnDeep,
+        ENRICHED.reseatDeepPendingHold,
+        depth,
+        cell.seatDepth,
+        cell.deepResampleFrame === frameNo,
+        deepResampleSpent,
+        ENRICHED.reseatDeepResampleMaxPerFrame,
+      );
+      if (verdict === "resample") {
         cell.deepResampleFrame = frameNo;
         deepResampleSpent++;
         deepResampleN++;
         refreshCellPlane(cell);
+      } else if (verdict === "hold") {
+        cell.deepPending = true;
+        deepHeldN++;
+        return null;
       }
       if (cell.seatM == null || Math.abs(c - cell.seatM) > cellGateM(cell)) {
         cell.rejected++;
@@ -1738,6 +1820,16 @@ export function attachEnrichedBuildings(
    */
   const sampleFeatures = (cell: CellSeat, budget: number): number => {
     if (budget <= 0 || cell.seatM == null || !ensureLocated(cell)) return 0;
+    // T101 (2026-09-06) — a HELD cell is not sampled at all. Its plane is known-stale (a deeper
+    // footprint disagreed with it and the deep rule could not correct it this frame), so every
+    // raycast against it — a first sample, a 4e refinement, a refresh — is a foregone rejection;
+    // the budget it would have spent falls through to the next cell (an unspent priority share
+    // joins the round-robin share in `update()`). Nothing is dropped: the features are still in
+    // their queues, and `refreshCellPlane` re-opens the cell the moment its plane is re-sampled.
+    // The same predicate is consulted after every `acceptSample` below: the hold is set INSIDE
+    // that call, and the pass stops at the first held answer instead of spending the rest of its
+    // budget on the same stale plane.
+    if (cellHeld(cell)) return 0;
     let spent = 0;
     // Pass 1 — the drain. A footprint whose terrain is not loaded yet answers null, and it must
     // go to the BACK of the queue, never straight back onto the head: popping and re-pushing the
@@ -1762,9 +1854,10 @@ export function attachEnrichedBuildings(
           f.seatDepth = smp ? smp.depth : -1;
           touchCell(cell); // T77 5a
         } else deferred.push(i); // try again next pass, behind everything not yet tried
+        if (cellHeld(cell)) break; // T101: the plane is known-stale — the rest of the cell waits
       }
       for (const i of deferred) part.unseated.unshift(i);
-      if (spent >= budget) return spent;
+      if (spent >= budget || cellHeld(cell)) return spent;
     }
     // Pass 1b (T77 4e) — the refinement queue: seated features carried through a plane move.
     for (const part of cell.parts) {
@@ -1783,6 +1876,12 @@ export function attachEnrichedBuildings(
           f.seatM = c;
           f.seatDepth = smp ? smp.depth : -1;
           touchCell(cell); // T77 5a
+        } else if (cellHeld(cell)) {
+          // T101: a HELD refinement keeps its place at the head of the queue (`pop` takes the
+          // end) — the feature WAITS, it is not dropped; the plane it waits for will most likely
+          // move and 4e-carry the whole cell anyway.
+          part.refine.push(i);
+          return spent;
         }
         // A refused/absent answer is NOT re-queued: the carried seat is a fine estimate and the
         // round-robin below revisits it anyway.
@@ -1798,7 +1897,9 @@ export function attachEnrichedBuildings(
     for (const part of cell.parts) {
       if (part.features.length === 0) continue;
       const k = Math.min(budget - spent, part.features.length);
+      let took = 0; // T101: what this part actually spent, in case the hold stops it short
       for (let i = 0; i < k; i++) {
+        took++;
         const f = part.features[part.cursor++ % part.features.length];
         const smp = sampleAt(f.latDeg, f.lonDeg);
         if (smp && shallowerThanHeld(f.seatDepth, smp.depth) && f.seatM != null) {
@@ -1810,11 +1911,11 @@ export function attachEnrichedBuildings(
           f.seatM = c;
           f.seatDepth = smp ? smp.depth : -1;
           touchCell(cell); // T77 5a
-        }
+        } else if (cellHeld(cell)) break; // T101
       }
       part.cursor %= Math.max(1, part.features.length);
-      spent += k;
-      if (spent >= budget) break;
+      spent += took;
+      if (spent >= budget || cellHeld(cell)) break;
     }
     return spent;
   };
@@ -1822,6 +1923,7 @@ export function attachEnrichedBuildings(
   /** Ditto for TREE instances (same drain-then-refresh order). */
   const sampleTrees = (cell: CellSeat, budget: number): number => {
     if (budget <= 0 || cell.seatM == null || !ensureLocated(cell)) return 0;
+    if (cellHeld(cell)) return 0; // T101 — see sampleFeatures (same stops after each sample)
     let spent = 0;
     for (const t of cell.trees) {
       if (t.unseated.length === 0) continue;
@@ -1840,9 +1942,10 @@ export function attachEnrichedBuildings(
           t.seatDepth[idx] = smp ? smp.depth : -1;
           touchCell(cell); // T77 5a
         } else deferred.push(idx); // back of the queue — see sampleFeatures
+        if (cellHeld(cell)) break; // T101
       }
       for (const idx of deferred) t.unseated.unshift(idx);
-      if (spent >= budget) return spent;
+      if (spent >= budget || cellHeld(cell)) return spent;
     }
     for (const t of cell.trees) {
       // T77 4e — the refinement queue (see sampleFeatures pass 1b).
@@ -1861,6 +1964,9 @@ export function attachEnrichedBuildings(
           t.seatM[idx] = c;
           t.seatDepth[idx] = smp ? smp.depth : -1;
           touchCell(cell); // T77 5a
+        } else if (cellHeld(cell)) {
+          t.refine.push(idx); // T101: keeps its place at the head — it waits, it is not dropped
+          return spent;
         }
       }
       if (spent >= budget) return spent;
@@ -1871,7 +1977,9 @@ export function attachEnrichedBuildings(
       const n = t.seatM.length;
       if (n === 0) continue;
       const k = Math.min(budget - spent, n);
+      let took = 0; // T101
       for (let i = 0; i < k; i++) {
+        took++;
         const idx = t.cursor++ % n;
         const smp = sampleAt(t.latDeg[idx], t.lonDeg[idx]);
         if (smp && shallowerThanHeld(t.seatDepth[idx], smp.depth) && !Number.isNaN(t.seatM[idx])) {
@@ -1884,11 +1992,11 @@ export function attachEnrichedBuildings(
           t.seatM[idx] = c;
           t.seatDepth[idx] = smp ? smp.depth : -1;
           touchCell(cell); // T77 5a
-        }
+        } else if (cellHeld(cell)) break; // T101
       }
       t.cursor %= n;
-      spent += k;
-      if (spent >= budget) break;
+      spent += took;
+      if (spent >= budget || cellHeld(cell)) break;
     }
     return spent;
   };
@@ -2424,6 +2532,8 @@ export function attachEnrichedBuildings(
       shallow: shallowN, // T77 4d: coarse-parent answers refused (the LRU, not the ground, moved)
       frozen: frozenN, // T77 5b: refresh answers inside the sub-pixel deadband
       deepResamples: deepResampleN, // T77 slice C-1: cell planes corrected by a deeper answer
+      deepHeld: deepHeldN, // T101: deeper answers the cap could not serve — held, not rejected
+      deepPendingCells: deepPendingCellCount(), // T101: cells the sampling passes are skipping
       idleCells: idleCellCount(), // T77 5a: cells the apply pass skipped as fixed points
       sweepNow, // T77 5d: did the refresh round-robin run this frame?
     }),
@@ -2439,6 +2549,8 @@ export function attachEnrichedBuildings(
       frozen: frozenN, // T77 5b
       idleCells: idleCellCount(), // T77 5a
       deepResamples: deepResampleN, // T77 slice C-1
+      deepHeld: deepHeldN, // T101
+      deepPendingCells: deepPendingCellCount(), // T101
       seatCacheHits,
       seatCacheMisses,
     }),
@@ -2652,6 +2764,7 @@ export function attachEnrichedBuildings(
             pending:
               cell.parts.reduce((n, prt) => n + prt.unseated.length + prt.refine.length, 0) +
               cell.trees.reduce((n, t) => n + t.unseated.length + t.refine.length, 0),
+            deepPending: cell.deepPending, // T101: held until its plane re-samples
             features,
             worst,
           };

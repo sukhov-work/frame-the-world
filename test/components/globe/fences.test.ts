@@ -474,6 +474,12 @@ describe("T96 — the CHIP (cost) and the LOOK (model) are separately fenced", (
       ["ULTRA.depthMarginM", "…and its depth range"],
       ["shadowRigUltra", "the box's own profile latch"],
       ["shadowCascades.length > 0", "the ladder's reach, only while the ladder casts"],
+      // T100 (2026-09-06n): the slid release band is read on the SAME condition as the reach —
+      // it replaces the geometric guard the ladder's 260 km reach made inert (a BOX lever).
+      ["? ULTRA_FIELD_RELEASE", "T100 the slid release band — the reach's twin"],
+      // T100 (a) (2026-09-07): the overlay's own extinction tail rides the same reach condition —
+      // it exists because the ladder's 260 km of terrain sits under the overlay at sunset.
+      ["? overlayReleaseK(", "T100 (a) the overlay's own tail — the reach's twin"],
       ["const fit = casting && ultraOn", "the cascade fits"],
       ["ULTRA.terrainCast", "S3 terrain casters"],
       ["on: ultraOn", "the DEV seams — `on` keeps meaning the CHIP"],
@@ -844,11 +850,12 @@ describe("T80 — every setScale argument comes from bloomScaleForTier", () => {
  *
  * Two contracts this slice depends on that no runtime test can see, because both fail SILENTLY:
  *
- *  1. `lib/globe/seatQuiet.ts` is a PURE LEAF. The three decisions it owns (the sub-pixel seat
- *     freeze, the idle sweep rate, the dirty-region arming test) are the only parts of the drain
- *     that can be unit-tested without a tileset, a renderer and a camera — and they stay that way
- *     only while the file imports nothing and reads no clock. A single `import * as THREE` or one
- *     `performance.now()` inside it and the arithmetic is no longer testable in a node env.
+ *  1. `lib/globe/seatQuiet.ts` is a PURE LEAF. The decisions it owns (the sub-pixel seat
+ *     freeze, the idle sweep rate, the dirty-region arming test, and since T101 the deep-answer
+ *     verdict) are the only parts of the drain that can be unit-tested without a tileset, a
+ *     renderer and a camera — and they stay that way only while the file imports nothing and
+ *     reads no clock. A single `import * as THREE` or one `performance.now()` inside it and the
+ *     arithmetic is no longer testable in a node env.
  *
  *  2. `ImageryGroundHandle.terrainDirtyRegions()` DRAINS its ring (`splice(0, len)` —
  *     `scene/imageryGround.ts`), so a SECOND caller does not get a second copy: it steals the
@@ -889,14 +896,18 @@ describe("T77 slice C-1 — streaming quiet", () => {
     // the only ones allowed are `export function` declarations and their closing braces.
     const topLevel = stripped.split("\n").filter((l) => l.length > 0 && !/^\s/.test(l));
     expect(topLevel.filter((l) => !/^(export function \w+\(|\)|\}|\{)/.test(l))).toEqual([]);
-    expect(topLevel.filter((l) => l.startsWith("export function"))).toHaveLength(3);
+    expect(topLevel.filter((l) => l.startsWith("export function"))).toHaveLength(4);
   });
 
-  it("the three decisions are all exported (the scene module owns no copy of them)", () => {
-    for (const fn of ["seatFreezeM", "idleSweepNow", "regionArmsCell"])
+  it("the four decisions are all exported (the scene module owns no copy of them)", () => {
+    for (const fn of ["seatFreezeM", "idleSweepNow", "regionArmsCell", "deepAnswerVerdict"])
       expect(seatQuietSrc).toMatch(new RegExp(`export function ${fn}\\(`));
     const enriched = readFileSync(join(sceneDir, "enrichedBuildings.ts"), "utf8");
     expect(enriched).toMatch(/from "\.\.\/\.\.\/\.\.\/lib\/globe\/seatQuiet"/);
+    // …and every one of them is actually CALLED there — an exported decision the scene module
+    // stopped calling is a copy waiting to be re-inlined.
+    for (const fn of ["seatFreezeM", "idleSweepNow", "regionArmsCell", "deepAnswerVerdict"])
+      expect(enriched, `${fn} is not called by the scene module`).toMatch(new RegExp(`\\b${fn}\\(`));
   });
 
   it("the DRAINED dirty-region ring has exactly ONE consumer in the engine", () => {
@@ -918,5 +929,124 @@ describe("T77 slice C-1 — streaming quiet", () => {
     calls = [...orch.matchAll(/ground\.terrainDirtyRegions\s*\(/g)].length;
     expect(offenders).toEqual([]);
     expect(calls).toBe(1); // the ONE fan-out point
+  });
+});
+
+/**
+ * T101 (2026-09-06n, owner ruling 2026-09-06m option (a)) — the DEEP-PENDING HOLD's wiring.
+ *
+ * The decision itself (`deepAnswerVerdict`) is pure and gated in `test/lib/globe/seatQuiet.test.ts`;
+ * what no runtime test can see is whether the scene module WIRES it the way the ruling says, and
+ * every one of these fails silently:
+ *
+ *  1. ONE setter, ONE clearer. The hold is set in `acceptSample` and cleared in `refreshCellPlane`
+ *     — the module's single plane-move law. A second clearer (say, in the apply pass) would
+ *     re-open a cell whose plane is still stale; a second setter would hold a cell for a reason
+ *     the verdict never saw.
+ *  2. `refreshCellPlane` IS the single choke point. The hold is safe only because every path that
+ *     re-samples a plane runs through it: if a second `cell.seatM =` writer appeared, a held cell
+ *     could have its plane corrected and never be released.
+ *  3. A HELD sample is not a REJECTION. The hold branch must return before `rejected++` — the FPV
+ *     eye's `rejected +0` and the orbit arrival's +39,629 → ≈cells reading both depend on it.
+ *  4. BOTH sampling passes skip a held cell, and both are gated on the tunable so `false` restores
+ *     the per-frame re-rejection exactly.
+ *  5. The counters reach the harness: `deepHeld` / `deepPendingCells` on the "buildings" debug
+ *     provider (what `__debugFeed` and the reseat probe read), beside `deepResamples`.
+ *
+ * Mutation that makes these RED: add `cell.rejected++` to the hold branch; clear `deepPending`
+ * anywhere but `refreshCellPlane`; drop the skip from `sampleTrees`; write `cell.seatM` outside
+ * the plane law.
+ */
+describe("T101 — the deep-pending hold is wired through the single plane law", () => {
+  const enriched = readFileSync(join(sceneDir, "enrichedBuildings.ts"), "utf8");
+  const code = enriched.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(?<![:\\])\/\/[^\n]*/g, "");
+  const fnBody = (name: string): string => {
+    const start = code.indexOf(`const ${name} = (`);
+    expect(start, `${name} not found`).toBeGreaterThan(-1);
+    // The arrow bodies are prettier-formatted: the closing `  };` at two-space indent ends them.
+    const end = code.indexOf("\n  };", start);
+    return code.slice(start, end);
+  };
+
+  it("CellSeat carries the flag and a new cell is born released", () => {
+    expect(enriched).toMatch(/deepPending: boolean;/);
+    expect(code).toMatch(/deepPending: false,/);
+  });
+
+  it("ONE setter (acceptSample) and ONE clearer (refreshCellPlane)", () => {
+    expect([...code.matchAll(/cell\.deepPending = true/g)]).toHaveLength(1);
+    expect([...code.matchAll(/cell\.deepPending = false/g)]).toHaveLength(1);
+    expect(fnBody("acceptSample")).toMatch(/cell\.deepPending = true/);
+    expect(fnBody("refreshCellPlane")).toMatch(/cell\.deepPending = false/);
+    // …and the release happens on the ATTEMPT — before the plane is sampled — so a null or a
+    // 4d-refused answer still re-opens the cell (a held cell can never wedge).
+    const refresh = fnBody("refreshCellPlane");
+    expect(refresh.indexOf("cell.deepPending = false")).toBeLessThan(
+      refresh.indexOf("sampleAt(cell.latDeg, cell.lonDeg)"),
+    );
+    expect(refresh).toMatch(/cell\.deepPending = false;\s*touchCell\(cell\);/);
+  });
+
+  it("refreshCellPlane is the ONLY post-creation writer of the plane", () => {
+    // Every plane write outside the warm start lives inside refreshCellPlane.
+    const seatWrites = [...code.matchAll(/cell\.seatM = ([^;]+);/g)].map((m) => m[1].trim());
+    expect(seatWrites).toEqual(["warm.seatM", "nextSeat"]);
+    expect([...code.matchAll(/cell\.seatDepth = /g)]).toHaveLength(1);
+    expect(fnBody("refreshCellPlane")).toMatch(/cell\.seatDepth = cs\.depth/);
+    expect(fnBody("refreshCellPlane")).toMatch(/cell\.seatM = nextSeat/);
+  });
+
+  it("a HELD sample returns before `rejected` is touched", () => {
+    const accept = fnBody("acceptSample");
+    expect(accept).toMatch(
+      /verdict === "hold"\) \{\s*cell\.deepPending = true;\s*deepHeldN\+\+;\s*return null;\s*\}/,
+    );
+    // POSITIVE CONTROL: the ordinary rejection is still there, after the verdict.
+    const hold = accept.indexOf('verdict === "hold"');
+    const reject = accept.indexOf("cell.rejected++");
+    expect(hold).toBeGreaterThan(-1);
+    expect(reject).toBeGreaterThan(hold);
+    // The verdict is fed the frame's real state, not a constant.
+    expect(accept).toMatch(
+      /deepAnswerVerdict\(\s*ENRICHED\.reseatResampleCellOnDeep,\s*ENRICHED\.reseatDeepPendingHold,\s*depth,\s*cell\.seatDepth,\s*cell\.deepResampleFrame === frameNo,\s*deepResampleSpent,\s*ENRICHED\.reseatDeepResampleMaxPerFrame,?\s*\)/,
+    );
+  });
+
+  it("BOTH sampling passes skip a held cell, through ONE predicate gated on the tunable", () => {
+    // The predicate is the only reader of the flag on the sampling side, and it carries the
+    // tunable, so `reseatDeepPendingHold: false` cannot skip anything.
+    expect(code).toMatch(
+      /const cellHeld = \(cell: CellSeat\): boolean =>\s*ENRICHED\.reseatDeepPendingHold && cell\.deepPending;/,
+    );
+    const entry = /if \(cellHeld\(cell\)\) return 0;/g;
+    expect([...code.matchAll(entry)]).toHaveLength(2);
+    const features = fnBody("sampleFeatures");
+    const trees = fnBody("sampleTrees");
+    expect(features).toMatch(entry);
+    expect(trees).toMatch(entry);
+    // …and each pass STOPS at the first held answer rather than spending the rest of its budget
+    // on the same stale plane: three loops per function, every one consults the predicate after
+    // `acceptSample` (the hold is set inside that call). Mutation that makes this red: drop the
+    // per-sample check from any one loop.
+    for (const body of [features, trees]) {
+      const calls = [...body.matchAll(/acceptSample\(/g)].length;
+      expect(calls).toBe(3);
+      expect([...body.matchAll(/cellHeld\(cell\)/g)].length).toBeGreaterThanOrEqual(calls + 1);
+    }
+    // A held REFINEMENT goes back to the head of its queue — it waits, it is not dropped.
+    expect(features).toMatch(/part\.refine\.push\(i\);\s*return spent;/);
+    expect(trees).toMatch(/t\.refine\.push\(idx\);[^\n]*\n\s*return spent;/);
+  });
+
+  it("the counters reach the harness beside `deepResamples`", () => {
+    for (const seam of ["deepHeld: deepHeldN", "deepPendingCells: deepPendingCellCount()"])
+      expect([...code.matchAll(new RegExp(seam.replace(/[()]/g, "\\$&"), "g"))].length, seam).toBe(2); // seatSettle + debugCounts
+    expect(code).toMatch(/deepPending: cell\.deepPending/); // debugCellSeats rows
+    const orch = readFileSync(join(root, "src/components/globe/StylizedTiles.ts"), "utf8");
+    const provider = orch.slice(orch.indexOf('registerDebugProvider("buildings"'));
+    const body = provider.slice(0, provider.indexOf("registerDebugProvider(", 10));
+    expect(body).toMatch(/deepResamples: c\?\.deepResamples/);
+    expect(body).toMatch(/deepHeld: c\?\.deepHeld/);
+    expect(body).toMatch(/deepPendingCells: c\?\.deepPendingCells/);
   });
 });

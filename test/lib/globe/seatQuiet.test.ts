@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { idleSweepNow, regionArmsCell, seatFreezeM } from "../../../src/lib/globe/seatQuiet";
+import {
+  deepAnswerVerdict,
+  idleSweepNow,
+  regionArmsCell,
+  seatFreezeM,
+} from "../../../src/lib/globe/seatQuiet";
 import { ENRICHED } from "../../../src/components/globe/tuning";
 
 /**
@@ -215,5 +220,214 @@ describe("seatQuiet — the shipped ENRICHED knobs hold together", () => {
     // The documented escape hatches really are no-ops rather than merely smaller numbers.
     expect(idleSweepNow(7, 1)).toBe(true);
     expect(seatFreezeM(0, MPP_FPV, 300, 12, 14, 0.01)).toBe(0);
+  });
+});
+
+/**
+ * T101 (2026-09-06n, owner ruling 2026-09-06m option (a)) — the DEEP-PENDING HOLD.
+ *
+ * The defect, measured at the orbit ARRIVAL (2026-09-06k2): the C-1 deep-answer rule corrects a
+ * stale cell plane at most 6 times a frame, and a deeper answer the cap could not serve fell
+ * through to `rejected` — the feature went back into its queue and was raycast and rejected again
+ * every frame against the same stale plane until the 6-per-frame round-robin reached its cell.
+ * `rejected` climbed +39,629 over the 479-frame leg (0 before C-1) for no accuracy (end 0.000 m,
+ * collapses 0, city p95 29.7 m — unchanged). The ruling: such a cell WAITS — one flag per cell,
+ * set when the deep rule could not run, cleared when the plane next re-samples — and a held
+ * sample is not a rejection.
+ *
+ * The four pins the brief names, each stated against the mutation that turns it red.
+ */
+describe("seatQuiet T101 — the deep-answer verdict", () => {
+  const MAX = ENRICHED.reseatDeepResampleMaxPerFrame;
+
+  it("(a) with the cap exhausted a deeper answer is HELD, not rejected", () => {
+    // Mutation that makes this red: the C-1 fall-through (return "reject" whenever the cap is
+    // spent), which is exactly the per-frame re-rejection.
+    expect(deepAnswerVerdict(true, true, 15, 7, false, MAX, MAX)).toBe("hold");
+    expect(deepAnswerVerdict(true, true, 15, 7, false, MAX + 3, MAX)).toBe("hold");
+    // …and so is a cell the rule already corrected once this frame whose plane still disagrees.
+    expect(deepAnswerVerdict(true, true, 17, 15, true, 1, MAX)).toBe("hold");
+    // Budget unspent and not yet corrected this frame → the C-1 correction runs.
+    expect(deepAnswerVerdict(true, true, 15, 7, false, 0, MAX)).toBe("resample");
+    expect(deepAnswerVerdict(true, true, 15, 7, false, MAX - 1, MAX)).toBe("resample");
+  });
+
+  it("(c) the hold never speaks for a plane that is already at the answer's depth", () => {
+    // Same depth, or a plane FINER than the sample: the answer is not evidence of staleness, so
+    // it is an ordinary plausibility rejection whatever the budget says. Mutation that makes this
+    // red: dropping the `depth > planeDepth` test — every implausible sample would then park its
+    // cell, and a single garbage raycast would stall a street.
+    for (const spent of [0, MAX]) {
+      expect(deepAnswerVerdict(true, true, 15, 15, false, spent, MAX)).toBe("reject");
+      expect(deepAnswerVerdict(true, true, 12, 15, false, spent, MAX)).toBe("reject");
+    }
+    // An unknown depth on either side (the plain sampler, a never-sampled plane) is not "deeper".
+    expect(deepAnswerVerdict(true, true, -1, 7, false, 0, MAX)).toBe("reject");
+    expect(deepAnswerVerdict(true, true, 15, -1, false, 0, MAX)).toBe("reject");
+    expect(deepAnswerVerdict(true, true, Number.NaN, 7, false, 0, MAX)).toBe("reject");
+    // The rule itself off → nothing is ever corrected OR held.
+    expect(deepAnswerVerdict(false, true, 15, 7, false, 0, MAX)).toBe("reject");
+  });
+
+  it("(d) `reseatDeepPendingHold: false` reproduces the per-frame rejection exactly", () => {
+    // Every input that would HOLD with the knob on REJECTS with it off; every other verdict is
+    // unchanged — the knob only ever renames one outcome.
+    const cases: Array<[number, number, boolean, number]> = [
+      [15, 7, false, MAX],
+      [15, 7, false, MAX + 3],
+      [17, 15, true, 1],
+      [15, 7, false, 0],
+      [15, 15, false, 0],
+      [12, 15, false, MAX],
+      [-1, 7, false, 0],
+    ];
+    for (const [d, pd, again, spent] of cases) {
+      const on = deepAnswerVerdict(true, true, d, pd, again, spent, MAX);
+      const off = deepAnswerVerdict(true, false, d, pd, again, spent, MAX);
+      expect(off).not.toBe("hold");
+      expect(off).toBe(on === "hold" ? "reject" : on);
+    }
+  });
+
+  it("a cap of 0 holds every deeper-disagreeing cell (the documented OFF of the correction, cheaper)", () => {
+    expect(deepAnswerVerdict(true, true, 15, 7, false, 0, 0)).toBe("hold");
+    expect(deepAnswerVerdict(true, false, 15, 7, false, 0, 0)).toBe("reject");
+  });
+
+  it("the hold ships ON, and the cap it protects is unchanged at 6", () => {
+    expect(ENRICHED.reseatDeepPendingHold).toBe(true);
+    expect(ENRICHED.reseatDeepResampleMaxPerFrame).toBe(6);
+  });
+});
+
+/**
+ * (b) — and the whole loop, as a MODEL of the scene module's wiring: cells whose plane sits at a
+ * stale depth, a 6-per-frame plane round-robin, a 6-per-frame deep-correction cap, and a drain
+ * that samples every feature of every unheld cell each frame. The model is the contract the
+ * fences in `test/components/globe/fences.test.ts` pin the source to: a held cell is skipped, the
+ * plane sweep releases it, its features are then accepted against the corrected plane, and
+ * `rejected` never moves. With the hold off the same model reproduces the thrash.
+ */
+describe("seatQuiet T101 — the arrival burst, modelled", () => {
+  interface Cell {
+    planeDepth: number;
+    deepResampleFrame: number;
+    deepPending: boolean;
+    seated: boolean[];
+  }
+  const PLANE_SWEEP = ENRICHED.reseatSamplesPerFrame;
+  const MAX = ENRICHED.reseatDeepResampleMaxPerFrame;
+  const FINE = 15;
+
+  const run = (cellCount: number, holdOn: boolean, frames: number) => {
+    const cells: Cell[] = Array.from({ length: cellCount }, () => ({
+      planeDepth: 7, // every plane stale at once — the arrival
+      deepResampleFrame: -1,
+      deepPending: false,
+      seated: [false, false, false],
+    }));
+    let rejected = 0;
+    let held = 0;
+    let raycasts = 0;
+    let rr = 0;
+    let firstFrameAllSeated = -1;
+    const refreshCellPlane = (cell: Cell): void => {
+      if (cell.deepPending) cell.deepPending = false; // the release, on the attempt
+      cell.planeDepth = FINE; // the terrain under the centre has refined
+    };
+    for (let frame = 1; frame <= frames; frame++) {
+      let spent = 0;
+      // The plane round-robin, ahead of the drain (as in update()).
+      for (let i = 0; i < Math.min(PLANE_SWEEP, cells.length); i++)
+        refreshCellPlane(cells[rr++ % cells.length]);
+      // The drain: every feature of every cell, unless the cell is held.
+      for (const cell of cells) {
+        if (holdOn && cell.deepPending) continue;
+        for (let f = 0; f < cell.seated.length; f++) {
+          if (cell.seated[f]) continue;
+          raycasts++;
+          // A fine answer disagrees with a stale plane; it agrees once the plane is fine.
+          const implausible = cell.planeDepth < FINE;
+          if (!implausible) {
+            cell.seated[f] = true;
+            continue;
+          }
+          const v = deepAnswerVerdict(
+            true,
+            holdOn,
+            FINE,
+            cell.planeDepth,
+            cell.deepResampleFrame === frame,
+            spent,
+            MAX,
+          );
+          if (v === "resample") {
+            cell.deepResampleFrame = frame;
+            spent++;
+            refreshCellPlane(cell);
+            cell.seated[f] = true; // re-tested against the corrected plane: accepted
+          } else if (v === "hold") {
+            cell.deepPending = true;
+            held++;
+            break; // the rest of this cell is skipped from here on
+          } else rejected++;
+        }
+      }
+      if (firstFrameAllSeated < 0 && cells.every((c) => c.seated.every(Boolean)))
+        firstFrameAllSeated = frame;
+    }
+    return { rejected, held, raycasts, firstFrameAllSeated, pending: cells.filter((c) => c.deepPending).length };
+  };
+
+  it("hold ON: no rejection at all, every cell released within one plane-sweep rotation", () => {
+    const cells = 101; // the orbit's resident count
+    const r = run(cells, true, 60);
+    expect(r.rejected).toBe(0);
+    expect(r.held).toBeGreaterThan(0);
+    expect(r.held).toBeLessThanOrEqual(cells); // at most one hold per cell per stale plane
+    expect(r.pending).toBe(0); // nothing left held after quiet
+    // A held cell waits at most ⌈cells / reseatSamplesPerFrame⌉ frames — the round-robin's own
+    // rotation — so the burst is fully seated inside it (+1 for the frame that seats them).
+    expect(r.firstFrameAllSeated).toBeGreaterThan(0);
+    expect(r.firstFrameAllSeated).toBeLessThanOrEqual(Math.ceil(cells / PLANE_SWEEP) + 1);
+  });
+
+  it("hold OFF: the same burst re-rejects every frame until the round-robin arrives (the +39,629)", () => {
+    const on = run(101, true, 60);
+    const off = run(101, false, 60);
+    expect(off.rejected).toBeGreaterThan(101); // more than one per cell: per FRAME, per feature
+    expect(off.held).toBe(0);
+    expect(off.raycasts).toBeGreaterThan(on.raycasts); // the budget the hold gives back
+    // Same accuracy either way — the hold trades nothing but wasted raycasts.
+    expect(on.firstFrameAllSeated).toBeGreaterThan(0);
+    expect(off.firstFrameAllSeated).toBeGreaterThan(0);
+  });
+
+  it("a plane that is already fine is never held (the FPV eye after quiet: rejected +0, held +0)", () => {
+    const cells = 20;
+    const r = run(cells, true, 5);
+    // Second pass over the SAME model with every plane already fine: nothing to hold, nothing
+    // to reject, every feature seats on its first sample.
+    const quiet = (() => {
+      const cs: Cell[] = Array.from({ length: cells }, () => ({
+        planeDepth: FINE,
+        deepResampleFrame: -1,
+        deepPending: false,
+        seated: [false, false, false],
+      }));
+      let held = 0;
+      let rejected = 0;
+      for (const cell of cs)
+        for (let f = 0; f < 3; f++) {
+          const v = deepAnswerVerdict(true, true, FINE, cell.planeDepth, false, 0, MAX);
+          if (cell.planeDepth < FINE) {
+            if (v === "hold") held++;
+            else rejected++;
+          } else cell.seated[f] = true;
+        }
+      return { held, rejected, seated: cs.every((c) => c.seated.every(Boolean)) };
+    })();
+    expect(quiet).toEqual({ held: 0, rejected: 0, seated: true });
+    expect(r.pending).toBe(0);
   });
 });

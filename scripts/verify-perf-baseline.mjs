@@ -296,6 +296,20 @@ const note = (s) => {
 };
 const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v) ? "—" : typeof v === "number" ? v.toFixed(d) : String(v));
 const fmtI = (v) => (v === null || v === undefined || Number.isNaN(v) ? "—" : Math.round(v).toLocaleString("en-US"));
+// T104 (2026-09-06l, owner ruled 2026-09-06m): `frame.gpu` (EXT_disjoint_timer_query) OVER-COUNTS
+// pass-heavy post chains on the ANGLE/Metal stack — dropping six tiny bloom passes read −6.6 ms on
+// the timer and 0.0 ms on frame time (MEASUREMENTS §16.3). A per-frame GPU duration cannot exceed
+// the frame interval, so `gpu > dt` is the signature of a bracket that includes command-buffer
+// queueing/overlap. This column makes the disagreement visible in every table: `dt − gpu` (ms),
+// flagged `!` when negative. THE T77 GPU GATES ARE READ ON dt p50, never on `frame.gpu` alone.
+const dtMinusGpu = (dtP50, gpuP50) =>
+  typeof dtP50 === "number" && typeof gpuP50 === "number" && !Number.isNaN(dtP50) && !Number.isNaN(gpuP50)
+    ? { v: dtP50 - gpuP50, flag: gpuP50 > dtP50 }
+    : null;
+const fmtDtGpu = (dtP50, gpuP50) => {
+  const d = dtMinusGpu(dtP50, gpuP50);
+  return d === null ? "—" : `${d.v >= 0 ? "+" : ""}${d.v.toFixed(1)}${d.flag ? "!" : ""}`;
+};
 
 // ─── Seeds (the PRODUCTION world — journaled, removed in finally) ────────────────────────────
 const seedIds = [];
@@ -531,7 +545,7 @@ async function sampleCell(b, shadowsMode, extra) {
   writeArtefacts(); // every cell lands on disk the moment it exists
   const fk = (k) => (feed && typeof feed[k] === "number" ? feed[k] : null);
   console.log(
-    `  ${id.padEnd(30)} dt ${fmt(s.dtP50)}/${fmt(s.dtP95)} ms  fps ${fmt(s.fps, 0)}  cpu ${fmt(fk("frame.cpu.p50"))}  draw ${fmt(fk("frame.draw.p50"))}  gpu ${fmt(fk("frame.gpu.p50"))}  calls ${fmtI(s.calls)}  tris ${fmtI(s.tris)}  heap ${fmt(s.jsHeapMB, 0)} MB  tier ${qStart.tier}/${qEnd.tier}  dpr ${qStart.dpr}  shadow ${qStart.shadowMapPx}px${look.casting ? " casting" : ""}  models ${um ? `${um.resident}/${um.world}` : "—"}  settle ${st.settleMs} ms${st.capped ? " (CAPPED)" : ""}`,
+    `  ${id.padEnd(30)} dt ${fmt(s.dtP50)}/${fmt(s.dtP95)} ms  fps ${fmt(s.fps, 0)}  cpu ${fmt(fk("frame.cpu.p50"))}  draw ${fmt(fk("frame.draw.p50"))}  gpu ${fmt(fk("frame.gpu.p50"))}  dt−gpu ${fmtDtGpu(s.dtP50, fk("frame.gpu.p50"))}  calls ${fmtI(s.calls)}  tris ${fmtI(s.tris)}  heap ${fmt(s.jsHeapMB, 0)} MB  tier ${qStart.tier}/${qEnd.tier}  dpr ${qStart.dpr}  shadow ${qStart.shadowMapPx}px${look.casting ? " casting" : ""}  models ${um ? `${um.resident}/${um.world}` : "—"}  settle ${st.settleMs} ms${st.capped ? " (CAPPED)" : ""}`,
   );
   // Structural assertions — the numbers are reported, these are the conditions under which they mean anything.
   check(`${id}: sampled ≥ 60 frames (rAF alive)`, !s.rafStalled && s.frames >= 60, s.rafStalled ? `rAF STALLED after ${s.frames} frames (visibility ${s.visibility}, focus ${s.hasFocus})` : `${s.frames}`);
@@ -554,12 +568,12 @@ function writeArtefacts() {
   const runMin = ((Date.now() - runT0) / 60000).toFixed(1);
   writeFileSync(jsonPath, JSON.stringify({ stamp: STAMP, label: LABEL, dsf: DSF, env, args, runMin, notes, bootFailures, crashEvents, consoleErrors: consoleErrors.slice(0, 20), results }, null, 2));
   const lines = [];
-  lines.push(`| cell | tier (dev) | dpr | shadow px | models res/world | settle s | fps | dt p50 / p95 ms | cpu p50 | draw p50 | gpu p50 | calls | tris | heap MB | geom / tex / prog | bld/gnd/enr lruMB | visible bld/gnd/enr | composites | terrain epoch/s | memo hit·miss /s | deferred/rej /s | seatEpoch/s | hitches |`);
-  lines.push(`|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|`);
+  lines.push(`| cell | tier (dev) | dpr | shadow px | models res/world | settle s | fps | dt p50 / p95 ms | cpu p50 | draw p50 | gpu p50 | dt−gpu (T104) | calls | tris | heap MB | geom / tex / prog | bld/gnd/enr lruMB | visible bld/gnd/enr | composites | terrain epoch/s | memo hit·miss /s | deferred/rej /s | seatEpoch/s | hitches |`);
+  lines.push(`|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|`);
   for (const r of results) {
     const s = r.frame;
     lines.push(
-      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : /^bloom(Msaa|Resolved|Fused)$/.test(r.shadows) ? `·bloom path ${r.bloomPath ? `${r.bloomPath.path} (resolve ${r.bloomPath.resolveEnabled}, defer ${r.bloomPath.deferBlend ?? "?"}, ${r.bloomPath.outputMaterial ?? "?"})` : "unread"}` : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "bloomCheap" ? `·bloom ×${r.bloom ? r.bloom.scale : "?"} (${r.bloom ? `${r.bloom.brightW}×${r.bloom.brightH}` : "unread"})` : r.shadows === "bloomMips" ? `·bloom nMips ${r.bloomMips ? `${r.bloomMips.nMips} (was ${r.bloomMips.was})` : "unread"}` : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
+      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : /^bloom(Msaa|Resolved|Fused)$/.test(r.shadows) ? `·bloom path ${r.bloomPath ? `${r.bloomPath.path} (resolve ${r.bloomPath.resolveEnabled}, defer ${r.bloomPath.deferBlend ?? "?"}, ${r.bloomPath.outputMaterial ?? "?"})` : "unread"}` : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "bloomCheap" ? `·bloom ×${r.bloom ? r.bloom.scale : "?"} (${r.bloom ? `${r.bloom.brightW}×${r.bloom.brightH}` : "unread"})` : r.shadows === "bloomMips" ? `·bloom nMips ${r.bloomMips ? `${r.bloomMips.nMips} (was ${r.bloomMips.was})` : "unread"}` : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtDtGpu(s.dtP50, f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
     );
   }
   writeFileSync(

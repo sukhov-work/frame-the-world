@@ -11,6 +11,7 @@ import {
   solarTransmittance,
 } from "../../../src/lib/globe/duskLight";
 import { bandCurve } from "../../../src/lib/globe/lightBands";
+import { overlayReleaseK } from "../../../src/lib/globe/duskLight";
 import { ULTRA } from "../../../src/components/globe/tuning";
 
 describe("airMass — Kasten & Young (1989)", () => {
@@ -329,5 +330,88 @@ describe("shadowLengthK — the field fades when its own shadow stops fitting", 
     // …and a sun at the zenith divides by cos = 0 if written naively.
     expect(shadowLengthK(1, CASTER, EVEREST_FIT_M)).toBe(1);
     expect(Number.isNaN(shadowLengthK(1, CASTER, EVEREST_FIT_M))).toBe(false);
+  });
+});
+
+/**
+ * T100 (owner ruling 2026-09-06o, option a) — the ground overlay's own extinction tail. The
+ * consumer (`StylizedTiles`) reads `max(directK, tail)` under the chip's cascade reach; these pin
+ * the tail's contract from the shipped tunables, computed rather than transcribed.
+ */
+describe("overlayReleaseK — the overlay's own extinction tail (T100 a)", () => {
+  const sinDeg = (d: number) => Math.sin((d * Math.PI) / 180);
+  const START = ULTRA.overlayReleaseStartSin;
+  const GATE = ULTRA.shadowGateSin;
+  const POW = ULTRA.overlayReleasePow;
+  const TOP = bandCurve(ULTRA.keyExtinctCurve, START);
+  const tail = (deg: number) => overlayReleaseK(sinDeg(deg), START, GATE, POW, TOP);
+  const key = (deg: number) => bandCurve(ULTRA.keyExtinctCurve, sinDeg(deg));
+
+  it("the shipped band is +0.2° down to the rig's gate, and its top IS the key's level there", () => {
+    expect((Math.asin(START) * 180) / Math.PI).toBeCloseTo(0.2, 2);
+    expect(GATE).toBeCloseTo(sinDeg(-0.8333), 5);
+    expect(TOP).toBeGreaterThan(0.15);
+    expect(TOP).toBeLessThan(0.25);
+    // Continuous where `max()` hands over: AT the start the tail is the key's level exactly.
+    expect(overlayReleaseK(START, START, GATE, POW, TOP)).toBe(TOP);
+    expect(TOP).toBe(bandCurve(ULTRA.keyExtinctCurve, START));
+  });
+
+  it("is BELOW the key everywhere above its start, so `max()` changes nothing there", () => {
+    for (const d of [12, 6, 3, 1.06, 0.9, 0.5, 0.3, 0.21]) {
+      expect(tail(d)).toBeLessThanOrEqual(key(d) + 1e-12);
+    }
+    // …and at the top of the day it is clamped to the start's level, far under directK 1 — F1's
+    // exactness at directK 1 (`shadowDirectShareK(1, a) === 1`) survives the max().
+    expect(tail(45)).toBe(TOP);
+    expect(Math.max(1, tail(45))).toBe(1);
+  });
+
+  it("out-holds the key's authored collapse: > 0 at −0.5° where directK is 0, and small", () => {
+    expect(key(-0.5)).toBe(0);
+    expect(tail(-0.5)).toBeGreaterThan(0.02);
+    expect(tail(-0.5)).toBeLessThan(0.08); // ≈ 0.04 at pow 1.4 — an overlay of ≈ 0.05
+    // Between 0° and −0.5° the two cross once: the key still rules at −0.14° (the ruled
+    // measurement rung) — the tail only holds the last stretch.
+    expect(tail(-0.14)).toBeLessThan(key(-0.14));
+  });
+
+  it("is exactly 0 AT and below the gate — the direction teleport still happens at no contribution", () => {
+    expect(overlayReleaseK(GATE, START, GATE, POW, TOP)).toBe(0);
+    expect(tail(-0.834)).toBe(0);
+    expect(tail(-0.9)).toBe(0);
+    expect(tail(-1.5)).toBe(0);
+    expect(tail(-90)).toBe(0);
+  });
+
+  it("never rises down the ladder, and never steps — the RC2 scrub", () => {
+    let prev = tail(6);
+    let worst = 0;
+    for (let d = 6; d >= -6; d -= 1 / 3600) {
+      const now = tail(d);
+      expect(now).toBeLessThanOrEqual(prev + 1e-12);
+      worst = Math.max(worst, Math.abs(now - prev));
+      prev = now;
+    }
+    expect(worst).toBeLessThan(0.002); // one arcsecond of sun moves the tail by < 0.2 %
+  });
+
+  it("identity: a start at or below the gate, or a non-positive top, is 0 everywhere", () => {
+    for (const d of [12, 0.2, 0, -0.5, -0.8333, -2]) {
+      expect(overlayReleaseK(sinDeg(d), GATE, GATE, POW, TOP)).toBe(0);
+      expect(overlayReleaseK(sinDeg(d), GATE - 0.01, GATE, POW, TOP)).toBe(0);
+      expect(overlayReleaseK(sinDeg(d), START, GATE, POW, 0)).toBe(0);
+    }
+  });
+
+  it("never NaN: a non-positive exponent reads as linear, not as a step at the gate", () => {
+    const s = sinDeg(-0.5);
+    expect(overlayReleaseK(s, START, GATE, 0, TOP)).toBe(overlayReleaseK(s, START, GATE, 1, TOP));
+    expect(overlayReleaseK(s, START, GATE, -2, TOP)).toBe(overlayReleaseK(s, START, GATE, 1, TOP));
+    for (const v of [overlayReleaseK(NaN, START, GATE, POW, TOP), overlayReleaseK(s, START, GATE, NaN, TOP)]) {
+      expect(Number.isNaN(v)).toBe(false);
+    }
+    // pow ↑ ⇒ the −0.5° rung keeps LESS overlay (the knob's documented direction).
+    expect(overlayReleaseK(s, START, GATE, 2, TOP)).toBeLessThan(overlayReleaseK(s, START, GATE, 1, TOP));
   });
 });

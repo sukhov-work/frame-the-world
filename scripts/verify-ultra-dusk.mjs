@@ -23,9 +23,16 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { Body, Observer, SearchAltitude } from "astronomy-engine";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
-const PORT = process.argv[2] ?? "9222";
+// The two POSITIONALS — the CDP port and the shot directory — are the non-option arguments, in
+// that order; an option (`--ladder`, `--ultra 1`) never fills either. Before 2026-09-07 they were
+// `argv[2]` / `argv[3]` verbatim, so `9333 --ladder --ultra 1` wrote every rung's shot into a
+// directory literally named `--ladder` in the repo root (T105 — caught this session).
+const POSITIONALS = process.argv.slice(2).filter(
+  (a, i, all) => !a.startsWith("--") && !(all[i - 1] === "--ultra"),
+);
+const PORT = POSITIONALS[0] ?? "9222";
 const DEV_ORIGIN = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321"; // FTW_DEV_ORIGIN: a worktree dev server (2026-09-06j)
-const SHOTS = process.argv[3] ?? "verify-shots";
+const SHOTS = POSITIONALS[1] ?? "verify-shots";
 mkdirSync(SHOTS, { recursive: true });
 /**
  * `--ultra 0|1` (default 1) — WHICH RIG the run measures.
@@ -393,6 +400,11 @@ for (const stop of stops) {
     groundOpacity: look.shadow?.groundOpacity,
     directShareK: look.shadow?.directShareK,
     gateSin: look.shadow?.gateSin,
+    // T100 (2026-09-06n) — the top of the band the field is reading, off the engine.
+    bandTop: look.shadow?.fieldBandTopSin,
+    // T100 (a) (2026-09-07) — the overlay's own extinction tail, the value `max(directK, tail)`
+    // read; 0 with the chip off, above +0.2°, and at or below the gate.
+    tailK: look.shadow?.overlayTailK,
     directK: look.dusk?.directK,
     luma: await groundLuma(),
   });
@@ -448,6 +460,48 @@ if (rungs.length === stops.length) {
     (at(0.5)?.intensity ?? 0) > 0.3,
     `+0.5°: ${(at(0.5)?.intensity ?? 0).toFixed(3)}`,
   );
+  // T100 — ruling (b) of 2026-09-06m slid the CHIP's field band to +0.2°; the ladder on it (§17.2)
+  // moved the T66 rise, did not remove it, and its four arms showed the shader product
+  // (`opacity × (1 − (1 − field)³)` over the nested cascades) zeroes the overlay wherever the
+  // field is 0 — so a band ending at −0.33° left the −0.5° rung at the bare composite on every
+  // arm. Ruling (a) of 2026-09-06o: the field band is back on the DISC (−0.30° → the gate) on
+  // BOTH rigs, and the OVERLAY carries its own tail (`overlayTailK`, `duskLight.overlayReleaseK`)
+  // under the chip's cascade reach. Read off the engine (`fieldBandTopSin`, `overlayTailK`),
+  // never assumed.
+  {
+    const topDeg = (Math.asin(at(0)?.bandTop ?? 0) * 180) / Math.PI;
+    check(
+      `T100 — the ${ULTRA_PREF ? "chip reads the disc band (top −0.30°, engine-published): full at −0.14°, still ≥ 0.6 at −0.5°, zero at −0.9°" : "BASE rig keeps the disc band (top −0.30°): present at −0.14° (its 5 km box ramps on geometry), still ≥ 0.1 at −0.5°, zero at −0.9°"}`,
+      Math.abs(topDeg + 0.3) < 0.03 &&
+        (at(-0.14)?.intensity ?? 0) >= (ULTRA_PREF ? 0.999 : 0.3) &&
+        (at(-0.5)?.intensity ?? 0) >= (ULTRA_PREF ? 0.6 : 0.1) &&
+        (at(-0.9)?.intensity ?? 1) <= 1e-6,
+      `bandTop ${topDeg.toFixed(3)}°; −0.14:${(at(-0.14)?.intensity ?? 0).toFixed(3)} −0.5:${(at(-0.5)?.intensity ?? 0).toFixed(3)} −0.9:${(at(-0.9)?.intensity ?? 0).toFixed(3)}`,
+    );
+  }
+  if (ULTRA_PREF) {
+    // The tail: under the key above +0.2° (clamped at its top; directShareK is F1's own number
+    // there, the l/n digits), the key still rules at −0.14°, an overlay is LEFT at −0.5° where
+    // directK is 0, gone at −0.9°.
+    check(
+      "T100 (a) — the overlay's tail: under the key above +0.2°, below the key at −0.14°, > 0 at −0.5° (directK 0), 0 at −0.9°",
+      [3, 2, 1.3, 1.06, 0.9, 0.5].every((d) => (at(d)?.tailK ?? 1) < (at(d)?.directK ?? 0)) &&
+        (at(-0.14)?.tailK ?? 1) < (at(-0.14)?.directK ?? 0) &&
+        (at(-0.5)?.directK ?? 1) === 0 &&
+        (at(-0.5)?.tailK ?? 0) > 0.01 &&
+        (at(-0.5)?.directShareK ?? 0) > 0.01 &&
+        (at(-0.5)?.groundOpacity ?? 0) > 0.01 &&
+        (at(-0.9)?.tailK ?? 1) === 0 &&
+        (at(-0.9)?.directShareK ?? 1) === 0,
+      rungs.map((r) => `${r.want}:${(r.tailK ?? 0).toFixed(3)}/${(r.directShareK ?? 0).toFixed(3)}`).join(" "),
+    );
+  } else {
+    check(
+      "T100 (a) — the BASE rig never reads the overlay's tail (0 at every rung) — its ladder is byte-identical",
+      rungs.every((r) => (r.tailK ?? 1) === 0),
+      rungs.map((r) => `${r.want}:${(r.tailK ?? 0).toFixed(3)}`).join(" "),
+    );
+  }
   check(
     "the field only ever falls down the ladder — it never comes back",
     rungs.every((r, i) => i === 0 || (r.intensity ?? 0) <= (rungs[i - 1].intensity ?? 0) + 1e-6),
