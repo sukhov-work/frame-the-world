@@ -70,6 +70,11 @@ export default defineConfig({
 
   vite: {
     plugins: [ftwLocalTiles()],
+    // DEV-ONLY (2026-09-06j): parallel worktrees share one symlinked `node_modules`, so their
+    // dev servers would otherwise race on the single optimizer cache (`node_modules/.vite`) —
+    // the "504 Outdated Optimize Dep" storm. A worktree exports FTW_VITE_CACHE=<its own dir>;
+    // unset (the main checkout, CI, build) keeps Vite's default.
+    ...(process.env.FTW_VITE_CACHE ? { cacheDir: process.env.FTW_VITE_CACHE } : {}),
     // libraw-wasm resolves its .wasm sibling off import.meta.url at runtime; esbuild pre-bundling
     // would relocate the module and break that path in dev. The libheif bundle is only imported
     // inside the decode worker, which Vite's startup scanner never crawls — pre-bundle it here or

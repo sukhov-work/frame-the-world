@@ -85,6 +85,15 @@ import {
   type KeyGateProfile,
 } from "../../lib/globe/keyHandoff";
 import { chooseTerrainHit } from "../../lib/globe/terrainPick";
+import {
+  frameFreezeState,
+  frameHeld,
+  frameNow,
+  noteFrameHold,
+  registerFrameClock,
+  setFrameFrozen,
+  type FreezeParts,
+} from "../../lib/globe/frameFreeze";
 import { BAKED_REGIONS } from "../../lib/globe/regions";
 import { resolveTerrainBase, terrainPatchStats } from "./scene/terrainPatch";
 import {
@@ -358,7 +367,8 @@ export function attachStylizedTiles(opts: {
   shadowCascades?: THREE.DirectionalLight[];
   /** GlobeCanvas's HemisphereLight (the sky/ground ambient fill on the buildings). ULTRA S10
    *  re-seats it onto the LOCAL UP at the view focus and tracks its intensity/tint to the
-   *  ephemeris; with the chip off it is never touched. */
+   *  ephemeris; with the LOOK off it is never touched (T96, 2026-09-06i: the LOOK is
+   *  `lookOn()`, so on a shipped build S10 runs whether or not the ULT chip is lit). */
   hemiLight?: THREE.HemisphereLight;
   /** Initial device quality tier (RENDERING_QUALITY_PASS WS1) — the tile knobs start here so a
    *  weak device isn't briefly over-committed before the first governor correction. Default high. */
@@ -518,6 +528,12 @@ export function attachStylizedTiles(opts: {
           // T77 slice B 4d: the depth-aware twin, so a seat taken against a fine tile survives the
           // LRU evicting that tile and its coarse parent answering in its place.
           terrainSampleAt: (latDeg, lonDeg) => ground.sampleAt(latDeg, lonDeg),
+          // T77 slice C-1 5e: the seat drain is the DRAINED dirty-region ring's single consumer —
+          // it re-arms only the cells whose ground actually moved, instead of sweeping the whole
+          // city forever. The ring empties on read, so a second consumer must fan out HERE (one
+          // call per frame, the array handed to both), never call `ground.terrainDirtyRegions()`
+          // for itself.
+          terrainDirtyRegions: () => ground.terrainDirtyRegions(),
           loadAim,
           overrides: bldgOverridesSeam,
         })
@@ -753,6 +769,31 @@ export function attachStylizedTiles(opts: {
    *  procedural placeholder. `astro check` cannot see it either; only running it can. */
   let ultraOn = false;
   /**
+   * T96 (owner ruling 2026-09-06i) — **THE LOOK, which is not the CHIP.**
+   *
+   * `ultraOn` above is the CHIP: what the user paid for in frame time — the 8192² shadow map, the
+   * cascade ladder, terrain casters, 16× anisotropy and a capped mip chain, the tile/LRU levers.
+   * This is the LOOK: the light-transport MODEL — the dusk curves, the key that dies and reddens,
+   * the sky that has a level, the direct-share overlay bound, the true-sunset gate with its
+   * disc-sized fade band and the shadow-length guard, and slice A's demand-driven rig.
+   *
+   * They were one flag until the owner ruled on 2026-09-06i, and that is exactly why the whole
+   * 2026-08-27 dusk batch and the 2026-09-06 sunset release were invisible: the `high` default has
+   * the chip OFF, so every user who never found the ULT chip was still looking at the flat key,
+   * the levelless air-light and the shadow field that vanished 5.9 minutes before sunset. The
+   * model costs nothing — it is curve evaluations and uniform writes — so there was never a
+   * performance reason for it to ride the cost flag.
+   *
+   * A FUNCTION rather than a `let` on purpose: `ultraOn` is written by `stepUltraGate` on the
+   * chip's edge, and a snapshot taken at attach time would be stale for the rest of the session
+   * (the class of bug the `ultraOn` docblock above already records paying for once).
+   *
+   * `ULTRA.baseTakesLook = false` restores the pre-T96 base rig EXACTLY — the off-state contract
+   * is unchanged in kind, it is a different exact state (`ULTRA_ARCHITECTURE` §13-14 supersession,
+   * `test/components/globe/duskShadeRatio.test.ts`).
+   */
+  const lookOn = () => ultraOn || ULTRA.baseTakesLook;
+  /**
    * RC18 — the TILE half of a tier change: error targets, LRU cap/floor pairs, queue caps,
    * foveation, and the street/lattice budgets. Every lever here moves MONOTONICALLY with the
    * tier (a promote lowers every error target and raises every cap — locked by
@@ -884,7 +925,7 @@ export function attachStylizedTiles(opts: {
   let solarEcl: SolarEclipseState = solarEclipseFromDiscs(Math.PI, 1, 1);
   let lunarEcl: LunarEclipseState = { ...NO_LUNAR_ECLIPSE };
   let eclipseK = 1;
-  let lastEclipseMs = performance.now();
+  let lastEclipseMs = frameNow();
   const _eclDelta = new THREE.Vector3();
   let lastSampleMs = -Infinity;
   const sampleEphemeris = (tMs: number) => {
@@ -1208,7 +1249,9 @@ export function attachStylizedTiles(opts: {
     framingActive = true;
     framingReframes = 0;
     framingStableFrames = 0;
-    framingDeadlineMs = performance.now() + FLIGHT.reframeDeadlineMs;
+    // T94: `frameNow()` — the deadline is READ against the orchestrator's `now` (stepFrustum…),
+    // so stamping it from the raw clock was the same mixed-clock pair `lastInteract` had.
+    framingDeadlineMs = frameNow() + FLIGHT.reframeDeadlineMs;
     framingParams = useUploadStore.getState().params;
     framingLookAt.copy(pose.lookAt);
     _reframePrevLook.copy(pose.lookAt);
@@ -1381,7 +1424,7 @@ export function attachStylizedTiles(opts: {
   //     user touches the scene and resumes after DRIFT.resumeMs. Skipped for reduced motion. ----
   let lastInteract = -Infinity;
   const noteInteract = () => {
-    lastInteract = performance.now();
+    lastInteract = frameNow(); // T94: paired with the idle-drift read, which is the same clock
     // U2/A8: while FPV is live the user CANNOT take over the orbit camera (controls disabled) —
     // their pointer/wheel is the FPV look/FOV, which must NOT cancel the FPV ENTRY flight
     // (cancelling it mid-air let stepFpvPose snap straight to the eye — a teleport, browser-real)
@@ -1797,7 +1840,7 @@ export function attachStylizedTiles(opts: {
     ) {
       tapRevealX = e.clientX;
       tapRevealY = e.clientY;
-      tapRevealUntil = performance.now() + ORCH.tapRevealMs;
+      tapRevealUntil = frameNow() + ORCH.tapRevealMs; // T94: the latch rides the held clock
     }
     // MESH SUITE MS6: a click on a USER MODEL in orbit stands beside it in first-person view
     // (the pins' "a click opens it" idiom; a model stands in front of the pins and the ground).
@@ -2736,7 +2779,7 @@ export function attachStylizedTiles(opts: {
         ) {
           tapRevealX = e.clientX;
           tapRevealY = e.clientY;
-          tapRevealUntil = performance.now() + ORCH.tapRevealMs;
+          tapRevealUntil = frameNow() + ORCH.tapRevealMs; // T94: the latch rides the held clock
         }
       }
     }
@@ -3135,18 +3178,43 @@ export function attachStylizedTiles(opts: {
     /** False = the identity: `shadow.autoUpdate` back to true, this record never consulted. */
     demand: false,
   };
-  /** DEV A/B overrides for `__globe.shadowRig({...})`; null = take the tier's value. */
-  const _rigOverride: { keySnapTexels: number | null; moveTexels: number | null } = {
+  /** DEV A/B overrides for `__globe.shadowRig({...})`; null = take the tier's value.
+   *
+   *  T77 slice A-rest (2026-09-06) widened it from the two quanta to the two BIASES and the
+   *  ladder, because every one of those A/Bs previously cost a tuning edit and a page boot — and
+   *  a boot of the city pose is ~90 s of streaming even on a quiet machine. `biasTexels` /
+   *  `normalBiasTexels` are A1's parked levers; `cascades: false` is the "what did the single
+   *  capped box actually cover / how much of the shimmer is the LADDER's" A/B that
+   *  `GlobeCanvas`'s `cascadeLights` seam was exposed for and that nothing could actually drive
+   *  (the per-frame lockstep re-asserts `castShadow` from `sunLight`, so a probe writing the
+   *  lights directly is overwritten on the next frame). */
+  const _rigOverride: {
+    keySnapTexels: number | null;
+    moveTexels: number | null;
+    biasTexels: number | null;
+    normalBiasTexels: number | null;
+    cascades: boolean | null;
+  } = {
     keySnapTexels: null,
     moveTexels: null,
+    biasTexels: null,
+    normalBiasTexels: null,
+    cascades: null,
   };
+  /** A bias override has to re-derive OUT of turn: the derivation below lives inside the
+   *  extent-changed guard (the extent is the only thing that normally moves the texel size), so
+   *  without this a live override would not land until the camera changed altitude. */
+  let _rigBiasDirty = false;
   const _rigKey = new THREE.Vector3();
   const _rigSnap = new THREE.Vector3();
   const _rigNorth = new THREE.Vector3();
   /** The eye→focus distance the shadow ladder was fitted from this frame (m). */
   let shadowViewDistM = 0;
   /** RC2 — the one elevation-gate profile the key/shadow handoff ramps read (lib/globe/keyHandoff).
-   *  The BASE rig's, and byte-frozen: everything below that moves, moves only under ULTRA. */
+   *  The pre-T96 BASE rig's, and byte-frozen. Since owner ruling T96 (2026-09-06i) it is no longer
+   *  what the shipped base rig reads — `lookOn()` selects the ULTRA twins below on every rig — but
+   *  it stays exact, and reachable, because `ULTRA.baseTakesLook: false` has to restore the old
+   *  base to the digit for the ruling to be reversible (`ULTRA_ARCHITECTURE` §12b). */
   const KEY_GATE: KeyGateProfile = {
     gateSin: SHADOWS.minSunElevSin,
     bandSin: SHADOWS.fadeBandSin,
@@ -3170,7 +3238,11 @@ export function attachStylizedTiles(opts: {
   // which `test/lib/globe/keyHandoff.test.ts` pins ("both arms reach zero at the gate").
   // `moonShadows` stays `!sunUp`-gated, so the two arms remain mutually exclusive for free.
   //
-  // Both are selected by `ultraOn` at every consumer; with the chip off neither is ever read.
+  // T96 (owner ruling 2026-09-06i): both are selected by `lookOn()` at every consumer, NOT by
+  // `ultraOn` — a gate that fires 5.9 minutes early is wrong on every rig, and the sunset the
+  // owner reported was a default `high` frame. They are read on the base rig whenever
+  // `ULTRA.baseTakesLook` is true (it ships true); with the LOOK off neither is ever read, and
+  // `KEY_GATE` above is what the handoff falls back to — exactly as it did before the ruling.
   /** The key trough / moon takeover profile under ULTRA — `KEY_GATE`'s wide band on the sunset
    *  crossing point. */
   const ULTRA_KEY_GATE: KeyGateProfile = { ...KEY_GATE, gateSin: ULTRA.shadowGateSin };
@@ -3218,7 +3290,7 @@ export function attachStylizedTiles(opts: {
   let ultraAfterglow = 0;
   /** The sky dome's directional-arm weight, eased so a chip flip dissolves. */
   let ultraDomeDir = 0;
-  /** The two dusk TROUGHS on the sun-blind facade terms. Exactly 1 with the chip off — the flat
+  /** The two dusk TROUGHS on the sun-blind facade terms. Exactly 1 with the LOOK off — the flat
    *  parts of a building have to fall on the same curve the key falls on, or dimming the key just
    *  flattens the city (measured front:back on a wall, before this: 1.28 at 3°, 1.08 at 0°). */
   let ultraEmisK = 1;
@@ -3238,7 +3310,7 @@ export function attachStylizedTiles(opts: {
   /** Eased `renderer.toneMappingExposure` (S11). Seeded at the constructed value so the very
    *  first ULTRA frame ramps from where the scene actually is, not from 1.0-by-assumption. */
   let ultraExposure = renderer.toneMappingExposure;
-  let lastUltraMs = performance.now();
+  let lastUltraMs = frameNow();
   /** False while any ULTRA-owned lever is still unwinding back to its baseline. It is what lets
    *  the OFF steady state cost literally nothing (an early return) without making the OFF EDGE a
    *  snap — a one-frame exposure or ambient jump on a chip click reads as a flash. */
@@ -3267,7 +3339,20 @@ export function attachStylizedTiles(opts: {
     zc.zoomDelta = 0;
   };
   let lastAlt: number = POSE.cam.altM; // previous frame's altitude (zoom braking runs pre-update)
-  let lastFrameMs = performance.now();
+  let lastFrameMs = frameNow();
+  // T94 — the clocks this orchestrator reads through `frameNow()`, named so the seam's snapshot
+  // can prove what a `clock` freeze covers (lib/globe/frameFreeze).
+  const unregFrameClocks = [
+    registerFrameClock("orchestrator.dt"),
+    registerFrameClock("stars.twinkle"),
+    registerFrameClock("eclipse.ease"),
+    registerFrameClock("ultraLook.ease"),
+    registerFrameClock("controls.damping"),
+    registerFrameClock("skyHover.tapReveal"),
+    // NOT a `performance.now()` clock — `sceneTimeMs()` is `Date.now()`/the play anchor. It is
+    // named here because a `clock` freeze holds it too (`stepEphemerisResample`).
+    registerFrameClock("scene.time"),
+  ];
   const _upBefore = new THREE.Vector3();
   const _pivot = new THREE.Vector3();
   const _pivotUp = new THREE.Vector3();
@@ -3298,7 +3383,7 @@ export function attachStylizedTiles(opts: {
    *  what makes the source switch at sunset invisible instead of a one-frame flip. */
   let moonRigTakeover = 0;
   /** SUNSET SHADOW-RELEASE — the live `duskLight.shadowDirectShareK` factor the ground overlay was
-   *  scaled by this frame (1 with the chip off, and at any high sun). Published as
+   *  scaled by this frame (1 with the LOOK off, and at any high sun). Published as
    *  `ultra.shadow.directShareK`: no id has ever carried the numbers behind the overlay, which is
    *  most of why the release cliff was arguable rather than measurable. Read off the value that
    *  was USED, never re-derived. */
@@ -3491,6 +3576,26 @@ export function attachStylizedTiles(opts: {
         enriched: enriched?.seatSettle() ?? null,
       }),
       /**
+       * T94 (T77 W5, 2026-09-06) — THE DETERMINISTIC-CAPTURE SEAM.
+       *
+       * `freezeFrame(true)` holds the per-frame wall clock (so every dt-driven ease, the F1
+       * building-reveal dither, the stars' twinkle and the pins' shimmer stop advancing), holds
+       * tile STREAMING (so no tile — and no `terrainEpoch` bump — lands mid-capture) and LATCHES
+       * the shadow rig (whose refresh is also time-based). Two `Page.captureScreenshot` calls two
+       * rAF apart are then byte-identical, which is what lets
+       * `verify-visual-sweep --compare --tolerance 0` gate pixels instead of only the UI chrome.
+       *
+       * `freezeFrame(false)` resumes: the clock is SKEWED by the time spent frozen, not restarted,
+       * so no ease sees the freeze as one giant frame and nothing has to be written back.
+       *
+       * Read with no argument. `parts` narrows the freeze for ATTRIBUTION — e.g.
+       * `freezeFrame(true, { streaming: false })` proves how much of a residual is streaming.
+       * The returned `held` is the proof: the clocks the live scene registered plus every hold a
+       * module actually reported taking (a thaw returns what the freeze held).
+       */
+      freezeFrame: (on?: boolean, parts?: Partial<FreezeParts>) =>
+        on === undefined ? frameFreezeState() : setFrameFrozen(on, parts),
+      /**
        * T77 SLICE A2 (2026-09-06) — the shadow rig's refresh policy, READ and LIVE-OVERRIDDEN.
        *
        * Read: what the loop actually used this frame (never the tunables re-derived by the
@@ -3504,10 +3609,25 @@ export function attachStylizedTiles(opts: {
        * `null` restores the tier value. Any write forces one refresh, so the next frame is
        * rendered under the new policy rather than under a map latched by the old one.
        */
-      shadowRig: (opts?: { keySnapTexels?: number | null; moveTexels?: number | null }) => {
+      shadowRig: (opts?: {
+        keySnapTexels?: number | null;
+        moveTexels?: number | null;
+        biasTexels?: number | null;
+        normalBiasTexels?: number | null;
+        cascades?: boolean | null;
+      }) => {
         if (opts) {
           if ("keySnapTexels" in opts) _rigOverride.keySnapTexels = opts.keySnapTexels ?? null;
           if ("moveTexels" in opts) _rigOverride.moveTexels = opts.moveTexels ?? null;
+          if ("biasTexels" in opts) {
+            _rigOverride.biasTexels = opts.biasTexels ?? null;
+            _rigBiasDirty = true;
+          }
+          if ("normalBiasTexels" in opts) {
+            _rigOverride.normalBiasTexels = opts.normalBiasTexels ?? null;
+            _rigBiasDirty = true;
+          }
+          if ("cascades" in opts) _rigOverride.cascades = opts.cascades ?? null;
           _rig0.halfExtentM = 0;
         }
         return {
@@ -3518,6 +3638,29 @@ export function attachStylizedTiles(opts: {
           autoUpdate: sunLight ? sunLight.shadow.autoUpdate : null,
           snapTexels: _rig0.snapTexels,
           demand: _rig0.demand,
+          // The A/B state, so a stored harness run says which arm it was measured on rather than
+          // relying on the operator's label. The two biases are the values three is ACTUALLY
+          // wearing (three's own units: `bias` a fraction of near→far, `normalBias` world metres),
+          // not the texel counts they were derived from — the derived number is the one a wrong
+          // A/B would show as unchanged.
+          bias: sunLight ? sunLight.shadow.bias : null,
+          normalBiasM: sunLight ? sunLight.shadow.normalBias : null,
+          biasTexelsOverride: _rigOverride.biasTexels,
+          normalBiasTexelsOverride: _rigOverride.normalBiasTexels,
+          cascadesOverride: _rigOverride.cascades,
+          cascadesCasting: shadowCascades.filter((cl) => cl.castShadow).length,
+          // LEVER 12 (T77 slice A-rest) — the terrain epoch the LIVE depth map was rendered under,
+          // and the epoch NOW. A refresh on a frame whose `epochApplied` moved is one the terrain
+          // itself forced, which is exactly the work a "cache the terrain shadow" lever would
+          // still have had to do; a refresh with the epoch unchanged is the extent, the key swing
+          // or the staleness net. Reported here, off the rig's own record, rather than left for a
+          // probe to infer from a neighbouring seam: `__globe` has no top-level `terrainEpoch`,
+          // so the obvious inference (`G.terrainEpoch?.()`) reads `undefined` on every frame and
+          // the attribution FAILS OPEN as "nothing was epoch-driven".
+          epochApplied: _rig0.epoch,
+          epochLive: ground.terrainEpoch(),
+          /** The half-extent the live map was rendered at (0 = "re-render from scratch next frame"). */
+          halfExtentM: _rig0.halfExtentM,
         };
       },
       // MESH SUITE MS1 (2026-09-02): read / drive ONE building's edit target without the gizmo.
@@ -3834,14 +3977,21 @@ export function attachStylizedTiles(opts: {
         allowed: hqAllowed,
         coarsePointer: coarsePointerShell,
         pref: useCameraStore.getState().ultraQuality === true,
+        // `on` KEEPS ITS MEANING — the CHIP, i.e. what costs frame time. T96 adds `look` beside
+        // it (the light/shadow MODEL, `ultraOn || ULTRA.baseTakesLook`) so a harness can read
+        // WHICH of the two is in play instead of inferring it; renaming `on` would silently
+        // re-point every existing check that reads this seam.
         on: ultraOn,
+        look: lookOn(),
+        baseTakesLook: ULTRA.baseTakesLook,
       }),
       // ULTRA LOOK probe (T44 §1a/§1b + T45 S3/S4/S5/S9/S10/S11, 2026-08-22j) — the ONE seam that
       // makes this track verifiable. Every lever it reports is otherwise unreachable from a
       // harness: the lights live in GlobeCanvas's closure, the shadow rig on a light three
       // mutates internally, and the ground's ULTRA uniforms behind an attach closure.
       //
-      // It exists because the OFF-state claim ("with the chip off, nothing here is read") is only
+      // It exists because the OFF-state claim ("nothing here is read" — with the CHIP off for the
+      // cost levers, with the LOOK off for the model since T96) is only
       // worth as much as its proof, and the honest proof is EXACT ZEROS read out of the live
       // engine — not a screenshot that looks the same. `hemiPos` is reported because audit gap
       // #16 is invisible in every other way: three derives a HemisphereLight's direction from its
@@ -3881,7 +4031,12 @@ export function attachStylizedTiles(opts: {
         },
       }),
       ultraLook: () => ({
+        // T96: `on` is the CHIP (cost) and `look` is the MODEL. The off-state proof below is now
+        // a proof about the LOOK — with `look` true these uniforms carry the model on the base
+        // rig, and it is `look` false that must read exact zeros.
         on: ultraOn,
+        look: lookOn(),
+        baseTakesLook: ULTRA.baseTakesLook,
         // ground (T44 §1a + S9 + S4) — these four are the off-state proof
         photo3d: ground.uniforms.uFtwPhoto3d.value,
         dayMix: ground.uniforms.uFtwUltraLight.value,
@@ -4112,7 +4267,8 @@ export function attachStylizedTiles(opts: {
         return out;
       }),
       registerDebugProvider("ultra", () => ({
-        on: ultraOn,
+        on: ultraOn, // the CHIP (cost)
+        look: lookOn(), // T96 — the light/shadow MODEL (`ultraOn || ULTRA.baseTakesLook`)
         allowed: hqAllowed,
         settled: ultraLookSettled,
         sunElevDeg: THREE.MathUtils.radToDeg(
@@ -4274,6 +4430,13 @@ export function attachStylizedTiles(opts: {
           deferred: c?.deferred ?? null,
           rejected: c?.rejected ?? null,
           collapsed: c?.collapsed ?? null, // T77 4a
+          // T77 slice C-1 — the STREAMING-QUIET counters, on the same cheap field-read path as
+          // `collapsed`. `frozen` climbing while `movedFeatures` falls is the 5b freeze working;
+          // `idleCells` reaching the resident cell count is the 5a apply-skip working;
+          // `deepResamples` should climb through the boot and stop dead after quiet.
+          frozen: c?.frozen ?? null, // T77 5b
+          idleCells: c?.idleCells ?? null, // T77 5a
+          deepResamples: c?.deepResamples ?? null, // T77 slice C-1
           seatCacheHits: c?.seatCacheHits ?? null,
           seatCacheMisses: c?.seatCacheMisses ?? null,
           seatEpoch: s?.epoch ?? null,
@@ -4337,8 +4500,12 @@ export function attachStylizedTiles(opts: {
   }
 
   const stepFrameTiming = () => {
-        now = performance.now();
-        dtMs = Math.min(now - lastFrameMs, ORCH.maxFrameDtMs);
+        now = frameNow();
+        // T94: the ONE line that holds every dt-driven ease in the 55-step chain at once —
+        // `x += (target − x) * easeK(0, tau)` is an identity, so nothing eases while frozen and
+        // nothing has to be restored on thaw. Explicit rather than "the frozen clock makes it 0
+        // anyway", so the FIRST frozen frame is held too.
+        dtMs = frameHeld("clock") ? 0 : Math.min(now - lastFrameMs, ORCH.maxFrameDtMs);
         lastFrameMs = now;
 
   };
@@ -4390,7 +4557,15 @@ export function attachStylizedTiles(opts: {
 
   const stepControlsUpdate = () => {
         if (fpvEntryPending()) return; // U2/A1: never let controls move the camera on the entry frame
-        controls.update();
+        // T94: `GlobeControls.update(deltaTime = min(this._getDeltaTime(), 64/1000))` reads its
+        // OWN `performance.now()` when the argument is omitted (`EnvironmentControls.js:271,295`)
+        // — the one per-frame clock in the render path the seam cannot reach through `frameNow()`,
+        // and the one that drives inertia/damping and the camera transition. Held ⇒ an explicit 0
+        // advances them by nothing. Written as two calls rather than one with a ternary argument
+        // so the OFF path is the SAME zero-argument call it has always been, not a re-derivation
+        // of the library's default.
+        if (frameHeld("clock")) controls.update(0);
+        else controls.update();
 
   };
 
@@ -5142,7 +5317,10 @@ export function attachStylizedTiles(opts: {
         if (
           !reduceMotion &&
           alt > DRIFT.minAlt &&
-          performance.now() - lastInteract > DRIFT.resumeMs &&
+          // T94: `frameNow()` — every other `lastInteract` writer is the orchestrator's `now`,
+          // so this read was the one site comparing two different clocks. (The drift itself is
+          // already inert under a freeze: `driftRadiansForDt(deg, 0)` is exactly 0.)
+          frameNow() - lastInteract > DRIFT.resumeMs &&
           !(isMobileShell && useCameraStore.getState().mapMode === "2d")
         ) {
           _driftQ.setFromAxisAngle(_driftAxis, driftRadiansForDt(DRIFT.degPerSec, dtMs));
@@ -5821,10 +5999,14 @@ export function attachStylizedTiles(opts: {
       if (!(nBiasT > 0)) {
         sunLight.shadow.normalBias = ultraOn ? ULTRA.shadowNormalBias : _shadowNormalBias0;
       }
-      // T77 A2: the OFF edge restores three's every-frame path explicitly. The frame loop also
-      // self-heals (it re-reads the quanta from the live profile every frame), but a lever whose
-      // restore depends on the loop reaching a particular branch is the shape of the ULTRA
-      // off-state bugs this file has already paid for once.
+      // T77 A2: restore three's every-frame path explicitly on the edge whenever the live profile
+      // asks for it. The frame loop also self-heals (it re-reads the quanta from the live profile
+      // every frame), but a lever whose restore depends on the loop reaching a particular branch
+      // is the shape of the ULTRA off-state bugs this file has already paid for once.
+      // Since owner ruling 3 (2026-09-06i) BOTH profiles ship 1/1 — the one-texel cadence is the
+      // look, not an ULTRA extra — so in the shipped tuning this branch is dead and the arm below
+      // is what runs. It stays because `SHADOWS.rigKeySnapTexels = 0` must keep working: that is
+      // the A/B that proves the cadence is a choice.
       if (!rigDemandDriven(
         ultraOn ? ULTRA.shadowRigKeySnapTexels : SHADOWS.rigKeySnapTexels,
         ultraOn ? ULTRA.shadowRigMoveTexels : SHADOWS.rigMoveTexels,
@@ -5879,6 +6061,17 @@ export function attachStylizedTiles(opts: {
   };
 
   const stepEphemerisResample = () => {
+        // T94 — HOLD SCENE TIME. `sceneTimeMs()` is `Date.now()` whenever the scene is LIVE (and a
+        // moving anchor while PLAYING), so on a live page the sun/moon/stars step every time the
+        // 1 Hz `sampleIntervalMs` gate falls between two captures — a picture change no per-frame
+        // clock freeze can reach, because this clock is not `performance.now()`. Held ⇒ `tMs`
+        // keeps the instant the last drawn frame used and `sampleEphemeris` does not run.
+        // (The visual sweep pins `#t=`, so its scene time is already constant; this makes the seam
+        // honest on any page, which is what an attribution run needs.)
+        if (frameHeld("clock")) {
+          noteFrameHold("scene.time");
+          return;
+        }
         // Ephemeris: re-sample when scene time moved enough (live clock or a pinned scrub).
         tMs = sceneTimeMs();
         if (Math.abs(tMs - lastSampleMs) > SKY.sampleIntervalMs) sampleEphemeris(tMs);
@@ -5914,7 +6107,7 @@ export function attachStylizedTiles(opts: {
           ECLIPSE.daylightGamma,
           ECLIPSE.daylightFloor,
         );
-        const nowMs = performance.now();
+        const nowMs = frameNow();
         const dtMs = nowMs - lastEclipseMs;
         lastEclipseMs = nowMs;
         eclipseK += (target - eclipseK) * easeK(dtMs, ECLIPSE.tauMs);
@@ -5941,14 +6134,22 @@ export function attachStylizedTiles(opts: {
    *  true by construction instead of by two parallel calculations agreeing. The cost is a
    *  one-frame lag on targets, which is nothing against easings of 0.4–1 s. */
   const stepUltraLook = () => {
-    if (!ultraOn && ultraLookSettled) return; // the OFF steady state: zero per-frame cost
-    const nowMs = performance.now();
+    // T96: the LOOK, not the chip. With `ULTRA.baseTakesLook` on there is no OFF steady state to
+    // settle into — the model is the base rig's model now — and this early-return only fires when
+    // the ruling has been turned back off.
+    if (!lookOn() && ultraLookSettled) return; // the OFF steady state: zero per-frame cost
+    const nowMs = frameNow();
     const dtMs = nowMs - lastUltraMs;
     lastUltraMs = nowMs;
     // `sunDirW · focusUp` IS sin(solar elevation) at the view focus — the same quantity the
     // ground shader evaluates per fragment, so the CPU-side terms (exposure, ambient, haze tint)
     // and the GPU-side one (dayK) are reading one curve family at one input.
-    const light = ultraOn ? ultraLightAt(ULTRA, sunDirW.dot(_focusUp)) : null;
+    // T96 — the LOOK selector, and the single line that carries the whole shader side of the
+    // ruling with it: `light` non-null is what drives `ground.setUltraTargets` (hence
+    // `uFtwUltraLight` / `uFtwHaze` / `uFtwSkyLevel` / `uFtwDirectK`), `buildings|enriched|
+    // userModels.setUltraHaze`, `atmosphere.setUltraBand` (`uFtwUltraK` / `uFtwDirK`), the
+    // exposure ramp and the hemisphere fill. There is no per-consumer flag to re-point.
+    const light = lookOn() ? ultraLightAt(ULTRA, sunDirW.dot(_focusUp)) : null;
 
     // --- the band tint: a 4-stop palette ramp, at most two stops live at a time ---
     if (light) {
@@ -6063,7 +6264,10 @@ export function attachStylizedTiles(opts: {
     }
 
     // --- settle: snap EXACTLY to baseline and stop stepping, so "off" is off ---
-    if (!ultraOn) {
+    // T96: the LOOK's off state, which under the ruling is only reachable with
+    // `ULTRA.baseTakesLook` false. Kept verbatim (rather than deleted) because that is what makes
+    // "false restores the pre-T96 base exactly" a checkable claim instead of a promise.
+    if (!lookOn()) {
       const expDone = Math.abs(ultraExposure - RENDERER.toneMappingExposure) < 1e-4;
       const hemiDone =
         !hemiLight ||
@@ -6128,9 +6332,12 @@ export function attachStylizedTiles(opts: {
           // THE gate, and the one line the whole sunset-release fix turns on. `sunDot` is
           // sin(GEOMETRIC elevation) — `sunDirW` comes from `GeoVector(Body.Sun, …)`, airless by
           // contract — so `SHADOWS.minSunElevSin` 0.008 is +0.4584° of real geometry and the sun's
-          // upper limb is still 5.9 minutes from setting there. Under ULTRA the gate is
-          // `ULTRA.shadowGateSin` = sin(−0.8333°), true sunset; the base rig is untouched.
-          const gateSin = ultraOn ? ULTRA.shadowGateSin : SHADOWS.minSunElevSin;
+          // upper limb is still 5.9 minutes from setting there. Under the LOOK the gate is
+          // `ULTRA.shadowGateSin` = sin(−0.8333°), true sunset.
+          // T96: the LOOK, not the chip — a shadow field that is released 5.9 minutes early is
+          // wrong on every rig, and the whole sunset release the owner reported was measured on a
+          // base-rig `high` default.
+          const gateSin = lookOn() ? ULTRA.shadowGateSin : SHADOWS.minSunElevSin;
           shadowGateSinNow = gateSin;
           const sunUp = sunDot > gateSin;
           const sunShadows = shadowEligible && sunUp;
@@ -6150,7 +6357,11 @@ export function attachStylizedTiles(opts: {
           // 2026-09-06: every SUN-driven ramp below reads `keyGate`, the ULTRA twin whose zero
           // sits at true sunset. The MOON's own elevation ramps keep `KEY_GATE`'s band shape
           // through the same object, because the twin differs only in where the crossing is.
-          const keyGate = ultraOn ? ULTRA_KEY_GATE : KEY_GATE;
+          // T96 (LOOK, not chip): it must move with `gateSin` above and for the same reason —
+          // `keyHandoff.test.ts`'s "both arms reach zero at the gate" invariant is what stops the
+          // sun→moon direction teleport from becoming visible, and it holds per PROFILE, so a
+          // field on one gate and a trough on another would break it on the base rig.
+          const keyGate = lookOn() ? ULTRA_KEY_GATE : KEY_GATE;
           moonRigTakeover = moonShadows ? moonRigTakeoverK(sunDot, keyGate) : 0;
           // RC4 — frame the rig on the VIEW. `_shadowFocus` is a GROUND point built from the eye,
           // never the screen-centre ellipsoid hit, so it exists at every pitch (see lib/globe/
@@ -6187,8 +6398,10 @@ export function attachStylizedTiles(opts: {
           // `ultra.shadow.directShareK` reports THIS frame on a moon or non-casting frame instead
           // of whatever the last sunlit one left behind. The moon arm carries its own opacity and
           // no direct-sun arm at all, so its share is 1 by definition.
+          // T96: the LOOK. F1 is the one fix that removes the sunset brightening AT ANY GATE, and
+          // it is arithmetic on `ultraDirectK` — which is now the base rig's direct level too.
           ultraShadowDirectShareK =
-            ultraOn && !moonShadows
+            lookOn() && !moonShadows
               ? Math.pow(shadowDirectShareK(ultraDirectK, ULTRA.groundAmbientK), ULTRA.shadowDirectSharePow)
               : 1;
           if (moonShadows) {
@@ -6230,7 +6443,9 @@ export function attachStylizedTiles(opts: {
             //
             // ULTRA-only, and inert by construction when off: `ultraDirectK` is seeded and reset
             // to exactly 1, and the chroma lerp is skipped entirely.
-            if (ultraOn) {
+            // T96: the LOOK. `solarChroma` is Kasten-Young extinction — physics, no cost — and it
+            // is the half of "realistically dim it and change colour" that the base rig never had.
+            if (lookOn()) {
               const chroma = solarChroma(THREE.MathUtils.radToDeg(Math.asin(
                 THREE.MathUtils.clamp(sunDot, -1, 1),
               )));
@@ -6254,7 +6469,7 @@ export function attachStylizedTiles(opts: {
               (1 + goldenK * GOLDEN.keyBrighten) *
               eclipseK *
               sunKeyTroughK(sunDot, moonDot, moonIllum, keyGate) *
-              // The extinction LEVEL. Exactly 1 with the chip off (`ultraDirectK` is seeded 1 and
+              // The extinction LEVEL. Exactly 1 with the LOOK off (`ultraDirectK` is seeded 1 and
               // the settle path restores it), so the baseline key is byte-identical.
               ultraDirectK;
             // TASTE PASS (2026-08-27c) — "shadows that were there before should not just
@@ -6270,7 +6485,7 @@ export function attachStylizedTiles(opts: {
             // which teleports the rig's direction at `minSunElevSin`. So ULTRA gets its OWN,
             // narrow band for the shadow field alone (still exactly 0 AT the gate, so the
             // teleport still happens at zero contribution) while the key trough and the moon
-            // takeover keep the wide one. Byte-identical with the chip off.
+            // takeover keep the wide one. Byte-identical with the LOOK off.
             //
             // SUNSET SHADOW-RELEASE (2026-09-06) — and the band is now anchored on TRUE SUNSET
             // (`ULTRA_SHADOW_GATE`), with a second, GEOMETRIC bound stacked on it. `aboveGateK`
@@ -6280,16 +6495,25 @@ export function attachStylizedTiles(opts: {
             // field stops being a shadow and becomes a hard-edged slab thrown from the box edge
             // (report §7, the only below-horizon failure mode that survives arithmetic). Inert
             // above `atan(casterM / boundsM)` ≈ 0.54° at the Everest fit, so the raking hour the
-            // taste pass bought is untouched; exactly 1 with the chip off, where the guard is
+            // taste pass bought is untouched; exactly 1 with the LOOK off, where the guard is
             // never consulted at all.
-            sunLight.shadow.intensity = ultraOn
+            // T96: the LOOK. The narrow band and the length guard are the shape of a real sunset,
+            // not a cost; the BASE rig gets them and pays nothing.
+            sunLight.shadow.intensity = lookOn()
               ? aboveGateK(sunDot, ULTRA_SHADOW_GATE) *
                 shadowLengthK(
                   sunDot,
                   ULTRA.shadowLengthCasterM,
                   // The reach is the LADDER's, not cascade 0's: under ULTRA the far cascades
                   // (60 / 260 km) are what a kilometres-long sunset shadow lands in.
-                  shadowCascades.length > 0
+                  // …and it is the ladder's only while the ladder is actually CASTING. `ultraOn`
+                  // is load-bearing here since T96: `shadowCascades` is built at boot from
+                  // `ultraBoot` and survives a chip flip OFF as a set of non-casting lights, so a
+                  // length-only test would hand the base rig a 260 km reach for shadows that land
+                  // in its own 5 km box. With the chip off the guard measures the box the pixels
+                  // are actually in, which is why the base field retires a little earlier than
+                  // ULTRA's — geometry, not a shortfall.
+                  ultraOn && shadowCascades.length > 0
                     ? Math.max(shadowBoundsM, ...ULTRA.cascades.map((c) => c.maxBoundsM))
                     : shadowBoundsM,
                   ULTRA.shadowGateSin,
@@ -6313,9 +6537,12 @@ export function attachStylizedTiles(opts: {
               // in-shadow terrain came back × 5.22 brighter between the owner's two frames.
               // `shadowDirectShareK` renormalises it onto the direct share, and the numbers that
               // make it safe are exact rather than close: at `directK` 1 the factor is EXACTLY 1
-              // (the daytime overlay is byte-identical), and with the chip off `ultraDirectK` is
+              // (the daytime overlay is byte-identical), and with the LOOK off `ultraDirectK` is
               // seeded and re-settled to exactly 1, so the off-state is byte-identical too.
-              const duskK = ultraOn ? 1 - aboveGateK(sunDot, keyGate) : 0;
+              // T96: the LOOK — the overlay deepening and its F1 bound are one expression, and
+              // splitting them across the chip would hand the base rig the deepening without the
+              // bound, i.e. the defect with extra contrast.
+              const duskK = lookOn() ? 1 - aboveGateK(sunDot, keyGate) : 0;
               ground.setShadowStrength(
                 THREE.MathUtils.lerp(
                   THREE.MathUtils.lerp(SHADOWS.groundOpacity, DRAPE.shadowOpacity, dark01),
@@ -6355,8 +6582,9 @@ export function attachStylizedTiles(opts: {
             // The `shadowRigUltra` term is load-bearing: at street level `b` is identical under
             // both profiles, so a bounds-only comparison would leave near/far and the derived
             // bias on the OLD profile after a chip flip — a silent, position-dependent bug.
-            if (shCam.right !== b || shadowRigUltra !== ultraOn) {
+            if (shCam.right !== b || shadowRigUltra !== ultraOn || _rigBiasDirty) {
               shadowRigUltra = ultraOn;
+              _rigBiasDirty = false;
               const margin = ultraOn ? ULTRA.depthMarginM : SHADOWS.depthMarginM;
               shCam.left = -b;
               shCam.right = b;
@@ -6385,8 +6613,11 @@ export function attachStylizedTiles(opts: {
               // write, not an equal-looking value — the base profile ships at 0 (byte-identical
               // `high`) and ULTRA ships the ladder's 0.6 / 1.5.
               const mPerTexel = texelSizeM(b, sunLight.shadow.mapSize.x);
-              const biasT = ultraOn ? ULTRA.shadowBiasTexels : SHADOWS.biasTexels;
-              const nBiasT = ultraOn ? ULTRA.shadowNormalBiasTexels : SHADOWS.normalBiasTexels;
+              const biasT =
+                _rigOverride.biasTexels ?? (ultraOn ? ULTRA.shadowBiasTexels : SHADOWS.biasTexels);
+              const nBiasT =
+                _rigOverride.normalBiasTexels ??
+                (ultraOn ? ULTRA.shadowNormalBiasTexels : SHADOWS.normalBiasTexels);
               const tb = texelBias({
                 metresPerTexel: mPerTexel,
                 depthRangeM: shCam.far - shCam.near,
@@ -6435,11 +6666,19 @@ export function attachStylizedTiles(opts: {
           //    DIRECTION is unchanged and the box slides sideways by whole texels. It is purely
           //    in-plane (`shadowSnap` pins `Δ·ẑ = 0`), so the light→focus distance — and therefore
           //    the near/far the block above just derived — survives it exactly.
-          //  · THE OFF EDGE IS THE SHIPPED PATH. Both quanta 0 restores `shadow.autoUpdate = true`
-          //    and never consults the record, so `high` is byte-identical rather than merely
-          //    equivalent. That also covers the ULTRA chip flipping OFF: the quanta are re-read
-          //    from the live profile every frame, so the base 0/0 lands the frame after the flip
-          //    (`stepUltraGate` restores its own levers on the edge; this one self-heals).
+          //  · BOTH QUANTA 0 IS THE SHIPPED PATH BACK. It restores `shadow.autoUpdate = true` and
+          //    never consults the record, so the pre-A2 rig is recoverable exactly rather than
+          //    merely equivalently. That also covers a chip flip in either direction: the quanta
+          //    are re-read from the live profile every frame, so a profile change lands the frame
+          //    after the flip (`stepUltraGate` restores its own levers on the edge; this one
+          //    self-heals).
+          //
+          // OWNER RULING 3 (2026-09-06i): the one-texel cadence — a step every ~1.2 s at real time
+          // instead of a per-frame re-rasterisation — is ACCEPTED AS THE LOOK, so `SHADOWS`
+          // carries 1/1 alongside `ULTRA`'s and the base rig is demand-driven too. This is the one
+          // piece of slice A that is a COST win rather than a look change (the base rig stops
+          // re-rendering its 4096² depth map every frame: −1.7 ms fpv / −5.4 ms city of GPU), and
+          // it ships on the base rig because the owner ruled on the CADENCE, not on the chip.
           _rigKey.copy(moonShadows ? moonDirW : sunDirW);
           // A3 — the basis three will build `lookAt` from. OFF by default in BOTH profiles: an
           // ECEF +Y `up` makes the texel grid's orientation a function of where on the planet you
@@ -6478,22 +6717,31 @@ export function attachStylizedTiles(opts: {
               const mapPx = sunLight.shadow.mapSize.x;
               const mPerTexel = texelSizeM(shadowBoundsM, mapPx);
               const epoch = ground.terrainEpoch();
-              const nowMs = performance.now();
-              const need = cascadeNeedsRender({
-                halfExtentM: shadowBoundsM,
-                appliedHalfExtentM: _rig0.halfExtentM,
-                centreDriftM: _rig0.centre.distanceTo(_shadowFocus),
-                keySwingRad: _rig0.keyDir.angleTo(_rigKey),
-                epoch,
-                appliedEpoch: _rig0.epoch,
-                ageMs: nowMs - _rig0.lastMs,
-                // The shared predicate takes the move quantum as a FRACTION of the half-extent (it
-                // was written for boxes whose texel size spans two orders of magnitude); express
-                // the texel quantum in those units rather than forking a tested predicate.
-                moveFrac: (rigMoveT * mPerTexel) / Math.max(1, shadowBoundsM),
-                swingRad: keySwingQuantumRad(rigKeyT, mapPx),
-                maxStaleMs: SHADOWS.rigMaxStaleMs,
-              });
+              const nowMs = frameNow();
+              // T94: LATCH. The rig refreshes on a `maxStaleMs` timer as well as on movement, so a
+              // frozen clock alone is not enough — the age at the freeze instant could already be
+              // past the gate. Held ⇒ the live depth map stays exactly the one the last drawn
+              // frame sampled.
+              let need = false;
+              if (frameHeld("shadow")) {
+                noteFrameHold("shadow.rig");
+              } else {
+                need = cascadeNeedsRender({
+                  halfExtentM: shadowBoundsM,
+                  appliedHalfExtentM: _rig0.halfExtentM,
+                  centreDriftM: _rig0.centre.distanceTo(_shadowFocus),
+                  keySwingRad: _rig0.keyDir.angleTo(_rigKey),
+                  epoch,
+                  appliedEpoch: _rig0.epoch,
+                  ageMs: nowMs - _rig0.lastMs,
+                  // The shared predicate takes the move quantum as a FRACTION of the half-extent (it
+                  // was written for boxes whose texel size spans two orders of magnitude); express
+                  // the texel quantum in those units rather than forking a tested predicate.
+                  moveFrac: (rigMoveT * mPerTexel) / Math.max(1, shadowBoundsM),
+                  swingRad: keySwingQuantumRad(rigKeyT, mapPx),
+                  maxStaleMs: SHADOWS.rigMaxStaleMs,
+                });
+              }
               if (need) {
                 const d = snapCentreDelta(
                   [sunLight.position.x, sunLight.position.y, sunLight.position.z],
@@ -6558,7 +6806,7 @@ export function attachStylizedTiles(opts: {
             const casting = sunLight.castShadow;
             _casKey.copy(moonShadows ? moonDirW : sunDirW);
             const epoch = ground.terrainEpoch();
-            const nowMs = performance.now();
+            const nowMs = frameNow();
             const fits = fitCascades(
               shadowViewDistM,
               shadowBoundsM,
@@ -6569,7 +6817,18 @@ export function attachStylizedTiles(opts: {
             for (let i = 0; i < shadowCascades.length; i++) {
               const cl = shadowCascades[i];
               const st = _cascadeState[i];
-              const fit = casting && ultraOn ? fits[i] : null;
+              // `_rigOverride.cascades === false` is the DEV A/B (T77 slice A-rest): it takes the
+              // SAME path a dropped cascade takes, so the ladder-off arm is the shipped
+              // single-box state rather than a second, differently-wired one.
+              //
+              // It is NOT identical to `ULTRA.cascades: []` in one place, and only one: with the
+              // array emptied `shadowCascades.length` is 0, which shortens the shadow-length
+              // guard's reach at :6340 from the ladder's 260 km to `shadowBoundsM`. That term
+              // only bites BELOW the guard's knee (≈ 0.54° at the Everest fit), so the two are
+              // the same picture at any pose above it — the shimmer harness asserts the sun is
+              // ≥ 10° before it measures — and they diverge at a sunset pose. Use the tuning edit,
+              // not this flag, for a dusk A/B.
+              const fit = casting && ultraOn && _rigOverride.cascades !== false ? fits[i] : null;
               st.active = fit !== null;
               if (!fit) {
                 cl.castShadow = false;
@@ -6580,18 +6839,23 @@ export function attachStylizedTiles(opts: {
               // The shadow FADE is cascade 0's, verbatim: the ladder must vanish over the same
               // elevation gate the key does, or dusk would step at the edge of the near box.
               cl.shadow.intensity = sunLight.shadow.intensity;
-              const stale = cascadeNeedsRender({
-                halfExtentM: fit.halfExtentM,
-                appliedHalfExtentM: st.halfExtentM,
-                centreDriftM: st.centre.distanceTo(_eyeGround),
-                keySwingRad: st.keyDir.angleTo(_casKey),
-                epoch,
-                appliedEpoch: st.epoch,
-                ageMs: nowMs - st.lastMs,
-                moveFrac: ULTRA.cascadeMoveFrac,
-                swingRad: _cascadeSwingRad,
-                maxStaleMs: ULTRA.cascadeMaxStaleMs,
-              });
+              let stale = false;
+              if (frameHeld("shadow")) {
+                noteFrameHold("shadow.cascades");
+              } else {
+                stale = cascadeNeedsRender({
+                  halfExtentM: fit.halfExtentM,
+                  appliedHalfExtentM: st.halfExtentM,
+                  centreDriftM: st.centre.distanceTo(_eyeGround),
+                  keySwingRad: st.keyDir.angleTo(_casKey),
+                  epoch,
+                  appliedEpoch: st.epoch,
+                  ageMs: nowMs - st.lastMs,
+                  moveFrac: ULTRA.cascadeMoveFrac,
+                  swingRad: _cascadeSwingRad,
+                  maxStaleMs: ULTRA.cascadeMaxStaleMs,
+                });
+              }
               if (!stale) continue;
               const shCam = cl.shadow.camera;
               if (shCam.right !== fit.halfExtentM) {
@@ -6655,18 +6919,27 @@ export function attachStylizedTiles(opts: {
           // the blue channel. The asymmetry is what proves it an oversight rather than a decision:
           // the GROUND has gated its moon terms on moon elevation since S7 (`moonUp` in
           // imageryGround), and the buildings never did, so the two disagreed about whether the
-          // moon was up. Same ramp the sun/moon handoff already uses; exactly 1 with the chip off.
+          // moon was up. Same ramp the sun/moon handoff already uses; exactly 1 with the LOOK off.
           // 2026-09-06: on the ULTRA twin, so it keeps agreeing with the rig's own moon gate now
           // that `moonShadows` reads `ULTRA.shadowGateSin` — a lunar upper limb also sets ~50′
           // below the geometric horizon.
+          // T96: the LOOK. It has to move with `moonShadows`'s own gate above, or the dedicated
+          // moonlight and the rig would disagree about whether the moon is up on the base rig.
           moonIntensity:
             moonKs *
             (1 - moonRigTakeover) *
-            (ultraOn ? aboveGateK(moonDirW.dot(_focusUp), ULTRA_KEY_GATE) : 1),
+            (lookOn() ? aboveGateK(moonDirW.dot(_focusUp), ULTRA_KEY_GATE) : 1),
           // Owner taste pass (2026-08-27c) — the disc now carries its own authored LEVEL curve
           // and an opacity ramp, because scaling an ADDITIVE impostor down can only ever dissolve
           // it into the sky (see SKY.discLevelCurve). `false` restores the shipped disc exactly.
-          ultraDisc: ultraOn,
+          // T96: the LOOK. The disc's dusk treatment (`SKY.discLevelCurve`, the premultiplied
+          // dim-but-SOLID arm, the floored `solarChroma` tint) is three uniform writes and zero
+          // frame time, and it is the same 2026-08-27c dusk taste pass as the rest of the model —
+          // "the sun disk becomes too white and transparent" was reported on a base-rig frame.
+          // It is a provable superset of the shipped additive disc at high sun (`uSolid` is
+          // EXACTLY 0 above `SKY.discSolidHiDeg`), so what the base rig gains is confined to the
+          // last few degrees, which is where the ruling lives.
+          ultraDisc: lookOn(),
           solar: solarEcl, // derived in stepEclipse from these same vectors, one frame earlier
           lunar: lunarEcl,
         });
@@ -6774,7 +7047,9 @@ export function attachStylizedTiles(opts: {
   const stepSkyHover = () => {
         // Tap-reveal latch (M3c): while parked (touch tap on open sky), the tap point IS the
         // hover point — the whole cascade below (glow / ghost pulse / names) runs off it.
-        const tapLatch = tapRevealUntil > performance.now() && !Number.isFinite(hoverX);
+        // T94: `frameNow()`, the same clock the two writers above stamp the latch with — a latch
+        // that EXPIRES between two captures changes the picture (glow / ghost pulse / sky names).
+        const tapLatch = tapRevealUntil > frameNow() && !Number.isFinite(hoverX);
         const hx = tapLatch ? tapRevealX : hoverX;
         const hy = tapLatch ? tapRevealY : hoverY;
         const eligible = Number.isFinite(hx) && !anyPointerDown && !placingNow();
@@ -7098,7 +7373,7 @@ export function attachStylizedTiles(opts: {
         stars.update({
           alt,
           camera,
-          elapsedS: (performance.now() - t0) / 1000,
+          elapsedS: (frameNow() - t0) / 1000,
           reduceMotion,
           gastRad,
           sunDir: sunDirW,
@@ -7885,6 +8160,8 @@ export function attachStylizedTiles(opts: {
       // DSM/hulls (up to ~100 MiB at 3 m).
       bestSpotSheet.dispose();
       bestSpotFeed.dispose();
+      for (const u of unregFrameClocks) u(); // T94: the seam must not name a dead scene's clocks
+      setFrameFrozen(false); // never leave a disposed page frozen (a re-mount would inherit it)
       for (const u of dbgUnregs) u(); // DEBUG HUD providers/actions die with the globe
       vtiles.dispose();
       earth.dispose();

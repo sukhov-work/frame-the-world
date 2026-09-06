@@ -138,6 +138,10 @@ calculations agreeing. Cost: a one-frame lag on targets, against easings of 0.4�
 
 ## 5. The off-state contract
 
+> **SUPERSEDED IN PART, 2026-09-06i — see §12b.** The contract below now applies to the CHIP's
+> levers (ULTRA's COST). The LIGHT/SHADOW MODEL moved to the base rig by owner ruling T96 and its
+> exact off-state is reached by `ULTRA.baseTakesLook: false`. Everything below stands as written.
+
 > **With the chip off, no ULTRA value can change a rendered pixel, and every lever reads EXACTLY
 > its pre-track value — not approximately.**
 
@@ -357,7 +361,69 @@ judgement, not a flag.
 
 ---
 
+## 12b. SUPERSESSION — T96, 2026-09-06i: §5's off-state contract splits in two
+
+> **Owner ruling, `DECISIONS.md` 2026-09-06i:** *"the BASE rig (ULTRA off, the `high` default)
+> TAKES the ULTRA light/shadow model. The byte-identical-`high` law is SUPERSEDED for the light and
+> shadow path… What stays ULTRA-only is ULTRA's COST."*
+>
+> **Nothing below this line is edited.** §5, §6 and §13–14 record what was true when they were
+> written and why; this block records what changed on top of them. Read them in that order.
+
+**What the ruling changes.** `StylizedTiles` now reads two flags where it read one:
+
+- **`ultraOn` — the CHIP (cost).** The 8192² map, the cascade ladder, terrain casting,
+  anisotropy + the capped mip chain, the tile/LRU levers, `lightDistM` / `depthMarginM` /
+  `maxBoundsM` and every bias derived from that box. §5's off-state contract applies to these
+  **unchanged and in full**: with the chip off each reads exactly its pre-track value, and
+  `verify-ultra.mjs` §A/§D still assert the literals.
+- **`lookOn() = ultraOn || ULTRA.baseTakesLook` — the LOOK (model).** `ultraLightAt` and every
+  `uFtw*` light uniform it drives, `keyExtinctCurve`→`directK` + `solarChroma`, `skyLevelCurve`,
+  `afterglowCurve`, the true-sunset gate `shadowGateSin` with `shadowFadeBandSin` and
+  `shadowLengthCasterM`, `shadowDirectShareK`, `groundShadowDuskK`, `hemiTrackUp`, and the sun
+  disc's dusk treatment (`SKY.discLevelCurve`, `ultraDisc`).
+
+**Why the model was on the wrong flag.** §6's twilight-band light model, §13.2's dusk fixes and the
+2026-09-06 sunset shadow-release are all curve evaluations and uniform writes — they cost nothing
+measurable. Riding them on a COST chip meant every user who never found the `ULT` button was still
+looking at a flat key, a levelless air-light and a shadow field deleted 5.9 minutes before sunset.
+The owner's own sunset report was written against a default `high` frame.
+
+**§5's claim, restated rather than withdrawn.** *With the LOOK off, no light value can change a
+rendered pixel and every lever reads EXACTLY its pre-track value.* That state is now reached by
+`ULTRA.baseTakesLook: false` rather than by the chip, it is still exact, and it is still pinned —
+`test/components/globe/duskShadeRatio.test.ts` ("`baseTakesLook: false` reproduces the OLD base rig
+exactly") carries the numbers §14.1 quotes. The two documented exceptions in §5 (the
+construction-time shadow levers, §1b anisotropy) are COST levers and are untouched by this ruling.
+
+**Ruling 3, same date — the refresh cadence.** T77 A2's one-texel rig quantum (a step every ~1.2 s
+at real time instead of a per-frame re-rasterisation) is accepted as THE LOOK, so
+`SHADOWS.rigKeySnapTexels` / `rigMoveTexels` ship at **1** alongside their ULTRA twins. This is the
+one piece of the ruling that is a cost WIN rather than a look change: the base rig stops re-rendering
+its 4096² depth map every frame.
+
+**T66, same date — the authored rises through 0° are flattened.** `ULTRA.exposureCurve` holds a
+plateau from 0° to −2°, `hazeCurve`'s peak is a plateau over [0°, +0.5°], and the dome's additive
+afterglow band is multiplied by `uFtwSkyLevel` (report F4) with `afterglowCurve` re-anchored so the
+product never exceeds its own +0.5° value. §14.4's argument for an additive afterglow band stands;
+what it loses is its licence to outrun the sky. Gate: `verify-ultra-dusk --ladder`, monotone
+non-increasing +3° → −1.5° within 2 codes. Unit twin: `test/lib/globe/lightBands.test.ts` §T66.
+
+**Fences re-pointed, not deleted:** `verify-ultra.mjs` §A/§D (the light half now asserts the model
+on the base rig; the cost half is untouched) · `duskShadeRatio.test.ts` (the "defect, preserved
+exactly" block is now the `baseTakesLook: false` path, with a new block pinning what ships) ·
+`shadowSnap.test.ts` (base quanta 1/1) · `duskLight.test.ts` (the afterglow crosses the sky level
+at −5° instead of −2°) · `fences.test.ts` §T96 (a written ALLOW-LIST of the chip's reads).
+
+---
+
 ## 13. THE 2026-08-27 BATCH — the owner's three immersion breakers
+
+> **SUPERSEDED IN PART, 2026-09-06i (T96) — see §12b.** Every LIGHT/SHADOW lever this section
+> shipped (the dusk model, the gates, the overlay) now runs on the BASE rig too: read "under
+> ULTRA" below as "under the LOOK" (`lookOn() = ultraOn || ULTRA.baseTakesLook`). The COST levers
+> §13.1 fits — the cascade ladder, the 8192² map, terrain casting — are unchanged and still the
+> chip's. Nothing below this line is edited; it records what was true when it was written.
 
 Shipped in one session against a verbatim owner report. Gate: **`scripts/verify-ultra-dusk.mjs`
 21/21**, alongside an unchanged `verify-ultra.mjs` 28/28 and `verify-rendering-charter.mjs` 85/85.
@@ -461,6 +527,15 @@ unrecognised group layout casts and receives exactly as before.
 ---
 
 ## 14. THE TASTE PASS — what the first dusk batch got wrong (2026-08-27c)
+
+> **SUPERSEDED IN PART, 2026-09-06i — see §12b.** (1) T96: every term below is the LOOK's, so it
+> runs on the BASE rig now — §14.1's ratio of 0.969 is the number the `baseTakesLook: false` block
+> in `duskShadeRatio.test.ts` still pins and the shipped base no longer produces. (2) T66: the
+> authored rises through 0° that this pass introduced are FLATTENED — `exposureCurve` holds a
+> plateau to −2°, `hazeCurve`'s 0° peak is a plateau over [0°, +0.5°], and the dome's additive
+> afterglow band is multiplied by `uFtwSkyLevel` with `afterglowCurve` re-anchored, so
+> `afterglow × skyLevel` never exceeds its own +0.5° value. §14's argument for each term stands;
+> what the afterglow loses is its licence to outrun the sky. Nothing below this line is edited.
 
 §13 shipped, the owner tested it, and four things were still wrong. Every one turned out to be a
 term that had been left OUT of the first pass rather than a knob set badly, which is why the first

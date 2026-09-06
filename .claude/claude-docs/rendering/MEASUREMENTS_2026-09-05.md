@@ -611,3 +611,90 @@ research's option g), which is a structural change to `GlobeCanvas.tsx`'s compos
 instrument. Side reading: `frame.cpu` at the FPV eye is **4.4 ms (was 2.1)** and 1.3 at orbit
 (was 42 → 1.2 after T79) — the slice-B drain budget and memo work are on the main thread now;
 profile it in slice C (`probe-cpu-profile --pose fpv`).
+
+## 15. Session 2026-09-06j+k — the six-worktree integration, the crash, and the numbers that survived it
+
+**What was measured and what was not.** Session j crashed the machine before any measurement
+(six worktrees × `wix dev` + headless Chrome on a 36 GB M3 → 120 GB swap). Session k integrated all
+six slices on master under the resource budget (`conventions/verify.md` §THE RESOURCE BUDGET) and ran
+the unit gates on the full stack; the browser gates ran on BASE alone and were then **blocked by a
+CloudFront WAF 403 on `api.cesium.com`** (no Cesium terrain / OSM buildings from this IP — see the
+DECISIONS line). Everything below is therefore either unit-level, model-level on a terrain-less
+earth, or an implied number waiting for its timed run.
+
+### 15.1 Unit gates on the integrated master (BASE + C-1 + T80-g + A-rest + T94 + sheets)
+
+| Gate | 2026-09-06h | 2026-09-06k |
+|---|---|---|
+| vitest | 2,584 / 167 files | **2,692 / 172 files** (+108 tests, +5 files: `seatQuiet`, `resolvedComposer`, `frameFreeze`, `shadowArms`, `shadowRigOverride`) |
+| `astro check` | 0 / 0 / 9 | **0 / 0 / 9** |
+| knip | 0 | **0** (`memory_pressure` → `ignoreBinaries`) |
+
+### 15.2 The sunset ladder on BASE, both rigs (Everest FPV, `verify-ultra-dusk --ladder`, headless :9333, **no terrain**)
+
+| Rung (° geometric) | +3 | +2 | +1.3 | +1.06 | +0.9 | +0.5 | +0.2 | 0 | −0.14 | −0.5 | −0.9 | −1.5 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ground luma, ULTRA on | 71.06 | 69.64 | 68.46 | 68.01 | 67.71 | 66.9 | 66.3 | 65.8 | 65.5 | 64.7 | 63.8 | — |
+| ground luma, ULTRA off | 70.99 | 69.57 | 68.39 | 67.95 | 67.64 | 66.8 | 66.2 | 65.8 | 65.5 | 64.7 | 63.8 | — |
+| field intensity, ULTRA on | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 0.657 | 0 | 0 |
+| field intensity, ULTRA off | 1.000 | 0.790 | 0.594 | 0.527 | 0.482 | 0.370 | 0.286 | 0.230 | 0.191 | 0.059 | 0 | 0 |
+| directK (both) | 0.620 | 0.479 | 0.356 | 0.341 | 0.335 | 0.258 | 0.195 | 0.180 | 0.141 | 0 | 0 | 0 |
+| casting (both) | — | — | — | — | — | — | — | — | — | true | false | false |
+
+- **T66 gate: worst rung-to-rung luma RISE 0.00 codes on both rigs** (the owner's "monotone
+  non-increasing +3° → −1.5° within 2 codes"); worst brightening ×1.00 (the shipped rig measured
+  ×5.22). The two rigs' luma series agree within 0.1 code — the LOOK is one model now (T96).
+- **The base rig's field ramps from ~+2.5°** where ULTRA holds 1.000 to −0.14°: the length guard's
+  reach on the base rig is its own 5 km box (`shadowBoundsM`), not the cascade ladder's 260 km, and
+  an 8 km peak's sunset shadow leaves a 5 km box early. A ramp on geometry, in place of the old cliff
+  (1.000 at +1.06° → 0.014 at +0.5°). The ladder's "still FULL at +0.9°" check is ULTRA-only; the base
+  rig asserts "FULL at +3°, ≥ 0.4 at +0.9°". Mountain poses only — at Dnipro a +2° shadow is ~3 km.
+- Both ladders: 12/12 rungs, chip state held for the whole ladder, LOOK on every rung, no console
+  errors. ULTRA on 18/18 · ULTRA off 17/18 → 18/18 after the re-point (unrun).
+- **Caveat:** these frames are a flat plain — the ion block starved the terrain. The light-model
+  curves run on the base earth exactly as on terrain, so the luma gate stands; the casting rungs
+  measured the rig without casters. Re-run with terrain before quoting the field series.
+
+### 15.3 Implied, not measured (the timed runs are next session's first hour)
+
+| Slice | Implied number | The run that decides |
+|---|---|---|
+| T80-g | post-geometry bandwidth ~873 → ~194 MB/frame at 3200×1900 ⇒ fpv GPU ≈ 14–18 ms (was 25.2; gate ≤ 15) · rt1 ~243 → ~49 MB VRAM | `verify-perf-baseline 9222 --quick --only "^fpv" --post-ab` (the new `bloomMsaa` cell − `on` IS the lever) · `probe-bloom-path 9333` (signal vs noise floor at threshold 0) |
+| C-1 | `frame.cpu` at the FPV eye 4.4 → ≤ 2.5 ms; `bufferSubData` off 56.7 % of self time; `rejectedDelta` ≪ +1,324; city p95 < 0.1 m within 600 frames of quiet | `probe-cpu-profile --pose fpv` · `verify-temporal-stability --reseat` (+ the `frozen/idleCells/deepResamples` counters) |
+| BASE ruling 3 | base `fpv.u0` churn p50 0.184 → ~0, rate-linearity ≥ 3 | `verify-temporal-stability --shimmer --step 200` |
+| T94 | `n/m poses re-shot BYTE-IDENTICAL` under `--freeze`; a `--compare --tolerance 0` that gates | `verify-visual-sweep --golden` then `--compare` in one boot |
+| A-rest E3 / E1 / E2 | lever 12 close/keep by refresh attribution · lever 2 build/close by churn on `cascades:false` · A1 bias adopt/close | `probe-shadow-rig … --settle 0 --live` (3 min) · `--arms '{"ladderOff":{"cascades":false}}'` (25 min) · `--rig 0,0 --arms …` (30 min) |
+
+### 15.4 The machine, measured while it worked
+
+`resource-watchdog.log`: one dev server ≈ 1.1 GB (astro 943 MB + wix 166 MB); one headless Chrome
+rendering the globe through the ladder ≈ 2.3–2.6 GB all-Chrome RSS (IntelliJ's CEF helpers
+included); free memory 60–84 % throughout session k with IntelliJ at ≈ 20 GB RSS. Six of each — the
+session-j shape — is 6 × (1.1 + 2.5) ≈ 22 GB on top of that, which is the freeze.
+
+### 15.5 The block lifted (17:55) — the browser gates on the integrated tree, WITH terrain
+
+> **k3 correction (owner):** the block lifted because the owner connected Proton VPN (Finland) at 17:55 — a
+> block on the Dnipro ISP address, not a rate limit. The VPN is a precondition for every row below.
+
+One house headless Chrome (:9333), strictly sequential; timed cells on a headed :9222 alone.
+
+| Gate | 2026-09-06h | 2026-09-06k2 | Reading |
+|---|---|---|---|
+| ladder `--ultra 0` (BASE rig) | (no dusk model) | **18/18**; luma 108.9→98.7→89.2→86.9→85.5→81.1→78.8→78.3→77.5→74.9→72.9→68.4 | T66 worst rise 0.00 codes; field 1.000 to +0.5°, then 0.887/0.712/0.590/0.175/0 |
+| ladder `--ultra 1` (ULTRA) | 32/32 (+0.5° 67.0 → 0° 78.0, ×1.16) | **17/18** solo; luma 73.8→73.1→70.6→68.9→67.8→67.4→68.4→68.6→70.1→**75.0**→73.0→68.4 | the 0° bump is GONE (68.6); the +4.9-code rise at −0.5° is the ULTRA field's release band 1.000→0.636→0 (T100) |
+| charter | 85/85 | 84/85 → 83/85 → re-pointed (moon gate, RC7, pref precondition) | RC2 fade step 0.0248 / 0.0508 vs 0.05 (T100 again) |
+| ultra | 29/29 | **30/30** solo | queued run's §1b = warm tile cache |
+| shimmer `--step 200`, base `fpv.u0` | churn 0.184 | **p50 0.0000, control max 0.00000/239 frames**, rate-linearity 2.64 | ruling 3 landed |
+| reseat, FPV eye | rejected +1,324, collapsed 0, end 0.000 | **rejected +0**, collapsed 0, end 0.000, city p95 34.4 / end 6.0 m (streaming) | C-1 at the eye as designed |
+| reseat, orbit arrival | rejected 0, city p95 34.3 | **rejected +39,629**, city p95 29.7, end 0.000 | deep-answer deferrals thrash (T101) |
+| sweep `--golden` (T94) | 30 % of pixels differ two rAF apart | **14/14 BYTE-IDENTICAL** | the byte gate exists; 3 harness defects fixed (measure-first, two-phase freeze, leg re-boot) |
+| `probe-bloom-path`, west-sunset FPV | — | signal 0.16–0.32 % vs noise 0.41–0.49 % (threshold 0) | T80-g = the same picture |
+| E3 lever 12, streaming city, 240 frames | — | 122 refreshes: **122 by EPOCH**, 0 extent, 0 swing/drift | lever 12 CLOSED |
+| `frame.cpu` at the FPV eye (headed) | 4.4 ms | **0.7 ms** p50 | C-1 gate ≤ 2.5 MET |
+| fpv GPU `high` DPR 2 (headed, one boot) | on 25.2 · off 12.1 · cheap 23.6 | **on 19.8 · `bloomMsaa` 22.5 · off 9.8 · cheap 18.4** | T80-g −2.7 ms (12 %); gate ≤ 15 NOT met; the blur chain is the remaining 8 ms |
+| `fpv.u1` (ULTRA) GPU | — | on 21.4 · off 20.6 | — |
+
+T92: the focal cone's fill (cone-off removes the wedge). T93: the base earth's limb shading between the
+terrain's loaded reach and the horizon (ground-off keeps the band; far-plane ×8, skirt, earth toggles
+do not move it). Both classified, neither fixed.

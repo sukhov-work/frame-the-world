@@ -34,6 +34,7 @@ import {
   type PlaceholderStats,
 } from "../../../lib/globe/esriPlaceholder";
 import { hookTerrainPatch, makeTerrainPatchFetchPlugin, type TerrainPatchOpts } from "./terrainPatch";
+import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
 
 /**
  * Terrain ground — REAL elevation (Cesium World Terrain, ion asset 1, quantized-mesh) with Esri
@@ -497,7 +498,10 @@ export function attachImageryGround(
     // --- ULTRA (T44 §1a + T45 S9/S4). ALL FOUR are seeded 0, and 0 is the identity of every
     //     expression they appear in — `mix(legacy, ultra, 0.0)` is exactly `legacy`, `max(x, 0.0)`
     //     is exactly `x`, and the haze block is skipped entirely. That is the off-state proof:
-    //     with the chip off this layer renders the same instructions it did before the track. ---
+    //     with the LOOK off this layer renders the same instructions it did before the track.
+    //     T96 (owner ruling 2026-09-06i): the LOOK is `lookOn() = ultraOn || ULTRA.baseTakesLook`
+    //     and ships ON, so read every "with the chip off" note in this file as "with the LOOK
+    //     off" (`ULTRA.baseTakesLook: false`). The chip now buys frame time only. ---
     /** §1a — the photographic de-grade in 3D, ULTRA's own twin of the chart's uFtwFlat2d×uFtwPhotoK. */
     uFtwPhoto3d: { value: 0 },
     /** S9 — how far the day factor has moved from the legacy termBand ramp to the twilight-band
@@ -516,10 +520,13 @@ export function attachImageryGround(
     uFtwHazeCool: { value: new THREE.Color(tokens.skyHorizon) },
     uFtwSkyLevel: { value: 0 },
     /** Owner taste pass — the sun-side afterglow, so the far terrain catches the same glow the
-     *  dome above it is painting. 0 with the chip off, and max(x, 0.0) is exactly x. */
+     *  dome above it is painting. 0 with the LOOK off (T96, 2026-09-06i: the model rides
+     *  `lookOn()`, not the chip), and max(x, 0.0) is exactly x. */
     uFtwAfterglowG: { value: 0 },
     /** Owner defect 2 — DIRECT sun reaching the ground, for the direct/ambient split. Only ever
-     *  read inside `mix(dayShade, dayShadeU, uFtwUltraLight)`, which is 0 with the chip off. */
+     *  read inside `mix(dayShade, dayShadeU, uFtwUltraLight)`, which is 0 with the LOOK off —
+     *  T96 (2026-09-06i) moved that mix onto `lookOn()`, so on a shipped build it is 1 whether or
+     *  not the ULT chip is lit, and only `ULTRA.baseTakesLook: false` returns it to 0. */
     uFtwDirectK: { value: 1 },
   };
   const gradeGround = (shader: any) => {
@@ -1015,7 +1022,9 @@ export function attachImageryGround(
   const _rayOrigin = new THREE.Vector3();
   const _rayDir = new THREE.Vector3();
   const _raycaster = new THREE.Raycaster();
-  let lastRevealMs = performance.now();
+  let lastRevealMs = frameNow();
+  // T94 — the deterministic-capture seam names the clocks it can hold (lib/globe/frameFreeze).
+  const unregFrameClock = registerFrameClock("ground.reveal");
 
   // --- ULTRA look state: RAW targets in, eased values out (see setUltraTargets) ---------------
   let ultraPhotoTarget = 0;
@@ -1417,7 +1426,7 @@ export function attachImageryGround(
         : initialLoadStarted
           ? THREE.MathUtils.clamp(tiles.loadProgress, 0, 1) * GROUND.revealProgressCap
           : 0;
-      const now = performance.now();
+      const now = frameNow();
       const dtMs = Math.min(now - lastRevealMs, 100);
       lastRevealMs = now;
       const k = 1 - Math.exp(-dtMs / GROUND.revealTauMs);
@@ -1481,9 +1490,16 @@ export function attachImageryGround(
         shadowsActive = wantShadows;
         for (const twin of shadowTwins) twin.visible = shadowsActive;
       }
+      // T94: hold the stream so no terrain tile lands (and bumps `terrainEpoch`) between two
+      // captures. Everything above is a pure per-frame recompute off a frozen clock.
+      if (frameHeld("streaming")) {
+        noteFrameHold("ground.stream");
+        return;
+      }
       tiles.update();
     },
     dispose() {
+      unregFrameClock();
       if (overlayRetryTimer !== null) clearTimeout(overlayRetryTimer);
       tiles.removeEventListener("load-error", onLoadError);
       shadowMat.dispose();

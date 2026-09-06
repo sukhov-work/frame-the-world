@@ -29,7 +29,7 @@ try {
   });
   await s.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 2, mobile: false });
   const pose = byId("legacy-fpv-eye");
-  const { url } = poseUrl(pose, { dev: "http://localhost:4321", ultra: false });
+  const { url } = poseUrl(pose, { dev: process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321", ultra: false });
   console.log("boot", url);
   await s.bootUrl(url);
   await s.waitFor(`!!(window.__globe && window.__globe.enrichedCellSeats && window.__globe.terrainSample && window.__globe.seatSettle)`, 120_000, "seams");

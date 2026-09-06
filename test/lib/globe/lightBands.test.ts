@@ -68,6 +68,108 @@ describe("bandCurve — the S9 twilight response", () => {
   });
 });
 
+/**
+ * T66 — THE AUTHORED RISES THROUGH 0° (owner ruling 2026-09-06i).
+ *
+ * *"brightness goes up against all physics"*. Three curves in this file were authored to KEEP
+ * CLIMBING after the sun had set — `exposureCurve` 1.1194 → 1.1451 by −1.5°, `hazeCurve` peaking
+ * exactly at 0°, `afterglowCurve` 0.35 → 0.75 by −2° while `skyLevelCurve` fell 0.58 → 0.46 — and
+ * together they are the ×1.16 luma bump the sunset-release fix could not remove, because it is not
+ * a shadow defect at all. The owner's gate is the elevation ladder's luma series
+ * (`verify-ultra-dusk --ladder`, monotone non-increasing +3° → −1.5° within 2 codes); this is its
+ * UNIT TWIN, on the tables themselves, so a re-tune that re-creates the defect fails in 30 ms
+ * instead of costing a browser run.
+ *
+ * The reference elevation is +0.5°, verbatim from the ruling: *"may not make the frame brighter
+ * than it was at +0.5°"*.
+ */
+describe("T66 — nothing the sun sets past may brighten the frame", () => {
+  const REF = sinDeg(0.5);
+  /** Dense sample of the whole post-reference domain, in sin space (what the curves evaluate in). */
+  const below = (fromDeg = 0.5, toDeg = -18, stepDeg = 0.01): number[] => {
+    const out: number[] = [];
+    for (let d = fromDeg; d >= toDeg; d -= stepDeg) out.push(sinDeg(Number(d.toFixed(4))));
+    return out;
+  };
+
+  it("EXPOSURE holds its plateau across the sunset window instead of opening up through it", () => {
+    const at = (d: number) => bandCurve(ULTRA.exposureCurve, sinDeg(d));
+    // The shipped defect, as one number: the camera opened up by 0.025 stops of multiplier
+    // between +0.5° and −1.5°, i.e. while the sun was disappearing.
+    expect(at(0)).toBe(at(-1));
+    expect(at(0)).toBe(at(-2)); // the plateau, exactly — one anchor value, not a near miss
+    for (const d of [-0.25, -0.5, -0.833, -1, -1.5, -2]) {
+      expect(at(d)).toBeLessThanOrEqual(at(0) + 1e-12);
+    }
+    // …and the residual rise from the reference into the plateau is a quarter of one 8-bit code,
+    // against the ladder's 2-code tolerance. (It cannot be zero without moving the 0° anchor,
+    // which would change the DAY side — explicitly out of scope for this ruling.)
+    expect(at(0) - bandCurve(ULTRA.exposureCurve, REF)).toBeLessThan(1e-3);
+    expect(at(0) - bandCurve(ULTRA.exposureCurve, REF)).toBeGreaterThan(0);
+    // The night ramp still exists below the window — the camera opening up at night is the
+    // feature, and it resumes where dayK and skyLevel are collapsing far faster than it climbs.
+    expect(at(-6)).toBeGreaterThan(at(-2));
+    expect(at(-18)).toBeCloseTo(1.46, 10);
+    // The DAY side is untouched by this ruling, and that is checkable: every anchor at or above
+    // 0° is still hit exactly, and the shape between them is the shipped one.
+    for (const a of ULTRA.exposureCurve.filter((a) => a.elevDeg >= 0)) {
+      expect(bandCurve(ULTRA.exposureCurve, sinDeg(a.elevDeg))).toBeCloseTo(a.v, 10);
+    }
+  });
+
+  it("HAZE never rises below the reference — the 0° spike is a plateau now", () => {
+    const ref = bandCurve(ULTRA.hazeCurve, REF);
+    let prev = ref;
+    for (const s of below()) {
+      const v = bandCurve(ULTRA.hazeCurve, s);
+      expect(v).toBeLessThanOrEqual(ref + 1e-12); // never brighter than the reference…
+      expect(v).toBeLessThanOrEqual(prev + 1e-12); // …and never brighter than one step ago
+      prev = v;
+    }
+    // Everything BELOW the horizon is byte-identical to the shipped table — the fix is confined
+    // to the half-degree above it, which is where the spike was.
+    expect(bandCurve(ULTRA.hazeCurve, sinDeg(0))).toBe(0.85);
+    expect(bandCurve(ULTRA.hazeCurve, sinDeg(-4))).toBe(0.8);
+  });
+
+  it("AFTERGLOW × SKYLEVEL — the band the dome actually paints — never outruns the sky", () => {
+    // F4: `scene/atmosphere.ts` multiplies its additive band by `uFtwSkyLevel`, so THIS product is
+    // the quantity with a licence to be looked at, and the ruling binds it and not the raw curve.
+    const band = (s: number) =>
+      bandCurve(ULTRA.afterglowCurve, s) * bandCurve(ULTRA.skyLevelCurve, s);
+    const ref = band(REF);
+    for (const s of below()) expect(band(s)).toBeLessThanOrEqual(ref + 1e-12);
+    // Falling across the ladder's own window, which is the gate stated as arithmetic. The
+    // tolerance is the ruling's own — "monotone non-increasing … WITHIN 2 CODES" — and it is not
+    // slack being taken: the largest local rise anywhere below the reference is 4.8e-4 on a band
+    // of 0.20, i.e. 0.24 %, a smoothstep artefact of `skyLevelCurve`'s flat-derivative knot at 0°
+    // meeting the afterglow's steepest segment. The shipped table rose 71 % over the same window.
+    const ladder = [0.5, 0.25, 0, -0.25, -0.5, -0.833, -1, -1.25, -1.5].map((d) => band(sinDeg(d)));
+    for (let i = 1; i < ladder.length; i++) {
+      expect(ladder[i]).toBeLessThanOrEqual(ladder[i - 1] + 1e-3);
+    }
+    // …and the window as a whole is a real fall, not a flat line that satisfies the bound.
+    expect(ladder.at(-1)!).toBeLessThan(ladder[0] * 0.95);
+    // The defect, recomputed rather than transcribed, so this test can never be satisfied by a
+    // curve that merely looks different: the SHIPPED table rose × 1.71 across the same window.
+    const SHIPPED = [
+      { elevDeg: 4, v: 0 },
+      { elevDeg: 0, v: 0.35 },
+      { elevDeg: -2, v: 0.75 },
+      { elevDeg: -5, v: 0.55 },
+      { elevDeg: -9, v: 0.15 },
+      { elevDeg: -14, v: 0 },
+    ];
+    const shippedBand = (d: number) =>
+      bandCurve(SHIPPED, sinDeg(d)) * bandCurve(ULTRA.skyLevelCurve, sinDeg(d));
+    expect(shippedBand(-1.5) / shippedBand(0.5)).toBeGreaterThan(1.7);
+    expect(ladder.at(-1)! / ref).toBeLessThan(1);
+    // …and the glow is still a glow: it has not been flattened out of existence at the horizon.
+    expect(bandCurve(ULTRA.afterglowCurve, sinDeg(0))).toBeGreaterThan(0.3);
+    expect(bandCurve(ULTRA.afterglowCurve, sinDeg(-5))).toBeGreaterThan(0.45);
+  });
+});
+
 describe("bandCurveGlsl — the emitted shader twin cannot drift from the JS", () => {
   /**
    * The emitted GLSL is a straight-line fold of `mix(v, hi, smoothstep(lo, hi, s))`. Rather than

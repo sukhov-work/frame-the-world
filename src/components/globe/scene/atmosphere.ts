@@ -117,7 +117,11 @@ export function attachAtmosphere(
     //                    local sky afterglow when the sun has just set", and it is local because
     //                    it rides the Mie lobe: it lives in the sun's azimuth and leaves the rest
     //                    of the sky to go dark.
-    // All zero with the chip off, and `mix(x, y, 0.0)` / `× 1.0` keep the shipped dome exact.
+    // All zero with the LOOK off, and `mix(x, y, 0.0)` / `× 1.0` keep the shipped dome exact.
+    // T96 (owner ruling 2026-09-06i): the LOOK is `lookOn() = ultraOn || ULTRA.baseTakesLook`,
+    // not the chip — every "with the chip off" note in this file means "with the LOOK off",
+    // i.e. `ULTRA.baseTakesLook: false`. On a shipped build these uniforms are LIVE whether or
+    // not the ULT chip is lit; the chip now buys frame time only (`ULTRA_ARCHITECTURE` §12b).
     uFtwSkyCool: { value: new THREE.Color(tokens.skyHorizon) },
     uFtwSkyLevel: { value: 0 },
     uFtwAfterglow: { value: 0 },
@@ -283,8 +287,19 @@ export function attachAtmosphere(
             // ground rather than wrapping under it.
             float hzA = exp(-max(sRel, 0.0) / ${glf(ULTRA.afterglowTauSin)})
               * exp(min(sRel, 0.0) / ${glf(ATMOSPHERE.skyHazeBelow)}) * hazeAltK;
+            // T66 / report F4 (owner ruling 2026-09-06i) -- the x uFtwSkyLevel is new. The band
+            // was UNBOUNDED: it rode ULTRA.afterglowCurve alone, which climbs after sunset while
+            // ULTRA.skyLevelCurve falls, so the sun-side dome bottomed at 0 deg and then turned
+            // around and rose 12 % again by -2 deg while the anti-solar dome kept collapsing.
+            // That is the owner's "brightness goes up against all physics" at the dome, and it is
+            // the one term in this shader that could outlive the sky it is painted on. Binding it
+            // to uFtwSkyLevel makes it a FRACTION of the sky's own luminance -- an afterglow can
+            // be the brightest thing in the sky and still not be brighter than the sky was a
+            // minute ago. The curve is re-anchored to match, so the product is non-increasing
+            // below +0.5 deg. Off-state untouched: the whole block is gated on uFtwDirK > 0.0,
+            // and uFtwSkyLevel is 0 there anyway.
             skyCol += dirCol * hzA * ${glf(ULTRA.afterglowGain)}
-              * uFtwAfterglow * sunSide * uFtwDirK;
+              * uFtwAfterglow * uFtwSkyLevel * sunSide * uFtwDirK;
           }
           color = mix(color, skyCol, skyK);
         }

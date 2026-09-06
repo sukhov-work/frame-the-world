@@ -32,6 +32,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
+const DEV_ORIGIN = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321"; // FTW_DEV_ORIGIN: a worktree dev server (2026-09-06j)
 const SHOTS = process.argv[3] ?? "verify-shots";
 mkdirSync(SHOTS, { recursive: true });
 
@@ -96,7 +97,7 @@ async function goto(hash) {
   // Page.navigate to a hash-only-different URL does not reload — bounce through about:blank.
   await send("Page.navigate", { url: "about:blank" });
   await sleep(150);
-  await send("Page.navigate", { url: `http://localhost:4321/${hash}` });
+  await send("Page.navigate", { url: `${DEV_ORIGIN}/${hash}` });
   for (let i = 0; i < 90; i++) {
     await sleep(500);
     const up = await evaluate(
@@ -146,6 +147,16 @@ await send("Emulation.setDeviceMetricsOverride", {
   deviceScaleFactor: 1,
   mobile: false,
 });
+// PRECONDITION (verify.md trap (f), bitten 2026-09-06k): `/tmp/ftw-cdp` persists view prefs across
+// suites, and the charter's off-state checks (T96 "chip off, look on", RC2's fade step) assume the
+// SHIPPED boot — chip OFF. A `verify-ultra-dusk --ultra 1` run just before leaves `ultraQuality:true`
+// in storage and every off-state check then measures the ULTRA rig (3 reds, none real). Write the
+// pref before the first measured boot; the chip is construction-time, so storage is the only lever.
+await send("Page.navigate", { url: `${DEV_ORIGIN}/` });
+await sleep(4000);
+await evaluate(`(() => { const k = "ftw:view-prefs:v1";
+  const o = JSON.parse(localStorage.getItem(k) || "{}");
+  o.ultraQuality = false; localStorage.setItem(k, JSON.stringify(o)); })()`).catch(() => null);
 
 // =============================================================================================
 // RC0 — the probes that gate the rest of the ladder. Numbers, not assertions (except where a
@@ -237,8 +248,10 @@ const gateProbe = `(() => {
     boundsM: s ? s.boundsM : null,
     // The rig's LIVE gate, published since the 2026-09-06 sunset shadow-release. Hardcoding
     // +0.4584° here would make this check fire on whichever rig the verify Chrome happened to
-    // boot with: under ULTRA the crossing is now ULTRA.shadowGateSin = sin(−0.8333°), the sun's
-    // own upper limb, while the base rig keeps SHADOWS.minSunElevSin.
+    // boot with: the crossing is ULTRA.shadowGateSin = sin(−0.8333°), the sun's own upper limb.
+    // T96 (2026-09-06i) made that the BASE rig's gate too (the lookOn() selector), so this probe
+    // is now the only honest way to write the check on either rig — SHADOWS.minSunElevSin is
+    // reached only with ULTRA.baseTakesLook false.
     gateSin: s ? s.gateSin : null,
     sunAltDeg: ${SUN_ALT_DEG},
   };
@@ -323,7 +336,10 @@ ok(
     "teleport from sun to moon happens while the rig contributes nothing",
 );
 // Below the gate the moon arm takes over, and it too is born at zero rather than switched on.
-const belowGate = scrub.filter((s) => s.sunAltDeg < 0.4);
+// The gate is the one the ENGINE reports (`gateDeg`, from `trough.gateSin`), not a literal: the
+// literal 0.4° was the pre-T96 base-rig gate, and since 2026-09-06k the base rig gates at the ULTRA
+// −0.833°, so a 0.4° cut would span the SUN field's own fade and compare it against the moon's.
+const belowGate = scrub.filter((s) => s.sunAltDeg < gateDeg);
 ok(
   belowGate.length > 3 && belowGate[belowGate.length - 1].shadowIntensity > belowGate[0].shadowIntensity,
   `RC2: past the gate the MOON's shadows fade in from zero ` +
@@ -775,8 +791,12 @@ if (seats.features > 0) {
   // audit's S4 bar (>0.9 in the cone within 5 s) is NOT met at 64 samples/frame and is recorded
   // as an open tail rather than asserted away — the drain is deferring, and why it defers needs
   // instrumenting before the budget is raised again.
+  // 2026-09-06k (slice C-1): the city can now be FULLY seated by the time this samples (the idle
+  // skip + the dirty-region sweep drain it in a few hundred frames), at which point "ahead" is not
+  // observable — both read 100 %. That is the prioritisation having finished, not having failed:
+  // accept equality only at full convergence, and keep the strict lead whenever the city is short.
   ok(
-    nearFrac !== null && nearFrac > seatedFrac,
+    nearFrac !== null && (nearFrac > seatedFrac || (seatedFrac >= 0.999 && nearFrac >= 0.999)),
     `RC7: the look cone converges AHEAD of the city (${(nearFrac * 100).toFixed(1)}% vs ` +
       `${(seatedFrac * 100).toFixed(1)}%) — the prioritisation is real`,
   );
@@ -943,33 +963,65 @@ if (seatsAfterReturn.seatCacheHits > 0) {
 await shot("charter-08-rc9-warm-return");
 
 // =============================================================================================
-// GROUP F — RC23 (the ULTRA x eclipse seam) and RC24 (the golden-hour dome seam). Both are
-// ULTRA-gated, so the load-bearing half of each claim is the OFF state: with the chip off these
-// values must be EXACTLY zero, not nearly zero.
+// GROUP F — RC23 (the ULTRA x eclipse seam) and RC24 (the golden-hour dome seam).
+//
+// T96 RE-POINT (owner ruling 2026-09-06i). Both claims used to be ULTRA-gated, so the
+// load-bearing half of each was the OFF state: chip off ⇒ ground haze and dome pull EXACTLY zero.
+// The owner then moved the light/shadow MODEL to the base rig (`ULTRA.baseTakesLook`), so the
+// haze is LIVE with the chip off and the literal zeros are asserting a state that no longer
+// ships. The claims themselves are untouched and are re-pointed at what still makes them exact:
+//   · RC23 — at totality the aerial perspective collapses WITH the daylight (× eclipseK), which
+//     is the seam, and it is now testable on the rig the user actually has.
+//   · RC24 — the dome's pull is EXACTLY the ground's own effective haze × ULTRA.domeTintK, so it
+//     cannot tint on a schedule the ground is not on. That is a stronger statement than "0 = 0"
+//     and it is the invariant RC24 was written for.
+// The pre-T96 zeros are reached with `ULTRA.baseTakesLook: false` and are pinned in
+// `test/components/globe/duskShadeRatio.test.ts`; `verify-ultra.mjs` §A carries the COST half.
 // =============================================================================================
 await goto(`#f=${BURGOS}&t=${T_TOTAL}`);
 
-// (a) OFF-STATE first. `mix(x, y, 0.0)` is exactly `x`, and that is the whole contract.
+// The dome coupling constant, read from the shipped tuning rather than transcribed — a literal
+// here would be asserting a number instead of a contract (the SHADOW_EXPECT idiom).
+const DOME_TINT_K = await evaluate(
+  `(async () => (await import("/src/components/globe/tuning.ts")).ULTRA.domeTintK)()`,
+);
+
+// (a) The base rig at totality — the chip off, the MODEL on.
 const ultraOff = await json(`(() => {
   const g = window.__globe;
   const a = g.atmosphereUniforms ? g.atmosphereUniforms() : null;
+  const u = g.ultraLook();
   return {
-    ultraOn: g.ultraLook().on,
-    haze: g.ultraLook().haze,
+    ultraOn: u.on,
+    look: u.look,
+    baseTakesLook: u.baseTakesLook,
+    haze: u.haze,
     domeK: a ? a.uFtwUltraK : null,
     eclipseK: g.eclipse().daylightK,
   };
 })()`);
 measured.RC23_RC24_off = ultraOff;
 note(
-  `RC23/24 chip OFF at totality: ultraOn=${ultraOff.ultraOn} groundHaze=${ultraOff.haze} ` +
-    `domeUltraK=${ultraOff.domeK} (eclipseK ${ultraOff.eclipseK})`,
+  `RC23/24 chip OFF at totality: ultraOn=${ultraOff.ultraOn} look=${ultraOff.look} ` +
+    `groundHaze=${ultraOff.haze} domeUltraK=${ultraOff.domeK} (eclipseK ${ultraOff.eclipseK}, ` +
+    `domeTintK ${DOME_TINT_K})`,
 );
-ok(ultraOff.ultraOn === false, "RC23/24: the chip really is off for the off-state check");
-ok(ultraOff.haze === 0, `RC23/24 OFF-STATE: the ground haze is EXACTLY 0 (got ${ultraOff.haze})`);
 ok(
-  ultraOff.domeK === 0,
-  `RC24 OFF-STATE: the dome's ULTRA pull is EXACTLY 0 — mix(x, y, 0.0) is x (got ${ultraOff.domeK})`,
+  ultraOff.ultraOn === false && ultraOff.look === true && ultraOff.baseTakesLook === true,
+  `T96: the CHIP is off and the LOOK is on — the shipped base rig (on=${ultraOff.ultraOn} ` +
+    `look=${ultraOff.look})`,
+);
+ok(
+  ultraOff.haze < 0.1,
+  `RC23 on the BASE rig: at totality the aerial perspective has collapsed with the daylight ` +
+    `(haze ${ultraOff.haze}, eclipseK ${ultraOff.eclipseK}) — the model is live here since T96, ` +
+    "so this is now the seam a default `high` user actually gets",
+);
+ok(
+  ultraOff.domeK === ultraOff.haze * DOME_TINT_K,
+  `RC24 on the BASE rig: the dome's pull is EXACTLY the ground's effective haze × domeTintK ` +
+    `(${ultraOff.domeK} vs ${ultraOff.haze} × ${DOME_TINT_K}) — it cannot tint on a schedule the ` +
+    "ground is not on",
 );
 
 // (b) ON, at totality. The seam RC23 closes: the band curve is a function of SOLAR ELEVATION, so
@@ -1061,21 +1113,36 @@ ok(
 );
 await shot("charter-10-rc24-golden-dome-seam");
 
-// (d) …and turning the chip back off must return the dome to EXACTLY zero, not nearly zero.
+// (d) …and turning the chip back off must leave the LOOK exactly where it was.
+//
+// T96 RE-POINT: before the ruling this block asserted the dome snapped back to EXACTLY zero. That
+// was a proof that the light path was COUPLED to the chip — which is precisely what the owner
+// ruled out. The replacement is the same kind of claim about the state that ships: flipping the
+// chip must not move the light AT ALL, and the RC24 coupling must still be exact on the way back.
+// (The pre-T96 unwind-to-zero is `ULTRA.baseTakesLook: false`, unit-pinned in
+// `test/components/globe/duskShadeRatio.test.ts`.)
 await evaluate(`window.__cameraStore.getState().setUltraQuality(false)`);
 await ticks(6);
 await sleep(6500); // >6.2 tau on ULTRA.exposureTauMs 950 — the snap, not a wait
 const backOff = await json(`(() => {
   const g = window.__globe, u = g.ultraLook(), a = g.atmosphereUniforms();
-  return { on: u.on, haze: u.haze, domeK: a.uFtwUltraK, exposure: u.exposure };
+  return { on: u.on, look: u.look, haze: u.haze, domeK: a.uFtwUltraK, exposure: u.exposure };
 })()`);
 measured.RC24_back_off = backOff;
-note(`RC24 chip back OFF: groundHaze ${backOff.haze}, domeUltraK ${backOff.domeK}`);
-ok(backOff.on === false, "RC24: the chip is off again");
-ok(backOff.haze === 0, `RC24: the ground haze snapped back to EXACTLY 0 (got ${backOff.haze})`);
+note(
+  `RC24 chip back OFF: look ${backOff.look}, groundHaze ${backOff.haze} (was ${golden.haze} with ` +
+    `the chip on), domeUltraK ${backOff.domeK}`,
+);
+ok(backOff.on === false && backOff.look === true, "RC24/T96: the chip is off again, the look is not");
 ok(
-  backOff.domeK === 0,
-  `RC24: and so did the dome's pull (got ${backOff.domeK}) — off is off, not almost off`,
+  backOff.haze > 0 && Math.abs(backOff.haze - golden.haze) < 0.02,
+  `T96: the golden-hour haze did NOT move when the chip did (${golden.haze} -> ${backOff.haze}) — ` +
+    "the light model is the base rig's now, so a chip flip can no longer change the light",
+);
+ok(
+  backOff.domeK === backOff.haze * DOME_TINT_K,
+  `RC24: the dome's pull is still EXACTLY the ground's haze × domeTintK on the way back ` +
+    `(${backOff.domeK} vs ${backOff.haze} × ${DOME_TINT_K})`,
 );
 
 // =============================================================================================

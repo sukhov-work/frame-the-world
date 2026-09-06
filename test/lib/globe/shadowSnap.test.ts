@@ -196,9 +196,16 @@ describe("the off-edge — both quanta 0 is the shipped path", () => {
     expect(rigDemandDriven(0, 0)).toBe(false);
     expect(rigDemandDriven(1, 0)).toBe(true);
     expect(rigDemandDriven(0, 1)).toBe(true);
-    // The shipped defaults: base is the identity, ULTRA carries the change (ULTRA-first).
-    expect(rigDemandDriven(SHADOWS.rigKeySnapTexels, SHADOWS.rigMoveTexels)).toBe(false);
+    // THE SHIPPED DEFAULTS — re-pointed by owner ruling 3 (2026-09-06i), not relaxed. A2 landed
+    // ULTRA-first (base 0/0, the identity) while the one-texel cadence was still an experiment;
+    // the owner then ruled that the cadence IS the look — "a one-texel step every ~1.2 s at real
+    // time instead of per-frame re-rasterisation" — so both profiles now ship 1/1 and the BASE
+    // rig is demand-driven too. The identity is still reachable (`rigDemandDriven(0, 0)` above),
+    // which is what keeps the A/B honest; it is simply no longer what `SHADOWS` carries.
+    expect(rigDemandDriven(SHADOWS.rigKeySnapTexels, SHADOWS.rigMoveTexels)).toBe(true);
     expect(rigDemandDriven(ULTRA.shadowRigKeySnapTexels, ULTRA.shadowRigMoveTexels)).toBe(true);
+    expect(SHADOWS.rigKeySnapTexels).toBe(ULTRA.shadowRigKeySnapTexels);
+    expect(SHADOWS.rigMoveTexels).toBe(ULTRA.shadowRigMoveTexels);
   });
 
   it("with both quanta 0 the shared predicate refreshes on ANY drift or ANY swing", () => {

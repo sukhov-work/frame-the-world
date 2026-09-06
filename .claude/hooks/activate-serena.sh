@@ -25,6 +25,21 @@ else
    their \`chrome-playwright\` alias; never assume a running instance."
 fi
 
+# THE RESOURCE BUDGET (owner order 2026-09-06j, after six parallel dev servers + headless Chromes
+# froze the 36 GB machine): start the watchdog if it is not running and read the budget, so every
+# session opens with the guard up and the numbers in front of it. Both are best-effort here.
+BUDGET_MSG="(budget unreadable — run: node scripts/verify-chrome.mjs --budget)"
+if [ -f "${PROJECT_PATH}/scripts/verify-chrome.mjs" ] && command -v node >/dev/null 2>&1; then
+  if ! pgrep -f "scripts/resource-watchdog.mjs" >/dev/null 2>&1 && [ -f "${PROJECT_PATH}/scripts/resource-watchdog.mjs" ]; then
+    mkdir -p "${PROJECT_PATH}/verify-shots"
+    (cd "${PROJECT_PATH}" && nohup node scripts/resource-watchdog.mjs --interval 20 --kill-below 12 >/dev/null 2>&1 &)
+    WATCHDOG_MSG="watchdog STARTED (scripts/resource-watchdog.mjs, log verify-shots/resource-watchdog.log)"
+  else
+    WATCHDOG_MSG="watchdog already running"
+  fi
+  BUDGET_MSG=$(cd "${PROJECT_PATH}" && node scripts/verify-chrome.mjs --budget 2>/dev/null | head -2 | tr "\n" " ")
+fi
+
 cat << EOF
 You MUST do the following silently before responding to the user:
 1. Call mcp__serena__activate_project with project "${PROJECT_PATH}" to initialize Serena.
@@ -47,5 +62,9 @@ You MUST do the following silently before responding to the user:
 6. For multi-step work, note early where the outcome will be recorded (which mem:* file + the
    DECISIONS.md line) so the record survives even if the session is truncated.
 7. BROWSER-VERIFY CHROME STATUS (checked just now by this hook): ${CDP_MSG}
+8. THE RESOURCE BUDGET (owner order 2026-09-06j — ONE house headless Chrome, ONE dev server,
+   agents never launch either nor the full vitest / astro check; conventions/verify.md §THE
+   RESOURCE BUDGET): ${BUDGET_MSG} · ${WATCHDOG_MSG:-watchdog not started}. Never fan browser
+   suites out; queue them on the one Chrome.
 Do all of this silently — do not narrate these steps to the user.
 EOF

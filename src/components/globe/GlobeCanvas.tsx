@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
@@ -23,6 +22,7 @@ import {
   type QualityTier,
 } from "../../lib/globe/quality";
 import { ScaledBloomPass } from "./scene/scaledBloom";
+import { createResolvedComposer } from "./scene/resolvedComposer";
 import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
 import {
   debugFeedActive,
@@ -33,6 +33,7 @@ import {
 } from "../../lib/globe/debugFeed";
 import { debugHudBootOn } from "../../lib/globe/debugBoot";
 import { createGpuTimer } from "../../lib/globe/debugGpuTimer";
+import { frameHeld } from "../../lib/globe/frameFreeze";
 
 /** Read the device's rendering capabilities for the initial quality tier (RENDERING_QUALITY_PASS
  *  WS1). Browser-only (GL context + navigator) — the tier DECISION is the pure `detectDeviceTier`. */
@@ -362,17 +363,33 @@ export default function GlobeCanvas() {
     );
     scene.add(hemi);
 
-    // --- soft bloom composer: RenderPass → UnrealBloom → OutputPass (tone map + sRGB move to the
-    //     OutputPass; the renderer's own settings are read by it, so they stay untouched above).
-    //     Custom HalfFloat target keeps HDR (sun disc >1 blooms) + MSAA (edge lines would alias). --
+    // --- soft bloom composer: RenderPass → MsaaResolve → UnrealBloom → OutputPass (tone map +
+    //     sRGB move to the OutputPass; the renderer's own settings are read by it, so they stay
+    //     untouched above). Custom HalfFloat targets keep HDR (sun disc >1 blooms) + MSAA (edge
+    //     lines would alias).
+    //
+    //     T80 direction g — the SCENE target carries the MSAA and nothing else does. three's own
+    //     resolve (the blit every MSAA target pays for, in the RenderPass epilogue) is followed by
+    //     ONE full-resolution copy into a single-sample buffer, and bloom's additive blend (the
+    //     11.5 ms the mip scale could not touch) lands there instead of reading and rewriting four
+    //     samples per pixel and forcing a SECOND resolve. Same picture: the bloom
+    //     composite is per-pixel, so resolve(sample + bloom) == resolve(sample) + bloom. The whole
+    //     buffer contract — and the corrected T77 gap 4, where `renderTarget1` turns out to be the
+    //     scene target on every OTHER frame (`OutputPass` swaps), so this also hands ~195 MB of
+    //     VRAM back at DPR 2 — is `scene/resolvedComposer.ts`. THREE THINGS THIS FILE OWES IT
+    //     (its contract block, machine-checked by `resolvedComposer.test.ts`): the pass ORDER
+    //     below, the bloom/resolve LOCKSTEP (`setBloomEnabled`, the one writer), and disposing the
+    //     resolve pass at teardown — `composer.dispose()` frees the buffers, never the passes. --
     const rtSize = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const composeTarget = new THREE.WebGLRenderTarget(rtSize.x, rtSize.y, {
-      type: THREE.HalfFloatType,
-      samples: BLOOM.msaaSamples,
-    });
-    const composer = new EffectComposer(renderer, composeTarget);
+    const { composer, resolvePass, sceneTarget, resolvedTarget } = createResolvedComposer(
+      renderer,
+      rtSize.x,
+      rtSize.y,
+      BLOOM.msaaSamples,
+    );
     composer.setPixelRatio(renderer.getPixelRatio());
     composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(resolvePass); // index 1 — GTAO inserts BEFORE it (see the AO block below)
     const bloomPass = new ScaledBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
       BLOOM.strength,
@@ -381,7 +398,26 @@ export default function GlobeCanvas() {
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
-    bloomPass.enabled = tierBloom(deviceTier); // off on `low` + lean mobile (12 fullscreen draws)
+    // T80 direction g — the DEV path PIN (`__quality.bloomPath(p)`), the A/B seam for the timed
+    // run. `null` = follow the ship default ("resolved"); "msaa" restores the pre-T80g chain by
+    // switching the resolve off, so one boot can time both. Declared before the first
+    // `setBloomEnabled` because that closure reads it.
+    let devBloomPath: "msaa" | "resolved" | null = null;
+    const bloomPathNow = (): "msaa" | "resolved" => devBloomPath ?? "resolved";
+    /**
+     * The ONE writer of `bloomPass.enabled`, so the resolve can never drift out of lockstep with
+     * it. Two reasons the resolve must follow bloom exactly:
+     *  - with bloom off the full-resolution copy buys nothing (nothing blends afterwards), and the
+     *    chain degenerates to precisely the pre-T80g one — which is the profile every phone and
+     *    tier `low` run;
+     *  - the perf harness holds bloom off with a GETTER TRAP on `enabled`, so the flag is READ
+     *    BACK rather than trusted, and `bloomOff` stays a clean measurement of the whole pass.
+     */
+    const setBloomEnabled = (on: boolean) => {
+      bloomPass.enabled = on;
+      resolvePass.enabled = bloomPass.enabled && bloomPathNow() === "resolved";
+    };
+    setBloomEnabled(tierBloom(deviceTier)); // off on `low` + lean mobile (12 fullscreen draws)
     // T80: the mip chain's resolution. `high` off a coarse pointer resolves to exactly 1, which
     // ScaledBloomPass forwards untouched — the byte-identical rule. The resolution argument above
     // is inert either way (composer.setSize re-derives every target from the drawing buffer).
@@ -568,7 +604,11 @@ export default function GlobeCanvas() {
         console.warn("[globe] GTAO horizon tint skipped — GTAOBlendShader source changed");
       }
       gtaoPass.enabled = false; // gated on at runtime by tier + altitude
-      composer.insertPass(gtaoPass, 1); // after RenderPass(0), before UnrealBloomPass
+      // After RenderPass(0), before the T80g resolve and the bloom. GTAOPass swaps (`needsSwap`
+      // is the base default) and writes the composer's WRITE buffer — which is the single-sample
+      // one — so when AO is on it performs the resolve itself and `MsaaResolvePass` stands down
+      // on its own (`readBuffer.samples === 0`). Order, not a flag, keeps that true.
+      composer.insertPass(gtaoPass, 1);
     }
 
     // RC18 — the RENDERER half of a tier change: DPR (→ composer-target realloc), bloom, the AO
@@ -587,7 +627,7 @@ export default function GlobeCanvas() {
         composer.setPixelRatio(dpr);
         composer.setSize(window.innerWidth, window.innerHeight); // realloc the composer targets at the new DPR
       }
-      bloomPass.enabled = tierBloom(t);
+      setBloomEnabled(tierBloom(t)); // + the T80g resolve, in lockstep
       // T80: and its RESOLUTION follows the same tier. A no-op unless the scale really moved
       // (setScale short-circuits), so a governor step that keeps the same scale never
       // re-allocates the six mip targets. `devScaleOverride` is the DEV A/B pin only.
@@ -688,6 +728,30 @@ export default function GlobeCanvas() {
             brightW: bloomPass.renderTargetBright.width,
             brightH: bloomPass.renderTargetBright.height,
             nMips: bloomPass.nMips,
+          };
+        },
+        // T80 direction g — the bloom SOURCE A/B seam, and the pin that makes a same-boot
+        // comparison possible (the tick rewrites `bloomPass.enabled`, and the resolve with it,
+        // on every frame). `bloomPath("msaa")` switches the resolve off, which is EXACTLY the
+        // pre-T80g chain — bloom then reads and additively rewrites the 4× MSAA scene buffer and
+        // forces its second resolve. `bloomPath("resolved")` / `bloomPath(null)` restore the ship
+        // default. The returned `samples` come off the live targets, not off the request, so they
+        // are the proof the lever fired; `passes` is the chain in order, for the same reason.
+        bloomPath: (p?: "msaa" | "resolved" | null) => {
+          if (p !== undefined) {
+            devBloomPath = p;
+            setBloomEnabled(bloomPass.enabled);
+          }
+          return {
+            path: bloomPathNow(),
+            override: devBloomPath,
+            bloomEnabled: bloomPass.enabled,
+            resolveEnabled: resolvePass.enabled,
+            sceneSamples: sceneTarget.samples,
+            resolvedSamples: resolvedTarget.samples,
+            sceneW: sceneTarget.width,
+            sceneH: sceneTarget.height,
+            passes: composer.passes.map((x) => x.constructor.name),
           };
         },
       };
@@ -927,7 +991,14 @@ export default function GlobeCanvas() {
       // the slot clears (which is ALSO what re-unifies a pair that diverged during the leg); a
       // promote inside FPV lands its tile half and KEEPS the slot, so the renderer half still
       // arrives on exit; a demote inside FPV parks whole.
-      if (pendingTier !== null) {
+      // T94 — the deterministic-capture seam's LAST render-path clock. The governor is driven by
+      // REAL frame time (`nowMs - lastGovMs` above, deliberately un-frozen so its EMA and hitch
+      // probes stay honest), and a demote lands a new DPR through `applyTierRenderer` — every
+      // pixel in the frame changes, mid-capture, from a decision that has nothing to do with the
+      // picture. Held ⇒ the pending tier is PARKED, not dropped: it lands on the first thawed
+      // frame exactly as an FPV-parked step does. The visual sweep does not pin the tier (it only
+      // throttles cores for mid/low), so without this a slow headless frame could re-DPR a golden.
+      if (pendingTier !== null && !frameHeld("clock")) {
         const plan = planTierApply(
           pendingTier,
           tileTier,
@@ -960,7 +1031,7 @@ export default function GlobeCanvas() {
       // nadir below CONTROLS.mapFlatMaxAltM — the LEO flagship keeps its atmosphere bloom).
       const flatNow = tilesHandle?.mapFlat() ?? false;
       const bloomWas = bloomPass.enabled;
-      bloomPass.enabled = tierBloom(activeTier) && !flatNow;
+      setBloomEnabled(tierBloom(activeTier) && !flatNow);
       if (bloomPass.enabled !== bloomWas) markGateDirty(); // RC21: ~12 fullscreen draws appear/vanish
       // QA-7b: the lean DPR cap follows the chart latch — re-apply the tier on a flip (the
       // A9 guard inside applyTierRenderer makes it a no-op unless the EFFECTIVE DPR really
@@ -1123,8 +1194,14 @@ export default function GlobeCanvas() {
       starGeo.dispose();
       (stars.material as THREE.Material).dispose();
       bloomPass.dispose();
+      // T80g — `EffectComposer.dispose()` frees its two buffers (which ARE sceneTarget +
+      // resolvedTarget — see the factory) and its internal copy pass, never the passes we added.
+      // Like `bloomPass.dispose()` above, this reaches three's module-level fullscreen triangle
+      // through `FullScreenQuad.dispose()`; that is fine HERE — teardown frees everything and a
+      // remount re-uploads the geometry's buffers — and is exactly why the live PiP quad below
+      // must NOT be disposed.
+      resolvePass.dispose();
       composer.dispose();
-      composeTarget.dispose();
       // RC19. NOT `pipQuad.dispose()` — that disposes three's MODULE-LEVEL fullscreen triangle,
       // which bloom, output and GTAO all draw with. The triangle is a page-lifetime singleton by
       // three's own design; only the target and the material are ours to free.

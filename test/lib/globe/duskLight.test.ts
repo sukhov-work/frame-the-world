@@ -180,11 +180,23 @@ describe("the dusk curves — the shape the owner asked for", () => {
   it("the afterglow PEAKS below the horizon and is gone by nautical dusk", () => {
     // Deliberately NOT monotone — that is the whole point, and why the shipped monotonicity test
     // covers `dayCurve` alone. It has to outlive the sky level or there is no afterglow.
-    const peak = at(ULTRA.afterglowCurve, -2);
+    const peak = at(ULTRA.afterglowCurve, -5);
     expect(peak).toBeGreaterThan(at(ULTRA.afterglowCurve, 0));
     expect(peak).toBeGreaterThan(at(ULTRA.afterglowCurve, -9));
     expect(at(ULTRA.afterglowCurve, -14)).toBe(0);
-    expect(peak).toBeGreaterThan(at(ULTRA.skyLevelCurve, -2));
+    // T66 (owner ruling 2026-09-06i) — RE-POINTED, not relaxed. It still outlives the sky, and
+    // the assertion still says so; what moved is WHERE. The shipped table asserted this at −2°,
+    // which is precisely where the owner's frame B sits and precisely where the ruling says the
+    // afterglow may not outrun the sky: the dome band it feeds is `afterglow × skyLevel` since
+    // F4, and a curve that beat `skyLevelCurve` at −2° made that product climb × 1.71 through
+    // the half hour after sunset. It now crosses the sky level in the deep tail (−5°, where the
+    // sky is 0.28 and the arch is the only thing left in the frame) instead of at the horizon.
+    expect(peak).toBeGreaterThan(at(ULTRA.skyLevelCurve, -5));
+    // …and the crossing is real, not an artefact of the sample point: below civil dusk the
+    // afterglow is the larger of the two everywhere it is still visible.
+    for (const d of [-4, -5, -6, -7]) {
+      expect(at(ULTRA.afterglowCurve, d)).toBeGreaterThan(at(ULTRA.skyLevelCurve, d));
+    }
   });
 
   it("the ambient floor is close to the legacy dayGradMin, so noon barely moves", () => {

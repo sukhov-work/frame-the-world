@@ -253,7 +253,8 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     depthWrite: false,
     // PREMULTIPLIED custom blend — the moon's triple (sky.ts, `moonMat`), verbatim and for the
     // same reason, but on a different axis (see `sunDiscArms`). `DST' = rgb + DST·(1 − a)`, so at
-    // `uSolid = 0` (every frame with the chip off, and every frame above SKY.discSolidHiDeg) this
+    // `uSolid = 0` (every frame with the LOOK off — T96, 2026-09-06i: `ultraDisc` rides
+    // `lookOn()` now, not the chip — and every frame above SKY.discSolidHiDeg) this
     // is ONE/ONE — byte-identical to the AdditiveBlending it replaces. Going solid is therefore a
     // strict superset of the shipped behaviour, provable at the blend equation rather than by
     // review.

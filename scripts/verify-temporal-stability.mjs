@@ -10,6 +10,23 @@
  *
  *   node scripts/verify-temporal-stability.mjs [PORT] [--shimmer] [--reseat] [--frames 600]
  *        [--step 2000] [--px 640] [--pan 0.02] [--only <regex>] [--label warm|cold] [--owner <email>]
+ *        [--rig <keySnap>,<move>] [--rig-json '{"biasTexels":0.5,"cascades":false}'] [--legs a,b]
+ *        [--arms '{"ladderOff":{"cascades":false},"a1-05":{"biasTexels":0.5}}']
+ *
+ * `--rig-json` is handed verbatim to `__globe.shadowRig()` after every boot and merged over
+ * `--rig`, so A1's parked metric bias and the cascade-ladder A/B are one flag each instead of a
+ * tuning edit plus a 90 s re-boot; the answer is stored per pose as `rigApplied`. `--legs` runs a
+ * SUBSET of control,scrub,scrub4x,pan — the pan leg only exists for the centre snap, and a
+ * sun-scrub A/B on a contended machine should not pay 300 frames for it.
+ * `--arms` runs the chosen legs ONCE PER ARM on the SAME boot (the implicit first arm is `stock`,
+ * no write), which is what makes an N-way shadow A/B one page load instead of N; its rows are
+ * stored under `<arm>/<leg>` and `stock`'s keep the bare leg names. The argument algebra behind
+ * both flags — and the reason an arm is always written from the full null identity — is
+ * `scripts/lib/shadowArms.mjs` (unit-tested; an unknown option key is a hard error there, because
+ * the engine ignores it and the arm would then measure the STOCK picture under an A/B label).
+ * `--only <regex>` filters the shimmer poses by id (`city.u1`, `everest.u1`, `fpv.u0`) as well as
+ * the reseat legs — that is how an A/B skips the poses it does not need.
+ * `FTW_CDP_TIMEOUT_MS` raises the per-leg CDP ceiling (see `CDP_TIMEOUT_MS`).
  *
  * (no leg flag = both legs). Preconditions as `verify-perf-baseline.mjs`: `wix dev` on :4321,
  * the owner's HEADED CDP Chrome on :9222 (never killed), Node ≥ 22. Never alongside another
@@ -71,6 +88,10 @@ import { trackTarget, finishVerify, VerifyFailure } from "./verify-cdp-cleanup.m
 // can be re-summarized OFFLINE — this file is a top-level-await CDP script and importing it opens
 // a browser target, which made the §8 baseline reproducible only by re-running the harness.
 import { pct, rateLinearity, summarizeShimmer } from "./shimmer-summary.mjs";
+// T77 slice A-rest (2026-09-06): the `--rig-json` / `--legs` / `--arms` argument algebra, for the
+// same reason — it decides what a stored leg MEANS (which arm, merged from what), and the two
+// mistakes it prevents are both silent, so it is unit-tested rather than reviewed.
+import { armOptions, legKey, parseArms, parseRigJson, selectLegs } from "./lib/shadowArms.mjs";
 
 const args = process.argv.slice(2);
 const PORT = args.find((a) => /^\d+$/.test(a)) ?? "9222";
@@ -96,8 +117,23 @@ const PAN_DEG_PER_FRAME = Number(opt("--pan", "0.02"));
  *  every boot through `__globe.shadowRig()` (0,0 = the library's every-frame re-render; null =
  *  the tier value). Recorded in the artefact so a run is self-describing. */
 const RIG = opt("--rig", null) ? opt("--rig").split(",").map((v) => (v === "null" ? null : Number(v))) : null;
+/** T77 slice A-rest: the REST of the same seam, as JSON, so the levers `--rig` does not cover get
+ *  an A/B without a tuning edit and a re-boot — `{"biasTexels":0.5,"normalBiasTexels":0.5}` is
+ *  A1's parked metric bias, `{"cascades":false}` is the ladder-off arm. Merged over `--rig`, and
+ *  stored in the artefact's `rigApplied` so a leg can never be read against the wrong arm. */
+const RIG_JSON = parseRigJson(opt("--rig-json", null));
+/** Which legs to run (default all four). A contended machine pays ~0.25 s per sampled frame, so a
+ *  four-leg pose is ~6 minutes of wall clock; an A/B that only needs `control,scrub,scrub4x` should
+ *  not also pay for the pan. Never widens the set — an unknown name is a hard error. */
+const LEGS = selectLegs(opt("--legs", null));
+/** T77 slice A-rest — `--arms '{"ladderOff":{"cascades":false},"a1-05":{"biasTexels":0.5}}'`.
+ *  Each entry runs the whole leg set again after writing its options through `__globe.shadowRig()`
+ *  ON THE SAME BOOT, so an N-way shadow A/B costs one page load instead of N. The implicit first
+ *  arm is `stock` (no write), and its rows keep their bare leg names so a stored run stays
+ *  readable against every run that came before this flag existed. */
+const ARMS = parseArms(opt("--arms", null));
 const OWNER_EMAIL = opt("--owner", "yevhens@wix.com");
-const DEV = "http://localhost:4321";
+const DEV = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321"; // FTW_DEV_ORIGIN: a worktree dev server (2026-09-06j)
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 const OUT_DIR = "verify-shots/perf";
 mkdirSync(OUT_DIR, { recursive: true });
@@ -142,7 +178,12 @@ ws.onmessage = (ev) => {
     msg.error ? rej(new Error(msg.error.message)) : res(msg.result);
   }
 };
-const CDP_TIMEOUT_MS = 120_000;
+// A leg is ONE `Runtime.evaluate` that spans every frame it samples, so the ceiling has to hold
+// the whole leg: 599 scrub frames × the A/B cost (48–103 ms measured alone, 260 ms observed while
+// another session shares the GPU) is 30–160 s. 120 s was enough for a solo run and is not enough
+// for a contended one — a slice agent in a worktree lost a 599-frame scrub to it. Env-overridable
+// rather than raised outright, so the shipped default keeps failing fast when a leg truly hangs.
+const CDP_TIMEOUT_MS = Number(process.env.FTW_CDP_TIMEOUT_MS ?? 120_000);
 const send = (method, params = {}) =>
   new Promise((res, rej) => {
     const id = ++seq;
@@ -183,6 +224,10 @@ const check = (label, ok, detail = "") => {
 };
 const fmt = (v, d = 3) => (v === null || v === undefined || Number.isNaN(v) ? "—" : typeof v === "number" ? v.toFixed(d) : String(v));
 const results = { stamp: STAMP, label: LABEL, args, shimmer: [], reseat: [] };
+/** What `shadowRig()` answered after the last boot's override — the arm this run measured. */
+let rigApplied = null;
+/** The run-wide `--rig` / `--rig-json` options, so every `--arms` entry can be layered over them. */
+let rigOptsBoot = {};
 
 // ─── Boot (the baseline harness's recipe) ────────────────────────────────────────────────────
 let bootScriptId = null;
@@ -204,9 +249,19 @@ async function boot(poseKey, ultra) {
   await evalJs(`(document.querySelector('.wl-btn--primary') || {click(){}}).click(), document.querySelector('canvas')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })), true`);
   await waitFor(`!window.__globe.flight || !window.__globe.flight.active()`, 60_000, "flight settled");
   if (pose.kind === "fpv") await waitFor(`!!window.__globe.fpv && window.__globe.fpv().active`, 60_000, "FPV active");
-  if (RIG && (await evalJs(`typeof window.__globe.shadowRig === "function"`))) {
-    const r = await evalJs(`JSON.stringify(window.__globe.shadowRig({ keySnapTexels: ${RIG[0]}, moveTexels: ${RIG[1]} }))`);
-    console.log(`  rig override → ${r}`);
+  rigOptsBoot = {
+    ...(RIG ? { keySnapTexels: RIG[0], moveTexels: RIG[1] } : {}),
+    ...(RIG_JSON ?? {}),
+  };
+  if (Object.keys(rigOptsBoot).length > 0 && (await evalJs(`typeof window.__globe.shadowRig === "function"`))) {
+    await evalJs(`window.__globe.shadowRig(${JSON.stringify(rigOptsBoot)})`);
+    // Read the applied state back a few frames LATER, never off the write: the derived biases and
+    // every `castShadow` are written by the orchestrator's next step, so the object the setter
+    // returns still describes the state the override replaced. `rigApplied` is the artefact's
+    // evidence of which arm a run measured — it must not be the previous one.
+    await ticks(6);
+    rigApplied = await evalJs(`window.__globe.shadowRig()`);
+    console.log(`  rig override ${JSON.stringify(rigOptsBoot)} → ${JSON.stringify(rigApplied)}`);
   }
   const q = await evalJs(`(() => { const q = window.__globeQuality; return { tier: q.tier, dpr: q.dpr, ultraBoot: q.ultraBoot, shadowMapPx: q.shadowMapPx }; })()`);
   return q;
@@ -368,37 +423,67 @@ async function shimmerLeg(poseKey, ultra, label) {
     // leg even if its restore were to fail.
     { name: "pan", frames: Math.min(FRAMES, 300), step: 0, control: true, pan: PAN_DEG_PER_FRAME },
   ];
-  const out = { id, pose: poseKey, ultra, label, q, settle: st, sunElev, tuning, legs: {} };
-  for (const leg of legs) {
-    await ticks(4);
-    const r = await evalJs(SHIMMER_PROBE(leg.frames, leg.step, PX, leg.control, leg.pan));
-    // Row 0 is dropped (no predecessor → no churn) and `casRefresh` is stamped, both inside the
-    // shared summarizer so a stored run re-derives to exactly this.
-    const summary = { ...summarizeShimmer(r.rows), camFrozen: r.camFrozen, lights: r.lights, W: r.W, H: r.H, pan: r.pan };
-    const rows = r.rows.slice(1);
-    out.legs[leg.name] = { summary, rows: r.rows };
-    console.log(`  ${leg.name.padEnd(8)} frames ${summary.frames}  mask ${fmt(summary.maskFracP50, 3)}  churn p50 ${fmt(summary.churnP50, 4)} mean ${fmt(summary.churnMean, 4)} p95 ${fmt(summary.churnP95, 4)} max ${fmt(summary.churnMax, 4)}  pooled ${fmt(summary.churnPooled, 4)}  flips>0 in ${summary.framesWithFlips} frames (Σ ${summary.flipsTotal} / ${summary.unionTotal})  speckle p50 ${fmt(summary.speckleP50, 2)} wtd ${fmt(summary.speckleWeighted, 2)}  sun ${summary.sunMovedDeg >= 0 ? "+" : ""}${fmt(summary.sunMovedDeg, 3)}°  resamples ${summary.resamples}  extent steps ${summary.boundsSteps}  cas refresh ${summary.casRefreshes} (${summary.casRefreshPops} popped)  rig ${fmt(rows.length ? rows[rows.length - 1].rigRefreshes : null, 0)} refreshes  pan ${fmt(summary.panDegP50, 4)}°/frame  A/B ${fmt(summary.abMsP50, 1)} ms  camFrozen ${r.camFrozen}`);
-    if (leg.pan > 0) {
-      // The pan is driven through the engine's own rate encoder, which eases toward the stick, so
-      // the ASSERTION is on the achieved angle, never on the request. A leg that did not turn is
-      // worthless (it would silently become a second control leg and read as a pass).
-      check(`${id}/pan: the camera actually turned`, r.camFrozen === false && summary.panDegP50 !== null && summary.panDegP50 > leg.pan * 0.5, `${fmt(summary.panDegP50, 4)}°/frame requested ${leg.pan}, total ${fmt(summary.panDegTotal, 1)}°`);
-    } else {
-      check(`${id}/${leg.name}: camera frozen for the whole leg`, r.camFrozen === true);
+  const out = { id, pose: poseKey, ultra, label, q, settle: st, sunElev, tuning, rigApplied, arms: {}, legs: {} };
+  // T77 slice A-rest — ARMS. Every shadow A/B before this one paid a full boot per arm (the city
+  // pose streams ~3,300 ground tiles and settles in ~90 s quiet, minutes under contention), which
+  // is why the previous session measured A1 on ONE arm and left the rest parked. `shadowRig()` is
+  // a live seam, so an arm is a write plus a re-quiet — and holding the boot fixed also removes
+  // the confound the per-arm boots carried (a different tile set under the same pose name).
+  for (const arm of ARMS) {
+    if (arm.opts) {
+      // Every arm is applied from the SAME base — the null identity, then the run-wide `--rig` /
+      // `--rig-json`, then the arm (`armOptions`) — so arm N never inherits arm N−1's levers.
+      // Without this a `{"cascades":false}` arm would silently poison every arm after it, which is
+      // the exact shape of mistake a multi-arm run exists to avoid.
+      const full = armOptions(rigOptsBoot, arm.opts);
+      await evalJs(`window.__globe.shadowRig(${JSON.stringify(full)})`);
+      // A cascade coming back on has to re-render its map, and cascade 0's record was reset — give
+      // the rig a few frames before the first sampled one so an arm's first row is not a refresh.
+      // The READ-BACK belongs after them too: `castShadow` and the derived biases are written by
+      // the next frame's step, so the value `shadowRig(opts)` returns on the write itself still
+      // describes the PREVIOUS arm — a cascade A/B would log as "applied" with the ladder casting.
+      await ticks(12);
+      const applied = await evalJs(`window.__globe.shadowRig()`);
+      console.log(`  --- arm ${arm.name}: ${JSON.stringify(arm.opts)} → cascadesCasting ${applied.cascadesCasting}  bias ${fmt(applied.bias, 8)}  normalBiasM ${fmt(applied.normalBiasM, 3)}  keySnap ${applied.keySnapTexels} move ${applied.moveTexels}`);
+      out.arms[arm.name] = { opts: arm.opts, full, applied };
     }
-    check(`${id}/${leg.name}: a shadow mask exists (the A/B sees shadows)`, summary.maskFracP50 !== null && summary.maskFracP50 > 0.002, `mask ${fmt(summary.maskFracP50, 4)}`);
-    if (leg.name === "control") {
-      check(`${id}/control: NO churn with sun and camera frozen (determinism)`, summary.churnMax === 0, `max churn ${fmt(summary.churnMax, 5)} over ${summary.frames} frames`);
-    } else if (!leg.control) {
-      // The sun may be DESCENDING at the pose's instant (the FPV instant is local afternoon) —
-      // the magnitude is what proves the scrub landed, never the sign.
-      check(`${id}/${leg.name}: the sun actually moved (resample every frame)`, Math.abs(summary.sunMovedDeg) > 0 && summary.resamples >= summary.frames * 0.9, `${summary.sunMovedDeg >= 0 ? "+" : ""}${fmt(summary.sunMovedDeg, 3)}°, ${summary.resamples}/${summary.frames} resamples`);
+    for (const leg of legs.filter((l) => LEGS.includes(l.name))) {
+      const key = legKey(arm.name, leg.name);
+      await ticks(4);
+      const r = await evalJs(SHIMMER_PROBE(leg.frames, leg.step, PX, leg.control, leg.pan));
+      // Row 0 is dropped (no predecessor → no churn) and `casRefresh` is stamped, both inside the
+      // shared summarizer so a stored run re-derives to exactly this.
+      const summary = { ...summarizeShimmer(r.rows), camFrozen: r.camFrozen, lights: r.lights, W: r.W, H: r.H, pan: r.pan };
+      const rows = r.rows.slice(1);
+      out.legs[key] = { summary, rows: r.rows };
+      console.log(`  ${key.padEnd(22)} frames ${summary.frames}  mask ${fmt(summary.maskFracP50, 3)}  churn p50 ${fmt(summary.churnP50, 4)} mean ${fmt(summary.churnMean, 4)} p95 ${fmt(summary.churnP95, 4)} max ${fmt(summary.churnMax, 4)}  pooled ${fmt(summary.churnPooled, 4)}  flips>0 in ${summary.framesWithFlips} frames (Σ ${summary.flipsTotal} / ${summary.unionTotal})  speckle p50 ${fmt(summary.speckleP50, 2)} wtd ${fmt(summary.speckleWeighted, 2)}  sun ${summary.sunMovedDeg >= 0 ? "+" : ""}${fmt(summary.sunMovedDeg, 3)}°  resamples ${summary.resamples}  extent steps ${summary.boundsSteps}  cas refresh ${summary.casRefreshes} (${summary.casRefreshPops} popped)  rig ${fmt(rows.length ? rows[rows.length - 1].rigRefreshes : null, 0)} refreshes  pan ${fmt(summary.panDegP50, 4)}°/frame  A/B ${fmt(summary.abMsP50, 1)} ms  camFrozen ${r.camFrozen}`);
+      if (leg.pan > 0) {
+        // The pan is driven through the engine's own rate encoder, which eases toward the stick, so
+        // the ASSERTION is on the achieved angle, never on the request. A leg that did not turn is
+        // worthless (it would silently become a second control leg and read as a pass).
+        check(`${id}/${key}: the camera actually turned`, r.camFrozen === false && summary.panDegP50 !== null && summary.panDegP50 > leg.pan * 0.5, `${fmt(summary.panDegP50, 4)}°/frame requested ${leg.pan}, total ${fmt(summary.panDegTotal, 1)}°`);
+      } else {
+        check(`${id}/${key}: camera frozen for the whole leg`, r.camFrozen === true);
+      }
+      check(`${id}/${key}: a shadow mask exists (the A/B sees shadows)`, summary.maskFracP50 !== null && summary.maskFracP50 > 0.002, `mask ${fmt(summary.maskFracP50, 4)}`);
+      if (leg.name === "control") {
+        check(`${id}/${key}: NO churn with sun and camera frozen (determinism)`, summary.churnMax === 0, `max churn ${fmt(summary.churnMax, 5)} over ${summary.frames} frames`);
+      } else if (!leg.control) {
+        // The sun may be DESCENDING at the pose's instant (the FPV instant is local afternoon) —
+        // the magnitude is what proves the scrub landed, never the sign.
+        check(`${id}/${key}: the sun actually moved (resample every frame)`, Math.abs(summary.sunMovedDeg) > 0 && summary.resamples >= summary.frames * 0.9, `${summary.sunMovedDeg >= 0 ? "+" : ""}${fmt(summary.sunMovedDeg, 3)}°, ${summary.resamples}/${summary.frames} resamples`);
+      }
     }
   }
-  const s1 = out.legs.scrub?.summary, s4 = out.legs.scrub4x?.summary;
-  if (s1 && s4) {
-    Object.assign(out, rateLinearity(s1, s4));
-    console.log(`  rate-linearity: churn MEAN at 4× step / 1× step = ${fmt(out.rateLinearity, 2)} (p50 ratio ${fmt(out.rateLinearityP50, 2)}) — tracks the sun if ≈ 4; the RIG is moving if ≈ 1`);
+  for (const arm of ARMS) {
+    const s1 = out.legs[legKey(arm.name, "scrub")]?.summary, s4 = out.legs[legKey(arm.name, "scrub4x")]?.summary;
+    if (!s1 || !s4) continue;
+    const rl = rateLinearity(s1, s4);
+    // The STOCK arm's ratio stays at the top level of the artefact, where every run stored before
+    // `--arms` existed put it; the per-arm copies are additive.
+    if (arm.name === "stock") Object.assign(out, rl);
+    out.arms[arm.name] = { ...(out.arms[arm.name] ?? {}), ...rl };
+    console.log(`  rate-linearity ${arm.name}: churn MEAN at 4× step / 1× step = ${fmt(rl.rateLinearity, 2)} (p50 ratio ${fmt(rl.rateLinearityP50, 2)}) — tracks the sun if ≈ 4; the RIG is moving if ≈ 1`);
   }
   results.shimmer.push(out);
 }

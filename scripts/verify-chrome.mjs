@@ -19,8 +19,21 @@
 //   node scripts/verify-chrome.mjs --headless       # --headless=new (bake probes, shots)
 //   node scripts/verify-chrome.mjs --kill-stale     # kill a STALE verify-profile owner first
 //   node scripts/verify-chrome.mjs --port 9333      # alternate port (house verify scripts)
+//   node scripts/verify-chrome.mjs --budget         # print the resource budget + what is running
 //
-// Exit codes: 0 = Chrome up, attach printed · 1 = port owned by a foreign process · 2 = boot timeout.
+// Exit codes: 0 = Chrome up, attach printed · 1 = port owned by a foreign process · 2 = boot timeout
+//             · 3 = REFUSED by the resource budget (see below).
+//
+//   4. THE RESOURCE BUDGET (owner order 2026-09-06j, after the crash that killed the session):
+//      six worktrees × (wix dev + a headless Chrome rendering the globe + an agent) on a 36 GB M3
+//      pushed swap past 120 GB and froze the whole machine, taking an unrelated research session
+//      with it. Browser verification is therefore budgeted HERE, machine-checked, before any launch:
+//        - at most FTW_MAX_VERIFY_CHROMES house headless verify Chromes at once (default 1); the
+//          owner's headed :9222 is not counted (never launched or killed from here anyway);
+//        - at most FTW_MAX_DEV_SERVERS dev servers (`wix dev` / astro) running at once (default 1);
+//        - free memory (`memory_pressure`) must be ≥ FTW_MIN_FREE_MEM_PCT (default 20).
+//      Raising a limit is an explicit env override in the shell that launches, never a default
+//      change; a harness that needs a second Chrome waits for the first to finish instead.
 import { execSync, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -42,6 +55,102 @@ const OCCLUSION_FLAGS = [
   "--disable-renderer-backgrounding",
   "--disable-background-timer-throttling",
 ];
+
+// ---- 0. The resource budget (owner order 2026-09-06j) --------------------------------------
+const MAX_CHROMES = Number(process.env.FTW_MAX_VERIFY_CHROMES ?? 1);
+const MAX_DEV_SERVERS = Number(process.env.FTW_MAX_DEV_SERVERS ?? 1);
+const MIN_FREE_PCT = Number(process.env.FTW_MIN_FREE_MEM_PCT ?? 20);
+
+const psAll = () => {
+  try {
+    return execSync("ps -Ao pid=,command=", { encoding: "utf8", maxBuffer: 64 << 20 })
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => ({ pid: Number(l.trim().split(/\s+/)[0]), cmd: l.trim().replace(/^\d+\s+/, "") }));
+  } catch {
+    return [];
+  }
+};
+/** House headless verify Chromes: browser MAIN processes (no --type=) with a CDP port + headless. */
+const verifyChromes = (rows) =>
+  rows.filter(
+    (r) =>
+      r.cmd.includes("--remote-debugging-port=") &&
+      r.cmd.includes("--headless") &&
+      !r.cmd.includes("--type=") &&
+      (r.cmd.includes("ftw-cdp") || r.cmd.includes("Playwright_Chrome_data")),
+  );
+/** Dev servers: the `astro dev` listeners (the CLI spawns one under `wix dev`; count it once). */
+const devServers = (rows) =>
+  rows.filter(
+    (r) =>
+      /^(\S*\/)?node\b/.test(r.cmd) && // a node process, never a shell wrapper quoting these words
+      /\/astro(\/[^\s]*)?(\.m?js)?\s+dev\b/.test(r.cmd), // `wix dev` spawns `astro dev`: count the listener once
+  );
+const freeMemPct = () => {
+  try {
+    const m = execSync("memory_pressure", { encoding: "utf8" }).match(/free percentage:\s*(\d+)%/);
+    return m ? Number(m[1]) : null;
+  } catch {
+    return null;
+  }
+};
+const budgetReport = () => {
+  const rows = psAll();
+  const chromes = verifyChromes(rows);
+  const devs = devServers(rows);
+  const free = freeMemPct();
+  return { chromes, devs, free };
+};
+/** Cesium ion reachability (owner note 2026-09-06k3): `api.cesium.com` is 403-blocked from the
+ *  owner's Dnipro ISP address and answers only through the owner's Proton VPN; a harness that
+ *  boots without it measures a flat plain (`terrainEpoch` 0). Reported, never acted on. */
+const ionStatus = () => {
+  try {
+    return execSync(
+      `curl -s -o /dev/null --max-time 6 -w "%{http_code}" https://api.cesium.com/v1/assets/1/endpoint`,
+      { encoding: "utf8" },
+    ).trim();
+  } catch {
+    return "?";
+  }
+};
+const printBudget = ({ chromes, devs, free }) => {
+  console.log(`Resource budget: verify Chromes ${chromes.length}/${MAX_CHROMES} · dev servers ${devs.length}/${MAX_DEV_SERVERS} · free mem ${free ?? "?"}% (min ${MIN_FREE_PCT}%)`);
+  const ion = ionStatus();
+  console.log(
+    `  ion: api.cesium.com HTTP ${ion}` +
+      (ion === "403" ? " — BLOCKED from this network: terrain/OSM tiles will not load; connect the owner's Proton VPN (open -a ProtonVPN) before any browser gate (T98)" : ""),
+  );
+  for (const c of chromes) console.log(`  chrome pid ${c.pid}: ${c.cmd.slice(0, 160)}`);
+  for (const d of devs) console.log(`  dev    pid ${d.pid}: ${d.cmd.slice(0, 160)}`);
+};
+if (flag("--budget")) {
+  printBudget(budgetReport());
+  process.exit(0);
+}
+{
+  const b = budgetReport();
+  // A Chrome already on THIS port is reused below, not launched — it does not count against a new launch.
+  const listening = (() => {
+    try {
+      return execSync(`lsof -nP -tiTCP:${PORT} -sTCP:LISTEN`, { encoding: "utf8" }).trim().split("\n").filter(Boolean).map(Number);
+    } catch {
+      return [];
+    }
+  })();
+  const others = b.chromes.filter((c) => !listening.includes(c.pid));
+  const refusals = [];
+  if (others.length >= MAX_CHROMES) refusals.push(`${others.length} house headless Chrome(s) already running (max ${MAX_CHROMES})`);
+  if (b.devs.length > MAX_DEV_SERVERS) refusals.push(`${b.devs.length} dev servers running (max ${MAX_DEV_SERVERS})`);
+  if (b.free != null && b.free < MIN_FREE_PCT) refusals.push(`free memory ${b.free}% < ${MIN_FREE_PCT}%`);
+  if (refusals.length && listening.length === 0) {
+    console.error(`REFUSED by the resource budget (owner order 2026-09-06j): ${refusals.join("; ")}.`);
+    printBudget(b);
+    console.error(`Finish or stop the running instance(s) first. Explicit override: FTW_MAX_VERIFY_CHROMES / FTW_MAX_DEV_SERVERS / FTW_MIN_FREE_MEM_PCT in THIS shell only.`);
+    process.exit(3);
+  }
+}
 
 // ---- 1. Who owns the port? -----------------------------------------------------------------
 const owners = (() => {

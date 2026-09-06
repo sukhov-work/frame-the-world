@@ -379,6 +379,158 @@ describe("ULTRA HQ — desktop-only, fenced at the read", () => {
 });
 
 /**
+ * T96 — THE CHIP AND THE LOOK (owner ruling 2026-09-06i).
+ *
+ * `ultraOn` is the CHIP: frame time the user asked for — the 8192² shadow map, the cascade ladder,
+ * terrain casters, anisotropy + mips, the tile/LRU levers, and every constant derived from the
+ * ULTRA shadow BOX. `lookOn()` is the LOOK: the light-transport model, which costs curve
+ * evaluations and uniform writes and nothing else.
+ *
+ * They were one flag for six weeks, and that is exactly why the whole dusk batch shipped invisible.
+ * The failure mode this fence exists for is the SILENT one in the other direction: a future lever
+ * that belongs to the model landing on `ultraOn` because that is what the line above it says. So
+ * the chip's reads are an ALLOW-LIST — every `ultraOn` in the orchestrator must be a cost lever
+ * named here, and a new one turns this red until somebody writes down which of the two it is.
+ *
+ * Mutation that makes these RED: re-point `sunLight.shadow.intensity`'s selector back at `ultraOn`;
+ * add `ultraOn ? ULTRA.someNewCurve : …` anywhere; delete `ULTRA.baseTakesLook`.
+ */
+describe("T96 — the CHIP (cost) and the LOOK (model) are separately fenced", () => {
+  const orch = readFileSync(
+    join(root, "src", "components", "globe", "StylizedTiles.ts"),
+    "utf8",
+  );
+  const lines = orch.split("\n");
+  /** Code lines only — a comment naming the flag is documentation, not a read. */
+  const codeLines = lines
+    .map((line, i) => ({ n: i + 1, line }))
+    .filter(({ line }) => {
+      const t = line.trim();
+      return t.length > 0 && !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+    });
+
+  it("the LOOK is derived from the chip in exactly one place, and it is the ruling's expression", () => {
+    expect(orch).toMatch(/const lookOn = \(\) => ultraOn \|\| ULTRA\.baseTakesLook;/);
+    // A FUNCTION, not a latched boolean: `ultraOn` is written on the chip's edge and a snapshot
+    // taken at attach time would be stale for the rest of the session.
+    expect(orch).not.toMatch(/const lookOn = ultraOn/);
+    expect(codeLines.filter(({ line }) => line.includes("const lookOn")).length).toBe(1);
+  });
+
+  it("every MODEL selector reads the LOOK — the light path, gate, field, overlay and disc", () => {
+    // One fragment per lever the ruling names, so a re-point back onto the chip is a named
+    // failure rather than a count that moved.
+    const MODEL = [
+      /const light = lookOn\(\) \? ultraLightAt\(/, // the whole shader side rides this one
+      /if \(!lookOn\(\) && ultraLookSettled\) return;/, // …and its settle path
+      /const gateSin = lookOn\(\) \? ULTRA\.shadowGateSin : SHADOWS\.minSunElevSin;/,
+      /const keyGate = lookOn\(\) \? ULTRA_KEY_GATE : KEY_GATE;/,
+      /lookOn\(\) && !moonShadows/, // F1's direct-share bound on the ground overlay
+      /sunLight\.shadow\.intensity = lookOn\(\)/, // the narrow band + the length guard
+      /const duskK = lookOn\(\) \? 1 - aboveGateK/, // the overlay's dusk deepening
+      /ultraDisc: lookOn\(\),/, // the sun disc's dusk treatment
+    ];
+    for (const re of MODEL) expect(orch).toMatch(re);
+    // POSITIVE CONTROL — the probe can fail. (An eight-item list of regexes that silently stopped
+    // matching would be the same shape of dead fence this file exists to prevent.)
+    expect(orch).not.toMatch(/const gateSin = ultraOn \?/);
+  });
+
+  it("every CHIP read is a COST lever on the written allow-list", () => {
+    // Substrings, matched against the whole line, that make an `ultraOn` read sanctioned.
+    const COST: Array<[string, string]> = [
+      ["let ultraOn = false;", "the declaration"],
+      ["const lookOn = () =>", "the LOOK's own derivation"],
+      ["ultraTileLevers(", "tile detail: SSE / street names / vector lattice"],
+      ["lruCapBytesForUltra(", "the LRU cap+floor pairs"],
+      ["if (want === ultraOn) return;", "the gate's edge detector"],
+      ["ultraOn = want;", "…and its one write"],
+      ["setUltraAnisotropy(", "§1b anisotropy — a texture-creation stamp"],
+      ["setUltraMipLevels(", "§1c the capped mip chain"],
+      ["shadow.radius = ultraOn", "S2 the soft-shadow disk radius"],
+      ["ULTRA.shadowNormalBiasTexels", "the bias literals — derived from the ULTRA BOX"],
+      ["ULTRA.shadowNormalBias :", "…the same, on the non-texel arm"],
+      ["ULTRA.shadowBiasTexels", "…and the depth half"],
+      ["ULTRA.shadowBiasM /", "…and its metres fallback"],
+      ["ULTRA.shadowRigKeySnapTexels", "the rig quanta — profile pair, both 1 since ruling 3"],
+      ["ULTRA.shadowRigMoveTexels", "…the second half of the same pair"],
+      ["ULTRA.lightDistM", "S5/S3 the light's stand-off, sized to ULTRA's relief"],
+      ["_shadowFitUltra", "the ortho box fit"],
+      ["ULTRA.depthMarginM", "…and its depth range"],
+      ["shadowRigUltra", "the box's own profile latch"],
+      ["shadowCascades.length > 0", "the ladder's reach, only while the ladder casts"],
+      ["const fit = casting && ultraOn", "the cascade fits"],
+      ["ULTRA.terrainCast", "S3 terrain casters"],
+      ["on: ultraOn", "the DEV seams — `on` keeps meaning the CHIP"],
+      ["ultraPin: () => ultraOn", "the tier pin published to GlobeCanvas"],
+    ];
+    // Trailing `//` comments are documentation, not reads (the DEV seam labels its own fields).
+    const bare = codeLines.map(({ n, line }) => ({ n, line: line.replace(/\/\/.*$/, "") }));
+    // A read is attributed over a small WINDOW, not one line: these are multi-line ternaries and
+    // argument lists, so `: ultraOn` on its own line is genuinely part of the expression above and
+    // below it. Two lines either side is enough for every shape in this file and still tight
+    // enough that an unrelated lever cannot borrow a neighbour's licence.
+    const ctxOf = (i: number) =>
+      bare.slice(Math.max(0, i - 2), i + 3).map((c) => c.line).join(" ");
+    const reads = bare
+      .map((c, i) => ({ ...c, ctx: ctxOf(i) }))
+      .filter(({ line }) => /\bultraOn\b/.test(line));
+    expect(reads.length).toBeGreaterThan(20); // positive control: the probe matches
+    const offenders = reads
+      .filter(({ ctx }) => !COST.some(([frag]) => ctx.includes(frag)))
+      .map(({ n, line }) => `:${n} ${line.trim()}`);
+    expect(offenders).toEqual([]);
+    // …and no entry on the allow-list has quietly stopped applying.
+    const stale = COST.filter(([frag]) => !reads.some(({ ctx }) => ctx.includes(frag))).map(
+      ([frag]) => frag,
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it("both booleans reach a harness — a probe can tell WHICH of the two is in play", () => {
+    // The 2026-09-06h ladder run spent a leg confused about whether the chip had been demoted
+    // mid-measurement. With one flag published there was no way to ask.
+    expect(orch).toMatch(/look: lookOn\(\),/);
+    expect(orch).toMatch(/baseTakesLook: ULTRA\.baseTakesLook,/);
+    expect(codeLines.filter(({ line }) => line.includes("look: lookOn()")).length).toBe(3);
+  });
+});
+
+/**
+ * T66 / report F4 — THE DOME'S ADDITIVE AFTERGLOW BAND IS BOUND TO THE SKY LEVEL.
+ *
+ * The ruling's arithmetic half lives in `test/lib/globe/lightBands.test.ts` (`afterglowCurve ×
+ * skyLevelCurve` never exceeds its own +0.5° value). That test is only *about* the shipped dome if
+ * the dome really multiplies the two — and it does so in a GLSL template literal, where nothing
+ * else in this repo can see it: no type checks it, no unit imports it, and a re-tune that dropped
+ * the `× uFtwSkyLevel` would leave every arithmetic test green while the band went unbounded
+ * again. So the shader source is fenced at the string, the `bandCurveGlsl` idiom.
+ *
+ * Mutation that makes this RED: delete `* uFtwSkyLevel` from the afterglow accumulation in
+ * `scene/atmosphere.ts`.
+ */
+describe("T66 F4 — the dome's afterglow may not outrun the sky it is painted on", () => {
+  const atmo = readFileSync(join(sceneDir, "atmosphere.ts"), "utf8");
+
+  it("the additive band multiplies the afterglow by uFtwSkyLevel", () => {
+    // The whole accumulation, whitespace-normalised — asserting the FULL expression rather than
+    // the substring, so a stray `* uFtwSkyLevel` somewhere else in the file cannot satisfy it.
+    const band = atmo.replace(/\s+/g, " ");
+    expect(band).toContain(
+      "skyCol += dirCol * hzA * ${glf(ULTRA.afterglowGain)} * uFtwAfterglow * uFtwSkyLevel * sunSide * uFtwDirK;",
+    );
+  });
+
+  it("both uniforms the band reads are declared on the dome", () => {
+    // Positive control: the fence above is a string match, so it would pass just as happily
+    // against a shader that never declared `uFtwSkyLevel` and failed to compile at runtime.
+    for (const u of ["uFtwSkyLevel", "uFtwAfterglow", "uFtwDirK"]) {
+      expect(atmo).toMatch(new RegExp(`${u}:\\s*\\{\\s*value:`));
+    }
+  });
+});
+
+/**
  * BEST SPOT — the LONG-LIVED WORKER's fences (`BESTSPOT_SPEC_V2.md` §5.6 / §7 S3d).
  *
  * A long-lived module worker latches module scope AT SPAWN. A tunable read inside it would be
@@ -669,5 +821,87 @@ describe("T80 — every setScale argument comes from bloomScaleForTier", () => {
     // a type error, but only after the import came back; pin the construction directly.
     expect(src).toMatch(/new ScaledBloomPass\(/);
     expect(src).not.toMatch(/new UnrealBloomPass\(/);
+  });
+});
+
+/**
+ * T77 SLICE C-1 (2026-09-06j) — the STREAMING-QUIET fences.
+ *
+ * Two contracts this slice depends on that no runtime test can see, because both fail SILENTLY:
+ *
+ *  1. `lib/globe/seatQuiet.ts` is a PURE LEAF. The three decisions it owns (the sub-pixel seat
+ *     freeze, the idle sweep rate, the dirty-region arming test) are the only parts of the drain
+ *     that can be unit-tested without a tileset, a renderer and a camera — and they stay that way
+ *     only while the file imports nothing and reads no clock. A single `import * as THREE` or one
+ *     `performance.now()` inside it and the arithmetic is no longer testable in a node env.
+ *
+ *  2. `ImageryGroundHandle.terrainDirtyRegions()` DRAINS its ring (`splice(0, len)` —
+ *     `scene/imageryGround.ts`), so a SECOND caller does not get a second copy: it steals the
+ *     regions from the first and the enriched seat drain silently stops noticing that the ground
+ *     moved. The seam is deliberately a single call in `StylizedTiles.ts` handed to the enriched
+ *     module; a future consumer must fan out from that ONE call.
+ *
+ * Mutation that makes these RED: add any import to seatQuiet.ts; or call
+ * `ground.terrainDirtyRegions()` a second time anywhere in the engine.
+ */
+describe("T77 slice C-1 — streaming quiet", () => {
+  const seatQuietSrc = readFileSync(join(root, "src/lib/globe/seatQuiet.ts"), "utf8");
+  // Same comment stripper as the ease fence above: the prose names three.js and the harnesses.
+  const stripped = seatQuietSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(?<![:\\])\/\/[^\n]*/g, "");
+
+  it("seatQuiet is a leaf: it imports nothing at all", () => {
+    expect(stripped).not.toMatch(/\bimport\b/);
+    expect(stripped).not.toMatch(/\brequire\s*\(/);
+  });
+
+  it("…and is PURE: no clock, no globals, no randomness, no module state", () => {
+    for (const impure of [
+      /\bperformance\./,
+      /\bDate\b/,
+      /\bMath\.random\b/,
+      /\bwindow\b/,
+      /\bglobalThis\b/,
+      /\bTHREE\b/,
+    ])
+      expect({ probe: String(impure), hit: impure.test(stripped) }).toEqual({
+        probe: String(impure),
+        hit: false,
+      });
+    // Module state would make the "same inputs, same answer" claim false. Top-level statements
+    // are the UNINDENTED lines (prettier's 2-space style makes column 0 the module scope), and
+    // the only ones allowed are `export function` declarations and their closing braces.
+    const topLevel = stripped.split("\n").filter((l) => l.length > 0 && !/^\s/.test(l));
+    expect(topLevel.filter((l) => !/^(export function \w+\(|\)|\}|\{)/.test(l))).toEqual([]);
+    expect(topLevel.filter((l) => l.startsWith("export function"))).toHaveLength(3);
+  });
+
+  it("the three decisions are all exported (the scene module owns no copy of them)", () => {
+    for (const fn of ["seatFreezeM", "idleSweepNow", "regionArmsCell"])
+      expect(seatQuietSrc).toMatch(new RegExp(`export function ${fn}\\(`));
+    const enriched = readFileSync(join(sceneDir, "enrichedBuildings.ts"), "utf8");
+    expect(enriched).toMatch(/from "\.\.\/\.\.\/\.\.\/lib\/globe\/seatQuiet"/);
+  });
+
+  it("the DRAINED dirty-region ring has exactly ONE consumer in the engine", () => {
+    const offenders: string[] = [];
+    let calls = 0;
+    for (const file of readdirSync(sceneDir).filter((f) => f.endsWith(".ts"))) {
+      if (file === "imageryGround.ts") continue; // the ring's owner
+      const src = readFileSync(join(sceneDir, file), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(?<![:\\])\/\/[^\n]*/g, "");
+      // Reading it off the GROUND handle is the drain; `opts.terrainDirtyRegions()` is the
+      // injected seam and is allowed (it is the same single call, handed in).
+      for (const m of src.matchAll(/(\w+)\.terrainDirtyRegions\s*\(/g))
+        if (m[1] !== "opts") offenders.push(`${file}: ${m[0]}`);
+    }
+    const orch = readFileSync(join(root, "src/components/globe/StylizedTiles.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(?<![:\\])\/\/[^\n]*/g, "");
+    calls = [...orch.matchAll(/ground\.terrainDirtyRegions\s*\(/g)].length;
+    expect(offenders).toEqual([]);
+    expect(calls).toBe(1); // the ONE fan-out point
   });
 });

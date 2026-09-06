@@ -19,6 +19,7 @@
   "ignoreExportsUsedInFile": true,
   "ignoreBinaries": [
     "java",
-    "sips"
+    "sips",
+    "memory_pressure"
   ]
 }

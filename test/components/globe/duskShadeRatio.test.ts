@@ -119,11 +119,35 @@ describe("the anti-sun / sun-facing shade ratio", () => {
     expect(ratioAt(50, true)).toBe(ratioAt(50, true, { groundAmbientAzK: 0 }));
   });
 
-  it("is untouched with the chip OFF at every elevation — the off-state contract", () => {
+  /**
+   * T96 (owner ruling 2026-09-06i) — WHAT THE `ultra` PARAMETER MEANS NOW.
+   *
+   * The twin's second argument was "is the ULTRA chip on". Since T96 it is "is the LOOK on", and
+   * the two are no longer the same question: `lookOn() = ultraOn || ULTRA.baseTakesLook`, and
+   * `baseTakesLook` ships TRUE. So the `true` column is what a default `high` user sees, and the
+   * `false` column is the pre-T96 base rig — still exact, still pinned, but no longer shipped.
+   */
+  it("T96 — the BASE rig now runs the MODEL, and that is what shipped", () => {
+    expect(ULTRA.baseTakesLook).toBe(true);
+    // The ruling, as the number the owner was looking at: a mountain face turned away from a +2°
+    // sun used to render at 96.9 % of a face turned into it, on every default install, because the
+    // fix rode a chip almost nobody turns on. It does not any more.
+    expect(ratioAt(2, true)).toBeLessThan(0.72);
+    expect(ratioAt(2, false)).toBeGreaterThan(0.79); // …which is the state it replaces
+    // And the replacement is a DARKENING, not a re-balance: the absolute shade on a lit slope at
+    // +2° falls too, which is the other half of "naturally darkening scene and sky".
+    expect(lit(2, true)).toBeLessThan(lit(2, false));
+  });
+
+  it("`baseTakesLook: false` reproduces the OLD base rig exactly — the off-state, re-pointed", () => {
+    // The off-state contract is unchanged in KIND: with the look off, no value on this path can
+    // change a pixel and every lever reads exactly its pre-track value. What changed is which
+    // state ships. This block is the pre-T96 base, preserved to the digit, so the ruling stays a
+    // one-line flip rather than a rewrite — and so "false restores it exactly" is checkable.
     for (const d of [50, 10, 2, 0, -4]) {
       const r = ratioAt(d, false);
       expect(r).toBeLessThanOrEqual(1);
-      // With the chip off the ratio is the legacy dayGradMin ramp diluted by the night floor, so
+      // With the look off the ratio is the legacy dayGradMin ramp diluted by the night floor, so
       // it can only ever RISE toward 1 as the sun sets — the defect, preserved exactly.
       expect(r).toBeGreaterThan(0.79);
       expect(
@@ -289,14 +313,27 @@ describe("the in-shadow ground across sunset", () => {
     }
   });
 
-  it("the gate really did move to the sun's own upper limb, and only under ULTRA", () => {
+  it("the gate really did move to the sun's own upper limb — and since T96, on every rig", () => {
     const gateDeg = (Math.asin(ULTRA.shadowGateSin) * 180) / Math.PI;
     expect(gateDeg).toBeCloseTo(-0.8333, 3); // 34' refraction + 16' semidiameter
     // The band now fades the field over the half-degree the horizon takes to eat the disc.
     const topDeg = (Math.asin(ULTRA.shadowGateSin + ULTRA.shadowFadeBandSin) * 180) / Math.PI;
     expect(topDeg).toBeCloseTo(-0.3, 2);
-    // The BASE rig's gate is untouched, which is what keeps `high` byte-identical.
+    // T96 (owner ruling 2026-09-06i): the base rig READS `ULTRA.shadowGateSin` now — a field
+    // released 5.9 minutes before sunset is wrong on every rig, and the owner reported it on a
+    // default `high` frame. The pre-T96 constant is UNCHANGED and still live behind
+    // `baseTakesLook: false`, which is what makes the ruling reversible rather than destructive.
+    expect(ULTRA.baseTakesLook).toBe(true);
     expect(SHADOWS.minSunElevSin).toBe(0.008);
     expect((Math.asin(SHADOWS.minSunElevSin) * 180) / Math.PI).toBeCloseTo(0.4584, 3);
+    // The gate the base rig actually uses, expressed the way `StylizedTiles.stepKeyLightAndShadow`
+    // selects it (`lookOn() ? ULTRA.shadowGateSin : SHADOWS.minSunElevSin`) with the chip off.
+    const baseGateSin = ULTRA.baseTakesLook ? ULTRA.shadowGateSin : SHADOWS.minSunElevSin;
+    expect(baseGateSin).toBe(ULTRA.shadowGateSin);
+    // …and the 5.9 minutes it buys back, as a number: 1.29° of solar elevation at the crossing.
+    expect(
+      (Math.asin(SHADOWS.minSunElevSin) * 180) / Math.PI -
+        (Math.asin(ULTRA.shadowGateSin) * 180) / Math.PI,
+    ).toBeCloseTo(1.2917, 3);
   });
 });

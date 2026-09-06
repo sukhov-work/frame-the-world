@@ -29,7 +29,7 @@ const POSE = opt("--pose", "orbit");
 const SECONDS = Number(opt("--seconds", "6"));
 const ULTRA = args.includes("--ultra");
 const TOP = Number(opt("--top", "30"));
-const DEV = "http://localhost:4321";
+const DEV = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321"; // FTW_DEV_ORIGIN: a worktree dev server (2026-09-06j)
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 const OUT_DIR = "verify-shots/perf";
 mkdirSync(OUT_DIR, { recursive: true });
@@ -140,7 +140,7 @@ const byFn = new Map();
 const byFile = new Map();
 const parentOf = new Map();
 for (const n of profile.nodes) for (const c of n.children ?? []) parentOf.set(c, n.id);
-const shortUrl = (u) => (u ? u.replace(/^https?:\/\/localhost:4321\//, "").replace(/\?.*$/, "") : "(native)");
+const shortUrl = (u) => (u ? u.replace(new RegExp("^" + DEV.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/"), "").replace(/\?.*$/, "") : "(native)");
 for (const [id, us] of selfUs) {
   const n = nodes.get(id);
   const cf = n.callFrame;

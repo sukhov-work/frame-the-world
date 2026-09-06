@@ -228,14 +228,46 @@ consulted by no radar: a 15 %-covered profile fractured its bands like a complet
 
 `tuning.ULTRA` is the LOOK half of the `ULT` chip; `QUALITY.ultraDesktop` is the TILE half. Both
 hang off the ONE gate (`hqAllowed` in `StylizedTiles`, plus its boot twin `lib/globe/ultraBoot.ts`).
-**With the chip off not one value in either block is read** — every shader term is
-`mix(legacy, ultra, 0.0)` and every eased uniform SNAPS to 0 under an epsilon, so "off" is exact
-rather than asymptotic. `scripts/verify-ultra.mjs` asserts that in the browser.
+
+### T96 — the CHIP and the LOOK are two flags now (owner ruling 2026-09-06i)
+
+> **The BASE rig (chip off, the `high` default) takes the ULTRA light/shadow MODEL. The chip keeps
+> ULTRA's COST.** The byte-identical-`high` law is SUPERSEDED for the light/shadow path only.
+
+`StylizedTiles` reads two booleans and they are not interchangeable — **check which one a new lever
+belongs to before you write the line**, because the compiler cannot:
+
+| | flag | what it selects | examples |
+|---|---|---|---|
+| **CHIP** | `ultraOn` | frame time the user asked for | `shadowMapSize` (8192²), the `cascades` ladder, `terrainCast`, `anisotropy`/`mipLevels`, `lightDistM`/`depthMarginM`/`maxBoundsM` and every bias derived from that box, `ultraTileLevers`/`lruCapBytesForUltra` |
+| **LOOK** | `lookOn()` = `ultraOn \|\| ULTRA.baseTakesLook` | the light-transport model — curve evaluations and uniform writes, no frame time | `ultraLightAt` (hence every `uFtw*` light uniform), `keyExtinctCurve`→`directK` + `solarChroma`, `skyLevelCurve`, `afterglowCurve`, `shadowGateSin` + `shadowFadeBandSin` + `shadowLengthCasterM`, `shadowDirectShareK`, `groundShadowDuskK`, `SKY.discLevelCurve` (`ultraDisc`) |
+
+`ULTRA.baseTakesLook` (default **true**) is the ruling's one switch. **`false` restores the pre-T96
+base rig EXACTLY** — the off-state contract below is unchanged in KIND, it simply describes a
+different exact state now. `test/components/globe/fences.test.ts` §T96 holds the chip's reads on a
+written ALLOW-LIST, so a model lever that lands on `ultraOn` by copying the line above it turns red.
+
+**With the LOOK off** (`baseTakesLook: false` and the chip off) not one light value is read —
+every shader term is `mix(legacy, ultra, 0.0)` and every eased uniform SNAPS to 0 under an epsilon,
+so "off" is exact rather than asymptotic. **With the CHIP off** the cost levers are likewise exact:
+`ultraTileLevers` returns its input by identity, anisotropy is 1, `mipLevels` 1, `shadowRadius` and
+the bias constants are the `SHADOWS` literals, and no terrain tile casts.
+`scripts/verify-ultra.mjs` §A/§D assert both halves in the browser, from the live engine.
+
+**The ONE tunable that ruling 3 moved without going through `baseTakesLook`:**
+`SHADOWS.rigKeySnapTexels` / `SHADOWS.rigMoveTexels` **0 → 1**. The owner ruled on the CADENCE (a
+one-texel rig step every ~1.2 s of real time instead of a per-frame depth-map re-render), not on
+the chip, so the base profile carries the same numbers as its ULTRA twins and the selection stays
+on `ultraOn` — a profile pair like every other rig lever. `0/0` is still the exact pre-A2 identity
+and is what the A/B runs (`__globe.shadowRig({keySnapTexels, moveTexels})`,
+`verify-temporal-stability --rig 0,0`). Pinned by `test/lib/globe/shadowSnap.test.ts`.
+This is the one piece of the ruling that is a COST win rather than a look change.
 
 | Group | Keys | Note |
 |---|---|---|
+| **T96** | `baseTakesLook` | **true** — the base rig runs the light/shadow model (owner ruling 2026-09-06i). `false` is the pre-T96 base, exactly. See the table above for which levers it reaches. |
 | texture | `photo3dK` `photoTauMs` `anisotropy` | `photo3dK` drives the SAME `photo` term as the chart's `GROUND.flat2dPhotoK`, on its own uniform. **Never route ULTRA through `uFtwFlat2d`** — that also forces `dayK`, which is a C2 breach in 3D. |
-| light | `dayCurve` `exposureCurve` `hemiCurve` `hazeCurve` `tintStopsDeg` | Anchor tables in sun ELEVATION (deg), evaluated by `lib/globe/lightBands.ts`. Author HIGH→LOW, monotone. Knots are the almanac's thresholds (`lib/ephemeris/twilight.ts`) and a test asserts that. |
+| light | `dayCurve` `exposureCurve` `hemiCurve` `hazeCurve` `tintStopsDeg` | Anchor tables in sun ELEVATION (deg), evaluated by `lib/globe/lightBands.ts`. Author HIGH→LOW, monotone. Knots are the almanac's thresholds (`lib/ephemeris/twilight.ts`) and a test asserts that. **T66 (2026-09-06i): nothing here may make the frame brighter than it was at +0.5°** — `exposureCurve` holds a plateau to −2°, `hazeCurve`'s peak is a plateau over [0°, +0.5°], and `afterglowCurve × skyLevelCurve` is bounded by its own +0.5° value. Pinned by `test/lib/globe/lightBands.test.ts` §T66; the browser gate is `verify-ultra-dusk --ladder`. |
 | haze | `hazeDistM` `hazeMaxK` `hazeFullAltM` `hazeGoneAltM` `hazeSunPow` `hazeSunGain` `hazeTauMs` `hazeDarkK` | One shared `FTW_AERIAL_GLSL` (scene/glsl.ts) compiled into ground AND buildings — that sharing is what keeps them from diverging. |
 | shadow | `shadowMapSize` `shadowRadius` `shadowBiasM` `shadowNormalBias` | `shadowMapSize` is BOOT-only. `shadowRadius`/`shadowNormalBias` are live uniforms, edge-applied. |
 | terrain | `terrainCast` `terrainCastMaxAltM` `terrainDepthOffset` `boundsAltK` `maxBoundsM` `lightDistM` `depthMarginM` | The wide ortho + long light distance exist so a mountain fits the shadow camera at all. |

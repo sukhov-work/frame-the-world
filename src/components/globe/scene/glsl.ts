@@ -112,7 +112,9 @@ export const FTW_AERIAL_GLSL = /* glsl */ `
     // distant terrain under it knew nothing about — skyLevel is 0.22 at -6 deg while the dome's
     // afterglow is 0.49, a 2.2x disagreement at exactly the terrain/sky junction RC24 exists to
     // close. max() rather than a sum: the afterglow does not stack on a still-bright sky, it is
-    // what is left once the sky has gone. max(x, 0.0) is exactly x with the chip off.
+    // what is left once the sky has gone. max(x, 0.0) is exactly x with the LOOK off (T96,
+    // 2026-09-06i: the afterglow uniform rides the lookOn() selector, so it is live on the
+    // base rig).
     vec3 inScatter = tint * max(skyLevel, afterglow * ftwAirSun(cosG)) * ftwAirLevel(cosG);
     return mix(col, inScatter, f);
   }`;

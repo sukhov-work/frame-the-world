@@ -14,6 +14,7 @@ import { tokens } from "../../lib/theme/tokens";
 import type { PublicPin } from "../../store/pins";
 import { PINS } from "./tuning";
 import { glf } from "./scene/glsl";
+import { frameNow, registerFrameClock } from "../../lib/globe/frameFreeze";
 
 /**
  * Pins — public pins on the shared globe (Phase 5; look reworked Phase 5.5 S4, §Item 6).
@@ -270,7 +271,9 @@ export function attachPins(
   const _color = new THREE.Color();
   let dirty = true;
   let shown = true; // master visibility (PIN chip) — gates rendering AND picking
-  let lastNow = performance.now();
+  let lastNow = frameNow();
+  // T94 — the deterministic-capture seam names the clocks it can hold (lib/globe/frameFreeze).
+  const unregFrameClock = registerFrameClock("pins.shimmer");
 
   // Post-save pulse (Phase 5.5 S3): the highlighted pin breathes for PINS.highlightMs.
   let highlightId: string | null = null;
@@ -387,7 +390,7 @@ export function attachPins(
     },
 
     update(camera: THREE.PerspectiveCamera) {
-      const now = performance.now();
+      const now = frameNow();
       const dtMs = Math.min(now - lastNow, 100);
       lastNow = now;
       uTime.value = now / 1000; // shimmer/flare clock — runs even when matrices are static
@@ -537,7 +540,7 @@ export function attachPins(
       if (pinId === highlightId && pinId !== null) return; // already pulsing this pin
       highlightId = pinId;
       highlightIdx = pinId ? pins.findIndex((p) => p.id === pinId) : -1;
-      highlightUntil = pinId ? performance.now() + PINS.highlightMs : 0;
+      highlightUntil = pinId ? frameNow() + PINS.highlightMs : 0;
       dirty = true;
     },
 
@@ -573,6 +576,7 @@ export function attachPins(
     },
 
     dispose() {
+      unregFrameClock();
       for (const m of meshes) scene.remove(m);
       headGeometry.dispose();
       stemGeometry.dispose();

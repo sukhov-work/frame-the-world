@@ -12,7 +12,26 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-06h
+## Status — 2026-09-06k
+- **THE RESOURCE BUDGET (owner order 2026-09-06j, standing):** session j ran six worktrees × (`wix dev`
+  + headless Chrome + agent) on the 36 GB M3 and FROZE THE MACHINE (120 GB swap; another research
+  session died too). Now machine-checked: ONE house headless Chrome, ONE dev server, free ≥ 20 %
+  (`scripts/verify-chrome.mjs` exit 3 · `ensureBrowser()` throws · `scripts/resource-watchdog.mjs`);
+  agents NEVER launch Chrome / a dev server / the full vitest / `astro check`; worktrees = edit
+  isolation only. `conventions/verify.md` §THE RESOURCE BUDGET · `mem:project/dev_environment`.
+- **T77 six slices INTEGRATED on master 2026-09-06k** (`mem:project/wip-2026-09-06-t77-six-worktrees`):
+  BASE (T96 `ULTRA.baseTakesLook` + `lookOn()`, ruling 3, T66) · C-1 (5a/5b/5d/5e + deep resample,
+  `lib/globe/seatQuiet.ts`) · T80-g (`scene/resolvedComposer.ts`, rt1 demoted −195 MB) · A-rest
+  (5-lever `shadowRig()` seam, `--arms`) · T94 (`lib/globe/frameFreeze.ts`, sweep `--freeze`) · 4 sheet
+  probes. Unit gates **2,692/2,692 (172 files)** · astro 0/0/9 · knip 0. Browser gates RAN (k2,
+  once the owner's Proton VPN routed around a Cesium 403 that blocks the Dnipro ISP address — T98;
+  **the VPN is a precondition for every terrain gate**, `mem:project/dev_environment` §NETWORK): ladders 18/18 off · 17/18 on (T100 release
+  band) · charter re-pointed · ultra 30/30 · base `fpv.u0` churn 0.184 → **0.0000** · `frame.cpu` at
+  the FPV eye **4.4 → 0.7 ms** · T80-g **−2.7 ms** GPU (22.5 → 19.8; gate ≤ 15 unmet → T80-h the
+  blur) · T94 **14/14 byte-identical** · E3 CLOSES lever 12 · T92 = focal cone fill · T93 = base
+  earth limb. Tails: T100 (band), T101 (arrival rejections +39,629), T102 (fly after thaw).
+- Trap: after any large landing restart `wix dev` with `node_modules/.vite` moved aside — every
+  island 504s otherwise. Backlog now T1–T99.
 - **T77 RESUMED and four slices landed in one session** (2026-09-06h, `mem:project/wip-2026-09-06-t77-resume-harness-sunset`):
   T80 measured (a half-res bloom recovers 1.6 of 13 ms — moot; the cost is the full-res blend into
   the MSAA buffer), slice A A0–A3 (demand-driven cascade 0, ULTRA-on / base-identity; the shimmer
@@ -34,13 +53,12 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T96).
 
-## Next step — T77 slice C (full brief: `NEXT_SESSION_PROMPT.md`)
-1. **Read the contact sheets first** (`node scripts/verify-visual-sweep.mjs 9333 --sheet`) — the
-   owner's poses, never the bland legacy five alone; T92/T93 are the defects they exposed.
-2. **Slice C — streaming quiet + the seat drain + the FPV main thread** (`frame.cpu` 2.1 → 4.4 ms
-   after slice B; `probe-cpu-profile --pose fpv`), then slice B's 5a/5b/5d/5e, then T80 direction g
-   (blend after the MSAA resolve), then slice A's ladder/dispatch, then T94 (deterministic capture).
-3. **Slice BASE first (T96 + T66, ruled YES 2026-09-06i)** — the light/shadow model on the base rig.
+## Next step — T77 after the six slices (full brief: `NEXT_SESSION_PROMPT.md`)
+1. Boot: poll `api.cesium.com` (T98), watchdog + `--budget`, ONE Chrome, sweep `--sheet --golden`.
+2. **E1 / E2** (the lever-2 and A1 experiments, 25–30 min each, alone) — the last A-rest calls.
+3. **T80-h — the bloom BLUR** (8 of the remaining 10 ms): half-res mips + fused blend/OutputPass.
+4. Owner calls **T100** (the ULTRA release band) and **T101** (arrival deferrals); then the streaming
+   measurement (descent-leg CSV) that gates levers 9–11; then the phones (Pixel `--device --quick`).
 **Constraints:** no regression of behaviour, accuracy, calculations, plans, predictions or sky
 features · `high` byte-identical · ULTRA off-state exact · `ENGINE_STATE_2026-09-02.md` §8 harness
 list per slice · DNIPRO slice first (owner 2026-09-02c) · the audit is read-only.

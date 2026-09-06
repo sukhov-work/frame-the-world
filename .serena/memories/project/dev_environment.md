@@ -56,5 +56,34 @@ Where this runs and what CAN'T be trusted from a local test. (Referred by `mem:c
 - Session end reaps THIS repo's `wix dev`/`astro dev` trees (`session-end-ship.sh
   kill_dev_servers()`, cwd-scoped) — never assume yesterday's dev server on :4321 is current.
 
+## THE RESOURCE BUDGET (owner order 2026-09-06j — standing, machine-checked)
+- **The machine: Mac M3, 36 GB unified RAM, shared with IntelliJ (≈20 GB RSS observed) and OTHER
+  Claude sessions (the owner's ecom research runs alongside).** On 2026-09-06 a session ran the
+  six-worktree plan literally — 6 × (`wix dev` + a headless Chrome rendering the globe + an opus
+  agent) — swap passed 120 GB, the machine froze, this session AND an unrelated research session
+  died (≈2 h lost). Never again.
+- Budget, enforced by `scripts/verify-chrome.mjs` (exit 3) and `ensureBrowser()` in
+  `scripts/lib/cdp.mjs` (throws at once): **1 house headless verify Chrome** at a time (the owner's
+  headed :9222 is separate) · **1 dev server** (master's `:4321`) · launch refused under **20 % free**
+  (`memory_pressure`). `node scripts/verify-chrome.mjs --budget` prints the state. Env overrides
+  (`FTW_MAX_VERIFY_CHROMES`, `FTW_MAX_DEV_SERVERS`, `FTW_MIN_FREE_MEM_PCT`) are for the launching
+  shell only, never a default edit, never inside an agent.
+- Worktrees are for EDIT isolation only (agents edit + run the FOCUSED vitest files there). **No
+  sub-agent launches Chrome, a dev server, the full vitest, or `astro check`** — those run from the
+  main session, one at a time, on master after each landing. Rule text: `conventions/verify.md`
+  §THE RESOURCE BUDGET.
+
+## NETWORK: Cesium ion needs the owner's VPN (owner note 2026-09-06k3)
+- `api.cesium.com` (terrain + OSM building tiles, AND the ion dashboard login) returns a CloudFront
+  "Request blocked" **403 from the owner's Dnipro ISP address** (91.203.63.168, AS44894), with or
+  without the token, curl or Chrome. It answers the moment the owner's **Proton VPN** is connected
+  (Finland gateway, egress AS9009 M247). It does NOT expire — session k waited 2 h for nothing. The
+  owner is leaving the VPN on; it may be needed again.
+- Boot check before any browser session: `curl -s https://ipinfo.io/country` must NOT read `UA`, and
+  `curl -s -o /dev/null -w "%{http_code}" https://api.cesium.com/v1/assets/1/endpoint` must not be
+  403. `scripts/verify-chrome.mjs` prints this as part of `--budget` (`ion:` line) since k3.
+- Proton VPN has **no CLI on macOS** (`/Applications/ProtonVPN.app`): `open -a ProtonVPN` launches
+  it; Connect is the owner's click. Ask, don't wait.
+
 ## Empirical benchmarks owed before Phase 3
 a6700 26MP ARW decode ms + heap (desktop + mid phone); Dnipro + 2 rural OSM building coverage; one sun-azimuth almanac spot-check.

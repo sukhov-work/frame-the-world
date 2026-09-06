@@ -22,6 +22,7 @@ import { BUILDINGS, EARTH, FOVEATION, LOADING, TILESETS } from "../tuning";
 import { createBuildingMaterials } from "./buildingMaterial";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
+import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
 
 /**
  * OSM building tiles (Cesium ion, TILESETS.ionAssetId) restyled to the design-board building idiom
@@ -248,7 +249,9 @@ export function attachBuildings(
    *  facade at low sun. Banked by `setUltraHaze` and applied through `applyEdgeOpacity`, which
    *  is the ONE authority on the edge material's opacity: ghost mode and the FPV solidity
    *  slider both route through it, so a third writer cannot fight them. Both exactly 1 with the
-   *  chip off, so every expression below is byte-identical to what shipped. */
+   *  LOOK off, so every expression below is byte-identical to what shipped. (T96, 2026-09-06i:
+   *  the LOOK is `lookOn() = ultraOn || ULTRA.baseTakesLook` and ships ON — read every "with the
+   *  chip off" note in this file as "with the LOOK off".) */
   let ultraEmisK = 1;
   let ultraEdgeK = 1;
   /** The single place the edge opacity is written. Re-derives ABSOLUTELY from the ghost state, so
@@ -267,7 +270,11 @@ export function attachBuildings(
   // full height whenever their tiles load; see DECISIONS for the reverted mechanics.)
   tiles.addEventListener("load-model", (e: any) => {
     // One birth stamp per TILE (this load-model event) — the whole b3dm dissolves in as a unit.
-    const birthMs = performance.now();
+    // T94: `frameNow()`, the SAME clock `uNowMs` is stamped with. A tile that lands while the seam
+    // holds the clock (in-flight loads still resolve — only `tiles.update()` is held) would
+    // otherwise be born in the future relative to `uNowMs` and stay at reveal 0 for the whole skew
+    // after the thaw, instead of dissolving in from the instant the freeze released.
+    const birthMs = frameNow();
     // Pass 2 R2: one low-discrepancy seed per TILE (golden-ratio increment) — see tileSeedSeq.
     const tileSeed = (tileSeedSeq++ * 0.6180339887498949) % 1.0;
     e.scene.traverse((c: any) => {
@@ -309,11 +316,19 @@ export function attachBuildings(
   // /m 2D map mode (UPLIFT U1) — see setActive on the handle.
   let active = true;
 
+  // T94 — the deterministic-capture seam names the clocks it can hold (lib/globe/frameFreeze).
+  const unregFrameClock = registerFrameClock("buildings.uNowMs");
+
   return {
     tiles,
     update() {
       if (!active) return; // detached: no reveal clock, no traversal, no streaming
-      uNowMs.value = performance.now(); // F1: advance the shared reveal clock before the draw
+      uNowMs.value = frameNow(); // F1: advance the shared reveal clock before the draw
+      // T94: a tile landing between two captures is a picture change no clock freeze can undo.
+      if (frameHeld("streaming")) {
+        noteFrameHold("buildings.stream");
+        return;
+      }
       tiles.update();
     },
     setActive(on) {
@@ -380,6 +395,7 @@ export function attachBuildings(
       uniforms.uFtwSunW.value.copy(sunW);
     },
     dispose() {
+      unregFrameClock();
       tiles.dispose();
       styleMat.dispose();
       edgeMat.dispose();

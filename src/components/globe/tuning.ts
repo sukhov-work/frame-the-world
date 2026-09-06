@@ -532,12 +532,21 @@ export const SHADOWS = {
   // asserted TRUE at rest by `verify-audit3.mjs:256-259` (the PiP bracket's restore contract) and
   // turning it off would silence the cascades and the moonlight too.
   /** Key-direction swing quantum, in texels of grid motion at the box corner, before the rig is
-   *  re-placed and its map re-rendered. **0 = the light follows the sun every frame** (today's
-   *  behaviour, byte-identical). ULTRA ships 1. */
-  rigKeySnapTexels: 0,
+   *  re-placed and its map re-rendered. **0 = the light follows the sun every frame** (the
+   *  pre-2026-09-06 behaviour).
+   *
+   *  **1 since T96 / owner ruling 3 (2026-09-06i)**, which accepted A2's one-texel refresh cadence
+   *  as THE LOOK — *"a one-texel step every ~1.2 s at real time instead of per-frame
+   *  re-rasterisation"* — on the base rig as well as the chip. Measured at `--step 200` (×12 real
+   *  time) it takes the ULTRA scrub churn to p50 0.000 (Everest) / 0.001 (city) and stops the
+   *  every-frame depth-map re-render the perf baseline prices at −1.7 ms (fpv high) / −5.4 (city
+   *  high) of GPU. The base and ULTRA twins are now the same number on purpose; they stay two
+   *  tunables because the profiles are selected as a pair everywhere else in the rig. */
+  rigKeySnapTexels: 1,
   /** Centre-drift quantum, in texels, before the rig is re-placed. **0 = the centre follows the
-   *  eye every frame** (today's behaviour, byte-identical). ULTRA ships 1. */
-  rigMoveTexels: 0,
+   *  eye every frame** (the pre-2026-09-06 behaviour); 1 since owner ruling 3 — see
+   *  `rigKeySnapTexels`. */
+  rigMoveTexels: 1,
   /** Staleness safety net (ms) in RC21's shape: a missed trigger costs bounded staleness, never a
    *  frozen shadow. Tighter than the cascades' 1,500 ms because cascade 0 is the box the viewer is
    *  standing in. Shared by both profiles — a demand-driven rig is a demand-driven rig. */
@@ -856,7 +865,9 @@ export const QUALITY = {
    *  override profile. Structurally the mirror of `leanMobile` above: overrides applied on top
    *  of whatever tier the governor runs, never a fourth tier, never an edit to `tiers.*`. The
    *  byte-identical `high` invariant is therefore untouched — with the chip off, not one lever
-   *  here is read (`lib/globe/quality.ultraTileLevers` returns its input BY IDENTITY).
+   *  here is read (`lib/globe/quality.ultraTileLevers` returns its input BY IDENTITY). T96
+   *  (2026-09-06i) superseded that invariant for the LIGHT/SHADOW path only; these are TILE
+   *  levers, they are the chip's COST, and they are untouched by the ruling.
    *
    *  These are TILE-detail levers only. The renderer levers a user would expect from a
    *  "maximum quality" switch (DPR, shadow-map size, AO, MSAA, the 8k earth texture) are
@@ -882,9 +893,19 @@ export const QUALITY = {
 /**
  * ULTRA LOOK — the desktop-only, opt-in fidelity track (T44 + T45; owner 2026-08-22i, extended
  * 2026-08-22j). `QUALITY.ultraDesktop` above is the TILE half (how much geometry streams); this
- * is the LOOK half (how the scene is lit, graded and hazed). Same chip, same one gate
- * (`hqAllowed` in StylizedTiles), same rule: **with the chip off not one value here is read**,
- * every shader term is `mix(legacy, ultra, 0.0)` — exactly the legacy expression.
+ * is the LOOK half (how the scene is lit, graded and hazed).
+ *
+ * **T96, OWNER RULING 2026-09-06i — READ `baseTakesLook` FIRST.** This block used to hang off the
+ * one chip gate (`hqAllowed` in StylizedTiles) with the rule *"with the chip off not one value
+ * here is read"*. That is no longer true and the difference is the whole ruling: the LIGHT/SHADOW
+ * MODEL in here now rides `lookOn() = ultraOn || ULTRA.baseTakesLook` and ships ON the base rig,
+ * while ULTRA's COST levers (`shadowMapSize`, `cascades`, `terrainCast`, `anisotropy`,
+ * `mipLevels`, `lightDistM`, `depthMarginM`, `maxBoundsM` and the biases derived from that box)
+ * still hang off the chip and are still exact with it off. Every "with the chip off …" note below
+ * this line predates the ruling: on the model levers read it as **with the LOOK off**, i.e.
+ * `ULTRA.baseTakesLook: false`, which restores the pre-T96 base rig exactly. The split, lever by
+ * lever, is `conventions/globe-tuning.md` §T96 and `ULTRA_ARCHITECTURE.md` §12b; it is
+ * machine-checked by `test/components/globe/fences.test.ts` §T96.
  *
  * OWNER RULING 2026-08-22j — THE FRAME-RATE CEILING IS LIFTED: *"even if it is sub 15FPS but
  * graphics fidelity improves and gives nicer richer picture — worth it, user enables it in its
@@ -904,6 +925,31 @@ export const QUALITY = {
  * HIGH→LOW elevation, monotone; the evaluator hits every anchor value exactly.
  */
 export const ULTRA = {
+  // --- T96 (owner ruling 2026-09-06i) — THE CHIP AND THE LOOK ARE TWO DIFFERENT THINGS -------
+  /**
+   * **The BASE rig (ULTRA chip OFF, the `high` default) takes the ULTRA light/shadow MODEL.**
+   *
+   * The owner's ruling, verbatim in `DECISIONS.md` 2026-09-06i: *"the byte-identical-`high` law is
+   * SUPERSEDED for the light and shadow path"*. Every dusk fix this track has shipped — the key
+   * that dies (`keyExtinctCurve` → `directK` + `solarChroma`), the sky that has a LEVEL
+   * (`skyLevelCurve`), the exposure/hemi/haze/day curves, the direct-share overlay bound, the
+   * true-sunset gate with its disc-sized fade band and the shadow-length guard, and slice A's
+   * demand-driven rig — was invisible to every user who never found the ULT chip, which is
+   * everybody. So the MODEL moves to the base rig and the chip keeps only what it is actually
+   * for: ULTRA's **COST** (the 8192² map, the cascade ladder, terrain casting, anisotropy/mips,
+   * the tile/LRU levers).
+   *
+   * `StylizedTiles` therefore reads two different booleans and they are not interchangeable:
+   * `ultraOn` is the CHIP (cost) and `lookOn()` is `ultraOn || ULTRA.baseTakesLook` (model).
+   * Every selector is labelled at its site.
+   *
+   * **`false` restores the pre-T96 base EXACTLY** — not approximately. That is what makes this a
+   * ruling and not a rewrite: the off-state contract is unchanged in KIND (the base rig is still
+   * one exact state, provable from the live engine), it is simply a different state now, and the
+   * fences that pinned the old one are re-pointed rather than deleted
+   * (`test/components/globe/duskShadeRatio.test.ts`, `scripts/verify-ultra.mjs` §A).
+   */
+  baseTakesLook: true,
   // --- §1a THE PHOTOGRAPHIC GRADE IN 3D (T44 — the owner's "very grayish") ------------------
   /** Strength (0..1) of the photographic de-grade applied to the 3D ground under ULTRA — the
    *  SAME `photo` term the /m 2D chart drives at `GROUND.flat2dPhotoK`, but on its OWN uniform.
@@ -986,9 +1032,19 @@ export const ULTRA = {
    *  side reading as merely dark). `OutputPass` re-reads `renderer.toneMappingExposure` every
    *  render (`three/examples/jsm/postprocessing/OutputPass.js:93`), so this is a live write with
    *  no recompile — the one renderer-level lever ULTRA can move without a boot cost. */
+  /*  T66 (owner ruling 2026-09-06i): THE RISE THROUGH 0° IS FLATTENED. The shipped table ran
+   *  1.1194 at +0.5° → 1.1451 at −1.5° → 1.1616 at −2°, i.e. the camera kept opening up through
+   *  the exact half-hour the owner was watching the sun set, and the frame got BRIGHTER "against
+   *  all physics". The `{-2, 1.12}` anchor is the whole fix: the value at 0° is the value at −2°,
+   *  so the ramp holds a PLATEAU across the sunset window and the night rise resumes below it,
+   *  where dayK (0.52 → 0.30) and skyLevel (0.46 → 0.22) are collapsing far faster than the
+   *  exposure climbs. Every anchor at and above 0° is UNCHANGED, so the day side is byte-identical
+   *  and the residual rise between +0.5° and 0° is 6.2e-4 — a quarter of one 8-bit code, against
+   *  the ladder's 2-code gate. Pinned by `test/lib/globe/lightBands.test.ts`. */
   exposureCurve: [
     { elevDeg: 12, v: 1 },
     { elevDeg: 0, v: 1.12 },
+    { elevDeg: -2, v: 1.12 },
     { elevDeg: -6, v: 1.28 },
     { elevDeg: -12, v: 1.4 },
     { elevDeg: -18, v: 1.46 },
@@ -1052,9 +1108,18 @@ export const ULTRA = {
    *  Peaks at sunset, where the sun's light rakes through the most air; low at night, because
    *  night haze is DARKNESS, not grey — painting grey over a night city is the C2 failure mode
    *  this curve exists to avoid. */
+  /*  T66 (owner ruling 2026-09-06i): THE PEAK IS A PLATEAU, NOT A SPIKE AT 0°. The shipped table
+   *  peaked exactly at 0° (0.8459 at +0.5° → 0.8500 at 0°), so the last half-degree before sunset
+   *  added air-light to a frame that was supposed to be darkening. Duplicating the peak anchor at
+   *  +0.5° makes the curve flat across [0°, +0.5°] and strictly falling below it, which is the
+   *  "no rise below +0.5°" half of the ruling. Every value BELOW 0° is byte-identical; the price
+   *  is confined to the golden band, where the re-anchored segment runs up to +0.016 hazier at
+   *  +2° (a ≤ 2 % change in the haze FRACTION, monotone, and in the direction that helps the
+   *  ladder's non-increasing gate). Pinned by `test/lib/globe/lightBands.test.ts`. */
   hazeCurve: [
     { elevDeg: 30, v: 0.5 },
     { elevDeg: 6, v: 0.64 },
+    { elevDeg: 0.5, v: 0.85 },
     { elevDeg: 0, v: 0.85 },
     { elevDeg: -4, v: 0.8 },
     { elevDeg: -6, v: 0.58 },
@@ -1344,6 +1409,16 @@ export const ULTRA = {
    *  the owner asked for, and it is why the glow is LOCAL: it rides the Mie lobe, so it lives in
    *  the sun's azimuth and leaves the rest of the sky to darken. Peaks just under the horizon,
    *  where the real one does. */
+  /*  T66 (owner ruling 2026-09-06i): "the afterglow stays a LOCAL sun-side term; **it loses its
+   *  licence to outrun the sky**." The shipped table climbed 0.35 at 0° → 0.75 at −2° while
+   *  `skyLevelCurve` fell 0.58 → 0.46, so the product the dome actually paints (F4 below) rose
+   *  × 1.71 through the half hour after sunset — the frame got brighter as the sun went, which is
+   *  the defect. This table is re-anchored so that **`afterglowCurve × skyLevelCurve` never
+   *  exceeds its own +0.5° value at any lower elevation** (measured max overshoot: 0.0, exactly),
+   *  and is strictly falling across the whole ladder window +0.5° → −1.5° (0.1998 → 0.1814). The
+   *  glow is still there and still peaks below the horizon (0.335 at +0.5° → 0.50 at −5°) — what
+   *  it may no longer do is climb faster than the sky it sits in.
+   *  Pinned by `test/lib/globe/lightBands.test.ts` + `test/lib/globe/duskLight.test.ts`. */
   afterglowCurve: [
     // The 0 at +4° is load-bearing housekeeping, not shape: `bandCurve` HOLDS its highest anchor
     // above the table, so a table starting at 0° would report an afterglow of 0.35 at noon. It is
@@ -1351,9 +1426,15 @@ export const ULTRA = {
     // first term in daylight) — and a probe reading 0.35 at midday is a number that looks like a
     // bug forever after.
     { elevDeg: 4, v: 0 },
-    { elevDeg: 0, v: 0.35 },
-    { elevDeg: -2, v: 0.75 },
-    { elevDeg: -5, v: 0.55 },
+    // The knot that USED to sit at 0° moves to +0.5°: the glow has to be fully in by the ladder's
+    // reference elevation, or the product keeps climbing past it no matter what the tail does.
+    { elevDeg: 0.5, v: 0.335 },
+    // …and then it may only grow as fast as the sky shrinks. The intermediate −1° knot is what
+    // makes that true through the steep part of the smoothstep: without it a single 0.5° → −3°
+    // segment overshoots by 4.6 % around −1.1°, which is where the owner's frame B sits.
+    { elevDeg: -1, v: 0.345 },
+    { elevDeg: -3, v: 0.44 },
+    { elevDeg: -5, v: 0.5 },
     { elevDeg: -9, v: 0.15 },
     { elevDeg: -14, v: 0 },
   ],
@@ -1536,7 +1617,16 @@ export const ULTRA = {
 
   /** The directional dome arm's own blend weight under ULTRA. 1 = fully directional. */
   domeDirK: 0.9,
-  /** Additive afterglow gain, on top of `afterglowCurve`. */
+  /** Additive afterglow gain, on top of `afterglowCurve`.
+   *
+   *  T66 / report F4 (2026-09-06i): the band it gains is now `afterglowCurve × uFtwSkyLevel`, not
+   *  `afterglowCurve` alone (`scene/atmosphere.ts`). The gain is deliberately LEFT at its shipped
+   *  value — compensating the multiply back out would be inventing taste the owner did not ask
+   *  for, and the dimming is the point of the ruling. Measured consequence, so nobody has to
+   *  rediscover it: the dome's additive band goes 0.402 → 0.225 at 0°, 0.575 → 0.219 at −0.833°
+   *  and 0.862 → 0.208 at −2°. If the owner wants the sunset-instant glow back at its old
+   *  magnitude the one-line answer is `1.15 → 1.98` (= 1.15 / skyLevel(0°)); that is a taste call
+   *  and it is recorded here rather than taken. */
   afterglowGain: 1.15,
   // --- THE CITY AT DUSK — why the first pass made buildings WORSE, not better ------------------
   //
@@ -2423,6 +2513,62 @@ export const ENRICHED = {
    *  frames, not forty seconds. At a quiet pose the drain is empty and this costs nothing. */
   reseatBudgetMs: 1.0,
   reseatBudgetMaxMul: 8,
+  // --- T77 slice C-1 (2026-09-06j) — STREAMING QUIET: the drain must cost nothing once the
+  // ground stops moving. Browser-attributed at the Dnipro FPV eye AFTER the tile queues emptied
+  // (`probe-cpu-profile --pose fpv`, and a per-frame `seatSettle()` recorder): 100 % of frames
+  // still wrote seats, ~103 features a frame, because the refresh round-robin re-asked 104
+  // footprints a frame and the answers came back millimetres apart (`seatSnapM` is 5 mm, so each
+  // one restarted and landed an ease). Self time: `bufferSubData` 56.7 % of the main thread —
+  // the position/edge buffers those writes dirtied — and `applyFeatureSeats` 7.9 % on top.
+  /** 5b — the SUB-PIXEL SEAT FREEZE: the deadband under which a REFRESHED terrain answer is
+   *  discarded and the held seat stands. The smaller of two bounds:
+   *   • screen space — `reseatMinSeatPx` pixels at the cell's own distance from the camera: a
+   *     seat move the viewer cannot see does not justify a vertex write plus a buffer upload;
+   *   • relief — `reseatFreezeReliefK` of the relief this cell has actually SHOWN
+   *     (`reliefHiM − reliefLoM`, falling back to `reseatExpectedReliefM` before it has shown
+   *     any), which stops a far-away pixel (≈15 m at the orbit pose) from freezing away the
+   *     within-cell relief the per-feature seat exists to remove.
+   *  A FIRST sample is never frozen — this only ever refuses to CHANGE a seat already held. */
+  reseatMinSeatPx: 0.5,
+  reseatExpectedReliefM: 14,
+  reseatFreezeReliefK: 0.01,
+  /** 5d — the IDLE SWEEP RATE. `sampleFeatures`/`sampleTrees` pass 2 is the refresh round-robin:
+   *  it re-asks about already-seated footprints forever, at the full per-frame budget, whether or
+   *  not the ground under them moved. It now runs for a cell with nothing queued only on every
+   *  Nth frame; a cell that is still draining (`unseated`/`refine`) or whose ground just changed
+   *  (5e) refreshes every frame exactly as before. 30 ≈ twice a second at 60 Hz. 1 restores the
+   *  every-frame sweep. */
+  reseatIdleSweepEveryFrames: 30,
+  /** 5a — skip a SETTLED cell in the apply pass. The pass walks every resident feature of every
+   *  cell every frame; a cell whose last full pass wrote nothing is a FIXED POINT (the frame's
+   *  ease coefficients cannot move a feature that is already on its target, and `seatLand` snaps
+   *  the tail exactly), so the next pass may be skipped until something re-arms the cell — a
+   *  sample, a plane move, a plane-shift carry, an override/transform, a load or a cache warm.
+   *  OFF restores the unconditional every-frame walk. */
+  reseatIdleSkip: true,
+  /** 5e — consume `imageryGround.terrainDirtyRegions()` (the drained ring of terrain regions that
+   *  arrived or were disposed) and re-arm only the cells under them: their plane is re-sampled
+   *  FIRST by the round-robin, and their refresh sweep ignores the idle rate above for
+   *  `reseatDirtyArmFrames`. The enriched seat drain is the ring's SINGLE consumer — the ring is
+   *  drained on read, so a second consumer must fan out in StylizedTiles, never call it too. */
+  reseatDirtyRegions: true,
+  reseatDirtyArmFrames: 90,
+  /** T77 slice C-1 — a footprint answer that is implausible against the cell PLANE but came from
+   *  a DEEPER (finer) tile than the plane itself is evidence the PLANE is stale, not that the
+   *  answer is garbage: at the FPV boot the terrain refines depth 7 → 18 under a cell whose
+   *  centre the 6-per-frame round-robin has not re-swept yet, and the gate rejected +1,324 real
+   *  samples on the way in (0 after quiet). With this on the first such answer re-samples the
+   *  cell plane — at most once per cell per frame, through the same 4c hold / 4e carry path the
+   *  round-robin uses — and the footprint is re-tested against the corrected plane. */
+  reseatResampleCellOnDeep: true,
+  /** …and the per-FRAME cost bound on that. "At most once per cell per frame" bounds the LOOP,
+   *  not the COST: at the boot the terrain refines under every resident cell at once, so that
+   *  rule alone permits one extra plane raycast per resident cell (60+ × 0.02–0.07 ms ≈ up to
+   *  4 ms) — the very main-thread regression slice C-1 exists to remove. This caps the out-of-turn
+   *  corrections at the same order as the ordinary plane sweep (`reseatSamplesPerFrame`, 6), so
+   *  the two together stay ≈ 12 plane raycasts a frame; what is deferred arrives on the next
+   *  frame through the same path. Units: raycasts per frame. 0 disables the correction. */
+  reseatDeepResampleMaxPerFrame: 6,
   /** T77 slice B 4d — refuse a terrain answer from a SHALLOWER tile than the seat we hold. OFF:
    *  measured 2026-09-06h it turns the orbit arrival's city-wide p95 from 0.00 m into 33.5 m,
    *  because a settled traversal is coarser than the finest tile it streamed through and the

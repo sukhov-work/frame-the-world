@@ -24,8 +24,28 @@ import { Body, Observer, SearchAltitude } from "astronomy-engine";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
+const DEV_ORIGIN = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321"; // FTW_DEV_ORIGIN: a worktree dev server (2026-09-06j)
 const SHOTS = process.argv[3] ?? "verify-shots";
 mkdirSync(SHOTS, { recursive: true });
+/**
+ * `--ultra 0|1` (default 1) — WHICH RIG the run measures.
+ *
+ * Added 2026-09-06 for T96. Until the owner's ruling this script could only ever measure the chip:
+ * every navigation set `ultraQuality` true, because the whole dusk model was behind it. T96 moved
+ * the light/shadow MODEL to the base rig (`ULTRA.baseTakesLook`), so "does the sunset behave" is
+ * now a question about BOTH rigs and the interesting one is the default — `--ultra 0` is what a
+ * user who never found the chip actually sees. The flag drives both the persisted boot pref (the
+ * shadow map size and the cascade ladder are construction-time) and the live store write.
+ *
+ * Screenshots and the ladder's own shots carry the state in their names, so an off/on pair does
+ * not overwrite itself.
+ */
+const ULTRA_PREF = (() => {
+  const i = process.argv.indexOf("--ultra");
+  return i < 0 || process.argv[i + 1] !== "0";
+})();
+const USUF = ULTRA_PREF ? "u1" : "u0";
+console.log(`rig under test: ULTRA chip ${ULTRA_PREF ? "ON" : "OFF"} (--ultra ${ULTRA_PREF ? 1 : 0})`);
 
 const http = (p, m = "GET") => fetch(`http://127.0.0.1:${PORT}${p}`, { method: m }).then((r) => r.json());
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -75,7 +95,10 @@ const evalJs = async (expr) => {
 };
 const shoot = async (name) => {
   const r = await send("Page.captureScreenshot", { format: "jpeg", quality: 86 });
-  writeFileSync(`${SHOTS}/${name}.jpeg`, Buffer.from(r.data, "base64"));
+  // T96: every shot carries the RIG it was taken on (`.u0` / `.u1`), the sweep's convention, so an
+  // off/on pair can be laid side by side instead of overwriting each other. The ladder's own names
+  // already carried it; this makes the claim true for the whole run.
+  writeFileSync(`${SHOTS}/${name}.${USUF}.jpeg`, Buffer.from(r.data, "base64"));
 };
 const waitFor = async (expr, timeoutMs = 45000) => {
   const t0 = Date.now();
@@ -104,10 +127,10 @@ const goto = async (lat, lon, alt, head, tilt, t) => {
   await send("Page.navigate", { url: "about:blank" });
   await sleep(400);
   await send("Page.navigate", {
-    url: `http://localhost:4321/#p=${lat},${lon},${alt},${head},${tilt}&t=${t}`,
+    url: `${DEV_ORIGIN}/#p=${lat},${lon},${alt},${head},${tilt}&t=${t}`,
   });
   if (!(await waitFor(`!!window.__globe && !!window.__globeQuality`))) return false;
-  await evalJs(`window.__cameraStore.getState().setUltraQuality(true)`);
+  await evalJs(`window.__cameraStore.getState().setUltraQuality(${ULTRA_PREF})`);
   await sleep(22000); // stream terrain + drape, settle the eased ULTRA terms
   return true;
 };
@@ -115,11 +138,11 @@ const goto = async (lat, lon, alt, head, tilt, t) => {
 await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
 await send("Page.bringToFront");
 // The rig is CONSTRUCTION-TIME, so the pref has to be in storage before the boot we measure.
-await send("Page.navigate", { url: "http://localhost:4321/" });
+await send("Page.navigate", { url: `${DEV_ORIGIN}/` });
 await sleep(6000);
 await evalJs(`(() => { const k = "ftw:view-prefs:v1";
   const o = JSON.parse(localStorage.getItem(k) || "{}");
-  o.ultraQuality = true; localStorage.setItem(k, JSON.stringify(o)); })()`);
+  o.ultraQuality = ${ULTRA_PREF}; localStorage.setItem(k, JSON.stringify(o)); })()`);
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 const LADDER_ONLY = process.argv.includes("--ladder"); // §4 alone (the sunset ladder), ~3 min
@@ -339,11 +362,11 @@ const gotoFpv = async (t) => {
   await sleep(400);
   await send("Page.navigate", {
     url:
-      `http://localhost:4321/#f=${EVEREST.lat},${EVEREST.lon},${EVEREST.eye},` +
+      `${DEV_ORIGIN}/#f=${EVEREST.lat},${EVEREST.lon},${EVEREST.eye},` +
       `${EVEREST.head},${EVEREST.pitch},${EVEREST.fov}&t=${t}`,
   });
   if (!(await waitFor(`!!window.__globe && !!window.__globeQuality`))) return false;
-  await evalJs(`window.__cameraStore.getState().setUltraQuality(true)`);
+  await evalJs(`window.__cameraStore.getState().setUltraQuality(${ULTRA_PREF})`);
   for (let i = 0; i < 80; i++) {
     await sleep(250);
     if (!(await evalJs(`!!window.__globe.flight.active()`).catch(() => true))) break;
@@ -359,6 +382,11 @@ for (const stop of stops) {
   const look = await evalJs(LOOK);
   rungs.push({
     want: stop.deg,
+    // T96: the CHIP and the LOOK, per rung. The 2026-09-06h run lost a leg to a chip that had
+    // been demoted mid-ladder by a slow frame and had no way to say so; with the model on the base
+    // rig the pair also says WHICH rig each number came from.
+    chip: look.on,
+    look: look.look,
     sunAlt: await evalJs(SUN_ALT),
     intensity: look.shadow?.intensity,
     casting: look.shadow?.casting,
@@ -372,6 +400,16 @@ for (const stop of stops) {
 }
 console.table(rungs);
 check("the elevation ladder ran every rung", rungs.length === stops.length, `${rungs.length}/${stops.length}`);
+check(
+  `the chip held its state for the WHOLE ladder (requested ${ULTRA_PREF ? "ON" : "OFF"})`,
+  rungs.every((r) => r.chip === ULTRA_PREF),
+  rungs.map((r) => `${r.want}:${r.chip ? 1 : 0}`).join(" "),
+);
+check(
+  "T96 — the LOOK is on for every rung, whichever rig is under test",
+  rungs.every((r) => r.look === true),
+  rungs.map((r) => `${r.want}:${r.look ? 1 : 0}`).join(" "),
+);
 if (rungs.length === stops.length) {
   const at = (deg) => rungs.find((r) => r.want === deg);
   // Every rung must have LANDED on the elevation it asked for, or the ladder measured a different
@@ -386,11 +424,25 @@ if (rungs.length === stops.length) {
   // of the direct sun was still on the ground. The fixed rig holds full strength until the shadow
   // it throws stops fitting the box, whose knee is atan(shadowLengthCasterM / boundsM) — 0.54° at
   // this pose's ~10.7 km fit — and then fades on that geometry.
-  check(
-    "the field is still FULL at +0.9°, where the shipped rig had already deleted it",
-    [3, 2, 1.3, 1.06, 0.9].every((d) => (at(d)?.intensity ?? 0) >= 0.9),
-    [3, 2, 1.3, 1.06, 0.9].map((d) => `${d}:${(at(d)?.intensity ?? 0).toFixed(3)}`).join(" "),
-  );
+  // T96 (2026-09-06k, measured): the BASE rig's length-guard reach is its own 5 km box, not the
+  // cascade ladder's 260 km, so at this 8 km-peak pose the field starts fading from ~+2.5°
+  // (measured 1.000 → 0.790 → 0.594 → 0.527 → 0.482 down the five rungs) — a ramp on geometry,
+  // where the pre-T96 base rig held 1.000 and then deleted the field at +0.9°. On the base rig the
+  // assertion is therefore "present and ramping", never "full": full strength there would mean the
+  // guard had stopped reading the box.
+  if (ULTRA_PREF) {
+    check(
+      "the field is still FULL at +0.9°, where the shipped rig had already deleted it",
+      [3, 2, 1.3, 1.06, 0.9].every((d) => (at(d)?.intensity ?? 0) >= 0.9),
+      [3, 2, 1.3, 1.06, 0.9].map((d) => `${d}:${(at(d)?.intensity ?? 0).toFixed(3)}`).join(" "),
+    );
+  } else {
+    check(
+      "BASE rig: the field is FULL at +3° and still ≥ 0.4 at +0.9° (a ramp on the 5 km box's geometry, not the old cliff)",
+      (at(3)?.intensity ?? 0) >= 0.9 && (at(0.9)?.intensity ?? 0) >= 0.4,
+      [3, 2, 1.3, 1.06, 0.9].map((d) => `${d}:${(at(d)?.intensity ?? 0).toFixed(3)}`).join(" "),
+    );
+  }
   check(
     "…and still substantially present at +0.5°, where the shipped rig measured 0.014",
     (at(0.5)?.intensity ?? 0) > 0.3,
@@ -425,6 +477,25 @@ if (rungs.length === stops.length) {
       .filter((r) => r.want >= 0.9)
       .every((r, i, a) => i === 0 || (r.luma ?? 0) <= (a[i - 1].luma ?? 0) + 2),
     rungs.filter((r) => r.want >= 0.9).map((r) => `${r.want}:${r.luma}`).join(" "),
+  );
+  // T66, THE OWNER'S OWN GATE (ruling 2026-09-06i, verbatim): *"the ladder's luma series monotone
+  // non-increasing from +3° to −1.5° within 2 codes"*. The two ratio checks below were the
+  // sunset-release's gate and they are kept — they price the CLIFF. This one prices the RISE, and
+  // it is stricter in the only direction that matters: no rung anywhere on the ladder may be
+  // brighter than the one above it by more than dither. Before T66 this failed on the authored
+  // curves alone (exposure kept opening up through 0°, haze peaked at 0°, and the dome's afterglow
+  // band climbed × 1.71 after sunset while the sky collapsed) — which is why it could not be
+  // written until the curves were flattened. Two codes of 255 is the stated tolerance and it is
+  // the dither/tile-stream budget, not slack: the pre-T66 frame rose ~15 codes.
+  const worstLumaRise = Math.max(
+    0,
+    ...lumas.slice(1).map((v, i) => v - lumas[i]),
+  );
+  check(
+    "T66 — the luma series is monotone non-increasing +3° → −1.5° (within 2 codes)",
+    worstLumaRise <= 2,
+    `worst rung-to-rung RISE ${worstLumaRise.toFixed(2)} codes; series ` +
+      rungs.map((r) => `${r.want}:${(r.luma ?? 0).toFixed(1)}`).join(" "),
   );
   // Below that the field is retiring — `keyExtinctCurve` collapses to 0 by −0.5°, and a shadow
   // with no direct light left to remove is not a shadow, so in-shadow and lit ground MUST meet.

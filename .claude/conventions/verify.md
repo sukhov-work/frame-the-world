@@ -112,9 +112,28 @@ ran as if it were a timed measurement. It is not:
 
 | Tier | Harnesses | What it measures | May run in parallel? |
 |---|---|---|---|
-| **V — visual / functional** | `verify-visual-sweep`, the charter, ultra, meshedit, usermodels, qaslice suites | pixels, state, counters | **Yes** — N headless Chromes on :9333, :9334, … each with its own profile dir (`/tmp/ftw-cdp-N`); GPU contention changes timing, never pixels |
-| **D — deterministic per-frame metrics** | `verify-temporal-stability --shimmer` / `--reseat`, `verify-ultra-dusk`'s elevation ladder | frame-synchronous XOR churn, seat residuals, light scalars | **Yes**, one per Chrome — the metric does not read the clock |
+| **V — visual / functional** | `verify-visual-sweep`, the charter, ultra, meshedit, usermodels, qaslice suites | pixels, state, counters | Pixels would tolerate it, but the MACHINE does not — **one house headless Chrome at a time** (see the budget below); queue suites, never fan them out |
+| **D — deterministic per-frame metrics** | `verify-temporal-stability --shimmer` / `--reseat`, `verify-ultra-dusk`'s elevation ladder | frame-synchronous XOR churn, seat residuals, light scalars | Same — one Chrome, sequential |
 | **T — timed** | `verify-perf-baseline`, `probe-cpu-profile`, `probe-below-camera` | ms, fps, the GPU timer | **No** — solo on the GPU, nothing else rendering, the HEADED :9222 |
+
+**THE RESOURCE BUDGET (owner order 2026-09-06j — a standing rule, machine-checked).** On
+2026-09-06 a session ran the plan literally — six worktrees, each with its own `wix dev` and its
+own headless Chrome rendering the globe, plus six agents — on the owner's 36 GB M3. Swap passed
+120 GB, the machine froze, the session and an unrelated research session died. The budget that
+replaces the "N Chromes in parallel" rule above:
+
+| Resource | Budget | Enforced by |
+|---|---|---|
+| House headless verify Chromes (`/tmp/ftw-cdp*` / the Playwright profile, `--headless`) | **1** at a time; the owner's headed :9222 is separate and never launched or killed by a harness | `scripts/verify-chrome.mjs` exit 3, and `ensureBrowser()` in `scripts/lib/cdp.mjs` throws at once |
+| Dev servers (`wix dev` / `astro dev`) | **1** — master's `:4321`. Worktrees are for EDIT isolation (vitest + `astro check` there), never for a dev server each | the same guard (`FTW_MAX_DEV_SERVERS`) |
+| Free memory | launch refused below **20 %** (`memory_pressure`) | the same guard (`FTW_MIN_FREE_MEM_PCT`) |
+| Sub-agents | any number of READ/EDIT agents; **no agent launches Chrome or a dev server** — browser gates run from the main session, one suite at a time, on master after each landing | the brief to every agent says so |
+| Full vitest (167 files, worker pool) + `astro check` | **one at a time** across the checkout and all worktrees; agents run the FOCUSED test files for their slice, the main session runs the full suite per landing | the brief |
+
+`node scripts/verify-chrome.mjs --budget` prints what is running. Raising a limit is an explicit
+env override in the launching shell (`FTW_MAX_VERIFY_CHROMES=2 …`), never a default edit, and
+never inside an agent. The one raw spawn left is `verify-prod-globe.mjs` (a live-site check
+outside this loop).
 
 Two further exclusions: harnesses that seed the PRODUCTION world (`dev-seed`) are exclusive with
 each other, and nothing edits `src/` in the checkout `wix dev` serves while any harness runs (HMR
@@ -132,9 +151,10 @@ Chrome's device emulation with 4× CPU throttling is a FUNCTIONAL proxy only, ne
 **The session shape that fits the plan into few sessions.** Measure once (goldens + the timed
 baseline) → several levers implemented in parallel worktrees by opus agents from a read-only plan
 with `file:line` anchors (unit tests green in the worktree) → integrate one slice at a time onto
-master → ONE tier-V sweep (parallel) + ONE tier-D gate + ONE tier-T run (solo, `--quick`) per
-slice → the slice's DECISIONS line. Budget: ≈ 25 minutes of browser time per slice, four slices a
-session, instead of a session per slice.
+master → ONE tier-V sweep + ONE tier-D gate + ONE tier-T run (solo, `--quick`) per slice, each
+suite on the ONE house Chrome in turn → the slice's DECISIONS line. Budget: ≈ 25 minutes of
+browser time per slice, four slices a session, instead of a session per slice. The speed comes
+from parallel EDITING in worktrees and a queued, never fanned-out, browser lane.
 
 ## The six harness ENVIRONMENT classes (added 2026-08-22, audit #3 D9)
 

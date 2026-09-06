@@ -357,17 +357,24 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
   // ---- SHADOWS · ULTRA ---------------------------------------------------------------------
   {
     id: "ultra.on",
+    label: "ULTRA chip",
+    group: "shadow",
+    fmt: "bool",
+    note: "The CHIP: what ULTRA costs in frame time — the 8192² shadow map, the cascade ladder, terrain casters, anisotropy + mips, the tile/LRU levers. With this false every one of those reads exactly its base value. Since T96 (2026-09-06i) it no longer selects the LIGHT — see 'ULTRA look' below.",
+  },
+  {
+    id: "ultra.look",
     label: "ULTRA look",
     group: "shadow",
     fmt: "bool",
-    note: "The look half of the ULT chip (tuning.ULTRA). With this false every shader term is mix(legacy, ultra, 0) and eased scalars snap to exactly 0 — 'off' is exact.",
+    note: "The LOOK: the light-transport model (dusk curves, the true-sunset gate, the direct-share overlay bound, the sun disc's dusk treatment) — curve evaluations and uniform writes, no frame time. ultraOn || ULTRA.baseTakesLook, and baseTakesLook ships TRUE, so the default 'high' rig runs the model with the chip off. With this false every shader term is mix(legacy, ultra, 0) and eased scalars snap to exactly 0 — 'off' is exact.",
   },
   {
     id: "ultra.settled",
     label: "look settled",
     group: "shadow",
     fmt: "bool",
-    note: "The engine's own settle latch: true once every eased ULTRA term has snapped to baseline and stepUltraLook early-returns. False while any dusk/exposure ease converges.",
+    note: "The engine's own settle latch: true once every eased ULTRA term has snapped to baseline and stepUltraLook early-returns. False while any dusk/exposure ease converges. Since T96 it reads false permanently on a shipped build — there is no OFF steady state to settle into while the LOOK is on, which is the ruling, not a stall.",
   },
   {
     id: "ultra.sunElevDeg",

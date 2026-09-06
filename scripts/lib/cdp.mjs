@@ -36,8 +36,10 @@ export const httpJson = (port, path, method = "GET") =>
  * Port 9222 is the OWNER's headed Chrome and is never launched or killed from here — if it is
  * down that is a fact about the owner's desktop, not something a harness may repair. 9333 is the
  * house headless instance and is launched through `scripts/verify-chrome.mjs` (never a raw
- * spawn: that script is the one place that knows about the three occlusion flags and about
- * refusing to kill a foreign port owner).
+ * spawn: that script is the one place that knows about the three occlusion flags, about
+ * refusing to kill a foreign port owner, and about the RESOURCE BUDGET — one house headless
+ * Chrome and one dev server at a time on this 36 GB machine, owner order 2026-09-06j after six
+ * parallel Chromes froze the box). A budget refusal (exit 3) throws here at once.
  */
 export async function ensureBrowser(port, { profile = "/tmp/ftw-cdp", launch = true } = {}) {
   try {
@@ -55,11 +57,16 @@ export async function ensureBrowser(port, { profile = "/tmp/ftw-cdp", launch = t
     );
   }
   const node = process.execPath;
-  spawnSync(
+  const r = spawnSync(
     node,
     ["scripts/verify-chrome.mjs", "--headless", "--port", String(port), "--profile", profile, "--kill-stale"],
     { stdio: "inherit", encoding: "utf8" },
   );
+  if (r.status === 3) {
+    // The resource budget (owner order 2026-09-06j): one house headless Chrome, one dev server,
+    // free memory above the floor. A harness never works around it — it waits or runs later.
+    throw new Error(`refused to launch a headless Chrome on :${port}: the resource budget is spent (node scripts/verify-chrome.mjs --budget)`);
+  }
   for (let i = 0; i < 40; i++) {
     try {
       const v = await httpJson(port, "/json/version");

@@ -46,13 +46,16 @@
  *             counts are asserted (resident === N, skipped === 0), never assumed.
  *   --dsf   — the viewport's deviceScaleFactor (default 2, the owner's retina). `--dsf 1` re-runs
  *             the same boots at a quarter of the pixels: the fill-bound A/B the GPU timer needs.
- *   --post-ab — three more samples per desktop boot: `aoOff` (`__quality.ao.enabled=false`, the live
+ *   --post-ab — four more samples per desktop boot: `aoOff` (`__quality.ao.enabled=false`, the live
  *             GTAOPass; high tier + low altitude only), `bloomOff` (the whole UnrealBloomPass) and
  *             `bloomCheap` (T80 — the pass still ON, its mip chain pinned to `--bloom-scale` via
  *             `__quality.bloomScale`), each restored after. `bloomOff` is the GPU timer's split
  *             between geometry and post; `bloomCheap` is the half of that split T80 can actually
  *             buy, since only the pass's final additive blend is full-resolution.
  *   --bloom-scale — the scale `bloomCheap` pins (default 0.5). 1 would be the identity (no A/B).
+ *             `bloomMsaa` (T80g — the pass ON at full scale, but sourced from the 4x MSAA scene
+ *             buffer the way it was before direction g, via `__quality.bloomPath("msaa")`) is the
+ *             cell the composer change is judged on: `bloomMsaa` GPU minus `on` GPU = the saving.
  *   --device — a REAL PHONE's Chrome over adb (T1 / the T77 phone baseline, Android half). No
  *             viewport or touch emulation, no tier override (the device's own detection is the
  *             measurement: coarse pointer → lean, tier capped `mid`), one boot per pose × ULTRA
@@ -550,7 +553,7 @@ function writeArtefacts() {
   for (const r of results) {
     const s = r.frame;
     lines.push(
-      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "bloomCheap" ? `·bloom ×${r.bloom ? r.bloom.scale : "?"} (${r.bloom ? `${r.bloom.brightW}×${r.bloom.brightH}` : "unread"})` : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
+      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : r.shadows === "bloomMsaa" ? `·bloom MSAA src (${r.bloomPath ? `${r.bloomPath.path}/resolve ${r.bloomPath.resolveEnabled}` : "unread"})` : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "bloomCheap" ? `·bloom ×${r.bloom ? r.bloom.scale : "?"} (${r.bloom ? `${r.bloom.brightW}×${r.bloom.brightH}` : "unread"})` : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
     );
   }
   writeFileSync(
@@ -646,6 +649,21 @@ try {
           cheapRow.bloom = await evalJs(`window.__quality.bloomScale()`);
           console.log(`  bloomCheap: ${JSON.stringify(cheapRow.bloom)}`);
           await evalJs(`window.__quality.bloomScale(null), true`);
+          writeArtefacts();
+        }
+        // T80 direction g — the BLOOM SOURCE A/B, and the one the ms verdict rides on. The ship
+        // default is "resolved": the scene's 4x MSAA buffer is resolved ONCE into a single-sample
+        // buffer and the bloom's full-resolution additive blend lands there. `bloomPath("msaa")`
+        // switches that resolve off, which is exactly the pre-T80g chain — the blend reads and
+        // rewrites four samples per pixel and forces a second full-resolution resolve. So
+        // `bloomMsaa` minus the `on` cell IS the lever, measured inside one boot.
+        const PATH_SEAM = `(window.__quality && typeof window.__quality.bloomPath === "function")`;
+        if (await evalJs(`!!${PATH_SEAM}`)) {
+          await evalJs(`window.__quality.bloomPath("msaa"), true`);
+          const msaaRow = await sampleCell(b, "bloomMsaa", { bootMs });
+          msaaRow.bloomPath = await evalJs(`window.__quality.bloomPath()`);
+          console.log(`  bloomMsaa: ${JSON.stringify(msaaRow.bloomPath)}`);
+          await evalJs(`window.__quality.bloomPath(null), true`);
           writeArtefacts();
         }
       }

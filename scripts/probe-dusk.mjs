@@ -10,6 +10,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 
 const PORT = process.argv[2] ?? "9222";
+const DEV_ORIGIN = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321"; // FTW_DEV_ORIGIN: a worktree dev server (2026-09-06j)
 const SHOTS = process.argv[3] ?? "verify-shots";
 const TAG = process.argv[4] ?? "dusk";
 mkdirSync(SHOTS, { recursive: true });
@@ -119,7 +120,7 @@ const LUMA = `(() => {
 
 await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
 await send("Page.bringToFront");
-await send("Page.navigate", { url: "http://localhost:4321/" });
+await send("Page.navigate", { url: `${DEV_ORIGIN}/` });
 await sleep(6000);
 await evalJs(`(() => { const k="ftw:view-prefs:v1"; const o=JSON.parse(localStorage.getItem(k)||"{}");
   o.ultraQuality = true; localStorage.setItem(k, JSON.stringify(o)); })()`);
@@ -130,7 +131,7 @@ for (const [band, t] of SWEEP) {
     await send("Page.navigate", { url: "about:blank" });
     await sleep(400);
     await send("Page.navigate", {
-      url: `http://localhost:4321/#p=${SPOT.lat},${SPOT.lon},${SPOT.alt},${head},${SPOT.tilt}&t=${t}`,
+      url: `${DEV_ORIGIN}/#p=${SPOT.lat},${SPOT.lon},${SPOT.alt},${head},${SPOT.tilt}&t=${t}`,
     });
     if (!(await waitFor(`!!window.__globe`))) continue;
     await evalJs(`window.__cameraStore.getState().setUltraQuality(true)`);

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { FLIGHT } from "./tuning";
+import { frameNow } from "../../lib/globe/frameFreeze";
 
 /**
  * Cinematic camera flight to a placed photo / searched place (design-board motion spec: 2200 ms,
@@ -215,7 +216,9 @@ export function createFlight(
         return;
       }
       target = t;
-      startMs = performance.now();
+      // T94: the clock `update(nowMs)` is driven with is the orchestrator's `frameNow()`; both
+      // ends of the flight's progress must read the SAME clock or a thaw's skew makes x negative.
+      startMs = frameNow();
       d0 = camera.position.clone().normalize();
       const d1 = t.position.clone().normalize();
       h0 = camera.position.length() - radiusAlong(d0, a, b);

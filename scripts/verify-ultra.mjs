@@ -18,6 +18,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = process.argv[2] ?? "9222";
+const DEV_ORIGIN = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321"; // FTW_DEV_ORIGIN: a worktree dev server (2026-09-06j)
 const SHOTS = process.argv[3] ?? "verify-shots";
 mkdirSync(SHOTS, { recursive: true });
 
@@ -175,7 +176,7 @@ const goto = async (p, tMs) => {
   await send("Page.navigate", { url: "about:blank" });
   await sleep(400);
   await send("Page.navigate", {
-    url: `http://localhost:4321/#p=${p.lat},${p.lon},${p.alt},${p.tilt},${p.head}&t=${tMs}`,
+    url: `${DEV_ORIGIN}/#p=${p.lat},${p.lon},${p.alt},${p.tilt},${p.head}&t=${tMs}`,
   });
 };
 const setTime = async (tMs) => {
@@ -203,19 +204,55 @@ await sleep(2500);
 const off = await evalJs(LOOK);
 const offQ = await evalJs(QUAL);
 check("chip reads OFF", off.on === false && offQ.ultra === false, JSON.stringify(offQ));
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// T96 (owner ruling 2026-09-06i) — THE OFF STATE, RE-POINTED, NOT DELETED.
+//
+// The three checks that follow used to assert literal zeros here: `photo3d 0 · dayMix 0 · haze 0`,
+// `exposure 1`, `hemiPos [0,1,0]`. They were the strongest part of this file — an off-state claim
+// is only worth its proof, and the honest proof is exact zeros read out of the live engine.
+//
+// The owner then ruled that the LIGHT/SHADOW MODEL moves to the base rig: the byte-identical-`high`
+// law is superseded for that path, and what stays on the chip is ULTRA's COST. So the off state is
+// still ONE EXACT STATE, provable the same way — it is simply a different state, and the checks
+// point at the new one. The COST half below (radius / normalBias / depth bias / terrain casting /
+// anisotropy) is untouched and still asserts the base profile literally, which is the half of this
+// contract the ruling did not move.
+//
+// The pre-T96 zeros have NOT been thrown away: they are `ULTRA.baseTakesLook: false`, pinned in
+// `test/components/globe/duskShadeRatio.test.ts` ("reproduces the OLD base rig exactly"). If that
+// tunable is ever flipped, this block must go back — hence the explicit read below rather than an
+// assumption.
 check(
-  "ground ULTRA uniforms are EXACTLY zero (not merely small)",
-  off.photo3d === 0 && off.dayMix === 0 && off.haze === 0,
+  "T96 — the chip is off and the LOOK is on (the ruling's state, read from the engine)",
+  off.look === true && off.baseTakesLook === true,
+  `on=${off.on} look=${off.look} baseTakesLook=${off.baseTakesLook}`,
+);
+check(
+  "the base rig runs the MODEL — the ground's ULTRA light uniforms are LIVE, not zero",
+  off.photo3d > 0.5 && off.dayMix > 0.99,
   `photo3d=${off.photo3d} dayMix=${off.dayMix} haze=${off.haze}`,
 );
+// The exposure is DERIVED in-page from the shipped curve at the live sun elevation rather than
+// pinned to a literal — the same idiom `SHADOW_EXPECT` uses for the bias, and for the same reason:
+// a literal here would be asserting a timestamp, not a contract.
+const EXPOSURE_EXPECT = `(async () => {
+  const t = await import("/src/components/globe/tuning.ts");
+  const b = await import("/src/lib/globe/lightBands.ts");
+  const g = window.__globe, c = g.camera;
+  const d = g.bodies().sunDir, p = c.position;
+  const r = Math.hypot(p.x, p.y, p.z);
+  const s = (d[0] * p.x + d[1] * p.y + d[2] * p.z) / r;
+  return b.bandCurve(t.ULTRA.exposureCurve, s) * t.RENDERER.toneMappingExposure;
+})()`;
+const expExpect = await evalJs(EXPOSURE_EXPECT);
 check(
-  "toneMappingExposure is the constructed value",
-  Math.abs(off.exposure - 1) < 1e-6,
-  `exposure=${off.exposure}`,
+  `toneMappingExposure follows the S11 curve on the base rig (expected ${expExpect.toFixed(4)})`,
+  Math.abs(off.exposure - expExpect) < 0.02,
+  `exposure=${off.exposure} expected=${expExpect}`,
 );
 check(
-  "HemisphereLight still at its as-constructed ECEF +Y (audit gap #16 present, untouched)",
-  Array.isArray(off.hemiPos) && off.hemiPos[0] === 0 && off.hemiPos[1] === 1 && off.hemiPos[2] === 0,
+  "S10 hemisphere is on LOCAL UP on the base rig too (audit gap #16 was never an ULTRA feature)",
+  Array.isArray(off.hemiPos) && Math.abs(off.hemiPos[1] - 1) > 0.05,
   JSON.stringify(off.hemiPos),
 );
 const offExpect = await evalJs(SHADOW_EXPECT(false));
@@ -410,19 +447,26 @@ await evalJs(`window.__cameraStore.getState().setUltraQuality(false)`);
 // measured 1.0023 and read as a bug that wasn't one.
 await sleep(13000);
 const back = await evalJs(LOOK);
+// T96: what "reversible, exactly" means after the ruling. The CHIP's levers must land back on the
+// base profile literally — that half is unchanged and is still the point of this section. The
+// LOOK's must NOT move at all, and asserting that is new value rather than lost coverage: it is
+// the direct proof that the model is no longer coupled to the chip, i.e. that flipping ULT can no
+// longer change the light. (Before T96 this block asserted the whole light path unwound to zero;
+// the pre-T96 unwind lives on behind `ULTRA.baseTakesLook: false` and is pinned in
+// `test/components/globe/duskShadeRatio.test.ts`.)
 check(
-  "every live ULTRA lever unwound to its baseline",
-  back.photo3d === 0 &&
-    back.dayMix === 0 &&
-    back.haze === 0 &&
-    Math.abs(back.exposure - 1) < 1e-6 &&
+  "every COST lever unwound to its baseline, and the LOOK did not move",
+  back.on === false &&
+    back.look === true &&
     back.shadow.radius === 2 &&
-    back.terrain.casting === 0,
-  JSON.stringify({ photo3d: back.photo3d, dayMix: back.dayMix, haze: back.haze, exposure: back.exposure, radius: back.shadow.radius, casting: back.terrain.casting }),
+    back.terrain.casting === 0 &&
+    back.photo3d > 0.5 &&
+    back.dayMix > 0.99,
+  JSON.stringify({ on: back.on, look: back.look, photo3d: back.photo3d, dayMix: back.dayMix, haze: back.haze, exposure: back.exposure, radius: back.shadow.radius, casting: back.terrain.casting }),
 );
 check(
-  "HemisphereLight restored to ECEF +Y",
-  Math.abs(back.hemiPos[1] - 1) < 1e-6 && Math.abs(back.hemiPos[0]) < 1e-6,
+  "HemisphereLight stays on LOCAL UP through the flip (it is the model's, not the chip's)",
+  Math.abs(back.hemiPos[1] - 1) > 0.05,
   JSON.stringify(back.hemiPos),
 );
 

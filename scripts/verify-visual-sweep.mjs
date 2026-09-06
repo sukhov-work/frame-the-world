@@ -18,6 +18,7 @@
  *   node scripts/verify-visual-sweep.mjs [PORT] [--ids a,b] [--tags fpv,dnipro]
  *        [--ultra 0|1|both] [--tier high|mid|low] [--label name] [--golden] [--compare <label>]
  *        [--quiet-s 8] [--no-legs] [--sheet] [--tolerance 0] [--sample-s 3] [--cap-min 25]
+ *        [--freeze | --no-freeze] [--freeze-drain-s 10] [--reveal-settle-s 3]
  *
  * PORT defaults to 9333 — the HEADLESS verify instance, launched here if it is down
  * (`scripts/verify-chrome.mjs --headless --port 9333 --profile /tmp/ftw-cdp --kill-stale`).
@@ -61,18 +62,24 @@
  *   before every capture the harness waits for tile quiet and then TWO rAF ticks, so the pixels
  *   belong to a finished frame.
  *
- * ── Pixel compare: what it can and cannot prove (MEASURED 2026-09-06, first run) ──────────────
- *   The canvas is NOT frame-deterministic. Two `Page.captureScreenshot` calls of ONE settled boot
- *   at `everest-orbit-73`, taken two rAF apart, differ in **30 % of pixels (max channel Δ 74)**;
- *   four seconds apart, **84 % (max Δ 185)**. The UI chrome around it is pixel-stable — the diff
- *   image shows the top bar matching and the whole canvas dithered — so the noise is the
- *   renderer's own temporal work, not the harness. Two full re-boots of the same pose differ in
- *   67–99 % of canvas pixels once tile streaming variance is added on top.
- *   Therefore: `--tolerance 0` is a UI-chrome gate, not a canvas gate. On the canvas, read
- *   `fraction` and `maxDelta` as a TREND against the golden (they are recorded on every compare,
- *   pass or fail) and look at the diff image — a structural change shows as a SHAPE, temporal
- *   noise as an even dither. The md5 of every 360 PNG is recorded for the same reason: it proves
- *   which bytes were compared, never that two renders should have matched.
+ * ── Pixel compare: what it can and cannot prove (T94, MEASURED 2026-09-06) ────────────────────
+ *   `--freeze` (DEFAULT whenever `--golden` or `--compare` is used) calls
+ *   `__globe.freezeFrame(true)` after quiet and before the capture, waits two rAF, shoots, shoots
+ *   AGAIN two rAF later, and diffs the pair. That SELF-CHECK is printed and gated per pose: it is
+ *   the run's own proof that the frame it wrote is reproducible, so a `--compare --tolerance 0`
+ *   failure means the picture changed and not that the dither moved.
+ *   The seam holds the per-frame clock (every dt-driven ease, the F1 building-reveal dither, the
+ *   star twinkle, the pin shimmer), tile STREAMING (no tile, and no `terrainEpoch` bump, lands
+ *   mid-capture) and LATCHES the shadow rig. `row.freeze.held` records what it held.
+ *   WITHOUT `--freeze` the canvas is not frame-deterministic while it is still converging: two
+ *   captures two rAF apart at `legacy-orbit` right after tile quiet differed in 31-44 % of pixels
+ *   (max channel Δ 198) and at `everest-orbit-73` in 4.4 %. Left alone for ~25 s past quiet the
+ *   same poses settle to a byte-identical 0 % on their own — the noise is CONVERGENCE (streaming,
+ *   the terrain epoch, the reveal/drape/exposure eases), not per-frame randomness.
+ *   Run-to-run (two BOOTS) is a different question and `--freeze` does not answer it: star
+ *   positions and phases are `Math.random()` at construction (`scene/stars.ts:73-80,203`) and tile
+ *   arrival order varies — that residual is T95.
+ *   The md5 of every 360 PNG is recorded either way: it proves which bytes were compared.
  *
  * ── Robustness ────────────────────────────────────────────────────────────────────────────────
  *   Artefacts are written after EVERY pose (a crash at pose 9 of 14 keeps 1–8) · a boot failure
@@ -109,7 +116,8 @@ if (flag("--help") || flag("-h")) {
       `tags: ${allTags().join(" ")}\n` +
       `usage: node scripts/verify-visual-sweep.mjs [PORT] [--ids a,b] [--tags fpv,dnipro] ` +
       `[--ultra 0|1|both] [--tier high|mid|low] [--label name] [--golden] [--compare <label>] ` +
-      `[--quiet-s 8] [--no-legs] [--sheet] [--tolerance 0] [--sample-s 3] [--cap-min 25]`,
+      `[--quiet-s 8] [--no-legs] [--sheet] [--tolerance 0] [--sample-s 3] [--cap-min 25] ` +
+      `[--freeze|--no-freeze] [--freeze-drain-s 10] [--reveal-settle-s 3]`,
   );
   await finishVerify(0);
 }
@@ -132,6 +140,13 @@ const SAMPLE_MS = Number(opt("--sample-s", "3")) * 1000;
 const NO_LEGS = flag("--no-legs");
 const SHEET = flag("--sheet");
 const TOLERANCE = Number(opt("--tolerance", "0"));
+// T94 — the deterministic-capture seam. ON by default exactly when the run exists to compare
+// pixels (`--golden` writes the bytes a later `--compare` is measured against, so both halves
+// must be shot the same way); a plain look-at-it sweep stays LIVE unless asked. `--no-freeze`
+// wins over `--freeze` so a golden run can be forced back to the old behaviour.
+const FREEZE = flag("--no-freeze") ? false : flag("--freeze") || GOLDEN || !!COMPARE;
+/** Seconds allowed for the in-flight tiles to land AFTER the freeze (see the frozen drain). */
+const FREEZE_DRAIN_S = Math.min(60, Number(opt("--freeze-drain-s", "10")));
 const CAP_MS = Number(opt("--cap-min", "25")) * 60_000;
 const DEV = opt("--dev", "http://localhost:4321");
 const CORES_FOR_TIER = { high: null, mid: 4, low: 2 };
@@ -306,7 +321,7 @@ const REC_STOP = `(() => { const r = window.__sweepRec; if (!r) return null; r.s
 
 // ─── Attach ──────────────────────────────────────────────────────────────────────────────────
 console.log(
-  `VISUAL SWEEP  port ${PORT}  label ${LABEL}  poses ${selected.length}  ultra ${ULTRA_ARG}  tier ${TIER}  quiet≤${QUIET_S}s  legs ${!NO_LEGS}  sheet ${SHEET}${COMPARE ? `  compare ${COMPARE}` : ""}${GOLDEN ? "  (writing GOLDEN)" : ""}`,
+  `VISUAL SWEEP  port ${PORT}  label ${LABEL}  poses ${selected.length}  ultra ${ULTRA_ARG}  tier ${TIER}  quiet≤${QUIET_S}s  legs ${!NO_LEGS}  sheet ${SHEET}  freeze ${FREEZE}${COMPARE ? `  compare ${COMPARE}` : ""}${GOLDEN ? "  (writing GOLDEN)" : ""}`,
 );
 const browser = await ensureBrowser(PORT, { profile: "/tmp/ftw-cdp" });
 console.log(
@@ -386,14 +401,19 @@ async function boot(pose, ultra, url) {
 }
 
 /** Wait for the tile streams to go quiet (zero queued/downloading/parsing held for `quietMs`),
- *  capped. A capped wait is REPORTED — the pose is still shot, and the report says it was busy. */
+ *  capped. A capped wait is REPORTED — the pose is still shot, and the report says it was busy.
+ *  A quiet is only accepted once a GROUND tile is visible (2026-09-06j): under machine load the
+ *  streams read `busy 0` for the first seconds — before the tileset root has even been fetched —
+ *  and two goldens (`everest-orbit-52.u0`, `dnipro-descent.u1`) were shot with `visible 0/0/0`
+ *  after a 1.3 s "quiet". A fail-open quiet is the vacuous pass; `noGround` names the cap reason. */
 async function quiet(maxS = QUIET_S, quietMs = 1200) {
   const t0 = Date.now();
   let quietSince = null;
   let last = null;
   while (Date.now() - t0 < maxS * 1000) {
     last = await session.evalJs(BUSY);
-    if (last.busy === 0) {
+    const groundUp = (last.visible?.gnd ?? 1) > 0;
+    if (last.busy === 0 && groundUp) {
       quietSince ??= Date.now();
       if (Date.now() - quietSince >= quietMs) {
         return { settleMs: Date.now() - t0, capped: false, visible: last.visible, busy: 0 };
@@ -401,7 +421,8 @@ async function quiet(maxS = QUIET_S, quietMs = 1200) {
     } else quietSince = null;
     await sleep(200);
   }
-  return { settleMs: Date.now() - t0, capped: true, visible: last?.visible ?? null, busy: last?.busy ?? null };
+  const noGround = (last?.visible?.gnd ?? 1) === 0;
+  return { settleMs: Date.now() - t0, capped: true, noGround, visible: last?.visible ?? null, busy: last?.busy ?? null };
 }
 
 /** Two rAF ticks after quiet, so the captured pixels belong to a FINISHED frame rather than one
@@ -411,9 +432,32 @@ async function stableFrame() {
   return { rafTicks: t };
 }
 
-async function shoot(pose) {
+/** T94 — the deterministic-capture seam (`StylizedTiles.ts`'s `__globe.freezeFrame`). A page that
+ *  predates the seam answers `null`, which is REPORTED (a silently un-frozen golden would be the
+ *  vacuous pass `test/verifyHarness.test.ts` exists to forbid). */
+// TWO PHASES (2026-09-06k). Phase 1 holds STREAMING + the SHADOW RIG but lets the CLOCK run, so the
+// drain happens on live time and every tile that landed during it finishes its reveal ease; only
+// then does phase 2 pin the clock. Freezing everything at once captured tiles mid-reveal — the
+// halftone dither frozen at half strength over the whole ground at everest-orbit-52/73 and the
+// zoom sweep on the first post-integration sheet — a picture no user ever sees.
+const FREEZE_PHASE1 = `(() => { const g = window.__globe;
+  if (!g || typeof g.freezeFrame !== "function") return null;
+  const s = g.freezeFrame(true, { clock: false });
+  return { frozenAtMs: s.frozenAtMs, parts: s.parts, held: s.held, clocks: s.clocks }; })()`;
+const FREEZE_ON = `(() => { const g = window.__globe;
+  if (!g || typeof g.freezeFrame !== "function") return null;
+  const s = g.freezeFrame(true);
+  return { frozenAtMs: s.frozenAtMs, parts: s.parts, held: s.held, clocks: s.clocks }; })()`;
+/** Seconds of LIVE clock after the drain for the last-landed tiles' reveal eases to finish. */
+const REVEAL_SETTLE_S = Number(opt("--reveal-settle-s", "3"));
+const FREEZE_OFF = `(() => { const g = window.__globe;
+  if (!g || typeof g.freezeFrame !== "function") return null;
+  const s = g.freezeFrame(false);
+  return { frozenAtMs: s.frozenAtMs, skewMs: Math.round(s.skewMs), held: s.held }; })()`;
+
+async function shoot(pose, thumbOnly = false) {
   const vp = pose.kind === "m" ? VIEWPORT_M : VIEWPORT;
-  const full = await session.send("Page.captureScreenshot", { format: "jpeg", quality: 82 });
+  const full = thumbOnly ? { data: null } : await session.send("Page.captureScreenshot", { format: "jpeg", quality: 82 });
   // The thumbnail is a SECOND rasterisation at a clip scale that lands 360 px tall — no Node
   // image decoder is involved anywhere in the pipeline, so the harness has no image dependency.
   const scale = Math.min(640 / vp.width, THUMB_H / vp.height);
@@ -497,6 +541,27 @@ function writeArtefacts() {
   const legLines = rows
     .filter((r) => r.leg)
     .map((r) => `- **${r.id}** leg \`${r.leg.type}\` (drive: \`${r.leg.drive}\`) — ${r.leg.summary}`);
+  // T94 — the determinism section: what the freeze held, and whether the frozen frame reproduced.
+  const frzLines = rows
+    .filter((r) => r.freeze)
+    .map((r) => {
+      const sc = r.freeze.selfCheck;
+      const verdict = !r.freeze.held
+        ? "SEAM ABSENT" // the page has no __globe.freezeFrame — nothing was frozen at all
+        : !sc
+          ? "NOT CHECKED" // frozen, but the pose failed before its second shot
+          : sc.error
+            ? `ERROR ${sc.error}`
+            : sc.differing === 0
+              ? "BYTE-IDENTICAL"
+              : `${fmtI(sc.differing)} px (${fmt(sc.fraction * 100, 3)} %), max channel Δ ${sc.maxDelta}`;
+      // The DRAIN state belongs on this line: a capped drain means in-flight tiles were still
+      // landing when the shot was taken, which is the first thing to suspect behind a residual.
+      const dr = r.freeze.drain
+        ? ` · drain ${fmt(r.freeze.drain.settleMs / 1000, 1)}s${r.freeze.drain.capped ? " CAPPED (still streaming)" : ""}`
+        : "";
+      return `- ${verdict} \`${r.id}\`${dr} — held ${r.freeze.held?.length ?? 0}: ${(r.freeze.held ?? []).join(", ") || "—"}`;
+    });
   const cmpLines = comparisons.map(
     (c) =>
       `- ${c.ok ? "MATCH" : "DIFF "} \`${c.id}\` — ${c.error ?? `${fmtI(c.differing)} px (${fmt((c.fraction ?? 0) * 100, 3)} %), max channel Δ ${c.maxDelta}`}`,
@@ -505,10 +570,15 @@ function writeArtefacts() {
     reportMd,
     `# Visual sweep — ${LABEL} — ${STAMP}\n\n` +
       `port ${PORT} · tier ${TIER} · ultra ${ULTRA_ARG} · quiet ≤ ${QUIET_S} s · sample ${SAMPLE_MS / 1000} s · ` +
+      `freeze ${FREEZE ? "on" : "off"} · ` +
       `run ${runMin} min · args \`${args.join(" ")}\`\n\n` +
       `${head}\n${sep}\n${body.join("\n")}\n\n` +
       (legLines.length ? `## Legs\n\n${legLines.join("\n")}\n\n` : "") +
       (sheets.length ? `## Contact sheets\n\n${sheets.map((s) => `- \`${s.file}\` — ${s.ids.join(", ")}`).join("\n")}\n\n` : "") +
+      (frzLines.length
+        ? `## Frame freeze (T94 — \`__globe.freezeFrame\`)\n\nEach capture was taken frozen; the ` +
+          `verdict is the SELF-CHECK: the same frozen frame shot again two rAF later.\n\n${frzLines.join("\n")}\n\n`
+        : "") +
       (cmpLines.length ? `## Pixel compare vs golden \`${COMPARE}\` (tolerance ${TOLERANCE})\n\n${cmpLines.join("\n")}\n\n` : "") +
       (notes.length ? `## Notes\n\n${notes.map((n) => `- ${n}`).join("\n")}\n\n` : "") +
       (bootFailures.length ? `## Boot failures\n\n${bootFailures.map((b) => `- **${b.id}**: ${b.error}`).join("\n")}\n` : ""),
@@ -778,7 +848,49 @@ for (const pose of selected) {
       row.bootMs = await boot(pose, ultra, url);
       row.settle = await quiet();
       row.stable = await stableFrame();
+      // MEASURE FIRST, on the settled LIVE engine (fps, streaming, the seat residuals) — then
+      // freeze for the capture. Measuring after the thaw sampled the burst of tiles the frozen
+      // drain had held back (2026-09-06k: near residual 44 m at dnipro-fpv-west-sunset, 18 m at
+      // fpv-south, and a 0-frame "rAF stalled" on the first pose — all post-thaw artefacts).
+      const m = await measure();
+      Object.assign(row, m);
+      // T94 — freeze BEFORE the capture, thaw after: the capture is then reproducible.
+      if (FREEZE) {
+        // Phase 1: streaming + rig held, clock LIVE.
+        row.freeze = { on: true, ...(await session.evalJs(FREEZE_PHASE1)) };
+        check(`${runId}: freezeFrame seam present`, !!row.freeze.held, JSON.stringify(row.freeze.held ?? null));
+        // The FROZEN DRAIN. Holding `tiles.update()` stops NEW requests but cannot un-issue the
+        // ones already in flight: a tile downloaded before the freeze still resolves and still
+        // adds itself to the scene. Under the freeze no replacements are queued, so the counters
+        // fall to zero and STAY there — which is the first moment the picture is final. (Without
+        // it a capped `quiet()` shot a frame with tiles still landing: 607 px moved between two
+        // frozen captures at dnipro-fpv-south, 2026-09-06.)
+        row.freeze.drain = await quiet(FREEZE_DRAIN_S, 400);
+        // Let the reveal eases of whatever landed during the drain run out on the live clock…
+        await sleep(REVEAL_SETTLE_S * 1000);
+        // …then phase 2: pin the clock too (a second freeze re-arms with the fuller part set).
+        const full = await session.evalJs(FREEZE_ON);
+        if (full) row.freeze = { ...row.freeze, parts: full.parts, held: full.held, frozenAtMs: full.frozenAtMs };
+        await session.ticks(2);
+      }
       const shots = await shoot(pose);
+      if (FREEZE && row.freeze?.held) {
+        // The SELF-CHECK: shoot the same frozen frame again two rAF later and diff. This is the
+        // run's own proof that a `--compare --tolerance 0` failure means the PICTURE changed.
+        await session.ticks(2);
+        const again = await shoot(pose, true);
+        const comp = await getComposer();
+        const d = await diffPngs(comp, shots.thumbB64, again.thumbB64, { threshold: 0 });
+        row.freeze.selfCheck = d.error
+          ? { error: d.error }
+          : { differing: d.differing, total: d.total, fraction: d.fraction, maxDelta: d.maxDelta };
+        check(
+          `${runId}: frozen frame is byte-identical two rAF apart`,
+          !d.error && d.differing === 0,
+          d.error ?? `${fmtI(d.differing)} / ${fmtI(d.total)} px (${fmt(d.fraction * 100, 3)} %), max channel Δ ${d.maxDelta}`,
+        );
+      }
+      if (FREEZE) row.freeze = { ...row.freeze, thaw: await session.evalJs(FREEZE_OFF) };
       row.files = {
         jpeg: join(OUT_DIR, `${runId}.jpeg`),
         png360: join(OUT_DIR, `${runId}.360.png`),
@@ -789,12 +901,10 @@ for (const pose of selected) {
       row.jpegBytes = fullMeta.bytes;
       row.png360 = { bytes: thumbMeta.bytes, md5: thumbMeta.md5 };
       row.thumbB64 = shots.thumbB64; // held in memory for the sheet / diff; stripped before write
-      const m = await measure();
-      Object.assign(row, m);
       writeFileSync(row.files.json, JSON.stringify({ ...row, thumbB64: undefined }, null, 2));
 
       console.log(
-        `  boot ${fmt(row.bootMs / 1000, 1)}s  quiet ${fmt(row.settle.settleMs / 1000, 1)}s${row.settle.capped ? "!" : ""}  ` +
+        `  boot ${fmt(row.bootMs / 1000, 1)}s  quiet ${fmt(row.settle.settleMs / 1000, 1)}s${row.settle.capped ? (row.settle.noGround ? "!(no ground tile)" : "!") : ""}  ` +
           `fps ${fmt(m.frame.fpsP50, 0)}  dt ${fmt(m.frame.dtP50)}/${fmt(m.frame.dtP95)}  calls ${fmtI(m.frame.calls)}  ` +
           `tris ${fmtI(m.frame.tris)}  heap ${fmt(m.frame.jsHeapMB, 0)} MB  tier ${m.q?.tier}  ` +
           `vis ${fmtI(row.settle.visible?.bld)}/${fmtI(row.settle.visible?.gnd)}/${fmtI(row.settle.visible?.enr)}  ` +
@@ -816,6 +926,15 @@ for (const pose of selected) {
         const dir = join(OUT_DIR, runId);
         mkdirSync(dir, { recursive: true });
         console.log(`  leg: ${pose.leg.type}`);
+        // A leg is a LIVE-engine measurement. After a freeze/thaw the page is not a clean engine
+        // (2026-09-06k: the descent leg recorded 37 app frames and never left the top pose after
+        // a frozen capture, while the same requestFly on a never-frozen page flew 31,730 →
+        // 1,598 m in 3 s), so a leg that drives THIS page re-boots the pose first. The zoom sweep
+        // re-navigates on its own; the time sweep only scrubs the clock.
+        if (FREEZE && row.freeze?.held && pose.leg.type === "descent") {
+          row.leg_reboot = { bootMs: await boot(pose, ultra, url), settle: await quiet() };
+          await stableFrame();
+        }
         if (pose.leg.type === "descent") row.leg = await runDescent(pose, dir);
         else if (pose.leg.type === "zoomSweep") row.leg = await runZoomSweep(pose, ultra, dir);
         else if (pose.leg.type === "timeSweep") row.leg = await runTimeSweep(pose, dir);
@@ -875,10 +994,27 @@ if (COMPARE) {
   const comp = await getComposer();
   if (TOLERANCE < 1000) {
     // Say it up front rather than let a reader read a 99 %-different canvas as a regression.
+    // The note is written from the run's MEASURED self-checks, never from the fact that --freeze
+    // was passed. A frozen run whose self-check failed is exactly the case where "a real canvas
+    // gate" would be the vacuous claim: say which poses reproduced and which did not.
+    const scRows = rows.filter((r) => r.freeze?.selfCheck);
+    const scOk = scRows.filter((r) => r.freeze.selfCheck.differing === 0);
+    const scBad = scRows.filter((r) => r.freeze.selfCheck.differing !== 0);
     note(
-      `--tolerance ${TOLERANCE} is a UI-CHROME gate: the canvas's own frame-to-frame noise floor was measured at ` +
-        `30 % of pixels two rAF apart and 84 % four seconds apart within ONE settled boot ` +
-        `(everest-orbit-73, 2026-09-06). Read fraction / maxDelta / the diff image as a trend.`,
+      FREEZE
+        ? `--tolerance ${TOLERANCE} is a canvas gate ONLY as far as this run's own self-checks reach: ` +
+          `every capture was taken under __globe.freezeFrame(true) and ${scOk.length}/${scRows.length} poses ` +
+          `re-shot BYTE-IDENTICAL two rAF apart` +
+          (scBad.length
+            ? `. NOT reproducible, so their diffs below are a TREND and not a gate: ` +
+              `${scBad.map((r) => `${r.id} (${fmtI(r.freeze.selfCheck.differing)} px)`).join(", ")}`
+            : ` (T94)`) +
+          `. What it cannot gate either way is BOOT-to-BOOT variance — star phases are Math.random() at ` +
+          `construction and tile arrival order varies (T95); compare goldens shot in the same boot for a ` +
+          `byte gate, across boots for a trend.`
+        : `--tolerance ${TOLERANCE} is a UI-CHROME gate: WITHOUT --freeze the canvas keeps converging past ` +
+          `tile quiet — 31-44 % of pixels differ two rAF apart at legacy-orbit (T94, 2026-09-06). ` +
+          `Read fraction / maxDelta / the diff image as a trend, or re-run with --freeze.`,
     );
   }
   for (const r of rows) {

@@ -128,9 +128,10 @@ const desktopDpr = await d.evalJs(`window.__renderer.getPixelRatio()`);
 check("desktop: DPR uncapped by lean (=1 at dsf 1)", desktopDpr === 1, String(desktopDpr));
 await d.goto("about:blank", 300); // hash-only navs don't reload — the pose applies at load
 await d.goto(`http://localhost:4321/#p=48.4640,35.0460,900000,0,30&t=${NOON_UTC}`, 12000);
-// Match by substring — the dev bundle renames the class to `_UnrealBloomPass`.
+// Match by substring — the dev bundle renames the class to `_UnrealBloomPass`, and T80 subclassed
+// it as `ScaledBloomPass`, so match the SUFFIX both share (and that the T80g resolve pass lacks).
 const desktopBloom = await d.evalJs(
-  `(() => { const p = window.__composer.passes.find((p) => p.constructor.name.includes("UnrealBloomPass")); return p ? p.enabled : null; })()`,
+  `(() => { const p = window.__composer.passes.find((p) => p.constructor.name.includes("BloomPass")); return p ? p.enabled : null; })()`,
 );
 check("desktop: bloom pass enabled at LEO (lean did not leak)", desktopBloom === true, String(desktopBloom));
 
@@ -157,7 +158,7 @@ check(
   String(mDpr),
 );
 const mBloom = await m.evalJs(
-  `(() => { const p = window.__composer.passes.find((p) => p.constructor.name.includes("UnrealBloomPass")); return p ? p.enabled : null; })()`,
+  `(() => { const p = window.__composer.passes.find((p) => p.constructor.name.includes("BloomPass")); return p ? p.enabled : null; })()`,
 );
 check("/m: bloom pass disabled (lean)", mBloom === false, String(mBloom));
 const mRegs = await m.evalJs(`navigator.serviceWorker.getRegistrations().then((r) => r.length)`);
