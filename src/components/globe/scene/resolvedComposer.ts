@@ -5,14 +5,16 @@ import { CopyShader } from "three/addons/shaders/CopyShader.js";
 
 /**
  * T80 direction g — GIVE BLOOM A NON-MSAA SOURCE.  (`scene/resolvedComposer.ts`)
+ * T80-h — then TAKE THE BLEND INTO THE OUTPUT DRAW (`scene/fusedOutput.ts`, `BLOOM.path`).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * THE CONTRACT — what a caller owes this module. Every line is machine-checked by
- * `test/components/globe/resolvedComposer.test.ts`; the live caller is `GlobeCanvas.tsx`.
+ * `test/components/globe/resolvedComposer.test.ts` (+ `fusedBloom.test.ts` for C2'/C7); the
+ * live caller is `GlobeCanvas.tsx`.
  *
  *  C1  PASS ORDER. `resolvePass` goes AFTER the pass that renders the scene and BEFORE the bloom:
  *
- *          RenderPass → [GTAOPass] → MsaaResolvePass → ScaledBloomPass → OutputPass
+ *          RenderPass → [GTAOPass] → MsaaResolvePass → ScaledBloomPass → FusedOutputPass
  *
  *      Anything inserted ahead of the resolve must be a full-screen pass that SWAPS (GTAO is the
  *      only live one). It then writes the single-sample buffer itself and the resolve stands down
@@ -22,6 +24,21 @@ import { CopyShader } from "three/addons/shaders/CopyShader.js";
  *      buys nothing (nothing blends afterwards) and the chain must degenerate to exactly the
  *      pre-T80g one — the profile every phone and tier `low` runs. `GlobeCanvas` keeps ONE writer
  *      of `bloomPass.enabled` (`setBloomEnabled`) so the two cannot drift.
+ *
+ *  C2' THE PATH (T80-h). The same writer sets FOUR things from `bloomPass.enabled` and the live
+ *      path (`__quality.bloomPath()` ?? `BLOOM.path`), and nothing else touches any of them:
+ *
+ *          path       resolvePass.enabled   bloomPass.deferBlend   outputPass bloom input
+ *          "msaa"     false                 false                  null   (stock output draw)
+ *          "resolved" bloom on              false                  null
+ *          "fused"    false                 bloom on               bloom on ? bloomTexture : null
+ *
+ *      Bloom OFF is the same row on every path: false / false / null — the pre-T80g off-state.
+ *
+ *  C7  FUSED = NO FULL-RESOLUTION WORK AFTER GEOMETRY. On the "fused" path the frame binds the
+ *      MSAA scene target (RenderPass), the bloom's own half-and-smaller targets, and the screen —
+ *      never `resolvedTarget`. The output draw samples `sceneTarget.texture` (three's one resolve,
+ *      done in the RenderPass epilogue) and the bloom's mip-0 composite, adds them, tone-maps.
  *
  *  C3  SIZE. `composer.setSize(logicalW, logicalH)` after a resize, a DPR-changing tier apply and
  *      a context restore — it resizes BOTH buffers and each keeps its own `samples`. Never resize
@@ -39,7 +56,9 @@ import { CopyShader } from "three/addons/shaders/CopyShader.js";
  *      ORDER of the resolve and the add moves; no tone map and no colour-space encode happens
  *      anywhere in here (both live in `OutputPass`, which still reads the last buffer in the
  *      chain). The residual is half-float rounding — `scripts/probe-bloom-path.mjs` measures it
- *      against its own noise floor.
+ *      against its own noise floor (zero under a T94 frozen frame). The fused path removes one
+ *      MORE rounding (the blend's half-float store) and is otherwise the same arithmetic — see
+ *      `scene/fusedOutput.ts`.
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  *
  * THE COST THIS EXISTS TO REMOVE (measured, `rendering/MEASUREMENTS_2026-09-05.md` §14.4: bloom is

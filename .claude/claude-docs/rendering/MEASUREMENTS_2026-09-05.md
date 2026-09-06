@@ -698,3 +698,124 @@ One house headless Chrome (:9333), strictly sequential; timed cells on a headed 
 T92: the focal cone's fill (cone-off removes the wedge). T93: the base earth's limb shading between the
 terrain's loaded reach and the horizon (ground-off keeps the band; far-plane ×8, skirt, earth toggles
 do not move it). Both classified, neither fixed.
+
+## 16. Session 2026-09-06l — E1 / E2 (the last A-rest calls), T80-h (the fused bloom), and what the GPU timer is actually measuring
+
+Same tree as §15.5 plus T80-h (`scene/fusedOutput.ts`, `ScaledBloomPass.deferBlend`, `BLOOM.path`).
+One house headless Chrome (:9333) for the shimmer runs, the sweep and the pixel probe; the timed
+cells ran on the owner's headed :9222 (present mid-session; the harness opens its own tab). VPN on
+(FI), ion 401.
+
+### 16.1 E1 — lever 2 (the cascade ladder as the churn source): CLOSED
+
+`verify-temporal-stability --shimmer --step 200 --only 'city\.u1|everest\.u1' --legs control,scrub,scrub4x --arms '{"ladderOff":{"cascades":false}}'`.
+Sanity held: the arm log reads `cascadesCasting 0`; the mask did not shrink (city 0.308 → 0.308,
+Everest 0.725 → 0.748).
+
+| pose / leg | stock churnMean | ladderOff churnMean | Δ | speckle wtd stock → arm |
+|---|---|---|---|---|
+| city.u1 scrub | 0.0239 | 0.0296 | **+24 %** | 0.56 → 0.45 |
+| city.u1 scrub4x | 0.0543 | 0.0553 | +2 % | 0.51 → 0.50 |
+| everest.u1 scrub | 0.0075 | 0.0074 | −1 % | 0.60 → 0.59 |
+| everest.u1 scrub4x | 0.0332 | 0.0316 | −5 % | 0.60 → 0.61 |
+
+Rule (arest report): ≥ 50 % down ⇒ build the dispatch; within ±20 % ⇒ close. Nothing moved, the
+city got worse. **The cascade ladder is not the churn's source; lever 2's `ShaderChunk` dispatch
+is not built.** The 12 "structural failures" the run prints are the pre-existing `--step 200` shapes
+(the sun moves 0.004° over 599 frames so "resample every frame" reads 100/599; the streaming ULTRA
+city's control churn max is 0.003–0.006, not 0) — identical on both arms, so the A/B stands.
+
+### 16.2 E2 — A1 (a metric texel bias with the rig every-frame): CLOSED, stays parked at 0
+
+`… --rig 0,0 --legs control,scrub --arms '{"a1-05":{…0.5},"a1-03":{…0.3}}'`. Both writes landed
+(`bias −1.9e-5 / −1.2e-5`, `normalBiasM 1.500 (clamped) / 1.008`).
+
+| pose / leg | stock | a1-05 | a1-03 |
+|---|---|---|---|
+| city.u1 scrub churnMean | 0.0197 | **0.0417** (+112 %) | **0.0291** (+48 %) |
+| city.u1 scrub speckle wtd | 0.73 | 0.86 | 0.71 |
+| city.u1 **mask fraction** | 0.308 | **0.093** | **0.206** |
+| everest.u1 scrub churnMean | 0.0122 | 0.0196 (+61 %) | 0.0162 (+33 %) |
+| everest.u1 **mask fraction** | 0.721 | **0.380** | **0.578** |
+
+Neither arm lowers `speckleWeighted` AND `churnMean` at either pose, and the shadow MASK collapses
+(the bias eats contact — the peter-panning the rule warned about). **A1 stays at 0.** With E3 last
+session, all three A-rest experiments are decided: levers 2 and 12 closed, A1 closed.
+
+### 16.3 T80-h — the fused bloom path, timed (owner's headed :9222, `high`, DPR 2, 3200×1900; `--post-ab`, all cells in ONE boot)
+
+The brief's premise was wrong and the source says so (`UnrealBloomPass.js:102-103,252-253`): the
+bright target is `round(w/2) × round(h/2)`, so **no blur level ever ran at full resolution**; the
+only full-resolution draws after geometry were the final additive blend (stock) and, since T80-g,
+the copy into the single-sample buffer. T80-h removes BOTH: `ScaledBloomPass.deferBlend` stops after
+the twelve chain draws and `FusedOutputPass` adds the mip-0 composite inside the output draw, before
+the tone map. `resolvedTarget` is never bound (three never allocates it — another −49 MB at DPR 2).
+
+Two instruments, and they disagree about the bloom:
+
+| cell (base rig `fpv.u0`) | `frame.gpu` p50 | **dt p50** (frame time) | fps |
+|---|---|---|---|
+| bloomOff | 10.0 | **12.1** | 84 |
+| **bloomFused** (ship default; `on` read 17.6 at boot) | 18.3 | **14.2** | 71 |
+| bloomResolved (T80-g) | 19.8 | 15.4 | 66 |
+| bloomMsaa (pre-T80g) | 22.4 | 19.2 | 52 |
+| bloomCheap (fused + mip chain ×0.5) | 15.9 | 13.0 | 79 |
+| **bloomMips** (fused, `nMips` 5 → 2: six tiny draws dropped, 3.5 % of chain pixels; second boot) | **12.0** (on 18.6) | **15.2** (on 15.0) | 66 (67) |
+
+| cell (ULTRA `fpv.u1`) | `frame.gpu` p50 | dt p50 |
+|---|---|---|
+| bloomOff | 11.2 | 14.4 |
+| bloomFused (on 19.0) | 19.3 | 15.9 |
+| bloomResolved | 21.4 | 18.0 |
+| bloomMsaa | 23.7 | 21.0 |
+
+Readings:
+- **T80-h = −1.5 ms `frame.gpu` / −1.2 ms dt on the base rig, −2.1 / −2.1 under ULTRA**, on top of
+  T80-g's −2.6 / −3.8. From the pre-T80g chain the fpv frame time is **19.2 → 14.2 ms** (ULTRA
+  21.0 → 15.9); bloom now costs **2.1 ms of frame time** (ULTRA 1.5).
+- **The `frame.gpu` timer over-counts multi-pass chains on this stack (ANGLE/Metal, M3).** The
+  `bloomMips` cell drops six draws that hold 3.5 % of the chain's pixels: `frame.gpu` falls 6.6 ms,
+  frame time does not move (15.2 vs 15.0, fps 66 vs 67). A per-frame GPU duration cannot exceed
+  the frame interval at 67 fps unless the timer brackets queueing/overlap between command
+  buffers, which is what many small render passes produce. So `frame.gpu` remains a fine
+  RELATIVE instrument for big single-pass changes (T80-g and T80-h read the same direction on
+  both) and a wrong ABSOLUTE one for pass-heavy post chains; **the T77 gate "fpv GPU ≤ 15 ms" must be
+  read on dt p50 for the bloom** — where it is MET (14.2 base, 15.9 ULTRA) — or re-stated. New
+  backlog row T104.
+- The picture: `probe-bloom-path --paths msaa,resolved,fused` under a T94 frozen frame (noise
+  floor 0): west-sunset FPV **0 px on every pair** (byte-identical); cityscape rep 0 **fused vs
+  msaa/resolved 8,004 / 7,957 px (0.13 %) at Δ ≤ 2, none > 3** — the half-float rounding the
+  fused path no longer performs, no structure. (Cityscape rep 1 caught a 17.8 % frame change
+  mid-ladder — a tile that landed under the freeze, the T102 shape — and the probe's verdict
+  correctly read PROBE BLIND for that rep; the positive-control rung was added after this run.)
+- What is left in bloom's 2.1 ms of frame time is the twelve chain draws (≈1.2 ms by the
+  `bloomCheap` delta) plus the bright pass's full-res read. The remaining picture-preserving lever
+  is pass COUNT (fewer render passes: a merged H+V, or dropping the redundant per-mip clears if the
+  driver turns them into loads); anything else (fewer mips, half-res at `high`) changes pixels and
+  is an owner ruling. T80 is worth closing as a frame-time lever.
+
+### 16.4 The sweep before and after (T94 golden)
+
+Pre (`pre-2026-09-07`, this tree before T80-h): **13/14 byte-identical** under the freeze; the one
+red is `legacy-m` (the `/m` shell, 490 px = 0.091 %, max Δ 140) on a tree identical to k2's 14/14 —
+a DOM animation escaping the canvas freeze, nondeterministic; backlog T103.
+
+Post (`post-2026-09-06l --golden --compare pre-2026-09-07`, 7.5 min): **11/14 byte-identical** under
+the freeze. The three reds: `legacy-fpv-eye` 1,148 px at Δ1 (the ease-step transient the probe also
+saw, path-independent), `legacy-everest` 28,407 px (13 %) at Δ26 (a tile landing under the freeze —
+T102's shape), `legacy-m` (T103). The golden compare fails on all 14 at tolerance 0 and is dominated
+by the PRE run's own captures: the pre sheet shows the halftone half-revealed ground at
+everest-orbit-52 (99.96 % differ), everest-fpv-sunset (85 %) and the zoom sweep (61 %) — those
+poses had hit the `--quiet-s 8` cap (`quiet 8.1s!`) and were frozen mid-reveal, byte-identical AND
+wrong; the post sheet shows the real terrain at all three. The self-check proves reproducibility,
+not completeness (T95's boot-to-boot residual, plus the quiet cap). By eye the two sheets agree
+everywhere else; the bloom's glow at everest-fpv-sunset and the west-sunset FPV reads the same.
+
+### 16.5 The regression suites on the T80-h tree (house :9333, one after another)
+
+| suite | result | note |
+|---|---|---|
+| `verify-rendering-charter` | **84/85** | the red is RC2 "and it FADES", step 0.0508 vs the 0.05 bar — T100's band, exactly as k2 |
+| `verify-uxbatch4-s3` | **16/16** | both bloom-pass reads pass (desktop LEO on, `/m` lean off) |
+| `verify-temporal-stability --shimmer --step 200 --only fpv.u0` | control churn p50 0.0000 · mean 0.0000 · **max 0.00075 (one pixel, one frame of 239; k2 read 0.00000)** · scrub p50 0.0000 | the base rig at the FPV eye still reads zero; the single flip is the Δ1 rounding class |
+| `probe-bloom-path --paths msaa,resolved,fused` (2 runs) | cityscape: fused vs the others 0.13 % / 0.79 % at Δ ≤ 2, **0 px > 3**; msaa vs resolved 1,378 px Δ1 | the rounding residual; west-sunset uninformative (control 0 px — no visible bloom there) |

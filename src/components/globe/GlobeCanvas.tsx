@@ -2,10 +2,9 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { tokens } from "../../lib/theme/tokens";
-import { AO, BLOOM, GATE, PIP, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA } from "./tuning";
+import { AO, BLOOM, GATE, PIP, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA, type BloomPath } from "./tuning";
 import {
   pipCapture,
   pipNeedsRender,
@@ -23,6 +22,7 @@ import {
 } from "../../lib/globe/quality";
 import { ScaledBloomPass } from "./scene/scaledBloom";
 import { createResolvedComposer } from "./scene/resolvedComposer";
+import { FusedOutputPass } from "./scene/fusedOutput";
 import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
 import {
   debugFeedActive,
@@ -363,10 +363,17 @@ export default function GlobeCanvas() {
     );
     scene.add(hemi);
 
-    // --- soft bloom composer: RenderPass → MsaaResolve → UnrealBloom → OutputPass (tone map +
-    //     sRGB move to the OutputPass; the renderer's own settings are read by it, so they stay
+    // --- soft bloom composer: RenderPass → [MsaaResolve] → UnrealBloom → FusedOutput (tone map +
+    //     sRGB move to the output pass; the renderer's own settings are read by it, so they stay
     //     untouched above). Custom HalfFloat targets keep HDR (sun disc >1 blooms) + MSAA (edge
     //     lines would alias).
+    //
+    //     T80-h — the FUSED path (`BLOOM.path` "fused", the ship default): the bloom pass stops
+    //     after its twelve chain draws (`ScaledBloomPass.deferBlend`) and `FusedOutputPass` adds
+    //     the mip-0 composite to the scene sample inside the one screen draw, before the tone
+    //     map. No full-resolution copy, no full-resolution blend, and the single-sample buffer is
+    //     never bound (three never allocates it). "resolved" is the T80-g chain below; "msaa" the
+    //     pre-T80g one; `__quality.bloomPath(p)` pins any of the three for a same-boot A/B.
     //
     //     T80 direction g — the SCENE target carries the MSAA and nothing else does. three's own
     //     resolve (the blit every MSAA target pays for, in the RenderPass epilogue) is followed by
@@ -387,7 +394,10 @@ export default function GlobeCanvas() {
       rtSize.y,
       BLOOM.msaaSamples,
     );
-    composer.setPixelRatio(renderer.getPixelRatio());
+    // (T99: the composer's pixel ratio is NOT re-set here — it took the renderer's in its
+    // constructor, and re-setting it runs a `setSize(_width, _height)` that multiplies the DPR into
+    // the drawing-buffer pixels the targets were built from. `onResize()` below sizes everything
+    // once, in logical px.)
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(resolvePass); // index 1 — GTAO inserts BEFORE it (see the AO block below)
     const bloomPass = new ScaledBloomPass(
@@ -397,25 +407,33 @@ export default function GlobeCanvas() {
       BLOOM.threshold,
     );
     composer.addPass(bloomPass);
-    composer.addPass(new OutputPass());
-    // T80 direction g — the DEV path PIN (`__quality.bloomPath(p)`), the A/B seam for the timed
-    // run. `null` = follow the ship default ("resolved"); "msaa" restores the pre-T80g chain by
-    // switching the resolve off, so one boot can time both. Declared before the first
+    const outputPass = new FusedOutputPass();
+    composer.addPass(outputPass);
+    // T80 direction g / T80-h — the DEV path PIN (`__quality.bloomPath(p)`), the A/B seam for the
+    // timed run. `null` = follow the ship default (`BLOOM.path`); "msaa" restores the pre-T80g
+    // chain (resolve off, blend into the MSAA buffer), "resolved" the T80-g one (resolve on,
+    // blend into the single-sample buffer), "fused" the T80-h one (no resolve, no blend — the
+    // output pass adds the composite). One boot can time all three. Declared before the first
     // `setBloomEnabled` because that closure reads it.
-    let devBloomPath: "msaa" | "resolved" | null = null;
-    const bloomPathNow = (): "msaa" | "resolved" => devBloomPath ?? "resolved";
+    let devBloomPath: BloomPath | null = null;
+    const bloomPathNow = (): BloomPath => devBloomPath ?? BLOOM.path;
     /**
-     * The ONE writer of `bloomPass.enabled`, so the resolve can never drift out of lockstep with
-     * it. Two reasons the resolve must follow bloom exactly:
-     *  - with bloom off the full-resolution copy buys nothing (nothing blends afterwards), and the
-     *    chain degenerates to precisely the pre-T80g one — which is the profile every phone and
-     *    tier `low` run;
+     * The ONE writer of `bloomPass.enabled`, so the resolve, the deferred blend and the output
+     * pass's bloom input can never drift out of lockstep with it (contract C2'). Two reasons they
+     * must follow bloom exactly:
+     *  - with bloom off nothing may be left behind — no full-resolution copy (nothing blends
+     *    afterwards), no deferred blend (no composite would be drawn) and the STOCK output
+     *    material on screen — so the chain degenerates to precisely the pre-T80g one, which is
+     *    the profile every phone and tier `low` run;
      *  - the perf harness holds bloom off with a GETTER TRAP on `enabled`, so the flag is READ
      *    BACK rather than trusted, and `bloomOff` stays a clean measurement of the whole pass.
      */
     const setBloomEnabled = (on: boolean) => {
       bloomPass.enabled = on;
-      resolvePass.enabled = bloomPass.enabled && bloomPathNow() === "resolved";
+      const path = bloomPathNow();
+      resolvePass.enabled = bloomPass.enabled && path === "resolved";
+      bloomPass.deferBlend = bloomPass.enabled && path === "fused";
+      outputPass.setBloomTexture(bloomPass.deferBlend ? bloomPass.bloomTexture : null);
     };
     setBloomEnabled(tierBloom(deviceTier)); // off on `low` + lean mobile (12 fullscreen draws)
     // T80: the mip chain's resolution. `high` off a coarse pointer resolves to exactly 1, which
@@ -730,14 +748,15 @@ export default function GlobeCanvas() {
             nMips: bloomPass.nMips,
           };
         },
-        // T80 direction g — the bloom SOURCE A/B seam, and the pin that makes a same-boot
-        // comparison possible (the tick rewrites `bloomPass.enabled`, and the resolve with it,
-        // on every frame). `bloomPath("msaa")` switches the resolve off, which is EXACTLY the
-        // pre-T80g chain — bloom then reads and additively rewrites the 4× MSAA scene buffer and
-        // forces its second resolve. `bloomPath("resolved")` / `bloomPath(null)` restore the ship
-        // default. The returned `samples` come off the live targets, not off the request, so they
-        // are the proof the lever fired; `passes` is the chain in order, for the same reason.
-        bloomPath: (p?: "msaa" | "resolved" | null) => {
+        // T80 direction g / T80-h — the bloom PATH A/B seam, and the pin that makes a same-boot
+        // comparison possible (the tick rewrites `bloomPass.enabled`, and the chain with it, on
+        // every frame). `bloomPath("msaa")` is the pre-T80g chain (bloom reads and additively
+        // rewrites the 4× MSAA scene buffer and forces its second resolve), `"resolved"` the
+        // T80-g one (one full-res copy, a single-sample blend), `"fused"` the T80-h one (no
+        // copy, no blend, the output pass adds the composite). `bloomPath(null)` restores the
+        // ship default. The returned fields come off the live targets and passes, not off the
+        // request, so they are the proof the lever fired; `passes` is the chain in order.
+        bloomPath: (p?: BloomPath | null) => {
           if (p !== undefined) {
             devBloomPath = p;
             setBloomEnabled(bloomPass.enabled);
@@ -747,6 +766,12 @@ export default function GlobeCanvas() {
             override: devBloomPath,
             bloomEnabled: bloomPass.enabled,
             resolveEnabled: resolvePass.enabled,
+            // T80-h proof-of-fire: the deferred blend and the output material are read off the
+            // live passes. `outputMaterial` is "FusedOutputShader" only while the fused path is
+            // actually on screen; "OutputShader" is the stock draw.
+            deferBlend: bloomPass.deferBlend,
+            outputMaterial: outputPass.material.name,
+            outputBloomBound: outputPass.bloomTexture !== null,
             sceneSamples: sceneTarget.samples,
             resolvedSamples: resolvedTarget.samples,
             sceneW: sceneTarget.width,
@@ -1201,6 +1226,7 @@ export default function GlobeCanvas() {
       // remount re-uploads the geometry's buffers — and is exactly why the live PiP quad below
       // must NOT be disposed.
       resolvePass.dispose();
+      outputPass.dispose(); // T80-h: both of its materials (the base frees only the active one)
       composer.dispose();
       // RC19. NOT `pipQuad.dispose()` — that disposes three's MODULE-LEVEL fullscreen triangle,
       // which bloom, output and GTAO all draw with. The triangle is a page-lifetime singleton by

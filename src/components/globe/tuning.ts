@@ -372,6 +372,21 @@ export const SCRUB = {
   playTickMs: 150,
 } as const;
 
+/**
+ * How the bloom composite reaches the screen (T80 direction g → T80-h, `scene/resolvedComposer.ts`
+ * + `scene/fusedOutput.ts`). Same picture on all three up to half-float rounding; they differ in
+ * the full-resolution work the frame pays after geometry:
+ *  - `"msaa"`     — the pre-T80g chain: the bloom's additive blend reads and rewrites all four MSAA
+ *                   samples per pixel and forces a second resolve (fpv GPU 22.5 ms at `high`, DPR 2).
+ *  - `"resolved"` — T80-g: one full-resolution copy into a single-sample buffer, the blend lands
+ *                   there (19.8 ms).
+ *  - `"fused"`    — T80-h: no copy, no blend; the bloom pass stops after its twelve chain draws and
+ *                   `FusedOutputPass` adds the composite inside the one screen draw. The
+ *                   single-sample buffer is never bound, so it is never allocated.
+ * `__quality.bloomPath(p)` pins any of them for a same-boot A/B (`verify-perf-baseline --post-ab`).
+ */
+export type BloomPath = "msaa" | "resolved" | "fused";
+
 /** Soft bloom post (GlobeCanvas composer): sun/moon/city-lights glow; earth catches it very
  *  slightly. Threshold sits just under 1.0 so only HDR/near-white pixels bloom (the scene is dark). */
 export const BLOOM = {
@@ -380,6 +395,8 @@ export const BLOOM = {
   threshold: 0.9,
   /** MSAA samples on the composer's HalfFloat target (the default 0 would alias building edges). */
   msaaSamples: 4,
+  /** The ship path — see `BloomPath`. T80-h (2026-09-06): "fused". */
+  path: "fused" as BloomPath,
   // T80: the pass's RESOLUTION is deliberately NOT here — it is per-tier
   // (`QUALITY.tiers[t].bloomScale`, applied by `scene/scaledBloom.ts`), because
   // `UnrealBloomPass`'s own `resolution` constructor argument is inert the moment

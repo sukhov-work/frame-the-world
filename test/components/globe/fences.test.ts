@@ -56,7 +56,15 @@ describe("setClearColor fence — the navy-night-sky trap stays dead", () => {
   // setClearColor encodes to the renderer OUTPUT space and lands sRGB values in the LINEAR
   // composer buffer (DECISIONS §Traps GL). Fix has always been scene.background. Zero call
   // sites today — this fence keeps it that way.
-  it("no .setClearColor( call anywhere under src/", () => {
+  //
+  // ONE allowed file (T80-h, 2026-09-06): `scene/scaledBloom.ts` reproduces `UnrealBloomPass`'s
+  // own render body draw for draw, and the library brackets its chain with
+  // `setClearColor(this.clearColor, 0)` (BLACK, alpha 0 — the value every colour space encodes to
+  // itself) … `setClearColor(oldColor, oldAlpha)`. The pair clears the pass's OWN mip targets and
+  // restores the renderer's state in the same call; it never touches a scene clear. The second
+  // test pins that the file's calls are exactly that pair and nothing more.
+  const ALLOWED = "src/components/globe/scene/scaledBloom.ts";
+  it("no .setClearColor( call anywhere under src/ (except the library-copy pair in scaledBloom.ts)", () => {
     const offenders: string[] = [];
     const walk = (dir: string) => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -67,7 +75,14 @@ describe("setClearColor fence — the navy-night-sky trap stays dead", () => {
       }
     };
     walk(join(root, "src"));
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual([ALLOWED]);
+  });
+  it("scaledBloom.ts's calls are exactly the library's save/restore pair, black, restored in the same render", () => {
+    const src = readFileSync(join(root, ALLOWED), "utf8");
+    const calls = [...src.matchAll(/renderer\.setClearColor\(([^)]*)\)/g)].map((m) => m[1]);
+    expect(calls).toEqual(["this.clearColor, 0", "lib._oldClearColor, lib._oldClearAlpha"]);
+    // and `clearColor` is the library's own field, left at its constructor default (black)
+    expect(src).not.toMatch(/this\.clearColor\s*=/);
   });
 });
 

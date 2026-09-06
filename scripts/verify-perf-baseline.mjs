@@ -53,9 +53,14 @@
  *             between geometry and post; `bloomCheap` is the half of that split T80 can actually
  *             buy, since only the pass's final additive blend is full-resolution.
  *   --bloom-scale — the scale `bloomCheap` pins (default 0.5). 1 would be the identity (no A/B).
- *             `bloomMsaa` (T80g — the pass ON at full scale, but sourced from the 4x MSAA scene
- *             buffer the way it was before direction g, via `__quality.bloomPath("msaa")`) is the
- *             cell the composer change is judged on: `bloomMsaa` GPU minus `on` GPU = the saving.
+ *   --bloom-mips N — T80-h: add a `bloomMips` cell with the pass's `nMips` pinned to N (timing only:
+ *             the composite still samples the stale upper mips). `bloomMips` − `on` = the cost of
+ *             the dropped H/V pairs, which at the top of the chain is per-PASS overhead, not pixels.
+ *             `bloomMsaa` / `bloomResolved` / `bloomFused` (T80g / T80-h — the three bloom PATHS,
+ *             each pinned in turn via `__quality.bloomPath`: the pre-T80g chain, the T80-g one, the
+ *             fused one). The cell equal to the ship default (`BLOOM.path`) is a same-boot CONTROL
+ *             of `on`; the composer levers are judged as `bloomMsaa` − `bloomResolved` (T80-g) and
+ *             `bloomResolved` − `bloomFused` (T80-h), all inside one boot.
  *   --device — a REAL PHONE's Chrome over adb (T1 / the T77 phone baseline, Android half). No
  *             viewport or touch emulation, no tier override (the device's own detection is the
  *             measurement: coarse pointer → lean, tier capped `mid`), one boot per pose × ULTRA
@@ -114,6 +119,7 @@ const CLEANUP_FILE = opt("--cleanup-seeds", null);
 const DSF = Number(opt("--dsf", "2"));
 const POST_AB = flag("--post-ab"); // + the GTAO-off, bloom-off and bloom-cheap samples per boot (GPU attribution)
 const BLOOM_SCALE = Number(opt("--bloom-scale", "0.5")); // T80: the scale the `bloomCheap` cell pins
+const BLOOM_MIPS = Number(opt("--bloom-mips", "0")); // T80-h: 0 = no `bloomMips` cell; N = pin `nMips` to N for one cell
 const DEVICE = flag("--device"); // a real phone's Chrome over adb: no emulation, no tier override
 const DEV = "http://localhost:4321";
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -553,7 +559,7 @@ function writeArtefacts() {
   for (const r of results) {
     const s = r.frame;
     lines.push(
-      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : r.shadows === "bloomMsaa" ? `·bloom MSAA src (${r.bloomPath ? `${r.bloomPath.path}/resolve ${r.bloomPath.resolveEnabled}` : "unread"})` : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "bloomCheap" ? `·bloom ×${r.bloom ? r.bloom.scale : "?"} (${r.bloom ? `${r.bloom.brightW}×${r.bloom.brightH}` : "unread"})` : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
+      `| ${r.id} | ${r.q.start.tier} (${r.q.start.deviceTier}) | ${r.q.start.dpr} | ${r.q.start.shadowMapPx}${r.look?.casting ? "·cast" : ""}${r.shadows === "noUpdate" ? "·noUpd" : r.shadows === "off" || r.shadows === "offBoot" ? "·OFF" : r.shadows === "aoOff" ? "·AO off" : /^bloom(Msaa|Resolved|Fused)$/.test(r.shadows) ? `·bloom path ${r.bloomPath ? `${r.bloomPath.path} (resolve ${r.bloomPath.resolveEnabled}, defer ${r.bloomPath.deferBlend ?? "?"}, ${r.bloomPath.outputMaterial ?? "?"})` : "unread"}` : r.shadows === "bloomOff" ? "·bloom off" : r.shadows === "bloomCheap" ? `·bloom ×${r.bloom ? r.bloom.scale : "?"} (${r.bloom ? `${r.bloom.brightW}×${r.bloom.brightH}` : "unread"})` : r.shadows === "bloomMips" ? `·bloom nMips ${r.bloomMips ? `${r.bloomMips.nMips} (was ${r.bloomMips.was})` : "unread"}` : r.shadows === "gateOff" ? "·gate OFF" : ""} | ${r.models && r.models.resident !== undefined ? `${r.models.resident}/${r.models.world}` : "—"} | ${(r.settle.settleMs / 1000).toFixed(1)}${r.settle.capped ? "!" : ""} | ${fmt(s.fps, 0)} | ${fmt(s.dtP50)} / ${fmt(s.dtP95)} | ${fmt(f(r, "frame.cpu.p50"))} | ${fmt(f(r, "frame.draw.p50"))} | ${fmt(f(r, "frame.gpu.p50"))} | ${fmtI(s.calls)} | ${fmtI(s.tris)} | ${fmt(s.jsHeapMB, 0)} | ${fmtI(s.infoGeometries)} / ${fmtI(s.infoTextures)} / ${fmtI(s.infoPrograms)} | ${fmt(f(r, "tiles.bld.lruMB"), 0)}/${fmt(f(r, "tiles.gnd.lruMB"), 0)}/${fmt(f(r, "tiles.enr.lruMB"), 0)} | ${fmtI(f(r, "tiles.bld.visible"))}/${fmtI(f(r, "tiles.gnd.visible"))}/${fmtI(f(r, "tiles.enr.visible"))} | ${fmtI(f(r, "tiles.img.composites"))} | ${fmt(s.rates?.terrainEpochPerS, 2)} | ${fmt(s.rates?.memoHitsPerS, 0)}·${fmt(s.rates?.memoMissesPerS, 0)} | ${fmt(s.rates?.deferredPerS, 1)}/${fmt(s.rates?.rejectedPerS, 1)} | ${fmt(s.rates?.seatEpochPerS, 1)} | ${s.hitches} |`,
     );
   }
   writeFileSync(
@@ -651,20 +657,53 @@ try {
           await evalJs(`window.__quality.bloomScale(null), true`);
           writeArtefacts();
         }
-        // T80 direction g — the BLOOM SOURCE A/B, and the one the ms verdict rides on. The ship
-        // default is "resolved": the scene's 4x MSAA buffer is resolved ONCE into a single-sample
-        // buffer and the bloom's full-resolution additive blend lands there. `bloomPath("msaa")`
-        // switches that resolve off, which is exactly the pre-T80g chain — the blend reads and
-        // rewrites four samples per pixel and forces a second full-resolution resolve. So
-        // `bloomMsaa` minus the `on` cell IS the lever, measured inside one boot.
+        // T80-h — the PASS-COUNT probe (`--bloom-mips N`). `bloomCheap` shrinks every chain draw's
+        // pixels 4× and keeps the pass count; this keeps the pixels of the mips it leaves and drops
+        // whole H/V pairs (the library's render loop reads `this.nMips` every frame; the composite
+        // still samples the stale upper mips, which is fine for a TIMING cell and wrong for a
+        // picture — never ship it). `bloomCheap` − `on` is the pixel-proportional cost;
+        // `bloomMips` − `on` is the per-pass one. Restored to the pass's own count after.
+        if (BLOOM_MIPS > 0) {
+          const mips0 = await evalJs(`(() => { const p = ${BLOOM}; return p ? p.nMips : null; })()`);
+          if (mips0 && BLOOM_MIPS < mips0) {
+            await evalJs(`(() => { const p = ${BLOOM}; p.nMips = ${BLOOM_MIPS}; return p.nMips; })()`);
+            const mipsRow = await sampleCell(b, "bloomMips", { bootMs });
+            mipsRow.bloomMips = await evalJs(`(() => { const p = ${BLOOM}; return { nMips: p.nMips, was: ${mips0} }; })()`);
+            console.log(`  bloomMips: ${JSON.stringify(mipsRow.bloomMips)}`);
+            await evalJs(`(() => { const p = ${BLOOM}; p.nMips = ${mips0}; return p.nMips; })()`);
+            writeArtefacts();
+          }
+        }
+        // T80 direction g / T80-h — the BLOOM PATH A/B, and the one the ms verdict rides on. Three
+        // chains, pinned in turn inside ONE boot: `bloomMsaa` = the pre-T80g chain (the blend reads
+        // and rewrites four samples per pixel and forces a second full-resolution resolve);
+        // `bloomResolved` = T80-g (one full-resolution copy into a single-sample buffer, the blend
+        // lands there); `bloomFused` = T80-h (no copy, no blend — the output pass adds the
+        // composite). Whichever equals the ship default (`BLOOM.path`) is a same-boot CONTROL of
+        // the `on` cell — its distance from `on` is the noise floor the other two are read against.
+        // The read-back fields (`resolveEnabled`, `deferBlend`, `outputMaterial`) are the proof
+        // each pin fired; a cell whose read-back does not match its pin is NOT a measurement.
         const PATH_SEAM = `(window.__quality && typeof window.__quality.bloomPath === "function")`;
         if (await evalJs(`!!${PATH_SEAM}`)) {
-          await evalJs(`window.__quality.bloomPath("msaa"), true`);
-          const msaaRow = await sampleCell(b, "bloomMsaa", { bootMs });
-          msaaRow.bloomPath = await evalJs(`window.__quality.bloomPath()`);
-          console.log(`  bloomMsaa: ${JSON.stringify(msaaRow.bloomPath)}`);
-          await evalJs(`window.__quality.bloomPath(null), true`);
-          writeArtefacts();
+          const cellOf = { msaa: "bloomMsaa", resolved: "bloomResolved", fused: "bloomFused" };
+          const took = (path, st) =>
+            path === "msaa" ? st.resolveEnabled === false && !st.deferBlend
+            : path === "resolved" ? st.resolveEnabled === true && !st.deferBlend
+            : st.resolveEnabled === false && st.deferBlend === true && st.outputMaterial === "FusedOutputShader";
+          for (const path of ["msaa", "resolved", "fused"]) {
+            const st0 = await evalJs(`window.__quality.bloomPath(${JSON.stringify(path)})`);
+            if (!took(path, st0)) {
+              // An engine without the fused seam (pre-T80-h) reports the request but not the state.
+              console.log(`  ${cellOf[path]}: pin did NOT take (${JSON.stringify(st0)}) — cell skipped`);
+              await evalJs(`window.__quality.bloomPath(null), true`);
+              continue;
+            }
+            const row = await sampleCell(b, cellOf[path], { bootMs });
+            row.bloomPath = await evalJs(`window.__quality.bloomPath()`);
+            console.log(`  ${cellOf[path]}: ${JSON.stringify(row.bloomPath)}`);
+            await evalJs(`window.__quality.bloomPath(null), true`);
+            writeArtefacts();
+          }
         }
       }
     }

@@ -365,8 +365,10 @@ describe("T80g — the GlobeCanvas wiring (contract C1–C4)", () => {
     expect(writes("bloomPass")).toBe(1);
     expect(writes("resolvePass")).toBe(1);
     // …and that one writer really is the closure, holding both in one statement pair.
+    // T80-h widened the closure to four levers (C2'); `fusedBloom.test.ts` pins the whole body —
+    // here only the T80-g half: the resolve follows the READ-BACK flag and the live path.
     expect(GLOBE_CANVAS).toMatch(
-      /const setBloomEnabled = \(on: boolean\) => \{\s*bloomPass\.enabled = on;\s*resolvePass\.enabled = bloomPass\.enabled && bloomPathNow\(\) === "resolved";/,
+      /const setBloomEnabled = \(on: boolean\) => \{\s*bloomPass\.enabled = on;\s*const path = bloomPathNow\(\);\s*resolvePass\.enabled = bloomPass\.enabled && path === "resolved";/,
     );
     // POSITIVE CONTROL: the probe can match a direct write (it is `!==` that must NOT count).
     expect(/bloomPass\.enabled\s*=(?!=)/.test("bloomPass.enabled = true")).toBe(true);
@@ -375,7 +377,7 @@ describe("T80g — the GlobeCanvas wiring (contract C1–C4)", () => {
     expect([...GLOBE_CANVAS.matchAll(/setBloomEnabled\(/g)].length).toBeGreaterThanOrEqual(4);
   });
 
-  it("C1 ORDER: RenderPass → [GTAO @ 1] → resolve → bloom → OutputPass", () => {
+  it("C1 ORDER: RenderPass → [GTAO @ 1] → resolve → bloom → FusedOutputPass (T80-h: the output subclass)", () => {
     const at = (needle: string) => {
       const i = GLOBE_CANVAS.indexOf(needle);
       expect(i, `missing: ${needle}`).toBeGreaterThan(-1);
@@ -384,7 +386,7 @@ describe("T80g — the GlobeCanvas wiring (contract C1–C4)", () => {
     const render = at("composer.addPass(new RenderPass(scene, camera));");
     const resolve = at("composer.addPass(resolvePass);");
     const bloom = at("composer.addPass(bloomPass);");
-    const output = at("composer.addPass(new OutputPass());");
+    const output = at("composer.addPass(outputPass);"); // T80-h: `new FusedOutputPass()`, an OutputPass by inheritance
     expect(render).toBeLessThan(resolve);
     expect(resolve).toBeLessThan(bloom);
     expect(bloom).toBeLessThan(output);
@@ -421,7 +423,7 @@ describe("T80g — the GlobeCanvas wiring (contract C1–C4)", () => {
 
   it("the DEV seams survive: bloomScale (T80) and bloomPath (T80g), both reading LIVE state", () => {
     expect(GLOBE_CANVAS).toMatch(/bloomScale: \(s\?: number \| null\) => \{/);
-    expect(GLOBE_CANVAS).toMatch(/bloomPath: \(p\?: "msaa" \| "resolved" \| null\) => \{/);
+    expect(GLOBE_CANVAS).toMatch(/bloomPath: \(p\?: BloomPath \| null\) => \{/); // T80-h: "msaa" | "resolved" | "fused" (`tuning.ts`)
     // The A/B's proof-of-fire fields come off the live targets and the live pass, never off the
     // request — a seam that echoed its argument would report a pass for a lever that never fired.
     for (const field of [

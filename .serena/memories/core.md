@@ -12,7 +12,18 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-06k
+## Status — 2026-09-06l
+- **2026-09-06l (`mem:project/wip-2026-09-07-t77-e1-e2-t80h`):** E1 + E2 run → lever 2 and A1 CLOSED
+  (with E3, slice A is complete). **T80-h SHIPPED — `BLOOM.path` "fused"** (`ScaledBloomPass.deferBlend`
+  + `scene/fusedOutput.ts`; the brief's "blur at full res" premise was false, the lever removed the two
+  full-res draws): fpv `high` DPR 2 **frame time 19.2 (pre-T80g) → 14.2 ms**, ULTRA 21.0 → 15.9; pixels
+  ≤ Δ2 on 0.13–0.79 %, none > 3. T99 closed. **T104: `frame.gpu` over-counts pass-heavy chains** (a
+  6-pass drop read −6.6 ms gpu, 0.0 dt) — read the T77 GPU gates on dt p50. Gates: vitest 2,716/2,716
+  (173) · astro 0/0/9 · knip 0 · charter 84/85 (T100) · uxbatch4 16/16 · sweep 11/14 self-check (T103 +
+  two freeze gaps). Backlog T1–T104. **OWNER RULINGS 2026-09-06m — all five recommended options
+  accepted:** T80 (a) close as a frame-time lever + T104 re-state the gates on dt · T100 (b) band
+  start ~+0.2° · T101 (a) per-cell `deepPending` · T92 (a) fade the cone's fill, keep the rays ·
+  T93 (a) tint the limb to the haze. Execution order + gates: `NEXT_SESSION_PROMPT.md` §OWNER RULINGS.
 - **THE RESOURCE BUDGET (owner order 2026-09-06j, standing):** session j ran six worktrees × (`wix dev`
   + headless Chrome + agent) on the 36 GB M3 and FROZE THE MACHINE (120 GB swap; another research
   session died too). Now machine-checked: ONE house headless Chrome, ONE dev server, free ≥ 20 %
@@ -51,14 +62,15 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 - Gates 2026-09-06h: vitest **2,584/2,584** (167 files) · `astro check` **0/0/9** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T96).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T104).
 
-## Next step — T77 after the six slices (full brief: `NEXT_SESSION_PROMPT.md`)
-1. Boot: poll `api.cesium.com` (T98), watchdog + `--budget`, ONE Chrome, sweep `--sheet --golden`.
-2. **E1 / E2** (the lever-2 and A1 experiments, 25–30 min each, alone) — the last A-rest calls.
-3. **T80-h — the bloom BLUR** (8 of the remaining 10 ms): half-res mips + fused blend/OutputPass.
-4. Owner calls **T100** (the ULTRA release band) and **T101** (arrival deferrals); then the streaming
-   measurement (descent-leg CSV) that gates levers 9–11; then the phones (Pixel `--device --quick`).
+## Next step — T77 after E1/E2 + T80-h (full brief: `NEXT_SESSION_PROMPT.md`)
+1. Boot: VPN + ion curl (T98), `--budget`, ONE Chrome, `wix dev` with `.vite` aside, sweep `--sheet --golden`.
+2. **Execute the five rulings (2026-09-06m), in order:** T80 close + T104 (docs + one harness column) →
+   T100 band start ~+0.2° → T101 `deepPending` → T92 fill fade → T93 limb tint; each with its gate
+   (`NEXT_SESSION_PROMPT.md` §OWNER RULINGS).
+3. The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
+   (Pixel `--device --quick`, then T83 on the iPhone 17 Pro).
 **Constraints:** no regression of behaviour, accuracy, calculations, plans, predictions or sky
 features · `high` byte-identical · ULTRA off-state exact · `ENGINE_STATE_2026-09-02.md` §8 harness
 list per slice · DNIPRO slice first (owner 2026-09-02c) · the audit is read-only.
@@ -134,6 +146,10 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
 - **Docs + memory hygiene sweep (09-06g)** · 09-06-docs-hygiene
 - **T77 RESUMED: catalogue + sweep, T80, slices A/B, the sunset fix (09-06h, HOT)** ·
   `rendering/SUNSET_LIGHTPATH_2026-09-06` · MEASUREMENTS §14 · 09-06-t77-resume-harness-sunset
+- **T77 six worktrees: the crash, the retrace, the gates (09-06j/k/k2)** · MEASUREMENTS §15 ·
+  09-06-t77-six-worktrees
+- **T77 E1/E2 closed + T80-h fused bloom + T104 GPU-timer finding (09-06l, HOT)** · MEASUREMENTS §16 ·
+  `mem:project/wip-2026-09-07-t77-e1-e2-t80h`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·
