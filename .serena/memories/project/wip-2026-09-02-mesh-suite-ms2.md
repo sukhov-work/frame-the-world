@@ -12,7 +12,7 @@ Also this session: the CHERNOBYL retirement slice (owner memo 2026-09-02c) — s
   inflated). MOVE attaches three's `TransformControls` to the anchor, ROTATE/SCALE to the body.
   `rigToTransform` (featureTransform.ts) = the exact inverse of the engine's `placeGhost`
   (`transformToRig` pins the pair); `clampGizmoEdit` (bldgOverrides.ts) = rails + the U8
-  per-edit 0.5×/3× band on EVERY scale axis; the clamped value is written back to the rig so a
+  per-edit 0.5×/3× band on EVERY scale axis *(SUPERSEDED 2026-09-06: MS5b re-ruled it to 0.1×–10× per drag, relative, 2026-09-02l)*; the clamped value is written back to the rig so a
   handle stops at the rail. Yaw is read from the quaternion (`2·atan2(qy,qw)`), never Euler.
 - **No DOM listeners on the controls** — constructed without a domElement; the FPV handlers FEED
   `pointerHover/Down/Move/Up({x,y,button})` (button −1 for moves, 0 for down/up). One gesture
@@ -98,7 +98,7 @@ blocked by the tool permission gate twice; the owner runs it by hand. Gates afte
 2,284/2,284 · astro 0/0/8 · knip 0 · globe boots clean at the Dnipro FPV pose.
 
 ## Taste calls surfaced (not decided)
-`TRANSLATE_MAX_M` 60 (tile culling volume not grown) · the shared party-wall post follows the
+`TRANSLATE_MAX_M` 60 *(→ ≤ 100 m per drag since MS5b, 2026-09-02l)* (tile culling volume not grown) · the shared party-wall post follows the
 lower run under a move · three's rotate speed (20/dist: a 70 px drag ≈ 84°) and the scale gain
 (a 60 px drag saturates the 3× band at street range) · the Y ring is near edge-on from a
 street-level eye · G/R/S vs 1/2/3/4 keys · bloom on the gizmo at ULTRA.

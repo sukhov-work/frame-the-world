@@ -227,8 +227,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "tracked target, your toggles AND your POSE carry across shells — switch while " +
           "standing somewhere and you arrive at the same place, looking the same way.",
         tip:
-          "The phone leaves out photo upload, the marketplace, [[bestspot|BEST SPOT]], the " +
-          "Milky-Way season card, the meteor card and calendar export.",
+          "The phone leaves out photo and model upload, the marketplace, [[bestspot|BEST SPOT]], " +
+          "the Milky-Way season card, the meteor card and calendar export.",
       },
       {
         id: "start-real",
@@ -265,6 +265,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "WASD or the arrow keys — walk, in [[fpv|first-person view]].",
           "Shift — stride, at triple speed. Option/Alt — creep, at half.",
           "Space — rise. Shift+Space — sink.",
+          "G, R, S and E — pick the [[edit-handles|edit handle]] while a building or a model " +
+            "is armed; S stops walking you back until you disarm.",
           "Escape — unwind one layer: the sky menu, then a building edit, then the MAP " +
             "window, then Explore, then the view itself.",
           "On the time rail: ← and → step 10 minutes, Home and End jump 6 hours.",
@@ -634,9 +636,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "between a tenth and ten times its CURRENT height, and repeated edits compound with " +
           "no ceiling. Right-click the armed building (hold it on /m) for the rest of the suite: " +
           "MOVE (up to 100 m per drag from where it stands), ROTATE and SCALE its footprint (a " +
-          "tenth to ten times per drag, shown in metres) with a three-axis gizmo, and revert one " +
-          "op or all of them. A building carried far from its own map cell can blink out at the " +
-          "edge of the view — bring it back or accept it. Edits re-measure every " +
+          "tenth to ten times per drag, shown in metres) with a [[edit-handles|three-axis gizmo]], " +
+          "and revert one op or all of them. A building carried far from its own map cell can " +
+          "blink out at the edge of the view — bring it back or accept it. Edits re-measure every " +
           "[[plan-verdicts|skyline verdict]].",
         keys: ["height", "scale", "rescale", "too short", "too tall", "wrong height", "osm", "sync", "gizmo", "move building", "rotate building"],
         steps: [
@@ -660,9 +662,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Place your own 3D model",
         where: { desktop: "UPLOAD → drop a GLB, OBJ or FBX" },
         body:
-          "Drop a 3D model in the UPLOAD window and it is checked, trimmed to budget and stored " +
-          "as a public GLB. Start from a temporary pin's UPLOAD HERE and it stands there at once; " +
-          "otherwise press PLACE ON GLOBE and click the ground. In first-person view, right-click " +
+          "Drop a 3D model in the UPLOAD window and it is [[model-limits|checked]], trimmed to " +
+          "budget and stored as a public GLB. Start from a temporary pin's UPLOAD HERE and it " +
+          "stands there at once; otherwise press PLACE ON GLOBE and click the ground. In " +
+          "first-person view, right-click " +
           "any model — yours or another member's — for MOVE, ROTATE and SCALE, the same gizmo as " +
           "[[fpv-height|a building edit]]: one drag resizes it between a tenth and ten times its " +
           "current size, repeated edits compound, the SCALE row shows its size in metres, and the " +
@@ -676,7 +679,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Read the CHECK card: triangles, textures and the guessed source units; pick another unit if the size looks wrong.",
           "Press UPLOAD MODEL (sign in first).",
           "Press PLACE ON GLOBE and click where it should stand.",
-          "Enter first-person view near it and right-click it to move, turn, tip, resize, lift or sink it.",
+          "Enter first-person view near it and right-click it — hold it on /m — to move, turn, tip, resize, lift or sink it.",
           "Toggle MDL on the camera deck to hide every custom model.",
         ],
         tip:
@@ -707,6 +710,53 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         tip:
           "Any signed-in member can move, turn or resize your model in first-person view — the row's " +
           "EDITED badge tells you when someone did.",
+      },
+      {
+        id: "model-limits",
+        title: "What a model must be",
+        where: { desktop: "The CHECK card, before you upload" },
+        keys: ["too big", "triangles", "rigged", "draco", "meshes"],
+        body:
+          "The CHECK card judges a model before it can be stored, and names the fix for " +
+          "anything it will not take. A file over 15 MB never gets read; the packed model then " +
+          "has to come out under 8 MB, and its textures are downscaled from 2048 to 1024 to " +
+          "512 px until it fits. Over 100,000 triangles, the model is simplified for you " +
+          "instead. Four things it will not take at all:",
+        list: [
+          "More than 25 meshes — join them down to 25 or fewer.",
+          "More than 8 textures — bake them into one atlas.",
+          "A rigged or morphing mesh — export it as a static one.",
+          "DRACO or KTX2 compression — export it uncompressed.",
+        ],
+        tip:
+          "An animated model still uploads — the animation is dropped and it stands still.",
+      },
+      {
+        id: "edit-handles",
+        title: "Editing handles and snapping",
+        where: {
+          desktop: "While a building or a model is armed",
+          mobile: "The same, after a long press",
+        },
+        keys: ["snap", "handles", "gizmo", "shift"],
+        body:
+          "A [[fpv-height|building edit]] and a [[fpv-models|model edit]] use the same three " +
+          "handles, and the keyboard switches between them. While something is armed, G, R and " +
+          "S select MOVE, ROTATE and SCALE, and E puts a building back on its height drag. S is " +
+          "the scale key while the edit lasts, so walking backwards waits until you disarm. " +
+          "Hold Shift through a drag to snap to 1 m, 15° or a tenth of the current size. A model " +
+          "arms only for a signed-in member; a building arms for anyone, and only SYNC needs an " +
+          "account.",
+        list: [
+          "Arrows MOVE — the red and blue ones slide it over the ground, the green one lifts it.",
+          "Rings ROTATE — the green one turns it flat; the red and blue ones tip a model over, " +
+            "and a building has neither.",
+          "Boxes SCALE — a building takes each axis on its own, a model always scales as a whole.",
+          "A building lifts up to 25 m above its base and never sinks below it; a model lifts up " +
+            "to 50 m and sinks only until part of it still shows.",
+        ],
+        tip:
+          "Escape unwinds one layer at a time: the menu, then a drag in progress, then the arming itself.",
       },
       {
         id: "fpv-exit",
@@ -1682,15 +1732,15 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "trust-accuracy",
         title: "How precise is it",
-        keys: ["precision", "arcminute", "error", "how accurate", "model"],
+        keys: ["precision", "arcminute", "error", "how accurate", "magnitude"],
         body:
           "Positions come from a professional ephemeris engine, accurate to about one " +
           "arcminute. Skyline verdicts measure the actual rendered terrain and buildings. " +
           "Sky markers draw at a readable size — the marker is stylized, the numbers " +
           "behind it are not. Comet and asteroid magnitudes are labelled as models: " +
           "brightness forecasting carries real uncertainty. Building heights you " +
-          "[[fpv-height|edit]] apply only in your browser — verdicts then measure the " +
-          "edited skyline.",
+          "[[fpv-height|edit]] change the verdicts, in your browser alone until you " +
+          "press SYNC.",
       },
       {
         id: "trust-detail",

@@ -5,6 +5,10 @@ charter for the next (long, autonomous) implementation session. -->
 
 # RENDERING CHARTER — 2026-08-25
 
+> **DONE 2026-09-06** — the charter closed 2026-08-26d (DECISIONS); its RC ladder shipped and the
+> as-built result is `RENDERING_ARCHITECTURE.md`. Still live inside it: §4 (the owner A/B queue) and
+> §6 (do-not-do, standing with reasons). Performance work moved on to T77 — `T77_AUDIT_PLAN_2026-09-05.md`.
+
 **What this is.** The implementation-ready consolidation of the FPV fidelity audit
 (`FPV_FIDELITY_AUDIT_2026-08-22.md`, backlog T43), four owner-reported bugs from 2026-08-25
 (§2 B1–B4), the ULTRA open tails (`ULTRA_ARCHITECTURE.md` §12), and a mobile-performance track.

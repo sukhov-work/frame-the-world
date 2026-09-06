@@ -1,6 +1,11 @@
 <!-- Authored 2026-08-22h by a 65-agent read-only investigation (6 dimension inventories -> per-gap adversarial refutation -> synthesis). 43 of 58 proposed gaps survived refutation; the 15 refuted are listed in section 4 so they are not re-discovered. NOTHING HERE WAS IMPLEMENTED - the owner fenced the session to research. -->
 
 # FPV Far-Field Fidelity — Synthesis Report
+
+> **PARTLY SUPERSEDED 2026-09-06** — the gap statuses and line anchors were re-verified into
+> `RENDERING_CHARTER_2026-08-25.md` §1, and the §2 "what we already do" tables were absorbed into
+> `RENDERING_ARCHITECTURE.md`; both are current where they differ. §4 (the 15 refuted candidates)
+> and the mechanism write-ups in §1 are still the reference — do not re-discover them.
 **Frame the World / PLUX · 2026-08-22 · read-only research, nothing implemented**
 Six parallel auditors → adversarial refutation → this synthesis. Every claim below carries a `file:line` I or an auditor read, or is marked **UNVERIFIED**.
 

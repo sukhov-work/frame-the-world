@@ -3,7 +3,8 @@
 **Provenance.** Distilled from `../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) →
 `../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (the cited external report, accessed 2026-07-13) + this
 session's analysis against our locked ADRs and current build state. This doc is the execution source of
-truth for the enrichment workstream (peer of `RENDERING_QUALITY_PASS.md`). Nothing here supersedes a
+truth for the enrichment workstream (peer of `../rendering/RENDERING_QUALITY_PASS.md` — path corrected
+2026-09-06; that file moved into `rendering/` in the 2026-07-15 docs reorg). Nothing here supersedes a
 locked ADR without a dated `DECISIONS.md` line.
 
 ---
@@ -42,7 +43,10 @@ obstruction surface for event prediction) to effort, at zero data cost.
 ## Session forks — RECOMMENDED DEFAULTS (owner dismissed the question dialog; adjustable)
 1. **Session-1 scope = DE-RISK SPIKE FIRST.** Hand-bake a small central-Dnipro sample before investing in
    the full pipeline (proves the hard unknowns — see §Slice 0).
-2. **Sequencing = PIVOT TO ENRICHMENT.** The pending Pass 1/Pass 2 browser-verify (shader-compile over
+2. **Sequencing = PIVOT TO ENRICHMENT.** *(Resolved 2026-09-06: the pivot happened and the enrichment
+   bake shipped — Dnipro is live with 127k baked buildings over 20x20 km plus the GLO-30 terrain patch,
+   and the rendering passes named here were browser-verified long since. Operations and rulings now
+   live in `../BAKED_ASSETS.md`.)* The pending Pass 1/Pass 2 browser-verify (shader-compile over
    Dnipro, tiering A/B, GTAO enable) folds into the *next real browser session* — it's been blocked on a
    weaker-than-M3 box + a browser loop, and enrichment is mostly offline pipeline work that doesn't need
    the browser until integration.
@@ -253,7 +257,7 @@ for Dnipro (excluded or unfit) · fresh aerial/UAV capture (illegal) · whole-ci
 
 ## Pointers
 `../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_RESULTS.md` (the full cited report + source appendix) ·
-`../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) · `RENDERING_QUALITY_PASS.md` (Pass 1/2/3 — Slice 5
+`../archive/DNIPRO_3D_ENRICHMENT_RESEARCH_PROMPT.md` (the brief) · `../rendering/RENDERING_QUALITY_PASS.md` (path corrected 2026-09-06; Pass 1/2/3 — Slice 5
 feeds Pass 3) · `mem:project/wip-2026-07-13-dnipro-enrichment-research` · `mem:patterns/globe-rendering` +
 `mem:patterns/sky-bodies-terrain` (current buildings/terrain pipeline the bake extends) ·
 `mem:project/wip-2026-07-12-rendering-pass2-dnipro-identity` (R4 reframed here).

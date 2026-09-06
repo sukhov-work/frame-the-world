@@ -43,9 +43,24 @@ texture on the plane; live re-projection **0.018 ms/update** (budget 16 ms); red
   `gpsAltitudeM` when present. GPS altitude is sea-level-ish → a 96 m EXIF value floats the frustum
   above the streets (fixture does this). Missing altitude → FRUSTUM.eyeHeightM (1.7 m). Proper
   terrain-snap arrives with real terrain (QuantizedMeshPlugin, later phase) — D4 says snap.
+
+> **SUPERSEDED (2026-09-06):** terrain-snap shipped with real terrain on 2026-07-10 — the frustum
+> no longer rides the ellipsoid. `PhotoFrustum` takes `terrainHeightAt` and exposes `resnap()`
+> (`src/components/globe/PhotoFrustum.ts:26,38,120,201`), which the orchestrator calls as tiles
+> refine. EXIF-provenance altitude is read as ABSOLUTE ellipsoidal height clamped to ≥ terrain +
+> eye height; MANUAL/MISSING altitude stays metres above the rendered ground. Coarse tiles return
+> negative garbage, so every height goes through `clampGroundM` (`src/lib/geo/terrain.ts:15`) —
+> see `mem:bugs/pin-arrival-reframe` for the bug that forced it and
+> `mem:patterns/sky-bodies-terrain` §Photo-frustum altitude semantics.
 - Heading/pitch default to 0 when missing (the D4 nudge fills them via sliders).
-- All presentational numbers live in `tuning.ts` `FRUSTUM` (planeDist 120 m, eyeHeight 1.7,
-  lineOpacity .85, fallbackAspect 1.5) + `FLIGHT` (2200 ms, easing, back 2.8, lift 1.1, arc bump).
+- All presentational numbers live in `tuning.ts` `FRUSTUM` (`planeDistM` 120 m, `eyeHeightM` 1.7,
+  `lineOpacity` .85, `fallbackAspect` 1.5, `planeOpacity` .7) + `FLIGHT` (`durationMs` 2200,
+  `easing` [.65,0,.35,1], `arcBumpFactor` .35 / `arcBumpMaxM` 2.5e6).
+> **SUPERSEDED (2026-09-06):** the arrival pose is no longer "back 2.8 / lift 1.1". FLIGHT now
+> carries `arrivalAltAboveGroundM 200`, `arrivalTiltDeg 80`, a `floorClearM 250` / `floorRampFrac
+> .2` floor, a path-tangent orientation blend (`orientInFrac .3` / `orientOutFrac .25` /
+> `lookAheadE .03` / `pathFollowLoM 100_000` / `pathFollowHiM 600_000`) and the six `reframe*`
+> knobs added by `mem:bugs/pin-arrival-reframe` (`src/components/globe/tuning.ts`, FLIGHT section).
 - DEV introspection: `__globe.frustum.current()` (geometry) + `__globe.flight.active()`.
 - UNVERIFIED: portrait-aspect photos (math handles it; not eyeballed); flights between antipodal
   points (slerp is fine, bump maxes); frustum at extreme pitch −90 near ground.

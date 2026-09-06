@@ -320,7 +320,7 @@ vs ship-uncompressed → a ~1-hour call during the build.
 
 **`scripts/bake/bake-osm2world.mjs` is live** (`node scripts/bake/bake-osm2world.mjs --city dnipro-o2w`),
 and the variant streams from R2 at `enriched/dnipro-o2w/`. **The default pipeline is untouched** —
-`bake.mjs`, `cities/dnipro.json`, `public/enriched/dnipro` and the default runtime path are byte-identical;
+`bake.mjs`, `cities/dnipro.json`, `bakes/enriched/dnipro` *(was `public/enriched/dnipro` until the 2026-08-13 move out of `public/`; path corrected 2026-09-06)* and the default runtime path are byte-identical;
 the variant has its own config (`cities/dnipro-o2w.json`, `extends: dnipro`) and is reached only through
 the **`?enriched=` A/B seam** (`src/lib/globe/enrichedVariant.ts`, one call at `StylizedTiles.ts`):
 

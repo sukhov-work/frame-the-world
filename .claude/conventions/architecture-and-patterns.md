@@ -99,6 +99,9 @@ Endpoints live in `src/pages/api/`, **not** a `backend/` folder. WASM ships as h
   (shipped 2026-08-21b, `Joystick.tsx` → `Joystick` + `AimJoystick`) exists so an input instrument's
   FEEL cannot fork between the shells; both `MiniMap` and `MobileShell` mount the same component.
   Shared logic therefore lives in **three** places, not two: `lib/**` + `store/**` + `controls/**`.
+  *(Corrected 2026-09-06: the fence has FOUR rules since audit-3 fix slice F-mobile, 2026-08-22e — rule (4) `components/mobile/**`
+  never calls `.focus()` or sets `autoFocus` on an input, so /m never traps itself in the iOS keyboard scroll;
+  `mobileFence.test.ts:117`. "Three rules" above is the 2026-08-22 wording.)*
 
 ## Store pattern — seam + mirror (the globe ⇆ React contract)
 The globe orchestrator (`StylizedTiles.ts`, not React) drives the scene each frame, while the panels are

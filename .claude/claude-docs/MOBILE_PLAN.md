@@ -84,6 +84,10 @@ wheel/keyboard) — its **store calls** get mobile buttons; the panel itself sta
 - Orbit mode **already touch-capable**: `GlobeControls` sets `touchAction:'none'`, tracks multi-pointer
   pinch, branches on `pointerType==='touch'` [CODE node_modules/3d-tiles-renderer/.../EnvironmentControls.js:353-357,564,625].
   UNVERIFIED on a real device until M0.
+  *(Resolved 2026-09-06: M0 landed 2026-08-13 and the owner then ran the app on his own iPhone 17
+  Pro and Pixel 6 Pro — UX batch #4 (2026-08-21) is literally his post-real-device list, and its
+  first slice was touch correctness. Two phones were re-measured under instrumentation on
+  2026-09-06; see `rendering/MEASUREMENTS_2026-09-05.md` §11.)*
 - FPV look-drag works on touch (pointer events, `isPrimary`) [CODE StylizedTiles.ts:795-828]. FPV
   **walk is arrow-keys-only** and **FOV zoom is wheel-only** [CODE :829-869] — no touch path exists
   (grepped: zero `TouchEvent`/`pointerType` handling in `src/`). This is the engine gap §4 closes.

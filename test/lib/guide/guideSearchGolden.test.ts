@@ -63,6 +63,9 @@ const GOLDEN: GoldenRow[] = [
   { q: "android", want: ["mobile", "start-shells"], mode: "top3", by: "G-E alias" },
   { q: "tablet", want: ["mobile", "start-shells"], mode: "top3", by: "G-E alias" },
   { q: "36h", want: "plan-frame", mode: "top3", by: "G-E #8 + alias" },
+  // MESH SUITE copy (2026-09-06g): the two questions a stuck editor types.
+  { q: "snap", want: "edit-handles", mode: "top3", by: "SHIPPED" },
+  { q: "rigged", want: "model-limits", mode: "top3", by: "SHIPPED" },
   // Regression floors — these already pass and must keep passing through every G-E lever.
   { q: "meteor", want: "plan-meteors", by: "SHIPPED" },
   { q: "save view name", want: "save-place", by: "SHIPPED" },

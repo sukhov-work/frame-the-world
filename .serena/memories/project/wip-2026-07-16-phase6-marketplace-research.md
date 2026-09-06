@@ -1,4 +1,4 @@
-# mem:project/wip-2026-07-16-phase6-marketplace-research — Phase 6 marketplace-light (SHIPPED + VERIFIED)
+# mem:project/wip-2026-07-16-phase6-marketplace-research — Phase 6 marketplace-light (SHIPPED + VERIFIED) (compacted 2026-09-06 from 14,107 B; verbatim history: DECISIONS_ARCHIVE.md §Moved 2026-08-15)
 
 ## SHIPPED 2026-07-16 (browser/runtime-VERIFIED; gates vitest 587 · astro 0/0 · wix build Complete)
 Phase 6 marketplace-light is BUILT on Catalog V3 (owner chose V1 but the site is V3 — forced). Files:
@@ -42,114 +42,52 @@ null on the pin badge (createProduct doesn't echo it; store currency is EUR — 
   the working-tree outage-recovery release carried it) · **code still UNCOMMITTED on master** (HEAD = PR #20) → commit/PR first.
   Chunk-500 outage owner-confirmed RESOLVED for now — warm-prod-assets.mjs ritual stands ([[project/wip-2026-07-16-prod-asset-outage]]).
 
-# (research notes below — kept for provenance)
-# Phase 6 marketplace-light API facts (VERIFIED via live REST)
+# Research notes (provenance) — the Wix API facts that are NOT re-derivable from the code
 
-Research + GATE-ZERO empirical probes for Phase 6 (marketplace-light). Site token minted via
-`npx @wix/cli@latest token --site f597bcf5-bd38-4941-9dfe-e16d775743a3`. All curl probes below hit the
-LIVE Wix gateway with the app token and were confirmed. Full research: workflow `wf_878562eb-d93`.
+Probed against the LIVE Wix gateway with a site token (`npx @wix/cli@latest token --site <SITE_ID>`).
 
-## PIVOTAL: site is CATALOG V3, not V1 (supersedes the owner's "use catalog V1" ask — FORCED)
-- `POST /stores/v1/products/query` → **HTTP 428** `CATALOG_V3_CALLING_CATALOG_V1_API`
-  ("Endpoint belongs to CATALOG_V1, but your site is using CATALOG_V3"). V1 is IMPOSSIBLE on this site;
-  the installed Stores app (TPA appId 1380b703-ce81-ff05-f115-39571d94dfcd) provisioned V3.
-- V3 is strictly BETTER for us: V1's only digital-file-attach method `CatalogWriteApi.CreateDigitalProduct`
-  is `exposure=INTERNAL` (not on the public gateway) → a headless elevate() app could NOT create V1 digital
-  products. V3 CAN (proved below).
+## PIVOTAL: the site is CATALOG V3, not V1 — this SUPERSEDES the owner's "use catalog V1" ask
+`POST /stores/v1/products/query` → **HTTP 428 `CATALOG_V3_CALLING_CATALOG_V1_API`**. V1 is IMPOSSIBLE
+on this site. V3 is also strictly better here: V1's only digital-file-attach method
+(`CatalogWriteApi.CreateDigitalProduct`) is `exposure=INTERNAL`, so a headless `elevate()` app could
+not create V1 digital products at all. V3 can.
 
-## GATE-ZERO VERIFIED end-to-end (create digital product with secured media, app token)
-- `POST https://www.wixapis.com/stores/v3/products` with `{product:{}}` → **HTTP 400 VALIDATION**
-  (`name`, `productType`, `variantsInfo` required) ⇒ auth + permission `WIX_STORES.MODIFY_PRODUCTS` PASS,
-  create is REACHABLE + PERMITTED programmatically.
-- Full create SUCCEEDED (HTTP 200). Working body (camelCase JSON):
-  ```json
-  {"product":{"name":"...","productType":"DIGITAL",
-    "variantsInfo":{"variants":[{"price":{"actualPrice":{"amount":"5.00"}},
-      "digitalProperties":{"digitalFile":{"id":"<wixMediaFileId>"}}}]}}}
-  ```
-  Response: product.id (uuid), variantsInfo.variants[0].id (uuid variantId),
-  `digitalProperties.digitalFile = { id, fileName, fileSize, fileType:"SECURE_PICTURE" }` — Wix
-  auto-classifies the secure media type from the referenced Media file. `visible:true` by default.
-- Media: `POST /site-media/v1/files/generate-upload-url {mimeType,fileName,private:true}` → `{uploadUrl}`;
-  `PUT ${uploadUrl}?filename=..` (raw bytes) → `{file:{id,url,private:true,...}}`. The `file.id`
-  (e.g. `166a86_..~mv2.jpg`) is what goes in `digitalFile.id`. NOTE: our retained ORIGINAL is already a
-  private Wix Media file (`Photos.originalFileId`, uploaded `private:true` via TUS) → attach it directly,
-  no re-upload. Cleanup: `DELETE /stores/v3/products/{id}` + `POST /site-media/v1/bulk/files/delete
-  {fileIds:[..]}` (both HTTP 200).
-- Service (fire-console): `wix.stores.catalog.v3.CatalogApi/CreateProduct` on artifact
-  `com.wixpress.stores.catalog.stores-catalog-orchestrator`. Also CreateProductWithInventory,
-  BulkCreateProducts. Delete/Update siblings on same REST base `/stores/v3/products/{id}`.
+## Creating a digital product with secured media (app token, verified 200)
+```json
+{"product":{"name":"...","productType":"DIGITAL",
+  "variantsInfo":{"variants":[{"price":{"actualPrice":{"amount":"5.00"}},
+    "digitalProperties":{"digitalFile":{"id":"<wixMediaFileId>"}}}]}}}
+```
+Response carries `product.id`, `variantsInfo.variants[0].id` (the variantId), and a
+`digitalProperties.digitalFile` whose `fileType` Wix auto-classifies (e.g. `SECURE_PICTURE`).
+**The retained ORIGINAL is already a private Wix Media file** (`Photos.originalFileId`, uploaded
+`private:true` via TUS), so attach it directly — no re-upload. Cleanup is
+`DELETE /stores/v3/products/{id}` plus `POST /site-media/v1/bulk/files/delete`.
+**SDK vs REST field trap:** in `@wix/stores` the field is `digitalFile._id`, not `id`, and the
+returned ids are `created._id` / `created.variantsInfo.variants[0]._id`.
 
-## BUY FLOW (VERIFIED from installed @wix SDK source — client-side, buyer identity, NO elevate)
-- catalogReference for a Wix STORES product: `{ catalogItemId: <productId>, appId: "215238eb-22a5-4c36-9e7b-e7c08025e04e" }`
-  — the FIXED Wix-Stores catalog appId (NOT the TPA appId 1380b703). Source:
-  `node_modules/@wix/auto_sdk_ecom_checkout/build/cjs/index.typings.d.ts:435` (fixed-values doc).
-  V3 options shape (variantId?) = confirm at build time via the V3 e-commerce-integration doc; single
-  non-variant digital product likely needs no options.
-- `checkout.createCheckout({ lineItems:[{ quantity:1, catalogReference }], channelType: ChannelType.WEB })`
-  → checkout with `_id`. Then `redirects.createRedirectSession({ ecomCheckout:{ checkoutId }, callbacks:{ postFlowUrl } })`
-  → `redirectSession.fullUrl` → `window.location.href = fullUrl`. EXACT pattern in
-  `node_modules/@wix/headless-ecom/dist/services/checkout-service.js:11-33`. Packages installed:
-  `@wix/auto_sdk_ecom_checkout`, `@wix/redirects`. Umbrella `@wix/ecom` re-exports `checkout`/`currentCart`.
+## BUY flow (client-side, buyer identity, NO elevate)
+`catalogReference` for a Wix Stores product is
+`{ catalogItemId: <productId>, appId: "215238eb-22a5-4c36-9e7b-e7c08025e04e", options: { variantId } }`
+— that appId is the FIXED Wix-Stores catalog appId, **not** the TPA appId `1380b703-…`. Then
+`checkout.createCheckout({ lineItems, channelType: "WEB" })` →
+`redirects.createRedirectSession({ ecomCheckout: { checkoutId }, callbacks: { postFlowUrl } })` →
+`window.location.href = redirectSession.fullUrl`.
 
-## ORDERS visibility (elevate() — app identity, ECOM.READ_ORDERS)
-- `@wix/auto_sdk_ecom_orders` `searchOrders`/`getOrder` (NOT installed yet — add it). Owner sales:
-  filter `paymentStatus:'PAID'` (+ `lineItems.catalogReference.appId:'215238eb-..'`). Buyer purchases:
-  filter `buyerInfo.memberId` (pin to getCurrentMember()._id server-side, never client-supplied).
-- Order.paymentStatus enum: UNSPECIFIED/NOT_PAID/PAID/PARTIALLY_REFUNDED/FULLY_REFUNDED/PENDING/... ;
-  Order.status: INITIALIZED/APPROVED/CANCELED/PENDING/REJECTED. BuyerInfo: contactId/email/oneof{visitorId|memberId}.
+## ORDERS visibility (elevate, ECOM.READ_ORDERS)
+`orders.searchOrders({ filter, cursorPaging?, sort? })` and `getOrder(_id)` — **`queryOrders` is NOT
+exported.** Owner sales filter on `paymentStatus:'PAID'` plus the catalog appId; buyer purchases
+filter on `buyerInfo.memberId`, which must be pinned to `getCurrentMember()._id` server-side and
+never taken from the client.
 
-## DELIVERY automation + manual payments (VERIFIED from ecom monorepo + Wix Help Center)
-- On `paymentStatus → PAID` for a DIGITAL line item, the eCom order-notifications service auto-generates the
-  30-day Media-Manager download link and emails the buyer. Make-or-break product-side requirement =
-  the order line item is digital ⇐ product created DIGITAL + SecuredMedia attached (proved above).
-- MANUAL/offline payment lifecycle: completed checkout → order status APPROVED, paymentStatus NOT_PAID;
-  owner marks PAID in the Wix DASHBOARD (no code; MarkOrderAsPaid RPC is exposure=PRIVATE) → a SECOND
-  "payment received" email carries the download link. 30-day link, NOT shortenable (resend from dashboard).
-- Buyer email required (guest or member both deliver to email). Delivery is server-side; no headless
-  Thank-You page needed for the email. B4 to test once E2E: confirm THIS site's manual method tags the txn
-  offline so the paid-path delivery fires.
+## DELIVERY automation + manual payments
+On `paymentStatus → PAID` for a DIGITAL line item, the eCom order-notifications service generates the
+30-day Media-Manager download link and emails the buyer. The product-side requirement is exactly that
+the line item is digital, which the DIGITAL product + attached secure media above satisfies. With a
+MANUAL/offline payment method the lifecycle is: completed checkout → order APPROVED with
+`paymentStatus NOT_PAID`; the owner marks PAID in the Wix DASHBOARD (no code path — `MarkOrderAsPaid`
+is `exposure=PRIVATE`), which sends a SECOND "payment received" email carrying the link. **The link
+is 30 days and not shortenable**; resend from the dashboard.
 
-## Codebase seams (from research lane, this repo)
-- Photos schema (`scripts/provision-collections.mjs:32-65`): ALL perms ADMIN; has originalFileId(TEXT),
-  previewFileId(TEXT), ownerMemberId(TEXT req), title, isPublic(BOOL), publicPinId. NO product/price field
-  → ADD (idempotent per-field add, provision-collections.mjs:142-176).
-- `/api/photos` is the sole Photos writer (GET/POST/PATCH/DELETE). Copy patterns: `requireMember()`
-  (`src/lib/api/http.ts:25-35`), `ownedPhoto(photoId, memberId)` = `auth.elevate(items.get)('Photos', id)`
-  + ownerMemberId check (`src/pages/api/photos.ts:27-31`), `auth.elevate(items.insert/query/update)(...)`,
-  `import { auth } from "@wix/essentials"`.
-- UI: OWNER "LIST FOR SALE" → PhotoDetailPanel own-pin action row (`PhotoDetailPanel.tsx:328,408-437`,
-  gated by store.ownPhotoId). BUYER "BUY" → foreign-pin empty seam (viewingPinId set, ownPhotoId unset,
-  `PhotoDetailPanel.tsx:328`). Thread productId+price onto PublicPin→SavedPinView (`src/store/upload.ts:33-45`,
-  `src/store/pins.ts`). MyPins per-row sell control optional (`MyPins.tsx:209-244`).
-
-## SDK signatures for the endpoints (installed `@wix/stores@1.0.830` + `@wix/ecom@1.0.2266` + `@wix/redirects@1.0.119`)
-- `import { productsV3 } from "@wix/stores"` → `createProduct(product, options?): Promise<V3Product>` ·
-  `deleteProduct(productId)`. CRITICAL: the SDK field is `digitalFile._id` (NOT `id`) and price is
-  `price.actualPrice.amount` (string). Working product input:
-  `{ name, productType:"DIGITAL", variantsInfo:{ variants:[{ price:{ actualPrice:{ amount:String(p) } },
-   digitalProperties:{ digitalFile:{ _id: originalFileId } } }] } }`. Return: `created._id` = productId,
-  `created.variantsInfo.variants[0]._id` = variantId. (declaration confirms required paths incl.
-  `variantsInfo.variants.${n}.digitalProperties.digitalFile._id`.)
-- `import { checkout } from "@wix/ecom"` → `createCheckout({ lineItems:[{ quantity:1, catalogReference }],
-   channelType:"WEB" }): Promise<Checkout(_id)>` · `import { redirects } from "@wix/redirects"` →
-   `createRedirectSession({ ecomCheckout:{ checkoutId }, callbacks:{ postFlowUrl } })` → `redirectSession.fullUrl`.
-- `import { orders } from "@wix/ecom"` → `searchOrders(search: { filter?: Record<string,any>, cursorPaging?, sort? })
-   : Promise<{ orders: Order[], metadata }>` (elevate). `getOrder(_id)`. NOTE: `queryOrders` is NOT exported.
-
-## Phase 6 DESIGN (owner decisions: Catalog V3 · self-serve on PUBLIC pins, owner-unlist)
-- Photos +fields: productId(TEXT), productVariantId(TEXT), priceAmount(NUMBER), currency(TEXT).
-  PublicPins +fields: productId(TEXT), priceAmount(NUMBER), currency(TEXT). (idempotent provision add.)
-- Listing fields are managed ONLY by /api/listings — NOT by photoRecord() (so a PATCH's `{...existing,...photoRecord()}`
-  preserves them). publicPinRecord() gains an optional `listing` arg so a PATCH rebuild carries them onto the public row.
-- POST /api/listings {photoId,priceAmount} (elevate): requireMember → ownedPhoto → guard originalFileId + isPublic →
-  productsV3.createProduct(digital, file=originalFileId) → write productId/variantId/priceAmount/currency to Photos +
-  PublicPins(publicPinId). DELETE /api/listings?photoId= : deleteProduct(best-effort) + clear both. GET /api/listings:
-  owner's listed photos + soldCount via searchOrders(paymentStatus PAID + catalogItemId $hasSome).
-- DELETE /api/photos also deletes the product if listed; PATCH→private also unlists.
-- BUY (client, store/market.ts, buyer identity, NO elevate): checkout.createCheckout + redirects.createRedirectSession →
-  window.location = fullUrl. catalogReference = { appId: STORES_APP_ID "215238eb-…", catalogItemId: productId,
-  options?: { variantId } }. UNVERIFIED: whether V3 needs options.variantId — store variantId, test in browser.
-- UI: PhotoDetailPanel own-pin row = LIST/UNLIST + price input; foreign-pin seam = BUY + price. MyPins row = price badge.
-
-Related: `mem:patterns/members-pins` · `mem:project/wix-platform` · DECISIONS 2026-07-16 line · IMPLEMENTATION_PLAN §Phase 6.
+Related: `mem:patterns/members-pins` · `mem:project/wix-platform` · DECISIONS 2026-07-16 ·
+IMPLEMENTATION_PLAN §Phase 6.

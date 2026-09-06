@@ -1,5 +1,9 @@
 # iPhone 17 Pro baseline — the 30–45 minute checklist (T77 step 1b)
 
+> **DONE 2026-09-06** — §A (Mac prep) and §B (the five poses) ran on both devices; the results are
+> `MEASUREMENTS_2026-09-05.md` §11. Still open: the iOS kill ramp and soak (backlog T83, §B0), the §C
+> gates they feed, and the §E owner-hands unknowns. The operational harness doc is `tools/devicefarm/README.md`.
+
 Owner rulings 2026-09-05: the phone is not the owner's; a short window with it may come later; a
 cloud device farm is approved (paying is fine) for the stages that need a real phone before then.
 This checklist is written so ONE short session with a real device produces the two numbers nothing

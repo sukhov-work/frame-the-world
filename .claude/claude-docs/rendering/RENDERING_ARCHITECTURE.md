@@ -297,7 +297,7 @@ own field go stale and then report a pass.
 | Seam | What it publishes |
 |---|---|
 | `__globe.u2()` | eye-jump ring, seat state, per-renderer LRU (`min`/`max`/`cached`/`items`/`bankMsLeft`) |
-| `__globe.debugSeats()` | seat sweep counters including gate rejections |
+| `__globe.enrichedSeats()` | seat sweep counters including gate rejections *(name corrected 2026-09-06: this doc said `__globe.debugSeats()`, which never existed on `window.__globe`; the seam is `enrichedSeats` → `enriched.debugSeats()`, `StylizedTiles.ts:3390`; a 39k-feature walk, not for per-frame probes — `contracts.md` §3)* |
 | `__globe.ultraLook()` | eased ULTRA values, the shadow rig's own numbers, and the live composite probe (anisotropy, mip levels, real and level-0 bytes) |
 | `__globe.fpv()` | FPV active/kind/pose — a **function**, not a field on `u2()` |
 | `__globe.bodies()` | publishes `sunDir`, **not** `sunAltDeg` |
@@ -364,6 +364,6 @@ Traps these harnesses have paid for, in the order they will bite again:
 - Design imports write only under `src/components/panels|ui|controls/**` and `src/styles/**` —
   never `src/components/globe/**` or `src/lib/**`.
 - Anything touching `heightAt`, seats, or the FPV eye is a `[SEAT]` change and verifies against
-  `__globe.u2()` and `__globe.debugSeats()`.
+  `__globe.u2()` and `__globe.enrichedSeats()` *(corrected 2026-09-06 — was written `debugSeats()`)*.
 - ULTRA off-state exactness, byte-identical `high`, the ULTRA gate file list, and the brand fence
   are all machine-checked. A change that needs one of them relaxed needs an owner ruling first.

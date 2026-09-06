@@ -28,7 +28,7 @@ Key: **M** measured, **D** derived arithmetic, **E** estimate. HW: **OM** owner'
 |---|---|---|---|---|---|
 | Shadow-box coverage pre-cascade | 24 % / 8 % / 35 % (`viewFitM` 148,757/427,828/100,163 vs `boundsM` 18,000) | Fuji 5.2 km 84°, 15 km 68°, mountain 3.5 km | OM | ULTRA_ARCH §13.1 | M |
 | Shadow range (bias) | 63.2 km street / 85.3 km Everest; −2e-4 = −1.4 m at 7 km, −12.6…−19.2 m at ULTRA range | | OM | §8.2 | M/D |
-| Sunset snap fix | 103 samples +4.21°→−1.28°, max step 0.0270 (was 1.0) | city | OM | mem:charter-groupBC | M |
+| Sunset snap fix | 103 samples +4.21°→−1.28°, max step 0.0270 (was 1.0) | city | OM | mem:project/wip-2026-08-25-rendering-charter-groupBC | M |
 | Totality square fix | step 2.66/255 vs 32.05 control | Burgos | OM | | M |
 | Curvature residual (M5) | 0.568 m vs 14.20 m rms within-cell relief (4.0 %) at 3.5–4 km ring | Dnipro bake | | RC0/M5 | M |
 | Height memo (RC11) | 84.0 % hit, 18,457 entries; 47 % @10 s, 87 % @120 s; cap 20k→100k (~15 MB) | | OM | | M |

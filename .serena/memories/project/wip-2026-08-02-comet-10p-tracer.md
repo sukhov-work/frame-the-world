@@ -57,7 +57,7 @@ start/end/peak/az/mag + moon alt & illum at the peak. `score = altScore(peak/30�
 Sun evaluated every step, comet only while dark ⇒ an 8-day/15-min scan is ~10–20 ms (panel memoizes
 on open + hour + anchor rounded to 0.05°).
 
-## Render — `src/components/globe/scene/comet.ts` (+ `COMET` tuning group)
+## Render — `src/components/globe/scene/skyTrail.ts` + `skyTarget.ts` (+ `COMET` tuning group; orbital math in `src/lib/ephemeris/comet.ts`) *(path corrected 2026-09-06 — no `scene/comet.ts` was ever committed)*
 ONE additive billboard = coma + tail + reticle, camera-anchored at `camera.far × 0.5` clamped into
 `[near·1.2, far·0.95]` (the load-bearing sun/moon lesson), rolled in-plane so **local +X = the
 anti-sunward direction projected on the view plane** (a real comet's tail always points away from

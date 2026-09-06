@@ -11,6 +11,16 @@ an endpoint = wrong (move to client).
 `GlobeControls`. Stylize: `load-model` event → traverse tile scene → swap materials; `dispose-model` cleanup.
 **Not** `BatchedTilesPlugin` (incompatible w/ per-mesh override). Precision: re-center tiles group near origin.
 
+> **SUPERSEDED (2026-09-06):** three `TilesRenderer` instances stream in parallel, not one — ground
+> (Cesium World Terrain + a self-baked GLO-30 patch, draped with Esri imagery; `scene/imageryGround.ts`),
+> buildings (Cesium OSM Buildings, ion 96188, masked off inside a baked region; `scene/buildings.ts`)
+> and enriched (our own baked city tiles; `scene/enrichedBuildings.ts`). The ground renderer is the
+> single vertical authority — it is what `heightAt` raycasts. The controls are now the subclass
+> `PluxGlobeControls` (`src/components/globe/scene/pluxGlobeControls.ts`), which wraps the library's
+> two per-frame down-rays in the below-camera gate (`src/lib/globe/belowCameraGate.ts`, T79 /
+> T77 slice 0, 2026-09-06) at an unchanged clearance outcome. As-built doc:
+> `.claude/claude-docs/rendering/RENDERING_ARCHITECTURE.md` §1.1.
+
 ## Decode (D3)
 main thread: `exifr` embedded-JPEG preview (<100ms). Worker: `libraw-wasm` demosaic (OffscreenCanvas, transfer
 ArrayBuffer). HEIC: Safari-native `createImageBitmap` try/catch → `libheif-js` fallback. Free buffers immediately
@@ -33,6 +43,15 @@ listing state rides Photos/PublicPins product fields (audit-1 correction). Query
 geohash-prefix `hasSome` + client refine (no geo operator). Endpoints as-built: **8 routes** —
 `/api/{photos, places, listings, market, upload-url, sbdb, ping, dev-seed}` (contracts.md §7;
 `/api/analyze`+`/api/moderate` were Phase-7 plans — Phase 7 is OUT per owner ruling 2026-08-11).
+
+> **SUPERSEDED (2026-09-06):** MESH SUITE (2026-09-01 → 09-05) added two collections and three
+> routes. Collections are now **5** (`scripts/provision-collections.mjs:31-236`): `Photos` (30
+> fields) · `PublicPins` (26) · **`BuildingOverrides`** (17 — world-shared building edits, LWW via
+> `items.bulkSave`, keyed `variant|cell|featureId`, the OSM element id is the `_id` when present) ·
+> **`UserModels`** (29 — member-uploaded GLB placements) · `SavedPlaces` (9). Endpoints are now
+> **11** (`src/pages/api/`): the eight above plus `building-overrides.ts`, `models.ts` and
+> `world-models.ts`. `BuildingOverrides`/`UserModels` are ADMIN-everything like the rest; all access
+> runs through the elevated routes. Plan: `.claude/claude-docs/MESH_SUITE_PLAN.md`.
 
 ## Design/GL bridge (D14)
 `src/styles/tokens.css` (source of truth) → `src/lib/theme/tokens.ts` (GL bridge): accent→pin emissive/frustum,

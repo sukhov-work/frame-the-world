@@ -1,5 +1,26 @@
 # mem:patterns/members-pins — Phase 5 mechanics: auth, collections, save flow, quota, globe pins (2026-07-10, wix-cloud-VERIFIED)
 
+> **SUPERSEDED (2026-09-06)** — the auth, quota, precision and pin mechanics below all still hold.
+> Three facts drifted:
+> - **§Collections field counts** — `Photos` has **30** fields and `PublicPins` **26**, not 26 and
+>   10 (`scripts/provision-collections.mjs:31-236`). PublicPins grew the camera-POSE fields and
+>   `authorName`; every one still derives from reduced coords, so C6 is unchanged.
+> - **§Collections membership** — there are **5** collections now. MESH SUITE (2026-09-01 → 09-05)
+>   added `BuildingOverrides` (17 fields — world-shared building edits, LWW via `items.bulkSave`,
+>   keyed `variant|cell|featureId`; `cx/cz` are bake-local checksum metres, never geographic, so
+>   C6 holds) and `UserModels` (29 — member-uploaded GLB placements; the stored lat/lon is the
+>   member's chosen placement of a world-visible object, not a capture GPS). Both are
+>   ADMIN-everything and reached only through the elevated `/api/building-overrides`, `/api/models`
+>   and `/api/world-models`. Plan: `.claude/claude-docs/MESH_SUITE_PLAN.md`.
+> - **§Globe pins tunables** — the names are `PINS.maxRender 1000`, `PINS.queryGlobalAltM 120_000`,
+>   `PINS.queryFineAltM 3_000`, `PINS.fallbackGroundM 120`, `PINS.angularSize 0.008`
+>   (`src/components/globe/tuning.ts`, PINS section). Pins now also carry per-pin hue tokens
+>   (`PINS.hueTokens`), which post-date this memo.
+>
+> UNVERIFIED as of 2026-09-06: the paid path below is still untested — `memberListOrders` failing
+> is still caught and treated as free tier (`src/pages/api/photos.ts:48-52`).
+
+
 How members + save-pin + quota + public pins work, with every trap hit while building. Files:
 `store/{member,save,pins}.ts` · `lib/geo/precision.ts` · `lib/wix/pinRecords.ts` · `lib/save/{pinBody,uploadMedia}.ts` ·
 `pages/api/{upload-url,photos,ping}.ts` · `globe/Pins.ts` · `panels/MemberBadge.tsx` · PhotoDetailPanel `.pd-save` ·

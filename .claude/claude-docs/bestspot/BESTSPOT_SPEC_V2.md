@@ -1,4 +1,12 @@
 # BEST SPOT — CONSOLIDATED IMPLEMENTATION SPEC
+> **Read `README.md` first (banner added 2026-09-06).** This spec is the 2026-08-23/24 design plus its 2026-08-24d
+> reconcile. The sessions after it (2026-08-26e → j, and the PARK on 2026-08-27 — verbatim in `DECISIONS_ARCHIVE.md`
+> §Moved 2026-09-06, digest "BEST SPOT" in `DECISIONS.md`) changed four things this text still states the old way:
+> marker colour encodes the score, not identity (2026-08-26e; line ~855) · the `trackWeight.*` rows are `rescore`, not
+> `reweigh` (2026-08-26g; lines ~578/587) · `verify-bestspot` reads 96/101 BY DESIGN (T61), not 100 PASS / 0 FAIL
+> (line ~1134) · the tree rule and the leaf counts (lines ~158, ~629, ~668) were re-measured — `README.md` §1/§7/§8
+> carries the current numbers. BEST SPOT is PARKED (owner 2026-08-27; ruled sufficient as implemented 2026-09-01).
+
 **Consolidated 2026-08-24 from four investigation agents (A latency/partial-data/kinds · B framing kernel · C tuning architecture · D visual).**
 Supersedes `BESTSPOT_PLAN.md` §3.4 (framing), §5 (residency tiers, budget), §6 (render) and §10 (S3–S7) where they conflict. The AS-BUILT appendix stands; this document closes its open items 1 and 3.
 

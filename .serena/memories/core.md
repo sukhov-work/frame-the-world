@@ -1,1046 +1,162 @@
-# mem:core — Frame the World graph root
+# mem:core — PLUX graph root
 
 ## What this is
-Wix-managed **headless** (Astro 5) web app: upload a camera RAW/JPEG → extract EXIF → project it as an
-oriented **camera frustum + image plane** at its real capture location on a **stylized 3D globe with real
-OSM buildings**; real-time EXIF what-if re-projection; ephemeris (sun/moon/stars) drives the scene; members
-save/publish pins; light RAW marketplace; premium AI shot-analysis. **Client-heavy** (WASM decode + three.js
-render + projection math all in-browser); Wix is a thin backend (auth/Data/Media/Pricing Plans/eCommerce/AI).
-Owner: Yevhen. Hackathon build. Language: TypeScript + Astro. No SSH/prod box — "prod" is Wix cloud via `wix release`.
-**THE PRODUCT IS PLUX** (owner 2026-08-19; supersedes working title SIDERA 2026-08-14),
-planning-first; domain `plux.today` (www = primary). **Say PLUX in prose, docs and commit messages.**
-"Frame the World" / "FTW" is the REPO NAME ONLY (`headless-frame-the-world` + the git remote) and is
-not a synonym for the product. Internal identifiers deliberately keep it and must NOT be renamed:
-the six `ftw:*` localStorage keys are PERSISTED USER STATE (renaming wipes every browser), the ~20
-`uFtw*`/`vFtw*`/`FTW_*` shader identifiers fail SILENTLY if a rename is missed, and the `Ftw` Lean
-namespace is internal. Owner re-affirmed 2026-08-25 after a real leak shipped —
-`PRODID:-//Frame the World//…` and `UID:ftw-…@frame-the-world` were inside every exported .ics
-file. Both halves are now machine-checked by `test/brandFence.test.ts`.
+Serena memory-graph root for **PLUX** (`plux.today`), a Wix headless Astro 5 app that projects a
+photo, from its EXIF, as a camera frustum + image plane at its capture location on a stylized 3D
+globe with real OSM buildings under a real ephemeris sky. Client-heavy; Wix is the thin backend.
+Owner: Yevhen. Repo `headless-frame-the-world` — that name, and "FTW", are the repo only, never the
+product; never rename the `ftw:*` keys or the `uFtw*`/`vFtw*`/`FTW_*` shader ids
+(`test/brandFence.test.ts`).
+**Search order, first hit wins:** this graph → `.claude/claude-docs/` → `.claude/conventions/` →
+the code (Serena → Grep → Read) → Wix MCP for platform APIs.
+**One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
+§Per-phase digests; this root only indexes and states the current status.
 
-## Status (compacted 2026-08-15 — era index + pointers; the old narrative Status lives in DECISIONS.md digests + DECISIONS_ARCHIVE.md)
+## Status — 2026-09-06g
+- **T77, the rendering-performance audit, is PARKED after slice 0** (T79, the below-camera raycast
+  gate, is built and CLOSED). T77 resumes at **T80** — owner ruling pending: may a cheaper bloom
+  change pixels at `high`? — then slice A shadows, then slice B seats.
+- **MESH SUITE CLOSED 2026-09-05b** — MS0–MS8 shipped (gizmos, world-synced building overrides, user
+  models); `MESH_SUITE_PLAN.md` §4a, the no-regression contract, stays binding.
+- **BEST SPOT PARKED 2026-08-27** (owner 2026-09-01: sufficient as implemented) · **Phase 7, AI shot
+  analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
+- **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
+  allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
+- Gates 2026-09-06g: vitest **2,463/2,463** (164 files) · `astro check` **0/0/9** · knip **0**.
+- DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
+  §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T90).
 
-### Current state (re-dated 2026-08-18 at compaction r3 per policy; narrative below written 2026-08-15 post guide-G1 — the 08-17→18 delta [P7 + U1–U5 + audit-2 + fix slices] lives in the Era index HOT rows + Next step)
-- **Phases 1–6.9 SHIPPED + RELEASED**: scaffold + LEO signature globe · WASM decode
-  (libraw-wasm@1.0.5 worker) · frustum projection + click-to-place · ephemeris-driven scene
-  (sun/moon/stars/terminator/shadows/golden) · members + C6 reduced-precision pins · Phase 5.5
-  S1–S7 UX (flight/FPV, pin lifecycle+visuals, Explore/Welcome, night physics, street names,
-  vector features) · Dnipro/St Albans enriched bakes on R2 · marketplace-light (Catalog V3
-  digital products, quota 100/1000, EUR). Populated globe LIVE since 2026-07-17.
-- **Astro engine A–E COMPLETE**: search/track ANY body (1,947-entry fuzzy index — stars,
-  constellations, comets, asteroids, full OpenNGC), universal-variable kepler + SIMBAD/SBDB
-  long-tail, target trail/markers/windows, planet phase discs.
-- **Planning core (Phase 8 ladder)**: 8a twilight/GC/MW shipped · QoL-1..4 (scrubber v2 +
-  trace, frameFinder cards, GHOSTS chain, NPF/moon-calendar/size-dist tools) · **FIND v2/v3**
-  (dedicated FindPanel frame-as-query per-day scan + in-frame ghost projections + standings) ·
-  **§3.5 SUNSETS-IN-FRAME** (sunEventFrame lib; refracted-labels/airless-geometry PINNED) —
-  all desktop-first with /m twins.
-- **Mobile M0–M3 COMPLETE**: `/m` planning shell (sheets/tab bar/dock conveyor), FPV touch
-  (joystick walk, pinch-FOV, wake lock, minimap), PlanSheet twins, TARGET GHOSTS + long-press
-  sky menu; mobile-default entry (`/?d=1` escape). Mobile = planning-only PERMANENTLY.
-- **Owner UX batches 2026-08-15b/c (×5 + ×9)**: PLAN/FIND one shared resizable window · grown
-  sky context menu (TRACKING/MARK/TRAIL/FIND-IN-FRAME + camera-aiming rise/set + moon %) ·
-  TRACKING camera lock (`stepSkyTrack`) · /m FIND 4th tab w/ STICKY standings (Pixel fix) ·
-  /m login + MY PLACES + SAVE VIEW + SAVED PLACES (place quota dropped) · collapsible mini-map.
-- **THE GUIDE G1 + G2-content SHIPPED 2026-08-15 both shells (this session)**: ONE content
-  module `lib/guide/guideContent.ts` (11 chapters · ~40 topics · goals router · `[[id|label]]`
-  crosslinks) → desktop `panels/Guide.tsx` + /m `GuideSheet.tsx`; **FAQ ABSORBED** (Faq island
-  deleted); 12 fresh screenshots `public/guide/*.webp` (warm-list-coupled); slop-lint +
-  crosslink/image tests. Same session: DECISIONS round-2 compaction (verbatim 07-11→08-01 →
-  DECISIONS_ARCHIVE + era digests), README/ARCHITECTURE refreshed, `mem:core` compacted.
-- **Gates: vitest 886/886 · astro check 0 err/5 hints · prod LIVE.** Both shells CDP-verified.
-- Standing rulings: Phase 7 (AI) OUT of all plans · desktop frozen additive-only ·
-  desktop-first per feature · airless geometry with TRUE almanac label times · backlog =
-  `.claude/skills/frame/references/tracked-backlog.md` (T1–T27).
-- Open tails: owner taste pass (guide chapters/copy + UX-batch knobs) · real-device
-  iPhone/Pixel pass · release canaries T2/T3 ride the next `wix release`.
-- Freshest detail always: `NEXT_SESSION_PROMPT.md` + DECISIONS §Recent sessions (top entry
-  2026-08-15d-guide-g1).
-- Live site: `frame-the-a173087b-yevhens.wix-site-host.com` (siteId
-  `f597bcf5-bd38-4941-9dfe-e16d775743a3`, appId `566ce8ce-d18c-4950-88ac-5d2c53311cd6`;
-  `mem:project/wix-site`).
+## Next step — T77 resumes here (full brief: `NEXT_SESSION_PROMPT.md`)
+1. **T80 bloom — measure first, whatever the ruling.** Time a half-resolution / fewer-mip / cheaper
+   `UnrealBloomPass` against the `bloomOff` cells (`verify-perf-baseline --post-ab`), and pixel-diff
+   the glow at three poses. Gate: FPV `gpu` ≤ 15 ms at `high`, bloom ON (25.1 ms today). If pixel
+   changes at `high` are refused: ULTRA first, or park T80 and start slice A.
+2. **Slice A, shadows**, gated by `verify-temporal-stability.mjs 9222 --shimmer`: churn p50 at the
+   FPV eye 0.185 → ≤ 0.05 · control legs exactly 0 (ULTRA cascade included) · 4×/1× ≥ 3 · speckle ≤
+   0.3.
+3. **Slice B, seats** (`--reseat`): no 8.3 cm stall floor.
+**Constraints:** no regression of behaviour, accuracy, calculations, plans, predictions or sky
+features · `high` byte-identical · ULTRA off-state exact · `ENGINE_STATE_2026-09-02.md` §8 harness
+list per slice · DNIPRO slice first (owner 2026-09-02c) · the audit is read-only.
+**Instruments** in `scripts/`: `verify-perf-baseline.mjs`, `probe-below-camera.mjs`,
+`verify-temporal-stability.mjs`, `probe-cpu-profile.mjs`, `t77-model-ramp.mjs`; DEV seams
+`__debugFeed`, `__globe.seatSettle()`, `__globe.controls.belowCameraGate()`.
+**Owner calls open:** T80 · T85 (`baseEarth` `raycast = () => {}`) · the rooftop-clearance lever.
+**Phones:** `tools/devicefarm/README.md` + `MEASUREMENTS_2026-09-05.md` §11; first phone item is
+**T83**, the iPhone 17 Pro `#f=` FPV page dying 40–60 s after load.
 
-### Era index (DECISIONS.md §Per-phase digests for eras through 2026-08-15e after compaction r3 2026-08-18; verbatim logs in DECISIONS_ARCHIVE §Moved dividers; only the UPLIFT era 2026-08-17→ stays verbatim in DECISIONS §Recent sessions. Policy: every compaction round adds its era rows HERE and re-dates the Status block.)
-- **Phases 1–4 — scaffold · globe · decode · projection · ephemeris (2026-07-09→10)** —
-  digests "Bootstrap"→"Phase 4" (+ design-system import) ·
-  `mem:patterns/globe-rendering` · `mem:patterns/upload-flow` · `mem:patterns/photo-frustum` ·
-  `mem:patterns/sky-bodies-terrain` · `mem:patterns/design-system` ·
-  `mem:project/wip-2026-07-10-phase4-scrubber` · `wip-2026-07-10-prephase5-fixbatch` ·
-  `wip-2026-07-10-ui-fixes`.
-- **Phase 5 + 5.5 S1–S7 + pre-S7 refactor (2026-07-10→12)** — digests "Phase 5", "Phase 5.5
-  S1–S6", "Pre-S7 architecture review", "S7 tail + interlude" · `mem:patterns/members-pins` ·
-  `mem:project/wip-2026-07-10-phase5-members-pins` · `wip-2026-07-11-phase5.5-ux-batch` ·
-  `wip-2026-07-11-phase5.5-s2`…`s7` · `wip-2026-07-11-s7-feedback-batch` ·
-  `wip-2026-07-11-pre-s7-refactor{,-s2}` · `wip-2026-07-11-b19-split` ·
-  `wip-2026-07-12-readme-rewrite` · `mem:bugs/pin-arrival-reframe`.
-- **Rendering passes + Dnipro enrichment slices 0–3 + illumination (2026-07-12→14)** — digest
-  of the same title · `mem:project/wip-2026-07-12-rendering-quality-pass` ·
-  `wip-2026-07-12-rendering-pass1-tiling-fluidity` · `wip-2026-07-12-rendering-pass2-dnipro-identity` ·
-  `wip-2026-07-13-illumination-pass` · `wip-2026-07-13-terrain-reseat` ·
-  `wip-2026-07-13-dnipro-enrichment-research` · `wip-2026-07-13-dnipro-slice0-spike` ·
-  `wip-2026-07-13-dnipro-slice1-bake` · `wip-2026-07-13-dnipro-slice2` ·
-  `wip-2026-07-13-dnipro-slice3-trees` · `mem:bugs/gallery-thumbnail-stale`.
-- **OSM2World variant + R2 hosting + obstruction moat + owner seating/UI batches (2026-07-14)**
-  — digest of the same title · `mem:project/wip-2026-07-14-osm2world-adapter` ·
-  `wip-2026-07-14-osm2world-slice1.5-spike` · `wip-2026-07-14-r2-hosting-osm2world-prep` ·
-  `wip-2026-07-14-pass3-obstruction-moat` · `wip-2026-07-14-owner-batch-seating-ui` ·
-  `wip-2026-07-14-uiux-qol-batch`.
-- **Docs reorg → Phase 6 marketplace → 6.9 + release week + St Albans (2026-07-15→18)** —
-  digest of the same title · `mem:project/wip-2026-07-15-docs-reorg-phase6-prep` ·
-  `wip-2026-07-15-prephase6-uiux` · `wip-2026-07-16-phase6-marketplace-research` ·
-  `wip-2026-07-16-prod-asset-outage` · `wip-2026-07-17-phase69-marketplace-batch` ·
-  `wip-2026-07-17-demo-seed-curation` · `wip-2026-07-17-seed-orbital-faq-batch` ·
-  `wip-2026-07-18-st-albans-city2` · `mem:bugs/ground-checkerboard-flicker`.
-- **View-prefs persistence + default flips (2026-07-21)** — digest of the same title ·
-  `mem:project/wip-2026-07-21-viewprefs-uiux`.
-- **Astro engine A–E + comet 10P (2026-08-02→10)** — DECISIONS §Recent 2026-08-02→10 ·
-  `mem:project/wip-2026-08-02-comet-10p-tracer` · `wip-2026-08-03-astro-engine-phase-a` ·
-  `wip-2026-08-03-astro-engine-phase-c` · `wip-2026-08-10-astro-engine-phase-bde` ·
-  `mem:bugs/comet-magnitude-model`.
-- **Full audit #1 + fix slices 0–7 + Phase 8a + planning-core restructure (2026-08-13)** —
-  DECISIONS §Recent 2026-08-13 + report `.claude/claude-docs/audits/audit-full-2026-08-13.md` ·
-  `mem:project/wip-2026-08-13-full-audit-1` · `wip-2026-08-13-planning-core-restructure` ·
-  `wip-2026-08-13-slice7-phase8a` · `mem:bugs/fpv-walk-orbit`.
-- **Mobile M0–M3 (2026-08-11 design → 2026-08-14)** — DECISIONS §Recent + `MOBILE_PLAN.md` ·
-  `mem:project/wip-2026-08-11-mobile-design` · `wip-2026-08-13-m1-mobile-planning` ·
-  `wip-2026-08-13-m2-fpv-touch` · `wip-2026-08-14-mobile-m3ab` · `wip-2026-08-14-mobile-m3c`.
-- **Planning QoL 1–4 + FIND v2/v3 + §3.5 sunsets (2026-08-14→15)** — DECISIONS §Recent +
-  `PLANNING_QOL_PLAN.md` · `mem:project/wip-2026-08-14-qol-batch` ·
-  `wip-2026-08-14-qol1-tail-trace` · `wip-2026-08-14-qol2-batch` · `wip-2026-08-14-qol3-batch` ·
-  `wip-2026-08-14-qol4-batch` · `wip-2026-08-14-find-rework` ·
-  `wip-2026-08-14-find-accuracy-labels` · `wip-2026-08-14-night6-hover-floor` ·
-  `wip-2026-08-15-sunsets-in-frame` · `mem:project/owner-orders-2026-08-14-qol-batch`.
-- **Owner UX batches ×5 + ×9 (2026-08-15b/c)** — DECISIONS §Recent 2026-08-15b + 2026-08-15c ·
-  `mem:project/wip-2026-08-15-ux-batch` · `wip-2026-08-15-uxbatch2`.
-- **Guide track G1 + polish (2026-08-15d/e)** — DECISIONS digest + ARCHIVE §Moved 2026-08-18 ·
-  `archive/GUIDE_PLAN.md` · `mem:project/wip-2026-08-15-guide-g1`.
-- **P7 meteors + UPLIFT ladder U1–U5 (2026-08-17→18, era still HOT — verbatim in DECISIONS
-  §Recent)** — meteor showers (IMO cal2026) + UPLIFT_PLAN authored · U1 2D-first /m · U2 FPV
-  stability ×8 · U3 fullscreen MapWindow + 2D-map batch + crispness + desktop flat-map · U4
-  direction lines + aim cones (+2 owner rounds) · U5 closest-first loading. Ladder PARKED after
-  U5 for AUDIT #2 + fix slices; UN-PARKED 18n → U6 foveation SHIPPED + U7 terrain audit DONE
-  18o (`wip-2026-08-18-u6-foveation` + UPLIFT_PLAN Appendix A) → U7b GLO-30 terrain patch +
-  best-variant buildings rule SHIPPED 18p (`wip-2026-08-18-u7b-glo30-terrain-buildings-rule`)
-  → U8 height override SHIPPED 2026-08-19 (`wip-2026-08-18-u8-height-override`) — the ladder
-  is COMPLETE. `mem:project/wip-2026-08-17-p7-meteors-uplift-plan` ·
-  `wip-2026-08-17-u1-2d-mobile` · `wip-2026-08-17-u2-fpv-stability` · `wip-2026-08-18-u3-2dmap-batch` ·
-  `wip-2026-08-18-u4-aim-cones` · `wip-2026-08-18-u5-loading` · `UPLIFT_PLAN.md`.
-- **AUDIT #2 + fix slices (2026-08-18)** — report `audits/audit-full-2026-08-18.md` ·
-  `mem:project/wip-2026-08-18-audit2` · `wip-2026-08-18-audit2-fixslices`.
-- **Compaction round 4 (2026-08-22, audit-3 D16) — the UPLIFT + batch-#2/#3 + PLUX eras went
-  COLD.** Verbatim 2026-08-17 → 2026-08-19d moved byte-identical to DECISIONS_ARCHIVE
-  §Moved 2026-08-22 (md5 `5ed47c51b9d44a754964771ffe418330`, 556 lines / 79,306 B); 3 era
-  digests in DECISIONS §Per-phase digests cover them. §Recent 141.7 → 62.6 KB. **Only the
-  OWNER-BATCH era (2026-08-21 → 2026-08-22d) stays verbatim** — it all rides the un-shipped
-  release gate. Next carve-out review when that era ships or §Recent nears ~140 KB again.
-- **Owner UX batches #2/#3 + PLUX launch grooming (2026-08-19 → 19d)** — digests of those
-  names · `mem:project/wip-2026-08-19-owner-uxbatch2` · `wip-2026-08-19-owner-uxbatch3` ·
-  `wip-2026-08-19-plux-launch-grooming`.
-- **GUIDE FINALIZATION — charter G-A…G-J (2026-08-22g, HOT)** — plan
-  `GUIDE_FINALIZATION_PLAN.md` · `mem:project/wip-2026-08-22-guide-final` ·
-  DECISIONS §Recent 2026-08-22g.
-- **Owner micro-slice + AUDIT #3 + its fix slices F1–F10 (2026-08-22a→e, HOT)** — report
-  `audits/audit-batchseams-2026-08-22.md` · `mem:project/wip-2026-08-22-owner-microslice` ·
-  `wip-2026-08-22-audit3` · `wip-2026-08-22-audit3-fixslices`.
-- **Owner 3-slice + HQ map (2026-08-22h/i, HOT)** — DECISIONS §Recent ·
-  `mem:project/wip-2026-08-22-owner-3slice`.
-- **ULTRA fidelity track — T44 textures + T45 light/shadows (2026-08-22j, HOT)** — plan
-  `ULTRA_PLAN.md` (read its **AS BUILT** block first) · `mem:project/wip-2026-08-22-ultra-track` ·
-  `scripts/verify-ultra.mjs` 28/28. Nine levers behind ONE desktop-only `ULT` chip, off by default;
-  the owner LIFTED the frame-rate ceiling to buy them.
-  **EXTENDED 2026-08-27b — the owner's three immersion breakers, all three measured before they
-  were fixed** (`rendering/ULTRA_ARCHITECTURE.md` **§13**, `mem:project/wip-2026-08-27-ultra-render-batch`,
-  `scripts/verify-ultra-dusk.mjs` **21/21**): a nested CASCADE ladder (the single box covered
-  **8-35 %** of a mountain frame; `getShadowMask()`'s cascade-blind multiply is what makes nested
-  zero-intensity lights compose, so no `onBeforeCompile` is touched and the §10 CSM rejection
-  stands) · a real DUSK model (`lib/globe/duskLight` — physical chromaticity, authored level; the
-  air-light had **no LEVEL term**, so at sunset the far field was BRIGHTER than the foreground) ·
-  and the dark tile grid, which was the quantized-mesh **SKIRT** casting AND receiving in the
-  shadow pipeline (the mip chain and anisotropy were both measured innocent).
-- **ECLIPSES (2026-08-22k, HOT)** — the moon now OCCLUDES the sun (it was being DISCARDED, not
-  washed out) + corona + world darkness + copper umbra; works only because the scene is
-  TOPOCENTRIC (geocentric misses by 1°) · `mem:project/wip-2026-08-22-eclipses`.
-- **BEST SPOT — the observability heatmap, S1→S7 shipped, then PARKED 2026-08-27 (COLD)** —
-  **ALL DOCS NOW LIVE IN `.claude/claude-docs/bestspot/`. READ ITS `README.md` FIRST — it is the
-  index, the park brief and the resume ladder.** The feature is built and browser-verified, but a
-  five-session investigation (2026-08-26f→j) measured that **it answers a different question than
-  the owner asked**, and the park waits on ONE owner decision (`access.soft.unknown = 0.45` charges
-  an unclassified cell 33 %, giving a hard ceiling `S_max = 0.345` below the shortlist's 0.378 entry
-  price). **`scripts/verify-bestspot.mjs` is 96/101 BY DESIGN — the D8 block is pre-existing and
-  confirmed red on clean master; it is NOT your regression.**
-  Docs: `bestspot/README.md` → `BESTSPOT_TASTE_V1.md` (§ ADDENDUM 2026-08-26i is the only current
-  diagnosis) · `MEASUREMENTS.md` (every browser number; `verify-shots/` is gitignored) ·
-  `TRAPS.md` · `BESTSPOT_PLAN.md` (**AS BUILT appendix first**) · `BESTSPOT_SPEC_V2.md` ·
-  `SWEEP_MODE_MAP.md` + `SWEEP_MODE_SCHEDULE.md` (both **mostly superseded** — banners say what
-  survives). Memories: `wip-2026-08-23-bestspot-heatmap` · `wip-2026-08-24-bestspot-s3-s7` ·
-  `wip-2026-08-26-bestspot-ownerbatch` · `wip-2026-08-26-bestspot-taste` · `wip-2026-08-26-sweep-mode`
-  · `wip-2026-08-26-sweep-schedule` · `wip-2026-08-26-gate-star-floor`.
-- **FORMAL VERIFICATION — Lean 4 + Mathlib proof project (2026-08-24d, HOT)** — `formal/` ·
-  `.claude/claude-docs/FORMAL_VERIFICATION.md` · `mem:project/wip-2026-08-24-formal-verification`.
-- **T77 RENDERING PERF — MEASURE → the phones → slice 0 (2026-09-05→06, HOT)** — `rendering/T77_AUDIT_PLAN_2026-09-05.md`
-  (the lever ledger) · `rendering/MEASUREMENTS_2026-09-05.md` (§0 verdict · §7 CPU profile + its
-  2026-09-06 correction · §11 the phones · §12 slice order) · `rendering/T77_SLICE0_ORBIT_FRAME_2026-09-06.md`
-  (T79 the below-camera gate, as-built + receipt + owner calls) · `tools/devicefarm/README.md` (the iPhone /
-  Pixel recipes). Memories: `wip-2026-09-05-t77-audit-plan` · `wip-2026-09-05-t77-measure` ·
-  `wip-2026-09-06-t77-phone-baseline-slice0`. Backlog T77 · T79 CLOSED · T80 · T81 · T82 · T83–T86.
+## Era index
+One row per era, oldest first. `07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`;
+braces expand, `*` = every leaf on that stem. Docs are under `.claude/claude-docs/`.
+Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers — r3
+2026-08-18 · r4 2026-08-22 · **r5 2026-09-06 = 08-21→09-05, OWNER BATCHES #4–#6 to MESH MS4–MS8**.
 
-## Next step
-**OWNER ORDER 2026-09-06f — the NEXT session is a ONE-SESSION docs + memory HYGIENE SWEEP (audit mode) plus
-the GUIDE feature gap, `no-slop` on everything written; T77 is PARKED with a dated pointer at the top of
-`rendering/T77_AUDIT_PLAN_2026-09-05.md` and resumes right after at T80 (owner call: pixels at `high`) →
-slice A.** The charter, the measured baseline (DECISIONS §Recent 418 KB → compaction round 5 = T40; THIS
-memory 90 KB vs its 12 KB cap; 130 wip leaves; `rendering/` without a README; the guide's 126 topics vs
-features shipped since 2026-08-22g), tracks E · D1–D5, gates and traps: `NEXT_SESSION_PROMPT.md`
-§"THE NEXT SESSION". Backlog **T87**. DECISIONS 2026-09-06f.
+- **Phases 1–4 scaffold/globe/decode/projection/ephemeris (07-09→10)** · 07-10-{phase4-scrubber,
+  prephase5-fixbatch,ui-fixes}
+- **Phase 5 members/pins + 5.5 S1–S7 + pre-S7 refactor (07-10→12)** · `archive/PHASE_5_5_UX_BATCH`
+  + `ARCHITECTURE_REVIEW` · 07-10-phase5-members-pins · 07-11-* · 07-12-readme-rewrite
+- **Rendering passes + Dnipro enrichment 0–3 + illumination (07-12→14)** · 07-12-rendering-* ·
+  07-13-* · `dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN` · `rendering/RENDERING_QUALITY_PASS`
+- **OSM2World + R2 hosting + obstruction moat + seating/UI (07-14)** · 07-14-* ·
+  `dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP`
+- **Docs reorg + Phase 6/6.9 marketplace + St Albans (07-15→18)** · `archive/DEMO_CONTENT_SEED` ·
+  07-{15,16,17,18}-*
+- **View-prefs persistence + default flips (07-21)** · 07-21-viewprefs-uiux
+- **Astro engine A–E + comet 10P (08-02→10)** · `archive/ASTRO_ENGINE_PLAN` · 08-{02,03,10}-*
+- **AUDIT #1 + slices 0–7 + Phase 8a + planning core (08-13)** · `audits/audit-full-2026-08-13` ·
+  08-13-{full-audit-1,planning-core-restructure,slice7-phase8a}
+- **Mobile M0–M3 `/m` shell — planning-only, permanently (08-11→14)** · `MOBILE_PLAN` ·
+  08-11-mobile-design · 08-13-m{1-mobile-planning,2-fpv-touch} · 08-14-mobile-m3*
+- **Planning QoL 1–4 + FIND v2/v3 + sunsets-in-frame (08-14→15)** · `archive/PLANNING_QOL_PLAN` ·
+  08-14-{qol*,find-*,night6-hover-floor} · 08-15-sunsets-in-frame
+- **Owner UX batches ×5 + ×9 (08-15b/c)** · 08-15-{ux-batch,uxbatch2}
+- **Guide G1 + polish (08-15d/e)** · `archive/GUIDE_PLAN` · 08-15-guide-g1
+- **P7 meteors + UPLIFT U1–U8, COMPLETE (08-17→19)** · `UPLIFT_PLAN` (App. A = U7 terrain audit)
+  · 08-17-* · 08-18-u*
+- **AUDIT #2 + fix slices (08-18)** · `audits/audit-full-2026-08-18` · 08-18-audit2*
+- **Owner UX #2/#3 + PLUX launch grooming (08-19→19d)** · 08-19-*
+- **OWNER BATCHES #4–#6 + QA slices, riding the release gate (08-21→22b)** · `archive/UXBATCH4_PLAN`
+  · 08-21-*
+- **AUDIT #3 + owner micro-slice + F1–F10 (08-22a→22e)** · `audits/audit-batchseams-2026-08-22` ·
+  08-22-{owner-microslice,audit3*}
+- **GUIDE FINAL G-A…G-J + owner 3-slice + HQ map (08-22f→22i)** · `GUIDE_FINALIZATION_PLAN` ·
+  08-22-{guide-final,owner-3slice} · 08-27-guide-bestspot-eclipses
+- **ULTRA fidelity + eclipses + immersion breakers + dusk (08-22j/k, 08-27b/c)** · `ULTRA_PLAN`
+  (AS BUILT block first) · `rendering/ULTRA_ARCHITECTURE` §13 · 08-22-{ultra-track,eclipses} ·
+  08-27-{ultra-render-batch,dusk-taste-pass}
+- **BEST SPOT heatmap S1→S7, then PARKED (08-23→08-27d)** — **start at `bestspot/README.md`**;
+  `verify-bestspot.mjs` is **96/101 by design**, D8 red on clean master · 08-23-bestspot-heatmap ·
+  08-24-bestspot-s3-s7 · 08-26-{bestspot-*,sweep-*,gate-star-floor} · 08-27-bestspot-park
+- **FORMAL VERIFICATION, Lean 4 + Mathlib (08-24d)** · `formal/` · `FORMAL_VERIFICATION` ·
+  08-24-formal-verification
+- **BRAND: PLUX is the product (08-25)** — a leak had shipped in every exported `.ics`, now fenced
+  by `test/brandFence.test.ts`. No leaf; DECISIONS 2026-08-25.
+- **RENDERING CHARTER RC0–RC30, CLOSED (08-25b→08-26d)** · `rendering/RENDERING_CHARTER_2026-08-25`
+  + `FPV_FIDELITY_AUDIT_2026-08-22` · 08-25-* ·
+  08-26-{rendering-charter-groupE,group-d-rc13-rc17,rc16-rc21}
+- **REGION #4 Chernobyl built → DELETED (08-26b→09-02e)** — owner 2026-09-02c: Dnipro first; bakes,
+  geoid grid and 1,785 R2 objects gone · 08-26-chernobyl-region
+- **DBG chip, 151 metrics + 3 actions (09-01)** · `DEBUG_HUD_PLAN` · 09-01-dbg-hud
+- **MESH SUITE planned + MS0–MS3 (09-01b→09-02g)** · `MESH_SUITE_PLAN` (§4a = the binding
+  no-regression contract) · 09-01-mesh-suite-plan · 09-02-mesh-suite-{ms0-ms1,ms2,ms3}
+- **MESH SUITE MS4–MS8 + T77 lead-in (09-02h→09-05)** · `rendering/ENGINE_STATE_2026-09-02` +
+  `WEB_RESEARCH_PERFORMANCE_RESULT_2026_09_05` · 09-03-* · 09-05-model-pitch-roll-ms8 ·
+  09-02-{mesh-suite-ms{4,5,5b,6},t77-engine-state-report}
+- **T77 RENDERING PERF — MEASURE → phones → slice 0 (09-05b→09-06f, HOT, verbatim in DECISIONS)** ·
+  `rendering/` `T77_AUDIT_PLAN_2026-09-05` · `MEASUREMENTS_2026-09-05`
+  (§0 verdict · §7 CPU · §11 phones · §12 slice order) · `T77_SLICE0_ORBIT_FRAME_2026-09-06` ·
+  09-05-t77-{audit-plan,measure} · 09-06-t77-phone-baseline-slice0
+- **Docs + memory hygiene sweep (09-06g, HOT)** · 09-06-docs-hygiene
 
-Prior (2026-09-06d/e): **2026-09-06d/e: T77 STEP 1b THE PHONES ARE MEASURED + SLICE 0 / T79 IS BUILT, RECEIPTED AND CLOSED.**
-Both phones read (`MEASUREMENTS` §11): iPhone 17 Pro over AWS Device Farm (`tools/devicefarm/ios-baseline.mjs`)
-and Pixel 6 Pro over adb (`verify-perf-baseline.mjs 9444 --device --quick`, 15 cells / 0 failures) — FPV fine
-on both (60 Hz cap / 30 fps GPU-bound), **every orbit pose 9–13 fps on BOTH, 74–109 ms of main thread in
-the controls' down-raycast**; the iPhone `#f=` page dies 40–60 s after load with or without seeded models
-(**T83**, kill vs hang → the console videos; ≈ 78 of 1,000 trial minutes spent). **T79 re-attributed:**
-`scripts/probe-below-camera.mjs` puts 15.9 of 21 ms per call in the BASE EARTH (`baseEarth.ts:183`
-`SphereGeometry(1, 384, 384)`, 294 k tris, sunk 1.9 km, the one backdrop with a live default `raycast`),
-3.1 in the enriched cells, 2.1 in OSM tiles, 0.02 in terrain (MEASURE §7's "enriched soup" was wrong;
-dated correction there). **Fix = the below-camera GATE** — `lib/globe/belowCameraGate.ts` wraps
-`THREE.Mesh.prototype.raycast` once; armed only inside `scene/pluxGlobeControls.ts` (`PluxGlobeControls
-extends GlobeControls`, `_getPointBelowCamera` + `_updateZoom` overridden) a mesh proven to top out below
-`cameraRadius + actionHeightOffset + CONTROLS.belowCameraGateMarginM` skips its triangle loop via three
-exact bounds (position-attribute AABB → O(1) ellipsoid support for `SphereGeometry` → cached vertex scan).
-EXACT by construction (the callers consume one bit, `dist < cameraRadius`; ellipsoid pre-check; zoom path
-untouched) → rooftop clearance byte-identical, NO owner call spent. Receipt: vitest 2,463 · astro 0/0/9 ·
-knip 0 · perf `--quick` 32/32 with `gateOff` A/B cells — orbit dt 44.5→18.1 cpu 43.3→1.2 · Everest
-32.2→17.9 · `/m` 35.8→12.1 (**T84** residual) · city 49→37 (GPU-bound) · FPV unchanged · charter 85/85
-(its RC3/4 sweep now pins midday — it read the real clock and failed at night) · ultra 28/28 · meshedit ·
-usermodels 21 · cab 65/65 · pin-reframe RED = T76. Backlog T79 CLOSED, **T83–T86 new** (T85 = owner call
-`baseEarth` `raycast = () => {}`). **NEXT: T80 bloom (owner call on pixels at `high` FIRST), then slice A
-shadows (shimmer gate), then B seats.** `mem:project/wip-2026-09-06-t77-phone-baseline-slice0` ·
-`rendering/T77_SLICE0_ORBIT_FRAME_2026-09-06.md` · DECISIONS 2026-09-06d/e · NEXT_SESSION_PROMPT.
+## Graph index — every memory except the era leaves; names are under `.serena/memories/`
+- top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·
+  `mem:task_completion` gate · `mem:tech_stack` deps · `mem:architecture/system-overview` engine
+  + pipelines
+- `decisions/` — `adr-000-locked-stack` 15 binding ADRs · `session_workflow` the persistence
+  loop · `session-end-autoship` the ship hook + gates
+- `patterns/` — `globe-rendering` the LEO globe · `photo-frustum` EXIF → frustum · `upload-flow`
+  RAW worker · `members-pins` auth, quota, C6 tiers · `design-system` tokens · `sky-bodies-terrain`
+  Phase-4 sky (ground half SUPERSEDED → ARCHITECTURE §7)
+- `bugs/` — past defects, read before touching that area; all fixed but the last:
+  `pin-arrival-reframe` · `fpv-walk-orbit` · `orbit-drag-after-fpv-edit` · `bldg-menu-right-release`
+  · `comet-magnitude-model` · `gallery-thumbnail-stale` · `ground-checkerboard-flicker` **OPEN**
+- `project/` non-leaf — `wix-platform` mechanics + TODO-VERIFY · `wix-site` URL/siteId/appId ·
+  `dev_environment` · `audit2-2026-08-18-charter` ·
+  `owner-orders-2026-08-14-qol-batch` · `wip-2026-09-06-docs-hygiene`
+- The 126 `project/wip-*` leaves are the era archive, reached through the Era index.
 
-Prior: **2026-09-06: T77 STEP 1 MEASURE IS DONE — `rendering/MEASUREMENTS_2026-09-05.md` (verdict §0, the
-ESTIMATED → MEASURED ledger §10, the SLICE-ORDER SUPERSESSION §12). The numbers reordered the plan:**
-(1) every `#p=` orbit pose is CPU-bound in the CONTROLS — 31–47 ms/frame at a static pose at every tier
-(the `/m` chart too), 84 % of the frame in `GlobeControls.update → adjustCamera → _getPointBelowCamera →
-raycaster.intersectObject(scene)` (the controls hold the WHOLE scene, `StylizedTiles.ts:1086`; brute-force
-raycast over the 7.7 M-vertex enriched soup) — **T79**; (2) bloom is the largest GPU consumer (−13…−25 ms
-GPU off; the FPV frame IS the GPU) — **T80**; (3) shadows are cheap but the SHIMMER is measured (18.5 %
-of the shadow mask flips every frame under a 0.0083°/frame sun, rate-independent) and seats STALL 8.3 cm
-short by construction (1 cm write gate vs `reseatEaseK` 0.12) and never settle at the FPV eye (writes in
-98 % of frames, 1,210 rejections/70 s, terrain epoch 1.9–4.8 bumps/s) — **T81**. 24 realistic models cost
-nothing measurable (MESH_SUITE §12's texture cliff refuted at the count cap). **2026-09-06c: the PHONE FLOW is built and dry-run-verified (Device Farm project + the owner's "Iphone 17pro" pool → iPhone 17 Pro iOS 26.3.1; AWS profile `plux` = the ROOT key, Device-Farm-only calls, never printed; `tools/devicefarm/ios-baseline.mjs`; the Pixel 6 Pro via `verify-perf-baseline.mjs 9444 --device` over adb). NEXT SESSION = STEP 1 the phone baseline RUNS (farm, then Pixel) → MEASUREMENTS §11, THEN STEP 2 = T77 slice 0,
-THE ORBIT FRAME (a FIX slice: T79 the controls' raycast target — owner call on the rooftop clearance
-`cameraRadius` gives today — then T80 bloom — owner call on pixels at `high`), gated by
-`scripts/verify-perf-baseline.mjs --quick` (orbit cpu ≤ 5 ms, was 42) + the §8 harness list; then A
-(shadows, gate = the shimmer baseline in `verify-temporal-stability.mjs --shimmer`), then B (seats,
-`--reseat`).** Instruments shipped: `verify-perf-baseline.mjs`, `verify-temporal-stability.mjs`,
-`probe-cpu-profile.mjs`, `t77-model-ramp.mjs`; DEV read seams `window.__debugFeed` (runtime-gated via the
-`debugHud` pref — the phone's console read) + `__globe.seatSettle()`. The phone (1b): checklist §A DONE
-(tunnel recipe, pose URLs, read seam, ramp tool); §B — the jetsam kill point, the soak, A19 frame times —
-UNKNOWN until a device or the approved farm runs it. `mem:project/wip-2026-09-05-t77-measure` · DECISIONS
-2026-09-06 · NEXT_SESSION_PROMPT (the READ FIRST block).
-
-Prior: **2026-09-05: MESH SUITE MS8 BUILT — VERTICAL ROTATION (pitch / roll) for user models (owner order
-2026-09-03 after testing MS7).** Two more stored seats `UserModels.pitchDeg` / `rollDeg` (degrees, null =
-upright; provisioned LIVE → 29 fields) form the intrinsic YXZ triple with the yaw (three's `Euler`
-"YXZ"; the three-free pair `quaternionFromTilt` / `eulerFromQuaternion` in `lib/models/modelPlacement.ts`,
-canonical read-back: pitch in [−90, 90]). The shared gizmo grew `tilt` (default false): the model's
-ROTATE shows the X + Z rings and reads the body's FULL quaternion back; `FeatureTransform.pitchDeg? /
-rollDeg?` are OPTIONAL and model-only; the BUILDING instance is byte-identical and its yaw-only rings
-are PINNED by `verify-meshedit` (§4a). The scene composes ONE quaternion and SLERP-eases. The lift floor
-is TILT-AWARE (`tiltedExtent` → `liftFloorFor`): upright = MS7 to the bit; on its side half the depth may
-sink; FLIPPED the model is HELD UP a quarter of its span — "never fully into the texture" under any
-rotation, on every path. ROTATE owns the tilt (↺ / RESET ALL / list RESET stand it upright); the chip row
-+ label + list fact line carry it; the label anchors at the tilted box's highest point; the chip follows
-a store-side seat commit while armed. vitest 2,444 · astro 0/0/8 · knip 0 · `verify-usermodels` PASS
-21 legs (a REAL X-ring drag; pitch 90 saved+synced; a flip held up +1.25 m) · `verify-meshedit` PASS ·
-`verify-bldg-override` PASS. Harness traps: template-literal `\+` collapse (regexes Node-side); three
-overlapping rings → hover-search `ringPx`; the T76-class COARSE-EYE trap after a `#f=` reload (proven on
-master) → `modelPxOnScreen` stands beside the model. `mem:project/wip-2026-09-05-model-pitch-roll-ms8` ·
-plan §15 · DECISIONS 2026-09-05 · T78 BUILT. **NEXT: T77 proper** (the audit — below; the owner's web
-research report is the gate for step 0, then MEASURE).
-
-Prior: **2026-09-03: MESH SUITE MS7 BUILT — the LIFT seat (vertical drag) + MODELS-row GOTO / RESET (owner
-order after testing MS6).** User models now carry a THIRD stored seat `UserModels.tU` (m above the
-terrain seat; provisioned LIVE → 27 fields): a vertical drag of the MOVE gizmo's Y arrow lifts/sinks
-the model, railed onto `[liftFloorM(height × scale), MODEL_LIFT_MAX_M 50]` on EVERY path — the floor
-keeps a quarter of the scaled height (≥ 0.5 m) above the seat, so a model is never pushed fully into
-the texture; MOVE's ↺ / RESET ALL land it. MY PINS · MODELS rows gained GOTO (stand beside) + RESET
-(RESET ALL's twin via one PATCH, own or shared row). Building gizmo byte-identical (default `liftRail`).
-vitest 2,435 · astro 0/0/8 · knip 0 · `verify-usermodels` PASS 20 legs · `verify-bldg-override` +
-`verify-modelupload` PASS (no regression; `verify-meshedit`'s menu leg is RED but PROVEN pre-existing/
-environment — fails identically on master with changes stashed). `mem:project/wip-2026-09-03-model-lift-goto-reset`
-· plan §14 · DECISIONS 2026-09-03 · T74. **NEXT owner order (2026-09-03, recorded): add VERTICAL rotation (pitch / roll) to user models — today
-ROTATE is YAW-ONLY** (the owner confirmed the MS7 lift / "Z" works well). Same MS7 principles: a new
-record shape provisioned first, saved/synced, RESET/↺ zero it, LWW, and — binding — keep the 3-axis
-rotation MODEL-SPECIFIC so the SHARED gizmo/`FeatureTransform` leaves BUILDINGS yaw-only (§4a). Backlog
-**T78** · NEXT_SESSION owner-order block. **Also open: T77 proper** (the architecture + performance
-audit) — unchanged from below.
-
-Prior: **2026-09-02n: T77 LEAD-IN DONE — the ENGINE STATE report + the WEB-RESEARCH prompt (research, read-only).**
-`rendering/ENGINE_STATE_2026-09-02.md` (verdict: the three visible defects — unstable shadows, slow
-off-cone reseat, unmeasured mobile — are architectural, not tuning; no draw-call/tri/GPU reading exists
-on any hardware; shadow box never texel-snapped, base profile has no cascade and cuts at 5 km, ULTRA
-cascades multiplied with no dispatch; height memo dropped city-wide on every terrain tile; eases have no
-dt term; `(pointer: coarse)` is the only phone signal; verified absences: worker tile parse, HLOD,
-occlusion culling, BVH, model instancing, compressed textures, post-AA, `compileAsync`, VRAM accounting,
-WebGPU) + `rendering/WEB_RESEARCH_PROMPT_2026-09-02.md` (self-contained; the owner runs it on web Claude →
-`rendering/WEB_RESEARCH_REPORT_<date>.md`). **NEXT: T77 proper** — reconcile the web report against
-ENGINE_STATE §5/§6, then audit step 1 = MEASURE (DBG at Dnipro/ULTRA/Everest//m × 0/6/24 models × ULTRA ×
-shadows × tiers; then the iPhone 17 Pro via Safari remote inspector), then the §11 slices (shadows → seats
-→ streaming/workers → mobile), each a separate read-only-audit-then-sliced-fix session.
-`mem:project/wip-2026-09-02-t77-engine-state-report` · DECISIONS 2026-09-02n.
-
-Prior: **2026-09-02m: MESH SUITE MS6 BUILT — D3 management + world edit; the ladder MS0–MS6 is COMPLETE.**
-MY PINS · MODELS tab (rename inline · HIDE/SHOW · ✕ → SURE? · a row click stands beside the model in
-FPV / places an unplaced one); the placement PATCH opened to EVERY signed-in member — LWW structural
-(`items.update` by `_id`), `editorMemberId` stamped (a NEW live field, 26), the owner's list says
-EDITED; a management body (title / hidden) owner-only; YOURS / SHARED badge; orbit hover + click;
-haze + FPV-dissolve chained onto GLB materials (`MODELS.chainShader`); the two-member harness leg
-through a DEV-only `/api/dev-seed kind:"model"`; `verify-usermodels` 18 legs + a shader console gate.
-NOT built: the lift seat (owner to rule). **NEXT: T77** — the ARCHITECTURE + PERFORMANCE audit and
-revamp (owner 2026-09-02k; `MESH_SUITE_PLAN.md` §12 is the lead-in; DBG readings at 0 / 6 / 24
-resident models first). `mem:project/wip-2026-09-02-mesh-suite-ms6` · plan §13 · DECISIONS 2026-09-02m.
-
-Prior: **2026-09-02l: MESH SUITE MS5b BUILT — the owner's four fixes/tunings after testing MS5.** Metres on
-both SCALE rows (`footprintM` / `sizeM3`, one `formatDims`); the rails are PER EDIT about the committed
-transform (`EDIT_MOVE_MAX_M` 100, `EDIT_MIN_K..MAX_K` 0.1–10 on every scale axis incl. extrude and the
-model's uniform scale, compounding, no absolute cap) under a loose SANITY rail (5 km · 0.001–1000× ·
-lift 25 absolute) on read / SYNC / commit / PATCH; the right-release context-menu bug (no `e.button`
-guard — CONFIRMED: macOS fires `contextmenu` on the press) fixed with a right-button guard + a
-menu-opening-consumes-the-press rule; the orbit-drag-after-edit bug (the detached gizmo's 100 km drag
-plane parked in the scene caught GlobeControls' pivot raycast — CONFIRMED against three 0.185 /
-3d-tiles-renderer 0.4.28) fixed by keeping the helper in the scene only while attached. Harnesses:
-real right-click legs, orbit-drag A/B legs with a positive control, world counters RELATIVE to boot
-(the production world carried 5 members' rows). `verify-meshedit` 22 legs PASS · `verify-usermodels`
-11/11 · vitest 2,411 · astro 0/0/9. **NEXT: MS6** (design-first: the my-uploads list, hide/delete/title,
-every member editing user meshes, a lift seat if wanted, orbit hover/pick) then **T77** (the
-architecture + performance audit). `mem:project/wip-2026-09-02-mesh-suite-ms5b` · plan §11.5 ·
-DECISIONS 2026-09-02l. Open with the owner: lift 0–25 absolute? · extrude in the per-edit rule? ·
-the sanity numbers · a right-click is no longer a click in orbit · the tile-volume pop accepted.
-Prior: **2026-09-02i: MESH SUITE MS5 BUILT — D3 PLACEMENT: user models stand in the WORLD.** The public
-cover read `GET /api/world-models?cells=` (`hasSome` on a NEW denormalized `gh5` column —
-equality-on-a-set, the pins' precedent; `UserModels` = 25 fields, provisioned live; READY +
-un-hidden, `ownerMemberId`/file ids stripped) + the owner `PATCH /api/models` (placement + the two
-seats, clamped); `store/userModels` (the THROTTLED cover read off the pins' focus, MINE, click-to-
-place, the density mirror) + `store/modelEdit` (the bldgEdit twin); `scene/userModels.ts` (ECEF
-frame + ENU quaternion → anchor → body → the ground-fitted GLB; closest-first residency under a
-1.5 M-tri budget with hysteresis; `sampleGroundM` + `seatStep` seat; own pick; shadows; NO lift
-seat — the model always stands on the terrain); the MS2 gizmo instance reused on the model's own
-rig (`clampModelEdit`: uniform scale = the axis that moved most; a move folds into a NEW placement
-via `offsetGeodetic` and ONE PATCH); the third edit session in the orchestrator (right-click /
-dblclick / long-press — a model under the cursor first; G/R/S; Escape rungs) + `ModelEditChip`;
-PLACE ON GLOBE (orbit click-to-place); the MDL chip ON by default carrying the physical-density
-warning (skipped-by-budget nearby); DBG `models.*`; guide `fpv-models`. MS5 arms OWN models only.
-Verified: vitest 2,411/2,411 (161 files) · astro 0/0/9 · knip 0 · `verify-usermodels.mjs` 10/10
-against the LIVE collection (cleanup proven) · `verify-bldg-override` PASS.
-**Next session starts with the OWNER BATCH MS5b (2026-09-02j, plan §11 — metres on the SCALE
-rows · per-edit RELATIVE rails with the move raised to 100 m · the context menu closing on
-right-button RELEASE, `mem:bugs/bldg-menu-right-release` · the orbit drag going slow after an FPV
-edit — the detached gizmo's 100 km drag plane catches GlobeControls' pivot raycast,
-`mem:bugs/orbit-drag-after-fpv-edit`), THEN MS6 (the my-uploads list with
-hide/delete/title, every member editing user meshes through the MS3 sync machinery, a lift seat
-if wanted).** Digest `mem:project/wip-2026-09-02-mesh-suite-ms5`; plan §10 + §11; DECISIONS
-2026-09-02i/j.
-
-Prior: **2026-09-02h: MESH SUITE MS4 BUILT — the D3 UPLOAD PIPELINE.** The UPLOAD modal forks on the
-file type (`classifyDrop`; the photo path byte-identical): a model is loaded (GLTF+meshopt /
-OBJ+MTL / FBX), audited against the `MODEL_CAPS` contract, DECIMATED over budget (MeshoptSimplifier
-+ compaction), packed to ONE GLB by `GLTFExporter` on a 2048→1024→512 texture ladder, thumbnailed
-by a disposable renderer, then PUT as a public Wix Media MODEL3D through `/api/upload-url`
-kind:"model" — the repo's FIRST server-side mime allowlist (one entry) — and registered in the
-PROVISIONED `UserModels` collection (24 fields) by `/api/models`, which fetches the descriptor
-ITSELF and refuses anything but a public GLB-typed MODEL3D under the cap. Finding: the platform's
-MODEL3D thumbnail URL is a permanent 403 → we upload our own thumbnail as a public image. No
-quota (owner). Docs `MESH_SUITE_PLAN.md` §9 · `mem:project/wip-2026-09-02-mesh-suite-ms4` ·
-DECISIONS 2026-09-02h · T74 (+ T76: `verify-pin-reframe` pre-existing red). Gates: vitest
-2,367/2,367 (156 files) · astro 0/0/8 · knip 0 · **`verify-modelupload.mjs` 8/8** against the LIVE
-collection with cleanup (decimated to exactly 100,000; STORED READY in 11.2 s; the served GLB
-exporter-generated and compacted 50,999/80,601 vertices) · `verify-bldg-override` PASS.
-**Next session starts MS5 (D3 placement: public world read by `geohash9`, `scene/userModels.ts`,
-click-to-place, the MS2 gizmo for the fit, the MDL chip ON by default, the density warning).**
-Prior: **2026-09-02f: MESH SUITE MS3 BUILT — D2 ACTIVATED, world-shared building edits are LIVE.**
-`BuildingOverrides` PROVISIONED on the live site (17 fields, born v2 with the spatial fields);
-rows are OSM-keyed (`variant|osm|<id>` `_id`, fingerprint fallback — the §4a-2 dual key) and the
-engine's load-model apply recovers a row whose bake-sequential key died by its OSM id. Merge
-policy (`lib/globe/bldgSync.ts`): local map = MINE, world rows = in-memory `SharedMap`; local
-pending wins · shared wins over my synced copy on a complete fetch (15 s read-lag grace) · a
-RESET of a shared building is a TOMBSTONE that masks and becomes a `removes` on SYNC. SYNC
-(`syncButtonState`) in the chip foot / menu / a standalone pill, sign-in gated; origin badge;
-hover note; `_ftw_override` byte ladder 255 mine / 128 shared. Measured live: Wix Data honours
-a client `_id` on bulkSave (LWW is real) and reads lag writes ~1 s. Docs `MESH_SUITE_PLAN.md`
-§8 · `mem:project/wip-2026-09-02-mesh-suite-ms3` · DECISIONS 2026-09-02f · T74. Gates: vitest
-2,312/2,312 (153 files) · astro 0/0/8 · knip 0 · **`verify-meshedit.mjs` 18/18** (legs 15–18
-against the LIVE collection, cleaned up) · the §4a-4 sweep 7/7 suites green (bldg-override
-byte-identical · debughud · eclipse · bestspot-ownerbatch 45/45 · rendering-charter 85/85 ·
-ultra-dusk · ultra 28/28 on its third warm run; DECISIONS 2026-09-02g).
-**Next session starts MS4 (the D3 upload pipeline) on the MS0 answers.** New trap: `astro
-check` re-optimizes Vite's dep cache under a running `wix dev` → 504 on every module (restart).
-Prior: **2026-09-02d: MESH SUITE MS2 BUILT — the gizmo UI.** Blender-style MOVE / ROTATE / SCALE on the
-armed building: three's `TransformControls` on the engine's ghost RIG (anchor = translation in
-the cell's ENU frame, body = yaw + scale), fed pointers by the FPV gesture table (no DOM
-listeners, no camera layer — GlobeControls is off throughout FPV), rails + the U8 per-edit band
-on every scale axis (`clampGizmoEdit`), commit on release through `commitBldgTransform`. Entry:
-right-click / long-press a building → context menu (MOVE / ROTATE / SCALE / EXTRUDE / REVERT ALL /
-DONE) · the chip's op strip · G/R/S/E keys · Shift snaps · Esc cancels a live drag. The chip shows
-every op's current vs original with a per-op ↺ + RESET ALL; the pinned label adds an op line.
-EXTRUDE = the U8 drag verbatim and the default op on arm (byte-identical U8). New module
-`scene/bldgGizmo.ts`; docs `MESH_SUITE_PLAN.md` §7 · `mem:project/wip-2026-09-02-mesh-suite-ms2`
-· DECISIONS 2026-09-02d · T74. Gates: vitest 2,284/2,284 (151 files) · astro 0/0/8 ·
-**`verify-meshedit.mjs` 14/14** (real CDP drags) · the §4a-4 sweep per DECISIONS 2026-09-02d.
-**Next session starts MS3 (D2 activation + the osmId dual key) on the §6 fields.** Chernobyl:
-harness retired 2026-09-02d and the REGION DELETED 2026-09-02e on the owner's one-line
-confirmation (`regions.ts` entry, bake configs, geoid grid, guide copy, 1,785 R2 objects via the
-new `scripts/bake/delete-r2.mjs`; T75 closed). Only the LOCAL gitignored bake dirs (~136 MB)
-remain — the tool gate blocked `rm -rf`; the owner removes them by hand.
-Prior: **2026-09-02: MESH SUITE MS0 DONE + MS1 BUILT** — the ONE empirical Wix Media MODEL3D probe
-(`scripts/probe-model3d.mjs`) answered all four platform unknowns with bytes (ingest READY on
-the PUT itself · NO `urlExpirationDate`, immutable 180-day cache · wixstatic CORS `*` + Range
-206 + `model/gltf-binary` · **PRIVATE 3D refused 400** → D3 hide/delete are record-level);
-the §4a-2 sidecar census is 100 % on all five live variants; contracts.md drifts fixed. MS1 =
-the spatial-edit substrate: `lib/globe/featureTransform.ts` (absolute recompose from a pristine
-snapshot; identity ≡ the incremental writer), v2 `OverrideRow` (`sy` replaces `k`, legacy read,
-neutrality across all components, rails as contract), per-SEGMENT edge CSR, `addUpdateRange`,
-`setTransform`/`featureState` + DEV seam, `verify-meshedit.mjs` 6/6 · `verify-bldg-override`
-byte-identical · vitest 2,259 · astro 0 · knip 0. Docs: `MESH_SUITE_PLAN.md` §6 (as-built) ·
-`mem:project/wip-2026-09-02-mesh-suite-ms0-ms1` · DECISIONS 2026-09-02 · T74.
-(MS2 landed 2026-09-02d — see the top of this section.) Freshest state always
-`NEXT_SESSION_PROMPT.md`. **Owner ruling 2026-09-02c: the CHERNOBYL slice has NO verification
-and NO support any more ("a curious test") — harness retired 2026-09-02d, T75 DROPPED;
-the DNIPRO slice is the highest priority in ANY feature.**
-Prior: **2026-09-01: the DBG DEBUG HUD SHIPPED** — desktop-only `DBG` chip (off by default, beside ULT)
-→ floating/resizable/filterable window: 151 metrics + 3 actions across 15 groups, every one
-with a technical note, on the NEW always-compiled `lib/globe/debugFeed` seam (the ULT
-precedent — the DEV `window.__*` seams are release-eliminated). Gates 2,231/2,231 · astro 0/0/8
-· knip 0 · NEW `verify-debughud.mjs` 17/17. Docs: `DEBUG_HUD_PLAN.md` ·
-`mem:project/wip-2026-09-01-dbg-hud` · DECISIONS 2026-09-01 · tails T73.
-**Owner rulings 2026-09-01: BEST SPOT is SUFFICIENT as implemented (improvements later, owner-
-initiated); the 2026-08-27 shadow round did NOT close the shadow issue — it re-opens later.**
-**NEXT TRACK ORDERED (2026-09-01b): the MESH SUITE** — D1 move/rotate/scale gizmos ·
-D2 world-synced overrides (an ACTIVATION of the dormant U8 backend) · D3 user-uploaded
-models. Plan: `MESH_SUITE_PLAN.md` (slices MS0–MS6) · `mem:project/wip-2026-09-01-mesh-suite-plan`
-· DECISIONS 2026-09-01b · backlog T74. **Next session starts at MS0** (owner rulings +
-4 Wix MCP platform probes + 2 doc-drift fixes). Freshest state always `NEXT_SESSION_PROMPT.md`.
-Prior: **THE RENDERING CHARTER IS CLOSED — RC16 and RC21 both shipped 2026-08-26d and no RC row is open.**
-RC16 shipped **without the margin bake the audit sized it for**: `scripts/bake/measure-straddlers.mjs`
-decomposed `droppedOutside` and found it was **two populations wearing one name** — 96–99.9 % is
-DISJOINT geometry from OSM2World's relation-recursed extract (median 761 m / 40 km / 36 km outside,
-max 55 / 653 / 149 km), correctly dropped, and only **123 / 61 / 1** features were true straddlers
-whose drop left a half-building notch where the runtime prism had already erased their Cesium twin's
-inside half. Those straddlers were **already harvested** (`way["building"](bbox)` returns whole
-INTERSECTING ways with inline geometry), so there was no data gap — no re-fetch, no re-convert, no
-`marginM`, no `regions.ts` change. ONE rule now lives in `scripts/bake/lib/geo.mjs`: **ownership by
-bbox INTERSECTION, never by centroid; placement by the clamped centroid cell.** Predictions written
-BEFORE the re-bake hit to the unit (dnipro-o2w +123, st-albans-o2w +61, chernobyl-o2w +1) and the
-extruder bakes came out **byte-identical**. All three o2w bakes are LIVE on R2 and the recovered OSM
-ids were found in the shipped sidecars. **Residual left deliberately, measured:** an owned feature
-still pokes outside the prism where Cesium also draws it (0.03–0.42 % of features, median 3–10 m) —
-a duplicate sliver, not a hole; growing the prism to fix it punches a real hole.
-RC21 ships **OFF** (`GATE.enabled === false`, unit-locked): the charter's predicate premise is
-refused on the recon's own numbers (40+ per-frame change sources / 20 files / ~14 asymptotic eases
-with no snap — a false negative is a FROZEN GLOBE), so `pipCache`'s **heartbeat** shape is reused —
-`maxStaleMs` 200 ms is the safety net, the epsilons are only an optimisation, and the settle window
-`restMs` 6,000 ms is **sized** at 6.2 × `ULTRA.exposureTauMs` and pinned by a unit test. It buys
-**GPU and power, NOT CPU** (`tilesHandle.update()` runs above the gate every frame). The default
-flip is an owner call pending an ULTRA-timelapse soak via `window.__frameGate`.
-**Housekeeping: `./tmp/rc16-chernobyl/` (9.2 MB scratch) is still on disk — delete it.
-`bake.mjs --out` resolves against REPO_ROOT, so `--out /tmp/x` writes INSIDE the repo (`/tmp/` is
-now gitignored).**
-Read `NEXT_SESSION_PROMPT.md` first, then `mem:project/wip-2026-08-26-rc16-rc21`, then DECISIONS
-§Recent 2026-08-26d.
-Gates: **vitest 2,098/2,098 (141 files)** · astro 0 err/0 warn/6 hints · knip exit-0 ·
-verify-rendering-charter 85/85 · verify-bake-ladder 8/8 · verify-chernobyl 8/8.
-
-### Prior next step (context)
-**CLOSE THE RENDERING CHARTER — only RC16 and RC21 remain.** 2026-08-26c shipped **RC13** (base
-skirt) and **RC17** (meta.json sidecar consumption) across ALL FIVE building bakes — re-baked,
-re-uploaded and curl-verified LIVE on R2, which also CLOSED T55. RC13 ships as a TRANSLATION of the
-existing wall rim rather than an appended course of quads: **+0 vertices**, against the measured
-+59 % bake-wide / +78 % on `Building` an appended skirt costs on the o2w soup, so audit S13's own
-"+≤10 %" clause is met at 0 %. RC17 unifies the two bakers' split sidecar schemas (schema 2,
-`{id, osm, cls, base, top, skirt, src}`, base/top MEASURED from emitted vertices) and replaces the
-`ENRICHED.overrideMinPickHeightM` height floor with a per-feature class token — **89 non-building
-features reclaimed in one central-Dnipro view**, and the constant's own comment was wrong by ~7×
-(claimed 4.5 % street furniture; the Chernobyl o2w bake is 30.6 %, including 273 transmission
-pylons that were pickable AND rescalable). The correctness hinge is an ORDERING fix: the fetch
-plugin resolves the model behind its sidecar, so class and true base exist at `load-model`, where
-the pristine capture and the U8 override re-apply both happen.
-**RC15 IS REFUTED BY MEASUREMENT for buildings** (M11, taken with a negative control on random
-non-building pixels): footprints score a separable **+0.34 m** at Dnipro / **+0.49 m** at Chernobyl
-and their whole tail is control-dominated, because **95.7 % of Dnipro footprints cover exactly ONE
-30 m source pixel**. **The CANOPY half survives as T58** — contiguous wood measures +1.01 m at
-Dnipro and **+3.78 m at Chernobyl**, where the bake plants 166,599 trees on a surface that already
-IS the canopy.
-**Three defects with no charter row shipped fixed:** the o2w dedupe keyed on the glTF node NAME
-(which OSM2World fills from the OSM `name` tag) and silently dropped +231/+24/+18 buildings; a
-re-bake could never have reached a returning browser (`immutable` glbs + reused filenames →
-`?v=<tilesetVersion>` on every content uri, stripped back off by `cellUriOf` for the persistence
-key); and `droppedOutside`/`droppedPolygon` were logged but never persisted, so RC16 had no
-baseline. **`endsWith(".glb")` now fails SILENTLY against a `?v=` URL — use `/\.glb(\?|$)/`.**
-Read `NEXT_SESSION_PROMPT.md` first, then `mem:project/wip-2026-08-26-group-d-rc13-rc17`, then
-DECISIONS §Recent 2026-08-26c.
-Gates: **vitest 2,079/2,079 (140 files)** · astro 0 err/0 warn/6 hints · knip exit-0 ·
-**verify-rendering-charter 85/85** · NEW **verify-bake-ladder 8/8** · verify-chernobyl 8/8 ·
-verify-bldg-override PASS · verify-ultra + verify-eclipse ALL PASS.
-
-### Prior next step (context)
-**CLOSE THE RENDERING CHARTER — only Group D (RC13/RC15/RC16/RC17) and RC21 remain.**
-SHIPPED: Groups B (RC1–RC5) + C (RC6–RC11) on 2026-08-25c/d · Group F's four implementable slices
-+ RC29 + RC22 on 2026-08-25e · **Group E (RC18/RC19/RC20) + RC25 + RC30 on 2026-08-26** — all
-browser-proven. **TWO SLICES ARE REFUTED BY MEASUREMENT — do not build them:** **RC12** (curvature
-residual 0.568 m against 14.20 m rms of within-cell relief = 4.0 % at the 3.5–4 km ring; every cell
-is re-seated at its own centre, so the tangent-plane rise is bounded by the CELL radius, never the
-bake radius) and **RC28** (DEPTH_BITS 24 over a 1.0 m near plane, no shimmer case in ten browser
-legs). Two more refutations are on record: **M7's crossfading-parent mechanism never fires**
-(hitsPerSample exactly 1.00 over 47k samples), and **M13/T34's desktop half does not exist** — on
-`high` the ground cache rests at 109.8 MB against a 322.1 MB floor, so the rest-trim condition
-never arises. **RC21 was deliberately not built**: 40+ per-frame visual-change sources across 20
-files, ~14 asymptotic eases with no snap, and a false negative is a frozen globe — build it
-heartbeat-first (the RC19 pattern) or not at all. **Group D is UNBLOCKED** — R2 credentials, Java
-21, the OSM2World jar, 1.7 GB of Overpass caches and the three existing bakes were all confirmed
-present 2026-08-26.
-**INTERRUPTION 2026-08-26b — an owner side-task shipped REGION #4, Chernobyl / Pripyat**
-(`cities/chernobyl{,-o2w}.json` + a GLO-30 patch, all three LIVE on R2; one `regions.ts` entry is
-the whole runtime cost). The charter was not touched, but it changed **three things inside the
-bake pipeline Group D works in**: `inferBuilding` now subtracts `roof:height` from a tagged
-`height` and the `min_height` clamp moved below the roof block (**RC13's skirt edits that same
-wall loop**; Dnipro's shipped bake predates it — T55); **RC17's writer half is already proven**,
-since Chernobyl is the first bake to emit `.meta.json` sidecars, leaving RC17 as schema
-unification + runtime consumption only; and `upload-r2.mjs --terrain` now demands
-`patch-info.json` while `cwt.mjs` exports `withFdRetry`. Read
-`mem:project/wip-2026-08-26-chernobyl-region` before any bake slice. New rows T55/T56/T57.
-Read `NEXT_SESSION_PROMPT.md` first, then `rendering/RENDERING_ARCHITECTURE.md` (the new as-built
-doc, RC30), then `mem:project/wip-2026-08-26-rendering-charter-groupE`, then DECISIONS §Recent
-2026-08-26.
-Gates: **vitest 2,050/2,050 (139 files)** · astro 0 err/0 warn/6 hints · knip exit-0 ·
-**`verify-rendering-charter.mjs` 85/85 ALL PASS** · verify-ultra 29/29 + verify-eclipse 38/38 green
-at 2026-08-25e (re-run both before claiming Group D done — a re-bake moves the seat machinery).
-Three open tails: RC7's look-cone bar (50.3 % vs S4's 0.9 — null-terrain deferrals are uncounted),
-RC9's warm-restore browser leg (banking proven, restore not), and RC22's three mobile proposals
-(recorded in tuning, need a real device under T1).
-
-### Prior state (context)
-**BEST SPOT — the observability heatmap — is BUILT and BROWSER-VERIFIED (all seven slices S1→S7
-shipped 2026-08-23/24) and is now PARKED, owner order 2026-08-27.** Predicts where to stand for
-SUNRISE/SUNSET/MOONRISE/MOONSET inside a radius of the `look from here` pin, as a translucent
-heatmap over the map.
-
-> **DO NOT START HERE. START AT `.claude/claude-docs/bestspot/README.md`** — the index, the park
-> brief and the resume ladder. Everything BEST SPOT now lives in that one directory.
-
-**Two things this memory used to say that are FALSE, and each costs a session if believed:**
-1. *"`verify-bestspot.mjs` 100 PASS / 0 FAIL"* — it is **96/101**. The D8 cross-model block is
-   PRE-EXISTING and confirmed red on clean master (RC16/RC17 moved the building geometry after the
-   2026-08-24 fixture was recorded). It is not your regression, and **do not fix it by loosening
-   thresholds.**
-2. *"NEXT: the TASTE PASS → `graze.conf` / `graze.reliefHiDeg` / `displayLo|Hi` /
-   `worth.effectiveFloor`"* — those four were **MEASURED INERT** on the bug the owner actually
-   reported (`bestspot/MEASUREMENTS.md` §7, arms H1–H5; `altScaleDeg: 30` produced a
-   **byte-identical field**). Read that table before touching any knob.
-
-**What the investigation found (2026-08-26f→j, five sessions):** the owner's hand-picked spot scores
-zero, and the cause is not the gate, the window or the framing term — it is
-`access.soft.unknown = 0.45`, which charges a cell 33 % because the landcover raster cannot classify
-it, giving a hard ceiling `S_max = 0.673 × 0.512 = 0.345 < 0.378` (the shortlist's entry price) at a
-PERFECT preference. **One owner decision unblocks the effort; nothing else can succeed before it.**
-
-Plan `.claude/claude-docs/bestspot/BESTSPOT_PLAN.md` — **read its `AS BUILT` appendix BEFORE the
-body.** Logs `mem:project/wip-2026-08-24-bestspot-s3-s7` (the shipping session) +
-`mem:project/wip-2026-08-23-bestspot-heatmap` (the floor + design), then the five 2026-08-26
-memories listed in §Subsystems. DECISIONS §Recent 2026-08-24c, then 2026-08-26f→j.
-Gates at the park: **vitest 2,144/2,144 (141 files)** · astro check 0 err / 0 warn / 6 hints ·
-knip exit-0 · **`verify-bestspot.mjs` 96/101 BY DESIGN.** Tier: **LOCAL + BROWSER** (shots
-`verify-shots/bestspot-01…08`). Wix cloud UNVERIFIED — prod is dark behind the nameserver gate.
-**THE ARCHITECTURE: all-CPU, one long-lived worker, and the per-ray UPPER CONVEX HULL is invariant in
-BOTH scene time AND eye height** — which is what makes the scrubber and the altitude slider live.
-The GPU path was proposed and **REFUTED** (3 breakers); reusing the shadow map, 7. Do not re-propose.
-**THE HEADLINE, AND THE MOST TRANSFERABLE LESSON THIS PROJECT HAS LEARNED: every unit gate was green
-while the FIELD WAS A CONSTANT.** The first browser run over dense central Dnipro measured the
-published RG8 at **`rMin === rMax === 187`** — one distinct value across all 31,417 scored cells —
-with 1,860 tests passing, `astro check` clean and `knip` clean. **No building geometry ever reached
-the worker's DSM**: (1) the `▦ 3D DETAIL` chip was OFF in that browser's prefs and
-`buildings.setActive(false)` *removes* `tiles.group` from the scene, so `flattenTin` traversed an
-empty group; (2) **no epoch watched building-tile ARRIVALS** (the three streaming epochs were ground,
-MVT version, and enriched *re-seat*). Fixed with `builtEpoch`; and because the engine knew both facts
-and said nothing, a disc with dense MVT and zero building meshes now **REFUSES**
-(`"no-built-geometry"`) instead of painting warm. After: 31 distinct score bytes, top-8 spread 0.4 %
-→ 56 %. **Nine more defects were browser-only**, including a `postMessage` transfer detaching a
-by-reference `conformM` — a class **vitest cannot express**, because `postMessage` there has no
-transfer semantics. The question is never "do the tests pass"; it is **"what did I read out of the
-live engine, and does its distribution have a spread?"**
-Prior-slice headline (still true): both S1/S2 BLOCKERs were at slice SEAMS with every per-slice suite
-passing — the bridge scored as a pure LIABILITY (0.608 with the deck vs 0.623 without), and 47 % of
-the track's weight sat below the horizon, capping V at 0.51.
-Owner rulings: drone semantics above 5 m · FPV is a centre source but renders nothing in the
-viewfinder · field 3 m with 1 m reserved for ULTRA · GL overlay only, plumb line instead of a cylinder.
-**SUPERSEDED 2026-08-27 — the taste pass RAN, and it refuted its own target list.** It is left here
-only because the sentence below it is still true. The four "primary targets" (`graze.conf` /
-`graze.reliefHiDeg` / `displayLo|Hi` / `worth.effectiveFloor`) were **measured NOT to move the case
-the owner reported** — see `bestspot/MEASUREMENTS.md` §7. **BEST SPOT is PARKED; start at
-`.claude/claude-docs/bestspot/README.md`.** The seam itself is unchanged and still the way in:
-`__globe.bestSpotTuning({...})` · `.ab()` · `.export()`.
-Judge it at BOTH lifts — a 1.7 m city disc is legitimately near-black (97.7 % at zero) and that is
-physics; at 56.7 m the mean score byte is 159. Then un-park T47/T46/T1/T42/T34/P8/M4/U8/T29/T31.
-S8 (`/m` twin) and S9 (MapWindow/MiniMap DOM twin) stay deferred by owner ruling.
-Entry point: `NEXT_SESSION_PROMPT.md`.
-Prior: **THE ULTRA FIDELITY TRACK SHIPPED 2026-08-22j — T44 (textures) + T45 (light + shadows) both
-CLOSED, nine levers behind ONE desktop-only `ULT` chip, off by default.** Gates: **vitest
-1,330/1,330 (111 files)** · astro 0 err/5 hints · `npx knip` exit-0 · NEW `scripts/verify-ultra.mjs`
-**28/28**. Executed against `ULTRA_PLAN.md` (read its **AS BUILT** block before touching this track).
-**THE OWNER LIFTED THE FRAME-RATE CEILING** — *"even if it is sub 15FPS but graphics fidelity
-improves … worth it, user enables it in it's own volition anyways"* — which supersedes the plan's own
-"a 12 fps ULTRA is a broken feature" and is what made the construction-time shadow levers shippable.
-Measured: city OFF 30.7 ms -> ON 36.1 ms (+18%, 33 -> 28 fps).
-Shipped: photographic de-grade in 3D on its own uniform · anisotropy 16 on the drape composites ·
-a **twilight-band day curve** (36 deg of solar elevation vs EARTH.termBand's 9.2, anchored on the
-almanac's own thresholds) · an exposure ramp 1.00->1.46 · **aerial perspective, which did not exist
-before** · the HemisphereLight finally on local up and tracking the ephemeris (**audit gap #16
-dead**) · soft shadows · an 8192 map · and **TERRAIN CASTS SHADOWS** (the owner's named killer
-feature, browser-proven at Everest).
-**THE PLAN WAS WRONG IN FOUR PLACES, one of which would have shipped a no-op**: PCFSoftShadowMap
-is DEAD CODE in three 0.185 (intercepted and rewritten; the real lever is shadow.radius on a
-per-pixel-rotated Vogel disk, and it is LIVE) · shadow.bias's unit is a FRACTION of the shadow
-camera's depth range, so ULTRA's 96 km range would have turned -2e-4 into -19 m of peter-panning ·
-terrain casting fails SILENTLY without shadowSide = FrontSide · mapSize is LATCHED, so a live set
-is a no-op. CSM/PCSS/VSM/GI all rejected with reasons (CSM's job is already done for free by the
-altitude-adaptive shadow ortho). **OFF is EXACT and browser-proven**, and the mobile fence holds
-under the real leak condition (pref:true on /m => on:false, every lever at baseline).
-**NEXT: the RELEASE when the owner's domain fix lands**, then the ULTRA taste pass (dayCurve civil
-anchor 0.30 first), the sky-dome/ground-haze seam at golden hour, T1 device pass, T42, T34, then
-P8/P9/M4. Entry point: `NEXT_SESSION_PROMPT.md`; log: `mem:project/wip-2026-08-22-ultra-track`.
-Prior: **THE GUIDE IS FINALIZED 2026-08-22g — all ten charter slices G-A…G-J shipped, the track is
-CLOSED.** Gates: **vitest 1,292/1,292 (110 files)** · astro 0 err/5 hints · `npx knip` exit-0 ·
-NEW `scripts/verify-guide.mjs` **ALL PASS** (30 checks over desktop / `/m` / `/guide`, shots
-`guide-01..05`) · `verify-audit3` 16/16 regression PASS.
-**THE HEADLINE: the charter was not enough.** `GUIDE_FINALIZATION_PLAN.md` was authored by a
-10-agent pass (58 findings, 0 refuted). A 12-agent **adversarial re-audit of the copy that
-charter produced** raised 44 more and **38 SURVIVED** — including that **`move-pin` claimed
-"PLAN reads the light at the pin" when `scene/planFeed.ts:342-351` has NO temp-pin rung**
-(`photoApex → fpvEye → focus` only; the pin seats the AIM, via `lib/geo/aimAnchor.ts:56-57`),
-that **`fpv-hud.where` named the wrong corner on BOTH shells** (desktop is bottom-left, `/m` is
-top), and that **`trust-airless` had the refraction sign backwards**. *Re-verify the copy you
-just wrote, not only the copy you inherited.* The charter was also **wrong once**: it scoped
-`find-sunsets` desktop-only, but `/m` ships SUNSETS IN FRAME inside the PLAN sheet
-(`PlanSheet.tsx:284-426`) — landing that "fix" would have created a fresh error.
-Headlines a future session must not relearn:
-· **THE LIVE BUG killed** — `nav()` wrote an identical `chapterId` for a same-chapter target,
-React bailed, and the `[chapterId, open]` scroll effect never re-ran, so **two shipped
-crosslinks did not scroll on either island**. Fixed with a monotonic `navSeq` in the deps,
-browser-proven with a trigger guard (target starts 1,742 px below the fold).
-· **Search rebuilt**: aliases + glyph/`/m`/`36h` query expansion + caption indexing (topic AND
-chapter) + fuzzy floor 5 + prefix minLen 3 + `w × idf` expansion caps + a six-tier identity
-ladder. **Two tiers were forced by measurement**: resolving a bare `[[fpv]]` to its TITLE (the
-parity fix) **deleted the literal token "fpv" from the corpus** → node **ids** are indexed at
-2.5; and `foc` lost to `move-search` because a rare incidental "focus" out-IDF'd "focal" *in
-the title and the id* → a title/id-prefix tier. Now every curated query, all **70** topic
-titles, all 11 chapter titles and all **14** goal phrases rank their own node first, negatives
-still `[]`. The charter's proposed LEXICAL alias fence was **rejected on measurement** (it
-permits only aliases for already-findable words); the BEHAVIOURAL fence shipped instead and
-caught 7 real over-claims on day one.
-· **All three surfaces at parity**: one content model, 15 fields × 3 renderers fenced by
-`test/components/guideParity.test.ts`; `/m` search hoisted above the index/chapter split;
-`/guide` gained goal→**topic** anchors, an `h1`, a 70-topic outline and — on the owner's
-explicit order, **reversing its own written "zero client JS" charter** — a bundled search.
-· **Anti-slop applied JUDICIOUSLY**: four new BANNED groups at **0 current hits** (a regression
-guard — 97 of ~120 stop-slop patterns already scored zero) + one-bounded-action-per-step.
-**REJECTED with counts**: the em-dash ban (4,647 in `src/**`; the skill breaks it in its own
-example), three-item lists, blanket `-ly`, `never` (the C6 privacy guarantee), "cut quotables"
-(the `tip` field's whole job).
-· **Three defects were caught by EYEBALLING SHOTS, not by tests**: Astro scopes `<style>` so
-the runtime-built `/guide` hit rows had no styles at all (`:global()`), the header did not
-wrap, and `.g-goals a` matched descendants and dressed 14 reading routes as full goal cards.
-· **A source fence must strip LINE comments FIRST** — block-first let a `//` line containing
-`components/mobile/**` open a phantom comment that ate ~100 lines of live code
-(`stripComments`, now shared in `test/styles/_css.ts`).
-**T41 CLOSED** (documented in both registers: guide topic `fpv-focal-axes` + a dated
-`globe-tuning.md` trap row). **T24 re-verified + dated** in the same commit as the
-`guide.astro` change, and now machine-checked every `npm test`. **T42 stays OPEN** (8
-owner-taste crops) but is annotated with what this session settled.
-**NEXT: the RELEASE when the owner's domain fix lands** (new rider — confirm `/guide`'s bundled
-search unhides in prod), then T1 device pass, T34, then P8/P9/M4 · U8 sync ladder.
-Entry point: `NEXT_SESSION_PROMPT.md`; log: `mem:project/wip-2026-08-22-guide-final`.
-Prior: **AUDIT #3 FIX SLICES F1–F10 ALL SHIPPED 2026-08-22e — the queue is EMPTY.** Gates: **vitest
-1,217/1,217 (107 files)** · astro 0 err/5 hints · **`npx knip` exit-0 clean** · all SEVEN
-regression suites PASS + NEW `scripts/verify-audit3.mjs` both shells (shots `a3-01..04`).
-Backlog **T32/T35/T36/T37/T38/T39/T40 CLOSED**; **T41 + T42 opened** (below).
-Headlines a future session must not relearn:
-· **F4/T36 — ONE `lib/geo/aimAnchor.aimAnchorFor()`** on all three radar surfaces (FPV eye →
-placed photo → temp pin → view focus). Browser-measured: the camera NADIR sat **4,341 m** from
-the view focus on a tilted desktop orbit — the size of the bug the chart's private ladder had.
-**THE AUDIT'S OWN C8 FINDING THEN BIT THE HARNESS LIVE**: `verify-qaslice-cab.mjs` had
-transcribed the old ladder and failed by 81.8 m against the CORRECTED app. The chart now
-PUBLISHES its resolved anchor (`__mapWindowView.anchor*`) and the script reads it.
-**RULE: a verify script never re-derives a shipped decision.**
-· **F1/T32 — the test found a SECOND throw site inspection had missed**: `SearchRiseSet(...,
-metersAboveGround)` builds a second observer at `height − metersAboveGround`, so a clamped
-10 km observer against an un-clamped 6,000 km eye still threw. `planElevationsM()` writes both.
-· **F1/T37 — the audit's literal one-liner would have been a regression**: `draw()` runs at
-~20 Hz in FPV, so a bare `cache.delete(url)` in `onerror` = a 20 req/s storm. Shipped with a
-30 s cooldown + a capped warn. **Read an audit's "specific fix" as a direction, not a patch.**
-· **F5/T35 — four seams extracted** (`lib/geo/radarBands` · `scene/tangentOverlay` ·
-`panels/radarCanvas` · `slippy.chartTransform`); jscpd 35→33 clones, 1.14→1.06 %.
-· **F6 — CDP targets now close themselves** (`scripts/verify-cdp-cleanup.mjs`, all 20 scripts);
-fences de-brittled (JSX depth, brace matching, presence pins); A1-16 `PLAN.minCoverageForGaps`
-gives the three radars ONE evidence-floored gap gate.
-· **F7 — docs**: `globe-tuning.md` gained the batch-#4→#7 tunables + the sticky-overlay-px and
-injected-GLSL-header traps · `verify.md` gained all six harness classes + gesture recipes ·
-`contracts.md` §3 15→**20** seams, §7 8→**9** routes · `UXBATCH4_PLAN.md` → `archive/`.
-· **F9 — guide**: 4 NEW topics (`fpv-cone`, `move-aimstick`, `fpv-map-controls`,
-`fpv-map-gestures`) + 6 extensions; NEW reproducible `scripts/shoot-guide.mjs` re-shot
-`orbit`/`fpv`/`fpv-m`/`target` warm and added `fpv-map`.
-**OWNER ORDERS 2026-08-22f — T41 RULED + the next session is SINGLE-TRACK: FINALIZE THE GUIDE.**
-· **T41 ACCEPTED AS-IS** ("i am ok for now with this and understand the reasoning") → a DOCS item,
-not a code item. Mechanism CORRECTED while ruling it: `Joystick.tsx:115-117` shows that **inside
-FPV both readouts derive from the SAME live vertical FOV**, so the divergence is purely the sensor
-AXIS — `focalFromVerticalFov` measures across the frame's HEIGHT (24 mm, 6 consumers),
-`focalMmFromHFov` across its WIDTH (36 mm, 1 consumer). No second source of truth.
-· **The guide charter is `.claude/claude-docs/GUIDE_FINALIZATION_PLAN.md`** (732 lines, 10
-dependency-ordered slices G-A…G-J, each with the command that proves it done). Authored by a
-10-agent fan-out; 58 findings, **0 refuted** in adversarial verification.
-**The headline is a REJECTION** — 97 of ~120 stop-slop patterns score ZERO hits (the guide already
-reads the way the skill wants), while adopting it wholesale would destroy em dashes (4,647 in
-`src/**`; the skill breaks its own rule at `examples.md:45`), three-item lists (19 real UI
-enumerations), `-ly` precision words, `never` (the C6 privacy guarantee) and "quotables" (the
-`tip` field's whole job). ADOPTED instead: one new BANNED group covering the *essayist* tells the
-*marketing* lint never reached, at 0 current hits — a REGRESSION GUARD — plus i-have-adhd's
-one-bounded-action-per-step rule (12 of 43 shipped steps violate it).
-**LIVE BUG found and verified, not yet fixed:** a crosslink to a topic in the CURRENT chapter does
-not scroll on EITHER island — `nav()` sets an identical `chapterId`, React bails, and the scroll
-effect's `[chapterId, open]` deps never re-fire (`Guide.tsx:110-116` vs `:157`;
-`GuideSheet.tsx:95-100` vs `:117`). Two shipped crosslinks hit it today.
-Then the standing release gate (owner's domain fix), T1 (which now also owes the **unmeasured** F3
-per-frame ms), T34, then P8/P9/M4 · U8 sync ladder. Entry point: `NEXT_SESSION_PROMPT.md`;
-log: `mem:project/wip-2026-08-22-audit3-fixslices`.
-Prior: **OWNER MICRO-SLICE SHIPPED + AUDIT #3 COMPLETE 2026-08-22 (a/b/c)** — gates **vitest
-1,147/1,147 (102 files)** · astro 0 err/5 hints · `verify-qaslice-cab.mjs` **64/64 both
-shells** · all seven regression suites PASS.
-**(a/b) Owner micro-slice, 4 items:** the expanded-map manual-pan override is now PERMANENT
-(the `FOLLOW_REARM_M` eye-motion re-arm DELETED — walking never recentres the chart, verified
-0.0 m hold with the eye 302 m out vs a 184 m half-diagonal; radar/cone unchanged by design) ·
-NEW round **◉ RE-CENTRE** button both shells (`aimAnchorNow` centre + latch clear; muted →
-accent-lit, transition-only mirror) · ALL map attribution → ONE thin full-bleed line on the
-SCREEN's bottom edge (`--mw-credit-h` LIFT of `.ts`/`.m-bottom`/`.tr`, never a z-bump) ·
-`/m` PiP TOP-ALIGNED with the MAP/+/− pills via shared `--mw-top-y`/`--mw-pip-h` tokens.
-**Four defects in that slice were caught by the audit and fixed BEFORE ship**: a 2 px
-long-press drift armed the permanent override · the ◉ (the sole exit) was occludable by the
-z-24 FPV altitude column on short viewports — **a z-index cannot fix that, `.mw` is its own
-stacking context**, so the seat carries a geometric floor · the desktop attribution truncated
-below ≈900 px, losing "© Esri" · `.tr` was not lifted with `.ts`. Two collisions came from
-the shells NOT being symmetric (desktop already had a superset `.map-credit` on that edge;
-`/m` has no page chrome) — `.mw-creditbar` is /m-only and desktop promotes the page line.
-**(c) AUDIT #3 COMPLETE — report `audits/audit-batchseams-2026-08-22.md`** (4 tracks, TWO
-WAVES so a session limit can't void all four; 46 candidates, 0 deleted in verification).
-**Headline: FIVE checks that could not fail — four written the same session — found and
-fixed** (unfalsifiable regex · a lift check that held with the lift deleted · a GET counter
-that could count zero and pass · a "responded" check with no trigger guard · a vacuously
-captured guard). **C7 REFUTED a PASS recorded in DECISIONS 2026-08-21h** (the FOV inverse
-pair was NOT transitively pinned — it came from a killed agent's pre-verification output;
-now pinned for real). Docs reorg part 1 shipped (ARCHITECTURE §7 had 3 factually WRONG
-claims; the guide taught a gesture the code doesn't perform, and the code *delegated* that
-affordance to the guide). **NEXT SESSION: the audit's F1–F10 fix slices + T34–T40** —
-start F1 (one-liners: tile `onerror`, seat-reset gate, stale comment, DEV-seam registry,
-T32 planner ceiling), then F7 docs remainder (globe-tuning tunables + the two missing traps ·
-verify.md's six harness classes · `contracts.md` §2/§3/§7 · `UXBATCH4_PLAN`→archive AFTER
-`contracts.md`), then **F8 DECISIONS compaction round 4 (DUE — boundary measured `:319`→`:879`,
-34 rows ≈79.5 KB)**, then F9 guide work (4 new topics + 6 extensions + 11 stale re-shoots).
-Release still gated on the owner's domain fix; T1 device pass grown.
-Logs: `mem:project/wip-2026-08-22-owner-microslice` · `mem:project/wip-2026-08-22-audit3`.
-Prior: **PRE-AUDIT QA SLICE C→A→B SHIPPED 2026-08-21h + AUDIT #3 STARTED then RESCHEDULED**
-(DECISIONS 2026-08-21h; gates **vitest 1,128/1,128** · astro 0 err/5 hints; NEW
-`scripts/verify-qaslice-cab.mjs` 17/17 [shots qsl-01..05] + ALL SEVEN regression suites
-uxb4/s2/s3/uxb5/uxb6/uxb7/qa7ab PASS, Chrome restarted between suites):
-(C) **CRITICAL QA-7b regression KILLED** — the overlay-composite rebuild storm on every
-2D↔FPV/3D flip. NEW pure `stickyOverlayPx()` (lib/globe/quality): the effective composite px
-only RATCHETS UP (first flat-chart visit or a governor promote; ≤1 post-boot rebuild per
-rung) and never lowers on a mode flip OR a governor demote (the S3-era rebuild-on-demote
-folds under the same rule); `overlayPxEff` seeded 0 ⇒ frame-1 write == constructor px, a
-no-op. Root cause 2 confirmed from UpdateOnChangePlugin source ⇒ ONE-frame refinement kicks
-in imageryGround `setOverlayResolution` + `setQualityTier`. NEW DEV probe
-`window.__overlayRebuilds` is THE storm assert (raw Esri GET counts CANNOT isolate it).
-Verified 1 rebuild at boot, **0 across two full 2D→FPV→2D cycles**, uFtwFade holds.
-RESIDUAL SURFACED (pre-existing, #15-adjacent): ~600 Esri GETs per flip leg from ground-LRU
-rest-trim churn (cache rests at exactly minBytesSize) — candidate levers: mode-aware LRU
-floors / flip-freeze.
-(A) **expanded-minimap follow YIELDS to manual exploration** — `manualPan` latch (any
-pan/pinch) cleared only by eye motion > `FOLLOW_REARM_M 0.5` m from the latch anchor;
-verified drag 142 m holds 0.0 m standing, walk 119 m recentres to the 18.5 m deadband edge.
-(B) **screen-relative walk on the expanded chart, both shells** — NEW pure `chartWalkAzRad`
-+ `store/minimap.mapWindowRotRad` + DEV probe `window.__mapWindowView`; verified on a
-twisted chart: stick-up track 270.0° vs chart-up 270.0°, **Δ 0.0°**.
-**AUDIT #3**: checklists re-mined (code.md +23/+24/+25, tests.md +10) and **Track E
-COMPLETE**; the 4 finder agents (A1/A2/C/D) all died on an API session limit before
-reporting — transcripts harvested, recovered pre-verification leads in NEXT_SESSION_PROMPT's
-"RECOVERED partial findings" block. **NEXT SESSION — (0) the OWNER MICRO-SLICE FIRST
-(addendum 2026-08-22, after device-testing the 21h slice; spec = NEXT_SESSION_PROMPT §0):
-the manual-pan override becomes PERMANENT (delete the `FOLLOW_REARM_M` eye-motion re-arm —
-walking never recentres the chart, even past the view bounds; radar/cone rule unchanged) +
-a NEW round ◉ RE-CENTRE button on the map's right edge under the +/− zooms (centres on
-`aimAnchorNow`, clears the latch, restores follow) + ALL map attribution moved to one very
-thin line at the BOTTOM EDGE under the time strip (needs `--mw-credit-h` dock/scrubber
-offset, not a z-bump; keep the Esri/CARTO/OSM list legible — contractual); rider: the
-qaslice-cab "walking re-armed the follow" check is SUPERSEDED — invert + annotate.
-(1) THEN audit results handling — RE-LAUNCH the four finder tracks (two waves, so a limit
-can't void all four) → verification pass → report to `audits/` → then DOCS REORG (ARCHITECTURE §7 · globe-tuning tunables · plans archive ·
-verify.md traps · README gate counts · DECISIONS compaction check) → then GUIDE WORK
-(bands/gaps/aim/PiP/place-point/time-strip/photo-chart/search + the NEW manual-drag and
-chart-up-walk topics) + warm re-shoots. Release still gated on the owner's domain fix;
-T1 device pass grown by the QA-slice items.**
-Log: `mem:project/wip-2026-08-21-qaslice-cab`.
-Prior: **OWNER QA BATCH SHIPPED 2026-08-21f — 6 fixes + 1 answered question after device QA**
-(DECISIONS 2026-08-21f; gates 1,116/1,116 · astro 0 err/5 hints; regressions uxb4 23/23 +
-s2 16/16 + s3 18/18 + uxb5 17/17 + uxb6 12/12 + NEW `verify-uxbatch7.mjs` 22/22, shots
-uxb7-01..06): (1) expanded-minimap radar FOLLOWS the viewer — MapWindow anchor camGeo-first
-while FPV live + `fpvPinKey` re-seat (fresh basis at a new pin, walk offset zeroed — eye
-0.0 m from pin) + 0.12 rubber-band chart follow + size unified via `AIMCONES.mapRadiusHK
-0.5` (fraction-of-height, was ≈3.7× too small on /m) · (2) FPV entry consumes plannedView
-(heading + verticalFovDeg) on place-point + /m ▲3D + desktop map — verified 137.0°/76.5°
-exact · (3) radar skyline GAPS on all 3 surfaces (`fractureRunsBySkyline` + `skylineGuardM
-60`; research REFUTED the "lost gaps" suspicion — they never existed; GL-fan visual = T1
-rider) · (4) expanded-map bottom = the REAL time dock (/m, mw-open z-24 lift) / REAL
-TimeScrubber (desktop, z 43); bottom hint/credit retired to the top band · (5) /m .fh-chip
-z 9 under all controls · (6) TYPE-TO-SEARCH placeholders + the iOS search dark-screen fix
-(focus({preventScroll}) in-commit + scroll pin; REAL-iOS feel = T1) · (7) map-quality
-question ANSWERED: 2D map = GL (z17 coarse cap + DPR 1.25 + stylized grade) vs minimap =
-raw z19/DPR-2 canvas — owner ruling wanted on the free `uFtwFlat2d` de-grade vs z18/DPR-1.5.
-SAME SESSION (2026-08-21g): QA-7 a+b SHIPPED on the owner's "try both" — (a) PHOTOGRAPHIC
-flat chart (`GROUND.flat2dPhotoK` → uFtwPhotoK; grade lerps out on /m 2D + desktop nadir
-flat-map; dark-CARTO untouched) · (b) `esriMaxLevelCoarse 17→18` + flat-only DPR 1.5
-(`leanMobile.dprCap2d`, TilesHandle.mapFlat-gated) + `GROUND.overlayResolution2dPx 512`
-(the 256 composite alone pinned the chart a level shallow — all three levers needed).
-z18 CDP-verified; A/B shots qa7-08/09 night-and-day; rollback knobs independent (T1).
-TRAPS: verify-Chrome exhausts WebGL contexts across suites (restart between suites);
-Vite 504 "Outdated Optimize Dep" after new globe-bundle imports (restart wix dev);
-imageryGround injected-GLSL uniforms MUST be declared in the fragment header (JS uniforms
-object alone ⇒ silent compile fail, previous program keeps rendering, pokes no-op);
-headless Chrome governs to tier `low` — assert DPR via __globeQuality tier-consistency.
-**NEXT SESSION (owner orders 2026-08-21f-end + g-end): FIRST a 3-item QA slice —
-(C) CRITICAL regression from QA-7b: overlay-composite REBUILD STORM on every 2D↔FPV/3D
-flip (white chart seconds→10 s+, load storm, blurry stall; desktop below tier high too) —
-sticky composite resolution + refinement kick; mitigation knob overlayResolution2dPx→256;
-full diagnosis NEXT_SESSION_PROMPT §0C · then
-(A) expanded-minimap follow YIELDS to manual drag/focal edits (manualPan latch cleared by
-an eye-motion detector; follow only on explicit movement) · (B) SCREEN-relative walk
-controls while mapWindowOpen, both shells (stick/arrow-up = chart-up regardless of twist,
-converted to true-world bearing via a published mapWindowRotRad; nowhere else) — full specs
-NEXT_SESSION_PROMPT §0. THEN the standing charter: AUDIT + REVIEW +
-DOCS REORG + GUIDE WORK — the full charter is NEXT_SESSION_PROMPT.md (audit READ-ONLY →
-audits/; adversarial review of the QA fixes' edges; ARCHITECTURE §7 + globe-tuning +
-verify.md refresh + plans archive + DECISIONS-compaction check; guideContent topics for
-bands/gaps/aim/PiP/place-point/time-strip/photo-chart/search + warm re-shoots). Release
-still gated on the owner's domain fix (batches #4–#6 + QA batch ride it); T1 device pass
-judges QA-7 a+b knobs → then P8/P9/M4 · U8 sync ladder.**
-Log: `mem:project/wip-2026-08-21-owner-qabatch7`.
-Prior: **OWNER BATCH #6 SHIPPED 2026-08-21e — 4/4 fixes on batch #5, same session** (DECISIONS
-2026-08-21e; gates 1,109/1,109 · astro 0 err/5 hints; verify S1 23/23 + s2 16/16 [2 checks
-superseded] + s3 18/18 + uxb5 17/17 + NEW `verify-uxbatch6.mjs` 12/12, shots uxb6-01..05):
-(1) placed point OWNS the map radar (MapWindow anchor `tempPin ?? camGeo ?? focus`) and —
-kept deliberately — relocates a STANDING temp FPV (tempPinPoint per-frame re-pose; the PiP
-previews the new point, tap = you're there) · (2) band stack REORDERED+COMPACTED (supersedes
-the batch-#4 sketch): moon INNERMOST / sun / target small-gap above at 3× band width off the
-rim — desktop [0.3,0.38]/[0.42,0.5]/[0.55,0.79], mobile [0.24,0.32]/[0.34,0.42]/NEW
-bandTargetMobile [0.46,0.7]; N rides bandTarget[1]×northOffsetK (GL + MapWindow); "lost
-moon" = silver-on-bright readability (+ maybe a dismissed MOON direction) — drawn innermost
-now, alpha bump = T1 taste · (3) focal cone seeded FROM BOOT (stepPlannedView null-seed) +
-aim-stick mm focal footer (NEW pure `focalMmFromHFov`, Joystick `footer` prop,
-`.m-joy__footer`) · (4) /m aim stick above the WALK stick (`.m-joy--aim-fpv`, one MobileShell
-instance `variant={fpvOn?"fpv":"map"}`; minimap-corner instance DESKTOP-ONLY; rides the
-mw-open z-24 rung so it survives the /m fullscreen map). TRAPS: the /m left rail is two
-stacked z-24 pads — synthetic map presses below x≈126 land on sticks; wix dev on :4321 died
-mid-session once — check before browser work. **NEXT SESSION (owner order 2026-08-21e): REVIEW/AUDIT PASS + reconcile docs/guides after
-batches #4–#6 — /frame Audit mode (READ-ONLY report → audits/; scope: batch-touched seams +
-debris sweep), ARCHITECTURE/globe-tuning refresh, guideContent topics (bands, aim-stick
-seats + mm footer, PiP, place-point, dock inputs, shell-switch) + guide re-shoots. Release
-still gated on the owner's domain fix (batches #4+#5+#6 ride it); T1 device pass after
-(moon-silver readability, aim-pad size, place-point-FPV-relocate feel, PiP perf); then P8
-conjunctions + P9 lunar eclipses + M4 · U8 sync-phase ladder.**
-Log: `mem:project/wip-2026-08-21-owner-uxbatch6`.
-Prior: **OWNER BATCH #5 SHIPPED 2026-08-21d — 6/6 post-batch-#4 fixes** (DECISIONS 2026-08-21d;
-gates 1,107/1,107 · astro 0 err/5 hints; S1 23/23 + S2 15/15 + S3 18/18 regressions + NEW
-`verify-uxbatch5.mjs` 17/17, shots uxb5-01..05; owner's report screenshots arrived BROKEN —
-fixes driven from written descriptions + own shots): (1) radar bands ALWAYS-filled —
-`AIMCONES.fillAlphaRest 0.05` (the ×emphEased gate zeroed non-focused fills, root cause), 3
-surfaces; focal-cone edge de-fattened 3.0×→1.25× (`edgeHalfWidthK 0.000625` — GL width is in
-ray-extended units ×rayLenK) + minimap cone legs-only · (2) /m radar ×0.8
-(`mobileRadiusK`, orchestrator-pushed `mobile:` flag) + `bandSun/MoonMobile` inward rings ·
-(3) /m PiP = TRUE miniature — `.mw-pip` 32vw×32dvh (equal fractions ⇒ screen aspect ⇒ live
-camera reused), `minimap.pipRect` → `TilesHandle.pipRect()` → GlobeCanvas scissored second
-render after composer (restore viewport!); `body.m.mw-open` hides `.mm/.m-fpvhud/.fh-chip`
-(the minimap-in-minimap leak) · (4) /m map long-press = PLACE POINT only (setTempPin, stays
-open; wantKind===fpvKind ⇒ no FPV re-entry; desktop keeps VIEW FROM HERE) · (5) /m dock —
-S1's `.md-rate` CSS deletion had ORPHANED `.md-date` onto the invert rule (whole input
-inverted/unstyled); rebuilt as .ts-date twin + native `<input type=time>` picker = desktop
-parity · (6) shell-switch pose carry — NEW pure `mobileShellHash()` (#p= tilt→0 for the 2D
-door, #f= exact) at topnav/banner/Welcome + /m DESKTOP chip carries raw hash to /?d=1.
-TRAP: /m re-mirrors the live camera into location.hash ~1.6s after boot — assert boot
-RESULTS in verify scripts, never the link hash. **NEXT SESSION: release when the owner
-finishes the domain fix (batches #4+#5 ride it; probe /sw.js after); T1 device pass (grown:
-PiP scaled-pass feel, band-wash + mobile-radar taste, iOS time-input popover); then P8
-conjunctions + P9 lunar eclipses + M4 mobile resume · U8 sync-phase ladder.** Log:
-`mem:project/wip-2026-08-21-owner-uxbatch5`.
-Prior: **OWNER BATCH #4 S3 SHIPPED 2026-08-21c — BATCH CLOSED 18/18** (DECISIONS 2026-08-21c; gates
-1,101/1,101 · astro 0 err/5 hints; S1 23/23 + S2 15/15 regression + NEW `verify-uxbatch4-s3.mjs`
-18/18, shots uxb4-s3-01..04): (17) radar sun/moon band FUTURE halves wear body ink —
-`bandFutureInk()` (aimCones, unit-locked), per-body uFuture + both canvas twins via `b.color` ·
-(18) TargetPanel GOTO pill before SHOW — chip handler extracted to `store/skyAim.gotoSkyBody`
-(marker mirror → live-ephemeris fallback; `gotoAimSolution` pure twin tested) · (#5) iOS
-resilience — contextlost render gate + composer realloc on restore; hidden tick skip w/
-governor-clock re-seat; visibilitychange/pagehide freeze of ALL NINE tile queues
-(PriorityQueue.autoUpdate); NEW `QUALITY.leanMobile` coarse-pointer overrides (DPR 1.25 /
-bloom off / shadow 1024 — tile knobs stay per-tier, high test-locked) · (#15) NEW
-`public/sw.js` iOS-ONLY tile cache (dev-gated, 7-day-TTL performance cache — Esri ToS posture
-flagged; policy fenced by test/swTileCache.test.ts) + per-tier `overlayResolutionPx` 512/256/256
-w/ `ground.setOverlayResolution` fresh-instance rebuild path + `esriMaxLevelCoarse 17` +
-ground-only `groundLruBytesMB` 320/192 + per-URL force-cache (overlay images / .terrain / .glb
-/ .pbf; manifests revalidate) · (#1) /m PiP `.mw-pip` 200px live-3D hole (draw() clearRect
-under its DOM box; body.m .mw background dropped) replaces ✕ MINI-MAP, tap → back to FPV.
-UNVERIFIED → T1 + first release: /sw.js on Wix hosting (Content-Type unprobed), real-iOS
-jetsam/heat, z17/256 look, tint/PiP taste. **NEXT SESSION: release when the owner finishes the
-domain fix (batch #4 rides it; NEW rider — probe https://www.plux.today/sw.js after the flip);
-T1 device pass (grown: lean heat, SW effect, PiP feel, band tint taste); then P8 conjunctions
-+ P9 lunar eclipses + M4 mobile resume · U8 sync-phase ladder.** Log:
-`mem:project/wip-2026-08-21-owner-uxbatch4` · plan `UXBATCH4_PLAN.md` (§S3 as-built).
-Prior (S2, 2026-08-21b — 14/18 items done, owner addendum #2 post-S2 added 17+18) (DECISIONS 2026-08-21b; gates
-1,088/1,088 · astro 0 err; S1 regression ALL PASS + NEW `verify-uxbatch4-s2.mjs` 15/15 both
-shells): radar → concentric annular bands (AIMCONES.bandSun/.bandMoon/.bandTarget — ONE model,
-three surfaces incl. the NEW minimap radar; compactK/lineLenK RETIRED; N rim marker
-everywhere) · focal cone EVERYWHERE (camera-store `plannedView` heading+HORIZONTAL-fov,
-session-only, seeds photo/jump/FPV-exit/stick; NEW `scene/focalCone.ts` + `--color-focal-cone`
-#E08FC6; MapWindow hardcoded-0.22 replaced; math in `lib/geo/plannedView.ts`) · AIM joystick
-both shells (NEW shared `components/controls/` tier — mobileFence rule 3) · MapWindow
-two-finger TWIST (`view.rot` + ONE `xformNow()` transform) · street labels ×0.5 BOTH branches
-(the world-size floor was the giant-label cause) · S1 long-press login-nav BUG fixed
-(document-capture click swallow — element-level swallows die with their element). Side quest:
-ALL UPLIFT rendering optimizations audited IN-PLACE-WIRED; cache-ENABLED measurement
-(`scripts/measure-tile-cache.mjs`) REFUTES desktop cache-busting — disk cache holds ≈95% on
-reload, owner's observation ≈ DevTools disable-cache; iOS-small-cache ranking STANDS (SW
-mitigation now iOS-directed). S3 lever warning: GROUND.overlayResolution is construction-time
-— the 256 shrink needs a plugin rebuild path. **NEXT SESSION: batch #4 S3 = #15 SW tile cache
-(iOS-directed) + demand shrink + #5 iOS contextlost/pagehide/lean profile + #1 minimap PiP
-(the S2 xformNow rewrite makes the punched hole easy). Release still GATED on the owner's
-domain fix.** Log: `mem:project/wip-2026-08-21-owner-uxbatch4` · plan `UXBATCH4_PLAN.md`.
-Prior (S1, 2026-08-21 — 10/15 items) (DECISIONS 2026-08-21; gates
-1,074/1,074 · astro 0 err; both shells verified via NEW re-runnable
-`scripts/verify-uxbatch4.mjs` 23/23): iOS selection tint killed (global user-select none) ·
-2D-map two-finger ROTATE + tilt-into-3D door removed (`mobile2dFreeHeading` latch) ·
-MapWindow continuous fractional pinch (PINCH_SENS 0.8, FPV z18) + desktop drag/−10% (DragGrip
-overflow-clip trap fixed) · target tracking ray FAR (rayLenK 6 / canvas edge) · vector ink
-halved + `vectorsVisible` pref + VEC / ▤ VECTOR toggles · ⌖ FIND IN FRAME above UNFOLLOW both
-shells · long-press ▲ 3D → FPV jump at map centre w/ last focal · /m dock time-only clock
-(PLAY+rate retired on /m) · Guide resizable (search had already shipped 19d). Plan + specs:
-`UXBATCH4_PLAN.md`; log `mem:project/wip-2026-08-21-owner-uxbatch4`. **NEXT SESSION: batch #4
-S2 = radar rework #9 (clipped target zone + thin sun/moon concentric bands + capped dials,
-unified GL/canvas/minimap) + focal cone everywhere (needs planned-view heading+focal state) +
-#11 focal joystick + #4b MapWindow twist — design-first. Then S3 = #15 tile-storm (SW cache;
-headers probed fine — cause is LRU re-fetch vs iOS cache) + #5 iOS reload/heat (contextlost/
-pagehide/lean profile) + #1 minimap PiP. Release still GATED on the owner's domain fix.**
-Prior state (2026-08-19d): **PLUX LAUNCH GROOMING SHIPPED** (DECISIONS 2026-08-19d; gates 1,073/1,073 ·
-astro 0 err; both shells + /guide CDP-verified): brand Sidera→PLUX everywhere (wordmark hero,
-nav/strip/upload marks, favicon.png + apple-touch, favicon.svg deleted) · domain plux.today
-assessed + repo flipped to `https://www.plux.today` (SITE_URL + 7 script defaults;
-`FTW_SITE_URL` override) — **PROD IS DARK until the owner finishes the GoDaddy nameserver
-replacement (Nameservers → Change → own nameservers = ONLY ns8/ns9.wixdns.net), Wix issues the
-www TLS cert, and the headless OAuth allowlist gains plux.today; `wix release` is GATED on
-that** · guide G2-refresh (16 topics corrected + 7 new + 3 goals; shell-m.webp re-shot; other
-5 desktop shots = warm-cache tail) · guide BM25+fuzzy search both shells
-(`lib/guide/search.ts` + rail/sheet UIs, 11 tests). See
-`mem:project/wip-2026-08-19-plux-launch-grooming`. **NEXT SESSION: confirm domain live → wix
-release (first Plux prod + standing canary) → warm-prod-assets → re-shoot the 5 stale guide
-shots on a warm cache → owner taste pass (logo sizes, search placement).**
-Prior batch (#3, 2026-08-19c — all 9 announced items + 2 batch-#2 tails)
-(DECISIONS 2026-08-19c; gates 1,062/1,062 · astro 0 err/5 hints; browser-verified both
-shells over the owner's CDP Chrome, shots uxb3-01..07): desktop 2×4 toggle grid · desktop
-radar <10 km band · my-places-on-map desktop FIXED (missing `.ct-places.is-on` lit CSS +
-new GL `scene/placeMarkers.ts` lavender dots on the MAIN globe + save/delete local push) ·
-UNFOLLOW also disables its FIND body · /m LAYERS expands LEFT · radar-bearings regression
-FIXED (UNFOLLOW dismissal now session-only + body-named DIRECTION labels + one-time
-`prefsRev` re-arm of corrupted aim/SHOW offs) · places lists nearest-first
-(`lib/geo/proximity.ts`) · /m SAVE VIEW optional-name Sheet (portaled) · GOTO tracked-target
-chips both shells (`panels/SkyGotoChips.tsx`; below-horizon → `nextRiseAzimuth` aim). See
-`mem:project/wip-2026-08-19-owner-uxbatch3` (rulings + traps — incl. the foreign-CDP
-rAF-throttle trap + the depthTest:false far-hemisphere cull rule). **NEXT SESSION: batch-#3
-tails if the owner flags them (FPV mini-map place markers · bright-target FIND refinement ·
-taste pass), then P8 conjunctions + P9 lunar eclipses + M4 mobile resume.**
-Prior batch (#2, 2026-08-19b — all 11 items; DECISIONS 2026-08-19b;
-gates 1,052/1,052 · astro 0 err/5 hints; browser-verified both shells, shots uxb2-01..05):
-cap 1000 · /m map glyph + day steppers + joystick-over-fullscreen-map · Esc-closes-map-first ·
-SKY search default · DISABLE menu labels + find-in-frame composite-state fix · UNFOLLOW verb
-(`sky.stopFollowing`; visible=false = dismissed everywhere) + peek hint + target-section
-reorder both shells · FIND third body generalised `gc`→`target` (ANY tracked target) ·
-/m ⊞ LAYERS chip + MY-PLACES-ON-MAP (`store/places.ts`, 2D MapWindow markers, pinLavender) +
-`aimVisible` RADAR master + `pinsVisible` /m-default-off. See
-`mem:project/wip-2026-08-19-owner-uxbatch2` (rulings, traps — incl. the wix-dev-SIGPIPE
-harness trap). **NEXT SESSION: batch tails first if the owner flags them (GL-globe/minimap
-saved-place markers · post-save push into placesMap · bright-target FIND visibility · taste
-pass), then P8 conjunctions + P9 lunar eclipses + M4 mobile resume.**
-Prior milestone (U8, ladder COMPLETE): (DECISIONS top entry 2026-08-19; gates 1,048/1,048 · astro 0 err/5 hints;
-browser-verified both shells via `scripts/verify-bldg-override.mjs`, shots u8-01..06).
-FPV dblclick/double-tap arms an enriched building → claimed-pointer drag with SOLID original +
-ghost preview + mesh-pinned dual-height label → commit persists to `ftw:bldg-overrides:v1`
-(per-edit band 0.5×/3×; scale folded into applyFeatureSeats — commutes with seats; checksum
-invalidates on re-bake). Bakers now emit `cell-*.meta.json` osmId sidecars; backend PREPARED
-but dormant for the batch-sync phase (LWW BuildingOverrides + bulkSave endpoint; activation
-ladder in NEXT_SESSION §2 — provision script NOT yet run). **NEXT SESSION = the owner's
-announced batch of minor-to-medium improvements + UX fixes (2026-08-18r)** — start from their
-list; then P8 conjunctions + P9 lunar eclipses + M4 mobile resume.
-Open riders: production canary (U8 + terrain + o2w-default + B1/T2/T3) on next `wix release` ·
-T1 owner device pass (now also judges the U8 glass gesture feel) · T29 extraction slice · T32
-one-liner · T28 · B4/T30 · Esri imagery rider · cross-region enriched attach mid-session
-(named tail). See `NEXT_SESSION_PROMPT.md` + `mem:project/wip-2026-08-18-u8-height-override`
-(rulings + traps incl. the TilesGroup ghost-matrix trap) +
-`mem:project/wip-2026-08-18-u7b-glo30-terrain-buildings-rule` + **`BAKED_ASSETS.md`** (the
-baked buildings/terrain/regions domain doc — now incl. the U8 identity sidecars).
-
-## Source layout (as-built; refreshed 2026-08-15)
-Fuller map: ARCHITECTURE §7 · contract-strings/field inventory: `conventions/contracts.md`.
-- `src/components/globe/` — client:only three.js scene. `tuning.ts` (ALL tunables, documented) ·
-  `scene/*` attach-modules (baseEarth/graticule/atmosphere/stars/buildings/enrichedBuildings/
-  buildingMaterial/imageryGround/vectorTiles/vectorFeatures/streetNames/geoLabels/sky/skyTarget/
-  skyTrail/skyGhosts/skyNames/findGhosts/dayArcs/planFeed/minimapFeed + glsl) ·
-  `StylizedTiles.ts` orchestrator (named step-closures) · `PhotoFrustum.ts` · `Pins.ts` ·
-  `flight.ts` · `explore.ts` · `GlobeCanvas.tsx`. Design imports NEVER touch.
-  Convention: `.claude/conventions/globe-tuning.md`.
-- `src/components/panels|ui/` — the full desktop chrome (UploadFlow, PhotoDetailPanel,
-  LocationFinder, TimeScrubber, TimeReadout, CameraTiltPanel, FpvHud, TargetPanel, PlanPanel,
-  FindPanel, PlanFindToggle, Guide, Frame/Today/MoonCal/SpotStars cards, SkyContextMenu,
-  MyPins, MyLocation, Marketplace, Welcome, ExploreMode, MemberBadge, MiniMap, PinHoverCard
-  + ui/*). Design imports allowed. `src/components/mobile/` — the full `/m` shell
-  (MobileShell, Sheet/TabBar, PlanSheet, FindSheet, GuideSheet, TargetSheet/TargetPeek,
-  MobileSearch, MobileAccount, MobilePlaces, MobileTimeDock, FpvControls, SceneActions).
-- `src/lib/` — ALL REAL: decode (libraw-wasm@1.0.5 worker) · geo (projection/frustum/geohash/
-  terrain/precision/urlPose/occlusion/horizonProfile/…) · ephemeris (bodies/comet/targets/
-  planner/stars/asterisms/dayArc/frameFinder/sunEventFrame/moonCalendar/mwSeason/twilight/
-  topo/…) · sky (catalog/searchIndex/openngc/simbad/sbdb/hoverNames/ttlCache/…) · globe
-  (quality/enrichedVariant/enrichedMask) · guide (guideContent + inline crosslink grammar) ·
-  pins (fields = shared row mappers, appearance) · photo (npf) · export (ics) · market+save+wix
-  (record builders + SDK clients) · theme (GL token bridge) · format/api/prefs/textures.
-- `src/store/` — zustand: upload/camera/time/pins/member/save/market/plan/sky/skyAim/minimap/find.
-- `src/pages/` — index.astro + m.astro (+ layouts) + `api/*` thin endpoints (~8 routes: photos,
-  places, listings, market, upload-url, sbdb, dev-seed, ping); there is NO `src/backend/`.
-- `public/textures|data/` — earth + milky-way sets (8k desktop / 2k mobile) + baked catalogs
-  (bsc5.bin, openngc.bin, constellation-lines.json). `public/guide/` — 12 guide screenshots
-  (warm-list-coupled). `test/` — vitest twins of every lib (886 tests as of 2026-08-15).
+## Source layout (verified 2026-09-06)
+- `src/components/globe/` — the `client:only` three.js scene: `tuning.ts` (every tunable) · `scene/`
+  35 attach-modules · `StylizedTiles.ts` orchestrator · `PhotoFrustum` · `Pins` · `flight` ·
+  `explore` · `GlobeCanvas.tsx`. Design imports NEVER touch it (`conventions/globe-tuning.md`).
+- `src/components/` — `panels|ui` desktop chrome · `mobile` the `/m` shell · `controls` shared input
+  instruments (a pure leaf: react + stores + `lib/**` + `globe/tuning`).
+- `src/lib/` — 18 entries, all real: decode (libraw-wasm worker), geo, ephemeris, sky, globe,
+  models, guide, pins, photo, export, market, save, wix, theme, format, api, textures, `prefs.ts`.
+- `src/store/` 19 zustand stores · `src/pages/` `index.astro`, `m.astro`, `guide.astro`, layouts and
+  11 thin `api/*` routes — no `src/backend/` · `public/` textures, data, guide shots · `test/` 164
+  vitest files / 2,463 tests.
 
 ## Key invariants (violations = bugs)
-- Globe is `client:only` — **never SSR WebGL**. Decode runs in a **Web Worker**; free RAW buffers immediately.
-- **Never fabricate a Wix API signature** — verify via Wix MCP. Keep endpoints thin (heavy compute client-side, C1).
-- Stylize tiles via `load-model` material swap, **not** `BatchedTilesPlugin`. On ground-imagery tiles,
-  **chain** onBeforeCompile (TilesFadePlugin already wrapped it). Astro **5** only (not 6).
-- Globe/GL colour flows through `lib/theme/tokens.ts` (D14). Colour textures = sRGB; data textures =
-  `NoColorSpace`. Fence design imports to panels/ui/styles.
-- **C6 privacy:** never expose exact GPS on a public pin (reduced precision: exact/1km/city).
-- No split payments → owner-mediated payout. Claude vision → JPEG only, never RAW. Wix Data → geohash, no geo query.
+- The globe is `client:only` — **never SSR WebGL** (C4). Decode runs in a **Web Worker**; free RAW
+  buffers immediately. Astro **5** only.
+- **Never fabricate a Wix API signature** — verify through Wix MCP. Endpoints stay thin, compute
+  client-side (C1); backend admin calls need `elevate()`.
+- Stylize tiles by material swap on `load-model`, **not** `BatchedTilesPlugin`
+  (`scene/buildings.ts:32`); on ground tiles **chain** `onBeforeCompile` — TilesFadePlugin wrapped
+  it.
+- Globe and GL colour flow through `lib/theme/tokens.ts` (D14): colour maps sRGB, mask/elevation/
+  normal data (`THREE.NoColorSpace`). Design imports write only under
+  `src/components/panels|ui|controls/**` + `src/styles/**`.
+- **C6 privacy:** a public pin never carries exact GPS — tiers exact / 1km / city, published at the
+  geohash cell centre (`lib/geo/precision.ts`).
+- Wix mechanics (no geo query → geohash `hasSome` + client refine; `elevate()`; TUS over 10 MB) are
+  in `mem:project/wix-platform`. Marketplace + AI rules (C3 payout, JPEG-only vision) are in
+  `PROJECT_SEED.md` §3 — no code today, Phase 7 parked.
 
 ## Authority
-`PROJECT_SEED.md` §3 (C1–C6) + §4 (ADR D1–D15) are **binding**. `ARCHITECTURE.md` + `IMPLEMENTATION_PLAN.md`
-are the execution source of truth (distilled from `provenance/DEEP_RESEARCH.md` = provenance). Conventions:
-`.claude/conventions/` (`wix-headless.md` = platform mechanics). Workflow: the **`/frame`** skill.
-
-## Related memories
-- `mem:tech_stack` — runtime/deps/tooling · `mem:suggested_commands` — build/test/dev/release
-- `mem:task_completion` — quality gate before done · `mem:project/dev_environment` — what can't be tested locally
-- `mem:project/wix-platform` — Wix mechanics + gotchas + TODO-VERIFY · `mem:project/wix-site` — live URL + siteId/appId
-- `mem:architecture/system-overview` — the engine + pipelines
-- `mem:patterns/globe-rendering` — how the organic LEO globe is built (bands, atmosphere, ground grade, traps)
-- `mem:patterns/sky-bodies-terrain` — ephemeris sun/moon, scene time, bloom, shadows, REAL terrain (Phase-4-era snapshot, frozen 2026-07-10 — the ground pipeline was REBUILT 2026-08-18b/c U3; current truth = ARCHITECTURE §7 + `conventions/globe-tuning.md`)
-- `mem:patterns/design-system` — imported Claude Design tokens/type/motion/screen boards (chrome; globe stays fenced)
-- `mem:decisions/adr-000-locked-stack` — the 15 locked ADRs · `mem:decisions/session_workflow` — persistence loop
-- `mem:decisions/session-end-autoship` — the SessionEnd auto-ship hook contract
-- `mem:memory_maintenance` — how to maintain this graph
+`PROJECT_SEED.md` §3 (C1–C6) and §4 (ADR-000, D1–D15) are **binding**. `ARCHITECTURE.md` +
+`IMPLEMENTATION_PLAN.md` are the execution source of truth, distilled from
+`provenance/DEEP_RESEARCH.md`. Rules: `.claude/conventions/` (`wix-headless.md` = platform
+mechanics). Workflow: the **`/frame`** skill.

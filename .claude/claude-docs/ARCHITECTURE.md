@@ -45,6 +45,9 @@ DNIPRO_3D_ENRICHMENT_PLAN.md` · `rendering/RENDERING_QUALITY_PASS.md`; mechanic
 `mem:project/wip-2026-07-13-*` / `wip-2026-07-14-*`.
 
 ## 3. Decode pipeline (ADR D3) [VERIFIED pipeline; UNVERIFIED threads]
+> *(Tag resolved 2026-09-06: the threads question is MOOT — single-threaded SIMD decode shipped in
+> Phases 2–5 and WASM threads were never needed, so COOP/COEP headers were never required. See
+> `IMPLEMENTATION_PLAN.md` TODO-VERIFY row 2. The heading keeps its original tag as written.)*
 `exifr` embedded-JPEG instant preview (<100ms target) → `libraw-wasm` full demosaic in a **Web Worker**
 (OffscreenCanvas, transfer ArrayBuffer). HEIC: Safari-native `createImageBitmap` detect (17–39× faster) →
 `libheif-js` dynamic-import fallback. **Single-threaded SIMD by default** (COOP/COEP unverified). Heap:
@@ -116,6 +119,13 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
 - **SavedPlaces** (member camera bookmarks): title/owner + the `#f=`-grammar pose fields.
 - **There is NO Listings collection** — listing state rides Photos/PublicPins product fields
   (the marketplace is Stores products + these links; see §6 `/api/listings`).
+
+> **Addendum 2026-09-06** — two collections joined after this section's 2026-08-13 rewrite and are
+> provisioned in the same script: **`BuildingOverrides`** (MESH SUITE MS3, 2026-09-02f — OSM-keyed
+> last-committer-wins rows carrying the v2 spatial fields; the elevated `/api/building-overrides` is
+> its only writer) and **`UserModels`** (MESH SUITE MS4–MS8, 2026-09-02h → 2026-09-05 — a member's
+> uploaded GLB plus its placement and three seats; `/api/models` for the owner, `/api/world-models`
+> for the public read). Field-by-field inventory: `conventions/contracts.md` §4.
 
 ## 6. Endpoint contracts (Astro backend — thin; heavy compute stays client-side per C1)
 | Endpoint | Does | Notes |
@@ -341,6 +351,63 @@ New modules: `lib/geo/bestSpot{Types,Track,Metric,Scoring,Solver,Worker,WorkerCl
 `panels/BestSpotPanel`; `store/bestSpot`; `lib/theme/heatPalette`; `controls/{InstrumentSlider,ChipRow}`.
 DEV seams: `__globe.bestSpot()` · `bestSpotSheet()` (the LIVE material) · **`bestSpotField()` (the
 published RG8 — read its DISTRIBUTION, never a flag)** · `bestSpotTuning` + `.ab()` + `.export()`.
+
+## 7d. MESH SUITE — spatial edits, world-shared overrides, user models (as built 2026-09-02 → 2026-09-05) · **CLOSED 2026-09-05b**
+> **Addendum 2026-09-06.** As-built detail is `MESH_SUITE_PLAN.md` §6–§15 (one section per slice) —
+> read there rather than here. Owner ruling 2026-09-05b closed the track ("this concludes all
+> mesh-related work at the moment"); its open taste calls are parked with it. Decisions:
+> `DECISIONS.md` 2026-09-02 → 2026-09-05.
+
+Three directions, all shipped:
+
+- **D1 — the spatial suite (MS1 §6, MS2 §7).** The substrate is `lib/globe/featureTransform.ts` +
+  `lib/globe/bldgOverrides.ts`: v2 rows that recompose ABSOLUTELY from a pristine snapshot, under
+  per-op rails. The UI is `scene/bldgGizmo.ts` — three's `TransformControls` on the ghost rig, fed by
+  the FPV gesture table: context menu + op strip + `G`/`R`/`S`/`E`, MOVE / ROTATE / SCALE about the
+  mesh centre, per-op revert, and the pre-existing U8 extrude drag kept byte-identical.
+- **D2 — world-shared building edits (MS3 §8).** Edits persist to the `BuildingOverrides` collection
+  through `/api/building-overrides` and merge in `lib/globe/bldgSync.ts` under one policy: local
+  pending wins, a shared row wins over my synced copy, and a reset of a shared edit is a tombstone.
+  A per-cell and by-OSM-id index is what the engine's load-model seam reads at chunk load.
+- **D3 — user-uploaded models (MS4–MS8, §9–§11 and §13–§15).** The UPLOAD modal forks on file type;
+  a model is checked, decimated and packed to GLB **in the browser**, then stored as public Wix Media
+  behind the repo's first server-side mime allowlist (`/api/upload-url` `kind:"model"`). Rows live in
+  `UserModels` (`/api/models`: owner GET, descriptor-verified POST, the MS6 PATCH split — placement
+  open to every member under LWW with `editorMemberId`, title and hidden owner-only — and DELETE).
+  Visitors stream the world through the public `GET /api/world-models?cells=` into
+  `scene/userModels.ts`, which builds an ENU rig per model under a triangle budget. A model has three
+  seats: the terrain seat, the MS7 `tU` LIFT seat railed onto a height-aware floor so it can never
+  sink out of sight, and MS8 pitch/roll. Management is the fourth MY PINS tab (`MyModelsTab.tsx`)
+  with per-row GOTO and RESET.
+
+DEV seams: `__globe.userModels()` · `__globe.modelGizmo()` · `__globe.bldgGizmo()` ·
+`__globe.enrichedState()` / `enrichedSetTransform()` (`conventions/contracts.md` §3).
+
+## 7e. Rendering instrumentation and the T77 performance track (as built 2026-09-01 → 2026-09-06)
+> **Addendum 2026-09-06.** Bundle entry point: `rendering/README.md`. The track is open — plan
+> `rendering/T77_AUDIT_PLAN_2026-09-05.md`, numbers `rendering/MEASUREMENTS_2026-09-05.md`.
+
+- **The DBG window (2026-09-01; design `DEBUG_HUD_PLAN.md`).** `components/panels/DebugPanel.tsx` —
+  desktop-only, off by default, armed by a `debugHud` flag in the shared `ftw:view-prefs:v1` blob
+  (same gate shape as ULT, so the module-scope desktop predicate is the fence, never the store
+  field). 151 metrics and 3 actions. The engine collects nothing until the window mounts; values
+  arrive by POLLING `lib/globe/debugFeed.ts` providers at 250 ms / 1 s, React renders structure only,
+  and values are written imperatively through refs on a 10 Hz tick — a per-frame globe read must
+  never trigger a re-render. Cumulative counters render as differenced per-second rates. The runtime
+  read seam is `window.__debugFeed` (the one seam that is not DEV-gated).
+- **T77 slice 0 / T79 — the below-camera raycast gate (2026-09-06).** `lib/globe/belowCameraGate.ts`
+  wraps `THREE.Mesh.prototype.raycast` once; while armed, a mesh proven to top out below the camera's
+  action height skips its triangle loop. `components/globe/scene/pluxGlobeControls.ts`
+  (`PluxGlobeControls extends GlobeControls`, constructed at `StylizedTiles.ts:1089`) arms it only
+  inside `_getPointBelowCamera` and leaves `_updateZoom` on the exact path, so the two per-frame
+  callers see byte-identical results. Measured on the owner's M3 Pro: orbit frame time 44.5 → 18.1 ms,
+  CPU 43.3 → 1.2 ms. As-built and receipt: `rendering/T77_SLICE0_ORBIT_FRAME_2026-09-06.md`. DEV seam
+  `__globe.controls.belowCameraGate(enabled?)`.
+- **The phone harnesses (2026-09-06).** Two real devices now read the same `window.__debugFeed`
+  snapshot the desktop harness reads: an iPhone 17 Pro on AWS Device Farm via
+  `tools/devicefarm/ios-baseline.mjs` over a `cloudflared` tunnel (runbook `tools/devicefarm/README.md`),
+  and a Pixel 6 Pro over adb via `scripts/verify-perf-baseline.mjs <port> --device`. Results:
+  `rendering/MEASUREMENTS_2026-09-05.md` §11.
 
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to

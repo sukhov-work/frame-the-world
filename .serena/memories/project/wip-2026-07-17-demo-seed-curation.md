@@ -6,7 +6,7 @@ surprise me". Docs-only session — no code. Chunk-500 prod outage: owner-confir
 (warm-script ritual stands, [[project/wip-2026-07-16-prod-asset-outage]]).
 
 ## Where everything lives
-- **The dozen + alternates + license-rejects + seeding plan:** `.claude/claude-docs/DEMO_CONTENT_SEED.md`
+- **The dozen + alternates + license-rejects + seeding plan:** `.claude/claude-docs/archive/DEMO_CONTENT_SEED.md` *(now under `archive/`; path corrected 2026-09-06)*
   (NEW root working doc; archive after seeding). All 12 machine-verified: Commons
   `extmetadata.LicenseShortName` = CC0/"Public domain" (or US-Gov work) + direct URLs HTTP-200'd.
 - **Ordered next-session queue:** `NEXT_SESSION_PROMPT.md` §Do next — 1) Phase 6.9 marketplace-UI
@@ -43,7 +43,7 @@ Mona Canyon (**open-ocean pin** — the surprise, NOAA-PD). Every continent + an
   affordance (headless plan-purchase flow = VERIFY via Wix MCP) · **MARKETPLACE top-right button**
   in the `.topnav` cluster (`index.astro:159-161`) + public `GET /api/market` browse panel ·
   **FAQ floating panel** with screenshots, built AFTER seeding (populated globe in shots;
-  `public/faq/` assets → add to warm-prod-assets seed list).
+  `public/faq/` assets → add to warm-prod-assets seed list) *(note 2026-09-06: `public/faq/` was deleted when the FAQ was absorbed into the guide; guide assets live under `public/guide/`)*.
 - Wikimedia 429/403s bare user-agents → fetch SERIALLY with a descriptive User-Agent (twin of the
   warm-prod-assets lesson). fws.gov hard-blocks bots (403). photolibrary.usap.gov is NXDOMAIN —
   Commons mirrors are the live hosts.

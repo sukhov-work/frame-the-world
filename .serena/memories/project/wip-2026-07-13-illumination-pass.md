@@ -1,4 +1,4 @@
-# Illumination pass — crisp shadows + sun/moon golden-hour GI + cyberpunk windows (2026-07-13)
+# Illumination pass — crisp shadows + sun/moon golden-hour GI (2026-07-13) (compacted 2026-09-06 from 10,243 B; verbatim history: DECISIONS_ARCHIVE.md §Moved 2026-08-15)
 
 Owner ask: bring back CRISP shadows + MORE golden-hour dusk global illumination from BOTH sun AND moon,
 sunrise/sunset + smooth day/night dynamics, realistic-but-stylized cyberpunk. Believed a prior "yellow
@@ -81,16 +81,10 @@ DRAPE.moonShadowOpacity 0.5→0.62 · SHADOWS.moonGroundOpacity 0.55→0.62 · S
 lerp moon key toward goldenHour by bell(moon elev) = "moon golden hour" at moonrise/set.
 **Night/moon GI:** SUN.hemiIntensity 0.25→0.32 · GROUND.ambientNightK 0.012→0.02 · GROUND.nightFloor
 0.35→0.40 · EARTH.nightFloor 0.19→0.23 · SKY.moonSceneGlow 0.35→0.5 · GROUND.moonFillK 0.5→0.7.
-**Cyberpunk windows (scene/buildings.ts — the risky shader):** `nightWindowGain 0→0.4` now drives a
-PROCEDURAL lit-window GRID (replaces the twice-rejected flat emissive). Built in OBJECT space (vFtwLPos =
-RTC-local vertex `position` → float32-safe + camera-stable; view-space height would crawl). New varyings
-`vFtwLPos`/`vFtwObjUp` (`vFtwObjUp = normalize(transpose(mat3(modelMatrix))*uFtwUp)`); fragment derives the
-per-wall tangent from `cross(dFdx(vFtwLPos),dFdy(vFtwLPos))` → floor bands (`h/nightFloorH`) × window columns
-(`u/nightWindowW`), AA panes (nightWindowFill/AA), per-window on hash (nightWindowOnFrac), cool-cyan minority
-(`uFtwWindowCool = tokens.atmosphere`, nightCyanFrac), gated to vertical walls (existing wallness) + the
-top-~25% building hash. Rides the ONE shared material's existing onBeforeCompile. NaN-guarded (degenerate
-face → fallback tangent). New BUILDINGS knobs: nightFloorH 3.5, nightWindowW 4.0, nightWindowFill 0.34,
-nightWindowAA 0.08, nightCyanFrac 0.18, nightWindowOnFrac 0.6.
+**Cyberpunk windows — VOID.** The procedural lit-window grid described here was built and then
+removed the same day on the owner's order (see the WINDOWS REMOVED update above); `nightWindowGain`
+is 0 and the six `BUILDINGS.night*` window tunables are gone. Buildings carry no night emissive by
+design.
 
 ## Browser-verify checklist (owner, wix dev — MANDATORY before trusting)
 1. City/Dnipro, default dark drape, scrub to noon: crisp contact shadows under buildings, brighter ground
@@ -99,11 +93,8 @@ nightWindowAA 0.08, nightCyanFrac 0.18, nightWindowOnFrac 0.6.
 3. `npm test` (skyBudget) green (already) + eyeball dusk horizon for re-whiting.
 4. Full-moon night: crisp moon shadows + richer moonlit ground; scrub moon LOW → cool golden swell (moonKeyStrength).
 5. New-moon night: not pitch black (hemi/ambientNightK/nightFloor) but terminator + VIIRS not washed.
-6. **Windows (crux):** `nightWindowGain 0.4`, reload over Dnipro → reads as LIT WINDOWS up facades (NOT
-   roof/wall flood), ~top-25% towers, a few cyan; roofs dark; no bloom-smear. **PRECISION: console.log a
-   building `geometry.attributes.position` bbox magnitude at load-model — must be RTC-local small metres, not
-   ECEF-huge; if huge the grid aliases/tears → object-space approach must change.**
-7. Regression safety: set nightWindowGain/keyBrighten/moonKeyStrength = 0 → byte-identical to pre-change.
+6. (void — the windows item went with the window grid.)
+7. Regression safety: `keyBrighten`/`moonKeyStrength` = 0 → byte-identical to pre-change.
 
 Related: [[patterns/globe-rendering]] [[patterns/sky-bodies-terrain]] — the golden/shadow/moon twins to keep
 in sync. Prior: rendering/RENDERING_QUALITY_PASS.md (this is an illumination sub-pass).

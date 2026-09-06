@@ -1,94 +1,69 @@
-# wip 2026-08-21f — OWNER QA BATCH (7 items after device QA) — COMPLETE
+# wip 2026-08-21f — OWNER QA BATCH (7 items after device QA) — COMPLETE (compacted 2026-09-06 from 12,173 B; verbatim history: DECISIONS_ARCHIVE.md §Moved 2026-09-06)
 
-DECISIONS 2026-08-21f. Gates: vitest 1,116/1,116 (+7) · astro 0 err/5 hints · regressions
-uxbatch4 23/23 + s2 16/16 + s3 18/18 + uxb5 17/17 + uxb6 12/12 ALL PASS + NEW
-`scripts/verify-uxbatch7.mjs` 22/22 (shots uxb7-01..06). Item 7 was a QUESTION (answered,
-no code). NOTE: the owner's two comparison screenshots arrived as byte-identical placeholder
-icons AGAIN (the batch-#5 corruption) — item 7 answered from pipeline code instead.
+DECISIONS 2026-08-21f. Gates: vitest 1,116/1,116 (+7) · astro 0 err / 5 hints · five regression
+suites ALL PASS + NEW `scripts/verify-uxbatch7.mjs` 22/22 (shots uxb7-01..06). Item 7 was a
+question, answered from pipeline code (the owner's comparison screenshots again arrived as
+byte-identical placeholder icons — the batch-#5 corruption).
 
 ## What shipped (root causes)
-1. **Radar follows the viewer in the expanded minimap (QA-1)** — two detach mechanisms:
-   (a) MapWindow `aimAnchorNow` was tempPin-first (batch #6) → radar on the pin while
-   cone/eye-dot rode camGeo. Now **FPV-live ⇒ camGeo first** (`(fpvHud ? camGeo : null) ??
-   tempPin ?? camGeo ?? focus`); outside FPV batch-#6 pin-first stands. (b) placing a pin
-   under a LIVE temp FPV re-posed per-frame with the OLD pin's ENU basis + stale
-   fpvWalkOffset ⇒ eye landed |walkOffset| off the new pin. NEW `fpvPinKey` closure in
-   StylizedTiles: pin change ⇒ re-seat basis at the new pin (current world-dir → heading
-   carried, elevation → fpvPitch, fpvYaw 0) + `fpvWalkOffset.set(0,0,0)`. Verified: eye
-   0.0 m from pin after place, map stays open. Plus **FPV follow** in MapWindow.draw —
-   rubber-band recentre when the eye leaves `FPV_FOLLOW_FRAC 0.12` of min(w,h) (skipped
-   while pointers active; supersedes batch-#5 "chart deliberately does not re-centre" FOR
-   THE FPV-LIVE CASE). **Radar size unified**: NEW `AIMCONES.mapRadiusHK 0.5` — rBase =
-   h × 0.5 (× mobileRadiusK on /m), the GL fan's fraction-of-height equivalent
-   (radiusAltK/tan(POSE.fovDeg/2) ≈ 1.02 × half-height); replaces 0.3 × min(w,h) (≈3.7×
-   too small on a phone). Draw + tap-promote hit test mirror (both sites edited).
-2. **FPV entry preserves the focal cone (QA-2)** — entries ignored plannedView: (a)
-   no-share temp entry (LOOK FROM HERE / placed point) built its basis from camera-forward
-   which DEGENERATES TO NORTH at the /m 2D nadir, FOV hardcoded tempFovDeg 55. Now
-   plannedView.headingDeg steers the basis (share-branch code shape) + FOV =
-   clamp(verticalFovDeg(plan.hFovDeg, camera.aspect)) — `verticalFovDeg` (lib/decode/
-   sensors) is the inverse of horizontalFovDeg, newly imported into the orchestrator.
-   (b) SceneActions long-press ▲3D jump used cam.headingDeg (the 2D MAP-UP bearing, not a
-   view) + lastFpvFovDeg. Now plan-first, old values fallback (plan re-seeds on FPV exit so
-   "last focal" intent survives inside it). (c) desktop MapWindow viewFromHere hardcoded
-   north/55° → plan-first too. Verified: entry heading 137.0 exact, fov 76.5 = expected.
-3. **Radar occlusion gaps (QA-3)** — research VERDICT: gaps NEVER existed on any radar
-   surface at any commit (7 git -S probes, U4 birth blobs, S2 diff — owner's regression
-   suspicion refuted; the time-rail trace + horizon rise/set gaps are what they remembered).
-   Implemented as a NEW capability: pure `fractureRunsBySkyline(runs, sampler)` in
-   azSector.ts (sample stays when altDeg ≥ skyline(azDeg); <2-sample sub-runs dropped;
-   null sampler ⇒ untouched). Fills + rim arcs fracture; rise/set spokes + direction lines
-   stay whole. Feeds: GL fan gets `skylineBins` via ctx (orchestrator resolves
-   store/plan.profileBins behind the anchor guard; ARRAY IDENTITY = rebuild key);
-   MapWindow + MiniMap sample `usePlanStore` directly + `sampleBins`. NEW
-   `AIMCONES.skylineGuardM 60` — bins only apply when the plan anchor (photo apex/FPV eye)
-   sits within 60 m of the radar anchor (honesty rule; plan anchor kind ≠ "focus").
-   MapWindow subscribes usePlanStore for repaint. Verified: profile ready at 13.9 m from
-   eye, arcs visibly fracture (uxb7-06 vs -04). GL-fan visual = T1 rider (needs a placed
-   photo anchor).
-4. **Time scrubber on the expanded map (QA-4)** — NO new component: /m lifts the REAL dock
-   (`body.m.mw-open .m-bottom {z-index:24}` + `.m-peek/.m-tabs {display:none}` — display
-   not visibility so the dock sits flush; React mounts stay warm) + dock inherits the tab
-   bar's safe-area padding; desktop raises the REAL TimeScrubber over the window
-   (`body.mw-open .ts {z-index:43}` — .mw is 42; MapWindow sets body.mw-open on BOTH
-   shells). Bottom `.mw-hint` RETIRED (desktop hint → `.mw-tophint` in the top row; /m
-   long-press action is guide-documented); `.mw-credit` re-seated top-left under the top
-   row (Esri ToS attribution kept), /m max-width clears the 32vw PiP.
+1. **Radar follows the viewer in the expanded minimap (QA-1)** — two detach mechanisms. (a)
+   MapWindow `aimAnchorNow` was tempPin-first (batch #6), so the radar sat on the pin while the
+   cone and eye dot rode camGeo; now **FPV-live ⇒ camGeo first**
+   (`(fpvHud ? camGeo : null) ?? tempPin ?? camGeo ?? focus`), pin-first outside FPV. (b) Placing a
+   pin under a LIVE temp FPV re-posed per frame with the OLD pin's ENU basis and a stale
+   `fpvWalkOffset`, so the eye landed |walkOffset| off the new pin. A NEW `fpvPinKey` closure in
+   StylizedTiles re-seats the basis at the new pin (heading carried, elevation → fpvPitch, fpvYaw 0)
+   and zeroes `fpvWalkOffset`. Plus **FPV follow** in `MapWindow.draw` — a rubber-band recentre when
+   the eye leaves `FPV_FOLLOW_FRAC 0.12` of min(w,h), skipped while pointers are active (this
+   supersedes batch #5's "the chart deliberately does not re-centre" for the FPV-live case).
+   **Radar size unified**: NEW `AIMCONES.mapRadiusHK 0.5` — rBase = h × 0.5 (× mobileRadiusK on /m),
+   the GL fan's fraction-of-height equivalent; the old 0.3 × min(w,h) was ~3.7× too small on a phone.
+2. **FPV entry preserves the focal cone (QA-2)** — three entries ignored `plannedView`. (a) The
+   no-share temp entry built its basis from camera-forward, which DEGENERATES TO NORTH at the /m 2D
+   nadir, with FOV hardcoded to `tempFovDeg 55`; now `plannedView.headingDeg` steers the basis and
+   FOV = `clamp(verticalFovDeg(plan.hFovDeg, camera.aspect))` (`verticalFovDeg` in
+   `lib/decode/sensors` is the inverse of `horizontalFovDeg`). (b) The SceneActions long-press ▲3D
+   jump used `cam.headingDeg` (the 2D MAP-UP bearing, not a view); now plan-first with the old
+   values as fallback. (c) Desktop `MapWindow.viewFromHere` hardcoded north/55° — plan-first too.
+3. **Radar occlusion gaps (QA-3)** — REFUTED as a regression: the gaps never existed on any radar
+   surface at any commit (7 `git -S` probes, U4 birth blobs, S2 diff). Shipped as a NEW capability
+   instead: pure `fractureRunsBySkyline(runs, sampler)` in `azSector.ts` (a sample stays when
+   `altDeg ≥ skyline(azDeg)`; sub-runs under 2 samples are dropped; a null sampler leaves runs
+   untouched). Fills and rim arcs fracture; rise/set spokes and direction lines stay whole. The GL
+   fan gets `skylineBins` via ctx (ARRAY IDENTITY is the rebuild key); MapWindow and MiniMap sample
+   `usePlanStore` directly. NEW `AIMCONES.skylineGuardM 60` — bins apply only when the plan anchor
+   sits within 60 m of the radar anchor (the honesty rule).
+4. **Time scrubber on the expanded map (QA-4)** — NO new component. /m lifts the REAL dock
+   (`body.m.mw-open .m-bottom {z-index:24}` + `.m-peek/.m-tabs {display:none}` — `display`, not
+   `visibility`, so the dock sits flush while React mounts stay warm); desktop raises the REAL
+   TimeScrubber over the window (`body.mw-open .ts {z-index:43}`; `.mw` is 42). The bottom
+   `.mw-hint` is retired and `.mw-credit` re-seated top-left under the top row.
 5. **/m chips under controls (QA-5)** — `.fh-chip` and `.m-joy` were BOTH fixed z-10 in one
    stacking context; the chips island mounts LAST in m.astro ⇒ painted above + stole
    touches. `body.m .fh-chip {z-index:9}` (one rung under all z-10 chrome).
-6. **Search (QA-6)** — placeholders: desktop `TYPE TO SEARCH — e.g. m31 · moon · orion ·
-   ngc 7000` / earth twin; /m `Type to search — e.g. m31 · moon · orion`. iOS dark-screen:
-   React `autoFocus` fired while the sheet was at translateY(100%) ⇒ Safari scrolled the
-   LAYOUT viewport to the off-screen input (Android resizes the visual viewport only ⇒
-   unaffected). Now a mount `useLayoutEffect` calls `focus({preventScroll:true})` in the
-   same discrete-event commit (user activation carries ⇒ keyboard still opens) + pins
-   `window.scrollTo(0,0)` via rAF + 550 ms timer + a visualViewport resize listener (the
-   /m shell is 100dvh — layout scrollY must always be 0). REAL-iOS feel = UNVERIFIED (T1).
-7. **Map-quality question (QA-7)** — answered (analysis): /m default 2D map = the GL globe
-   pipeline (MOBILE2D latch), expanded minimap = MapWindow raw canvas. Same Esri tiles; gap
-   = (1) `esriMaxLevelCoarse 17` vs MapWindow z19 (4× linear texel deficit — the dominant
-   cause), (2) leanMobile DPR 1.25 vs MapWindow DPR 2 (1.6× linear), (3) the stylized
-   ground grade (gain 0.60 · desat 0.52 · waterDarken 0.35 · ambient wash ⇒ ~0.5-0.64×
-   luminance) — ALL deliberate batch-#4-S3 iOS-jetsam/heat levers except the grade.
-   Zero-cost close-the-brightness-gap candidate: lerp gain→1/desat→0/waterDarken→1 by the
-   existing `uFtwFlat2d` uniform (2D-map-only, no memory cost). z18 (~4× deep-level GETs)
-   + flat2d-only DPR 1.5 = the middle option. Owner to rule.
+6. **Search (QA-6)** — new placeholders on both shells, plus the iOS dark-screen fix: React
+   `autoFocus` fired while the sheet was at `translateY(100%)`, so Safari scrolled the LAYOUT
+   viewport to the off-screen input (Android resizes only the visual viewport, hence unaffected). A
+   mount `useLayoutEffect` now calls `focus({preventScroll:true})` in the same discrete-event commit
+   (user activation carries, so the keyboard still opens) and pins `window.scrollTo(0,0)` via rAF +
+   a 550 ms timer + a visualViewport resize listener — the /m shell is 100dvh, so layout scrollY
+   must always be 0. REAL-iOS feel = UNVERIFIED (T1).
+7. **Map-quality question (QA-7)** — answered by analysis: the /m default 2D map is the GL globe
+   pipeline (MOBILE2D latch) and the expanded minimap is MapWindow's raw canvas. Same Esri tiles;
+   the gap is (1) `esriMaxLevelCoarse 17` vs MapWindow z19 (a 4× linear texel deficit — dominant),
+   (2) leanMobile DPR 1.25 vs MapWindow DPR 2 (1.6× linear), and (3) the stylized ground grade
+   (gain 0.60 · desat 0.52 · waterDarken 0.35 ⇒ ~0.5–0.64× luminance). All are deliberate
+   batch-#4-S3 iOS jetsam/heat levers except the grade.
 
 ## QA-7 a+b FOLLOW-UP (same session — owner: "try both, I judge perf on device")
-- **(a) PHOTOGRAPHIC 2D chart** — new `GROUND.flat2dPhotoK 1` → `uFtwPhotoK` uniform; shader
-  `photo = uFtwFlat2d × uFtwPhotoK × (1 − uFtwDark)` lerps OUT the whole stylized grade
-  (shade→1, desat→0, gain→1, cast→neutral, waterDarken/golden/moonlit/ambient→off) on the
-  flat chart only; dark-CARTO mode keeps its look; DESKTOP nadir flat-map rides the same
-  latch (one-flat-treatment doctrine — taste-pass item). A/B verified headed Chrome:
-  raw crisp imagery vs the old dim grade (shots qa7-08/-09).
-- **(b) crispness** — `TILESETS.esriMaxLevelCoarse 17→18`; `QUALITY.leanMobile.dprCap2d 1.5`
-  applied ONLY while `TilesHandle.mapFlat()` (GlobeCanvas tick flips + re-applies tier; FPV
-  keeps 1.25); AND the required third lever: `GROUND.overlayResolution2dPx 512` — the level
-  chooser derives source zoom from resolution/rangeWidth, so the 256 lean composite alone
-  pinned the chart one level shallow even with the cap at 18. stepGroundUpdate is the ONE
-  writer of the effective composite px (raise on chart, tier base off it). z18 fetches
-  CDP-verified (35 tiles at 220 m).
+- **(a) PHOTOGRAPHIC 2D chart** — new `GROUND.flat2dPhotoK 1` → `uFtwPhotoK`; the shader
+  `photo = uFtwFlat2d × uFtwPhotoK × (1 − uFtwDark)` lerps OUT the whole stylized grade on the flat
+  chart only. Dark-CARTO mode keeps its look; the desktop nadir flat map rides the same latch.
+- **(b) crispness** — `TILESETS.esriMaxLevelCoarse 17→18`; `QUALITY.leanMobile.dprCap2d 1.5` applied
+  ONLY while `TilesHandle.mapFlat()` (FPV keeps 1.25); plus the required third lever,
+  `GROUND.overlayResolution2dPx 512` — the level chooser derives source zoom from
+  resolution/rangeWidth, so the 256 lean composite alone pinned the chart one level shallow even
+  with the cap at 18. `stepGroundUpdate` is the ONE writer of the effective composite px.
 - NEW DEV probe `window.__globeQuality` = {tier, dpr, flat2d, lean} (written in applyTier).
 - `verify-qa7ab.mjs` NEW (6 checks: flat-DPR tier-consistency, z18 via CDP Network, photo
   uniforms, FPV heat-cap return); `verify-uxbatch4-s3.mjs` DPR check SUPERSEDED (2D chart
@@ -121,17 +96,12 @@ rebuild loop.
   reset before visual assertions.
 
 ## Files
-tuning.ts (AIMCONES.mapRadiusHK, skylineGuardM) · lib/ephemeris/azSector.ts
-(fractureRunsBySkyline) · scene/aimCones.ts (skylineBins ctx + rebuild key + fracture) ·
-StylizedTiles.ts (fpvPinKey re-seat, plan-entry basis/FOV, skyline push, verticalFovDeg
-import) · panels/MapWindow.tsx (anchor order, follow, mapRadiusHK ×2 sites, plan jump,
-skylineNow + fracture + plan sub, hint/credit JSX) · panels/MiniMap.tsx (fracture + guard,
-readonly RadarBody runs) · mobile/SceneActions.tsx (plan jump) · mobile/MobileSearch.tsx
-(focus discipline + placeholder) · panels/LocationFinder.tsx (placeholder) ·
-styles/fpv-hud.css (chip z 9) · styles/map-window.css (tophint/credit re-seat) ·
-styles/mobile/fpv.css (mw-open dock lift) · styles/time-scrubber.css (mw-open z 43) ·
-tests: azSector.test (+5 fracture), aimCones.test (+2 tunable invariants) · scripts:
-verify-uxbatch7.mjs NEW (22 checks).
+`tuning.ts` (AIMCONES.mapRadiusHK, skylineGuardM) · `lib/ephemeris/azSector.ts`
+(fractureRunsBySkyline) · `scene/aimCones.ts` · `StylizedTiles.ts` (fpvPinKey re-seat, plan-entry
+basis/FOV, skyline push) · `panels/MapWindow.tsx` · `panels/MiniMap.tsx` ·
+`mobile/{SceneActions,MobileSearch}.tsx` · `panels/LocationFinder.tsx` ·
+`styles/{fpv-hud,map-window,time-scrubber}.css` · `styles/mobile/fpv.css` · tests
+`azSector` (+5) / `aimCones` (+2) · NEW `scripts/verify-uxbatch7.mjs` (22 checks).
 
 ## Traps (new)
 - **Headless verify Chrome EXHAUSTS WebGL contexts across suites** — each verify script
@@ -148,10 +118,7 @@ verify-uxbatch7.mjs NEW (22 checks).
   surfaces must measure in fractions of h (not min(w,h)).
 
 ## Open tails
-- T1 real device: iOS search-focus feel (the fix is code-verified only), moon-silver alpha,
-  gaps on GL fan with a placed photo, place-point relocation feel, map dock ergonomics.
-- Owner ruling wanted: QA-7 knobs — free flat2d de-grade (brightness) vs z18/DPR-1.5
-  (crispness at iOS memory cost) vs status quo.
-- Next scheduled (unchanged, owner order 2026-08-21e): AUDIT PASS + docs/guide reconcile —
-  now also covering THIS batch's seams (anchor order, mapRadiusHK, fracture feeds, dock
-  lift, search focus).
+- T1 real device: iOS search-focus feel (code-verified only), moon-silver alpha, gaps on the GL fan
+  with a placed photo, place-point relocation feel, map dock ergonomics.
+- **RESOLVED (2026-09-06 note):** the QA-7 ruling landed — the flat 2D chart is photographic
+  (`GROUND.flat2dPhotoK 1`), and audit #3 (2026-08-22c/d/e) covered this batch's seams.

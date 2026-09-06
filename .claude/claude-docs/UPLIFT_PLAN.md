@@ -134,6 +134,10 @@ mid-FPV would poison any foveation measurement).
   imageryGround.ts:77-88]. Actual max level over Dnipro: **UNVERIFIED** (needs a layer.json
   check); the enrichment plan already recorded "R6 — 30 m terrain ceiling limits
   riverbank/ravine fidelity" [DOCS dnipro-enrichment/DNIPRO_3D_ENRICHMENT_PLAN.md:220].
+  *(Resolved 2026-09-06: U7 measured it — CWT over Dnipro tops out at **L13 with 4-vertex leaf
+  quads**, roughly 2 km effective posting, not the assumed SRTM 30 m. That measurement is what
+  ordered the U7b GLO-30 patch bake, shipped 2026-08-18p. See this file's Appendix A and the head
+  status block.)*
 - The Dnipro bake carries NO terrain: buildings baked at ellipsoid h=0, runtime-clamped to
   rendered CWT in three stacked layers (group lift → per-cell → per-building vertex rewrite,
   budgeted + eased) [CODE bake.mjs:186; enrichedBuildings.ts:471-567].

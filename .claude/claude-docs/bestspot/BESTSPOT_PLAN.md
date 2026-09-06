@@ -1,4 +1,8 @@
 # BEST SPOT — observability heatmap for sun/moon rise & set
+> **Read `README.md` first (banner added 2026-09-06).** Plan of 2026-08-23 with the 2026-08-24d AS-BUILT appendix. Two
+> figures in it are dated: `verify-bestspot` "100 PASS" (line ~766) is now 96/101 BY DESIGN (T61), and the "54 leaves"
+> count (line ~826) was re-counted after 2026-08-26 — `README.md` has the current numbers. PARKED 2026-08-27.
+
 
 **Authored 2026-08-23** by a 13-agent `/frame` + `investigate-design-v3` pass (8 research tracks →
 architect → 3 adversarial lenses → consolidator). Owner rulings folded in 2026-08-24 (§0).

@@ -13,6 +13,9 @@ where required, least-privilege · commit the sensor dataset + unit-test FOV/geo
 ---
 
 ## Phase 1 — Scaffold + deploy "hello globe"  ☑ DONE 2026-07-09 (browser-verified; `wix release` pending greenlight)
+> *(Tag resolved 2026-09-06: the greenlight came — Phase 1 was RELEASED to the live URL on
+> 2026-07-10, DECISIONS §Per-phase digests. The site has been live at `plux.today` since the
+> 2026-08-19d brand and domain pass. `wix release` is no longer pending on anything.)*
 **Status (2026-07-09):** App scaffolded & merged; Cesium OSM Buildings globe live in browser over Dnipro;
 ion token in `.env.local` (gitignored); `astro check` + `wix build` green. **`wix release` deferred pending
 user greenlight.** → **Phase 2.**
@@ -135,6 +138,12 @@ Unplanned-in-the-7-phase-build but all SHIPPED + verified (one `DECISIONS.md` li
 - [x] **OSM2World parallel variant** — `bake-osm2world.mjs` (exact MetricMapProjection inversion), 10 km
   extent both bakes, `BLD` A/B chip. Prep/verdicts: `dnipro-enrichment/OSM2WORLD_EXPERIMENT_PREP.md`.
   *(2026-07-14; owner visual verdict pending)*
+  *(Re-checked 2026-09-06: still pending — no owner verdict on the o2w variant appears in DECISIONS.
+  Both o2w bakes are alive and maintained (`scripts/bake/cities/dnipro-o2w.json`,
+  `st-albans-o2w.json`; the 2026-08-26c charter pass fixed an o2w dedupe defect). Two details
+  drifted: the A/B seam is the `?enriched=` query parameter (`src/lib/globe/enrichedVariant.ts`),
+  and the `BLD` chip is now a plain buildings on/off, not a CLASSIC⇄OSM2WORLD toggle. Both bakes
+  were also expanded past 10 km to ~20x20 km Greater Dnipro.)*
 - [x] **Owner UX batches** — draggable panels (DragGrip), time playback + precise time, shareable scene time
   (`&t=`) + FPV views (`#f=`), FPV mini-map, always-on viewer coords, solidity screen-door dissolve,
   clickable ☀/☾ chips, PLAN panel placement, zero h-scroll. *(2026-07-14)*
@@ -286,8 +295,34 @@ perf regression-free (frozen chrome untouched) · only then does the mobile twin
 `GOTO` pill on the TargetPanel and the viewport chips aims the app's own CAMERA at a tracked
 body and is emphatically not this) · tides/rainbow ·
 Skyfire · the Phase-7 AI panel.
+*(Second disambiguation, 2026-09-06: the MESH SUITE MS7 **GOTO** on a MY PINS · MODELS row — shipped 2026-09-03, DECISIONS 2026-09-03 — flies the camera to the member's own placed 3D model. Same word, also not mount control.)*
 
 ---
+
+## Tracks after Phase 8 — dated addendum 2026-09-06
+
+Phase 8's sub-phases are not the whole record. Six owner-ordered tracks ran alongside and after them,
+each with its own plan document; this list exists so a Phase-0 read of THIS file does not miss them.
+Each row's status was checked against a `DECISIONS.md` ship line on 2026-09-06.
+
+| Track | Plan / as-built doc | State |
+|---|---|---|
+| **UPLIFT U1–U8** — 2D-first mobile · FPV stability · fullscreen map · direction cones · progressive and foveated loading · terrain precision · building height overrides | `UPLIFT_PLAN.md` | ☑ COMPLETE 2026-08-19 (already noted in the Phase-8 queue re-ruling above) |
+| **ULTRA** — the desktop opt-in fidelity mode, nine levers behind the `ULT` chip | charter `ULTRA_PLAN.md` → as-built `rendering/ULTRA_ARCHITECTURE.md`; `ARCHITECTURE.md` §7b | ☑ SHIPPED 2026-08-22j (DECISIONS 2026-08-22j); the 2026-08-27 immersion batch and taste pass appended as §13–§14 |
+| **RENDERING CHARTER** — the RC ladder that consolidated the FPV fidelity audit and four owner bugs | `rendering/RENDERING_CHARTER_2026-08-25.md` → as-built `rendering/RENDERING_ARCHITECTURE.md` | ☑ CLOSED 2026-08-26d (DECISIONS 2026-08-26d) |
+| **BEST SPOT** — the observability heatmap | `bestspot/README.md` (whole bundle); `ARCHITECTURE.md` §7c | ☑ SHIPPED S1→S7 on 2026-08-23/24 (DECISIONS 2026-08-27d), ⛔ **PARKED** by owner order 2026-08-27 (DECISIONS 2026-08-27); re-affirmed sufficient as-is 2026-09-01 |
+| **MESH SUITE MS0–MS8** — D1 gizmos · D2 world-shared building overrides · D3 user-uploaded models | `MESH_SUITE_PLAN.md` §6–§15 (one § per slice); `ARCHITECTURE.md` §7d | ☑ MS0–MS6 built 2026-09-02 (DECISIONS 2026-09-02 → 2026-09-02m), MS7 2026-09-03, MS8 2026-09-05; **track CLOSED** by owner ruling 2026-09-05b |
+| **T77 — architecture + performance audit and revamp** of rendering and scene management | bundle entry `rendering/README.md`; plan `rendering/T77_AUDIT_PLAN_2026-09-05.md` | ◐ **OPEN** as of 2026-09-06. Step 1 MEASURE done 2026-09-06 (DECISIONS 2026-09-06), step 1b both phones done 2026-09-06d, slice 0 / T79 built and closed 2026-09-06d/e; T80 bloom blocked on an owner ruling; slices A–E not started |
+
+Two shipped subsystems that Phase 8 never scheduled and that this file had not named: the **DBG
+window** (2026-09-01, design `DEBUG_HUD_PLAN.md`, as-built `ARCHITECTURE.md` §7e) and the **phone
+performance harnesses** (2026-09-06, `tools/devicefarm/README.md` and
+`scripts/verify-perf-baseline.mjs --device`).
+
+**Scope guard re-checked 2026-09-06.** Nothing in this file, `MOBILE_PLAN.md`, `MESH_SUITE_PLAN.md`
+or the T77 plan schedules any permanently-out item (Phase-7 AI panel · Gaia-depth · telescope GOTO ·
+tides/rainbow · Skyfire · upload / marketplace / pins on mobile). The two `GOTO` features that DID
+ship are the camera-aim pill and the MS7 MODELS row, both disambiguated above.
 
 ## TODO-VERIFY tracker (internal Wix access — each has a SAFE DEFAULT so the build never blocks)
 | # | Question | Safe default until verified | Status |
@@ -295,10 +330,10 @@ Skyfire · the Phase-7 AI panel.
 | 1 | Exact per-file MB cap for RAW uploads to Wix Media | resumable path for all >10MB; downscale-before-upload for previews | ☐ |
 | 2 | Can managed headless set COOP/COEP page headers? (WASM threads) | single-threaded SIMD decode | ✅ moot (single-threaded shipped Phase 2–5; threads never needed) |
 | 3 | Wix HTTP-endpoint execution-time + max request/response size | keep endpoints thin; all decode client-side | ☐ |
-| 4 | Which Claude models are exposed by Wix AI + is vision enabled? | send JPEG; Opus 4.6 assumed; direct-Anthropic fallback ready | ☐ |
-| 5 | Wix AI credit cost per vision call at realistic preview sizes | premium-gate; downsize aggressively | ☐ |
+| 4 | Which Claude models are exposed by Wix AI + is vision enabled? | send JPEG; Opus 4.6 assumed; direct-Anthropic fallback ready | ☐ — **moot while Phase 7 is PARKED** (owner ruling 2026-08-11; noted 2026-09-06) |
+| 5 | Wix AI credit cost per vision call at realistic preview sizes | premium-gate; downsize aggressively | ☐ — **moot while Phase 7 is PARKED** (owner ruling 2026-08-11; noted 2026-09-06) |
 | 6 | Multi-party/marketplace payout on the Wix roadmap | owner-mediated manual payout (no split payments) | ✅ Phase 6: no split payments; owner marks paid + pays out in the Wix dashboard (Catalog V3 digital products) |
-| 7 | `3d-tiles-renderer` bundle size (Bundlephobia was down) | `npm view 3d-tiles-renderer dist.unpackedSize` + analyze | ☐ |
+| 7 | `3d-tiles-renderer` bundle size (Bundlephobia was down) | `npm view 3d-tiles-renderer dist.unpackedSize` + analyze | ◐ **half-answered 2026-09-06**: the installed package is 5.2 MB on disk at v0.4.28 (`du -sh node_modules/3d-tiles-renderer`), of which `build/` is 2.0 MB and `src/` 2.4 MB. The SHIPPED figure still needs a bundle analysis of a real `wix build` — the dependency has been in production since Phase 1 either way, so this row no longer gates anything. |
 
 ## Empirical validation (was "before Phase 3"; status 2026-07-15)
 - ◐ a6700 26MP ARW decode benchmark: desktop DONE (halfSize ≈ 4.8 s → 3136×2084 texture, Phase 2);

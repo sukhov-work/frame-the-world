@@ -11,6 +11,19 @@ The **Pass-1 screen-door tile fade-in** (`mem:project/wip-2026-07-12-rendering-p
 new tiles dissolve in via Bayer dither + `discard` injected at `<dithering_fragment>` while the tile's
 `age<1` — the same dither as `imageryGround.ts:280`, shared by the stylized tile materials (and buildings
 per `mem:project/wip-2026-07-12-rendering-quality-pass`). Failure chain that matches every symptom:
+
+> **SUPERSEDED (2026-09-06):** the suspect as described no longer exists in the code, so step 1 of
+> the plan below has to start from what is there now. There is **no per-tile `age<1` dissolve** in
+> `scene/imageryGround.ts` (grep for `age` in that file returns nothing; `uFtwFade` returns 5 hits,
+> so the grep works). The library's `TilesFadePlugin` owns the per-tile fade now
+> (`scene/imageryGround.ts:312-315`, `fadeRootTiles: true`, `fadeDuration GROUND.fadeDurationMs`).
+> The surviving Bayer `discard` at `#include <dithering_fragment>` is the ALTITUDE screen-door for
+> the whole imagery layer, not a per-tile one: `scene/imageryGround.ts:746-753`
+> (`ftwBayer4` is defined at :557). Sibling Bayer dissolves live in
+> `scene/buildingMaterial.ts:47,280`, `scene/enrichedBuildings.ts:599` and `scene/userModels.ts:240`
+> — any of those is a live candidate for a screen-wide stipple. The analytic noise is `DITHER_GLSL`
+> at `scene/glsl.ts:29-30` (`/128.0` on a ±0.5 hash = ±1/256), still too subtle to be the pattern.
+> The bug is still OPEN: backlog row T5 (`.claude/skills/frame/references/tracked-backlog.md:14`).
 - **Stuck `age<1`** (dissolve clock stalls when the tile stops being updated / driven per-frame vs
   per-time?) → the Bayer discard pattern STAYS = the persistent checkerboard; an angle/altitude change
   that swaps the LOD tile replaces the stuck material = "sometimes it goes out".

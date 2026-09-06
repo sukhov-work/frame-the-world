@@ -69,7 +69,7 @@ vitest **710/710 (+6)** · astro check **0/0/6 hints (= baseline)** · wix build
   T26 (upload-url unbounded sizeBytes/mint rate — owner ruling).
 
 ## Deferred (next sessions)
-- **Slice 7:** B10 move 3 MB `public/enriched-sample/` out of the build (runtime provably never
+- **Slice 7:** B10 move 3 MB `public/enriched-sample/` (now `bakes/enriched/sample/` — note 2026-09-06) out of the build (runtime provably never
   fetches it — URL comes from PUBLIC_ENRICHED_TILES_URL) + A5 de-export sweep (16 value exports
   used-in-module only + 27 types; knip re-run after). Wants its own wix-build verify.
 - **Slice 8 (owner/browser):** B9/T26 upload caps ruling · B2 password rotation · T25 eyeball

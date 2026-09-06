@@ -1,7 +1,34 @@
 # mem:patterns/globe-rendering — the organic LEO instrument (2026-07-10 overhaul + refactor)
 
-How the globe is built. Browser-VERIFIED at LEO / orbit / night / mid-fade / city (Playwright).
-All colour flows through `lib/theme/tokens.ts` (D14).
+> **SUPERSEDED (2026-09-06)** — the shape of the scene below is still right; these specific facts
+> are not. Current truth: `.claude/claude-docs/rendering/RENDERING_ARCHITECTURE.md` (as built,
+> 2026-08-26) + `.claude/conventions/globe-tuning.md`. In file order:
+> - **§Layout** — `tuning.ts` has ~40 sections, not 16 (`tuning.ts:19-23` lists them);
+>   `StylizedTiles.ts` is 7,495 lines, not ~230, running ~55 named step functions per frame
+>   (RENDERING_ARCHITECTURE §1.2). The controls are `PluxGlobeControls`
+>   (`scene/pluxGlobeControls.ts`), a `GlobeControls` subclass that gates the library's two
+>   per-frame down-rays (T79 / T77 slice 0, `lib/globe/belowCameraGate.ts`).
+> - **§CITY** — three tile renderers stream in parallel, not two: ground, Cesium OSM Buildings
+>   (ion 96188) and our own baked "enriched" city tiles (`scene/enrichedBuildings.ts`), with OSM
+>   buildings masked off inside any baked region. Dnipro is the priority slice in every feature
+>   (owner memo 2026-09-02c); **Chernobyl/Pripyat was deleted 2026-09-02e** — gone from
+>   `lib/globe/regions.ts`.
+> - **§Gates** — the fade band is 750 km → 380 km, not 2600 → 1400 (`tuning.ts` `GATES`).
+>   `TERRAIN_SINK_M` and the −90 m building sink are GONE (no `TERRAIN_SINK` in `src/`); seating is
+>   now the height-memo / straddler / skirt machinery of RENDERING_ARCHITECTURE §2.
+> - **§Default POV** — the drift is per SECOND: `DRIFT.degPerSec 0.066`, `resumeMs 8_000`,
+>   `minAlt 400_000` (`tuning.ts:1582-1591`), applied via `lib/globe/drift.ts:11`.
+> - **§Renderer** — `SRGBColorSpace` + `NeutralToneMapping` still hold (`GlobeCanvas.tsx:135,138`),
+>   but "SUN_DIR (5,2,4) must match" is dead: `SUN.direction` is the one constant every consumer
+>   reads and the ephemeris overwrites it each sample. The light model is one key + one hemisphere
+>   fill modulated by a twilight band, a golden bell, an eclipse scalar and a sun→moon handoff
+>   (`lib/globe/{lightBands,keyHandoff,duskLight}.ts`, §1.3); shadows are one refit ortho camera
+>   plus an ULTRA-only cascade (`lib/globe/shadowCascade.ts`, §1.4). Quality tiers
+>   (`lib/globe/quality.ts`) and the desktop-only `ULT` chip post-date this memo entirely.
+> - **§Manual heading/zoom sliders** — `CONTROLS.zoomMinAltM` is **2** m, not 120 (`tuning.ts:1645`).
+>
+> Still accurate and still load-bearing: the atmosphere ray model, the star-sphere scaling, the
+> pivot-null trap, the one-frame view-focus trap, `glf()`, and chain-never-assign `onBeforeCompile`.
 
 ## Layout (2026-07-10 refactor — convention: `.claude/conventions/globe-tuning.md`)
 - **`tuning.ts`** — EVERY tunable number, grouped + documented (SUN/RENDERER/POSE/GATES/DRIFT/
@@ -42,18 +69,13 @@ oblique framing, idle drift pause-on-interaction resume-8s, "terrain resolves" o
 current pipeline (plugin order, unlit swap, grade re-anchor, shadow twins, 90 m sink removal).
 Ephemeris now drives SUN.direction (static constant = first-frame fallback only). Historical notes:**
 
-## Imagery ground (2nd TilesRenderer) [historical]
-- `XYZTilesOverlay({ url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", levels: 19 })`
-  + `GeneratedSurfacePlugin({shape:'ellipsoid', applyOverlayTexture:true})` + TilesFadePlugin +
-  UpdateOnChangePlugin. Esri ToS for production = UNVERIFIED (hackathon-standard; revisit pre-release).
-- Each generated tile = MeshBasicMaterial with overlay texture as `map` (GeneratedSurfacePlugin.js:138,400).
-  On `load-model`: polygonOffset (buildings win ties), map.anisotropy = max, map sRGB, and **CHAIN
-  onBeforeCompile — NEVER assign** (TilesFadePlugin's FadeMaterialManager already wrapped it; wrapFadeMaterial
-  chains any previous, and my handler chains `prev(shader); mine(shader)`).
-- Injected grade (shared `groundUniforms` object across all tile materials — one value drives the layer):
-  desat 0.52 → gain 0.56 → cool cast (0.92,0.99,1.06) → **water darkening**: `smoothstep(0,.12, b-max(r,g))`
-  → ×0.35 (Esri's bright seas → near-black palette water) → **same half-lambert sun shading as the base**
-  (`uFtwNightFloor 0.5`) so the terminator is continuous across LODs. World pos via injected `vFtwW` varying.
+## Imagery ground (2nd TilesRenderer) [historical — removed 2026-09-06]
+The GeneratedSurfacePlugin ellipsoid drape, its Esri `XYZTilesOverlay` z19 wiring and its injected
+grade were replaced by real terrain on 2026-07-10. The verbatim notes live in DECISIONS_ARCHIVE.md
+§Moved 2026-08-15 (2026-07-10 entries); the current pipeline is
+`mem:patterns/sky-bodies-terrain` §Real terrain + RENDERING_ARCHITECTURE §1.5. The one rule that
+survived and still bites: **CHAIN `onBeforeCompile`, never assign** — TilesFadePlugin has already
+wrapped it (`scene/imageryGround.ts:917`).
 
 ## Atmosphere — ray-based, NOT fresnel (the "crude halo" fix)
 - A fresnel rim peaks at the SHELL's silhouette; from LEO that detaches from the limb (floating band + gap).

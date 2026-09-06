@@ -22,7 +22,7 @@
 | Map fallback | `maplibre-gl` (optional) | ^5 | BSD-3 |
 
 ## Codegen / peculiarities
-- WASM assets (libraw/libheif) live under `public/wasm/` (CDN-cached). Decode in a Web Worker (OffscreenCanvas, transferable ArrayBuffer).
+- WASM assets ship as hashed Vite build assets (libraw) or inlined in the bundle (libheif); there is **no `public/wasm/`** (falsified in Phase 2 — `conventions/architecture-and-patterns.md:69`; corrected here 2026-09-06). Decode in a Web Worker (OffscreenCanvas, transferable ArrayBuffer).
 - WASM **threads** need COOP/COEP cross-origin isolation → UNVERIFIED on managed headless → ship single-threaded SIMD.
 - WebGL2 primary; WebGPU is a two-line progressive enhancement (`import * as THREE from 'three/webgpu'`, auto WebGL2 fallback).
 - Cesium ion **Community** (free, non-commercial) for PoC; needs an ion API token in env (not committed).

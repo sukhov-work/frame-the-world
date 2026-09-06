@@ -1,4 +1,4 @@
-# WIP 2026-08-22j — THE ULTRA FIDELITY TRACK (T44 textures + T45 light/shadows) — SHIPPED
+# WIP 2026-08-22j — THE ULTRA FIDELITY TRACK (T44 textures + T45 light/shadows) — SHIPPED (compacted 2026-09-06 from 10,453 B; verbatim history: DECISIONS_ARCHIVE.md §Moved 2026-09-06)
 
 Owner order: `ULTRA_PLAN.md` (authored 2026-08-22i). Entry brief: `NEXT_SESSION_PROMPT.md`.
 Gates at ship: **vitest 1,330/1,330 (111 files)** · `astro check` 0 err / 5 hints · `npx knip`
@@ -17,8 +17,7 @@ veto.** Measured on the owner's box, dev build, 1600×950 @ DPR 2: city OFF 30.7
 
 ## WHAT SHIPPED — one chip (`ULT`), one gate, nine levers
 
-Owner's open question in the plan ("re-instate an HQ chip, or fold both halves under ULT?") was
-resolved as **fold under `ULT`** — the owner's own words treat it as one mode ("manual ULTRA mode").
+Both halves fold under `ULT`, not a separate HQ chip (the owner treats it as one mode).
 
 | # | Lever | Where |
 |---|---|---|
@@ -69,14 +68,12 @@ New tunables: `tuning.ULTRA` (a whole block). New DEV seam: `__globe.ultraLook()
 
 ## REJECTED, WITH REASONS (do not re-attempt without new information)
 
-- **CSM** — present (`three/examples/jsm/csm/`) but architecturally incompatible here.
-  `setupMaterial()` **ASSIGNS** `onBeforeCompile`, clobbering the buildings' 12-uniform injection
-  and the ground's explicitly-CHAINED one; `ShadowMaterial` (the ground twins) uses
-  `getShadowMask()`, which **multiplies all cascades with no cascade dispatch**; it creates 3 extra
-  DirectionalLights ⇒ full scene recompile + 3 depth passes; and it has zero reach into the ~19 raw
-  ShaderMaterials. **The altitude-adaptive ortho extent already does a cascade's job for free** —
-  street level clamps to 1.6 km (8192² ⇒ 0.39 m/texel), a mountain view spends the same texels on
-  11 km of relief.
+- **CSM** — present (`three/examples/jsm/csm/`) but architecturally incompatible: `setupMaterial()`
+  **ASSIGNS** `onBeforeCompile` (clobbering the buildings' 12-uniform injection and the ground's
+  chained one); `ShadowMaterial` uses `getShadowMask()`, which **multiplies all cascades with no
+  dispatch**; it adds 3 DirectionalLights ⇒ full recompile + 3 depth passes; and it cannot reach the
+  ~19 raw ShaderMaterials. **The altitude-adaptive ortho extent already does a cascade's job** —
+  street clamps to 1.6 km (8192² ⇒ 0.39 m/texel), a mountain view spends the same texels on 11 km.
 - **PCSS** — **not shipped in the npm package at all** (`files` ships `examples/jsm` only; the
   `webgl_shadowmap_pcss` demo is not installed). A hand port also needs a RAW depth read for its
   blocker search, but the PCF sampler is a `sampler2DShadow` with hardware compare.
@@ -86,17 +83,16 @@ New tunables: `tuning.ULTRA` (a whole block). New DEV seam: `__globe.ultraLook()
   cleared TRANSPARENT; a chain box-filters that border inward and clamps at coarse levels into a
   visible tile-seam grid. Anisotropy alone is the legal win (and `minFilter` is ALREADY
   `LinearMipmapLinearFilter`, which is the gate three needs, so setting one field is sufficient).
-- **GI** — stays rejected, owner-accepted, and the timelapse says the condition was met.
+- **GI** — stays rejected, owner-accepted.
 
 ## MECHANISM NOTES
 
 - **The anisotropy stamp** wraps `TiledRegionImageSource.prototype.fetchItem` — the unique choke
-  point (BOTH creation paths return through it: the compose `CanvasTexture` and the single-tile
-  `.clone()` fast path) and the only producer of the region `DataCache` entries. The library
-  exports neither the class nor any hook. Stamped at CREATION: `anisotropy` is part of three's GL
-  texture cache key, so a live re-stamp is a full re-upload per composite. Consequence, documented:
-  **fly a little for the full effect**. The wanted value is module-scoped, not attach-closure-scoped,
-  so a dispose+re-attach cannot leave the live patch reading a dead closure.
+  point (both creation paths return through it) and the only producer of the region `DataCache`
+  entries; the library exports neither the class nor a hook. It stamps at CREATION because
+  `anisotropy` is part of three's GL texture cache key, so a live re-stamp is a full re-upload per
+  composite — consequence: **fly a little for the full effect**. The wanted value is module-scoped,
+  so a dispose + re-attach cannot leave the live patch reading a dead closure.
 - **S9's dayK is per-FRAGMENT.** `sunUpDot` IS sin(solar elevation) at that fragment, so the curve
   still draws a true terminator from orbit — no need to feed it a single almanac sample. The JS
   twin and the GLSL are **emitted from one table** by `bandCurveGlsl`; a test parses the emitted

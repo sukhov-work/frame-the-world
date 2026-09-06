@@ -39,7 +39,7 @@ web research).
   Settings → client → URLs) must gain `https://www.plux.today` (+ apex) or login/plan-upgrade/
   checkout-return fail with "Invalid redirect URI".
 - **Origin-change facts:** localStorage is per-origin — 6 `ftw:*` keys reset (view-prefs,
-  bldg-overrides ARE lost — localStorage-only until the U8 sync phase runs; simbad/sbdb caches,
+  bldg-overrides ARE lost — localStorage-only until the U8 sync phase runs *(SUPERSEDED 2026-09-06: the sync phase shipped as MESH SUITE MS3, 2026-09-02f — a member's SYNCed rows live in `BuildingOverrides` and survive an origin change; unsynced local rows still do not)*; simbad/sbdb caches,
   prefer-desktop, m-banner). `wixSession` cookie host-scoped → everyone logs in once more.
 - **Repo changes:** `Layout.astro` SITE_URL → `https://www.plux.today` (og:image; old origin 301s
   anyway) · 7 scripts (warm-prod-assets, verify-prod-globe, seed-demo-pins, verify-{places-member,

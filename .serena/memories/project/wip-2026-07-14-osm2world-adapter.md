@@ -1,7 +1,7 @@
 # WIP 2026-07-14 — OSM2World PRODUCTION ADAPTER: shipped as a PARALLEL VARIANT, live on R2, A/B seam (DONE)
 
 `/frame` + investigate-design-v3 (implement, Deep). Owner directive honored end-to-end: **the current
-pipeline/models/behaviour are UNTOUCHED** — `bake.mjs`, `cities/dnipro.json`, `public/enriched/dnipro`
+pipeline/models/behaviour are UNTOUCHED** — `bake.mjs`, `cities/dnipro.json`, `bakes/enriched/dnipro` *(was `public/enriched/` until 2026-08-13; path corrected 2026-09-06)*
 and the default runtime path are byte-identical. The o2w bake is a SIBLING the owner compares by eye.
 Gates: **astro check 0/0 · vitest 525 (+12) · browser-VERIFIED** (Playwright MCP in wix dev; shots
 `verify-shots/o2w-adapter-01..05` — same-#p-pose pairs @650 m + @260 m + Cesium-off).
@@ -44,7 +44,7 @@ glTF POSITION=(x,ele,−z)) → lat/lon → `projectEN` into our frame. After: *
 3,112 constructions (PoleFence 1,919 · Wall 491 · StreetLamp 279 · HVPowerTower 155 · RetainingWall 103 ·
 ChainLinkFence 46 · PowerTower 40 · Powerpole 16 · Cliff 11 · BollardRow 9 · Railing 8 · masts/flagpoles/
 hedge/billboard/NodeModelInstance 24) · maxH 101 m · MB/cell max 4.00 (6,5). Manifest:
-`public/enriched/dnipro-o2w/bake-manifest.json`. **R2 LIVE: 97 files/105.14 MB → `enriched/dnipro-o2w/`**
+`bakes/enriched/dnipro-o2w/bake-manifest.json` *(path as of 2026-08-13; corrected 2026-09-06)*. **R2 LIVE: 97 files/105.14 MB → `enriched/dnipro-o2w/`**
 (Worker city-agnostic, unchanged; curl CORS `*` + glTF magic).
 
 ## Browser-verified (wix dev + Playwright)

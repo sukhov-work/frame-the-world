@@ -9,7 +9,7 @@ Canonical: `.claude/claude-docs/MESH_SUITE_PLAN.md` — §1 platform bullet (pro
 - `POST /site-media/v1/files/generate-upload-url` (`mimeType: model/gltf-binary`, `private:false`)
   → PUT → the PUT response ALREADY carries the descriptor: `mediaType MODEL3D`,
   `mimeType model/gltf-binary`, `operationStatus READY` (118 KB GLB; get-file-by-id agreed on the
-  first poll, 485 ms). A 256² PNG preview thumbnail is generated for free.
+  first poll, 485 ms). A 256² PNG preview thumbnail is generated for free *(note 2026-09-06: the descriptor reports it, but its URL answers 403 — do not rely on it)*.
 - **NO `urlExpirationDate` anywhere** on a public MODEL3D descriptor; URL =
   `https://static.wixstatic.com/3d/<id>.glb`, `Cache-Control: public, max-age=15552000, immutable`.
   Re-curled at 23.8 min: unchanged.
@@ -47,7 +47,7 @@ Canonical: `.claude/claude-docs/MESH_SUITE_PLAN.md` — §1 platform bullet (pro
   compass heading is the NEGATIVE — convert at the UI). `tU` lift ≥ 0 (ground contact stays with
   the terrain seat — the owner's "never underground" rule is structural).
 - **Rails = CONTRACT constants** in `lib/globe/bldgOverrides.ts` (`XF_RAILS`: scale 0.1–10 per axis,
-  `TRANSLATE_MAX_M` 60, `LIFT_MAX_M` 25); rows outside are DROPPED on read (the `k` precedent).
+  `TRANSLATE_MAX_M` 60, `LIFT_MAX_M` 25); rows outside are DROPPED on read (the `k` precedent). *(SUPERSEDED 2026-09-06: MS5b, 2026-09-02l, made the rails PER EDIT and RELATIVE — move ≤ 100 m per drag under a 5 km sanity rail, scale 0.1×–10× per drag; `LIFT_MAX_M` 25 stands — `lib/globe/bldgOverrides.ts:93`.)*
   Only new taste knob: `ENRICHED.editUpdateRangeMaxRuns` 8.
 - **Row v2**: `{sy, sx?, sz?, rotDeg?, tE?, tN?, tU?, cx, cz, vc, hM, t, s?}`; legacy `k` READ as
   `sy` (`sanitizeRow`), never migrated; `transformFields` omits identity components (a
@@ -102,5 +102,5 @@ start); region/bakes/R2 removal only after a one-line owner confirmation (user-v
 
 ## Where things stand / next
 MS2 = the gizmo UI (TransformControls proxy, context menu, generalized label, revert per-op) on
-the §6 seams. Owner-visible caveats: `TRANSLATE_MAX_M` 60 (tile-level culling volume not grown);
+the §6 seams. Owner-visible caveats: `TRANSLATE_MAX_M` 60 *(superseded by the MS5b per-edit rails, 2026-09-02l)* (tile-level culling volume not grown);
 the fully shared party-wall post follows the lower run under a move.

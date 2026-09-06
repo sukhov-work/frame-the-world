@@ -1,5 +1,16 @@
 # MESH SUITE — spatial edit gizmos · world-synced overrides · user-uploaded models
 
+> **WHERE WE ARE — dated pointer 2026-09-06 (nothing below is edited):**
+> **The track is CLOSED** by owner ruling 2026-09-05b (DECISIONS): *"this concludes all mesh-related
+> work at the moment"*. The open taste calls in §11.5 / §13.4 / §14.4 / §15.4 are parked with it.
+> **As built, one section per slice:** §6 MS1 the transform substrate · §7 MS2 the gizmo UI · §8 MS3
+> the D2 world-shared activation · §9 MS4 the upload pipeline · §10 MS5 placement · §13 MS6
+> management + world edit · §14 MS7 the LIFT seat and the MODELS-row GOTO / RESET · §15 MS8
+> vertical rotation. §1–§5 are the pre-build research and ladder; read them for *why*, §6–§15 for
+> *what is wired*. Summary in `ARCHITECTURE.md` §7d.
+> **§12** (the scale limits of user models) is what became **T77**, the open performance track —
+> continue there: `rendering/README.md`.
+
 Owner order 2026-09-01 (end of the DBG session): build on U8 (the local building-height
 override) in three directions —
 **D1** a full Blender-style spatial suite per mesh (context menu → move / rotate / scale with a
@@ -913,6 +924,10 @@ loaders (only if a real file proves the main-thread assumption wrong).
 ---
 
 ## §11 MS5b — the owner's observations after testing MS5 (ordered 2026-09-02j; build BEFORE MS6)
+> *(Dated note 2026-09-06: MS5b was BUILT 2026-09-02l. The "browser-UNVERIFIED" tags on the §11.3
+> and §11.4 diagnoses below are the pre-build state — both diagnoses were CONFIRMED and both bugs
+> fixed in that build, receipted by `verify-meshedit.mjs` (22 legs) and `verify-usermodels.mjs`
+> (11/11). The as-built is §11.5.)*
 
 Verbatim intent, then what each item means in code. "Rest is working fine."
 

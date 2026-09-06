@@ -1,9 +1,15 @@
 # Rendering Quality Pass — perf · fluidity · aesthetics · the planning moat
 
+> **SUPERSEDED 2026-09-06** — written 2026-07-12, before the RENDERING CHARTER and the as-built
+> architecture doc. Current truth: `RENDERING_ARCHITECTURE.md` (what is built) and
+> `RENDERING_CHARTER_2026-08-25.md` (what was executed, closed 2026-08-26d). Kept as provenance —
+> the adaptive-quality keystone it argued for shipped as `src/lib/globe/quality.ts`.
+
 > **Design investigation, 2026-07-12.** Mode: design (investigate-design-v3), Deep tier. Method:
 > inline scout (memories + module map + grep) → 4 parallel cited-evidence research tracks
 > (performance/cross-device · fluidity/transitions · Dnipro realism · obstruction/astro moat) →
-> crux claims self-verified against source → this synthesis. Peer of `ARCHITECTURE_REVIEW.md`.
+> crux claims self-verified against source → this synthesis. Peer of `../archive/ARCHITECTURE_REVIEW.md`
+> (path corrected 2026-09-06; that file moved into `archive/`).
 > A backlog + sequenced plan, **not yet implemented**. Owner rates current street-level detail 2/5.
 
 ## The mandate (owner, verbatim intent)

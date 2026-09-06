@@ -1,5 +1,9 @@
 # BEST SPOT (aka THE HEATMAP) — PARKED 2026-08-27
 
+> **Park re-affirmed 2026-09-01** (DECISIONS 2026-09-01, the DBG session): the owner ruled BEST SPOT
+> *sufficient as implemented* — UX and algorithm improvements maybe later. Backlog T59 stays open but
+> un-urgent. Still parked as of 2026-09-06; nothing in this bundle was re-verified since 2026-08-27.
+
 **Everything BEST SPOT lives in this directory.** This file is the index, the park brief and the
 resume ladder. If you are here because the owner reported a heatmap bug, or because he decided to
 try the sweep idea again, **read §1–§4 first — they will save you a session.**

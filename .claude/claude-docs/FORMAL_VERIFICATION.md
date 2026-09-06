@@ -230,6 +230,10 @@ no supported way to pin M-series frequency. Where a deterministic proxy exists (
 ---
 
 ## 5. Open — suspected-false invariants, NOT yet verified
+> *(Dated note 2026-09-06: every row below is about the BEST SPOT solver, and BEST SPOT was PARKED
+> by owner order 2026-08-27 and re-affirmed sufficient as-is 2026-09-01. S1/S2 therefore stay open
+> by decision, not by neglect; their property tests are on the parked tail list. Re-read this
+> section when the park lifts — start at `bestspot/README.md`.)*
 
 The specification pass raised nine candidate defects beyond the two confirmed in §0. **Two were
 confirmed executably and fixed; the rest are code-reading arguments and must be reproduced before

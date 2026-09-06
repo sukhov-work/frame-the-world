@@ -1,5 +1,9 @@
 # WEB RESEARCH PROMPT — state-of-the-art rendering techniques for PLUX (paste into web Claude)
 
+> **DONE 2026-09-06** — this prompt was run; its result is `WEB_RESEARCH_PERFORMANCE_RESULT_2026_09_05.md`
+> (24 ranked levers, Rq-1..17 answered, a do-not-do list, 8 experiments), reconciled into
+> `T77_AUDIT_PLAN_2026-09-05.md`. Kept as provenance — read it for what the researcher was and was not told.
+
 *Companion to `ENGINE_STATE_2026-09-02.md`. Everything below the line is the prompt; it is
 self-contained because the researcher has no access to the repository.*
 

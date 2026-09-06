@@ -1,16 +1,10 @@
-# WIP 2026-09-02i — MESH SUITE MS5 (D3 placement: the world's user models) — BUILT
+# WIP 2026-09-02i — MESH SUITE MS5 (D3 placement: the world's user models) — BUILT (compacted 2026-09-06 from 10,826 B; verbatim history: DECISIONS_ARCHIVE.md §Moved 2026-09-06)
 
 **Status: MS5 BUILT + browser-verified against the LIVE `UserModels` collection (cleanup proven).**
 Mode: implement (design-first, investigate-design-v3 spine on `/frame`), tier Deep. Canonical:
 `.claude/claude-docs/MESH_SUITE_PLAN.md` **§10 (MS5 as-built)** · §3 ladder (MS5 BUILT) · §5 recipe
 (next = MS6). Prior: `mem:project/wip-2026-09-02-mesh-suite-ms4`, `…-ms3`, `…-ms2`, `…-ms0-ms1`,
 `…-09-01-mesh-suite-plan`. Backlog T74 (advanced). DECISIONS 2026-09-02i.
-
-## Session facts (boot)
-- MS4 landed as PR #94 (`6d6c38f`) while this session's research ran — the `/clear` ship fired
-  concurrently; read-only until "local checkout back on master" (the MS3 rule held).
-- Four parallel research agents (platform/API · scene substrate · UI/stores · verify conventions),
-  88–92 %; the crux facts re-read by hand before the design.
 
 ## The design that shipped (full text §10.1)
 - **World read = a COVER query on a NEW denormalized `gh5` column** (`hasSome` is
@@ -71,18 +65,12 @@ NEW `scripts/verify-usermodels.mjs` (10 legs).
 ## Verification receipt (fresh)
 - Unit: vitest **2,411/2,411 (161 files)** (baseline 2,367/156) · `astro check` 0/0/9 · knip 0.
 - Browser (`verify-usermodels.mjs`, headless Chrome :9333 fresh profile, `wix dev`, Dnipro FPV
-  pose, the LIVE collection): **10/10** — a 12-tri 3×5×3 m box → STORED READY + MINE at once ·
-  public row clean (no owner/file id) + resident + a REAL seat (19.55 m — the rendered terrain's
-  coarse answer on a fresh profile, T76's shape) · right-click armed (chip + menu, screenshot) ·
-  ROTATE 85.1° via the ring, PATCH landed · SCALE 3.000× uniform (the band's max) · MOVE 0.79 m as
-  a new placement, anchor zero · reload re-applied everything · anonymous cannot arm · MDL off/on
-  + pref · orbit click-to-place 1,669 m, seats kept · DELETE + media, world clean.
-- `verify-bldg-override` PASS (U8 byte-identical). `verify-meshedit` **18/18** on the fourth run:
-  run 1 RED at its reload leg on a platform **504 Gateway Timeout** (the wix dev log, 16:03:36);
-  runs 2–3 RED at leg 17 because a member's REAL synced edit (`cell-11-10.glb` 68475, synced
-  15:04 today — before the session) sat beside the seed and the leg asserted an EMPTY world →
-  the assertion is now RELATIVE (`shared === before − 1`); the stray row is someone's edit and
-  stays. The wider §4a-4 sweep (ultra/dusk/charter/eclipse/bestspot) NOT re-run this session.
+  pose, the LIVE collection): **10/10** — upload → STORED READY + MINE · the public row carries no
+  owner or file id · a REAL terrain seat · right-click arms · ROTATE/SCALE/MOVE each land one PATCH ·
+  reload re-applies · anonymous cannot arm · orbit click-to-place keeps seats · DELETE cleans media.
+- `verify-bldg-override` PASS (U8 byte-identical). `verify-meshedit` **18/18**, but only after leg 17
+  was made RELATIVE (`shared === before − 1`): a member's real synced edit sat beside the seed and
+  the leg had asserted an EMPTY world. Assert deltas, never an empty shared world.
 
 ## Traps (new)
 - **The `#f=` boot FPV rides a temp pin, and the upload's review step retires the temp pin** →
@@ -125,9 +113,9 @@ URL; per-material merge; shadows on a leash; LOD rungs + thumbnail impostors; sc
 priority; tier-aware budgets; off-thread parse; p6 cover with a 1 000-row newest-first page and
 an upload-time per-cell density warning.
 
-## Next
-MS5b (above) FIRST, then MS6 = the my-uploads list, then the owner's ARCHITECTURE + PERFORMANCE
-audit and revamp (T77). MS6 = the my-uploads list (thumbnails are ours; the list row now carries `rotDeg`/`scale`) with
-hide / delete / title, every member editing user meshes (the MS3 sync machinery or an open PATCH
-with LWW), a lift seat if wanted (a provisioned field), haze chaining on foreign materials, an
-orbit hover/pick, `verify-usermodels` growing the MS6 legs.
+## Next — DONE (2026-09-06 note)
+MS5b, MS6, MS7 (the lift) and MS8 (the tilt) all shipped; the owner closed MESH SUITE on 2026-09-05
+and the "No lift seat" assumption above was reversed by MS7. The §4a no-regression contract stays
+BINDING for anything T77 touches near buildings or models. Digests:
+`mem:project/wip-2026-09-02-mesh-suite-ms5b` · `…-ms6` · `mem:project/wip-2026-09-03-model-lift-goto-reset` ·
+`mem:project/wip-2026-09-05-model-pitch-roll-ms8`.

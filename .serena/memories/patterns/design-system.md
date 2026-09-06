@@ -5,6 +5,9 @@ file `Frame the World.dc.html` (canvas mode, 1234 lines) + `globe-scene.js`/`ima
 Round-trip CONFIRMED working after the killswitch fix (see `mem:project/dev_environment`). Fence rules +
 push-back semantics: `.claude/claude-docs/provenance/CLAUDE_DESIGN_MEMO.md`. Read the canvas for pixel-level layout.
 
+> **NOTE (2026-09-06):** the product is **PLUX** (`plux.today`). "Frame the World" here is the name
+> of the 2026-07-10 Claude Design project and of the repo — it is never the product name in prose.
+
 ## Tokens → live in `src/styles/tokens.css` (source of truth) + GL bridge `src/lib/theme/tokens.ts`
 Chrome (all adopted): bg/base `#05070B` · bg/raise `#0B0F14` · surface/1 `#12161C` · surface/2 `#1A1F27` ·
 border/1 `#232935` · text/1 `#E8ECF2` · text/2 `#9AA4B2` · text/3 `#5B6472` (large/decorative only — 3.03:1
@@ -28,6 +31,11 @@ micro (hover/fill) 180ms · panels/sheets 400ms · camera flight desktop 2200ms 
 easing ALL flights `cubic-bezier(.65,0,.35,1)` · reduced-motion = 300ms x-fade. NO springs/bounce.
 Idle globe drifts **0.035°/frame**, pauses on interaction, resumes after **8s** idle.
 
+> **SUPERSEDED (2026-09-06):** the idle drift is a per-SECOND rate, not per-frame, and the board's
+> 0.035°/frame was never built. As built: `DRIFT.degPerSec 0.066` (= 0.0011°/frame at 60 Hz),
+> `resumeMs 8_000`, `minAlt 400_000` m — `src/components/globe/tuning.ts:1582-1591`; the dt
+> conversion is `driftRadiansForDt` in `src/lib/globe/drift.ts:11`.
+
 ## Screen boards (build against these in Phase 2+)
 01 Landing / Globe Home (1440×900, idle rotation) · 02 Explore (pin hover, rotation paused) ·
 03 Pin→Detail (one continuous cinematic flight, 2.2s) · 04 Photo Detail (live EXIF sliders — **double-click a
@@ -38,5 +46,11 @@ GLOBE" with default/hover/focus, chips (RECENT/GOLDEN HOUR), search input defaul
 ## Rules when consuming
 - Design imports write ONLY under `src/components/panels|ui/**` + `src/styles/**` — NEVER `globe/**` or `lib/**`
   (the GL bridge `lib/theme/tokens.ts` is the one exception: regenerate it after any token change).
+
+> **SUPERSEDED (2026-09-06):** `src/components/controls/**` joined the allow-list on 2026-08-22
+> (audit #3 D6) as a third SHARED tier — input instruments whose feel must not fork between the
+> desktop and mobile shells. It stays a pure leaf (react + stores + `lib/**` + `globe/tuning` +
+> styles; never a panel, never a mobile import), enforced by rule 3 of
+> `test/components/mobileFence.test.ts:77-90`.
 - After implementing a screen against real constraints, `write_files` the shipped state back to the canvas
   (snapshot semantics — re-run after token/component changes). Related: `mem:core`, `mem:patterns/globe-rendering`.
