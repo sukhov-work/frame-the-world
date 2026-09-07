@@ -1409,3 +1409,108 @@ two), sheets read: identical tile counts per pose (descent 6,846,298 tris both r
 whole imagery tile on `legacy-everest`, 13 %; the descent's end state, 12 %) plus the intended
 radar-fan and day-arc changes; the first post run was contaminated by `src/` edits (HMR) and was
 discarded. The edges' byte-identity is proven in-page, not by the sweep.
+
+## 24. Session 2026-09-07e — T106's tail: the two-phase `load-model` handler (slice b), measured through the descent on both twins
+
+The last of T106 was the biggest cell's WHOLE handler in one frame (§23.4: 65 ms on the phone
+twin under 4×, 10.6 ms on the desktop). The handler is now two phases. Phase 1, synchronous in
+`load-model`: the cell record, the material swap, the F1 fill birth, the trees — µs. Phase 2,
+one unit per mesh on a deferred queue (`lib/globe/loadQueue`), drained by `update()` under
+`ENRICHED.loadBudgetMs` per frame (6 desktop / 3 lean, keyed on `lean` like the tile caches and
+the plan sweep; live seam `__globe.enrichedLoadBudget(ms)`), NEAREST cell first (the download
+queue's own look-biased law), a mid-flight unit sticky so one builder's tables are live at a
+time. The unit's phases, in the order the §4a pristine contract needs: **0** the crease edges
+(`createEdgesBuilder` — `fastEdges` made RESUMABLE: vertex keying and the triangle walk in
+256-item chunks against the deadline; `buildFastEdges` is the same builder stepped once, and
+`fastEdges.test` drives it one item per step and demands the one-shot's floats) — on
+completion the `LineSegments` is added with ITS OWN F1 birth stamp (`frameNow()`, T94's
+clock); **1** the per-building attribution (`createSegmentRunAttributor` — `segmentRunsFromSources`
+made RESUMABLE the same way); **2** CSR + edge spans + the bounds pad (atomic, small); **3** the
+feature fingerprints from the pristine floats (resumable by run); **4** the part object + the
+footprint locate if the cell got located while the unit waited (resumable by feature; a locate
+on the phase-4/5 frame boundary is finished atomically in 5); **5** the registration (atomic):
+RC9 banked seats, `cell.parts.push` + `partByMesh.set`, the override re-apply, `touchCell`.
+`dispose-model` cancels by scene. Nothing writes a mesh's buffers before 5 — the seat passes
+walk only registered parts — so the pristine capture is still a straight copy.
+
+**The instrument:** `scripts/probe-load-phase2.mjs [--lean] [--budget ms]` — boots the
+catalogue's `dnipro-descent` start, drives the owner's descent (`requestFly` → the arrival
+targets → quiet), records every rAF dt, samples the queue every 250 ms, then reads
+`__globe.enrichedLoad()` (the ledger: phase-1 `handlerMaxMs`, per-unit `edgesMaxMs` /
+`maskMaxMs` / `registerMaxMs`, the per-DRAIN `deferredMaxMs`, totals, units done/cancelled),
+`__globe.enrichedBench(50)` (the identity proof) and `__globe.enrichedSeats()`. `--budget 1e6`
+drains the whole queue in one frame — the pre-slice shape, the A/B's B (several cells' handlers
+batch in one frame exactly as several `load-model` events did).
+
+### 24.1 The A/B — the same leg, the budget vs the one-frame shape
+
+| twin | units (cells) | budget | phase-1 `handlerMaxMs` | worst edges step | worst attribution | worst registry | **worst DRAIN** | drains | drain total | frames p50 / p95 / p99 / max | >33 ms | >50 ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| desktop `high` | 154 | 1e6 (one frame) | 0.4 | 8.8 | 4.3 | 2.8 | **30.3** | 33 | 460 | 16.8 / 29.0 / 53.3 / 101.4 | 20 | 5 |
+| desktop `high` | 172 | **6** | 0.4 | 4.8 | 2.3 | 4.6 | **8.5** | 82 | 495 | 16.8 / 24.7 / 50.4 / 68.1 | 10 | 5 |
+| phone twin (lean, 4×) | 45 | 1e6 (one frame) | 0.9 | — | — | — | **85.9** | 17 | — | 17.8 / 71.6 / 176.5 / 418 | 38 | 20 |
+| phone twin (lean, 4×) | 52 | **3** | 0.8 | 3.9 | 7.0 | 3.8 | **8.0** | 254 | 853 | 18.5 / 50.8 / 152.1 / 254.5 | 49 | 17 |
+
+The number the slice exists to bound: the worst drain 30.3 → **8.5 ms** on the desktop and
+85.9 → **8.0 ms** on the twin (the brief's bar was < 16). The drain's overshoot over the budget
+is one atomic phase (2 or 5, a few ms) plus one 256-item chunk. The descent's remaining frame
+tail (twin p95 51, max 255) is the streaming's OTHER work — §20's parse-phase frames, the seat
+drain, the ground composites — not this handler: with the budget the >33 ms count fell 20 → 10 on
+the desktop and the p95 71.6 → 50.8 on the twin, and what is left does not move with the budget.
+Identity: `enrichedBench(50)` **mismatch 0 / 0** on every run (desktop 539,906 tris, twin
+509,774–532,239). The registry populated as before: desktop 80,771 features over 180 cells,
+twin 21,144–23,093 over 55–56, seats sampled on both. Two intermediate cuts are on record because
+they named the next atomic cost each time: attribution atomic → twin worst drain **18.0** (the
+biggest cell's 18 ms attribution); the locate atomic → **15.2** (13.7 ms of `ecefToGeodetic` for
+~2,000 footprints of a cell located while its unit waited); both resumable → 7.6–8.0.
+
+### 24.2 The cost of the budget — how long a landing's edges and seats take to arrive
+
+The queue drains BEHIND the landing: on the desktop the descent's 172 units peak at 109 pending
+at +2.1 s and reach 0 at +2.9 s (~1 s behind the last tile); on the twin the 52 units peak at
++3.0 s and reach 0 at **+7.4 s** — ~4.4 s of drain at 3 ms a frame for a whole-city landing
+(853 ms of work over 254 frames). During that window an unregistered cell's buildings sit on the
+CELL plane (the per-cell seat is phase 1 and applies at once) without per-feature seats or crease
+edges, nearest cells first. That is the trade the slice makes on purpose — a 4 s wave of edges
+across the far city against 86 ms hitches — and `loadBudgetMsLean` is the knob: 4 ms would cut
+the twin's drain to ~3 s. Owner taste call; the seam is live.
+
+### 24.3 The post sweep — the compare diffs classified with an OLD-code pair
+
+Post sweep `post-2026-09-07e`: 13/14 self-checks (the same `legacy-m` row, T103), identical
+triangle and draw-call counts per pose (cityscape 3,736,108 / 855, the descent 6,846,298 /
+1,142, legacy-city 7,068,885 / 1,553 — pre and post to the triangle). `--compare pre-2026-09-07e`
+at tolerance 0 reports diffs on every pose (cityscape 19.4 %, descent 10.2 %, legacy-m 7.0 %,
+legacy-city 4.5 %), so the noise floor was measured instead of assumed: at a JPEG-honest
+threshold (Δ > 24 on the 1600-px capture, per 8 × 5 screen cell) the pair of two OLD-code boots
+`post2-2026-09-07d` vs `pre-2026-09-07e` (both the `44743d3` tree) differs by the SAME cells at
+the SAME magnitude as this session's pre vs post — cityscape 3.98 % vs 4.15 % (the vector water
+overlay at the right 39–49 %, the city band 8–10 % of per-tile tone seeds that follow load
+order), the descent 0.07 % vs 0.17 %, legacy-city 0.03 % vs 0.05 %. The crease edges' identity
+is proven in-page (`enrichedBench(50)` mismatch 0 / 0), never by the sweep.
+
+### 24.4 The flip bank under the phone caps (RC20 / T34 / T83's open watch)
+
+`scripts/probe-flip-bank.mjs` (new): `/m` as the phone twin (touch + 402×714 @3 + 4 cores ⇒
+`lean` true, tile tier `mid`, the bank ON), satellite ground, the cab leg's street pose at noon;
+two 2D → FPV → 2D cycles, Esri `World_Imagery` REQUESTS per leg through CDP Network (the SW
+cache answers some of them — request count, not bytes) and `__globe.u2().lru.ground`:
+
+| stage | cached MB | floor MB | cap MB | items | bankMsLeft | requests |
+|---|---|---|---|---|---|---|
+| 2D boot, settled | 78.5 | 84 | 112 | 78 | 0 | 550 (boot) |
+| cycle 1 → FPV | 112.7 | **96** (bank armed) | 112 | 112 | 37,768 | **566** |
+| cycle 1 → 2D | 96.5 | 96 | 112 | 96 | 39,499 | **670** |
+| cycle 2 → FPV | 112.6 | 96 | 112 | 112 | 38,766 | **172** |
+| cycle 2 → 2D | 94.5 | 96 | 112 | 94 | 39,499 | **177** |
+
+Overlay rebuilds 1 (the one legitimate boot raise), never again. The reading: under T83's
+112 MB phone cap the FPV working set ALONE fills the cap (112 items at rest), so the first flip
+evicts the whole 2D set and the way back re-fetches it (670 — more than the boot, the sticky
+512 composite is dearer); the bank's raised floor binds on `minHeadroomBytes` (112 − 16 = 96 MB,
+not `bankFrac`'s 103) and retains enough of each set that the SECOND cycle costs 172 / 177 —
+the "churn falls but does not vanish" shape the RC20 note predicted, 3.8× down on the cold
+cycle. The remaining lever is capacity (`QUALITY.leanMobile.groundLruBytesMB` 112 ↔ the
+jetsam headroom T83 bought) or a mode-aware victim choice; both are the T34-vs-T83 trade
+(network vs memory) and an owner call, not built here. On the desktop (`high`) the bank is
+OFF by design and the cache never rests at its floor (M13).

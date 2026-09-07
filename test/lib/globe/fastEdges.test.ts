@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { buildFastEdges } from "../../../src/lib/globe/fastEdges";
+import { buildFastEdges, createFastEdgesBuilder } from "../../../src/lib/globe/fastEdges";
 import {
+  createSegmentRunAttributor,
   csrFromRunIds,
   featureRunsOf,
   mapSegmentsToRuns,
@@ -138,6 +139,58 @@ describe("buildFastEdges ≡ THREE.EdgesGeometry (T106)", () => {
   });
 });
 
+describe("createFastEdgesBuilder — the resumable form is the SAME build (T106 slice b)", () => {
+  // The deferred load queue steps the builder under a frame deadline; the identity must hold no
+  // matter where the resume boundaries fall. A deadline already in the past forces exactly one
+  // chunk per step, and a chunk of 1 puts a boundary after EVERY vertex and EVERY triangle.
+  it.each(FIXTURES.map((f) => [f.name, f]))("%s — one iteration per step ≡ one-shot ≡ three", (_n, f) => {
+    for (const angle of [30, 1, 89]) {
+      const want = threeEdges(f.pos, null, angle);
+      const oneShot = buildFastEdges(f.pos, null, angle);
+      for (const chunk of [1, 7]) {
+        const b = createFastEdgesBuilder(f.pos, null, angle);
+        let steps = 0;
+        expect(b.done()).toBe(false);
+        expect(() => b.result()).toThrow();
+        while (!b.step(-Infinity, chunk)) steps++;
+        expect(b.done()).toBe(true);
+        const got = b.result();
+        expect(Array.from(got.positions)).toEqual(Array.from(want));
+        expect(Array.from(got.srcIndex)).toEqual(Array.from(oneShot.srcIndex));
+        expect(got.segmentCount).toBe(oneShot.segmentCount);
+        // a chunk of 1 really did resume: at least one boundary per vertex and per triangle
+        if (chunk === 1) expect(steps).toBeGreaterThanOrEqual(f.pos.length / 3 + f.pos.length / 9 - 1);
+        expect(b.step(-Infinity, chunk)).toBe(true); // idempotent once done
+      }
+    }
+  });
+
+  it("indexed geometry, resumed every triangle — identical to three", () => {
+    const g = new THREE.BoxGeometry(4, 6, 3);
+    const pos = (g.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+    const idx = Array.from(g.getIndex()!.array as ArrayLike<number>);
+    const want = threeEdges(pos, idx, 30);
+    const b = createFastEdgesBuilder(pos, idx, 30);
+    while (!b.step(-Infinity, 1)) {
+      /* one vertex / one triangle per step */
+    }
+    expect(Array.from(b.result().positions)).toEqual(Array.from(want));
+  });
+
+  it("a live deadline: a step that runs out of time returns false and the next one resumes", () => {
+    const parts = [];
+    for (let i = 0; i < 400; i++) parts.push(box((i % 20) * 12.3, Math.floor(i / 20) * 12.9, 8.2, 7.1, 6.5, i + 1));
+    const f = cell(parts);
+    const want = buildFastEdges(f.pos, null, 30);
+    const b = createFastEdgesBuilder(f.pos, null, 30);
+    let steps = 0;
+    // a 0.02 ms budget per step against ~14k vertices + ~4.8k triangles: many resumes
+    while (!b.step(performance.now() + 0.02, 64)) steps++;
+    expect(steps).toBeGreaterThan(1);
+    expect(Array.from(b.result().positions)).toEqual(Array.from(want.positions));
+  });
+});
+
 describe("segmentRunsFromSources ≡ mapSegmentsToRuns over vertexKeyToRunWithCollisions (T106)", () => {
   it.each(FIXTURES.map((f) => [f.name, f]))("%s — every segment attributed identically", (_n, f) => {
     const runs = featureRunsOf(f.fid);
@@ -182,6 +235,27 @@ describe("segmentRunsFromSources ≡ mapSegmentsToRuns over vertexKeyToRunWithCo
     const want = mapSegmentsToRuns(edges.positions, map, collisions);
     const got = segmentRunsFromSources(edges.srcIndex, pos, runs);
     expect(Array.from(got)).toEqual(Array.from(want));
+  });
+});
+
+describe("createSegmentRunAttributor — the resumable attribution is the SAME answer (T106 slice b)", () => {
+  it.each(FIXTURES.map((f) => [f.name, f]))("%s — one item per step ≡ one-shot ≡ the string path", (_n, f) => {
+    const runs = featureRunsOf(f.fid);
+    const edges = buildFastEdges(f.pos, null, 30);
+    const { map, collisions } = vertexKeyToRunWithCollisions(f.pos, runs);
+    const want = mapSegmentsToRuns(edges.positions, map, collisions);
+    const oneShot = segmentRunsFromSources(edges.srcIndex, f.pos, runs);
+    expect(Array.from(oneShot)).toEqual(Array.from(want));
+    for (const chunk of [1, 5]) {
+      const a = createSegmentRunAttributor(edges.srcIndex, f.pos, runs);
+      expect(a.done()).toBe(false);
+      expect(() => a.result()).toThrow();
+      let steps = 0;
+      while (!a.step(-Infinity, chunk)) steps++;
+      expect(Array.from(a.result())).toEqual(Array.from(want));
+      if (chunk === 1) expect(steps).toBeGreaterThanOrEqual(f.pos.length / 3 + runs.length + edges.segmentCount - 2);
+      expect(a.step(-Infinity, chunk)).toBe(true);
+    }
   });
 });
 

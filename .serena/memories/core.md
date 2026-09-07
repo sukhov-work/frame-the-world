@@ -12,7 +12,17 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07d
+## Status — 2026-09-07e
+- **2026-09-07e (`mem:project/wip-2026-09-07-t106-two-phase`):** **T106 FIXED** — the two-phase `load-model`
+  handler: phase 1 synchronous (cell record, material swap, F1 birth, trees; 0.4/0.8 ms), phase 2 one unit per
+  mesh on `lib/globe/loadQueue` drained by `update()` under `ENRICHED.loadBudgetMs` 6 / `loadBudgetMsLean` 3 per
+  frame, nearest first, sticky mid-flight; the unit's long loops all RESUMABLE (`createFastEdgesBuilder`,
+  `createSegmentRunAttributor`, fingerprints by run, the footprint locate by feature), registration atomic.
+  Worst drain desktop 30.3 → **8.5 ms**, phone twin 85.9 → **8.0 ms** (`probe-load-phase2.mjs`, `--budget 1e6`
+  = the old shape); identity 0/0; the twin's whole-city landing drains over ~4.4 s (owner knob). The flip bank
+  measured under the phone caps (`probe-flip-bank.mjs`): 670 requests on the cold 2D return, 177 warm — owner
+  call (cap vs jetsam). Boot trap: the ship hook has NO retry — a transient SSH outage stranded `2d55a33`;
+  pushed by hand → PR #110. vitest 2,845/180 · astro 0/0/11 · knip 0. The Pixel read of T106 is still owed.
 - **2026-09-07d (`mem:project/wip-2026-09-07-occlusion-rulings-t106`):** the occlusion rulings executed.
   **T110 FIXED** — the horizon profile is 0.25° (`PLAN.azBins` 1440) on BOTH shells; terrain marched at 120
   and folded in; the edge walker caches vertices, span-fills, and is resumable under a TIME budget
@@ -70,19 +80,19 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-07d: vitest **2,829/2,829** (179 files) · `astro check` **0/0/11** · knip **0**.
+- Gates 2026-09-07e: vitest **2,845/2,845** (180 files) · `astro check` **0/0/11** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T114).
 
-## Next step — T77 after the occlusion rulings (full brief: `NEXT_SESSION_PROMPT.md`)
-1. Boot: VPN on the Mac (AND the phone if the Pixel is used), ion curl, `--budget`, ONE Chrome,
-   `wix dev` with `.vite` aside (behind a cloudflared tunnel if the farm is used), the pre sweep;
-   the ship hook fires on `/clear` — wait for it. Never edit `src/` while ANY harness or farm run is up.
-2. Nothing is blocking. Next in order: **T106's tail** (the two-phase `load-model` handler — one cell
-   per frame under a ms budget, atomic per part; `__globe.enrichedLoad().handlerMaxMs` 65 → < 16 on the
-   twin) · the flip bank under the lean caps on phones (RC20) · `compileAsync` · T114 · T113 with BEST SPOT.
-   Owner taste call open: `DAYARC.skylineBehindAlpha` 0.35 (judge on a dusk FPV pose).
+## Next step — T77 after T106 (full brief: `NEXT_SESSION_PROMPT.md`)
+1. Boot: the ship log FIRST (an `ABORT: push failed` run = push the stranded branch by hand), VPN on the
+   Mac (AND the phone if the Pixel is used), ion curl, `--budget`, ONE Chrome, `wix dev` with `.vite`
+   aside, the pre sweep. Never edit a SERVED `src/` module while ANY harness or farm run is up.
+2. Nothing is blocking. Next in order: **the Pixel read of T106** (`probe-cpu-profile --leg descent
+   --device`; judge `loadBudgetMsLean` 3) · the OSM handler's phase 0 if its edges show on the Pixel ·
+   `compileAsync` · T114 · T113 with BEST SPOT. Owner calls open: `loadBudgetMsLean` 3 (the ~4.4 s
+   landing wave) · the flip bank's cap-vs-jetsam trade (670 cold / 177 warm) · `DAYARC.skylineBehindAlpha`.
 3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
    — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
    then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77
@@ -176,6 +186,8 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   MEASUREMENTS §22 · `audits/audit-occlusion-2026-09-07` · `mem:project/wip-2026-09-07-t83-pagehide-occlusion-audit`
 - **THE OCCLUSION RULINGS: T110 fine bins · T112 best effort · T111 the skyline fold · T106 re-shaped
   (09-07d, HOT)** · MEASUREMENTS §23 · `mem:project/wip-2026-09-07-occlusion-rulings-t106`
+- **T106 FIXED — the two-phase `load-model` handler, the flip bank under the phone caps (09-07e, HOT)** ·
+  MEASUREMENTS §24 · `mem:project/wip-2026-09-07-t106-two-phase`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

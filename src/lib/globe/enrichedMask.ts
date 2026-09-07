@@ -344,8 +344,29 @@ export function segmentRunsFromSources(
   positions: ArrayLike<number>,
   runs: readonly FeatureRun[],
 ): Int32Array {
+  const a = createSegmentRunAttributor(srcIndex, positions, runs);
+  a.step(Infinity, 1 << 30);
+  return a.result();
+}
+
+/** T106 slice (b) — the RESUMABLE form of `segmentRunsFromSources` (the deferred `load-model`
+ *  queue steps it under a frame deadline; the biggest Dnipro cell's attribution alone was
+ *  18 ms on the phone twin). Same algorithm, same answers: `step(deadlineMs, checkEvery)`
+ *  works in chunks of `checkEvery` vertices / run-vertices / segments, always completing at
+ *  least one chunk per call; `result()` after it returns true. */
+export interface SegmentRunAttributor {
+  step(deadlineMs: number, checkEvery?: number): boolean;
+  result(): Int32Array;
+  done(): boolean;
+}
+
+export function createSegmentRunAttributor(
+  srcIndex: ArrayLike<number>,
+  positions: ArrayLike<number>,
+  runs: readonly FeatureRun[],
+): SegmentRunAttributor {
   const vertexCount = Math.floor(positions.length / 3);
-  // run per source vertex (−1 outside every run)
+  // run per source vertex (−1 outside every run) — one fill, at construction
   const runOf = new Int32Array(vertexCount).fill(-1);
   for (let r = 0; r < runs.length; r++) {
     const run = runs[r];
@@ -365,86 +386,151 @@ export function segmentRunsFromSources(
   const rep = new Int32Array(vertexCount);
   const uidOf = new Int32Array(vertexCount);
   let uidCount = 0;
-  for (let i = 0; i < vertexCount; i++) {
-    f32[0] = positions[i * 3] || 0; // −0 → 0 (the string key read both as "0")
-    f32[1] = positions[i * 3 + 1] || 0;
-    f32[2] = positions[i * 3 + 2] || 0;
-    const x = i32[0];
-    const y = i32[1];
-    const z = i32[2];
-    bx[i] = x;
-    by[i] = y;
-    bz[i] = z;
-    // Mix ALL the bits down before masking: float bit patterns (and round-metre coordinates)
-    // have long runs of zero low bits, and a plain multiply-xor leaves them zero — every
-    // vertex would land in slot 0 and the probe would go quadratic (measured: 350 ms on a
-    // 61k-vertex cell before this mixer, 3 ms after).
-    let h = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
-    h ^= Math.imul(y ^ (y >>> 13), 0xc2b2ae35);
-    h ^= Math.imul(z ^ (z >>> 16), 0x27d4eb2f);
-    h ^= h >>> 15;
-    h = Math.imul(h, 0x2c1b3c6d);
-    h ^= h >>> 12;
-    h &= mask;
-    for (;;) {
-      const u = table[h];
-      if (u < 0) {
-        table[h] = uidCount;
-        rep[uidCount] = i;
-        uidOf[i] = uidCount++;
-        break;
-      }
-      const rr = rep[u];
-      if (bx[rr] === x && by[rr] === y && bz[rr] === z) {
-        uidOf[i] = u;
-        break;
-      }
-      h = (h + 1) & mask;
-    }
-  }
-  // first-wins owner per uid (runs ascend, vertices ascend ⇒ the first claimant is the lowest
-  // run) and the collision lists for uids claimed by ≥ 2 runs.
-  const firstRun = new Int32Array(uidCount).fill(-1);
-  const claimants = new Map<number, number[]>();
-  for (let r = 0; r < runs.length; r++) {
-    const run = runs[r];
-    const end = Math.min(vertexCount, run.start + run.count);
-    for (let i = run.start; i < end; i++) {
-      const u = uidOf[i];
-      const have = firstRun[u];
-      if (have < 0) firstRun[u] = r;
-      else if (have !== r) {
-        const list = claimants.get(u);
-        if (!list) claimants.set(u, [have, r]);
-        else if (list[list.length - 1] !== r) list.push(r);
-      }
-    }
-  }
-  const n = srcIndex.length;
-  const out = new Int32Array(n).fill(-1);
-  for (let a = 0; a + 1 < n; a += 2) {
-    const b = a + 1;
-    const ua = uidOf[srcIndex[a]];
-    const ub = uidOf[srcIndex[b]];
-    const ra = firstRun[ua];
-    const rb = firstRun[ub];
-    let r = ra;
-    if (ra !== rb) {
-      const A = claimants.get(ua) ?? (ra >= 0 ? [ra] : []);
-      const B = claimants.get(ub) ?? (rb >= 0 ? [rb] : []);
-      let common = -1;
-      for (const x of A) {
-        if (B.includes(x)) {
-          common = x;
+  const keyVertices = (from: number, to: number): void => {
+    for (let i = from; i < to; i++) {
+      f32[0] = positions[i * 3] || 0; // −0 → 0 (the string key read both as "0")
+      f32[1] = positions[i * 3 + 1] || 0;
+      f32[2] = positions[i * 3 + 2] || 0;
+      const x = i32[0];
+      const y = i32[1];
+      const z = i32[2];
+      bx[i] = x;
+      by[i] = y;
+      bz[i] = z;
+      // Mix ALL the bits down before masking: float bit patterns (and round-metre coordinates)
+      // have long runs of zero low bits, and a plain multiply-xor leaves them zero — every
+      // vertex would land in slot 0 and the probe would go quadratic (measured: 350 ms on a
+      // 61k-vertex cell before this mixer, 3 ms after).
+      let h = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
+      h ^= Math.imul(y ^ (y >>> 13), 0xc2b2ae35);
+      h ^= Math.imul(z ^ (z >>> 16), 0x27d4eb2f);
+      h ^= h >>> 15;
+      h = Math.imul(h, 0x2c1b3c6d);
+      h ^= h >>> 12;
+      h &= mask;
+      for (;;) {
+        const u = table[h];
+        if (u < 0) {
+          table[h] = uidCount;
+          rep[uidCount] = i;
+          uidOf[i] = uidCount++;
           break;
         }
+        const rr = rep[u];
+        if (bx[rr] === x && by[rr] === y && bz[rr] === z) {
+          uidOf[i] = u;
+          break;
+        }
+        h = (h + 1) & mask;
       }
-      r = common >= 0 ? common : ra >= 0 ? ra : rb;
     }
-    out[a] = r;
-    out[b] = r;
-  }
-  return out;
+  };
+  // first-wins owner per uid (runs ascend, vertices ascend ⇒ the first claimant is the lowest
+  // run) and the collision lists for uids claimed by ≥ 2 runs. Sized once the uids are known.
+  let firstRun: Int32Array | null = null;
+  const claimants = new Map<number, number[]>();
+  const claimRuns = (from: number, to: number): void => {
+    const fr = firstRun as Int32Array;
+    for (let r = from; r < to; r++) {
+      const run = runs[r];
+      const end = Math.min(vertexCount, run.start + run.count);
+      for (let i = run.start; i < end; i++) {
+        const u = uidOf[i];
+        const have = fr[u];
+        if (have < 0) fr[u] = r;
+        else if (have !== r) {
+          const list = claimants.get(u);
+          if (!list) claimants.set(u, [have, r]);
+          else if (list[list.length - 1] !== r) list.push(r);
+        }
+      }
+    }
+  };
+  const n = srcIndex.length;
+  const out = new Int32Array(n).fill(-1);
+  const attribute = (from: number, to: number): void => {
+    const fr = firstRun as Int32Array;
+    for (let a = from; a + 1 < to; a += 2) {
+      const b = a + 1;
+      const ua = uidOf[srcIndex[a]];
+      const ub = uidOf[srcIndex[b]];
+      const ra = fr[ua];
+      const rb = fr[ub];
+      let r = ra;
+      if (ra !== rb) {
+        const A = claimants.get(ua) ?? (ra >= 0 ? [ra] : []);
+        const B = claimants.get(ub) ?? (rb >= 0 ? [rb] : []);
+        let common = -1;
+        for (const x of A) {
+          if (B.includes(x)) {
+            common = x;
+            break;
+          }
+        }
+        r = common >= 0 ? common : ra >= 0 ? ra : rb;
+      }
+      out[a] = r;
+      out[b] = r;
+    }
+  };
+  // stage 0 = keying vertices · 1 = claiming runs · 2 = attributing segments · 3 = done
+  let stage = 0;
+  let vCursor = 0;
+  let rCursor = 0;
+  let sCursor = 0; // segment START vertex (even)
+  return {
+    step(deadlineMs, checkEvery = 1024) {
+      const chunk = Math.max(1, Math.floor(checkEvery));
+      if (stage === 0) {
+        for (;;) {
+          const to = Math.min(vertexCount, vCursor + chunk);
+          keyVertices(vCursor, to);
+          vCursor = to;
+          if (vCursor >= vertexCount) {
+            firstRun = new Int32Array(uidCount).fill(-1);
+            stage = 1;
+            break;
+          }
+          if (performance.now() >= deadlineMs) return false;
+        }
+        if (performance.now() >= deadlineMs) return false;
+      }
+      if (stage === 1) {
+        for (;;) {
+          // a chunk = runs holding ~`chunk` vertices (a run is a building — tens to hundreds)
+          let to = rCursor;
+          let vs = 0;
+          while (to < runs.length && vs < chunk) vs += runs[to++].count;
+          claimRuns(rCursor, to);
+          rCursor = to;
+          if (rCursor >= runs.length) {
+            stage = 2;
+            break;
+          }
+          if (performance.now() >= deadlineMs) return false;
+        }
+        if (performance.now() >= deadlineMs) return false;
+      }
+      if (stage === 2) {
+        for (;;) {
+          const to = Math.min(n, sCursor + chunk * 2);
+          attribute(sCursor, to);
+          sCursor = to;
+          if (sCursor >= n) {
+            stage = 3;
+            break;
+          }
+          if (performance.now() >= deadlineMs) return false;
+        }
+      }
+      return stage === 3;
+    },
+    result() {
+      if (stage !== 3) throw new Error("enrichedMask: result() before the attribution finished");
+      return out;
+    },
+    done: () => stage === 3,
+  };
 }
 
 /** CSR buckets: vertex indices grouped by run id (−1 entries dropped) — the per-building

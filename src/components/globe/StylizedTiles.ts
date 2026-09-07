@@ -541,6 +541,9 @@ export function attachStylizedTiles(opts: {
           // for itself.
           terrainDirtyRegions: () => ground.terrainDirtyRegions(),
           loadAim,
+          // T106 slice (b): the deferred `load-model` budget, keyed on the same `lean` the tile
+          // caches (T83) and the plan sweep (T110) key on.
+          loadBudgetMs: lean ? ENRICHED.loadBudgetMsLean : ENRICHED.loadBudgetMs,
           overrides: bldgOverridesSeam,
         })
       : null;
@@ -3623,6 +3626,7 @@ export function attachStylizedTiles(opts: {
       enrichedSeats: () => enriched?.debugSeats() ?? null, // per-building re-seat coverage (2026-07-14)
       enrichedCellSeats: (limit?: number) => enriched?.debugCellSeats(limit) ?? null, // T77 slice B (DEV)
       enrichedLoad: () => enriched?.debugLoad() ?? null, // T106 — the load-model handler's cost ledger
+      enrichedLoadBudget: (ms: number) => enriched?.setLoadBudgetMs(ms) ?? null, // T106 (b) — the phase-2 budget, live
       enrichedBench: (limit?: number) => enriched?.benchEdges(limit) ?? null, // T106 — the in-page A/B + identity
       // T77 MEASURE (2026-09-05) — the RESEAT-SETTLE read seam: this frame's seat residuals from
       // the apply pass (plain field reads, safe inside a per-frame rAF probe — unlike
@@ -4516,6 +4520,8 @@ export function attachStylizedTiles(opts: {
           deepPendingCells: c?.deepPendingCells ?? null, // T101
           seatCacheHits: c?.seatCacheHits ?? null,
           seatCacheMisses: c?.seatCacheMisses ?? null,
+          loadPending: c?.loadPending ?? null, // T106 (b)
+          loadMaxMs: c?.loadMaxMs ?? null, // T106 (b)
           seatEpoch: s?.epoch ?? null,
           seatQuietFrames: s?.quietFrames ?? null,
         };

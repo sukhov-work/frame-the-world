@@ -2767,6 +2767,19 @@ export const ENRICHED = {
   /** One-time bounding-volume pad (m) on cell fill/edge geometry so raycast picks and the
    *  planner's trust-radius cull stay valid after per-feature verts shift by up to ~±15 m. */
   reseatBoundsPadM: 40,
+  /** T106 slice (b) (2026-09-07e) — the per-frame TIME budget (ms) for PHASE 2 of a cell's
+   *  `load-model`: the crease edges (resumable mid-build), the per-building edge attribution,
+   *  the feature registry + banked-seat restore + override re-apply (each atomic per mesh, run
+   *  in that order so the §4a pristine capture is still a straight copy). The handler used to
+   *  do all of it in ONE frame — 65 ms for the biggest Dnipro cell on the phone twin, the bulk
+   *  of the Pixel's 6.7 s descent hitch. Every drain runs at least one step, so the budget bounds
+   *  the work per frame without ever starving it; the worst frame reads on the DBG row
+   *  `buildings.loadMaxMs` and `__globe.enrichedLoad().deferredMaxMs`. Keyed on `lean` by the
+   *  orchestrator, like the plan sweep (`PLAN.sweepBudgetMs`). Units are picked NEAREST first
+   *  (the download queue's own look-biased law), so a landing burst registers what the viewer
+   *  sees before what is behind them. */
+  loadBudgetMs: 6,
+  loadBudgetMsLean: 3,
   /** Manual vertical nudge (m, along the bbox-centre geodetic up) ON TOP of the terrain re-seat —
    *  the browser tuning knob for any residual float/sink. 0 until browser-verified over Dnipro. */
   seatOffsetM: 0,

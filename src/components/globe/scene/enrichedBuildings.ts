@@ -20,6 +20,7 @@ import {
 } from "../../../lib/globe/loadPriority";
 import {
   bboxCenterDeg,
+  createSegmentRunAttributor,
   csrFromRunIds,
   featureRunsOf,
   mapSegmentsToRuns,
@@ -31,6 +32,7 @@ import {
   vertexKeyToRunWithCollisions,
   type FeatureRun,
   type GeoBbox,
+  type SegmentRunAttributor,
 } from "../../../lib/globe/enrichedMask";
 import {
   deepAnswerVerdict,
@@ -74,7 +76,8 @@ import {
 } from "../../../lib/globe/enrichedMeta";
 import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES, WGS84_A } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
-import { buildEdgesGeometry } from "./edgesGeometry";
+import { buildEdgesGeometry, createEdgesBuilder, type EdgesBuild, type EdgesBuilder } from "./edgesGeometry";
+import { createLoadQueue, type LoadUnit } from "../../../lib/globe/loadQueue";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
@@ -310,6 +313,9 @@ export interface EnrichedBuildingsHandle {
     deepPendingCells: number;
     seatCacheHits: number;
     seatCacheMisses: number;
+    /** T106 slice (b) — the deferred `load-model` queue: units waiting, and the worst drain (ms). */
+    loadPending: number;
+    loadMaxMs: number;
   };
   /** U8 pick: raycast the enriched fill meshes; the first qualifying hit resolves through the
    *  cached run table. RC17 qualifies on the sidecar's CLASS token (Building family only, so an
@@ -481,10 +487,27 @@ export interface EnrichedBuildingsHandle {
     cells: number;
     edgesMs: number;
     maskMs: number;
+    /** The SYNCHRONOUS handler (phase 1: cell registration + material swap) — total and worst. */
     handlerMs: number;
     handlerMaxMs: number;
     slowPathCells: number;
+    // T106 slice (b) — the deferred phase
+    registerMs: number;
+    edgesMaxMs: number; // worst single edge-build STEP (bounded by the budget + one chunk)
+    maskMaxMs: number; // worst attribution unit (atomic)
+    registerMaxMs: number; // worst registry unit (atomic)
+    deferredMs: number; // total ms inside the per-frame drain
+    deferredMaxMs: number; // the WORST single drain — the number the budget exists to bound
+    deferredFrames: number;
+    pending: number;
+    unitsDone: number;
+    unitsCancelled: number;
+    budgetMs: number;
   };
+  /** T106 slice (b) DEV seam — set the per-frame phase-2 budget live (ms; a huge value drains
+   *  the whole queue in one frame = the pre-slice handler's per-frame shape, the A/B's B).
+   *  Returns the value in force. */
+  setLoadBudgetMs(ms: number): number;
   /** T106 DEV seam — the A/B and the §4a identity proof ON THE RESIDENT CELLS: for up to
    *  `limit` registered parts, run three's `EdgesGeometry` + the string-keyed attribution and
    *  the fast builder + the integer attribution on the SAME live floats, time both, and compare
@@ -526,6 +549,10 @@ export function attachEnrichedBuildings(
     terrainDirtyRegions?: () => [number, number, number, number][];
     /** UPLIFT U5: the shared download-priority aim state (mirrors attachBuildings.loadAim). */
     loadAim: LoadAim;
+    /** T106 slice (b): the per-frame ms budget for phase 2 of `load-model` (the deferred edge
+     *  build / attribution / registry — `lib/globe/loadQueue`). The orchestrator keys it on
+     *  `lean` (`ENRICHED.loadBudgetMs` / `loadBudgetMsLean`); the default is the desktop value. */
+    loadBudgetMs?: number;
     /** U8: persisted overrides for THIS variant — consulted per cell at load-model (LRU reloads
      *  re-apply for free) and by `reapplyOverrides()`. A checksum mismatch (re-bake reshuffled
      *  ids) on a row with NO OSM id reports through `onInvalid` so the orchestrator drops it.
@@ -581,7 +608,23 @@ export function attachEnrichedBuildings(
   /** T106 — the `load-model` handler's cost ledger (DEV seam `debugLoad()`): cells landed,
    *  ms in the crease-edge build and in the per-building attribution, the whole handler's
    *  total and worst, and how many cells took three's own (string-keyed) edge path. */
-  const loadLedger = { cells: 0, edgesMs: 0, maskMs: 0, handlerMs: 0, handlerMaxMs: 0, slowPathCells: 0 };
+  const loadLedger = {
+    cells: 0,
+    edgesMs: 0,
+    maskMs: 0,
+    handlerMs: 0,
+    handlerMaxMs: 0,
+    slowPathCells: 0,
+    // T106 slice (b): the deferred phase, per unit and per drain
+    registerMs: 0,
+    edgesMaxMs: 0,
+    maskMaxMs: 0,
+    registerMaxMs: 0,
+  };
+  /** T106 slice (b) — the deferred `load-model` queue (`lib/globe/loadQueue`): one unit per
+   *  mesh, drained in `update()` under `loadBudgetMs` per frame, nearest cell first. */
+  const loadQueue = createLoadQueue();
+  let loadBudgetMs = opts.loadBudgetMs ?? ENRICHED.loadBudgetMs;
   /** Fetch + cache one cell's sidecar. Never rejects — absence is a normal answer. */
   const primeMeta = (glbUrl: string): Promise<void> => {
     const uri = cellUriOf(glbUrl);
@@ -1215,6 +1258,314 @@ export function attachEnrichedBuildings(
       .slice(0, ENRICHED.reseatPriorityCells)
       .map((x) => x.c);
 
+  /**
+   * T106 slice (b) (2026-09-07e) — PHASE 2 of a mesh's `load-model`, as one unit on the deferred
+   * queue. Five phases in the order the pristine contract needs; a step returns only BETWEEN
+   * phases or inside a resumable loop, never with a half-written structure visible:
+   *   0 · the crease edges — `createEdgesBuilder`, RESUMABLE under the frame deadline (the
+   *       biggest Dnipro cell's build alone is ~20 ms on the phone twin); on completion the
+   *       `LineSegments` is added with ITS OWN F1 birth stamp (`frameNow()` at that frame —
+   *       T94: the seam's clock), so the strokes dissolve in when they exist, not retroactively;
+   *   1 · the per-building segment attribution — `createSegmentRunAttributor`, RESUMABLE (the
+   *       biggest cell's was 18 ms atomic on the twin, the first cut's worst frame);
+   *   2 · the CSR + edge spans + the one-time bounds pad (atomic, small);
+   *   3 · the feature fingerprints from the PRISTINE floats (no seat write can have touched
+   *       them — the apply passes only walk registered parts), RESUMABLE by run;
+   *   4 · the part object and, if the cell was located while this unit waited (the one-shot
+   *       `ensureLocated` will not run again for it), the footprint locate — RESUMABLE by
+   *       feature;
+   *   5 · the registration (atomic, small): the RC9 banked seats, `cell.parts.push` +
+   *       `partByMesh.set`, the override re-apply, and `touchCell` so the apply pass sees the
+   *       new features.
+   * `dispose-model` cancels the unit by its scene; a cancelled unit mid-build is just dropped.
+   */
+  const makeMeshLoadUnit = (key: object, cell: CellSeat | null, c: THREE.Mesh): LoadUnit => {
+    // 0 edges (resumable) · 1 attribution (resumable) · 2 CSR + spans + bounds (atomic) ·
+    // 3 feature fingerprints (resumable, by run) · 4 the part + footprint locate (resumable) ·
+    // 5 register (atomic) · 6 done
+    let phase = 0;
+    let part: MeshPart | null = null;
+    let locCursor = 0;
+    let builder: EdgesBuilder | null = null;
+    let edgeBuild: EdgesBuild | null = null;
+    let edges: THREE.LineSegments | null = null;
+    let runs: FeatureRun[] = [];
+    let posAttr: THREE.BufferAttribute | null = null;
+    let edgeAttr: THREE.BufferAttribute | null = null;
+    let attributor: SegmentRunAttributor | null = null;
+    let segRuns: Int32Array | null = null;
+    let edgeCsr: ReturnType<typeof csrFromRunIds> | null = null;
+    let edgeSpan: Int32Array | null = null;
+    let features: FeatureSeat[] = [];
+    const runIdx = new Map<number, number>();
+    let runCursor = 0;
+    let cellMeta: CellMeta | null | undefined;
+    const over = (deadlineMs: number): boolean => performance.now() >= deadlineMs;
+    const ledger = (k: "edges" | "mask" | "register", dt: number): void => {
+      if (k === "edges") {
+        loadLedger.edgesMs += dt;
+        if (dt > loadLedger.edgesMaxMs) loadLedger.edgesMaxMs = dt;
+      } else if (k === "mask") {
+        loadLedger.maskMs += dt;
+        if (dt > loadLedger.maskMaxMs) loadLedger.maskMaxMs = dt;
+      } else {
+        loadLedger.registerMs += dt;
+        if (dt > loadLedger.registerMaxMs) loadLedger.registerMaxMs = dt;
+      }
+    };
+    return {
+      key,
+      priority: () => (cell ? lookBiasedDistance(cell.ecef, opts.loadAim) : 0),
+      step(deadlineMs) {
+        if (phase === 0) {
+          const t0 = performance.now();
+          // T106 (2026-09-07d): the crease edges through the fast builder — element-identical
+          // to `new THREE.EdgesGeometry(c.geometry, ENRICHED.edgeAngleDeg)` (pinned by
+          // `fastEdges.test`, resumed or not), without the string hashing that was 1.8 s of the
+          // Pixel's descent.
+          if (!builder) builder = createEdgesBuilder(c.geometry, ENRICHED.edgeAngleDeg);
+          const done = builder.step(deadlineMs);
+          ledger("edges", performance.now() - t0);
+          if (!done) return false;
+          edgeBuild = builder.result();
+          builder = null;
+          loadLedger.cells++;
+          if (!edgeBuild.fast) loadLedger.slowPathCells++;
+          const birthMs = frameNow(); // F1: the strokes' own birth — this frame, from the seam
+          edges = new THREE.LineSegments(edgeBuild.geometry, edgeMat);
+          edges.raycast = () => {}; // never let GlobeControls pick a decoration line
+          edges.onBeforeRender = () => {
+            uniforms.uEdgeBirthMs.value = birthMs; // F1: its own holder (separate draw item)
+          };
+          c.add(edges);
+          // Per-building re-seat registry: contiguous `_feature_id_0` runs + the exact-position
+          // CSR that lets each building drag ITS OWN edge verts along. Built from the PRISTINE
+          // buffers (before any delta) — the key map must match what the edge builder copied.
+          const fid = cell && ENRICHED.reseatPerFeature ? c.geometry.getAttribute("_feature_id_0") : null;
+          const pa = c.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+          const plain =
+            !!pa &&
+            !(pa as unknown as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute &&
+            !pa.normalized &&
+            pa.array instanceof Float32Array;
+          if (!fid || !plain) {
+            phase = 6;
+            return true;
+          }
+          posAttr = pa as THREE.BufferAttribute;
+          runs = featureRunsOf(fid.array);
+          edgeAttr = edges.geometry.getAttribute("position") as THREE.BufferAttribute | null;
+          phase = 1;
+          if (over(deadlineMs)) return false;
+        }
+        if (phase === 1) {
+          const t0 = performance.now();
+          // MS1: collision-aware per-SEGMENT attribution — a party-wall corner's stroke stays
+          // with the building whose other end it touches, so a move/rotate never stretches a
+          // neighbour's edge. T106: from the edge builder's SOURCE indices on integer keys
+          // (`createSegmentRunAttributor`, the same rules as `mapSegmentsToRuns` — pinned by
+          // `fastEdges.test`, resumed or not); the string-keyed path stays for a geometry the
+          // fast edge builder declined (never a baked cell).
+          if (edgeAttr && edgeBuild?.srcIndex && posAttr) {
+            if (!attributor) attributor = createSegmentRunAttributor(edgeBuild.srcIndex, posAttr.array, runs);
+            const done = attributor.step(deadlineMs);
+            ledger("mask", performance.now() - t0);
+            if (!done) return false;
+            segRuns = attributor.result();
+            attributor = null;
+          } else if (edgeAttr && posAttr) {
+            const { map: keyMap, collisions } = vertexKeyToRunWithCollisions(posAttr.array, runs);
+            segRuns = mapSegmentsToRuns(edgeAttr.array, keyMap, collisions);
+            ledger("mask", performance.now() - t0);
+          }
+          phase = 2;
+          if (over(deadlineMs)) return false;
+        }
+        if (phase === 2) {
+          const t0 = performance.now();
+          edgeCsr = segRuns ? csrFromRunIds(segRuns, runs.length) : null;
+          segRuns = null;
+          // MS1: per-run [min, max] edge vertex index — the partial-upload range of a run's
+          // strokes (a run's crease segments are emitted contiguously by the edge builder).
+          edgeSpan = null;
+          if (edgeCsr) {
+            edgeSpan = new Int32Array(runs.length * 2);
+            for (let r = 0; r < runs.length; r++) {
+              let lo = Infinity;
+              let hi = -1;
+              for (let j = edgeCsr.offsets[r]; j < edgeCsr.offsets[r + 1]; j++) {
+                const v = edgeCsr.verts[j];
+                if (v < lo) lo = v;
+                if (v > hi) hi = v;
+              }
+              edgeSpan[r * 2] = hi < 0 ? 0 : lo;
+              edgeSpan[r * 2 + 1] = hi;
+            }
+          }
+          // One-time bounds pad: verts will shift by up to ~±15 m — picks and the planner's
+          // trust-radius cull must keep seeing the cell (region volumes are baker-padded).
+          for (const g of [c.geometry, (edges as THREE.LineSegments).geometry]) {
+            if (!g.boundingSphere) g.computeBoundingSphere();
+            if (g.boundingSphere) g.boundingSphere.radius += ENRICHED.reseatBoundsPadM;
+          }
+          // RC17: the sidecar is guaranteed present by the time this runs (the fetch plugin
+          // resolves the model behind it), so `baseY` can be the building's TRUE base from the
+          // first frame rather than the geometric minimum RC13's skirt just moved 4 m down.
+          // Every downstream consumer — the U8 scale pivot, the ghost rebase, the bounds
+          // growth, the reported height — asks for "the building's base" and now gets it.
+          cellMeta = cell?.uri ? metaByUri.get(cell.uri) : undefined;
+          features = new Array(runs.length);
+          ledger("mask", performance.now() - t0);
+          phase = 3;
+          if (over(deadlineMs)) return false;
+        }
+        if (phase === 3 && posAttr) {
+          const t0 = performance.now();
+          // U8: pristine per-run capture (base/top Y + centroid X/Z) — MUST happen before any
+          // seat write mutates Y (none can: the part is not registered yet). Baked height,
+          // checksum and ghost all read these. Resumable by RUN under the deadline, checked
+          // every ~1,024 vertices.
+          const posArr = posAttr.array as Float32Array;
+          let sinceCheck = 0;
+          while (runCursor < runs.length) {
+            const i = runCursor++;
+            const run = runs[i];
+            runIdx.set(run.id, i);
+            let baseY = Infinity;
+            let topY = -Infinity;
+            let sx = 0;
+            let sz = 0;
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minZ = Infinity;
+            let maxZ = -Infinity;
+            for (let v = run.start; v < run.start + run.count; v++) {
+              const x = posArr[v * 3];
+              const y = posArr[v * 3 + 1];
+              const z = posArr[v * 3 + 2];
+              if (y < baseY) baseY = y;
+              if (y > topY) topY = y;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (z < minZ) minZ = z;
+              if (z > maxZ) maxZ = z;
+              sx += x;
+              sz += z;
+            }
+            const n = Math.max(1, run.count);
+            const m = cellMeta?.byId.get(run.id);
+            const cx = sx / n;
+            const cz = sz / n;
+            features[i] = {
+              run,
+              latDeg: 0,
+              lonDeg: 0,
+              seatM: null,
+              seatDepth: -1,
+              appliedM: null,
+              baseY: m ? baseY + m.skirt : baseY,
+              topY,
+              cls: m?.cls ?? null,
+              osm: m?.osm ?? null,
+              cx,
+              cz,
+              rXZ: runRadiusXZ(cx, cz, minX, maxX, minZ, maxZ),
+              dx: Number.isFinite(maxX - minX) ? maxX - minX : 0,
+              dz: Number.isFinite(maxZ - minZ) ? maxZ - minZ : 0,
+              scaleK: 1,
+              appliedK: 1,
+              xf: null,
+              axf: null,
+              pristine: null,
+              pristineEdge: null,
+              ov: 0,
+            };
+            sinceCheck += run.count;
+            if (sinceCheck >= 1024) {
+              sinceCheck = 0;
+              if (runCursor < runs.length && over(deadlineMs)) {
+                ledger("register", performance.now() - t0);
+                return false;
+              }
+            }
+          }
+          ledger("register", performance.now() - t0);
+          phase = 4;
+          if (over(deadlineMs)) return false;
+        }
+        if (phase === 4 && cell && posAttr && edges) {
+          // Build the part (a plain object — registration is the push below), then the footprint
+          // locate: the cell may have been located (its first plane sample landed) while this
+          // unit waited, and `ensureLocated` is one-shot per cell, so these footprints are
+          // located HERE — RESUMABLE by feature (an ECEF → geodetic per building; the biggest
+          // cell's ~2,000 were 13.7 ms atomic on the twin in the first cut).
+          const t0 = performance.now();
+          if (!part) {
+            part = {
+              mesh: c,
+              posAttr,
+              edgeAttr,
+              edgeGeom: edges.geometry,
+              edgeCsr,
+              runs,
+              features,
+              runIdx,
+              extraPadM: 0,
+              edgeSpan,
+              touchedRuns: [],
+              cursor: 0,
+              // RC7: everything starts unseated, in bake order.
+              unseated: features.map((_f, i) => i),
+              refine: [], // T77 4e
+            };
+          }
+          if (cell.located) {
+            while (locCursor < features.length) {
+              locateFeature(part, features[locCursor++]);
+              if ((locCursor & 255) === 0 && locCursor < features.length && over(deadlineMs)) {
+                ledger("register", performance.now() - t0);
+                return false;
+              }
+            }
+          }
+          ledger("register", performance.now() - t0);
+          phase = 5;
+          if (over(deadlineMs)) return false;
+        }
+        if (phase === 5 && cell && part) {
+          const t0 = performance.now();
+          // The cell may have become located on the frame boundary between phase 4 and here
+          // (the sampling pass's one-shot `ensureLocated` walks only REGISTERED parts): finish
+          // the locate atomically rather than register footprints at lat/lon 0.
+          if (cell.located) for (; locCursor < features.length; locCursor++) locateFeature(part, features[locCursor]);
+          // RC9: restore banked footprint seats before the sweep ever runs. Anything the cache
+          // knows drops out of the unseated drain, so a returning street spends its budget on
+          // what it has NOT seen rather than on what it already had.
+          const warmCell = cell.uri ? seatCache.get(cell.uri) : undefined;
+          if (warmCell) {
+            for (const [id, i] of runIdx) {
+              const seat = warmCell.features.get(id);
+              if (seat != null) features[i].seatM = seat;
+            }
+            part.unseated = part.unseated.filter((i) => features[i].seatM == null);
+          }
+          cell.parts.push(part);
+          partByMesh.set(c, { cell, part });
+          // U8: re-apply persisted overrides — LRU-evicted cells come back pristine, so
+          // load-model is a re-entry point (MS3: `reapplyOverrides` is the other). A checksum
+          // miss (re-bake reshuffled the bake-sequential ids) invalidates a fingerprint-only
+          // row instead of rescaling a stranger; a row with an OSM id is recovered by it. The
+          // array is pristine here, so the spatial snapshot is a straight copy.
+          applyCellOverrides(cell, part);
+          touchCell(cell); // T77 5a: new features are apply-pass work
+          ledger("register", performance.now() - t0);
+        }
+        phase = 6;
+        return true;
+      },
+    };
+  };
+
   tiles.addEventListener("load-model", (e: any) => {
     // One birth stamp per TILE (this load-model event) — the whole cell dissolves in as a unit
     // (the F1 screen-door reveal, same as the OSM tiles). One tone seed per tile, ditto.
@@ -1331,174 +1682,13 @@ export function attachEnrichedBuildings(
         };
         c.castShadow = true;
         c.receiveShadow = true;
-        // T106 (2026-09-07d): the crease edges through `buildEdgesGeometry` — element-identical
-        // to `new THREE.EdgesGeometry(c.geometry, ENRICHED.edgeAngleDeg)` (pinned by
-        // `fastEdges.test`), without the string hashing that was 1.8 s of the Pixel's descent.
-        const edgeBuild = buildEdgesGeometry(c.geometry, ENRICHED.edgeAngleDeg);
-        loadLedger.cells++;
-        loadLedger.edgesMs += edgeBuild.ms;
-        if (!edgeBuild.fast) loadLedger.slowPathCells++;
-        const edges = new THREE.LineSegments(edgeBuild.geometry, edgeMat);
-        edges.raycast = () => {}; // never let GlobeControls pick a decoration line
-        edges.onBeforeRender = () => {
-          uniforms.uEdgeBirthMs.value = birthMs; // F1: same birth, its own holder (separate draw item)
-        };
-        c.add(edges);
-        // Per-building re-seat registry: contiguous `_feature_id_0` runs + the exact-position
-        // CSR that lets each building drag ITS OWN edge verts along. Built from the PRISTINE
-        // buffers (before any delta) — the key map must match what EdgesGeometry copied.
-        if (cell && ENRICHED.reseatPerFeature) {
-          const fid = c.geometry.getAttribute("_feature_id_0");
-          const posAttr = c.geometry.getAttribute("position");
-          const plainF32 =
-            posAttr &&
-            !posAttr.isInterleavedBufferAttribute &&
-            !posAttr.normalized &&
-            posAttr.array instanceof Float32Array;
-          if (fid && plainF32) {
-            const runs = featureRunsOf(fid.array);
-            // MS1: collision-aware per-SEGMENT attribution — a party-wall corner's stroke stays
-            // with the building whose other end it touches, so a move/rotate never stretches a
-            // neighbour's edge. T106: from the edge builder's SOURCE indices on integer keys
-            // (`segmentRunsFromSources`, the same rules as `mapSegmentsToRuns` — pinned by
-            // `fastEdges.test`); the string-keyed path stays for a geometry the fast edge
-            // builder declined (never a baked cell).
-            const tMask = performance.now();
-            const edgeAttr = edges.geometry.getAttribute("position") as THREE.BufferAttribute | null;
-            let edgeCsr: ReturnType<typeof csrFromRunIds> | null = null;
-            if (edgeAttr && edgeBuild.srcIndex) {
-              edgeCsr = csrFromRunIds(
-                segmentRunsFromSources(edgeBuild.srcIndex, posAttr.array, runs),
-                runs.length,
-              );
-            } else if (edgeAttr) {
-              const { map: keyMap, collisions } = vertexKeyToRunWithCollisions(posAttr.array, runs);
-              edgeCsr = csrFromRunIds(mapSegmentsToRuns(edgeAttr.array, keyMap, collisions), runs.length);
-            }
-            loadLedger.maskMs += performance.now() - tMask;
-            // MS1: per-run [min, max] edge vertex index — the partial-upload range of a run's
-            // strokes (a run's crease segments are emitted contiguously by EdgesGeometry).
-            let edgeSpan: Int32Array | null = null;
-            if (edgeCsr) {
-              edgeSpan = new Int32Array(runs.length * 2);
-              for (let r = 0; r < runs.length; r++) {
-                let lo = Infinity;
-                let hi = -1;
-                for (let j = edgeCsr.offsets[r]; j < edgeCsr.offsets[r + 1]; j++) {
-                  const v = edgeCsr.verts[j];
-                  if (v < lo) lo = v;
-                  if (v > hi) hi = v;
-                }
-                edgeSpan[r * 2] = hi < 0 ? 0 : lo;
-                edgeSpan[r * 2 + 1] = hi;
-              }
-            }
-            // One-time bounds pad: verts will shift by up to ~±15 m — picks and the planner's
-            // trust-radius cull must keep seeing the cell (region volumes are baker-padded).
-            for (const g of [c.geometry, edges.geometry]) {
-              if (!g.boundingSphere) g.computeBoundingSphere();
-              if (g.boundingSphere) g.boundingSphere.radius += ENRICHED.reseatBoundsPadM;
-            }
-            // U8: pristine per-run capture (base/top Y + centroid X/Z) — MUST happen here,
-            // before any seat write mutates Y. Baked height, checksum and ghost all read these.
-            const posArr = posAttr.array as Float32Array;
-            const runIdx = new Map<number, number>();
-            // RC17: the sidecar is guaranteed present by the time this runs (the fetch plugin
-            // resolves the model behind it), so `baseY` can be the building's TRUE base from the
-            // first frame rather than the geometric minimum RC13's skirt just moved 4 m down.
-            // Every downstream consumer — the U8 scale pivot, the ghost rebase, the bounds
-            // growth, the reported height — asks for "the building's base" and now gets it.
-            const cellMeta = cell.uri ? metaByUri.get(cell.uri) : undefined;
-            const features: FeatureSeat[] = runs.map((run, i) => {
-              runIdx.set(run.id, i);
-              let baseY = Infinity;
-              let topY = -Infinity;
-              let sx = 0;
-              let sz = 0;
-              let minX = Infinity;
-              let maxX = -Infinity;
-              let minZ = Infinity;
-              let maxZ = -Infinity;
-              for (let v = run.start; v < run.start + run.count; v++) {
-                const x = posArr[v * 3];
-                const y = posArr[v * 3 + 1];
-                const z = posArr[v * 3 + 2];
-                if (y < baseY) baseY = y;
-                if (y > topY) topY = y;
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (z < minZ) minZ = z;
-                if (z > maxZ) maxZ = z;
-                sx += x;
-                sz += z;
-              }
-              const n = Math.max(1, run.count);
-              const m = cellMeta?.byId.get(run.id);
-              const cx = sx / n;
-              const cz = sz / n;
-              return {
-                run,
-                latDeg: 0,
-                lonDeg: 0,
-                seatM: null,
-                seatDepth: -1,
-                appliedM: null,
-                baseY: m ? baseY + m.skirt : baseY,
-                topY,
-                cls: m?.cls ?? null,
-                osm: m?.osm ?? null,
-                cx,
-                cz,
-                rXZ: runRadiusXZ(cx, cz, minX, maxX, minZ, maxZ),
-                dx: Number.isFinite(maxX - minX) ? maxX - minX : 0,
-                dz: Number.isFinite(maxZ - minZ) ? maxZ - minZ : 0,
-                scaleK: 1,
-                appliedK: 1,
-                xf: null,
-                axf: null,
-                pristine: null,
-                pristineEdge: null,
-                ov: 0,
-              };
-            });
-            const part: MeshPart = {
-              mesh: c,
-              posAttr,
-              edgeAttr,
-              edgeGeom: edges.geometry,
-              edgeCsr,
-              runs,
-              features,
-              runIdx,
-              extraPadM: 0,
-              edgeSpan,
-              touchedRuns: [],
-              cursor: 0,
-              // RC7: everything starts unseated, in bake order.
-              unseated: features.map((_f, i) => i),
-              refine: [], // T77 4e
-            };
-            // RC9: restore banked footprint seats before the sweep ever runs. Anything the cache
-            // knows drops out of the unseated drain, so a returning street spends its budget on
-            // what it has NOT seen rather than on what it already had.
-            const warmCell = cell.uri ? seatCache.get(cell.uri) : undefined;
-            if (warmCell) {
-              for (const [id, i] of runIdx) {
-                const seat = warmCell.features.get(id);
-                if (seat != null) features[i].seatM = seat;
-              }
-              part.unseated = part.unseated.filter((i) => features[i].seatM == null);
-            }
-            cell.parts.push(part);
-            partByMesh.set(c, { cell, part });
-            // U8: re-apply persisted overrides — LRU-evicted cells come back pristine, so
-            // load-model is a re-entry point (MS3: `reapplyOverrides` is the other). A checksum
-            // miss (re-bake reshuffled the bake-sequential ids) invalidates a fingerprint-only
-            // row instead of rescaling a stranger; a row with an OSM id is recovered by it. The
-            // array is pristine here, so the spatial snapshot is a straight copy.
-            applyCellOverrides(cell, part);
-          }
-        }
+        // T106 slice (b) (2026-09-07e): everything else this mesh needs — the crease edges, the
+        // per-building edge attribution, the feature registry, the banked seats, the override
+        // re-apply — is PHASE 2: one unit on the deferred queue, drained by `update()` under
+        // `loadBudgetMs` per frame (`makeMeshLoadUnit`). Nothing writes this mesh's buffers
+        // until that unit registers the part (the seat passes only walk `cell.parts`), so the
+        // §4a pristine capture is still a straight copy of what the parser produced.
+        loadQueue.push(makeMeshLoadUnit(e.scene, cell, c));
       }
     });
     const dtHandler = performance.now() - tHandler;
@@ -1506,6 +1696,7 @@ export function attachEnrichedBuildings(
     if (dtHandler > loadLedger.handlerMaxMs) loadLedger.handlerMaxMs = dtHandler;
   });
   tiles.addEventListener("dispose-model", (e: any) => {
+    loadQueue.cancel(e.scene); // T106 (b): a unit still waiting for this tile is dropped whole
     const cell = cellByScene.get(e.scene);
     if (cell) {
       // RC9: bank the seats before the cell goes. Only cells that actually learned something are
@@ -2319,6 +2510,10 @@ export function attachEnrichedBuildings(
       refreshPixelScale();
       sweepNow = idleSweepNow(frameNo, ENRICHED.reseatIdleSweepEveryFrames);
       deepResampleSpent = 0; // the deep-answer plane correction's per-FRAME budget
+      // T106 slice (b): PHASE 2 of `load-model` — drain the deferred units under the frame
+      // budget, BEFORE the seat passes so a part registered this frame is sampled this frame.
+      // Held with the rest of the body under the T94 freeze (a registration moves pixels).
+      if (loadQueue.pending() > 0) loadQueue.drain(loadBudgetMs);
       if (ENRICHED.reseatToTerrain) {
         const h = opts.terrainHeightAt(centre.latDeg, centre.lonDeg);
         if (h != null) {
@@ -2603,6 +2798,8 @@ export function attachEnrichedBuildings(
       deepPendingCells: deepPendingCellCount(), // T101
       seatCacheHits,
       seatCacheMisses,
+      loadPending: loadQueue.pending(), // T106 (b)
+      loadMaxMs: loadQueue.stats().maxFrameMs,
     }),
     pickBuilding(raycaster) {
       // Fill meshes keep default raycast; edges/trees/ghost are noop'd — hits here are either
@@ -2821,7 +3018,23 @@ export function attachEnrichedBuildings(
         });
       return rows;
     },
-    debugLoad: () => ({ ...loadLedger }),
+    setLoadBudgetMs(ms) {
+      loadBudgetMs = Number.isFinite(ms) && ms >= 0 ? ms : ENRICHED.loadBudgetMs;
+      return loadBudgetMs;
+    },
+    debugLoad: () => {
+      const q = loadQueue.stats();
+      return {
+        ...loadLedger,
+        deferredMs: q.ms,
+        deferredMaxMs: q.maxFrameMs,
+        deferredFrames: q.frames,
+        pending: q.pending,
+        unitsDone: q.done,
+        unitsCancelled: q.cancelled,
+        budgetMs: loadBudgetMs,
+      };
+    },
     benchEdges: (limit = 40) => {
       const out = { parts: 0, tris: 0, threeMs: 0, fastMs: 0, maskStringMs: 0, maskIntMs: 0, mismatch: 0, runMismatch: 0 };
       for (const { part } of partByMesh.values()) {
@@ -3069,6 +3282,7 @@ export function attachEnrichedBuildings(
     },
     dispose() {
       unregFrameClock();
+      loadQueue.clear(); // T106 (b)
       hideGhostImpl();
       ghostMat.dispose();
       cellList.length = 0;

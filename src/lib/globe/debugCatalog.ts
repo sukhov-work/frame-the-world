@@ -975,6 +975,22 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     rate: true,
     note: "Warm cell re-entries served from the seat cache Δ/s (survives LRU evictions; cleared on variant switch).",
   },
+  {
+    id: "buildings.loadPending",
+    label: "load units pending",
+    group: "buildings",
+    fmt: "int",
+    note: "T106 (b): meshes whose `load-model` PHASE 2 (crease edges → per-building attribution → feature registry / banked seats / overrides) is still on the deferred queue. Climbs on a landing burst, drains under ENRICHED.loadBudgetMs per frame (6 desktop / 3 lean), nearest cell first; a value that never reaches 0 means the budget is starved or a unit is stuck.",
+  },
+  {
+    id: "buildings.loadMaxMs",
+    label: "load drain max ms",
+    group: "buildings",
+    fmt: "ms1",
+    budget: 6,
+    warnAbove: 16,
+    note: "T106 (b): the WORST single per-frame drain of the deferred `load-model` queue (ms) since attach. Should sit at the budget plus one atomic unit (an attribution or a registry pass); the pre-slice handler did the whole cell in one frame — 65 ms for the biggest Dnipro cell on the phone twin.",
+  },
 
   // ---- VECTOR · LABELS ---------------------------------------------------------------------
   {
