@@ -1044,3 +1044,153 @@ a.m-hit {
   line-height: 1.45;
   color: var(--color-text-muted);
 }
+
+/* ── BEST SPOT sheet (owner order 2026-09-07g — the heatmap's fifth tab) ───────────────────────
+   The desktop `.bsp-*` window re-cut in the /m idiom: pills, mono rows, status lines. The ONE new
+   instrument is the arming switch — wide, because it is the feature's real gate (owner item 4) and
+   a thumb must find it without looking. Colours flow through tokens; the two ramps are painted from
+   `lib/theme/heatPalette` at render (never a literal here). */
+.m-bsp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0.5rem;
+}
+.m-bsp-switch {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 2.6rem; /* touch target */
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  border-radius: 12px;
+  padding: 0.45rem 0.85rem;
+  transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+.m-bsp-switch__glyph {
+  font-size: 1rem;
+  line-height: 1;
+}
+.m-bsp-switch__state {
+  margin-left: auto;
+  font-size: 0.56rem;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+}
+.m-bsp-switch--on {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+.m-bsp-switch--on .m-bsp-switch__state {
+  color: var(--color-accent);
+}
+/* The event pills carry the day-arc colour grammar BY NAME (the .m-jump--sun/--moon twin). */
+.m-toggle--sun.m-toggle--on {
+  color: var(--color-warn);
+  border-color: color-mix(in srgb, var(--color-warn) 45%, transparent);
+}
+.m-toggle--moon.m-toggle--on {
+  color: var(--color-moonlight);
+  border-color: color-mix(in srgb, var(--color-moonlight) 45%, transparent);
+}
+/* The shared slider at touch scale: a taller track and a bigger knob than the desktop's 12 px. */
+.m-sheet .uf-slider__track {
+  height: 28px;
+}
+.m-sheet .uf-slider__rail,
+.m-sheet .uf-slider__fill {
+  top: 13px;
+}
+.m-sheet .uf-slider__knob {
+  top: 5px;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+}
+.m-sheet .uf-slider {
+  border-bottom-color: color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+}
+/* The two legend ramps + their derived ticks. */
+.m-bsp-ramp {
+  height: 8px;
+  border-radius: 4px;
+  margin-top: 0.25rem;
+}
+.m-bsp-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin-top: 0.2rem;
+}
+.m-bsp-ticks b {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+/* Warnings never fold (the pp-status[data-tone=warn] twin). */
+.m-bsp-warn {
+  color: var(--color-warn);
+  border-left: 2px solid color-mix(in srgb, var(--color-warn) 60%, transparent);
+  padding-left: 0.4rem;
+}
+.m-bsp-warn .m-act {
+  display: inline-block;
+  margin-top: 0.35rem;
+}
+/* The caveats toggle — a status line that opens the rest of §8's ladder. */
+.m-bsp-more {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  padding: 0.3rem 0;
+  margin: 0.2rem 0;
+}
+/* The relative bar inside a row (score ÷ best — the NUMBER prints beside it, §3.5), and the
+   rung pip above the shortlist while the ladder is still descending. */
+.m-bsp-bar {
+  flex: 1 1 2.4rem;
+  min-width: 1.6rem;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  overflow: hidden;
+}
+.m-bsp-bar i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+.m-bsp-bar--rung {
+  display: block;
+  width: 100%;
+  margin-top: 0.3rem;
+}
+.m-bsp-row--sel .m-row__jump {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+.m-bsp-why {
+  padding: 0.1rem 0.35rem 0.5rem;
+}
+.m-bsp-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0.4rem;
+}
+.m-bsp-acts .m-act {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

@@ -110,7 +110,6 @@ const CTX_BASE = {
   dtMs: 16,
   enabled: true,
   fpvActive: false,
-  mobileShell: false,
   markers: [] as readonly BestSpotSheetMarker[],
   hoverKey: null as string | null,
   selectedKey: null as string | null,

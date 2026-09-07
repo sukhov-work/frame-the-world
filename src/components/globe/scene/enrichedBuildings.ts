@@ -34,6 +34,7 @@ import {
   type FeatureRun,
   type GeoBbox,
   type SegmentRunAttributor,
+  seatLandF32,
 } from "../../../lib/globe/enrichedMask";
 import {
   deepAnswerVerdict,
@@ -1230,6 +1231,8 @@ export function attachEnrichedBuildings(
    *  right to within half a pixel, so writing it would cost a buffer upload for nothing. The
    *  number that says the freeze is working is this one climbing while `movedFeatures` falls. */
   let frozenN = 0;
+  /** Per-pass reasons `applyFeatureSeats` counted a cell as work (2026-09-07h, DEV seam). */
+  const applyReasons = { hold: 0, collapse: 0, resid: 0, scale: 0, xf: 0, fill: 0, treeHold: 0, treeCollapse: 0, treeOff: 0, treeWrite: 0 };
   /** T77 slice C-1 — cell planes re-sampled OUT OF TURN because a footprint answered from a
    *  DEEPER tile than the plane itself (the boot-time rejection fix). Bounded to one per cell per
    *  frame; a climb after quiet would mean the plane sweep is losing a race, not catching up. */
@@ -2300,6 +2303,10 @@ export function attachEnrichedBuildings(
     applyMovedN = 0;
     applyNearMaxResidualM = 0;
     applyNearMovedN = 0;
+    // 2026-09-07h: WHY the pass counted as work — per reason, per pass. Found while putting BEST
+    // SPOT on /m: the seat epoch ticked every frame at a settled pose and nothing downstream that
+    // debounces on it could ever fire; the residuals said 0 and no other seam said which branch.
+    for (const k of Object.keys(applyReasons) as (keyof typeof applyReasons)[]) applyReasons[k] = 0;
     for (const cell of cellList) {
       if (cell.seatM == null || !cell.located) continue;
       // T77 slice C-1 5a — SKIP a settled cell. A cell whose last full pass wrote nothing is a
@@ -2336,6 +2343,7 @@ export function attachEnrichedBuildings(
               // at the head of the drain — it re-seats from wherever it stands.
               if (cell.seatDirtyFrames > 0) {
                 cellWrote = true; // T77 5a: an unresolved pair is work — never settle on a hold
+                applyReasons.hold++;
                 continue;
               }
               f.seatM = null;
@@ -2343,6 +2351,7 @@ export function attachEnrichedBuildings(
               collapsedN++; // T77 4a: an APPLY-time collapse, not a discarded sample
               part.unseated.push(r); // RC7: back to the head of the drain, not the round-robin
               cellWrote = true; // T77 5a: a queued footprint is work — never settle on it
+              applyReasons.collapse++;
               continue;
             }
             // T77 NEW-3: `seatLand`, and NO 1 cm write gate. The gate was what stopped the seat
@@ -2367,7 +2376,10 @@ export function attachEnrichedBuildings(
             // the feature is still centimetres short. Settling on that would park the cell off
             // target with nothing left to re-arm it — the 8.3 cm stall slice B removed, back by
             // a different door. A non-zero residual is work, whatever this frame managed to do.
-            if (resid !== 0) cellWrote = true;
+            if (resid !== 0) {
+              cellWrote = true;
+              applyReasons.resid++;
+            }
           }
           // U8 height-override step: ease appliedK toward the committed target. The write is a
           // scale about the LIVE base (baseY + appliedM) — it commutes with the translation
@@ -2382,7 +2394,10 @@ export function attachEnrichedBuildings(
           }
           // T77 slice C-1 5a — an unfinished height-override ease is work (same `easeK === 0`
           // argument as the seat residual above).
-          if (f.scaleK !== f.appliedK) cellWrote = true;
+          if (f.scaleK !== f.appliedK) {
+            cellWrote = true;
+            applyReasons.scale++;
+          }
           // MESH SUITE MS1: a feature carrying a spatial transform (`axf`) eases every component
           // here and is recomposed ABSOLUTELY from its pristine snapshot below — the incremental
           // writer cannot express a rotation or an XZ scale. `f.axf === null` for every untouched
@@ -2395,7 +2410,10 @@ export function attachEnrichedBuildings(
             xfMoved = e.moved;
             xfSettledIdentity = e.settled && f.xf === null;
             // T77 slice C-1 5a — an unfinished spatial ease is work (see the seat residual above).
-            if (!e.settled) cellWrote = true;
+            if (!e.settled) {
+              cellWrote = true;
+              applyReasons.xf++;
+            }
           }
           if (dy === 0 && ratio === 1 && !xfMoved) continue; // settled
           const liveBase = f.baseY + (f.appliedM ?? 0);
@@ -2468,6 +2486,7 @@ export function attachEnrichedBuildings(
           if (part.edgeAttr) part.edgeAttr.needsUpdate = true;
           wrote = true;
           cellWrote = true; // T77 5a
+          applyReasons.fill++;
         }
       }
       for (const t of cell.trees) {
@@ -2483,6 +2502,7 @@ export function attachEnrichedBuildings(
             // unsettled, otherwise freeze in place and re-queue (never drop to the plane).
             if (cell.seatDirtyFrames > 0) {
               cellWrote = true; // T77 5a (see the buildings' twin above)
+              applyReasons.treeHold++;
               continue;
             }
             t.seatM[i] = NaN; // poisoned pair — forget the sample, re-seat from where it stands
@@ -2490,16 +2510,24 @@ export function attachEnrichedBuildings(
             collapsedN++; // T77 4a: an APPLY-time collapse, not a discarded sample
             t.unseated.push(i); // RC7: re-queued at the head of the drain
             cellWrote = true; // T77 5a
+            applyReasons.treeCollapse++;
             continue;
           }
           // T77 NEW-3: same landing law as the buildings (the tree array carries its "unseated"
           // state as NaN rather than null, hence the conversion). `next === applied` is false for
           // a NaN `applied` — NaN !== NaN — so a first sample still writes and still snaps.
           const prev = Number.isNaN(applied) ? null : applied;
-          const next = seatLand(prev, target, kSeat, ENRICHED.seatSnapM);
+          // 2026-09-07h: `seatLandF32`, not `seatLand` — `t.appliedM` is a Float32Array, and a
+          // float64 target that float32 cannot hold landed EVERY FRAME forever (one tree set per
+          // cell uploading its instance matrix per frame; the seat epoch never quiet). "Settled"
+          // is decided in the array's precision: landed = within the snap of the target.
+          const next = seatLandF32(prev, target, kSeat, ENRICHED.seatSnapM);
           // T77 slice C-1 5a — off target is work even on a frame that wrote nothing (the
           // `easeK === 0` shape; the buildings' twin carries the full argument).
-          if (next !== target) cellWrote = true;
+          if (Math.abs(target - next) >= ENRICHED.seatSnapM) {
+            cellWrote = true;
+            applyReasons.treeOff++;
+          }
           if (next === applied) continue; // settled: the ease has landed, nothing to write
           arr[i * 16 + 13] += next - (Number.isNaN(applied) ? 0 : applied);
           t.appliedM[i] = next;
@@ -2509,6 +2537,7 @@ export function attachEnrichedBuildings(
           t.mesh.instanceMatrix.needsUpdate = true;
           wrote = true;
           cellWrote = true; // T77 5a
+          applyReasons.treeWrite++;
         }
       }
       // T77 slice C-1 5a — nothing moved anywhere in this cell: it is a fixed point until
@@ -2819,6 +2848,7 @@ export function attachEnrichedBuildings(
       collapsed: collapsedN, // T77 4a
       shallow: shallowN, // T77 4d: coarse-parent answers refused (the LRU, not the ground, moved)
       frozen: frozenN, // T77 5b: refresh answers inside the sub-pixel deadband
+      applyReasons: { ...applyReasons }, // 2026-09-07h: why the last pass counted as work
       deepResamples: deepResampleN, // T77 slice C-1: cell planes corrected by a deeper answer
       deepHeld: deepHeldN, // T101: deeper answers the cap could not serve — held, not rejected
       deepPendingCells: deepPendingCellCount(), // T101: cells the sampling passes are skipping

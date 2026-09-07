@@ -136,6 +136,7 @@ import {
 } from "../../lib/geo/bestSpotScoring";
 import { useBestSpotStore } from "../../store/bestSpot";
 import { attachBestSpotFeed } from "./scene/bestSpotFeed";
+import { attachArLook } from "./scene/arLook";
 import { attachBestSpotSheet } from "./scene/bestSpotSheet";
 import { attachGeoLabels } from "./scene/geoLabels";
 import { attachStreetNames } from "./scene/streetNames";
@@ -760,6 +761,11 @@ export function attachStylizedTiles(opts: {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
     maxAniso,
   });
+  // AR LOOK-AROUND (owner 2026-09-07g): the phone's orientation → a per-frame FPV aim, consumed
+  // by stepFpvPose exactly like the TRACKING lock (a closure value, never a 60 fps store write).
+  const arLook = attachArLook({
+    mirror: (state) => useCameraStore.getState()._syncArLook(state),
+  });
 
   // --- Adaptive quality fan-out (RENDERING_QUALITY_PASS WS1): GlobeCanvas owns the device tier +
   //     governor + the renderer levers (DPR/bloom/shadows); here we push the tier's TILE knobs into
@@ -1129,16 +1135,28 @@ export function attachStylizedTiles(opts: {
   const coarsePointerShell =
     typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
   const hqAllowed = !isMobileShell && !coarsePointerShell;
-  //     BEST SPOT's own gate, and it is a SEPARATE constant on purpose: `hqAllowed` answers "may
-  //     this machine run the ULTRA tile levers", this answers "may this shell run a ~1 m planning
-  //     surface at all" (SPEC_V2 §7 S3d, plan §7). Same two terms, same reason they are AND-ed and
-  //     not a route check — `/m` mounts the SAME GlobeCanvas and `ftw:view-prefs` is ONE
-  //     localStorage key shared by both shells on the same origin, so a desktop session that
-  //     opened the panel genuinely has `open: true` in the store when the phone loads. The only
-  //     thing that can stop the engine acting on it is a gate ON THE READ, which is why this is
-  //     named here, in exactly ONE engine file, and AND-ed into every BEST SPOT engine read
-  //     below. `fences.test.ts` pins both halves.
-  const bestSpotAllowed = !isMobileShell && !coarsePointerShell;
+  //     BEST SPOT's own gate — a SEPARATE constant from `hqAllowed` on purpose: that one answers
+  //     "may this machine run the ULTRA tile levers", this one "may this shell run the planning
+  //     disc at all" (SPEC_V2 §7 S3d, plan §7). It was `!isMobileShell && !coarsePointerShell`
+  //     from S3d until the OWNER ORDER of 2026-09-07g put the heatmap on `/m` — so today it is
+  //     TRUE on both shells, and it stays a named constant rather than vanishing because it is
+  //     the ONE name every BEST SPOT engine read below is AND-ed with (`fences.test.ts`): a future
+  //     rung (a memory floor, a quality tier) has exactly one place to land, and no shell term can
+  //     creep back in without that fence going red. What DOES stay desktop-only is ULTRA (the
+  //     1 m tier and the per-cell refine) — a REQUEST-band field the mobile sheet never names,
+  //     fenced at the sheet (`mobileFence`/`fences`), not here: the store boots with it off and
+  //     only the desktop panel can set it.
+  const bestSpotAllowed = true;
+  /** The heatmap is ARMED (window open + the owner's switch on) — the request the buildings and
+   *  user-model steps honour on `/m` (2026-09-07g): the solver flattens building MESHES into its
+   *  obstruction DSM, and the 2D map detaches both tilesets, so an armed disc would otherwise read
+   *  "NO BUILDING GEOMETRY REACHED THIS DISC" on every phone. Read live per frame (the store flips
+   *  between frames, never mid-step); the handles' identity guards make the call a no-op while
+   *  nothing changed. */
+  const bestSpotArmed = (): boolean => {
+    const bs = useBestSpotStore.getState();
+    return bestSpotAllowed && bs.open && bs.heatmapOn;
+  };
   if (isMobileShell) {
     if (urlPose && urlPose.tiltDeg >= CONTROLS.twoDMaxTiltDeg) {
       useCameraStore.getState().setMapMode("3d"); // an OBLIQUE share keeps its exact 3D view
@@ -2710,9 +2728,14 @@ export function attachStylizedTiles(opts: {
     }
     // Grab-the-world: dragging right rotates the view left; sensitivity scales with the FOV
     // zoom so a zoomed-in look stays controllable.
+    // AR LOOK-AROUND (2026-09-07g): while the phone's aim is live the phone IS the look — a
+    // drag would be pulled back within one ease constant and read as a broken control, so it
+    // stands down (the pinch-FOV above still works; the toggle is one tap away).
     const k = ((FPV.lookDegPerPx * Math.PI) / 180) * (camera.fov / POSE.fovDeg);
-    fpvYaw -= (e.clientX - fpvLastX) * k;
-    fpvPitch += (e.clientY - fpvLastY) * k;
+    if (!arLook.live()) {
+      fpvYaw -= (e.clientX - fpvLastX) * k;
+      fpvPitch += (e.clientY - fpvLastY) * k;
+    }
     fpvLastX = e.clientX;
     fpvLastY = e.clientY;
   };
@@ -3907,6 +3930,7 @@ export function attachStylizedTiles(opts: {
       // BEST SPOT §5.6 — the hot-swap seam. READ half: everything a verify script needs, out of
       // the LIVE engine, never recomputed (the `__globe.ultraLook` lesson).
       bestSpot: () => bestSpotFeed.debug(),
+      arLook: () => arLook.debug(), // 2026-09-07g — the sensor ladder's live state
       /**
        * §7 S4's done-check surface — the LIVE material, textures, per-child `renderOrder` and the
        * veil ceiling, read off the objects three is drawing with. It exists because `window.__globe`
@@ -4689,7 +4713,9 @@ export function attachStylizedTiles(opts: {
         // state can ever drift from the truth. Desktop with the default pref ON: `on` is always
         // true — byte-identical to the pre-rule behaviour (frozen-additive).
         const cam = useCameraStore.getState();
-        const shellOn = !isMobileShell || fpvActive || cam.mapMode === "3d";
+        // …and an ARMED heatmap keeps them attached in either map mode (2026-09-07g, see
+        // `bestSpotArmed`): the disc is solved against these meshes.
+        const shellOn = !isMobileShell || fpvActive || cam.mapMode === "3d" || bestSpotArmed();
         const on = shellOn && cam.buildings3d;
         buildings.setActive(on);
         enriched?.setActive(on);
@@ -5029,6 +5055,36 @@ export function attachStylizedTiles(opts: {
     skyTrackAim = { azDeg: p.azDeg, altDeg: p.altDeg };
   };
 
+  // ── AR LOOK-AROUND step (owner 2026-09-07g) — 8.6, between the TRACKING lock and the pose:
+  // feed the sensor module this frame's truth (the toggle, FPV, the eye, the camera's live
+  // heading for the relative rungs' seed / ALIGN) so `arLook.aim()` is fresh when stepFpvPose
+  // reads it. Off /m nothing arms it: `camera.arLook` is only ever written by the mobile chip.
+  const _arFwd = new THREE.Vector3();
+  const stepArLook = () => {
+    const camNow = useCameraStore.getState();
+    const on = camNow.arLook && fpvActive && !flight.active();
+    let latDeg = 0;
+    let lonDeg = 0;
+    let headingDeg = 0;
+    if (on) {
+      const eyeGeo = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+      latDeg = eyeGeo.latDeg;
+      lonDeg = eyeGeo.lonDeg;
+      camera.getWorldDirection(_arFwd);
+      headingDeg = dirAzAltDeg(_arFwd, enuBasis(latDeg, lonDeg)).azDeg;
+    }
+    arLook.update({
+      enabled: on,
+      fpvActive,
+      latDeg,
+      lonDeg,
+      cameraHeadingDeg: headingDeg,
+      alignEpoch: camNow.arAlignEpoch,
+      nowMs: performance.now(),
+      frameCount,
+    });
+  };
+
   const stepFpvPose = () => {
         if (fpvActive) {
           if (!flight.active()) {
@@ -5097,7 +5153,11 @@ export function attachStylizedTiles(opts: {
               // direct look interaction cancels the request; arrival clears it.
               // TRACKING (owner 2026-08-15c) rides the same solve as a one-shot skyLook —
               // stepSkyTrack refreshes the aim per frame and owns clearing/release.
-              const skyLook = skyTrackAim ?? camNow.skyLook;
+              // AR LOOK-AROUND (2026-09-07g) outranks both: while the phone's aim is live it IS
+              // the look, on its own (much faster) ease; a one-shot skyLook underneath is left
+              // pending rather than cleared, so it lands the moment AR is switched off.
+              const arAim = arLook.aim();
+              const skyLook = arAim ?? skyTrackAim ?? camNow.skyLook;
               if (skyLook) {
                 const eyeGeo = ecefToGeodetic([
                   camera.position.x,
@@ -5118,14 +5178,18 @@ export function attachStylizedTiles(opts: {
                   -maxElev - elev0,
                   maxElev - elev0,
                 );
-                const kLook =
-                  1 - Math.exp(-dtMs / (skyTrackAim ? FPV.skyTrackEaseTauMs : FPV.skyLookEaseTauMs));
+                const tauMs = arAim
+                  ? FPV.arLookEaseTauMs
+                  : skyTrackAim
+                    ? FPV.skyTrackEaseTauMs
+                    : FPV.skyLookEaseTauMs;
+                const kLook = 1 - Math.exp(-dtMs / tauMs);
                 fpvYaw += (yawT - fpvYaw) * kLook;
                 fpvPitch += (pitchT - fpvPitch) * kLook;
                 if (Math.abs(yawT - fpvYaw) < 0.003 && Math.abs(pitchT - fpvPitch) < 0.003) {
                   fpvYaw = yawT;
                   fpvPitch = pitchT;
-                  if (!skyTrackAim) camNow._clearSkyLook(); // tracking is persistent — no clear
+                  if (!skyTrackAim && !arAim) camNow._clearSkyLook(); // tracking / AR persist — no clear
                 }
                 lastInteract = now;
               }
@@ -5640,7 +5704,9 @@ export function attachStylizedTiles(opts: {
         if (Math.abs(appliedHeadingRate) > CONTROLS.headingRateDeadbandDegPerS) {
           if (fpvActive) {
             // + rate = compass-clockwise = look right (matches the fpvYaw convention)
-            fpvYaw += THREE.MathUtils.degToRad((appliedHeadingRate * dtMs) / 1000);
+            // AR LOOK-AROUND (2026-09-07g): the stick's heading stands down while the phone's
+            // aim is live (its focal axis still works — that is the FOV encoder, not this).
+            if (!arLook.live()) fpvYaw += THREE.MathUtils.degToRad((appliedHeadingRate * dtMs) / 1000);
             // Deflecting ROTATE is a direct look interaction — it beats a sky-look glide.
             if (camStore.skyLook) camStore._clearSkyLook();
             lastInteract = now;
@@ -7862,7 +7928,9 @@ export function attachStylizedTiles(opts: {
         // /m 2D auto-detach), residency + seat eases, the low-cadence terrain re-ask, the
         // density mirror for the chip, then the armed-model session service.
         const cam = useCameraStore.getState();
-        const shellOn = !isMobileShell || fpvActive || cam.mapMode === "3d";
+        // An ARMED heatmap keeps the models attached too (2026-09-07g): they occlude in the disc
+        // (T108), so a 2D-map solve must see the same occluders the 3D one does.
+        const shellOn = !isMobileShell || fpvActive || cam.mapMode === "3d" || bestSpotArmed();
         const on = shellOn && cam.modelsVisible;
         userModels.setVisible(on);
         if (!on) disarmModel();
@@ -8097,10 +8165,10 @@ export function attachStylizedTiles(opts: {
           dtMs,
           // THE READ IS THE GATE. `open` is the window, `heatmapOn` the owner's arming switch
           // (item 4 — the sheet must go away the frame it is disarmed, not merely stop solving);
-          // the other two are R2 and §6.10 (C).
+          // `fpvActive` is R2. (§6.10 (C)'s `/m` term is gone since 2026-09-07g — the sheet
+          // draws on both shells.)
           enabled: bestSpotAllowed && bsNow.open && bsNow.heatmapOn,
           fpvActive,
-          mobileShell: isMobileShell,
           field: bestSpotFeed.field(),
           markers: bestSpotFeed.markers(),
           // The cell outline follows whatever is being POINTED at, and falls back to the SELECTED
@@ -8211,6 +8279,7 @@ export function attachStylizedTiles(opts: {
         stepExploreJourney();
         stepFpvTransitions();
         stepSkyTrack(); // 8.5 — TRACKING lock feeds the FpvPose glide (fresh camNow, pre-pose)
+        stepArLook(); // 8.6 — AR look-around: the phone's aim, same glide, outranks the lock
         stepFpvPose();
         stepFovGlide();
         stepGeodeticAltitude();
@@ -8350,6 +8419,7 @@ export function attachStylizedTiles(opts: {
       // DSM/hulls (up to ~100 MiB at 3 m).
       bestSpotSheet.dispose();
       bestSpotFeed.dispose();
+      arLook.dispose(); // detaches the sensor listeners (2026-09-07g)
       for (const u of unregFrameClocks) u(); // T94: the seam must not name a dead scene's clocks
       setFrameFrozen(false); // never leave a disposed page frozen (a re-mount would inherit it)
       for (const u of dbgUnregs) u(); // DEBUG HUD providers/actions die with the globe

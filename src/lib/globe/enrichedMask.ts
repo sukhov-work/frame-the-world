@@ -103,6 +103,27 @@ export function seatLand(
   return Math.abs(targetM - next) < snapM ? targetM : next;
 }
 
+/**
+ * `seatLand` for a seat that is STORED IN A `Float32Array` (the tree instances' `appliedM`).
+ *
+ * The landed value is rounded to float32 BEFORE it is returned, so that what the caller writes
+ * into the array and what it reads back next frame are the same number. Without this a target
+ * that is not representable in float32 (a float64 `seatM − cell.seatM`) "lands" every frame
+ * forever: `seatLand` returns the exact target, the array stores its float32 neighbour, the next
+ * frame's `next !== applied` is true again by ~1e-7 m, and the tree set uploads its whole
+ * instance matrix to the GPU every frame while the tileset's seat epoch never goes quiet — which
+ * is how it was found (2026-09-07h): BEST SPOT's streaming re-solve debounces on that epoch and
+ * could never fire on `/m`. "Settled" must be decided in the array's own precision.
+ */
+export function seatLandF32(
+  appliedM: number | null,
+  targetM: number,
+  easeK: number,
+  snapM: number,
+): number {
+  return Math.fround(seatLand(appliedM, targetM, easeK, snapM));
+}
+
 /** An ECEF plane for three's `Material.clippingPlanes`: signed distance d(p) = normal·p + constant.
  *  three clips fragments with d < 0 (with `clipIntersection` only where ALL planes agree). */
 export interface EcefPlane {

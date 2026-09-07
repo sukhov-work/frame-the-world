@@ -1,7 +1,7 @@
 /**
  * MobileShell — the /m chrome (MOBILE_PLAN §3; M1 = the planning loop). The safe-area status
  * strip (M0) + the bottom chrome column (target peek · twilight-banded time dock · tab bar) +
- * the SCENE action chips + the PLAN / SEARCH / TARGET bottom sheets.
+ * the SCENE action chips + the PLAN / FIND / SEARCH / SPOT / TARGET / GUIDE bottom sheets.
  *
  * Discipline (MOBILE_PLAN §2): this shell consumes stores + `lib/**` ONLY — it never imports
  * desktop panels, and desktop never imports from `components/mobile/**` (the two-shell drift
@@ -21,6 +21,7 @@ import MobileAccount from "./MobileAccount";
 import MobileSearch from "./MobileSearch";
 import PlanSheet from "./PlanSheet";
 import FindSheet from "./FindSheet";
+import BestSpotSheet from "./BestSpotSheet";
 import GuideSheet from "./GuideSheet";
 import TargetSheet from "./TargetSheet";
 import TargetPeek from "./TargetPeek";
@@ -29,7 +30,7 @@ import FpvControls from "./FpvControls";
 import { AimJoystick } from "../controls/Joystick";
 import "../../styles/mobile/chrome.css";
 
-type SheetId = "plan" | "find" | "search" | "target" | "guide" | null;
+type SheetId = "plan" | "find" | "search" | "spot" | "target" | "guide" | null;
 
 export default function MobileShell() {
   const [sheet, setSheet] = useState<SheetId>(null);
@@ -54,7 +55,9 @@ export default function MobileShell() {
   const fpvOn = useCameraStore((s) => s.fpvHud !== null) || tempFpv;
 
   const activeTab: MobileTab =
-    sheet === "plan" || sheet === "find" || sheet === "search" ? sheet : "scene";
+    sheet === "plan" || sheet === "find" || sheet === "search" || sheet === "spot"
+      ? sheet
+      : "scene";
   const onTab = (t: MobileTab) => setSheet(t === "scene" ? null : t);
 
   return (
@@ -125,6 +128,9 @@ export default function MobileShell() {
       {/* ALWAYS mounted (owner 2026-08-15c): the FIND scan + ghost mirror live in its hooks —
           collapsing the sheet must NOT clear the in-frame standings (the Pixel bug). */}
       <FindSheet open={sheet === "find"} onClose={() => setSheet(null)} />
+      {/* ALWAYS mounted too (owner 2026-09-07g): `bestSpot.open` is sticky on /m, so an ARMED
+          heatmap survives the sheet collapsing — the field and its markers stay on the map. */}
+      <BestSpotSheet open={sheet === "spot"} onClose={() => setSheet(null)} />
     </>
   );
 }

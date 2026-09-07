@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ArRung } from "../lib/sensors/orientationLadder";
 import type { UrlFpvPose } from "../lib/geo/urlPose";
 import { clampPlannedView } from "../lib/geo/plannedView";
 import { loadViewPrefs, saveViewPref } from "../lib/prefs";
@@ -81,6 +82,22 @@ interface SkyMarkers {
 }
 
 /** FPV HUD mirror — camera-view bearings + focal state + sky-body markers. */
+/** `scene/arLook.ts`'s mirror — see `arLook` on the store. */
+export interface ArLookState {
+  rung: ArRung;
+  /** The last accepted compass sample's ± accuracy (deg), null off iOS. */
+  compassAccuracyDeg: number | null;
+  /** ms since a compass sample was accepted into the yaw offset (Infinity = never). */
+  compassAgeMs: number;
+  samples: number;
+  /** No sample within `FPV.arSampleStaleMs` — the drag is back, the chip says why. */
+  stale: boolean;
+  headingDeg: number;
+  pitchDeg: number;
+  /** The WMM declination applied at the eye (deg, east-positive). */
+  declinationDeg: number;
+}
+
 interface FpvHud {
   /** Compass azimuth of the view centre (deg; 0 = north, 90 = east). */
   headingDeg: number;
@@ -177,6 +194,25 @@ export interface CameraState {
    *  point — the stick component owns the null-on-release lifecycle instead. */
   fpvWalkInput: { fwd: number; right: number } | null;
   setFpvWalkInput: (v: { fwd: number; right: number } | null) => void;
+  /**
+   * AR LOOK-AROUND (owner order 2026-09-07g, mobile FPV): the phone's physical orientation aims
+   * the FPV camera. REQUEST band — the mobile toggle writes it AFTER the permission gesture
+   * resolved (`DeviceOrientationEvent.requestPermission()` must run inside the tap; a persisted
+   * "on" could never re-ask, which is why this is per-session and NOT in the view prefs). The
+   * engine (`scene/arLook.ts`) attaches the sensors only while `arLook && fpvActive`, and while
+   * its aim is live the canvas look-drag and the aim stick's heading stand down — the phone IS
+   * the look. Off `/m` nothing reads it.
+   */
+  arLook: boolean;
+  setArLook: (on: boolean) => void;
+  /** The ALIGN chip (the relative rungs): "point the phone where the camera looks, tap" — each
+   *  bump aligns the sensor frame to the camera's live heading once. */
+  arAlignEpoch: number;
+  requestArAlign: () => void;
+  /** Engine-written mirror at the HUD cadence (null while AR is off or FPV is not live): which
+   *  rung of the ladder the phone is on, how fresh the compass is, whether samples stopped. */
+  arLookState: ArLookState | null;
+  _syncArLook: (s: ArLookState | null) => void;
   /** FPV HUD mirror (Phase 5.5 S6) — the orchestrator writes it at low cadence while ANY FPV
    *  is active, null otherwise (the HUD unmounts on null). Bearings are the CAMERA VIEW's
    *  topocentric az/alt at the FPV anchor; sun/moon carry screen-space info for the off-frame
@@ -416,6 +452,12 @@ export const useCameraStore = create<CameraState>((set) => ({
   plannedRates: null,
   setPlannedRates: (r) => set({ plannedRates: r }),
   fpvWalkInput: null,
+  arLook: false,
+  setArLook: (on) => set({ arLook: on }),
+  arAlignEpoch: 0,
+  requestArAlign: () => set((st) => ({ arAlignEpoch: st.arAlignEpoch + 1 })),
+  arLookState: null,
+  _syncArLook: (arLookState) => set({ arLookState }),
   setFpvWalkInput: (v) =>
     set({
       fpvWalkInput:

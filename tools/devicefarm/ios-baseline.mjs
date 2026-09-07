@@ -72,6 +72,13 @@ const SOAK_MIN = Number(opt("--soak-min", "8"));
 // T83 needs ONE page's survival, and the default soak's re-boot is the second `#f=` load that jetsam kills.
 const SOAK_NO_REBOOT = flag("--soak-no-reboot");
 const SETTLE_S = Number(opt("--settle", "30"));
+// 2026-09-07h — the two MOBILE legs (owner order 2026-09-07g), run after the poses and before the
+// ramp: `bestspot` = the heatmap armed on /m at the Dnipro pose (the solve ladder to 3 m, the sheet
+// up, a 90 s hold with the page-age/frame readings — the jetsam question); `ar` = AR look-around in
+// mobile FPV (the permission sheet under Appium, whether real sensor samples flow, which rung the
+// phone lands on, the compass fields' presence). `--legs bestspot,ar` (default none).
+const LEGS = (opt("--legs", "") || "").split(",").filter(Boolean);
+const BESTSPOT_HOLD_S = Number(opt("--bestspot-hold", "90"));
 const LABEL = opt("--label", "farm");
 const DEV = "http://localhost:4321"; // the Mac's own wix dev — for dev-seed and the tunnel preflight
 const OWNER_EMAIL = opt("--owner", "yevhens@wix.com");
@@ -91,6 +98,8 @@ const POSE_URL = {
   city: `${HOST}/#p=48.464,35.046,900,74,300&t=${T_ULTRA}`,
   everest: `${HOST}/#p=27.87,86.83,11500,76,35&t=${T_ULTRA}`,
   m: `${HOST}/m#p=48.4640,35.0460,220,0,0&t=${T_M}`,
+  // the /m shell at the FPV eye — the AR chip lives on /m only (2026-09-07h)
+  mfpv: `${HOST}/m#f=48.4647,35.0462,1.7,25,8,60&t=${T_FPV}`,
 };
 const EYE = { lat: 48.4647, lon: 35.0462 };
 const GLB = {
@@ -427,6 +436,130 @@ async function drive(endpoint) {
         break;
       }
     }
+    // ── 2026-09-07h: the BEST SPOT leg on /m ──
+    if (LEGS.includes("bestspot") && !pageUnresponsive) {
+      results.bestspot = { rows: [], notes: [] };
+      const bs = results.bestspot;
+      try {
+        const bootMs = await boot("m");
+        await settle(SETTLE_S);
+        // the request through the store seams (the sheet's own buttons do exactly this): a centre at
+        // the map focus, the window open, the switch ON
+        await js(`(() => { const c = window.__cameraStore.getState(); c.setTempPin({ latDeg: c.focusLatDeg, lonDeg: c.focusLonDeg }); const b = window.__bestSpotStore.getState(); b.setOpen(true); b.setHeatmapOn(true); return true; })()`);
+        const t0 = Date.now();
+        const LADDER = `(() => { const st = window.__bestSpotStore.getState(); const f = window.__globe.bestSpot(); const sh = window.__globe.bestSpotSheet(); const b = window.__globe.buildingsLoad ? window.__globe.buildingsLoad() : null; return { rung: st.ladderRung, cell: st.gridCellM, cellReq: st.cellM, solving: st.solving, topK: st.topK.length, reach: Math.round(st.reachM), cov: +st.coverage.toFixed(2), total: st.verdictCounts.total, scored: st.verdictCounts.scored, hp: st.heightProvenance, terrainOnly: st.terrainOnly, jobs: f.jobs, timings: f.timings, sheet: sh.visible, fade: +sh.fade.toFixed(2), bldMeshes: b ? b.meshes : -1, mapMode: window.__cameraStore.getState().mapMode, booted: window.__t77boot === ${JSON.stringify(STAMP)} }; })()`;
+        let landed = null;
+        while (Date.now() - t0 < 150_000) {
+          const r = await js(LADDER).catch((e) => ({ err: String(e) }));
+          if (r.err) { bs.notes.push(`ladder read failed: ${r.err}`); if (STALL.test(r.err)) pageUnresponsive = true; break; }
+          bs.rows.push({ tS: Math.round((Date.now() - t0) / 1000), ...r });
+          log(`bestspot ${Math.round((Date.now() - t0) / 1000)} s: rung ${r.rung} cell ${r.cell} (req ${r.cellReq}) jobs ${r.jobs} topK ${r.topK} reach ${r.reach} m cov ${r.cov} hp ${r.hp?.enriched}+${r.hp?.osm} bld ${r.bldMeshes} sheet ${r.sheet}`);
+          if (r.rung >= 3 && r.cell <= r.cellReq && !r.solving && r.topK > 0) { landed = r; break; }
+          if (r.booted === false) { bs.notes.push("the page RELOADED during the solve (boot marker gone) — a WebContent kill?"); break; }
+          await sleep(5000);
+        }
+        bs.bootMs = bootMs;
+        bs.finestMs = landed ? Date.now() - t0 : null;
+        bs.landed = landed;
+        save();
+        if (landed) {
+          log(`bestspot: FINEST rung landed in ${Math.round(bs.finestMs / 1000)} s — ${landed.scored}/${landed.total} scored, ${landed.topK} spots, reach ${landed.reach} m`);
+          // the hold: the sheet up, a snapshot every 15 s — the jetsam question and the frame time
+          bs.hold = [];
+          const h0 = Date.now();
+          while (Date.now() - h0 < BESTSPOT_HOLD_S * 1000) {
+            await sleep(15_000);
+            const snap = await js(SNAP).catch((e) => ({ err: String(e) }));
+            const row = { tS: Math.round((Date.now() - h0) / 1000), pageAgeS: Math.round((Date.now() - (t0 - bootMs)) / 1000), snap };
+            bs.hold.push(row);
+            save();
+            log(`bestspot hold ${row.tS} s (page ${row.pageAgeS} s): dt ${snap.dt?.[0]?.toFixed?.(1)}/${snap.dt?.[1]?.toFixed?.(1)} cpu ${snap.cpu?.[0]?.toFixed?.(1)}/${snap.cpu?.[1]?.toFixed?.(1)} lru ${snap.lruMB?.map?.((x) => x?.toFixed?.(0)).join("/")} MB hitches ${snap.hitches}`);
+            if (snap.err || snap.booted === false) { bs.notes.push(`hold: the page ${snap.err ? "stopped answering" : "RELOADED"} at ${row.tS} s (page age ${row.pageAgeS} s)`); if (snap.err && STALL.test(snap.err)) pageUnresponsive = true; break; }
+          }
+          // a marker preview (LOOK) and back, then disarm
+          const prev = await js(`(() => { const b = window.__bestSpotStore.getState(); const k = b.topK[0] && b.topK[0].key; if (!k) return null; b.setSelectedKey(k); b.previewSpot(k); return k; })()`).catch(() => null);
+          await sleep(6000);
+          const inFpv = await js(`(() => { const c = window.__cameraStore.getState(); const b = window.__bestSpotStore.getState(); return { fpv: c.tempFpv, preview: b.previewKey, topK: b.topK.length }; })()`).catch((e) => ({ err: String(e) }));
+          bs.preview = { key: prev, ...inFpv };
+          await js(`window.__cameraStore.getState().setTempFpv(false), true`).catch(() => {});
+          await sleep(3000);
+          bs.afterPreview = await js(LADDER).catch((e) => ({ err: String(e) }));
+          await js(`window.__bestSpotStore.getState().setHeatmapOn(false), true`).catch(() => {});
+          try { writeFileSync(`${OUT_DIR}/devicefarm-${LABEL}-${STAMP}-bestspot.png`, Buffer.from(await driver.takeScreenshot(), "base64")); } catch { /* no shot */ }
+        } else {
+          bs.notes.push("the finest rung never landed within 150 s");
+        }
+        save();
+      } catch (e) {
+        bs.notes.push(`bestspot leg: ${String(e)}`);
+        if (STALL.test(String(e))) pageUnresponsive = true;
+        save();
+        log(`bestspot leg: ${String(e)}`);
+      }
+    }
+    // ── 2026-09-07h: the AR look-around leg in /m FPV ──
+    if (LEGS.includes("ar") && !pageUnresponsive) {
+      results.ar = { notes: [] };
+      const ar = results.ar;
+      try {
+        await boot("mfpv");
+        await waitFor(`!!(window.__cameraStore && window.__cameraStore.getState().fpvHud)`, 60_000, "FPV live on /m");
+        await sleep(3000);
+        ar.chip = await js(`!!document.querySelector(".m-arbtn")`).catch(() => false);
+        ar.permissionApi = await js(`typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function"`).catch(() => null);
+        // the REAL tap on the chip — the permission sheet must come from the gesture; Appium's
+        // element click is a real touch on the phone
+        let tapped = false;
+        try {
+          const el = await driver.$(".m-arbtn");
+          await el.click();
+          tapped = true;
+        } catch (e) {
+          ar.notes.push(`chip click failed: ${String(e).slice(0, 120)}`);
+        }
+        ar.tapped = tapped;
+        await sleep(1500);
+        // WebKit's "Would Like to Access Motion and Orientation" sheet — accept it if it is up
+        let alert = null;
+        try {
+          alert = await driver.getAlertText();
+          await driver.acceptAlert();
+          ar.alertAccepted = true;
+        } catch {
+          ar.alertAccepted = false;
+        }
+        ar.alertText = alert;
+        await sleep(2500);
+        const AR = `(() => { const c = window.__cameraStore.getState(); const d = window.__globe.arLook ? window.__globe.arLook() : null; return { on: c.arLook, state: c.arLookState, note: (document.querySelector(".m-arnote") || {}).textContent || "", dbg: d ? { attached: d.attached, samples: d.samples, absoluteSamples: d.absoluteSamples, compassSamples: d.compassSamples, lastSampleAgeMs: Math.round(d.lastSampleAgeMs), declinationDeg: d.declinationDeg, aim: d.aim ? { rung: d.aim.rung, heading: +d.aim.headingDeg.toFixed(1), pitch: +d.aim.pitchDeg.toFixed(1), roll: +d.aim.rollDeg.toFixed(1), compassAgeMs: Math.round(d.aim.compassAgeMs), yawOffset: +d.aim.yawOffsetDeg.toFixed(1), pose: { topHoriz: +d.aim.pose.topHoriz.toFixed(3), lookHoriz: +d.aim.pose.lookHoriz.toFixed(3) } } : null } : null, hud: c.fpvHud ? { h: +c.fpvHud.headingDeg.toFixed(1), p: +c.fpvHud.pitchDeg.toFixed(1) } : null }; })()`;
+        ar.first = await js(AR).catch((e) => ({ err: String(e) }));
+        log(`ar: on ${ar.first.on} tapped ${tapped} alert ${JSON.stringify(alert)} accepted ${ar.alertAccepted} samples ${ar.first.dbg?.samples} rung ${ar.first.dbg?.aim?.rung} note "${ar.first.note}"`);
+        if (!ar.first.on) {
+          // the store path — proves the sensor stream even if the sheet could not be accepted
+          await js(`window.__cameraStore.getState().setArLook(true), true`).catch(() => {});
+          ar.notes.push("the tap did not arm AR (permission sheet not accepted?) — armed through the store to read the sensors");
+          await sleep(2500);
+        }
+        // the raw event fields, once, straight off a listener: which event fires, and the iOS extras
+        ar.rawEvent = await js(`new Promise((res) => { const seen = {}; let n = 0; const h = (e) => { n++; seen[e.type] = { alpha: e.alpha, beta: e.beta, gamma: e.gamma, absolute: e.absolute, webkitCompassHeading: e.webkitCompassHeading, webkitCompassAccuracy: e.webkitCompassAccuracy, isTrusted: e.isTrusted }; }; window.addEventListener("deviceorientation", h); window.addEventListener("deviceorientationabsolute", h); setTimeout(() => { window.removeEventListener("deviceorientation", h); window.removeEventListener("deviceorientationabsolute", h); res({ n, seen }); }, 3000); })`).catch((e) => ({ err: String(e) }));
+        ar.rows = [];
+        for (let i = 0; i < 6; i++) {
+          await sleep(5000);
+          const r = await js(AR).catch((e) => ({ err: String(e) }));
+          ar.rows.push({ tS: (i + 1) * 5, ...r });
+          save();
+          log(`ar ${(i + 1) * 5} s: samples ${r.dbg?.samples} abs ${r.dbg?.absoluteSamples} compass ${r.dbg?.compassSamples} rung ${r.dbg?.aim?.rung} hdg ${r.dbg?.aim?.heading} pitch ${r.dbg?.aim?.pitch} topHoriz ${r.dbg?.aim?.pose?.topHoriz} hud ${r.hud?.h}/${r.hud?.p} stale ${r.state?.stale} note "${r.note}"`);
+          if (r.err) { if (STALL.test(r.err)) pageUnresponsive = true; break; }
+        }
+        try { writeFileSync(`${OUT_DIR}/devicefarm-${LABEL}-${STAMP}-ar.png`, Buffer.from(await driver.takeScreenshot(), "base64")); } catch { /* no shot */ }
+        await js(`window.__cameraStore.getState().setArLook(false), true`).catch(() => {});
+        save();
+      } catch (e) {
+        ar.notes.push(`ar leg: ${String(e)}`);
+        if (STALL.test(String(e))) pageUnresponsive = true;
+        save();
+        log(`ar leg: ${String(e)}`);
+      }
+    }
     await unseedAll();
     // ── the soak at the FPV eye, 0 seeded models ──
     if (SOAK_MIN > 0 && !pageUnresponsive) {
@@ -475,7 +608,7 @@ async function drive(endpoint) {
 }
 
 // ─── run ─────────────────────────────────────────────────────────────────────────────────────
-log(`T77 phone baseline — device "${DEVICE_MODEL}" host ${HOST || "(dry run)"} poses ${POSES.join(",")} ramp ${RAMP.join("/")} soak ${SOAK_MIN} min`);
+log(`T77 phone baseline — device "${DEVICE_MODEL}" host ${HOST || "(dry run)"} poses ${POSES.join(",")} legs ${LEGS.join(",") || "-"} ramp ${RAMP.join("/")} soak ${SOAK_MIN} min`);
 await preflight();
 if (DRY) {
   const projectArn = await resolveProject();

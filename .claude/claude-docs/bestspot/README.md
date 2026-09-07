@@ -1,8 +1,20 @@
-# BEST SPOT (aka THE HEATMAP) — PARKED 2026-08-27
+# BEST SPOT (aka THE HEATMAP) — PARKED 2026-08-27 · ON `/m` SINCE 2026-09-07h
 
-> **Park re-affirmed 2026-09-01** (DECISIONS 2026-09-01, the DBG session): the owner ruled BEST SPOT
-> *sufficient as implemented* — UX and algorithm improvements maybe later. Backlog T59 stays open but
-> un-urgent. Still parked as of 2026-09-06; nothing in this bundle was re-verified since 2026-08-27.
+> **2026-09-07h — the heatmap is on the PHONE** (owner order 2026-09-07g, DECISIONS 2026-09-07h): the
+> fifth `/m` bottom-row tab `◎ SPOT` opens `components/mobile/BestSpotSheet.tsx` — the desktop
+> behaviour WITHOUT the ULTRA options (no 1 m tier, no per-cell REFINE), the same store / worker /
+> GL sheet, the honesty ladder printed from ONE shared copy (`components/controls/bestSpotCopy.ts`).
+> What changed in the ENGINE for it: the desktop-only gate is gone (`bestSpotAllowed` is TRUE on both
+> shells, `fences.test.ts` pins the new contract), the sheet's `/m` term is gone, an ARMED disc keeps
+> the building tilesets + user models attached in either map mode (`bestSpotArmed()` in the two
+> `shellOn` composites — the solver flattens those meshes), and a T77 regression that had silently
+> broken the streaming re-solve was found and fixed (T116 — the tree seats' float32 loop). Harness:
+> `scripts/verify-bestspot-mobile.mjs` 60/60 on the phone twin; the Device Farm iPhone leg is
+> `tools/devicefarm/ios-baseline.mjs --legs bestspot`. Open: T118 (the first solve on `/m` is a
+> refusal until the buildings stream — an owner call).
+>
+> **The ALGORITHM stays parked** (owner 2026-09-01: sufficient as implemented; T59 is still the one
+> open owner decision). Nothing below this banner changed; `verify-bestspot` stays 96/101 by design.
 
 **Everything BEST SPOT lives in this directory.** This file is the index, the park brief and the
 resume ladder. If you are here because the owner reported a heatmap bug, or because he decided to

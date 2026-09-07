@@ -107,9 +107,10 @@ import type { BestSpotSheetMarker } from "./bestSpotSheet";
 export interface BestSpotFeedCtx {
   sceneMs: number;
   /**
-   * The feature may run at all. **ALREADY AND-ed with the desktop shell gate by the orchestrator**
-   * — this module never names `isMobileShell` / `coarsePointerShell`, which is what keeps the gate
-   * in exactly ONE engine file (`fences.test.ts`).
+   * The feature may run at all — the orchestrator's one named gate (TRUE on both shells since
+   * the owner order of 2026-09-07g; a named constant there so a future rung has one home). This
+   * module never names that constant nor `isMobileShell` / `coarsePointerShell`, which is what
+   * keeps the gate in exactly ONE engine file (`fences.test.ts`).
    */
   allowed: boolean;
   /**
@@ -1020,6 +1021,18 @@ export function attachBestSpotFeed(opts: {
         jobs,
         drops,
         keys: { t0: keyT0, t05: keyT05, t1: keyT1, epoch: builtEpoch, sources: sourcesEpoch },
+        // The §3.4 streaming debounce, readable (2026-09-07h): a disc that never re-solves after
+        // its tiles land is either "no epoch moved" or "an epoch never stops moving" — this tells
+        // the two apart from the page.
+        stream: {
+          stale: streamStale,
+          quietFrames,
+          terrainEpoch: builtTerrainEpoch,
+          vectorVersion: builtVectorVersion,
+          seatEpoch: builtSeatEpoch,
+          builtEpoch: builtBuiltEpoch,
+          modelsEpoch: builtModelsEpoch,
+        },
         ladderRung,
         workerSpawned: client.spawned(),
         inFlight: client.inFlight(),

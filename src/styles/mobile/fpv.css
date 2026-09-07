@@ -249,3 +249,67 @@ body.m .mm-canvas {
   width: 124px;
   height: 124px;
 }
+
+/* ── AR LOOK-AROUND (owner order 2026-09-07g) — the toggle above the AIM stick ──────────────
+   A small round button in the shell's glyph idiom, seated just above the aim joystick (left
+   column: WALK at the bottom, AIM above it, this above AIM) so the thumb that aims finds it;
+   the status pill and the ALIGN chip run to its right. Colours through tokens only. */
+.m-arwrap {
+  position: fixed;
+  left: calc(1rem + env(safe-area-inset-left));
+  bottom: calc(11.2rem + 120px + 120px + env(safe-area-inset-bottom));
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 2rem);
+  pointer-events: none; /* the wrap is a layout box; its children take the taps */
+}
+.m-arbtn {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  touch-action: none;
+  transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+.m-arbtn__glyph {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.m-arbtn--on {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
+}
+.m-aralign {
+  pointer-events: auto;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.6rem;
+}
+.m-arnote {
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 10px;
+  padding: 0.35rem 0.6rem;
+  max-width: 15rem;
+}

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createElement, isValidElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import BestSpotPanel, {
-  BestSpotHoverTip,
+import BestSpotPanel, { BestSpotHoverTip, SpotRow } from "../../src/components/panels/BestSpotPanel";
+// The pure copy moved to the SHARED tier 2026-09-07g (the heatmap on /m) — both shells print it.
+import {
   bestSpotStatusLines,
   countPatchLeaves,
   heatCssForScore,
@@ -10,9 +11,8 @@ import BestSpotPanel, {
   refineDeltaLabel,
   scoringLine,
   shortlistReady,
-  SpotRow,
   spotWhyLines,
-} from "../../src/components/panels/BestSpotPanel";
+} from "../../src/components/controls/bestSpotCopy";
 import PlanFindToggle, { pickPlanFindSeg } from "../../src/components/panels/PlanFindToggle";
 import InstrumentSlider, {
   sliderKeyNorm,

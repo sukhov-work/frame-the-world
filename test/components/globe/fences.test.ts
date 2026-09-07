@@ -682,14 +682,24 @@ describe("BEST SPOT worker — no tuning latch, no SharedArrayBuffer", () => {
 });
 
 /**
- * BEST SPOT — DESKTOP-ONLY, FENCED AT THE READ (plan §7, owner "nothing must change on mobile").
+ * BEST SPOT — ONE GATE, BOTH SHELLS, ULTRA DESKTOP-ONLY (owner order 2026-09-07g).
  *
- * The same rule ULTRA HQ carries, for the same reason: `/m` mounts the SAME `GlobeCanvas` and
- * `ftw:view-prefs:v1` is ONE localStorage blob shared by both shells on the same origin, so a
- * desktop session that opened the panel genuinely has `open: true` in the store when that browser
- * loads `/m`. Hiding the panel is not isolation; only a gate ON THE READ is.
+ * From S3d to 2026-09-07f this block pinned `!isMobileShell && !coarsePointerShell` — the heatmap
+ * was desktop-only, fenced at the engine READ because `/m` mounts the SAME `GlobeCanvas`. The owner
+ * then ordered the heatmap onto `/m` (the fifth bottom-row tab, `mobile/BestSpotSheet.tsx`), so the
+ * gate is TRUE on both shells today. What the fence still guarantees:
+ *
+ *  1. the gate keeps ONE name in ONE engine file, and every enable read is AND-ed with it — a
+ *     future rung (a memory floor, a quality tier) has exactly one home;
+ *  2. NO shell term creeps back in: a `bestSpotAllowed` line naming `isMobileShell` or
+ *     `coarsePointerShell` would silently re-fence the phone;
+ *  3. the GL sheet carries no `/m` gate of its own any more (§6.10 (C) retired);
+ *  4. an ARMED disc keeps the building tilesets and the user models attached on `/m` in either
+ *     map mode — the solver flattens those MESHES, and the 2D map detaches them;
+ *  5. ULTRA (the 1 m tier, the per-cell refine) stays a desktop-only REQUEST: the mobile shell
+ *     never names it. The store boots with it off and only the desktop panel can set it.
  */
-describe("BEST SPOT — desktop-only, fenced at the read", () => {
+describe("BEST SPOT — one gate, both shells, ULTRA desktop-only (2026-09-07g)", () => {
   const srcDir = join(root, "src");
   const walk = (dir: string, out: string[] = []): string[] => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -703,8 +713,41 @@ describe("BEST SPOT — desktop-only, fenced at the read", () => {
   const rel = (f: string) => f.slice(srcDir.length + 1).replace(/\\/g, "/");
   const orch = readFileSync(join(srcDir, "components/globe/StylizedTiles.ts"), "utf8");
 
-  it("the gate is declared with BOTH terms, AND-ed, in the orchestrator", () => {
-    expect(orch).toMatch(/const bestSpotAllowed =\s*!isMobileShell && !coarsePointerShell;/);
+  it("the gate is declared TRUE for both shells, and names no shell term", () => {
+    const m = /const bestSpotAllowed = ([^;]+);/.exec(orch);
+    expect(m, "the gate constant is gone").not.toBeNull();
+    expect(m![1].trim()).toBe("true");
+    // A shell term on that line would re-fence the phone without anyone noticing.
+    expect(m![0]).not.toMatch(/isMobileShell|coarsePointerShell/);
+  });
+
+  it("the GL sheet carries no /m gate of its own (§6.10 (C) retired)", () => {
+    const sheet = readFileSync(join(srcDir, "components/globe/scene/bestSpotSheet.ts"), "utf8");
+    expect(sheet).not.toMatch(/mobileShell/);
+    // POSITIVE CONTROL: the other gate term (R2) is still read there.
+    expect(sheet).toMatch(/!ctx\.fpvActive/);
+  });
+
+  it("an ARMED disc keeps buildings, enriched and user models attached on /m in either map mode", () => {
+    // The helper is declared once, beside the gate, and AND-ed with it.
+    expect(orch).toMatch(/const bestSpotArmed = \(\): boolean => \{\s*const bs = useBestSpotStore\.getState\(\);\s*return bestSpotAllowed && bs\.open && bs\.heatmapOn;/);
+    // …and BOTH `shellOn` composites (the BLD/enriched step and the MDL step) carry it.
+    const shellOn = [...orch.matchAll(/const shellOn = !isMobileShell \|\| fpvActive \|\| cam\.mapMode === "3d"([^;]*);/g)];
+    expect(shellOn.length).toBe(2); // POSITIVE CONTROL: the two composites exist
+    for (const m of shellOn) expect(m[1]).toBe(" || bestSpotArmed()");
+  });
+
+  it("ULTRA stays desktop-only: the mobile shell never names the 1 m tier or the per-cell refine", () => {
+    const mobile = files.filter((f) => rel(f).startsWith("components/mobile/"));
+    expect(mobile.length).toBeGreaterThan(0); // POSITIVE CONTROL
+    const sheet = mobile.find((f) => rel(f) === "components/mobile/BestSpotSheet.tsx");
+    expect(sheet, "the mobile BEST SPOT sheet exists").toBeDefined();
+    const forbidden = /\b(setUltra|ultraCellM|ultraMaxRadiusM|refineSpot|obstructionRefined)\b|\bultra\b/;
+    const code = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const offenders = mobile.filter((f) => forbidden.test(code(readFileSync(f, "utf8"))));
+    expect(offenders.map(rel)).toEqual([]);
+    // …while the desktop panel still does (the probe can match).
+    expect(forbidden.test(code(readFileSync(join(srcDir, "components/panels/BestSpotPanel.tsx"), "utf8")))).toBe(true);
   });
 
   it("EXACTLY ONE engine file may name the gate", () => {
@@ -740,6 +783,8 @@ describe("BEST SPOT — desktop-only, fenced at the read", () => {
       "components/globe/StylizedTiles.ts",
       "components/panels/BestSpotPanel.tsx",
       "components/panels/PlanFindToggle.tsx",
+      // The /m surface (2026-09-07g) — the FindSheet idiom: always mounted, `open` sticky.
+      "components/mobile/BestSpotSheet.tsx",
     ]);
     const importRe = /import\s+(type\s+)?({[^}]*}|[\w*\s,]+)\s+from\s+"([^"]*store\/bestSpot)"/g;
     const offenders: string[] = [];

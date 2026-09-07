@@ -72,8 +72,9 @@ import { easeFade, makeTangentGroup, presenceForAlt, seatTangentGroup } from "./
  * the `focalCone` lesson (it used to dispose and reallocate two BufferGeometries every frame the
  * aim stick was held). `renderOrder` is set per OBJECT: a Group's renderOrder does not propagate.
  *
- * The orchestrator owns the gate. FPV renders NOTHING (owner R2) and `/m` renders nothing until a
- * later slice; both arrive here as plain booleans on `update(ctx)`.
+ * The orchestrator owns the gate. FPV renders NOTHING (owner R2); it arrives here as a plain boolean
+ * on `update(ctx)`. (§6.10 (C)'s "`/m` renders nothing until a later slice" was that slice's gate —
+ * retired by the owner order of 2026-09-07g: the sheet draws on both shells.)
  */
 
 // ---------------------------------------------------------------------------------------------
@@ -160,8 +161,6 @@ export interface BestSpotSheetCtx {
   enabled: boolean;
   /** FPV is active — owner R2: the sheet renders NOTHING in FPV, on any shell. */
   fpvActive: boolean;
-  /** `/m` (or coarse-pointer) shell — §6.10 (C): nothing renders until a later slice. */
-  mobileShell: boolean;
   /** The solved field; `null` = nothing solved yet. Object IDENTITY drives the rebuild. */
   field: BestSpotFieldPack | null;
   markers: readonly BestSpotSheetMarker[];
@@ -1290,9 +1289,9 @@ export function attachBestSpotSheet(
     group,
 
     update(ctx: BestSpotSheetCtx) {
-      // Owner R2 (FPV renders nothing) and §6.10 (C) (`/m` renders nothing yet) arrive as plain
-      // booleans; the POLICY that composes them lives at the orchestrator's read.
-      const want = ctx.enabled && !ctx.fpvActive && !ctx.mobileShell && ctx.field !== null;
+      // Owner R2 (FPV renders nothing) arrives as a plain boolean; the POLICY that composes the
+      // gate lives at the orchestrator's read. Both shells draw (2026-09-07g).
+      const want = ctx.enabled && !ctx.fpvActive && ctx.field !== null;
       fade = easeFade(fade, want, ctx.dtMs, BESTSPOT.fadeTauMs);
       const pack = ctx.field;
       // FAIL CLOSED on every early return: with nothing drawn there is nothing to hit, and a stale

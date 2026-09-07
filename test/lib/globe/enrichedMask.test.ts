@@ -14,6 +14,7 @@ import {
   runCentroid,
   runIndexOfVertex,
   seatLand,
+  seatLandF32,
   seatStep,
   vertexKeyToRun,
   vertexKeyToRunWithCollisions,
@@ -144,6 +145,49 @@ describe("enrichedMask — seatLand (T77 NEW-3: the seat actually LANDS)", () =>
       applied = seatLand(applied, -31.7, K, SNAP);
       expect(applied).toBe(landed); // `next === applied` IS the engine's settled test
     }
+  });
+
+  it("REGRESSION 2026-09-07h — a seat STORED IN A Float32Array lands, in the array's precision", () => {
+    // The measured failure: `t.appliedM` is a Float32Array and the tree's target is a float64
+    // `seatM − cell.seatM` (99.86857279846443 − 86.16551149882785, a real Dnipro cell). `seatLand`
+    // returned the exact target, the array stored its float32 neighbour, and `next !== applied`
+    // was true again next frame by ~1e-7 m — one tree set per cell uploading its instance
+    // matrix EVERY FRAME, and the tileset's seat epoch ticking every frame, so BEST SPOT's
+    // streaming re-solve (which debounces on that epoch) could never fire on `/m`.
+    const target = 99.86857279846443 - 86.16551149882785;
+    expect(Math.fround(target)).not.toBe(target); // the target really is not float32-representable
+    const store = new Float32Array(1);
+    store[0] = NaN;
+    // The OLD law, through the array: lands, then writes forever.
+    let applied: number | null = null;
+    let writesOld = 0;
+    for (let i = 0; i < 300; i++) {
+      const next = seatLand(applied, target, K, SNAP);
+      if (next !== (applied ?? NaN)) {
+        writesOld++;
+        store[0] = next;
+      }
+      applied = store[0]; // what the engine reads back next frame
+    }
+    expect(writesOld).toBe(300); // every single frame — the bug
+    // The NEW law: lands within the snap and then NEVER writes again.
+    store[0] = NaN;
+    applied = null;
+    let writesNew = 0;
+    let landedAt = -1;
+    for (let i = 0; i < 300; i++) {
+      const next = seatLandF32(applied, target, K, SNAP);
+      if (next !== (applied ?? NaN)) {
+        writesNew++;
+        store[0] = next;
+        landedAt = i;
+      }
+      applied = store[0];
+    }
+    expect(writesNew).toBeLessThanOrEqual(70);
+    expect(landedAt).toBeLessThan(70);
+    expect(Math.abs(store[0] - target)).toBeLessThan(SNAP); // "on target" in the engine's sense
+    expect(seatLandF32(store[0], target, K, SNAP)).toBe(store[0]); // the fixed point survives a read-back
   });
 
   it("still SNAPS on the first sample (a streaming-in cell must land, not float up)", () => {

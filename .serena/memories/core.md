@@ -12,7 +12,25 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07f
+## Status — 2026-09-07h
+- **2026-09-07h (`mem:project/wip-2026-09-07-mobile-bestspot-ar`):** **THE TWO MOBILE FEATURES LANDED** (owner
+  order 2026-09-07g). **BEST SPOT on `/m`** — the fifth tab `◎ SPOT` → `mobile/BestSpotSheet.tsx` (FIND idiom,
+  no ULTRA, the honesty copy ONE shared copy in `controls/bestSpotCopy.ts`); the engine's desktop-only gate is
+  GONE on both shells (`bestSpotAllowed` TRUE, fence rewritten), an ARMED disc keeps the building tilesets
+  attached in either `/m` map mode (`bestSpotArmed()`). **Device Farm iPhone 17 Pro: finest rung 6 s after
+  arming, 60 fps flat with the sheet up, CPU 6/7 ms, LRU 3/78/2 MB — the gate PASSED.** **AR LOOK-AROUND**
+  in mobile FPV — `🧭 AR` chip (`mobile/FpvControls.tsx`) → `store/camera.arLook` → `scene/arLook.ts` →
+  `lib/sensors/{deviceOrientation,orientationLadder}.ts` (rungs android-absolute · ios-compass ·
+  relative-aligned · relative-unaligned) → `lib/geo/wmm.ts` (WMM2025 in-house; Dnipro +8.58° E); while the
+  aim is live the look-drag + aim-stick heading stand down; 39/39 on the phone twin. **The farm iPhone cannot
+  pass the permission sheet (Appium's click ≠ a WebKit gesture) — the device tier is the owner's iPhone
+  (T117).** **T116 FOUND + FIXED**: the enriched TREE seats "landed" every frame forever (a Float32Array vs
+  float64 target loop, a T77 C-1 regression since 09-06k) — one instance-matrix GPU upload per frame per
+  cell and a seat epoch never quiet, which had silently broken BEST SPOT's streaming re-solve; `seatLandF32`.
+  Open: T117 (AR on a real iPhone) · T118 (the first `/m` solve is a refusal until the buildings stream —
+  owner call) · T116's Pixel FPV re-read. Gates: vitest 2,917/186 · astro 0/0/11 · knip 0 · sweep draw-count
+  13/13 vs `post2-2026-09-07f`. **iOS 13+ has NO "Motion & Orientation Access" setting** — the denied copy
+  says quit-and-reopen Safari.
 - **2026-09-07f (`mem:project/wip-2026-09-07-t106-pixel-read`):** **T106 READ ON THE PIXEL** — a+b hold on
   the device (descent dt p95 316.7 → 50.0 ms, hitch main thread 6.73 → 3.93 s, the enriched handler gone
   from the callers). What was left: **the OSM handler on three's SLOW path** — every Cesium b3dm position is
@@ -91,30 +109,31 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   Trap: after any large landing restart `wix dev` with `node_modules/.vite` moved aside.
 - **MESH SUITE CLOSED 2026-09-05b** — MS0–MS8 shipped (gizmos, world-synced building overrides, user
   models); `MESH_SUITE_PLAN.md` §4a, the no-regression contract, stays binding.
-- **BEST SPOT PARKED 2026-08-27** (owner 2026-09-01: sufficient as implemented) · **Phase 7, AI shot
+- **BEST SPOT's ALGORITHM PARKED 2026-08-27** (owner 2026-09-01: sufficient as implemented; T59 the one
+  owner decision) — its MOBILE SURFACE shipped 2026-09-07h (the `/m` `◎ SPOT` tab) · **Phase 7, AI shot
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-07f: vitest **2,852/2,852** (181 files) · `astro check` **0/0/11** · knip **0**.
+- Gates 2026-09-07h: vitest **2,917/2,917** (186 files) · `astro check` **0/0/11** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T115).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T118).
 
-## Next step — OWNER ORDER 2026-09-07g: two MOBILE features first (full brief: `NEXT_SESSION_PROMPT.md`)
+## Next step — BACK ON THE MAIN PLAN, the T77 lane (owner 2026-09-07i; full brief: `NEXT_SESSION_PROMPT.md`)
+The two mobile features are DONE and owner-verified on the Pixel ("looks and works well"); the iPhone's
+real-world feedback comes later from the owner — an open ear (T117), never a blocker.
 1. Boot: the ship log FIRST (an `ABORT: push failed` run = push the stranded branch by hand), VPN on the
-   Mac (AND the phone), ion curl, `--budget`, ONE Chrome, `wix dev` with `.vite` aside; the pre sweep if the
-   session touches `globe/**` or `lib/globe/**`; the phone UNLOCKED and at thermal status ≤ 1 before any
-   timed leg. Never edit a SERVED `src/` module while ANY harness or farm run is up.
-2. **1 · BEST SPOT on `/m`** — the fifth bottom-row item right of SEARCH (`mobile/TabBar.tsx`), the
-   desktop behaviour WITHOUT the ULTRA options, a mobile-adapted sheet; the iPhone's performance is the
-   gate (Device Farm, README §A). Start at `bestspot/README.md`. **2 · AR look-around in mobile FPV** —
-   a toggle on the aiming-joystick UI (`mobile/FpvControls.tsx`); the phone's orientation aims the FPV
-   camera; permissions from the tap; a cited degradation ladder (iOS `requestPermission` +
-   `webkitCompassHeading` · Android absolute orientation · relative gyro + align · none); the math a
-   three-free unit-tested module; CDP drives `deviceorientation` on the desktop, a real iPhone verifies.
-3. **PARKED behind both:** lever 11, T115, the tails (T93/T102/T103/T114-ESRI), the two August remote
-   ship branches, every owner call (lean budgets, `compileAsync`, the terrain BVH, `skylineBehindAlpha`,
-   the flip bank, T113).
+   Mac (AND the phone), ion curl, `--budget`, ONE Chrome, `wix dev` restarted PLAIN with `.vite` aside (the
+   last session left it on `--allowed-hosts` for a dead tunnel); the pre sweep if the session touches
+   `globe/**` or `lib/globe/**` (freshest golden `post-2026-09-07h`); the phone UNLOCKED and at thermal
+   status ≤ 1 before any timed leg. Never edit a SERVED `src/` module while ANY harness or farm run is up.
+2. **Lever 11 — the vector-tile parse off the main thread** (`scene/vectorTiles.ts:624` parses on the main
+   thread; `parseVectorTile` is already a pure export that `bestSpotWorker` runs in a worker): 199–262 ms of
+   the Pixel's descent hitch frames (MEASUREMENTS §25.1/§25.5). Gate: `probe-cpu-profile --leg descent
+   --device` on the Pixel + the sweep's draw-count gate. Then **T115** (the tree-instance locate), the tails
+   **T93 / T102 / T103 / T114-ESRI**, the owner calls in ONE batch (lean load budgets, `compileAsync`, the
+   terrain BVH, `skylineBehindAlpha`, the flip bank, T113, T118, T116's Pixel re-read), the three stale
+   remote ship branches.
 3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
    — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
    then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77
@@ -212,6 +231,9 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   MEASUREMENTS §24 · `mem:project/wip-2026-09-07-t106-two-phase`
 - **T106 READ ON THE PIXEL · the OSM handler's slow path + two-phase · the builders pooled · the phone
   traps (09-07f, HOT)** · MEASUREMENTS §25 · `mem:project/wip-2026-09-07-t106-pixel-read`
+- **MOBILE ×2: BEST SPOT on `/m` (iPhone gate passed) + AR look-around (built, device tier = the owner's
+  iPhone) + T116 the tree-seat float32 loop (09-07h, HOT)** · DECISIONS 2026-09-07h · backlog T116–T118 ·
+  `mem:project/wip-2026-09-07-mobile-bestspot-ar`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·
@@ -236,8 +258,9 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   `explore` · `GlobeCanvas.tsx`. Design imports NEVER touch it (`conventions/globe-tuning.md`).
 - `src/components/` — `panels|ui` desktop chrome · `mobile` the `/m` shell · `controls` shared input
   instruments (a pure leaf: react + stores + `lib/**` + `globe/tuning`).
-- `src/lib/` — 18 entries, all real: decode (libraw-wasm worker), geo, ephemeris, sky, globe,
-  models, guide, pins, photo, export, market, save, wix, theme, format, api, textures, `prefs.ts`.
+- `src/lib/` — 19 entries, all real: decode (libraw-wasm worker), geo (+ `wmm.ts` since 09-07h),
+  ephemeris, sky, globe, models, guide, pins, photo, export, market, save, wix, theme, format, api,
+  textures, `sensors/` (09-07h — device orientation + the AR ladder, three-free), `prefs.ts`.
 - `src/store/` 19 zustand stores · `src/pages/` `index.astro`, `m.astro`, `guide.astro`, layouts and
   11 thin `api/*` routes — no `src/backend/` · `public/` textures, data, guide shots · `test/` 164
   vitest files / 2,463 tests.

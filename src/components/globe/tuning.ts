@@ -3664,6 +3664,28 @@ export const FPV = {
    *  this ("until released or below horizon", owner 2026-08-15c). Slightly under 0 so a
    *  setting body is followed all the way onto the skyline. */
   skyTrackReleaseAltDeg: -1,
+  // ── AR LOOK-AROUND (owner order 2026-09-07g, mobile FPV — `scene/arLook.ts`) ────────────
+  /** The FPV look's ease toward the phone's aim (ms). Much faster than the sky-look glide:
+   *  the phone IS the look and a visible lag reads as sea-sickness; the sensor's own jitter is
+   *  handled by `arSmoothTauMs` + `arDeadbandDeg` below, not here. */
+  arLookEaseTauMs: 70,
+  /** The vector EMA on the raw samples (ms) — iOS delivers ~60/s with no change dedup. */
+  arSmoothTauMs: 50,
+  /** Dead-band with hysteresis (deg): a hand's tremor (±0.2°) never shimmers the skyline. */
+  arDeadbandDeg: 0.25,
+  /** No sample for this long (ms) ⇒ the aim is null: the look-drag works again and the chip
+   *  says the sensors went quiet. iOS/Android both stream at 60 Hz when they stream at all. */
+  arSampleStaleMs: 1500,
+  /** iOS `webkitCompassAccuracy` ceiling (± deg) for a sample to be trusted into the yaw
+   *  offset. AR.js accepts < 50; the chip shows the live value so the device pass can tune. */
+  arCompassMaxAccuracyDeg: 25,
+  /** The top edge's horizontal magnitude (0 upright … 1 flat) under which its compass heading
+   *  is ill-conditioned and the sample is ignored — ~70° of tilt. UNVERIFIED on a real iPhone
+   *  (2026-09-07h): the device pass may open this toward 0.2. */
+  arCompassMinTopHoriz: 0.35,
+  /** EMA time constant (ms) of the compass-learned yaw offset — re-absorbs gyro drift each
+   *  time the phone dips without letting a single noisy fix yank the view. */
+  arCompassOffsetTauMs: 800,
   /** Shared `#f=` FPV link boot framing (owner 2026-07-14): the camera boots this high above
    *  the shared viewer point (m), looking along the shared bearing, so the right street tiles
    *  stream while the temp-FPV entry flight descends onto the exact eye. */
