@@ -4556,6 +4556,8 @@ export function attachStylizedTiles(opts: {
           loadMaxMs: c?.loadMaxMs ?? null, // T106 (b)
           osmLoadPending: bl.pending, // T106 OSM (2026-09-07f)
           osmLoadMaxMs: bl.deferredMaxMs, // T106 OSM
+          treeLocateMaxMs: c?.treeLocateMaxMs ?? null, // T115 (2026-09-07j)
+          treeLocatePending: c?.treeLocatePending ?? null, // T115
           seatEpoch: s?.epoch ?? null,
           seatQuietFrames: s?.quietFrames ?? null,
         };
@@ -4570,11 +4572,16 @@ export function attachStylizedTiles(opts: {
           else parsed++;
         });
         const labels = streetNames.census();
+        const ps = vtiles.parseStats();
         return {
           "mvt.parsed": parsed,
           "mvt.pending": pending,
           "mvt.failed": failed,
           "mvt.version": vtiles.version(),
+          "mvt.worker": ps.workerLive ? ps.workerParsed : ps.crashed ? -1 : 0, // lever 11: −1 = crashed → inline
+          "mvt.inline": ps.inlineParsed,
+          "mvt.seatMaxMs": Math.round(ps.seatMaxMs * 100) / 100,
+          "mvt.workerMaxMs": Math.round(ps.workerMaxMs * 10) / 10,
           "labels.entries": labels.entries,
           "labels.dying": labels.dying,
           "labels.budget": labels.budget,

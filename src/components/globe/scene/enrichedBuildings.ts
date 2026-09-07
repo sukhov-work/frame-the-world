@@ -6,6 +6,7 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { tokens } from "../../../lib/theme/tokens";
 import { clampGroundM } from "../../../lib/geo/terrain";
 import { ecefToGeodetic, geodeticToEcef } from "../../../lib/geo/projection";
+import { locateTreeInstances, TREE_LOCATE_CHUNK } from "../../../lib/globe/treeLocate";
 import { buildingNightFactor } from "../../../lib/globe/buildingNight";
 import {
   lruFloorBytesForCap,
@@ -319,6 +320,9 @@ export interface EnrichedBuildingsHandle {
     /** T106 slice (b) — the deferred `load-model` queue: units waiting, and the worst drain (ms). */
     loadPending: number;
     loadMaxMs: number;
+    /** T115 — the resumable tree locate: worst call (ms) and tree sets still mid-locate. */
+    treeLocateMaxMs: number;
+    treeLocatePending: number;
   };
   /** U8 pick: raycast the enriched fill meshes; the first qualifying hit resolves through the
    *  cached run table. RC17 qualifies on the sidecar's CLASS token (Building family only, so an
@@ -506,6 +510,14 @@ export interface EnrichedBuildingsHandle {
     unitsDone: number;
     unitsCancelled: number;
     budgetMs: number;
+    // T115 — the resumable tree-instance locate (`locateTrees`): calls, chunks, instances,
+    // total and worst ms per call, and how many tree sets are still mid-locate.
+    treeLocateCalls: number;
+    treeLocateChunks: number;
+    treeLocateInstances: number;
+    treeLocateMs: number;
+    treeLocateMaxMs: number;
+    treeLocatePending: number;
   };
   /** T106 slice (b) DEV seam — set the per-frame phase-2 budget live (ms; a huge value drains
    *  the whole queue in one frame = the pre-slice handler's per-frame shape, the A/B's B).
@@ -627,12 +639,22 @@ export function attachEnrichedBuildings(
     // — on the Pixel the worst "step" was the biggest cell's fresh typed arrays, not a chunk)
     allocMs: 0,
     allocMaxMs: 0,
-    // 2026-09-07f: the one-shot `ensureLocated` (the parts-first order), timed
+    // 2026-09-07f: the one-shot `ensureLocated` (the parts-first order), timed — FEATURES only
+    // since T115 (the trees below)
     locateCalls: 0,
     locateMs: 0,
     locateMaxMs: 0,
     locateFeatures: 0,
     locateMaxFeatures: 0,
+    // T115 (2026-09-07j): the tree-instance locate, RESUMABLE in chunks of TREE_LOCATE_CHUNK
+    // under the reseat drain's deadline (`lib/globe/treeLocate`) — per call (one or more chunks)
+    treeLocateCalls: 0,
+    treeLocateChunks: 0,
+    treeLocateInstances: 0,
+    treeLocateMs: 0,
+    treeLocateMaxMs: 0,
+    /** Tree sets whose instances are not all located yet (a landing burst mid-drain). */
+    treeLocatePending: 0,
   };
   /** T106 slice (b) — the deferred `load-model` queue (`lib/globe/loadQueue`): one unit per
    *  mesh, drained in `update()` under `loadBudgetMs` per frame, nearest cell first. */
@@ -847,8 +869,12 @@ export function attachEnrichedBuildings(
   }
   interface TreeSet {
     mesh: THREE.InstancedMesh;
-    latDeg: Float64Array; // per-instance footprint (lazy-located with the cell)
+    latDeg: Float64Array; // per-instance footprint (lazy-located — T115: in chunks, see `locateTrees`)
     lonDeg: Float64Array;
+    /** T115 — every instance below `locCursor` has its lat/lon; `located` once the cursor reaches
+     *  the count. The sampling passes never read an instance above the cursor. */
+    locCursor: number;
+    located: boolean;
     seatM: Float32Array; // NaN = never sampled
     appliedM: Float32Array; // NaN = on the cell plane
     seatDepth: Int16Array; // T77 4d — per instance, −1 = unknown (see FeatureSeat.seatDepth)
@@ -1681,6 +1707,8 @@ export function attachEnrichedBuildings(
             mesh: c,
             latDeg: new Float64Array(n),
             lonDeg: new Float64Array(n),
+            locCursor: 0,
+            located: n === 0,
             seatM: new Float32Array(n).fill(NaN),
             appliedM: new Float32Array(n).fill(NaN),
             seatDepth: new Int16Array(n).fill(-1),
@@ -1804,29 +1832,21 @@ export function attachEnrichedBuildings(
   // so the sum (group + cell + feature) still converges on each footprint's own terrain.
   let seatAppliedM: number | null = null;
 
-  /** One-shot footprint location for a cell: run centroids / instance translations → world →
-   *  geodetic. Gated on the cell having snapped once (its scene matrixWorld was force-updated);
-   *  vertical deltas never move a footprint's lat/lon, so locating before/after writes is safe. */
+  /** One-shot footprint location for a cell's FEATURES: run centroids → world → geodetic. Gated
+   *  on the cell having snapped once (its scene matrixWorld was force-updated); vertical deltas
+   *  never move a footprint's lat/lon, so locating before/after writes is safe. The trees are
+   *  NOT here since T115 — `locateTrees` below, resumable. */
   const ensureLocated = (cell: CellSeat): boolean => {
     if (cell.located) return true;
     if (cell.appliedM == null) return false;
-    // 2026-09-07f: timed — this is the ONE unbudgeted O(features) walk left on the load path
-    // (a cell located AFTER its parts registered; the other order locates per part in the unit's
-    // phase 4). `__globe.enrichedLoad().locateMaxMs` says whether it is worth slicing.
+    // 2026-09-07f: timed — a cell located AFTER its parts registered (the other order locates
+    // per part in the unit's phase 4, resumably). On the Pixel's descent this fired 58× with
+    // 0 features (§25.5); the 7.5 ms max it carried was the tree loop, now `locateTrees`.
     const t0 = performance.now();
     let n = 0;
     for (const part of cell.parts) {
       for (const f of part.features) locateFeature(part, f);
       n += part.features.length;
-    }
-    for (const t of cell.trees) {
-      const arr = t.mesh.instanceMatrix.array as ArrayLike<number>;
-      for (let i = 0; i < t.seatM.length; i++) {
-        _w.set(arr[i * 16 + 12], arr[i * 16 + 13], arr[i * 16 + 14]).applyMatrix4(t.mesh.matrixWorld);
-        const g = ecefToGeodetic([_w.x, _w.y, _w.z]);
-        t.latDeg[i] = g.latDeg;
-        t.lonDeg[i] = g.lonDeg;
-      }
     }
     cell.located = true;
     const dt = performance.now() - t0;
@@ -1836,6 +1856,70 @@ export function attachEnrichedBuildings(
     if (dt > loadLedger.locateMaxMs) {
       loadLedger.locateMaxMs = dt;
       loadLedger.locateMaxFeatures = n;
+    }
+    return true;
+  };
+
+  /** T115 — the reseat drain's deadline for this frame (`sampleT0 + reseatBudgetMs`, set in
+   *  `update()`), and the tree locate's own: the FIRST chunk of a frame always runs (a budget
+   *  bounds the work, never starves it — the loadQueue's law), every further chunk only while
+   *  the later of the two deadlines is unspent — the drain's, or `treeLocateBudgetMs` after the
+   *  frame's first chunk began. Without the second the locate crawled at one chunk per frame
+   *  behind a spent reseat budget (113 sets still unlocated at the end of a desktop descent). */
+  let sampleDeadlineMs = 0;
+  let treeLocateDeadlineMs = 0;
+  let treeLocateChunkedThisFrame = false;
+
+  /** T115 — tree sets the drain still OWES a locate: unlocated, in a cell that has snapped (an
+   *  un-snapped cell's sets are not pending in any actionable sense — `ensureLocated` waits on
+   *  the same snap). Non-zero only during a landing burst. */
+  const treeLocatePendingCount = (): number => {
+    let n = 0;
+    for (const cell of cellList) {
+      if (cell.appliedM == null) continue;
+      for (const t of cell.trees) if (!t.located) n++;
+    }
+    return n;
+  };
+
+  /** T115 — locate a cell's tree instances (instance translation → world → geodetic) in chunks
+   *  of `TREE_LOCATE_CHUNK` under the drain's deadline. Byte-identical to the one-shot it
+   *  replaced (`lib/globe/treeLocate.ts`, pinned against three). Gated like `ensureLocated` on
+   *  the cell's first snap (the mesh's matrixWorld is final by then).
+   *  @returns true when every set of the cell is located */
+  const locateTrees = (cell: CellSeat): boolean => {
+    if (cell.appliedM == null) return false;
+    for (const t of cell.trees) {
+      if (t.located) continue;
+      const n = t.seatM.length;
+      const arr = t.mesh.instanceMatrix.array as ArrayLike<number>;
+      const world = t.mesh.matrixWorld.elements;
+      const t0 = performance.now();
+      let chunks = 0;
+      let done = 0;
+      while (t.locCursor < n) {
+        if (treeLocateChunkedThisFrame) {
+          const now = performance.now();
+          if (now >= sampleDeadlineMs && now >= treeLocateDeadlineMs) break;
+        } else {
+          treeLocateChunkedThisFrame = true;
+          treeLocateDeadlineMs = performance.now() + ENRICHED.treeLocateBudgetMs;
+        }
+        const to = Math.min(n, t.locCursor + TREE_LOCATE_CHUNK);
+        done += to - t.locCursor;
+        t.locCursor = locateTreeInstances(arr, world, t.locCursor, to, t.latDeg, t.lonDeg);
+        chunks++;
+      }
+      if (chunks > 0) {
+        const dt = performance.now() - t0;
+        loadLedger.treeLocateCalls++;
+        loadLedger.treeLocateChunks += chunks;
+        loadLedger.treeLocateInstances += done;
+        loadLedger.treeLocateMs += dt;
+        if (dt > loadLedger.treeLocateMaxMs) loadLedger.treeLocateMaxMs = dt;
+      }
+      if (t.locCursor >= n) t.located = true;
+      else return false;
     }
     return true;
   };
@@ -2210,10 +2294,15 @@ export function attachEnrichedBuildings(
   /** Ditto for TREE instances (same drain-then-refresh order). */
   const sampleTrees = (cell: CellSeat, budget: number): number => {
     if (budget <= 0 || cell.seatM == null || !ensureLocated(cell)) return 0;
+    // T115: every reader of `t.latDeg` / `t.lonDeg` is below this line and inside a loop that
+    // skips a set until it is located — this call advances the cell's locate by its chunk(s),
+    // then samples whatever sets are already whole; an unlocated set's `unseated` queue keeps
+    // `cellHasPending` true, so the drain comes back to it.
+    locateTrees(cell);
     if (cellHeld(cell)) return 0; // T101 — see sampleFeatures (same stops after each sample)
     let spent = 0;
     for (const t of cell.trees) {
-      if (t.unseated.length === 0) continue;
+      if (!t.located || t.unseated.length === 0) continue;
       const deferred: number[] = [];
       while (spent < budget && t.unseated.length > 0) {
         const idx = t.unseated.pop() as number;
@@ -2235,6 +2324,7 @@ export function attachEnrichedBuildings(
       if (spent >= budget || cellHeld(cell)) return spent;
     }
     for (const t of cell.trees) {
+      if (!t.located) continue; // T115
       // T77 4e — the refinement queue (see sampleFeatures pass 1b).
       while (spent < budget && t.refine.length > 0) {
         const idx = t.refine.pop() as number;
@@ -2262,7 +2352,7 @@ export function attachEnrichedBuildings(
     if (!sweepNow && !cell.terrainDirtyFrames) return spent;
     for (const t of cell.trees) {
       const n = t.seatM.length;
-      if (n === 0) continue;
+      if (!t.located || n === 0) continue; // T115
       const k = Math.min(budget - spent, n);
       let took = 0; // T101
       for (let i = 0; i < k; i++) {
@@ -2707,6 +2797,9 @@ export function attachEnrichedBuildings(
             // queued AND `reseatBudgetMs` of this frame is unspent, up to `reseatBudgetMaxMul`×.
             const sampleT0 = performance.now();
             const budgetMs = ENRICHED.reseatBudgetMs;
+            // T115: the tree-locate chunks share this frame's reseat deadline.
+            sampleDeadlineMs = sampleT0 + budgetMs;
+            treeLocateChunkedThisFrame = false;
             const runFeatureRound = (budget: number): number => {
               let fb = budget;
               const fRr = Math.max(1, Math.round(fb * ENRICHED.reseatRoundRobinShare));
@@ -2873,6 +2966,8 @@ export function attachEnrichedBuildings(
       seatCacheMisses,
       loadPending: loadQueue.pending(), // T106 (b)
       loadMaxMs: loadQueue.stats().maxFrameMs,
+      treeLocateMaxMs: loadLedger.treeLocateMaxMs, // T115
+      treeLocatePending: treeLocatePendingCount(), // T115
     }),
     pickBuilding(raycaster) {
       // Fill meshes keep default raycast; edges/trees/ghost are noop'd — hits here are either
@@ -3099,6 +3194,7 @@ export function attachEnrichedBuildings(
       const q = loadQueue.stats();
       return {
         ...loadLedger,
+        treeLocatePending: treeLocatePendingCount(),
         scratchReuses: edgeScratch.reuses + maskScratch.reuses,
         scratchGrowths: edgeScratch.growths + maskScratch.growths,
         deferredMs: q.ms,

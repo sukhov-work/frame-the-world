@@ -2650,6 +2650,13 @@ export const ENRICHED = {
    *  frames, not forty seconds. At a quiet pose the drain is empty and this costs nothing. */
   reseatBudgetMs: 1.0,
   reseatBudgetMaxMul: 8,
+  /** T115 (2026-09-07j) — the tree-instance LOCATE (translation → world → geodetic, once per
+   *  instance, before its first terrain sample) runs in chunks of 256 inside the drain; it may
+   *  keep chunking while this many ms of the frame are unspent since ITS first chunk, or while
+   *  the reseat deadline above is — whichever is later. The first chunk of a frame always runs.
+   *  Sized so a 60k-tree city locates in ~1 s (desktop) / ~2 s (a phone) at ≤ this + one chunk
+   *  per frame, where the one-shot it replaced was 7.5 ms atomic on the Pixel (§25.5). */
+  treeLocateBudgetMs: 0.5,
   // --- T77 slice C-1 (2026-09-06j) — STREAMING QUIET: the drain must cost nothing once the
   // ground stops moving. Browser-attributed at the Dnipro FPV eye AFTER the tile queues emptied
   // (`probe-cpu-profile --pose fpv`, and a per-frame `seatSettle()` recorder): 100 % of frames

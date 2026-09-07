@@ -1670,3 +1670,88 @@ carries a **draw-count gate** — with `--compare`, a pose whose triangles match
 within 0.5 % and whose draw calls fall by more than 3 and 2 % FAILS (the golden's counters come
 from its `report.json`). The pixel diff at tolerance 0 could not gate this: thin strokes over a
 noise floor of whole tiles.
+
+## 26. Session 2026-09-07j — lever 11 (the vector-tile parse off the main thread) and T115 (the tree locate, resumable) — desktop reads; the Pixel read is OWED
+
+The phone was not attached this session (`adb devices` empty at boot). Every number below is the
+desktop house Chrome (:9333) on the same dev server, A/B by the stash idiom (§25.6) minutes apart;
+the Pixel's `probe-cpu-profile --leg descent --device` for both items is the first thing to run
+when the owner plugs the phone in (thermal ≤ 1, unlocked, `adb reverse`/`adb forward` re-wired).
+
+### 26.1 Why the obvious lever buys nothing — the wire is the design
+
+`parseVectorTile` was 199–262 ms of the Pixel's descent hitch frames (§25.1/§25.5), leading the
+app's share after T106. The parser is pure and `bestSpotWorker` already runs it in a worker, so
+the shape "parse in a worker, `postMessage` the `ParsedVtile`" was the obvious one — and it is
+worthless. Measured in node on the committed fixture and then on the 25 real z14 tiles of the
+5×5 ring around the owner's `dnipro-descent` arrival (fetched 2026-09-07, build
+`20260830_080001_pt`, 79–202 KB each; the fixture is a light 21 KB tile):
+
+| | fixture (263 feats · 4,781 coords) | 25 real tiles (Σ) | heaviest (`9787/5663`: 794 feats · 209 buildings · 19.7k coords) |
+|---|---|---|---|
+| `parseVectorTile` | 1.48 ms | **60.8 ms** | 5.18 ms |
+| `structuredClone` of the nested `ParsedVtile` | 1.28 ms | **60.6 ms** | 5.29 ms |
+| v8 `deserialize` alone (the receive side) | 0.86 ms | — | — |
+| serialised bytes | 150 KB (7× the PBF) | — | — |
+| **`unpackVtile` of the flat wire** (the main-thread seat) | 0.08 ms | **3.1 ms** | 0.26 ms (worst tile 0.54) |
+
+The parse's cost IS the allocation of ~100k two-element arrays; any transport that re-allocates
+them on the main thread keeps the bill there. So the wire (`lib/geo/vtileWire.ts`) is ONE
+`Float64Array` of coordinates + ONE `Uint32Array` shape stream (ring lengths, polygon and ring
+counts) + the per-feature scalars as plain data, both typed arrays TRANSFERRED; the main thread
+rehydrates the consumer-facing nested arrays — one twentieth of the parse, ≤ 0.54 ms desktop
+(≈ 2 ms Pixel) for the heaviest tile, a one-shot seat that cannot make a hitch on its own. The
+contract is identity: `unpackVtile(packVtile(p))` is `toStrictEqual` + key-order-equal + JSON-
+equal to `p`, through `structuredClone`, on the fixture and on synthetic holes / multi-polygons /
+empty features / `undefined` optional keys (`vtileWire.test.ts`, 10). The fetch stays on the
+main thread (network attribution, `force-cache`, the attach-scoped abort unchanged); the worker
+(`lib/geo/vtileParseWorker.ts`) gets the buffer and posts the wire; the client
+(`lib/geo/vtileParseClient.ts`) seats, and falls back INLINE through the same handler when no
+`Worker` exists, spawning throws, or the worker crashes (in-flight tiles re-issued inline; a
+tile never becomes `"failed"` because of the worker — `vtileParseClient.test.ts`, 9). The worker
+module is never imported by value on the main thread (its `self.onmessage` shell would land on
+`window`) — a fence walks `src/` for it; the parser is handed to the client by
+`scene/vectorTiles.ts` so the module graph is a straight line with no cycle.
+
+### 26.2 Lever 11 on the desktop — the descent A/B (`probe-cpu-profile --leg descent`, HEAD vs tree, same boot conditions)
+
+| | HEAD (`0a3042b`, parse on main) | the tree (lever 11) |
+|---|---|---|
+| frames · dt p50 / p95 / max | 455 · 16.7 / 33.3 / 249.9 | 586 · 16.7 / 33.3 / 233.2 |
+| hitch frames (> 33 ms) · main thread inside them | 45 · 1,644.8 ms | 44 · 1,565.1 ms |
+| app in the hitches | **230.2 ms** | **139.7 ms** |
+| — of which vector tiles (callers' view) | `ringsOfFeature` 63.6 + `parseVectorTile` 27.2 + `clipHalfPlane` 8.4 = **99.2**; self-time `readSVarint` 48.2 + `loadGeometry` 16.1 + `readVarint` 5.6 under them | `vtileParseClient.parse` **0.8** — `ringsOfFeature` / `parseVectorTile` / pbf GONE from every table |
+| app, whole leg | 831.5 ms (`readSVarint` 48.2 in the top six) | 800.3 ms (no MVT symbol in the top forty) |
+
+The gate as written ("the vector-tile self time in the hitch frames → ~0") holds on the desktop:
+169 → 0.8 ms. `probe-vtile-worker.mjs` (new) reads the DBG `vector` provider at the cityscape:
+**12/12 tiles parsed by the worker, 0 inline, 0 failed, worst seat 0.5 ms, worst worker parse
+10.3 ms** (the time the main thread no longer pays), 40 street labels up; its `--inline`
+negative control (`window.Worker` deleted pre-boot) reads worker 0 / inline 12 / seat 0.4 — the
+probe can tell the paths apart. Post sweep `post-2026-09-07j` vs the golden `post-2026-09-07h`:
+draw-count gate **13/13** (calls AND triangles identical on every pose, the feature web's line
+objects included), the `vector.*` rows identical per pose (parsed / version / labels), pixel
+diffs the boot-to-boot band (legacy-m 49 → 56 %, the 2D map's residual tilt 0.35° → 0.44° at
+capture; cityscape 15 → 34 %, the water fills' lattice-refresh state at capture — both the T103
+family, same objects drawn).
+
+### 26.3 T115 on the desktop — the tree locate, resumable
+
+`ensureLocated`'s tree loop (an `ecefToGeodetic` per instance, atomic in the first `sampleTrees`
+visit — 7.5 ms max on the Pixel, §25.5) is now `locateTrees`: chunks of 256 through the pure
+`lib/globe/treeLocate.ts` (`Vector3.applyMatrix4` written out in three's operation order, the `w`
+divide included, then the shipped `ecefToGeodetic` — pinned bit-for-bit against three on a
+1,000-instance Dnipro-shaped fixture, chunk-split-exact), the first chunk of a frame always
+running, further chunks while the LATER of the reseat deadline and `treeLocateBudgetMs` 0.5 ms
+after the frame's first chunk is unspent. `ensureLocated` keeps the features (its `locateMaxMs`
+is features-only now). The cursor's first cut shared only the reseat deadline and crawled at one
+chunk per frame behind a spent budget (113 sets still unlocated at the end of a desktop descent);
+the own budget fixed it. `probe-load-phase2` (desktop `high`, descent): 106 calls · 219 chunks ·
+39,971 instances · 10.9 ms total · **worst call 0.5 ms** (was 2.3 before the own budget; the
+atomic loop's desktop worst was in the `locateMaxMs` 7.5 Pixel / ~2 desktop band), identity
+`enrichedBench(50)` 0/0. At the cityscape pose the ledger drains to `treeLocatePending` 0 over
+~17 s for 85,519 instances at 21 ms total CPU — and the TREE SEATING throughput is unchanged
+(HEAD vs tree, `enrichedSeats().treesSampled` at 4 / 10 / 19 s: 2,459 / 15,146 / 36,794 vs
+3,238 / 15,354 / 36,454): the locate rides the drain's own visit schedule, as the one-shot did,
+and a cell samples its whole sets while its others still locate. DBG rows
+`buildings.treeLocateMaxMs` (warn > 4) and `buildings.treeLocatePending`.

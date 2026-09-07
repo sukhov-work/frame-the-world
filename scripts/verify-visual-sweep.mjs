@@ -138,6 +138,7 @@ const COMPARE = opt("--compare", null);
 const QUIET_S = Math.min(120, Number(opt("--quiet-s", "8")));
 const SAMPLE_MS = Number(opt("--sample-s", "3")) * 1000;
 const NO_LEGS = flag("--no-legs");
+const NO_LEG_REBOOT = flag("--no-leg-reboot");
 const SHEET = flag("--sheet");
 const TOLERANCE = Number(opt("--tolerance", "0"));
 // T94 — the deterministic-capture seam. ON by default exactly when the run exists to compare
@@ -375,7 +376,19 @@ async function reattach() {
 /** A second, THROWAWAY tab used only for composing sheets and decoding PNGs — kept off the page
  *  under measurement so a canvas the size of a contact sheet never rides its GPU budget. */
 let composer = null;
-const getComposer = async () => (composer ??= await openSession(await newTarget()));
+// T102 ISOLATED (2026-09-07j): `/json/new` ACTIVATES the tab it opens, so the first `getComposer()`
+// (lazily, at the first pose's self-check) sent the pose tab to the background — `document.hidden`
+// true, the engine's rAF throttled, and a `requestFly` issued into it never started (37–39 rAF rows
+// over an 11 s leg, the top pose held). The bare probe reproduces it with nothing but a second
+// target, and `Page.bringToFront` on the pose tab cures it (31,762 → 1,670 m in 2.5 s). The
+// composer therefore hands the front back to the pose tab the moment it exists; the leg runner
+// fronts the tab again before its recorder, and `--no-leg-reboot` is a working option.
+const getComposer = async () => {
+  if (composer) return composer;
+  composer = await openSession(await newTarget());
+  await session.send("Page.bringToFront").catch(() => {});
+  return composer;
+};
 
 // ─── Boot / settle / capture ─────────────────────────────────────────────────────────────────
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
@@ -466,6 +479,18 @@ const FREEZE_ON = `(() => { const g = window.__globe;
   if (!g || typeof g.freezeFrame !== "function") return null;
   const s = g.freezeFrame(true);
   return { frozenAtMs: s.frozenAtMs, parts: s.parts, held: s.held, clocks: s.clocks }; })()`;
+/** T103 — pause (rate 0) or resume (rate 1) every CSS / Web animation in the page through the
+ *  CDP Animation domain. Returns what happened, for the report; never throws (a Chrome without
+ *  the domain reports "unavailable" and the self-check then says whether it mattered). */
+async function pauseAnimations(on) {
+  try {
+    await session.send("Animation.enable");
+    await session.send("Animation.setPlaybackRate", { playbackRate: on ? 0 : 1 });
+    return on ? "paused" : "resumed";
+  } catch (err) {
+    return `unavailable: ${String(err?.message ?? err).slice(0, 80)}`;
+  }
+}
 /** Seconds of LIVE clock after the drain for the last-landed tiles' reveal eases to finish. */
 const REVEAL_SETTLE_S = Number(opt("--reveal-settle-s", "3"));
 const FREEZE_OFF = `(() => { const g = window.__globe;
@@ -615,6 +640,7 @@ async function runDescent(pose, dir) {
   const leg = pose.leg;
   const end = leg.end;
   const frames = [];
+  await session.send("Page.bringToFront").catch(() => {}); // T102: never record a hidden tab
   await session.evalJs(REC_START);
   const hasStore = await session.evalJs(`!!(window.__cameraStore && window.__cameraStore.getState().requestFly)`);
   let drive = "requestFly+targets";
@@ -926,6 +952,12 @@ for (const pose of selected) {
         // …then phase 2: pin the clock too (a second freeze re-arms with the fuller part set).
         const full = await session.evalJs(FREEZE_ON);
         if (full) row.freeze = { ...row.freeze, parts: full.parts, held: full.held, frozenAtMs: full.frozenAtMs };
+        // T103 (2026-09-07j): the canvas seam cannot hold the SHELL's CSS animations (the `/m`
+        // peek nudge, the dock rings, a panel's spinner) — they ride the compositor's own clock
+        // and re-shot the `/m` page 490 px apart two rAF later (0.091 %, max Δ 140). Pause every
+        // document animation through the CDP Animation domain instead of a product-code hook:
+        // the capture is the harness's concern, the shell stays as shipped.
+        row.freeze.cssAnimations = await pauseAnimations(true);
         await session.ticks(2);
       }
       const shots = await shoot(pose);
@@ -945,7 +977,10 @@ for (const pose of selected) {
           d.error ?? `${fmtI(d.differing)} / ${fmtI(d.total)} px (${fmt(d.fraction * 100, 3)} %), max channel Δ ${d.maxDelta}`,
         );
       }
-      if (FREEZE) row.freeze = { ...row.freeze, thaw: await session.evalJs(FREEZE_OFF) };
+      if (FREEZE) {
+        await pauseAnimations(false);
+        row.freeze = { ...row.freeze, thaw: await session.evalJs(FREEZE_OFF) };
+      }
       row.files = {
         jpeg: join(OUT_DIR, `${runId}.jpeg`),
         png360: join(OUT_DIR, `${runId}.360.png`),
@@ -981,14 +1016,20 @@ for (const pose of selected) {
         const dir = join(OUT_DIR, runId);
         mkdirSync(dir, { recursive: true });
         console.log(`  leg: ${pose.leg.type}`);
-        // A leg is a LIVE-engine measurement. After a freeze/thaw the page is not a clean engine
-        // (2026-09-06k: the descent leg recorded 37 app frames and never left the top pose after
-        // a frozen capture, while the same requestFly on a never-frozen page flew 31,730 →
-        // 1,598 m in 3 s), so a leg that drives THIS page re-boots the pose first. The zoom sweep
-        // re-navigates on its own; the time sweep only scrubs the clock.
+        // A leg is a LIVE-engine measurement. 2026-09-06k saw the descent leg record 37 app
+        // frames and never leave the top pose after a frozen capture, and blamed the freeze/thaw;
+        // T102 (2026-09-07j) isolated the real cause — the composer tab, opened lazily by the
+        // self-check, had backgrounded the pose tab (see `getComposer`). The re-boot stays the
+        // DEFAULT so the leg's numbers keep their golden conditions (a fresh engine, no skewed
+        // clock); `--no-leg-reboot` drives the thawed page instead, recorded as `leg_reboot:
+        // "skipped"`, and flies since the front-tab fix. The zoom sweep re-navigates on its own;
+        // the time sweep only scrubs the clock.
         if (FREEZE && row.freeze?.held && pose.leg.type === "descent") {
-          row.leg_reboot = { bootMs: await boot(pose, ultra, url), settle: await quiet() };
-          await stableFrame();
+          if (NO_LEG_REBOOT) row.leg_reboot = "skipped";
+          else {
+            row.leg_reboot = { bootMs: await boot(pose, ultra, url), settle: await quiet() };
+            await stableFrame();
+          }
         }
         if (pose.leg.type === "descent") row.leg = await runDescent(pose, dir);
         else if (pose.leg.type === "zoomSweep") row.leg = await runZoomSweep(pose, ultra, dir);

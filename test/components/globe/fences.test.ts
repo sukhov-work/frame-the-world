@@ -679,6 +679,58 @@ describe("BEST SPOT worker — no tuning latch, no SharedArrayBuffer", () => {
     expect([...client.matchAll(/\.terminate\(\)/g)]).toHaveLength(1);
     expect(client.slice(client.indexOf("dispose()"))).toMatch(/terminate\(\)/);
   });
+
+  /**
+   * THE VECTOR-TILE PARSE WORKER (T77 lever 11, 2026-09-07j) — the same fences, one more.
+   *
+   * It imports the shipped parser (never a fork), so `scene/vectorTiles.ts` is its ONE tuning edge
+   * (the `STREETS` label constants — static on both threads; no runtime tunable editor exists).
+   * The extra fence: its module installs `self.onmessage` at evaluation, and on a page `self` is
+   * `window` — so NOTHING on the main thread may import it by value; the client reaches it only
+   * through `new Worker(new URL(...))`, and the handler both threads share lives in `vtileWire.ts`.
+   */
+  const PARSE_WORKER = join(geo, "vtileParseWorker.ts");
+
+  it("the parse worker's only tuning edge is the parser module itself", () => {
+    expect(importsTuning(PARSE_WORKER)).toBe(false);
+    const hits = [...graphOf(PARSE_WORKER)]
+      .filter(importsTuning)
+      .map((f) => f.slice(srcRoot.length + 1).replace(/\\/g, "/"))
+      .sort();
+    expect(hits).toEqual(["components/globe/scene/vectorTiles.ts"]);
+  });
+
+  it("the parse worker declares the webworker lib first, carries no SAB and no dynamic import", () => {
+    expect(readSrc(PARSE_WORKER).split("\n")[0].trim()).toBe('/// <reference lib="webworker" />');
+    const offenders: string[] = [];
+    for (const f of graphOf(PARSE_WORKER)) {
+      const src = code(readSrc(f));
+      if (/\bSharedArrayBuffer\b/.test(src)) offenders.push(`SAB in ${f}`);
+      if (/\bawait import\(/.test(src)) offenders.push(`dynamic import in ${f}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("no main-thread module imports the parse worker by value — only the client, by URL", () => {
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
+        d.isDirectory() ? walk(join(dir, d.name)) : /\.(ts|tsx)$/.test(d.name) ? [join(dir, d.name)] : [],
+      );
+    const importers = walk(srcRoot).filter((f) =>
+      /from\s+"[^"]*vtileParseWorker"/.test(code(readSrc(f))),
+    );
+    expect(importers).toEqual([]);
+    const client = readSrc(join(geo, "vtileParseClient.ts"));
+    expect(client).toMatch(
+      /new Worker\(new URL\("\.\/vtileParseWorker\.ts", import\.meta\.url\), \{ type: "module" \}\)/,
+    );
+    // POSITIVE CONTROL: the probe matches a value import of the worker.
+    expect(/from\s+"[^"]*vtileParseWorker"/.test('import { x } from "./vtileParseWorker";')).toBe(true);
+    // The parser's home hands the client the parser for the inline twin — one parser, one home.
+    const vt = readSrc(join(srcRoot, "components", "globe", "scene", "vectorTiles.ts"));
+    expect(vt).toMatch(/createVtileParseClient\(/);
+    expect(vt).toMatch(/parseVectorTile,\s*\n\s*\);/);
+  });
 });
 
 /**
@@ -1127,5 +1179,84 @@ describe("deferred crease edges seat their own world matrix (2026-09-07f)", () =
     expect(late.matrixWorld.elements[12]).toBe(0); // identity until someone updates it
     late.updateMatrixWorld(true);
     expect(late.matrixWorld.elements[12]).toBe(10);
+  });
+});
+
+/**
+ * T115 (2026-09-07j) — THE TREE LOCATE IS RESUMABLE, AND NO READER RUNS AHEAD OF IT.
+ *
+ * `ensureLocated` used to walk every tree instance of a cell atomically (7.5 ms max on the
+ * Pixel's descent, MEASUREMENTS §25.5). The walk now lives in `locateTrees` — chunks of
+ * `TREE_LOCATE_CHUNK` through the pure `lib/globe/treeLocate` (pinned bit-for-bit against three),
+ * under the reseat drain's deadline, the first chunk of a frame always running. What the fence
+ * keeps true:
+ *  1. `ensureLocated` never touches `cell.trees` again (the atomic loop cannot creep back);
+ *  2. every reader of a tree's `latDeg` / `lonDeg` sits BELOW the `locateTrees(cell)` gate in
+ *     `sampleTrees` — and nowhere else in the module (an instance above the cursor reads 0/0);
+ *  3. the chunk loop is the ONE writer of the cursor, through the pure function;
+ *  4. a frame's deadline is armed in `update()` beside the reseat budget, and the "first chunk
+ *     always runs" latch is reset there.
+ *
+ * Mutation that makes these RED: read `t.latDeg[` in a new pass without the gate; put the
+ * `ecefToGeodetic` loop back into `ensureLocated`; drop the per-frame reset.
+ */
+describe("T115 — the tree locate is chunked and gated", () => {
+  const enriched = readFileSync(join(sceneDir, "enrichedBuildings.ts"), "utf8");
+  const code = enriched.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(?<![:\\])\/\/[^\n]*/g, "");
+  const fnBody = (name: string): string => {
+    const start = code.indexOf(`const ${name} = (`);
+    expect(start, `${name} not found`).toBeGreaterThan(-1);
+    const end = code.indexOf("\n  };", start);
+    return code.slice(start, end);
+  };
+
+  it("ensureLocated walks features only — no tree loop, no ecefToGeodetic", () => {
+    const body = fnBody("ensureLocated");
+    expect(body).toMatch(/cell\.parts/);
+    expect(body).not.toMatch(/cell\.trees/);
+    expect(body).not.toMatch(/ecefToGeodetic/);
+  });
+
+  it("locateTrees is the one cursor writer, through lib/globe/treeLocate, chunked on the deadline", () => {
+    const body = fnBody("locateTrees");
+    expect(body).toMatch(/t\.locCursor = locateTreeInstances\(/);
+    expect(body).toMatch(/TREE_LOCATE_CHUNK/);
+    expect(body).toMatch(/now >= sampleDeadlineMs && now >= treeLocateDeadlineMs/);
+    expect(body).toMatch(/treeLocateDeadlineMs = performance\.now\(\) \+ ENRICHED\.treeLocateBudgetMs/);
+    expect([...code.matchAll(/\.locCursor = /g)]).toHaveLength(1);
+    expect(code).toMatch(/import \{ locateTreeInstances, TREE_LOCATE_CHUNK \} from "\.\.\/\.\.\/\.\.\/lib\/globe\/treeLocate"/);
+  });
+
+  it("every tree lat/lon read sits below the locateTrees call in sampleTrees, in a loop that skips an unlocated set", () => {
+    const reads = [...code.matchAll(/t\.latDeg\[|t\.lonDeg\[/g)].map((m) => m.index as number);
+    expect(reads.length).toBeGreaterThan(0); // positive control: the readers exist
+    const sample = code.indexOf("const sampleTrees = (");
+    const sampleEnd = code.indexOf("\n  };", sample);
+    const gate = code.indexOf("locateTrees(cell);", sample);
+    expect(gate).toBeGreaterThan(sample);
+    expect(gate).toBeLessThan(sampleEnd);
+    for (const at of reads) {
+      expect(at, `a tree lat/lon read at ${at} is outside sampleTrees or above its gate`).toBeGreaterThan(gate);
+      expect(at).toBeLessThan(sampleEnd);
+    }
+    // Every tree-set loop in the pass skips a set that is not whole yet — as many skips as loops.
+    const body = code.slice(sample, sampleEnd);
+    const loops = [...body.matchAll(/for \(const t of cell\.trees\) \{/g)].length;
+    expect(loops).toBe(3);
+    expect([...body.matchAll(/!t\.located/g)]).toHaveLength(loops);
+    // …and the writers are exactly the pure locate (inside lib/) — none in this module.
+    expect(code).not.toMatch(/t\.latDeg\[[^\]]+\] =/);
+  });
+
+  it("the frame arms the deadline beside the reseat budget and resets the first-chunk latch", () => {
+    const i = code.indexOf("const sampleT0 = performance.now();");
+    expect(i).toBeGreaterThan(-1);
+    const near = code.slice(i, i + 400);
+    expect(near).toMatch(/sampleDeadlineMs = sampleT0 \+ budgetMs;/);
+    expect(near).toMatch(/treeLocateChunkedThisFrame = false;/);
+  });
+
+  it("a tree set is born unlocated (or located when empty) with its cursor at 0", () => {
+    expect(code).toMatch(/locCursor: 0,\s*located: n === 0,/);
   });
 });

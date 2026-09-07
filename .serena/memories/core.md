@@ -12,7 +12,20 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07h
+## Status — 2026-09-07j
+- **2026-09-07j (`mem:project/wip-2026-09-07-lever11-vtile-worker`):** **BACK ON THE T77 LANE — LEVER 11 BUILT**
+  (the vector-tile parse off the main thread): a `structuredClone` of the nested parse costs AS MUCH as the parse
+  (60.6 vs 60.8 ms over 25 real Dnipro tiles), so the design is a flat typed-array WIRE (`lib/geo/vtileWire.ts`,
+  transferred; the main-thread seat 3.1 ms Σ) + `vtileParseWorker.ts` (shell only) + `vtileParseClient.ts` (inline
+  twin on no-Worker / crash, byte-identical); desktop descent A/B: vector tiles in the hitch frames **169 → 0.8 ms**,
+  sweep draw-count 13/13 with calls AND tris identical, `vector.*` rows identical per pose. **T115 FIXED** —
+  `locateTrees` chunks of 256 through `lib/globe/treeLocate.ts` (bit-identical to three), the first chunk of a frame
+  always, then under the later of the reseat deadline and `ENRICHED.treeLocateBudgetMs` 0.5; tree-seating throughput
+  unchanged. **T114 CLOSED** (regionless 0 on all 14 poses). **T102 ISOLATED** (`/json/new` activates the composer
+  tab → the pose tab hidden → no fly; fixed in the harness) · **T103 FIXED** (CDP `Animation.setPlaybackRate` 0 under
+  the freeze) · **T93's FPV half not reproduced** (both probes run under the VPN). Two August remote ship branches
+  deleted (backups `refs/backups/ship-*`). **THE PIXEL READS OF LEVER 11 + T115 ARE OWED** (no phone on adb this
+  session). Gates: vitest 2,948/189 · astro 0/0/12 · knip 0 · freshest golden `post2-2026-09-07j`.
 - **2026-09-07h (`mem:project/wip-2026-09-07-mobile-bestspot-ar`):** **THE TWO MOBILE FEATURES LANDED** (owner
   order 2026-09-07g). **BEST SPOT on `/m`** — the fifth tab `◎ SPOT` → `mobile/BestSpotSheet.tsx` (FIND idiom,
   no ULTRA, the honesty copy ONE shared copy in `controls/bestSpotCopy.ts`); the engine's desktop-only gate is
@@ -114,26 +127,26 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-07h: vitest **2,917/2,917** (186 files) · `astro check` **0/0/11** · knip **0**.
+- Gates 2026-09-07j: vitest **2,948/2,948** (189 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
+  `ultraEmisK` unused in two scene files) · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T118).
 
-## Next step — BACK ON THE MAIN PLAN, the T77 lane (owner 2026-09-07i; full brief: `NEXT_SESSION_PROMPT.md`)
-The two mobile features are DONE and owner-verified on the Pixel ("looks and works well"); the iPhone's
-real-world feedback comes later from the owner — an open ear (T117), never a blocker.
-1. Boot: the ship log FIRST (an `ABORT: push failed` run = push the stranded branch by hand), VPN on the
-   Mac (AND the phone), ion curl, `--budget`, ONE Chrome, `wix dev` restarted PLAIN with `.vite` aside (the
-   last session left it on `--allowed-hosts` for a dead tunnel); the pre sweep if the session touches
-   `globe/**` or `lib/globe/**` (freshest golden `post-2026-09-07h`); the phone UNLOCKED and at thermal
+## Next step — the T77 lane continues (owner 2026-09-07i; full brief: `NEXT_SESSION_PROMPT.md`)
+Lever 11 + T115 are BUILT and desktop-verified (2026-09-07j); the tails T93/T102/T103/T114 closed; the
+iPhone's real-world AR feedback comes later from the owner — an open ear (T117), never a blocker.
+1. Boot: the ship log FIRST (an `ABORT: push failed` run = push the stranded branch by hand; a landed PR
+   with the checkout still on the ship branch = re-seat), VPN on the Mac (AND the phone), ion curl,
+   `--budget`, ONE Chrome, `wix dev` restarted PLAIN with `.vite` aside; the pre sweep if the session touches
+   `globe/**` or `lib/globe/**` (freshest golden `post2-2026-09-07j`); the phone UNLOCKED and at thermal
    status ≤ 1 before any timed leg. Never edit a SERVED `src/` module while ANY harness or farm run is up.
-2. **Lever 11 — the vector-tile parse off the main thread** (`scene/vectorTiles.ts:624` parses on the main
-   thread; `parseVectorTile` is already a pure export that `bestSpotWorker` runs in a worker): 199–262 ms of
-   the Pixel's descent hitch frames (MEASUREMENTS §25.1/§25.5). Gate: `probe-cpu-profile --leg descent
-   --device` on the Pixel + the sweep's draw-count gate. Then **T115** (the tree-instance locate), the tails
-   **T93 / T102 / T103 / T114-ESRI**, the owner calls in ONE batch (lean load budgets, `compileAsync`, the
-   terrain BVH, `skylineBehindAlpha`, the flip bank, T113, T118, T116's Pixel re-read), the three stale
-   remote ship branches.
+2. **THE PIXEL READS OF LEVER 11 + T115** the moment the phone is attached: `probe-cpu-profile --leg descent
+   --device` vs MEASUREMENTS §25.5 (vector tiles → ~0 in the hitch frames; `buildings.treeLocateMaxMs` < the
+   frame budget; DBG `vector.mvt.worker` = `parsed`, `inline` 0, `seatMaxMs` ≤ ~2) + `probe-load-phase2
+   --device`. Then the owner calls in ONE batch (lean load budgets, `compileAsync`, the terrain BVH,
+   `skylineBehindAlpha`, the flip bank, T113, T118, T116's re-read, `treeLocateBudgetMs`), then what §26.2's
+   desktop hitch table still shows (`applyFeatureSeats` 200 ms, `rawHeightAt` 92 ms).
 3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
    — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
    then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77
@@ -234,6 +247,9 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
 - **MOBILE ×2: BEST SPOT on `/m` (iPhone gate passed) + AR look-around (built, device tier = the owner's
   iPhone) + T116 the tree-seat float32 loop (09-07h, HOT)** · DECISIONS 2026-09-07h · backlog T116–T118 ·
   `mem:project/wip-2026-09-07-mobile-bestspot-ar`
+- **T77 LEVER 11 (the vector-tile wire + parse worker) + T115 (the tree locate, resumable) + the tails
+  T93/T102/T103/T114 (09-07j, HOT; the Pixel reads owed)** · MEASUREMENTS §26 · DECISIONS 2026-09-07j ·
+  `mem:project/wip-2026-09-07-lever11-vtile-worker`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

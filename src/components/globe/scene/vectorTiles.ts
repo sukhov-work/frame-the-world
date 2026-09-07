@@ -1,5 +1,6 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
+import { createVtileParseClient, type VtileParseStats } from "../../../lib/geo/vtileParseClient";
 import { STREETS, VECTOR } from "../tuning";
 
 /**
@@ -9,6 +10,12 @@ import { STREETS, VECTOR } from "../tuning";
  * anchors. The TileJSON is resolved once at attach (the dated tile-path segment rotates with
  * OpenFreeMap's builds — never hardcode it); tiles parse into plain lon/lat data (no three
  * imports — unit-testable), consumers build their own GL from it.
+ *
+ * SINCE 2026-09-07j (T77 lever 11) THE PARSE RUNS OFF THE MAIN THREAD: the fetch stays here, the
+ * buffer goes to `lib/geo/vtileParseWorker.ts`, and the main thread only SEATS the result through
+ * `lib/geo/vtileParseClient.ts` (`unpackVtile` of a flat typed-array wire — one twentieth of the
+ * parse; `lib/geo/vtileWire.ts` has the numbers). The cache, its states, the eviction and the
+ * `version()` epoch are unchanged; every consumer sees the identical `ParsedVtile`.
  *
  * OpenMapTiles schema, maxzoom 14 (deeper tiles do not exist — probe-verified S7). Parsed layers:
  *   transportation_name → StreetLabelFeat (one candidate label per named line feature)
@@ -146,6 +153,8 @@ export interface VectorTilesHandle {
   tiles(): ReadonlyMap<string, ParsedVtile | "pending" | "failed">;
   /** Bumps whenever a tile finishes parsing — consumers rebuild on change, never per frame. */
   version(): number;
+  /** The parse client's ledger (worker vs inline counts, the seat's worst ms) — DBG `mvt.*`. */
+  parseStats(): VtileParseStats;
   dispose(): void;
 }
 
@@ -601,6 +610,22 @@ export function attachVectorTiles(): VectorTilesHandle {
   const cache = new Map<string, ParsedVtile | "pending" | "failed">();
   let version = 0;
 
+  // The parse worker's main-thread side (lever 11). Its callbacks are the two cache writes the
+  // fetch's `.then` used to make itself; the inline twin (no `Worker`, or a crash) runs the same
+  // `parseVectorTile` on this thread — the caller hands it in so this module stays the parser's
+  // one home.
+  const parser = createVtileParseClient(
+    {
+      onParsed(key, parsed) {
+        cache.set(key, parsed);
+        version++;
+      },
+      onFailed(key) {
+        cache.set(key, "failed");
+      },
+    },
+    parseVectorTile,
+  );
 
   const ensureTile = (tx: number, ty: number) => {
     const key = `${tx}/${ty}`;
@@ -620,10 +645,7 @@ export function attachVectorTiles(): VectorTilesHandle {
       // default mode — it is the mutable pointer that rotates to each new OpenFreeMap build.
       fetch(url, { signal: abort.signal, cache: "force-cache" })
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${r.status}`))))
-        .then((buf) => {
-          cache.set(key, parseVectorTile(buf, tx, ty));
-          version++;
-        })
+        .then((buf) => parser.parse(key, buf, tx, ty))
         .catch(() => cache.set(key, "failed")); // empty/failed tiles stay failed — no refetch churn
       // LRU-ish eviction: drop the oldest parsed entries once over budget (pendings are kept).
       while (cache.size > VECTOR.tileCacheMax) {
@@ -650,8 +672,12 @@ export function attachVectorTiles(): VectorTilesHandle {
     version() {
       return version;
     },
+    parseStats() {
+      return parser.stats();
+    },
     dispose() {
       abort.abort();
+      parser.dispose();
       cache.clear();
     },
   };

@@ -1015,6 +1015,22 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     warnAbove: 16,
     note: "T106 OSM (2026-09-07f): the WORST single per-frame drain of the OSM handler's deferred edge queue (ms) since attach — the budget plus one builder chunk (and, on a unit's first step, the de-interleave + table allocation). The pre-slice handler built every tile's edges atomically inside `load-model`: 410 ms of the Pixel's descent hitch frames through three's `EdgesGeometry`.",
   },
+  {
+    id: "buildings.treeLocateMaxMs",
+    label: "tree locate max ms",
+    group: "buildings",
+    fmt: "float2",
+    budget: 1,
+    warnAbove: 4,
+    note: "T115 (2026-09-07j): the WORST single call of the enriched tree-instance locate (instance translation → world → geodetic) since attach. It used to be atomic inside `ensureLocated` — 7.5 ms max on the Pixel's descent; now chunks of 256 under the reseat drain's 1 ms deadline, the first chunk of a frame always running. Above ~2 ms one chunk is too big for this device.",
+  },
+  {
+    id: "buildings.treeLocatePending",
+    label: "tree sets mid-locate",
+    group: "buildings",
+    fmt: "int",
+    note: "T115: enriched tree sets whose instances are not all located yet — non-zero only during a landing burst; the sampling passes skip such a cell until its sets finish. Stuck above 0 at rest = a cell that never snapped (`appliedM` null).",
+  },
 
   // ---- VECTOR · LABELS ---------------------------------------------------------------------
   {
@@ -1047,6 +1063,36 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     fmt: "int",
     rate: true,
     note: "Bumps on parse AND eviction — a change signal Δ/s, not a load count.",
+  },
+  {
+    id: "vector.mvt.worker",
+    label: "MVT worker parses",
+    group: "vector",
+    fmt: "int",
+    note: "T77 lever 11 (2026-09-07j): tiles parsed OFF the main thread by lib/geo/vtileParseWorker. −1 = the worker crashed and the client fell back inline for the session (see MVT inline).",
+  },
+  {
+    id: "vector.mvt.inline",
+    label: "MVT inline parses",
+    group: "vector",
+    fmt: "int",
+    warnAbove: 0,
+    note: "T77 lever 11: tiles parsed ON the main thread — only when no Worker exists or after a worker crash. Any count on a real browser means the lever is not buying anything: read the console for the crash line.",
+  },
+  {
+    id: "vector.mvt.seatMaxMs",
+    label: "MVT seat max",
+    group: "vector",
+    fmt: "float2",
+    warnAbove: 4,
+    note: "T77 lever 11: the worst main-thread SEAT of one parsed tile (unpackVtile of the flat wire — the only vector-tile work left on this thread). Desktop ≤ ~0.5 ms, Pixel ≈ 2 ms for the heaviest Dnipro tile; above 4 ms the wire is doing more than allocating.",
+  },
+  {
+    id: "vector.mvt.workerMaxMs",
+    label: "MVT worker max",
+    group: "vector",
+    fmt: "ms1",
+    note: "T77 lever 11: the worst parse + pack inside the worker (its own clock) — the time the main thread no longer pays. Heaviest Dnipro z14 tile ≈ 5 ms desktop.",
   },
   {
     id: "vector.labels.entries",
