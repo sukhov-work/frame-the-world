@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { horizonFade, pointDirs } from "../../../src/components/globe/scene/dayArcs";
+import { horizonFade, pointDirs, skylineFold } from "../../../src/components/globe/scene/dayArcs";
 import { enuBasis } from "../../../src/lib/geo/projection";
 import { DAYARC } from "../../../src/components/globe/tuning";
 import type { DayArcPoint } from "../../../src/lib/ephemeris/dayArc";
@@ -56,5 +56,21 @@ describe("pointDirs — ENU components ride the anchor basis into ECEF", () => {
     const basis = enuBasis(0, 0);
     const out = pointDirs([pt(0)], basis, () => [3, 4, 12] as const);
     expect(Math.hypot(out[0], out[1], out[2])).toBeCloseTo(13, 4); // float32
+  });
+});
+
+/** T111 (2026-09-07d): the skyline fold — a vertex under the cached skyline at its azimuth
+ *  keeps `DAYARC.skylineBehindAlpha` of its alpha; no sampler, or a vertex above it → 1. */
+describe("skylineFold — the day-arc / trail alpha behind the skyline (T111)", () => {
+  const wall = (azDeg: number) => (azDeg > 170 && azDeg < 190 ? 30 : 0);
+  it("dims a point behind the wall, leaves the rest and the no-sampler case at 1", () => {
+    expect(skylineFold(null, 180, 10)).toBe(1);
+    expect(skylineFold(wall, 90, 10)).toBe(1);
+    expect(skylineFold(wall, 180, 40)).toBe(1);
+    expect(skylineFold(wall, 180, 10)).toBe(DAYARC.skylineBehindAlpha);
+  });
+  it("the dim keeps the path readable — never zero, never brighter than the arc", () => {
+    expect(DAYARC.skylineBehindAlpha).toBeGreaterThan(0.15);
+    expect(DAYARC.skylineBehindAlpha).toBeLessThanOrEqual(1);
   });
 });

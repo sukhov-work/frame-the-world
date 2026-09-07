@@ -108,3 +108,26 @@ Gates: see DECISIONS 2026-09-07c.
 3. **T112** the honesty gate on the six raw consumers (S; gate: `horizonProfile.test` extended).
 4. **T113** BEST SPOT mask + dead deck code (S; parked feature — ride the next BEST SPOT session).
 5. **T114** heightMemo region counter (S; DEV only).
+
+## Addendum 2026-09-07d — the rulings executed
+
+Owner rulings (2026-09-07d): T110 and T111 per the recommendations above; T112 **"best effort
+even below 50 %"** — not the "unknown" this audit proposed. All three landed the same day
+(DECISIONS 2026-09-07d, `rendering/MEASUREMENTS_2026-09-05.md` §23):
+
+- **T110 FIXED** — `PLAN.azBins` 1440 (0.25°) on both shells; terrain marched at 120 and folded
+  in; the mesh phase bounded by time (3 / 1.5 ms) and resumable mid-mesh. Desktop: 56 ms over 22
+  frames; the phone twin: ~250 ms over ~130 frames, worst frame 3.2 ms. 14 % of the horizon at
+  the 200 mm pose read lower than the 3° box-max.
+- **T112 FIXED, re-shaped by the ruling** — honesty per BIN: `profileKnown` beside the bins,
+  `sampleBinsKnown` (exact where swept, `null` where not, a known bin held over its own span),
+  `skylineSamplerFor` the one gate (real eye + guard; the A1-16 coverage floor GONE — the radars
+  keep a plain band where evidence is missing, the rows a "—"). The six raw consumers are fenced
+  by `test/components/skylineConsumers.test.ts`.
+- **T111 FIXED** — HUD badge + chip state, dashed sun/moon curves on both rails, meteor / eclipse
+  / session-row badges, the day arcs and trail dimmed to 0.35 behind the skyline (the read-through
+  ruling superseded for the alpha only).
+- **T106 re-shaped** in the same session: the Pixel's `load-model` cost was three's
+  `EdgesGeometry` + the string-keyed mask; both rewritten on integer keys, element-identical,
+  9–14× in the page. Open: the biggest cell's whole handler in one frame (slice (b)).
+- Open from this audit: **T113** (BEST SPOT, parked) · **T114** (heightMemo region counter).

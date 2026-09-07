@@ -3,7 +3,7 @@ import { tokens } from "../../../lib/theme/tokens";
 import { AIMCONES } from "../tuning";
 import { fractureRunsBySkyline, sampleAimDay, type AimDay } from "../../../lib/ephemeris/azSector";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../../lib/ephemeris/targets";
-import { sampleBins } from "../../../lib/geo/horizonProfile";
+import type { SkylineView } from "../../../lib/geo/horizonProfile";
 import { bandFor, bandFutureInk } from "../../../lib/geo/radarBands";
 import { clampGroundM } from "../../../lib/geo/terrain";
 // audit #3 A1-8 / T35: the flat material, the tangent-plane root + seat, the presence ramp and
@@ -66,12 +66,13 @@ export interface AimConesHandle {
     /** /m shell (orchestrator-pushed environment fact — batch #5 item 2): 20% smaller radius
      *  + the sun/moon bands pulled inward (bandFor's mobile variant). */
     mobile: boolean;
-    /** Skyline profile bins for THIS anchor's eye (owner QA 2026-08-21 item 3), or null —
-     *  the orchestrator resolves store/plan.profileBins behind the AIMCONES.skylineGuardM
-     *  anchor-match rule; when present, band fills/rims FRACTURE where the body is occluded
-     *  (fractureRunsBySkyline). Array identity is the rebuild key — planFeed mirrors a fresh
-     *  array once per completed build. */
-    skylineBins: readonly number[] | null;
+    /** Skyline view for THIS anchor's eye (owner QA 2026-08-21 item 3), or null — the
+     *  orchestrator resolves store/plan's profile behind the AIMCONES.skylineGuardM
+     *  anchor-match rule (`skylineSamplerFor`); when present, band fills/rims FRACTURE where
+     *  the body is occluded (fractureRunsBySkyline) and stay plain where the profile has no
+     *  evidence (T112). The view's `bins` identity is the rebuild key — planFeed mirrors a
+     *  fresh array once per completed build. */
+    skylineBins: SkylineView | null;
     dtMs: number;
   }): void;
   dispose(): void;
@@ -262,7 +263,7 @@ export function attachAimCones(opts: {
   // Skyline bins mirrored from the ctx (rebuild-keyed on array identity) — fills/rims
   // fracture into visibility sub-runs; the rise/set spokes + direction line stay whole
   // (they mark the horizon boundary and the live bearing, not clear sky).
-  let skylineNow: readonly number[] | null = null;
+  let skylineNow: SkylineView | null = null;
 
   function rebuildBody(b: (typeof bodies)[number], day: AimDay) {
     b.day = day;
@@ -272,8 +273,7 @@ export function attachAimCones(opts: {
     const fanT: number[] = [];
     const rimPos: number[] = [];
     const rimT: number[] = [];
-    const bins = skylineNow;
-    const visRuns = fractureRunsBySkyline(day.runs, bins ? (az) => sampleBins(bins, az) : null);
+    const visRuns = fractureRunsBySkyline(day.runs, skylineNow ? skylineNow.altAt : null);
     for (const run of visRuns) {
       for (let i = 0; i + 1 < run.length; i++) {
         const a = run[i];
@@ -347,7 +347,7 @@ export function attachAimCones(opts: {
         const swapped = builtTargetId !== target.id;
         // Skyline arrival/expiry refractures the bands (owner QA 2026-08-21 item 3) — array
         // identity is the key: planFeed mirrors one fresh array per completed build.
-        const skylineChanged = skylineBins !== skylineNow;
+        const skylineChanged = (skylineBins?.bins ?? null) !== (skylineNow?.bins ?? null);
         if (moved || dayCrossed || swapped || skylineChanged) {
           anchorLat = anchor.latDeg;
           anchorLon = anchor.lonDeg;

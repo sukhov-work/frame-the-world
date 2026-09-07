@@ -189,6 +189,9 @@ describe("predictions", () => {
       expect(r.coverage).toBeGreaterThanOrEqual(0);
       expect(r.coverage).toBeLessThanOrEqual(1);
       expect(Number.isFinite(r.peakAltDeg)).toBe(true);
+      // T111: the peak azimuth rides beside the altitude (the rows fold the skyline).
+      expect(r.peakAzDeg).toBeGreaterThanOrEqual(0);
+      expect(r.peakAzDeg).toBeLessThan(360);
       // A non-total row must not claim a totality window.
       if (r.phase === "partial") expect(r.totalStartMs).toBeNull();
     }

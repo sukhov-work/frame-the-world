@@ -35,7 +35,7 @@ import { localDayWindow } from "./dayArc";
 import { goldenElevationsDeg } from "./planner";
 import type { GoldenCurve } from "./golden";
 import { lightPhaseAt, type LightPhase } from "./twilight";
-import type { FramePose, ProfileFn } from "./frameFinder";
+import { skylineVerdict, type FramePose, type ProfileFn } from "./frameFinder";
 import { azAltFrameMarker } from "../geo/offscreen";
 
 const DAY_MS = 86_400_000;
@@ -224,6 +224,16 @@ function limbInFrame(
   };
 }
 
+/** A horizon event (rise/set) vs the skyline: CLEAR means the true horizon itself is visible
+ *  at that azimuth (the centre is below 0 by convention, so centre-vs-profile is the wrong
+ *  question); "unknown" without a sampler or without evidence there (T112). */
+function horizonVerdict(profileFn: ProfileFn | null, azDeg: number): "clear" | "blocked" | "unknown" {
+  if (!profileFn) return "unknown";
+  const sk = profileFn(azDeg);
+  if (sk == null) return "unknown";
+  return sk <= SUNEVENT.horizonClearMaxDeg ? "clear" : "blocked";
+}
+
 /**
  * Pose-CHEAP face: filter the pose-free day list down to the events that land inside THIS
  * frame. Golden kinds report the FIRST in-frame instant of their band (the sun walks ~1.25°
@@ -250,11 +260,7 @@ export function sunEventFrameHits(
         fx: f.fx,
         fy: f.fy,
         // Above-horizon sun: the frameFinder centre-vs-profile idiom.
-        skyline: !profileFn
-          ? "unknown"
-          : hitSample.altDeg > profileFn(hitSample.azDeg)
-            ? "clear"
-            : "blocked",
+        skyline: skylineVerdict(profileFn, hitSample.azDeg, hitSample.altDeg),
         light: lightPhaseAt(hitSample.utcMs, pose.latDeg, pose.lonDeg),
         azDriftDegPerDay: d.azDriftDegPerDay,
       });
@@ -272,11 +278,7 @@ export function sunEventFrameHits(
       // Horizon event: CLEAR means the true horizon itself is visible at that azimuth — the
       // airless centre is below 0 BY CONVENTION here, so centre-vs-profile would always
       // read "blocked" and is the wrong question.
-      skyline: !profileFn
-        ? "unknown"
-        : profileFn(d.azDeg) <= SUNEVENT.horizonClearMaxDeg
-          ? "clear"
-          : "blocked",
+      skyline: horizonVerdict(profileFn, d.azDeg),
       light: lightPhaseAt(d.utcMs, pose.latDeg, pose.lonDeg),
       azDriftDegPerDay: d.azDriftDegPerDay,
     });

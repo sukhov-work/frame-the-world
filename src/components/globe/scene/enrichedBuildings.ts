@@ -27,6 +27,7 @@ import {
   runCentroid,
   runIndexOfVertex,
   seatLand,
+  segmentRunsFromSources,
   vertexKeyToRunWithCollisions,
   type FeatureRun,
   type GeoBbox,
@@ -73,6 +74,7 @@ import {
 } from "../../../lib/globe/enrichedMeta";
 import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES, WGS84_A } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
+import { buildEdgesGeometry } from "./edgesGeometry";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
@@ -472,6 +474,31 @@ export interface EnrichedBuildingsHandle {
       reclaimed: number;
     };
   };
+  /** T106 — the `load-model` handler's cost ledger: cells landed since attach, ms in the
+   *  crease-edge build / the per-building attribution / the whole handler (total + worst),
+   *  and the cells that took three's own edge path (expected 0 on a baked variant). */
+  debugLoad(): {
+    cells: number;
+    edgesMs: number;
+    maskMs: number;
+    handlerMs: number;
+    handlerMaxMs: number;
+    slowPathCells: number;
+  };
+  /** T106 DEV seam — the A/B and the §4a identity proof ON THE RESIDENT CELLS: for up to
+   *  `limit` registered parts, run three's `EdgesGeometry` + the string-keyed attribution and
+   *  the fast builder + the integer attribution on the SAME live floats, time both, and compare
+   *  the outputs element-for-element. `mismatch` must read 0. */
+  benchEdges(limit?: number): {
+    parts: number;
+    tris: number;
+    threeMs: number;
+    fastMs: number;
+    maskStringMs: number;
+    maskIntMs: number;
+    mismatch: number;
+    runMismatch: number;
+  };
   dispose(): void;
 }
 
@@ -551,6 +578,10 @@ export function attachEnrichedBuildings(
   const metaByUri = new Map<string, CellMeta | null>();
   const metaPending = new Map<string, Promise<void>>();
   let metaCells = 0; // cells whose sidecar arrived and parsed
+  /** T106 — the `load-model` handler's cost ledger (DEV seam `debugLoad()`): cells landed,
+   *  ms in the crease-edge build and in the per-building attribution, the whole handler's
+   *  total and worst, and how many cells took three's own (string-keyed) edge path. */
+  const loadLedger = { cells: 0, edgesMs: 0, maskMs: 0, handlerMs: 0, handlerMaxMs: 0, slowPathCells: 0 };
   /** Fetch + cache one cell's sidecar. Never rejects — absence is a normal answer. */
   const primeMeta = (glbUrl: string): Promise<void> => {
     const uri = cellUriOf(glbUrl);
@@ -1190,6 +1221,7 @@ export function attachEnrichedBuildings(
     // T94: `frameNow()` — the clock `uNowMs` is stamped with, so a tile that resolves during a
     // freeze is not born in the future (see the same note in `buildings.ts`).
     const birthMs = frameNow();
+    const tHandler = performance.now();
     const tileSeed = (tileSeedSeq++ * 0.6180339887498949) % 1.0;
     const region = e.tile?.boundingVolume?.region;
     let cell: CellSeat | null = null;
@@ -1299,10 +1331,14 @@ export function attachEnrichedBuildings(
         };
         c.castShadow = true;
         c.receiveShadow = true;
-        const edges = new THREE.LineSegments(
-          new THREE.EdgesGeometry(c.geometry, ENRICHED.edgeAngleDeg),
-          edgeMat,
-        );
+        // T106 (2026-09-07d): the crease edges through `buildEdgesGeometry` — element-identical
+        // to `new THREE.EdgesGeometry(c.geometry, ENRICHED.edgeAngleDeg)` (pinned by
+        // `fastEdges.test`), without the string hashing that was 1.8 s of the Pixel's descent.
+        const edgeBuild = buildEdgesGeometry(c.geometry, ENRICHED.edgeAngleDeg);
+        loadLedger.cells++;
+        loadLedger.edgesMs += edgeBuild.ms;
+        if (!edgeBuild.fast) loadLedger.slowPathCells++;
+        const edges = new THREE.LineSegments(edgeBuild.geometry, edgeMat);
         edges.raycast = () => {}; // never let GlobeControls pick a decoration line
         edges.onBeforeRender = () => {
           uniforms.uEdgeBirthMs.value = birthMs; // F1: same birth, its own holder (separate draw item)
@@ -1321,14 +1357,25 @@ export function attachEnrichedBuildings(
             posAttr.array instanceof Float32Array;
           if (fid && plainF32) {
             const runs = featureRunsOf(fid.array);
-            // MS1: collision-aware key map + per-SEGMENT attribution — a party-wall corner's
-            // stroke stays with the building whose other end it touches, so a move/rotate never
-            // stretches a neighbour's edge (enrichedMask.mapSegmentsToRuns).
-            const { map: keyMap, collisions } = vertexKeyToRunWithCollisions(posAttr.array, runs);
+            // MS1: collision-aware per-SEGMENT attribution — a party-wall corner's stroke stays
+            // with the building whose other end it touches, so a move/rotate never stretches a
+            // neighbour's edge. T106: from the edge builder's SOURCE indices on integer keys
+            // (`segmentRunsFromSources`, the same rules as `mapSegmentsToRuns` — pinned by
+            // `fastEdges.test`); the string-keyed path stays for a geometry the fast edge
+            // builder declined (never a baked cell).
+            const tMask = performance.now();
             const edgeAttr = edges.geometry.getAttribute("position") as THREE.BufferAttribute | null;
-            const edgeCsr = edgeAttr
-              ? csrFromRunIds(mapSegmentsToRuns(edgeAttr.array, keyMap, collisions), runs.length)
-              : null;
+            let edgeCsr: ReturnType<typeof csrFromRunIds> | null = null;
+            if (edgeAttr && edgeBuild.srcIndex) {
+              edgeCsr = csrFromRunIds(
+                segmentRunsFromSources(edgeBuild.srcIndex, posAttr.array, runs),
+                runs.length,
+              );
+            } else if (edgeAttr) {
+              const { map: keyMap, collisions } = vertexKeyToRunWithCollisions(posAttr.array, runs);
+              edgeCsr = csrFromRunIds(mapSegmentsToRuns(edgeAttr.array, keyMap, collisions), runs.length);
+            }
+            loadLedger.maskMs += performance.now() - tMask;
             // MS1: per-run [min, max] edge vertex index — the partial-upload range of a run's
             // strokes (a run's crease segments are emitted contiguously by EdgesGeometry).
             let edgeSpan: Int32Array | null = null;
@@ -1454,6 +1501,9 @@ export function attachEnrichedBuildings(
         }
       }
     });
+    const dtHandler = performance.now() - tHandler;
+    loadLedger.handlerMs += dtHandler;
+    if (dtHandler > loadLedger.handlerMaxMs) loadLedger.handlerMaxMs = dtHandler;
   });
   tiles.addEventListener("dispose-model", (e: any) => {
     const cell = cellByScene.get(e.scene);
@@ -2770,6 +2820,55 @@ export function attachEnrichedBuildings(
           };
         });
       return rows;
+    },
+    debugLoad: () => ({ ...loadLedger }),
+    benchEdges: (limit = 40) => {
+      const out = { parts: 0, tris: 0, threeMs: 0, fastMs: 0, maskStringMs: 0, maskIntMs: 0, mismatch: 0, runMismatch: 0 };
+      for (const { part } of partByMesh.values()) {
+        if (out.parts >= limit) break;
+        const geom = part.mesh.geometry;
+        const pos = part.posAttr.array as Float32Array;
+        out.parts++;
+        out.tris += Math.floor((geom.index ? geom.index.count : part.posAttr.count) / 3);
+        const t0 = performance.now();
+        const ref = new THREE.EdgesGeometry(geom, ENRICHED.edgeAngleDeg);
+        const t1 = performance.now();
+        const fast = buildEdgesGeometry(geom, ENRICHED.edgeAngleDeg);
+        const t2 = performance.now();
+        out.threeMs += t1 - t0;
+        out.fastMs += t2 - t1;
+        const a = (ref.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+        const b = (fast.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+        if (a.length !== b.length) out.mismatch++;
+        else {
+          for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) {
+              out.mismatch++;
+              break;
+            }
+          }
+        }
+        const t3 = performance.now();
+        const { map, collisions } = vertexKeyToRunWithCollisions(pos, part.runs);
+        const rs = mapSegmentsToRuns(a, map, collisions);
+        const t4 = performance.now();
+        const ri = fast.srcIndex ? segmentRunsFromSources(fast.srcIndex, pos, part.runs) : null;
+        const t5 = performance.now();
+        out.maskStringMs += t4 - t3;
+        out.maskIntMs += t5 - t4;
+        if (!ri || ri.length !== rs.length) out.runMismatch++;
+        else {
+          for (let i = 0; i < rs.length; i++) {
+            if (rs[i] !== ri[i]) {
+              out.runMismatch++;
+              break;
+            }
+          }
+        }
+        ref.dispose();
+        fast.geometry.dispose();
+      }
+      return out;
     },
     debugSeats() {
       let located = 0;

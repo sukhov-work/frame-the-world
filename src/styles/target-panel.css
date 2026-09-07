@@ -118,6 +118,10 @@
   color: var(--color-warn);
   border-color: color-mix(in srgb, var(--color-warn) 45%, var(--color-border));
 }
+/* T111 (2026-09-07d): an eclipse / session row whose peak sits behind the local skyline. */
+.tp-win__skyline {
+  color: var(--color-warn);
+}
 
 .tp-live {
   display: flex;

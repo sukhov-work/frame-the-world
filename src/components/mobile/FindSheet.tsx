@@ -31,7 +31,7 @@ import {
 import { horizontal } from "../../lib/ephemeris/bodies";
 import { bodyTarget, targetAzAlt, targetShortName } from "../../lib/ephemeris/targets";
 import { kindGlyph } from "../../lib/sky/searchIndex";
-import { sampleBins } from "../../lib/geo/horizonProfile";
+import { mirrorSampler } from "../../lib/geo/horizonProfile";
 import { findHitColor, findStandingColorIdx } from "../../lib/theme/findPalette";
 import "../../styles/mobile/chrome.css";
 
@@ -69,6 +69,10 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
   const poseKey = usePoseKey();
   const anchor = usePlanStore((s) => s.anchor);
   const bins = usePlanStore((s) => s.profileBins);
+  const known = usePlanStore((s) => s.profileKnown);
+  // T112: the per-bin best-effort skyline (exact where swept, null where not) — the eye IS the
+  // plan anchor here, so the one gate reduces to the mirror itself.
+  const skyline = useMemo(() => mirrorSampler(bins, known), [bins, known]);
   const focusLat = useCameraStore((s) => s.focusLatDeg);
   const focusLon = useCameraStore((s) => s.focusLonDeg);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -133,7 +137,7 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
       fovDeg: hud.fovDeg,
       aspect: hud.aspect,
     };
-    const profileFn = bins ? (az: number) => sampleBins(bins, az) : null;
+    const profileFn = skyline;
     const out: FrameStanding[] = [];
     for (const b of ["sun", "moon", "target"] as const) {
       if (!bodies[b]) continue;
@@ -143,7 +147,7 @@ export default function FindSheet({ open, onClose }: { open: boolean; onClose: (
     out.sort((a, b) => a.utcMs - b.utcMs);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [positions, poseKey, bins, bodies, latKey, lonKey, targetIsBody]);
+  }, [positions, poseKey, skyline, bodies, latKey, lonKey, targetIsBody]);
 
   // Ghost mirror — identical contract to the desktop FindPanel writer.
   useEffect(() => {

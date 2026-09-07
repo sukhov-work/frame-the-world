@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { createProfile, sampleProfile, type SilhouetteFrame } from "../../../src/lib/geo/horizonProfile";
-import { sweepMeshEdges, sweepTreeInstances } from "../../../src/lib/geo/occlusion";
+import {
+  createProfile,
+  sampleProfile,
+  sampleProfileKnown,
+  type SilhouetteFrame,
+} from "../../../src/lib/geo/horizonProfile";
+import {
+  sweepMeshEdges,
+  sweepMeshEdgesSliced,
+  sweepTreeInstances,
+} from "../../../src/lib/geo/occlusion";
 import { bboxClipPrismEcef } from "../../../src/lib/globe/enrichedMask";
 import { add, enuBasis, geodeticToEcef, scale, type Vec3 } from "../../../src/lib/geo/projection";
 
@@ -96,6 +105,105 @@ describe("sweepMeshEdges — building silhouettes into azimuth bins", () => {
       rejectPlanes: planes,
     });
     expect(sampleProfile(p, 0)).toBeGreaterThan(16.2);
+  });
+});
+
+/**
+ * T110 (2026-09-07d) — the FINE bin width for long lenses. A 500 mm frame is ~4° wide; at the
+ * old 3° bins a mast raised a whole bin to its tip and a gap between two towers vanished. The
+ * fine profile (0.25°) resolves both; the walker projects each vertex once, fills the bins
+ * between consecutive samples and can be resumed under a deadline.
+ */
+describe("sweepMeshEdges — the fine bins (T110)", () => {
+  /** A vertical wall centred at azimuth `azDeg`, `dM` away, `wM` wide, `hM` tall (ECEF). */
+  function wallAt(azDeg: number, dM: number, wM: number, hM: number) {
+    const a = (azDeg * Math.PI) / 180;
+    const cx = Math.sin(a) * dM;
+    const cy = Math.cos(a) * dM;
+    // tangent direction (perpendicular to the sight line)
+    const tx = Math.cos(a) * (wM / 2);
+    const ty = -Math.sin(a) * (wM / 2);
+    const bl = enuPoint(cx - tx, cy - ty, 0);
+    const br = enuPoint(cx + tx, cy + ty, 0);
+    const tr = enuPoint(cx + tx, cy + ty, hM);
+    const tl = enuPoint(cx - tx, cy - ty, hM);
+    return { positions: new Float32Array([...bl, ...br, ...tr, ...tl]), index: [0, 1, 2, 0, 2, 3] };
+  }
+  /** Two 60 m towers 1 km away, each 8 m wide (≈0.46°), with a gap of `gapDeg` between them. */
+  function towers(gapDeg: number) {
+    const half = gapDeg / 2 + 0.23;
+    const l = wallAt(90 - half, 1000, 8, 60);
+    const r = wallAt(90 + half, 1000, 8, 60);
+    const positions = new Float32Array([...l.positions, ...r.positions]);
+    const index = [...l.index, ...r.index.map((i) => i + 4)];
+    return { positions, index };
+  }
+
+  it("a 1° gap between two towers at 1 km reads CLEAR at 0.25° bins and was LOST at 3°", () => {
+    const { positions, index } = towers(1.0);
+    const fine = createProfile(1440, -0.1);
+    sweepMeshEdges(fine, FRAME, positions, index, IDENTITY, { trustRadiusM: 3000 });
+    expect(sampleProfile(fine, 90)).toBeLessThan(0.5); // the gap
+    expect(sampleProfile(fine, 90 - 0.6)).toBeGreaterThan(3); // the left tower (atan(60/1000) ≈ 3.4°)
+    expect(sampleProfile(fine, 90 + 0.6)).toBeGreaterThan(3);
+    const coarse = createProfile(120, -0.1);
+    sweepMeshEdges(coarse, FRAME, positions, index, IDENTITY, { trustRadiusM: 3000 });
+    expect(sampleProfile(coarse, 90)).toBeGreaterThan(3); // the 3° bin swallowed the gap
+  });
+
+  it("a mast raises only its own fine bins — not a 3° neighbourhood", () => {
+    // a 0.4 m wide, 80 m tall pole 500 m north (≈ 0.05° wide, atan(80/500) ≈ 9.1°)
+    const { positions, index } = wallAt(0, 500, 0.4, 80);
+    const fine = createProfile(1440, -0.1);
+    sweepMeshEdges(fine, FRAME, positions, index, IDENTITY, { trustRadiusM: 3000 });
+    expect(sampleProfile(fine, 0)).toBeGreaterThan(8.5);
+    expect(sampleProfile(fine, 1)).toBeLessThan(0.5); // 1° away: floor (the coarse bin would read 9°)
+    expect(sampleProfile(fine, 359)).toBeLessThan(0.5);
+    const coarse = createProfile(120, -0.1);
+    sweepMeshEdges(coarse, FRAME, positions, index, IDENTITY, { trustRadiusM: 3000 });
+    expect(sampleProfile(coarse, 1)).toBeGreaterThan(8.5); // the whole 3° bin rose to the tip
+  });
+
+  it("the street-canyon wall leaves no holes at the fine width (span fill + scaled cap)", () => {
+    const p = createProfile(1440, -0.1);
+    // spans az ±45° at 100 m: 3.6 m of top edge per 0.25° bin near the eye — hundreds of samples
+    const { positions, index } = wallMesh(100, 100, 30);
+    sweepMeshEdges(p, FRAME, positions, index, IDENTITY, { trustRadiusM: 3000 });
+    for (let az = -44; az <= 44; az += 0.25) {
+      expect(sampleProfileKnown(p, az)).not.toBeNull();
+      // top edge at az: dist = 100/cos(az) → atan(30·cos(az)/100)
+      const want = (Math.atan((30 * Math.cos((az * Math.PI) / 180)) / 100) * 180) / Math.PI;
+      expect(sampleProfile(p, az)).toBeGreaterThan(want - 0.6);
+    }
+  });
+
+  it("a sliced walk resumed to the end equals the whole walk, yielding at the deadline checks", () => {
+    // 300 small walls around the eye (600 triangles) — past the 256-triangle deadline check
+    const parts = Array.from({ length: 300 }, (_, i) => wallAt((i * 360) / 300, 200 + i, 3, 10 + (i % 7)));
+    const positions = new Float32Array(parts.flatMap((w) => Array.from(w.positions)));
+    const index = parts.flatMap((w, i) => w.index.map((v) => v + i * 4));
+    const whole = createProfile(1440, -0.1);
+    sweepMeshEdges(whole, FRAME, positions, index, IDENTITY, { trustRadiusM: 3000 });
+    const sliced = createProfile(1440, -0.1);
+    let tri = 0;
+    let calls = 0;
+    // deadline in the past: each call walks at most one deadline-check chunk, then yields
+    for (;;) {
+      const r = sweepMeshEdgesSliced(sliced, FRAME, positions, index, IDENTITY, {
+        trustRadiusM: 3000,
+        startTri: tri,
+        deadlineMs: 0,
+      });
+      calls++;
+      expect(r.triCount).toBe(600);
+      expect(r.nextTri).toBeGreaterThan(tri); // progress is guaranteed per call
+      tri = r.nextTri;
+      if (tri >= r.triCount) break;
+      expect(calls).toBeLessThan(100);
+    }
+    expect(calls).toBe(Math.ceil(600 / 64)); // yields at every 64-triangle deadline check
+    expect(Array.from(sliced.altDeg)).toEqual(Array.from(whole.altDeg));
+    expect(Array.from(sliced.known)).toEqual(Array.from(whole.known));
   });
 });
 

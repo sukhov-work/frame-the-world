@@ -84,6 +84,11 @@
   stroke: color-mix(in srgb, var(--color-moonlight) 70%, transparent);
   stroke-width: 1;
 }
+/* T111: the skyline folded into the sun/moon curves — dashed + muted where hidden. */
+.md-curves__body--blocked {
+  stroke: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+  stroke-dasharray: 2 2.5;
+}
 .md-curves__trace-blocked {
   stroke: color-mix(in srgb, var(--color-text-muted) 42%, transparent);
   stroke-width: 1.4;
@@ -92,6 +97,12 @@
 .md-curves__trace-clear {
   stroke: color-mix(in srgb, var(--color-accent) 52%, transparent);
   stroke-width: 2;
+}
+/* T112: up with no skyline evidence at that azimuth — dotted, thinner, unclaimed. */
+.md-curves__trace-unknown {
+  stroke: color-mix(in srgb, var(--color-accent) 34%, transparent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1 2.5;
 }
 .md-curves__trace-frame {
   stroke: color-mix(in srgb, var(--color-accent) 78%, transparent);

@@ -1324,3 +1324,88 @@ a Fast Refresh remount. The A/B above is the clean pair.
 
 **Session gates:** vitest 2,782/2,782 (177 files; +15 tests) · `astro check` 0/0/11 · knip 0 · pre sweep
 `pre-2026-09-07c` 12/14 (cityscape Δ1 ease, T103), sheets read.
+
+## 23. Session 2026-09-07d — the occlusion rulings executed (T110 fine bins · T112 best effort · T111 the skyline fold) and T106's two hot loops rewritten on integer keys
+
+Owner rulings (2026-09-07d): T110 and T111 per the audit's recommendation; T112 "best effort even
+below 50 %" — precise occlusion for long lenses on desktop, on mobile too unless it costs frames
+(the mobile call left to the session). Instruments: `scripts/probe-skyline-fine.mjs` (new — the
+fine profile's cost seams at the 200 mm zoom pose, `--lean` = the 17 Pro twin + a 4× CPU throttle),
+`__globe.plan().sweep` (new ledger), `__globe.enrichedLoad()` + `__globe.enrichedBench(n)` (new —
+the `load-model` handler's ledger and the in-page A/B + identity proof on the resident cells).
+
+### 23.1 T110 — the FINE profile (0.25°, 1440 bins) at `dnipro-fpv-zoom-sweep` (fov 7.2° ≈ 200 mm)
+
+Terrain is still marched at 120 bins (3 per frame, 40 frames) and folded into the fine profile;
+meshes and trees write at 0.25°. The mesh phase is bounded by TIME (`PLAN.sweepBudgetMs` 3 desktop
+/ 1.5 lean), resumable mid-mesh every 64 triangles, at least one chunk per frame.
+
+| twin | build | meshes | sweep total ms | sweep frames | worst sweep frame ms | budget | coverage |
+|---|---|---|---|---|---|---|---|
+| desktop `high` | first | 23 | 39.9 | 16 | 3.3 | 3 | 1.00 |
+| desktop `high` | after the streaming re-sweep | 60 | 55.8 | 22 | 3.2 | 3 | 1.00 |
+| phone twin (lean, 4× throttle) | first | 30 | 251.5 | 139 | 3.2 | 1.5 | 1.00 (a second run: 0.49 first, 1.00 settled) |
+| phone twin (lean, 4× throttle) | settled | 47–49 | 210–256 | 117–132 | 2.8–3.3 | 1.5 | 1.00 |
+
+The whole mesh phase is 56 ms of desktop main thread spread over 22 frames; on the twin ~250 ms
+over ~130 frames (≈ 2 s at 60 Hz) with the worst frame at the budget plus one 64-triangle window.
+Before the 64-triangle check (256) the twin's worst frame was 10.2 ms. **Mobile keeps the full
+0.25° (`PLAN.azBinsLean` 1440)** — the same precision, more frames, no hitch; the carry policy
+keeps the previous profile published meanwhile.
+
+The payoff, read off the mirror at the pose: **199 of 1,440 fine bins (14 % of the horizon) read
+more than 0.5° lower than the 3° box-max around them** — azimuths the old profile over-blocked
+(a mast or a tree raising a whole 3° bin). Frame-time p50/p95 during the build window: 16.6 / 19.6
+ms desktop (the > 33 ms frames are the boot's own compile frames, not the sweep).
+
+### 23.2 T112 — best effort, seen in the wild
+
+The `--lean` run's FIRST build read coverage **0.488** (terrain tiles still landing west of the
+eye) and was PUBLISHED — under the old A1-16 floor it would have been withheld whole; the streaming
+re-sweep (T109) brought it to 1.00 six seconds later. Every consumer now answers per bin: exact
+where swept, `null` (a "—" row, a dotted trace, a plain radar span) where not.
+
+### 23.3 T111 — the skyline fold, verified at the seams
+
+`legacy-fpv-eye` (a street at 1.7 m, skyline > 3° in 1,425 of 1,440 bins, max 78° at az 207):
+`__globe.dayArcsFold()` → sun 102 / 145 vertices folded, moon 137 / 145. HUD rows at
+`t=1787136050000` looking 196°: `☀ SUN 203° SW · +52.3° BEHIND SKYLINE` · `☾ MOON 125° SE · −0.8°
+BEHIND SKYLINE`, both edge chips `fh-chip--behind`; the rail's sun curve dashed over 11:00–13:00 and
+after 15:00 (`verify-shots/t111/03-street-sun-behind-hud.jpeg`); the `/m` dock the same
+(`04-m-street-dock.jpeg`). At the zoom pose's sunset instant the badge does NOT fire for a sun under
+the bare −0.13° dip (the `skylineAltDeg > 0` refinement: "set", not "behind a building").
+
+### 23.4 T106 — the enriched cell's `load-model` handler: EdgesGeometry + the string-keyed mask, replaced
+
+The Pixel profile (§21.3, re-read by leaf): three's `EdgesGeometry` 1,832 ms + the string-keyed
+`vertexKeyToRunWithCollisions` / `mapSegmentsToRuns` 873 ms of the 6.73 s hitch window — both
+pure functions of the cell's floats. `lib/globe/fastEdges.buildFastEdges` replicates three's
+algorithm on integer keys (0.1 mm rounded triples → open-addressed ids; directed edge keys
+`ua·N+ub`; the same normal math, the same emission order) and reports the SOURCE vertex per
+endpoint; `enrichedMask.segmentRunsFromSources` attributes segments from those indices with the
+same party-wall rules on exact-bit keys. `test/lib/globe/fastEdges.test.ts` pins element-identity
+against the real `EdgesGeometry` and the string mask (prisms, party walls, gables, degenerate
+slivers, indexed and soup, −0). Node bench (20,400 tris, full-precision metres): edges 42 → 13.6 ms,
+mask 25 → 13.4 ms.
+
+**In the page, on the resident cells at the descent's arrival pose (`__globe.enrichedBench`):**
+
+| twin | cells | tris | `EdgesGeometry` ms | fast ms | string mask ms | int mask ms | mismatch |
+|---|---|---|---|---|---|---|---|
+| desktop `high` | 33 | 353,897 | **526.9** | **56.5** | **239.5** | **17.1** | 0 / 0 |
+| phone twin (lean, 4×) | 17 | 178,812 | **865.2** | **113.7** | **455.5** | **32.7** | 0 / 0 |
+
+9× and 14× on the desktop, 7.6× and 14× on the twin, with zero element mismatches across 50 real
+cells. The handler ledger (`__globe.enrichedLoad()`) for the same landings: desktop 33 cells →
+edges 61 ms · mask 26 ms · handler total 112 ms · worst cell 10.6 ms; twin 17 cells → 141 · 96 ·
+287 · **worst cell 65 ms**. Projected on the Pixel's 2,705 ms of the two items: ~270 ms. What is
+left of T106 is the biggest cell's WHOLE handler in one frame (the 65 ms above under 4×) — the
+two-phase slice (b) is the next lever, with the fingerprint pass (~0.3 s Pixel) inside it.
+
+**Session gates:** vitest 2,829/2,829 (179 files; +47) · `astro check` 0/0/11 · knip 0 · pre sweep
+`pre-2026-09-07d` 12/14 (legacy-fpv-eye Δ1, T103) · post sweep `post2-2026-09-07d` 12/14 (same
+two), sheets read: identical tile counts per pose (descent 6,846,298 tris both runs, cityscape
+3,736,108, zoom-sweep 674,596). The `--compare pre` diffs are the streaming/LOD noise floor (a
+whole imagery tile on `legacy-everest`, 13 %; the descent's end state, 12 %) plus the intended
+radar-fan and day-arc changes; the first post run was contaminated by `src/` edits (HMR) and was
+discarded. The edges' byte-identity is proven in-page, not by the sweep.

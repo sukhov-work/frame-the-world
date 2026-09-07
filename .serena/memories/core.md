@@ -12,7 +12,20 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07c
+## Status — 2026-09-07d
+- **2026-09-07d (`mem:project/wip-2026-09-07-occlusion-rulings-t106`):** the occlusion rulings executed.
+  **T110 FIXED** — the horizon profile is 0.25° (`PLAN.azBins` 1440) on BOTH shells; terrain marched at 120
+  and folded in; the edge walker caches vertices, span-fills, and is resumable under a TIME budget
+  (`PLAN.sweepBudgetMs` 3 / 1.5 lean): desktop 56 ms over 22 frames, the phone twin ~250 ms over ~130,
+  worst frame 3.2 ms either way. **T112 FIXED** (owner: "best effort even below 50 %") — honesty per BIN:
+  `profileKnown`, `sampleBinsKnown`, `skylineSamplerFor` the one gate (the A1-16 coverage floor GONE),
+  `mirrorSampler` for the six consumers (fenced by `test/components/skylineConsumers.test.ts`), per-sample
+  "unknown". **T111 FIXED** — HUD `BEHIND SKYLINE` badge + chip state, dashed sun/moon curves on both rails,
+  meteor/eclipse/session badges, day arcs + trail dimmed to `DAYARC.skylineBehindAlpha` 0.35 behind the
+  skyline. **T106 RE-SHAPED** — three's `EdgesGeometry` + the string-keyed mask rewritten on integer keys
+  (`lib/globe/fastEdges`, `enrichedMask.segmentRunsFromSources`), element-identical: desktop 527 → 57 ms /
+  240 → 17 ms, the twin 865 → 114 / 455 → 33 on real cells (`__globe.enrichedBench`); the tail is the
+  biggest cell's whole handler in one frame (slice b). vitest 2,829/179 · astro 0/0/11 · knip 0.
 - **2026-09-07c (`mem:project/wip-2026-09-07-t83-pagehide-occlusion-audit`):** DECISIONS compaction r6 done
   (140.7 → 74 KB). **T83 FIXED** — ONE page dies on its own, the tile caches: `QUALITY.leanMobile.{lruBytesMB
   48, enrichedLruBytesMB 128, groundLruBytesMB 112}` via `lruCapBytesForLean`; farm A/B clean: caps ON alive
@@ -57,19 +70,19 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-06h: vitest **2,584/2,584** (167 files) · `astro check` **0/0/9** · knip **0**.
+- Gates 2026-09-07d: vitest **2,829/2,829** (179 files) · `astro check` **0/0/11** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T114).
 
-## Next step — T77 after T83 (full brief: `NEXT_SESSION_PROMPT.md`)
+## Next step — T77 after the occlusion rulings (full brief: `NEXT_SESSION_PROMPT.md`)
 1. Boot: VPN on the Mac (AND the phone if the Pixel is used), ion curl, `--budget`, ONE Chrome,
    `wix dev` with `.vite` aside (behind a cloudflared tunnel if the farm is used), the pre sweep;
-   the ship hook fires on `/clear` — wait for it. Never edit `src/` while a farm run is up.
-2. Nothing is blocking. Next in order: **T106** (the enriched cell's `load-model` work on phones:
-   bake the mask runs into the sidecar or slice the handler per frame; `parseVectorTile` to a
-   worker) · the owner's rulings on **T110–T112** (the audit's design tails) · the flip bank under
-   the lean caps on phones (RC20) · `compileAsync`.
+   the ship hook fires on `/clear` — wait for it. Never edit `src/` while ANY harness or farm run is up.
+2. Nothing is blocking. Next in order: **T106's tail** (the two-phase `load-model` handler — one cell
+   per frame under a ms budget, atomic per part; `__globe.enrichedLoad().handlerMaxMs` 65 → < 16 on the
+   twin) · the flip bank under the lean caps on phones (RC20) · `compileAsync` · T114 · T113 with BEST SPOT.
+   Owner taste call open: `DAYARC.skylineBehindAlpha` 0.35 (judge on a dusk FPV pose).
 3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
    — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
    then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77
@@ -161,6 +174,8 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   `mem:project/wip-2026-09-07-t77-phones-lever10`
 - **T83 FIXED (lean caps, farm A/B) + compaction r6 + THE OCCLUSION AUDIT T108/T109 (09-07c, HOT)** ·
   MEASUREMENTS §22 · `audits/audit-occlusion-2026-09-07` · `mem:project/wip-2026-09-07-t83-pagehide-occlusion-audit`
+- **THE OCCLUSION RULINGS: T110 fine bins · T112 best effort · T111 the skyline fold · T106 re-shaped
+  (09-07d, HOT)** · MEASUREMENTS §23 · `mem:project/wip-2026-09-07-occlusion-rulings-t106`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

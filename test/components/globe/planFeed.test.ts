@@ -125,9 +125,112 @@ beforeEach(() => {
     profileReady: false,
     profileCoverage: 0,
     profileBins: null,
+    profileKnown: null,
     sun: null,
     moon: null,
     target: null,
+  });
+});
+
+/**
+ * T110 / T112 (2026-09-07d) — the FINE profile (terrain marched coarse, folded in; meshes at
+ * `PLAN.azBins`), the mesh phase bounded by TIME, and the evidence flags mirrored beside the
+ * bins so every consumer can be honest per bin.
+ */
+describe("scene/planFeed — fine bins, the time budget, the known mirror (T110/T112)", () => {
+  it("publishes the FINE bin count with the terrain folded in, and `known` beside it", () => {
+    const r = rig(true);
+    r.buildings.add(wallAt(50));
+    r.settle();
+    const st = usePlanStore.getState();
+    expect(st.profileBins!.length).toBe(PLAN.azBins);
+    expect(st.profileKnown!.length).toBe(PLAN.azBins);
+    expect(r.feed.debug().azBins).toBe(PLAN.azBins);
+    expect(r.feed.debug().terrainAzBins).toBe(PLAN.terrainAzBins);
+    // flat ground everywhere → every bin has terrain evidence (folded from the coarse march)
+    expect(st.profileCoverage).toBe(1);
+    expect(st.profileKnown!.every((k) => k === 1)).toBe(true);
+    // the wall (10 m wide at 50 m ≈ ±5.7°) raises the east bin above the flat-ground dip; a
+    // bin 10° away is still terrain (a coarse 3° bin would not tell these apart at the edge)
+    expect(st.profileBins![AZ_EAST_BIN]).toBeGreaterThan(10);
+    const tenDegAway = Math.floor(100 / (360 / PLAN.azBins));
+    expect(st.profileBins![tenDegAway]).toBeLessThan(1);
+    const sixDegAway = Math.floor(96.2 / (360 / PLAN.azBins));
+    expect(st.profileBins![sixDegAway]).toBeLessThan(1); // just past the wall's edge
+    r.feed.dispose();
+  });
+
+  it("a fine bin count is a real long-lens width (≤ 0.5°) on both shells", () => {
+    expect(360 / PLAN.azBins).toBeLessThanOrEqual(0.5);
+    expect(360 / PLAN.azBinsLean).toBeLessThanOrEqual(0.5);
+    expect(PLAN.azBins % PLAN.terrainAzBins).toBe(0); // coarse centres sit on fine centres
+  });
+
+  it("terrain with no tile to the WEST leaves the west bins unknown, the east bins answered", () => {
+    const buildings = new THREE.Group();
+    const feed = attachPlanFeed({
+      // null west of the eye (lon < LON) — "no tile loaded there yet"
+      terrainHeightAt: (_lat, lon) => (lon < LON - 1e-6 ? null : GROUND_M),
+      buildingsGroup: buildings,
+      enrichedGroup: null,
+      maskBbox: null,
+    });
+    const eye = eyeAt(0);
+    const step = () =>
+      feed.update({
+        sceneMs: T0,
+        photoApex: null,
+        fpvEye: eye,
+        fpvEyeAboveGroundM: EYE_ABOVE,
+        focusLatDeg: LAT,
+        focusLonDeg: LON,
+        terrainEpoch: 0,
+        builtEpoch: 0,
+        modelsEpoch: 0,
+      });
+    let n = 0;
+    step();
+    while (feed.debug().building && n++ < 2000) step();
+    for (let i = 0; i < PLAN.mirrorEveryFrames + 1; i++) step();
+    const st = usePlanStore.getState();
+    expect(st.profileReady).toBe(true);
+    expect(st.profileCoverage).toBeGreaterThan(0.4);
+    expect(st.profileCoverage).toBeLessThan(0.6);
+    expect(st.profileKnown![AZ_EAST_BIN]).toBe(1);
+    expect(st.profileKnown![AZ_WEST_BIN]).toBe(0);
+    // T112: the body verdict carries whether its azimuth had evidence
+    expect(st.sun).not.toBeNull();
+    expect(typeof st.sun!.skylineKnown).toBe("boolean");
+    feed.dispose();
+  });
+
+  it("the mesh phase is bounded by time: many walls take many frames, never one long one", () => {
+    const r = rig(true);
+    for (let i = 0; i < 40; i++) r.buildings.add(wallAt(40 + i * 3));
+    const frames = r.settle();
+    const d = r.feed.debug();
+    expect(d.sweep.budgetMs).toBe(PLAN.sweepBudgetMs);
+    expect(d.sweep.frames).toBeGreaterThan(0);
+    expect(frames).toBeGreaterThan(PLAN.terrainAzBins / PLAN.terrainBinsPerFrame);
+    // the worst frame stays near the budget (one deadline-check window of overrun at most)
+    expect(d.sweep.maxFrameMs).toBeLessThan(PLAN.sweepBudgetMs * 4 + 8);
+    r.feed.dispose();
+  });
+
+  it("the known mirror follows the bins mirror: identity through a carried rebuild, null on focus", () => {
+    const r = rig(true);
+    r.settle();
+    const known = usePlanStore.getState().profileKnown!;
+    r.eye = eyeAt(30);
+    r.frames(PLAN.mirrorEveryFrames + 1);
+    expect(r.feed.debug().carried).toBe(true);
+    expect(usePlanStore.getState().profileKnown).toBe(known);
+    r.settle();
+    expect(usePlanStore.getState().profileKnown).not.toBe(known); // a new build, a new array
+    r.eye = eyeAt(500);
+    r.frames(PLAN.mirrorEveryFrames + 1);
+    expect(usePlanStore.getState().profileKnown).toBeNull();
+    r.feed.dispose();
   });
 });
 

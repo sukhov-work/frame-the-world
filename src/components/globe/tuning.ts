@@ -3721,6 +3721,15 @@ export const DAYARC = {
   horizonFadeHiDeg: -1,
   /** Whole-overlay fade ease (ms) on FPV enter/exit. */
   fadeTauMs: 250,
+  /** T111 (2026-09-07d, owner's taste call left to the recommendation): per-vertex alpha
+   *  multiplier where the body sits BEHIND the cached skyline at the arc's anchor (buildings,
+   *  terrain, trees, user models — `planFeed.profileSample()`), for the day arcs and the
+   *  target trail. The arc keeps reading THROUGH the skyline (the 2026-07 ruling: a planning
+   *  overlay must show the whole path), but the hidden spans are visibly dimmer — the same
+   *  "dashed where blocked" the scrubber's curves wear. 1 = off (the pre-T111 look). Applied
+   *  at rebuild only; the fold is keyed on the profile's identity, so a profile arriving after
+   *  FPV entry re-folds once. */
+  skylineBehindAlpha: 0.35,
 } as const;
 
 /** Map direction lines + visibility cones (UPLIFT U4, owner point 3 — PhotoPills-style): from
@@ -4135,9 +4144,21 @@ export const SEARCH = {
  *  instanced trees, then every "is the sun/moon blocked" question is an O(1) lookup — the build
  *  is time-sliced so no frame pays for the whole sweep. */
 export const PLAN = {
-  /** Azimuth bins in the horizon profile (3° at 120 — a building subtending less than a bin at
-   *  the trust edge is ~150 m wide, comfortably sub-skyline). */
-  azBins: 120,
+  /** Azimuth bins in the horizon profile — the FINE resolution the mesh sweeps write at (T110,
+   *  2026-09-07d). 120 (3°) was justified against a 150 m building at the trust edge — a
+   *  SKYLINE criterion; the FRAME criterion is a 500 mm lens (`FPV.minFovDeg` 2.75° ≈ 4° wide):
+   *  at 3° a mast raised a whole bin to its tip and a gap between two towers vanished. 1440 =
+   *  0.25°, sixteen bins across that frame; memory 6 KB. The walker's cost follows this
+   *  (near edges sample once per bin), which is why the mesh slice is bounded by time
+   *  (`sweepBudgetMs`), not by mesh count. */
+  azBins: 1440,
+  /** The fine count on a coarse-pointer (lean) shell — the same 0.25° until the phone
+   *  measurement says otherwise; the time budget below is what protects the frame there. */
+  azBinsLean: 1440,
+  /** Terrain is marched at this coarser count (3° at 120) and folded into the fine profile by
+   *  `foldCoarseProfile` (known-aware interpolation) — the march is the expensive half
+   *  (~21 `heightAt` raycasts per bin) and terrain is smooth at that width. */
+  terrainAzBins: 120,
   /** Terrain march: first/last sample distance (m) and geometric step growth per sample. */
   terrainMinM: 60,
   terrainMaxM: 30_000,
@@ -4148,17 +4169,24 @@ export const PLAN = {
   /** Standard terrestrial refraction coefficient k (surveyor's 0.13) — folds into the curvature
    *  drop (1−k)/2R and the ECEF sweep lift k/2R. */
   refractionK: 0.13,
-  /** Build slicing: terrain bins marched per frame · meshes edge-swept per frame. Both bound the
-   *  per-frame cost of a profile build (~1–4 ms each on M3); raise to build faster. */
+  /** Build slicing: terrain bins marched per frame · meshes edge-swept per frame (a COUNT
+   *  ceiling; the time budget below is the binding one since T110). */
   terrainBinsPerFrame: 3,
-  meshesPerFrame: 2,
-  /** Evidence floor for CLAIMING skyline gaps on a radar surface (fraction of bins with real
-   *  evidence — `profileCoverage`). Added by audit #3 A1-16: no radar consulted coverage, so a
-   *  15 %-covered profile fractured its bands with the authority of a complete one. The gaps
-   *  drawn are true, but the CLEAR sky between them is ignorance, not knowledge — below this
-   *  floor the surfaces take the same path a missing profile already takes (unfractured bands,
-   *  no claim). 0.5 = "at least half the horizon has actually been swept"; the PLAN panels'
-   *  own numeric coverage readout is unaffected, it reports the truth at any value. */
+  meshesPerFrame: 4,
+  /** T110 — the mesh phase's per-frame TIME budget (ms), desktop / lean shell. The walker is
+   *  resumable mid-mesh (`sweepMeshEdgesSliced`), so one enriched cell that would take 10 ms
+   *  at the fine width spans several frames instead of hitching one; at least one chunk is
+   *  walked per frame, so the build always progresses. The carry policy keeps the previous
+   *  profile published while it does. */
+  sweepBudgetMs: 3,
+  sweepBudgetMsLean: 1.5,
+  /** Evidence floor for claiming skyline gaps — RETIRED for the radars and every other profile
+   *  consumer by T112 (owner ruling 2026-09-07d, "best effort even below 50 %"): honesty is
+   *  per BIN now (`skylineSamplerFor` answers exactly where a bin has evidence and `null`
+   *  where it has none), so a low-coverage profile keeps its true gaps instead of being
+   *  withheld whole. History: audit #3 A1-16 added this floor because no radar consulted
+   *  coverage. STILL READ by the parked BEST SPOT scoring (`BESTSPOT_SCORING_V1.gates
+   *  .minCoverage` pins itself to it) — its patch-coverage gate is a different question. */
   minCoverageForGaps: 0.5,
   /** FPV eye drift (m) that invalidates the cached profile (arrow-key walking rebuilds). */
   rebuildDistM: 25,

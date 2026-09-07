@@ -125,6 +125,10 @@
   color: var(--color-warn);
   border-color: color-mix(in srgb, var(--color-warn) 45%, transparent);
 }
+/* T111: an eclipse / session row whose peak sits behind the local skyline. */
+.m-win__skyline {
+  color: var(--color-warn);
+}
 
 /* ── Scene action chips (my location · look from here · exit view) ─────────────────────── */
 .m-actions {

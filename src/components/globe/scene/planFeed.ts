@@ -36,14 +36,16 @@ import { kindGlyph } from "../../../lib/sky/searchIndex";
 import { localDayWindow } from "../../../lib/ephemeris/dayArc";
 import {
   createProfile,
+  foldCoarseProfile,
   horizonDipDeg,
   marchTerrainBin,
   profileCoverage,
   sampleProfile,
+  sampleProfileKnown,
   type HorizonProfile,
   type SilhouetteFrame,
 } from "../../../lib/geo/horizonProfile";
-import { sweepMeshEdges, sweepTreeInstances } from "../../../lib/geo/occlusion";
+import { sweepMeshEdgesSliced, sweepTreeInstances } from "../../../lib/geo/occlusion";
 import { clampGroundM } from "../../../lib/geo/terrain";
 import { ecefToGeodetic, enuBasis } from "../../../lib/geo/projection";
 import { bboxClipPrismEcef, type EcefPlane, type GeoBbox } from "../../../lib/globe/enrichedMask";
@@ -73,9 +75,14 @@ export interface PlanFeedHandle {
     binAltDeg: number[] | null;
     /** DEBUG HUD (2026-09-01): the sliced build's numerators + the crossing-scan age. */
     terrainBin: number | null;
+    /** The FINE bin count the profile is built at (T110) · the terrain march's count. */
     azBins: number;
+    terrainAzBins: number;
     meshIdx: number | null;
     meshCount: number | null;
+    /** T110 — the mesh phase's cost for the current/last build: total ms in the walker, the
+     *  worst single frame's ms, frames the phase took, and the budget it ran under. */
+    sweep: { totalMs: number; maxFrameMs: number; frames: number; budgetMs: number };
     scanAgeMs: number | null;
     /** OCCLUSION 2026-09-07c: the published profile is the PREVIOUS build (a rebuild is in
      *  flight within the carry distance) · the streaming epochs the feed last latched. */
@@ -112,14 +119,23 @@ interface BuildState {
   eyeAboveArg: number;
   /** `frameCount` at `startBuild` — a stream change older than this cannot stale the build. */
   startFrame: number;
+  /** The FINE profile (T110) — what every verdict reads. */
   profile: HorizonProfile;
+  /** The coarse terrain march (`PLAN.terrainAzBins`), folded into `profile` once complete. */
+  terrain: HorizonProfile;
   frame: SilhouetteFrame;
   obs: PlanObserver;
-  /** Terrain-march progress (bin index); done when === azBins. */
+  /** Terrain-march progress (bin index); done when === terrainAzBins. */
   terrainBin: number;
   /** Mesh sweep worklist — collected once after the terrain phase. */
   meshes: THREE.Object3D[] | null;
   meshIdx: number;
+  /** T110 — the triangle to resume the CURRENT mesh at (0 = fresh), for the time-sliced walk. */
+  triCursor: number;
+  /** T110 — the mesh phase's cost ledger (DEV seam + the phone decision). */
+  sweepTotalMs: number;
+  sweepMaxFrameMs: number;
+  sweepFrames: number;
   ready: boolean;
 }
 
@@ -136,8 +152,15 @@ export function attachPlanFeed(opts: {
    *  it enters the sweep like a building (no mask rejection — it is not OSM mass). Optional so
    *  the pure tests can omit it. */
   userModelsGroup?: () => THREE.Object3D | null;
+  /** T110 — the fine bin count (`PLAN.azBins` / `PLAN.azBinsLean`) and the mesh phase's
+   *  per-frame time budget (`PLAN.sweepBudgetMs` / `sweepBudgetMsLean`). The orchestrator
+   *  picks per shell; `fences.test` forbids this module reading a quality store itself. */
+  azBins?: number;
+  sweepBudgetMs?: number;
 }): PlanFeedHandle {
   const { terrainHeightAt, buildingsGroup, enrichedGroup } = opts;
+  const azBins = opts.azBins ?? PLAN.azBins;
+  const sweepBudgetMs = opts.sweepBudgetMs ?? PLAN.sweepBudgetMs;
   const rejectPlanes: EcefPlane[] | null = opts.maskBbox
     ? bboxClipPrismEcef(opts.maskBbox)
     : null;
@@ -178,9 +201,14 @@ export function attachPlanFeed(opts: {
 
   let frameCount = 0;
   let lastMirrorSig = "";
+  /** Bumped whenever a new bins array is published — a re-sweep whose skyline moved only away
+   *  from the bodies must still reach the store (T112 side finding). */
+  let mirrorSerial = 0;
   // The ready profile's bin array, copied ONCE per completed build for the store mirror
   // (rail-trace/frameFinder consumers key memos on its identity — never re-allocate per tick).
   let binsMirror: number[] | null = null;
+  /** T112 — the evidence flags beside the bins, the same identity discipline. */
+  let knownMirror: number[] | null = null;
 
   const _v = new THREE.Vector3();
   const _sphere = new THREE.Sphere();
@@ -207,6 +235,7 @@ export function attachPlanFeed(opts: {
       } else {
         shown = null;
         binsMirror = null;
+        knownMirror = null;
         dropScans();
       }
     }
@@ -219,11 +248,13 @@ export function attachPlanFeed(opts: {
           ? Math.max(0, geo.altM - groundM)
           : PLAN.eyeHeightM;
     const basis = enuBasis(geo.latDeg, geo.lonDeg);
+    const dip = horizonDipDeg(eyeAbove, PLAN.refractionK);
     build = {
       kind,
       eyeAboveArg: eyeAboveGroundM,
       startFrame: frameCount,
-      profile: createProfile(PLAN.azBins, horizonDipDeg(eyeAbove, PLAN.refractionK)),
+      profile: createProfile(azBins, dip),
+      terrain: createProfile(PLAN.terrainAzBins, dip),
       frame: {
         originEcef: [eye.x, eye.y, eye.z],
         east: basis.east,
@@ -240,6 +271,10 @@ export function attachPlanFeed(opts: {
       terrainBin: 0,
       meshes: null,
       meshIdx: 0,
+      triCursor: 0,
+      sweepTotalMs: 0,
+      sweepMaxFrameMs: 0,
+      sweepFrames: 0,
       ready: false,
     };
   };
@@ -296,19 +331,40 @@ export function attachPlanFeed(opts: {
     if (!b.meshes) {
       b.meshes = collectMeshes();
       b.meshIdx = 0;
+      b.triCursor = 0;
     }
+    // T110 — bounded by TIME: the fine bin width multiplies near-edge samples, so a mesh
+    // count is no longer a cost bound. At least one chunk (one deadline-check window of one
+    // mesh) is walked per frame, so the build always progresses; a mesh that overruns the
+    // budget is resumed next frame at `triCursor`.
+    const t0 = performance.now();
+    const deadline = t0 + sweepBudgetMs;
     let swept = 0;
     while (b.meshIdx < b.meshes.length && swept < PLAN.meshesPerFrame) {
-      const obj = b.meshes[b.meshIdx++];
+      if (swept > 0 && performance.now() > deadline) break;
+      const obj = b.meshes[b.meshIdx];
       const mesh = obj as THREE.Mesh;
+      const resume = b.triCursor > 0;
       // Tiles stream: a cell may have been LRU-disposed mid-build.
-      if (!mesh.parent || !mesh.geometry) continue;
+      if (!mesh.parent || !mesh.geometry) {
+        b.meshIdx++;
+        b.triCursor = 0;
+        continue;
+      }
       const geom = mesh.geometry;
-      if (!geom.boundingSphere) geom.computeBoundingSphere();
-      if (!geom.boundingSphere) continue;
-      _sphere.copy(geom.boundingSphere).applyMatrix4(mesh.matrixWorld);
-      _v.set(b.frame.originEcef[0], b.frame.originEcef[1], b.frame.originEcef[2]);
-      if (_sphere.center.distanceTo(_v) - _sphere.radius > PLAN.trustRadiusM) continue;
+      if (!resume) {
+        if (!geom.boundingSphere) geom.computeBoundingSphere();
+        if (!geom.boundingSphere) {
+          b.meshIdx++;
+          continue;
+        }
+        _sphere.copy(geom.boundingSphere).applyMatrix4(mesh.matrixWorld);
+        _v.set(b.frame.originEcef[0], b.frame.originEcef[1], b.frame.originEcef[2]);
+        if (_sphere.center.distanceTo(_v) - _sphere.radius > PLAN.trustRadiusM) {
+          b.meshIdx++;
+          continue;
+        }
+      }
       swept++;
       const inst = mesh as THREE.InstancedMesh;
       if (inst.isInstancedMesh) {
@@ -316,40 +372,67 @@ export function attachPlanFeed(opts: {
         // the sweep reads the TRS directly, which is also why this needs no un-nooping. An
         // instanced mesh inside a user model is not a canopy: skipped (no per-instance edge
         // sweep exists; rare in uploaded GLBs).
-        if (!under(mesh, buildingsGroup) && !under(mesh, enrichedGroup)) continue;
-        sweepTreeInstances(
-          b.profile,
-          b.frame,
-          inst.instanceMatrix.array as ArrayLike<number>,
-          inst.count,
-          mesh.matrixWorld.elements,
-          { trustRadiusM: PLAN.trustRadiusM },
-        );
+        if (under(mesh, buildingsGroup) || under(mesh, enrichedGroup)) {
+          sweepTreeInstances(
+            b.profile,
+            b.frame,
+            inst.instanceMatrix.array as ArrayLike<number>,
+            inst.count,
+            mesh.matrixWorld.elements,
+            { trustRadiusM: PLAN.trustRadiusM },
+          );
+        }
+        b.meshIdx++;
+        b.triCursor = 0;
         continue;
       }
       const positions = positionsOf(geom);
-      if (!positions) continue;
+      if (!positions) {
+        b.meshIdx++;
+        b.triCursor = 0;
+        continue;
+      }
       // Only OSM geometry carries the mask rejection — the enriched set OWNS the bbox interior,
       // and a user model is placed mass, never clipped.
       const isOsm = under(mesh, buildingsGroup);
-      sweepMeshEdges(b.profile, b.frame, positions, geom.index?.array ?? null, mesh.matrixWorld.elements, {
-        trustRadiusM: PLAN.trustRadiusM,
-        rejectPlanes: isOsm ? rejectPlanes : null,
-      });
+      const r = sweepMeshEdgesSliced(
+        b.profile,
+        b.frame,
+        positions,
+        geom.index?.array ?? null,
+        mesh.matrixWorld.elements,
+        {
+          trustRadiusM: PLAN.trustRadiusM,
+          rejectPlanes: isOsm ? rejectPlanes : null,
+          startTri: b.triCursor,
+          deadlineMs: deadline,
+        },
+      );
+      if (r.nextTri < r.triCount) {
+        b.triCursor = r.nextTri; // overran the budget — resume here next frame
+        break;
+      }
+      b.meshIdx++;
+      b.triCursor = 0;
     }
+    const dt = performance.now() - t0;
+    b.sweepTotalMs += dt;
+    b.sweepFrames++;
+    if (dt > b.sweepMaxFrameMs) b.sweepMaxFrameMs = dt;
     if (b.meshIdx >= b.meshes.length) b.ready = true;
   };
 
   const stepBuild = (b: BuildState) => {
-    if (b.terrainBin < PLAN.azBins) {
-      const binWidth = 360 / PLAN.azBins;
+    const terrainBins = b.terrain.binCount;
+    if (b.terrainBin < terrainBins) {
+      const binWidth = 360 / terrainBins;
       const anchor = {
         latDeg: b.obs.latDeg,
         lonDeg: b.obs.lonDeg,
         eyeAltM: b.obs.groundAltM + b.obs.eyeAboveGroundM,
       };
-      for (let i = 0; i < PLAN.terrainBinsPerFrame && b.terrainBin < PLAN.azBins; i++) {
-        marchTerrainBin(b.profile, anchor, (b.terrainBin + 0.5) * binWidth, heightAt, {
+      for (let i = 0; i < PLAN.terrainBinsPerFrame && b.terrainBin < terrainBins; i++) {
+        marchTerrainBin(b.terrain, anchor, (b.terrainBin + 0.5) * binWidth, heightAt, {
           minRangeM: PLAN.terrainMinM,
           maxRangeM: PLAN.terrainMaxM,
           stepGrowth: PLAN.terrainGrowth,
@@ -357,6 +440,9 @@ export function attachPlanFeed(opts: {
         });
         b.terrainBin++;
       }
+      // T110 — the coarse march complete: fold it into the fine profile before the mesh
+      // phase (mesh evidence max-merges over it).
+      if (b.terrainBin >= terrainBins) foldCoarseProfile(b.profile, b.terrain);
       return;
     }
     if (!b.ready) sweepSlice(b);
@@ -364,12 +450,14 @@ export function attachPlanFeed(opts: {
 
   const bodyState = (body: PlanBody, b: BuildState, sceneMs: number, scan: SkylineState | null): PlanBodyState => {
     const pos = horizontal(body, sceneMs, b.obs.latDeg, b.obs.lonDeg);
-    const skylineAltDeg = sampleProfile(b.profile, pos.azDeg);
+    const known = sampleProfileKnown(b.profile, pos.azDeg);
+    const skylineAltDeg = known ?? b.profile.openSkyAltDeg;
     return {
       blockedNow: pos.altDeg < skylineAltDeg,
       azDeg: pos.azDeg,
       altDeg: pos.altDeg,
       skylineAltDeg,
+      skylineKnown: known !== null,
       nextClearMs: scan?.nextClearMs ?? null,
       nextBlockMs: scan?.nextBlockMs ?? null,
     };
@@ -390,7 +478,8 @@ export function attachPlanFeed(opts: {
       b.obs.lonDeg,
       b.obs.groundAltM + b.obs.eyeAboveGroundM,
     );
-    const skylineAltDeg = sampleProfile(b.profile, pos.azDeg);
+    const known = sampleProfileKnown(b.profile, pos.azDeg);
+    const skylineAltDeg = known ?? b.profile.openSkyAltDeg;
     return {
       id: t.id,
       label: targetShortName(t).toUpperCase(),
@@ -399,6 +488,7 @@ export function attachPlanFeed(opts: {
       azDeg: pos.azDeg,
       altDeg: pos.altDeg,
       skylineAltDeg,
+      skylineKnown: known !== null,
       nextClearMs: scan?.nextClearMs ?? null,
       nextBlockMs: scan?.nextBlockMs ?? null,
     };
@@ -435,6 +525,7 @@ export function attachPlanFeed(opts: {
       shown = null;
       dropScans();
       binsMirror = null; // a focus anchor has no eye — stale skyline bins must not outlive the build
+      knownMirror = null;
     }
 
     // A stream change after this build started, then a quiet window: re-sweep the SAME anchor
@@ -454,6 +545,8 @@ export function attachPlanFeed(opts: {
       // the crossing scans are re-run against it (throttled, as on any first completion).
       shown = build;
       binsMirror = Array.from(build.profile.altDeg);
+      knownMirror = Array.from(build.profile.known);
+      mirrorSerial++;
       dropScans();
     }
 
@@ -514,6 +607,7 @@ export function attachPlanFeed(opts: {
     }
 
     if (shown && !binsMirror) binsMirror = Array.from(shown.profile.altDeg);
+    if (shown && !knownMirror) knownMirror = Array.from(shown.profile.known);
     const sun = shown ? bodyState("sun", shown, ctx.sceneMs, scanSun) : null;
     const moon = shown ? bodyState("moon", shown, ctx.sceneMs, scanMoon) : null;
     const target =
@@ -524,7 +618,7 @@ export function attachPlanFeed(opts: {
 
     // Skip the store write when nothing the panel renders changed (float fields quantized).
     const sig =
-      `${key}|${chips.length}|${shown ? 1 : 0}|${coverage.toFixed(2)}|` +
+      `${key}|${chips.length}|${shown ? 1 : 0}|${coverage.toFixed(2)}|${mirrorSerial}|` +
       `${sun ? `${sun.blockedNow}:${sun.azDeg.toFixed(1)}:${sun.altDeg.toFixed(1)}:${sun.nextClearMs}:${sun.nextBlockMs}` : "-"}|` +
       `${moon ? `${moon.blockedNow}:${moon.azDeg.toFixed(1)}:${moon.altDeg.toFixed(1)}:${moon.nextClearMs}:${moon.nextBlockMs}` : "-"}|` +
       `${target ? `${target.id}:${target.blockedNow}:${target.azDeg.toFixed(1)}:${target.altDeg.toFixed(1)}:${target.nextClearMs}:${target.nextBlockMs}` : "-"}|` +
@@ -539,6 +633,7 @@ export function attachPlanFeed(opts: {
       profileCoverage: coverage,
       trustRadiusM: PLAN.trustRadiusM,
       profileBins: binsMirror,
+      profileKnown: knownMirror,
       sun,
       moon,
       target,
@@ -563,9 +658,16 @@ export function attachPlanFeed(opts: {
       // then meshIdx / meshCount) — the "why is the skyline not ready" fraction nothing showed —
       // plus the crossing-scan's age against PLAN.scanStaleMs.
       terrainBin: build ? build.terrainBin : null,
-      azBins: PLAN.azBins,
+      azBins,
+      terrainAzBins: PLAN.terrainAzBins,
       meshIdx: build ? build.meshIdx : null,
       meshCount: build?.meshes?.length ?? null,
+      sweep: {
+        totalMs: build?.sweepTotalMs ?? 0,
+        maxFrameMs: build?.sweepMaxFrameMs ?? 0,
+        frames: build?.sweepFrames ?? 0,
+        budgetMs: sweepBudgetMs,
+      },
       scanAgeMs: Number.isFinite(lastScanRealMs) ? performance.now() - lastScanRealMs : null,
       carried: shown !== null && shown !== build,
       epochs: {
@@ -584,6 +686,7 @@ export function attachPlanFeed(opts: {
         profileReady: false,
         profileCoverage: 0,
         profileBins: null,
+        profileKnown: null,
         sun: null,
         moon: null,
         target: null,

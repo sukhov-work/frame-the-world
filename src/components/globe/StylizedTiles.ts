@@ -17,7 +17,7 @@ import {
 } from "../../lib/geo/projection";
 import { frameMarker } from "../../lib/geo/offscreen";
 import { aimAnchorFor } from "../../lib/geo/aimAnchor";
-import { skylineBinsFor } from "../../lib/geo/horizonProfile";
+import { skylineSamplerFor, withinGuard, type SkylineView } from "../../lib/geo/horizonProfile";
 import { goldenFactor } from "../../lib/ephemeris/golden";
 import { moonPhaseIntensity } from "../../lib/ephemeris/moonlight";
 import {
@@ -729,6 +729,11 @@ export function attachStylizedTiles(opts: {
     // OCCLUSION 2026-09-07c: the resident user models sweep like buildings (attached below —
     // read lazily at collect time).
     userModelsGroup: () => userModels.occluderRoot(),
+    // T110 (2026-09-07d): the fine bin width for long lenses, and the mesh phase's per-frame
+    // time budget — keyed on the same `lean` the tile caches key on (T83), so a phone gets the
+    // same precision under a smaller budget (the build takes more frames, never a longer one).
+    azBins: lean ? PLAN.azBinsLean : PLAN.azBins,
+    sweepBudgetMs: lean ? PLAN.sweepBudgetMsLean : PLAN.sweepBudgetMs,
   });
   // FPV mini-map feed (owner 2026-07-14): the SAME shared MVT source, projected to local metres
   // around the walked viewer and mirrored into store/minimap for the MiniMap panel.
@@ -3617,6 +3622,8 @@ export function attachStylizedTiles(opts: {
       enriched: enriched?.tiles ?? null, // Dnipro 3D enrichment (Slice 0) — null unless the URL is set
       enrichedSeats: () => enriched?.debugSeats() ?? null, // per-building re-seat coverage (2026-07-14)
       enrichedCellSeats: (limit?: number) => enriched?.debugCellSeats(limit) ?? null, // T77 slice B (DEV)
+      enrichedLoad: () => enriched?.debugLoad() ?? null, // T106 — the load-model handler's cost ledger
+      enrichedBench: (limit?: number) => enriched?.benchEdges(limit) ?? null, // T106 — the in-page A/B + identity
       // T77 MEASURE (2026-09-05) — the RESEAT-SETTLE read seam: this frame's seat residuals from
       // the apply pass (plain field reads, safe inside a per-frame rAF probe — unlike
       // enrichedSeats(), which walks ~39k features), paired with the orchestrator frame and the
@@ -3885,6 +3892,8 @@ export function attachStylizedTiles(opts: {
       }),
       dayArcs,
       plan: () => planFeed.debug(),
+      /** T111: the day arcs' skyline fold — per body, vertices folded behind the skyline. */
+      dayArcsFold: () => dayArcs.debug(),
       // BEST SPOT §5.6 — the hot-swap seam. READ half: everything a verify script needs, out of
       // the LIVE engine, never recomputed (the `__globe.ultraLook` lesson).
       bestSpot: () => bestSpotFeed.debug(),
@@ -4542,6 +4551,8 @@ export function attachStylizedTiles(opts: {
           azBins: p.azBins,
           meshIdx: p.meshIdx,
           meshCount: p.meshCount,
+          sweepMs: p.sweep.maxFrameMs,
+          sweepTotalMs: p.sweep.totalMs,
           scanAgeMs: p.scanAgeMs,
           "bs.spawned": bs.workerSpawned,
           "bs.inFlight": bs.inFlight,
@@ -7103,15 +7114,17 @@ export function attachStylizedTiles(opts: {
         // numbers for: the plan anchor when standing somewhere, else the view focus (the mirror
         // is low-cadence, but the trail rebuild is deadbanded far coarser than its lag).
         const planAnchor = usePlanStore.getState().anchor;
+        const trailAnchor = planAnchor ?? {
+          latDeg: camStore.focusLatDeg,
+          lonDeg: camStore.focusLonDeg,
+        };
         skyTrail.update({
           camera,
           sceneMs: tMs,
           target: skyNow.target,
-          anchor: planAnchor ?? {
-            latDeg: camStore.focusLatDeg,
-            lonDeg: camStore.focusLonDeg,
-          },
+          anchor: trailAnchor,
           visible: skyNow.visible && skyNow.trail,
+          skyline: arcSkylineFor(trailAnchor),
           dtMs,
         });
         // Temporal ghost copies (QoL-2, owner 2026-08-14) — same eye, same gate family.
@@ -7521,20 +7534,36 @@ export function attachStylizedTiles(opts: {
         // FPV planning overlays (S6): sun/moon day-arcs for the FPV anchor — the module
         // rebuilds only on anchor/day change; scene time just moves the past/future split.
         // Gated by the SKY guides toggle (S6 follow-up).
+        const arcAnchor =
+          fpvActive && camNow.skyGuides
+            ? ((fpvKind === "photo" ? upNow.placement : camNow.tempPin) ?? null)
+            : null;
         dayArcs.update({
           camera,
           sceneMs: tMs,
-          anchor:
-            fpvActive && camNow.skyGuides
-              ? ((fpvKind === "photo" ? upNow.placement : camNow.tempPin) ?? null)
-              : null,
+          anchor: arcAnchor,
+          skyline: arcAnchor ? arcSkylineFor(arcAnchor) : null,
           dtMs,
         });
   };
 
+  /** T111 (2026-09-07d): the skyline the day arcs / target trail fold with — the plan feed's
+   *  own best-effort sampler, ONLY when the swept eye is a real one within the guard distance
+   *  of the overlay's anchor (the radars' honesty rule); the store's bins identity is the
+   *  re-fold key (a fresh array per completed build). */
+  const arcSkylineFor = (
+    anchor: { latDeg: number; lonDeg: number },
+  ): { sample: (azDeg: number) => number; key: unknown } | null => {
+    const plan = usePlanStore.getState();
+    if (!plan.profileReady || !plan.anchor || plan.anchor.kind === "focus") return null;
+    if (!withinGuard({ eye: plan.anchor, anchor, guardM: AIMCONES.skylineGuardM })) return null;
+    const sample = planFeed.profileSample();
+    return sample ? { sample, key: plan.profileBins } : null;
+  };
+
   /** DEV probe mirrors for the radar seam (audit #3 F4 / A1-16) — written by stepAimCones. */
   let lastAimAnchor: { latDeg: number; lonDeg: number } | null = null;
-  let lastAimSkyline: readonly number[] | null = null;
+  let lastAimSkyline: SkylineView | null = null;
   /** T92 — the live orbit tilt the focal cone was fed this frame, and the FILL multiplier it
    *  resolved from it. Probe-read (`aim().focalTiltDeg` / `focalFillTiltK`), never re-derived. */
   let lastFocalTiltDeg = Number.NaN;
@@ -7570,18 +7599,19 @@ export function attachStylizedTiles(opts: {
         // the plan anchor — the swept eye (photo apex / FPV eye) — sits at (≈) the radar
         // anchor. A focus anchor never owns a profile, and a far-away eye must not lend its
         // skyline to another point's radar (honesty rule; AIMCONES.skylineGuardM).
-        // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineBinsFor) — one rule on
-        // all three radar surfaces, now including the EVIDENCE floor (`profileCoverage`), which
-        // reached planFeed, the store and the PLAN panels but no radar.
+        // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineSamplerFor) — one rule
+        // on every profile consumer. T112 (2026-09-07d): the coverage floor is gone; the
+        // sampler answers per BIN (exact where swept, null where not — the band stays plain
+        // there), so a half-swept profile keeps its true gaps instead of being withheld.
         const planSkyNow = usePlanStore.getState();
-        const aimSkyline = skylineBinsFor({
+        const aimSkyline = skylineSamplerFor({
           ready: planSkyNow.profileReady,
           bins: planSkyNow.profileBins,
+          known: planSkyNow.profileKnown,
           coverage: planSkyNow.profileCoverage,
           eye: planSkyNow.anchor && planSkyNow.anchor.kind !== "focus" ? planSkyNow.anchor : null,
           anchor: aimAnchor,
           guardM: AIMCONES.skylineGuardM,
-          minCoverage: PLAN.minCoverageForGaps,
         });
         // audit #3 F4/A1-16 probe state — the harness must READ what the orchestrator resolved
         // (a transcribed ladder in a verify script is the C8 trap; it already bit once here).

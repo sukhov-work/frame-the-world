@@ -22,8 +22,12 @@ export interface PlanBodyState {
   blockedNow: boolean;
   azDeg: number;
   altDeg: number;
-  /** Skyline elevation at the body's azimuth (deg) — what it must clear. */
+  /** Skyline elevation at the body's azimuth (deg) — what it must clear. Best effort: the
+   *  open-sky floor where the profile has no evidence (`skylineKnown` false). */
   skylineAltDeg: number;
+  /** T112 — the profile has evidence at the body's azimuth. False ⇒ `blockedNow` is the
+   *  geometric verdict only, and a badge must not claim "behind the skyline". */
+  skylineKnown: boolean;
   nextClearMs: number | null;
   nextBlockMs: number | null;
 }
@@ -55,6 +59,9 @@ export interface PlanState {
    *  React consumers (rail trace §3.1.D, the QoL-2 frameFinder) can classify against the
    *  skyline without reaching into the scene. Null until a photo/FPV build completes. */
   profileBins: readonly number[] | null;
+  /** T112 — the per-bin evidence flags beside `profileBins` (1 = swept, 0 = no evidence), the
+   *  same length and identity-stable per build; sample the pair via `sampleBinsKnown`. */
+  profileKnown: readonly number[] | null;
   /** Per-instant body vs skyline — null until the profile is ready (focus anchors never get
    *  one: no eye, no skyline; the almanac chips still work). */
   sun: PlanBodyState | null;
@@ -72,6 +79,7 @@ export interface PlanState {
         | "profileCoverage"
         | "trustRadiusM"
         | "profileBins"
+        | "profileKnown"
         | "sun"
         | "moon"
         | "target"
@@ -90,6 +98,7 @@ export const usePlanStore = create<PlanState>((set) => ({
   profileCoverage: 0,
   trustRadiusM: 0,
   profileBins: null,
+  profileKnown: null,
   sun: null,
   moon: null,
   target: null,

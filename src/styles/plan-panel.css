@@ -215,6 +215,10 @@
 .pp-mw__meta--none {
   grid-row: 1 / 3;
 }
+/* T111 (2026-09-07d): the best night's radiant peak is behind the local skyline. */
+.pp-mw__skyline {
+  color: var(--color-warn);
+}
 
 .pp-chips {
   display: flex;

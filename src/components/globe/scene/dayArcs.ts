@@ -23,6 +23,10 @@ import { glf } from "./glsl";
  * own altitude at the anchor (below-horizon points melt out across DAYARC.horizonFade*Deg) and
  * the material skips the depth test entirely — a planning overlay reads THROUGH the ghosted
  * skyline; the fake camera-anchored distance would make depth occlusion lie anyway.
+ * T111 (2026-09-07d) adds the SKYLINE FOLD on top of that ruling, not instead of it: where the
+ * cached horizon profile (terrain + buildings + trees + user models at this eye) hides the
+ * body, the vertex alpha is multiplied by `DAYARC.skylineBehindAlpha` — the path still reads,
+ * the hidden spans read dimmer. Folded at rebuild only, re-folded when the profile changes.
  *
  * The polylines rebuild only when the anchor moves or scene time leaves the sampled day —
  * ~300 ephemeris calls per rebuild, entry/day-cross only, never per frame.
@@ -35,8 +39,15 @@ export interface DayArcsHandle {
     sceneMs: number;
     /** FPV anchor (deg); null = not in FPV → the overlay eases out and hides. */
     anchor: { latDeg: number; lonDeg: number } | null;
+    /** T111 — the skyline at THIS anchor's eye (`planFeed.profileSample()`, best effort:
+     *  the open-sky floor where the profile has no evidence), or null for no fold; `key` is
+     *  the profile's identity (a fresh bins array per completed build) — a change re-folds. */
+    skyline: { sample: (azDeg: number) => number; key: unknown } | null;
     dtMs: number;
   }): void;
+  /** DEV seam (T111): per body, how many arc vertices the last rebuild folded behind the
+   *  skyline, of how many — and whether a fold sampler was in hand. */
+  debug(): { folded: boolean; bodies: { body: string; vertices: number; behind: number }[] };
   dispose(): void;
 }
 
@@ -78,6 +89,18 @@ export function makeArcMaterial(color: string, alphaGain: number): THREE.ShaderM
         #include <colorspace_fragment>
       }`,
   });
+}
+
+/** T111 — the per-vertex skyline fold factor: `DAYARC.skylineBehindAlpha` where the point sits
+ *  below the cached skyline at its azimuth, 1 otherwise (or without a sampler). Shared with
+ *  `skyTrail.ts`. */
+export function skylineFold(
+  sample: ((azDeg: number) => number) | null,
+  azDeg: number,
+  altDeg: number,
+): number {
+  if (!sample) return 1;
+  return altDeg < sample(azDeg) ? DAYARC.skylineBehindAlpha : 1;
 }
 
 /** Per-vertex horizon melt — the arc dives visibly through rise/set instead of being clipped.
@@ -128,9 +151,18 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
   let anchorLat = NaN;
   let anchorLon = NaN;
   let fade = 0;
+  /** T111 — the profile identity the current geometry was folded with. */
+  let foldKey: unknown = undefined;
+  const foldStats: { body: string; vertices: number; behind: number }[] = [];
 
-  function rebuild(latDeg: number, lonDeg: number, sceneMs: number) {
+  function rebuild(
+    latDeg: number,
+    lonDeg: number,
+    sceneMs: number,
+    sky: ((azDeg: number) => number) | null,
+  ) {
     const basis = enuBasis(latDeg, lonDeg);
+    foldStats.length = 0;
     for (const b of bodies) {
       const arc = sampleDayArc(b.body, sceneMs, latDeg, lonDeg, {
         stepMin: DAYARC.stepMin,
@@ -144,7 +176,15 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
 
       const linePos = pointDirs(arc.points, basis, (p) => azAltToEnu(p.azDeg, p.altDeg));
       const lineT = new Float32Array(arc.points.map((p) => p.t01));
-      const lineF = new Float32Array(arc.points.map((p) => horizonFade(p.altDeg)));
+      let behind = 0;
+      const lineF = new Float32Array(
+        arc.points.map((p) => {
+          const k = skylineFold(sky, p.azDeg, p.altDeg);
+          if (k < 1) behind++;
+          return horizonFade(p.altDeg) * k;
+        }),
+      );
+      foldStats.push({ body: b.body, vertices: arc.points.length, behind });
       b.line.geometry.dispose();
       b.line.geometry = new THREE.BufferGeometry();
       b.line.geometry.setAttribute("position", new THREE.BufferAttribute(linePos, 3));
@@ -160,7 +200,7 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
       const tickT = new Float32Array(tickPts.map((p) => p.t01));
       const tickF = new Float32Array(
         arc.hourTicks.flatMap((p) => {
-          const f = horizonFade(p.altDeg);
+          const f = horizonFade(p.altDeg) * skylineFold(sky, p.azDeg, p.altDeg);
           return [f, f];
         }),
       );
@@ -174,7 +214,8 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
 
   return {
     group,
-    update({ camera, sceneMs, anchor, dtMs }) {
+    debug: () => ({ folded: foldKey != null, bodies: foldStats.map((f) => ({ ...f })) }),
+    update({ camera, sceneMs, anchor, skyline, dtMs }) {
       const target = anchor ? 1 : 0;
       fade += (target - fade) * (1 - Math.exp(-dtMs / DAYARC.fadeTauMs));
       if (fade < 0.01 && !anchor) {
@@ -187,10 +228,14 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
           Math.abs(anchor.lonDeg - anchorLon) > 1e-7;
         const arc0 = bodies[0].arc;
         const dayCrossed = !arc0 || sceneMs < arc0.startMs || sceneMs >= arc0.endMs;
-        if (moved || dayCrossed) {
+        // T111: a profile arriving (or re-sweeping) after the last rebuild re-folds once.
+        const skyKey = skyline ? skyline.key : null;
+        const refold = skyKey !== foldKey;
+        if (moved || dayCrossed || refold) {
           anchorLat = anchor.latDeg;
           anchorLon = anchor.lonDeg;
-          rebuild(anchorLat, anchorLon, sceneMs);
+          foldKey = skyKey;
+          rebuild(anchorLat, anchorLon, sceneMs, skyline ? skyline.sample : null);
         }
       }
       group.visible = true;

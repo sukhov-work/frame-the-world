@@ -149,6 +149,9 @@ export function sampleTargetArc(
 export interface AltSample {
   utcMs: number;
   altDeg: number;
+  /** T111 — the azimuth beside the altitude, so the rail can fold the skyline into the
+   *  sun/moon curves (`traceStates` over these samples). */
+  azDeg: number;
 }
 
 /**
@@ -169,9 +172,11 @@ export function elevationSeries(
   const stepMs = stepMin * 60_000;
   const out: AltSample[] = [];
   for (let t = startMs; t < endMs; t += stepMs) {
-    out.push({ utcMs: t, altDeg: horizontal(body, t, latDeg, lonDeg).altDeg });
+    const h = horizontal(body, t, latDeg, lonDeg);
+    out.push({ utcMs: t, altDeg: h.altDeg, azDeg: h.azDeg });
   }
-  out.push({ utcMs: endMs, altDeg: horizontal(body, endMs, latDeg, lonDeg).altDeg });
+  const h = horizontal(body, endMs, latDeg, lonDeg);
+  out.push({ utcMs: endMs, altDeg: h.altDeg, azDeg: h.azDeg });
   return out;
 }
 
@@ -247,22 +252,26 @@ export function nextRiseAzimuth(
 }
 
 /** Rail-trace visibility class of one sample: below the horizon / up but skyline-blocked /
- *  clear sky (§3.1.D). */
-export type TraceState = "down" | "blocked" | "clear";
+ *  clear sky (§3.1.D) / up where the profile has NO evidence (T112 — drawn as the geometric
+ *  path, never claimed clear). */
+export type TraceState = "down" | "blocked" | "clear" | "unknown";
 
 /**
- * Classify trace samples against a skyline sampler (deg az → deg elevation; the mirrored
- * planFeed profile). Without a sampler (no photo/FPV anchor → no profile) every up sample is
- * `clear` — horizon-only classification, the honest fallback.
+ * Classify trace samples against a skyline sampler (deg az → deg elevation, or `null` where
+ * the profile has no evidence; the mirrored planFeed profile). Without a sampler (no photo/FPV
+ * anchor → no profile) every up sample is `clear` — horizon-only classification, the honest
+ * fallback; WITH a sampler an azimuth it cannot answer is `unknown` (T112, per-bin honesty).
  */
 export function traceStates(
   samples: readonly TargetAltSample[],
-  skylineAltDegAt: ((azDeg: number) => number) | null,
+  skylineAltDegAt: ((azDeg: number) => number | null) | null,
 ): TraceState[] {
   return samples.map((s) => {
     if (s.altDeg <= 0) return "down";
-    if (skylineAltDegAt && s.altDeg < skylineAltDegAt(s.azDeg)) return "blocked";
-    return "clear";
+    if (!skylineAltDegAt) return "clear";
+    const sk = skylineAltDegAt(s.azDeg);
+    if (sk == null) return "unknown";
+    return s.altDeg < sk ? "blocked" : "clear";
   });
 }
 

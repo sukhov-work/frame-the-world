@@ -305,6 +305,8 @@ export interface EclipseRow {
   totalEndMs: number | null;
   /** Body altitude at peak (deg). Negative = below the horizon here at greatest eclipse. */
   peakAltDeg: number;
+  /** Body azimuth at peak (deg, N=0 E=90) — T111: the skyline is folded in row-side. */
+  peakAzDeg: number;
   /** True when the body is above the horizon for at least one contact — i.e. worth flying to. */
   visible: boolean;
 }
@@ -354,6 +356,11 @@ export function nextSolarEclipses(
     let e: LocalSolarEclipseInfo = SearchLocalSolarEclipse(new Date(fromMs), obs);
     for (let i = 0; i < MAX_STEPS && out.length < count; i++) {
       const alts = [e.partial_begin.altitude, e.peak.altitude, e.partial_end.altitude];
+      // astronomy-engine's local-eclipse events carry altitude only — the azimuth comes from
+      // the same topocentric equator→horizon chain the lunar walk uses.
+      const peakTime = MakeTime(e.peak.time);
+      const peakEq = Equator(Body.Sun, peakTime, obs, true, true);
+      const peakAzDeg = Horizon(peakTime, obs, peakEq.ra, peakEq.dec).azimuth;
       out.push({
         body: "sun",
         phase: solarPhaseOf(e.kind),
@@ -364,6 +371,7 @@ export function nextSolarEclipses(
         totalStartMs: e.total_begin ? eventMs(e.total_begin) : null,
         totalEndMs: e.total_end ? eventMs(e.total_end) : null,
         peakAltDeg: e.peak.altitude,
+        peakAzDeg,
         // The library already filters on "some contact above the horizon"; keep the flag so a row
         // whose GREATEST phase happens below the horizon can say so.
         visible: alts.some((a) => a > 0),
@@ -397,7 +405,8 @@ export function nextLunarEclipses(
       const peakMs = e.peak.date.getTime();
       const time = MakeTime(e.peak);
       const eq = Equator(Body.Moon, time, obs, true, true);
-      const alt = Horizon(time, obs, eq.ra, eq.dec).altitude; // airless, the house contract
+      const hz = Horizon(time, obs, eq.ra, eq.dec); // airless, the house contract
+      const alt = hz.altitude;
       // `sd_*` are SEMI-durations in MINUTES and 0 means "phase never reached" — double them, and
       // prefer the widest phase that actually occurred for the row's span.
       const halfMs = (min: number) => min * 60_000;
@@ -415,6 +424,7 @@ export function nextLunarEclipses(
         totalStartMs: e.sd_total > 0 ? peakMs - totalHalf : null,
         totalEndMs: e.sd_total > 0 ? peakMs + totalHalf : null,
         peakAltDeg: alt,
+        peakAzDeg: hz.azimuth,
         visible: alt > 0,
       });
       if (out.length >= count) break;

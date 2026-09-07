@@ -1246,7 +1246,7 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     fmt: "pct",
     budget: 0.5,
     warnBelow: 0.5,
-    note: "Fraction of the 120 azimuth bins with real horizon evidence (a null march leaves a bin UNKNOWN, not clear). Below 0.5 no radar claims skyline gaps (WS4 honesty).",
+    note: "Fraction of the azimuth bins with real horizon evidence (a null march leaves a bin UNKNOWN, not clear). T112: honesty is per BIN — every consumer answers exactly where a bin has evidence and 'unknown' where it has none; no coverage floor withholds the profile.",
   },
   {
     id: "planning.terrainBin",
@@ -1254,7 +1254,23 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     group: "planning",
     fmt: "int",
     budget: 120,
-    note: "The sliced horizon build's terrain-march cursor (3 bins/frame, then 2 meshes/frame). terrainBin/120 is the real 'why is the skyline not ready' fraction.",
+    note: "The sliced horizon build's terrain-march cursor (3 coarse bins/frame, then the mesh phase under a ms budget). terrainBin/120 (PLAN.terrainAzBins) is the real 'why is the skyline not ready' fraction; the mesh phase writes at PLAN.azBins (0.25°, T110).",
+  },
+  {
+    id: "planning.sweepMs",
+    label: "mesh sweep ms",
+    group: "planning",
+    fmt: "ms1",
+    budget: 3,
+    warnAbove: 8,
+    note: "T110: the WORST single frame the current/last profile build's mesh phase took (ms). The walk is bounded by PLAN.sweepBudgetMs (3 desktop / 1.5 lean) and resumable mid-mesh, so this should sit at the budget plus one deadline-check window — a fine-bin sweep that hitches shows here first.",
+  },
+  {
+    id: "planning.sweepTotalMs",
+    label: "mesh sweep total",
+    group: "planning",
+    fmt: "ms1",
+    note: "T110: the mesh phase's total walker time for the current/last build (ms), and the phone decision's number — the same precision under the lean budget just spans more frames.",
   },
   {
     id: "planning.scanAgeMs",

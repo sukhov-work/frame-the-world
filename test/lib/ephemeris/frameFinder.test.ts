@@ -5,6 +5,7 @@ import {
   nearestFrameCentre,
   type FramePose,
   type FrameSampler,
+  skylineVerdict,
 } from "../../../src/lib/ephemeris/frameFinder";
 import { horizontal } from "../../../src/lib/ephemeris/bodies";
 import { azAltFrameMarker } from "../../../src/lib/geo/offscreen";
@@ -90,6 +91,22 @@ describe("frameCrossings — synthetic samplers", () => {
     const wall = (az: number) => (Math.abs(az - 180) < 5 ? 35 : 10);
     const win = frameCrossings(s, POSE, from, 0.3, { profileFn: wall })[0];
     expect(win.skyline).toBe("mixed");
+  });
+
+  it("T112: a null skyline sample is 'unknown' per sample — a window's verdict comes from its known samples", () => {
+    const from = SOLSTICE_NOON;
+    const parked = fixed(180, 30);
+    expect(frameCrossings(parked, POSE, from, 0.2, { profileFn: () => null })[0].skyline).toBe("unknown");
+    // evidence only away from the meridian: the swinging body's known samples decide
+    const s = swing(from, 160, 10, 30);
+    const half = (az: number) => (Math.abs(az - 180) < 5 ? null : 10);
+    expect(frameCrossings(s, POSE, from, 0.3, { profileFn: half })[0].skyline).toBe("clear");
+    const halfWall = (az: number) => (Math.abs(az - 180) < 5 ? null : 50);
+    expect(frameCrossings(s, POSE, from, 0.3, { profileFn: halfWall })[0].skyline).toBe("blocked");
+    expect(skylineVerdict(null, 0, 10)).toBe("unknown");
+    expect(skylineVerdict(() => null, 0, 10)).toBe("unknown");
+    expect(skylineVerdict(() => 5, 0, 10)).toBe("clear");
+    expect(skylineVerdict(() => 15, 0, 10)).toBe("blocked");
   });
 
   it("respects maxWindows and the open-at-from honesty rule", () => {

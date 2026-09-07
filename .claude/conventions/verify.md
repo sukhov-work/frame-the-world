@@ -65,6 +65,18 @@ filename (`verify-shots/<phase>-<nn>-<what>.jpeg`).
   edge, a copper gradient, a carved silhouette) at the default framing shoots a picture in which
   the thing under test is invisible. Aim the pose at the almanac's OWN topocentric az/alt for that
   instant and use FOV ~6° — and re-aim per phase, because the moon moves degrees between contacts.
+- **A `src/` edit while ANY harness runs contaminates it — a Vite HMR reload reaches every tab the
+  harness opened** (2026-09-07d: a post sweep that overlapped the T106 edits read whole-frame diffs on
+  dusk poses — a Fast Refresh remount had reset the pinned clock; discarded, re-run). Finish the edits,
+  then run the suite; write docs (outside `src/`) while it runs.
+- **`--compare <pre>` at tolerance 0 has a streaming/LOD noise floor** (2026-09-07d: a whole imagery
+  tile on `legacy-everest` 13 %, the descent's end state 12 %, on an unchanged renderer). Read the diff
+  PNGs and the per-pose tile/tri counts; prove a pixel-relevant change at ITS OWN seam (the T106 edges:
+  `__globe.enrichedBench(n)` must read `mismatch 0` on the resident cells).
+- **The desktop's phone-shaped main thread** is touch emulation + 402×714 @3 + 4 cores (the
+  `probe-memory-footprint --phone` idiom — `Emulation.setEmulatedMedia` does NOT flip
+  `matchMedia("(pointer: coarse)")`) plus `Emulation.setCPUThrottlingRate 4`; `probe-skyline-fine.mjs
+  --lean` is the worked example.
 
 ## The view catalogue and the acceleration model (added 2026-09-06h, owner order)
 

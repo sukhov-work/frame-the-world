@@ -14,12 +14,12 @@ import { usePlanStore } from "../../store/plan";
 import { useUploadStore } from "../../store/upload";
 import { aimAnchorFor } from "../../lib/geo/aimAnchor";
 import { type RadarBandKey } from "../../lib/geo/radarBands";
-import { sampleBins, skylineBinsFor } from "../../lib/geo/horizonProfile";
+import { skylineSamplerFor, type SkylineSampler } from "../../lib/geo/horizonProfile";
 import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
 import { cssInk } from "../../lib/theme/cssInk";
 import { tokens } from "../../lib/theme/tokens";
-import { AIMCONES, FOCALCONE, PLAN } from "../globe/tuning";
+import { AIMCONES, FOCALCONE } from "../globe/tuning";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { AimJoystick } from "../controls/Joystick";
 import { drawRadarCanvas } from "./radarCanvas";
@@ -95,20 +95,19 @@ function radarNow(): RadarBody[] {
   // FPV-only and anchored at the walking eye, exactly where planFeed sweeps its profile;
   // the AIMCONES.skylineGuardM match keeps a stale far-away profile from lending its gaps.
   const plan = usePlanStore.getState();
-  // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineBinsFor) — one rule on all
-  // three radar surfaces, evidence floor included.
-  const bins = skylineBinsFor({
+  // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineSamplerFor) — one rule on
+  // every profile consumer; per-bin best effort since T112 (a null sample keeps the band
+  // plain there, a swept bin fractures it).
+  const view = skylineSamplerFor({
     ready: plan.profileReady,
     bins: plan.profileBins,
+    known: plan.profileKnown,
     coverage: plan.profileCoverage,
     eye: plan.anchor && plan.anchor.kind !== "focus" ? plan.anchor : null,
     anchor,
     guardM: AIMCONES.skylineGuardM,
-    minCoverage: PLAN.minCoverageForGaps,
   });
-  const skyline: ((azDeg: number) => number) | null = bins
-    ? (azDeg: number) => sampleBins(bins, azDeg)
-    : null;
+  const skyline: SkylineSampler | null = view ? view.altAt : null;
   const wanted: { key: AimKey; target: SkyTarget; color: string }[] = [];
   // UNFOLLOW/SHOW-off (2026-08-19): a hidden target draws no radar ink either.
   if (skyNow.aimTarget && skyNow.visible)

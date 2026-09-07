@@ -124,6 +124,23 @@
   font-size: 10px;
 }
 
+/* T111 (2026-09-07d): the sun/moon rows' skyline badge — the body is up but a building, a
+   ridge, a tree or a placed model hides it from THIS eye (the plan feed's verdict). Same
+   warn grammar as `.tp-badge--sky-blocked`. */
+.fh-badge {
+  margin-left: 8px;
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  vertical-align: 1px;
+}
+.fh-badge--behind {
+  color: var(--color-warn);
+  border-color: color-mix(in srgb, var(--color-warn) 45%, var(--color-border));
+}
+
 /* Walk/look hint (owner: arrow-key walking; +WASD/⇧␣ 2026-08-14) — a quiet two-line footer. */
 .fh-hint {
   margin-top: 2px;
@@ -206,6 +223,15 @@
 }
 .fh-chip--down:hover {
   opacity: 0.85;
+}
+/* T111 (2026-09-07d): up, but the local skyline hides it — dormant like --down, with the
+   warn tint the PLAN/TARGET "BEHIND SKYLINE" badges wear. */
+.fh-chip--behind {
+  opacity: 0.6;
+  border-color: color-mix(in srgb, var(--color-warn) 45%, var(--color-border));
+}
+.fh-chip--behind:hover {
+  opacity: 0.9;
 }
 
 /* /m: thumb-sized touch target (the desktop 13px pill is a mouse target). Chips sit one

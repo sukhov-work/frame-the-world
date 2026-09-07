@@ -9,7 +9,7 @@ import {
 } from "../../../lib/ephemeris/dayArc";
 import type { SkyTarget } from "../../../lib/ephemeris/targets";
 import { enuBasis } from "../../../lib/geo/projection";
-import { horizonFade, makeArcMaterial, pointDirs } from "./dayArcs";
+import { horizonFade, makeArcMaterial, pointDirs, skylineFold } from "./dayArcs";
 
 /**
  * Tracked sky-target trajectory (ASTRO ENGINE phase C, owner ask 2026-08-03 — the arc the comet
@@ -39,6 +39,8 @@ export interface SkyTrailHandle {
     anchor: { latDeg: number; lonDeg: number } | null;
     /** SHOW && TRAIL (store/sky). */
     visible: boolean;
+    /** T111 — the skyline at the anchor's eye (see `dayArcs.update`), or null for no fold. */
+    skyline: { sample: (azDeg: number) => number; key: unknown } | null;
     dtMs: number;
   }): void;
   dispose(): void;
@@ -65,8 +67,15 @@ export function attachSkyTrail(scene: THREE.Scene): SkyTrailHandle {
   let anchorLat = NaN;
   let anchorLon = NaN;
   let fade = 0;
+  let foldKey: unknown = undefined;
 
-  function rebuild(target: SkyTarget, latDeg: number, lonDeg: number, sceneMs: number) {
+  function rebuild(
+    target: SkyTarget,
+    latDeg: number,
+    lonDeg: number,
+    sceneMs: number,
+    sky: ((azDeg: number) => number) | null,
+  ) {
     const basis = enuBasis(latDeg, lonDeg);
     arc = sampleTargetArc(target, sceneMs, latDeg, lonDeg, {
       stepMin: DAYARC.stepMin,
@@ -80,7 +89,9 @@ export function attachSkyTrail(scene: THREE.Scene): SkyTrailHandle {
 
     const linePos = pointDirs(arc.points, basis, (p) => azAltToEnu(p.azDeg, p.altDeg));
     const lineT = new Float32Array(arc.points.map((p) => p.t01));
-    const lineF = new Float32Array(arc.points.map((p) => horizonFade(p.altDeg)));
+    const lineF = new Float32Array(
+      arc.points.map((p) => horizonFade(p.altDeg) * skylineFold(sky, p.azDeg, p.altDeg)),
+    );
     line.geometry.dispose();
     line.geometry = new THREE.BufferGeometry();
     line.geometry.setAttribute("position", new THREE.BufferAttribute(linePos, 3));
@@ -96,7 +107,7 @@ export function attachSkyTrail(scene: THREE.Scene): SkyTrailHandle {
     const tickT = new Float32Array(tickPts.map((p) => p.t01));
     const tickF = new Float32Array(
       arc.hourTicks.flatMap((p) => {
-        const f = horizonFade(p.altDeg);
+        const f = horizonFade(p.altDeg) * skylineFold(sky, p.azDeg, p.altDeg);
         return [f, f];
       }),
     );
@@ -109,7 +120,7 @@ export function attachSkyTrail(scene: THREE.Scene): SkyTrailHandle {
 
   return {
     group,
-    update({ camera, sceneMs, target, anchor, visible, dtMs }) {
+    update({ camera, sceneMs, target, anchor, visible, skyline, dtMs }) {
       const want = visible && anchor !== null;
       const targetFade = want ? 1 : 0;
       fade += (targetFade - fade) * (1 - Math.exp(-dtMs / DAYARC.fadeTauMs));
@@ -122,10 +133,12 @@ export function attachSkyTrail(scene: THREE.Scene): SkyTrailHandle {
           Math.abs(anchor.latDeg - anchorLat) > SKY_TARGET.trailRebuildMinDeg ||
           Math.abs(anchor.lonDeg - anchorLon) > SKY_TARGET.trailRebuildMinDeg;
         const dayCrossed = !arc || sceneMs < arc.startMs || sceneMs >= arc.endMs;
-        if (moved || dayCrossed || target.id !== arcTargetId) {
+        const skyKey = skyline ? skyline.key : null;
+        if (moved || dayCrossed || target.id !== arcTargetId || skyKey !== foldKey) {
           anchorLat = anchor.latDeg;
           anchorLon = anchor.lonDeg;
-          rebuild(target, anchorLat, anchorLon, sceneMs);
+          foldKey = skyKey;
+          rebuild(target, anchorLat, anchorLon, sceneMs, skyline ? skyline.sample : null);
         }
       }
       group.visible = true;

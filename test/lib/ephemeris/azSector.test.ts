@@ -208,6 +208,16 @@ describe("fractureRunsBySkyline — radar occlusion gaps (owner QA 2026-08-21 it
     expect(fractureRunsBySkyline([run], () => 90)).toEqual([]);
   });
 
+  it("T112: a sampler answering null at an azimuth makes no claim THERE — the sample stays in the run", () => {
+    // no evidence over (105, 125): the band draws plain across it, exactly the null-sampler path
+    const unknownMid = (azDeg: number) => (azDeg > 105 && azDeg < 125 ? null : 0);
+    expect(fractureRunsBySkyline([run], unknownMid)[0]).toEqual(run);
+    // evidence on one side only: the known wall still fractures, the unknown side stays whole
+    const halfKnown = (azDeg: number) => (azDeg < 100 ? null : azDeg < 125 ? 30 : 0);
+    const out = fractureRunsBySkyline([run], halfKnown);
+    expect(out.map((r) => r.map((s) => s.azDeg))).toEqual([[130, 140]]);
+  });
+
   it("sub-runs shorter than 2 samples are dropped (cannot draw)", () => {
     // Only the az-130 sample clears this skyline — a 1-sample island, dropped.
     const out = fractureRunsBySkyline([run], (az) => (az > 125 && az < 135 ? 0 : 90));

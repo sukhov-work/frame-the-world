@@ -33,8 +33,23 @@ export interface FramePose {
 /** Injected position sampler — wrap `horizontal(body, …)` or `targetAzAlt(target, …)`. */
 export type FrameSampler = (utcMs: number) => AzAlt;
 
-/** Skyline sampler (az → apparent skyline elevation deg) — `sampleBins` over the plan mirror. */
-export type ProfileFn = (azDeg: number) => number;
+/** Skyline sampler (az → apparent skyline elevation deg) — `sampleBinsKnown` over the plan
+ *  mirror. T112: `null` at an azimuth means the profile has NO evidence there — that sample
+ *  is "unknown", not "clear"; a window's verdict comes from its known samples alone. */
+export type ProfileFn = (azDeg: number) => number | null;
+
+/** One body sample vs the skyline: "unknown" without a sampler OR without evidence at that
+ *  azimuth (T112), else clear / blocked by the apparent elevation. */
+export function skylineVerdict(
+  profileFn: ProfileFn | null,
+  azDeg: number,
+  altDeg: number,
+): "clear" | "blocked" | "unknown" {
+  if (!profileFn) return "unknown";
+  const sk = profileFn(azDeg);
+  if (sk == null) return "unknown";
+  return altDeg > sk ? "clear" : "blocked";
+}
 
 export interface FrameCrossing {
   /** The body enters the frame rectangle (above the horizon). */
@@ -120,7 +135,10 @@ function finishWindow(
       peakMs = t;
     }
     if (profileFn) {
-      if (p.altDeg > profileFn(p.azDeg)) sawClear = true;
+      const sk = profileFn(p.azDeg);
+      if (sk == null) {
+        // no evidence at this azimuth — neither verdict (T112)
+      } else if (p.altDeg > sk) sawClear = true;
       else sawBlocked = true;
     }
     if (t >= endMs) break;
@@ -145,7 +163,15 @@ function finishWindow(
     endMs,
     peakMs,
     peakSepDeg: peakSep,
-    skyline: !profileFn ? "unknown" : sawClear && sawBlocked ? "mixed" : sawClear ? "clear" : "blocked",
+    skyline: !profileFn
+      ? "unknown"
+      : sawClear && sawBlocked
+        ? "mixed"
+        : sawClear
+          ? "clear"
+          : sawBlocked
+            ? "blocked"
+            : "unknown",
     light: lightPhaseAt(peakMs, pose.latDeg, pose.lonDeg),
     moonUp,
     moonIllum: states.moonIllumination,
@@ -292,7 +318,7 @@ export function azElHitsInDay(
           elDeg: at.altDeg,
           startMs: inBox(crossMs) ? edge(-1) : crossMs,
           endMs: inBox(crossMs) ? edge(1) : crossMs,
-          skyline: !profileFn ? "unknown" : at.altDeg > profileFn(at.azDeg) ? "clear" : "blocked",
+          skyline: skylineVerdict(profileFn, at.azDeg, at.altDeg),
           light: lightPhaseAt(crossMs, observer.latDeg, observer.lonDeg),
           moonUp,
           moonIllum: states.moonIllumination,
@@ -410,11 +436,7 @@ export function frameStandingsFromPositions(
     const states = bodyStatesAt(p.utcMs);
     const moonUp = horizontal("moon", p.utcMs, pose.latDeg, pose.lonDeg).altDeg > 0;
     const moonGlare = moonUp ? moonPhaseIntensity(states.moonPhaseAngleDeg) : 0;
-    const skyline: FrameStanding["skyline"] = !profileFn
-      ? "unknown"
-      : p.altDeg > profileFn(p.azDeg)
-        ? "clear"
-        : "blocked";
+    const skyline: FrameStanding["skyline"] = skylineVerdict(profileFn, p.azDeg, p.altDeg);
     let visibility = 1; // the sun in frame is the sun — always fully visible
     if (body === "moon") {
       visibility = FIND_VIS.moonFloor + (1 - FIND_VIS.moonFloor) * states.moonIllumination;

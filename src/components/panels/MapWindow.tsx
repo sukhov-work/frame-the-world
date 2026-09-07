@@ -17,7 +17,7 @@ import {
   tileFToLonLat,
   zoomForMetersPerPx,
 } from "../../lib/geo/slippy";
-import { sampleBins, skylineBinsFor } from "../../lib/geo/horizonProfile";
+import { skylineSamplerFor } from "../../lib/geo/horizonProfile";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import {
   fractureRunsBySkyline,
@@ -30,7 +30,7 @@ import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
 import { cssFontFamily, cssInk } from "../../lib/theme/cssInk";
 import { tokens } from "../../lib/theme/tokens";
-import { AIMCONES, FOCALCONE, FPV, FRUSTUM, PLAN, TILESETS } from "../globe/tuning";
+import { AIMCONES, FOCALCONE, FPV, FRUSTUM, TILESETS } from "../globe/tuning";
 import { drawRadarCanvas } from "./radarCanvas";
 import "../../styles/map-window.css";
 
@@ -233,19 +233,19 @@ export default function MapWindow() {
     // eye ⇒ no gap claim — the traceStates honesty rule the time rail already follows).
     const skylineNow = (anchor: { latDeg: number; lonDeg: number }) => {
       const plan = usePlanStore.getState();
-      // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineBinsFor) — one rule on
-      // all three radar surfaces, and it now also requires enough EVIDENCE (profileCoverage),
-      // which no radar consulted before.
-      const bins = skylineBinsFor({
+      // THE gate since audit #3 A1-16 (lib/geo/horizonProfile.skylineSamplerFor) — one rule
+      // on every profile consumer; per-bin best effort since T112 (a null sample keeps the
+      // band plain there, a swept bin fractures it).
+      const view = skylineSamplerFor({
         ready: plan.profileReady,
         bins: plan.profileBins,
+        known: plan.profileKnown,
         coverage: plan.profileCoverage,
         eye: plan.anchor && plan.anchor.kind !== "focus" ? plan.anchor : null,
         anchor,
         guardM: AIMCONES.skylineGuardM,
-        minCoverage: PLAN.minCoverageForGaps,
       });
-      return bins ? (azDeg: number) => sampleBins(bins, azDeg) : null;
+      return view ? view.altAt : null;
     };
 
     const aimBodiesNow = (skyNow: ReturnType<typeof useSkyStore.getState>) => {

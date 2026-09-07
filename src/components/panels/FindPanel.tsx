@@ -25,7 +25,7 @@ import {
   type SunEventKind,
 } from "../../lib/ephemeris/sunEventFrame";
 import { GOLDEN } from "../globe/tuning";
-import { sampleBins } from "../../lib/geo/horizonProfile";
+import { mirrorSampler } from "../../lib/geo/horizonProfile";
 import { findHitColor, findStandingColorIdx } from "../../lib/theme/findPalette";
 import { cardinal } from "../../lib/format/readout";
 import { downloadIcs } from "../../lib/export/ics";
@@ -135,6 +135,10 @@ export default function FindPanel() {
   const planOpen = usePlanStore((s) => s.open);
   const anchor = usePlanStore((s) => s.anchor);
   const bins = usePlanStore((s) => s.profileBins);
+  const known = usePlanStore((s) => s.profileKnown);
+  // T112: the per-bin best-effort skyline (exact where swept, null where not) — the eye IS the
+  // plan anchor here, so the one gate reduces to the mirror itself.
+  const skyline = useMemo(() => mirrorSampler(bins, known), [bins, known]);
   const focusLat = useCameraStore((s) => s.focusLatDeg);
   const focusLon = useCameraStore((s) => s.focusLonDeg);
   // Quantized pose key (the FrameCard idiom, ≈1° / half-degree FOV / aspect hundredths) —
@@ -211,7 +215,7 @@ export default function FindPanel() {
       fovDeg: hud.fovDeg,
       aspect: hud.aspect,
     };
-    const profileFn = bins ? (az: number) => sampleBins(bins, az) : null;
+    const profileFn = skyline;
     const out: FrameStanding[] = [];
     for (const b of ["sun", "moon", "target"] as const) {
       if (!bodies[b]) continue;
@@ -221,7 +225,7 @@ export default function FindPanel() {
     out.sort((a, b) => a.utcMs - b.utcMs);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [positions, poseKey, bins, bodies, latKey, lonKey, targetIsBody]);
+  }, [positions, poseKey, skyline, bodies, latKey, lonKey, targetIsBody]);
 
   // §3.5 stage 1 — pose-FREE event day loop (root-finds). Keyed on the local DAY, never the
   // scrub minute: sunset instants don't depend on the scrubber hour (unlike the standings scan).
@@ -256,9 +260,9 @@ export default function FindPanel() {
       fovDeg: hud.fovDeg,
       aspect: hud.aspect,
     };
-    return sunEventFrameHits(eventDays, pose, bins ? (az: number) => sampleBins(bins, az) : null);
+    return sunEventFrameHits(eventDays, pose, skyline);
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [eventDays, poseKey, bins, latKey, lonKey]);
+  }, [eventDays, poseKey, skyline, latKey, lonKey]);
 
   const jumpSunEvent = (h: SunEventHit) => {
     setTime(h.utcMs);

@@ -12,7 +12,7 @@ import {
 } from "../../lib/ephemeris/frameFinder";
 import { horizontal } from "../../lib/ephemeris/bodies";
 import { targetAzAlt, targetShortName } from "../../lib/ephemeris/targets";
-import { sampleBins } from "../../lib/geo/horizonProfile";
+import { mirrorSampler } from "../../lib/geo/horizonProfile";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { downloadIcs } from "../../lib/export/ics";
 
@@ -84,6 +84,10 @@ export default function FrameCard() {
   );
   const anchor = usePlanStore((s) => s.anchor);
   const bins = usePlanStore((s) => s.profileBins);
+  const known = usePlanStore((s) => s.profileKnown);
+  // T112: the per-bin best-effort skyline (exact where swept, null where not) — the eye IS the
+  // plan anchor here, so the one gate reduces to the mirror itself.
+  const skyline = useMemo(() => mirrorSampler(bins, known), [bins, known]);
   const target = useSkyStore((s) => s.target);
   const targetVisible = useSkyStore((s) => s.visible);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -106,7 +110,7 @@ export default function FrameCard() {
       fovDeg: hud.fovDeg,
       aspect: hud.aspect,
     };
-    const profileFn = bins ? (az: number) => sampleBins(bins, az) : null;
+    const profileFn = skyline;
     const from = fromKey * FROM_QUANTUM_MS;
     const opts = { profileFn, stepMin: SCAN_STEP_MIN, maxWindows: 1 } as const;
     const sunS: FrameSampler = (t) => horizontal("sun", t, pose.latDeg, pose.lonDeg);
@@ -133,7 +137,7 @@ export default function FrameCard() {
     }
     return { rows, centre, from, latDeg: pose.latDeg, lonDeg: pose.lonDeg };
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [poseKey, hasEye, anchor, bins, target, targetVisible, fromKey]);
+  }, [poseKey, hasEye, anchor, skyline, target, targetVisible, fromKey]);
 
   if (!scan) return null;
   const { rows, centre, from, latDeg, lonDeg } = scan;

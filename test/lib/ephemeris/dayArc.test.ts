@@ -270,6 +270,20 @@ describe("targetElevationSeries + traceStates (QoL-1 §3.1.D rail trace)", () =>
     expect(traceStates(sDown, () => 50).every((st) => st === "down")).toBe(true);
   });
 
+  it("T112: a sampler answering null classifies the sample as 'unknown' — neither clear nor blocked", () => {
+    const s = targetElevationSeries(polaris, start, end, DNIPRO.latDeg, DNIPRO.lonDeg, 60);
+    expect(traceStates(s, () => null).every((st) => st === "unknown")).toBe(true);
+    // mixed evidence: per sample, not per profile
+    const st = traceStates(s, (az) => (az < 180 ? null : 50));
+    expect(st.some((x) => x === "unknown")).toBe(true);
+    expect(st.some((x) => x === "blocked")).toBe(true);
+    expect(st.some((x) => x === "clear")).toBe(false);
+    // the sun/moon curve samples now carry an azimuth too (T111 folds them the same way)
+    const sun = elevationSeries("sun", start, start + 3_600_000, DNIPRO.latDeg, DNIPRO.lonDeg, 30);
+    expect(sun.every((x) => Number.isFinite(x.azDeg))).toBe(true);
+    expect(traceStates(sun, () => 90).every((x) => x === "blocked" || x === "down")).toBe(true);
+  });
+
   it("skyline sampler receives the sample azimuth", () => {
     const s = targetElevationSeries(polaris, start, start + 3_600_000, DNIPRO.latDeg, DNIPRO.lonDeg, 30);
     const seen: number[] = [];

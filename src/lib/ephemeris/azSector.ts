@@ -141,21 +141,25 @@ export function sampleAimDay(
  * horizonProfile contract); blocked spans become GAPS, so the radar bands carry the same
  * visibility intermittence the time-rail trace shows (dayArc.traceStates is the classifier
  * twin). A null sampler returns the runs untouched — no profile at this eye ⇒ no gap claim
- * (the traceStates honesty rule). Cuts land between samples: at 3° profile bins × the 10-min
- * step a gap edge sits within one bin of truth, the module-doc budget. Sub-runs shorter than
+ * (the traceStates honesty rule); a sampler answering `null` at one azimuth makes no claim
+ * THERE (T112, per-bin best effort). Cuts land between samples: at the profile's bin width ×
+ * the 10-min step a gap edge sits within one bin of truth, the module-doc budget. Sub-runs shorter than
  * 2 samples cannot draw and are dropped. Cheap (one sampler lerp per sample) — safe per
  * rebuild, and pure like everything here.
  */
 export function fractureRunsBySkyline(
   runs: readonly AimSample[][],
-  skylineAltDegAt: ((azDeg: number) => number) | null,
+  skylineAltDegAt: ((azDeg: number) => number | null) | null,
 ): readonly AimSample[][] {
   if (!skylineAltDegAt) return runs;
   const out: AimSample[][] = [];
   for (const run of runs) {
     let sub: AimSample[] | null = null;
     for (const s of run) {
-      if (s.altDeg >= skylineAltDegAt(s.azDeg)) {
+      // T112: a `null` sample = no evidence at that azimuth — the sample stays in the run (the
+      // band draws plain there, exactly the null-sampler path), never a claimed gap.
+      const sk = skylineAltDegAt(s.azDeg);
+      if (sk == null || s.altDeg >= sk) {
         (sub ??= []).push(s);
       } else {
         if (sub && sub.length >= 2) out.push(sub);

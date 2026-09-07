@@ -1,4 +1,5 @@
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
+import { usePlanStore, type PlanBodyState } from "../../store/plan";
 import { useSkyStore } from "../../store/sky";
 import { gotoSkyBody } from "../../store/skyAim";
 import "../../styles/fpv-hud.css";
@@ -25,6 +26,12 @@ import "../../styles/tips.css";
 export default function SkyGotoChips() {
   const markers = useCameraStore((s) => s.skyMarkers);
   const fpvLive = useCameraStore((s) => s.fpvHud !== null || s.tempFpv);
+  // T111 (2026-09-07d): the plan feed's skyline verdict per body — a chip pointing at a body
+  // the local skyline hides reads dimmed (same grammar as the below-horizon chip); the aim
+  // click is unchanged. Silent where the profile has no evidence (T112).
+  const planSun = usePlanStore((s) => s.sun);
+  const planMoon = usePlanStore((s) => s.moon);
+  const planTarget = usePlanStore((s) => s.target);
   // /m mounts this island page-wide (the MiniMap fence-exemption precedent) but shows chips
   // only while FPV is live — the 2D map is a nadir view with no sky to point into.
   if (typeof document !== "undefined" && document.body.classList.contains("m") && !fpvLive)
@@ -32,14 +39,16 @@ export default function SkyGotoChips() {
   if (!markers) return null;
   return (
     <>
-      {markers.sun && <BodyChip marker={markers.sun} glyph="☀" kind="sun" />}
-      {markers.moon && <BodyChip marker={markers.moon} glyph="☾" kind="moon" />}
+      {markers.sun && <BodyChip marker={markers.sun} glyph="☀" kind="sun" plan={planSun} />}
+      {markers.moon && <BodyChip marker={markers.moon} glyph="☾" kind="moon" plan={planMoon} />}
       {markers.target && (
         <BodyChip
           marker={markers.target}
           glyph={markers.target.glyph}
           kind="target"
           label={markers.target.label}
+          // store/plan.target and skyMarkers.target both mirror the ONE tracked target
+          plan={planTarget}
           // The chip is the marker's off-screen surrogate — on desktop clicking it also
           // fronts the TARGET panel, like clicking the marker itself (phase C). On /m the
           // sheet would cover the view the user just asked to see — aim only.
@@ -63,6 +72,7 @@ function BodyChip({
   kind,
   label,
   onAim,
+  plan,
 }: {
   marker: FpvBodyMarker;
   glyph: string;
@@ -71,11 +81,15 @@ function BodyChip({
   label?: string;
   /** Extra action on click (the target chip fronts its panel). */
   onAim?: () => void;
+  /** T111 — the plan feed's skyline verdict for this body (null = no profile / no claim). */
+  plan?: PlanBodyState | null;
 }) {
   // Sun/moon hide below the horizon as always; the TRACKED target keeps a dimmed chip whose
   // click looks at its next-rise azimuth (owner 2026-08-19b).
   if (marker.inFrame || (!marker.up && kind !== "target")) return null;
   const down = !marker.up;
+  // (`skylineAltDeg > 0`: a real obstruction, not the bare horizon dip — see FpvHud.)
+  const behind = !down && !!plan && plan.skylineKnown && plan.blockedNow && plan.skylineAltDeg > 0;
   // Screen-plane direction: store y is up, screen y is down.
   const sx = marker.dirX;
   const sy = -marker.dirY;
@@ -107,15 +121,23 @@ function BodyChip({
   return (
     <button
       type="button"
-      className={`fh-chip fh-chip--${kind}${down ? " fh-chip--down" : ""} tip`}
+      className={`fh-chip fh-chip--${kind}${down ? " fh-chip--down" : ""}${behind ? " fh-chip--behind" : ""} tip`}
       style={{ left: x, top: y }}
       onClick={aim}
-      data-tip={down ? "BELOW HORIZON — LOOK WHERE IT RISES NEXT" : "BRING IT INTO VIEW"}
+      data-tip={
+        down
+          ? "BELOW HORIZON — LOOK WHERE IT RISES NEXT"
+          : behind
+            ? "BEHIND THE SKYLINE — BRING IT INTO VIEW"
+            : "BRING IT INTO VIEW"
+      }
       data-tip-pos="down"
       aria-label={
         down
           ? `${name} is below the horizon — click to look where it rises next`
-          : `${name} is off-frame at ${Math.round(marker.azDeg)}° — click to look at it`
+          : behind
+            ? `${name} is up but behind the skyline at ${Math.round(marker.azDeg)}° — click to look at it`
+            : `${name} is off-frame at ${Math.round(marker.azDeg)}° — click to look at it`
       }
     >
       <span className="fh-chip__glyph">{glyph}</span>

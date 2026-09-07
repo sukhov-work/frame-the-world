@@ -324,6 +324,129 @@ export function mapSegmentsToRuns(
   return out;
 }
 
+/**
+ * T106 (2026-09-07d) — the integer twin of `vertexKeyToRunWithCollisions` + `mapSegmentsToRuns`.
+ * Those two cost the Pixel 6 Pro 873 ms per descent (MEASUREMENTS §21.3): one template-string
+ * key per vertex into a `Map<string, …>`, then the same string again per edge endpoint. The
+ * edge builder (`lib/globe/fastEdges`) now reports the SOURCE vertex behind every emitted
+ * endpoint, so attribution needs no position key at all on the edge side, and the source side
+ * keys EXACT float positions as three ints (the float bits; −0 folded onto 0 the way the
+ * decimal string did) through an open-addressed table.
+ *
+ * SAME ANSWERS BY CONSTRUCTION — the rules are `mapSegmentsToRuns`'s, verbatim: first-wins per
+ * exact position in ascending run order; a segment belongs to the run owning BOTH endpoints;
+ * a segment with two shared endpoints goes to the lowest common claimant; else the first
+ * endpoint's owner, else the second's; unmatched −1. Output per VERTEX, `csrFromRunIds` shape.
+ * `test/lib/globe/fastEdges.test.ts` pins equality against the string path on party walls.
+ */
+export function segmentRunsFromSources(
+  srcIndex: ArrayLike<number>,
+  positions: ArrayLike<number>,
+  runs: readonly FeatureRun[],
+): Int32Array {
+  const vertexCount = Math.floor(positions.length / 3);
+  // run per source vertex (−1 outside every run)
+  const runOf = new Int32Array(vertexCount).fill(-1);
+  for (let r = 0; r < runs.length; r++) {
+    const run = runs[r];
+    const end = Math.min(vertexCount, run.start + run.count);
+    for (let i = run.start; i < end; i++) runOf[i] = r;
+  }
+  // exact-position uid per source vertex
+  const f32 = new Float32Array(3);
+  const i32 = new Int32Array(f32.buffer);
+  const bx = new Int32Array(vertexCount);
+  const by = new Int32Array(vertexCount);
+  const bz = new Int32Array(vertexCount);
+  let cap = 1;
+  while (cap < vertexCount * 2) cap <<= 1;
+  const mask = cap - 1;
+  const table = new Int32Array(cap).fill(-1);
+  const rep = new Int32Array(vertexCount);
+  const uidOf = new Int32Array(vertexCount);
+  let uidCount = 0;
+  for (let i = 0; i < vertexCount; i++) {
+    f32[0] = positions[i * 3] || 0; // −0 → 0 (the string key read both as "0")
+    f32[1] = positions[i * 3 + 1] || 0;
+    f32[2] = positions[i * 3 + 2] || 0;
+    const x = i32[0];
+    const y = i32[1];
+    const z = i32[2];
+    bx[i] = x;
+    by[i] = y;
+    bz[i] = z;
+    // Mix ALL the bits down before masking: float bit patterns (and round-metre coordinates)
+    // have long runs of zero low bits, and a plain multiply-xor leaves them zero — every
+    // vertex would land in slot 0 and the probe would go quadratic (measured: 350 ms on a
+    // 61k-vertex cell before this mixer, 3 ms after).
+    let h = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
+    h ^= Math.imul(y ^ (y >>> 13), 0xc2b2ae35);
+    h ^= Math.imul(z ^ (z >>> 16), 0x27d4eb2f);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x2c1b3c6d);
+    h ^= h >>> 12;
+    h &= mask;
+    for (;;) {
+      const u = table[h];
+      if (u < 0) {
+        table[h] = uidCount;
+        rep[uidCount] = i;
+        uidOf[i] = uidCount++;
+        break;
+      }
+      const rr = rep[u];
+      if (bx[rr] === x && by[rr] === y && bz[rr] === z) {
+        uidOf[i] = u;
+        break;
+      }
+      h = (h + 1) & mask;
+    }
+  }
+  // first-wins owner per uid (runs ascend, vertices ascend ⇒ the first claimant is the lowest
+  // run) and the collision lists for uids claimed by ≥ 2 runs.
+  const firstRun = new Int32Array(uidCount).fill(-1);
+  const claimants = new Map<number, number[]>();
+  for (let r = 0; r < runs.length; r++) {
+    const run = runs[r];
+    const end = Math.min(vertexCount, run.start + run.count);
+    for (let i = run.start; i < end; i++) {
+      const u = uidOf[i];
+      const have = firstRun[u];
+      if (have < 0) firstRun[u] = r;
+      else if (have !== r) {
+        const list = claimants.get(u);
+        if (!list) claimants.set(u, [have, r]);
+        else if (list[list.length - 1] !== r) list.push(r);
+      }
+    }
+  }
+  const n = srcIndex.length;
+  const out = new Int32Array(n).fill(-1);
+  for (let a = 0; a + 1 < n; a += 2) {
+    const b = a + 1;
+    const ua = uidOf[srcIndex[a]];
+    const ub = uidOf[srcIndex[b]];
+    const ra = firstRun[ua];
+    const rb = firstRun[ub];
+    let r = ra;
+    if (ra !== rb) {
+      const A = claimants.get(ua) ?? (ra >= 0 ? [ra] : []);
+      const B = claimants.get(ub) ?? (rb >= 0 ? [rb] : []);
+      let common = -1;
+      for (const x of A) {
+        if (B.includes(x)) {
+          common = x;
+          break;
+        }
+      }
+      r = common >= 0 ? common : ra >= 0 ? ra : rb;
+    }
+    out[a] = r;
+    out[b] = r;
+  }
+  return out;
+}
+
 /** CSR buckets: vertex indices grouped by run id (−1 entries dropped) — the per-building
  *  apply loop touches ONLY its own edge verts instead of rescanning the whole array. */
 export function csrFromRunIds(

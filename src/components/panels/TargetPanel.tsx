@@ -3,6 +3,8 @@ import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
+import { skylineSamplerFor } from "../../lib/geo/horizonProfile";
+import { AIMCONES } from "../globe/tuning";
 import { useFindStore } from "../../store/find";
 import type { FindBody } from "../../lib/ephemeris/frameFinder";
 import { useCameraStore } from "../../store/camera";
@@ -103,7 +105,54 @@ function magnitudeNote(state: TargetState): string {
   }
 }
 
-function WindowRow({ w, onJump }: { w: TargetWindow; onJump: (ms: number) => void }) {
+/**
+ * T111 (2026-09-07d): the LOCAL skyline at this card's eye — the one gate (a real plan eye
+ * within the guard distance of the card's eye; `skylineSamplerFor`), per-bin best effort
+ * (T112: `null` where the profile has no evidence, so no claim is made there). Memoised on
+ * the mirror's identity — planFeed publishes a fresh pair once per completed build.
+ */
+function useSkylineAt(latKey: number, lonKey: number) {
+  const planReady = usePlanStore((s) => s.profileReady);
+  const planBins = usePlanStore((s) => s.profileBins);
+  const planKnown = usePlanStore((s) => s.profileKnown);
+  const planAnchor = usePlanStore((s) => s.anchor);
+  return useMemo(
+    () =>
+      skylineSamplerFor({
+        ready: planReady,
+        bins: planBins,
+        known: planKnown,
+        coverage: 1,
+        eye: planAnchor && planAnchor.kind !== "focus" ? planAnchor : null,
+        anchor: { latDeg: latKey / 20, lonDeg: lonKey / 20 },
+        guardM: AIMCONES.skylineGuardM,
+      }),
+    [planReady, planBins, planKnown, planAnchor, latKey, lonKey],
+  );
+}
+
+/** A row's peak (az/alt) vs that skyline: true only where the profile has evidence AND the
+ *  peak sits below it. */
+function peakBehind(
+  skyline: ReturnType<typeof useSkylineAt>,
+  peakAzDeg: number,
+  peakAltDeg: number,
+): boolean {
+  if (!skyline || peakAltDeg <= 0) return false;
+  const sk = skyline.altAt(peakAzDeg);
+  return sk != null && peakAltDeg < sk;
+}
+
+function WindowRow({
+  w,
+  onJump,
+  behind,
+}: {
+  w: TargetWindow;
+  onJump: (ms: number) => void;
+  /** T111 — the window's peak sits behind the local skyline. */
+  behind: boolean;
+}) {
   const moonNote =
     w.moonAltDeg <= 0
       ? "no moon"
@@ -122,6 +171,7 @@ function WindowRow({ w, onJump }: { w: TargetWindow; onJump: (ms: number) => voi
       <span className="tp-win__score">{stars(w.score)}</span>
       <span className="tp-win__peak">
         PEAK {clockLabel(w.peakMs)} · {w.peakAltDeg.toFixed(1)}° {cardinal(w.peakAzDeg)} · {moonNote}
+        {behind && <span className="tp-win__skyline"> · BEHIND SKYLINE</span>}
       </span>
     </button>
   );
@@ -380,6 +430,8 @@ function EclipseFacts({
       ? nextSolarEclipses(from, obs, ECLIPSE_ROWS)
       : nextLunarEclipses(from, obs, ECLIPSE_ROWS);
   }, [open, isSun, isMoon, dayKey, latKey, lonKey]);
+  const skyline = useSkylineAt(latKey, lonKey);
+  const behindSkyline = (r: EclipseRow): boolean => peakBehind(skyline, r.peakAzDeg, r.peakAltDeg);
 
   // What is happening RIGHT NOW at scene time — the reading that turns the card into an
   // instrument rather than a calendar. Cheap (no search), so it rides the minute.
@@ -407,7 +459,7 @@ function EclipseFacts({
       </div>
       {live && <div className="tp-ecl-live">NOW: {live}</div>}
       {rows.length > 0 ? (
-        rows.map((r) => <EclipseRowView key={r.peakMs} row={r} onJump={onJump} />)
+        rows.map((r) => <EclipseRowView key={r.peakMs} row={r} behind={behindSkyline(r)} onJump={onJump} />)
       ) : (
         <div className="tp-status">NO ECLIPSE FOUND IN THE SEARCH HORIZON</div>
       )}
@@ -421,7 +473,16 @@ function EclipseFacts({
 }
 
 /** One eclipse row — the `.tp-win` grammar (tap to pin scene time to the moment). */
-function EclipseRowView({ row, onJump }: { row: EclipseRow; onJump: (ms: number) => void }) {
+function EclipseRowView({
+  row,
+  onJump,
+  behind,
+}: {
+  row: EclipseRow;
+  onJump: (ms: number) => void;
+  /** T111 — greatest eclipse sits behind the local skyline at this eye (null = no claim). */
+  behind: boolean;
+}) {
   const total = row.totalStartMs != null && row.totalEndMs != null;
   return (
     <button
@@ -452,6 +513,7 @@ function EclipseRowView({ row, onJump }: { row: EclipseRow; onJump: (ms: number)
           : row.visible
             ? " · SETS MID-ECLIPSE"
             : " · BELOW HORIZON"}
+        {behind && <span className="tp-win__skyline"> · BEHIND SKYLINE</span>}
       </span>
     </button>
   );
@@ -557,6 +619,8 @@ export default function TargetPanel() {
   const hourKey = Math.floor(nowMs / 3_600_000);
   const latKey = Math.round(latDeg * 20);
   const lonKey = Math.round(lonDeg * 20);
+  // T111: the NEXT SESSIONS rows fold the local skyline too (a peak behind a building reads so).
+  const windowSkyline = useSkylineAt(latKey, lonKey);
   const windows = useMemo(() => {
     if (!open) return [];
     return targetWindows(
@@ -824,7 +888,7 @@ export default function TargetPanel() {
 
             <div className="tp-section">NEXT SESSIONS · SUN &lt; −15° · TARGET &gt; 5°</div>
             {windows.length > 0 ? (
-              windows.map((w) => <WindowRow key={w.startMs} w={w} onJump={setTime} />)
+              windows.map((w) => <WindowRow key={w.startMs} w={w} behind={peakBehind(windowSkyline, w.peakAzDeg, w.peakAltDeg)} onJump={setTime} />)
             ) : (
               <div className="tp-status">NO DARK-SKY PASS IN THE NEXT 8 NIGHTS HERE</div>
             )}

@@ -44,7 +44,7 @@ import {
 } from "../../lib/ephemeris/sunEventFrame";
 import { bodyTarget, targetAzAlt, targetShortName } from "../../lib/ephemeris/targets";
 import { moonCalendar, nextSupermoons, type MoonCalKind } from "../../lib/ephemeris/moonCalendar";
-import { sampleBins } from "../../lib/geo/horizonProfile";
+import { mirrorSampler } from "../../lib/geo/horizonProfile";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { maxCosDecInFrame, npfFullSec, npfSimpleSec, rule500Sec } from "../../lib/photo/npf";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
@@ -128,6 +128,10 @@ function FrameSection() {
   const poseKey = usePoseKey();
   const anchor = usePlanStore((s) => s.anchor);
   const bins = usePlanStore((s) => s.profileBins);
+  const known = usePlanStore((s) => s.profileKnown);
+  // T112: the per-bin best-effort skyline (exact where swept, null where not) — the eye IS the
+  // plan anchor here, so the one gate reduces to the mirror itself.
+  const skyline = useMemo(() => mirrorSampler(bins, known), [bins, known]);
   const target = useSkyStore((s) => s.target);
   const targetVisible = useSkyStore((s) => s.visible);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -150,7 +154,7 @@ function FrameSection() {
       fovDeg: hud.fovDeg,
       aspect: hud.aspect,
     };
-    const profileFn = bins ? (az: number) => sampleBins(bins, az) : null;
+    const profileFn = skyline;
     const from = fromKey * 5 * 60_000;
     const opts = { profileFn, stepMin: 5, maxWindows: 1 } as const;
     const sunS: FrameSampler = (t) => horizontal("sun", t, pose.latDeg, pose.lonDeg);
@@ -174,7 +178,7 @@ function FrameSection() {
     }
     return { rows, centre, from, tgtName: targetShortName(target).toUpperCase() };
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [poseKey, hasEye, anchor, bins, target, targetVisible, fromKey]);
+  }, [poseKey, hasEye, anchor, skyline, target, targetVisible, fromKey]);
 
   if (!scan) return null;
   return (
@@ -297,6 +301,10 @@ function SunsetSection() {
   const poseKey = usePoseKey();
   const anchor = usePlanStore((s) => s.anchor);
   const bins = usePlanStore((s) => s.profileBins);
+  const known = usePlanStore((s) => s.profileKnown);
+  // T112: the per-bin best-effort skyline (exact where swept, null where not) — the eye IS the
+  // plan anchor here, so the one gate reduces to the mirror itself.
+  const skyline = useMemo(() => mirrorSampler(bins, known), [bins, known]);
   const focusLat = useCameraStore((s) => s.focusLatDeg);
   const focusLon = useCameraStore((s) => s.focusLonDeg);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -343,9 +351,9 @@ function SunsetSection() {
       fovDeg: hud.fovDeg,
       aspect: hud.aspect,
     };
-    return sunEventFrameHits(eventDays, pose, bins ? (az: number) => sampleBins(bins, az) : null);
+    return sunEventFrameHits(eventDays, pose, skyline);
     // eslint-disable-next-line react-hooks/exhaustive-deps — pose read via getState on poseKey change
-  }, [eventDays, poseKey, bins, latKey, lonKey]);
+  }, [eventDays, poseKey, skyline, latKey, lonKey]);
 
   const jump = (h: SunEventHit) => {
     setTime(h.utcMs);

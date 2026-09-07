@@ -3,6 +3,9 @@ import { useTimeStore } from "../../store/time";
 import { useSkyStore } from "../../store/sky";
 import { showerTarget } from "../../lib/ephemeris/targets";
 import { upcomingShowerPeaks, type ShowerPeak } from "../../lib/ephemeris/showers";
+import { usePlanStore } from "../../store/plan";
+import { skylineSamplerFor } from "../../lib/geo/horizonProfile";
+import { AIMCONES } from "../globe/tuning";
 
 /**
  * METEORS card (Phase 8c P7) — the upcoming shower maxima with their moon-scored best nights
@@ -44,6 +47,32 @@ export default function MeteorsCard({ latDeg, lonDeg }: { latDeg: number; lonDeg
     [dayKey, latKey, lonKey],
   );
   const maxScore = Math.max(1, ...peaks.map((p) => p.night?.score ?? 0));
+  // T111 (2026-09-07d): a best night whose radiant peak sits BEHIND the local skyline gets a
+  // badge — the one gate (a real eye within the guard of this card's eye; per-bin best
+  // effort, T112). Memoised on the mirror's identity, never per render.
+  const planReady = usePlanStore((s) => s.profileReady);
+  const bins = usePlanStore((s) => s.profileBins);
+  const known = usePlanStore((s) => s.profileKnown);
+  const planAnchor = usePlanStore((s) => s.anchor);
+  const skyline = useMemo(
+    () =>
+      skylineSamplerFor({
+        ready: planReady,
+        bins,
+        known,
+        coverage: 1,
+        eye: planAnchor && planAnchor.kind !== "focus" ? planAnchor : null,
+        anchor: { latDeg: latKey / 20, lonDeg: lonKey / 20 },
+        guardM: AIMCONES.skylineGuardM,
+      }),
+    [planReady, bins, known, planAnchor, latKey, lonKey],
+  );
+  const behindSkyline = (p: ShowerPeak): boolean => {
+    const pk = p.night?.peak;
+    if (!pk || !skyline) return false;
+    const sk = skyline.altAt(pk.azDeg);
+    return sk != null && pk.altDeg < sk;
+  };
 
   const jump = (p: ShowerPeak) => {
     setTime(p.night?.peak?.utcMs ?? p.peakMs);
@@ -77,6 +106,11 @@ export default function MeteorsCard({ latDeg, lonDeg }: { latDeg: number; lonDeg
                   {p.row.code} · ≈{Math.round(p.night.peak.rate)}/h · {hhmm(p.night.peak.utcMs)}
                   {p.night.moonInterference > 0 &&
                     ` · ☾${Math.round(p.night.moonInterference * 100)}%`}
+                  {behindSkyline(p) && (
+                    <span className="pp-mw__skyline" title="the radiant's peak sits behind the local skyline">
+                      {" "}· ✕ SKYLINE
+                    </span>
+                  )}
                 </span>
               </>
             ) : (

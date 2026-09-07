@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore, type FpvBodyMarker } from "../../store/camera";
+import { usePlanStore, type PlanBodyState } from "../../store/plan";
 import SkyGotoChips from "./SkyGotoChips";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import {
@@ -37,10 +38,24 @@ function bodyReadout(marker: FpvBodyMarker): string {
   return `${Math.round(marker.azDeg)}° ${cardinal(marker.azDeg)} · ${formatSigned(marker.altDeg)}`;
 }
 
+/** T111 (2026-09-07d): the body is geometrically up but the cached skyline — terrain,
+ *  buildings, trees, user models at THIS eye — hides it. Reads the plan feed's own verdict
+ *  (`store/plan.sun/moon`, the same eye ladder the HUD bearings use: photo apex, else the FPV
+ *  eye), ~5 Hz and deduped, so the badge costs no extra render; `marker.up` stays the
+ *  geometric gate (GOTO's rise scan and the chip hide rule depend on it). Silent where the
+ *  profile has no evidence at that azimuth (T112 `skylineKnown`). */
+function behindSkyline(marker: FpvBodyMarker, plan: PlanBodyState | null): boolean {
+  // `skylineAltDeg > 0`: something REAL stands above the geometric horizon there — a body under
+  // the bare eye-height dip has set, and "BELOW HORIZON" / the altitude readout already say so.
+  return !!plan && marker.up && plan.skylineKnown && plan.blockedNow && plan.skylineAltDeg > 0;
+}
+
 export default function FpvHud() {
   const hud = useCameraStore((s) => s.fpvHud);
   const markers = useCameraStore((s) => s.skyMarkers);
   const camGeo = useCameraStore((s) => s.camGeo);
+  const planSun = usePlanStore((s) => s.sun);
+  const planMoon = usePlanStore((s) => s.moon);
   const drag = usePanelDrag("fpv-hud");
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<number | null>(null);
@@ -122,11 +137,31 @@ export default function FpvHud() {
         </div>
         <div className="fh-row fh-row--sun">
           <span className="fh-label">☀ SUN</span>
-          <span className="fh-value">{bodyReadout(hud.sun)}</span>
+          <span className="fh-value">
+            {bodyReadout(hud.sun)}
+            {behindSkyline(hud.sun, planSun) && (
+              <span
+                className="fh-badge fh-badge--behind"
+                title={`skyline ${planSun!.skylineAltDeg.toFixed(1)}° at ${Math.round(planSun!.azDeg)}°`}
+              >
+                BEHIND SKYLINE
+              </span>
+            )}
+          </span>
         </div>
         <div className="fh-row fh-row--moon">
           <span className="fh-label">☾ MOON</span>
-          <span className="fh-value">{bodyReadout(hud.moon)}</span>
+          <span className="fh-value">
+            {bodyReadout(hud.moon)}
+            {behindSkyline(hud.moon, planMoon) && (
+              <span
+                className="fh-badge fh-badge--behind"
+                title={`skyline ${planMoon!.skylineAltDeg.toFixed(1)}° at ${Math.round(planMoon!.azDeg)}°`}
+              >
+                BEHIND SKYLINE
+              </span>
+            )}
+          </span>
         </div>
         <div className="fh-hint">
           WASD·◀▲▼▶ WALK · DRAG LOOK

@@ -111,6 +111,12 @@ describe("sunEventFrameHits (pose-cheap face)", () => {
     expect(sunEventFrameHits([day({ azDeg: 210.9 })], p).length).toBe(0);
   });
 
+  it("T112: a null sample at the event's azimuth reads 'unknown' on both row kinds", () => {
+    const p = pose(180, 0);
+    expect(sunEventFrameHits([day({ altDeg: -0.83 })], p, () => null)[0].skyline).toBe("unknown");
+    expect(sunEventFrameHits([day({ altDeg: -0.83 })], p, () => 0)[0].skyline).toBe("clear");
+  });
+
   it("rise/set skyline verdict asks 'is the true horizon visible there' — never centre-vs-profile", () => {
     const p = pose(180, 0);
     const flat = sunEventFrameHits([day({ altDeg: -0.83 })], p, () => 0);

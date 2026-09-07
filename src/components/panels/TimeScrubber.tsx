@@ -56,7 +56,7 @@ import {
 } from "../../lib/ephemeris/dayArc";
 import { dayEvents, moonPhaseEvents } from "../../lib/ephemeris/planner";
 import { meteorRateSeries, type RateSample } from "../../lib/ephemeris/showers";
-import { sampleBins } from "../../lib/geo/horizonProfile";
+import { mirrorSampler } from "../../lib/geo/horizonProfile";
 import { azAltFrameMarker } from "../../lib/geo/offscreen";
 import { GOLDEN, SCRUB } from "../globe/tuning";
 import InfoDot from "../ui/InfoDot";
@@ -89,15 +89,33 @@ function rateLabel(rate: number): string {
   return `${Math.round(rate / 3600)} HR/S`;
 }
 
-/** SVG path for an altitude curve over the visible window (viewBox 0..100 × 0..40; horizon at
- *  y=20, ±90° maps to ±19 units). Pure string math over cached span samples — cheap per render. */
-function curvePath(samples: AltSample[], windowStartMs: number): string {
-  let d = "";
-  for (const s of samples) {
+/** T111 — the sun/moon curve split by skyline state: the BASE path (below the horizon, clear,
+ *  or no evidence) keeps today's stroke; the BLOCKED spans are drawn over it dashed, so the
+ *  rail shows where a building or ridge hides the body. Transitions bridge from the previous
+ *  point so the segments meet. */
+function curvePathsByState(
+  samples: readonly AltSample[],
+  states: readonly TraceState[],
+  windowStartMs: number,
+): { base: string; blocked: string } {
+  const d = { base: "", blocked: "" };
+  let prev: { x: number; y: number } | null = null;
+  let open: keyof typeof d | null = null;
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
     const x = ((s.utcMs - windowStartMs) / WINDOW_MS) * 100;
-    if (x < -2 || x > 102) continue;
+    if (x < -2 || x > 102) {
+      prev = null;
+      open = null;
+      continue;
+    }
     const y = 20 - (s.altDeg / 90) * 19;
-    d += `${d ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
+    const cls: keyof typeof d = states[i] === "blocked" ? "blocked" : "base";
+    const pt = `${x.toFixed(2)} ${y.toFixed(2)}`;
+    if (open === cls) d[cls] += `L${pt}`;
+    else d[cls] += prev ? `M${prev.x.toFixed(2)} ${prev.y.toFixed(2)}L${pt}` : `M${pt}`;
+    open = cls;
+    prev = { x, y };
   }
   return d;
 }
@@ -111,8 +129,8 @@ function tracePaths(
   states: readonly TraceState[],
   windowStartMs: number,
   frameTest: ((s: TargetAltSample) => boolean) | null,
-): { blocked: string; clear: string; frame: string } {
-  const d = { blocked: "", clear: "", frame: "" };
+): { blocked: string; clear: string; frame: string; unknown: string } {
+  const d = { blocked: "", clear: "", frame: "", unknown: "" };
   let prev: { x: number; y: number } | null = null;
   let open: keyof typeof d | null = null;
   for (let i = 0; i < samples.length; i++) {
@@ -124,8 +142,16 @@ function tracePaths(
       continue;
     }
     const y = 20 - (s.altDeg / 90) * 19;
+    // T112: "unknown" (up, but the profile has no evidence at that azimuth) is its own class —
+    // drawn as the geometric path, never promoted to clear or to the frame band.
     const cls: keyof typeof d =
-      states[i] === "blocked" ? "blocked" : frameTest?.(s) ? "frame" : "clear";
+      states[i] === "blocked"
+        ? "blocked"
+        : states[i] === "unknown"
+          ? "unknown"
+          : frameTest?.(s)
+            ? "frame"
+            : "clear";
     const pt = `${x.toFixed(2)} ${y.toFixed(2)}`;
     if (open === cls) d[cls] += `L${pt}`;
     else d[cls] += prev ? `M${prev.x.toFixed(2)} ${prev.y.toFixed(2)}L${pt}` : `M${pt}`;
@@ -218,6 +244,14 @@ export default function TimeScrubber() {
   const targetVisible = useSkyStore((s) => s.visible);
   const skyTarget = useSkyStore((s) => s.target);
   const profileBins = usePlanStore((s) => s.profileBins);
+  const profileKnown = usePlanStore((s) => s.profileKnown);
+  // T112: the per-bin best-effort sampler (exact where swept, null where not) — the eye IS the
+  // plan anchor here, so the one gate reduces to the mirror itself.
+  const skyline = useMemo(() => mirrorSampler(profileBins, profileKnown), [profileBins, profileKnown]);
+  // T111: the sun/moon curves fold the skyline too — dashed where a building or ridge hides
+  // the body (the same classifier as the target trace).
+  const sunCls = useMemo(() => traceStates(curves.sun, skyline), [curves, skyline]);
+  const moonCls = useMemo(() => traceStates(curves.moon, skyline), [curves, skyline]);
   const trace = useMemo(
     () =>
       targetVisible
@@ -225,10 +259,7 @@ export default function TimeScrubber() {
         : [],
     [targetVisible, skyTarget, spanAnchorMs, eyeLatKey, eyeLonKey], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const traceCls = useMemo(
-    () => traceStates(trace, profileBins ? (az) => sampleBins(profileBins, az) : null),
-    [trace, profileBins],
-  );
+  const traceCls = useMemo(() => traceStates(trace, skyline), [trace, skyline]);
   // P7/R12 meteor layer — only when the tracked target IS a shower with a real ZHR curve
   // (the Var outburst rows honestly stay flat); same span/eye memo discipline as the trace.
   const showerRow =
@@ -498,14 +529,25 @@ export default function TimeScrubber() {
               d={meteorPath(meteorTrace, showerRow.zhr!, windowStartMs)}
             />
           )}
-          <path className="ts-curves__moon" d={curvePath(curves.moon, windowStartMs)} />
-          <path className="ts-curves__sun" d={curvePath(curves.sun, windowStartMs)} />
+          {(() => {
+            const m = curvePathsByState(curves.moon, moonCls, windowStartMs);
+            const su = curvePathsByState(curves.sun, sunCls, windowStartMs);
+            return (
+              <>
+                <path className="ts-curves__moon" d={m.base} />
+                {m.blocked && <path className="ts-curves__moon ts-curves__body--blocked" d={m.blocked} />}
+                <path className="ts-curves__sun" d={su.base} />
+                {su.blocked && <path className="ts-curves__sun ts-curves__body--blocked" d={su.blocked} />}
+              </>
+            );
+          })()}
           {trace.length > 0 &&
             (() => {
               const t = tracePaths(trace, traceCls, windowStartMs, frameTest);
               return (
                 <>
                   {t.blocked && <path className="ts-curves__trace-blocked" d={t.blocked} />}
+                  {t.unknown && <path className="ts-curves__trace-unknown" d={t.unknown} />}
                   {t.clear && <path className="ts-curves__trace-clear" d={t.clear} />}
                   {t.frame && <path className="ts-curves__trace-frame" d={t.frame} />}
                 </>

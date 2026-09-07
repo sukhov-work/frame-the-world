@@ -20,6 +20,7 @@ import {
 } from "../../../lib/globe/enrichedMask";
 import { BUILDINGS, EARTH, FOVEATION, LOADING, TILESETS } from "../tuning";
 import { createBuildingMaterials } from "./buildingMaterial";
+import { buildEdgesGeometry } from "./edgesGeometry";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
@@ -294,8 +295,10 @@ export function attachBuildings(
         c.receiveShadow = true;
         // Pronounced edges: hard creases as line segments riding the mesh. The added child is
         // a LineSegments, so the isMesh branch skips it when traverse reaches it.
+        // T106 (2026-09-07d): the same crease edges through the integer-keyed builder
+        // (element-identical to `EdgesGeometry`, `fastEdges.test`) — 0.3 s of the Pixel's descent.
         const edges = new THREE.LineSegments(
-          new THREE.EdgesGeometry(c.geometry, BUILDINGS.edgeAngleDeg),
+          buildEdgesGeometry(c.geometry, BUILDINGS.edgeAngleDeg).geometry,
           edgeMat,
         );
         edges.raycast = () => {}; // never let GlobeControls pick a decoration line
