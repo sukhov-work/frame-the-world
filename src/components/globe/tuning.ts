@@ -2531,6 +2531,17 @@ export const BUILDINGS = {
   /** Hard-crease threshold (deg) for EdgesGeometry strokes. */
   edgeAngleDeg: 30,
   edgeOpacity: 0.4,
+  /** T106 OSM (2026-09-07f) — the per-frame TIME budget (ms) for the OSM handler's PHASE 2: the
+   *  crease edges of every mesh a b3dm tile lands with, built through the resumable fast builder
+   *  on `lib/globe/loadQueue` (one unit per mesh, nearest tile first) instead of atomically
+   *  inside `load-model` — on the Pixel that atomic build was 410 ms of the descent's hitch
+   *  frames (three's `EdgesGeometry`: the b3dm position is INTERLEAVED and had been failing the
+   *  fast path's gate). The OSM queue drains in `buildings.update()`, one frame BEFORE the
+   *  enriched queue's `ENRICHED.loadBudgetMs` — the two are SEPARATE budgets, so a frame that
+   *  drains both spends up to their sum. Every drain runs at least one step; the worst frame
+   *  reads on `__globe.buildingsLoad().deferredMaxMs` (DBG `buildings.osmLoadMaxMs`). */
+  loadBudgetMs: 3,
+  loadBudgetMsLean: 1.5,
   /** Per-tile screen-door reveal duration (ms) — RENDERING_QUALITY_PASS F1, the #1 street-level
    *  pop. attachBuildings registers NO TilesFadePlugin (its per-material WeakMap fights the ONE
    *  shared-material invariant — last-tile-wins + constant global recompiles), so each b3dm used

@@ -11,7 +11,8 @@ import {
   type FoveationTierCfg,
   type QueueCaps,
 } from "../../../lib/globe/quality";
-import { makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
+import { createLoadQueue, type LoadUnit } from "../../../lib/globe/loadQueue";
+import { lookBiasedDistance, makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
 import {
   bboxClipPrismEcef,
   bboxContainsRad,
@@ -20,7 +21,8 @@ import {
 } from "../../../lib/globe/enrichedMask";
 import { BUILDINGS, EARTH, FOVEATION, LOADING, TILESETS } from "../tuning";
 import { createBuildingMaterials } from "./buildingMaterial";
-import { buildEdgesGeometry } from "./edgesGeometry";
+import { createFastEdgesScratch } from "../../../lib/globe/fastEdges";
+import { createEdgesBuilder, type EdgesBuilder } from "./edgesGeometry";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
@@ -41,6 +43,31 @@ import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../..
 export interface BuildingsHandle {
   tiles: TilesRenderer;
   update(): void;
+  /** T106 OSM (2026-09-07f) — the `load-model` cost ledger: phase 1 (the synchronous handler),
+   *  the deferred edge units (per step, per drain), the queue state. DEV seam `__globe.buildingsLoad()`. */
+  debugLoad(): {
+    tiles: number;
+    meshes: number;
+    handlerMs: number;
+    handlerMaxMs: number;
+    allocMs: number;
+    allocMaxMs: number;
+    edgesMs: number;
+    edgesMaxMs: number;
+    slowPathMeshes: number;
+    allocTop: { ms: number; verts: number; tris: number; nth: number }[];
+    scratchReuses: number;
+    scratchGrowths: number;
+    deferredMs: number;
+    deferredMaxMs: number;
+    deferredFrames: number;
+    pending: number;
+    unitsDone: number;
+    unitsCancelled: number;
+    budgetMs: number;
+  };
+  /** The phase-2 budget, live (DEV seam `__globe.buildingsLoadBudget(ms)`); returns the value in force. */
+  setLoadBudgetMs(ms: number): number;
   /** FPV ghost mode (Phase 5.5 S2 follow-up): fade ALL buildings so the first-person view is
    *  never lost inside a mesh. Both materials are shared, so this is two uniform writes —
    *  per-tile obstruction testing is impossible without breaking the one-material invariant.
@@ -113,6 +140,9 @@ export function attachBuildings(
     /** UPLIFT U5: the shared download-priority aim state (StylizedTiles refreshes it per frame;
      *  the closest-first comparator reads it). Consumed only when LOADING.closestFirst.buildings. */
     loadAim: LoadAim;
+    /** T106 OSM (2026-09-07f): the per-frame ms budget for the deferred crease edges — the
+     *  orchestrator keys it on `lean` (`BUILDINGS.loadBudgetMs` / `loadBudgetMsLean`). */
+    loadBudgetMs?: number;
   },
 ): BuildingsHandle {
   // S7d trial flag: Re:Earth Overture buildings (hosted 3D Tiles 1.1, meshopt-compressed glTF)
@@ -269,7 +299,93 @@ export function attachBuildings(
   let tileSeedSeq = 0;
   // (S7c grow-on-zoom REMOVED 2026-07-11 same day — owner: unreliable. Buildings render at
   // full height whenever their tiles load; see DECISIONS for the reverted mechanics.)
+  // T106 OSM (2026-09-07f) — the two-phase `load-model` handler, the enriched handler's shape
+  // (scene/enrichedBuildings.ts `makeMeshLoadUnit`) for the one expensive thing this handler
+  // does: the crease edges. PHASE 1 (synchronous, per mesh): the material swap, the F1 fill
+  // birth, the tone seed, the shadow flags. PHASE 2: one unit per mesh on the deferred queue,
+  // drained in `update()` under `loadBudgetMs` per frame, nearest tile first (the tile's
+  // bounding-sphere centre through the download queue's own look-biased law), a mid-flight
+  // unit sticky. The edges land with THEIR OWN `frameNow()` birth — the fill has been
+  // dissolving in since the tile landed; the strokes join it from the frame they exist.
+  const loadQueue = createLoadQueue();
+  let loadBudgetMs = opts.loadBudgetMs ?? BUILDINGS.loadBudgetMs;
+  const loadLedger = {
+    tiles: 0,
+    meshes: 0,
+    handlerMs: 0,
+    handlerMaxMs: 0,
+    allocMs: 0,
+    allocMaxMs: 0,
+    edgesMs: 0,
+    edgesMaxMs: 0,
+    slowPathMeshes: 0,
+    /** DEV: the three costliest constructions — {ms, verts, tris, nth} — to tell a cold first
+     *  call from a big tile. */
+    allocTop: [] as { ms: number; verts: number; tris: number; nth: number }[],
+  };
+  const noteAlloc = (ms: number, verts: number, tris: number, nth: number): void => {
+    const top = loadLedger.allocTop;
+    top.push({ ms: +ms.toFixed(2), verts, tris, nth });
+    top.sort((a, b) => b.ms - a.ms);
+    if (top.length > 3) top.length = 3;
+  };
+  let unitSeq = 0;
+  // The builder's tables, reused by every unit in turn (the queue's mid-flight unit is sticky,
+  // so one builder is live at a time) — a build allocates only its output.
+  const edgeScratch = createFastEdgesScratch();
+  const tileCenter = makeTileCenterReader();
+  const makeEdgeUnit = (key: object, c: THREE.Mesh, center: { x: number; y: number; z: number } | null): LoadUnit => {
+    let builder: EdgesBuilder | null = null;
+    return {
+      key,
+      priority: () => (center ? lookBiasedDistance(center, opts.loadAim) : 0),
+      step(deadlineMs) {
+        const t0 = performance.now();
+        if (!builder) {
+          // The constructor de-interleaves the b3dm position and sizes the builder's tables —
+          // paid here, once per mesh, and reported apart from the steps (`allocMaxMs`).
+          builder = createEdgesBuilder(c.geometry, BUILDINGS.edgeAngleDeg, edgeScratch);
+          const dtAlloc = performance.now() - t0;
+          loadLedger.allocMs += dtAlloc;
+          if (dtAlloc > loadLedger.allocMaxMs) loadLedger.allocMaxMs = dtAlloc;
+          const pa = c.geometry.getAttribute("position");
+          const ix = c.geometry.getIndex();
+          noteAlloc(dtAlloc, pa ? pa.count : 0, Math.floor((ix ? ix.count : pa ? pa.count : 0) / 3), unitSeq++);
+        }
+        const t1 = performance.now();
+        const done = builder.step(deadlineMs);
+        const dt = performance.now() - t1;
+        loadLedger.edgesMs += dt;
+        if (dt > loadLedger.edgesMaxMs) loadLedger.edgesMaxMs = dt;
+        if (!done) return false;
+        const build = builder.result();
+        builder = null;
+        loadLedger.meshes++;
+        if (!build.fast) loadLedger.slowPathMeshes++;
+        // Pronounced edges: hard creases as line segments riding the mesh. The added child is
+        // a LineSegments, so the handler's isMesh traverse never sees it.
+        // T106 (2026-09-07d): the integer-keyed builder, element-identical to `EdgesGeometry`.
+        const birthMs = frameNow(); // F1: the strokes' own birth — this frame, from the seam
+        const edges = new THREE.LineSegments(build.geometry, edgeMat);
+        edges.raycast = () => {}; // never let GlobeControls pick a decoration line
+        edges.onBeforeRender = () => {
+          uEdgeBirthMs.value = birthMs; // F1: its own holder (separate draw item)
+        };
+        c.add(edges);
+        // A tile scene gets ONE world-matrix update, when the library makes it visible
+        // (`TilesRenderer.setTileVisible` → `scene.updateMatrixWorld(true)`), and `TilesGroup`
+        // only recurses into its children when the group's own matrix changed. A child added
+        // AFTER that update is never reached: it renders at the identity — ECEF (0,0,0), inside
+        // the planet — and is frustum-culled. Every deferred stroke seats itself (2026-09-07f: 41
+        // of 41 OSM edge objects at the origin, 37 draw calls short at the zoom-sweep pose).
+        edges.updateMatrixWorld(true);
+        return true;
+      },
+    };
+  };
+  const _center = { x: 0, y: 0, z: 0 };
   tiles.addEventListener("load-model", (e: any) => {
+    const tHandler = performance.now();
     // One birth stamp per TILE (this load-model event) — the whole b3dm dissolves in as a unit.
     // T94: `frameNow()`, the SAME clock `uNowMs` is stamped with. A tile that lands while the seam
     // holds the clock (in-flight loads still resolve — only `tiles.update()` is held) would
@@ -278,6 +394,10 @@ export function attachBuildings(
     const birthMs = frameNow();
     // Pass 2 R2: one low-discrepancy seed per TILE (golden-ratio increment) — see tileSeedSeq.
     const tileSeed = (tileSeedSeq++ * 0.6180339887498949) % 1.0;
+    // The unit's priority: this tile's bounding-sphere centre (ECEF), captured once; a tile
+    // without one drains in arrival order after every located one.
+    const center = e.tile && tileCenter(e.tile, _center) ? { x: _center.x, y: _center.y, z: _center.z } : null;
+    loadLedger.tiles++;
     e.scene.traverse((c: any) => {
       if (c.isMesh) {
         const orig = c.material;
@@ -293,23 +413,16 @@ export function attachBuildings(
         // Tiles arrive with both flags false — the shadow pass skips everything otherwise.
         c.castShadow = true;
         c.receiveShadow = true;
-        // Pronounced edges: hard creases as line segments riding the mesh. The added child is
-        // a LineSegments, so the isMesh branch skips it when traverse reaches it.
-        // T106 (2026-09-07d): the same crease edges through the integer-keyed builder
-        // (element-identical to `EdgesGeometry`, `fastEdges.test`) — 0.3 s of the Pixel's descent.
-        const edges = new THREE.LineSegments(
-          buildEdgesGeometry(c.geometry, BUILDINGS.edgeAngleDeg).geometry,
-          edgeMat,
-        );
-        edges.raycast = () => {}; // never let GlobeControls pick a decoration line
-        edges.onBeforeRender = () => {
-          uEdgeBirthMs.value = birthMs; // F1: same birth, its own holder (separate draw item)
-        };
-        c.add(edges);
+        // PHASE 2: the crease edges, deferred.
+        loadQueue.push(makeEdgeUnit(e.scene, c, center));
       }
     });
+    const dtHandler = performance.now() - tHandler;
+    loadLedger.handlerMs += dtHandler;
+    if (dtHandler > loadLedger.handlerMaxMs) loadLedger.handlerMaxMs = dtHandler;
   });
   tiles.addEventListener("dispose-model", (e: any) => {
+    loadQueue.cancel(e.scene); // T106: a unit still waiting for this tile is dropped whole
     e.scene.traverse((c: any) => {
       // per-tile edge geometry only — edgeMat and styleMat are SHARED (disposed once, in dispose())
       if (c.isLineSegments) c.geometry.dispose();
@@ -333,6 +446,28 @@ export function attachBuildings(
         return;
       }
       tiles.update();
+      // T106 OSM: PHASE 2 of `load-model` — the deferred crease edges under the frame budget.
+      // Held with the traversal under the T94 freeze (a stroke appearing is a picture change).
+      if (loadQueue.pending() > 0) loadQueue.drain(loadBudgetMs);
+    },
+    debugLoad() {
+      const q = loadQueue.stats();
+      return {
+        ...loadLedger,
+        scratchReuses: edgeScratch.reuses,
+        scratchGrowths: edgeScratch.growths,
+        deferredMs: q.ms,
+        deferredMaxMs: q.maxFrameMs,
+        deferredFrames: q.frames,
+        pending: q.pending,
+        unitsDone: q.done,
+        unitsCancelled: q.cancelled,
+        budgetMs: loadBudgetMs,
+      };
+    },
+    setLoadBudgetMs(ms) {
+      loadBudgetMs = Number.isFinite(ms) && ms >= 0 ? ms : BUILDINGS.loadBudgetMs;
+      return loadBudgetMs;
     },
     setActive(on) {
       if (on === active) return;
@@ -399,6 +534,7 @@ export function attachBuildings(
     },
     dispose() {
       unregFrameClock();
+      loadQueue.clear();
       tiles.dispose();
       styleMat.dispose();
       edgeMat.dispose();

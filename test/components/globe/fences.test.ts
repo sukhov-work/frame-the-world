@@ -1050,3 +1050,37 @@ describe("T101 — the deep-pending hold is wired through the single plane law",
     expect(body).toMatch(/deepPendingCells: c\?\.deepPendingCells/);
   });
 });
+
+/**
+ * 2026-09-07f — A LATE CHILD OF A TILE MESH MUST SEAT ITSELF. `TilesRenderer.setTileVisible` gives
+ * a tile scene ONE `updateMatrixWorld(true)` when it becomes visible, and `TilesGroup.updateMatrixWorld`
+ * recurses into its children only when the group's own matrix changed — so a `LineSegments` added to a
+ * tile mesh AFTER that moment (both deferred `load-model` queues do exactly that) keeps the identity
+ * world matrix: it renders at the ECEF origin, inside the planet, and is frustum-culled. 41 of 41 OSM
+ * edge objects were there, 37 draw calls short at the zoom-sweep pose, hiding inside a 1 % pixel diff.
+ * Mutation that makes this RED: drop the `updateMatrixWorld(true)` after either `c.add(edges)`.
+ */
+describe("deferred crease edges seat their own world matrix (2026-09-07f)", () => {
+  const files = ["scene/buildings.ts", "scene/enrichedBuildings.ts"];
+  for (const f of files) {
+    it(`${f}: every c.add(edges) is followed by edges.updateMatrixWorld(true)`, () => {
+      const src = readFileSync(join(root, "src", "components", "globe", f), "utf8");
+      const adds = src.match(/c\.add\(edges\);/g) ?? [];
+      expect(adds.length, "the deferred unit adds the strokes").toBeGreaterThanOrEqual(1);
+      // the seat must come after the add, before the unit returns — within the same block
+      const re = /c\.add\(edges\);[\s\S]{0,900}?edges\.updateMatrixWorld\(true\);/g;
+      const seated = src.match(re) ?? [];
+      expect(seated.length).toBe(adds.length);
+    });
+  }
+  it("three still updates a late child only when forced (the trap is three's, not ours)", () => {
+    const parent = new THREE.Object3D();
+    parent.position.set(10, 20, 30);
+    parent.updateMatrixWorld(true);
+    const late = new THREE.Object3D();
+    parent.add(late);
+    expect(late.matrixWorld.elements[12]).toBe(0); // identity until someone updates it
+    late.updateMatrixWorld(true);
+    expect(late.matrixWorld.elements[12]).toBe(10);
+  });
+});

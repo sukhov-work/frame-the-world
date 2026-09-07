@@ -190,6 +190,10 @@ describe("HeightMemo — per-tile (spatial) invalidation (T77 lever 6)", () => {
     m.invalidateRegionRad([0.61, 0.845], BIG); // a box bounding volume, not a region
     expect(m.get(48.4647, 35.0462)).toBe(85.85);
     expect(m.stats().invalidations).toBe(0);
+    // T114: the silent branch is counted — three region-less events, and a real region is not one
+    expect(m.stats().regionless).toBe(3);
+    m.invalidateRegionRad([0.61, 0.845, 0.612, 0.847, 0, 100], BIG);
+    expect(m.stats().regionless).toBe(3);
   });
 
   it("a set AFTER an invalidation re-registers in its bucket (the index cannot leak empty)", () => {

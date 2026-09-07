@@ -360,14 +360,66 @@ export interface SegmentRunAttributor {
   done(): boolean;
 }
 
+/**
+ * The attributor's per-vertex tables, REUSABLE across builds (2026-09-07f — the same pool the
+ * edge builder has, `fastEdges.createFastEdgesScratch`, for the same reason: a deferred queue
+ * steps one unit at a time, and the ~6 MB of fresh typed arrays per cell was GC pressure on
+ * the phone). One per queue; the result (`out`) is always a fresh array.
+ */
+export interface AttributorScratch {
+  runOf: Int32Array;
+  bx: Int32Array;
+  by: Int32Array;
+  bz: Int32Array;
+  rep: Int32Array;
+  uidOf: Int32Array;
+  table: Int32Array;
+  firstRun: Int32Array;
+  reuses: number;
+  growths: number;
+}
+
+export function createAttributorScratch(): AttributorScratch {
+  const z = new Int32Array(0);
+  return { runOf: z, bx: z, by: z, bz: z, rep: z, uidOf: z, table: z, firstRun: z, reuses: 0, growths: 0 };
+}
+
+function prepareAttributorScratch(sc: AttributorScratch, vertexCount: number, cap: number): void {
+  let grew = false;
+  if (sc.runOf.length < vertexCount) {
+    sc.runOf = new Int32Array(vertexCount);
+    sc.bx = new Int32Array(vertexCount);
+    sc.by = new Int32Array(vertexCount);
+    sc.bz = new Int32Array(vertexCount);
+    sc.rep = new Int32Array(vertexCount);
+    sc.uidOf = new Int32Array(vertexCount);
+    sc.firstRun = new Int32Array(vertexCount); // uidCount ≤ vertexCount
+    grew = true;
+  }
+  if (sc.table.length < cap) {
+    sc.table = new Int32Array(cap);
+    grew = true;
+  }
+  sc.runOf.fill(-1, 0, vertexCount);
+  sc.table.fill(-1, 0, cap);
+  if (grew) sc.growths++;
+  else sc.reuses++;
+}
+
 export function createSegmentRunAttributor(
   srcIndex: ArrayLike<number>,
   positions: ArrayLike<number>,
   runs: readonly FeatureRun[],
+  scratch?: AttributorScratch,
 ): SegmentRunAttributor {
   const vertexCount = Math.floor(positions.length / 3);
+  let cap = 1;
+  while (cap < vertexCount * 2) cap <<= 1;
+  const mask = cap - 1;
+  const sc = scratch ?? createAttributorScratch();
+  prepareAttributorScratch(sc, vertexCount, cap);
   // run per source vertex (−1 outside every run) — one fill, at construction
-  const runOf = new Int32Array(vertexCount).fill(-1);
+  const runOf = sc.runOf;
   for (let r = 0; r < runs.length; r++) {
     const run = runs[r];
     const end = Math.min(vertexCount, run.start + run.count);
@@ -376,15 +428,7 @@ export function createSegmentRunAttributor(
   // exact-position uid per source vertex
   const f32 = new Float32Array(3);
   const i32 = new Int32Array(f32.buffer);
-  const bx = new Int32Array(vertexCount);
-  const by = new Int32Array(vertexCount);
-  const bz = new Int32Array(vertexCount);
-  let cap = 1;
-  while (cap < vertexCount * 2) cap <<= 1;
-  const mask = cap - 1;
-  const table = new Int32Array(cap).fill(-1);
-  const rep = new Int32Array(vertexCount);
-  const uidOf = new Int32Array(vertexCount);
+  const { bx, by, bz, table, rep, uidOf } = sc;
   let uidCount = 0;
   const keyVertices = (from: number, to: number): void => {
     for (let i = from; i < to; i++) {
@@ -487,7 +531,7 @@ export function createSegmentRunAttributor(
           keyVertices(vCursor, to);
           vCursor = to;
           if (vCursor >= vertexCount) {
-            firstRun = new Int32Array(uidCount).fill(-1);
+            firstRun = sc.firstRun.fill(-1, 0, uidCount);
             stage = 1;
             break;
           }

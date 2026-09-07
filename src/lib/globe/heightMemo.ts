@@ -57,6 +57,11 @@ export interface HeightMemoStats {
   /** T77 lever 6 — whole-map drops NOT caused by capacity: a region too wide for the bucket walk,
    *  or the `maxAgeMs` backstop. A number climbing here says the spatial path is not engaging. */
   fullDrops: number;
+  /** T114 (2026-09-07f) — terrain-tile events that carried NO usable region (missing or shorter
+   *  than 4 entries) and so dropped nothing; only the `maxAgeMs` backstop refreshes the memo
+   *  after such a tile. The CWT path always carries one (`QuantizedMeshPlugin.js:359`); a number
+   *  climbing here names a tile source that does not. */
+  regionless: number;
   /** Times the memo was dropped because it hit its capacity. */
   overflows: number;
 }
@@ -87,6 +92,7 @@ export class HeightMemo {
   private regionInvalidations = 0;
   private bucketsDropped = 0;
   private fullDrops = 0;
+  private regionless = 0;
   private overflows = 0;
   private lastFullDropMs: number;
 
@@ -167,7 +173,10 @@ export class HeightMemo {
    */
   invalidateRegionRad(region: readonly number[] | null | undefined, maxBuckets: number): void {
     this.expireIfStale();
-    if (!region || region.length < 4) return;
+    if (!region || region.length < 4) {
+      this.regionless++; // T114: counted, never silent
+      return;
+    }
     if (this.map.size === 0) return;
     const west = region[0] * RAD_TO_DEG;
     const south = region[1] * RAD_TO_DEG;
@@ -241,6 +250,7 @@ export class HeightMemo {
       regionInvalidations: this.regionInvalidations,
       bucketsDropped: this.bucketsDropped,
       fullDrops: this.fullDrops,
+      regionless: this.regionless,
       overflows: this.overflows,
     };
   }

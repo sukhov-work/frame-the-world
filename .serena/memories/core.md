@@ -12,7 +12,22 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07e
+## Status — 2026-09-07f
+- **2026-09-07f (`mem:project/wip-2026-09-07-t106-pixel-read`):** **T106 READ ON THE PIXEL** — a+b hold on
+  the device (descent dt p95 316.7 → 50.0 ms, hitch main thread 6.73 → 3.93 s, the enriched handler gone
+  from the callers). What was left: **the OSM handler on three's SLOW path** — every Cesium b3dm position is
+  INTERLEAVED and `edgesGeometry.ts`'s gate rejected it (410 ms of the Pixel's hitches, desktop too since
+  slice d) → `positionsF32` de-interleaves (identity pinned) and **the OSM handler is two-phase** on its own
+  `loadQueue` under `BUILDINGS.loadBudgetMs` 3 / 1.5 (`__globe.buildingsLoad()`, DBG `buildings.osmLoad*`).
+  **The GC behind the "13.5 ms step":** the edge `Map` → a typed table, both builders POOLED per queue
+  (`createFastEdgesScratch` / `createAttributorScratch`); Pixel worst drain enriched 13.5 → **6.7 ms**, OSM
+  → **3.1**; desktop `high` 8.5 → 7.0; identity 0/0. T114 half (the `regionless` counter). The eight stale
+  worktrees + nine `claude/*` branches retired (snapshots `refs/backups/wt-2026-09-07f-*`). **Two phone
+  traps:** thermal status ≤ 1 before any timed phone run (status 4 voided a profile); NEVER `KEYCODE_SLEEP`
+  the phone (secure keyguard — it locked itself; the post profile was taken once unlocked, §25.5: hitch main thread 3.93 → 2.78 s, three's `EdgesGeometry` 361 → 0; T115 opened — the tree locate). **THE LATE-CHILD
+  TRAP (§25.6):** the post sweep read fewer DRAW CALLS per pose — all 41 deferred OSM edges at the identity
+  world matrix (`TilesGroup` never seats a late child) → `updateMatrixWorld(true)` in both handlers, a
+  fence, and the sweep's draw-count gate. vitest 2,855/181 · astro 0/0/11 · knip 0.
 - **2026-09-07e (`mem:project/wip-2026-09-07-t106-two-phase`):** **T106 FIXED** — the two-phase `load-model`
   handler: phase 1 synchronous (cell record, material swap, F1 birth, trees; 0.4/0.8 ms), phase 2 one unit per
   mesh on `lib/globe/loadQueue` drained by `update()` under `ENRICHED.loadBudgetMs` 6 / `loadBudgetMsLean` 3 per
@@ -80,19 +95,26 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-07e: vitest **2,845/2,845** (180 files) · `astro check` **0/0/11** · knip **0**.
+- Gates 2026-09-07f: vitest **2,852/2,852** (181 files) · `astro check` **0/0/11** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T114).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T115).
 
-## Next step — T77 after T106 (full brief: `NEXT_SESSION_PROMPT.md`)
+## Next step — OWNER ORDER 2026-09-07g: two MOBILE features first (full brief: `NEXT_SESSION_PROMPT.md`)
 1. Boot: the ship log FIRST (an `ABORT: push failed` run = push the stranded branch by hand), VPN on the
-   Mac (AND the phone if the Pixel is used), ion curl, `--budget`, ONE Chrome, `wix dev` with `.vite`
-   aside, the pre sweep. Never edit a SERVED `src/` module while ANY harness or farm run is up.
-2. Nothing is blocking. Next in order: **the Pixel read of T106** (`probe-cpu-profile --leg descent
-   --device`; judge `loadBudgetMsLean` 3) · the OSM handler's phase 0 if its edges show on the Pixel ·
-   `compileAsync` · T114 · T113 with BEST SPOT. Owner calls open: `loadBudgetMsLean` 3 (the ~4.4 s
-   landing wave) · the flip bank's cap-vs-jetsam trade (670 cold / 177 warm) · `DAYARC.skylineBehindAlpha`.
+   Mac (AND the phone), ion curl, `--budget`, ONE Chrome, `wix dev` with `.vite` aside; the pre sweep if the
+   session touches `globe/**` or `lib/globe/**`; the phone UNLOCKED and at thermal status ≤ 1 before any
+   timed leg. Never edit a SERVED `src/` module while ANY harness or farm run is up.
+2. **1 · BEST SPOT on `/m`** — the fifth bottom-row item right of SEARCH (`mobile/TabBar.tsx`), the
+   desktop behaviour WITHOUT the ULTRA options, a mobile-adapted sheet; the iPhone's performance is the
+   gate (Device Farm, README §A). Start at `bestspot/README.md`. **2 · AR look-around in mobile FPV** —
+   a toggle on the aiming-joystick UI (`mobile/FpvControls.tsx`); the phone's orientation aims the FPV
+   camera; permissions from the tap; a cited degradation ladder (iOS `requestPermission` +
+   `webkitCompassHeading` · Android absolute orientation · relative gyro + align · none); the math a
+   three-free unit-tested module; CDP drives `deviceorientation` on the desktop, a real iPhone verifies.
+3. **PARKED behind both:** lever 11, T115, the tails (T93/T102/T103/T114-ESRI), the two August remote
+   ship branches, every owner call (lean budgets, `compileAsync`, the terrain BVH, `skylineBehindAlpha`,
+   the flip bank, T113).
 3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
    — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
    then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77
@@ -188,6 +210,8 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   (09-07d, HOT)** · MEASUREMENTS §23 · `mem:project/wip-2026-09-07-occlusion-rulings-t106`
 - **T106 FIXED — the two-phase `load-model` handler, the flip bank under the phone caps (09-07e, HOT)** ·
   MEASUREMENTS §24 · `mem:project/wip-2026-09-07-t106-two-phase`
+- **T106 READ ON THE PIXEL · the OSM handler's slow path + two-phase · the builders pooled · the phone
+  traps (09-07f, HOT)** · MEASUREMENTS §25 · `mem:project/wip-2026-09-07-t106-pixel-read`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

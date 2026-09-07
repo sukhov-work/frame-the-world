@@ -62,6 +62,112 @@ export interface FastEdgesBuilder {
 }
 
 /**
+ * The builder's tables, REUSABLE across builds (2026-09-07f). A deferred queue steps one unit
+ * at a time (`lib/globe/loadQueue` — a mid-flight unit is sticky), so one scratch per queue
+ * serves every mesh in turn: the arrays grow to the biggest mesh seen and stay, and a build
+ * allocates nothing but its output. Before the pool, every unit allocated its own ~9 MB of
+ * typed arrays — ~600 MB of churn over one Dnipro descent — and V8's external-memory GC landed
+ * in whichever constructor crossed its threshold: 11–19 ms "allocations" of a 43k-vertex mesh
+ * on the Pixel while a 31k one took 1.3 ms. `createFastEdgesScratch()` makes one; a builder
+ * without one allocates privately (the one-shot `buildFastEdges`, the tests).
+ */
+export interface FastEdgesScratch {
+  /** Per vertex (≥ vertexCount): uid · rx · ry · rz; per uid: rep. */
+  uid: Int32Array;
+  rx: Int32Array;
+  ry: Int32Array;
+  rz: Int32Array;
+  rep: Int32Array;
+  /** The vertex hash table (a power of two ≥ 2 × vertexCount), reset per build. */
+  vTable: Int32Array;
+  /** Per edge slot (≥ maxEdges). */
+  eI0: Int32Array;
+  eI1: Int32Array;
+  eN: Float64Array;
+  eState: Uint8Array;
+  /** The edge hash table (a power of two ≥ 2 × maxEdges), reset per build. */
+  hK0: Int32Array;
+  hK1: Int32Array;
+  hSlot: Int32Array;
+  /** The output, sized at the bound (2 vertices per edge); sliced to size by `result()`. */
+  outPos: Float32Array;
+  outSrc: Int32Array;
+  /** How many builds have reused it and how many grew it (DEV). */
+  reuses: number;
+  growths: number;
+}
+
+const pow2Above = (n: number): number => {
+  let cap = 1;
+  while (cap < n) cap <<= 1;
+  return cap;
+};
+
+export function createFastEdgesScratch(): FastEdgesScratch {
+  const z = new Int32Array(0);
+  return {
+    uid: z,
+    rx: z,
+    ry: z,
+    rz: z,
+    rep: z,
+    vTable: z,
+    eI0: z,
+    eI1: z,
+    eN: new Float64Array(0),
+    eState: new Uint8Array(0),
+    hK0: z,
+    hK1: z,
+    hSlot: z,
+    outPos: new Float32Array(0),
+    outSrc: z,
+    reuses: 0,
+    growths: 0,
+  };
+}
+
+/** Grow the scratch to this build's sizes (only when a dimension exceeds what it holds) and
+ *  reset the two hash tables and the edge states over the range this build uses. */
+function prepareScratch(sc: FastEdgesScratch, vertexCount: number, maxEdges: number): void {
+  let grew = false;
+  if (sc.uid.length < vertexCount) {
+    sc.uid = new Int32Array(vertexCount);
+    sc.rx = new Int32Array(vertexCount);
+    sc.ry = new Int32Array(vertexCount);
+    sc.rz = new Int32Array(vertexCount);
+    sc.rep = new Int32Array(vertexCount);
+    grew = true;
+  }
+  const vCap = pow2Above(vertexCount * 2);
+  if (sc.vTable.length < vCap) {
+    sc.vTable = new Int32Array(vCap);
+    grew = true;
+  }
+  if (sc.eI0.length < maxEdges) {
+    sc.eI0 = new Int32Array(maxEdges);
+    sc.eI1 = new Int32Array(maxEdges);
+    sc.eN = new Float64Array(maxEdges * 3);
+    sc.eState = new Uint8Array(maxEdges);
+    sc.outPos = new Float32Array(maxEdges * 6);
+    sc.outSrc = new Int32Array(maxEdges * 2);
+    grew = true;
+  }
+  const hCap = pow2Above(maxEdges * 2);
+  if (sc.hSlot.length < hCap) {
+    sc.hK0 = new Int32Array(hCap);
+    sc.hK1 = new Int32Array(hCap);
+    sc.hSlot = new Int32Array(hCap);
+    grew = true;
+  }
+  // the resets this build needs — over ITS range only (a pooled array may be longer)
+  sc.vTable.fill(-1, 0, vCap);
+  sc.hSlot.fill(-1, 0, hCap);
+  sc.eState.fill(0, 0, maxEdges);
+  if (grew) sc.growths++;
+  else sc.reuses++;
+}
+
+/**
  * Integer vertex keys: each source vertex → a compact id shared by every vertex whose
  * `round(p·1e4)` triple matches (three's `hashes[]` equality). Open addressing over a power-of-
  * two table keyed on a mix of the three ints; the triple is compared exactly.
@@ -81,16 +187,17 @@ class VertexKeyer {
   constructor(
     private readonly positions: ArrayLike<number>,
     readonly vertexCount: number,
+    sc: FastEdgesScratch,
   ) {
-    this.uid = new Int32Array(vertexCount);
-    this.rx = new Int32Array(vertexCount);
-    this.ry = new Int32Array(vertexCount);
-    this.rz = new Int32Array(vertexCount);
-    let cap = 1;
-    while (cap < vertexCount * 2) cap <<= 1;
-    this.mask = cap - 1;
-    this.table = new Int32Array(cap).fill(-1); // slot → uid (a representative's ints live in rx/ry/rz[rep])
-    this.rep = new Int32Array(vertexCount); // uid → representative vertex index
+    // The scratch is prepared (sized + the table reset) by the builder; the keyer uses the
+    // first `vertexCount` entries and the first pow2 ≥ 2·vertexCount table slots.
+    this.uid = sc.uid;
+    this.rx = sc.rx;
+    this.ry = sc.ry;
+    this.rz = sc.rz;
+    this.mask = pow2Above(vertexCount * 2) - 1;
+    this.table = sc.vTable; // slot → uid (a representative's ints live in rx/ry/rz[rep])
+    this.rep = sc.rep; // uid → representative vertex index
   }
 
   /** Key vertices [cursor, end). */
@@ -143,32 +250,61 @@ export function createFastEdgesBuilder(
   positions: ArrayLike<number>,
   index: ArrayLike<number> | null,
   thresholdAngle: number,
+  scratch?: FastEdgesScratch,
 ): FastEdgesBuilder {
   const vertexCount = Math.floor(positions.length / 3);
   const indexCount = index ? index.length : vertexCount;
   const thresholdDot = Math.cos(DEG2RAD * thresholdAngle);
-  const keyer = new VertexKeyer(positions, vertexCount);
-
-  // Edge records in parallel typed arrays; the map goes from the directed key ua·N+ub (exact in
-  // a double while N < 2^26 — a cell holds tens of thousands of vertices) to the record slot.
-  // state: 0 = free · 1 = stored · 2 = nulled (three sets the sibling to null but keeps the key).
   const maxEdges = Math.floor(indexCount / 3) * 3;
-  const eI0 = new Int32Array(maxEdges);
-  const eI1 = new Int32Array(maxEdges);
-  const eN = new Float64Array(maxEdges * 3); // doubles, like three's cloned Vector3 normals
-  const eState = new Uint8Array(maxEdges);
-  const slotOf = new Map<number, number>();
+  const sc = scratch ?? createFastEdgesScratch();
+  prepareScratch(sc, vertexCount, maxEdges);
+  const keyer = new VertexKeyer(positions, vertexCount, sc);
+
+  // Edge records in parallel typed arrays, found by the directed key (ua, ub) through an
+  // open-addressed table of the same shape as the vertex keyer's (2026-09-07f: this was a
+  // `Map<number, number>` of up to 3 × the triangle count — the one heap-garbage generator in
+  // the walk, ~10 MB of entries per big cell, and the GC it triggered was the "step" the
+  // Pixel's ledger blamed: 12–17 ms drains against a 3 ms budget with the chunk work itself
+  // under 1 ms). Typed tables allocate once, off the JS heap, and never move.
+  // state: 0 = free · 1 = stored · 2 = nulled (three sets the sibling to null but keeps the key).
+  const { eI0, eI1, eN, eState, hK0, hK1, hSlot } = sc; // eN: doubles, like three's cloned Vector3 normals
+  const hMask = pow2Above(maxEdges * 2) - 1;
+  /** The record slot of the directed edge (k0 → k1), or −1. */
+  const slotOfKey = (k0: number, k1: number): number => {
+    let h = Math.imul(k0 ^ (k0 >>> 16), 0x85ebca6b) ^ Math.imul(k1 ^ (k1 >>> 13), 0xc2b2ae35);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x2c1b3c6d);
+    h ^= h >>> 12;
+    h &= hMask;
+    for (;;) {
+      const sl = hSlot[h];
+      if (sl < 0) return -1;
+      if (hK0[h] === k0 && hK1[h] === k1) return sl;
+      h = (h + 1) & hMask;
+    }
+  };
+  /** Insert (k0 → k1) → slot; the caller has checked it is absent. */
+  const insertKey = (k0: number, k1: number, slot: number): void => {
+    let h = Math.imul(k0 ^ (k0 >>> 16), 0x85ebca6b) ^ Math.imul(k1 ^ (k1 >>> 13), 0xc2b2ae35);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x2c1b3c6d);
+    h ^= h >>> 12;
+    h &= hMask;
+    while (hSlot[h] >= 0) h = (h + 1) & hMask;
+    hK0[h] = k0;
+    hK1[h] = k1;
+    hSlot[h] = slot;
+  };
   let slots = 0;
 
-  // Output, sized at the upper bound (every edge emitted once, two vertices each).
-  const outPos = new Float32Array(maxEdges * 6);
-  const outSrc = new Int32Array(maxEdges * 2);
+  // Output, sized at the upper bound (every edge emitted once, two vertices each); the
+  // scratch's arrays, sliced to the emitted length by `finish`.
+  const { outPos, outSrc } = sc;
   let outN = 0; // emitted vertices
 
   // stage 0 = keying vertices · 1 = walking triangles · 2 = finished
   let stage = 0;
   let triCursor = 0; // next index-array position (multiple of 3)
-  let N = 1; // uidCount || 1, fixed when stage 0 completes
   let result: FastEdges | null = null;
 
   const tri = [0, 0, 0];
@@ -241,10 +377,8 @@ export function createFastEdgesBuilder(
         const k1 = keys[jNext];
         const v0 = tri[j];
         const v1 = tri[jNext];
-        const hash = k0 * N + k1;
-        const reverseHash = k1 * N + k0;
-        const rs = slotOf.get(reverseHash);
-        if (rs !== undefined && eState[rs] === 1) {
+        const rs = slotOfKey(k1, k0); // the sibling: the same edge, the other way round
+        if (rs >= 0 && eState[rs] === 1) {
           // a sibling edge: emit the CURRENT triangle's endpoints if the crease is sharp enough
           const d = nx * eN[rs * 3] + ny * eN[rs * 3 + 1] + nz * eN[rs * 3 + 2];
           if (d <= thresholdDot) {
@@ -252,9 +386,9 @@ export function createFastEdgesBuilder(
             emit(v1);
           }
           eState[rs] = 2;
-        } else if (!slotOf.has(hash)) {
+        } else if (slotOfKey(k0, k1) < 0) {
           const s = slots++;
-          slotOf.set(hash, s);
+          insertKey(k0, k1, s);
           eI0[s] = v0;
           eI1[s] = v1;
           eN[s * 3] = nx;
@@ -290,7 +424,6 @@ export function createFastEdgesBuilder(
           const end = Math.min(vertexCount, keyer.cursor + chunk);
           keyer.run(end);
           if (keyer.cursor >= vertexCount) {
-            N = keyer.uidCount || 1;
             stage = 1;
             break;
           }

@@ -121,3 +121,19 @@ phone's page before the first boot (403 → exit 3) and FAILs any non-FPV cell t
 visible. Re-run WITH terrain (`MEASUREMENTS` §21.2): orbit / city / everest at the 60 Hz cap, FPV 42 fps
 GPU-bound, `/m` 16 → 60 fps after T107. `scripts/probe-cpu-profile.mjs 9444 --device --pose m` and
 `--device --leg descent` profile the phone's own main thread (V8 samples on the device).
+`scripts/probe-load-phase2.mjs 9444 --device` reads the two deferred `load-model` ledgers on the phone
+(2026-09-07f; it asserts `gnd > 0` after the settle itself).
+
+**Two traps from 2026-09-07f (MEASUREMENTS §25.4).** (1) **THERMAL: read `adb shell dumpsys thermalservice |
+grep 'Thermal Status'` before EVERY timed phone run and do not run above 1** — eight back-to-back descents
+on charge with the screen on took the Pixel to status 4 (critical: CPU sensors 72 / 80 °C, the big cores at
+984 MHz) and the profile read dt p50 33 ms, max 1.9 s, compile 312 ms — void. (2) **Never `KEYCODE_SLEEP`
+the phone to cool it**: it LOCKS (a secure keyguard — `wm dismiss-keyguard` is refused, only the owner can
+unlock), and behind the keyguard the tab is `visibilityState hidden` with rAF 0 — the next `--device` run
+records 0 frames. Cool it with the tab parked on `about:blank`, screen ON, and wait:
+
+```bash
+adb shell am start -a android.intent.action.VIEW -d "about:blank" com.android.chrome     # park the tab
+until [ "$(adb shell dumpsys thermalservice | grep 'Thermal Status' | grep -o '[0-9]*')" -le 1 ]; do sleep 20; done
+adb shell am start -a android.intent.action.VIEW -d "http://localhost:4321/" com.android.chrome
+```

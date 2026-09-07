@@ -11,11 +11,20 @@
  *     (`deferredMaxMs` — the number the budget bounds), totals, units done / cancelled;
  *   · `__globe.enrichedBench(50)` — the §4a identity proof on the resident cells (`mismatch` 0);
  *   · `__globe.enrichedSeats()` — that the registry is populated (features seated after quiet);
+   · `__globe.buildingsLoad()` — the OSM handler's ledger (2026-09-07f: its crease edges are on
+     their own deferred queue under `BUILDINGS.loadBudgetMs`); `pending` in the samples is the
+     SUM of the two queues;
  *   · the frame-time p50 / p95 / max and the >33 ms count over the leg.
  * `--lean` boots the phone twin (touch + 402×714 @3 + 4 cores + 4× CPU throttle) — the number
- * the Pixel decision reads while the device is away.
+ * the Pixel decision reads while the device is away. `--device` (2026-09-07f) attaches to a REAL
+ * phone's Chrome over adb (`tools/devicefarm/README.md` §B: `adb forward tcp:9444
+ * localabstract:chrome_devtools_remote`, a `localhost:4321` tab already open) — no emulation,
+ * the device's own tier; never creates or closes tabs on the phone; asserts terrain tiles are
+ * visible after the settle (T98 — the phone fetches ion over ITS network, a bare sphere is not a
+ * measurement).
  *
  *   node --experimental-websocket scripts/probe-load-phase2.mjs 9333 [--lean] [--budget ms] [--label x]
+ *   node --experimental-websocket scripts/probe-load-phase2.mjs 9444 --device [--budget ms] [--label x]
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { ensureBrowser, openSession, sleep } from "./lib/cdp.mjs";
@@ -25,25 +34,37 @@ import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 const args = process.argv.slice(2);
 const PORT = Number(args.find((a) => /^\d+$/.test(a)) ?? 9333);
 const LEAN = args.includes("--lean");
+const DEVICE = args.includes("--device");
 const labelArg = args.indexOf("--label");
 const budgetArg = args.indexOf("--budget");
 /** Override the phase-2 budget live (ms). A huge value (1e6) reproduces the pre-slice shape. */
 const BUDGET = budgetArg >= 0 ? Number(args[budgetArg + 1]) : null;
-const LABEL = labelArg >= 0 ? args[labelArg + 1] : `t106b${LEAN ? "-lean" : ""}`;
+const LABEL = labelArg >= 0 ? args[labelArg + 1] : `t106b${LEAN ? "-lean" : ""}${DEVICE ? "-device" : ""}`;
 const DEV = "http://localhost:4321";
 
-await ensureBrowser(PORT);
+const browser = await ensureBrowser(PORT, { launch: !DEVICE });
 const descent = byId("dnipro-descent");
 const url = `${DEV}${descent.path}${descent.hash}&t=${descent.t}`;
 let target;
-try {
-  target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: "PUT" }).then((r) => r.json());
-} catch {
-  target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`).then((r) => r.json());
+if (DEVICE) {
+  // Android Chrome answers `PUT /json/new` with "Could not create new page" — drive the tab the
+  // README recipe opened, never create or close tabs on the owner's phone.
+  const list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
+  const pages = list.filter((t) => t.type === "page" && t.webSocketDebuggerUrl);
+  target = pages.find((t) => /localhost:4321/.test(t.url)) ?? pages[0];
+  if (!target) throw new Error("no page tab on the phone — open http://localhost:4321/ in Chrome first (tools/devicefarm/README.md §B)");
+  console.log(`attached to the phone tab ${target.id} ${target.url} (${browser.browser})`);
+} else {
+  try {
+    target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: "PUT" }).then((r) => r.json());
+  } catch {
+    target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`).then((r) => r.json());
+  }
+  trackTarget(PORT, target.id);
 }
-trackTarget(PORT, target.id);
 const s = await openSession(target);
-if (LEAN) {
+if (DEVICE) await s.send("Page.bringToFront").catch(() => {});
+if (LEAN && !DEVICE) {
   await s.send("Page.addScriptToEvaluateOnNewDocument", {
     source: `Object.defineProperty(Navigator.prototype, "hardwareConcurrency", { get: () => 4, configurable: true });`,
   });
@@ -70,8 +91,21 @@ const BUSY = `(() => { const u = window.__globe.u5(); const q = (r) => r ? r.dl.
     await sleep(250);
   }
 }
+const VISIBLE = `(() => { const u = window.__globe.u5(); return JSON.stringify({ bld: u.buildings.stats.visible, gnd: u.ground.stats.visible, enr: u.enriched ? u.enriched.stats.visible : null }); })()`;
+const visibleAtStart = JSON.parse(await s.evalJs(VISIBLE));
+const quality = JSON.parse(
+  await s.evalJs(`JSON.stringify((() => { const q = window.__globeQuality, Q = window.__quality; return q ? { tier: q.tier, tileTier: q.tileTier, dpr: q.dpr, lean: q.lean, deviceTier: Q?.deviceTier ?? null, cores: navigator.hardwareConcurrency, gpu: Q?.deviceCaps?.rendererString ?? null } : null; })())`),
+);
+console.log(`start pose settled · visible bld/gnd/enr ${visibleAtStart.bld}/${visibleAtStart.gnd}/${visibleAtStart.enr} · quality ${JSON.stringify(quality)}`);
+if (DEVICE && !(visibleAtStart.gnd > 0)) {
+  // T98: the phone fetches ion over its own network; a settled pose with no ground tiles is a bare sphere.
+  throw new Error(`the phone settled with visible gnd 0 — a bare base sphere (T98: turn the phone's VPN on); visible ${JSON.stringify(visibleAtStart)}`);
+}
 if (BUDGET != null) console.log(`budget override → ${await s.evalJs(`window.__globe.enrichedLoadBudget ? window.__globe.enrichedLoadBudget(${BUDGET}) : null`)} ms`);
 const loadAtStart = JSON.parse(await s.evalJs(`JSON.stringify(window.__globe.enrichedLoad())`));
+// T106 OSM (2026-09-07f): the OSM handler's own ledger + queue (absent on a pre-slice tree).
+const OSM_LOAD = `JSON.stringify(window.__globe.buildingsLoad ? window.__globe.buildingsLoad() : null)`;
+const osmAtStart = JSON.parse(await s.evalJs(OSM_LOAD));
 // the rAF recorder for the leg
 await s.evalJs(`(() => { window.__ftDt = []; let last = performance.now(); const step = () => { const n = performance.now(); window.__ftDt.push(n - last); last = n; if (window.__ftDt.length < 20000) requestAnimationFrame(step); }; requestAnimationFrame(step); return true; })()`);
 const { end, afterArrivalS, maxLegS } = descent.leg;
@@ -93,8 +127,10 @@ while (Date.now() - tLeg0 < maxLegS * 1000) {
   }
   const busy = await s.evalJs(BUSY);
   const ld = JSON.parse(await s.evalJs(`JSON.stringify(window.__globe.enrichedLoad())`));
-  const pending = ld.pending ?? 0; // absent on the pre-slice ledger
-  samples.push({ tMs: Date.now() - tLeg0, flying, busy, pending, done: ld.unitsDone ?? null, deferredMaxMs: +(ld.deferredMaxMs ?? 0).toFixed(1) });
+  const osm = JSON.parse(await s.evalJs(OSM_LOAD));
+  const osmPending = osm?.pending ?? 0;
+  const pending = (ld.pending ?? 0) + osmPending; // absent on the pre-slice ledger
+  samples.push({ tMs: Date.now() - tLeg0, flying, busy, pending, osmPending, done: ld.unitsDone ?? null, osmDone: osm?.unitsDone ?? null, deferredMaxMs: +(ld.deferredMaxMs ?? 0).toFixed(1), osmDeferredMaxMs: +(osm?.deferredMaxMs ?? 0).toFixed(1) });
   if (pending > peakPending) peakPending = pending;
   if (!flying && targetsIssued) {
     arrivedAt ??= Date.now();
@@ -109,6 +145,8 @@ while (Date.now() - tLeg0 < maxLegS * 1000) {
 const legMs = Date.now() - tLeg0;
 const dt = JSON.parse(await s.evalJs(`JSON.stringify(window.__ftDt)`));
 const load = JSON.parse(await s.evalJs(`JSON.stringify(window.__globe.enrichedLoad())`));
+const osmLoad = JSON.parse(await s.evalJs(OSM_LOAD));
+const visibleAtEnd = JSON.parse(await s.evalJs(VISIBLE));
 const bench = JSON.parse(await s.evalJs(`JSON.stringify(window.__globe.enrichedBench(50))`));
 const seats = JSON.parse(
   await s.evalJs(`(() => { const x = window.__globe.enrichedSeats(); return JSON.stringify(x ? { cells: x.cells, located: x.located, features: x.features, featuresSampled: x.featuresSampled, overridden: x.overridden } : null); })()`),
@@ -118,11 +156,17 @@ const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length
 const out = {
   label: LABEL,
   lean: LEAN,
+  device: DEVICE,
+  browser: browser.browser,
+  quality,
+  visible: { start: visibleAtStart, end: visibleAtEnd },
   url,
   leg: { legMs, quietAtEnd, arrivalToDrainedMs: arrivedAt && drainedAt ? drainedAt - arrivedAt : null, peakPending },
   budgetOverride: BUDGET,
   loadAtStart: { cells: loadAtStart.cells, deferredMaxMs: +(loadAtStart.deferredMaxMs ?? 0).toFixed(1), handlerMaxMs: +loadAtStart.handlerMaxMs.toFixed(2) },
   load: Object.fromEntries(Object.entries(load).map(([k, v]) => [k, typeof v === "number" ? +v.toFixed(2) : v])),
+  osmAtStart: osmAtStart && { tiles: osmAtStart.tiles, deferredMaxMs: +(osmAtStart.deferredMaxMs ?? 0).toFixed(1), handlerMaxMs: +(osmAtStart.handlerMaxMs ?? 0).toFixed(2) },
+  osmLoad: osmLoad && Object.fromEntries(Object.entries(osmLoad).map(([k, v]) => [k, typeof v === "number" ? +v.toFixed(2) : v])),
   frames: { n: dt.length, p50: +q(0.5).toFixed(1), p95: +q(0.95).toFixed(1), p99: +q(0.99).toFixed(1), max: +Math.max(...dt).toFixed(1), over33: dt.filter((x) => x > 33).length, over50: dt.filter((x) => x > 50).length },
   bench: bench && { parts: bench.parts, tris: bench.tris, mismatch: bench.mismatch, runMismatch: bench.runMismatch, fastMs: +bench.fastMs.toFixed(1), maskIntMs: +bench.maskIntMs.toFixed(1) },
   seats,

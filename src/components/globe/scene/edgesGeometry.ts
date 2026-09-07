@@ -5,16 +5,24 @@
  * `new THREE.EdgesGeometry(geometry, angle)`'s, plus the source vertex behind every endpoint
  * (the per-building attribution's input, `enrichedMask.segmentRunsFromSources`).
  *
- * The fast path needs a plain, non-interleaved, non-normalized Float32 position attribute
- * (every baked cell and Cesium's OSM b3dm); anything else takes three's own `EdgesGeometry`
- * and reports `srcIndex: null`, so the caller keeps the string-keyed attribution for it.
+ * The fast path needs a non-normalized Float32 position attribute: a plain `BufferAttribute`
+ * (every baked cell) is read in place; an INTERLEAVED one is de-interleaved into a fresh
+ * Float32Array first (2026-09-07f — Cesium's OSM b3dm meshes arrive with position, normal and
+ * `_batchid` sharing one stride-8 buffer, so every OSM tile had been taking the fallback: three's
+ * `EdgesGeometry` was 361 ms of the Pixel's descent AFTER slice (d)). The copy is the same floats
+ * three's `toNonIndexed` / `fromBufferAttribute` read, so the identity proof carries over
+ * (`test/components/globe/edgesGeometry.test.ts`). Anything else — a normalized or non-Float32
+ * array (quantized meshes) — takes three's own `EdgesGeometry` and reports `srcIndex: null`, so
+ * the caller keeps the string-keyed attribution for it.
  *
  * T106 slice (b) (2026-09-07e): `createEdgesBuilder` is the RESUMABLE form for the deferred
  * `load-model` queue — `step(deadlineMs)` advances the fast builder in chunks; the three
- * fallback (never a baked cell) runs whole on the first step.
+ * fallback (never a baked cell) runs whole on the first step. `allocMs` is the constructor's own
+ * cost (the de-interleave copy + the builder's typed-array tables), paid synchronously by the
+ * caller of `createEdgesBuilder` — the ledgers report it apart from the steps.
  */
 import * as THREE from "three";
-import { buildFastEdges, createFastEdgesBuilder, type FastEdgesBuilder } from "../../../lib/globe/fastEdges";
+import { buildFastEdges, createFastEdgesBuilder, type FastEdgesBuilder, type FastEdgesScratch } from "../../../lib/globe/fastEdges";
 
 export interface EdgesBuild {
   geometry: THREE.BufferGeometry;
@@ -23,6 +31,8 @@ export interface EdgesBuild {
   /** DEV ledger: which path ran and how long it took (ms, summed over every step). */
   fast: boolean;
   ms: number;
+  /** DEV ledger: the builder's construction (the de-interleave copy + the tables), ms. */
+  allocMs: number;
 }
 
 export interface EdgesBuilder {
@@ -32,37 +42,59 @@ export interface EdgesBuilder {
   result(): EdgesBuild;
 }
 
-const plainF32 = (geometry: THREE.BufferGeometry): THREE.BufferAttribute | null => {
-  const attr = geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
-  const plain =
-    !!attr &&
-    !(attr as unknown as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute &&
-    !attr.normalized &&
-    attr.array instanceof Float32Array;
-  return plain ? attr : null;
+/**
+ * The fast path's input: the position floats as ONE plain Float32Array (`itemSize` 3), or null
+ * when the attribute is not a non-normalized Float32 one. A plain attribute is returned in place;
+ * an interleaved one is copied out of its stride — element by element, the exact floats.
+ */
+export const positionsF32 = (geometry: THREE.BufferGeometry): Float32Array | null => {
+  const attr = geometry.getAttribute("position") as THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined;
+  if (!attr || attr.itemSize !== 3 || attr.normalized) return null;
+  if ((attr as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) {
+    const ia = attr as THREE.InterleavedBufferAttribute;
+    const src = ia.data.array as ArrayLike<number>;
+    if (!(src instanceof Float32Array)) return null;
+    const stride = ia.data.stride;
+    const offset = ia.offset;
+    const count = ia.count;
+    const out = new Float32Array(count * 3);
+    for (let i = 0, j = offset; i < count; i++, j += stride) {
+      out[i * 3] = src[j];
+      out[i * 3 + 1] = src[j + 1];
+      out[i * 3 + 2] = src[j + 2];
+    }
+    return out;
+  }
+  const arr = (attr as THREE.BufferAttribute).array;
+  return arr instanceof Float32Array ? arr : null;
 };
 
 export function buildEdgesGeometry(geometry: THREE.BufferGeometry, thresholdAngle: number): EdgesBuild {
   const t0 = performance.now();
-  const attr = plainF32(geometry);
-  if (!attr) {
+  const positions = positionsF32(geometry);
+  if (!positions) {
     const g = new THREE.EdgesGeometry(geometry, thresholdAngle);
-    return { geometry: g, srcIndex: null, fast: false, ms: performance.now() - t0 };
+    return { geometry: g, srcIndex: null, fast: false, ms: performance.now() - t0, allocMs: 0 };
   }
+  const allocMs = performance.now() - t0;
   const index = geometry.getIndex();
-  const edges = buildFastEdges(attr.array as Float32Array, index ? (index.array as ArrayLike<number>) : null, thresholdAngle);
+  const edges = buildFastEdges(positions, index ? (index.array as ArrayLike<number>) : null, thresholdAngle);
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(edges.positions, 3));
-  return { geometry: g, srcIndex: edges.srcIndex, fast: true, ms: performance.now() - t0 };
+  return { geometry: g, srcIndex: edges.srcIndex, fast: true, ms: performance.now() - t0, allocMs };
 }
 
-export function createEdgesBuilder(geometry: THREE.BufferGeometry, thresholdAngle: number): EdgesBuilder {
-  const attr = plainF32(geometry);
+/** `scratch` (2026-09-07f): the queue's reusable tables — one per queue, since a queue steps one
+ *  unit at a time; never share one between two builders that can be mid-flight together. */
+export function createEdgesBuilder(geometry: THREE.BufferGeometry, thresholdAngle: number, scratch?: FastEdgesScratch): EdgesBuilder {
+  const tAlloc = performance.now();
+  const positions = positionsF32(geometry);
   let fast: FastEdgesBuilder | null = null;
-  if (attr) {
+  if (positions) {
     const index = geometry.getIndex();
-    fast = createFastEdgesBuilder(attr.array as Float32Array, index ? (index.array as ArrayLike<number>) : null, thresholdAngle);
+    fast = createFastEdgesBuilder(positions, index ? (index.array as ArrayLike<number>) : null, thresholdAngle, scratch);
   }
+  const allocMs = performance.now() - tAlloc;
   let ms = 0;
   let out: EdgesBuild | null = null;
   return {
@@ -72,7 +104,7 @@ export function createEdgesBuilder(geometry: THREE.BufferGeometry, thresholdAngl
       if (!fast) {
         const g = new THREE.EdgesGeometry(geometry, thresholdAngle);
         ms += performance.now() - t0;
-        out = { geometry: g, srcIndex: null, fast: false, ms };
+        out = { geometry: g, srcIndex: null, fast: false, ms, allocMs };
         return true;
       }
       const done = fast.step(deadlineMs);
@@ -81,7 +113,7 @@ export function createEdgesBuilder(geometry: THREE.BufferGeometry, thresholdAngl
       const edges = fast.result();
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.BufferAttribute(edges.positions, 3));
-      out = { geometry: g, srcIndex: edges.srcIndex, fast: true, ms };
+      out = { geometry: g, srcIndex: edges.srcIndex, fast: true, ms, allocMs };
       return true;
     },
     result() {

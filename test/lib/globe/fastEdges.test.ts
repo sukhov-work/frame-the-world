@@ -291,3 +291,65 @@ describe("buildFastEdges — the cost that justified it", () => {
     expect(t2 - t1).toBeLessThan(t1 - t0);
   });
 });
+
+describe("fastEdges — the reusable scratch (2026-09-07f)", () => {
+  it("one scratch across meshes of falling and rising size stays element-identical to fresh builds", async () => {
+    const { createFastEdgesScratch } = await import("../../../src/lib/globe/fastEdges");
+    const sc = createFastEdgesScratch();
+    // a big one first, then small, then bigger than the first: grows, reuses, grows again
+    const order = [FIXTURES[2], FIXTURES[0], FIXTURES[3], FIXTURES[1], FIXTURES[2], FIXTURES[0]];
+    for (const f of order) {
+      const fresh = buildFastEdges(f.pos, null, 30);
+      const b = createFastEdgesBuilder(f.pos, null, 30, sc);
+      while (!b.step(-Infinity, 7)) {
+        /* one 7-item chunk per step */
+      }
+      const pooled = b.result();
+      expect(pooled.positions).toEqual(fresh.positions);
+      expect(pooled.srcIndex).toEqual(fresh.srcIndex);
+      // the output is the caller's own copy — never a view on the pool
+      expect(pooled.positions.buffer).not.toBe(sc.outPos.buffer);
+    }
+    expect(sc.growths).toBeGreaterThanOrEqual(1);
+    expect(sc.reuses).toBeGreaterThanOrEqual(3);
+    expect(sc.growths + sc.reuses).toBe(order.length);
+  });
+
+  it("a pooled table longer than a build's own range is reset only over that range (stale entries never leak)", async () => {
+    const { createFastEdgesScratch } = await import("../../../src/lib/globe/fastEdges");
+    const sc = createFastEdgesScratch();
+    const big = FIXTURES[2];
+    const small = FIXTURES[0];
+    buildFastEdges(big.pos, null, 30); // (fresh) — just to have the reference shape
+    const b1 = createFastEdgesBuilder(big.pos, null, 30, sc);
+    b1.step(Infinity, 1 << 30);
+    // the pool now holds the big build's keys; a small build must see none of them
+    const b2 = createFastEdgesBuilder(small.pos, null, 30, sc);
+    b2.step(Infinity, 1 << 30);
+    expect(b2.result().positions).toEqual(buildFastEdges(small.pos, null, 30).positions);
+    // and the big one again, after the small one, is still the big one
+    const b3 = createFastEdgesBuilder(big.pos, null, 30, sc);
+    b3.step(Infinity, 1 << 30);
+    expect(b3.result().positions).toEqual(buildFastEdges(big.pos, null, 30).positions);
+  });
+});
+
+describe("enrichedMask — the reusable attributor scratch (2026-09-07f)", () => {
+  it("one scratch across cells of different sizes attributes exactly as fresh runs do", async () => {
+    const { createAttributorScratch } = await import("../../../src/lib/globe/enrichedMask");
+    const sc = createAttributorScratch();
+    const order = [FIXTURES[2], FIXTURES[0], FIXTURES[1], FIXTURES[2], FIXTURES[3], FIXTURES[1]];
+    for (const f of order) {
+      const edges = buildFastEdges(f.pos, null, 30);
+      const runs = featureRunsOf(f.fid);
+      const fresh = segmentRunsFromSources(edges.srcIndex, f.pos, runs);
+      const a = createSegmentRunAttributor(edges.srcIndex, f.pos, runs, sc);
+      while (!a.step(-Infinity, 5)) {
+        /* one 5-item chunk per step */
+      }
+      expect(a.result()).toEqual(fresh);
+    }
+    expect(sc.growths).toBeGreaterThanOrEqual(1);
+    expect(sc.reuses).toBeGreaterThanOrEqual(3);
+  });
+});

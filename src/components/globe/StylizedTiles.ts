@@ -206,6 +206,7 @@ import {
   AIMCONES,
   AO,
   BESTSPOT,
+  BUILDINGS,
   CONTROLS,
   DRAPE,
   DRIFT,
@@ -451,6 +452,9 @@ export function attachStylizedTiles(opts: {
     ionToken,
     maskBbox: enrichedBbox, // null exactly when no enriched streams (one-resolver invariant)
     loadAim,
+    // T106 OSM (2026-09-07f): the deferred crease-edge budget, keyed on the same `lean` as the
+    // enriched queue's (a separate budget — the two queues drain in the same frame).
+    loadBudgetMs: lean ? BUILDINGS.loadBudgetMsLean : BUILDINGS.loadBudgetMs,
   });
   // GLO-30 terrain patch (U7→bake slice, design ruling 2026-08-18): silent + automatic — the
   // registry decides where the high-accuracy self-baked terrain composites over CWT; the user
@@ -3627,6 +3631,8 @@ export function attachStylizedTiles(opts: {
       enrichedCellSeats: (limit?: number) => enriched?.debugCellSeats(limit) ?? null, // T77 slice B (DEV)
       enrichedLoad: () => enriched?.debugLoad() ?? null, // T106 — the load-model handler's cost ledger
       enrichedLoadBudget: (ms: number) => enriched?.setLoadBudgetMs(ms) ?? null, // T106 (b) — the phase-2 budget, live
+      buildingsLoad: () => buildings.debugLoad(), // T106 OSM (2026-09-07f) — the OSM handler's ledger
+      buildingsLoadBudget: (ms: number) => buildings.setLoadBudgetMs(ms), // T106 OSM — its phase-2 budget, live
       enrichedBench: (limit?: number) => enriched?.benchEdges(limit) ?? null, // T106 — the in-page A/B + identity
       // T77 MEASURE (2026-09-05) — the RESEAT-SETTLE read seam: this frame's seat residuals from
       // the apply pass (plain field reads, safe inside a per-frame rAF probe — unlike
@@ -4464,6 +4470,7 @@ export function attachStylizedTiles(opts: {
           "memo.regionInvalidations": memo.regionInvalidations,
           "memo.bucketsDropped": memo.bucketsDropped,
           "memo.fullDrops": memo.fullDrops,
+          "memo.regionless": memo.regionless, // T114
           "memo.overflows": memo.overflows,
           "memo.staleChecks": memoAudit.staleChecks,
           "memo.staleMismatches": memoAudit.staleMismatches,
@@ -4497,6 +4504,7 @@ export function attachStylizedTiles(opts: {
       registerDebugProvider("buildings", () => {
         const c = enriched?.debugCounts() ?? null;
         const s = enriched?.seatState() ?? null;
+        const bl = buildings.debugLoad();
         return {
           attached: buildings.tiles.group.parent !== null,
           enrichedAttached: enriched ? enriched.tiles.group.parent !== null : null,
@@ -4522,6 +4530,8 @@ export function attachStylizedTiles(opts: {
           seatCacheMisses: c?.seatCacheMisses ?? null,
           loadPending: c?.loadPending ?? null, // T106 (b)
           loadMaxMs: c?.loadMaxMs ?? null, // T106 (b)
+          osmLoadPending: bl.pending, // T106 OSM (2026-09-07f)
+          osmLoadMaxMs: bl.deferredMaxMs, // T106 OSM
           seatEpoch: s?.epoch ?? null,
           seatQuietFrames: s?.quietFrames ?? null,
         };

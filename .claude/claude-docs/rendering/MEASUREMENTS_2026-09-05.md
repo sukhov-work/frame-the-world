@@ -1514,3 +1514,159 @@ cycle. The remaining lever is capacity (`QUALITY.leanMobile.groundLruBytesMB` 11
 jetsam headroom T83 bought) or a mode-aware victim choice; both are the T34-vs-T83 trade
 (network vs memory) and an owner call, not built here. On the desktop (`high`) the bank is
 OFF by design and the cache never rests at its floor (M13).
+
+## 25. Session 2026-09-07f — T106 read on the Pixel 6 Pro; the OSM handler's edges were on three's slow path; the two-phase OSM handler; the GC in the builders; the thermal trap
+
+The device is back (Pixel 6 Pro, Android 16, Chrome 152, Mali-G78, tier `mid`, lean, DPR
+1.25, the phone's VPN exits FI; ion 401 asked from the phone's page, terrain visible
+`gnd 65/83` at start/end — the T98 gate, now asserted by `probe-load-phase2 --device` itself).
+Every number below is the owner's `dnipro-descent` (`scripts/lib/poses.mjs`) on the real phone
+over adb (`tools/devicefarm/README.md` §B), the desktop twins only where named.
+
+### 25.1 T106 as shipped (slice b, 2026-09-07e) — the Pixel's read, before this session's edits
+
+`probe-cpu-profile --leg descent --device` (483 frames, 10.5 s of main thread), against §21.3's
+pre-T106 profile of the same leg on the same phone:
+
+| | §21.3 (2026-09-07b, pre-T106) | 2026-09-07f boot (T106 a+b shipped) |
+|---|---|---|
+| dt p50 / p95 / max | 16.7 / **316.7** / 848.5 | 16.7 / **50.0** / 399.7 |
+| hitch frames (> 33 ms) · main thread inside them | 57 · **6.73 s** | 66 · **3.93 s** |
+| `enrichedBuildings.ts` `load-model` in the hitches | **2,261 ms** | gone from the callers (phase 1 = 0.6 ms max; the units drain budgeted: `fastEdges` `walk`+`run` 268 ms over the WHOLE leg, `keyVertices` 90) |
+| `enrichedMask` string keying | 522 + 282 | 0 (integer keys) |
+| **the OSM `buildings.ts` handler** | 325 | **410 ms in the hitches — three's `EdgesGeometry`, 361 ms self over the leg** |
+| vector tiles (`ringsOfFeature` + `parseVectorTile` + `tileLocalToLonLat`) | 202 | 262 |
+| controls (`rawHeightAt` · `stepTiltGlide`) | 715 (291 · 394) | 519 (294 · 194) |
+| seats (`applyFeatureSeats`) | — | 138 in the hitches (486 whole leg) |
+| compile · parse · gc (whole leg) | — · 91 · 240 | 68 (0.7 %) · 122 (1.2 %) · 178 |
+
+The phase-2 ledger on the device (`probe-load-phase2 --device`, new flag: attaches to the
+phone's tab, no emulation, asserts `gnd > 0`): 70 units, `handlerMaxMs` 0.6, the worst DRAIN
+**13.5 ms** against the 3 ms lean budget — and `edgesMaxMs` 13.5, i.e. ONE builder step,
+not the chunk work (the twin's was 3.9). Identity `enrichedBench(50)` 0/0. So on the real
+phone the budget bounded the work but not the frame: something inside a step cost 4× the
+budget, and the OSM handler — never sliced, never measured on its own — was the biggest
+app item left in the hitch frames.
+
+### 25.2 The OSM handler: every b3dm had been taking the slow path
+
+`edgesGeometry.ts`'s fast-path gate demanded a PLAIN Float32 position attribute; the phone's
+resident OSM meshes read **11 of 11 `Float32Array/interleaved`** (position · normal ·
+`_batchid` in one stride-8 buffer — how three's GLTFLoader loads Cesium's b3dm), so every OSM
+tile went to `new THREE.EdgesGeometry` — on the desktop too, since slice (d). The doc comment
+("every baked cell and Cesium's OSM b3dm") was an assumption; no OSM counter existed to say
+otherwise. Fixed: `positionsF32` de-interleaves an interleaved Float32 attribute into the same
+floats three's `toNonIndexed` / `fromBufferAttribute` read (identity pinned in
+`test/components/globe/edgesGeometry.test.ts` against a real `InterleavedBuffer` with padding
+noise in the stride; a normalized Int16 attribute still takes three's path and says so).
+
+Then the OSM handler got the enriched handler's shape: PHASE 1 synchronous (material swap, F1
+fill birth, tone seed, shadow flags — `handlerMaxMs` 0.1–0.4 ms on the phone), PHASE 2 one unit
+per mesh on its own `loadQueue`, drained in `buildings.update()` after `tiles.update()` under
+`BUILDINGS.loadBudgetMs` **3** / `loadBudgetMsLean` **1.5** (a SEPARATE budget from the enriched
+queue's — the two drain in the same frame, one after the other, so a frame that drains both
+spends up to their sum), nearest tile first (`lookBiasedDistance` on the tile's bounding-sphere
+centre through `makeTileCenterReader`), the strokes born with their own `frameNow()` when they
+land, `dispose-model` cancelling by scene. Seams: `__globe.buildingsLoad()` /
+`buildingsLoadBudget(ms)`, DBG `buildings.osmLoadPending` / `osmLoadMaxMs` (the two existing
+`buildings.load*` rows were relabelled "enriched" — they always were).
+
+### 25.3 What the ledgers then said — and the GC behind the "steps" (the Pixel, six runs)
+
+| tree | enriched worst drain · `edgesMax` · `maskMax` · `allocMax` | OSM worst drain · `allocMax` · `edgesMax` |
+|---|---|---|
+| boot (shipped T106 b) | **13.5** · 13.5 · 3.3 · — | atomic in `load-model` (410 ms in hitches) |
+| + fast path for interleaved + two-phase OSM | 13.4 · 11.9 · 8.6 · — | **3.2** · 2.1 · 2.6 |
+| the same tree, the next run | 12.5 · 7.8 · 10.1 · 1.5 | **16.7** · **15.5** · 3.5 |
+| + `slotOf` `Map` → typed open-addressed table | **7.5** · 4.6 · 5.7 · 3.1 | 11.8 · 11.0 · 2.3 |
+| the same, `allocTop` recorded | 21 (a 21 ms `registerMax`) · 4.7 · 12.4 · 2.4 | 19.5 · **19.3 (43k verts) vs 1.3 (31k verts)** · 3.3 |
+| + the edge builder's tables POOLED per queue | 10.0 · 3.8 · 7.2 · 2.4 | **4.1** · 4.0 (a growth) · 3.3 |
+| + the attributor's tables pooled too | **6.7** · 4.0 · 6.7 · 2.3 | **3.1** · 2.4 · 3.0 |
+
+The read, step by step. The 13.5 ms "step" of the shipped tree was not chunk work (256
+vertices or triangles per deadline check — well under a millisecond on this CPU) and not the
+constructor's size (a 43k-vertex OSM mesh cost 19.3 ms in one run and a 31k one 1.3 ms in the
+same run; the biggest enriched cell, 126k vertices, allocated in 1.5). It was V8's
+external-memory GC landing in whichever step allocated when the threshold was crossed: every
+unit built a fresh `Map` of up to 3 × its triangle count (heap entries, ~10 MB per big cell)
+plus ~9 MB of typed arrays, ~600 MB of churn over one descent. Two changes, both pure and
+pinned by the identity tests: the edge map is an open-addressed typed table (`hK0/hK1/hSlot`,
+the keyer's own mixer — zero heap garbage in the walk), and both builders take a SCRATCH
+(`createFastEdgesScratch` / `createAttributorScratch`, one per queue — a queue steps one unit
+at a time, so one builder is live) whose tables grow to the biggest mesh seen and stay
+(`reuses` 86 / `growths` 14 on the enriched queue over a descent, 11 / 4 on the OSM); a build
+allocates only its output. The enriched worst drain on the Pixel 13.5 → **6.7 ms** at budget 3;
+the OSM 410 ms atomic → **3.1 ms** at budget 1.5. `enrichedBench(50)` mismatch 0/0 on every run;
+`fastEdges.test` +3 (a scratch across falling and rising sizes ≡ fresh builds, stale entries
+never leak, the attributor likewise), `edgesGeometry.test` new (4).
+
+The desktop twins on the final tree (`probe-load-phase2`): `high` — enriched worst drain
+**7.0** (8.5 in §24.1), OSM 3.3, frames p50 / p95 / max 16.8 / 24.4 / 69.4, > 33 ms 11 (10),
+identity 0/0; the lean twin — enriched 9.2 (`maskMax` 9.1), OSM 3.3, frames 17.3 / **42.8**
+(50.8) / 174 (255), > 33 ms 53 (49). The residue on the twin is the attributor's construction
+(`runOf` + the table reset + the runs loop over 126k vertices, atomic, ~2 ms at 4×) plus a
+GC now and then — no longer a lever of this handler.
+
+### 25.4 The thermal trap — a `--device` profile is void above thermal status 1
+
+The like-for-like post profile (`probe-cpu-profile --leg descent --device`, run ninth in a row)
+read 163 frames in 8.2 s, dt p50 **33.3**, max **1,897 ms**, 103 hitches, compile 312 ms — with
+`dumpsys thermalservice` at **Thermal Status 4** (critical; the VIRTUAL-SKIN sensor), CPU
+sensors 72 / 80 °C, the big cores at 984 MHz. The phone had been throttled by the eight
+back-to-back descents, on charge, screen on. That run is VOID; the recipe now reads the status
+before any timed phone run and waits below 2 (`tools/devicefarm/README.md` §B). The second
+trap, learned cooling it: `KEYCODE_SLEEP` LOCKS the owner's phone (a secure keyguard —
+`deviceLocked=1`, `wm dismiss-keyguard` refused), and behind the keyguard the tab reads
+`visibilityState hidden`, rAF 0 — the next `--device` run recorded 0 frames and "flew" nowhere.
+Cool the phone with the tab parked on `about:blank` and the screen ON, never by sleeping it.
+
+### 25.5 The valid post profile — taken once the owner unlocked the phone (thermal status 0)
+
+`probe-cpu-profile --leg descent --device` on the final tree (the pools, the seated strokes),
+529 frames / 10.6 s of main thread, against §25.1's boot run of the same leg on the same phone:
+
+| | boot (T106 a+b as shipped) | final tree |
+|---|---|---|
+| dt p50 / p95 / max | 16.7 / 50.0 / 399.7 | 16.7 / **49.5** / **283.1** |
+| hitch frames · main thread inside them | 66 · 3.93 s | **55 · 2.78 s** |
+| app in the hitches | 1,304 (`buildEdgesGeometry` **410**, vector tiles 262, `fastEdges` 50) | **691** (vector tiles 199, `fastEdges` `slotOfKey` + `run` 64 — budgeted; `buildEdgesGeometry` / `EdgesGeometry` GONE from the callers and from the self-time table, where three's `EdgesGeometry` had 361 ms) |
+| controls in the hitches | 519 (`rawHeightAt` 294, `stepTiltGlide` 194) | 333 (213, 100) |
+| seats · compile · gc in the hitches | 138 · 51 · 136 | 133 · 108 · 88 |
+| gc, whole leg | 178 | 178 |
+
+The phone's ledgers after the leg: enriched worst drain 8.6 ms (54 units; scratch reuses 94 /
+growths 14), OSM 12.2 (15 units, `allocMax` 12.1 — one GC landed in a growth again; 3.1 the run
+before), `enrichedBench` identity 0/0. So the worst drain on this phone is now the budget plus
+one chunk plus whatever GC lands in an allocation — 3–12 ms, run to run — where it was 13.5 ms
+every run plus a 410 ms atomic build. Two more reads rode along: **`ensureLocated`** fired 58×
+with **0 features** located (every cell was located BEFORE its parts registered, so the parts
+located themselves in phase 4 — the parts-first order did not occur once on this leg); its
+7.5 ms max is the TREE-instance loop (an `ecefToGeodetic` per tree, atomic) — the remaining
+unbudgeted locate, T115. **`terrain.memo.regionless` read 0** over 64 region invalidations —
+T114's browser half on the CWT path; the ESRI placeholder path was not on this leg.
+
+### 25.6 The late-child trap — the post sweep's draw calls caught what its pixels did not
+
+The first post sweep read the same triangles per pose as the pre golden and **fewer draw calls
+on every pose** (zoom-sweep 437 → 400, cityscape 855 → 838, everest-orbit-52 146 → 142 …), with
+the pixel diffs inside the streaming noise band (1–10 %). At rest, in the house Chrome, the
+zoom-sweep pose read calls 437 / lines **220,721** on the HEAD source and 400 / **38,087** on
+the working tree — the same 41 OSM and 11 enriched edge objects present in both. All 41 OSM
+`LineSegments` had the IDENTITY world matrix (their meshes at ECEF ~(3.4e6, 2.6e6, 4.7e6), the
+strokes at (0,0,0) — inside the planet, frustum-culled). The mechanism: `TilesRenderer.setTileVisible`
+gives a tile scene ONE `scene.updateMatrixWorld(true)` when it becomes visible, and
+`TilesGroup.updateMatrixWorld` recurses into its children only when the group's own matrix
+changed — a child added to a tile mesh after that moment is never reached. The deferred OSM
+edges land frames later, so none was ever seated. The enriched deferral of 2026-09-07e had the
+same exposure and was hidden by the cells' seat passes re-running `updateMatrixWorld` on the
+cell scene (28/28 correct at the arrival pose) — a cell that never re-seats after its edges
+land would have drawn them inside the planet.
+
+Fix: every deferred stroke calls `edges.updateMatrixWorld(true)` after `c.add(edges)` (both
+handlers). At rest the zoom-sweep pose reads **437 / 220,721** again — the pre numbers exactly,
+41/41 and 11/11 seated. Two fences: `fences.test` pins the seating call after each `c.add(edges)`
+(and that three still leaves a late child at the identity until forced); the visual sweep now
+carries a **draw-count gate** — with `--compare`, a pose whose triangles match the golden run's
+within 0.5 % and whose draw calls fall by more than 3 and 2 % FAILS (the golden's counters come
+from its `report.json`). The pixel diff at tolerance 0 could not gate this: thin strokes over a
+noise floor of whole tiles.

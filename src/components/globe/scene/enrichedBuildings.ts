@@ -21,6 +21,7 @@ import {
 import {
   bboxCenterDeg,
   createSegmentRunAttributor,
+  createAttributorScratch,
   csrFromRunIds,
   featureRunsOf,
   mapSegmentsToRuns,
@@ -76,6 +77,7 @@ import {
 } from "../../../lib/globe/enrichedMeta";
 import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES, WGS84_A } from "../tuning";
 import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
+import { createFastEdgesScratch } from "../../../lib/globe/fastEdges";
 import { buildEdgesGeometry, createEdgesBuilder, type EdgesBuild, type EdgesBuilder } from "./edgesGeometry";
 import { createLoadQueue, type LoadUnit } from "../../../lib/globe/loadQueue";
 import { makeTileCenterReader } from "./tilePriority";
@@ -620,11 +622,25 @@ export function attachEnrichedBuildings(
     edgesMaxMs: 0,
     maskMaxMs: 0,
     registerMaxMs: 0,
+    // 2026-09-07f: the edge builder's CONSTRUCTION apart from its steps (the tables' allocation
+    // — on the Pixel the worst "step" was the biggest cell's fresh typed arrays, not a chunk)
+    allocMs: 0,
+    allocMaxMs: 0,
+    // 2026-09-07f: the one-shot `ensureLocated` (the parts-first order), timed
+    locateCalls: 0,
+    locateMs: 0,
+    locateMaxMs: 0,
+    locateFeatures: 0,
+    locateMaxFeatures: 0,
   };
   /** T106 slice (b) — the deferred `load-model` queue (`lib/globe/loadQueue`): one unit per
    *  mesh, drained in `update()` under `loadBudgetMs` per frame, nearest cell first. */
   const loadQueue = createLoadQueue();
   let loadBudgetMs = opts.loadBudgetMs ?? ENRICHED.loadBudgetMs;
+  /** 2026-09-07f: the edge builder's tables, reused by every unit in turn (one live builder per
+   *  queue) — the per-unit ~9 MB of fresh typed arrays was the GC trigger on the Pixel. */
+  const edgeScratch = createFastEdgesScratch();
+  const maskScratch = createAttributorScratch();
   /** Fetch + cache one cell's sidecar. Never rejects — absence is a normal answer. */
   const primeMeta = (glbUrl: string): Promise<void> => {
     const uri = cellUriOf(glbUrl);
@@ -1323,9 +1339,15 @@ export function attachEnrichedBuildings(
           // to `new THREE.EdgesGeometry(c.geometry, ENRICHED.edgeAngleDeg)` (pinned by
           // `fastEdges.test`, resumed or not), without the string hashing that was 1.8 s of the
           // Pixel's descent.
-          if (!builder) builder = createEdgesBuilder(c.geometry, ENRICHED.edgeAngleDeg);
+          if (!builder) {
+            builder = createEdgesBuilder(c.geometry, ENRICHED.edgeAngleDeg, edgeScratch);
+            const dtAlloc = performance.now() - t0;
+            loadLedger.allocMs += dtAlloc;
+            if (dtAlloc > loadLedger.allocMaxMs) loadLedger.allocMaxMs = dtAlloc;
+          }
+          const t1 = performance.now();
           const done = builder.step(deadlineMs);
-          ledger("edges", performance.now() - t0);
+          ledger("edges", performance.now() - t1);
           if (!done) return false;
           edgeBuild = builder.result();
           builder = null;
@@ -1338,6 +1360,11 @@ export function attachEnrichedBuildings(
             uniforms.uEdgeBirthMs.value = birthMs; // F1: its own holder (separate draw item)
           };
           c.add(edges);
+          // A late child is not reached by the tile scene's one-shot world-matrix update (see
+          // scene/buildings.ts) — the cell's seat passes re-run `updateMatrixWorld` and have hidden
+          // it here, but a cell that never re-seats after its edges land would draw them inside
+          // the planet. Seat the stroke itself (2026-09-07f).
+          edges.updateMatrixWorld(true);
           // Per-building re-seat registry: contiguous `_feature_id_0` runs + the exact-position
           // CSR that lets each building drag ITS OWN edge verts along. Built from the PRISTINE
           // buffers (before any delta) — the key map must match what the edge builder copied.
@@ -1367,7 +1394,7 @@ export function attachEnrichedBuildings(
           // `fastEdges.test`, resumed or not); the string-keyed path stays for a geometry the
           // fast edge builder declined (never a baked cell).
           if (edgeAttr && edgeBuild?.srcIndex && posAttr) {
-            if (!attributor) attributor = createSegmentRunAttributor(edgeBuild.srcIndex, posAttr.array, runs);
+            if (!attributor) attributor = createSegmentRunAttributor(edgeBuild.srcIndex, posAttr.array, runs, maskScratch);
             const done = attributor.step(deadlineMs);
             ledger("mask", performance.now() - t0);
             if (!done) return false;
@@ -1780,7 +1807,15 @@ export function attachEnrichedBuildings(
   const ensureLocated = (cell: CellSeat): boolean => {
     if (cell.located) return true;
     if (cell.appliedM == null) return false;
-    for (const part of cell.parts) for (const f of part.features) locateFeature(part, f);
+    // 2026-09-07f: timed — this is the ONE unbudgeted O(features) walk left on the load path
+    // (a cell located AFTER its parts registered; the other order locates per part in the unit's
+    // phase 4). `__globe.enrichedLoad().locateMaxMs` says whether it is worth slicing.
+    const t0 = performance.now();
+    let n = 0;
+    for (const part of cell.parts) {
+      for (const f of part.features) locateFeature(part, f);
+      n += part.features.length;
+    }
     for (const t of cell.trees) {
       const arr = t.mesh.instanceMatrix.array as ArrayLike<number>;
       for (let i = 0; i < t.seatM.length; i++) {
@@ -1791,6 +1826,14 @@ export function attachEnrichedBuildings(
       }
     }
     cell.located = true;
+    const dt = performance.now() - t0;
+    loadLedger.locateCalls++;
+    loadLedger.locateMs += dt;
+    loadLedger.locateFeatures += n;
+    if (dt > loadLedger.locateMaxMs) {
+      loadLedger.locateMaxMs = dt;
+      loadLedger.locateMaxFeatures = n;
+    }
     return true;
   };
 
@@ -3026,6 +3069,8 @@ export function attachEnrichedBuildings(
       const q = loadQueue.stats();
       return {
         ...loadLedger,
+        scratchReuses: edgeScratch.reuses + maskScratch.reuses,
+        scratchGrowths: edgeScratch.growths + maskScratch.growths,
         deferredMs: q.ms,
         deferredMaxMs: q.maxFrameMs,
         deferredFrames: q.frames,

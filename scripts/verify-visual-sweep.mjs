@@ -1047,6 +1047,14 @@ if (GOLDEN) {
 if (COMPARE) {
   const goldenDir = join("verify-shots/golden", COMPARE);
   const comp = await getComposer();
+  // The golden run's own per-pose counters (draw calls, triangles) — `verify-shots/sweep/<label>/report.json`.
+  const goldenRows = new Map();
+  try {
+    const gr = JSON.parse(readFileSync(join("verify-shots/sweep", COMPARE, "report.json"), "utf8"));
+    for (const row of gr.rows ?? []) goldenRows.set(row.id, row);
+  } catch {
+    note(`no report.json for golden ${COMPARE} — the draw-count gate is skipped`);
+  }
   if (TOLERANCE < 1000) {
     // Say it up front rather than let a reader read a 99 %-different canvas as a regression.
     // The note is written from the run's MEASURED self-checks, never from the fact that --freeze
@@ -1080,6 +1088,23 @@ if (COMPARE) {
       comparisons.push({ id: r.id, ok: false, error: `no golden at ${gp}` });
       check(`${r.id}: golden exists`, false, gp);
       continue;
+    }
+    // 2026-09-07f — THE DRAW-COUNT GATE: a picture diff at tolerance 0 sits on the streaming
+    // noise floor (T95), but the renderer's own counters do not. Same triangles (± 0.5 %) with
+    // fewer draw calls (> 2 % or > 3) means whole OBJECTS stopped drawing — the shape of a late
+    // child never seated in world space (41 OSM edge objects at the ECEF origin, 37 calls short,
+    // hiding inside a 1 % pixel diff). Read from the golden run's report, when it kept one.
+    const gRow = goldenRows.get(r.id);
+    if (gRow?.frame && r.frame) {
+      const gt = gRow.frame.tris, ct = r.frame.tris, gc = gRow.frame.calls, cc = r.frame.calls;
+      if (gt > 0 && ct > 0 && gc > 0 && cc > 0 && Math.abs(ct - gt) / gt <= 0.005) {
+        const dropped = gc - cc;
+        check(
+          `${r.id}: draw calls vs golden ${COMPARE} (same triangles ⇒ same objects)`,
+          !(dropped > 3 && dropped / gc > 0.02),
+          `calls ${fmtI(gc)} → ${fmtI(cc)}, tris ${fmtI(gt)} → ${fmtI(ct)}`,
+        );
+      }
     }
     const goldenB64 = readFileSync(gp).toString("base64");
     const d = await diffPngs(comp, goldenB64, r.thumbB64, { threshold: 0 });
