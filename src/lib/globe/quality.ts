@@ -274,6 +274,29 @@ export function lruCapBytesForUltra(
 }
 
 /**
+ * T83 (2026-09-07c) — the LEAN clamp on a tile cache cap. On a coarse-pointer device the cap is
+ * `min(the tier's, the lean cap)` on EVERY tier — including `high`, where the tier path returns
+ * `null` (the library's 0.4 GiB default) and a phone must not inherit that. `lean === false` is
+ * DEFINED as the argument cap untouched, so the desktop byte-identical invariant holds. The
+ * caller still pairs the result with `lruFloorBytesForCap`. Pure → unit-tested.
+ *
+ * Why: the iPhone 17 Pro's FPV page died at page age 129 s with NO second load (Device Farm
+ * `--soak-no-reboot`), and the desktop twin under the same look-around (`probe-memory-footprint
+ * --look --phone`) grew 661 → 1,540 MB in 83 s tracking the tile caches (107 → 335 MB), ~3.9 MB
+ * of process footprint per cached tile-MB. At `mid` the three caches may hold 832 MB of tiles
+ * (rest at 624): the cache design alone crosses WebContent's 2,048 MB cap.
+ */
+export function lruCapBytesForLean(
+  capBytes: number | null,
+  lean: boolean,
+  leanCapMB: number,
+): number | null {
+  if (!lean) return capBytes;
+  const leanBytes = Math.round(leanCapMB * 1024 * 1024);
+  return capBytes === null ? leanBytes : Math.min(capBytes, leanBytes);
+}
+
+/**
  * RC18 — which HALF of a pending tier change may land right now.
  *
  * The pre-RC18 rule was all-or-nothing: `U2/A9` parks EVERY governor step while FPV owns the

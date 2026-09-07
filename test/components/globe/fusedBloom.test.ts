@@ -358,7 +358,9 @@ describe("T80-h — the GlobeCanvas wiring (C2', T99)", () => {
     const output = GLOBE_CANVAS.indexOf("composer.addPass(outputPass);");
     expect(bloom).toBeGreaterThan(-1);
     expect(output).toBeGreaterThan(bloom);
-    const teardown = GLOBE_CANVAS.slice(GLOBE_CANVAS.lastIndexOf("return () => {"));
+    // T83 (2026-09-07c): the teardown is a named, idempotent `teardown()` shared by the React
+    // cleanup and the `pagehide` release — the block starts at its declaration now.
+    const teardown = GLOBE_CANVAS.slice(GLOBE_CANVAS.lastIndexOf("const teardown = () => {"));
     expect(teardown).toMatch(/outputPass\.dispose\(\);/);
   });
 

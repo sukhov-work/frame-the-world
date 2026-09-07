@@ -48,6 +48,10 @@ const DWELL_S = Number(opt("--dwell", "30"));
 const SOAK_S = Number(opt("--soak", "0"));
 const EVERY_S = Number(opt("--every", "5"));
 const PHONE = args.includes("--phone");
+// --look: the Device Farm soak's synthetic look-around (one 108 px touch drag every 4 s) — the
+// phone's single-page kill (2026-09-07c, page age 129 s) happened UNDER this streaming, and a
+// static page stays flat; the probe must stream to reproduce the shape.
+const LOOK = args.includes("--look");
 const LABEL = opt("--label", "t83");
 const DEV = process.env.FTW_DEV_ORIGIN ?? "http://localhost:4321";
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -223,6 +227,9 @@ if (PHONE) {
 }
 console.log(`MEMORY FOOTPRINT  port ${PORT}  label ${LABEL}  sequence ${SEQ.join(" → ")}  dwell ${DWELL_S} s  soak ${SOAK_S} s  every ${EVERY_S} s  ${PHONE ? "PHONE profile (402×714 @3, touch, 4 cores)" : "desktop 1600×950 @2"}  ${BLANK ? "about:blank hop between poses" : "direct navigations"}`);
 
+const LOOK_JS = `(() => { const c = document.querySelector("canvas"); if (!c) return false; const r = c.getBoundingClientRect(); const x0 = r.left + r.width * 0.5, y0 = r.top + r.height * 0.6;
+  const ev = (type, x, y, buttons) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 7, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, button: 0, buttons, pressure: buttons ? 0.5 : 0 }));
+  ev("pointerdown", x0, y0, 1); for (let i = 1; i <= 12; i++) ev("pointermove", x0 + i * 9, y0 + Math.sin(i / 3) * 4, 1); ev("pointerup", x0 + 108, y0, 0); return true; })()`;
 const BUSY = `(() => { const u = window.__globe.u5(); const q = (r) => r ? r.dl.len + r.parse.len + r.stats.queued + r.stats.downloading + r.stats.parsing : 0; return q(u.buildings) + q(u.ground) + q(u.enriched); })()`;
 for (let i = 0; i < SEQ.length; i++) {
   const name = SEQ[i];
@@ -243,6 +250,9 @@ for (let i = 0; i < SEQ.length; i++) {
   const tHold = Date.now();
   let settledNoted = false;
   while (Date.now() - tHold < hold) {
+    // --look: the farm tool's LOOK verbatim (pointerdown, 12 moves of 9 px, pointerup), once per
+    // sample interval — run with `--every 4` to match the phone's cadence.
+    if (LOOK) await evalJs(LOOK_JS).catch(() => null);
     await sleep(EVERY_S * 1000);
     const busy = await evalJs(BUSY).catch(() => null);
     let note = busy === 0 ? (settledNoted ? "" : "settled (queues empty)") : `busy ${busy}`;

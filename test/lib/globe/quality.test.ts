@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   bloomScaleForTier,
   detectDeviceTier,
+  lruCapBytesForLean,
   lruCapBytesForTier,
   lruCapBytesForUltra,
   lruFloorBytesForCap,
@@ -874,5 +875,31 @@ describe("RC20 — bankWindowMsLeft (the flip latch)", () => {
     expect(left).toBe(0);
     expect(frames).toBe(Math.ceil(HOLD / 16));
     expect(lruBankFloorBytes(192 * 1024 * 1024, false, QUALITY.lruBank)).toBeNull();
+  });
+});
+
+describe("lruCapBytesForLean — T83's phone tile-cache clamp (2026-09-07c)", () => {
+  const MB = 1024 * 1024;
+  it("lean === false is the argument cap untouched — desktop byte-identical, null on high stays null", () => {
+    expect(lruCapBytesForLean(null, false, 48)).toBeNull();
+    expect(lruCapBytesForLean(256 * MB, false, 48)).toBe(256 * MB);
+  });
+  it("lean clamps every tier, including high's null (the library's 0.4 GiB default is not a phone number)", () => {
+    expect(lruCapBytesForLean(null, true, 48)).toBe(48 * MB);
+    expect(lruCapBytesForLean(256 * MB, true, 48)).toBe(48 * MB);
+    expect(lruCapBytesForLean(32 * MB, true, 48)).toBe(32 * MB); // never raises a smaller tier cap
+  });
+  it("the lean caps sit ABOVE the Dnipro FPV working set (4.5 / 47.5 / 54.6 MB bld / gnd / enr) so the U2/A9 loop cannot start, and below every mid cap", () => {
+    const L = QUALITY.leanMobile;
+    expect(L.lruBytesMB).toBeGreaterThan(4.5 * 2);
+    expect(L.groundLruBytesMB).toBeGreaterThan(47.5 * 1.5);
+    expect(L.enrichedLruBytesMB).toBeGreaterThan(54.6 * 1.5);
+    expect(L.lruBytesMB).toBeLessThan(QUALITY.tiers.mid.lruBytesMB);
+    expect(L.enrichedLruBytesMB).toBeLessThan(QUALITY.tiers.mid.lruBytesMB);
+    expect(L.groundLruBytesMB).toBeLessThan(QUALITY.tiers.mid.groundLruBytesMB);
+    // The three resting caches (75 % of the caps) stay under ~1/4 of WebContent's 2,048 MB cap
+    // at the measured ~3.9 MB of footprint per cached tile-MB.
+    const restMB = 0.75 * (L.lruBytesMB + L.enrichedLruBytesMB + L.groundLruBytesMB);
+    expect(restMB * 3.9).toBeLessThan(1024);
   });
 });

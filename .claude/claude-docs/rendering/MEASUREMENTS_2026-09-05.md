@@ -1216,3 +1216,111 @@ cpu 1.1, tier mid** (16 → 60 fps). The iPhone's 26 ms (§19) is the same call;
 **Gates for the session:** vitest 2,767/2,767 (176 files) · `astro check` 0/0/11 · knip 0 · post sweep
 `post-2026-09-07b` 10/14 byte-identical under the freeze (Δ1 ease steps + T103), sheets read; the descent's
 arrival pose identical to 0.02° pre vs post (the tilt glide lands where it did), its worst frame 99 → 82 ms.
+
+## 22. Session 2026-09-07c — T83 re-shaped: ONE page dies on its own; the desktop look-around twin; the lean tile-cache caps + the `pagehide` release
+
+### 22.1 The one-page soak — the page RELOADED at page age 129 s with no second load
+
+`ios-baseline.mjs --poses fpv --ramp 0 --soak-min 3 --soak-no-reboot` (new flag: soak the fpv page ALREADY UP;
+the soak now bails on the first dead SNAP instead of six blind 120 s `LOOK`s). Session
+`…/7a86c553-dd48-4f99-8aaf-1a95a70c032e/00000`, iPhone 17 Pro 26.3.1, tier mid, DPR 1.25, lean:
+
+| page age | soak min | booted | dt p50/p95 | LRU bld/gnd/enr MB | tex/geo | visible bld/gnd/enr |
+|---|---|---|---|---|---|---|
+| 38 s | 0 (read) | true | 17.0 / 17.0 | 4 / 47 / 37 | 117 / 283 | — |
+| 68 s | 0.5 | true | 17 / 25 (max 126) | 6.7 / 80 / 125 | 269 / 781 | 14 / 134 / 45 |
+| 99 s | 1.0 | true | — (no frames) | — | **2 / 5** | — |
+| 129 s | 1.5 | **false** | — | 5 / 77 / 55 | 243 / 700 | 16 / 167 / 55 |
+
+The 99 s row is a WebGL context LOST and RESTORED (`renderer.info` re-created; the tick skips while
+`ctxLost`, so the frame series is empty) — iOS evicts the GPU side first; 30 s later the WebContent went
+(the boot marker gone = Safari reloaded the page). So §21.1's "the kill comes 14–25 s after the SECOND
+load" was the shape of a harness that navigated every first page away at 34–45 s: **a single FPV page
+reaches the cap in ~2 min under look-around streaming.** The `pagehide` release stays right for the
+multi-document shape (route changes, reloads) but cannot be THE lever.
+
+### 22.2 The desktop twin under the same gesture — the caches drive it
+
+`probe-memory-footprint.mjs 9333 --sequence fpv --soak 180 --every 4 --look --phone` (new `--look`: the farm
+tool's synthetic 108 px touch drag every 4 s; the 17 Pro profile → tier mid, lean, DPR 3 → cap 1.25):
+
+| t | renderer footprint | JS heap used/total | ArrayBuffers | geometry MB (count) | LRU bld/gnd/enr MB | tiles |
+|---|---|---|---|---|---|---|
+| 8 s (settled) | 661 MB | 92 / 177 | 173 | 96 (456) | 4.5 / 47.5 / 54.6 | 277 |
+| 33 s | 1,090 | 275 / 330 | 390 | 196 (864) | 6.7 / 76 / 125 | 498 |
+| 58 s | 1,318 | 307 / 357 | 525 | 264 (1,356) | 8.5 / 113 / 174 | 770 |
+| 83 s | **1,540** | 319 / 388 | 639 | 292 (1,664) | 8.6 / 131 / 196 | 931 |
+
+Still climbing at 83 s (the run was then contaminated by HMR reloads — src edits landed in the served
+checkout; the standing trap, re-learned). ~3.9 MB of renderer footprint per cached tile-MB (the CPU
+attribute arrays + the parse buffers + three's objects, GC-lagged). At `mid` the three caches may hold
+256 + 256 + 320 = 832 MB of tiles and REST at 624 (the 0.75 floor): the cache design alone crosses
+WebContent's 2,048 MB cap. A static page (§21.1's 510 MB flat) never fills them — that is why the first
+twin read flat.
+
+### 22.3 The lever built — `QUALITY.leanMobile` tile caps (T83, `lruCapBytesForLean`)
+
+`lruBytesMB 48 · enrichedLruBytesMB 128 · groundLruBytesMB 112`, `min`-ed against the running tier's cap on
+EVERY tier (including `high`'s null — the library's 0.4 GiB default is not a phone number); desktop
+untouched (`lean === false` is the argument cap by definition; `quality.test.ts` +3). Sized above the FPV
+working set (4.5 / 47.5 / 54.6 MB at the Dnipro eye) so the U2/A9 parse → full → discard loop cannot start.
+Same twin, same gesture, 100 s:
+
+| t | footprint | geometry MB | LRU bld/gnd/enr MB | tiles |
+|---|---|---|---|---|
+| 9 s | 692 | 96 | 4.3 / 46.5 / 54.6 | 271 |
+| 39 s | 1,056 | 160 | 6.9 / 84.2 / 96.8 | 514 |
+| 59 s | 1,164 | 163 | 8.3 / 84.2 / 96.2 | 548 |
+| 89 s (peak) | **1,178** | 164 | 8.6 / 84.2 / 96.5 | 573 |
+| 109 s | 1,109 | 165 | 8.6 / 84.2 / 96.3 | 518 |
+
+The caches REST at 84 / 96 MB (= 0.75 × 112 / 128) from ~35 s; geometry plateaus at 163 MB (was 292 and
+rising); the footprint oscillates 1.0–1.18 GB with the GC (802 MB after a forced collect) instead of climbing
+through 1.54. The phone's base is lower still (no 8k earth set, −120 MB of images; a 1.25-DPR canvas).
+No thrash signature (busy counts stay small, the tile count hovers 505–594).
+
+### 22.4 The `pagehide` release (the multi-document half, `RENDERER.releaseOnPageHide`)
+
+`GlobeCanvas`'s React cleanup is now a named idempotent `teardown()`; on `pagehide` it runs, then
+`renderer.forceContextLoss()`; a bfcache `pageshow` (`persisted`) reloads. Same-document hash navigations
+(`#p=` / `#f=`) never fire `pagehide`, so the pose/photo flows are untouched. Farm read: §22.5.
+
+### 22.5 The farm reads — the A/B on the iPhone 17 Pro (Device Farm, 26.3.1, tier mid, lean, DPR 1.25)
+
+**Caps ON + the `pagehide` release** (`--poses m,fpv --ramp 0 --soak-min 4 --soak-no-reboot`, session
+`…/7db7216e-42c0-4687-bc29-909373823608/00000`; no `src/` edit landed while it ran):
+
+| read | dt p50/p95/max | cpu p50/p95 | LRU bld/gnd/enr MB | visible | tex/geo | note |
+|---|---|---|---|---|---|---|
+| `/m` (boot 9.4 s) | 17 / 17 / 18 | **2 / 3** | 0 / 78.5 / 0 | 0 / 59 / 0 | 28 / 50 | **T107 on the iPhone: 26 ms (§19) → 2 ms** |
+| `#f=` — the SECOND load in the process (boot 7.5 s) | 17 / 17 / 21 | 3 / 4 | 4.4 / 46.5 / 36.9 | 15 / 137 / 48 | 117 / 283 | alive (the b session's four kills came 14–25 s after this load) |
+| soak 0.5 min (page age 55 s) | 18 / 33 / 55 | 9 / 15 | 6.7 / 80.1 / 96.2 | 14 / 134 / 45 | 269 / 707 | |
+| 1.0 (86 s) | 18 / 38 / 90 | 9 / 12 | 8.6 / 84.1 / 96.9 | 16 / 155 / 65 | 295 / 894 | the caches REST at the lean floors |
+| 2.0 (147 s) | 23 / 41 / 99 | 11 / 18 | 8.6 / 84.1 / 96.9 | 12 / 131 / 47 | 297 / 759 | |
+| 3.0 (208 s) | 21 / 43 / 310 | 11 / 16 | 8.6 / 84.0 / 96.6 | 14 / 137 / 40 | 314 / 909 | |
+| **4.0 (269 s)** | 26 / 47 / 156 | 15 / 22 | 8.6 / 84.2 / 97.0 | 15 / 155 / 57 | 302 / 975 | **alive, no tier change, 296 hitches** |
+
+**Caps OFF** (the same tree with `leanMobile.*LruBytesMB` = 100,000 for the run, `--poses fpv`, session
+`…` labelled `t83-nocaps`, 00:19–00:29Z; no `src/` edit during the run):
+
+| read | dt | cpu | LRU bld/gnd/enr MB | visible | tex/geo |
+|---|---|---|---|---|---|
+| `#f=` (boot) | 17 / 19 | 3 | 4 / 47 / 37 | — | 119 / 285 |
+| soak 0.5 (61 s) | 17 / 21 / 54 | 4 / 8 | 6.7 / 80.1 / **124.6** | 14 / 134 / 45 | 271 / 783 |
+| 1.0 (92 s) | 19 / 30 / 96 | 5 / 8 | 8.6 / **123.9 / 187.1** | 16 / 155 / 65 | **458 / 1,407** |
+| next LOOK | — | — | — | — | **the remote debugger stopped answering (page age ≈ 95–115 s)** |
+
+Same phone, same pose, same gesture, same tree: **with the lean caps the page lives 269 s+ at the
+floor (84 / 97 MB); without them it holds 124 / 187 MB and climbing at 92 s and is dead before 115 s.**
+The b session's "kill 14–25 s after the second load" reads, in this light, as the second document's
+cache filling on top of the first's — the `pagehide` release (§22.4) is the right thing for that shape
+but was not isolated by its own A/B here (the m → fpv row above ran with both levers). Watch: dt p50
+rose 18 → 26 ms (cpu 9 → 15) over the 4-min look-around with hitches at ~1 /s — the streaming cost
+(T106's family), not memory.
+
+The first one-page soak of the session (§22.1's 129 s) is now known to have overlapped `src/` edits
+on the served checkout (Vite HMR reaches the phone through the tunnel); its context-loss row may be
+a Fast Refresh remount. The A/B above is the clean pair.
+
+**Session gates:** vitest 2,782/2,782 (177 files; +15 tests) · `astro check` 0/0/11 · knip 0 · pre sweep
+`pre-2026-09-07c` 12/14 (cityscape Δ1 ease, T103), sheets read.

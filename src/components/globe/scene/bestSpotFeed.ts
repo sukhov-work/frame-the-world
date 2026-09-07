@@ -143,6 +143,10 @@ export interface BestSpotFeedCtx {
   vectorVersion: number;
   /** `enriched.seatState().epoch` — a ready-made fourth epoch source that needs no new listener. */
   seatEpoch: number;
+  /** OCCLUSION 2026-09-07c — `userModels.occluderEpoch()`: a model became resident or left, the
+   *  MDL chip toggled, a seat/rebase/drag wrote its rig. Optional (defaults to 0) so the pure
+   *  tests' ctx objects keep compiling. */
+  modelsEpoch?: number;
 }
 
 export interface BestSpotFeedHandle {
@@ -418,6 +422,10 @@ export function attachBestSpotFeed(opts: {
   groundGroup: THREE.Object3D;
   buildingsGroup: THREE.Object3D;
   enrichedGroup: THREE.Object3D | null;
+  /** OCCLUSION 2026-09-07c — the resident user models (`userModels.occluderRoot()`), read lazily;
+   *  flattened into the SOLID layer like a building (no canopies — an instanced mesh inside an
+   *  uploaded GLB is not a tree). Optional so the pure tests can omit it. */
+  userModelsGroup?: () => THREE.Object3D | null;
 }): BestSpotFeedHandle {
   // ── worker + its results ────────────────────────────────────────────────────────────────────
   let livePack: BestSpotFieldPack | null = null;
@@ -563,6 +571,7 @@ export function attachBestSpotFeed(opts: {
   let builtVectorVersion = -1;
   let builtSeatEpoch = -1;
   let builtBuiltEpoch = -1;
+  let builtModelsEpoch = -1;
   let streamStale = false;
   let quietFrames = 0;
 
@@ -605,6 +614,11 @@ export function attachBestSpotFeed(opts: {
     flattenTin(opts.buildingsGroup, _centre, halfSpanM, MESH_BUDGET, built, _sphere, canopies);
     const osmMeshes = built.length;
     flattenTin(opts.enrichedGroup, _centre, halfSpanM, MESH_BUDGET, built, _sphere, canopies);
+    const buildingMeshes = built.length;
+    // OCCLUSION 2026-09-07c: user models are solids too — after the two tilesets, and OUTSIDE the
+    // provenance count below (a placed GLB is neither a surveyed roof nor an extruded footprint).
+    const userRoot = opts.userModelsGroup?.() ?? null;
+    if (userRoot?.visible) flattenTin(userRoot, _centre, halfSpanM, MESH_BUDGET, built, _sphere, null);
     // S7's provenance badge, counted at the ONE place the two tilesets are still distinguishable:
     // once they are in `built` they are anonymous TIN, and nothing in `lib/**` can tell a surveyed
     // roof from an extruded footprint with a class-default height (~78 % of the OSM set).
@@ -614,7 +628,7 @@ export function attachBestSpotFeed(opts: {
     // "surveyed roof" count with vegetation. It now counts building meshes only. A future audit
     // reading this number down should read it as the inflation being removed, not as a regression.
     const heightProvenance: BestSpotHeightProvenance = {
-      enriched: built.length - osmMeshes,
+      enriched: buildingMeshes - osmMeshes,
       osm: osmMeshes,
     };
 
@@ -813,12 +827,14 @@ export function attachBestSpotFeed(opts: {
       ctx.terrainEpoch !== builtTerrainEpoch ||
       ctx.vectorVersion !== builtVectorVersion ||
       ctx.seatEpoch !== builtSeatEpoch ||
-      ctx.builtEpoch !== builtBuiltEpoch
+      ctx.builtEpoch !== builtBuiltEpoch ||
+      (ctx.modelsEpoch ?? 0) !== builtModelsEpoch
     ) {
       builtTerrainEpoch = ctx.terrainEpoch;
       builtVectorVersion = ctx.vectorVersion;
       builtSeatEpoch = ctx.seatEpoch;
       builtBuiltEpoch = ctx.builtEpoch;
+      builtModelsEpoch = ctx.modelsEpoch ?? 0;
       // Before the first solve there is nothing to invalidate — the first job will read the
       // newest geometry anyway, and marking stale here would debounce the FIRST ink by 1.5 s.
       if (keyT0 !== "") streamStale = true;

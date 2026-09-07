@@ -14,7 +14,7 @@
  *   node ios-baseline.mjs --host https://<tunnel-host> \
  *        [--project-arn arn:aws:devicefarm:us-west-2:…:project:…] [--device "iPhone 17 Pro"] \
  *        [--session-arn <reuse a RUNNING session>] [--keep-session] [--poses fpv,orbit,city,everest,m] \
- *        [--ramp 6,12,24,36] [--soak-min 8] [--settle 30] [--label farm] [--dry-run]
+ *        [--ramp 6,12,24,36] [--soak-min 8] [--soak-no-reboot] [--settle 30] [--label farm] [--dry-run]
  *
  * Preconditions on the Mac: `wix dev --allowed-hosts <tunnel-host>` on :4321 and a tunnel to it
  * (`cloudflared tunnel --url http://localhost:4321` — no interstitial page; or ngrok on a paid plan —
@@ -37,7 +37,8 @@
  *   screen + DPR + renderer string, a boot marker proving the page did NOT reload during the read,
  *   a screenshot. The RAMP: the last model count that survived 20 s settled, the first that reloaded
  *   Safari (the jetsam kill), whether tiles stormed before it. The SOAK: a snapshot every 30 s for
- *   --soak-min minutes with a synthetic look-around between reads.
+ *   --soak-min minutes with a synthetic look-around between reads; --soak-no-reboot soaks the fpv page
+ *   ALREADY UP (poses ending in fpv, --ramp 0) — one page's survival, not the second-load shape (T83).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -67,6 +68,9 @@ const DRY = flag("--dry-run");
 const POSES = opt("--poses", "fpv,orbit,city,everest,m").split(",");
 const RAMP = opt("--ramp", "6,12,24,36").split(",").map(Number).filter((n) => n > 0);
 const SOAK_MIN = Number(opt("--soak-min", "8"));
+// --soak-no-reboot: soak the page that is ALREADY UP (the last pose must be fpv and the ramp empty) —
+// T83 needs ONE page's survival, and the default soak's re-boot is the second `#f=` load that jetsam kills.
+const SOAK_NO_REBOOT = flag("--soak-no-reboot");
 const SETTLE_S = Number(opt("--settle", "30"));
 const LABEL = opt("--label", "farm");
 const DEV = "http://localhost:4321"; // the Mac's own wix dev — for dev-seed and the tunnel preflight
@@ -364,6 +368,7 @@ async function drive(endpoint) {
   try {
     // ── the poses ──
     const seenPose = {};
+    let fpvBootAt = 0; // wall clock of the last fpv page's birth — the soak's page-age column
     for (const poseKey of POSES) {
       const n = (seenPose[poseKey] = (seenPose[poseKey] ?? 0) + 1);
       const slot = n === 1 ? poseKey : `${poseKey}#${n}`; // fpv,fpv = a second `#f=` boot in ONE Safari session
@@ -378,6 +383,7 @@ async function drive(endpoint) {
         if (pageUnresponsive) throw e; // nothing more can be read from this session
         continue;
       }
+      if (poseKey === "fpv") fpvBootAt = Date.now() - bootMs;
       const st = await settle(SETTLE_S);
       await sleep(5000); // let the series rings fill (240 samples)
       const r = await read(poseKey, { bootMs, settle: st });
@@ -424,19 +430,39 @@ async function drive(endpoint) {
     await unseedAll();
     // ── the soak at the FPV eye, 0 seeded models ──
     if (SOAK_MIN > 0 && !pageUnresponsive) {
-      await boot("fpv");
-      await settle(SETTLE_S);
+      const inPlace = SOAK_NO_REBOOT && POSES.at(-1) === "fpv" && RAMP.length === 0 && results.poses.fpv?.snap?.booted === true;
+      if (SOAK_NO_REBOOT && !inPlace) results.notes.push("--soak-no-reboot ignored: the last pose was not a booted fpv, or the ramp ran");
+      if (inPlace) {
+        log("soak: IN PLACE on the fpv page already up (--soak-no-reboot) — no second load");
+      } else {
+        await boot("fpv");
+        await settle(SETTLE_S);
+      }
       const t0 = Date.now();
+      results.soakStart = { inPlace, pageAgeS: inPlace ? Math.round((Date.now() - fpvBootAt) / 1000) : 0 };
       let k = 0;
-      while (Date.now() - t0 < SOAK_MIN * 60_000) {
-        for (let i = 0; i < 6; i++) {
-          await js(LOOK).catch(() => false);
-          await sleep(4000);
+      let dead = false;
+      while (Date.now() - t0 < SOAK_MIN * 60_000 && !dead) {
+        // Each Appium call on a dead page stalls 120 s: the FIRST stall-class LOOK failure ends the
+        // row (a second LOOK + the SNAP were another 4 min of billing on the 2026-09-07c A/B run);
+        // a non-stall failure (a transient) gets one more try before the SNAP classifies.
+        let lookFails = 0;
+        let stalled = null;
+        for (let i = 0; i < 6 && lookFails < 2 && !stalled; i++) {
+          const ok = await js(LOOK).catch((e) => (STALL.test(String(e)) ? ((stalled = String(e)), null) : null));
+          lookFails = ok === null ? lookFails + 1 : 0;
+          if (!stalled) await sleep(4000);
         }
-        const snap = await js(SNAP).catch((e) => ({ err: String(e) }));
-        const row = { minute: (Date.now() - t0) / 60_000, k: k++, snap };
+        const snap = stalled ? { err: `timeout: ${stalled}` } : await js(SNAP).catch((e) => ({ err: String(e) }));
+        const row = { minute: (Date.now() - t0) / 60_000, pageAgeS: inPlace ? Math.round((Date.now() - fpvBootAt) / 1000) : Math.round((Date.now() - t0) / 1000), k: k++, snap };
         results.soak.push(row);
         save();
+        if (snap.err || snap.booted === false || lookFails >= 2 || stalled) {
+          dead = true;
+          if (snap.err && STALL.test(snap.err)) pageUnresponsive = true;
+          results.notes.push(`soak: the page ${snap.err ? "stopped answering" : "RELOADED"} at ${row.minute.toFixed(1)} min (page age ${row.pageAgeS} s)${snap.err ? ` — ${snap.err}` : ""}`);
+          log(`soak: DEAD at ${row.minute.toFixed(1)} min (page age ${row.pageAgeS} s) — stopping the soak`);
+        }
         log(`soak ${row.minute.toFixed(1)} min: dt ${snap.dt?.[0]?.toFixed?.(1)}/${snap.dt?.[1]?.toFixed?.(1)} ms  tier ${snap.tier} dpr ${snap.dpr}  ema ${snap.emaMs?.toFixed?.(1)}  hitches ${snap.hitches}  booted ${snap.booted}`);
         if (snap.booted === false) results.notes.push(`soak: the page reloaded at ${row.minute.toFixed(1)} min`);
       }

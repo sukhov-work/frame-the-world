@@ -636,6 +636,16 @@ export const RENDERER = {
   maxPixelRatio: 2,
   /** NeutralToneMapping exposure (ACES/AgX rejected — they desaturate the cyan accent). */
   toneMappingExposure: 1.0,
+  /** T83 — release the GL context and every tileset on `pagehide` (2026-09-07c). iOS Safari keeps
+   *  ONE WebContent process across same-origin navigations and jetsam kills it at a 2,048 MB
+   *  per-process cap 14–25 s after the SECOND globe page loads (five Device Farm syslogs): the
+   *  navigated-away document's WebGL resources linger (~470 MB per page load on the desktop twin,
+   *  `scripts/probe-memory-footprint.mjs`) until its canvas is collected. Disposing the scene and
+   *  forcing context loss the moment the page hides returns that memory before the next document
+   *  needs it. A page restored from the back/forward cache after the release has no context left
+   *  — it reloads (`pageshow` with `persisted`). Same-document hash navigations never fire
+   *  `pagehide`, so the pose/photo flows are untouched. */
+  releaseOnPageHide: true,
 } as const;
 
 /** RC19 — the /m picture-in-picture cache (charter Group E; `lib/globe/pipCache.ts`).
@@ -829,6 +839,17 @@ export const QUALITY = {
     dprCap: 1.25,
     bloom: false,
     shadowMapSize: 1024,
+    /** T83 (2026-09-07c) — the TILE half of lean: hard caps (MB) on the three LRU caches,
+     *  `min`-ed against the running tier's on every tier (`lruCapBytesForLean`). The phone's
+     *  FPV page died at page age 129 s on its own (no second load) with its caches at 212 MB
+     *  and climbing toward `mid`'s 832; the desktop twin under the same look-around read ~3.9 MB
+     *  of renderer footprint per cached tile-MB. Sized ABOVE the FPV working set (the Dnipro eye
+     *  settles at 4.5 / 47.5 / 54.6 MB bld / gnd / enr) so the U2/A9 parse → full → discard loop
+     *  cannot start, and low enough that the resting caches (75 % of the cap) hold the process
+     *  near 1.1–1.3 GB instead of 2. First-guess values — judged on the farm (T83). */
+    lruBytesMB: 48,
+    enrichedLruBytesMB: 128,
+    groundLruBytesMB: 112,
     /** QA-7b (owner 2026-08-21f): the /m 2D CHART spends the heat budget on CRISPNESS —
      *  bloom/GTAO/shadow twins are already off on the flat map, so a DPR raise there costs
      *  fragments only. FPV/3D keep the 1.25 heat cap. Applied via TilesHandle.mapFlat() in
@@ -4157,6 +4178,24 @@ export const PLAN = {
    *  this many frames (settled, no easing), a ready profile built over the old geometry is
    *  invalidated ONCE and rebuilt — the skyline verdict must match what's rendered. */
   reseatQuietFrames: 90,
+  /** OCCLUSION AUDIT 2026-09-07c — the streaming epochs. A profile used to be built ONCE per
+   *  anchor from whatever tiles were resident and never re-swept: an OSM/enriched cell or a
+   *  terrain tile landing AFTER the sweep passed its azimuth stayed out of the radar bands, the
+   *  scrubber's visibility trace and every FIND/THIS FRAME verdict until the eye moved 25 m
+   *  (`bestSpotFeed` named this as its own D1 defect on 2026-08-24 and fixed it there only).
+   *  The feed now compares `terrainEpoch` · `builtEpoch` (OSM + enriched load/dispose) · the
+   *  user-model `occluderEpoch` per frame and re-sweeps the SAME anchor once the stream has been
+   *  quiet for this many frames — the `BESTSPOT.rebuildQuietFrames` idiom: a burst of arrivals
+   *  costs exactly one rebuild, and a build that started after the last change is left alone. */
+  streamQuietFrames: 90,
+  /** While a rebuild is in flight (a streaming re-sweep, a re-seat, or an eye move), the LAST
+   *  complete profile stays published as long as the new eye is within this distance of the
+   *  eye it was swept at — otherwise every re-sweep would blank the radar to unfractured bands
+   *  and flip the scrubber's trace to "unknown" for the 1–3 s the sliced build takes. 60 m is
+   *  the radars' own honesty bound (`AIMCONES.skylineGuardM`): a profile the fan may already
+   *  wear at that distance may be carried through a rebuild; beyond it the mirror publishes
+   *  null, as before. Test-locked ≤ `skylineGuardM`. */
+  carryProfileDistM: 60,
 } as const;
 
 /**

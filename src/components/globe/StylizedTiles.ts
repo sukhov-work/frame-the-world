@@ -194,6 +194,7 @@ import {
 } from "../../lib/globe/featureTransform";
 import {
   bankWindowMsLeft,
+  lruCapBytesForLean,
   lruCapBytesForUltra,
   queueCapsForTier,
   stickyOverlayPx,
@@ -377,6 +378,10 @@ export function attachStylizedTiles(opts: {
    *  milky-way haze. Needed because phones report maxTextureSize ≥ 8192 — GPU capability alone
    *  can't gate the ~280 MB texture budget. Default true (desktop byte-identical). */
   allow8k?: boolean;
+  /** T83 (2026-09-07c): the coarse-pointer LEAN profile's tile half — the three LRU caches are
+   *  clamped to `QUALITY.leanMobile.*LruBytesMB` on every tier. Default false (desktop
+   *  byte-identical). */
+  lean?: boolean;
   /** AO altitude gate (RENDERING_QUALITY_PASS R1): the orchestrator knows the camera altitude, so
    *  it tells GlobeCanvas (which owns the GTAOPass + the tier gate) whether the camera is low
    *  enough for AO. Only present when AO.enabled — undefined otherwise (zero cost). */
@@ -393,6 +398,7 @@ export function attachStylizedTiles(opts: {
     hemiLight,
     qualityTier = "high",
     allow8k = true,
+    lean = false,
     aoControl,
   } = opts;
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
@@ -720,6 +726,9 @@ export function attachStylizedTiles(opts: {
     buildingsGroup: buildings.tiles.group,
     enrichedGroup: enriched?.tiles.group ?? null,
     maskBbox: enrichedBbox,
+    // OCCLUSION 2026-09-07c: the resident user models sweep like buildings (attached below —
+    // read lazily at collect time).
+    userModelsGroup: () => userModels.occluderRoot(),
   });
   // FPV mini-map feed (owner 2026-07-14): the SAME shared MVT source, projected to local metres
   // around the walked viewer and mirrored into store/minimap for the MiniMap panel.
@@ -733,6 +742,7 @@ export function attachStylizedTiles(opts: {
     groundGroup: ground.tiles.group,
     buildingsGroup: buildings.tiles.group,
     enrichedGroup: enriched?.tiles.group ?? null,
+    userModelsGroup: () => userModels.occluderRoot(), // OCCLUSION 2026-09-07c — solid layer
   });
   const bestSpotSheet = attachBestSpotSheet(scene, {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
@@ -810,17 +820,24 @@ export function attachStylizedTiles(opts: {
     const q = ultraTileLevers(QUALITY.tiers[tier], ultraOn, QUALITY.ultraDesktop);
     // The LRU pair likewise: `ultraOn === false` is DEFINED as lruCapBytesForTier, i.e. the
     // untouched null-on-high "restore the library default" path.
-    const lru = lruCapBytesForUltra(tier, q.lruBytesMB, ultraOn, QUALITY.ultraDesktop.lruBytesMB);
+    const lruTier = lruCapBytesForUltra(tier, q.lruBytesMB, ultraOn, QUALITY.ultraDesktop.lruBytesMB);
+    // T83: the lean clamp — a phone's caches are sized for its 2 GB process, not for the tier.
+    const lru = lruCapBytesForLean(lruTier, lean, QUALITY.leanMobile.lruBytesMB);
+    const lruEnriched = lruCapBytesForLean(lruTier, lean, QUALITY.leanMobile.enrichedLruBytesMB);
     const qCaps = queueCapsForTier(tier, LOADING.queueCaps); // U5: same null-on-high rule for maxJobs
     buildings.setQualityTier(q.buildingErrorTarget, lru, qCaps);
-    enriched?.setQualityTier(q.buildingErrorTarget, lru, qCaps);
+    enriched?.setQualityTier(q.buildingErrorTarget, lruEnriched, qCaps);
     // #15: the ground rides its OWN LRU budget (modest raise over lruBytesMB on mid/low — the
     // 256 overlay composite frees ~4× per-tile VRAM, and a retained ground tile is a pan
     // re-fetch that never happens; buildings/enriched keep the shared cap — a blanket raise
     // worsens jetsam) + the per-tier overlay composite resolution.
     ground.setQualityTier(
       q.groundErrorNear,
-      lruCapBytesForUltra(tier, q.groundLruBytesMB, ultraOn, QUALITY.ultraDesktop.groundLruBytesMB),
+      lruCapBytesForLean(
+        lruCapBytesForUltra(tier, q.groundLruBytesMB, ultraOn, QUALITY.ultraDesktop.groundLruBytesMB),
+        lean,
+        QUALITY.leanMobile.groundLruBytesMB,
+      ),
       qCaps,
     );
     // U6: per-tier foveation (null on high — byte-identical; regions/periphery only engage in
@@ -7958,6 +7975,11 @@ export function attachStylizedTiles(opts: {
           fpvEyeAboveGroundM,
           focusLatDeg: camStore.focusLatDeg,
           focusLonDeg: camStore.focusLonDeg,
+          // OCCLUSION 2026-09-07c: the streaming epochs `bestSpotFeed` already watches — a tile
+          // or a model landing after the sweep re-profiles the same eye after a quiet window.
+          terrainEpoch: ground.terrainEpoch(),
+          builtEpoch: builtEpochN,
+          modelsEpoch: userModels.occluderEpoch(),
         });
   };
 
@@ -8019,6 +8041,7 @@ export function attachStylizedTiles(opts: {
           vectorVersion: vtiles.version(),
           seatEpoch: enriched?.seatState().epoch ?? 0,
           builtEpoch: builtEpochN,
+          modelsEpoch: userModels.occluderEpoch(), // OCCLUSION 2026-09-07c
         });
         bestSpotSheet.update({
           camera,

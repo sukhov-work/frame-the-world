@@ -353,6 +353,37 @@ describe("scene/userModels", () => {
     h.dispose();
   });
 
+  it("OCCLUSION 2026-09-07c — occluderRoot() is the models' group and occluderEpoch() moves on every swept-geometry change", async () => {
+    const scene = new THREE.Scene();
+    const loader = makeLoader();
+    const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
+    expect(h.occluderRoot()).toBe(scene.getObjectByName("userModels"));
+    const e0 = h.occluderEpoch();
+    h.setModels([row("a")]);
+    const cam = cameraNear();
+    h.update(cam, 0, DT);
+    expect(h.occluderEpoch()).toBe(e0); // a load in flight sweeps nothing yet
+    await flush();
+    const e1 = h.occluderEpoch();
+    expect(e1).toBeGreaterThan(e0); // resident → the sweep must see it
+    expect(h.occluderRoot().children.length).toBe(1);
+    h.setSeats("a", { rotDeg: 30, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    const e2 = h.occluderEpoch();
+    expect(e2).toBeGreaterThan(e1);
+    h.rebase("a", LAT + 0.0001, LON);
+    const e3 = h.occluderEpoch();
+    expect(e3).toBeGreaterThan(e2);
+    h.placeRig("a", { sx: 1.2, sy: 1.2, sz: 1.2, rotDeg: 30, tE: 0, tN: 0, tU: 0 });
+    const e4 = h.occluderEpoch();
+    expect(e4).toBeGreaterThan(e3); // a live drag frame — the feeds' quiet window absorbs it
+    h.setVisible(false);
+    const e5 = h.occluderEpoch();
+    expect(e5).toBeGreaterThan(e4);
+    h.update(cam, 1, DT); // the MDL chip off releases the model → another bump (unload)
+    expect(h.occluderEpoch()).toBeGreaterThan(e5);
+    h.dispose();
+  });
+
   it("drops a fetch that lands after the model was released, and reports a failed load", async () => {
     const scene = new THREE.Scene();
     const loader = makeLoader();

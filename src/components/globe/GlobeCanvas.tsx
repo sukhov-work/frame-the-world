@@ -815,6 +815,7 @@ export default function GlobeCanvas() {
             // Mobile texture tier (MOBILE_PLAN M0): phones report maxTextureSize ≥ 8192, so GPU
             // capability alone can't gate the ~280 MB of 8k swaps — the coarse-pointer signal does.
             allow8k: !deviceCaps.coarsePointer,
+            lean, // T83: the lean profile's tile half (the LRU clamp)
             aoControl, // R1 altitude gate (undefined unless AO.enabled)
           });
         })
@@ -1201,7 +1202,16 @@ export default function GlobeCanvas() {
     };
     tick();
 
-    return () => {
+    // T83 — release on `pagehide` (RENDERER.releaseOnPageHide). The teardown below is the React
+    // unmount path; on a navigation the document is torn down WITHOUT unmounting, and iOS keeps
+    // the dead document's GL alive inside the one WebContent process the next page shares — the
+    // jetsam shape. So the same teardown runs on `pagehide` (idempotent — `released` guards the
+    // double call), then the context is force-lost so the GPU side goes with it. A page that
+    // comes back from the bfcache after that has no context to draw with: reload it.
+    let released = false;
+    const teardown = () => {
+      if (released) return;
+      released = true;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       canvas.removeEventListener("webglcontextlost", onCtxLost);
@@ -1234,6 +1244,23 @@ export default function GlobeCanvas() {
       pipRT?.dispose();
       pipMat.dispose();
       renderer.dispose();
+    };
+    const onPageHide = () => {
+      if (!RENDERER.releaseOnPageHide || released) return;
+      teardown();
+      renderer.forceContextLoss();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      // Only a bfcache restore reaches a released page (a fresh load has `released === false`).
+      if (released && e.persisted) location.reload();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
+      teardown();
     };
   }, []);
 

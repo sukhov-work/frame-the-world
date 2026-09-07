@@ -318,6 +318,19 @@ describe("§3.4 item 2 — a streaming BURST costs exactly ONE re-solve", () => 
     feed.dispose();
   });
 
+  it("OCCLUSION 2026-09-07c — a user-model change (`modelsEpoch`) invalidates the disc like a tile arrival", () => {
+    const feed = mountSync();
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(1);
+    for (let i = 0; i < 5; i++) feed.update({ ...baseCtx, modelsEpoch: 1 + i });
+    expect(solves()).toHaveLength(1);
+    for (let i = 0; i < BESTSPOT.rebuildQuietFrames; i++) feed.update({ ...baseCtx, modelsEpoch: 5 });
+    expect(solves()).toHaveLength(2);
+    for (let i = 0; i < BESTSPOT.rebuildQuietFrames * 2; i++) feed.update({ ...baseCtx, modelsEpoch: 5 });
+    expect(solves()).toHaveLength(2);
+    feed.dispose();
+  });
+
   it("the FIRST solve is not debounced — the epochs only invalidate an existing disc", () => {
     // The trap: marking stale on the very first frame would put a 1.5 s debounce in front of the
     // 55 ms first ink, which is the number the whole ladder exists to hit.
@@ -742,6 +755,53 @@ describe("D1 — tree instances reach the worker as CANOPIES, not as phantom bui
     if (job.type !== "solve") throw new Error("no solve");
     expect(job.heightProvenance.enriched).toBe(1); // the plain mesh, and nothing else
     feed.dispose();
+  });
+
+  it("OCCLUSION 2026-09-07c — a resident USER MODEL inside the disc is flattened into the SOLID layer; a hidden group is not", () => {
+    const f = enuFrameAt(CENTRE_LAT, CENTRE_LON, 120);
+    const models = new THREE.Group();
+    const g = new THREE.BufferGeometry();
+    const p: number[] = [];
+    for (const [e, n] of [[-5, -5], [5, -5], [0, 5]] as const) {
+      p.push(
+        f.originEcef[0] + e * f.east[0] + n * f.north[0] + 8 * f.up[0],
+        f.originEcef[1] + e * f.east[1] + n * f.north[1] + 8 * f.up[1],
+        f.originEcef[2] + e * f.east[2] + n * f.north[2] + 8 * f.up[2],
+      );
+    }
+    g.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(p), 3));
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+    mesh.matrixAutoUpdate = false;
+    models.add(mesh);
+    const feed = attachBestSpotFeed({
+      terrainHeightAt: () => 120,
+      groundGroup: new THREE.Group(),
+      buildingsGroup: new THREE.Group(),
+      enrichedGroup: null,
+      userModelsGroup: () => models,
+    });
+    feed.update({ ...baseCtx });
+    const job = solves()[0];
+    if (job.type !== "solve") throw new Error("no solve");
+    expect(job.built).toHaveLength(1);
+    expect(job.built[0].positions.length).toBe(9);
+    // …and it is not a surveyed roof: the provenance badge counts buildings only.
+    expect(job.heightProvenance.enriched).toBe(0);
+    feed.dispose();
+    posted.length = 0;
+    models.visible = false; // the MDL chip off
+    const feed2 = attachBestSpotFeed({
+      terrainHeightAt: () => 120,
+      groundGroup: new THREE.Group(),
+      buildingsGroup: new THREE.Group(),
+      enrichedGroup: null,
+      userModelsGroup: () => models,
+    });
+    feed2.update({ ...baseCtx });
+    const job2 = solves()[0];
+    if (job2.type !== "solve") throw new Error("no solve");
+    expect(job2.built).toHaveLength(0);
+    feed2.dispose();
   });
 
   it("the canopy wire is a COPY — mutating the live instanceMatrix cannot reach the worker", () => {

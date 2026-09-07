@@ -396,7 +396,9 @@ describe("T80g — the GlobeCanvas wiring (contract C1–C4)", () => {
   });
 
   it("C4 TEARDOWN: the resolve pass is disposed by us, the buffers by the composer, no orphan target", () => {
-    const teardown = GLOBE_CANVAS.slice(GLOBE_CANVAS.lastIndexOf("return () => {"));
+    // T83 (2026-09-07c): the teardown is a named, idempotent `teardown()` shared by the React
+    // cleanup and the `pagehide` release — the block starts at its declaration now.
+    const teardown = GLOBE_CANVAS.slice(GLOBE_CANVAS.lastIndexOf("const teardown = () => {"));
     expect(teardown).toMatch(/resolvePass\.dispose\(\);/);
     expect(teardown).toMatch(/composer\.dispose\(\);/);
     // The pre-T80g standalone `composeTarget` is gone everywhere — a surviving reference would be

@@ -152,6 +152,15 @@ export interface UserModelsHandle {
   counts(): UserModelCounts;
   /** DEV: per-model residency + seat state (the `__globe.userModels()` seam). */
   debug(): Record<string, unknown>;
+  /** OCCLUSION (2026-09-07c): the group the horizon profile and the BEST SPOT DSM sweep — a
+   *  user model is a solid the sky can hide behind, like any building. Resident models only
+   *  (the group holds nothing else). */
+  occluderRoot(): THREE.Object3D;
+  /** OCCLUSION: a monotone counter bumped whenever the swept geometry changed — a model became
+   *  resident or left, the MDL chip toggled, a committed seat / rebase landed, a live drag wrote
+   *  the rig. The feeds compare it per frame and rebuild after their quiet window, the
+   *  `seatEpoch` idiom. */
+  occluderEpoch(): number;
   dispose(): void;
 }
 
@@ -304,6 +313,7 @@ export function attachUserModels(
 ): UserModelsHandle {
   const loader = opts.loader ?? defaultLoader;
   const group = new THREE.Group();
+  let occluderEpochN = 0; // OCCLUSION seam — see `occluderEpoch()`
   group.name = "userModels";
   scene.add(group);
 
@@ -419,6 +429,7 @@ export function attachUserModels(
     }
     group.remove(e.frame);
     e.dragging = false;
+    occluderEpochN++;
   };
 
   const onLoaded = (e: Entry, gen: number, root: THREE.Object3D) => {
@@ -457,6 +468,7 @@ export function attachUserModels(
     e.body.add(root);
     group.add(e.frame);
     e.state = "ready";
+    occluderEpochN++;
     // MS7: the lift floor is re-taken at the REAL box (the bbox was the client's estimate).
     const seats = sanitizeModelTransform(e.target.rotDeg, e.target.scale, e.target.liftM, e.sizeM3, e.target.pitchDeg, e.target.rollDeg);
     if (seats.liftM !== e.target.liftM) {
@@ -580,6 +592,7 @@ export function attachUserModels(
       visible = on;
       group.visible = on;
       dirty = true;
+      occluderEpochN++;
     },
     update(camera, frameCount, dtMs) {
       if (dirty || frameCount % MODELS.residencyEveryFrames === 0) replan(camera);
@@ -661,6 +674,7 @@ export function attachUserModels(
       e.body.quaternion.set(q[0], q[1], q[2], q[3]);
       e.body.scale.set(r.sx, r.sy, r.sz);
       e.anchor.updateMatrixWorld(true);
+      occluderEpochN++; // every drag frame — the feeds' quiet window waits for the release
     },
     setDragging(id, on) {
       const e = entries.get(id);
@@ -684,6 +698,7 @@ export function attachUserModels(
         writeBody(e);
         writeAnchor(e);
       }
+      occluderEpochN++;
     },
     rebase(id, latDeg, lonDeg) {
       const e = entries.get(id);
@@ -696,6 +711,7 @@ export function attachUserModels(
       placeFrame(e); // the frame moves at once (the eased height follows)
       e.anchor.updateMatrixWorld(true);
       dirty = true;
+      occluderEpochN++;
     },
     setUltraHaze(haze, col, sunW, cool, skyLevel, afterglow) {
       const u = MODEL_SHADER_UNIFORMS;
@@ -789,6 +805,8 @@ export function attachUserModels(
         shader: { chained: MODELS.chainShader, haze: MODEL_SHADER_UNIFORMS.uFtwHaze.value, alpha: MODEL_SHADER_UNIFORMS.uFtwModelAlpha.value },
       };
     },
+    occluderRoot: () => group,
+    occluderEpoch: () => occluderEpochN,
     dispose() {
       for (const e of entries.values()) unload(e);
       entries.clear();

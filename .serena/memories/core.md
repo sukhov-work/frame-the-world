@@ -12,7 +12,16 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07b
+## Status — 2026-09-07c
+- **2026-09-07c (`mem:project/wip-2026-09-07-t83-pagehide-occlusion-audit`):** DECISIONS compaction r6 done
+  (140.7 → 74 KB). **T83 FIXED** — ONE page dies on its own, the tile caches: `QUALITY.leanMobile.{lruBytesMB
+  48, enrichedLruBytesMB 128, groundLruBytesMB 112}` via `lruCapBytesForLean`; farm A/B clean: caps ON alive
+  at page age 269 s resting at 8.6/84/97 MB, caps OFF dead before 115 s; plus `RENDERER.releaseOnPageHide`.
+  The iPhone's `/m`: cpu 26 → **2 ms** (T107). **The visibility/occlusion audit** (`audits/audit-occlusion-
+  2026-09-07.md`): no T77 regression; **T108 FIXED** user models now occlude in both feeds; **T109 FIXED**
+  the plan feed re-sweeps on `terrainEpoch · builtEpoch · modelsEpoch` and carries the last profile through
+  a rebuild within 60 m; T110–T114 open (owner calls T110–T112 in the brief). vitest 2,782/177 · astro
+  0/0/11 · knip 0. Backlog T1–T114. Trap: a `src/` edit during a farm run reaches the phone (HMR via tunnel).
 - **2026-09-07b (`mem:project/wip-2026-09-07-t77-phones-lever10`):** **T83 CLASSIFIED** — a jetsam kill at
   WebContent's 2,048 MB per-process cap (four Device Farm syslogs, the same line; always the SECOND `#f=`
   load in one process; one FPV page is ~½ GB and flat on the desktop twin `probe-memory-footprint.mjs`;
@@ -27,71 +36,21 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   86 → 64. **T106 OPENED** — the Pixel's descent hitch is the enriched cell's `load-model` work (2.26 s +
   0.8 s mask runs in 57 hitch frames). vitest 2,767/176 · astro 0/0/11 · knip 0. Backlog T1–T107.
   **DECISIONS §Recent is 137 KB → compaction round 6 FIRST next session.**
-- **2026-09-07a (`mem:project/wip-2026-09-07-t100a-overlay-tail`):** **T100 CLOSED under ruling (a)** —
-  the ground overlay's OWN extinction tail (`duskLight.overlayReleaseK`, `max()`-ed with `directK`
-  on the chip's cascade reach; `ULTRA.overlayReleaseStartSin` +0.2°, `overlayReleasePow` 0.9) and
-  ruling (b)'s slid field band SUPERSEDED back to the disc (`shadowReleaseStartSin` at its
-  identity): §17.2's four arms showed the ShadowMaterial's per-cascade mask product
-  (`opacity × (1 − (1 − field)³)`) zeroes the overlay wherever the field is 0, so no field band
-  could reach the −0.5° rung. Ladder `--ultra 1` **19/19, T66 4.23 → 1.48** (series 67.4 68.4 68.6
-  70.1 71.5 73.0), `--ultra 0` 19/19 byte-identical, charter 84/85, ultra 30/30, sweep 13/14 (T103).
-  **T105** (the ladder's positionals wrote shots into `./--ladder`) fixed. Session n's ship had
-  ABORTED (load-flaky `bestSpotHonesty` timeouts, now 60 s) — both sessions ship together.
-  **The iPhone RE-MEASURED on Device Farm (§19):** orbit / city / everest 9–13 fps → 60 / 50 / 60
-  at `mid`, 3–4 ms CPU (T79 reached the phone); `/m` 26 ms CPU of its own; **T83 REPRODUCED**
-  (the ramp's first step kills the `#f=` page; T80's −245 MB did not move it) — the console
-  session `…/ed840495-…/00000` decides kill vs hang; the Pixel was not attached (owed). **The
-  streaming columns (§20)** in the descent leg: all 22 hitches are parse-phase with `frame.cpu`
-  5–11 ms → the time is outside the orchestrator; `probe-cpu-profile` over the leg decides
-  lever 10. vitest 2,761/175 · astro 0/0/10 · knip 0. Backlog T1–T105.
-- **2026-09-06n (`mem:project/wip-2026-09-06-t77-five-rulings`):** the five rulings executed. T80 CLOSED
-  + T104 (`dt−gpu` column; the T77 gate on dt p50 ≤ 15, MET 14.2) · **T101 DONE** (per-cell
-  `deepPending`: arrival rejections +39,629 → +2) · **T92 DONE** (fill fades on live tilt 50→70°) ·
-  **T93 RE-CLASSIFIED** (far TERRAIN hazed dark by the directional in-scatter lobe — not the earth)
-  **and fixed** (`ULTRA.limbStartM/limbEndM` 40/120 km in the shared aerial fn; band 84–89 → 149–153)
-  · **T100 built as ruled, gate NOT met** (T66 4.94 → 4.23; A/B 4.67/3.82; the rise is the OVERLAY
-  retiring with directShareK — owner call, `NEXT_SESSION_PROMPT.md` §OWNER CALL). vitest 2,748/175
-  · astro 0/0/9 · knip 0. Backlog T1–T104.
-- **2026-09-06l (`mem:project/wip-2026-09-07-t77-e1-e2-t80h`):** E1 + E2 run → lever 2 and A1 CLOSED
-  (with E3, slice A is complete). **T80-h SHIPPED — `BLOOM.path` "fused"** (`ScaledBloomPass.deferBlend`
-  + `scene/fusedOutput.ts`; the brief's "blur at full res" premise was false, the lever removed the two
-  full-res draws): fpv `high` DPR 2 **frame time 19.2 (pre-T80g) → 14.2 ms**, ULTRA 21.0 → 15.9; pixels
-  ≤ Δ2 on 0.13–0.79 %, none > 3. T99 closed. **T104: `frame.gpu` over-counts pass-heavy chains** (a
-  6-pass drop read −6.6 ms gpu, 0.0 dt) — read the T77 GPU gates on dt p50. Gates: vitest 2,716/2,716
-  (173) · astro 0/0/9 · knip 0 · charter 84/85 (T100) · uxbatch4 16/16 · sweep 11/14 self-check (T103 +
-  two freeze gaps). Backlog T1–T104. **OWNER RULINGS 2026-09-06m — all five recommended options
-  accepted:** T80 (a) close as a frame-time lever + T104 re-state the gates on dt · T100 (b) band
-  start ~+0.2° · T101 (a) per-cell `deepPending` · T92 (a) fade the cone's fill, keep the rays ·
-  T93 (a) tint the limb to the haze. Execution order + gates: `NEXT_SESSION_PROMPT.md` §OWNER RULINGS.
-- **THE RESOURCE BUDGET (owner order 2026-09-06j, standing):** session j ran six worktrees × (`wix dev`
-  + headless Chrome + agent) on the 36 GB M3 and FROZE THE MACHINE (120 GB swap; another research
-  session died too). Now machine-checked: ONE house headless Chrome, ONE dev server, free ≥ 20 %
-  (`scripts/verify-chrome.mjs` exit 3 · `ensureBrowser()` throws · `scripts/resource-watchdog.mjs`);
-  agents NEVER launch Chrome / a dev server / the full vitest / `astro check`; worktrees = edit
-  isolation only. `conventions/verify.md` §THE RESOURCE BUDGET · `mem:project/dev_environment`.
-- **T77 six slices INTEGRATED on master 2026-09-06k** (`mem:project/wip-2026-09-06-t77-six-worktrees`):
-  BASE (T96 `ULTRA.baseTakesLook` + `lookOn()`, ruling 3, T66) · C-1 (5a/5b/5d/5e + deep resample,
-  `lib/globe/seatQuiet.ts`) · T80-g (`scene/resolvedComposer.ts`, rt1 demoted −195 MB) · A-rest
-  (5-lever `shadowRig()` seam, `--arms`) · T94 (`lib/globe/frameFreeze.ts`, sweep `--freeze`) · 4 sheet
-  probes. Unit gates **2,692/2,692 (172 files)** · astro 0/0/9 · knip 0. Browser gates RAN (k2,
-  once the owner's Proton VPN routed around a Cesium 403 that blocks the Dnipro ISP address — T98;
-  **the VPN is a precondition for every terrain gate**, `mem:project/dev_environment` §NETWORK): ladders 18/18 off · 17/18 on (T100 release
-  band) · charter re-pointed · ultra 30/30 · base `fpv.u0` churn 0.184 → **0.0000** · `frame.cpu` at
-  the FPV eye **4.4 → 0.7 ms** · T80-g **−2.7 ms** GPU (22.5 → 19.8; gate ≤ 15 unmet → T80-h the
-  blur) · T94 **14/14 byte-identical** · E3 CLOSES lever 12 · T92 = focal cone fill · T93 = base
-  earth limb. Tails: T100 (band), T101 (arrival rejections +39,629), T102 (fly after thaw).
-- Trap: after any large landing restart `wix dev` with `node_modules/.vite` moved aside — every
-  island 504s otherwise. Backlog now T1–T99.
-- **T77 RESUMED and four slices landed in one session** (2026-09-06h, `mem:project/wip-2026-09-06-t77-resume-harness-sunset`):
-  T80 measured (a half-res bloom recovers 1.6 of 13 ms — moot; the cost is the full-res blend into
-  the MSAA buffer), slice A A0–A3 (demand-driven cascade 0, ULTRA-on / base-identity; the shimmer
-  reframed: the light FRAME rotates, not the box), slice B (the 8.3 cm stall gone, dt eases,
-  per-tile memo, collapses 4,277 → 0), the sunset release fixed ULTRA-only (×5.22 → ×1.16).
-  **Every harness now draws poses from the owner's catalogue `scripts/lib/poses.mjs`** and
-  `verify-visual-sweep.mjs` makes contact sheets — the standing order for all sessions.
-  Owner rulings 2026-09-06i ALL YES: T96 (the base rig takes the ULTRA light/shadow model), T66
-  (flatten the rises through 0°), the A2 cadence. Next session = six worktrees (BASE · C-1 · T80-g ·
-  A-rest · T94 · sheet defects), `NEXT_SESSION_PROMPT.md`. MEASUREMENTS §14.
+- **2026-09-07a → 2026-09-06h, the T77 lane (compressed; each leaf has the numbers):** 09-07a T100
+  CLOSED (a) — the overlay's own extinction tail, ladder 19/19, T66 4.23 → 1.48; the iPhone re-measured
+  (orbit/city/everest 9–13 → 50–60 fps at `mid`) · 09-06n the five rulings executed (T80/T104, T101,
+  T92, T93 re-classified + fixed) · 09-06l E1/E2 closed, T80-h fused bloom (fpv 19.2 → 14.2 ms), T104
+  the GPU timer over-counts · 09-06k the six slices integrated (BASE `baseTakesLook`, C-1 seats, T80-g,
+  A-rest, T94 frameFreeze) — after session j FROZE THE MACHINE · 09-06h the pose catalogue
+  `scripts/lib/poses.mjs` + sweep sheets (the standing order), slices A/B, the sunset fix. Leaves:
+  `mem:project/wip-2026-09-07-t100a-overlay-tail` · `wip-2026-09-06-t77-five-rulings` ·
+  `wip-2026-09-07-t77-e1-e2-t80h` · `wip-2026-09-06-t77-six-worktrees` · `wip-2026-09-06-t77-resume-harness-sunset`.
+- **THE RESOURCE BUDGET (owner order 2026-09-06j, standing, machine-checked):** ONE house headless
+  Chrome, ONE dev server, free ≥ 20 % (`scripts/verify-chrome.mjs` exit 3 · `ensureBrowser()` throws ·
+  `scripts/resource-watchdog.mjs`); agents NEVER launch Chrome / a dev server / the full vitest /
+  `astro check`; worktrees = edit isolation only. `conventions/verify.md` §THE RESOURCE BUDGET.
+  **T98: the VPN is a precondition for every terrain gate** (`mem:project/dev_environment` §NETWORK).
+  Trap: after any large landing restart `wix dev` with `node_modules/.vite` moved aside.
 - **MESH SUITE CLOSED 2026-09-05b** — MS0–MS8 shipped (gizmos, world-synced building overrides, user
   models); `MESH_SUITE_PLAN.md` §4a, the no-regression contract, stays binding.
 - **BEST SPOT PARKED 2026-08-27** (owner 2026-09-01: sufficient as implemented) · **Phase 7, AI shot
@@ -101,18 +60,16 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 - Gates 2026-09-06h: vitest **2,584/2,584** (167 files) · `astro check` **0/0/9** · knip **0**.
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T105).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T114).
 
-## Next step — T77 after the phone/descent profiles (full brief: `NEXT_SESSION_PROMPT.md`)
-1. **DECISIONS compaction round 6 FIRST** (§Recent 137 KB > 135). Then boot: VPN on the Mac AND the
-   phone (the Pixel fetches ion over its own network), ion curl, `--budget`, ONE Chrome, `wix dev`
-   with `.vite` aside, the pre sweep; the ship hook fires on `/clear` — wait for it.
-2. Nothing is blocking. Next in order: **T83's lever — the `pagehide` release** (dispose the
-   renderer, unload the three LRU caches, drop the 8k images; measure with
-   `probe-memory-footprint --sequence fpv,m,fpv`, then ONE farm session `--poses fpv,fpv --ramp 0`) ·
-   **T106** (the enriched cell's `load-model` work on phones: bake or slice; `probe-cpu-profile --leg
-   descent --device`) · the iPhone's `/m` after T107 (one farm session) · `compileAsync` (two compile
-   frames at the descent's start).
+## Next step — T77 after T83 (full brief: `NEXT_SESSION_PROMPT.md`)
+1. Boot: VPN on the Mac (AND the phone if the Pixel is used), ion curl, `--budget`, ONE Chrome,
+   `wix dev` with `.vite` aside (behind a cloudflared tunnel if the farm is used), the pre sweep;
+   the ship hook fires on `/clear` — wait for it. Never edit `src/` while a farm run is up.
+2. Nothing is blocking. Next in order: **T106** (the enriched cell's `load-model` work on phones:
+   bake the mask runs into the sidecar or slice the handler per frame; `parseVectorTile` to a
+   worker) · the owner's rulings on **T110–T112** (the audit's design tails) · the flip bank under
+   the lean caps on phones (RC20) · `compileAsync`.
 3. (Superseded 2026-09-07a — the streaming measurement's first read is §20.) The streaming measurement (descent-leg per-frame CSV) that gates levers 9–11; then the phones
    — RE-MEASURE first (T79/T80 never read on a phone; §11's orbit poses were 9–13 fps CPU-bound),
    then T83, then slice D (14–16, NOT STARTED). Standing table: `NEXT_SESSION_PROMPT.md` §Where T77
@@ -200,6 +157,10 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   unmet → owner call (09-06n, HOT)** · MEASUREMENTS §17 · `mem:project/wip-2026-09-06-t77-five-rulings`
 - **T100 CLOSED (a): the overlay's own extinction tail; the (b) band superseded; T105 (09-07a, HOT)** ·
   MEASUREMENTS §18 · `mem:project/wip-2026-09-07-t100a-overlay-tail`
+- **T83 classified + the Pixel with terrain + lever 10 closed + T107 (09-07b, HOT)** · MEASUREMENTS §21 ·
+  `mem:project/wip-2026-09-07-t77-phones-lever10`
+- **T83 FIXED (lean caps, farm A/B) + compaction r6 + THE OCCLUSION AUDIT T108/T109 (09-07c, HOT)** ·
+  MEASUREMENTS §22 · `audits/audit-occlusion-2026-09-07` · `mem:project/wip-2026-09-07-t83-pagehide-occlusion-audit`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

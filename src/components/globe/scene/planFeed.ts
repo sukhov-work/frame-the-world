@@ -58,7 +58,8 @@ import { useSkyStore } from "../../../store/sky";
 export interface PlanFeedHandle {
   update(ctx: PlanFeedCtx): void;
   /** The cached skyline sampler (deg → deg) — null until a build completes. Future consumers
-   *  (the dayArcs skyline fold) read this instead of re-sweeping. */
+   *  (the dayArcs skyline fold) read this instead of re-sweeping. Reads the PUBLISHED profile:
+   *  during a rebuild within `PLAN.carryProfileDistM` that is the last complete one. */
   profileSample(): ((azDeg: number) => number) | null;
   /** Drop the current anchor so the next update() re-anchors and rebuilds the profile — the
    *  orchestrator calls this once after the per-building re-seat writes settle (a ready profile
@@ -76,6 +77,10 @@ export interface PlanFeedHandle {
     meshIdx: number | null;
     meshCount: number | null;
     scanAgeMs: number | null;
+    /** OCCLUSION 2026-09-07c: the published profile is the PREVIOUS build (a rebuild is in
+     *  flight within the carry distance) · the streaming epochs the feed last latched. */
+    carried: boolean;
+    epochs: { terrain: number; built: number; models: number; changedFrame: number };
   };
   dispose(): void;
 }
@@ -90,9 +95,23 @@ interface PlanFeedCtx {
   /** View focus — the chips-only fallback anchor. */
   focusLatDeg: number;
   focusLonDeg: number;
+  /** OCCLUSION 2026-09-07c — the streaming epochs (`bestSpotFeed`'s four, minus the vector
+   *  version the profile never reads): monotone counters the orchestrator owns. Any change
+   *  re-sweeps the current anchor after `PLAN.streamQuietFrames` quiet frames. */
+  terrainEpoch: number;
+  /** OSM + enriched `load-model` / `dispose-model` (`builtEpochN` in the orchestrator). */
+  builtEpoch: number;
+  /** `userModels.occluderEpoch()` — residency, the MDL chip, committed seats, live drags. */
+  modelsEpoch: number;
 }
 
 interface BuildState {
+  kind: PlanAnchorKind;
+  /** The `eyeAboveGroundM` the build was asked with (0 = derive) — a streaming re-sweep of the
+   *  same anchor restarts with the same arguments. */
+  eyeAboveArg: number;
+  /** `frameCount` at `startBuild` — a stream change older than this cannot stale the build. */
+  startFrame: number;
   profile: HorizonProfile;
   frame: SilhouetteFrame;
   obs: PlanObserver;
@@ -112,6 +131,11 @@ export function attachPlanFeed(opts: {
   enrichedGroup: THREE.Object3D | null;
   /** Set exactly when the enriched tileset is active — enables the OSM-mask vertex rejection. */
   maskBbox: GeoBbox | null;
+  /** OCCLUSION 2026-09-07c — the user models' group (`userModels.occluderRoot()`), read lazily
+   *  because the models attach after the feed. A placed model is a solid the sky hides behind:
+   *  it enters the sweep like a building (no mask rejection — it is not OSM mass). Optional so
+   *  the pure tests can omit it. */
+  userModelsGroup?: () => THREE.Object3D | null;
 }): PlanFeedHandle {
   const { terrainHeightAt, buildingsGroup, enrichedGroup } = opts;
   const rejectPlanes: EcefPlane[] | null = opts.maskBbox
@@ -125,7 +149,19 @@ export function attachPlanFeed(opts: {
 
   let anchorKind: PlanAnchorKind | null = null;
   const anchorEcef = new THREE.Vector3();
+  /** The current build — in flight or complete. */
   let build: BuildState | null = null;
+  /** The PUBLISHED profile: `build` once it is ready; during a rebuild, the previous complete
+   *  build while the new eye is within `PLAN.carryProfileDistM` of the one it was swept at
+   *  (else null — the radars' own honesty bound, `AIMCONES.skylineGuardM`). Every skyline
+   *  verdict (`bodyState`, `targetState`, the scans, `profileSample`, the bins mirror) reads
+   *  THIS, never `build`. */
+  let shown: BuildState | null = null;
+  // The streaming epochs last latched from the ctx, and the frame the latest change landed on.
+  let seenTerrainEpoch = -1;
+  let seenBuiltEpoch = -1;
+  let seenModelsEpoch = -1;
+  let streamChangedFrame = -1;
 
   // Chips cache — recomputed when the anchor or its local solar day changes.
   let chipsKey = "";
@@ -149,9 +185,31 @@ export function attachPlanFeed(opts: {
   const _v = new THREE.Vector3();
   const _sphere = new THREE.Sphere();
 
+  const dropScans = () => {
+    scanSun = null;
+    scanMoon = null;
+    scanTarget = null;
+    scanTargetId = "";
+    scanBaseMs = NaN;
+  };
+
   const startBuild = (kind: PlanAnchorKind, eye: THREE.Vector3, eyeAboveGroundM: number) => {
     anchorKind = kind;
     anchorEcef.copy(eye);
+    // Carry the last complete profile through the rebuild when the eye barely moved (a
+    // streaming re-sweep, a re-seat, a short FPV step); a real move publishes null until the
+    // new sweep completes, exactly as before.
+    const prev = build?.ready ? build : shown;
+    if (prev) {
+      _v.set(prev.frame.originEcef[0], prev.frame.originEcef[1], prev.frame.originEcef[2]);
+      if (_v.distanceTo(eye) <= PLAN.carryProfileDistM) {
+        shown = prev;
+      } else {
+        shown = null;
+        binsMirror = null;
+        dropScans();
+      }
+    }
     const geo = ecefToGeodetic([eye.x, eye.y, eye.z]);
     const groundM = heightAt(geo.latDeg, geo.lonDeg);
     const eyeAbove =
@@ -162,6 +220,9 @@ export function attachPlanFeed(opts: {
           : PLAN.eyeHeightM;
     const basis = enuBasis(geo.latDeg, geo.lonDeg);
     build = {
+      kind,
+      eyeAboveArg: eyeAboveGroundM,
+      startFrame: frameCount,
       profile: createProfile(PLAN.azBins, horizonDipDeg(eyeAbove, PLAN.refractionK)),
       frame: {
         originEcef: [eye.x, eye.y, eye.z],
@@ -181,27 +242,34 @@ export function attachPlanFeed(opts: {
       meshIdx: 0,
       ready: false,
     };
-    scanSun = null;
-    scanMoon = null;
-    scanTarget = null;
-    scanTargetId = "";
-    scanBaseMs = NaN;
-    binsMirror = null;
   };
 
-  /** Collect the sweep worklist: plain meshes + instanced trees from both tile groups. The
-   *  per-mesh distance cull happens lazily in the sweep slice (bounding spheres are computed
-   *  there, bounded per frame). */
+  /** Collect the sweep worklist: plain meshes + instanced trees from both tile groups, plus the
+   *  resident user models (OCCLUSION 2026-09-07c). The per-mesh distance cull happens lazily in
+   *  the sweep slice (bounding spheres are computed there, bounded per frame). */
   const collectMeshes = (): THREE.Object3D[] => {
     const list: THREE.Object3D[] = [];
     const visit = (root: THREE.Object3D | null) => {
-      root?.traverse((c) => {
+      if (!root || !root.visible) return;
+      root.traverse((c) => {
         if ((c as THREE.Mesh).isMesh) list.push(c);
       });
     };
     visit(buildingsGroup);
     visit(enrichedGroup);
+    visit(opts.userModelsGroup?.() ?? null);
     return list;
+  };
+
+  /** Is `obj` under `root`? (the OSM mask rejection and the tree branch are group-scoped) */
+  const under = (obj: THREE.Object3D, root: THREE.Object3D | null): boolean => {
+    if (!root) return false;
+    let p: THREE.Object3D | null = obj;
+    while (p) {
+      if (p === root) return true;
+      p = p.parent;
+    }
+    return false;
   };
 
   /** Positions of a geometry as a plain stride-3 float array. The fast path reads `.array`
@@ -244,8 +312,11 @@ export function attachPlanFeed(opts: {
       swept++;
       const inst = mesh as THREE.InstancedMesh;
       if (inst.isInstancedMesh) {
-        // Slice-3 trees (the only instancing in the tile groups). Their raycast is nooped —
-        // the sweep reads the TRS directly, which is also why this needs no un-nooping.
+        // Slice-3 trees (the only instancing in the TILE groups). Their raycast is nooped —
+        // the sweep reads the TRS directly, which is also why this needs no un-nooping. An
+        // instanced mesh inside a user model is not a canopy: skipped (no per-instance edge
+        // sweep exists; rare in uploaded GLBs).
+        if (!under(mesh, buildingsGroup) && !under(mesh, enrichedGroup)) continue;
         sweepTreeInstances(
           b.profile,
           b.frame,
@@ -258,20 +329,12 @@ export function attachPlanFeed(opts: {
       }
       const positions = positionsOf(geom);
       if (!positions) continue;
-      // Only OSM geometry carries the mask rejection — the enriched set OWNS the bbox interior.
-      const isEnriched = enrichedGroup
-        ? ((): boolean => {
-            let p: THREE.Object3D | null = mesh;
-            while (p) {
-              if (p === enrichedGroup) return true;
-              p = p.parent;
-            }
-            return false;
-          })()
-        : false;
+      // Only OSM geometry carries the mask rejection — the enriched set OWNS the bbox interior,
+      // and a user model is placed mass, never clipped.
+      const isOsm = under(mesh, buildingsGroup);
       sweepMeshEdges(b.profile, b.frame, positions, geom.index?.array ?? null, mesh.matrixWorld.elements, {
         trustRadiusM: PLAN.trustRadiusM,
-        rejectPlanes: isEnriched ? null : rejectPlanes,
+        rejectPlanes: isOsm ? rejectPlanes : null,
       });
     }
     if (b.meshIdx >= b.meshes.length) b.ready = true;
@@ -344,6 +407,18 @@ export function attachPlanFeed(opts: {
   const update = (ctx: PlanFeedCtx) => {
     frameCount++;
 
+    // ── The streaming epochs (OCCLUSION 2026-09-07c) — latched per frame, debounced below ────
+    if (
+      ctx.terrainEpoch !== seenTerrainEpoch ||
+      ctx.builtEpoch !== seenBuiltEpoch ||
+      ctx.modelsEpoch !== seenModelsEpoch
+    ) {
+      seenTerrainEpoch = ctx.terrainEpoch;
+      seenBuiltEpoch = ctx.builtEpoch;
+      seenModelsEpoch = ctx.modelsEpoch;
+      streamChangedFrame = frameCount;
+    }
+
     // ── Resolve the anchor (photo apex > FPV eye > focus) and (re)start builds ──────────────
     if (ctx.photoApex) {
       _v.set(ctx.photoApex[0], ctx.photoApex[1], ctx.photoApex[2]);
@@ -357,14 +432,30 @@ export function attachPlanFeed(opts: {
     } else if (anchorKind !== "focus") {
       anchorKind = "focus";
       build = null;
-      scanSun = null;
-      scanMoon = null;
-      scanTarget = null;
-      scanTargetId = "";
+      shown = null;
+      dropScans();
       binsMirror = null; // a focus anchor has no eye — stale skyline bins must not outlive the build
     }
 
+    // A stream change after this build started, then a quiet window: re-sweep the SAME anchor
+    // (the carry policy keeps the last complete profile published meanwhile). A change older
+    // than the build is already in it; a build restarted here restarts the quiet clock too.
+    if (
+      build &&
+      streamChangedFrame > build.startFrame &&
+      frameCount - streamChangedFrame >= PLAN.streamQuietFrames
+    ) {
+      startBuild(build.kind, anchorEcef, build.eyeAboveArg);
+    }
+
     if (build && !build.ready) stepBuild(build);
+    if (build?.ready && shown !== build) {
+      // Publish the completed sweep: new bins array (consumers key memos on its identity), and
+      // the crossing scans are re-run against it (throttled, as on any first completion).
+      shown = build;
+      binsMirror = Array.from(build.profile.altDeg);
+      dropScans();
+    }
 
     // ── Mirrors at low cadence (the camera-mirror idiom — never 60 fps) ──────────────────────
     if (frameCount % PLAN.mirrorEveryFrames !== 1) return;
@@ -377,8 +468,8 @@ export function attachPlanFeed(opts: {
     // move by seconds over that distance, far under chip granularity.
     const qLat = Math.round(ctx.focusLatDeg * 20) / 20;
     const qLon = Math.round(ctx.focusLonDeg * 20) / 20;
-    const obs: PlanObserver = build
-      ? build.obs
+    const obs: PlanObserver = (build ?? shown)
+      ? (build ?? shown)!.obs
       : {
           latDeg: qLat,
           lonDeg: qLon,
@@ -401,7 +492,7 @@ export function attachPlanFeed(opts: {
 
     // Skyline crossing scans (profile ready only) — refreshed when scene time out-scrubs them
     // or (target slot) when the tracked target itself swaps.
-    if (build?.ready) {
+    if (shown) {
       const nowReal = performance.now();
       const stale =
         Number.isNaN(scanBaseMs) ||
@@ -410,29 +501,30 @@ export function attachPlanFeed(opts: {
       if (stale && nowReal - lastScanRealMs > PLAN.scanThrottleMs) {
         lastScanRealMs = nowReal;
         scanBaseMs = ctx.sceneMs;
-        const profileFn = (azDeg: number) => sampleProfile(build!.profile, azDeg);
+        const p = shown;
+        const profileFn = (azDeg: number) => sampleProfile(p.profile, azDeg);
         const scanOpts = { horizonDays: PLAN.scanHorizonDays, scanStepMin: PLAN.scanStepMin };
-        scanSun = skylineState("sun", ctx.sceneMs, build.obs, profileFn, scanOpts);
-        scanMoon = skylineState("moon", ctx.sceneMs, build.obs, profileFn, scanOpts);
+        scanSun = skylineState("sun", ctx.sceneMs, p.obs, profileFn, scanOpts);
+        scanMoon = skylineState("moon", ctx.sceneMs, p.obs, profileFn, scanOpts);
         scanTargetId = tracked?.id ?? "";
         scanTarget = tracked
-          ? targetSkylineState(tracked, ctx.sceneMs, build.obs, profileFn, scanOpts)
+          ? targetSkylineState(tracked, ctx.sceneMs, p.obs, profileFn, scanOpts)
           : null;
       }
     }
 
-    if (build?.ready && !binsMirror) binsMirror = Array.from(build.profile.altDeg);
-    const sun = build?.ready ? bodyState("sun", build, ctx.sceneMs, scanSun) : null;
-    const moon = build?.ready ? bodyState("moon", build, ctx.sceneMs, scanMoon) : null;
+    if (shown && !binsMirror) binsMirror = Array.from(shown.profile.altDeg);
+    const sun = shown ? bodyState("sun", shown, ctx.sceneMs, scanSun) : null;
+    const moon = shown ? bodyState("moon", shown, ctx.sceneMs, scanMoon) : null;
     const target =
-      build?.ready && tracked
-        ? targetState(tracked, build, ctx.sceneMs, tracked.id === scanTargetId ? scanTarget : null)
+      shown && tracked
+        ? targetState(tracked, shown, ctx.sceneMs, tracked.id === scanTargetId ? scanTarget : null)
         : null;
-    const coverage = build?.ready ? profileCoverage(build.profile) : 0;
+    const coverage = shown ? profileCoverage(shown.profile) : 0;
 
     // Skip the store write when nothing the panel renders changed (float fields quantized).
     const sig =
-      `${key}|${chips.length}|${build?.ready ? 1 : 0}|${coverage.toFixed(2)}|` +
+      `${key}|${chips.length}|${shown ? 1 : 0}|${coverage.toFixed(2)}|` +
       `${sun ? `${sun.blockedNow}:${sun.azDeg.toFixed(1)}:${sun.altDeg.toFixed(1)}:${sun.nextClearMs}:${sun.nextBlockMs}` : "-"}|` +
       `${moon ? `${moon.blockedNow}:${moon.azDeg.toFixed(1)}:${moon.altDeg.toFixed(1)}:${moon.nextClearMs}:${moon.nextBlockMs}` : "-"}|` +
       `${target ? `${target.id}:${target.blockedNow}:${target.azDeg.toFixed(1)}:${target.altDeg.toFixed(1)}:${target.nextClearMs}:${target.nextBlockMs}` : "-"}|` +
@@ -443,7 +535,7 @@ export function attachPlanFeed(opts: {
     usePlanStore.getState()._syncPlan({
       anchor: { kind: anchorKind ?? "focus", latDeg: obs.latDeg, lonDeg: obs.lonDeg },
       events: chips,
-      profileReady: build?.ready ?? false,
+      profileReady: shown !== null,
       profileCoverage: coverage,
       trustRadiusM: PLAN.trustRadiusM,
       profileBins: binsMirror,
@@ -455,8 +547,10 @@ export function attachPlanFeed(opts: {
 
   return {
     update,
-    profileSample: () =>
-      build?.ready ? (azDeg: number) => sampleProfile(build!.profile, azDeg) : null,
+    profileSample: () => {
+      const p = shown;
+      return p ? (azDeg: number) => sampleProfile(p.profile, azDeg) : null;
+    },
     invalidate() {
       anchorKind = null; // the next update() re-resolves the anchor → startBuild from scratch
     },
@@ -473,9 +567,17 @@ export function attachPlanFeed(opts: {
       meshIdx: build ? build.meshIdx : null,
       meshCount: build?.meshes?.length ?? null,
       scanAgeMs: Number.isFinite(lastScanRealMs) ? performance.now() - lastScanRealMs : null,
+      carried: shown !== null && shown !== build,
+      epochs: {
+        terrain: seenTerrainEpoch,
+        built: seenBuiltEpoch,
+        models: seenModelsEpoch,
+        changedFrame: streamChangedFrame,
+      },
     }),
     dispose() {
       build = null;
+      shown = null;
       usePlanStore.getState()._syncPlan({
         anchor: null,
         events: [],
