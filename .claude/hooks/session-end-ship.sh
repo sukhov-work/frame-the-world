@@ -244,6 +244,18 @@ if [ -n "${DRY_RUN:-}" ]; then
   exit 0
 fi
 
+# --- Version bump (owner order 2026-09-08) ------------------------------------------------------
+# Every ship increments package.json's PATCH (major 1 since 2026-09-08; `src/lib/version.ts` is
+# the one reader, both shells stamp it bottom-right). After the gates (a red run must not leave
+# a dirty bump behind) and after the DRY_RUN exit above (a dry run must not mutate the tree),
+# before `git add -A` so the bump rides the same commit. `--no-git-tag-version` = no tag, no
+# commit, no dirty-tree refusal; package-lock.json is bumped with it.
+if npm version patch --no-git-tag-version >/dev/null 2>&1; then
+  log "version bumped to $(node -p "require('./package.json').version" 2>/dev/null || echo '?')"
+else
+  log "WARN: version bump failed — shipping without a bump"
+fi
+
 log "shipping branch=$BRANCH title=\"$TITLE\""
 git checkout -b "$BRANCH" || { log "ABORT: branch create failed"; exit 1; }
 git add -A

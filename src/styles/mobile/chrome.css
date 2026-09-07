@@ -19,6 +19,16 @@
   touch-action: none; /* U1 pinch hardening: a pinch straddling the dock must never zoom the page */
 }
 
+/* The build stamp (owner order 2026-09-08) — the column's bottom-right corner, under the SPOT
+   tab's own bottom padding (0.4rem + the row's 0.3rem ≈ 11 px clear the 7 px stamp at 1 px),
+   in the safe-area gutter on a notched phone. Inert (version-stamp.css); rides the column's
+   mw-open lift. */
+.m-bottom .version-stamp {
+  position: absolute;
+  right: calc(3px + env(safe-area-inset-right));
+  bottom: 1px;
+}
+
 .m-tabs {
   display: flex;
   align-items: stretch;
@@ -1055,6 +1065,29 @@ a.m-hit {
   align-items: center;
   gap: 8px;
   margin-top: 0.5rem;
+}
+/* T118 + owner order 2026-09-08 — the status chip beside the switch (LOADING THE SCENE… ·
+   COMPUTING… · ✓ DONE): inert, the busy states spin the ◌, DONE speaks in the accent voice. */
+@keyframes m-bsp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.m-bsp-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.m-bsp-progress[data-busy="1"] i {
+  display: inline-block;
+  font-style: normal;
+  animation: m-bsp-spin 900ms linear infinite;
+}
+.m-bsp-progress[data-state="done"] {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 .m-bsp-switch {
   flex: 1;

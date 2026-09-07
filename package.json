@@ -1,7 +1,7 @@
 {
   "name": "wix-astro-blank",
   "type": "module",
-  "version": "0.0.1",
+  "version": "1.36.2",
   "scripts": {
     "astro": "astro",
     "dev": "wix dev",

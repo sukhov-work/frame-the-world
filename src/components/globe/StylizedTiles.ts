@@ -1157,6 +1157,45 @@ export function attachStylizedTiles(opts: {
     const bs = useBestSpotStore.getState();
     return bestSpotAllowed && bs.open && bs.heatmapOn;
   };
+  /**
+   * T118 (owner ruling 2026-09-08 — "make sure everything is sufficiently loaded for the current
+   * scene before we try to solve", both shells): the tile work still outstanding for THIS pose,
+   * summed over the tilesets that are attached — the OSM buildings, the enriched cells, the
+   * ground. Per renderer: an attached tileset whose root has not landed counts 1 (the frame after
+   * `/m` re-attaches the building tilesets they have no root and empty queues, which would read
+   * "quiet"), the library's own `isLoading` latch (true from the first content request until
+   * every queue drains — `tiles-load-end`), then `queued + downloading + parsing`. Then the two
+   * two-phase `load-model` queues: a landed tile whose edge/mask unit has not drained is not
+   * seated yet. 0 = as loaded as this pose is going to get. Handed to the BEST SPOT feed as a
+   * THUNK (`bestSpotFeed.update({ streamPending })`) and evaluated there only while a solve is
+   * due — never by a render step, never at rest (the first cut read it every frame through the
+   * two ledger COPIES, `debugLoad()`, and cost the phone twin ~3.5 ms per frame at 4× throttle).
+   */
+  const sceneStreamPending = (): number => {
+    const pendingOf = (t: unknown): number => {
+      const r = t as {
+        group: { parent: unknown };
+        root: unknown;
+        isLoading?: boolean;
+        stats?: { queued?: number; downloading?: number; parsing?: number };
+      };
+      if (r.group.parent === null) return 0; // detached (the /m 2D map) — not part of the scene
+      return (
+        (r.root === null || r.root === undefined ? 1 : 0) +
+        (r.isLoading ? 1 : 0) +
+        (r.stats?.queued ?? 0) +
+        (r.stats?.downloading ?? 0) +
+        (r.stats?.parsing ?? 0)
+      );
+    };
+    return (
+      pendingOf(buildings.tiles) +
+      pendingOf(ground.tiles) +
+      (enriched ? pendingOf(enriched.tiles) : 0) +
+      buildings.loadPending() +
+      (enriched ? enriched.loadPending() : 0)
+    );
+  };
   if (isMobileShell) {
     if (urlPose && urlPose.tiltDeg >= CONTROLS.twoDMaxTiltDeg) {
       useCameraStore.getState().setMapMode("3d"); // an OBLIQUE share keeps its exact 3D view
@@ -4612,6 +4651,10 @@ export function attachStylizedTiles(opts: {
           // VALUE-import-fenced to the seam's owners (fences.test.ts) and this file is one.
           "bs.solving": useBestSpotStore.getState().solving,
           "bs.tilesPending": useBestSpotStore.getState().tilesPending,
+          // T118 — the readiness hold: held now, frames spent held, the streaming term.
+          "bs.held": bs.hold.held,
+          "bs.heldFrames": bs.hold.heldFrames,
+          "bs.streamPending": bs.hold.streamPending,
         };
       }),
       registerDebugAction("buildings.seats", () =>
@@ -8163,6 +8206,7 @@ export function attachStylizedTiles(opts: {
           seatEpoch: enriched?.seatState().epoch ?? 0,
           builtEpoch: builtEpochN,
           modelsEpoch: userModels.occluderEpoch(), // OCCLUSION 2026-09-07c
+          streamPending: sceneStreamPending, // T118 — the readiness hold's term (a thunk, read only when a solve is due)
         });
         bestSpotSheet.update({
           camera,

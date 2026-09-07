@@ -126,6 +126,7 @@ type BestSpotFeedKeys =
   | "previewKey"
   | "previewSpot"
   | "solving"
+  | "held"
   | "ladderRung"
   | "tilesPending"
   | "gridCellM"
@@ -249,8 +250,15 @@ export interface BestSpotState {
   /** Ask for that preview by shortlist key. Installed by the orchestrator (a no-op until the globe
    *  mounts, the `refineSpot` grammar). Calling it with the LIVE `previewKey` leaves the preview. */
   previewSpot(key: string | null): void;
-  /** A solve is in flight. NOT a spinner — the R0 sheet is its own progress indicator (§2.3). */
+  /** A solve is in flight. Since the owner order of 2026-09-08 this IS the `COMPUTING…` chip on
+   *  both shells (`bestSpotProgress`) — the R0 sheet stays the field's own progress indicator
+   *  (§2.3), the chip is the one-word answer to "is it done?". */
   solving: boolean;
+  /** T118 (owner ruling 2026-09-08) — a solve is DUE but the scene is still streaming (an attached
+   *  tileset without its root, tiles queued / downloading / parsing, the two-phase load queues), so
+   *  the feed holds the post: the `LOADING THE SCENE…` chip. Falls back to false at
+   *  `BESTSPOT.holdMaxMs`, when the solve posts with what is resident. */
+  held: boolean;
   /** Index into `BESTSPOT.ladderCellsM` of the rung that last LANDED; −1 before first ink. The
    *  determinate `24 m → 3 m` pip reads this, and so does the top-K's greyed state. */
   ladderRung: number;
@@ -492,6 +500,7 @@ export const useBestSpotStore = create<BestSpotState>((set, get) => ({
   // this seam's owner is `StylizedTiles` rather than the feed, because a preview is a CAMERA move.
   previewSpot: () => {},
   solving: false,
+  held: false,
   ladderRung: -1,
   tilesPending: false,
   gridCellM: BESTSPOT.defaultCellM,

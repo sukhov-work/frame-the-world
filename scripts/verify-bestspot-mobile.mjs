@@ -3,6 +3,7 @@
 // twin's frame time + JS heap while the sheet is up.
 //
 //   node scripts/verify-bestspot-mobile.mjs [9333] [--no-lean] [--shots]
+//   node scripts/verify-bestspot-mobile.mjs 9444 --device [--shots]     # a real phone over adb (README §B)
 //
 // Boots `/m` at the catalogue's `legacy-m` pose (Dnipro, the 2D map) on the lean profile — touch +
 // 402×714 @3 + 4 cores + 4× CPU — the `probe-skyline-fine --lean` idiom. Every scalar is read out of
@@ -21,23 +22,36 @@ import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const args = process.argv.slice(2);
 const PORT = Number(args.find((a) => /^\d+$/.test(a)) ?? 9333);
-const LEAN = !args.includes("--no-lean");
+const DEVICE = args.includes("--device");
+const LEAN = !args.includes("--no-lean") && !DEVICE;
 const SHOTS = args.includes("--shots");
 
 const notes = [];
 const fails = [];
 const ok = (cond, msg) => (cond ? notes.push(`  PASS  ${msg}`) : fails.push(`  FAIL  ${msg}`));
 
-await ensureBrowser(PORT);
+const browser = await ensureBrowser(PORT, { launch: !DEVICE });
 const { url } = poseUrl(byId("legacy-m"));
 let target;
-try {
-  target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: "PUT" }).then((r) => r.json());
-} catch {
-  target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`).then((r) => r.json());
+if (DEVICE) {
+  // T118 (2026-09-08): the same checks on a REAL phone — attach to the tab the README §B recipe
+  // opened (Android Chrome refuses `/json/new`), no emulation, the device's own tier; the
+  // viewport-fit checks below then read the phone's real width.
+  const list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
+  const pages = list.filter((t) => t.type === "page" && t.webSocketDebuggerUrl);
+  target = pages.find((t) => /localhost:4321/.test(t.url)) ?? pages[0];
+  if (!target) throw new Error("no page tab on the phone — open http://localhost:4321/ in Chrome first (tools/devicefarm/README.md §B)");
+  console.log(`attached to the phone tab ${target.id} ${target.url} (${browser.browser})`);
+} else {
+  try {
+    target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: "PUT" }).then((r) => r.json());
+  } catch {
+    target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`).then((r) => r.json());
+  }
+  trackTarget(PORT, target.id);
 }
-trackTarget(PORT, target.id);
 const s = await openSession(target);
+if (DEVICE) await s.send("Page.bringToFront").catch(() => {});
 const shot = async (name) => {
   if (!SHOTS) return;
   mkdirSync("verify-shots", { recursive: true });
@@ -45,6 +59,7 @@ const shot = async (name) => {
   writeFileSync(`verify-shots/${name}.jpeg`, Buffer.from(r.data, "base64"));
 };
 const phone = async (w, h, dsf) => {
+  if (DEVICE) return; // the phone is its own viewport
   await s.send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dsf, mobile: true });
 };
 if (LEAN) {
@@ -83,7 +98,7 @@ const tapText = async (root, text, label) => {
     const cells = [...row.querySelectorAll(".m-tab")].map((b) => { const c = b.getBoundingClientRect(); return { w: c.width, h: c.height, sw: b.scrollWidth, cw: b.clientWidth, lines: Math.round(c.height / parseFloat(getComputedStyle(b).lineHeight || "12")) }; });
     return { rowW: r.width, rowSW: row.scrollWidth, cells, vw: innerWidth };
   })()`);
-  ok(fit.vw === 375, `viewport 375 px for the fit check (got ${fit.vw})`);
+  ok(DEVICE ? fit.vw > 0 : fit.vw === 375, `viewport ${DEVICE ? "the phone's own" : "375 px"} for the fit check (got ${fit.vw})`);
   ok(fit.rowSW <= fit.rowW + 1, `the tab row does not overflow at 375 px (scrollWidth ${fit.rowSW} ≤ ${Math.round(fit.rowW)})`);
   const maxH = Math.max(...fit.cells.map((c) => c.h));
   const minH = Math.min(...fit.cells.map((c) => c.h));
@@ -124,12 +139,36 @@ await tap(".m-bsp-switch", "the HEATMAP switch");
   ok(st.on === true, "the switch arms the store");
   ok(st.state === "ON", `the switch reads ON (got ${st.state})`);
 }
+// T118 (owner ruling 2026-09-08): the first post is HELD until the scene has streamed, and the
+// ONE status chip narrates it — LOADING THE SCENE… → COMPUTING… → ✓ DONE. Poll the chip and the
+// hold at 100 ms until first ink, then read the first rung's provenance: the first job must be a
+// REAL solve (buildings reached the disc), not the `no-built-geometry` refusal + a heal.
 // the solve ladder: 24 → 12 → 6 → 3 m; wait for the finest rung on the phone twin (bounded)
-await s.waitFor(`(() => { const st = window.__bestSpotStore.getState(); return st.ladderRung >= 0; })()`, 60_000, "first ink");
+const chipStates = [];
+let firstInk = null;
+for (let i = 0; i < 600 && !firstInk; i++) {
+  const r = await J(`(() => { const st = window.__bestSpotStore.getState(); const h = window.__globe.bestSpot().hold; const chip = document.querySelector(".m-bsp-progress"); return { rung: st.ladderRung, held: st.held, hold: h, chip: chip ? chip.textContent : null, busy: chip?.getAttribute("data-busy"), hp: st.heightProvenance, jobs: window.__globe.bestSpot().jobs }; })()`);
+  if (r.chip && chipStates[chipStates.length - 1] !== r.chip) chipStates.push(r.chip);
+  if (r.rung >= 0) firstInk = r;
+  else await sleep(100);
+}
+ok(firstInk !== null, "first ink within 60 s");
 const firstInkMs = Date.now() - t0;
 await s.waitFor(`(() => { const st = window.__bestSpotStore.getState(); return st.ladderRung >= 3 && st.gridCellM <= st.cellM && !st.solving; })()`, 120_000, "finest rung landed");
 const finestMs = Date.now() - t0;
+{
+  const h = firstInk?.hold ?? {};
+  ok(h.holds >= 1 && h.heldFrames > 0, `T118: the first post was HELD for the scene (holds ${h.holds}, ${h.heldFrames} frames, last hold ${Math.round(h.lastHoldMs ?? 0)} ms, stream pending at ink ${h.streamPending})`);
+  ok(firstInk && firstInk.hp.enriched + firstInk.hp.osm > 0, `T118: the FIRST rung already carries building heights (${firstInk?.hp?.enriched} surveyed + ${firstInk?.hp?.osm} OSM) — no refusal, no heal (jobs ${firstInk?.jobs})`);
+  ok(chipStates.some((c) => /LOADING THE SCENE/.test(c)), `the chip said LOADING THE SCENE… during the hold (seen: ${chipStates.join(" → ")})`);
+  ok(!/DONE/.test(chipStates[0] ?? ""), `…and never claimed DONE before anything was asked (first seen: ${chipStates[0] ?? "(no chip)"})`);
+  ok(chipStates.some((c) => /COMPUTING/.test(c)), "…and COMPUTING… once the job posted");
+}
 await sleep(2500); // the streaming re-solve quiet window
+{
+  const done = await J(`(() => { const chip = document.querySelector(".m-bsp-progress"); return { text: chip?.textContent ?? null, busy: chip?.getAttribute("data-busy"), state: chip?.getAttribute("data-state") }; })()`);
+  ok(done.state === "done" && /DONE/.test(done.text ?? "") && done.busy === "0", `the chip reads ✓ DONE at rest (${JSON.stringify(done)})`);
+}
 {
   const st = await J(`(() => { const st = window.__bestSpotStore.getState(); const f = window.__globe.bestSpot(); const sh = window.__globe.bestSpotSheet(); const b = window.__globe.buildingsLoad?.(); return { rung: st.ladderRung, cellM: st.gridCellM, topK: st.topK.length, counts: st.verdictCounts, coverage: st.coverage, reachM: st.reachM, hp: st.heightProvenance, terrainOnly: st.terrainOnly, centre: [st.centreLatDeg, st.centreLonDeg], sheetVisible: sh.visible, fade: sh.fade, jobs: f.jobs, timings: f.timings, mapMode: window.__cameraStore.getState().mapMode, bldTiles: b?.tiles ?? -1, bldMeshes: b?.meshes ?? -1, text: document.querySelector(".m-sheet__body")?.textContent || "" }; })()`);
   ok(st.rung >= 3 && st.cellM === 3, `the finest rung landed at 3 m (rung ${st.rung}, cell ${st.cellM} m) — first ink ${firstInkMs} ms, finest ${finestMs} ms`);
@@ -222,6 +261,6 @@ await sleep(1500);
 
 console.log(notes.join("\n"));
 if (fails.length) console.log(fails.join("\n"));
-console.log(`\nverify-bestspot-mobile: ${notes.filter((n) => n.startsWith("  PASS")).length} PASS · ${fails.length} FAIL (lean ${LEAN})`);
+console.log(`\nverify-bestspot-mobile: ${notes.filter((n) => n.startsWith("  PASS")).length} PASS · ${fails.length} FAIL (lean ${LEAN}${DEVICE ? ", DEVICE" : ""})`);
 s.close();
 await finishVerify(fails.length ? 1 : 0);

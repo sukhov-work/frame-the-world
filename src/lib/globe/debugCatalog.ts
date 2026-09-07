@@ -1433,6 +1433,28 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     fmt: "bool",
     note: "The BEST SPOT solve is still waiting on terrain tiles before it can claim coverage (store.tilesPending).",
   },
+  {
+    id: "planning.bs.held",
+    label: "BS held",
+    group: "workers",
+    fmt: "bool",
+    note: "T118 — a BEST SPOT solve is due but the scene is still streaming (the LOADING THE SCENE… chip); it posts on the first quiet frame or at BESTSPOT.holdMaxMs.",
+  },
+  {
+    id: "planning.bs.heldFrames",
+    label: "BS held frames",
+    group: "workers",
+    fmt: "int",
+    note: "T118 — frames spent holding a due solve for the scene, cumulative for the session. A number that keeps climbing at a settled pose means the streaming term never reads 0 — read bs.streamPending.",
+  },
+  {
+    id: "planning.bs.streamPending",
+    label: "BS stream pending",
+    group: "workers",
+    fmt: "int",
+    warnAbove: 0,
+    note: "T118 — the orchestrator's readiness term this frame: attached tilesets without a root + isLoading latches + queued/downloading/parsing tiles + the two-phase load queues. 0 = the scene is as loaded as this pose gets.",
+  },
 
   // ---- SYSTEM (static — read once) ---------------------------------------------------------
   {

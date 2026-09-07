@@ -1,0 +1,14 @@
+/* The build stamp (owner order 2026-09-08) — the smallest, dimmest type in either shell. The
+   HOST positions it (index.astro keeps the desktop one inside the attribution chip; chrome.css
+   pins the /m one to the bottom column's corner); this file only says "tiny and inert". */
+.version-stamp {
+  font-family: var(--font-mono);
+  font-size: 0.45rem;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}

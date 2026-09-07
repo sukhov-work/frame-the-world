@@ -262,6 +262,34 @@ export function shortlistReady(s: BestSpotState): boolean {
   return s.ladderRung >= 0 && s.gridCellM <= s.cellM;
 }
 
+/**
+ * T118 + owner order 2026-09-08 ("add the simplest loading indicators on both shells so the user
+ * understands when it is computing / done") — ONE status chip, three words, both shells:
+ *
+ * - `hold` — a solve is due but the scene is still streaming (`held`): `LOADING THE SCENE…`
+ * - `computing` — a job is in flight, the worker is fetching its map tiles, or the 1 m refine
+ *   runs (`solving` / `tilesPending` / `refining`): `COMPUTING…`
+ * - `done` — nothing is running and a first result has landed (`ladderRung >= 0`): `✓ DONE`.
+ *   Deliberately NOT "ready": after an honest refusal the shortlist never becomes ready, and the
+ *   chip must still say the work is over (the refusal line below it says why the field is empty).
+ *
+ * `null` while the heatmap is off (the OFF line already says nothing is being computed), and
+ * while nothing has been asked yet — armed with no centre (`ARMED — NO CENTRE` is the switch's
+ * own state), or the dozen frames between the switch and the feed's first mirror tick, where a
+ * `DONE` would be a lie (measured on the phone twin: the chip read DONE for one poll before the
+ * hold was mirrored).
+ */
+export type BestSpotProgress = { key: "hold" | "computing" | "done"; label: string } | null;
+export function bestSpotProgress(
+  s: Pick<BestSpotState, "heatmapOn" | "held" | "solving" | "tilesPending" | "refining" | "ladderRung">,
+): BestSpotProgress {
+  if (!s.heatmapOn) return null;
+  if (s.held) return { key: "hold", label: "LOADING THE SCENE…" };
+  if (s.solving || s.tilesPending || s.refining) return { key: "computing", label: "COMPUTING…" };
+  if (s.ladderRung < 0) return null;
+  return { key: "done", label: "✓ DONE" };
+}
+
 /** `62 m` / `1.5 km` — the walk, in the unit a walker thinks in. */
 export function distLabel(m: number): string {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;

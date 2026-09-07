@@ -31,6 +31,10 @@ import DebugPanel from "../components/panels/DebugPanel";
 import "../styles/tips.css";
 // Boot poster (server-rendered splash) styles — see the #boot-poster block below.
 import "../styles/boot-poster.css";
+// The build stamp (owner order 2026-09-08) — rendered INSIDE the attribution chip so it rides
+// the same line through both credit states (closed bottom-right chip / map-open full-bleed
+// bar); `lib/version` is the one writer, `controls/VersionStamp` is the /m twin.
+import { versionLabel } from "../lib/version";
 ---
 
 <Layout title="Plux">
@@ -311,7 +315,7 @@ import "../styles/boot-poster.css";
       class="map-credit"
       href="https://www.esri.com/"
       target="_blank"
-      rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · © CARTO · Cesium ion · © OpenStreetMap contributors · © OpenMapTiles · produced using Copernicus WorldDEM-30 © DLR/Airbus DS (EU/ESA) · NASA Earth Observatory (Suomi NPP VIIRS) · NASA/GSFC SVS · ESA/Gaia/DPAC · Natural Earth</a>
+      rel="noopener noreferrer">© Esri · Maxar · Earthstar Geographics · © CARTO · Cesium ion · © OpenStreetMap contributors · © OpenMapTiles · produced using Copernicus WorldDEM-30 © DLR/Airbus DS (EU/ESA) · NASA Earth Observatory (Suomi NPP VIIRS) · NASA/GSFC SVS · ESA/Gaia/DPAC · Natural Earth · <span class="map-version">{versionLabel()}</span></a>
   </div>
 
   <!-- MOBILE_PLAN M0 (owner-ratified 2026-08-11): coarse-pointer visitors get a dismissible
@@ -446,6 +450,13 @@ import "../styles/boot-poster.css";
   }
   .map-credit:hover {
     color: var(--color-text-secondary);
+  }
+  /* The build stamp (owner order 2026-09-08): the same font, one step dimmer — troubleshooting
+     only ("which build is this screenshot from?"), never a control. It rides the anchor's line in
+     both credit states, so it needs no position of its own. */
+  .map-version {
+    opacity: 0.7;
+    white-space: nowrap;
   }
   /* Closed state: an inert, zero-height wrapper (the anchor above is position:fixed, so this
      div contributes no layout). It only becomes a box while the map window is up. */

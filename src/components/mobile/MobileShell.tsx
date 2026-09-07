@@ -16,6 +16,7 @@ import { useSkyStore } from "../../store/sky";
 import { useCameraStore } from "../../store/camera";
 import MobileTimeDock from "./MobileTimeDock";
 import TabBar, { type MobileTab } from "./TabBar";
+import VersionStamp from "../controls/VersionStamp";
 import Sheet from "./Sheet";
 import MobileAccount from "./MobileAccount";
 import MobileSearch from "./MobileSearch";
@@ -104,6 +105,9 @@ export default function MobileShell() {
         <TargetPeek onOpen={() => setSheet("target")} />
         <MobileTimeDock />
         <TabBar active={activeTab} onSelect={onTab} />
+        {/* The build stamp (owner order 2026-09-08): the very bottom-right corner under the SPOT
+            tab, tiny and inert — chrome.css seats it; troubleshooting only. */}
+        <VersionStamp />
       </div>
       {sheet === "plan" && (
         <Sheet title="LIGHT PLANNER" onClose={() => setSheet(null)}>

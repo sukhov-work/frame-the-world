@@ -487,6 +487,9 @@ export interface EnrichedBuildingsHandle {
       reclaimed: number;
     };
   };
+  /** T118 — the deferred `load-model` units not yet drained; one integer, no allocation (the
+   *  BEST SPOT readiness term's read — `debugLoad()` is the DEV ledger copy). */
+  loadPending(): number;
   /** T106 — the `load-model` handler's cost ledger: cells landed since attach, ms in the
    *  crease-edge build / the per-building attribution / the whole handler (total + worst),
    *  and the cells that took three's own edge path (expected 0 on a baked variant). */
@@ -3190,6 +3193,7 @@ export function attachEnrichedBuildings(
       loadBudgetMs = Number.isFinite(ms) && ms >= 0 ? ms : ENRICHED.loadBudgetMs;
       return loadBudgetMs;
     },
+    loadPending: () => loadQueue.pending(),
     debugLoad: () => {
       const q = loadQueue.stats();
       return {

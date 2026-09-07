@@ -32,6 +32,20 @@
   transition: opacity 160ms ease, color 160ms ease, border-color 160ms ease;
 }
 
+/* ORDER-INDEPENDENT PIN (owner report 2026-09-08 — "the debug window loses its drag handle; the
+   resize handle sits at the TOP"). Both grips also carry `.tip` (the tooltip anchor), and
+   tips.css says `.tip { position: relative }` at the SAME specificity — so the cascade is decided
+   by emission order, and a BUILD emits tips.css AFTER this file (dist manifest: every route).
+   Both grips then went in-flow in the column-flex window: ◢ took its static slot at the top-left,
+   and ⠿ (`bottom: calc(100% + 3px)` on a RELATIVE box) shifted a whole panel-height above the
+   viewport. `wix dev` injects this file last and hid it. A compound selector outranks `.tip`
+   whichever way the chunks land; `absolute` anchors the ::after tip exactly as `relative` would.
+   Pinned by test/components/dragGrip.test.ts. */
+.drag-grip.tip,
+.resize-grip.tip {
+  position: absolute;
+}
+
 /* Generous invisible halo: the pointer can travel from the panel onto the tab (and hover the
    tab's known corner even on pointer-events:none hosts) without the reveal flickering off. */
 .drag-grip::before {

@@ -48,6 +48,7 @@ import {
   leadLabel,
   pending,
   shortlistReady,
+  bestSpotProgress,
   spotNoteLine,
   terrainOnlyLine,
   TRACK_NULL_LINES,
@@ -201,6 +202,7 @@ export default function BestSpotSheet({ open, onClose }: { open: boolean; onClos
     rampId,
   } = s;
   const ready = shortlistReady(s);
+  const progress = bestSpotProgress(s);
   const bestScore = topK.length > 0 ? Math.max(...topK.map((t) => t.score)) : 1;
   const topKScores = topK.map((t) => t.score);
   const ladder = BESTSPOT.ladderCellsM;
@@ -242,6 +244,19 @@ export default function BestSpotSheet({ open, onClose }: { open: boolean; onClos
             {heatmapOn ? (hasCentre ? "ON" : "ARMED — NO CENTRE") : "OFF"}
           </span>
         </button>
+        {/* T118 + owner order 2026-09-08 — the ONE status chip, the desktop's twin. */}
+        {progress && (
+          <span
+            className="m-toggle m-bsp-progress"
+            data-state={progress.key}
+            data-busy={progress.key === "done" ? "0" : "1"}
+            role="status"
+            aria-live="polite"
+          >
+            {progress.key !== "done" && <i aria-hidden="true">◌</i>}
+            {progress.label}
+          </span>
+        )}
         {tilesPending && <span className="m-toggle m-toggle--on">READING THE MAP</span>}
       </div>
       <div className="m-status-line">

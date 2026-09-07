@@ -10,6 +10,7 @@ import {
   leadLabel,
   pending,
   shortlistReady,
+  bestSpotProgress,
   spotNoteLine,
   spotWhyLines,
   terrainOnlyLine,
@@ -289,6 +290,7 @@ export default function BestSpotPanel() {
     setScoring,
   } = s;
   const ready = shortlistReady(s);
+  const progress = bestSpotProgress(s);
   const bestScore = topK.length > 0 ? Math.max(...topK.map((t) => t.score)) : 1;
   // Hoisted out of the row map: `shortlistQuality` needs the whole list, and re-deriving it per row
   // would be eight passes over eight rows for one number that does not change between them.
@@ -365,6 +367,20 @@ export default function BestSpotPanel() {
                   {heatmapOn ? (hasCentre ? "ON" : "ARMED — NO CENTRE") : "OFF"}
                 </span>
               </button>
+              {/* T118 + owner order 2026-09-08 — the ONE status chip: LOADING THE SCENE… (a due
+                  solve held for the tiles) · COMPUTING… · ✓ DONE. Busy states spin the ◌. */}
+              {progress && (
+                <span
+                  className="pp-chip bsp-progress"
+                  data-state={progress.key}
+                  data-busy={progress.key === "done" ? "0" : "1"}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {progress.key !== "done" && <i aria-hidden="true">◌</i>}
+                  {progress.label}
+                </span>
+              )}
               {/* §2.3 state 1 — the ONLY leg longer than a frame and the only one that can fail. */}
               {tilesPending && <span className="pp-chip">READING THE MAP</span>}
             </div>

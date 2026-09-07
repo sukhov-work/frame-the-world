@@ -2,6 +2,7 @@
  * probe-vtile-worker — is the vector-tile parse actually OFF the main thread? (T77 lever 11, 2026-09-07j)
  *
  *   node scripts/probe-vtile-worker.mjs [PORT] [--pose <id>] [--seconds 14] [--inline]
+ *   node scripts/probe-vtile-worker.mjs 9444 --device [--pose <id>] [--seconds 14]
  *
  * Boots one catalogue pose (default `dnipro-cityscape` — the street web and the names both
  * stream there), switches the DBG feed on without mounting the panel, and polls the `vector`
@@ -15,6 +16,11 @@
  * `--inline` is the negative control: it deletes `window.Worker` before boot so the client's
  * inline twin runs — the same rows must then read `mvt.inline` > 0 and `mvt.worker` 0, proving
  * the probe can tell the two paths apart.
+ *
+ * `--device` (2026-09-08, the Pixel read of lever 11): attaches to a REAL phone's Chrome over adb
+ * (`tools/devicefarm/README.md` §B — `adb forward tcp:9444 localabstract:chrome_devtools_remote`),
+ * drives the tab the recipe opened (Android Chrome refuses `/json/new`), no emulation, the
+ * device's own tier.
  *
  * Exit 0 = PASS, 1 = FAIL. One house Chrome, one dev server (`conventions/verify.md` §budget).
  */
@@ -31,12 +37,26 @@ const opt = (k, d) => {
 const POSE = opt("--pose", "dnipro-cityscape");
 const SECONDS = Number(opt("--seconds", 14));
 const INLINE = args.includes("--inline");
+const DEVICE = args.includes("--device");
+if (INLINE && DEVICE) throw new Error("--inline is a desktop negative control; not on a device");
 
-await ensureBrowser(PORT);
+const browser = await ensureBrowser(PORT, { launch: !DEVICE });
 const { url } = poseUrl(byId(POSE));
-const target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: "PUT" }).then((r) => r.json());
-trackTarget(PORT, target.id);
+let target;
+if (DEVICE) {
+  // Android Chrome answers `PUT /json/new` with "Could not create new page" — drive the tab the
+  // README recipe opened, never create or close tabs on the owner's phone.
+  const list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
+  const pages = list.filter((t) => t.type === "page" && t.webSocketDebuggerUrl);
+  target = pages.find((t) => /localhost:4321/.test(t.url)) ?? pages[0];
+  if (!target) throw new Error("no page tab on the phone — open http://localhost:4321/ in Chrome first (tools/devicefarm/README.md §B)");
+  console.log(`attached to the phone tab ${target.id} ${target.url} (${browser.browser})`);
+} else {
+  target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: "PUT" }).then((r) => r.json());
+  trackTarget(PORT, target.id);
+}
 const s = await openSession(target);
+if (DEVICE) await s.send("Page.bringToFront").catch(() => {});
 const warnings = [];
 s.ws.addEventListener("message", (ev) => {
   const msg = JSON.parse(ev.data);
@@ -86,7 +106,7 @@ const crash = warnings.filter((w) => /parse worker crashed/.test(w));
 if (crash.length) fails.push(`worker crash: ${crash[0]}`);
 if (s.consoleErrors.length) fails.push(`page exceptions: ${s.consoleErrors.slice(0, 2).join(" | ")}`);
 
-console.log(`\n${INLINE ? "NEGATIVE CONTROL" : "PROBE"} ${fails.length ? "FAIL" : "PASS"} — pose ${POSE}: ${JSON.stringify(last)}`);
+console.log(`\n${INLINE ? "NEGATIVE CONTROL" : "PROBE"} ${fails.length ? "FAIL" : "PASS"} — pose ${POSE}${DEVICE ? " DEVICE" : ""}: ${JSON.stringify(last)}`);
 for (const f of fails) console.log(`  ✗ ${f}`);
 for (const w of warnings.slice(0, 5)) console.log(`  console: ${w.slice(0, 200)}`);
 s.close();

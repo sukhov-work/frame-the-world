@@ -341,6 +341,118 @@ describe("§3.4 item 2 — a streaming BURST costs exactly ONE re-solve", () => 
   });
 });
 
+describe("T118 — THE READINESS HOLD (owner ruling 2026-09-08): a due solve waits for the scene", () => {
+  // Mirror cadence: `held` reaches the store on the feed's own mirror tick (every
+  // `BESTSPOT.mirrorEveryFrames` frames, on frame % N === 1), so the store reads below drive a
+  // few idle frames first — the panel sees exactly what these see.
+  const settle = (feed: ReturnType<typeof mountSync>, ctx: object) => {
+    for (let i = 0; i < BESTSPOT.mirrorEveryFrames + 1; i++) feed.update({ ...baseCtx, ...ctx });
+  };
+
+  it("holds the FIRST post while the scene streams, and posts on the first quiet frame — once", () => {
+    const feed = mountSync();
+    // The /m arming frame: the tilesets just re-attached, nothing resident — `streamPending` > 0.
+    for (let i = 0; i < 30; i++) feed.update({ ...baseCtx, streamPending: () => 7 - (i % 3) });
+    expect(solves()).toHaveLength(0);
+    expect(feed.debug().hold.held).toBe(true);
+    expect(feed.debug().hold.heldFrames).toBe(30);
+    expect(feed.debug().hold.holds).toBe(1);
+    // The store carries it (the `LOADING THE SCENE…` chip on both shells).
+    settle(feed, { streamPending: () => 2 });
+    expect(useBestSpotStore.getState().held).toBe(true);
+    expect(useBestSpotStore.getState().solving).toBe(false);
+
+    // The first quiet frame posts — exactly one job, and the hold is over.
+    feed.update({ ...baseCtx, streamPending: () => 0 });
+    expect(solves()).toHaveLength(1);
+    expect(feed.debug().hold.held).toBe(false);
+    expect(feed.debug().hold.lastHoldMs).toBeGreaterThanOrEqual(0);
+    settle(feed, { streamPending: () => 0 });
+    expect(useBestSpotStore.getState().held).toBe(false);
+    // …and a later streaming burst is the ordinary debounce, not a second hold.
+    for (let i = 0; i < 10; i++) feed.update({ ...baseCtx, streamPending: () => 0 });
+    expect(solves()).toHaveLength(1);
+    expect(feed.debug().hold.holds).toBe(1);
+    feed.dispose();
+  });
+
+  it("the tests' ctx (no `streamPending`) is never held — the first armed frame still posts", () => {
+    const feed = mountSync();
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(1);
+    expect(feed.debug().hold.held).toBe(false);
+    feed.dispose();
+  });
+
+  it("a streaming REBUILD that falls inside a hold is carried, not lost", () => {
+    const feed = mountSync();
+    feed.update({ ...baseCtx, streamPending: () => 0 });
+    expect(solves()).toHaveLength(1);
+    // A burst, then the quiet window elapses WHILE the scene reads busy again (a later tile).
+    for (let i = 0; i < 5; i++) feed.update({ ...baseCtx, terrainEpoch: 2 + i, streamPending: () => 0 });
+    for (let i = 0; i < BESTSPOT.rebuildQuietFrames; i++) feed.update({ ...baseCtx, terrainEpoch: 6, streamPending: () => 3 });
+    // The rebuild fired into a hold: no post yet, held.
+    expect(solves()).toHaveLength(1);
+    expect(feed.debug().hold.held).toBe(true);
+    // The scene goes quiet → the carried rebuild posts once.
+    feed.update({ ...baseCtx, terrainEpoch: 6, streamPending: () => 0 });
+    expect(solves()).toHaveLength(2);
+    for (let i = 0; i < 20; i++) feed.update({ ...baseCtx, terrainEpoch: 6, streamPending: () => 0 });
+    expect(solves()).toHaveLength(2);
+    feed.dispose();
+  });
+
+  it("a disc MOVE while the scene streams is held too, and the last field survives the hold", () => {
+    const feed = mountSync();
+    feed.update({ ...baseCtx, streamPending: () => 0 });
+    liveWorker?.deliver(rungFor(1, scoringHash(useBestSpotStore.getState().scoring)));
+    expect(feed.field()).not.toBeNull();
+    const before = feed.field();
+    for (let i = 0; i < 10; i++) feed.update({ ...baseCtx, centreLatDeg: 48.47, streamPending: () => 4 });
+    expect(solves()).toHaveLength(1);
+    expect(feed.debug().hold.held).toBe(true);
+    expect(feed.field()).toBe(before); // the old disc stays up while the new one waits
+    feed.update({ ...baseCtx, centreLatDeg: 48.47, streamPending: () => 0 });
+    expect(solves()).toHaveLength(2);
+    feed.dispose();
+  });
+
+  it("the hold has a ceiling — past BESTSPOT.holdMaxMs the solve posts with what is resident", () => {
+    const feed = mountSync();
+    const now = vi.spyOn(performance, "now");
+    let t = 1000;
+    now.mockImplementation(() => t);
+    feed.update({ ...baseCtx, streamPending: () => 9 });
+    expect(solves()).toHaveLength(0);
+    t += BESTSPOT.holdMaxMs - 1;
+    feed.update({ ...baseCtx, streamPending: () => 9 });
+    expect(solves()).toHaveLength(0);
+    t += 2;
+    feed.update({ ...baseCtx, streamPending: () => 9 });
+    expect(solves()).toHaveLength(1);
+    expect(feed.debug().hold.held).toBe(false);
+    expect(feed.debug().hold.lastHoldMs).toBeGreaterThanOrEqual(BESTSPOT.holdMaxMs);
+    now.mockRestore();
+    feed.dispose();
+  });
+
+  it("disarming clears the hold — re-arming starts a fresh one", () => {
+    const feed = mountSync();
+    for (let i = 0; i < 5; i++) feed.update({ ...baseCtx, streamPending: () => 2 });
+    expect(feed.debug().hold.held).toBe(true);
+    useBestSpotStore.setState({ heatmapOn: false });
+    feed.update({ ...baseCtx, streamPending: () => 2 });
+    expect(feed.debug().hold.held).toBe(false);
+    useBestSpotStore.setState({ heatmapOn: true });
+    feed.update({ ...baseCtx, streamPending: () => 2 });
+    expect(feed.debug().hold.holds).toBe(2);
+    expect(solves()).toHaveLength(0);
+    feed.update({ ...baseCtx, streamPending: () => 0 });
+    expect(solves()).toHaveLength(1);
+    feed.dispose();
+  });
+});
+
 describe("§5.6 — the scoringHash drop is what stops 'the picture disagrees with the numbers'", () => {
   it("a result whose hash is not the store's CURRENT hash is dropped, and nothing is published", () => {
     const feed = mountSync();

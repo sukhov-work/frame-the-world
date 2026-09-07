@@ -1755,3 +1755,84 @@ atomic loop's desktop worst was in the `locateMaxMs` 7.5 Pixel / ~2 desktop band
 3,238 / 15,354 / 36,454): the locate rides the drain's own visit schedule, as the one-shot did,
 and a cell samples its whole sets while its others still locate. DBG rows
 `buildings.treeLocateMaxMs` (warn > 4) and `buildings.treeLocatePending`.
+
+## 27. Session 2026-09-08 — THE PIXEL READS of lever 11 and T115 (both hold); T118's readiness hold measured on the twin and on the Pixel
+
+Pixel 6 Pro (Android 16, Chrome 152, Mali-G78, tier `mid`, lean), the phone's own VPN, ion 401, thermal
+status 1 at both timed runs, the tab fronted; `adb reverse 4321` / `adb forward 9444`. The tree is
+master `fb3fa83` (lever 11 + T115 as shipped) plus this session's non-rendering edits.
+
+### 27.1 Lever 11 on the Pixel — `probe-vtile-worker --device` (new flag) at the cityscape, 20 s
+
+| row | value |
+|---|---|
+| `mvt.parsed` / `mvt.worker` / `mvt.inline` / `mvt.failed` | 12 / **12** / **0** / 0 |
+| `mvt.seatMaxMs` (the only vector-tile work left on the main thread) | **0.7 ms** (desktop 0.5; the brief's ceiling ~2, the slice line 4) |
+| `mvt.workerMaxMs` (the time the phone's main thread no longer pays) | **41.4 ms** (desktop 10.3 — the same tile, the phone's CPU) |
+| `labels.entries` | 31 → 16 over the window (the visible web) |
+
+PASS. The seat is well under the slice line — the wire's feature cursor stays unbuilt.
+
+### 27.2 Lever 11 + T115 on the Pixel — `probe-cpu-profile --leg descent --device` (367 frames / 8.1 s, 22,431 samples)
+
+The gate as written: the vector-tile self time in the hitch frames → ~0. **`ringsOfFeature`,
+`parseVectorTile`, `tileLocalToLonLat`, `readSVarint`, `loadGeometry` — absent from every table of
+the profile** (the whole leg, the parse-phase frames, the hitch frames, the callers' view, the
+top-30 self-time list); `scene/vectorFeatures.ts` (the web's line objects, not the parse) carries
+51 ms of self time over the whole leg and none of it is a parse. §25.5's "vector tiles 199 leading
+the app bucket in the hitches" is gone.
+
+| | §25.5 (final tree 09-07f) | this read (lever 11 + T115) |
+|---|---|---|
+| dt p50 / p95 / max | 16.7 / 49.5 / 283.1 | 16.7 / 50.3 / 333.0 (the 333 ms frame is the profiler's first, at the 31.8 km start pose, `dl 0/0` — the boot, not the descent) |
+| hitch frames · main thread inside them | 55 · 2.78 s | 77 · 3.37 s (NOT like-for-like — a different boot: the tab came from `/m`, thermal 1 not 0, the leg 8.1 s not 10.6; the per-frame buckets below are the comparison) |
+| app in the hitches | 691 (vector tiles 199) | **649 (vector tiles 0)** — `fastEdges` `slotOfKey` + `run` + `walk` 103 (budgeted), `keyVertices` 28, **ephemeris 86** (`VsopFormula` 25.6 + `horizontal` 34.2 + `stateAt` 26.1 — the sky's per-frame ephemeris landing in hitch frames; not in §25.5's list, a lane item), `stepStreetNames` 16, `heightMemo.set` 16.5 |
+| controls in the hitches | 333 (`rawHeightAt` 213, `stepTiltGlide` 100) | 480 (`rawHeightAt` 315, `stepTiltGlide` 138) — the terrain raycast (slice B lever 8, the owner call) |
+| seats · compile · gc · program · other | 133 · 108 · 88 · — · — | 203 (`applyFeatureSeats` 96) · 85 · 125 · 371 · 334 (`Blob` 60 = the glTF parse's own blob) |
+| whole leg, top self time | — | `applyFeatureSeats` **427 ms** (5 % of the leg), the raycast's `intersectTriangle`/`getX`/`getZ` 620, `fastEdges` 341, gc 218 |
+
+What the whole-leg table says next for the lane: `applyFeatureSeats` at 427 ms over 8 s (§26.2's
+200 ms desktop row, ×2 on the phone) is now the biggest app item on the leg, and the controls
+raycast (`rawHeightAt` + `stepTiltGlide` → three's `intersectTriangle` over the terrain mesh,
+1.17 s of the leg) the biggest bucket — the terrain BVH (lever 8) and the seat pass are what is
+left; the ephemeris in the hitch frames (86 ms) is a new, small row.
+
+### 27.3 T115 on the Pixel — `probe-load-phase2 --device` (label `lever11-t115-device`)
+
+| ledger | value |
+|---|---|
+| `treeLocateCalls` / `Chunks` / `Instances` | 89 / 177 / 34,578 |
+| `treeLocateMs` / **`treeLocateMaxMs`** | 21 ms / **0.6 ms** (the atomic loop's 7.5 ms in §25.5; the gate is "< the frame budget") |
+| `treeLocatePending` at the leg's end | 5 (drains at rest on the visit schedule, as the desktop's did) |
+| `locateCalls` / `locateFeatures` / `locateMaxMs` | 85 / 0 / 0 (the parts-first order did not occur once — every cell located before its parts, as in §25.5) |
+| enriched: cells · worst drain · budget · edgesMax · maskMax · allocMax · scratch reuses/growths | 82 · **11.4 ms** · 3 · 10.3 · 9.9 · 2.3 · 152 / 12 |
+| OSM: tiles · meshes · worst drain · budget · edgesMax · allocMax · slow path | 16 · 15 · **2.7 ms** · 1.5 · 2.4 · 2.7 · 0 |
+| frames n · p50 / p95 / p99 / max · > 33 / > 50 | 367 · 17.5 / 47.5 / 116.8 / 183 · 41 / 16 |
+| `enrichedBench(50)` identity | 0 / 0 mismatches (556,836 tris) |
+
+T115 holds on the device: worst tree-locate call 0.6 ms (was 7.5 atomic), 34.6k instances in 21 ms
+of CPU across the leg. The enriched worst drain (11.4) is the budget plus one chunk plus a GC
+landing in a growth (§25.3's band, 3–12 ms run to run; `edgesMax` 10.3 says this run's big cell's
+edge step was the one) — unchanged by this session.
+
+### 27.4 T118 — the readiness hold (owner ruling 2026-09-08: hold the first solve until the scene has loaded, both shells)
+
+`verify-bestspot-mobile.mjs` on the phone twin (house Chrome, 402×714 @3, 4 cores, 4× CPU), then
+on the Pixel (`--device`, new flag; thermal 3 — a functional run, not a timed leg):
+
+| | HEAD (`fb3fa83`, 1 run) | the tree, twin (3 runs) | the tree, Pixel |
+|---|---|---|---|
+| first post | a `no-built-geometry` REFUSAL at 600 ms (ink at 24 m, `hp` 0/0) | HELD 7.9 / 12.0 / 10.3 s (202 / 324 / 288 frames), then a REAL solve (`hp` 1 surveyed + 4 OSM) | held **3.0 s** (116 frames), then real (1 + 4) |
+| first ink (wall, from the switch) | 600 ms (the refusal's rung 0) | 8.7 / 12.5 / 11.2 s | **3.9 s** |
+| finest rung (3 m) | 14.2 s (refusal + 90 quiet frames + a second ladder) | 9.2 / 13.9 / 11.6 s | **8.1 s** |
+| jobs to the finest rung | 2 | **1** | **1** |
+| the chip | — | LOADING THE SCENE… → COMPUTING… → ✓ DONE (never DONE before first ink) | same |
+| checks | 60/60 | 66/67 (below) | **67/67** |
+
+The one twin FAIL is the harness's 5 s frame-count proxy at its floor (117–119 sampled vs the 120
+floor; its own note: "a functional proxy, never a timing source"): HEAD read **128 / 120 / 119**
+across three runs on the same machine this session (one FAIL on HEAD too), the tree 117 / 119 /
+119 / 117 — the floor, not a regression. The first cut of the readiness term DID cost the twin
+~3.5 ms per frame at 4× throttle (it read the two `debugLoad()` ledger COPIES every frame) — the
+term is a THUNK the feed evaluates only while a solve is due, and the two handles gained a
+`loadPending()` integer read; at rest the feed does no readiness work at all.

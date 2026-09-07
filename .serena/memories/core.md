@@ -12,7 +12,26 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
-## Status — 2026-09-07j
+## Status — 2026-09-08
+- **2026-09-08 (`mem:project/wip-2026-09-08-pixel-reads-version-t118`):** **THE PIXEL READS OF LEVER 11 + T115 —
+  BOTH HOLD** (`probe-cpu-profile --leg descent --device`: no vector-tile parse symbol in any table, app in the
+  hitches 691 → 649 with vector tiles 199 → 0; `probe-vtile-worker --device` 12/12 worker, 0 inline, seat 0.7 ms;
+  `probe-load-phase2 --device` treeLocate worst 0.6 ms, T115 CLOSED). What the phone leg shows next:
+  `applyFeatureSeats` 427 ms of the 8 s leg, the controls raycast 1.17 s (lever 8, the terrain BVH). **THE APP
+  VERSION:** `package.json` **1.36.1**, `src/lib/version.ts` the one writer (a named JSON import, tree-shaken),
+  `v1.36.1-dev` under `wix dev` / `v1.36.1` in a release — desktop inside the attribution chip (`.map-version`),
+  `/m` `controls/VersionStamp.tsx` at the bottom column's corner; **the ship hook bumps the PATCH on every ship**
+  (`npm version patch --no-git-tag-version`, after the gates, before `git add -A`). **T119 FIXED** — the DEBUG
+  window's grips: `.tip { position: relative }` outranked the grips' `absolute` by emission order in a BUILD
+  (◢ at the top-left, ⠿ a panel-height off-screen) → the compound-selector pin; the drag floor now keeps the tab
+  reachable (`GRIP_CLEAR_PX` 22) and a centre-anchored resize stops at it. **T118 FIXED (both shells)** — THE
+  READINESS HOLD: a due solve waits while `sceneStreamPending()` > 0 (attached tilesets without a root, `isLoading`,
+  queued/downloading/parsing, the two load queues via `loadPending()`), a THUNK read only when a solve is due,
+  ceiling `BESTSPOT.holdMaxMs` 20 s; the ONE status chip `LOADING THE SCENE…` / `COMPUTING…` / `✓ DONE`
+  (`bestSpotProgress`, both shells). Twin: HEAD refusal at 0.6 s + finest 14.2 s / 2 jobs → held ~8–12 s, first ink
+  REAL, finest 9–14 s / **1 job**; the Pixel: held 3.0 s, first ink 3.9 s real, finest 8.1 s, 67/67. Gates: vitest
+  2,967/192 · astro 0/0/12 · sweep `post-2026-09-08` draw-count 13/13 vs `post2-2026-09-07j`. Freshest golden:
+  `post-2026-09-08`. Open: the owner calls in ONE batch (+ `BESTSPOT.holdMaxMs`).
 - **2026-09-07j (`mem:project/wip-2026-09-07-lever11-vtile-worker`):** **BACK ON THE T77 LANE — LEVER 11 BUILT**
   (the vector-tile parse off the main thread): a `structuredClone` of the nested parse costs AS MUCH as the parse
   (60.6 vs 60.8 ms over 25 real Dnipro tiles), so the design is a flat typed-array WIRE (`lib/geo/vtileWire.ts`,
@@ -127,15 +146,17 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-07j: vitest **2,948/2,948** (189 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
+- Gates 2026-09-08: vitest **2,967/2,967** (192 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
   `ultraEmisK` unused in two scene files) · knip **0**.
+- **App version 1.36.1 since 2026-09-08** (`src/lib/version.ts`; the ship hook bumps the patch every ship).
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T118).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T119).
 
 ## Next step — the T77 lane continues (owner 2026-09-07i; full brief: `NEXT_SESSION_PROMPT.md`)
-Lever 11 + T115 are BUILT and desktop-verified (2026-09-07j); the tails T93/T102/T103/T114 closed; the
-iPhone's real-world AR feedback comes later from the owner — an open ear (T117), never a blocker.
+Lever 11 + T115 are READ ON THE PIXEL and hold (2026-09-08); the three owner asks of 2026-09-08 (the version
+stamp, the DBG grips, T118) shipped; the owner calls are the next thing (ONE batch — the lane's next slice is
+the terrain BVH / the seat pass, which the Pixel leg now names as the biggest buckets); T117 an open ear.
 1. Boot: the ship log FIRST (an `ABORT: push failed` run = push the stranded branch by hand; a landed PR
    with the checkout still on the ship branch = re-seat), VPN on the Mac (AND the phone), ion curl,
    `--budget`, ONE Chrome, `wix dev` restarted PLAIN with `.vite` aside; the pre sweep if the session touches
@@ -250,6 +271,9 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
 - **T77 LEVER 11 (the vector-tile wire + parse worker) + T115 (the tree locate, resumable) + the tails
   T93/T102/T103/T114 (09-07j, HOT; the Pixel reads owed)** · MEASUREMENTS §26 · DECISIONS 2026-09-07j ·
   `mem:project/wip-2026-09-07-lever11-vtile-worker`
+- **THE PIXEL READS (lever 11 + T115 hold) · the APP VERSION 1.36.1 · T119 the DBG grips · T118 the readiness
+  hold + the status chip (09-08, HOT)** · MEASUREMENTS §27 · DECISIONS 2026-09-08 ·
+  `mem:project/wip-2026-09-08-pixel-reads-version-t118`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

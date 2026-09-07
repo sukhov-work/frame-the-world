@@ -4445,6 +4445,20 @@ export const BESTSPOT = {
    *  Without it a streaming burst triggers a ~680 ms solve every frame. */
   rebuildQuietFrames: 90,
   /**
+   * T118 (owner ruling 2026-09-08 — "make sure everything is sufficiently loaded for the current
+   * scene before we try to solve", both shells): a solve that is DUE (the first post, a disc move,
+   * a streaming rebuild) is HELD while the scene still streams — the orchestrator's
+   * `streamPending` term: an attached tileset without its root yet, `isLoading`, queued /
+   * downloading / parsing tiles, the two-phase `load-model` queues. Before this, `/m`'s first
+   * post always fired on the frame the building tilesets re-attached (empty group → the honest
+   * `no-built-geometry` refusal), and the field only landed after the 90-frame quiet window and
+   * a second job (11 s to the finest rung on the phone twin vs ~1.5 s of real solve). This is
+   * the hold's CEILING (ms): a tile that never lands (a WAF-blocked ion, a failed fetch in retry)
+   * must not hold the disc forever — past it the solve posts with what is resident and the
+   * honesty channels say the rest.
+   */
+  holdMaxMs: 20_000,
+  /**
    * THE PROGRESSIVE LADDER (§2.3), coarse → fine, in metres per cell. Measured at Dnipro, R =
    * 300 m: R0 24 m = 10.6 ms (**first ink at 55 ms** including prep) · 12 m = 41 ms · 6 m = 172 ms
    * · 3 m = 680 ms (cumulative 948 ms, 731 ms with the disc mask).

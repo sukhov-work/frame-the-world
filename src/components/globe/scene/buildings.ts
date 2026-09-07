@@ -43,6 +43,10 @@ import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../..
 export interface BuildingsHandle {
   tiles: TilesRenderer;
   update(): void;
+  /** T118 — the deferred `load-model` units not yet drained (a landed tile whose edge unit has
+   *  not run is not seated yet). ONE integer, no allocation — the BEST SPOT readiness term reads
+   *  it (`debugLoad()` copies the whole ledger and is a DEV seam, not a per-frame read). */
+  loadPending(): number;
   /** T106 OSM (2026-09-07f) — the `load-model` cost ledger: phase 1 (the synchronous handler),
    *  the deferred edge units (per step, per drain), the queue state. DEV seam `__globe.buildingsLoad()`. */
   debugLoad(): {
@@ -450,6 +454,7 @@ export function attachBuildings(
       // Held with the traversal under the T94 freeze (a stroke appearing is a picture change).
       if (loadQueue.pending() > 0) loadQueue.drain(loadBudgetMs);
     },
+    loadPending: () => loadQueue.pending(),
     debugLoad() {
       const q = loadQueue.stats();
       return {

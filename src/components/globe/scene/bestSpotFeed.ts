@@ -148,6 +148,16 @@ export interface BestSpotFeedCtx {
    *  MDL chip toggled, a seat/rebase/drag wrote its rig. Optional (defaults to 0) so the pure
    *  tests' ctx objects keep compiling. */
   modelsEpoch?: number;
+  /**
+   * T118 (owner ruling 2026-09-08) — the tile work still outstanding for the CURRENT scene, summed
+   * by the orchestrator over the attached tilesets (`StylizedTiles.sceneStreamPending`): 0 = the
+   * scene is as loaded as it is going to get at this pose. A THUNK, evaluated only while a solve
+   * is DUE (the first post, a disc move, a streaming rebuild) — at rest the feed never calls it.
+   * A due solve is HELD while it reads > 0 (`held` in the store — the `LOADING THE SCENE…` chip),
+   * up to `BESTSPOT.holdMaxMs`. Optional (absent = never held) so the pure tests' ctx objects
+   * keep compiling.
+   */
+  streamPending?: () => number;
 }
 
 export interface BestSpotFeedHandle {
@@ -203,6 +213,9 @@ export interface BestSpotDebug {
   drops: number;
   /** The tier keys, so a verify script can prove T1′ re-ran nothing instead of inferring it. */
   keys: { t0: string; t05: string; t1: string; epoch: number; sources: number };
+  /** T118 — the readiness hold: held now · frames spent held (session) · holds started · the
+   *  last hold's length (ms) · the orchestrator's `streamPending` read this frame. */
+  hold: { held: boolean; heldFrames: number; holds: number; lastHoldMs: number; streamPending: number };
   ladderRung: number;
   workerSpawned: boolean;
   inFlight: number;
@@ -575,6 +588,17 @@ export function attachBestSpotFeed(opts: {
   let builtModelsEpoch = -1;
   let streamStale = false;
   let quietFrames = 0;
+  // ── T118 — THE READINESS HOLD (owner ruling 2026-09-08) ───────────────────────────────────
+  // A due solve waits for `ctx.streamPending` to read 0 (or for `BESTSPOT.holdMaxMs`); the
+  // tier keys are NOT advanced while held, so the same branch re-enters every frame, and a
+  // streaming rebuild that fell inside a hold is carried (`pendingRebuild`) rather than lost.
+  let held = false;
+  let holdSinceMs = 0;
+  let heldFrames = 0;
+  let holds = 0;
+  let lastHoldMs = 0;
+  let lastStreamPending = 0;
+  let pendingRebuild = false;
 
   // ── mirror ──────────────────────────────────────────────────────────────────────────────────
   let frameCount = 0;
@@ -779,6 +803,7 @@ export function attachBestSpotFeed(opts: {
       sceneHoverKey: null,
       sceneHoverScreen: null,
       solving: false,
+      held: false,
       ladderRung: -1,
       tilesPending: false,
       suggestedLiftM: null,
@@ -817,6 +842,9 @@ export function attachBestSpotFeed(opts: {
         activeJobId = -1;
         clearMirror();
       }
+      held = false;
+      holdSinceMs = 0;
+      pendingRebuild = false;
       return;
     }
 
@@ -861,15 +889,44 @@ export function attachBestSpotFeed(opts: {
       const t05 = `${st.kind}|${dayKeyOf(ctx.sceneMs, ctx.centreLonDeg)}`;
       const t1 = String(st.liftM);
 
-      if (t0 !== keyT0 || t05 !== keyT05 || t1 !== keyT1 || streamRebuild) {
-        // ── THE T1 KEY. Bumped ONLY by a T0 move or a streaming refinement — never by the lift
-        // and never by the day, which is precisely what makes S6's `hullBuilds = 0` reachable.
-        if (t0 !== keyT0 || streamRebuild) sourcesEpoch++;
-        keyT0 = t0;
-        keyT05 = t05;
-        keyT1 = t1;
-        builtEpoch = st.scoringEpoch;
-        postSolve(ctx, st.kind);
+      if (t0 !== keyT0 || t05 !== keyT05 || t1 !== keyT1 || streamRebuild || pendingRebuild) {
+        const rebuild = streamRebuild || pendingRebuild;
+        // ── T118: THE READINESS HOLD. A due solve waits while the scene still streams — the
+        // first `/m` post used to fire on the very frame the building tilesets re-attached (an
+        // empty group → the honest refusal, then 90 quiet frames and a second job). Held, the
+        // keys stay put so this branch re-enters next frame; the hold has a ceiling.
+        const now = performance.now();
+        lastStreamPending = ctx.streamPending?.() ?? 0;
+        if (lastStreamPending > 0 && (holdSinceMs === 0 || now - holdSinceMs < BESTSPOT.holdMaxMs)) {
+          if (holdSinceMs === 0) {
+            holdSinceMs = now;
+            holds++;
+          }
+          heldFrames++;
+          pendingRebuild = rebuild;
+          if (!held) {
+            held = true;
+            mirrorDirty = true;
+          }
+        } else {
+          if (holdSinceMs !== 0) {
+            lastHoldMs = now - holdSinceMs;
+            holdSinceMs = 0;
+          }
+          if (held) {
+            held = false;
+            mirrorDirty = true;
+          }
+          pendingRebuild = false;
+          // ── THE T1 KEY. Bumped ONLY by a T0 move or a streaming refinement — never by the lift
+          // and never by the day, which is precisely what makes S6's `hullBuilds = 0` reachable.
+          if (t0 !== keyT0 || rebuild) sourcesEpoch++;
+          keyT0 = t0;
+          keyT05 = t05;
+          keyT1 = t1;
+          builtEpoch = st.scoringEpoch;
+          postSolve(ctx, st.kind);
+        }
       } else if (st.scoringEpoch !== builtEpoch) {
         // ── T2: the §5.6 hot swap. The class decides whether this is 0.272 ms or 490 ms. ───────
         builtEpoch = st.scoringEpoch;
@@ -921,6 +978,7 @@ export function attachBestSpotFeed(opts: {
       liveSpots.map((s) => `${s.key}:${s.score.toFixed(4)}:${s.obstructionRefined ? 1 : 0}`).join(","),
       solving ? 1 : 0,
       tilesPending ? 1 : 0,
+      held ? 1 : 0,
       suggestedLiftM ?? "-",
       refining ? 1 : 0,
       st.liftM,
@@ -952,6 +1010,7 @@ export function attachBestSpotFeed(opts: {
       reachM: m ? m.reachM : 0,
       topK: topKMirror,
       solving,
+      held,
       ladderRung,
       tilesPending,
       gridCellM: m ? m.cellM : BESTSPOT.defaultCellM,
@@ -1024,6 +1083,9 @@ export function attachBestSpotFeed(opts: {
         // The §3.4 streaming debounce, readable (2026-09-07h): a disc that never re-solves after
         // its tiles land is either "no epoch moved" or "an epoch never stops moving" — this tells
         // the two apart from the page.
+        // T118 — the readiness hold, readable: is the disc waiting for the scene, how long did
+        // the last hold run, what the orchestrator's streaming term read this frame.
+        hold: { held, heldFrames, holds, lastHoldMs, streamPending: lastStreamPending },
         stream: {
           stale: streamStale,
           quietFrames,

@@ -210,6 +210,17 @@
   display: inline-block;
   animation: bsp-spin 900ms linear infinite;
 }
+/* T118 + owner order 2026-09-08 — the status chip (LOADING THE SCENE… · COMPUTING… · ✓ DONE):
+   a plain chip that never takes a click; the busy states ride the spinner rule above, DONE is
+   the accent voice. */
+.bsp .bsp-progress {
+  pointer-events: none;
+  gap: 0.35em;
+}
+.bsp .bsp-progress[data-state="done"] {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
 
 /* Warnings (no rise/set solution, the empty-field lift offer) carry the instrument's warn voice. */
 .bsp .pp-status[data-tone="warn"] {

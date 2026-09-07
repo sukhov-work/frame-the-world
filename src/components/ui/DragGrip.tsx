@@ -44,6 +44,31 @@ export interface PanelDrag {
 
 /** Minimum sliver (px) of the panel that must stay inside the viewport on each axis. */
 const MIN_VISIBLE_PX = 48;
+/**
+ * The move tab lives OUTSIDE the window, 3 px above its top edge and 14 px tall — so a panel top
+ * that reaches the viewport's top edge hides the only handle that can bring it back (owner
+ * report 2026-09-08: "somehow loses its drag handle"; the old floor was 4 px, the tab spanned
+ * −13…1 px there). The clamp keeps this much of the viewport above the panel's top edge.
+ */
+export const GRIP_CLEAR_PX = 22;
+
+/**
+ * The drag clamp, pure (the hook's `onPointerMove` and `test/components/dragGrip.test.ts`):
+ * `base` is the panel's rect with the CURRENT offset subtracted (base space), `view` the
+ * viewport. A grabbable sliver stays on-screen on each axis, and the top edge never rises above
+ * `GRIP_CLEAR_PX` so the ⠿ tab stays reachable.
+ */
+export function clampDragOffset(
+  x: number,
+  y: number,
+  base: { left: number; top: number; width: number },
+  view: { width: number; height: number },
+): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(x, MIN_VISIBLE_PX - base.left - base.width), view.width - MIN_VISIBLE_PX - base.left),
+    y: Math.min(Math.max(y, GRIP_CLEAR_PX - base.top), view.height - MIN_VISIBLE_PX - base.top),
+  };
+}
 
 export function usePanelDrag(key: string): PanelDrag {
   const [offset, setOffset] = useState(() => sessionOffsets.get(key) ?? { x: 0, y: 0 });
@@ -83,10 +108,12 @@ export function usePanelDrag(key: string): PanelDrag {
     const root = e.currentTarget.parentElement;
     if (root) {
       const r = root.getBoundingClientRect();
-      const baseL = r.left - offset.x;
-      const baseT = r.top - offset.y;
-      x = Math.min(Math.max(x, MIN_VISIBLE_PX - baseL - r.width), window.innerWidth - MIN_VISIBLE_PX - baseL);
-      y = Math.min(Math.max(y, 4 - baseT), window.innerHeight - MIN_VISIBLE_PX - baseT);
+      ({ x, y } = clampDragOffset(
+        x,
+        y,
+        { left: r.left - offset.x, top: r.top - offset.y, width: r.width },
+        { width: window.innerWidth, height: window.innerHeight },
+      ));
     }
     apply({ x, y });
   };
@@ -129,13 +156,33 @@ export interface PanelResize {
 const MIN_WIN_W = 200;
 const MIN_WIN_H = 130;
 
+/**
+ * The resize clamp, pure. `start` is the window's rect at pointerdown; `dw`/`dh` the pointer
+ * travel. Floors, the 92 % viewport caps — and the ⠿ tab's reachability (owner report
+ * 2026-09-08): a CENTRE-anchored window (the debug window: `translate(-50%, -50%)`) grows
+ * symmetrically, so every 2 px of height lifts its top edge 1 px; the height stops where the top
+ * would cross `GRIP_CLEAR_PX`. A top-anchored window (PLAN / FIND) never moves its top, so the
+ * same bound is merely slack there — one rule for every host, no anchoring probe.
+ */
+export function clampResize(
+  start: { top: number; w: number; h: number },
+  dw: number,
+  dh: number,
+  view: { width: number; height: number },
+): { w: number; h: number } {
+  const w = Math.min(Math.max(start.w + dw, MIN_WIN_W), view.width * 0.92);
+  const hTopBound = start.h + 2 * Math.max(0, start.top - GRIP_CLEAR_PX);
+  const h = Math.min(Math.max(start.h + dh, MIN_WIN_H), view.height * 0.92, Math.max(hTopBound, MIN_WIN_H));
+  return { w, h };
+}
+
 /** Corner-resize twin of usePanelDrag: same session-Map memory, same double-click reset, same
  *  pointer-capture tolerance. Emits border-box px as CSS vars; `null` size = the CSS default. */
 export function usePanelResize(key: string): PanelResize {
   const [size, setSize] = useState<{ w: number; h: number } | null>(
     () => sessionSizes.get(key) ?? null,
   );
-  const start = useRef<{ px: number; py: number; w: number; h: number } | null>(null);
+  const start = useRef<{ px: number; py: number; top: number; w: number; h: number } | null>(null);
 
   // Shared-key sync — the usePanelDrag note applies verbatim (reset DELETES the entry,
   // so null-vs-null must count as equal).
@@ -156,7 +203,7 @@ export function usePanelResize(key: string): PanelResize {
     const win = e.currentTarget.parentElement; // the window (the grip's parent, by contract)
     if (!win) return;
     const r = win.getBoundingClientRect();
-    start.current = { px: e.clientX, py: e.clientY, w: r.width, h: r.height };
+    start.current = { px: e.clientX, py: e.clientY, top: r.top, w: r.width, h: r.height };
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -168,15 +215,14 @@ export function usePanelResize(key: string): PanelResize {
 
   const onPointerMove = (e: PointerEvent<HTMLElement>) => {
     if (!start.current) return;
-    const w = Math.min(
-      Math.max(start.current.w + (e.clientX - start.current.px), MIN_WIN_W),
-      window.innerWidth * 0.92,
+    apply(
+      clampResize(
+        start.current,
+        e.clientX - start.current.px,
+        e.clientY - start.current.py,
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
     );
-    const h = Math.min(
-      Math.max(start.current.h + (e.clientY - start.current.py), MIN_WIN_H),
-      window.innerHeight * 0.92,
-    );
-    apply({ w, h });
   };
 
   const endResize = (e: PointerEvent<HTMLElement>) => {
