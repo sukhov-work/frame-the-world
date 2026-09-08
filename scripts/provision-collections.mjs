@@ -181,7 +181,14 @@ const COLLECTIONS = [
       // pins' gh4/gh6 precedent (equality on a set; a p9 hash cannot be prefix-queried).
       text("gh5", "Placement Geohash (p5)"),
       num("rotDeg", "Yaw (deg)"),
+      // T128 (owner 2026-09-08b): the scale is PER AXIS now. `scale` (born MS5 as the uniform
+      // factor) is the Y / HEIGHT factor — the BuildingOverrides `heightScale` precedent — and
+      // `scaleX` / `scaleZ` are the two new columns (its `sx` / `sz`); a null axis reads as
+      // `scale`, so every row written before T128 is the same uniform box it always was. The
+      // display name stays so the Wix Data column keeps its identity.
       num("scale", "Uniform Scale"),
+      num("scaleX", "Scale X (east)"),
+      num("scaleZ", "Scale Z (north)"),
       // MESH SUITE MS7 (2026-09-03): the lift above the terrain seat — the BuildingOverrides name.
       num("tU", "Lift (m)"),
       // MESH SUITE MS8 (2026-09-05): the VERTICAL rotation — pitch about the model's own +X, roll

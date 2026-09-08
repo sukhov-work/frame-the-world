@@ -45,11 +45,13 @@ import {
   MODEL_LIFT_MAX_M,
   clampModelEdit,
   editToFeatureTransform,
+  formatModelScale,
   isIdentityModelTransform,
   isTilted,
   liftFloorFor,
   modelStandpoint,
   offsetGeodetic,
+  scaledSizeM3,
   tiltedExtent,
   type ModelEdit,
   type ModelTransform,
@@ -61,6 +63,7 @@ import { verticalFovDeg } from "../../lib/decode/sensors";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
 import { createTwistTracker } from "../../lib/globe/twistTracker";
+import { emptyMapClickAction } from "../../lib/globe/emptyMapClick";
 import {
   fitShadowBox,
   horizonDistanceM,
@@ -1970,13 +1973,17 @@ export function attachStylizedTiles(opts: {
     }
     // Empty-map click (owner follow-up): clears the selected state — first the temp pin, then
     // a VIEWED saved pin (deselect). An own unsaved upload is never discarded by a stray click.
+    // T127 (owner 2026-09-08b): on `/m` a stray tap KEEPS the look-from-here pin — ✕ CLEAR PIN
+    // is the clear there (lib/globe/emptyMapClick.ts holds the rule; the desktop is unchanged).
     const camS = useCameraStore.getState();
-    if (camS.tempPin) {
-      camS.setTempPin(null);
-      return;
-    }
     const up = useUploadStore.getState();
-    if (up.phase === "placed" && up.viewingPinId) up.clear();
+    const action = emptyMapClickAction({
+      isMobileShell,
+      hasTempPin: camS.tempPin !== null,
+      viewingSavedPin: up.phase === "placed" && !!up.viewingPinId,
+    });
+    if (action === "clear-pin") camS.setTempPin(null);
+    else if (action === "deselect") up.clear();
   };
   dom.addEventListener("pointerdown", notePointerDown);
   dom.addEventListener("pointerup", onPointerUp);
@@ -2157,11 +2164,14 @@ export function attachStylizedTiles(opts: {
   /** MS7: the armed model's size `[w, d, h]` at scale 1 (the loaded bounds once resident) — the
    *  lift floor's input; null pins the lift. MS8: the whole box, so the floor follows a tilt. */
   const modelSizeM3 = (): [number, number, number] | null => (modelArmed ? userModels.info(modelArmed.id)?.sizeM3 ?? null : null);
-  /** The committed seats as the gizmo's `start` transform speaks them (`sx` = the uniform scale,
-   *  `tU` = the committed lift, MS8 `pitchDeg` / `rollDeg` = the committed tilt). */
+  /** The committed seats as the gizmo's `start` transform speaks them (`sx` / `sy` / `sz` = the
+   *  committed per-axis scale — T128, `tU` = the committed lift, MS8 `pitchDeg` / `rollDeg` =
+   *  the committed tilt). */
   const startToModel = (start: FeatureTransform): ModelTransform => ({
     rotDeg: start.rotDeg,
-    scale: start.sx,
+    sx: start.sx,
+    sy: start.sy,
+    sz: start.sz,
     liftM: start.tU,
     pitchDeg: start.pitchDeg ?? 0,
     rollDeg: start.rollDeg ?? 0,
@@ -2173,15 +2183,16 @@ export function attachStylizedTiles(opts: {
     onChange: (t) => {
       if (modelArmed) modelLive = clampModelEdit(t, modelCommitted(), modelSizeM3());
     },
-    // The model rails: ONE uniform scale (any handle), a wider move, and (MS7) the lift on its
-    // height-aware floor under the absolute ceiling — `start` is the committed transform the
-    // drag began on. MS8: the tilt rides the read-back (`tilt: true` — the X / Z rings), and the
-    // floor is taken from the box TILTED by it.
+    // The model rails: the scale PER AXIS (T128 — the X box widens, the Y box heightens, the Z
+    // box deepens, each in its own per-edit band, the building's shape), a wider move, and (MS7)
+    // the lift on its height-aware floor under the absolute ceiling — `start` is the committed
+    // transform the drag began on. MS8: the tilt rides the read-back (`tilt: true` — the X / Z
+    // rings), and the floor is taken from the box TILTED by it.
     clamp: (raw, start) => editToFeatureTransform(clampModelEdit(raw, startToModel(start), modelSizeM3())),
     lift: true,
     liftRail: (start) => {
       const st = startToModel(start);
-      return { minM: liftFloorFor(tiltedExtent(modelSizeM3(), st.scale, st.pitchDeg, st.rollDeg)), maxM: MODEL_LIFT_MAX_M };
+      return { minM: liftFloorFor(tiltedExtent(modelSizeM3(), st, st.pitchDeg, st.rollDeg)), maxM: MODEL_LIFT_MAX_M };
     },
     tilt: true,
   });
@@ -2190,7 +2201,9 @@ export function attachStylizedTiles(opts: {
     Math.abs(a.rotDeg - b.rotDeg) >= 0.05 ||
     Math.abs(a.pitchDeg - b.pitchDeg) >= 0.05 ||
     Math.abs(a.rollDeg - b.rollDeg) >= 0.05 ||
-    Math.abs(a.scale - b.scale) >= 0.005;
+    Math.abs(a.sx - b.sx) >= 0.005 ||
+    Math.abs(a.sy - b.sy) >= 0.005 ||
+    Math.abs(a.sz - b.sz) >= 0.005;
   const modelLiveDiffers = (a: ModelEdit, b: ModelEdit) =>
     Math.abs(a.tE - b.tE) >= 0.01 ||
     Math.abs(a.tN - b.tN) >= 0.01 ||
@@ -2198,7 +2211,9 @@ export function attachStylizedTiles(opts: {
     Math.abs(a.rotDeg - b.rotDeg) >= 0.05 ||
     Math.abs(a.pitchDeg - b.pitchDeg) >= 0.05 ||
     Math.abs(a.rollDeg - b.rollDeg) >= 0.05 ||
-    Math.abs(a.scale - b.scale) >= 0.005;
+    Math.abs(a.sx - b.sx) >= 0.005 ||
+    Math.abs(a.sy - b.sy) >= 0.005 ||
+    Math.abs(a.sz - b.sz) >= 0.005;
   const syncModelEdit = () => {
     const a = modelArmed;
     if (!a) {
@@ -2278,7 +2293,7 @@ export function attachStylizedTiles(opts: {
   const standBesideModel = (id: string): boolean => {
     const info = userModels.info(id);
     if (!info) return false;
-    const pose = modelStandpoint(info.lat, info.lon, info.sizeM3, info.seats.scale, useCameraStore.getState().headingDeg, info.seats.liftM);
+    const pose = modelStandpoint(info.lat, info.lon, info.sizeM3, info.seats, useCameraStore.getState().headingDeg, info.seats.liftM);
     useCameraStore.getState().requestFpvJump({
       latDeg: pose.latDeg,
       lonDeg: pose.lonDeg,
@@ -2297,7 +2312,7 @@ export function attachStylizedTiles(opts: {
   };
   const persistModel = async (
     id: string,
-    patch: { lat: number; lon: number; rotDeg: number; scale: number; tU: number; pitchDeg: number; rollDeg: number },
+    patch: { lat: number; lon: number; rotDeg: number; sx: number; sy: number; sz: number; tU: number; pitchDeg: number; rollDeg: number },
   ) => {
     modelSaving = true;
     modelSaveError = null;
@@ -2318,12 +2333,14 @@ export function attachStylizedTiles(opts: {
       if (info) {
         const at = offsetGeodetic(info.lat, info.lon, e.tE, e.tN);
         userModels.rebase(a.id, at.latDeg, at.lonDeg);
-        userModels.setSeats(a.id, { rotDeg: e.rotDeg, scale: e.scale, liftM: e.liftM, pitchDeg: e.pitchDeg, rollDeg: e.rollDeg }, true);
+        userModels.setSeats(a.id, { rotDeg: e.rotDeg, sx: e.sx, sy: e.sy, sz: e.sz, liftM: e.liftM, pitchDeg: e.pitchDeg, rollDeg: e.rollDeg }, true);
         void persistModel(a.id, {
           lat: at.latDeg,
           lon: at.lonDeg,
           rotDeg: e.rotDeg,
-          scale: e.scale,
+          sx: e.sx,
+          sy: e.sy,
+          sz: e.sz,
           tU: e.liftM,
           pitchDeg: e.pitchDeg,
           rollDeg: e.rollDeg,
@@ -2344,7 +2361,9 @@ export function attachStylizedTiles(opts: {
         lat: info.lat,
         lon: info.lon,
         rotDeg: next.rotDeg,
-        scale: next.scale,
+        sx: next.sx,
+        sy: next.sy,
+        sz: next.sz,
         tU: next.liftM,
         pitchDeg: next.pitchDeg,
         rollDeg: next.rollDeg,
@@ -2353,7 +2372,8 @@ export function attachStylizedTiles(opts: {
   };
   const openModelMenu = (clientX: number, clientY: number) =>
     useModelEditStore.getState()._setMenu({ screenX: clientX, screenY: clientY });
-  /** MS5b: the SCALE line leads with the current size in metres (`sizeM3` × the live scale). */
+  /** MS5b: the SCALE line leads with the current size in metres (`sizeM3` × the live scale, per
+   *  axis — T128: `scaledSizeM3`, the factor(s) after it through `formatModelScale`). */
   const modelOpLine = (e: ModelEdit, sizeM3: readonly [number, number, number] | null): string | null => {
     const sg = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`;
     switch (modelOp) {
@@ -2363,9 +2383,7 @@ export function attachStylizedTiles(opts: {
         // MS8: the tilt beside the yaw whenever the model is not upright.
         return isTilted(e) ? `↻ ${sg(-e.rotDeg)}° cw · pitch ${sg(e.pitchDeg)}° · roll ${sg(e.rollDeg)}°` : `↻ ${sg(-e.rotDeg)}° cw`;
       case "scale":
-        return sizeM3
-          ? `⤢ ${formatDims(sizeM3.map((v) => v * e.scale))} · ${e.scale.toFixed(2)}×`
-          : `⤢ ${e.scale.toFixed(2)}×`;
+        return sizeM3 ? `⤢ ${formatDims(scaledSizeM3(sizeM3, e))} · ${formatModelScale(e)}` : `⤢ ${formatModelScale(e)}`;
       default:
         return null;
     }
@@ -3923,6 +3941,8 @@ export function attachStylizedTiles(opts: {
       // RC11: the exact terrain-height memo's hit rate — the number that says whether the seat
       // budgets are still raycast-bound or have become bookkeeping.
       heightMemoStats: () => ground.heightMemoStats(),
+      // T77 lever 8: the terrain BVH's build + raycast totals (probe-cpu-profile / the DBG chip).
+      terrainBvhStats: () => ground.terrainBvhStats(),
       esriPlaceholder: () => ground.placeholderStats(),
       // …and the probe that runs the SHIPPED wrapper against one real Esri tile, so a browser
       // run can reach the substitution path without depending on the terrain tileset's LOD.
@@ -4551,10 +4571,15 @@ export function attachStylizedTiles(opts: {
         const memoAudit = ground.heightMemoAudit();
         const pick = ground.pickStats();
         const ph = ground.placeholderStats();
+        const bvh = ground.terrainBvhStats();
         return {
           epoch: ground.terrainEpoch(),
           overlayRebuilds: ground.overlayRebuilds(),
           overlayPxEff,
+          "bvh.builds": bvh.builds,
+          "bvh.raycasts": bvh.raycasts,
+          "bvh.trisPerRay": bvh.raycasts > 0 ? +(bvh.triesTested / bvh.raycasts).toFixed(1) : 0,
+          "bvh.buildMsWorst": +bvh.buildMsWorst.toFixed(2),
           "memo.hits": memo.hits,
           "memo.misses": memo.misses,
           "memo.entries": memo.entries,
@@ -8123,10 +8148,11 @@ export function attachStylizedTiles(opts: {
           {
             op: modelOpLine(live, info?.sizeM3 ?? null),
             live: a.title,
-            // MS5b: the current size in metres (the upload's bounds × the live scale).
+            // MS5b: the current size in metres (the upload's bounds × the live scale — T128 per
+            // axis; the factor reads `2.00×` when uniform, the triple otherwise).
             orig: info?.sizeM3
-              ? `↳ ${live.scale.toFixed(2)}× · ${formatDims(info.sizeM3.map((v) => v * live.scale))}`
-              : `↳ ${live.scale.toFixed(2)}× · ${(info?.sizeM ?? 0).toFixed(1)} m`,
+              ? `↳ ${formatModelScale(live)} · ${formatDims(scaledSizeM3(info.sizeM3, live))}`
+              : `↳ ${formatModelScale(live)} · ${(info?.sizeM ?? 0).toFixed(1)} m`,
           },
           camera,
         );

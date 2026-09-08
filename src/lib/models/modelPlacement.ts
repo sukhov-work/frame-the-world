@@ -6,7 +6,11 @@
  *
  * THE MODEL. A stored model has a PLACEMENT (`lat`/`lon` — the member's chosen spot for a
  * world-visible object, never a capture GPS: C6-clean, MESH_SUITE_PLAN §9.1-8) and a TRANSFORM
- * seat (`rotDeg` yaw in three's `makeRotationY` sense, `scale` UNIFORM, — MESH SUITE MS7,
+ * seat (`rotDeg` yaw in three's `makeRotationY` sense; the scale PER AXIS — `sx` / `sy` / `sz`
+ * on three's axes, X east, Y up (the height), Z — T128 (owner 2026-09-08b): the buildings' shape
+ * (`SpatialXf.sx/sz` + `FeatureTransform.sy`), overruling the MS5 uniform design; the record's
+ * `scale` column IS the height factor `sy` (the `heightScale` precedent) beside `scaleX` /
+ * `scaleZ`, so a row written before T128 reads back as the same uniform box; — MESH SUITE MS7,
  * owner 2026-09-03 — `liftM`, the height above the terrain seat; the record's `tU` column, and —
  * MESH SUITE MS8, owner 2026-09-03 — `pitchDeg` / `rollDeg`, the VERTICAL rotation about the
  * model's own east and north axes; the record's `pitchDeg` / `rollDeg` columns). The three angles
@@ -33,10 +37,11 @@
  * yields `{ tE, tN, tU, rotDeg, sx, sy, sz }` (MS8: the gizmo's `tilt` instance decomposes the
  * body's FULL quaternion with `eulerFromQuaternion` and adds `pitchDeg` / `rollDeg` — the
  * building instance never sets them) and `clampModelEdit` turns that into a ModelEdit:
- * the per-axis scales collapse to ONE uniform factor (the axis that moved most from the start —
- * three's scale mode writes `scaleStart × offset` on the dragged axis only, so any handle scales
- * the model uniformly), railed by the building band (`clampEditK`: 0.1×..10× PER EDIT about the
- * committed scale, compounding, under the loose 0.001×..1000× sanity rail — MS5b 2026-09-02l); the
+ * each scale axis rides through ON ITS OWN (T128 — three's scale mode writes `scaleStart ×
+ * offset` on the dragged axis only, so the X box widens, the Y box heightens, the Z box deepens,
+ * exactly as a building's; the MS5 collapse to one uniform factor, `uniformScaleFrom`, is gone),
+ * each railed by the building band (`clampEditK`: 0.1×..10× PER EDIT about that axis's committed
+ * factor, compounding, under the loose 0.001×..1000× sanity rail — MS5b 2026-09-02l); the
  * yaw wraps; the move is a bounded ENU offset that the COMMIT folds into a new placement
  * (`offsetGeodetic`), never a stored offset; the lift (the anchor's own Y) is the third seat.
  *
@@ -52,8 +57,10 @@ import { normalizeDeg, type FeatureTransform } from "../globe/featureTransform";
 import { decodeGeohash, geohashesForViewport } from "../geo/geohash";
 import { WGS84_A, WGS84_B } from "../geo/projection";
 
-/** Uniform-scale SANITY rail — the building rail's twin (contract: a stored value outside it is
- *  clamped onto it on read; the server clamps on PATCH). The gesture rail is the per-edit band
+const fin = (v: unknown, dflt: number): number => (typeof v === "number" && Number.isFinite(v) ? v : dflt);
+
+/** The scale SANITY rail, PER AXIS — the building rail's twin (contract: a stored value outside it
+ *  is clamped onto it on read; the server clamps on PATCH). The gesture rail is the per-edit band
  *  (`clampEditK`), not this. */
 export const MODEL_SCALE_MIN = SCALE_MIN_K;
 export const MODEL_SCALE_MAX = SCALE_MAX_K;
@@ -73,12 +80,19 @@ export const MODEL_LIFT_KEEP = Object.freeze({ frac: 0.25, minM: 0.5 });
 /** The world-read cell precision (p5 ≈ 4.9 km × 4.9 km) — the `gh5` column `hasSome` matches. */
 export const MODEL_COVER_PRECISION = 5;
 
+/** T128 (owner 2026-09-08b): the scale PER AXIS on three's axes (1 = as uploaded) — `sx` the
+ *  width (X, east when unturned), `sy` the HEIGHT (Y, up), `sz` the depth (Z). The buildings'
+ *  naming (`SpatialXf.sx/sz`, `FeatureTransform.sy`); every ModelTransform is one. */
+export interface ModelScale {
+  sx: number;
+  sy: number;
+  sz: number;
+}
+
 /** The record's transform seats. `null` on the row = identity. */
-export interface ModelTransform {
+export interface ModelTransform extends ModelScale {
   /** Yaw about local +Y, degrees, three's `makeRotationY` sense (CCW seen from above). */
   rotDeg: number;
-  /** Uniform scale (1 = as uploaded). */
-  scale: number;
   /** MS7: height above the terrain seat (m; 0 = standing on the ground; negative = sunk, railed
    *  by `liftFloorM`). The row's `tU`. */
   liftM: number;
@@ -94,15 +108,44 @@ export interface ModelTransform {
 
 export const IDENTITY_MODEL_TRANSFORM: Readonly<ModelTransform> = Object.freeze({
   rotDeg: 0,
-  scale: 1,
+  sx: 1,
+  sy: 1,
+  sz: 1,
   liftM: 0,
   pitchDeg: 0,
   rollDeg: 0,
 });
 
 /** Neutrality thresholds — below them an edit reads as "as uploaded" (the chip's ↺ test). The
- *  lift's 1 cm is the buildings' `XF_NEUTRAL_EPS.m`; the pitch / roll share the yaw's 0.05°. */
+ *  lift's 1 cm is the buildings' `XF_NEUTRAL_EPS.m`; the pitch / roll share the yaw's 0.05°;
+ *  `scale` applies to EACH axis (T128). */
 export const MODEL_XF_EPS = Object.freeze({ rotDeg: 0.05, scale: 0.005, liftM: 0.01 });
+
+/** T128 — the ONE factor a scale is when its three axes agree (within `MODEL_XF_EPS.scale`; the
+ *  height factor `sy` — the stored `scale` column — speaks for the three), else null: the
+ *  readouts print `2.00×` for a uniform model and the triple otherwise. Pure. */
+export function uniformModelScale(s: ModelScale, eps = MODEL_XF_EPS.scale): number | null {
+  const sx = fin(s.sx, 1);
+  const sy = fin(s.sy, 1);
+  const sz = fin(s.sz, 1);
+  return Math.abs(sx - sy) < eps && Math.abs(sz - sy) < eps ? sy : null;
+}
+
+/** T128 — the scale as the chips and the pinned label print it (ONE writer): `2.00×` when
+ *  uniform, else the three factors in the SIZE readout's order — width × depth × height, i.e.
+ *  `sx × sz × sy`, so each factor sits under its metre in `formatDims(scaledSizeM3(…))` (the
+ *  building chip's `w × d m (sx × sz)` precedent, grown by the height). Pure. */
+export function formatModelScale(s: ModelScale): string {
+  const k = uniformModelScale(s);
+  if (k !== null) return `${k.toFixed(2)}×`;
+  return `${fin(s.sx, 1).toFixed(2)} × ${fin(s.sz, 1).toFixed(2)} × ${fin(s.sy, 1).toFixed(2)}`;
+}
+
+/** T128 — the model's CURRENT size `[w, d, h]` (m): the scale-1 box scaled per axis
+ *  (`w · sx`, `d · sz`, `h · sy`) — the SCALE readouts' metres, one writer. Pure. */
+export function scaledSizeM3(size: readonly [number, number, number], s: ModelScale): [number, number, number] {
+  return [size[0] * fin(s.sx, 1), size[1] * fin(s.sz, 1), size[2] * fin(s.sy, 1)];
+}
 
 /** The model's size as best known: its HEIGHT at scale 1 alone (the footprint unknown — the
  *  MS7 shape), or the full `[w, d, h]` (X, Z, Y extents at scale 1 — the scene's `sizeM3`, the
@@ -128,20 +171,31 @@ export interface ModelEdit extends ModelTransform {
 
 export const IDENTITY_MODEL_EDIT: Readonly<ModelEdit> = Object.freeze({ ...IDENTITY_MODEL_TRANSFORM, tE: 0, tN: 0 });
 
-const fin = (v: unknown, dflt: number): number => (typeof v === "number" && Number.isFinite(v) ? v : dflt);
+/** T128 — a scale argument as the maths take it: ONE number is uniform (the MS7 callers that only
+ *  know a height, and every legacy site), a `ModelScale` is per axis. A non-finite or
+ *  non-positive factor reads as 1 (the MS5 rule, per axis). */
+function scaleAxes(scale: number | ModelScale): [number, number, number] {
+  if (typeof scale === "number") {
+    const k = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    return [k, k, k];
+  }
+  const ok = (v: number) => (Number.isFinite(v) && v > 0 ? v : 1);
+  return [ok(scale.sx), ok(scale.sy), ok(scale.sz)];
+}
 
 /** MS8 — the vertical span of the model's box about its pivot once TILTED (pitch / roll; the
- *  yaw is about the vertical and changes nothing here), at `scale`. The box is
+ *  yaw is about the vertical and changes nothing here), at `scale` (T128: per axis — the box is
+ *  `w · sx` wide, `h · sy` tall, `d · sz` deep; a bare number is uniform). The box is
  *  `[−w/2, w/2] × [0, h] × [−d/2, d/2]` about the pivot; the second row of
  *  R = R_y(yaw)·R_x(pitch)·R_z(roll) is `(cos p · sin r, cos p · cos r, −sin p)`, so the highest
  *  corner is the sum of each axis's favourable half. A bare height reads as a pole (w = d = 0).
  *  Null when nothing is known or the size is degenerate. Pure. */
-export function tiltedExtent(size: ModelSize | null, scale: number, pitchDeg: number, rollDeg: number): VerticalExtent | null {
+export function tiltedExtent(size: ModelSize | null, scale: number | ModelScale, pitchDeg: number, rollDeg: number): VerticalExtent | null {
   if (size === null) return null;
-  const k = Number.isFinite(scale) && scale > 0 ? scale : 1;
-  const w = typeof size === "number" ? 0 : fin(size[0], 0);
-  const d = typeof size === "number" ? 0 : fin(size[1], 0);
-  const h = typeof size === "number" ? fin(size, 0) : fin(size[2], 0);
+  const [kx, ky, kz] = scaleAxes(scale);
+  const w = (typeof size === "number" ? 0 : fin(size[0], 0)) * kx;
+  const d = (typeof size === "number" ? 0 : fin(size[1], 0)) * kz;
+  const h = (typeof size === "number" ? fin(size, 0) : fin(size[2], 0)) * ky;
   if (!(h > 0) && !(w > 0) && !(d > 0)) return null;
   const p = (fin(pitchDeg, 0) * Math.PI) / 180;
   const r = (fin(rollDeg, 0) * Math.PI) / 180;
@@ -150,8 +204,8 @@ export function tiltedExtent(size: ModelSize | null, scale: number, pitchDeg: nu
   const ax = tidy(Math.cos(p) * Math.sin(r)); // y' per unit x
   const ay = tidy(Math.cos(p) * Math.cos(r)); // y' per unit y
   const az = tidy(-Math.sin(p)); // y' per unit z
-  const topM = (Math.abs(ax) * (Math.max(0, w) / 2) + Math.max(0, ay) * Math.max(0, h) + Math.abs(az) * (Math.max(0, d) / 2)) * k;
-  const bottomM = (-Math.abs(ax) * (Math.max(0, w) / 2) + Math.min(0, ay) * Math.max(0, h) - Math.abs(az) * (Math.max(0, d) / 2)) * k;
+  const topM = Math.abs(ax) * (Math.max(0, w) / 2) + Math.max(0, ay) * Math.max(0, h) + Math.abs(az) * (Math.max(0, d) / 2);
+  const bottomM = -Math.abs(ax) * (Math.max(0, w) / 2) + Math.min(0, ay) * Math.max(0, h) - Math.abs(az) * (Math.max(0, d) / 2);
   const extentM = topM - bottomM;
   if (!(extentM > 1e-6)) return null; // (a pole on its side has no vertical span → unknown)
   return { topM: topM || 0, extentM };
@@ -193,11 +247,30 @@ export function clampLiftM(liftM: unknown, scaledHeightM: number | null): number
   return clampLiftFor(liftM, ok ? { topM: scaledHeightM, extentM: scaledHeightM } : null);
 }
 
+/** T128 — an untrusted scale → the three factors on the sanity rail. A NUMBER is the legacy
+ *  uniform factor (all three); an OBJECT is read per axis with the RECORD's fallback chain: a
+ *  missing / garbage axis takes the uniform `scale` (the row's column — the height factor), then
+ *  `sy`, then 1 — so `{ scale: 2 }` (a row written before T128) is (2, 2, 2), `{ sx: 3 }` is
+ *  (3, 1, 1), and `{ scale: 2, sz: 1 }` is (2, 2, 1). Anything else is identity. Pure; never
+ *  throws. */
+export function sanitizeModelScale(scale: unknown): ModelScale {
+  const rail = (v: number) => Math.max(MODEL_SCALE_MIN, Math.min(MODEL_SCALE_MAX, v));
+  if (typeof scale === "number") {
+    const k = rail(fin(scale, 1));
+    return { sx: k, sy: k, sz: k };
+  }
+  if (typeof scale !== "object" || scale === null) return { sx: 1, sy: 1, sz: 1 };
+  const o = scale as Record<string, unknown>;
+  const sy = fin(o.sy, fin(o.scale, 1));
+  return { sx: rail(fin(o.sx, sy)), sy: rail(sy), sz: rail(fin(o.sz, sy)) };
+}
+
 /** A stored row's seats → a transform (null/absent/garbage = identity; out-of-rail scale and
- *  lift clamped onto the rails — the read-tolerant half of the contract). `size` is the model's
+ *  lift clamped onto the rails — the read-tolerant half of the contract). `scale` is a legacy
+ *  uniform number OR the per-axis shape `sanitizeModelScale` reads (T128). `size` is the model's
  *  size at scale 1 (the row's bbox / the loaded bounds; a bare number = the height alone) — the
- *  lift floor is taken from the box at `scale`, TILTED by the sanitized pitch / roll (MS8); null
- *  (unknown) pins the lift to the ground. */
+ *  lift floor is taken from the box at the sanitized scale, TILTED by the sanitized pitch / roll
+ *  (MS8); null (unknown) pins the lift to the ground. */
 export function sanitizeModelTransform(
   rotDeg: unknown,
   scale: unknown,
@@ -206,12 +279,14 @@ export function sanitizeModelTransform(
   pitchDeg: unknown = 0,
   rollDeg: unknown = 0,
 ): ModelTransform {
-  const k = Math.max(MODEL_SCALE_MIN, Math.min(MODEL_SCALE_MAX, fin(scale, 1)));
+  const s = sanitizeModelScale(scale);
   const tilt = canonicalTilt(fin(pitchDeg, 0), fin(rollDeg, 0));
   return {
     rotDeg: normalizeDeg(fin(rotDeg, 0) + tilt.yawAddDeg),
-    scale: k,
-    liftM: clampLiftFor(tU, tiltedExtent(size, k, tilt.pitchDeg, tilt.rollDeg)),
+    sx: s.sx,
+    sy: s.sy,
+    sz: s.sz,
+    liftM: clampLiftFor(tU, tiltedExtent(size, s, tilt.pitchDeg, tilt.rollDeg)),
     pitchDeg: tilt.pitchDeg,
     rollDeg: tilt.rollDeg,
   };
@@ -234,7 +309,9 @@ export function canonicalTilt(pitchDeg: number, rollDeg: number): { pitchDeg: nu
 export function isIdentityModelTransform(t: ModelTransform, eps = MODEL_XF_EPS): boolean {
   return (
     Math.abs(normalizeDeg(t.rotDeg)) < eps.rotDeg &&
-    Math.abs(t.scale - 1) < eps.scale &&
+    Math.abs(t.sx - 1) < eps.scale &&
+    Math.abs(t.sy - 1) < eps.scale &&
+    Math.abs(t.sz - 1) < eps.scale &&
     Math.abs(t.liftM ?? 0) < eps.liftM &&
     Math.abs(normalizeDeg(t.pitchDeg ?? 0)) < eps.rotDeg &&
     Math.abs(normalizeDeg(t.rollDeg ?? 0)) < eps.rotDeg
@@ -301,31 +378,15 @@ export function eulerFromQuaternion(qx: number, qy: number, qz: number, qw: numb
   return { yawDeg: normalizeDeg(yaw * deg), pitchDeg: normalizeDeg(pitch * deg), rollDeg: normalizeDeg(roll * deg) };
 }
 
-/** What the gizmo's per-axis read-back means for a UNIFORM model: the axis whose scale moved
- *  most (in log space) from the start carries the drag; the other two still hold the start. */
-export function uniformScaleFrom(sx: number, sy: number, sz: number, start: number): number {
-  const s0 = start > 0 && Number.isFinite(start) ? start : 1;
-  let best = s0;
-  let bestDev = -1;
-  for (const s of [sx, sy, sz]) {
-    if (!(s > 0) || !Number.isFinite(s)) continue;
-    const dev = Math.abs(Math.log(s / s0));
-    if (dev > bestDev) {
-      bestDev = dev;
-      best = s;
-    }
-  }
-  return best;
-}
-
 /** Clamp a gizmo read-back (a FeatureTransform from `rigToTransform` on the model's rig) onto the
- *  model rails: ONE uniform scale inside the per-edit band about `start.scale` (the committed
- *  scale — edits compound under the sanity rail only), the yaw wrapped, the move shortened to
- *  `MODEL_MOVE_MAX_M` (direction kept), the lift (MS7) onto `[liftFloorM(height × the CLAMPED
- *  scale), MODEL_LIFT_MAX_M]` — so a SCALE drag that would shrink a sunk model out of sight lifts
- *  it instead. `heightM` = the model's height at scale 1 (null pins the lift). Pure; never throws. */
+ *  model rails: EACH scale axis inside the per-edit band about ITS committed factor (`start.sx`
+ *  / `sy` / `sz` — T128, the building's `clampGizmoEdit` shape; edits compound under the sanity
+ *  rail only; a non-finite axis reads as its start, never a jump), the yaw wrapped, the move
+ *  shortened to `MODEL_MOVE_MAX_M` (direction kept), the lift (MS7) onto `[liftFloorFor(the box
+ *  at the CLAMPED per-axis scale), MODEL_LIFT_MAX_M]` — so a SCALE drag that would shrink a sunk
+ *  model out of sight lifts it instead. `size` = the model's box at scale 1 (null pins the
+ *  lift). Pure; never throws. */
 export function clampModelEdit(raw: FeatureTransform, start: ModelTransform, size: ModelSize | null = null): ModelEdit {
-  const uniform = uniformScaleFrom(raw.sx, raw.sy, raw.sz, start.scale);
   let tE = fin(raw.tE, 0);
   let tN = fin(raw.tN, 0);
   const r = Math.hypot(tE, tN);
@@ -334,13 +395,20 @@ export function clampModelEdit(raw: FeatureTransform, start: ModelTransform, siz
     tE *= k;
     tN *= k;
   }
-  const scale = clampEditK(start.scale, uniform);
+  const s0 = sanitizeModelScale(start);
+  const scale: ModelScale = {
+    sx: clampEditK(s0.sx, fin(raw.sx, s0.sx)),
+    sy: clampEditK(s0.sy, fin(raw.sy, s0.sy)),
+    sz: clampEditK(s0.sz, fin(raw.sz, s0.sz)),
+  };
   // MS8: the tilt rides the read-back when the gizmo's `tilt` instance set it (the building
   // instance never does — absent reads as upright); canonical, and the floor follows it.
   const tilt = canonicalTilt(fin(raw.pitchDeg, 0), fin(raw.rollDeg, 0));
   return {
     rotDeg: normalizeDeg(fin(raw.rotDeg, 0) + tilt.yawAddDeg),
-    scale,
+    sx: scale.sx,
+    sy: scale.sy,
+    sz: scale.sz,
     liftM: clampLiftFor(raw.tU, tiltedExtent(size, scale, tilt.pitchDeg, tilt.rollDeg)),
     pitchDeg: tilt.pitchDeg,
     rollDeg: tilt.rollDeg,
@@ -350,15 +418,15 @@ export function clampModelEdit(raw: FeatureTransform, start: ModelTransform, siz
 }
 
 /** The forward map: a ModelEdit as the FeatureTransform the gizmo's `place`/`start` API speaks
- *  (uniform scale on every axis, the lift as `tU`, MS8 the tilt as `pitchDeg` / `rollDeg`).
- *  `transformToRig` with `cx = cz = 0, liveBaseY = 0, inflate = 1` then gives the anchor writes
- *  and the scale — the exact inverse of the read-back above (the anchor's Y IS the lift); the
- *  body's quaternion is `quaternionFromTilt` of the three angles. */
+ *  (the three scale axes through as they are — T128, the lift as `tU`, MS8 the tilt as
+ *  `pitchDeg` / `rollDeg`). `transformToRig` with `cx = cz = 0, liveBaseY = 0, inflate = 1` then
+ *  gives the anchor writes and the scale — the exact inverse of the read-back above (the anchor's
+ *  Y IS the lift); the body's quaternion is `quaternionFromTilt` of the three angles. */
 export function editToFeatureTransform(e: ModelEdit): FeatureTransform {
   return {
-    sx: e.scale,
-    sy: e.scale,
-    sz: e.scale,
+    sx: e.sx,
+    sy: e.sy,
+    sz: e.sz,
     rotDeg: e.rotDeg,
     tE: e.tE,
     tN: e.tN,
@@ -376,9 +444,10 @@ const WGS84_E2 = 1 - (WGS84_B * WGS84_B) / (WGS84_A * WGS84_A);
  *  OPPOSITE of `headingDeg` (so the view looks along `headingDeg` at the model), `dist` = three
  *  times the model's longest SCALED extent inside [minM, maxM] (a 3 m box → 15 m; a 30 m tower →
  *  90 m), 1.7 m up, pitched at the model's mid-height. `sizeM3` = `[w, d, h]` at scale 1 (the
- *  record's bbox as `[x, z, y]`); null → the floor distance. MS7: `liftM` raises the aim (the
- *  mid-height rides the lift) and a lifted model is seen from at least three lifts away, so a
- *  rooftop model is in frame from the ground. Pure. */
+ *  record's bbox as `[x, z, y]`); null → the floor distance. `scale` is uniform (a number) or per
+ *  axis (T128: the longest of `w · sx`, `d · sz`, `h · sy`; the mid-height is `h · sy / 2`).
+ *  MS7: `liftM` raises the aim (the mid-height rides the lift) and a lifted model is seen from at
+ *  least three lifts away, so a rooftop model is in frame from the ground. Pure. */
 export interface Standpoint {
   latDeg: number;
   lonDeg: number;
@@ -394,19 +463,19 @@ export function modelStandpoint(
   latDeg: number,
   lonDeg: number,
   sizeM3: readonly [number, number, number] | null,
-  scale: number,
+  scale: number | ModelScale,
   headingDeg = 0,
   liftM = 0,
 ): Standpoint {
-  const k = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const [kx, ky, kz] = scaleAxes(scale);
   const lift = Number.isFinite(liftM) ? liftM : 0;
-  const longest = sizeM3 ? Math.max(sizeM3[0], sizeM3[1], sizeM3[2]) * k : 0;
+  const longest = sizeM3 ? Math.max(sizeM3[0] * kx, sizeM3[1] * kz, sizeM3[2] * ky) : 0;
   const distM = Math.max(STANDPOINT.minM, Math.min(STANDPOINT.maxM, STANDPOINT.factor * Math.max(longest, Math.abs(lift))));
   const h = normalizeDeg(Number.isFinite(headingDeg) ? headingDeg : 0);
   const rad = (h * Math.PI) / 180;
   // The eye sits BEHIND the viewer's line of sight: opposite the heading from the model.
   const at = offsetGeodetic(latDeg, lonDeg, -distM * Math.sin(rad), -distM * Math.cos(rad));
-  const midH = lift + (sizeM3 ? (sizeM3[2] * k) / 2 : STANDPOINT.eyeM);
+  const midH = lift + (sizeM3 ? (sizeM3[2] * ky) / 2 : STANDPOINT.eyeM);
   const pitchDeg = (Math.atan2(midH - STANDPOINT.eyeM, distM) * 180) / Math.PI;
   return {
     latDeg: at.latDeg,

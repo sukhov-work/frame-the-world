@@ -124,6 +124,22 @@ GPU-bound, `/m` 16 → 60 fps after T107. `scripts/probe-cpu-profile.mjs 9444 --
 `scripts/probe-load-phase2.mjs 9444 --device` reads the two deferred `load-model` ledgers on the phone
 (2026-09-07f; it asserts `gnd > 0` after the settle itself).
 
+**TOUCH ON THE PIXEL (2026-09-08c — read before writing a phone gesture leg).** CDP touch injection
+is a MIRAGE on Android Chrome 152: while any other window holds the focus (the notification shade
+after a `KEYCODE_WAKEUP`, the keyguard, a dialog) `Input.dispatchTouchEvent` never answers (the
+mobile batch harness hung 90 s in its first twist); with Chrome focused the command RETURNS but the
+page sees only a synthesized `mousedown` + `click` (y off by 7 px) — no `pointerdown`, no
+`touchstart`, so a twist / pinch / long press does nothing. `Input.synthesizeTapGesture` and
+`synthesizePinchGesture` hang either way. `sendevent` on `/dev/input/event3` (the "sec_touchscreen",
+protocol B, 1440×3120) is refused for the adb shell user (SELinux). **The only real touch is
+`adb shell input`** — `tap`, `swipe x y x y <ms>` (zero travel + a duration = a long press),
+`motionevent DOWN/MOVE/UP` — single-pointer by construction: `scripts/lib/adbInput.mjs` wraps it
+(CSS px in, a one-tap calibration of the status-bar + toolbar offset — 97.5 CSS px at DPR 3.5).
+`verify-mobile-batch-2026-09-08 --device` routes every single-finger leg through it and prints the
+two-finger legs (T120's twist, the pinch, T129's two-finger pan) as INFO: **they have no injection
+path on the phone — the twin is their harness tier and the owner's thumb the device tier.** The
+harness also refuses to start unless `dumpsys window` says Chrome holds `mCurrentFocus`.
+
 **Two traps from 2026-09-07f (MEASUREMENTS §25.4).** (1) **THERMAL: read `adb shell dumpsys thermalservice |
 grep 'Thermal Status'` before EVERY timed phone run and do not run above 1** — eight back-to-back descents
 on charge with the screen on took the Pixel to status 4 (critical: CPU sensors 72 / 80 °C, the big cores at

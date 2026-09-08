@@ -772,6 +772,38 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
 
   // ---- TERRAIN -----------------------------------------------------------------------------
   {
+    id: "terrain.bvh.builds",
+    label: "BVH trees built",
+    group: "terrain",
+    fmt: "int",
+    rate: true,
+    note: "T77 lever 8 (2026-09-08c): terrain-tile bounds trees built Δ/s — one the first time a raycast reaches a tile (a tile no ray asks about costs nothing). Tracks the streaming pulse during a descent, ~0 on a settled camera.",
+  },
+  {
+    id: "terrain.bvh.raycasts",
+    label: "BVH raycasts",
+    group: "terrain",
+    fmt: "int",
+    rate: true,
+    note: "T77 lever 8: terrain raycasts served by a BVH Δ/s — the height memo's misses plus the controls' pivot / tilt rays. With `GROUND.terrainBvh` off this stays 0 (three's own walk runs instead).",
+  },
+  {
+    id: "terrain.bvh.trisPerRay",
+    label: "BVH tris / ray",
+    group: "terrain",
+    fmt: "float2",
+    warnAbove: 400,
+    note: "T77 lever 8: triangle tests per terrain raycast, averaged since boot — the number the lever exists to shrink. Three's `Mesh.raycast` tests the WHOLE index of every tile a ray's sphere hits (thousands per LOD ancestor); the tree brings it to a few leaves' worth (≤ ~16). A climb means the tree is degenerate or the ray grazes many boxes.",
+  },
+  {
+    id: "terrain.bvh.buildMsWorst",
+    label: "BVH worst build ms",
+    group: "terrain",
+    fmt: "ms1",
+    warnAbove: 8,
+    note: "T77 lever 8: the costliest single tree build this session (ms). One-time per tile, off the hot path (a ray that would have walked the whole index anyway pays it once); a big tile is ~1–3 ms. A spike names an unusually dense terrain tile.",
+  },
+  {
     id: "terrain.epoch",
     label: "terrain epoch",
     group: "terrain",

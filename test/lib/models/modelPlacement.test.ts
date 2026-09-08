@@ -28,50 +28,102 @@ import {
   planModelCover,
   planResidency,
   sameCover,
+  sanitizeModelScale,
   sanitizeModelTransform,
-  uniformScaleFrom,
+  formatModelScale,
+  scaledSizeM3,
+  uniformModelScale,
   STANDPOINT,
   modelStandpoint,
 } from "../../../src/lib/models/modelPlacement";
 
-// MESH SUITE MS5 — the placement contract: the uniform-scale read-back, the rails, the geodetic
-// fold-in of a move, the ground-fit re-base, the world-read cover and closest-first residency.
+// MESH SUITE MS5 — the placement contract: the gizmo read-back (T128, owner 2026-09-08b: the
+// scale PER AXIS, the buildings' shape — the MS5 uniform collapse is gone), the rails, the
+// geodetic fold-in of a move, the ground-fit re-base, the world-read cover and closest-first
+// residency.
 
 const dist = (a: [number, number, number], b: [number, number, number]) =>
   Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 describe("modelPlacement — transform seats", () => {
   it("sanitizes a stored row's seats: null = identity, garbage = identity, scale clamped onto the rails", () => {
-    expect(sanitizeModelTransform(null, null)).toEqual({ rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
-    expect(sanitizeModelTransform("x", Number.NaN)).toEqual({ rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
-    expect(sanitizeModelTransform(370, 50)).toEqual({ rotDeg: 10, scale: 50, liftM: 0, pitchDeg: 0, rollDeg: 0 }); // inside the loose sanity rail (MS5b)
-    expect(sanitizeModelTransform(370, 5000)).toEqual({ rotDeg: 10, scale: MODEL_SCALE_MAX, liftM: 0, pitchDeg: 0, rollDeg: 0 });
-    expect(sanitizeModelTransform(-180, 0.0001).scale).toBe(MODEL_SCALE_MIN);
-    expect(isIdentityModelTransform({ rotDeg: 0.01, scale: 1.001, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toBe(true);
-    expect(isIdentityModelTransform({ rotDeg: 12, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toBe(false);
+    expect(sanitizeModelTransform(null, null)).toEqual({ rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(sanitizeModelTransform("x", Number.NaN)).toEqual({ rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(sanitizeModelTransform(370, 50)).toEqual({ rotDeg: 10, sx: 50, sy: 50, sz: 50, liftM: 0, pitchDeg: 0, rollDeg: 0 }); // inside the loose sanity rail (MS5b)
+    expect(sanitizeModelTransform(370, 5000)).toEqual({ rotDeg: 10, sx: MODEL_SCALE_MAX, sy: MODEL_SCALE_MAX, sz: MODEL_SCALE_MAX, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(sanitizeModelTransform(-180, 0.0001).sy).toBe(MODEL_SCALE_MIN);
+    expect(isIdentityModelTransform({ rotDeg: 0.01, sx: 1.001, sy: 1.001, sz: 1.001, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toBe(true);
+    expect(isIdentityModelTransform({ rotDeg: 12, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toBe(false);
+    // T128: any ONE axis off 1 is an edit.
+    expect(isIdentityModelTransform({ ...IDENTITY_MODEL_TRANSFORM, sx: 1.2 })).toBe(false);
+    expect(isIdentityModelTransform({ ...IDENTITY_MODEL_TRANSFORM, sz: 0.9 })).toBe(false);
   });
 
-  it("collapses the gizmo's per-axis scales to the axis that moved most from the start", () => {
-    expect(uniformScaleFrom(2, 1, 1, 1)).toBe(2);
-    expect(uniformScaleFrom(1, 1, 0.5, 1)).toBe(0.5);
-    expect(uniformScaleFrom(1.3, 1.3, 1.3, 1)).toBe(1.3);
-    expect(uniformScaleFrom(3, 2, 2, 2)).toBe(3);
-    expect(uniformScaleFrom(Number.NaN, 0, -1, 2)).toBe(2); // nothing usable → the start
+  it("T128 — reads a scale per axis: a legacy uniform number fans out, a row object falls back `scaleX/Z → scale → 1`, each axis on the rail", () => {
+    // A row written before T128 (`scale` alone) is the same uniform box it always was.
+    expect(sanitizeModelScale(2)).toEqual({ sx: 2, sy: 2, sz: 2 });
+    expect(sanitizeModelScale({ scale: 2 })).toEqual({ sx: 2, sy: 2, sz: 2 });
+    expect(sanitizeModelScale({ scale: 2, sx: null, sz: null })).toEqual({ sx: 2, sy: 2, sz: 2 });
+    // Per axis: a missing axis takes the height factor; `sy` outranks `scale` when both are given.
+    expect(sanitizeModelScale({ sx: 3 })).toEqual({ sx: 3, sy: 1, sz: 1 });
+    expect(sanitizeModelScale({ scale: 2, sz: 1 })).toEqual({ sx: 2, sy: 2, sz: 1 });
+    expect(sanitizeModelScale({ sx: 1.5, sy: 1, sz: 2 })).toEqual({ sx: 1.5, sy: 1, sz: 2 });
+    expect(sanitizeModelScale({ scale: 2, sy: 3 })).toEqual({ sx: 3, sy: 3, sz: 3 });
+    // Garbage per axis reads as the fallback; the rail applies per axis; nothing at all is identity.
+    expect(sanitizeModelScale({ scale: 2, sx: "wide", sz: Number.NaN })).toEqual({ sx: 2, sy: 2, sz: 2 });
+    expect(sanitizeModelScale({ sx: 5000, sy: 0.0001, sz: 1 })).toEqual({ sx: MODEL_SCALE_MAX, sy: MODEL_SCALE_MIN, sz: 1 });
+    expect(sanitizeModelScale(null)).toEqual({ sx: 1, sy: 1, sz: 1 });
+    expect(sanitizeModelScale("x")).toEqual({ sx: 1, sy: 1, sz: 1 });
+    expect(sanitizeModelTransform(0, { scale: 2, sx: 3 }, 0, [4, 2, 10])).toMatchObject({ sx: 3, sy: 2, sz: 2 });
+    // A transform IS a ModelScale (the scene hands its target straight back in).
+    expect(sanitizeModelScale({ ...IDENTITY_MODEL_TRANSFORM, sx: 0.5 })).toEqual({ sx: 0.5, sy: 1, sz: 1 });
   });
 
-  it("clamps a read-back: the per-edit band about the start, the yaw wrapped, the move shortened, the lift railed", () => {
-    const e = clampModelEdit({ sx: 40, sy: 1, sz: 1, rotDeg: 370, tE: 300, tN: 400, tU: 9 }, { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 }, 4);
-    expect(e.scale).toBe(10); // 10× per edit (MS5b — was 3×)
+  it("T128 — the readouts: ONE factor while the axes agree (within the eps), the `sx × sz × sy` triple otherwise; the scaled size per axis", () => {
+    expect(uniformModelScale({ sx: 2, sy: 2, sz: 2 })).toBe(2);
+    expect(uniformModelScale({ sx: 2.004, sy: 2, sz: 1.996 })).toBe(2); // the height factor speaks for the three
+    expect(uniformModelScale({ sx: 2, sy: 1, sz: 2 })).toBeNull();
+    expect(uniformModelScale({ sx: 1, sy: 1, sz: 1.01 })).toBeNull();
+    expect(formatModelScale({ sx: 2, sy: 2, sz: 2 })).toBe("2.00×");
+    expect(formatModelScale({ sx: 0.5, sy: 0.5, sz: 0.5 })).toBe("0.50×");
+    // The triple follows the SIZE readout's order — width × depth × height = sx × sz × sy.
+    expect(formatModelScale({ sx: 1.5, sy: 2, sz: 1 })).toBe("1.50 × 1.00 × 2.00");
+    expect(formatModelScale({ sx: 1, sy: 1, sz: 3 })).toBe("1.00 × 3.00 × 1.00");
+    expect(formatModelScale({ sx: Number.NaN, sy: 1, sz: 1 })).toBe("1.00×"); // garbage reads as 1
+    // `[w, d, h]` at scale 1 → `[w·sx, d·sz, h·sy]`.
+    expect(scaledSizeM3([3, 5, 4], { sx: 2, sy: 2, sz: 2 })).toEqual([6, 10, 8]);
+    expect(scaledSizeM3([3, 5, 4], { sx: 1.5, sy: 2, sz: 1 })).toEqual([4.5, 5, 8]);
+  });
+
+  it("clamps a read-back: the per-edit band about the start PER AXIS (T128), the yaw wrapped, the move shortened, the lift railed", () => {
+    const e = clampModelEdit({ sx: 40, sy: 1, sz: 1, rotDeg: 370, tE: 300, tN: 400, tU: 9 }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 }, 4);
+    expect(e.sx).toBe(10); // 10× per edit (MS5b — was 3×) — on the X axis ALONE
+    expect(e.sy).toBe(1);
+    expect(e.sz).toBe(1);
     expect(e.rotDeg).toBe(10);
     expect(Math.hypot(e.tE, e.tN)).toBeCloseTo(MODEL_MOVE_MAX_M, 9);
     expect(e.tE / e.tN).toBeCloseTo(0.75, 9); // direction kept
-    expect(e.liftM).toBe(9); // MS7: the lift is a seat now (inside the rail: a 4 m model at 10× is 40 m tall)
+    expect(e.liftM).toBe(9); // MS7: the lift is a seat (inside the rail: a 4 m model, 10× WIDE but still 4 m tall — the ceiling is 50)
+    // T128: a drag on one box leaves the other two at their start — a wide model stays as tall
+    // and as deep as it was; each axis is railed on its own about ITS committed factor.
+    const start211 = { rotDeg: 0, sx: 2, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 };
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 2, sy: 1, sz: 1 }, start211)).toMatchObject({ sx: 2, sy: 1, sz: 1 });
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 2, sy: 3, sz: 1 }, start211)).toMatchObject({ sx: 2, sy: 3, sz: 1 });
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 2, sy: 1, sz: 0.25 }, start211)).toMatchObject({ sx: 2, sy: 1, sz: 0.25 });
+    // The band is per axis about that axis's start: X may reach 20 (2 × 10) while Y stops at 10 (1 × 10) and Z at 0.1.
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 50, sy: 50, sz: 0.001 }, start211)).toMatchObject({ sx: 20, sy: 10, sz: 0.1 });
+    // A non-finite axis reads as its start, never a jump.
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: Number.NaN, sy: 1, sz: 1 }, start211)).toMatchObject({ sx: 2, sy: 1, sz: 1 });
     // Edits compound about the committed scale with no absolute cap — only the loose sanity rail.
     // (three's scale mode leaves the undragged axes at the START scale — 4 here, not 1.)
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 9, sy: 4, sz: 4 }, { rotDeg: 0, scale: 4, liftM: 0, pitchDeg: 0, rollDeg: 0 }).scale).toBe(9);
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 40, sy: 4, sz: 4 }, { rotDeg: 0, scale: 4, liftM: 0, pitchDeg: 0, rollDeg: 0 }).scale).toBe(40);
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 5000, sy: 400, sz: 400 }, { rotDeg: 0, scale: 400, liftM: 0, pitchDeg: 0, rollDeg: 0 }).scale).toBe(MODEL_SCALE_MAX);
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM }, { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toEqual(IDENTITY_MODEL_EDIT);
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 9, sy: 4, sz: 4 }, { rotDeg: 0, sx: 4, sy: 4, sz: 4, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toMatchObject({ sx: 9, sy: 4, sz: 4 });
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 40, sy: 4, sz: 4 }, { rotDeg: 0, sx: 4, sy: 4, sz: 4, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toMatchObject({ sx: 40, sy: 4, sz: 4 });
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 5000, sy: 400, sz: 400 }, { rotDeg: 0, sx: 400, sy: 400, sz: 400, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toMatchObject({
+      sx: MODEL_SCALE_MAX,
+      sy: 400,
+      sz: 400,
+    });
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 })).toEqual(IDENTITY_MODEL_EDIT);
   });
 
   it("MS7 — the lift rail: the ceiling, and a floor that keeps a quarter (≥ 0.5 m) of the SCALED model above the seat", () => {
@@ -91,27 +143,30 @@ describe("modelPlacement — transform seats", () => {
     expect(clampLiftM("x", 10)).toBe(0);
     expect(Object.is(clampLiftM(-0, 10), 0)).toBe(true);
     // The read path: the floor is taken at height × scale; garbage reads as on the ground.
-    expect(sanitizeModelTransform(0, 1, -7, 10)).toEqual({ rotDeg: 0, scale: 1, liftM: -7, pitchDeg: 0, rollDeg: 0 });
+    expect(sanitizeModelTransform(0, 1, -7, 10)).toEqual({ rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: -7, pitchDeg: 0, rollDeg: 0 });
     expect(sanitizeModelTransform(0, 0.5, -7, 10).liftM).toBe(-3.75); // 5 m tall at 0.5× → floor −3.75
     expect(sanitizeModelTransform(0, 1, -7, null).liftM).toBe(0); // unknown height pins
     expect(sanitizeModelTransform(0, 1, 500, 10).liftM).toBe(MODEL_LIFT_MAX_M);
-    expect(isIdentityModelTransform({ rotDeg: 0, scale: 1, liftM: 0.005, pitchDeg: 0, rollDeg: 0 })).toBe(true);
-    expect(isIdentityModelTransform({ rotDeg: 0, scale: 1, liftM: 0.02, pitchDeg: 0, rollDeg: 0 })).toBe(false);
+    expect(isIdentityModelTransform({ rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0.005, pitchDeg: 0, rollDeg: 0 })).toBe(true);
+    expect(isIdentityModelTransform({ rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0.02, pitchDeg: 0, rollDeg: 0 })).toBe(false);
     // The gizmo read-back: the floor follows the CLAMPED scale of the same read-back, so a shrink
-    // that would bury a sunk model lifts it instead (10 m model sunk 7 m, scaled to 0.5× → −3.75).
-    const shrunk = clampModelEdit({ sx: 0.5, sy: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: -7 }, { rotDeg: 0, scale: 1, liftM: -7, pitchDeg: 0, rollDeg: 0 }, 10);
-    expect(shrunk.scale).toBe(0.5);
+    // that would bury a sunk model lifts it instead (10 m model sunk 7 m, HEIGHT scaled to 0.5× →
+    // −3.75). T128: the floor is about the HEIGHT axis — a shrink on X alone leaves it be.
+    const shrunk = clampModelEdit({ sx: 1, sy: 0.5, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: -7 }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: -7, pitchDeg: 0, rollDeg: 0 }, 10);
+    expect(shrunk).toMatchObject({ sx: 1, sy: 0.5, sz: 1 });
     expect(shrunk.liftM).toBe(-3.75);
+    const narrowed = clampModelEdit({ sx: 0.5, sy: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: -7 }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: -7, pitchDeg: 0, rollDeg: 0 }, 10);
+    expect(narrowed).toMatchObject({ sx: 0.5, sy: 1, sz: 1, liftM: -7 });
     // A drag past the ceiling stops at it; NaN reads as on the ground.
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, tU: 80 }, { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 }, 10).liftM).toBe(MODEL_LIFT_MAX_M);
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, tU: Number.NaN }, { rotDeg: 0, scale: 1, liftM: 2, pitchDeg: 0, rollDeg: 0 }, 10).liftM).toBe(0);
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, tU: 80 }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 }, 10).liftM).toBe(MODEL_LIFT_MAX_M);
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, tU: Number.NaN }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 2, pitchDeg: 0, rollDeg: 0 }, 10).liftM).toBe(0);
   });
 
-  it("the forward map speaks the gizmo's FeatureTransform with a uniform scale, the lift as tU and (MS8) the tilt", () => {
-    expect(editToFeatureTransform({ rotDeg: 30, scale: 1.5, liftM: -2, pitchDeg: 12, rollDeg: -5, tE: 2, tN: -3 })).toEqual({
+  it("the forward map speaks the gizmo's FeatureTransform with the scale per axis (T128), the lift as tU and (MS8) the tilt", () => {
+    expect(editToFeatureTransform({ rotDeg: 30, sx: 1.5, sy: 0.5, sz: 2, liftM: -2, pitchDeg: 12, rollDeg: -5, tE: 2, tN: -3 })).toEqual({
       sx: 1.5,
-      sy: 1.5,
-      sz: 1.5,
+      sy: 0.5,
+      sz: 2,
       rotDeg: 30,
       tE: 2,
       tN: -3,
@@ -217,6 +272,21 @@ describe("modelPlacement — MS8 the tilt (pitch / roll)", () => {
     expect(tiltedExtent(null, 1, 30, 0)).toBeNull();
     expect(tiltedExtent([0, 0, 0], 1, 0, 0)).toBeNull();
     expect(tiltedExtent([4, 2, 10], Number.NaN, 0, 0)).toEqual({ topM: 10, extentM: 10 }); // a bad scale reads as 1
+    // T128: the scale per axis — upright, only the HEIGHT factor moves the floor; on its side the
+    // DEPTH factor does; a bad axis reads as 1; a uniform triple is the uniform number to the bit.
+    expect(tiltedExtent([4, 2, 10], { sx: 3, sy: 1, sz: 3 }, 0, 0)).toEqual({ topM: 10, extentM: 10 });
+    expect(tiltedExtent([4, 2, 10], { sx: 1, sy: 0.5, sz: 1 }, 0, 0)).toEqual({ topM: 5, extentM: 5 });
+    const sideZ = tiltedExtent([4, 2, 10], { sx: 1, sy: 1, sz: 3 }, 90, 0)!; // depth 6 straddles the pivot
+    expect(sideZ.topM).toBeCloseTo(3, 9);
+    expect(sideZ.extentM).toBeCloseTo(6, 9);
+    const bankX = tiltedExtent([4, 2, 10], { sx: 0.5, sy: 7, sz: 1 }, 0, 90)!; // width 2 straddles it; the height is sideways
+    expect(bankX.topM).toBeCloseTo(1, 9);
+    expect(bankX.extentM).toBeCloseTo(2, 9);
+    expect(tiltedExtent([4, 2, 10], { sx: Number.NaN, sy: -1, sz: 2 }, 0, 0)).toEqual({ topM: 10, extentM: 10 });
+    expect(tiltedExtent([4, 2, 10], { sx: 2, sy: 2, sz: 2 }, 30, 0)).toEqual(tiltedExtent([4, 2, 10], 2, 30, 0));
+    // The floor follows: a model 3× wide but 1× tall may sink no further than at 1×.
+    expect(liftFloorFor(tiltedExtent(10, { sx: 3, sy: 1, sz: 3 }, 0, 0))).toBe(-7.5);
+    expect(liftFloorFor(tiltedExtent([4, 2, 10], { sx: 1, sy: 0.5, sz: 1 }, 0, 0))).toBe(-3.75);
   });
 
   it("liftFloorFor keeps a quarter (≥ 0.5 m) of the ROTATED span above the seat — the MS7 number upright, a POSITIVE floor for a flip", () => {
@@ -273,9 +343,10 @@ describe("modelPlacement — MS8 the tilt (pitch / roll)", () => {
     // Sunk 7 m upright, then tipped onto its side: the floor rises to −0.5 (the depth straddles the pivot).
     const tipped = clampModelEdit({ ...IDENTITY_TRANSFORM, tU: -7, pitchDeg: 90 }, { ...start, liftM: -7 }, [4, 2, 10]);
     expect(tipped.liftM).toBe(-0.5);
-    // The scale still compounds and the tilt rides through with a bad number reading as 0.
+    // The scale still compounds (T128: on its own axis) and the tilt rides through with a bad
+    // number reading as 0.
     const scaled = clampModelEdit({ ...IDENTITY_TRANSFORM, sx: 2, pitchDeg: Number.NaN, rollDeg: 15 }, start, [4, 2, 10]);
-    expect(scaled).toMatchObject({ scale: 2, pitchDeg: 0, rollDeg: 15 });
+    expect(scaled).toMatchObject({ sx: 2, sy: 1, sz: 1, pitchDeg: 0, rollDeg: 15 });
   });
 });
 
@@ -327,8 +398,13 @@ describe("modelPlacement — the MS6 standpoint (stand beside a model)", () => {
     expect(e.headingDeg).toBe(90);
   });
 
-  it("scales with the committed scale, clamps to [6, 120] m, and tolerates an unknown size or a bad heading", () => {
+  it("scales with the committed scale (T128: per axis — the longest SCALED extent, the mid-height at sy), clamps to [6, 120] m, and tolerates an unknown size or a bad heading", () => {
     expect(modelStandpoint(0, 0, [3, 5, 3], 3, 0).distM).toBe(45);
+    expect(modelStandpoint(0, 0, [3, 5, 3], { sx: 3, sy: 3, sz: 3 }, 0)).toEqual(modelStandpoint(0, 0, [3, 5, 3], 3, 0));
+    // w 3 × sx 4 = 12 outranks d 5 × sz 1 → 36 m out; the mid-height follows sy alone (h 3 × 2 / 2 = 3).
+    const wide = modelStandpoint(0, 0, [3, 5, 3], { sx: 4, sy: 2, sz: 1 }, 0);
+    expect(wide.distM).toBe(36);
+    expect(wide.pitchDeg).toBeCloseTo((Math.atan2(3 - STANDPOINT.eyeM, 36) * 180) / Math.PI, 9);
     expect(modelStandpoint(0, 0, [0.5, 0.5, 0.5], 1, 0).distM).toBe(STANDPOINT.minM);
     expect(modelStandpoint(0, 0, [80, 10, 10], 1, 0).distM).toBe(STANDPOINT.maxM);
     const unknown = modelStandpoint(0, 0, null, 1, 0);

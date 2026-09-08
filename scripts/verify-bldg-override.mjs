@@ -12,6 +12,8 @@
 //   5. Escape disarms WITHOUT exiting FPV
 //   6. reload → the persisted override re-applies with NO gesture (checksum-validated path)
 //   7. /m: double-tap arms + touch drag commits (the glass twin)
+//   8. T125 (2026-09-08c): at 22:30 the committed tint is on the GPU (`tintByte` 255) AND the
+//      rendered building separates from a neighbour (a PNG decoded in-page) — the night floor
 // Screenshots in verify-shots/ (git-ignored).
 import { writeFileSync, mkdirSync } from "node:fs";
 import { trackTarget, finishVerify, VerifyFailure } from "./verify-cdp-cleanup.mjs";
@@ -315,8 +317,43 @@ if (!mState || !(mState.target.sy > 1.01)) fail(`/m commit did not reach the mes
 if (!(mSeats.overridden >= W0m)) fail(`/m: overridden fell below the world baseline (${mSeats.overridden}, world ${W0m})`);
 console.log(`/m committed: ${mRows.length} row(s) · target sy ${mState.target.sy.toFixed(3)} · mesh overridden ${mSeats.overridden} (world ${W0m})`);
 
+// --- 8. T125 (2026-09-08c): the committed tint READS AT NIGHT — the pixel, not the cache ----------
+// The /m row (MINE, byte 255) re-applies on a desktop boot at 22:30 local; the tint used to be an
+// albedo pull only, invisible on the dark mass. Read the GPU-side byte through `tintByte` and the
+// RENDERED colour of the edited building against a neighbour (a PNG decoded in-page).
+await send("Emulation.setTouchEmulationEnabled", { enabled: false });
+await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+await send("Page.navigate", { url: FPV_URL.replace(/&t=\d+/, "&t=1787167800000") }); // 22:30 local
+await waitBoot("night", true);
+await sleep(6000); // the world fetch + the deferred registration
+const nState = await evalJs(`window.__globe.enrichedState(${JSON.stringify(mMid.cellUri)}, ${mMid.featureId})`);
+if (!nState || nState.tint !== 2 || nState.tintByte !== 255)
+  fail(`night: the fixture is not tinted MINE on the GPU (tint ${nState?.tint}, byte ${nState?.tintByte})`);
+await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+await sleep(500);
+const png = await send("Page.captureScreenshot", { format: "png" });
+const evalAsync = async (expr) => {
+  const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true });
+  if (r.exceptionDetails) throw new Error(r.exceptionDetails.text + " " + JSON.stringify(r.exceptionDetails.exception?.description ?? ""));
+  return r.result.value;
+};
+const sample = await evalAsync(`(async () => {
+  const im = new Image();
+  await new Promise((res, rej) => { im.onload = res; im.onerror = rej; im.src = "data:image/png;base64,${png.data}"; });
+  const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
+  const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(im, 0, 0);
+  const mean = (px, py) => { const d = x.getImageData(px - 6, py - 6, 12, 12).data; let r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; } const n = d.length / 4; return [r / n, g / n, b / n].map((v) => Math.round(v)); };
+  return { edited: mean(700, 350), neighbour: mean(300, 520), w: c.width, h: c.height };
+})()`);
+writeFileSync(`${SHOTS}/u8-07-night-tint.png`, Buffer.from(png.data, "base64"));
+const delta = Math.max(...sample.edited.map((v, i) => Math.abs(v - sample.neighbour[i])));
+if (!(sample.w === 1600 && sample.h === 1000)) fail(`night: unexpected viewport ${sample.w}×${sample.h}`);
+if (!(delta >= 20)) fail(`night: the edited building reads like its neighbour (edited ${sample.edited} vs ${sample.neighbour}, Δ ${delta})`);
+if (!(sample.edited[1] > sample.edited[0] && sample.edited[2] > sample.edited[0])) fail(`night: the edited building is not accent-tinted (${sample.edited})`);
+console.log(`night: tint MINE on the GPU (byte 255) · edited rgb ${sample.edited} vs neighbour ${sample.neighbour} (Δ ${delta}) · shot ${SHOTS}/u8-07-night-tint.png`);
+
 console.log(
-  `PASS: arm(dblclick+double-tap) · claimed drag (ghost, yaw pinned) · commit (mesh+storage, scale ${committedScale.toFixed(2)}) · RESET · Esc-in-FPV · reload re-apply · /m twin`,
+  `PASS: arm(dblclick+double-tap) · claimed drag (ghost, yaw pinned) · commit (mesh+storage, scale ${committedScale.toFixed(2)}) · RESET · Esc-in-FPV · reload re-apply · /m twin · night tint reads (T125)`,
 );
 ws.close();
 await finishVerify(0); // audit #3 C11: return the CDP target on the success path too

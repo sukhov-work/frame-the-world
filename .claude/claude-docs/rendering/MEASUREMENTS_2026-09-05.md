@@ -1836,3 +1836,37 @@ across three runs on the same machine this session (one FAIL on HEAD too), the t
 ~3.5 ms per frame at 4× throttle (it read the two `debugLoad()` ledger COPIES every frame) — the
 term is a THUNK the feed evaluates only while a solve is due, and the two handles gained a
 `loadPending()` integer read; at rest the feed does no readiness work at all.
+
+## 28. Session 2026-09-08d — LEVER 8 (the terrain BVH), desktop descent A/B
+
+`probe-cpu-profile.mjs 9333 --leg descent --top 20`, the house Chrome at `high`, the stash idiom
+for the A/B (`git stash push -- src/` serves HEAD = no BVH; pop restores the tree). Same
+`dnipro-descent` leg both runs (8.2 s / ~440 frames), thermal-free desktop.
+
+The lever: three's `Mesh.raycast` tests the WHOLE index of a tile once its bounding sphere is hit,
+and a vertical `rawHeightAt` ray from 12 km hits the sphere of every LOD ancestor still crossfading
+in the group — so the sampler + the controls' pivot / tilt rays walked thousands of triangles per
+call. `lib/globe/terrainBvh.ts` gives each tile a lazy bounds tree (built on first raycast, dropped
+with the tile), so a ray tests a few leaves.
+
+| whole descent leg (self time) | BVH OFF (HEAD) | BVH ON |
+|---|---|---|
+| `controls` bucket total | **799.6 ms** (10.1 %) | **246.0 ms** (3.1 %) |
+| `intersectTriangle` | **197.7 ms** | **29.6 ms** |
+| the BVH's own node cost (`intersectBox`) | 0 | 87 ms |
+| `frame.cpu` p50 (settled) | 7.7 ms | 7.1 ms |
+
+| the 45 HITCH frames (dt > 33 ms) — the frames the lever is judged on | OFF | ON |
+|---|---|---|
+| `controls` inside them | **116.6 ms** | **65.0 ms** |
+
+The hitches themselves stayed compile-bound (shader compile 56–72 ms on the worst frames, the
+descent's real tail) — lever 8 is a controls-bucket win, not a hitch-count win on the desktop;
+the phone leg (§27.2: `rawHeightAt` 315 + `stepTiltGlide` 138 ms IN the hitch frames) is where it
+should move the frames, and that read is OWED (`--leg descent --device`).
+
+**No-regression:** the tree is unit-pinned bit-identical to three's `Mesh.raycast` (same hit list,
+distances, points, face/normal/uv) on six tile shapes, so the terrain height and every seat are
+identical; the render is byte-identical (`GROUND.terrainBvh` never touches geometry) — the pose
+sweep's draw-count gate read 14/14 vs `post-2026-09-08b` and the everest-orbit-52 frozen diff was
+confined to UI chrome (nav pills, scrubber, version stamp), the terrain byte-matched.

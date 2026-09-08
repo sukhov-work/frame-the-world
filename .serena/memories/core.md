@@ -12,6 +12,29 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
+## Status — 2026-09-08d
+- **2026-09-08d (`mem:project/wip-2026-09-08-regressions-pixel-lever8`):** **THE THREE REGRESSIONS FIXED, THE
+  PIXEL READS OF THE MOBILE BATCH PASSED, T77 LEVER 8 BUILT.** **T125** (edited buildings not highlighted): the
+  suspects were innocent — the `_ftw_override` byte was correct on the GPU at every hour; the tint was ONE
+  albedo pull (`<color_fragment>`), a DIFFUSE term, invisible on the night's dark mass (R3). `buildingMaterial.ts`
+  now reads one `ftwOverrideK()` TWICE — the albedo pull by day AND a per-channel FLOOR after `<opaque_fragment>`
+  at `accent × K × ENRICHED.overrideTintGlow` 0.22; `featureState.tintByte` exposes the GPU byte (the cache hid
+  the break). **T127** (a /m stray tap clears the pin): NEW `lib/globe/emptyMapClick.ts` — `/m` + a set pin ⇒
+  keep-pin; desktop unchanged; ✕ CLEAR PIN is the one clear, double-tap-sets untouched. **T128** (user-mesh scale
+  was uniform; owner OVERRULED the MS5 uniform design): `ModelTransform.scale` → `sx/sy/sz`, `clampModelEdit`
+  per axis, `body.scale.set(sx,sy,sz)`; DB `scale`=height + NEW `scaleX`/`scaleZ` columns PROVISIONED LIVE
+  (legacy rows read k,k,k; PATCH keeps a `scale` alias). **THE PIXEL READS PASSED** (`verify-mobile-batch --device`
+  105/105 on real glass: AR bubble, ◎ SAVE, live tabs + long-press, the encoder, FIND). **CDP touch is a MIRAGE
+  on Android Chrome 152** → `scripts/lib/adbInput.mjs` drives single-finger phone legs via `adb shell input`;
+  two-finger gestures (twist/pinch/pan) have NO phone injection — the twin + the owner's thumb are the tiers.
+  **LEVER 8 — the terrain BVH** (`lib/globe/terrainBvh.ts`, IN-HOUSE: the lockfile pins the Wix registry
+  off-VPN; unit-pinned BIT-IDENTICAL to three's `Mesh.raycast` on six tile shapes; `GROUND.terrainBvh` kill
+  switch; geometry never touched → render byte-identical): desktop descent A/B whole-leg controls **800 → 246 ms**,
+  `intersectTriangle` **198 → 30 ms**, hitch-frame controls **117 → 65 ms**. **THE PIXEL READ OF LEVER 8 IS OWED.**
+  Gates: vitest **3,021/199** · astro 0/0/12 · knip 0 · sweep `post-2026-09-08d` draw-count 14/14 vs `post-2026-09-08b`.
+  Freshest golden `post-2026-09-08d`. **NEXT: T126 (UNDO + drop-session-edits) · T129 (2D drag-rotate retire) ·
+  T130 (Pixel + Device Farm campaign → T123/T124) · the lever-8 Pixel read · `applyFeatureSeats`/ephemeris.**
+
 ## Status — 2026-09-08b
 - **2026-09-08b (`mem:project/wip-2026-09-08-mobile-uxbatch-heatmap-gestures`):** **THE MOBILE UX BATCH (five
   owner asks) SHIPPED.** 🧭 AR is the FIRST 44 px cell of the right-rail altitude column (`--m-altcol-h` 148,
@@ -168,9 +191,9 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-08b: vitest **3,003/3,003** (196 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
+- Gates 2026-09-08d: vitest **3,021/3,021** (199 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
   `ultraEmisK` unused in two scene files) · knip **0**.
-- **App version 1.36.1 since 2026-09-08** (`src/lib/version.ts`; the ship hook bumps the patch every ship).
+- **App version 1.36.3 since 2026-09-08d** (`src/lib/version.ts`; the ship hook bumps the patch every ship → 1.36.4).
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130).
@@ -303,6 +326,10 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
 - **THE MOBILE UX BATCH: the AR chip + transient bubble · the 💾 cell · LIVE tabs + long press · BEST SPOT
   hygiene + the rate encoder (T121) · THE TWO-FINGER TWIST (T120) · T122 (09-08b, HOT; the Pixel reads owed)** ·
   DECISIONS 2026-09-08b · backlog T120–T122 · `mem:project/wip-2026-09-08-mobile-uxbatch-heatmap-gestures`
+- **THE REGRESSIONS + THE PIXEL READS + LEVER 8: T125 the night tint floor · T127 the /m pin-keep · T128 per-axis
+  user-mesh scale · the batch's Pixel reads (adb input; CDP touch is a mirage) · the terrain BVH (09-08d, HOT;
+  the lever-8 Pixel read owed)** · DECISIONS 2026-09-08d · MEASUREMENTS §28 · backlog T125/T127/T128 · T77 lever 8 ·
+  `mem:project/wip-2026-09-08-regressions-pixel-lever8`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

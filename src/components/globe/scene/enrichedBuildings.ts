@@ -331,7 +331,9 @@ export interface EnrichedBuildingsHandle {
    *  building under the ray. */
   pickBuilding(raycaster: THREE.Raycaster): BuildingPick | null;
   /** U8 commit: set a building's height-scale target (1 = original). The next frames ease the
-   *  REAL mesh there inside applyFeatureSeats (fill + edge CSR + bounds pad + committed tint). */
+   *  REAL mesh there inside applyFeatureSeats (fill + edge CSR + bounds pad); the committed tint
+   *  is written at once by `applyTransformTarget` (`setOverrideTint`, the `_ftw_override` byte),
+   *  never in the apply pass (T125 docblock fix 2026-09-08c). */
   setHeightScale(cellUri: string, featureId: number, k: number): void;
   /** MESH SUITE MS1: set a building's FULL edit target — height scale + the spatial components
    *  (rails applied: absolute scale band, translate radius, lift ≥ 0). Spatial components put
@@ -370,6 +372,10 @@ export interface EnrichedBuildingsHandle {
     seated: boolean;
     /** MS3: the committed-tint level written to the mesh (0 none · 1 world-shared · 2 mine). */
     tint: 0 | 1 | 2;
+    /** T125: the `_ftw_override` byte actually on the geometry at the run's first vertex (255 mine ·
+     *  128 shared · 0 none), `null` while the attribute was never created — the GPU-side twin of
+     *  `tint`, so a harness can prove the upload, not just the cache. */
+    tintByte: number | null;
   } | null;
   /** U8 ghost preview (drag-time). `showGhost` builds the rebased semi-transparent copy over the
    *  solid original (false = cell not loaded); `setGhostK` is the live drag scale; `hideGhost`
@@ -3031,8 +3037,14 @@ export function attachEnrichedBuildings(
     featureState(cellUri, featureId) {
       const found = findFeature(cellUri, featureId);
       if (!found) return null;
-      const { f } = found;
+      const { f, part } = found;
+      // T125: the GPU-side byte, not the cache — `f.ov` is set before the attribute write, so a
+      // harness reading only `tint` could not tell a broken upload from a working one.
+      const ovAttr = (part.mesh.geometry as THREE.BufferGeometry).getAttribute("_ftw_override") as
+        | THREE.BufferAttribute
+        | undefined;
       return {
+        tintByte: ovAttr ? (ovAttr.array as Uint8Array)[f.run.start] : null,
         target: { sy: f.scaleK, ...(f.xf ?? IDENTITY_XF) },
         applied: { sy: f.appliedK, ...(f.axf ?? IDENTITY_XF) },
         cx: f.cx,

@@ -28,6 +28,7 @@ import {
 } from "../../../lib/globe/terrainPick";
 import { HeightMemo, type HeightMemoStats } from "../../../lib/globe/heightMemo";
 import { surfaceCapIndexCount } from "../../../lib/globe/terrainSkirt";
+import { dropTerrainBvh, installTerrainBvh, type TerrainBvhStats } from "../../../lib/globe/terrainBvh";
 import {
   installEsriPlaceholderFallback,
   type PlaceholderProbeResult,
@@ -74,6 +75,11 @@ export interface ImageryGroundHandle {
   /** Monotone count of terrain tiles that have finished loading (BEST SPOT §3.4 item 1). Consumers
    *  compare it per frame and rebuild on change — never a deep scene compare, never per frame. */
   terrainEpoch(): number;
+  /** T77 LEVER 8 (2026-09-08c) — the terrain BVH's running totals: `builds` (trees built, one per
+   *  terrain tile a ray reached), `buildMsTotal` / `buildMsWorst` (their cost), `raycasts` +
+   *  `triesTested` (how many triangle tests the sampler + controls spent — divide for the
+   *  per-raycast average the lever exists to shrink). For the DBG chip + `probe-cpu-profile`. */
+  terrainBvhStats(): TerrainBvhStats;
   /** T77 lever 6 — DRAIN the ring of terrain regions that arrived or were disposed since the last
    *  call, as `[west, south, east, north]` in DEGREES. `terrainEpoch()` says only THAT the ground
    *  changed; this says WHERE, which is what a consumer needs to invalidate its own spatial cache
@@ -988,6 +994,10 @@ export function attachImageryGround(
           gradeGround(shader);
         };
         mat.needsUpdate = true;
+        // T77 lever 8: the tile's REAL surface mesh (its material was swapped to our Basic) is
+        // what `heightAt` / the controls raycast — give it the lazy BVH. The shadow twin's own
+        // `raycast` is a no-op, so it is never a BVH candidate.
+        if (GROUND.terrainBvh) installTerrainBvh(c, terrainBvhStats);
         // shadow twin on the same geometry (geometry ownership stays with the tile)
         const twin = new THREE.Mesh(c.geometry, shadowMat);
         twin.receiveShadow = true;
@@ -1013,7 +1023,10 @@ export function attachImageryGround(
     // `terrainEpochN` is deliberately NOT bumped: its contract is finished LOADS.
     noteTerrainRegion(e.tile?.boundingVolume?.region);
     e.scene.traverse((c: any) => {
-      if (c.isMesh && swappedMats.has(c.material)) c.material.dispose(); // our per-tile Basic swap
+      if (c.isMesh && swappedMats.has(c.material)) {
+        c.material.dispose(); // our per-tile Basic swap
+        dropTerrainBvh(c); // T77 lever 8: the tree goes with the geometry
+      }
       if (c.isMesh && c.material === shadowMat) shadowTwins.delete(c);
     });
   });
@@ -1181,6 +1194,12 @@ export function attachImageryGround(
   // it watches (≤1 rebuild per rung post-boot — the QA-7b storm detector) matters most there.
   let overlayRebuildsN = 0;
 
+  // T77 LEVER 8 (2026-09-08c): the terrain BVH — installed lazily on each terrain mesh so the
+  // height sampler's down ray and the controls' pivot / tilt raycasts test a few triangles, not
+  // the whole index of every LOD tile still in the group. `GROUND.terrainBvh` gates it (a kill
+  // switch → three's own walk); the stats feed the DBG chip + `probe-cpu-profile`.
+  const terrainBvhStats: TerrainBvhStats = { builds: 0, buildMsTotal: 0, buildMsWorst: 0, triesTested: 0, raycasts: 0 };
+
   /** The UNMEMOISED down-ray sample: the raycast `heightAt` memoises, and the one the T77 lever-6
    *  staleness audit re-runs against a memo hit. Split out so both callers provably ask the SAME
    *  question — an audit that drifted from the real sampler would prove nothing. */
@@ -1259,6 +1278,7 @@ export function attachImageryGround(
     heightMemoStats: () => heightMemo.stats(),
     heightMemoAudit: () => ({ staleChecks: memoStaleChecks, staleMismatches: memoStaleMismatches }),
     terrainEpoch: () => terrainEpochN,
+    terrainBvhStats: () => ({ ...terrainBvhStats }),
     terrainDirtyRegions: () => dirtyRegions.splice(0, dirtyRegions.length),
     placeholderStats: () =>
       esriPlaceholder

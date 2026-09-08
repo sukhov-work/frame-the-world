@@ -2865,6 +2865,17 @@ export const ENRICHED = {
    *  0.16 per the owner's "highlighted more distinctly than today"), so a visitor can tell "someone
    *  edited this" from "I edited this" at a glance. */
   overrideTintSharedK: 0.13,
+  /** T125 (owner 2026-09-08b): the NIGHT half of the edit tint. The three K's above pull the
+   *  ALBEDO toward the accent — a diffuse term that vanishes with the light (the city's night
+   *  identity is a dark mass, R3), so after dark an edited building read exactly like its
+   *  neighbours. The fill shader now also FLOORS the lit colour (linear, before the haze) at
+   *  `accent × K × this` per channel: by day a lit face sits above the floor (byte-identical), at
+   *  night the dark mass is lifted to a faint accent glow — committed 0.24 × 0.22 ≈ 0.053·accent,
+   *  armed 0.35 × 0.22 ≈ 0.077, world-shared 0.13 × 0.22 ≈ 0.029 — the same ladder, readable at
+   *  every hour. 0.5 read as a NEON slab at dusk on the twin (the dusk/night exposure opens the
+   *  camera up, S11): a solid teal block against a black city; 0.22 is a dark teal that still
+   *  separates from the dark mass at 22:30. Taste knob — an owner call. */
+  overrideTintGlow: 0.22,
   /** MESH SUITE MS1 (2026-09-02): when a frame's seat/edit writes touch at most this many runs of
    *  a cell, the GPU upload is limited to those runs' byte ranges (`BufferAttribute.addUpdateRange`
    *  — three 0.185 merges the ranges, uploads them, then clears the list); above it the whole
@@ -2923,6 +2934,13 @@ export const TREES = {
  *  satellite imagery into the instrument's tonal range + the SAME sun shading as the base so the
  *  terminator is continuous across LODs. Runtime-tunable via __globe.groundUniforms in DEV. */
 export const GROUND = {
+  /** T77 LEVER 8 (owner ruling 2026-09-08c: "the terrain BVH — build next"). A bounds tree over
+   *  each terrain tile's triangles, so a height lookup (`rawHeightAt`'s down ray) and the controls'
+   *  pivot / tilt raycasts cost a few triangle tests instead of the whole index of every LOD tile
+   *  the ray's sphere hits. Built lazily on a tile's first raycast, dropped with the tile
+   *  (`lib/globe/terrainBvh.ts`, unit-pinned bit-identical to three's `Mesh.raycast`). `false`
+   *  restores three's own walk (a kill switch — the render is byte-identical either way). */
+  terrainBvh: true,
   /** Dark-side floor — slightly above the base's: close-zoom ground must stay navigable.
    *  (0.45 → 0.38 2026-07-10; → 0.35 S5; → 0.40 2026-07-13 illumination pass — lifts the night-ground
    *  ceiling so moon terms can actually raise it; watch VIIRS city lights don't wash out). */

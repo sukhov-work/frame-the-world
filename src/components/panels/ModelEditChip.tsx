@@ -7,7 +7,7 @@ import {
   type ModelEditArmed,
   type ModelEditOp,
 } from "../../store/modelEdit";
-import { isTilted, type ModelEdit } from "../../lib/models/modelPlacement";
+import { formatModelScale, isTilted, scaledSizeM3, type ModelEdit } from "../../lib/models/modelPlacement";
 import { formatDims } from "../../lib/format/readout";
 import "../../styles/building-edit.css";
 
@@ -44,7 +44,9 @@ export const MODEL_ORIGIN_TITLE = {
  *  else the placement — plus the lift (MS7) whenever it is not on the ground; the yaw is COMPASS
  *  sense (clockwise from above = −rotDeg), and (MS8) the pitch / roll follow it whenever the
  *  model is tilted. MS5b (owner 2026-09-02j): the SCALE row leads with the current size in
- *  METRES (`sizeM3` × the live scale, `w × d × h`) and keeps the factor beside it. */
+ *  METRES (`sizeM3` × the live scale, `w × d × h`) and keeps the factor beside it — T128 (owner
+ *  2026-09-08b) per axis: `(2.00×)` while the three agree, `(sx × sz × sy)` under the metres
+ *  otherwise (`formatModelScale`, the one writer the pinned label shares). */
 export function modelOpReadout(
   op: ModelEditOp,
   live: ModelEdit,
@@ -62,9 +64,7 @@ export function modelOpReadout(
         ? `${sg(-live.rotDeg)}° cw · pitch ${sg(live.pitchDeg)}° · roll ${sg(live.rollDeg)}°`
         : `${sg(-live.rotDeg)}° cw`;
     case "scale":
-      return armed.sizeM3
-        ? `${formatDims(armed.sizeM3.map((v) => v * live.scale))} (${live.scale.toFixed(2)}×)`
-        : `${live.scale.toFixed(2)}×`;
+      return armed.sizeM3 ? `${formatDims(scaledSizeM3(armed.sizeM3, live))} (${formatModelScale(live)})` : formatModelScale(live);
   }
 }
 
@@ -236,7 +236,7 @@ export function ModelEditMenu({
         <span className="bldg-menu__name">MODEL · {armed.title.toUpperCase()}</span>
         <span className="bldg-menu__pos">
           {armed.sizeM3
-            ? formatDims(armed.sizeM3.map((v) => v * armed.committed.scale))
+            ? formatDims(scaledSizeM3(armed.sizeM3, armed.committed))
             : armed.sizeM !== null
               ? `${armed.sizeM.toFixed(1)} m`
               : armed.mine ? "yours" : "shared"}

@@ -216,7 +216,11 @@ export async function patchModelPlacement(body: {
   lat: number;
   lon: number;
   rotDeg?: number;
-  scale?: number;
+  /** T128: the scale per axis (`sy` = the height); the server still takes the legacy uniform
+   *  `scale` alias, but no client writes it any more. */
+  sx?: number;
+  sy?: number;
+  sz?: number;
   /** MS7: the lift (m). */
   tU?: number;
   /** MS8: the vertical rotation (degrees). */

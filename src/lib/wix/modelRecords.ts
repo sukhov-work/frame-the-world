@@ -295,10 +295,14 @@ export function modelRecord(
     geohash9: placed ? encodeGeohash(body.lat as number, body.lon as number, 9) : null,
     // MS5: the world-read cell (`hasSome` is equality-on-a-set — the pins' gh4/gh6 precedent).
     gh5: placed ? encodeGeohash(body.lat as number, body.lon as number, MODEL_COVER_PRECISION) : null,
-    // Transform seats (MS5/MS6; MS7 the lift `tU`; MS8 the tilt `pitchDeg` / `rollDeg`) — null =
-    // identity, the BuildingOverrides convention.
+    // Transform seats (MS5/MS6; MS7 the lift `tU`; MS8 the tilt `pitchDeg` / `rollDeg`; T128 the
+    // scale PER AXIS — `scale` is the HEIGHT factor `sy`, `scaleX` / `scaleZ` the other two, the
+    // BuildingOverrides `heightScale` + `sx` / `sz` precedent) — null = identity, the
+    // BuildingOverrides convention.
     rotDeg: null,
     scale: null,
+    scaleX: null,
+    scaleZ: null,
     tU: null,
     pitchDeg: null,
     rollDeg: null,
@@ -317,7 +321,12 @@ export interface PlacementBody {
   lon: number;
   /** Absent = leave the stored seat alone. */
   rotDeg?: number;
-  scale?: number;
+  /** T128 (owner 2026-09-08b): the scale PER AXIS (`sy` = the height) — each clamped onto the
+   *  sanity rail. The wire's legacy `scale` (one uniform number) is accepted by the parser as an
+   *  alias that sets all three; an explicit axis beside it wins. */
+  sx?: number;
+  sy?: number;
+  sz?: number;
   /** MS7 (2026-09-03): the lift above the terrain seat (m). Clamped onto the absolute rail here
    *  and onto the height-aware floor in `applyModelPlacement` (the row knows its bbox). */
   tU?: number;
@@ -343,9 +352,20 @@ export function parsePlacementBody(raw: unknown): { body: PlacementBody } | { er
     if (typeof r.rotDeg !== "number" || !Number.isFinite(r.rotDeg)) return { error: "rotDeg must be a finite number" };
     body.rotDeg = normalizeDeg(r.rotDeg);
   }
+  // T128: `scale` is the legacy UNIFORM alias (all three axes); `sx` / `sy` / `sz` per axis, each
+  // validated and clamped like the alias — and each outranking it when both are given.
   if (r.scale != null) {
     if (typeof r.scale !== "number" || !Number.isFinite(r.scale) || r.scale <= 0) return { error: "scale must be a positive number" };
-    body.scale = Math.max(MODEL_SCALE_MIN, Math.min(MODEL_SCALE_MAX, r.scale));
+    const k = Math.max(MODEL_SCALE_MIN, Math.min(MODEL_SCALE_MAX, r.scale));
+    body.sx = k;
+    body.sy = k;
+    body.sz = k;
+  }
+  for (const axis of ["sx", "sy", "sz"] as const) {
+    const v = r[axis];
+    if (v == null) continue;
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return { error: `${axis} must be a positive number` };
+    body[axis] = Math.max(MODEL_SCALE_MIN, Math.min(MODEL_SCALE_MAX, v));
   }
   if (r.tU != null) {
     if (typeof r.tU !== "number" || !Number.isFinite(r.tU)) return { error: "tU must be a finite number" };
@@ -382,33 +402,50 @@ export function applyModelPlacement(
   if (editorMemberId !== undefined) next.editorMemberId = editorMemberId;
   if (
     body.rotDeg !== undefined ||
-    body.scale !== undefined ||
+    body.sx !== undefined ||
+    body.sy !== undefined ||
+    body.sz !== undefined ||
     body.tU !== undefined ||
     body.pitchDeg !== undefined ||
     body.rollDeg !== undefined
   ) {
     // MS7: the lift floor is the model's SCALED box (the row's bbox × the NEW scale) — a shrink
     // re-rails a sunk model instead of burying it; an unknown box pins the lift. MS8: the box is
-    // TILTED by the NEW pitch / roll (a flip is held up so a quarter of it still shows).
+    // TILTED by the NEW pitch / roll (a flip is held up so a quarter of it still shows). T128:
+    // the scale per axis, each seat replaced on its own.
     const sizeM3 = modelSizeM3(existing);
-    const cur = sanitizeModelTransform(existing.rotDeg, existing.scale, existing.tU, sizeM3, existing.pitchDeg, existing.rollDeg);
-    const scale = body.scale ?? cur.scale;
+    const cur = sanitizeModelTransform(existing.rotDeg, storedModelScale(existing), existing.tU, sizeM3, existing.pitchDeg, existing.rollDeg);
+    const scale = { sx: body.sx ?? cur.sx, sy: body.sy ?? cur.sy, sz: body.sz ?? cur.sz };
     const tilt = canonicalTilt(body.pitchDeg ?? cur.pitchDeg, body.rollDeg ?? cur.rollDeg);
     const t: ModelTransform = {
       rotDeg: normalizeDeg((body.rotDeg ?? cur.rotDeg) + tilt.yawAddDeg),
-      scale,
+      ...scale,
       liftM: clampLiftFor(body.tU ?? cur.liftM, tiltedExtent(sizeM3, scale, tilt.pitchDeg, tilt.rollDeg)),
       pitchDeg: tilt.pitchDeg,
       rollDeg: tilt.rollDeg,
     };
     const identity = isIdentityModelTransform(t);
     next.rotDeg = identity || Math.abs(t.rotDeg) < MODEL_XF_EPS.rotDeg ? null : t.rotDeg;
-    next.scale = identity || Math.abs(t.scale - 1) < MODEL_XF_EPS.scale ? null : t.scale;
+    // T128: `scale` (the height factor) is null when ≈ 1 — as it always was; `scaleX` / `scaleZ`
+    // are null when they AGREE with it (the value the read falls back to — `storedModelScale`),
+    // so a uniform edit still writes the pre-T128 row shape and a row is never read back with a
+    // width it did not store.
+    next.scale = identity || Math.abs(t.sy - 1) < MODEL_XF_EPS.scale ? null : t.sy;
+    next.scaleX = identity || Math.abs(t.sx - t.sy) < MODEL_XF_EPS.scale ? null : t.sx;
+    next.scaleZ = identity || Math.abs(t.sz - t.sy) < MODEL_XF_EPS.scale ? null : t.sz;
     next.tU = identity || Math.abs(t.liftM) < MODEL_XF_EPS.liftM ? null : t.liftM;
     next.pitchDeg = identity || Math.abs(t.pitchDeg) < MODEL_XF_EPS.rotDeg ? null : t.pitchDeg;
     next.rollDeg = identity || Math.abs(t.rollDeg) < MODEL_XF_EPS.rotDeg ? null : t.rollDeg;
   }
   return next;
+}
+
+/** T128 — the row's scale columns as `sanitizeModelScale` reads them: `scale` is the HEIGHT
+ *  factor (`sy`; null = 1), `scaleX` / `scaleZ` the width / depth factors, each falling back to
+ *  `scale` when null — so a row written before T128 (`scale` alone) is the same uniform box it
+ *  always was, byte-identical on screen. */
+export function storedModelScale(item: Record<string, unknown>): { scale: unknown; sx: unknown; sz: unknown } {
+  return { scale: item.scale, sx: item.scaleX, sz: item.scaleZ };
 }
 
 /** The row's box as the scene's `[w, d, h]` (X, Z, Y extents at scale 1) — the lift floor's
@@ -505,7 +542,10 @@ export interface PublicModel {
   lat: number;
   lon: number;
   rotDeg: number;
-  scale: number;
+  /** T128: the scale per axis (`sy` = the height; 1 / 1 / 1 = as uploaded). */
+  sx: number;
+  sy: number;
+  sz: number;
   /** MS7: the lift above the terrain seat (m; 0 = on the ground). */
   tU: number;
   /** MS8: the vertical rotation (degrees; 0 / 0 = upright). */
@@ -526,7 +566,7 @@ export function publicModel(item: Record<string, unknown>): PublicModel | null {
   const bx = numOrNull(item.bboxX);
   const by = numOrNull(item.bboxY);
   const bz = numOrNull(item.bboxZ);
-  const t = sanitizeModelTransform(item.rotDeg, item.scale, item.tU, modelSizeM3(item), item.pitchDeg, item.rollDeg);
+  const t = sanitizeModelTransform(item.rotDeg, storedModelScale(item), item.tU, modelSizeM3(item), item.pitchDeg, item.rollDeg);
   const updated = item._updatedDate;
   return {
     id: item._id,
@@ -539,7 +579,9 @@ export function publicModel(item: Record<string, unknown>): PublicModel | null {
     lat,
     lon,
     rotDeg: t.rotDeg,
-    scale: t.scale,
+    sx: t.sx,
+    sy: t.sy,
+    sz: t.sz,
     tU: t.liftM,
     pitchDeg: t.pitchDeg,
     rollDeg: t.rollDeg,
@@ -567,9 +609,11 @@ export interface ModelListItem {
   lat: number | null;
   lon: number | null;
   /** MS5: the transform seats as stored (identity when null on the row); MS7 the lift (m);
-   *  MS8 the tilt (degrees). */
+   *  MS8 the tilt (degrees); T128 the scale per axis (`sy` = the height). */
   rotDeg: number;
-  scale: number;
+  sx: number;
+  sy: number;
+  sz: number;
   tU: number;
   pitchDeg: number;
   rollDeg: number;
@@ -592,7 +636,7 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
   const created = item._createdDate;
   const updated = item._updatedDate;
   const readiness = item.readiness;
-  const t = sanitizeModelTransform(item.rotDeg, item.scale, item.tU, modelSizeM3(item), item.pitchDeg, item.rollDeg);
+  const t = sanitizeModelTransform(item.rotDeg, storedModelScale(item), item.tU, modelSizeM3(item), item.pitchDeg, item.rollDeg);
   const editor = strOrNull(item.editorMemberId);
   const owner = strOrNull(item.ownerMemberId);
   return {
@@ -613,7 +657,9 @@ export function modelListItem(item: Record<string, unknown>): ModelListItem | nu
     lat: numOrNull(item.lat),
     lon: numOrNull(item.lon),
     rotDeg: t.rotDeg,
-    scale: t.scale,
+    sx: t.sx,
+    sy: t.sy,
+    sz: t.sz,
     tU: t.liftM,
     pitchDeg: t.pitchDeg,
     rollDeg: t.rollDeg,

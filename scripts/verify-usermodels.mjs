@@ -19,8 +19,11 @@
 //      it (cancelled); a tilt SAVES + SYNCS through the exact commit a release makes (own row,
 //      world read, the scene's quaternion, the chip row); a FLIP at "−1000 m" is HELD UP to the
 //      tilt-aware floor (a quarter of the model shows — never out of sight); upright again after
-//   5. S → SCALE: a drag on the X box scales UNIFORMLY inside the 0.1×–10× per-edit band; the
-//      SCALE row leads with the size in metres (MS5b §11.1)
+//   5. S → SCALE: T128 (owner 2026-09-08b) — a drag on the X box scales the WIDTH ALONE inside the
+//      0.1×–10× per-edit band (`sx` moves, `sy` / `sz` stay 1 — the building's per-axis shape,
+//      the MS5 uniform collapse gone); the rig's body scale is per axis (the debug seam's
+//      `bodyScaleXYZ`), the own row stores `scaleX` beside a null `scale`, and the SCALE row
+//      leads with the size in metres (MS5b §11.1) with the `sx × sz × sy` triple beside it
 //   6. G → MOVE: a drag on the X arrow moves the placement (new lat/lon, never a stored offset)
 //   6a. MESH SUITE MS7 (2026-09-03): the Y arrow is the LIFT — a drag up saves a lift (row `tU` +
 //      the anchor's Y + the MOVE row); drags far DOWN stop at the FLOOR (a quarter of the scaled
@@ -558,7 +561,7 @@ try {
   const cell = await gh5Of(SEED.lat, SEED.lon);
   const pub = await worldRowEventually(cell, modelId, (r) => !!r, "leg 2");
   for (const k of ["ownerMemberId", "fileId", "thumbnailFileId"]) if (k in pub) fail(`leg 2: the public row leaks ${k}`);
-  if (!near(pub.lat, SEED.lat, 1e-9) || pub.rotDeg !== 0 || pub.scale !== 1 || pub.tris !== 12) fail(`leg 2: public row ${JSON.stringify(pub)}`);
+  if (!near(pub.lat, SEED.lat, 1e-9) || pub.rotDeg !== 0 || pub.sx !== 1 || pub.sy !== 1 || pub.sz !== 1 || pub.tris !== 12) fail(`leg 2: public row ${JSON.stringify(pub)}`);
   const worldIds = await evalJs(`${US}.world.map((m) => m.id)`);
   if (!worldIds.includes(modelId)) fail(`leg 2: the store's world lacks the row (${JSON.stringify(worldIds)})`);
   const res2 = await waitResident(modelId, "leg 2");
@@ -625,7 +628,7 @@ try {
   await dragFrom(hY.hp, 0.95, -0.3, 70, 7);
   a = await waitSaved("leg 4");
   if (Math.abs(a.committed.rotDeg) < 1) fail(`leg 4: the ring drag did not commit a yaw: ${JSON.stringify(a.committed)}`);
-  if (a.committed.scale !== 1) fail("leg 4: ROTATE touched the scale");
+  if (a.committed.sx !== 1 || a.committed.sy !== 1 || a.committed.sz !== 1) fail("leg 4: ROTATE touched the scale");
   const own4 = await ownRowEventually(modelId, (r) => Math.abs(r.rotDeg - a.committed.rotDeg) < 1e-6, "leg 4");
   await shoot("usermodels-02-rotated.jpeg");
   console.log(`leg 4: ROTATE ${a.committed.rotDeg.toFixed(1)}° (three sense) · own list rotDeg ${own4.rotDeg}`);
@@ -707,11 +710,11 @@ try {
   }
   // On its side the 3 m depth straddles the pivot (top 1.5, span 3 → keep 0.75): the floor is −0.75.
   const side = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, tU: -1000 }).then((r) => r && r.tU)`);
-  if (!near(side, -0.75 * a.committed.scale, 0.01)) fail(`leg 4a: a bury on its side stored ${side} m, not the tilted floor ${(-0.75 * a.committed.scale).toFixed(3)} m`);
+  if (!near(side, -0.75 * a.committed.sz, 0.01)) fail(`leg 4a: a bury on its side stored ${side} m, not the tilted floor ${(-0.75 * a.committed.sz).toFixed(3)} m`); // (T128: on its side the DEPTH axis spans the vertical)
   await shoot("usermodels-11-tilted-side.jpeg");
   // (d) A FLIP (roll 180) is HELD UP: at "−1000 m" the lift lands at +keep (a quarter of the 5 m
   //     box, ≥ 0.5 m) — the top of the model sits AT the pivot, so that much of it shows.
-  const keep4a = Math.max(0.25 * 5 * a.committed.scale, 0.5);
+  const keep4a = Math.max(0.25 * 5 * a.committed.sy, 0.5); // (T128: the height factor)
   const flip = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, pitchDeg: 0, rollDeg: 180, tU: -1000 }).then((r) => r && { rollDeg: r.rollDeg, tU: r.tU })`);
   if (!flip || !near(Math.abs(flip.rollDeg), 180, 1e-6) || !near(flip.tU, keep4a, 0.01)) fail(`leg 4a: a flip commit answered ${JSON.stringify(flip)} (expected roll 180, lift +${keep4a.toFixed(2)})`);
   await ownRowEventually(modelId, (r) => near(Math.abs(r.rollDeg), 180, 1e-6) && near(r.tU, keep4a, 0.01), "leg 4a (flip)");
@@ -735,18 +738,78 @@ try {
   g = await evalJs(GZ);
   if (g.op !== "scale" || !g.attached) fail("leg 5: S did not switch to SCALE");
   await waitSeatedStill(modelId, "leg 5");
-  const hX = await handleDir("X");
-  await dragFrom(hX.hp, hX.ux, hX.uy, 60, 6);
+  // T128: the box pickers are 4-sided cones a few px wide, and the axis the harness's yaw leaves
+  // END-ON to the eye (X at 84.5° points away from it) can project to ~8 px — a fixed press point
+  // misses it (found 2026-09-08c: leg 5 red at HEAD since 09-06h with `axis null` on a ±24 px
+  // grid). HOVER-search each box on a 2 px grid (the leg 4a ring idiom) and take the first that
+  // answers, X preferred; the assertion is per axis on whichever box was grabbed.
+  // The box pickers are 4-sided cones a few px wide with an arm on EACH side of the origin; the
+  // arm that answers is the one facing the camera, which `handlePx` (the +axis arm) may not be —
+  // and the axis the yaw leaves end-on projects to ~8 px. So SWEEP a grid around the gizmo origin
+  // (the leg 4a ring idiom, widened) and grab the first cell that answers a scale axis, X→Z→Y.
+  const grabScaleBox = async () => {
+    const o = await evalJs(`${GZ}.originPx()`);
+    if (!o) return null;
+    const want = { X: "sx", Z: "sz", Y: "sy" };
+    // rank cells by |offset| so the tightest grab wins; try X first, then Z, then Y
+    const cells = [];
+    for (let r = 8; r <= 80; r += 6) for (const a of [0, 45, 90, 135, 180, 225, 270, 315]) {
+      cells.push([Math.round(r * Math.cos((a * Math.PI) / 180)), Math.round(r * Math.sin((a * Math.PI) / 180))]);
+    }
+    for (const name of ["X", "Z", "Y"]) {
+      for (const [gx, gy] of cells) {
+        await hover(o.x + gx, o.y + gy);
+        await sleep(14);
+        if ((await evalJs(`${GZ}.axis`)) !== name) continue;
+        await mouse("mousePressed", o.x + gx, o.y + gy, { clickCount: 1 });
+        await sleep(40);
+        if ((await evalJs(`${GZ}.dragging`)) && (await evalJs(`${GZ}.axis`)) === name) {
+          const len = Math.hypot(gx, gy) || 1;
+          return { name, axisKey: want[name], x: o.x + gx, y: o.y + gy, ux: gx / len, uy: gy / len };
+        }
+        await key("Escape", "Escape", 27);
+        await mouse("mouseReleased", o.x + gx, o.y + gy, { clickCount: 1 });
+        await sleep(30);
+      }
+    }
+    return null;
+  };
+  const grab5 = await grabScaleBox();
+  if (!grab5) fail("leg 5: no scale box (X / Z / Y) answers a hover-search — the pickers are not where handlePx says");
+  for (let i = 1; i <= 6; i++) {
+    await mouse("mouseMoved", grab5.x + (grab5.ux * 60 * i) / 6, grab5.y + (grab5.uy * 60 * i) / 6);
+    await sleep(30);
+  }
+  await mouse("mouseReleased", grab5.x + grab5.ux * 60, grab5.y + grab5.uy * 60, { clickCount: 1 });
+  await sleep(150);
+  const ax5 = grab5.axisKey;
+  const others5 = ["sx", "sy", "sz"].filter((k) => k !== ax5);
   a = await waitSaved("leg 5");
-  if (Math.abs(a.committed.scale - 1) < 0.05) fail(`leg 5: the X box drag did not scale: ${JSON.stringify(a.committed)}`);
-  if (a.committed.scale < 0.1 || a.committed.scale > 10) fail(`leg 5: scale ${a.committed.scale} escaped the 0.1×–10× per-edit band`);
-  const m5 = await modelInfo(modelId);
-  if (Math.abs(m5.bodyScale - a.committed.scale) > 1e-6) fail(`leg 5: the rig scale ${m5.bodyScale} ≠ committed ${a.committed.scale} (not uniform?)`);
-  await ownRowEventually(modelId, (r) => Math.abs(r.scale - a.committed.scale) < 1e-6, "leg 5");
+  // T128: the grabbed box moves ITS axis ALONE — the other two stay exactly 1 (the
+  // verify-meshedit leg 10 shape: one axis moves, the rest untouched).
+  if (Math.abs(a.committed[ax5] - 1) < 0.05) fail(`leg 5: the ${grab5.name} box drag did not scale ${ax5}: ${JSON.stringify(a.committed)}`);
+  if (a.committed[ax5] < 0.1 || a.committed[ax5] > 10) fail(`leg 5: ${ax5} ${a.committed[ax5]} escaped the 0.1×–10× per-edit band`);
+  for (const k of others5) if (Math.abs(a.committed[k] - 1) > 1e-6) fail(`leg 5: the ${grab5.name} box drag touched ${k} (T128 — per axis, never uniform): ${JSON.stringify(a.committed)}`);
+  if (Math.abs(a.committed.rotDeg - yaw4a) > 1e-6) fail("leg 5: SCALE touched the rotation");
+  const m5 = await evalJs(`(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return m && { bodyScale: m.bodyScale, bodyScaleXYZ: m.bodyScaleXYZ }; })()`);
+  if (!m5) fail("leg 5: the model left the scene after the scale");
+  if (!Array.isArray(m5.bodyScaleXYZ) || m5.bodyScaleXYZ.length !== 3) fail(`leg 5: the debug seam carries no per-axis body scale: ${JSON.stringify(m5)}`);
+  const want5 = { sx: 1, sy: 1, sz: 1, [ax5]: a.committed[ax5] };
+  if (Math.abs(m5.bodyScaleXYZ[0] - want5.sx) > 1e-6 || Math.abs(m5.bodyScaleXYZ[1] - want5.sy) > 1e-6 || Math.abs(m5.bodyScaleXYZ[2] - want5.sz) > 1e-6)
+    fail(`leg 5: the rig body scale ${JSON.stringify(m5.bodyScaleXYZ)} ≠ (${want5.sx}, ${want5.sy}, ${want5.sz}) — not per axis?`);
+  if (Math.abs(m5.bodyScale - want5.sx) > 1e-6) fail(`leg 5: the legacy bodyScale ${m5.bodyScale} ≠ sx ${want5.sx}`);
+  const own5 = await ownRowEventually(modelId, (r) => Math.abs(r[ax5] - a.committed[ax5]) < 1e-6 && others5.every((k) => r[k] === 1), "leg 5");
+  if ("scale" in own5) fail(`leg 5: the own row still carries a uniform \`scale\`: ${JSON.stringify(own5)}`);
+  const fmt5 = (v) => (v >= 10 ? v.toFixed(1) : v.toFixed(2));
   const row5 = await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-row[data-op=\"scale\"] .bec-v')?.textContent ?? ''");
-  const w5 = 3 * a.committed.scale;
-  if (!row5.startsWith(`${w5 >= 10 ? w5.toFixed(1) : w5.toFixed(2)} × `) || !row5.endsWith(`m (${a.committed.scale.toFixed(2)}×)`)) fail(`leg 5: the SCALE row does not show the scaled size in metres: "${row5}"`);
-  console.log(`leg 5: SCALE ${a.committed.scale.toFixed(3)}× uniform · inside 0.1×–10× · own list agrees · row "${row5}"`);
+  // the readout is w × d × h in metres (sx × sz × sy) then the factor triple in the same order
+  const dims5 = [3 * want5.sx, 3 * want5.sz, 5 * want5.sy].map(fmt5).join(" × ");
+  const trip5 = [want5.sx, want5.sz, want5.sy].map((v) => v.toFixed(2)).join(" × ");
+  if (!row5.startsWith(`${dims5} m`)) fail(`leg 5: the SCALE row does not show the per-axis size in metres: "${row5}" (want "${dims5} m …")`);
+  if (!row5.endsWith(`m (${trip5})`)) fail(`leg 5: the SCALE row does not carry the sx × sz × sy triple: "${row5}" (want "… (${trip5})")`);
+  const label5 = await evalJs("document.querySelector('.bldg-edit-label')?.textContent ?? ''");
+  if (!label5.includes(trip5)) fail(`leg 5: the pinned label's SCALE line carries no per-axis triple: "${label5}"`);
+  console.log(`leg 5: SCALE ${grab5.name} box → ${ax5} ${a.committed[ax5].toFixed(3)} · ${others5.join(" / ")} 1 (per axis, T128) · inside 0.1×–10× · rig ${JSON.stringify(m5.bodyScaleXYZ)} · own list agrees · row "${row5}"`);
 
   // --- 6: G → MOVE, an arrow drag moves the PLACEMENT ---------------------------------------------
   await key("KeyG", "g", 71);
@@ -806,7 +869,7 @@ try {
   // (b) SAVE + SYNC + the FLOOR + RESET through the exact commit a release calls (`commitPlacement`
   //     → PATCH → the server clamp on the world read → the scene). First a bury that must clamp so
   //     a quarter of the SCALED height (≥ 0.5 m) always stands above the seat (never fully sunk).
-  const hScaled = 5 * a.committed.scale;
+  const hScaled = 5 * a.committed.sy; // (T128: the lift floor is about the HEIGHT axis)
   const floor = liftFloor(hScaled);
   const cellLift = await gh5Of(a.lat, a.lon);
   const deep = await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, tU: -1000 }).then((r) => r && r.tU)`);
@@ -823,7 +886,7 @@ try {
   await ownRowEventually(modelId, (r) => near(r.tU, LIFT, 1e-6), "leg 6a (lift)");
   await waitUntil("leg 6a: the scene rose to the lift", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.anchor[1] - ${LIFT}) < 0.1; })()`, 15_000);
   const own6 = await ownRowEventually(modelId, (r) => near(r.tU, LIFT, 1e-6) && near(r.lat, a.lat, 1e-9), "leg 6a (lift)");
-  const moved = { lat: own6.lat, lon: own6.lon, rotDeg: own6.rotDeg, scale: own6.scale, tU: own6.tU };
+  const moved = { lat: own6.lat, lon: own6.lon, rotDeg: own6.rotDeg, sx: own6.sx, sy: own6.sy, sz: own6.sz, tU: own6.tU };
   await evalJs(`${ES}.requestDisarm(), true`);
   await sleep(200);
   console.log(`leg 6a: real Y-arrow drag moved the anchor ${liveDrag.toFixed(2)} m ("${rowDrag}") \u00b7 a bury commit clamped to the floor ${floor.toFixed(2)} m (row + world read + scene, ${hScaled.toFixed(1)} m model) \u00b7 a +${LIFT} m lift applied for the reload`);
@@ -843,10 +906,10 @@ try {
   await loadUrl(FPV_URL, "leg 7", { member: true });
   await waitFpv("leg 7");
   const r7 = await waitResident(modelId, "leg 7");
-  if (Math.abs(r7.target.rotDeg - moved.rotDeg) > 1e-6 || Math.abs(r7.target.scale - moved.scale) > 1e-6 || Math.abs(r7.target.liftM - moved.tU) > 1e-6) fail(`leg 7: seats after reload ${JSON.stringify(r7.target)} vs ${JSON.stringify(moved)}`);
+  if (Math.abs(r7.target.rotDeg - moved.rotDeg) > 1e-6 || Math.abs(r7.target.sx - moved.sx) > 1e-6 || Math.abs(r7.target.sy - moved.sy) > 1e-6 || Math.abs(r7.target.sz - moved.sz) > 1e-6 || Math.abs(r7.target.liftM - moved.tU) > 1e-6) fail(`leg 7: seats after reload ${JSON.stringify(r7.target)} vs ${JSON.stringify(moved)}`);
   if (!near(r7.lat, moved.lat, 1e-9) || !near(r7.lon, moved.lon, 1e-9)) fail(`leg 7: placement after reload ${r7.lat}, ${r7.lon}`);
   if (!near(r7.anchor[1], moved.tU, 1e-6)) fail(`leg 7: the anchor after reload does not carry the lift: ${JSON.stringify(r7.anchor)}`);
-  console.log(`leg 7: reload re-applied rot ${r7.target.rotDeg.toFixed(1)}° · scale ${r7.target.scale.toFixed(3)} · lift +${r7.target.liftM.toFixed(2)} m · the moved placement`);
+  console.log(`leg 7: reload re-applied rot ${r7.target.rotDeg.toFixed(1)}° · scale ${r7.target.sx.toFixed(3)} × ${r7.target.sz.toFixed(3)} × ${r7.target.sy.toFixed(3)} · lift +${r7.target.liftM.toFixed(2)} m · the moved placement`);
 
   // --- 8: anonymous: resident, not armable, MINE empty --------------------------------------------
   await clearCookie();
@@ -892,7 +955,7 @@ try {
   if (await evalJs(`${US}.placing !== null`)) fail("leg 10: the click did not consume the placing");
   const own10 = await ownRowEventually(modelId, (r) => !near(r.lat, moved.lat, 1e-7) || !near(r.lon, moved.lon, 1e-7), "leg 10");
   const dM = Math.hypot((own10.lat - moved.lat) * 111_320, (own10.lon - moved.lon) * 111_320 * Math.cos((moved.lat * Math.PI) / 180));
-  if (own10.rotDeg !== moved.rotDeg || own10.scale !== moved.scale || own10.tU !== moved.tU) fail("leg 10: click-to-place touched the seats");
+  if (own10.rotDeg !== moved.rotDeg || own10.sx !== moved.sx || own10.sy !== moved.sy || own10.sz !== moved.sz || own10.tU !== moved.tU) fail("leg 10: click-to-place touched the seats");
   console.log(`leg 10: click-to-place moved it ${dM.toFixed(0)} m · seats kept (lift +${own10.tU.toFixed(2)} m rode along)`);
   let ref = own10; // the seats the later legs compare against (leg 11b resets them)
 
@@ -904,7 +967,7 @@ try {
   if (name11 !== "MS5 verify box") fail(`leg 11: the row's title reads ${JSON.stringify(name11)}`);
   const sub11 = await rowText(modelId, ".mp-sub");
   if (!/ m · 12 TRIS · ↑ \+\d+\.\d+$/.test(sub11 ?? "")) fail(`leg 11: the fact line reads ${JSON.stringify(sub11)} (expected "… m · 12 TRIS · ↑ +x.xx" — the model is lifted)`);
-  const w11 = 3 * ref.scale;
+  const w11 = 3 * ref.sx; // (T128: the width rides sx alone)
   if (!(sub11 ?? "").startsWith(`${w11 >= 10 ? w11.toFixed(1) : w11.toFixed(2)} × `)) fail(`leg 11: the fact line does not start with the scaled width: ${JSON.stringify(sub11)}`);
   const badges11 = await evalJs(`[...document.querySelectorAll(${JSON.stringify(`${rowSel(modelId)} .mp-badge`)})].map((b) => b.textContent)`);
   if (badges11.length !== 0) fail(`leg 11: a placed, ready, own model wears badges ${JSON.stringify(badges11)}`);
@@ -936,13 +999,13 @@ try {
   }
   const sub11t = await rowText(modelId, ".mp-sub");
   await clickIn(modelId, '[data-act="reset"]');
-  const own11b = await ownRowEventually(modelId, (r) => r.rotDeg === 0 && r.scale === 1 && r.tU === 0 && r.pitchDeg === 0 && r.rollDeg === 0, "leg 11b");
+  const own11b = await ownRowEventually(modelId, (r) => r.rotDeg === 0 && r.sx === 1 && r.sy === 1 && r.sz === 1 && r.tU === 0 && r.pitchDeg === 0 && r.rollDeg === 0, "leg 11b");
   if (!near(own11b.lat, own10.lat, 1e-9) || !near(own11b.lon, own10.lon, 1e-9)) fail("leg 11b: RESET moved the placement");
   const cell11 = await gh5Of(own10.lat, own10.lon);
-  await worldRowEventually(cell11, modelId, (r) => !!r && r.rotDeg === 0 && r.scale === 1 && r.tU === 0 && r.pitchDeg === 0 && r.rollDeg === 0, "leg 11b (world read)");
+  await worldRowEventually(cell11, modelId, (r) => !!r && r.rotDeg === 0 && r.sx === 1 && r.sy === 1 && r.sz === 1 && r.tU === 0 && r.pitchDeg === 0 && r.rollDeg === 0, "leg 11b (world read)");
   await waitUntil(
     "leg 11b: the scene eased onto the upload",
-    `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.scale - 1) < 1e-9 && Math.abs(m.target.liftM) < 1e-9 && Math.abs(m.target.rotDeg) < 1e-9 && Math.abs(m.target.pitchDeg) < 1e-9 && Math.abs(m.target.rollDeg) < 1e-9 && Math.abs(m.anchor[1]) < 0.01 && Math.abs(m.bodyScale - 1) < 0.01 && m.bodyQ && Math.abs(m.bodyQ[3]) > 0.99999; })()`,
+    `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.sx - 1) < 1e-9 && Math.abs(m.target.sy - 1) < 1e-9 && Math.abs(m.target.sz - 1) < 1e-9 && Math.abs(m.target.liftM) < 1e-9 && Math.abs(m.target.rotDeg) < 1e-9 && Math.abs(m.target.pitchDeg) < 1e-9 && Math.abs(m.target.rollDeg) < 1e-9 && Math.abs(m.anchor[1]) < 0.01 && m.bodyScaleXYZ.every((v) => Math.abs(v - 1) < 0.01) && m.bodyQ && Math.abs(m.bodyQ[3]) > 0.99999; })()`,
     15_000,
   );
   const sub11b = await rowText(modelId, ".mp-sub");
@@ -969,7 +1032,7 @@ try {
   await worldRowEventually(cell12, modelId, (r) => r?.title === NEW_TITLE, "leg 12");
   const info12 = await modelInfo(modelId);
   if (info12?.title !== NEW_TITLE) fail(`leg 12: the scene's row did not take the new title without a reload: ${JSON.stringify(info12?.title)}`);
-  if (own12.rotDeg !== ref.rotDeg || own12.scale !== ref.scale || own12.tU !== ref.tU || !near(own12.lat, ref.lat, 1e-9)) fail("leg 12: the rename touched the placement or the seats");
+  if (own12.rotDeg !== ref.rotDeg || own12.sx !== ref.sx || own12.sy !== ref.sy || own12.sz !== ref.sz || own12.tU !== ref.tU || !near(own12.lat, ref.lat, 1e-9)) fail("leg 12: the rename touched the placement or the seats");
   console.log(`leg 12: renamed → "${NEW_TITLE}" · own list, world read and the scene agree · seats + placement untouched`);
 
   // --- 13: HIDE / SHOW ------------------------------------------------------------------------------
@@ -997,7 +1060,7 @@ try {
   const geo14 = await evalJs(`(() => { const cs = ${CS}; return { lat: cs.camGeo?.latDeg ?? null, lon: cs.camGeo?.lonDeg ?? null, heading: cs.fpvHud?.headingDeg ?? cs.headingDeg }; })()`);
   if (geo14.lat === null) fail("leg 14: no camGeo in FPV");
   const d14 = distM({ lat: own10.lat, lon: own10.lon }, geo14);
-  const want14 = standDistance(5, ref.scale);
+  const want14 = standDistance(Math.max(3 * ref.sx, 3 * ref.sz, 5 * ref.sy), 1); // (T128: the longest SCALED extent of the 3 × 3 × 5 box)
   if (!(d14 > want14 * 0.5 && d14 < want14 * 1.6 + 5)) fail(`leg 14: the eye stands ${d14.toFixed(1)} m from the model (expected ≈ ${want14.toFixed(1)} m)`);
   if (geo14.lat >= own10.lat) fail("leg 14: the eye is not SOUTH of the model");
   const hd14 = ((geo14.heading % 360) + 360) % 360;
@@ -1176,6 +1239,6 @@ try {
 if (cleanupProblem) fail(cleanupProblem);
 if (consoleErrors.length > 0) fail(`the page logged ${consoleErrors.length} shader/program error(s) — the chained model materials do not compile: ${consoleErrors[0]}`);
 console.log(`console: no shader/program errors logged across the run`);
-console.log("PASS: verify-usermodels — 21 legs (upload → world read → real right-click arms, menu survives the release → rotate → MS8 tilt: X+Z rings, a real X-ring drag, pitch 90 saved + synced, a flip held up to the floor, upright again → scale (0.1×–10×, metres on the row) / move PATCH → MS7 lift: up saved, floor held, ↺ landed → orbit drag after the session (helpers out, control seen) → reload (lift re-applied) → anonymous → MDL gate → click-to-place → MS6: MODELS tab (✎ GOTO RESET HIDE ✕) → MS7 RESET (MS8: the tilt too) → rename → hide/show → GOTO stands beside → foreign member edits as SHARED (LWW, owner sees EDITED) → orbit hover + click → list delete → cleanup)");
+console.log("PASS: verify-usermodels — 21 legs (upload → world read → real right-click arms, menu survives the release → rotate → MS8 tilt: X+Z rings, a real X-ring drag, pitch 90 saved + synced, a flip held up to the floor, upright again → scale (T128 per axis: X box → sx alone, 0.1×–10×, metres + the triple on the row) / move PATCH → MS7 lift: up saved, floor held, ↺ landed → orbit drag after the session (helpers out, control seen) → reload (lift re-applied) → anonymous → MDL gate → click-to-place → MS6: MODELS tab (✎ GOTO RESET HIDE ✕) → MS7 RESET (MS8: the tilt too) → rename → hide/show → GOTO stands beside → foreign member edits as SHARED (LWW, owner sees EDITED) → orbit hover + click → list delete → cleanup)");
 ws.close();
 await finishVerify(0);

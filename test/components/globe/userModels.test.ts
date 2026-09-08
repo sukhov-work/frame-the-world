@@ -28,7 +28,7 @@ const row = (id: string, over: Partial<PublicModel> = {}): PublicModel => ({
   lat: LAT,
   lon: LON,
   rotDeg: 0,
-  scale: 1,
+  sx: 1, sy: 1, sz: 1,
   tU: 0,
   pitchDeg: 0,
   rollDeg: 0,
@@ -166,15 +166,34 @@ describe("scene/userModels", () => {
     expect(r.anchor.position.length()).toBe(0);
     expect(r.body.scale.x).toBe(1);
     // A committed seat snaps; a later one eases.
-    h.setSeats("a", { rotDeg: 90, scale: 2, liftM: 0, pitchDeg: 0, rollDeg: 0 }, true);
+    h.setSeats("a", { rotDeg: 90, sx: 2, sy: 2, sz: 2, liftM: 0, pitchDeg: 0, rollDeg: 0 }, true);
     expect(r.body.scale.x).toBe(2);
-    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, scale: 2, liftM: 0, pitchDeg: 0, rollDeg: 0 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(h.info("a")).toMatchObject({ seats: { rotDeg: 90, sx: 2, sy: 2, sz: 2, liftM: 0, pitchDeg: 0, rollDeg: 0 }, resident: true, sizeM: 4, sizeM3: [4, 4, 6] }); // MS5b: w × d × h
+    h.setSeats("a", { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
     h.update(cam, 6, DT);
     expect(r.body.scale.x).toBeLessThan(2);
     expect(r.body.scale.x).toBeGreaterThan(1);
     for (let f = 7; f < 300; f++) h.update(cam, f, DT);
     expect(r.body.scale.x).toBe(1);
+    // T128: a NON-uniform seat lands on the body PER AXIS — the three scale components differ,
+    // each eases on its own, the label anchor rides the HEIGHT factor alone, and the DEV seam
+    // reports the triple beside the legacy x.
+    h.setSeats("a", { rotDeg: 0, sx: 2, sy: 0.5, sz: 3, liftM: 0, pitchDeg: 0, rollDeg: 0 }, true);
+    expect([r.body.scale.x, r.body.scale.y, r.body.scale.z]).toEqual([2, 0.5, 3]);
+    expect(h.info("a")?.seats).toMatchObject({ sx: 2, sy: 0.5, sz: 3 });
+    const top = new THREE.Vector3();
+    expect(h.topWorld("a", top)).toBe(true);
+    expect(top.distanceTo(frame.position)).toBeCloseTo(3, 6); // 6 m tall × 0.5 — the 2× width / 3× depth do not lift the label
+    const dbg = (h.debug().models as Array<Record<string, unknown>>).find((m) => m.id === "a")!;
+    expect(dbg.bodyScale).toBe(2);
+    expect(dbg.bodyScaleXYZ).toEqual([2, 0.5, 3]);
+    h.setSeats("a", { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    h.update(cam, 300, DT);
+    expect(r.body.scale.x).toBeLessThan(2);
+    expect(r.body.scale.y).toBeGreaterThan(0.5);
+    expect(r.body.scale.z).toBeLessThan(3);
+    for (let f = 301; f < 600; f++) h.update(cam, f, DT);
+    expect([r.body.scale.x, r.body.scale.y, r.body.scale.z]).toEqual([1, 1, 1]);
     // Rebase moves the frame at once and zeroes the anchor.
     h.rebase("a", LAT + 0.001, LON);
     const g = ecefToGeodetic([frame.position.x, frame.position.y, frame.position.z]);
@@ -220,10 +239,10 @@ describe("scene/userModels", () => {
     // A cancelled drag falls back on the committed lift; a snapped commit lands at once (railed).
     h.setDragging("a", false);
     expect(ra.anchor.position.y).toBe(-2);
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -10, pitchDeg: 0, rollDeg: 0 }, true);
+    h.setSeats("a", { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: -10, pitchDeg: 0, rollDeg: 0 }, true);
     expect(ra.anchor.position.y).toBe(-4.5);
     // A shrink re-rails the floor: at 0.5× the box is 3 m → floor −2.25.
-    h.setSeats("a", { rotDeg: 0, scale: 0.5, liftM: -4.5, pitchDeg: 0, rollDeg: 0 }, true);
+    h.setSeats("a", { rotDeg: 0, sx: 0.5, sy: 0.5, sz: 0.5, liftM: -4.5, pitchDeg: 0, rollDeg: 0 }, true);
     expect(ra.anchor.position.y).toBe(-2.25);
     // A row change (a RESET from the list / another member) eases the lift back to the ground.
     h.setModels([row("a", { tU: 0, updatedAt: "2026-09-03T00:00:00.000Z" }), row("b", { tU: -40 }), row("c", { tU: 400 })]);
@@ -234,13 +253,13 @@ describe("scene/userModels", () => {
     expect(ra.anchor.position.y).toBe(0);
     // The label anchor rides the lift (the top of a lifted model is higher).
     const top = new THREE.Vector3();
-    h.setSeats("c", { rotDeg: 0, scale: 1, liftM: 50, pitchDeg: 0, rollDeg: 0 }, true);
+    h.setSeats("c", { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 50, pitchDeg: 0, rollDeg: 0 }, true);
     expect(h.topWorld("c", top)).toBe(true);
     const frameC = h.rig("c")!.anchor.parent as THREE.Group;
     const upC = new THREE.Vector3(0, 1, 0).applyQuaternion(frameC.quaternion);
     expect(top.clone().sub(frameC.position).dot(upC)).toBeCloseTo(56, 6); // 50 lift + 6 tall
     // Rebase keeps the lift (only east/north return to zero).
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -1, pitchDeg: 0, rollDeg: 0 }, true);
+    h.setSeats("a", { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: -1, pitchDeg: 0, rollDeg: 0 }, true);
     h.rebase("a", LAT + 0.001, LON);
     expect(ra.anchor.position.x).toBe(0);
     expect(ra.anchor.position.y).toBe(-1);
@@ -280,11 +299,11 @@ describe("scene/userModels", () => {
     // A cancelled drag falls back on the committed rotation; a snapped commit lands at once.
     h.setDragging("a", false);
     expectQ(ra.body.quaternion, 30, 20, -10);
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: 0, pitchDeg: 90, rollDeg: 0 }, true);
+    h.setSeats("a", { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 90, rollDeg: 0 }, true);
     expectQ(ra.body.quaternion, 0, 90, 0);
     // On its side the 4 m depth straddles the pivot: the floor is −1 (top 2, span 4, keep 1) — a
     // deeper commit comes up to it.
-    h.setSeats("a", { rotDeg: 0, scale: 1, liftM: -5, pitchDeg: 90, rollDeg: 0 }, true);
+    h.setSeats("a", { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: -5, pitchDeg: 90, rollDeg: 0 }, true);
     expect(ra.anchor.position.y).toBe(-1);
     // A row change (another member stood it up) eases the rotation as a slerp: monotone, lands exactly.
     h.setModels([row("a", { rotDeg: 0, pitchDeg: 0, rollDeg: 0, tU: 0, updatedAt: "2026-09-05T00:00:00.000Z" }), row("b", { rollDeg: 180, tU: 0 })]);
@@ -314,7 +333,7 @@ describe("scene/userModels", () => {
     };
     expect(upOf("b")).toBeCloseTo(1.5, 6);
     expect(upOf("a")).toBeCloseTo(6, 6);
-    h.setSeats("a", { rotDeg: 0, scale: 2, liftM: 0, pitchDeg: 90, rollDeg: 0 }, true); // on its side at 2×: top = d/2 × 2 = 4
+    h.setSeats("a", { rotDeg: 0, sx: 2, sy: 2, sz: 2, liftM: 0, pitchDeg: 90, rollDeg: 0 }, true); // on its side at 2×: top = d/2 × 2 = 4
     expect(upOf("a")).toBeCloseTo(4, 6);
     h.dispose();
   });
@@ -367,7 +386,7 @@ describe("scene/userModels", () => {
     const e1 = h.occluderEpoch();
     expect(e1).toBeGreaterThan(e0); // resident → the sweep must see it
     expect(h.occluderRoot().children.length).toBe(1);
-    h.setSeats("a", { rotDeg: 30, scale: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
+    h.setSeats("a", { rotDeg: 30, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 });
     const e2 = h.occluderEpoch();
     expect(e2).toBeGreaterThan(e1);
     h.rebase("a", LAT + 0.0001, LON);

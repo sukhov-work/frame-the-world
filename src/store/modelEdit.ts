@@ -107,7 +107,8 @@ export const useModelEditStore = create<ModelEditState>((set) => ({
 
 /** Which seat an op owns — the chip's per-row "is this op edited" test and the orchestrator's
  *  per-op revert share it. MOVE owns the placement (no original) and, since MS7, the LIFT;
- *  ROTATE owns the yaw and, since MS8, the tilt. */
+ *  ROTATE owns the yaw and, since MS8, the tilt; SCALE owns the three axes (T128 — any one of
+ *  them off 1 is an edit, and its ↺ restores all three). */
 export function modelOpIsEdited(op: ModelEditOp, t: ModelTransform): boolean {
   switch (op) {
     case "move":
@@ -115,7 +116,7 @@ export function modelOpIsEdited(op: ModelEditOp, t: ModelTransform): boolean {
     case "rotate":
       return Math.abs(t.rotDeg) >= MODEL_XF_EPS.rotDeg || isTilted(t);
     case "scale":
-      return Math.abs(t.scale - 1) >= MODEL_XF_EPS.scale;
+      return Math.abs(t.sx - 1) >= MODEL_XF_EPS.scale || Math.abs(t.sy - 1) >= MODEL_XF_EPS.scale || Math.abs(t.sz - 1) >= MODEL_XF_EPS.scale;
   }
 }
 
@@ -129,13 +130,13 @@ export function revertModelOp(t: ModelTransform, which: ModelEditOp | "all"): Mo
     case "rotate":
       return { ...t, rotDeg: 0, pitchDeg: 0, rollDeg: 0 }; // upright and unturned
     case "scale":
-      return { ...t, scale: 1 };
+      return { ...t, sx: 1, sy: 1, sz: 1 };
   }
 }
 
 /** The resting live edit for committed seats (no drag in flight). */
 export function restingEdit(t: ModelTransform): ModelEdit {
-  return { ...IDENTITY_MODEL_EDIT, rotDeg: t.rotDeg, scale: t.scale, liftM: t.liftM, pitchDeg: t.pitchDeg, rollDeg: t.rollDeg };
+  return { ...IDENTITY_MODEL_EDIT, rotDeg: t.rotDeg, sx: t.sx, sy: t.sy, sz: t.sz, liftM: t.liftM, pitchDeg: t.pitchDeg, rollDeg: t.rollDeg };
 }
 
 // Dev-only introspection (the window.__* DEV-seam registry) — browser verification reads the

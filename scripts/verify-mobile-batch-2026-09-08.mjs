@@ -18,7 +18,9 @@
 // §THE RESOURCE BUDGET). Screenshots → verify-shots/ with `--shots`.
 
 import { mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { ensureBrowser, openSession, sleep } from "./lib/cdp.mjs";
+import { createAdbInput } from "./lib/adbInput.mjs";
 import { byId, poseUrl } from "./lib/poses.mjs";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
@@ -29,6 +31,9 @@ const SHOTS = args.includes("--shots");
 
 const notes = [];
 const fails = [];
+// an UNCAUGHT throw (a waitFor time-out) must not lose the notes gathered so far
+// (print only — verify-cdp-cleanup's own handler, registered first, reports and exits)
+process.on("uncaughtException", () => { console.log(notes.join("\n")); if (fails.length) console.log(fails.join("\n")); });
 const ok = (cond, msg) => (cond ? notes.push(`  PASS  ${msg}`) : fails.push(`  FAIL  ${msg}`));
 const info = (msg) => notes.push(`  INFO  ${msg}`);
 const circ = (a, b) => Math.abs((((a - b) % 360) + 540) % 360 - 180);
@@ -42,6 +47,20 @@ if (DEVICE) {
   target = pages.find((t) => /localhost:4321/.test(t.url)) ?? pages[0];
   if (!target) throw new Error("no page tab on the phone — open http://localhost:4321/ in Chrome first (tools/devicefarm/README.md §B)");
   console.log(`attached to the phone tab ${target.id} ${target.url} (${browser.browser})`);
+  // 2026-09-08c: CDP `Input.dispatchTouchEvent` (and the synthesize* gestures) HANG on Android
+  // Chrome — no answer, ever — while another window holds the focus (the notification shade
+  // after a WAKEUP keyevent, the keyguard, a system dialog). Refuse to start rather than time
+  // out 90 s into the first twist; `sendevent` is no fallback (the adb shell user is refused
+  // /dev/input/event* by SELinux — measured).
+  try {
+    const win = execFileSync("adb", ["shell", "dumpsys", "window"], { encoding: "utf8" });
+    const focus = (win.match(/mCurrentFocus=([^\n]*)/) ?? [])[1] ?? "?";
+    if (!/com\.android\.chrome/.test(focus)) throw new Error(`Chrome is not the focused window on the phone (${focus.trim()}) — swipe the shade away / unlock, then re-run`);
+    console.log(`phone focus: ${focus.trim()}`);
+  } catch (e) {
+    if (/not the focused window/.test(String(e.message))) throw e;
+    console.log(`(adb focus check skipped: ${String(e.message).split("\n")[0]})`);
+  }
 } else {
   try {
     target = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: "PUT" }).then((r) => r.json());
@@ -66,6 +85,37 @@ await s.bootUrl(url);
 await s.waitFor(`!!window.__globe && typeof window.__globe.bestSpot === "function" && !!window.__bestSpotStore && !!window.__findStore`, 90_000, "globe up");
 await sleep(2000);
 const J = async (expr) => JSON.parse(await s.evalJs(`JSON.stringify((() => (${expr}))())`));
+// THE GLASS (2026-09-08c): on the phone every touch goes through `adb shell input` (real, single
+// pointer — scripts/lib/adbInput.mjs says why CDP touch is a mirage there); two-finger gestures
+// have no injection path on the device and are INFO lines there (the owner's thumb is the tier).
+const glass = DEVICE ? await createAdbInput(s) : null;
+if (glass) info(`glass calibrated: dpr ${glass.calibration.dpr}, toolbar offset ${glass.calibration.offY.toFixed(1)} css px (the tap aimed at ${glass.calibration.aimed.map((v) => v.toFixed(0))} landed at ${glass.calibration.landed.x},${glass.calibration.landed.y} ${glass.calibration.landed.type})`);
+/** One finger down at (x, y) for `holdMs`, then up — the twin's CDP touch or the phone's real glass. */
+const pressAt = async (x, y, holdMs = 700, settleMs = 400) => {
+  if (glass) {
+    if (holdMs >= 300) await glass.longPress(x, y, holdMs);
+    else await glass.tap(x, y);
+  } else {
+    await s.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y, id: 1 }] });
+    await sleep(holdMs);
+    await s.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+  await sleep(settleMs);
+};
+/** One finger dragged through CSS points (~16 ms apart on the twin; adb-paced on the phone). */
+const dragThrough = async (pts) => {
+  if (glass) {
+    await glass.drag(pts);
+  } else {
+    await s.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: pts[0][0], y: pts[0][1], id: 1 }] });
+    for (let i = 1; i < pts.length; i++) {
+      await s.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: pts[i][0], y: pts[i][1], id: 1 }] });
+      await sleep(16);
+    }
+    await s.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+  await sleep(600);
+};
 const tap = async (selector, label) => {
   const hit = await s.evalJs(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.click(); return true; })()`);
   ok(hit === true || hit === "true", `tap ${label} (${selector})`);
@@ -82,10 +132,7 @@ const longPress = async (selector, label, holdMs = 700) => {
   const r = await rect(selector);
   ok(r !== null, `long-press target present: ${label}`);
   if (!r) return;
-  await s.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: r.cx, y: r.cy, id: 1 }] });
-  await sleep(holdMs);
-  await s.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  await sleep(250);
+  await pressAt(r.cx, r.cy, holdMs, 250);
 };
 /** Two fingers turning about (cx, cy) by `deg` in `steps`, radius R; `drift` px of midpoint travel. */
 const twist = async (cx, cy, deg, { R = 90, steps = 24, drift = 0 } = {}) => {
@@ -110,7 +157,11 @@ const twist = async (cx, cy, deg, { R = 90, steps = 24, drift = 0 } = {}) => {
 const mapHeading = async () => J(`(() => { const h = window.__cameraStore.getState().headingDeg; return ((h % 360) + 360) % 360; })()`);
 
 // ── 5a. THE TWIST on the 2D map (first: nothing else is armed yet) ────────────────────────────
-{
+if (glass) {
+  const mode = await J(`window.__cameraStore.getState().mapMode`);
+  ok(mode === "2d", `/m booted into the 2D map (mapMode ${mode})`);
+  info("device: the two-finger TWIST / PINCH legs have no injection path on the phone (CDP touch undelivered, `input` single-pointer, sendevent refused) — the twin is their harness tier, the owner's thumb the device tier (T120)");
+} else {
   const mode = await J(`window.__cameraStore.getState().mapMode`);
   ok(mode === "2d", `/m booted into the 2D map (mapMode ${mode})`);
   const canvas = await rect("canvas");
@@ -175,6 +226,60 @@ const mapHeading = async () => J(`(() => { const h = window.__cameraStore.getSta
   await sleep(2500);
 }
 
+// ── 6. T127: a stray touch on the /m map KEEPS the look-from-here pin (2026-09-08c) ──────────
+// The long press is the glass twin of the desktop dblclick (no dblclick synthesizes from CDP
+// touches — on a real phone the native double-tap lands the same `dropTempPinAt`); ✕ CLEAR PIN
+// is the one clear. A single tap and a drag elsewhere must leave the pin where it is.
+{
+  const canvas = await rect("canvas");
+  const cx = canvas.x + canvas.w / 2;
+  const cy = canvas.y + canvas.h * 0.45;
+  const pin = () => J(`(() => { const p = window.__cameraStore.getState().tempPin; return p ? { lat: p.latDeg, lon: p.lonDeg } : null; })()`);
+  const same = (a, b) => !!a && !!b && Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lon - b.lon) < 1e-7;
+  /** The chips (◎ LOOK FROM HERE / ✕ CLEAR PIN) sit over the canvas — a "stray" touch must land
+   *  on open MAP, not on a chip (the first cut of this leg tapped ✕ CLEAR PIN itself). */
+  const onCanvas = (x, y) => J(`(() => { const el = document.elementFromPoint(${x}, ${y}); return el ? el.tagName.toLowerCase() : null; })()`);
+  await pressAt(cx, cy);
+  const p0 = await pin();
+  ok(p0 !== null, `a long press on the 2D map drops the look-from-here pin (${p0 ? `${p0.lat.toFixed(5)}, ${p0.lon.toFixed(5)}` : "none"})`);
+  const chips0 = await J(`(() => { const t = document.body.textContent || ""; return { look: /LOOK FROM HERE/.test(t), clear: /CLEAR PIN/.test(t) }; })()`);
+  ok(chips0.look && chips0.clear, `the ◎ LOOK FROM HERE + ✕ CLEAR PIN chips show (look ${chips0.look}, clear ${chips0.clear})`);
+  // a stray single tap on open map, up and to the left of the pin
+  const tx = cx - 120, ty = cy - 110;
+  const under = await onCanvas(tx, ty);
+  ok(under === "canvas", `the stray-tap point is open map (element under it: ${under})`);
+  await pressAt(tx, ty, 40);
+  const p1 = await pin();
+  ok(same(p0, p1), `a stray single tap elsewhere KEEPS the pin (${p1 ? "kept" : "CLEARED"})`);
+  // a drag of the map, starting on open map
+  const dx0 = cx - 110, dy0 = cy + 30;
+  const underD = await onCanvas(dx0, dy0);
+  ok(underD === "canvas", `the drag start is open map (element under it: ${underD})`);
+  await dragThrough(Array.from({ length: 9 }, (_, i) => [dx0 + i * 6, dy0 - i * 5]));
+  const p2 = await pin();
+  ok(same(p0, p2), `a drag of the map KEEPS the pin (${p2 ? "kept" : "CLEARED"})`);
+  // a second long press elsewhere MOVES it
+  await pressAt(cx - 100, cy - 60);
+  const p3 = await pin();
+  ok(p3 !== null && !same(p0, p3), `a long press elsewhere MOVES the pin (${p3 ? `${p3.lat.toFixed(5)}, ${p3.lon.toFixed(5)}` : "none"})`);
+  await shot("mbatch-06-pin-kept");
+  // ✕ CLEAR PIN is the clear
+  await tapText(".m-actrow button, .m-act", "✕ CLEAR PIN", "✕ CLEAR PIN");
+  await sleep(300);
+  const p4 = await pin();
+  ok(p4 === null, `✕ CLEAR PIN clears it (${p4 ? "still set" : "cleared"})`);
+  if (DEVICE) {
+    // the native double-tap on real glass: a READ (the twin cannot synthesize dblclick)
+    await glass.doubleTap(cx - 40, cy - 40);
+    const p5 = await pin();
+    info(`device: a real double-tap ${p5 ? "SETS the pin (native dblclick)" : "did not set a pin (dblclick not synthesized by this CDP touch shape)"}`);
+    if (p5) {
+      await tapText(".m-actrow button, .m-act", "✕ CLEAR PIN", "✕ CLEAR PIN (after the double-tap)");
+      await sleep(300);
+    }
+  }
+}
+
 // ── 3a. The tab bar: nothing live at boot; FIND long-press out of FPV opens the sheet ─────────
 {
   const live = await J(`[...document.querySelectorAll(".m-tab")].map((b) => b.classList.contains("m-tab--live"))`);
@@ -205,8 +310,10 @@ await tap(".m-tab:nth-child(1)", "SCENE (collapse the sheet)");
   ok(dot && dot.w === "6px" && dot.bg !== "rgba(0, 0, 0, 0)", `the dot is painted (${dot?.w}, ${dot?.bg})`);
   await shot("mbatch-03-spot-live");
   // it solves: the engine's readiness hold, then a job
-  await s.waitFor(`window.__globe.bestSpot().jobs >= 1`, 30_000, "a solve posted after the long-press arm");
-  await s.waitFor(`window.__bestSpotStore.getState().ladderRung >= 0`, 40_000, "first ink");
+  // T118's readiness hold caps at `BESTSPOT.holdMaxMs` 30 s (2026-09-08c) — on the phone (a slow
+  // connection) the first post can sit at the cap; the twin never does.
+  await s.waitFor(`window.__globe.bestSpot().jobs >= 1`, DEVICE ? 50_000 : 30_000, "a solve posted after the long-press arm");
+  await s.waitFor(`window.__bestSpotStore.getState().ladderRung >= 0`, DEVICE ? 60_000 : 40_000, "first ink");
   const feed = await J(`(() => { const f = window.__globe.bestSpot(); return { jobs: f.jobs, inFlight: f.inFlight, rung: window.__bestSpotStore.getState().ladderRung }; })()`);
   ok(feed.rung >= 0, `the field landed (rung ${feed.rung}, jobs ${feed.jobs})`);
   // long-press again: DISARM — the ink goes, the tab goes dark, nothing runs
@@ -237,8 +344,16 @@ await tap(".m-tab:nth-child(1)", "SCENE (collapse the sheet)");
 
 // ── 4b. The lift ENCODER on the sheet: a drag writes at frame rate, the feed posts ONE solve ──
 await longPress(".m-tab:nth-child(5)", "arm for the encoder leg", 650);
+await sleep(glass ? 1000 : 0); // the phone: past the long-press's trailing-click swallow (900 ms)
 await tap(".m-tab:nth-child(5)", "open the SPOT sheet");
-await s.waitFor(`window.__bestSpotStore.getState().ladderRung >= 0`, 40_000, "ink before the drag");
+try {
+  await s.waitFor(`!!document.querySelector(".m-sheet__body .ct-enc")`, 5_000, "the SPOT sheet with the encoder");
+} catch {
+  info("the SPOT sheet did not show on the first tap — tapping again");
+  await tap(".m-tab:nth-child(5)", "open the SPOT sheet (retry)");
+  await s.waitFor(`!!document.querySelector(".m-sheet__body .ct-enc")`, 8_000, "the SPOT sheet with the encoder (retry)");
+}
+await s.waitFor(`window.__bestSpotStore.getState().ladderRung >= 0`, DEVICE ? 60_000 : 40_000, "ink before the drag");
 await sleep(700); // the sheet's 400 ms slide-in — a rect read mid-animation misses the track
 {
   const enc = await rect(".m-sheet__body .ct-enc .uf-slider__track");
@@ -251,10 +366,7 @@ await sleep(700); // the sheet's 400 ms slide-in — a rect read mid-animation m
   // hold the knob at 85 % of the track for 700 ms — a steady climb — then release (the spring)
   const x = enc.x + enc.w * 0.85;
   const y = enc.cy;
-  await s.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y, id: 1 }] });
-  await sleep(700);
-  await s.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  await sleep(120);
+  await pressAt(x, y, 700, 120);
   const mid = await J(`(() => { const f = window.__globe.bestSpot(); const b = window.__bestSpotStore.getState(); return { jobs: f.jobs, lift: b.liftM, defer: f.lift.deferFrames, pending: f.lift.pendingT1 }; })()`);
   ok(mid.lift > before.lift + 0.5, `the encoder LIFTED the sheet (liftM ${before.lift.toFixed(2)} → ${mid.lift.toFixed(2)} m)`);
   ok(mid.defer > 10, `the frame-rate writes were DEFERRED by the debounce (${mid.defer} frames waited)`);
@@ -380,7 +492,8 @@ await sleep(1500);
   ok(offNote, "switching AR off clears the bubble");
 }
 // FPV: the twist must do NOTHING (the second finger is the FOV pinch)
-{
+if (glass) info("device: the FPV twist leg is twin-only (no two-finger injection on the phone)");
+else {
   const canvas = await rect("canvas");
   const h0 = await J(`window.__cameraStore.getState().fpvHud.headingDeg`);
   const f0 = await J(`window.__cameraStore.getState().fpvHud.fovDeg`);

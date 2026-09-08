@@ -47,7 +47,7 @@ const item = (id: string, over: Partial<ModelListItem> = {}): ModelListItem => (
   lat: 48.4647,
   lon: 35.0462,
   rotDeg: 0,
-  scale: 1,
+  sx: 1, sy: 1, sz: 1,
   tU: 0,
   pitchDeg: 0,
   rollDeg: 0,
@@ -76,7 +76,7 @@ describe("MyModelsTab (MS6)", () => {
   });
 
   it("a row carries the thumbnail or the glyph, the title, the size at the committed scale, the tris and the five actions", () => {
-    const html = view(state({ models: [item("a", { thumbnailUrl: "https://static.wixstatic.com/media/t.png" }), item("b", { scale: 2 })] }));
+    const html = view(state({ models: [item("a", { thumbnailUrl: "https://static.wixstatic.com/media/t.png" }), item("b", { sx: 2, sy: 2, sz: 2 })] }));
     expect(html).toContain('src="https://static.wixstatic.com/media/t.png"');
     expect(html).toContain("mp-thumb--model"); // b has no thumbnail
     expect(html).toContain("Model a");
@@ -100,7 +100,7 @@ describe("MyModelsTab (MS6)", () => {
       const open = row.lastIndexOf("<button", i);
       return row.slice(open, row.indexOf(">", i) + 1);
     };
-    const html = view(state({ models: [item("a"), item("b", { scale: 2 }), item("u", { lat: null, lon: null }), item("s", { tU: -1.5 }), item("l", { tU: 12 })] }));
+    const html = view(state({ models: [item("a"), item("b", { sx: 2, sy: 2, sz: 2 }), item("u", { lat: null, lon: null }), item("s", { tU: -1.5 }), item("l", { tU: 12 })] }));
     // As uploaded: GOTO live, RESET dark.
     expect(act(html, "a", "goto")).not.toContain("disabled");
     expect(act(html, "a", "reset")).toContain("disabled");
@@ -122,7 +122,14 @@ describe("MyModelsTab (MS6)", () => {
     expect(modelRowResettable(item("a", { rotDeg: 15 }))).toBe(true);
     expect(modelRowResettable(item("a", { tU: -0.5 }))).toBe(true);
     expect(modelRowResettable(item("a", { rollDeg: 90 }))).toBe(true); // MS8: a tilt alone lights RESET
-    expect(modelRowResettable(item("a", { scale: 2, lat: null, lon: null }))).toBe(false);
+    expect(modelRowResettable(item("a", { sx: 2, sy: 2, sz: 2, lat: null, lon: null }))).toBe(false);
+    // T128: the fact line scales each extent on its own axis (bbox [x, y, z] → w·sx × d·sz × h·sy),
+    // and ONE axis off 1 lights RESET.
+    expect(modelRowSub(item("w", { sx: 2 }))).toBe("24.8 × 8.00 × 31.2 m · 84.0K TRIS");
+    expect(modelRowSub(item("h", { sy: 0.5 }))).toBe("12.4 × 8.00 × 15.6 m · 84.0K TRIS");
+    expect(modelRowSub(item("d", { sz: 3 }))).toBe("12.4 × 24.0 × 31.2 m · 84.0K TRIS");
+    expect(modelRowResettable(item("a", { sz: 1.2 }))).toBe(true);
+    expect(modelRowResettable(item("a", { sx: 1.001, sy: 0.999, sz: 1.004 }))).toBe(false); // inside the eps
   });
 
   it("badges: HIDDEN (+ the foot note and SHOW), PROCESSING, FAILED, NOT PLACED, EDITED", () => {

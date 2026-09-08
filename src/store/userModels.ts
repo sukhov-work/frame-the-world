@@ -55,7 +55,10 @@ export interface PlacementPatch {
   lat: number;
   lon: number;
   rotDeg?: number;
-  scale?: number;
+  /** T128 (owner 2026-09-08b): the scale per axis (`sy` = the height). */
+  sx?: number;
+  sy?: number;
+  sz?: number;
   /** MS7: the lift above the terrain seat (m). */
   tU?: number;
   /** MS8: the vertical rotation (degrees). */
@@ -110,7 +113,9 @@ export function publicFromMine(item: ModelListItem, updatedAt: string): PublicMo
     lat: item.lat,
     lon: item.lon,
     rotDeg: item.rotDeg,
-    scale: item.scale,
+    sx: item.sx,
+    sy: item.sy,
+    sz: item.sz,
     tU: item.tU,
     pitchDeg: item.pitchDeg,
     rollDeg: item.rollDeg,
@@ -355,7 +360,7 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
     const own = get().mine.find((m) => m.id === id);
     const row = own ?? get().world.find((m) => m.id === id) ?? null;
     if (!row || row.lat === null || row.lon === null) return null;
-    return get().commitPlacement(id, { lat: row.lat, lon: row.lon, rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
+    return get().commitPlacement(id, { lat: row.lat, lon: row.lon, rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
   },
 
   rename: async (id, title) => {

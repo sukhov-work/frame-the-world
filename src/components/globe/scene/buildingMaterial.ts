@@ -241,7 +241,19 @@ export function createBuildingMaterials(
         uniform vec3 uFtwSunW;
         ${FTW_BAYER_GLSL}
         ${FTW_HASH_GLSL}
-        ${FTW_AERIAL_GLSL}`,
+        ${FTW_AERIAL_GLSL}
+        // U8 / MS3: the edit-tint strength of this fragment — the ARMED run (raw-id match vs
+        // uFtwArmedId, −1 = none) reads stronger than a COMMITTED override (the per-vertex byte
+        // LADDER: 255 = my edit, 128 = a world-shared edit, 0 = original — two thresholds, a run's
+        // vertices all carry one byte so nothing interpolates onto a third level). 0 on every
+        // untouched building. Read twice: the albedo pull at <color_fragment> and the post-lighting
+        // FLOOR at <opaque_fragment> (T125).
+        float ftwOverrideK() {
+          float ftwArm = (uFtwArmedId >= 0.0 && abs(vFtwFid - uFtwArmedId) < 0.5) ? 1.0 : 0.0;
+          float ftwOvLvl = vFtwOverride > 0.75 ? ${glf(ENRICHED.overrideTintCommittedK)}
+            : (vFtwOverride > 0.25 ? ${glf(ENRICHED.overrideTintSharedK)} : 0.0);
+          return max(ftwArm * ${glf(ENRICHED.overrideTintK)}, ftwOvLvl);
+        }`,
       )
       .replace(
         // ULTRA S4 — after <opaque_fragment> (which writes gl_FragColor from outgoingLight) and
@@ -252,6 +264,16 @@ export function createBuildingMaterials(
         // difference of taste.
         "#include <opaque_fragment>",
         /* glsl */ `#include <opaque_fragment>
+        {
+          // T125 (owner 2026-09-08b, "edited buildings are no longer highlighted"): the albedo pull
+          // below is a DIFFUSE term — at night the city is a dark mass (no night emissive, R3) and
+          // 24 % of nothing is nothing, so an edited building read exactly like its neighbours
+          // after dark. A per-channel FLOOR in LINEAR light (after <opaque_fragment>, before the
+          // haze — the same seat as the aerial term): lit faces are already above it (byte-identical
+          // by day), the dark mass is lifted to a faint accent glow scaled by the same K ladder.
+          float ftwOvG = ftwOverrideK() * ${glf(ENRICHED.overrideTintGlow)};
+          gl_FragColor.rgb = max(gl_FragColor.rgb, uFtwAccent * ftwOvG);
+        }
         gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol,
           uFtwHazeCool, uFtwSkyLevel, uFtwAfterglowG);`,
       )
@@ -285,16 +307,11 @@ export function createBuildingMaterials(
           // makes mix(1,1,·)=1 → byte-identical to the pre-Pass-2 look (the no-op comparator).
           float ftwTone = ftwHash11(vFtwBId + 11.0);
           diffuseColor.rgb *= mix(${glf(1 - BUILDINGS.toneVariation)}, ${glf(1 + BUILDINGS.toneVariation)}, ftwTone);
-          // U8 height-override tint: the ARMED run (raw-id match vs uFtwArmedId, −1 = none)
-          // reads stronger than a COMMITTED override (the per-vertex mask) — "selected" vs
-          // "edited". Accent through the D14 token bridge; both no-op at their defaults.
-          float ftwArm = (uFtwArmedId >= 0.0 && abs(vFtwFid - uFtwArmedId) < 0.5) ? 1.0 : 0.0;
-          // MESH SUITE MS3: the committed mask is a byte LADDER — 255 = my edit, 128 = a
-          // world-shared edit (fainter), 0 = original — read as two thresholds (a run's vertices
-          // all carry one byte, so nothing interpolates onto a third level).
-          float ftwOvLvl = vFtwOverride > 0.75 ? ${glf(ENRICHED.overrideTintCommittedK)}
-            : (vFtwOverride > 0.25 ? ${glf(ENRICHED.overrideTintSharedK)} : 0.0);
-          float ftwOvK = max(ftwArm * ${glf(ENRICHED.overrideTintK)}, ftwOvLvl);
+          // U8 height-override tint: the ARMED run reads stronger than a COMMITTED override —
+          // "selected" vs "edited" (ftwOverrideK, <common>). Accent through the D14 token
+          // bridge; both no-op at their defaults. This is the DAYLIGHT half (an albedo pull);
+          // the night half is the floor at <opaque_fragment> (T125).
+          float ftwOvK = ftwOverrideK();
           diffuseColor.rgb = mix(diffuseColor.rgb, uFtwAccent, ftwOvK);
         }`,
       )

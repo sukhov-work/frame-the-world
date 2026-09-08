@@ -20,6 +20,7 @@
   "ignoreBinaries": [
     "java",
     "sips",
-    "memory_pressure"
+    "memory_pressure",
+    "adb"
   ]
 }

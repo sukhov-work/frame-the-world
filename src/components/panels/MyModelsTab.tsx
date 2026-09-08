@@ -5,7 +5,7 @@ import type { ModelListItem } from "../../lib/wix/modelRecords";
 import { MODEL_TITLE_MAX } from "../../lib/wix/modelRecords";
 import { formatDims, formatMetres } from "../../lib/format/readout";
 import { formatTris } from "../../lib/models/modelCaps";
-import { MODEL_XF_EPS, isIdentityModelTransform, isTilted, modelStandpoint } from "../../lib/models/modelPlacement";
+import { MODEL_XF_EPS, isIdentityModelTransform, isTilted, modelStandpoint, scaledSizeM3 } from "../../lib/models/modelPlacement";
 import { startModelPlacement } from "./ModelUploadStep";
 
 /**
@@ -65,12 +65,12 @@ const BADGE_TITLE = {
   edited: "Another member moved, turned, tilted, resized or lifted this model",
 } as const;
 
-/** The row's fact line: the CURRENT size (the upload's bounds × the committed scale, w × d × h),
- *  the triangle count, (MS7) the lift when the model is not on the ground, and (MS8) the tilt
- *  when it is not upright. */
+/** The row's fact line: the CURRENT size (the upload's bounds × the committed scale, w × d × h —
+ *  T128 per axis, `scaledSizeM3`), the triangle count, (MS7) the lift when the model is not on
+ *  the ground, and (MS8) the tilt when it is not upright. */
 export function modelRowSub(m: ModelListItem): string {
   const parts: string[] = [];
-  if (m.bbox) parts.push(formatDims([m.bbox[0] * m.scale, m.bbox[2] * m.scale, m.bbox[1] * m.scale]));
+  if (m.bbox) parts.push(formatDims(scaledSizeM3([m.bbox[0], m.bbox[2], m.bbox[1]], m)));
   if (m.tris !== null) parts.push(`${formatTris(m.tris)} TRIS`);
   if (Math.abs(m.tU) >= MODEL_XF_EPS.liftM) parts.push(`↑ ${m.tU > 0 ? "+" : "−"}${formatMetres(Math.abs(m.tU))}`);
   if (isTilted(m)) parts.push(`⟲ ${sgDeg(m.pitchDeg)} · ${sgDeg(m.rollDeg)}`);
@@ -83,7 +83,7 @@ export function modelRowResettable(m: ModelListItem): boolean {
   return (
     m.lat !== null &&
     m.lon !== null &&
-    !isIdentityModelTransform({ rotDeg: m.rotDeg, scale: m.scale, liftM: m.tU, pitchDeg: m.pitchDeg, rollDeg: m.rollDeg })
+    !isIdentityModelTransform({ rotDeg: m.rotDeg, sx: m.sx, sy: m.sy, sz: m.sz, liftM: m.tU, pitchDeg: m.pitchDeg, rollDeg: m.rollDeg })
   );
 }
 
@@ -277,7 +277,7 @@ export default function MyModelsTab({ onClose }: { onClose: () => void }) {
       // Stand south of it, looking north, a few model-heights back (the size at the committed
       // scale; a lifted model is aimed at where it actually is — MS7).
       const size = m.bbox ? ([m.bbox[0], m.bbox[2], m.bbox[1]] as [number, number, number]) : null;
-      const pose = modelStandpoint(m.lat, m.lon, size, m.scale, 0, m.tU);
+      const pose = modelStandpoint(m.lat, m.lon, size, m, 0, m.tU); // T128: the row IS a ModelScale
       useCameraStore.getState().requestFpvJump({
         latDeg: pose.latDeg,
         lonDeg: pose.lonDeg,

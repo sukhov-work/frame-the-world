@@ -186,6 +186,15 @@ the band mapping itself lives in `lib/geo/radarBands` since audit #3 A1-7):
   chart. 1 = raw Esri colorimetry (the "photographic chart" ruling); 0 = the old stylized look.
 - ground LRU floors (`groundLruBytesMB`, per-tier) — see T34: the cache rests at exactly
   `minBytesSize` and re-fetches on every 2D↔FPV flip.
+- **`GROUND.terrainBvh`** (true) — T77 LEVER 8: give each terrain tile a lazy bounds tree
+  (`lib/globe/terrainBvh.ts`) so `rawHeightAt`'s down ray and the controls' pivot / tilt raycasts
+  test a few triangles, not the whole index of every LOD tile the ray's sphere hits. Built on the
+  first raycast that reaches a tile (a tile no ray asks about costs nothing), dropped with it
+  (`installTerrainBvh` / `dropTerrainBvh` on the swapped meshes in `imageryGround.ts`). **A kill
+  switch, not a look knob:** the geometry is never touched, so `false` restores three's own walk
+  and the render is byte-identical either way. Unit-pinned bit-identical to three's `Mesh.raycast`
+  on six tile shapes (`test/lib/globe/terrainBvh.test.ts`); DBG `terrain.bvh.*`. Desktop descent
+  A/B: whole-leg controls 800 → 246 ms, `intersectTriangle` 198 → 30 (MEASUREMENTS §28).
 
 **`QUALITY.tiers[t].bloomScale` — the bloom mip chain's resolution** (T80): `high` 1, `mid`/`low`
 0.5, and `QUALITY.leanMobile.bloomScale` clamps on top (min, never a raise). **1 is the EXACT
@@ -489,7 +498,16 @@ Two knobs: **`ENRICHED.overrideTintSharedK`** (0.13) is the WORLD-SHARED level o
 0.16 → 0.24 on the owner's "highlighted more distinctly than today"; the armed run keeps
 `overrideTintK`. The fragment reads the ladder as two thresholds (0.25 / 0.75 of the normalized
 byte), never as a multiplier, so nothing interpolates onto a third level — a run's vertices all
-carry one byte. **`ENRICHED.hoverPickMs`** (120) throttles the hover pick that anchors the
+carry one byte. **T125 (owner 2026-09-08b): the tint reads at NIGHT too.** That mix is an ALBEDO
+pull at `<color_fragment>` — a diffuse term, and the city's night identity is a dark mass (no
+night emissive, R3), so after dark 24 % of ~0 read like the neighbours. `buildingMaterial.ts` now
+reads the ladder through one `ftwOverrideK()` TWICE: the day albedo pull AND a per-channel FLOOR
+in LINEAR light after `<opaque_fragment>` (before the aerial haze — after the tone map it is wrong
+in the direct-to-backbuffer pass) at `accent × K × ` **`ENRICHED.overrideTintGlow`** (0.22 — 0.5
+read as a neon slab at the dusk/night exposure, S11; a taste knob). By day a lit face is above the
+floor → byte-identical; the edge material has no floor (edges carry no override attribute).
+`featureState.tintByte` reads the GPU byte, not the `f.ov` cache (the cache hid the break).
+**`ENRICHED.hoverPickMs`** (120) throttles the hover pick that anchors the
 "EDITED · shared · 34.3 m · was 24.5 m" note over an edited building nobody has armed (mouse/pen
 only, never during a look-drag; a resting pointer costs nothing).
 

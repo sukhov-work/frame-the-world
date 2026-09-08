@@ -26,7 +26,7 @@ const pub = (id: string, over: Partial<PublicModel> = {}): PublicModel => ({
   lat: 48.4647,
   lon: 35.0462,
   rotDeg: 0,
-  scale: 1,
+  sx: 1, sy: 1, sz: 1,
   tU: 0,
   pitchDeg: 0,
   rollDeg: 0,
@@ -51,7 +51,7 @@ const mine = (id: string, over: Partial<ModelListItem> = {}): ModelListItem => (
   lat: 48.4647,
   lon: 35.0462,
   rotDeg: 0,
-  scale: 1,
+  sx: 1, sy: 1, sz: 1,
   tU: 0,
   pitchDeg: 0,
   rollDeg: 0,
@@ -64,7 +64,7 @@ const mine = (id: string, over: Partial<ModelListItem> = {}): ModelListItem => (
 const pubOf = (m: ModelListItem): PublicModel | null =>
   m.lat === null || m.lon === null || m.hidden || m.readiness !== "READY"
     ? null
-    : { id: m.id, title: m.title, url: m.url, thumbnailUrl: m.thumbnailUrl, tris: m.tris ?? 0, glbBytes: m.glbBytes, bbox: m.bbox, lat: m.lat, lon: m.lon, rotDeg: m.rotDeg, scale: m.scale, tU: m.tU, pitchDeg: m.pitchDeg, rollDeg: m.rollDeg, updatedAt: "2026-09-02T12:00:00.000Z" };
+    : { id: m.id, title: m.title, url: m.url, thumbnailUrl: m.thumbnailUrl, tris: m.tris ?? 0, glbBytes: m.glbBytes, bbox: m.bbox, lat: m.lat, lon: m.lon, rotDeg: m.rotDeg, sx: m.sx, sy: m.sy, sz: m.sz, tU: m.tU, pitchDeg: m.pitchDeg, rollDeg: m.rollDeg, updatedAt: "2026-09-02T12:00:00.000Z" };
 
 interface FakeApi extends UserModelsApi {
   worldCalls: string[][];
@@ -113,7 +113,9 @@ const makeApi = (): FakeApi => {
         lat: body.lat,
         lon: body.lon,
         rotDeg: body.rotDeg ?? base.rotDeg,
-        scale: body.scale ?? base.scale,
+        sx: body.sx ?? base.sx,
+        sy: body.sy ?? base.sy,
+        sz: body.sz ?? base.sz,
         tU: body.tU ?? base.tU,
         pitchDeg: body.pitchDeg ?? base.pitchDeg,
         rollDeg: body.rollDeg ?? base.rollDeg,
@@ -269,13 +271,13 @@ describe("store/userModels", () => {
   });
 
   it("MS7 — the MODELS row's RESET is ONE placement PATCH (spot kept, yaw 0 / scale 1 / lift 0, MS8 upright); an unplaced row is a no-op", async () => {
-    api.mineRows = [mine("m1", { rotDeg: 45, scale: 2, tU: -1.5, pitchDeg: 30, rollDeg: -10 }), mine("m2", { lat: null, lon: null })];
+    api.mineRows = [mine("m1", { rotDeg: 45, sx: 2, sy: 2, sz: 2, tU: -1.5, pitchDeg: 30, rollDeg: -10 }), mine("m2", { lat: null, lon: null })];
     await useUserModelsStore.getState().loadMine();
     const row = await useUserModelsStore.getState().resetTransform("m1");
-    expect(row).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0, lat: 48.4647, lon: 35.0462 });
-    expect(api.patches).toEqual([{ id: "m1", lat: 48.4647, lon: 35.0462, rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 }]);
-    expect(useUserModelsStore.getState().mine.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
-    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, scale: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(row).toMatchObject({ rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0, lat: 48.4647, lon: 35.0462 });
+    expect(api.patches).toEqual([{ id: "m1", lat: 48.4647, lon: 35.0462, rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 }]);
+    expect(useUserModelsStore.getState().mine.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
     expect(await useUserModelsStore.getState().resetTransform("m2")).toBeNull();
     expect(await useUserModelsStore.getState().resetTransform("nope")).toBeNull();
     expect(api.patches.length).toBe(1);
@@ -287,30 +289,41 @@ describe("store/userModels", () => {
     expect(api.patches[2]).toEqual({ id: "m1", lat: 48.4647, lon: 35.0462, pitchDeg: 90, rollDeg: -15 });
     expect(useUserModelsStore.getState().mine.find((m) => m.id === "m1")).toMatchObject({ pitchDeg: 90, rollDeg: -15 });
     expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ pitchDeg: 90, rollDeg: -15 });
+    // T128: a ONE-axis commit PATCHes that axis alone (no legacy `scale` on the wire) and the
+    // fresh row carries the per-axis triple into `mine` and the world (the fake answers the patch
+    // merged onto its SEED row — sx 2 / sy 2 / sz 2 — so the other two axes read 2 here).
+    await useUserModelsStore.getState().commitPlacement("m1", { lat: 48.4647, lon: 35.0462, sx: 2.5 });
+    expect(api.patches[3]).toEqual({ id: "m1", lat: 48.4647, lon: 35.0462, sx: 2.5 });
+    expect(useUserModelsStore.getState().mine.find((m) => m.id === "m1")).toMatchObject({ sx: 2.5, sy: 2, sz: 2 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ sx: 2.5, sy: 2, sz: 2 });
+    // …and RESET puts all three back through the one PATCH.
+    await useUserModelsStore.getState().resetTransform("m1");
+    expect(api.patches[4]).toMatchObject({ sx: 1, sy: 1, sz: 1 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ sx: 1, sy: 1, sz: 1 });
   });
 
   it("the gizmo commit PATCHes the seats and the fresh row outranks the fetched copy inside the grace", async () => {
     api.mineRows = [mine("m1")];
-    api.worldRows = [pub("m1", { rotDeg: 0, scale: 1 }), pub("other")];
+    api.worldRows = [pub("m1", { rotDeg: 0, sx: 1, sy: 1, sz: 1 }), pub("other")];
     const s = useUserModelsStore.getState();
     s.reportViewport(48.4647, 35.0462, 500);
     await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
     await flush();
-    const row = await useUserModelsStore.getState().commitPlacement("m1", { lat: 48.4647, lon: 35.0462, rotDeg: 45, scale: 2 });
-    expect(row).toMatchObject({ rotDeg: 45, scale: 2 });
-    expect(api.patches[0]).toEqual({ id: "m1", lat: 48.4647, lon: 35.0462, rotDeg: 45, scale: 2 });
+    const row = await useUserModelsStore.getState().commitPlacement("m1", { lat: 48.4647, lon: 35.0462, rotDeg: 45, sx: 2, sy: 2, sz: 2 });
+    expect(row).toMatchObject({ rotDeg: 45, sx: 2, sy: 2, sz: 2 });
+    expect(api.patches[0]).toEqual({ id: "m1", lat: 48.4647, lon: 35.0462, rotDeg: 45, sx: 2, sy: 2, sz: 2 });
     const w = useUserModelsStore.getState().world.find((m) => m.id === "m1")!;
-    expect(w).toMatchObject({ rotDeg: 45, scale: 2 });
+    expect(w).toMatchObject({ rotDeg: 45, sx: 2, sy: 2, sz: 2 });
     // A re-fetch that still carries the STALE server copy keeps the fresh local row…
-    api.worldRows = [pub("m1", { rotDeg: 0, scale: 1 }), pub("other")];
+    api.worldRows = [pub("m1", { rotDeg: 0, sx: 1, sy: 1, sz: 1 }), pub("other")];
     s.refresh();
     await flush();
-    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 45, scale: 2 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 45, sx: 2, sy: 2, sz: 2 });
     // …until the grace has passed.
     await vi.advanceTimersByTimeAsync(MODELS.readLagGraceMs + 5);
     s.refresh();
     await flush();
-    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, scale: 1 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "m1")).toMatchObject({ rotDeg: 0, sx: 1, sy: 1, sz: 1 });
     // A failed PATCH answers null and leaves the world alone.
     api.patchPlacement = async () => {
       throw new Error("nope");
@@ -320,22 +333,22 @@ describe("store/userModels", () => {
 
   it("MS6: a FOREIGN commit swaps the public row into the world and never touches mine", async () => {
     api.mineRows = [mine("own")];
-    api.worldRows = [pub("own"), pub("theirs", { rotDeg: 0, scale: 1 })];
+    api.worldRows = [pub("own"), pub("theirs", { rotDeg: 0, sx: 1, sy: 1, sz: 1 })];
     api.foreign.add("theirs");
     const s = useUserModelsStore.getState();
     await s.loadMine();
     s.reportViewport(48.4647, 35.0462, 500);
     await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
     await flush();
-    const row = await useUserModelsStore.getState().commitPlacement("theirs", { lat: 48.4647, lon: 35.0462, rotDeg: 90, scale: 3 });
-    expect(row).toMatchObject({ id: "theirs", rotDeg: 90, scale: 3 });
+    const row = await useUserModelsStore.getState().commitPlacement("theirs", { lat: 48.4647, lon: 35.0462, rotDeg: 90, sx: 3, sy: 3, sz: 3 });
+    expect(row).toMatchObject({ id: "theirs", rotDeg: 90, sx: 3, sy: 3, sz: 3 });
     expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["own"]); // not mine, still
     expect(useUserModelsStore.getState().isMine("theirs")).toBe(false);
-    expect(useUserModelsStore.getState().world.find((m) => m.id === "theirs")).toMatchObject({ rotDeg: 90, scale: 3 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "theirs")).toMatchObject({ rotDeg: 90, sx: 3, sy: 3, sz: 3 });
     // The fresh foreign row outranks a stale fetch inside the grace, like an own one.
     s.refresh();
     await flush();
-    expect(useUserModelsStore.getState().world.find((m) => m.id === "theirs")).toMatchObject({ rotDeg: 90, scale: 3 });
+    expect(useUserModelsStore.getState().world.find((m) => m.id === "theirs")).toMatchObject({ rotDeg: 90, sx: 3, sy: 3, sz: 3 });
   });
 
   it("MS6: rename swaps the title into mine and the world; hide leaves the world at once (and stays gone through a stale fetch); show brings it back", async () => {
@@ -397,7 +410,7 @@ describe("store/userModels", () => {
     expect(publicFromMine(mine("m1", { lat: null, lon: null }), "t")).toBeNull();
     expect(publicFromMine(mine("m1", { hidden: true }), "t")).toBeNull();
     expect(publicFromMine(mine("m1", { readiness: "PENDING" }), "t")).toBeNull();
-    expect(publicFromMine(mine("m1", { rotDeg: 10, scale: 2 }), "t")).toMatchObject({ id: "m1", rotDeg: 10, scale: 2, updatedAt: "t" });
+    expect(publicFromMine(mine("m1", { rotDeg: 10, sx: 2, sy: 2, sz: 2 }), "t")).toMatchObject({ id: "m1", rotDeg: 10, sx: 2, sy: 2, sz: 2, updatedAt: "t" });
     const local = new Map([
       ["a", { row: pub("a", { rotDeg: 9 }), atMs: 1000 }],
       ["gone", { row: null, atMs: 1000 }],
