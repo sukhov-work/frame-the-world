@@ -56,6 +56,10 @@ export interface ModelEditArmed {
   /** A PATCH is in flight / the last one failed (the chip says so). */
   saving: boolean;
   saveError: string | null;
+  /** T126: journal entries that touched this model this session (the chip's UNDO shows when > 0). */
+  undoable: number;
+  /** T126: this model's placement differs from its session baseline (DROP SESSION shows). */
+  sessionEdited: boolean;
 }
 
 export interface ModelEditState {

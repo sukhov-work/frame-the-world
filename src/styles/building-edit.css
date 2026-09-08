@@ -173,6 +173,34 @@
   color: var(--color-accent);
 }
 
+/* T126: UNDO (the armed mesh's last edit) + DROP SESSION (back to page-load / last-synced state) —
+   the RESET ALL cut; the pill's DROP carries the count. Both re-enable pointer events (the pill is
+   pointer-events: none — its buttons opt back in, the SYNC precedent). */
+.bec-undo,
+.bec-drop {
+  pointer-events: auto;
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: none;
+  font: 600 0.58rem var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bec-undo:hover,
+.bec-drop:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.bec-drop {
+  color: var(--color-text-secondary);
+}
+
 .bec-hint {
   font-size: 0.55rem;
   letter-spacing: 0.06em;

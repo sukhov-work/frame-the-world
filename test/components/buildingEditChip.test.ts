@@ -10,6 +10,7 @@ import BuildingEditChip, {
   opReadout,
   SyncPill,
   SYNC_RESULT_MS,
+  pillShows,
   syncButtonState,
   type BuildingEditActions,
   type SyncButtonState,
@@ -34,6 +35,8 @@ const actions: BuildingEditActions = {
   closeMenu: noop,
   requestSync: noop,
   signIn: noop,
+  requestUndo: noop,
+  requestDrop: noop,
 };
 const HIDDEN: SyncButtonState = { kind: "hidden" };
 const view = (a: BldgEditArmed, menu: MenuAt | null = null, sync: SyncButtonState = HIDDEN) =>
@@ -52,6 +55,8 @@ const armed = (over: Partial<BldgEditArmed> = {}): BldgEditArmed => ({
   committed: { ...IDENTITY_TRANSFORM },
   live: { ...IDENTITY_TRANSFORM },
   origin: "none",
+  undoable: 0,
+  sessionEdited: false,
   ...over,
 });
 const render = () => renderToStaticMarkup(createElement(BuildingEditChip));
@@ -207,7 +212,67 @@ describe("BuildingEditChip (MS3 — world sync)", () => {
   it("the standalone pill renders the SYNC button while nothing is armed", () => {
     const html = renderToStaticMarkup(createElement(SyncPill, { sync: { kind: "sync", label: "⇅ SYNC 4" }, actions }));
     expect(html).toContain('class="bldg-sync-pill"');
-    expect(html).toContain("BUILDING EDITS");
+    expect(html).toContain("MESH EDITS");
     expect(html).toContain("⇅ SYNC 4");
+  });
+});
+
+describe("BuildingEditChip — T126 UNDO + DROP SESSION (owner 2026-09-08b, MESH_SUITE_PLAN §16)", () => {
+  it("the foot shows ↶ UNDO while the building has journal entries and DROP SESSION while it has session edits — never mid-drag", () => {
+    const plain = view(armed());
+    expect(plain).not.toContain('data-act="undo"');
+    expect(plain).not.toContain('data-act="drop-session"');
+    const html = view(armed({ undoable: 2, sessionEdited: true }));
+    expect(html).toContain('class="bec-undo" data-act="undo"');
+    expect(html).toContain("↶ UNDO");
+    expect(html).toContain('class="bec-drop" data-act="drop-session"');
+    expect(html).toContain("DROP SESSION");
+    // UNDO can stand alone (edited, then dropped back to the baseline: undoable, not session-edited).
+    const undoOnly = view(armed({ undoable: 1, sessionEdited: false }));
+    expect(undoOnly).toContain('data-act="undo"');
+    expect(undoOnly).not.toContain('data-act="drop-session"');
+    const dragging = view(armed({ undoable: 2, sessionEdited: true, dragging: true }));
+    expect(dragging).not.toContain('data-act="undo"');
+    expect(dragging).not.toContain('data-act="drop-session"');
+  });
+  it("the menu offers UNDO / DROP SESSION for the armed building and DROP ALL only when OTHER meshes carry session edits too", () => {
+    const menuAt = { screenX: 10, screenY: 20 };
+    const one = renderToStaticMarkup(
+      createElement(BuildingEditMenu, { armed: armed({ undoable: 1, sessionEdited: true }), menu: menuAt, sync: HIDDEN, actions, journal: { undoable: 1, undoLabel: "extrude", sessionEdits: 1 } }),
+    );
+    expect(one).toContain('data-act="undo"');
+    expect(one).toContain('data-act="drop-session"');
+    expect(one).not.toContain('data-act="drop-all"'); // the one session edit IS this building
+    const many = renderToStaticMarkup(
+      createElement(BuildingEditMenu, { armed: armed({ undoable: 1, sessionEdited: true }), menu: menuAt, sync: HIDDEN, actions, journal: { undoable: 3, undoLabel: "move", sessionEdits: 3 } }),
+    );
+    expect(many).toContain('data-act="drop-all"');
+    expect(many).toContain("DROP ALL SESSION EDITS · 3");
+    const other = renderToStaticMarkup(
+      createElement(BuildingEditMenu, { armed: armed(), menu: menuAt, sync: HIDDEN, actions, journal: { undoable: 1, undoLabel: "move", sessionEdits: 1 } }),
+    );
+    expect(other).toContain('data-act="drop-all"'); // this building clean, another mesh edited
+    expect(other).not.toContain('data-act="undo"');
+  });
+  it("the pill shows for pending rows OR session edits (never for UNDO alone) and carries UNDO + DROP ALL beside SYNC", () => {
+    expect(pillShows(HIDDEN, { undoable: 0, undoLabel: null, sessionEdits: 0 })).toBe(false);
+    expect(pillShows(HIDDEN, { undoable: 3, undoLabel: "drop", sessionEdits: 0 })).toBe(false); // an emptied journal after SYNC keeps no pill
+    expect(pillShows(HIDDEN, { undoable: 1, undoLabel: "move", sessionEdits: 1 })).toBe(true);
+    expect(pillShows({ kind: "sync", label: "⇅ SYNC 1" }, { undoable: 0, undoLabel: null, sessionEdits: 0 })).toBe(true);
+    // …and never over the MODEL chip (the two islands share the slot — seen 2026-09-09, usermodels leg 5).
+    expect(pillShows({ kind: "sync", label: "⇅ SYNC 1" }, { undoable: 1, undoLabel: "move", sessionEdits: 1 }, true)).toBe(false);
+    const html = renderToStaticMarkup(
+      createElement(SyncPill, { sync: { kind: "sync", label: "⇅ SYNC 2" }, actions, journal: { undoable: 4, undoLabel: "scale", sessionEdits: 2 } }),
+    );
+    expect(html).toContain("MESH EDITS");
+    expect(html).toContain('data-act="undo"');
+    expect(html).toContain("Undo the scale change (Ctrl+Z)");
+    expect(html).toContain('data-act="drop-all"');
+    expect(html).toContain("DROP SESSION 2");
+    expect(html).toContain("⇅ SYNC 2");
+    // The MS3 shape without a journal prop is byte-identical apart from the label.
+    const legacy = renderToStaticMarkup(createElement(SyncPill, { sync: { kind: "sync", label: "⇅ SYNC 4" }, actions }));
+    expect(legacy).not.toContain('data-act="undo"');
+    expect(legacy).not.toContain('data-act="drop-all"');
   });
 });

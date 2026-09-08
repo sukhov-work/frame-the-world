@@ -2113,8 +2113,16 @@ export const MOBILE2D = {
   bootLonDeg: 35.05,
   bootAltM: 1_100_000,
   /* enter3dTiltDeg RETIRED (owner batch #4 item 3, 2026-08-21): two-finger drag no longer
-     tilts into 3D — the ▲ 3D chip is the only door, and the freed gesture ROTATES the 2D map
-     (heading stays where the fingers leave it; see stepMobile2dLocks). */
+     tilts into 3D — the ▲ 3D chip is the only door, and the freed gesture ROTATED the 2D map
+     (heading stays where the fingers leave it; see stepMobile2dLocks) — until T129. */
+  /** T129 (owner ruling 2026-09-08b): with the TWIST (T120) as the one rotation gesture, the
+   *  library's two-finger parallel DRAG (its touch ROTATE, azimuth = the midpoint's drift with the
+   *  orbit sign — fingers right ⇒ map counter-clockwise) PANS the 2D map like every map app instead.
+   *  `stepTouchTwist` cancels the library's azimuth AND altitude for that gesture pre-update and
+   *  applies the midpoint delta as a drag on the pivot's ground plane (the library's own DRAG
+   *  math); the heading stays locked (a pan never frees the north lock). 3D keeps its two-finger
+   *  tilt/orbit; FPV is untouched. Kill switch: false = the 2026-08-21 rotate. */
+  twoFingerPan: true,
   /** FPV-exit map altitude (m above ground): wider than FLIGHT.arrivalAltAboveGroundM (200 —
    *  a frame view, too tight for a map) so the landing shows the surrounding blocks. */
   exitAltAboveGroundM: 600,

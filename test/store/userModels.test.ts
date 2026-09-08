@@ -10,6 +10,8 @@ import {
   useUserModelsStore,
   type UserModelsApi,
 } from "../../src/store/userModels";
+import { editJournal, journalCurrent, useEditJournalStore } from "../../src/store/editJournal";
+import { dropSteps, modelTarget, takeUndo } from "../../src/lib/edit/editJournal";
 
 // MESH SUITE MS5 — the world store: the cover-driven, THROTTLED world read (a superseded answer
 // is dropped, a re-poll is due after idle), MINE, click-to-place → PATCH, and the optimistic
@@ -152,6 +154,9 @@ describe("store/userModels", () => {
     api = makeApi();
     _setUserModelsApi(api);
     _resetUserModelsQueryState();
+    editJournal.entries.length = 0;
+    editJournal.baselines.clear();
+    useEditJournalStore.setState({ undoable: 0, undoLabel: null, sessionEdits: 0 });
     useUserModelsStore.setState({
       world: [],
       worldPhase: "idle",
@@ -404,6 +409,58 @@ describe("store/userModels", () => {
     api.deleteModel = async () => ({ deleted: false, mediaDeleted: false });
     expect(await useUserModelsStore.getState().remove("m2")).toBe(false);
     expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
+  });
+
+  it("T126: a commit of a PLACED model journals one entry (before = the held placement, after = the answer); the first placement does not", async () => {
+    api.mineRows = [mine("m1"), mine("m2", { lat: null, lon: null })];
+    useUserModelsStore.setState({ mine: [...api.mineRows], minePhase: "ready" });
+    const s = useUserModelsStore.getState();
+    // The first placement of a stored model (unplaced → placed) is not an edit of a mesh on the map.
+    await s.commitPlacement("m2", { lat: 48.46, lon: 35.05 }, "place");
+    expect(editJournal.entries).toHaveLength(0);
+    // A gizmo commit on a placed model journals — labelled by the op.
+    await s.commitPlacement("m1", { lat: 48.4647, lon: 35.0462, rotDeg: 45, sx: 2, sy: 2, sz: 2 }, "rotate");
+    expect(editJournal.entries).toHaveLength(1);
+    expect(editJournal.entries[0].label).toBe("rotate");
+    expect(editJournal.entries[0].steps[0]).toMatchObject({
+      target: modelTarget("m1"),
+      before: { lat: 48.4647, lon: 35.0462, rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 },
+      after: { rotDeg: 45, sx: 2, sy: 2, sz: 2 },
+    });
+    expect(useEditJournalStore.getState()).toMatchObject({ undoable: 1, undoLabel: "rotate", sessionEdits: 1 });
+    // The MODELS-tab RESET journals as "reset"; the placement PATCH is ONE entry.
+    await s.resetTransform("m1");
+    expect(editJournal.entries.map((e) => e.label)).toEqual(["rotate", "reset"]);
+    // A re-commit of the same placement records nothing (the comparator is the placement fields).
+    await s.commitPlacement("m1", { lat: 48.4647, lon: 35.0462, rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 }, "move");
+    expect(editJournal.entries).toHaveLength(2);
+    // `placementOf` = the journal's current(): the own row's placement, else the world's.
+    expect(s.placementOf("m1")).toMatchObject({ rotDeg: 0, sx: 1 });
+    expect(journalCurrent(modelTarget("m1"))).toMatchObject({ rotDeg: 0, sx: 1 });
+    expect(s.placementOf("nope")).toBeNull();
+  });
+
+  it("T126: UNDO restores through `restorePlacement` WITHOUT a journal entry; the session DROP goes back to the first-seen placement", async () => {
+    api.mineRows = [mine("m1")];
+    useUserModelsStore.setState({ mine: [...api.mineRows], minePhase: "ready" });
+    const s = useUserModelsStore.getState();
+    await s.commitPlacement("m1", { lat: 48.4647, lon: 35.0462, rotDeg: 45 }, "rotate");
+    await s.commitPlacement("m1", { lat: 48.4647, lon: 35.0462, rotDeg: 45, sx: 3, sy: 3, sz: 3 }, "scale");
+    expect(editJournal.entries).toHaveLength(2);
+    // UNDO the scale (the orchestrator's applyJournalRestores → restorePlacement).
+    const u = takeUndo(editJournal, journalCurrent, modelTarget("m1"))!;
+    expect(u.entry.label).toBe("scale");
+    expect(u.restores).toEqual([{ target: modelTarget("m1"), to: expect.objectContaining({ rotDeg: 45, sx: 1, sy: 1, sz: 1 }) }]);
+    const patchesBefore = api.patches.length;
+    await s.restorePlacement("m1", u.restores[0].to as never);
+    expect(api.patches).toHaveLength(patchesBefore + 1);
+    expect(api.patches.at(-1)).toMatchObject({ id: "m1", rotDeg: 45, sx: 1, sy: 1, sz: 1 });
+    expect(editJournal.entries).toHaveLength(1); // the undo did not journal
+    expect(s.placementOf("m1")).toMatchObject({ rotDeg: 45, sx: 1 });
+    // The session DROP: back to the placement as first seen (rotDeg 0), one step.
+    const steps = dropSteps(editJournal, journalCurrent, modelTarget("m1"));
+    expect(steps).toHaveLength(1);
+    expect(steps[0].after).toMatchObject({ rotDeg: 0, sx: 1, sy: 1, sz: 1 });
   });
 
   it("publicFromMine + mergeWorld are pure", () => {

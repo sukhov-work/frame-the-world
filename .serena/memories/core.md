@@ -12,6 +12,30 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
+## Status — 2026-09-09
+- **2026-09-09 (`mem:project/wip-2026-09-09-t126-t129-t130-lever8-pixel`):** **THE LEVER-8 PIXEL READ HOLDS · T126 UNDO +
+  DROP SESSION BUILT (both shells) · T129 THE 2D TWO-FINGER PAN BUILT · T130 THE DEVICE CAMPAIGN RUN — T123 CLASSIFIED,
+  T124 NOT REPRODUCED.** Lever 8 on the Pixel (MEASUREMENTS §29): controls in the hitch frames **480 → 141 ms**, whole-leg
+  1.17 s → 393 ms, hitches 77 → 56, the BVH at ~10.5 triangles per raycast (369k raycasts ≈ 900 mesh calls per frame — a
+  later lane item). **T126** (MESH_SUITE_PLAN §16): NEW `lib/edit/editJournal.ts` + `store/editJournal.ts` — ONE entry
+  per COMMIT, full-state steps (a building's raw row with `t`/`s` verbatim; a model's placement), per-target UNDO with
+  the unchanged-since guard, the BASELINE re-based onto every non-dirty state after a SYNC / a fetch, the DROP as one
+  undoable entry, comparators that ignore the stamps; `restoreBldgRow` / `restorePlacement` = the un-journaled restore
+  paths; both chips `↶ UNDO` · `DROP SESSION` · `DROP ALL SESSION EDITS`; the pill `MESH EDITS` never over the model
+  chip (a screenshot-caught bug); Ctrl/Cmd+Z; verified on `verify-meshedit`, `verify-usermodels` 21, the mobile batch
+  twin 127/127 and the Pixel (tapped via adb). **T129:** `MOBILE2D.twoFingerPan` — the library's 2D touch ROTATE is
+  cancelled pre-update (azimuth + altitude) and the midpoint delta PANS on the pivot's ground plane; the north lock
+  stays armed; `verify-uxbatch4` leg 8 = compass on N + the focus moved west. **T130** (MEASUREMENTS §30): two farm
+  sessions (29 device minutes) — **T123 = GROWTH by CACHE RESIDENCY → the 2 GB ceiling, no leak**: the stress page
+  died at ~250 s (syslog `exceeded mem limit: ActiveHard 2048 MB`), tile LRUs flat under the caps, geometries
+  395→795 — the ENRICHED CELLS of every spot stay alive because `/m` 2D DETACHES the tileset and a detached
+  TilesRenderer never evicts (a forced eviction on the twin freed 283 → 137); levers (owner call): release the
+  detached caches on the 2D drop · size the ground cap by decoded bytes · a /m enriched floor. **T124**: the altanka
+  is resident + visible at the exact pose on a fresh page — rides the T123 spiral. Gates: astro 0/0/12 · knip 0 ·
+  sweep `post-2026-09-09` draw-count 13/13 judged. Freshest golden **`post-2026-09-09`**. **NEXT: the T123 lever
+  (owner call a/b/c) + a farm re-run · the farm FEATURE legs · the T77 lane (`applyFeatureSeats` 461 ms, the
+  ephemeris, the ~900 mesh-raycast calls per frame).**
+
 ## Status — 2026-09-08d
 - **2026-09-08d (`mem:project/wip-2026-09-08-regressions-pixel-lever8`):** **THE THREE REGRESSIONS FIXED, THE
   PIXEL READS OF THE MOBILE BATCH PASSED, T77 LEVER 8 BUILT.** **T125** (edited buildings not highlighted): the
@@ -191,14 +215,23 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
 - **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
   allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-08d: vitest **3,021/3,021** (199 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
+- Gates 2026-09-09: vitest **3,043/3,043** (200 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
   `ultraEmisK` unused in two scene files) · knip **0**.
-- **App version 1.36.3 since 2026-09-08d** (`src/lib/version.ts`; the ship hook bumps the patch every ship → 1.36.4).
+- **App version 1.36.4 since 2026-09-09** (`src/lib/version.ts`; the ship hook bumps the patch every ship → 1.36.5).
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130; T126/T129 FIXED, T123
+  CLASSIFIED, T124 not reproduced, T130 run — 2026-09-09).
 
-## Next step — regressions first, then the Pixel reads, then lever 8, then the edit asks, then the device campaign (full brief: `NEXT_SESSION_PROMPT.md`)
+## Next step — LEVER (a) for T123 (RULED), the farm stress re-run, then the main plan in full (full brief: `NEXT_SESSION_PROMPT.md`)
+**Owner ruling 2026-09-09b:** build lever (a) — release the detached enriched + buildings tile caches when `/m` drops to
+2D (`/m`-only, behind a tunable; A/B on the twin with `scripts/probe-fpv-cycle-leak.mjs`) — then re-run the farm stress
+leg (gate: 8 cycles alive); then the main plan in full: the farm FEATURE legs beyond bestspot/ar · T124's re-check ·
+`applyFeatureSeats` 461 ms · the ephemeris in the hitches · the ~900 mesh-raycast calls per frame. **No Pixel on adb next
+session** — the device tier is the Device Farm iPhone 17 Pro, the local tier the owner's headed Chrome on :9222 (attach,
+never kill/relaunch; `bringToFront` + a rAF-tick guard before any timed probe) beside the house headless :9333. The
+paragraph below is the 2026-09-08d brief, kept for the record.
+
 **The owner calls are ANSWERED (DECISIONS 2026-09-08c, nothing open):** lever 4 closed · lever 8 (terrain BVH) BUILD ·
 `holdMaxMs` 30 s (applied) · everything else KEPT · the 2D parallel-drag rotation RETIRE (T129) · T113 parked.
 **Order (mine, owner-approved): T125** (edited-building highlight REGRESSION) → **T127** (a stray touch clears the
@@ -327,9 +360,13 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   hygiene + the rate encoder (T121) · THE TWO-FINGER TWIST (T120) · T122 (09-08b, HOT; the Pixel reads owed)** ·
   DECISIONS 2026-09-08b · backlog T120–T122 · `mem:project/wip-2026-09-08-mobile-uxbatch-heatmap-gestures`
 - **THE REGRESSIONS + THE PIXEL READS + LEVER 8: T125 the night tint floor · T127 the /m pin-keep · T128 per-axis
-  user-mesh scale · the batch's Pixel reads (adb input; CDP touch is a mirage) · the terrain BVH (09-08d, HOT;
-  the lever-8 Pixel read owed)** · DECISIONS 2026-09-08d · MEASUREMENTS §28 · backlog T125/T127/T128 · T77 lever 8 ·
+  user-mesh scale · the batch's Pixel reads (adb input; CDP touch is a mirage) · the terrain BVH (09-08d, HOT)** ·
+  DECISIONS 2026-09-08d · MEASUREMENTS §28 · backlog T125/T127/T128 · T77 lever 8 ·
   `mem:project/wip-2026-09-08-regressions-pixel-lever8`
+- **THE LEVER-8 PIXEL READ · T126 UNDO + DROP SESSION (the edit journal) · T129 the 2D two-finger PAN · T130 the
+  device campaign: T123 classified (cache residency → the 2 GB ceiling), T124 not reproduced (09-09, HOT)** ·
+  DECISIONS 2026-09-09 · MEASUREMENTS §29–30 · MESH_SUITE_PLAN §16 · backlog T123/T124/T126/T129/T130 ·
+  `mem:project/wip-2026-09-09-t126-t129-t130-lever8-pixel`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

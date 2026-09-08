@@ -633,6 +633,54 @@ try {
   await shoot("usermodels-02-rotated.jpeg");
   console.log(`leg 4: ROTATE ${a.committed.rotDeg.toFixed(1)}° (three sense) · own list rotDeg ${own4.rotDeg}`);
 
+  // --- 4b: T126 — UNDO + DROP SESSION on a USER MODEL (owner 2026-09-08b, MESH_SUITE_PLAN §16).
+  //     Leg 4's ring release is the model's FIRST journaled commit this page (the leg-1 placement
+  //     was unplaced → placed, not an edit; leg 3 reloaded) → one entry, baseline = yaw 0 at the
+  //     seed. A store commit adds a second; UNDO puts the leg-4 yaw back through the un-journaled
+  //     PATCH; DROP SESSION returns to the baseline as ONE undoable entry; UNDO brings the yaw
+  //     back — leg 4a continues from exactly the leg-4 state. ---------------------------------------
+  const JS = "window.__editJournalStore.getState()";
+  const jState = () => evalJs(`(() => { const j = ${JS}; const a = ${ES}.armed; const own = ${US}.mine.find((m) => m.id === ${JSON.stringify(modelId)}); return { undoable: j.undoable, undoLabel: j.undoLabel, sessionEdits: j.sessionEdits, armedUndoable: a?.undoable ?? null, armedSessionEdited: a?.sessionEdited ?? null, rotDeg: own?.rotDeg ?? null, committedRot: a?.committed?.rotDeg ?? null }; })()`);
+  const jWait = async (label, pred, timeoutMs = 20_000) => {
+    const t0 = Date.now();
+    let last = null;
+    while (Date.now() - t0 < timeoutMs) {
+      last = await jState();
+      if (pred(last)) return last;
+      await sleep(150);
+    }
+    fail(`${label}: the journal never reached the expected state — last ${JSON.stringify(last)}`);
+  };
+  const yaw4 = a.committed.rotDeg;
+  const j0 = await jWait("leg 4b: after leg 4", (j) => j.undoable === 1 && j.undoLabel === "rotate" && j.sessionEdits === 1 && j.armedUndoable === 1 && j.armedSessionEdited === true);
+  if (!(await evalJs("!!document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-undo[data-act=\"undo\"]')"))) fail("leg 4b: the model chip offers no UNDO after the ring release");
+  if (!(await evalJs("!!document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-drop[data-act=\"drop-session\"]')"))) fail("leg 4b: the model chip offers no DROP SESSION with the yaw off its baseline");
+  console.log(`leg 4b: journal after leg 4 — undoable ${j0.undoable} ("${j0.undoLabel}") · session edits ${j0.sessionEdits} · yaw ${yaw4.toFixed(1)}°`);
+  // A second commit through the store (the path every release takes), labelled by its op.
+  const yawB = yaw4 + 20;
+  await evalJs(`${US}.commitPlacement(${JSON.stringify(modelId)}, { lat: ${a.lat}, lon: ${a.lon}, rotDeg: ${yawB} }, "rotate").then(() => true)`);
+  await jWait("leg 4b: second commit", (j) => j.undoable === 2 && near(j.rotDeg, yawB, 1e-6));
+  // UNDO through the CHIP BUTTON → the leg-4 yaw returns (a PATCH, un-journaled: the count FALLS).
+  await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-undo').click(), true");
+  const j1 = await jWait("leg 4b: undo", (j) => j.undoable === 1 && near(j.rotDeg, yaw4, 1e-6) && j.armedUndoable === 1);
+  await ownRowEventually(modelId, (r) => near(r.rotDeg, yaw4, 1e-6), "leg 4b (undo, own list)");
+  await waitUntil("leg 4b: the scene eased back to the leg-4 yaw", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.rotDeg - (${yaw4})) < 1e-3; })()`);
+  console.log(`leg 4b: UNDO (chip) → yaw ${j1.rotDeg.toFixed(1)}° · own list agrees · scene eased · undoable ${j1.undoable}`);
+  // DROP SESSION (chip button) → the baseline (yaw 0, the seed) — and the drop is one journal entry.
+  await evalJs("document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-drop').click(), true");
+  const j2 = await jWait("leg 4b: drop", (j) => j.undoable === 2 && j.undoLabel === "drop" && j.sessionEdits === 0 && j.rotDeg === 0 && j.armedSessionEdited === false);
+  await ownRowEventually(modelId, (r) => r.rotDeg === 0, "leg 4b (drop, own list)");
+  if (await evalJs("!!document.querySelector('.bldg-edit-chip[data-kind=\"model\"] .bec-drop')")) fail("leg 4b: DROP SESSION still offered at the baseline");
+  console.log(`leg 4b: DROP SESSION → yaw 0 (the baseline) · journaled as "${j2.undoLabel}" · undoable ${j2.undoable}`);
+  // UNDO the drop (the store one-shot, scope = the armed model) → the leg-4 yaw is back.
+  await evalJs(`${JS}.requestUndo("model"), true`);
+  const j3 = await jWait("leg 4b: undo the drop", (j) => j.undoable === 1 && near(j.rotDeg, yaw4, 1e-6) && j.sessionEdits === 1);
+  await ownRowEventually(modelId, (r) => near(r.rotDeg, yaw4, 1e-6), "leg 4b (undo the drop, own list)");
+  await waitUntil("leg 4b: the scene eased back after the drop's undo", `(() => { const m = ${UM}.models.find((m) => m.id === ${JSON.stringify(modelId)}); return !!m && Math.abs(m.target.rotDeg - (${yaw4})) < 1e-3; })()`);
+  a = await waitSaved("leg 4b");
+  if (!near(a.committed.rotDeg, yaw4, 1e-3)) fail(`leg 4b: the armed mirror did not settle on the leg-4 yaw (${a.committed.rotDeg} vs ${yaw4})`);
+  console.log(`leg 4b: UNDO the drop → yaw ${j3.rotDeg.toFixed(1)}° · leg-4 state restored · undoable ${j3.undoable}`);
+
   // --- 4a: MESH SUITE MS8 — the X / Z rings tip + bank the model; the tilt saves, syncs, floors, resets --
   // (a) The model's ROTATE gizmo shows all three rings; the screen-space E ring stays off.
   const rings4a = await evalJs(`({ X: ${GZ}.handlePx("X") !== null, Y: ${GZ}.handlePx("Y") !== null, Z: ${GZ}.handlePx("Z") !== null, E: ${GZ}.handlePx("E") !== null })`);
@@ -775,7 +823,10 @@ try {
     return null;
   };
   const grab5 = await grabScaleBox();
-  if (!grab5) fail("leg 5: no scale box (X / Z / Y) answers a hover-search — the pickers are not where handlePx says");
+  if (!grab5) {
+    const diag = await evalJs(`(() => { const o = ${GZ}.originPx(); const el = o ? document.elementFromPoint(o.x, o.y) : null; const up = o ? document.elementFromPoint(o.x, o.y - 40) : null; return { origin: o, under: el ? el.tagName + "." + el.className : null, above40: up ? up.tagName + "." + up.className : null, pill: !!document.querySelector(".bldg-sync-pill"), chip: document.querySelector(".bldg-edit-chip")?.getBoundingClientRect?.() ?? null, g: { op: ${GZ}.op, attached: ${GZ}.attached, axis: ${GZ}.axis }, inner: [innerWidth, innerHeight] }; })()`).catch((e) => String(e));
+    fail(`leg 5: no scale box (X / Z / Y) answers a hover-search — the pickers are not where handlePx says: ${JSON.stringify(diag)}`);
+  }
   for (let i = 1; i <= 6; i++) {
     await mouse("mouseMoved", grab5.x + (grab5.ux * 60 * i) / 6, grab5.y + (grab5.uy * 60 * i) / 6);
     await sleep(30);

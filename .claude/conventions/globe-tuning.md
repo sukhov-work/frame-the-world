@@ -427,6 +427,12 @@ not from a solved disc.
   verify check that asserts "the field exists" or "solving === false" would have passed. Assert a
   SPREAD.
 
+## The 2D two-finger PAN (added 2026-09-09 — `MOBILE2D.twoFingerPan`, T129)
+
+| Tunable | Default | What it does |
+|---|---|---|
+| `twoFingerPan` | true | Owner ruling 2026-09-08b: with the twist as the ONE rotation gesture, the library's two-finger parallel DRAG (its touch ROTATE — azimuth = the midpoint's drift with the orbit sign, fingers right ⇒ map counter-clockwise) PANS the `/m` 2D map like every map app. `stepTouchTwist` (pre-`controls.update()`) cancels BOTH the library's azimuth and altitude terms for that gesture (`x −= Δx·k`, `y = −Δy·k`, `k = 2π / clientHeight`) and applies the midpoint delta as a DRAG on the plane through the library's pivot with the local up as normal — the library's own `_updatePosition` math, incremental (`hit(prev) − hit(cur)`); `rotationInertia` is zeroed per frame and on pointer up so a pan never spins on release; `touchPan2dLive` keeps the north lock ARMED in `stepMobile2dLocks` (a pan is not a rotation). 3D keeps its two-finger tilt/orbit; FPV is untouched; the twist composes with the pan. `false` restores the 2026-08-21 rotate. Fenced by `test/lib/globe/twistTracker.test.ts`; browser: `verify-uxbatch4` leg 8 (compass stays N, the focus moves west). |
+
 ## The two-finger TWIST (added 2026-09-08b — `CONTROLS.twistArmDeg` / `twistGain`, T120)
 
 | Knob | Value | Why |

@@ -26,6 +26,8 @@ const armed = (): ModelEditArmed => ({
   live: { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0, tE: 0, tN: 0 },
   saving: false,
   saveError: null,
+  undoable: 0,
+  sessionEdited: false,
 });
 
 describe("store/modelEdit", () => {

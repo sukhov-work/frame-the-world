@@ -8,6 +8,8 @@
 //      spring-centred RATE encoder (`.ct-enc`) on /m;
 //   5. the two-finger TWIST rotates the map WITH the fingers in 2D and 3D, with and without
 //      midpoint drift (the library's inverted drift term cancelled), never in FPV.
+//   7. T126 (2026-09-09): UNDO + DROP SESSION on the /m building chip, TAPPED on the glass — an
+//      edit undone, two edits dropped to the baseline (one journal entry), the drop undone.
 //
 //   node scripts/verify-mobile-batch-2026-09-08.mjs [9333] [--shots]
 //   node scripts/verify-mobile-batch-2026-09-08.mjs 9444 --device [--shots]   # the Pixel over adb
@@ -536,6 +538,113 @@ else {
   const down = await J(`(() => ({ sheet: !!document.querySelector('.m-sheet[aria-label="FIND IN FRAME"]'), open: window.__findStore.getState().open, live: document.querySelector(".m-tab:nth-child(3)").classList.contains("m-tab--live") }))()`);
   ok(down.sheet === false && down.open === false && down.live === false, `…and the hold stands it down (open ${down.open}, live ${down.live})`);
   await shot("mbatch-10-find-down");
+}
+
+// ── 7. T126 (owner 2026-09-08b): UNDO + DROP SESSION on the /m chip, tapped on the glass ─────────
+// Still in FPV. A building is armed through the DEV seam (the double-tap has no reliable injection
+// on the phone), edits go through the ONE commit path (`enrichedSetTransform`), and the chip's
+// UNDO / DROP SESSION buttons are TAPPED — adb on the Pixel, CDP touch on the twin.
+{
+  const ARMED = "window.__bldgEditStore.getState().armed";
+  const JS = "window.__editJournalStore.getState()";
+  const ROWS = `JSON.parse(localStorage.getItem("ftw:bldg-overrides:v1") ?? "{}")`;
+  const vp = await J(`({ w: innerWidth, h: innerHeight })`);
+  let armed = null;
+  // The enriched cells stream slower on the phone (the lean load budget): wait for cells around the
+  // eye before picking, then sweep a grid over the middle of the frame — the first pixel with a
+  // building under it arms it; three passes 3 s apart while the city keeps landing.
+  const cellsAt = async () => J(`(() => { const s = window.__globe.enrichedSeats(); const c = window.__cameraStore.getState(); return { cells: s ? s.cells : -1, bld: c.buildings3d }; })()`);
+  const c0 = await s.waitFor(`(() => { const s = window.__globe.enrichedSeats(); return !!s && s.cells > 0; })()`, 30_000, "enriched cells streamed in FPV").then(() => cellsAt()).catch(() => null);
+  info(`T126: enriched cells ${c0?.cells ?? "?"} · BLD ${c0?.bld}`);
+  // The whole frame, centre-out (the phone's tall viewport puts the street band where the twin's
+  // buildings were): 9 × 8 pixels; the pick needs FPV live + BLD on (`pickBuildingAt`).
+  const grid = [];
+  for (const fy of [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7, 0.25, 0.75, 0.2, 0.8]) for (const fx of [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8, 0.1, 0.9]) grid.push([vp.w * fx, vp.h * fy]);
+  const sweepGrid = async () => {
+    for (const [x, y] of grid) {
+      const hit = await J(`window.__globe.armBuildingAt(${x}, ${y})`);
+      if (hit) {
+        await sleep(400);
+        armed = await J(ARMED);
+        if (armed) return;
+      }
+    }
+  };
+  for (let pass = 0; pass < 2 && !armed; pass++) {
+    await sweepGrid();
+    if (!armed) await sleep(3000);
+  }
+  if (!armed) {
+    // The LOOK FROM HERE stand of the earlier legs may face a band with no building (the river,
+    // the park): re-stand at the MAP FOCUS (the city centre) and sweep again — the pick itself is
+    // proven from there (2026-09-09: 18 hits along the horizon band on the Pixel).
+    info("T126: no building in the current FPV band — re-standing at the map focus");
+    await s.evalJs(`(() => { const c = window.__cameraStore.getState(); c.setTempFpv(false); return true; })()`);
+    await sleep(1500);
+    await s.evalJs(`(() => { const c = window.__cameraStore.getState(); c.setTempPin({ latDeg: c.focusLatDeg, lonDeg: c.focusLonDeg }); c.setTempFpv(true); return true; })()`);
+    await s.waitFor(`window.__cameraStore.getState().fpvHud !== null`, 30_000, "FPV live at the focus").catch(() => {});
+    await sleep(4000);
+    for (let pass = 0; pass < 2 && !armed; pass++) {
+      await sweepGrid();
+      if (!armed) await sleep(3000);
+    }
+  }
+  const diag = armed ? null : await J(`(() => { const c = window.__cameraStore.getState(); const f = window.__globe.fpv(); const s = window.__globe.enrichedSeats(); return { fpv: f.active, hud: !!c.fpvHud, bld: c.buildings3d, cells: s ? s.cells : -1, heading: c.fpvHud?.headingDeg, pitch: c.fpvHud?.pitchDeg, vp: [innerWidth, innerHeight] }; })()`);
+  ok(armed !== null, `T126: a building armed in /m FPV through the seam (${armed ? `${armed.cellUri}|${armed.featureId}` : `none under a 117-point grid — ${JSON.stringify(diag)}`})`);
+  if (armed) {
+    const { cellUri, featureId: fid } = armed;
+    const jWait = async (label, pred, timeoutMs = 6000) => {
+      const t0 = Date.now();
+      let last = null;
+      while (Date.now() - t0 < timeoutMs) {
+        last = await J(`(() => { const j = ${JS}; const a = ${ARMED}; const rows = ${ROWS}; const k = Object.keys(rows).find((k) => k.endsWith(${JSON.stringify(`|${cellUri}|${fid}`)})); return { undoable: j.undoable, undoLabel: j.undoLabel, sessionEdits: j.sessionEdits, armedUndoable: a?.undoable ?? null, armedSessionEdited: a?.sessionEdited ?? null, row: k ? rows[k] : null }; })()`);
+        if (pred(last)) return last;
+        await sleep(150);
+      }
+      ok(false, `T126 ${label}: the journal never reached the expected state — last ${JSON.stringify(last)}`);
+      return last;
+    };
+    const j0 = await J(`(() => { const j = ${JS}; return { undoable: j.undoable, sessionEdits: j.sessionEdits }; })()`);
+    const base = j0.undoable;
+    const xf = (sy) => `{ sy: ${sy}, sx: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: 0 }`;
+    await J(`(window.__globe.enrichedSetTransform(${JSON.stringify(cellUri)}, ${fid}, ${xf(1.5)}), true)`);
+    const j1 = await jWait("after one edit", (j) => j.undoable === base + 1 && j.armedUndoable >= 1 && j.armedSessionEdited === true && j.row?.sy === 1.5);
+    ok(j1?.row?.sy === 1.5, `T126: one edit → row sy 1.5, journal +1 (undoable ${j1?.undoable}, armed ${j1?.armedUndoable}/${j1?.armedSessionEdited})`);
+    const btns = await J(`(() => { const q = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2, text: el.textContent.trim() }; }; return { undo: q(".bldg-edit-chip .bec-undo"), drop: q(".bldg-edit-chip .bec-drop"), reset: q(".bldg-edit-chip .bec-reset"), pill: !!document.querySelector(".bldg-sync-pill") }; })()`);
+    ok(btns.undo !== null && btns.drop !== null, `T126: the /m chip foot offers UNDO + DROP SESSION (${btns.undo?.text} · ${btns.drop?.text})`);
+    ok(btns.pill === false, "T126: no MESH EDITS pill while the building chip is up");
+    if (btns.undo) info(`T126: UNDO ${btns.undo.w.toFixed(0)}×${btns.undo.h.toFixed(0)} px at (${btns.undo.cx.toFixed(0)}, ${btns.undo.cy.toFixed(0)}) · DROP ${btns.drop?.w.toFixed(0)}×${btns.drop?.h.toFixed(0)} px`);
+    await shot("mbatch-11-t126-chip");
+    if (btns.undo) {
+      // TAP UNDO on the glass → the edit is gone (no row), the count falls
+      await pressAt(btns.undo.cx, btns.undo.cy, 60, 500);
+      const j2 = await jWait("after the UNDO tap", (j) => j.undoable === base && j.row === null);
+      ok(j2?.row === null && j2?.undoable === base, `T126: the UNDO tap put the row back to nothing (undoable ${j2?.undoable})`);
+      // two edits, then DROP SESSION → the baseline (nothing), one journal entry; UNDO → sy 1.6 back
+      await J(`(window.__globe.enrichedSetTransform(${JSON.stringify(cellUri)}, ${fid}, ${xf(1.3)}), true)`);
+      await J(`(window.__globe.enrichedSetTransform(${JSON.stringify(cellUri)}, ${fid}, ${xf(1.6)}), true)`);
+      await jWait("after two edits", (j) => j.undoable === base + 2 && j.row?.sy === 1.6);
+      const drop = await J(`(() => { const el = document.querySelector(".bldg-edit-chip .bec-drop"); if (!el) return null; const r = el.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; })()`);
+      ok(drop !== null, "T126: DROP SESSION offered with two edits standing");
+      if (drop) {
+        await pressAt(drop.cx, drop.cy, 60, 500);
+        const j4 = await jWait("after the DROP tap", (j) => j.undoLabel === "drop" && j.row === null && j.armedSessionEdited === false);
+        ok(j4?.row === null && j4?.undoLabel === "drop", `T126: DROP SESSION tapped → no row, journaled as "drop" (undoable ${j4?.undoable})`);
+        const undo2 = await J(`(() => { const el = document.querySelector(".bldg-edit-chip .bec-undo"); if (!el) return null; const r = el.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; })()`);
+        ok(undo2 !== null, "T126: UNDO offered after the drop");
+        if (undo2) {
+          await pressAt(undo2.cx, undo2.cy, 60, 500);
+          const j5 = await jWait("after undoing the drop", (j) => j.row?.sy === 1.6 && j.armedSessionEdited === true);
+          ok(j5?.row?.sy === 1.6, `T126: UNDO tapped after the drop → sy 1.6 is back (undoable ${j5?.undoable})`);
+        }
+      }
+      await shot("mbatch-12-t126-after");
+      // leave the building as found: RESET through the seam, then disarm
+      await J(`(window.__globe.enrichedSetTransform(${JSON.stringify(cellUri)}, ${fid}, ${xf(1)}), true)`);
+      await J(`(window.__bldgEditStore.getState().requestDisarm(), true)`);
+      await sleep(400);
+    }
+  }
 }
 
 console.log(notes.join("\n"));

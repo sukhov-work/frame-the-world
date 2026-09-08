@@ -25,6 +25,7 @@ import type { useMarketStore } from "./store/market";
 import type { useMemberStore } from "./store/member";
 import type { useModelUploadStore } from "./store/modelUpload";
 import type { useModelEditStore } from "./store/modelEdit";
+import type { editJournal, useEditJournalStore } from "./store/editJournal";
 import type { useUserModelsStore } from "./store/userModels";
 import type { DebugFeedSeam } from "./lib/globe/debugFeed";
 
@@ -130,6 +131,10 @@ declare global {
     /** MESH SUITE MS5 — the armed USER MODEL mirror (the bldgEdit twin: op / revert / menu /
      *  disarm one-shots); `verify-usermodels.mjs` reads `armed` and drives the requests. */
     __modelEditStore?: typeof useModelEditStore;
+    /** T126 — the session edit journal's mirror (undoable / sessionEdits) + the UNDO / DROP one-shots;
+     *  `__editJournal` is the journal itself (entries + baselines), read-only for a harness. */
+    __editJournalStore?: typeof useEditJournalStore;
+    __editJournal?: typeof editJournal;
     /** MESH SUITE MS5 — the world's user models (the cover-driven world read, MINE, the
      *  click-to-place state, the engine's residency/density mirror). */
     __userModelsStore?: typeof useUserModelsStore;

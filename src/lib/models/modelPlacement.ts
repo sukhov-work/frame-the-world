@@ -306,6 +306,54 @@ export function canonicalTilt(pitchDeg: number, rollDeg: number): { pitchDeg: nu
   return { pitchDeg: p, rollDeg: r, yawAddDeg: yawAdd };
 }
 
+/** T126: a placed model's PERSISTED STATE for the edit journal — the placement PATCH's fields, as the
+ *  record holds them (the server's clamped, rounded values). Null for an unplaced model: the first
+ *  placement of a stored model is not an edit of a mesh on the map and is not journaled. */
+export interface PlacementSnapshot {
+  lat: number;
+  lon: number;
+  rotDeg: number;
+  sx: number;
+  sy: number;
+  sz: number;
+  tU: number;
+  pitchDeg: number;
+  rollDeg: number;
+}
+export function placementSnapshot(
+  row: { lat: number | null; lon: number | null } & Partial<Omit<PlacementSnapshot, "lat" | "lon">> | null | undefined,
+): PlacementSnapshot | null {
+  if (!row || row.lat === null || row.lon === null || !Number.isFinite(row.lat) || !Number.isFinite(row.lon)) return null;
+  return {
+    lat: row.lat,
+    lon: row.lon,
+    rotDeg: row.rotDeg ?? 0,
+    sx: row.sx ?? 1,
+    sy: row.sy ?? 1,
+    sz: row.sz ?? 1,
+    tU: row.tU ?? 0,
+    pitchDeg: row.pitchDeg ?? 0,
+    rollDeg: row.rollDeg ?? 0,
+  };
+}
+/** Two snapshots describe the same placement — an exact compare of the record's own numbers (a
+ *  fetched copy carries the same values the PATCH answered; only the wire's rounding could differ,
+ *  and the PATCH answer IS the wire's version). */
+export function samePlacement(a: PlacementSnapshot | null, b: PlacementSnapshot | null): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.lat === b.lat &&
+    a.lon === b.lon &&
+    a.rotDeg === b.rotDeg &&
+    a.sx === b.sx &&
+    a.sy === b.sy &&
+    a.sz === b.sz &&
+    a.tU === b.tU &&
+    a.pitchDeg === b.pitchDeg &&
+    a.rollDeg === b.rollDeg
+  );
+}
+
 export function isIdentityModelTransform(t: ModelTransform, eps = MODEL_XF_EPS): boolean {
   return (
     Math.abs(normalizeDeg(t.rotDeg)) < eps.rotDeg &&

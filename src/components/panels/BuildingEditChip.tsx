@@ -9,6 +9,8 @@ import {
   type BldgEditOrigin,
 } from "../../store/bldgEdit";
 import { useBldgSyncStore, type BldgSyncResult } from "../../store/bldgSync";
+import { DROP_TITLE_ALL, DROP_TITLE_ONE, undoTitle, useEditJournalStore, type EditScope } from "../../store/editJournal";
+import { useModelEditStore } from "../../store/modelEdit";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import type { FeatureTransform } from "../../lib/globe/featureTransform";
 import { formatDims } from "../../lib/format/readout";
@@ -33,6 +35,12 @@ import "../../styles/building-edit.css";
  * ORIGIN badge (SHARED · UNSYNCED · SYNCED), the menu a SYNC item; and while NOTHING is armed but
  * edits are pending, the island renders a small standalone PILL in the same slot so the pending
  * edits are never hidden behind "arm a building first".
+ *
+ * T126 (owner 2026-09-08b, MESH_SUITE_PLAN §16): the foot grows `↶ UNDO` (the armed building's last
+ * edit) and `DROP SESSION` (this building back to how it was at page load / the last sync), the menu
+ * the same two plus `DROP ALL SESSION EDITS`, and the pill — now shown while session edits exist
+ * too — UNDO + DROP ALL beside SYNC. The counts come from the journal mirror (store/editJournal);
+ * the buttons write back the one-shots the orchestrator's frame service applies.
  */
 
 export const OP_LABEL: Record<BldgEditOp, string> = {
@@ -154,7 +162,22 @@ export interface BuildingEditActions {
   requestSync(): void;
   /** MS3: the sign-in round-trip (returns to this exact view; the pending rows wait in storage). */
   signIn(): void;
+  /** T126: undo the last edit — the armed building's ("bldg") or anyone's ("all", the pill). */
+  requestUndo(scope: EditScope): void;
+  /** T126: drop this session's edits — the armed building's ("bldg") or every mesh's ("all"). */
+  requestDrop(scope: EditScope): void;
 }
+
+/** T126: the journal mirror as the views need it (plain data — the pill and the menus read it). */
+export interface EditJournalView {
+  /** Entries in the journal (any mesh). */
+  undoable: number;
+  /** The label of the entry a global UNDO would take. */
+  undoLabel: string | null;
+  /** Meshes (buildings + models) with session edits — DROP ALL's count. */
+  sessionEdits: number;
+}
+export const NO_JOURNAL: EditJournalView = { undoable: 0, undoLabel: null, sessionEdits: 0 };
 
 /** MS3: re-render once a fresh push outcome expires, so the button falls back to the count. */
 function useResultExpiry(result: BldgSyncResult | null): number {
@@ -183,6 +206,14 @@ export default function BuildingEditChip() {
   const requestSync = useBldgSyncStore((s) => s.requestSync);
   const memberPhase = useMemberStore((s) => s.phase);
   const refreshMember = useMemberStore((s) => s.refresh);
+  const jUndoable = useEditJournalStore((s) => s.undoable);
+  const jUndoLabel = useEditJournalStore((s) => s.undoLabel);
+  const jSessionEdits = useEditJournalStore((s) => s.sessionEdits);
+  const requestUndo = useEditJournalStore((s) => s.requestUndo);
+  const requestDrop = useEditJournalStore((s) => s.requestDrop);
+  const journal: EditJournalView = { undoable: jUndoable, undoLabel: jUndoLabel, sessionEdits: jSessionEdits };
+  // T126: the model chip (its own island) shares this slot — while a MODEL is armed the pill yields.
+  const modelArmed = useModelEditStore((s) => s.armed !== null);
   useResultExpiry(result);
   // Resolve the session once there is something to sync (MemberBadge does it on desktop; /m's
   // account sheet only when opened — the pill must not say SIGN IN to a signed-in member).
@@ -201,9 +232,20 @@ export default function BuildingEditChip() {
     signIn: () => {
       window.location.href = loginUrl(returnHereUrl());
     },
+    requestUndo,
+    requestDrop,
   };
-  if (!armed) return sync.kind === "hidden" ? null : <SyncPill sync={sync} actions={actions} />;
-  return <BuildingEditChipView armed={armed} menu={menu} sync={sync} actions={actions} />;
+  // The pill shows while something is PENDING: rows to sync, or session edits to drop (T126) —
+  // never for UNDO alone (an emptied journal after a SYNC must not keep a pill on screen).
+  if (!armed) return pillShows(sync, journal, modelArmed) ? <SyncPill sync={sync} actions={actions} journal={journal} /> : null;
+  return <BuildingEditChipView armed={armed} menu={menu} sync={sync} actions={actions} journal={journal} />;
+}
+
+/** T126: the pill's visibility rule (unit-tested) — pending rows or droppable session edits, and
+ *  never while a MODEL is armed (the model chip owns the slot then; it carries its own UNDO / DROP). */
+export function pillShows(sync: SyncButtonState, journal: EditJournalView, modelArmed = false): boolean {
+  if (modelArmed) return false;
+  return sync.kind !== "hidden" || journal.sessionEdits > 0;
 }
 
 /** MS3: the SYNC button (chip foot + pill share it). */
@@ -233,11 +275,30 @@ export function SyncButton({
   );
 }
 
-/** MS3: nothing armed, edits pending — the standalone pill in the chip's slot (both shells). */
-export function SyncPill({ sync, actions }: { sync: SyncButtonState; actions: Pick<BuildingEditActions, "requestSync" | "signIn"> }) {
+/** MS3: nothing armed, edits pending — the standalone pill in the chip's slot (both shells).
+ *  T126: + UNDO (the last edit anywhere) and DROP ALL (every mesh's session edits) beside SYNC. */
+export function SyncPill({
+  sync,
+  actions,
+  journal = NO_JOURNAL,
+}: {
+  sync: SyncButtonState;
+  actions: Pick<BuildingEditActions, "requestSync" | "signIn"> & Partial<Pick<BuildingEditActions, "requestUndo" | "requestDrop">>;
+  journal?: EditJournalView;
+}) {
   return (
     <div className="bldg-sync-pill" role="status">
-      <span className="bldg-sync-pill__k">BUILDING EDITS</span>
+      <span className="bldg-sync-pill__k">MESH EDITS</span>
+      {journal.undoable > 0 && actions.requestUndo && (
+        <button type="button" className="bec-undo" data-act="undo" title={undoTitle(journal.undoLabel, "the last edit")} onClick={() => actions.requestUndo?.("all")}>
+          ↶ UNDO
+        </button>
+      )}
+      {journal.sessionEdits > 0 && actions.requestDrop && (
+        <button type="button" className="bec-drop" data-act="drop-all" title={DROP_TITLE_ALL} onClick={() => actions.requestDrop?.("all")}>
+          DROP SESSION {journal.sessionEdits}
+        </button>
+      )}
       <SyncButton sync={sync} actions={actions} />
     </div>
   );
@@ -248,13 +309,15 @@ export function BuildingEditChipView({
   menu,
   sync,
   actions,
+  journal = NO_JOURNAL,
 }: {
   armed: BldgEditArmed;
   menu: BldgEditMenu | null;
   sync: SyncButtonState;
   actions: BuildingEditActions;
+  journal?: EditJournalView;
 }) {
-  const { setOp, requestRevert, requestReset } = actions;
+  const { setOp, requestRevert, requestReset, requestUndo, requestDrop } = actions;
   const spatial = armed.op !== "extrude";
   const originLabel = ORIGIN_LABEL[armed.origin];
   return (
@@ -311,6 +374,16 @@ export function BuildingEditChipView({
           })}
         </div>
         <div className="bec-foot">
+          {armed.undoable > 0 && !armed.dragging && (
+            <button type="button" className="bec-undo" data-act="undo" title={undoTitle(null, "this building")} onClick={() => requestUndo("bldg")}>
+              ↶ UNDO
+            </button>
+          )}
+          {armed.sessionEdited && !armed.dragging && (
+            <button type="button" className="bec-drop" data-act="drop-session" title={DROP_TITLE_ONE} onClick={() => requestDrop("bldg")}>
+              DROP SESSION
+            </button>
+          )}
           {armed.overridden && !armed.dragging && (
             <button type="button" className="bec-reset" onClick={requestReset}>
               RESET ALL
@@ -327,7 +400,7 @@ export function BuildingEditChipView({
           </span>
         </div>
       </div>
-      {menu && <BuildingEditMenu armed={armed} menu={menu} sync={sync} actions={actions} />}
+      {menu && <BuildingEditMenu armed={armed} menu={menu} sync={sync} actions={actions} journal={journal} />}
     </>
   );
 }
@@ -342,13 +415,15 @@ export function BuildingEditMenu({
   menu,
   sync,
   actions,
+  journal = NO_JOURNAL,
 }: {
   armed: BldgEditArmed;
   menu: BldgEditMenu;
   sync: SyncButtonState;
   actions: BuildingEditActions;
+  journal?: EditJournalView;
 }) {
-  const { setOp, closeMenu, requestReset, requestDisarm, requestSync, signIn } = actions;
+  const { setOp, closeMenu, requestReset, requestDisarm, requestSync, signIn, requestUndo, requestDrop } = actions;
   const cardRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
@@ -420,6 +495,51 @@ export function BuildingEditMenu({
           }}
         >
           ↺ REVERT ALL
+        </button>
+      )}
+      {armed.undoable > 0 && (
+        <button
+          type="button"
+          role="menuitem"
+          className="bldg-menu__item"
+          data-act="undo"
+          title={undoTitle(null, "this building")}
+          onClick={() => {
+            requestUndo("bldg");
+            closeMenu();
+          }}
+        >
+          ↶ UNDO
+        </button>
+      )}
+      {armed.sessionEdited && (
+        <button
+          type="button"
+          role="menuitem"
+          className="bldg-menu__item"
+          data-act="drop-session"
+          title={DROP_TITLE_ONE}
+          onClick={() => {
+            requestDrop("bldg");
+            closeMenu();
+          }}
+        >
+          ⟲ DROP SESSION
+        </button>
+      )}
+      {journal.sessionEdits > (armed.sessionEdited ? 1 : 0) && (
+        <button
+          type="button"
+          role="menuitem"
+          className="bldg-menu__item"
+          data-act="drop-all"
+          title={DROP_TITLE_ALL}
+          onClick={() => {
+            requestDrop("all");
+            closeMenu();
+          }}
+        >
+          ⟲ DROP ALL SESSION EDITS · {journal.sessionEdits}
         </button>
       )}
       {syncable && (

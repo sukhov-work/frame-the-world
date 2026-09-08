@@ -10,7 +10,8 @@
 //   5. /m dock: time-only clock, no PLAY/rate; status strip lost the time chip
 //   6. /m LAYERS: ▤ VECTOR row present + persists
 //   7. /m long-press ▲ 3D → FPV jump (no set point)
-//   8. /m 2D two-finger parallel drag ROTATES (compass leaves N) and never flips to 3D
+//   8. /m 2D two-finger parallel drag PANS (T129, owner 2026-09-08b: the twist is the one rotation —
+//      the compass STAYS N, the focus moves) and never flips to 3D
 // Screenshots land in verify-shots/ (git-ignored).
 import { writeFileSync, mkdirSync } from "node:fs";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
@@ -236,7 +237,7 @@ if (peekOk) {
   await sleep(500);
 }
 
-// 8 — 2D two-finger parallel drag rotates, never flips 3D
+// 8 — T129: a 2D two-finger parallel drag PANS (the twist is the one rotation), never flips 3D
 const canvasRect = await m.rect("canvas.globe-canvas");
 if (canvasRect) {
   const cy = canvasRect.y + canvasRect.h * 0.45;
@@ -246,6 +247,7 @@ if (canvasRect) {
     { x: x1 + dx, y: cy - 60, id: 1 },
     { x: x2 + dx, y: cy + 60, id: 2 },
   ];
+  const focusBefore = await m.evalJs(`(() => { const c = window.__cameraStore.getState(); return { lat: c.focusLatDeg, lon: c.focusLonDeg, h: c.headingDeg ?? null }; })()`);
   // Fine 3 px steps — the library classifies ROTATE-vs-ZOOM on the FIRST move past ~6 px, and
   // CDP delivers the two pointers in separate tasks: a coarse step reads as a pinch mid-frame.
   await m.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pts(0) });
@@ -259,14 +261,25 @@ if (canvasRect) {
     const rose = document.querySelector(".m-nav__dial [style*='rotate'], .m-nav__dial[style*='rotate']");
     return rose ? rose.style.transform : null;
   })()`);
+  const focusAfter = await m.evalJs(`(() => { const c = window.__cameraStore.getState(); return { lat: c.focusLatDeg, lon: c.focusLonDeg }; })()`);
   const still2d = await m.evalJs(`(() => { const b = [...document.querySelectorAll(".m-actrow button")][0]; return b ? b.textContent.includes("3D") : null; })()`);
   check("/m: still in 2D after two-finger drag (no tilt door)", still2d === true, String(still2d));
+  // T129: the compass stays on N (the heading lock never stood down — a pan is not a rotation)…
   check(
-    "/m: two-finger drag rotated the map (compass off N)",
-    headingNow !== null && !/rotate\((-?0(\.0+)?)deg\)/.test(headingNow),
+    "/m: two-finger drag did NOT rotate the map (compass on N) — T129",
+    headingNow === null || /rotate\((-?0(\.0+)?)deg\)/.test(headingNow),
     String(headingNow),
   );
-  await m.shoot("uxb4-09-m-2d-rotated");
+  // …and the map PANNED: the fingers went RIGHT 150 px, so the ground under the screen centre
+  // moved WEST (the map follows the fingers) — the focus longitude falls.
+  const dLonDeg = focusAfter.lon - focusBefore.lon;
+  const dLatDeg = focusAfter.lat - focusBefore.lat;
+  check(
+    "/m: two-finger drag PANNED the map west (focus lon fell, lat ~held) — T129",
+    dLonDeg < -1e-5 && Math.abs(dLatDeg) < Math.abs(dLonDeg) * 0.35,
+    `Δlon ${dLonDeg.toExponential(2)}° Δlat ${dLatDeg.toExponential(2)}°`,
+  );
+  await m.shoot("uxb4-09-m-2d-panned");
 }
 
 // 9 — long-press ▲ 3D → FPV (no set point)

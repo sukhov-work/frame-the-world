@@ -1870,3 +1870,106 @@ distances, points, face/normal/uv) on six tile shapes, so the terrain height and
 identical; the render is byte-identical (`GROUND.terrainBvh` never touches geometry) — the pose
 sweep's draw-count gate read 14/14 vs `post-2026-09-08b` and the everest-orbit-52 frozen diff was
 confined to UI chrome (nav pills, scrubber, version stamp), the terrain byte-matched.
+
+## 29. Session 2026-09-09 — LEVER 8 (the terrain BVH) READ ON THE PIXEL — HOLDS
+
+`probe-cpu-profile.mjs 9444 --leg descent --device --top 30`, the Pixel 6 Pro on adb (thermal 0, the
+tab fresh from `am start`, VPN on the phone — ion 401 from the Mac), the same `dnipro-descent` leg as
+§27.2 (409 frames / 8.1 s, 22,368 samples, clock alignment ±0.2 ms via markers). Profile:
+`verify-shots/perf/cpu-descent-device-2026-09-08T21-27-23.cpuprofile`.
+
+| | §27.2 (lever 11 + T115, before lever 8) | this read (lever 8) |
+|---|---|---|
+| dt p50 / p95 / max | 16.7 / 50.3 / 333.0 | 16.7 / 50.0 / 300.1 (the 300 = the profiler's first frame at 31.8 km, the boot) |
+| hitch frames · main thread inside them | 77 · 3.37 s | **56 · 2.36 s** |
+| **controls in the hitches** | **480** (`rawHeightAt` 315, `stepTiltGlide` 138) | **141** (`stepTiltGlide` 95, the BVH's `raycastWithBvh` 20 + `mesh.raycast` 5, `stepControlsUpdate` 16, `rawHeightAt` **2.6**) |
+| whole-leg controls | 1.17 s (`intersectTriangle` / `getX` / `getZ` 620) | **393 ms** (`intersect` 52, `getVertexPosition` 47, `setFromBufferAttribute` 40, the tiles `raycast` 32, `getX` 27, `raycastWithBvh` 21) |
+| `intersectTriangle` in the hitches | (the top symbol) | 11.7 ms |
+| app in the hitches | 649 | 499 (`fastEdges` slotOfKey/walk/run 86, `stateAt` 32.6, `acquireTexture` 26, `keyVertices` 16, `VsopFormula` 12.4, `AddSol` 11.8) |
+| seats in the hitches | 203 (`applyFeatureSeats` 96) | 146 (`applyFeatureSeats` 62) |
+| compile in the hitches | 85 | 170 (`getProgramInfoLog` 156 — one 166 ms frame at 1.75 km carried 130 ms of compile; lever 4 is CLOSED by owner ruling, not re-opened) |
+| whole leg, top self time | `applyFeatureSeats` 427 · the raycast 620 · `fastEdges` 341 | `applyFeatureSeats` **461** (5.4 %) · `fastEdges` ~310 · gc 146 |
+
+**The BVH's own numbers, read off the page after the leg** (`__globe.terrainBvhStats()`): builds **83**
+(18 ms total, worst **8 ms**), raycasts **369,646**, triangles tested **3.88 M → ~10.5 per mesh-raycast**
+(was thousands: three's `Mesh.raycast` walked the whole index once the bounding sphere was hit). What is
+left in the controls bucket is per-MESH overhead — ~900 mesh-raycast calls per FRAME, every LOD ancestor
+whose sphere the vertical ray crosses — a later lane item (a tile-level cull before the per-mesh call),
+not lever 8's.
+
+**Verdict:** lever 8 HOLDS on the phone — controls inside the hitch frames −71 %, `rawHeightAt` gone
+from the callers' table, hitch frames 77 → 56 and their main thread 3.37 → 2.36 s on the same leg.
+The lane's next rows, unchanged in rank: `applyFeatureSeats` 461 ms whole-leg (the biggest app item),
+the ephemeris in the hitches (~57 ms: `stateAt` + `VsopFormula` + `AddSol`), `stepStreetNames` /
+`acquireTexture` 56 + 26, `fastEdges` (budgeted) ~310.
+
+## 30. Session 2026-09-09 — T130 THE DEVICE CAMPAIGN: T123 classified (GROWTH by cache residency → the 2 GB ceiling), T124 not reproduced
+
+Two AWS Device Farm sessions on the fleet's iPhone 17 Pro (iOS 26.3.1) through a cloudflared tunnel to this
+Mac's `wix dev` (`tools/devicefarm/ios-baseline.mjs`, two new legs), 17.9 + 11.2 device minutes; the Pixel 6 Pro
+over adb for the feature legs; the desktop twin (mobile emulation) for the census that names the mechanism.
+
+### 30.1 T123 — the stress leg (`--legs stress --stress-cycles 8`, one `/m` page, never re-navigated)
+The owner's sequence: FPV in at a Dnipro spot → a look-around → FPV out → the heatmap armed at the spot → off;
+spots eye · west-sunset · south · altanka; a `__debugFeed` SNAP after every stage. **The page died in cycle 4
+at `fpv-in`, page age ~250 s** — the device syslog (session `…/fa47a133-…`, the second DEVICE_LOG artifact):
+
+```
+memorystatus: com.apple.WebKit.WebContent [557] exceeded mem limit: ActiveHard 2048 MB (fatal)
+memorystatus: killing process 557 [com.apple.WebKit.WebContent] in high band FOREGROUND (100)
+memorystatus: killing_specific_process pid 557 (per-process-limit 100 290s rf:- type:app) 2097283KB
+```
+
+The `fpv-out` rows (the resting state between spots), the tool's GROWTH-vs-CEILING series:
+
+| cycle · spot | page age | dt p50/p95 | tile LRU bld/gnd/enr MB | textures | geometries | programs |
+|---|---|---|---|---|---|---|
+| c0 eye | 42 s | 17 / 17 | 9 / 97 / 83 | 60 | **395** | 37 |
+| c1 west-sunset | 84 s | 17 / 17 | 10 / 97 / 97 | 82 | **581** | 40 |
+| c2 south | 153 s | 17 / 17 | 11 / 97 / 96 | 65 | **620** | 41 |
+| c3 altanka | 197 s | 17 / 17 | 11 / 97 / 96 | 87 | **795** | 42 |
+| c4 eye `fpv-in` | ~250 s | — | — | — | — | KILLED |
+
+Frame time flat, the tile LRUs FLAT under their lean caps (48 / 112 / 128 MB of content bytes), `renderer.info.memory.geometries`
+climbing ~150 per spot → the tool's verdict **"GROWTH then death: geometries 395→581→620→795"**.
+
+### 30.2 The mechanism — named on the twin (`scripts/probe-fpv-cycle-leak.mjs` + two scratch probes)
+The same cycle on the desktop twin (402×714 @3, touch) with a scene-graph CENSUS after every stage:
+- After every `fpv-out` the geometries ATTACHED to the scene return to ~150–190; the renderer's total keeps climbing
+  (detached-but-alive 237 → 431 → 477 → 617). The per-`fpv-in` adds are the ENRICHED CELLS — `mesh_0` (+52/+73/+75/+62),
+  their edge `LineSegments` (the same counts) and `ftw-trees` (+28/+52/+60/+44) — and they stay alive after FPV
+  exits because `/m` 2D DETACHES the enriched tileset (`setActive(false)`): a detached TilesRenderer is never
+  `update()`d, so its LRU never evicts — the cache is FROZEN with every cell of every spot visited, under a cap
+  (134 / 101 MB) it never reaches.
+- **Not a leak:** force-evicting the detached enriched cache (`lruCache.markAllUnused()` + caps → 0 +
+  `unloadUnusedContent()`) dropped the renderer's geometries **283 → 137** (56 → 1 items, 59 → 3.5 MB); the OSM
+  buildings cache another −29. Everything the cache held was disposable and was disposed (the 2026-07-13
+  `dispose-model` handler holds). `setTempPin` ×6: 43 → 43 geometries (innocent).
+- The enriched cache's byte accounting is honest for GEOMETRY (its 47–59 MB ≈ the summed attribute bytes in the
+  group, 48–60 MB). What the 2 GB counts and the caps do not: the decoded imagery TEXTURES behind the ground
+  LRU's 97 MB of compressed tiles (×4–8 decoded RGBA), the enriched cells' parse-side copies + edge tables, the JS
+  heap (+25 MB per spot resident on the twin: 300 → 355 MB over three spots), the FPV working set per spot.
+
+**Classification (the owner's question):** GROWTH by CACHE RESIDENCY up to caps that the phone cannot afford,
+then the CEILING — no leak. **Lever candidates (owner call; "no overfitting that regresses the app"):**
+(a) when `/m` drops to 2D, RELEASE or trim the detached enriched + buildings caches (nothing reads them until
+the next FPV, which re-streams — mostly from the browser cache); (b) size the lean ground cap by DECODED texture
+bytes, not compressed tile bytes; (c) a `/m`-only `enrichedLruBytesMB` floor well under 128.
+
+### 30.3 T124 — the altanka pose (`--legs t124`, `/m#f=48.463651,35.039833,1.7,304.9,1.7,10.8&t=1788874369380`)
+**NOT REPRODUCED on a fresh page.** The scene's own row for "altanka": `ready`, `seatReal true`, applied 91.1 m,
+11,826 tris at 5 / 15 / 30 / 60 / 90 s; `models r/w/s/l` 3/3/0/0 throughout; the 30 s and 90 s screenshots show
+the gazebo dome centre-right in the frame (`verify-shots/perf/devicefarm-t124-2026-09-08T22-57-08-t124-90s.png`).
+The stress rows corroborate: `models 3/3` resident at every FPV stage incl. the altanka spot. The owner's
+"sometimes" therefore most likely rides the T123 death spiral (a page near the cap failing a GLB / texture
+load, or the post-kill reload) rather than the pose, the near plane or the residency plan — re-check T124 once
+a T123 lever is in.
+
+### 30.4 The Pixel legs (`verify-mobile-batch-2026-09-08 9444 --device`, three runs)
+112 PASS · 2 FAIL on the last run: **T126 §7 on real glass PASS** (a building armed through the seam after a
+re-stand at the map focus; `↶ UNDO` 63×19 px and `DROP SESSION` 100×18 px TAPPED through `adb shell input`:
+UNDO → no row; two edits → DROP → no row, journaled "drop"; UNDO → sy 1.6 back). The two FAILs are not
+changes: the AR "sensors dying" line (the REAL sensors kept the bubble on the rung line — a leg written for the
+twin's synthetic pump) and the encoder's "frame-rate writes deferred (9 frames)" timing line (passed in the two
+earlier runs; the phone at thermal 1–2). **Trap:** on the Pixel the LOOK FROM HERE stand of the earlier legs
+faced a band with no building; `pickBuildingAt` itself hits 18 grid points along the horizon from a centre stand.

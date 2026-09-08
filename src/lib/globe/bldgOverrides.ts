@@ -321,6 +321,22 @@ export function deleteOverride(map: OverrideMap, key: string): void {
   saveOverrides(map);
 }
 
+/** T126: the row's PERSISTED STATE for the edit journal — everything but the stamps. `t` is re-written
+ *  by a handle clicked without movement and `s` by a SYNC; neither is an edit, so UNDO's
+ *  unchanged-since guard and the DROP's baseline test compare through this. Two absent rows are
+ *  the same state; an absent row never equals a present one (a tombstone is present). */
+export function overrideStateKey(row: OverrideRow | null | undefined): string {
+  if (!row) return "null";
+  const { t: _t, s: _s, ...rest } = row;
+  return JSON.stringify(
+    Object.keys(rest)
+      .sort()
+      .map((k) => [k, (rest as Record<string, unknown>)[k]]),
+  );
+}
+export const sameOverrideState = (a: OverrideRow | null | undefined, b: OverrideRow | null | undefined): boolean =>
+  overrideStateKey(a) === overrideStateKey(b);
+
 /** Round to the checksum grid (0.5 m). */
 export function roundCentroidM(x: number): number {
   return Math.round(x * 2) / 2;

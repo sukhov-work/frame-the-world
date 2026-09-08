@@ -168,9 +168,12 @@ import {
   deleteOverride,
   dragScaleK,
   isNeutralRow,
+  isTombstone,
   loadOverrides,
   overrideKey,
+  parseOverrideKey,
   roundCentroidM,
+  rowTransform,
   saveOverrides,
   tombstoneOverride,
   transformFields,
@@ -180,6 +183,7 @@ import {
 import {
   applySyncResult,
   dirtyCount,
+  isDirty,
   originOf,
   OverrideIndex,
   reconcileShared,
@@ -191,6 +195,30 @@ import {
 } from "../../lib/globe/bldgSync";
 import type { PublicOverride } from "../../lib/wix/overrideRecords";
 import { useBldgSyncStore, type BldgSyncResult } from "../../store/bldgSync";
+import {
+  bldgTarget,
+  dropSteps,
+  forgetTarget,
+  hasSessionEdits,
+  isBldgTarget,
+  modelTarget,
+  rebaseWhere,
+  recordEntry,
+  takeUndo,
+  targetKey,
+  undoableCount,
+  type EditTarget,
+} from "../../lib/edit/editJournal";
+import {
+  editJournal,
+  journalCurrent,
+  refreshEditJournalMirror,
+  setJournalCurrent,
+  useEditJournalStore,
+  type EditScope,
+  type EditSnapshot,
+} from "../../store/editJournal";
+import type { PlacementSnapshot } from "../../lib/models/modelPlacement";
 import { useMemberStore } from "../../store/member";
 import {
   IDENTITY_TRANSFORM,
@@ -500,6 +528,9 @@ export function attachStylizedTiles(opts: {
   // The verbatim `?enriched=<url>` dev seam has no stable variant identity → seam omitted.
   const bldgOverrideMap = loadOverrides();
   const bldgShared: SharedMap = new Map();
+  // T126: the session edit journal reads a building's persisted state from THIS map (the model
+  // half is the user-models store's). A page holds one orchestrator, so the install is global.
+  setJournalCurrent("bldg", (key) => bldgOverrideMap[key] ?? null);
   const bldgIndex = enrichedSel.variant
     ? new OverrideIndex(enrichedSel.variant, bldgOverrideMap, bldgShared)
     : null;
@@ -516,6 +547,7 @@ export function attachStylizedTiles(opts: {
             bldgShared.delete(key);
             bldgIndex.invalidate();
             refreshBldgDirty();
+            forgetTarget(editJournal, bldgTarget(key)); // T126: a re-bake killed the row — nothing to undo to
           },
           onRecovered: (
             row: EffectiveOverride,
@@ -574,6 +606,16 @@ export function attachStylizedTiles(opts: {
   // runs at boot (cells streamed before it lands are covered by `reapplyOverrides`) and again
   // before every push (fetch-before-push — the reconciliation honours last-committer-wins; a
   // failed fetch does not block the push, LWW keeps an un-reconciled push safe).
+  /** T126: the journal's baseline for a building follows every NON-dirty local state — a synced copy
+   *  or no row at all is "the persisted state as it was" and the DROP must leave it alone. */
+  const rebaseJournalOnPersisted = () => {
+    const n = rebaseWhere(editJournal, journalCurrent, (t, cur) => {
+      if (!isBldgTarget(t)) return false;
+      const row = cur as OverrideRow | null;
+      return row === null || !isDirty(row);
+    });
+    if (n > 0 || editJournal.baselines.size > 0) refreshEditJournalMirror();
+  };
   const bldgFetchShared = async (): Promise<boolean> => {
     if (!bldgIndex || !enrichedSel.variant) return false;
     useBldgSyncStore.getState()._set({ world: "fetching" });
@@ -597,6 +639,7 @@ export function attachStylizedTiles(opts: {
       enriched?.reapplyOverrides();
       useBldgSyncStore.getState()._set({ world: "ready", complete });
       refreshBldgDirty();
+      rebaseJournalOnPersisted(); // T126: a fetch only ever touches synced copies — never a session edit
       return true;
     } catch (e) {
       console.warn("[bldg-sync] world fetch failed", e);
@@ -614,6 +657,9 @@ export function attachStylizedTiles(opts: {
       bldgSyncBusy = false;
       useBldgSyncStore.getState()._set({ syncing: false, result });
       refreshBldgDirty();
+      // T126: the rows that just landed ARE the persisted state now — the session's droppable edits
+      // shrink to what is still dirty (owner: leave the synced state alone).
+      if (result.kind === "synced" || result.kind === "nothing") rebaseJournalOnPersisted();
       syncBldgEdit(); // the armed building's origin badge (UNSYNCED → SYNCED)
     };
     const outcome = (kind: BldgSyncResult["kind"], upserted = 0, removed = 0, message?: string): BldgSyncResult =>
@@ -2237,6 +2283,8 @@ export function attachStylizedTiles(opts: {
       live: modelLive ?? restingEdit(committed),
       saving: modelSaving,
       saveError: modelSaveError,
+      undoable: undoableCount(editJournal, modelTarget(a.id)),
+      sessionEdited: hasSessionEdits(editJournal, journalCurrent, modelTarget(a.id)),
     });
   };
   const disarmModel = () => {
@@ -2313,11 +2361,12 @@ export function attachStylizedTiles(opts: {
   const persistModel = async (
     id: string,
     patch: { lat: number; lon: number; rotDeg: number; sx: number; sy: number; sz: number; tU: number; pitchDeg: number; rollDeg: number },
+    label: string = "edit",
   ) => {
     modelSaving = true;
     modelSaveError = null;
     syncModelEdit();
-    const row = await useUserModelsStore.getState().commitPlacement(id, patch);
+    const row = await useUserModelsStore.getState().commitPlacement(id, patch, label);
     modelSaving = false;
     modelSaveError = row ? null : "SAVE FAILED";
     syncModelEdit();
@@ -2334,17 +2383,21 @@ export function attachStylizedTiles(opts: {
         const at = offsetGeodetic(info.lat, info.lon, e.tE, e.tN);
         userModels.rebase(a.id, at.latDeg, at.lonDeg);
         userModels.setSeats(a.id, { rotDeg: e.rotDeg, sx: e.sx, sy: e.sy, sz: e.sz, liftM: e.liftM, pitchDeg: e.pitchDeg, rollDeg: e.rollDeg }, true);
-        void persistModel(a.id, {
-          lat: at.latDeg,
-          lon: at.lonDeg,
-          rotDeg: e.rotDeg,
-          sx: e.sx,
-          sy: e.sy,
-          sz: e.sz,
-          tU: e.liftM,
-          pitchDeg: e.pitchDeg,
-          rollDeg: e.rollDeg,
-        });
+        void persistModel(
+          a.id,
+          {
+            lat: at.latDeg,
+            lon: at.lonDeg,
+            rotDeg: e.rotDeg,
+            sx: e.sx,
+            sy: e.sy,
+            sz: e.sz,
+            tU: e.liftM,
+            pitchDeg: e.pitchDeg,
+            rollDeg: e.rollDeg,
+          },
+          modelOp,
+        );
       }
     }
     modelLive = null;
@@ -2357,17 +2410,21 @@ export function attachStylizedTiles(opts: {
     userModels.setSeats(a.id, next, false);
     const info = userModels.info(a.id);
     if (info)
-      void persistModel(a.id, {
-        lat: info.lat,
-        lon: info.lon,
-        rotDeg: next.rotDeg,
-        sx: next.sx,
-        sy: next.sy,
-        sz: next.sz,
-        tU: next.liftM,
-        pitchDeg: next.pitchDeg,
-        rollDeg: next.rollDeg,
-      });
+      void persistModel(
+        a.id,
+        {
+          lat: info.lat,
+          lon: info.lon,
+          rotDeg: next.rotDeg,
+          sx: next.sx,
+          sy: next.sy,
+          sz: next.sz,
+          tU: next.liftM,
+          pitchDeg: next.pitchDeg,
+          rollDeg: next.rollDeg,
+        },
+        "reset",
+      );
     syncModelEdit();
   };
   const openModelMenu = (clientX: number, clientY: number) =>
@@ -2413,8 +2470,11 @@ export function attachStylizedTiles(opts: {
     const live: FeatureTransform = bldgLive ?? { ...committed, sy: a.liveK };
     // MS3: where the committed edit lives (world-shared / mine pending / mine pushed / none).
     const originKey = enrichedSel.variant ? overrideKey(enrichedSel.variant, a.cellUri, a.featureId) : null;
+    const jt = originKey ? bldgTarget(originKey) : null;
     useBldgEditStore.getState()._syncArmed({
       origin: originKey ? originOf(bldgOverrideMap, bldgShared, originKey) : "none",
+      undoable: jt ? undoableCount(editJournal, jt) : 0,
+      sessionEdited: jt ? hasSessionEdits(editJournal, journalCurrent, jt) : false,
       featureId: a.featureId,
       cellUri: a.cellUri,
       originalHeightM: a.bakedHeightM,
@@ -2497,6 +2557,7 @@ export function attachStylizedTiles(opts: {
     featureId: number,
     t: FeatureTransform,
     fallback?: { cx: number; cz: number; vc: number; bakedHeightM: number; osm: string | null },
+    label: string = "edit",
   ) => {
     if (!enriched || !enrichedSel.variant || !bldgIndex) return;
     enriched.setTransform(cellUri, featureId, t);
@@ -2504,6 +2565,8 @@ export function attachStylizedTiles(opts: {
     const facts = st ?? fallback;
     if (!facts) return;
     const key = overrideKey(enrichedSel.variant, cellUri, featureId);
+    // T126: the journal step's BEFORE — the raw row as it stands (a copy; null = no row).
+    const before: OverrideRow | null = bldgOverrideMap[key] ? { ...bldgOverrideMap[key] } : null;
     const fields = transformFields(st?.target ?? t);
     const rowFacts = {
       cx: roundCentroidM(facts.cx),
@@ -2523,6 +2586,79 @@ export function attachStylizedTiles(opts: {
     }
     bldgIndex.invalidate();
     refreshBldgDirty();
+    // T126: one journal entry per COMMIT (never per drag frame); a release that changed nothing
+    // but the stamp records nothing (the comparator ignores `t` / `s`).
+    const after: OverrideRow | null = bldgOverrideMap[key] ? { ...bldgOverrideMap[key] } : null;
+    if (recordEntry(editJournal, label, [{ target: bldgTarget(key), before, after }], Date.now())) refreshEditJournalMirror();
+  };
+  /**
+   * T126: the journal's RESTORE path for a building — the raw row put back VERBATIM (or deleted),
+   * then the EFFECTIVE transform to the engine (`local ?? shared ?? identity`, with the origin
+   * byte; a tombstone is identity). Deliberately NOT `commitBldgTransform`: that path is an EDIT
+   * (it drops `s`, stamps a fresh dirty `t`), and an undo back to the synced copy must read SYNCED,
+   * never "1 pending". An LRU-evicted cell re-applies from the map on reload (the `forCell` seam).
+   */
+  const restoreBldgRow = (key: string, row: OverrideRow | null) => {
+    if (!enriched || !enrichedSel.variant || !bldgIndex) return;
+    const k = parseOverrideKey(key);
+    if (!k) return;
+    if (row) bldgOverrideMap[key] = { ...row };
+    else delete bldgOverrideMap[key];
+    saveOverrides(bldgOverrideMap);
+    bldgIndex.invalidate();
+    refreshBldgDirty();
+    const local = bldgOverrideMap[key];
+    const shared = bldgShared.get(key);
+    if (local && !isTombstone(local)) enriched.setTransform(k.cellUri, k.featureId, rowTransform(local), "mine");
+    else if (!local && shared) enriched.setTransform(k.cellUri, k.featureId, rowTransform(shared), "shared");
+    else enriched.setTransform(k.cellUri, k.featureId, { ...IDENTITY_TRANSFORM }, "mine");
+    if (bldgArmed && bldgArmed.cellUri === k.cellUri && bldgArmed.featureId === k.featureId) {
+      const a = bldgArmed;
+      if (bldgOp === "extrude") enriched.hideGhost();
+      const sy = enriched.featureState(a.cellUri, a.featureId)?.target.sy ?? 1;
+      a.liveK = sy;
+      a.committedK = sy;
+    }
+  };
+  /** T126: apply the steps UNDO / DROP hand back — building rows through `restoreBldgRow`, model
+   *  placements through the store's un-journaled PATCH (the engine re-seats off the world row). */
+  const applyJournalRestores = (restores: ReadonlyArray<{ target: EditTarget; to: EditSnapshot | null }>) => {
+    for (const r of restores) {
+      if (isBldgTarget(r.target)) restoreBldgRow(targetKey(r.target), r.to as OverrideRow | null);
+      else if (r.to)
+        // Async: the store re-mirrors the journal once the PATCH lands; the armed model's chip
+        // follows the engine's re-seat (the world-row reconcile) — re-sync it then too.
+        void useUserModelsStore
+          .getState()
+          .restorePlacement(targetKey(r.target), r.to as PlacementSnapshot)
+          .then(() => syncModelEdit());
+    }
+    refreshEditJournalMirror();
+    syncBldgEdit();
+    syncModelEdit();
+  };
+  /** T126: the UNDO / DROP scope → the journal target (the armed building, the armed model, or all). */
+  const journalScopeTarget = (scope: EditScope): EditTarget | null | undefined => {
+    if (scope === "all") return undefined;
+    if (scope === "bldg")
+      return bldgArmed && enrichedSel.variant ? bldgTarget(overrideKey(enrichedSel.variant, bldgArmed.cellUri, bldgArmed.featureId)) : null;
+    return modelArmed ? modelTarget(modelArmed.id) : null;
+  };
+  const undoNow = (scope: EditScope) => {
+    const target = journalScopeTarget(scope);
+    if (target === null) return; // the scoped mesh is not armed any more
+    const u = takeUndo(editJournal, journalCurrent, target);
+    if (!u) return;
+    applyJournalRestores(u.restores);
+  };
+  const dropSessionNow = (scope: EditScope) => {
+    const target = journalScopeTarget(scope);
+    if (target === null) return;
+    const steps = dropSteps(editJournal, journalCurrent, target);
+    if (steps.length === 0) return;
+    applyJournalRestores(steps.map((st) => ({ target: st.target, to: st.after })));
+    // The drop is itself ONE action — undoable in one press.
+    if (recordEntry(editJournal, "drop", steps, Date.now())) refreshEditJournalMirror();
   };
   /** Apply + persist the armed building's liveK (drag release / RESET-to-1) — the height-only
    *  edit; any spatial components it already carries ride along untouched. */
@@ -2532,7 +2668,7 @@ export function attachStylizedTiles(opts: {
     a.committedK = a.liveK;
     enriched.hideGhost();
     const cur = enriched.featureState(a.cellUri, a.featureId)?.target ?? IDENTITY_TRANSFORM;
-    commitBldgTransform(a.cellUri, a.featureId, { ...cur, sy: a.liveK }, a);
+    commitBldgTransform(a.cellUri, a.featureId, { ...cur, sy: a.liveK }, a, "extrude");
     syncBldgEdit();
   };
   /** MS2: switch the armed building's op. EXTRUDE = the U8 drag (no rig, no gizmo); the three
@@ -2559,7 +2695,7 @@ export function attachStylizedTiles(opts: {
     const a = bldgArmed;
     enriched.setGhostBodyVisible(false);
     if (t && commit) {
-      commitBldgTransform(a.cellUri, a.featureId, t, a);
+      commitBldgTransform(a.cellUri, a.featureId, t, a, bldgOp);
       const sy = enriched.featureState(a.cellUri, a.featureId)?.target.sy ?? t.sy;
       a.liveK = sy;
       a.committedK = sy;
@@ -2576,7 +2712,7 @@ export function attachStylizedTiles(opts: {
     const a = bldgArmed;
     const next = revertOp(bldgCommitted(a), which);
     if (bldgOp === "extrude") enriched.hideGhost(); // the U8 RESET path (commitBldgHeight hid it)
-    commitBldgTransform(a.cellUri, a.featureId, next, a);
+    commitBldgTransform(a.cellUri, a.featureId, next, a, "reset");
     const sy = enriched.featureState(a.cellUri, a.featureId)?.target.sy ?? next.sy;
     a.liveK = sy;
     a.committedK = sy;
@@ -2925,6 +3061,15 @@ export function attachStylizedTiles(opts: {
     return !!ae && (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || ae.isContentEditable);
   };
   const onFpvKey = (e: KeyboardEvent) => {
+    // T126: Ctrl/Cmd+Z — the armed mesh's last edit, else the last edit anywhere (the G-R-S-E
+    // precedent: the key routes through the store; the frame service applies). Plain Z stays free.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === "KeyZ" && !typingTarget(document.activeElement as HTMLElement | null)) {
+      if (editJournal.entries.length > 0) {
+        useEditJournalStore.getState().requestUndo(bldgArmed ? "bldg" : modelArmed ? "model" : "all");
+        e.preventDefault();
+      }
+      return;
+    }
     if (fpvActive && !e.metaKey && !e.ctrlKey) {
       // Arrow keys + WASD (owner 2026-08-14, ask 2) WALK on the ground plane (you walk where
       // you look; ◀▶/AD strafe). Shift sprints (×walkFastMult); Option/Alt creeps
@@ -3166,10 +3311,19 @@ export function attachStylizedTiles(opts: {
   // `controls.update()` so the library's own midpoint-drift azimuth can be cancelled exactly.
   const twist = createTwistTracker(THREE.MathUtils.degToRad(CONTROLS.twistArmDeg));
   let twistLive = false; // this frame's read, for the /m 2D heading lock
+  // T129: this frame's two-finger PAN on the 2D map (the library's touch ROTATE, re-purposed) —
+  // the heading lock must NOT stand down for it (a pan is not a rotation).
+  let touchPan2dLive = false;
+  const _panUp = new THREE.Vector3();
+  const _panPlane = new THREE.Plane();
+  const _panNdc = new THREE.Vector2();
+  const _panRay = new THREE.Raycaster();
+  const _panHit0 = new THREE.Vector3();
+  const _panHit1 = new THREE.Vector3();
   const onTwistDown = (e: PointerEvent) => twist.down(e.pointerId, e.clientX, e.clientY, e.pointerType);
   const onTwistMove = (e: PointerEvent) => twist.move(e.pointerId, e.clientX, e.clientY);
   const onTwistEnd = (e: PointerEvent) => {
-    if (twist.up(e.pointerId)) zc.rotationInertia.set(0, 0);
+    if (twist.up(e.pointerId) || touchPan2dLive) zc.rotationInertia.set(0, 0);
     if (!twist.pairDown()) twistLive = false;
   };
   dom.addEventListener("pointerdown", onTwistDown);
@@ -3846,6 +4000,16 @@ export function attachStylizedTiles(opts: {
       // cellUri + featureId come from the armed mirror (`__bldgEditStore`).
       enrichedState: (cellUri: string, featureId: number) =>
         enriched?.featureState(cellUri, featureId) ?? null,
+      // T126 (2026-09-09): ARM the building under a client pixel without the double-tap — the /m
+      // harness on real glass has no reliable dblclick injection (adb taps are single events), and
+      // the UNDO / DROP buttons need an armed chip to be tested on the phone. The same pick + arm
+      // the gesture takes; false when nothing pickable is under the pixel.
+      armBuildingAt: (clientX: number, clientY: number): boolean => {
+        const pick = pickBuildingAt(clientX, clientY);
+        if (!pick) return false;
+        armPick(pick);
+        return true;
+      },
       enrichedSetTransform: (cellUri: string, featureId: number, t: FeatureTransform) => {
         commitBldgTransform(cellUri, featureId, t);
         // Keep the armed state's height in step when the seam edits the armed building, so the
@@ -4797,15 +4961,44 @@ export function attachStylizedTiles(opts: {
   const stepTouchTwist = () => {
     const d = twist.take();
     twistLive = twist.live();
-    if (d === 0 || fpvActive || flight.active() || !controls.enabled) return;
+    touchPan2dLive = false;
+    if (fpvActive || flight.active() || !controls.enabled) return;
+    const touchRotate = zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch();
+    // T129 (owner ruling 2026-09-08b): on the /m 2D map the library's two-finger parallel DRAG
+    // (its touch ROTATE) is a PAN, not a rotation — the twist is the one rotation gesture.
+    const pan2d = touchRotate && MOBILE2D.twoFingerPan && isMobileShell && useCameraStore.getState().mapMode === "2d";
+    if (d === 0 && !pan2d) return;
     let x = -d * CONTROLS.twistGain;
-    if (zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch()) {
+    let y = 0;
+    if (touchRotate) {
       zc.pointerTracker.getCenterPoint(_twistC);
       zc.pointerTracker.getPreviousCenterPoint(_twistP);
-      const libX = ((_twistC.x - _twistP.x) * 2 * Math.PI) / dom.clientHeight;
-      x -= libX; // the library adds `−libX·rotationSpeed`; `−x` here removes it (rotationSpeed 1)
+      const k = (2 * Math.PI) / dom.clientHeight;
+      x -= (_twistC.x - _twistP.x) * k; // the library adds `−libX·rotationSpeed`; `−x` here removes it (rotationSpeed 1)
+      // A pan cancels the library's ALTITUDE term too (the fingers' vertical drift must not tilt
+      // the map for one frame before the tilt lock catches it — that read as a wobble).
+      if (pan2d) y = -(_twistC.y - _twistP.y) * k;
     }
-    zc._applyRotation(x, 0, zc.pivotPoint);
+    if (x !== 0 || y !== 0) zc._applyRotation(x, y, zc.pivotPoint);
+    if (pan2d) {
+      touchPan2dLive = true;
+      if (_twistC.x !== _twistP.x || _twistC.y !== _twistP.y) {
+        // The library's DRAG math, incremental: the plane through its pivot with the local up as
+        // normal; the ground point under the previous midpoint moves to the one under the current.
+        zc.getUpDirection(zc.pivotPoint, _panUp);
+        _panPlane.setFromNormalAndCoplanarPoint(_panUp, zc.pivotPoint);
+        camera.updateMatrixWorld();
+        _panNdc.set((_twistP.x / dom.clientWidth) * 2 - 1, -(_twistP.y / dom.clientHeight) * 2 + 1);
+        _panRay.setFromCamera(_panNdc, camera);
+        const h0 = _panRay.ray.intersectPlane(_panPlane, _panHit0);
+        _panNdc.set((_twistC.x / dom.clientWidth) * 2 - 1, -(_twistC.y / dom.clientHeight) * 2 + 1);
+        _panRay.setFromCamera(_panNdc, camera);
+        const h1 = _panRay.ray.intersectPlane(_panPlane, _panHit1);
+        if (h0 && h1) camera.position.add(_panHit0.sub(_panHit1));
+      }
+      // The library records the midpoint drift as ROTATION inertia — a pan must not spin on release.
+      zc.rotationInertia.set(0, 0);
+    }
     camera.updateMatrixWorld();
   };
 
@@ -5751,7 +5944,9 @@ export function attachStylizedTiles(opts: {
         const touchRotate = zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch();
         // 2026-09-08b: the two-finger TWIST is a map rotation too (the one people actually mean)
         // — it stands the north lock down exactly like the library's parallel drag does.
-        if (touchRotate || twistLive) mobile2dFreeHeading = true;
+        // T129: the parallel drag is a PAN now (`stepTouchTwist`, `MOBILE2D.twoFingerPan`) — it
+        // never frees the heading; only a rotation does.
+        if ((touchRotate && !touchPan2dLive) || twistLive) mobile2dFreeHeading = true;
         if (
           camStore.targetTiltDeg === null &&
           pitchRad > THREE.MathUtils.degToRad(MOBILE2D.lockTiltEpsDeg)
@@ -7995,6 +8190,20 @@ export function attachStylizedTiles(opts: {
           if (ss.syncRequest) {
             ss._consumeSyncRequest();
             void bldgSyncNow();
+          }
+          // T126: UNDO / DROP SESSION (chip foot, menus, the pill, Ctrl+Z) — serviced whether or
+          // not a mesh is armed; refused under a live drag (the frame service retries next frame).
+          const js = useEditJournalStore.getState();
+          const dragging = bldgGizmoDragId !== null || (bldgDragId !== null && bldgDragMoved) || modelGizmoDragId !== null;
+          if (js.undoRequest && !dragging) {
+            const scope = js.undoRequest;
+            js._consumeUndoRequest();
+            undoNow(scope);
+          }
+          if (js.dropRequest && !dragging) {
+            const scope = js.dropRequest;
+            js._consumeDropRequest();
+            dropSessionNow(scope);
           }
         }
         const bs = useBldgEditStore.getState();

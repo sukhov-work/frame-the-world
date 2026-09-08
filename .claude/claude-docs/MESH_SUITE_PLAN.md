@@ -1569,3 +1569,101 @@ visible) · the pitch / roll print only when tilted (the row stays "x° cw" upri
 as the list glyph · GOTO / stand-beside still aims at `lift + h·scale/2` (a flipped model's true
 mid-height is below the pivot — a taste tail) · the E (screen-space) ring off · the label at the
 tilted box's highest corner height, centred on the pivot.
+
+## §16 T126 — UNDO + "drop this session's edits" (owner order 2026-09-08b; designed + built 2026-09-09)
+
+**The ask.** (1) An UNDO that undoes the LAST edit action — a height release, a scale / move / rotate
+commit, a per-op ↺, a RESET ALL. (2) Beside SYNC, a button that drops just the CURRENT SESSION's edits —
+for the selected mesh, and a global one for every mesh on the map — leaving the persisted (synced) state as
+it was; the existing revert-to-original actions stay. Both shells. §4a binds: no per-frame cost, `high`
+byte-identical, the U8 UX untouched, every existing harness green.
+
+### §16.1 What "an action" is — the journal (`src/lib/edit/editJournal.ts`, pure; `store/editJournal.ts` the seam)
+- **One entry per COMMIT, never per drag frame.** The gizmo's live read-back and the U8 drag's live height
+  are previews; the journal is written where the persisted state changes: `commitBldgTransform` (the ONE
+  building commit path — the U8 release, the gizmo release, per-op ↺, RESET ALL, the DEV seam) and the
+  user-models store's `commitPlacement` (the gizmo release, per-op ↺, RESET ALL, the MODELS-tab RESET, a
+  RE-placement of an already placed model). The FIRST placement of a stored model (unplaced → placed) is not
+  an edit of a mesh on the map and is not journaled.
+- **An entry = 1..N steps** (`{ target, before, after }`); a gizmo commit is one step, a DROP ALL is one entry
+  with a step per mesh — so UNDO after a DROP ALL brings everything back in one press.
+- **A step snapshots the target's FULL persisted state**, not a transform: a building's raw local
+  `OverrideRow | null` (a copy — `t`, `s`, `d`, `o` verbatim), a model's placement
+  `{ lat, lon, rotDeg, sx, sy, sz, tU, pitchDeg, rollDeg }`. Restoring a building's row VERBATIM is the point:
+  an undo back to the synced copy is NOT dirty (the `s` stamp survives), while `commitBldgTransform` would
+  have stamped a fresh dirty `t` and made SYNC say "1 pending" for a state the server already holds.
+- **Targets** are strings: `bldg|<variant>|<cellUri>|<featureId>` (the override key) and `model|<id>`.
+- **In memory, per page load.** A reload starts an empty journal — the rows in storage / on the server are
+  the persisted state and stay; "this session" means this page.
+
+### §16.2 UNDO
+- The chip's UNDO undoes the ARMED mesh's last entry (the entry that last touched it). The pill (nothing
+  armed) and Ctrl/Cmd+Z with nothing armed undo the last entry globally; Ctrl/Cmd+Z with a mesh armed
+  undoes that mesh's last entry (the G-R-S-E precedent: keys route through the store, the frame service
+  applies). No redo. An undo is NOT itself journaled (pressing again goes further back).
+- **The unchanged-since guard:** a step is restored only when the target's current state still equals the
+  step's `after`; a step whose target was edited afterwards (only possible inside a multi-step DROP ALL
+  entry) is skipped — the later entry owns that target. Standard optimistic undo.
+
+### §16.3 DROP SESSION — the baseline
+- **Baseline(target)** = the target's state at its FIRST commit this session (the row at page load / the
+  record as first seen). "Session edits exist" ⇔ baseline exists AND current ≠ baseline.
+- **The baseline is the last NON-DIRTY state.** After a successful SYNC and after every world fetch the
+  journal re-bases every target whose local row is not dirty (a synced copy, or absent) onto its current
+  row — a synced row IS "the persisted state as it was", so a DROP after a SYNC does nothing to those
+  buildings (owner: leave the synced state alone), and the world reconcile (shared-wins-over-my-synced-copy)
+  can never turn a foreign edit into "my session edit". A dirty row at page load (an earlier session's
+  unsynced edit) is the baseline as it stands — the drop leaves it dirty, as it was.
+- Models persist on every release (no SYNC): the baseline is the record as this page first saw it; a drop
+  PATCHes it back. Another member's LWW edit of the same model mid-session would read as a session edit
+  here — accepted, the same LWW rule governs every model edit.
+- **The drop is one journaled entry** (undoable). "For the selected mesh" = the armed mesh's target only;
+  "global" = every target with session edits (buildings AND models, resident or not).
+
+### §16.4 The restore paths (never the edit paths)
+- **Building:** put the raw row back (or delete it), `saveOverrides`, `bldgIndex.invalidate()`,
+  `refreshBldgDirty()`, then the EFFECTIVE transform to the engine — `local ?? shared ?? identity` with the
+  origin byte (`enriched.setTransform(cellUri, featureId, xf, origin)`; a tombstone = identity); an
+  LRU-evicted cell re-applies from the map on reload (the `forCell` seam, unchanged). The armed building's
+  `liveK` / `committedK` follow, the ghost rig re-seats from the committed target on the next frame
+  (the existing per-frame `setGhostTransform(bldgCommitted)`), `syncBldgEdit()`.
+- **Model:** `restorePlacement(id, snapshot)` = the placement PATCH WITHOUT a journal record; the answered
+  row swaps into `world` and the engine re-seats through its world-row reconcile (`setModels`: a moved row
+  → `rebase`, changed seats → `setSeats(…, false)` when not dragging); the armed mirror follows through
+  the existing `modelSeatsDiffer` deadband. Nothing new in `scene/**`.
+
+### §16.5 The affordances (both shells — the chips are `panels/` islands mounted by index.astro AND m.astro)
+- Chip foot (building + model): `↶ UNDO` when the armed mesh has an entry · `DROP SESSION` when it has
+  session edits · then RESET ALL / SYNC as today. Titles say what they do; `/m` drops the hints as today.
+- Both context menus: `↶ UNDO` · `⟲ DROP SESSION` · `⟲ DROP ALL SESSION EDITS` (when any exist).
+- The pill (nothing armed): shows when dirty > 0 OR session edits exist — `EDITS` · UNDO · DROP ALL · SYNC.
+- Mirrors: `BldgEditArmed.undoable` / `.sessionEdited`, `ModelEditArmed.undoable` / `.sessionEdited`
+  (written by the deadband writers on commit / undo / drop / sync — never per frame);
+  `store/editJournal.ts` holds the global counts + the one-shots (`undoRequest`, `dropRequest`), DEV seam
+  `__editJournalStore`.
+
+### §16.6 AS BUILT (2026-09-09) — files + the verification receipt
+- NEW `src/lib/edit/editJournal.ts` (pure; `test/lib/edit/editJournal.test.ts` 15) · NEW `src/store/editJournal.ts`
+  (the ONE instance, `setJournalCurrent`, `refreshEditJournalMirror`, `requestUndo` / `requestDrop`, `undoTitle`,
+  the DROP titles; DEV `__editJournalStore` / `__editJournal`) · `lib/globe/bldgOverrides.ts` `overrideStateKey` /
+  `sameOverrideState` (the stamps `t` / `s` ignored) · `lib/models/modelPlacement.ts` `PlacementSnapshot` /
+  `placementSnapshot` / `samePlacement` · `store/bldgEdit.ts` + `store/modelEdit.ts` armed mirrors gain
+  `undoable` / `sessionEdited` · `store/userModels.ts` `commitPlacement(id, patch, label)` journals (the first
+  placement does not), `restorePlacement`, `placementOf`, `patchAndSwap` shared · `StylizedTiles.ts`:
+  `commitBldgTransform(…, label)` journals, `restoreBldgRow`, `applyJournalRestores`, `undoNow`, `dropSessionNow`,
+  the one-shots beside SYNC in `stepBldgEdit`, `rebaseJournalOnPersisted` after a fetch / a landed SYNC, `onInvalid`
+  → `forgetTarget`, Ctrl/Cmd+Z, DEV `__globe.armBuildingAt` · `panels/BuildingEditChip.tsx` + `ModelEditChip.tsx`
+  (foot buttons, menu items, the pill with `pillShows(sync, journal, modelArmed)`) · `styles/building-edit.css`
+  `.bec-undo` / `.bec-drop`.
+- Receipt: vitest 3,0xx green (the focused files: journal 15 · chips 23 · userModels 14 · bldgOverrides · fences) ·
+  `astro check` 0 errors · knip 0 · `verify-meshedit` PASS incl. the T126 leg (chip UNDO → the rails row back
+  VERBATIM with its `t`; DROP → identity, journaled "drop"; Ctrl+Z; UNDO ×3 unwinds to nothing; chip clean) ·
+  `verify-usermodels` 21 legs incl. 4b (UNDO via the chip → the leg-4 yaw; DROP → yaw 0; UNDO the drop → yaw
+  back) · `verify-mobile-batch` §7 twin 127/127 (the buttons TAPPED: UNDO, DROP SESSION, UNDO the drop).
+- Two findings on the way: (1) the SYNC stamp `s` and the re-stamp `t` must be ignored by the journal's
+  comparator, or UNDO silently does nothing after a SYNC and a handle clicked without movement records an entry
+  that undoes nothing (caught by the unit tier); (2) the `MESH EDITS` pill rendered OVER the model chip (both
+  islands share the slot) and its buttons sat on the gizmo origin — `verify-usermodels` leg 5's hover-search
+  went blind (caught by the screenshot; `pillShows` yields while a model is armed).
+- Owner taste calls, not asked: the `/m` chip-foot buttons are 19 px tall like RESET ALL (the 44 px cell rule
+  would re-shape the foot); the pill's word is `MESH EDITS` (was `BUILDING EDITS` — models ride the DROP ALL).

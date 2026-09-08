@@ -83,6 +83,18 @@ Appium call stalls 120 s — the soak's six `LOOK` calls per row are 12 minutes;
 survival is still unmeasured (every first page was navigated away at 34–45 s) — a `--soak-no-reboot` is the
 next tool change. Details: `rendering/MEASUREMENTS_2026-09-05.md` §21.1.
 
+**2026-09-09 — T130, two more legs** (`MEASUREMENTS_2026-09-05.md` §30): `--legs t124` boots the owner's altanka pose
+in `/m` FPV and reads `models.*` + the scene's own row for `--t124-title` (default "altanka") at 5/15/30/60/90 s with
+screenshots and a verdict (`resident` on the fleet phone — T124 did not reproduce on a fresh page); `--legs stress`
+runs the T123 sequence on ONE `/m` page — `--stress-cycles` (8) × FPV in at a Dnipro spot → look-around → FPV out →
+the heatmap armed → off, a `SNAP` after every stage, then GROWTH vs CEILING off the `fpv-out` rows (tile LRUs, textures,
+geometries, programs). The first run died in cycle 4 at ~250 s with the syslog's `exceeded mem limit: ActiveHard 2048 MB`
+and geometries 395→581→620→795 — the detached enriched cache (see §30.2). Typical bill: ~18 device minutes for the stress
+leg, ~11 for t124. Run each detached from `tools/devicefarm/`: `AWS_PROFILE=plux nohup node ios-baseline.mjs --host
+https://<tunnel> --poses m --legs t124,stress --ramp 0 --soak-min 0 --label t130 &`. The syslog arrives as THREE
+`DEVICE_LOG` artifacts — save each to its own file. A 530 on the tunnel preflight is a transient cloudflared reconnect
+(retry; no minutes billed).
+
 ## B. Pixel 6 Pro over adb — the desktop harness, unchanged, pointed at the phone
 
 Android Chrome speaks CDP over adb, and `adb reverse` makes the phone's `localhost:4321` this Mac's

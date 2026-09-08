@@ -79,6 +79,15 @@ const SETTLE_S = Number(opt("--settle", "30"));
 // phone lands on, the compass fields' presence). `--legs bestspot,ar` (default none).
 const LEGS = (opt("--legs", "") || "").split(",").filter(Boolean);
 const BESTSPOT_HOLD_S = Number(opt("--bestspot-hold", "90"));
+// T130 (owner order 2026-09-08b — the device campaign): `stress` = the owner's T123 sequence on ONE
+// /m page (never re-navigated): N cycles of FPV in at a Dnipro spot → look-around → FPV out → the
+// heatmap armed at the spot → off, a snapshot per stage (page age, LRU bytes, textures, geometries,
+// models, frame time, the boot marker) — GROWTH vs CEILING is read off the per-cycle rows; the syslog
+// jetsam line is read after the session (`aws devicefarm list-artifacts`). `t124` = the owner's
+// altanka pose in /m FPV, the `models.*` rows and the model's own residency read through the failure.
+const STRESS_CYCLES = Number(opt("--stress-cycles", "8"));
+const STRESS_SETTLE_S = Number(opt("--stress-settle", "20"));
+const T124_TITLE = opt("--t124-title", "altanka");
 const LABEL = opt("--label", "farm");
 const DEV = "http://localhost:4321"; // the Mac's own wix dev — for dev-seed and the tunnel preflight
 const OWNER_EMAIL = opt("--owner", "yevhens@wix.com");
@@ -100,7 +109,17 @@ const POSE_URL = {
   m: `${HOST}/m#p=48.4640,35.0460,220,0,0&t=${T_M}`,
   // the /m shell at the FPV eye — the AR chip lives on /m only (2026-09-07h)
   mfpv: `${HOST}/m#f=48.4647,35.0462,1.7,25,8,60&t=${T_FPV}`,
+  // T124 (owner report 2026-09-08b): the pose where the user mesh "altanka" vanished in iPhone FPV
+  t124: `${HOST}/m#f=48.463651,35.039833,1.7,304.9,1.7,10.8&t=1788874369380`,
 };
+// T123 / T130: the stress spots — real Dnipro FPV stands from the pose catalogue (scripts/lib/poses.mjs)
+// + the T124 stand; the cycle walks them in order and wraps.
+const STRESS_SPOTS = [
+  { id: "eye", lat: 48.4647, lon: 35.0462 },
+  { id: "west-sunset", lat: 48.464627, lon: 35.064907 },
+  { id: "south", lat: 48.467806, lon: 35.071753 },
+  { id: "altanka", lat: 48.463651, lon: 35.039833 },
+];
 const EYE = { lat: 48.4647, lon: 35.0462 };
 const GLB = {
   url: "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
@@ -558,6 +577,139 @@ async function drive(endpoint) {
         if (STALL.test(String(e))) pageUnresponsive = true;
         save();
         log(`ar leg: ${String(e)}`);
+      }
+    }
+    // ── T130 / T124: the altanka pose in /m FPV — is the user mesh there? ──
+    if (LEGS.includes("t124") && !pageUnresponsive) {
+      results.t124 = { notes: [], reads: [] };
+      const r124 = results.t124;
+      try {
+        const bootMs = await boot("t124");
+        await waitFor(`!!(window.__cameraStore && window.__cameraStore.getState().fpvHud)`, 60_000, "FPV live at the T124 pose");
+        r124.bootMs = bootMs;
+        // the model rows through the scene's own debug seam: the title match, its residency state,
+        // the seat, the applied scale, the bounds; plus the DBG models.* counters and the lean caps.
+        const READ = `(() => { const um = window.__globe.userModels(); const f = window.__debugFeed.snapshot(); const pick = (k) => f[k];
+          const rows = um.models.map((m) => ({ id: m.id, title: m.title, state: m.state, seatReal: m.seatReal, appliedM: m.appliedM, seatM: m.seatM, tris: m.tris, dragging: m.dragging, scale: m.bodyScaleXYZ, sizeM: m.sizeM }));
+          const hit = rows.filter((m) => String(m.title).toLowerCase().includes(${JSON.stringify(T124_TITLE.toLowerCase())}));
+          const cs = window.__cameraStore.getState();
+          return { booted: window.__t77boot === ${JSON.stringify(STAMP)}, models: [pick("models.resident"), pick("models.world"), pick("models.skipped"), pick("models.tris"), pick("models.loading")], lruMB: [pick("tiles.bld.lruMB"), pick("tiles.gnd.lruMB"), pick("tiles.enr.lruMB")], lean: pick("canvas.lean"), tier: pick("canvas.tier"), modelsVisible: cs.modelsVisible, mapMode: cs.mapMode, fpv: !!cs.fpvHud, worldRows: window.__userModelsStore.getState().world.length, worldPhase: window.__userModelsStore.getState().worldPhase, rows: rows.length, hit, dt: [pick("frame.dt.p50"), pick("frame.dt.p95")] }; })()`;
+        // read at 5 / 15 / 30 / 60 / 90 s — a residency glitch is a timeline, not a moment
+        const t0 = Date.now();
+        for (const atS of [5, 15, 30, 60, 90]) {
+          while (Date.now() - t0 < atS * 1000) await sleep(500);
+          const r = await js(READ).catch((e) => ({ err: String(e) }));
+          if (r.err && STALL.test(r.err)) pageUnresponsive = true;
+          r124.reads.push({ atS, ...r });
+          save();
+          const h = r.hit?.[0];
+          log(`t124 ${atS} s: world ${r.worldRows} (${r.worldPhase}) · models r/w/s/l ${r.models?.join("/")} · ${T124_TITLE}: ${h ? `${h.state} seatReal ${h.seatReal} applied ${h.appliedM?.toFixed?.(1)} m tris ${h.tris}` : "NOT IN THE SCENE ROWS"} · lean ${r.lean} lru ${r.lruMB?.map?.((x) => Math.round(x ?? 0)).join("/")}`);
+          if (r.err || r.booted === false) { r124.notes.push(`the page ${r.err ? "stopped answering" : "RELOADED"} at ${atS} s`); break; }
+          if (atS === 30 || atS === 90) { try { writeFileSync(`${OUT_DIR}/devicefarm-${LABEL}-${STAMP}-t124-${atS}s.png`, Buffer.from(await driver.takeScreenshot(), "base64")); } catch { /* no shot */ } }
+        }
+        const last = r124.reads.at(-1);
+        const hit = last?.hit?.[0];
+        r124.verdict = !last || last.err ? "unread" : !hit ? (last.worldRows > 0 ? "not-in-scene-rows (the world read has rows; the model is not among them → the cover / the residency plan / a hidden row)" : "world-read-empty (no rows reached the phone — the fetch, the cover, or the network)") : hit.state === "resident" || hit.state === "ready" ? "resident" : `state:${hit.state}`;
+        results.notes.push(`t124: ${r124.verdict}`);
+        log(`t124 verdict: ${r124.verdict}`);
+        save();
+      } catch (e) {
+        r124.notes.push(`t124 leg: ${String(e)}`);
+        if (STALL.test(String(e))) pageUnresponsive = true;
+        save();
+        log(`t124 leg: ${String(e)}`);
+      }
+    }
+    // ── T130 / T123: the STRESS leg — the owner's jetsam sequence on ONE page ──
+    if (LEGS.includes("stress") && !pageUnresponsive) {
+      results.stress = { cycles: [], notes: [], spots: STRESS_SPOTS, cyclesAsked: STRESS_CYCLES };
+      const st = results.stress;
+      try {
+        const bootMs = await boot("m");
+        await settle(SETTLE_S);
+        const pageT0 = Date.now() - bootMs;
+        const LADDER_LITE = `(() => { const b = window.__bestSpotStore.getState(); return { booted: window.__t77boot === ${JSON.stringify(STAMP)}, rung: b.ladderRung, solving: b.solving, topK: b.topK.length, cell: b.gridCellM, cellReq: b.cellM }; })()`;
+        let dead = false;
+        for (let i = 0; i < STRESS_CYCLES && !dead && !pageUnresponsive; i++) {
+          const spot = STRESS_SPOTS[i % STRESS_SPOTS.length];
+          const cyc = { i, spot: spot.id, stages: [] };
+          st.cycles.push(cyc);
+          const stage = async (name, fn) => {
+            const t0 = Date.now();
+            let err = null;
+            try {
+              await fn();
+            } catch (e) {
+              err = String(e);
+              if (STALL.test(err)) pageUnresponsive = true;
+            }
+            const snap = pageUnresponsive ? { err: err ?? "unresponsive" } : await js(SNAP).catch((e) => ({ err: String(e) }));
+            if (snap.err && STALL.test(snap.err)) pageUnresponsive = true;
+            const row = { name, pageAgeS: Math.round((Date.now() - pageT0) / 1000), ms: Date.now() - t0, err, snap };
+            cyc.stages.push(row);
+            save();
+            log(`stress c${i} ${spot.id} ${name} (page ${row.pageAgeS} s, ${Math.round(row.ms / 1000)} s): ${snap.err ? `ERR ${snap.err.slice(0, 80)}` : `dt ${snap.dt?.[0]?.toFixed?.(1)}/${snap.dt?.[1]?.toFixed?.(1)} lru ${snap.lruMB?.map?.((x) => Math.round(x ?? 0)).join("/")} tex ${snap.textures} geo ${snap.geometries} prog ${snap.programs} models ${snap.models?.join("/")} booted ${snap.booted}`}`);
+            if (snap.err || snap.booted === false) {
+              dead = true;
+              st.notes.push(`the page ${snap.err ? "stopped answering" : "RELOADED"} in cycle ${i} at stage ${name} (page age ${row.pageAgeS} s)${snap.err ? ` — ${snap.err.slice(0, 120)}` : ""}`);
+              log(`stress: DEAD in cycle ${i} at ${name} (page age ${row.pageAgeS} s)`);
+              return false;
+            }
+            return !err;
+          };
+          if (!(await stage("fpv-in", async () => {
+            await js(`(() => { const c = window.__cameraStore.getState(); c.setTempPin({ latDeg: ${spot.lat}, lonDeg: ${spot.lon} }); c.setTempFpv(true); return true; })()`);
+            await waitFor(`!!(window.__cameraStore.getState().fpvHud)`, 60_000, "FPV in");
+            await settle(STRESS_SETTLE_S);
+          }))) break;
+          if (!(await stage("look", async () => {
+            for (let k = 0; k < 3; k++) { await js(LOOK); await sleep(1500); }
+            await settle(10);
+          }))) break;
+          if (!(await stage("fpv-out", async () => {
+            await js(`window.__cameraStore.getState().setTempFpv(false), true`);
+            await waitFor(`!(window.__cameraStore.getState().fpvHud)`, 30_000, "FPV out");
+            await settle(STRESS_SETTLE_S);
+          }))) break;
+          if (!(await stage("heatmap", async () => {
+            await js(`(() => { const c = window.__cameraStore.getState(); c.setTempPin({ latDeg: ${spot.lat}, lonDeg: ${spot.lon} }); const b = window.__bestSpotStore.getState(); b.setOpen(true); b.setHeatmapOn(true); return true; })()`);
+            const t0 = Date.now();
+            while (Date.now() - t0 < 90_000) {
+              const r = await js(LADDER_LITE);
+              if (r.booted === false) throw new Error("the page reloaded during the solve");
+              if (r.rung >= 3 && r.cell <= r.cellReq && !r.solving && r.topK > 0) break;
+              await sleep(4000);
+            }
+          }))) break;
+          if (!(await stage("heatmap-off", async () => {
+            await js(`(() => { const b = window.__bestSpotStore.getState(); b.setHeatmapOn(false); b.setOpen(false); return true; })()`);
+            await sleep(3000);
+          }))) break;
+        }
+        // GROWTH vs CEILING — the `fpv-out` rows across cycles: a resource that climbs cycle over
+        // cycle is growth (named); flat resources on a page that still died read as the ceiling.
+        const outs = st.cycles.map((c) => c.stages.find((r) => r.name === "fpv-out")?.snap).filter((sn) => sn && !sn.err);
+        const series = (f) => outs.map(f).filter((v) => Number.isFinite(v));
+        const climb = (arr) => arr.length >= 3 && arr.at(-1) > arr[0] * 1.15 && arr.every((v, i) => i === 0 || v >= arr[i - 1] * 0.97);
+        const lru = series((sn) => (sn.lruMB ?? []).reduce((a, b) => a + (b ?? 0), 0));
+        const tex = series((sn) => sn.textures);
+        const geo = series((sn) => sn.geometries);
+        const prog = series((sn) => sn.programs);
+        const growth = [];
+        if (climb(lru)) growth.push(`tile LRU ${lru.map((v) => Math.round(v)).join("→")} MB`);
+        if (climb(tex)) growth.push(`textures ${tex.join("→")}`);
+        if (climb(geo)) growth.push(`geometries ${geo.join("→")}`);
+        if (climb(prog)) growth.push(`programs ${prog.join("→")}`);
+        st.series = { lruMB: lru, textures: tex, geometries: geo, programs: prog };
+        st.verdict = dead ? (growth.length ? `GROWTH then death: ${growth.join(" · ")}` : `CEILING: died with flat resources (lru ${lru.map((v) => Math.round(v)).join("/")} tex ${tex.join("/")} geo ${geo.join("/")})`) : growth.length ? `alive ${st.cycles.length} cycles, GROWING: ${growth.join(" · ")}` : `alive ${st.cycles.length} cycles, flat (lru ${lru.map((v) => Math.round(v)).join("/")} tex ${tex.join("/")} geo ${geo.join("/")})`;
+        results.notes.push(`stress: ${st.verdict}`);
+        log(`stress verdict: ${st.verdict}`);
+        save();
+      } catch (e) {
+        st.notes.push(`stress leg: ${String(e)}`);
+        if (STALL.test(String(e))) pageUnresponsive = true;
+        save();
+        log(`stress leg: ${String(e)}`);
       }
     }
     await unseedAll();

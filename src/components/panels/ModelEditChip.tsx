@@ -7,6 +7,7 @@ import {
   type ModelEditArmed,
   type ModelEditOp,
 } from "../../store/modelEdit";
+import { DROP_TITLE_ALL, DROP_TITLE_ONE, undoTitle, useEditJournalStore, type EditScope } from "../../store/editJournal";
 import { formatModelScale, isTilted, scaledSizeM3, type ModelEdit } from "../../lib/models/modelPlacement";
 import { formatDims } from "../../lib/format/readout";
 import "../../styles/building-edit.css";
@@ -89,6 +90,10 @@ export interface ModelEditActions {
   requestReset(): void;
   requestDisarm(): void;
   closeMenu(): void;
+  /** T126: undo the armed model's last edit ("model") — the journal one-shot. */
+  requestUndo(scope: EditScope): void;
+  /** T126: drop this session's edits — the armed model's ("model") or every mesh's ("all"). */
+  requestDrop(scope: EditScope): void;
 }
 
 export default function ModelEditChip() {
@@ -99,21 +104,27 @@ export default function ModelEditChip() {
   const requestReset = useModelEditStore((s) => s.requestReset);
   const requestDisarm = useModelEditStore((s) => s.requestDisarm);
   const closeMenu = useModelEditStore((s) => s.closeMenu);
+  const requestUndo = useEditJournalStore((s) => s.requestUndo);
+  const requestDrop = useEditJournalStore((s) => s.requestDrop);
+  const sessionEdits = useEditJournalStore((s) => s.sessionEdits);
   if (!armed) return null;
-  const actions: ModelEditActions = { setOp, requestRevert, requestReset, requestDisarm, closeMenu };
-  return <ModelEditChipView armed={armed} menu={menu} actions={actions} />;
+  const actions: ModelEditActions = { setOp, requestRevert, requestReset, requestDisarm, closeMenu, requestUndo, requestDrop };
+  return <ModelEditChipView armed={armed} menu={menu} actions={actions} sessionEdits={sessionEdits} />;
 }
 
 export function ModelEditChipView({
   armed,
   menu,
   actions,
+  sessionEdits = 0,
 }: {
   armed: ModelEditArmed;
   menu: BldgEditMenu | null;
   actions: ModelEditActions;
+  /** T126: meshes (buildings + models) with session edits — the menu's DROP ALL count. */
+  sessionEdits?: number;
 }) {
-  const { setOp, requestRevert, requestReset } = actions;
+  const { setOp, requestRevert, requestReset, requestUndo, requestDrop } = actions;
   return (
     <>
       <div className={`bldg-edit-chip${armed.dragging ? " is-dragging" : ""}`} role="status" data-kind="model">
@@ -170,6 +181,16 @@ export function ModelEditChipView({
           })}
         </div>
         <div className="bec-foot">
+          {armed.undoable > 0 && !armed.dragging && !armed.saving && (
+            <button type="button" className="bec-undo" data-act="undo" title={undoTitle(null, "this model")} onClick={() => requestUndo("model")}>
+              ↶ UNDO
+            </button>
+          )}
+          {armed.sessionEdited && !armed.dragging && !armed.saving && (
+            <button type="button" className="bec-drop" data-act="drop-session" title={DROP_TITLE_ONE} onClick={() => requestDrop("model")}>
+              DROP SESSION
+            </button>
+          )}
           {armed.overridden && !armed.dragging && (
             <button type="button" className="bec-reset" onClick={requestReset}>
               RESET ALL
@@ -179,7 +200,7 @@ export function ModelEditChipView({
           <span className="bec-hint bec-hint--m">drag a handle · hold for menu · tap away done</span>
         </div>
       </div>
-      {menu && <ModelEditMenu armed={armed} menu={menu} actions={actions} />}
+      {menu && <ModelEditMenu armed={armed} menu={menu} actions={actions} sessionEdits={sessionEdits} />}
     </>
   );
 }
@@ -191,12 +212,14 @@ export function ModelEditMenu({
   armed,
   menu,
   actions,
+  sessionEdits = 0,
 }: {
   armed: ModelEditArmed;
   menu: BldgEditMenu;
   actions: ModelEditActions;
+  sessionEdits?: number;
 }) {
-  const { setOp, closeMenu, requestReset, requestDisarm } = actions;
+  const { setOp, closeMenu, requestReset, requestDisarm, requestUndo, requestDrop } = actions;
   const cardRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
@@ -272,6 +295,51 @@ export function ModelEditMenu({
           }}
         >
           ↺ REVERT ALL
+        </button>
+      )}
+      {armed.undoable > 0 && (
+        <button
+          type="button"
+          role="menuitem"
+          className="bldg-menu__item"
+          data-act="undo"
+          title={undoTitle(null, "this model")}
+          onClick={() => {
+            requestUndo("model");
+            closeMenu();
+          }}
+        >
+          ↶ UNDO
+        </button>
+      )}
+      {armed.sessionEdited && (
+        <button
+          type="button"
+          role="menuitem"
+          className="bldg-menu__item"
+          data-act="drop-session"
+          title={DROP_TITLE_ONE}
+          onClick={() => {
+            requestDrop("model");
+            closeMenu();
+          }}
+        >
+          ⟲ DROP SESSION
+        </button>
+      )}
+      {sessionEdits > (armed.sessionEdited ? 1 : 0) && (
+        <button
+          type="button"
+          role="menuitem"
+          className="bldg-menu__item"
+          data-act="drop-all"
+          title={DROP_TITLE_ALL}
+          onClick={() => {
+            requestDrop("all");
+            closeMenu();
+          }}
+        >
+          ⟲ DROP ALL SESSION EDITS · {sessionEdits}
         </button>
       )}
       <button

@@ -24,6 +24,8 @@ const armed = (over: Partial<BldgEditArmed> = {}): BldgEditArmed => ({
   committed: { ...IDENTITY_TRANSFORM },
   live: { ...IDENTITY_TRANSFORM },
   origin: "none",
+  undoable: 0,
+  sessionEdited: false,
   ...over,
 });
 

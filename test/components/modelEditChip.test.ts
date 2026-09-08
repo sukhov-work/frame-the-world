@@ -20,7 +20,7 @@ import type { BldgEditMenu as MenuAt } from "../../src/store/bldgEdit";
 // renderToStaticMarkup).
 
 const noop = () => {};
-const actions: ModelEditActions = { setOp: noop, requestRevert: noop, requestReset: noop, requestDisarm: noop, closeMenu: noop };
+const actions: ModelEditActions = { setOp: noop, requestRevert: noop, requestReset: noop, requestDisarm: noop, closeMenu: noop, requestUndo: noop, requestDrop: noop };
 const armed = (over: Partial<ModelEditArmed> = {}): ModelEditArmed => ({
   id: "m1",
   title: "Kiosk",
@@ -36,6 +36,8 @@ const armed = (over: Partial<ModelEditArmed> = {}): ModelEditArmed => ({
   live: { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0, tE: 0, tN: 0 },
   saving: false,
   saveError: null,
+  undoable: 0,
+  sessionEdited: false,
   ...over,
 });
 const view = (a: ModelEditArmed, menu: MenuAt | null = null) =>
@@ -157,5 +159,26 @@ describe("ModelEditChip (MS5)", () => {
     expect(html).toContain('class="bec-row is-on is-edited" data-op="move"');
     expect(html).toContain("↑-1.5 m");
     expect(html).toContain("RESET ALL");
+  });
+});
+
+describe("ModelEditChip — T126 UNDO + DROP SESSION", () => {
+  it("the foot shows ↶ UNDO / DROP SESSION from the armed mirror — hidden mid-drag and while a PATCH is in flight", () => {
+    expect(view(armed())).not.toContain('data-act="undo"');
+    const html = view(armed({ undoable: 1, sessionEdited: true }));
+    expect(html).toContain('class="bec-undo" data-act="undo"');
+    expect(html).toContain("Undo the last edit on this model (Ctrl+Z)");
+    expect(html).toContain('class="bec-drop" data-act="drop-session"');
+    expect(view(armed({ undoable: 1, sessionEdited: true, dragging: true }))).not.toContain('data-act="undo"');
+    expect(view(armed({ undoable: 1, sessionEdited: true, saving: true }))).not.toContain('data-act="drop-session"');
+  });
+  it("the menu offers UNDO / DROP SESSION and DROP ALL when other meshes carry session edits", () => {
+    const menuAt = { screenX: 10, screenY: 20 };
+    const one = renderToStaticMarkup(createElement(ModelEditMenu, { armed: armed({ undoable: 1, sessionEdited: true }), menu: menuAt, actions, sessionEdits: 1 }));
+    expect(one).toContain('data-act="undo"');
+    expect(one).toContain('data-act="drop-session"');
+    expect(one).not.toContain('data-act="drop-all"');
+    const many = renderToStaticMarkup(createElement(ModelEditMenu, { armed: armed({ undoable: 1, sessionEdited: true }), menu: menuAt, actions, sessionEdits: 4 }));
+    expect(many).toContain("DROP ALL SESSION EDITS · 4");
   });
 });

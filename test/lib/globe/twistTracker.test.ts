@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTwistTracker, wrapDelta } from "../../../src/lib/globe/twistTracker";
-import { CONTROLS } from "../../../src/components/globe/tuning";
+import { CONTROLS, MOBILE2D } from "../../../src/components/globe/tuning";
 
 /**
  * THE TWO-FINGER TWIST (owner 2026-09-08b). The library has no twist (PointerTracker measures no
@@ -130,16 +130,27 @@ describe("the orchestrator's twist step", () => {
     const step = src.slice(src.indexOf("const stepTouchTwist = () => {"), src.indexOf("const stepControlsUpdate = () => {"));
     expect(step).toMatch(/let x = -d \* CONTROLS\.twistGain;/);
     expect(step).toMatch(/zc\.state === 2 \/\* ROTATE \*\/ && zc\.pointerTracker\.isPointerTouch\(\)/);
-    expect(step).toMatch(/x -= libX;/);
-    expect(step).toMatch(/zc\._applyRotation\(x, 0, zc\.pivotPoint\);/);
-    expect(step).toMatch(/if \(d === 0 \|\| fpvActive \|\| flight\.active\(\) \|\| !controls\.enabled\) return;/);
+    // the library's drift azimuth cancelled exactly: Δx of the midpoint × 2π / clientHeight (T129 folded
+    // `libX` into the `k` factor it shares with the altitude term — same quantity, same sign)
+    expect(step).toMatch(/const k = \(2 \* Math\.PI\) \/ dom\.clientHeight;/);
+    expect(step).toMatch(/x -= \(_twistC\.x - _twistP\.x\) \* k;/);
+    expect(step).toMatch(/zc\._applyRotation\(x, y, zc\.pivotPoint\);/);
+    // outside a 2D pan the step still stands down with no twist delta; FPV / a flight / disabled controls first
+    expect(step).toMatch(/if \(fpvActive \|\| flight\.active\(\) \|\| !controls\.enabled\) return;/);
+    expect(step).toMatch(/if \(d === 0 && !pan2d\) return;/);
+    // T129: the 2D two-finger PAN — the altitude term cancelled too, the midpoint delta dragged on the pivot plane
+    expect(step).toMatch(/MOBILE2D\.twoFingerPan && isMobileShell && useCameraStore\.getState\(\)\.mapMode === "2d"/);
+    expect(step).toMatch(/if \(pan2d\) y = -\(_twistC\.y - _twistP\.y\) \* k;/);
+    expect(step).toMatch(/_panPlane\.setFromNormalAndCoplanarPoint\(_panUp, zc\.pivotPoint\);/);
+    expect(step).toMatch(/camera\.position\.add\(_panHit0\.sub\(_panHit1\)\);/);
   });
 
-  it("an armed twist that ends zeroes the library's rotation inertia, and the 2D north lock stands down for a twist", () => {
-    expect(src).toMatch(/if \(twist\.up\(e\.pointerId\)\) zc\.rotationInertia\.set\(0, 0\);/);
+  it("an armed twist (or a 2D pan) that ends zeroes the library's rotation inertia; the 2D north lock stands down for a twist, never for a pan", () => {
+    expect(src).toMatch(/if \(twist\.up\(e\.pointerId\) \|\| touchPan2dLive\) zc\.rotationInertia\.set\(0, 0\);/);
     const locks = src.slice(src.indexOf("const stepMobile2dLocks = () => {"), src.indexOf("const stepZoomGlide = () => {"));
-    expect(locks).toMatch(/if \(touchRotate \|\| twistLive\) mobile2dFreeHeading = true;/);
+    expect(locks).toMatch(/if \(\(touchRotate && !touchPan2dLive\) \|\| twistLive\) mobile2dFreeHeading = true;/);
     expect(locks).toMatch(/!mobile2dFreeHeading && !touchRotate && !twistLive/);
+    expect(MOBILE2D.twoFingerPan).toBe(true);
     // the tunables exist
     expect(CONTROLS.twistArmDeg).toBe(4);
     expect(CONTROLS.twistGain).toBe(1);

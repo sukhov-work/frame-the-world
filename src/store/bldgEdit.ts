@@ -51,6 +51,10 @@ export interface BldgEditArmed {
   live: FeatureTransform;
   /** MS3: where the committed edit lives (world-shared · mine pending · mine pushed · none). */
   origin: BldgEditOrigin;
+  /** T126: journal entries that touched this building this session (the chip's UNDO shows when > 0). */
+  undoable: number;
+  /** T126: this building's current state differs from its session baseline (DROP SESSION shows). */
+  sessionEdited: boolean;
 }
 
 /** The context menu anchor (client px of the right-click / long-press; a static point). */

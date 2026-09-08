@@ -183,9 +183,23 @@ const waitWorld = async (label) => {
 };
 const worldBaseline = async (label) => {
   await waitWorld(label);
-  const s = await evalJs(SEATS);
+  // The world's rows apply as their cells STREAM — a fixed 4 s after boot under-counts (2026-09-09:
+  // the second page read 6 of the world's 8 overridden features and leg 13 then "found" two extra).
+  // The baseline is the count once it has held still for 2.5 s (up to 20 s).
+  let s = await evalJs(SEATS);
+  let last = s.overridden;
+  let stillSince = Date.now();
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20_000) {
+    await sleep(500);
+    s = await evalJs(SEATS);
+    if (s.overridden !== last) {
+      last = s.overridden;
+      stillSince = Date.now();
+    } else if (Date.now() - stillSince >= 2500) break;
+  }
   const w = { spatial: s.spatial, overridden: s.overridden };
-  console.log(`${label}: world as found — spatial ${w.spatial} · overridden ${w.overridden} (the relative baseline)`);
+  console.log(`${label}: world as found — spatial ${w.spatial} · overridden ${w.overridden} (the relative baseline, still ${((Date.now() - stillSince) / 1000).toFixed(1)} s)`);
   return w;
 };
 
@@ -297,6 +311,63 @@ seats = await evalJs(SEATS);
 if (seats.spatial !== W0.spatial) fail(`after RESET the run must leave the absolute path (spatial=${seats.spatial}, world ${W0.spatial})`);
 if (seats.overridden !== W0.overridden) fail(`after RESET only the world's rows stay overridden (overridden=${seats.overridden}, world ${W0.overridden})`);
 console.log("RESET: row deleted · ease settled · fast path restored (spatial 0)");
+
+// --- 4b: T126 — UNDO + DROP SESSION through the journal (owner 2026-09-08b, MESH_SUITE_PLAN §16).
+//     Legs 2–4 committed FOUR times through the one commit path (T1 · the two rail edits · the
+//     RESET); the journal must hold exactly those, and the building must read "no session edits"
+//     (its baseline is the no-row it had at page load). ------------------------------------------
+const JS = "window.__editJournalStore.getState()";
+const jWait = async (label, pred, timeoutMs = 6000) => {
+  const t0 = Date.now();
+  let last = null;
+  while (Date.now() - t0 < timeoutMs) {
+    last = await evalJs(`(() => { const j = ${JS}; const a = ${ARMED}; return { undoable: j.undoable, sessionEdits: j.sessionEdits, undoLabel: j.undoLabel, armedUndoable: a?.undoable ?? null, armedSessionEdited: a?.sessionEdited ?? null, rows: ${ROWS} }; })()`);
+    if (pred(last)) return last;
+    await sleep(120);
+  }
+  fail(`${label}: journal never reached the expected state — last ${JSON.stringify(last)}`);
+};
+const j0 = await jWait("T126 after legs 2–4", (j) => j.undoable === 4 && j.sessionEdits === 0 && j.armedUndoable === 4 && j.armedSessionEdited === false);
+console.log(`T126 journal after legs 2–4: undoable ${j0.undoable} (last "${j0.undoLabel}") · session edits ${j0.sessionEdits} · armed mirror ${j0.armedUndoable}/${j0.armedSessionEdited}`);
+if (await evalJs("!!document.querySelector('.bldg-edit-chip .bec-drop')")) fail("T126: DROP SESSION offered while the building is at its baseline");
+if (!(await evalJs("!!document.querySelector('.bldg-edit-chip .bec-undo[data-act=\"undo\"]')"))) fail("T126: the chip foot offers no UNDO with 4 entries behind it");
+// UNDO #1 through the CHIP BUTTON: the RESET comes back off → the rails row (sy 12) returns VERBATIM.
+await evalJs("document.querySelector('.bldg-edit-chip .bec-undo').click(), true");
+const j1 = await jWait("T126 undo #1", (j) => j.undoable === 3 && j.sessionEdits === 1 && Object.keys(j.rows).length === 1);
+const rowU1 = j1.rows[Object.keys(j1.rows)[0]];
+if (rowU1.sy !== 12 || !near(Math.hypot(rowU1.tE, rowU1.tN), 5000, 1e-6)) fail(`T126 undo #1 did not restore the rails row: ${JSON.stringify(rowU1)}`);
+if (rowU1.t !== row2.t) fail(`T126: the restored row must be the VERBATIM before-row (t ${rowU1.t} vs ${row2.t}) — an undo is a put-back, not a re-edit`);
+const sU1 = await state(cellUri, fid);
+if (sU1.target.sy !== 12) fail(`T126 undo #1: the engine target did not follow the restored row (sy ${sU1.target.sy})`);
+if (!(await evalJs("!!document.querySelector('.bldg-edit-chip .bec-drop[data-act=\"drop-session\"]')"))) fail("T126: DROP SESSION not offered with a session edit standing");
+console.log(`T126 undo #1 (chip button): row back to sy 12 · |t| 5000 · verbatim t · engine sy ${sU1.target.sy} · undoable ${j1.undoable}`);
+// DROP SESSION (chip button): back to the baseline (no row) — and the drop is itself ONE entry.
+await evalJs("document.querySelector('.bldg-edit-chip .bec-drop').click(), true");
+const j2 = await jWait("T126 drop", (j) => j.undoable === 4 && j.undoLabel === "drop" && j.sessionEdits === 0 && Object.keys(j.rows).length === 0);
+const sD = await state(cellUri, fid);
+if (sD.target.sy !== 1 || sD.target.tE !== 0) fail(`T126 drop: the engine target did not return to identity (${JSON.stringify(sD.target)})`);
+console.log(`T126 DROP SESSION: row gone · engine identity · the drop journaled ("${j2.undoLabel}", undoable ${j2.undoable})`);
+// UNDO #2 through Ctrl+Z (the desktop key; the frame service applies): the dropped edit returns.
+await send("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers: 2 });
+await send("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers: 2 });
+const j3 = await jWait("T126 undo #2 (Ctrl+Z)", (j) => j.undoable === 3 && j.sessionEdits === 1 && Object.keys(j.rows).length === 1);
+if (j3.rows[Object.keys(j3.rows)[0]].sy !== 12) fail(`T126 Ctrl+Z did not bring the dropped edit back: ${JSON.stringify(j3.rows)}`);
+// UNDO ×3 through the STORE one-shot: the rails row → the 90 m row → T1 → nothing.
+await evalJs(`${JS}.requestUndo("bldg"), true`);
+const j4 = await jWait("T126 undo #3", (j) => j.undoable === 2 && Object.keys(j.rows).length === 1 && j.rows[Object.keys(j.rows)[0]].tE === 90);
+if (j4.rows[Object.keys(j4.rows)[0]].tU !== 25) fail(`T126 undo #3: expected the 90 m / lift 25 row, got ${JSON.stringify(j4.rows)}`);
+await evalJs(`${JS}.requestUndo("bldg"), true`);
+const j5 = await jWait("T126 undo #4", (j) => j.undoable === 1 && Object.keys(j.rows).length === 1 && j.rows[Object.keys(j.rows)[0]].rotDeg === T1.rotDeg);
+await evalJs(`${JS}.requestUndo("bldg"), true`);
+const j6 = await jWait("T126 undo #5", (j) => j.undoable === 0 && j.sessionEdits === 0 && Object.keys(j.rows).length === 0 && j.armedUndoable === 0);
+await waitSettled(cellUri, fid, "T126 unwound ease");
+const sZ = await state(cellUri, fid);
+if (sZ.target.sy !== 1 || sZ.target.rotDeg !== 0 || sZ.target.tE !== 0) fail(`T126: after unwinding everything the target is not identity (${JSON.stringify(sZ.target)})`);
+if (await evalJs("!!document.querySelector('.bldg-edit-chip .bec-undo') || !!document.querySelector('.bldg-edit-chip .bec-drop')")) fail("T126: UNDO / DROP still offered with an empty journal");
+if (await evalJs(`${JS}.requestUndo("bldg"), true`) && (await jWait("T126 undo on empty", (j) => j.undoable === 0 && Object.keys(j.rows).length === 0)) === null) fail("unreachable");
+console.log(`T126 unwound: 90 m row → T1 (rot ${j5.rows[Object.keys(j5.rows)[0]].rotDeg}) → nothing · identity · chip clean (undoable ${j6.undoable})`);
+await sleep(300);
+await shoot("meshedit-02b-t126-undo-drop.jpeg");
 
 // --- 5: reload re-applies a spatial row with NO gesture ----------------------------------------
 const T3 = { sy: 1.25, sx: 1, sz: 1.1, rotDeg: 30, tE: 5, tN: 0, tU: 0 };

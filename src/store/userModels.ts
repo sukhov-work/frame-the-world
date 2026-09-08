@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import { MODELS } from "../components/globe/tuning";
-import { planModelCover, sameCover } from "../lib/models/modelPlacement";
+import { modelTarget, recordEntry } from "../lib/edit/editJournal";
+import { placementSnapshot, planModelCover, sameCover, type PlacementSnapshot } from "../lib/models/modelPlacement";
 import type { ModelListItem, ModelPatchAnswer, PublicModel } from "../lib/wix/modelRecords";
+import { editJournal, refreshEditJournalMirror, setJournalCurrent } from "./editJournal";
 
 /**
  * MESH SUITE MS5 (D3 placement, 2026-09-02) — the WORLD's user models as the client sees them.
@@ -175,7 +177,13 @@ export interface UserModelsState {
   /** The gizmo commit path (and the click-to-place one): PATCH + the optimistic swap. MS6: a
    *  foreign model (the server answers `own: false`) swaps the public row into `world` only;
    *  the answer is the public row then (the owner-shaped list row is the owner's). */
-  commitPlacement(id: string, patch: PlacementPatch): Promise<ModelListItem | PublicModel | null>;
+  commitPlacement(id: string, patch: PlacementPatch, label?: string): Promise<ModelListItem | PublicModel | null>;
+  /** T126: the journal's RESTORE path — the same PATCH + swap as `commitPlacement`, WITHOUT a
+   *  journal entry (an undo is not an edit; a drop records itself as one entry). */
+  restorePlacement(id: string, to: PlacementSnapshot): Promise<ModelListItem | PublicModel | null>;
+  /** T126: the model's persisted placement as this client holds it (own row first, else the
+   *  world's) — the journal's `current()` for `model|<id>`; null when unknown or unplaced. */
+  placementOf(id: string): PlacementSnapshot | null;
   /** MS7: the MODELS row's RESET — RESET ALL's twin outside the edit session: the placement kept,
    *  yaw 0 / scale 1 / lift 0 (MS8: upright too) through ONE placement PATCH (own or shared row;
    *  null when the model is not placed or the PATCH failed). */
@@ -234,6 +242,34 @@ function swapOwn(
   const world = get().world.filter((m) => m.id !== id);
   if (row) world.push(row);
   set({ mine, minePhase: "ready", world });
+}
+
+/** The placement PATCH + the optimistic swap — `commitPlacement` (journaled) and the T126
+ *  `restorePlacement` (not) share it. MS6: a foreign model (the server answers `own: false`)
+ *  swaps the public row into `world` only. Null on failure (the rows stay as they were). */
+async function patchAndSwap(
+  id: string,
+  patch: PlacementPatch,
+  set: (p: Partial<UserModelsState>) => void,
+  get: () => UserModelsState,
+): Promise<ModelListItem | PublicModel | null> {
+  try {
+    const answer = await api.patchPlacement({ id, ...patch });
+    if (answer.own && answer.model) {
+      swapOwn(id, answer.model, set, get);
+      return answer.model;
+    }
+    // Another member's model (MS6): the public row is the truth we hold — never `mine`.
+    const row = answer.public ? { ...answer.public, updatedAt: new Date().toISOString() } : null;
+    localRows.set(id, { row, atMs: nowMs() });
+    const world = get().world.filter((m) => m.id !== id);
+    if (row) world.push(row);
+    set({ world });
+    return row;
+  } catch (e) {
+    console.warn("[userModels] placement failed", e);
+    return null;
+  }
 }
 
 export const useUserModelsStore = create<UserModelsState>((set, get) => ({
@@ -332,35 +368,41 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
     set({ placing: null });
     // Placing is an OWN-model gesture (the STORED card / the MODELS row) — the answer is the
     // owner's list row; a foreign answer (never expected here) reads as "not placed".
-    const row = await get().commitPlacement(p.id, { lat: latDeg, lon: lonDeg });
+    const row = await get().commitPlacement(p.id, { lat: latDeg, lon: lonDeg }, "place");
     return row && "readiness" in row ? row : null;
   },
 
-  commitPlacement: async (id, patch) => {
-    try {
-      const answer = await api.patchPlacement({ id, ...patch });
-      if (answer.own && answer.model) {
-        swapOwn(id, answer.model, set, get);
-        return answer.model;
-      }
-      // Another member's model (MS6): the public row is the truth we hold — never `mine`.
-      const row = answer.public ? { ...answer.public, updatedAt: new Date().toISOString() } : null;
-      localRows.set(id, { row, atMs: nowMs() });
-      const world = get().world.filter((m) => m.id !== id);
-      if (row) world.push(row);
-      set({ world });
-      return row;
-    } catch (e) {
-      console.warn("[userModels] placement failed", e);
-      return null;
+  commitPlacement: async (id, patch, label = "edit") => {
+    // T126: the journal step's BEFORE — the placement as held before the PATCH answers (the
+    // orchestrator's optimistic engine seat never touches these rows). An UNPLACED before (the
+    // first placement of a stored model) is not an edit of a mesh on the map → not journaled.
+    const before = get().placementOf(id);
+    const answered = await patchAndSwap(id, patch, set, get);
+    if (answered && before) {
+      recordEntry(editJournal, label, [{ target: modelTarget(id), before, after: placementSnapshot(answered) }], nowMs());
+      refreshEditJournalMirror();
     }
+    return answered;
+  },
+
+  restorePlacement: async (id, to) => {
+    const answered = await patchAndSwap(id, { ...to }, set, get);
+    refreshEditJournalMirror(); // the counts read the store's rows — only true once the PATCH landed
+    return answered;
+  },
+
+  placementOf: (id) => {
+    const own = get().mine.find((m) => m.id === id);
+    if (own) return placementSnapshot(own);
+    const w = get().world.find((m) => m.id === id);
+    return w ? placementSnapshot(w) : null;
   },
 
   resetTransform: async (id) => {
     const own = get().mine.find((m) => m.id === id);
     const row = own ?? get().world.find((m) => m.id === id) ?? null;
     if (!row || row.lat === null || row.lon === null) return null;
-    return get().commitPlacement(id, { lat: row.lat, lon: row.lon, rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 });
+    return get().commitPlacement(id, { lat: row.lat, lon: row.lon, rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 }, "reset");
   },
 
   rename: async (id, title) => {
@@ -416,6 +458,10 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
 }));
 
 /** Test seam: forget the throttle/cover memory between cases. */
+// T126: the journal reads a model's persisted placement through this store (the building half is
+// the orchestrator's local override map, installed at its boot).
+setJournalCurrent("model", (id) => useUserModelsStore.getState().placementOf(id));
+
 export function _resetUserModelsQueryState(): void {
   lastCover = null;
   lastReport = null;
