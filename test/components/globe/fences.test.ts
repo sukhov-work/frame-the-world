@@ -837,6 +837,9 @@ describe("BEST SPOT — one gate, both shells, ULTRA desktop-only (2026-09-07g)"
       "components/panels/PlanFindToggle.tsx",
       // The /m surface (2026-09-07g) — the FindSheet idiom: always mounted, `open` sticky.
       "components/mobile/BestSpotSheet.tsx",
+      // The /m shell (2026-09-08b): the SPOT tab glows on the engine's own `open && heatmapOn`
+      // and a long press arms/disarms it — a UI reader of the request band, like the sheet.
+      "components/mobile/MobileShell.tsx",
     ]);
     const importRe = /import\s+(type\s+)?({[^}]*}|[\w*\s,]+)\s+from\s+"([^"]*store\/bestSpot)"/g;
     const offenders: string[] = [];

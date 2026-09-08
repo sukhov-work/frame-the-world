@@ -382,6 +382,7 @@ resweep 343 ms · rebuild 490–548 ms.
 | Render seat | **`renderOrder` 4** · `markerRenderOrder` 5 · `polygonOffset` [-4, -4] · `fullAltK` 8 / `topAltK` 14 / `fadeTauMs` 250 · `rimFrac` 0.1 · `densFadeLo/Hi` 0.35/0.7 | see the renderOrder-ladder trap below — 4 is **not** 9 |
 | Ladder + residency | `ladderCellsM` [24, 12, 6, 3] · `defaultCellM` 3 · `midCellM` 6 · `dragCellM` 24 · `ultraCellM` 1 · `ultraMaxRadiusM` 300 · `rebuildQuietFrames` 90 · `mirrorEveryFrames` (borrowed from `PLAN`) | 1 m is reserved for ULTRA and capped to a 300 m radius. `rebuildQuietFrames` is the refinement debounce: the fine rung only runs after 90 quiet frames, which is what keeps a radius drag at +1.1 ms on the idle frame |
 | Disc geometry | `radiiM` [100…500] · `defaultRadiusM` 300 · `eyeM` 1.7 · `defaultLiftM` 0 · `liftMinM` 0.5 / `liftMaxM` 400 · `collarM` 400 | `eyeM` 1.7 is the pedestrian eye; above 5 m the panel switches to DRONE semantics (owner ruling). `collarM` is the evidence collar beyond the disc rim |
+| Hygiene + the encoder (2026-09-08b) | `holdMaxMs` **30 000** (owner ruling 2026-09-08b, was 20 000) · **`liftDebounceMs` 220** · **`workerIdleDisposeMs` 45 000** · **`liftEncoderBaseM` 5** | `holdMaxMs` caps T118's readiness hold. `liftDebounceMs` is the ONE latch on a T1-only (sheet-altitude) change — trailing edge at the tier-key compare, never the first solve, a move, a day step or a rebuild (T121). `workerIdleDisposeMs`: disarmed this long, the solver worker (its resident TIN copies, per-rung DSM/grid/hulls, the tile cache) is released and re-spawned lazily on the next post. `liftEncoderBaseM`: both shells drive the lift with `controls/RateEncoder` at `CONTROLS.zoomRateMaxPerS` / `rateExpoGamma` / `rateEaseTauMs`; the step is `rate · dt · max(sheetAltM, this)` (exponential with a floor — the log slider's character). |
 | Honesty gates | `emptyFieldFrac` 0.05 · `liftProbesM` [10, 20, 40, 80] / `liftProbeCellM` 24 · `minTilesForSolve` 1 · **`builtDensityFloorPerKm2` 1** · **`refuseBelowReachM` 400** | these decide when the feature REFUSES or withholds credit rather than painting. The built-density floor is `√(26.6 × 0.048)` — the geometric mean of the two measured extremes — and it is an **evidence gate, never a score penalty**: it withholds open-sky credit instead of subtracting from the score. Calibration for `refuseBelowReachM`: 0 cells refused on a fully-mapped disc, 175 at 420 m, 3,027 at 500 m |
 | Scoring (runtime, `bestSpotScoring.ts`) | `weights` {v 0.15, l 0.30, p 0.25, f 0.30} · `gates` · `curves` · `graze` · `gap` · `trackWeight` · `worth` · `access` · `quadrature.discColumns` 8 | 54 leaves. **No key path from a patch reaches the PHYSICS/SAFETY/HONESTY blocks** — `sanitizeScoringPatch` makes that structural, so a hostile or stale persisted blob cannot disable a safety gate (`prefs.ts:88`, `:147`) |
 
@@ -416,6 +417,15 @@ not from a solved disc.
   happened, at `rMin === rMax === 187` across 31,417 cells, with 1,860 unit tests green. A
   verify check that asserts "the field exists" or "solving === false" would have passed. Assert a
   SPREAD.
+
+## The two-finger TWIST (added 2026-09-08b — `CONTROLS.twistArmDeg` / `twistGain`, T120)
+
+| Knob | Value | Why |
+|---|---|---|
+| `twistArmDeg` | 4 | The library has NO twist: `PointerTracker` measures no inter-pointer angle and `EnvironmentControls` classifies a two-finger touch ONCE (past 2 px·DPR) as ZOOM or a parallel-drag ROTATE — a rigid twist moves neither and sits in WAITING. `lib/globe/twistTracker.ts` accumulates the unwrapped angle since the pair formed; past this many degrees it is ARMED and `stepTouchTwist` applies the whole angle 1:1 (catch-up) about the library's own pivot. Below it a pinch's angular noise (~1° at 100 px separation for 2 px of jitter) must not turn a north-locked 2D map. |
+| `twistGain` | 1 | Fingers glued to the map (the MapWindow chart's idiom). The sign is WORLD-FOLLOWS-FINGERS: `x = −Δ` into `_applyRotation` (a clockwise twist → azimuth +Δ → the heading DEcreases); on a library-ROTATE frame the midpoint-drift azimuth `−(drift·2π/H)` is read pre-update and cancelled so the net turn is the twist alone. |
+
+Traps: the step runs BEFORE `controls.update()` — after it the tracker's previous centre equals the current one and the cancellation reads 0. An armed twist that ends zeroes `rotationInertia`, or the library coasts in the inverted direction after the fingers lift. Never in FPV (the second finger is the FOV pinch) and never inside a flight. The library's parallel two-finger DRAG still rotates with the orbit sign (untouched).
 
 ## The MESH SUITE MS1 family (added 2026-09-02 — the spatial-edit substrate)
 

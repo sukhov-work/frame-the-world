@@ -12,7 +12,7 @@ import "../../styles/mobile/chrome.css";
  * Rendered by MobileSearch while the search box is IDLE — the empty SEARCH sheet doubles as
  * the places list, one tap from the status-strip account chip. Tap a row = restore the clock
  * FIRST, then requestFpvJump (the MyPins jump order — FPV entry reads the restored time).
- * Save half lives in SceneActions (◎ SAVE VIEW). Delete stays desktop-only (MY PINS · PLACES).
+ * Save half lives in SceneActions (◎ SAVE, the round cell under the altitude nudges). Delete stays desktop-only (MY PINS · PLACES).
  */
 export default function MobilePlaces({ onJump }: { onJump: () => void }) {
   const phase = useMemberStore((s) => s.phase);
@@ -88,7 +88,7 @@ export default function MobilePlaces({ onJump }: { onJump: () => void }) {
       {err && <div className="m-status-line">PLACES UNAVAILABLE — TRY AGAIN LATER</div>}
       {places === null && !err && <div className="m-status-line">LOADING…</div>}
       {places !== null && places.length === 0 && (
-        <div className="m-status-line">NONE YET — ENTER A VIEW AND TAP ◎ SAVE VIEW</div>
+        <div className="m-status-line">NONE YET — ENTER A VIEW AND TAP ◎ SAVE</div>
       )}
       {places?.map((p) => (
         <button key={p.id} type="button" className="m-hit" onClick={() => jump(p)}>

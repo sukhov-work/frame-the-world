@@ -1455,6 +1455,27 @@ export const DEBUG_METRICS: ReadonlyArray<DebugMetricDef> = [
     warnAbove: 0,
     note: "T118 — the orchestrator's readiness term this frame: attached tilesets without a root + isLoading latches + queued/downloading/parsing tiles + the two-phase load queues. 0 = the scene is as loaded as this pose gets.",
   },
+  {
+    id: "planning.bs.liftDeferFrames",
+    label: "BS lift deferred",
+    group: "workers",
+    fmt: "int",
+    note: "2026-09-08b — frames a sheet-altitude (T1-only) change waited for BESTSPOT.liftDebounceMs of stillness, cumulative. Climbing under the encoder is right; a solve per frame would be the old shape.",
+  },
+  {
+    id: "planning.bs.liftDebounced",
+    label: "BS lift solves",
+    group: "workers",
+    fmt: "int",
+    note: "2026-09-08b — solves the lift debounce released (one per settled drag). Compare with bs.jobs: the rest are disc moves, day steps and streaming rebuilds.",
+  },
+  {
+    id: "planning.bs.workerDisposes",
+    label: "BS worker disposes",
+    group: "workers",
+    fmt: "int",
+    note: "2026-09-08b — solver workers released by the idle dispose (disarmed ≥ BESTSPOT.workerIdleDisposeMs); the next arm re-spawns and re-fetches the tiles. A count climbing on a phone that arms and disarms often is the trade the tunable makes.",
+  },
 
   // ---- SYSTEM (static — read once) ---------------------------------------------------------
   {

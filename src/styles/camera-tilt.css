@@ -262,29 +262,9 @@
 /* The per-chip narrow cuts + the old flex-share single row retired (owner 2026-08-19): the
    4-column grid above owns the layout — two calm rows instead of eight crammed cells. */
 
-/* Encoder (spring-centred rate control) — centre tick over the shared slider rail. */
-.ct-enc .uf-slider__fill {
-  transition: left 0.18s ease-out, width 0.18s ease-out;
-}
-
-.ct-enc .uf-slider__knob {
-  transition: left 0.18s ease-out;
-}
-
-.ct-enc.is-live .uf-slider__fill,
-.ct-enc.is-live .uf-slider__knob {
-  transition: none; /* under the finger the knob must track exactly */
-}
-
-.ct-enc__centre {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 1px;
-  height: 10px;
-  transform: translate(-0.5px, -50%);
-  background: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
-}
+/* Encoder (spring-centred rate control): the `.ct-enc*` rules moved to upload-flow.css on
+   2026-09-08b — the encoder lives in the shared tier (`controls/RateEncoder`) and both shells
+   render it, so its centre tick rides the same stylesheet as the `.uf-slider` rail. */
 
 /* Temporary-pin popup: floats just above the pin marker (screen-mirrored coords), instrument
    card idiom — same 10px corners / bg / hairline as every other window. NOTE: it must live

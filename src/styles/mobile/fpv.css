@@ -89,6 +89,12 @@ body.mw-open .m-joy,
 body.mw-open .m-altcol {
   z-index: 24;
 }
+/* 2026-09-08b: the AR note / ALIGN chip float exactly where the map's ◉ RE-CENTRE seats (it reads
+   `--m-altcol-h` and sits just above the column) — while the map is open they yield to it. The
+   chip itself stays reachable; the bubble returns when the map closes. */
+body.mw-open .m-arfloat {
+  visibility: hidden;
+}
 
 /* Batch #5 item 3: chrome living BETWEEN the GL canvas (z 0) and the map window (z 20) —
    the minimap card, the FPV HUD pill, the GOTO chips — used to bleed through the PiP hole
@@ -201,7 +207,7 @@ body.m.mw-open .md {
    itself clear of this box on short viewports. map-window.css reads both. */
 :root {
   --m-altcol-bottom: 16.4rem;
-  --m-altcol-h: 96px; /* two 44 px buttons + the 8 px gap below */
+  --m-altcol-h: 148px; /* three 44 px cells (🧭 AR · ⤒ · ⤓) + the two 8 px gaps (2026-09-08b) */
 }
 .m-altcol {
   position: fixed;
@@ -213,6 +219,7 @@ body.m.mw-open .md {
   z-index: 10;
   display: flex;
   flex-direction: column;
+  align-items: flex-end; /* the AR cell's floating note never widens the ⤒/⤓ cells */
   gap: 8px;
 }
 .m-alt {
@@ -250,20 +257,29 @@ body.m .mm-canvas {
   height: 124px;
 }
 
-/* ── AR LOOK-AROUND (owner order 2026-09-07g) — the toggle above the AIM stick ──────────────
-   A small round button in the shell's glyph idiom, seated just above the aim joystick (left
-   column: WALK at the bottom, AIM above it, this above AIM) so the thumb that aims finds it;
-   the status pill and the ALIGN chip run to its right. Colours through tokens only. */
+/* ── AR LOOK-AROUND (owner order 2026-09-07g; re-seated 2026-09-08b) — the FIRST cell of the
+   right-rail altitude column, a 44 px round chip in the ⤒/⤓ idiom so the thumb that flies the
+   eye finds it. The status pill and the ALIGN chip FLOAT above the column (absolute, right-
+   aligned) — the column's own box stays three cells tall (`--m-altcol-h`, the A1-2 contract)
+   whatever the bubble says. Colours through tokens only. */
 .m-arwrap {
-  position: fixed;
-  left: calc(1rem + env(safe-area-inset-left));
-  bottom: calc(11.2rem + 120px + 120px + env(safe-area-inset-bottom));
-  z-index: 10;
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: calc(100vw - 2rem);
+  flex-direction: column;
+  align-items: flex-end;
   pointer-events: none; /* the wrap is a layout box; its children take the taps */
+}
+.m-arfloat {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 1.5rem - env(safe-area-inset-right));
+  pointer-events: none;
 }
 .m-arbtn {
   pointer-events: auto;
@@ -272,23 +288,23 @@ body.m .mm-canvas {
   align-items: center;
   justify-content: center;
   gap: 1px;
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   border-radius: 50%;
   font-family: var(--font-mono);
-  font-size: 0.5rem;
-  letter-spacing: 0.16em;
+  font-size: 0.78rem; /* the two letters, the ⤒/⤓ glyphs' weight — no emoji (owner 2026-09-08b) */
+  letter-spacing: 0.1em;
   color: var(--color-text-secondary);
-  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
-}
-.m-arbtn__glyph {
-  font-size: 1.1rem;
-  line-height: 1;
 }
 .m-arbtn--on {
   color: var(--color-accent);
@@ -302,6 +318,7 @@ body.m .mm-canvas {
 }
 .m-arnote {
   pointer-events: none;
+  text-align: right;
   font-family: var(--font-mono);
   font-size: 0.56rem;
   letter-spacing: 0.08em;

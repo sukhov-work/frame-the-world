@@ -151,8 +151,44 @@ export function arRungLine(state: ArLookState | null): string {
   }
 }
 
-/** How long a transient note (armed / aligned) covers the rung line. */
-const AR_NOTE_MS = 3500;
+/** How long a transient note (armed / aligned / a rung line) stays up before the bubble clears.
+ *  Owner 2026-09-08b: the hints are welcome, the standing bubble is not — it hides the view. */
+export const AR_NOTE_MS = 3500;
+
+/**
+ * The ONE transition key a note is worth re-showing for: the rung and the stale flag. Never the
+ * heading or the sample count — the engine mirror's own signature moves on every ~1° of heading
+ * and keying on it would re-show the bubble forever (the thing the owner asked to stop).
+ */
+export function arNoteKey(on: boolean, state: ArLookState | null): string {
+  if (!on) return "off";
+  if (!state) return "on";
+  return `${state.rung}|${state.stale ? "stale" : "live"}`;
+}
+
+/**
+ * What to announce when the key moves (pure, so the DOM-less vitest can pin the contract):
+ *  · AR switched off → clear the bubble (`null`);
+ *  · the sensors went STALE → the stale line, STICKY while it lasts (an error is an action the
+ *    user has to take — move the phone, check access);
+ *  · a rung landed or changed (compass ↔ gyro, aligned ↔ unaligned, stale → live again) → the
+ *    rung line, TRANSIENT (`AR_NOTE_MS`), queued behind a transient note still up so the armed
+ *    hint gets its full read before the rung line replaces it.
+ *  Nothing else re-shows anything.
+ */
+export function arAnnouncement(
+  on: boolean,
+  state: ArLookState | null,
+): { text: string; sticky: boolean; defer: boolean } | null | "clear" {
+  if (!on) return "clear";
+  if (!state) return null;
+  // Stale BEFORE any sample is the engine's first mirror write after arming (a phone's sensors
+  // land ~100 ms later, the HUD tick can precede them) — worth saying only if it lasts: it waits
+  // behind the armed hint, and a rung that lands first supersedes it. Stale AFTER samples is the
+  // sensors dying mid-session: immediate.
+  if (state.stale) return { text: AR_COPY.stale, sticky: true, defer: state.samples === 0 };
+  return { text: arRungLine(state), sticky: false, defer: false };
+}
 
 /** Minimal surface of the iOS 13+ permission API — lib.dom has no such static. */
 type DeviceOrientationEventCtor = { requestPermission?: () => Promise<"granted" | "denied"> };
@@ -163,25 +199,61 @@ type DeviceOrientationEventCtor = { requestPermission?: () => Promise<"granted" 
  * awaited before it (`test/components/mobileArLook.test.ts` pins the shape). Chrome 151+ has the
  * same static and resolves it without a prompt; browsers without it (older Chromium, Firefox)
  * just arm. Never asked at page load: the toggle IS the gesture.
+ *
+ * Seat (owner 2026-09-08b): the FIRST cell of the right-rail altitude column — a 44 px round
+ * chip like ⤒/⤓ below it, the two letters AR in the column's mono (no glyph: the compass emoji
+ * broke the icon style and made the map harder to read — owner 2026-09-08b). The note bubble and the ALIGN chip FLOAT above the column
+ * (`.m-arfloat`, absolute) so the column's own box — the A1-2 `--m-altcol-h` contract the map
+ * window's ◉ RE-CENTRE reads — never grows while a note is up.
  */
 export function ArLookToggle() {
   const on = useCameraStore((s) => s.arLook);
   const state = useCameraStore((s) => s.arLookState);
-  const [note, setNote] = useState<string | null>(null);
+  // Mounting while already ON shows the rung line once (then it clears like any transient).
+  const [note, setNote] = useState<string | null>(() => (on && state ? arRungLine(state) : null));
   const noteTimer = useRef<number | null>(null);
+  const noteUntil = useRef<number>(on && state ? Date.now() + AR_NOTE_MS : 0);
+  const lastKey = useRef(arNoteKey(on, state));
+  const clearTimer = () => {
+    if (noteTimer.current !== null) window.clearTimeout(noteTimer.current);
+    noteTimer.current = null;
+  };
   const flash = (text: string, sticky = false) => {
     setNote(text);
-    if (noteTimer.current !== null) window.clearTimeout(noteTimer.current);
-    // A transient note stands in for the rung line briefly, then the rung line is back — the
-    // rung IS the information ("compass" vs "gyro only"); errors stay until the next tap.
+    clearTimer();
+    // A transient note stands in briefly, then the bubble CLEARS (owner 2026-09-08b — the view
+    // is the point); errors stay until the next tap or until the sensors recover.
+    noteUntil.current = sticky ? Infinity : Date.now() + AR_NOTE_MS;
     noteTimer.current = sticky ? null : window.setTimeout(() => setNote(null), AR_NOTE_MS);
   };
-  useEffect(
-    () => () => {
-      if (noteTimer.current !== null) window.clearTimeout(noteTimer.current);
-    },
-    [],
-  );
+  const clearNote = () => {
+    clearTimer();
+    noteUntil.current = 0;
+    setNote(null);
+  };
+  /** A line queued behind a transient note still up (the armed hint keeps its read); a later
+   *  announcement supersedes a queued one. */
+  const announce = (text: string, sticky = false) => {
+    const remaining = noteUntil.current === Infinity ? 0 : noteUntil.current - Date.now();
+    if (remaining > 0) {
+      clearTimer();
+      noteTimer.current = window.setTimeout(() => flash(text, sticky), remaining);
+    } else {
+      flash(text, sticky);
+    }
+  };
+  useEffect(() => clearTimer, []);
+  // Re-show ONLY on the key's transitions (rung · stale); the mirror object itself changes at the
+  // HUD cadence and must not be what re-opens the bubble.
+  useEffect(() => {
+    const key = arNoteKey(on, state);
+    if (key === lastKey.current) return;
+    lastKey.current = key;
+    const a = arAnnouncement(on, state);
+    if (a === "clear") clearNote();
+    else if (a !== null) (a.sticky && !a.defer ? flash(a.text, true) : announce(a.text, a.sticky));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [on, state]);
   const arm = () => {
     useCameraStore.getState().setArLook(true);
     flash(AR_COPY.armed);
@@ -190,7 +262,7 @@ export function ArLookToggle() {
     const cam = useCameraStore.getState();
     if (cam.arLook) {
       cam.setArLook(false);
-      setNote(null);
+      clearNote();
       return;
     }
     if (!("DeviceOrientationEvent" in window)) {
@@ -208,9 +280,30 @@ export function ArLookToggle() {
     }
   };
   const relative = on && state !== null && !state.stale && state.rung.startsWith("relative");
-  const line = note ?? (on ? arRungLine(state) : "");
+  const line = note ?? "";
   return (
     <div className="m-arwrap">
+      {(line || relative) && (
+        <div className="m-arfloat">
+          {line && (
+            <span className="m-arnote" role="status">
+              {line}
+            </span>
+          )}
+          {relative && (
+            <button
+              type="button"
+              className="m-act m-act--accent m-aralign"
+              onClick={() => {
+                useCameraStore.getState().requestArAlign();
+                flash(AR_COPY.aligned);
+              }}
+            >
+              ⌖ ALIGN
+            </button>
+          )}
+        </div>
+      )}
       <button
         type="button"
         className={`m-arbtn${on ? " m-arbtn--on" : ""}`}
@@ -218,28 +311,8 @@ export function ArLookToggle() {
         aria-label="AR look-around — aim the view by moving the phone"
         onClick={onTap}
       >
-        <span className="m-arbtn__glyph" aria-hidden="true">
-          🧭
-        </span>
         AR
       </button>
-      {relative && (
-        <button
-          type="button"
-          className="m-act m-act--accent m-aralign"
-          onClick={() => {
-            useCameraStore.getState().requestArAlign();
-            flash(AR_COPY.aligned);
-          }}
-        >
-          ⌖ ALIGN
-        </button>
-      )}
-      {line && (
-        <span className="m-arnote" role="status">
-          {line}
-        </span>
-      )}
     </div>
   );
 }
@@ -249,7 +322,6 @@ export default function FpvControls() {
   useFpvWakeLock();
   return (
     <>
-      <ArLookToggle />
       {hud && (
         <div className="m-fpvhud" aria-label="Camera view readout">
           <span className="m-fpvhud__cell">
@@ -271,7 +343,8 @@ export default function FpvControls() {
         </div>
       )}
       <WalkJoystick />
-      <div className="m-altcol" aria-label="Eye altitude">
+      <div className="m-altcol" aria-label="AR look-around · eye altitude">
+        <ArLookToggle />
         <AltNudge dir={1} />
         <AltNudge dir={-1} />
       </div>

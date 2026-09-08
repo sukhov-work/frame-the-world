@@ -759,6 +759,8 @@ describe("ADR D14 — the new S5 surfaces carry no colour literal", () => {
     "src/components/panels/BestSpotPanel.tsx",
     "src/components/controls/InstrumentSlider.tsx",
     "src/components/controls/ChipRow.tsx",
+    "src/components/controls/RateEncoder.tsx",
+    "src/components/controls/useRateIntegrator.ts",
   ];
   /** Hex triples/quads, and the functional colour notations. Comments are stripped first — the
    *  docblocks here talk about "dark red" and cite tokens by name on purpose. */

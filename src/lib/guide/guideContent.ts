@@ -1490,7 +1490,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Save a viewpoint",
         where: {
           desktop: "◎ SAVE PLACE on the camera deck (first-person view, signed in)",
-          mobile: "◎ SAVE VIEW chip",
+          mobile: "◎ SAVE — the round chip under the ⤒/⤓ altitude cells (first-person view, signed in)",
         },
         keys: ["bookmark", "viewpoint", "save view", "save place", "favourite"],
         body:
@@ -1666,7 +1666,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Top: the Plux mark, your account chip, a GUIDE chip and the DESKTOP switch.",
           "The tracked target row — tap it for the full card.",
           "The time dock — day steppers, the calendar, the scene-time clock and NOW.",
-          "The SCENE · PLAN · FIND · SEARCH tabs.",
+          "The SCENE · PLAN · FIND · SEARCH · SPOT tabs. FIND and SPOT light up while they " +
+            "are working — a frame scan running, a heatmap armed — and a long press on either " +
+            "switches it off, or back on, without opening the sheet.",
         ],
       },
       {
@@ -1689,8 +1691,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "🧭 MY LOC — fly the chart to your device fix.",
           "▲ 3D / ▼ 2D — lift the chart into the globe, or fold it flat.",
           "◎ LOOK FROM HERE — [[fpv-enter|stand at the pin you dropped]].",
-          "◎ SAVE VIEW and ▤ SAVED PLACES, for members. Signed out, ◎ SIGN IN TO SAVE " +
-            "stands in their place.",
+          "◎ SAVE (a round cell under the altitude nudges) and ▤ SAVED PLACES, for members. " +
+            "Signed out the save cell is dimmed — a tap says to sign in from the top bar.",
           "✕ CLEAR PIN and ✕ EXIT VIEW.",
           "A micro-compass with your altitude.",
         ],

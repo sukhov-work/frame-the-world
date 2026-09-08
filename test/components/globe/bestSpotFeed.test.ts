@@ -175,16 +175,71 @@ describe("the residency tiers decide WHICH jobs exist", () => {
     feed.dispose();
   });
 
-  it("T1 — a LIFT change re-solves and the ladder still starts at the 24 m drag rung", () => {
+  it("T1 — a LIFT change re-solves (once it has stood still) and the ladder still starts at the 24 m drag rung", () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(1_000);
     const feed = mountSync();
     feed.update({ ...baseCtx });
     useBestSpotStore.setState({ liftM: 40 });
+    feed.update({ ...baseCtx });
+    // 2026-09-08b: a lift-only change is DEBOUNCED — the post comes after `liftDebounceMs` of
+    // stillness, not on the next frame (the tier keys wait, so the branch re-enters).
+    expect(solves()).toHaveLength(1);
+    clock.mockReturnValue(1_000 + BESTSPOT.liftDebounceMs);
     feed.update({ ...baseCtx });
     expect(solves()).toHaveLength(2);
     const job = solves()[1];
     expect(job.type === "solve" && job.liftM).toBe(40);
     expect(job.type === "solve" && job.ladderCellsM[0]).toBe(BESTSPOT.dragCellM);
     feed.dispose();
+    clock.mockRestore();
+  });
+
+  it("THE LIFT DEBOUNCE (2026-09-08b) — a drag of 30 lift values posts ONE solve, carrying the LAST value", () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const feed = mountSync();
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(1);
+    // the encoder writes every frame: 30 frames × 16 ms, a new value each time
+    for (let i = 1; i <= 30; i++) {
+      clock.mockReturnValue(1_000 + i * 16);
+      useBestSpotStore.setState({ liftM: i * 3 });
+      feed.update({ ...baseCtx });
+    }
+    expect(solves()).toHaveLength(1); // nothing posted under the finger
+    expect(feed.debug().lift.deferFrames).toBe(30);
+    expect(feed.debug().lift.pendingT1).toBe("90");
+    // stillness: the trailing edge posts once, with the final lift
+    clock.mockReturnValue(1_000 + 30 * 16 + BESTSPOT.liftDebounceMs);
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(2);
+    expect(solves()[1].type === "solve" && solves()[1].liftM).toBe(90);
+    expect(feed.debug().lift.pendingT1).toBeNull();
+    // …and a further quiet frame posts nothing more
+    clock.mockReturnValue(1_000 + 30 * 16 + BESTSPOT.liftDebounceMs + 500);
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(2);
+    feed.dispose();
+    clock.mockRestore();
+  });
+
+  it("THE LIFT DEBOUNCE never delays a disc MOVE, a day step, or the FIRST solve", () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const feed = mountSync();
+    // the first solve with a non-zero lift is immediate
+    useBestSpotStore.setState({ liftM: 25 });
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(1);
+    // a lift change + a centre move on the same frame: the move wins, immediately
+    useBestSpotStore.setState({ liftM: 60 });
+    feed.update({ ...baseCtx, centreLatDeg: 48.47 });
+    expect(solves()).toHaveLength(2);
+    expect(solves()[1].type === "solve" && solves()[1].liftM).toBe(60);
+    // a lift change + a day step: immediate too
+    useBestSpotStore.setState({ liftM: 70 });
+    feed.update({ ...baseCtx, centreLatDeg: 48.47, sceneMs: NOON + 26 * 3_600_000 });
+    expect(solves()).toHaveLength(3);
+    feed.dispose();
+    clock.mockRestore();
   });
 
   it("T2 — a RECOMPOSE-class patch posts an `apply`, never a solve", () => {
@@ -714,6 +769,65 @@ describe("lifecycle — spawn late, terminate once, and never leave a ghost", ()
     expect(st.centreLatDeg).toBeNull();
     expect(st.solving).toBe(false);
     expect(st.verdictCounts.total).toBe(0);
+  });
+
+  it("DISARM (2026-09-08b) cancels whatever is in flight — unconditionally — and un-latches `refining`", () => {
+    const feed = mountSync();
+    feed.update({ ...baseCtx });
+    expect(solves()).toHaveLength(1);
+    // Disarm BEFORE any rung lands (the old guard needed a live pack or a mirror write to cancel).
+    useBestSpotStore.setState({ heatmapOn: false });
+    feed.update({ ...baseCtx });
+    expect(posted.filter((m) => m.type === "cancel")).toHaveLength(1);
+    expect(feed.debug().inFlight).toBe(0);
+    feed.dispose();
+  });
+
+  it("THE IDLE DISPOSE (2026-09-08b) — disarmed past `workerIdleDisposeMs` the worker is released; re-arming respawns", () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const feed = mountSync();
+    feed.update({ ...baseCtx });
+    const w = liveWorker;
+    expect(w).not.toBeNull();
+    useBestSpotStore.setState({ heatmapOn: false });
+    feed.update({ ...baseCtx }); // the dwell starts
+    clock.mockReturnValue(1_000 + BESTSPOT.workerIdleDisposeMs - 1);
+    feed.update({ ...baseCtx });
+    expect(w?.terminated).toBe(0); // inside the dwell it stays warm
+    expect(feed.debug().workerSpawned).toBe(true);
+    clock.mockReturnValue(1_000 + BESTSPOT.workerIdleDisposeMs);
+    feed.update({ ...baseCtx });
+    expect(w?.terminated).toBe(1);
+    expect(feed.debug().workerSpawned).toBe(false);
+    expect(feed.debug().workerDisposes).toBe(1);
+    // …and it stays released, not re-terminated, while disarmed
+    clock.mockReturnValue(1_000 + BESTSPOT.workerIdleDisposeMs * 3);
+    feed.update({ ...baseCtx });
+    expect(w?.terminated).toBe(1);
+    // re-arm: a NEW worker, and the request is solved from scratch
+    posted.length = 0;
+    useBestSpotStore.setState({ heatmapOn: true });
+    feed.update({ ...baseCtx });
+    expect(liveWorker).not.toBe(w);
+    expect(solves()).toHaveLength(1);
+    feed.dispose();
+    clock.mockRestore();
+  });
+
+  it("a quick off → on inside the dwell keeps the SAME worker (the parsed tiles stay warm)", () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const feed = mountSync();
+    feed.update({ ...baseCtx });
+    const w = liveWorker;
+    useBestSpotStore.setState({ heatmapOn: false });
+    feed.update({ ...baseCtx });
+    clock.mockReturnValue(1_000 + 2_000);
+    useBestSpotStore.setState({ heatmapOn: true });
+    feed.update({ ...baseCtx });
+    expect(liveWorker).toBe(w);
+    expect(w?.terminated).toBe(0);
+    feed.dispose();
+    clock.mockRestore();
   });
 
   it("a centre change CANCELS the in-flight job and keeps the worker alive", () => {

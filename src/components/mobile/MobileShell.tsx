@@ -14,8 +14,11 @@
 import { useEffect, useState } from "react";
 import { useSkyStore } from "../../store/sky";
 import { useCameraStore } from "../../store/camera";
+import { useFindStore } from "../../store/find";
+import { useBestSpotStore } from "../../store/bestSpot";
 import MobileTimeDock from "./MobileTimeDock";
 import TabBar, { type MobileTab } from "./TabBar";
+import { tabLive, tabLongPress, type TabLiveSnapshot } from "./tabLive";
 import VersionStamp from "../controls/VersionStamp";
 import Sheet from "./Sheet";
 import MobileAccount from "./MobileAccount";
@@ -61,6 +64,53 @@ export default function MobileShell() {
       : "scene";
   const onTab = (t: MobileTab) => setSheet(t === "scene" ? null : t);
 
+  // LIVE tabs + the long press (owner 2026-09-08b): FIND glows while the frame scan runs, SPOT
+  // while the heatmap is armed (the engine's own `open && heatmapOn`); a long press toggles the
+  // feature without the sheet, or opens the sheet when a precondition is missing (`tabLive.ts`).
+  const findOpen = useFindStore((s) => s.open);
+  const findAnyBody = useFindStore((s) => s.bodies.sun || s.bodies.moon || s.bodies.target);
+  const spotOpen = useBestSpotStore((s) => s.open);
+  const heatmapOn = useBestSpotStore((s) => s.heatmapOn);
+  const spotHasCentre = useBestSpotStore((s) => s.centreLatDeg !== null && s.centreLonDeg !== null);
+  const tempPinSet = useCameraStore((s) => s.tempPin !== null);
+  const fpvLive = useCameraStore((s) => s.fpvHud !== null);
+  const snapshot: TabLiveSnapshot = {
+    find: { open: findOpen, anyBody: findAnyBody },
+    spot: { open: spotOpen, heatmapOn, hasCentre: spotHasCentre || tempPinSet },
+    fpv: fpvLive,
+  };
+  const live = tabLive(snapshot);
+  const onTabLongPress = (t: MobileTab) => {
+    const a = tabLongPress(t, snapshot, activeTab === "scene" ? null : activeTab);
+    switch (a.kind) {
+      case "find-off": {
+        const f = useFindStore.getState();
+        f.setOpen(false);
+        f.publishGhosts(null, []);
+        if (a.collapse) setSheet(null);
+        return;
+      }
+      case "find-on":
+        useFindStore.getState().setOpen(true);
+        return;
+      case "spot-off":
+        useBestSpotStore.getState().setHeatmapOn(false);
+        return;
+      case "spot-on": {
+        // `setOpen` clears `heatmapOn` both ways — open FIRST, then arm (the sheet's own order).
+        const b = useBestSpotStore.getState();
+        if (!b.open) b.setOpen(true);
+        useBestSpotStore.getState().setHeatmapOn(true);
+        return;
+      }
+      case "open-sheet":
+        setSheet(a.tab === "scene" ? null : a.tab);
+        return;
+      default:
+        return;
+    }
+  };
+
   return (
     <>
       <div className="m-status">
@@ -104,7 +154,7 @@ export default function MobileShell() {
       <div className="m-bottom">
         <TargetPeek onOpen={() => setSheet("target")} />
         <MobileTimeDock />
-        <TabBar active={activeTab} onSelect={onTab} />
+        <TabBar active={activeTab} onSelect={onTab} live={live} onLongPress={onTabLongPress} />
         {/* The build stamp (owner order 2026-09-08): the very bottom-right corner under the SPOT
             tab, tiny and inert — chrome.css seats it; troubleshooting only. */}
         <VersionStamp />

@@ -60,6 +60,7 @@ import { chartWalkAzRad } from "../../lib/geo/slippy";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
+import { createTwistTracker } from "../../lib/globe/twistTracker";
 import {
   fitShadowBox,
   horizonDistanceM,
@@ -324,8 +325,21 @@ interface GlobeControlsInternal {
    *  WAITING 4) — the /m 2D map reads it to tell the two-finger TILT gesture (touch ROTATE)
    *  from everything else. The constants are not re-exported at the package root. */
   state: number;
-  /** The library's pointer bookkeeping — `isPointerTouch()` distinguishes glass from a mouse. */
-  pointerTracker: { isPointerTouch(): boolean };
+  /** The library's pointer bookkeeping — `isPointerTouch()` distinguishes glass from a mouse;
+   *  the two centre points are what `_updateRotation` turns into azimuth on a touch ROTATE frame
+   *  (`EnvironmentControls.js:1589-1593`), read PRE-update by the twist to cancel that term. */
+  pointerTracker: {
+    isPointerTouch(): boolean;
+    getCenterPoint(target: THREE.Vector2): THREE.Vector2;
+    getPreviousCenterPoint(target: THREE.Vector2): THREE.Vector2;
+  };
+  /** The pivot the library raycast when the second finger landed (the midpoint's ground hit) —
+   *  the twist turns about it (`EnvironmentControls.js:486`). */
+  pivotPoint: THREE.Vector3;
+  /** The midpoint-drift coast the library would apply after a touch ROTATE releases; zeroed when
+   *  an armed twist ends so no inverted spin follows the fingers off the glass. */
+  rotationInertia: THREE.Vector2;
+  rotationSpeed: number;
   /** Ellipsoid-surface up at a point (used for the tilt-glide pivot + the live tilt mirror). */
   getUpDirection(point: THREE.Vector3, target: THREE.Vector3): void;
   /** Rotate the camera about a pivot (azimuth, altitude) — the declination glide's rotation path. */
@@ -3129,6 +3143,21 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("pointerdown", onLongPressDown);
   dom.addEventListener("pointermove", onLongPressMove);
   dom.addEventListener("pointercancel", cancelLongPress);
+  // THE TWO-FINGER TWIST (owner 2026-09-08b) — `lib/globe/twistTracker.ts` has the why. Touch
+  // pointers only (the tracker ignores a mouse); applied per frame by `stepTouchTwist`, BEFORE
+  // `controls.update()` so the library's own midpoint-drift azimuth can be cancelled exactly.
+  const twist = createTwistTracker(THREE.MathUtils.degToRad(CONTROLS.twistArmDeg));
+  let twistLive = false; // this frame's read, for the /m 2D heading lock
+  const onTwistDown = (e: PointerEvent) => twist.down(e.pointerId, e.clientX, e.clientY, e.pointerType);
+  const onTwistMove = (e: PointerEvent) => twist.move(e.pointerId, e.clientX, e.clientY);
+  const onTwistEnd = (e: PointerEvent) => {
+    if (twist.up(e.pointerId)) zc.rotationInertia.set(0, 0);
+    if (!twist.pairDown()) twistLive = false;
+  };
+  dom.addEventListener("pointerdown", onTwistDown);
+  dom.addEventListener("pointermove", onTwistMove);
+  dom.addEventListener("pointerup", onTwistEnd);
+  dom.addEventListener("pointercancel", onTwistEnd);
   dom.addEventListener("pointerdown", onFpvPointerDown);
   dom.addEventListener("pointermove", onFpvPointerMove);
   dom.addEventListener("pointerup", onFpvPointerEnd);
@@ -4655,6 +4684,11 @@ export function attachStylizedTiles(opts: {
           "bs.held": bs.hold.held,
           "bs.heldFrames": bs.hold.heldFrames,
           "bs.streamPending": bs.hold.streamPending,
+          // 2026-09-08b — the lift debounce (frames a sheet-altitude change waited, posts it
+          // produced) and the idle dispose (solver workers released after a long disarm).
+          "bs.liftDeferFrames": bs.lift.deferFrames,
+          "bs.liftDebounced": bs.lift.debounced,
+          "bs.workerDisposes": bs.workerDisposes,
         };
       }),
       registerDebugAction("buildings.seats", () =>
@@ -4722,6 +4756,32 @@ export function attachStylizedTiles(opts: {
     return (
       up.viewMode === "fpv" || (cam.tempFpv && cam.tempPin !== null) || cam.fpvJumpRequest !== null
     );
+  };
+
+  // THE TWO-FINGER TWIST (owner 2026-09-08b): the accumulated inter-finger angle since the last
+  // frame, applied 1:1 about the library's pivot with the WORLD-FOLLOWS-FINGERS sign — a clockwise
+  // twist (screen y-down: atan2 grows) turns the map clockwise, i.e. the heading DEcreases, i.e.
+  // `_applyRotation`'s azimuth (about local up, `EnvironmentControls.js:1627/1665`) is +Δ, i.e.
+  // `x = −Δ` because the library negates x. On a frame the library itself is in touch ROTATE (the
+  // midpoint drifted past its threshold — a human twist always drifts a little) its own azimuth
+  // would be `−(drift·2π/H)·rotationSpeed` in the SAME update, in the orbit direction: that term
+  // is read here, pre-update, and cancelled so the net turn is the twist alone (tilt and zoom
+  // stay the library's). Never in FPV (the second finger is the FOV pinch), never in a flight.
+  const _twistC = new THREE.Vector2();
+  const _twistP = new THREE.Vector2();
+  const stepTouchTwist = () => {
+    const d = twist.take();
+    twistLive = twist.live();
+    if (d === 0 || fpvActive || flight.active() || !controls.enabled) return;
+    let x = -d * CONTROLS.twistGain;
+    if (zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch()) {
+      zc.pointerTracker.getCenterPoint(_twistC);
+      zc.pointerTracker.getPreviousCenterPoint(_twistP);
+      const libX = ((_twistC.x - _twistP.x) * 2 * Math.PI) / dom.clientHeight;
+      x -= libX; // the library adds `−libX·rotationSpeed`; `−x` here removes it (rotationSpeed 1)
+    }
+    zc._applyRotation(x, 0, zc.pivotPoint);
+    camera.updateMatrixWorld();
   };
 
   const stepControlsUpdate = () => {
@@ -5664,7 +5724,9 @@ export function attachStylizedTiles(opts: {
         _camBack.set(0, 0, 1).transformDirection(camera.matrixWorld);
         const pitchRad = _pivotUp.angleTo(_camBack);
         const touchRotate = zc.state === 2 /* ROTATE */ && zc.pointerTracker.isPointerTouch();
-        if (touchRotate) mobile2dFreeHeading = true;
+        // 2026-09-08b: the two-finger TWIST is a map rotation too (the one people actually mean)
+        // — it stands the north lock down exactly like the library's parallel drag does.
+        if (touchRotate || twistLive) mobile2dFreeHeading = true;
         if (
           camStore.targetTiltDeg === null &&
           pitchRad > THREE.MathUtils.degToRad(MOBILE2D.lockTiltEpsDeg)
@@ -5680,7 +5742,7 @@ export function attachStylizedTiles(opts: {
         }
         // A heading glide (the 2D chip's setTargetHeading(0)) re-seats north AND re-arms the lock.
         if (camStore.targetHeadingDeg !== null) mobile2dFreeHeading = false;
-        if (!mobile2dFreeHeading && !touchRotate && camStore.targetHeadingDeg === null) {
+        if (!mobile2dFreeHeading && !touchRotate && !twistLive && camStore.targetHeadingDeg === null) {
           const liveH = mapUpHeadingDeg(_focusUp);
           if (!Number.isNaN(liveH)) {
             const deltaH = headingDeltaDeg(liveH, 0);
@@ -8321,6 +8383,7 @@ export function attachStylizedTiles(opts: {
       try {
         stepFrameTiming();
         stepZoomBrakeAndEase();
+        stepTouchTwist(); // 2026-09-08b — pre-update: reads the same centre delta the library will
         stepControlsUpdate();
         stepDampedVerticality();
         stepMobileBuildingsGate();
@@ -8413,6 +8476,10 @@ export function attachStylizedTiles(opts: {
       dom.removeEventListener("pointerdown", onLongPressDown);
       dom.removeEventListener("pointermove", onLongPressMove);
       dom.removeEventListener("pointercancel", cancelLongPress);
+      dom.removeEventListener("pointerdown", onTwistDown);
+      dom.removeEventListener("pointermove", onTwistMove);
+      dom.removeEventListener("pointerup", onTwistEnd);
+      dom.removeEventListener("pointercancel", onTwistEnd);
       dom.removeEventListener("pointerdown", onFpvPointerDown);
       dom.removeEventListener("pointermove", onFpvPointerMove);
       dom.removeEventListener("pointerup", onFpvPointerEnd);

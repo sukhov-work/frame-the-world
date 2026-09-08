@@ -216,6 +216,11 @@ export interface BestSpotDebug {
   /** T118 — the readiness hold: held now · frames spent held (session) · holds started · the
    *  last hold's length (ms) · the orchestrator's `streamPending` read this frame. */
   hold: { held: boolean; heldFrames: number; holds: number; lastHoldMs: number; streamPending: number };
+  /** 2026-09-08b — the lift debounce: frames a T1-only change waited, posts it produced, the
+   *  value still waiting (null once posted). */
+  lift: { deferFrames: number; debounced: number; pendingT1: string | null };
+  /** 2026-09-08b — solver workers released by the idle dispose (disarmed ≥ `workerIdleDisposeMs`). */
+  workerDisposes: number;
   ladderRung: number;
   workerSpawned: boolean;
   inFlight: number;
@@ -599,6 +604,16 @@ export function attachBestSpotFeed(opts: {
   let lastHoldMs = 0;
   let lastStreamPending = 0;
   let pendingRebuild = false;
+  // ── THE LIFT DEBOUNCE (owner 2026-09-08b) — a T1-only change waits `BESTSPOT.liftDebounceMs`
+  // of stillness before it posts; the tier keys stay put so the branch re-enters every frame.
+  let liftSeenT1 = "";
+  let liftMovedAtMs = 0;
+  let liftDeferFrames = 0;
+  let liftDebounced = 0;
+  // ── THE WORKER'S IDLE DISPOSE (owner 2026-09-08b) — disarmed this long, the solver worker and
+  // everything resident in it are released; the client re-spawns on the next post.
+  let disarmedSinceMs = 0;
+  let workerDisposes = 0;
 
   // ── mirror ──────────────────────────────────────────────────────────────────────────────────
   let frameCount = 0;
@@ -837,16 +852,33 @@ export function attachBestSpotFeed(opts: {
     const armed = ctx.allowed && st.open && st.heatmapOn;
 
     if (!armed) {
-      if (livePack !== null || lastMirrorSig !== "") {
-        client.cancelAll();
-        activeJobId = -1;
-        clearMirror();
-      }
+      // 2026-09-08b: cancel UNCONDITIONALLY — the old guard (`livePack !== null || lastMirrorSig
+      // !== ""`) let a job posted and disarmed before its first rung run to completion in the
+      // worker, and a 1 m REFINE cancelled mid-flight left `refining` latched (its `refined`
+      // post is dropped by the cancel, and only that post cleared the flag) — the desktop's
+      // REFINE button was a permanent no-op for the rest of the session after one such disarm.
+      if (client.inFlight() > 0 || activeJobId !== -1 || refineJobId !== -1) client.cancelAll();
+      activeJobId = -1;
+      refineJobId = -1;
+      refining = false;
+      if (livePack !== null || lastMirrorSig !== "") clearMirror();
       held = false;
       holdSinceMs = 0;
       pendingRebuild = false;
+      liftSeenT1 = "";
+      liftMovedAtMs = 0;
+      // The idle dispose: a worker that has been disarmed for `workerIdleDisposeMs` is released
+      // with its resident TIN copies, per-rung DSM / land grid / hulls and the tile cache. The
+      // page teardown's `dispose()` below is the other, unconditional, path.
+      const now = performance.now();
+      if (disarmedSinceMs === 0) disarmedSinceMs = now;
+      else if (client.spawned() && now - disarmedSinceMs >= BESTSPOT.workerIdleDisposeMs) {
+        client.dispose();
+        workerDisposes++;
+      }
       return;
     }
+    disarmedSinceMs = 0;
 
     // ── §3.4 items 1–2: the three streaming epochs, compared PER FRAME, then DEBOUNCED ─────────
     // The `minimapFeed.ts:160-161` / `streetNames.ts:361-365` idiom: monotone integers, never a
@@ -889,7 +921,33 @@ export function attachBestSpotFeed(opts: {
       const t05 = `${st.kind}|${dayKeyOf(ctx.sceneMs, ctx.centreLonDeg)}`;
       const t1 = String(st.liftM);
 
-      if (t0 !== keyT0 || t05 !== keyT05 || t1 !== keyT1 || streamRebuild || pendingRebuild) {
+      // ── THE LIFT DEBOUNCE (owner 2026-09-08b). A T1-ONLY change — the sheet altitude and
+      // nothing else, on a disc that has already solved once — posts only after the value has
+      // stood still for `BESTSPOT.liftDebounceMs`. The keys are not advanced while it waits, so
+      // the branch re-enters every frame and the LAST value wins (trailing edge). A T0 move, a
+      // day / kind step, a streaming rebuild, a carried rebuild and the first solve pass straight
+      // through — the encoder drives the lift at frame rate, and every intermediate post used to
+      // re-flatten the whole TIN on the main thread.
+      const liftOnly =
+        keyT1 !== "" && t1 !== keyT1 && t0 === keyT0 && t05 === keyT05 && !streamRebuild && !pendingRebuild;
+      let liftDeferred = false;
+      if (liftOnly) {
+        const now = performance.now();
+        if (t1 !== liftSeenT1) {
+          liftSeenT1 = t1;
+          liftMovedAtMs = now;
+        }
+        if (now - liftMovedAtMs < BESTSPOT.liftDebounceMs) {
+          liftDeferred = true;
+          liftDeferFrames++;
+        } else {
+          liftDebounced++;
+        }
+      }
+
+      if (liftDeferred) {
+        // waiting for the lift to settle — nothing else is due this frame
+      } else if (t0 !== keyT0 || t05 !== keyT05 || t1 !== keyT1 || streamRebuild || pendingRebuild) {
         const rebuild = streamRebuild || pendingRebuild;
         // ── T118: THE READINESS HOLD. A due solve waits while the scene still streams — the
         // first `/m` post used to fire on the very frame the building tilesets re-attached (an
@@ -1086,6 +1144,9 @@ export function attachBestSpotFeed(opts: {
         // T118 — the readiness hold, readable: is the disc waiting for the scene, how long did
         // the last hold run, what the orchestrator's streaming term read this frame.
         hold: { held, heldFrames, holds, lastHoldMs, streamPending: lastStreamPending },
+        // 2026-09-08b — the lift debounce and the idle dispose, readable.
+        lift: { deferFrames: liftDeferFrames, debounced: liftDebounced, pendingT1: liftSeenT1 !== keyT1 ? liftSeenT1 : null },
+        workerDisposes,
         stream: {
           stale: streamStale,
           quietFrames,

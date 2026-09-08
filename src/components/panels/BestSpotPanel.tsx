@@ -17,9 +17,11 @@ import {
   TRACK_NULL_LINES,
 } from "../controls/bestSpotCopy";
 import InstrumentSlider from "../controls/InstrumentSlider";
+import RateEncoder from "../controls/RateEncoder";
+import { useRateIntegrator } from "../controls/useRateIntegrator";
 import { shortlistQuality, useBestSpotStore, type BestSpotSpot } from "../../store/bestSpot";
 import { useCameraStore } from "../../store/camera";
-import { BESTSPOT } from "../globe/tuning";
+import { BESTSPOT, CONTROLS } from "../globe/tuning";
 import { HEAT_SPOTS, heatRampById, spotQualityCss } from "../../lib/theme/heatPalette";
 import type { BestSpotScoringPatch, BestSpotTermKey } from "../../lib/geo/bestSpotScoring";
 import { AERIAL_MIN_M } from "../../lib/geo/bestSpotTypes";
@@ -254,6 +256,16 @@ export default function BestSpotPanel() {
   const lonDeg = p.centreLonDeg ?? tempPin?.lonDeg ?? null;
   const hasCentre = latDeg !== null && lonDeg !== null;
 
+  // The sheet altitude is driven by the spring-centred RATE encoder (owner 2026-09-08b — the
+  // desktop 3D map ALTITUDE instrument, both shells): an exponential step with a floor, eased
+  // out on release, integrated per frame into `liftM`; the feed's lift debounce makes the
+  // frame-rate writes cost one solve. A HOOK — above the early return like every other.
+  const onLiftRate = useRateIntegrator(
+    () => BESTSPOT.eyeM + useBestSpotStore.getState().liftM,
+    (v) => useBestSpotStore.getState().setLiftM(v - BESTSPOT.eyeM),
+    { baseM: BESTSPOT.liftEncoderBaseM, min: BESTSPOT.eyeM, max: BESTSPOT.liftMaxM },
+  );
+
   // Closed renders nothing — every hook above still runs, so the store-driven feeds keep gating.
   if (!s.open) return null;
 
@@ -444,17 +456,14 @@ export default function BestSpotPanel() {
               </button>
             </ChipRow>
 
-            <InstrumentSlider
+            <RateEncoder
               label="SHEET ALTITUDE"
               formatted={`${sheetAltM < 10 ? sheetAltM.toFixed(1) : Math.round(sheetAltM)} m`}
-              value={sheetAltM}
-              min={BESTSPOT.eyeM}
-              max={BESTSPOT.liftMaxM}
-              log
-              // R1: at and above 5 m the ground rules stop applying and the DRONE rules take over
-              // (only solid interiors are masked). The badge is where that switch becomes visible.
-              badge={sheetAltM >= AERIAL_MIN_M ? "▲ DRONE" : undefined}
-              onChange={(v) => setLiftM(v - BESTSPOT.eyeM)}
+              maxRate={CONTROLS.zoomRateMaxPerS}
+              expoGamma={CONTROLS.rateExpoGamma}
+              // R1: at and above 5 m the DRONE rules take over (only solid interiors are masked).
+              badge={sheetAltM >= AERIAL_MIN_M ? { text: "▲ DRONE", tone: "accent" } : undefined}
+              onRate={onLiftRate}
               onReset={() => setLiftM(0)}
               ariaLabel="Sheet altitude above the ground"
             />

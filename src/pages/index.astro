@@ -494,12 +494,14 @@ import { versionLabel } from "../lib/version";
     border-radius: 0;
     padding: 0 0.5rem;
   }
-  /* …and below ≈900 px the clamp FLOOR (6.4 px) stops the shrink while this 265-character list
-     keeps its width, so `nowrap` + the bar's `overflow:hidden` would clip BOTH ends — "© Esri"
+  /* …and below ≈1150 px the clamp FLOOR stops the shrink while this ~280-character list keeps
+     its width, so `nowrap` + the bar's `overflow:hidden` would clip BOTH ends — "© Esri"
      included (audit #3 A1-3, against the rule stated three lines up and the T17 ToS posture).
      Wrap instead and grow the bar; --mw-credit-h is what time-scrubber.css lifts the rail by,
-     so redefining it here keeps the scrubber clear with no second rule. */
-  @media (max-width: 60rem) {
+     so redefining it here keeps the scrubber clear with no second rule. The threshold was 60rem
+     for the 265-character list; the version stamp (2026-09-08) made 1100 px clip again
+     (`verify-qaslice-cab` A1-3, caught 2026-09-08b) — 72rem covers the longer line. */
+  @media (max-width: 72rem) {
     body.mw-open {
       --mw-credit-h: 1.8rem;
     }

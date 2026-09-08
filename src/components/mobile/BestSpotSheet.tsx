@@ -37,7 +37,8 @@ import {
   type BestSpotSpot,
 } from "../../store/bestSpot";
 import { useCameraStore } from "../../store/camera";
-import InstrumentSlider from "../controls/InstrumentSlider";
+import RateEncoder from "../controls/RateEncoder";
+import { useRateIntegrator } from "../controls/useRateIntegrator";
 import {
   bestSpotStatusEntries,
   type BestSpotStatusKey,
@@ -53,11 +54,11 @@ import {
   terrainOnlyLine,
   TRACK_NULL_LINES,
 } from "../controls/bestSpotCopy";
-import { BESTSPOT } from "../globe/tuning";
+import { BESTSPOT, CONTROLS } from "../globe/tuning";
 import { HEAT_SPOTS, heatRampById, spotQualityCss } from "../../lib/theme/heatPalette";
 import { AERIAL_MIN_M } from "../../lib/geo/bestSpotTypes";
 import { cardinal } from "../../lib/format/readout";
-import "../../styles/upload-flow.css"; // the .uf-slider grammar controls/InstrumentSlider renders
+import "../../styles/upload-flow.css"; // the .uf-slider grammar controls/RateEncoder renders
 import "../../styles/mobile/chrome.css";
 
 /** Which of §8's ladder lines stay INLINE on the phone (BY KEY, never by index); the rest sit
@@ -166,6 +167,16 @@ export default function BestSpotSheet({ open, onClose }: { open: boolean; onClos
       useBestSpotStore.getState().setOpen(false);
     },
     [],
+  );
+
+  // The sheet altitude is driven by the spring-centred RATE encoder (owner 2026-09-08b — the
+  // desktop 3D map ALTITUDE instrument, both shells): an exponential step with a floor, eased
+  // out on release, integrated per frame into `liftM`; the feed's lift debounce makes the
+  // frame-rate writes cost one solve. A HOOK — above the early return like every other.
+  const onLiftRate = useRateIntegrator(
+    () => BESTSPOT.eyeM + useBestSpotStore.getState().liftM,
+    (v) => useBestSpotStore.getState().setLiftM(v - BESTSPOT.eyeM),
+    { baseM: BESTSPOT.liftEncoderBaseM, min: BESTSPOT.eyeM, max: BESTSPOT.liftMaxM },
   );
 
   // Collapsed renders nothing — every hook above stays alive (the sticky contract).
@@ -335,16 +346,14 @@ export default function BestSpotSheet({ open, onClose }: { open: boolean; onClos
         ))}
       </div>
 
-      <InstrumentSlider
+      <RateEncoder
         label="SHEET ALTITUDE"
         formatted={`${sheetAltM < 10 ? sheetAltM.toFixed(1) : Math.round(sheetAltM)} m`}
-        value={sheetAltM}
-        min={BESTSPOT.eyeM}
-        max={BESTSPOT.liftMaxM}
-        log
+        maxRate={CONTROLS.zoomRateMaxPerS}
+        expoGamma={CONTROLS.rateExpoGamma}
         // R1: at and above 5 m the DRONE rules take over (only solid interiors are masked).
-        badge={sheetAltM >= AERIAL_MIN_M ? "▲ DRONE" : undefined}
-        onChange={(v) => setLiftM(v - BESTSPOT.eyeM)}
+        badge={sheetAltM >= AERIAL_MIN_M ? { text: "▲ DRONE", tone: "accent" } : undefined}
+        onRate={onLiftRate}
         onReset={() => setLiftM(0)}
         ariaLabel="Sheet altitude above the ground"
       />

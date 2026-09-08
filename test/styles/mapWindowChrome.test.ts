@@ -197,11 +197,12 @@ describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () =>
   });
 
   it("keeps the desktop attribution unclipped on narrow windows (A1-3)", () => {
-    // The clamp floor stops the shrink long before the 265-char list stops needing width, so
+    // The clamp floor stops the shrink long before the ~280-char list stops needing width, so
     // below the breakpoint the line WRAPS and the bar grows — and --mw-credit-h grows with it
-    // so time-scrubber.css's lift tracks automatically.
-    expect(index).toMatch(/@media \(max-width: 60rem\)/);
-    const narrow = /@media \(max-width: 60rem\) {([\s\S]*?)\n  }\n/.exec(index);
+    // so time-scrubber.css's lift tracks automatically. 60rem covered the 265-char list; the
+    // version stamp (2026-09-08) made 1100 px clip again (T122) — the breakpoint is 72rem now.
+    expect(index).toMatch(/@media \(max-width: 72rem\)/);
+    const narrow = /@media \(max-width: 72rem\) {([\s\S]*?)\n  }\n/.exec(index);
     expect(narrow).not.toBeNull();
     expect(narrow![1]).toMatch(new RegExp(`--mw-credit-h:\\s*${VALUE}`));
     expect(narrow![1]).toMatch(/white-space:\s*normal/);

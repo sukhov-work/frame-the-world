@@ -60,6 +60,33 @@
   color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
+/* LIVE (owner 2026-09-08b): the feature behind the tab is WORKING — a frame scan running, a
+   heatmap armed. An accent dot at the glyph's shoulder + the accent label, whether or not the
+   sheet is showing; a long press switches it off. Pseudo-element only: the label regex in
+   `mobileBestSpotSheet.test.ts` reads `</span>LABEL</button>` and must keep matching. */
+.m-tab {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.m-tab--live {
+  color: var(--color-accent);
+}
+.m-tab--live .m-tab__glyph {
+  position: relative;
+}
+.m-tab--live .m-tab__glyph::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-bg) 85%, transparent);
+}
 
 /* ── Target peek row (tap = TARGET sheet) ──────────────────────────────────────────────── */
 .m-peek {
@@ -173,6 +200,33 @@
 }
 .m-act[disabled] {
   opacity: 0.5;
+}
+/* 2026-09-08b: a dimmed-but-tappable chip (signed-out SAVE) — `aria-disabled` keeps the tap so
+   the one-line hint can land; the attribute would swallow it. */
+.m-act[aria-disabled="true"] {
+  opacity: 0.45;
+}
+/* The 44 px ICON chip (owner 2026-09-08b — 💾 SAVE): the altitude nudges' geometry (fpv.css
+   `.m-alt`: 44 px round) so the right rail reads as one column of cells; glyph over a tiny label. */
+.m-act--icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.45rem;
+  letter-spacing: 0.14em;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.m-act__glyph {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 /* 2D/3D chip row + the micro compass/altitude chip to its right (owner 2026-08-18). */

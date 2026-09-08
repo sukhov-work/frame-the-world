@@ -16,7 +16,7 @@ import { useSheetInputFocus } from "./useSheetInputFocus";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { usePlacesMapStore } from "../../store/places";
-import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
+import { useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { saveViewPref } from "../../lib/prefs";
 import { verticalFovDeg } from "../../lib/decode/sensors";
@@ -106,7 +106,7 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
           {note}
         </span>
       )}
-      <SavePlaceChip />
+      <SavePlaceChip onHint={flashNote} />
       {tempFpv ? (
         <button type="button" className="m-act" onClick={() => setTempFpv(false)}>
           ✕ EXIT VIEW
@@ -367,16 +367,24 @@ function LayersChip() {
   );
 }
 
-/** ◎ SAVE VIEW (owner 2026-08-15; optional naming ask owner 2026-08-19b — supersedes the
- *  auto-title-only ruling) — the desktop SavePlaceControl twin: bookmark the live FPV pose +
- *  pinned scene time to /api/places (it appears in MY PLACES on both shells). Tap first asks
- *  an OPTIONAL name in a small Sheet (portaled to <body>: the chip stack is a z-10 fixed
- *  layer exactly where the soft keyboard lands — the sheet idiom is the shell's one
- *  keyboard-safe input home, same as SEARCH). Empty submit keeps the auto title. Anonymous
- *  gets a SIGN IN chip instead: the pose hash rides the login round trip, so the view
- *  survives it. Pose source = the SAME mirrors the `#f=` hash writer uses (fpvHud + camGeo),
- *  re-read at the save instant — a saved place and a shared link can never disagree. */
-function SavePlaceChip() {
+/** The save-chip copy in one place (the fence reads it). */
+export const SAVE_COPY = Object.freeze({
+  /** Tapped while signed out — the chip is disabled, this is the brief hint (owner 2026-09-08b). */
+  signIn: "SIGN IN (TOP BAR) TO SAVE VIEWS",
+});
+
+/** ◎ SAVE (owner 2026-08-15; optional naming ask owner 2026-08-19b — supersedes the
+ *  auto-title-only ruling; a 44 px ICON chip since 2026-09-08b) — the desktop SavePlaceControl
+ *  twin: bookmark the live FPV pose + pinned scene time to /api/places (it appears in MY PLACES
+ *  on both shells). Tap first asks an OPTIONAL name in a small Sheet (portaled to <body>: the
+ *  chip stack is a z-10 fixed layer exactly where the soft keyboard lands — the sheet idiom is
+ *  the shell's one keyboard-safe input home, same as SEARCH). Empty submit keeps the auto
+ *  title. Signed OUT the chip is simply DISABLED (`aria-disabled`, not the attribute — the tap
+ *  must still land to show the one-line hint through the column's note); the old full-width
+ *  ◎ SIGN IN TO SAVE pill took the space the owner wanted back. Pose source = the SAME mirrors
+ *  the `#f=` hash writer uses (fpvHud + camGeo), re-read at the save instant — a saved place
+ *  and a shared link can never disagree. */
+function SavePlaceChip({ onHint }: { onHint: (text: string) => void }) {
   const phase = useMemberStore((s) => s.phase);
   const refresh = useMemberStore((s) => s.refresh);
   const ready = useCameraStore((s) => s.fpvHud !== null && s.camGeo !== null);
@@ -395,17 +403,22 @@ function SavePlaceChip() {
   }, [refresh]);
   if (!ready) return null;
 
-  if (phase === "anonymous") {
+  if (phase !== "member") {
+    // Signed out (or not yet known): the same 44 px cell, dimmed; the tap says why in the column
+    // note instead of bouncing the user through the hosted login (owner 2026-09-08b — the sign-in
+    // lives in the top bar). No `disabled` attribute: it would swallow the tap and the hint.
     return (
       <button
         type="button"
-        className="m-act m-act--quiet"
-        onClick={() => {
-          // Click-time returnTo — the #f= pose hash rides, the view survives the login hop.
-          window.location.href = loginUrl(returnHereUrl());
-        }}
+        className="m-act m-act--icon"
+        aria-disabled="true"
+        aria-label="Save this view — sign in first"
+        onClick={() => onHint(SAVE_COPY.signIn)}
       >
-        ◎ SIGN IN TO SAVE
+        <span className="m-act__glyph" aria-hidden="true">
+          ◎
+        </span>
+        SAVE
       </button>
     );
   }
@@ -465,17 +478,15 @@ function SavePlaceChip() {
     <>
       <button
         type="button"
-        className="m-act"
+        className={`m-act m-act--icon${mode === "saved" ? " m-act--accent" : ""}`}
         disabled={mode === "busy" || mode === "saved"}
+        aria-label={live ? "Save this view" : "Save this view at the pinned scene time"}
         onClick={() => setMode("naming")}
       >
-        {mode === "saved"
-          ? "✓ SAVED"
-          : mode === "error"
-            ? "◎ RETRY SAVE"
-            : mode === "busy"
-              ? "◎ SAVING…"
-              : `◎ SAVE VIEW${live ? "" : " ⏱"}`}
+        <span className="m-act__glyph" aria-hidden="true">
+          {mode === "saved" ? "✓" : mode === "error" ? "↻" : mode === "busy" ? "◌" : "◎"}
+        </span>
+        {mode === "saved" ? "SAVED" : mode === "error" ? "RETRY" : mode === "busy" ? "…" : `SAVE${live ? "" : "⏱"}`}
       </button>
       {mode === "naming" &&
         createPortal(

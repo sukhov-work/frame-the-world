@@ -3,7 +3,14 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import FpvControls, { AR_COPY, ArLookToggle, arRungLine } from "../../src/components/mobile/FpvControls";
+import FpvControls, {
+  AR_COPY,
+  AR_NOTE_MS,
+  ArLookToggle,
+  arAnnouncement,
+  arNoteKey,
+  arRungLine,
+} from "../../src/components/mobile/FpvControls";
 import { useCameraStore, type ArLookState } from "../../src/store/camera";
 import { FPV } from "../../src/components/globe/tuning";
 
@@ -59,7 +66,7 @@ describe("the toggle — permission from the tap, copy that matches the platform
   it("renders OFF with the compass glyph and no note; ON with the rung line", () => {
     const off = render(ArLookToggle);
     expect(off).toMatch(/m-arbtn" aria-pressed="false"/);
-    expect(off).toContain("🧭");
+    expect(off).toMatch(/aria-pressed="false"[^>]*>AR<\/button>/); // the two letters, no emoji (owner 2026-09-08b)
     expect(off).not.toContain("m-arnote");
     useCameraStore.getState().setArLook(true);
     useCameraStore.getState()._syncArLook({ rung: "android-absolute", compassAccuracyDeg: null, compassAgeMs: Infinity, samples: 3, stale: false, headingDeg: 45, pitchDeg: 2, declinationDeg: 8.58 });
@@ -87,11 +94,67 @@ describe("the toggle — permission from the tap, copy that matches the platform
     expect(arRungLine({ ...base, rung: "ios-compass", compassAgeMs: 90_000 })).toContain("TILT THE PHONE DOWN");
   });
 
-  it("FpvControls mounts the toggle beside the WALK stick and the altitude column", () => {
+  it("FpvControls seats the toggle as the FIRST cell of the right-rail altitude column (owner 2026-09-08b)", () => {
     const html = render(FpvControls);
-    expect(html).toContain("m-arbtn");
     expect(html).toContain("WALK");
-    expect(html).toContain("m-altcol");
+    const col = html.slice(html.indexOf('class="m-altcol"'));
+    expect(col).toContain("m-arbtn");
+    // AR above ⤒ above ⤓ — one column of three 44 px cells
+    expect(col.indexOf("m-arbtn")).toBeLessThan(col.indexOf("⤒"));
+    expect(col.indexOf("⤒")).toBeLessThan(col.indexOf("⤓"));
+    // the chip is the altitude nudges' size, and the column publishes three cells to the map window
+    const css = readFileSync(join(process.cwd(), "src/styles/mobile/fpv.css"), "utf8");
+    const arbtn = css.slice(css.indexOf(".m-arbtn {"), css.indexOf(".m-arbtn__glyph"));
+    expect(arbtn).toMatch(/width: 44px;/);
+    expect(arbtn).toMatch(/height: 44px;/);
+    expect(css).toMatch(/--m-altcol-h: 148px;/);
+    // the note floats ABOVE the column (absolute) — the A1-2 box never grows while a note is up
+    const float = css.slice(css.indexOf(".m-arfloat {"), css.indexOf(".m-arbtn {"));
+    expect(float).toMatch(/position: absolute;/);
+    expect(float).toMatch(/bottom: calc\(100% \+ 6px\);/);
+    expect(css).not.toMatch(/\.m-arwrap \{[^}]*position: fixed/);
+  });
+
+  describe("the bubble clears (owner 2026-09-08b) — re-shown only on rung · stale transitions", () => {
+    const base: ArLookState = { rung: "android-absolute", compassAccuracyDeg: null, compassAgeMs: Infinity, samples: 3, stale: false, headingDeg: 45, pitchDeg: 2, declinationDeg: 8.58 };
+
+    it("the key moves on the rung and the stale flag — never on heading, pitch or samples", () => {
+      const k = arNoteKey(true, base);
+      expect(arNoteKey(true, { ...base, headingDeg: 46, pitchDeg: -3, samples: 400, compassAgeMs: 0 })).toBe(k);
+      expect(arNoteKey(true, { ...base, stale: true })).not.toBe(k);
+      expect(arNoteKey(true, { ...base, rung: "ios-compass" })).not.toBe(k);
+      expect(arNoteKey(true, { ...base, rung: "relative-unaligned" })).not.toBe(k);
+      expect(arNoteKey(false, base)).toBe("off");
+      expect(arNoteKey(true, null)).toBe("on");
+    });
+
+    it("a rung line is TRANSIENT; going stale is STICKY (an action the user must take); off clears", () => {
+      expect(arAnnouncement(true, base)).toEqual({ text: arRungLine(base), sticky: false, defer: false });
+      expect(arAnnouncement(true, { ...base, rung: "relative-unaligned" })).toEqual({
+        text: "GYRO ONLY — FACE WHERE THE VIEW LOOKS AND TAP ALIGN",
+        sticky: false,
+        defer: false,
+      });
+      // the sensors DYING (samples seen) is said at once; stale BEFORE any sample waits behind the
+      // armed hint (the first HUD tick can precede the phone's first sample)
+      expect(arAnnouncement(true, { ...base, stale: true })).toEqual({ text: AR_COPY.stale, sticky: true, defer: false });
+      expect(arAnnouncement(true, { ...base, stale: true, samples: 0 })).toEqual({ text: AR_COPY.stale, sticky: true, defer: true });
+      expect(arAnnouncement(true, null)).toBeNull();
+      expect(arAnnouncement(false, base)).toBe("clear");
+      expect(AR_NOTE_MS).toBe(3500);
+    });
+
+    it("the component wires the contract: the effect keys on arNoteKey, transient notes time out, the tap clears", () => {
+      const toggle = SRC.slice(SRC.indexOf("export function ArLookToggle()"));
+      expect(toggle).toMatch(/const key = arNoteKey\(on, state\);\s*if \(key === lastKey\.current\) return;/);
+      expect(toggle).toMatch(/window\.setTimeout\(\(\) => setNote\(null\), AR_NOTE_MS\)/);
+      // the rung line is NEVER derived in render any more — only a note reaches the bubble
+      expect(toggle).toMatch(/const line = note \?\? "";/);
+      expect(toggle).not.toMatch(/note \?\? \(on \? arRungLine/);
+      // switching off clears the bubble
+      const tap = toggle.slice(toggle.indexOf("const onTap = () => {"), toggle.indexOf("const relative ="));
+      expect(tap).toMatch(/cam\.setArLook\(false\);\s*clearNote\(\);/);
+    });
   });
 
   it("the permission call runs SYNCHRONOUSLY inside the tap — nothing awaited before it", () => {

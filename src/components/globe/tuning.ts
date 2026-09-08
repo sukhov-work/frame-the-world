@@ -2088,6 +2088,18 @@ export const CONTROLS = {
   headingRateDeadbandDegPerS: 0.01,
   /** Applied zoom / FOV log-rate below this reads as centred — no motion this frame. */
   rateDeadbandLog: 1e-3,
+  /**
+   * THE TWO-FINGER TWIST (owner 2026-09-08b, the Pixel report: "not responsive, or zooms instead
+   * of rotating, and rotates counter to the fingers"): the library has no twist at all — its
+   * touch ROTATE is a parallel two-finger DRAG and its azimuth is the midpoint's drift with the
+   * orbit sign (`lib/globe/twistTracker.ts` has the mechanism). The repo-owned twist arms once
+   * the fingers have turned this far about their midpoint (deg) — below it a pinch's angular
+   * noise (~1° at 100 px separation for 2 px of lateral jitter) must not turn a north-locked 2D
+   * map — then follows the fingers 1:1 (`twistGain`) about the library's own pivot, in BOTH map
+   * modes, never in FPV (the second finger is the FOV pinch there). Composes with the pinch.
+   */
+  twistArmDeg: 4,
+  twistGain: 1,
 } as const;
 
 /** /m 2D-first navigation (UPLIFT U1, owner point 1): the mobile shell boots into a top-down,
@@ -4455,9 +4467,47 @@ export const BESTSPOT = {
    * a second job (11 s to the finest rung on the phone twin vs ~1.5 s of real solve). This is
    * the hold's CEILING (ms): a tile that never lands (a WAF-blocked ion, a failed fetch in retry)
    * must not hold the disc forever — past it the solve posts with what is resident and the
-   * honesty channels say the rest.
+   * honesty channels say the rest. Owner ruling 2026-09-08b: 30 s (was 20) — never solve a
+   * half-loaded scene on a slow connection; the LOADING chip may sit longer.
    */
-  holdMaxMs: 20_000,
+  holdMaxMs: 30_000,
+  /**
+   * THE LIFT DEBOUNCE (owner 2026-09-08b — "debounce too many simultaneous / consecutive
+   * attempts, e.g. the user plays with the sheet altitude"): a T1 change ALONE (the sheet
+   * altitude — `liftM`) posts its re-solve only once the value has stood still this long (ms,
+   * trailing edge). Before this every slider move was a new tier key on the very next frame,
+   * and each key change re-flattened the WHOLE TIN on the main thread (ground + OSM + enriched +
+   * user models, fresh typed-array copies, transferred) before the worker's own ~21 ms drag rung
+   * — 60 flattens a second under a finger, on the phone. The disc MOVE (T0), the day / kind
+   * (T0.5), a streaming rebuild and the FIRST solve are NOT debounced (the 55 ms first ink and
+   * the `bestSpotFeed.test.ts` contracts stand); the rate encoder that now drives the lift on
+   * both shells writes at frame rate, so this is the one latch that makes it cheap.
+   */
+  liftDebounceMs: 220,
+  /**
+   * THE WORKER'S IDLE DISPOSE (owner 2026-09-08b — "make sure it is not hogging resources when
+   * enabled / disabled multiple times and after calculation completed"): while the heatmap is
+   * DISARMED (or the window closed) for this long (ms) the solver worker is terminated — its
+   * `resident` (the transferred terrain / built / canopy TIN copies, the parsed vector tiles,
+   * a DSM + land grid + term buffer + ray hulls PER RUNG) and its never-evicting tile cache go
+   * with it. The client re-spawns lazily on the next post (`ensure()` is idempotent), and the
+   * next arm pays the ~55 ms first ink again plus the tiles' re-fetch — the price of a warm
+   * worker is tens of MB held for the rest of the session on a phone that has 2 GB per process
+   * (T83). A quick off → on inside the dwell stays warm. The main thread's sheet geometry is
+   * allocated ONCE per globe and is not part of this (it is a few hundred KB, fixed).
+   */
+  workerIdleDisposeMs: 45_000,
+  /**
+   * THE SHEET-ALTITUDE ENCODER (owner 2026-09-08b — "make the altitude controller a variative
+   * encoder, the same as the desktop 3D map controls, on both shells"): the lift is driven by
+   * the spring-centred RATE encoder (`controls/RateEncoder`) at `CONTROLS.zoomRateMaxPerS` /
+   * `rateExpoGamma` / `rateEaseTauMs` — the desktop ALTITUDE encoder's own numbers — and the
+   * step is `rate · dt · max(sheetAltM, this)`: exponential (the log slider's character, fine
+   * near the ground, fast aloft) with a floor so a 1.7 m sheet gets airborne at a useful speed
+   * (the FPV `vertEncoderBaseM` trick; 8 m there, lower here because the interesting band is
+   * 1.7 → 30 m). Reset (double-tap / Backspace) still returns to eye level.
+   */
+  liftEncoderBaseM: 5,
   /**
    * THE PROGRESSIVE LADDER (§2.3), coarse → fine, in metres per cell. Measured at Dnipro, R =
    * 300 m: R0 24 m = 10.6 ms (**first ink at 55 ms** including prep) · 12 m = 41 ms · 6 m = 172 ms
