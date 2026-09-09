@@ -139,6 +139,9 @@ export function attachAtmosphere(
     // TINT is pulled toward the ground's band tint (RC24) — and stops doubling as the master gain
     // on a light source. 0 with the chip off, so the whole directional block is skipped.
     uFtwDirK: { value: 0 },
+    // 1 in sky-dome mode (alt < domeMaxAlt), 0 on the earth-centred orbital shell — set in
+    // update() below; read by the VERTEX shader only (the depth pin).
+    uDome: { value: 0 },
   };
   const material = new THREE.ShaderMaterial({
     transparent: true,
@@ -147,11 +150,23 @@ export function attachAtmosphere(
     blending: THREE.AdditiveBlending,
     uniforms,
     vertexShader: /* glsl */ `
+      uniform float uDome;
       varying vec3 vW;
       void main() {
         vec4 wp = modelMatrix * vec4(position, 1.0);
         vW = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
+        // THE HORIZON WHITE BAND (owner 2026-09-10b). In sky-dome mode the shell is a camera-centred
+        // sphere at 0.45·far, ADDITIVE with the depth test on — so every terrain pixel FARTHER than
+        // that radius (81 km from any camera at or below 2 550 m, where the library pins far at
+        // ~180 km) passed the test and had the whole horizon-sky colour added on top of its own
+        // aerial haze: a hard cut to a blown, bloomed white at "several dozen km", Mt Fuji a white
+        // silhouette from 100 km (MEASUREMENTS §17.5 had read it as the 205-luma sky rows over
+        // far terrain). Pinned at the far plane (three's skybox idiom) the dome adds light only
+        // where NOTHING was drawn — the sky, and the ground the far plane clipped — at any
+        // distance; sky pixels and terrain inside the old radius are byte-identical. The orbital
+        // shell (uDome 0) keeps its geometry: its disc wash and limb line are a different thing.
+        gl_Position.z = mix(gl_Position.z, gl_Position.w, uDome);
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
@@ -346,10 +361,12 @@ export function attachAtmosphere(
         mesh.position.copy(camera.position);
         mesh.scale.setScalar(camera.far * ATMOSPHERE.domeFarFrac);
         uniforms.uInside.value = 1;
+        uniforms.uDome.value = 1;
       } else {
         mesh.position.set(0, 0, 0);
         mesh.scale.copy(shellScaleVec);
         uniforms.uInside.value = camera.position.length() < mesh.scale.y ? 1 : 0; // scale.y = smallest shell axis
+        uniforms.uDome.value = 0;
       }
     },
     dispose() {

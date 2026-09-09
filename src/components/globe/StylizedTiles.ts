@@ -231,6 +231,8 @@ import {
   lruCapBytesForLean,
   lruCapBytesForUltra,
   queueCapsForTier,
+  groundQueueCapsFor,
+  groundLruCapForDesktop,
   stickyOverlayPx,
   ultraTileLevers,
   type QualityTier,
@@ -916,11 +918,19 @@ export function attachStylizedTiles(opts: {
     ground.setQualityTier(
       q.groundErrorNear,
       lruCapBytesForLean(
-        lruCapBytesForUltra(tier, q.groundLruBytesMB, ultraOn, QUALITY.ultraDesktop.groundLruBytesMB),
+        // 2026-09-10f: the desktop `high` ground cap (owner order; ULTRA and the phones untouched).
+        groundLruCapForDesktop(
+          tier,
+          lruCapBytesForUltra(tier, q.groundLruBytesMB, ultraOn, QUALITY.ultraDesktop.groundLruBytesMB),
+          lean,
+          ultraOn,
+          QUALITY.desktopGroundLruBytesMB,
+        ),
         lean,
         QUALITY.leanMobile.groundLruBytesMB,
       ),
-      qCaps,
+      // 2026-09-10b: the ground's own desktop concurrency (a parse slot is a network wait).
+      groundQueueCapsFor(tier, qCaps, lean, LOADING.groundDesktopCaps),
     );
     // U6: per-tier foveation (null on high — byte-identical; regions/periphery only engage in
     // FPV via setFoveaActive). Safe mid-FPV: each module recomputes its base from (tier, cfg, on).
@@ -4745,10 +4755,22 @@ export function attachStylizedTiles(opts: {
         const pick = ground.pickStats();
         const ph = ground.placeholderStats();
         const bvh = ground.terrainBvhStats();
+        const stream = ground.streamStats();
         return {
           epoch: ground.terrainEpoch(),
           overlayRebuilds: ground.overlayRebuilds(),
           overlayPxEff,
+          "stream.priorityOn": stream.installed ? 1 : 0,
+          "stream.imgTagged": stream.tagged,
+          "stream.imgUntagged": stream.untagged,
+          "stream.slotBoosts": stream.slotBoosts,
+          "stream.fullCacheKicks": stream.fullCacheKicks,
+          "split.calls": stream.split.calls,
+          "split.depthCapped": stream.split.depthCapped,
+          "split.growthCapped": stream.split.growthCapped,
+          "split.timeCapped": stream.split.timeCapped,
+          "split.worstMs": +stream.split.worstMs.toFixed(1),
+          "split.totalMs": +stream.split.totalMs.toFixed(0),
           "bvh.builds": bvh.builds,
           "bvh.raycasts": bvh.raycasts,
           "bvh.trisPerRay": bvh.raycasts > 0 ? +(bvh.triesTested / bvh.raycasts).toFixed(1) : 0,

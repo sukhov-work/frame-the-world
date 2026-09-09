@@ -91,12 +91,22 @@ export function impostorEdgeWindowGlsl(start: number, end: number): string {
  */
 export const FTW_AERIAL_GLSL = /* glsl */ `
   ${airLightGlsl(ULTRA.airRayleighK, ULTRA.airMiePow, ULTRA.airMieGain)}
+  // 2026-09-10b — the far plane in metres, GROUND only (the ground pushes it per frame; every
+  // other consumer leaves it at 0, which makes the far fog below an exact no-op for them).
+  uniform float uFtwFarM;
   vec3 ftwAerial(vec3 col, vec3 wpos, vec3 sunW, float hazeK, vec3 hazeCol,
                  vec3 hazeColCool, float skyLevel, float afterglow) {
     if (hazeK <= 0.0) return col;
     vec3 toFrag = wpos - cameraPosition;
     float dist = length(toFrag);
     float f = min((1.0 - exp(-dist / ${glf(ULTRA.hazeDistM)})) * hazeK, ${glf(ULTRA.hazeMaxK)});
+    // THE FAR-PLANE CUT (2026-09-10b): the library clips terrain at the horizon-fitted far plane,
+    // so ridges beyond it vanish with a hard edge against the sky. Dissolve the last stretch
+    // before the plane fully into the in-scatter colour, so the clip lands on sky-coloured
+    // pixels. Guarded: a 0 far (buildings, models) skips it, and smoothstep never sees equal edges.
+    if (uFtwFarM > 0.0) {
+      f = max(f, smoothstep(uFtwFarM * ${glf(ULTRA.farFogStartFrac)}, uFtwFarM * ${glf(ULTRA.farFogEndFrac)}, dist));
+    }
     // Direction to the fragment vs direction to the sun: the ONE term whose absence made a
     // sunset's air-light look the same whether you faced into it or away from it.
     float cosG = dot(toFrag / max(dist, 1.0), normalize(sunW));

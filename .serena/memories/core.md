@@ -12,6 +12,25 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
+## Status — 2026-09-10e
+- **2026-09-10e (`mem:project/wip-2026-09-10-interlude-render-quirks`):** **THE RENDERING INTERLUDE — four owner quirks
+  fixed, T131–T134 (+T135 parked).** T131 the MOON drew in front of Fuji: the impostor anchor at 0.5·far (far pinned ~180 km
+  below 2 550 m) put it at 90 km → both sky vertex shaders pin depth to the far plane (`z = w`). T132 the horizon WHITE
+  BAND: the additive sky dome at 0.45·far painted the horizon-sky colour onto every terrain pixel beyond 81 km → `uDome`
+  depth-pin in sky-dome mode + a far-plane fog in `ftwAerial` (`uFtwFarM`, ground-only). T133 MOONLIGHT milky: the daylight
+  photo de-grade ran all night, the night floor was 0.012, the flat moon fill outweighed every albedo term → gated, floored
+  (`nightFloorSkyMin 0.15`), fill 0.05 normal-aware, `moonSheenK 0.45`; twin `moonlightTerrain.test.ts`. T134 the TILE-STREAM
+  STALLS, four measured mechanisms: the overlay's imagery preloads at FIFO below every terrain download while the parse slots
+  wait on them (NEW `lib/globe/overlayFetchPriority.ts`); the cache-full discard without needs-update (`fullCacheKickMs`,
+  ULTRA ground cap 1200 MB); 5 network-bound parse slots (`LOADING.groundDesktopCaps` 32/12, desktop `high` ground only);
+  the VIRTUAL SPLIT RUNAWAY (cost doubling per level, 0.7 → 95 s gaps; NEW `lib/globe/virtualSplitGuard.ts`); plus the
+  reveal hold cap (`revealMaxHoldMs`). Gates: vitest 3,093/205 · astro 0/0/12 · knip 0; sweep `interlude-2026-09-10b` (read
+  in DECISIONS). **2026-09-10f the cache ladder SETTLED by the owner: ULTRA 1400 / regular desktop 600
+  (`quality.groundLruCapForDesktop`, ground only) / phones untouched. NEXT (the owner's words): a FULL AUDIT of the
+  code base, the rendering pipeline and all recent changes with ANOTHER AI model — technical, architectural, UX,
+  business, emergent defects (`/frame` Audit mode, read-only on `src/`); after it the farm FEATURE legs and the T77
+  lane (the desktop hitch table with 12 ground parse slots first).**
+
 ## Status — 2026-09-10
 - **2026-09-10 (`mem:project/wip-2026-09-10-t123-lever-a-detached-release`):** **T123 FIXED TO THE OWNER'S GATE — LEVERS
   (a) + (d), the farm iPhone `alive 8 cycles, flat`; T124 re-checked resident.** Lever (a) (owner ruling 2026-09-09b):
@@ -399,6 +418,9 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   device campaign: T123 classified (cache residency → the 2 GB ceiling), T124 not reproduced (09-09, HOT)** ·
   DECISIONS 2026-09-09 · MEASUREMENTS §29–30 · MESH_SUITE_PLAN §16 · backlog T123/T124/T126/T129/T130 ·
   `mem:project/wip-2026-09-09-t126-t129-t130-lever8-pixel`
+- **THE RENDERING INTERLUDE: T131 the moon depth-pinned · T132 the horizon band (dome pin + far fog) · T133 moonlight
+  retuned · T134 the tile-stream stalls (imagery priority, cache-full kick, desktop slots, the virtual-split guard, the
+  reveal hold) (09-10e, HOT)** · DECISIONS 2026-09-10e · backlog T131–T135 · `mem:project/wip-2026-09-10-interlude-render-quirks`
 - **T123 FIXED TO THE GATE: lever (a) the detached tile caches drained on the /m 2D drop · the memory-infra dump that
   named the plateau and voided lever (b) · lever (d) the composite canvases released at dispose · the farm alive 8
   cycles flat · T124 resident (09-10, HOT)** · DECISIONS 2026-09-10 · MEASUREMENTS §31 · backlog T123/T124/T130 ·

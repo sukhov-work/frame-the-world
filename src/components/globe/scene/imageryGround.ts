@@ -34,6 +34,11 @@ import {
   type PlaceholderProbeResult,
   type PlaceholderStats,
 } from "../../../lib/globe/esriPlaceholder";
+import {
+  installOverlayFetchPriority,
+  type OverlayFetchPriorityHandle,
+} from "../../../lib/globe/overlayFetchPriority";
+import { installVirtualSplitGuard } from "../../../lib/globe/virtualSplitGuard";
 import { hookTerrainPatch, makeTerrainPatchFetchPlugin, type TerrainPatchOpts } from "./terrainPatch";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
 import {
@@ -221,6 +226,18 @@ export interface ImageryGroundHandle {
   /** RC5 DEV probe (`__globe.esriPlaceholder()`): what the placeholder fallback actually did this
    *  session, read off the live wrapper. `null` before the first overlay is built. */
   placeholderStats(): (PlaceholderStats & { sentinelTiles: number; blocks: number }) | null;
+  /** 2026-09-10b — the imagery-fetch ordering (`lib/globe/overlayFetchPriority`) + the
+   *  cache-full re-traverse kicks: `installed` false = the library drifted and nothing is
+   *  wrapped; `slotBoosts` = fetches that were re-ranked into the parse-slot band (a slot was
+   *  waiting on them — the stall this fix removes, counted). */
+  streamStats(): {
+    installed: boolean;
+    tagged: number;
+    untagged: number;
+    slotBoosts: number;
+    fullCacheKicks: number;
+    split: { installed: boolean; calls: number; depthCapped: number; growthCapped: number; timeCapped: number; worstMs: number; totalMs: number };
+  };
   /** T123 lever (d) (2026-09-10): composite imagery canvases whose backing store was released at
    *  the library's own dispose (`lib/globe/compositeCanvasRelease`) — count, summed RGBA bytes,
    *  and the fast-path bitmap disposals skipped. Zeros with `GROUND.releaseCompositeCanvas` off. */
@@ -456,6 +473,22 @@ export function attachImageryGround(
     };
     tiles.addEventListener("tile-visibility-change", p._onTileVisibilityChange as any);
   }
+  // 2026-09-10b — the imagery fetches follow their TILE through the download queue (parse-slot
+  // tiles first, downloaded tiles by error, preloads last) instead of the plugin's own FIFO
+  // below every terrain download; see lib/globe/overlayFetchPriority for the 38 s stall this
+  // removes. ORDER only — no pixel changes; the phones run the same plugin and only gain.
+  const overlayPriority: OverlayFetchPriorityHandle = GROUND.overlayFetchPriority
+    ? installOverlayFetchPriority(tiles as unknown as { downloadQueue?: never }, overlayPlugin as unknown as object)
+    : { stats: { tagged: 0, untagged: 0, slotBoosts: 0 }, installed: false, dispose() {} };
+  // 2026-09-10b — the fence around the plugin's virtual tile splitting (a runaway clipped the
+  // same geometry into ever-larger children, 0.7 → 95 s per split; lib/globe/virtualSplitGuard).
+  const splitGuard = GROUND.virtualSplitGuard
+    ? installVirtualSplitGuard(overlayPlugin as unknown as object, {
+        maxDepth: GROUND.virtualSplitMaxDepth,
+        maxMs: GROUND.virtualSplitMaxMs,
+        growthMinTri: GROUND.virtualSplitGrowthMinTri,
+      })
+    : { stats: { calls: 0, depthCapped: 0, growthCapped: 0, timeCapped: 0, worstMs: 0, totalMs: 0 }, installed: false, dispose() {} };
   tiles.setCamera(opts.camera);
   const refreshResolution = () => {
     const size = opts.renderer.getSize(new THREE.Vector2());
@@ -471,6 +504,19 @@ export function attachImageryGround(
   //     tiles — the ugly patchwork). loadProgress gates the reveal until the first full drain. --
   let initialLoadStarted = false;
   let initialLoadEnded = false;
+  /** 2026-09-10b — when a ground tile first rendered (the reveal's hold cap, see update()). */
+  let firstVisibleMs: number | null = null;
+  /** 0.4.28 ships `stats` at runtime but does not declare it (the u5() probe carries the same note). */
+  const tileStats = () =>
+    (tiles as unknown as { stats?: { queued: number; downloading: number; parsing: number; visible: number } }).stats ?? {
+      queued: 0,
+      downloading: 0,
+      parsing: 0,
+      visible: 0,
+    };
+  /** 2026-09-10b — the cache-full re-traverse kick (see update()). */
+  let lastFullCacheKickMs = 0;
+  let fullCacheKicks = 0;
   tiles.addEventListener("tiles-load-start", () => {
     initialLoadStarted = true;
   });
@@ -544,6 +590,8 @@ export function attachImageryGround(
      *  dome above it is painting. 0 with the LOOK off (T96, 2026-09-06i: the model rides
      *  `lookOn()`, not the chip), and max(x, 0.0) is exactly x. */
     uFtwAfterglowG: { value: 0 },
+    /** 2026-09-10b — camera.far, pushed per frame for the far-plane fog in ftwAerial (glsl.ts). */
+    uFtwFarM: { value: 0 },
     /** Owner defect 2 — DIRECT sun reaching the ground, for the direct/ambient split. Only ever
      *  read inside `mix(dayShade, dayShadeU, uFtwUltraLight)`, which is 0 with the LOOK off —
      *  T96 (2026-09-06i) moved that mix onto `lookOn()`, so on a shipped build it is 1 whether or
@@ -660,7 +708,14 @@ export function attachImageryGround(
           // only this one is safe outside the chart. max (not +): on the /m chart both terms are
           // live and the chart must not double-de-grade past 1.0; and max(x, 0.0) === x, so with
           // ULTRA off the expression is byte-for-byte the one that shipped.
-          float photo = max(uFtwFlat2d * uFtwPhotoK, uFtwPhoto3d) * (1.0 - uFtwDark);
+          // Night gate over solar elevation (twin of EARTH.lightsBand). Hoisted here (2026-09-10b)
+          // because the 3D photographic de-grade below now goes out with the sun: photo3dK 0.6 is
+          // a DAYLIGHT look (gain 0.84, desat 0.21, a neutral cast) and it was live all night,
+          // handing the raw Esri albedo — snow summits included — to a moon that then read as
+          // an overexposed milky day. The chart's own half (uFtwFlat2d × uFtwPhotoK) keeps the
+          // photo look at every hour: a map is a map.
+          float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunUpDot);
+          float photo = max(uFtwFlat2d * uFtwPhotoK, uFtwPhoto3d * (1.0 - night)) * (1.0 - uFtwDark);
           float dayShade = mix(${glf(EARTH.dayGradMin)}, 1.0, sqrt(max(sunDot, 0.0)));
           // ULTRA (owner defect 2, 2026-08-27) — DIRECT vs AMBIENT, instead of one floored ramp.
           //
@@ -715,7 +770,12 @@ export function attachImageryGround(
           float shade = mix(
             // The floor is the S5/S7 navigability floor and stays exactly what it is by day; it
             // simply stops RISING against a sky that has gone (mix(1.0, v, 0.0) is exactly 1).
-            mix(uFtwNightFloor * mix(1.0, uFtwSkyLevel, uFtwUltraLight), dayShade, dayK),
+            // 2026-09-10b: under the LOOK skyLevel bottoms at 0.03, which had cut the 0.4 floor
+            // to 0.012 — the one albedo-scaled night term was gone and the flat moon fill WAS the
+            // picture (forest = rock = snow). GROUND.nightFloorSkyMin keeps a texture-carrying
+            // base (0.4 × 0.2 = 0.08) that only bites below −12° (skyLevel < 0.2); exact by day.
+            mix(uFtwNightFloor * mix(1.0, max(uFtwSkyLevel, ${glf(GROUND.nightFloorSkyMin)}), uFtwUltraLight),
+              dayShade, dayK),
             mix(${glf(DRAPE.nightFloor)}, ${glf(DRAPE.dayShade)}, dayK),
             uFtwDark);
           // (1) THE LARGEST FLATTENER, and it was hiding inside the TEXTURE half of the track.
@@ -762,9 +822,14 @@ export function attachImageryGround(
           graded *= mix(vec3(1.0), uFtwGoldenCol * ${glf(GOLDEN.castGain)},
             gold * ${glf(GOLDEN.groundStrength)} * (1.0 - photo)
               * mix(1.0, uFtwDirectK * lambert, uFtwUltraLight));
-          // Night gate over solar elevation (twin of EARTH.lightsBand).
-          float night = 1.0 - smoothstep(${glf(EARTH.lightsBand[0])}, ${glf(EARTH.lightsBand[1])}, sunUpDot);
-          float moonUp = max(dot(nUp, uFtwMoonDir), 0.0);
+          // (night is hoisted above the photo line — the 3D de-grade rides it. No backticks
+          // in this comment: it lives inside a template literal.)
+          // 2026-09-10b: the fill used to be normal-BLIND (geodetic up · moon), so every aspect
+          // got the same lift and a full moon flattened the mountains into one milky mass. It
+          // now leans GROUND.moonFillNormalK of the way onto the surface normal: moon-facing
+          // slopes keep the fill, anti-moon slopes fall to the floor + ambient, relief returns.
+          float moonUp = mix(max(dot(nUp, uFtwMoonDir), 0.0), max(dot(nS, uFtwMoonDir), 0.0),
+            ${glf(GROUND.moonFillNormalK)});
           // Moonlight, two terms (S7 feedback): the albedo-scaled sheen (graded×moon — black
           // stays black) + a small NON-albedo fill so the moon actually LIFTS the dark ground.
           // NOTE the suppressor is photoShade, not photo — and that is load-bearing, not
@@ -774,7 +839,8 @@ export function attachImageryGround(
           // that no longer rises, making the ULTRA night ground strictly DARKER than the
           // ULTRA-OFF one — a regression introduced by the fix, caught by the adversarial pass.
           // With the chip off, and on the /m chart, photoShade IS photo, so this is exact.
-          vec3 moonlit = (graded * uFtwMoonCol * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * night)
+          vec3 moonlit = (graded * uFtwMoonCol
+              * (max(dot(nS, uFtwMoonDir), 0.0) * uFtwMoonGlow * ${glf(GROUND.moonSheenK)} * night)
             + uFtwMoonCol * (uFtwMoonGlow * ${glf(GROUND.moonFillK)} * moonUp * night))
             * (1.0 - photoShade);
           // Ambient sky fill — additive, so dark source pixels never multiply to black. Scaled
@@ -1301,6 +1367,12 @@ export function attachImageryGround(
         ? { ...esriPlaceholder.stats, ...esriPlaceholder.memo.stats() }
         : null,
     placeholderProbe: (z, x, y) => esriPlaceholder?.probe({ z, x, y }) ?? Promise.resolve(null),
+    streamStats: () => ({
+      installed: overlayPriority.installed,
+      ...overlayPriority.stats,
+      fullCacheKicks,
+      split: { installed: splitGuard.installed, ...splitGuard.stats },
+    }),
     setShadowStrength(opacity) {
       shadowMat.opacity = opacity; // ONE shared material — every twin follows
     },
@@ -1457,12 +1529,22 @@ export function attachImageryGround(
         0,
         1,
       );
+      const now = frameNow();
+      // 2026-09-10b — the reveal's readiness gate waited for the first `tiles-load-end`. With the
+      // stream now finishing tiles continuously (the imagery ordering + the desktop slots) a
+      // long look never idles inside the first half-minute, and the layer sat at
+      // revealProgressCap 0.85 — a 15 % screen-door over the whole frame, the coarse parent
+      // showing through as a pale veil. Once a rendered surface has EXISTED for
+      // revealMaxHoldMs the initial wave is over by any useful definition: flip the gate.
+      if (initialLoadStarted && !initialLoadEnded) {
+        if (tileStats().visible > 0) firstVisibleMs ??= now;
+        if (firstVisibleMs !== null && now - firstVisibleMs > GROUND.revealMaxHoldMs) initialLoadEnded = true;
+      }
       const readiness = initialLoadEnded
         ? 1
         : initialLoadStarted
           ? THREE.MathUtils.clamp(tiles.loadProgress, 0, 1) * GROUND.revealProgressCap
           : 0;
-      const now = frameNow();
       const dtMs = Math.min(now - lastRevealMs, 100);
       lastRevealMs = now;
       const k = 1 - Math.exp(-dtMs / GROUND.revealTauMs);
@@ -1516,9 +1598,29 @@ export function attachImageryGround(
         else overlayPlugin.deleteOverlay(cartoDark);
       }
       if (cartoAttached) cartoDark.opacity = uniforms.uFtwDark.value;
+      // The far-plane fog (ftwAerial) follows the fitted plane, quantised to 100 m so the controls'
+      // per-frame refit cannot leak a sub-metre jitter into the far band (the T94 frozen-frame gate).
+      uniforms.uFtwFarM.value = Math.round(opts.camera.far / 100) * 100;
       // Keep refinement ticking through the initial load even if the camera is static (reduced
       // motion disables the drift; UpdateOnChangePlugin would otherwise stall until a zoom).
       if (!initialLoadEnded) (uocPlugin as any).needsUpdate = true;
+      // 2026-09-10b — THE CACHE-FULL DEAD END. A tile that finishes parsing onto a full cache is
+      // discarded WITHOUT a `needs-update` (TilesRendererBase.js:1789-1796), and admission +
+      // eviction only run inside a traversal, which UpdateOnChangePlugin skips while the camera
+      // is still. So once the last in-flight tile lands on a full cache the ground pipeline is
+      // dead until the owner moves ("stayed coarse until I MOVED"). Re-traverse on a slow clock
+      // while the cache is full and the queues are idle: the traversal re-marks the used set from
+      // scratch, evicts what the look no longer needs and re-admits what it does. ~0.02 ms.
+      if (initialLoadEnded && GROUND.fullCacheKickMs > 0) {
+        const lru = tiles.lruCache as unknown as { isFull(): boolean };
+        const st = tileStats();
+        const idle = st.queued + st.downloading + st.parsing === 0;
+        if (idle && lru.isFull() && now - lastFullCacheKickMs > GROUND.fullCacheKickMs) {
+          lastFullCacheKickMs = now;
+          fullCacheKicks++;
+          (uocPlugin as any).needsUpdate = true;
+        }
+      }
       // No shadow twins on the /m 2D map (2026-08-18 speed batch): buildings — the only casters
       // — are detached there, so the depth pass + per-tile twin draws bought nothing.
       const wantShadows = alt < SHADOWS.maxAltM && !flat2d;

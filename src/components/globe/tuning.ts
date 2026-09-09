@@ -64,8 +64,11 @@ export const SKY = {
   moonTexture: "/textures/moon-color.jpg",
   /** Re-sample the ephemeris when scene time moved this much (sun drifts 0.004°/s — 1 s ≪ 1 px). */
   sampleIntervalMs: 1_000,
-  /** Impostor distance = camera.far × this (behind all terrain at 0.5? No — in front of the far
-   *  plane, behind most geometry; depth-tested so the earth/buildings occlude correctly). */
+  /** Impostor ANCHOR distance = camera.far × this — the position/scale of the disc only. Its
+   *  DEPTH is pinned to the far plane in the vertex shader (`gl_Position.z = gl_Position.w`,
+   *  2026-09-10b), so terrain and buildings at any distance occlude the sun and moon regardless
+   *  of this fraction; before the pin a street camera's 0.5·(~180 km) = 90 km disc drew in front
+   *  of Mt Fuji at 107 km. */
   impostorFarFrac: 0.5,
   /** Sun halo plane radius = disc radius × this (room for the shader falloff; bloom adds the rest). */
   sunGlowExtent: 7,
@@ -625,8 +628,9 @@ export const SHADOWS = {
    *  sunset handoff band cannot itself step the trough that the handoff depends on. */
   moonIllumSoftFrac: 0.15,
   /** Ground shadow opacity under a FULL moon (× the K&S phase intensity per frame) — kept BELOW the
-   *  sun's 0.80 so moonlit shadows read as presence, not contrast. (0.55 → 0.62 2026-07-13.) */
-  moonGroundOpacity: 0.62,
+   *  sun's 0.80 so moonlit shadows read as presence, not contrast. (0.55 → 0.62 2026-07-13;
+   *  → 0.75 2026-09-10b with the moonlight retune: once the base is dark a shadow is relief.) */
+  moonGroundOpacity: 0.75,
 } as const;
 
 /** Renderer-level knobs (GlobeCanvas). */
@@ -924,8 +928,25 @@ export const QUALITY = {
     maxStreetNames: 64,
     vectorLatticeBudget: 12,
     lruBytesMB: 600,
-    groundLruBytesMB: 600,
+    /** 600 → 1200 (2026-09-10b, owner: "on PC on ULTRA you shouldn't hold yourself with resources,
+     *  cache") → 1400 (owner order 2026-09-10f). The Everest zoom pose's working set filled the
+     *  600 (÷ the mip factor = 452 MB) cap exactly — usedSet 420 = itemSet 420, every tile "used",
+     *  `isFull` at rest — and the library discards a tile parsed onto a full cache, so the look
+     *  could never finish refining (`GROUND.fullCacheKickMs` re-traverses; this is the room).
+     *  ~1,050 MB of decoded composites after the mip re-billing: a desktop GPU budget, the chip is
+     *  the opt-in. */
+    groundLruBytesMB: 1400,
   },
+  /** 2026-09-10f (owner order) — the REGULAR desktop's GROUND cache (MB): `high` off a coarse
+   *  pointer with the ULTRA chip off, the ground renderer only (`lib/globe/quality.
+   *  groundLruCapForDesktop`; buildings/enriched keep the tier rule — the U2/A9 jetsam lesson).
+   *  The library's default is 0.4 GiB (≈ 410 MB): a long-lens look's working set exceeded it
+   *  (~450 MB at the Everest zoom), so regular mode refined to the cap and stayed there. The
+   *  floor rides `lruFloorBytesForCap` (450 MB). Phones NEVER read this (`lean` short-circuits
+   *  before it); `null` = the tier rule (the kill switch). The `high` tier TABLE stays at 400
+   *  (the byte-identical-tier fence in `quality.test.ts`): this is a desktop-shell lever
+   *  applied on top of it, the same shape as `LOADING.groundDesktopCaps`. */
+  desktopGroundLruBytesMB: 600 as number | null,
 } as const;
 
 /**
@@ -1199,6 +1220,15 @@ export const ULTRA = {
    *  from the camera. */
   limbStartM: 40_000,
   limbEndM: 120_000,
+  /** 2026-09-10b — THE FAR-PLANE CUT. GlobeControls fits `camera.far` to the geometric horizon
+   *  (farMargin 0), so terrain that rises above the horizon beyond that distance is CLIPPED and
+   *  the sky shows through with a hard edge along the last rendered ridge — the second half of
+   *  the owner's horizon complaint once the dome stopped over-painting. The ground's aerial term
+   *  now finishes the job the library's clip started: from `farFogStartFrac × far` the fragment
+   *  dissolves fully into the same in-scatter colour by `farFogEndFrac × far`, so the clip lands
+   *  on pixels that are already the sky. GROUND only (`uFtwFarM` is 0 on buildings → exact). */
+  farFogStartFrac: 0.8,
+  farFogEndFrac: 0.985,
   /** Full strength at/below this camera altitude (m)… */
   hazeFullAltM: 20_000,
   /** …zero at/above this one. The base earth + limb shader own the look from orbit; layering a
@@ -1906,6 +1936,15 @@ export const LOADING = {
     mid: { download: 12, parse: 3 },
     low: { download: 8, parse: 2 },
   },
+  /** 2026-09-10b — the GROUND renderer's concurrency on a DESKTOP `high` (never a coarse
+   *  pointer, never mid/low): a ground parse slot is held through the tile's imagery composite,
+   *  so on a cold imagery cache the library's 5 slots are 5 network waits (measured 6 tiles/s
+   *  at the Everest zoom pose vs 75/s warm — the owner's "1 min+"). 12 slots waiting on the
+   *  network at once; the download cap rises with them so the slots' images are never starved.
+   *  The `load-model` work per tile (BVH, shadow twin, memo) is ~1–3 ms, so a worst-case burst
+   *  is a 12-tile frame — a desktop cost, which is why the phones keep the tier rule.
+   *  `null` = the tier rule for the ground too (`lib/globe/quality.groundQueueCapsFor`). */
+  groundDesktopCaps: { download: 32, parse: 12 } as { download: number; parse: number } | null,
   /** Latency-probe ring length (last N download→model dts kept per renderer, DEV seam u5()). */
   latencyRing: 32,
 } as const;
@@ -2371,6 +2410,9 @@ export const ATMOSPHERE = {
    *  far plane at street level. The shader only uses the fragment DIRECTION, so swapping the
    *  geometry is seamless — skyGoneAlt < domeMaxAlt keeps both regimes identical at the swap. */
   domeMaxAlt: 350_000,
+  /** The dome's GEOMETRIC radius as a fraction of far. Since 2026-09-10b it is NOT the dome's
+   *  depth: in sky-dome mode the vertex shader pins depth to the far plane (`uDome`), so the
+   *  additive sky no longer lands on terrain beyond this radius (the horizon white band). */
   domeFarFrac: 0.45,
   /** Zenith sky brightness (multiplies tokens.skyDay). */
   skyDayGain: 0.85,
@@ -2975,10 +3017,44 @@ export const GROUND = {
    *  A released composite can never draw again (the library disposes only at lock count 0), so
    *  the render is byte-identical on both shells. Kill switch: false = the library's own GC timing. */
   releaseCompositeCanvas: true,
+  /** 2026-09-10b — THE TILE-STREAM STALL (owner: "10, 20, 30 s, 1 min+ … no visible progress …
+   *  until I moved"). The imagery fetches of every terrain tile follow their TILE through the
+   *  download queue — parse-slot tiles first, downloaded tiles next by screen error, preloads
+   *  last — instead of the library's FIFO below every terrain download, which left the five
+   *  parse slots waiting on images queued behind ~1,000 preloads for tiles that would parse
+   *  much later (`lib/globe/overlayFetchPriority`; measured: composites flat for 38 s at the
+   *  Everest zoom pose). ORDER only, both shells. Kill switch: false = the library's own FIFO. */
+  overlayFetchPriority: true,
+  /** …and the cache-full dead end: a tile parsed onto a full cache is discarded without a
+   *  `needs-update`, and nothing re-traverses while the camera is still. While the cache is
+   *  full and the queues idle, re-traverse every this many ms (re-marks the used set, evicts
+   *  what the look dropped, re-admits what it needs; ~0.02 ms). 0 disables. */
+  fullCacheKickMs: 1500,
+  /** …and the VIRTUAL SPLIT GUARD (`lib/globe/virtualSplitGuard`): the overlay plugin clips
+   *  every leaf terrain tile into virtual children down to Esri's max zoom on the main thread;
+   *  twice in five Everest-zoom runs a split wave arrived whose cost DOUBLED per call (0.7 → 95 s
+   *  rAF gaps — the "ugly for a whole minute" freeze). A child with more triangles than its
+   *  parent is refused, so is anything deeper than `virtualSplitMaxDepth` levels or under a
+   *  split slower than `virtualSplitMaxMs` (healthy splits max ~17 ms). Kill switch: false. */
+  virtualSplitGuard: true,
+  virtualSplitMaxDepth: 6,
+  virtualSplitMaxMs: 80,
+  /** The growth fence ignores tiles under this many triangles (a cut adds a few along its edge;
+   *  at 0 the fence refused the deep street-level splits and Dnipro FPV lost composite z19 → z17). */
+  virtualSplitGrowthMinTri: 512,
   /** Dark-side floor — slightly above the base's: close-zoom ground must stay navigable.
    *  (0.45 → 0.38 2026-07-10; → 0.35 S5; → 0.40 2026-07-13 illumination pass — lifts the night-ground
    *  ceiling so moon terms can actually raise it; watch VIIRS city lights don't wash out). */
   nightFloor: 0.4,
+  /** THE MOONLIGHT RETUNE (owner 2026-09-10b: "very bright washed out and milky white"). Under the
+   *  LOOK the floor above is multiplied by skyLevel, which bottoms at 0.03 by −18° — 0.4 × 0.03 =
+   *  0.012, i.e. the only albedo-scaled night term was gone and the flat moon fill painted forest,
+   *  rock and snow the same milky grey. skyLevel is floored at this value INSIDE the floor term
+   *  only (0.4 × 0.15 = 0.06): exact by day and dusk (skyLevel ≥ 0.15 above about −13°), a
+   *  texture-carrying base at night. JS twins: test/components/globe/duskShadeRatio.test.ts +
+   *  moonlightTerrain.test.ts (the full-moon targets: a moon-facing rock ≈ 30 % of its daytime
+   *  self, facing/away ≈ 1.8×, snow/rock ≈ 2×, a new-moon forest a silhouette, never a hole). */
+  nightFloorSkyMin: 0.15,
   /** Pull satellite chroma toward the instrument (0 = untouched, 1 = grayscale). */
   desat: 0.52,
   /** Sit the imagery in the dark scene's tonal range. (0.56 → 0.60 2026-07-13: a brighter satellite
@@ -3001,8 +3077,10 @@ export const GROUND = {
    *  orbital fade band stays tonally continuous with the self-lit base. */
   ambientDayK: 0.1,
   /** (0.012 → 0.02 2026-07-13: the moon terms are phase-gated, so dark-of-moon nights leaned on this
-   *  flat floor — raise it so a new-moon night isn't pitch black, without washing the terminator.) */
-  ambientNightK: 0.02,
+   *  flat floor — raise it so a new-moon night isn't pitch black, without washing the terminator.
+   *  → 0.012 again 2026-09-10b: the albedo-scaled night floor is back (nightFloorSkyMin), so the
+   *  flat term no longer has to carry the dark of the moon — and every flat term is contrast lost.) */
+  ambientNightK: 0.012,
   /** QA-7a (owner 2026-08-21f): PHOTOGRAPHIC 2D chart — strength (0..1) of the flat-map
    *  de-grade. At 1 the /m 2D map shows the raw Esri colorimetry (gain→1, desat→0, cast→
    *  neutral, water-darken/golden/moonlit/ambient→off, shade→1) like the MapWindow canvas;
@@ -3044,8 +3122,19 @@ export const GROUND = {
    * The measurement each of these needs is the same one T1 owes: sustained frame time and thermal
    * behaviour on a real iPhone and a real Pixel, not a headless tier. */
   /** Moon fill that does NOT multiply by albedo (the old moonlit term is graded×moon — black
-   *  stays black): fill = moonFillK × moonGlow × max(moonDir·up, 0) on the night side. */
-  moonFillK: 0.7,
+   *  stays black): fill = moonFillK × moonGlow × moonUp on the night side. (0.7 → 0.05 2026-09-10b:
+   *  at 0.7 the fill alone sat at ~0.13 linear under a 95 % moon — brighter than any albedo term,
+   *  direction-blind — and WAS the washed-out picture; the albedo floor + sheen carry it now.) */
+  moonFillK: 0.05,
+  /** How far the fill's direction term leans from geodetic-up·moon (0, the old aspect-blind fill)
+   *  onto surface-normal·moon (1): anti-moon slopes lose the fill, moon-facing slopes keep it. */
+  moonFillNormalK: 0.6,
+  /** Ground-only gain on the albedo-scaled moon sheen (graded × moonCol × N·moon × moonGlow). The
+   *  shared SKY.moonSceneGlow also lights the orbital earth, so the ground's contrast lever lives
+   *  here: with the fill out of the way the sheen is what separates aspects. 0.45 puts a
+   *  moon-facing rock at ~0.065 linear under a full moon (≈ sRGB 80 after the night exposure),
+   *  an anti-moon one at ~0.036 — the daytime rock is ~0.21. */
+  moonSheenK: 0.45,
   /** Screen-door bayer offset (px) vs TilesFadePlugin's grid so the two dithers don't collide. */
   bayerOffsetPx: 2.0,
   /** Imagery sits behind building footprints (bases win ties). */
@@ -3096,6 +3185,10 @@ export const GROUND = {
   /** Until the first tiles-load-end, readiness = loadProgress × this cap (never fully in while
    *  the initial wave is still downloading). */
   revealProgressCap: 0.85,
+  /** …but never for longer than this (ms) after the first ground tile RENDERED (2026-09-10b): a
+   *  look whose stream keeps finishing tiles for a minute would otherwise hold the whole layer
+   *  at the cap — a 15 % screen-door veil over an already-drawn scene. */
+  revealMaxHoldMs: 3_000,
   /** Failed Esri overlay fetches leave permanently blank tiles unless retried — debounce (ms)
    *  for calling resetFailedOverlays() after a load-error burst. */
   overlayRetryMs: 8_000,

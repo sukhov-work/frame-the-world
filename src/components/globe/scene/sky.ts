@@ -197,6 +197,14 @@ const IMPOSTOR_VERTEX_GLSL = /* glsl */ `
         vUv = uv;
         vW = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        // DEPTH-PIN at the far plane (three's own skybox idiom, backgroundCube.glsl.js). The
+        // impostor is anchored at 0.5·far only to keep it inside the live [near, far] band; its
+        // DEPTH must be "behind everything": from a street camera the library pins far at
+        // ~180 km, so 0.5·far parked the disc at ~90 km — in FRONT of Mt Fuji at 107 km, which the
+        // sun then painted over (owner 2026-09-10b). At z = w the disc depth-tests at exactly far,
+        // so any rendered terrain or building wins at every altitude; the analytic ellipsoid
+        // horizon fade stays as the limb fallback beyond the loaded terrain.
+        gl_Position.z = gl_Position.w;
       }`;
 
 export function attachSky(scene: THREE.Scene): SkyHandle {
@@ -429,6 +437,11 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
         // moon's own angular radius. That is the frame the Earth-shadow uniforms arrive in.
         vDisc = position.yz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        // DEPTH-PIN at the far plane — see IMPOSTOR_VERTEX_GLSL. The sphere's own depth relief is
+        // irrelevant (the shader shades by normal; back faces are culled), what matters is that a
+        // mountain 107 km out beats a disc the anchor put at 90 km (owner 2026-09-10b: the moon
+        // setting behind Fuji drew in front of it).
+        gl_Position.z = gl_Position.w;
       }`,
     fragmentShader: /* glsl */ `
       uniform sampler2D uMap;

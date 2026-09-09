@@ -137,6 +137,26 @@ export function queueCapsForTier(
 }
 
 /**
+ * 2026-09-10b — the GROUND renderer's desktop concurrency. A ground tile holds its parse slot
+ * through its imagery composite (`parseTile` awaits `processTileModel`), so on a cold imagery
+ * cache the five library slots are five network waits: measured 6 tiles/s at the Everest zoom
+ * pose against 75/s warm — the owner's "1 min+" is that ceiling, not CPU. On `high` off a
+ * coarse pointer the ground alone gets `desktop` (more slots waiting on the network at once);
+ * a phone keeps the tier rule (its slots are CPU and memory), and `mid`/`low` keep their caps.
+ * Pixels are unchanged by construction — this is how many tiles are in flight, not which.
+ * `null` in = the tier's own `null` out, so the buildings' rule is untouched. Pure → tested.
+ */
+export function groundQueueCapsFor(
+  tier: QualityTier,
+  tierCaps: QueueCaps | null,
+  lean: boolean,
+  desktop: QueueCaps | null,
+): QueueCaps | null {
+  if (tier !== "high" || lean || !desktop) return tierCaps;
+  return desktop;
+}
+
+/**
  * T80 — the bloom mip chain's resolution scale for a tier, clamped by the lean-mobile profile.
  *
  * WHY A SCALE AT ALL. `UnrealBloomPass` takes a `resolution` in its constructor and then IGNORES
@@ -271,6 +291,32 @@ export function lruCapBytesForUltra(
   ultraBytesMB: number,
 ): number | null {
   return on ? Math.round(ultraBytesMB * 1024 * 1024) : lruCapBytesForTier(tier, lruBytesMB);
+}
+
+/**
+ * 2026-09-10f (owner order) — the DESKTOP ground cache. `high` off a coarse pointer, with the ULTRA
+ * chip OFF, keeps the library's 0.4 GiB default through the tier rule (`lruCapBytesForTier` →
+ * null), and a long-lens working set exceeds it (the Everest zoom needed ~450 MB at ULTRA —
+ * `usedSet === itemSet`, `isFull` at rest — so regular mode refined to the cap and the cache-full
+ * kick re-tried forever). This lever raises the GROUND cap ONLY, on a desktop `high` only:
+ *   · `lean` (a coarse pointer — every phone) → the argument cap untouched, so the T83 clamp and
+ *     the lean profile never see a byte of this;
+ *   · ULTRA on → the argument cap untouched (ULTRA owns its own, larger, cap);
+ *   · mid / low → untouched (the governor's tiers stay as measured);
+ *   · `desktopMB` null → untouched (the kill switch).
+ * The buildings/enriched caps are NOT raised (the U2/A9 jetsam lesson: a blanket raise is the
+ * wrong direction; the ground is the one cache a long lens fills). The caller still pairs the
+ * result with `lruFloorBytesForCap` (0.75 × the cap). Pure → unit-tested.
+ */
+export function groundLruCapForDesktop(
+  tier: QualityTier,
+  capBytes: number | null,
+  lean: boolean,
+  ultraOn: boolean,
+  desktopMB: number | null,
+): number | null {
+  if (tier !== "high" || lean || ultraOn || desktopMB === null) return capBytes;
+  return Math.round(desktopMB * 1024 * 1024);
 }
 
 /**

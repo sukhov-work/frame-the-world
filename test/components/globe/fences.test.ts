@@ -1263,3 +1263,35 @@ describe("T115 — the tree locate is chunked and gated", () => {
     expect(code).toMatch(/locCursor: 0,\s*located: n === 0,/);
   });
 });
+
+describe("2026-09-10b — the far-plane depth pins (the moon over Fuji, the horizon white band)", () => {
+  const sky = readFileSync(join(sceneDir, "sky.ts"), "utf8");
+  const atmosphere = readFileSync(join(sceneDir, "atmosphere.ts"), "utf8");
+  const glsl = readFileSync(join(sceneDir, "glsl.ts"), "utf8");
+  const ground = readFileSync(join(sceneDir, "imageryGround.ts"), "utf8");
+
+  it("the sun AND the moon vertex shaders pin their depth to the far plane (z = w)", () => {
+    // Two shaders, two pins: IMPOSTOR_VERTEX_GLSL (the sun + its halo plane) and the moon's own.
+    // The impostor ANCHOR stays at 0.5·far (position + scale); only the DEPTH is pinned — from
+    // a street camera the library pins far at ~180 km, so 0.5·far parked the disc at 90 km, in
+    // front of Mt Fuji at 107 km.
+    const pins = sky.match(/gl_Position\.z = gl_Position\.w;/g) ?? [];
+    expect(pins.length).toBe(2);
+  });
+
+  it("the sky dome pins its depth ONLY in sky-dome mode, through a uniform declared in both places", () => {
+    expect(atmosphere).toMatch(/gl_Position\.z = mix\(gl_Position\.z, gl_Position\.w, uDome\);/);
+    expect(atmosphere).toMatch(/uDome: \{ value: 0 \}/); // the JS side (a GLSL-only uniform is a silent 0)
+    expect(atmosphere).toMatch(/uniform float uDome;/); // the GLSL side (a JS-only uniform is a silent compile failure)
+    // set 1 in the camera-anchored branch, 0 on the orbital shell — both writes present
+    expect(atmosphere).toMatch(/uniforms\.uDome\.value = 1;/);
+    expect(atmosphere).toMatch(/uniforms\.uDome\.value = 0;/);
+  });
+
+  it("the ground's aerial term carries the far-plane fog and the ground pushes camera.far every frame", () => {
+    expect(glsl).toMatch(/uniform float uFtwFarM;/);
+    expect(glsl).toMatch(/if \(uFtwFarM > 0\.0\) \{/); // guarded: buildings/models leave it at 0 → exact
+    expect(ground).toMatch(/uFtwFarM: \{ value: 0 \}/);
+    expect(ground).toMatch(/uniforms\.uFtwFarM\.value = Math\.round\(opts\.camera\.far \/ 100\) \* 100;/);
+  });
+});

@@ -18,6 +18,8 @@ import {
   TIER_ORDER,
   type FoveationTierCfg,
   type GovernorConfig,
+  groundQueueCapsFor,
+  groundLruCapForDesktop,
 } from "../../../src/lib/globe/quality";
 import { FOVEATION, LOADING, QUALITY, RENDERER, SHADOWS, GROUND, TILESETS, VECTOR, STREETS } from "../../../src/components/globe/tuning";
 
@@ -324,6 +326,69 @@ describe("lruCapBytesForTier — the byte-identical-on-high LRU rule (WS1)", () 
   it("mid/low caps sit below the library default — they actually tighten memory", () => {
     expect(lruCapBytesForTier("mid", QUALITY.tiers.mid.lruBytesMB)!).toBeLessThan(LIBRARY_DEFAULT_BYTES);
     expect(lruCapBytesForTier("low", QUALITY.tiers.low.lruBytesMB)!).toBeLessThan(LIBRARY_DEFAULT_BYTES);
+  });
+});
+
+describe("groundLruCapForDesktop — the 2026-09-10f desktop ground cache (owner order)", () => {
+  const MB = 1024 * 1024;
+  const libDefault = null; // what lruCapBytesForTier returns on high
+
+  it("high off a coarse pointer, chip off → the desktop ground cap in raw bytes", () => {
+    expect(groundLruCapForDesktop("high", libDefault, false, false, QUALITY.desktopGroundLruBytesMB)).toBe(
+      Math.round(QUALITY.desktopGroundLruBytesMB! * MB),
+    );
+    expect(QUALITY.desktopGroundLruBytesMB).toBe(600);
+  });
+
+  it("a phone (lean) NEVER sees it — the argument cap is returned by identity on every tier", () => {
+    for (const tier of TIER_ORDER) {
+      expect(groundLruCapForDesktop(tier, libDefault, true, false, 600)).toBe(libDefault);
+      expect(groundLruCapForDesktop(tier, 123 * MB, true, false, 600)).toBe(123 * MB);
+    }
+    // …and the lean clamp that follows it still lands the phone on its own cap
+    expect(
+      lruCapBytesForLean(groundLruCapForDesktop("high", libDefault, true, false, 600), true, QUALITY.leanMobile.groundLruBytesMB),
+    ).toBe(Math.round(QUALITY.leanMobile.groundLruBytesMB * MB));
+  });
+
+  it("ULTRA on keeps ULTRA's own cap; mid/low keep the tier rule; null is the kill switch", () => {
+    const ultraCap = Math.round(QUALITY.ultraDesktop.groundLruBytesMB * MB);
+    expect(groundLruCapForDesktop("high", ultraCap, false, true, 600)).toBe(ultraCap);
+    expect(groundLruCapForDesktop("mid", 320 * MB, false, false, 600)).toBe(320 * MB);
+    expect(groundLruCapForDesktop("low", 192 * MB, false, false, 600)).toBe(192 * MB);
+    expect(groundLruCapForDesktop("high", libDefault, false, false, null)).toBeNull();
+  });
+
+  it("the ladder is monotone: regular desktop 600 < ULTRA 1400, both above the library's 0.4 GiB", () => {
+    expect(QUALITY.desktopGroundLruBytesMB!).toBeGreaterThan(0.4 * 1024); // MB vs the 0.4 GiB default
+    expect(QUALITY.ultraDesktop.groundLruBytesMB).toBeGreaterThan(QUALITY.desktopGroundLruBytesMB!);
+    expect(QUALITY.ultraDesktop.groundLruBytesMB).toBe(1400);
+    // the tier TABLE is untouched — the byte-identical fence above still holds
+    expect(QUALITY.tiers.high.groundLruBytesMB).toBe(400);
+  });
+});
+
+describe("groundQueueCapsFor — the 2026-09-10b desktop ground concurrency", () => {
+  it("high off a coarse pointer gets the desktop caps for the GROUND only", () => {
+    expect(groundQueueCapsFor("high", null, false, LOADING.groundDesktopCaps)).toEqual(LOADING.groundDesktopCaps);
+  });
+
+  it("a phone (lean) keeps the tier rule, so do mid/low, so does a null desktop entry", () => {
+    expect(groundQueueCapsFor("high", null, true, LOADING.groundDesktopCaps)).toBeNull();
+    expect(groundQueueCapsFor("mid", LOADING.queueCaps.mid, false, LOADING.groundDesktopCaps)).toBe(LOADING.queueCaps.mid);
+    expect(groundQueueCapsFor("low", LOADING.queueCaps.low, true, LOADING.groundDesktopCaps)).toBe(LOADING.queueCaps.low);
+    expect(groundQueueCapsFor("high", null, false, null)).toBeNull();
+  });
+
+  it("the desktop caps raise BOTH queues over the library defaults (a slot is a network wait)", () => {
+    const d = LOADING.groundDesktopCaps!;
+    expect(d.parse).toBeGreaterThan(5);
+    expect(d.download).toBeGreaterThan(25);
+    expect(d.download).toBeGreaterThanOrEqual(d.parse * 2); // the slots' images are never starved
+  });
+
+  it("the buildings' rule is untouched: queueCapsForTier still returns null on high", () => {
+    expect(queueCapsForTier("high", LOADING.queueCaps)).toBeNull();
   });
 });
 

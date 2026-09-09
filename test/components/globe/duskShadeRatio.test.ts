@@ -75,7 +75,7 @@ function shadeAt(
     (1 - ULTRA.groundAmbientK) * directK * lambert;
   const dayShade = mix(legacyShade, dayShadeU, u);
 
-  let shade = mix(GROUND.nightFloor * mix(1, skyLevel, u), dayShade, dayK);
+  let shade = mix(GROUND.nightFloor * mix(1, Math.max(skyLevel, GROUND.nightFloorSkyMin), u), dayShade, dayK);
   const photoShade = ultra
     ? ULTRA.photo3dK * mix(1, Math.pow(clamp01(directK), K.photo3dShadePow), u)
     : 0;
