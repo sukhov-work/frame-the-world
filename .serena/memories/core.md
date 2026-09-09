@@ -28,8 +28,10 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   in DECISIONS). **2026-09-10f the cache ladder SETTLED by the owner: ULTRA 1400 / regular desktop 600
   (`quality.groundLruCapForDesktop`, ground only) / phones untouched. NEXT (the owner's words): a FULL AUDIT of the
   code base, the rendering pipeline and all recent changes with ANOTHER AI model — technical, architectural, UX,
-  business, emergent defects (`/frame` Audit mode, read-only on `src/`); after it the farm FEATURE legs and the T77
-  lane (the desktop hitch table with 12 ground parse slots first).**
+  business, emergent defects — THE CHARTER: `audits/AUDIT4_CHARTER_2026-09-10.md` +
+  `mem:project/audit4-2026-09-10-charter` (tracks E, A–D, + F UX · G business · H the recent-change replay · I the
+  library-patch surface; read-only on `src/`); after it the farm FEATURE legs and the T77 lane (the desktop hitch
+  table with 12 ground parse slots first).**
 
 ## Status — 2026-09-10
 - **2026-09-10 (`mem:project/wip-2026-09-10-t123-lever-a-detached-release`):** **T123 FIXED TO THE OWNER'S GATE — LEVERS
@@ -439,7 +441,7 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   `pin-arrival-reframe` · `fpv-walk-orbit` · `orbit-drag-after-fpv-edit` · `bldg-menu-right-release`
   · `comet-magnitude-model` · `gallery-thumbnail-stale` · `ground-checkerboard-flicker` **OPEN**
 - `project/` non-leaf — `wix-platform` mechanics + TODO-VERIFY · `wix-site` URL/siteId/appId ·
-  `dev_environment` · `audit2-2026-08-18-charter` ·
+  `dev_environment` · `audit2-2026-08-18-charter` · `audit4-2026-09-10-charter` (NEXT SESSION) ·
   `owner-orders-2026-08-14-qol-batch` · `wip-2026-09-06-docs-hygiene`
 - The 126 `project/wip-*` leaves are the era archive, reached through the Era index.
 
