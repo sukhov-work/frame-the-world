@@ -82,6 +82,7 @@ import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
 import { createFastEdgesScratch } from "../../../lib/globe/fastEdges";
 import { buildEdgesGeometry, createEdgesBuilder, type EdgesBuild, type EdgesBuilder } from "./edgesGeometry";
 import { createLoadQueue, type LoadUnit } from "../../../lib/globe/loadQueue";
+import { drainLruCache, type DrainableLruCache } from "../../../lib/globe/detachedRelease";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
@@ -251,6 +252,12 @@ export interface EnrichedBuildingsHandle {
    *  from the scene graph and freezes update() (no traversal/streaming/re-seat work); loaded
    *  cells stay LRU-cached for an instant re-attach. Desktop never calls this. */
   setActive(on: boolean): void;
+  /** T123 lever (a): items the tile LRU holds — the orchestrator's cheap per-frame probe. */
+  cacheItems(): number;
+  /** T123 lever (a): evict every cached cell in one synchronous drain (`lib/globe/detachedRelease`),
+   *  caps restored verbatim; REFUSED while attached (null). Every cell leaves through the ordinary
+   *  `dispose-model` path, which BANKS its seats in `seatCache` — the re-stream lands where it left. */
+  releaseCache(): { items: number; bytes: number; left: number } | null;
   /** Per-building re-seat progress: `epoch` bumps on every frame that WROTE seating deltas,
    *  `quietFrames` counts frames since the last write. The orchestrator invalidates a ready
    *  skyline profile once per settled epoch (PLAN.reseatQuietFrames). */
@@ -3466,6 +3473,13 @@ export function attachEnrichedBuildings(
       active = on;
       if (on) scene.add(tiles.group);
       else scene.remove(tiles.group);
+    },
+    // `itemSet` is a runtime field the library's `.d.ts` does not declare (the tiles feed reads
+    // it the same way) — the structural slice `DrainableLruCache` names what the drain touches.
+    cacheItems: () => (tiles.lruCache as unknown as DrainableLruCache).itemSet.size,
+    releaseCache() {
+      if (active) return null;
+      return drainLruCache(tiles.lruCache as unknown as DrainableLruCache);
     },
     dispose() {
       unregFrameClock();

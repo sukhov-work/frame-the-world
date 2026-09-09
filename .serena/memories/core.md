@@ -12,6 +12,27 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 **One writer per fact:** session narrative lives in the `project/wip-*` leaves and in `DECISIONS.md`
 §Per-phase digests; this root only indexes and states the current status.
 
+## Status — 2026-09-10
+- **2026-09-10 (`mem:project/wip-2026-09-10-t123-lever-a-detached-release`):** **T123 FIXED TO THE OWNER'S GATE — LEVERS
+  (a) + (d), the farm iPhone `alive 8 cycles, flat`; T124 re-checked resident.** Lever (a) (owner ruling 2026-09-09b):
+  `lib/globe/detachedRelease.ts` — the `/m` 2D drop DRAINS the detached enriched + OSM tile caches once per detach period
+  (`markAllUnused` + all four caps → 0 for one `unloadUnusedContent()`, caps restored; `MOBILE2D.releaseDetachedTiles`,
+  `releaseDetachedGraceMs` 2500 past the exit flight; both handles' `releaseCache()`, refused while attached; DBG
+  `buildings.detachedRelease*`; 11 tests against the real `LRUCache`). Twin: fpv-out geometries 404→774 → 94→198, caches 0
+  at every rest, worst drain 9.6 ms; farm run 1 (a only): the residency growth GONE, but the 2 GB kill still came at the
+  EIGHTH exit (~413 s vs cycle 4 / 250 s). **The plateau named** (NEW `scripts/probe-memory-dump.mjs`, CDP memory-infra):
+  ~1.2–1.4 GB of renderer with ~100 MB of app caches — `cc/image_memory` at Chrome's 500 MB cap + 100–127 MB of composite
+  canvas backing stores + malloc ~250 + ArrayBuffers ~120; RSS creeps ~35 MB/cycle. **Lever (b) VOID** (the library already
+  accounts DECODED texture bytes), **(c) moot at rest**. **Lever (d)** built instead: `lib/globe/compositeCanvasRelease.ts`
+  (`GROUND.releaseCompositeCanvas`) — the overlay's per-tile composite `<canvas>` loses its backing store at the library's
+  dispose (`width = height = 0`) instead of at GC (~450 born per stress cycle; 7 tests pin the 0.4.28 shapes; DBG
+  `tiles.gnd.canvasReleased*`). Farm run 2 (a + d): **alive 8 cycles**, page age 450 s, lru 0/97/0 + geometries 92→166 on
+  every rest, dt p95 17 ms; `--legs t124` resident. Sweep `post-2026-09-10b` calls+tris identical on all 14 poses to the
+  session's first sweep (11/14 vs the golden — the ground-tile boot band). Gates: vitest 3,061/202 · astro 0/0/12 · knip 0.
+  Trap: EVERY `wix dev` restart needs `.vite` aside (a same-session restart 404'd a dep chunk → no island). **NEXT: the farm
+  FEATURE legs · the T77 lane (`applyFeatureSeats` 461 ms, the ephemeris in the hitches, the ~900 mesh-raycast calls per
+  frame) · watch: the ~35 MB/cycle renderer creep if the owner's phone still dies on longer sessions.**
+
 ## Status — 2026-09-09
 - **2026-09-09 (`mem:project/wip-2026-09-09-t126-t129-t130-lever8-pixel`):** **THE LEVER-8 PIXEL READ HOLDS · T126 UNDO +
   DROP SESSION BUILT (both shells) · T129 THE 2D TWO-FINGER PAN BUILT · T130 THE DEVICE CAMPAIGN RUN — T123 CLASSIFIED,
@@ -213,18 +234,29 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 - **BEST SPOT's ALGORITHM PARKED 2026-08-27** (owner 2026-09-01: sufficient as implemented; T59 the one
   owner decision) — its MOBILE SURFACE shipped 2026-09-07h (the `/m` `◎ SPOT` tab) · **Phase 7, AI shot
   analysis, PARKED 2026-08-11** — out of every plan, no AI code in `src/`.
-- **RELEASE GATE: prod is DARK** until the owner's GoDaddy nameserver fix → Wix www TLS → OAuth
-  allowlist gains `plux.today` → `wix release`. T2 canaries and T50 ride it.
-- Gates 2026-09-09: vitest **3,043/3,043** (200 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
+- **RELEASE GATE LIFTED 2026-09-10** (owner: the host works for them and others; verified: `www.plux.today` 200,
+  `plux.today` → www 301, `GET`/`POST /api/ping` 200 — the POST needs a JSON body). The release is MANUAL and
+  unchanged: `conventions/wix-headless.md` §4 (clean tree → `env pull` → gates → `wix build` → `wix release` →
+  `warm-prod-assets.mjs` → `verify-prod-globe.mjs`); no script chains it. T2 half-verified; T50 can run on the cloud.
+- Gates 2026-09-10: vitest **3,061/3,061** (202 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
   `ultraEmisK` unused in two scene files) · knip **0**.
-- **App version 1.36.4 since 2026-09-09** (`src/lib/version.ts`; the ship hook bumps the patch every ship → 1.36.5).
+- **App version 1.36.5 since 2026-09-09** (`src/lib/version.ts`; the ship hook bumps the patch every ship → 1.36.6).
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
-- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130; T126/T129 FIXED, T123
-  CLASSIFIED, T124 not reproduced, T130 run — 2026-09-09).
+- The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130; T123 FIXED to the gate
+  2026-09-10, T124 re-checked resident, T130's stress + t124 re-runs done — the feature legs still owed).
 
-## Next step — LEVER (a) for T123 (RULED), the farm stress re-run, then the main plan in full (full brief: `NEXT_SESSION_PROMPT.md`)
-**Owner ruling 2026-09-09b:** build lever (a) — release the detached enriched + buildings tile caches when `/m` drops to
+## Next step — the main plan in full: the farm FEATURE legs, then the T77 lane (full brief: `NEXT_SESSION_PROMPT.md`)
+**T123 is FIXED to the owner's gate (2026-09-10; levers (a) + (d), farm `alive 8 cycles, flat`; T124 re-checked resident).**
+Next in order: (1) the farm FEATURE legs the owner's "extensive" still owes — the tab bar's live/long-press, SAVE, the
+encoder, FIND, the twist (W3C actions?) — extending `ios-baseline.mjs --legs` (the recipe in NEXT_SESSION_PROMPT worked
+three times: tunnel → `wix dev --allowed-hosts` WITH `.vite` aside → dry-run → detached run); (2) the T77 lane:
+`applyFeatureSeats` 461 ms · the ephemeris in the hitch frames (~57 ms) · the ~900 mesh-raycast calls per frame (a
+tile-level cull) · `stepStreetNames`/`acquireTexture`; (3) the watch item: the twin's ~35 MB/cycle renderer creep
+(MEASUREMENTS §31.6) if the owner's own iPhone still dies on sessions longer than 8 cycles — dump at 8 vs 16 cycles first.
+Browsers: no Pixel on adb — the house headless :9333 + the farm iPhone; the owner's :9222 Chrome attach-only. The
+paragraph below is the 2026-09-09b brief, kept for the record.
+**Owner ruling 2026-09-09b (DONE 2026-09-10):** build lever (a) — release the detached enriched + buildings tile caches when `/m` drops to
 2D (`/m`-only, behind a tunable; A/B on the twin with `scripts/probe-fpv-cycle-leak.mjs`) — then re-run the farm stress
 leg (gate: 8 cycles alive); then the main plan in full: the farm FEATURE legs beyond bestspot/ar · T124's re-check ·
 `applyFeatureSeats` 461 ms · the ephemeris in the hitches · the ~900 mesh-raycast calls per frame. **No Pixel on adb next
@@ -367,6 +399,10 @@ Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved
   device campaign: T123 classified (cache residency → the 2 GB ceiling), T124 not reproduced (09-09, HOT)** ·
   DECISIONS 2026-09-09 · MEASUREMENTS §29–30 · MESH_SUITE_PLAN §16 · backlog T123/T124/T126/T129/T130 ·
   `mem:project/wip-2026-09-09-t126-t129-t130-lever8-pixel`
+- **T123 FIXED TO THE GATE: lever (a) the detached tile caches drained on the /m 2D drop · the memory-infra dump that
+  named the plateau and voided lever (b) · lever (d) the composite canvases released at dispose · the farm alive 8
+  cycles flat · T124 resident (09-10, HOT)** · DECISIONS 2026-09-10 · MEASUREMENTS §31 · backlog T123/T124/T130 ·
+  `mem:project/wip-2026-09-10-t123-lever-a-detached-release`
 
 ## Graph index — every memory except the era leaves; names are under `.serena/memories/`
 - top level: `mem:memory_maintenance` graph rules + caps · `mem:suggested_commands` commands ·

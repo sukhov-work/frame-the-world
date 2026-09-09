@@ -64,6 +64,7 @@ import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
 import { createTwistTracker } from "../../lib/globe/twistTracker";
 import { emptyMapClickAction } from "../../lib/globe/emptyMapClick";
+import { createDetachedReleaseState, stepDetachedRelease } from "../../lib/globe/detachedRelease";
 import {
   fitShadowBox,
   horizonDistanceM,
@@ -4556,6 +4557,13 @@ export function attachStylizedTiles(opts: {
       out[`${p}.lruMaxMB`] = r.lruCache.maxBytesSize / 1048576;
       out[`${p}.lruItems`] = r.lruCache.itemSet?.size ?? null;
     };
+    // T123 lever (d) — the composite-canvas release ledger (the ground's imagery overlays).
+    const compositeCanvasRows = (out: DebugSnapshot) => {
+      const c = ground.compositeCanvasStats();
+      out["gnd.canvasReleased"] = c.released;
+      out["gnd.canvasReleasedMB"] = c.bytes / 1048576;
+      out["gnd.canvasSkipped"] = c.skipped;
+    };
     // The imagery-composite reach (overlay plugin → overlayInfo → tileInfo): live composite
     // count + the Esri source-z span the level chooser is resolving to. `null`s mean the reach
     // broke — reported, never thrown (the esriPlaceholder rule).
@@ -4620,6 +4628,7 @@ export function attachStylizedTiles(opts: {
         out["fovea.gnd"] = ground.foveaSnapshot().engaged;
         out["gnd.bankMsLeft"] = groundBankMsLeft;
         imageryReach(out);
+        compositeCanvasRows(out); // T123 lever (d)
         return out;
       }),
       registerDebugProvider("ultra", () => ({
@@ -4813,6 +4822,12 @@ export function attachStylizedTiles(opts: {
           loadMaxMs: c?.loadMaxMs ?? null, // T106 (b)
           osmLoadPending: bl.pending, // T106 OSM (2026-09-07f)
           osmLoadMaxMs: bl.deferredMaxMs, // T106 OSM
+          // T123 lever (a) — the detached-cache release receipt (`/m` only; zeros on the desktop)
+          detachedReleases: detachedReleaseLedger.releases,
+          detachedReleasedItems: detachedReleaseLedger.items,
+          detachedReleasedMB: detachedReleaseLedger.bytes / 1048576,
+          detachedReleaseLeft: detachedReleaseLedger.left,
+          detachedReleaseMaxMs: detachedReleaseLedger.maxMs,
           treeLocateMaxMs: c?.treeLocateMaxMs ?? null, // T115 (2026-09-07j)
           treeLocatePending: c?.treeLocatePending ?? null, // T115
           seatEpoch: s?.epoch ?? null,
@@ -5048,7 +5063,34 @@ export function attachStylizedTiles(opts: {
         buildings.setActive(on);
         enriched?.setActive(on);
         if (!on) disarmBuilding(); // U8: BLD off detaches the renderer — the edit session ends
+        // T123 lever (a) (owner ruling 2026-09-09b): a DETACHED tileset is never `update()`d, so
+        // its LRU never evicts — on `/m` every cell of every FPV spot stayed resident until the
+        // iPhone's 2 GB ceiling (MEASUREMENTS §30). Past the grace (the exit flight), drain both
+        // caches once per detach period; the desktop never reaches this line (`isMobileShell`).
+        if (isMobileShell) {
+          const items = buildings.cacheItems() + (enriched?.cacheItems() ?? 0);
+          if (stepDetachedRelease(detachedRelease, on, now, items, detachedReleasePolicy)) {
+            const t0 = performance.now();
+            const b = buildings.releaseCache();
+            const e = enriched?.releaseCache() ?? null;
+            const ms = performance.now() - t0;
+            detachedReleaseLedger.releases++;
+            detachedReleaseLedger.items += (b?.items ?? 0) + (e?.items ?? 0);
+            detachedReleaseLedger.bytes += (b?.bytes ?? 0) + (e?.bytes ?? 0);
+            detachedReleaseLedger.left = (b?.left ?? 0) + (e?.left ?? 0);
+            detachedReleaseLedger.lastMs = ms;
+            if (ms > detachedReleaseLedger.maxMs) detachedReleaseLedger.maxMs = ms;
+          }
+        }
   };
+  const detachedRelease = createDetachedReleaseState();
+  const detachedReleasePolicy = {
+    enabled: MOBILE2D.releaseDetachedTiles,
+    graceMs: MOBILE2D.releaseDetachedGraceMs,
+    maxPerPeriod: 3,
+  };
+  /** DBG `buildings.detachedRelease*` — the lever's receipt (counts since boot; `left` after the last drain). */
+  const detachedReleaseLedger = { releases: 0, items: 0, bytes: 0, left: 0, lastMs: 0, maxMs: 0 };
 
   const stepBuildingsUpdate = () => {
         buildings.update();

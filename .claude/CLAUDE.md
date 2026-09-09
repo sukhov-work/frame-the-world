@@ -61,6 +61,15 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - **Never claim done with failing tests or `astro check` errors.** Never fabricate a Wix API signature.
 - **Browser-verification screenshots go in `verify-shots/` (git-ignored) — NEVER the repo root.**
   Pass the folder in the screenshot filename (e.g. `verify-shots/phase4-01-terminator.jpeg`).
+- **Chrome + cleanup (owner 2026-09-10):** pick whichever Chrome suits the scenario — the owner's
+  headed CDP `:9222` when it answers and the probe is not timing-sensitive, the house headless
+  `:9333` for timed probes and pixel sweeps; the owner forces no flow. What IS forced: **close the
+  house Chrome after the last suite** (`node scripts/close-verify-chrome.mjs`) and **never leave
+  `wix dev` running past the session** — the SessionEnd hook `session-end-cleanup.sh` does both.
+  Never touch the owner's real Chrome or `:9222`. `conventions/verify.md` §WHICH CHROME.
+- **Release = `npm run release:full -- -c "<comment>"`** (`scripts/release.sh`: clean tree → auth +
+  env → gates → `wix build` → `wix release` → the JSON ping canary → warm the edge → verify the live
+  globe). `wix build` + `wix release` alone skip everything that makes a release reliable.
 
 ## Hard Constraints (from PROJECT_SEED §3 — violations = bugs)
 - **C1 Client-heavy.** WASM RAW decode is the primary path; offload to the client. Server-side decode

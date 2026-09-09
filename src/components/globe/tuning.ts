@@ -2123,6 +2123,22 @@ export const MOBILE2D = {
    *  math); the heading stays locked (a pan never frees the north lock). 3D keeps its two-finger
    *  tilt/orbit; FPV is untouched. Kill switch: false = the 2026-08-21 rotate. */
   twoFingerPan: true,
+  /** T123 lever (a) (owner ruling 2026-09-09b): when the 2D map DETACHES the enriched + OSM
+   *  buildings tilesets, RELEASE their tile caches instead of freezing them. A detached
+   *  TilesRenderer is never `update()`d, so its LRU never evicts — the iPhone's stress leg kept
+   *  every cell of every FPV spot resident (geometries 395 → 795 with the caches FLAT under the
+   *  lean caps) and WebContent died at the 2 GB per-process ceiling in cycle 4 (MEASUREMENTS
+   *  §30). Nothing reads a detached cache until the next attach, which re-streams (mostly from
+   *  the browser's HTTP cache; the banked seats land the re-stream where it left). The drain is
+   *  `lib/globe/detachedRelease` (one synchronous whole-cache eviction, caps restored verbatim).
+   *  `/m`-only by construction: the desktop never detaches through this path (BLD off keeps its
+   *  cache) and stays byte-identical. Kill switch: false = the 2026-08-18 frozen cache. */
+  releaseDetachedTiles: true,
+  /** Grace (ms) between the detach and the drain — past FLIGHT.durationMs (2200), so the
+   *  disposal lands on the RESTING 2D map, never inside the FPV-exit flight's frames; also lets
+   *  a quick FPV → 2D → FPV bounce keep its cells. The stress harness's shortest 2D rest between
+   *  a detach and the next attach is 3 s (`heatmap-off`), so the drain must fire under that. */
+  releaseDetachedGraceMs: 2500,
   /** FPV-exit map altitude (m above ground): wider than FLIGHT.arrivalAltAboveGroundM (200 —
    *  a frame view, too tight for a map) so the landing shows the surrounding blocks. */
   exitAltAboveGroundM: 600,
@@ -2949,6 +2965,16 @@ export const GROUND = {
    *  (`lib/globe/terrainBvh.ts`, unit-pinned bit-identical to three's `Mesh.raycast`). `false`
    *  restores three's own walk (a kill switch — the render is byte-identical either way). */
   terrainBvh: true,
+  /** T123 lever (d) (2026-09-10): release a composite imagery canvas's BACKING STORE the moment
+   *  the overlay library disposes its texture (`lib/globe/compositeCanvasRelease`). The plugin
+   *  composites every ground tile's imagery into its own <canvas> (256² lean / 512² high) and,
+   *  on release, disposes only the GL texture — the canvas keeps its pixels until the element is
+   *  garbage-collected, which nothing hurries. ~450 composites are born per `/m` stress cycle; on
+   *  iOS an accelerated canvas is an IOSurface in the process footprint jetsam reads, and after
+   *  lever (a) the phone still died in cycle 8 with the app's own caches flat (MEASUREMENTS §31).
+   *  A released composite can never draw again (the library disposes only at lock count 0), so
+   *  the render is byte-identical on both shells. Kill switch: false = the library's own GC timing. */
+  releaseCompositeCanvas: true,
   /** Dark-side floor — slightly above the base's: close-zoom ground must stay navigable.
    *  (0.45 → 0.38 2026-07-10; → 0.35 S5; → 0.40 2026-07-13 illumination pass — lifts the night-ground
    *  ceiling so moon terms can actually raise it; watch VIIRS city lights don't wash out). */

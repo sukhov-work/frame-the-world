@@ -147,6 +147,21 @@ env override in the launching shell (`FTW_MAX_VERIFY_CHROMES=2 …`), never a de
 never inside an agent. The one raw spawn left is `verify-prod-globe.mjs` (a live-site check
 outside this loop).
 
+**WHICH CHROME, AND CLEANING UP (owner order 2026-09-10 — "choose what suits you for given tests
+and scenarios, I am not forcing any flows; just make sure to clean up, and do not leave `wix dev`
+running after session end").** Two instances exist: the owner's HEADED CDP Chrome on `:9222`
+(`chrome-playwright`, the `Playwright_Chrome_data` profile — attach only; never launch, kill or
+relaunch it; it has no occlusion flags, so a timed probe on it needs `Page.bringToFront` + the
+in-page rAF-tick guard) and the house headless `:9333` (`verify-chrome.mjs --headless --port 9333
+--profile /tmp/ftw-cdp`, the occlusion flags, the right home for timed probes and pixel sweeps).
+Pick per scenario; every harness takes the port argument. What is not optional: **after the last
+suite of the session, `node scripts/close-verify-chrome.mjs`** (kills the house browser on
+`/tmp/ftw-cdp*` and every helper it spawned — never the owner's real Chrome, never `:9222`) and
+**stop this checkout's `wix dev`** before the session ends. The SessionEnd hook
+`.claude/hooks/session-end-cleanup.sh` does both as a backstop (dev servers matched on the repo
+path, so another project's server is never touched). The session that left a headless Chrome, nine
+helpers and a dev server in the owner's background for hours is the reason. Never `pkill chrome`.
+
 Two further exclusions: harnesses that seed the PRODUCTION world (`dev-seed`) are exclusive with
 each other, and nothing edits `src/` in the checkout `wix dev` serves while any harness runs (HMR
 reloads the page). Implementation therefore happens in **git worktrees with a symlinked

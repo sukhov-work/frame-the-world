@@ -1973,3 +1973,164 @@ changes: the AR "sensors dying" line (the REAL sensors kept the bubble on the ru
 twin's synthetic pump) and the encoder's "frame-rate writes deferred (9 frames)" timing line (passed in the two
 earlier runs; the phone at thermal 1–2). **Trap:** on the Pixel the LOOK FROM HERE stand of the earlier legs
 faced a band with no building; `pickBuildingAt` itself hits 18 grid points along the horizon from a centre stand.
+
+## 31. Session 2026-09-10 — T123 LEVER (a) BUILT: the detached tile caches released on the `/m` 2D drop — the twin A/B
+
+The owner's ruling 2026-09-09b executed (`lib/globe/detachedRelease.ts` + `MOBILE2D.releaseDetachedTiles` /
+`releaseDetachedGraceMs` 2500; `BuildingsHandle.releaseCache()` / `EnrichedHandle.releaseCache()`; the orchestrator's
+`stepMobileBuildingsGate` drains both caches once per detach period, `/m`-only; DBG `buildings.detachedRelease*`).
+Measured on the desktop twin (mobile emulation 402×714 @3, touch; the house headless Chrome :9333; `wix dev` plain
+with `.vite` aside; VPN on) with `scripts/probe-fpv-cycle-leak.mjs` — the SAME cycle as the farm stress leg (FPV in
+at a Dnipro spot → look → FPV out → heatmap armed → off; a census per stage), the A/B by the stash idiom (HEAD served
+through HMR for BEFORE). The probe now carries the two caches' item counts + MB and the drain receipt per row, and
+rests 3 s after `heatmap-off` like the farm leg.
+
+### 31.1 The A/B — 4 cycles, the `fpv-out` rows (the resting state between spots)
+
+| cycle · spot | BEFORE (HEAD `9fc4fe8`): renderer geometries · enriched cache items / MB · OSM items / MB | AFTER (lever): geometries · enriched · OSM · drains so far (items / MB / worst ms) |
+|---|---|---|
+| boot map | 43 · 0 / 0 · 0 / 0 | 43 · 0 / 0 · 0 / 0 · 0 |
+| c0 eye | **404** · 103 / 82.9 · 29 / 9.1 | **94** · 0 / 0 · 0 / 0 · 1 (132 / 92.0 / 6.7) |
+| c1 west-sunset | **592** · 152 / 96.8 · 34 / 9.7 | **132** · 0 / 0 · 0 / 0 · 3 (323 / 203.2 / 8.4) |
+| c2 south | **648** · 158 / 96.1 · 37 / 10.8 | **132** · 0 / 0 · 0 / 0 · 4 (523 / 310.4 / 9.1) |
+| c3 altanka | **774** · 190 / 96.1 · 41 / 11.0 | **198** · 0 / 0 · 0 / 0 · 6 (753 / 414.0 / 10.8) |
+| final | 774 · detached-undisposed **579** | 212 · detached-undisposed 17 |
+
+The ATTACHED geometry count is the same at every stage in both runs (167 / 165 / 172 / 195 before, 167 / 165 / 162 /
+195 after — the scene is otherwise identical); what the lever removed is exactly the detached-but-alive set the
+2026-09-09 census named (§30.2). `left` read 0 after every drain (the whole cache goes in one call). The c3 step
+(132 → 198) is the altanka spot's USER MODEL (the gazebo's 28 + 14 sub-meshes, resident by the MS6 residency plan) —
+not tiles; the 8-cycle run below shows it does not compound.
+
+### 31.2 The lever over 8 cycles (the farm gate's length) — flat
+
+`fpv-out` geometries **98 → 134 → 135 → 209 → 197 → 177 → 171 → 175** (c4–c7 revisit the same four spots and land
+where c0–c3 did); `heatmap-off` rows identical to their `fpv-out` rows; both caches at 0 items on every resting row;
+16 drains (two per cycle: the FPV exit and the heatmap disarm), **1,368 items / 737 MB evicted, worst drain 9.6 ms,
+`left` 0 every time**; textures 63–93 (the ground imagery LRU at its lean cap, moving with the spot, not climbing);
+programs 37 → 42 then flat. Before the lever the same twin climbed 404 → 774 in four cycles with the enriched cache
+FROZEN at 96 MB (§31.1) and the iPhone died in cycle 4 (§30.1).
+
+### 31.3 What the drain costs and where it lands
+
+One synchronous whole-cache `unloadUnusedContent()` under zeroed caps: 6.7–10.8 ms on the desktop twin for 130–215
+items (the enriched cells' geometry + edge LineSegments + tree instances, their materials and textures, the seat
+banking in `dispose-model`). It fires `releaseDetachedGraceMs` 2500 ms after the detach — past `FLIGHT.durationMs`
+2200, so it lands on the RESTING 2D map, never inside the FPV-exit flight's frames. The re-attach cost is the ordinary
+FPV-entry stream (the enriched cells came back at the same counts on every revisit: `enr 38 → 103` items at the eye,
+`76 → 148` at west-sunset, cycle after cycle); the seat cache kept the banked seats (`seatCacheHits` climbing, the
+cells landing at their previous heights — the re-stream lands where it left).
+
+### 31.4 The desktop — byte-identical by construction, checked by the sweep
+
+The lever runs only under `isMobileShell`; the desktop's BLD-off detach keeps its cache as before. Pose sweep
+`post-2026-09-10 --compare post-2026-09-09`: see DECISIONS 2026-09-10 for the gate line (draw-count + the per-pose
+DBG rows).
+
+### 31.5 The farm re-run with lever (a) — the residency growth is GONE; the page still meets the ceiling in cycle 8
+
+`ios-baseline.mjs --host <tunnel> --poses m --legs stress --ramp 0 --soak-min 0 --stress-cycles 8 --label t123a`,
+the fleet's iPhone 17 Pro (iOS 26.3.1), session `…:session:69e9a004-b773-4e76-87d5-259381e752df/a720c00e-d910-4145-8ec1-74c69175e0fc/00000`,
+the same eight-cycle sequence as §30.1. The `fpv-out` rows:
+
+| cycle · spot | page age | dt p50 / p95 / max | tile LRU bld / gnd / enr MB | textures | geometries | programs |
+|---|---|---|---|---|---|---|
+| c0 eye | 38 s | 17 / 17 / 46 | **0 / 97 / 0** | 60 | **91** | 37 |
+| c1 west-sunset | 166 s | 17 / 17 / 42 | 0 / 97 / 0 | 85 | **131** | 40 |
+| c2 south | 234 s | 17 / 17 / 59 | 0 / 94 / 0 | 70 | **128** | 41 |
+| c3 altanka | 273 s | 17 / 49 / 87 | 0 / 97 / 0 | 87 | **189** | 41 |
+| c4 eye | 311 s | 17 / 17 / 58 | 0 / 97 / 0 | 87 | **186** | 42 |
+| c5 west-sunset | 349 s | 17 / 49 / 62 | 0 / 97 / 0 | 85 | **159** | 42 |
+| c6 south | 383 s | 17 / 45 / 66 | 0 / 97 / 0 | 86 | **162** | 42 |
+| c7 altanka `look` | 412 s | 17 / 17 / 32 | 8 / 113 / 86 | 76 | 467 | 43 |
+| c7 altanka `fpv-out` | — | — | — | — | — | **KILLED** |
+
+The tool's verdict: **`CEILING: died with flat resources (lru 97/97/94/97/97/97/97 tex 60/85/70/87/87/85/86 geo
+91/131/128/189/186/159/162)`**. The syslog (the second `DEVICE_LOG`, `verify-shots/perf/t123a-syslog/`):
+`memorystatus: com.apple.WebKit.WebContent [674] exceeded mem limit: ActiveHard 2048 MB (fatal) … killing_specific_process
+pid 674 … (per-process-limit 100 448s …) 2101779KB` at device time 03:17:49 — one second after the c7 `look` row, i.e.
+at the START of the eighth FPV exit, page age ~413 s, process age 448 s. Before the lever (§30.1) the same leg died in
+**cycle 4 at ~250 s** with geometries 395 → 795 and the enriched cache frozen at 96 MB. **Lever (a)'s own contract
+holds on the device** — both detached caches at 0 items on every rest row, the geometry series flat (91 → 162, the
+altanka spot's user model the only step), the tile LRUs flat — and **the gate "8 cycles alive" is missed by the last
+exit**: seven complete cycles, the eighth's FPV entry and look-around fine, the kill inside its exit. Something the
+byte-accounted caches do not count still reaches 2 GB. The `dt` max in the resting rows (46–87 ms) is the
+look-around's streaming and, past the grace, the drain — one frame each, at rest.
+
+### 31.6 What the plateau IS — Chrome's memory-infra on the twin (`scripts/probe-memory-dump.mjs`, NEW)
+
+The renderer process's own allocator breakdown (CDP tracing, `disabled-by-default-memory-infra`, a detailed dump
+per rest), the same `/m` cycle, lever (a) in the tree. The page's renderer at each rest (effective MB):
+
+| allocator | boot, 2D map | c0 FPV (looked around) | c0 fpv-out, drained | c1 fpv-out, drained |
+|---|---|---|---|---|
+| **cc/image_memory** (the compositor's GPU image-decode cache) | 137.5 | 458.8 | **500.0** | **500.0** |
+| malloc/allocated_objects | 208 | 324 | 258 | 244 |
+| partition_alloc (ArrayBuffers, the parse-side copies) | 56 | 337 | 114 | 125 |
+| canvas (2D canvas backing stores) | 78 | 120 | 107 | 127 |
+| v8/main/heap | 34 | 74 | 56 | 67 |
+| webgl (client-side GL state) | 25 | 142 | 25.5 | 24 |
+| gpu (transfer + mapped buffers) | 28 | 30 | 44 | 44 |
+| the app's tile caches (`tiles.*.lruMB`) | 0 / 78 / 0 | 9 / 113 / 83 | 0 / 96 / 0 | 0 / 97 / 0 |
+
+Read: after the first FPV the app's accounted caches hold ~100 MB and the renderer holds ~1.2–1.4 GB, of which
+**the browser's own IMAGE machinery is ~630 MB** — `cc/image_memory` pinned at exactly 500.0 (a cap: Chrome's GPU
+image-decode cache budget, filled by the overlay's `drawImage(imageBitmap)` composites and kept until Chrome's own
+LRU says otherwise) plus ~100–127 MB of 2D-canvas backing stores. Over eight cycles (`probe-fpv-cycle-leak.mjs`'s new
+process read) the renderer's RSS drifts 1,424 → 1,668 MB on the `heatmap-off` rows (~35 MB per cycle, ~10 of it the
+main JS heap 157 → 226 MB total) around that plateau. **Frame-challenge — lever (b) as framed is VOID:** the
+library already accounts textures at their DECODED size (`three/renderer/utils/MemoryUtils.getTextureByteLength` =
+`TextureUtils.getByteLength(width, height, format, type) × 4/3` with mipmaps; the overlay plugin's
+`calculateBytesUsed` adds its composite `target`s), so the ground LRU's 97 MB IS decoded bytes and a "decoded-byte
+cap" changes nothing. Lever (c) (a lower `/m` enriched floor) is moot at rest after (a) — the cache is EMPTY there —
+and would trim only the FPV-time peak (97 → ~64 MB) against a 1.4 GB plateau.
+
+### 31.7 Lever (d) — the composite canvases' backing stores, released at the library's own dispose
+
+The overlay composites every ground tile's imagery into ITS OWN `<canvas>` (`RegionImageSource.fetchItem`:
+`document.createElement('canvas')` at the overlay resolution — 256² lean / 512² high — a `CanvasTexture` over it,
+`drawImage(imageBitmap)` per source tile); when the region's lock count hits 0, `disposeItem(target)` calls
+`target.dispose()` (the GL texture) and leaves the canvas's PIXELS to the element's garbage collection, which nothing
+hurries. The twin counted **~450 composites born per stress cycle** (`--canvas-zero`: 901 in two cycles, 901 MB of
+backing store at 512²). On iOS an accelerated 2D canvas is an IOSurface in the process's physical footprint — the
+number jetsam reads against WebContent's 2 GB — and JSC's collector runs on JS-heap pressure, which a canvas wrapper
+never exerts. NEW `lib/globe/compositeCanvasRelease.ts` (+ 7 tests pinning the library shapes): every overlay's
+region source is wrapped at construction (through `_init`, where the library creates it) so `disposeItem` also drops
+the canvas's store (`width = height = 0`, the canvas-memory idiom); the fast-path `ImageBitmap` clones are skipped
+(the tiled source closes its own bitmaps). `GROUND.releaseCompositeCanvas` (kill switch), DBG `tiles.gnd.canvasReleased`
+/ `canvasReleasedMB` / `canvasSkipped`, handle `ground.compositeCanvasStats()`. On the twin: 204 composites (204 MB at
+512²) released over ONE FPV cycle; the `canvas` allocator at rest 107 → 97 (c0) and 127 → 97 MB (c1) — Chrome was
+collecting them anyway; `cc/image_memory` stays at its 500 cap (Chrome's budget, not a leak). Both shells (a disposed
+composite can never draw again); the sweep `post-2026-09-10b --compare post-2026-09-09`: calls + tris identical on
+11/14 poses and IDENTICAL to this session's first sweep on all 14 (the three non-identical are the documented
+ground-tile boot band: gnd visible 293 → 290 / 263 → 266, −2 tris at legacy-orbit), 537 composites released across
+the zoom sweep with a 0.37 % pixel diff. **The device tier decides** — §31.8.
+
+### 31.8 The farm re-run with levers (a) + (d) — **ALIVE 8 CYCLES, FLAT** — the T123 gate holds
+
+`ios-baseline.mjs --host <tunnel> --poses m --legs stress --ramp 0 --soak-min 0 --stress-cycles 8 --label t123ad`, the
+same fleet iPhone 17 Pro (iOS 26.3.1), session
+`…:session:69e9a004-b773-4e76-87d5-259381e752df/03d315b0-41c2-4c8c-a05b-4c50010a5bc8/00000`, the same sequence as §30.1 /
+§31.5. Every cycle completed; the page ended the leg at age **450 s**, no reload, no kill. The tool's verdict:
+**`alive 8 cycles, flat (lru 97/97/94/97/97/97/97/97 tex 60/87/71/84/88/93/77/87 geo 92/135/131/164/167/171/153/166)`**.
+
+| cycle · spot | `fpv-out` page age · dt p50 / p95 / max · geo | `heatmap-off` page age · dt · geo | tile LRU bld / gnd / enr |
+|---|---|---|---|
+| c0 eye | 34 s · 17 / 44 / 73 · 92 | 130 s · 17 / 17 / 17 · 96 | 0 / 97 / 0 |
+| c1 west-sunset | 160 s · 17 / 17 / 52 · 135 | 198 s · 17 / 17 / 26 · 133 | 0 / 97 / 0 |
+| c2 south | 225 s · 17 / 18 / 61 · 131 | 235 s · 17 / 17 / 17 · 129 | 0 / 94 / 0 |
+| c3 altanka | 265 s · 17 / 17 / 59 · 164 | 301 s · 17 / 17 / 17 · 160 | 0 / 97 / 0 |
+| c4 eye | 329 s · 17 / 17 / 56 · 167 | 339 s · 17 / 17 / 19 · 163 | 0 / 97 / 0 |
+| c5 west-sunset | 367 s · 17 / 17 / 58 · 171 | 377 s · 17 / 17 / 17 · 171 | 0 / 97 / 0 |
+| c6 south | 403 s · 17 / 17 / 55 · 153 | 412 s · 17 / 17 / 20 · 150 | 0 / 97 / 0 |
+| c7 altanka | 439 s · 17 / 17 / 61 · 166 | **450 s · 17 / 17 / 19 · 164 — ALIVE** | 0 / 97 / 0 |
+
+The three runs side by side: **before (§30.1)** dead in cycle 4 at ~250 s, geometries 395 → 795, the enriched cache
+frozen at 96 MB · **lever (a) (§31.5)** dead in cycle 8 at ~413 s, caches 0 / 97 / 0, geometries 91 → 162 flat ·
+**levers (a) + (d)** alive through cycle 8 at 450 s, caches 0 / 97 / 0, geometries 92 → 166 flat, `dt` p95 17 ms on
+every resting row (the (a)-only run read 45–49 ms p95 on four of its rests — the phone was already paging near the
+cap). The frame-time max on the `fpv-out` rows (52–73 ms) is the ONE frame of the drain plus the exit's streaming,
+at rest on the 2D map, as designed. **T123: FIXED to the owner's gate**; the ceiling class it exposed — memory the
+app's own accounting cannot see, in the browser's image machinery — is recorded in §31.6 for the next lever if the
+owner's own phone still shows a death on longer sessions (the twin's ~35 MB/cycle renderer creep is the remaining
+watch item, §31.6).

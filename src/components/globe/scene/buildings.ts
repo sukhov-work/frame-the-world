@@ -12,6 +12,7 @@ import {
   type QueueCaps,
 } from "../../../lib/globe/quality";
 import { createLoadQueue, type LoadUnit } from "../../../lib/globe/loadQueue";
+import { drainLruCache, type DrainableLruCache } from "../../../lib/globe/detachedRelease";
 import { lookBiasedDistance, makeClosestFirstComparator, type LoadAim } from "../../../lib/globe/loadPriority";
 import {
   bboxClipPrismEcef,
@@ -103,6 +104,14 @@ export interface BuildingsHandle {
    *  freezes, so traversal/download/parse stop entirely. Loaded tiles stay in the LRU, so
    *  re-attach is instant where the cache still holds them. Desktop never calls this. */
   setActive(on: boolean): void;
+  /** T123 lever (a): items the tile LRU holds (loaded, loading and queued alike) — the cheap
+   *  per-frame probe the orchestrator's detached-release step reads. */
+  cacheItems(): number;
+  /** T123 lever (a): evict EVERYTHING the tile LRU holds in one synchronous drain
+   *  (`lib/globe/detachedRelease`), the caps restored verbatim. REFUSED while attached (returns
+   *  null) — a drain under a live traversal would re-request the view's tiles the same frame.
+   *  Every evicted tile runs the ordinary `dispose-model` path. */
+  releaseCache(): { items: number; bytes: number; left: number } | null;
   /** Pass 2 R3 (Dnipro identity): drive the night-side window emissive. Pass the SINE of the sun's
    *  elevation at the view focus (`sunDir·focusUp`); the module converts it to a night factor with
    *  the SAME EARTH.lightsBand terminator the earth + ground use, so the windows light up in step
@@ -479,6 +488,13 @@ export function attachBuildings(
       active = on;
       if (on) scene.add(tiles.group);
       else scene.remove(tiles.group);
+    },
+    // `itemSet` is a runtime field the library's `.d.ts` does not declare (the tiles feed reads
+    // it the same way) — the structural slice `DrainableLruCache` names what the drain touches.
+    cacheItems: () => (tiles.lruCache as unknown as DrainableLruCache).itemSet.size,
+    releaseCache() {
+      if (active) return null;
+      return drainLruCache(tiles.lruCache as unknown as DrainableLruCache);
     },
     setGhost(ghost) {
       // The ghost fade renders as a SCREEN-DOOR dissolve inside the shared shader (owner

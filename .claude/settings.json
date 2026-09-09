@@ -65,6 +65,12 @@
             "command": "/Users/yevhens/Projects/wix-private/headless-frame-the-world/.claude/hooks/session-end-ship.sh",
             "timeout": 20,
             "statusMessage": "Auto-shipping session work (branch → #pr #skipreview #automerge → mirror)…"
+          },
+          {
+            "type": "command",
+            "command": "/Users/yevhens/Projects/wix-private/headless-frame-the-world/.claude/hooks/session-end-cleanup.sh",
+            "timeout": 15,
+            "statusMessage": "Session cleanup: closing the house headless Chrome + this checkout's wix dev (never the owner's Chrome or :9222)…"
           }
         ]
       }

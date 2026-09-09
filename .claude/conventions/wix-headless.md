@@ -55,6 +55,7 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
 | Pull env (writes `WIX_CLIENT_ID` → `.env.local`) | `npx @wix/cli@latest env pull --json` (always `--json`) |
 | Build | `npx @wix/cli@latest build` |
 | Release (publish to Wix cloud) | `npx @wix/cli@latest release` |
+| **The whole ritual in one command** (2026-09-10) | `npm run release:full -- -c "<comment>" [-t major\|minor]` → `scripts/release.sh`: clean-tree refusal → `whoami` + `env pull` → gates → build → release → GET + JSON-POST `/api/ping` canary → `warm-prod-assets.mjs` → `verify-prod-globe.mjs`. Flags `--skip-gates`, `--allow-dirty`, `--no-verify`, `--dry-run`. |
 - npm installs use `--legacy-peer-deps` (**pnpm fails** against the `@wix/cli` template). Never invent
   packages; skipping a needed `@wix/<x>` → `Rollup failed to resolve import "@wix/<x>"`.
 - Missing `WIX_CLIENT_ID` → build fails with `Missing environment variable WIX_CLIENT_ID` → run `env pull`.

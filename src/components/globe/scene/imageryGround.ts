@@ -36,6 +36,11 @@ import {
 } from "../../../lib/globe/esriPlaceholder";
 import { hookTerrainPatch, makeTerrainPatchFetchPlugin, type TerrainPatchOpts } from "./terrainPatch";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
+import {
+  createCompositeCanvasReleaseStats,
+  installCompositeCanvasRelease,
+  type CompositeOverlayLike,
+} from "../../../lib/globe/compositeCanvasRelease";
 
 /**
  * Terrain ground — REAL elevation (Cesium World Terrain, ion asset 1, quantized-mesh) with Esri
@@ -216,6 +221,10 @@ export interface ImageryGroundHandle {
   /** RC5 DEV probe (`__globe.esriPlaceholder()`): what the placeholder fallback actually did this
    *  session, read off the live wrapper. `null` before the first overlay is built. */
   placeholderStats(): (PlaceholderStats & { sentinelTiles: number; blocks: number }) | null;
+  /** T123 lever (d) (2026-09-10): composite imagery canvases whose backing store was released at
+   *  the library's own dispose (`lib/globe/compositeCanvasRelease`) — count, summed RGBA bytes,
+   *  and the fast-path bitmap disposals skipped. Zeros with `GROUND.releaseCompositeCanvas` off. */
+  compositeCanvasStats(): { released: number; bytes: number; skipped: number };
   /** RC5 DEV probe (`__globe.esriProbe(z, x, y)`): run the SHIPPED wrapper against one real tile.
    *  Whether a camera pose ever asks for a tile outside Esri's coverage depends on the terrain
    *  tileset's own LOD there, so this is how a browser run reaches the substitution path against
@@ -374,6 +383,8 @@ export function attachImageryGround(
   // RC5 (owner bug B1): the live counters of the placeholder fallback, re-pointed on every
   // overlay rebuild so `__globe.esriPlaceholder()` always reads the overlay actually fetching.
   let esriPlaceholder: ReturnType<typeof installEsriPlaceholderFallback> | null = null;
+  /** T123 lever (d): one ledger across every overlay built in this handle's lifetime. */
+  const compositeCanvasStats = createCompositeCanvasReleaseStats();
   const makeEsriOverlay = () => {
     const o = new XYZTilesOverlay({
       url: TILESETS.esriImageryUrl,
@@ -390,6 +401,9 @@ export function attachImageryGround(
       urlTemplate: TILESETS.esriImageryUrl,
       maxLevelsUp: GROUND.placeholderMaxLevelsUp,
     });
+    // T123 lever (d): release each composite's <canvas> store at the library's own dispose —
+    // installed through `_init` because the region source is born inside the library's async init.
+    if (GROUND.releaseCompositeCanvas) installCompositeCanvasRelease(o as unknown as CompositeOverlayLike, compositeCanvasStats);
     return o;
   };
   const makeCartoOverlay = () => {
@@ -399,6 +413,7 @@ export function attachImageryGround(
       opacity: 0,
     });
     o.fetchOptions = { cache: "force-cache" };
+    if (GROUND.releaseCompositeCanvas) installCompositeCanvasRelease(o as unknown as CompositeOverlayLike, compositeCanvasStats); // T123 lever (d)
     return o;
   };
   let cartoDark = makeCartoOverlay();
@@ -1280,6 +1295,7 @@ export function attachImageryGround(
     terrainEpoch: () => terrainEpochN,
     terrainBvhStats: () => ({ ...terrainBvhStats }),
     terrainDirtyRegions: () => dirtyRegions.splice(0, dirtyRegions.length),
+    compositeCanvasStats: () => ({ ...compositeCanvasStats }),
     placeholderStats: () =>
       esriPlaceholder
         ? { ...esriPlaceholder.stats, ...esriPlaceholder.memo.stats() }

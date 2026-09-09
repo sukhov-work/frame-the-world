@@ -50,6 +50,15 @@ Where this runs and what CAN'T be trusted from a local test. (Referred by `mem:c
 - **NEVER kill or relaunch it — not even at session end.** Killing it disconnects the Playwright
   MCP for the entire session with no mid-session recovery (burned 2026-08-18). The SessionStart
   hook (`activate-serena.sh` step 7) probes :9222 and reports attach/absent/foreign status.
+- **OWNER ORDER 2026-09-10 — CHROME CHOICE IS FREE, CLEANUP IS NOT:** "choose what suits you for given
+  tests and scenarios, I am not forcing any flows; just make sure to cleanup, but do not leave wix dev
+  running after session end." Pick :9222 (headed, attach-only, bringToFront + rAF guard for timed probes)
+  or the house headless :9333 per scenario. After the last suite: `node scripts/close-verify-chrome.mjs`
+  (only `/tmp/ftw-cdp*` browsers + their helpers; `--keep 9222`; never the owner's real Chrome) and stop
+  this checkout's `wix dev`. SessionEnd hook `.claude/hooks/session-end-cleanup.sh` does both as the
+  backstop (dev servers matched on the repo path). A session had left the :9333 Chrome + 9 helpers + a
+  dev server running for hours in the owner's background — the complaint that made this a rule.
+  Never `pkill chrome`.
 - No occlusion flags ⇒ timed probes need bringToFront + in-page rAF-tick guards; headless probes
   run on a SEPARATE instance (`scripts/verify-chrome.mjs --headless --port 9333 --profile
   /tmp/ftw-cdp`). `verify-chrome.mjs` reuses a running verify-profile instance by default.
