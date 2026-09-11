@@ -83,3 +83,9 @@ contract · 7 release discipline · 8 R2/bake sync · 9 secrets · 10 external-d
     — check: diff the field names used in `src/lib/wix/*` + `src/pages/api/*` against the
     provision script's field lists.
     — anchor: DECISIONS §Traps "extensions.dataCollections does NOT provision" (Phase 5).
+
+14. The live-site canary is SHAPE-SENSITIVE (appended 2026-09-11, audit #4 re-mine, DECISIONS
+    2026-09-10): a bare `POST /api/ping` reads 403 at the Wix edge — the canary must send a
+    JSON body with `content-type: application/json`; `GET` alone proves less than it appears to.
+    — check: release-verification steps and any scripted canary send the shaped POST; a 403 on
+    a bare POST is the EDGE, not the route being down.

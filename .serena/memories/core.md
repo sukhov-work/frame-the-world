@@ -267,7 +267,10 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130; T123 FIXED to the gate
   2026-09-10, T124 re-checked resident, T130's stress + t124 re-runs done — the feature legs still owed).
 
-## Next step — the main plan in full: the farm FEATURE legs, then the T77 lane (full brief: `NEXT_SESSION_PROMPT.md`)
+## Status — 2026-09-11
+- **2026-09-11 (`mem:project/wip-2026-09-11-audit4`): AUDIT #4 EXECUTED** (the charter, read-only; report `audits/audit-full-2026-09-11.md`). Gates all green (3,098/3,098 · 0/0/12 · knip 0 · 32 MB build); T131–T135 verified holding live; 6 MAJOR = **the LIVE-SITE GRADUATION class (T138 owner batch: moderation/ToS/uploads/analytics) + the library pin (T136) + the skyBudget twin (T137)**; registry repaired (T32/T35/T36/T37/T39 closed) + **T136–T144 opened**; §Recent at the round-7 trigger.
+
+## Next step — the audit's fix-session slicing S1–S10 (S3 = the T138 owner batch), then the farm FEATURE legs, the T77 lane (full brief: `NEXT_SESSION_PROMPT.md`)
 **T123 is FIXED to the owner's gate (2026-09-10; levers (a) + (d), farm `alive 8 cycles, flat`; T124 re-checked resident).**
 Next in order: (1) the farm FEATURE legs the owner's "extensive" still owes — the tab bar's live/long-press, SAVE, the
 encoder, FIND, the twist (W3C actions?) — extending `ios-baseline.mjs --legs` (the recipe in NEXT_SESSION_PROMPT worked

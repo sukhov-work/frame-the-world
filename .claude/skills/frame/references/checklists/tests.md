@@ -119,3 +119,37 @@ TOC: 1 literature vectors · 2 golden gates · 3 trap→test coverage · 4 tests
     viewport loop captured `altPresent` and never checked it — on the one occlusion it existed
     to disprove). — check: every counter-based assertion carries `counter > 0` plus its
     precondition; every captured guard field is asserted, not just printed.
+
+13. `/json/new` ACTIVATES the tab it opens — every OTHER tab goes `document.hidden` and its
+    rAF throttles (appended 2026-09-11, audit #4 re-mine, T102 / DECISIONS 2026-09-07j): a
+    flight/motion assertion on a backgrounded tab is fiction (`flight.active()` never true,
+    37 app frames of held pose read as "did not fly").
+    — check: any harness leg that opens a second target (composer shots, parallel tabs)
+    fronts the tab under test (`Page.bringToFront`) before motion assertions; `--no-leg-reboot`
+    idioms document this.
+
+14. A probe that clears the browser cache must EXPECT the cold path (appended 2026-09-11,
+    audit #4 re-mine, T135/T134 / DECISIONS 2026-09-10e): `Network.clearBrowserCache` before
+    an FPV boot in high terrain reproduces the seat-at-ellipsoid state (the frustum sees no
+    tile from underground, `heightAt` never samples); absolute tile counts at a settle cap
+    under a cold cache are cache state, not code.
+    — check: cache-clearing probes assert the cold-path markers they induce (seat value,
+    composite rate) so the run is classifiable, not ambiguous.
+
+15. The night-grade twin mirrors the shader BY HAND (appended 2026-09-11, audit #4 re-mine,
+    T133 / DECISIONS 2026-09-10b — a charter hot spot): `moonlightTerrain.test.ts` re-derives
+    the six interacting night tunables (`nightFloor`, `nightFloorSkyMin`, `moonFillK`,
+    `moonFillNormalK`, `moonSheenK`, `ambientNightK`) in JS against `imageryGround.ts`'s GLSL —
+    any drift between them is SILENT.
+    — check: every new/changed term in the ground night path lands in the twin the same
+    commit (grep the twin for each uniform the shader reads); a changed tunable without a
+    twin re-pin is a FAIL.
+
+16. House-Chrome lifetime and dev-server restarts (appended 2026-09-11, audit #4 re-mine,
+    DECISIONS 2026-09-10/e+f): after ~100 probe boots the house Chrome hangs a sweep's first
+    heavy leg (evaluate timeout, then the HTTP endpoint dead) — close and relaunch it before a
+    sweep that follows a long probe session; and EVERY `wix dev` restart needs
+    `node_modules/.vite` moved aside (a same-session restart 404'd a dep chunk → `tiles
+    disabled`, no island — the same console line as a broken module).
+    — check: session logs show the Chrome relaunch between long probe and sweep; the restart
+    recipe names the `.vite` aside on every restart, not only after a landing.

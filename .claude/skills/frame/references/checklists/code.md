@@ -209,3 +209,29 @@ additive · 6 color-space traps · 7 tuning contract · 8 shared building materi
     declaration for that edge, in both shells, and decide each one explicitly.
     — check: the commit that adds an offset token lists every edge-anchored surface and its
     lift/no-lift decision.
+
+29. A backtick inside a GLSL template-literal comment breaks the module (appended 2026-09-11,
+    audit #4 re-mine, DECISIONS 2026-09-10e): esbuild reads "Expected )", the dynamic import's
+    catch degrades to `Failed to fetch dynamically imported module: …/StylizedTiles.ts` and the
+    page boots the PROCEDURAL PLACEHOLDER globe — the same console symptom as the `.vite`
+    staleness trap, with a completely different cause.
+    — check: on a "tiles disabled" boot, `curl` the failing module from the dev server FIRST
+    (HTTP 500 = a real module error; 200 = the `.vite` trap) before blaming Vite; grep new GLSL
+    template literals for stray backticks in comments.
+
+30. A float64 target stored into a Float32Array never compares equal afterwards (appended
+    2026-09-11, audit #4 re-mine, T116 / DECISIONS 2026-09-07h): the stored float32 neighbour
+    differs by ~1e-7, so a `next !== applied` guard re-fires EVERY frame forever — an
+    instance-matrix GPU upload per frame per cell and a seat epoch that never goes quiet.
+    — check: any site that stores a computed seat/transform target into a Float32Array and
+    compares it later must round the LANDED value to float32 at write time (`seatLandF32`
+    idiom) or compare with a float32-rounded epsilon; grep `Float32Array` consumers in
+    `scene/` + `lib/globe/` for equality guards on stored values.
+
+31. A change to a queue's ORDER needs an order-sensitive verification probe (appended
+    2026-09-11, audit #4 re-mine, T134 / DECISIONS 2026-09-10b): absolute tile counts at a
+    settle cap are CACHE STATE, not code — an error-ordered first cut sat coarse on a cold cache
+    while absolute counts read fine, and only the sweep's per-pose DBG rows caught it.
+    — check: any patch touching download/parse priority (comparators, priority callbacks,
+    queue caps) ships with a probe that asserts WHICH class of tile lands first (parse-slot
+    tiles before preloads), not just how many land.

@@ -542,6 +542,39 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 ## Recent sessions (verbatim, newest first)
 
 New work appends a dated line here — immediately below this note, above every dated entry.
+
+- **2026-09-11 · AUDIT #4 EXECUTED — the charter's full breadth-first adversarial pass (15 finder
+  tracks + a main-agent browser tier; READ-ONLY held: the diff = the report + README row + checklist
+  amendments + backlog dated edits + the wip leaf).** Report: **`audits/audit-full-2026-09-11.md`**
+  (`mem:project/wip-2026-09-11-audit4`). Gates: vitest **3,098/3,098** · astro **0/0/12** (baseline
+  holds) · knip 0 · npm audit INFRA (both registries unreachable via the VPN) · wix build **32 MB**
+  (< the 33 MB baseline). Browser: sweep `audit4-2026-09-11` 14/14, freeze 14/14 byte-identical,
+  draw-count 10/14 EXACT vs `post-2026-09-10b` (the 4 diffs in the documented ground-tile settle band,
+  T134's desktop caps the legitimate cause); **T131–T134 verified holding live** (the four owner poses;
+  P2 no white band, P3 moonlight mean 23, P4 the stream converges; DBG slotBoosts/growthCapped live);
+  **T135a NOT reproduced again** (cold cache, altM 8601 seated on terrain); harnesses: mobile-batch
+  **127/127**, meshedit PASS, usermodels 21 legs, debughud ALL, `verify-guide` 3 FAIL = stale pinned
+  counts (the guide grew to 12 chapters/86 topics/16 goals; harness asserts 11/14). Live site: all
+  canaries 200. **6 MAJOR, all panel- and anchor-verified: the LIVE-SITE GRADUATION class** (no
+  moderation gate with `isPublic` defaulting TRUE · T17's ToS trigger fired unrecorded · T26 unbounded
+  uploads + unconstrained preview mime · previewUrl length-only onto every visitor's img/texture fetch —
+  **T138, an owner batch**) · **the library pin** (caret `^0.4.28` over NINE patch
+  seams, `installed:false` drifts SILENT — **T136**) · **C1** the skyBudget twin models the base dome
+  only while the T96 LOOK ships on base (0.8964 vs 0.9 — **T137**). 37 MINOR + 13 NIT confirmed + the
+  live-tier L-series (L1 guide harness, L2 the interlude golden never promoted, L3 upload copy). **The
+  FINAL verification pass (29 MINOR verifiers + 9 NIT batches, completed late-session) CONFIRMED 26 and
+  REFUTED 2 — G5 "zero analytics" (the Wix headless EDGE injects site-bi/site-analytics/tag-manager +
+  PageView on every served page — live-fetched) and J1 (LRUCache.isFull() is cap-relative; the RC20 bank
+  floor leaves ≥16 MiB headroom, so the DBG note stays accurate) — both DELETED per the charter and
+  recorded in the report's outcome note so they are never re-discovered.** **Registry repaired:**
+  T32/T35/T36/T37/T39 CLOSED (the 2026-08-22e closures that were never edited; HEAD-verified) ·
+  **T136–T144 opened** · T135/T17/T26/T30/T50/T71/T88 notes. Checklists grew (code 29–31, tests 13–16,
+  platform 14). §Recent measured **135,178 B — compaction round 7 is AT the trigger** (T141). Traps:
+  Node 20 needs `--experimental-websocket` for every CDP harness · a sweep label is not a golden
+  (promote after pixel changes) · two API usage walls hit the verifier fleet (both resumed; every
+  completed verdict refuted NOTHING). **NEXT: the report's fix-session slicing S1–S10 (S3 = the owner
+  batch), then the pre-audit main plan (the farm FEATURE legs, the T77 lane).**
+
 *(Moved to the top 2026-08-13 after drifting mid-list since 2026-08-03; it drifted AGAIN and
 was re-seated here 2026-08-22 during compaction round 4 — audit #3 D13, which also records the
 root cause: appends go to the top and nobody re-seats the marker. A move is not an edit.
