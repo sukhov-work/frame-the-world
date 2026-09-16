@@ -13,7 +13,7 @@
 #   5. the canary      — GET + POST (JSON body!) /api/ping must both read 200 on the live URL
 #   6. warm            — `scripts/warm-prod-assets.mjs`: every release resets the chunk hashes,
 #                        the cold origin served 500s per edge node until warmed; re-releasing
-#                        does NOT fix it (Node ≥ 22)
+#                        does NOT fix it (Node ≥ 22 — resolved from ~/.nvm when the shell's is older)
 #   7. verify          — `scripts/verify-prod-globe.mjs`: a cold-profile headless smoke check of
 #                        the live globe (spawns + kills its own Chrome); then close any house Chrome
 #
@@ -84,14 +84,22 @@ post=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST -H 'content-
 echo "GET 200 · POST 200"
 
 step "6/7 warm the edge (every release resets the chunk hashes)"
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' \
-  || fail "warm-prod-assets needs Node >= 22 (global WebSocket) — nvm use 24"
-run node scripts/warm-prod-assets.mjs "$SITE_URL" || fail "warm-prod-assets (re-run it: node scripts/warm-prod-assets.mjs $SITE_URL)"
+# Steps 6–7 need the global WebSocket of Node ≥ 22. The shell's default `node` can be 20 (2026-09-16:
+# the ritual refused HERE, after a successful `wix release`, and the two steps had to be run by hand),
+# so resolve the highest nvm Node ≥ 22 instead of refusing — the release is already live by now.
+NODE22="node"
+if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then
+  NODE22="$(ls -d "$HOME"/.nvm/versions/node/v2[2-9]*/bin/node 2>/dev/null | tail -1)"
+  [[ -n "$NODE22" && -x "$NODE22" ]] \
+    || fail "warm-prod-assets needs Node >= 22 (global WebSocket): the shell runs $(node -v) and ~/.nvm has none ≥ 22 — nvm install 24, then re-run: node scripts/warm-prod-assets.mjs $SITE_URL"
+  echo "the shell's node is $(node -v) — using $NODE22 ($("$NODE22" -v)) for the warm + verify steps"
+fi
+run "$NODE22" scripts/warm-prod-assets.mjs "$SITE_URL" || fail "warm-prod-assets (re-run it: $NODE22 scripts/warm-prod-assets.mjs $SITE_URL)"
 
 step "7/7 verify the live globe"
 if [[ $NO_VERIFY -eq 1 ]]; then echo "skipped (--no-verify)"
 else
-  run node scripts/verify-prod-globe.mjs "$SITE_URL/" "verify-shots/release-$(date +%Y%m%d-%H%M%S).jpeg" || fail "verify-prod-globe (the Wix edge is sharded — reload until clean before diagnosing)"
+  run "$NODE22" scripts/verify-prod-globe.mjs "$SITE_URL/" "verify-shots/release-$(date +%Y%m%d-%H%M%S).jpeg" || fail "verify-prod-globe (the Wix edge is sharded — reload until clean before diagnosing)"
 fi
 node scripts/close-verify-chrome.mjs --keep 9222 >/dev/null 2>&1 || true
 

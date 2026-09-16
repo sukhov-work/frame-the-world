@@ -261,7 +261,7 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   `warm-prod-assets.mjs` → `verify-prod-globe.mjs`); no script chains it. T2 half-verified; T50 can run on the cloud.
 - Gates 2026-09-10: vitest **3,061/3,061** (202 files) · `astro check` **0/0/12** (the 12th hint pre-existing:
   `ultraEmisK` unused in two scene files) · knip **0**.
-- **App version 1.36.5 since 2026-09-09** (`src/lib/version.ts`; the ship hook bumps the patch every ship → 1.36.6).
+- **App version 1.36.11 released 2026-09-16** (`src/lib/version.ts`; the ship hook bumps the patch every ship).
 - DECISIONS compaction **round 5** ran 2026-09-06g: verbatim 08-21→09-05 → `DECISIONS_ARCHIVE.md`
   §Moved 2026-09-06; digests in DECISIONS §Per-phase digests.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130; T123 FIXED to the gate
@@ -275,7 +275,7 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
   MapWindow chart · **the peek** `↑rise/↓set` (`lib/ephemeris/riseSet.ts`) + a LONG PRESS on the name aims (FPV look / planned cone,
   `skyAim.aimAtSkyBody`, release-verified by timestamps) · **the PLUX logo menu** (SIGN IN · GUIDE · DESKTOP) with the FPV HUD pill on
   the strip and the minimap up at 2.9rem · **scale bars** on the 2D map (`camera.mapScaleMPerPx`) and the chart (`lib/format/scaleBar.ts`).
-  Gates vitest 3,117+ · astro 0/0/12 · knip 0 · `verify-uxbatch-2026-09-16` 31/31 · mobile-batch 127/127. T145 opened. **NEXT (owner):
+  Gates vitest 3,117+ · astro 0/0/12 · knip 0 · `verify-uxbatch-2026-09-16` 31/31 · mobile-batch 127/127. T145 opened. **RELEASED v1.36.11** (ship `3d42ca1`, canary 200/200, warmed 167/0, live verified — the shell's Node 20 tripped release.sh's step-6 guard; the script now resolves its own nvm Node ≥ 22). **NEXT (owner):
   the READ-ONLY triage of the audit #4 findings (substantial vs minor vs hallucinated) BEFORE any slice.**
 
 ## Status — 2026-09-11

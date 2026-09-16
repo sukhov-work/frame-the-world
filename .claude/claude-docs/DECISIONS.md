@@ -543,6 +543,21 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 
 New work appends a dated line here — immediately below this note, above every dated entry.
 
+- **2026-09-16b · SHIPPED + RELEASED — the mobile UX batch is LIVE as v1.36.11** (owner: "deploy"). The
+  repo's own ship hook run in the foreground: `claude/ship-20260916-232835` → squash-landed on
+  origin/master as **`3d42ca1`** after 60 s (tree-proven, branch deleted, `private` mirror synced; the
+  hook bumped `package.json` 1.36.10 → 1.36.11). Then `npm run release:full -- -c "MOBILE UX BATCH
+  2026-09-16 …"`: clean tree · whoami + env pull · gates green · `wix build` · `wix release` ("Site
+  published on plux.today") · canary **GET 200 · POST 200** — then the script's step 6 guard REFUSED
+  because this shell's default `node` is **v20.19.2** (`warm-prod-assets` / `verify-prod-globe` need the
+  global `WebSocket` of Node ≥ 22); steps 6–7 were run by hand under `~/.nvm/versions/node/v24.10.0/bin/node`:
+  **warm 167 assets, 0 failed, 0 cold** · `verify-prod-globe` canvas 1728×993 gl=true, screenshot
+  `verify-shots/release-20260916-233738.jpeg`, the only failed requests the anonymous 403/401
+  (`members/my`, `/api/places`) · live `/m` 200. TRAP → `scripts/release.sh` now resolves its own Node
+  for steps 6–7 (the highest `~/.nvm/versions/node/v2[2-9]*` when `node` < 22) so the ritual completes
+  from any shell. Verification tier: wix-VERIFIED (live). **The owner has not yet felt the pinch on
+  glass — `CONTROLS.pinchZoomGain` 0.75 is the one knob.**
+
 - **2026-09-16 · THE MOBILE UX BATCH (four owner asks, all `/m`): the finger-proportional PINCH ·
   the peek's ↑rise/↓set + long-press aim · the PLUX logo menu with the FPV HUD on the strip · the two
   scale bars.** **(1) The pinch** (`lib/globe/pinchZoom.ts`, `CONTROLS.pinchZoomGain` **0.75**, the
