@@ -62,7 +62,19 @@ const isCanvas = (img: unknown): img is CanvasLike => {
  * the image is not a canvas or is already empty). Pure: touches only the canvas's size.
  */
 export function releaseCompositeCanvas(target: unknown): number {
-  const img = (target as { image?: unknown } | null | undefined)?.image;
+  const t = target as { image?: unknown; mipmaps?: unknown } | null | undefined;
+  let bytes = releaseCanvasStore(t?.image);
+  // RC25's hand-built mip chain (audit #4 I1-3, 2026-09-17): under ULTRA a composite carries 1–3
+  // halving canvases in `texture.mipmaps` (imageryGround's chain builder; index 0 IS the image, so
+  // it is skipped by identity) — ~33 % of the level-0 bytes that the level-0 release used to leave
+  // to the collector.
+  const chain = Array.isArray(t?.mipmaps) ? (t!.mipmaps as unknown[]) : null;
+  if (chain) for (const level of chain) if (level !== t?.image) bytes += releaseCanvasStore(level);
+  return bytes;
+}
+
+/** Zero one canvas-like image's backing store; 0 for anything else or an already-empty canvas. */
+function releaseCanvasStore(img: unknown): number {
   if (!isCanvas(img)) return 0;
   const bytes = img.width * img.height * 4;
   if (bytes <= 0) return 0;

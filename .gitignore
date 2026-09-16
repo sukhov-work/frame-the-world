@@ -85,3 +85,5 @@ test/fixtures/**/*.heic
 # --- T77 phone-baseline tools (tools/devicefarm has its OWN package.json; deps stay local) ---
 tools/devicefarm/node_modules/
 tools/devicefarm/package-lock.json
+.env.development
+.env.production

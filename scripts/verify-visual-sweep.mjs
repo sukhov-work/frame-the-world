@@ -15,7 +15,8 @@
  *     then a CONTACT SHEET so a reviewer reads one image instead of nine. Made for the loop
  *     "change a lever → did anything get worse anywhere?".
  *
- *   node scripts/verify-visual-sweep.mjs [PORT] [--ids a,b] [--tags fpv,dnipro]
+ *   node --experimental-websocket scripts/verify-visual-sweep.mjs [PORT] [--ids a,b] [--tags fpv,dnipro]
+ *        (Node 20 has no global WebSocket — the flag is mandatory there; Node ≥ 22 ignores it)
  *        [--ultra 0|1|both] [--tier high|mid|low] [--label name] [--golden] [--compare <label>]
  *        [--quiet-s 8] [--no-legs] [--sheet] [--tolerance 0] [--sample-s 3] [--cap-min 25]
  *        [--freeze | --no-freeze] [--freeze-drain-s 10] [--reveal-settle-s 3]

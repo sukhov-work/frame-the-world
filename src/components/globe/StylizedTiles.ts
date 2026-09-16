@@ -3445,9 +3445,12 @@ export function attachStylizedTiles(opts: {
     boundsAltK: ULTRA.boundsAltK,
     maxBoundsM: ULTRA.maxBoundsM,
   };
-  // --- SHADOW CASCADES (owner defect 1, 2026-08-27). Declared HERE, above the ephemeris seam:
-  //     a `let` read by the frame loop but declared below it is a TDZ throw that this file
-  //     swallows into the silent-fallback path (the standing trap in this module).
+  // --- SHADOW CASCADES (owner defect 1, 2026-08-27). TDZ NOTE (corrected 2026-09-17, audit #4 C3):
+  //     the module-init seam is `applyQualityTier(...)` + `sampleEphemeris(...)` ~2,400 lines ABOVE
+  //     this point (their first calls, near the top of attachStylizedTiles). Anything THOSE touch at
+  //     init must be declared above THEM. The state below is safe here only because it is written and
+  //     read from the FRAME LOOP, never at init — a `let` that `sampleEphemeris` writes must not be
+  //     declared this far down (a TDZ throw this file swallows into the silent-fallback path).
   //     One record per cascade light, holding what its LIVE depth map was rendered with — the
   //     refresh test compares against these, never against a re-derivation.
   const _cascadeState = shadowCascades.map(() => ({
@@ -3465,7 +3468,7 @@ export function attachStylizedTiles(opts: {
   const _casKey = new THREE.Vector3();
   /**
    * T77 SLICE A2 (2026-09-06) — CASCADE 0's own refresh record, in `_cascadeState`'s shape and
-   * declared beside it for the same TDZ reason.
+   * declared beside it (frame-loop state, the same TDZ note as above).
    *
    * It holds what the LIVE depth map was rendered with, so the refresh test compares against the
    * map on screen rather than against a re-derivation. `lightPos`/`targetPos` are the LATCH, and
@@ -3626,10 +3629,10 @@ export function attachStylizedTiles(opts: {
   /** Owner defect 2 — the ANTI-SOLAR air-light tint (the cool end of the directional swing). */
   const _hazeCoolCol = new THREE.Color();
   const _ultraZeroCol = new THREE.Color(tokens.skyHorizon);
-  /** Owner defect 2 — the dusk sample. Declared HERE, above the ephemeris seam, for the standing
-   *  TDZ reason: a `let` read by the frame loop but declared below it throws into this module's
-   *  silent-fallback path. `directK` seeds at 1 so a frame that runs before the first sample
-   *  cannot darken the ground. */
+  /** Owner defect 2 — the dusk sample. Frame-loop state (written by the per-frame light step,
+   *  never by `sampleEphemeris`), so it may live here, BELOW the module-init seam — see the TDZ
+   *  note at the shadow cascades above (corrected 2026-09-17, audit #4 C3). `directK` seeds at 1
+   *  so a frame that runs before the first sample cannot darken the ground. */
   let ultraSkyLevel = 0;
   let ultraAfterglow = 0;
   /** The sky dome's directional-arm weight, eased so a chip flip dissolves. */

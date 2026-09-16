@@ -62,6 +62,19 @@ describe("releaseCompositeCanvas", () => {
     expect(releaseCompositeCanvas(null)).toBe(0);
     expect(releaseCompositeCanvas({ image: canvas(0, 0) })).toBe(0);
   });
+
+  it("RC25 mip chain (audit #4 I1-3): the halving canvases in `mipmaps` go with the level-0 canvas; level 0 is skipped by identity, bitmaps are left alone", () => {
+    const c0 = canvas(512, 512);
+    const c1 = canvas(256, 256);
+    const c2 = canvas(128, 128);
+    const bitmap = { width: 64, height: 64, close: () => {} };
+    const bytes = releaseCompositeCanvas({ image: c0, mipmaps: [c0, c1, c2, bitmap] });
+    expect(bytes).toBe((512 * 512 + 256 * 256 + 128 * 128) * 4);
+    for (const c of [c0, c1, c2]) expect([c.width, c.height]).toEqual([0, 0]);
+    expect([bitmap.width, bitmap.height]).toEqual([64, 64]);
+    // a chain that is not an array (the library default `[]` aside) is ignored, never thrown on
+    expect(releaseCompositeCanvas({ image: canvas(2, 2), mipmaps: "nope" })).toBe(16);
+  });
 });
 
 describe("installCompositeCanvasRelease", () => {

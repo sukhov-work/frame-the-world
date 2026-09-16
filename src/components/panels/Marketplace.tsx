@@ -5,6 +5,7 @@ import { formatPrice } from "../../lib/market/listing";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import "../../styles/marketplace.css";
 import "../../styles/tips.css";
+import { dataFetchInit, fetchErrorMessage } from "../../lib/api/dataFetch";
 
 /**
  * MARKETPLACE — the buyer-facing browse panel (Phase 6.9, owner ruling 2026-07-17): a separate,
@@ -33,13 +34,13 @@ export default function Marketplace() {
     setError(null);
     setPins(null);
     let stale = false;
-    fetch("/api/market")
+    fetch("/api/market", dataFetchInit())
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => {
         if (!stale) setPins(j.pins ?? []);
       })
       .catch((e) => {
-        if (!stale) setError(e instanceof Error ? e.message : String(e));
+        if (!stale) setError(fetchErrorMessage(e));
       });
     return () => {
       stale = true;

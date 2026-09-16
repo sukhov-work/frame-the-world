@@ -6,6 +6,7 @@ import { clampGroundM } from "../../../lib/geo/terrain";
 import { easeK } from "../../../lib/globe/lightBands";
 import { STREETS } from "../tuning";
 import type { StreetLabelFeat, VectorTilesHandle } from "./vectorTiles";
+import { releaseCompositeCanvas } from "../../../lib/globe/compositeCanvasRelease";
 
 /**
  * Street names v4 (owner batch 2026-08-18) — GL labels PINNED TO THE GROUND MESH, now selected
@@ -190,6 +191,7 @@ export function attachStreetNames(opts: {
     if (!hit) return;
     if (--hit.refs <= 0) {
       hit.texture.dispose();
+      releaseCompositeCanvas(hit.texture); // T123 lever (d), the label canvases too (audit #4 H4-1, 2026-09-17)
       texCache.delete(k);
     }
   };

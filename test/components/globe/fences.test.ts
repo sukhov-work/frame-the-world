@@ -1264,6 +1264,24 @@ describe("T115 — the tree locate is chunked and gated", () => {
   });
 });
 
+describe("2026-09-17 — the kill switches gate their installs; the T133 photo gate is source-pinned (audit #4 H1-1 / H4-2 / H5-2)", () => {
+  const ground = readFileSync(join(sceneDir, "imageryGround.ts"), "utf8");
+
+  it("lever 8 (the terrain BVH) installs ONLY behind GROUND.terrainBvh — the OFF state is three's own walk", () => {
+    expect(ground).toMatch(/if \(GROUND\.terrainBvh\) installTerrainBvh\(/);
+    expect((ground.match(/installTerrainBvh\(/g) ?? []).length).toBe(1);
+  });
+
+  it("lever (d) installs ONLY behind GROUND.releaseCompositeCanvas, on both overlays", () => {
+    expect((ground.match(/if \(GROUND\.releaseCompositeCanvas\) installCompositeCanvasRelease\(/g) ?? []).length).toBe(2);
+    expect((ground.match(/installCompositeCanvasRelease\(/g) ?? []).length).toBe(2);
+  });
+
+  it("the 3D photographic de-grade goes out with the night — T133's load-bearing gate, asserted not commented", () => {
+    expect(ground).toMatch(/uFtwPhoto3d \* \(1\.0 - night\)/);
+  });
+});
+
 describe("2026-09-10b — the far-plane depth pins (the moon over Fuji, the horizon white band)", () => {
   const sky = readFileSync(join(sceneDir, "sky.ts"), "utf8");
   const atmosphere = readFileSync(join(sceneDir, "atmosphere.ts"), "utf8");
@@ -1277,6 +1295,16 @@ describe("2026-09-10b — the far-plane depth pins (the moon over Fuji, the hori
     // front of Mt Fuji at 107 km.
     const pins = sky.match(/gl_Position\.z = gl_Position\.w;/g) ?? [];
     expect(pins.length).toBe(2);
+  });
+
+  it("the time ghosts and the target reticle carry the same pin (audit #4 H5-3, 2026-09-17)", () => {
+    const ghosts = readFileSync(join(sceneDir, "skyGhosts.ts"), "utf8");
+    const target = readFileSync(join(sceneDir, "skyTarget.ts"), "utf8");
+    expect((ghosts.match(/gl_Position\.z = gl_Position\.w;/g) ?? []).length).toBe(1);
+    expect((target.match(/gl_Position\.z = gl_Position\.w;/g) ?? []).length).toBe(1);
+    // the ghosts still depth-test (buildings clip them) and still draw UNDER the disc by renderOrder
+    expect(ghosts).toMatch(/depthTest: true,/);
+    expect(ghosts).toMatch(/mesh\.renderOrder = 10;/);
   });
 
   it("the sky dome pins its depth ONLY in sky-dome mode, through a uniform declared in both places", () => {

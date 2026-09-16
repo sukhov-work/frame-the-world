@@ -23,7 +23,7 @@ Query-string contracts: `?enriched=` A/B seam (`src/lib/globe/enrichedVariant.ts
 `index.astro` (desktop opt-out for the mobile-default entry — sets `ftw:prefer-desktop` and skips
 the `/m` redirect; new 2026-08-15).
 
-## 2. localStorage keys (all `ftw:*`; re-diffed 2026-08-22, audit #3 D7)
+## 2. localStorage keys (all `ftw:*`; re-diffed 2026-08-22, audit #3 D7; re-diffed 2026-09-17 against `grep -rn '"ftw:' src` — still these six, no new writer; the T126 edit journal (`store/editJournal.ts`, `lib/edit/editJournal.ts`) is memory-only and persists nothing)
 
 | Key | Owner | Notes |
 |---|---|---|
@@ -34,13 +34,13 @@ the `/m` redirect; new 2026-08-15).
 | `ftw:prefer-desktop` | `src/pages/index.astro` | new 2026-08-15 (mobile-default entry) — sticky desktop opt-out; set by `?d=`, checked before the coarse-pointer `/m` redirect |
 | `ftw:bldg-overrides:v1` | `src/lib/globe/…` → `scene/bldgEditLabel` + the U8 edit flow | new 2026-08-19 (U8 building-height override), missed by the 2026-08-15 sweep. Rails since MS5b (2026-09-02l): PER-EDIT about the COMMITTED transform — move ≤ 100 m per drag, every scale axis 0.1×–10× per drag, compounding with no absolute cap — under a LOOSE sanity rail on read / SYNC / commit (\|t\| ≤ 5 000 m · scale 0.001–1 000 · lift 0–25 m; a persisted row outside THAT is dropped; it was the absolute 60 m / 0.1×–10× rail plus a 0.5×–3× per-edit band — loosening is a compatibility event, every old row is inside the new rail), keyed **`<variant>\|<cellUri>\|<featureId>`** (`src/lib/globe/bldgOverrides.ts` `overrideKey`/`parseOverrideKey`; `cellUri` = the baked content basename `cell-<x>-<y>.glb`, `featureId` = the bake-sequential `_FEATURE_ID_0` — NOT an OSM id; this row said `osmId` from 2026-08-22 to 2026-09-02 and that was doc drift). A re-bake CHECKSUM (`cx/cz/vc`) invalidates the row rather than migrating it, so a stale key is dropped, never applied to the wrong building; the RC17 sidecars carry the OSM id (`osm`, 100 % coverage on every live bake as of 2026-09-02) and the MESH SUITE MS3 slice adopts it as the re-bake-stable RECOVERY key (dual-key, never a hard cutover — `MESH_SUITE_PLAN.md` §4a). Row shape is versioned (v2 = `sy/sx/sz/tE/tN/rotDeg`, legacy `k` read as `sy`, MS1 2026-09-02). **MS3 (2026-09-02f):** two more optional fields — `o` = the building's OSM element id (the re-bake-stable recovery key; `/^[nwr]\d{1,16}$/`, a malformed one drops the field, never the row) and `d: 1` = a TOMBSTONE (a pending REMOVAL of a world-shared edit: identity transform, kept although neutral, masks the shared row locally, rides the next SYNC as a `removes` entry, deleted once it lands). `s` (synced-at) is now stamped by a real SYNC. This key holds MINE only (dirty edits, pending resets, synced copies); the WORLD's rows are fetched from `/api/building-overrides` at boot and held in memory (`lib/globe/bldgSync.ts`), never persisted. The backend twin is LIVE (provisioned 2026-09-02f) |
 
-## 3. `window.__*` DEV seams (all DEV-gated except `__debugFeed`; **28 top-level** as of 2026-09-05 (T77 MEASURE added `__debugFeed`) — the MESH SUITE MS5 count re-enumerated `src/global.d.ts`: `__pipCache` and `__frameGate` had been declared there since RC19/RC21 without joining this list, and `__modelEditStore` + `__userModelsStore` joined now)
+## 3. `window.__*` DEV seams (all DEV-gated except `__debugFeed`; **30 top-level** as of 2026-09-17 — re-enumerated against `src/global.d.ts`: T126 (2026-09-09) added `__editJournalStore` + `__editJournal`; the 2026-09-05 count was 28 (T77 MEASURE added `__debugFeed`) — the MESH SUITE MS5 count re-enumerated `src/global.d.ts`: `__pipCache` and `__frameGate` had been declared there since RC19/RC21 without joining this list, and `__modelEditStore` + `__userModelsStore` joined now)
 
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __pipCache __frameGate __cameraStore __timeStore __uploadStore __pinsStore __memberStore
 __planStore __saveStore __marketStore __minimapStore __skyStore __findStore __placesStore
 __bldgEditStore __bldgSyncStore __bestSpotStore __modelUploadStore __modelEditStore
-__userModelsStore __debugFeed`
+__userModelsStore __debugFeed __editJournalStore __editJournal`
 
 Verify scripts and the NEXT_SESSION_PROMPT recipe consume these — removing/renaming one silently breaks
 the browser-verify tier. (NSP's list was 3 short at audit time — this file is the canonical set.)
@@ -50,6 +50,13 @@ global` next to its owner and never behind an `as unknown as` cast. Both drifts 
 audit #3: `__globeQuality` shipped through the exact cast the registry exists to replace (A2-5)
 and `__memberStore` was declared locally in `store/member.ts`, which is why this section
 under-counted by five. Both are seated now.
+
+**`__editJournalStore` · `__editJournal` (T126, 2026-09-09; doc line 2026-09-17)** — `store/editJournal.ts`:
+the per-session EDIT JOURNAL's zustand mirror (`undoable` / `sessionEdits` + the UNDO / DROP SESSION
+one-shots, both shells) and the journal object itself (`lib/edit/editJournal.ts`: entries +
+baselines, one entry per commit, full-state), read-only for a harness. Memory-only — nothing in
+§2 changes. Companion sub-seam `__globe.armBuildingAt(clientX, clientY)` (the table dated
+2026-09-17 below): the `/m` UNDO / DROP buttons need an armed chip, and adb taps are single events.
 
 **`__debugFeed` (T77 MEASURE, 2026-09-05) is the one RUNTIME-gated seam** (the ULT precedent):
 owner `lib/globe/debugFeed.ts` `publishDebugFeedSeam`; `{ snapshot(), read(id), ids(), series(id),
@@ -85,6 +92,30 @@ boxesBuilt, scans, lastMs, enabled }` (`scene/pluxGlobeControls.ts`); passing a 
 gate (a DEV A/B kill-switch — `false` restores the library's brute-force down-raycast) and resets the
 counters. Consumers: `scripts/verify-perf-baseline.mjs` (the `on` cell's `gate` field + the `gateOff`
 cell), `scripts/probe-below-camera.mjs`. "Did the lever fire?" is `gated > 0 && skipped === seen`.
+
+**Sub-seams re-diffed 2026-09-17 against the `window.__globe` block** (`StylizedTiles.ts`; the
+ones this file lacked, dated by first commit — `git log -S`; same removal / rename rule):
+
+| Sub-seam | Since | Purpose |
+|---|---|---|
+| `__globe.enrichedCellSeats(limit?)` | 2026-09-06 (T77 slice B) | per-CELL re-seat coverage (`enriched.debugCellSeats`), the cell-grained twin of `enrichedSeats()` |
+| `__globe.freezeFrame(on?, parts?)` | 2026-09-06 (T94 / T77 W5) | THE DETERMINISTIC-CAPTURE SEAM. `true` holds the per-frame wall clock (every dt-driven ease, the F1 reveal dither, the twinkle, the pins' shimmer), holds tile STREAMING (no tile and no `terrainEpoch` bump lands mid-capture) and LATCHES the shadow rig; two `Page.captureScreenshot` calls two rAF apart are then byte-identical (`verify-visual-sweep --compare --tolerance 0`). `false` resumes with the clock SKEWED by the frozen span, never restarted. No argument reads; `parts` narrows the freeze for attribution (`{ streaming: false }`); the returned `held` is the proof — the clocks the live scene registered plus every hold a module reported taking |
+| `__globe.terrainSample(latDeg, lonDeg)` | 2026-09-06 (T77 slice B 4d) | one depth-aware terrain sample, exactly what the seat sweep sees |
+| `__globe.enrichedLoad()` / `enrichedLoadBudget(ms)` | 2026-09-07 (T106 b) | the enriched `load-model` handler's cost ledger (`deferredMaxMs` = the worst phase-2 frame) / its phase-2 budget, LIVE (`ENRICHED.loadBudgetMs`) |
+| `__globe.buildingsLoad()` / `buildingsLoadBudget(ms)` | 2026-09-07f (T106 OSM) | the OSM handler's ledger / its phase-2 budget, LIVE (`BUILDINGS.loadBudgetMs`) |
+| `__globe.enrichedBench(limit?)` | 2026-09-07 (T106) | the in-page edge-builder A/B + identity check (`enriched.benchEdges`) |
+| `__globe.dayArcsFold()` | 2026-09-07d (T111) | `dayArcs.debug()` — the day arcs' read, added with the T111 skyline fold (`DAYARC.skylineBehindAlpha`) |
+| `__globe.arLook()` | 2026-09-07g | the AR look-around sensor ladder's live state (`scene/arLook.ts` over `lib/sensors/orientationLadder.ts`) |
+| `__globe.terrainBvhStats()` | 2026-09-08d (T77 lever 8) | the terrain BVH's build + raycast totals (`GROUND.terrainBvh`; `probe-cpu-profile`, the DBG chip) |
+| `__globe.armBuildingAt(clientX, clientY)` | 2026-09-09 (T126) | ARM the building under a client pixel without the double-tap — the same pick + arm the gesture takes; `false` when nothing pickable is under the pixel |
+
+Older than that window and also never listed here (first commit): `__globe.ultra()` (2026-08-22)
+· `atmosphereUniforms()` / `terrainPickStats()` / `resetTerrainPickStats()` / `heightMemoStats()`
+/ `esriPlaceholder()` / `esriProbe(z, x, y)` (2026-08-26, rendering charter group F: the sky
+dome's live ULTRA coupling, the RC6 nearest-hit-not-finest counter, the RC11 height-memo hit rate,
+the Esri placeholder stats + the one-tile probe of the shipped wrapper) · `cascadeLights`
+(2026-08-27) · `terrainHeightAt(lat, lon)` (2026-07-10). The block also exposes the raw handles
+`camera`, `controls`, `tiles`, `enriched`, `ground`, `groundUniforms`, `earthUniforms`.
 
 The five added since the 2026-08-15 count:
 
@@ -158,10 +189,10 @@ top-level globals; same removal/rename rule):
   (public) are the only readers, `/api/models` the only writer — plus the DEV-gated `/api/dev-seed`
   `kind: "model"` seed/remove for the two-member harness leg; **PROVISIONED 2026-09-02h, 24
   fields + `gh5` added 2026-09-02i + `editorMemberId` added 2026-09-02m + `tU` added 2026-09-03
-  + `pitchDeg` / `rollDeg` added 2026-09-05 = 29** — MESH SUITE MS4/MS5/MS6/MS7/MS8, D3): `title
+  + `pitchDeg` / `rollDeg` added 2026-09-05 = 29 + `scaleX` / `scaleZ` added 2026-09-08d (T128) = 31** — MESH SUITE MS4/MS5/MS6/MS7/MS8, D3): `title
   ownerMemberId fileId url thumbnailFileId thumbnailUrl fileName sourceFormat rawBytes glbBytes tris
   meshes textures decimatedFromTris bboxX bboxY bboxZ readiness hidden lat lon geohash9 gh5 rotDeg
-  scale tU pitchDeg rollDeg editorMemberId` — ONE row per uploaded model;
+  scale scaleX scaleZ tU pitchDeg rollDeg editorMemberId` — ONE row per uploaded model;
   **`editorMemberId`** (MS6) is the LAST EDITOR of the transform — the owner at POST, re-stamped
   server-side from the session by every placement PATCH (any signed-in member; LWW) — and is
   NEVER emitted: the public row carries no identity, the owner's list row only a derived
@@ -186,6 +217,17 @@ top-level globals; same removal/rename rule):
   `liftFloorFor`: `min(keep, span) − top`), so a model on its side may sink half its depth and a
   FLIPPED one is HELD UP a quarter of its span (the pivot is the footprint centre on the ground) —
   upright it is the MS7 number to the bit; a row without all three bbox columns is pinned.
+  **`scaleX` / `scaleZ`** (T128, owner 2026-09-08b, shipped 2026-09-08d; doc line 2026-09-17;
+  `src/lib/wix/modelRecords.ts`) make the scale PER AXIS: `scale` (born MS5 as the uniform
+  factor) is now the Y / HEIGHT factor `sy` — the BuildingOverrides `heightScale` precedent —
+  and `scaleX` / `scaleZ` are `sx` / `sz`. READ: a null axis falls back to `scale`
+  (`storedModelScale`), so every row written before T128 is the same uniform box `k, k, k` it
+  always was. WRITE: `scale` is null when `sy ≈ 1`, `scaleX` / `scaleZ` null when equal to `sy`
+  (`MODEL_XF_EPS.scale`), so a uniform edit still writes one column. The Wix display name
+  "Uniform Scale" is kept so the column keeps its identity; the two new columns are
+  `Scale X (east)` / `Scale Z (north)` in `scripts/provision-collections.mjs`. The wire (§7)
+  moved with it: `PublicModel` and the owner's `ModelListItem` carry `sx / sy / sz`, and the PATCH
+  placement body takes `sx? / sy? / sz?` with `scale?` kept as the legacy UNIFORM alias.
 - There is **no Listings collection** — listing fields ride Photos/PublicPins (ARCHITECTURE §5 corrected
   by the 2026-08-13 audit).
 - Schema changes land in the provision script FIRST (platform.md item 13; `extensions.dataCollections`
@@ -216,12 +258,15 @@ top-level globals; same removal/rename rule):
   `GET ?cells=<gh5,…>` (1..16 distinct p5 base-32 cells, lower-cased; 400 `BAD_REQUEST` otherwise)
   answers `{ models: PublicModel[], complete }` — `hasSome("gh5", cells)` ∧ `readiness === "READY"`
   ∧ `hidden ≠ true`, one page of 200 oldest-first, `complete: false` when a cell holds more; a
-  `PublicModel` is `{ id, title, url, thumbnailUrl, tris, glbBytes, bbox, lat, lon, rotDeg, scale,
-  tU, pitchDeg, rollDeg, updatedAt }` (`tU` since MS7 2026-09-03; `pitchDeg` / `rollDeg` since MS8
-  2026-09-05, canonical, 0 = upright) and NEVER carries `ownerMemberId` or a file id (C6).
+  `PublicModel` is `{ id, title, url, thumbnailUrl, tris, glbBytes, bbox, lat, lon, rotDeg, sx, sy,
+  sz, tU, pitchDeg, rollDeg, updatedAt }` (`tU` since MS7 2026-09-03; `pitchDeg` / `rollDeg` since MS8
+  2026-09-05, canonical, 0 = upright; `sx` / `sy` / `sz` since T128 2026-09-08d, REPLACING the single
+  `scale` on the wire — `sy` is the old number, 1 / 1 / 1 = as uploaded; doc line 2026-09-17) and
+  NEVER carries `ownerMemberId` or a file id (C6).
   And **`PATCH /api/models`** (MS5, split in TWO authorities at MS6 2026-09-02m — dispatched on the
-  body's SHAPE): a PLACEMENT body `{ id, lat, lon, rotDeg?, scale?, tU?, pitchDeg?, rollDeg? }`
-  (coordinates present; the tilt finite + wrapped at parse, made canonical with the yaw and the
+  body's SHAPE): a PLACEMENT body `{ id, lat, lon, rotDeg?, sx?, sy?, sz?, scale?, tU?, pitchDeg?,
+  rollDeg? }` (coordinates present; T128 2026-09-08d: `scale` is the legacy UNIFORM alias that sets
+  all three axes, an explicit axis beside it wins, each clamped onto the sanity rail like the alias; the tilt finite + wrapped at parse, made canonical with the yaw and the
   lift floor re-taken from the TILTED box in `applyModelPlacement` — MS8) is
   open to EVERY signed-in member (401 `SIGNED_OUT`; 400 names the field; 404 `NOT_FOUND` "no such
   model") — re-derives `geohash9` + `gh5`, CLAMPS the seats onto the sanity rail (0.001×..1000×

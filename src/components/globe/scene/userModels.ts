@@ -172,6 +172,11 @@ interface Entry {
   body: THREE.Group;
   root: THREE.Object3D | null;
   state: "idle" | "loading" | "ready" | "failed";
+  /** audit #4 H2-2 (2026-09-17): a failed fetch used to be final for the session (replan skipped
+   *  `failed`, startLoad wanted `idle`, and a stored GLB's URL never changes). Now a failed entry
+   *  goes back to `idle` after `MODELS.loadRetryMs`, at most `MODELS.loadRetries` times. */
+  attempts: number;
+  failedAtMs: number;
   /** Bumped on unload so a late fetch for a released model is dropped. */
   gen: number;
   /** ECEF of the placement at the applied seat — the residency distance and the frame position. */
@@ -393,6 +398,8 @@ export function attachUserModels(
       body,
       root: null,
       state: "idle",
+      attempts: 0,
+      failedAtMs: 0,
       gen: 0,
       ecef: new THREE.Vector3(),
       seatM: MODELS.fallbackGroundM,
@@ -450,6 +457,8 @@ export function attachUserModels(
     _box.setFromObject(root);
     if (_box.isEmpty()) {
       e.state = "failed";
+      e.attempts++;
+      e.failedAtMs = performance.now();
       failed++;
       disposeRoot(root);
       return;
@@ -502,8 +511,10 @@ export function attachUserModels(
         if (e.gen !== gen || e.state !== "loading") return;
         loading = Math.max(0, loading - 1);
         e.state = "failed";
+        e.attempts++;
+        e.failedAtMs = performance.now();
         failed++;
-        console.warn("[userModels] GLB load failed", e.row.id, err);
+        console.warn("[userModels] GLB load failed", e.row.id, err, `attempt ${e.attempts}/${MODELS.loadRetries}`);
       });
   };
 
@@ -540,7 +551,12 @@ export function attachUserModels(
     _cam.copy(camera.position);
     const rows = [];
     for (const e of entries.values()) {
-      if (e.state === "failed") continue;
+      if (e.state === "failed") {
+        // audit #4 H2-2: a transient 5xx / network blip is not a row change — retry, bounded.
+        if (e.attempts >= MODELS.loadRetries || performance.now() - e.failedAtMs < MODELS.loadRetryMs) continue;
+        e.state = "idle";
+        failed = Math.max(0, failed - 1); // `failed` reads as "currently failed" on the density chip
+      }
       rows.push({ id: e.row.id, tris: e.row.tris, distM: _cam.distanceTo(e.ecef) });
     }
     const wanted = new Set<string>();

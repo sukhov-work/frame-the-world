@@ -13,7 +13,8 @@
  *
  * NOTE (C6): PublicPins is world-readable and holds ONLY reduced-precision location fields —
  * see src/lib/geo/precision.ts. Photos keeps exact GPS and is ADMIN-only: every write goes
- * through the elevated /api/photos endpoint, which enforces the 10-pin free quota.
+ * through the elevated /api/photos endpoint, which enforces the pin quota (free 100 · premium 1000,
+ * owner ruling 2026-07-17).
  */
 
 import { execFileSync } from "node:child_process";

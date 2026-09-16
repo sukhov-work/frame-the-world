@@ -30,10 +30,23 @@ export default function MobileAccount({
   const role = menuItem ? "menuitem" : undefined;
   if (phase === "member") {
     return (
-      <button type="button" className={cls} role={role} aria-label="My places" onClick={onOpenPlaces}>
-        ◎ {memberLabel(member)}
-        {menuItem && <span className="m-menu__hint">MY PLACES</span>}
-      </button>
+      <>
+        <button type="button" className={cls} role={role} aria-label="My places" onClick={onOpenPlaces}>
+          ◎ {memberLabel(member)}
+          {menuItem && <span className="m-menu__hint">MY PLACES</span>}
+        </button>
+        {menuItem && (
+          // audit #4 F4 (2026-09-17): /m had no sign-out — a phone member had to leave for the
+          // desktop shell. The same real form POST the desktop badge uses (the managed logout
+          // route redirects; the browser follows it), rendered as one more menu row.
+          <form method="post" action="/api/auth/logout" className="m-menu__form">
+            <button type="submit" className="m-chip m-menu__item" role="menuitem">
+              SIGN OUT
+              <span className="m-menu__hint">THIS DEVICE</span>
+            </button>
+          </form>
+        )}
+      </>
     );
   }
   return (

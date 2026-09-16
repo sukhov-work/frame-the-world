@@ -303,7 +303,13 @@ if ! git merge-base --is-ancestor origin/master "$SHA" 2>/dev/null; then
   fi
 fi
 
-git push -u origin "$BRANCH" || { log "ABORT: push failed — commit $SHA stays on $BRANCH locally"; exit 1; }
+git push -u origin "$BRANCH" || {
+  log "ABORT: push failed — commit $SHA stays on $BRANCH locally"
+  # audit #4 B1 (2026-09-17): the exact anomaly class the attention file exists for — the checkout is
+  # left ON the ship branch with unlanded work; log-only meant the next session had to read the log.
+  attention "Ship push FAILED for $BRANCH ($SHA) — work is committed locally on that branch, NOT on origin. Re-push by hand: git push -u origin $BRANCH (then wait for the automerge, tree-identity check, checkout master, ff-merge)."
+  exit 1
+}
 log "pushed $BRANCH ($SHA) — waiting for automerge into origin/master (squash-aware)"
 
 # --- Wait for the automerge to LAND (squash-aware) ------------------------------------------------

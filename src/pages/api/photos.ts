@@ -65,7 +65,10 @@ export const GET: APIRoute = async () => {
     const res = await auth.elevate(items.query)("Photos")
       .eq("ownerMemberId", member._id)
       .descending("_createdDate")
-      .limit(50)
+      // audit #4 G4 (2026-09-17): 50 was the page default — pins 51+ counted against the quota but
+      // never listed. Wix Data's page maximum is 1000 = the premium quota, so one page is every pin
+      // any member can own (dev.wix.com: "The maximum value that limit() can accept is 1000").
+      .limit(PIN_QUOTA_PREMIUM)
       .find();
     const photos = (res.items as Record<string, unknown>[])
       .map(photoListItem)

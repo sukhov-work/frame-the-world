@@ -1,7 +1,7 @@
 {
   "name": "wix-astro-blank",
   "type": "module",
-  "version": "1.36.12",
+  "version": "1.36.13",
   "scripts": {
     "astro": "astro",
     "dev": "wix dev",
@@ -32,7 +32,7 @@
     "@wix/redirects": "^1.0.125",
     "@wix/sdk": "^1.21.5",
     "@wix/stores": "^1.0.830",
-    "3d-tiles-renderer": "^0.4.28",
+    "3d-tiles-renderer": "0.4.28",
     "astro": "^5.8.0",
     "astronomy-engine": "2.1.19",
     "exifr": "^7.1.3",

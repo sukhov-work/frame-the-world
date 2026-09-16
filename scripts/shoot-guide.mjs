@@ -2,7 +2,7 @@
 // raw CDP against a running `wix dev` — the same harness the verify scripts use, so a shot is
 // reproducible instead of a hand-cropped artifact nobody can regenerate.
 //
-//   node --experimental-websocket scripts/shoot-guide.mjs <recipe> [cdpPort]
+//   node --experimental-websocket scripts/shoot-guide.mjs <recipe> [cdpPort]   (Node ≥ 22 needs no flag)
 //
 // Recipes live in RECIPES below: each names the shell, the viewport, the URL, a `prepare()`
 // that drives the app into the state to be photographed, and the output size the guide uses
@@ -67,6 +67,22 @@ const RECIPES = {
       }
       await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
       await sleep(2500);
+    },
+  },
+
+  /** The /m shell on its flat chart — the phone chapter's hero. Added 2026-09-17: the shipped
+   *  2026-08-20 shot predates the PLUX logo menu (its ▾ hint replaced the strip's chips), the
+   *  scale bar in the strip's right and the target row's next rise / set. */
+  "shell-m": {
+    out: "public/guide/shell-m.webp",
+    width: 390,
+    height: 844,
+    scale: 3,
+    mobile: true,
+    resize: [360, 783],
+    url: `http://localhost:4321/m#p=48.4640,35.0460,600,0,0&t=${NOON_UTC}`,
+    async prepare() {
+      await sleep(6000); // the drape + the vector chart settle a beat after the engine reports ready
     },
   },
 
@@ -138,8 +154,13 @@ const RECIPES = {
     async prepare({ evalJs }) {
       // Track the MOON, turn the radar on, and OPEN the panel — the caption names the object
       // card, the toggles and the ghost chain, so all three have to be on screen.
+      // The target is set EXPLICITLY (2026-09-17): the store restores the last-tracked id from
+      // the profile's prefs, so a shot on a used profile inherited whatever the last harness
+      // tracked (the sun) while the caption names the moon.
       await evalJs(
-        `(() => { const s = window.__skyStore.getState();
+        `(async () => { const cat = await import("/src/lib/sky/catalog.ts");
+          const s = window.__skyStore.getState();
+          s.setTarget(await cat.targetByIdAsync("body:moon"));
           s.setAimVisible(true); s.setAimSun(true); s.setAimMoon(true);
           s.setVisible?.(true); s.setGhosts?.(true); s.setOpen(true);
           return true; })()`,

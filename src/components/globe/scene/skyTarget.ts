@@ -130,6 +130,10 @@ export function attachSkyTarget(scene: THREE.Scene): SkyTargetHandle {
         vUv = uv;
         vW = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        // DEPTH-PIN at the far plane, the T131 disc idiom (audit #4 H5-3, 2026-09-17): the 0.5·far
+        // anchor is a [near, far]-band convenience, not a depth — terrain past it must still clip
+        // the reticle exactly as it clips the sun and the moon.
+        gl_Position.z = gl_Position.w;
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uComa;

@@ -76,6 +76,11 @@ export function attachSkyGhosts(scene: THREE.Scene): SkyGhostsHandle {
         vUv = uv;
         vAlpha = aAlpha;
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        // DEPTH-PIN at the far plane, the T131 disc idiom (audit #4 H5-3, 2026-09-17): the anchor
+        // sits at ~0.5·far only to stay inside the live [near, far] band, which from a street
+        // camera is ~90 km — in FRONT of a ridge at 107 km. At z = w any rendered terrain or
+        // building wins at every altitude; the disc still draws over its ghosts by renderOrder.
+        gl_Position.z = gl_Position.w;
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;

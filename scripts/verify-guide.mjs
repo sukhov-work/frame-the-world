@@ -208,7 +208,7 @@ await sleep(600);
   }))()`);
   check(
     "3. SURF-2: the rail expands topics for exactly ONE chapter",
-    r.groups === 11 && r.tiers === 1 && r.topics > 4,
+    r.groups === 12 && r.tiers === 1 && r.topics > 4, // 12 chapters since 2026-08-22 (re-pinned 2026-09-17, audit #4 L1)
     `${r.groups} chapters, ${r.tiers} expanded, ${r.topics} topics`,
   );
 }
@@ -354,11 +354,11 @@ await sleep(600);
     imgsSized: [...document.querySelectorAll('.g-fig img')].every(i => i.getAttribute('width') && i.getAttribute('height')),
   }))()`);
   check("10. SURF-9: the page has exactly one h1", r.h1 === 1, `${r.h1} — "${r.h1text}"`);
-  check("11. SURF-3: every goal links a rendered TOPIC id", r.goalTargetsRendered && r.goals.length === 14, `${r.goals.length} goals, all resolve`);
+  check("11. SURF-3: every goal links a rendered TOPIC id", r.goalTargetsRendered && r.goals.length === 16, `${r.goals.length} goals, all resolve`); // 16 goals (re-pinned 2026-09-17)
   // Derived, not hard-coded: the invariant is "the outline lists EVERY topic", and the topic
   // count grows whenever the guide does (67 → 70 this session).
   check("13. SURF-2: the outline lists every topic", r.tocTopics === r.topics && r.topics > 60, `${r.tocTopics} outline entries / ${r.topics} rendered topics`);
-  check("13b. IX-6: goal routes render as anchor lists", r.routes === 14, `${r.routes} routes`);
+  check("13b. IX-6: goal routes render as anchor lists", r.routes === 16, `${r.routes} routes`); // one route per goal (re-pinned 2026-09-17)
   check("G-B: list fields render on the page", r.lists > 5, `${r.lists} <ul>`);
   check("G-B: every image reserves its box", r.imgsSized, "width+height on all figures");
   check("IX-5: images link to their full size (zero-JS)", r.imgLinks === 13, `${r.imgLinks} linked`);

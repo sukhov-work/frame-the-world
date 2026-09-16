@@ -17,6 +17,7 @@ import MyModelsTab from "./MyModelsTab";
 import { useUserModelsStore } from "../../store/userModels";
 import "../../styles/my-pins.css";
 import "../../styles/tips.css";
+import { dataFetchInit, fetchErrorMessage } from "../../lib/api/dataFetch";
 
 /**
  * MY PINS — the rudimentary owner list in the top nav (Phase 5.1), a stand-in until the
@@ -67,17 +68,17 @@ export default function MyPins() {
       void useUserModelsStore.getState().loadMine();
     } else if (tab === "pins") {
       setPhotos(null);
-      fetch("/api/photos")
+      fetch("/api/photos", dataFetchInit())
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((j) => {
           if (!stale) setPhotos(j.photos ?? []);
         })
         .catch((e) => {
-          if (!stale) setError(e instanceof Error ? e.message : String(e));
+          if (!stale) setError(fetchErrorMessage(e));
         });
     } else if (tab === "places") {
       setPlaces(null);
-      fetch("/api/places")
+      fetch("/api/places", dataFetchInit())
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((j) => {
           // Nearest-first from the current map position (owner 2026-08-19b) — FPV eye when
@@ -87,17 +88,17 @@ export default function MyPins() {
           if (!stale) setPlaces(sortByProximity(j.places ?? [], at.latDeg, at.lonDeg));
         })
         .catch((e) => {
-          if (!stale) setError(e instanceof Error ? e.message : String(e));
+          if (!stale) setError(fetchErrorMessage(e));
         });
     } else {
       setSales(null);
-      fetch("/api/listings")
+      fetch("/api/listings", dataFetchInit())
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((j) => {
           if (!stale) setSales(j.listings ?? []);
         })
         .catch((e) => {
-          if (!stale) setError(e instanceof Error ? e.message : String(e));
+          if (!stale) setError(fetchErrorMessage(e));
         });
     }
     return () => {

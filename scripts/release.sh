@@ -79,8 +79,15 @@ for i in $(seq 1 30); do
   echo "  GET /api/ping → $code (attempt $i/30, the release is still propagating) …"; sleep 10
 done
 [[ $ok -eq 1 ]] || fail "GET /api/ping never read 200 within 5 min"
-post=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST -H 'content-type: application/json' -d '{"canary":true}' "$SITE_URL/api/ping")
-[[ "$post" == "200" ]] || fail "POST /api/ping read $post (the save flow rides app-defined POST routes)"
+# The edge is sharded: one reader can see the new build while another still serves the old one
+# (the step-7 advice below), so the POST canary loops exactly like the GET (audit #4 B3, 2026-09-17).
+ok=0
+for i in $(seq 1 12); do
+  post=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST -H 'content-type: application/json' -d '{"canary":true}' "$SITE_URL/api/ping")
+  if [[ "$post" == "200" ]]; then ok=1; break; fi
+  echo "  POST /api/ping → $post (attempt $i/12, a shard may still serve the old build) …"; sleep 10
+done
+[[ $ok -eq 1 ]] || fail "POST /api/ping never read 200 within 2 min (the save flow rides app-defined POST routes)"
 echo "GET 200 · POST 200"
 
 step "6/7 warm the edge (every release resets the chunk hashes)"

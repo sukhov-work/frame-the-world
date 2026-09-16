@@ -150,7 +150,7 @@ export const GUIDE_GOALS: GuideGoal[] = [
   {
     goal: "Correct a building that looks wrong",
     target: "fpv-height",
-    route: ["fpv-height", "fpv-enter", "plan-verdicts"],
+    route: ["fpv-height", "fpv-enter", "edit-undo", "plan-verdicts"],
   },
   {
     goal: "Share an exact view and moment",
@@ -223,12 +223,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "The desktop shell at / carries every feature. The phone shell at /m carries the " +
           "full planning loop — sheets and touch controls instead of panels. Phones land on " +
-          "/m automatically; the DESKTOP chip switches back and remembers the choice. Your " +
-          "tracked target, your toggles AND your POSE carry across shells — switch while " +
-          "standing somewhere and you arrive at the same place, looking the same way.",
+          "/m automatically; DESKTOP in [[mobile-menu|the Plux menu]] switches back and " +
+          "remembers the choice. Your tracked target, your toggles AND your POSE carry across " +
+          "shells — switch while standing somewhere and you arrive at the same place, looking " +
+          "the same way.",
         tip:
-          "The phone leaves out photo and model upload, the marketplace, [[bestspot|BEST SPOT]], " +
-          "the Milky-Way season card, the meteor card and calendar export.",
+          "The phone leaves out photo and model upload, the marketplace, the Milky-Way season " +
+          "card, the meteor card and calendar export.",
       },
       {
         id: "start-real",
@@ -267,6 +268,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Space — rise. Shift+Space — sink.",
           "G, R, S and E — pick the [[edit-handles|edit handle]] while a building or a model " +
             "is armed; S stops walking you back until you disarm.",
+          "Ctrl+Z or Cmd+Z — [[edit-undo|take back]] the armed building's or model's last " +
+            "edit, or with nothing armed the last mesh edit anywhere.",
           "Escape — unwind one layer: the sky menu, then a building edit, then the MAP " +
             "window, then Explore, then the view itself.",
           "On the time rail: ← and → step 10 minutes, Home and End jump 6 hours.",
@@ -437,7 +440,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       caption:
         "Standing at street level. The HUD reads position, ground, focal, heading, pitch and " +
         "eye height; the mini-map carries the radar and the AIM stick; the compact deck stays " +
-        "bottom-right; the moon's day arc crosses the sky.",
+        "bottom-right; the sun's day arc crosses the sky.",
       shell: "desktop",
     },
     topics: [
@@ -483,9 +486,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             w: 360,
             h: 783,
             caption:
-              "Touch controls on /m: the AIM stick above the WALK stick on the left rail, " +
-              "rise and sink pads on the right, the HUD row under the status strip, the " +
-              "mini-map with its radar, and the tracked target's row above the dock.",
+              "Touch controls on /m: the AIM stick above the WALK stick on the left rail; AR, " +
+              "the rise and sink pads and SAVE on the right; the HUD readout on the strip's " +
+              "right; the mini-map with its radar; and the tracked target's row, with its next " +
+              "rise and set, above the dock.",
             shell: "mobile",
           },
         ],
@@ -507,7 +511,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Why two focal numbers",
         where: {
           desktop: "FOCAL on the HUD card · mm under the AIM stick",
-          mobile: "FOCAL in the HUD row · mm under the AIM stick",
+          mobile: "FOCAL in the HUD readout on the status strip · mm under the AIM stick",
         },
         keys: ["35mm equivalent", "full frame", "sensor", "crop", "aspect", "portrait"],
         body:
@@ -541,7 +545,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Read the HUD",
         where: {
           desktop: "Bottom-left card, under the mini-map",
-          mobile: "Compact row at the top, under the status strip",
+          mobile: "The right of the status strip, in first-person view",
         },
         keys: ["readout", "overlay", "telemetry", "coordinates", "elevation", "bearing"],
         body:
@@ -549,7 +553,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "keyboard reminder along its foot. Edge chips point toward the sun, the moon and " +
           "your target when they sit outside the frame; a tracked target's chip stays on " +
           "below the horizon, dimmed, and clicking it looks where the target rises next. " +
-          "On /m the row keeps FOCAL, HDG, PITCH and EYE, and the edge chips ride along.",
+          "On /m the readout sits on the status strip's right and keeps FOCAL, HDG, PITCH and " +
+          "EYE; the edge chips ride along.",
         list: [
           "Position, with a COPY button.",
           "GROUND — the terrain height under your feet.",
@@ -580,8 +585,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           mobile: "Pills top-left · live view and ◉ down the right",
         },
         body:
-          "The top row carries the title, + and −, and on desktop ✕ MINI-MAP. To its right on " +
-          "/m sits a live 3D window onto where you stand — tap it to go back there. Under that, " +
+          "The top row carries the title, + and −, and on desktop ✕ MINI-MAP. On /m a scale bar " +
+          "sits under those pills, and to their right a live 3D window onto where you stand — " +
+          "tap it to go back there. Under that, " +
           "the round ◉ button: muted while the chart is following you, lit once you have " +
           "explored away. The time strip keeps working along the bottom, so you can scrub the " +
           "sky without closing the map.",
@@ -602,9 +608,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             w: 360,
             h: 783,
             caption:
-              "The expanded MAP on /m: MAP and ± pills top-left, the live 3D window top-right, " +
-              "the lit ◉ on the right edge after a pan, AIM over WALK on the left rail, your " +
-              "focal cone and radar drawn on the chart, and the time strip above the credit line.",
+              "The expanded MAP on /m: MAP and ± pills top-left with the scale bar under them, " +
+              "the live 3D window top-right, the lit ◉ on the right edge after a pan, AIM over " +
+              "WALK on the left rail, your focal cone and radar drawn on the chart, and the " +
+              "time strip above the credit line.",
             shell: "mobile",
           },
         ],
@@ -616,8 +623,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         keys: ["twist", "rotate", "pinch", "zoom"],
         body:
           "Two fingers TWIST the chart to any bearing — N on the radar rim turns with it, so " +
-          "you always know which way is north. The pinch is continuous rather than stepped: " +
-          "the chart scales smoothly between levels instead of jumping. On desktop the wheel " +
+          "you always know which way is north. The pinch is continuous rather than stepped, " +
+          "and it zooms in proportion to how far your fingers spread — the same feel as " +
+          "[[mobile-map|the flat chart]]. On desktop the wheel " +
           "steps whole levels and a drag pans. Tap a body's direction line on the chart to " +
           "make that body the emphasized one in [[target-radar|the radar]].",
         tip:
@@ -637,7 +645,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "no ceiling. Right-click the armed building (hold it on /m) for the rest of the suite: " +
           "MOVE (up to 100 m per drag from where it stands), ROTATE and SCALE its footprint (a " +
           "tenth to ten times per drag, shown in metres) with a [[edit-handles|three-axis gizmo]], " +
-          "and revert one op or all of them. A building carried far from its own map cell can " +
+          "revert one op or all of them, or [[edit-undo|take back the last edit]]. A building " +
+          "carried far from its own map cell can " +
           "blink out at the edge of the view — bring it back or accept it. Edits re-measure every " +
           "[[plan-verdicts|skyline verdict]].",
         keys: ["height", "scale", "rescale", "too short", "too tall", "wrong height", "osm", "sync", "gizmo", "move building", "rotate building"],
@@ -757,6 +766,32 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         ],
         tip:
           "Escape unwinds one layer at a time: the menu, then a drag in progress, then the arming itself.",
+      },
+      {
+        id: "edit-undo",
+        title: "Undo and drop a session",
+        where: {
+          desktop: "The foot of the edit chip · the right-click menu · Ctrl/Cmd+Z",
+          mobile: "The foot of the edit chip · the long-press menu",
+        },
+        keys: ["undo", "ctrl+z", "cmd+z", "revert", "drop session", "journal", "take back", "mesh edits"],
+        body:
+          "Every edit you release — a height drag, a gizmo drag, a ↺, a RESET ALL — is one entry " +
+          "in a journal that lasts the session, for buildings and models alike. UNDO walks it " +
+          "back one entry at a time; a drop returns a mesh to its floor, how it stood when you " +
+          "opened the page or at your last SYNC. A drop is one entry itself, so UNDO restores it.",
+        list: [
+          "↶ UNDO, at the chip's foot and in the menu — the armed building's or model's last edit.",
+          "DROP SESSION — that mesh back to its floor. Synced edits stay.",
+          "⟲ DROP ALL SESSION EDITS · N, in the menu — every building and model at once.",
+          "MESH EDITS — the pill that stands in for the chip while nothing is armed and session " +
+            "edits exist; it carries UNDO, DROP SESSION and SYNC.",
+          "Ctrl+Z or Cmd+Z on desktop — the armed mesh's last edit, or with nothing armed the " +
+            "last edit anywhere.",
+        ],
+        tip:
+          "There is no redo: an undone edit is gone. SYNC moves the floor — after it, a drop " +
+          "returns to the synced state, not the mapped one.",
       },
       {
         id: "fpv-exit",
@@ -1044,7 +1079,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           desktop: "✕ UNFOLLOW under ⌖ FIND IN FRAME in the TARGET panel",
           mobile: "✕ UNFOLLOW on the target sheet",
         },
-        keys: ["stop following", "clear target", "dismiss", "untrack", "drop"],
+        keys: ["stop following", "clear target", "dismiss", "untrack"],
         body: "One press clears everything the target was drawing, and the camera is yours again.",
         list: [
           "Its marker in the sky.",
@@ -1313,24 +1348,25 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "spot-open",
         title: "Solve a disc",
-        where: { desktop: "◎ BEST SPOT, beside the Plux wordmark" },
+        where: { desktop: "◎ BEST SPOT, beside the Plux wordmark", mobile: "The ◎ SPOT tab" },
         keys: ["heatmap", "heat map", "where to stand", "best place", "disc"],
         body:
           "The window opens with the heatmap OFF and nothing being computed, so you can set the " +
           "event, the radius and the sheet height before anything is solved. ◎ HEATMAP is the " +
-          "switch that starts the work. BEST SPOT is desktop only.",
+          "switch that starts the work. On desktop it shares one window with [[plan|PLAN]] and " +
+          "[[find|FIND]]; on /m it is the fifth tab, and until the disc has a centre the sheet " +
+          "offers ◎ CENTRE HERE, which puts it where the chart is looking.",
         steps: [
-          "Press ◎ BEST SPOT beside the Plux wordmark — it shares one window with [[plan|PLAN]] " +
-            "and [[find|FIND]].",
-          "Double-click the ground to set the disc centre, or stand somewhere in " +
-            "[[fpv|first-person view]].",
+          "Open it — ◎ BEST SPOT beside the Plux wordmark, or the ◎ SPOT tab on /m.",
+          "Set the disc centre — double-click the ground, long-press the chart on /m, or stand " +
+            "somewhere in [[fpv|first-person view]].",
           "Pick the event: ☀ SUNRISE, ☀ SUNSET, ☾ M.RISE or ☾ M.SET.",
           "Pick a radius — 100 m to 500 m, 300 m by default.",
           "Press ◎ HEATMAP — a coarse wash appears at once and sharpens over about a second.",
         ],
         tip:
           "Turned on before you have a centre, the chip reads ARMED — NO CENTRE. Drop the pin and " +
-          "it solves.",
+          "it solves; on /m the field stays on the map when the sheet closes.",
       },
       {
         id: "spot-read",
@@ -1351,8 +1387,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             "not a finding.",
         ],
         tip:
-          "[INFERNO] swaps to [TURBO] and back. TURBO's brightest band sits mid-scale, so under " +
-          "it the best spot comes out dark red.",
+          "On desktop [INFERNO] swaps to [TURBO] and back; TURBO's brightest band sits mid-scale, " +
+          "so under it the best spot comes out dark red.",
       },
       {
         id: "spot-markers",
@@ -1369,8 +1405,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             "however colourful they are.",
         ],
         tip:
-          "Hover a marker and a tip opens at it with the same facts its row prints, so you can " +
-          "read #4 without hunting the list for it.",
+          "Hover a marker and a tip opens at it with the same facts its row prints; on /m there " +
+          "is no hover — tapping a marker selects its row and looks from it.",
       },
       {
         id: "spot-shortlist",
@@ -1396,15 +1432,16 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "GO, LOOK and REFINE",
         keys: ["go there", "refine", "select", "preview", "look from"],
         body:
-          "Click a row to select it — its marker lights up on the globe and three actions appear " +
-          "beside it. Selecting moves nothing on its own, because moving the centre re-solves the " +
+          "Click a row to select it — its marker lights up on the globe and its actions appear " +
+          "with it. Selecting moves nothing on its own, because moving the centre re-solves the " +
           "disc and would destroy the list you are reading.",
         list: [
           "GO → moves the disc centre to that cell. This is the one action that re-solves the " +
             "heatmap.",
-          "◎ LOOK stands you there in first person with the disc left where it is — ◎ BACK or " +
-            "Escape returns.",
-          "◠ REFINE re-solves that ONE cell's obstruction at 1 m and prints what it moved.",
+          "◎ LOOK (◎ LOOK FROM HERE on /m) stands you there in first person with the disc left " +
+            "where it is — ◎ BACK, Escape, or ✕ EXIT VIEW on /m returns.",
+          "◠ REFINE re-solves that ONE cell's obstruction at 1 m and prints what it moved. " +
+            "Desktop only — the phone has no ULTRA tier.",
         ],
         tip:
           "NO CHANGE at 1 m means the coarse pass was already right about that cell — the button " +
@@ -1413,13 +1450,17 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "spot-altitude",
         title: "Lift the sheet",
-        where: { desktop: "SHEET ALTITUDE, under the radius chips" },
+        where: {
+          desktop: "SHEET ALTITUDE, under the radius chips",
+          mobile: "SHEET ALTITUDE on the ◎ SPOT sheet",
+        },
         keys: ["drone", "aerial", "lift", "eye level"],
         body:
-          "The sheet sits at eye height, 1.7 m, and the slider raises it to 400 m. At 5 m the " +
+          "The sheet sits at eye height, 1.7 m, and the SHEET ALTITUDE encoder lifts it to 400 m " +
+          "— push right to rise, left to sink, and it eases to a stop when you let go. At 5 m the " +
           "badge reads ▲ DRONE and the rules change: only the solid interiors of buildings stay " +
-          "masked, because up there you are no longer walking. Double-click the slider to drop " +
-          "back to eye level.",
+          "masked, because up there you are no longer walking. Double-click the encoder, or " +
+          "double-tap it on /m, to drop back to eye level.",
         tip:
           "When a disc is too dark to read, a chip offers the lowest lift that clears the display " +
           "floor — that number is probed on your disc, never a preset.",
@@ -1430,7 +1471,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         keys: ["coverage", "unmapped", "evidence", "provenance", "posting"],
         body:
           "Under the legend sits a block of status lines. Each names a limit of the evidence " +
-          "rather than a property of the place, so you can tell how far the wash can be trusted.",
+          "rather than a property of the place, so you can tell how far the wash can be trusted. " +
+          "On /m three of them stay inline and the rest open under the ▸ MORE CAVEATS row.",
         list: [
           "How much of the disc is UNMAPPED, and the coverage figure.",
           "The cell size the obstruction was solved at, and the finer one the shortlist used.",
@@ -1544,7 +1586,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         keys: ["login", "log in", "account", "sign up", "member", "register"],
         where: {
           desktop: "Sign in, top-right",
-          mobile: "The chip in the status strip",
+          mobile: "SIGN IN, in the Plux menu under the wordmark",
         },
         body:
           "Saving places and pins needs an account; browsing, planning and sharing links " +
@@ -1635,8 +1677,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       w: 360,
       h: 783,
       caption:
-        "The /m shell on its flat chart: status strip on top, action chips and LAYERS on " +
-        "the right, radar bearings on the map, target row, time dock and tabs at the bottom.",
+        "The /m shell on its flat chart: the PLUX mark (tap it for the menu) and the scale " +
+        "bar on the status strip, the focal cone and radar bearings on the map, action chips " +
+        "and LAYERS on the right, the target row with its next rise and set, the time dock " +
+        "and the tabs at the bottom.",
       shell: "mobile",
     },
     topics: [
@@ -1649,9 +1693,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "/m boots as a flat, north-up 2D chart — faster and calmer for planning on a " +
           "phone. The ▲ 3D chip lifts it into the full 3D globe (long-press it to stand " +
           "straight into first-person view right where the chart is centred); ▼ 2D folds " +
-          "it flat again. A two-finger drag TURNS the chart, and it keeps the bearing you " +
-          "leave it on — to face north again, tap ▲ 3D then ▼ 2D. 🧭 MY LOC flies the " +
-          "chart to your device fix and arms ◎ LOOK FROM HERE.",
+          "it flat again. A drag slides the chart with one finger or two, a pinch zooms it " +
+          "in proportion to how far your fingers spread, and a two-finger TWIST turns it — " +
+          "it keeps the bearing you leave it on, and the compass chip answers only in 3D, so " +
+          "to face north again tap ▲ 3D then ▼ 2D. A scale bar on the strip's right reads the " +
+          "chart's scale; 🧭 MY LOC flies the chart to your device fix and arms ◎ LOOK FROM HERE.",
         tip:
           "Buildings exist only in 3D — ▦ 3D DETAIL stands down while the chart is flat, " +
           "which is also why the chart shows satellite imagery as photographed and one zoom " +
@@ -1660,15 +1706,39 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "mobile-layout",
         title: "The layout",
+        where: { mobile: "The status strip on top; the target row, time dock and tabs at the bottom" },
         keys: ["strip", "dock", "tabs", "tab bar", "chrome", "status bar"],
         body: "Two strips carry the chrome, and the globe fills everything between them.",
         list: [
-          "Top: the Plux mark, your account chip, a GUIDE chip and the DESKTOP switch.",
-          "The tracked target row — tap it for the full card.",
+          "Top: the Plux wordmark, which opens [[mobile-menu|the Plux menu]]; the strip's right " +
+            "carries the scale bar while the chart is flat, and the HUD readout in first-person view.",
+          "The tracked target row, above the dock — its name, a CLEAR, BEHIND or BELOW badge, " +
+            "↑ and ↓ for its " +
+            "next rise and set (a dash when none comes within 48 h), then altitude and bearing. " +
+            "Tap it for the full card; hold the NAME to aim at it — in first-person view the look " +
+            "glides onto the body, below the horizon toward where it rises, and on the chart the " +
+            "planned cone's heading turns to it the same way.",
           "The time dock — day steppers, the calendar, the scene-time clock and NOW.",
           "The SCENE · PLAN · FIND · SEARCH · SPOT tabs. FIND and SPOT light up while they " +
             "are working — a frame scan running, a heatmap armed — and a long press on either " +
             "switches it off, or back on, without opening the sheet.",
+        ],
+      },
+      {
+        id: "mobile-menu",
+        title: "The Plux menu",
+        where: { mobile: "Tap the Plux wordmark, top-left" },
+        keys: ["menu", "dropdown", "wordmark", "logo", "sign out", "logout", "log out"],
+        body:
+          "The wordmark is a button, and the ▾ beside it is the hint: tap it and the strip's " +
+          "controls drop down as one menu. Any pick closes it, and so does a tap outside it or " +
+          "Escape.",
+        list: [
+          "SIGN IN — the hosted login, which returns you to the exact view you left. Signed in, " +
+            "the row carries your name and opens MY PLACES instead.",
+          "SIGN OUT — under your name, members only.",
+          "GUIDE — this guide, as a sheet.",
+          "DESKTOP — the full site at this exact view; the choice is remembered ([[start-shells]]).",
         ],
       },
       {
@@ -1692,9 +1762,12 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "▲ 3D / ▼ 2D — lift the chart into the globe, or fold it flat.",
           "◎ LOOK FROM HERE — [[fpv-enter|stand at the pin you dropped]].",
           "◎ SAVE (a round cell under the altitude nudges) and ▤ SAVED PLACES, for members. " +
-            "Signed out the save cell is dimmed — a tap says to sign in from the top bar.",
+            "Signed out the save cell is dimmed — a tap says to sign in from the top bar, which " +
+            "is [[mobile-menu|the Plux menu]].",
           "✕ CLEAR PIN and ✕ EXIT VIEW.",
-          "A micro-compass with your altitude.",
+          "A micro-compass with your altitude — tap it in 3D to face north.",
+          "AR, the top cell of the altitude column in first-person view — " +
+            "[[mobile-ar|aim the view by moving the phone]].",
         ],
         tip:
           "⊞ LAYERS expands to the left with ▦ 3D DETAIL, ◎ MY PLACES, ⌖ PHOTO PINS, " +
@@ -1711,14 +1784,46 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Long-press the ground — a planning pin.",
           "Long-press a sky body — the context menu.",
           "Tap empty sky at night — names appear for a moment.",
-          "Two-finger drag on the flat chart — turn the map.",
+          "Two-finger twist on the flat chart — turn it.",
+          "Two-finger drag on the flat chart — slide it, as one finger does.",
+          "Pinch on the flat chart — zoom, in proportion to how far your fingers spread.",
+          "Hold the tracked target's name — aim at it without opening its card.",
           "Long-press ▲ 3D — stand straight into first-person view, no pin needed.",
           "Long-press the full MAP — drop a point there, and the map stays open.",
           "In first-person view, the joystick walks and one finger looks.",
           "In first-person view, pinch zooms the focal length.",
+          "In first-person view with AR on, move the phone to look around " +
+            "([[mobile-ar|AR look-around]]).",
           "In first-person view, double-tap a building to [[fpv-height|edit its height]].",
         ],
         tip: "While the walk controls are up, the screen stays awake.",
+      },
+      {
+        id: "mobile-ar",
+        title: "AR look-around",
+        where: { mobile: "AR — the top cell of the altitude column, in first-person view" },
+        keys: ["ar", "augmented", "gyro", "gyroscope", "compass", "motion", "sensors", "orientation", "align", "permission"],
+        body:
+          "Tap AR and the phone itself becomes the look: turn it, tilt it, and the view follows. " +
+          "On an iPhone the first tap brings up the motion-access prompt — the browser only asks " +
+          "from the tap itself, never at page load; Android arms at once. A short bubble then " +
+          "says what is steering the view, and clears after a moment. While AR is on, the " +
+          "one-finger look and the AIM stick's heading stand down; the pinch and the stick's " +
+          "focal axis still work. Tap AR again to switch it off.",
+        list: [
+          "COMPASS · TRUE NORTH — the phone's compass, corrected for declination; an iPhone may " +
+            "ask you to tilt the phone down for a moment to re-sync.",
+          "GYRO · ALIGNED — no compass: you aligned once and the gyro carries it; tap ⌖ ALIGN " +
+            "again if it drifts.",
+          "GYRO ONLY — turning the phone turns the view by the right amount from where it was; " +
+            "face where the view looks and tap ⌖ ALIGN to make it exact.",
+          "NO SENSOR DATA — nothing is arriving: move the phone, and if nothing changes, motion " +
+            "access may be off.",
+        ],
+        tip:
+          "Denied it on an iPhone? iOS remembers that until Safari is quit and reopened, or " +
+          "Settings → Safari → Clear History and Website Data — there is no motion toggle in " +
+          "Settings, and a page over HTTP is refused too.",
       },
     ],
   },

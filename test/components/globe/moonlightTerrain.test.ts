@@ -33,7 +33,7 @@ interface Night {
 function nightTerrain({ albedo, nSMoon, nUpMoon, phaseDeg }: Night): THREE.Color {
   const skyLevel = bandCurve(ULTRA.skyLevelCurve, Math.sin((-40 * Math.PI) / 180)); // deep night
   const shade = GROUND.nightFloor * Math.max(skyLevel, GROUND.nightFloorSkyMin); // :718 twin, ultraLight 1
-  const graded = albedo * GROUND.gain; // grey → desat/cast are identity
+  const graded = albedo * GROUND.gain; // grey: desat is exact; the CAST (uFtwCast, per-channel) is omitted — on grey it scales this term by lum(GROUND.cast) ≈ 0.98, inside the targets' headroom
   const moonGlow = SKY.moonSceneGlow * moonPhaseIntensity(phaseDeg);
   const sheenK = Math.max(nSMoon, 0) * moonGlow * GROUND.moonSheenK;
   const moonUp = THREE.MathUtils.lerp(Math.max(nUpMoon, 0), Math.max(nSMoon, 0), GROUND.moonFillNormalK);

@@ -1185,15 +1185,21 @@ export function attachEnrichedBuildings(
       claimedKeys.add(row.key);
     }
     if (ov.byOsm) {
+      // audit #4 H2-1 (2026-09-17): `onRecovered` re-keys the row INSIDE this loop, so a second run
+      // carrying the same OSM id (a bake gives one id to several runs) found the row again under its
+      // fresh key, applied the edit too and re-keyed it AGAIN — the row hopped to the last run and the
+      // next fingerprint pass matched only that one. Claim by OSM id as well: first feature wins.
+      const claimedOsm = new Set<string>();
       for (let i = 0; i < part.features.length; i++) {
         if (claimed.has(i)) continue;
         const f = part.features[i];
-        if (!f.osm) continue;
+        if (!f.osm || claimedOsm.has(f.osm)) continue;
         const row = ov.byOsm(f.osm);
         if (!row || claimedKeys.has(row.key)) continue;
         applyTransformTarget(cell, part, i, row.xf, row.origin);
         claimed.add(i);
         claimedKeys.add(row.key);
+        claimedOsm.add(f.osm);
         ov.onRecovered?.(row, cell.uri, f.run.id, {
           cx: f.cx,
           cz: f.cz,
@@ -1691,6 +1697,9 @@ export function attachEnrichedBuildings(
       const warm = uri ? seatCache.get(uri) : undefined;
       if (warm) {
         seatCacheHits++;
+        // LRU refresh (audit #4 H4-3): a Map keeps insertion order, so re-insert to mark it newest.
+        seatCache.delete(uri as string);
+        seatCache.set(uri as string, warm);
         cell.seatM = warm.seatM;
         cell.appliedM = warm.appliedM;
         cell.bakedElevM = warm.bakedElevM;
@@ -1783,6 +1792,7 @@ export function attachEnrichedBuildings(
             if (seat != null) features.set(id, seat);
           }
         }
+        seatCache.delete(cell.uri); // re-insert as the newest entry (Map.set keeps an old position)
         seatCache.set(cell.uri, {
           seatM: cell.seatM,
           appliedM: cell.appliedM,
@@ -1792,6 +1802,12 @@ export function attachEnrichedBuildings(
           features,
           trees: cell.trees.map((t) => Float32Array.from(t.seatM)),
         });
+        // audit #4 H4-3 (2026-09-17): bounded — drop the least recently banked/restored cell.
+        while (seatCache.size > ENRICHED.seatCacheMaxCells) {
+          const oldest = seatCache.keys().next().value;
+          if (oldest === undefined) break;
+          seatCache.delete(oldest);
+        }
       }
       cellByScene.delete(e.scene);
       // U8 registries + a mid-drag ghost die with their cell (the orchestrator's armed state

@@ -116,7 +116,10 @@ export function reconcileShared(
     const l = local[key];
     if (!l || isDirty(l)) continue; // my pending edit / reset masks the world's row until SYNC
     // A synced copy → refresh it from the world (someone may have re-edited since I pushed).
-    local[key] = { ...srow, s: nowMs };
+    // `s` is the CLIENT clock, `t` the server's updatedAt (audit #4 H2-3, 2026-09-17): a client
+    // running behind the server would stamp s < t and the copy would read as DIRTY — mine, pending,
+    // re-pushed on the next SYNC over whatever the world wrote after it. Never below t.
+    local[key] = { ...srow, s: Math.max(nowMs, srow.t) };
     changed++;
   }
   if (complete) {

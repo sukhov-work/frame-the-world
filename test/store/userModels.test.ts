@@ -11,7 +11,7 @@ import {
   type UserModelsApi,
 } from "../../src/store/userModels";
 import { editJournal, journalCurrent, useEditJournalStore } from "../../src/store/editJournal";
-import { dropSteps, modelTarget, takeUndo } from "../../src/lib/edit/editJournal";
+import { dropSteps, modelTarget, recordEntry, takeUndo } from "../../src/lib/edit/editJournal";
 
 // MESH SUITE MS5 — the world store: the cover-driven, THROTTLED world read (a superseded answer
 // is dropped, a re-poll is due after idle), MINE, click-to-place → PATCH, and the optimistic
@@ -409,6 +409,29 @@ describe("store/userModels", () => {
     api.deleteModel = async () => ({ deleted: false, mediaDeleted: false });
     expect(await useUserModelsStore.getState().remove("m2")).toBe(false);
     expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
+  });
+
+  it("audit #4 H3-1: remove forgets the model's journal entries and baseline (no lingering UNDO / DROP)", async () => {
+    api.mineRows = [mine("m1"), mine("m2")];
+    api.worldRows = [pub("m1"), pub("m2")];
+    const s = useUserModelsStore.getState();
+    await s.loadMine();
+    s.reportViewport(48.4647, 35.0462, 500);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    await flush();
+    // journal an edit on each model, then delete one
+    const before = { lat: 48.4647, lon: 35.0462, rotDeg: 0, sx: 1, sy: 1, sz: 1, tU: 0, pitchDeg: 0, rollDeg: 0 };
+    recordEntry(editJournal, "rotate", [{ target: modelTarget("m1"), before, after: { ...before, rotDeg: 30 } }], 1);
+    recordEntry(editJournal, "rotate", [{ target: modelTarget("m2"), before, after: { ...before, rotDeg: 60 } }], 2);
+    editJournal.baselines.set(modelTarget("m1"), before);
+    expect(editJournal.entries).toHaveLength(2);
+    expect(await useUserModelsStore.getState().remove("m1")).toBe(true);
+    expect(editJournal.entries.map((e) => e.steps.map((st) => st.target))).toEqual([[modelTarget("m2")]]);
+    expect(editJournal.baselines.has(modelTarget("m1"))).toBe(false);
+    // a failed delete forgets nothing
+    api.deleteModel = async () => ({ deleted: false, mediaDeleted: false });
+    expect(await useUserModelsStore.getState().remove("m2")).toBe(false);
+    expect(editJournal.entries).toHaveLength(1);
   });
 
   it("T126: a commit of a PLACED model journals one entry (before = the held placement, after = the answer); the first placement does not", async () => {

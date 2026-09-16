@@ -2683,6 +2683,13 @@ export const ENRICHED = {
    *  h=0 precisely so this re-seat is what puts it on the ground. Set false only for a tileset already
    *  baked to CWT-consistent ellipsoidal Z (then only seatOffsetM applies). */
   reseatToTerrain: true,
+  /** audit #4 H4-3 (2026-09-17): the RC9 seat bank (`seatCache` — the footprint + tree seats of
+   *  every DISPOSED cell, so a returning street lands where it left) had no bound: it grew with
+   *  every cell a session ever visited. LRU by cell now — the most recently disposed or restored
+   *  cells stay; past the cap the oldest is dropped and re-seats on return (a few ms of budget,
+   *  never a wrong seat). ~20 KB per cell; 320 covers a whole 20 × 20 km Dnipro grid on the
+   *  desktop and bounds a phone at ~6 MB. */
+  seatCacheMaxCells: 320,
   /** PER-CELL re-seat (Slice 2, owner #4 "buildings sit at water level"): the single bbox-centre
    *  lift seats a 6 km bake on ONE flat plane — the riverbank drop isn't followed. Each grid cell
    *  is a separate leaf tile, so on top of the group lift every loaded cell is offset along its
@@ -3020,7 +3027,7 @@ export const GROUND = {
    *  each terrain tile's triangles, so a height lookup (`rawHeightAt`'s down ray) and the controls'
    *  pivot / tilt raycasts cost a few triangle tests instead of the whole index of every LOD tile
    *  the ray's sphere hits. Built lazily on a tile's first raycast, dropped with the tile
-   *  (`lib/globe/terrainBvh.ts`, unit-pinned bit-identical to three's `Mesh.raycast`). `false`
+   *  (`lib/globe/terrainBvh.ts`, unit-pinned to three's `Mesh.raycast` hit list: same faces, distances within 1e-6 relative, order-insensitive). `false`
    *  restores three's own walk (a kill switch — the render is byte-identical either way). */
   terrainBvh: true,
   /** T123 lever (d) (2026-09-10): release a composite imagery canvas's BACKING STORE the moment
@@ -4897,6 +4904,12 @@ export const MODELS = {
   densityWarnTris: 1_000_000,
   /** Concurrent GLB fetches (each ≤ 8 MiB). */
   maxConcurrentLoads: 2,
+  /** audit #4 H2-2 (2026-09-17): a failed GLB fetch (a transient 5xx, a dropped connection) is
+   *  retried at the next residency re-plan once this many ms have passed, at most `loadRetries`
+   *  times per page — before this a failure was final for the session (the URL of a stored GLB
+   *  never changes, so "until its row changes" meant "until reload"). */
+  loadRetryMs: 20_000,
+  loadRetries: 3,
   /** Residency re-plan cadence (frames) — distances change slowly; the plan is O(world). */
   residencyEveryFrames: 12,
   /** Terrain re-ask cadence (frames) for models whose seat is not yet REAL (tiles refine);

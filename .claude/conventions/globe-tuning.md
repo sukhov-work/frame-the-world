@@ -209,6 +209,19 @@ is the only place the chain's cost can be expressed. DEV A/B: `__quality.bloomSc
 only while the flat chart is up — the chart has bloom/GTAO/shadow twins off already, so the
 budget goes to crispness), `bloom`, `bloomScale` (inert while `bloom` is false — the resolution a
 restored phone glow would run at), shadow size. Desktop is untouched by design.
+**T83 (2026-09-07c) added the TILE half** (doc line 2026-09-17): `lruBytesMB` 48 ·
+`enrichedLruBytesMB` 128 · `groundLruBytesMB` 112 — hard caps (MB) on the three LRU caches,
+`min`-ed against the running tier's on EVERY tier, `high` included (`lib/globe/quality.
+lruCapBytesForLean`; the tier path's `null` is the library's 0.4 GiB default, which a phone must
+not inherit). Why: the iPhone's FPV page died at page age 129 s with NO second load, its caches
+at 212 MB and climbing toward `mid`'s 832; the desktop twin under the same look-around read
+~3.9 MB of process footprint per cached tile-MB. Sized ABOVE the FPV working set (the Dnipro eye
+settles at 4.5 / 47.5 / 54.6 MB bld / gnd / enr) so the U2/A9 parse → full → discard loop cannot
+start; the resting caches (75 % of the cap) hold the process near 1.1–1.3 GB instead of 2.
+`lean === false` is DEFINED as the argument cap untouched (the desktop fence holds). Farm A/B:
+alive 269 s vs dead < 115 s. The caller still pairs the result with `lruFloorBytesForCap`.
+Companions: `RENDERER.releaseOnPageHide` and the T123 release levers (§The 2026-09-07 →
+2026-09-10 families, at the end of this doc).
 
 **`PLAN.minCoverageForGaps`** (audit #3 A1-16) — the evidence floor below which NO radar
 surface claims skyline gaps. `profileCoverage` reached the store and both PLAN panels and was
@@ -615,3 +628,116 @@ Traps the slice recorded:
   counter is bumped on every unload.
 - **Disposing a loaded GLB** walks geometries, materials AND their texture maps; three's loaders
   allocate all three.
+
+## The 2026-09-07 → 2026-09-10 tunable families (added 2026-09-17, audit #4 D2)
+
+Audit #4 (2026-09-11, finding D2) found this doc named none of the tunables shipped between the
+T83 farm fix (2026-09-07c) and the rendering interlude (2026-09-10f). Search-order step 3 lands
+here, so the names have to be findable from here. Already covered above and NOT repeated:
+`CONTROLS.pinchZoomGain` (2026-09-16), `MOBILE2D.twoFingerPan` (T129), `GROUND.terrainBvh` (T77
+lever 8, under `GROUND` / `TILESETS` — a full entry), `ENRICHED.overrideTintGlow` (T125, in the
+MS3 family), the BESTSPOT hygiene row (`holdMaxMs` 30 000 · `liftDebounceMs` 220 ·
+`workerIdleDisposeMs` 45 000 — re-verified against `tuning.ts` 2026-09-17: the live values
+match), and `QUALITY.leanMobile`'s T83 caps (extended in place above). Every kill switch named
+below is EXACT (the render or the queue order is byte-identical with it off), never asymptotic.
+Dates are the tuning.ts first-commit dates (`git log -S`).
+
+### The moonlight retune (T133, 2026-09-10b/e — `GROUND` + `SHADOWS`)
+
+Owner: "very bright washed out and milky white". Reader: `scene/imageryGround.ts` (`gradeGround`,
+the ground grade GLSL) and the ground-shadow `ShadowMaterial`. Look knobs — no kill switch; the
+pre-retune numbers are in each docblock. JS twins `test/components/globe/duskShadeRatio.test.ts` +
+`moonlightTerrain.test.ts` (full-moon targets: a moon-facing rock ≈ 30 % of its daytime self,
+facing / away ≈ 1.8×, snow / rock ≈ 2×, a new-moon forest a silhouette, never a hole).
+
+| Key | Default | Note |
+|---|---|---|
+| `GROUND.nightFloorSkyMin` | 0.15 | Under the LOOK, `nightFloor` 0.4 is multiplied by skyLevel, which bottoms at 0.03 by −18°: 0.4 × 0.03 = 0.012, so the only albedo-scaled night term was gone and the flat moon fill painted forest, rock and snow one milky grey. skyLevel is floored at this value INSIDE the floor term only (0.4 × 0.15 = 0.06): exact by day and dusk (skyLevel ≥ 0.15 above about −13°), a texture-carrying base at night. |
+| `GROUND.moonFillK` | 0.05 (was 0.7) | The albedo-blind moon fill (`moonFillK × moonGlow × moonUp`, night side). At 0.7 the fill alone sat at ~0.13 linear under a 95 % moon — brighter than any albedo term and direction-blind — and WAS the washed-out picture. The albedo floor + the sheen carry the night now. |
+| `GROUND.moonFillNormalK` | 0.6 | How far the fill's direction term leans from geodetic-up·moon (0, the old aspect-blind fill) onto surface-normal·moon (1): anti-moon slopes lose the fill, moon-facing slopes keep it. |
+| `GROUND.moonSheenK` | 0.45 | Ground-only gain on the albedo-scaled sheen (`graded × moonCol × N·moon × moonGlow`). `SKY.moonSceneGlow` is shared with the orbital earth, so the ground's contrast lever lives here: a moon-facing rock ≈ 0.065 linear under a full moon (≈ sRGB 80 after the night exposure), an anti-moon one ≈ 0.036; the daytime rock ≈ 0.21. |
+| `GROUND.ambientNightK` | 0.012 (was 0.02) | The flat additive night term (× `tokens.moonlight`), back to its 2026-07-12 value: with the albedo-scaled floor restored it no longer has to carry the dark of the moon, and every flat term is contrast lost. |
+| `SHADOWS.moonGroundOpacity` | 0.75 (was 0.62) | Ground-shadow opacity under a FULL moon (× the K&S phase intensity per frame, so it is still softer than the sun's `groundOpacity` 0.75 on any real night). Raised with the retune: once the base is dark a shadow is relief, not contrast. |
+
+### The far-plane fog (T132, 2026-09-10b — `ULTRA`; `scene/glsl.ts`, ground only)
+
+| Key | Default | Note |
+|---|---|---|
+| `ULTRA.farFogStartFrac` / `farFogEndFrac` | 0.8 / 0.985 | GlobeControls fits `camera.far` to the geometric horizon (farMargin 0), so terrain that rises above the horizon beyond that distance is CLIPPED and the sky shows through with a hard edge along the last rendered ridge — the second half of the horizon white band once the dome stopped over-painting (T132: the dome pinned at far + this). The ground's aerial term finishes the job the library's clip started: from `farFogStartFrac × far` the fragment dissolves into the same in-scatter colour and is fully there by `farFogEndFrac × far`, so the clip lands on pixels that are already the sky. Baked with `glf()` into the shared `FTW_AERIAL_GLSL` (`scene/glsl.ts:108`) against the uniform **`uFtwFarM`**, which `imageryGround.ts` writes per frame as `camera.far` rounded to 100 m; the branch is gated on `uFtwFarM > 0.0` and buildings hold it at 0, so they are exact. Ground only. Off-state: a material that never writes `uFtwFarM` gets the pre-T132 term (no separate flag). The uniform is declared in the shared header — the injected-header trap above applies. |
+
+### The tile-stream stalls (T134, 2026-09-10b — `GROUND` + `LOADING`)
+
+Owner: "10, 20, 30 s, 1 min+ … no visible progress … until I moved" (the Everest zoom pose).
+Readers: `lib/globe/overlayFetchPriority.ts`, `lib/globe/virtualSplitGuard.ts`,
+`lib/globe/quality.groundQueueCapsFor`, installed by `scene/imageryGround.ts`.
+
+| Key | Default | Note |
+|---|---|---|
+| `GROUND.overlayFetchPriority` | true | The imagery fetch of every terrain tile follows its TILE through the download queue — parse-slot tiles first, downloaded tiles next by screen error, preloads last — instead of the library's FIFO below every terrain download, which left the five parse slots waiting on images queued behind ~1,000 preloads for tiles that would parse much later (measured: composites flat for 38 s). ORDER only, both shells. Kill switch: `false` = the library's FIFO. |
+| `GROUND.fullCacheKickMs` | 1500 | The cache-full dead end: a tile parsed onto a full cache is discarded without a `needs-update`, and nothing re-traverses while the camera is still. While the cache is full and the queues idle, re-traverse every this many ms (re-marks the used set, evicts what the look dropped, re-admits what it needs; ~0.02 ms). 0 disables. |
+| `GROUND.virtualSplitGuard` · `virtualSplitMaxDepth` · `virtualSplitMaxMs` · `virtualSplitGrowthMinTri` | true · 6 · 80 · 512 | The overlay plugin clips every leaf terrain tile into virtual children down to Esri's max zoom on the main thread; twice in five Everest-zoom runs a split wave arrived whose cost DOUBLED per call (0.7 → 95 s rAF gaps — the "ugly for a whole minute" freeze). A child with more triangles than its parent is refused, so is anything deeper than `virtualSplitMaxDepth` levels or under a split slower than `virtualSplitMaxMs` (healthy splits max ~17 ms). The growth fence ignores tiles under `virtualSplitGrowthMinTri` triangles: a cut adds a few along its edge, and at 0 the fence refused the deep street-level splits (Dnipro FPV lost composite z19 → z17). Kill switch: `virtualSplitGuard: false`. |
+| `LOADING.groundDesktopCaps` | `{ download: 32, parse: 12 }` | The GROUND renderer's concurrency on a DESKTOP `high` only (never a coarse pointer, never mid/low): a ground parse slot is held through the tile's imagery composite, so on a cold imagery cache the library's 5 slots are 5 network waits (6 tiles/s at the Everest zoom vs 75/s warm). 12 slots wait on the network at once; the download cap rises with them so the slots' images are never starved. The per-tile `load-model` work (BVH, shadow twin, memo) is ~1–3 ms, so a worst-case burst is a 12-tile frame — a desktop cost, which is why the phones keep the tier rule. Kill switch: `null` = the tier rule for the ground too. Same shape as `QUALITY.desktopGroundLruBytesMB`. |
+| `GROUND.revealMaxHoldMs` | 3 000 | The reveal hold's cap. Until the first `tiles-load-end`, readiness = `loadProgress × revealProgressCap` (0.85), and a look whose stream keeps finishing tiles for a minute held the whole layer at the cap — a 15 % screen-door veil over an already-drawn scene. Past this many ms after the first ground tile RENDERED, the hold releases. |
+
+### The ground caches (2026-09-10b/f — `QUALITY`; `lib/globe/quality.ts`)
+
+| Key | Default | Note |
+|---|---|---|
+| `QUALITY.desktopGroundLruBytesMB` | 600 (`number \| null`) | Owner order 2026-09-10f: the REGULAR desktop's ground cache — `high` off a coarse pointer with the ULTRA chip OFF, the ground renderer only (`quality.groundLruCapForDesktop`: `lean`, ULTRA on, mid / low and `null` each return the argument cap untouched). The library's default is 0.4 GiB (≈ 410 MB); a long-lens working set exceeded it (~450 MB at the Everest zoom), so regular mode refined to the cap and the cache-full kick re-tried forever. The floor rides `lruFloorBytesForCap` (0.75 × the cap). Buildings / enriched keep the tier rule (the U2/A9 jetsam lesson: a blanket raise is the wrong direction; the ground is the one cache a long lens fills). The `high` tier TABLE stays at 400 (the byte-identical-tier fence in `quality.test.ts`): this is a desktop-shell lever applied on top of it. Kill switch: `null`. |
+| `QUALITY.ultraDesktop.groundLruBytesMB` | 1400 (600 → 1200 on 2026-09-10b → 1400 on 2026-09-10f) | The ULTRA ground cap (`quality.lruCapBytesForUltra`). The Everest zoom's working set filled the 600 cap exactly (÷ the mip factor = 452 MB; `usedSet` 420 = `itemSet` 420, every tile "used", `isFull` at rest) and the library discards a tile parsed onto a full cache, so the look could never finish refining (`GROUND.fullCacheKickMs` re-traverses; this is the room). ~1,050 MB of decoded composites after the mip re-billing: a desktop GPU budget, the chip is the opt-in. Owner: "on PC on ULTRA you shouldn't hold yourself with resources, cache". |
+| `QUALITY.leanMobile.{lruBytesMB, enrichedLruBytesMB, groundLruBytesMB}` | 48 / 128 / 112 | T83 (2026-09-07c) — the phone side of the same ladder; see the `leanMobile` paragraph above. |
+
+### The T123 release levers (2026-09-09b / 2026-09-10 — `MOBILE2D` + `GROUND` + `RENDERER`)
+
+Readers: `lib/globe/detachedRelease.ts` (called from `StylizedTiles`, `scene/buildings.ts`,
+`scene/enrichedBuildings.ts`), `lib/globe/compositeCanvasRelease.ts` (`scene/imageryGround.ts`),
+`GlobeCanvas.tsx` for the page-hide release. Measurements: `rendering/MEASUREMENTS.md` §30 / §31.
+
+| Key | Default | Note |
+|---|---|---|
+| `MOBILE2D.releaseDetachedTiles` | true | Lever (a), owner ruling 2026-09-09b: when the 2D map DETACHES the enriched + OSM tilesets, RELEASE their tile caches instead of freezing them. A detached TilesRenderer is never `update()`d, so its LRU never evicts: the iPhone stress leg kept every cell of every FPV spot resident (geometries 395 → 795 with the caches FLAT under the lean caps) and WebContent died at the 2 GB per-process ceiling in cycle 4 (§30). Nothing reads a detached cache until the next attach, which re-streams (mostly from the browser's HTTP cache; the banked seats land the re-stream where it left). The drain is one synchronous whole-cache eviction, caps restored verbatim. `/m`-only by construction: the desktop never detaches through this path (BLD off keeps its cache) and stays byte-identical. Kill switch: `false` = the 2026-08-18 frozen cache. |
+| `MOBILE2D.releaseDetachedGraceMs` | 2500 | Grace (ms) between the detach and the drain — past `FLIGHT.durationMs` (2200), so the disposal lands on the RESTING 2D map, never inside the FPV-exit flight's frames; a quick FPV → 2D → FPV bounce keeps its cells. The stress harness's shortest 2D rest between a detach and the next attach is 3 s (`heatmap-off`), so the drain must fire under that. |
+| `GROUND.releaseCompositeCanvas` | true | Lever (d), 2026-09-10: release a composite imagery canvas's BACKING STORE the moment the overlay library disposes its texture. The plugin composites every ground tile's imagery into its own `<canvas>` (256² lean / 512² high) and on release disposes only the GL texture; the canvas keeps its pixels until the element is garbage-collected, which nothing hurries. ~450 composites are born per `/m` stress cycle; on iOS an accelerated canvas is an IOSurface in the footprint jetsam reads, and after lever (a) the phone still died in cycle 8 with the app's own caches flat (§31). A released composite can never draw again (the library disposes only at lock count 0), so the render is byte-identical on both shells. Kill switch: `false` = the library's own GC timing. |
+| `RENDERER.releaseOnPageHide` | true | T83 (2026-09-07c): release the GL context and every tileset on `pagehide`. iOS Safari keeps ONE WebContent process across same-origin navigations and jetsam kills it at a 2,048 MB per-process cap 14–25 s after the SECOND globe page loads (five Device Farm syslogs): the navigated-away document's WebGL resources linger (~470 MB per page load on the desktop twin, `scripts/probe-memory-footprint.mjs`) until its canvas is collected. Disposing the scene and forcing context loss the moment the page hides returns that memory before the next document needs it. A page restored from the back/forward cache after the release has no context left and reloads (`pageshow` with `persisted`); same-document hash navigations never fire `pagehide`, so the pose / photo flows are untouched. Kill switch: `false`. |
+
+### The two-phase load handlers (T106, 2026-09-07e/f + T115, 2026-09-07j — `ENRICHED` + `BUILDINGS`)
+
+Readers: `scene/enrichedBuildings.ts` and `scene/buildings.ts`, draining `lib/globe/loadQueue.ts`
+(the resumable unit queue) with the edge builder `lib/globe/fastEdges.ts`; the tree locate is
+`lib/globe/treeLocate.ts`. There is no kill switch: the handlers are two-phase by construction,
+and every drain runs at least one step, so a budget bounds the work per frame without starving it.
+Owner ruling 2026-09-08c: the lean load budgets keep 3 / 1.5.
+
+| Key | Default | Note |
+|---|---|---|
+| `ENRICHED.loadBudgetMs` / `loadBudgetMsLean` | 6 / 3 | Slice (b), 2026-09-07e: the per-frame TIME budget (ms) for PHASE 2 of a cell's `load-model` — the crease edges (resumable mid-build), the per-building edge attribution, the feature registry + banked-seat restore + override re-apply (each atomic per mesh, run in that order so the §4a pristine capture is still a straight copy). The handler used to do all of it in ONE frame: 65 ms for the biggest Dnipro cell on the phone twin, the bulk of the Pixel's 6.7 s descent hitch. Keyed on `lean` by the orchestrator, like `PLAN.sweepBudgetMs`. Units are picked NEAREST first (the download queue's own look-biased law), so a landing burst registers what the viewer sees before what is behind them. Worst frame: DBG `buildings.loadMaxMs`, `__globe.enrichedLoad().deferredMaxMs`; live A/B `__globe.enrichedLoadBudget(ms)`. |
+| `BUILDINGS.loadBudgetMs` / `loadBudgetMsLean` | 3 / 1.5 | T106 OSM, 2026-09-07f: the same shape for the OSM handler's phase 2 — the crease edges of every mesh a b3dm tile lands with, built through the resumable fast builder (one unit per mesh, nearest tile first). On the Pixel the atomic build was 410 ms of the descent's hitch frames (three's `EdgesGeometry`: the b3dm position is INTERLEAVED and had been failing the fast path's gate). The OSM queue drains in `buildings.update()` one frame BEFORE the enriched queue — the two are SEPARATE budgets, so a frame that drains both spends up to their sum. Worst frame: `__globe.buildingsLoad().deferredMaxMs` (DBG `buildings.osmLoadMaxMs`); live A/B `__globe.buildingsLoadBudget(ms)`. |
+| `ENRICHED.treeLocateBudgetMs` | 0.5 | T115, 2026-09-07j: the tree-instance LOCATE (translation → world → geodetic, once per instance, before its first terrain sample) runs in chunks of 256 inside the reseat drain; it may keep chunking while this many ms of the frame are unspent since ITS first chunk, or while the reseat deadline (`reseatBudgetMs`) is — whichever is later. The first chunk of a frame always runs. Sized so a 60k-tree city locates in ~1 s (desktop) / ~2 s (a phone) at ≤ this + one chunk per frame; the one-shot it replaced was 7.5 ms atomic on the Pixel (§25.5). |
+
+### The occlusion rulings (T110 / T111 / T112, 2026-09-07d — `PLAN` + `DAYARC`)
+
+Readers: `lib/geo/horizonProfile.ts` + `lib/geo/occlusion.ts` (the sweep), `scene/planFeed.ts`
+(the build slicing + `profileSample()`), `scene/dayArcs.ts` (the fold).
+
+| Key | Default | Note |
+|---|---|---|
+| `PLAN.azBins` / `azBinsLean` | 1440 / 1440 (was 120) | T110: the FINE azimuth resolution the mesh sweeps write the horizon profile at. 120 (3°) was justified against a 150 m building at the trust edge — a SKYLINE criterion; the FRAME criterion is a 500 mm lens (`FPV.minFovDeg` 2.75° ≈ 4° wide): at 3° a mast raised a whole bin to its tip and a gap between two towers vanished. 1440 = 0.25°, sixteen bins across that frame; memory 6 KB. `terrainAzBins` stays 120: terrain is marched coarse (the expensive half, ~21 `heightAt` raycasts per bin) and folded into the fine profile by `foldCoarseProfile` (known-aware interpolation). The lean count is the same 0.25° until the phone measurement says otherwise; the time budget is what protects the frame there. |
+| `PLAN.sweepBudgetMs` / `sweepBudgetMsLean` | 3 / 1.5 | T110: the mesh phase's per-frame TIME budget (ms), desktop / lean. The walker is resumable mid-mesh (`sweepMeshEdgesSliced`), so one enriched cell that would take 10 ms at the fine width spans several frames instead of hitching one; at least one chunk is walked per frame, so the build always progresses, and the carry policy keeps the previous profile published while it does. `meshesPerFrame` (4) is a COUNT ceiling now; the time budget is the binding one. |
+| `DAYARC.skylineBehindAlpha` | 0.35 | T111 (the owner left the taste to the recommendation): per-vertex alpha multiplier where the body sits BEHIND the cached skyline at the arc's anchor (buildings, terrain, trees, user models — `planFeed.profileSample()`), for the day arcs and the target trail. The arc keeps reading THROUGH the skyline (the 2026-07 ruling: a planning overlay shows the whole path) but the hidden spans are visibly dimmer — the "dashed where blocked" the scrubber's curves wear. 1 = off (the pre-T111 look). Applied at rebuild only; the fold is keyed on the profile's identity, so a profile arriving after FPV entry re-folds once. DEV read: `__globe.dayArcsFold()`. |
+
+T112 (the same ruling, "best effort even below 50 %") RETIRED `PLAN.minCoverageForGaps` (0.5) for
+the radars and every other profile consumer: honesty is per BIN now (`skylineSamplerFor` answers
+exactly where a bin has evidence and `null` where it has none), so a low-coverage profile keeps
+its true gaps instead of being withheld whole. The A1-16 paragraph above describes the pre-T112
+state; the key survives only because the parked BEST SPOT scoring pins
+`BESTSPOT_SCORING_V1.gates.minCoverage` to it (a different question).
+
+### The audit #4 fix session (2026-09-17 — `ENRICHED` + `MODELS`)
+
+Readers: `scene/enrichedBuildings.ts` (the RC9 seat bank), `scene/userModels.ts` (the GLB loader's
+residency re-plan). Both are bounds on behaviour that used to be unbounded; neither changes a pixel.
+
+| Key | Default | Note |
+|---|---|---|
+| `ENRICHED.seatCacheMaxCells` | 320 | audit #4 H4-3: the RC9 seat bank (`seatCache` — the footprint + tree seats of every DISPOSED cell, so a returning street lands where it left) grew with every cell a session ever visited. LRU by cell: a bank or a warm restore re-inserts the cell as the newest entry (a Map keeps insertion order); past the cap the oldest is dropped and re-seats on return — a few ms of seat budget, never a wrong seat. ~20 KB per cell; 320 covers a whole 20 × 20 km Dnipro grid on the desktop and bounds a phone at ~6 MB. A variant switch still clears the bank whole. |
+| `MODELS.loadRetryMs` · `loadRetries` | 20 000 · 3 | audit #4 H2-2: a failed GLB fetch (a transient 5xx, a dropped connection) was FINAL for the session — the re-plan skipped `failed`, `startLoad` wanted `idle`, and a stored GLB's URL never changes, so "until its row changes" meant "until reload". A failed entry now returns to `idle` at the next residency re-plan once `loadRetryMs` has passed, at most `loadRetries` times per page; the density chip's `failed` count reads "currently failed". An empty GLB (no geometry) burns its attempts the same way and then stays failed. |

@@ -249,6 +249,14 @@ function DropStep() {
   );
 }
 
+
+/** The placement fields the REVIEW step can miss (D4 nudge set) — named in the review sentence. */
+const MISSING_FIELD_NAME: Record<AdjustableKey, string> = {
+  focalLengthMm: "the focal length",
+  headingDeg: "the heading",
+  pitchDeg: "the pitch",
+  altitudeM: "the altitude",
+};
 function ReviewStep() {
   const store = useUploadStore();
   const exif = store.exif;
@@ -268,11 +276,19 @@ function ReviewStep() {
   // with the rendered frustum (store.derivedFov) so the readout and the globe can never disagree.
   const fov = derivedFov(exif, store.params);
 
+  // audit #4 L3 (2026-09-17): the sentence counted only the D4 placement set ("Three fields are
+  // missing") while six rows wore MISSING badges, and its word table ran out at three. Name the
+  // fields instead — the same three the "SET ON GLOBE" badge points at.
+  const missingNames = missing.map((k) => MISSING_FIELD_NAME[k]);
+  const missingList =
+    missingNames.length <= 1
+      ? missingNames[0] ?? ""
+      : `${missingNames.slice(0, -1).join(", ")} and ${missingNames[missingNames.length - 1]}`;
   const missingCopy =
     missing.length > 0
-      ? ` ${missing.length === 1 ? "One field is" : `${["", "", "Two", "Three"][missing.length]} fields are`} missing — add ${
+      ? ` ${missingList.charAt(0).toUpperCase()}${missingList.slice(1)} ${missing.length === 1 ? "is" : "are"} not in the file — set ${
           missing.length === 1 ? "it" : "them"
-        } so the projection is exact.`
+        } on the globe so the projection is exact.`
       : "";
 
   return (

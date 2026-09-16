@@ -5,6 +5,7 @@ import { useCameraStore } from "../../store/camera";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import { useTimeStore } from "../../store/time";
 import "../../styles/mobile/chrome.css";
+import { dataFetchInit } from "../../lib/api/dataFetch";
 
 /**
  * MY PLACES on /m (owner 2026-08-15) — the desktop MyPins · PLACES twin: the member's saved
@@ -26,7 +27,7 @@ export default function MobilePlaces({ onJump }: { onJump: () => void }) {
   useEffect(() => {
     if (phase !== "member") return;
     let stale = false;
-    fetch("/api/places")
+    fetch("/api/places", dataFetchInit())
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j: { places?: PlaceListItem[] }) => {
         // Nearest-first from the CURRENT map position (owner 2026-08-19b): FPV eye when

@@ -84,6 +84,15 @@ describe("reconcileShared — local pending wins, shared wins over my synced cop
     expect(shared.size).toBe(2);
   });
 
+  it("a refreshed synced copy never reads as dirty when the client clock runs behind the server (audit #4 H2-3)", () => {
+    const local: OverrideMap = { [K("c.glb", 2)]: row({ sy: 3, t: 100, s: 200 }) };
+    const rows = [{ key: K("c.glb", 2), row: row({ sy: 1.7, t: 5_000, s: 5_000 }) }];
+    reconcileShared(local, new Map(), rows, true, 4_000); // the client's "now" is 1 s behind updatedAt
+    expect(isDirty(local[K("c.glb", 2)])).toBe(false);
+    expect(local[K("c.glb", 2)].s).toBe(5_000); // clamped to t, never below it
+    expect(local[K("c.glb", 2)].sy).toBe(1.7);
+  });
+
   it("a COMPLETE fetch deletes a synced row the world no longer has; a partial one never does", () => {
     const mk = () => ({ [K("c.glb", 9)]: row({ t: 100, s: 200 }), [K("c.glb", 8)]: row({ t: 100 }) });
     const complete = mk();

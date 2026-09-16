@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   BAKED_REGIONS,
@@ -48,6 +50,53 @@ describe("BAKED_REGIONS invariants", () => {
       expect(t.extentMaxDepth).toBeLessThanOrEqual(t.maxDepth);
       // The mask/bake coupling: the region bbox IS the terrain city bbox where a patch exists.
       expect(t.cityBbox).toEqual(r.bbox);
+    }
+  });
+});
+
+describe("the bake-config coupling (audit #4 B4, 2026-09-17) — regions.ts equals scripts/bake/cities/*.json", () => {
+  // The registry's own contract: `bbox` MUST equal the city's bake bbox and the terrain block MUST
+  // match the bake config verbatim. Until now the test only checked the registry against itself, so
+  // a city-JSON edit (or a registry edit) drifted silently until the mask and the seat disagreed in
+  // the field. `extends` resolves like the bake scripts do (a variant inherits its base's bbox).
+  const citiesDir = join(__dirname, "..", "..", "..", "scripts", "bake", "cities");
+  interface CityCfg {
+    extends?: string;
+    bbox?: number[];
+    terrain?: { extentBbox: number[]; extentMaxDepth: number; cityBbox: number[]; maxDepth: number };
+  }
+  const readCity = (id: string): CityCfg => JSON.parse(readFileSync(join(citiesDir, `${id}.json`), "utf8"));
+  const resolved = (id: string): CityCfg => {
+    const c = readCity(id);
+    return c.extends ? { ...resolved(c.extends), ...c } : c;
+  };
+
+  it("every region's bbox is its bake config's bbox (or its terrain cityBbox for a terrain-only region)", () => {
+    for (const r of BAKED_REGIONS) {
+      const cfg = resolved(r.id);
+      const bakeBbox = cfg.bbox ?? cfg.terrain?.cityBbox;
+      expect(bakeBbox, `${r.id}: no bbox in its bake config`).toBeDefined();
+      expect(r.bbox, `${r.id}: registry bbox ≠ bake bbox`).toEqual(bakeBbox);
+    }
+  });
+
+  it("every variant's bake config resolves to its region's bbox", () => {
+    for (const r of BAKED_REGIONS)
+      for (const v of r.variants) expect(resolved(v).bbox, `${v}: variant bbox ≠ region bbox`).toEqual(r.bbox);
+  });
+
+  it("every terrain block matches the bake's terrain section verbatim", () => {
+    for (const r of BAKED_REGIONS) {
+      const cfg = resolved(r.id);
+      if (!r.terrain) {
+        expect(cfg.terrain, `${r.id}: the bake has a terrain section the registry does not`).toBeUndefined();
+        continue;
+      }
+      expect(cfg.terrain, `${r.id}: registry has a terrain block, the bake config does not`).toBeDefined();
+      expect(r.terrain.extentBbox).toEqual(cfg.terrain!.extentBbox);
+      expect(r.terrain.extentMaxDepth).toBe(cfg.terrain!.extentMaxDepth);
+      expect(r.terrain.cityBbox).toEqual(cfg.terrain!.cityBbox);
+      expect(r.terrain.maxDepth).toBe(cfg.terrain!.maxDepth);
     }
   });
 });

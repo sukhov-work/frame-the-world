@@ -177,9 +177,9 @@ navigation, FPV stability, fullscreen 2D map + minimap FOV cone, direction lines
 cones, closest-first tile loading, terrain precision, building height overrides), the ULTRA
 desktop fidelity track, real eclipses, and BEST SPOT — the observability heatmap that predicts
 where to stand. Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11).
-Quality gates at head (2026-08-24): **1,902 vitest tests across 130 files, `astro check`
-0 errors / 0 warnings / 5 hints (dated baseline)**, browser flows verified over CDP on `wix dev`. The app is released and
-live on the Wix cloud (demo URL deliberately withheld — owner call pending).
+Quality gates at head (2026-09-17): **3,138 vitest tests across 210 files, `astro check`
+0 errors / 0 warnings / 12 hints (dated baseline), knip 0**, browser flows verified over CDP on `wix dev`. The app is released and
+live at [www.plux.today](https://www.plux.today) (since 2026-09-10).
 
 ## Built entirely by AI agents
 
@@ -206,7 +206,7 @@ Prereqs: Node ≥ 20.11, Wix CLI authed (`npx @wix/cli@latest whoami`).
 ```bash
 npm install --legacy-peer-deps    # pnpm fails against the @wix/cli template — proven, see conventions
 npm run dev                       # wix dev — local dev wired to a real Wix site sandbox
-npm test                          # 1,902 vitest unit tests (2026-08-24) — projection, geodesy, ephemeris, eclipses, best-spot scoring…
+npm test                          # 3,138 vitest unit tests (2026-09-17) — projection, geodesy, ephemeris, eclipses, best-spot scoring…
 npx astro check                   # typecheck (0 errors at head)
 npm run build && npm run release  # publish to Wix cloud — there is no other prod
 ```

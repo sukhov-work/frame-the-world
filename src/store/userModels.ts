@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { MODELS } from "../components/globe/tuning";
-import { modelTarget, recordEntry } from "../lib/edit/editJournal";
+import { forgetTarget, modelTarget, recordEntry } from "../lib/edit/editJournal";
 import { placementSnapshot, planModelCover, sameCover, type PlacementSnapshot } from "../lib/models/modelPlacement";
 import type { ModelListItem, ModelPatchAnswer, PublicModel } from "../lib/wix/modelRecords";
 import { editJournal, refreshEditJournalMirror, setJournalCurrent } from "./editJournal";
@@ -435,6 +435,11 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
       if (!res.deleted) return false;
       localRows.set(id, { row: null, atMs: nowMs() });
       set({ mine: get().mine.filter((m) => m.id !== id), world: get().world.filter((m) => m.id !== id) });
+      // audit #4 H3-1 (2026-09-17): the journal's own contract names "its model deleted" as a
+      // forget case — without it the MESH EDITS pill lingered with a DROP that would restore a row
+      // the server no longer has.
+      forgetTarget(editJournal, modelTarget(id));
+      refreshEditJournalMirror();
       return true;
     } catch (e) {
       console.warn("[userModels] delete failed", e);

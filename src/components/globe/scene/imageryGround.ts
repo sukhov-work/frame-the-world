@@ -489,6 +489,14 @@ export function attachImageryGround(
         growthMinTri: GROUND.virtualSplitGrowthMinTri,
       })
     : { stats: { calls: 0, depthCapped: 0, growthCapped: 0, timeCapped: 0, worstMs: 0, totalMs: 0 }, installed: false, dispose() {} };
+  // audit #4 A2 (2026-09-17): a library-shape drift used to degrade SILENTLY — the handles answer
+  // `installed: false` and the ground streams on the library's own path with no console line. The
+  // dependency is pinned exactly now (T136, `test/lib/globe/libraryPin.test.ts`), so a `false` here
+  // is a real regression: name it once per boot, in every build.
+  if (GROUND.overlayFetchPriority && !overlayPriority.installed)
+    console.warn("[plux] overlayFetchPriority did not install — 3d-tiles-renderer shape drift? (pinned 0.4.28; imagery fetches keep the library's FIFO)");
+  if (GROUND.virtualSplitGuard && !splitGuard.installed)
+    console.warn("[plux] virtualSplitGuard did not install — 3d-tiles-renderer shape drift? (pinned 0.4.28; the split-runaway fence is OFF)");
   tiles.setCamera(opts.camera);
   const refreshResolution = () => {
     const size = opts.renderer.getSize(new THREE.Vector2());
@@ -543,7 +551,7 @@ export function attachImageryGround(
     uFtwFlat2d: { value: 0 }, // /m 2D map: forces day grading (a planning chart reads around the clock)
     uFtwSun: { value: new THREE.Vector3(...SUN.direction).normalize() },
     uFtwMoonDir: { value: new THREE.Vector3(0, 0, 1) },
-    uFtwMoonGlow: { value: 0 }, // SKY.moonSceneGlow × illuminated fraction (per ephemeris sample)
+    uFtwMoonGlow: { value: 0 }, // SKY.moonSceneGlow × the K&S phase intensity (per ephemeris sample — NOT the illuminated fraction: a quarter moon is ~9 %, not 50 %)
     uFtwMoonCol: { value: new THREE.Color(tokens.moonlight) },
     uFtwGoldenCol: { value: new THREE.Color(tokens.goldenHour) },
     // ECLIPSE (2026-08-22k): daylight REMAINING, 0..1, already altitude-gated by the orchestrator
@@ -773,7 +781,7 @@ export function attachImageryGround(
             // 2026-09-10b: under the LOOK skyLevel bottoms at 0.03, which had cut the 0.4 floor
             // to 0.012 — the one albedo-scaled night term was gone and the flat moon fill WAS the
             // picture (forest = rock = snow). GROUND.nightFloorSkyMin keeps a texture-carrying
-            // base (0.4 × 0.2 = 0.08) that only bites below −12° (skyLevel < 0.2); exact by day.
+            // base (0.4 × 0.15 = 0.06) that only bites once skyLevel drops under 0.15; exact by day.
             mix(uFtwNightFloor * mix(1.0, max(uFtwSkyLevel, ${glf(GROUND.nightFloorSkyMin)}), uFtwUltraLight),
               dayShade, dayK),
             mix(${glf(DRAPE.nightFloor)}, ${glf(DRAPE.dayShade)}, dayK),
