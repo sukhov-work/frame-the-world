@@ -150,7 +150,17 @@ body.m .mw-pip {
    rides the mw-open z-24 rung; the desktop TimeScrubber rides z 43 in time-scrubber.css) —
    the interaction hint moved into the top row. (The attribution shared that top band until
    2026-08-22, when item 3 moved it to the bottom edge under the time strip — see below.) */
+/* The chart's scale bar (owner 2026-09-16, /m only — `.m-scalebar` from mobile.css draws it):
+   under the [MAP][+][−] pills on the LEFT; the PiP owns the right of that rung. */
+.mw-scale {
+  position: absolute;
+  left: 0.75rem;
+  top: calc(var(--mw-top-y) + 2.35rem + env(safe-area-inset-top));
+  align-items: flex-start;
+  z-index: 1;
+}
 .mw-tophint {
+
   font-family: var(--font-mono);
   font-size: 0.54rem;
   letter-spacing: 0.14em;

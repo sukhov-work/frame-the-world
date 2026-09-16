@@ -36,6 +36,8 @@ body {
   pointer-events: auto;
   touch-action: none; /* U1 pinch hardening: a pinch that starts on a strip chip must not zoom */
 }
+/* The PLUX logo is the strip's ONE left control since 2026-09-16 (owner: "sign in, guide,
+   desktop buttons as a dropdown from the plux logo") — a button reset to the wordmark's look. */
 .m-title {
   display: inline-flex;
   align-items: center;
@@ -44,6 +46,19 @@ body {
   font-size: 0.95rem;
   letter-spacing: 0.02em;
   color: var(--color-text);
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  padding: 0.15rem 0.3rem;
+  margin: -0.15rem -0.3rem; /* the padding grows the tap target without moving the mark */
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.m-title--open {
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
 }
 
 /* The Plux star mark (brand launch 2026-08-19) at text height on the status strip. */
@@ -51,6 +66,135 @@ body {
   width: 14px;
   height: 14px;
 }
+/* The micro hint (owner 2026-09-16: "with micro subtle hint") — a muted chevron a step below
+   the wordmark's weight; it turns while the menu is down. */
+.m-title__hint {
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  margin-left: -0.1rem;
+  transition: transform 180ms ease, color 180ms ease;
+}
+.m-title--open .m-title__hint {
+  transform: rotate(180deg);
+  color: var(--color-accent);
+}
+
+/* ── The PLUX menu (2026-09-16) — drops from the logo, left-anchored under the strip ────── */
+/* Fixed, not absolute: `.m-status` is a flex row with safe-area padding, and the menu must
+   clear the strip's bottom edge whatever the notch adds; pointer-events come back per item
+   through the `.m-status a, .m-status button` rule (the menu is a strip descendant). */
+.m-menu {
+  position: fixed;
+  top: calc(2.45rem + env(safe-area-inset-top));
+  left: calc(0.6rem + env(safe-area-inset-left));
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 11.5rem;
+  padding: 0.4rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 26%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--color-bg) 70%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: auto;
+  touch-action: none;
+  animation: m-menu-drop 180ms ease both;
+}
+@keyframes m-menu-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-menu {
+    animation: none;
+  }
+}
+/* A menu ROW: the chip's type + colours, laid out as a full-width row with a muted hint. */
+.m-menu__item,
+.m-status .m-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  width: 100%;
+  max-width: none;
+  min-height: 2.5rem; /* the 40 px touch cell */
+  padding: 0.45rem 0.9rem 0.45rem 0.7rem;
+
+  border-radius: 8px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+}
+.m-menu__item:active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.m-menu__hint {
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+/* The dismiss scrim: transparent, under the strip (z 9 < 10), swallows the tap that closes. */
+.m-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  background: transparent;
+  touch-action: none;
+}
+
+/* ── The 2D map's SCALE BAR (2026-09-16) — the strip's right READOUT rung ─────────────── */
+/* Also worn by the MapWindow chart's bar (`.mw-scale`, map-window.css seats it). A 1 px line
+   with end ticks under a mono label; the width is set inline to exactly the ladder distance. */
+.m-scalebar {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--color-bg) 90%, transparent);
+}
+.m-scalebar__label {
+  line-height: 1;
+}
+.m-scalebar__bar {
+  position: relative;
+  display: block;
+  height: 5px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 78%, transparent);
+  border-top: none;
+  box-sizing: border-box;
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-bg) 90%, transparent));
+}
+.m-scalebar__bar::after {
+  /* the centre tick — reads the half distance at a glance */
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 1px;
+  height: 3px;
+  background: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
 .m-chip {
   font-family: var(--font-mono);
   font-size: 0.62rem;

@@ -144,6 +144,12 @@ export interface CameraState {
   focusLonDeg: number;
   /** Live viewer ground point (camera nadir; low-cadence mirror, faster while FPV walks). */
   camGeo: CamGeo | null;
+  /** Ground metres per CSS pixel at the SCREEN CENTRE (owner 2026-09-16 — the /m 2D map's scale
+   *  bar): `|camera − focus| · 2·tan(vFov/2) / viewportH`, mirrored at the pose cadence with a
+   *  1 % deadband; null while the view has no ground focus (past the limb). Exact at nadir —
+   *  the only pose the bar is shown in; oblique views read the centre pixel's own scale. */
+  mapScaleMPerPx: number | null;
+
   /** Pending one-shot fly-to (location finder); the orchestrator consumes + clears it. */
   flyRequest: FlyRequest | null;
   /** Temporary virtual pin (Phase 5.5 S2 follow-up): double-click the ground drops it; while
@@ -340,7 +346,9 @@ export interface CameraState {
   _syncZoom: (altM: number) => void;
   _syncFocus: (latDeg: number, lonDeg: number) => void;
   _syncCamGeo: (g: CamGeo | null) => void;
+  _syncMapScale: (mPerPx: number | null) => void;
 }
+
 
 // Reload-surviving view choices (owner 2026-07-21) — read once at module load (client:only
 // islands ⇒ browser-only; tests/SSR degrade to {} inside loadViewPrefs).
@@ -356,6 +364,8 @@ export const useCameraStore = create<CameraState>((set) => ({
   focusLatDeg: 48.46, // Dnipro-ish until the first live sync lands (POSE default view)
   focusLonDeg: 35.05,
   camGeo: null,
+  mapScaleMPerPx: null,
+
   flyRequest: null,
   headingRateDegPerS: null,
   zoomRatePerS: null,
@@ -491,7 +501,9 @@ export const useCameraStore = create<CameraState>((set) => ({
   _syncZoom: (altM) => set({ zoomAltM: altM }),
   _syncFocus: (latDeg, lonDeg) => set({ focusLatDeg: latDeg, focusLonDeg: lonDeg }),
   _syncCamGeo: (g) => set({ camGeo: g }),
+  _syncMapScale: (mPerPx) => set({ mapScaleMPerPx: mPerPx }),
 }));
+
 
 /** Zoom slider (0..1) → altitude (m), log-mapped so metres and megametres both get travel. */
 export function sliderToAltM(t: number, minAltM: number, maxAltM: number): number {

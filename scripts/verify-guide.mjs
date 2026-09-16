@@ -389,7 +389,11 @@ await m.goto(`${BASE}/m${POSE}`);
 check("/m: engine booted", await m.waitFor(`!!window.__cameraStore`));
 await sleep(7000);
 {
-  await m.evalJs(`[...document.querySelectorAll('.m-chip')].find(b=>b.textContent.trim()==='GUIDE')?.click()`);
+  // 2026-09-16: GUIDE lives in the PLUX logo menu — open it first (a real tap order).
+  await m.evalJs(`document.querySelector('.m-title')?.click()`);
+  await sleep(300);
+  await m.evalJs(`[...document.querySelectorAll('.m-chip')].find(b=>b.textContent.trim().startsWith('GUIDE'))?.click()`);
+
   await sleep(800);
   const idx = await m.evalJs(`(() => ({
     search: !!document.querySelector('.m-gsearch'),

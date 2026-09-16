@@ -31,6 +31,7 @@ import TargetSheet from "./TargetSheet";
 import TargetPeek from "./TargetPeek";
 import SceneActions from "./SceneActions";
 import FpvControls from "./FpvControls";
+import ScaleBar from "./ScaleBar";
 import { AimJoystick } from "../controls/Joystick";
 import "../../styles/mobile/chrome.css";
 
@@ -38,6 +39,14 @@ type SheetId = "plan" | "find" | "search" | "spot" | "target" | "guide" | null;
 
 export default function MobileShell() {
   const [sheet, setSheet] = useState<SheetId>(null);
+  // The PLUX menu (owner 2026-09-16: "make sign in, guide, desktop buttons a dropdown from the
+  // plux logo … this will free a good part of the top row"): the logo is the one control on the
+  // strip's left; the three former chips drop down from it. Closed by any pick, the scrim, or
+  // Escape. The freed right of the strip is the READOUT rung — the FPV HUD pill in a viewpoint
+  // (fpv.css re-seats it), the 2D map's scale bar otherwise (ScaleBar).
+  const [menuOpen, setMenuOpen] = useState(false);
+  const mapMode = useCameraStore((s) => s.mapMode);
+
   // ?guide=<id> deep link. It must be read HERE, not in GuideSheet: sheet visibility is local
   // state and GuideSheet only mounts once `sheet === "guide"`, so it can never see the URL
   // that asked for it. A QUERY param, never a hash — the globe rewrites the whole hash every
@@ -111,38 +120,80 @@ export default function MobileShell() {
     }
   };
 
+  const closeMenu = () => setMenuOpen(false);
+
   return (
     <>
-      <div className="m-status">
-        <span className="m-title">
+      {/* The menu's dismiss scrim — a fixed sibling UNDER the strip (z 9 < 10), so the strip's
+          own controls keep their taps while everything else closes the menu. */}
+      {menuOpen && <div className="m-menu-scrim" onPointerDown={closeMenu} aria-hidden="true" />}
+      <div className="m-status" onKeyDown={(e) => e.key === "Escape" && closeMenu()}>
+        <button
+          type="button"
+          className={`m-title${menuOpen ? " m-title--open" : ""}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label="Plux menu — sign in, guide, desktop"
+          onClick={() => setMenuOpen((o) => !o)}
+        >
           <img className="m-title__mark" src="/logo/plux-mark.png" alt="" width="96" height="96" />
           Plux
-        </span>
+          {/* The micro hint (owner: "with micro subtle hint about this") — a muted chevron that
+              turns while the menu is down. */}
+          <span className="m-title__hint" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+        {menuOpen && (
+          <div className="m-menu" role="menu" aria-label="Plux menu">
+            {/* owner 2026-08-15: login + MY PLACES one tap from the strip (list = SEARCH sheet) */}
+            <MobileAccount
+              menuItem
+              onOpenPlaces={() => {
+                closeMenu();
+                setSheet("search");
+              }}
+            />
+            {/* Scene-time readout moved into the bottom dock (owner batch #4 item 12). */}
+            {/* Guide track G1 (owner 2026-08-15): the same guideContent both shells render. */}
+            <button
+              type="button"
+              className="m-chip m-menu__item"
+              role="menuitem"
+              onClick={() => {
+                closeMenu();
+                setSheet("guide");
+              }}
+            >
+              GUIDE
+              <span className="m-menu__hint">HOW IT WORKS</span>
+            </button>
+            {/* ?d=1 persists the desktop preference — without it the index auto-detect
+                (owner 2026-08-15c) would bounce a phone straight back to /m. Batch #5 item 6:
+                the pose hash resolves at CLICK time (the MobileAccount returnTo idiom) so the
+                desktop boots at this exact view — it honors #p=/#f= as-is, no transform. */}
+            <a
+              className="m-chip m-menu__item"
+              role="menuitem"
+              href="/?d=1"
+              onClick={(e) => {
+                if (!window.location.hash) return; // plain boot — keep the no-JS href semantics
+                e.preventDefault();
+                window.location.href = "/?d=1" + window.location.hash;
+              }}
+            >
+              DESKTOP
+              <span className="m-menu__hint">THIS VIEW, FULL SITE</span>
+            </a>
+          </div>
+        )}
         <span className="m-status__right">
-          {/* owner 2026-08-15: login + MY PLACES one tap from the strip (list = SEARCH sheet) */}
-          <MobileAccount onOpenPlaces={() => setSheet("search")} />
-          {/* Scene-time readout moved into the bottom dock (owner batch #4 item 12). */}
-          {/* Guide track G1 (owner 2026-08-15): the same guideContent both shells render. */}
-          <button className="m-chip" onClick={() => setSheet("guide")}>
-            GUIDE
-          </button>
-          {/* ?d=1 persists the desktop preference — without it the index auto-detect
-              (owner 2026-08-15c) would bounce a phone straight back to /m. Batch #5 item 6:
-              the pose hash resolves at CLICK time (the MobileAccount returnTo idiom) so the
-              desktop boots at this exact view — it honors #p=/#f= as-is, no transform. */}
-          <a
-            className="m-chip"
-            href="/?d=1"
-            onClick={(e) => {
-              if (!window.location.hash) return; // plain boot — keep the no-JS href semantics
-              e.preventDefault();
-              window.location.href = "/?d=1" + window.location.hash;
-            }}
-          >
-            DESKTOP
-          </a>
+          {/* The READOUT rung: the 2D map's scale bar (owner 2026-09-16 — "only in 2D"); in a
+              viewpoint the FPV HUD pill sits here instead (FpvControls, seated by fpv.css). */}
+          {mapMode === "2d" && !fpvOn && <ScaleBar />}
         </span>
       </div>
+
       <SceneActions onOpenPlaces={() => setSheet("search")} />
       {fpvOn && <FpvControls />}
       {/* AIM joystick (owner batch #4 item 11 → batch #6 item 4): steers the planned shot

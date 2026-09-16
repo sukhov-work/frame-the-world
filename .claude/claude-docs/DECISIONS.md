@@ -543,6 +543,56 @@ One line per phase; full mechanics in the linked memory, verbatim session logs i
 
 New work appends a dated line here — immediately below this note, above every dated entry.
 
+- **2026-09-16 · THE MOBILE UX BATCH (four owner asks, all `/m`): the finger-proportional PINCH ·
+  the peek's ↑rise/↓set + long-press aim · the PLUX logo menu with the FPV HUD on the strip · the two
+  scale bars.** **(1) The pinch** (`lib/globe/pinchZoom.ts`, `CONTROLS.pinchZoomGain` **0.75**, the
+  same exponent in the MapWindow chart — was a local 0.8): the owner's "multiplier" was two library
+  facts in `3d-tiles-renderer@0.4.28` — the touch pinch is a PIXEL delta (`zoomDelta += dist −
+  previousDist`, spent as `· dist · zoomSpeed · 0.0025`: 1.25 %/px of the camera→ground distance at
+  zoomSpeed 5 whatever the fingers' separation; 120 → 220 px ≈ 2.9× on the 2D map vs 1.83× finger-glued),
+  AND `PointerTracker.previousPositions` move once per FRAME (`updateFrame()` at the end of `update()`)
+  so k touch events a frame over-count the spread ~(k+1)/2× (a 120 Hz phone at 60 fps pinched ~1.5× faster
+  per px). The orchestrator now reads the tracker's two distances pre-update on a touch-ZOOM frame and
+  hands the library `(1 − e^{−gain·ln(dNow/dPrev)}) / (zoomSpeed · 0.0025)` — the distance scales by
+  `(dPrev/dNow)^gain`, frame factors compose, the wheel keeps its pixel path, the FPV lens pinch is
+  untouched, the near-ground brake no longer applies to a touch pinch. TRAP (twin-caught, 0.72 for an
+  expected 0.59): never route a pinch through the wheel's eased bank — `_updateZoom` early-returns and
+  zeroes `zoomDelta` once `getLatestPoint` is null (the moment the last finger lifts), so the tail is
+  DROPPED; direct, same frame. Second twin read through the library's own per-event sum: gain 1.02 for
+  0.75 (the frame-copy fact above). Final twin: **0.624 for 0.595** (the ~4 px·DPR classification loss).
+  Source pins `test/lib/globe/pinchZoom.test.ts`; `conventions/globe-tuning.md` §The finger-proportional
+  PINCH. **(2) The peek** (`mobile/TargetPeek.tsx`): `lib/ephemeris/riseSet.ts` — sun/moon through the
+  planner's own `SearchRiseSet` + `planElevationsM` (one sunrise per app), every other target the first
+  crossings of the REFRACTED horizon (−34′) of `targetAzAlt` (10-min scan, 16 bisections; null → em dash);
+  two stacked clocks `.m-peek__rs` left of the bearings, memoised on (target · 0.01° · 10 min) and re-solved
+  as a shown instant passes. LONG PRESS on the NAME → `store/skyAim.aimAtSkyBody("target")`: FPV =
+  `gotoSkyBody` (the look glides; twin 25° → 229.5° onto the sun), map = the PLANNED cone's heading (the
+  2D north lock would fight a heading glide; twin 229.7 vs az 229.7). The press is judged on RELEASE by
+  `e.timeStamp` deltas as well as by the timer (a stalled FPV thread delivers touchStart+touchEnd together
+  — the twin's sheet-opened-nothing-aimed read); the two timer-only twins (TabBar, MapModeChip) → **T145**.
+  **(3) The menu** (`MobileShell.tsx`, `MobileAccount.tsx menuItem`, `mobile.css`): the wordmark is a
+  `<button aria-haspopup="menu">` with a muted `▾`; `.m-menu` (fixed under the strip, z 10) holds SIGN IN /
+  member · GUIDE · DESKTOP as `.m-chip.m-menu__item[role=menuitem]` rows with hints; `.m-menu-scrim` (z 9)
+  + Escape close; the DESKTOP anchor keeps `href="/?d=1"` + the click-time hash. The FPV HUD pill moved ONTO
+  the strip's right (`fpv.css`: top 0.48rem, font 0.58 / keys 0.46, gap 8 — the 0.62 cut was 302 px wide
+  and overlapped the 81 px wordmark; keys hidden ≤ 22.5rem); the minimap card 5.6rem → **2.9rem**.
+  `verify-guide.mjs` + `verify-uxbatch5.mjs` open the menu before their chip clicks. **(4) The scale bars**
+  (`lib/format/scaleBar.ts`: the largest 1/2/5×10ⁿ under 110 px, thin-space thousands): the 2D map's in
+  `.m-status__right` (`mobile/ScaleBar.tsx`, `mapMode === "2d" && !fpvOn`) off NEW `camera.mapScaleMPerPx`
+  (the pose mirror publishes `|camera − focus| · 2·tan(vFov/2) / viewportH`, 1 % deadband, null past the
+  limb — exact at nadir; twin: bar 97.7 px = 200 m / 2.048 m/px); the chart's under the MAP/+/− pills
+  (`.mw-scale`, `metersPerTilePx(lat, z)` at the live z inside `draw()`, published only when the rung moves,
+  /m only). **Gates:** vitest **3,117 / 208 files** (incl. the three new files pinchZoom · scaleBar · riseSet) · astro
+  **0/0/12** · knip 0 · NEW `scripts/verify-uxbatch-2026-09-16.mjs` **31/31** on the house Chrome
+  (`verify-shots/uxbatch-2026-09-16/`) · `verify-mobile-batch-2026-09-08` **127/127**. Not run: the desktop
+  sweep (no `globe/**` pixel path changed — the orchestrator edits are input + a store mirror). **Traps:** a
+  CDP `Page.navigate` after a touch sequence leaves headless Chrome delivering synthesized clicks but NO
+  pointer events on the next document (fresh target per gesture page — `conventions/verify.md` §Traps);
+  the AIM joystick floats over the fullscreen chart at z 24 and eats a synthetic pinch finger; the chart
+  opens at its MAX zoom in FPV. Backlog **T145**. Memory `mem:project/wip-2026-09-16-mobile-uxbatch-menu-pinch-scale`.
+  **NEXT (owner's word): the READ-ONLY triage of the audit #4 findings — substantial vs minor vs
+  hallucinated — before any slice.** No release cut; the pinch gain is the owner's one knob to feel on glass.
+
 - **2026-09-11 · AUDIT #4 EXECUTED — the charter's full breadth-first adversarial pass (15 finder
   tracks + a main-agent browser tier; READ-ONLY held: the diff = the report + README row + checklist
   amendments + backlog dated edits + the wip leaf).** Report: **`audits/audit-full-2026-09-11.md`**

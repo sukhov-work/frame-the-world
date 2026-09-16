@@ -16,7 +16,9 @@ import {
   lonLatToTileF,
   tileFToLonLat,
   zoomForMetersPerPx,
+  metersPerTilePx,
 } from "../../lib/geo/slippy";
+
 import { skylineSamplerFor } from "../../lib/geo/horizonProfile";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import {
@@ -30,7 +32,9 @@ import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
 import { cssFontFamily, cssInk } from "../../lib/theme/cssInk";
 import { tokens } from "../../lib/theme/tokens";
-import { AIMCONES, FOCALCONE, FPV, FRUSTUM, TILESETS } from "../globe/tuning";
+import { AIMCONES, CONTROLS, FOCALCONE, FPV, FRUSTUM, TILESETS } from "../globe/tuning";
+import { scaleBarFor, type ScaleBar } from "../../lib/format/scaleBar";
+
 import { drawRadarCanvas } from "./radarCanvas";
 import "../../styles/map-window.css";
 
@@ -54,7 +58,11 @@ import "../../styles/map-window.css";
 
 const TILE_SRC_PX = 256; // XYZ source tiles are 256 px
 const MIN_Z = 3;
-const PINCH_SENS = 0.8; // continuous-pinch damping (batch #4 item 4): <1 = calmer than 1:1 log2
+// The pinch exponent is `CONTROLS.pinchZoomGain` since 2026-09-16 — ONE feel for this chart and
+// the /m 2D globe map (it was a local 0.8; batch #4 item 4's "<1 = calmer than 1:1 log2" holds).
+/** The chart's scale bar pixel budget (/m only) — the same ladder as the 2D map's bar. */
+const SCALE_BAR_MAX_PX = 110;
+
 const LONG_PRESS_MS = 500; // the ORCH long-press shape (tuning.ts ORCH.longPressMs twin)
 const DRAG_CANCEL_PX = 6;
 const TILE_CACHE_MAX = 300;
@@ -121,6 +129,12 @@ export default function MapWindow() {
   // …and a TRANSITION-ONLY mirror of the manual-pan latch, so the button can advertise
   // "you've panned away, tap to come back" (lit) vs "following you" (muted).
   const [panned, setPanned] = useState(false);
+  // The scale bar (owner 2026-09-16, /m only): draw() rounds the chart's metres-per-CSS-px onto
+  // the 1/2/5 ladder and publishes ONLY when the rung or its width moves (a React set per 20 Hz
+  // paint would be the PiP-rect mistake again).
+  const [scale, setScale] = useState<ScaleBar | null>(null);
+  const lastScale = useRef<ScaleBar | null>(null);
+
   // U4: per-body aim-day memo — ~145 ephemeris calls per (target, day, anchor); the 20 Hz
   // FPV repaint only re-splits at now. Warm across open/close like the tile cache.
   const aimCache = useRef<Map<AimKey, { key: string; day: AimDay }>>(new Map());
@@ -379,6 +393,20 @@ export default function MapWindow() {
         lastRotPub = rot;
         useMiniMapStore.getState().setMapWindowRotRad(rot);
       }
+      // Scale bar (owner 2026-09-16): at continuous zoom z the chart shows
+      // 40 075 km · cos(lat) / (256 · 2^z) metres per CSS px — `metersPerTilePx` at the live z.
+      if (mobileShell) {
+        const bar = scaleBarFor(metersPerTilePx(view.current.latDeg, view.current.z), SCALE_BAR_MAX_PX);
+        const prev = lastScale.current;
+        if (
+          (bar === null) !== (prev === null) ||
+          (bar && prev && (bar.label !== prev.label || Math.abs(bar.px - prev.px) > 0.5))
+        ) {
+          lastScale.current = bar;
+          setScale(bar);
+        }
+      }
+
       // DEV-only introspection (the global.d.ts registry): the view lives in refs — browser
       // verification (follow-latch + screen-walk asserts) can't reach it any other way.
       if (import.meta.env.DEV) {
@@ -809,7 +837,8 @@ export default function MapWindow() {
         // chart rot, undamped 1:1 — fingers stay glued to the map) and the midpoint pan.
         const [a, b] = [...pointers.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        const dz = Math.log2(d / pinchStartDist) * PINCH_SENS;
+        const dz = Math.log2(d / pinchStartDist) * CONTROLS.pinchZoomGain;
+
         const sat = useCameraStore.getState().groundMode === "satellite";
         const maxZNow = sat ? TILESETS.esriMaxLevel : TILESETS.cartoMaxLevel;
         const nextZ = Math.min(maxZNow, Math.max(MIN_Z, pinchStartZ + dz));
@@ -975,7 +1004,17 @@ export default function MapWindow() {
           </button>
         )}
       </div>
+      {/* The scale bar (owner 2026-09-16, /m): under the [MAP][+][−] pills on the left — the
+          PiP owns the right of that rung. The same `.m-scalebar` look as the 2D map's bar
+          (mobile.css, page-global on /m); `.mw-scale` only seats it. */}
+      {mobileShell && scale && (
+        <span className="mw-scale m-scalebar" role="img" aria-label={`Map scale: ${scale.label}`}>
+          <span className="m-scalebar__label">{scale.label}</span>
+          <span className="m-scalebar__bar" style={{ width: `${scale.px.toFixed(1)}px` }} />
+        </span>
+      )}
       {/* Owner micro-slice 2026-08-22 item 2: the round ◉ RE-CENTRE button on the right edge,
+
           below the top row (on /m it clears the 32vw PiP that owns that rung — see the CSS).
           ALWAYS visible, muted while following and accent-lit once you've panned away, so it
           advertises the way back — the only path out of the now-permanent manual override. */}

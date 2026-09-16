@@ -78,7 +78,18 @@ filename (`verify-shots/<phase>-<nn>-<what>.jpeg`).
   `matchMedia("(pointer: coarse)")`) plus `Emulation.setCPUThrottlingRate 4`; `probe-skyline-fine.mjs
   --lean` is the worked example.
 
+- **A `Page.navigate` after a touch sequence leaves headless Chrome delivering synthesized CLICKS but NO
+  pointer events on the next document** (2026-09-16: the `/m` peek row saw `click` alone and the chart
+  canvas saw nothing after the same target had pinched and long-pressed on the previous page — long presses
+  read as taps, pinches did nothing). An emulation artefact, not the app (a phone never navigates between
+  its 2D map and FPV). Attach a FRESH CDP target per page a gesture leg runs on
+  (`verify-uxbatch-2026-09-16.mjs`'s FPV leg is the shape).
+- **On `/m` the AIM joystick (x ≤ 126, y ≈ 435–545 at 390×844) floats OVER the fullscreen chart at z 24** —
+  a synthetic pinch finger landing on it is eaten silently (the canvas sees one pointer, no pinch). Seat
+  chart pinches clear of it, and remember the chart opens at its MAX zoom in FPV: only a pinch OUT can move it.
+
 ## The view catalogue and the acceleration model (added 2026-09-06h, owner order)
+
 
 **Why.** The owner reviewed the T77 MEASURE poses and ruled that they were "very contained bland
 views, often without any details or in dull spots and angles". From this date every visual or

@@ -2139,7 +2139,23 @@ export const CONTROLS = {
    */
   twistArmDeg: 4,
   twistGain: 1,
+  /**
+   * THE FINGER-PROPORTIONAL PINCH (owner 2026-09-16: "pinch zoom sensitivity should be lowered …
+   * almost linear and natural with fingers proportional movement, i have a feeling that you use
+   * some multiplier"): the library's touch pinch was a PIXEL delta (every px of finger spread cut
+   * the camera→ground distance by a fixed 1.25 % at zoomSpeed 5 — 120 → 220 px zoomed the 2D map
+   * ≈ 2.9× where a finger-glued map zooms 1.83×, and a narrow start ran away further). The
+   * orchestrator now re-derives the pinch as a distance RATIO (`lib/globe/pinchZoom.ts`) and the
+   * camera→ground distance scales by `(d0/d1)^gain`: 1 = the map is glued to the fingers (iOS
+   * Maps), lower = calmer than the fingers. 0.75 ≈ 55–65 % less zoom per pinch than before at a
+   * phone's usual spreads. The SAME exponent drives the MapWindow chart's pinch (one feel on
+   * both /m maps); the wheel keeps `zoomSpeed`, the FPV lens pinch is untouched (ratio-exact
+   * already). The near-ground brake (`zoomSlowFrac`) no longer applies to a touch pinch — a
+   * proportional gesture must not slow down under the fingers.
+   */
+  pinchZoomGain: 0.75,
 } as const;
+
 
 /** /m 2D-first navigation (UPLIFT U1, owner point 1): the mobile shell boots into a top-down,
  *  north-up "2D map" with every building tileset detached; a two-finger vertical drag (the

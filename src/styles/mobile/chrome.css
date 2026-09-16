@@ -113,12 +113,44 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.m-peek__pos {
+/* Owner 2026-09-16: a LONG PRESS on the name aims the view — no text selection / iOS callout
+   may claim the hold. */
+.m-peek__name {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+/* Next rise ↑ / next set ↓ (owner 2026-09-16) — two small stacked clocks left of the bearings.
+   The right cluster is [rs][pos][▲]; this element carries the auto margin that used to sit on
+   .m-peek__pos so the name still takes the slack. */
+.m-peek__rs {
   margin-left: auto;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  font-size: 0.56rem;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.m-peek__rs-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.m-peek__rs-k {
+  color: var(--color-text-muted);
+  font-size: 0.5rem;
+}
+.m-peek__pos {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Pull-up hint (owner 2026-08-19) — its own accent element with a gentle nudge loop, so the
    peek row reads as openable (the old bare "▲" blended into the numbers). */
 .m-peek__more {

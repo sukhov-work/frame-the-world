@@ -433,7 +433,16 @@ not from a solved disc.
 |---|---|---|
 | `twoFingerPan` | true | Owner ruling 2026-09-08b: with the twist as the ONE rotation gesture, the library's two-finger parallel DRAG (its touch ROTATE — azimuth = the midpoint's drift with the orbit sign, fingers right ⇒ map counter-clockwise) PANS the `/m` 2D map like every map app. `stepTouchTwist` (pre-`controls.update()`) cancels BOTH the library's azimuth and altitude terms for that gesture (`x −= Δx·k`, `y = −Δy·k`, `k = 2π / clientHeight`) and applies the midpoint delta as a DRAG on the plane through the library's pivot with the local up as normal — the library's own `_updatePosition` math, incremental (`hit(prev) − hit(cur)`); `rotationInertia` is zeroed per frame and on pointer up so a pan never spins on release; `touchPan2dLive` keeps the north lock ARMED in `stepMobile2dLocks` (a pan is not a rotation). 3D keeps its two-finger tilt/orbit; FPV is untouched; the twist composes with the pan. `false` restores the 2026-08-21 rotate. Fenced by `test/lib/globe/twistTracker.test.ts`; browser: `verify-uxbatch4` leg 8 (compass stays N, the focus moves west). |
 
+## The finger-proportional PINCH (added 2026-09-16 — `CONTROLS.pinchZoomGain`)
+
+| Knob | Value | Why |
+|---|---|---|
+| `pinchZoomGain` | 0.75 | The library's touch pinch was a PIXEL delta: every pointermove added `dist − prevDist` (CSS px) to `zoomDelta`, and `_updateZoom` moved the camera by `zoomDelta · dist · zoomSpeed · 0.0025` — a fixed 1.25 % of the camera→ground distance per px of spread at `zoomSpeed` 5, whatever the fingers' separation (120 → 220 px zoomed the /m 2D map ≈ 2.9× where a finger-glued map zooms 1.83×; a narrow start ran away further). `lib/globe/pinchZoom.ts` recovers the finger RATIO from the frame's pixel sum (`dNow − zoomDelta` is the frame-start distance — the per-event deltas telescope) and hands the library the linear delta whose multiply equals `(dPrev/dNow)^gain` at the frame's braked `zoomSpeed`; frame factors compose, so a whole gesture lands at `(d0/d1)^gain`. 1 = glued to the fingers (iOS Maps); 0.75 ≈ 55–65 % less zoom per pinch than before at a phone's usual spreads. The MapWindow chart's pinch reads the SAME exponent (it was a local 0.8). The wheel keeps the pixel path; the FPV lens pinch is untouched. |
+
+Traps: apply the pinch delta THE SAME FRAME, never through the wheel's eased bank — `_updateZoom` early-returns (and zeroes `zoomDelta`) once `PointerTracker.getLatestPoint` is null, which is the case the moment the last finger lifts (touch has no hover), so an eased tail is dropped (the twin read 0.72 for a (1/2)^0.75 = 0.59 pinch). Read `zc.zoomDelta` PRE-update (the twist's trap). The identity assumes the pinch-centre hit exists (`zoomPoint` branch); over the sky the library's `_getPointBelowCamera · 0.01` fallback runs at its own rate. Source pins: `test/lib/globe/pinchZoom.test.ts`.
+
 ## The two-finger TWIST (added 2026-09-08b — `CONTROLS.twistArmDeg` / `twistGain`, T120)
+
 
 | Knob | Value | Why |
 |---|---|---|

@@ -4,24 +4,28 @@
    chrome 10 · map window 20 (walk controls 24 while body.mw-open) · sheets 30 (chrome.css). */
 
 /* ── Compact HUD row (FOCAL · HDG · PITCH · EYE) ───────────────────────────────────────── */
+/* Owner 2026-09-16: seated ON the status strip's right (the rung the SIGN IN · GUIDE · DESKTOP
+   chips left when they moved into the PLUX logo menu) — one row of chrome at the top instead of
+   two, and the minimap moves up into the freed band (below). Centred on the strip's content
+   line: the strip is 0.6rem padding + a ~1.2rem wordmark line, the pill ~1.45rem tall. */
 .m-fpvhud {
   position: fixed;
-  top: calc(3.1rem + env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(0.48rem + env(safe-area-inset-top));
+  right: calc(0.9rem + env(safe-area-inset-right));
+  left: auto;
   z-index: 10;
   display: flex;
-  gap: 12px;
+  gap: 8px;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.05em;
+  font-size: 0.58rem; /* was 0.62 — the pill must clear the 81 px wordmark on a 390 px screen */
+  letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   color: var(--color-text);
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
   border-radius: 999px;
-  padding: 0.32rem 0.75rem;
+  padding: 0.3rem 0.6rem;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   pointer-events: none; /* a readout, never a look-drag obstacle */
@@ -32,10 +36,24 @@
   gap: 4px;
 }
 .m-fpvhud__k {
-  font-size: 0.5rem;
-  letter-spacing: 0.14em;
+  font-size: 0.46rem;
+  letter-spacing: 0.12em;
   color: var(--color-text-muted);
 }
+/* Narrow phones (≤ 360 px): the pill must clear the wordmark on the left — the values alone
+   (`21 MM · 25° NE · +8.2° · 1.7 m` read without their keys) at a tighter pitch. */
+@media (max-width: 22.5rem) {
+  .m-fpvhud {
+    gap: 6px;
+    font-size: 0.56rem;
+    padding: 0.28rem 0.5rem;
+  }
+  .m-fpvhud__k {
+    display: none;
+  }
+}
+
+
 
 /* ── WALK joystick ─────────────────────────────────────────────────────────────────────── */
 .m-joy {
@@ -246,12 +264,15 @@ body.m.mw-open .md {
 /* ── FPV mini-map (the desktop island, mounted by m.astro — reposition + shrink) ───────── */
 /* Only visible while FPV feeds store/minimap; sits top-right clear of the HUD row.
    body.m outranks mini-map.css regardless of island-chunk CSS order (MobileLayout). */
+/* Owner 2026-09-16: the HUD pill left this band for the status strip, so the card rides up to
+   just under the strip (was 5.6rem — under the old HUD row). */
 body.m .mm {
   left: auto;
   right: calc(0.75rem + env(safe-area-inset-right));
-  top: calc(5.6rem + env(safe-area-inset-top));
+  top: calc(2.9rem + env(safe-area-inset-top));
   bottom: auto;
 }
+
 body.m .mm-canvas {
   width: 124px;
   height: 124px;

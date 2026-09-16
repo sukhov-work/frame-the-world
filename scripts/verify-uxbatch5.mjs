@@ -215,7 +215,11 @@ if (chipRect) {
   await sleep(1500);
   check("/m: PiP tap returned to FPV", await m.evalJs(`document.querySelector(".mw") === null`));
   const mHash = await m.evalJs(`location.hash`);
+  // 2026-09-16: DESKTOP lives in the PLUX logo menu — open it first (a real tap order).
+  await m.evalJs(`document.querySelector('.m-title')?.click()`);
+  await sleep(300);
   await m.evalJs(`(() => { const a = document.querySelector('a.m-chip[href="/?d=1"]'); a?.click(); return !!a; })()`);
+
   await sleep(2500);
   const dUrl = await m.evalJs(`location.pathname + location.search + location.hash`);
   check(

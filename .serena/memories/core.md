@@ -267,10 +267,21 @@ the code (Serena → Grep → Read) → Wix MCP for platform APIs.
 - The one debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T130; T123 FIXED to the gate
   2026-09-10, T124 re-checked resident, T130's stress + t124 re-runs done — the feature legs still owed).
 
+## Status — 2026-09-16
+- **2026-09-16 (`mem:project/wip-2026-09-16-mobile-uxbatch-menu-pinch-scale`): THE MOBILE UX BATCH SHIPPED** (four owner asks,
+  `/m` only): **the finger-proportional PINCH** — `CONTROLS.pinchZoomGain` 0.75 via `lib/globe/pinchZoom.ts` (the library's
+  pixel-delta pinch + its once-per-frame `previousPositions` were the "multiplier"; the tracker's two distances → `(dPrev/dNow)^gain`
+  at the frame's zoomSpeed, direct, never through the eased bank — `_updateZoom` drops post-lift input); the same exponent in the
+  MapWindow chart · **the peek** `↑rise/↓set` (`lib/ephemeris/riseSet.ts`) + a LONG PRESS on the name aims (FPV look / planned cone,
+  `skyAim.aimAtSkyBody`, release-verified by timestamps) · **the PLUX logo menu** (SIGN IN · GUIDE · DESKTOP) with the FPV HUD pill on
+  the strip and the minimap up at 2.9rem · **scale bars** on the 2D map (`camera.mapScaleMPerPx`) and the chart (`lib/format/scaleBar.ts`).
+  Gates vitest 3,117+ · astro 0/0/12 · knip 0 · `verify-uxbatch-2026-09-16` 31/31 · mobile-batch 127/127. T145 opened. **NEXT (owner):
+  the READ-ONLY triage of the audit #4 findings (substantial vs minor vs hallucinated) BEFORE any slice.**
+
 ## Status — 2026-09-11
 - **2026-09-11 (`mem:project/wip-2026-09-11-audit4`): AUDIT #4 EXECUTED** (the charter, read-only; report `audits/audit-full-2026-09-11.md`). Gates all green (3,098/3,098 · 0/0/12 · knip 0 · 32 MB build); T131–T135 verified holding live; 6 MAJOR = **the LIVE-SITE GRADUATION class (T138 owner batch: moderation/ToS/uploads/analytics) + the library pin (T136) + the skyBudget twin (T137)**; registry repaired (T32/T35/T36/T37/T39 closed) + **T136–T144 opened**; §Recent at the round-7 trigger.
 
-## Next step — the audit's fix-session slicing S1–S10 (S3 = the T138 owner batch), then the farm FEATURE legs, the T77 lane (full brief: `NEXT_SESSION_PROMPT.md`)
+## Next step — FIRST the owner-ordered triage of the audit #4 findings (2026-09-16: substantial vs minor vs hallucinated, a ranked table before code), THEN the surviving slices S1–S10 (S3 = the T138 owner batch), then the farm FEATURE legs, the T77 lane (full brief: `NEXT_SESSION_PROMPT.md`)
 **T123 is FIXED to the owner's gate (2026-09-10; levers (a) + (d), farm `alive 8 cycles, flat`; T124 re-checked resident).**
 Next in order: (1) the farm FEATURE legs the owner's "extensive" still owes — the tab bar's live/long-press, SAVE, the
 encoder, FIND, the twist (W3C actions?) — extending `ios-baseline.mjs --legs` (the recipe in NEXT_SESSION_PROMPT worked

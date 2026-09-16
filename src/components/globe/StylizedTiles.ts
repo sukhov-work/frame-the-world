@@ -63,6 +63,9 @@ import { verticalFovDeg } from "../../lib/decode/sensors";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { resolveEnrichedSelection } from "../../lib/globe/enrichedVariant";
 import { createTwistTracker } from "../../lib/globe/twistTracker";
+import { libraryDeltaForLog, pinchLogDelta } from "../../lib/globe/pinchZoom";
+
+
 import { emptyMapClickAction } from "../../lib/globe/emptyMapClick";
 import { createDetachedReleaseState, stepDetachedRelease } from "../../lib/globe/detachedRelease";
 import {
@@ -366,7 +369,15 @@ interface GlobeControlsInternal {
     isPointerTouch(): boolean;
     getCenterPoint(target: THREE.Vector2): THREE.Vector2;
     getPreviousCenterPoint(target: THREE.Vector2): THREE.Vector2;
+    /** The two touch-pointer distances (CSS px) the finger-proportional pinch reads pre-update:
+     *  the LIVE one and the one at the end of the previous frame (`updateFrame()` copies
+     *  current → previous once per `update()`). Their ratio is the frame's pinch, exact whatever
+     *  the touch event rate (source-pinned in test/lib/globe/pinchZoom.test.ts). */
+    getTouchPointerDistance(): number;
+    getPreviousTouchPointerDistance(): number;
   };
+
+
   /** The pivot the library raycast when the second finger landed (the midpoint's ground hit) —
    *  the twist turns about it (`EnvironmentControls.js:486`). */
   pivotPoint: THREE.Vector3;
@@ -3671,6 +3682,8 @@ export function attachStylizedTiles(opts: {
     pendingZoom = 0;
     zc.zoomDelta = 0;
   };
+
+
   let lastAlt: number = POSE.cam.altM; // previous frame's altitude (zoom braking runs pre-update)
   let lastFrameMs = frameNow();
   // T94 — the clocks this orchestrator reads through `frameNow()`, named so the seam's snapshot
@@ -4954,7 +4967,34 @@ export function attachStylizedTiles(opts: {
             THREE.MathUtils.smoothstep(lastAlt, 0, CONTROLS.zoomSlowAltM),
           );
 
-        // Temporal zoom easing: bank the accumulated wheel/pinch delta and hand the controls an
+        // THE FINGER-PROPORTIONAL PINCH (owner 2026-09-16, `lib/globe/pinchZoom.ts`): on a
+        // touch-ZOOM frame the library's own per-event pixel sum is DISCARDED and the frame's
+        // finger RATIO is read from the tracker's two distances (live vs the end of the previous
+        // frame — `updateFrame()` copies once per update, so the pair is exact whatever the
+        // touch event rate; the per-event sum over-counted ~1.5× at two events a frame). The
+        // library then gets the linear delta whose multiply equals `(dPrev/dNow)^pinchZoomGain`
+        // at THIS frame's braked `zoomSpeed` — the camera→pinch-point distance is glued to the
+        // fingers, and the whole gesture composes to `(dStart/dEnd)^gain` exactly. Read PRE-update
+        // (after it the tracker's previous distance equals the current one — the twist's trap).
+        // Applied THIS frame, never through the wheel's eased bank: the fingers are already smooth
+        // at the touch rate, and `_updateZoom` DROPS whatever arrives after the last finger lifts
+        // (`getLatestPoint` is null with no touch and no hover), so an eased tail would be lost —
+        // the twin read 0.72 for a (1/2)^0.75 = 0.59 pinch until this was direct. The pinch also
+        // bypasses the near-ground brake by construction (the identity uses whatever zoomSpeed
+        // the frame carries): a proportional gesture must not slow down under the fingers.
+        let pinchDelta = 0;
+        if (zc.state === 3 /* ZOOM */ && zc.pointerTracker.isPointerTouch()) {
+          const logStep = pinchLogDelta(
+            zc.pointerTracker.getTouchPointerDistance(),
+            zc.pointerTracker.getPreviousTouchPointerDistance(),
+            CONTROLS.pinchZoomGain,
+          );
+          pinchDelta = libraryDeltaForLog(logStep, controls.zoomSpeed);
+          zc.zoomDelta = 0;
+        }
+
+
+        // Temporal zoom easing: bank the accumulated wheel delta and hand the controls an
         // exp-eased slice each frame — gradual, settling movement instead of one-frame steps.
         if (CONTROLS.zoomSmoothTauMs > 0) {
           pendingZoom += zc.zoomDelta;
@@ -4964,7 +5004,10 @@ export function attachStylizedTiles(opts: {
           zc.zoomDelta = step;
           pendingZoom -= step;
         }
+        zc.zoomDelta += pinchDelta;
         zoomStep = zc.zoomDelta as number;
+
+
         _upBefore.copy(zc.up);
 
   };
@@ -6474,6 +6517,26 @@ export function attachStylizedTiles(opts: {
           useUserModelsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt); // MS5
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
           if (!fpvActive) mirrorCamGeo(); // viewer ground point — FPV writes it at HUD cadence
+          // Ground metres per CSS px at the screen centre (owner 2026-09-16 — the /m 2D map's
+          // scale bar): the focus IS the centre pixel's ground hit, so the exact answer is one
+          // multiply. 1 % deadband, the other mirrors' discipline; null past the limb.
+          {
+            const mPerPx = hasFocus
+              ? (camera.position.distanceTo(_focus) *
+                  2 *
+                  Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) /
+                (dom.clientHeight || 1)
+              : null;
+            const prev = camStore.mapScaleMPerPx;
+            if (
+              mPerPx === null
+                ? prev !== null
+                : prev === null || Math.abs(mPerPx - prev) / prev > 0.01
+            ) {
+              camStore._syncMapScale(mPerPx);
+            }
+          }
+
           // URL pose (S7 feedback #2): mirror the SETTLED pose into the hash — the address bar
           // is always a shareable link and a reload lands here, not on the welcome. Skipped
           // while something else owns the camera (welcome/explore/flight); replaceState

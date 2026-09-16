@@ -90,7 +90,40 @@ export function gotoAimSolution(
  * the same observer (`camGeo ?? focus`, the chip's fallback), with a plain altDeg > 0 up-test.
  * The 48 h rise scan runs HERE, on click — never in a frame loop (the chip rule).
  */
+/**
+ * The /m target peek's LONG PRESS (owner 2026-09-16: "long press on object's name in the panel
+ * serves as goto (aim) to that object in frame"). In FPV it is exactly `gotoSkyBody` — the look
+ * glides onto the body (below the horizon: onto where it next rises). On the 2D/3D MAP there is
+ * no view to turn (the 2D north lock would fight a heading glide and win), so the PLANNED SHOT
+ * is aimed instead: the focal cone's heading turns to the body's azimuth — the same seam the AIM
+ * joystick writes, focal kept. Returns what it did so the caller can say so.
+ */
+export function aimAtSkyBody(kind: "target" | "sun" | "moon"): "look" | "plan" {
+  if (fpvActiveNow()) {
+    gotoSkyBody(kind);
+    return "look";
+  }
+  const cam = useCameraStore.getState();
+  const at = cam.camGeo ?? { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg };
+  const target = kind === "target" ? useSkyStore.getState().target : bodyTarget(kind);
+  const live = targetAzAlt(target, sceneTimeMs(), at.latDeg, at.lonDeg);
+  const pos = { azDeg: live.azDeg, altDeg: live.altDeg, up: live.altDeg > 0 };
+  const rise = pos.up ? null : nextRiseAzimuth(target, sceneTimeMs(), at.latDeg, at.lonDeg);
+  const aim = gotoAimSolution(pos, rise?.azDeg ?? null);
+  cam.setPlannedRates(null);
+  cam.setPlannedView({
+    headingDeg: aim.azDeg,
+    hFovDeg: cam.plannedView?.hFovDeg ?? PLAN_AIM_DEFAULT_HFOV_DEG,
+  });
+  return "plan";
+}
+
+/** The planned cone's width when no plan exists yet (a `#f=` boot defers the boot seed to the
+ *  first FPV exit) — a normal-lens horizontal field, the joystick's own seed order. */
+const PLAN_AIM_DEFAULT_HFOV_DEG = 54;
+
 export function gotoSkyBody(kind: "target" | "sun" | "moon"): void {
+
   const cam = useCameraStore.getState();
   const at = cam.camGeo ?? { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg };
   const target = kind === "target" ? useSkyStore.getState().target : bodyTarget(kind);
