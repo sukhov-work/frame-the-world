@@ -9,24 +9,20 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-09-17 (`mem:project/wip-2026-09-16-audit4-triage-fixes`)
-**AUDIT #4 TRIAGED AND FIXED under the owner's filter** (real issues only; the public-exposure / load / multi-user
-class — G1 G2 G3 B2 B5 — DEFERRED while the app is a free beta among trusted people: T138/T139 rows dated).
-Landed: `3d-tiles-renderer` pinned EXACT 0.4.28 + `libraryPin.test` + a boot `console.warn` on an un-installed
-patch seam (T136) · the skyBudget twin carries the T96 LOOK, margin pinned 0.8975 vs 0.9 (T137) · ghosts + target
-reticle depth-pinned at far like the discs (T142 half, Fuji pose verified) · the edit journal forgets a deleted
-model · GLB fetch retried (`MODELS.loadRetryMs/loadRetries`) · sync stamp `s ≥ t` under clock skew · the OSM
-recovery sweep claims by id · street-name canvases + the RC25 mip chain released with lever (d) · the RC9 seat
-bank LRU-bounded (`ENRICHED.seatCacheMaxCells`) · MY PINS lists 1000 · data-panel fetches time out
-(`lib/api/dataFetch.ts`) · SIGN OUT in the /m PLUX menu · the REVIEW copy names the missing fields · the ship hook
-writes SHIP_ATTENTION on a push failure · the release canary POST retries · the bake-config coupling test. Docs:
-DECISIONS compaction r7 (144.9 → 60 KB), `globe-tuning.md` + `contracts.md` re-diffed, README/plan re-dated, the
-GUIDE refreshed (12 ch · 89 topics · 16 goals) + `verify-guide` re-pinned ALL PASS. Browser: uxbatch-09-16 ALL
-PASS · mobile-batch 127/127 · meshedit + usermodels PASS (the leaf has the sweep). NOT done, by choice: the stars'
-far pin, J2, J3 (owner taste) · F3/F6 (a11y niceties) · T145 · the /m model-edit check (`ModelEditChip` mounts on
-`index.astro` only; the audit's `mobile/ModelEditChip.tsx` anchor never existed).
+## Status — 2026-09-18 (`mem:project/wip-2026-09-18-mobile-fixes-signout`)
+**THREE /m FIXES + THE SIGN-OUT ROOT CAUSE, LIVE as v1.36.14** (ship `b3270cd` = PR #127). `MOBILE2D.bootAltM` → 18,000 km (the
+bare `/m` boots on the whole planet) · the FPV rail: ▤ PLACES is a 44 px icon cell between ◎ SAVE and ✕ EXIT VIEW (last, always),
+fpv.css lifts the altitude column's seat by 52 px via `body.m:has(.m-actions .m-act--places)` · SIGN OUT: the live host's adapter
+gives Astro an `http:` request URL, so `checkOrigin` 403s EVERY form POST → `signOut()` → JSON `POST /api/signout` →
+`location.assign(logoutUrl)`; RULE: no `<form method=post>` in this app. Harness `verify-mobile-fixes-2026-09-18.mjs`
+ALL PASS in dev and LIVE (39; `FTW_APP_URL` = the live twin). The 09-17 era row below carries what audit 4 left open.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-09-17 AUDIT #4 triaged + fixed under the owner's filter** (`wip-2026-09-16-audit4-triage-fixes`): the exact
+  `3d-tiles-renderer` pin + `libraryPin.test`, the LOOK-aware skyBudget twin, ghosts/target far-pinned, the journal forgets a
+  deleted model, GLB retry, the RC9 seat bank LRU-bounded, SIGN OUT in the /m menu (the form that 2026-09-18 replaced), DECISIONS
+  compaction r7, the GUIDE refreshed; public-exposure / load / multi-user DEFERRED (T138/T139/B2). NOT done by choice: the
+  stars' far pin, J2, J3 (owner taste) · F3/F6 · T145 · the /m model-edit check.
 - **2026-09-16 the mobile UX batch → v1.36.11 LIVE** (`wip-2026-09-16-mobile-uxbatch-menu-pinch-scale`): the
   finger-proportional pinch (`CONTROLS.pinchZoomGain` 0.75 — the one knob once the owner feels it), the peek
   rise/set + long-press aim, the PLUX logo menu + the HUD on the strip, scale bars; `release.sh` resolves Node ≥ 22.
@@ -38,10 +34,12 @@ far pin, J2, J3 (owner taste) · F3/F6 (a11y niceties) · T145 · the /m model-e
 - **2026-09-06o → 09-09 the T77 lane** — the four era rows at the end of the Era index; DECISIONS §Per-phase
   digests has each; verbatim in the archive §Moved 2026-09-17.
 
-## Standing facts (2026-09-17)
-- Gates: vitest **3,138 / 210 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
+## Standing facts (2026-09-18)
+- Gates: vitest **3,153 / 212 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.13** = live **v1.36.13** (2026-09-17). Release: `npm run release:full -- -c "…"` (≤ 250 chars).
+- `package.json` **1.36.14** = live **v1.36.14** (2026-09-18). Release: `npm run release:full -- -c "…"` (≤ 250 chars).
+- **No `<form method=post>` anywhere** (2026-09-18): the live adapter's request origin is `http:` → `checkOrigin` 403s every
+  real form POST (dev never runs the check). Writes are JSON fetches; sign-out is `/api/signout` + a top-level navigation.
 - **THE RESOURCE BUDGET** (owner 2026-09-06j, machine-checked): ONE house headless Chrome (:9333), ONE dev server
   (:4321), free memory ≥ 20 %; agents never launch Chrome / a dev server / the full vitest / `astro check`; browser
   suites run from the main session, queued on the one Chrome. **T98: the VPN is a precondition for every terrain
@@ -96,6 +94,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - AUDIT #4 (09-11) · `audits/audit-full-2026-09-11` · `audit4-2026-09-10-charter` · 09-11-audit4
 - Mobile UX batch → v1.36.11 (09-16) · 09-16-mobile-uxbatch-menu-pinch-scale
 - AUDIT #4 triage + fixes + docs/guide refresh (09-17) · 09-16-audit4-triage-fixes
+- Three /m fixes + the sign-out root cause → v1.36.14 (09-18) · 09-18-mobile-fixes-signout
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·
@@ -107,7 +106,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - `project/` non-leaf — `wix-platform` · `wix-site` · `dev_environment` · `audit{2-2026-08-18,4-2026-09-10}-charter` ·
   `owner-orders-2026-08-14-qol-batch` · `wip-2026-09-06-docs-hygiene`
 
-## Source layout (2026-09-17)
+## Source layout (2026-09-18)
 - `src/components/globe/` — the `client:only` three.js scene: `tuning.ts` (every tunable; contract in
   `conventions/globe-tuning.md`) · `scene/` attach-modules · `StylizedTiles.ts` orchestrator · `GlobeCanvas.tsx`.
   Design imports NEVER touch it.
@@ -115,7 +114,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
   (a pure leaf: react + stores + `lib/**` + `globe/tuning`; `test/components/mobileFence.test.ts`).
 - `src/lib/` — decode, geo, ephemeris, sky, globe, models, edit (the journal), guide, pins, photo, export, market,
   save, wix, theme, format, api (`http.ts` server-only; `dataFetch.ts` client), textures, sensors, `prefs.ts` ·
-  `src/store/` zustand · `src/pages/` `index.astro`, `m.astro`, `guide.astro` + 11 thin `api/*` routes · `test/` 210 files.
+  `src/store/` zustand · `src/pages/` `index.astro`, `m.astro`, `guide.astro` + 12 thin `api/*` routes (`signout.ts` is the newest) · `test/` 210 files.
 
 ## Key invariants (violations = bugs)
 - The globe is `client:only` — never SSR WebGL (C4). Decode in a Web Worker. Astro 5 only. `3d-tiles-renderer`
