@@ -12,10 +12,10 @@ leaves and in `DECISIONS.md`; this root only indexes and states the current stat
 ## Status — 2026-09-18 (`mem:project/wip-2026-09-18-mobile-fixes-signout`)
 **THREE /m FIXES + THE SIGN-OUT ROOT CAUSE, LIVE as v1.36.14** (ship `b3270cd` = PR #127). `MOBILE2D.bootAltM` → 18,000 km (the
 bare `/m` boots on the whole planet) · the FPV rail: ▤ PLACES is a 44 px icon cell between ◎ SAVE and ✕ EXIT VIEW (last, always),
-fpv.css lifts the altitude column's seat by 52 px via `body.m:has(.m-actions .m-act--places)` · SIGN OUT: the live host's adapter
-gives Astro an `http:` request URL, so `checkOrigin` 403s EVERY form POST → `signOut()` → JSON `POST /api/signout` →
+fpv.css lifts the altitude column's seat 52 px via `body.m:has(.m-act--places)` · SIGN OUT: the live host's adapter
+gives Astro an `http:` request URL, so `checkOrigin` 403s every form POST → `signOut()` → JSON `POST /api/signout` →
 `location.assign(logoutUrl)`; RULE: no `<form method=post>` in this app. Harness `verify-mobile-fixes-2026-09-18.mjs`
-ALL PASS in dev and LIVE (39; `FTW_APP_URL` = the live twin). The 09-17 era row below carries what audit 4 left open.
+ALL PASS in dev and LIVE (39; `FTW_APP_URL` = the live twin).
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
 - **2026-09-17 AUDIT #4 triaged + fixed under the owner's filter** (`wip-2026-09-16-audit4-triage-fixes`): the exact
@@ -37,7 +37,7 @@ ALL PASS in dev and LIVE (39; `FTW_APP_URL` = the live twin). The 09-17 era row 
 ## Standing facts (2026-09-18)
 - Gates: vitest **3,153 / 212 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.14** = live **v1.36.14** (2026-09-18). Release: `npm run release:full -- -c "…"` (≤ 250 chars).
+- `package.json` **1.36.15** (each ship bumps the patch); live **v1.36.14** (2026-09-18). Release: `npm run release:full -- -c "…"`.
 - **No `<form method=post>` anywhere** (2026-09-18): the live adapter's request origin is `http:` → `checkOrigin` 403s every
   real form POST (dev never runs the check). Writes are JSON fetches; sign-out is `/api/signout` + a top-level navigation.
 - **THE RESOURCE BUDGET** (owner 2026-09-06j, machine-checked): ONE house headless Chrome (:9333), ONE dev server
@@ -94,7 +94,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - AUDIT #4 (09-11) · `audits/audit-full-2026-09-11` · `audit4-2026-09-10-charter` · 09-11-audit4
 - Mobile UX batch → v1.36.11 (09-16) · 09-16-mobile-uxbatch-menu-pinch-scale
 - AUDIT #4 triage + fixes + docs/guide refresh (09-17) · 09-16-audit4-triage-fixes
-- Three /m fixes + the sign-out root cause → v1.36.14 (09-18) · 09-18-mobile-fixes-signout
+- Three /m fixes + sign-out root cause → v1.36.14 (09-18) · 09-18-mobile-fixes-signout
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·
