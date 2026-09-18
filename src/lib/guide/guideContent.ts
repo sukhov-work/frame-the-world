@@ -1761,9 +1761,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "🧭 MY LOC — fly the chart to your device fix.",
           "▲ 3D / ▼ 2D — lift the chart into the globe, or fold it flat.",
           "◎ LOOK FROM HERE — [[fpv-enter|stand at the pin you dropped]].",
-          "◎ SAVE (a round cell under the altitude nudges) and ▤ SAVED PLACES, for members. " +
-            "Signed out the save cell is dimmed — a tap says to sign in from the top bar, which " +
-            "is [[mobile-menu|the Plux menu]].",
+          "◎ SAVE and ▤ PLACES — round cells under the altitude nudges in first-person view, " +
+            "for members (outside it, ▤ SAVED PLACES is a chip above MY LOC). Signed out the " +
+            "save cell is dimmed — a tap says to sign in from the top bar, which is " +
+            "[[mobile-menu|the Plux menu]].",
           "✕ CLEAR PIN and ✕ EXIT VIEW.",
           "A micro-compass with your altitude — tap it in 3D to face north.",
           "AR, the top cell of the altitude column in first-person view — " +

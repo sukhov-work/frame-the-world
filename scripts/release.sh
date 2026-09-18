@@ -64,6 +64,10 @@ else
   run npx astro check || fail "astro check"
 fi
 
+# The CLI rejects a release comment over 250 characters — and it says so only AFTER the build
+# (2026-09-17: two four-minute builds thrown away on a 256- and a 252-char comment). Refuse up front.
+[[ ${#COMMENT} -le 250 ]] || fail "the release comment is ${#COMMENT} characters; wix release accepts at most 250"
+
 step "4/7 build + release"
 run npx @wix/cli@latest build || fail "wix build"
 REL=(npx @wix/cli@latest release -c "$COMMENT"); [[ -n "$VTYPE" ]] && REL+=(-t "$VTYPE")

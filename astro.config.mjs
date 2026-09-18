@@ -59,6 +59,11 @@ export default defineConfig({
   // TUS (Wix-domain) uploads are all untouched. LANDMINE: if a webhook / service-plugin
   // extension is ever registered, its no-Origin text() POSTs get 403'd — revisit then
   // (details: conventions/wix-headless.md + DECISIONS 2026-08-18).
+  // LANDMINE #2 (owner bug 2026-09-18): on the LIVE host the cloud adapter hands Astro an
+  // `http:` request URL, so `url.origin` never equals a browser's `https:` Origin and EVERY real
+  // form POST is refused as cross-site — the managed `POST /api/auth/logout` included. No form
+  // POSTs in this app: writes are JSON fetches (exempt), sign-out goes through
+  // `pages/api/signout.ts` + a top-level navigation. Machine-checked against production.
   security: { checkOrigin: true },
   ...(isBuild && { adapter: cloudProviderFetchAdapter({}) }),
 

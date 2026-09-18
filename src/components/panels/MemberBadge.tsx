@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { loginUrl, memberLabel, returnHereUrl, useMemberStore } from "../../store/member";
+import { loginUrl, memberLabel, returnHereUrl, signOut, useMemberStore } from "../../store/member";
 import { memberHasActivePlan, startPlanUpgrade } from "../../lib/wix/planUpgrade";
 import "../../styles/member-badge.css";
 import "../../styles/tips.css";
@@ -7,8 +7,10 @@ import "../../styles/tips.css";
 /**
  * Nav member badge (Phase 5) — the "Sign in" slot in the top nav. Anonymous (and while the
  * session is still resolving) it is a plain link to the managed Wix login; signed in it shows
- * the member label + a sign-out button (a real form POST so the browser follows the logout
- * redirect chain natively).
+ * the member label + a sign-out button. Sign-out was a real form POST to the managed logout
+ * route until 2026-09-18 — the live host's CSRF origin check refuses every form POST (the
+ * adapter's `http:` request origin; `pages/api/signout.ts`), so it is the shared `signOut()`
+ * now: a JSON fetch, then a top-level navigation down the same logout redirect chain.
  *
  * Phase 6.9 (owner: premium must be OBVIOUSLY buyable): a free member also gets a persistent
  * UPGRADE chip → the Wix-hosted plan checkout (lib/wix/planUpgrade). The plan check runs once
@@ -22,6 +24,7 @@ export default function MemberBadge() {
   const [hasPlan, setHasPlan] = useState<boolean | null>(null);
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState<"idle" | "busy" | "error">("idle");
 
   useEffect(() => {
     void refresh();
@@ -71,11 +74,21 @@ export default function MemberBadge() {
         <span className="mb-name" title={member?.loginEmail ?? undefined}>
           {memberLabel(member)}
         </span>
-        <form method="post" action="/api/auth/logout" className="mb-form">
-          <button type="submit" className="mb-out">
-            Sign out
-          </button>
-        </form>
+        <button
+          type="button"
+          className="mb-out"
+          disabled={signingOut === "busy"}
+          onClick={() => {
+            setSigningOut("busy");
+            signOut().catch(() => setSigningOut("error"));
+          }}
+        >
+          {signingOut === "busy"
+            ? "Signing out…"
+            : signingOut === "error"
+              ? "Sign out — retry"
+              : "Sign out"}
+        </button>
       </span>
     );
   }

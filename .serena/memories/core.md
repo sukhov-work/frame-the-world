@@ -40,8 +40,8 @@ far pin, J2, J3 (owner taste) · F3/F6 (a11y niceties) · T145 · the /m model-e
 
 ## Standing facts (2026-09-17)
 - Gates: vitest **3,138 / 210 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
-  Two timing tests flake under load (`bestSpotSolver`, `planFeed` "bounded by time") — re-run before believing them.
-- `package.json` **1.36.12** (the ship bumps the patch); live **v1.36.11**. Release = `npm run release:full -- -c "…"`.
+  Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
+- `package.json` **1.36.13** = live **v1.36.13** (2026-09-17). Release: `npm run release:full -- -c "…"` (≤ 250 chars).
 - **THE RESOURCE BUDGET** (owner 2026-09-06j, machine-checked): ONE house headless Chrome (:9333), ONE dev server
   (:4321), free memory ≥ 20 %; agents never launch Chrome / a dev server / the full vitest / `astro check`; browser
   suites run from the main session, queued on the one Chrome. **T98: the VPN is a precondition for every terrain

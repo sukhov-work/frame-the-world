@@ -91,6 +91,8 @@ execute → machine-split verify → record). For flagship cross-cutting design 
 - Claude vision does **not** accept RAW → always send a downsized JPEG/PNG preview.
 - No cron on headless → external scheduler hits a token-secured HTTP endpoint if ever needed.
 - Digital download links expire after 30 days (not shortenable) → message buyers.
+- **No `<form method="post">` anywhere** — on the live host the adapter's request origin is `http:`, so `checkOrigin`
+  403s every real form POST; writes are JSON fetches, sign-out is `POST /api/signout` → `location.assign(logoutUrl)`.
 
 ## Session-end auto-ship (hook `session-end-ship.sh`, owner order 2026-08-13; v2 2026-08-14)
 On SessionEnd a detached hook commits EVERYTHING on a `claude/ship-*` branch with

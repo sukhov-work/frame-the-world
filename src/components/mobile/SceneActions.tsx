@@ -7,6 +7,10 @@
  * (phones have no Escape key). The desktop twin is the MyLocation nav island (which keeps the
  * straight-into-FPV jump — desktop has no 2D map). Also home to the 2D/3D mode chip row with
  * its micro compass + altitude readout (owner 2026-08-18).
+ *
+ * THE FPV RAIL (owner 2026-09-18), top → bottom, right-aligned under the altitude column
+ * (fpv.css `.m-altcol`: AR · ⤒ · ⤓): ◎ SAVE · ▤ PLACES (members) · ✕ EXIT VIEW — the first two
+ * are 44 px icon cells in the column's geometry, EXIT VIEW is the LAST cell, always.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -108,9 +112,30 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
       )}
       <SavePlaceChip onHint={flashNote} />
       {tempFpv ? (
-        <button type="button" className="m-act" onClick={() => setTempFpv(false)}>
-          ✕ EXIT VIEW
-        </button>
+        <>
+          {/* ▤ PLACES (owner bug report 2026-09-18): in FPV a member's SAVED PLACES is a 44 px
+              ICON cell in the SAVE cell's idiom, seated BETWEEN ◎ SAVE and ✕ EXIT VIEW — the
+              old text pill rendered BELOW EXIT VIEW and made the signed-in stack one pill taller
+              than the altitude column's seat allowed, so ⤓ covered ◎ SAVE. fpv.css seats the
+              column one cell higher while this cell is rendered (`body.m:has(.m-act--places)`).
+              EXIT VIEW is always the LAST cell of the rail (the phone's Escape key). */}
+          {memberPhase === "member" && onOpenPlaces && (
+            <button
+              type="button"
+              className="m-act m-act--icon m-act--places"
+              aria-label="Saved places"
+              onClick={onOpenPlaces}
+            >
+              <span className="m-act__glyph" aria-hidden="true">
+                ▤
+              </span>
+              PLACES
+            </button>
+          )}
+          <button type="button" className="m-act" onClick={() => setTempFpv(false)}>
+            ✕ EXIT VIEW
+          </button>
+        </>
       ) : tempPin ? (
         <>
           <button type="button" className="m-act m-act--accent" onClick={() => setTempFpv(true)}>
@@ -122,8 +147,9 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
         </>
       ) : null}
       {/* SAVED PLACES (owner 2026-08-15c): logged-in members pick from the full MY PLACES
-          list — the idle SEARCH sheet. Sits directly ABOVE the MY LOCATION chip. */}
-      {memberPhase === "member" && onOpenPlaces && (
+          list — the idle SEARCH sheet. Sits directly ABOVE the MY LOCATION chip. Outside FPV
+          only — in FPV the same opener is the ▤ PLACES icon cell above (2026-09-18). */}
+      {!tempFpv && memberPhase === "member" && onOpenPlaces && (
         <button type="button" className="m-act" onClick={onOpenPlaces}>
           ▤ SAVED PLACES
         </button>

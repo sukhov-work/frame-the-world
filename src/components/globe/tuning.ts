@@ -2163,10 +2163,15 @@ export const CONTROLS = {
  *  back. Desktop never reads this block (camera.mapMode stays "3d" there). */
 export const MOBILE2D = {
   /** 2D boot view: nadir over the default focus (the same Dnipro-ish point the desktop LEO
-   *  pose centres on — store/camera's boot mirror) at the LEO default altitude. */
+   *  pose centres on — store/camera's boot mirror). Altitude: the WHOLE PLANET (owner ruling
+   *  2026-09-18 — was the desktop's 1,100 km LEO; from 18,000 km the globe's ~30° disc sits inside
+   *  the phone's vertical FOV, so the first frame reads as Earth, not as a chart of one oblast).
+   *  Only the bare `/m` boot reads this — a `#p=`/`#f=` hash brings its own altitude, and the
+   *  desktop's `POSE.cam` is untouched. Above `GATES.groundActiveAlt` the stylized base owns the
+   *  ground, so nothing streams until the first pinch in. */
   bootLatDeg: 48.46,
   bootLonDeg: 35.05,
-  bootAltM: 1_100_000,
+  bootAltM: 18_000_000,
   /* enter3dTiltDeg RETIRED (owner batch #4 item 3, 2026-08-21): two-finger drag no longer
      tilts into 3D — the ▲ 3D chip is the only door, and the freed gesture ROTATED the 2D map
      (heading stays where the fingers leave it; see stepMobile2dLocks) — until T129. */

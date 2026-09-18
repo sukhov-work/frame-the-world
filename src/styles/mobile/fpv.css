@@ -224,15 +224,28 @@ body.m.mw-open .md {
    2026-08-22a is the ONLY exit from the permanent manual-pan override, must be able to seat
    itself clear of this box on short viewports. map-window.css reads both. */
 :root {
-  --m-altcol-bottom: 16.4rem;
+  /* The signed-out seat: above the two-cell FPV stack (◎ SAVE 44 px · 8 px · ✕ EXIT VIEW ≈ 33 px)
+     that starts at chrome.css `.m-actions` 10.8rem. */
+  --m-altcol-bottom-base: 16.4rem;
+  --m-altcol-bottom: var(--m-altcol-bottom-base);
   --m-altcol-h: 148px; /* three 44 px cells (🧭 AR · ⤒ · ⤓) + the two 8 px gaps (2026-09-08b) */
+}
+/* Owner bug report 2026-09-18: a signed-in member's FPV rail carries a THIRD cell — ▤ PLACES, a
+   44 px icon between ◎ SAVE and ✕ EXIT VIEW (SceneActions) — so the column seats one cell + gap
+   (52 px) higher while that cell is rendered; ⤓ used to cover ◎ SAVE. Signed out, the stack and
+   the seat are the 2026-09-08b geometry byte for byte. `:has()` reads the RENDERED stack, so the
+   member gate lives in one place (the component) and the map window's ◉ RE-CENTRE (which reads
+   the same token) follows automatically. */
+body.m:has(.m-actions .m-act--places) {
+  --m-altcol-bottom: calc(var(--m-altcol-bottom-base) + 52px);
 }
 .m-altcol {
   position: fixed;
   right: calc(0.75rem + env(safe-area-inset-right));
   /* Above the FULL .m-actions stack — since SAVE VIEW joined EXIT VIEW (2026-08-15) the
      two-chip column tops out ≈15.2rem, and 14.4rem overlapped the ⤓ button onto SAVE VIEW
-     (owner bug report 2026-08-15c). A transient note may still brush it for ~4 s — accepted. */
+     (owner bug report 2026-08-15c). A transient note may still brush it for ~4 s — accepted.
+     The member's third cell moves the token itself (the `:has()` rule above). */
   bottom: calc(var(--m-altcol-bottom) + env(safe-area-inset-bottom));
   z-index: 10;
   display: flex;

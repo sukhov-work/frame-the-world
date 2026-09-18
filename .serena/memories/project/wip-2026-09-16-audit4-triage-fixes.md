@@ -35,4 +35,12 @@ diffs are the convergence trend (everest-orbit-52 65–95 %: the golden was CAPP
 settled at 3.4 s / 128 — the same scene at a finer imagery level; legacy-m: the 09-16 strip vs a 09-11 golden).
 Freshest promoted golden stays `audit4-2026-09-11`.
 
+## Shipped + released (2026-09-17c)
+Six guide figures re-shot (`scripts/shoot-guide.mjs`; NEW `shell-m` recipe; `target` sets the moon explicitly — the
+store restores the last-tracked id from the profile, so a used profile inherited the sun). Ship hook in the foreground
+→ `bd17d1e` (PR #126), package 1.36.13; `release:full` run 4 succeeded: canary 200/200, warm 168/0/0, live globe
+verified, `/guide/shell-m.webp` served. TRAPS: `wix release` limits the comment to 250 chars and says so only AFTER the
+build (two builds lost) → `release.sh` refuses it at step 1 now; the vitest gate can trip on the timing-measured
+`bestSpotResidency` "< 1,000 ms" under load (8/8 alone) — re-run before believing.
+
 Related: [[project/wip-2026-09-11-audit4]] [[project/wip-2026-09-16-mobile-uxbatch-menu-pinch-scale]]

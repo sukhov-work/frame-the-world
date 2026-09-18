@@ -172,8 +172,22 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
   middleware directly and bypasses the origin-check wrapper (`render-context.js:101` — dev-tier
   trials of this flag are structurally inert; empirically confirmed 2026-08-18).
 - Verified compatible by construction: same-origin JSON `fetch` writes (JSON content-types are
-  exempt), the GET-only `/api/auth/*` OAuth redirect routes, checkout return redirects, and TUS
+  exempt), the GET `/api/auth/*` OAuth redirect routes, checkout return redirects, and TUS
   uploads (they hit Wix's own upload domain, never our routes).
+- **FALSIFIED 2026-09-18 for real form POSTs (owner bug: SIGN OUT → "Cross-site POST form
+  submissions are forbidden").** Under `@wix/cloud-provider-fetch-adapter` the request URL Astro
+  sees carries the internal **`http:`** scheme, so `url.origin` is `http://www.plux.today` and a
+  browser's `Origin: https://www.plux.today` never equals it — the check calls EVERY form POST
+  cross-site on the live host (probe: a form POST with `Origin: http://www.plux.today` → 200,
+  with `https://…` → 403; JSON → 200). The managed `POST /api/auth/logout` is a form route, so the
+  sign-out form both shells used was dead in production while dev (no check) looked fine. RULE:
+  **no `<form method="post">` in this app** — writes are JSON fetches; sign-out is
+  `store/member.ts signOut()` → `POST /api/signout` (JSON; mints the managed logout URL through
+  `auth.getContextualAuth().logout()` from `@wix/essentials`) → `window.location.assign(logoutUrl)`,
+  which runs the same-origin chain `/_api/iam/authentication/v1/logout` →
+  `/api/auth/logout-callback` (member cookie → visitor tokens) → `returnTo`. Fenced by
+  `test/components/signOut.test.ts`. The same scheme mismatch is the old "login builds an
+  `http://` callback" trap (DECISIONS §Traps / Wix) — one cause, two symptoms.
 - **LANDMINE:** Wix webhook / service-plugin extensions (`/_wix/extensions/webhooks/[id]`,
   `/_wix/extensions/service-plugins/...`) receive no-Origin server-to-server POSTs read via
   `request.text()` — `checkOrigin: true` would 403 them. This app registers ZERO such extensions

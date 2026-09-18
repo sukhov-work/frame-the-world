@@ -7,7 +7,9 @@ import { create } from "zustand";
  * Wix-hosted login page), POST /api/auth/logout, and keeps the session in the `wixSession`
  * cookie that every ambient @wix/* SDK call resolves automatically (browser AND server).
  * This store only mirrors that session for the UI: `refresh()` asks the SDK for the current
- * member once; an anonymous visitor rejects → phase "anonymous".
+ * member once; an anonymous visitor rejects → phase "anonymous". Sign-out goes through
+ * `signOut()` below — NEVER a form POST to the managed route (owner bug 2026-09-18; the reason
+ * is on `pages/api/signout.ts`).
  *
  * The SDK import is lazy (inside refresh) so tests and the globe bundle never pull @wix/members.
  */
@@ -63,6 +65,31 @@ export const useMemberStore = create<MemberState>((set, get) => ({
 /** The managed login route (@wix/astro) — returns to `returnTo` after the hosted login. */
 export function loginUrl(returnTo: string): string {
   return `/api/auth/login?returnToUrl=${encodeURIComponent(returnTo)}`;
+}
+
+/**
+ * Sign the member out (owner bug report 2026-09-18 — both shells' SIGN OUT rows). A JSON
+ * `fetch` to our `/api/signout` (JSON content-types pass Astro's CSRF origin check, which the
+ * live host fails for every real form POST — see that route) hands back the managed logout URL,
+ * and a TOP-LEVEL navigation runs the same-origin redirect chain the old form used to trigger:
+ * the Wix IAM logout → `/api/auth/logout-callback` (member cookie → visitor tokens) → `returnTo`,
+ * which defaults to this exact view so the pose hash survives the round trip (the login idiom).
+ * Throws on a non-2xx / malformed reply so the caller can offer a retry; `navigate` is injectable
+ * for the DOM-less tests.
+ */
+export async function signOut(
+  returnTo: string = returnHereUrl(),
+  navigate: (url: string) => void = (url) => window.location.assign(url),
+): Promise<void> {
+  const r = await fetch("/api/signout", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ returnTo }),
+  });
+  const j = (await r.json().catch(() => null)) as { logoutUrl?: unknown } | null;
+  if (!r.ok || typeof j?.logoutUrl !== "string") throw new Error(`sign-out HTTP ${r.status}`);
+  navigate(j.logoutUrl);
 }
 
 /**

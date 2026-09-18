@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { loginUrl, memberLabel, returnHereUrl, useMemberStore } from "../../store/member";
+import { useEffect, useState } from "react";
+import { loginUrl, memberLabel, returnHereUrl, signOut, useMemberStore } from "../../store/member";
 import "../../styles/mobile/chrome.css";
 
 /**
@@ -25,6 +25,9 @@ export default function MobileAccount({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  // The SIGN OUT row's own state: the JSON round-trip takes a beat, and a failed one must say so
+  // instead of leaving a member staring at a menu that did nothing.
+  const [out, setOut] = useState<"idle" | "busy" | "error">("idle");
 
   const cls = `m-chip m-chip--account${menuItem ? " m-menu__item" : ""}`;
   const role = menuItem ? "menuitem" : undefined;
@@ -37,14 +40,23 @@ export default function MobileAccount({
         </button>
         {menuItem && (
           // audit #4 F4 (2026-09-17): /m had no sign-out — a phone member had to leave for the
-          // desktop shell. The same real form POST the desktop badge uses (the managed logout
-          // route redirects; the browser follows it), rendered as one more menu row.
-          <form method="post" action="/api/auth/logout" className="m-menu__form">
-            <button type="submit" className="m-chip m-menu__item" role="menuitem">
-              SIGN OUT
-              <span className="m-menu__hint">THIS DEVICE</span>
-            </button>
-          </form>
+          // desktop shell. Owner bug 2026-09-18: the first cut was a real form POST to the managed
+          // logout route, which the live host's CSRF origin check refuses ("Cross-site POST form
+          // submissions are forbidden" — `pages/api/signout.ts` has the why). Now the shared
+          // `signOut()`: JSON fetch → top-level navigation down the same logout chain.
+          <button
+            type="button"
+            className="m-chip m-menu__item"
+            role="menuitem"
+            disabled={out === "busy"}
+            onClick={() => {
+              setOut("busy");
+              signOut().catch(() => setOut("error"));
+            }}
+          >
+            {out === "busy" ? "SIGNING OUT…" : out === "error" ? "SIGN OUT — RETRY" : "SIGN OUT"}
+            <span className="m-menu__hint">{out === "error" ? "IT DID NOT GO THROUGH" : "THIS DEVICE"}</span>
+          </button>
         )}
       </>
     );
