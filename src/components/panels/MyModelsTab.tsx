@@ -100,18 +100,30 @@ export function modelRowBadges(m: ModelListItem): Array<{ key: keyof typeof BADG
 
 export function MyModelsTabView({ state, actions }: { state: MyModelsViewState; actions: MyModelsActions }) {
   const { models, phase, error, armedDeleteId, busyId, renamingId, draft } = state;
-  if (error) return <div className="mp-note mp-note--warn">COULD NOT LOAD — {error.toUpperCase()}</div>;
+  // An ACTION's failure is a note ABOVE the list — never instead of it (owner bug 2026-09-19: a
+  // failed ✕ used to replace every row with a sticky "COULD NOT LOAD", and since each control
+  // that clears the error lives IN the list, the tab stayed dead until it was remounted).
+  const actionNote = error ? (
+    <div className="mp-note mp-note--warn" role="status" data-note="action-error">
+      {error.toUpperCase()} — TRY AGAIN
+    </div>
+  ) : null;
+  if (phase === "error" && models.length === 0) return <div className="mp-note mp-note--warn">COULD NOT LOAD — REOPEN THE PANEL TO RETRY</div>;
   if (phase === "loading" && models.length === 0) return <div className="mp-note">LOADING…</div>;
   if (models.length === 0) {
     return (
-      <div className="mp-note">
-        No models yet — drop a GLB, OBJ or FBX in UPLOAD; once stored it is listed here.
-      </div>
+      <>
+        {actionNote}
+        <div className="mp-note">
+          No models yet — drop a GLB, OBJ or FBX in UPLOAD (or ADD A BOX there); once stored it is listed here.
+        </div>
+      </>
     );
   }
   const anyHidden = models.some((m) => m.hidden);
   return (
     <>
+      {actionNote}
       <ul className="mp-list" data-tab="models">
         {models.map((m) => {
           const placed = m.lat !== null && m.lon !== null;

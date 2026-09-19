@@ -71,8 +71,17 @@ const view = (s: MyModelsViewState) => renderToStaticMarkup(createElement(MyMode
 describe("MyModelsTab (MS6)", () => {
   it("renders the states: loading, error, empty", () => {
     expect(view(state({ phase: "loading" }))).toContain("LOADING…");
-    expect(view(state({ error: "HTTP 502" }))).toContain("COULD NOT LOAD — HTTP 502");
+    expect(view(state({ phase: "error" }))).toContain("COULD NOT LOAD");
     expect(view(state())).toContain("No models yet");
+  });
+
+  it("owner bug 2026-09-19: a failed ACTION is a note above the list — the rows (and their controls) stay", () => {
+    const html = view(state({ models: [item("a"), item("b")], error: "delete failed" }));
+    expect(html).toContain('data-note="action-error"');
+    expect(html).toContain("DELETE FAILED — TRY AGAIN");
+    expect(html).not.toContain("COULD NOT LOAD");
+    expect(html.match(/<li/g)?.length).toBe(2); // the list is still there to act on
+    expect(html.indexOf('data-note="action-error"')).toBeLessThan(html.indexOf("<ul"));
   });
 
   it("a row carries the thumbnail or the glyph, the title, the size at the committed scale, the tris and the five actions", () => {

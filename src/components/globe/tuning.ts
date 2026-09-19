@@ -3875,9 +3875,37 @@ export const FPV = {
    *  is ill-conditioned and the sample is ignored — ~70° of tilt. UNVERIFIED on a real iPhone
    *  (2026-09-07h): the device pass may open this toward 0.2. */
   arCompassMinTopHoriz: 0.35,
-  /** EMA time constant (ms) of the compass-learned yaw offset — re-absorbs gyro drift each
-   *  time the phone dips without letting a single noisy fix yank the view. */
-  arCompassOffsetTauMs: 800,
+  /** The STEADY time constant (ms) of the yaw TRIM (`lib/sensors/yawTrim.ts`) — how slowly the
+   *  compass is allowed to correct the gyro-led view. 800 → 8000 on 2026-09-19 (owner: "the image
+   *  drifts each time you move the phone from side to side"): at 0.8 s the rung was compass-led in
+   *  all but name and every lag / steel railing reached the view. The first fix still lands
+   *  exactly and a 1.5 s fast window refines it; only after that is the trim this slow. */
+  arCompassOffsetTauMs: 8000,
+  /** …and the cap on how fast the trim may move the view (deg/s) — it only has to beat the
+   *  gyro's creep (~0.2°/s under motion), and under ~2°/s the eye does not read it as motion. */
+  arTrimMaxRateDegPerS: 1.5,
+  /** The phone's angular rate (deg/s) above which the trim FREEZES (and for 400 ms after): a
+   *  compass lags a turn, and believing it mid-swing is the swing error. */
+  arTrimFreezeRateDegPerS: 30,
+  /** iOS: the screen normal's up-component (1 flat on a table · 0 upright · < 0 tipped back)
+   *  under which a compass sample is ignored. Tipped back past vertical, "the top edge's heading"
+   *  and "the camera's heading" are 180° apart and it is UNVERIFIED which one Core Location
+   *  reports; below vertical they are the same number. −1 disables the gate (the device pass). */
+  arCompassMinScreenUp: 0.2,
+  // ── AR CAMERA OVERLAY + CALIBRATION (owner order 2026-09-19 — `mobile/ArCameraOverlay.tsx`) ──
+  /** EMA (ms) on the sensed ROLL the `<video>` is counter-rotated by. */
+  arRollSmoothTauMs: 120,
+  /** The `<video>`'s opacity over the 3D view: CAMERA VIEW's default (the slider's start) and
+   *  the slider's rails. The whole 3D frame reads THROUGH the feed — buildings, meshes and sky
+   *  alike — with no transparent sort and no renderer change (the canvas is opaque by design). */
+  arCamOpacity: 0.55,
+  arCamOpacityMin: 0.15,
+  arCamOpacityMax: 0.9,
+  /** `getUserMedia` ideals. 720p / 30 fps: a BGRA frame is ~3.7 MB at 720p against 8.3 MB at
+   *  1080p and the capture pool holds several — beside a WebGL scene on a 2 GB iOS page budget. */
+  arCamIdealWidthPx: 1280,
+  arCamIdealHeightPx: 720,
+  arCamIdealFps: 30,
   /** Shared `#f=` FPV link boot framing (owner 2026-07-14): the camera boots this high above
    *  the shared viewer point (m), looking along the shared bearing, so the right street tiles
    *  stream while the temp-FPV entry flight descends onto the exact eye. */

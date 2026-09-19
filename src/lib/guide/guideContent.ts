@@ -682,9 +682,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "and bank it, so a model that arrived on its side stands up. It stands on the terrain until " +
           "MOVE's green arrow lifts or sinks it — it can never sink out of sight, even flipped, and " +
           "[[my-models|your own list]] resets it.",
-        keys: ["3d model", "glb", "obj", "fbx", "upload model", "place model", "custom model", "mdl"],
+        keys: ["3d model", "glb", "obj", "fbx", "upload model", "place model", "custom model", "mdl", "box", "cube", "primitive"],
         steps: [
-          "Open UPLOAD and drop a .glb, .gltf, .obj or .fbx — textures and a .mtl ride along.",
+          "Open UPLOAD and drop a .glb, .gltf, .obj or .fbx — textures and a .mtl ride along — or, with no file at hand, press ▣ ADD A BOX under the drop zone for a plain 5 × 5 × 5 m stand-in that goes down the same path.",
           "Read the CHECK card: triangles, textures and the guessed source units; pick another unit if the size looks wrong.",
           "Press UPLOAD MODEL (sign in first).",
           "Press PLACE ON GLOBE and click where it should stand.",
@@ -761,8 +761,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Rings ROTATE — the green one turns it flat; the red and blue ones tip a model over, " +
             "and a building has neither.",
           "Boxes SCALE — a building takes each axis on its own, a model always scales as a whole.",
-          "A building lifts up to 25 m above its base and never sinks below it; a model lifts up " +
-            "to 50 m and sinks only until part of it still shows.",
+          "A building lifts up to 300 m above its base and never sinks below it; a model lifts up " +
+            "to 300 m and sinks only until part of it still shows.",
         ],
         tip:
           "Escape unwinds one layer at a time: the menu, then a drag in progress, then the arming itself.",
@@ -1767,8 +1767,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             "[[mobile-menu|the Plux menu]].",
           "✕ CLEAR PIN and ✕ EXIT VIEW.",
           "A micro-compass with your altitude — tap it in 3D to face north.",
-          "AR, the top cell of the altitude column in first-person view — " +
-            "[[mobile-ar|aim the view by moving the phone]].",
+          "AR, in the altitude column in first-person view — " +
+            "[[mobile-ar|aim the view by moving the phone]]; hold it to " +
+            "[[mobile-ar-camera|calibrate it against the camera]].",
+          "CAM, above AR while AR is on — [[mobile-ar-camera|the phone's camera over the 3D view]].",
         ],
         tip:
           "⊞ LAYERS expands to the left with ▦ 3D DETAIL, ◎ MY PLACES, ⌖ PHOTO PINS, " +
@@ -1795,6 +1797,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "In first-person view, pinch zooms the focal length.",
           "In first-person view with AR on, move the phone to look around " +
             "([[mobile-ar|AR look-around]]).",
+          "In first-person view, hold AR to line the 3D view up with the camera " +
+            "([[mobile-ar-camera|AR calibration]]).",
           "In first-person view, double-tap a building to [[fpv-height|edit its height]].",
         ],
         tip: "While the walk controls are up, the screen stays awake.",
@@ -1802,7 +1806,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "mobile-ar",
         title: "AR look-around",
-        where: { mobile: "AR — the top cell of the altitude column, in first-person view" },
+        where: { mobile: "AR — in the altitude column, in first-person view" },
         keys: ["ar", "augmented", "gyro", "gyroscope", "compass", "motion", "sensors", "orientation", "align", "permission"],
         body:
           "Tap AR and the phone itself becomes the look: turn it, tilt it, and the view follows. " +
@@ -1810,9 +1814,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "from the tap itself, never at page load; Android arms at once. A short bubble then " +
           "says what is steering the view, and clears after a moment. While AR is on, the " +
           "one-finger look and the AIM stick's heading stand down; the pinch and the stick's " +
-          "focal axis still work. Tap AR again to switch it off.",
+          "focal axis still work. Tap AR again to switch it off, or hold it to " +
+          "[[mobile-ar-camera|calibrate the view against the camera]].",
         list: [
-          "COMPASS · TRUE NORTH — the phone's compass, corrected for declination; an iPhone may " +
+          "COMPASS · TRUE NORTH — north from the phone's compass, corrected for declination, while " +
+            "the gyro carries the turns so a swing comes back to where it started; an iPhone may " +
             "ask you to tilt the phone down for a moment to re-sync.",
           "GYRO · ALIGNED — no compass: you aligned once and the gyro carries it; tap ⌖ ALIGN " +
             "again if it drifts.",
@@ -1825,6 +1831,29 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Denied it on an iPhone? iOS remembers that until Safari is quit and reopened, or " +
           "Settings → Safari → Clear History and Website Data — there is no motion toggle in " +
           "Settings, and a page over HTTP is refused too.",
+      },
+      {
+        id: "mobile-ar-camera",
+        title: "Camera view and AR calibration",
+        where: { mobile: "CAM — above AR while AR is on · hold AR to calibrate" },
+        keys: ["cam", "camera view", "calibrate", "calibration", "drift", "live view", "camera feed"],
+        body:
+          "With AR on, CAM lays the phone's live rear camera over the 3D view at the same focal " +
+          "length, levelled against the phone's roll, so the planned frame reads straight against " +
+          "the real street; the 3D ↔ CAM slider decides which of the two leads, and a pinch still " +
+          "changes the focal length of both. Every phone's sense of north is a few degrees out and " +
+          "wanders as the phone swings, so the view is steered by the gyro and north is only " +
+          "trimmed slowly — and your own eyes have the last word: hold AR to calibrate.",
+        steps: [
+          "Hold the AR chip until CALIBRATE AR opens (allow the camera when the browser asks).",
+          "Put a far landmark — a tower, a chimney, a ridge — on the centre cross.",
+          "Drag the 3D view until it sits on the camera's picture; twist two fingers to level it; pinch until the two are the same size.",
+          "Press ✓ CONFIRM — the correction is kept on this phone until the next calibration replaces it.",
+          "Press ↺ RESET to forget a stored calibration, or ✕ CANCEL to leave everything as it was.",
+        ],
+        tip:
+          "Calibrate where you shoot — magnetic north is bent by steel railings, cars and bridges, so a " +
+          "correction made on a balcony is only roughly right in a field.",
       },
     ],
   },

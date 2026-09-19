@@ -372,6 +372,27 @@ console.log(`leg 1: small sphere → REVIEW in ${ms1} ms · ${s1.stats.tris} tri
 
 // ═══ 2: the dense textured sphere → DECIMATED ═══════════════════════════════════════════════
 await evalJs(`${MS}.clear(), true`);
+// ── leg 1b (owner 2026-09-19): the quick PRIMITIVE — ▣ ADD A BOX walks the SAME door ───────────
+await openOverlay("leg 1b");
+{
+  const btn = await evalJs(`(() => { const b = document.querySelector('[data-act="add-box-5m"]'); if (!b) return null; const inDrop = !!b.closest(".uf-dropzone"); const t = b.textContent; b.click(); return { t, inDrop }; })()`);
+  if (!btn) fail("leg 1b: no ▣ ADD A BOX button in the drop step");
+  if (btn.inDrop) fail("leg 1b: the button sits INSIDE the dropzone (its click would open the file picker)");
+  const sb = await waitModelPhase("leg 1b", ["review"]);
+  if (sb.format !== "glb" || sb.fileName !== "box-5m.glb") fail(`leg 1b: ${sb.format} / ${sb.fileName}`);
+  if (sb.stats.tris !== 12 || sb.stats.meshes !== 1 || sb.stats.textures !== 0) fail(`leg 1b: tris/meshes/textures ${sb.stats.tris}/${sb.stats.meshes}/${sb.stats.textures}`);
+  if (!sb.stats.bbox.every((v) => near(v, 5, 0.01))) fail(`leg 1b: bbox ${JSON.stringify(sb.stats.bbox)} — wanted 5 × 5 × 5 m`);
+  if (sb.unit !== "m" || sb.unitSuggested) fail(`leg 1b: unit ${sb.unit} suggested ${sb.unitSuggested} — a 5 m box is metres, no guess`);
+  if (sb.decimatedFromTris !== null) fail("leg 1b: a 12-triangle box must not be decimated");
+  if (sb.title !== "BOX 5 m") fail(`leg 1b: title "${sb.title}" (the registry's, not the file stem's)`);
+  if (!(sb.thumbnailUrl ?? "").startsWith("blob:")) fail(`leg 1b: no blob thumbnail (${sb.thumbnailUrl})`);
+  if (!(sb.glbBytes > 500 && sb.glbBytes < 20_000)) fail(`leg 1b: packed ${sb.glbBytes} B`);
+  if (!(await evalJs("!!document.querySelector('.uf-preview--model img')"))) fail("leg 1b: the CHECK card shows no thumbnail image");
+  await shoot("modelupload-01b-box-primitive.jpeg");
+  await evalJs(`${MS}.clear(), true`);
+  console.log(`leg 1b: ${btn.t} → REVIEW · 12 tris · 5 × 5 × 5 m · metres · "${sb.title}" · packed ${sb.glbBytes} B · thumbnail`);
+}
+
 await openOverlay("leg 2");
 await dropFiles("leg 2", [F.dense]);
 const t2 = Date.now();

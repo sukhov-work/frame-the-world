@@ -138,6 +138,15 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
 | `POST /api/analyze` | premium-gate → Wix AI (Claude) + **downsized JPEG** + desired-condition prompt → suggestions | ~1 credit; never RAW. **PLANNED — Phase 7** |
 | `POST /api/moderate` | Claude moderation pass on a preview before publishing a public pin | C6 gate. **PLANNED — Phase 7** |
 
+**The write wire (RULE, 2026-09-18 + 2026-09-19).** On the live host the cloud adapter hands Astro an `http:` request URL,
+so `security.checkOrigin` (`astro/dist/core/app/middlewares.js`) never sees a matching `Origin` and lets a non-safe method
+through ONLY when it carries a NON-form content type. Two consequences, both invisible in `wix dev` (the check does not run
+there): **no `<form method="post">`** (sign-out is `POST /api/signout`, JSON, then `location.assign(logoutUrl)`), and **every
+client write goes through `lib/api/dataFetch.jsonWriteInit(method, body?)`** — `Content-Type: application/json` ALWAYS, body
+or not: a body-less `DELETE` sends no content type and was refused 403 before the route ran, so model / photo / listing /
+place deletes were dead in production until 2026-09-19. Fence: `test/lib/api/jsonWrites.test.ts` (a source scan of every
+`fetch("/api/…")` write). Detail: `conventions/wix-headless.md` §12b.
+
 ## 7. Component responsibilities (`src/`, as built 2026-08-24)
 - `components/globe/` (`client:only`, **design imports never write here**): `GlobeCanvas` (renderer/composer/
   bloom/GTAO seam + quality tier), `StylizedTiles` (orchestrator: camera, controls, the ~40-step per-frame
@@ -178,6 +187,14 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   (`lib/globe/quality.stickyOverlayPx`) — never lowered by a 2D↔FPV flip or a governor demote.
   Lowering it rebuilds every resident composite (the 2026-08-21h white-chart storm); the assert
   is the DEV probe `window.__overlayRebuilds`, never raw tile-GET counts.
+  **RAISING it is the same rebuild** (owner bug 2026-09-19, "all ground tiles reset to white after
+  … exit FPV"): a `mid`/`low` phone boots FPV / 3D at the tier's 256 px and the first flat-chart
+  frame — on `/m`, every FPV exit — raised to 512 by destroying every composite on screen (measured
+  57/57 tiles white, healed +4.2 s). On the MOBILE SHELL the raise is certain, so the orchestrator
+  passes `flatGround || isMobileShell`: the session's one rebuild lands on FRAME 1, on an empty
+  cache. Desktop keeps the lazy raise; a desktop that boots `mid` and is promoted during FPV still
+  rebuilds at the FPV exit (RC18 defers it there by design) — the cure is a seamless overlay
+  handover, backlog **T146**. Probe: `scripts/probe-white-ground.mjs [--desktop]`.
 - `components/panels/` (design imports allowed): `UploadFlow` (dropzone→worker), `PhotoDetailPanel` (EXIF
   sliders/encoders + save/update/delete), `TimeScrubber`+`TimeReadout` (scrub + playback + light bands),
   `LocationFinder` (geocode + sky-object search → fly-to/track), `CameraTiltPanel` (compass/2D-3D/
@@ -206,12 +223,19 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   (`variant={fpvOn ? "fpv" : "map"}`). Fenced by `test/components/mobileFence.test.ts` rule 3:
   `controls/` is a PURE LEAF — react + stores + `lib/**` + `globe/tuning` + styles only, never a
   panel or a mobile import. Design imports MAY write here (it is chrome, not the canvas globe).
+  Since 2026-09-19 it also carries **`useLongPress.ts`** — the ONE long press for touch chips (the
+  `TargetPeek` shape: a timer fires it while the finger is down, the RELEASE re-judges it by the
+  events' own `timeStamp`s, a finger's verdict is `touchend`'s; the callback may DECLINE the timer's
+  call when the action needs a user activation). First user: the AR chip; `TabBar` + `MapModeChip`
+  still owe the migration (backlog T145).
 - `components/mobile/` (M0–M3 shipped, planning-first shell — owner 2026-08-11/13; **U1
   2026-08-17: /m boots 2D-first** — the 3D globe is opt-in per session, buildings detach in 2D
   map mode): thin consumers of
   the SAME stores/libs mounted by `src/pages/m.astro` + `layouts/MobileLayout.astro`: `MobileShell`,
   `TabBar`, `Sheet`, `PlanSheet`, `FindSheet`, `TargetSheet`, `TargetPeek`, `GuideSheet` (G1),
-  `MobileTimeDock` (conveyor dock v2), `FpvControls` (touch pads), `SceneActions`, `MobileSearch`,
+  `MobileTimeDock` (conveyor dock v2), `FpvControls` (touch pads + the AR / CAM chips),
+  `ArCameraOverlay` (2026-09-19 — the rear-camera feed + the calibration pad, §7f), `BestSpotSheet`,
+  `SceneActions`, `MobileSearch`,
   `MobilePlaces`, `MobileAccount`. Never imports desktop panels; desktop never imports from it; all
   shared logic lives in `lib/**` + `store/**` + **`components/controls/**`** — THREE shared tiers
   since 2026-08-21b (the two-shell drift guard; the third was undocumented until audit #3 D1/D6).
@@ -235,7 +259,11 @@ field-by-field inventory lives in [`conventions/contracts.md §4`](../convention
   pure download comparator, 0.4.28-parity, 2026-08-18), `geo/` also carries `slippy` (U3 tile
   math for the 2D map twins) + `terrainTiles` (terrain-patch serve-set math, bake-twin
   parity-tested, 2026-08-18p), `photo/` (npf), `market/`
-  (listing), `guide/` (guideContent, inline — the guide content model, G1 2026-08-15), `export/` (ics),
+  (listing), `sensors/` (deviceOrientation, orientationLadder, **yawTrim**, **arCalibration**, **arCamera**,
+  **arFrame** — the /m AR stack, §7f; the bold four are 2026-09-19), `models/` (modelCaps, normalizeModel,
+  modelPlacement, **primitives** — the predefined-mesh registry, 2026-09-19, §7d addendum), `api/` (`http.ts`
+  server-only; `dataFetch.ts` client — the list-fetch timeout + **`jsonWriteInit`, the ONE write wire**, §6),
+  `guide/` (guideContent, inline — the guide content model, G1 2026-08-15), `export/` (ics),
   `pins/`, `save/`, `wix/` (pinRecords, placeRecords, photosData, planUpgrade, overrideRecords — the building-overrides wire: OSM-keyed `_id`, server-side rails), `api/`, `format/`,
   `textures/`, `theme/` (GL token bridge **`tokens.ts`** + **`cssInk.ts`** — the memoised
   resolved-token cache the two CANVAS radars paint from; a 2D canvas cannot take a `var()`, and
@@ -380,6 +408,18 @@ Three directions, all shipped:
   sink out of sight, and MS8 pitch/roll. Management is the fourth MY PINS tab (`MyModelsTab.tsx`)
   with per-row GOTO and RESET.
 
+> **Addendum 2026-09-19 (owner batch — the track stays closed; these are fixes and one convenience).**
+> **Lift rails 300 m:** `LIFT_MAX_M` (buildings, was 25) and `MODEL_LIFT_MAX_M` (models, was 50) — the owner's "at least
+> 300 m"; the server clamps read the same constants and `growBoundsFor` already pads a lifted building's bounds.
+> **PRIMITIVES:** `lib/models/primitives.ts` is a registry of predefined meshes (first entry: ▣ a 5 × 5 × 5 m box) — a pure
+> in-memory GLB writer (24 vertices with true normals + one matte material) whose `File` enters the SAME
+> `store/modelUpload.begin()` an uploaded file walks (`beginPrimitive(id)`), so a primitive IS a user model on every path
+> after the door (audit, re-export, thumbnail, Media, `UserModels`, MY MODELS, placement, gizmo, lift, delete); `sourceFormat`
+> stays `glb`, no server / scene / schema change. The button row sits under the UPLOAD dropzone (`panels/UploadFlow.tsx`);
+> `/m` has no upload dialog by the 2026-08-11 ruling (backlog T148). **Delete:** the wire rule in §6 (it never worked live),
+> plus — the action note sits ABOVE the MODELS list, a 404 on DELETE is success, `loadMine` honours tombstones inside the
+> read-lag grace, and the orchestrator releases the gizmo arm when its model leaves the world.
+
 DEV seams: `__globe.userModels()` · `__globe.modelGizmo()` · `__globe.bldgGizmo()` ·
 `__globe.enrichedState()` / `enrichedSetTransform()` (`conventions/contracts.md` §3).
 
@@ -408,6 +448,52 @@ DEV seams: `__globe.userModels()` · `__globe.modelGizmo()` · `__globe.bldgGizm
   `tools/devicefarm/ios-baseline.mjs` over a `cloudflared` tunnel (runbook `tools/devicefarm/README.md`),
   and a Pixel 6 Pro over adb via `scripts/verify-perf-baseline.mjs <port> --device`. Results:
   `rendering/MEASUREMENTS_2026-09-05.md` §11.
+
+## 7f. AR on `/m` — the gyro-led ladder, the camera view, visual calibration (as built 2026-09-07h → 2026-09-19) [TWIN-VERIFIED; the phones owe the device pass — T147]
+In mobile FPV the phone's orientation aims the camera. The seam is three layers, each pure below the one that touches the DOM:
+
+- **`lib/sensors/` (pure, three-free, unit-pinned).** `deviceOrientation.ts` — a `deviceorientation` triple → the rear
+  camera's look VECTOR (never through the Euler angles: WebKit's extraction flips at vertical), pitch, roll, the top edge's
+  heading; `LookSmoother` (vector EMA 50 ms + a 0.25° dead-band). `orientationLadder.ts` — WHICH source yields the heading:
+  `android-absolute` · `ios-compass` · `relative-aligned` · `relative-unaligned`. **`yawTrim.ts` (2026-09-19) is the filter
+  both compass rungs share, and the architecture in one sentence: the RELATIVE, gyro-led attitude DRIVES the view; the
+  absolute source only OBSERVES the one yaw offset between the two gravity-aligned frames.** iOS: relative α (Core Motion
+  `xArbitraryZVertical`) + `webkitCompassHeading` of the top edge, believed only below vertical (`screenUp ≥ 0.2`) and
+  with the top edge on the ground (`topHoriz ≥ 0.35`). Android: Chromium's `deviceorientation` (`TYPE_GAME_ROTATION_VECTOR`,
+  no magnetometer) drives and `deviceorientationabsolute` (`TYPE_ROTATION_VECTOR`) is paired within 50 ms as the observation;
+  with no relative stream the absolute pose is taken as it comes (the pre-2026-09-19 rung, byte for byte). The trim: first
+  fix EXACT → 1.5 s fast refine → τ 8 s capped 1.5°/s → frozen above 30°/s (+ 400 ms) and while the observations disagree
+  or slide (the quasi-static-field test) → a > 20° jump must persist 3 s and is slewed, never jumped → a > 1 s sensor gap
+  re-acquires. `lib/geo/wmm.ts` (WMM2025, in-house) turns magnetic into TRUE north at the eye.
+- **`scene/arLook.ts` (the engine half).** Owns the listeners while `arLook && fpvActive`, feeds the ladder, hands
+  `stepFpvPose` a per-frame `aim()` exactly like the TRACKING lock (a closure value; the store mirror runs at the HUD
+  cadence), and stands the look-drag + the AIM stick's heading down while live. Requests arrive on `update(ctx)`; answers
+  leave through PUSHED writers (`mirror`, `calibrated`) — scene modules never import a store.
+- **The camera view + calibration (2026-09-19).** `mobile/ArCameraOverlay.tsx`: `getUserMedia` (720p / 30 fps ideals — a
+  capture pool beside WebGL on a 2 GB iOS page; `lib/sensors/arCamera.ts` re-acquires Android's `camera2 0, facing back`,
+  never matches iOS's localized labels) into a `<video>` at z 1 ABOVE the canvas with a CSS opacity: the whole 3D frame reads
+  through the feed and the renderer stays OPAQUE (`alpha` and `.setClearColor` are fenced; holes in the screen-door dissolve
+  would reveal the GL sky, not the video). **"The same focal length" is one equation** (`arCalibration.videoLayout`): two
+  pinhole pictures agree at every pixel iff they share a focal length IN PIXELS, `f = (H/2)/tan(vFov/2)`, so the video's long
+  side is drawn `2·f·tan(camLong/2)` px and follows a pinch-FOV per frame; it is counter-rotated by the phone's smoothed roll
+  (the FPV camera has no roll seam). Per-frame values ride `lib/sensors/arFrame.ts` — a plain mutable record the
+  orchestrator writes in `stepArLook`, never a 60 fps store write. A page cannot read a camera's FOV, so
+  `camLongFovDeg` defaults to 62° and is LEARNED by the calibration pinch.
+- **The calibration record** (`lib/sensors/arCalibration.ts`, `ftw:ar-calib:v1`): `{ yawDeg, pitchDeg, rollDeg,
+  camLongFovDeg, savedAtMs }`. A LONG PRESS on AR opens a full-screen pad (z 5, under the FPV instruments at z 10): DRAG =
+  yaw / pitch (grab-the-world, one pixel of drag = one pixel of scene), TWIST = roll, PINCH = the camera's FOV; ✓ CONFIRM /
+  ↺ RESET / ✕ CANCEL. **The stored yaw is a measured COMPASS BIAS and lives INSIDE the trim** (target = observation + bias):
+  it never touches the relative rungs (there CONFIRM is an ALIGN by eye and the stored yaw is kept), RESET moves the offset
+  at once, and CONFIRM sets `bias = offset − median(observations)` — not `bias + drag` — so a trim that had not converged
+  cannot pull the calibrated view afterwards; a calibration confirmed this session slows the trim again (τ 40 s, 0.3°/s).
+  Store: `camera.arCam` (`off | view | calibrate`) · `arCalibration` · `arCalDraft` · `arCalCommitEpoch` (the engine commits
+  and answers through `_onArCalibrated`). Permission: ONE `DeviceOrientationEvent.requestPermission()` call site, inside the
+  tap's own stack (iOS); the long press reaches it on the RELEASE (`controls/useLongPress`).
+
+Harnesses: `scripts/verify-ar-look.mjs` (the ladder end to end, 39) · `scripts/verify-ar-calibration.mjs` (the fused rung
++ the swing, CAM + the shared-focal layout through the component's real `getUserMedia` path, the long press → pad → CONFIRM
+persists and HOLDS → reload → CANCEL → RESET; 52). DEV seam: `__globe.arLook()` (`aim`, `trim`, `cal`, `rollDeg`).
+Decisions: `DECISIONS.md` 2026-09-07h, 2026-09-19. Guide: `mobile-ar`, `mobile-ar-camera`.
 
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to

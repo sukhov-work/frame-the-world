@@ -316,8 +316,31 @@ const controlSeesHelper = (which) =>
       ` c.scene.remove(root);` +
       ` return { planeFound: !!plane, planeDistM: target ? target.distanceTo(g.camera.position) : null, hits: hits.length, gizmoHits: hits.filter((h) => isGizmo(h.object)).length, first: hits[0] ? { type: hits[0].object.type, distance: hits[0].distance, gizmo: isGizmo(hits[0].object) } : null }; })()`,
   );
+// OWNER BUG 2026-09-19 (c): "after upload → place → edit → exit FPV, sometimes ALL ground tiles are
+// reset to white". The discriminating probe: per ground tile, is its imagery composite THERE
+// (the library's LAYER_0_EXISTS define + a texture with pixels)? plus the three global suspects —
+// an overlay REBUILD (`__overlayRebuilds`), a quality-tier move, a lost WebGL context.
+const GROUND_PROBE = `(() => { const g = window.__globe, t = g.ground; const p = t.getPluginByName && t.getPluginByName("IMAGE_OVERLAY_PLUGIN"); const o = { meshes: 0, white: 0, nullTex: 0, zeroCanvas: 0, ok: 0 };
+  if (p && p.meshParams) t.group.traverse((m) => { if (!m.isMesh || !p.meshParams.has(m)) return; o.meshes++; const d = m.material.defines || {}; const x = p.meshParams.get(m).layerMaps.value[0];
+    const noLayer = !d.LAYER_COUNT || !d.LAYER_0_EXISTS; if (!x) o.nullTex++; else if (x.image && x.image.width === 0) o.zeroCanvas++; if (noLayer || !x || (x.image && x.image.width === 0)) o.white++; else o.ok++; });
+  const q = window.__quality || {}; return { ...o, plugin: !!(p && p.meshParams), rebuilds: window.__overlayRebuilds ?? null, tier: q.tier ?? null, pending: q.pendingTier ?? null, ctxLost: window.__ctxLostN ?? 0, fpv: g.fpv().active }; })()`;
+const groundWatch = async (label, ms) => {
+  const out = [];
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    out.push({ at: Date.now() - t0, ...(await evalJs(GROUND_PROBE)) });
+    await sleep(400);
+  }
+  const worst = out.reduce((a, b) => (b.meshes > 0 && b.white / b.meshes > (a.meshes ? a.white / a.meshes : -1) ? b : a), out[0]);
+  console.log(`${label}: ground watch ${out.length} samples over ${(ms / 1000).toFixed(0)} s — worst ${worst.white}/${worst.meshes} tiles without imagery at +${worst.at} ms (nullTex ${worst.nullTex}, zeroCanvas ${worst.zeroCanvas}) · rebuilds ${out[0].rebuilds}→${out.at(-1).rebuilds} · tier ${out[0].tier}→${out.at(-1).tier} · ctxLost ${out.at(-1).ctxLost} · end ${out.at(-1).white}/${out.at(-1).meshes}`);
+  return { out, worst };
+};
 const orbitDragProbe = async (label) => {
+  await evalJs(`window.__ctxLostN ??= 0, window.__ctxHooked || (window.__ctxHooked = true, document.querySelector("canvas").addEventListener("webglcontextlost", () => window.__ctxLostN++)), true`);
+  const pre = await evalJs(GROUND_PROBE);
+  console.log(`${label}: ground BEFORE the exit (in FPV) — ${pre.white}/${pre.meshes} tiles without imagery (probe plugin ${pre.plugin}, rebuilds ${pre.rebuilds}, tier ${pre.tier})`);
   await evalJs(`${CS}.setTempFpv(false), true`);
+  await groundWatch(`${label} · FPV EXIT`, 9000);
   await waitUntil(`${label}: FPV exit`, "!window.__globe.fpv().active && window.__globe.fpv().controlsEnabled", 20_000);
   await waitUntil(`${label}: fly-out settles`, "!window.__globe.flight.active()", 30_000);
   // The fly-out lands wherever the FPV look left it — re-seat on ONE fixed orbit pose so the
@@ -514,7 +537,7 @@ const quatAngleDeg = (a, b) => {
 };
 const liftFloor = (scaledH) => {
   const keep = Math.max(0.25 * scaledH, 0.5);
-  const d = Math.max(0, Math.min(50, scaledH - keep));
+  const d = Math.max(0, Math.min(300, scaledH - keep)); // MODEL_LIFT_MAX_M (300 since 2026-09-19)
   return d > 0 ? -d : 0;
 };
 

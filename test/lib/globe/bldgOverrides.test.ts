@@ -315,10 +315,11 @@ describe("clampGizmoEdit (per-edit rails about the COMMITTED transform — MS5b 
 
   it("the MOVE rail is per edit: the OFFSET from the committed position is shortened to EDIT_MOVE_MAX_M, direction kept", () => {
     expect(EDIT_MOVE_MAX_M).toBe(100);
-    const c = clampGizmoEdit({ sx: 1, sz: 1, sy: 1, rotDeg: 370, tE: 300, tN: 400, tU: 99 }, start);
+    const c = clampGizmoEdit({ sx: 1, sz: 1, sy: 1, rotDeg: 370, tE: 300, tN: 400, tU: 999 }, start);
     expect(Math.hypot(c.tE, c.tN)).toBeCloseTo(EDIT_MOVE_MAX_M, 9);
     expect(c.tE / c.tN).toBeCloseTo(0.75, 12);
     expect(c.tU).toBe(LIFT_MAX_M); // the lift stays absolute
+    expect(LIFT_MAX_M).toBe(300); // owner 2026-09-19: "at least 300 m" (was 25)
     expect(c.rotDeg).toBeCloseTo(10, 9);
     // Re-anchored: a building standing 90 m east (past the old 60 m absolute rail) goes on to 190 m.
     const far = { ...start, tE: 90, tN: 0 };

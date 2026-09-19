@@ -224,7 +224,7 @@ describe("scene/userModels", () => {
     expect(ra.anchor.position.y).toBe(-2);
     expect(h.info("a")?.seats.liftM).toBe(-2);
     expect(h.rig("b")!.anchor.position.y).toBe(-4.5);
-    expect(h.rig("c")!.anchor.position.y).toBe(50);
+    expect(h.rig("c")!.anchor.position.y).toBe(300); // MODEL_LIFT_MAX_M — 300 since 2026-09-19 (was 50); tU 400 rails onto it
     // The loaded bounds outrank the record's bbox for the floor (the box is 6 m, so unchanged here).
     expect(h.info("b")?.sizeM3).toEqual([4, 4, 6]);
     // A live drag writes the lift straight onto the anchor and reads back as tU.

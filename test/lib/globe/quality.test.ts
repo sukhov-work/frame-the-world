@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   bloomScaleForTier,
@@ -516,6 +518,17 @@ describe("stickyOverlayPx — QA slice C: the composite px only ratchets up", ()
     expect(stickyOverlayPx(256, 256, true, 512)).toBe(512);
     // high already composites at 512 — the chart never raises above the tier there
     expect(stickyOverlayPx(512, 512, true, 512)).toBe(512);
+  });
+
+  it("owner bug 2026-09-19 (white ground at FPV exit): on /m the raise is CERTAIN, so frame 1 takes it — from the 0 seed straight to 512, the session's ONE rebuild on an empty cache", () => {
+    // the orchestrator passes `flatGround || isMobileShell` as the flat term
+    const boot = stickyOverlayPx(0, 256, /* flat2d */ true, FLAT2D);
+    expect(boot).toBe(FLAT2D); // frame 1, nothing composited yet — never again after it
+    // …and the FPV exit that used to rebuild (256 → 512, every composite destroyed) changes nothing
+    expect(stickyOverlayPx(boot, 256, true, FLAT2D)).toBe(boot);
+    expect(stickyOverlayPx(boot, 256, false, FLAT2D)).toBe(boot);
+    const orch = readFileSync(join(process.cwd(), "src/components/globe/StylizedTiles.ts"), "utf8");
+    expect(orch).toMatch(/stickyOverlayPx\(\s*overlayPxEff,\s*tierOverlayPx,\s*flatGround \|\| isMobileShell,/);
   });
 
   it("NEVER lowers when the chart drops (the QA-7b 2D↔FPV rebuild-storm regression)", () => {

@@ -1,5 +1,12 @@
 import { create } from "zustand";
 import type { ArRung } from "../lib/sensors/orientationLadder";
+import {
+  clearArCalibration,
+  loadArCalibration,
+  saveArCalibration,
+  stepCalibration,
+  type ArCalibration,
+} from "../lib/sensors/arCalibration";
 import type { UrlFpvPose } from "../lib/geo/urlPose";
 import { clampPlannedView } from "../lib/geo/plannedView";
 import { loadViewPrefs, saveViewPref } from "../lib/prefs";
@@ -219,6 +226,32 @@ export interface CameraState {
    *  rung of the ladder the phone is on, how fresh the compass is, whether samples stopped. */
   arLookState: ArLookState | null;
   _syncArLook: (s: ArLookState | null) => void;
+  /**
+   * AR CAMERA OVERLAY + VISUAL CALIBRATION (owner order 2026-09-19, mobile FPV —
+   * `mobile/ArCameraOverlay.tsx`, `lib/sensors/arCalibration.ts`). `arCam`: the phone's live rear
+   * camera over the 3D view at the same angular scale — `view` just shows it (the CAM chip),
+   * `calibrate` (a long press on AR) also turns the screen into the calibration pad. Per-session,
+   * like `arLook`: a persisted "on" could never re-ask for the camera.
+   */
+  arCam: "off" | "view" | "calibrate";
+  setArCam: (mode: "off" | "view" | "calibrate") => void;
+  /** The STORED calibration (`ftw:ar-calib:v1`): yaw = the compass bias (it lives inside the
+   *  engine's yaw trim), pitch = added to the aim, roll + camera FOV = the overlay's. */
+  arCalibration: ArCalibration;
+  /** Calibration mode's working copy (null outside it). Its yaw is the DRAG so far — a delta on
+   *  top of the live view, not a bias yet; pitch / roll / camera FOV are absolute candidates. */
+  arCalDraft: ArCalibration | null;
+  /** One gesture step from the calibration pad (pure math: `stepCalibration`). */
+  stepArCalDraft: (g: { dYawDeg?: number; dPitchDeg?: number; twistDeg?: number; spread?: number }) => void;
+  /** CONFIRM: bumps the epoch; the ENGINE commits the drag into its yaw trim and answers the
+   *  bias through `_onArCalibrated`, which persists the record and leaves calibration mode. */
+  arCalCommitEpoch: number;
+  confirmArCalibration: () => void;
+  _onArCalibrated: (biasYawDeg: number | null) => void;
+  /** RESET: forget the stored calibration (and the draft returns to the identity). */
+  resetArCalibration: () => void;
+  /** CANCEL: leave calibration mode, the stored calibration untouched. */
+  cancelArCalibration: () => void;
   /** FPV HUD mirror (Phase 5.5 S6) — the orchestrator writes it at low cadence while ANY FPV
    *  is active, null otherwise (the HUD unmounts on null). Bearings are the CAMERA VIEW's
    *  topocentric az/alt at the FPV anchor; sun/moon carry screen-space info for the off-frame
@@ -468,6 +501,41 @@ export const useCameraStore = create<CameraState>((set) => ({
   requestArAlign: () => set((st) => ({ arAlignEpoch: st.arAlignEpoch + 1 })),
   arLookState: null,
   _syncArLook: (arLookState) => set({ arLookState }),
+  arCam: "off",
+  setArCam: (mode) =>
+    set((st) => {
+      if (mode === st.arCam) return {};
+      // Entering calibration opens a working copy: the drag starts at zero, the rest at what is
+      // stored. Leaving it any way but CONFIRM drops the copy.
+      if (mode === "calibrate") return { arCam: mode, arCalDraft: { ...st.arCalibration, yawDeg: 0 } };
+      return { arCam: mode, arCalDraft: null };
+    }),
+  arCalibration: loadArCalibration(),
+  arCalDraft: null,
+  stepArCalDraft: (g) => set((st) => (st.arCalDraft ? { arCalDraft: stepCalibration(st.arCalDraft, g) } : {})),
+  arCalCommitEpoch: 0,
+  confirmArCalibration: () =>
+    set((st) => {
+      if (!st.arCalDraft) return {};
+      // No live sensors → no engine to commit into: the drag simply joins the stored bias.
+      if (!st.arLookState || st.arLookState.stale) {
+        const saved = saveArCalibration({ ...st.arCalDraft, yawDeg: st.arCalibration.yawDeg + st.arCalDraft.yawDeg });
+        return { arCalibration: saved, arCalDraft: null, arCam: "view" };
+      }
+      return { arCalCommitEpoch: st.arCalCommitEpoch + 1 };
+    }),
+  _onArCalibrated: (biasYawDeg) =>
+    set((st) => {
+      if (!st.arCalDraft) return {};
+      const saved = saveArCalibration({ ...st.arCalDraft, yawDeg: biasYawDeg ?? st.arCalibration.yawDeg });
+      return { arCalibration: saved, arCalDraft: null, arCam: "view" };
+    }),
+  resetArCalibration: () =>
+    set((st) => {
+      const identity = clearArCalibration();
+      return { arCalibration: identity, arCalDraft: st.arCalDraft ? { ...identity } : null };
+    }),
+  cancelArCalibration: () => set({ arCam: "view", arCalDraft: null }),
   setFpvWalkInput: (v) =>
     set({
       fpvWalkInput:

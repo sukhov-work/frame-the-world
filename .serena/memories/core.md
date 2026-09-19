@@ -9,35 +9,31 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-09-18 (`mem:project/wip-2026-09-18-mobile-fixes-signout`)
-**THREE /m FIXES + THE SIGN-OUT ROOT CAUSE, LIVE as v1.36.14** (ship `b3270cd` = PR #127). `MOBILE2D.bootAltM` → 18,000 km (the
-bare `/m` boots on the whole planet) · the FPV rail: ▤ PLACES is a 44 px icon cell between ◎ SAVE and ✕ EXIT VIEW (last, always),
-fpv.css lifts the altitude column's seat 52 px via `body.m:has(.m-act--places)` · SIGN OUT: the live host's adapter
-gives Astro an `http:` request URL, so `checkOrigin` 403s every form POST → `signOut()` → JSON `POST /api/signout` →
-`location.assign(logoutUrl)`; RULE: no `<form method=post>` in this app. Harness `verify-mobile-fixes-2026-09-18.mjs`
-ALL PASS in dev and LIVE (39; `FTW_APP_URL` = the live twin).
+## Status — 2026-09-19 (`mem:project/wip-2026-09-19-ar-calibration-box-meshbugs`)
+**AR CALIBRATION + CAM + THE GYRO-LED LADDER · ▣ ADD A BOX · THREE MESH BUGS — DONE, NOT RELEASED.** /m AR: the gyro DRIVES,
+the compass only TRIMS (`lib/sensors/yawTrim.ts`; swing test 42° → 0.00°); CAM = the rear camera at the 3D view's pixel focal;
+a LONG PRESS on AR = visual calibration (`ftw:ar-calib:v1`, the yaw a compass BIAS inside the trim). The 5 m box rides the
+upload's own `begin()` (`lib/models/primitives.ts`). Lift → 300 m. **DELETE root cause (live-proven):** a body-less DELETE has
+no content type → the live origin check 403s it → `dataFetch.jsonWriteInit`. **White ground at FPV exit:** the sticky 256 → 512
+overlay raise is a full rebuild; on /m it is taken on frame 1.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
-- **2026-09-17 AUDIT #4 triaged + fixed under the owner's filter** (`wip-2026-09-16-audit4-triage-fixes`): the exact
-  `3d-tiles-renderer` pin + `libraryPin.test`, the LOOK-aware skyBudget twin, ghosts/target far-pinned, the journal forgets a
-  deleted model, GLB retry, the RC9 seat bank LRU-bounded, SIGN OUT in the /m menu (the form that 2026-09-18 replaced), DECISIONS
-  compaction r7, the GUIDE refreshed; public-exposure / load / multi-user DEFERRED (T138/T139/B2). NOT done by choice: the
-  stars' far pin, J2, J3 (owner taste) · F3/F6 · T145 · the /m model-edit check.
-- **2026-09-16 the mobile UX batch → v1.36.11 LIVE** (`wip-2026-09-16-mobile-uxbatch-menu-pinch-scale`): the
-  finger-proportional pinch (`CONTROLS.pinchZoomGain` 0.75 — the one knob once the owner feels it), the peek
-  rise/set + long-press aim, the PLUX logo menu + the HUD on the strip, scale bars; `release.sh` resolves Node ≥ 22.
-- **2026-09-11 AUDIT #4** (`wip-2026-09-11-audit4`; report `audits/audit-full-2026-09-11.md`): 6 MAJOR · 37 MINOR ·
-  13 NIT; T32/35/36/37/39 closed; T136–T144 opened.
-- **2026-09-10 T123 fixed + the release gate lifted + the rendering interlude + the cache ruling**
-  (`wip-2026-09-10-{t123-lever-a-detached-release,interlude-render-quirks}`): levers (a)+(d), farm alive 8 cycles;
-  `www.plux.today` live; T131–T134; ULTRA 1400 / desktop 600 MB ground caches.
-- **2026-09-06o → 09-09 the T77 lane** — the four era rows at the end of the Era index; DECISIONS §Per-phase
-  digests has each; verbatim in the archive §Moved 2026-09-17.
+- **2026-09-18 three /m fixes + the SIGN-OUT root cause → v1.36.14 LIVE** (`wip-2026-09-18-mobile-fixes-signout`): the live
+  adapter's `http:` origin 403s every form POST → `/api/signout` JSON; `bootAltM` 18,000 km; the FPV rail's ▤ PLACES cell.
+- **2026-09-17 AUDIT #4 triaged + fixed** (`wip-2026-09-16-audit4-triage-fixes`): the exact library pin, the LOOK-aware
+  skyBudget twin, far-pinned ghosts, GLB retry, the LRU-bounded seat bank; public-exposure / load DEFERRED (T138/T139/B2).
+- **2026-09-16 the mobile UX batch → v1.36.11** (`wip-2026-09-16-mobile-uxbatch-menu-pinch-scale`): `CONTROLS.pinchZoomGain`
+  0.75, the peek long-press aim, the PLUX logo menu, scale bars.
+- **2026-09-11 AUDIT #4** (`wip-2026-09-11-audit4`; `audits/audit-full-2026-09-11.md`): 6 MAJOR · 37 MINOR · 13 NIT; T136–T144.
+- **2026-09-10 T123 + the release gate + the interlude** (`wip-2026-09-10-{t123-lever-a-detached-release,interlude-render-quirks}`):
+  `www.plux.today` live; ULTRA 1400 / desktop 600 MB ground caches. Older eras: the Era index below.
 
-## Standing facts (2026-09-18)
-- Gates: vitest **3,153 / 212 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
+## Standing facts (2026-09-19)
+- Gates: vitest **3,239 / 218 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
 - `package.json` **1.36.15** (each ship bumps the patch); live **v1.36.14** (2026-09-18). Release: `npm run release:full -- -c "…"`.
+- **Every `/api` write goes through `lib/api/dataFetch.jsonWriteInit`** (2026-09-19): a body-less DELETE carries no content
+  type and the live origin check 403s it (`jsonWrites.test.ts` fences it; dev never runs the check).
 - **No `<form method=post>` anywhere** (2026-09-18): the live adapter's request origin is `http:` → `checkOrigin` 403s every
   real form POST (dev never runs the check). Writes are JSON fetches; sign-out is `/api/signout` + a top-level navigation.
 - **THE RESOURCE BUDGET** (owner 2026-09-06j, machine-checked): ONE house headless Chrome (:9333), ONE dev server
@@ -47,15 +43,15 @@ ALL PASS in dev and LIVE (39; `FTW_APP_URL` = the live twin).
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14) and expect to restart TWICE (a lazily imported dep
   chunk 404s once); `Failed to fetch dynamically imported module` — `curl` the module first (500 = a real error).
   CDP harnesses: `~/.nvm/versions/node/v24.10.0/bin/node` (Node 20 lacks the global WebSocket).
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T145**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T148**, every row dated).
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The pre-audit main plan: the farm FEATURE legs (`tools/devicefarm/ios-baseline.mjs --legs`; the recipe is in
-NEXT_SESSION_PROMPT) · the T77 lane (`applyFeatureSeats` 461 ms, the ephemeris in the hitches, the ~900 mesh-raycast
-calls per frame) · T145 (`useLongPress`) · the /m model-edit check · three stale guide shots (`shell-m`, `fpv-m`,
-`fpv-map`). Watch: the renderer's ~35 MB/cycle creep if the owner's iPhone dies past 8 cycles.
+RELEASE when the owner says (deletes are dead live until it ships) → **T147** the phones' device pass of AR calibration / CAM /
+the trim (HTTPS tunnel; the 62° camera FOV, the roll's sign, iOS's one-press grant, `CLHeading` past vertical) → **T146** the
+seamless overlay handover (desktop boot-`mid` promote still rebuilds at FPV exit) → **T148** the box on `/m`? (owner ruling) →
+the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration of `TabBar` + `MapModeChip` · the /m model-edit check).
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
@@ -95,6 +91,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - Mobile UX batch → v1.36.11 (09-16) · 09-16-mobile-uxbatch-menu-pinch-scale
 - AUDIT #4 triage + fixes + docs/guide refresh (09-17) · 09-16-audit4-triage-fixes
 - Three /m fixes + sign-out root cause → v1.36.14 (09-18) · 09-18-mobile-fixes-signout
+- AR calibration + CAM + gyro-led ladder · the box · delete + white-ground root causes (09-19) · 09-19-ar-calibration-box-meshbugs
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·
@@ -106,7 +103,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - `project/` non-leaf — `wix-platform` · `wix-site` · `dev_environment` · `audit{2-2026-08-18,4-2026-09-10}-charter` ·
   `owner-orders-2026-08-14-qol-batch` · `wip-2026-09-06-docs-hygiene`
 
-## Source layout (2026-09-18)
+## Source layout (2026-09-19)
 - `src/components/globe/` — the `client:only` three.js scene: `tuning.ts` (every tunable; contract in
   `conventions/globe-tuning.md`) · `scene/` attach-modules · `StylizedTiles.ts` orchestrator · `GlobeCanvas.tsx`.
   Design imports NEVER touch it.

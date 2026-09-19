@@ -14,6 +14,7 @@
  * Photo uploads are ASYNC on the Wix side (descriptor may report PENDING before READY); the
  * save flow stores ids/urls and does not block on readiness.
  */
+import { jsonWriteInit } from "../api/dataFetch";
 import { MODEL_MIME, type ModelListItem, type ModelPatchAnswer, type PublicModel } from "../wix/modelRecords";
 
 export interface UploadedFile {
@@ -22,13 +23,10 @@ export interface UploadedFile {
   url: string | null;
 }
 
-async function requestJson(path: string, method: string, body?: unknown): Promise<any> {
-  const res = await fetch(path, {
-    method,
-    ...(body !== undefined
-      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      : {}),
-  });
+async function requestJson(path: string, method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE", body?: unknown): Promise<any> {
+  // A WRITE always carries the JSON content type, body or not — a bare DELETE is 403'd by the
+  // live host's origin check before the route runs (`jsonWriteInit`, owner bug 2026-09-19).
+  const res = await fetch(path, method === "GET" ? { method } : jsonWriteInit(method, body));
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(json?.message ?? `HTTP ${res.status}`);

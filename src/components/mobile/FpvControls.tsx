@@ -18,6 +18,9 @@ import { CONTROLS } from "../globe/tuning";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { cardinal, formatEyeM, formatFocal, formatSigned } from "../../lib/format/readout";
 import { Joystick } from "../controls/Joystick";
+import { useLongPress, type LongPressSource } from "../controls/useLongPress";
+import { isCalibrated } from "../../lib/sensors/arCalibration";
+import ArCameraOverlay from "./ArCameraOverlay";
 import "../../styles/mobile/fpv.css";
 
 /** Minimal Screen Wake Lock surface — lib.dom's types vary across TS versions. */
@@ -131,6 +134,8 @@ export const AR_COPY = Object.freeze({
   noSensors: "NO MOTION SENSORS IN THIS BROWSER — THE JOYSTICK IS THE LOOK",
   stale: "NO SENSOR DATA — MOVE THE PHONE; IF NOTHING CHANGES, MOTION ACCESS MAY BE OFF",
   aligned: "ALIGNED TO THE VIEW",
+  /** 2026-09-19: the long press — said once with the armed hint so the gesture is discoverable. */
+  holdHint: "HOLD AR TO CALIBRATE AGAINST THE CAMERA",
 });
 
 /** The rung's one-line readout — what the phone is actually being aimed by. */
@@ -254,10 +259,33 @@ export function ArLookToggle() {
     else if (a !== null) (a.sticky && !a.defer ? flash(a.text, true) : announce(a.text, a.sticky));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, state]);
+  // CALIBRATION (owner 2026-09-19): a LONG PRESS on AR opens the camera overlay in calibration
+  // mode. With AR already on the hold's own timer opens it; with AR OFF the sensors must be armed
+  // first, and iOS only grants that from a user activation — so the timer's call is DECLINED and
+  // the RELEASE takes it, through the ONE permission call site below (`wantCalibrate` tells
+  // `arm()` what the tap was for). Declared ABOVE `onTap`: nothing here may sit in its slice.
+  const wantCalibrate = useRef(false);
   const arm = () => {
-    useCameraStore.getState().setArLook(true);
-    flash(AR_COPY.armed);
+    const cam = useCameraStore.getState();
+    cam.setArLook(true);
+    if (wantCalibrate.current) {
+      wantCalibrate.current = false;
+      cam.setArCam("calibrate");
+      clearNote(); // the calibration panel explains itself — a bubble here would sit on top of it
+    } else flash(`${AR_COPY.armed} · ${AR_COPY.holdHint}`);
   };
+  const press = useLongPress((source: LongPressSource) => {
+    const cam = useCameraStore.getState();
+    if (cam.arLook) {
+      cam.setArCam("calibrate");
+      clearNote();
+      return true;
+    }
+    if (source === "timer") return false; // not a user activation — the release will ask
+    wantCalibrate.current = true;
+    onTap();
+    return true;
+  });
   const onTap = () => {
     const cam = useCameraStore.getState();
     if (cam.arLook) {
@@ -265,6 +293,7 @@ export function ArLookToggle() {
       clearNote();
       return;
     }
+    const forCalibration = wantCalibrate.current;
     if (!("DeviceOrientationEvent" in window)) {
       flash(AR_COPY.noSensors, true);
       return;
@@ -274,12 +303,17 @@ export function ArLookToggle() {
       ctor
         .requestPermission()
         .then((r) => (r === "granted" ? arm() : flash(AR_COPY.denied, true)))
-        .catch(() => flash(AR_COPY.needsTap, true));
+        .catch(() => flash(AR_COPY.needsTap, true))
+        .finally(() => {
+          if (forCalibration) wantCalibrate.current = false; // a refusal must not calibrate the NEXT tap
+        });
     } else {
       arm();
     }
   };
   const relative = on && state !== null && !state.stale && state.rung.startsWith("relative");
+  const camMode = useCameraStore((s) => s.arCam);
+  const calibrated = useCameraStore((s) => isCalibrated(s.arCalibration));
   const line = note ?? "";
   return (
     <div className="m-arwrap">
@@ -304,12 +338,30 @@ export function ArLookToggle() {
           )}
         </div>
       )}
+      {on && (
+        <button
+          type="button"
+          className={`m-cambtn${camMode !== "off" ? " m-cambtn--on" : ""}`}
+          aria-pressed={camMode !== "off"}
+          aria-label="Camera view — the phone's camera over the 3D view at the same focal length"
+          onClick={() => useCameraStore.getState().setArCam(camMode === "off" ? "view" : "off")}
+        >
+          CAM
+        </button>
+      )}
       <button
         type="button"
         className={`m-arbtn${on ? " m-arbtn--on" : ""}`}
         aria-pressed={on}
-        aria-label="AR look-around — aim the view by moving the phone"
-        onClick={onTap}
+        aria-label="AR look-around — aim the view by moving the phone; hold to calibrate against the camera"
+        data-cal={calibrated ? "1" : undefined}
+        onPointerDown={press.onPointerDown}
+        onPointerMove={press.onPointerMove}
+        onPointerUp={press.onPointerUp}
+        onPointerCancel={press.onPointerCancel}
+        onTouchEnd={press.onTouchEnd}
+        onContextMenu={press.onContextMenu}
+        onClick={press.onClick(onTap)}
       >
         AR
       </button>
@@ -342,6 +394,7 @@ export default function FpvControls() {
           </span>
         </div>
       )}
+      <ArCameraOverlay />
       <WalkJoystick />
       <div className="m-altcol" aria-label="AR look-around · eye altitude">
         <ArLookToggle />

@@ -561,6 +561,16 @@
 .uf-btn--ghost:hover {
   border-color: var(--color-text-secondary);
 }
+/* Owner 2026-09-19: the quick-primitives row under the dropzone (ADD A BOX …). */
+.uf-actions--primitives {
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: -12px; /* it belongs to the dropzone above, not to the privacy line below */
+}
+.uf-actions--primitives .uf-btn {
+  padding: 10px 18px;
+  font-size: 11px;
+}
 .uf-actions__hint {
   font-family: var(--font-mono);
   font-size: 9px;

@@ -20,12 +20,23 @@
  * no samples within `FPV.arSampleStaleMs` → `aim()` is null, the look-drag works again, and the
  * mirror says `stale` so the chip can say "NO SENSOR DATA — IS MOTION ACCESS ON?".
  *
+ * VISUAL CALIBRATION (owner order 2026-09-19 — `lib/sensors/arCalibration.ts`). The stored
+ * calibration arrives on `update(ctx)` like every other request: its YAW is a compass bias and goes
+ * INTO the ladder's trim (`setUserBias` — so it never touches the relative rungs, whose yaw is the
+ * user's own ALIGN); its PITCH is added to the aim here, after the smoother. While the user is
+ * calibrating, the DRAFT yaw delta rides on top of the aim so the view follows their finger; on
+ * CONFIRM (`calCommitEpoch`) the ladder commits it and this module answers the bias to persist
+ * through the pushed `calibrated` writer. The seed and ⌖ ALIGN subtract the draft delta from the
+ * camera heading they are given — the camera already includes it, and an align that did not would
+ * jump the view by it. ROLL is smoothed here and read per frame by the camera overlay (`roll()`).
+ *
  * C4: this attaches in the island (`StylizedTiles`), never at SSR — `window` is touched only in
  * `update()` on the rising edge.
  */
 
 import { declinationDeg, decimalYear } from "../../../lib/geo/wmm";
-import { LookSmoother } from "../../../lib/sensors/deviceOrientation";
+import { applyArCalibration, smoothRollDeg } from "../../../lib/sensors/arCalibration";
+import { LookSmoother, wrapDeg360 } from "../../../lib/sensors/deviceOrientation";
 import { OrientationLadder, type ArAim, type ArRung } from "../../../lib/sensors/orientationLadder";
 import type { ArLookState } from "../../../store/camera";
 import { FPV } from "../tuning";
@@ -41,6 +52,13 @@ export interface ArLookCtx {
   cameraHeadingDeg: number;
   /** `store/camera.arAlignEpoch` — bumped by the ALIGN chip; each new value aligns once. */
   alignEpoch: number;
+  /** The STORED visual calibration: yaw = the compass bias, pitch = added to the aim (deg). */
+  calBiasYawDeg: number;
+  calPitchDeg: number;
+  /** Calibration mode's live drag (deg, 0 outside it): rides on top of the aim until CONFIRM. */
+  calDraftYawDeg: number;
+  /** `store/camera.arCalCommitEpoch` — CONFIRM; each new value commits the draft once. */
+  calCommitEpoch: number;
   nowMs: number;
   frameCount: number;
 }
@@ -51,6 +69,9 @@ export interface ArLookHandle {
   aim(): { azDeg: number; altDeg: number } | null;
   /** True while `aim()` is non-null — the FPV look-drag and the aim stick's heading stand down. */
   live(): boolean;
+  /** The phone's smoothed roll about the look axis (deg, + = clockwise), 0 while not live — the
+   *  camera overlay counter-rotates its `<video>` by it (the FPV camera has no roll seam). */
+  roll(): number;
   dispose(): void;
   debug(): {
     attached: boolean;
@@ -61,6 +82,9 @@ export interface ArLookHandle {
     declinationDeg: number;
     aim: ArAim | null;
     smoothed: { headingDeg: number; pitchDeg: number } | null;
+    rollDeg: number;
+    trim: ReturnType<OrientationLadder["trimDebug"]>;
+    cal: { biasYawDeg: number; pitchDeg: number; draftYawDeg: number };
   };
 }
 
@@ -87,13 +111,21 @@ export interface ArLookOpts {
    *  orchestrator: scene modules never value-import a store (`fences.test.ts`
    *  "mirror-never-seats"); the request half (`arLook`, `arAlignEpoch`) arrives on `update(ctx)`. */
   mirror: (state: ArLookState | null) => void;
+  /** CONFIRM's answer, pushed the same way: the compass bias to persist, or null when the rung
+   *  had no compass to bias (the drag became an ALIGN — the stored yaw stays as it was). */
+  calibrated: (biasYawDeg: number | null) => void;
 }
 
 export function attachArLook(opts: ArLookOpts): ArLookHandle {
   const ladder = new OrientationLadder({
     compassMaxAccuracyDeg: FPV.arCompassMaxAccuracyDeg,
     compassMinTopHoriz: FPV.arCompassMinTopHoriz,
+    compassMinScreenUp: FPV.arCompassMinScreenUp,
     compassOffsetTauMs: FPV.arCompassOffsetTauMs,
+    trim: {
+      maxRateDegPerS: FPV.arTrimMaxRateDegPerS,
+      fastRateDegPerS: FPV.arTrimFreezeRateDegPerS,
+    },
   });
   const smoother = new LookSmoother(FPV.arSmoothTauMs, FPV.arDeadbandDeg);
   let attached = false;
@@ -110,6 +142,11 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
   let smoothed: { headingDeg: number; pitchDeg: number } | null = null;
   let lastMirrorSig = "";
   let nowMs = 0;
+  let calPitch = 0;
+  let calDraftYaw = 0;
+  let seenCommitEpoch = 0;
+  let roll: number | null = null;
+  let rollT = 0;
 
   const onSample = (e: OrientationEventLike, absolute: boolean) => {
     const t = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -132,7 +169,8 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
     // heading, so turning is right from the first frame and nothing jumps at arming.
     if (!seeded) {
       seeded = true;
-      if (aim.rung === "relative-unaligned") ladder.align(lastCameraHeading, false);
+      // (the camera's heading already carries any calibration drag — the ladder's must not)
+      if (aim.rung === "relative-unaligned") ladder.align(wrapDeg360(lastCameraHeading - calDraftYaw), false);
     }
   };
   const onAbsolute = (e: Event) => onSample(e as OrientationEventLike, true);
@@ -157,6 +195,7 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
     lastSampleT = -Infinity;
     seeded = false;
     smoothed = null;
+    roll = null;
   };
 
   const fresh = () => attached && nowMs - lastSampleT <= FPV.arSampleStaleMs;
@@ -177,7 +216,11 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
       const want = ctx.enabled && ctx.fpvActive;
       if (want && !attached) attach();
       else if (!want && attached) detach();
+      calPitch = ctx.calPitchDeg;
+      calDraftYaw = ctx.calDraftYawDeg;
+      ladder.setUserBias(ctx.calBiasYawDeg);
       if (!attached) {
+        seenCommitEpoch = ctx.calCommitEpoch; // a CONFIRM with no sensors is the store's to handle
         mirror(null);
         return;
       }
@@ -196,10 +239,25 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
       // The ALIGN chip (rungs 3/4): each new epoch aligns once to the camera's live heading.
       if (ctx.alignEpoch !== seenAlignEpoch) {
         seenAlignEpoch = ctx.alignEpoch;
-        if (ladder.aim()) ladder.align(ctx.cameraHeadingDeg, true);
+        if (ladder.aim()) ladder.align(wrapDeg360(ctx.cameraHeadingDeg - calDraftYaw), true);
+      }
+      // CONFIRM: the ladder takes the drag (the trim's bias on a compass rung, an ALIGN by eye on
+      // a relative one) and the answer goes back to the store, which persists it and zeroes the
+      // draft. THIS frame's draft is already inside the ladder — it must not be added twice.
+      if (ctx.calCommitEpoch !== seenCommitEpoch) {
+        seenCommitEpoch = ctx.calCommitEpoch;
+        const bias = ladder.aim() ? ladder.commitCalibration(calDraftYaw, performance.now()) : null;
+        calDraftYaw = 0;
+        opts.calibrated(bias);
       }
       const raw = ladder.aim();
       smoothed = raw && fresh() ? smoother.push(raw.headingDeg, raw.pitchDeg, nowMs) : null;
+      // Roll reads 0 at a degenerate look (straight up / down — `poseFromEuler`): HOLD the last
+      // value there instead of snapping the picture level.
+      if (raw && smoothed) {
+        if (raw.pose.lookHoriz >= 0.08) roll = smoothRollDeg(roll, raw.rollDeg, nowMs - rollT, FPV.arRollSmoothTauMs);
+        rollT = nowMs;
+      } else roll = null;
       if (ctx.frameCount % FPV.hudSyncEveryFrames === 0) {
         mirror({
           rung: raw ? raw.rung : ("relative-unaligned" as ArRung),
@@ -207,18 +265,21 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
           compassAgeMs: raw ? raw.compassAgeMs : Infinity,
           samples,
           stale: !fresh(),
-          headingDeg: smoothed ? smoothed.headingDeg : ctx.cameraHeadingDeg,
-          pitchDeg: smoothed ? smoothed.pitchDeg : 0,
+          headingDeg: smoothed ? wrapDeg360(smoothed.headingDeg + calDraftYaw) : ctx.cameraHeadingDeg,
+          pitchDeg: smoothed ? smoothed.pitchDeg + calPitch : 0,
           declinationDeg: declination,
         });
       }
     },
     aim() {
       if (!smoothed || !fresh()) return null;
-      return { azDeg: smoothed.headingDeg, altDeg: smoothed.pitchDeg };
+      return applyArCalibration({ azDeg: smoothed.headingDeg, altDeg: smoothed.pitchDeg }, { yawDeg: calDraftYaw, pitchDeg: calPitch });
     },
     live() {
       return smoothed !== null && fresh();
+    },
+    roll() {
+      return roll !== null && fresh() ? roll : 0;
     },
     dispose() {
       detach();
@@ -234,6 +295,9 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
         declinationDeg: declination,
         aim: ladder.aim(),
         smoothed,
+        rollDeg: roll ?? 0,
+        trim: ladder.trimDebug(),
+        cal: { biasYawDeg: ladder.userBiasDeg(), pitchDeg: calPitch, draftYawDeg: calDraftYaw },
       };
     },
   };

@@ -86,11 +86,13 @@ export const NEUTRAL_K_EPS = 0.005;
  *  about the committed position, and moves compound). Caveat that stays true: the cell's
  *  TILE-level culling volume is not grown by a move (`growBoundsFor` pads the mesh bounds only),
  *  so a building carried far from its cell can pop with the cell at the view edge — accepted and
- *  said in the guide (MESH_SUITE_PLAN §11.2). Lift: a couple of storeys above the seated base,
- *  ABSOLUTE (0..25 m per the owner's underground/sky rule); the base itself can never go below
- *  the terrain (lift is ≥ 0 by construction). */
+ *  said in the guide (MESH_SUITE_PLAN §11.2). Lift: ABSOLUTE above the seated base, 0..300 m
+ *  (owner 2026-09-19: "at least 300 m" — was 25, a couple of storeys, per the 2026-09-02
+ *  underground/sky rule); the base itself can never go below the terrain (lift is ≥ 0 by
+ *  construction). `growBoundsFor` pads the mesh bounds by the lift, so a lifted building stays
+ *  drawn and pickable. */
 export const TRANSLATE_MAX_M = 5000;
-export const LIFT_MAX_M = 25;
+export const LIFT_MAX_M = 300;
 export const XF_RAILS: Readonly<XfRails> = Object.freeze({
   scaleMin: SCALE_MIN_K,
   scaleMax: SCALE_MAX_K,

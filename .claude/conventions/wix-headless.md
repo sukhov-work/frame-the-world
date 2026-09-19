@@ -174,6 +174,14 @@ curl -sS -X POST "https://www.wixapis.com/<endpoint>" \
 - Verified compatible by construction: same-origin JSON `fetch` writes (JSON content-types are
   exempt), the GET `/api/auth/*` OAuth redirect routes, checkout return redirects, and TUS
   uploads (they hit Wix's own upload domain, never our routes).
+- **AND FOR BODY-LESS WRITES (2026-09-19, owner bug: "couldn't delete some user model").** The middleware passes a
+  non-safe method only with a NON-form content type OR a matching origin — and the origin never matches on the live
+  host (next bullet). A `fetch(url, { method: "DELETE" })` has NO content type at all, so EVERY bare DELETE
+  (`/api/models`, `/api/photos`, `/api/listings`, `/api/places`) was refused `403 Cross-site DELETE form submissions
+  are forbidden` BEFORE the route ran — live-probed: bare → 403, the same request + `Content-Type: application/json`
+  → the route answers. "JSON fetches are exempt" is true only of a fetch that actually SENDS the header. RULE:
+  **every `/api` write goes through `lib/api/dataFetch.jsonWriteInit(method, body?)`** (the header always, the body
+  when there is one); fenced by `test/lib/api/jsonWrites.test.ts` (dev never runs the check — no harness can hold it).
 - **FALSIFIED 2026-09-18 for real form POSTs (owner bug: SIGN OUT → "Cross-site POST form
   submissions are forbidden").** Under `@wix/cloud-provider-fetch-adapter` the request URL Astro
   sees carries the internal **`http:`** scheme, so `url.origin` is `http://www.plux.today` and a

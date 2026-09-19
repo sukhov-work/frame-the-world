@@ -127,7 +127,7 @@ describe("modelPlacement — transform seats", () => {
   });
 
   it("MS7 — the lift rail: the ceiling, and a floor that keeps a quarter (≥ 0.5 m) of the SCALED model above the seat", () => {
-    expect(MODEL_LIFT_MAX_M).toBe(50);
+    expect(MODEL_LIFT_MAX_M).toBe(300); // owner 2026-09-19: "at least 300 m" (was 50)
     expect(MODEL_LIFT_KEEP).toEqual({ frac: 0.25, minM: 0.5 });
     // A 10 m model may sink 7.5 m; a 1 m model 0.5 m; a 0.4 m one not at all; unknown height → pinned.
     expect(liftFloorM(10)).toBe(-7.5);
@@ -135,10 +135,11 @@ describe("modelPlacement — transform seats", () => {
     expect(liftFloorM(0.4)).toBe(0);
     expect(liftFloorM(null)).toBe(0);
     expect(liftFloorM(Number.NaN)).toBe(0);
-    // A 400 m model is capped by the absolute rail, not its height.
-    expect(liftFloorM(400)).toBe(-MODEL_LIFT_MAX_M);
+    // A 2 km model is capped by the absolute rail, not its height.
+    expect(liftFloorM(2000)).toBe(-MODEL_LIFT_MAX_M);
     expect(clampLiftM(-100, 10)).toBe(-7.5);
-    expect(clampLiftM(100, 10)).toBe(MODEL_LIFT_MAX_M);
+    expect(clampLiftM(1000, 10)).toBe(MODEL_LIFT_MAX_M);
+    expect(clampLiftM(299, 10)).toBe(299); // the owner's 300 m is reachable
     expect(clampLiftM(-3, 10)).toBe(-3);
     expect(clampLiftM("x", 10)).toBe(0);
     expect(Object.is(clampLiftM(-0, 10), 0)).toBe(true);
@@ -158,7 +159,7 @@ describe("modelPlacement — transform seats", () => {
     const narrowed = clampModelEdit({ sx: 0.5, sy: 1, sz: 1, rotDeg: 0, tE: 0, tN: 0, tU: -7 }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: -7, pitchDeg: 0, rollDeg: 0 }, 10);
     expect(narrowed).toMatchObject({ sx: 0.5, sy: 1, sz: 1, liftM: -7 });
     // A drag past the ceiling stops at it; NaN reads as on the ground.
-    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, tU: 80 }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 }, 10).liftM).toBe(MODEL_LIFT_MAX_M);
+    expect(clampModelEdit({ ...IDENTITY_TRANSFORM, tU: 800 }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 0, pitchDeg: 0, rollDeg: 0 }, 10).liftM).toBe(MODEL_LIFT_MAX_M);
     expect(clampModelEdit({ ...IDENTITY_TRANSFORM, tU: Number.NaN }, { rotDeg: 0, sx: 1, sy: 1, sz: 1, liftM: 2, pitchDeg: 0, rollDeg: 0 }, 10).liftM).toBe(0);
   });
 
@@ -299,14 +300,14 @@ describe("modelPlacement — MS8 the tilt (pitch / roll)", () => {
     // A thin plate upright (top = span = 0.1): the keep (0.5) exceeds the span → floor 0, never up.
     expect(liftFloorFor({ topM: 0.1, extentM: 0.1 })).toBe(0);
     // Inside the absolute rail both ways.
-    expect(liftFloorFor({ topM: 0, extentM: 400 })).toBe(MODEL_LIFT_MAX_M);
-    expect(liftFloorFor({ topM: 400, extentM: 400 })).toBe(-MODEL_LIFT_MAX_M);
+    expect(liftFloorFor({ topM: 0, extentM: 2000 })).toBe(MODEL_LIFT_MAX_M);
+    expect(liftFloorFor({ topM: 2000, extentM: 2000 })).toBe(-MODEL_LIFT_MAX_M);
     expect(liftFloorFor(null)).toBe(0);
     expect(Object.is(liftFloorFor({ topM: 0.5, extentM: 0.5 }), 0)).toBe(true);
-    // clampLiftFor rails onto [floor, 50]: a flipped model at "0" is lifted to its floor.
+    // clampLiftFor rails onto [floor, 300]: a flipped model at "0" is lifted to its floor.
     expect(clampLiftFor(0, { topM: 0, extentM: 10 })).toBe(2.5);
     expect(clampLiftFor(-3, { topM: 1, extentM: 2 })).toBe(-0.5);
-    expect(clampLiftFor(80, { topM: 10, extentM: 10 })).toBe(MODEL_LIFT_MAX_M);
+    expect(clampLiftFor(800, { topM: 10, extentM: 10 })).toBe(MODEL_LIFT_MAX_M);
   });
 
   it("sanitizeModelTransform reads the tilt (null = upright), makes it canonical, and takes the lift floor from the TILTED box", () => {

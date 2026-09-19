@@ -335,7 +335,15 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
     set({ minePhase: "loading" });
     try {
       const res = await api.fetchMine();
-      set({ mine: res.models, minePhase: "ready" });
+      // A row deleted moments ago may still be in the read (Wix Data read lag) — its tombstone
+      // outranks the fetched copy for the same grace the WORLD read honours, or reopening the
+      // panel resurrects it and the second ✕ answers 404 (owner bug 2026-09-19).
+      const at = nowMs();
+      const dead = (id: string) => {
+        const l = localRows.get(id);
+        return l !== undefined && l.row === null && at - l.atMs <= MODELS.readLagGraceMs;
+      };
+      set({ mine: res.models.filter((m) => !dead(m.id)), minePhase: "ready" });
     } catch (e) {
       const status = (e as { status?: number }).status;
       if (status === 401) set({ mine: [], minePhase: "anonymous" });
@@ -431,8 +439,16 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
 
   remove: async (id) => {
     try {
-      const res = await api.deleteModel(id);
-      if (!res.deleted) return false;
+      let gone = false;
+      try {
+        gone = (await api.deleteModel(id)).deleted;
+      } catch (e) {
+        // DELETE is idempotent: 404 = "no such model of yours" = it is ALREADY gone (a repeat
+        // press inside the read lag, a second tab) — the goal is met, not failed.
+        if ((e as { status?: number }).status !== 404) throw e;
+        gone = true;
+      }
+      if (!gone) return false;
       localRows.set(id, { row: null, atMs: nowMs() });
       set({ mine: get().mine.filter((m) => m.id !== id), world: get().world.filter((m) => m.id !== id) });
       // audit #4 H3-1 (2026-09-17): the journal's own contract names "its model deleted" as a

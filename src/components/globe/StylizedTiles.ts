@@ -145,6 +145,7 @@ import {
 import { useBestSpotStore } from "../../store/bestSpot";
 import { attachBestSpotFeed } from "./scene/bestSpotFeed";
 import { attachArLook } from "./scene/arLook";
+import { arFrame, writeArFrame } from "../../lib/sensors/arFrame";
 import { attachBestSpotSheet } from "./scene/bestSpotSheet";
 import { attachGeoLabels } from "./scene/geoLabels";
 import { attachStreetNames } from "./scene/streetNames";
@@ -842,6 +843,7 @@ export function attachStylizedTiles(opts: {
   // by stepFpvPose exactly like the TRACKING lock (a closure value, never a 60 fps store write).
   const arLook = attachArLook({
     mirror: (state) => useCameraStore.getState()._syncArLook(state),
+    calibrated: (biasYawDeg) => useCameraStore.getState()._onArCalibrated(biasYawDeg), // CONFIRM's answer (2026-09-19)
   });
 
   // --- Adaptive quality fan-out (RENDERING_QUALITY_PASS WS1): GlobeCanvas owns the device tier +
@@ -2325,6 +2327,13 @@ export function attachStylizedTiles(opts: {
     if (dom.style.cursor === "grab") dom.style.cursor = "";
     syncModelEdit();
   };
+  // Owner bug 2026-09-19 (the delete audit): a model DELETED while armed left the gizmo and the
+  // edit chip standing on a row the scene had already unloaded — the arm is released the moment
+  // its id leaves the world. (Subscribed HERE, below `modelArmed` / `disarmModel`: the TDZ trap.)
+  const unsubArmedModelGone = useUserModelsStore.subscribe((s) => {
+    const a = modelArmed;
+    if (a && !s.world.some((m) => m.id === a.id)) disarmModel();
+  });
   /** The user model under a client point — null when none, or with the MDL chip off. Picks
    *  only (`armModel` arms, in FPV; in orbit a click stands beside it — MS6). */
   const pickModelAt = (clientX: number, clientY: number): UserModelPick | null => {
@@ -5518,9 +5527,23 @@ export function attachStylizedTiles(opts: {
       lonDeg,
       cameraHeadingDeg: headingDeg,
       alignEpoch: camNow.arAlignEpoch,
+      // The visual calibration (2026-09-19): the stored yaw is a compass bias (into the trim),
+      // the pitch joins the aim; in calibration mode the draft's yaw is the live drag.
+      calBiasYawDeg: camNow.arCalibration.yawDeg,
+      calPitchDeg: (camNow.arCalDraft ?? camNow.arCalibration).pitchDeg,
+      calDraftYawDeg: camNow.arCalDraft ? camNow.arCalDraft.yawDeg : 0,
+      calCommitEpoch: camNow.arCalCommitEpoch,
       nowMs: performance.now(),
       frameCount,
     });
+    // The camera overlay's per-frame channel — the roll its <video> is counter-rotated by, the
+    // FOV it is scaled against. Written only while the overlay could be up (`/m`, AR on).
+    if (on || arFrame.live) {
+      writeArFrame(
+        { live: on && arLook.live(), rollDeg: arLook.roll(), vFovDeg: camera.fov, viewPitchDeg: camNow.fpvHud?.pitchDeg ?? 0 },
+        performance.now(),
+      );
+    }
   };
 
   const stepFpvPose = () => {
@@ -6686,10 +6709,21 @@ export function attachStylizedTiles(opts: {
         // + vector ink for seconds→10 s+ on device, tile refetch storm, then a blurry stall).
         // stickyOverlayPx only ratchets up (≤1 post-boot rebuild per rung per session);
         // setOverlayResolution no-ops on the same px, so the per-frame write stays free.
+        // OWNER BUG 2026-09-19 ("after … exit FPV, ALL ground tiles are reset to white"): measured
+        // on the lean /m twin (`probe-white-ground.mjs`) — at the FPV exit 57/57 ground tiles lost
+        // their imagery at +184 ms, `overlayRebuilds` 0 → 1, healed +4.2 s later (a phone's
+        // network: far longer). That IS this ratchet: a `mid`/`low` phone boots FPV / 3D at the
+        // tier's 256 px, and the FIRST flat-chart frame — which on /m is every FPV exit — raises
+        // to 512 by a fresh-instance rebuild that destroys every composite on screen. On the
+        // MOBILE SHELL the raise is CERTAIN (the flat chart is the shell's home), so it is taken
+        // on FRAME 1 instead: the ONE rebuild of the session lands on an empty cache with nothing
+        // on screen (re-measured: rebuilds 1 at boot, 1 → 1 across the exit, 0/22 tiles white) —
+        // same steady state, never a white frame. (Desktop keeps the lazy raise: a `mid` desktop
+        // that never opens the 2D chart should not pay 4× composite VRAM for it.)
         overlayPxEff = stickyOverlayPx(
           overlayPxEff,
           tierOverlayPx,
-          flatGround,
+          flatGround || isMobileShell,
           GROUND.overlayResolution2dPx,
         );
         ground.setOverlayResolution(overlayPxEff);
@@ -8886,6 +8920,7 @@ export function attachStylizedTiles(opts: {
       bldgGizmo.dispose();
       modelGizmo.dispose();
       unsubUserModels();
+      unsubArmedModelGone();
       unsubMemberModels();
       unsubModelCursor();
       userModels.dispose();

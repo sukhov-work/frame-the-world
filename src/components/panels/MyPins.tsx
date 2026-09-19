@@ -17,7 +17,7 @@ import MyModelsTab from "./MyModelsTab";
 import { useUserModelsStore } from "../../store/userModels";
 import "../../styles/my-pins.css";
 import "../../styles/tips.css";
-import { dataFetchInit, fetchErrorMessage } from "../../lib/api/dataFetch";
+import { dataFetchInit, fetchErrorMessage, jsonWriteInit } from "../../lib/api/dataFetch";
 
 /**
  * MY PINS — the rudimentary owner list in the top nav (Phase 5.1), a stand-in until the
@@ -185,7 +185,7 @@ export default function MyPins() {
     setArmedDeleteId(null);
     setDeletingId(p.id);
     try {
-      const r = await fetch(`/api/places?id=${encodeURIComponent(p.id)}`, { method: "DELETE" });
+      const r = await fetch(`/api/places?id=${encodeURIComponent(p.id)}`, jsonWriteInit("DELETE")); // never a bare DELETE (live 403)
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setPlaces((list) => (list ? list.filter((x) => x.id !== p.id) : list));
       usePlacesMapStore.getState().removeLocal(p.id); // map markers drop it live too

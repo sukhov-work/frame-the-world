@@ -741,3 +741,38 @@ residency re-plan). Both are bounds on behaviour that used to be unbounded; neit
 |---|---|---|
 | `ENRICHED.seatCacheMaxCells` | 320 | audit #4 H4-3: the RC9 seat bank (`seatCache` — the footprint + tree seats of every DISPOSED cell, so a returning street lands where it left) grew with every cell a session ever visited. LRU by cell: a bank or a warm restore re-inserts the cell as the newest entry (a Map keeps insertion order); past the cap the oldest is dropped and re-seats on return — a few ms of seat budget, never a wrong seat. ~20 KB per cell; 320 covers a whole 20 × 20 km Dnipro grid on the desktop and bounds a phone at ~6 MB. A variant switch still clears the bank whole. |
 | `MODELS.loadRetryMs` · `loadRetries` | 20 000 · 3 | audit #4 H2-2: a failed GLB fetch (a transient 5xx, a dropped connection) was FINAL for the session — the re-plan skipped `failed`, `startLoad` wanted `idle`, and a stored GLB's URL never changes, so "until its row changes" meant "until reload". A failed entry now returns to `idle` at the next residency re-plan once `loadRetryMs` has passed, at most `loadRetries` times per page; the density chip's `failed` count reads "currently failed". An empty GLB (no geometry) burns its attempts the same way and then stays failed. |
+
+## The 2026-09-19 families — the AR yaw trim, the camera view, the lift rails, the /m overlay raise
+
+### The AR yaw TRIM (`FPV.ar*` → `lib/sensors/yawTrim.ts` through `scene/arLook.ts`)
+| Tunable | Value | What it is — and what breaks when it moves |
+|---|---|---|
+| `FPV.arCompassOffsetTauMs` | **8000** (was 800) | The STEADY time constant of the trim. At 0.8 s the rung was compass-led in all but name: every compass lag / steel railing reached the view (the owner's "it drifts each time you move the phone from side to side"). It only has to beat the gyro's creep (~0.2°/s under motion). The first fix still lands EXACTLY and a 1.5 s fast window (τ 800, `YAW_TRIM_DEFAULTS`) refines it — so raising this never delays north at arming. |
+| `FPV.arTrimMaxRateDegPerS` | 1.5 | The cap on how fast the trim may move the view. Under ~2°/s the eye does not read it as motion (Madgwick's β ≈ 2.3°/s; Oculus "α ≪ 1"). After a visual calibration THIS session the trim slows again on its own (τ 40 s, 0.3°/s — `calibratedTauMs` / `calibratedMaxRateDegPerS`). |
+| `FPV.arTrimFreezeRateDegPerS` | 30 | Above this angular rate (and for `settleMs` 400 after, until under 10°/s) the trim is FROZEN: a compass lags a turn, and believing it mid-swing IS the swing error. Lower = safer but slower to re-learn north while panning. |
+| `FPV.arCompassMinScreenUp` | 0.2 | iOS only: the screen normal's up-component (1 flat · 0 upright · < 0 tipped back) under which a compass sample is ignored. Tipped back past vertical "the top edge's heading" and "the camera's heading" are 180° apart and it is UNVERIFIED which Core Location reports; below vertical they are one number. **−1 disables the gate** — the device pass (T147) decides. |
+| `FPV.arRollSmoothTauMs` | 120 | EMA on the sensed roll the camera feed is counter-rotated by; HELD (not zeroed) at a degenerate look. |
+
+The rest of the trim (`windowMs` 1000, `maxSpreadDeg` 4, `maxSlopeDegPerS` 2, `jumpDeg` 20 / `jumpDoneDeg` 2 / `jumpHoldMs`
+3000 / `jumpSlewDegPerS` 6, `maxStepMs` 250) lives in `YAW_TRIM_DEFAULTS` — pure, unit-pinned in
+`test/lib/sensors/yawTrim.test.ts`; promote one to `FPV.*` only when a device says it must move.
+
+### The camera view (`FPV.arCam*` → `mobile/ArCameraOverlay.tsx`)
+`arCamOpacity` 0.55 (`Min` 0.15 · `Max` 0.9) — the feed's CSS opacity over the OPAQUE canvas: the whole 3D frame reads
+through it; never a renderer `alpha` (fenced) and never the screen-door dissolve (its holes show the GL sky, not the video).
+`arCamIdealWidthPx` 1280 × `arCamIdealHeightPx` 720 @ `arCamIdealFps` 30 — `getUserMedia` IDEALS, not caps: a BGRA frame
+is ~3.7 MB at 720p against 8.3 MB at 1080p and the capture pool holds several, beside WebGL on a 2 GB iOS page.
+The camera's FOV is NOT a tunable: `AR_CAM_LONG_FOV_DEFAULT_DEG` 62 (`lib/sensors/arCalibration.ts`, an ASSUMPTION — a page
+cannot read a focal length) is replaced per phone by the calibration pinch and stored in `ftw:ar-calib:v1`.
+
+### The lift rails (`lib/globe/bldgOverrides.LIFT_MAX_M` · `lib/models/modelPlacement.MODEL_LIFT_MAX_M`)
+Both **300** since 2026-09-19 (25 / 50 before). CONTRACT constants, not `tuning.ts` — the server clamps read them, and a
+stored value outside the rail is clamped on read. Trap learned: the old numbers were pinned as LITERALS in four tests and
+three harnesses — grep the NUMBER, not only the constant's importers.
+
+### The /m overlay raise (`StylizedTiles.stepGroundUpdate`)
+Not a knob — a rule: `stickyOverlayPx(…, flatGround || isMobileShell, GROUND.overlayResolution2dPx)`. RAISING the composite
+px is the same fresh-instance rebuild as lowering it (every composite on screen destroyed — the "all ground tiles reset to
+white" of 2026-09-19, 57/57 tiles, +4.2 s). Where a raise is CERTAIN (the mobile shell: its home is the flat chart) it is
+taken on frame 1; where it is not (desktop) it stays lazy. Anything that makes `tierOverlayPx` or the flat term move
+mid-session re-opens the white frame — read backlog T146 (the seamless handover) first.

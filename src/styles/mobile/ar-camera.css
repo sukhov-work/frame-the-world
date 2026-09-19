@@ -1,0 +1,171 @@
+/* AR CAMERA OVERLAY + CALIBRATION (owner order 2026-09-19 — mobile/ArCameraOverlay.tsx).
+   The stack: GL canvas z 0 · the FEED z 1 (above the canvas, BELOW the scene's own DOM label
+   layers at z 2, so sky / street names stay crisp over it) · the calibration PAD z 5 (eats the
+   canvas's gestures, never the FPV instruments') · the FPV chrome z 10 · this panel z 11.
+   Colours through tokens only. */
+
+.m-arcam {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden; /* a long virtual lens magnifies the feed past the screen */
+  pointer-events: none;
+}
+.m-arcam__video {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* size + rotation are written per frame (the shared pixel focal, the phone's roll) */
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
+  object-fit: fill; /* the box already has the stream's own aspect — never crop, never letterbox */
+  pointer-events: none;
+  background: transparent;
+}
+.m-arcal__pad {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  touch-action: none; /* the pad owns drag / twist / pinch — the page must never zoom (U1) */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.m-arcal__cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  /* a thin open cross: the landmark stays visible at its centre */
+  background:
+    linear-gradient(var(--color-accent), var(--color-accent)) center top / 1px 16px no-repeat,
+    linear-gradient(var(--color-accent), var(--color-accent)) center bottom / 1px 16px no-repeat,
+    linear-gradient(var(--color-accent), var(--color-accent)) left center / 16px 1px no-repeat,
+    linear-gradient(var(--color-accent), var(--color-accent)) right center / 16px 1px no-repeat;
+  opacity: 0.9;
+}
+
+.m-arcal {
+  position: fixed;
+  /* The free column of the FPV screen: under the logo / HUD strip, LEFT of the mini-map (its
+     card ends ~10.1rem from the right edge), ABOVE the AIM stick — measured on the 402 × 714
+     twin 2026-09-19 (the first seat ran under the mini-map; a screenshot caught it, no DOM
+     property would have). */
+  left: calc(0.75rem + env(safe-area-inset-left));
+  right: calc(10.6rem + env(safe-area-inset-right));
+  top: calc(2.9rem + env(safe-area-inset-top));
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  pointer-events: none; /* a layout box — its controls take the taps */
+  font-family: var(--font-mono);
+}
+.m-arcal__title {
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  color: var(--color-accent);
+}
+.m-arcal__note,
+.m-arcal__read {
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 10px;
+  padding: 0.35rem 0.6rem;
+  max-width: 100%;
+}
+.m-arcal__read {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.m-arcal__note--warn {
+  color: var(--color-warn, #e8b465);
+}
+.m-arcal__mix {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  touch-action: none;
+}
+.m-arcal__mix input[type="range"] {
+  width: 7rem;
+  accent-color: var(--color-accent);
+  touch-action: none;
+}
+.m-arcal__actions {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.m-arcal__actions .m-act {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.62rem;
+}
+
+/* The CAM chip — the AR chip's twin, seated ABOVE it inside the same wrap (so the AR note / ALIGN
+   float clears both). It exists only while AR is on; the column then publishes FOUR cells to the
+   map window's ◉ RE-CENTRE (the A1-2 contract, `--m-altcol-h`). */
+.m-arwrap:has(.m-cambtn) {
+  gap: 8px;
+}
+body.m:has(.m-altcol .m-cambtn) {
+  --m-altcol-h: 200px; /* four 44 px cells + three 8 px gaps */
+}
+.m-cambtn {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+.m-cambtn--on {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
+}
+/* A stored calibration shows as a small accent dot on the AR chip (an attribute, not a class or
+   a child: the chip's markup is pinned — two letters, no glyph). */
+.m-arbtn[data-cal="1"] {
+  box-shadow: inset 0 -3px 0 -1px var(--color-accent);
+}
+
+/* (LAST in the file: the touch-action audit reads each selector's FIRST block.) While the fullscreen map is up the feed would bleed through the PiP hole like the rest of
+   the mid-stack chrome (fpv.css batch #5 item 3). */
+body.mw-open .m-arcam,
+body.mw-open .m-arcal,
+body.mw-open .m-arcal__pad {
+  visibility: hidden;
+}

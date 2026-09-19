@@ -69,9 +69,9 @@ export const MODEL_SCALE_MAX = SCALE_MAX_K;
 export const MODEL_MOVE_MAX_M = 250;
 /** MESH SUITE MS7 (owner 2026-09-03) — the LIFT seat's absolute SANITY rail (m, both ways): a
  *  stored `tU` outside it is clamped on read, the server clamps on PATCH, the gizmo's Y arrow
- *  stops at it. Wider than the buildings' `LIFT_MAX_M` 25 so a model can stand on a Dnipro
- *  rooftop [ASSUMPTION 2026-09-03: 50 m is a taste call]. */
-export const MODEL_LIFT_MAX_M = 50;
+ *  stops at it. 300 m since 2026-09-19 (owner: "at least 300 m"; was 50) — the buildings'
+ *  `LIFT_MAX_M` twin, so a model can hang at drone height or stand on any roof. */
+export const MODEL_LIFT_MAX_M = 300;
 /** The owner's "it must never fully fall into the texture" rule as numbers: whatever the lift,
  *  at least this FRACTION of the model's SCALED height — and never less than this many metres of
  *  it — stays above the terrain seat. A sunk model is therefore always visible, pickable and

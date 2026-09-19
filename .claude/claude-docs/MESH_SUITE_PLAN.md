@@ -1,5 +1,13 @@
 # MESH SUITE — spatial edit gizmos · world-synced overrides · user-uploaded models
 
+> **ADDENDUM 2026-09-19 (owner batch; the track stays closed — nothing below is edited, and where §7 / §12 / §14 say
+> "lift 0..25 m" / "50 m" read 300):** the LIFT rails are **300 m** for buildings (`LIFT_MAX_M`, was 25) and for models
+> (`MODEL_LIFT_MAX_M`, was 50) — the owner's "at least 300 m". **▣ ADD A BOX — 5 × 5 × 5 m**: `lib/models/primitives.ts`, a
+> registry of predefined meshes whose in-memory GLB walks the uploaded model's own `begin()` (`beginPrimitive`), so a
+> primitive IS a user model after the door. **DELETE never worked in production** until 2026-09-19 (a body-less `DELETE`
+> has no content type → the live origin check 403s it → `lib/api/dataFetch.jsonWriteInit`); the MODELS list no longer
+> vanishes behind a failed action, a 404 is success, tombstones survive a list reload, the arm releases with its model.
+> DECISIONS 2026-09-19 · `ARCHITECTURE.md` §7d addendum + §6 · harness `verify-modelupload.mjs` leg 1b.
 > **WHERE WE ARE — dated pointer 2026-09-06 (nothing below is edited):**
 > **The track is CLOSED** by owner ruling 2026-09-05b (DECISIONS): *"this concludes all mesh-related
 > work at the moment"*. The open taste calls in §11.5 / §13.4 / §14.4 / §15.4 are parked with it.

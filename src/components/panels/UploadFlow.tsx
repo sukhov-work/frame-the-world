@@ -24,6 +24,7 @@ import {
 import { useModelUploadStore } from "../../store/modelUpload";
 import { useUserModelsStore } from "../../store/userModels";
 import { classifyDrop, MODEL_ACCEPT } from "../../lib/models/modelCaps";
+import { PRIMITIVES } from "../../lib/models/primitives";
 import PhotoDetailPanel, { PlacementHint } from "./PhotoDetailPanel";
 import ModelUploadStep, { MODEL_STEPS, ModelPlacementHint, modelStepIndex } from "./ModelUploadStep";
 import {
@@ -217,6 +218,27 @@ function DropStep() {
           e.target.value = "";
         }}
       />
+      {/* Owner 2026-09-19: the quick PRIMITIVES — a predefined mesh through the uploaded model's
+          own door (`beginPrimitive`), so it lands on the same CHECK card. OUTSIDE the dropzone:
+          its click opens the file picker. One registry entry = one more button. */}
+      {phase === "idle" && (
+        <div className="uf-actions uf-actions--primitives">
+          {PRIMITIVES.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="uf-btn uf-btn--ghost"
+              data-act={`add-${p.id}`}
+              onClick={() => {
+                void useModelUploadStore.getState().beginPrimitive(p.id);
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+          <span className="uf-actions__hint">NO FILE NEEDED · STORED AS YOUR MODEL · PLACE, SCALE AND LIFT IT LIKE ANY OTHER</span>
+        </div>
+      )}
       {phase === "decoding" && (
         <div className="uf-progress">
           {previewUrl && <img className="uf-progress__thumb" src={previewUrl} alt="" aria-hidden="true" />}

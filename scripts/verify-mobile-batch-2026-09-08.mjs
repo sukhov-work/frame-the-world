@@ -457,7 +457,10 @@ await sleep(1500);
   ok(st.on === true, "AR is on");
   const floatPos = await J(`(() => { const f = document.querySelector(".m-arfloat"); if (!f) return null; const r = f.getBoundingClientRect(); const c = document.querySelector(".m-altcol").getBoundingClientRect(); return { pos: getComputedStyle(f).position, above: r.bottom <= c.top + 1, colH: c.height }; })()`);
   ok(floatPos && floatPos.pos === "absolute" && floatPos.above, `the bubble FLOATS above the column (${floatPos?.pos}, above ${floatPos?.above})`);
-  ok(floatPos && Math.abs(floatPos.colH - 148) < 1.5, `…and the column box did not grow with it (${floatPos?.colH.toFixed(1)} px)`);
+  // 2026-09-19: with AR ON the column carries a FOURTH cell (CAM, above AR) and publishes 200 px —
+  // what must still hold is that the BUBBLE adds nothing: the box IS the published token.
+  const tokenNow = Number.parseFloat(await s.evalJs(`getComputedStyle(document.body).getPropertyValue("--m-altcol-h")`));
+  ok(floatPos && tokenNow === 200 && Math.abs(floatPos.colH - tokenNow) < 1.5, `…and the column box did not grow with it (${floatPos?.colH.toFixed(1)} px = the published ${tokenNow} px: AR + CAM + ⤒ + ⤓)`);
   await shot("mbatch-07-ar-note");
   // On the desktop twin there are no sensors: the mirror reads STALE with 0 samples — deferred
   // behind the armed hint, then sticky (an action the user must take). It must NOT clear.

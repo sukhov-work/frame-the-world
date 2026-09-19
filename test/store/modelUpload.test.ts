@@ -92,6 +92,24 @@ describe("modelUpload store — the pipeline as a phase machine", () => {
     expect(s.violations).toEqual([]);
   });
 
+  it("owner 2026-09-19: a PRIMITIVE walks the uploaded model's own door — a synthetic GLB into begin(), the registry's title", async () => {
+    const { pipeline, calls } = fakePipeline();
+    _setModelPipeline(pipeline);
+    expect(await useModelUploadStore.getState().beginPrimitive("box-5m")).toBe(true);
+    const s = useModelUploadStore.getState();
+    expect(s.phase).toBe("review");
+    expect(s.format).toBe("glb");
+    expect(s.fileName).toBe("box-5m.glb");
+    expect(s.title).toBe("BOX 5 m"); // the registry's, not the file stem's
+    expect(s.rawBytes).toBeGreaterThan(600); // a real GLB: 24 vertices with normals + 36 indices
+    expect(s.rawBytes).toBeLessThan(4096);
+    expect(calls.load).toBe(1);
+    // an unknown id starts nothing
+    useModelUploadStore.getState().clear();
+    expect(await useModelUploadStore.getState().beginPrimitive("teapot")).toBe(false);
+    expect(useModelUploadStore.getState().phase).toBe("idle");
+  });
+
   it("a healthy drop walks to REVIEW with its facts, a thumbnail and the file-stem title", async () => {
     const { pipeline, calls } = fakePipeline();
     _setModelPipeline(pipeline);

@@ -406,9 +406,31 @@ describe("store/userModels", () => {
     s.refresh();
     await flush();
     expect(useUserModelsStore.getState().world.map((m) => m.id)).toEqual(["m2"]);
+    // …and neither can the OWN list: reopening the panel inside the read lag re-fetches a list
+    // that still carries the dead row (owner bug 2026-09-19 — "couldn't delete some user model").
+    api.mineRows = [mine("m1"), mine("m2")];
+    await useUserModelsStore.getState().loadMine();
+    expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
     api.deleteModel = async () => ({ deleted: false, mediaDeleted: false });
     expect(await useUserModelsStore.getState().remove("m2")).toBe(false);
     expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
+  });
+
+  it("owner bug 2026-09-19: DELETE is idempotent — a 404 (already gone) removes the row; any other failure keeps it", async () => {
+    api.mineRows = [mine("m1"), mine("m2")];
+    await useUserModelsStore.getState().loadMine();
+    api.deleteModel = async () => {
+      throw Object.assign(new Error("no such model of yours"), { status: 404 });
+    };
+    expect(await useUserModelsStore.getState().remove("m1")).toBe(true);
+    expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
+    for (const status of [403, 401, 502]) {
+      api.deleteModel = async () => {
+        throw Object.assign(new Error(`HTTP ${status}`), { status });
+      };
+      expect(await useUserModelsStore.getState().remove("m2")).toBe(false);
+      expect(useUserModelsStore.getState().mine.map((m) => m.id)).toEqual(["m2"]);
+    }
   });
 
   it("audit #4 H3-1: remove forgets the model's journal entries and baseline (no lingering UNDO / DROP)", async () => {

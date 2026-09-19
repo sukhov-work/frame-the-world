@@ -59,7 +59,7 @@ describe("parseSyncEntry", () => {
   });
 
   it("MS3: clamps the spatial components onto the rails and OMITS identity ones", () => {
-    const e = parseSyncEntry(entry({ tE: 30_000, tN: 40_000, tU: 99, sx: 5000, sz: 0.5, rotDeg: 370 }))!;
+    const e = parseSyncEntry(entry({ tE: 30_000, tN: 40_000, tU: 999, sx: 5000, sz: 0.5, rotDeg: 370 }))!;
     expect(Math.hypot(e.tE!, e.tN!)).toBeCloseTo(TRANSLATE_MAX_M, 6);
     expect(e.tE! / e.tN!).toBeCloseTo(0.75, 9); // direction kept
     expect(e.tU).toBe(LIFT_MAX_M);

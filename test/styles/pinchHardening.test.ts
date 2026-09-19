@@ -37,6 +37,7 @@ describe("U1 pinch hardening — the audited touch-action leak list", () => {
     ["src/styles/sky-menu.css", ".skymenu", "none"], // sky context menu
     ["src/styles/mobile/mobile.css", ".m-status a,", "none"], // status-strip chips
     ["src/styles/map-window.css", ".mw-canvas", "none"], // U3 fullscreen map (owns its gestures)
+    ["src/styles/mobile/ar-camera.css", ".m-arcal__pad", "none"], // 2026-09-19 AR calibration pad (drag / twist / pinch)
   ];
 
   for (const [file, selector, action] of mustDeclare) {

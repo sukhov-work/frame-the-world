@@ -18,3 +18,28 @@ export function fetchErrorMessage(e: unknown): string {
   if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return "timed out — check the connection";
   return e instanceof Error ? e.message : String(e);
 }
+
+/**
+ * EVERY `/api` WRITE CARRIES `Content-Type: application/json` — even one with NO BODY (owner bug
+ * 2026-09-19: "couldn't delete a user model"). Astro's `security.checkOrigin` middleware
+ * (`astro/dist/core/app/middlewares.js`) lets a non-safe method through only if it has a
+ * NON-form content type OR its `Origin` equals `url.origin` — and on the live host the adapter
+ * hands Astro an `http:` request URL (the 2026-09-18 sign-out root cause), so the origins NEVER
+ * match. A body-less DELETE `fetch` (an init of just the method) sends no content type and was
+ * refused `403 Cross-site DELETE form submissions are forbidden` BEFORE the route ran — every
+ * delete (models, photos, listings, saved places) had been dead in production while `wix dev`,
+ * which never runs the check, passed every harness. Measured live 2026-09-19: bare DELETE → 403,
+ * the same request with this header → reaches the route. `test/lib/api/jsonWrites.test.ts` fences
+ * every client write.
+ */
+export const JSON_WRITE_HEADERS: Readonly<Record<string, string>> = Object.freeze({ "Content-Type": "application/json" });
+
+/** `fetch` init for a write to `/api/*`: the method, the JSON content type ALWAYS, the body when
+ *  there is one. */
+export function jsonWriteInit(method: "POST" | "PATCH" | "PUT" | "DELETE", body?: unknown): RequestInit {
+  return {
+    method,
+    headers: { ...JSON_WRITE_HEADERS },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  };
+}

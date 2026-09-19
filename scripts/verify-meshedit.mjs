@@ -284,10 +284,10 @@ await shoot("meshedit-01-spatial-applied.jpeg");
 
 // --- 3: rails (MS5b: the seam commits onto the LOOSE sanity rail; post-clamp read-back — engine
 //     target AND row agree). The per-edit band is the gizmo's (leg 8c). ---------------------------
-const r2 = await setXf(cellUri, fid, { sy: 1, sx: 1, sz: 1, rotDeg: 0, tE: 90, tN: 0, tU: 99 });
+const r2 = await setXf(cellUri, fid, { sy: 1, sx: 1, sz: 1, rotDeg: 0, tE: 90, tN: 0, tU: 999 });
 const t90 = r2.state.target;
 if (t90.tE !== 90 || t90.tN !== 0) fail(`a 90 m move (past the old 60 m absolute rail) must land exactly: ${JSON.stringify(t90)}`);
-if (t90.tU !== 25) fail(`lift rail: tU = ${t90.tU}, wanted 25`);
+if (t90.tU !== 300) fail(`lift rail: tU = ${t90.tU}, wanted 300 (LIFT_MAX_M, owner 2026-09-19)`);
 const r2b = await setXf(cellUri, fid, { sy: 12, sx: 1, sz: 1, rotDeg: 0, tE: 30_000, tN: 40_000, tU: 0 });
 const tt = r2b.state.target;
 if (!near(Math.hypot(tt.tE, tt.tN), 5000, 1e-6)) fail(`sanity translate rail: |t| = ${Math.hypot(tt.tE, tt.tN)}, wanted 5000`);
@@ -297,7 +297,7 @@ rows = await evalJs(ROWS);
 const row2 = rows[Object.keys(rows)[0]];
 if (!near(row2.tE, tt.tE) || !near(row2.tN, tt.tN) || row2.sy !== 12 || "tU" in row2) fail(`stored row disagrees with the clamped target: ${JSON.stringify(row2)}`);
 await waitSettled(cellUri, fid, "rails ease", 15_000);
-console.log(`rails: 90 m exact · sanity |t| 5000 m (${tt.tE.toFixed(1)}, ${tt.tN.toFixed(1)}) · sy 12 · lift 25 m · row agrees`);
+console.log(`rails: 90 m exact · sanity |t| 5000 m (${tt.tE.toFixed(1)}, ${tt.tN.toFixed(1)}) · sy 12 · lift 300 m · row agrees`);
 await sleep(400);
 await shoot("meshedit-02-rails.jpeg");
 
@@ -355,7 +355,7 @@ if (j3.rows[Object.keys(j3.rows)[0]].sy !== 12) fail(`T126 Ctrl+Z did not bring 
 // UNDO ×3 through the STORE one-shot: the rails row → the 90 m row → T1 → nothing.
 await evalJs(`${JS}.requestUndo("bldg"), true`);
 const j4 = await jWait("T126 undo #3", (j) => j.undoable === 2 && Object.keys(j.rows).length === 1 && j.rows[Object.keys(j.rows)[0]].tE === 90);
-if (j4.rows[Object.keys(j4.rows)[0]].tU !== 25) fail(`T126 undo #3: expected the 90 m / lift 25 row, got ${JSON.stringify(j4.rows)}`);
+if (j4.rows[Object.keys(j4.rows)[0]].tU !== 300) fail(`T126 undo #3: expected the 90 m / lift 300 row, got ${JSON.stringify(j4.rows)}`);
 await evalJs(`${JS}.requestUndo("bldg"), true`);
 const j5 = await jWait("T126 undo #4", (j) => j.undoable === 1 && Object.keys(j.rows).length === 1 && j.rows[Object.keys(j.rows)[0]].rotDeg === T1.rotDeg);
 await evalJs(`${JS}.requestUndo("bldg"), true`);
@@ -1069,7 +1069,7 @@ try {
 if (cleanupProblem) fail(cleanupProblem);
 
 console.log(
-  "PASS: arm+cellUri · seam edit (exact target, v2 row, re-queued sample, settled ease, spatial 1) · rails (90 m exact, sanity 5 km / sy 12 / lift 25, row agrees) · RESET (row gone, fast path) · reload re-apply · legacy k→sy" +
+  "PASS: arm+cellUri · seam edit (exact target, v2 row, re-queued sample, settled ease, spatial 1) · rails (90 m exact, sanity 5 km / sy 12 / lift 300, row agrees) · RESET (row gone, fast path) · reload re-apply · legacy k→sy" +
     " · MS2: real right-click menu survives the release → MOVE · X-arrow drag commits (camera pinned) · off-handle look · per-edit move from 70 m out · R ring yaw · S box scale (0.1×–10×, metres on the row) · per-op ↺ · Esc cancels · RESET ALL · DONE · orbit drag after the session = baseline (helpers out of the scene, control seen)" +
     " · MS3: world row applies (SHARED tint, hover note, no pill) · local wins + tombstone masks · member SYNC removes + upserts (server agrees, osmId keyed) · anonymous sign-in gate · world left clean",
 );

@@ -31,6 +31,7 @@ import {
   type ModelUnit,
   type ModelViolation,
 } from "../lib/models/modelCaps";
+import { primitiveById, primitiveFile } from "../lib/models/primitives";
 import { titleFromFileName } from "../lib/save/pinBody";
 import { safeModelFileName } from "../lib/wix/modelRecords";
 import { useCameraStore } from "./camera";
@@ -144,6 +145,11 @@ interface ModelUploadStore {
 
   /** Load → inspect → audit → decimate → pack → thumbnail → review (or a named refusal). */
   begin(files: File[], primary: number, format: ModelFormat): Promise<void>;
+  /** Owner 2026-09-19: a PREDEFINED primitive (`lib/models/primitives.ts` — the 5 m box first)
+   *  through the SAME door as an uploaded file: a synthetic GLB `File` into `begin`, so the audit,
+   *  the pack, the thumbnail, the upload, MY MODELS, placement and the gizmo are the uploaded
+   *  model's path byte for byte. False for an unknown id. */
+  beginPrimitive(id: string): Promise<boolean>;
   setTitle(title: string): void;
   /** Re-scale the bounds and re-pack at the member's unit. */
   setUnit(unit: ModelUnit): Promise<void>;
@@ -197,6 +203,18 @@ export const useModelUploadStore = create<ModelUploadStore>((set, get) => ({
   violations: [],
   unit: "m",
   unitSuggested: false,
+
+  beginPrimitive: async (id) => {
+    const def = primitiveById(id);
+    const file = primitiveFile(id);
+    if (!def || !file) return false;
+    const run = get().begin([file], 0, "glb");
+    // `begin` sets the title from the file name synchronously, before its first await — the
+    // registry's own title replaces it at once (the member can still rename it on the card).
+    get().setTitle(def.title);
+    await run;
+    return true;
+  },
 
   begin: async (files, primary, format) => {
     const my = ++seq;

@@ -85,7 +85,14 @@ shot works — all client-side, off the same ephemeris/geometry libraries (`lib/
   camera aim, and a temporal ghost chain; FPV mode keeps a tracking lock while you look around.
 - **The `/m` mobile shell** — a separate planning-first page (`src/pages/m.astro`) reusing the
   same engine, stores, and libs: tab bar, bottom sheets, touch FPV, conveyor time dock — built
-  for standing at the tripod.
+  for standing at the tripod. In first-person view the phone itself aims the camera (**AR
+  look-around**: gyro-led, the compass only trims it slowly, so a side-to-side swing comes back to
+  where it started), **CAM** lays the live rear camera over the 3D view at the same focal length,
+  and a long press on AR opens **visual calibration** — drag the virtual skyline onto the real
+  one and the correction is kept on the phone.
+- **Your own 3D models in the world** — drop a GLB / OBJ / FBX (checked, decimated and packed in
+  the browser) or press **▣ ADD A BOX** for a 5 m stand-in; place, turn, tip, scale and lift it
+  (up to 300 m) with the same gizmo that edits buildings.
 - **The in-app GUIDE** — a guide/FAQ surface on both shells that teaches the instrument.
 
 ## The Wix integration surface
@@ -142,6 +149,12 @@ hit for real during the build.
    WebGL is a crash, not a slowdown.
 6. No cron on headless, no split payments, 30-day non-shortenable download links — all three
    shaped the marketplace design (owner-mediated payouts, buyer messaging).
+7. **On the live host Astro's CSRF origin check sees an `http:` request URL**, so a browser's
+   `https:` `Origin` never matches: every real `<form method="post">` 403s (sign-out, found
+   2026-09-18) — and so does every **body-less** `fetch` write, because a `DELETE` with no body
+   sends no content type (every delete in the app was dead in production until 2026-09-19).
+   `wix dev` never runs the check, so no harness can see it; the rule is one helper
+   (`jsonWriteInit`: `Content-Type: application/json` on every write) plus a source-scan test.
 
 ## Architecture: client does the heavy lifting, Wix stays thin
 
@@ -175,9 +188,11 @@ galaxy, the planning-QoL pass (scrubber v2, TODAY, FIND v2/v3), §3.5 sunsets-in
 `/m` mobile shell M0–M3, P7 meteor showers, the UPLIFT ladder U1–U8 (2D-first mobile
 navigation, FPV stability, fullscreen 2D map + minimap FOV cone, direction lines + visibility
 cones, closest-first tile loading, terrain precision, building height overrides), the ULTRA
-desktop fidelity track, real eclipses, and BEST SPOT — the observability heatmap that predicts
-where to stand. Phase 7 (Wix AI) is PARKED by owner ruling (2026-08-11).
-Quality gates at head (2026-09-17): **3,138 vitest tests across 210 files, `astro check`
+desktop fidelity track, real eclipses, BEST SPOT — the observability heatmap that predicts
+where to stand — the MESH SUITE (spatial building edits shared with the world, user-uploaded
+models) and AR on the phone (look-around, the camera view, visual calibration). Phase 7 (Wix AI)
+is PARKED by owner ruling (2026-08-11).
+Quality gates at head (2026-09-19): **3,239 vitest tests across 218 files, `astro check`
 0 errors / 0 warnings / 12 hints (dated baseline), knip 0**, browser flows verified over CDP on `wix dev`. The app is released and
 live at [www.plux.today](https://www.plux.today) (since 2026-09-10).
 
