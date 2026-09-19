@@ -10,7 +10,7 @@ Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session n
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
 ## Status — 2026-09-19 (`mem:project/wip-2026-09-19-ar-calibration-box-meshbugs`)
-**AR CALIBRATION + CAM + THE GYRO-LED LADDER · ▣ ADD A BOX · THREE MESH BUGS — DONE, NOT RELEASED.** /m AR: the gyro DRIVES,
+**AR CALIBRATION + CAM + THE GYRO-LED LADDER · ▣ ADD A BOX · THREE MESH BUGS — LIVE as v1.36.17 (2026-09-20, ship `f4ab36c` = PR #130).** /m AR: the gyro DRIVES,
 the compass only TRIMS (`lib/sensors/yawTrim.ts`; swing test 42° → 0.00°); CAM = the rear camera at the 3D view's pixel focal;
 a LONG PRESS on AR = visual calibration (`ftw:ar-calib:v1`, the yaw a compass BIAS inside the trim). The 5 m box rides the
 upload's own `begin()` (`lib/models/primitives.ts`). Lift → 300 m. **DELETE root cause (live-proven):** a body-less DELETE has
@@ -31,7 +31,7 @@ overlay raise is a full rebuild; on /m it is taken on frame 1.
 ## Standing facts (2026-09-19)
 - Gates: vitest **3,239 / 218 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.15** (each ship bumps the patch); live **v1.36.14** (2026-09-18). Release: `npm run release:full -- -c "…"`.
+- `package.json` **1.36.18** (each ship bumps the patch); live **v1.36.17** (2026-09-20). Release: `npm run release:full -- -c "…"`.
 - **Every `/api` write goes through `lib/api/dataFetch.jsonWriteInit`** (2026-09-19): a body-less DELETE carries no content
   type and the live origin check 403s it (`jsonWrites.test.ts` fences it; dev never runs the check).
 - **No `<form method=post>` anywhere** (2026-09-18): the live adapter's request origin is `http:` → `checkOrigin` 403s every
@@ -48,10 +48,10 @@ overlay raise is a full rebuild; on /m it is taken on frame 1.
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-RELEASE when the owner says (deletes are dead live until it ships) → **T147** the phones' device pass of AR calibration / CAM /
-the trim (HTTPS tunnel; the 62° camera FOV, the roll's sign, iOS's one-press grant, `CLHeading` past vertical) → **T146** the
-seamless overlay handover (desktop boot-`mid` promote still rebuilds at FPV exit) → **T148** the box on `/m`? (owner ruling) →
-the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration of `TabBar` + `MapModeChip` · the /m model-edit check).
+The OWNER IS TESTING v1.36.17 ON HIS PHONES — his feedback drives **T147** (the 62° camera FOV default, the roll's sign, iOS's
+one-press grant, `CLHeading` past vertical, the trim under a real swing) → **T146** the seamless overlay handover (desktop
+boot-`mid` promote still rebuilds at FPV exit) → **T148** the box on `/m`? → the pre-audit main plan (farm FEATURE legs · the
+T77 lane · T145's migration · the /m model-edit check). After any release touching an `/api` write: `verify-live-deletes.mjs`.
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).

@@ -18,9 +18,24 @@ const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chro
   "--headless=new", `--remote-debugging-port=${PORT}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "ftw-cdp-"))}`,
   "--no-first-run", "--window-size=1728,1080", "--hide-scrollbars", "about:blank",
 ], { stdio: "ignore" });
-await new Promise((r) => setTimeout(r, 2500));
-
-const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
+// 2026-09-20: POLL for the CDP port instead of a fixed 2.5 s — right after a build + a 169-asset
+// warm the machine is busy, Chrome was not listening yet, and `fetch failed` aborted release step
+// 7 with the release itself healthy (and left this Chrome orphaned on :9333). A Chrome that never
+// comes up is killed before the throw, so a failed attach can no longer leak a process.
+let list = null;
+for (let i = 0; i < 40 && list === null; i++) {
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
+    if (!list.some((t) => t.type === "page")) list = null;
+  } catch {
+    /* not listening yet */
+  }
+}
+if (list === null) {
+  chrome.kill("SIGKILL");
+  throw new Error(`verify-prod-globe: the spawned Chrome never answered on :${PORT} within 20 s`);
+}
 const ws = new WebSocket(list.find((t) => t.type === "page").webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 

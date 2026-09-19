@@ -1,11 +1,11 @@
-# wip 2026-09-19 — AR CALIBRATION + CAM + THE GYRO-LED LADDER · the 5 m BOX · three mesh bugs — DONE, NOT RELEASED
+# wip 2026-09-19 — AR CALIBRATION + CAM + THE GYRO-LED LADDER · the 5 m BOX · three mesh bugs — DONE · LIVE as v1.36.17 (2026-09-20)
 
 Mode: implement, Deep (`/frame` under investigate-design-v3; four parallel research agents). Owner order 2026-09-19.
 Records: DECISIONS 2026-09-19 (+ §Traps "a body-less /api write 403s") · backlog T145 (hook exists) T146 T147 T148 ·
 `wix-headless.md` §12b · `contracts.md` §2 (`ftw:ar-calib:v1`) · `NEXT_SESSION_PROMPT.md` · the guide (`mobile-ar-camera`, the box step, lift 300).
 Gates: vitest **3,239 / 218** (+86 / +6) · astro **0/0/12** · knip **0**. Browser (dev, house Chrome): `verify-ar-look` 39/39 ·
 NEW `verify-ar-calibration` 52/52 · `verify-mobile-batch-2026-09-08` 127/127 · `verify-modelupload` PASS (+ leg 1b box) ·
-`verify-usermodels` 21 legs · `verify-meshedit` PASS (lift 300). NOT released (no deploy was asked).
+`verify-usermodels` 21 legs · `verify-meshedit` PASS (lift 300).
 
 ## 1a · The gyro-led ladder — `lib/sensors/yawTrim.ts` (pure) + `orientationLadder.ts` rebuilt around it
 - DIAGNOSIS (cited in DECISIONS): the iOS rung tracked the compass with a 0.8 s EMA (compass-led in all but name); the Android
@@ -65,3 +65,17 @@ Button row under the dropzone in `panels/UploadFlow.tsx` (`data-act="add-box-5m"
 
 Related: `mem:project/wip-2026-09-07-mobile-bestspot-ar` · `mem:project/wip-2026-09-18-mobile-fixes-signout` ·
 `mem:bugs/ground-checkerboard-flicker` · `mem:project/wip-2026-09-03-model-lift-goto-reset`
+
+## RELEASED 2026-09-20 — v1.36.17 (ship `f4ab36c` = PR #130; DECISIONS 2026-09-20)
+- Docs actualized first: ARCHITECTURE §6 (the write wire) + §7d addendum + NEW §7f (AR on /m) · MOBILE_PLAN / MESH_SUITE_PLAN /
+  IMPLEMENTATION_PLAN addenda · `globe-tuning.md` §"The 2026-09-19 families" · README · the guide (`mobile-ar-camera` NEW).
+- `release:full`: canary 200/200 · warm 169/0/0 · step 7 aborted on ITS OWN attach race (a fixed 2.5 s sleep before
+  `fetch(:9333/json/list)`; it also ORPHANED its Chrome — a `$TMPDIR/ftw-cdp-*` profile `close-verify-chrome.mjs` does not
+  match) → `verify-prod-globe.mjs` now POLLS the port ≤ 20 s and kills its spawn before throwing; re-run: canvas 1728×993 gl=true.
+- NEW `scripts/verify-live-deletes.mjs` (LIVE, 16 PASS): bare DELETE → 403 on all four routes (the cause, unchanged by design);
+  + JSON content type → the route; a probe place deleted with the REAL ✕ → SURE? on www.plux.today → the deployed client's
+  DELETE carried `application/json`, no body, HTTP 200, gone from the API. Run it after any release touching an `/api` write.
+  (Run 1 misread POST `/api/places` → `{ placeId }`; a vacuous "gone" check is worse than a failing one — fixed before the verdict.)
+- Live UI smoke (DOM signals only; prod has no DEV seams), 7 PASS: v1.36.17 stamp · CAM only with AR · the feed laid out
+  418 × 743 px from a synthetic stream · long press → pad + CONFIRM/RESET/CANCEL · ▣ ADD A BOX → 12 tris · 5 × 5 × 5 m in production.
+- The owner is testing on his phones (T147). The live site is HTTPS — the camera works there with no tunnel.
