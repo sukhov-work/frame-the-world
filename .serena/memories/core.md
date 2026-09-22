@@ -9,27 +9,26 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-09-19 (`mem:project/wip-2026-09-19-ar-calibration-box-meshbugs`)
-**AR CALIBRATION + CAM + THE GYRO-LED LADDER · ▣ ADD A BOX · THREE MESH BUGS — LIVE as v1.36.17 (2026-09-20, ship `f4ab36c` = PR #130).** /m AR: the gyro DRIVES,
-the compass only TRIMS (`lib/sensors/yawTrim.ts`; swing test 42° → 0.00°); CAM = the rear camera at the 3D view's pixel focal;
-a LONG PRESS on AR = visual calibration (`ftw:ar-calib:v1`, the yaw a compass BIAS inside the trim). The 5 m box rides the
-upload's own `begin()` (`lib/models/primitives.ts`). Lift → 300 m. **DELETE root cause (live-proven):** a body-less DELETE has
-no content type → the live origin check 403s it → `dataFetch.jsonWriteInit`. **White ground at FPV exit:** the sticky 256 → 512
-overlay raise is a full rebuild; on /m it is taken on frame 1.
+## Status — 2026-09-22 (`mem:project/wip-2026-09-22-ar-ui-rework-fpv-quirks`)
+**THE AR SMALL-SCREEN PASS · ROLL OUT · THE AR GUIDES · INSTANT TRANSITIONS · THE CARRIED POSE · THE MESH CLEARANCE · THE /m PLANET
+BOOT FROM A HASH — BUILT + twin-verified, NOT released (live is v1.36.17).** /m AR: a one-row strip, round verdict cells on the left
+rail, a vertical 3D ↔ CAM slider, the mini-map folds while calibrating; no roll in the calibration, the pinch sign fixed, the default
+FOV 68°; `scene/arGuides.ts` rings the sun / moon / target ABOVE the feed with 3-px day arcs. FPV: every transition is a CUT
+(`FLIGHT.smoothTransitions`, a hidden pref + `__globe.smoothFlights`), a jump / entry / exit KEEPS the pose (`fpvCarry`,
+`preFpvOrbit`, partial `FpvJumpRequest`), the walker never clips a mesh (`lib/globe/fpvClearance`, `FPV.meshClearance`), an
+orbital `#p=` boots the planet on /m. Owner's /m rule: "too little screen space — use it efficiently".
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-09-19 AR calibration + CAM + the gyro-led ladder · the box · two root causes → v1.36.17 LIVE** (`wip-2026-09-19-ar-calibration-box-meshbugs`):
+  `lib/sensors/yawTrim.ts` (the gyro drives, the compass trims), `ArCameraOverlay`, `lib/models/primitives.ts`, `dataFetch.jsonWriteInit`.
 - **2026-09-18 three /m fixes + the SIGN-OUT root cause → v1.36.14 LIVE** (`wip-2026-09-18-mobile-fixes-signout`): the live
-  adapter's `http:` origin 403s every form POST → `/api/signout` JSON; `bootAltM` 18,000 km; the FPV rail's ▤ PLACES cell.
-- **2026-09-17 AUDIT #4 triaged + fixed** (`wip-2026-09-16-audit4-triage-fixes`): the exact library pin, the LOOK-aware
-  skyBudget twin, far-pinned ghosts, GLB retry, the LRU-bounded seat bank; public-exposure / load DEFERRED (T138/T139/B2).
-- **2026-09-16 the mobile UX batch → v1.36.11** (`wip-2026-09-16-mobile-uxbatch-menu-pinch-scale`): `CONTROLS.pinchZoomGain`
-  0.75, the peek long-press aim, the PLUX logo menu, scale bars.
-- **2026-09-11 AUDIT #4** (`wip-2026-09-11-audit4`; `audits/audit-full-2026-09-11.md`): 6 MAJOR · 37 MINOR · 13 NIT; T136–T144.
-- **2026-09-10 T123 + the release gate + the interlude** (`wip-2026-09-10-{t123-lever-a-detached-release,interlude-render-quirks}`):
-  `www.plux.today` live; ULTRA 1400 / desktop 600 MB ground caches. Older eras: the Era index below.
+  adapter's `http:` origin 403s every form POST → `/api/signout` JSON; `bootAltM` 18,000 km.
+- **2026-09-17 AUDIT #4 triaged + fixed** (`wip-2026-09-16-audit4-triage-fixes`); public-exposure / load DEFERRED
+  (T138/T139/B2). Older eras: the Era index below.
 
-## Standing facts (2026-09-19)
-- Gates: vitest **3,239 / 218 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip **0**.
+## Standing facts (2026-09-22)
+- Gates: vitest **3,276 / 221 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip: only the four
+  pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
 - `package.json` **1.36.18** (each ship bumps the patch); live **v1.36.17** (2026-09-20). Release: `npm run release:full -- -c "…"`.
 - **Every `/api` write goes through `lib/api/dataFetch.jsonWriteInit`** (2026-09-19): a body-less DELETE carries no content
@@ -48,10 +47,10 @@ overlay raise is a full rebuild; on /m it is taken on frame 1.
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The OWNER IS TESTING v1.36.17 ON HIS PHONES — his feedback drives **T147** (the 62° camera FOV default, the roll's sign, iOS's
-one-press grant, `CLHeading` past vertical, the trim under a real swing) → **T146** the seamless overlay handover (desktop
-boot-`mid` promote still rebuilds at FPV exit) → **T148** the box on `/m`? → the pre-audit main plan (farm FEATURE legs · the
-T77 lane · T145's migration · the /m model-edit check). After any release touching an `/api` write: `verify-live-deletes.mjs`.
+RELEASE the 2026-09-22 batch when the owner says so (`npm run release:full`) → the owner's device feedback on the new AR screen +
+the guides (**T149** the sun-at-the-edge pinch → pin the FOV default; **T147** the roll's sign) → **T150** the EYE readout on a
+mesh floor (a taste call) → **T151** the clearance's edges → **T146** the seamless overlay handover → **T148** the box on `/m`? →
+the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration · the /m model-edit check).
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
@@ -92,6 +91,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - AUDIT #4 triage + fixes + docs/guide refresh (09-17) · 09-16-audit4-triage-fixes
 - Three /m fixes + sign-out root cause → v1.36.14 (09-18) · 09-18-mobile-fixes-signout
 - AR calibration + CAM + gyro-led ladder · the box · delete + white-ground root causes (09-19) · 09-19-ar-calibration-box-meshbugs
+- The AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance (09-22) · 09-22-ar-ui-rework-fpv-quirks
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·
@@ -109,8 +109,9 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
   Design imports NEVER touch it.
 - `src/components/` — `panels|ui` desktop chrome · `mobile` the `/m` shell · `controls` shared input instruments
   (a pure leaf: react + stores + `lib/**` + `globe/tuning`; `test/components/mobileFence.test.ts`).
-- `src/lib/` — decode, geo, ephemeris, sky, globe, models, edit (the journal), guide, pins, photo, export, market,
-  save, wix, theme, format, api (`http.ts` server-only; `dataFetch.ts` client), textures, sensors, `prefs.ts` ·
+- `src/lib/` — decode, geo, ephemeris, sky (+ `screenProject`), globe (+ `fpvClearance`, `smoothFlightsBoot`), models, edit
+  (the journal), guide, pins, photo, export, market, save, wix, theme, format, api (`http.ts` server-only; `dataFetch.ts`
+  client), textures, sensors, `prefs.ts` ·
   `src/store/` zustand · `src/pages/` `index.astro`, `m.astro`, `guide.astro` + 12 thin `api/*` routes (`signout.ts` is the newest) · `test/` 210 files.
 
 ## Key invariants (violations = bugs)

@@ -90,6 +90,8 @@ await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: 800, y: 500, 
 await sleep(700);
 
 // --- Step 1: fly HIGH + oblique over Dnipro (the failing regime) --------------------------------
+// 2026-09-22: transitions are the instant cut by default (FLIGHT.smoothTransitions) — this leg MEASURES a sweep, so re-arm it through the DEV seam.
+await evalJs(`window.__globe && window.__globe.smoothFlights ? window.__globe.smoothFlights(true) : null`);
 await evalJs(
   `window.__cameraStore.getState().requestFly({ latDeg: ${DNIPRO.latDeg}, lonDeg: ${DNIPRO.lonDeg}, altM: ${START_ALT_M} })`,
 );

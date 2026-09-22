@@ -138,7 +138,8 @@ body.m.mw-open .fh-chip,
 body.m.mw-open .m-status,
 body.m.mw-open .sky-names,
 body.m.mw-open .geo-labels,
-body.m.mw-open .bldg-edit-label {
+body.m.mw-open .bldg-edit-label,
+body.m.mw-open .ar-guides {
   visibility: hidden;
 }
 

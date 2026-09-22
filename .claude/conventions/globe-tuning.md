@@ -776,3 +776,40 @@ px is the same fresh-instance rebuild as lowering it (every composite on screen 
 white" of 2026-09-19, 57/57 tiles, +4.2 s). Where a raise is CERTAIN (the mobile shell: its home is the flat chart) it is
 taken on frame 1; where it is not (desktop) it stays lazy. Anything that makes `tierOverlayPx` or the flat term move
 mid-session re-opens the white frame — read backlog T146 (the seamless handover) first.
+
+## The 2026-09-22 families — instant transitions, the mesh clearance, the AR guides, the /m hash boot
+
+### Instant transitions (`FLIGHT.smoothTransitions` → `flight.ts` through the orchestrator's `smoothFlights()`)
+`false` (the default since owner order 2026-09-22) = every `flight.start` is the reduced-motion CUT and the FPV lens change
+lands the same frame; `true` = the 2,200 ms cinematic sweep everywhere. Two runtime doors say the same per session without a
+rebuild: the chip-less pref `smoothFlights: true` in `ftw:view-prefs:v1` (`lib/globe/smoothFlightsBoot`, read once at boot)
+and the DEV seam `__globe.smoothFlights(true)` (read LIVE per `start`). RULE: a harness that MEASURES a descent flips the seam
+before `requestFly`, or it measures a cut. `start(t, { cinematic: true })` bypasses the switch — reserved, nothing passes it.
+
+### The mesh clearance (`FPV.meshClearance` · `meshColumnUpM` 400 · `meshColumnDownM` 400 · `meshStepM` 0.35 ·
+### `meshColumnIdleEveryFrames` 12 · `meshFloorEaseTauMs` 200 → `stepFpvMeshFloor` + `lib/globe/fpvClearance`)
+`meshClearance: false` = the 2026-09-19 walker (no collision at all; `__globe.fpvClearance(false)` does it live and returns the
+counters). `meshColumnUpM` is the tallest lift a wall can trigger — it must stay above the lift rails (300 m, 2026-09-19);
+`meshColumnDownM` how far under the feet a top still counts as "the surface under the feet" when walking off a roof.
+`meshStepM`: on the terrain, a top this close UNDER the feet is a surface walked onto (a kerb); a top the BODY overlaps is a
+lift, whatever its height. The lift INTO a surface is a snap by design; only the descent is eased. The column runs every
+frame while walking / lifting / standing on a mesh, every `meshColumnIdleEveryFrames` otherwise. Costed on the lean twin:
+6.4 ms for the first column (the tile tree warm-up), sub-ms after — the terrain is never in the targets.
+
+### The AR guides (`ARGUIDES` → `scene/arGuides.ts`)
+Sizes in CSS px of the DOM/SVG layer above the camera feed (`zIndex` 3 — above the feed's 1 and the z 2 label layers, under
+the calibration pad's 5; the mapWindowChrome fence pins the layer into the PiP hide list). `ringPx` / `ringWidthPx` /
+`dotPx` / `tickPx` the markers; `haloPx` / `haloAlpha` the dark halo under every stroke (the bg token, never a literal);
+`arcWidthPx` / `arcAlphaFuture` / `arcAlphaPast` the day arcs; `arcMinFade` the GL arc's own melt-out band re-applied;
+`arcMarginPx` how far off-screen a projected point may sit and still draw (a polyline leaves the screen cleanly). The GL
+reticle's hairline (`SKY_TARGET`) is untouched — thick is for AR only.
+
+### The /m hash boot (`MOBILE2D.hashPlanetFromAltM` 1,000 km)
+A `#p=` at or above it boots the WHOLE PLANET on `/m` (at the hash's focus, nadir, the 2D chart); below it a hash is a place
+and is honoured exactly. It sits between the desktop's 1,100 km boot LEO (the hand-over the Mobile / OPEN /M links carry) and
+the planet's 18,000 km. The desktop never reads it.
+
+### The AR calibration record (`lib/sensors/arCalibration.ts`)
+`AR_CAM_LONG_FOV_DEFAULT_DEG` 62 → **68** (a too-narrow default draws the feed too small: the aligned building slips as the
+phone pitches). `rollDeg` and `rollMaxDeg` are GONE — roll is not calibrated (the sensed roll still levels the feed); a pinch
+OUT widens `camLongFovDeg` (`tan(fov'/2) = tan(fov/2)·spread`), the pinch-to-zoom sense.

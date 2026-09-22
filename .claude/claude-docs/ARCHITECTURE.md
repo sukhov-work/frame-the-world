@@ -301,6 +301,45 @@ place deletes were dead in production until 2026-09-19. Fence: `test/lib/api/jso
   `scripts/bake/README.md`; the domain doc (rulings + registry contract + ops runbooks + aux
   data): **`BAKED_ASSETS.md`**.
 
+### 7a′. FPV transitions, the carried pose and the mesh clearance (owner order 2026-09-22) [BROWSER-VERIFIED]
+- **Every FPV / minimap transition is the instant CUT.** `flight.start` (the ONE camera-animation engine: pin arrival, FPV
+  entry / exit, the map window's jump, places, search, MY LOCATION, the corrective re-frame) takes `smooth()` from the
+  orchestrator — `smoothFlightsOverride ?? (FLIGHT.smoothTransitions || the hidden pref smoothFlights)` — and cuts to
+  `finalPose` when it says false (the reduced-motion path); the FPV lens change snaps the same frame (`fovSnapPending`).
+  The 2,200 ms sweep survives behind three doors: `FLIGHT.smoothTransitions` (compile-time, default **false**), the chip-less
+  `ftw:view-prefs:v1` key `smoothFlights: true` (`lib/globe/smoothFlightsBoot`, the `debugHud` posture), and the DEV seam
+  `__globe.smoothFlights(true)` — which the harnesses that MEASURE a descent (`verify-visual-sweep`, `probe-cpu-profile`,
+  `probe-load-phase2`, `verify-pin-reframe`, `verify-rendering-charter`) flip before driving `requestFly`. EXPLORE's cruise
+  is its own model, untouched; `start(t, { cinematic: true })` is reserved for a flight that is a feature.
+- **The pose is KEPT — no defaults.** `requestFpvJump` takes a PARTIAL pose (`FpvJumpRequest`): a saved place / a `#f=`
+  share brings all four fields; a POINT jump (the map window outside FPV, MY LOCATION, the /m ▲ 3D hold) brings lat/lon only,
+  and the entry fills each missing field from **`fpvCarry`** (eye height · look elevation · lens the viewer last stood at,
+  recorded at exit), then the planned view (heading / lens), then the shipped defaults (first entry only). Standing in FPV,
+  the map window's point is a PIN MOVE (`setTempPin`) on both shells — the pin-change re-seat carries the live look, eye and
+  lens rigidly. **Exit restores the ORBIT pose the viewer came from** (`preFpvOrbit`: altitude above ground · tilt · lens ·
+  the /m map mode, captured on a fresh entry) over where they now stand (the pin + the walk), approaching along the FPV
+  heading — 200 m / 80° / 38° and the /m 600 m nadir only when the session booted straight into FPV. On /m an entry from the
+  3D map returns to the 3D map; from the 2D chart to the chart at the altitude it was left at.
+- **Mesh clearance** (`lib/globe/fpvClearance` + `stepFpvMeshFloor`, `FPV.meshClearance` — kill switch + `__globe.fpvClearance`):
+  temp-pin FPV casts ONE vertical column through the eye per frame while moving (a down ray + an up ray, so a one-sided
+  material's tops AND undersides are both seen) against the building tiles, the enriched cells and the user models — never
+  the terrain — classifies each crossing by its face's OWN normal (`face.normal` → world; `intersection.normal` is flipped
+  toward the ray), and folds the crossings into solids top-down (a top opens one, the next underside closes it; no underside =
+  it stands on the ground). The BODY is the 1.7 m under the eye: inside a solid → the feet onto its top the same frame at the
+  standing eye height ("as if standing on it"; a rooftop structure is the next frame's column — layer by layer); on a mesh top
+  the eye follows what is under the feet (off a roof edge = the lower roof or the ground, eased `meshFloorEaseTauMs`); a pin
+  dropped inside a building lands on its roof at entry. A bridge deck (top + underside) is walked UNDER, a parked car (closed)
+  is climbed. Column cost on the lean twin: 6.4 ms once, sub-ms steady. The HUD's EYE readout stays the encoder's height
+  above the floor (1.7 m on a roof — T150).
+- **`/m` boots the whole planet even from a hash** (`MOBILE2D.hashPlanetFromAltM` 1,000 km): the desktop's Mobile / OPEN /M
+  links hand over the desktop's 1,100 km boot LEO as `#p=`, the UA redirect keeps it, the /m mirror re-writes it — the
+  2026-09-18 whole-planet boot had read only on a BARE `/m`. An orbital hash keeps its focus and lands nadir at 18,000 km;
+  a real place hash below the threshold is honoured exactly.
+- Harness: `scripts/verify-fpv-carry-2026-09-22.mjs` (29 — the cut, the seam, the place / point / pin-move / exit poses, the
+  12 m test solid `__globe.fpvTestSolid` walked into, across and off, the pin inside it, the kill switch) ·
+  `verify-mobile-fixes-2026-09-18` leg 1′ (the LEO hash → the planet, a place hash honoured). Unit contract:
+  `test/components/globe/fpvTransitions2026-09-22.test.ts` · `test/lib/globe/fpvClearance.test.ts`.
+
 ## 7b. ULTRA — the desktop opt-in fidelity mode (as built 2026-08-22j) [BROWSER-VERIFIED]
 **Full architecture: `rendering/ULTRA_ARCHITECTURE.md`.** Charter: `ULTRA_PLAN.md` (+ its AS BUILT
 block). Tunables: `conventions/globe-tuning.md` §ULTRA. Decisions: `DECISIONS.md` 2026-08-22j.
@@ -478,11 +517,23 @@ In mobile FPV the phone's orientation aims the camera. The seam is three layers,
   side is drawn `2·f·tan(camLong/2)` px and follows a pinch-FOV per frame; it is counter-rotated by the phone's smoothed roll
   (the FPV camera has no roll seam). Per-frame values ride `lib/sensors/arFrame.ts` — a plain mutable record the
   orchestrator writes in `stepArLook`, never a 60 fps store write. A page cannot read a camera's FOV, so
-  `camLongFovDeg` defaults to 62° and is LEARNED by the calibration pinch.
-- **The calibration record** (`lib/sensors/arCalibration.ts`, `ftw:ar-calib:v1`): `{ yawDeg, pitchDeg, rollDeg,
-  camLongFovDeg, savedAtMs }`. A LONG PRESS on AR opens a full-screen pad (z 5, under the FPV instruments at z 10): DRAG =
-  yaw / pitch (grab-the-world, one pixel of drag = one pixel of scene), TWIST = roll, PINCH = the camera's FOV; ✓ CONFIRM /
-  ↺ RESET / ✕ CANCEL. **The stored yaw is a measured COMPASS BIAS and lives INSIDE the trim** (target = observation + bias):
+  `camLongFovDeg` defaults to **68°** (2026-09-22 — was 62°; the owner's "the aligned building drifts as I pitch" is the
+  signature of a default that is too narrow: the feed is drawn too small and everything away from the centre cross slips
+  outward, `f_video ≠ f_3D`) and is LEARNED by the calibration pinch — which, being a pure scale about the centre, can only
+  be judged on something AWAY from the cross (the guide now says so). The other drift source a rotation-only calibration
+  cannot fix is PARALLAX: the phone's eye is a GPS fix + 1.7 m, so a NEAR building sits metres off; the sky and far
+  landmarks are the honest calibration targets — hence the AR guides below.
+- **The calibration record** (`lib/sensors/arCalibration.ts`, `ftw:ar-calib:v1`): `{ yawDeg, pitchDeg, camLongFovDeg,
+  savedAtMs }` — **roll left the record 2026-09-22** (owner: "not useful"; an older blob's `rollDeg` is dropped by the
+  sanitizer, no key bump; the feed is still levelled by the SENSED roll). A LONG PRESS on AR opens a full-screen pad (z 5,
+  under the FPV instruments at z 10): DRAG = yaw / pitch (grab-the-world, one pixel of drag = one pixel of scene), PINCH =
+  the camera picture's size (a pinch OUT enlarges the feed = the FOV estimate WIDENS, `tan(fov'/2) = tan(fov/2)·spread` —
+  2026-09-19 had the sign backwards); ✓ CONFIRM / ↺ RESET / ✕ CANCEL. **The small-screen layout (2026-09-22):** the top strip
+  is ONE row (title + `YAW · PITCH · mm` readout, no memo; the mini-map folds to its puck while calibrating — `MiniMap`
+  reads `arCam`), the three verdicts are ROUND cells in a column on the LEFT rail 12 px above the AIM stick (thumb reach),
+  and the 3D ↔ CAM slider stands VERTICAL just above the CAM chip on the right rail (a rotated range, a SIBLING of the
+  column — `--m-altcol-h` stays 200 px; the ALIGN float clears it through `--m-armix-h`).
+  **The stored yaw is a measured COMPASS BIAS and lives INSIDE the trim** (target = observation + bias):
   it never touches the relative rungs (there CONFIRM is an ALIGN by eye and the stored yaw is kept), RESET moves the offset
   at once, and CONFIRM sets `bias = offset − median(observations)` — not `bias + drag` — so a trim that had not converged
   cannot pull the calibrated view afterwards; a calibration confirmed this session slows the trim again (τ 40 s, 0.3°/s).
@@ -490,10 +541,19 @@ In mobile FPV the phone's orientation aims the camera. The seam is three layers,
   and answers through `_onArCalibrated`). Permission: ONE `DeviceOrientationEvent.requestPermission()` call site, inside the
   tap's own stack (iOS); the long press reaches it on the RELEASE (`controls/useLongPress`).
 
+- **The AR guides** (`scene/arGuides.ts`, 2026-09-22): every GL guide (the sun / moon discs, the target reticle, the 1-px
+  day arcs) sits UNDER the `<video>` and fades with the CAM slider. While AR is on in FPV, the sun (solid warm ring + core
+  dot), the moon (dashed cool ring) and the tracked target (accent reticle + ticks) are ringed by a DOM layer at z 3 (above
+  the feed and the z 2 label layers, under the pad) and the sun / moon day arcs are redrawn as 3-px SVG polylines with a dark
+  halo — the same sampled directions the GL arcs are built from (`dayArcs.arcs()`), projected by the one pinhole
+  (`lib/sky/screenProject`), so both agree to the pixel. Tunables `ARGUIDES`. The use case: put the rendered sun on the real
+  one and calibrate on it. The layer joins the `body.m.mw-open` hide list (the PiP rule).
+
 Harnesses: `scripts/verify-ar-look.mjs` (the ladder end to end, 39) · `scripts/verify-ar-calibration.mjs` (the fused rung
-+ the swing, CAM + the shared-focal layout through the component's real `getUserMedia` path, the long press → pad → CONFIRM
-persists and HOLDS → reload → CANCEL → RESET; 52). DEV seam: `__globe.arLook()` (`aim`, `trim`, `cal`, `rollDeg`).
-Decisions: `DECISIONS.md` 2026-09-07h, 2026-09-19. Guide: `mobile-ar`, `mobile-ar-camera`.
++ the swing, CAM + the shared-focal layout through the component's real `getUserMedia` path, the vertical slider and the
+guides layer on rendered geometry, the long press → the one-row strip + the folded mini-map + the round column → CONFIRM
+persists and HOLDS → reload → CANCEL → RESET; 66). DEV seams: `__globe.arLook()` (`aim`, `trim`, `cal`, `rollDeg`),
+`__globe.arGuides()`. Decisions: `DECISIONS.md` 2026-09-07h, 2026-09-19, 2026-09-22. Guide: `mobile-ar`, `mobile-ar-camera`.
 
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to

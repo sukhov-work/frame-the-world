@@ -23,20 +23,9 @@ import { usePlacesMapStore } from "../../store/places";
 import { useMemberStore } from "../../store/member";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { saveViewPref } from "../../lib/prefs";
-import { verticalFovDeg } from "../../lib/decode/sensors";
 import { formatAltM } from "../../lib/format/readout";
-import { CONTROLS, FPV, FRUSTUM, MOBILE2D, ORCH } from "../globe/tuning";
+import { CONTROLS, MOBILE2D, ORCH } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
-
-/** Last FPV focal (vertical FOV) seen this session — a long-press 3D jump re-enters at the
- *  focal the user last stood at instead of the temp default (batch #4 item 10). Tracked from
- *  the fpvHud mirror by the SceneActions root (always mounted on /m).
- *  ENGINE-ABSENT GUARD, kept deliberately (audit #3 A2-4/A1-12, dated 2026-08-22): the jump
- *  below prefers `plannedView`, which the batch-#6 boot seed makes non-null on every shipped
- *  frame (`setPlannedView(null)` has no call site), so this fallback is unreachable unless the
- *  orchestrator never attached (no PUBLIC_CESIUM_ION_TOKEN) or a `#f=` FPV boot has not exited
- *  once yet. It is 4 bytes of state and the honest default for those two states. */
-let lastFpvFovDeg: number | null = null;
 
 export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => void }) {
   const tempPin = useCameraStore((s) => s.tempPin);
@@ -52,14 +41,6 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const noteTimer = useRef<number | null>(null);
-  // Track the last FPV focal for the long-press 3D jump (module note above).
-  useEffect(
-    () =>
-      useCameraStore.subscribe((s) => {
-        if (s.fpvHud) lastFpvFovDeg = s.fpvHud.fovDeg;
-      }),
-    [],
-  );
 
   useEffect(
     () => () => {
@@ -210,23 +191,12 @@ function MapModeChip() {
       900,
     );
     const cam = useCameraStore.getState();
-    // Owner QA 2026-08-21 item 2: the jump honours the FOCAL CONE — plannedView carries the
-    // aimed heading + focal (it is seeded from boot and re-seeded on FPV exit, so the batch-#4
-    // "last focal" intent survives INSIDE it); cam.headingDeg here is the 2D map-up bearing,
-    // not a view direction, so it stays fallback-only. hFov → vertical via verticalFovDeg at
-    // the live viewport aspect, clamped to the camera's own FOV band.
-    const plan = cam.plannedView;
-    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
-    cam.requestFpvJump({
-      latDeg: cam.focusLatDeg,
-      lonDeg: cam.focusLonDeg,
-      eyeM: FRUSTUM.eyeHeightM,
-      headingDeg: plan?.headingDeg ?? cam.headingDeg,
-      pitchDeg: 0,
-      fovDeg: plan
-        ? Math.min(FPV.maxFovDeg, Math.max(FPV.minFovDeg, verticalFovDeg(plan.hFovDeg, aspect)))
-        : (lastFpvFovDeg ?? FPV.tempFovDeg),
-    });
+    // Owner 2026-09-22 (FPV item 2): a POINT jump — the orchestrator carries the eye height,
+    // the look elevation and the lens the viewer last stood at, and the heading / lens the
+    // planned view holds (owner QA 2026-08-21 item 2: it is seeded from boot and re-seeded on
+    // FPV exit, so the batch-#4 "last focal" intent lives inside it). Nothing resets to 1.7 m ·
+    // 0° · 55° any more, and the arrival is the instant cut.
+    cam.requestFpvJump({ latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg });
   };
   return (
     <button

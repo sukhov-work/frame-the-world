@@ -111,6 +111,8 @@ await s.evalJs(`(() => { window.__ftDt = []; let last = performance.now(); const
 const { end, afterArrivalS, maxLegS } = descent.leg;
 const hasStore = await s.evalJs(`!!(window.__cameraStore && window.__cameraStore.getState().requestFly)`);
 if (!hasStore) throw new Error("__cameraStore.requestFly absent");
+// 2026-09-22: transitions are the instant cut by default (FLIGHT.smoothTransitions) — this leg MEASURES a sweep, so re-arm it through the DEV seam.
+await s.evalJs(`window.__globe && window.__globe.smoothFlights ? window.__globe.smoothFlights(true) : null`);
 const tLeg0 = Date.now();
 await s.evalJs(`(() => { const st = window.__cameraStore.getState(); st.requestFly({ latDeg: ${end.latDeg}, lonDeg: ${end.lonDeg}, altM: ${end.altM} }); return true; })()`);
 let arrivedAt = null;

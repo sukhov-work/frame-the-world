@@ -713,6 +713,8 @@ ok(
 // M7's honest answer needs the case where the overlap can EXIST — mid-refine, not at rest.
 // Fly in from altitude so the terrain is actively subdividing while the sweep samples.
 await evaluate(`window.__globe.resetTerrainPickStats()`);
+// 2026-09-22: transitions are the instant cut by default (FLIGHT.smoothTransitions) — this leg MEASURES a sweep, so re-arm it through the DEV seam.
+await evaluate(`window.__globe.smoothFlights ? window.__globe.smoothFlights(true) : null`);
 await evaluate(`window.__cameraStore.getState().requestFly({ latDeg: 48.4647, lonDeg: 35.0462, altM: 30000 })`);
 await ticks(4);
 await sleep(4000);

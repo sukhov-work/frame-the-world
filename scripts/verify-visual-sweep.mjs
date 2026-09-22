@@ -646,6 +646,8 @@ async function runDescent(pose, dir) {
   const hasStore = await session.evalJs(`!!(window.__cameraStore && window.__cameraStore.getState().requestFly)`);
   let drive = "requestFly+targets";
   if (hasStore) {
+    // 2026-09-22: transitions are the instant cut by default (FLIGHT.smoothTransitions) — this leg MEASURES a sweep, so re-arm it through the DEV seam.
+    await session.evalJs(`window.__globe && window.__globe.smoothFlights ? window.__globe.smoothFlights(true) : null`);
     await session.evalJs(
       `(() => { const s = window.__cameraStore.getState();
          s.requestFly({ latDeg: ${end.latDeg}, lonDeg: ${end.lonDeg}, altM: ${end.altM} }); return true; })()`,

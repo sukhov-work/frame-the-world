@@ -310,7 +310,12 @@ export default function MiniMap() {
   // /m-only collapse (owner 2026-08-15c): the patch folds into a small puck at the right
   // edge, aligned with the button column. Open by default; the control is CSS-hidden on
   // desktop (.mm-collapse — body.m reveals it), so this state never fires there.
-  const [collapsed, setCollapsed] = useState(false);
+  const [userCollapsed, setCollapsed] = useState(false);
+  // AR calibration (owner 2026-09-22 item 1e): the pad needs the whole top strip for the title
+  // + readout row, so the card folds to its puck for the calibration's duration and comes
+  // back as the user left it. `arCam` is "calibrate" on /m only (the desktop never sets it).
+  const calibrating = useCameraStore((s) => s.arCam === "calibrate");
+  const collapsed = userCollapsed || calibrating;
 
   useEffect(() => {
     const doDraw = () => {
@@ -336,7 +341,7 @@ export default function MiniMap() {
         className="mm-collapse"
         aria-expanded={!collapsed}
         aria-label={collapsed ? "Expand the mini-map" : "Collapse the mini-map"}
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => setCollapsed(!userCollapsed)}
       >
         {collapsed ? (
           /* Folded-map glyph (owner 2026-08-19: the ▣ puck read as a blank white square). */

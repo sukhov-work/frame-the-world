@@ -20,7 +20,6 @@ import {
 } from "../../lib/geo/slippy";
 
 import { skylineSamplerFor } from "../../lib/geo/horizonProfile";
-import { verticalFovDeg } from "../../lib/decode/sensors";
 import {
   fractureRunsBySkyline,
   sampleAimDay,
@@ -32,7 +31,7 @@ import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
 import { cssFontFamily, cssInk } from "../../lib/theme/cssInk";
 import { tokens } from "../../lib/theme/tokens";
-import { AIMCONES, CONTROLS, FOCALCONE, FPV, FRUSTUM, TILESETS } from "../globe/tuning";
+import { AIMCONES, CONTROLS, FOCALCONE, TILESETS } from "../globe/tuning";
 import { scaleBarFor, type ScaleBar } from "../../lib/format/scaleBar";
 
 import { drawRadarCanvas } from "./radarCanvas";
@@ -740,24 +739,19 @@ export default function MapWindow() {
         requestRedraw();
         return;
       }
-      // Owner QA 2026-08-21 item 2 (desktop twin of the /m rule): the jump honours the FOCAL
-      // CONE — plannedView carries the aimed heading + focal (the hardcoded north/55° ignored
-      // the drawn cone); hFov → vertical via verticalFovDeg at the live viewport aspect.
-      const planJump = useCameraStore.getState().plannedView;
-      const jumpAspect = window.innerWidth / Math.max(1, window.innerHeight);
-      useCameraStore.getState().requestFpvJump({
-        latDeg: at.latDeg,
-        lonDeg: at.lonDeg,
-        eyeM: FRUSTUM.eyeHeightM,
-        headingDeg: planJump?.headingDeg ?? 0,
-        pitchDeg: 0,
-        fovDeg: planJump
-          ? Math.min(
-              FPV.maxFovDeg,
-              Math.max(FPV.minFovDeg, verticalFovDeg(planJump.hFovDeg, jumpAspect)),
-            )
-          : FPV.tempFovDeg,
-      });
+      // Owner 2026-09-22 (FPV item 2 — "when jumping to another position on the minimap … keep
+      // the current focal, the exact pitch / yaw, the current altitude"): standing in FPV, the
+      // point is a PIN MOVE — the orchestrator's pin-change re-seat (StylizedTiles stepFpvPose)
+      // carries the live look direction, elevation, eye height and lens over to the new pin,
+      // instantly and rigidly (the /m rule above, now on both shells). Outside FPV it is a POINT
+      // jump: the orchestrator carries what the viewer last stood at, and the heading / lens
+      // the planned view holds (owner QA 2026-08-21 item 2 — the focal cone is honoured).
+      const cam = useCameraStore.getState();
+      if (cam.tempFpv && cam.tempPin) {
+        cam.setTempPin({ latDeg: at.latDeg, lonDeg: at.lonDeg });
+      } else {
+        cam.requestFpvJump({ latDeg: at.latDeg, lonDeg: at.lonDeg });
+      }
       setOpen(false);
     };
 

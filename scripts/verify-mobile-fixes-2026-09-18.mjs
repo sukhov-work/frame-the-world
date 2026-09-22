@@ -207,6 +207,36 @@ const CHIP_SYNCED = `/^\\d{4,5} KM$/.test(document.querySelector(".m-nav__alt")?
   m.close();
 }
 
+// ── 1'. THE WHOLE-PLANET BOOT through the DESKTOP's hand-over hash (owner bug 2026-09-22) ─────
+// The desktop's Mobile / OPEN /M links carry `#p=<lat>,<lon>,1100000,<hdg>,0` (its boot LEO), the
+// UA redirect keeps the hash, and the /m mirror re-writes it — so the "bare /m" of leg 1 is the
+// rare door. An ORBITAL hash (≥ MOBILE2D.hashPlanetFromAltM) must boot the planet at the hash's
+// focus; a real PLACE hash (below it) is honoured exactly.
+{
+  const m = await attach();
+  await m.goto(`${M_URL}#p=46.0,31.3,1100000,0,0`, 1000);
+  const booted = await m.waitFor(CHIP_SYNCED, BOOT_MS);
+  check("1'a. /m with the desktop's 1,100 km hash boots (the chip left its seed)", booted, (await m.rect(".m-nav__alt"))?.text ?? "no chip");
+  await sleep(2500);
+  const nav = await m.rect(".m-nav__alt");
+  check("1'b. …and reads the whole-planet altitude, NOT 1,100 km", nav !== null && /^1[78]\d{3} KM$/.test(nav.text), `"${nav?.text}"`);
+  if (await m.isDev()) {
+    const st = await m.evalJs("(() => { const s = window.__cameraStore.getState(); return { alt: s.zoomAltM, mode: s.mapMode, tilt: s.tiltDeg, lat: s.focusLatDeg, lon: s.focusLonDeg }; })()");
+    check("1'c. [dev] the camera mirror sits at MOBILE2D.bootAltM over the HASH's focus (46.0, 31.3), nadir, 2D", Math.abs(st.alt - BOOT_ALT_M) / BOOT_ALT_M < 0.02 && st.mode === "2d" && Math.abs(st.tilt) < 1 && Math.abs(st.lat - 46.0) < 0.5 && Math.abs(st.lon - 31.3) < 0.5, `${(st.alt / 1000).toFixed(0)} km · ${st.mode} · tilt ${st.tilt?.toFixed(1)} · ${st.lat?.toFixed(2)},${st.lon?.toFixed(2)}`);
+  }
+  await m.shoot("01b-boot-planet-from-leo-hash");
+  m.close();
+  // a real place hash is untouched: 3 km over Dnipro stays 3 km (a FRESH tab — a hash-only
+  // navigate on the same document never re-boots the globe)
+  const m2 = await attach();
+  await m2.goto(`${M_URL}#p=48.4647,35.0462,3000,0,0`, 1000);
+  await m2.waitFor(CHIP_SYNCED, BOOT_MS);
+  await sleep(2500);
+  const nav2 = await m2.rect(".m-nav__alt");
+  check("1'd. a PLACE hash (3 km over Dnipro) is honoured exactly", nav2 !== null && /^3 KM$|^3\.0 KM$|^30\d\d M$|^29\d\d M$/.test(nav2.text), `"${nav2?.text}"`);
+  m2.close();
+}
+
 // ── 2. THE FPV RAIL, signed out ────────────────────────────────────────────────────────────
 {
   const m = await attach();

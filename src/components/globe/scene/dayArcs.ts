@@ -48,7 +48,19 @@ export interface DayArcsHandle {
   /** DEV seam (T111): per body, how many arc vertices the last rebuild folded behind the
    *  skyline, of how many — and whether a fold sampler was in hand. */
   debug(): { folded: boolean; bodies: { body: string; vertices: number; behind: number }[] };
+  /** The sampled polylines as built (owner 2026-09-22 item 3 — `scene/arGuides.ts` redraws them
+   *  ABOVE the camera feed): ECEF unit directions ×3 per point, the day fraction per point, the
+   *  horizon × skyline fade per point, and where scene time sits in the day. Empty while hidden. */
+  arcs(): ArcWire[];
   dispose(): void;
+}
+
+export interface ArcWire {
+  body: "sun" | "moon";
+  dirs: Float32Array;
+  t01: Float32Array;
+  fade: Float32Array;
+  now01: number;
 }
 
 /** Line/tick material — alpha-blended (NOT additive: an additive stroke vanishes against the
@@ -145,7 +157,15 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
       obj.renderOrder = 10; // depth-free overlay draws after the world (per-object — a Group's renderOrder does NOT propagate)
       group.add(obj);
     }
-    return { body, line, ticks, lineMaterial, tickMaterial, arc: null as DayArc | null };
+    return {
+      body,
+      line,
+      ticks,
+      lineMaterial,
+      tickMaterial,
+      arc: null as DayArc | null,
+      wire: null as ArcWire | null,
+    };
   });
 
   let anchorLat = NaN;
@@ -172,6 +192,7 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
       const show = arc.everUp;
       b.line.visible = show;
       b.ticks.visible = show;
+      b.wire = null;
       if (!show) continue;
 
       const linePos = pointDirs(arc.points, basis, (p) => azAltToEnu(p.azDeg, p.altDeg));
@@ -185,6 +206,7 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
         }),
       );
       foldStats.push({ body: b.body, vertices: arc.points.length, behind });
+      b.wire = { body: b.body, dirs: linePos, t01: lineT, fade: lineF, now01: 0 };
       b.line.geometry.dispose();
       b.line.geometry = new THREE.BufferGeometry();
       b.line.geometry.setAttribute("position", new THREE.BufferAttribute(linePos, 3));
@@ -215,6 +237,7 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
   return {
     group,
     debug: () => ({ folded: foldKey != null, bodies: foldStats.map((f) => ({ ...f })) }),
+    arcs: () => (group.visible ? bodies.flatMap((b) => (b.wire ? [b.wire] : [])) : []),
     update({ camera, sceneMs, anchor, skyline, dtMs }) {
       const target = anchor ? 1 : 0;
       fade += (target - fade) * (1 - Math.exp(-dtMs / DAYARC.fadeTauMs));
@@ -250,6 +273,7 @@ export function attachDayArcs(scene: THREE.Scene): DayArcsHandle {
       for (const b of bodies) {
         if (!b.arc) continue;
         const now01 = dayFraction(b.arc, sceneMs);
+        if (b.wire) b.wire.now01 = now01;
         b.lineMaterial.uniforms.uNow01.value = now01;
         b.tickMaterial.uniforms.uNow01.value = now01;
         b.lineMaterial.uniforms.uFade.value = fade;

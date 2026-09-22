@@ -12,7 +12,7 @@ import {
   isCalibrated,
   isIdentityAim,
   loadArCalibration,
-  pinchTwist,
+  pinchSpread,
   sanitizeArCalibration,
   saveArCalibration,
   smoothRollDeg,
@@ -46,14 +46,20 @@ describe("arCalibration — the record and its rails", () => {
     expect(isIdentityAim(AR_CALIB_IDENTITY)).toBe(true);
   });
 
-  it("yaw wraps onto (−180, 180]; pitch, roll and the camera FOV clamp onto their rails", () => {
+  it("yaw wraps onto (−180, 180]; pitch and the camera FOV clamp onto their rails", () => {
     expect(sanitizeArCalibration({ yawDeg: 190 }).yawDeg).toBe(-170);
     expect(sanitizeArCalibration({ yawDeg: -540 }).yawDeg).toBe(180);
     expect(sanitizeArCalibration({ pitchDeg: 99 }).pitchDeg).toBe(AR_CALIB_RAILS.pitchMaxDeg);
-    expect(sanitizeArCalibration({ rollDeg: -99 }).rollDeg).toBe(-AR_CALIB_RAILS.rollMaxDeg);
     expect(sanitizeArCalibration({ camLongFovDeg: 5 }).camLongFovDeg).toBe(AR_CALIB_RAILS.camLongFovMinDeg);
     expect(sanitizeArCalibration({ camLongFovDeg: 170 }).camLongFovDeg).toBe(AR_CALIB_RAILS.camLongFovMaxDeg);
     expect(Object.is(sanitizeArCalibration({ yawDeg: -0 }).yawDeg, 0)).toBe(true);
+  });
+
+  it("roll is NOT calibrated (owner 2026-09-22): an older v1 blob's rollDeg is dropped, no key bump", () => {
+    const c = sanitizeArCalibration({ yawDeg: 3, pitchDeg: 1, rollDeg: -12, camLongFovDeg: 65, savedAtMs: 5 });
+    expect(c).toEqual({ yawDeg: 3, pitchDeg: 1, camLongFovDeg: 65, savedAtMs: 5 });
+    expect("rollDeg" in c).toBe(false);
+    expect("rollMaxDeg" in AR_CALIB_RAILS).toBe(false);
   });
 
   it("the aim: heading wraps through north, pitch stays inside the sphere", () => {
@@ -170,23 +176,21 @@ describe("arCalibration — the gestures", () => {
     expect(dragToAimDelta(10, 10, 0, 0)).toEqual({ dYawDeg: 0, dPitchDeg: 0 });
   });
 
-  it("pinchTwist: screen-clockwise is +, spread is the distance ratio", () => {
-    // Fingers on a horizontal line, the right one moves DOWN the screen → clockwise.
-    const g = pinchTwist({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 100 })!;
-    expect(g.twistDeg).toBeCloseTo(45, 9);
-    expect(g.spread).toBeCloseTo(Math.SQRT2, 9);
-    expect(pinchTwist({ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 9, y: 9 })).toBeNull();
+  it("pinchSpread: the distance ratio, null when the fingers coincide (no twist term any more)", () => {
+    expect(pinchSpread({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 100 })).toBeCloseTo(Math.SQRT2, 9);
+    expect(pinchSpread({ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 9, y: 9 })).toBeNull();
   });
 
-  it("a twist turns the VIDEO the other way; a spread narrows the camera FOV estimate", () => {
+  it("a pinch OUT enlarges the camera picture — the FOV estimate WIDENS by the spread (owner 2026-09-22: the sign was backwards)", () => {
     const c0 = { ...AR_CALIB_IDENTITY, camLongFovDeg: 60 };
-    const c1 = stepCalibration(c0, { twistDeg: 3, spread: 1.25 });
-    expect(c1.rollDeg).toBe(-3);
-    expect(Math.tan((c1.camLongFovDeg * D2R) / 2)).toBeCloseTo(Math.tan(30 * D2R) / 1.25, 12);
-    // …and the video shrinks by exactly the spread against an unchanged view.
+    const c1 = stepCalibration(c0, { spread: 1.25 });
+    expect(Math.tan((c1.camLongFovDeg * D2R) / 2)).toBeCloseTo(Math.tan(30 * D2R) * 1.25, 12);
+    // …and the video GROWS by exactly the spread against an unchanged view (pinch-to-zoom).
     const a = videoLayout({ videoW: 1080, videoH: 1920, viewH: 800, vFovDeg: 50, camLongFovDeg: c0.camLongFovDeg })!;
     const b = videoLayout({ videoW: 1080, videoH: 1920, viewH: 800, vFovDeg: 50, camLongFovDeg: c1.camLongFovDeg })!;
-    expect(a.heightPx / b.heightPx).toBeCloseTo(1.25, 9);
+    expect(b.heightPx / a.heightPx).toBeCloseTo(1.25, 9);
+    // a pinch IN shrinks it back — the two are exact inverses
+    expect(stepCalibration(c1, { spread: 1 / 1.25 }).camLongFovDeg).toBeCloseTo(60, 9);
   });
 
   it("steps accumulate onto the rails; garbage steps change nothing", () => {
@@ -194,7 +198,7 @@ describe("arCalibration — the gestures", () => {
     for (let i = 0; i < 100; i++) c = stepCalibration(c, { dYawDeg: 5, dPitchDeg: 1 });
     expect(c.pitchDeg).toBe(AR_CALIB_RAILS.pitchMaxDeg);
     expect(c.yawDeg).toBeCloseTo(140, 9); // 500° wrapped onto (−180, 180]
-    expect(stepCalibration(c, { dYawDeg: NaN, spread: -1, twistDeg: Infinity })).toEqual(c);
+    expect(stepCalibration(c, { dYawDeg: NaN, spread: -1 })).toEqual(c);
   });
 
   it("smoothRollDeg: seeds exactly, eases by 1 − e^(−dt/τ), takes the short way round", () => {

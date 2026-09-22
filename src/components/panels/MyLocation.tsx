@@ -8,7 +8,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useCameraStore } from "../../store/camera";
-import { FPV, FRUSTUM } from "../globe/tuning";
 import "../../styles/my-location.css";
 import "../../styles/tips.css";
 
@@ -38,14 +37,12 @@ export default function MyLocation() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setBusy(false);
-        // Straight into temp-pin FPV at a standing eye, facing north (owner 2026-08-14).
+        // Straight into temp-pin FPV (owner 2026-08-14). Owner 2026-09-22 (FPV item 2): a POINT
+        // jump — the eye height, look elevation and lens the viewer last stood at are carried by
+        // the orchestrator, the heading is the planned view's; nothing resets to north / 1.7 m.
         useCameraStore.getState().requestFpvJump({
           latDeg: pos.coords.latitude,
           lonDeg: pos.coords.longitude,
-          eyeM: FRUSTUM.eyeHeightM,
-          headingDeg: 0,
-          pitchDeg: 0,
-          fovDeg: FPV.tempFovDeg,
         });
       },
       () => {

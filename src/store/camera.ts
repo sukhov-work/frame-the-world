@@ -12,6 +12,10 @@ import { clampPlannedView } from "../lib/geo/plannedView";
 import { loadViewPrefs, saveViewPref } from "../lib/prefs";
 import { FOCALCONE } from "../components/globe/tuning";
 
+/** A point to stand at, with as much of the `#f=` pose as the caller has (see `fpvJumpRequest`). */
+export type FpvJumpRequest = Pick<UrlFpvPose, "latDeg" | "lonDeg"> &
+  Partial<Pick<UrlFpvPose, "eyeM" | "headingDeg" | "pitchDeg" | "fovDeg">>;
+
 /**
  * Camera control seams — tilt (declination), heading (rotate-in-place) and zoom (altitude) — the
  * bridge between the camera panel sliders (panels/CameraTiltPanel) and the globe orchestrator
@@ -236,13 +240,14 @@ export interface CameraState {
   arCam: "off" | "view" | "calibrate";
   setArCam: (mode: "off" | "view" | "calibrate") => void;
   /** The STORED calibration (`ftw:ar-calib:v1`): yaw = the compass bias (it lives inside the
-   *  engine's yaw trim), pitch = added to the aim, roll + camera FOV = the overlay's. */
+   *  engine's yaw trim), pitch = added to the aim, the camera FOV = the overlay's. (Roll left the
+   *  record 2026-09-22 — the feed is levelled by the SENSED roll alone.) */
   arCalibration: ArCalibration;
   /** Calibration mode's working copy (null outside it). Its yaw is the DRAG so far — a delta on
-   *  top of the live view, not a bias yet; pitch / roll / camera FOV are absolute candidates. */
+   *  top of the live view, not a bias yet; pitch / camera FOV are absolute candidates. */
   arCalDraft: ArCalibration | null;
   /** One gesture step from the calibration pad (pure math: `stepCalibration`). */
-  stepArCalDraft: (g: { dYawDeg?: number; dPitchDeg?: number; twistDeg?: number; spread?: number }) => void;
+  stepArCalDraft: (g: { dYawDeg?: number; dPitchDeg?: number; spread?: number }) => void;
   /** CONFIRM: bumps the epoch; the ENGINE commits the drag into its yaw trim and answers the
    *  bias through `_onArCalibrated`, which persists the record and leaves calibration mode. */
   arCalCommitEpoch: number;
@@ -313,11 +318,15 @@ export interface CameraState {
   debugHud: boolean;
   setDebugHud: (on: boolean) => void;
   /** One-shot "stand in this first-person viewpoint" request (saved places, owner 2026-07-15):
-   *  the full `#f=` pose. The orchestrator consumes it next frame — drops a temp pin at the
-   *  location and enters temp-pin FPV through the exact share-link path (same basis/eye/FOV
-   *  reconstruction), flying there cinematically from wherever the camera currently is. */
-  fpvJumpRequest: UrlFpvPose | null;
-  requestFpvJump: (pose: UrlFpvPose) => void;
+   *  the `#f=` pose. The orchestrator consumes it next frame — drops a temp pin at the location
+   *  and enters temp-pin FPV through the exact share-link path (same basis/eye/FOV
+   *  reconstruction). Owner 2026-09-22 (FPV item 2): the pose fields are OPTIONAL — a saved place
+   *  or a share brings all four; a plain point jump (the map window, MY LOCATION, the /m ▲ 3D
+   *  hold) brings none and the orchestrator CARRIES the eye height, look elevation and lens the
+   *  viewer last stood at (the planned view's heading / lens where one exists) instead of the
+   *  old defaults (1.7 m · 0° · 55°). The arrival is the instant cut (`FLIGHT.smoothTransitions`). */
+  fpvJumpRequest: FpvJumpRequest | null;
+  requestFpvJump: (pose: FpvJumpRequest) => void;
   /** Orchestrator-only: mark the pending FPV jump consumed. */
   _consumeFpvJump: () => void;
   /** Right-click sky context menu (QoL-2 ask 7, owner 2026-08-14): the orchestrator's angular

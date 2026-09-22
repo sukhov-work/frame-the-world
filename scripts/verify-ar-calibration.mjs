@@ -187,6 +187,23 @@ const FRAME = 213;
   ok(Math.abs(lay.w / lay.h - 720 / 1280) < 0.002, `…at the stream's own aspect (${(lay.w / lay.h).toFixed(4)})`);
   ok(lay.z === "1" && lay.pe === "none", `the feed is z ${lay.z}, pointer-events ${lay.pe} — the canvas keeps its gestures`);
   ok(Math.abs(Number(lay.op) - 0.55) < 0.01, `the 3D frame reads through it (opacity ${lay.op})`);
+  // 2026-09-22 item 1d: the 3D ↔ CAM slider stands VERTICAL just above the CAM chip, on the rail —
+  // RENDERED geometry: its bottom 8 px over the column's top, right-aligned, clear of the mini-map,
+  // and the column's own box still the published 200 px (the A1-2 contract).
+  const mix = await J(`(() => { const r = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }; const inp = document.querySelector(".m-arcal__mixin"); return { mix: r(".m-arcal__mixv"), col: r(".m-altcol"), mm: r(".mm"), inRail: r(".m-arcal__mixin"), rot: inp ? getComputedStyle(inp).transform : null, vert: inp?.getAttribute("aria-orientation"), inPanel: !!document.querySelector(".m-arcal .m-arcal__mixv") }; })()`);
+  const hitsBox = (a, b) => a && b && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  ok(mix.mix && mix.col && Math.abs(mix.col.t - mix.mix.b - 8) < 1.5 && Math.abs(mix.col.r - mix.mix.r) < 1.5, `the 3D ↔ CAM slider stands on the rail just above the column (bottom ${mix.mix ? Math.round(mix.mix.b) : "?"} vs column top ${mix.col ? Math.round(mix.col.t) : "?"})`);
+  ok(mix.mix && mix.mix.h > mix.mix.w && mix.vert === "vertical" && /matrix/.test(mix.rot ?? ""), `…VERTICAL (${mix.mix ? Math.round(mix.mix.w) + " × " + Math.round(mix.mix.h) : "?"} px, the range turned −90°)`);
+  ok(!hitsBox(mix.mix, mix.mm), `…clear of the mini-map card (slider top ${mix.mix ? Math.round(mix.mix.t) : "?"} vs card bottom ${mix.mm ? Math.round(mix.mm.b) : "?"})`);
+  ok(!mix.inPanel && mix.col && Math.abs(mix.col.h - 200) < 1.5, `…and the column's own box is still ${mix.col ? Math.round(mix.col.h) : "?"} px (the slider is a sibling, never a cell)`);
+  // 2026-09-22 item 3: the AR GUIDES — the sun / moon / target markers + the day arcs redrawn as a
+  // DOM layer ABOVE the feed (z 3 > the feed's z 1), full ink whatever the slider says.
+  const g = await J(`(() => { const L = document.querySelector(".ar-guides"); const cs = L ? getComputedStyle(L) : null; const dbg = window.__globe.arGuides(); const sm = window.__cameraStore.getState().skyMarkers; const sunEl = document.querySelector(".ar-guide--sun"); return { dbg, z: cs?.zIndex, disp: cs?.display, feedZ: getComputedStyle(document.querySelector(".m-arcam")).zIndex, sunFrame: sm?.sun ? sm.sun.inFrame : null, sunShown: sunEl ? getComputedStyle(sunEl).display !== "none" : null, sunRing: sunEl ? getComputedStyle(sunEl.firstElementChild).borderTopWidth : null, arcs: [...document.querySelectorAll(".ar-guides__arcs path")].map((p) => (p.getAttribute("d") || "").length) }; })()`);
+  ok(g.dbg.shown && g.disp === "block" && Number(g.z) > Number(g.feedZ), `the AR GUIDES layer is up ABOVE the feed (z ${g.z} > ${g.feedZ})`);
+  const sunDbg = g.dbg.markers.find((m) => m.id === "sun");
+  ok(sunDbg && (g.sunFrame === null || sunDbg.inView === g.sunFrame) && (g.sunShown === null || g.sunShown === sunDbg.inView), `the sun marker agrees with the edge chips' in-frame verdict (inView ${sunDbg?.inView}, chip ${g.sunFrame}) at ${sunDbg ? Math.round(sunDbg.x) + "," + Math.round(sunDbg.y) : "?"}`);
+  ok(g.sunRing === null || parseFloat(g.sunRing) >= 3, `…a THICK ring (${g.sunRing ?? "n/a"} stroke)`);
+  ok(g.dbg.arcPoints >= 0 && g.arcs.every((n) => n >= 0), `the day arcs are SVG paths (${g.dbg.arcPoints} projected points on ${g.arcs.length} paths)`);
   await shot("ar-cal-01-camera-view");
 }
 
@@ -203,12 +220,20 @@ const padDrag = async (dx, dy) =>
   const ui = await J(`({ pad: !!document.querySelector(".m-arcal__pad"), cross: !!document.querySelector(".m-arcal__cross"), acts: [...document.querySelectorAll(".m-arcal__actions [data-act]")].map((b) => b.dataset.act), padZ: getComputedStyle(document.querySelector(".m-arcal__pad")).zIndex, joyZ: getComputedStyle(document.querySelector(".m-altcol")).zIndex })`);
   ok(ui.pad && ui.cross && ui.acts.join() === "ar-cal-confirm,ar-cal-reset,ar-cal-cancel", `the pad, the cross and CONFIRM / RESET / CANCEL (${ui.acts.join(" · ")})`);
   ok(Number(ui.padZ) < Number(ui.joyZ), `the pad (z ${ui.padZ}) sits UNDER the FPV instruments (z ${ui.joyZ})`);
-  // RENDERED geometry, not DOM properties: the panel must clear the mini-map, the AIM stick and the right rail
-  const geo = await J(`(() => { const r = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; }; const kids = [...document.querySelector(".m-arcal").children].map((e) => e.getBoundingClientRect()); return { panel: { l: Math.min(...kids.map((k) => k.left)), t: Math.min(...kids.map((k) => k.top)), r: Math.max(...kids.map((k) => k.right)), b: Math.max(...kids.map((k) => k.bottom)) }, mm: r(".mm"), aim: r(".m-joy--aim") ?? r(".m-joy"), col: r(".m-altcol"), text: document.querySelector(".m-arcal").textContent }; })()`);
+  // RENDERED geometry, not DOM properties (owner 2026-09-22 item 1 — the small-screen layout):
+  // the strip is ONE row (title + readout, no memo, no ROLL), clear of the mini-map's PUCK (the
+  // card folds while calibrating) and the right rail; the verdict column is three ROUND cells on
+  // the left rail whose bottom sits 12 px above the AIM stick; the slider stays on the right rail.
+  const geo = await J(`(() => { const r = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }; const kids = [...document.querySelector(".m-arcal").children].map((e) => e.getBoundingClientRect()); const cells = [...document.querySelectorAll(".m-arcal__actions [data-act]")].map((e) => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height, round: getComputedStyle(e).borderRadius }; }); return { panel: { l: Math.min(...kids.map((k) => k.left)), t: Math.min(...kids.map((k) => k.top)), r: Math.max(...kids.map((k) => k.right)), b: Math.max(...kids.map((k) => k.bottom)) }, rows: (() => { const t = Math.min(...kids.map((k) => k.top)); const b = Math.max(...kids.map((k) => k.bottom)); const mid = (t + b) / 2; return kids.every((k) => k.top <= mid && k.bottom >= mid) ? 1 : 2; })(), mm: r(".mm"), mmFolded: !!document.querySelector(".mm--collapsed"), aim: r(".m-joy--aim") ?? r(".m-joy"), col: r(".m-altcol"), acts: r(".m-arcal__actions"), cells, mix: r(".m-arcal__mixv"), text: document.querySelector(".m-arcal").textContent }; })()`);
   const hits = (a, b) => a && b && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
-  ok(/CALIBRATE AR/.test(geo.text) && /YAW/.test(geo.text), `the calibration panel reads ("${geo.text.slice(0, 40)}…")`);
-  ok(!hits(geo.panel, geo.mm) && !hits(geo.panel, geo.col), `the panel (${Math.round(geo.panel.l)}–${Math.round(geo.panel.r)} × ${Math.round(geo.panel.t)}–${Math.round(geo.panel.b)}) clears the mini-map and the right rail`);
-  ok(!hits(geo.panel, geo.aim), `…and the AIM stick (top ${geo.aim ? Math.round(geo.aim.t) : "?"})`);
+  ok(/CALIBRATE AR/.test(geo.text) && /YAW/.test(geo.text) && !/ROLL|LANDMARK/.test(geo.text), `the strip reads title + readout, no memo, no roll ("${geo.text.slice(0, 48)}…")`);
+  ok(geo.rows === 1, `…on ONE row (${geo.rows} row${geo.rows === 1 ? "" : "s"}; ${Math.round(geo.panel.l)}–${Math.round(geo.panel.r)} × ${Math.round(geo.panel.t)}–${Math.round(geo.panel.b)})`);
+  ok(geo.mmFolded && geo.mm && geo.mm.w <= 48, `the mini-map folded to its puck while calibrating (${geo.mm ? Math.round(geo.mm.w) : "?"} px)`);
+  ok(!hits(geo.panel, geo.mm) && !hits(geo.panel, geo.col) && !hits(geo.panel, geo.mix), `the strip clears the puck, the right rail and the slider`);
+  ok(geo.cells.length === 3 && geo.cells.every((c) => Math.abs(c.w - 44) < 1.5 && Math.abs(c.h - 44) < 1.5 && /50%|22px/.test(c.round)), `three ROUND 44 px cells (${geo.cells.map((c) => Math.round(c.w) + "×" + Math.round(c.h)).join(" · ")})`);
+  ok(geo.cells.length === 3 && geo.cells[0].b < geo.cells[1].t && geo.cells[1].b < geo.cells[2].t && Math.abs(geo.cells[0].l - geo.cells[2].l) < 1, `…in a vertical column (tops ${geo.cells.map((c) => Math.round(c.t)).join(" · ")})`);
+  ok(geo.acts && geo.aim && Math.abs(geo.aim.t - geo.acts.b - 12) < 1.5 && Math.abs(geo.acts.l - geo.aim.l) < 1.5, `…on the left rail, its bottom 12 px above the AIM stick (column bottom ${geo.acts ? Math.round(geo.acts.b) : "?"} vs stick top ${geo.aim ? Math.round(geo.aim.t) : "?"})`);
+  ok(!hits(geo.acts, geo.panel) && !hits(geo.acts, geo.mm) && !hits(geo.acts, geo.aim), `…clear of the strip, the puck and the stick`);
   await s.evalJs(`window.__arRun(500, () => 100, () => 100, 0, false)`);
   const before = await state();
   // drag RIGHT 60 px: grab-the-world — the scene goes right, the camera turns LEFT (heading −)
@@ -260,6 +285,8 @@ const padDrag = async (dx, dy) =>
   await s.evalJs(`window.__arRun(600, () => 100, () => 100, 0, false)`);
   const st2 = await state();
   ok(st2.cam === "view" && Math.abs(st2.cal.yawDeg - st.cal.yawDeg) < 1e-9 && circ(st2.h, st.h) < 0.6, `CANCEL: the stored calibration and the view are untouched (${st2.h.toFixed(2)}°)`);
+  const mmBack = await J(`(() => { const e = document.querySelector(".mm"); return { folded: !!document.querySelector(".mm--collapsed"), w: e ? e.getBoundingClientRect().width : 0, acts: !!document.querySelector(".m-arcal__actions") }; })()`);
+  ok(!mmBack.folded && mmBack.w > 100 && !mmBack.acts, `…the mini-map card is back (${Math.round(mmBack.w)} px) and the verdict column is gone`);
   // RESET forgets it — at once
   await press(750);
   await sleep(300);

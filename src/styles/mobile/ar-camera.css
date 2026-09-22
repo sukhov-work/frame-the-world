@@ -50,25 +50,32 @@
 
 .m-arcal {
   position: fixed;
-  /* The free column of the FPV screen: under the logo / HUD strip, LEFT of the mini-map (its
-     card ends ~10.1rem from the right edge), ABOVE the AIM stick — measured on the 402 × 714
-     twin 2026-09-19 (the first seat ran under the mini-map; a screenshot caught it, no DOM
-     property would have). */
+  /* THE TOP STRIP IS ONE ROW (owner order 2026-09-22 item 1): the title with the readout beside
+     it — no memo. Under the logo / HUD strip, LEFT of the mini-map's card (~10.1rem from the right
+     edge; the 402 × 714 twin 2026-09-19 — the first seat ran under the mini-map, a screenshot
+     caught it). While CALIBRATING the mini-map folds to its 44 px puck (MiniMap reads `arCam`), so
+     the row takes the width up to that puck (`.m-arcal--on`). */
   left: calc(0.75rem + env(safe-area-inset-left));
   right: calc(10.6rem + env(safe-area-inset-right));
   top: calc(2.9rem + env(safe-area-inset-top));
   z-index: 11;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.45rem;
   pointer-events: none; /* a layout box — its controls take the taps */
   font-family: var(--font-mono);
 }
+.m-arcal--on {
+  right: calc(3.9rem + env(safe-area-inset-right)); /* 0.75rem + the 44 px puck + a 0.4rem gap */
+}
 .m-arcal__title {
-  font-size: 0.68rem;
-  letter-spacing: 0.16em;
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
   color: var(--color-accent);
+  white-space: nowrap;
 }
 .m-arcal__note,
 .m-arcal__read {
@@ -86,37 +93,120 @@
   color: var(--color-text);
   font-variant-numeric: tabular-nums;
 }
+/* The calibration readout shares the row with the title — smaller, tighter, one line. */
+.m-arcal__read[data-read="cal"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.5rem;
+  letter-spacing: 0.04em;
+  padding: 0.3rem 0.45rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
 .m-arcal__note--warn {
   color: var(--color-warn, #e8b465);
 }
-.m-arcal__mix {
-  pointer-events: auto;
+
+/* THE 3D ↔ CAM SLIDER — VERTICAL, just above the CAM chip on the right rail (owner 2026-09-22
+   item 1d), CAM at the top. A rotated horizontal range (a vertical `writing-mode` range has no
+   Safari precedent in this repo — the rotate works everywhere). It is a SIBLING of the rail, seated
+   off the rail's own published tokens, so the column's box stays exactly `--m-altcol-h` (the A1-2
+   contract; `verify-mobile-batch` "the column box did not grow"). Its height yields to the
+   mini-map card above it on a short viewport (the twin) and is 128 px on a phone. */
+body.m:has(.m-arcal__mixv) {
+  --m-armix-h: max(
+    52px,
+    min(
+      128px,
+      calc(
+        100dvh - 2.9rem - 134px - 8px - env(safe-area-inset-top) - var(--m-altcol-bottom) -
+          var(--m-altcol-h, 148px) - 8px - env(safe-area-inset-bottom)
+      )
+    )
+  );
+}
+.m-arcal__mixv {
+  position: fixed;
+  right: calc(0.75rem + env(safe-area-inset-right));
+  bottom: calc(var(--m-altcol-bottom) + var(--m-altcol-h, 148px) + 8px + env(safe-area-inset-bottom));
+  z-index: 11;
+  box-sizing: border-box; /* the token IS the rendered height (the twin's 2 px brush with the mini-map) */
+  width: 44px;
+  height: var(--m-armix-h, 96px);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.56rem;
+  justify-content: space-between;
+  pointer-events: auto;
+  font-family: var(--font-mono);
+  font-size: 0.42rem;
   letter-spacing: 0.1em;
   color: var(--color-text-secondary);
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
-  border-radius: 999px;
-  padding: 0.3rem 0.7rem;
+  border-radius: 22px;
+  padding: 0.25rem 0;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
-.m-arcal__mix input[type="range"] {
-  width: 7rem;
+.m-arcal__mixlbl {
+  flex: 0 0 auto;
+  line-height: 1;
+  pointer-events: none;
+}
+.m-arcal__mixtrack {
+  /* reserves the track's LENGTH in the column; the range inside is laid horizontal and turned
+     −90° about the centre (max = CAM at the top) — a rotation never changes a layout box */
+  position: relative;
+  flex: 0 0 auto;
+  width: 28px;
+  height: calc(var(--m-armix-h, 96px) - 1.7rem);
+}
+.m-arcal__mixin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--m-armix-h, 96px) - 1.7rem);
+  height: 28px;
+  margin: 0;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  transform-origin: center center;
   accent-color: var(--color-accent);
   touch-action: none;
 }
-.m-arcal__actions {
-  pointer-events: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+/* The ALIGN chip / the rung note float above the wrap — with the slider standing there they
+   float above the slider instead (the wrap is the column's first child, so 100 % = its top). */
+body.m:has(.m-arcal__mixv) .m-arfloat {
+  bottom: calc(100% + 8px + var(--m-armix-h, 96px) + 6px);
 }
-.m-arcal__actions .m-act {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.62rem;
+
+/* THE VERDICT COLUMN — CONFIRM / RESET / CANCEL as three round cells on the LEFT rail, just above
+   the AIM stick (owner 2026-09-22 item 1c: a thumb reaches them there, and they no longer eat the
+   strip). The stick is `.m-joy--aim-fpv` — bottom 11.2rem + 120px, 108 px + its 1 px border =
+   110 px tall — so the column ends 12 px above its top. `data-act` + the DOM order are the
+   contract the harness reads. */
+.m-arcal__actions {
+  position: fixed;
+  left: calc(1rem + env(safe-area-inset-left));
+  bottom: calc(11.2rem + 120px + 110px + 12px + env(safe-area-inset-bottom));
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  touch-action: none;
+}
+.m-arcal__actions .m-act--icon {
+  width: 44px;
+  height: 44px;
+}
+.m-arcal__actions .m-act--icon span:last-child {
+  font-size: 0.38rem;
+  letter-spacing: 0.1em;
 }
 
 /* The CAM chip — the AR chip's twin, seated ABOVE it inside the same wrap (so the AR note / ALIGN
@@ -166,6 +256,8 @@ body.m:has(.m-altcol .m-cambtn) {
    the mid-stack chrome (fpv.css batch #5 item 3). */
 body.mw-open .m-arcam,
 body.mw-open .m-arcal,
+body.mw-open .m-arcal__mixv,
+body.mw-open .m-arcal__actions,
 body.mw-open .m-arcal__pad {
   visibility: hidden;
 }

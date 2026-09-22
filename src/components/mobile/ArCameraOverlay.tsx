@@ -1,21 +1,30 @@
 /**
- * ArCameraOverlay (owner order 2026-09-19) — the phone's live REAR CAMERA over the 3D view "in the
- * same focal number", in two modes (`store/camera.arCam`):
+ * ArCameraOverlay (owner order 2026-09-19; the small-screen layout 2026-09-22) — the phone's live
+ * REAR CAMERA over the 3D view "in the same focal number", in two modes (`store/camera.arCam`):
  *
  *  · `view` (the CAM chip above AR) — just the feed, scaled and levelled to the virtual camera, so
  *    the planned frame can be read against the real street. The whole 3D frame shows THROUGH it
  *    (a CSS opacity — the canvas is opaque by design and stays so; no transparent sort, no
- *    renderer change), and the opacity slider decides who leads.
+ *    renderer change), and the 3D ↔ CAM slider decides who leads.
  *  · `calibrate` (a LONG PRESS on AR) — the same picture, plus the screen becomes a calibration
- *    pad: DRAG moves the virtual view (yaw / pitch), TWIST levels it (roll), PINCH matches the
- *    camera's field of view. CONFIRM stores it (`ftw:ar-calib:v1`) until the next calibration
- *    replaces it; RESET forgets it; CANCEL leaves everything as it was.
+ *    pad: DRAG moves the virtual view (yaw / pitch), PINCH sizes the camera picture (its field of
+ *    view). CONFIRM stores it (`ftw:ar-calib:v1`) until the next calibration replaces it; RESET
+ *    forgets it; CANCEL leaves everything as it was. (Roll is NOT calibrated — owner 2026-09-22.)
+ *
+ * THE SCREEN (owner order 2026-09-22, item 1 — "we have too little screen space and must use it
+ * efficiently"): the top strip is ONE row — the title with the yaw / pitch / lens readout beside
+ * it (no memo text; the mini-map folds to its puck while calibrating so the row has the width);
+ * CONFIRM / RESET / CANCEL are three ROUND cells in a column on the LEFT, just above the AIM
+ * stick, where a thumb reaches them (a row at the top was out of reach and ate the strip); the
+ * 3D ↔ CAM slider stands VERTICAL just above the CAM chip on the right rail. Every seat is fixed
+ * geometry off the same tokens the rail publishes (`--m-altcol-bottom`, `--m-altcol-h`), so the
+ * column's own box never grows (the A1-2 contract).
  *
  * THE SHARED SCALE (`lib/sensors/arCalibration.videoLayout`): two pinhole pictures agree at every
  * pixel exactly when they share a focal length IN PIXELS, so the `<video>` is drawn at the size
  * that makes its pixel focal the 3D view's — magnified past the screen for a long virtual lens,
  * inset for a wide one — and follows a pinch-FOV per frame. It is counter-rotated by the phone's
- * roll: the FPV camera has no roll seam (DECISIONS 2026-09-07h), so the picture is levelled
+ * SENSED roll: the FPV camera has no roll seam (DECISIONS 2026-09-07h), so the picture is levelled
  * instead of the world tilted.
  *
  * PER FRAME, NOT PER RENDER: the size and the rotation are written straight onto the element in a
@@ -34,17 +43,16 @@ import { useCameraStore } from "../../store/camera";
 import { FPV } from "../globe/tuning";
 import { arFrame } from "../../lib/sensors/arFrame";
 import { AR_CAM_COPY, cameraConstraints, classifyCameraError, pickMainBackCamera, type CameraFailure } from "../../lib/sensors/arCamera";
-import { camFocalEqMm, dragToAimDelta, focalPx, isCalibrated, pinchTwist, videoLayout } from "../../lib/sensors/arCalibration";
+import { camFocalEqMm, dragToAimDelta, focalPx, isCalibrated, pinchSpread, videoLayout } from "../../lib/sensors/arCalibration";
 import { formatSigned } from "../../lib/format/readout";
 import "../../styles/mobile/ar-camera.css";
 
+/** The round cells carry a glyph over a tiny label (the `.m-act--icon` idiom — 💾 SAVE's). */
 export const AR_CAL_COPY = Object.freeze({
   title: "CALIBRATE AR",
-  how: "A FAR LANDMARK ON THE CROSS · DRAG THE 3D VIEW ONTO THE CAMERA · TWIST = LEVEL · PINCH = SIZE",
-  confirm: "✓ CONFIRM",
-  reset: "↺ RESET",
-  cancel: "✕ CANCEL",
-  saved: "CALIBRATION SAVED",
+  confirm: "CONFIRM",
+  reset: "RESET",
+  cancel: "CANCEL",
 });
 
 const IDEAL = { widthPx: FPV.arCamIdealWidthPx, heightPx: FPV.arCamIdealHeightPx, fps: FPV.arCamIdealFps };
@@ -144,8 +152,8 @@ function CalibrationPad() {
     } else if (pts.current.size === 2) {
       const [otherId] = [...pts.current.keys()].filter((id) => id !== e.pointerId);
       const other = pts.current.get(otherId)!;
-      const g = pinchTwist(other, prev, other, next);
-      if (g) step({ twistDeg: g.twistDeg, spread: g.spread });
+      const spread = pinchSpread(other, prev, other, next);
+      if (spread !== null) step({ spread });
     }
     pts.current.set(e.pointerId, next);
   };
@@ -159,7 +167,7 @@ function CalibrationPad() {
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
-      aria-label="Calibration pad — drag, twist and pinch the 3D view onto the camera"
+      aria-label="Calibration pad — drag the 3D view onto the camera, pinch to size the camera picture"
     >
       <span className="m-arcal__cross" aria-hidden="true" />
     </div>
@@ -183,8 +191,8 @@ export default function ArCameraOverlay() {
   }, [arOn, mode]);
   useEffect(() => () => useCameraStore.getState().setArCam("off"), []);
 
-  // The per-frame layout: size = the shared pixel focal, rotation = the phone's roll + the
-  // calibration's. Written straight onto the element — no React render at 60 fps.
+  // The per-frame layout: size = the shared pixel focal, rotation = the phone's sensed roll.
+  // Written straight onto the element — no React render at 60 fps.
   const cal = draft ?? stored;
   const calRef = useRef(cal);
   calRef.current = cal;
@@ -206,7 +214,7 @@ export default function ArCameraOverlay() {
       if (!l) return;
       v.style.width = `${l.widthPx.toFixed(1)}px`;
       v.style.height = `${l.heightPx.toFixed(1)}px`;
-      v.style.transform = `translate(-50%, -50%) rotate(${(arFrame.rollDeg + c.rollDeg).toFixed(2)}deg)`;
+      v.style.transform = `translate(-50%, -50%) rotate(${arFrame.rollDeg.toFixed(2)}deg)`;
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -221,6 +229,7 @@ export default function ArCameraOverlay() {
         <video ref={videoRef} className="m-arcam__video" style={{ opacity }} playsInline muted autoPlay />
       </div>
       {calibrating && <CalibrationPad />}
+      {/* The top strip: ONE row. */}
       <div className={`m-arcal${calibrating ? " m-arcal--on" : ""}`} role="group" aria-label={calibrating ? "AR calibration" : "Camera view"}>
         {failure ? (
           <span className="m-arcal__note m-arcal__note--warn" role="status">
@@ -229,10 +238,8 @@ export default function ArCameraOverlay() {
         ) : calibrating ? (
           <>
             <span className="m-arcal__title">{AR_CAL_COPY.title}</span>
-            <span className="m-arcal__note">{AR_CAL_COPY.how}</span>
             <span className="m-arcal__read" data-read="cal">
-              YAW {formatSigned(draft.yawDeg)} · PITCH {formatSigned(draft.pitchDeg)} · ROLL {formatSigned(draft.rollDeg)} · CAMERA ≈{" "}
-              {Math.round(camFocalEqMm(draft.camLongFovDeg))} mm
+              YAW {formatSigned(draft.yawDeg)} · PITCH {formatSigned(draft.pitchDeg)} · {Math.round(camFocalEqMm(draft.camLongFovDeg))} mm
             </span>
           </>
         ) : (
@@ -240,33 +247,70 @@ export default function ArCameraOverlay() {
             CAMERA ≈ {Math.round(camFocalEqMm(stored.camLongFovDeg))} mm · {isCalibrated(stored) ? "CALIBRATED" : "NOT CALIBRATED — HOLD AR"}
           </span>
         )}
-        <label className="m-arcal__mix">
-          <span>3D</span>
+      </div>
+      {/* The 3D ↔ CAM slider: vertical, just above the CAM chip on the right rail (CAM at the top). */}
+      <div className="m-arcal__mixv" role="group" aria-label="3D to camera mix">
+        <span className="m-arcal__mixlbl" aria-hidden="true">
+          CAM
+        </span>
+        <span className="m-arcal__mixtrack">
           <input
             type="range"
+            className="m-arcal__mixin"
             min={FPV.arCamOpacityMin}
             max={FPV.arCamOpacityMax}
             step={0.05}
             value={opacity}
             onChange={(e) => setOpacity(Number(e.target.value))}
             aria-label="Camera feed opacity over the 3D view"
+            aria-orientation="vertical"
           />
-          <span>CAM</span>
-        </label>
-        {calibrating && (
-          <div className="m-arcal__actions">
-            <button type="button" className="m-act m-act--accent" data-act="ar-cal-confirm" onClick={() => cam.confirmArCalibration()}>
-              {AR_CAL_COPY.confirm}
-            </button>
-            <button type="button" className="m-act" data-act="ar-cal-reset" onClick={() => cam.resetArCalibration()}>
-              {AR_CAL_COPY.reset}
-            </button>
-            <button type="button" className="m-act" data-act="ar-cal-cancel" onClick={() => cam.cancelArCalibration()}>
-              {AR_CAL_COPY.cancel}
-            </button>
-          </div>
-        )}
+        </span>
+        <span className="m-arcal__mixlbl" aria-hidden="true">
+          3D
+        </span>
       </div>
+      {/* The verdict column: three round cells on the left, just above the AIM stick. */}
+      {calibrating && (
+        <div className="m-arcal__actions" role="group" aria-label="Calibration actions">
+          <button
+            type="button"
+            className="m-act m-act--icon m-act--accent"
+            data-act="ar-cal-confirm"
+            aria-label="Confirm the calibration"
+            onClick={() => cam.confirmArCalibration()}
+          >
+            <span className="m-act__glyph" aria-hidden="true">
+              ✓
+            </span>
+            <span>{AR_CAL_COPY.confirm}</span>
+          </button>
+          <button
+            type="button"
+            className="m-act m-act--icon"
+            data-act="ar-cal-reset"
+            aria-label="Reset the calibration"
+            onClick={() => cam.resetArCalibration()}
+          >
+            <span className="m-act__glyph" aria-hidden="true">
+              ↺
+            </span>
+            <span>{AR_CAL_COPY.reset}</span>
+          </button>
+          <button
+            type="button"
+            className="m-act m-act--icon"
+            data-act="ar-cal-cancel"
+            aria-label="Cancel the calibration"
+            onClick={() => cam.cancelArCalibration()}
+          >
+            <span className="m-act__glyph" aria-hidden="true">
+              ✕
+            </span>
+            <span>{AR_CAL_COPY.cancel}</span>
+          </button>
+        </div>
+      )}
     </>
   );
 }

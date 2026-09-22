@@ -7,17 +7,21 @@
  * north REALLY is. The user does: they can SEE that the virtual skyline sits 4° left of the real one.
  *
  * THE FIX. Calibration mode (`components/mobile/ArCameraOverlay.tsx`) puts the phone's live rear
- * camera over the 3D view at the SAME angular scale, and the user drags / twists / pinches until
- * the two agree. What they dialled in is ONE small record — this file's `ArCalibration` — saved
- * under `ftw:ar-calib:v1` until the next calibration replaces it (or RESET clears it):
+ * camera over the 3D view at the SAME angular scale, and the user drags / pinches until the two
+ * agree. What they dialled in is ONE small record — this file's `ArCalibration` — saved under
+ * `ftw:ar-calib:v1` until the next calibration replaces it (or RESET clears it):
  *
  *  · `yawDeg` / `pitchDeg` — added to the sensor ladder's aim (`scene/arLook.ts` `aim()`), AFTER
  *    the rungs and the smoother, so it composes with every rung and with ⌖ ALIGN identically;
- *  · `rollDeg` — added to the sensed roll the VIDEO is counter-rotated by (the FPV camera has no
- *    roll seam — DECISIONS 2026-09-07h — so the picture is levelled instead of the world tilted);
  *  · `camLongFovDeg` — the streamed frame's field of view along its LONG side. A web page cannot
  *    read a camera's focal length (`MediaTrackSettings` has no such field), so the default is a
  *    typical main camera and the pinch in calibration mode is how the real one is learned.
+ *
+ * ROLL IS NOT CALIBRATED (owner ruling 2026-09-22 — "remove roll from calibration completely, it
+ * is not useful"): the video is still counter-rotated by the phone's SENSED roll (`smoothRollDeg`,
+ * the FPV camera has no roll seam — DECISIONS 2026-09-07h), but there is no user offset on top of
+ * it and no twist gesture. An older blob's `rollDeg` is ignored by `sanitizeArCalibration`
+ * (the key stays `v1`: every field is defaulted, nothing needs a migration).
  *
  * Pure, three-free, DOM-free apart from the guarded `localStorage` seam (the `lib/prefs.ts`
  * posture: every read sanitizes, every write is best-effort). Unit-pinned in
@@ -37,8 +41,6 @@ export interface ArCalibration {
   yawDeg: number;
   /** Added to the ladder's pitch, degrees, + = up. */
   pitchDeg: number;
-  /** Added to the sensed roll before the video is counter-rotated, degrees, + = clockwise. */
-  rollDeg: number;
   /** The streamed camera frame's field of view along its LONG side, degrees. */
   camLongFovDeg: number;
   /** `Date.now()` of the CONFIRM that stored it; 0 = never calibrated (the identity). */
@@ -50,24 +52,28 @@ export interface ArCalibration {
  *  anything next to a steel railing, and the user's eyes outrank it). */
 export const AR_CALIB_RAILS = Object.freeze({
   pitchMaxDeg: 30,
-  rollMaxDeg: 30,
   camLongFovMinDeg: 30,
   camLongFovMaxDeg: 110,
 });
 
 /**
  * The default long-side FOV of `getUserMedia({ video: { facingMode: "environment" } })`.
- * A phone's main camera is 24–26 mm-equivalent (diagonal FOV ≈ 80–84°); a 16:9 video frame cut
- * from that sensor keeps the long side (≈ 67–70°) and a video-mode / stabilisation crop takes
- * ~10 % off → ≈ 62°. [ASSUMPTION 2026-09-19 — a per-device constant the page cannot read; the
- * pinch in calibration mode replaces it with the measured one.]
+ * A phone's main camera is 24–26 mm-equivalent: a 4:3 sensor at 24 mm-eq spans 2·atan(18/24) =
+ * 73.7° across its long side, at 26 mm-eq 69.4° (the Pixel 6 Pro's 82° diagonal 4:3 frame ≈ 69.6°
+ * across). A 16:9 video frame is cut from the SHORT side, so the long side keeps that figure; a
+ * stabilisation crop, where the UA applies one, takes ~5–10 % off. 2026-09-19 guessed 62° (a full
+ * 10 % crop on the narrowest lens); the owner's drift report (2026-09-22 — the aligned building
+ * slides off the feed as the phone pitches, i.e. the two pictures do NOT share a pixel focal, see
+ * `videoLayout`) is the signature of a default that is too NARROW: the feed is drawn too small and
+ * everything away from the centre cross slips outward. 68° is the middle of the measured band.
+ * [ASSUMPTION 2026-09-22 — a per-device constant the page cannot read; the pinch in calibration
+ * mode replaces it with the measured one, and T147 asks the owner's phones for the real number.]
  */
-export const AR_CAM_LONG_FOV_DEFAULT_DEG = 62;
+export const AR_CAM_LONG_FOV_DEFAULT_DEG = 68;
 
 export const AR_CALIB_IDENTITY: Readonly<ArCalibration> = Object.freeze({
   yawDeg: 0,
   pitchDeg: 0,
-  rollDeg: 0,
   camLongFovDeg: AR_CAM_LONG_FOV_DEFAULT_DEG,
   savedAtMs: 0,
 });
@@ -82,7 +88,7 @@ export function sanitizeArCalibration(raw: unknown): ArCalibration {
   return {
     yawDeg: yaw || 0, // fold a −0
     pitchDeg: clamp(fin(r.pitchDeg, 0), -AR_CALIB_RAILS.pitchMaxDeg, AR_CALIB_RAILS.pitchMaxDeg) || 0,
-    rollDeg: clamp(fin(r.rollDeg, 0), -AR_CALIB_RAILS.rollMaxDeg, AR_CALIB_RAILS.rollMaxDeg) || 0,
+    // (a pre-2026-09-22 blob's `rollDeg` is dropped here — roll is no longer calibrated)
     camLongFovDeg: clamp(
       fin(r.camLongFovDeg, AR_CAM_LONG_FOV_DEFAULT_DEG),
       AR_CALIB_RAILS.camLongFovMinDeg,
@@ -211,41 +217,41 @@ export function dragToAimDelta(
   };
 }
 
-/** Two fingers: the twist (radians→degrees, screen-clockwise +) and the spread ratio between two
- *  pointer pairs. `null` when the fingers coincide. */
-export function pinchTwist(
+/** Two fingers: the spread ratio (the pointer pair's distance now over before). `null` when the
+ *  fingers coincide. (The twist that used to ride along was the roll gesture — gone 2026-09-22.) */
+export function pinchSpread(
   a0: { x: number; y: number },
   b0: { x: number; y: number },
   a1: { x: number; y: number },
   b1: { x: number; y: number },
-): { twistDeg: number; spread: number } | null {
+): number | null {
   const d0 = Math.hypot(b0.x - a0.x, b0.y - a0.y);
   const d1 = Math.hypot(b1.x - a1.x, b1.y - a1.y);
   if (!(d0 > 1) || !(d1 > 1)) return null;
-  // Screen y grows DOWNWARD, so atan2(dy, dx) already increases clockwise on screen.
-  const t0 = Math.atan2(b0.y - a0.y, b0.x - a0.x);
-  const t1 = Math.atan2(b1.y - a1.y, b1.x - a1.x);
-  return { twistDeg: circDiffDeg((t1 - t0) * R2D, 0), spread: d1 / d0 };
+  return d1 / d0;
 }
 
 /**
- * Apply one gesture step to a DRAFT calibration. The user is handling the VIRTUAL view:
- *  · twisting clockwise turns the virtual picture clockwise against the video — the video is what
- *    actually rotates, so its roll offset goes the other way;
- *  · spreading makes the virtual picture larger against the video — the video is what actually
- *    shrinks, i.e. the camera's FOV estimate narrows: tan(fov'/2) = tan(fov/2) / spread.
+ * Apply one gesture step to a DRAFT calibration.
+ *  · a drag moves the VIRTUAL view (the 3D scene is what visibly follows the finger — `dragToAimDelta`);
+ *  · a pinch sizes the CAMERA PICTURE — the only thing the pinch can move on screen, since the 3D
+ *    view's focal is the FPV lens, not the calibration's. Spreading the fingers ENLARGES the feed
+ *    (the pinch-to-zoom reflex, the repo's own convention — `verify-mobile-batch` "a pinch OUT
+ *    zooms in"): a bigger picture at the same pixel focal means the lens covers MORE of the world,
+ *    so the camera's FOV estimate widens: tan(fov'/2) = tan(fov/2) · spread. (2026-09-19 had it
+ *    the other way round, reasoned from "the user handles the virtual view" — the owner's phones
+ *    said the gesture worked backwards; owner order 2026-09-22.)
  */
 export function stepCalibration(
   c: ArCalibration,
-  g: { dYawDeg?: number; dPitchDeg?: number; twistDeg?: number; spread?: number },
+  g: { dYawDeg?: number; dPitchDeg?: number; spread?: number },
 ): ArCalibration {
   const spread = g.spread !== undefined && Number.isFinite(g.spread) && g.spread > 0 ? g.spread : 1;
-  const fov = 2 * Math.atan(Math.tan((c.camLongFovDeg * D2R) / 2) / spread) * R2D;
+  const fov = 2 * Math.atan(Math.tan((c.camLongFovDeg * D2R) / 2) * spread) * R2D;
   return sanitizeArCalibration({
     ...c,
     yawDeg: c.yawDeg + fin(g.dYawDeg, 0),
     pitchDeg: c.pitchDeg + fin(g.dPitchDeg, 0),
-    rollDeg: c.rollDeg - fin(g.twistDeg, 0),
     camLongFovDeg: fov,
   });
 }

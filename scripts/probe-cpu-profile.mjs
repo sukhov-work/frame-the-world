@@ -237,6 +237,8 @@ if (LEG) {
   const t0 = Date.now();
   const hasStore = await evalJs(`!!(window.__cameraStore && window.__cameraStore.getState().requestFly)`);
   if (!hasStore) throw new Error("__cameraStore.requestFly absent — the descent needs the store seam (the sweep's drive)");
+  // 2026-09-22: transitions are the instant cut by default (FLIGHT.smoothTransitions) — this leg MEASURES a sweep, so re-arm it through the DEV seam.
+  await evalJs(`window.__globe && window.__globe.smoothFlights ? window.__globe.smoothFlights(true) : null`);
   await evalJs(`(() => { const s = window.__cameraStore.getState(); s.requestFly({ latDeg: ${end.latDeg}, lonDeg: ${end.lonDeg}, altM: ${end.altM} }); return true; })()`);
   let arrivedAt = null;
   let targetsIssued = false;

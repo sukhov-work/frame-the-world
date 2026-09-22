@@ -192,7 +192,7 @@ desktop fidelity track, real eclipses, BEST SPOT — the observability heatmap t
 where to stand — the MESH SUITE (spatial building edits shared with the world, user-uploaded
 models) and AR on the phone (look-around, the camera view, visual calibration). Phase 7 (Wix AI)
 is PARKED by owner ruling (2026-08-11).
-Quality gates at head (2026-09-19): **3,239 vitest tests across 218 files, `astro check`
+Quality gates at head (2026-09-22): **3,276 vitest tests across 221 files, `astro check`
 0 errors / 0 warnings / 12 hints (dated baseline), knip 0**, browser flows verified over CDP on `wix dev`. The app is released and
 live at [www.plux.today](https://www.plux.today) (since 2026-09-10).
 

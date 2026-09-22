@@ -63,10 +63,11 @@ describe("store seam — the working copy, CONFIRM / RESET / CANCEL", () => {
     s.stepArCalDraft({ dYawDeg: 3 }); // no draft → nothing
     expect(useCameraStore.getState().arCalDraft).toBeNull();
     s.setArCam("calibrate");
-    s.stepArCalDraft({ dYawDeg: -3, dPitchDeg: 1.5, twistDeg: 2, spread: 1.1 });
+    s.stepArCalDraft({ dYawDeg: -3, dPitchDeg: 1.5, spread: 1.1 });
     const d = useCameraStore.getState().arCalDraft!;
-    expect(d).toMatchObject({ yawDeg: -3, pitchDeg: 1.5, rollDeg: -2 });
-    expect(d.camLongFovDeg).toBeLessThan(AR_CALIB_IDENTITY.camLongFovDeg);
+    expect(d).toMatchObject({ yawDeg: -3, pitchDeg: 1.5 });
+    expect("rollDeg" in d).toBe(false); // roll left the record 2026-09-22
+    expect(d.camLongFovDeg).toBeGreaterThan(AR_CALIB_IDENTITY.camLongFovDeg); // a pinch OUT widens the estimate
     expect(useCameraStore.getState().arCalibration).toEqual(AR_CALIB_IDENTITY);
   });
 
@@ -91,7 +92,7 @@ describe("store seam — the working copy, CONFIRM / RESET / CANCEL", () => {
     expect(JSON.parse(m.get(AR_CALIB_KEY)!)).toMatchObject({ yawDeg: -5.2, pitchDeg: 2 });
   });
 
-  it("a relative rung answers null: the drag was an ALIGN by eye — the stored yaw stays, pitch / roll / FOV still save", () => {
+  it("a relative rung answers null: the drag was an ALIGN by eye — the stored yaw stays, pitch / FOV still save", () => {
     fakeStorage();
     const s = useCameraStore.getState();
     useCameraStore.setState({ arCalibration: { ...AR_CALIB_IDENTITY, yawDeg: 7, savedAtMs: 1 } });
@@ -178,8 +179,8 @@ describe("the chips — CAM above AR, only while AR is on; hold AR to calibrate"
   });
 });
 
-describe("the overlay — renders only while AR + CAM are on; calibration adds the pad and the three buttons", () => {
-  it("off → nothing; view → the feed + the mix slider, no pad; calibrate → pad, cross, CONFIRM / RESET / CANCEL", () => {
+describe("the overlay — renders only while AR + CAM are on; calibration adds the pad and the three round cells", () => {
+  it("off → nothing; view → the feed + the vertical mix slider, no pad; calibrate → pad, cross, CONFIRM / RESET / CANCEL", () => {
     expect(render(ArCameraOverlay)).toBe("");
     useCameraStore.getState().setArCam("view");
     expect(render(ArCameraOverlay)).toBe(""); // CAM without AR is a picture that does not follow the phone
@@ -189,15 +190,51 @@ describe("the overlay — renders only while AR + CAM are on; calibration adds t
     expect(html).toMatch(/playsInline=""|playsinline=""/);
     expect(html).toMatch(/muted=""/);
     expect(html).toContain('type="range"');
+    expect(html).toMatch(/class="m-arcal__mixv"/); // the slider stands on the right rail in BOTH modes
+    expect(html).toMatch(/aria-orientation="vertical"/);
     expect(html).toContain("NOT CALIBRATED — HOLD AR");
     expect(html).not.toContain("m-arcal__pad");
+    expect(html).not.toContain("m-arcal__actions");
     useCameraStore.getState().setArCam("calibrate");
     html = render(ArCameraOverlay);
     expect(html).toContain("m-arcal__pad");
     expect(html).toContain("m-arcal__cross");
-    for (const act of ["ar-cal-confirm", "ar-cal-reset", "ar-cal-cancel"]) expect(html).toContain(`data-act="${act}"`);
+    // the verdict column: three ROUND cells (the .m-act--icon idiom), in this order, each a data-act
+    const acts = [...html.matchAll(/data-act="(ar-cal-[a-z]+)"/g)].map((m) => m[1]);
+    expect(acts).toEqual(["ar-cal-confirm", "ar-cal-reset", "ar-cal-cancel"]);
+    expect(html.match(/m-act m-act--icon/g)?.length).toBe(3);
     expect(html).toContain(AR_CAL_COPY.title);
-    expect(html).toMatch(/YAW \+0\.0° · PITCH \+0\.0° · ROLL \+0\.0° · CAMERA ≈ \d+ mm/);
+    // ONE row: the readout beside the title — yaw · pitch · the lens; no ROLL, no memo text
+    expect(html).toMatch(/YAW \+0\.0° · PITCH \+0\.0° · \d+ mm/);
+    expect(html).not.toMatch(/ROLL|LANDMARK|TWIST/);
+    expect("how" in AR_CAL_COPY).toBe(false);
+  });
+
+  it("the layout (owner 2026-09-22 item 1): the row's right edge relaxes to the folded mini-map while calibrating; the column and the slider are fixed seats off the rail's tokens", () => {
+    const css = read("src/styles/mobile/ar-camera.css");
+    const block = (sel: string) => css.slice(css.indexOf(`${sel} {`), css.indexOf("}", css.indexOf(`${sel} {`)));
+    expect(block(".m-arcal")).toMatch(/flex-direction: row;/);
+    expect(block(".m-arcal--on")).toMatch(/right: calc\(3\.9rem \+ env\(safe-area-inset-right\)\);/);
+    // the verdict column: left rail, its bottom 12 px above the AIM stick's top (11.2rem + 120px + 110px — the stick's 1 px border counts)
+    expect(block(".m-arcal__actions")).toMatch(/position: fixed;/);
+    expect(block(".m-arcal__actions")).toMatch(/left: calc\(1rem \+ env\(safe-area-inset-left\)\);/);
+    expect(block(".m-arcal__actions")).toMatch(/bottom: calc\(11\.2rem \+ 120px \+ 110px \+ 12px \+ env\(safe-area-inset-bottom\)\);/);
+    expect(block(".m-arcal__actions")).toMatch(/flex-direction: column;/);
+    expect(read("src/styles/mobile/fpv.css")).toMatch(/\.m-joy--aim-fpv \{\s*bottom: calc\(11\.2rem \+ 120px \+ env\(safe-area-inset-bottom\)\);/);
+    // the slider: right rail, just above the column (its bottom = the column's published top + 8 px)
+    expect(block(".m-arcal__mixv")).toMatch(/bottom: calc\(var\(--m-altcol-bottom\) \+ var\(--m-altcol-h, 148px\) \+ 8px \+ env\(safe-area-inset-bottom\)\);/);
+    expect(block(".m-arcal__mixin")).toMatch(/rotate\(-90deg\)/);
+    // the ALIGN float clears the slider
+    expect(css).toMatch(/body\.m:has\(\.m-arcal__mixv\) \.m-arfloat \{\s*bottom: calc\(100% \+ 8px \+ var\(--m-armix-h, 96px\) \+ 6px\);/);
+    // the fullscreen map hides every piece of the overlay
+    expect(css).toMatch(/body\.mw-open \.m-arcal__mixv,\s*body\.mw-open \.m-arcal__actions,/);
+  });
+
+  it("the mini-map folds to its puck while calibrating (item 1e) and comes back as the user left it", () => {
+    const mm = read("src/components/panels/MiniMap.tsx");
+    expect(mm).toMatch(/const calibrating = useCameraStore\(\(s\) => s\.arCam === "calibrate"\);/);
+    expect(mm).toMatch(/const collapsed = userCollapsed \|\| calibrating;/);
+    expect(mm).toMatch(/onClick=\{\(\) => setCollapsed\(!userCollapsed\)\}/);
   });
 
   it("FpvControls mounts it (FPV-only: exiting the view stops the camera)", () => {

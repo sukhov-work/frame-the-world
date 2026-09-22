@@ -80,6 +80,10 @@ export interface ViewPrefs {
    *  key. Observation-only: it opens a metrics window and activates the debugFeed collection
    *  hooks; it moves no look/tile lever. */
   debugHud?: boolean;
+  /** SMOOTH FLIGHTS — the hidden re-arm of the 2,200 ms cinematic sweep the owner switched off
+   *  2026-09-22 ("all FPV and minimap related transitions are immediate"). No chip on either
+   *  shell: a console write to the blob + reload (the `debugHud` posture). Default OFF = instant. */
+  smoothFlights?: boolean;
   /** TARGET panel GHOSTS — temporal ghost copies of the tracked body (QoL-2, owner 2026-08-14). */
   skyGhosts?: boolean;
   /** Ghost copies per time direction (1..15; the owner default is 4 each way = 8 total). */
@@ -152,6 +156,8 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   // has no boolean default to resurrect, and joining the re-arm would turn an opt-out into an
   // opt-in.
   if (typeof r.debugHud === "boolean") out.debugHud = r.debugHud;
+  // Same rule again (a plain read, no `rearmed`): an off-by-default opt-in, never resurrected.
+  if (typeof r.smoothFlights === "boolean") out.smoothFlights = r.smoothFlights;
   if (typeof r.skyGhosts === "boolean") out.skyGhosts = r.skyGhosts;
   if (typeof r.skyGhostCount === "number" && Number.isFinite(r.skyGhostCount))
     out.skyGhostCount = Math.max(1, Math.min(15, Math.round(r.skyGhostCount)));

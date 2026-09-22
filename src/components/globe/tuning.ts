@@ -2172,6 +2172,11 @@ export const MOBILE2D = {
   bootLatDeg: 48.46,
   bootLonDeg: 35.05,
   bootAltM: 18_000_000,
+  /** Owner bug 2026-09-22: a `#p=` hash at or above this altitude boots the WHOLE PLANET on `/m`
+   *  (at the hash's focus, nadir) instead of that orbital pose — the desktop's Mobile / OPEN /M
+   *  links hand over the desktop's 1,100 km boot LEO, and from there a phone sees a curved
+   *  horizon, not Earth. Below it a hash is a real place and is honoured exactly. */
+  hashPlanetFromAltM: 1_000_000,
   /* enter3dTiltDeg RETIRED (owner batch #4 item 3, 2026-08-21): two-finger drag no longer
      tilts into 3D — the ▲ 3D chip is the only door, and the freed gesture ROTATED the 2D map
      (heading stays where the fingers leave it; see stepMobile2dLocks) — until T129. */
@@ -3564,6 +3569,17 @@ export const FLIGHT = {
   durationMs: 2200,
   /** Bezier control points (x1, y1, x2, y2) — the design system's master easing. */
   easing: [0.65, 0, 0.35, 1] as const,
+  /** Owner order 2026-09-22 (FPV/minimap item 1): "do not do smooth transitions when switching
+   *  points in the minimap, both desktop and mobile … for now all FPV- and minimap-related
+   *  transitions are immediate, to save time and resource" — every `flight.start` (pin arrival,
+   *  FPV entry / exit, the map window's jump, places, search, MY LOCATION, the re-frame) is the
+   *  reduced-motion CUT, and the FPV lens change lands the same frame (no `fovEaseTauMs` glide at
+   *  entry / exit). The sweep survives behind this switch ("keep it under some hidden toggle if I
+   *  change my mind"): `true` here restores the 2,200 ms cinematic; at runtime the hidden
+   *  `ftw:view-prefs:v1` key `smoothFlights: true` (no chip — the `debugHud` posture) or the DEV
+   *  seam `__globe.smoothFlights(true)` (the descent harnesses use it) do the same per session.
+   *  EXPLORE's cruise is its own model and is untouched. */
+  smoothTransitions: false,
   /** Mid-flight altitude bump = min(arc·groundDistance, max) — short hops rise a little, long
    *  hauls get a proper ballistic arc (matters for Phase-5 pin→pin jumps). */
   arcBumpFactor: 0.35,
@@ -3959,6 +3975,29 @@ export const FPV = {
   /** Seconds of hold to reach full rate. The gain is QUADRATIC in hold time (precision at a
    *  tap — a 0.2 s tap moves centimetres; speed on a long hold), never faster than the rail. */
   spaceRampS: 2.5,
+  /** MESH CLEARANCE (owner order 2026-09-22, FPV item 3 — "do not clip through buildings / user
+   *  meshes … move me up to the nearest roof / surface above; already moving up inside a
+   *  multi-layer mesh → the next available layer; a pin dropped inside → land on top at FPV
+   *  entry"). Temp-pin FPV casts ONE vertical column through the eye (a down ray + an up ray so
+   *  a one-sided material's tops AND undersides are both seen) against the building tiles, the
+   *  enriched cells and the user models — never the terrain — and `lib/globe/fpvClearance` folds
+   *  the crossings into solids. Inside one → the feet are lifted onto its top the same frame and
+   *  the eye height resets to the standing 1.7 m ("as if standing on it"); on a mesh top the eye
+   *  follows what is under the feet (off a roof edge = down to the lower roof or the ground,
+   *  eased). Kill switch: false = the 2026-09-19 walker (no collision at all); the DEV seam
+   *  `__globe.fpvClearance(false)` does the same live and returns the counters. */
+  meshClearance: true,
+  /** The column's reach above the eye (the tallest lift a wall can trigger) and below the feet
+   *  (how far under the feet a top is still "the surface under the feet" when walking off a roof). */
+  meshColumnUpM: 400,
+  meshColumnDownM: 400,
+  /** A top this close under the feet, on the terrain, is a surface walked onto (a kerb, a step). */
+  meshStepM: 0.35,
+  /** The column is cast every frame while walking / lifting / standing on a mesh; standing still
+   *  on the terrain it is cast every N frames (a tile or a model landing under a static eye). */
+  meshColumnIdleEveryFrames: 12,
+  /** The DESCENT ease (ms) off a roof edge — the lift INTO a surface is a snap by design. */
+  meshFloorEaseTauMs: 200,
 } as const;
 
 /** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's
@@ -3996,6 +4035,34 @@ export const DAYARC = {
    *  at rebuild only; the fold is keyed on the profile's identity, so a profile arriving after
    *  FPV entry re-folds once. */
   skylineBehindAlpha: 0.35,
+} as const;
+
+/** AR GUIDES (owner order 2026-09-22 item 3 — `scene/arGuides.ts`): the sun / moon / target
+ *  markers and the day arcs redrawn as a DOM + SVG layer ABOVE the camera feed on `/m`, so they
+ *  read at full ink whatever the 3D ↔ CAM slider says (every GL guide sits UNDER the `<video>`
+ *  and fades with it). Thick on purpose — the use case is putting the rendered sun on the real
+ *  one at arm's length; the GL reticle's hairline (SKY_TARGET) is untouched. Sizes in CSS px. */
+export const ARGUIDES = {
+  /** Above the feed (z 1) and the scene's label layers (z 2), under the calibration pad (z 5). */
+  zIndex: 3,
+  /** The marker ring: diameter, stroke; the sun's core dot; the target reticle's tick length. */
+  ringPx: 56,
+  ringWidthPx: 3,
+  dotPx: 8,
+  tickPx: 10,
+  /** The dark halo under every stroke (px each side) and its alpha — contrast against a day sky. */
+  haloPx: 1.5,
+  haloAlpha: 0.7,
+  /** The day arcs: stroke width; the future half's alpha; the past half's; points under this
+   *  horizon × skyline fade are skipped (the GL arc's own melt-out band); the off-screen margin a
+   *  point may sit at and still be drawn (so a polyline leaves the screen cleanly). */
+  arcWidthPx: 3,
+  arcAlphaFuture: 0.95,
+  arcAlphaPast: 0.45,
+  arcMinFade: 0.15,
+  arcMarginPx: 60,
+  /** The label under each marker (rem). */
+  labelRem: 0.5,
 } as const;
 
 /** Map direction lines + visibility cones (UPLIFT U4, owner point 3 — PhotoPills-style): from

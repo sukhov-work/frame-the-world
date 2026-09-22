@@ -39,6 +39,9 @@ interface FlightStartOpts {
    *  cinematic arrival; a short value gives a quick corrective re-frame (e.g. the arrival
    *  re-framing after a pin's terrain settles). */
   durationMs?: number | null;
+  /** A flight that is a FEATURE, not a transition (reserved — nothing passes it today): it keeps
+   *  its sweep even while `smooth()` says every transition is a cut. Reduced motion still cuts. */
+  cinematic?: boolean;
 }
 
 export interface FlightHandle {
@@ -168,7 +171,15 @@ export function arrivalPose(o: ArrivalPoseOpts): FlightTarget {
 
 export function createFlight(
   camera: THREE.PerspectiveCamera,
-  opts: { reduceMotion?: boolean; wgs84A: number; wgs84B: number },
+  opts: {
+    reduceMotion?: boolean;
+    wgs84A: number;
+    wgs84B: number;
+    /** Live-read per `start` (owner 2026-09-22): false = every transition is the instant cut —
+     *  `FLIGHT.smoothTransitions` / the hidden pref / the DEV seam, resolved by the orchestrator.
+     *  Absent = smooth (the unit tests' flights). */
+    smooth?: () => boolean;
+  },
 ): FlightHandle {
   const ease = cubicBezier(...FLIGHT.easing);
   const [a, b] = [opts.wgs84A, opts.wgs84B];
@@ -209,9 +220,11 @@ export function createFlight(
 
   return {
     start(t, o) {
-      if (opts.reduceMotion) {
-        // Reduced motion: no sweep — an instant cut to the destination pose.
+      if (opts.reduceMotion || (!o?.cinematic && opts.smooth && !opts.smooth())) {
+        // Reduced motion — or the owner's 2026-09-22 rule (every FPV / minimap transition is
+        // immediate): no sweep — an instant cut to the destination pose.
         flying = false;
+        target = null;
         finalPose(t);
         return;
       }

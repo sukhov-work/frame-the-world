@@ -1846,14 +1846,14 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "trimmed slowly — and your own eyes have the last word: hold AR to calibrate.",
         steps: [
           "Hold the AR chip until CALIBRATE AR opens (allow the camera when the browser asks).",
-          "Put a far landmark — a tower, a chimney, a ridge — on the centre cross.",
-          "Drag the 3D view until it sits on the camera's picture; twist two fingers to level it; pinch until the two are the same size.",
-          "Press ✓ CONFIRM — the correction is kept on this phone until the next calibration replaces it.",
+          "Put something far away — the sun, the moon, a tower, a ridge — on the centre cross and drag the 3D view onto the camera's picture.",
+          "Tilt the phone so the same thing sits near the top of the screen, then pinch until the two pictures match there too — a pinch cannot be judged at the centre.",
+          "Press ✓ CONFIRM (the round cell above the aim stick) — the correction is kept on this phone until the next calibration replaces it.",
           "Press ↺ RESET to forget a stored calibration, or ✕ CANCEL to leave everything as it was.",
         ],
         tip:
-          "Calibrate where you shoot — magnetic north is bent by steel railings, cars and bridges, so a " +
-          "correction made on a balcony is only roughly right in a field.",
+          "Calibrate on the sky or on something far away — a nearby building sits a few metres off " +
+          "where the phone thinks you stand, and no correction can fix that parallax.",
       },
     ],
   },

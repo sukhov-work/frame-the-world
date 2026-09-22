@@ -36,7 +36,7 @@ import { aimAtSky } from "../../store/skyAim";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore, type AdjustableParams } from "../../store/upload";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
-import { useCameraStore } from "../../store/camera";
+import { useCameraStore, type FpvJumpRequest } from "../../store/camera";
 import { revertOp, useBldgEditStore, type BldgEditOp } from "../../store/bldgEdit";
 import { restingEdit, revertModelOp, useModelEditStore, type ModelEditOp } from "../../store/modelEdit";
 import { useUserModelsStore } from "../../store/userModels";
@@ -128,6 +128,8 @@ import { attachBldgEditLabel } from "./scene/bldgEditLabel";
 import { attachBldgGizmo } from "./scene/bldgGizmo";
 import { attachUserModels, type UserModelPick } from "./scene/userModels";
 import { attachDayArcs } from "./scene/dayArcs";
+import { attachArGuides } from "./scene/arGuides";
+import { smoothFlightsBootOn } from "../../lib/globe/smoothFlightsBoot";
 import { attachAimCones } from "./scene/aimCones";
 import { attachFocalCone, focalConeFillTiltK } from "./scene/focalCone";
 import { integratePlanned, plannedAtRest } from "../../lib/geo/plannedView";
@@ -165,10 +167,10 @@ import {
   parseFpvHash,
   parsePoseHash,
   parseTimeHash,
-  type UrlFpvPose,
 } from "../../lib/geo/urlPose";
 import { driftRadiansForDt } from "../../lib/globe/drift";
 import { seatStep } from "../../lib/globe/enrichedMask";
+import { fpvClearance, type ColumnHit } from "../../lib/globe/fpvClearance";
 import {
   deleteOverride,
   dragScaleK,
@@ -776,6 +778,7 @@ export function attachStylizedTiles(opts: {
   const skyNames = attachSkyNames(); // hover-name reveal for stars/asterisms/constellations (qol4)
   const bldgEditLabel = attachBldgEditLabel(); // U8 mesh-pinned dual-height indicator (both shells)
   const dayArcs = attachDayArcs(scene); // FPV planning overlays (S6) — hidden outside FPV
+  const arGuides = attachArGuides(); // 2026-09-22: the sun / moon / target guides ABOVE the camera feed (/m AR)
   // U4 aim cones: map direction lines + rise→set visibility sectors at the plan anchor —
   // orbit-mode only (FPV keeps the viewfinder clean; the MapWindow canvas is the FPV twin).
   const aimCones = attachAimCones({
@@ -1164,11 +1167,30 @@ export function attachStylizedTiles(opts: {
   };
   // A shared `#f=` FPV view pending its temp-FPV entry (consumed by the entry block once the
   // pin point exists — the exact basis/eye/FOV then come from the hash, not the boot camera).
-  let pendingFpvShare: UrlFpvPose | null = null;
+  let pendingFpvShare: FpvJumpRequest | null = null;
   const urlPose = parsePoseHash(typeof location === "undefined" ? "" : location.hash);
   const urlFpv = urlPose ? null : parseFpvHash(typeof location === "undefined" ? "" : location.hash);
+  // Owner bug 2026-09-22 ("the default view on mobile still opens at 1,100 km — make it 18,000"):
+  // the 2026-09-18 whole-planet boot only read on a BARE `/m`, but `/m` is rarely bare — the
+  // desktop's Mobile / OPEN /M links hand over the desktop's live pose as a `#p=` hash (its boot
+  // LEO is exactly 1,100 km), the UA redirect carries the hash verbatim, and the /m pose mirror
+  // re-writes it every 1.6 s so a reload reproduces it. An ORBITAL hash has no use on a phone
+  // (from 1,100 km the disc is wider than the screen — a curved horizon, not Earth): at or above
+  // `MOBILE2D.hashPlanetFromAltM` the hash keeps its focus and boots the whole planet.
+  // (`isMobileShell` is declared below this boot block — the same body-class read, by hand.)
+  const mobilePlanetHash =
+    typeof document !== "undefined" &&
+    document.body.classList.contains("m") &&
+    urlPose !== null &&
+    urlPose.altM >= MOBILE2D.hashPlanetFromAltM;
   if (urlPose) {
-    bootPoseAt(urlPose.latDeg, urlPose.lonDeg, urlPose.headingDeg, urlPose.altM, urlPose.tiltDeg);
+    bootPoseAt(
+      urlPose.latDeg,
+      urlPose.lonDeg,
+      urlPose.headingDeg,
+      mobilePlanetHash ? MOBILE2D.bootAltM : urlPose.altM,
+      mobilePlanetHash ? 0 : urlPose.tiltDeg,
+    );
   } else if (urlFpv) {
     // Shared FPV view (owner 2026-07-14): boot NEAR the viewer point looking along the shared
     // bearing (tiles start streaming toward the right street), then enter temp-pin FPV — the
@@ -1284,7 +1306,7 @@ export function attachStylizedTiles(opts: {
     );
   };
   if (isMobileShell) {
-    if (urlPose && urlPose.tiltDeg >= CONTROLS.twoDMaxTiltDeg) {
+    if (urlPose && !mobilePlanetHash && urlPose.tiltDeg >= CONTROLS.twoDMaxTiltDeg) {
       useCameraStore.getState().setMapMode("3d"); // an OBLIQUE share keeps its exact 3D view
     } else {
       // No hash, an `#f=` FPV share (its exit lands in 2D), or a NADIR `#p=` share (the /m
@@ -1332,7 +1354,15 @@ export function attachStylizedTiles(opts: {
   //     Phase 5.5 S2). When a photo lands (PLACE or click-to-place), fly to the shared arrival
   //     pose: FLIGHT.arrivalAltAboveGroundM over the rendered ground behind the photo, tilted
   //     near-horizontal so the photo superimposes on its real landscape. ----------------------
-  const flight = createFlight(camera, { reduceMotion, wgs84A: WGS84_A, wgs84B: WGS84_B });
+  // Owner order 2026-09-22 (FPV/minimap item 1): every transition is the instant CUT unless the
+  // hidden switch says otherwise — `FLIGHT.smoothTransitions` (compile-time), the chip-less pref
+  // `smoothFlights` in `ftw:view-prefs:v1` (read once, the debugHud posture), or the DEV seam
+  // `__globe.smoothFlights(true)` (the descent harnesses re-arm the sweep they measure). Read
+  // live per `start`, so a seam flip mid-session takes effect on the next flight.
+  const smoothFlightsPref = smoothFlightsBootOn();
+  let smoothFlightsOverride: boolean | null = null;
+  const smoothFlights = () => smoothFlightsOverride ?? (FLIGHT.smoothTransitions || smoothFlightsPref);
+  const flight = createFlight(camera, { reduceMotion, wgs84A: WGS84_A, wgs84B: WGS84_B, smooth: smoothFlights });
 
   // Terrain path floor for EVERY flight: the flight's altitude blend is ellipsoid-only, so it
   // clips through high ground unless floored. Sampled at both endpoints; clamped only upward
@@ -2111,6 +2141,18 @@ export function attachStylizedTiles(opts: {
   let fpvPinchStartFov = 0;
   let fpvPinchedDuringDrag = false; // suppresses the sky-marker click on the look finger's lift
   let fovTargetDeg: number = camera.fov; // eased every frame (FPV zoom + entry/exit restore)
+  /** Owner 2026-09-22 (FPV item 1): the lens change of an entry / exit / jump lands the SAME
+   *  frame when transitions are the instant cut — `stepFovGlide` snaps once instead of easing. */
+  let fovSnapPending = false;
+  /** Owner 2026-09-22 (FPV item 2 — "keep the current focal, the exact pitch / yaw, the current
+   *  altitude, do not reset to defaults"): what the viewer last stood at in temp-pin FPV — carried
+   *  into the next POINT entry (a place / share brings its own pose; the planned view its
+   *  heading + lens). Null until the first exit: the first entry keeps the shipped defaults. */
+  let fpvCarry: { eyeM: number; pitchDeg: number; fovDeg: number } | null = null;
+  /** …and the ORBIT pose the viewer left for FPV — altitude above ground, tilt, lens, the /m map
+   *  mode — restored over where they now stand at exit instead of the arrival defaults (200 m ·
+   *  80° · 38°; /m 600 m nadir). Captured on a FRESH entry only (an FPV→FPV jump keeps it). */
+  let preFpvOrbit: { altAboveGroundM: number; tiltDeg: number; fovDeg: number; mapMode: "2d" | "3d" } | null = null;
   // Temp-pin FPV basis, captured at ENTRY (fwd = the camera's azimuth at that moment — deriving
   // it per frame from the camera would feed back on itself). Position refreshes per frame as
   // the terrain under the pin refines.
@@ -2142,6 +2184,114 @@ export function attachStylizedTiles(opts: {
   let fpvWalkAppliedM: number | null = null;
   const _fpvWalkSampledAt = new THREE.Vector3();
   let fpvWalkSampleValid = false;
+  // MESH CLEARANCE (owner 2026-09-22, FPV item 3 — `FPV.meshClearance`, `lib/globe/fpvClearance`):
+  // the mesh top the viewer stands on (absolute m; null = the terrain) and the eased vertical
+  // term that puts the eye at `floor + fpvEyeM` above the terrain-seated eye. One vertical column
+  // (down + up rays) through the eye, classified by the faces' own normals.
+  let fpvMeshFloorAbsM: number | null = null;
+  let fpvMeshLiftM = 0;
+  let fpvMeshClearanceOn: boolean | null = null; // DEV seam override; null = FPV.meshClearance
+  let fpvMeshLastColumnFrame = -1;
+  let fpvMeshLastEyeM = NaN;
+  const fpvMeshStats = { columns: 0, lifts: 0, hits: 0, lastMs: 0 };
+  const _colRay = new THREE.Raycaster();
+  const _colHits: THREE.Intersection[] = [];
+  const _colOrigin = new THREE.Vector3();
+  const _colDir = new THREE.Vector3();
+  const _colN = new THREE.Vector3();
+  const _colM = new THREE.Matrix4();
+  const _colNm = new THREE.Matrix3();
+  const _colHitsOut: ColumnHit[] = [];
+  const _colTargets: THREE.Object3D[] = [];
+  const _colSeen = new Set<string>();
+  /** A hit's face normal in WORLD space (the geometric `face.normal` is object-space and un-flipped
+   *  — `intersection.normal` is flipped toward the ray and cannot tell a top from an underside). */
+  const colHitUp = (h: THREE.Intersection): number | null => {
+    if (!h.face) return null;
+    const obj = h.object as THREE.Object3D & { isInstancedMesh?: boolean; getMatrixAt?: (i: number, m: THREE.Matrix4) => void };
+    if (obj.isInstancedMesh && h.instanceId != null && obj.getMatrixAt) {
+      obj.getMatrixAt(h.instanceId, _colM);
+      _colM.premultiply(obj.matrixWorld);
+      _colNm.getNormalMatrix(_colM);
+    } else _colNm.getNormalMatrix(obj.matrixWorld);
+    _colN.copy(h.face.normal).applyMatrix3(_colNm).normalize();
+    return _colN.dot(_fpvUpGeo);
+  };
+  const castColumnLeg = (fromAlongUpM: number, dirSign: 1 | -1, farM: number, eyeAbsM: number) => {
+    _colOrigin.copy(camera.position).addScaledVector(_fpvUpGeo, fromAlongUpM);
+    _colDir.copy(_fpvUpGeo).multiplyScalar(dirSign);
+    _colRay.set(_colOrigin, _colDir);
+    _colRay.near = 0;
+    _colRay.far = farM;
+    _colHits.length = 0;
+    _colRay.intersectObjects(_colTargets, true, _colHits);
+    for (const h of _colHits) {
+      const upDot = colHitUp(h);
+      if (upDot === null || Math.abs(upDot) < 0.3) continue; // a wall is not a crossing
+      const key = `${h.object.id}:${h.faceIndex ?? -1}:${h.instanceId ?? -1}`;
+      if (_colSeen.has(key)) continue;
+      _colSeen.add(key);
+      // the crossing's height: along the (near-radial) column from the eye
+      _colHitsOut.push({ hM: eyeAbsM + fromAlongUpM + dirSign * h.distance, up: upDot > 0 });
+    }
+  };
+  /** The mesh floor under / around the eye, applied after the terrain re-seat. */
+  const stepFpvMeshFloor = () => {
+    const on = fpvMeshClearanceOn ?? FPV.meshClearance;
+    if (!on) {
+      fpvMeshFloorAbsM = null;
+      fpvMeshLiftM = 0;
+      return;
+    }
+    // the eye as the terrain seated it (before this frame's lift); the lift is re-applied below
+    const eyeGeo = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+    const eyeAbsM = eyeGeo.altM + fpvMeshLiftM; // where the eye actually is once lifted
+    const moving =
+      fpvWalkOffset.lengthSq() > 0 || camNow.fpvWalkInput !== null || fpvKeysDown.space || fpvEyeM !== fpvMeshLastEyeM;
+    const due =
+      moving || fpvMeshFloorAbsM !== null || frameCount - fpvMeshLastColumnFrame >= FPV.meshColumnIdleEveryFrames;
+    if (due && frameCount !== fpvMeshLastColumnFrame) {
+      const t0 = performance.now();
+      fpvMeshLastColumnFrame = frameCount;
+      fpvMeshLastEyeM = fpvEyeM;
+      _colTargets.length = 0;
+      _colTargets.push(buildings.tiles.group);
+      if (enriched) _colTargets.push(enriched.tiles.group);
+      _colTargets.push(userModels.occluderRoot());
+      _colHitsOut.length = 0;
+      _colSeen.clear();
+      // the column is cast from the LIFTED eye: move the origin by the lift first
+      camera.position.addScaledVector(_fpvUpGeo, fpvMeshLiftM);
+      const body = FRUSTUM.eyeHeightM;
+      castColumnLeg(FPV.meshColumnUpM, -1, FPV.meshColumnUpM + body + FPV.meshColumnDownM, eyeAbsM);
+      castColumnLeg(-(body + FPV.meshColumnDownM), 1, FPV.meshColumnUpM + body + FPV.meshColumnDownM, eyeAbsM);
+      camera.position.addScaledVector(_fpvUpGeo, -fpvMeshLiftM);
+      fpvMeshStats.columns++;
+      fpvMeshStats.hits = _colHitsOut.length;
+      const v = fpvClearance(_colHitsOut, {
+        eyeM: eyeAbsM,
+        bodyM: body,
+        standingOnM: fpvMeshFloorAbsM,
+        stepM: FPV.meshStepM,
+      });
+      if (v.inside) {
+        // "as if standing on it": the feet onto the surface, the eye at the standing height —
+        // a snap by design (the wall was walked INTO); the descent side is eased below.
+        fpvMeshFloorAbsM = v.standOnM;
+        fpvEyeM = FRUSTUM.eyeHeightM;
+        fpvMeshLastEyeM = fpvEyeM;
+        fpvMeshLiftM = v.standOnM! + fpvEyeM - eyeGeo.altM;
+        fpvMeshStats.lifts++;
+      } else {
+        fpvMeshFloorAbsM = v.standOnM;
+      }
+      fpvMeshStats.lastMs = performance.now() - t0;
+    }
+    const liftTarget = fpvMeshFloorAbsM === null ? 0 : fpvMeshFloorAbsM + fpvEyeM - eyeGeo.altM;
+    if (liftTarget > fpvMeshLiftM) fpvMeshLiftM = liftTarget; // up: at once (never inside a slab)
+    else fpvMeshLiftM = seatStep(fpvMeshLiftM, liftTarget, easeK(dtMs, FPV.meshFloorEaseTauMs)); // down: eased
+    if (fpvMeshLiftM !== 0) camera.position.addScaledVector(_fpvUpGeo, fpvMeshLiftM);
+  };
   const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false, space: false };
   // SPACE hold time (ms, accumulated from frame dt — clock-epoch-free): the ascend rate ramps
   // quadratically over FPV.spaceRampS (QoL-1, owner 2026-08-14). Lives beside fpvKeysDown, NOT
@@ -3932,6 +4082,61 @@ export function attachStylizedTiles(opts: {
       enrichedLoadBudget: (ms: number) => enriched?.setLoadBudgetMs(ms) ?? null, // T106 (b) — the phase-2 budget, live
       buildingsLoad: () => buildings.debugLoad(), // T106 OSM (2026-09-07f) — the OSM handler's ledger
       buildingsLoadBudget: (ms: number) => buildings.setLoadBudgetMs(ms), // T106 OSM — its phase-2 budget, live
+      // 2026-09-22 — the hidden re-arm of the cinematic sweep (FLIGHT.smoothTransitions): a
+      // harness that MEASURES a descent (`verify-visual-sweep`, `probe-cpu-profile`,
+      // `verify-pin-reframe`) flips it on before driving `requestFly`; no argument reads it.
+      smoothFlights: (on?: boolean) => {
+        if (typeof on === "boolean") smoothFlightsOverride = on;
+        return smoothFlights();
+      },
+      // 2026-09-22 — the AR guides layer (scene/arGuides): what it last drew.
+      arGuides: () => arGuides.debug(),
+      // 2026-09-22 — a TEST SOLID for the mesh-clearance twin (`verify-fpv-carry-2026-09-22`):
+      // a closed box standing on the terrain at (lat, lon), `hM` tall and `sizeM` square, added
+      // to the user-models group (the column's third target); `fpvTestSolid(null)` removes it.
+      // DEV only, never a feature — the box the owner places walks the real upload pipeline.
+      fpvTestSolid: (latDeg: number | null, lonDeg = 0, hM = 12, sizeM = 30) => {
+        const root = userModels.occluderRoot();
+        const old = root.getObjectByName("__fpvTestSolid");
+        if (old) {
+          root.remove(old);
+          (old as THREE.Mesh).geometry.dispose();
+        }
+        if (latDeg === null) return null;
+        const baseM = clampGroundM(ground.heightAt(latDeg, lonDeg) ?? 0);
+        const b = enuBasis(latDeg, lonDeg);
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(sizeM, sizeM, hM),
+          new THREE.MeshBasicMaterial({ color: 0x38e1d0, transparent: true, opacity: 0.6 }),
+        );
+        mesh.name = "__fpvTestSolid";
+        mesh.position.fromArray(geodeticToEcef(latDeg, lonDeg, baseM + hM / 2));
+        mesh.quaternion.setFromRotationMatrix(
+          new THREE.Matrix4().makeBasis(
+            new THREE.Vector3(...b.east),
+            new THREE.Vector3(...b.north),
+            new THREE.Vector3(...b.up),
+          ),
+        );
+        mesh.updateMatrixWorld(true);
+        root.add(mesh);
+        return { baseM, topM: baseM + hM };
+      },
+      // 2026-09-22 — the FPV mesh clearance: flip it live (a kill switch twin of
+      // FPV.meshClearance) and read the column counters + the current mesh floor.
+      fpvClearance: (on?: boolean) => {
+        if (typeof on === "boolean") {
+          fpvMeshClearanceOn = on;
+          fpvMeshLastColumnFrame = -1; // a flip casts on the next frame, not at the idle cadence
+        }
+        return {
+          on: fpvMeshClearanceOn ?? FPV.meshClearance,
+          floorAbsM: fpvMeshFloorAbsM,
+          liftM: fpvMeshLiftM,
+          eyeM: fpvEyeM,
+          ...fpvMeshStats,
+        };
+      },
       enrichedBench: (limit?: number) => enriched?.benchEdges(limit) ?? null, // T106 — the in-page A/B + identity
       // T77 MEASURE (2026-09-05) — the RESEAT-SETTLE read seam: this frame's seat residuals from
       // the apply pass (plain field reads, safe inside a per-frame rAF probe — unlike
@@ -5233,10 +5438,12 @@ export function attachStylizedTiles(opts: {
           camNow.setTempFpv(true);
           // S2: the jump pose seeds the planned view (fov widened to horizontal at the live
           // aspect) — leaving FPV later keeps this plan alive on the map surfaces.
-          camNow.setPlannedView({
-            headingDeg: jump.headingDeg,
-            hFovDeg: horizontalFovDeg(jump.fovDeg, camera.aspect),
-          });
+          if (jump.headingDeg != null && jump.fovDeg != null) {
+            camNow.setPlannedView({
+              headingDeg: jump.headingDeg,
+              hFovDeg: horizontalFovDeg(jump.fovDeg, camera.aspect),
+            });
+          }
           upNow = useUploadStore.getState(); // re-snapshot after the writes above
           camNow = useCameraStore.getState();
         }
@@ -5251,6 +5458,7 @@ export function attachStylizedTiles(opts: {
         const wasFpvActive = fpvActive;
         if (wantKind !== fpvKind) {
           if (wantKind === null) {
+            const leavingKind = fpvKind; // read BEFORE it is nulled (the 2026-09-22 carry needs it)
             fpvKind = null;
             fpvActive = false;
             controls.adjustHeight = true;
@@ -5272,22 +5480,47 @@ export function attachStylizedTiles(opts: {
             if (camNow.fpvWalkInput) camNow.setFpvWalkInput(null);
             // Restore the pre-FPV pin visibility (no-op if the chip was re-lit inside FPV).
             if (pinsVisibleBeforeFpv && !camNow.pinsVisible) camNow.setPinsVisible(true);
-            fovTargetDeg = POSE.fovDeg;
+            // Owner 2026-09-22 (FPV item 2): remember what the viewer stood at — the next POINT
+            // entry re-uses it — and leave at the orbit pose they came from, not the defaults.
+            const wasTemp = leavingKind === "temp";
+            if (wasTemp) {
+              camera.getWorldDirection(_camFwd);
+              _fpvUpGeo.copy(camera.position).normalize();
+              fpvCarry = {
+                eyeM: fpvEyeM,
+                pitchDeg: THREE.MathUtils.radToDeg(
+                  Math.asin(THREE.MathUtils.clamp(_camFwd.dot(_fpvUpGeo), -1, 1)),
+                ),
+                fovDeg: fovTargetDeg,
+              };
+            }
+            const back = preFpvOrbit;
+            preFpvOrbit = null;
+            fovTargetDeg = back ? back.fovDeg : POSE.fovDeg;
+            fovSnapPending = true;
             const geomOut = upNow.phase === "placed" ? frustum.current() : null;
+            // The point to leave OVER: where the viewer now stands (the pin + the walk), not
+            // the pin they entered at — the walk is part of "the current position".
             const pinOut = tempPinPoint();
-            // U1 (owner point 1): on /m, FPV always exits to the 2D map — flip the mode
-            // (buildings detach via the gate step) and fly out to the north-up nadir pose
-            // instead of the oblique frame arrival (which the 2D locks would then fight).
-            if (isMobileShell) {
+            const standOut =
+              wasTemp && pinOut && fpvWalkOffset.lengthSq() > 0
+                ? pinOut.clone().add(fpvWalkOffset)
+                : pinOut;
+            // U1 (owner point 1): on /m, FPV exits to the 2D map — flip the mode (buildings
+            // detach via the gate step) and land on the north-up nadir pose instead of the
+            // oblique frame arrival (which the 2D locks would then fight) — UNLESS the viewer
+            // entered from the 3D map (2026-09-22): then the 3D pose they left is restored.
+            if (isMobileShell && !(back && back.mapMode === "3d")) {
               camNow.setMapMode("2d");
               const outP = geomOut
                 ? new THREE.Vector3(geomOut.apex[0], geomOut.apex[1], geomOut.apex[2])
-                : pinOut;
+                : standOut;
               if (outP) {
                 const gOut = ecefToGeodetic([outP.x, outP.y, outP.z]);
                 const pose = mapArrivalPose(
                   outP,
                   clampGroundM(ground.heightAt(gOut.latDeg, gOut.lonDeg) ?? tempPinGroundM),
+                  back ? back.altAboveGroundM : MOBILE2D.exitAltAboveGroundM,
                 );
                 flight.start(pose, { floorM: flightFloorM(pose.position) });
                 // no beginFraming: the re-framing glide targets the OBLIQUE photo arrival.
@@ -5296,19 +5529,27 @@ export function attachStylizedTiles(opts: {
               const pose = frameArrivalPose(geomOut);
               flight.start(pose, { floorM: flightFloorM(pose.position) });
               beginFraming(pose); // same live-terrain settle the pin selection gets
-            } else if (pinOut) {
-              // Fly back out to the standard arrival pose around the temp pin.
-              const upT = pinOut.clone().normalize();
-              const horiz = camera.position.clone().sub(pinOut);
+            } else if (standOut) {
+              // Back out over where the viewer stands: the heading they were looking along, at
+              // the altitude / tilt they LEFT the orbit at (the arrival defaults only when the
+              // session booted straight into FPV and never had an orbit pose).
+              if (isMobileShell) camNow.setMapMode("3d");
+              const upT = standOut.clone().normalize();
+              const horiz = camera.position.clone().sub(standOut);
               horiz.addScaledVector(upT, -horiz.dot(upT));
-              if (horiz.lengthSq() < 1) horiz.copy(_Z).addScaledVector(upT, -upT.z);
+              if (horiz.lengthSq() < 1) {
+                camera.getWorldDirection(_camFwd);
+                horiz.copy(_camFwd).addScaledVector(upT, -_camFwd.dot(upT)).negate();
+              }
+              if (horiz.lengthSq() < 1e-6) horiz.copy(_Z).addScaledVector(upT, -upT.z);
               horiz.normalize();
+              const gStand = ecefToGeodetic([standOut.x, standOut.y, standOut.z]);
               const pose = arrivalPose({
-                lookAt: pinOut.clone(),
+                lookAt: standOut.clone(),
                 approachHoriz: horiz,
-                groundAltM: tempPinGroundM,
-                altAboveGroundM: FLIGHT.arrivalAltAboveGroundM,
-                tiltDeg: FLIGHT.arrivalTiltDeg,
+                groundAltM: clampGroundM(ground.heightAt(gStand.latDeg, gStand.lonDeg) ?? tempPinGroundM),
+                altAboveGroundM: back ? back.altAboveGroundM : FLIGHT.arrivalAltAboveGroundM,
+                tiltDeg: back ? back.tiltDeg : FLIGHT.arrivalTiltDeg,
                 wgs84A: WGS84_A,
                 wgs84B: WGS84_B,
               });
@@ -5368,6 +5609,7 @@ export function attachStylizedTiles(opts: {
                 FPV.minFovDeg,
                 FPV.maxFovDeg,
               );
+              fovSnapPending = true;
               lastInteract = now;
             }
           } else {
@@ -5383,6 +5625,9 @@ export function attachStylizedTiles(opts: {
               fpvWalkGroundM = null; // RC10
               fpvWalkAppliedM = null;
               fpvWalkSampleValid = false;
+              fpvMeshFloorAbsM = null; // 2026-09-22: a fresh column decides on the first frame
+              fpvMeshLiftM = 0;
+              fpvMeshLastColumnFrame = -1;
               fpvDragId = null;
               controls.enabled = false;
               controls.adjustHeight = false; // eye height 1.7 m is under cameraRadius
@@ -5397,14 +5642,35 @@ export function attachStylizedTiles(opts: {
                 // FRESH entry — an FPV→FPV jump must keep the original pre-FPV memory.
                 pinsVisibleBeforeFpv = camNow.pinsVisible;
                 if (camNow.pinsVisible) camNow.setPinsVisible(false);
+                // Owner 2026-09-22 (FPV item 2): the orbit pose being LEFT — altitude above the
+                // ground under the camera, tilt off the nadir, lens, the /m map mode — restored
+                // over where the viewer stands at exit (the exit branch above).
+                const gCam = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+                const thCam = ground.heightAt(gCam.latDeg, gCam.lonDeg);
+                camera.getWorldDirection(_camFwd);
+                _fpvUpGeo.copy(camera.position).normalize();
+                preFpvOrbit = {
+                  altAboveGroundM: Math.max(
+                    2,
+                    gCam.altM - (thCam != null ? clampGroundM(thCam) : (lastGroundM ?? 0)),
+                  ),
+                  tiltDeg: THREE.MathUtils.radToDeg(
+                    Math.acos(THREE.MathUtils.clamp(-_camFwd.dot(_fpvUpGeo), -1, 1)),
+                  ),
+                  fovDeg: camera.fov,
+                  mapMode: isMobileShell ? camNow.mapMode : "3d",
+                };
               }
-              // A shared `#f=` link carries the EXACT view — eye height, bearing, pitch, FOV
-              // (owner 2026-07-14); consumed once, then the entry behaves as always.
+              // A shared `#f=` link / a saved place carries the EXACT view — eye height, bearing,
+              // pitch, FOV (owner 2026-07-14); a POINT jump (2026-09-22) carries only the place,
+              // and each missing field falls to what the viewer last stood at (`fpvCarry`), then
+              // to the planned view (heading / lens), then to the shipped defaults. Consumed once.
               const share = pendingFpvShare;
               pendingFpvShare = null;
-              fpvEyeM = share
-                ? THREE.MathUtils.clamp(share.eyeM, 0.5, FPV.tempEyeMaxM)
-                : FRUSTUM.eyeHeightM;
+              fpvEyeM =
+                share?.eyeM != null
+                  ? THREE.MathUtils.clamp(share.eyeM, 0.5, FPV.tempEyeMaxM)
+                  : (fpvCarry?.eyeM ?? FRUSTUM.eyeHeightM);
               _tempUp0.copy(pinP).normalize();
               // Owner QA 2026-08-21 item 2: a plain LOOK-FROM-HERE entry honours the FOCAL
               // CONE — plannedView (seeded from boot, batch #6) steers the basis exactly like
@@ -5412,18 +5678,15 @@ export function attachStylizedTiles(opts: {
               // (verticalFovDeg — the missing half of the horizontalFovDeg round trip). The
               // old "continue facing the camera" projection degenerated to NORTH at the /m 2D
               // nadir (|fwd·horizontal|≈0), which is what ignored the drawn cone.
-              const planEntry = share ? null : camNow.plannedView;
-              if (share || planEntry) {
+              const planEntry = share?.headingDeg != null ? null : camNow.plannedView;
+              const entryHeadingDeg = share?.headingDeg ?? planEntry?.headingDeg ?? null;
+              if (entryHeadingDeg != null) {
                 // Basis from the SHARED or PLANNED bearing (fresh scratch vectors — never
                 // alias a stored basis vector to a module temp, the S7 street-names lesson).
-                const entryLonR = THREE.MathUtils.degToRad(
-                  share ? share.lonDeg : camNow.tempPin!.lonDeg,
-                );
+                const entryLonR = THREE.MathUtils.degToRad(share ? share.lonDeg : camNow.tempPin!.lonDeg);
                 _skyEast.set(-Math.sin(entryLonR), Math.cos(entryLonR), 0);
                 _skyNorth.crossVectors(_tempUp0, _skyEast).normalize();
-                const entryH = THREE.MathUtils.degToRad(
-                  share ? share.headingDeg : planEntry!.headingDeg,
-                );
+                const entryH = THREE.MathUtils.degToRad(entryHeadingDeg);
                 _tempFwd0
                   .copy(_skyEast)
                   .multiplyScalar(Math.sin(entryH))
@@ -5447,7 +5710,12 @@ export function attachStylizedTiles(opts: {
               _tempFwd0.normalize();
               _tempRight0.crossVectors(_tempFwd0, _tempUp0).normalize();
               _tempUp0.crossVectors(_tempRight0, _tempFwd0); // re-orthonormalized
-              if (share) fpvPitch = THREE.MathUtils.degToRad(share.pitchDeg);
+              const entryPitchDeg = share?.pitchDeg ?? fpvCarry?.pitchDeg ?? null;
+              if (entryPitchDeg != null) {
+                fpvPitch = THREE.MathUtils.degToRad(
+                  THREE.MathUtils.clamp(entryPitchDeg, -FPV.pitchClampDeg, FPV.pitchClampDeg),
+                );
+              }
               fpvPinKey = camNow.tempPin
                 ? `${camNow.tempPin.latDeg},${camNow.tempPin.lonDeg}`
                 : null;
@@ -5456,15 +5724,17 @@ export function attachStylizedTiles(opts: {
                 position: eye,
                 lookAt: eye.clone().addScaledVector(_tempFwd0, FPV.tempLookAheadM),
               });
-              fovTargetDeg = share
-                ? THREE.MathUtils.clamp(share.fovDeg, FPV.minFovDeg, FPV.maxFovDeg)
-                : planEntry
-                  ? THREE.MathUtils.clamp(
-                      verticalFovDeg(planEntry.hFovDeg, camera.aspect),
-                      FPV.minFovDeg,
-                      FPV.maxFovDeg,
-                    )
-                  : FPV.tempFovDeg;
+              fovTargetDeg =
+                share?.fovDeg != null
+                  ? THREE.MathUtils.clamp(share.fovDeg, FPV.minFovDeg, FPV.maxFovDeg)
+                  : planEntry
+                    ? THREE.MathUtils.clamp(
+                        verticalFovDeg(planEntry.hFovDeg, camera.aspect),
+                        FPV.minFovDeg,
+                        FPV.maxFovDeg,
+                      )
+                    : (fpvCarry?.fovDeg ?? FPV.tempFovDeg);
+              fovSnapPending = true;
               lastInteract = now;
             }
           }
@@ -5594,6 +5864,9 @@ export function attachStylizedTiles(opts: {
                   fpvWalkGroundM = null; // RC10: a new pin is a new ground reference
                   fpvWalkAppliedM = null;
                   fpvWalkSampleValid = false;
+                  fpvMeshFloorAbsM = null; // 2026-09-22: the new pin's column decides afresh
+                  fpvMeshLiftM = 0;
+                  fpvMeshLastColumnFrame = -1;
                 }
                 camera.position.copy(pinP).addScaledVector(_tempUp0, fpvEyeM);
                 _fpvUpGeo.copy(_tempUp0);
@@ -5797,6 +6070,9 @@ export function attachStylizedTiles(opts: {
                   camera.position.addScaledVector(_fpvUpGeo, fpvWalkAppliedM);
                 }
               }
+              // MESH CLEARANCE (owner 2026-09-22): never inside a building / a model — the feet
+              // onto the surface above, the eye following the surface under them.
+              if (fpvKind === "temp") stepFpvMeshFloor();
               camera.up.copy(_fpvUp);
               camera.lookAt(_fpvLook.copy(camera.position).add(_fpvFwd));
               camera.updateMatrixWorld();
@@ -5838,7 +6114,16 @@ export function attachStylizedTiles(opts: {
   };
 
   const stepFovGlide = () => {
-        // FOV glide (FPV wheel zoom + the entry/exit FOV changes) — never a snap.
+        // FOV glide (FPV wheel zoom) — never a snap … except the entry / exit / jump lens change
+        // when transitions are the instant cut (owner 2026-09-22, FLIGHT.smoothTransitions).
+        if (fovSnapPending) {
+          fovSnapPending = false;
+          if (!smoothFlights() && camera.fov !== fovTargetDeg) {
+            camera.fov = fovTargetDeg;
+            camera.updateProjectionMatrix();
+            return;
+          }
+        }
         if (Math.abs(camera.fov - fovTargetDeg) > FPV.fovArriveDeg) {
           camera.fov += (fovTargetDeg - camera.fov) * (1 - Math.exp(-dtMs / FPV.fovEaseTauMs));
           if (Math.abs(camera.fov - fovTargetDeg) < FPV.fovArriveDeg) camera.fov = fovTargetDeg;
@@ -8244,6 +8529,28 @@ export function attachStylizedTiles(opts: {
   // real camera's setHeadingRate/setFovRate instead (FpvControls owns that split).
   let plannedApplied = { appliedHeadingDegPerS: 0, appliedHFovPerS: 0 };
   let lastPlacedSeedKey = "";
+  const _arMoonDir = new THREE.Vector3();
+  const stepArGuides = () => {
+        // AR GUIDES (owner 2026-09-22 item 3): while the phone's AR look-around is on, the sun /
+        // moon / tracked-target markers and the day arcs are redrawn as a DOM layer ABOVE the
+        // camera feed (`scene/arGuides.ts`) — the GL guides sit under the `<video>` and fade with
+        // the 3D ↔ CAM slider. Same directions the impostors and the edge chips use: the sun is a
+        // parallel direction, the moon and a finite target are camera-relative.
+        const arOn = fpvActive && camNow.arLook;
+        if (!arOn && !arGuides.debug().shown) return;
+        const skyNow = useSkyStore.getState();
+        arGuides.update({
+          enabled: arOn,
+          camera,
+          viewW: window.innerWidth,
+          viewH: window.innerHeight,
+          sun: sunDirW,
+          moon: _arMoonDir.subVectors(moonPosW, camera.position).normalize(),
+          target: skyNow.visible ? { dir: targetDirW, label: targetShortName(skyNow.target).toUpperCase() } : null,
+          arcs: dayArcs.arcs(),
+        });
+  };
+
   const stepPlannedView = () => {
         if (upNow.phase === "placed" && upNow.exif) {
           const h = upNow.params.headingDeg ?? 0;
@@ -8828,6 +9135,7 @@ export function attachStylizedTiles(opts: {
         stepGraticuleAndAtmosphere();
         stepStars();
         stepDayArcs();
+        stepArGuides();
         stepPlannedView();
         stepAimCones();
         stepGeoLabels();
@@ -8925,6 +9233,7 @@ export function attachStylizedTiles(opts: {
       unsubModelCursor();
       userModels.dispose();
       dayArcs.dispose();
+      arGuides.dispose();
       aimCones.dispose();
       focalCone.dispose();
       geoLabels.dispose();
