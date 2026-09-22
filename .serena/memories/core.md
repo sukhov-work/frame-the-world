@@ -11,7 +11,7 @@ leaves and in `DECISIONS.md`; this root only indexes and states the current stat
 
 ## Status — 2026-09-22 (`mem:project/wip-2026-09-22-ar-ui-rework-fpv-quirks`)
 **THE AR SMALL-SCREEN PASS · ROLL OUT · THE AR GUIDES · INSTANT TRANSITIONS · THE CARRIED POSE · THE MESH CLEARANCE · THE /m PLANET
-BOOT FROM A HASH — BUILT + twin-verified, NOT released (live is v1.36.17).** /m AR: a one-row strip, round verdict cells on the left
+BOOT FROM A HASH — LIVE as v1.36.19 (2026-09-22, ship `4ac168c` = PR #132).** /m AR: a one-row strip, round verdict cells on the left
 rail, a vertical 3D ↔ CAM slider, the mini-map folds while calibrating; no roll in the calibration, the pinch sign fixed, the default
 FOV 68°; `scene/arGuides.ts` rings the sun / moon / target ABOVE the feed with 3-px day arcs. FPV: every transition is a CUT
 (`FLIGHT.smoothTransitions`, a hidden pref + `__globe.smoothFlights`), a jump / entry / exit KEEPS the pose (`fpvCarry`,
@@ -30,7 +30,7 @@ orbital `#p=` boots the planet on /m. Owner's /m rule: "too little screen space 
 - Gates: vitest **3,276 / 221 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.18** (each ship bumps the patch); live **v1.36.17** (2026-09-20). Release: `npm run release:full -- -c "…"`.
+- `package.json` **1.36.19** (each ship bumps the patch); live **v1.36.19** (2026-09-22). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"`.
 - **Every `/api` write goes through `lib/api/dataFetch.jsonWriteInit`** (2026-09-19): a body-less DELETE carries no content
   type and the live origin check 403s it (`jsonWrites.test.ts` fences it; dev never runs the check).
 - **No `<form method=post>` anywhere** (2026-09-18): the live adapter's request origin is `http:` → `checkOrigin` 403s every
@@ -47,8 +47,7 @@ orbital `#p=` boots the planet on /m. Owner's /m rule: "too little screen space 
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-RELEASE the 2026-09-22 batch when the owner says so (`npm run release:full`) → the owner's device feedback on the new AR screen +
-the guides (**T149** the sun-at-the-edge pinch → pin the FOV default; **T147** the roll's sign) → **T150** the EYE readout on a
+The owner is TESTING v1.36.19 on his phones — his feedback on the new AR screen + the guides comes first (**T149** the sun-at-the-edge pinch → pin the FOV default; **T147** the roll's sign) → **T150** the EYE readout on a
 mesh floor (a taste call) → **T151** the clearance's edges → **T146** the seamless overlay handover → **T148** the box on `/m`? →
 the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration · the /m model-edit check).
 

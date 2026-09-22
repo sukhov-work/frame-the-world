@@ -1,4 +1,4 @@
-# wip 2026-09-22 — the AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance · the /m planet boot from a hash — DONE (built + twin-verified; NOT released)
+# wip 2026-09-22 — the AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance · the /m planet boot from a hash — DONE · LIVE as v1.36.19 (2026-09-22)
 
 Mode: implement, Deep (`/frame` under investigate-design-v3; four parallel research agents, every claim cited). Owner order
 2026-09-22 (the follow-up to `mem:project/wip-2026-09-19-ar-calibration-box-meshbugs` after the first phone tests).
@@ -55,3 +55,11 @@ Browser (dev, house Chrome): NEW `verify-fpv-carry-2026-09-22` 29/29 · `verify-
 
 Related: `mem:project/wip-2026-09-19-ar-calibration-box-meshbugs` · `mem:project/wip-2026-09-18-mobile-fixes-signout` ·
 `mem:bugs/fpv-walk-orbit` · `mem:project/wip-2026-09-07-mobile-bestspot-ar`.
+
+## RELEASED 2026-09-22 — v1.36.19 (ship `4ac168c` = PR #132; DECISIONS 2026-09-22b)
+- The hook in the foreground: gates green → `claude/ship-20260922-093333` → landed after 60 s, tree-proven, mirror synced,
+  `package.json` 1.36.18 → 1.36.19. `release:full`: run 1 refused a 294-char comment (**the cap is 250**; count `${#C}` first),
+  run 3 (244) → `wix release` published · canary GET 200 · POST 200 · warm 169/0/0 · `verify-prod-globe` canvas 1728×993 gl=true;
+  the usual console pair only. The edge bundles carry the batch: `MobileShell` (1.36.19 stamp, the new classes), `MiniMap`
+  (the fold), `tuning` (`hashPlanetFromAltM`, `meshColumnUpM`), `prefs` (`smoothFlights`), `StylizedTiles.BmVDhHt9.js`
+  (`"ar-guides"`); DEV seams stripped in prod by design. No `/api` write changed → no `verify-live-deletes`.
