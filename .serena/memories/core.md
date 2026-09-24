@@ -10,8 +10,8 @@ Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session n
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
 ## Status — 2026-09-25 (`mem:project/wip-2026-09-25-mobile-ux-pass`)
-**THE /m UX PASS after the owner's iPhone 17 Pro test of v1.36.19 — shipped + released 2026-09-25 (DECISIONS 2026-09-25 / 2026-09-25b
-for the version).** UX only, no store / engine change: ⌖ ALIGN is a round cell on the LEFT rail (the column's top cell while
+**THE /m UX PASS after the owner's iPhone 17 Pro test of v1.36.19 — LIVE as v1.36.21 (2026-09-25, ship `6b791a4` = PR #134; DECISIONS
+2026-09-25 + 2026-09-25b).** UX only, no store / engine change: ⌖ ALIGN is a round cell on the LEFT rail (the column's top cell while
 calibrating; it was the right-rail float that squeezed the slider — it shows because aiming at the sky closes the iOS compass gate →
 the gyro-only rung); CONFIRM is the BOTTOM verdict cell (CANCEL · RESET · CONFIRM); the sticks are see-through (24 % + 2 px blur, the
 focal mm on its own pill); the tab bar is ONE LINE per tab (49 → 27 px) and every seat above the bottom column dropped 1.2rem
@@ -33,8 +33,8 @@ focal mm on its own pill); the tab bar is ONE LINE per tab (49 → 27 px) and ev
 - Gates: vitest **3,276 / 221 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.20** before the 2026-09-25 ship (each ship bumps the patch); live: the 2026-09-25 release (DECISIONS 2026-09-25b
-  carries the version; v1.36.19 was 2026-09-22). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"`.
+- `package.json` **1.36.21** (each ship bumps the patch); live **v1.36.21** (2026-09-25, ship `6b791a4` = PR #134; v1.36.19 was
+  2026-09-22). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
   selector in a CSS file (a comment above the rule breaks it).
