@@ -218,7 +218,7 @@ const padDrag = async (dx, dy) =>
   let st = await state();
   ok(st.cam === "calibrate" && st.draft !== null && st.ar === true, `a long press on AR opens CALIBRATION (mode ${st.cam}) — and the trailing click did NOT switch AR off`);
   const ui = await J(`({ pad: !!document.querySelector(".m-arcal__pad"), cross: !!document.querySelector(".m-arcal__cross"), acts: [...document.querySelectorAll(".m-arcal__actions [data-act]")].map((b) => b.dataset.act), padZ: getComputedStyle(document.querySelector(".m-arcal__pad")).zIndex, joyZ: getComputedStyle(document.querySelector(".m-altcol")).zIndex })`);
-  ok(ui.pad && ui.cross && ui.acts.join() === "ar-cal-confirm,ar-cal-reset,ar-cal-cancel", `the pad, the cross and CONFIRM / RESET / CANCEL (${ui.acts.join(" · ")})`);
+  ok(ui.pad && ui.cross && ui.acts.join() === "ar-cal-cancel,ar-cal-reset,ar-cal-confirm", `the pad, the cross and CANCEL / RESET / CONFIRM — CONFIRM last = the bottom cell, nearest the stick (owner 2026-09-25) (${ui.acts.join(" · ")})`);
   ok(Number(ui.padZ) < Number(ui.joyZ), `the pad (z ${ui.padZ}) sits UNDER the FPV instruments (z ${ui.joyZ})`);
   // RENDERED geometry, not DOM properties (owner 2026-09-22 item 1 — the small-screen layout):
   // the strip is ONE row (title + readout, no memo, no ROLL), clear of the mini-map's PUCK (the

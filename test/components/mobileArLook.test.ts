@@ -81,15 +81,16 @@ describe("the toggle — permission from the tap, copy that matches the platform
     const base: ArLookState = { rung: "relative-unaligned", compassAccuracyDeg: null, compassAgeMs: Infinity, samples: 3, stale: false, headingDeg: 0, pitchDeg: 0, declinationDeg: 0 };
     useCameraStore.getState()._syncArLook(base);
     let html = render(ArLookToggle);
-    expect(html).toContain("⌖ ALIGN");
+    // 2026-09-25: a ROUND cell (the .m-act--icon idiom — glyph over a tiny label) seated on the LEFT rail by fpv.css
+    expect(html).toMatch(/class="m-act m-act--icon m-act--accent m-aralign" data-act="ar-align"[^>]*>[\s\S]*?⌖<\/span><span>ALIGN<\/span>/);
     expect(html).toContain("GYRO ONLY — FACE WHERE THE VIEW LOOKS AND TAP ALIGN");
     useCameraStore.getState()._syncArLook({ ...base, rung: "relative-aligned" });
     html = render(ArLookToggle);
-    expect(html).toContain("⌖ ALIGN");
+    expect(html).toContain('data-act="ar-align"');
     expect(html).toContain("GYRO · ALIGNED");
     useCameraStore.getState()._syncArLook({ ...base, rung: "ios-compass", stale: true });
     html = render(ArLookToggle);
-    expect(html).not.toContain("⌖ ALIGN");
+    expect(html).not.toContain('data-act="ar-align"');
     expect(html).toContain(AR_COPY.stale);
     expect(arRungLine({ ...base, rung: "ios-compass", compassAgeMs: 90_000 })).toContain("TILT THE PHONE DOWN");
   });
@@ -113,6 +114,12 @@ describe("the toggle — permission from the tap, copy that matches the platform
     expect(float).toMatch(/position: absolute;/);
     expect(float).toMatch(/bottom: calc\(100% \+ 6px\);/);
     expect(css).not.toMatch(/\.m-arwrap \{[^}]*position: fixed/);
+    // ⌖ ALIGN is FIXED on the LEFT rail at the verdict column's seat (owner 2026-09-25 item 1) and hides with the map open
+    const align = css.slice(css.indexOf("\n.m-aralign {"), css.indexOf("}", css.indexOf("\n.m-aralign {"))); // the line-start rule, not the mw-open hide list
+    expect(align).toMatch(/position: fixed;/);
+    expect(align).toMatch(/left: calc\(1rem \+ env\(safe-area-inset-left\)\);/);
+    expect(align).toMatch(/bottom: calc\(10rem \+ 120px \+ 110px \+ 12px \+ env\(safe-area-inset-bottom\)\);/);
+    expect(css).toMatch(/body\.mw-open \.m-arfloat,\s*body\.mw-open \.m-aralign \{\s*visibility: hidden;/);
   });
 
   describe("the bubble clears (owner 2026-09-08b) — re-shown only on rung · stale transitions", () => {

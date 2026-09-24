@@ -93,7 +93,7 @@ describe("the /m FPV rail (owner 2026-09-18)", () => {
 
   it("the altitude column's seat lifts by one cell + gap while the PLACES cell is rendered (fpv.css)", () => {
     const root = ruleBody(FPV_CSS, ":root");
-    expect(root).toMatch(/--m-altcol-bottom-base:\s*16\.4rem;/);
+    expect(root).toMatch(/--m-altcol-bottom-base:\s*15\.2rem;/); // 16.4rem until the 2026-09-25 tab row (−1.2rem)
     expect(root).toMatch(/--m-altcol-bottom:\s*var\(--m-altcol-bottom-base\);/);
     const lifted = ruleBody(FPV_CSS, "body.m:has(.m-actions .m-act--places)");
     expect(lifted).toMatch(/--m-altcol-bottom:\s*calc\(var\(--m-altcol-bottom-base\) \+ 52px\);/);

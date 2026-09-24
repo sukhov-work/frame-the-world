@@ -126,6 +126,21 @@ body.m:has(.m-arcal__mixv) {
     )
   );
 }
+/* 2026-09-25 (owner item 1 — the slider "absolutely crushed" on the iPhone): the budget reads the
+   mini-map as RENDERED. Folded to its 46 px puck — always while calibrating, or by the user's own
+   tap — the slider takes the card's 88 px back instead of staying at its 52 px floor. */
+body.m:has(.m-arcal__mixv):has(.mm--collapsed) {
+  --m-armix-h: max(
+    52px,
+    min(
+      128px,
+      calc(
+        100dvh - 2.9rem - 46px - 8px - env(safe-area-inset-top) - var(--m-altcol-bottom) -
+          var(--m-altcol-h, 148px) - 8px - env(safe-area-inset-bottom)
+      )
+    )
+  );
+}
 .m-arcal__mixv {
   position: fixed;
   right: calc(0.75rem + env(safe-area-inset-right));
@@ -177,21 +192,23 @@ body.m:has(.m-arcal__mixv) {
   accent-color: var(--color-accent);
   touch-action: none;
 }
-/* The ALIGN chip / the rung note float above the wrap — with the slider standing there they
-   float above the slider instead (the wrap is the column's first child, so 100 % = its top). */
+/* The rung note floats above the wrap — with the slider standing there it floats above the
+   slider instead (the wrap is the column's first child, so 100 % = its top). */
 body.m:has(.m-arcal__mixv) .m-arfloat {
   bottom: calc(100% + 8px + var(--m-armix-h, 96px) + 6px);
 }
 
-/* THE VERDICT COLUMN — CONFIRM / RESET / CANCEL as three round cells on the LEFT rail, just above
+/* THE VERDICT COLUMN — CANCEL / RESET / CONFIRM as three round cells on the LEFT rail, just above
    the AIM stick (owner 2026-09-22 item 1c: a thumb reaches them there, and they no longer eat the
-   strip). The stick is `.m-joy--aim-fpv` — bottom 11.2rem + 120px, 108 px + its 1 px border =
-   110 px tall — so the column ends 12 px above its top. `data-act` + the DOM order are the
-   contract the harness reads. */
+   strip). CONFIRM is the BOTTOM cell — nearest the stick, where the thumb already is (owner
+   2026-09-25 item 2; it was the top one). The stick is `.m-joy--aim-fpv` — bottom 10rem + 120px,
+   108 px + its 1 px border = 110 px tall — so the column ends 12 px above its top. `data-act` +
+   the DOM order are the contract the harness reads. While the column is up, ⌖ ALIGN (fpv.css
+   `.m-aralign`, a gyro-only rung's chip) stacks as a FOURTH cell above it — 3 × 44 + 3 × 8 px. */
 .m-arcal__actions {
   position: fixed;
   left: calc(1rem + env(safe-area-inset-left));
-  bottom: calc(11.2rem + 120px + 110px + 12px + env(safe-area-inset-bottom));
+  bottom: calc(10rem + 120px + 110px + 12px + env(safe-area-inset-bottom));
   z-index: 11;
   display: flex;
   flex-direction: column;
@@ -207,6 +224,9 @@ body.m:has(.m-arcal__mixv) .m-arfloat {
 .m-arcal__actions .m-act--icon span:last-child {
   font-size: 0.38rem;
   letter-spacing: 0.1em;
+}
+body.m:has(.m-arcal__actions) .m-aralign {
+  bottom: calc(10rem + 120px + 110px + 12px + 156px + env(safe-area-inset-bottom));
 }
 
 /* The CAM chip — the AR chip's twin, seated ABOVE it inside the same wrap (so the AR note / ALIGN

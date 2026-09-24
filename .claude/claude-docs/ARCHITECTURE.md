@@ -530,9 +530,12 @@ In mobile FPV the phone's orientation aims the camera. The seam is three layers,
   the camera picture's size (a pinch OUT enlarges the feed = the FOV estimate WIDENS, `tan(fov'/2) = tan(fov/2)·spread` —
   2026-09-19 had the sign backwards); ✓ CONFIRM / ↺ RESET / ✕ CANCEL. **The small-screen layout (2026-09-22):** the top strip
   is ONE row (title + `YAW · PITCH · mm` readout, no memo; the mini-map folds to its puck while calibrating — `MiniMap`
-  reads `arCam`), the three verdicts are ROUND cells in a column on the LEFT rail 12 px above the AIM stick (thumb reach),
-  and the 3D ↔ CAM slider stands VERTICAL just above the CAM chip on the right rail (a rotated range, a SIBLING of the
-  column — `--m-altcol-h` stays 200 px; the ALIGN float clears it through `--m-armix-h`).
+  reads `arCam`), the three verdicts are ROUND cells in a column on the LEFT rail 12 px above the AIM stick (thumb reach;
+  **since 2026-09-25 CONFIRM is the BOTTOM cell, nearest the stick — CANCEL · RESET · CONFIRM top-down — and ⌖ ALIGN, a
+  gyro-only rung's chip, is a round cell on the same left rail: alone at the column's seat, the column's TOP cell while
+  calibrating**), and the 3D ↔ CAM slider stands VERTICAL just above the CAM chip on the right rail (a rotated range, a
+  SIBLING of the column — `--m-altcol-h` stays 200 px; **its height reads the mini-map as RENDERED: folded to the puck —
+  always while calibrating — the card's 134 px becomes 46 through `:has(.mm--collapsed)`, 2026-09-25**).
   **The stored yaw is a measured COMPASS BIAS and lives INSIDE the trim** (target = observation + bias):
   it never touches the relative rungs (there CONFIRM is an ALIGN by eye and the stored yaw is kept), RESET moves the offset
   at once, and CONFIRM sets `bias = offset − median(observations)` — not `bias + drag` — so a trim that had not converged

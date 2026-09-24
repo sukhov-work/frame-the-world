@@ -20,40 +20,51 @@
 }
 
 /* The build stamp (owner order 2026-09-08) — the column's bottom-right corner, under the SPOT
-   tab's own bottom padding (0.4rem + the row's 0.3rem ≈ 11 px clear the 7 px stamp at 1 px),
-   in the safe-area gutter on a notched phone. Inert (version-stamp.css); rides the column's
-   mw-open lift. */
+   tab's own bottom padding (0.55rem ≈ 8.8 px clears the 7 px stamp at 1 px — 2026-09-25 the row
+   itself carries no bottom pad any more), in the safe-area gutter on a notched phone. Inert
+   (version-stamp.css); rides the column's mw-open lift. */
 .m-bottom .version-stamp {
   position: absolute;
   right: calc(3px + env(safe-area-inset-right));
   bottom: 1px;
 }
 
+/* ONE LINE PER TAB (owner order 2026-09-25 item 4 — "the bottom row is too tall; 50–60 % of it
+   without losing anything"): the glyph sits BESIDE its label instead of over it, so the row is
+   the glyph's line box + the pads — 27 px against the 49 px of the stacked cell (56 %). The
+   fonts came down a notch (0.6 → 0.56rem, glyph 0.95 → 0.85rem); every label is ≤ 6 characters,
+   so "◉ SCENE" … "⌕ SEARCH" fit a 66 px cell (a 360 px phone) with room. The row's own bottom
+   pad moved INTO the tab (0.55rem) so the whole row stays the tap target (`align-items:
+   stretch`). Everything seated above the column dropped by the same 1.2rem — the scene action
+   chips below, the two sticks and the rail's seat token (fpv.css), the AR verdict column
+   (ar-camera.css). (No selector literal in this comment: the touch-action audit reads the FIRST
+   occurrence of each audited selector in the file.) */
 .m-tabs {
   display: flex;
   align-items: stretch;
-  padding: 0 calc(0.4rem + env(safe-area-inset-right)) calc(0.3rem + env(safe-area-inset-bottom))
+  padding: 0 calc(0.4rem + env(safe-area-inset-right)) env(safe-area-inset-bottom)
     calc(0.4rem + env(safe-area-inset-left));
   gap: 4px;
 }
 .m-tab {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 6px;
   font-family: var(--font-mono);
-  font-size: 0.6rem;
-  letter-spacing: 0.14em;
+  font-size: 0.56rem;
+  letter-spacing: 0.12em;
   color: var(--color-text-secondary);
   background: transparent;
   border: none;
   border-radius: 10px;
-  padding: 0.45rem 0 0.4rem;
+  padding: 0.3rem 0 0.55rem;
   transition: color 180ms ease, background 180ms ease;
 }
 .m-tab__glyph {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   line-height: 1;
 }
 .m-tab--on {
@@ -80,7 +91,7 @@
   content: "";
   position: absolute;
   top: -3px;
-  right: -7px;
+  right: -5px; /* the glyph's shoulder — inside the 6 px gap to the label (one line since 2026-09-25) */
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -203,7 +214,7 @@
 .m-actions {
   position: fixed;
   right: calc(0.75rem + env(safe-area-inset-right));
-  bottom: calc(10.8rem + env(safe-area-inset-bottom)); /* clears peek+dock+tabs (~158px) */
+  bottom: calc(9.6rem + env(safe-area-inset-bottom)); /* clears peek+dock+tabs (~145px; was 10.8rem over the 49 px tab row — 2026-09-25) */
   z-index: 10;
   display: flex;
   flex-direction: column;

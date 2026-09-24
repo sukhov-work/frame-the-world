@@ -9,16 +9,19 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-09-22 (`mem:project/wip-2026-09-22-ar-ui-rework-fpv-quirks`)
-**THE AR SMALL-SCREEN PASS · ROLL OUT · THE AR GUIDES · INSTANT TRANSITIONS · THE CARRIED POSE · THE MESH CLEARANCE · THE /m PLANET
-BOOT FROM A HASH — LIVE as v1.36.19 (2026-09-22, ship `4ac168c` = PR #132).** /m AR: a one-row strip, round verdict cells on the left
-rail, a vertical 3D ↔ CAM slider, the mini-map folds while calibrating; no roll in the calibration, the pinch sign fixed, the default
-FOV 68°; `scene/arGuides.ts` rings the sun / moon / target ABOVE the feed with 3-px day arcs. FPV: every transition is a CUT
-(`FLIGHT.smoothTransitions`, a hidden pref + `__globe.smoothFlights`), a jump / entry / exit KEEPS the pose (`fpvCarry`,
-`preFpvOrbit`, partial `FpvJumpRequest`), the walker never clips a mesh (`lib/globe/fpvClearance`, `FPV.meshClearance`), an
-orbital `#p=` boots the planet on /m. Owner's /m rule: "too little screen space — use it efficiently".
+## Status — 2026-09-25 (`mem:project/wip-2026-09-25-mobile-ux-pass`)
+**THE /m UX PASS after the owner's iPhone 17 Pro test of v1.36.19 — shipped + released 2026-09-25 (DECISIONS 2026-09-25 / 2026-09-25b
+for the version).** UX only, no store / engine change: ⌖ ALIGN is a round cell on the LEFT rail (the column's top cell while
+calibrating; it was the right-rail float that squeezed the slider — it shows because aiming at the sky closes the iOS compass gate →
+the gyro-only rung); CONFIRM is the BOTTOM verdict cell (CANCEL · RESET · CONFIRM); the sticks are see-through (24 % + 2 px blur, the
+focal mm on its own pill); the tab bar is ONE LINE per tab (49 → 27 px) and every seat above the bottom column dropped 1.2rem
+(`.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem); the 3D ↔ CAM slider reads the mini-map as rendered
+(`:has(.mm--collapsed)`). Owner calls open: hide ALIGN while calibrating? auto-fold the mini-map while CAM is on?
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-09-22 the AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance →
+  v1.36.19 LIVE** (`wip-2026-09-22-ar-ui-rework-fpv-quirks`): the one-row strip, the vertical slider, `scene/arGuides.ts`,
+  `FLIGHT.smoothTransitions` false, `fpvCarry` / `preFpvOrbit`, `lib/globe/fpvClearance`, `MOBILE2D.hashPlanetFromAltM`.
 - **2026-09-19 AR calibration + CAM + the gyro-led ladder · the box · two root causes → v1.36.17 LIVE** (`wip-2026-09-19-ar-calibration-box-meshbugs`):
   `lib/sensors/yawTrim.ts` (the gyro drives, the compass trims), `ArCameraOverlay`, `lib/models/primitives.ts`, `dataFetch.jsonWriteInit`.
 - **2026-09-18 three /m fixes + the SIGN-OUT root cause → v1.36.14 LIVE** (`wip-2026-09-18-mobile-fixes-signout`): the live
@@ -30,7 +33,11 @@ orbital `#p=` boots the planet on /m. Owner's /m rule: "too little screen space 
 - Gates: vitest **3,276 / 221 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.19** (each ship bumps the patch); live **v1.36.19** (2026-09-22). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"`.
+- `package.json` **1.36.20** before the 2026-09-25 ship (each ship bumps the patch); live: the 2026-09-25 release (DECISIONS 2026-09-25b
+  carries the version; v1.36.19 was 2026-09-22). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"`.
+- **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
+  a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
+  selector in a CSS file (a comment above the rule breaks it).
 - **Every `/api` write goes through `lib/api/dataFetch.jsonWriteInit`** (2026-09-19): a body-less DELETE carries no content
   type and the live origin check 403s it (`jsonWrites.test.ts` fences it; dev never runs the check).
 - **No `<form method=post>` anywhere** (2026-09-18): the live adapter's request origin is `http:` → `checkOrigin` 403s every
@@ -47,9 +54,12 @@ orbital `#p=` boots the planet on /m. Owner's /m rule: "too little screen space 
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The owner is TESTING v1.36.19 on his phones — his feedback on the new AR screen + the guides comes first (**T149** the sun-at-the-edge pinch → pin the FOV default; **T147** the roll's sign) → **T150** the EYE readout on a
-mesh floor (a taste call) → **T151** the clearance's edges → **T146** the seamless overlay handover → **T148** the box on `/m`? →
-the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration · the /m model-edit check).
+The owner TESTS the 2026-09-25 pass on the iPhone 17 Pro / the Pixel — his feedback comes first (the ALIGN cell on the left, CONFIRM
+under the thumb, the pads' see-through level, the 27 px tab row, the slider in CAM VIEW with the card up; hide ALIGN while
+calibrating? auto-fold the card while CAM is on?) + still owed from 2026-09-22 (**T149** the sun-at-the-edge pinch → pin the FOV
+default; **T147** the roll's sign) → **T150** the EYE readout on a mesh floor (a taste call) → **T151** the clearance's edges →
+**T146** the seamless overlay handover → **T148** the box on `/m`? → the pre-audit main plan (farm FEATURE legs · the T77 lane ·
+T145's migration · the /m model-edit check).
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
@@ -91,6 +101,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - Three /m fixes + sign-out root cause → v1.36.14 (09-18) · 09-18-mobile-fixes-signout
 - AR calibration + CAM + gyro-led ladder · the box · delete + white-ground root causes (09-19) · 09-19-ar-calibration-box-meshbugs
 - The AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance (09-22) · 09-22-ar-ui-rework-fpv-quirks
+- The /m UX pass after the iPhone 17 Pro test: ALIGN left, CONFIRM low, see-through sticks, the one-line tab bar, seats −1.2rem (09-25) · 09-25-mobile-ux-pass
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

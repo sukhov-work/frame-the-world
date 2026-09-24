@@ -1848,7 +1848,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Hold the AR chip until CALIBRATE AR opens (allow the camera when the browser asks).",
           "Put something far away — the sun, the moon, a tower, a ridge — on the centre cross and drag the 3D view onto the camera's picture.",
           "Tilt the phone so the same thing sits near the top of the screen, then pinch until the two pictures match there too — a pinch cannot be judged at the centre.",
-          "Press ✓ CONFIRM (the round cell above the aim stick) — the correction is kept on this phone until the next calibration replaces it.",
+          "Press ✓ CONFIRM (the round cell just above the aim stick) — the correction is kept on this phone until the next calibration replaces it.",
           "Press ↺ RESET to forget a stored calibration, or ✕ CANCEL to leave everything as it was.",
         ],
         tip:

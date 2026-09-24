@@ -207,9 +207,16 @@ type DeviceOrientationEventCtor = { requestPermission?: () => Promise<"granted" 
  *
  * Seat (owner 2026-09-08b): the FIRST cell of the right-rail altitude column — a 44 px round
  * chip like ⤒/⤓ below it, the two letters AR in the column's mono (no glyph: the compass emoji
- * broke the icon style and made the map harder to read — owner 2026-09-08b). The note bubble and the ALIGN chip FLOAT above the column
- * (`.m-arfloat`, absolute) so the column's own box — the A1-2 `--m-altcol-h` contract the map
- * window's ◉ RE-CENTRE reads — never grows while a note is up.
+ * broke the icon style and made the map harder to read — owner 2026-09-08b). The note bubble
+ * FLOATS above the column (`.m-arfloat`, absolute) so the column's own box — the A1-2
+ * `--m-altcol-h` contract the map window's ◉ RE-CENTRE reads — never grows while a note is up.
+ *
+ * ⌖ ALIGN (owner 2026-09-25 item 1): a round cell on the LEFT rail, just above the AIM stick (it
+ * floated above this column before, on top of the mini-map card, squeezing the 3D ↔ CAM slider).
+ * Offered on the gyro-only rungs: with no trustworthy compass the phone knows how far it turned
+ * but not where north is, so the tap ties the CURRENT phone pose to the camera's heading
+ * (`scene/arLook.ts`, `alignEpoch`). It stays this component's child for the "ALIGNED" flash;
+ * fpv.css seats it, and stacks it above the calibration column while that is up.
  */
 export function ArLookToggle() {
   const on = useCameraStore((s) => s.arLook);
@@ -317,25 +324,11 @@ export function ArLookToggle() {
   const line = note ?? "";
   return (
     <div className="m-arwrap">
-      {(line || relative) && (
+      {line && (
         <div className="m-arfloat">
-          {line && (
-            <span className="m-arnote" role="status">
-              {line}
-            </span>
-          )}
-          {relative && (
-            <button
-              type="button"
-              className="m-act m-act--accent m-aralign"
-              onClick={() => {
-                useCameraStore.getState().requestArAlign();
-                flash(AR_COPY.aligned);
-              }}
-            >
-              ⌖ ALIGN
-            </button>
-          )}
+          <span className="m-arnote" role="status">
+            {line}
+          </span>
         </div>
       )}
       {on && (
@@ -365,6 +358,23 @@ export function ArLookToggle() {
       >
         AR
       </button>
+      {relative && (
+        <button
+          type="button"
+          className="m-act m-act--icon m-act--accent m-aralign"
+          data-act="ar-align"
+          aria-label="Align — tie the phone's current pose to where the view looks"
+          onClick={() => {
+            useCameraStore.getState().requestArAlign();
+            flash(AR_COPY.aligned);
+          }}
+        >
+          <span className="m-act__glyph" aria-hidden="true">
+            ⌖
+          </span>
+          <span>ALIGN</span>
+        </button>
+      )}
     </div>
   );
 }

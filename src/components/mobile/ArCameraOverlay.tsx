@@ -14,11 +14,13 @@
  * THE SCREEN (owner order 2026-09-22, item 1 — "we have too little screen space and must use it
  * efficiently"): the top strip is ONE row — the title with the yaw / pitch / lens readout beside
  * it (no memo text; the mini-map folds to its puck while calibrating so the row has the width);
- * CONFIRM / RESET / CANCEL are three ROUND cells in a column on the LEFT, just above the AIM
- * stick, where a thumb reaches them (a row at the top was out of reach and ate the strip); the
- * 3D ↔ CAM slider stands VERTICAL just above the CAM chip on the right rail. Every seat is fixed
- * geometry off the same tokens the rail publishes (`--m-altcol-bottom`, `--m-altcol-h`), so the
- * column's own box never grows (the A1-2 contract).
+ * CANCEL / RESET / CONFIRM are three ROUND cells in a column on the LEFT, just above the AIM
+ * stick, where a thumb reaches them (a row at the top was out of reach and ate the strip) —
+ * CONFIRM at the BOTTOM, nearest the stick (owner 2026-09-25 item 2); the 3D ↔ CAM slider stands
+ * VERTICAL just above the CAM chip on the right rail, and reads the mini-map's rendered height
+ * (folded while calibrating) for its own. Every seat is fixed geometry off the same tokens the
+ * rail publishes (`--m-altcol-bottom`, `--m-altcol-h`), so the column's own box never grows (the
+ * A1-2 contract). ⌖ ALIGN (FpvControls) stacks above this column while it is up.
  *
  * THE SHARED SCALE (`lib/sensors/arCalibration.videoLayout`): two pinhole pictures agree at every
  * pixel exactly when they share a focal length IN PIXELS, so the `<video>` is drawn at the size
@@ -270,20 +272,21 @@ export default function ArCameraOverlay() {
           3D
         </span>
       </div>
-      {/* The verdict column: three round cells on the left, just above the AIM stick. */}
+      {/* The verdict column: three round cells on the left, just above the AIM stick — CONFIRM
+          at the bottom, nearest the stick (owner 2026-09-25 item 2). */}
       {calibrating && (
         <div className="m-arcal__actions" role="group" aria-label="Calibration actions">
           <button
             type="button"
-            className="m-act m-act--icon m-act--accent"
-            data-act="ar-cal-confirm"
-            aria-label="Confirm the calibration"
-            onClick={() => cam.confirmArCalibration()}
+            className="m-act m-act--icon"
+            data-act="ar-cal-cancel"
+            aria-label="Cancel the calibration"
+            onClick={() => cam.cancelArCalibration()}
           >
             <span className="m-act__glyph" aria-hidden="true">
-              ✓
+              ✕
             </span>
-            <span>{AR_CAL_COPY.confirm}</span>
+            <span>{AR_CAL_COPY.cancel}</span>
           </button>
           <button
             type="button"
@@ -299,15 +302,15 @@ export default function ArCameraOverlay() {
           </button>
           <button
             type="button"
-            className="m-act m-act--icon"
-            data-act="ar-cal-cancel"
-            aria-label="Cancel the calibration"
-            onClick={() => cam.cancelArCalibration()}
+            className="m-act m-act--icon m-act--accent"
+            data-act="ar-cal-confirm"
+            aria-label="Confirm the calibration"
+            onClick={() => cam.confirmArCalibration()}
           >
             <span className="m-act__glyph" aria-hidden="true">
-              ✕
+              ✓
             </span>
-            <span>{AR_CAL_COPY.cancel}</span>
+            <span>{AR_CAL_COPY.confirm}</span>
           </button>
         </div>
       )}

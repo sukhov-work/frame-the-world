@@ -199,9 +199,10 @@ describe("the overlay — renders only while AR + CAM are on; calibration adds t
     html = render(ArCameraOverlay);
     expect(html).toContain("m-arcal__pad");
     expect(html).toContain("m-arcal__cross");
-    // the verdict column: three ROUND cells (the .m-act--icon idiom), in this order, each a data-act
+    // the verdict column: three ROUND cells (the .m-act--icon idiom), CONFIRM LAST = the bottom cell,
+    // nearest the AIM stick (owner 2026-09-25 item 2), each a data-act
     const acts = [...html.matchAll(/data-act="(ar-cal-[a-z]+)"/g)].map((m) => m[1]);
-    expect(acts).toEqual(["ar-cal-confirm", "ar-cal-reset", "ar-cal-cancel"]);
+    expect(acts).toEqual(["ar-cal-cancel", "ar-cal-reset", "ar-cal-confirm"]);
     expect(html.match(/m-act m-act--icon/g)?.length).toBe(3);
     expect(html).toContain(AR_CAL_COPY.title);
     // ONE row: the readout beside the title — yaw · pitch · the lens; no ROLL, no memo text
@@ -215,17 +216,21 @@ describe("the overlay — renders only while AR + CAM are on; calibration adds t
     const block = (sel: string) => css.slice(css.indexOf(`${sel} {`), css.indexOf("}", css.indexOf(`${sel} {`)));
     expect(block(".m-arcal")).toMatch(/flex-direction: row;/);
     expect(block(".m-arcal--on")).toMatch(/right: calc\(3\.9rem \+ env\(safe-area-inset-right\)\);/);
-    // the verdict column: left rail, its bottom 12 px above the AIM stick's top (11.2rem + 120px + 110px — the stick's 1 px border counts)
+    // the verdict column: left rail, its bottom 12 px above the AIM stick's top (10rem + 120px + 110px — the stick's 1 px border counts; 10rem since the 2026-09-25 tab row)
     expect(block(".m-arcal__actions")).toMatch(/position: fixed;/);
     expect(block(".m-arcal__actions")).toMatch(/left: calc\(1rem \+ env\(safe-area-inset-left\)\);/);
-    expect(block(".m-arcal__actions")).toMatch(/bottom: calc\(11\.2rem \+ 120px \+ 110px \+ 12px \+ env\(safe-area-inset-bottom\)\);/);
+    expect(block(".m-arcal__actions")).toMatch(/bottom: calc\(10rem \+ 120px \+ 110px \+ 12px \+ env\(safe-area-inset-bottom\)\);/);
     expect(block(".m-arcal__actions")).toMatch(/flex-direction: column;/);
-    expect(read("src/styles/mobile/fpv.css")).toMatch(/\.m-joy--aim-fpv \{\s*bottom: calc\(11\.2rem \+ 120px \+ env\(safe-area-inset-bottom\)\);/);
+    expect(read("src/styles/mobile/fpv.css")).toMatch(/\.m-joy--aim-fpv \{\s*bottom: calc\(10rem \+ 120px \+ env\(safe-area-inset-bottom\)\);/);
     // the slider: right rail, just above the column (its bottom = the column's published top + 8 px)
     expect(block(".m-arcal__mixv")).toMatch(/bottom: calc\(var\(--m-altcol-bottom\) \+ var\(--m-altcol-h, 148px\) \+ 8px \+ env\(safe-area-inset-bottom\)\);/);
     expect(block(".m-arcal__mixin")).toMatch(/rotate\(-90deg\)/);
-    // the ALIGN float clears the slider
+    // the rung-note float clears the slider
     expect(css).toMatch(/body\.m:has\(\.m-arcal__mixv\) \.m-arfloat \{\s*bottom: calc\(100% \+ 8px \+ var\(--m-armix-h, 96px\) \+ 6px\);/);
+    // 2026-09-25: the slider reads the mini-map as RENDERED — folded to its puck (always while calibrating) the card's 134 px becomes 46
+    expect(css).toMatch(/body\.m:has\(\.m-arcal__mixv\):has\(\.mm--collapsed\) \{\s*--m-armix-h: max\(\s*52px,\s*min\(\s*128px,\s*calc\(\s*100dvh - 2\.9rem - 46px - 8px/);
+    // …and ⌖ ALIGN stacks above the column while it is up (three cells + three gaps)
+    expect(css).toMatch(/body\.m:has\(\.m-arcal__actions\) \.m-aralign \{\s*bottom: calc\(10rem \+ 120px \+ 110px \+ 12px \+ 156px \+ env\(safe-area-inset-bottom\)\);/);
     // the fullscreen map hides every piece of the overlay
     expect(css).toMatch(/body\.mw-open \.m-arcal__mixv,\s*body\.mw-open \.m-arcal__actions,/);
   });

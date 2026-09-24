@@ -216,7 +216,7 @@ body.m .mw-recenter {
   top: min(
     calc(var(--mw-top-y) + var(--mw-pip-h) + 0.5rem + env(safe-area-inset-top)),
     calc(
-      100dvh - env(safe-area-inset-bottom) - var(--m-altcol-bottom, 16.4rem) -
+      100dvh - env(safe-area-inset-bottom) - var(--m-altcol-bottom, 15.2rem) -
         var(--m-altcol-h, 96px) - 0.5rem - 2.1rem
     )
   );

@@ -254,7 +254,7 @@ const CHIP_SYNCED = `/^\\d{4,5} KM$/.test(document.querySelector(".m-nav__alt")?
   const hits = [];
   for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (overlaps(all[i], all[j])) hits.push(`${all[i].text.slice(0, 8)}×${all[j].text.slice(0, 8)}`);
   check("2f. no two rail rects overlap", hits.length === 0, hits.join(" ") || "clean");
-  check("2g. the seat token is the signed-out base (16.4rem)", /^16\.4rem$/.test(rail.token), rail.token);
+  check("2g. the seat token is the signed-out base (15.2rem since the 2026-09-25 tab row; was 16.4rem)", /^15\.2rem$/.test(rail.token), rail.token);
   check("2h. the column's bottom edge clears the SAVE cell", rail.col.bottom <= rail.acts[0].y - 3, `gap ${(rail.acts[0].y - rail.col.bottom).toFixed(1)} px`);
   await m.shoot("02-fpv-rail-signed-out");
   m.close();
@@ -284,7 +284,7 @@ const cookieVal = await mintCookie();
   const hits = [];
   for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (overlaps(all[i], all[j])) hits.push(`${all[i].text.slice(0, 8)}×${all[j].text.slice(0, 8)}`);
   check("3i. no two rail rects overlap — ⤓ no longer covers ◎ SAVE (the owner's bug)", hits.length === 0, hits.join(" ") || "clean");
-  check("3j. the seat token lifted by one cell + gap", /calc\(16\.4rem \+ 52px\)/.test(rail.token), rail.token);
+  check("3j. the seat token lifted by one cell + gap (15.2rem base since the 2026-09-25 tab row)", /calc\(15\.2rem \+ 52px\)/.test(rail.token), rail.token);
   check("3k. the column's bottom edge clears the SAVE cell", rail.col.bottom <= rail.acts[0].y - 3, `gap ${(rail.acts[0].y - rail.col.bottom).toFixed(1)} px`);
   await m.shoot("03-fpv-rail-member");
   // A tap on ▤ PLACES opens the SEARCH sheet (the MY PLACES list lives in its idle state).

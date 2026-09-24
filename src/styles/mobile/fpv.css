@@ -56,18 +56,22 @@
 
 
 /* ── WALK joystick ─────────────────────────────────────────────────────────────────────── */
+/* SEE-THROUGH (owner order 2026-09-25 item 3): the two 108 px pads took a real share of the view
+   at 55 % ink + a 6 px blur. Same size, same rim; the fill is a 24 % tint and the blur a 2 px
+   hint, so the street reads through the pad while the ring still says where the stick is. The
+   knob and the focal readout are NOT thinned — the readout sits on its own pill (below). */
 .m-joy {
   position: fixed;
   left: calc(1rem + env(safe-area-inset-left));
-  bottom: calc(11.2rem + env(safe-area-inset-bottom)); /* clears the bottom chrome column */
+  bottom: calc(10rem + env(safe-area-inset-bottom)); /* clears the bottom chrome column (11.2rem before the 2026-09-25 tab row) */
   z-index: 10;
   width: 108px;
   height: 108px;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--color-text-muted) 35%, transparent);
-  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 24%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   touch-action: none; /* the pad owns its gesture — never a page scroll/zoom */
   user-select: none;
   -webkit-user-select: none;
@@ -110,7 +114,8 @@ body.mw-open .m-altcol {
 /* 2026-09-08b: the AR note / ALIGN chip float exactly where the map's ◉ RE-CENTRE seats (it reads
    `--m-altcol-h` and sits just above the column) — while the map is open they yield to it. The
    chip itself stays reachable; the bubble returns when the map closes. */
-body.mw-open .m-arfloat {
+body.mw-open .m-arfloat,
+body.mw-open .m-aralign {
   visibility: hidden;
 }
 
@@ -182,12 +187,14 @@ body.m.mw-open .md {
    it seats JUST ABOVE the walk stick (same size, same left rail; 108 px pad + 12 px gap)
    and rides the same body.mw-open z-24 rung, so it survives the fullscreen-map view too. */
 .m-joy--aim-fpv {
-  bottom: calc(11.2rem + 120px + env(safe-area-inset-bottom));
+  bottom: calc(10rem + 120px + env(safe-area-inset-bottom));
 }
-/* Focal readout (batch #6 item 3) — the CURRENT lens in mm on the pad's lower body. */
+/* Focal readout (batch #6 item 3) — the CURRENT lens in mm on the pad's lower body. Since the
+   pad went see-through (2026-09-25) it stands on its own 72 % pill so the number never thins
+   with the pad (owner: "do not make the focal value transparent, that is useful"). */
 .m-joy__footer {
   position: absolute;
-  bottom: 8px;
+  bottom: 6px;
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--font-mono);
@@ -195,6 +202,9 @@ body.m.mw-open .md {
   letter-spacing: 0.12em;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--color-focal-cone) 85%, var(--color-text));
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border-radius: 999px;
+  padding: 2px 6px;
   pointer-events: none;
   white-space: nowrap;
 }
@@ -226,8 +236,9 @@ body.m.mw-open .md {
    itself clear of this box on short viewports. map-window.css reads both. */
 :root {
   /* The signed-out seat: above the two-cell FPV stack (◎ SAVE 44 px · 8 px · ✕ EXIT VIEW ≈ 33 px)
-     that starts at chrome.css `.m-actions` 10.8rem. */
-  --m-altcol-bottom-base: 16.4rem;
+     that starts at chrome.css `.m-actions` 9.6rem (10.8rem + 85 px = 16.4rem until the tab row
+     lost 1.2rem on 2026-09-25 — every seat above the bottom column dropped by the same). */
+  --m-altcol-bottom-base: 15.2rem;
   --m-altcol-bottom: var(--m-altcol-bottom-base);
   --m-altcol-h: 148px; /* three 44 px cells (🧭 AR · ⤒ · ⤓) + the two 8 px gaps (2026-09-08b) */
 }
@@ -294,9 +305,10 @@ body.m .mm-canvas {
 
 /* ── AR LOOK-AROUND (owner order 2026-09-07g; re-seated 2026-09-08b) — the FIRST cell of the
    right-rail altitude column, a 44 px round chip in the ⤒/⤓ idiom so the thumb that flies the
-   eye finds it. The status pill and the ALIGN chip FLOAT above the column (absolute, right-
-   aligned) — the column's own box stays three cells tall (`--m-altcol-h`, the A1-2 contract)
-   whatever the bubble says. Colours through tokens only. */
+   eye finds it. The status pill FLOATS above the column (absolute, right-aligned) — the column's
+   own box stays three cells tall (`--m-altcol-h`, the A1-2 contract) whatever the bubble says.
+   The ALIGN chip left the float for the LEFT rail on 2026-09-25 (`.m-aralign` below). Colours
+   through tokens only. */
 .m-arwrap {
   position: relative;
   display: flex;
@@ -346,10 +358,24 @@ body.m .mm-canvas {
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
   background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
 }
+/* ⌖ ALIGN — a 44 px round cell on the LEFT rail, just above the AIM stick (owner order 2026-09-25
+   item 1: "it belongs to the left-hand buttons"; it floated above the right rail before, where it
+   sat on the mini-map card and squeezed the 3D ↔ CAM slider). It is fixed geometry off the AIM
+   stick's seat — the verdict column's own seat (ar-camera.css `.m-arcal__actions`) — and while
+   that column is up it stacks as the column's TOP cell (the lift lives beside the column). It
+   stays a child of `.m-arwrap` (the "ALIGNED" flash is that component's), which is fine: fixed
+   geometry ignores the wrap, and no ancestor carries a transform / filter. */
 .m-aralign {
+  position: fixed;
+  left: calc(1rem + env(safe-area-inset-left));
+  bottom: calc(10rem + 120px + 110px + 12px + env(safe-area-inset-bottom));
+  z-index: 11;
   pointer-events: auto;
-  padding: 0.4rem 0.7rem;
-  font-size: 0.6rem;
+  touch-action: none;
+}
+.m-aralign span:last-child {
+  font-size: 0.38rem;
+  letter-spacing: 0.1em;
 }
 .m-arnote {
   pointer-events: none;
