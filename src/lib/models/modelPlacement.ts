@@ -46,10 +46,13 @@
  * (`offsetGeodetic`), never a stored offset; the lift (the anchor's own Y) is the third seat.
  *
  * STREAMING. The world read is a geohash-cover query (`planModelCover`: the p5 cells — ≈ 4.9 km
- * squares — around the camera's ground focus, none above `maxAltM` where a model is sub-pixel)
- * and residency is a closest-first walk under a triangle budget (`planResidency`): what the
- * budget refuses inside the load radius is `skipped`, and that number IS the physical-density
- * warning (owner 2026-09-01c: no quota — warn instead).
+ * squares — around the camera's ground focus in orbit and around the EYE in first person, none
+ * above `maxAltM` where a model is sub-pixel) and residency is a closest-first walk under a
+ * triangle budget (`planResidency`): what the budget refuses inside the load radius is `skipped`,
+ * and that number IS the physical-density warning (owner 2026-09-01c: no quota — warn instead).
+ * THE FAR LAW (owner 2026-09-30) adds the models the radius cannot see: one IN VIEW whose
+ * APPARENT size (`apparentFrac` — the share of the viewport's height its `modelReachM` extent
+ * spans through the current lens) is worth a fetch, however far its centre is.
  */
 
 import { SCALE_MAX_K, SCALE_MIN_K, clampEditK } from "../globe/bldgOverrides";
@@ -617,12 +620,57 @@ export function sameCover(a: readonly string[] | null, b: readonly string[] | nu
   return true;
 }
 
+/** The model's reach about its PIVOT (the footprint-centre base point) at its scale: `extentM` =
+ *  the scaled box's full diagonal (what "how big is it" means for a bridge lying diagonally in
+ *  its own frame), `radiusM` = the farthest corner from the pivot — a sphere of that radius about
+ *  the pivot holds the box under ANY yaw / tilt. `size` = `[w, d, h]` at scale 1; null (or a
+ *  bare height, or an empty box) = unknown. Pure. */
+export function modelReachM(size: ModelSize | null, scale: number | ModelScale): { extentM: number; radiusM: number } | null {
+  if (size === null || typeof size === "number") return null;
+  const [kx, ky, kz] = scaleAxes(scale);
+  const w = Math.abs(fin(size[0], 0) * kx);
+  const d = Math.abs(fin(size[1], 0) * kz);
+  const h = Math.abs(fin(size[2], 0) * ky);
+  const extentM = Math.hypot(w, d, h);
+  if (!(extentM > 0)) return null;
+  return { extentM, radiusM: Math.hypot(w / 2, d / 2, h) };
+}
+
+/** The APPARENT size: the fraction of the viewport's HEIGHT an object `extentM` long spans at
+ *  `distM` through a lens whose half vertical FOV has the tangent `tanHalfVFov` — the number a
+ *  tile's screen-space error is made of, so a model and the buildings beside it answer "is it
+ *  worth loading" on the same scale. 0 on garbage; the distance floors at a metre. Pure. */
+export function apparentFrac(extentM: number, distM: number, tanHalfVFov: number): number {
+  if (!(extentM > 0) || !Number.isFinite(distM) || !(tanHalfVFov > 0)) return 0;
+  return extentM / (Math.max(1, distM) * 2 * tanHalfVFov);
+}
+
+/** Is a sphere (`radiusM`, its centre `distM` away at `cosToAxis` = the cosine between the view
+ *  axis and the direction to it) inside the view? The test is a CONE about the axis that holds
+ *  the whole frustum (its half-angle reaches the frame's corners) widened by `marginRad` — a
+ *  LOAD gate, so generous on purpose: no near / far plane, no dependence on the depth
+ *  convention. The eye inside the sphere is always in view. Pure. */
+export function inViewCone(cosToAxis: number, distM: number, radiusM: number, tanHalfVFov: number, aspect: number, marginRad: number): boolean {
+  if (!Number.isFinite(distM) || !Number.isFinite(cosToAxis)) return false;
+  const r = radiusM > 0 ? radiusM : 0;
+  if (distM <= r) return true;
+  const halfCone = Math.atan(Math.max(0, tanHalfVFov) * Math.hypot(1, aspect > 0 ? aspect : 1));
+  const off = Math.acos(Math.max(-1, Math.min(1, cosToAxis)));
+  return off <= halfCone + Math.asin(r / distM) + Math.max(0, marginRad);
+}
+
 export interface ResidencyRow {
   id: string;
   /** Triangle count from the record (the upload cap bounds it). */
   tris: number;
   /** Camera → model distance (m). */
   distM: number;
+  /** THE FAR LAW: the model's apparent size right now (`apparentFrac` of its `modelReachM`
+   *  extent). Absent / garbage = unknown — only the radius law applies to the row. */
+  frac?: number;
+  /** THE FAR LAW: inside the view (`inViewCone`). Gates the far LOAD only — a resident model is
+   *  kept while it is still big enough, looked at or not (a pan must not thrash it). */
+  inView?: boolean;
 }
 
 export interface ResidencyConfig {
@@ -633,6 +681,15 @@ export interface ResidencyConfig {
   maxResident: number;
   /** Resident triangles allowed at once — closest first; the rest are `skipped`. */
   triBudget: number;
+  /** THE FAR LAW (owner 2026-09-30 — a kilometre-long bridge 5 km away fills a long lens, and the
+   *  radius above is measured to its centre): a model IN VIEW whose apparent size reaches
+   *  `farLoadFrac` wants to be resident out to `farLoadRangeM`, and stays while it holds
+   *  `farKeepFrac` inside `farUnloadRangeM` (both pairs are hysteresis). Omit `farLoadFrac` and
+   *  the radius law stands alone. The far rows take only what the near rows leave of the budget. */
+  farLoadFrac?: number;
+  farKeepFrac?: number;
+  farLoadRangeM?: number;
+  farUnloadRangeM?: number;
 }
 
 export interface ResidencyPlan {
@@ -642,18 +699,34 @@ export interface ResidencyPlan {
   unload: string[];
   /** Ids that stay resident. */
   keep: string[];
-  /** Models inside the load radius the budget/cap refused — the density warning's number. */
+  /** Models that WANT to load (inside the load radius, or far + in view + big enough) the
+   *  budget/cap refused — the density warning's number. */
   skipped: number;
   /** Triangles resident after the plan. */
   tris: number;
 }
 
-/** Closest-first residency under a count cap and a triangle budget, with radius hysteresis.
+/** Closest-first residency under a count cap and a triangle budget, with radius hysteresis —
+ *  then THE FAR LAW's rows (in view first, the biggest on screen first) in what is left.
  *  Deterministic; a row's `tris` of 0/NaN counts as 0. */
 export function planResidency(rows: readonly ResidencyRow[], resident: ReadonlySet<string>, cfg: ResidencyConfig): ResidencyPlan {
-  const candidates = rows
-    .filter((r) => Number.isFinite(r.distM) && (r.distM <= cfg.loadRadiusM || (resident.has(r.id) && r.distM <= cfg.unloadRadiusM)))
-    .sort((a, b) => a.distM - b.distM || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const byId = (a: ResidencyRow, b: ResidencyRow) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const near = (r: ResidencyRow) => r.distM <= cfg.loadRadiusM || (resident.has(r.id) && r.distM <= cfg.unloadRadiusM);
+  const farLoadFrac = cfg.farLoadFrac;
+  const farKeepFrac = cfg.farKeepFrac ?? farLoadFrac ?? Infinity;
+  const farLoadRangeM = cfg.farLoadRangeM ?? Infinity;
+  const farUnloadRangeM = cfg.farUnloadRangeM ?? farLoadRangeM;
+  const fracOf = (r: ResidencyRow) => (typeof r.frac === "number" && Number.isFinite(r.frac) ? r.frac : 0);
+  const farLoad = (r: ResidencyRow) =>
+    farLoadFrac !== undefined && r.inView === true && fracOf(r) >= farLoadFrac && r.distM <= farLoadRangeM;
+  const farKeep = (r: ResidencyRow) =>
+    farLoadFrac !== undefined && resident.has(r.id) && fracOf(r) >= farKeepFrac && r.distM <= farUnloadRangeM;
+  const finite = rows.filter((r) => Number.isFinite(r.distM));
+  const candidates = finite.filter(near).sort((a, b) => a.distM - b.distM || byId(a, b));
+  const far = finite
+    .filter((r) => !near(r) && (farLoad(r) || farKeep(r)))
+    .sort((a, b) => Number(b.inView === true) - Number(a.inView === true) || fracOf(b) - fracOf(a) || byId(a, b));
+  for (const r of far) candidates.push(r);
   const keepSet = new Set<string>();
   const load: string[] = [];
   const keep: string[] = [];
@@ -663,7 +736,7 @@ export function planResidency(rows: readonly ResidencyRow[], resident: ReadonlyS
     const t = Number.isFinite(r.tris) && r.tris > 0 ? r.tris : 0;
     const fits = keepSet.size < cfg.maxResident && tris + t <= cfg.triBudget;
     if (!fits) {
-      if (r.distM <= cfg.loadRadiusM) skipped++;
+      if (r.distM <= cfg.loadRadiusM || farLoad(r)) skipped++;
       continue;
     }
     keepSet.add(r.id);

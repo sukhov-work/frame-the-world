@@ -33,12 +33,12 @@
  *     re-absorbed each time the phone dips, slowly; while it holds, the gyro carries. Heading =
  *     yawRel + offset + declination.
  *  3. `relative-aligned` — no compass at all (Firefox/Android without absolute, a WebKit whose
- *     compass reads invalid): the user ALIGNS once — "point the phone where the camera looks, tap"
- *     — which sets the yaw offset so the current pose maps to the current camera heading. Drifts
- *     with the gyro; re-align on demand.
+ *     compass reads invalid): the user ALIGNS once — the calibration's CONFIRM (`commitCalibration`;
+ *     the one-tap ⌖ ALIGN chip left on 2026-09-30) — which sets the yaw offset so the current pose
+ *     maps to where the view looks. Drifts with the gyro; re-align on demand.
  *  4. `relative-unaligned` — samples flow but no offset is known: turning the phone turns the
  *     camera by the right AMOUNT from wherever it was (the offset is seeded from the camera's own
- *     heading at arming), so the mode is useful immediately and the ALIGN chip makes it exact.
+ *     heading at arming), so the mode is useful immediately and a calibration makes it exact.
  *
  * Below the ladder (no samples, permission denied, no sensors) the engine reports and stays off;
  * that state never reaches this file.
@@ -194,9 +194,11 @@ export class OrientationLadder {
   }
 
   /**
-   * Seed the yaw offset so that the CURRENT pose maps to `cameraHeadingTrueDeg` — rung 3's ALIGN
-   * (and the arming seed of rung 4, which marks it `seed` rather than `aligned` so the UI can still
-   * ask for an explicit align). A compass sample accepted later overrides either.
+   * Seed the yaw offset so that the CURRENT pose maps to `cameraHeadingTrueDeg` — the arming seed
+   * of rung 4 (`explicit` false: it stays `seed`, so the UI can still ask for a calibration) and
+   * an explicit align (rung 3; no UI calls it since the ⌖ ALIGN chip left on 2026-09-30 — the
+   * calibration's CONFIRM aligns through `commitCalibration`). A compass sample accepted later
+   * overrides either.
    */
   align(cameraHeadingTrueDeg: number, explicit: boolean): void {
     const pose = this.lastAim?.pose;

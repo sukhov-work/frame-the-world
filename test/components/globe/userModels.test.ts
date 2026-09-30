@@ -372,6 +372,69 @@ describe("scene/userModels", () => {
     h.dispose();
   });
 
+  it("THE FAR LAW (owner 2026-09-30) — a kilometre bridge 5 km out loads when the lens looks at it, a kiosk beside it only through a long lens; a pan keeps what it loaded", async () => {
+    const scene = new THREE.Scene();
+    // Each GLB is the box its record says it is (the loaded bounds replace the record's bbox).
+    const calls: string[] = [];
+    const loader: ModelLoader & { calls: string[] } = {
+      calls,
+      async load(url) {
+        calls.push(url);
+        const [w, hgt, d] = url.includes("bridge") ? [2198, 26, 1487] : [8, 10, 8];
+        const root = new THREE.Group();
+        root.add(new THREE.Mesh(new THREE.BoxGeometry(w, hgt, d), new THREE.MeshStandardMaterial()));
+        return root;
+      },
+    };
+    const h = attachUserModels(scene, { terrainHeightAt: () => 100, loader });
+    // 5 km due EAST of the eye — past `loadRadiusM` (3 km), so the radius law never wanted either.
+    const dLon5km = 5_000 / (111_320 * Math.cos((LAT * Math.PI) / 180));
+    const bridge = row("bridge", { lon: LON + dLon5km, bbox: [2198, 26, 1487], tris: 7800 });
+    const kiosk = row("kiosk", { lon: LON + dLon5km, lat: LAT + 0.0005, bbox: [8, 10, 8], tris: 12 });
+    h.setModels([bridge, kiosk]);
+    const eye = geodeticToEcef(LAT, LON, 200);
+    const look = (fovDeg: number, bearing: "east" | "west") => {
+      const cam = new THREE.PerspectiveCamera(fovDeg, 16 / 9, 1, 100_000);
+      cam.position.set(eye[0], eye[1], eye[2]);
+      cam.up.copy(cam.position).normalize();
+      const t = geodeticToEcef(LAT, LON + (bearing === "east" ? dLon5km : -dLon5km), 200);
+      cam.lookAt(t[0], t[1], t[2]);
+      cam.updateMatrixWorld(true);
+      return cam;
+    };
+    const far = () => (h.debug().models as Array<{ id: string; distM: number; frac: number; inView: boolean }>);
+    // Looking AWAY through a normal lens: nothing loads (the MS5 behaviour, untouched).
+    h.update(look(40, "west"), 0, DT);
+    await flush();
+    expect(loader.calls).toEqual([]);
+    expect(far().find((m) => m.id === "bridge")).toMatchObject({ inView: false });
+    // Looking AT it through the same lens: the bridge is a third of the frame → resident; the
+    // 15 m kiosk is four pixels → not.
+    h.update(look(40, "east"), MODELS.residencyEveryFrames, DT);
+    await flush();
+    expect(loader.calls).toEqual([bridge.url]);
+    expect(h.info("bridge")?.resident).toBe(true);
+    const seen = far();
+    expect(seen.find((m) => m.id === "bridge")!.distM).toBeGreaterThan(MODELS.unloadRadiusM);
+    expect(seen.find((m) => m.id === "bridge")!.frac).toBeGreaterThan(0.3);
+    expect(seen.find((m) => m.id === "kiosk")!.frac).toBeLessThan(MODELS.farKeepFrac);
+    expect(h.counts()).toMatchObject({ resident: 1, skipped: 0, warn: false });
+    // The owner's long lens (5.6°): the kiosk is 3 % of the frame — worth a fetch as well.
+    h.update(look(5.6, "east"), 2 * MODELS.residencyEveryFrames, DT);
+    await flush();
+    expect(loader.calls).toEqual([bridge.url, kiosk.url]);
+    expect(h.counts().resident).toBe(2);
+    // A pan away at the same lens KEEPS both (no view needed to keep — a pan must not thrash)…
+    h.update(look(5.6, "west"), 3 * MODELS.residencyEveryFrames, DT);
+    expect(h.counts().resident).toBe(2);
+    // …and zooming back out lets the kiosk go (under `farKeepFrac`) while the bridge stays.
+    h.update(look(40, "west"), 4 * MODELS.residencyEveryFrames, DT);
+    expect(h.info("kiosk")?.resident).toBe(false);
+    expect(h.info("bridge")?.resident).toBe(true);
+    expect(loader.calls.length).toBe(2); // nothing was re-fetched along the way
+    h.dispose();
+  });
+
   it("OCCLUSION 2026-09-07c — occluderRoot() is the models' group and occluderEpoch() moves on every swept-geometry change", async () => {
     const scene = new THREE.Scene();
     const loader = makeLoader();

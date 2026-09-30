@@ -9,35 +9,34 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-09-25 (`mem:project/wip-2026-09-25-mobile-ux-pass`)
-**THE /m UX PASS after the owner's iPhone 17 Pro test of v1.36.19 — LIVE as v1.36.21 (2026-09-25, ship `6b791a4` = PR #134; DECISIONS
-2026-09-25 + 2026-09-25b).** UX only, no store / engine change: ⌖ ALIGN is a round cell on the LEFT rail (the column's top cell while
-calibrating; it was the right-rail float that squeezed the slider — it shows because aiming at the sky closes the iOS compass gate →
-the gyro-only rung); CONFIRM is the BOTTOM verdict cell (CANCEL · RESET · CONFIRM); the sticks are see-through (24 % + 2 px blur, the
-focal mm on its own pill); the tab bar is ONE LINE per tab (49 → 27 px) and every seat above the bottom column dropped 1.2rem
-(`.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem); the 3D ↔ CAM slider reads the mini-map as rendered
-(`:has(.mm--collapsed)`). Owner calls open: hide ALIGN while calibrating? auto-fold the mini-map while CAM is on?
+## Status — 2026-09-30 (`mem:project/wip-2026-09-30-align-minimap-pin-mesh-culling`)
+**THREE OWNER FOLLOW-UPS — committed, NOT released (live stays v1.36.21; DECISIONS 2026-09-30).** (1) ⌖ ALIGN is REMOVED (chip +
+`requestArAlign` / `arAlignEpoch` + `ArLookCtx.alignEpoch`; CONFIRM is the align, the rung notes say HOLD AR). (2) THE PIN FOLLOWS
+THE WALKER in a temp-pin FPV (`lib/globe/pinFollow` + `StylizedTiles.followPinToEye`, 400 ms after the last walk input, position-
+neutral, mesh floor kept; a photo FPV never follows); the map's RE-CENTRE wears a drawn target (⊙ in the guide). (3) USER MODELS:
+the first-person world read is a 16 km square around the EYE (was 4 km around the forward ray's ellipsoid hit — the clip-in-and-
+out), sent 16 cells a query (`fetchWorldCover`); residency adds THE FAR LAW — in view + apparent size ≥ `MODELS.farLoadFrac` →
+resident out to 16 km (`planResidency`, `apparentFrac`, `inViewCone`). Owner calls open: release? the pin follow with the map
+closed? the far thresholds on the phones (T153)?
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-09-25 the /m UX pass after the iPhone 17 Pro test → v1.36.21 LIVE** (`wip-2026-09-25-mobile-ux-pass`): CONFIRM the
+  bottom verdict cell, see-through sticks, the one-line tab bar (27 px), every seat −1.2rem, the slider reads the mini-map as rendered.
 - **2026-09-22 the AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance →
   v1.36.19 LIVE** (`wip-2026-09-22-ar-ui-rework-fpv-quirks`): the one-row strip, the vertical slider, `scene/arGuides.ts`,
   `FLIGHT.smoothTransitions` false, `fpvCarry` / `preFpvOrbit`, `lib/globe/fpvClearance`, `MOBILE2D.hashPlanetFromAltM`.
-- **2026-09-19 AR calibration + CAM + the gyro-led ladder · the box · two root causes → v1.36.17 LIVE** (`wip-2026-09-19-ar-calibration-box-meshbugs`):
-  `lib/sensors/yawTrim.ts` (the gyro drives, the compass trims), `ArCameraOverlay`, `lib/models/primitives.ts`, `dataFetch.jsonWriteInit`.
-- **2026-09-18 three /m fixes + the SIGN-OUT root cause → v1.36.14 LIVE** (`wip-2026-09-18-mobile-fixes-signout`): the live
-  adapter's `http:` origin 403s every form POST → `/api/signout` JSON; `bootAltM` 18,000 km.
-- **2026-09-17 AUDIT #4 triaged + fixed** (`wip-2026-09-16-audit4-triage-fixes`); public-exposure / load DEFERRED
-  (T138/T139/B2). Older eras: the Era index below.
+- Older eras (AR calibration 2026-09-19, the sign-out root cause 2026-09-18, AUDIT #4 triage 2026-09-17 and before): the Era index below.
 
-## Standing facts (2026-09-22)
-- Gates: vitest **3,276 / 221 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip: only the four
+## Standing facts (2026-09-30)
+- Gates: vitest **3,295 / 222 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.21** (each ship bumps the patch); live **v1.36.21** (2026-09-25, ship `6b791a4` = PR #134; v1.36.19 was
-  2026-09-22). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
+- `package.json` **1.36.22** (each ship bumps the patch); live **v1.36.21** (2026-09-25, ship `6b791a4` = PR #134). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
   selector in a CSS file (a comment above the rule breaks it).
+- **User models since 2026-09-30:** the FPV world read is the EYE's 16 km square = 5 `/api/world-models` queries per cover change;
+  "resident" = the 3 km radius OR in view + big enough (a harness counting models fulfils the world itself — T154).
 - **Every `/api` write goes through `lib/api/dataFetch.jsonWriteInit`** (2026-09-19): a body-less DELETE carries no content
   type and the live origin check 403s it (`jsonWrites.test.ts` fences it; dev never runs the check).
 - **No `<form method=post>` anywhere** (2026-09-18): the live adapter's request origin is `http:` → `checkOrigin` 403s every
@@ -49,17 +48,15 @@ focal mm on its own pill); the tab bar is ONE LINE per tab (49 → 27 px) and ev
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14) and expect to restart TWICE (a lazily imported dep
   chunk 404s once); `Failed to fetch dynamically imported module` — `curl` the module first (500 = a real error).
   CDP harnesses: `~/.nvm/versions/node/v24.10.0/bin/node` (Node 20 lacks the global WebSocket).
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T148**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T154**, every row dated).
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The owner TESTS the 2026-09-25 pass on the iPhone 17 Pro / the Pixel — his feedback comes first (the ALIGN cell on the left, CONFIRM
-under the thumb, the pads' see-through level, the 27 px tab row, the slider in CAM VIEW with the card up; hide ALIGN while
-calibrating? auto-fold the card while CAM is on?) + still owed from 2026-09-22 (**T149** the sun-at-the-edge pinch → pin the FOV
-default; **T147** the roll's sign) → **T150** the EYE readout on a mesh floor (a taste call) → **T151** the clearance's edges →
-**T146** the seamless overlay handover → **T148** the box on `/m`? → the pre-audit main plan (farm FEATURE legs · the T77 lane ·
-T145's migration · the /m model-edit check).
+RELEASE the 2026-09-30 follow-ups when the owner says so → the owner's DEVICE feedback (the far bridges at a long lens on the phone —
+**T153**; the pin under the thumb's release; AR without ALIGN; the target glyph; still owed: **T149** the sun-at-the-edge pinch,
+**T147** the roll's sign) → **T152** the orbit cover → **T154** before the next T77 model ramp → **T150** · **T151** · **T146** ·
+**T148** → the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration · the /m model-edit check).
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
@@ -102,6 +99,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - AR calibration + CAM + gyro-led ladder · the box · delete + white-ground root causes (09-19) · 09-19-ar-calibration-box-meshbugs
 - The AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance (09-22) · 09-22-ar-ui-rework-fpv-quirks
 - The /m UX pass after the iPhone 17 Pro test: ALIGN left, CONFIRM low, see-through sticks, the one-line tab bar, seats −1.2rem (09-25) · 09-25-mobile-ux-pass
+- ALIGN out · the pin follows the walker + the re-centre target · user models: the far law + the eye-centred cover (09-30) · 09-30-align-minimap-pin-mesh-culling
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

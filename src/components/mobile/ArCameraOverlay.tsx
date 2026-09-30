@@ -20,7 +20,7 @@
  * VERTICAL just above the CAM chip on the right rail, and reads the mini-map's rendered height
  * (folded while calibrating) for its own. Every seat is fixed geometry off the same tokens the
  * rail publishes (`--m-altcol-bottom`, `--m-altcol-h`), so the column's own box never grows (the
- * A1-2 contract). ⌖ ALIGN (FpvControls) stacks above this column while it is up.
+ * A1-2 contract).
  *
  * THE SHARED SCALE (`lib/sensors/arCalibration.videoLayout`): two pinhole pictures agree at every
  * pixel exactly when they share a focal length IN PIXELS, so the `<video>` is drawn at the size

@@ -222,10 +222,6 @@ export interface CameraState {
    */
   arLook: boolean;
   setArLook: (on: boolean) => void;
-  /** The ALIGN chip (the relative rungs): "point the phone where the camera looks, tap" — each
-   *  bump aligns the sensor frame to the camera's live heading once. */
-  arAlignEpoch: number;
-  requestArAlign: () => void;
   /** Engine-written mirror at the HUD cadence (null while AR is off or FPV is not live): which
    *  rung of the ladder the phone is on, how fresh the compass is, whether samples stopped. */
   arLookState: ArLookState | null;
@@ -506,8 +502,6 @@ export const useCameraStore = create<CameraState>((set) => ({
   fpvWalkInput: null,
   arLook: false,
   setArLook: (on) => set({ arLook: on }),
-  arAlignEpoch: 0,
-  requestArAlign: () => set((st) => ({ arAlignEpoch: st.arAlignEpoch + 1 })),
   arLookState: null,
   _syncArLook: (arLookState) => set({ arLookState }),
   arCam: "off",

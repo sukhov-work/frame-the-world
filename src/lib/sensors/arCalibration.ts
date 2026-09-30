@@ -12,7 +12,7 @@
  * `ftw:ar-calib:v1` until the next calibration replaces it (or RESET clears it):
  *
  *  · `yawDeg` / `pitchDeg` — added to the sensor ladder's aim (`scene/arLook.ts` `aim()`), AFTER
- *    the rungs and the smoother, so it composes with every rung and with ⌖ ALIGN identically;
+ *    the rungs and the smoother, so it composes with every rung identically;
  *  · `camLongFovDeg` — the streamed frame's field of view along its LONG side. A web page cannot
  *    read a camera's focal length (`MediaTrackSettings` has no such field), so the default is a
  *    typical main camera and the pinch in calibration mode is how the real one is learned.

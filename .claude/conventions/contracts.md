@@ -256,7 +256,9 @@ top-level globals; same removal/rename rule):
 - **11 API routes** under `src/pages/api/` as of 2026-09-02i (audit #3 D7 re-count gave 9 on
   2026-08-22; the 2026-08-13 "26 routes" figure was the whole `wix build` route table).
   **`/api/world-models`** (MESH SUITE MS5, 2026-09-02i): the PUBLIC world read of user models —
-  `GET ?cells=<gh5,…>` (1..16 distinct p5 base-32 cells, lower-cased; 400 `BAD_REQUEST` otherwise)
+  `GET ?cells=<gh5,…>` (1..16 distinct p5 base-32 cells, lower-cased; 400 `BAD_REQUEST` otherwise —
+  a client cover larger than 16, first person since 2026-09-30, is sent as several such queries in
+  parallel and merged by id, `store/userModels.fetchWorldCover`)
   answers `{ models: PublicModel[], complete }` — `hasSome("gh5", cells)` ∧ `readiness === "READY"`
   ∧ `hidden ≠ true`, one page of 200 oldest-first, `complete: false` when a cell holds more; a
   `PublicModel` is `{ id, title, url, thumbnailUrl, tris, glbBytes, bbox, lat, lon, rotDeg, sx, sy,

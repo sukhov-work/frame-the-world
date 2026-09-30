@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { MODELS } from "../components/globe/tuning";
 import { forgetTarget, modelTarget, recordEntry } from "../lib/edit/editJournal";
 import { placementSnapshot, planModelCover, sameCover, type PlacementSnapshot } from "../lib/models/modelPlacement";
-import type { ModelListItem, ModelPatchAnswer, PublicModel } from "../lib/wix/modelRecords";
+import { MODEL_WORLD_MAX_CELLS, type ModelListItem, type ModelPatchAnswer, type PublicModel } from "../lib/wix/modelRecords";
 import { editJournal, refreshEditJournalMirror, setJournalCurrent } from "./editJournal";
 
 /**
@@ -10,9 +10,12 @@ import { editJournal, refreshEditJournalMirror, setJournalCurrent } from "./edit
  *
  * Three concerns, one store:
  *  • the WORLD READ — the orchestrator mirrors its ground focus here at low cadence
- *    (`reportViewport`, the pins idiom); a THROTTLED worker plans the p5 geohash cover
- *    (`planModelCover`) and re-queries `/api/world-models` only when the cover changed (or the
- *    idle re-poll is due), swapping `world` atomically; a superseded response is dropped;
+ *    (`reportViewport`, the pins idiom — in FIRST PERSON the EYE and a wider reach, 2026-09-30:
+ *    the forward ray's ground hit swings kilometres on a fraction of a degree of pitch, and the
+ *    cover swung with it); a THROTTLED worker plans the p5 geohash cover (`planModelCover`) and
+ *    re-queries `/api/world-models` only when the cover changed (or the idle re-poll is due),
+ *    in chunks the route accepts (`fetchWorldCover`), swapping `world` atomically; a superseded
+ *    response is dropped;
  *  • MINE — the member's own rows (`GET /api/models`), which is how the client knows which
  *    world models it may arm (MS5: own models only — the public read carries no owner id, C6);
  *  • PLACEMENT — click-to-place for a stored model (`placing`, the photo `placing` idiom: the
@@ -161,8 +164,10 @@ export interface UserModelsState {
   placing: { id: string; title: string } | null;
   density: ModelDensity;
 
-  /** Orchestrator-only: low-cadence ground-focus mirror; plans + throttles the world query. */
-  reportViewport(latDeg: number, lonDeg: number, altM: number): void;
+  /** Orchestrator-only: the low-cadence mirror of where the world read is centred — the ground
+   *  focus in orbit, the EYE in first person (2026-09-30) — and how far it reaches (`radiusM`,
+   *  the cover's half-side; default `MODELS.fetchRadiusM`). Plans + throttles the world query. */
+  reportViewport(latDeg: number, lonDeg: number, altM: number, radiusM?: number): void;
   /** Force a re-query of the last cover (after an upload / a placement elsewhere). */
   refresh(): void;
   /** The member's own rows (401 → anonymous, never an error). */
@@ -199,7 +204,34 @@ export interface UserModelsState {
 }
 
 let lastCover: string[] | null = null;
-let lastReport: { latDeg: number; lonDeg: number; altM: number } | null = null;
+let lastReport: { latDeg: number; lonDeg: number; altM: number; radiusM: number } | null = null;
+const coverFor = (r: { latDeg: number; lonDeg: number; altM: number; radiusM: number }) =>
+  planModelCover(r.latDeg, r.lonDeg, r.altM, {
+    radiusM: r.radiusM,
+    maxAltM: MODELS.fetchMaxAltM,
+    maxCells: MODELS.maxCells,
+  });
+
+/** ONE cover → the world rows. The route names at most `MODEL_WORLD_MAX_CELLS` cells per query
+ *  (its `hasSome` list), and a first-person cover is several times that (2026-09-30), so the
+ *  cover goes out in chunks, in parallel, and the answers merge by id (a row lives in one cell;
+ *  the dedupe is for a row that MOVED cells between two chunks' reads). Any chunk failing fails
+ *  the read — a partial world would unload the models of the missing cells. */
+export async function fetchWorldCover(
+  cover: readonly string[],
+  fetchWorld: UserModelsApi["fetchWorld"],
+): Promise<{ models: PublicModel[]; complete: boolean }> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < cover.length; i += MODEL_WORLD_MAX_CELLS) chunks.push(cover.slice(i, i + MODEL_WORLD_MAX_CELLS));
+  const answers = await Promise.all(chunks.map((cells) => fetchWorld(cells)));
+  const byId = new Map<string, PublicModel>();
+  let complete = true;
+  for (const a of answers) {
+    if (a.complete === false) complete = false;
+    for (const m of a.models) byId.set(m.id, m);
+  }
+  return { models: [...byId.values()], complete };
+}
 let lastFetchAtMs = 0;
 let throttleTimer: ReturnType<typeof setTimeout> | undefined;
 let querySeq = 0;
@@ -214,7 +246,7 @@ async function runQuery(cover: string[], set: (p: Partial<UserModelsState>) => v
   lastFetchAtMs = nowMs();
   set({ worldPhase: "loading", cover });
   try {
-    const res = await api.fetchWorld(cover);
+    const res = await fetchWorldCover(cover, api.fetchWorld);
     if (seq !== querySeq) return; // superseded by a newer cover
     set({
       world: mergeWorld(res.models, localRows, nowMs(), MODELS.readLagGraceMs),
@@ -282,13 +314,9 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
   placing: null,
   density: { ...NO_DENSITY },
 
-  reportViewport: (latDeg, lonDeg, altM) => {
-    lastReport = { latDeg, lonDeg, altM };
-    const planned = planModelCover(latDeg, lonDeg, altM, {
-      radiusM: MODELS.fetchRadiusM,
-      maxAltM: MODELS.fetchMaxAltM,
-      maxCells: MODELS.maxCells,
-    });
+  reportViewport: (latDeg, lonDeg, altM, radiusM = MODELS.fetchRadiusM) => {
+    lastReport = { latDeg, lonDeg, altM, radiusM };
+    const planned = coverFor(lastReport);
     if (planned === null) {
       // Too high to care: drop the world (the scene unloads) and forget the cover, so the
       // descent re-queries at once.
@@ -308,11 +336,7 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
       throttleTimer = undefined;
       const r = lastReport;
       if (!r) return;
-      const cover = planModelCover(r.latDeg, r.lonDeg, r.altM, {
-        radiusM: MODELS.fetchRadiusM,
-        maxAltM: MODELS.fetchMaxAltM,
-        maxCells: MODELS.maxCells,
-      });
+      const cover = coverFor(r);
       if (cover === null) return;
       const dueNow = nowMs() - lastFetchAtMs >= MODELS.repollMs;
       if (!sameCover(lastCover, cover) || dueNow) void runQuery(cover, set);
@@ -320,11 +344,7 @@ export const useUserModelsStore = create<UserModelsState>((set, get) => ({
   },
 
   refresh: () => {
-    const cover = lastCover ?? (lastReport ? planModelCover(lastReport.latDeg, lastReport.lonDeg, lastReport.altM, {
-      radiusM: MODELS.fetchRadiusM,
-      maxAltM: MODELS.fetchMaxAltM,
-      maxCells: MODELS.maxCells,
-    }) : null);
+    const cover = lastCover ?? (lastReport ? coverFor(lastReport) : null);
     if (!cover) return;
     clearTimeout(throttleTimer);
     throttleTimer = undefined;

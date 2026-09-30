@@ -6,14 +6,18 @@ import { seatStep } from "../../../lib/globe/enrichedMask";
 import { easeK } from "../../../lib/globe/lightBands";
 import { transformToRig, type FeatureTransform } from "../../../lib/globe/featureTransform";
 import {
+  apparentFrac,
   densityWarning,
   groundFitOffset,
+  inViewCone,
+  modelReachM,
   planResidency,
   quaternionFromTilt,
   sanitizeModelTransform,
   tiltedExtent,
   type ModelSize,
   type ModelTransform,
+  type ResidencyRow,
 } from "../../../lib/models/modelPlacement";
 import type { PublicModel } from "../../../lib/wix/modelRecords";
 import { tokens } from "../../../lib/theme/tokens";
@@ -48,7 +52,11 @@ import { FTW_AERIAL_GLSL } from "./glsl";
  * tris) fetched and in the scene. Closest-first under `MODELS.maxResident` and the triangle
  * BUDGET (`planResidency`, hysteresis on the radius); what the budget refuses inside the load
  * radius is `skipped` — the physical-density warning (owner 2026-09-01c: no quota, warn). Zero
- * per-frame cost with nothing resident: `update` early-returns.
+ * per-frame cost with nothing resident: `update` early-returns. THE FAR LAW (owner 2026-09-30):
+ * the radius is measured to a model's centre and knows neither its size nor the lens, so a
+ * kilometre-long bridge 5 km away never loaded in a long-lens frame it filled; a model IN VIEW
+ * whose apparent size is worth it (`MODELS.farLoadFrac`) is resident too, in what the near
+ * models leave of the budget (`replan` hands each row its `frac` + `inView`).
  *
  * SEATING. The rendered terrain at the placement (`terrainHeightAt`, clamped by `sampleGroundM`),
  * eased with `seatStep` (a LOD refine slides, never teleports); models whose seat is not yet
@@ -541,15 +549,27 @@ export function attachUserModels(
   };
 
   const _cam = new THREE.Vector3();
+  const _camFwd = new THREE.Vector3();
+  const _toModel = new THREE.Vector3();
+  /** The rows of the last re-plan, by id — the DEV seam's read of what the far law saw. */
+  const lastPlanRows = new Map<string, ResidencyRow>();
   const replan = (camera: THREE.PerspectiveCamera) => {
     dirty = false;
+    lastPlanRows.clear();
     if (!visible) {
       for (const e of entries.values()) if (e.state !== "idle") unload(e);
       skipped = 0;
       return;
     }
     _cam.copy(camera.position);
-    const rows = [];
+    // THE FAR LAW's lens (owner 2026-09-30): the projection's own vertical scale and aspect (so a
+    // zoom or a resize needs no second source) and the view axis from the camera's world matrix.
+    const pe = camera.projectionMatrix.elements;
+    const tanHalfV = pe[5] > 0 ? 1 / pe[5] : Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const aspect = pe[0] > 0 && pe[5] > 0 ? pe[5] / pe[0] : camera.aspect;
+    const marginRad = THREE.MathUtils.degToRad(MODELS.farViewMarginDeg);
+    _camFwd.setFromMatrixColumn(camera.matrixWorld, 2).negate().normalize();
+    const rows: ResidencyRow[] = [];
     for (const e of entries.values()) {
       if (e.state === "failed") {
         // audit #4 H2-2: a transient 5xx / network blip is not a row change — retry, bounded.
@@ -557,8 +577,19 @@ export function attachUserModels(
         e.state = "idle";
         failed = Math.max(0, failed - 1); // `failed` reads as "currently failed" on the density chip
       }
-      rows.push({ id: e.row.id, tris: e.row.tris, distM: _cam.distanceTo(e.ecef) });
+      const distM = _toModel.copy(e.ecef).sub(_cam).length();
+      // The model's reach about its pivot (the loaded bounds once resident, the record's bbox
+      // before) — unknown size = no far claim, the radius law alone.
+      const reach = modelReachM(e.sizeM3, e.target);
+      rows.push({
+        id: e.row.id,
+        tris: e.row.tris,
+        distM,
+        frac: reach ? apparentFrac(reach.extentM, distM, tanHalfV) : undefined,
+        inView: reach ? inViewCone(distM > 0 ? _toModel.dot(_camFwd) / distM : 1, distM, reach.radiusM, tanHalfV, aspect, marginRad) : false,
+      });
     }
+    for (const r of rows) lastPlanRows.set(r.id, r);
     const wanted = new Set<string>();
     for (const e of entries.values()) if (e.state === "ready" || e.state === "loading") wanted.add(e.row.id);
     const plan = planResidency(rows, wanted, {
@@ -566,6 +597,10 @@ export function attachUserModels(
       unloadRadiusM: MODELS.unloadRadiusM,
       maxResident: MODELS.maxResident,
       triBudget: MODELS.triBudget,
+      farLoadFrac: MODELS.farLoadFrac,
+      farKeepFrac: MODELS.farKeepFrac,
+      farLoadRangeM: MODELS.farLoadRangeM,
+      farUnloadRangeM: MODELS.farUnloadRangeM,
     });
     skipped = plan.skipped;
     for (const id of plan.unload) {
@@ -826,6 +861,10 @@ export function attachUserModels(
           sizeM3: e.sizeM3,
           dragging: e.dragging,
           tris: e.row.tris,
+          // THE FAR LAW as the last re-plan saw this model (undefined before the first one).
+          distM: lastPlanRows.get(e.row.id)?.distM,
+          frac: lastPlanRows.get(e.row.id)?.frac,
+          inView: lastPlanRows.get(e.row.id)?.inView,
         });
       }
       return {

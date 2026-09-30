@@ -575,10 +575,32 @@ seating (`resnapEveryFrames` 60 · `seatEaseK` 0.18 · `seatSnapM` 0.005 · `xfE
 `fallbackGroundM` 120), the armed highlight (`armedEmissive` 0.22 — the accent TOKEN at the use
 site), and the mirrors (`densityMirrorEveryFrames` 30 · `hoverPickMs` 120).
 
+**The 2026-09-30 family — THE FAR LAW + the first-person cover** (owner: "3 of 4 custom bridges
+never load in my zoomed viewport … they clip in and out"; DECISIONS 2026-09-30). Two root causes,
+both measured at `#f=48.494722,35.004545,96.3,121,-1,5.6` (13 world rows known, 1 resident):
+
+| Knob | Value | Why |
+|---|---|---|
+| `fpvFetchRadiusM` | 16 000 | In first person `_focus` is the forward ray's ELLIPSOID hit — 9.0 km from the eye at that −1.1° pose, the camera itself once the ray clears the limb — and the cover was a 4 km square around it: a fraction of a degree of pitch swung the world read across the map and the models under it came and went (a phone's AR aim does this continuously — "mobile even more flaky"). The first-person cover is a square of this half-side around the EYE (`reportViewport(eye, alt, radius)`), so turning the view cannot move it. 77 p5 cells at 48.5° N. Orbit keeps `fetchRadiusM` around the focus. |
+| `maxCells` | 96 (was 16) | The cover's own cap, nearest first. The ROUTE still takes ≤ 16 cells a query (`MODEL_WORLD_MAX_CELLS`, unchanged — no `/api` contract moved); the store sends the cover in chunks of 16 in parallel and merges by id (`store/userModels.fetchWorldCover`); one failed chunk fails the read (a partial world would unload the missing cells). |
+| `farLoadFrac` · `farKeepFrac` | 0.02 · 0.012 | The residency radius is measured to a model's CENTRE and knows neither its size nor the lens: a 2.65 km bridge 4.37 km away fills a 245 mm frame and was never fetched, while the buildings beside it — loaded by screen-space error — were. A model IN VIEW whose APPARENT size (`apparentFrac`: its scaled box diagonal as a share of the viewport's HEIGHT through the live lens) reaches `farLoadFrac` is resident; it stays while it holds `farKeepFrac`, looked at or not (a pan must not thrash). 0.02 ≈ 18 px of a 900 px view; a 30 m model at the 3 km radius through a 40° lens reads 0.014, so the law only ADDS the big and the zoomed-at. |
+| `farLoadRangeM` · `farUnloadRangeM` | 16 000 · 18 000 | The far law's reach and its hysteresis — the cover's half-side, so every row it can ask about is known. |
+| `farViewMarginDeg` | 3 | The LOAD gate's view test is a cone around the frustum's corners (`inViewCone` — no near / far plane, no depth convention), widened by the model's own angular radius and this margin: a model starts loading just before it enters the frame. |
+
+Far rows spend only what the near rows leave of `maxResident` / `triBudget` (near closest-first,
+then far: in view first, the biggest on screen first) — the radius law is byte-for-byte what it
+was, and `skipped` (the density warning) also counts a far LOAD the budget refused. The scene
+hands each row its `frac` + `inView` at the re-plan cadence (`residencyEveryFrames`); the lens is
+read from the projection matrix (`1 / P[5]`), so a zoom or a resize needs no second source. The
+DEV seam `__globe.userModels().models[]` carries `distM` / `frac` / `inView` as the last plan saw
+them. **NOT done (T152):** the ORBIT cover is still 4 km around the focus — a kilometre-scale
+model off to the side of a high, tilted orbit view is unknown to the client until the focus nears it.
+
 Three facts the module encodes (source-verified 2026-09-02i):
 - **`hasSome` is equality-on-a-set.** The world read cannot prefix-match a p9 hash; a placement
   writes a denormalized p5 cell beside `geohash9` (the pins' gh4/gh6 precedent), and the cover is
-  the ≤ 16 nearest p5 cells of a square around the ground focus.
+  the nearest p5 cells of a square around the ground focus (orbit, 4 km, ≤ 9) or the eye (first
+  person, 16 km, ≤ 96 — sent 16 to a query; 2026-09-30).
 - **The rig IS the model.** `frame` (ECEF + the ENU quaternion from `Matrix4.makeBasis(east,
   up, −north)`) → `anchor` (the live move offset) → `body` (yaw + uniform scale) → the GLB root
   re-based by `groundFitOffset`. The MS2 gizmo attaches to `anchor`/`body` through a
@@ -813,3 +835,23 @@ the planet's 18,000 km. The desktop never reads it.
 `AR_CAM_LONG_FOV_DEFAULT_DEG` 62 → **68** (a too-narrow default draws the feed too small: the aligned building slips as the
 phone pitches). `rollDeg` and `rollMaxDeg` are GONE — roll is not calibrated (the sensed roll still levels the feed); a pinch
 OUT widens `camLongFovDeg` (`tan(fov'/2) = tan(fov/2)·spread`), the pinch-to-zoom sense.
+
+## The 2026-09-30 families — the pin follows the walker, the far law (see the MS5 family above), ALIGN out
+
+### The pin follows the walker (`FPV.pinFollowSettleMs` 400 · `pinFollowMinM` 0.05 → `lib/globe/pinFollow` + `StylizedTiles.followPinToEye`)
+In a TEMP-pin first-person view the pin is re-based onto the eye once no walk input (keys or stick) has arrived for
+`pinFollowSettleMs` and the eye is at least `pinFollowMinM` (horizontal) from it — ONE store write per stroll, never per frame
+(every `tempPin` subscriber repaints on it). The re-base is position-neutral by construction: the new pin is the point
+`eye − up·(eyeM + meshLift)`, its applied ground the altitude of that point (seeded BEFORE the store write — `tempPinPoint()`
+resets the ground on a key change and a missing tile would read the ellipsoid), the basis is re-taken there with the look
+carried (`reseatTempBasis`, shared with a pin placed elsewhere), the walk offset folds to zero and the mesh floor is KEPT (the
+same column). Measured on the desktop twin: the eye moves 2.6 cm across a re-base after an 84 m stroll (the terrain ease), no
+single-frame jump is logged. A PHOTO's first person never follows — its point is the photo's placement. Side effect worth
+knowing: `stepFpvMeshFloor` treats a non-zero walk offset as "moving" and casts its column every frame; after the re-base the
+offset is zero, so a viewer who stopped walking is back on the idle cadence.
+
+### ALIGN is gone (owner 2026-09-30 — "confusing and redundant")
+No tunable left with it; recorded here because `FPV.ar*` readers will look for it. The ⌖ ALIGN chip, `camera.requestArAlign` /
+`arAlignEpoch` and `ArLookCtx.alignEpoch` are deleted. On a gyro-only rung the arming seed ties the pose to the view
+(`ladder.align(h, false)`), and the calibration's CONFIRM is the explicit align (`commitCalibration` → `relative-aligned`).
+`OrientationLadder.align(h, true)` stays as a tested library method with no UI caller.

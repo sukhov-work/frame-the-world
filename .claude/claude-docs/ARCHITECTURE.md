@@ -331,14 +331,27 @@ place deletes were dead in production until 2026-09-19. Fence: `test/lib/api/jso
   dropped inside a building lands on its roof at entry. A bridge deck (top + underside) is walked UNDER, a parked car (closed)
   is climbed. Column cost on the lean twin: 6.4 ms once, sub-ms steady. The HUD's EYE readout stays the encoder's height
   above the floor (1.7 m on a roof — T150).
+- **The pin follows the walker (owner 2026-09-30).** In a temp-pin FPV the walk used to leave the pin behind — the chart drew
+  an eye dot and, at the point the walk started from, the pin ring, with a long-press the only way to bring the pin along
+  (never exactly onto where one stood). Once no walk input has arrived for `FPV.pinFollowSettleMs` (400 ms — "when the person
+  stops": ONE store write per stroll, never per frame; the rule is `lib/globe/pinFollow.pinFollowDue`) the orchestrator
+  re-bases the pin onto the eye (`followPinToEye`): the pin takes the point `eye − up·(eyeM + meshLift)`, its ground is seeded
+  with that point's altitude BEFORE the store write (`tempPinPoint()` resets the ground on a key change), the tangent basis is
+  re-taken there with the look carried (`reseatTempBasis` — the pin-change re-seat's own math, now shared) and the walk offset
+  folds to zero. Position-neutral: 2.6 cm of eye motion across a re-base after an 84 m stroll on the desktop twin (the terrain
+  ease), no single-frame jump, the mesh floor KEPT (the same column — only a pin placed ELSEWHERE resets it). Both shells, keys
+  and stick, the map window up or not; a PHOTO's first person never follows (its point is the photo's placement). The
+  long-press / double-click point is unchanged.
 - **`/m` boots the whole planet even from a hash** (`MOBILE2D.hashPlanetFromAltM` 1,000 km): the desktop's Mobile / OPEN /M
   links hand over the desktop's 1,100 km boot LEO as `#p=`, the UA redirect keeps it, the /m mirror re-writes it — the
   2026-09-18 whole-planet boot had read only on a BARE `/m`. An orbital hash keeps its focus and lands nadir at 18,000 km;
   a real place hash below the threshold is honoured exactly.
 - Harness: `scripts/verify-fpv-carry-2026-09-22.mjs` (29 — the cut, the seam, the place / point / pin-move / exit poses, the
   12 m test solid `__globe.fpvTestSolid` walked into, across and off, the pin inside it, the kill switch) ·
-  `verify-mobile-fixes-2026-09-18` leg 1′ (the LEO hash → the planet, a place hash honoured). Unit contract:
-  `test/components/globe/fpvTransitions2026-09-22.test.ts` · `test/lib/globe/fpvClearance.test.ts`.
+  `verify-mobile-fixes-2026-09-18` leg 1′ (the LEO hash → the planet, a place hash honoured) ·
+  `scripts/verify-followups-2026-09-30.mjs` legs B / C (the pin follow: stick, keys, a roof, the map window on both shells).
+  Unit contract: `test/components/globe/fpvTransitions2026-09-22.test.ts` · `test/lib/globe/fpvClearance.test.ts` ·
+  `test/lib/globe/pinFollow.test.ts`.
 
 ## 7b. ULTRA — the desktop opt-in fidelity mode (as built 2026-08-22j) [BROWSER-VERIFIED]
 **Full architecture: `rendering/ULTRA_ARCHITECTURE.md`.** Charter: `ULTRA_PLAN.md` (+ its AS BUILT
@@ -442,7 +455,16 @@ Three directions, all shipped:
   `UserModels` (`/api/models`: owner GET, descriptor-verified POST, the MS6 PATCH split — placement
   open to every member under LWW with `editorMemberId`, title and hidden owner-only — and DELETE).
   Visitors stream the world through the public `GET /api/world-models?cells=` into
-  `scene/userModels.ts`, which builds an ENU rig per model under a triangle budget. A model has three
+  `scene/userModels.ts`, which builds an ENU rig per model under a triangle budget. **Streaming since 2026-09-30 (owner:
+  "3 of 4 custom bridges never load in my zoomed viewport … they clip in and out"):** the world read's cover is a 4 km square
+  around the ground focus in orbit and a **16 km square around the EYE in first person** (the FPV "focus" is the forward ray's
+  ellipsoid hit — 9 km out at a −1° long-lens pose, the camera itself past the limb — and the cover swung with every nudge of
+  pitch), sent 16 cells to a query and merged (`store/userModels.fetchWorldCover`; the route is unchanged); residency is the
+  3 km / 4 km radius law PLUS **the far law**: a model IN VIEW whose apparent size (`apparentFrac` — its scaled box diagonal
+  as a share of the viewport's height through the live lens, the number a tile's screen-space error is made of) reaches
+  `MODELS.farLoadFrac` is resident out to 16 km and stays while it holds `farKeepFrac`, looked at or not; far rows spend only
+  what the near rows leave of the budget (`lib/models/modelPlacement.planResidency`, `modelReachM`, `inViewCone`). Harness:
+  `scripts/verify-followups-2026-09-30.mjs` leg A (a synthetic world fulfilled over CDP `Fetch`). A model has three
   seats: the terrain seat, the MS7 `tU` LIFT seat railed onto a height-aware floor so it can never
   sink out of sight, and MS8 pitch/roll. Management is the fourth MY PINS tab (`MyModelsTab.tsx`)
   with per-row GOTO and RESET.
@@ -531,9 +553,11 @@ In mobile FPV the phone's orientation aims the camera. The seam is three layers,
   2026-09-19 had the sign backwards); ✓ CONFIRM / ↺ RESET / ✕ CANCEL. **The small-screen layout (2026-09-22):** the top strip
   is ONE row (title + `YAW · PITCH · mm` readout, no memo; the mini-map folds to its puck while calibrating — `MiniMap`
   reads `arCam`), the three verdicts are ROUND cells in a column on the LEFT rail 12 px above the AIM stick (thumb reach;
-  **since 2026-09-25 CONFIRM is the BOTTOM cell, nearest the stick — CANCEL · RESET · CONFIRM top-down — and ⌖ ALIGN, a
-  gyro-only rung's chip, is a round cell on the same left rail: alone at the column's seat, the column's TOP cell while
-  calibrating**), and the 3D ↔ CAM slider stands VERTICAL just above the CAM chip on the right rail (a rotated range, a
+  **since 2026-09-25 CONFIRM is the BOTTOM cell, nearest the stick — CANCEL · RESET · CONFIRM top-down. ⌖ ALIGN, the
+  gyro-only rungs' one-tap chip, was REMOVED on 2026-09-30 (owner: "confusing and redundant" — an iPhone aimed at the sky
+  falls to a gyro-only rung, so the chip kept appearing on the calibration screen, where CONFIRM already is the align);
+  the chip, `camera.requestArAlign` / `arAlignEpoch` and `ArLookCtx.alignEpoch` are gone, the rung notes name the long
+  press instead**), and the 3D ↔ CAM slider stands VERTICAL just above the CAM chip on the right rail (a rotated range, a
   SIBLING of the column — `--m-altcol-h` stays 200 px; **its height reads the mini-map as RENDERED: folded to the puck —
   always while calibrating — the card's 134 px becomes 46 through `:has(.mm--collapsed)`, 2026-09-25**).
   **The stored yaw is a measured COMPASS BIAS and lives INSIDE the trim** (target = observation + bias):

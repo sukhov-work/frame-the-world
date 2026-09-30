@@ -47,8 +47,13 @@ import "../../styles/map-window.css";
  *
  * Interactions: drag pans · wheel / pinch / ± buttons zoom · two-finger TWIST rotates the
  * chart (batch #4 item 4b — view.rot, reset north-up per open; every transform runs through
- * ONE rotation-aware helper set) · ◉ re-centres on you after a manual pan (2026-08-22) ·
- * ✕ / Esc returns to the mini-map. Top-level island (the S2 containing-block rule).
+ * ONE rotation-aware helper set) · the target button re-centres on you after a manual pan
+ * (2026-08-22; the glyph 2026-09-30) · ✕ / Esc returns to the mini-map. Top-level island (the
+ * S2 containing-block rule).
+ * THE PIN FOLLOWS THE WALKER (owner 2026-09-30): walking with the chart up (the /m stick, the
+ * desktop arrows) used to leave the pin ring at the point the walk started from, beside the eye
+ * dot. The orchestrator now re-bases the temp pin onto the eye once the walk settles
+ * (`StylizedTiles.followPinToEye`) — nothing here moves it; this window only draws both.
  * The place gesture SPLITS BY SHELL (owner batch #5 item 4; this docblock claimed the
  * desktop behaviour for both until audit #3 D2 caught it, and the /m guide copy had
  * inherited the error): desktop double-click = VIEW FROM HERE (requestFpvJump relocates a
@@ -1007,11 +1012,13 @@ export default function MapWindow() {
           <span className="m-scalebar__bar" style={{ width: `${scale.px.toFixed(1)}px` }} />
         </span>
       )}
-      {/* Owner micro-slice 2026-08-22 item 2: the round ◉ RE-CENTRE button on the right edge,
-
+      {/* Owner micro-slice 2026-08-22 item 2: the round RE-CENTRE button on the right edge,
           below the top row (on /m it clears the 32vw PiP that owns that rung — see the CSS).
           ALWAYS visible, muted while following and accent-lit once you've panned away, so it
-          advertises the way back — the only path out of the now-permanent manual override. */}
+          advertises the way back — the only path out of the now-permanent manual override.
+          Owner 2026-09-30: the glyph is a TARGET (ring · centre dot · four ticks — the "locate
+          me" mark every map uses) instead of ◉, which read as a record dot; the button's shape
+          and size are untouched (the icon is drawn inside the same 2.1rem circle). */}
       <button
         type="button"
         className={`mw-btn mw-recenter${panned ? " is-panned" : ""}`}
@@ -1019,7 +1026,11 @@ export default function MapWindow() {
         aria-pressed={!panned}
         onClick={() => recenterRef.current()}
       >
-        ◉
+        <svg className="mw-recenter__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="6.25" />
+          <circle className="mw-recenter__dot" cx="12" cy="12" r="2.1" />
+          <path d="M12 1.75v4M12 18.25v4M1.75 12h4M18.25 12h4" />
+        </svg>
       </button>
     </div>
     {/* Item 3: ALL map attribution as ONE very thin full-bleed line on the screen's bottom

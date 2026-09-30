@@ -571,8 +571,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "The mini-map expands to a big flat chart of the area around you — a centred " +
           "window on desktop, fullscreen on /m — and it follows you as you walk. On desktop, double-click to stand somewhere else; on " +
-          "/m, long-press to drop a point and stay on the map. Drag the chart and it holds " +
-          "where you put it — tap ◉ to come back to yourself.",
+          "/m, long-press to drop a point and stay on the map. Walk, and your pin comes along: " +
+          "it moves to where you stand each time you stop. Drag the chart and it holds " +
+          "where you put it — tap the ⊙ target to come back to yourself.",
         tip:
           "On /m the walk joystick keeps working over the fullscreen map. On desktop, " +
           "Esc closes the map first, then exits the view.",
@@ -582,25 +583,25 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: "Controls on the MAP",
         where: {
           desktop: "Top row of the map window",
-          mobile: "Pills top-left · live view and ◉ down the right",
+          mobile: "Pills top-left · live view and ⊙ down the right",
         },
         body:
           "The top row carries the title, + and −, and on desktop ✕ MINI-MAP. On /m a scale bar " +
           "sits under those pills, and to their right a live 3D window onto where you stand — " +
           "tap it to go back there. Under that, " +
-          "the round ◉ button: muted while the chart is following you, lit once you have " +
+          "the round ⊙ target button: muted while the chart is following you, lit once you have " +
           "explored away. The time strip keeps working along the bottom, so you can scrub the " +
           "sky without closing the map.",
         keys: ["re-centre", "recentre", "recenter", "centre", "center", "follow", "pan"],
         steps: [
           "Drag the chart anywhere — it stays where you put it.",
-          "Watch ◉ light up: the map is telling you it has stopped following.",
-          "Tap ◉ to centre on yourself again and hand the follow back.",
+          "Watch ⊙ light up: the map is telling you it has stopped following.",
+          "Tap ⊙ to centre on yourself again and hand the follow back.",
           "On /m, walk with the joystick — it keeps working over the fullscreen map.",
           "Tap the live 3D window, or press Esc on desktop, to leave the map.",
         ],
         tip:
-          "Closing and reopening the map also hands the follow back — ◉ is the way to do it " +
+          "Closing and reopening the map also hands the follow back — ⊙ is the way to do it " +
           "without losing your place.",
         media: [
           {
@@ -609,7 +610,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             h: 783,
             caption:
               "The expanded MAP on /m: MAP and ± pills top-left with the scale bar under them, " +
-              "the live 3D window top-right, the lit ◉ on the right edge after a pan, AIM over " +
+              "the live 3D window top-right, the lit ⊙ on the right edge after a pan, AIM over " +
               "WALK on the left rail, your focal cone and radar drawn on the chart, and the " +
               "time strip above the credit line.",
             shell: "mobile",
@@ -1820,10 +1821,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "COMPASS · TRUE NORTH — north from the phone's compass, corrected for declination, while " +
             "the gyro carries the turns so a swing comes back to where it started; an iPhone may " +
             "ask you to tilt the phone down for a moment to re-sync.",
-          "GYRO · ALIGNED — no compass: you aligned once and the gyro carries it; tap ⌖ ALIGN " +
-            "again if it drifts.",
+          "GYRO · ALIGNED — no compass: you lined the view up once and the gyro carries it; " +
+            "hold AR and line it up again if it drifts.",
           "GYRO ONLY — turning the phone turns the view by the right amount from where it was; " +
-            "face where the view looks and tap ⌖ ALIGN to make it exact.",
+            "hold AR and line the view up against the camera to make it exact.",
           "NO SENSOR DATA — nothing is arriving: move the phone, and if nothing changes, motion " +
             "access may be off.",
         ],

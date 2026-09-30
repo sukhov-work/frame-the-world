@@ -229,8 +229,8 @@ describe("the overlay — renders only while AR + CAM are on; calibration adds t
     expect(css).toMatch(/body\.m:has\(\.m-arcal__mixv\) \.m-arfloat \{\s*bottom: calc\(100% \+ 8px \+ var\(--m-armix-h, 96px\) \+ 6px\);/);
     // 2026-09-25: the slider reads the mini-map as RENDERED — folded to its puck (always while calibrating) the card's 134 px becomes 46
     expect(css).toMatch(/body\.m:has\(\.m-arcal__mixv\):has\(\.mm--collapsed\) \{\s*--m-armix-h: max\(\s*52px,\s*min\(\s*128px,\s*calc\(\s*100dvh - 2\.9rem - 46px - 8px/);
-    // …and ⌖ ALIGN stacks above the column while it is up (three cells + three gaps)
-    expect(css).toMatch(/body\.m:has\(\.m-arcal__actions\) \.m-aralign \{\s*bottom: calc\(10rem \+ 120px \+ 110px \+ 12px \+ 156px \+ env\(safe-area-inset-bottom\)\);/);
+    // …and nothing stacks above the column any more (⌖ ALIGN left on 2026-09-30)
+    expect(css).not.toMatch(/\.m-aralign/);
     // the fullscreen map hides every piece of the overlay
     expect(css).toMatch(/body\.mw-open \.m-arcal__mixv,\s*body\.mw-open \.m-arcal__actions,/);
   });
@@ -273,9 +273,11 @@ describe("the engine contract — calibration goes IN on update(ctx), the bias c
     expect(AR).not.toMatch(/^import \{[^}]*\} from "[^"]*store\//m); // type-only store imports are the fence's allowance
   });
 
-  it("the seed and ⌖ ALIGN subtract the drag from the camera heading (it already carries it)", () => {
+  it("the arming seed subtracts the drag from the camera heading (it already carries it); no explicit-align request is left (owner 2026-09-30)", () => {
     expect(AR).toMatch(/ladder\.align\(wrapDeg360\(lastCameraHeading - calDraftYaw\), false\)/);
-    expect(AR).toMatch(/ladder\.align\(wrapDeg360\(ctx\.cameraHeadingDeg - calDraftYaw\), true\)/);
+    expect(AR).not.toMatch(/ladder\.align\([^)]*\), true\)/);
+    expect(AR).not.toMatch(/alignEpoch/);
+    expect(ORCH).not.toMatch(/arAlignEpoch|alignEpoch:/);
   });
 
   it("the stored yaw is a compass BIAS inside the ladder; CONFIRM zeroes this frame's drag before the aim is read", () => {

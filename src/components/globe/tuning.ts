@@ -3968,6 +3968,14 @@ export const FPV = {
   walkReseatEaseTauMs: 200,
   /** Stick deflections under this are ignored (finger-jitter deadband, fraction of the radius). */
   walkStickDeadband: 0.06,
+  /** THE PIN FOLLOWS THE WALKER (owner 2026-09-30): in a temp-pin first-person view the pin is
+   *  moved onto the eye once no walk input has arrived for this long (ms) — "when the person
+   *  stops", one store write per stroll instead of one per frame. 400 ms rides out a thumb
+   *  re-gripping the stick or a key repeat's gap without the pin lagging a finished walk. */
+  pinFollowSettleMs: 400,
+  /** …and only if the eye is at least this far (m, horizontal) from the pin — float dust and a
+   *  brushed stick are not a walk. */
+  pinFollowMinM: 0.05,
   /** SPACE = ascend with hold-acceleration (QoL-1, owner 2026-08-14): vertical rate at FULL
    *  ramp (per s, proportional — same units/idiom as the ALTITUDE encoder's rail
    *  CONTROLS.zoomRateMaxPerS; step scales with max(height, vertEncoderBaseM)). */
@@ -4978,11 +4986,19 @@ export const MODELS = {
   /** Half-side (m) of the square of p5 cells the world read asks for around the camera's
    *  ground focus. ≈ 4.9 km cells → 4–9 cells per query. */
   fetchRadiusM: 4_000,
+  /** FIRST PERSON (owner 2026-09-30): the cover's half-side around the EYE. In first person the
+   *  "ground focus" is the forward ray's ellipsoid hit — 9 km out at the owner's −1° long-lens
+   *  pose, the camera itself once the ray clears the limb — so a fraction of a degree of pitch
+   *  swung the cover across the map and the models under it popped in and out (a phone's AR aim
+   *  does that continuously). An eye-centred square does not move when the view turns, and it
+   *  reaches what THE FAR LAW below can ask for. 16 km ≈ 88 p5 cells at 48° N. */
+  fpvFetchRadiusM: 16_000,
   /** Above this camera altitude (m) nothing is fetched or shown — a 100 m object is under a
    *  pixel from there, and the pins' global tier has no model twin. */
   fetchMaxAltM: 40_000,
-  /** Most cells one world query names (the `hasSome` list); the nearest win. */
-  maxCells: 16,
+  /** Most cells one cover names; the nearest win. The store asks for them in chunks of
+   *  `MODEL_WORLD_MAX_CELLS` (the route's `hasSome` cap) — 96 since 2026-09-30, was 16. */
+  maxCells: 96,
   /** The viewport report is THROTTLED (not debounced — the pins lesson) to one query per this
    *  window; a query fires only when the cover changed or `repollMs` passed. */
   queryThrottleMs: 600,
@@ -4996,6 +5012,22 @@ export const MODELS = {
   loadRadiusM: 3_000,
   /** …and a resident one is released only past this (hysteresis — no thrash at the edge). */
   unloadRadiusM: 4_000,
+  /** THE FAR LAW (owner 2026-09-30 — "3 of 4 custom bridges never load in my zoomed viewport").
+   *  The radius above is measured to a model's CENTRE and knows nothing of its size or the lens:
+   *  a 2.2 km bridge 4.4 km away fills a 245 mm frame and was never fetched, while the buildings
+   *  around it — loaded by screen-space error — were. So a model IN VIEW whose apparent size (its
+   *  box diagonal as a share of the viewport's HEIGHT through the live lens) reaches
+   *  `farLoadFrac` is resident out to `farLoadRangeM`, and stays while it holds `farKeepFrac`
+   *  inside `farUnloadRangeM`. 0.02 ≈ 18 px on a 900 px view: at the 3 km radius a 30 m model
+   *  through a 40° lens reads 0.014, so the far law only ever ADDS the big and the zoomed-at.
+   *  Far rows spend what the near rows leave of `maxResident` / `triBudget`. */
+  farLoadFrac: 0.02,
+  farKeepFrac: 0.012,
+  farLoadRangeM: 16_000,
+  farUnloadRangeM: 18_000,
+  /** The far law's view test is a cone around the frustum widened by this (deg) — a model starts
+   *  loading just before it enters the frame. Keeping needs no view at all. */
+  farViewMarginDeg: 3,
   /** Resident-model count cap and the TRIANGLE budget (closest first; ≈ 15 max-size uploads).
    *  Both are frame protection, not a quota. */
   maxResident: 24,

@@ -203,8 +203,8 @@ body.m:has(.m-arcal__mixv) .m-arfloat {
    strip). CONFIRM is the BOTTOM cell — nearest the stick, where the thumb already is (owner
    2026-09-25 item 2; it was the top one). The stick is `.m-joy--aim-fpv` — bottom 10rem + 120px,
    108 px + its 1 px border = 110 px tall — so the column ends 12 px above its top. `data-act` +
-   the DOM order are the contract the harness reads. While the column is up, ⌖ ALIGN (fpv.css
-   `.m-aralign`, a gyro-only rung's chip) stacks as a FOURTH cell above it — 3 × 44 + 3 × 8 px. */
+   the DOM order are the contract the harness reads. (⌖ ALIGN stacked above it as a fourth cell
+   until 2026-09-30 — the owner removed the chip: on a gyro-only rung CONFIRM is the align.) */
 .m-arcal__actions {
   position: fixed;
   left: calc(1rem + env(safe-area-inset-left));
@@ -225,13 +225,10 @@ body.m:has(.m-arcal__mixv) .m-arfloat {
   font-size: 0.38rem;
   letter-spacing: 0.1em;
 }
-body.m:has(.m-arcal__actions) .m-aralign {
-  bottom: calc(10rem + 120px + 110px + 12px + 156px + env(safe-area-inset-bottom));
-}
 
-/* The CAM chip — the AR chip's twin, seated ABOVE it inside the same wrap (so the AR note / ALIGN
+/* The CAM chip — the AR chip's twin, seated ABOVE it inside the same wrap (so the AR note
    float clears both). It exists only while AR is on; the column then publishes FOUR cells to the
-   map window's ◉ RE-CENTRE (the A1-2 contract, `--m-altcol-h`). */
+   map window's RE-CENTRE target (the A1-2 contract, `--m-altcol-h`). */
 .m-arwrap:has(.m-cambtn) {
   gap: 8px;
 }

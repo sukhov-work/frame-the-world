@@ -385,11 +385,15 @@ await shoot("qsl-04-m-chart-held-past-bounds");
   await sleep(900);
 }
 const recBtn = await evalJs(`(() => { const b = document.querySelector(".mw-recenter");
+  const r = b?.getBoundingClientRect(); const i = b?.querySelector("svg.mw-recenter__icon")?.getBoundingClientRect();
   return b ? { text: b.textContent.trim(), lit: b.classList.contains("is-panned"),
-               label: b.getAttribute("aria-label") } : null; })()`);
+               label: b.getAttribute("aria-label"), w: r.width, h: r.height, icon: i ? { w: i.width, h: i.height } : null } : null; })()`);
 check("2: ◉ RE-CENTRE button present on the open chart", recBtn !== null, JSON.stringify(recBtn));
 check("2: it is ACCENT-LIT while the chart is overridden (is-panned)", recBtn?.lit === true);
-check("2: glyph is ◉ and it is labelled for screen readers", recBtn?.text === "◉" && !!recBtn?.label, recBtn?.label);
+// Owner 2026-09-30: the glyph is a drawn TARGET (an inline SVG), no longer the ◉ character — inside
+// the SAME round button (equal width / height, the icon smaller than the circle).
+check("2: glyph is the TARGET icon (an SVG, no text) and it is labelled for screen readers", recBtn?.text === "" && recBtn?.icon !== null && !!recBtn?.label, recBtn?.label);
+check("2: …inside the same round button (w = h, the icon inside it)", !!recBtn?.icon && Math.abs(recBtn.w - recBtn.h) < 0.5 && recBtn.icon.w < recBtn.w && recBtn.icon.h < recBtn.h, JSON.stringify(recBtn));
 await evalJs(`document.querySelector(".mw-recenter").click()`);
 await sleep(700);
 const vRecentred = await evalJs(`window.__mapWindowView`);

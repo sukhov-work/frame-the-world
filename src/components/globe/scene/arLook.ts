@@ -23,12 +23,13 @@
  * VISUAL CALIBRATION (owner order 2026-09-19 — `lib/sensors/arCalibration.ts`). The stored
  * calibration arrives on `update(ctx)` like every other request: its YAW is a compass bias and goes
  * INTO the ladder's trim (`setUserBias` — so it never touches the relative rungs, whose yaw is the
- * user's own ALIGN); its PITCH is added to the aim here, after the smoother. While the user is
+ * user's own alignment); its PITCH is added to the aim here, after the smoother. While the user is
  * calibrating, the DRAFT yaw delta rides on top of the aim so the view follows their finger; on
  * CONFIRM (`calCommitEpoch`) the ladder commits it and this module answers the bias to persist
- * through the pushed `calibrated` writer. The seed and ⌖ ALIGN subtract the draft delta from the
- * camera heading they are given — the camera already includes it, and an align that did not would
- * jump the view by it. ROLL is smoothed here and read per frame by the camera overlay (`roll()`).
+ * through the pushed `calibrated` writer. The arming seed subtracts the draft delta from the
+ * camera heading it is given — the camera already includes it, and a seed that did not would
+ * jump the view by it. (The ⌖ ALIGN chip and its epoch request left on 2026-09-30 — owner:
+ * "confusing and redundant"; on a relative rung CONFIRM is the align.) ROLL is smoothed here and read per frame by the camera overlay (`roll()`).
  *
  * C4: this attaches in the island (`StylizedTiles`), never at SSR — `window` is touched only in
  * `update()` on the rising edge.
@@ -48,10 +49,8 @@ export interface ArLookCtx {
   /** The FPV eye's geodetic position — the WMM is evaluated here. */
   latDeg: number;
   lonDeg: number;
-  /** The camera's CURRENT true heading — the seed for the relative rungs and the ALIGN target. */
+  /** The camera's CURRENT true heading — the seed for the relative rungs. */
   cameraHeadingDeg: number;
-  /** `store/camera.arAlignEpoch` — bumped by the ALIGN chip; each new value aligns once. */
-  alignEpoch: number;
   /** The STORED visual calibration: yaw = the compass bias, pitch = added to the aim (deg). */
   calBiasYawDeg: number;
   calPitchDeg: number;
@@ -109,7 +108,7 @@ const screenAngleDeg = (): number => {
 export interface ArLookOpts {
   /** The store mirror's writer (`useCameraStore.getState()._syncArLook`), PUSHED in by the
    *  orchestrator: scene modules never value-import a store (`fences.test.ts`
-   *  "mirror-never-seats"); the request half (`arLook`, `arAlignEpoch`) arrives on `update(ctx)`. */
+   *  "mirror-never-seats"); the request half (`arLook`) arrives on `update(ctx)`. */
   mirror: (state: ArLookState | null) => void;
   /** CONFIRM's answer, pushed the same way: the compass bias to persist, or null when the rung
    *  had no compass to bias (the drag became an ALIGN — the stored yaw stays as it was). */
@@ -134,7 +133,6 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
   let compassSamples = 0;
   let lastSampleT = -Infinity;
   let seeded = false;
-  let seenAlignEpoch = 0;
   let declination = 0;
   let declAtLat = NaN;
   let declAtLon = NaN;
@@ -235,11 +233,6 @@ export function attachArLook(opts: ArLookOpts): ArLookHandle {
         declAtLon = ctx.lonDeg;
         declination = declinationDeg(ctx.latDeg, ctx.lonDeg, 0, decimalYear(new Date()));
         ladder.setDeclination(declination);
-      }
-      // The ALIGN chip (rungs 3/4): each new epoch aligns once to the camera's live heading.
-      if (ctx.alignEpoch !== seenAlignEpoch) {
-        seenAlignEpoch = ctx.alignEpoch;
-        if (ladder.aim()) ladder.align(wrapDeg360(ctx.cameraHeadingDeg - calDraftYaw), true);
       }
       // CONFIRM: the ladder takes the drag (the trim's bias on a compass rung, an ALIGN by eye on
       // a relative one) and the answer goes back to the store, which persists it and zeroes the

@@ -194,7 +194,7 @@ await sleep(300);
   ok(d.aim.compassAgeMs > 500, `compass age grows while upright (${Math.round(d.aim.compassAgeMs)} ms)`);
 }
 
-// ── 4. Rungs 3/4 — gyro only: seeded from the camera, ALIGN makes it exact ──────────────────
+// ── 4. Rungs 3/4 — gyro only: seeded from the camera; NO ALIGN chip (owner 2026-09-30) ──────
 await tap(".m-arbtn", "the AR chip (off)");
 await sleep(200);
 {
@@ -215,9 +215,14 @@ await sleep(300);
   const d = await dbg();
   ok(d.aim?.rung === "relative-unaligned", "rung relative-unaligned without a compass");
   ok(circ(h.h, seedH) < 1.0, `the seed keeps the camera where it was (${h.h.toFixed(2)}° vs ${seedH.toFixed(2)}°) — nothing jumps at arming`);
-  const align = await J(`!!document.querySelector(".m-aralign")`);
-  ok(align, "the ALIGN chip is offered on the relative rung");
-  await shot("ar-look-02-gyro-align");
+  // Owner 2026-09-30: the ⌖ ALIGN chip is gone ("confusing and redundant") — the gyro-only rung,
+  // where an iPhone aimed at the sky lands, offers nothing but the AR / CAM chips; the rung line
+  // names the long press (the calibration's CONFIRM is the align).
+  const align = await J(`({ chip: !!document.querySelector(".m-aralign, [data-act='ar-align']"), label: [...document.querySelectorAll("button")].some((b) => /ALIGN/.test(b.textContent || "")) })`);
+  ok(align.chip === false && align.label === false, `NO ALIGN chip on the relative rung (${JSON.stringify(align)})`);
+  const line = await J(`document.querySelector(".m-arnote")?.textContent || ""`);
+  ok(!/TAP ALIGN/.test(line), `no note sends the user to a control that is not there ("${line.slice(0, 60)}")`);
+  await shot("ar-look-02-gyro-no-align");
 }
 await stream("deviceorientation", 75, 10, RF, 700); // turn 30° right, 10° up
 await sleep(300);
@@ -225,24 +230,19 @@ await sleep(300);
   const h = await hud();
   ok(circ(h.h, seedH + 30) < 1.0 && Math.abs(h.p - 10) < 0.8, `turning the phone 30° turns the view 30° (got ${h.h.toFixed(2)}°, expected ${((seedH + 30) % 360).toFixed(2)}°) / pitch ${h.p.toFixed(1)}°`);
 }
-// ALIGN: "face where the view looks, tap" — the current phone pose becomes the camera's heading
+// The gyro still carries the view from the seed: a further 20° turn is a further 20° of heading.
 const camH = (await hud()).h;
-await tap(".m-aralign", "ALIGN");
-await stream("deviceorientation", 75, 10, RF, 300);
-await sleep(250);
 {
-  const d = await dbg();
-  const h = await hud();
-  ok(d.aim?.rung === "relative-aligned", "rung relative-aligned after the tap");
-  ok(circ(h.h, camH) < 1.0, `ALIGN kept the view where it was (${h.h.toFixed(2)}° vs ${camH.toFixed(2)}°)`);
   await stream("deviceorientation", 95, 10, RF, 600);
   await sleep(250);
   const h2 = await hud();
-  ok(circ(h2.h, camH + 20) < 1.0, `…and a further 20° turn lands at ${((camH + 20) % 360).toFixed(1)}° (got ${h2.h.toFixed(2)}°)`);
+  const d = await dbg();
+  ok(d.aim?.rung === "relative-unaligned", "the rung stays relative-unaligned (nothing aligns it but a calibration)");
+  ok(circ(h2.h, camH + 20) < 1.0, `a further 20° turn lands at ${((camH + 20) % 360).toFixed(1)}° (got ${h2.h.toFixed(2)}°)`);
 }
 
 // ── 5. Stale: the sensors go quiet → the aim is null, the mirror says so, the drag is back ──
-await sleep(3600); // past arSampleStaleMs AND past the ALIGN hint
+await sleep(3600); // past arSampleStaleMs AND past the rung note
 {
   const d = await dbg();
   const st = await J(`window.__cameraStore.getState().arLookState`);

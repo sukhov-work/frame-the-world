@@ -171,6 +171,7 @@ import {
 import { driftRadiansForDt } from "../../lib/globe/drift";
 import { seatStep } from "../../lib/globe/enrichedMask";
 import { fpvClearance, type ColumnHit } from "../../lib/globe/fpvClearance";
+import { pinFollowDue } from "../../lib/globe/pinFollow";
 import {
   deleteOverride,
   dragScaleK,
@@ -2184,6 +2185,10 @@ export function attachStylizedTiles(opts: {
   let fpvWalkAppliedM: number | null = null;
   const _fpvWalkSampledAt = new THREE.Vector3();
   let fpvWalkSampleValid = false;
+  // THE PIN FOLLOWS THE WALKER (owner 2026-09-30): the frame clock of the last walk input — the
+  // pin is re-based onto the eye once the walker has stood still for `FPV.pinFollowSettleMs`.
+  let fpvWalkLastInputMs = 0;
+  const _pinFollowP = new THREE.Vector3();
   // MESH CLEARANCE (owner 2026-09-22, FPV item 3 — `FPV.meshClearance`, `lib/globe/fpvClearance`):
   // the mesh top the viewer stands on (absolute m; null = the terrain) and the eased vertical
   // term that puts the eye at `floor + fpvEyeM` above the terrain-seated eye. One vertical column
@@ -5796,7 +5801,6 @@ export function attachStylizedTiles(opts: {
       latDeg,
       lonDeg,
       cameraHeadingDeg: headingDeg,
-      alignEpoch: camNow.arAlignEpoch,
       // The visual calibration (2026-09-19): the stored yaw is a compass bias (into the trim),
       // the pitch joins the aim; in calibration mode the draft's yaw is the live drag.
       calBiasYawDeg: camNow.arCalibration.yawDeg,
@@ -5814,6 +5818,54 @@ export function attachStylizedTiles(opts: {
         performance.now(),
       );
     }
+  };
+
+  /** A temp FPV's tangent basis, re-taken at `pinP` with the CURRENT view direction carried over
+   *  (the heading survives the frame change; the look elevation re-expresses as the pitch
+   *  offset) and the walk zeroed — a pin change's re-seat and the pin-follow's re-base share it. */
+  const reseatTempBasis = (pinP: THREE.Vector3) => {
+    camera.getWorldDirection(_camFwd);
+    _tempUp0.copy(pinP).normalize();
+    const elev = Math.asin(THREE.MathUtils.clamp(_camFwd.dot(_tempUp0), -1, 1));
+    _tempFwd0.copy(_camFwd).addScaledVector(_tempUp0, -_camFwd.dot(_tempUp0));
+    if (_tempFwd0.lengthSq() < 1e-6) {
+      _tempFwd0.copy(_Z).addScaledVector(_tempUp0, -_tempUp0.z); // degenerate fallback
+    }
+    _tempFwd0.normalize();
+    _tempRight0.crossVectors(_tempFwd0, _tempUp0).normalize();
+    _tempUp0.crossVectors(_tempRight0, _tempFwd0); // re-orthonormalized
+    fpvYaw = 0;
+    fpvPitch = elev;
+    fpvWalkOffset.set(0, 0, 0);
+    fpvWalkGroundM = null; // RC10: a new pin is a new ground reference
+    fpvWalkAppliedM = null;
+    fpvWalkSampleValid = false;
+  };
+  /**
+   * THE PIN FOLLOWS THE WALKER (owner 2026-09-30 — "you have a dot with your current position and
+   * a dot for the actual pin in the previous location, and no way to move it exactly to where you
+   * stand"). Once a walk has settled the temp pin is RE-BASED onto the eye: the pin takes the
+   * ground point under it, the basis is re-taken there and the walk offset folds to zero — so the
+   * eye does not move a millimetre (the point is `eye − up·(eyeM + meshLift)`, its altitude the
+   * ground the walk re-seat had already applied, and the mesh floor state is KEPT: this is the
+   * same column). The pin's ground is seeded BEFORE the store write, because `tempPinPoint()`
+   * resets it on a key change and would re-sample from nothing (a missing tile = the ellipsoid —
+   * the eye would drop for a frame); `fpvPinKey` takes the new key so the pin-change re-seat
+   * (which also resets the mesh floor — right for a pin placed somewhere ELSE) stays out of it.
+   * Called at the END of the pose step: `camera.matrixWorld` is this frame's final look.
+   */
+  const followPinToEye = () => {
+    _pinFollowP.copy(camera.position).addScaledVector(_fpvUpGeo, -(fpvEyeM + fpvMeshLiftM));
+    const g = ecefToGeodetic([_pinFollowP.x, _pinFollowP.y, _pinFollowP.z]);
+    const key = `${g.latDeg},${g.lonDeg}`;
+    tempPinKey = key;
+    tempPinAppliedM = g.altM;
+    tempPinGroundM = fpvWalkGroundM ?? g.altM;
+    tempPinSampled = true;
+    fpvPinKey = key;
+    useCameraStore.getState().setTempPin({ latDeg: g.latDeg, lonDeg: g.lonDeg });
+    const pinP = tempPinPoint();
+    if (pinP) reseatTempBasis(pinP);
   };
 
   const stepFpvPose = () => {
@@ -5846,24 +5898,7 @@ export function attachStylizedTiles(opts: {
                   : null;
                 if (pinKey !== fpvPinKey) {
                   fpvPinKey = pinKey;
-                  camera.getWorldDirection(_camFwd);
-                  _tempUp0.copy(pinP).normalize();
-                  const elev = Math.asin(
-                    THREE.MathUtils.clamp(_camFwd.dot(_tempUp0), -1, 1),
-                  );
-                  _tempFwd0.copy(_camFwd).addScaledVector(_tempUp0, -_camFwd.dot(_tempUp0));
-                  if (_tempFwd0.lengthSq() < 1e-6) {
-                    _tempFwd0.copy(_Z).addScaledVector(_tempUp0, -_tempUp0.z); // degenerate fallback
-                  }
-                  _tempFwd0.normalize();
-                  _tempRight0.crossVectors(_tempFwd0, _tempUp0).normalize();
-                  _tempUp0.crossVectors(_tempRight0, _tempFwd0); // re-orthonormalized
-                  fpvYaw = 0;
-                  fpvPitch = elev;
-                  fpvWalkOffset.set(0, 0, 0);
-                  fpvWalkGroundM = null; // RC10: a new pin is a new ground reference
-                  fpvWalkAppliedM = null;
-                  fpvWalkSampleValid = false;
+                  reseatTempBasis(pinP);
                   fpvMeshFloorAbsM = null; // 2026-09-22: the new pin's column decides afresh
                   fpvMeshLiftM = 0;
                   fpvMeshLastColumnFrame = -1;
@@ -6076,6 +6111,15 @@ export function attachStylizedTiles(opts: {
               camera.up.copy(_fpvUp);
               camera.lookAt(_fpvLook.copy(camera.position).add(_fpvFwd));
               camera.updateMatrixWorld();
+              // THE PIN FOLLOWS THE WALKER (owner 2026-09-30): when the walk settles, not per
+              // frame — one store write per stroll. A temp pin only: a PHOTO's point is its
+              // placement, and walking around a photo must never edit it.
+              if (keysOn || stickOn) fpvWalkLastInputMs = now;
+              else if (
+                fpvKind === "temp" &&
+                pinFollowDue(fpvWalkOffset.length(), now - fpvWalkLastInputMs, FPV.pinFollowMinM, FPV.pinFollowSettleMs)
+              )
+                followPinToEye();
               lastInteract = now; // FPV owns the camera — the idle drift must never move it
             }
           }
@@ -6825,7 +6869,14 @@ export function attachStylizedTiles(opts: {
           // the geocoding bias (location finder ranks results near what you're looking at).
           const focusGeo = ecefToGeodetic([_focus.x, _focus.y, _focus.z]);
           usePinsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
-          useUserModelsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt); // MS5
+          // MS5 — the models' world read. In FIRST PERSON it is centred on the EYE with the far
+          // law's reach (owner 2026-09-30): `_focus` there is the forward ray's ellipsoid hit —
+          // 9 km out at a −1° long-lens pose, the camera itself once the ray clears the limb — so
+          // a nudge of pitch moved the cover across the map and the models under it came and went.
+          if (fpvActive) {
+            const eyeGeo = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+            useUserModelsStore.getState().reportViewport(eyeGeo.latDeg, eyeGeo.lonDeg, alt, MODELS.fpvFetchRadiusM);
+          } else useUserModelsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
           if (!fpvActive) mirrorCamGeo(); // viewer ground point — FPV writes it at HUD cadence
           // Ground metres per CSS px at the screen centre (owner 2026-09-16 — the /m 2D map's

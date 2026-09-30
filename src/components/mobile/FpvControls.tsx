@@ -133,7 +133,6 @@ export const AR_COPY = Object.freeze({
   needsTap: "TAP AGAIN — THE BROWSER ONLY ASKS FOR MOTION ACCESS FROM THE TAP ITSELF",
   noSensors: "NO MOTION SENSORS IN THIS BROWSER — THE JOYSTICK IS THE LOOK",
   stale: "NO SENSOR DATA — MOVE THE PHONE; IF NOTHING CHANGES, MOTION ACCESS MAY BE OFF",
-  aligned: "ALIGNED TO THE VIEW",
   /** 2026-09-19: the long press — said once with the armed hint so the gesture is discoverable. */
   holdHint: "HOLD AR TO CALIBRATE AGAINST THE CAMERA",
 });
@@ -149,14 +148,16 @@ export function arRungLine(state: ArLookState | null): string {
       return state.compassAgeMs > 60_000
         ? "COMPASS · TRUE NORTH · TILT THE PHONE DOWN A MOMENT TO RE-SYNC"
         : `COMPASS · TRUE NORTH (${state.declinationDeg >= 0 ? "+" : "−"}${Math.abs(state.declinationDeg).toFixed(1)}° DECLINATION)`;
+    // No ALIGN chip since 2026-09-30 (owner: "confusing and redundant") — on a gyro-only rung the
+    // calibration's CONFIRM is the align, so the lines name the gesture that opens it.
     case "relative-aligned":
-      return "GYRO · ALIGNED (NO COMPASS — RE-ALIGN IF IT DRIFTS)";
+      return "GYRO · ALIGNED (NO COMPASS — HOLD AR TO LINE IT UP AGAIN IF IT DRIFTS)";
     case "relative-unaligned":
-      return "GYRO ONLY — FACE WHERE THE VIEW LOOKS AND TAP ALIGN";
+      return "GYRO ONLY (NO COMPASS) — HOLD AR TO LINE THE VIEW UP";
   }
 }
 
-/** How long a transient note (armed / aligned / a rung line) stays up before the bubble clears.
+/** How long a transient note (armed / a rung line) stays up before the bubble clears.
  *  Owner 2026-09-08b: the hints are welcome, the standing bubble is not — it hides the view. */
 export const AR_NOTE_MS = 3500;
 
@@ -211,12 +212,11 @@ type DeviceOrientationEventCtor = { requestPermission?: () => Promise<"granted" 
  * FLOATS above the column (`.m-arfloat`, absolute) so the column's own box — the A1-2
  * `--m-altcol-h` contract the map window's ◉ RE-CENTRE reads — never grows while a note is up.
  *
- * ⌖ ALIGN (owner 2026-09-25 item 1): a round cell on the LEFT rail, just above the AIM stick (it
- * floated above this column before, on top of the mini-map card, squeezing the 3D ↔ CAM slider).
- * Offered on the gyro-only rungs: with no trustworthy compass the phone knows how far it turned
- * but not where north is, so the tap ties the CURRENT phone pose to the camera's heading
- * (`scene/arLook.ts`, `alignEpoch`). It stays this component's child for the "ALIGNED" flash;
- * fpv.css seats it, and stacks it above the calibration column while that is up.
+ * ⌖ ALIGN is GONE (owner 2026-09-30 — "confusing and redundant"). It was offered on the gyro-only
+ * rungs, which an iPhone falls to whenever it is aimed at the sky (the compass gate closes), so it
+ * kept appearing on the calibration screen — where CONFIRM already IS an align by eye
+ * (`orientationLadder.commitCalibration`). Arming seeds the heading from the view, and the long
+ * press lines it up exactly; no third control says the same thing.
  */
 export function ArLookToggle() {
   const on = useCameraStore((s) => s.arLook);
@@ -318,7 +318,6 @@ export function ArLookToggle() {
       arm();
     }
   };
-  const relative = on && state !== null && !state.stale && state.rung.startsWith("relative");
   const camMode = useCameraStore((s) => s.arCam);
   const calibrated = useCameraStore((s) => isCalibrated(s.arCalibration));
   const line = note ?? "";
@@ -358,23 +357,6 @@ export function ArLookToggle() {
       >
         AR
       </button>
-      {relative && (
-        <button
-          type="button"
-          className="m-act m-act--icon m-act--accent m-aralign"
-          data-act="ar-align"
-          aria-label="Align — tie the phone's current pose to where the view looks"
-          onClick={() => {
-            useCameraStore.getState().requestArAlign();
-            flash(AR_COPY.aligned);
-          }}
-        >
-          <span className="m-act__glyph" aria-hidden="true">
-            ⌖
-          </span>
-          <span>ALIGN</span>
-        </button>
-      )}
     </div>
   );
 }

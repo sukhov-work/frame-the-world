@@ -25,6 +25,9 @@ import {
   offsetGeodetic,
   quaternionFromTilt,
   tiltedExtent,
+  apparentFrac,
+  inViewCone,
+  modelReachM,
   planModelCover,
   planResidency,
   sameCover,
@@ -439,6 +442,18 @@ describe("modelPlacement — the world-read cover", () => {
     expect(cells).toEqual([encodeGeohash(48.4647, 35.0462, 5)]);
     expect(planModelCover(0, 0, 500, { ...cfg, radiusM: 40_000, maxCells: 6 })!.length).toBe(6);
   });
+  it("the first-person reach (2026-09-30): a 16 km square around the eye fits the cap, holds the eye's cell and reaches a bridge 12 km out", () => {
+    // The owner's long-lens eye over the Dnipro; the route takes 16 cells a query, the store chunks.
+    const eye = { lat: 48.494722, lon: 35.004545 };
+    const cells = planModelCover(eye.lat, eye.lon, 170, { radiusM: 16_000, maxAltM: 40_000, maxCells: 96 })!;
+    expect(cells.length).toBeGreaterThan(16);
+    expect(cells.length).toBeLessThanOrEqual(96);
+    expect(cells).toContain(encodeGeohash(eye.lat, eye.lon, 5));
+    // 12 km along the owner's heading (121°): dN = −6.2 km, dE = +10.3 km.
+    expect(cells).toContain(encodeGeohash(eye.lat - 6_180 / 111_320, eye.lon + 10_290 / (111_320 * Math.cos((eye.lat * Math.PI) / 180)), 5));
+    // The cover is the EYE's: nothing about where the view points goes in, so a pan cannot move it.
+    expect(planModelCover(eye.lat, eye.lon, 170, { radiusM: 16_000, maxAltM: 40_000, maxCells: 96 })).toEqual(cells);
+  });
   it("compares covers by content", () => {
     expect(sameCover(["a", "b"], ["a", "b"])).toBe(true);
     expect(sameCover(["a", "b"], ["a", "c"])).toBe(false);
@@ -488,5 +503,135 @@ describe("modelPlacement — residency + density", () => {
     expect(densityWarning(0, 500_000, 1_000_000)).toBe(false);
     expect(densityWarning(1, 0, 1_000_000)).toBe(true);
     expect(densityWarning(0, 1_000_000, 1_000_000)).toBe(true);
+  });
+});
+
+// THE FAR LAW (owner 2026-09-30): "3 of 4 custom bridges never load in my zoomed viewport". The
+// radius law is measured to a model's centre and knows neither its size nor the lens; the far law
+// asks what a tile's screen-space error asks — how big is it on screen — for a model in view.
+describe("modelPlacement — the far law (apparent size)", () => {
+  const TAN_245MM = Math.tan((5.6 * Math.PI) / 360); // the owner's pose: vertical FOV 5.6°
+  const TAN_WIDE = Math.tan((40 * Math.PI) / 360);
+  const cfg = {
+    loadRadiusM: 3000,
+    unloadRadiusM: 4000,
+    maxResident: 24,
+    triBudget: 1_500_000,
+    farLoadFrac: 0.02,
+    farKeepFrac: 0.012,
+    farLoadRangeM: 16_000,
+    farUnloadRangeM: 18_000,
+  };
+
+  it("modelReachM: the scaled box's diagonal and the farthest corner from the pivot; unknown size = null", () => {
+    const r = modelReachM([30, 40, 120], { sx: 1, sy: 1, sz: 1 })!;
+    expect(r.extentM).toBeCloseTo(130, 9); // √(30² + 40² + 120²)
+    expect(r.radiusM).toBeCloseTo(Math.hypot(15, 20, 120), 9); // the pivot is the BASE centre
+    // Per axis (T128): `[w, d, h]` ride `sx`, `sz`, `sy`.
+    expect(modelReachM([10, 10, 10], { sx: 2, sy: 3, sz: 4 })!.extentM).toBeCloseTo(Math.hypot(20, 40, 30), 9);
+    expect(modelReachM([10, 10, 10], 2)!.extentM).toBeCloseTo(Math.hypot(20, 20, 20), 9);
+    // The owner's "Bridge_1" record (bbox x / y / z = 2198 / 26 / 1487 m → `[w, d, h]`): it lies
+    // diagonally in its own frame, so the DIAGONAL is its length.
+    expect(modelReachM([2198.36, 1486.68, 26.01], 1)!.extentM).toBeGreaterThan(2650);
+    expect(modelReachM(null, 1)).toBeNull();
+    expect(modelReachM(12, 1)).toBeNull(); // a bare height is not a reach
+    expect(modelReachM([0, 0, 0], 1)).toBeNull();
+  });
+
+  it("apparentFrac is the share of the viewport's height: linear in size, inverse in distance and in the lens", () => {
+    // The owner's numbers: the 2.65 km bridge 4.37 km out through the 5.6° lens overflows the frame…
+    expect(apparentFrac(2654, 4370, TAN_245MM)).toBeGreaterThan(5);
+    // …and is a third of it through a 40° lens — worth loading at ANY focal length.
+    expect(apparentFrac(2654, 4370, TAN_WIDE)).toBeCloseTo(2654 / (4370 * 2 * TAN_WIDE), 12);
+    expect(apparentFrac(2654, 4370, TAN_WIDE)).toBeGreaterThan(0.3);
+    // A 30 m building at the old 3 km radius through a 40° lens sits UNDER the far threshold —
+    // the far law only ever adds the big and the zoomed-at.
+    expect(apparentFrac(30, 3000, TAN_WIDE)).toBeLessThan(cfg.farLoadFrac);
+    expect(apparentFrac(30, 3000, TAN_245MM)).toBeGreaterThan(cfg.farLoadFrac);
+    expect(apparentFrac(100, 2000, TAN_WIDE)).toBeCloseTo(2 * apparentFrac(100, 4000, TAN_WIDE), 12);
+    // Garbage and the singular distance.
+    expect(apparentFrac(0, 100, TAN_WIDE)).toBe(0);
+    expect(apparentFrac(10, Number.NaN, TAN_WIDE)).toBe(0);
+    expect(apparentFrac(10, 100, 0)).toBe(0);
+    expect(apparentFrac(10, 0, TAN_WIDE)).toBe(apparentFrac(10, 1, TAN_WIDE));
+  });
+
+  it("inViewCone: a cone that holds the frame's corners, widened by the sphere and the margin", () => {
+    const deg = Math.PI / 180;
+    const cosAt = (offDeg: number) => Math.cos(offDeg * deg);
+    // 5.6° × 16:9 → the corner sits atan(tan 2.8° · √(1 + (16/9)²)) = 5.70° off the axis.
+    const half = Math.atan(TAN_245MM * Math.hypot(1, 16 / 9)) / deg;
+    expect(half).toBeCloseTo(5.7, 1);
+    expect(inViewCone(cosAt(half - 0.1), 5000, 0, TAN_245MM, 16 / 9, 0)).toBe(true);
+    expect(inViewCone(cosAt(half + 0.1), 5000, 0, TAN_245MM, 16 / 9, 0)).toBe(false);
+    // The margin widens it…
+    expect(inViewCone(cosAt(half + 2.9), 5000, 0, TAN_245MM, 16 / 9, 3 * deg)).toBe(true);
+    expect(inViewCone(cosAt(half + 3.1), 5000, 0, TAN_245MM, 16 / 9, 3 * deg)).toBe(false);
+    // …and so does the model's own radius: a 1.3 km reach 5 km out subtends asin(0.26) = 15°.
+    expect(inViewCone(cosAt(half + 14), 5000, 1300, TAN_245MM, 16 / 9, 0)).toBe(true);
+    expect(inViewCone(cosAt(half + 16), 5000, 1300, TAN_245MM, 16 / 9, 0)).toBe(false);
+    // Behind the camera is out; the eye INSIDE the sphere is always in.
+    expect(inViewCone(-1, 5000, 1300, TAN_245MM, 16 / 9, 3 * deg)).toBe(false);
+    expect(inViewCone(-1, 900, 1300, TAN_245MM, 16 / 9, 0)).toBe(true);
+    expect(inViewCone(Number.NaN, 5000, 0, TAN_245MM, 16 / 9, 0)).toBe(false);
+  });
+
+  it("loads a far model that is IN VIEW and big enough; leaves the small, the unseen and the out-of-range", () => {
+    const rows = [
+      { id: "bridge", tris: 7800, distM: 4370, frac: 6.2, inView: true },
+      { id: "kiosk", tris: 100, distM: 4370, frac: 0.005, inView: true }, // in view, a speck
+      { id: "behind", tris: 100, distM: 5000, frac: 3, inView: false }, // big, not looked at
+      { id: "beyond", tris: 100, distM: 17_000, frac: 1, inView: true }, // past the load range
+      { id: "unsized", tris: 100, distM: 5000, inView: true }, // no bbox → no far claim
+    ];
+    const plan = planResidency(rows, new Set(), cfg);
+    expect(plan.load).toEqual(["bridge"]);
+    expect(plan.skipped).toBe(0);
+    // Without the far config the radius law stands alone — byte-for-byte the MS5 behaviour.
+    const { farLoadFrac: _f, ...radiusOnly } = cfg;
+    expect(planResidency(rows, new Set(), radiusOnly).load).toEqual([]);
+  });
+
+  it("keeps a far resident while it is still big enough — looked at or not — and lets it go when it shrinks or leaves the range", () => {
+    const resident = new Set(["a", "b", "c", "d"]);
+    const plan = planResidency(
+      [
+        { id: "a", tris: 100, distM: 6000, frac: 0.5, inView: false }, // panned away from: KEPT
+        { id: "b", tris: 100, distM: 6000, frac: 0.015, inView: true }, // between keep and load: KEPT
+        { id: "c", tris: 100, distM: 6000, frac: 0.011, inView: true }, // zoomed out past keep: gone
+        { id: "d", tris: 100, distM: 18_500, frac: 0.5, inView: true }, // walked out of range: gone
+      ],
+      resident,
+      cfg,
+    );
+    expect(plan.keep).toEqual(["b", "a"]); // what is looked at is walked first
+    expect(plan.unload.sort()).toEqual(["c", "d"]);
+    // The same row that is KEPT at 0.015 would not LOAD there (hysteresis on the size)…
+    expect(planResidency([{ id: "b", tris: 100, distM: 6000, frac: 0.015, inView: true }], new Set(), cfg).load).toEqual([]);
+    // …nor between the two ranges.
+    expect(planResidency([{ id: "e", tris: 100, distM: 17_000, frac: 0.5, inView: true }], new Set(["e"]), cfg).keep).toEqual(["e"]);
+  });
+
+  it("far rows take only what the near rows leave: near closest-first, then in view, then the biggest on screen", () => {
+    const rows = [
+      { id: "far-small", tris: 400, distM: 8000, frac: 0.05, inView: true },
+      { id: "far-big", tris: 400, distM: 9000, frac: 0.9, inView: true },
+      { id: "far-kept", tris: 400, distM: 7000, frac: 2, inView: false }, // resident, not looked at
+      { id: "near", tris: 400, distM: 100, frac: 0.001, inView: false },
+    ];
+    const tight = { ...cfg, triBudget: 1200 };
+    const plan = planResidency(rows, new Set(["far-kept"]), tight);
+    // near first (whatever its size / view), then the far rows IN VIEW by size; the unseen
+    // resident is the one the budget lets go.
+    expect(plan.load).toEqual(["near", "far-big", "far-small"]);
+    expect(plan.unload).toEqual(["far-kept"]);
+    expect(plan.skipped).toBe(0); // a KEEP candidate refused is not a load refused
+    // A far LOAD the budget refuses IS a density signal.
+    const tighter = planResidency(rows, new Set(), { ...cfg, triBudget: 800 });
+    expect(tighter.load).toEqual(["near", "far-big"]);
+    expect(tighter.skipped).toBe(1);
+    // A near row never yields to a far one, however big.
+    const one = planResidency(rows, new Set(), { ...cfg, maxResident: 1 });
+    expect(one.load).toEqual(["near"]);
   });
 });

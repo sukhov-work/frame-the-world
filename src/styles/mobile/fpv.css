@@ -111,11 +111,10 @@ body.mw-open .m-joy,
 body.mw-open .m-altcol {
   z-index: 24;
 }
-/* 2026-09-08b: the AR note / ALIGN chip float exactly where the map's ◉ RE-CENTRE seats (it reads
-   `--m-altcol-h` and sits just above the column) — while the map is open they yield to it. The
+/* 2026-09-08b: the AR note floats exactly where the map's RE-CENTRE target seats (it reads
+   `--m-altcol-h` and sits just above the column) — while the map is open it yields to it. The
    chip itself stays reachable; the bubble returns when the map closes. */
-body.mw-open .m-arfloat,
-body.mw-open .m-aralign {
+body.mw-open .m-arfloat {
   visibility: hidden;
 }
 
@@ -231,7 +230,7 @@ body.m.mw-open .md {
 
 /* ── Altitude nudges (⤒ ascend / ⤓ descend, hold-to-fly) ───────────────────────────────── */
 /* Geometry published as tokens (audit #3 A1-2): while the fullscreen map is open this column
-   rides z 24 — ABOVE the z-20 map window — so the map's ◉ RE-CENTRE button, which since
+   rides z 24 — ABOVE the z-20 map window — so the map's RE-CENTRE target button, which since
    2026-08-22a is the ONLY exit from the permanent manual-pan override, must be able to seat
    itself clear of this box on short viewports. map-window.css reads both. */
 :root {
@@ -246,7 +245,7 @@ body.m.mw-open .md {
    44 px icon between ◎ SAVE and ✕ EXIT VIEW (SceneActions) — so the column seats one cell + gap
    (52 px) higher while that cell is rendered; ⤓ used to cover ◎ SAVE. Signed out, the stack and
    the seat are the 2026-09-08b geometry byte for byte. `:has()` reads the RENDERED stack, so the
-   member gate lives in one place (the component) and the map window's ◉ RE-CENTRE (which reads
+   member gate lives in one place (the component) and the map window's RE-CENTRE target (which reads
    the same token) follows automatically. */
 body.m:has(.m-actions .m-act--places) {
   --m-altcol-bottom: calc(var(--m-altcol-bottom-base) + 52px);
@@ -307,8 +306,9 @@ body.m .mm-canvas {
    right-rail altitude column, a 44 px round chip in the ⤒/⤓ idiom so the thumb that flies the
    eye finds it. The status pill FLOATS above the column (absolute, right-aligned) — the column's
    own box stays three cells tall (`--m-altcol-h`, the A1-2 contract) whatever the bubble says.
-   The ALIGN chip left the float for the LEFT rail on 2026-09-25 (`.m-aralign` below). Colours
-   through tokens only. */
+   The ALIGN chip left the float for the LEFT rail on 2026-09-25 and the app on 2026-09-30 (owner:
+   "confusing and redundant" — the calibration's CONFIRM is the align). Colours through tokens
+   only. */
 .m-arwrap {
   position: relative;
   display: flex;
@@ -357,25 +357,6 @@ body.m .mm-canvas {
   color: var(--color-accent);
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
   background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
-}
-/* ⌖ ALIGN — a 44 px round cell on the LEFT rail, just above the AIM stick (owner order 2026-09-25
-   item 1: "it belongs to the left-hand buttons"; it floated above the right rail before, where it
-   sat on the mini-map card and squeezed the 3D ↔ CAM slider). It is fixed geometry off the AIM
-   stick's seat — the verdict column's own seat (ar-camera.css `.m-arcal__actions`) — and while
-   that column is up it stacks as the column's TOP cell (the lift lives beside the column). It
-   stays a child of `.m-arwrap` (the "ALIGNED" flash is that component's), which is fine: fixed
-   geometry ignores the wrap, and no ancestor carries a transform / filter. */
-.m-aralign {
-  position: fixed;
-  left: calc(1rem + env(safe-area-inset-left));
-  bottom: calc(10rem + 120px + 110px + 12px + env(safe-area-inset-bottom));
-  z-index: 11;
-  pointer-events: auto;
-  touch-action: none;
-}
-.m-aralign span:last-child {
-  font-size: 0.38rem;
-  letter-spacing: 0.1em;
 }
 .m-arnote {
   pointer-events: none;

@@ -182,6 +182,29 @@ describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () =>
     expect(tsx).toMatch(/mw-recenter[\s\S]{0,40}panned[\s\S]{0,40}is-panned/);
   });
 
+  it("wears a TARGET glyph drawn inside the SAME 2.1rem circle (owner 2026-09-30 — the icon changed, the button did not)", () => {
+    const btn = ruleBody(mwCss, ".mw-recenter");
+    // The shape and size the owner asked to keep: the numbers of 2026-08-22, untouched.
+    expect(decl(btn, "width")).toBe("2.1rem");
+    expect(decl(btn, "height")).toBe("2.1rem");
+    expect(decl(btn, "padding")).toBe("0");
+    // The glyph is an inline SVG in currentColor (so the muted / accent-lit states colour it and
+    // no font decides how it looks) — never the ◉ character again.
+    const jsx = tsx.slice(tsx.indexOf('className={`mw-btn mw-recenter'), tsx.indexOf("</button>", tsx.indexOf('className={`mw-btn mw-recenter')));
+    expect(jsx).toMatch(/<svg className="mw-recenter__icon" viewBox="0 0 24 24" aria-hidden="true"/);
+    expect(jsx).toMatch(/<circle cx="12" cy="12" r="[\d.]+" \/>/); // the ring
+    expect(jsx).toMatch(/<circle className="mw-recenter__dot" cx="12" cy="12"/); // the centre
+    expect(jsx).toMatch(/<path d="M12 [\d.]+v[\d.]+M12 [\d.]+v[\d.]+M[\d.]+ 12h[\d.]+M[\d.]+ 12h[\d.]+" \/>/); // four ticks
+    expect(jsx).not.toContain("◉");
+    const icon = ruleBody(mwCss, ".mw-recenter__icon");
+    expect(decl(icon, "stroke")).toBe("currentColor");
+    expect(decl(icon, "fill")).toBe("none");
+    // …and it fits inside the circle with room to spare.
+    expect(num(decl(icon, "width"))!).toBeLessThan(2.1);
+    expect(decl(icon, "width")).toBe(decl(icon, "height"));
+    expect(decl(ruleBody(mwCss, ".mw-recenter__dot"), "fill")).toBe("currentColor");
+  });
+
   it("can never slide under the z-24 FPV altitude column (A1-2)", () => {
     // .m-altcol is lifted ABOVE this z-20 window while the map is open, so an occluded ◉ is
     // worse than a missing one: the tap nudges the eye's altitude. The seat carries a FLOOR.

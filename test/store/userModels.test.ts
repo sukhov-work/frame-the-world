@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeGeohash } from "../../src/lib/geo/geohash";
 import { MODELS } from "../../src/components/globe/tuning";
 import type { ModelListItem, PublicModel } from "../../src/lib/wix/modelRecords";
+import { MODEL_WORLD_MAX_CELLS } from "../../src/lib/wix/modelRecords";
 import {
   _resetUserModelsQueryState,
   _setUserModelsApi,
+  fetchWorldCover,
   mergeWorld,
   publicFromMine,
   useUserModelsStore,
@@ -219,6 +221,69 @@ describe("store/userModels", () => {
     await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
     await flush();
     expect(api.worldCalls.length).toBe(4);
+  });
+
+  it("FIRST PERSON (2026-09-30): the caller's reach widens the cover, which goes out in chunks the route accepts and merges into ONE world", async () => {
+    api.worldRows = [pub("a"), pub("b")];
+    const s = useUserModelsStore.getState();
+    s.reportViewport(48.494722, 35.004545, 170, MODELS.fpvFetchRadiusM);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    await flush();
+    const cover = useUserModelsStore.getState().cover!;
+    expect(cover.length).toBeGreaterThan(MODEL_WORLD_MAX_CELLS);
+    expect(cover.length).toBeLessThanOrEqual(MODELS.maxCells);
+    expect(cover).toContain(encodeGeohash(48.494722, 35.004545, 5));
+    // Every chunk is one the route accepts, and together they are exactly the cover.
+    expect(api.worldCalls.length).toBe(Math.ceil(cover.length / MODEL_WORLD_MAX_CELLS));
+    expect(api.worldCalls.every((c) => c.length >= 1 && c.length <= MODEL_WORLD_MAX_CELLS)).toBe(true);
+    expect(api.worldCalls.flat().sort()).toEqual(cover);
+    // The fake answers the same two rows to every chunk: the merge dedupes by id.
+    expect(useUserModelsStore.getState().world.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(useUserModelsStore.getState().worldPhase).toBe("ready");
+    // The same eye again — however the view turned — is the same cover: nothing fires.
+    const calls = api.worldCalls.length;
+    s.reportViewport(48.494722, 35.004545, 171, MODELS.fpvFetchRadiusM);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    expect(api.worldCalls.length).toBe(calls);
+    // Back in orbit (the default reach) the cover shrinks to the 4 km square — one query again.
+    s.reportViewport(48.494722, 35.004545, 170);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    await flush();
+    expect(api.worldCalls.length).toBe(calls + 1);
+    expect(useUserModelsStore.getState().cover!.length).toBeLessThanOrEqual(9);
+  });
+
+  it("fetchWorldCover: `complete` is every chunk's, a moved row is taken once, and ONE failed chunk fails the read", async () => {
+    const cells = Array.from({ length: 40 }, (_, i) => `ub${"0123456789bcdefghjkmnpqrstuvwxyz"[i % 32]}${"0123456789bcdefghjkmnpqrstuvwxyz"[Math.floor(i / 32)]}0`);
+    const seen: string[][] = [];
+    const answer = await fetchWorldCover(cells, async (chunk) => {
+      seen.push([...chunk]);
+      return seen.length === 2 ? { models: [pub("x"), pub("y")], complete: false } : { models: [pub("x")], complete: true };
+    });
+    expect(seen.map((c) => c.length)).toEqual([16, 16, 8]);
+    expect(answer.models.map((m) => m.id).sort()).toEqual(["x", "y"]);
+    expect(answer.complete).toBe(false);
+    await expect(
+      fetchWorldCover(cells, async (chunk) => {
+        if (chunk[0] === cells[16]) throw new Error("502");
+        return { models: [], complete: true };
+      }),
+    ).rejects.toThrow("502");
+    // …and the store keeps the world it had (a partial world would unload the missing cells).
+    api.worldRows = [pub("a")];
+    const s = useUserModelsStore.getState();
+    s.reportViewport(48.4647, 35.0462, 500);
+    await vi.advanceTimersByTimeAsync(MODELS.queryThrottleMs + 5);
+    await flush();
+    const failing = { ...api, fetchWorld: async () => { throw new Error("502"); } };
+    _setUserModelsApi(failing);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    s.refresh();
+    await flush();
+    await flush();
+    expect(useUserModelsStore.getState().worldPhase).toBe("error");
+    expect(useUserModelsStore.getState().world.map((m) => m.id)).toEqual(["a"]);
+    warn.mockRestore();
   });
 
   it("drops a superseded answer", async () => {

@@ -58,13 +58,13 @@ function stripInline(s: string): string {
 
 /**
  * Glyph → word, QUERY-SIDE only. The instrument labels a dozen controls with a glyph and no
- * text (`◉` is `aria-label="Centre the map on me"`), so a reader who types what they see used
+ * text (`⊙`, the map's target button, is `aria-label="Centre the map on me"`), so a reader who types what they see used
  * to get nothing at all. Applied to the query, never to the corpus, so snippets keep printing
  * the glyph the reader is looking at. Lives here and not in `sky/searchIndex.ts` — that map is
  * the sky finder's Greek normalization and must not learn about UI chrome.
  */
 const GLYPH_WORDS: Record<string, string> = {
-  "◉": "centre map follow",
+  "⊙": "centre map follow",
   "◎": "look from here save place",
   "∠": "radar direction",
   "⌖": "track find in frame photo pins",

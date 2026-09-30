@@ -38,16 +38,14 @@ beforeEach(() => {
 });
 
 describe("store seam — request band + engine mirror, per-session", () => {
-  it("boots OFF, toggles, and the ALIGN request is a monotone epoch", () => {
+  it("boots OFF and toggles; the ALIGN request is gone from the store (owner 2026-09-30)", () => {
     const s = useCameraStore.getState();
     expect(s.arLook).toBe(false);
-    expect(s.arAlignEpoch).toBe(0);
     expect(s.arLookState).toBeNull();
     s.setArLook(true);
     expect(useCameraStore.getState().arLook).toBe(true);
-    s.requestArAlign();
-    s.requestArAlign();
-    expect(useCameraStore.getState().arAlignEpoch).toBe(2);
+    expect("arAlignEpoch" in s).toBe(false);
+    expect("requestArAlign" in s).toBe(false);
     const st: ArLookState = { rung: "ios-compass", compassAccuracyDeg: 4, compassAgeMs: 0, samples: 10, stale: false, headingDeg: 90, pitchDeg: 0, declinationDeg: 8.6 };
     s._syncArLook(st);
     expect(useCameraStore.getState().arLookState).toEqual(st);
@@ -76,21 +74,29 @@ describe("the toggle — permission from the tap, copy that matches the platform
     expect(on).not.toContain("ALIGN");
   });
 
-  it("offers ALIGN only on the relative rungs, and says why when the sensors go quiet", () => {
+  it("offers NO ALIGN chip on any rung (owner 2026-09-30 — CONFIRM is the align); the gyro lines name the long press, and a quiet sensor says why", () => {
     useCameraStore.getState().setArLook(true);
     const base: ArLookState = { rung: "relative-unaligned", compassAccuracyDeg: null, compassAgeMs: Infinity, samples: 3, stale: false, headingDeg: 0, pitchDeg: 0, declinationDeg: 0 };
     useCameraStore.getState()._syncArLook(base);
     let html = render(ArLookToggle);
-    // 2026-09-25: a ROUND cell (the .m-act--icon idiom — glyph over a tiny label) seated on the LEFT rail by fpv.css
-    expect(html).toMatch(/class="m-act m-act--icon m-act--accent m-aralign" data-act="ar-align"[^>]*>[\s\S]*?⌖<\/span><span>ALIGN<\/span>/);
-    expect(html).toContain("GYRO ONLY — FACE WHERE THE VIEW LOOKS AND TAP ALIGN");
+    // The gyro-only rung is where the chip used to appear — an iPhone aimed at the sky lands here.
+    expect(html).not.toContain("ar-align");
+    expect(html).not.toContain("m-aralign");
+    expect(html).not.toMatch(/>ALIGN</);
+    expect(html).toContain("GYRO ONLY (NO COMPASS) — HOLD AR TO LINE THE VIEW UP");
     useCameraStore.getState()._syncArLook({ ...base, rung: "relative-aligned" });
     html = render(ArLookToggle);
-    expect(html).toContain('data-act="ar-align"');
+    expect(html).not.toContain("ar-align");
     expect(html).toContain("GYRO · ALIGNED");
+    expect(html).toContain("HOLD AR");
+    // No line may send the user to a control that is not there.
+    for (const rung of ["relative-unaligned", "relative-aligned", "ios-compass", "android-absolute"] as const) {
+      expect(arRungLine({ ...base, rung })).not.toMatch(/TAP ALIGN/);
+    }
+    expect("aligned" in AR_COPY).toBe(false);
     useCameraStore.getState()._syncArLook({ ...base, rung: "ios-compass", stale: true });
     html = render(ArLookToggle);
-    expect(html).not.toContain('data-act="ar-align"');
+    expect(html).not.toContain("ar-align");
     expect(html).toContain(AR_COPY.stale);
     expect(arRungLine({ ...base, rung: "ios-compass", compassAgeMs: 90_000 })).toContain("TILT THE PHONE DOWN");
   });
@@ -114,12 +120,10 @@ describe("the toggle — permission from the tap, copy that matches the platform
     expect(float).toMatch(/position: absolute;/);
     expect(float).toMatch(/bottom: calc\(100% \+ 6px\);/);
     expect(css).not.toMatch(/\.m-arwrap \{[^}]*position: fixed/);
-    // ⌖ ALIGN is FIXED on the LEFT rail at the verdict column's seat (owner 2026-09-25 item 1) and hides with the map open
-    const align = css.slice(css.indexOf("\n.m-aralign {"), css.indexOf("}", css.indexOf("\n.m-aralign {"))); // the line-start rule, not the mw-open hide list
-    expect(align).toMatch(/position: fixed;/);
-    expect(align).toMatch(/left: calc\(1rem \+ env\(safe-area-inset-left\)\);/);
-    expect(align).toMatch(/bottom: calc\(10rem \+ 120px \+ 110px \+ 12px \+ env\(safe-area-inset-bottom\)\);/);
-    expect(css).toMatch(/body\.mw-open \.m-arfloat,\s*body\.mw-open \.m-aralign \{\s*visibility: hidden;/);
+    // ⌖ ALIGN left the app on 2026-09-30: no rule seats it any more; the note still hides with the map open
+    expect(css).not.toMatch(/\.m-aralign/);
+    expect(readFileSync(join(process.cwd(), "src/styles/mobile/ar-camera.css"), "utf8")).not.toMatch(/\.m-aralign/);
+    expect(css).toMatch(/body\.mw-open \.m-arfloat \{\s*visibility: hidden;/);
   });
 
   describe("the bubble clears (owner 2026-09-08b) — re-shown only on rung · stale transitions", () => {
@@ -138,7 +142,7 @@ describe("the toggle — permission from the tap, copy that matches the platform
     it("a rung line is TRANSIENT; going stale is STICKY (an action the user must take); off clears", () => {
       expect(arAnnouncement(true, base)).toEqual({ text: arRungLine(base), sticky: false, defer: false });
       expect(arAnnouncement(true, { ...base, rung: "relative-unaligned" })).toEqual({
-        text: "GYRO ONLY — FACE WHERE THE VIEW LOOKS AND TAP ALIGN",
+        text: "GYRO ONLY (NO COMPASS) — HOLD AR TO LINE THE VIEW UP",
         sticky: false,
         defer: false,
       });

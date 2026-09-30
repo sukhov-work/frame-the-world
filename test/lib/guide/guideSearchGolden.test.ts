@@ -47,7 +47,7 @@ const GOLDEN: GoldenRow[] = [
   { q: "FPV", want: "fpv", by: "G-E #6" },
   { q: "mobile", want: "mobile", by: "G-E #6" },
   { q: "goto", want: "target-toggles", by: "G-E #7 + G-C 14" },
-  { q: "◉", want: "fpv-map-controls", by: "G-E #8 + alias" },
+  { q: "⊙", want: "fpv-map-controls", by: "G-E #8 + alias" },
   { q: "/m", want: "mobile", by: "G-E #8" },
   { q: "my spot", want: "fpv-enter", by: "G-E #5" },
   { q: "explore", want: "start-explore", by: "G-C 15" },
