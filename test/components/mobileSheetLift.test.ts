@@ -29,6 +29,12 @@ describe("keyboardInsetPx — the layout viewport's bottom minus the visual view
   it("Safari pans the visual viewport (offsetTop) — the inset shrinks by the pan, never double-counted", () => {
     expect(keyboardInsetPx(874, 574, 120)).toBe(180);
   });
+  it("the farm's two real reads (iOS 26.3.1, Safari's 714 px web view, a 310 px keyboard)", () => {
+    // K: the keys over the SAVE VIEW sheet, nothing panned → lift the whole keyboard
+    expect(keyboardInsetPx(714, 404, 0)).toBe(310);
+    // P: Safari panned the visual viewport down to the PLAN field (offsetTop 310) → nothing to lift
+    expect(keyboardInsetPx(714, 404, 310)).toBe(0);
+  });
   it("a browser that resized the LAYOUT viewport (innerHeight shrank with it) → 0, no double lift", () => {
     expect(keyboardInsetPx(574, 574, 0)).toBe(0);
   });
@@ -73,8 +79,14 @@ describe("the wiring (source fences)", () => {
     expect(sheet).toMatch(/addEventListener\("focusout", burst\)/);
     expect(sheet).toMatch(/measure\(\);\s*burst\(\);/);
     expect(sheet).toMatch(/window\.addEventListener\("resize", measure\)/);
-    // the burst is bounded — never a forever timer on a phone
-    expect(sheet).toMatch(/performance\.now\(\) < until \? window\.setTimeout\(poll, KEYBOARD_POLL_MS\) : 0/);
+    // the poll runs while a field INSIDE the sheet holds focus (the keys return with no event —
+    // the farm's K leg) and is bounded otherwise — never a forever timer on a phone
+    expect(sheet).toMatch(/focusedInside\(\) \|\| performance\.now\(\) < until/);
+    expect(sheet).toMatch(/el\.contains\(a\) && \/\^\(INPUT\|TEXTAREA\|SELECT\)\$\/\.test\(a\.tagName\)/);
+    // the inset is measured from the sheet ROOT's layout bottom, never from innerHeight (iOS
+    // reports the visual height there mid-keyboard — the farm, 2026-10-10)
+    expect(sheet).toMatch(/root\.getBoundingClientRect\(\)\.bottom/);
+    expect(sheet).not.toMatch(/keyboardInsetPx\(window\.innerHeight/);
     expect(KEYBOARD_POLL_FOR_MS).toBeGreaterThanOrEqual(1500);
     expect(KEYBOARD_POLL_FOR_MS).toBeLessThanOrEqual(5000);
     expect(KEYBOARD_POLL_MS).toBeGreaterThanOrEqual(60);

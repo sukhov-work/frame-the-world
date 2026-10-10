@@ -39,12 +39,15 @@ export const SHEET_TOP_GUARD_PX = 56;
 
 /**
  * How many CSS px of the layout viewport's bottom the soft keyboard covers — the layout
- * viewport (`innerHeight`, which the fixed sheet root is sized to) minus the visual viewport's
- * bottom edge (`height + offsetTop`). 0 when no keyboard is up, and 0 where the browser resized
- * the layout viewport instead (innerHeight shrank with it). Pure.
+ * viewport's bottom edge in client coordinates (the fixed sheet ROOT's own `getBoundingClientRect().bottom`,
+ * which is what the sheet is anchored to; never `innerHeight`, which iOS Safari reports as the
+ * VISUAL height in some keyboard states — the farm, 2026-10-10) minus the visual viewport's
+ * bottom edge (`height + offsetTop`). 0 when no keyboard is up, 0 where the browser resized the
+ * layout viewport instead (the root shrank with it), and 0 when Safari PANNED the visual
+ * viewport down to the input itself (offsetTop + height already reaches the root's bottom). Pure.
  */
-export function keyboardInsetPx(innerHeight: number, vvHeight: number, vvOffsetTop: number): number {
-  return Math.max(0, Math.round(innerHeight - vvHeight - vvOffsetTop));
+export function keyboardInsetPx(layoutBottom: number, vvHeight: number, vvOffsetTop: number): number {
+  return Math.max(0, Math.round(layoutBottom - vvHeight - vvOffsetTop));
 }
 
 /**
@@ -61,11 +64,13 @@ export function sheetLiftPx(
   return Math.max(0, Math.min(insetPx, innerHeight - sheetHeight - topGuardPx));
 }
 
-/** The focus-driven poll (ms between reads, and how long a burst runs): iOS Safari 26 on the real
- *  iPhone 17 Pro (the Device Farm, 2026-10-10) shrank the visual viewport by 310 px for the
- *  keyboard and NO `resize` reached the listener — the sheet stayed under the keys. The keyboard
- *  follows FOCUS, so a focus change (and the mount — SAVE VIEW focuses its field on open) polls
- *  the viewport through the keyboard's animation; 2.5 s covers a slow one, 120 ms reads smooth. */
+/** The focus-driven poll (ms between reads, and how long a tail runs after focus leaves): iOS
+ *  Safari 26 on the real iPhone 17 Pro (the Device Farm, 2026-10-10) shrank the visual viewport
+ *  by 310 px for the keyboard and NO `resize` reached the listener — the sheet stayed under the
+ *  keys. The keyboard follows FOCUS but not only focus EVENTS (dismiss the keys with Done, tap
+ *  the still-focused field: the keys return with no focus event — the farm's K leg), so the
+ *  poll runs for as long as a field INSIDE the sheet holds focus, plus a 2.5 s tail after every
+ *  focus change and after the mount; 120 ms reads smooth, one rect read per tick. */
 export const KEYBOARD_POLL_MS = 120;
 export const KEYBOARD_POLL_FOR_MS = 2500;
 
@@ -77,21 +82,36 @@ function useKeyboardLift(active: boolean, sheetRef: RefObject<HTMLElement | null
     const vv = window.visualViewport;
     if (!vv) return;
     const measure = () => {
-      const inset = keyboardInsetPx(window.innerHeight, vv.height, vv.offsetTop);
+      // The ROOT's bottom is the layout edge the sheet sits on (a fixed inset-0 layer); it is
+      // stable where `innerHeight` is not (iOS reports the visual height mid-keyboard).
+      const root = sheetRef.current?.parentElement;
+      const layoutBottom = root
+        ? root.getBoundingClientRect().bottom
+        : document.documentElement.clientHeight || window.innerHeight;
+      const inset = keyboardInsetPx(layoutBottom, vv.height, vv.offsetTop);
       const h = sheetRef.current?.offsetHeight ?? 0;
-      setLift(sheetLiftPx(inset, window.innerHeight, h, SHEET_TOP_GUARD_PX));
+      setLift(sheetLiftPx(inset, layoutBottom, h, SHEET_TOP_GUARD_PX));
     };
     // The events where a browser sends them…
     vv.addEventListener("resize", measure);
     vv.addEventListener("scroll", measure);
     window.addEventListener("resize", measure);
-    // …and the poll where it does not (iOS Safari 26, measured on the farm): a burst of reads after
-    // every focus change in the document and one at mount, each burst self-limiting.
+    // …and the poll where it does not (iOS Safari 26, measured on the farm): reads every
+    // KEYBOARD_POLL_MS for as long as a field inside this sheet holds focus (the keys can come and
+    // go with no event at all), plus a self-limiting tail after every focus change and the mount.
     let timer = 0;
     let until = 0;
+    const focusedInside = () => {
+      const el = sheetRef.current;
+      const a = document.activeElement;
+      return !!el && !!a && el.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+    };
     const poll = () => {
       measure();
-      timer = performance.now() < until ? window.setTimeout(poll, KEYBOARD_POLL_MS) : 0;
+      timer =
+        focusedInside() || performance.now() < until
+          ? window.setTimeout(poll, KEYBOARD_POLL_MS)
+          : 0;
     };
     const burst = () => {
       until = performance.now() + KEYBOARD_POLL_FOR_MS;

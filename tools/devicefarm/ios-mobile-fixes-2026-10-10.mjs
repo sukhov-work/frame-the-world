@@ -322,14 +322,17 @@ async function drive(endpoint) {
    try {
     // One read of a lifted sheet under a REAL keyboard — the geometry every K/P check shares.
     const SHEET_READ = (label) => `(() => { const s = document.querySelector('.m-sheet[aria-label=${JSON.stringify(label)}]'); if (!s) return { err: "no sheet" }; const r = s.getBoundingClientRect(); const vv = visualViewport; const inp = document.activeElement; const ir = inp && inp.matches("input") ? inp.getBoundingClientRect() : null;
-      return { bottom: r.bottom, top: r.y, sheetH: r.height, innerH: innerHeight, vvH: vv.height, vvTop: vv.offsetTop, lift: s.dataset.lift ?? null, focusedInput: !!ir, inputBottom: ir ? ir.bottom : null, scrollY, full: s.classList.contains("m-sheet--full") }; })()`;
+      const rootBottom = s.parentElement.getBoundingClientRect().bottom;
+      return { bottom: r.bottom, top: r.y, sheetH: r.height, innerH: innerHeight, layoutH: rootBottom, vvH: vv.height, vvTop: vv.offsetTop, lift: s.dataset.lift ?? null, focusedInput: !!ir, inputBottom: ir ? ir.bottom : null, scrollY, full: s.classList.contains("m-sheet--full") }; })()`;
     const judgeLift = (tag, k) => {
-      const keyboardUp = k.vvH < k.innerH - 80;
-      check(`${tag}1 Safari raised the keyboard (the visual viewport shrank)`, keyboardUp, JSON.stringify(k));
+      // `innerHeight` is the VISUAL height on iOS in some keyboard states (farm run 3: 404) — the
+      // layout edge is the sheet root's bottom.
+      const keyboardUp = k.vvH < k.layoutH - 80;
+      check(`${tag}1 Safari raised the keyboard (the visual viewport shrank below the layout edge)`, keyboardUp, JSON.stringify(k));
       if (!keyboardUp) return;
       const vvBottom = k.vvH + k.vvTop;
-      const inset = Math.max(0, Math.round(k.innerH - k.vvH - k.vvTop));
-      const room = Math.max(0, k.innerH - k.sheetH - 56);
+      const inset = Math.max(0, Math.round(k.layoutH - k.vvH - k.vvTop));
+      const room = Math.max(0, k.layoutH - k.sheetH - 56);
       const wantLift = Math.min(inset, room);
       check(`${tag}2 the sheet lifted by min(inset ${inset}, room ${room}) = ${wantLift} px (data-lift)`, Number(k.lift ?? 0) === wantLift || Math.abs(Number(k.lift ?? 0) - wantLift) <= 1, `lift ${k.lift} · sheet bottom ${k.bottom.toFixed(0)} · vv bottom ${vvBottom.toFixed(0)}`);
       if (wantLift === inset) check(`${tag}3 the sheet's bottom edge sits on the visual viewport's bottom — above the keys`, Math.abs(k.bottom - vvBottom) <= 2, `sheet bottom ${k.bottom.toFixed(0)} vs vv bottom ${vvBottom.toFixed(0)}`);
