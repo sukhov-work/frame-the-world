@@ -6,7 +6,8 @@ existing web and mobile functionality … make sure to do both farm tests and ch
 screenshots; Pixel screenshots of FIND IN FRAME and SAVE VIEW). Records: DECISIONS 2026-10-10 · ARCHITECTURE (the
 `radarCanvas` + `useSheetInputFocus` bullets) · `conventions/globe-tuning.md` §AIMCONES (`rayLenK` floor + the stroke
 knobs + the iPhone/Pixel trap) · MOBILE_PLAN header · backlog T155 (the farm leg) + T156 (cookie hygiene) · NSP.
-NOT released — nobody asked; live stays v1.36.23. The session-end hook ships it (`.claude/.ship-title`).
+RELEASED TWICE the same day on the owner's "go for farm tests, then release everything": `2de06b6` (PR #137) → v1.36.24, then the
+keyboard-lift fixes `d36ff18` (PR #138) + `c318ffd` (PR #139) → **v1.36.26 LIVE**; farm-verified on the real iPhone 17 Pro (DECISIONS 2026-10-10b).
 
 ## 1. THE RADAR ON GLASS (owner: "radar lines too narrow on the iPhone … make them thicker and more vivid, still tasteful; same
 for the sectors and radiuses; parity with the Pixel; understand why the iPhone diverged")
@@ -85,7 +86,23 @@ reverse tunnel through localhost.run (`ssh -R 80:localhost:4321 nokey@localhost.
 `verify-shots/perf/`): a dev build cannot boot the engine over a slow tunnel. The farm leg runs against the LIVE site
 after the release (`--prod`: DOM + screenshot reads, prefs-seeded target — no DEV seams in prod).
 
+## The farm on the LIVE site (2026-10-10b) — and the keyboard finding
+`ios-mobile-fixes-2026-10-10.mjs --prod`: the sun seeded through `ftw:view-prefs:v1` before the FPV boot, FIND read from the DOM,
+the GL fan judged from device screenshots (an inline PNG reader; the npm registry was unreachable through the VPN), the member
+cookie through WebDriver `setCookies` on the live origin. On v1.36.24: R1 store 372 · R2 the ray **3.93 store px = 1.31 css px**
+(byte-equal to the Chrome twin) · R3 legs 5.97 · R4/R5 cyan on the map box's border at nadir + tilted · F1–F3 the row, the solo
+scan, the FIND tab's ☀-only · K0 the member sheet opens. **The keyboard:** `element.click()` focuses but iOS raises no keyboard
+for a synthetic click; a NATIVE tap (`mobile: viewportRect` → 54 pt top inset → `performActions` in `NATIVE_APP`, the element
+scrolled into view first) raised the real keys — vvH 714 → 404 — **and the sheet did not lift**: iOS Safari 26 delivered no
+`visualViewport` resize to the mount-time listener. Fix: `useKeyboardLift` polls (120 ms for 2.5 s) after every document
+focusin/focusout and once at mount → v1.36.25 — STILL no lift on the farm (the keys rose ≈3 s after mount with no
+focus event; `innerHeight` read 404 in one state) → the inset from the sheet ROOT's layout bottom + the poll held while a field
+inside the sheet has focus → v1.36.26 → run 4 (≈4 device minutes): K0 the member sheet opens · K1 the native tap raised the keys (vvH 714 → 404, the layout edge 714) · **K2 the sheet lifted 310 px (`data-lift` 310)** · **K3 its bottom edge sits on the visual viewport's bottom (404 = 404) — above the keys** · K4 the name field visible (bottom 389) and focused, scrollY 0, the head at 300 — the owner's Pixel screenshot, fixed on the real iPhone (`verify-shots/perf/devicefarm-fixes-1010-2026-10-10T01-00-55-saveview-keyboard.png`). The P leg (the PLAN sheet's number field) is Safari's OWN pan: the viewport panned 310 to the field (visible at 332), nothing to lift, the harness's "keys up" read needed a pre-tap baseline (fixed in the script; INFO, not a product fault).
+
 ## Traps learned
+- **The Chrome twin's synthetic `visualViewport` resize LIES about iOS** — the real phone sends none for the keyboard; only a
+  real-device run caught it. A WebDriver click never raises iOS's keyboard; a native XCUITest tap does.
+- A dev build over a 57 KB/s tunnel never boots the engine on a phone (two sessions wasted) — the farm tests the LIVE site.
 - A `let x = AIMCONES.foo` under `as const` infers the LITERAL type (`6`) — annotate `: number` before reassigning.
 - A canvas 2D `const ink = …` already lives in `MiniMap.draw` — a shadowing `const ink` inside the cone block broke `ink.viewer`.
 - A SkyTarget carries a METHOD (`stateAt`) — never inject one as JSON through `__skyStore.setTarget`; the dev server serves

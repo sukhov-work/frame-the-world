@@ -324,10 +324,13 @@ async function drive(endpoint) {
     const SHEET_READ = (label) => `(() => { const s = document.querySelector('.m-sheet[aria-label=${JSON.stringify(label)}]'); if (!s) return { err: "no sheet" }; const r = s.getBoundingClientRect(); const vv = visualViewport; const inp = document.activeElement; const ir = inp && inp.matches("input") ? inp.getBoundingClientRect() : null;
       const rootBottom = s.parentElement.getBoundingClientRect().bottom;
       return { bottom: r.bottom, top: r.y, sheetH: r.height, innerH: innerHeight, layoutH: rootBottom, vvH: vv.height, vvTop: vv.offsetTop, lift: s.dataset.lift ?? null, focusedInput: !!ir, inputBottom: ir ? ir.bottom : null, scrollY, full: s.classList.contains("m-sheet--full") }; })()`;
-    const judgeLift = (tag, k) => {
-      // `innerHeight` is the VISUAL height on iOS in some keyboard states (farm run 3: 404) — the
-      // layout edge is the sheet root's bottom.
-      const keyboardUp = k.vvH < k.layoutH - 80;
+    const judgeLift = (tag, k, before = null) => {
+      // `innerHeight` is the VISUAL height on iOS in some keyboard states (farm run 3: 404), and when
+      // Safari PANS the viewport to reveal a field the root's client rect shifts with it (run 4's P:
+      // layoutH 404 = 714 − the 310 pan) — the honest "keys up" read compares the visual height
+      // against the PRE-TAP read; the layout edge for the inset is the root's bottom.
+      const refH = before ? before.vvH : k.layoutH;
+      const keyboardUp = k.vvH < refH - 80;
       check(`${tag}1 Safari raised the keyboard (the visual viewport shrank below the layout edge)`, keyboardUp, JSON.stringify(k));
       if (!keyboardUp) return;
       const vvBottom = k.vvH + k.vvTop;
@@ -337,7 +340,8 @@ async function drive(endpoint) {
       check(`${tag}2 the sheet lifted by min(inset ${inset}, room ${room}) = ${wantLift} px (data-lift)`, Number(k.lift ?? 0) === wantLift || Math.abs(Number(k.lift ?? 0) - wantLift) <= 1, `lift ${k.lift} · sheet bottom ${k.bottom.toFixed(0)} · vv bottom ${vvBottom.toFixed(0)}`);
       if (wantLift === inset) check(`${tag}3 the sheet's bottom edge sits on the visual viewport's bottom — above the keys`, Math.abs(k.bottom - vvBottom) <= 2, `sheet bottom ${k.bottom.toFixed(0)} vs vv bottom ${vvBottom.toFixed(0)}`);
       else log(`${tag}3 INFO the lift is clamped by the room above (sheet ${k.sheetH.toFixed(0)} px tall): bottom ${k.bottom.toFixed(0)} vs vv bottom ${vvBottom.toFixed(0)}`);
-      check(`${tag}4 the focused field is visible above the keyboard, the layout viewport unscrolled, the head on screen`, k.focusedInput && k.inputBottom <= vvBottom + 1 && k.scrollY === 0 && k.top >= 0, `input bottom ${k.inputBottom} · top ${k.top.toFixed(0)}`);
+      if (wantLift > 0) check(`${tag}4 the focused field is visible above the keyboard, the layout viewport unscrolled, the head on screen`, k.focusedInput && k.inputBottom <= vvBottom + 1 && k.scrollY === 0 && k.top >= 0, `input bottom ${k.inputBottom} · top ${k.top.toFixed(0)}`);
+      else check(`${tag}4 the focused field is visible above the keyboard (Safari's own pan did the work — nothing to lift)`, k.focusedInput && k.inputBottom <= vvBottom + 1, `input bottom ${k.inputBottom} · pan ${k.vvTop}`);
     };
     // ONE FPV boot serves the mini-map read, the FIND row and the PLAN-sheet keyboard (a tunnel-served
     // dev build boots in minutes — farm run 1 timed out at 120 s; four boots in the run, not six).
@@ -415,11 +419,12 @@ async function drive(endpoint) {
         await planTab.click();
         await waitFor(`!!document.querySelector('.m-sheet[aria-label="LIGHT PLANNER"] .m-in')`, 15_000, "the PLAN sheet's number fields");
         await sleep(900);
+        const p0 = await js(SHEET_READ("LIGHT PLANNER"));
         await nativeTapSel('.m-sheet[aria-label="LIGHT PLANNER"] .m-in'); // a SYSTEM tap — the keyboard rises
         await sleep(2500);
         const p = await js(SHEET_READ("LIGHT PLANNER"));
-        results.planKeyboard = p;
-        judgeLift("P", p);
+        results.planKeyboard = { before: p0, after: p };
+        judgeLift("P", p, p0);
         await shot("plan-keyboard");
         await js(`(document.activeElement && document.activeElement.blur(), true)`);
         await sleep(800);
@@ -483,11 +488,12 @@ async function drive(endpoint) {
         await waitFor(`!!document.querySelector('.m-sheet[aria-label="SAVE VIEW"]')`, 8000, "the SAVE VIEW sheet");
         await sleep(600);
         // a REAL keyboard: tap the name field on the glass
+        const k0 = await js(SHEET_READ("SAVE VIEW"));
         await nativeTapSel('.m-sheet[aria-label="SAVE VIEW"] .m-input'); // a SYSTEM tap — the keyboard rises
         await sleep(2500);
         const k = await js(SHEET_READ("SAVE VIEW"));
-        results.keyboard = k;
-        judgeLift("K", k);
+        results.keyboard = { before: k0, after: k };
+        judgeLift("K", k, k0);
         await shot("saveview-keyboard");
       } else {
         results.notes.push("K: the member cookie was not accepted on the phone — the SAVE VIEW keyboard read is the P leg's (PLAN sheet) only");
