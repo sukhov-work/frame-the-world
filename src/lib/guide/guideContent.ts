@@ -1253,7 +1253,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "One row of chips sets the question: the bodies on the left, the range on the " +
           "right. Your choices stick, and tracking the sun or the moon itself switches the " +
-          "target chip off, because its own chip already covers it.",
+          "target chip off, because its own chip already covers it. The target panel's " +
+          "⌖ FIND IN FRAME scans that one object alone, and the same range chips sit beside " +
+          "it, live once its scan is on.",
         list: [
           "☀ SUN and ☾ MOON — moon alone is the default.",
           "Your tracked target — whatever the search or the sky menu follows: the " +

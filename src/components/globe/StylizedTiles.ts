@@ -4270,6 +4270,7 @@ export function attachStylizedTiles(opts: {
       // MESH SUITE MS5 (2026-09-02): the world models' residency + seats, and the MODEL gizmo's
       // live state (its own instance; the same handle projection as the building one below).
       userModels: () => userModels.debug(),
+      aimRadar: () => aimCones.debug(), // 2026-10-10 — the target ray's reach + the stroke profile
       modelGizmo: () => ({
         armed: modelArmed,
         op: modelOp,
@@ -8547,6 +8548,7 @@ export function attachStylizedTiles(opts: {
             focus: skyNow.aimFocus,
           },
           mobile: isMobileShell, // batch #5 item 2 — /m radius shrink + inward sun/moon bands
+          camera, // 2026-10-10 — the target ray is stretched past the viewport's far corners
           skylineBins: aimSkyline,
           dtMs,
         });

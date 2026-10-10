@@ -34,7 +34,7 @@ import { tokens } from "../../lib/theme/tokens";
 import { AIMCONES, CONTROLS, FOCALCONE, TILESETS } from "../globe/tuning";
 import { scaleBarFor, type ScaleBar } from "../../lib/format/scaleBar";
 
-import { drawRadarCanvas } from "./radarCanvas";
+import { chartRayReachPx, drawRadarCanvas } from "./radarCanvas";
 import "../../styles/map-window.css";
 
 /**
@@ -493,7 +493,9 @@ export default function MapWindow() {
             rBase,
             mobile: mobileShell,
             dpr,
-            targetRayPx: Math.hypot(w, h),
+            // Past every edge from wherever the anchor sits (2026-10-10: a panned chart used to
+            // end the ray mid-screen once the anchor was more than a diagonal off the canvas).
+            targetRayPx: chartRayReachPx(w, h, ax, ay),
             pastInk: tokens.textSecondary,
           },
           radarBodies.map((b) => {
@@ -896,10 +898,13 @@ export default function MapWindow() {
       let best: { key: AimKey; dAz: number } | null = null;
       for (const b of aimBodiesNow(skyNow)) {
         if (b.emphasized) continue; // already the focus
-        // The target's tracking ray runs to the window edge (batch #4 item 6) — its whole
-        // length promotes; sun/moon promote along their capped band dial (S2 fixed radii).
+        // The target's tracking ray runs past every edge from the anchor (batch #4 item 6;
+        // the anchor-offset reach 2026-10-10) — its whole length promotes; sun/moon promote
+        // along their capped band dial (S2 fixed radii).
         const reach =
-          b.key === "target" ? Math.hypot(w, h) : rBase * bandFor(b.key, mobileShell)[1];
+          b.key === "target"
+            ? chartRayReachPx(w, h, w / 2 + adx, h / 2 + ady)
+            : rBase * bandFor(b.key, mobileShell)[1];
         if (dist < rBase * 0.08 || dist > reach * 1.05) continue;
         const nowPos = targetAzAlt(b.target, nowMs, anchor.latDeg, anchor.lonDeg);
         const dAz = Math.abs(wrap180(azClick - nowPos.azDeg));

@@ -44,3 +44,30 @@ export function bandFor(key: RadarBandKey, mobile = false): readonly [number, nu
 export function bandFutureInk(key: RadarBandKey): string {
   return key === "sun" ? tokens.sunGlow : key === "moon" ? tokens.moonDial : tokens.timeFuture;
 }
+
+/** The STROKE profile of a radar surface — weight + ink multipliers. */
+export interface RadarStroke {
+  /** Stroke width multiplier (screen CSS px on a canvas, the quad width on the GL fan). */
+  widthK: number;
+  /** Direction-line (and the focal cone's boundary rays) alpha multiplier. */
+  lineAlphaK: number;
+  /** Rim arc + rise/set spoke alpha multiplier. */
+  rimAlphaK: number;
+  /** Band fill alpha multiplier. */
+  fillAlphaK: number;
+}
+
+const DESKTOP_STROKE: RadarStroke = Object.freeze({
+  widthK: 1,
+  lineAlphaK: 1,
+  rimAlphaK: 1,
+  fillAlphaK: 1,
+});
+
+/** The stroke profile for a shell (owner 2026-10-10, iPhone 17 Pro: "radar lines too narrow …
+ *  thicker and more vivid, still tasteful"): `AIMCONES.mobileStroke` on /m, the identity on
+ *  desktop. Every radar surface — both canvases AND the GL fan (+ the focal cone's rays) — reads
+ *  it, so a weight or an ink change reaches all of them at once. Pure. */
+export function radarStroke(mobile: boolean): RadarStroke {
+  return mobile ? AIMCONES.mobileStroke : DESKTOP_STROKE;
+}

@@ -9,29 +9,29 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-09-30 (`mem:project/wip-2026-09-30-align-minimap-pin-mesh-culling`)
-**THREE OWNER FOLLOW-UPS — committed, NOT released (live stays v1.36.21; DECISIONS 2026-09-30).** (1) ⌖ ALIGN is REMOVED (chip +
-`requestArAlign` / `arAlignEpoch` + `ArLookCtx.alignEpoch`; CONFIRM is the align, the rung notes say HOLD AR). (2) THE PIN FOLLOWS
-THE WALKER in a temp-pin FPV (`lib/globe/pinFollow` + `StylizedTiles.followPinToEye`, 400 ms after the last walk input, position-
-neutral, mesh floor kept; a photo FPV never follows); the map's RE-CENTRE wears a drawn target (⊙ in the guide). (3) USER MODELS:
-the first-person world read is a 16 km square around the EYE (was 4 km around the forward ray's ellipsoid hit — the clip-in-and-
-out), sent 16 cells a query (`fetchWorldCover`); residency adds THE FAR LAW — in view + apparent size ≥ `MODELS.farLoadFrac` →
-resident out to 16 km (`planResidency`, `apparentFrac`, `inViewCone`). Owner calls open: release? the pin follow with the map
-closed? the far thresholds on the phones (T153)?
+## Status — 2026-10-10 (`mem:project/wip-2026-10-10-mobile-fixes-radar-find-keyboard`)
+**THE OWNER'S DEVICE FEEDBACK — committed on the session-end ship, NOT released (live stays v1.36.23; DECISIONS 2026-10-10).**
+(1) THE RADAR ON GLASS: one stroke profile on every radar surface (`lib/geo/radarBands.radarStroke` → `AIMCONES.mobileStroke`
+×1.4 + lifted inks on /m, desktop the identity); the canvas painter authors strokes in SCREEN CSS px; the mini-map's store is the
+GLASS (the old 400 px store was MINIFIED into the iPhone's 372 physical px and magnified into the Pixel's 434 — why only the
+iPhone read thin); the GL rim/spokes are quads (`rimHalfWidthK`); the target ray crosses the screen at any tilt or pan
+(`viewReachK` / `groundReachK` + `chartRayReachPx`; seam `__globe.aimRadar()`). (2) FIND THIS ONE: `find.soloBody` + the
+1W · 1M · 6M · 1Y chips beside ⌖ FIND IN FRAME on both target panels (`FIND_RANGES` in the store). (3) THE KEYBOARD LIFT:
+every non-full `mobile/Sheet` rides `bottom: <visualViewport inset>` (`keyboardInsetPx` / `sheetLiftPx`). The farm leg
+(`tools/devicefarm/ios-mobile-fixes-2026-10-10.mjs`) is written, unrun — `*.trycloudflare.com` unreachable from this Mac (T155).
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
-- **2026-09-25 the /m UX pass after the iPhone 17 Pro test → v1.36.21 LIVE** (`wip-2026-09-25-mobile-ux-pass`): CONFIRM the
-  bottom verdict cell, see-through sticks, the one-line tab bar (27 px), every seat −1.2rem, the slider reads the mini-map as rendered.
-- **2026-09-22 the AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance →
-  v1.36.19 LIVE** (`wip-2026-09-22-ar-ui-rework-fpv-quirks`): the one-row strip, the vertical slider, `scene/arGuides.ts`,
-  `FLIGHT.smoothTransitions` false, `fpvCarry` / `preFpvOrbit`, `lib/globe/fpvClearance`, `MOBILE2D.hashPlanetFromAltM`.
+- **2026-09-30 ALIGN out · the pin follows the walker + the re-centre target · user models: the far law + the eye-centred cover →
+  v1.36.23 LIVE** (`wip-2026-09-30-align-minimap-pin-mesh-culling`): `lib/globe/pinFollow`, `MODELS.fpvFetchRadiusM` 16 km,
+  `planResidency` + `apparentFrac` + `inViewCone`; open: the pin follow with the map closed? the far thresholds on the phones (T153)?
 - Older eras (AR calibration 2026-09-19, the sign-out root cause 2026-09-18, AUDIT #4 triage 2026-09-17 and before): the Era index below.
 
 ## Standing facts (2026-09-30)
-- Gates: vitest **3,295 / 222 files** · `astro check` **0/0/12** (the hints are the dated baseline) · knip: only the four
+- Gates: vitest **3,340 / 225 files** · `astro check` **0/0/13** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.22** (each ship bumps the patch); live **v1.36.21** (2026-09-25, ship `6b791a4` = PR #134). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
+- `package.json` **1.36.23** (each ship bumps the patch); live **v1.36.23** (2026-09-30, ship `891261a` = PR #136); the 2026-10-10 batch is unreleased. The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
+- **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`; a harness that measures it reads the canvas's own pixels along the gap ring (`verify-mobile-fixes-2026-10-10`). **The house Chrome profile keeps a seeded member cookie across harnesses** (T156) — run the signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page from the dev server, never inject JSON.
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
   selector in a CSS file (a comment above the rule breaks it).
@@ -53,10 +53,10 @@ closed? the far thresholds on the phones (T153)?
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-RELEASE the 2026-09-30 follow-ups when the owner says so → the owner's DEVICE feedback (the far bridges at a long lens on the phone —
-**T153**; the pin under the thumb's release; AR without ALIGN; the target glyph; still owed: **T149** the sun-at-the-edge pinch,
-**T147** the roll's sign) → **T152** the orbit cover → **T154** before the next T77 model ramp → **T150** · **T151** · **T146** ·
-**T148** → the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration · the /m model-edit check).
+RELEASE the 2026-10-10 batch when the owner says so → the owner's DEVICE feedback on the three fixes (the radar's /m weight —
+`AIMCONES.mobileStroke` is the knob; the ray at the edge; the FIND row; the real keyboard under SAVE VIEW) → **T155** the farm leg
+off the VPN → still owed: **T153** · the pin under the thumb's release · **T149** · **T147** → **T152** · **T154** · **T150** ·
+**T151** · **T146** · **T148** · **T156** → the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration · the /m model-edit check).
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
@@ -100,6 +100,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The AR small-screen pass · roll out · the AR guides · instant transitions · the carried pose · the mesh clearance (09-22) · 09-22-ar-ui-rework-fpv-quirks
 - The /m UX pass after the iPhone 17 Pro test: ALIGN left, CONFIRM low, see-through sticks, the one-line tab bar, seats −1.2rem (09-25) · 09-25-mobile-ux-pass
 - ALIGN out · the pin follows the walker + the re-centre target · user models: the far law + the eye-centred cover (09-30) · 09-30-align-minimap-pin-mesh-culling
+- The owner's device feedback: the radar on glass · FIND THIS ONE + the range row · the keyboard lift (10-10) · 10-10-mobile-fixes-radar-find-keyboard
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

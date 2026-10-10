@@ -5,7 +5,7 @@ import { useCameraStore } from "../../store/camera";
 import { usePlanStore } from "../../store/plan";
 import { useSkyStore } from "../../store/sky";
 import { sameLocalTimeInstants, localTimeStr, useTimeStore } from "../../store/time";
-import { useFindStore, FIND_GHOST_CAP, type FindGhost } from "../../store/find";
+import { useFindStore, FIND_GHOST_CAP, FIND_RANGES, type FindGhost } from "../../store/find";
 import {
   bodyDayPositions,
   frameStandingsFromPositions,
@@ -49,12 +49,8 @@ import "../../styles/tips.css";
  * anchor — planFeed keeps eyed builds alive with the panel closed).
  */
 
-const RANGES = [
-  { label: "1W", days: 7 },
-  { label: "1M", days: 30 },
-  { label: "6M", days: 182 },
-  { label: "1Y", days: 365 },
-] as const;
+// The range chips are `FIND_RANGES` in store/find (2026-10-10) — shared with the /m sheet and
+// the target panels' range row.
 
 /** Rendered row cap — the engine returns everything; long tails collapse to a "+N" note. */
 const MAX_ROWS = 42;
@@ -303,7 +299,7 @@ export default function FindPanel() {
     ? 2 * (Math.atan(Math.tan((hud.fovDeg * Math.PI) / 360) * hud.aspect) * (180 / Math.PI))
     : 0;
   const shown = hits.slice(0, MAX_ROWS);
-  const rangeLabel = RANGES.find((r) => r.days === rangeDays)?.label ?? `${rangeDays}D`;
+  const rangeLabel = FIND_RANGES.find((r) => r.days === rangeDays)?.label ?? `${rangeDays}D`;
 
   // The pill moved into the topnav PlanFindToggle (owner 2026-08-15). Closed renders nothing —
   // all hooks above still run, so `active` gating and the ghost-mirror clearing stay intact.
@@ -359,7 +355,7 @@ export default function FindPanel() {
                     </button>
                   ))}
                   <span className="pp-find__sep" />
-                  {RANGES.map((r) => (
+                  {FIND_RANGES.map((r) => (
                     <button
                       key={r.label}
                       type="button"

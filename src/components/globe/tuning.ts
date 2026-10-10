@@ -4182,6 +4182,32 @@ export const AIMCONES = {
   /** Direction-line half-width as a fraction of the sector radius (0.006 → 0.003 owner
    *  2026-08-18: the lines read bulky). */
   lineHalfWidthK: 0.003,
+  /** Rim arc + rise/set spoke half-width (unit-radius fraction) on the GL fan (owner 2026-10-10,
+   *  iPhone 17 Pro: "radar lines too narrow … sectors and radiuses, check they are visible").
+   *  They were `LineSegments` — ONE DEVICE PIXEL at whatever ratio the renderer runs, so a
+   *  lean-capped phone drew them at 1 / 1.25 CSS px of faint 50 % ink while the direction line
+   *  (a world-width quad) stayed put. Quads now, like the line, half its width: ≈1.5 CSS px on
+   *  a desktop view (the radius is ≈0.51 × the view height) and 1.5 CSS px × widthK on /m —
+   *  the desktop rim goes from a DPR-dependent hairline to the chart twin's weight. */
+  rimHalfWidthK: 0.0015,
+  /** Canvas stroke weight in SCREEN CSS px (desktop; the chart + the mini-map). Every canvas
+   *  surface authors its strokes against the GLASS since 2026-10-10 — the mini-map's backing
+   *  store is the card's physical size (the owner's iPhone drew a 400 px store into 372 physical
+   *  px: a 2 px hairline minified to ~1.9 px of blurred ink, while the Pixel 6 Pro's 434 px
+   *  magnified the same store — the one place the two phones fell on opposite sides of 1:1). */
+  strokePx: 1,
+  /** The /m stroke profile (owner 2026-10-10: "thicker … and more vivid, still tasteful"):
+   *  every radar stroke — canvas AND the GL quads — carries `widthK` on a coarse-pointer shell,
+   *  the direction-line / rim / fill alphas rise by their factors (none may exceed 1 — pinned
+   *  by `aimCones.test`). Desktop is byte-identical at 1 / 1 / 1 / 1. */
+  mobileStroke: { widthK: 1.4, lineAlphaK: 1.12, rimAlphaK: 1.4, fillAlphaK: 1.5 },
+  /** The TARGET ray's reach cap (m) once the view's far corners look past the tangent plane
+   *  (a tilted 3D map or a horizon-grazing orbit): the ray must cross the WHOLE screen (owner
+   *  2026-10-10 — "when zooming out they can still be shorter than the screen … dials suddenly
+   *  end"), so the GL fan projects the viewport's four corners onto the plane every frame and
+   *  stretches the ray past the farthest hit; a corner that misses the plane means "to the
+   *  horizon", capped here (the presence band fades the overlay above 50 km anyway). */
+  rayReachMaxM: 400_000,
   /** Altitude presence band (m): full below, gone above — a map instrument, not an orbit
    *  decoration (the VECTOR band idiom, wider: the flat map lives below ~120 km). Mobile
    *  keeps this wide band (the fullscreen 2D map is the phone's main planning surface)… */

@@ -5,7 +5,7 @@ import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
 import { skylineSamplerFor } from "../../lib/geo/horizonProfile";
 import { AIMCONES } from "../globe/tuning";
-import { useFindStore } from "../../store/find";
+import { useFindStore, FIND_RANGES } from "../../store/find";
 import type { FindBody } from "../../lib/ephemeris/frameFinder";
 import { useCameraStore } from "../../store/camera";
 import { gotoSkyBody } from "../../store/skyAim";
@@ -579,6 +579,10 @@ export default function TargetPanel() {
   const findBody: FindBody =
     target.id === "body:sun" ? "sun" : target.id === "body:moon" ? "moon" : "target";
   const findOn = findOpen && findBodies[findBody];
+  // The range chips beside the button (owner 2026-10-10) — the FIND window's `rangeDays`,
+  // live once THIS object's scan is on.
+  const rangeDays = useFindStore((s) => s.rangeDays);
+  const setRangeDays = useFindStore((s) => s.setRangeDays);
   const setTime = useTimeStore((s) => s.setTime);
   const live = useTimeStore((s) => s.live);
   const pinnedMs = useTimeStore((s) => s.timeMs);
@@ -836,25 +840,48 @@ export default function TargetPanel() {
             {/* FIND IN FRAME (owner batch #4 item 8, 2026-08-21) — the sky-menu action, seated
                 in the properties panel: sun/moon map to their own FIND chips, ANY other tracked
                 target to the generic TARGET slot. Enabled = chip on AND the FIND surface open
-                (closed surface scans nothing — same composite read as the menu). */}
-            <button
-              type="button"
-              className={`tp-findframe ${findOn ? "tp-findframe--on" : ""}`}
-              aria-pressed={findOn}
-              onClick={() => {
-                const f = useFindStore.getState();
-                f.setBody(findBody, !findOn);
-                if (!findOn) {
+                (closed surface scans nothing — same composite read as the menu). FIND THIS ONE
+                (owner 2026-10-10): the click scans the object this panel names and NOTHING else
+                (`soloBody` — the moon's default-on chip used to ride along), and the range chips
+                share the row — the button the left half, 1W · 1M · 6M · 1Y the right, live once
+                this object's scan is on (the /m twin's layout). */}
+            <div className="tp-findrow">
+              <button
+                type="button"
+                className={`tp-findframe ${findOn ? "tp-findframe--on" : ""}`}
+                aria-pressed={findOn}
+                onClick={() => {
+                  const f = useFindStore.getState();
+                  if (findOn) {
+                    f.setBody(findBody, false);
+                    return;
+                  }
+                  f.soloBody(findBody);
                   // Desktop shared-window exclusivity: PLAN yields to FIND (the menu's rule).
                   if (!document.body.classList.contains("m"))
                     usePlanStore.getState().setOpen(false);
                   f.setOpen(true);
-                }
-              }}
-              title="Scan the day for frames that catch this object — the sky-menu FIND IN FRAME"
-            >
-              {findOn ? "✓ FIND IN FRAME" : "⌖ FIND IN FRAME"}
-            </button>
+                }}
+                title="Scan the coming days for frames that catch THIS object (only this one) — the sky-menu FIND IN FRAME"
+              >
+                {findOn ? "✓ FIND IN FRAME" : "⌖ FIND IN FRAME"}
+              </button>
+              <div className="tp-findrow__ranges" role="group" aria-label="Find range">
+                {FIND_RANGES.map((r) => (
+                  <button
+                    key={r.label}
+                    type="button"
+                    className={`tp-range ${rangeDays === r.days ? "tp-range--on" : ""}`}
+                    aria-pressed={rangeDays === r.days}
+                    disabled={!findOn}
+                    onClick={() => setRangeDays(r.days)}
+                    title={`Scan the next ${r.label}`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Owner 2026-08-19 (batch item 7): dismiss the followed object — hides it
                 everywhere and releases the camera; search / right-click the sky re-follows. */}

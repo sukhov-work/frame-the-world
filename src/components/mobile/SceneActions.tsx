@@ -374,7 +374,9 @@ export const SAVE_COPY = Object.freeze({
  *  twin: bookmark the live FPV pose + pinned scene time to /api/places (it appears in MY PLACES
  *  on both shells). Tap first asks an OPTIONAL name in a small Sheet (portaled to <body>: the
  *  chip stack is a z-10 fixed layer exactly where the soft keyboard lands — the sheet idiom is
- *  the shell's one keyboard-safe input home, same as SEARCH). Empty submit keeps the auto
+ *  the shell's one keyboard-safe input home, same as SEARCH; since 2026-10-10 the Sheet itself
+ *  rides ABOVE the keyboard on its visualViewport lift, so the name field is never under the
+ *  keys — the owner's Pixel showed the whole dialog hidden behind them). Empty submit keeps the auto
  *  title. Signed OUT the chip is simply DISABLED (`aria-disabled`, not the attribute — the tap
  *  must still land to show the one-line hint through the column's note); the old full-width
  *  ◎ SIGN IN TO SAVE pill took the space the owner wanted back. Pose source = the SAME mirrors

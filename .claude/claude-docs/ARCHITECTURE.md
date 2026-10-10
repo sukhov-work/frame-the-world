@@ -280,11 +280,27 @@ place deletes were dead in production until 2026-09-19. Fence: `test/lib/api/jso
 - `components/panels/` also carries **`radarCanvas.ts`** — THE canvas radar painter shared by the
   expanded chart and the FPV mini-map (≈95 duplicated lines before audit #3 A1-8/T35). It is a
   plain module, not a component: the two surfaces own their transforms and hand it a centre, a
-  twist, a unit radius and their bodies.
+  twist, a unit radius and their bodies. **Since 2026-10-10 every stroke is authored in SCREEN
+  CSS px** (`AIMCONES.strokePx` × `lib/geo/radarBands.radarStroke(mobile)` × the store/css ratio
+  the surface hands it): the mini-map sizes its backing store to the GLASS (`clientWidth ×
+  devicePixelRatio` — the old `200 × min(DPR, 2)` store was MINIFIED into the 124 px /m card on
+  an iPhone and magnified on a Pixel, the one place the two phones diverged), the chart keeps
+  its 2× cap and passes `store / client`; the /m profile is ×1.4 width with lifted inks, desktop
+  the identity. The chart's target ray reaches `chartRayReachPx` — past every edge from wherever
+  the anchor sits (a pan used to end it mid-screen). The GL fan (`scene/aimCones`) reads the SAME
+  profile: its rim arcs and rise/set spokes are quads now (they were 1-device-px `LineSegments`,
+  DPR-dependent), and its target ray is stretched past the viewport's far corners every frame
+  (`viewReachK` → the pure `groundReachK`; `__globe.aimRadar()` is the DEV seam).
 - `components/mobile/` also carries **`useSheetInputFocus.ts`** — the ONE way an input inside a
   sliding sheet may take focus on iOS (same-commit focus + `preventScroll` + a layout-viewport
   pin across the 400 ms slide and the keyboard settle). Fenced by `mobileFence` rule 4: no
-  React `autoFocus` and no bare `.focus()` anywhere in the shell (audit #3 A1-9).
+  React `autoFocus` and no bare `.focus()` anywhere in the shell (audit #3 A1-9). **`Sheet.tsx`
+  rides above the soft keyboard since 2026-10-10:** every non-`full` sheet sets `bottom` to the
+  keyboard inset (`keyboardInsetPx` = the layout viewport's bottom minus the visual viewport's,
+  re-read on every `visualViewport` resize/scroll; clamped by `sheetLiftPx` so the head stays on
+  the glass) — iOS Safari and Android Chrome shrink only the VISUAL viewport, so a bottom-anchored
+  fixed sheet (SAVE VIEW) simply vanished under the keys. A `full` sheet (SEARCH, GUIDE) never
+  lifts. `test/components/mobileSheetLift.test.ts` pins the rules and the wiring.
 - `store/` (zustand `use*Store`): `camera`, `upload`, `pins`, `save`, `time`, `member`, `plan`, `sky`,
   `skyAim` (rise/set camera aim), `find` (FIND v2 panel⇆globe ghost mirror + two-way hover), `market`,
   `minimap`, `places` (MY PLACES on-map mirror), `bldgEdit` (U8 height-override drag), `bestSpot`

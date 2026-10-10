@@ -4,7 +4,7 @@ import { AIMCONES } from "../tuning";
 import { fractureRunsBySkyline, sampleAimDay, type AimDay } from "../../../lib/ephemeris/azSector";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../../lib/ephemeris/targets";
 import type { SkylineView } from "../../../lib/geo/horizonProfile";
-import { bandFor, bandFutureInk } from "../../../lib/geo/radarBands";
+import { bandFor, bandFutureInk, radarStroke } from "../../../lib/geo/radarBands";
 import { clampGroundM } from "../../../lib/geo/terrain";
 // audit #3 A1-8 / T35: the flat material, the tangent-plane root + seat, the presence ramp and
 // the fade step are the SHARED planning-overlay grammar (scene/focalCone is the twin).
@@ -41,6 +41,14 @@ import {
  * retired; emphasis now gates FILL + keeps the tap-to-focus semantics. Sun/moon dials cap at
  * their OWN band's outer radius; the target ray keeps rayLenK. A small `N` marker sits on the
  * rim (the 2D map rotates everywhere now — the radar carries its own north).
+ *
+ * 2026-10-10 (owner, iPhone 17 Pro): EVERY stroke is a world-width QUAD — the rim arcs and the
+ * rise/set spokes were `LineSegments`, one device pixel at whatever ratio the renderer ran
+ * (1.25 / 1.5 lean-capped on a phone), so they read as faint hairlines next to the quad
+ * direction line; the whole fan wears the shell's stroke profile (`radarStroke`: /m thicker +
+ * more vivid, desktop byte-identical). And the TARGET ray CROSSES THE SCREEN at any tilt or pan:
+ * the viewport's four corners are projected onto the tangent plane every frame and the ray runs
+ * past the farthest hit (`viewReachK`), never shorter than rayLenK.
  */
 
 type AimKey = "target" | "sun" | "moon";
@@ -64,8 +72,13 @@ export interface AimConesHandle {
     /** Per-body AIM flags + the emphasized system (store/sky mirror). */
     aim: { target: boolean; sun: boolean; moon: boolean; focus: AimKey };
     /** /m shell (orchestrator-pushed environment fact — batch #5 item 2): 20% smaller radius
-     *  + the sun/moon bands pulled inward (bandFor's mobile variant). */
+     *  + the sun/moon bands pulled inward (bandFor's mobile variant) + the heavier stroke
+     *  profile (2026-10-10). */
     mobile: boolean;
+    /** The live camera (read only — this frame's final matrices): the TARGET ray is stretched
+     *  past the farthest point of the tangent plane the viewport's corners can see, so it
+     *  crosses the whole screen at any tilt or pan (owner 2026-10-10). */
+    camera: THREE.Camera;
     /** Skyline view for THIS anchor's eye (owner QA 2026-08-21 item 3), or null — the
      *  orchestrator resolves store/plan's profile behind the AIMCONES.skylineGuardM
      *  anchor-match rule (`skylineSamplerFor`); when present, band fills/rims FRACTURE where
@@ -76,6 +89,9 @@ export interface AimConesHandle {
     dtMs: number;
   }): void;
   dispose(): void;
+  /** DEV seam (browser verification reads it through `__globe.aimRadar()`): this frame's target
+   *  ray length and the corner reach it came from (radius units), the stroke profile in force. */
+  debug(): { rayK: number; reachK: number; widthK: number; rim: "mesh"; radiusM: number };
 }
 
 /** Sector material — past/future COLOUR split (the dayArcs split is alpha-only). Past is
@@ -123,6 +139,16 @@ function makeSectorMaterial(futureHex: string): THREE.ShaderMaterial {
 const makeLineMaterial = makeFlatOverlayMaterial;
 
 const DEG = Math.PI / 180;
+/** The ray runs this much past the farthest corner hit — a quad ending exactly at the screen's
+ *  edge would show its own end on a sub-pixel disagreement between the two projections. */
+const RAY_MARGIN = 1.05;
+/** Viewport corners in NDC — the four rays whose plane hits bound what the screen can see. */
+const CORNERS_NDC: readonly (readonly [number, number])[] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+];
 
 /** The band model moved to `lib/geo/radarBands` (audit #3 A1-7 / T35, 2026-08-22) — it was
  *  hand-copied into BOTH canvas surfaces with no fence. Re-exported here so this module's
@@ -145,6 +171,54 @@ export function easeSeatM(
   if (probe === null) return prevM;
   const h = clampGroundM(probe);
   return Number.isNaN(prevM) ? h : prevM + (h - prevM) * (1 - Math.exp(-dtMs / tauMs));
+}
+
+/**
+ * How far the TARGET ray must run so it leaves the screen (pure twin — tested; owner
+ * 2026-10-10: "when zooming out they can still be shorter than the screen … dials suddenly
+ * end"). Everything is in the tangent group's OWN frame: the plane is z = 0, the anchor the
+ * origin, one unit = the radar radius. `cam` is the camera there and `dirs` the rays through the
+ * viewport's corners (any length). A ray that hits the plane AHEAD of the camera (t > 0)
+ * contributes its hit's distance from the anchor; one that looks past the plane — above the
+ * horizon on a tilted map — means the visible ground runs to the horizon, and contributes
+ * `capK`. The answer is the farthest of them, never above `capK` (a near-grazing hit can be
+ * thousands of km out). A ray parallel to the plane never hits (t is ±∞ or NaN) and caps too.
+ */
+export function groundReachK(
+  cam: { x: number; y: number; z: number },
+  dirs: readonly { x: number; y: number; z: number }[],
+  capK: number,
+): number {
+  let reach = 0;
+  for (const d of dirs) {
+    const t = -cam.z / d.z;
+    if (!(t > 0) || !Number.isFinite(t)) {
+      reach = Math.max(reach, capK);
+      continue;
+    }
+    reach = Math.max(reach, Math.hypot(cam.x + t * d.x, cam.y + t * d.y));
+  }
+  return Math.min(reach, capK);
+}
+
+// Scratch for viewReachK — one call per frame, no allocation (T38).
+const _inv = new THREE.Matrix4();
+const _camL = new THREE.Vector3();
+const _pt = new THREE.Vector3();
+const _dirsL = CORNERS_NDC.map(() => new THREE.Vector3());
+
+/** The three-side half of `groundReachK`: the camera and the viewport's corner rays carried
+ *  into the tangent group's frame through the inverse of its seated matrix. */
+export function viewReachK(camera: THREE.Camera, groupMatrix: THREE.Matrix4, capK: number): number {
+  _inv.copy(groupMatrix).invert();
+  _camL.copy(camera.position).applyMatrix4(_inv);
+  for (let i = 0; i < CORNERS_NDC.length; i++) {
+    // A world point on the corner's ray, carried into the group's frame, minus the local camera
+    // = the ray's direction there (the group's matrix is a similarity, so straight lines stay).
+    _pt.set(CORNERS_NDC[i][0], CORNERS_NDC[i][1], 0.5).unproject(camera).applyMatrix4(_inv);
+    _dirsL[i].copy(_pt).sub(_camL);
+  }
+  return groundReachK(_camL, _dirsL, capK);
 }
 
 export function attachAimCones(opts: {
@@ -170,8 +244,11 @@ export function attachAimCones(opts: {
     const edgesMat = makeLineMaterial(color); // rise/set radial spokes — BODY identity colour
     const lineMat = makeLineMaterial(color);
     const fan = new THREE.Mesh(new THREE.BufferGeometry(), fanMat);
-    const rim = new THREE.LineSegments(new THREE.BufferGeometry(), rimMat);
-    const edges = new THREE.LineSegments(new THREE.BufferGeometry(), edgesMat);
+    // Rim + spokes are MESHES (2026-10-10): thin quads of `AIMCONES.rimHalfWidthK` × the
+    // shell's stroke width, like the direction line — a `LineSegments` is one device pixel at
+    // whatever ratio the renderer runs, which is what read as hairlines on the phone.
+    const rim = new THREE.Mesh(new THREE.BufferGeometry(), rimMat);
+    const edges = new THREE.Mesh(new THREE.BufferGeometry(), edgesMat);
     // UNIT-length quad along +north (tip exactly at the rim radius); rotation.z = −az swings
     // it to the compass bearing, and scale.y stretches ONLY the focused body's line past the
     // rim (owner 2026-08-18: non-focused lines end exactly at their circle). Local scale
@@ -251,6 +328,8 @@ export function attachAimCones(opts: {
   let builtTargetId = "";
   let fade = 0;
   let radius = 0; // m — raw zoom function, recomputed every frame (see the update() note)
+  let rayK: number = AIMCONES.rayLenK; // the target ray's length in radius units — this frame's reach
+  let reachK = 0; // the raw corner reach behind it (DEV seam)
   let groundM = Number.NaN; // eased terrain seat at the anchor (NaN = unseeded)
 
   const targetFor = (key: AimKey, tracked: SkyTarget): SkyTarget =>
@@ -268,6 +347,10 @@ export function attachAimCones(opts: {
   function rebuildBody(b: (typeof bodies)[number], day: AimDay) {
     b.day = day;
     const [rIn, rOut] = bandFor(b.key, mobileNow);
+    // Rim arc + spoke half-width (unit-radius fraction) — the shell's stroke profile rides it.
+    const rw = AIMCONES.rimHalfWidthK * radarStroke(mobileNow).widthK;
+    const ri = rOut - rw;
+    const ro = rOut + rw;
     const t01 = (ms: number) => (ms - day.startMs) / (day.endMs - day.startMs);
     const fanPos: number[] = [];
     const fanT: number[] = [];
@@ -291,8 +374,12 @@ export function attachAimCones(opts: {
         fanT.push(ta, ta, tc);
         fanPos.push(ax * rIn, ay * rIn, 0, cx * rOut, cy * rOut, 0, cx * rIn, cy * rIn, 0);
         fanT.push(ta, tc, tc);
-        rimPos.push(ax * rOut, ay * rOut, 0, cx * rOut, cy * rOut, 0);
-        rimT.push(ta, tc);
+        // The rim is a thin annular STRIP (2026-10-10) between rOut ∓ rw — two triangles per
+        // wedge, each vertex keeping its sample's t01 like the fan — never a 1-px GL line.
+        rimPos.push(ax * ri, ay * ri, 0, ax * ro, ay * ro, 0, cx * ro, cy * ro, 0);
+        rimT.push(ta, ta, tc);
+        rimPos.push(ax * ri, ay * ri, 0, cx * ro, cy * ro, 0, cx * ri, cy * ri, 0);
+        rimT.push(ta, tc, tc);
       }
     }
     // Radial edges close the band at each run's rise/set azimuth (a rim arc alone floats).
@@ -307,7 +394,17 @@ export function attachAimCones(opts: {
         for (const s of [run[0], run[run.length - 1]]) {
           const sx = Math.sin(s.azDeg * DEG);
           const sy = Math.cos(s.azDeg * DEG);
-          edgePos.push(sx * rIn, sy * rIn, 0, sx * rOut, sy * rOut, 0);
+          // A radial QUAD (2026-10-10): half-width rw perpendicular to the spoke, rIn → rOut.
+          const px = -sy * rw;
+          const py = sx * rw;
+          edgePos.push(
+            sx * rIn + px, sy * rIn + py, 0,
+            sx * rOut + px, sy * rOut + py, 0,
+            sx * rOut - px, sy * rOut - py, 0,
+            sx * rIn + px, sy * rIn + py, 0,
+            sx * rOut - px, sy * rOut - py, 0,
+            sx * rIn - px, sy * rIn - py, 0,
+          );
         }
       }
     }
@@ -326,8 +423,11 @@ export function attachAimCones(opts: {
 
   return {
     group,
-    update({ sceneMs, anchor, alt, band, enabled, target, aim, mobile, skylineBins, dtMs }) {
+    update({ sceneMs, anchor, alt, band, enabled, target, aim, mobile, camera, skylineBins, dtMs }) {
+      // A shell flip (static in practice) rebuilds — the rim/spoke width is baked at rebuild.
+      const shellChanged = mobile !== mobileNow;
       mobileNow = mobile;
+      const stroke = radarStroke(mobile);
       const anyOn = aim.target || aim.sun || aim.moon;
       const presence = presenceForAlt(alt, band);
       const want = enabled && anyOn && anchor !== null && presence > 0;
@@ -348,7 +448,7 @@ export function attachAimCones(opts: {
         // Skyline arrival/expiry refractures the bands (owner QA 2026-08-21 item 3) — array
         // identity is the key: planFeed mirrors one fresh array per completed build.
         const skylineChanged = (skylineBins?.bins ?? null) !== (skylineNow?.bins ?? null);
-        if (moved || dayCrossed || swapped || skylineChanged) {
+        if (moved || dayCrossed || swapped || skylineChanged || shellChanged) {
           anchorLat = anchor.latDeg;
           anchorLon = anchor.lonDeg;
           builtTargetId = target.id;
@@ -394,6 +494,12 @@ export function attachAimCones(opts: {
         // Seat the group at the LIVE anchor — only the az curves ride the rebuild deadband
         // (azimuths barely move over 2 km; the seat visibly does).
         seatTangentGroup(group, anchor.latDeg, anchor.lonDeg, groundM, radius);
+        // THE RAY CROSSES THE SCREEN (owner 2026-10-10): the viewport's four corners projected
+        // onto this plane in the group's own units (one unit = radius), the target ray run past
+        // the farthest hit; a corner that looks past the plane means "to the horizon", capped at
+        // rayReachMaxM. Never shorter than the rayLenK ray (batch #4 item 6).
+        reachK = viewReachK(camera, group.matrix, AIMCONES.rayReachMaxM / radius);
+        rayK = Math.max(AIMCONES.rayLenK, reachK * RAY_MARGIN);
       }
       group.visible = true;
 
@@ -419,11 +525,13 @@ export function attachAimCones(opts: {
         b.rimMat.uniforms.uNow01.value = now01;
         // Fill NEVER rests at zero (owner batch #5 item 1: the strips read as empty) — every
         // band wears the fillAlphaRest wash; emphasis breathes it up to fillAlpha.
+        // The shell's stroke profile lifts the inks on /m (2026-10-10); ×1 on desktop.
         b.fanMat.uniforms.uAlpha.value =
           (AIMCONES.fillAlphaRest + (AIMCONES.fillAlpha - AIMCONES.fillAlphaRest) * b.emphEased) *
+          stroke.fillAlphaK *
           overlayA;
-        b.rimMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
-        b.edgesMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * overlayA;
+        b.rimMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * stroke.rimAlphaK * overlayA;
+        b.edgesMat.uniforms.uAlpha.value = AIMCONES.rimAlpha * stroke.rimAlphaK * overlayA;
 
         // Direction line: current azimuth + below-horizon paling (3 ephemeris calls/frame —
         // the sky marker's own budget). The TARGET line is the tracking RAY (owner batch #4
@@ -432,9 +540,14 @@ export function attachAimCones(opts: {
         // the ×1.18 focused overshoot is retired with the radius scaling).
         const nowPos = targetAzAlt(targetFor(b.key, target), sceneMs, anchorLat, anchorLon);
         b.line.rotation.z = -nowPos.azDeg * DEG;
-        b.line.scale.y = b.key === "target" ? AIMCONES.rayLenK : bandFor(b.key, mobile)[1];
+        // The target ray's length is this frame's screen-crossing reach (2026-10-10), the
+        // sun/moon dials their band; the quad's WIDTH wears the shell's stroke profile.
+        b.line.scale.y = b.key === "target" ? rayK : bandFor(b.key, mobile)[1];
+        b.line.scale.x = stroke.widthK;
         b.lineMat.uniforms.uAlpha.value =
-          (nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown) * overlayA;
+          (nowPos.altDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown) *
+          stroke.lineAlphaK *
+          overlayA;
       }
     },
     dispose() {
@@ -452,6 +565,15 @@ export function attachAimCones(opts: {
       northMat.dispose();
       nTexture.dispose();
       opts.scene.remove(group);
+    },
+    debug() {
+      return {
+        rayK,
+        reachK,
+        widthK: radarStroke(mobileNow).widthK,
+        rim: "mesh" as const,
+        radiusM: radius,
+      };
     },
   };
 }

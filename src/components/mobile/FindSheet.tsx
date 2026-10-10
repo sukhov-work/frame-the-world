@@ -19,7 +19,7 @@ import { usePlanStore } from "../../store/plan";
 import { useTimeStore, sameLocalTimeInstants, localTimeStr } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
-import { useFindStore, FIND_GHOST_CAP, type FindGhost } from "../../store/find";
+import { useFindStore, FIND_GHOST_CAP, FIND_RANGES, type FindGhost } from "../../store/find";
 import {
   bodyDayPositions,
   frameStandingsFromPositions,
@@ -36,12 +36,6 @@ import { findHitColor, findStandingColorIdx } from "../../lib/theme/findPalette"
 import "../../styles/mobile/chrome.css";
 
 const DAY_MS = 24 * 3600_000;
-const FIND_RANGES = [
-  { label: "1W", days: 7 },
-  { label: "1M", days: 30 },
-  { label: "6M", days: 182 },
-  { label: "1Y", days: 365 },
-] as const;
 // The third slot is the TRACKED TARGET (owner 2026-08-19, item 10) — glyph resolves live.
 const BODY_GLYPH: Record<FindBody, string> = { sun: "☀", moon: "☾", target: "✦" };
 const FIND_MAX_ROWS = 24;

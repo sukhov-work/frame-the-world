@@ -16,7 +16,7 @@ import { useSkyStore } from "../../store/sky";
 import { usePlanStore } from "../../store/plan";
 import { skylineSamplerFor } from "../../lib/geo/horizonProfile";
 import { AIMCONES } from "../globe/tuning";
-import { useFindStore } from "../../store/find";
+import { useFindStore, FIND_RANGES } from "../../store/find";
 import type { FindBody } from "../../lib/ephemeris/frameFinder";
 import { useCameraStore } from "../../store/camera";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
@@ -164,6 +164,10 @@ export default function TargetSheet({ onClose }: { onClose: () => void }) {
   const findBody: FindBody =
     target.id === "body:sun" ? "sun" : target.id === "body:moon" ? "moon" : "target";
   const findOn = findOpen && findBodies[findBody];
+  // The range chips beside the button (owner 2026-10-10) — the same `rangeDays` the FIND
+  // sheet's chips write, live once THIS object's scan is on.
+  const rangeDays = useFindStore((s) => s.rangeDays);
+  const setRangeDays = useFindStore((s) => s.setRangeDays);
   const visible = useSkyStore((s) => s.visible);
   const setVisible = useSkyStore((s) => s.setVisible);
   const highlight = useSkyStore((s) => s.highlight);
@@ -374,19 +378,43 @@ export default function TargetSheet({ onClose }: { onClose: () => void }) {
         </div>
       )}
       {/* FIND IN FRAME (owner batch #4 item 8) — the sky-menu action seated above UNFOLLOW;
-          same body mapping + composite enabled-read as the menu (on /m PLAN keeps its sheet). */}
-      <button
-        type="button"
-        className={`m-findframe${findOn ? " m-findframe--on" : ""}`}
-        aria-pressed={findOn}
-        onClick={() => {
-          const f = useFindStore.getState();
-          f.setBody(findBody, !findOn);
-          if (!findOn) f.setOpen(true);
-        }}
-      >
-        {findOn ? "✓ FIND IN FRAME" : "⌖ FIND IN FRAME"}
-      </button>
+          same body mapping as the menu (on /m PLAN keeps its sheet). FIND THIS ONE (owner
+          2026-10-10): the tap scans the object this sheet names and NOTHING else (`soloBody` —
+          the moon's default-on chip used to ride along), and the range chips share the row:
+          the button is the left half, 1W · 1M · 6M · 1Y the right, live once this object's scan
+          is on (the period used to be a trip to the FIND tab). */}
+      <div className="m-findrow">
+        <button
+          type="button"
+          className={`m-findframe${findOn ? " m-findframe--on" : ""}`}
+          aria-pressed={findOn}
+          onClick={() => {
+            const f = useFindStore.getState();
+            if (findOn) {
+              f.setBody(findBody, false);
+              return;
+            }
+            f.soloBody(findBody);
+            f.setOpen(true);
+          }}
+        >
+          {findOn ? "✓ FIND IN FRAME" : "⌖ FIND IN FRAME"}
+        </button>
+        <div className="m-findrow__ranges" role="group" aria-label="Find range">
+          {FIND_RANGES.map((r) => (
+            <button
+              key={r.label}
+              type="button"
+              className={`m-toggle m-toggle--range${rangeDays === r.days ? " m-toggle--on" : ""}`}
+              aria-pressed={rangeDays === r.days}
+              disabled={!findOn}
+              onClick={() => setRangeDays(r.days)}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
       {/* Owner 2026-08-19 (batch item 7): dismiss the followed object — hides it everywhere
           and releases the camera; search / long-press the sky to follow again. */}
       <button

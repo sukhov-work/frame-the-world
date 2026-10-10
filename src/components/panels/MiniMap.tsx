@@ -13,7 +13,7 @@ import {
 import { usePlanStore } from "../../store/plan";
 import { useUploadStore } from "../../store/upload";
 import { aimAnchorFor } from "../../lib/geo/aimAnchor";
-import { type RadarBandKey } from "../../lib/geo/radarBands";
+import { radarStroke, type RadarBandKey } from "../../lib/geo/radarBands";
 import { skylineSamplerFor, type SkylineSampler } from "../../lib/geo/horizonProfile";
 import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
@@ -42,9 +42,10 @@ import "../../styles/mini-map.css";
  * north marker). The FOV cone wears the focal-cone ink (one "planned shot" colour everywhere).
  */
 
-/** CSS px of the square canvas (the CSS size — the buffer is DPR-scaled). 200 makes the card's
- *  border-box exactly 210px — the FPV HUD below pins the same width (owner 2026-08-14 ask 6).
- *  Must match `.mm-canvas` width/height in mini-map.css. */
+/** CSS px of the square canvas on DESKTOP (/m shows it at 124 px — mobile/fpv.css). 200 makes the
+ *  card's border-box exactly 210px — the FPV HUD below pins the same width (owner 2026-08-14
+ *  ask 6). Must match `.mm-canvas` width/height in mini-map.css. The BUFFER is sized to the
+ *  glass in `draw()` (2026-10-10), never to this number. */
 const SIZE_PX = 200;
 /** Radar outer-circle radius as a canvas fraction — N chip + scale text stay outside it. */
 const RADAR_R_FRAC = 0.44;
@@ -155,8 +156,17 @@ function draw(
   patchM: number,
   radar: RadarBody[],
 ) {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const px = SIZE_PX * dpr;
+  // The backing store is the GLASS (owner 2026-10-10, iPhone 17 Pro — "radar lines too narrow"):
+  // the card is CSS-shrunk to 124 px on /m, and the old 200 × min(DPR, 2) = 400 px store drawn
+  // into it was MINIFIED on the iPhone (124 × 3 = 372 physical px: a 2 px hairline blurred to
+  // ~1.9 px of ink) and MAGNIFIED on the Pixel 6 Pro (124 × 3.5 = 434) — the one place the two
+  // phones fell on opposite sides of 1:1, which is why only the iPhone read thin. One store px
+  // per physical px now, and every stroke below is authored in SCREEN CSS px (`dpr` = store px
+  // per screen CSS px = the device pixel ratio). A hidden card (clientWidth 0) keeps the desktop
+  // size; a 124 px card at DPR 3 is a 372 px store — smaller than before, never dearer.
+  const cssPx = canvas.clientWidth || SIZE_PX;
+  const dpr = window.devicePixelRatio || 1;
+  const px = Math.max(1, Math.round(cssPx * dpr));
   if (canvas.width !== px) {
     canvas.width = px;
     canvas.height = px;
@@ -237,7 +247,8 @@ function draw(
         rBase: px * RADAR_R_FRAC,
         mobile: mobileShell,
         dpr,
-        targetRayPx: px * 0.75,
+        // Past the patch's corners (0.707 px from the centre) — the ray never ends on this surface.
+        targetRayPx: px,
         pastInk: cssVar(canvas, "--color-text-secondary"),
         fillAlphaK: 2,
       },
@@ -275,8 +286,10 @@ function draw(
     // Boundary LEGS only — stroking the closed wedge drew the far ARC too, which no other
     // surface does (owner batch #5 item 1 consistency pass); a touch wider + brighter than
     // the 1px radar lines, the GL 1.25× rule.
-    ctx.globalAlpha = FOCALCONE.edgeAlpha;
-    ctx.lineWidth = 1.5 * dpr;
+    // The /m stroke profile (2026-10-10) rides the legs too — the 1.25× rule holds on every shell.
+    const stroke = radarStroke(mobileShell);
+    ctx.globalAlpha = Math.min(1, FOCALCONE.edgeAlpha * stroke.lineAlphaK);
+    ctx.lineWidth = 1.5 * AIMCONES.strokePx * stroke.widthK * dpr;
     ctx.strokeStyle = tokens.focalCone;
     ctx.beginPath();
     for (const a of [-Math.PI / 2 - half, -Math.PI / 2 + half]) {

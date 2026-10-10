@@ -1,5 +1,5 @@
 import type { AimSample } from "../../lib/ephemeris/azSector";
-import { bandFor, bandFutureInk, type RadarBandKey } from "../../lib/geo/radarBands";
+import { bandFor, bandFutureInk, radarStroke, type RadarBandKey } from "../../lib/geo/radarBands";
 import { AIMCONES } from "../globe/tuning";
 
 /**
@@ -17,8 +17,11 @@ import { AIMCONES } from "../globe/tuning";
  *     transform, `rotRad=0`), so its DOM `.mm-n` chip is its north marker.
  *   • **fill weight** (`fillAlphaK`): the mini-map doubles the wash — its map ink is dense at
  *     patch scale.
- *   • **target ray reach** (`targetRayPx`): the tracking ray runs to the window edge on the
- *     chart, to a patch fraction on the mini-map. Sun/moon dials always cap at their own band.
+ *   • **target ray reach** (`targetRayPx`): the tracking ray runs past every edge of the chart
+ *     from wherever the anchor sits (`chartRayReachPx`), past the patch's corners on the
+ *     mini-map. Sun/moon dials always cap at their own band.
+ *   • **stroke weight + ink** (`lib/geo/radarBands.radarStroke`): screen-CSS-px strokes, the /m
+ *     profile heavier and more vivid (owner 2026-10-10) — the GL fan reads the same profile.
  *   • **past ink**: the inert-history grey, resolved by the caller (both pass the same value
  *     from different sources — the token bridge and the CSS custom property).
  *
@@ -27,6 +30,17 @@ import { AIMCONES } from "../globe/tuning";
  */
 
 const DEG = Math.PI / 180;
+
+/**
+ * The chart's TARGET-ray reach in device px (owner 2026-10-10 — "scrolling around the 2D map
+ * and the dials suddenly end"): the ray starts at the anchor's point (`ax`, `ay`), which a pan
+ * can carry clean off the canvas; a reach of one diagonal from THERE ended mid-screen once the
+ * anchor sat more than its own distance past the edge. The diagonal plus the anchor's offset
+ * from the centre covers every point of a `w × h` canvas from any anchor. Pure.
+ */
+export function chartRayReachPx(w: number, h: number, ax: number, ay: number): number {
+  return Math.hypot(w, h) + Math.hypot(ax - w / 2, ay - h / 2);
+}
 
 /** One body's drawable radar state (both surfaces already build this shape per paint). */
 export interface RadarCanvasBody {
@@ -53,9 +67,12 @@ export interface RadarCanvasOpts {
   rotRad: number;
   /** Unit-radius scale in device px — the bands are fractions of this. */
   rBase: number;
-  /** /m shell: the whole band stack shifts inward (owner batch #5 item 2). */
+  /** /m shell: the whole band stack shifts inward (owner batch #5 item 2) AND the strokes wear
+   *  `AIMCONES.mobileStroke` — thicker, more vivid (owner 2026-10-10, iPhone 17 Pro). */
   mobile: boolean;
-  /** Device pixel ratio — line widths are authored in CSS px. */
+  /** Backing-store px per SCREEN CSS px of this canvas — strokes are authored in screen CSS px
+   *  (`AIMCONES.strokePx`). The mini-map sizes its store to the glass, so this is the device
+   *  pixel ratio there; the chart caps its store at 2× and passes `store / client`. */
   dpr: number;
   /** The TARGET body's tracking-ray reach in device px (owner batch #4 item 6). */
   targetRayPx: number;
@@ -74,7 +91,9 @@ export function drawRadarCanvas(
   o: RadarCanvasOpts,
   bodies: readonly RadarCanvasBody[],
 ): void {
-  const fillK = o.fillAlphaK ?? 1;
+  const ink = radarStroke(o.mobile);
+  const fillK = (o.fillAlphaK ?? 1) * ink.fillAlphaK;
+  const lineW = AIMCONES.strokePx * ink.widthK * o.dpr;
   /** Compass az (N=0, CW) → canvas point (north −y, east +x) + the chart rotation. */
   const pt = (azDeg: number, rr: number): [number, number] => {
     const th = (azDeg - 90) * DEG + o.rotRad;
@@ -119,8 +138,8 @@ export function drawRadarCanvas(
     ctx.fillStyle = futureInk;
     sectorPath(b.future, rIn, rOut);
     ctx.fill();
-    ctx.globalAlpha = AIMCONES.rimAlpha;
-    ctx.lineWidth = 1 * o.dpr;
+    ctx.globalAlpha = AIMCONES.rimAlpha * ink.rimAlphaK;
+    ctx.lineWidth = lineW;
     ctx.strokeStyle = o.pastInk;
     arcPath(b.past, rOut);
     ctx.stroke();
@@ -144,9 +163,10 @@ export function drawRadarCanvas(
     // Direction line at the CURRENT azimuth — body identity colour, pales below the horizon.
     // Sun/moon dials cap EXACTLY at their own band's outer radius (owner S2); the TARGET line
     // is the tracking RAY (item 6) — it runs to `targetRayPx`.
-    ctx.globalAlpha = b.nowAltDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown;
+    ctx.globalAlpha =
+      (b.nowAltDeg > 0 ? AIMCONES.lineAlpha : AIMCONES.lineAlphaDown) * ink.lineAlphaK;
     ctx.strokeStyle = b.color;
-    ctx.lineWidth = 1 * o.dpr;
+    ctx.lineWidth = lineW;
     ctx.beginPath();
     ctx.moveTo(o.cx, o.cy);
     ctx.lineTo(...pt(b.nowAzDeg, b.key === "target" ? o.targetRayPx : rOut));

@@ -3,8 +3,9 @@
 Mode: implement · Standard (`/frame` under investigate-design-v3, portable core; no research agents — the code was read directly,
 the diagnosis of item 3 PROVEN in the browser before the first edit). Records: DECISIONS 2026-09-30 · ARCHITECTURE §7a′ (pin
 follow) + §7d (streaming) + §7f (ALIGN) · `conventions/globe-tuning.md` (§MS5 "The 2026-09-30 family" + the tail section) ·
-`conventions/contracts.md` (world-models) · MOBILE_PLAN header · backlog T149 ruled, T152–T154 new · NSP. NOT released
-(the owner did not ask) — live stays v1.36.21.
+`conventions/contracts.md` (world-models) · MOBILE_PLAN header · backlog T149 ruled, T152–T154 new · NSP. RELEASED the
+same day on the owner's "deploy everything": ship `891261a` (PR #136) → **v1.36.23 LIVE** (canary 200/200, warm 170/0/0, live globe
+gl=true; the edge bundles carry the batch — DECISIONS 2026-09-30b).
 
 ## 1. ⌖ ALIGN removed (owner: "confusing and redundant")
 Deleted: the chip in `mobile/FpvControls.tsx` `ArLookToggle`, `AR_COPY.aligned`, `camera.requestArAlign` / `arAlignEpoch`,

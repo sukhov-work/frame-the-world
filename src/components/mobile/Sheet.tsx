@@ -6,24 +6,105 @@
  * S2 containing-block discipline: the backdrop-filter sits on the sheet SURFACE only — no
  * position:fixed element ever lives under a filtered ancestor (m-sheetroot is the fixed layer
  * and carries no filter).
+ *
+ * THE KEYBOARD LIFT (owner 2026-10-10, Pixel + iPhone: "the keyboard obscures the actual
+ * dialog and input … hard to even understand that something is hiding behind the keyboard").
+ * A sheet sits at the BOTTOM of the layout viewport — exactly where the soft keyboard lands.
+ * iOS Safari and Android Chrome (its `resizes-visual` default since 108) shrink only the
+ * VISUAL viewport, so a bottom-anchored fixed element simply disappears under the keys. Every
+ * non-full sheet now rides `bottom: <inset>` — the layout viewport's bottom minus the visual
+ * viewport's bottom (`keyboardInsetPx`), re-read on every visualViewport resize / scroll —
+ * clamped so its head never leaves the screen (`sheetLiftPx`). A `full` sheet (SEARCH, GUIDE)
+ * keeps its input at the TOP and never lifts. The lift is a `bottom` offset, never a transform:
+ * the slide-in animation and the drag both own `transform`. Where a browser resizes the LAYOUT
+ * viewport instead, `innerHeight` shrinks with it and the inset reads 0 — no double lift.
  */
 
-import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import "../../styles/mobile/chrome.css";
 
 const DISMISS_DY_PX = 90;
+/** The sheet's head must stay at least this far below the top edge when lifted — the status
+ *  strip's band, so a tall sheet over a tall keyboard never pushes its title off the glass. */
+export const SHEET_TOP_GUARD_PX = 56;
+
+/**
+ * How many CSS px of the layout viewport's bottom the soft keyboard covers — the layout
+ * viewport (`innerHeight`, which the fixed sheet root is sized to) minus the visual viewport's
+ * bottom edge (`height + offsetTop`). 0 when no keyboard is up, and 0 where the browser resized
+ * the layout viewport instead (innerHeight shrank with it). Pure.
+ */
+export function keyboardInsetPx(innerHeight: number, vvHeight: number, vvOffsetTop: number): number {
+  return Math.max(0, Math.round(innerHeight - vvHeight - vvOffsetTop));
+}
+
+/**
+ * How far a sheet of `sheetHeight` may rise for `insetPx` of keyboard: the inset, but never so
+ * far that its head leaves the screen — `innerHeight − sheetHeight − topGuardPx` is the room
+ * above it. Never negative. Pure.
+ */
+export function sheetLiftPx(
+  insetPx: number,
+  innerHeight: number,
+  sheetHeight: number,
+  topGuardPx: number,
+): number {
+  return Math.max(0, Math.min(insetPx, innerHeight - sheetHeight - topGuardPx));
+}
+
+/** The live lift (CSS px) for a mounted sheet — 0 until a keyboard shrinks the visual viewport. */
+function useKeyboardLift(active: boolean, sheetRef: RefObject<HTMLElement | null>): number {
+  const [lift, setLift] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const measure = () => {
+      const inset = keyboardInsetPx(window.innerHeight, vv.height, vv.offsetTop);
+      const h = sheetRef.current?.offsetHeight ?? 0;
+      setLift(sheetLiftPx(inset, window.innerHeight, h, SHEET_TOP_GUARD_PX));
+    };
+    measure();
+    vv.addEventListener("resize", measure);
+    vv.addEventListener("scroll", measure);
+    return () => {
+      vv.removeEventListener("resize", measure);
+      vv.removeEventListener("scroll", measure);
+    };
+  }, [active, sheetRef]);
+  return lift;
+}
 
 interface SheetProps {
   title: string;
   onClose: () => void;
   /** Near-full-height variant (search — the keyboard eats the lower half). */
   full?: boolean;
+  /** Ride above the soft keyboard (the docblock's lift). Default: every sheet that is not
+   *  `full` — a full sheet's input lives at its top and the lift would only push its head off. */
+  keyboardLift?: boolean;
   children: ReactNode;
 }
 
-export default function Sheet({ title, onClose, full = false, children }: SheetProps) {
+export default function Sheet({
+  title,
+  onClose,
+  full = false,
+  keyboardLift = !full,
+  children,
+}: SheetProps) {
   const [dragY, setDragY] = useState(0);
   const dragRef = useRef<{ id: number; startY: number } | null>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+  const lift = useKeyboardLift(keyboardLift, sheetRef);
 
   const onHandleDown = (e: PointerEvent<HTMLDivElement>) => {
     dragRef.current = { id: e.pointerId, startY: e.clientY };
@@ -45,16 +126,24 @@ export default function Sheet({ title, onClose, full = false, children }: SheetP
     else setDragY(0);
   };
 
+  // The lift is `bottom` and the drag is `transform` — two properties, no fight.
+  const style: CSSProperties = {};
+  if (lift > 0) style.bottom = lift;
+  if (dragY > 0) {
+    style.transform = `translateY(${dragY}px)`;
+    style.transition = "none";
+  }
+
   return (
     <div className="m-sheetroot">
       <div className="m-scrim" onPointerDown={onClose} aria-hidden="true" />
       <section
-        className={`m-sheet${full ? " m-sheet--full" : ""}`}
+        ref={sheetRef}
+        className={`m-sheet${full ? " m-sheet--full" : ""}${lift > 0 ? " m-sheet--lifted" : ""}`}
         role="dialog"
         aria-label={title}
-        style={
-          dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: "none" } : undefined
-        }
+        data-lift={lift > 0 ? lift : undefined}
+        style={Object.keys(style).length > 0 ? style : undefined}
       >
         <div
           className="m-sheet__head"

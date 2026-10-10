@@ -164,7 +164,30 @@ the band mapping itself lives in `lib/geo/radarBands` since audit #3 A1-7):
 - `emphTauMs` — the emphasis ease. It gates the **FILL WASH ONLY** — the rim rides
   `rimAlpha × overlayA` with no `emphEased` term (corrected by audit #3 A2-6).
 - `rayLenK` — the TARGET body's tracking ray, which runs far past the rim; sun/moon dials cap
-  EXACTLY at their own band's outer radius.
+  EXACTLY at their own band's outer radius. **Since 2026-10-10 it is the ray's FLOOR:** every
+  frame the GL fan projects the viewport's four corners onto the tangent plane in its own units
+  (`viewReachK` → the pure `groundReachK`) and runs the ray past the farthest hit (×1.05); a
+  corner that looks past the plane (a tilted 3D map, a grazing orbit) means "to the horizon",
+  capped at `rayReachMaxM` (400 km — the presence band fades the overlay above 50 km anyway).
+  The chart twin's reach is `chartRayReachPx` (one diagonal PLUS the anchor's offset from the
+  centre — a panned chart used to end the ray mid-screen); the mini-map's is the patch.
+- `strokePx` / `mobileStroke` / `rimHalfWidthK` — THE RADAR ON GLASS (owner 2026-10-10, iPhone
+  17 Pro). `strokePx` is the canvas stroke weight in SCREEN CSS px (both canvases author their
+  strokes against the glass now — the mini-map's backing store is `clientWidth ×
+  devicePixelRatio`, the chart's stays capped at 2× and passes `store / client` as the painter's
+  `dpr`). `mobileStroke = { widthK, lineAlphaK, rimAlphaK, fillAlphaK }` is the /m profile
+  (`lib/geo/radarBands.radarStroke(mobile)`; desktop is the identity) and reaches EVERY radar
+  stroke: the canvas lines and fills, the GL direction line (`line.scale.x`), the GL rim arcs
+  and rise/set spokes, and the focal cone's boundary rays (canvas legs + GL quads — the 1.25×
+  rule holds because both carry the same `widthK`). No lifted alpha may exceed 1
+  (`radarStroke2026-10-10.test`). `rimHalfWidthK` is the GL rim/spoke QUAD half-width in
+  unit-radius units — they were `LineSegments`, one device pixel at whatever ratio the renderer
+  ran (1.25 lean / 1.5 on the flat map / 2 on a retina desktop), which is why the "sectors and
+  radiuses" read as hairlines; at 0.0015 the rim is ≈1.5 CSS px on every surface (half the
+  direction line), a visible but deliberate desktop change from the DPR-dependent hairline.
+  TRAP: why only the iPhone diverged — the Pixel 6 Pro (DPR 3.5) MAGNIFIED the old 400 px
+  mini-map store into its 434 physical px, the iPhone 17 Pro (DPR 3) MINIFIED it into 372; a
+  2 px hairline minified below 1:1 loses contrast. Size stores to the glass, never to a cap.
 
 **`FOCALCONE` — the planned-shot wedge** (`scene/focalCone` + both canvas twins):
 - `minHFovDeg` / `maxHFovDeg` — the planned view's RANGE CONTRACT, enforced once at

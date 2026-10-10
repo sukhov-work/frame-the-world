@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
 import { AIMCONES, FOCALCONE } from "../tuning";
+import { radarStroke } from "../../../lib/geo/radarBands";
 import { easeSeatM } from "./aimCones";
 // audit #3 A1-8 / T35: the flat material, the tangent-plane root + seat, the presence ramp and
 // the fade step are the SHARED planning-overlay grammar — `scene/aimCones` carried a
@@ -112,14 +113,16 @@ export function attachFocalCone(opts: {
   }
 
   let builtHFovDeg = NaN;
+  let builtMobile = false; // the boundary rays' width is baked at rebuild (the shell's stroke)
   let fade = 0;
   let groundM = Number.NaN;
 
   /** Rewrite the unit wedge for a horizontal fov: fill fan around +north (heading applies as
    *  rotation.z) + the two boundary rays as thin quads ("highlighted boundary"). Writes into
    *  the pre-allocated attributes — same vertex count at every hFov (audit #3 A1-10). */
-  function rebuild(hFovDeg: number) {
+  function rebuild(hFovDeg: number, mobile: boolean) {
     builtHFovDeg = hFovDeg;
+    builtMobile = mobile;
     const half = (hFovDeg / 2) * DEG;
     let f = 0;
     const put = (arr: Float32Array, i: number, x: number, y: number) => {
@@ -135,7 +138,9 @@ export function attachFocalCone(opts: {
       f = put(fillPos, f, Math.sin(a0), Math.cos(a0));
       f = put(fillPos, f, Math.sin(a1), Math.cos(a1));
     }
-    const w = FOCALCONE.edgeHalfWidthK;
+    // The shell's stroke profile rides the rays (2026-10-10) — the 1.25× rule over the radar's
+    // direction line holds on every shell because both carry the same widthK.
+    const w = FOCALCONE.edgeHalfWidthK * radarStroke(mobile).widthK;
     let e = 0;
     for (const a of [-half, half]) {
       // Apex→reach quad along the boundary ray; the half-width is perpendicular to the ray.
@@ -166,8 +171,12 @@ export function attachFocalCone(opts: {
         return;
       }
       if (anchor && headingDeg !== null && hFovDeg !== null) {
-        if (Number.isNaN(builtHFovDeg) || Math.abs(hFovDeg - builtHFovDeg) > HFOV_EPS_DEG) {
-          rebuild(hFovDeg);
+        if (
+          Number.isNaN(builtHFovDeg) ||
+          Math.abs(hFovDeg - builtHFovDeg) > HFOV_EPS_DEG ||
+          mobile !== builtMobile
+        ) {
+          rebuild(hFovDeg, mobile);
         }
         // Heading is a rotation on the shared tangent-plane group, never a rebuild.
         fill.rotation.z = -headingDeg * DEG;
@@ -193,7 +202,9 @@ export function attachFocalCone(opts: {
       // multiplier is exactly 1 below the band, so every pose under it renders as before.
       const fillTiltK = focalConeFillTiltK(tiltDeg);
       fillMat.uniforms.uAlpha.value = FOCALCONE.fillAlpha * overlayA * fillTiltK;
-      edgeMat.uniforms.uAlpha.value = FOCALCONE.edgeAlpha * overlayA;
+      // The rays carry the reading — on /m they wear the stroke profile's ink lift (2026-10-10).
+      edgeMat.uniforms.uAlpha.value =
+        Math.min(1, FOCALCONE.edgeAlpha * radarStroke(mobile).lineAlphaK) * overlayA;
     },
     dispose() {
       fill.geometry.dispose();

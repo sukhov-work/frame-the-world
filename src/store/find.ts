@@ -35,6 +35,15 @@ export interface FindGhost {
  *  Mirrors tuning FINDGHOSTS.maxGhosts (the scene clamps to the smaller of the two). */
 export const FIND_GHOST_CAP = 24;
 
+/** The scan-horizon chips — ONE list for the desktop FIND window, the /m FIND sheet and the
+ *  target panels' range row (owner 2026-10-10: the period was a trip to the FIND tab). */
+export const FIND_RANGES = [
+  { label: "1W", days: 7 },
+  { label: "1M", days: 30 },
+  { label: "6M", days: 182 },
+  { label: "1Y", days: 365 },
+] as const;
+
 export interface FindState {
   /** Panel visibility (user toggle — the pill stays either way). */
   open: boolean;
@@ -45,6 +54,11 @@ export interface FindState {
   //    (chips no longer reset when the /m sheet remounts). Compute stays in the panels.
   bodies: Record<FindBody, boolean>;
   setBody(body: FindBody, on: boolean): void;
+  /** FIND THIS ONE (owner 2026-10-10): the target panels' ⌖ FIND IN FRAME scans the object the
+   *  panel names and NOTHING else — `body` on, the other two off (the moon's default-on chip
+   *  used to ride along: "I expect that only this specific object will start being tracked").
+   *  The FIND surface's own chips and the sky menu's quick-toggle stay additive (`setBody`). */
+  soloBody(body: FindBody): void;
   /** Scan horizon in days — 30 (1M) by default (owner 2026-08-15c). */
   rangeDays: number;
   setRangeDays(days: number): void;
@@ -72,6 +86,7 @@ export const useFindStore = create<FindState>((set) => ({
   // Moon-only by default (owner 2026-08-15: all three at once read as clutter).
   bodies: { sun: false, moon: true, target: false },
   setBody: (body, on) => set((s) => ({ bodies: { ...s.bodies, [body]: on } })),
+  soloBody: (body) => set({ bodies: { sun: false, moon: false, target: false, [body]: true } }),
   rangeDays: 30,
   setRangeDays: (rangeDays) => set({ rangeDays }),
 
