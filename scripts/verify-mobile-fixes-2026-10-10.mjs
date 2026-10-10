@@ -15,7 +15,7 @@
 // Screenshots → verify-shots/mobile-fixes-2026-10-10/ (git-ignored). Runs on the ONE house Chrome.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createClient, OAuthStrategy } from "@wix/sdk";
-import { ensureBrowser, sleep } from "./lib/cdp.mjs";
+import { sleep } from "./lib/cdp.mjs";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const args = process.argv.slice(2);

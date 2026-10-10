@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { keyboardInsetPx, sheetLiftPx, SHEET_TOP_GUARD_PX } from "../../src/components/mobile/Sheet";
+import {
+  keyboardInsetPx,
+  KEYBOARD_POLL_FOR_MS,
+  KEYBOARD_POLL_MS,
+  sheetLiftPx,
+  SHEET_TOP_GUARD_PX,
+} from "../../src/components/mobile/Sheet";
 
 /**
  * THE KEYBOARD LIFT (owner 2026-10-10 — "the keyboard obscures the actual dialog and input as it
@@ -61,6 +67,17 @@ describe("the wiring (source fences)", () => {
   });
   it("the lift is ON for every sheet that is not `full`, OFF for a full one", () => {
     expect(sheet).toMatch(/keyboardLift = !full/);
+  });
+  it("the lift POLLS through focus changes and at mount — iOS Safari 26 sent no resize on the real iPhone (the farm, 2026-10-10)", () => {
+    expect(sheet).toMatch(/addEventListener\("focusin", burst\)/);
+    expect(sheet).toMatch(/addEventListener\("focusout", burst\)/);
+    expect(sheet).toMatch(/measure\(\);\s*burst\(\);/);
+    expect(sheet).toMatch(/window\.addEventListener\("resize", measure\)/);
+    // the burst is bounded — never a forever timer on a phone
+    expect(sheet).toMatch(/performance\.now\(\) < until \? window\.setTimeout\(poll, KEYBOARD_POLL_MS\) : 0/);
+    expect(KEYBOARD_POLL_FOR_MS).toBeGreaterThanOrEqual(1500);
+    expect(KEYBOARD_POLL_FOR_MS).toBeLessThanOrEqual(5000);
+    expect(KEYBOARD_POLL_MS).toBeGreaterThanOrEqual(60);
   });
   it("the SAVE VIEW sheet is not `full` — it rides the lift by default", () => {
     const sa = code(SRC("src/components/mobile/SceneActions.tsx"));

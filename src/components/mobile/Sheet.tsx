@@ -13,8 +13,9 @@
  * iOS Safari and Android Chrome (its `resizes-visual` default since 108) shrink only the
  * VISUAL viewport, so a bottom-anchored fixed element simply disappears under the keys. Every
  * non-full sheet now rides `bottom: <inset>` — the layout viewport's bottom minus the visual
- * viewport's bottom (`keyboardInsetPx`), re-read on every visualViewport resize / scroll —
- * clamped so its head never leaves the screen (`sheetLiftPx`). A `full` sheet (SEARCH, GUIDE)
+ * viewport's bottom (`keyboardInsetPx`), re-read on every visualViewport resize / scroll AND
+ * polled through every focus change (iOS Safari 26 on the real iPhone sent no resize at all —
+ * the farm, 2026-10-10) — clamped so its head never leaves the screen (`sheetLiftPx`). A `full` sheet (SEARCH, GUIDE)
  * keeps its input at the TOP and never lifts. The lift is a `bottom` offset, never a transform:
  * the slide-in animation and the drag both own `transform`. Where a browser resizes the LAYOUT
  * viewport instead, `innerHeight` shrinks with it and the inset reads 0 — no double lift.
@@ -60,6 +61,14 @@ export function sheetLiftPx(
   return Math.max(0, Math.min(insetPx, innerHeight - sheetHeight - topGuardPx));
 }
 
+/** The focus-driven poll (ms between reads, and how long a burst runs): iOS Safari 26 on the real
+ *  iPhone 17 Pro (the Device Farm, 2026-10-10) shrank the visual viewport by 310 px for the
+ *  keyboard and NO `resize` reached the listener — the sheet stayed under the keys. The keyboard
+ *  follows FOCUS, so a focus change (and the mount — SAVE VIEW focuses its field on open) polls
+ *  the viewport through the keyboard's animation; 2.5 s covers a slow one, 120 ms reads smooth. */
+export const KEYBOARD_POLL_MS = 120;
+export const KEYBOARD_POLL_FOR_MS = 2500;
+
 /** The live lift (CSS px) for a mounted sheet — 0 until a keyboard shrinks the visual viewport. */
 function useKeyboardLift(active: boolean, sheetRef: RefObject<HTMLElement | null>): number {
   const [lift, setLift] = useState(0);
@@ -72,12 +81,33 @@ function useKeyboardLift(active: boolean, sheetRef: RefObject<HTMLElement | null
       const h = sheetRef.current?.offsetHeight ?? 0;
       setLift(sheetLiftPx(inset, window.innerHeight, h, SHEET_TOP_GUARD_PX));
     };
-    measure();
+    // The events where a browser sends them…
     vv.addEventListener("resize", measure);
     vv.addEventListener("scroll", measure);
+    window.addEventListener("resize", measure);
+    // …and the poll where it does not (iOS Safari 26, measured on the farm): a burst of reads after
+    // every focus change in the document and one at mount, each burst self-limiting.
+    let timer = 0;
+    let until = 0;
+    const poll = () => {
+      measure();
+      timer = performance.now() < until ? window.setTimeout(poll, KEYBOARD_POLL_MS) : 0;
+    };
+    const burst = () => {
+      until = performance.now() + KEYBOARD_POLL_FOR_MS;
+      if (!timer) timer = window.setTimeout(poll, KEYBOARD_POLL_MS);
+    };
+    document.addEventListener("focusin", burst);
+    document.addEventListener("focusout", burst);
+    measure();
+    burst();
     return () => {
       vv.removeEventListener("resize", measure);
       vv.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      document.removeEventListener("focusin", burst);
+      document.removeEventListener("focusout", burst);
+      if (timer) window.clearTimeout(timer);
     };
   }, [active, sheetRef]);
   return lift;

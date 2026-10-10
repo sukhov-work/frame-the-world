@@ -29,6 +29,46 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { remote } from "webdriverio";
+import { inflateSync } from "node:zlib";
+
+/** A minimal PNG reader for Appium's device screenshots (8-bit RGB/RGBA, non-interlaced, filters 0–4) —
+ *  the npm registry was unreachable through the VPN on 2026-10-10, so no `pngjs`. Returns RGBA. */
+const PNG = {
+  sync: {
+    read(buf) {
+      if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG");
+      let pos = 8, width = 0, height = 0, bitDepth = 8, colorType = 6, interlace = 0;
+      const idat = [];
+      while (pos < buf.length) {
+        const len = buf.readUInt32BE(pos); const type = buf.toString("ascii", pos + 4, pos + 8); const body = buf.subarray(pos + 8, pos + 8 + len);
+        if (type === "IHDR") { width = body.readUInt32BE(0); height = body.readUInt32BE(4); bitDepth = body[8]; colorType = body[9]; interlace = body[12]; }
+        else if (type === "IDAT") idat.push(body);
+        else if (type === "IEND") break;
+        pos += 12 + len;
+      }
+      if (bitDepth !== 8 || interlace !== 0 || (colorType !== 6 && colorType !== 2)) throw new Error(`unsupported PNG: depth ${bitDepth} type ${colorType} interlace ${interlace}`);
+      const bpp = colorType === 6 ? 4 : 3;
+      const raw = inflateSync(Buffer.concat(idat));
+      const stride = width * bpp;
+      const out = Buffer.alloc(width * height * 4);
+      let prev = Buffer.alloc(stride);
+      for (let y = 0; y < height; y++) {
+        const f = raw[y * (stride + 1)];
+        const line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
+        for (let i = 0; i < stride; i++) {
+          const a = i >= bpp ? line[i - bpp] : 0, b = prev[i], c = i >= bpp ? prev[i - bpp] : 0;
+          let v = line[i];
+          if (f === 1) v += a; else if (f === 2) v += b; else if (f === 3) v += (a + b) >> 1;
+          else if (f === 4) { const pp = a + b - c, pa = Math.abs(pp - a), pb = Math.abs(pp - b), pc = Math.abs(pp - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+          line[i] = v & 255;
+        }
+        for (let x = 0; x < width; x++) { const o = (y * width + x) * 4, s = x * bpp; out[o] = line[s]; out[o + 1] = line[s + 1]; out[o + 2] = line[s + 2]; out[o + 3] = bpp === 4 ? line[s + 3] : 255; }
+        prev = line;
+      }
+      return { width, height, data: out };
+    },
+  },
+};
 import {
   DeviceFarmClient,
   ListDevicesCommand,
@@ -52,16 +92,21 @@ const SESSION_ARN = opt("--session-arn", null);
 const KEEP = flag("--keep-session");
 const DRY = flag("--dry-run");
 const LEGS = (opt("--legs", "R,F,P,K") || "").split(",");
+// --prod: the LIVE site (https://www.plux.today). No DEV seams there — the target is seeded through the
+// persisted view prefs (`ftw:view-prefs:v1`), FIND is read from the DOM, the GL fan from screenshots.
+// The 2026-10-10 lesson: a DEV build over a slow tunnel never boots the engine on the phone.
+const PROD = flag("--prod");
 const LABEL = "fixes-1010";
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 const OUT_DIR = fileURLToPath(new URL("../../verify-shots/perf", import.meta.url));
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 mkdirSync(OUT_DIR, { recursive: true });
-if (!HOST && !DRY) throw new Error("--host https://<tunnel-host> is required (the phone cannot reach localhost)");
+if (!HOST && !DRY && !PROD) throw new Error("--host https://<tunnel-host> is required (the phone cannot reach localhost), or --prod for the live site");
+const BASE = PROD ? (HOST || "https://www.plux.today") : HOST;
 const NOON_UTC = 1787313600000;
 const URLS = {
-  mfpv: `${HOST}/m#f=48.4647,35.0462,1.7,25,8,60&t=${NOON_UTC}`,
-  mmap: `${HOST}/m#p=48.4640,35.0460,2200,0,0&t=${NOON_UTC}`,
+  mfpv: `${BASE}/m#f=48.4647,35.0462,1.7,25,8,60&t=${NOON_UTC}`,
+  mmap: `${BASE}/m#p=48.4640,35.0460,2200,0,0&t=${NOON_UTC}`,
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -86,8 +131,8 @@ async function mintCookie() {
   const client = createClient({ auth: OAuthStrategy({ clientId }) });
   const login = await client.auth.login({ email, password });
   if (login.loginState !== "SUCCESS") throw new Error(`login state ${login.loginState}`);
-  const REDIRECT = `${HOST}/api/auth/callback`;
-  const oauthData = client.auth.generateOAuthData(REDIRECT, HOST + "/");
+  const REDIRECT = `${BASE}/api/auth/callback`;
+  const oauthData = client.auth.generateOAuthData(REDIRECT, BASE + "/");
   const SITE = "https://www.plux.today";
   const authorizeUrl =
     `${SITE}/_api/oauth2/authorize?clientId=${clientId}&responseType=code&state=${oauthData.state}` +
@@ -104,6 +149,11 @@ async function mintCookie() {
 
 // ─── preflight + the Device Farm session (the ios-baseline idiom) ───────────────────────────
 async function preflight() {
+  if (PROD) {
+    const live = await fetch(`${BASE}/api/ping`).then((r) => r.status).catch(() => null);
+    if (live !== 200) throw new Error(`the live site does not answer ${BASE}/api/ping (${live})`);
+    return;
+  }
   const local = await fetch("http://localhost:4321/api/ping").then((r) => r.status).catch(() => null);
   if (local !== 200 && !DRY) throw new Error(`wix dev is not answering locally (${local})`);
   if (DRY) return;
@@ -169,7 +219,13 @@ async function waitRunning(arn) {
 }
 
 // ─── the in-page probes (the Chrome harness's, verbatim where they are pure DOM/canvas reads) ──
-const READY_FPV = `!!(window.__cameraStore && window.__cameraStore.getState().camGeo && document.querySelector(".mm-canvas"))`;
+const READY_FPV = PROD
+  ? `!!(document.querySelector(".mm-canvas") && document.querySelector(".m-altcol"))` // the mini-map + the FPV rail render only once the pose mirrors are live
+  : `!!(window.__cameraStore && window.__cameraStore.getState().camGeo && document.querySelector(".mm-canvas"))`;
+/** Prod: the sun as the tracked target through the persisted prefs (the sky store restores `skyTargetId`
+ *  after boot; `aimTarget` / `aimVisible` on) — written on a page of the same origin BEFORE the FPV boot. */
+const SEED_SUN_PREFS = `(() => { const k = "ftw:view-prefs:v1"; let o = {}; try { o = JSON.parse(localStorage.getItem(k) || "{}") || {}; } catch {} o.skyTargetId = "body:sun"; o.aimTarget = true; o.aimVisible = true; o.aimSun = true; o.aimMoon = true; localStorage.setItem(k, JSON.stringify(o)); return localStorage.getItem(k).length; })()`;
+const TARGET_NAME = `(document.querySelector(".m-peek__name") || {}).textContent || ""`;
 const TRACK_SUN = `(async () => { const s = window.__skyStore?.getState(); if (!s) return "no store"; const m = await import("/src/lib/ephemeris/targets.ts"); s.setTarget(m.bodyTarget("sun")); if (!s.visible) s.setVisible(true); if (!s.aimVisible) s.setAimVisible(true); if (!s.aimTarget) s.setAimTarget(true); return window.__skyStore.getState().target.id; })()`;
 const RING = `(() => {
   const c = document.querySelector(".mm-canvas"); if (!c) return { err: "no canvas" };
@@ -184,6 +240,24 @@ const RING = `(() => {
   const css = c.getBoundingClientRect().width;
   return { store: W, css, dpr: devicePixelRatio, cyanPx: best("cyan") ? +(best("cyan").n * arc).toFixed(2) : null, pinkPx: best("pink") ? +(best("pink").n * arc).toFixed(2) : null };
 })()`;
+
+/** Cyan runs on an inset border of the MAP region of a device screenshot (pngjs): the box spans
+ *  x 4 %..96 %, y 12 %..58 % of the screen — below the status bar + wordmark, above the dock and the
+ *  rails — so a ray that leaves it has run ≥ ~500 px from the centred anchor on every side. */
+function borderCyan(png) {
+  const img = PNG.sync.read(png);
+  const { width: W, height: H, data } = img;
+  const x0 = Math.round(W * 0.04), x1 = Math.round(W * 0.96), y0 = Math.round(H * 0.12), y1 = Math.round(H * 0.58);
+  const cyan = (x, y) => { const i = (y * W + x) * 4; const r = data[i], g = data[i + 1], b = data[i + 2]; return g > 120 && b > 110 && g - r > 55 && b - r > 40; };
+  const pts = [];
+  for (let x = x0; x <= x1; x++) pts.push([x, y0]);
+  for (let y = y0; y <= y1; y++) pts.push([x1, y]);
+  for (let x = x1; x >= x0; x--) pts.push([x, y1]);
+  for (let y = y1; y >= y0; y--) pts.push([x0, y]);
+  let runs = 0, cur = 0, maxRun = 0, where = null;
+  for (const [x, y] of pts) { if (cyan(x, y)) { if (cur === 0) runs++; cur++; if (cur > maxRun) { maxRun = cur; where = [x, y]; } } else cur = 0; }
+  return { W, H, box: [x0, y0, x1, y1], runs, maxRun, where };
+}
 
 async function drive(endpoint) {
   const u = new URL(endpoint);
@@ -209,6 +283,34 @@ async function drive(endpoint) {
   };
   const shot = async (tag) => { try { const p = `${OUT_DIR}/devicefarm-${LABEL}-${STAMP}-${tag}.png`; writeFileSync(p, Buffer.from(await driver.takeScreenshot(), "base64")); log(`shot ${p}`); } catch { /* no shot */ } };
   const tapSel = async (sel) => { const el = await driver.$(sel); await el.click(); };
+  /** A NATIVE tap (XCUITest, the system's own touch) at a page element's centre — the only tap that
+   *  makes iOS raise the soft keyboard. WebDriver's `element.click()` is a synthetic click through the
+   *  remote inspector: it focuses the field (live-site farm run 1: `focusedInput: true`) but the visual
+   *  viewport never shrinks. Page CSS px → screen points through `mobile: viewportRect` (the web view's
+   *  placement in device PIXELS) and the device pixel ratio; a status-bar-only fallback when the
+   *  command is unavailable (Safari's URL bar sits at the BOTTOM on iOS 15+). */
+  const nativeTapSel = async (sel) => {
+    // The PLAN sheet's fields sit below its fold (live-site farm run 2: the tap landed in Safari's
+    // toolbar, nothing focused) — bring the element into view first, then read where it is.
+    await js(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (el) el.scrollIntoView({ block: "center", inline: "nearest" }); return !!el; })()`);
+    await sleep(400);
+    const r = await js(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null; const b = el.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2, dpr: devicePixelRatio, innerH: innerHeight }; })()`);
+    if (!r) throw new Error(`nativeTap: no element ${sel}`);
+    let top = 54, left = 0;
+    try { const vp = await driver.execute("mobile: viewportRect"); top = vp.top / r.dpr; left = vp.left / r.dpr; log(`  viewportRect ${JSON.stringify(vp)} → top ${top.toFixed(1)} pt`); } catch (e) { log(`  viewportRect unavailable (${String(e).slice(0, 60)}) — status-bar fallback ${top} pt`); }
+    const ctxs = await driver.getContexts();
+    const web = ctxs.find((c) => String(c) !== "NATIVE_APP") ?? ctxs[ctxs.length - 1];
+    await driver.switchContext("NATIVE_APP");
+    try {
+      await driver.performActions([{ type: "pointer", id: "finger1", parameters: { pointerType: "touch" }, actions: [
+        { type: "pointerMove", duration: 0, x: Math.round(left + r.x), y: Math.round(top + r.y) },
+        { type: "pointerDown", button: 0 }, { type: "pause", duration: 90 }, { type: "pointerUp", button: 0 } ] }]);
+      await driver.releaseActions().catch(() => {});
+    } finally {
+      await driver.switchContext(web);
+    }
+    return r;
+  };
   const boot = async (url) => {
     await driver.url("about:blank");
     await sleep(300);
@@ -236,11 +338,21 @@ async function drive(endpoint) {
     };
     // ONE FPV boot serves the mini-map read, the FIND row and the PLAN-sheet keyboard (a tunnel-served
     // dev build boots in minutes — farm run 1 timed out at 120 s; four boots in the run, not six).
-    const onFpv = async () => { await boot(URLS.mfpv); await waitFor(READY_FPV, 300_000, "the /m FPV seams"); };
+    const onFpv = async () => {
+      if (PROD) {
+        await boot(`${BASE}/m`);
+        await waitFor(`document.readyState === "complete"`, 120_000, "the shell");
+        log(`  prefs seeded: ${await js(SEED_SUN_PREFS)} B`);
+      }
+      await boot(URLS.mfpv);
+      await waitFor(READY_FPV, PROD ? 180_000 : 300_000, "the /m FPV seams");
+      if (PROD) { await sleep(4000); log(`  tracked: ${JSON.stringify(await js(TARGET_NAME))}`); }
+    };
+    const trackSun = async () => { if (PROD) return; await jsAsync(TRACK_SUN); };
     let fpvUp = false;
     if (LEGS.includes("R")) {
       await onFpv(); fpvUp = true;
-      await jsAsync(TRACK_SUN);
+      await trackSun();
       await sleep(3000);
       const ring = await js(RING);
       results.ring = ring;
@@ -253,8 +365,8 @@ async function drive(endpoint) {
     }
     if (LEGS.includes("F")) {
       if (!fpvUp) { await onFpv(); fpvUp = true; }
-      await jsAsync(TRACK_SUN);
-      await js(`(window.__findStore.getState().setOpen(false), window.__findStore.setState({ bodies: { sun: false, moon: true, target: false }, rangeDays: 30 }), true)`);
+      await trackSun();
+      if (!PROD) await js(`(window.__findStore.getState().setOpen(false), window.__findStore.setState({ bodies: { sun: false, moon: true, target: false }, rangeDays: 30 }), true)`);
       await sleep(800);
       await tapSel(".m-peek");
       await waitFor(`!!document.querySelector(".m-sheet .m-findrow")`, 15_000, "the target sheet");
@@ -264,11 +376,29 @@ async function drive(endpoint) {
       await shot("target-sheet-off");
       await tapSel(".m-findrow .m-findframe");
       await sleep(900);
-      const after = await js(`(() => { const f = window.__findStore.getState(); return { bodies: f.bodies, open: f.open, live: [...document.querySelectorAll(".m-findrow .m-toggle--range")].every((c) => !c.disabled) }; })()`);
-      check("F2 the tap scans the SUN ALONE and the chips go live", after.bodies.sun === true && after.bodies.moon === false && after.bodies.target === false && after.open === true && after.live, JSON.stringify(after));
-      await shot("target-sheet-on");
-      await tapSel(".m-sheet__x").catch(() => {});
-      await sleep(700);
+      if (PROD) {
+        const after = await js(`(() => ({ pressed: document.querySelector(".m-findrow .m-findframe")?.getAttribute("aria-pressed"), live: [...document.querySelectorAll(".m-findrow .m-toggle--range")].every((c) => !c.disabled), on: [...document.querySelectorAll(".m-findrow .m-toggle--range")].map((c) => c.classList.contains("m-toggle--on")) }))()`);
+        check("F2 the tap arms FIND IN FRAME (aria-pressed) and the chips go live with 1M on", after.pressed === "true" && after.live && after.on.join() === "false,true,false,false", JSON.stringify(after));
+        await shot("target-sheet-on");
+        await tapSel(".m-sheet__x").catch(() => {});
+        await sleep(700);
+        // the FIND tab agrees: ☀ on, ☾ off, ✦ off — only the named object scans (the solo rule, read from the DOM)
+        const tabs2 = await driver.$$(".m-tab");
+        for (const tb of tabs2) { if (/FIND/i.test(await tb.getText())) { await tb.click(); break; } }
+        await waitFor(`!!document.querySelector('.m-sheet[aria-label="FIND IN FRAME"] .m-toggles')`, 15_000, "the FIND sheet");
+        await sleep(700);
+        const chips = await js(`[...document.querySelectorAll('.m-sheet[aria-label="FIND IN FRAME"] .m-toggles .m-toggle')].map((c) => ({ t: c.textContent.trim(), on: c.classList.contains("m-toggle--on") }))`);
+        check("F3 the FIND tab shows ☀ on · ☾ off · ✦ off — the sun alone", chips.length >= 3 && chips[0].on && !chips[1].on && !chips[2].on, JSON.stringify(chips));
+        await shot("find-tab");
+        await tapSel(".m-sheet__x").catch(() => {});
+        await sleep(700);
+      } else {
+        const after = await js(`(() => { const f = window.__findStore.getState(); return { bodies: f.bodies, open: f.open, live: [...document.querySelectorAll(".m-findrow .m-toggle--range")].every((c) => !c.disabled) }; })()`);
+        check("F2 the tap scans the SUN ALONE and the chips go live", after.bodies.sun === true && after.bodies.moon === false && after.bodies.target === false && after.open === true && after.live, JSON.stringify(after));
+        await shot("target-sheet-on");
+        await tapSel(".m-sheet__x").catch(() => {});
+        await sleep(700);
+      }
       save();
     }
     if (LEGS.includes("P")) {
@@ -282,9 +412,8 @@ async function drive(endpoint) {
         await planTab.click();
         await waitFor(`!!document.querySelector('.m-sheet[aria-label="LIGHT PLANNER"] .m-in')`, 15_000, "the PLAN sheet's number fields");
         await sleep(900);
-        const field = await driver.$('.m-sheet[aria-label="LIGHT PLANNER"] .m-in');
-        await field.click();
-        await sleep(2200);
+        await nativeTapSel('.m-sheet[aria-label="LIGHT PLANNER"] .m-in'); // a SYSTEM tap — the keyboard rises
+        await sleep(2500);
         const p = await js(SHEET_READ("LIGHT PLANNER"));
         results.planKeyboard = p;
         judgeLift("P", p);
@@ -295,7 +424,27 @@ async function drive(endpoint) {
       }
       save();
     }
-    if (LEGS.includes("R")) {
+    if (LEGS.includes("R") && PROD) {
+      // No seams on the live site: the GL fan is judged from the SCREEN — cyan ink on an inset border of the
+      // map region means the target ray left a 1,000+ px box around the anchor at nadir AND tilted (the
+      // Chrome twins measured rayK / reachK through the seam; here the glass itself answers).
+      await boot(URLS.mmap);
+      await waitFor(`!!document.querySelector(".m-actions") && document.readyState === "complete"`, 180_000, "the /m map");
+      await sleep(8000); // tiles + the radar's first paint
+      const png0 = Buffer.from(await driver.takeScreenshot(), "base64");
+      writeFileSync(`${OUT_DIR}/devicefarm-${LABEL}-${STAMP}-map-nadir.png`, png0);
+      const b0 = borderCyan(png0);
+      check("R4 nadir: the target ray crosses the map region's inset border (the glass, no seam)", b0.runs >= 1, JSON.stringify(b0));
+      const chip = await driver.$$(".m-actions button");
+      for (const b of chip) { if ((await b.getText()).trim() === "▲ 3D") { await b.click(); break; } }
+      await sleep(5000);
+      const png1 = Buffer.from(await driver.takeScreenshot(), "base64");
+      writeFileSync(`${OUT_DIR}/devicefarm-${LABEL}-${STAMP}-map-tilted.png`, png1);
+      const b1 = borderCyan(png1);
+      check("R5 tilted: the target ray still crosses the inset border (the owner's 'shorter than the screen')", b1.runs >= 1, JSON.stringify(b1));
+      save();
+    }
+    if (LEGS.includes("R") && !PROD) {
       await boot(URLS.mmap);
       await waitFor(`!!(window.__globe && window.__globe.aimRadar)`, 300_000, "the /m map seams");
       await jsAsync(TRACK_SUN);
@@ -315,13 +464,13 @@ async function drive(endpoint) {
     }
     if (LEGS.includes("K")) {
       const cookie = await mintCookie();
-      await boot(`${HOST}/m`);
-      await waitFor(`document.readyState === "complete"`, 60_000, "the shell");
+      await boot(`${BASE}/m`);
+      await waitFor(`document.readyState === "complete"`, 120_000, "the shell");
       // The member cookie: WebDriver's cookie store first (it can replace a server-set cookie), then
       // document.cookie as the fallback (ignored when the server's cookie is HttpOnly).
       let viaDriver = false;
-      try { await driver.setCookies([{ name: "wixSession", value: cookie, path: "/", secure: true }]); viaDriver = true; } catch (e) { log(`driver.setCookies refused: ${String(e).slice(0, 120)}`); }
-      await js(`(document.cookie = "wixSession=" + ${JSON.stringify(cookie)} + "; path=/; max-age=86400; secure", true)`);
+      try { await driver.setCookies([{ name: "wixSession", value: cookie, path: "/", secure: true, ...(PROD ? { sameSite: "None" } : {}) }]); viaDriver = true; } catch (e) { log(`driver.setCookies refused: ${String(e).slice(0, 120)}`); }
+      await js(`(document.cookie = "wixSession=" + ${JSON.stringify(cookie)} + "; path=/; max-age=86400; secure", true)`).catch(() => {});
       await boot(URLS.mfpv);
       let member = true;
       try { await waitFor(`!!document.querySelector(".m-actions .m-act--places")`, 300_000, "the member FPV rail"); } catch { member = false; }
@@ -331,9 +480,8 @@ async function drive(endpoint) {
         await waitFor(`!!document.querySelector('.m-sheet[aria-label="SAVE VIEW"]')`, 8000, "the SAVE VIEW sheet");
         await sleep(600);
         // a REAL keyboard: tap the name field on the glass
-        const field = await driver.$('.m-sheet[aria-label="SAVE VIEW"] .m-input');
-        await field.click();
-        await sleep(2000);
+        await nativeTapSel('.m-sheet[aria-label="SAVE VIEW"] .m-input'); // a SYSTEM tap — the keyboard rises
+        await sleep(2500);
         const k = await js(SHEET_READ("SAVE VIEW"));
         results.keyboard = k;
         judgeLift("K", k);
@@ -357,7 +505,7 @@ async function drive(endpoint) {
   }
 }
 
-log(`mobile fixes 2026-10-10 on the farm — device "${DEVICE_MODEL}" host ${HOST || "(dry run)"} legs ${LEGS.join(",")}`);
+log(`mobile fixes 2026-10-10 on the farm — device "${DEVICE_MODEL}" ${PROD ? "LIVE " + BASE : "host " + (HOST || "(dry run)")} legs ${LEGS.join(",")}`);
 await preflight();
 if (DRY) {
   const projectArn = await resolveProject();
