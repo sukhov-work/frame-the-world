@@ -1,4 +1,16 @@
-# wip 2026-10-13 — the sticky collision box · the lighting pass (soft shadows, brighter scene) · building colour triage — IN PROGRESS
+# wip 2026-10-13 — the sticky collision box · the lighting pass (soft shadows, brighter scene) · building colour triage — BUILT + GATED (DECISIONS 2026-10-13); the release + the farm in 2026-10-13b
+
+RELEASED 2026-10-14 — **v1.36.28** (ship `e706eaa` PR #141; DECISIONS 2026-10-13b): canary GET/POST 200 · warm 170/0/0 · the live globe gl=true;
+the edge chunks carry `uFtwDayFill` / `refAbsM` / `preStepHits` / `hueVariation` / `buildingDay`. THE FARM (iPhone 17 Pro, ≈3 device minutes):
+L pose 2 near-black 0 %, p50 85 on the phone's screenshot (pose 1 p50 44 — my > 45 bar, the portrait band); C the ⤓ descent 15 → 1.7 m
+monotone, 0 up-steps, the landed view diff 0/255, the stick walk p50/p95 17 ms (60 fps) with the box live; the /m `#f=` boot seated the eye
+at 15 m not 30 (INFO). Release traps: the comment cap is 250 BYTES (an em dash is 3); a dirty tree is refused (`--allow-dirty` for docs dirt).
+
+Gates at the end: vitest 3,363 / 225 (one timing flake on a re-run, green on the next) · astro 0/0/26 · tsc clean · `verify-fpv-collision-2026-10-13`
+27/27 · `verify-fpv-carry-2026-09-22` 29/29 · `verify-s5-night` PASS · `verify-ultra` ALL PASS (§D re-pinned: the base radius from tuning) ·
+`verify-ultra-dusk` ALL PASS · the sweep 14 poses / 0 failures (`verify-shots/sweep/after-2026-10-13/sheet-0{1,2}.png`) · the charter 83/85
+with two PRE-EXISTING pins (T163: RC2's step 0.0508 at the T96 band, RC20's LRU pair 450/600 MB). The farm script
+`tools/devicefarm/ios-mobile-fixes-2026-10-13.mjs` (legs L daylight ledger · C the descent / the still view / the walk's rAF p95) dry-ran OK.
 
 Mode: implement, Deep (`/frame` under investigate-design-v3; four parallel research agents at boot). Owner order 2026-10-13 (three asks):
 1. FPV collision: no bounce. Descending onto a mesh snaps the eye metres back up (speed-dependent); ascending from below likewise.
