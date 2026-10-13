@@ -10,6 +10,9 @@
 //   3. CALIBRATION — a long press on AR opens it, a drag on the pad moves the VIEW (grab-the-world),
 //      CONFIRM persists `ftw:ar-calib:v1` and the view HOLDS, a reload keeps it, RESET forgets it,
 //      CANCEL changes nothing.
+//   4. THE AXES LOCK (owner 2026-10-14) — the drag is YAW-ONLY on every entry: a diagonal stroke
+//      turns the view by its full lateral component and tilts it by nothing; ↕ PITCH (the top cell
+//      of the verdict column, off on entry) frees the pitch for THIS visit only.
 //
 //   node scripts/verify-ar-calibration.mjs [9333] [--no-lean] [--shots]
 //
@@ -218,7 +221,7 @@ const padDrag = async (dx, dy) =>
   let st = await state();
   ok(st.cam === "calibrate" && st.draft !== null && st.ar === true, `a long press on AR opens CALIBRATION (mode ${st.cam}) — and the trailing click did NOT switch AR off`);
   const ui = await J(`({ pad: !!document.querySelector(".m-arcal__pad"), cross: !!document.querySelector(".m-arcal__cross"), acts: [...document.querySelectorAll(".m-arcal__actions [data-act]")].map((b) => b.dataset.act), padZ: getComputedStyle(document.querySelector(".m-arcal__pad")).zIndex, joyZ: getComputedStyle(document.querySelector(".m-altcol")).zIndex })`);
-  ok(ui.pad && ui.cross && ui.acts.join() === "ar-cal-cancel,ar-cal-reset,ar-cal-confirm", `the pad, the cross and CANCEL / RESET / CONFIRM — CONFIRM last = the bottom cell, nearest the stick (owner 2026-09-25) (${ui.acts.join(" · ")})`);
+  ok(ui.pad && ui.cross && ui.acts.join() === "ar-cal-axes,ar-cal-cancel,ar-cal-reset,ar-cal-confirm", `the pad, the cross and ↕ PITCH / CANCEL / RESET / CONFIRM — PITCH first = the top cell (owner 2026-10-14), CONFIRM last = the bottom cell, nearest the stick (owner 2026-09-25) (${ui.acts.join(" · ")})`);
   ok(Number(ui.padZ) < Number(ui.joyZ), `the pad (z ${ui.padZ}) sits UNDER the FPV instruments (z ${ui.joyZ})`);
   // RENDERED geometry, not DOM properties (owner 2026-09-22 item 1 — the small-screen layout):
   // the strip is ONE row (title + readout, no memo, no ROLL), clear of the mini-map's PUCK (the
@@ -230,27 +233,42 @@ const padDrag = async (dx, dy) =>
   ok(geo.rows === 1, `…on ONE row (${geo.rows} row${geo.rows === 1 ? "" : "s"}; ${Math.round(geo.panel.l)}–${Math.round(geo.panel.r)} × ${Math.round(geo.panel.t)}–${Math.round(geo.panel.b)})`);
   ok(geo.mmFolded && geo.mm && geo.mm.w <= 48, `the mini-map folded to its puck while calibrating (${geo.mm ? Math.round(geo.mm.w) : "?"} px)`);
   ok(!hits(geo.panel, geo.mm) && !hits(geo.panel, geo.col) && !hits(geo.panel, geo.mix), `the strip clears the puck, the right rail and the slider`);
-  ok(geo.cells.length === 3 && geo.cells.every((c) => Math.abs(c.w - 44) < 1.5 && Math.abs(c.h - 44) < 1.5 && /50%|22px/.test(c.round)), `three ROUND 44 px cells (${geo.cells.map((c) => Math.round(c.w) + "×" + Math.round(c.h)).join(" · ")})`);
-  ok(geo.cells.length === 3 && geo.cells[0].b < geo.cells[1].t && geo.cells[1].b < geo.cells[2].t && Math.abs(geo.cells[0].l - geo.cells[2].l) < 1, `…in a vertical column (tops ${geo.cells.map((c) => Math.round(c.t)).join(" · ")})`);
+  ok(geo.cells.length === 4 && geo.cells.every((c) => Math.abs(c.w - 44) < 1.5 && Math.abs(c.h - 44) < 1.5 && /50%|22px/.test(c.round)), `four ROUND 44 px cells (${geo.cells.map((c) => Math.round(c.w) + "×" + Math.round(c.h)).join(" · ")})`);
+  ok(geo.cells.length === 4 && geo.cells.every((c, i) => i === 0 || geo.cells[i - 1].b < c.t) && Math.abs(geo.cells[0].l - geo.cells[3].l) < 1, `…in a vertical column (tops ${geo.cells.map((c) => Math.round(c.t)).join(" · ")})`);
+  // 2026-10-14: ↕ PITCH is the same 44 px round cell as CANCEL / RESET (no accent while off) and reads OFF on entry
+  const axes0 = await J(`(() => { const b = document.querySelector('[data-act="ar-cal-axes"]'); const c = document.querySelector('[data-act="ar-cal-cancel"]'); const cs = getComputedStyle(b), cc = getComputedStyle(c); return { pressed: b.getAttribute("aria-pressed"), accent: b.classList.contains("m-act--accent"), sameInk: cs.color === cc.color && cs.borderColor === cc.borderColor && cs.backgroundColor === cc.backgroundColor, label: b.textContent.trim(), axes: window.__cameraStore.getState().arCalAxes }; })()`);
+  ok(axes0.pressed === "false" && !axes0.accent && axes0.axes === "yaw", `↕ PITCH is OFF on entry (aria-pressed ${axes0.pressed}, store "${axes0.axes}")`);
+  ok(axes0.sameInk && /PITCH/.test(axes0.label), `…and wears CANCEL's own ink while off (the same cell style; label "${axes0.label}")`);
   ok(geo.acts && geo.aim && Math.abs(geo.aim.t - geo.acts.b - 12) < 1.5 && Math.abs(geo.acts.l - geo.aim.l) < 1.5, `…on the left rail, its bottom 12 px above the AIM stick (column bottom ${geo.acts ? Math.round(geo.acts.b) : "?"} vs stick top ${geo.aim ? Math.round(geo.aim.t) : "?"})`);
   ok(!hits(geo.acts, geo.panel) && !hits(geo.acts, geo.mm) && !hits(geo.acts, geo.aim), `…clear of the strip, the puck and the stick`);
   await s.evalJs(`window.__arRun(500, () => 100, () => 100, 0, false)`);
   const before = await state();
-  // drag RIGHT 60 px: grab-the-world — the scene goes right, the camera turns LEFT (heading −)
-  await padDrag(60, 0);
+  // drag RIGHT 60 px AND DOWN 30 px — a DIAGONAL stroke, the owner's complaint: under the lock the
+  // yaw takes the full 60 px (grab-the-world — the scene goes right, the camera turns LEFT, heading −)
+  // and the 30 px of pitch is discarded: the view's pitch does not move.
+  await padDrag(60, 30);
   await s.evalJs(`window.__arRun(700, () => 100, () => 100, 0, false)`);
   st = await state();
   const f = H / 2 / Math.tan((st.fov * Math.PI) / 360);
   const wantYaw = (-Math.atan(60 / f) * 180) / Math.PI;
-  ok(Math.abs(st.draft.yawDeg - wantYaw) < 0.4, `a 60 px drag = ${st.draft.yawDeg.toFixed(2)}° of yaw (one pixel of drag = one pixel of scene: want ${wantYaw.toFixed(2)}°)`);
-  ok(circ(st.h, before.h + wantYaw) < 0.8, `the VIEW followed the finger while the phone kept aiming (${before.h.toFixed(2)}° → ${st.h.toFixed(2)}°)`);
+  ok(Math.abs(st.draft.yawDeg - wantYaw) < 0.4, `a 60 × 30 px diagonal drag = ${st.draft.yawDeg.toFixed(2)}° of yaw — the lateral component WHOLE (one pixel of drag = one pixel of scene: want ${wantYaw.toFixed(2)}°)`);
+  ok(circ(st.h, before.h + wantYaw) < 0.8, `the VIEW followed the finger sideways while the phone kept aiming (${before.h.toFixed(2)}° → ${st.h.toFixed(2)}°)`);
+  ok(Math.abs(st.draft.pitchDeg) < 1e-9 && Math.abs(st.p - before.p) < 0.3, `…and NOT up: the 30 px of pitch is discarded under the lock (draft pitch ${st.draft.pitchDeg.toFixed(2)}°, view ${before.p.toFixed(2)}° → ${st.p.toFixed(2)}°)`);
+  const read0 = await J(`document.querySelector('[data-read="cal"]').textContent`);
+  ok(/PITCH \+0\.0°/.test(read0), `the readout says PITCH +0.0° ("${read0}")`);
   ok((await stored()) === null, "nothing is stored until CONFIRM");
   await shot("ar-cal-02-calibrating");
-  // drag DOWN 30 px: the scene goes down, the camera tips UP (pitch +)
+  // ↕ PITCH frees the second axis: the same diagonal now tilts the view too
+  await tap('[data-act="ar-cal-axes"]', "↕ PITCH");
+  const axes1 = await J(`(() => { const b = document.querySelector('[data-act="ar-cal-axes"]'); return { pressed: b.getAttribute("aria-pressed"), accent: b.classList.contains("m-act--accent"), axes: window.__cameraStore.getState().arCalAxes }; })()`);
+  ok(axes1.pressed === "true" && axes1.accent && axes1.axes === "free", `↕ PITCH lit (aria-pressed ${axes1.pressed}, accent ${axes1.accent}, store "${axes1.axes}")`);
+  const midYaw = st.draft.yawDeg;
   await padDrag(0, 30);
   await s.evalJs(`window.__arRun(500, () => 100, () => 100, 0, false)`);
   st = await state();
-  ok(st.draft.pitchDeg > 0.5 && st.p > before.p + 0.5, `a drag down tips the view up (pitch ${before.p.toFixed(2)}° → ${st.p.toFixed(2)}°)`);
+  ok(st.draft.pitchDeg > 0.5 && st.p > before.p + 0.5, `with PITCH on, a drag down tips the view up (pitch ${before.p.toFixed(2)}° → ${st.p.toFixed(2)}°)`);
+  ok(Math.abs(st.draft.yawDeg - midYaw) < 1e-9, `…and a purely vertical drag leaves the yaw alone (${midYaw.toFixed(2)}°)`);
+  await shot("ar-cal-02b-pitch-free");
   const held = st.h;
   await tap('[data-act="ar-cal-confirm"]', "✓ CONFIRM");
   await s.evalJs(`window.__arRun(600, () => 100, () => 100, 0, false)`);
@@ -277,9 +295,11 @@ const padDrag = async (dx, dy) =>
   await s.evalJs(`window.__arRun(1200, () => 100, () => 100, 0, false)`);
   st = await state();
   ok(circ(st.h, 100 + st.cal.yawDeg) < 0.8, `…and applied from the first frame: TRUE 100° reads ${st.h.toFixed(2)}° (= 100 ${st.cal.yawDeg >= 0 ? "+" : "−"} ${Math.abs(st.cal.yawDeg).toFixed(2)})`);
-  // CANCEL changes nothing stored
+  // CANCEL changes nothing stored — and the re-entry opens YAW-ONLY again (the toggle is per visit)
   await press(750);
   await sleep(300);
+  const axesRe = await J(`(() => { const b = document.querySelector('[data-act="ar-cal-axes"]'); return { pressed: b ? b.getAttribute("aria-pressed") : null, axes: window.__cameraStore.getState().arCalAxes }; })()`);
+  ok(axesRe.pressed === "false" && axesRe.axes === "yaw", `a fresh entry is yaw-only again after a CONFIRMED free-axes visit (aria-pressed ${axesRe.pressed}, store "${axesRe.axes}")`);
   await padDrag(-120, 0);
   await tap('[data-act="ar-cal-cancel"]', "✕ CANCEL");
   await s.evalJs(`window.__arRun(600, () => 100, () => 100, 0, false)`);

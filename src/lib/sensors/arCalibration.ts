@@ -217,6 +217,23 @@ export function dragToAimDelta(
   };
 }
 
+/**
+ * WHICH AXES THE DRAG MAY MOVE (owner order 2026-10-14). `"yaw"` — the default EVERY time the pad
+ * opens: a stroke turns the view sideways only, its vertical component discarded. The owner's users
+ * found the free drag confusing: a thumb correcting the heading drifts diagonally without meaning
+ * to, and the pitch it dragged along was the confusion. `"free"` — yaw + pitch, the 2026-09-19
+ * behaviour, behind the ↕ PITCH cell (a per-visit toggle, never persisted: the next calibration
+ * opens locked again). The pinch is not an axis and is never gated.
+ */
+export type ArCalAxes = "yaw" | "free";
+export const AR_CAL_AXES_DEFAULT: ArCalAxes = "yaw";
+
+/** Gate a drag's aim delta by the axes lock: yaw-only keeps the yaw WHOLE (the stroke's lateral
+ *  component, not its projection) and zeroes the pitch; free passes both through. */
+export function gateAimDelta(d: { dYawDeg: number; dPitchDeg: number }, axes: ArCalAxes): { dYawDeg: number; dPitchDeg: number } {
+  return axes === "free" ? d : { dYawDeg: d.dYawDeg, dPitchDeg: 0 };
+}
+
 /** Two fingers: the spread ratio (the pointer pair's distance now over before). `null` when the
  *  fingers coincide. (The twist that used to ride along was the roll gesture — gone 2026-09-22.) */
 export function pinchSpread(

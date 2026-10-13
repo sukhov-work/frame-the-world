@@ -9,6 +9,15 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
+## Status — 2026-10-14 (`mem:project/wip-2026-10-14-ar-calibration-yaw-lock`)
+**AR CALIBRATION: THE DRAG IS YAW-ONLY BY DEFAULT · ↕ PITCH FREES BOTH AXES — built, gated, twin-verified (DECISIONS 2026-10-14; the release + the farm in 2026-10-14b).**
+`lib/sensors/arCalibration.gateAimDelta` (yaw-only keeps the yaw WHOLE, zeroes the pitch; the pinch never gated) · `camera.arCalAxes` `"yaw" | "free"`
+reset to `"yaw"` on EVERY `setArCam("calibrate")` (per visit, never persisted) + `toggleArCalAxes` · the gate in `stepArCalDraft` (the pad stays dumb) ·
+a FOURTH round cell ↕ PITCH (`data-act="ar-cal-axes"`, `aria-pressed`, accent only while on) at the TOP of the verdict column — ↕ PITCH · CANCEL ·
+RESET · CONFIRM. Twin: a 60 × 30 px diagonal = −5.01° yaw / 0.00° pitch; PITCH on → +2.49°. `verify-ar-calibration` 74/74 · `verify-ar-look` 38/0 ·
+mobile batch 127/127 · 09-18 ALL PASS · `verify-fpv-carry` 27/29 **pre-existing (proven on stashed src) → T164**. The farm leg
+`tools/devicefarm/ios-ar-axes-2026-10-14.mjs --prod` (native hold + native diagonal; the readout parsed) runs on the live site after the release.
+
 ## Status — 2026-10-13 (`mem:project/wip-2026-10-13-collision-lighting-building-colour`)
 **THE STICKY BOX · THE DAYLIGHT PASS · BUILDING COLOUR rung 1 — built and gated (DECISIONS 2026-10-13; the release + the farm in 2026-10-13b).**
 (1) `lib/globe/fpvClearance.ts` v2 (`boxClearance` + `stepStickyEye`): a 0.5 × 0.3 × 2 m box (eye 1.7); landing by clamp, a head-only overlap
@@ -21,29 +30,21 @@ the golden key tempered, a uniform PMREM on user models; `toneMapBlackOffsetK` w
 `BUILDINGS.hueVariation` 0.22 shipped; T157 (photo spike) · T158 (rung-2 bake) · T159 (rung-3 licence) await the owner; T160 the box on
 the phones; T163 two pre-existing charter pins.
 
-## Status — 2026-10-10 (`mem:project/wip-2026-10-10-mobile-fixes-radar-find-keyboard`)
-**THE OWNER'S DEVICE FEEDBACK — LIVE as v1.36.26 (three releases 2026-10-10: `2de06b6` PR #137 the batch, `d36ff18` PR #138 + `c318ffd` PR #139 the keyboard lift made real on glass) and FARM-VERIFIED on the real iPhone 17 Pro (DECISIONS 2026-10-10 + 2026-10-10b).**
-(1) THE RADAR ON GLASS: one stroke profile on every radar surface (`lib/geo/radarBands.radarStroke` → `AIMCONES.mobileStroke`
-×1.4 + lifted inks on /m, desktop the identity); the canvas painter authors strokes in SCREEN CSS px; the mini-map's store is the
-GLASS (the old 400 px store was MINIFIED into the iPhone's 372 physical px and magnified into the Pixel's 434 — why only the
-iPhone read thin); the GL rim/spokes are quads (`rimHalfWidthK`); the target ray crosses the screen at any tilt or pan
-(`viewReachK` / `groundReachK` + `chartRayReachPx`; seam `__globe.aimRadar()`). (2) FIND THIS ONE: `find.soloBody` + the
-1W · 1M · 6M · 1Y chips beside ⌖ FIND IN FRAME on both target panels (`FIND_RANGES` in the store). (3) THE KEYBOARD LIFT:
-every non-full `mobile/Sheet` rides `bottom: <visualViewport inset>` (`keyboardInsetPx` / `sheetLiftPx`), POLLED through focus —
-iOS Safari 26 sent no resize on the real phone. The farm tests the LIVE site now (`ios-mobile-fixes-2026-10-10.mjs --prod`; a dev
-build over this network's tunnels never boots — T155 re-pointed); run 4 (≈4 device minutes): K0 the member sheet opens · K1 the native tap raised the keys (vvH 714 → 404, the layout edge 714) · **K2 the sheet lifted 310 px (`data-lift` 310)** · **K3 its bottom edge sits on the visual viewport's bottom (404 = 404) — above the keys** · K4 the name field visible (bottom 389) and focused, scrollY 0, the head at 300 — the owner's Pixel screenshot, fixed on the real iPhone (`verify-shots/perf/devicefarm-fixes-1010-2026-10-10T01-00-55-saveview-keyboard.png`). The P leg (the PLAN sheet's number field) is Safari's OWN pan: the viewport panned 310 to the field (visible at 332), nothing to lift, the harness's "keys up" read needed a pre-tap baseline (fixed in the script; INFO, not a product fault).
-
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-10-10 THE OWNER'S DEVICE FEEDBACK → v1.36.26 LIVE, farm-verified on the iPhone 17 Pro** (`wip-2026-10-10-mobile-fixes-radar-find-keyboard`):
+  the radar on glass (`radarStroke` in screen CSS px; the mini-map store = the glass), FIND THIS ONE + the range chips (`find.soloBody`),
+  the keyboard lift (`mobile/Sheet` rides `bottom: <visualViewport inset>`, POLLED through focus — iOS 26 sends no resize); the farm
+  tests the LIVE site (`--prod`, T155).
 - **2026-09-30 ALIGN out · the pin follows the walker + the re-centre target · user models: the far law + the eye-centred cover →
   v1.36.23 LIVE** (`wip-2026-09-30-align-minimap-pin-mesh-culling`): `lib/globe/pinFollow`, `MODELS.fpvFetchRadiusM` 16 km,
   `planResidency` + `apparentFrac` + `inViewCone`; open: the pin follow with the map closed? the far thresholds on the phones (T153)?
 - Older eras (AR calibration 2026-09-19, the sign-out root cause 2026-09-18, AUDIT #4 triage 2026-09-17 and before): the Era index below.
 
 ## Standing facts (2026-09-30)
-- Gates: vitest **3,340 / 225 files** · `astro check` **0/0/13** (the hints are the dated baseline) · knip: only the four
+- Gates: vitest **3,368 / 225 files** · `astro check` **0/0/26** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.26** (each ship bumps the patch); live **v1.36.26** (2026-10-10, ships `2de06b6` PR #137 · `d36ff18` PR #138 · `c318ffd` PR #139; v1.36.23 was 2026-09-30). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
+- `package.json` **1.36.28** (each ship bumps the patch); live **v1.36.28** (2026-10-14, ship `e706eaa` PR #141 — the sticky box + the daylight pass; v1.36.26 was 2026-10-10). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
 - **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`; a harness that measures it reads the canvas's own pixels along the gap ring (`verify-mobile-fixes-2026-10-10`). **The house Chrome profile keeps a seeded member cookie across harnesses** (T156) — run the signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page from the dev server, never inject JSON.
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
@@ -61,17 +62,15 @@ build over this network's tunnels never boots — T155 re-pointed); run 4 (≈4 
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14) and expect to restart TWICE (a lazily imported dep
   chunk 404s once); `Failed to fetch dynamically imported module` — `curl` the module first (500 = a real error).
   CDP harnesses: `~/.nvm/versions/node/v24.10.0/bin/node` (Node 20 lacks the global WebSocket).
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T154**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T164**, every row dated).
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The owner's READ of live plux.today after the 2026-10-13 release: the box's feel (the climb glide / the latch / the ceiling stop —
-`FPV.meshClimb*`, `meshHeadM`, `meshBox*`), the daylight look at his poses (`DRAPE.gain` 1.9, `tokens.buildingDay`, `hueVariation` 0.22,
-`GOLDEN.keyStrength` 0.6; the toe `toneMapBlackOffsetK` untouched), the farm leg (`ios-mobile-fixes-2026-10-13.mjs --prod`) if 2026-10-13b
-is absent → the triage rulings T157 / T158 / T159 → T163 (re-pin the charter) · T160 · T161 · T162 → the older tails (T153 · T149 · T147 ·
-T152 · T154 · T150 · T151 · T146 · T148 · T156) → the pre-audit main plan.
-
+The 2026-10-14 release (v1.36.29) + the farm leg on the live site (`ios-ar-axes-2026-10-14.mjs --prod`; DECISIONS 2026-10-14b if present, else
+run it) → the owner's READ on his phones: the yaw lock's feel and the ↕ PITCH cell's reach (above CANCEL, the top of the column) → T164 (the
+carry harness's leg 3 on master) → the 2026-10-13 tails (the box's feel, the daylight look, T157 / T158 / T159, T163 · T160 · T161 · T162) →
+the older tails (T153 · T149 · T147 · T152 · T154 · T150 · T151 · T146 · T148 · T156) → the pre-audit main plan.
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·
@@ -116,6 +115,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - ALIGN out · the pin follows the walker + the re-centre target · user models: the far law + the eye-centred cover (09-30) · 09-30-align-minimap-pin-mesh-culling
 - The owner's device feedback: the radar on glass · FIND THIS ONE + the range row · the keyboard lift (10-10) · 10-10-mobile-fixes-radar-find-keyboard
 - The sticky box (no bounce) · the daylight pass · building colour triage + rung 1 (10-13) · 10-13-collision-lighting-building-colour
+- The AR calibration drag yaw-only by default · ↕ PITCH frees both axes (10-14) · 10-14-ar-calibration-yaw-lock
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

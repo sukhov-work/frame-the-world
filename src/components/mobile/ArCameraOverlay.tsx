@@ -7,9 +7,16 @@
  *    (a CSS opacity — the canvas is opaque by design and stays so; no transparent sort, no
  *    renderer change), and the 3D ↔ CAM slider decides who leads.
  *  · `calibrate` (a LONG PRESS on AR) — the same picture, plus the screen becomes a calibration
- *    pad: DRAG moves the virtual view (yaw / pitch), PINCH sizes the camera picture (its field of
- *    view). CONFIRM stores it (`ftw:ar-calib:v1`) until the next calibration replaces it; RESET
- *    forgets it; CANCEL leaves everything as it was. (Roll is NOT calibrated — owner 2026-09-22.)
+ *    pad: DRAG moves the virtual view, PINCH sizes the camera picture (its field of view). CONFIRM
+ *    stores it (`ftw:ar-calib:v1`) until the next calibration replaces it; RESET forgets it; CANCEL
+ *    leaves everything as it was. (Roll is NOT calibrated — owner 2026-09-22.)
+ *
+ * THE DRAG IS YAW-ONLY BY DEFAULT (owner order 2026-10-14): a finger stroke turns the view sideways
+ * and nothing else — users correcting the heading drifted diagonally without meaning to, and the
+ * pitch that rode along was the confusion. The ↕ PITCH cell at the TOP of the verdict column (off
+ * every time calibration opens; `camera.arCalAxes`) frees both axes — the 2026-09-19 behaviour. The
+ * gate lives in the store (`stepArCalDraft` → `lib/sensors/arCalibration.gateAimDelta`), so the pad
+ * stays a dumb pointer-delta feeder.
  *
  * THE SCREEN (owner order 2026-09-22, item 1 — "we have too little screen space and must use it
  * efficiently"): the top strip is ONE row — the title with the yaw / pitch / lens readout beside
@@ -55,6 +62,8 @@ export const AR_CAL_COPY = Object.freeze({
   confirm: "CONFIRM",
   reset: "RESET",
   cancel: "CANCEL",
+  /** The axes toggle (owner 2026-10-14): lit = the drag tilts the view too; off = sideways only. */
+  pitch: "PITCH",
 });
 
 const IDEAL = { widthPx: FPV.arCamIdealWidthPx, heightPx: FPV.arCamIdealHeightPx, fps: FPV.arCamIdealFps };
@@ -169,7 +178,7 @@ function CalibrationPad() {
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
-      aria-label="Calibration pad — drag the 3D view onto the camera, pinch to size the camera picture"
+      aria-label="Calibration pad — drag the 3D view sideways onto the camera (↕ PITCH frees the tilt), pinch to size the camera picture"
     >
       <span className="m-arcal__cross" aria-hidden="true" />
     </div>
@@ -181,6 +190,7 @@ export default function ArCameraOverlay() {
   const arOn = useCameraStore((s) => s.arLook);
   const stored = useCameraStore((s) => s.arCalibration);
   const draft = useCameraStore((s) => s.arCalDraft);
+  const axesFree = useCameraStore((s) => s.arCalAxes === "free");
   const [opacity, setOpacity] = useState<number>(FPV.arCamOpacity);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const on = mode !== "off" && arOn;
@@ -272,10 +282,24 @@ export default function ArCameraOverlay() {
           3D
         </span>
       </div>
-      {/* The verdict column: three round cells on the left, just above the AIM stick — CONFIRM
-          at the bottom, nearest the stick (owner 2026-09-25 item 2). */}
+      {/* The verdict column: four round cells on the left, just above the AIM stick — ↕ PITCH (the
+          axes toggle, owner 2026-10-14) at the TOP, then CANCEL · RESET · CONFIRM, CONFIRM at the
+          bottom, nearest the stick (owner 2026-09-25 item 2). */}
       {calibrating && (
         <div className="m-arcal__actions" role="group" aria-label="Calibration actions">
+          <button
+            type="button"
+            className={`m-act m-act--icon${axesFree ? " m-act--accent" : ""}`}
+            data-act="ar-cal-axes"
+            aria-pressed={axesFree}
+            aria-label="Pitch — let the drag tilt the view too (off: a drag turns it sideways only)"
+            onClick={() => cam.toggleArCalAxes()}
+          >
+            <span className="m-act__glyph" aria-hidden="true">
+              ↕
+            </span>
+            <span>{AR_CAL_COPY.pitch}</span>
+          </button>
           <button
             type="button"
             className="m-act m-act--icon"

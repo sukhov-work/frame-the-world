@@ -1849,7 +1849,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "trimmed slowly — and your own eyes have the last word: hold AR to calibrate.",
         steps: [
           "Hold the AR chip until CALIBRATE AR opens (allow the camera when the browser asks).",
-          "Put something far away — the sun, the moon, a tower, a ridge — on the centre cross and drag the 3D view onto the camera's picture.",
+          "Put something far away — the sun, the moon, a tower, a ridge — on the centre cross and drag the 3D view sideways onto the camera's picture (a drag only turns the view, never tilts it).",
+          "Tap ↕ PITCH (the top cell of the column) when the view also needs tilting — the drag then moves both axes until you leave calibration.",
           "Tilt the phone so the same thing sits near the top of the screen, then pinch until the two pictures match there too — a pinch cannot be judged at the centre.",
           "Press ✓ CONFIRM (the round cell just above the aim stick) — the correction is kept on this phone until the next calibration replaces it.",
           "Press ↺ RESET to forget a stored calibration, or ✕ CANCEL to leave everything as it was.",

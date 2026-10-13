@@ -198,13 +198,16 @@ body.m:has(.m-arcal__mixv) .m-arfloat {
   bottom: calc(100% + 8px + var(--m-armix-h, 96px) + 6px);
 }
 
-/* THE VERDICT COLUMN — CANCEL / RESET / CONFIRM as three round cells on the LEFT rail, just above
-   the AIM stick (owner 2026-09-22 item 1c: a thumb reaches them there, and they no longer eat the
-   strip). CONFIRM is the BOTTOM cell — nearest the stick, where the thumb already is (owner
+/* THE VERDICT COLUMN — ↕ PITCH / CANCEL / RESET / CONFIRM as four round cells on the LEFT rail, just
+   above the AIM stick (owner 2026-09-22 item 1c: a thumb reaches them there, and they no longer eat
+   the strip). CONFIRM is the BOTTOM cell — nearest the stick, where the thumb already is (owner
    2026-09-25 item 2; it was the top one). The stick is `.m-joy--aim-fpv` — bottom 10rem + 120px,
    108 px + its 1 px border = 110 px tall — so the column ends 12 px above its top. `data-act` +
    the DOM order are the contract the harness reads. (⌖ ALIGN stacked above it as a fourth cell
-   until 2026-09-30 — the owner removed the chip: on a gyro-only rung CONFIRM is the align.) */
+   until 2026-09-30 — the owner removed the chip: on a gyro-only rung CONFIRM is the align.)
+   2026-10-14: ↕ PITCH — the axes toggle, off on every entry — is the TOP cell (owner: "just above
+   cancel"); the column is bottom-anchored, so it grows UPWARD by one 44 px cell + the 8 px gap:
+   200 px tall, its top 112 px down on the 402 × 714 twin (the strip ends near 72). */
 .m-arcal__actions {
   position: fixed;
   left: calc(1rem + env(safe-area-inset-left));

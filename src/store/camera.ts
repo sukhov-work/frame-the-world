@@ -5,6 +5,9 @@ import {
   loadArCalibration,
   saveArCalibration,
   stepCalibration,
+  gateAimDelta,
+  AR_CAL_AXES_DEFAULT,
+  type ArCalAxes,
   type ArCalibration,
 } from "../lib/sensors/arCalibration";
 import type { UrlFpvPose } from "../lib/geo/urlPose";
@@ -242,8 +245,13 @@ export interface CameraState {
   /** Calibration mode's working copy (null outside it). Its yaw is the DRAG so far — a delta on
    *  top of the live view, not a bias yet; pitch / camera FOV are absolute candidates. */
   arCalDraft: ArCalibration | null;
-  /** One gesture step from the calibration pad (pure math: `stepCalibration`). */
+  /** One gesture step from the calibration pad (pure math: `stepCalibration`); the drag's pitch is
+   *  gated by `arCalAxes` here, so every caller obeys the lock (`gateAimDelta`). */
   stepArCalDraft: (g: { dYawDeg?: number; dPitchDeg?: number; spread?: number }) => void;
+  /** Which axes the calibration DRAG moves (owner 2026-10-14): `"yaw"` every time the pad opens —
+   *  a stroke is strictly lateral; `"free"` (the ↕ PITCH cell, a per-visit toggle) adds the pitch. */
+  arCalAxes: ArCalAxes;
+  toggleArCalAxes: () => void;
   /** CONFIRM: bumps the epoch; the ENGINE commits the drag into its yaw trim and answers the
    *  bias through `_onArCalibrated`, which persists the record and leaves calibration mode. */
   arCalCommitEpoch: number;
@@ -510,12 +518,20 @@ export const useCameraStore = create<CameraState>((set) => ({
       if (mode === st.arCam) return {};
       // Entering calibration opens a working copy: the drag starts at zero, the rest at what is
       // stored. Leaving it any way but CONFIRM drops the copy.
-      if (mode === "calibrate") return { arCam: mode, arCalDraft: { ...st.arCalibration, yawDeg: 0 } };
+      // …and the drag is yaw-only on every entry (owner 2026-10-14) — the ↕ PITCH cell frees it per visit.
+      if (mode === "calibrate") return { arCam: mode, arCalDraft: { ...st.arCalibration, yawDeg: 0 }, arCalAxes: AR_CAL_AXES_DEFAULT };
       return { arCam: mode, arCalDraft: null };
     }),
   arCalibration: loadArCalibration(),
   arCalDraft: null,
-  stepArCalDraft: (g) => set((st) => (st.arCalDraft ? { arCalDraft: stepCalibration(st.arCalDraft, g) } : {})),
+  stepArCalDraft: (g) =>
+    set((st) => {
+      if (!st.arCalDraft) return {};
+      const d = gateAimDelta({ dYawDeg: g.dYawDeg ?? 0, dPitchDeg: g.dPitchDeg ?? 0 }, st.arCalAxes);
+      return { arCalDraft: stepCalibration(st.arCalDraft, { ...g, dYawDeg: d.dYawDeg, dPitchDeg: d.dPitchDeg }) };
+    }),
+  arCalAxes: AR_CAL_AXES_DEFAULT,
+  toggleArCalAxes: () => set((st) => ({ arCalAxes: st.arCalAxes === "free" ? "yaw" : "free" })),
   arCalCommitEpoch: 0,
   confirmArCalibration: () =>
     set((st) => {

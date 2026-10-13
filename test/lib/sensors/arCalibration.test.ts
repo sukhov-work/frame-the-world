@@ -3,8 +3,10 @@ import {
   AR_CALIB_IDENTITY,
   AR_CALIB_KEY,
   AR_CALIB_RAILS,
+  AR_CAL_AXES_DEFAULT,
   AR_CAM_LONG_FOV_DEFAULT_DEG,
   applyArCalibration,
+  gateAimDelta,
   camFocalEqMm,
   clearArCalibration,
   dragToAimDelta,
@@ -206,5 +208,32 @@ describe("arCalibration — the gestures", () => {
     expect(smoothRollDeg(0, 10, 200, 200)).toBeCloseTo(10 * (1 - Math.exp(-1)), 12);
     expect(smoothRollDeg(179, -179, 1e9, 200)).toBeCloseTo(181, 6);
     expect(smoothRollDeg(5, 9, 16, 0)).toBe(9);
+  });
+});
+
+describe("arCalibration — the axes lock (owner 2026-10-14: the drag is yaw-only until ↕ PITCH frees it)", () => {
+  it("the default is yaw-only; the gate keeps the yaw WHOLE and discards the pitch", () => {
+    expect(AR_CAL_AXES_DEFAULT).toBe("yaw");
+    const d = dragToAimDelta(60, 30, 800, 0); // a diagonal stroke
+    expect(d.dYawDeg).toBeLessThan(0);
+    expect(d.dPitchDeg).toBeGreaterThan(0);
+    const g = gateAimDelta(d, "yaw");
+    expect(g.dYawDeg).toBe(d.dYawDeg); // the lateral component, not a projection of the stroke
+    expect(g.dPitchDeg).toBe(0);
+    expect(Object.is(g.dPitchDeg, 0)).toBe(true); // a clean 0, never −0 (the readout prints it)
+  });
+
+  it("free passes both axes through untouched (the 2026-09-19 behaviour)", () => {
+    const d = { dYawDeg: -2.5, dPitchDeg: 1.25 };
+    expect(gateAimDelta(d, "free")).toEqual(d);
+    expect(gateAimDelta({ dYawDeg: 0, dPitchDeg: -3 }, "free")).toEqual({ dYawDeg: 0, dPitchDeg: -3 });
+  });
+
+  it("a yaw-only step through stepCalibration moves yaw and the pinch, never the pitch", () => {
+    const g = gateAimDelta(dragToAimDelta(-40, 25, 600, 5), "yaw");
+    const c = stepCalibration(AR_CALIB_IDENTITY, { ...g, spread: 1.1 });
+    expect(c.yawDeg).toBeGreaterThan(0);
+    expect(c.pitchDeg).toBe(0);
+    expect(c.camLongFovDeg).toBeGreaterThan(AR_CALIB_IDENTITY.camLongFovDeg);
   });
 });

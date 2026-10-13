@@ -58,17 +58,44 @@ describe("store seam — the working copy, CONFIRM / RESET / CANCEL", () => {
     expect(useCameraStore.getState().arCalDraft).toBeNull(); // leaving any way but CONFIRM drops it
   });
 
-  it("gesture steps move only the draft", () => {
+  it("gesture steps move only the draft — and the drag is YAW-ONLY until ↕ PITCH frees it (owner 2026-10-14)", () => {
     const s = useCameraStore.getState();
     s.stepArCalDraft({ dYawDeg: 3 }); // no draft → nothing
     expect(useCameraStore.getState().arCalDraft).toBeNull();
     s.setArCam("calibrate");
+    expect(useCameraStore.getState().arCalAxes).toBe("yaw");
     s.stepArCalDraft({ dYawDeg: -3, dPitchDeg: 1.5, spread: 1.1 });
-    const d = useCameraStore.getState().arCalDraft!;
-    expect(d).toMatchObject({ yawDeg: -3, pitchDeg: 1.5 });
+    let d = useCameraStore.getState().arCalDraft!;
+    expect(d).toMatchObject({ yawDeg: -3, pitchDeg: 0 }); // a diagonal stroke: the yaw WHOLE, the pitch discarded
     expect("rollDeg" in d).toBe(false); // roll left the record 2026-09-22
-    expect(d.camLongFovDeg).toBeGreaterThan(AR_CALIB_IDENTITY.camLongFovDeg); // a pinch OUT widens the estimate
+    expect(d.camLongFovDeg).toBeGreaterThan(AR_CALIB_IDENTITY.camLongFovDeg); // the pinch is not an axis — never gated
+    s.toggleArCalAxes();
+    expect(useCameraStore.getState().arCalAxes).toBe("free");
+    s.stepArCalDraft({ dYawDeg: -1, dPitchDeg: 1.5 });
+    d = useCameraStore.getState().arCalDraft!;
+    expect(d).toMatchObject({ yawDeg: -4, pitchDeg: 1.5 }); // both axes, the 2026-09-19 behaviour
     expect(useCameraStore.getState().arCalibration).toEqual(AR_CALIB_IDENTITY);
+  });
+
+  it("↕ PITCH is a per-VISIT toggle: every entry into calibration opens yaw-only again, nothing persists", () => {
+    const m = fakeStorage();
+    const s = useCameraStore.getState();
+    s.setArCam("calibrate");
+    s.toggleArCalAxes();
+    expect(useCameraStore.getState().arCalAxes).toBe("free");
+    s.cancelArCalibration();
+    s.setArCam("calibrate");
+    expect(useCameraStore.getState().arCalAxes).toBe("yaw"); // CANCEL → re-enter: locked again
+    s.toggleArCalAxes();
+    s.stepArCalDraft({ dPitchDeg: 2 });
+    s._onArCalibrated(0);
+    expect(JSON.parse(m.get(AR_CALIB_KEY)!)).toMatchObject({ pitchDeg: 2 });
+    expect("arCalAxes" in JSON.parse(m.get(AR_CALIB_KEY)!)).toBe(false); // the lock is never written to ftw:ar-calib:v1
+    s.setArCam("calibrate");
+    expect(useCameraStore.getState().arCalAxes).toBe("yaw"); // CONFIRM → re-enter: locked again
+    s.toggleArCalAxes();
+    s.toggleArCalAxes();
+    expect(useCameraStore.getState().arCalAxes).toBe("yaw"); // a second tap locks it back mid-visit
   });
 
   it("CONFIRM with live sensors only bumps the epoch — the ENGINE answers the bias, and THAT is what persists", () => {
@@ -77,6 +104,7 @@ describe("store seam — the working copy, CONFIRM / RESET / CANCEL", () => {
     s.setArLook(true);
     s._syncArLook(LIVE);
     s.setArCam("calibrate");
+    s.toggleArCalAxes(); // the pitch rides only with ↕ PITCH on (2026-10-14)
     s.stepArCalDraft({ dYawDeg: -4, dPitchDeg: 2 });
     s.confirmArCalibration();
     expect(useCameraStore.getState().arCalCommitEpoch).toBe(1);
@@ -98,6 +126,7 @@ describe("store seam — the working copy, CONFIRM / RESET / CANCEL", () => {
     useCameraStore.setState({ arCalibration: { ...AR_CALIB_IDENTITY, yawDeg: 7, savedAtMs: 1 } });
     s._syncArLook({ ...LIVE, rung: "relative-aligned" });
     s.setArCam("calibrate");
+    s.toggleArCalAxes();
     s.stepArCalDraft({ dYawDeg: 30, dPitchDeg: -1 });
     s.confirmArCalibration();
     s._onArCalibrated(null);
@@ -199,16 +228,34 @@ describe("the overlay — renders only while AR + CAM are on; calibration adds t
     html = render(ArCameraOverlay);
     expect(html).toContain("m-arcal__pad");
     expect(html).toContain("m-arcal__cross");
-    // the verdict column: three ROUND cells (the .m-act--icon idiom), CONFIRM LAST = the bottom cell,
-    // nearest the AIM stick (owner 2026-09-25 item 2), each a data-act
+    // the verdict column: four ROUND cells (the .m-act--icon idiom) — ↕ PITCH FIRST = the top cell
+    // (owner 2026-10-14: "just above cancel"), CONFIRM LAST = the bottom cell, nearest the AIM stick
+    // (owner 2026-09-25 item 2), each a data-act
     const acts = [...html.matchAll(/data-act="(ar-cal-[a-z]+)"/g)].map((m) => m[1]);
-    expect(acts).toEqual(["ar-cal-cancel", "ar-cal-reset", "ar-cal-confirm"]);
-    expect(html.match(/m-act m-act--icon/g)?.length).toBe(3);
+    expect(acts).toEqual(["ar-cal-axes", "ar-cal-cancel", "ar-cal-reset", "ar-cal-confirm"]);
+    expect(html.match(/m-act m-act--icon/g)?.length).toBe(4);
+    // ↕ PITCH is OFF on entry — the plain cell, the same style as CANCEL / RESET; lit (accent) only when on
+    expect(html).toMatch(/class="m-act m-act--icon" data-act="ar-cal-axes" aria-pressed="false"/);
+    expect(html).toContain(AR_CAL_COPY.pitch);
     expect(html).toContain(AR_CAL_COPY.title);
     // ONE row: the readout beside the title — yaw · pitch · the lens; no ROLL, no memo text
     expect(html).toMatch(/YAW \+0\.0° · PITCH \+0\.0° · \d+ mm/);
     expect(html).not.toMatch(/ROLL|LANDMARK|TWIST/);
     expect("how" in AR_CAL_COPY).toBe(false);
+    // the toggle lit: the accent class + aria-pressed, the DOM order unchanged
+    useCameraStore.getState().toggleArCalAxes();
+    html = render(ArCameraOverlay);
+    expect(html).toMatch(/class="m-act m-act--icon m-act--accent" data-act="ar-cal-axes" aria-pressed="true"/);
+    expect([...html.matchAll(/data-act="(ar-cal-[a-z]+)"/g)].map((m) => m[1])).toEqual(["ar-cal-axes", "ar-cal-cancel", "ar-cal-reset", "ar-cal-confirm"]);
+  });
+
+  it("the gate lives in the STORE, not the pad: the pad feeds raw deltas, stepArCalDraft gates them (owner 2026-10-14)", () => {
+    const store = read("src/store/camera.ts");
+    expect(store).toMatch(/const d = gateAimDelta\(\{ dYawDeg: g\.dYawDeg \?\? 0, dPitchDeg: g\.dPitchDeg \?\? 0 \}, st\.arCalAxes\);/);
+    expect(store).toMatch(/arCalDraft: \{ \.\.\.st\.arCalibration, yawDeg: 0 \}, arCalAxes: AR_CAL_AXES_DEFAULT \}/);
+    const pad = read("src/components/mobile/ArCameraOverlay.tsx").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""); // code, not its doc comment
+    expect(pad).toMatch(/step\(dragToAimDelta\(next\.x - prev\.x, next\.y - prev\.y, f, arFrame\.viewPitchDeg\)\);/);
+    expect(pad).not.toMatch(/gateAimDelta/);
   });
 
   it("the layout (owner 2026-09-22 item 1): the row's right edge relaxes to the folded mini-map while calibrating; the column and the slider are fixed seats off the rail's tokens", () => {

@@ -575,12 +575,18 @@ In mobile FPV the phone's orientation aims the camera. The seam is three layers,
 - **The calibration record** (`lib/sensors/arCalibration.ts`, `ftw:ar-calib:v1`): `{ yawDeg, pitchDeg, camLongFovDeg,
   savedAtMs }` — **roll left the record 2026-09-22** (owner: "not useful"; an older blob's `rollDeg` is dropped by the
   sanitizer, no key bump; the feed is still levelled by the SENSED roll). A LONG PRESS on AR opens a full-screen pad (z 5,
-  under the FPV instruments at z 10): DRAG = yaw / pitch (grab-the-world, one pixel of drag = one pixel of scene), PINCH =
+  under the FPV instruments at z 10): DRAG = yaw (grab-the-world, one pixel of drag = one pixel of scene) — **YAW-ONLY by
+  default since 2026-10-14** (owner: a thumb correcting the heading drifted diagonally and dragged the pitch along; the
+  stroke's lateral component turns the view WHOLE, its vertical component is discarded — `camera.arCalAxes` `"yaw" |
+  "free"`, reset to `"yaw"` on EVERY entry, gated in `stepArCalDraft` through `arCalibration.gateAimDelta` so the pad stays
+  a dumb delta feeder; the **↕ PITCH** cell at the TOP of the verdict column — `data-act="ar-cal-axes"`, `aria-pressed`,
+  accent while on — frees both axes for that visit, never persisted), PINCH =
   the camera picture's size (a pinch OUT enlarges the feed = the FOV estimate WIDENS, `tan(fov'/2) = tan(fov/2)·spread` —
   2026-09-19 had the sign backwards); ✓ CONFIRM / ↺ RESET / ✕ CANCEL. **The small-screen layout (2026-09-22):** the top strip
   is ONE row (title + `YAW · PITCH · mm` readout, no memo; the mini-map folds to its puck while calibrating — `MiniMap`
-  reads `arCam`), the three verdicts are ROUND cells in a column on the LEFT rail 12 px above the AIM stick (thumb reach;
-  **since 2026-09-25 CONFIRM is the BOTTOM cell, nearest the stick — CANCEL · RESET · CONFIRM top-down. ⌖ ALIGN, the
+  reads `arCam`), the verdicts are ROUND cells in a column on the LEFT rail 12 px above the AIM stick (thumb reach;
+  **since 2026-09-25 CONFIRM is the BOTTOM cell, nearest the stick — ↕ PITCH (2026-10-14) · CANCEL · RESET · CONFIRM
+  top-down; the column is bottom-anchored and grew one 44 px cell upward, its top 112 px down on the 402 × 714 twin.* ⌖ ALIGN, the
   gyro-only rungs' one-tap chip, was REMOVED on 2026-09-30 (owner: "confusing and redundant" — an iPhone aimed at the sky
   falls to a gyro-only rung, so the chip kept appearing on the calibration screen, where CONFIRM already is the align);
   the chip, `camera.requestArAlign` / `arAlignEpoch` and `ArLookCtx.alignEpoch` are gone, the rung notes name the long
