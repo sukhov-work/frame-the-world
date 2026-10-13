@@ -336,17 +336,25 @@ place deletes were dead in production until 2026-09-19. Fence: `test/lib/api/jso
   the /m map mode, captured on a fresh entry) over where they now stand (the pin + the walk), approaching along the FPV
   heading — 200 m / 80° / 38° and the /m 600 m nadir only when the session booted straight into FPV. On /m an entry from the
   3D map returns to the 3D map; from the 2D chart to the chart at the altitude it was left at.
-- **Mesh clearance** (`lib/globe/fpvClearance` + `stepFpvMeshFloor`, `FPV.meshClearance` — kill switch + `__globe.fpvClearance`):
-  temp-pin FPV casts ONE vertical column through the eye per frame while moving (a down ray + an up ray, so a one-sided
-  material's tops AND undersides are both seen) against the building tiles, the enriched cells and the user models — never
-  the terrain — classifies each crossing by its face's OWN normal (`face.normal` → world; `intersection.normal` is flipped
-  toward the ray), and folds the crossings into solids top-down (a top opens one, the next underside closes it; no underside =
-  it stands on the ground). The BODY is the 1.7 m under the eye: inside a solid → the feet onto its top the same frame at the
-  standing eye height ("as if standing on it"; a rooftop structure is the next frame's column — layer by layer); on a mesh top
-  the eye follows what is under the feet (off a roof edge = the lower roof or the ground, eased `meshFloorEaseTauMs`); a pin
-  dropped inside a building lands on its roof at entry. A bridge deck (top + underside) is walked UNDER, a parked car (closed)
-  is climbed. Column cost on the lean twin: 6.4 ms once, sub-ms steady. The HUD's EYE readout stays the encoder's height
-  above the floor (1.7 m on a roof — T150).
+- **Mesh clearance — THE STICKY BOX (2026-10-13, superseding the 2026-09-22 column + snap)** (`lib/globe/fpvClearance`
+  `boxClearance` + `stepStickyEye`, `stepFpvMeshFloor`; `FPV.meshClearance` the kill switch, `__globe.fpvClearance` the seam):
+  temp-pin FPV casts vertical COLUMNS (a down ray + an up ray each, so a one-sided material's tops AND undersides are both
+  seen) against the building tiles (skipped inside a baked region, where the OSM twins are clipped away but still answer a
+  raycast), the enriched cells and the VISIBLE user models — never the terrain — classifies each crossing by its face's OWN
+  normal and folds them into solids (a top opens one, the next underside closes it; no underside = it stands on the ground).
+  The BODY is a box: feet 1.7 m under the eye, head 0.3 m over it, a 0.5 × 0.3 m footprint in the walk frame. Standing
+  still: the centre column alone. Walking: the SWEEP — the centre where the box WAS before the step, the centre and the two
+  leading corners where it IS after it; a solid entered by the step is a WALL: the step is undone (the box stops at the wall,
+  never clips) and the feet CLIMB the wall (a glide, `meshClimbTauMs` 160 + a floor rate of `meshClimbMinRateMps` 4 — ≈ 0.7 s
+  for 30 m; a latch finishes the climb if the input stops and holds the box at the top edge until a step). The vertical
+  authority is pure (`stepStickyEye`): the eye is `ref + eyeM`, `ref` the eased floor reference (a mesh top, else the terrain);
+  descending LANDS by a clamp (the feet stop ON the top — the 2026-09-22 rig re-based the eye height the frame the feet came
+  within 0.35 m of a roof, +19.9 m measured on a slow descent); rising into an underside STOPS the head under it (a head-only
+  overlap is a ceiling, never a climb — else a 3 m sawtooth); a floor change while HOVERING is eye-preserving (walking over a
+  taller roof no longer lifts the eye; a roof leaving the column's 400 m reach no longer dips it); while STANDING the feet
+  follow the floor (off a roof edge = an eased fall, `meshFloorEaseTauMs` 200); inside a solid (spawned, a tile landing
+  around the eye) = a climb from where the eye is. Cost: 4 columns while walking ≈ 6.5 ms a frame on the throttled headless
+  twin (1 column ≈ 1.3 ms there). The HUD's EYE readout stays the encoder's height above the floor (1.7 m on a roof — T150).
 - **The pin follows the walker (owner 2026-09-30).** In a temp-pin FPV the walk used to leave the pin behind — the chart drew
   an eye dot and, at the point the walk started from, the pin ring, with a long-press the only way to bring the pin along
   (never exactly onto where one stood). Once no walk input has arrived for `FPV.pinFollowSettleMs` (400 ms — "when the person
@@ -362,8 +370,11 @@ place deletes were dead in production until 2026-09-19. Fence: `test/lib/api/jso
   links hand over the desktop's 1,100 km boot LEO as `#p=`, the UA redirect keeps it, the /m mirror re-writes it — the
   2026-09-18 whole-planet boot had read only on a BARE `/m`. An orbital hash keeps its focus and lands nadir at 18,000 km;
   a real place hash below the threshold is honoured exactly.
-- Harness: `scripts/verify-fpv-carry-2026-09-22.mjs` (29 — the cut, the seam, the place / point / pin-move / exit poses, the
-  12 m test solid `__globe.fpvTestSolid` walked into, across and off, the pin inside it, the kill switch) ·
+- Harness: `scripts/verify-fpv-collision-2026-10-13.mjs` (27 — the sticky box: the slow and the fast descent onto a 20 m
+  roof, the rise past the column's reach, the hover off an edge, the fall onto a lower roof, the wall climb at speed with
+  no clipping, the latch, the pin-follow bob, the slab ceiling) · `scripts/verify-fpv-carry-2026-09-22.mjs` (29 — the cut,
+  the seam, the place / point / pin-move / exit poses, the 12 m test solid `__globe.fpvTestSolid` walked into, across and
+  off, the pin inside it, the kill switch) ·
   `verify-mobile-fixes-2026-09-18` leg 1′ (the LEO hash → the planet, a place hash honoured) ·
   `scripts/verify-followups-2026-09-30.mjs` legs B / C (the pin follow: stick, keys, a roof, the map window on both shells).
   Unit contract: `test/components/globe/fpvTransitions2026-09-22.test.ts` · `test/lib/globe/fpvClearance.test.ts` ·

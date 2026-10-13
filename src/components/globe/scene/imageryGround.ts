@@ -885,8 +885,10 @@ export function attachImageryGround(
   // the sun shadow pass is active; still costs a draw, so update() hides them above SHADOWS.maxAltM.
   // Tinted toward the palette's deep water rather than pure black — real shadows are sky-lit cool,
   // and the cool cast reads on the dark graded ground where a black multiply melts in.
+  // 2026-10-13 — lerped a little toward the sky colour (SHADOWS.groundTintSkyK): a sun shadow is
+  // lit by the sky, and the lift keeps the shadowed ground off Neutral's black toe.
   const shadowMat = new THREE.ShadowMaterial({
-    color: new THREE.Color(tokens.water),
+    color: new THREE.Color(tokens.water).lerp(new THREE.Color(tokens.skyHorizon), SHADOWS.groundTintSkyK),
     opacity: SHADOWS.groundOpacity,
     depthWrite: false,
   });

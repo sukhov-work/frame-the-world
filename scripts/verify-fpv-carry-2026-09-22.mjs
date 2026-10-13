@@ -169,7 +169,9 @@ const P2 = { latDeg: 48.4662, lonDeg: 35.0702 };
   while (Date.now() - t0 < 6000) {
     await settle(6);
     const c = await cam();
-    if (c.clr.floorAbsM !== null && c.clr.lifts > 0) {
+    // 2026-10-13 (the sticky box): the box's edge meets the wall BEFORE the eye does — the walk
+    // is blocked and the feet climb (`blockedFrames`), so `lifts` (the centre inside) may stay 0.
+    if (c.clr.floorAbsM !== null && (c.clr.lifts > 0 || (c.clr.blockedFrames ?? 0) > 0)) {
       lifted = c;
       break;
     }
@@ -177,7 +179,7 @@ const P2 = { latDeg: 48.4662, lonDeg: 35.0702 };
   await s.evalJs(`window.__cameraStore.getState().setFpvWalkInput(null)`);
   await settle(10);
   const onTop = await cam();
-  ok(lifted !== null, `walking into the wall LIFTED the feet (after ${lifted ? Date.now() - t0 : "?"} ms; lifts ${onTop.clr.lifts}, columns ${onTop.clr.columns})`);
+  ok(lifted !== null, `walking into the wall LIFTED the feet (after ${lifted ? Date.now() - t0 : "?"} ms; lifts ${onTop.clr.lifts}, blocked frames ${onTop.clr.blockedFrames ?? 0}, columns ${onTop.clr.columns})`);
   ok(lifted !== null && Math.abs(onTop.clr.floorAbsM - box.topM) < 0.6, `…onto the solid's TOP (floor ${onTop.clr.floorAbsM?.toFixed(2)} m vs top ${box.topM.toFixed(2)} m)`);
   ok(Math.abs(onTop.clr.eyeM - 1.7) < 0.05 && Math.abs(onTop.hud.eyeAboveGroundM - 1.7) < 0.05, `…standing (eye ${onTop.clr.eyeM.toFixed(2)} m above it — "as if standing on it")`);
   ok(onTop.clr.lastMs < 8, `…the column costs ${onTop.clr.lastMs.toFixed(2)} ms (< 8 ms under the harness throttle)`);

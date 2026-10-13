@@ -40,6 +40,7 @@
   --color-land: #53655c; /* sage-slate continents (design hue, cartographic lightness) */
   --color-land-hi: #687d73; /* rolling-terrain relief + OSM building emissive tint */
   --color-peak: #8fa097; /* high-terrain sheen + OSM building fill — light sage, not blown-out */
+  --color-building-day: #b8b4ac; /* the city's DAY fill (2026-10-13) — a warm light grey the sun and sky can shade; night keeps surface */
   --color-water: #0c1822; /* deep near-black ocean — darker per design, still reads against space */
   --color-atmosphere: #38e1d0; /* limb halo, tight bright lobe — cyan-teal per brief */
   --color-atmosphere-deep: #4a93d4; /* limb halo, broad soft lobe — Rayleigh blue (also day-side limb scattering) */

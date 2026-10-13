@@ -22,6 +22,10 @@ export const tokens = {
   land: '#53655C', // sage-slate — continent fill (design hue #7A8E84 at cartographic lightness)
   landHi: '#687D73', // rolling-terrain relief + OSM building emissive tint
   peak: '#8FA097', // high-terrain sheen + OSM building fill (light sage, not blown-out)
+  buildingDay: '#B8B4AC', // THE DAY FILL of the city (owner 2026-10-13 "buildings dark green-grey slabs, dull"):
+  // a warm light grey the sun and the sky can SHADE (the slate `surface` fill has albedo lum 0.008 —
+  // the sun was 20 % of a lit face, the emissive 75 %, so no light level could shade it). The night
+  // keeps `surface` through the terminator lerp in scene/buildingMaterial.ts (the verified night look).
   water: '#0C1822', // deep near-black ocean (design-darkened; still separates from bg in space)
   atmosphere: '#38E1D0', // limb halo, tight bright lobe — cyan-teal per brief
   atmosphereDeep: '#4A93D4', // limb halo, broad soft lobe — Rayleigh blue + day-side limb scattering

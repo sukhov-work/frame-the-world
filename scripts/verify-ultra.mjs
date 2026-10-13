@@ -458,7 +458,7 @@ check(
   "every COST lever unwound to its baseline, and the LOOK did not move",
   back.on === false &&
     back.look === true &&
-    back.shadow.radius === 2 &&
+    back.shadow.radius === offExpect.radius && // the BASE radius is SHADOWS.radius (2 → 3 on 2026-10-13), read from tuning like the §A check
     back.terrain.casting === 0 &&
     back.photo3d > 0.5 &&
     back.dayMix > 0.99,

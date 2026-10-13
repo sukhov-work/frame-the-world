@@ -105,6 +105,10 @@ describe("night terrain under the moon — the retune's three properties", () =>
     expect(GROUND.moonFillK).toBeLessThan(0.15);
     expect(GROUND.moonFillNormalK).toBeGreaterThan(0.4);
     expect(SHADOWS.moonGroundOpacity).toBeGreaterThan(0.6);
-    expect(SHADOWS.moonGroundOpacity).toBeLessThan(SHADOWS.groundOpacity + 1e-9);
+    // 2026-10-13: the SUN's ground shadow is sky-lit (groundOpacity 0.75 → 0.6); the moon's has no
+    // sky to fill it and keeps its depth — it may now EXCEED the sun's. Both stay inside [0.5, 0.85].
+    expect(SHADOWS.moonGroundOpacity).toBeGreaterThanOrEqual(SHADOWS.groundOpacity);
+    expect(SHADOWS.moonGroundOpacity).toBeLessThan(0.85);
+    expect(SHADOWS.groundOpacity).toBeGreaterThan(0.5);
   });
 });

@@ -90,6 +90,8 @@ interface BuildingMaterialUniforms {
   /** ULTRA S4 — world-space direction TO the sun, for the forward-scattering term. The buildings
    *  never needed the sun VECTOR before (only its elevation, via `uFtwNight`). */
   uFtwSunW: { value: THREE.Vector3 };
+  /** 2026-10-13 — the DAY fill (`tokens.buildingDay`), lerped to the slate `color` by `uFtwNight`. */
+  uFtwDayFill: { value: THREE.Color };
 }
 
 export interface BuildingMaterialSet {
@@ -156,6 +158,7 @@ export function createBuildingMaterials(
     uFtwSkyLevel: { value: 0 },
     uFtwAfterglowG: { value: 0 },
     uFtwSunW: { value: new THREE.Vector3(0, 0, 1) },
+    uFtwDayFill: { value: new THREE.Color(tokens.buildingDay) },
   };
 
   fillMat.onBeforeCompile = (shader) => {
@@ -177,6 +180,7 @@ export function createBuildingMaterials(
     shader.uniforms.uFtwSkyLevel = uniforms.uFtwSkyLevel;
     shader.uniforms.uFtwAfterglowG = uniforms.uFtwAfterglowG;
     shader.uniforms.uFtwSunW = uniforms.uFtwSunW;
+    shader.uniforms.uFtwDayFill = uniforms.uFtwDayFill;
     // Pass 2 R2: carry a stable per-building key to the fragment. The b3dm batch id survives GLTF
     // load as `_batchid` (legacy) or `_feature_id_0` (3D Tiles 1.1 — also what the Slice-1 baker
     // writes per building) — whichever the tile has; the other defaults to 0 (three disables an
@@ -239,6 +243,7 @@ export function createBuildingMaterials(
         uniform float uFtwSkyLevel;
         uniform float uFtwAfterglowG;
         uniform vec3 uFtwSunW;
+        uniform vec3 uFtwDayFill;
         ${FTW_BAYER_GLSL}
         ${FTW_HASH_GLSL}
         ${FTW_AERIAL_GLSL}
@@ -302,6 +307,22 @@ export function createBuildingMaterials(
               (ftwBayer4(floor(mod(gl_FragCoord.xy, 4.0))) + ftwHash11(vFtwBId + 5.0)) / 16.0;
             if (ftwFb > ftwA) discard;
           }
+          // 2026-10-13 — THE DAY FILL: by day the city is tokens.buildingDay (a warm light grey
+          // the sun and the sky can shade); the terminator factor lerps it back to the slate
+          // material colour so the owner-verified NIGHT look (dark mass + edges + shadows) is kept.
+          diffuseColor.rgb = mix(uFtwDayFill, diffuseColor.rgb, uFtwNight);
+          // ASK 3 RUNG 1 (2026-10-13): a per-building HUE wobble — a second hash picks a point on
+          // a warm↔cool axis (a cream (1.06, 1.0, 0.92) ↔ a cool grey (0.94, 0.98, 1.06), with a
+          // stone (1.02, 0.99, 0.95) in the middle), applied as a per-channel multiplier on the DAY
+          // fill by BUILDINGS.hueVariation. Low chroma on purpose — neighbours differ in warmth, the
+          // city stays one family. Night-gated through uFtwNight like the fill itself.
+          {
+            float ftwHue = ftwHash11(vFtwBId + 37.0);
+            vec3 ftwWarm = vec3(1.06, 1.0, 0.92);
+            vec3 ftwCool = vec3(0.94, 0.98, 1.06);
+            vec3 ftwHueMul = mix(ftwWarm, ftwCool, ftwHue);
+            diffuseColor.rgb *= mix(vec3(1.0), ftwHueMul, ${glf(BUILDINGS.hueVariation)} * (1.0 - uFtwNight));
+          }
           // Pass 2 R2: per-building tonal variation — a subtle ± on the fill albedo keyed by the
           // building hash, so the skyline reads as massing, not one uniform slab. toneVariation 0
           // makes mix(1,1,·)=1 → byte-identical to the pre-Pass-2 look (the no-op comparator).
@@ -328,6 +349,9 @@ export function createBuildingMaterials(
           float ftwWall = ftwWLen > 0.001 ? 1.0 - abs(dot(vFtwWNormal / ftwWLen, uFtwUp)) : 1.0;
           float ftwLit = smoothstep(${glf(BUILDINGS.nightWindowLitLo)}, ${glf(BUILDINGS.nightWindowLitHi)}, ftwHash11(vFtwBId + 71.0));
           totalEmissiveRadiance += uFtwWindow * (${glf(BUILDINGS.nightWindowGain)} * uFtwNight * ftwLit * ftwWall);
+          // 2026-10-13 — by day the sage emissive floor is scaled down (BUILDINGS.dayEmissiveK): a
+          // direction-blind glow on the light day fill reads flat; the night keeps the full floor.
+          totalEmissiveRadiance *= mix(${glf(BUILDINGS.dayEmissiveK)}, 1.0, uFtwNight);
         }`,
       )
       .replace(

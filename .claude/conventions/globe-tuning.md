@@ -878,3 +878,40 @@ No tunable left with it; recorded here because `FPV.ar*` readers will look for i
 `arAlignEpoch` and `ArLookCtx.alignEpoch` are deleted. On a gyro-only rung the arming seed ties the pose to the view
 (`ladder.align(h, false)`), and the calibration's CONFIRM is the explicit align (`commitCalibration` → `relative-aligned`).
 `OrientationLadder.align(h, true)` stays as a tested library method with no UI caller.
+
+
+## The 2026-10-13 families — the sticky box, the daylight pass, the hue wobble
+
+### The sticky box (`FPV.meshBoxHalfWidthM` 0.25 · `meshBoxHalfDepthM` 0.15 · `meshHeadM` 0.3 · `meshClimbTauMs` 160 ·
+### `meshClimbMinRateMps` 4 → `lib/globe/fpvClearance` `boxClearance` + `stepStickyEye`, `StylizedTiles.stepFpvMeshFloor`)
+Supersedes the 2026-09-22 "lift INTO a surface is a snap" rule above. The box's half-extents are in the WALK frame (across the
+step / along it); `0 / 0` = the centre column alone (no wall detection — the eye enters a wall and climbs from inside, the
+2026-09-22 behaviour minus the snap). `meshHeadM` turns a rising head into a ceiling stop (the eye halts `meshHeadM` under an
+underside) instead of a lift onto the slab. The climb is `max((target − ref) · easeK(dt, meshClimbTauMs), meshClimbMinRateMps ·
+dt)` — the τ shapes the start, the rate kills the tail; the fall stays `meshFloorEaseTauMs`. The old knobs keep their roles:
+`meshStepM` is now the tolerance for a mesh top AT the terrain (a kerb); the column reach, the idle cadence unchanged. The
+2026-09-22 walker is still `meshClearance: false`. Measured on the headless twin: 4 columns while walking ≈ 6.5 ms a frame
+(each column ≈ 1.3 ms there); the phones are not measured (backlog T160).
+
+### The daylight pass (`SUN.hemiIntensity` 1.2 · `hemiSkyK` 0.8 · `hemiGroundK` 0.6 · `SHADOWS.groundOpacity` 0.6 ·
+### `groundTintSkyK` 0.04 · `radius` 3 · `DRAPE.shadowOpacity` 0.65 · `gain` 1.9 · `GROUND.ambientDayK` 0.14 ·
+### `BUILDINGS.dayEmissiveK` 0.2 + `tokens.buildingDay` · `GOLDEN.keyStrength` 0.6 · `keyBrighten` 0.25 · `MODELS.envIntensity` 0.3 ·
+### `RENDERER.toneMapBlackOffsetK` 1)
+Owner 2026-10-13: "shadows too deep and contrasty even at noon … the whole scene too dark and dull … light on custom textures
+dim". The ledger (`scripts/probe-lighting-2026-10-13.mjs`, before/after PNGs + JSON in `verify-shots/lighting/`): at the
+owner's second pose 36 % of the ground-and-buildings band was under 12/255 and 79 % under 30; after, 0 % and 4 %, the median
+17 → 87. The levers, in order of effect: the hemisphere (the ONLY light a shadowed lit surface gets — three scales the
+received shadow into the direct term alone), sky-coloured and 3.75× stronger; the ground shadow twin at 0.6 / 0.65 with a
+sky tint (the overlay had removed 75–80 % of a composite whose direct share is ~23 % at a 34° sun); the DAY fill on the city
+(`tokens.buildingDay`, lerped back to `tokens.surface` by `uFtwNight` — the night look is unchanged by construction) with the
+emissive floor × 0.2 by day; the golden key tempered (full strength painted the light fill pumpkin-orange at 16:47); a uniform
+PMREM environment on the user models' own PBR materials (the sheen a glTF is authored for). `toneMapBlackOffsetK` is the
+unused lever: 1 keeps stock Neutral; the mechanism (a Custom tone map = Neutral with the offset × k) stays for an A/B. Rulings
+kept: no direction-blind night fills, no emissive brightening, Neutral stays. Re-pinned tests: `duskShadeRatio` (0.263/0.219 →
+0.323/0.229, the cliff 6.5 → 5.8, lo/hi 1.1–1.2 → 0.85–0.95), `moonlightTerrain` (the moon's shadow may now exceed the sun's —
+no sky fill at night).
+
+### The hue wobble (`BUILDINGS.hueVariation` 0.22 → `scene/buildingMaterial.ts`, ask 3 rung 1)
+A second decorrelated hash picks a point on a warm ↔ cool axis (cream (1.06, 1.0, 0.92) ↔ cool grey (0.94, 0.98, 1.06)) and the
+day fill is pulled toward it by this fraction — low chroma, one family, neighbours differ in warmth. 0 = byte-identical.
+Night-gated with the fill. The rest of the triage: `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md`.

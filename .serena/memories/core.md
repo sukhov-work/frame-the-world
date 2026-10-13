@@ -9,6 +9,18 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
+## Status — 2026-10-13 (`mem:project/wip-2026-10-13-collision-lighting-building-colour`)
+**THE STICKY BOX · THE DAYLIGHT PASS · BUILDING COLOUR rung 1 — built and gated (DECISIONS 2026-10-13; the release + the farm in 2026-10-13b).**
+(1) `lib/globe/fpvClearance.ts` v2 (`boxClearance` + `stepStickyEye`): a 0.5 × 0.3 × 2 m box (eye 1.7); landing by clamp, a head-only overlap
+= a ceiling stop, hovering re-bases eye-preserving, standing feet follow (eased fall), the walking SWEEP turns an entered solid into a WALL
+(the step undone — no clip — and a glided climb, τ 160 + 4 m/s, with a latch at the top edge). The 2026-09-22 snap threw the eye +19.9 m on a
+slow descent (measured). `verify-fpv-collision-2026-10-13` 27/27, the carry harness 29/29. (2) The lighting ledger
+(`scripts/probe-lighting-2026-10-13.mjs`): 36 % near-black → 0 % at the owner's pose; the hemisphere sky-coloured ×3.75, the sun's ground
+shadow 0.6/0.65 + a sky tint, PCF radius 3, the city's DAY fill `tokens.buildingDay` lerped to the slate by `uFtwNight` (the night kept),
+the golden key tempered, a uniform PMREM on user models; `toneMapBlackOffsetK` wired, unused (T162). (3) `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md`;
+`BUILDINGS.hueVariation` 0.22 shipped; T157 (photo spike) · T158 (rung-2 bake) · T159 (rung-3 licence) await the owner; T160 the box on
+the phones; T163 two pre-existing charter pins.
+
 ## Status — 2026-10-10 (`mem:project/wip-2026-10-10-mobile-fixes-radar-find-keyboard`)
 **THE OWNER'S DEVICE FEEDBACK — LIVE as v1.36.26 (three releases 2026-10-10: `2de06b6` PR #137 the batch, `d36ff18` PR #138 + `c318ffd` PR #139 the keyboard lift made real on glass) and FARM-VERIFIED on the real iPhone 17 Pro (DECISIONS 2026-10-10 + 2026-10-10b).**
 (1) THE RADAR ON GLASS: one stroke profile on every radar surface (`lib/geo/radarBands.radarStroke` → `AIMCONES.mobileStroke`
@@ -54,9 +66,11 @@ build over this network's tunnels never boots — T155 re-pointed); run 4 (≈4 
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The owner's DEVICE feedback on live v1.36.26 (the radar's /m weight on both phones — `AIMCONES.mobileStroke` is the knob; the ray at
-the edge; the FIND row; the real keyboard under SAVE VIEW on Android Chrome — iOS is farm-proven) → still owed: **T153** · the pin under the thumb's release · **T149** · **T147** → **T152** · **T154** · **T150** ·
-**T151** · **T146** · **T148** · **T156** → the pre-audit main plan (farm FEATURE legs · the T77 lane · T145's migration · the /m model-edit check).
+The owner's READ of live plux.today after the 2026-10-13 release: the box's feel (the climb glide / the latch / the ceiling stop —
+`FPV.meshClimb*`, `meshHeadM`, `meshBox*`), the daylight look at his poses (`DRAPE.gain` 1.9, `tokens.buildingDay`, `hueVariation` 0.22,
+`GOLDEN.keyStrength` 0.6; the toe `toneMapBlackOffsetK` untouched), the farm leg (`ios-mobile-fixes-2026-10-13.mjs --prod`) if 2026-10-13b
+is absent → the triage rulings T157 / T158 / T159 → T163 (re-pin the charter) · T160 · T161 · T162 → the older tails (T153 · T149 · T147 ·
+T152 · T154 · T150 · T151 · T146 · T148 · T156) → the pre-audit main plan.
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
@@ -101,6 +115,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The /m UX pass after the iPhone 17 Pro test: ALIGN left, CONFIRM low, see-through sticks, the one-line tab bar, seats −1.2rem (09-25) · 09-25-mobile-ux-pass
 - ALIGN out · the pin follows the walker + the re-centre target · user models: the far law + the eye-centred cover (09-30) · 09-30-align-minimap-pin-mesh-culling
 - The owner's device feedback: the radar on glass · FIND THIS ONE + the range row · the keyboard lift (10-10) · 10-10-mobile-fixes-radar-find-keyboard
+- The sticky box (no bounce) · the daylight pass · building colour triage + rung 1 (10-13) · 10-13-collision-lighting-building-colour
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

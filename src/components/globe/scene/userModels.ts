@@ -323,8 +323,12 @@ export function attachUserModels(
     /** Rendered terrain height (m above the ellipsoid) at a location — null until tiles cover it. */
     terrainHeightAt?: (latDeg: number, lonDeg: number) => number | null;
     loader?: ModelLoader;
+    /** 2026-10-13 — an environment map for every Standard material a model lands with
+     *  (`MODELS.envIntensity`); null = the materials' own (none). */
+    envMap?: THREE.Texture | null;
   } = {},
 ): UserModelsHandle {
+  const envMap = opts.envMap ?? null;
   const loader = opts.loader ?? defaultLoader;
   const group = new THREE.Group();
   let occluderEpochN = 0; // OCCLUSION seam — see `occluderEpoch()`
@@ -484,8 +488,18 @@ export function attachUserModels(
       mesh.receiveShadow = true;
       e.meshes.push(mesh);
       meshEntry.set(mesh, e);
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      if (envMap) {
+        for (const m of mats) {
+          const sm = m as THREE.MeshStandardMaterial | null;
+          if (sm && sm.isMeshStandardMaterial && !sm.envMap) {
+            sm.envMap = envMap;
+            sm.envMapIntensity = MODELS.envIntensity;
+            sm.needsUpdate = true;
+          }
+        }
+      }
       if (MODELS.chainShader) {
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const m of mats) if (m) chainModelMaterial(m);
       }
     });

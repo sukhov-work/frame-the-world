@@ -48,7 +48,18 @@ export const SUN = {
   /** HemisphereLight fill so night-side buildings never go pure black (AmbientLight(water) was ~0).
    *  (0.4 → 0.25 when moonlight landed, but moon terms are phase-gated by moonKs (~0.05 near new
    *  moon) → dark-of-moon nights lost the fill; 0.25 → 0.32 2026-07-13 to restore it). */
-  hemiIntensity: 0.32,
+  hemiIntensity: 1.2,
+  /** THE SKY FILL (owner 2026-10-13: "shadows too deep and contrasty even at noon, the whole scene too
+   *  dark and dull … light on custom textures dim"). The hemisphere is the ONLY light a shadowed
+   *  lit surface gets (three scales the received shadow into the DIRECT term alone), and at 0.32 ×
+   *  a sage `landHi` sky it put a shadowed 50 % texture at 0.005 linear — black after Neutral's toe.
+   *  0.32 → 1.2 with the sky half `tokens.skyHorizon × hemiSkyK` (a sky, not sage) and the ground
+   *  half `tokens.land × hemiGroundK` (a warm-dark bounce): a shadowed wall ≈ sRGB 40–45, a lit one
+   *  ≈ 130–140 on the day fill — soft, not contrastless. The ULTRA `hemiCurve` / `hemiTintK` ride
+   *  on top unchanged. The numbers are deliberately above a clear-sky physical ratio because the
+   *  tone map's black offset (−0.04 linear) is regressive on exactly these darks. */
+  hemiSkyK: 0.8,
+  hemiGroundK: 0.6,
   /** Distance (m) the directional key light sits from the origin in DIRECTION-ONLY mode (sun up
    *  but no city-scale shadows) — far enough to read as parallel sun rays. */
   keyLightFarM: 1e7,
@@ -333,10 +344,13 @@ export const GOLDEN = {
   /** Warm mix on the atmosphere limb line where the sun grazes it. (0.6 → 0.8.) */
   atmStrength: 0.8,
   /** Building key light: lerp(white → goldenHour) by bell(focus sun elevation) × this. (0.85 → 1.0.) */
-  keyStrength: 1.0,
+  /** 2026-10-13: 1.0 → 0.6. On the slate fill (albedo lum 0.008) the full golden key only hinted; on
+   *  the light DAY fill (tokens.buildingDay) it painted every lit wall pumpkin-orange at 16:47
+   *  (measured on the owner's second pose). The ground's and the sky's golden terms are untouched. */
+  keyStrength: 0.6,
   /** Building key light: at golden hour, ALSO brighten the key intensity by bell × this (a warm
    *  rim-lit swell, not just a hue shift — the biggest visible building-dusk win). 0 = pure hue shift. */
-  keyBrighten: 0.35,
+  keyBrighten: 0.25, // 2026-10-13: 0.35 → 0.25 with the light day fill (see keyStrength)
   /** Moon "golden hour": when the moon is the night key (moon-shadow mode) and grazes the horizon,
    *  lerp its cool key colour toward goldenHour by bell(moon elevation) × this — a warm swell at
    *  moonrise/moonset mirroring the sun's dusk. 0 = no moon warming. */
@@ -587,7 +601,7 @@ export const SHADOWS = {
   rigLocalUp: false,
   /** PCF blur radius (texels) — soft penumbra edge (3 → 2 verified 2026-07-10: crisp contact, natural
    *  soft edge; NOT stair-stepped). */
-  radius: 2,
+  radius: 3,
   /** Sun must be at least this high over the focus (dot with up ≈ sin(elev)) to cast — MUST stay > 0
    *  (a below-horizon sun projects garbage). 0.03 (~1.7°) → 0.008 (~0.46°) 2026-07-13: shadows now
    *  persist through the GOLDEN/dusk hour (long raking shadows are the whole point at that time),
@@ -616,7 +630,15 @@ export const SHADOWS = {
    *  red-mask debug pass 2026-07-10 — the mask itself was always correct; re-verified for the
    *  "crisper" pass: 4096² edges are clean, presence was the limiter → 0.55 → 0.75 + a cool
    *  tokens.water tint instead of pure black). */
-  groundOpacity: 0.75,
+  groundOpacity: 0.6,
+  /** 2026-10-13 — the SUN's ground shadow is SKY-LIT: 0.75 → 0.6 (SAT) / `DRAPE.shadowOpacity` 0.8 → 0.65
+   *  (the drape) and the twin's colour lerps from `tokens.water` toward `tokens.skyHorizon` by this
+   *  fraction (0 = the old near-black navy). The ledger: the overlay removed 75–80 % of a composite
+   *  whose direct share is ~23 % at a 34° sun — lit:shadow ≈ 7× after the tone map against ≈ 4–6×
+   *  real and ≈ 3× pleasant (owner 2026-10-13 "shadows too deep and contrasty even at noon"). The
+   *  2026-07-13 ruling ("crisp shadows" — presence on a dark base) is superseded for the SUN only:
+   *  the MOON's shadows keep 0.75 (no sky to fill them at night). */
+  groundTintSkyK: 0.04,
   // --- Moon shadows (Phase 5.5 S5, §Item 7): ONE rig, source switch — when the sun is below
   //     minSunElevSin and a bright-enough moon is up, the same shadow light is driven from the
   //     moon direction (impersonating the moon key: tokens.moonlight colour, K&S intensity). ---
@@ -640,6 +662,13 @@ export const RENDERER = {
   maxPixelRatio: 2,
   /** NeutralToneMapping exposure (ACES/AgX rejected — they desaturate the cyan accent). */
   toneMappingExposure: 1.0,
+  /** 2026-10-13 — the scale on Neutral's BLACK OFFSET (the `x − 6.25x²` / 0.04 term it subtracts
+   *  from every channel). 1 = stock Neutral (`renderer.toneMapping = NeutralToneMapping`); any
+   *  other value installs a `CustomToneMapping` that is Neutral with the offset × this. The offset
+   *  is regressive on the darks the owner is looking at (−67 % on the shadowed drape, −64 % on a
+   *  sun-lit slate wall); it also floors the night. Judged by the A/B ledger
+   *  (`scripts/probe-lighting-2026-10-13.mjs`). */
+  toneMapBlackOffsetK: 1.0,
   /** T83 — release the GL context and every tileset on `pagehide` (2026-09-07c). iOS Safari keeps
    *  ONE WebContent process across same-origin navigations and jetsam kills it at a 2,048 MB
    *  per-process cap 14–25 s after the SECOND globe page loads (five Device Farm syslogs): the
@@ -2629,6 +2658,11 @@ export const BUILDINGS = {
   roughness: 0.85,
   /** Faint sage emissive stops the night side going pure black. */
   emissiveIntensity: 0.1,
+  /** 2026-10-13 — by DAY the fill is `tokens.buildingDay` (lerped from `tokens.surface` by the
+   *  terminator factor `uFtwNight`, so the night keeps the verified dark mass) and the emissive is
+   *  scaled by this (× emissiveIntensity): a direction-blind glow on a light fill reads flat, and
+   *  the sun + sky now carry the face. 1 = the night's emissive by day too. */
+  dayEmissiveK: 0.2,
   /** Push faces back a hair so their OWN edge lines win the depth tie (lines ignore polygonOffset)
    *  while staying under the ground's offset (1) so bases keep beating the imagery. */
   polygonOffset: 0.5,
@@ -2664,6 +2698,13 @@ export const BUILDINGS = {
    *  live tiles carry no readable batch id the id defaults to 0 in-shader → variation degrades to
    *  PER-TILE tone (still better than one flat material, never an error). */
   toneVariation: 0.12,
+  /** ASK 3 RUNG 1 (owner 2026-10-13, "make buildings minimally recognisable — colours, not textures";
+   *  `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md`): a per-building HUE wobble on the day fill,
+   *  keyed by a second decorrelated hash. The fill is pulled toward one of a warm↔cool pair of
+   *  low-chroma stops (cream / stone / cool grey) by this fraction, so neighbours differ in warmth
+   *  while the city stays one restrained family — the R3 lesson (a flat saturated tint reads as
+   *  paint) kept. 0 = byte-identical (the no-op comparator). Rides `uFtwNight` → nothing at night. */
+  hueVariation: 0.22,
   /** R3 — night-facade emissive (tokens.cityLights). **DEFAULT OFF (0).** A flat per-wall glow reads
    *  as "painted yellow" (owner rejected 0.6 then 0.4) and a procedural window GRID read "junky"
    *  (owner 2026-07-13 — removed). Buildings carry NO night emissive by design: their identity is the
@@ -3108,7 +3149,7 @@ export const GROUND = {
    *  ambientDayK × tokens.skyHorizon (cool skylight); night side adds
    *  ambientNightK × tokens.moonlight plus the moon fill below. Scaled down by uFtwHiAlt so the
    *  orbital fade band stays tonally continuous with the self-lit base. */
-  ambientDayK: 0.1,
+  ambientDayK: 0.14,
   /** (0.012 → 0.02 2026-07-13: the moon terms are phase-gated, so dark-of-moon nights leaned on this
    *  flat floor — raise it so a new-moon night isn't pitch black, without washing the terminator.
    *  → 0.012 again 2026-09-10b: the albedo-scaled night floor is back (nightFloorSkyMin), so the
@@ -3303,7 +3344,7 @@ export const DRAPE = {
    *  not map size, is the dark-palette shadow ceiling). (1.3 → 1.6 2026-07-13 illumination pass: a
    *  brighter default day-ground so the shadow multiply AND the golden multiply read as a larger
    *  delta — the "brighter day-ground grade" the crisp-shadow ask needs. Watch it doesn't bloom.) */
-  gain: 1.6,
+  gain: 1.9,
   /** Faint cool cast (per-channel multiplier) so the drape sits in the palette family. */
   cast: [0.97, 1.0, 1.05] as Tuple3,
   /** FLAT day-side shade — uniform look, no slope grade (terrain relief stays geometry-only). */
@@ -3316,7 +3357,7 @@ export const DRAPE = {
    *  "crisp shadows" actually depends on. 0.9 → 0.62 (S7 "jarringly black ground") → 0.80 2026-07-13:
    *  restore shadow presence now that the brighter DRAPE.gain + additive ambient floors keep the
    *  UNSHADOWED ground from reading black (crisper WITHOUT the old black-pit). */
-  shadowOpacity: 0.8,
+  shadowOpacity: 0.65,
   /** …and under a full moon (× the K&S phase intensity, vs SHADOWS.moonGroundOpacity). Kept below the
    *  sun's 0.80 so night reads as presence, not contrast. (0.5 → 0.62 2026-07-13.) */
   moonShadowOpacity: 0.62,
@@ -4004,8 +4045,31 @@ export const FPV = {
   /** The column is cast every frame while walking / lifting / standing on a mesh; standing still
    *  on the terrain it is cast every N frames (a tile or a model landing under a static eye). */
   meshColumnIdleEveryFrames: 12,
-  /** The DESCENT ease (ms) off a roof edge — the lift INTO a surface is a snap by design. */
+  /** The DESCENT ease (ms) off a roof edge (the fall). */
   meshFloorEaseTauMs: 200,
+  // --- THE STICKY BOX (owner 2026-10-13, superseding the 2026-09-22 snap — `lib/globe/fpvClearance`
+  //     `boxClearance` + `stepStickyEye`): "do not bounce off geometry … a more realistic bounding
+  //     box around an average human (0.5 × 0.3 × 2 m, the eye at 1.7) … when the box already
+  //     intersects geometry, or you hit the side of any shape, keep moving up, so we can gracefully
+  //     scale buildings — sticky, not bouncy." Measured before the fix: a slow descent onto a 20 m
+  //     roof threw the eye +19.9 m the frame the feet came within `meshStepM` of it. -----------------
+  /** The box footprint around the eye in the WALK frame (m): half the shoulder width (across the
+   *  walk) and half the depth (along it). While walking, a column is cast at each of the four
+   *  corners besides the centre; a corner inside a solid the centre is not in is a WALL — the walk
+   *  step is reverted (the box stops at the wall, never clips) and the eye climbs toward the wall's
+   *  top until the feet clear it. 0 / 0 = the centre column alone (no wall detection: the eye
+   *  enters the wall and climbs from inside, the 2026-09-22 behaviour minus the snap). */
+  meshBoxHalfWidthM: 0.25,
+  meshBoxHalfDepthM: 0.15,
+  /** The head above the eye (m): the box is 2.0 m tall with the eye at 1.7. Rising into an
+   *  underside stops the head under it (sticky) instead of lifting the eye onto the slab. */
+  meshHeadM: 0.3,
+  /** The CLIMB glide (ms): an exponential approach of the floor reference toward a climb target
+   *  (inside a solid → its top; a wall ahead → its top; a kerb under standing feet). Paired with a
+   *  floor RATE (m/s) so the tail of a tall climb is not a crawl and a kerb clears in a frame:
+   *  a 30 m building takes ≈ 0.7 s. The old lift was a one-frame snap. */
+  meshClimbTauMs: 160,
+  meshClimbMinRateMps: 4,
 } as const;
 
 /** FPV sun/moon day-arc overlays (Phase 5.5 S6, §Item 4) — az/alt polylines of each body's
@@ -5009,6 +5073,14 @@ export const ORCH = {
 // (owner 2026-09-01c) — the triangle BUDGET below is what protects the frame, and what it has
 // to refuse nearby is the physical-density warning.
 export const MODELS = {
+  /** 2026-10-13 — an ENVIRONMENT MAP on every user model's PBR material (the GLB's own
+   *  MeshStandardMaterials, untouched before): a tiny uniform sky-grey PMREM (16 px, ~0.1 MB) gives
+   *  the image-based ambient + the specular sheen a glTF material is authored for; without one a
+   *  metallic part is BLACK and a glossy one dead ("light on custom textures dim", owner
+   *  2026-10-13). Direction-free on purpose (an oriented sky would need `envMapRotation` tracked to
+   *  the local up — the hemisphere's AB2 lesson); the hemisphere carries the directional half.
+   *  `envMapIntensity` on those materials; 0 = no env map is attached (the pre-2026-10-13 look). */
+  envIntensity: 0.3,
   /** Half-side (m) of the square of p5 cells the world read asks for around the camera's
    *  ground focus. ≈ 4.9 km cells → 4–9 cells per query. */
   fetchRadiusM: 4_000,

@@ -145,17 +145,32 @@ describe("(3) the mesh clearance — on by default, one column, a kill switch an
     expect(FPV.meshStepM).toBeLessThan(1);
     expect(FPV.meshColumnIdleEveryFrames).toBeGreaterThan(1);
     expect(FPV.meshFloorEaseTauMs).toBeGreaterThan(0);
+    // 2026-10-13 the sticky box
+    expect(FPV.meshBoxHalfWidthM).toBeGreaterThan(0);
+    expect(FPV.meshBoxHalfDepthM).toBeGreaterThan(0);
+    expect(FPV.meshHeadM).toBeGreaterThan(0);
+    expect(FPV.meshClimbTauMs).toBeGreaterThan(0);
+    expect(FPV.meshClimbMinRateMps).toBeGreaterThan(0);
   });
 
   it("the orchestrator casts both legs against the buildings, the enriched cells and the models — never the terrain — and classifies by face normal", () => {
-    expect(ORCH).toMatch(/_colTargets\.push\(buildings\.tiles\.group\);\s*if \(enriched\) _colTargets\.push\(enriched\.tiles\.group\);\s*_colTargets\.push\(userModels\.occluderRoot\(\)\);/);
+    // 2026-10-13: inside a baked region the OSM twins are clipped away (invisible) — the column skips them there.
+    expect(ORCH).toMatch(/if \(!inMask\) _colTargets\.push\(buildings\.tiles\.group\);\s*if \(enriched\) _colTargets\.push\(enriched\.tiles\.group\);\s*_colTargets\.push\(userModels\.occluderRoot\(\)\);/);
     expect(ORCH).not.toMatch(/_colTargets\.push\(ground\./);
     expect(ORCH).toMatch(/_colN\.copy\(h\.face\.normal\)\.applyMatrix3\(_colNm\)\.normalize\(\);/);
     expect(ORCH).toMatch(/if \(upDot === null \|\| Math\.abs\(upDot\) < 0\.3\) continue; \/\/ a wall is not a crossing/);
     expect(ORCH).toMatch(/if \(fpvKind === "temp"\) stepFpvMeshFloor\(\);/);
-    // inside → the feet onto the top, the standing eye height — a snap; the descent eased
-    expect(ORCH).toMatch(/if \(v\.inside\) \{[\s\S]{0,400}fpvEyeM = FRUSTUM\.eyeHeightM;/);
-    expect(ORCH).toMatch(/else fpvMeshLiftM = seatStep\(fpvMeshLiftM, liftTarget, easeK\(dtMs, FPV\.meshFloorEaseTauMs\)\);/);
+    // 2026-10-13 THE STICKY BOX: the verdict is the box's (`boxClearance`), the vertical authority
+    // is `stepStickyEye` — no snap in the orchestrator any more (the 2026-09-22 `if (v.inside)` re-base
+    // is what threw the eye 20 m up on a slow descent).
+    expect(ORCH).toMatch(/const verdict = boxClearance\(_colCols, \{/);
+    expect(ORCH).toMatch(/const r = stepStickyEye\(\s*\{ eyeM: fpvEyeM, floorAbsM: fpvMeshFloorAbsM, refAbsM: fpvMeshRefAbsM \}/);
+    expect(ORCH).not.toMatch(/fpvMeshLiftM = v\.standOnM/);
+    // the fall ease is the authority's (`fallTauMs: FPV.meshFloorEaseTauMs`), the climb glide its own two knobs
+    expect(ORCH).toMatch(/fallTauMs: FPV\.meshFloorEaseTauMs,/);
+    expect(ORCH).toMatch(/climbTauMs: FPV\.meshClimbTauMs,\s*climbMinRateMps: FPV\.meshClimbMinRateMps,/);
+    // the walking SWEEP: a wall met by the step is undone (the box stops at the wall, never clips)
+    expect(ORCH).toMatch(/if \(r\.blockedWalk\) \{[\s\S]{0,600}camera\.position\.sub\(_walkStepFrame\);\s*fpvWalkOffset\.copy\(_walkPrev\);/);
     // the kill switch and its live twin
     expect(ORCH).toMatch(/const on = fpvMeshClearanceOn \?\? FPV\.meshClearance;/);
     expect(ORCH).toMatch(/fpvClearance: \(on\?: boolean\) => \{/);

@@ -238,9 +238,10 @@ describe("the in-shadow ground across sunset", () => {
   it("REGRESSION — the shipped rig brightens in-shadow ground × 6.5 as the field is released", () => {
     // The "before", recomputed from the shipped tunables so it cannot rot into a stale comment.
     const before = LADDER.map((d) => inShadowGround(d, false));
-    expect(worstRise(before)).toBeGreaterThan(6);
+    // 2026-10-13: the cliff's size scales with the overlay — × 6.5 at groundOpacity 0.75, × 5.8 at 0.6.
+    expect(worstRise(before)).toBeGreaterThan(5);
     // …and it is a CLIFF, not a ramp: two adjacent stops 0.60° apart carry the whole of it.
-    expect(inShadowGround(1.06, false)).toBeLessThan(0.05);
+    expect(inShadowGround(1.06, false)).toBeLessThan(0.06); // 0.047 at groundOpacity 0.75, 0.052 at 0.6 (2026-10-13)
     expect(inShadowGround(0.4584, false)).toBeGreaterThan(0.29);
   });
 
@@ -261,8 +262,9 @@ describe("the in-shadow ground across sunset", () => {
     // inside this same window (0.047 at +1.06° → 0.302 at +0.4584°).
     const seq = [3, 2.5, 2, 1.63, 1.2975, 1.06, 0.7].map((d) => inShadowGround(d, true));
     for (let i = 1; i < seq.length; i++) expect(seq[i]).toBeLessThan(seq[i - 1]);
-    expect(seq[0]).toBeCloseTo(0.263, 2);
-    expect(seq.at(-1)!).toBeCloseTo(0.219, 2);
+    // 2026-10-13 re-pin (SHADOWS.groundOpacity 0.75 → 0.6, the sky-lit sun shadow): 0.263 / 0.219 → 0.323 / 0.229.
+    expect(seq[0]).toBeCloseTo(0.323, 2);
+    expect(seq.at(-1)!).toBeCloseTo(0.229, 2);
   });
 
   it("PRICES the bound: a shadow loses depth between 12° and 3.5°, and by how much", () => {
@@ -275,8 +277,10 @@ describe("the in-shadow ground across sunset", () => {
     // between them; this test exists so a future taste pass changes it deliberately.
     const hi = inShadowGround(12, true);
     const lo = inShadowGround(3.457, true);
-    expect(lo / hi).toBeGreaterThan(1.1);
-    expect(lo / hi).toBeLessThan(1.2);
+    // 2026-10-13 re-pin: with the overlay at 0.6 the shadow has less depth to lose, so the lit
+    // ground's own fall through the band now dominates the ratio (1.1–1.2 → 0.89 at 0.75 → 0.6).
+    expect(lo / hi).toBeGreaterThan(0.85);
+    expect(lo / hi).toBeLessThan(0.95);
     // …and it is exactly the shipped value at 12°, where the extinction curve is still 1.
     expect(hi).toBe(inShadowGround(12, false));
     // And the shadow's DEPTH relative to the ground it sits in shrinks monotonically the whole

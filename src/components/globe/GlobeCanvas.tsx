@@ -4,7 +4,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { tokens } from "../../lib/theme/tokens";
-import { AO, BLOOM, GATE, PIP, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA, type BloomPath } from "./tuning";
+import { AO, BLOOM, GATE, MODELS, PIP, POSE, QUALITY, RENDERER, SHADOWS, SUN, ULTRA, type BloomPath } from "./tuning";
 import {
   pipCapture,
   pipNeedsRender,
@@ -71,6 +71,64 @@ function readDeviceCaps(renderer: THREE.WebGLRenderer): DeviceCaps {
  * Verification tier: BUILD/type only here. The visual result is browser-only — verify in `wix dev`
  * (mem:project/dev_environment).
  */
+/**
+ * 2026-10-13 — Neutral with a SCALED black offset (`RENDERER.toneMapBlackOffsetK`). Stock Neutral
+ * subtracts `x − 6.25x²` (x = the min channel, below 0.08) or 0.04 from every channel — a toe that
+ * is regressive on exactly the darks the owner is looking at (−67 % on the shadowed drape). 1 keeps
+ * stock Neutral untouched (and never patches three); any other value installs a `CustomToneMapping`
+ * that is the Neutral chunk verbatim with the offset × k, so hue handling and the shoulder are
+ * identical. The chunk is patched ONCE, module-wide, before any program compiles.
+ */
+function installToneMapping(): THREE.ToneMapping {
+  const k: number = RENDERER.toneMapBlackOffsetK; // `: number` — an `as const` literal narrows to `never` after the === 1 return
+  if (k === 1) return THREE.NeutralToneMapping;
+  const stub = "vec3 CustomToneMapping( vec3 color ) { return color; }";
+  const chunk = THREE.ShaderChunk.tonemapping_pars_fragment;
+  if (chunk.includes(stub)) {
+    THREE.ShaderChunk.tonemapping_pars_fragment = chunk.replace(
+      stub,
+      /* glsl */ `vec3 CustomToneMapping( vec3 color ) {
+	const float StartCompression = 0.8 - 0.04;
+	const float Desaturation = 0.15;
+	color *= toneMappingExposure;
+	float x = min( color.r, min( color.g, color.b ) );
+	float offset = ( x < 0.08 ? x - 6.25 * x * x : 0.04 ) * ${k.toFixed(4)};
+	color -= offset;
+	float peak = max( color.r, max( color.g, color.b ) );
+	if ( peak < StartCompression ) return color;
+	float d = 1. - StartCompression;
+	float newPeak = 1. - d * d / ( peak + d - StartCompression );
+	color *= newPeak / peak;
+	float g = 1. - 1. / ( Desaturation * ( peak - newPeak ) + 1. );
+	return mix( color, vec3( newPeak ), g );
+}`,
+    );
+  } else if (!chunk.includes("CustomToneMapping( vec3 color ) {\n\tconst float StartCompression")) {
+    // three changed its stub — fall back to stock Neutral rather than ship an unknown curve
+    return THREE.NeutralToneMapping;
+  }
+  return THREE.CustomToneMapping;
+}
+
+/**
+ * 2026-10-13 — a UNIFORM sky-grey environment for the user models' PBR materials
+ * (`MODELS.envIntensity`): a 16 px PMREM of one colour (`tokens.skyHorizon` × 0.6), so a glossy or
+ * metallic glTF part reads lit instead of black. Direction-free by design — see the tunable.
+ */
+function makeUniformEnvMap(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const envScene = new THREE.Scene();
+  const col = new THREE.Color(tokens.skyHorizon).multiplyScalar(0.6);
+  const geom = new THREE.SphereGeometry(50, 16, 8);
+  const mat = new THREE.MeshBasicMaterial({ color: col, side: THREE.BackSide });
+  envScene.add(new THREE.Mesh(geom, mat));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const rt = pmrem.fromScene(envScene, 0, 0.1, 100, { size: 16 });
+  pmrem.dispose();
+  geom.dispose();
+  mat.dispose();
+  return rt.texture;
+}
+
 export default function GlobeCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -137,7 +195,7 @@ export default function GlobeCanvas() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Neutral (Khronos PBR-Neutral) tames the key light's highlight clipping WITHOUT desaturating the
     // cyan accent + additive atmosphere rim the way ACES/AgX would.
-    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMapping = installToneMapping();
     renderer.toneMappingExposure = RENDERER.toneMappingExposure;
     // ULTRA (T45 S5) — the ONE construction-time read of the chip, taken from the PERSISTED pref
     // rather than the store, because the shadow rig is built before any island has mounted.
@@ -356,12 +414,18 @@ export default function GlobeCanvas() {
     // progressively inverted everywhere else — the sky/ground ambient split is upside-down over
     // half the planet. The orchestrator re-seats it onto the local up at the view focus, and
     // restores this exact construction state when the chip goes off.
+    // 2026-10-13 — a SKY fill (`skyHorizon × hemiSkyK`) over a warm-dark bounce (`land ×
+    // hemiGroundK`), not sage over near-black navy: the only light a shadowed lit surface gets
+    // (`SUN.hemiIntensity` has the ledger).
     const hemi = new THREE.HemisphereLight(
-      new THREE.Color(tokens.landHi),
-      new THREE.Color(tokens.water),
+      new THREE.Color(tokens.skyHorizon).multiplyScalar(SUN.hemiSkyK),
+      new THREE.Color(tokens.land).multiplyScalar(SUN.hemiGroundK),
       SUN.hemiIntensity,
     );
     scene.add(hemi);
+    // 2026-10-13 — the user models' environment map (`MODELS.envIntensity`): a uniform sky-grey
+    // PMREM, generated once; three's IBL path reads only a cube-UV (PMREM) map.
+    const modelEnvMap = MODELS.envIntensity > 0 ? makeUniformEnvMap(renderer) : null;
 
     // --- soft bloom composer: RenderPass → [MsaaResolve] → UnrealBloom → FusedOutput (tone map +
     //     sRGB move to the output pass; the renderer's own settings are read by it, so they stay
@@ -811,6 +875,7 @@ export default function GlobeCanvas() {
             // Owner defect 1 — the boxes outside the one rig. Empty unless ULTRA booted on.
             shadowCascades,
             hemiLight: hemi, // ULTRA S10 — ephemeris-tracked ambient (audit gap #16)
+            modelEnvMap,
             qualityTier: activeTier, // start the tile knobs at the detected device tier (WS1)
             // Mobile texture tier (MOBILE_PLAN M0): phones report maxTextureSize ≥ 8192, so GPU
             // capability alone can't gate the ~280 MB of 8k swaps — the coarse-pointer signal does.
@@ -1220,6 +1285,7 @@ export default function GlobeCanvas() {
       unregSystemDbg();
       gpuTimer.dispose();
       tilesHandle?.dispose();
+      modelEnvMap?.dispose();
       earth.geometry.dispose();
       (earth.material as THREE.Material).dispose();
       grid.geometry.dispose();

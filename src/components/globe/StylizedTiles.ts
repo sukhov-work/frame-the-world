@@ -169,8 +169,8 @@ import {
   parseTimeHash,
 } from "../../lib/geo/urlPose";
 import { driftRadiansForDt } from "../../lib/globe/drift";
-import { seatStep } from "../../lib/globe/enrichedMask";
-import { fpvClearance, type ColumnHit } from "../../lib/globe/fpvClearance";
+import { bboxContainsDeg, seatStep } from "../../lib/globe/enrichedMask";
+import { boxClearance, stepStickyEye, type ColumnHit } from "../../lib/globe/fpvClearance";
 import { pinFollowDue } from "../../lib/globe/pinFollow";
 import {
   deleteOverride,
@@ -436,6 +436,8 @@ export function attachStylizedTiles(opts: {
    *  ephemeris; with the LOOK off it is never touched (T96, 2026-09-06i: the LOOK is
    *  `lookOn()`, so on a shipped build S10 runs whether or not the ULT chip is lit). */
   hemiLight?: THREE.HemisphereLight;
+  /** 2026-10-13 — the user models' environment map (a uniform PMREM; `MODELS.envIntensity`). */
+  modelEnvMap?: THREE.Texture | null;
   /** Initial device quality tier (RENDERING_QUALITY_PASS WS1) — the tile knobs start here so a
    *  weak device isn't briefly over-committed before the first governor correction. Default high. */
   qualityTier?: QualityTier;
@@ -1513,6 +1515,7 @@ export function attachStylizedTiles(opts: {
   //     arming gate (any signed-in member arms any model; the PATCH is open, LWW).
   const userModels = attachUserModels(scene, {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    envMap: opts.modelEnvMap ?? null,
   });
   userModels.setModels(useUserModelsStore.getState().world);
   let _prevWorldModels = useUserModelsStore.getState().world;
@@ -2194,11 +2197,23 @@ export function attachStylizedTiles(opts: {
   // term that puts the eye at `floor + fpvEyeM` above the terrain-seated eye. One vertical column
   // (down + up rays) through the eye, classified by the faces' own normals.
   let fpvMeshFloorAbsM: number | null = null;
+  // THE STICKY BOX (owner 2026-10-13, `lib/globe/fpvClearance` `stepStickyEye`): the EASED floor
+  // reference the eye is measured from (absolute m; null = the terrain), and the derived lift
+  // (`ref − base`) the orchestrator adds to the terrain-seated eye — read by the pin-follow and
+  // the DEV seam. The 2026-09-22 snap (one column, the eye re-based onto a roof the frame the
+  // feet touched) threw the eye +19.9 m on a slow descent (measured); the box lands, climbs and
+  // stops under ceilings by clamps and glides, never a re-base.
+  let fpvMeshRefAbsM: number | null = null;
   let fpvMeshLiftM = 0;
+  let fpvMeshClimbing = false;
+  let fpvMeshBlocked = false;
+  // THE CLIMB LATCH: a wall met walking is climbed to its top even if the input stops mid-climb
+  // (the box sticks to the wall's top edge — "sticky"); any accepted step clears it.
+  let fpvMeshClimbLatchM: number | null = null;
   let fpvMeshClearanceOn: boolean | null = null; // DEV seam override; null = FPV.meshClearance
   let fpvMeshLastColumnFrame = -1;
   let fpvMeshLastEyeM = NaN;
-  const fpvMeshStats = { columns: 0, lifts: 0, hits: 0, lastMs: 0 };
+  const fpvMeshStats = { columns: 0, lifts: 0, blockedFrames: 0, hits: 0, lastMs: 0, cols: 1 };
   const _colRay = new THREE.Raycaster();
   const _colHits: THREE.Intersection[] = [];
   const _colOrigin = new THREE.Vector3();
@@ -2206,9 +2221,16 @@ export function attachStylizedTiles(opts: {
   const _colN = new THREE.Vector3();
   const _colM = new THREE.Matrix4();
   const _colNm = new THREE.Matrix3();
-  const _colHitsOut: ColumnHit[] = [];
+  const _colOffset = new THREE.Vector3();
+  /** One hit list per column: [0] the centre (the eye, after the step), [1..2] the footprint's
+   *  leading corners; `_colPre` the centre BEFORE the step (the sweep, walking only). */
+  const _colCols: ColumnHit[][] = [[], [], []];
+  const _colPre: ColumnHit[] = [];
   const _colTargets: THREE.Object3D[] = [];
   const _colSeen = new Set<string>();
+  // the walk step taken THIS frame (world m) — reverted when the box's edge meets a wall
+  const _walkPrev = new THREE.Vector3();
+  const _walkStepFrame = new THREE.Vector3();
   /** A hit's face normal in WORLD space (the geometric `face.normal` is object-space and un-flipped
    *  — `intersection.normal` is flipped toward the ray and cannot tell a top from an underside). */
   const colHitUp = (h: THREE.Intersection): number | null => {
@@ -2222,80 +2244,157 @@ export function attachStylizedTiles(opts: {
     _colN.copy(h.face.normal).applyMatrix3(_colNm).normalize();
     return _colN.dot(_fpvUpGeo);
   };
-  const castColumnLeg = (fromAlongUpM: number, dirSign: 1 | -1, farM: number, eyeAbsM: number) => {
-    _colOrigin.copy(camera.position).addScaledVector(_fpvUpGeo, fromAlongUpM);
-    _colDir.copy(_fpvUpGeo).multiplyScalar(dirSign);
-    _colRay.set(_colOrigin, _colDir);
-    _colRay.near = 0;
-    _colRay.far = farM;
-    _colHits.length = 0;
-    _colRay.intersectObjects(_colTargets, true, _colHits);
-    for (const h of _colHits) {
-      const upDot = colHitUp(h);
-      if (upDot === null || Math.abs(upDot) < 0.3) continue; // a wall is not a crossing
-      const key = `${h.object.id}:${h.faceIndex ?? -1}:${h.instanceId ?? -1}`;
-      if (_colSeen.has(key)) continue;
-      _colSeen.add(key);
-      // the crossing's height: along the (near-radial) column from the eye
-      _colHitsOut.push({ hM: eyeAbsM + fromAlongUpM + dirSign * h.distance, up: upDot > 0 });
+  /** A hidden model (`group.visible = false`) still answers a raycast (three tests layers, never
+   *  visibility) — the column must not land on what the eye cannot see. */
+  const colHidden = (o: THREE.Object3D | null): boolean => {
+    for (let d = 0; o && d < 12; d++, o = o.parent) if (!o.visible) return true;
+    return false;
+  };
+  /** Cast one column (both legs) from the eye displaced by `offset` (world m), the eye's absolute
+   *  height being `eyeAbsM`; crossings land in `out` (tops and undersides; walls dropped). */
+  const castColumn = (offset: THREE.Vector3, eyeAbsM: number, out: ColumnHit[]) => {
+    out.length = 0;
+    _colSeen.clear();
+    const body = FRUSTUM.eyeHeightM;
+    const reach = FPV.meshColumnUpM + body + FPV.meshColumnDownM;
+    for (let leg = 0; leg < 2; leg++) {
+      const fromAlongUpM = leg === 0 ? FPV.meshColumnUpM : -(body + FPV.meshColumnDownM);
+      const dirSign = leg === 0 ? -1 : 1;
+      _colOrigin.copy(camera.position).add(offset).addScaledVector(_fpvUpGeo, fromAlongUpM);
+      _colDir.copy(_fpvUpGeo).multiplyScalar(dirSign);
+      _colRay.set(_colOrigin, _colDir);
+      _colRay.near = 0;
+      _colRay.far = reach;
+      _colHits.length = 0;
+      _colRay.intersectObjects(_colTargets, true, _colHits);
+      for (const h of _colHits) {
+        const upDot = colHitUp(h);
+        if (upDot === null || Math.abs(upDot) < 0.3) continue; // a wall is not a crossing
+        const key = `${h.object.id}:${h.faceIndex ?? -1}:${h.instanceId ?? -1}`;
+        if (_colSeen.has(key)) continue;
+        _colSeen.add(key);
+        if (colHidden(h.object)) continue;
+        out.push({ hM: eyeAbsM + fromAlongUpM + dirSign * h.distance, up: upDot > 0 });
+      }
     }
   };
-  /** The mesh floor under / around the eye, applied after the terrain re-seat. */
+  /** The box against the meshes under / around the eye, applied after the terrain re-seat. */
   const stepFpvMeshFloor = () => {
     const on = fpvMeshClearanceOn ?? FPV.meshClearance;
+    fpvMeshBlocked = false;
     if (!on) {
       fpvMeshFloorAbsM = null;
+      fpvMeshRefAbsM = null;
       fpvMeshLiftM = 0;
+      fpvMeshClimbing = false;
       return;
     }
-    // the eye as the terrain seated it (before this frame's lift); the lift is re-applied below
+    // the eye as the terrain seated it (before this frame's lift): `base` is the terrain under
+    // the feet (the pin's eased ground + the walk re-seat), the reference the box falls back to
     const eyeGeo = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
-    const eyeAbsM = eyeGeo.altM + fpvMeshLiftM; // where the eye actually is once lifted
+    const baseAbsM = eyeGeo.altM - fpvEyeM;
+    const refNow = fpvMeshRefAbsM ?? baseAbsM;
+    const eyeAbsM = refNow + fpvEyeM; // where the eye actually is once lifted
+    const walking = _walkStepFrame.lengthSq() > 0;
     const moving =
-      fpvWalkOffset.lengthSq() > 0 || camNow.fpvWalkInput !== null || fpvKeysDown.space || fpvEyeM !== fpvMeshLastEyeM;
+      walking || camNow.fpvWalkInput !== null || fpvKeysDown.space || fpvEyeM !== fpvMeshLastEyeM;
     const due =
-      moving || fpvMeshFloorAbsM !== null || frameCount - fpvMeshLastColumnFrame >= FPV.meshColumnIdleEveryFrames;
+      moving ||
+      fpvMeshFloorAbsM !== null ||
+      fpvMeshRefAbsM !== null ||
+      fpvMeshClimbing ||
+      frameCount - fpvMeshLastColumnFrame >= FPV.meshColumnIdleEveryFrames;
     if (due && frameCount !== fpvMeshLastColumnFrame) {
       const t0 = performance.now();
       fpvMeshLastColumnFrame = frameCount;
       fpvMeshLastEyeM = fpvEyeM;
       _colTargets.length = 0;
-      _colTargets.push(buildings.tiles.group);
+      // inside a baked region the OSM twins are clipped away by the mask — invisible, yet a
+      // raycast still meets them (three ignores clipping planes); the enriched set owns the ground
+      const inMask = enrichedBbox !== null && bboxContainsDeg(enrichedBbox, eyeGeo.lonDeg, eyeGeo.latDeg);
+      if (!inMask) _colTargets.push(buildings.tiles.group);
       if (enriched) _colTargets.push(enriched.tiles.group);
       _colTargets.push(userModels.occluderRoot());
-      _colHitsOut.length = 0;
-      _colSeen.clear();
-      // the column is cast from the LIFTED eye: move the origin by the lift first
-      camera.position.addScaledVector(_fpvUpGeo, fpvMeshLiftM);
-      const body = FRUSTUM.eyeHeightM;
-      castColumnLeg(FPV.meshColumnUpM, -1, FPV.meshColumnUpM + body + FPV.meshColumnDownM, eyeAbsM);
-      castColumnLeg(-(body + FPV.meshColumnDownM), 1, FPV.meshColumnUpM + body + FPV.meshColumnDownM, eyeAbsM);
-      camera.position.addScaledVector(_fpvUpGeo, -fpvMeshLiftM);
-      fpvMeshStats.columns++;
-      fpvMeshStats.hits = _colHitsOut.length;
-      const v = fpvClearance(_colHitsOut, {
-        eyeM: eyeAbsM,
-        bodyM: body,
-        standingOnM: fpvMeshFloorAbsM,
-        stepM: FPV.meshStepM,
-      });
-      if (v.inside) {
-        // "as if standing on it": the feet onto the surface, the eye at the standing height —
-        // a snap by design (the wall was walked INTO); the descent side is eased below.
-        fpvMeshFloorAbsM = v.standOnM;
-        fpvEyeM = FRUSTUM.eyeHeightM;
-        fpvMeshLastEyeM = fpvEyeM;
-        fpvMeshLiftM = v.standOnM! + fpvEyeM - eyeGeo.altM;
-        fpvMeshStats.lifts++;
+      // the columns are cast from the LIFTED eye: the centre, and — while a step is being taken
+      // (a wall is only ever met walking) — the SWEEP: the centre where the box WAS before the
+      // step, and the two leading corners of the box in the walk frame where it IS after it
+      const lift = refNow - baseAbsM;
+      _colOffset.copy(_fpvUpGeo).multiplyScalar(lift);
+      castColumn(_colOffset, eyeAbsM, _colCols[0]);
+      const hw = FPV.meshBoxHalfWidthM;
+      const hd = FPV.meshBoxHalfDepthM;
+      const sweep = walking && (hw > 0 || hd > 0);
+      if (sweep) {
+        _colOffset.copy(_fpvUpGeo).multiplyScalar(lift).sub(_walkStepFrame);
+        castColumn(_colOffset, eyeAbsM, _colPre);
+        // the leading edge: forward by the half depth, at ± the half width; `_fpvWalkFwd` is the
+        // step's own direction when the stick / keys drive it, the look's horizontal otherwise
+        _colDir.copy(_walkStepFrame).normalize();
+        for (let c = 0; c < 2; c++) {
+          _colOffset
+            .copy(_fpvUpGeo)
+            .multiplyScalar(lift)
+            .addScaledVector(_colDir, hd)
+            .addScaledVector(_fpvWalkRight, c === 0 ? -hw : hw);
+          castColumn(_colOffset, eyeAbsM, _colCols[c + 1]);
+        }
       } else {
-        fpvMeshFloorAbsM = v.standOnM;
+        _colPre.length = 0;
+        _colCols[1].length = 0;
+        _colCols[2].length = 0;
       }
+      fpvMeshStats.columns++;
+      fpvMeshStats.cols = sweep ? 4 : 1;
+      fpvMeshStats.hits = _colCols.reduce((n, c) => n + c.length, 0) + _colPre.length;
+      const verdict = boxClearance(_colCols, {
+        eyeM: eyeAbsM,
+        bodyM: FRUSTUM.eyeHeightM,
+        headM: FPV.meshHeadM,
+        preStepHits: sweep ? _colPre : null,
+      });
+      // THE CLIMB LATCH — evaluated BEFORE the step so the authority sees the held wall.
+      if (verdict.wallTopM !== null) fpvMeshClimbLatchM = verdict.wallTopM;
+      else if (walking || verdict.inside || fpvMeshFloorAbsM !== null) fpvMeshClimbLatchM = null;
+      else if (fpvMeshClimbLatchM !== null) verdict.wallTopM = fpvMeshClimbLatchM; // finish the climb, then hold at the top edge
+      const eyeMBefore = fpvEyeM;
+      const r = stepStickyEye(
+        { eyeM: fpvEyeM, floorAbsM: fpvMeshFloorAbsM, refAbsM: fpvMeshRefAbsM },
+        {
+          baseAbsM,
+          verdict,
+          standM: FRUSTUM.eyeHeightM,
+          headM: FPV.meshHeadM,
+          stepM: FPV.meshStepM,
+          dtMs,
+          climbTauMs: FPV.meshClimbTauMs,
+          climbMinRateMps: FPV.meshClimbMinRateMps,
+          fallTauMs: FPV.meshFloorEaseTauMs,
+        },
+      );
+      if (verdict.inside) fpvMeshStats.lifts++;
+      if (r.blockedWalk) {
+        // the box's edge met a wall: the step is undone (the box stops AT the wall, no clip) and
+        // the climb below carries the feet up to the wall's top; the next step lands on the roof
+        fpvMeshStats.blockedFrames++;
+        camera.position.sub(_walkStepFrame);
+        fpvWalkOffset.copy(_walkPrev);
+        _walkStepFrame.set(0, 0, 0);
+      }
+      fpvEyeM = r.eyeM;
+      fpvMeshLastEyeM = fpvEyeM;
+      fpvMeshFloorAbsM = r.floorAbsM;
+      fpvMeshRefAbsM = r.refAbsM;
+      fpvMeshLiftM = r.liftM;
+      fpvMeshClimbing = r.climbing;
+      fpvMeshBlocked = r.blockedWalk;
+      // the camera sits at base + eyeMBefore: move it to the new eye = base + eyeM + lift
+      camera.position.addScaledVector(_fpvUpGeo, fpvMeshLiftM + (fpvEyeM - eyeMBefore));
       fpvMeshStats.lastMs = performance.now() - t0;
+    } else {
+      // no column this frame: hold the reference (the eye rides the terrain seats + the last lift)
+      fpvMeshLiftM = refNow - baseAbsM;
+      if (fpvMeshLiftM !== 0) camera.position.addScaledVector(_fpvUpGeo, fpvMeshLiftM);
     }
-    const liftTarget = fpvMeshFloorAbsM === null ? 0 : fpvMeshFloorAbsM + fpvEyeM - eyeGeo.altM;
-    if (liftTarget > fpvMeshLiftM) fpvMeshLiftM = liftTarget; // up: at once (never inside a slab)
-    else fpvMeshLiftM = seatStep(fpvMeshLiftM, liftTarget, easeK(dtMs, FPV.meshFloorEaseTauMs)); // down: eased
-    if (fpvMeshLiftM !== 0) camera.position.addScaledVector(_fpvUpGeo, fpvMeshLiftM);
   };
   const fpvKeysDown = { up: false, down: false, left: false, right: false, shift: false, alt: false, space: false };
   // SPACE hold time (ms, accumulated from frame dt — clock-epoch-free): the ascend rate ramps
@@ -4100,21 +4199,23 @@ export function attachStylizedTiles(opts: {
       // a closed box standing on the terrain at (lat, lon), `hM` tall and `sizeM` square, added
       // to the user-models group (the column's third target); `fpvTestSolid(null)` removes it.
       // DEV only, never a feature — the box the owner places walks the real upload pipeline.
-      fpvTestSolid: (latDeg: number | null, lonDeg = 0, hM = 12, sizeM = 30) => {
+      // 2026-10-13: `baseOffsetM` raises the box off the terrain (a slab / a deck to rise under —
+      // the sticky box's ceiling leg); `name` lets a harness keep several solids at once.
+      fpvTestSolid: (latDeg: number | null, lonDeg = 0, hM = 12, sizeM = 30, baseOffsetM = 0, name = "__fpvTestSolid") => {
         const root = userModels.occluderRoot();
-        const old = root.getObjectByName("__fpvTestSolid");
+        const old = root.getObjectByName(name);
         if (old) {
           root.remove(old);
           (old as THREE.Mesh).geometry.dispose();
         }
         if (latDeg === null) return null;
-        const baseM = clampGroundM(ground.heightAt(latDeg, lonDeg) ?? 0);
+        const baseM = clampGroundM(ground.heightAt(latDeg, lonDeg) ?? 0) + baseOffsetM;
         const b = enuBasis(latDeg, lonDeg);
         const mesh = new THREE.Mesh(
           new THREE.BoxGeometry(sizeM, sizeM, hM),
           new THREE.MeshBasicMaterial({ color: 0x38e1d0, transparent: true, opacity: 0.6 }),
         );
-        mesh.name = "__fpvTestSolid";
+        mesh.name = name;
         mesh.position.fromArray(geodeticToEcef(latDeg, lonDeg, baseM + hM / 2));
         mesh.quaternion.setFromRotationMatrix(
           new THREE.Matrix4().makeBasis(
@@ -4137,8 +4238,11 @@ export function attachStylizedTiles(opts: {
         return {
           on: fpvMeshClearanceOn ?? FPV.meshClearance,
           floorAbsM: fpvMeshFloorAbsM,
+          refAbsM: fpvMeshRefAbsM,
           liftM: fpvMeshLiftM,
           eyeM: fpvEyeM,
+          climbing: fpvMeshClimbing,
+          blocked: fpvMeshBlocked,
           ...fpvMeshStats,
         };
       },
@@ -5632,7 +5736,9 @@ export function attachStylizedTiles(opts: {
               fpvWalkAppliedM = null;
               fpvWalkSampleValid = false;
               fpvMeshFloorAbsM = null; // 2026-09-22: a fresh column decides on the first frame
+              fpvMeshRefAbsM = null;
               fpvMeshLiftM = 0;
+              fpvMeshClimbing = false;
               fpvMeshLastColumnFrame = -1;
               fpvDragId = null;
               controls.enabled = false;
@@ -5901,7 +6007,9 @@ export function attachStylizedTiles(opts: {
                   fpvPinKey = pinKey;
                   reseatTempBasis(pinP);
                   fpvMeshFloorAbsM = null; // 2026-09-22: the new pin's column decides afresh
+                  fpvMeshRefAbsM = null;
                   fpvMeshLiftM = 0;
+                  fpvMeshClimbing = false;
                   fpvMeshLastColumnFrame = -1;
                 }
                 camera.position.copy(pinP).addScaledVector(_tempUp0, fpvEyeM);
@@ -5984,6 +6092,7 @@ export function attachStylizedTiles(opts: {
               // mutates the offset; a head-turn never does (true-FPV invariant — the eye stays
               // put while looking). The look itself is unchanged: lookAt uses position + _fpvFwd,
               // so moving the position keeps the heading.
+              _walkPrev.copy(fpvWalkOffset); // the sticky box may revert this frame's step
               const stick = camNow.fpvWalkInput;
               const stickRaw = stick ? Math.hypot(stick.fwd, stick.right) : 0;
               const stickMag = Math.min(1, stickRaw);
@@ -6072,6 +6181,7 @@ export function attachStylizedTiles(opts: {
                 fpvSpaceHeldMs = 0;
               }
               camera.position.add(fpvWalkOffset);
+              _walkStepFrame.subVectors(fpvWalkOffset, _walkPrev);
               // RC10 — re-seat the walked eye onto the ground it is actually over. Resampled on
               // DISTANCE, not on a timer: standing still costs nothing, and a sprint samples at a
               // fixed spatial cadence regardless of frame rate. `seatStep` is the same easing the
