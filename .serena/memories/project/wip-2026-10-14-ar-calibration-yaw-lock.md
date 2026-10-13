@@ -44,3 +44,18 @@ MOBILE_PLAN header · backlog **T164** (the carry harness's pre-existing leg) ·
 
 Related: `mem:project/wip-2026-09-19-ar-calibration-box-meshbugs` (the calibration's birth) · `mem:project/wip-2026-09-22-ar-ui-rework-fpv-quirks`
 (the column) · `mem:project/wip-2026-09-25-mobile-ux-pass` (CONFIRM at the bottom) · `mem:project/wip-2026-10-13-collision-lighting-building-colour` (the sticky box T164 touches).
+
+## RELEASED + THE FARM (DECISIONS 2026-10-14b) — v1.36.30 LIVE (ship `e5edaac` PR #143), farm-verified on the iPhone 17 Pro
+- Ship: the hook in the foreground → `claude/ship-20261014-013751` → landed after 60 s, mirror synced, `package.json` 1.36.30. Release: the
+  comment 244 bytes; **set `FTW_SHIP_DAEMON=1`** so `release.sh` runs inline (else it re-launches itself detached and a background Bash returns
+  at once); canary 200/200 · warm 170/0/0 · `verify-prod-globe` gl=true; the edge's `MobileShell.DWhJHxHJ.js` carries `ar-cal-axes`.
+- The farm, run 1: **a WebDriver `element.click()` on the AR chip is not a user activation** — TAP AGAIN flashed, no motion sheet (the
+  2026-09-07 finding again). Run 2: **a NATIVE XCUITest tap (`performActions`) raised "Would Like to Access Motion and Orientation",
+  accepted → AR armed** — the first farm run ever to arm AR. A native 850 ms hold → CALIBRATE AR + the camera sheet, accepted (T147 q3).
+  The locked native 90 × 60 pt diagonal: `YAW −41.7° · PITCH +0.0°` (the phone lay face-up — HUD PITCH −79.8° — so the `cos(pitch)` floor
+  0.2 made 90 pt worth 42° of yaw; the lock is what was measured); ↕ PITCH on → `YAW −83.4° · PITCH +5.6°`; CANCEL kept nothing; a second
+  hold re-opened LOCKED (no camera sheet the second time). **11/12 — the FAIL was the harness's A2b: WebKit returned the shorthand
+  `borderRadius` undefined; `borderTopLeftRadius` now (fixed after the run, not re-run).** PNGs + JSON:
+  `verify-shots/perf/devicefarm-ar-axes-1014-2026-10-13T22-50-56*`.
+- Traps: `getAlertText` polling prints a webdriverio ERROR line per miss (harmless noise); read a longhand through `getComputedStyle` on
+  the device; the ↕ PITCH cell's `sameInk` vs CANCEL flips to false once lit (expected — the accent).

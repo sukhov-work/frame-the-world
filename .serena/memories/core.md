@@ -10,13 +10,15 @@ Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session n
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
 ## Status — 2026-10-14 (`mem:project/wip-2026-10-14-ar-calibration-yaw-lock`)
-**AR CALIBRATION: THE DRAG IS YAW-ONLY BY DEFAULT · ↕ PITCH FREES BOTH AXES — built, gated, twin-verified (DECISIONS 2026-10-14; the release + the farm in 2026-10-14b).**
+**AR CALIBRATION: THE DRAG IS YAW-ONLY BY DEFAULT · ↕ PITCH FREES BOTH AXES — LIVE as v1.36.30 (ship `e5edaac` PR #143) and FARM-VERIFIED on the iPhone 17 Pro (DECISIONS 2026-10-14 + 2026-10-14b).**
 `lib/sensors/arCalibration.gateAimDelta` (yaw-only keeps the yaw WHOLE, zeroes the pitch; the pinch never gated) · `camera.arCalAxes` `"yaw" | "free"`
 reset to `"yaw"` on EVERY `setArCam("calibrate")` (per visit, never persisted) + `toggleArCalAxes` · the gate in `stepArCalDraft` (the pad stays dumb) ·
 a FOURTH round cell ↕ PITCH (`data-act="ar-cal-axes"`, `aria-pressed`, accent only while on) at the TOP of the verdict column — ↕ PITCH · CANCEL ·
 RESET · CONFIRM. Twin: a 60 × 30 px diagonal = −5.01° yaw / 0.00° pitch; PITCH on → +2.49°. `verify-ar-calibration` 74/74 · `verify-ar-look` 38/0 ·
-mobile batch 127/127 · 09-18 ALL PASS · `verify-fpv-carry` 27/29 **pre-existing (proven on stashed src) → T164**. The farm leg
-`tools/devicefarm/ios-ar-axes-2026-10-14.mjs --prod` (native hold + native diagonal; the readout parsed) runs on the live site after the release.
+mobile batch 127/127 · 09-18 ALL PASS · `verify-fpv-carry` 27/29 **pre-existing (proven on stashed src) → T164**. The farm
+(`tools/devicefarm/ios-ar-axes-2026-10-14.mjs --prod`): **a NATIVE XCUITest tap arms AR on the farm** (a WebDriver click flashes TAP AGAIN — run 1);
+the native hold opened calibration + the camera sheet; the locked diagonal `YAW −41.7° · PITCH +0.0°`, with ↕ PITCH on `−83.4° · +5.6°`; a second
+hold re-opened LOCKED — 11/12, the one FAIL the harness's own shorthand `borderRadius` read (fixed, not re-run).
 
 ## Status — 2026-10-13 (`mem:project/wip-2026-10-13-collision-lighting-building-colour`)
 **THE STICKY BOX · THE DAYLIGHT PASS · BUILDING COLOUR rung 1 — built and gated (DECISIONS 2026-10-13; the release + the farm in 2026-10-13b).**
@@ -44,7 +46,7 @@ the phones; T163 two pre-existing charter pins.
 - Gates: vitest **3,368 / 225 files** · `astro check` **0/0/26** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.28** (each ship bumps the patch); live **v1.36.28** (2026-10-14, ship `e706eaa` PR #141 — the sticky box + the daylight pass; v1.36.26 was 2026-10-10). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
+- `package.json` **1.36.30** (each ship bumps the patch); live **v1.36.30** (2026-10-14, ship `e5edaac` PR #143 — the AR yaw lock; v1.36.28 = `e706eaa` PR #141 the sticky box + the daylight pass, earlier the same day). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
 - **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`; a harness that measures it reads the canvas's own pixels along the gap ring (`verify-mobile-fixes-2026-10-10`). **The house Chrome profile keeps a seeded member cookie across harnesses** (T156) — run the signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page from the dev server, never inject JSON.
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
@@ -67,8 +69,7 @@ the phones; T163 two pre-existing charter pins.
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The 2026-10-14 release (v1.36.29) + the farm leg on the live site (`ios-ar-axes-2026-10-14.mjs --prod`; DECISIONS 2026-10-14b if present, else
-run it) → the owner's READ on his phones: the yaw lock's feel and the ↕ PITCH cell's reach (above CANCEL, the top of the column) → T164 (the
+The owner's READ of live v1.36.30 on his phones: the yaw lock's feel and the ↕ PITCH cell's reach (above CANCEL, the top of the column) → T164 (the
 carry harness's leg 3 on master) → the 2026-10-13 tails (the box's feel, the daylight look, T157 / T158 / T159, T163 · T160 · T161 · T162) →
 the older tails (T153 · T149 · T147 · T152 · T154 · T150 · T151 · T146 · T148 · T156) → the pre-audit main plan.
 ## Era index

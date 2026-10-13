@@ -139,7 +139,7 @@ const READY_FPV = `!!(document.querySelector(".mm-canvas") && document.querySele
 const CAL_READ = `(() => { const el = document.querySelector('[data-read="cal"]'); if (!el) return null; const t = el.textContent.replace(/\\u2212/g, "-"); const m = t.match(/YAW ([+-][\\d.]+)° · PITCH ([+-][\\d.]+)° · (\\d+) mm/); return m ? { yaw: +m[1], pitch: +m[2], mm: +m[3], text: el.textContent } : { text: el.textContent }; })()`;
 /** The FPV HUD's PITCH cell (the VIEW's pitch, sensors + calibration) — a second witness. */
 const HUD_PITCH = `(() => { const cells = [...document.querySelectorAll(".m-fpvhud__cell")]; const c = cells.find((el) => (el.querySelector(".m-fpvhud__k") || {}).textContent === "PITCH"); if (!c) return null; const m = c.textContent.replace(/\\u2212/g, "-").match(/([+-]?[\\d.]+)°/); return m ? +m[1] : null; })()`;
-const AXES_READ = `(() => { const b = document.querySelector('[data-act="ar-cal-axes"]'); if (!b) return null; const c = document.querySelector('[data-act="ar-cal-cancel"]'); const cs = getComputedStyle(b), cc = c ? getComputedStyle(c) : null; const r = b.getBoundingClientRect(); const rc = c ? c.getBoundingClientRect() : null; return { pressed: b.getAttribute("aria-pressed"), accent: b.classList.contains("m-act--accent"), label: b.textContent.trim(), w: r.width, h: r.height, round: cs.borderRadius, sameInk: cc ? cs.color === cc.color && cs.borderColor === cc.borderColor : null, aboveCancel: rc ? r.bottom <= rc.top : null, acts: [...document.querySelectorAll('.m-arcal__actions [data-act]')].map((e) => e.dataset.act).join(",") }; })()`;
+const AXES_READ = `(() => { const b = document.querySelector('[data-act="ar-cal-axes"]'); if (!b) return null; const c = document.querySelector('[data-act="ar-cal-cancel"]'); const cs = getComputedStyle(b), cc = c ? getComputedStyle(c) : null; const r = b.getBoundingClientRect(); const rc = c ? c.getBoundingClientRect() : null; return { pressed: b.getAttribute("aria-pressed"), accent: b.classList.contains("m-act--accent"), label: b.textContent.trim(), w: r.width, h: r.height, round: cs.borderTopLeftRadius /* the LONGHAND: WebKit handed the shorthand back undefined on the device (farm run 2) */, sameInk: cc ? cs.color === cc.color && cs.borderColor === cc.borderColor : null, aboveCancel: rc ? r.bottom <= rc.top : null, acts: [...document.querySelectorAll('.m-arcal__actions [data-act]')].map((e) => e.dataset.act).join(",") }; })()`;
 const STORED = `localStorage.getItem("ftw:ar-calib:v1")`;
 
 async function drive(endpoint) {
@@ -150,7 +150,7 @@ async function drive(endpoint) {
     capabilities: { platformName: "iOS", "appium:automationName": "XCUITest", browserName: "Safari" },
   });
   const js = (expr) => driver.execute(`return (${expr});`);
-  const DIAG = `(() => ({ ready: document.readyState, href: location.href.slice(0, 90), canvas: !!document.querySelector("canvas"), hud: !!document.querySelector(".m-fpvhud"), ar: !!document.querySelector(".m-arbtn--on"), pad: !!document.querySelector(".m-arcal__pad"), strip: (document.querySelector(".m-arcal") || {}).textContent || null, errs: (window.__farmErrs || []).slice(-3) }))()`;
+  const DIAG = `(() => ({ ready: document.readyState, href: location.href.slice(0, 90), canvas: !!document.querySelector("canvas"), hud: !!document.querySelector(".m-fpvhud"), ar: !!document.querySelector(".m-arbtn--on"), pad: !!document.querySelector(".m-arcal__pad"), note: (document.querySelector(".m-arnote") || {}).textContent || null, strip: (document.querySelector(".m-arcal") || {}).textContent || null, errs: (window.__farmErrs || []).slice(-3) }))()`;
   const waitFor = async (expr, ms, label) => {
     const t0 = Date.now(); let nextDiag = 15_000;
     while (Date.now() - t0 < ms) {
@@ -170,9 +170,10 @@ async function drive(endpoint) {
   /** WebKit's permission sheets ("Would Like to Access Motion and Orientation" / "…the Camera") are
    *  native alerts — accept one if it is up; the text comes back for the record. */
   const acceptSheet = async (label) => {
-    for (let i = 0; i < 6; i++) {
-      try { const t = await driver.getAlertText(); await driver.acceptAlert(); info(`${label}: accepted the sheet "${String(t).slice(0, 80)}"`); return t; } catch { await sleep(500); }
+    for (let i = 0; i < 5; i++) {
+      try { const t = await driver.getAlertText(); await driver.acceptAlert(); info(`${label}: accepted the sheet "${String(t).slice(0, 80)}"`); return t; } catch { await sleep(600); }
     }
+    info(`${label}: no sheet was up (already decided for this origin, or the tap was not a user activation)`);
     return null;
   };
   /** Page CSS px → screen points: the web view's placement through `mobile: viewportRect` (device
@@ -216,6 +217,10 @@ async function drive(endpoint) {
     await sleep(500);
   };
   const holdChip = async (sel, ms) => { const c = await centre(sel); if (!c) throw new Error(`no ${sel}`); await nativeStroke([c], { holdMs: ms }); };
+  /** A WebDriver `element.click()` is a synthetic click through the remote inspector (the 2026-10-10 keyboard
+   *  lesson): iOS does not count it as a user activation, so `DeviceOrientationEvent.requestPermission()` rejects
+   *  from it (the chip flashed TAP AGAIN on farm run 1). The AR chip takes a NATIVE tap; plain buttons may click. */
+  const nativeTap = async (sel) => { await holdChip(sel, 90); await sleep(400); };
   const tapSel = async (sel) => { const el = await driver.$(sel); await el.click(); await sleep(400); };
 
   try {
@@ -225,12 +230,12 @@ async function drive(endpoint) {
     await sleep(6000); // the city streams in; the AR chip is live once the HUD is
     const stored0 = await js(STORED);
     info(`stored calibration before the leg: ${stored0 === null ? "none" : String(stored0).slice(0, 120)}`);
-    // AR on — the real tap; the motion sheet comes from the gesture (ios-baseline 2026-09-07h)
-    await tapSel(".m-arbtn");
+    // AR on — a NATIVE tap (a real touch = a user activation); the motion sheet comes from the gesture
+    await nativeTap(".m-arbtn");
     await acceptSheet("motion");
-    const arOn = await waitFor(`!!document.querySelector(".m-cambtn")`, 10_000, "AR armed");
-    if (!arOn) { await tapSel(".m-arbtn"); await acceptSheet("motion"); }
-    check("A0 AR armed (the CAM chip appeared)", await js(`!!document.querySelector(".m-cambtn")`), JSON.stringify(await js(DIAG)));
+    let arOn = await waitFor(`!!document.querySelector(".m-cambtn")`, 8_000, "AR armed");
+    if (!arOn) { info(`AR not armed after tap 1: ${JSON.stringify(await js(DIAG))}`); await nativeTap(".m-arbtn"); await acceptSheet("motion"); arOn = await waitFor(`!!document.querySelector(".m-cambtn")`, 8_000, "AR armed (tap 2)"); }
+    check("A0 AR armed by a native tap (the CAM chip appeared)", arOn, JSON.stringify(await js(DIAG)));
     // The long press: a NATIVE hold on the AR chip (its own 500 ms timer opens calibration while AR is on)
     await holdChip(".m-arbtn", 850);
     await acceptSheet("camera");
