@@ -55,7 +55,9 @@ Release HOLDS until F2's save / edit / remove are verified live-safe (`verify-li
    resizable window, the rename on web + mobile (T179). 7. The top-right nav collapses into a `Menu` button left of PLAN (only Upload stays
    right; My spot → a location icon in the camera controls) (T180) · the Upload dropzone split pin-up / facade-down, the `?facade` link retired
    (T181) · a TEX toggle in the camera controls, ON by default, web + mobile (T182 — the mobile half conflicts with the `hqAllowed` ruling until
-   F6; the owner's call). Order: T174 → T177 → T176 → T175 → T178 → T182 → T181 → T180 → T179 → then F4 / F5.
+   F6 — RULED 2026-10-22c: present but INERT on mobile). Order: T174 → T177 → T176 → T175 → T178 + T183 → T182 → T181 → T180 → T179 → then
+F4 (T170) + F5 (T172) in the same session if they fit (owner 2026-10-22c). Also ruled: persistence tests on the LIVE site are accepted
+(T173 stays the owner's); T183 (new) = an on-hover compact preview on the camera pins (the `PinHoverCard` idiom, smaller).
 
 ## The numbers (browser, dev, the house Chrome 2026-10-22)
 - F1: MOVE −46.55 m west for a +120 px drag on the −X arrow at gain 0.5 (the camera 0.000 m); UNDO exact to 1e-9°; ROTATE 25° → 30.23°

@@ -84,8 +84,10 @@ Harness `verify-photo-projection-2026-10-18` **10/10** (the pattern paints with 
 (`poseChanged` never sees the corners — a bug) → T177 the residency must follow where I LOOK (the painted volume, a distance fade, no hard
 clip) → T176 editing in FPV → T175 quick op buttons by UNDO / DROP → T178 camera-icon markers + an edit / remove menu → T182 the TEX toggle
 (ON by default; the mobile half meets the `hqAllowed` ruling — the owner's F6 call) → T181 the split Upload dropzone (`?facade` retired) →
-T180 the collapsed `Menu` button + My spot into the camera controls → T179 MY PINS → MY CONTENT with a textures tab, bigger window. Then
-**T173 (owner): the dev OAuth permissions**, F4 textures (T170), F5 alignment (T172), the mobile twin, T166 · T165 · T167 · T164.
+T180 the collapsed `Menu` button + My spot into the camera controls → T179 MY PINS → MY CONTENT with a textures tab, bigger window →
+**then F4 textures (T170) + F5 alignment (T172) in the SAME session if they fit (owner 2026-10-22c)**. Rulings 2026-10-22c: the mobile
+TEX toggle is PRESENT BUT INERT until F6; persistence is tested on the LIVE site (accepted; T173 stays the owner's); **T183 (new): camera
+pins get an on-hover compact preview, the photo pins' hover-card idiom, with T178.** Then the mobile twin, T166 · T165 · T167 · T164.
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·
