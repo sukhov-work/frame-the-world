@@ -80,10 +80,12 @@ Harness `verify-photo-projection-2026-10-18` **10/10** (the pattern paints with 
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-**After the 2026-10-22 build (F1 + F2 + F3 + T171 BUILT, released behind `?facade=1`):** the owner's read of the gizmo feel + the save flow on
-the live site → **T173 (owner): the headless OAuth app's dev permissions** (until then persistence is verified live, never in `wix dev`) →
-F4 textures (T170: the `DataArrayTexture` route, KTX2 only if the client encode's 5.5–7.6 s is acceptable after the save) → F5 alignment
-hooks (T172) → the mobile twin last (K=1–2, 1024-px, farm-measured). Then T166 (port the radial lift rule to pins) · T165 · T167 · T164.
+**The owner tested v1.36.33 (2026-10-22b) → seven asks, T174–T182, BEFORE F4 / F5:** T174 the SCALE gizmo leaves the projection stale
+(`poseChanged` never sees the corners — a bug) → T177 the residency must follow where I LOOK (the painted volume, a distance fade, no hard
+clip) → T176 editing in FPV → T175 quick op buttons by UNDO / DROP → T178 camera-icon markers + an edit / remove menu → T182 the TEX toggle
+(ON by default; the mobile half meets the `hqAllowed` ruling — the owner's F6 call) → T181 the split Upload dropzone (`?facade` retired) →
+T180 the collapsed `Menu` button + My spot into the camera controls → T179 MY PINS → MY CONTENT with a textures tab, bigger window. Then
+**T173 (owner): the dev OAuth permissions**, F4 textures (T170), F5 alignment (T172), the mobile twin, T166 · T165 · T167 · T164.
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·

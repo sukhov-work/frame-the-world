@@ -46,6 +46,17 @@ Release HOLDS until F2's save / edit / remove are verified live-safe (`verify-li
 - Release lessons: `npx @wix/cli@latest` refuses Node < 24.18 → `release.sh` uses the pinned `node_modules/.bin/wix`; the gates' three
   MEASURED timing tests flake under load (one red per run, green alone) → `--skip-gates` on a tree the ship just gated green.
 
+## The owner's test of v1.36.33 (2026-10-22b) — seven asks, recorded as T174–T182 (DECISIONS 2026-10-22b verbatim)
+1. SCALE through the gizmo leaves the live projection stale until another op moves — `photoProjector.poseChanged` compares apex/forward/up
+   only, never the corners (T174, a bug). 2. MOVE / ROTATE / SCALE quick buttons beside UNDO + DROP SESSION (T175). 3. Editing must work in
+   FPV too — the gizmo was wired orbit-only (T176). 4. The projection vanishes when the PIN leaves the frame and clips hard at 900 m — the
+   residency tests the APEX against the view cone; it must use the painted VOLUME + a distance fade + hysteresis (T177). 5. Bigger camera-icon
+   markers with highlights + an EDIT / REMOVE (confirm) context menu (T178). 6. MY PINS → MY CONTENT with a textures tab, a bigger centred
+   resizable window, the rename on web + mobile (T179). 7. The top-right nav collapses into a `Menu` button left of PLAN (only Upload stays
+   right; My spot → a location icon in the camera controls) (T180) · the Upload dropzone split pin-up / facade-down, the `?facade` link retired
+   (T181) · a TEX toggle in the camera controls, ON by default, web + mobile (T182 — the mobile half conflicts with the `hqAllowed` ruling until
+   F6; the owner's call). Order: T174 → T177 → T176 → T175 → T178 → T182 → T181 → T180 → T179 → then F4 / F5.
+
 ## The numbers (browser, dev, the house Chrome 2026-10-22)
 - F1: MOVE −46.55 m west for a +120 px drag on the −X arrow at gain 0.5 (the camera 0.000 m); UNDO exact to 1e-9°; ROTATE 25° → 30.23°
   for 80 px on the Y ring (pitch / roll untouched, forward·up 0 → 0); SCALE 69.39° → 92.43° for 60 px outward on the X box (aspect 1.333333
