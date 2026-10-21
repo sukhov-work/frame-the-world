@@ -3652,6 +3652,40 @@ export const PHOTO_PROJECT = {
   ownLight: 0.6,
   /** Linear gain on the photo's colour (an exposure match against the scene's tone map). */
   gain: 1.0,
+  // --- THE FULL DESKTOP FLOW (F1–F3, owner order 2026-10-21; `rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md`) ---
+  /** T171 — projector SLOTS compiled into the city material (an unrolled block per slot — a GLSL
+   *  sampler array is only indexable by a constant, so the count is baked at compile; changing it
+   *  recompiles the material once at boot). Slot 0 is the DRAFT (the photo being placed / edited);
+   *  the rest are the nearest in-view SAVED photos (F3). Plain samplers: 4 + 2·K texture units of the
+   *  WebGL2 minimum 16 under ULTRA's cascades — K ≤ 6 on this route; an array texture (T170) lifts it. */
+  slots: 4,
+  /** F3 residency — a resident slot is kept until a candidate is nearer than it by this many metres
+   *  (hysteresis — a pan must not thrash textures) or it leaves the view + range. */
+  slotSwapMarginM: 60,
+  /** F3 — a saved photo earns a slot only inside this apex distance (m); beyond it, it is a marker. */
+  slotRangeM: 900,
+  /** F3 — the half-side of the world read's square cover (m) and the altitude above which no facade
+   *  is read (a facade is sub-pixel from there) — the `planModelCover` law (p5 cells, ≤ `coverMaxCells`). */
+  coverRadiusM: 6_000,
+  coverMaxAltM: 25_000,
+  coverMaxCells: 32,
+  /** F3 — the marker glyph at a saved photo's apex: angular size (× camera distance) clamped to [min, max] m. */
+  markerAngularSize: 0.006,
+  markerMinM: 2,
+  markerMaxM: 400,
+  /** F1 — the gizmo gains ("a bit less sensitive than the meshes flow", owner 2026-10-21): the drag's
+   *  raw delta × gain for move (m) and rotate (deg); scale raises the raw factor to the gain. */
+  gizmoGainMove: 0.5,
+  gizmoGainRotate: 0.5,
+  gizmoGainScale: 0.5,
+  /** F1 — the editor's rails: the altitude slider's band (m above the rendered ground), the H-FOV
+   *  band (deg — SCALE = the H-FOV, never a stretch), the pitch / roll bands (deg). */
+  altMinM: 0,
+  altMaxM: 60,
+  hFovMinDeg: 5,
+  hFovMaxDeg: 120,
+  pitchMaxDeg: 45,
+  rollMaxDeg: 30,
 } as const;
 
 /** Cinematic flight to a placed photo / searched place (design board motion spec: desktop

@@ -90,3 +90,117 @@
 .ff-panel .pd-actions .uf-btn {
   padding: 10px 12px;
 }
+
+/* F1 (2026-10-21) — the GIZMO row under the CAMERA POSE head: four op chips (the .pd-tier chip,
+   pressed = accent) + UNDO at the row's end. The UNDO stays visible when empty (dimmed) so the
+   row never reflows on the first edit. */
+.ff-gizmo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -2px 0 8px;
+}
+.ff-gizmo__ops {
+  display: inline-flex;
+  gap: 6px;
+}
+.ff-gizmo__undo:disabled {
+  opacity: 0.4;
+}
+
+/* F2 — the SAVE section rides the pin panel's .pd-save chrome; only the note + the signed-out
+   hint are new. The action row wraps: UPDATE + DELETE + a status line in a 360px panel. */
+.ff-save__note {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+}
+.ff-save__hint {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}
+.ff-panel .pd-save__act {
+  flex-wrap: wrap;
+}
+
+/* F2 — MY FACADES under the dropzone: the my-pins row rhythm (48×36 thumb, name + mono sub)
+   in the overlay's tokens; the list scrolls past ~6 rows so the dropzone keeps the fold. */
+.ff-mine {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+.ff-mine__head {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+.ff-mine__note {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+}
+.ff-mine__note.is-warn {
+  color: var(--color-warn);
+}
+.ff-mine__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 264px;
+  overflow-y: auto;
+}
+.ff-mine__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.ff-mine__row:hover {
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+.ff-mine__thumb {
+  width: 48px;
+  height: 36px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--color-surface-2);
+}
+.ff-mine__thumb--empty {
+  display: inline-block;
+  border: 1px dashed var(--color-border);
+}
+.ff-mine__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ff-mine__title {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ff-mine__sub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}

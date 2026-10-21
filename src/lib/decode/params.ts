@@ -76,3 +76,17 @@ export function derivedFov(exif: PhotoExif, params: AdjustableParams): FovResult
     model: exif.model,
   });
 }
+
+/**
+ * The EFFECTIVE horizontal FOV (deg) when a flow carries an explicit H-FOV override beside the
+ * params (the facade flow, F1 2026-10-21: SCALE = the H-FOV, and the lens slider writes the same
+ * number). `override` undefined / non-finite → the `derivedFov` baseline, byte-identical to the
+ * pin flow (which never sets one). Why an override and not a focal write: the moment the focal is
+ * touched `derivedFov` leaves the focal35 path for the sensor DB or the APS-C default, so a scaled
+ * focal would JUMP the FOV on the first drag (and a re-opened record, whose exact hFov is reproduced
+ * through a synthesized focal35, would jump hardest). Clamped to a sane open interval.
+ */
+export function effectiveHFovDeg(exif: PhotoExif, params: AdjustableParams, override?: number): number {
+  if (typeof override === "number" && Number.isFinite(override) && override > 0.5 && override < 179.5) return override;
+  return derivedFov(exif, params).hFovDeg;
+}

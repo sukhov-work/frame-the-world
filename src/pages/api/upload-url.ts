@@ -1,11 +1,13 @@
 // POST /api/upload-url — mint a Wix Media upload URL for the save-pin flow (ARCHITECTURE §6) and,
-// since MESH SUITE MS4 (D3, 2026-09-02), for a user model. Thin per C1: authenticate → elevate →
+// since MESH SUITE MS4 (D3, 2026-09-02), for a user model, and since PHOTO PROJECTION F2 (T169,
+// 2026-10-21) for a facade photo's display / thumb derivatives (kind "facade"). Thin per C1: authenticate → elevate →
 // generate URL → return. The client uploads DIRECTLY to Wix Media (originals >10MB over TUS,
 // small preview JPEGs and packed GLBs over a plain PUT) — bytes never pass through this endpoint.
 import type { APIRoute } from "astro";
 import { auth } from "@wix/essentials";
 import { files } from "@wix/media";
 import { json, requireMember } from "../../lib/api/http";
+import { checkFacadeUploadRequest, FACADE_IMAGE_MIME, FACADE_MEDIA_FOLDER } from "../../lib/wix/facadeRecords";
 import { checkModelUploadRequest, MODEL_MEDIA_FOLDER, MODEL_MIME } from "../../lib/wix/modelRecords";
 
 export const POST: APIRoute = async ({ request }) => {
@@ -20,7 +22,9 @@ export const POST: APIRoute = async ({ request }) => {
         ? "preview"
         : raw?.kind === "model"
           ? "model"
-          : null;
+          : raw?.kind === "facade"
+            ? "facade"
+            : null;
   const fileName = typeof raw?.fileName === "string" && raw.fileName ? raw.fileName : null;
   const mimeType = typeof raw?.mimeType === "string" && raw.mimeType ? raw.mimeType : null;
   const sizeBytes =
@@ -45,6 +49,24 @@ export const POST: APIRoute = async ({ request }) => {
         sizeInBytes: String(sizeBytes),
         private: false,
         filePath: MODEL_MEDIA_FOLDER,
+      });
+      return json({ kind, uploadUrl: res.uploadUrl, fileName: gate.fileName });
+    }
+    if (kind === "facade") {
+      // PHOTO PROJECTION F2 persist (T169, 2026-10-21): a facade DISPLAY / THUMB derivative — the
+      // public JPEGs every projector slot samples (`makeFacadeDerivatives` makes them client-side,
+      // C1). JPEG only, under `FACADE_IMAGE_MAX_BYTES` (a 2048-px q 0.82 frame is well inside), a
+      // plain PUT (far under the TUS threshold), PUBLIC (the projector fetches them by static URL),
+      // filed under FACADE_MEDIA_FOLDER so the Media Manager stays legible. The record POST
+      // re-verifies the descriptor server-side before a FacadePhotos row exists. The ORIGINAL rides
+      // the existing kind "original" (TUS, private) exactly as a pin's does.
+      const gate = checkFacadeUploadRequest(fileName, mimeType, sizeBytes);
+      if (!gate.ok) return json({ error: "UNSUPPORTED_FACADE_IMAGE", message: gate.error }, 400);
+      const res = await auth.elevate(files.generateFileUploadUrl)(FACADE_IMAGE_MIME, {
+        fileName: gate.fileName,
+        sizeInBytes: String(sizeBytes),
+        private: false,
+        filePath: FACADE_MEDIA_FOLDER,
       });
       return json({ kind, uploadUrl: res.uploadUrl, fileName: gate.fileName });
     }

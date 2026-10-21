@@ -51,6 +51,14 @@ import type { GhostRig } from "./enrichedBuildings";
  * VERSION PIN. `handleScreenPx` (a DEV/harness accessor) and the raycast no-op reach into
  * `TransformControls._gizmo` — an underscore field of three 0.185; a bump re-verifies it (the
  * 3d-tiles-renderer internals trap, DECISIONS §Traps).
+ *
+ * FACADE F1 (2026-10-21, `scene/facadeGizmo.ts`) widened the contract without changing either
+ * existing caller: `clamp` receives the dragged `axis` as a third argument (a facade rotate reads
+ * ONE ring, never a YXZ triple); `guardRaycast` wraps the drag plane's and the pickers' `raycast`
+ * so they answer only while THIS module is feeding a pointer — the facade gizmo lives in ORBIT,
+ * where GlobeControls raycasts the whole scene on pointerdown and twice per frame
+ * (`adjustHeight`), and an attached 100 km plane would catch those rays (§11.4 again, but while
+ * attached); `snap` lets a gained instance keep Shift on whole steps.
  */
 export interface BldgGizmoHandle {
   /** Attach to the rig for a spatial op; `extrude` or a null rig detaches. Idempotent per
@@ -93,6 +101,9 @@ export interface BldgGizmoHandle {
   /** DEV (harness POSITIVE CONTROL, §11.4): the helper root itself — a harness re-adds it to the
    *  scene for one raycast to prove its probe CAN see a parked drag plane, then removes it. */
   helperRoot(): THREE.Object3D;
+  /** DEV/test seam (FACADE F1): force the `guardRaycast` gate — the POSITIVE CONTROL of the
+   *  orbit-trap test proves a scene-wide ray CAN see the attached plane/pickers while "feeding". */
+  _setFeeding(on: boolean): void;
   dispose(): void;
 }
 
@@ -122,7 +133,7 @@ export function attachBldgGizmo(
     onChange(t: FeatureTransform): void;
     /** Rail the raw read-back. Default = the building rails (`clampGizmoEdit`); MESH SUITE MS5
      *  hands a user model its own (uniform scale, no lift, a wider move). */
-    clamp?(raw: FeatureTransform, start: FeatureTransform): FeatureTransform;
+    clamp?(raw: FeatureTransform, start: FeatureTransform, axis: string | null): FeatureTransform;
     /** MOVE shows the Y (lift) arrow. Default true; an instance without a lift seat hides it —
      *  the X/Z arrows and the ground plane stay. (MS5's model instance hid it; MS7 shows it.) */
     lift?: boolean;
@@ -138,11 +149,27 @@ export function attachBldgGizmo(
      *  read (`yawDegFromQuaternion` via `rigToTransform`) — the BUILDING instance, byte-identical
      *  (§4a: buildings stay yaw-only). */
     tilt?: boolean;
+    /** FACADE F1 (2026-10-21): the drag plane and the pickers answer a raycast ONLY while this
+     *  module is feeding a pointer (`hover` / `down` / `move`). Required for an instance that is
+     *  attached in ORBIT: GlobeControls raycasts the whole scene on pointerdown and twice per frame
+     *  (`adjustHeight`), and the attached 100 km plane + the pickers would catch those rays (the
+     *  §11.4 trap while attached). Default false = the FPV instances, byte-identical. Version-pinned:
+     *  wraps `TransformControls._plane` and the `_gizmo.picker` meshes' `raycast` (three 0.185). */
+    guardRaycast?: boolean;
+    /** The Shift-held snap steps (m / deg / scale factor). Default = `ENRICHED.gizmoSnap*`. A
+     *  GAINED instance divides the linear steps by its gain so Shift still lands on whole steps
+     *  after the gain (the facade's 15° at gain 0.5 = a 30° raw snap). */
+    snap?: { m: number; deg: number; scale: number };
   },
 ): BldgGizmoHandle {
   const clamp = cb.clamp ?? clampGizmoEdit;
   const lift = cb.lift !== false;
   const tilt = cb.tilt === true;
+  const snapSteps = cb.snap ?? {
+    m: ENRICHED.gizmoSnapM,
+    deg: ENRICHED.gizmoSnapDeg,
+    scale: ENRICHED.gizmoSnapScale,
+  };
   const tc = new TransformControls(camera); // no domElement — pointers are fed (module header)
   tc.space = "local";
   tc.size = ENRICHED.gizmoSize;
@@ -157,12 +184,50 @@ export function attachBldgGizmo(
   // PICKERS are what the controls hit-test, and the drag PLANE (a helper child too) is what every
   // pointerDown/Move intersects to measure the drag — no-op either and a drag silently moves
   // nothing (browser-caught 2026-09-02: a sweep over "every non-picker mesh" took the plane).
+  // EVERY object in those groups, not only the meshes (FACADE F1 2026-10-22, caught by the orbit
+  // guard's unit test): the helper groups hold `Line`s too — the 1e6-scaled axis lines through the
+  // origin and the DELTA / AXIS lines — and `Line.raycast` answers within `params.Line.threshold`
+  // (1 world unit), so a scene-wide ray through an attached gizmo hit them. A Group's own raycast
+  // is already a no-op, so the blanket write is safe.
   {
     const g = internals();
     if (g) {
       for (const grp of [...Object.values(g.gizmo), ...Object.values(g.helper)]) {
         grp.traverse((o) => {
-          if ((o as THREE.Mesh).isMesh) o.raycast = () => {};
+          o.raycast = () => {};
+        });
+      }
+    }
+  }
+
+  // FACADE F1 — the `guardRaycast` gate (module header): the plane and the pickers keep their
+  // real `raycast` but answer only while `feeding`, which is true exactly around this module's own
+  // `pointerHover / pointerDown / pointerMove` calls (and the DEV plane probe). Any other
+  // scene-wide ray — GlobeControls' pivot / height probes in orbit, a pick — passes through the
+  // helper as if it were not there. `_plane` is a three 0.185 underscore field (version-pinned).
+  let feeding = false;
+  const feed = <T>(fn: () => T): T => {
+    feeding = true;
+    try {
+      return fn();
+    } finally {
+      feeding = false;
+    }
+  };
+  if (cb.guardRaycast === true) {
+    const gate = (o: THREE.Object3D) => {
+      const real = o.raycast;
+      o.raycast = function (this: THREE.Object3D, rc: THREE.Raycaster, hits: THREE.Intersection[]) {
+        if (feeding) real.call(this, rc, hits);
+      };
+    };
+    const plane = (tc as unknown as { _plane?: THREE.Mesh })._plane;
+    if (plane) gate(plane);
+    const g = internals();
+    if (g) {
+      for (const grp of Object.values(g.picker)) {
+        grp.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) gate(o);
         });
       }
     }
@@ -242,7 +307,7 @@ export function attachBldgGizmo(
       raw.pitchDeg = e.pitchDeg;
       raw.rollDeg = e.rollDeg;
     }
-    const clamped = clamp(raw, startT);
+    const clamped = clamp(raw, startT, (tc.axis as string | null) ?? null);
     if (!sameT(clamped, raw)) cb.place(clamped); // the handle stops at the rail
     live = clamped;
     changed = true;
@@ -305,12 +370,12 @@ export function attachBldgGizmo(
     },
     hover(ndcX, ndcY) {
       if (!attachedObj) return false;
-      tc.pointerHover(asPointer({ x: ndcX, y: ndcY, button: -1 }));
+      feed(() => tc.pointerHover(asPointer({ x: ndcX, y: ndcY, button: -1 })));
       return tc.axis !== null;
     },
     down(ndcX, ndcY, liveBaseY, start) {
       if (!attachedObj || !rigRef || tc.dragging) return false;
-      tc.pointerHover(asPointer({ x: ndcX, y: ndcY, button: -1 })); // touch has no prior hover
+      feed(() => tc.pointerHover(asPointer({ x: ndcX, y: ndcY, button: -1 }))); // touch has no prior hover
       if (tc.axis === null) return false;
       startT = start;
       frame = { cx: rigRef.cx, cz: rigRef.cz, liveBaseY, inflate: rigRef.inflate };
@@ -323,7 +388,7 @@ export function attachBldgGizmo(
       const rail = lift && move ? (cb.liftRail?.(start) ?? { minM: 0, maxM: LIFT_MAX_M }) : { minM: 0, maxM: 0 };
       tc.minY = move ? liveBaseY + rail.minM : -Infinity;
       tc.maxY = move ? liveBaseY + rail.maxM : Infinity;
-      tc.pointerDown(asPointer({ x: ndcX, y: ndcY, button: 0 }));
+      feed(() => tc.pointerDown(asPointer({ x: ndcX, y: ndcY, button: 0 })));
       if (!tc.dragging) {
         startT = null;
         frame = null;
@@ -333,10 +398,10 @@ export function attachBldgGizmo(
     },
     move(ndcX, ndcY, snap) {
       if (!tc.dragging) return;
-      tc.translationSnap = snap ? ENRICHED.gizmoSnapM : null;
-      tc.rotationSnap = snap ? (ENRICHED.gizmoSnapDeg * Math.PI) / 180 : null;
-      tc.scaleSnap = snap ? ENRICHED.gizmoSnapScale : null;
-      tc.pointerMove(asPointer({ x: ndcX, y: ndcY, button: -1 }));
+      tc.translationSnap = snap ? snapSteps.m : null;
+      tc.rotationSnap = snap ? (snapSteps.deg * Math.PI) / 180 : null;
+      tc.scaleSnap = snap ? snapSteps.scale : null;
+      feed(() => tc.pointerMove(asPointer({ x: ndcX, y: ndcY, button: -1 })));
     },
     up() {
       if (!tc.dragging) return null;
@@ -423,7 +488,7 @@ export function attachBldgGizmo(
       if (ndcX !== undefined && ndcY !== undefined) {
         const rc = t.getRaycaster();
         rc.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-        const hits = rc.intersectObject(t._plane, true);
+        const hits = feed(() => rc.intersectObject(t._plane, true)); // through the guard, like a drag
         const pl = t._plane;
         const n = new THREE.Vector3(0, 0, 1).transformDirection(pl.matrixWorld);
         const pos = new THREE.Vector3().setFromMatrixPosition(pl.matrixWorld);
@@ -482,6 +547,9 @@ export function attachBldgGizmo(
     },
     helperRoot() {
       return helper;
+    },
+    _setFeeding(on) {
+      feeding = on;
     },
     dispose() {
       tc.removeEventListener("objectChange", onObjectChange);

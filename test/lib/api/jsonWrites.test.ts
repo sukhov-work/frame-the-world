@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JSON_WRITE_HEADERS, jsonWriteInit } from "../../../src/lib/api/dataFetch";
-import { deleteListing, deleteModelRecord, deletePhotoRecord } from "../../../src/lib/save/uploadMedia";
+import { deleteFacadeRecord, deleteListing, deleteModelRecord, deletePhotoRecord } from "../../../src/lib/save/uploadMedia";
 
 /**
  * EVERY `/api` WRITE CARRIES A JSON CONTENT TYPE — body or not (owner bug 2026-09-19: "couldn't
@@ -50,12 +50,14 @@ describe("the delete wires — what actually leaves the browser", () => {
     );
   };
 
-  it("models, photos and listings: DELETE + Content-Type: application/json, no body", async () => {
+  it("models, photos, listings and facades: DELETE + Content-Type: application/json, no body", async () => {
     stub();
     await deleteModelRecord("m 1");
     await deletePhotoRecord("p1");
     await deleteListing("p1");
-    expect(calls.map((c) => c.url)).toEqual(["/api/models?id=m%201", "/api/photos?id=p1", "/api/listings?photoId=p1"]);
+    // PHOTO PROJECTION F2 (2026-10-21): the facade delete is born on the wire rule, never a bare DELETE.
+    await deleteFacadeRecord("f/1");
+    expect(calls.map((c) => c.url)).toEqual(["/api/models?id=m%201", "/api/photos?id=p1", "/api/listings?photoId=p1", "/api/facades?id=f%2F1"]);
     for (const c of calls) {
       expect(c.init.method).toBe("DELETE");
       expect(new Headers(c.init.headers).get("content-type")).toBe("application/json");

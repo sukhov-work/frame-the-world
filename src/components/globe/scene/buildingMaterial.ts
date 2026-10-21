@@ -92,33 +92,41 @@ interface BuildingMaterialUniforms {
   uFtwSunW: { value: THREE.Vector3 };
   /** 2026-10-13 — the DAY fill (`tokens.buildingDay`), lerped to the slate `color` by `uFtwNight`. */
   uFtwDayFill: { value: THREE.Color };
-  /** PHOTO PROJECTION (2026-10-18, the photo flow (b) prototype — PHOTO_PROJECT): the per-PASS
-   *  holders the fill material's own onBeforeRender fills from the shared feed (never per draw —
-   *  three re-uploads a non-ShaderMaterial's uniforms only on a material / program / camera
-   *  switch, so a per-mesh write reaches the GPU for the first mesh of a run only). `uFtwProjOn`
-   *  0 = the whole block is one dead uniform branch (byte-identical city). */
+  /** PHOTO PROJECTION (2026-10-18, the photo flow (b) prototype — PHOTO_PROJECT; K SLOTS since
+   *  2026-10-21, T171): the per-PASS holders the fill material's own onBeforeRender fills from the
+   *  shared feed (never per draw — three re-uploads a non-ShaderMaterial's uniforms only on a
+   *  material / program / camera switch, so a per-mesh write reaches the GPU for the first mesh of
+   *  a run only). `uFtwProjOn` = the LIVE slot count; 0 = the whole block is one dead uniform
+   *  branch (byte-identical city). The per-slot holders are arrays of exactly `PHOTO_PROJECT.slots`
+   *  — three's `flatten` reads `size` entries, so they are pre-allocated once and never shrunk
+   *  (WebGLUniforms.js `setValueM4Array` / `flatten`); a null sampler entry binds three's empty
+   *  texture (black, no upload — `setValueT1Array`), which still costs its texture unit. */
   uFtwProjOn: { value: number };
-  /** VIEW space → photo clip space (bias folded: xyz/w ∈ [0,1] inside the frustum) — computed
-   *  in float64 from `feed.projVP × camera.matrixWorld` per pass, applied to `-vViewPosition`
-   *  (which three builds from the float64 modelViewMatrix): the RTC discipline, no ECEF swim. */
-  uFtwProjFromView: { value: THREE.Matrix4 };
-  /** The projector apex in VIEW space (per pass) — the facing test's ray origin. */
-  uFtwProjApexV: { value: THREE.Vector3 };
-  uFtwProjMap: { value: THREE.Texture | null };
-  uFtwProjDepth: { value: THREE.Texture | null };
-  /** x strength · y ownLight · z flipV (1 = an ImageBitmap source, row 0 at v 0) · w gain */
+  /** VIEW space → photo clip space (bias folded: xyz/w ∈ [0,1] inside the frustum) per slot —
+   *  computed in float64 from `slot.projVP × camera.matrixWorld` per pass, applied to
+   *  `-vViewPosition` (which three builds from the float64 modelViewMatrix): the RTC discipline,
+   *  no ECEF swim. */
+  uFtwProjFromView: { value: THREE.Matrix4[] };
+  /** The projector apex in VIEW space (per pass, per slot) — the facing test's ray origin. */
+  uFtwProjApexV: { value: THREE.Vector3[] };
+  uFtwProjMap: { value: (THREE.Texture | null)[] };
+  uFtwProjDepth: { value: (THREE.Texture | null)[] };
+  /** Per slot: x strength · y flipV (1 = an ImageBitmap source, row 0 at v 0) · z range (m — beyond
+   *  it the photo fades out over PHOTO_PROJECT.rangeFadeFrac of itself; a street photo must not
+   *  paper the skyline) · w ownLight (0 = lit by the scene, 1 = the photo's own colours). */
+  uFtwProjSlot: { value: THREE.Vector4[] };
+  /** Shared: x a global strength multiplier (1) · y, z spare · w the colour gain. */
   uFtwProjK: { value: THREE.Vector4 };
-  /** x near m · y far m · z bias m · w bias per metre of range */
+  /** x near m · y far m · z bias m · w bias per metre of range (shared by every slot). */
   uFtwProjDepthP: { value: THREE.Vector4 };
-  /** x facing lo · y facing hi · z edge feather (uv) · w range (m — beyond it the photo fades out
-   *  over PHOTO_PROJECT.rangeFadeFrac of itself; a street photo must not paper the skyline) */
+  /** x facing lo · y facing hi · z edge feather (uv) · w spare (the range moved per slot). */
   uFtwProjFacing: { value: THREE.Vector4 };
 }
 
-/** PHOTO PROJECTION feed — ONE object owned by scene/photoProjector.ts and handed to BOTH building
- *  sets by reference (`setPhotoProjector`); the projector mutates it in place, each set's fill
- *  material copies it into its own uniform holders once per render pass. */
-export interface PhotoProjectorFeed {
+/** ONE projector SLOT of the feed (T171): a photo + its depth map at its pose. The projector owns
+ *  the objects and mutates them in place; `on` false (or a missing texture) = the slot is skipped
+ *  when the pass packs the live slots. */
+export interface PhotoProjectorSlot {
   on: boolean;
   /** bias · P · V_photo — WORLD (ECEF) → photo clip space with xyz in [0,1] inside the frustum.
    *  float64 on the CPU; it is never uploaded as-is (its translation is ECEF-sized). */
@@ -127,10 +135,28 @@ export interface PhotoProjectorFeed {
   apexW: THREE.Vector3;
   map: THREE.Texture | null;
   depth: THREE.Texture | null;
+  /** x strength · y flipV · z rangeM · w ownLight (the `uFtwProjSlot` layout). */
+  slot: THREE.Vector4;
+}
+
+/** PHOTO PROJECTION feed — ONE object owned by scene/photoProjector.ts and handed to BOTH building
+ *  sets by reference (`setPhotoProjector`); the projector mutates it in place, each set's fill
+ *  material packs its LIVE slots (in `slots` order — the draft first, then the nearest saved
+ *  photos: the compositing is front-to-back "under", so order IS priority) into its own uniform
+ *  holders once per render pass. */
+export interface PhotoProjectorFeed {
+  slots: PhotoProjectorSlot[];
   k: THREE.Vector4;
   depthP: THREE.Vector4;
   facing: THREE.Vector4;
 }
+
+/** T171: the slot count compiled into the city material (a GLSL sampler array is indexable only by
+ *  a constant, so the slots are K unrolled blocks — `#pragma unroll_loop_start`, the literal bound
+ *  three's `unrollLoops` demands; a `#define` would not match its regex). Changing the tunable
+ *  recompiles the material once at boot — the program cache key is `onBeforeCompile.toString()`,
+ *  which does not see a closure value, so K is read ONCE here, never at runtime. */
+export const PHOTO_PROJECT_SLOTS = PHOTO_PROJECT.slots;
 
 export interface BuildingMaterialSet {
   fillMat: THREE.MeshStandardMaterial;
@@ -201,23 +227,25 @@ export function createBuildingMaterials(
     uFtwSunW: { value: new THREE.Vector3(0, 0, 1) },
     uFtwDayFill: { value: new THREE.Color(tokens.buildingDay) },
     // PHOTO PROJECTION — inert at the defaults: uFtwProjOn 0 short-circuits the fragment block
-    // and the <opaque_fragment> mix (ftwProjK stays 0.0 → mix(x, 0, 0) = x, byte-identical).
+    // and the <opaque_fragment> mix (ftwProjOwn stays 0.0 → mix(x, 0, 0) = x, byte-identical).
+    // The per-slot arrays are allocated to exactly K once (see the holder doc).
     uFtwProjOn: { value: 0 },
-    uFtwProjFromView: { value: new THREE.Matrix4() },
-    uFtwProjApexV: { value: new THREE.Vector3() },
-    uFtwProjMap: { value: null },
-    uFtwProjDepth: { value: null },
-    uFtwProjK: { value: new THREE.Vector4(PHOTO_PROJECT.strength, PHOTO_PROJECT.ownLight, 0, PHOTO_PROJECT.gain) },
+    uFtwProjFromView: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => new THREE.Matrix4()) },
+    uFtwProjApexV: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => new THREE.Vector3()) },
+    uFtwProjMap: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => null) },
+    uFtwProjDepth: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => null) },
+    uFtwProjSlot: {
+      value: Array.from(
+        { length: PHOTO_PROJECT_SLOTS },
+        () => new THREE.Vector4(PHOTO_PROJECT.strength, 0, PHOTO_PROJECT.rangeM, PHOTO_PROJECT.ownLight),
+      ),
+    },
+    uFtwProjK: { value: new THREE.Vector4(1, 0, 0, PHOTO_PROJECT.gain) },
     uFtwProjDepthP: {
       value: new THREE.Vector4(PHOTO_PROJECT.nearM, PHOTO_PROJECT.farM, PHOTO_PROJECT.depthBiasM, PHOTO_PROJECT.depthBiasPerM),
     },
     uFtwProjFacing: {
-      value: new THREE.Vector4(
-        PHOTO_PROJECT.facingLo,
-        PHOTO_PROJECT.facingHi,
-        PHOTO_PROJECT.edgeFeather,
-        PHOTO_PROJECT.rangeM,
-      ),
+      value: new THREE.Vector4(PHOTO_PROJECT.facingLo, PHOTO_PROJECT.facingHi, PHOTO_PROJECT.edgeFeather, 0),
     },
   };
 
@@ -235,24 +263,36 @@ export function createBuildingMaterials(
     projLastFrame = frame;
     projLastCamera = camera;
     const f = projFeed;
-    if (!f || !f.on || !f.map || !f.depth) {
-      if (uniforms.uFtwProjOn.value !== 0) uniforms.uFtwProjOn.value = 0;
-      // Drop the sampler references too: a disposed photo (its ImageBitmap closed) still bound
-      // here would be re-uploaded by three on the next draw — "source data has been detached".
-      uniforms.uFtwProjMap.value = null;
-      uniforms.uFtwProjDepth.value = null;
-      return;
+    const maps = uniforms.uFtwProjMap.value;
+    const depths = uniforms.uFtwProjDepth.value;
+    // Pack the LIVE slots in feed order (the draft first, then the nearest saved photos — the
+    // front-to-back compositing in the fragment makes order priority). A slot that is off, or
+    // whose photo / depth is missing, is skipped; the tail beyond the live count drops its
+    // sampler references: a disposed photo (its ImageBitmap closed) still bound here would be
+    // re-uploaded by three on the next draw — "source data has been detached".
+    let n = 0;
+    if (f) {
+      for (const s of f.slots) {
+        if (n >= PHOTO_PROJECT_SLOTS) break;
+        if (!s.on || !s.map || !s.depth) continue;
+        // float64 on the CPU: the ECEF-sized translations cancel BEFORE the float32 cast — the
+        // uploaded matrix carries the camera→apex offset (metres to kilometres), never 6.4e6 m.
+        uniforms.uFtwProjFromView.value[n].multiplyMatrices(s.projVP, camera.matrixWorld);
+        uniforms.uFtwProjApexV.value[n].copy(s.apexW).applyMatrix4(camera.matrixWorldInverse);
+        maps[n] = s.map;
+        depths[n] = s.depth;
+        uniforms.uFtwProjSlot.value[n].copy(s.slot);
+        n++;
+      }
+      uniforms.uFtwProjK.value.copy(f.k);
+      uniforms.uFtwProjDepthP.value.copy(f.depthP);
+      uniforms.uFtwProjFacing.value.copy(f.facing);
     }
-    uniforms.uFtwProjOn.value = 1;
-    // float64 on the CPU: the ECEF-sized translations cancel BEFORE the float32 cast — the
-    // uploaded matrix carries the camera→apex offset (metres to kilometres), never 6.4e6 m.
-    uniforms.uFtwProjFromView.value.multiplyMatrices(f.projVP, camera.matrixWorld);
-    uniforms.uFtwProjApexV.value.copy(f.apexW).applyMatrix4(camera.matrixWorldInverse);
-    uniforms.uFtwProjMap.value = f.map;
-    uniforms.uFtwProjDepth.value = f.depth;
-    uniforms.uFtwProjK.value.copy(f.k);
-    uniforms.uFtwProjDepthP.value.copy(f.depthP);
-    uniforms.uFtwProjFacing.value.copy(f.facing);
+    for (let j = n; j < PHOTO_PROJECT_SLOTS; j++) {
+      maps[j] = null;
+      depths[j] = null;
+    }
+    if (uniforms.uFtwProjOn.value !== n) uniforms.uFtwProjOn.value = n;
   };
 
   fillMat.onBeforeCompile = (shader) => {
@@ -280,6 +320,7 @@ export function createBuildingMaterials(
     shader.uniforms.uFtwProjApexV = uniforms.uFtwProjApexV;
     shader.uniforms.uFtwProjMap = uniforms.uFtwProjMap;
     shader.uniforms.uFtwProjDepth = uniforms.uFtwProjDepth;
+    shader.uniforms.uFtwProjSlot = uniforms.uFtwProjSlot;
     shader.uniforms.uFtwProjK = uniforms.uFtwProjK;
     shader.uniforms.uFtwProjDepthP = uniforms.uFtwProjDepthP;
     shader.uniforms.uFtwProjFacing = uniforms.uFtwProjFacing;
@@ -347,16 +388,20 @@ export function createBuildingMaterials(
         uniform vec3 uFtwSunW;
         uniform vec3 uFtwDayFill;
         uniform float uFtwProjOn;
-        uniform mat4 uFtwProjFromView;
-        uniform vec3 uFtwProjApexV;
-        uniform sampler2D uFtwProjMap;
-        uniform highp sampler2D uFtwProjDepth;
+        uniform mat4 uFtwProjFromView[ ${PHOTO_PROJECT_SLOTS} ];
+        uniform vec3 uFtwProjApexV[ ${PHOTO_PROJECT_SLOTS} ];
+        uniform sampler2D uFtwProjMap[ ${PHOTO_PROJECT_SLOTS} ];
+        uniform highp sampler2D uFtwProjDepth[ ${PHOTO_PROJECT_SLOTS} ];
+        uniform vec4 uFtwProjSlot[ ${PHOTO_PROJECT_SLOTS} ];
         uniform vec4 uFtwProjK;
         uniform vec4 uFtwProjDepthP;
         uniform vec4 uFtwProjFacing;
         // PHOTO PROJECTION — fragment globals written by the block at <normal_fragment_maps> and read
-        // again at <opaque_fragment> (the own-light mix). Both stay 0 while uFtwProjOn is 0.
+        // again at <opaque_fragment> (the own-light mix). All three stay 0 while uFtwProjOn is 0.
+        // ftwProjK = the composited coverage over the slots, ftwProjOwn = the own-light share of it
+        // (Σ w_i · ownLight_i), ftwProjRgb = the coverage-weighted photo colour.
         float ftwProjK = 0.0;
+        float ftwProjOwn = 0.0;
         vec3 ftwProjRgb = vec3(0.0);
         // The projector's 24-bit window depth back to metres (its near/far ride in uFtwProjDepthP.xy),
         // so the occlusion compare + bias happen in METRES — a window-space bias is ~d² non-linear.
@@ -402,10 +447,11 @@ export function createBuildingMaterials(
           gl_FragColor.rgb = max(gl_FragColor.rgb, uFtwAccent * ftwOvG);
         }
         // PHOTO PROJECTION — the OWN-LIGHT half: the photo's own colours replace the LIT result by
-        // ownLight × K (the albedo half at <normal_fragment_maps> took 1 − ownLight). In linear
-        // light, after the floor and BEFORE the haze, so a projected facade recedes into the same
-        // air as the city. ftwProjK is 0.0 whenever the projector is off → mix(x, 0, 0) = x.
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, ftwProjRgb, ftwProjK * uFtwProjK.y);
+        // the own-light share of the composited coverage (the albedo half at <normal_fragment_maps>
+        // took the rest, K − own). In linear light, after the floor and BEFORE the haze, so a
+        // projected facade recedes into the same air as the city. ftwProjOwn is 0.0 whenever the
+        // projector is off → mix(x, 0, 0) = x.
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, ftwProjRgb, ftwProjOwn);
         gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol,
           uFtwHazeCool, uFtwSkyLevel, uFtwAfterglowG);`,
       )
@@ -464,46 +510,69 @@ export function createBuildingMaterials(
         }`,
       )
       .replace(
-        // PHOTO PROJECTION (the photo flow (b), 2026-10-18) — after <normal_fragment_begin> has the
-        // flat-shaded VIEW-space `normal` and before <lights_physical_fragment> copies diffuseColor.
-        // Everything is camera-relative: -vViewPosition is the float64-built view position, the
-        // matrix maps it straight into the photo's clip space (xyz/w ∈ [0,1] inside the frustum,
-        // w = the projector's eye depth in metres). The in-frustum / facing / occlusion terms are
-        // multiplicative masks, never branches: the texture fetches stay in uniform control flow
-        // (the only branch is on the uniform), so their derivatives are well defined.
+        // PHOTO PROJECTION (the photo flow (b), 2026-10-18; K SLOTS 2026-10-21, T171) — after
+        // <normal_fragment_begin> has the flat-shaded VIEW-space `normal` and before
+        // <lights_physical_fragment> copies diffuseColor. Everything is camera-relative:
+        // -vViewPosition is the float64-built view position, each slot's matrix maps it straight
+        // into that photo's clip space (xyz/w ∈ [0,1] inside the frustum, w = the projector's eye
+        // depth in metres). The slots are K UNROLLED blocks (three's `unrollLoops` — a sampler
+        // array is only indexable by a constant; `continue` / `break` do not survive the unroll,
+        // hence nested ifs), each with an EARLY-OUT: a fragment outside a slot's frustum, or one
+        // already fully covered by an earlier slot, costs that slot one mat4 × vec4 and a few
+        // compares — no fetch. The derivatives are taken ONCE, in uniform control flow, on the view
+        // position; the view→clip map is affine, so each slot's uv gradients are two more mat4 × vec4
+        // products inside its branch — `textureGrad` with explicit gradients and `textureLod` are
+        // both legal in non-uniform flow. Compositing is front-to-back "under" in feed order (the
+        // draft first, then the nearest saved photos): slot i adds (1 − K_so_far) · k_i, so the
+        // first slot at full coverage wins outright and later slots fill only its feathered edges.
         "#include <normal_fragment_maps>",
         /* glsl */ `#include <normal_fragment_maps>
         if (uFtwProjOn > 0.5) {
           vec3 ftwPV = -vViewPosition;
-          vec4 ftwC = uFtwProjFromView * vec4(ftwPV, 1.0);
-          float ftwInFront = step(1e-4, ftwC.w);
-          vec3 ftwP = ftwC.xyz / max(ftwC.w, 1e-4);
-          vec2 ftwUv = clamp(ftwP.xy, 0.0, 1.0);
-          vec2 ftwDuvDx = dFdx(ftwUv);
-          vec2 ftwDuvDy = dFdy(ftwUv);
-          vec2 ftwE = min(ftwP.xy, 1.0 - ftwP.xy);
-          float ftwInside = ftwInFront * step(0.0, ftwE.x) * step(0.0, ftwE.y) * step(0.0, ftwP.z) * step(ftwP.z, 1.0);
-          float ftwFeather = smoothstep(0.0, uFtwProjFacing.z, min(ftwE.x, ftwE.y));
-          // Facing: the geometric normal faces the VIEWER (flat shading, derivative-built), the
-          // projector may sit on either side of a one-quad wall — abs() makes the test symmetric;
-          // the depth compare below rejects the far side of a closed box regardless.
-          float ftwFace = abs(dot(normal, normalize(uFtwProjApexV - ftwPV)));
-          float ftwFaceK = smoothstep(uFtwProjFacing.x, uFtwProjFacing.y, ftwFace);
-          float ftwDMe = ftwC.w;
-          float ftwDRef = ftwProjLinDepth(textureLod(uFtwProjDepth, ftwUv, 0.0).r);
-          float ftwBias = uFtwProjDepthP.z * (1.0 + 4.0 * (1.0 - ftwFace)) + uFtwProjDepthP.w * ftwDMe;
-          float ftwLit = step(ftwDMe, ftwDRef + ftwBias);
-          // The range: a photo papers what it can resolve — beyond uFtwProjFacing.w the paint
-          // fades out over a fraction of the range (never a hard cut across a facade).
-          float ftwRange = 1.0 - smoothstep(uFtwProjFacing.w * ${glf(1 - PHOTO_PROJECT.rangeFadeFrac)}, uFtwProjFacing.w, ftwDMe);
-          vec2 ftwSampleUv = vec2(ftwUv.x, mix(ftwUv.y, 1.0 - ftwUv.y, uFtwProjK.z));
-          vec3 ftwPhoto = textureGrad(uFtwProjMap, ftwSampleUv, ftwDuvDx, ftwDuvDy).rgb * uFtwProjK.w;
-          ftwProjK = uFtwProjK.x * ftwInside * ftwFeather * ftwFaceK * ftwLit * ftwRange;
-          ftwProjRgb = ftwPhoto;
-          // The LIT half: the photo becomes the facade's albedo by (1 − ownLight) × K — sun, shadow
-          // and the day/night fill then shade it like any wall. The own-light half is at
-          // <opaque_fragment>.
-          diffuseColor.rgb = mix(diffuseColor.rgb, ftwPhoto, ftwProjK * (1.0 - uFtwProjK.y));
+          vec3 ftwPVdx = dFdx(ftwPV);
+          vec3 ftwPVdy = dFdy(ftwPV);
+          #pragma unroll_loop_start
+          for ( int i = 0; i < ${PHOTO_PROJECT_SLOTS}; i ++ ) {
+            if (float( UNROLLED_LOOP_INDEX ) < uFtwProjOn - 0.5 && ftwProjK < 0.999) {
+              vec4 ftwC = uFtwProjFromView[ i ] * vec4(ftwPV, 1.0);
+              vec3 ftwP = ftwC.xyz / max(ftwC.w, 1e-4);
+              vec2 ftwE = min(ftwP.xy, 1.0 - ftwP.xy);
+              if (ftwC.w > 1e-4 && min(ftwE.x, ftwE.y) >= 0.0 && ftwP.z >= 0.0 && ftwP.z <= 1.0) {
+                vec4 ftwS = uFtwProjSlot[ i ];
+                vec2 ftwUv = ftwP.xy;
+                vec4 ftwCx = ftwC + uFtwProjFromView[ i ] * vec4(ftwPVdx, 0.0);
+                vec4 ftwCy = ftwC + uFtwProjFromView[ i ] * vec4(ftwPVdy, 0.0);
+                vec2 ftwDuvDx = ftwCx.xy / max(ftwCx.w, 1e-4) - ftwUv;
+                vec2 ftwDuvDy = ftwCy.xy / max(ftwCy.w, 1e-4) - ftwUv;
+                float ftwFeather = smoothstep(0.0, uFtwProjFacing.z, min(ftwE.x, ftwE.y));
+                // Facing: the geometric normal faces the VIEWER (flat shading, derivative-built), the
+                // projector may sit on either side of a one-quad wall — abs() makes the test symmetric;
+                // the depth compare below rejects the far side of a closed box regardless.
+                float ftwFace = abs(dot(normal, normalize(uFtwProjApexV[ i ] - ftwPV)));
+                float ftwFaceK = smoothstep(uFtwProjFacing.x, uFtwProjFacing.y, ftwFace);
+                float ftwDMe = ftwC.w;
+                float ftwDRef = ftwProjLinDepth(textureLod(uFtwProjDepth[ i ], ftwUv, 0.0).r);
+                float ftwBias = uFtwProjDepthP.z * (1.0 + 4.0 * (1.0 - ftwFace)) + uFtwProjDepthP.w * ftwDMe;
+                float ftwLit = step(ftwDMe, ftwDRef + ftwBias);
+                // The range: a photo papers what it can resolve — beyond the slot's range the paint
+                // fades out over a fraction of it (never a hard cut across a facade).
+                float ftwRange = 1.0 - smoothstep(ftwS.z * ${glf(1 - PHOTO_PROJECT.rangeFadeFrac)}, ftwS.z, ftwDMe);
+                vec2 ftwSampleUv = vec2(ftwUv.x, mix(ftwUv.y, 1.0 - ftwUv.y, ftwS.y));
+                vec3 ftwPhoto = textureGrad(uFtwProjMap[ i ], ftwSampleUv, ftwDuvDx, ftwDuvDy).rgb * uFtwProjK.w;
+                float ftwKi = uFtwProjK.x * ftwS.x * ftwFeather * ftwFaceK * ftwLit * ftwRange;
+                float ftwW = (1.0 - ftwProjK) * ftwKi;
+                ftwProjRgb += ftwW * ftwPhoto;
+                ftwProjOwn += ftwW * ftwS.w;
+                ftwProjK += ftwW;
+              }
+            }
+          }
+          #pragma unroll_loop_end
+          ftwProjRgb /= max(ftwProjK, 1e-4);
+          // The LIT half: the photo becomes the facade's albedo by the lit share of the coverage
+          // (K − the own-light share) — sun, shadow and the day/night fill then shade it like any
+          // wall. The own-light half is at <opaque_fragment>.
+          diffuseColor.rgb = mix(diffuseColor.rgb, ftwProjRgb, ftwProjK - ftwProjOwn);
         }`,
       )
       .replace(

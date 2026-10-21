@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { frustumGeometry, type FrustumGeometry } from "../../lib/geo/frustum";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import { tokens } from "../../lib/theme/tokens";
-import { derivedFov, paramSource, useUploadStore } from "../../store/upload";
+import { paramSource, useUploadStore } from "../../store/upload";
+import { effectiveHFovDeg } from "../../lib/decode/params";
 import type { PhotoExif } from "../../lib/decode/extract";
 import type { AdjustableParams, Placement } from "../../lib/decode/params";
 import { clampGroundM } from "../../lib/geo/terrain";
@@ -18,6 +19,9 @@ export interface FrustumSourceState {
   exif?: PhotoExif;
   params: AdjustableParams;
   rollDeg?: number;
+  /** F1 (2026-10-21): the facade store's H-FOV OVERRIDE (deg) — SCALE = the H-FOV, the lens slider
+   *  writes the same number; undefined = the `derivedFov` baseline. The upload store never sets it. */
+  hFovDeg?: number;
   textureWidth?: number;
   textureHeight?: number;
   previewUrl?: string;
@@ -43,6 +47,9 @@ export interface FrustumSource {
 export interface PhotoFrustumHandle {
   /** Current geometry, or null while nothing is placed. */
   current(): FrustumGeometry | null;
+  /** F1 (2026-10-21): the rendered apex height above the ellipsoid and above the rendered ground
+   *  (m) — the numbers the gizmo's altitude handle and the save body need; null while unplaced. */
+  apexHeights(): { apexAltM: number; aboveGroundM: number } | null;
   /** Re-seat on the rendered terrain if its height changed (tiles refine over time). Cheap when
    *  nothing is placed or the height is stable — the orchestrator calls it at a low cadence. */
   resnap(): void;
@@ -61,6 +68,10 @@ export function attachPhotoFrustum(
     /** The store this frustum follows — the upload store (pins) by default; the facade-photo
      *  store for the projection prototype's second instance. */
     source?: FrustumSource;
+    /** F1 (2026-10-21): fired after every rebuild with the seated apex heights (above the
+     *  ellipsoid / above the rendered ground) — the orchestrator mirrors them into the facade
+     *  store at this cadence (a store change or a terrain re-seat, never per frame). */
+    onGeometry?: (geom: FrustumGeometry, heights: { apexAltM: number; aboveGroundM: number }) => void;
   } = {},
 ): PhotoFrustumHandle {
   const source: FrustumSource = opts.source ?? useUploadStore;
@@ -106,6 +117,7 @@ export function attachPhotoFrustum(
   let texture: THREE.Texture | undefined;
   let textureUrl: string | undefined;
   let geom: FrustumGeometry | null = null;
+  let apexAltM = 0;
   // Terrain base under the CURRENT placement (0 until a tile covers it; keyed so a re-place
   // never inherits the previous location's height).
   let terrainH = 0;
@@ -141,7 +153,7 @@ export function attachPhotoFrustum(
       s.textureWidth && s.textureHeight
         ? s.textureWidth / s.textureHeight
         : FRUSTUM.fallbackAspect;
-    const hFovDeg = derivedFov(s.exif, s.params).hFovDeg;
+    const hFovDeg = effectiveHFovDeg(s.exif, s.params, s.hFovDeg);
     const key = `${s.placement.latDeg},${s.placement.lonDeg}`;
     const th = opts.terrainHeightAt?.(s.placement.latDeg, s.placement.lonDeg) ?? null;
     // Clamp-only-upward (the S2 discipline every other terrain consumer follows): coarse/unloaded
@@ -201,6 +213,8 @@ export function attachPhotoFrustum(
     planeMat.opacity = s.planeOpacity ?? FRUSTUM.planeOpacity;
     setTexture(s.previewUrl);
     group.visible = true;
+    apexAltM = altM;
+    opts.onGeometry?.(geom, { apexAltM: altM, aboveGroundM: altM - terrainH });
   }
 
   // Vanilla subscription: re-project on any relevant change; announce landings for the flight.
@@ -212,6 +226,7 @@ export function attachPhotoFrustum(
       s.placement !== prev.placement ||
       s.params !== prev.params ||
       s.rollDeg !== prev.rollDeg ||
+      s.hFovDeg !== prev.hFovDeg ||
       s.previewUrl !== prev.previewUrl ||
       s.textureWidth !== prev.textureWidth ||
       s.textureHeight !== prev.textureHeight ||
@@ -225,6 +240,7 @@ export function attachPhotoFrustum(
 
   return {
     current: () => geom,
+    apexHeights: () => (geom ? { apexAltM, aboveGroundM: apexAltM - terrainH } : null),
     resnap() {
       const s = source.getState();
       if (s.phase !== "placed" || !s.placement) return;

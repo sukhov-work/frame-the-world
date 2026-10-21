@@ -1,20 +1,32 @@
 /**
- * FacadePhotoFlow — the photo flow (b) PROTOTYPE, desktop only (mounted by index.astro's nav).
+ * FacadePhotoFlow — the photo flow (b), desktop only (mounted by index.astro's nav).
  * A street photo of a facade goes through the existing decode pipeline, is placed as a camera
  * pose, and the globe projects it onto the 3D buildings. One island, three surfaces:
  *   (a) the nav link — rendered only with `?facade` in the URL (never surfaces by default);
  *       the `[data-open-facade]` click delegation always binds so harnesses can dispatch it;
- *   (b) the overlay (`.uf.ff` root) — drop → decoding → review, the upload overlay's chrome;
- *   (c) the docked tweak panel while placed (+ the click-the-globe hint while placing).
+ *   (b) the overlay (`.uf.ff` root) — drop (+ MY FACADES for a member) → decoding → review,
+ *       the upload overlay's chrome;
+ *   (c) the docked tweak panel while placed (+ the click-the-globe hint while placing): the
+ *       pose sliders, the GIZMO row + UNDO (F1), the projection, and the SAVE section (F2).
  * (b) and (c) portal to <body>: the nav is a fixed z-index-10 stacking context.
- * Writes ONLY to `store/facadePhoto` — the upload/pin flow is untouched. Nothing is saved.
+ * Writes to `store/facadePhoto` + `store/facadeSave` only — the upload/pin flow is untouched.
+ * Every `/api` write goes through the store → `lib/save/uploadMedia` wrappers (`jsonWriteInit`);
+ * nothing here fetches.
  */
 
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactElement } from "react";
 import { createPortal } from "react-dom";
-import { useFacadePhotoStore } from "../../store/facadePhoto";
-import { paramSource, isDirty, derivedFov, type AdjustableKey } from "../../lib/decode/params";
+import { useFacadePhotoStore, type FacadeGizmoOp } from "../../store/facadePhoto";
+import { isFacadeSaveBusy, useFacadeSaveStore } from "../../store/facadeSave";
+import { useFacadesStore } from "../../store/facades";
+import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
+import { editJournal, undoTitle, useEditJournalStore } from "../../store/editJournal";
+import { facadeTarget, peekUndo, undoableCount } from "../../lib/edit/editJournal";
+import { paramSource, isDirty, derivedFov, effectiveHFovDeg, type AdjustableKey } from "../../lib/decode/params";
+import { focalFromHorizontalFov } from "../../lib/decode/sensors";
+import { titleFromFileName } from "../../lib/save/pinBody";
 import type { PhotoExif } from "../../lib/decode/extract";
+import type { FacadeListItem } from "../../lib/wix/facadeRecords";
 import { wrapHeadingDeg } from "../../lib/geo/heading";
 import {
   formatLatLon,
@@ -23,8 +35,6 @@ import {
   formatShutter,
   formatIso,
   formatHeading,
-  formatPitch,
-  formatAltitude,
   formatMegapixels,
   formatBytes,
   formatCaptureDateTime,
@@ -35,7 +45,7 @@ import Slider, { type BadgeTone } from "../ui/Slider";
 import Encoder from "../ui/Encoder";
 import InfoDot from "../ui/InfoDot";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
-import { CONTROLS, FRUSTUM } from "../globe/tuning";
+import { CONTROLS, FRUSTUM, PHOTO_PROJECT } from "../globe/tuning";
 import "../../styles/upload-flow.css";
 import "../../styles/photo-detail.css";
 import "../../styles/tips.css";
@@ -46,6 +56,8 @@ const PHOTO_ACCEPT = ".arw,.dng,.cr3,.nef,.raf,.jpg,.jpeg,.png,.webp,.heic,.heif
 const FORMAT_CHIPS = ["DNG", "ARW", "CR3", "NEF", "RAF", "JPG · PNG · HEIC"];
 const STEPS = ["1 UPLOAD", "2 REVIEW", "3 PLACE"] as const;
 const NUDGE_STEPS_M = [0.5, 1, 5] as const;
+/** The armed DELETE disarms itself after this (the MyPins two-press idiom, with a timeout). */
+const DELETE_CONFIRM_MS = 4000;
 
 const PARAM_LABEL: Record<AdjustableKey, string> = {
   focalLengthMm: "FOCAL LENGTH",
@@ -53,6 +65,14 @@ const PARAM_LABEL: Record<AdjustableKey, string> = {
   pitchDeg: "PITCH",
   altitudeM: "ALTITUDE",
 };
+
+/** F1 — the GIZMO chips: the op the globe shows on the placed frustum + its one-line tip. */
+const GIZMO_CHIPS: readonly { op: FacadeGizmoOp; label: string; tip: string }[] = [
+  { op: "none", label: "OFF", tip: "NO GIZMO — THE SLIDERS AND THE NUDGE PAD ONLY." },
+  { op: "move", label: "MOVE", tip: "DRAG THE ARROWS — EAST / NORTH / UP." },
+  { op: "rotate", label: "ROTATE", tip: "DRAG THE RINGS — HEADING / PITCH / ROLL." },
+  { op: "scale", label: "SCALE", tip: "DRAG A BOX — THE FIELD OF VIEW, NEVER A STRETCH." },
+];
 
 const facade = () => useFacadePhotoStore.getState();
 
@@ -67,10 +87,17 @@ function provenanceBadge(
   return { text: "EXIF", tone: "accent" };
 }
 
+/** The MY FACADES pose line: "N 48.46470 E 35.04620 · 214.0°". */
+function poseLine(item: FacadeListItem): string {
+  const ns = `${item.lat >= 0 ? "N" : "S"} ${Math.abs(item.lat).toFixed(5)}`;
+  const ew = `${item.lon >= 0 ? "E" : "W"} ${Math.abs(item.lon).toFixed(5)}`;
+  return `${ns} ${ew} · ${item.headingDeg.toFixed(1)}°`;
+}
+
 export default function FacadePhotoFlow() {
   const open = useFacadePhotoStore((s) => s.open);
   const phase = useFacadePhotoStore((s) => s.phase);
-  // The prototype flag is read once — without `?facade` the nav shows nothing.
+  // The flag is read once — without `?facade` the nav shows nothing.
   const [flagged] = useState(
     () => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("facade"),
   );
@@ -147,8 +174,8 @@ function FacadeOverlay() {
           </div>
           <InfoDot
             pos="down"
-            label="About the facade photo prototype"
-            tip="Drop a street photo of a building → we read its EXIF → place it as a camera on the globe → the photo is projected onto the 3D buildings. It stays in your browser."
+            label="About the facade photo flow"
+            tip="Drop a street photo of a building → we read its EXIF → place it as a camera on the globe → the photo is projected onto the 3D buildings. Members can save it — private, only yours."
           />
         </div>
         <div className="uf-steps">
@@ -163,7 +190,7 @@ function FacadeOverlay() {
       <div className="ff-title">
         <span className="uf-mono uf-accent">FACADE PHOTO · PROTOTYPE</span>
         <span className="uf-mono ff-title__sub">
-          THIS PHOTO IS PROJECTED ONTO THE 3D BUILDINGS. IT IS NEVER SAVED OR PUBLISHED.
+          THIS PHOTO IS PROJECTED ONTO THE 3D BUILDINGS. A SAVED FACADE PHOTO IS PRIVATE — NEVER PUBLISHED.
         </span>
       </div>
       {phase === "review" ? <FacadeReviewStep /> : <FacadeDropStep />}
@@ -253,8 +280,83 @@ function FacadeDropStep() {
           <span>Could not read that file — {loadError}</span>
         </div>
       )}
-      <span className="uf-privacy">FACADE PHOTOS NEVER LEAVE YOUR BROWSER</span>
+      {phase === "idle" && <FacadeMineList />}
+      <span className="uf-privacy">A SAVED FACADE PHOTO STAYS PRIVATE — NOTHING IS PUBLISHED</span>
     </section>
+  );
+}
+
+/**
+ * MY FACADES (F2) — the member's own rows under the dropzone; a click re-opens one as the placed
+ * photo (`openSaved`). The list is the residency store's `mine` (one owner for the rows the globe
+ * also projects); it is re-asked on every open as a member (the MyPins fresh-fetch idiom).
+ */
+function FacadeMineList() {
+  const memberPhase = useMemberStore((s) => s.phase);
+  const memberRefresh = useMemberStore((s) => s.refresh);
+  const mine = useFacadesStore((s) => s.mine);
+  const minePhase = useFacadesStore((s) => s.minePhase);
+  const mineError = useFacadesStore((s) => s.mineError);
+
+  // Session state (the nav badge usually resolved it already).
+  useEffect(() => {
+    if (memberPhase === "unknown") void memberRefresh();
+  }, [memberPhase, memberRefresh]);
+  useEffect(() => {
+    if (memberPhase === "member") void useFacadesStore.getState().loadMine();
+  }, [memberPhase]);
+
+  const note = (text: string, warn = false) => (
+    <span className={`uf-mono ff-mine__note${warn ? " is-warn" : ""}`}>{text}</span>
+  );
+
+  let body: ReactElement;
+  if (memberPhase === "anonymous") body = note("SIGN IN TO SEE YOUR FACADE PHOTOS");
+  else if (memberPhase !== "member") body = note("LOADING…");
+  else if (minePhase === "error") body = note(`COULD NOT LOAD — ${(mineError ?? "unknown error").toUpperCase()}`, true);
+  else if (minePhase === "anonymous") body = note("SIGN IN TO SEE YOUR FACADE PHOTOS");
+  else if (mine.length === 0 && minePhase !== "ready") body = note("LOADING…");
+  else if (mine.length === 0) body = note("NO SAVED FACADE PHOTOS YET");
+  else
+    body = (
+      <ul className="ff-mine__list">
+        {mine.map((item) => (
+          <li key={item.id}>
+            <button
+              type="button"
+              className="ff-mine__row"
+              data-facade-row={item.id}
+              title="Open on the globe"
+              onClick={() => facade().openSaved(item)}
+            >
+              {item.thumbUrl || item.displayUrl ? (
+                <img className="ff-mine__thumb" src={item.thumbUrl ?? item.displayUrl} alt="" loading="lazy" />
+              ) : (
+                <span className="ff-mine__thumb ff-mine__thumb--empty" aria-hidden="true" />
+              )}
+              <span className="ff-mine__meta">
+                <span className="ff-mine__title" title={item.title}>
+                  {item.title}
+                </span>
+                <span className="ff-mine__sub">
+                  {item.createdAt.slice(0, 10)} · {poseLine(item)}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+
+  return (
+    <div className="ff-mine" aria-label="My facade photos">
+      <div className="ff-mine__head">
+        <span className="uf-mono uf-accent">
+          MY FACADE PHOTOS{memberPhase === "member" && mine.length > 0 ? ` · ${mine.length}` : ""}
+        </span>
+      </div>
+      {body}
+    </div>
   );
 }
 
@@ -369,7 +471,7 @@ function FacadeReviewStep() {
           />
           <Slider
             label={PARAM_LABEL.pitchDeg}
-            formatted={formatPitch(store.params.pitchDeg)}
+            formatted={store.params.pitchDeg === undefined ? EM_DASH : formatSigned(store.params.pitchDeg)}
             value={store.params.pitchDeg}
             min={-90}
             max={90}
@@ -381,7 +483,7 @@ function FacadeReviewStep() {
           />
           <Slider
             label={PARAM_LABEL.altitudeM}
-            formatted={formatAltitude(store.params.altitudeM)}
+            formatted={store.params.altitudeM === undefined ? EM_DASH : `${store.params.altitudeM.toFixed(1)} M`}
             value={store.params.altitudeM}
             min={0}
             max={500}
@@ -419,7 +521,15 @@ function FacadeReviewStep() {
 
 function FacadeDetailPanel() {
   const store = useFacadePhotoStore();
+  const save = useFacadeSaveStore();
+  const memberPhase = useMemberStore((s) => s.phase);
+  const memberRefresh = useMemberStore((s) => s.refresh);
+  // The journal mirror is the RE-RENDER TRIGGER only — the facade's own count is computed off
+  // the journal below (the mirror's `undoable` spans buildings and models too).
+  useEditJournalStore((s) => s.undoable);
   const [nudgeStepM, setNudgeStepM] = useState<number>(1);
+  // Two-step DELETE guard: first press arms ("SURE? DELETE"), the second within 4 s confirms.
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // HEADING is an encoder — PhotoDetailPanel's rate-loop idiom: a rAF loop nudges the param per
   // frame while the stick is deflected (a ref so the loop reads the live rate).
@@ -446,12 +556,44 @@ function FacadeDetailPanel() {
   };
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
+  // Session state for the SAVE gate (the nav badge usually resolved it already).
+  useEffect(() => {
+    if (memberPhase === "unknown") void memberRefresh();
+  }, [memberPhase, memberRefresh]);
+
+  // A different photo is a NEW draft — drop the previous save result + title. The key must NOT
+  // move on a SAVE (`savedFacadeId` lands then) or the "SAVED" beat would vanish at once; the
+  // file name + the preview URL are fixed for the life of one draft / one re-opened row.
+  const identityKey = `${store.fileName ?? ""}|${store.previewUrl ?? ""}`;
+  useEffect(() => {
+    const s = useFacadeSaveStore.getState();
+    s.reset();
+    s.setTitle(null);
+    setConfirmDelete(false);
+  }, [identityKey]);
+
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const t = setTimeout(() => setConfirmDelete(false), DELETE_CONFIRM_MS);
+    return () => clearTimeout(t);
+  }, [confirmDelete]);
+
   const drag = usePanelDrag("facade-photo");
   const exif = store.exif;
   if (!exif || store.phase !== "placed") return null;
 
   const badge = (key: AdjustableKey) => provenanceBadge(exif, store.params, key);
   const fov = derivedFov(exif, store.params);
+  // F1 — the ONE effective H-FOV: the override when set, else the derived baseline. The slider
+  // writes the override (never the focal — `effectiveHFovDeg`'s doc says why) and the SCALE
+  // gizmo writes the same number.
+  const hFov = effectiveHFovDeg(exif, store.params, store.hFovDeg);
+  const hFovManual = store.hFovDeg !== undefined;
+  const hFovBadge: { text: string; tone: BadgeTone } = hFovManual ? { text: "MANUAL", tone: "dim" } : badge("focalLengthMm");
+  const hFovFormatted =
+    hFov > 0 && hFov < 180
+      ? `${hFov.toFixed(1)}° · ${focalFromHorizontalFov(hFov).toFixed(0)} MM EQ${!hFovManual && fov.estimated ? " · EST" : ""}`
+      : EM_DASH;
   const roll = store.rollDeg ?? exif.rollDeg ?? 0;
   const rollBadge: { text: string; tone: BadgeTone } =
     store.rollDeg !== undefined
@@ -459,9 +601,43 @@ function FacadeDetailPanel() {
       : exif.rollDeg !== undefined
         ? { text: "EXIF", tone: "accent" }
         : { text: "MISSING", tone: "warn" };
-  const dirty = isDirty(exif, store.params) || store.rollDeg !== undefined;
+  const dirty = isDirty(exif, store.params) || store.rollDeg !== undefined || hFovManual;
   const plane = Math.round((store.planeOpacity ?? FRUSTUM.planeOpacity) * 100);
   const { projection } = store;
+
+  // F1 — UNDO for THIS facade (the draft, or the row under edit): the count + the last label.
+  const target = facadeTarget(store.savedFacadeId ?? "draft");
+  const facadeUndoable = undoableCount(editJournal, target);
+  const facadeUndoLabel = peekUndo(editJournal, target)?.label ?? null;
+
+  const busy = isFacadeSaveBusy(save.phase);
+  const statusLine = (): { text: string; tone: "" | "warn" | "ok" } => {
+    switch (save.phase) {
+      case "uploading-original":
+        return { text: `UPLOADING ORIGINAL ${Math.round(save.progress * 100)} %`, tone: "" };
+      case "deriving":
+        return { text: "MAKING THE DISPLAY COPY", tone: "" };
+      case "uploading-display":
+        return { text: "UPLOADING THE DISPLAY COPY", tone: "" };
+      case "uploading-thumb":
+        return { text: "UPLOADING THE THUMB", tone: "" };
+      case "saving":
+        return { text: "SAVING…", tone: "" };
+      case "updating":
+        return { text: "UPDATING…", tone: "" };
+      case "deleting":
+        return { text: "DELETING…", tone: "" };
+      case "saved":
+        return { text: save.warning ? `SAVED · ${save.warning.toUpperCase()}` : "SAVED", tone: "ok" };
+      case "updated":
+        return { text: "UPDATED", tone: "ok" };
+      case "error":
+        return { text: (save.error ?? "SAVE FAILED").toUpperCase(), tone: "warn" };
+      default:
+        return { text: "", tone: "" };
+    }
+  };
+  const status = statusLine();
 
   return (
     <aside className="pd ff-panel" style={drag.style} aria-label="Facade photo — adjust the projection">
@@ -497,6 +673,36 @@ function FacadeDetailPanel() {
               </button>
             )}
           </div>
+          {/* F1 — the GIZMO row: which handles the globe draws on the frustum, and UNDO for the
+              last gizmo release / slider edit on this facade (the session edit journal). */}
+          <div className="ff-gizmo">
+            <div className="ff-gizmo__ops" role="group" aria-label="Gizmo">
+              {GIZMO_CHIPS.map((c) => (
+                <button
+                  key={c.op}
+                  type="button"
+                  className={`pd-tier tip${store.gizmoOp === c.op ? " is-active" : ""}`}
+                  aria-pressed={store.gizmoOp === c.op}
+                  data-facade-op={c.op}
+                  data-tip={c.tip}
+                  data-tip-pos="down"
+                  onClick={() => facade().setGizmoOp(c.op)}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="pd-tier ff-gizmo__undo"
+              data-facade-undo
+              title={undoTitle(facadeUndoLabel, "the last edit")}
+              disabled={facadeUndoable === 0}
+              onClick={() => useEditJournalStore.getState().requestUndo("facade")}
+            >
+              ↶ UNDO{facadeUndoable > 0 ? ` · ${facadeUndoable}` : ""}
+            </button>
+          </div>
           <Encoder
             label={PARAM_LABEL.headingDeg}
             formatted={formatHeading(store.params.headingDeg)}
@@ -511,8 +717,8 @@ function FacadeDetailPanel() {
             label={PARAM_LABEL.pitchDeg}
             formatted={store.params.pitchDeg === undefined ? EM_DASH : formatSigned(store.params.pitchDeg)}
             value={store.params.pitchDeg}
-            min={-45}
-            max={45}
+            min={-PHOTO_PROJECT.pitchMaxDeg}
+            max={PHOTO_PROJECT.pitchMaxDeg}
             step={0.1}
             onChange={(v) => facade().setParam("pitchDeg", v)}
             onReset={() => facade().resetParam("pitchDeg")}
@@ -523,8 +729,8 @@ function FacadeDetailPanel() {
             label="ROLL"
             formatted={formatSigned(roll)}
             value={roll}
-            min={-30}
-            max={30}
+            min={-PHOTO_PROJECT.rollMaxDeg}
+            max={PHOTO_PROJECT.rollMaxDeg}
             step={0.1}
             onChange={(v) => facade().setRollDeg(v)}
             onReset={() => facade().setRollDeg(undefined)}
@@ -532,23 +738,23 @@ function FacadeDetailPanel() {
             tip="HORIZON TILT — CLOCKWISE IS POSITIVE."
           />
           <Slider
-            label={PARAM_LABEL.focalLengthMm}
-            formatted={`${formatFocal(store.params.focalLengthMm)} · ${fov.hFovDeg.toFixed(1)}°${fov.estimated ? " EST" : ""}`}
-            value={store.params.focalLengthMm}
-            min={8}
-            max={400}
-            step={0.5}
-            onChange={(v) => facade().setParam("focalLengthMm", v)}
-            onReset={() => facade().resetParam("focalLengthMm")}
-            badge={badge("focalLengthMm")}
-            tip="LENS FOCAL LENGTH — THE READOUT ADDS THE DERIVED H-FOV."
+            label="LENS · H-FOV"
+            formatted={hFovFormatted}
+            value={hFov}
+            min={PHOTO_PROJECT.hFovMinDeg}
+            max={PHOTO_PROJECT.hFovMaxDeg}
+            step={0.1}
+            onChange={(v) => facade().setHFovDeg(v)}
+            onReset={() => facade().setHFovDeg(undefined)}
+            badge={hFovBadge}
+            tip="FIELD OF VIEW — THE SCALE GIZMO WRITES THE SAME NUMBER."
           />
           <Slider
             label={PARAM_LABEL.altitudeM}
             formatted={store.params.altitudeM === undefined ? EM_DASH : `${store.params.altitudeM.toFixed(1)} M`}
             value={store.params.altitudeM}
-            min={0}
-            max={60}
+            min={PHOTO_PROJECT.altMinM}
+            max={PHOTO_PROJECT.altMaxM}
             step={0.1}
             onChange={(v) => facade().setParam("altitudeM", v)}
             onReset={() => facade().resetParam("altitudeM")}
@@ -642,6 +848,87 @@ function FacadeDetailPanel() {
             onReset={() => facade().setPlaneOpacity(undefined)}
             tip="THE PREVIEW PLANE IN THE FRUSTUM — 0 HIDES IT."
           />
+        </div>
+
+        {/* F2 — SAVE / UPDATE / DELETE the pose as a private FacadePhotos row (members only; the
+            pin panel's `.pd-save` chrome). The writes live in store/facadeSave. */}
+        <div className="pd-save ff-save">
+          <div className="pd-adjust__head">
+            <span className="pd-adjust__title">{store.savedFacadeId ? "SAVED FACADE PHOTO" : "SAVE FACADE PHOTO"}</span>
+            <span className="uf-mono ff-save__note">PRIVATE · ONLY YOU</span>
+          </div>
+          <label className="pd-save__name">
+            <span className="pd-save__namelabel">TITLE</span>
+            <input
+              type="text"
+              className="pd-save__nameinput pd-save__title uf-mono"
+              maxLength={120}
+              placeholder={titleFromFileName(store.fileName)}
+              value={save.title ?? ""}
+              disabled={busy || memberPhase !== "member"}
+              onChange={(e) => save.setTitle(e.target.value)}
+            />
+          </label>
+          <div className="pd-save__act">
+            {memberPhase !== "member" ? (
+              <a
+                className="uf-btn uf-btn--primary pd-save__signin"
+                href={loginUrl("/")}
+                // returnTo resolves at CLICK time — the orchestrator mirrors the pose hash at a
+                // low cadence, so a render-time href would still say "/" (the pin panel's lesson).
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.location.href = loginUrl(returnHereUrl());
+                }}
+              >
+                SIGN IN TO SAVE
+              </a>
+            ) : store.savedFacadeId ? (
+              <>
+                <button
+                  type="button"
+                  className="uf-btn uf-btn--primary"
+                  data-facade-update
+                  disabled={busy}
+                  onClick={() => void save.updateFacade()}
+                >
+                  {save.phase === "updating" ? "UPDATING…" : "UPDATE"}
+                </button>
+                <button
+                  type="button"
+                  className={`uf-btn uf-btn--ghost pd-del tip${confirmDelete ? " is-armed" : ""}`}
+                  data-facade-delete
+                  data-tip="REMOVES THE FACADE PHOTO AND ITS FILES — CLICK TWICE TO CONFIRM."
+                  disabled={busy}
+                  onClick={() => {
+                    if (!confirmDelete) return setConfirmDelete(true);
+                    setConfirmDelete(false);
+                    void save.deleteFacade();
+                  }}
+                >
+                  {confirmDelete ? "SURE? DELETE" : "DELETE"}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="uf-btn uf-btn--primary"
+                data-facade-save
+                disabled={busy || save.phase === "saved"}
+                onClick={() => void save.saveFacade()}
+              >
+                {save.phase === "saved" ? "SAVED ✓" : "SAVE"}
+              </button>
+            )}
+            {status.text && (
+              <span className={`uf-mono pd-save__status${status.tone ? ` is-${status.tone}` : ""}`}>
+                {status.text}
+              </span>
+            )}
+          </div>
+          {memberPhase === "anonymous" && (
+            <span className="uf-mono ff-save__hint">SIGN IN TO KEEP THIS FACADE PHOTO — PRIVATE, ONLY YOURS.</span>
+          )}
         </div>
 
         <div className="pd-actions">

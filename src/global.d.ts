@@ -22,6 +22,7 @@ import type { usePlacesMapStore } from "./store/places";
 import type { useSaveStore } from "./store/save";
 import type { useUploadStore } from "./store/upload";
 import type { useFacadePhotoStore } from "./store/facadePhoto";
+import type { useFacadeSaveStore } from "./store/facadeSave";
 import type { useMarketStore } from "./store/market";
 import type { useMemberStore } from "./store/member";
 import type { useModelUploadStore } from "./store/modelUpload";
@@ -126,8 +127,13 @@ declare global {
     __placesStore?: typeof usePlacesMapStore;
     __saveStore?: typeof useSaveStore;
     __uploadStore?: typeof useUploadStore;
-    /** The photo flow (b) prototype — the facade-photo store (technical photos, never pins). */
+    /** The photo flow (b) — the facade-photo store (technical photos, never pins): the draft's
+     *  pose, the gizmo op, the seated apex, `openSaved` / `restorePose` / `poseSnapshot` (F1/F2). */
     __facadeStore?: typeof useFacadePhotoStore;
+    /** F2 (T169) — the facade SAVE / UPDATE / DELETE pipeline (phase, progress, the row id). */
+    __facadeSaveStore?: typeof useFacadeSaveStore;
+    /** F2/F3 — the member's own facade rows (MY FACADES) + the residency's editing row. */
+    __facadesStore?: typeof import("./store/facades").useFacadesStore;
     /** MESH SUITE MS4 — the model branch of the upload modal (phase, stats, the packed GLB's
      *  size, the stored record); `verify-modelupload.mjs` reads it and drives `upload()`. */
     __modelUploadStore?: typeof useModelUploadStore;

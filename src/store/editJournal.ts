@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   createJournal,
   isBldgTarget,
+  isFacadeTarget,
   sessionEditedTargets,
   targetKey,
   type EditJournal,
@@ -9,6 +10,7 @@ import {
 } from "../lib/edit/editJournal";
 import { sameOverrideState, type OverrideRow } from "../lib/globe/bldgOverrides";
 import { samePlacement, type PlacementSnapshot } from "../lib/models/modelPlacement";
+import { sameFacadePose, type FacadePoseSnapshot } from "../lib/wix/facadeRecords";
 
 /**
  * T126 (owner 2026-09-08b) — the SESSION EDIT JOURNAL seam (MESH_SUITE_PLAN §16): UNDO + "drop this
@@ -27,15 +29,18 @@ import { samePlacement, type PlacementSnapshot } from "../lib/models/modelPlacem
  * target prefix.
  */
 
-export type EditSnapshot = OverrideRow | PlacementSnapshot;
+export type EditSnapshot = OverrideRow | PlacementSnapshot | FacadePoseSnapshot;
 
-/** UNDO / DROP scope: the armed building, the armed model, or every mesh (the pill / the menus). */
-export type EditScope = "bldg" | "model" | "all";
+/** UNDO / DROP scope: the armed building, the armed model, the facade photo under edit (F1,
+ *  2026-10-21), or every mesh (the pill / the menus). */
+export type EditScope = "bldg" | "model" | "facade" | "all";
 
 export const editJournal: EditJournal<EditSnapshot> = createJournal<EditSnapshot>((target, a, b) =>
   isBldgTarget(target)
     ? sameOverrideState(a as OverrideRow | null, b as OverrideRow | null)
-    : samePlacement(a as PlacementSnapshot | null, b as PlacementSnapshot | null),
+    : isFacadeTarget(target)
+      ? sameFacadePose(a as FacadePoseSnapshot | null, b as FacadePoseSnapshot | null)
+      : samePlacement(a as PlacementSnapshot | null, b as PlacementSnapshot | null),
 );
 
 export interface EditJournalState {
@@ -78,14 +83,17 @@ export const useEditJournalStore = create<EditJournalState>((set) => ({
 const currents: {
   bldg: (overrideKey: string) => OverrideRow | null;
   model: (id: string) => PlacementSnapshot | null;
-} = { bldg: () => null, model: () => null };
+  /** F1: the facade pose NOW for a target key (`draft` or a row id) — the facade store's own read. */
+  facade: (id: string) => FacadePoseSnapshot | null;
+} = { bldg: () => null, model: () => null, facade: () => null };
 export function setJournalCurrent(domain: "bldg", fn: (overrideKey: string) => OverrideRow | null): void;
 export function setJournalCurrent(domain: "model", fn: (id: string) => PlacementSnapshot | null): void;
-export function setJournalCurrent(domain: "bldg" | "model", fn: (k: string) => EditSnapshot | null): void {
+export function setJournalCurrent(domain: "facade", fn: (id: string) => FacadePoseSnapshot | null): void;
+export function setJournalCurrent(domain: "bldg" | "model" | "facade", fn: (k: string) => EditSnapshot | null): void {
   (currents as Record<string, (k: string) => EditSnapshot | null>)[domain] = fn;
 }
 export const journalCurrent = (t: EditTarget): EditSnapshot | null =>
-  isBldgTarget(t) ? currents.bldg(targetKey(t)) : currents.model(targetKey(t));
+  isBldgTarget(t) ? currents.bldg(targetKey(t)) : isFacadeTarget(t) ? currents.facade(targetKey(t)) : currents.model(targetKey(t));
 
 /** Re-mirror the counts after any commit / undo / drop / sync (never per frame). */
 export function refreshEditJournalMirror(): void {

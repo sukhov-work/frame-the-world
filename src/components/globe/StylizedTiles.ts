@@ -35,6 +35,7 @@ import { useFindStore } from "../../store/find";
 import { aimAtSky } from "../../store/skyAim";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore, type AdjustableParams } from "../../store/upload";
+import { effectiveHFovDeg } from "../../lib/decode/params";
 import { useFacadePhotoStore } from "../../store/facadePhoto";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore, type FpvJumpRequest } from "../../store/camera";
@@ -155,7 +156,12 @@ import { attachStreetNames } from "./scene/streetNames";
 import { attachVectorFeatures } from "./scene/vectorFeatures";
 import { attachVectorTiles } from "./scene/vectorTiles";
 import { attachPhotoFrustum } from "./PhotoFrustum";
-import { attachPhotoProjector } from "./scene/photoProjector";
+import { attachPhotoProjector, DRAFT_SLOT_ID } from "./scene/photoProjector";
+import { attachFacadeGizmo } from "./scene/facadeGizmo";
+import { attachFacadeMarkers } from "./scene/facadeMarkers";
+import { facadeInView, planFacadeSlots, type FacadeSlotRow } from "../../lib/globe/facadeResidency";
+import { useFacadesStore } from "../../store/facades";
+import type { FacadePoseSnapshot } from "../../lib/wix/facadeRecords";
 import { attachPins } from "./Pins";
 import { usePinsStore } from "../../store/pins";
 import { attachPlaceMarkers } from "./scene/placeMarkers";
@@ -210,7 +216,9 @@ import {
   dropSteps,
   forgetTarget,
   hasSessionEdits,
+  facadeTarget,
   isBldgTarget,
+  isFacadeTarget,
   modelTarget,
   rebaseWhere,
   recordEntry,
@@ -287,6 +295,7 @@ import {
   WGS84_A,
   WGS84_B,
   MODELS,
+  PHOTO_PROJECT,
 } from "./tuning";
 import { bandCurve, easeK, ultraLightAt } from "../../lib/globe/lightBands";
 import {
@@ -1477,19 +1486,43 @@ export function attachStylizedTiles(opts: {
     },
   });
 
-  // --- PHOTO PROJECTION (the photo flow (b) prototype, 2026-10-18 — PHOTO_PROJECT, backlog T157):
-  //     a SECOND frustum instance follows the facade-photo store (the technical twin of the upload
-  //     store — never a pin, never saved); its live geometry feeds scene/photoProjector, which
-  //     renders the depth map at the pose and publishes the ONE feed both building sets read per
-  //     render pass. The arrival flight is the same pose law as a pin's; the pin's arrival
-  //     RE-FRAMING is not armed (it keys on the upload store's params — two frustums must not
-  //     share one framing). Desktop-only: the projector attaches under `hqAllowed` (the /m shell
-  //     and coarse pointers never pay the depth pass; the frustum alone is inert there, and the
-  //     facade UI only mounts in index.astro). -------------------------------------------------
+  // --- PHOTO PROJECTION (the photo flow (b): the prototype 2026-10-18, T157; THE FULL DESKTOP FLOW
+  //     2026-10-21, T169 / T171 — `rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md`): a SECOND frustum
+  //     instance follows the facade-photo store (the technical twin of the upload store — never a
+  //     pin); its live geometry is the projector's DRAFT slot, which renders the depth map at the pose
+  //     and publishes the ONE feed both building sets read per render pass. The SAVED photos near
+  //     the view (store/facades, the owner's own rows in v1 — C6) stand as MARKERS and the nearest
+  //     in-view ones earn the other projector slots (F3, `stepFacadeResidency`); the MOVE / ROTATE /
+  //     SCALE gizmo on the draft (F1, scene/facadeGizmo) is fed pointers from CAPTURE-phase
+  //     listeners on the canvas's parent so GlobeControls never sees a handle drag
+  //     (`onFacadeGizmoDown`). The arrival flight is the same pose law as a pin's and fires ONLY on
+  //     the phase transition into "placed" (`facadeFlyArmed`) — a nudge, a slider, a gizmo move or a
+  //     re-seat never re-flies (the prototype re-flew on every nudge). Desktop-only: the projector,
+  //     the markers and the gizmo attach under `hqAllowed` (the /m shell and coarse pointers never
+  //     pay the depth pass; the frustum alone is inert there, and the facade UI only mounts in
+  //     index.astro). -------------------------------------------------------------------------
+  // Registered BEFORE the frustum's own subscription (zustand calls listeners in registration
+  // order): the frustum's `onPlaced` reads the flag the same tick the phase turns "placed".
+  let facadeFlyArmed = false;
+  let facadePrevPhase = useFacadePhotoStore.getState().phase;
+  const unsubFacadeFly = useFacadePhotoStore.subscribe((st) => {
+    if (st.phase === facadePrevPhase) return;
+    if (st.phase === "placed") facadeFlyArmed = true;
+    facadePrevPhase = st.phase;
+  });
   const facadeFrustum = attachPhotoFrustum(scene, {
     source: useFacadePhotoStore,
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    onGeometry: (_geom, heights) => {
+      // The seated apex heights, mirrored at the rebuild cadence (a store change or a terrain
+      // re-seat, never per frame) — the save body stores `apexAltM`, the gizmo's altitude handle
+      // starts from `aboveGroundM`.
+      useFacadePhotoStore.getState()._syncApex(heights.apexAltM, heights.aboveGroundM);
+      syncFacadeGizmoPose();
+    },
     onPlaced(geom) {
+      if (!facadeFlyArmed) return; // a move, not a landing
+      facadeFlyArmed = false;
       // The landing is a camera take-over: the ambient journey and any slider glide stand
       // down first (the same hand-off `noteInteract` performs for a grab), else the explore
       // controller keeps the camera at cruise altitude and the flight never lands.
@@ -1528,27 +1561,146 @@ export function attachStylizedTiles(opts: {
   enriched?.setPhotoProjector(photoProjector?.feed ?? null);
   const pushFacadeSource = (): void => {
     if (!photoProjector) return;
-    const s = useFacadePhotoStore.getState();
+    const st = useFacadePhotoStore.getState();
     photoProjector.setSource({
-      url: s.phase === "placed" ? (s.previewUrl ?? null) : null,
-      enabled: s.projection.enabled,
-      strength: s.projection.strength,
-      ownLight: s.projection.ownLight,
+      url: st.phase === "placed" ? (st.previewUrl ?? null) : null,
+      enabled: st.projection.enabled,
+      strength: st.projection.strength,
+      ownLight: st.projection.ownLight,
+      rangeM: st.projection.rangeM ?? null,
     });
   };
-  const unsubFacadeSource = useFacadePhotoStore.subscribe((s, prev) => {
-    if (s.phase !== prev.phase || s.previewUrl !== prev.previewUrl || s.projection !== prev.projection)
+  const unsubFacadeSource = useFacadePhotoStore.subscribe((st, prev) => {
+    if (st.phase !== prev.phase || st.previewUrl !== prev.previewUrl || st.projection !== prev.projection)
       pushFacadeSource();
   });
   pushFacadeSource();
   if (photoProjector) {
-    // A tile landing or leaving under the projector stales the depth map (the LOD swap moves
-    // geometry) — re-render at the next frame rather than wait for the refresh cadence.
+    // A tile landing or leaving under a projector stales its depth map (the LOD swap moves
+    // geometry) — re-render at the next frames rather than wait for the refresh cadence.
     for (const t of [buildings.tiles, ...(enriched ? [enriched.tiles] : [])]) {
       t.addEventListener("load-model", photoProjector.markDepthDirty);
       t.addEventListener("dispose-model", photoProjector.markDepthDirty);
     }
   }
+  // F3 — the saved photos' markers + the residency plan's state (`stepFacadeResidency`).
+  const facadeMarkers = hqAllowed
+    ? attachFacadeMarkers(scene, { planeDistM: FRUSTUM.planeDistM, fallbackAspect: FRUSTUM.fallbackAspect })
+    : null;
+  let facadeSlotsNow: string[] = [];
+  let _prevFacadeWorld = useFacadesStore.getState().world;
+  let _prevFacadeEditing = useFacadesStore.getState().editingId;
+  const unsubFacadesWorld = useFacadesStore.subscribe((st) => {
+    if (!facadeMarkers) return;
+    if (st.world !== _prevFacadeWorld) {
+      _prevFacadeWorld = st.world;
+      facadeMarkers.setRows(st.world);
+    }
+    if (st.editingId !== _prevFacadeEditing) {
+      _prevFacadeEditing = st.editingId;
+      facadeMarkers.setHidden(st.editingId);
+    }
+  });
+  facadeMarkers?.setRows(_prevFacadeWorld);
+  facadeMarkers?.setHidden(_prevFacadeEditing);
+  let _prevMemberPhaseFacades = useMemberStore.getState().phase;
+  const unsubMemberFacades = useMemberStore.subscribe((st) => {
+    if (st.phase === _prevMemberPhaseFacades) return;
+    _prevMemberPhaseFacades = st.phase;
+    if (st.phase === "member") void useFacadesStore.getState().loadMine();
+  });
+  if (_prevMemberPhaseFacades === "member") void useFacadesStore.getState().loadMine();
+  // F1 — the gizmo on the draft frustum. Every live write is ONE store set (`restorePose` takes
+  // the same shape the journal snapshots); the release records one undoable entry.
+  let facadeGizmoDragId: number | null = null;
+  let facadeDragBefore: FacadePoseSnapshot | null = null;
+  const facadeGizmo = hqAllowed
+    ? attachFacadeGizmo(scene, camera, {
+        onChange: (w) => {
+          // Write ONLY the op's fields: the others equal the start by construction, and writing
+          // them would turn an untouched EXIF altitude / lens into a MANUAL number (the badge).
+          const fs = useFacadePhotoStore.getState();
+          switch (fs.gizmoOp) {
+            case "move":
+              fs.setPlacement(w.lat, w.lon);
+              fs.setParam("altitudeM", w.altitudeM); // MANUAL semantics = metres above the rendered ground
+              break;
+            case "rotate": {
+              // ONE ring per drag: write the dragged axis only (the Y ring = heading, X = pitch,
+              // Z = roll — the module's own mapping) so an untouched EXIF pitch / roll keeps its badge.
+              const axis = facadeGizmo?.axis ?? null;
+              if (axis === "X") fs.setParam("pitchDeg", w.pitchDeg);
+              else if (axis === "Z") fs.setRollDeg(w.rollDeg);
+              else fs.setParam("headingDeg", w.headingDeg);
+              break;
+            }
+            case "scale":
+              fs.setHFovDeg(w.hFovDeg); // the H-FOV override — never a focal write
+              break;
+            default:
+              break;
+          }
+        },
+        onCommit: (w) => {
+          const fs = useFacadePhotoStore.getState();
+          if (!w) {
+            if (facadeDragBefore) fs.restorePose(facadeDragBefore); // a cancel puts the start back
+          } else if (facadeDragBefore) {
+            const after = fs.poseSnapshot();
+            if (
+              recordEntry(
+                editJournal,
+                fs.gizmoOp === "none" ? "edit" : fs.gizmoOp,
+                [{ target: facadeTarget(fs.savedFacadeId ?? "draft"), before: facadeDragBefore, after }],
+                Date.now(),
+              )
+            )
+              refreshEditJournalMirror();
+          }
+          facadeDragBefore = null;
+          syncFacadeGizmoPose();
+        },
+      })
+    : null;
+  /** Re-seat the gizmo's rig from the frustum + the store (no-op under a live drag — the module
+   *  keeps the drag's start frame). Called on store changes and after every frustum rebuild. */
+  function syncFacadeGizmoPose(): void {
+    if (!facadeGizmo || facadeGizmoDragId !== null) return;
+    const g = facadeFrustum.current();
+    const h = facadeFrustum.apexHeights();
+    const st = useFacadePhotoStore.getState();
+    if (!g || !h || st.phase !== "placed" || !st.placement || !st.exif) {
+      facadeGizmo.setPose(null);
+      return;
+    }
+    facadeGizmo.setPose({
+      apex: [g.apex[0], g.apex[1], g.apex[2]],
+      lat: st.placement.latDeg,
+      lon: st.placement.lonDeg,
+      aboveGroundM: h.aboveGroundM,
+      headingDeg: st.params.headingDeg ?? st.exif.headingDeg ?? 0,
+      pitchDeg: st.params.pitchDeg ?? st.exif.pitchDeg ?? 0,
+      rollDeg: st.rollDeg ?? st.exif.rollDeg ?? 0,
+      hFovDeg: effectiveHFovDeg(st.exif, st.params, st.hFovDeg),
+    });
+  }
+  const unsubFacadeGizmo = useFacadePhotoStore.subscribe((st, prev) => {
+    if (
+      st.phase !== prev.phase ||
+      st.placement !== prev.placement ||
+      st.params !== prev.params ||
+      st.rollDeg !== prev.rollDeg ||
+      st.hFovDeg !== prev.hFovDeg ||
+      st.gizmoOp !== prev.gizmoOp
+    )
+      syncFacadeGizmoPose();
+  });
+  // T126 / F1: the journal's "current pose" read for the facade domain — the draft, or the saved
+  // row under edit; any other key is nobody's.
+  setJournalCurrent("facade", (id) => {
+    const fs = useFacadePhotoStore.getState();
+    return fs.phase === "placed" && id === (fs.savedFacadeId ?? "draft") ? fs.poseSnapshot() : null;
+  });
 
   // --- Public pins (Phase 5): accent markers fed by store/pins (viewport-queried Wix Data);
   //     clicking one re-opens it as the placed CAMERA VIEW (upload-store openSavedPin → the
@@ -2138,6 +2290,18 @@ export function attachStylizedTiles(opts: {
       tapRevealX = e.clientX;
       tapRevealY = e.clientY;
       tapRevealUntil = frameNow() + ORCH.tapRevealMs; // T94: the latch rides the held clock
+    }
+    // F3 (2026-10-21): a click on a SAVED FACADE PHOTO's marker re-opens it as the draft (the
+    // pins' "a click opens it" idiom) — the frustum rebuilds, the panel shows, the flight frames it.
+    if (facadeMarkers) {
+      const fid = facadeMarkers.pick(ndcX, ndcY, camera);
+      if (fid) {
+        const item = useFacadesStore.getState().mine.find((m) => m.id === fid);
+        if (item) {
+          useFacadePhotoStore.getState().openSaved(item);
+          return;
+        }
+      }
     }
     // MESH SUITE MS6: a click on a USER MODEL in orbit stands beside it in first-person view
     // (the pins' "a click opens it" idiom; a model stands in front of the pins and the ground).
@@ -3009,7 +3173,11 @@ export function attachStylizedTiles(opts: {
   const applyJournalRestores = (restores: ReadonlyArray<{ target: EditTarget; to: EditSnapshot | null }>) => {
     for (const r of restores) {
       if (isBldgTarget(r.target)) restoreBldgRow(targetKey(r.target), r.to as OverrideRow | null);
-      else if (r.to)
+      else if (isFacadeTarget(r.target)) {
+        // F1: a facade pose restore is one store set; the frustum, the projector and the gizmo
+        // follow through their subscriptions.
+        if (r.to) useFacadePhotoStore.getState().restorePose(r.to as FacadePoseSnapshot);
+      } else if (r.to)
         // Async: the store re-mirrors the journal once the PATCH lands; the armed model's chip
         // follows the engine's re-seat (the world-row reconcile) — re-sync it then too.
         void useUserModelsStore
@@ -3026,6 +3194,10 @@ export function attachStylizedTiles(opts: {
     if (scope === "all") return undefined;
     if (scope === "bldg")
       return bldgArmed && enrichedSel.variant ? bldgTarget(overrideKey(enrichedSel.variant, bldgArmed.cellUri, bldgArmed.featureId)) : null;
+    if (scope === "facade") {
+      const fs = useFacadePhotoStore.getState();
+      return fs.phase === "placed" ? facadeTarget(fs.savedFacadeId ?? "draft") : null;
+    }
     return modelArmed ? modelTarget(modelArmed.id) : null;
   };
   const undoNow = (scope: EditScope) => {
@@ -3718,6 +3890,69 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("pointermove", onFpvPointerMove);
   dom.addEventListener("pointerup", onFpvPointerEnd);
   dom.addEventListener("pointercancel", onFpvPointerEnd);
+  // F1 (2026-10-21) — the facade gizmo in ORBIT. GlobeControls registered its `pointerdown` on the
+  // canvas first (it is constructed before every orchestrator listener) and its move / up on the
+  // document; a CAPTURE-phase listener on the canvas's PARENT fires before any of them, so a press
+  // on a handle is claimed here — the controls are disabled for the drag's duration (its `enabled`
+  // setter resets its pointer tracker), the event stops, and the canvas captures the pointer so
+  // the release reaches this element wherever the pointer went. Off a handle nothing happens and
+  // the orbit gesture table runs untouched. The hover affordance costs one raycast against a
+  // handful of picker meshes per move while a handle is attached (mouse / pen only).
+  const facadeHost: HTMLElement = dom.parentElement ?? dom;
+  const onFacadeGizmoDown = (e: PointerEvent) => {
+    if (!facadeGizmo || !facadeGizmo.attached || fpvActive || e.button !== 0) return;
+    const rect = dom.getBoundingClientRect();
+    const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+    const before = useFacadePhotoStore.getState().poseSnapshot();
+    if (!before || !facadeGizmo.down(nx, ny)) return;
+    facadeDragBefore = before;
+    facadeGizmoDragId = e.pointerId;
+    // A handle drag is the user's own camera: the landing corrector must not re-cut after the
+    // apex moves (browser-caught 2026-10-22: a 46 m move re-flew the camera 46 m with it).
+    facadeFramingActive = false;
+    controls.enabled = false;
+    e.stopImmediatePropagation();
+    try {
+      dom.setPointerCapture(e.pointerId);
+    } catch {
+      /* a synthetic pointer (a harness) has no capture — the release still arrives on the canvas */
+    }
+    dom.style.cursor = "grabbing";
+  };
+  const onFacadeGizmoMove = (e: PointerEvent) => {
+    if (!facadeGizmo) return;
+    if (facadeGizmoDragId === e.pointerId) {
+      const rect = dom.getBoundingClientRect();
+      const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+      facadeGizmo.move(nx, ny, e.shiftKey);
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (facadeGizmo.attached && !fpvActive && !anyPointerDown && e.pointerType !== "touch") {
+      const rect = dom.getBoundingClientRect();
+      const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
+      if (facadeGizmo.hover(nx, ny)) dom.style.cursor = "grab";
+      else if (dom.style.cursor === "grab") dom.style.cursor = "";
+    }
+  };
+  const onFacadeGizmoEnd = (e: PointerEvent) => {
+    if (!facadeGizmo || facadeGizmoDragId !== e.pointerId) return;
+    facadeGizmoDragId = null;
+    if (e.type === "pointercancel") facadeGizmo.cancel();
+    else facadeGizmo.up();
+    controls.enabled = true;
+    e.stopImmediatePropagation();
+    try {
+      dom.releasePointerCapture(e.pointerId);
+    } catch {
+      /* never captured */
+    }
+    if (dom.style.cursor === "grabbing") dom.style.cursor = "";
+  };
+  facadeHost.addEventListener("pointerdown", onFacadeGizmoDown, { capture: true });
+  facadeHost.addEventListener("pointermove", onFacadeGizmoMove, { capture: true });
+  facadeHost.addEventListener("pointerup", onFacadeGizmoEnd, { capture: true });
+  facadeHost.addEventListener("pointercancel", onFacadeGizmoEnd, { capture: true });
   dom.addEventListener("wheel", onFpvWheel, { passive: false });
   dom.addEventListener("dblclick", onDblClick);
   dom.addEventListener("contextmenu", onSkyContextMenu);
@@ -4569,6 +4804,46 @@ export function attachStylizedTiles(opts: {
       // (null on a shell the attach gate refused). `verify-photo-projection` reads both.
       facadeFrustum,
       photoProjector: () => photoProjector?.snapshot() ?? null,
+      // F1 / F3 (2026-10-21): the facade gizmo's live state (the bldgGizmo() projection) and the
+      // residency plan — `verify-facade-flow` reads both.
+      facadeGizmo: () =>
+        facadeGizmo
+          ? {
+              attached: facadeGizmo.attached,
+              inScene: facadeGizmo.inScene,
+              dragging: facadeGizmo.dragging,
+              axis: facadeGizmo.axis,
+              dragId: facadeGizmoDragId,
+              // The module's ACTUAL op (applied by the frame service), not the store's request —
+              // a harness that reads the handles must wait for this to match.
+              op: facadeGizmo.op,
+              requestedOp: useFacadePhotoStore.getState().gizmoOp,
+              handlePx: (name: string) => facadeGizmo.handleScreenPx(name, dom.getBoundingClientRect()),
+              originPx: () => facadeGizmo.originPx(dom.getBoundingClientRect()),
+              ringPx: (name: string, count?: number) => facadeGizmo.ringPx(name, dom.getBoundingClientRect(), count),
+              debug: (clientX?: number, clientY?: number) => {
+                if (clientX === undefined || clientY === undefined) return facadeGizmo.debug();
+                const [nx, ny] = clientToNdc(clientX, clientY, dom.getBoundingClientRect());
+                return facadeGizmo.debug(nx, ny);
+              },
+              // A deterministic hover for a harness's handle SEARCH (the rotate rings overlap on
+              // screen) — the real drag still goes through the pointer events.
+              hoverAt: (clientX: number, clientY: number) => {
+                const [nx, ny] = clientToNdc(clientX, clientY, dom.getBoundingClientRect());
+                return facadeGizmo.hover(nx, ny) ? facadeGizmo.axis : null;
+              },
+              helperRoot: () => facadeGizmo.helperRoot(), // the harness's positive control (§11.4)
+              setFeeding: (on: boolean) => facadeGizmo._setFeeding(on),
+            }
+          : null,
+      facades: () => ({
+        markers: facadeMarkers?.count() ?? null,
+        resident: facadeSlotsNow.slice(),
+        occupied: photoProjector?.occupied() ?? [],
+        world: useFacadesStore.getState().world.length,
+        editingId: useFacadesStore.getState().editingId,
+        apexOf: (id: string) => facadeMarkers?.apexOf(id) ?? null,
+      }),
       flight,
       sky,
       skyTarget,
@@ -7091,6 +7366,12 @@ export function attachStylizedTiles(opts: {
             const eyeGeo = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
             useUserModelsStore.getState().reportViewport(eyeGeo.latDeg, eyeGeo.lonDeg, alt, MODELS.fpvFetchRadiusM);
           } else useUserModelsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
+          // F3 — the saved facade photos' world read, the same cover law (the eye in first person,
+          // the focus in orbit); the store throttles + short-circuits an unchanged cover.
+          if (fpvActive) {
+            const eyeGeoF = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+            useFacadesStore.getState().reportViewport(eyeGeoF.latDeg, eyeGeoF.lonDeg, alt);
+          } else useFacadesStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
           if (!fpvActive) mirrorCamGeo(); // viewer ground point — FPV writes it at HUD cadence
           // Ground metres per CSS px at the screen centre (owner 2026-09-16 — the /m 2D map's
@@ -8412,6 +8693,65 @@ export function attachStylizedTiles(opts: {
         photoProjector?.update(facadeFrustum.current(), frameNow());
   };
 
+  /** F3 (2026-10-21, T169 / T171): the residency plan — every `MODELS.residencyEveryFrames` frames
+   *  the saved photos' markers are ranked by apex distance inside the view cone, the K − 1 nearest
+   *  in-view ones inside `PHOTO_PROJECT.slotRangeM` take the projector's saved-photo slots
+   *  (hysteresis in the planner — a pan must not thrash textures), the released ones give theirs
+   *  back, and the feed order becomes draft-first-then-nearest (the material composites
+   *  front-to-back). The row under edit is hidden from the plan (it IS the draft). */
+  const _facCam = new THREE.Vector3();
+  const _facFwd = new THREE.Vector3();
+  const _facApex = new THREE.Vector3();
+  const stepFacadeResidency = () => {
+        if (!facadeMarkers || !photoProjector) return;
+        facadeMarkers.update(camera); // the glyphs' angular-size recompose (cheap: only when the camera moved > 1 m)
+        if (frameCount % MODELS.residencyEveryFrames !== 0) return;
+        const rows = facadeMarkers.rows();
+        const hiddenId = useFacadesStore.getState().editingId;
+        const pe = camera.projectionMatrix.elements;
+        const tanHalfV = pe[5] > 0 ? 1 / pe[5] : Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+        const aspect = pe[0] > 0 && pe[5] > 0 ? pe[5] / pe[0] : camera.aspect;
+        const marginRad = THREE.MathUtils.degToRad(MODELS.farViewMarginDeg);
+        _facCam.copy(camera.position);
+        _facFwd.setFromMatrixColumn(camera.matrixWorld, 2).negate().normalize();
+        const slotRows: FacadeSlotRow[] = [];
+        for (const row of rows) {
+          if (row.id === hiddenId) continue;
+          const apex = facadeMarkers.apexOf(row.id);
+          if (!apex) continue;
+          _facApex.set(apex[0], apex[1], apex[2]);
+          slotRows.push({
+            id: row.id,
+            distM: _facApex.distanceTo(_facCam),
+            inView: facadeInView(apex, [_facCam.x, _facCam.y, _facCam.z], [_facFwd.x, _facFwd.y, _facFwd.z], tanHalfV, aspect, marginRad),
+          });
+        }
+        const plan = planFacadeSlots(slotRows, facadeSlotsNow, {
+          slots: photoProjector.capacity - 1, // the draft keeps its own record for good
+          rangeM: PHOTO_PROJECT.slotRangeM,
+          swapMarginM: PHOTO_PROJECT.slotSwapMarginM,
+        });
+        for (const id of plan.released) photoProjector.release(id);
+        for (const id of plan.slots) {
+          const row = rows.find((r) => r.id === id);
+          if (!row) continue;
+          photoProjector.request(id, { url: row.displayUrl, enabled: true, strength: row.strength, ownLight: row.ownLight, rangeM: row.rangeM });
+          photoProjector.setGeometry(id, facadeMarkers.rowGeometry(id));
+        }
+        photoProjector.setPriority([DRAFT_SLOT_ID, ...plan.slots]);
+        facadeMarkers.setResident(plan.slots);
+        facadeSlotsNow = plan.slots;
+  };
+  /** F1: the gizmo follows the panel's op (OFF / MOVE / ROTATE / SCALE) — in ORBIT only; FPV
+   *  detaches it (the facade flow is an orbit flow; T168 keeps the FPV-at-the-apex idea). */
+  const stepFacadeGizmo = () => {
+        if (!facadeGizmo || facadeGizmoDragId !== null) return;
+        const st = useFacadePhotoStore.getState();
+        const op = !fpvActive && st.phase === "placed" ? st.gizmoOp : "none";
+        if (op !== "none") facadeFramingActive = false; // editing stands the landing corrector down
+        facadeGizmo.setOp(op);
+  };
+
   /** The facade landing corrector (the pin re-framing's twin, same knobs): while armed, resnap
    *  the facade frustum every frame; once it has SETTLED on the refined terrain, re-cut onto the
    *  live arrival pose when the committed look point drifted (the terrain lifted the apex) OR
@@ -8446,7 +8786,11 @@ export function attachStylizedTiles(opts: {
         if (!flight.active() && facadeFramingStableFrames >= FLIGHT.reframeSettleFrames) {
           const pose = frameArrivalPose(gLive, useFacadePhotoStore.getState().placement);
           const drifted = _facadeLook.distanceTo(facadeFramingLookAt) > FLIGHT.reframeMinMoveM;
-          const lifted = camera.position.distanceTo(pose.position) > FLIGHT.arrivalAltAboveGroundM * 3;
+          // The LIFT is RADIAL (the height guard pushes the camera up a coarse tile — 204 m → 23 km):
+          // compare heights, not distances — a camera flown CLOSER to the apex (a harness's close
+          // pose, a user's own flight) is not a lift and must not be yanked back (2026-10-22: the
+          // distance form re-cut a 43 m close pose to the 1 km arrival pose within 250 ms).
+          const lifted = camera.position.length() - pose.position.length() > FLIGHT.arrivalAltAboveGroundM * 3;
           if (drifted || lifted) {
             flight.start(pose, { floorM: flightFloorM(pose.position), durationMs: FLIGHT.reframeDurationMs });
             facadeFramingLookAt.copy(pose.lookAt);
@@ -8984,7 +9328,8 @@ export function attachStylizedTiles(opts: {
           // T126: UNDO / DROP SESSION (chip foot, menus, the pill, Ctrl+Z) — serviced whether or
           // not a mesh is armed; refused under a live drag (the frame service retries next frame).
           const js = useEditJournalStore.getState();
-          const dragging = bldgGizmoDragId !== null || (bldgDragId !== null && bldgDragMoved) || modelGizmoDragId !== null;
+          const dragging =
+            bldgGizmoDragId !== null || (bldgDragId !== null && bldgDragMoved) || modelGizmoDragId !== null || facadeGizmoDragId !== null;
           if (js.undoRequest && !dragging) {
             const scope = js.undoRequest;
             js._consumeUndoRequest();
@@ -9450,6 +9795,8 @@ export function attachStylizedTiles(opts: {
         stepFrustumResnapAndTick();
         stepPhotoProjector();
         stepFacadeArrival();
+        stepFacadeResidency();
+        stepFacadeGizmo();
         stepArrivalReframing();
         stepPinsUpdate();
         stepPinHover();
@@ -9547,6 +9894,16 @@ export function attachStylizedTiles(opts: {
         photoProjector.dispose();
       }
       facadeFrustum.dispose();
+      unsubFacadeFly();
+      unsubFacadesWorld();
+      unsubMemberFacades();
+      unsubFacadeGizmo();
+      facadeHost.removeEventListener("pointerdown", onFacadeGizmoDown, { capture: true });
+      facadeHost.removeEventListener("pointermove", onFacadeGizmoMove, { capture: true });
+      facadeHost.removeEventListener("pointerup", onFacadeGizmoEnd, { capture: true });
+      facadeHost.removeEventListener("pointercancel", onFacadeGizmoEnd, { capture: true });
+      facadeGizmo?.dispose();
+      facadeMarkers?.dispose();
       controls.dispose();
       buildings.dispose();
       enriched?.dispose();

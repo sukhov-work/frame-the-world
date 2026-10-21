@@ -9,6 +9,17 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
+## Status — 2026-10-22 (`mem:project/wip-2026-10-21-facade-flow-f1-f3`)
+**THE FULL DESKTOP FACADE FLOW — F1 the gizmo · F2 persist · F3 residency + T171 K slots: BUILT, GATED (vitest 3,626 / 236 · astro 0/0),
+F1 BROWSER-VERIFIED on dev (9/9), the K-slot material 10/10 on the 2026-10-18 harness; F2 / F3 verified LIVE after the release (DECISIONS
+2026-10-22 release records).** The gizmo (`scene/facadeGizmo.ts` + `lib/globe/facadePose.ts`: rotDeg = −heading, gains 0.5 by re-placing the
+rig, every scale box = the H-FOV OVERRIDE `facadePhoto.hFovDeg`, capture-phase listeners on the canvas's parent + `guardRaycast`), the persist
+pair (`FacadePhotos` 36 fields LIVE · `/api/facades` · upload-url kind `facade` · `store/facadeSave.ts` · MY FACADES in the overlay), the
+residency (`store/facades.ts` + `lib/globe/facadeResidency.ts` + `scene/facadeMarkers.ts`; the orchestrator feeds K−1 saved slots to the
+projector's pool, draft first). **T173: `wix dev` cannot elevate (WDE0027 on every ADMIN collection — the app's client-credentials token has
+no permissions; live is fine) — persistence harnesses run on the LIVE site until the owner fixes the OAuth app.** Next: the owner's read of
+the gizmo feel + the live save flow → F4 textures (T170) → F5 alignment (T172) → the mobile twin.
+
 ## Status — 2026-10-18 (`mem:project/wip-2026-10-18-photo-projection-prototype`)
 **THE PHOTO PROJECTION PROTOTYPE (the photo flow (b)) — BUILT, GATED, BROWSER-VERIFIED; desktop-only behind `?facade=1`; NOT released (DECISIONS 2026-10-18). Owner 2026-10-21: "looks promising" → the full desktop flow is PLANNED (`rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md`, T169–T172; DECISIONS 2026-10-21). Rulings: release HOLDS until save + edit/remove (F2); desktop may spend 100+ MB of GPU on live photos, mobile/iPhone must not degrade (the projector stays behind `hqAllowed`).**
 A facade photo (`store/facadePhoto` — the technical twin of the upload store, never a pin) is projected onto both building tilesets' shared fill
@@ -68,11 +79,10 @@ Harness `verify-photo-projection-2026-10-18` **10/10** (the pattern paints with 
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-**The FULL DESKTOP FACADE FLOW (owner 2026-10-21 after his read: "looks promising")** — `rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md`:
-boot with the §5 research fan-out (array textures + depth arrays on three 0.185 · the K-slot shader · Wix Media derivatives + the
-`FacadePhotos` collection · `basis_encoder` speed · the MS2 gizmo mapping), then **F1 + F2 + F3 ALL in that session — shipped + tested
-(owner order 2026-10-21; one build agent per slice, the main session owns the shared material + the K-slot change)** → F4 textures (T170)
-→ F5 alignment hooks (T172) → the mobile twin last. Then T166 · T165 · T167 · T164 · the older tails.
+**After the 2026-10-22 build (F1 + F2 + F3 + T171 BUILT, released behind `?facade=1`):** the owner's read of the gizmo feel + the save flow on
+the live site → **T173 (owner): the headless OAuth app's dev permissions** (until then persistence is verified live, never in `wix dev`) →
+F4 textures (T170: the `DataArrayTexture` route, KTX2 only if the client encode's 5.5–7.6 s is acceptable after the save) → F5 alignment
+hooks (T172) → the mobile twin last (K=1–2, 1024-px, farm-measured). Then T166 (port the radial lift rule to pins) · T165 · T167 · T164.
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·

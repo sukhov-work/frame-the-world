@@ -40,6 +40,7 @@ the `/m` redirect; new 2026-08-15).
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __pipCache __frameGate __cameraStore __timeStore __uploadStore __pinsStore __memberStore
 - `window.__facadeStore` (2026-10-18) — the facade-photo store (the photo flow (b) prototype); `window.__globe.facadeFrustum` + `__globe.photoProjector()` — the facade frustum handle and the projector's live snapshot (`verify-photo-projection-2026-10-18.mjs`).
+- `window.__facadeSaveStore` + `window.__facadesStore` (2026-10-22, F2 / F3) — the facade save walk (`saveFacade / updateFacade / deleteFacade`, the phase) and the saved rows (`mine`, `world`, `cover`, `editingId`); `__globe.facadeGizmo()` — the facade gizmo's APPLIED op (`op`; `requestedOp` = the store's), `attached / inScene / dragging / axis / dragId`, `handlePx / originPx / ringPx`, the deterministic `hoverAt(clientX, clientY) → axis | null` for a handle search, `debug(x?, y?)`, `helperRoot()`, `setFeeding(on)`; `__globe.facades()` — the residency plan (`markers {total, drawn, resident}`, `resident`, `occupied`, `world`, `editingId`, `apexOf(id)`); `__globe.photoProjector()` gained `slots[]`, `slotsOn`, `capacity`, `depthRendersTotal` (T171). Drivers: `verify-facade-flow-2026-10-21.mjs` (dev), `verify-facades-live.mjs` (a deployed site, no seams).
 __planStore __saveStore __marketStore __minimapStore __skyStore __findStore __placesStore
 __bldgEditStore __bldgSyncStore __bestSpotStore __modelUploadStore __modelEditStore
 __userModelsStore __debugFeed __editJournalStore __editJournal`
@@ -230,6 +231,28 @@ top-level globals; same removal/rename rule):
   `Scale X (east)` / `Scale Z (north)` in `scripts/provision-collections.mjs`. The wire (§7)
   moved with it: `PublicModel` and the owner's `ModelListItem` carry `sx / sy / sz`, and the PATCH
   placement body takes `sx? / sy? / sz?` with `scale?` kept as the legacy UNIFORM alias.
+- **FacadePhotos** (ADMIN everything; the elevated `/api/facades` is the only reader / writer —
+  PHOTO PROJECTION F2 persist, T169 / T172, 2026-10-21; **36 fields**, `src/lib/wix/facadeRecords.ts`):
+  `title ownerMemberId lat lon apexAltM altitudeM headingDeg pitchDeg rollDeg focalLengthMm hFovDeg
+  fovEstimated(B) poseSource exifPose(JSON-in-TEXT) strength ownLight rangeM geohash9 gh5 capturedAt
+  cameraMake cameraModel lensModel textureWidth textureHeight fileName fileSizeBytes originalFileId
+  displayFileId displayUrl thumbFileId thumbUrl targetFeatureIds(JSON-in-TEXT) alignment(JSON-in-TEXT)
+  isPublic(B) moderation` — ONE row per facade photo: THE RECORD IS THE POSE, never a baked atlas
+  (plan §4; C1). `hFovDeg` is the EFFECTIVE horizontal FOV (F1: scale = the H-FOV), `apexAltM` the
+  rendered apex height above the ellipsoid at save (a resident facade rebuilds its frustum from it,
+  no terrain lookup), `altitudeM` the editor's slider / EXIF value. `exifPose` is the EXIF baseline
+  (the RESET target); `poseSource` the D4 badge — `EXIF` while the saved pose equals it within 1e-9
+  on lat/lon/heading/pitch/roll/hFov, else `MANUAL` (re-derived on every pose PATCH), `SOLVED` only
+  by a T172 solver. `targetFeatureIds` (≤ 200 ids ≤ 80 chars, ≤ 8 KB) and `alignment` (a plain
+  object ≤ 16 KB) are the T172 seats, empty in v1 — JSON-in-TEXT because the provisioner speaks
+  TEXT / NUMBER / BOOLEAN only. `gh5` is the residency cell (the UserModels `hasSome` precedent),
+  re-derived beside `geohash9` on every pose write. `displayUrl` / `thumbUrl` are copied SERVER-side
+  off descriptors the route fetched and verified (a public IMAGE under
+  `https://static.wixstatic.com/media/`, ≤ 6 MiB) — a client never dictates a URL; a thumb whose
+  descriptor was refused is stored as NO thumb (id + URL null). **C6:** a projected photo is EXACT by
+  nature — reduced precision cannot apply, so `isPublic` is ALWAYS false and `moderation` "PRIVATE"
+  (server-stamped, never body-driven) and the world read is owner-filtered; a public tier needs
+  explicit consent + the moderation gate before any flag exists.
 - There is **no Listings collection** — listing fields ride Photos/PublicPins (ARCHITECTURE §5 corrected
   by the 2026-08-13 audit).
 - Schema changes land in the provision script FIRST (platform.md item 13; `extensions.dataCollections`
@@ -254,8 +277,43 @@ top-level globals; same removal/rename rule):
 
 ## 7. HTTP surface
 
-- **11 API routes** under `src/pages/api/` as of 2026-09-02i (audit #3 D7 re-count gave 9 on
-  2026-08-22; the 2026-08-13 "26 routes" figure was the whole `wix build` route table).
+- **12 API routes** under `src/pages/api/` since 2026-10-21 (`/api/facades`; 11 as of 2026-09-02i —
+  audit #3 D7 re-count gave 9 on 2026-08-22; the 2026-08-13 "26 routes" figure was the whole `wix
+  build` route table).
+  **`/api/facades`** (PHOTO PROJECTION F2 persist, T169 / T172, 2026-10-21; every method member-only →
+  401 `SIGNED_OUT`; `src/pages/api/facades.ts`, pure core `src/lib/wix/facadeRecords.ts`):
+  **GET** — `?cells=<gh5,…>` is the RESIDENCY read (the `/api/world-models` cell grammar: 1..16
+  distinct p5 cells, `parseWorldCells` reused by import; 400 otherwise) → `{ facades:
+  FacadeWorldItem[], complete }` — `hasSome("gh5", cells)` ∧ `ownerMemberId === me` (v1 world = MINE,
+  C6) ∧ `moderation ≠ "REMOVED"`, one page of 200 oldest-first; a `FacadeWorldItem` is `{ id, title,
+  displayUrl, thumbUrl, updatedAt, lat, lon, apexAltM, altitudeM, headingDeg, pitchDeg, rollDeg,
+  focalLengthMm, hFovDeg, fovEstimated, textureWidth, textureHeight, strength, ownLight, rangeM }` and
+  NEVER an owner id, a file id or the original; without `cells`, MY FACADES: `?skip=` (0-based) pages
+  of `FACADE_PAGE` 200 newest-first → `{ facades: FacadeListItem[], hasNext }` (the world shape +
+  `targetFeatureIds alignment capturedAt cameraMake cameraModel lensModel fileName fileSizeBytes
+  poseSource exifPose createdAt isPublic moderation`). **POST** `SaveFacadeBody` (the pose — `lat lon
+  apexAltM altitudeM headingDeg pitchDeg rollDeg focalLengthMm hFovDeg fovEstimated textureWidth
+  textureHeight` — + `strength ownLight rangeM targetFeatureIds alignment title capturedAt cameraMake
+  cameraModel lensModel fileName fileSizeBytes originalFileId displayFileId(REQUIRED) thumbFileId
+  exifPose`; 400 names the field; `headingDeg` wrapped onto [0, 360)) → one `count()` health rail
+  (≥ 5000 → 429 `TOO_MANY`), the display descriptor fetched + verified (404 `FILE_NOT_FOUND`; 400 with
+  the verdict `NOT_AN_IMAGE | PRIVATE_FILE | TOO_LARGE | INGEST_FAILED`; **409 `FILE_NOT_READY` +
+  `retryable: true` when the image has no static URL YET** — async ingest; the client re-POSTs the
+  same body), the thumb's likewise (a refusal costs the thumb, never the save) → `{ facadeId, facade:
+  FacadeListItem }`; 502 `SAVE_FAILED`. **PATCH** `{ facadeId, …any editable subset }` (the pose
+  fields, the projection params, the seats, `title` 1–120 trimmed; at least one; file ids / URLs /
+  owner / `exifPose` / moderation are never read) — owner-gated (404 "no such facade photo of yours"),
+  read-modify-write `items.update` of the WHOLE row, a pose edit re-derives `geohash9` + `gh5` and
+  re-stamps `poseSource` → `{ facadeId, facade }`; 502 `UPDATE_FAILED`. **DELETE** `?id=` →
+  `{ deleted, mediaDeleted }` — the row first, then `bulkDeleteFiles([original, display, thumb])`
+  best-effort; 502 `DELETE_FAILED`. Client wires: `lib/save/uploadMedia.ts` `postFacadeRecord` /
+  `patchFacadeRecord` / `deleteFacadeRecord` (through `jsonWriteInit` — never a bare DELETE) /
+  `fetchMyFacades(skip)` / `fetchWorldFacades(cells)`; bodies from `lib/save/facadeBody.ts`.
+- **`/api/upload-url` kind `"facade"`** (F2, 2026-10-21): the facade DISPLAY / THUMB derivatives
+  (`makeFacadeDerivatives` — 2048-px q 0.82 and 512-px q 0.8 JPEGs, made client-side by repeated
+  halving, C1): `image/jpeg` only, size 1..6 MiB, the name sanitized to a `.jpg` basename, else 400
+  `UNSUPPORTED_FACADE_IMAGE`; mints a PUBLIC plain-PUT URL filed under `/plux/facades` and answers
+  `{ kind, uploadUrl, fileName }`. The original rides kind `"original"` (TUS, private) as a pin's does.
   **`/api/world-models`** (MESH SUITE MS5, 2026-09-02i): the PUBLIC world read of user models —
   `GET ?cells=<gh5,…>` (1..16 distinct p5 base-32 cells, lower-cased; 400 `BAD_REQUEST` otherwise —
   a client cover larger than 16, first person since 2026-09-30, is sent as several such queries in

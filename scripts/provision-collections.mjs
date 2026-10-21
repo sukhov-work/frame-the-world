@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Provision the Phase-5 Wix Data collections (Photos, PublicPins) on the live site.
+ * Provision the Wix Data collections (Photos, PublicPins, BuildingOverrides, UserModels, FacadePhotos,
+ * SavedPlaces) on the live site.
  *
  * Idempotent: existing collections are left untouched (re-run safe). This script is the
  * source of truth for the collection schemas — the CLI `extensions.dataCollections` builder
@@ -206,6 +207,70 @@ const COLLECTIONS = [
     permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
   },
   {
+    // PHOTO PROJECTION F2 persist (T169 / T172, 2026-10-21): ONE row per facade photo = the POSE
+    // (where the camera stood, how it looked, the EFFECTIVE H-FOV), the projection params, the Media
+    // ids of the three files (the private original · the public 2048-px display JPEG · the public
+    // 512-px thumb) and the alignment seats (`targetFeatureIds` / `alignment`, empty in v1). THE
+    // RECORD IS THE POSE, NEVER A BAKED ATLAS (plan §4; C1): the projection happens at runtime from
+    // these numbers. JSON-IN-TEXT: `exifPose`, `targetFeatureIds` and `alignment` are serialized
+    // JSON in TEXT columns — this provisioner speaks TEXT / NUMBER / BOOLEAN only, and the parser
+    // (`src/lib/wix/facadeRecords.ts`) is their size rail (≤ 8 KB / ≤ 16 KB). ADMIN everything — all
+    // access through the elevated /api/facades (the owner's list + the MEMBER-GATED world read on
+    // `gh5`, the UserModels `hasSome` precedent; POST / PATCH / DELETE owner-gated). `displayUrl` /
+    // `thumbUrl` are copied SERVER-side off the verified IMAGE descriptors (the UserModels posture).
+    // C6: a projected facade photo is EXACT by nature — the pose IS the content, so reduced precision
+    // cannot apply. Rows are PRIVATE by default (`isPublic` false, `moderation` "PRIVATE", both
+    // stamped server-side, never body-driven); the v1 world read returns the calling member's OWN
+    // rows only. Any public tier needs explicit consent + the moderation gate — never a flag flip.
+    // `apexAltM` is the rendered apex height above the ellipsoid at save (a resident facade rebuilds
+    // its frustum from it with no terrain lookup); `altitudeM` keeps the editor's slider / EXIF value.
+    id: "FacadePhotos",
+    displayName: "Facade Photos",
+    fields: [
+      text("title", "Title"),
+      text("ownerMemberId", "Owner Member Id", true),
+      num("lat", "Latitude"),
+      num("lon", "Longitude"),
+      num("apexAltM", "Apex Height (m, ellipsoid)"),
+      num("altitudeM", "Altitude (m, editor)"),
+      num("headingDeg", "Heading (deg)"),
+      num("pitchDeg", "Pitch (deg)"),
+      num("rollDeg", "Roll (deg)"),
+      num("focalLengthMm", "Focal Length (mm)"),
+      num("hFovDeg", "Horizontal FOV (deg, effective)"),
+      bool("fovEstimated", "FOV Estimated"),
+      // The provenance badge (the D4 idiom): EXIF | MANUAL | SOLVED (T172's solver stamps the last).
+      text("poseSource", "Pose Source"),
+      text("exifPose", "EXIF Pose (JSON)"),
+      num("strength", "Projection Strength"),
+      num("ownLight", "Projection Own Light"),
+      num("rangeM", "Projection Range (m)"),
+      text("geohash9", "Geohash (p9)"),
+      // The residency cell — `hasSome` on this column (equality-on-a-set; a p9 hash cannot be
+      // prefix-queried), re-derived beside `geohash9` on every pose write.
+      text("gh5", "Geohash (p5)"),
+      // TZ-naive EXIF local ISO string, on purpose (see mem:patterns/upload-flow)
+      text("capturedAt", "Captured At (EXIF local)"),
+      text("cameraMake", "Camera Make"),
+      text("cameraModel", "Camera Model"),
+      text("lensModel", "Lens Model"),
+      num("textureWidth", "Texture Width"),
+      num("textureHeight", "Texture Height"),
+      text("fileName", "File Name"),
+      num("fileSizeBytes", "File Size (bytes)"),
+      text("originalFileId", "Original File Id"),
+      text("displayFileId", "Display File Id"),
+      text("displayUrl", "Display URL"),
+      text("thumbFileId", "Thumb File Id"),
+      text("thumbUrl", "Thumb URL"),
+      text("targetFeatureIds", "Target Feature Ids (JSON)"),
+      text("alignment", "Alignment (JSON)"),
+      bool("isPublic", "Is Public"),
+      text("moderation", "Moderation"),
+    ],
+    permissions: { insert: "ADMIN", update: "ADMIN", remove: "ADMIN", read: "ADMIN" },
+  },
+  {
     // Saved first-person viewpoints (owner 2026-07-15): photo-less FPV bookmarks — exactly the
     // `#f=` share-hash pose + an optional pinned scene time. Member-private (ADMIN everything;
     // all access through the elevated /api/places, owner-filtered) — never published (C6).
@@ -226,9 +291,26 @@ const COLLECTIONS = [
   },
 ];
 
-const token = execFileSync("npx", ["@wix/cli@latest", "token", "--site", siteId], {
-  encoding: "utf-8",
-}).trim().split("\n").pop();
+// The site token: `WIX_SITE_TOKEN` when the caller already minted one (mint ONCE, cache — the
+// wix-headless convention), else the PROJECT's own CLI (`node_modules/.bin/wix`, the version
+// package.json pins). Not `npx @wix/cli@latest`: 2026-10-22 the latest CLI began refusing every
+// Node below 24.18 while the machine's newest is 24.10, and the pinned CLI still answers.
+const token =
+  process.env.WIX_SITE_TOKEN?.trim() ||
+  // The CLI prints an "update available" box (box-drawing glyphs) on stdout, glued to the END of
+  // the token line without a newline — the token is the leading run of token characters of the
+  // first line that has one (`OauthNG.JWS.…`), never a whole line and never the last line.
+  execFileSync(join(root, "node_modules", ".bin", "wix"), ["token", "--site", siteId], {
+    encoding: "utf-8",
+  })
+    .split("\n")
+    .map((l) => l.trim().match(/^[A-Za-z0-9._~+/=-]{20,}/)?.[0])
+    .filter((t) => typeof t === "string")
+    .shift();
+if (!token) {
+  console.error("no site token: `wix token --site` printed nothing token-shaped (is the CLI signed in? `wix whoami`)");
+  process.exit(1);
+}
 
 const headers = {
   Authorization: `Bearer ${token}`,

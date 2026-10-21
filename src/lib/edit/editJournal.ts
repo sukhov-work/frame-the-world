@@ -22,7 +22,10 @@ export type EditTarget = string;
 
 export const bldgTarget = (overrideKey: string): EditTarget => `bldg|${overrideKey}`;
 export const modelTarget = (id: string): EditTarget => `model|${id}`;
+/** F1 (2026-10-21): the facade photo under edit — `draft` while unsaved, else the FacadePhotos row id. */
+export const facadeTarget = (id: string | "draft"): EditTarget => `facade|${id}`;
 export const isBldgTarget = (t: EditTarget): boolean => t.startsWith("bldg|");
+export const isFacadeTarget = (t: EditTarget): boolean => t.startsWith("facade|");
 /** The domain key back out of a target (`overrideKey` for a building, the id for a model). */
 export const targetKey = (t: EditTarget): string => t.slice(t.indexOf("|") + 1);
 

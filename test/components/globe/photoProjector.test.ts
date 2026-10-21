@@ -2,8 +2,10 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   attachPhotoProjector,
+  DRAFT_SLOT_ID,
   projectorMatrix,
   projectorOptics,
+  type PhotoProjectorSource,
 } from "../../../src/components/globe/scene/photoProjector";
 import { FRUSTUM, PHOTO_PROJECT } from "../../../src/components/globe/tuning";
 import { verticalFovDeg } from "../../../src/lib/decode/sensors";
@@ -157,44 +159,100 @@ describe("the RTC claim — the view-space route is float32-safe at ECEF, the wo
   });
 });
 
-describe("attachPhotoProjector — the feed defaults (constructs without GL; the photo flow (b), 2026-10-18)", () => {
+describe("attachPhotoProjector — the feed defaults + the K-slot pool (constructs without GL; T171, 2026-10-21)", () => {
   const stubRenderer = { capabilities: { getMaxAnisotropy: () => 16 } } as unknown as THREE.WebGLRenderer;
   const attach = () => attachPhotoProjector(new THREE.Scene(), { renderer: stubRenderer, osmClipPlanes: null });
+  const src = (patch: Partial<PhotoProjectorSource> = {}): PhotoProjectorSource => ({ url: null, enabled: true, strength: 1, ownLight: 0.6, rangeM: null, ...patch });
 
-  it("starts off, with PHOTO_PROJECT defaults and no textures", () => {
+  it("starts off, with PHOTO_PROJECT defaults, K slot records and no textures", () => {
     const h = attach();
-    expect(h.feed.on).toBe(false);
-    expect(h.feed.map).toBeNull();
-    expect(h.feed.depth).toBeNull();
-    expect(h.feed.k.toArray()).toEqual([PHOTO_PROJECT.strength, PHOTO_PROJECT.ownLight, 0, PHOTO_PROJECT.gain]);
+    expect(h.capacity).toBe(PHOTO_PROJECT.slots);
+    expect(h.feed.slots).toHaveLength(PHOTO_PROJECT.slots);
+    for (const sl of h.feed.slots) {
+      expect(sl.on).toBe(false);
+      expect(sl.map).toBeNull();
+      expect(sl.depth).toBeNull();
+      expect(sl.slot.toArray()).toEqual([PHOTO_PROJECT.strength, 0, PHOTO_PROJECT.rangeM, PHOTO_PROJECT.ownLight]);
+    }
+    expect(h.feed.k.toArray()).toEqual([1, 0, 0, PHOTO_PROJECT.gain]);
     expect(h.feed.depthP.toArray()).toEqual([PHOTO_PROJECT.nearM, PHOTO_PROJECT.farM, PHOTO_PROJECT.depthBiasM, PHOTO_PROJECT.depthBiasPerM]);
-    expect(h.feed.facing.toArray()).toEqual([PHOTO_PROJECT.facingLo, PHOTO_PROJECT.facingHi, PHOTO_PROJECT.edgeFeather, PHOTO_PROJECT.rangeM]);
+    expect(h.feed.facing.toArray()).toEqual([PHOTO_PROJECT.facingLo, PHOTO_PROJECT.facingHi, PHOTO_PROJECT.edgeFeather, 0]);
     const s = h.snapshot();
-    expect(s).toMatchObject({ on: false, enabled: true, url: null, textureReady: false, textureSize: null, flipV: 0, depthRenders: 0, error: null });
+    expect(s).toMatchObject({ on: false, enabled: true, url: null, textureReady: false, textureSize: null, flipV: 0, depthRenders: 0, error: null, slotsOn: 0, capacity: PHOTO_PROJECT.slots, depthRendersTotal: 0 });
     expect(s.depthSize).toEqual([PHOTO_PROJECT.depthMapPx, PHOTO_PROJECT.depthMapPx]);
     expect(s.strength).toBe(PHOTO_PROJECT.strength);
     expect(s.ownLight).toBe(PHOTO_PROJECT.ownLight);
+    expect(s.slots.map((x) => x.id)).toEqual([DRAFT_SLOT_ID]); // the draft occupies the first record from birth
+    expect(h.occupied()).toEqual([DRAFT_SLOT_ID]);
     h.dispose();
   });
 
-  it("setSource clamps strength and ownLight to [0, 1] (no url → no fetch)", () => {
+  it("setSource clamps strength / ownLight to [0, 1] and resolves the range (null → the tunable) into the DRAFT slot (no url → no fetch)", () => {
     const h = attach();
-    h.setSource({ url: null, enabled: true, strength: 1.7, ownLight: -0.3 });
-    expect(h.feed.k.x).toBe(1);
-    expect(h.feed.k.y).toBe(0);
-    h.setSource({ url: null, enabled: true, strength: 0.42, ownLight: 0.9 });
-    expect(h.feed.k.x).toBe(0.42);
-    expect(h.feed.k.y).toBe(0.9);
+    h.setSource(src({ strength: 1.7, ownLight: -0.3 }));
+    expect(h.feed.slots[0].slot.x).toBe(1);
+    expect(h.feed.slots[0].slot.w).toBe(0);
+    expect(h.feed.slots[0].slot.z).toBe(PHOTO_PROJECT.rangeM);
+    h.setSource(src({ strength: 0.42, ownLight: 0.9, rangeM: 250 }));
+    expect(h.feed.slots[0].slot.x).toBe(0.42);
+    expect(h.feed.slots[0].slot.w).toBe(0.9);
+    expect(h.feed.slots[0].slot.z).toBe(250);
+    h.setSource(src({ rangeM: 1 })); // below the floor → 10
+    expect(h.feed.slots[0].slot.z).toBe(10);
+    expect(h.snapshot().strength).toBe(1);
     h.dispose();
   });
 
   it("update(null) — and a placed pose with no photo yet — leaves the feed off and renders no depth", () => {
     const h = attach();
     h.update(null, 0);
-    expect(h.feed.on).toBe(false);
+    expect(h.feed.slots.some((sl) => sl.on)).toBe(false);
     h.update(geomFor(POSES[0]), 16); // no texture → no pass (a render here would throw on the stub)
-    expect(h.feed.on).toBe(false);
+    expect(h.feed.slots.some((sl) => sl.on)).toBe(false);
     expect(h.snapshot().depthRenders).toBe(0);
+    expect(h.snapshot().depthRendersTotal).toBe(0);
+    h.dispose();
+  });
+
+  it("request / release / setPriority / occupied — the pool holds K − 1 saved photos beside the draft, in feed order", () => {
+    const h = attach();
+    const K = PHOTO_PROJECT.slots;
+    const ids = Array.from({ length: K - 1 }, (_, i) => `f${i}`);
+    for (const id of ids) expect(h.request(id, src({ strength: 0.5 }))).toBe(true);
+    expect(h.request("overflow", src())).toBe(false); // the pool is full
+    expect(h.occupied()).toEqual([DRAFT_SLOT_ID, ...ids]);
+    expect(h.feed.slots.map((sl) => sl.slot.x)).toEqual([PHOTO_PROJECT.strength, ...ids.map(() => 0.5)]);
+    // a refresh keeps the slot
+    expect(h.request(ids[0], src({ strength: 0.25 }))).toBe(true);
+    expect(h.feed.slots[1].slot.x).toBe(0.25);
+    // priority re-orders the feed; unnamed occupied slots follow in their old order
+    h.setPriority([ids[1], DRAFT_SLOT_ID]);
+    expect(h.occupied()).toEqual([ids[1], DRAFT_SLOT_ID, ...ids.filter((x) => x !== ids[1])]);
+    expect(h.feed.slots[0].slot.x).toBe(0.5);
+    // release frees the record and a new id can take it
+    h.release(ids[1]);
+    expect(h.occupied()).toEqual([DRAFT_SLOT_ID, ...ids.filter((x) => x !== ids[1])]);
+    expect(h.request("overflow", src())).toBe(true);
+    expect(h.occupied()).toContain("overflow");
+    // the draft is never released
+    h.release(DRAFT_SLOT_ID);
+    expect(h.occupied()).toContain(DRAFT_SLOT_ID);
+    // geometry on an unknown id is ignored; on a known id it is kept (no texture → still off)
+    h.setGeometry("nobody", geomFor(POSES[0]));
+    h.setGeometry("overflow", geomFor(POSES[1]));
+    h.tick(100);
+    expect(h.feed.slots.some((sl) => sl.on)).toBe(false);
+    expect(h.snapshot().slots.find((x) => x.id === "overflow")?.on).toBe(false);
+    h.dispose();
+  });
+
+  it("the snapshot's top-level fields are the draft's (the 2026-10-18 harness contract) and `slots` lists every occupied record", () => {
+    const h = attach();
+    h.request("f0", src({ ownLight: 0.1 }));
+    h.setSource(src({ ownLight: 0.9 }));
+    const s = h.snapshot();
+    expect(s.ownLight).toBe(0.9);
+    expect(s.slots.map((x) => [x.id, x.ownLight])).toEqual([[DRAFT_SLOT_ID, 0.9], ["f0", 0.1]]);
     h.dispose();
   });
 });
