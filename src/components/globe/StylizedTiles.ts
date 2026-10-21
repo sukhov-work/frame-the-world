@@ -156,10 +156,18 @@ import { attachStreetNames } from "./scene/streetNames";
 import { attachVectorFeatures } from "./scene/vectorFeatures";
 import { attachVectorTiles } from "./scene/vectorTiles";
 import { attachPhotoFrustum } from "./PhotoFrustum";
-import { attachPhotoProjector, DRAFT_SLOT_ID } from "./scene/photoProjector";
+import { attachPhotoProjector, DRAFT_SLOT_ID, effectiveRangeM } from "./scene/photoProjector";
 import { attachFacadeGizmo } from "./scene/facadeGizmo";
 import { attachFacadeMarkers } from "./scene/facadeMarkers";
-import { facadeInView, planFacadeSlots, type FacadeSlotRow } from "../../lib/globe/facadeResidency";
+import {
+  facadePaintedVolume,
+  facadeSlotFade,
+  facadeVolumeDistanceM,
+  facadeVolumeInView,
+  planFacadeSlots,
+  type FacadePaintedVolume,
+  type FacadeSlotRow,
+} from "../../lib/globe/facadeResidency";
 import { useFacadesStore } from "../../store/facades";
 import type { FacadePoseSnapshot } from "../../lib/wix/facadeRecords";
 import { attachPins } from "./Pins";
@@ -1523,6 +1531,11 @@ export function attachStylizedTiles(opts: {
     onPlaced(geom) {
       if (!facadeFlyArmed) return; // a move, not a landing
       facadeFlyArmed = false;
+      // T176: inside FPV the orbit arrival flight would carry the eye to the orbit pose and the
+      // walker would re-assert afterwards — the snap the owner must never see. The walker stays;
+      // the frustum + gizmo + panel appear where the photo is (T168's FPV-at-the-apex entry is
+      // the next rung).
+      if (fpvActive) return;
       // The landing is a camera take-over: the ambient journey and any slider glide stand
       // down first (the same hand-off `noteInteract` performs for a grab), else the explore
       // controller keeps the camera at cruise altitude and the flight never lands.
@@ -2130,6 +2143,13 @@ export function attachStylizedTiles(opts: {
     const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
     const best = pickSkyBody(ndcX, ndcY);
     if (!best) {
+      // T178 (owner 2026-10-22): a saved facade marker under the cursor opens its EDIT · REMOVE
+      // menu — orbit and FPV alike (the marker stands on the ground, below the sky rungs).
+      if (openFacadeMarkerMenuAt(e.clientX, e.clientY)) {
+        e.preventDefault();
+        menuConsumesPress();
+        return;
+      }
       // MESH SUITE MS2: right-click a building in FPV → arm it (another building re-targets) and
       // open the edit menu (MOVE / ROTATE / SCALE / EXTRUDE / revert / done); a right-click
       // elsewhere with nothing armed keeps the native browser menu.
@@ -2214,6 +2234,7 @@ export function attachStylizedTiles(opts: {
     downY = e.clientY;
     anyPointerDown = true;
     tapRevealUntil = 0; // a new press ends any parked tap-reveal
+    useFacadesStore.getState().closeMenu(); // T178: a canvas press closes the facade marker menu
     // Any canvas press dismisses the sky context menu (a right press re-opens it on a hit).
     const camMenu = useCameraStore.getState();
     if (camMenu.skyMenu) camMenu.setSkyMenu(null);
@@ -3306,6 +3327,7 @@ export function attachStylizedTiles(opts: {
     if (e.button === 2) {
       useBldgEditStore.getState().closeMenu();
       useModelEditStore.getState().closeMenu();
+      useFacadesStore.getState().closeMenu();
       return;
     }
     if (!e.isPrimary) {
@@ -3701,6 +3723,19 @@ export function attachStylizedTiles(opts: {
       camS.setSkyMenu(null);
       return;
     }
+    // T178 / T176: the facade marker menu closes first; a live facade handle drag is CANCELLED
+    // (the rig returns to the drag's start, the store restores the snapshot, nothing commits).
+    {
+      const fac = useFacadesStore.getState();
+      if (fac.menu) {
+        fac.closeMenu();
+        return;
+      }
+      if (facadeGizmo && facadeGizmoDragId !== null) {
+        endFacadeGizmoDrag(facadeGizmoDragId, true);
+        return;
+      }
+    }
     // U8: an armed building edit owns the next Escape — finishing the edit must not exit FPV.
     // MS2 rungs inside it: an open context menu closes first; a live gizmo drag is CANCELLED
     // (the rig returns to where the drag began, nothing commits); only then Escape disarms.
@@ -3822,6 +3857,11 @@ export function attachStylizedTiles(opts: {
           return;
         }
       }
+      // T178: a long-press on a saved facade marker opens its menu (the right-click twin on glass).
+      if (openFacadeMarkerMenuAt(clientX, clientY)) {
+        longPressFired = true;
+        return;
+      }
       if (fpvActive) {
         // MS2: a long-press on a building (or anywhere while one is armed) opens the edit menu —
         // the right-click twin on glass; another building re-targets. A ground long-press with
@@ -3900,7 +3940,7 @@ export function attachStylizedTiles(opts: {
   // handful of picker meshes per move while a handle is attached (mouse / pen only).
   const facadeHost: HTMLElement = dom.parentElement ?? dom;
   const onFacadeGizmoDown = (e: PointerEvent) => {
-    if (!facadeGizmo || !facadeGizmo.attached || fpvActive || e.button !== 0) return;
+    if (!facadeGizmo || !facadeGizmo.attached || e.button !== 0) return;
     const rect = dom.getBoundingClientRect();
     const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
     const before = useFacadePhotoStore.getState().poseSnapshot();
@@ -3910,7 +3950,10 @@ export function attachStylizedTiles(opts: {
     // A handle drag is the user's own camera: the landing corrector must not re-cut after the
     // apex moves (browser-caught 2026-10-22: a 46 m move re-flew the camera 46 m with it).
     facadeFramingActive = false;
-    controls.enabled = false;
+    // T176 (owner 2026-10-22): the same path serves FPV — the controls are already off there
+    // (their setter resets the pointer tracker, so leave them alone), and the capture-phase stop
+    // keeps the press from `onFpvPointerDown`, so no look-drag starts under a handle.
+    if (!fpvActive) controls.enabled = false;
     e.stopImmediatePropagation();
     try {
       dom.setPointerCapture(e.pointerId);
@@ -3928,26 +3971,31 @@ export function attachStylizedTiles(opts: {
       e.stopImmediatePropagation();
       return;
     }
-    if (facadeGizmo.attached && !fpvActive && !anyPointerDown && e.pointerType !== "touch") {
+    if (facadeGizmo.attached && !anyPointerDown && fpvDragId === null && e.pointerType !== "touch") {
       const rect = dom.getBoundingClientRect();
       const [nx, ny] = clientToNdc(e.clientX, e.clientY, rect);
       if (facadeGizmo.hover(nx, ny)) dom.style.cursor = "grab";
       else if (dom.style.cursor === "grab") dom.style.cursor = "";
     }
   };
-  const onFacadeGizmoEnd = (e: PointerEvent) => {
-    if (!facadeGizmo || facadeGizmoDragId !== e.pointerId) return;
+  /** End a facade handle drag (release, cancel, Escape): the controls come back in ORBIT only. */
+  const endFacadeGizmoDrag = (pointerId: number, cancel: boolean): void => {
+    if (!facadeGizmo) return;
     facadeGizmoDragId = null;
-    if (e.type === "pointercancel") facadeGizmo.cancel();
+    if (cancel) facadeGizmo.cancel();
     else facadeGizmo.up();
-    controls.enabled = true;
-    e.stopImmediatePropagation();
+    if (!fpvActive) controls.enabled = true;
     try {
-      dom.releasePointerCapture(e.pointerId);
+      dom.releasePointerCapture(pointerId);
     } catch {
       /* never captured */
     }
     if (dom.style.cursor === "grabbing") dom.style.cursor = "";
+  };
+  const onFacadeGizmoEnd = (e: PointerEvent) => {
+    if (!facadeGizmo || facadeGizmoDragId !== e.pointerId) return;
+    endFacadeGizmoDrag(e.pointerId, e.type === "pointercancel");
+    e.stopImmediatePropagation();
   };
   facadeHost.addEventListener("pointerdown", onFacadeGizmoDown, { capture: true });
   facadeHost.addEventListener("pointermove", onFacadeGizmoMove, { capture: true });
@@ -4838,6 +4886,10 @@ export function attachStylizedTiles(opts: {
           : null,
       facades: () => ({
         markers: facadeMarkers?.count() ?? null,
+        hovered: facadeMarkers?.hovered() ?? null,
+        markerScaleOf: (id: string) => facadeMarkers?.scaleOf(id) ?? null,
+        menu: useFacadesStore.getState().menu,
+        texturesOn: useCameraStore.getState().texturesVisible,
         resident: facadeSlotsNow.slice(),
         occupied: photoProjector?.occupied() ?? [],
         world: useFacadesStore.getState().world.length,
@@ -8693,39 +8745,84 @@ export function attachStylizedTiles(opts: {
         photoProjector?.update(facadeFrustum.current(), frameNow());
   };
 
-  /** F3 (2026-10-21, T169 / T171): the residency plan — every `MODELS.residencyEveryFrames` frames
-   *  the saved photos' markers are ranked by apex distance inside the view cone, the K − 1 nearest
-   *  in-view ones inside `PHOTO_PROJECT.slotRangeM` take the projector's saved-photo slots
-   *  (hysteresis in the planner — a pan must not thrash textures), the released ones give theirs
-   *  back, and the feed order becomes draft-first-then-nearest (the material composites
-   *  front-to-back). The row under edit is hidden from the plan (it IS the draft). */
+  /** F3 (2026-10-21, T169 / T171) + T177 (owner test 2026-10-22): the residency plan — every
+   *  `MODELS.residencyEveryFrames` frames the saved photos are ranked by the camera's distance to
+   *  the nearest point of their PAINTED VOLUME (the cone from the apex, as long as the photo's
+   *  range — 0 inside it; the apex was the wrong thing: a photo whose apex sits BEHIND the camera
+   *  paints the facades in front of it), gated by that volume's sphere against the view cone (the
+   *  wider KEEP cone for a resident — hysteresis), and the K − 1 nearest inside
+   *  `PHOTO_PROJECT.slotRangeM` take the projector's saved-photo slots (hysteresis in the planner
+   *  — a pan must not thrash textures); the released ones give theirs back, and the feed order
+   *  becomes draft-first-then-nearest (the material composites front-to-back). EVERY frame the
+   *  residents' strength is faded by that same distance across the last `slotFadeFrac` of the
+   *  range (`photoProjector.setFade`) — a far photo recedes, it never clips out; the planner's
+   *  release band lies beyond the fade's end. The row under edit is hidden from the plan (it IS
+   *  the draft). The painted volumes are cached by row geometry (a re-posed row rebuilds its). */
   const _facCam = new THREE.Vector3();
   const _facFwd = new THREE.Vector3();
-  const _facApex = new THREE.Vector3();
+  const facadeVolumes = new Map<string, { geom: FrustumGeometry; vol: FacadePaintedVolume }>();
+  const facadeVolumeOf = (id: string, rangeM: number | null): FacadePaintedVolume | null => {
+    if (!facadeMarkers) return null;
+    const geom = facadeMarkers.rowGeometry(id);
+    if (!geom) {
+      facadeVolumes.delete(id);
+      return null;
+    }
+    const hit = facadeVolumes.get(id);
+    if (hit && hit.geom === geom) return hit.vol;
+    const vol = facadePaintedVolume(geom, effectiveRangeM(rangeM));
+    facadeVolumes.set(id, { geom, vol });
+    return vol;
+  };
   const stepFacadeResidency = () => {
         if (!facadeMarkers || !photoProjector) return;
         facadeMarkers.update(camera); // the glyphs' angular-size recompose (cheap: only when the camera moved > 1 m)
-        if (frameCount % MODELS.residencyEveryFrames !== 0) return;
+        _facCam.copy(camera.position);
+        const camV: [number, number, number] = [_facCam.x, _facCam.y, _facCam.z];
         const rows = facadeMarkers.rows();
+        // Every frame: the viewer-distance fade on the residents (≤ K − 1 cone distances).
+        for (const id of facadeSlotsNow) {
+          const row = rows.find((r) => r.id === id);
+          const vol = row ? facadeVolumeOf(id, row.rangeM) : null;
+          if (!vol) continue;
+          photoProjector.setFade(id, facadeSlotFade(facadeVolumeDistanceM(vol, camV), PHOTO_PROJECT.slotRangeM, PHOTO_PROJECT.slotFadeFrac));
+        }
+        if (frameCount % MODELS.residencyEveryFrames !== 0) return;
+        // T182 (owner 2026-10-22): the TEX chip in the camera controls gates the SAVED photos'
+        // slots (the draft always projects while placed; the markers stay). Off → every resident
+        // slot is released this tick and no plan runs.
+        if (!useCameraStore.getState().texturesVisible) {
+          if (facadeSlotsNow.length) {
+            for (const id of facadeSlotsNow) photoProjector.release(id);
+            photoProjector.setPriority([DRAFT_SLOT_ID]);
+            facadeMarkers.setResident([]);
+            facadeSlotsNow = [];
+          }
+          return;
+        }
         const hiddenId = useFacadesStore.getState().editingId;
         const pe = camera.projectionMatrix.elements;
         const tanHalfV = pe[5] > 0 ? 1 / pe[5] : Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
         const aspect = pe[0] > 0 && pe[5] > 0 ? pe[5] / pe[0] : camera.aspect;
         const marginRad = THREE.MathUtils.degToRad(MODELS.farViewMarginDeg);
-        _facCam.copy(camera.position);
+        const keepMarginRad = THREE.MathUtils.degToRad(MODELS.farViewMarginDeg + PHOTO_PROJECT.slotKeepMarginDeg);
         _facFwd.setFromMatrixColumn(camera.matrixWorld, 2).negate().normalize();
+        const fwdV: [number, number, number] = [_facFwd.x, _facFwd.y, _facFwd.z];
         const slotRows: FacadeSlotRow[] = [];
+        const seen = new Set<string>();
         for (const row of rows) {
+          seen.add(row.id);
           if (row.id === hiddenId) continue;
-          const apex = facadeMarkers.apexOf(row.id);
-          if (!apex) continue;
-          _facApex.set(apex[0], apex[1], apex[2]);
+          const vol = facadeVolumeOf(row.id, row.rangeM);
+          if (!vol) continue;
           slotRows.push({
             id: row.id,
-            distM: _facApex.distanceTo(_facCam),
-            inView: facadeInView(apex, [_facCam.x, _facCam.y, _facCam.z], [_facFwd.x, _facFwd.y, _facFwd.z], tanHalfV, aspect, marginRad),
+            distM: facadeVolumeDistanceM(vol, camV),
+            inView: facadeVolumeInView(vol, camV, fwdV, tanHalfV, aspect, marginRad),
+            inViewKeep: facadeVolumeInView(vol, camV, fwdV, tanHalfV, aspect, keepMarginRad),
           });
         }
+        for (const id of [...facadeVolumes.keys()]) if (!seen.has(id)) facadeVolumes.delete(id); // rows that left the world read
         const plan = planFacadeSlots(slotRows, facadeSlotsNow, {
           slots: photoProjector.capacity - 1, // the draft keeps its own record for good
           rangeM: PHOTO_PROJECT.slotRangeM,
@@ -8742,12 +8839,61 @@ export function attachStylizedTiles(opts: {
         facadeMarkers.setResident(plan.slots);
         facadeSlotsNow = plan.slots;
   };
-  /** F1: the gizmo follows the panel's op (OFF / MOVE / ROTATE / SCALE) — in ORBIT only; FPV
-   *  detaches it (the facade flow is an orbit flow; T168 keeps the FPV-at-the-apex idea). */
+  /** T183 (owner 2026-10-22c): the saved facade markers' hover — the pins' S4 idiom (a throttled
+   *  pick under the pointer, the marker eases up + glows in the scene module, the apex projected
+   *  to client px mirrored into the facades store for the compact HTML card, FacadeHoverCard).
+   *  Orbit AND FPV (mouse / pen only — a held button or finger stands it down). */
+  const _facHoverApex = new THREE.Vector3();
+  const stepFacadeHover = () => {
+        if (!facadeMarkers) return;
+        const fac = useFacadesStore.getState();
+        // An open marker menu owns the pointer's attention — the card stands down under it
+        // (browser-read 2026-10-22: the card re-synced under the menu every few frames).
+        const eligible = !placingNow() && !anyPointerDown && fpvDragId === null && facadeGizmoDragId === null && fac.menu === null && Number.isFinite(hoverX);
+        if (!eligible) {
+          if (fac.hover) {
+            facadeMarkers.setHover(null);
+            fac._syncHover(null, null);
+          }
+          return;
+        }
+        if (frameCount % PINS.hoverEveryFrames !== 0) return;
+        const rect = dom.getBoundingClientRect();
+        const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
+        const id = facadeMarkers.pick(nx, ny, camera);
+        facadeMarkers.setHover(id);
+        if (!id) {
+          if (fac.hover) fac._syncHover(null, null);
+          return;
+        }
+        const apex = facadeMarkers.apexOf(id);
+        if (!apex) return;
+        _facHoverApex.set(apex[0], apex[1], apex[2]).project(camera);
+        const { x, y } = ndcToClient(_facHoverApex.x, _facHoverApex.y, rect);
+        const prev = fac.hover;
+        if (!prev || prev.id !== id || Math.abs(prev.screen.x - x) > ORCH.screenMoveMinPx || Math.abs(prev.screen.y - y) > ORCH.screenMoveMinPx)
+          fac._syncHover(id, { x, y });
+  };
+  /** T178: a right-click / long-press on a saved facade marker opens its EDIT · REMOVE menu
+   *  (`FacadeMarkerMenu`); both modes. Returns true when a marker took the press. */
+  const openFacadeMarkerMenuAt = (clientX: number, clientY: number): boolean => {
+    if (!facadeMarkers) return false;
+    const rect = dom.getBoundingClientRect();
+    const [nx, ny] = clientToNdc(clientX, clientY, rect);
+    const id = facadeMarkers.pick(nx, ny, camera);
+    if (!id) return false;
+    useFacadesStore.getState()._setMenu({ id, screenX: clientX, screenY: clientY });
+    return true;
+  };
+
+  /** F1: the gizmo follows the panel's op (OFF / MOVE / ROTATE / SCALE) — in ORBIT and, since
+   *  T176 (owner 2026-10-22: "editing works both in the current global mode and when I go into
+   *  FPV"), in FPV too: the same capture-phase listeners serve both modes (the model gizmo's FPV
+   *  branch is not needed — the capture stop keeps the press from the FPV look-drag). */
   const stepFacadeGizmo = () => {
         if (!facadeGizmo || facadeGizmoDragId !== null) return;
         const st = useFacadePhotoStore.getState();
-        const op = !fpvActive && st.phase === "placed" ? st.gizmoOp : "none";
+        const op = st.phase === "placed" ? st.gizmoOp : "none";
         if (op !== "none") facadeFramingActive = false; // editing stands the landing corrector down
         facadeGizmo.setOp(op);
   };
@@ -9797,6 +9943,7 @@ export function attachStylizedTiles(opts: {
         stepFacadeArrival();
         stepFacadeResidency();
         stepFacadeGizmo();
+        stepFacadeHover();
         stepArrivalReframing();
         stepPinsUpdate();
         stepPinHover();

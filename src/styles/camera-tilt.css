@@ -119,11 +119,13 @@
 /* Compass + toggle chips (Phase 5.5 S2). Accent stays reserved: the needle's north half is
    the only accent stroke; buttons are quiet surface chips. A 4-column grid (owner 2026-08-19,
    supersedes the 2026-08-14 qol3 single-row rule) that grows by rows as chips are added —
-   compass is cell 1:
-     [compass][2D][☀☾][SAT] / [PIN][BLD][AIM][PLC] / [VEC]
-   and, on desktop with a fine pointer only, [ULT] joins that third row (owner 2026-08-22h).
-   Count re-checked 2026-08-22h — the old "the 7 chips" wording had been stale since VEC. */
+   compass is cell 1, MY SPOT (the location icon, T180 2026-10-22) cell 2:
+     [compass][myspot][2D][☀☾] / [SAT][PIN][BLD][MDL] / [AIM][PLC][VEC][TEX]
+   and, on desktop with a fine pointer only, [ULT][DBG] open a fourth row (owner 2026-08-22h /
+   2026-09-01). Re-counted 2026-10-22: the old map had missed MDL and DBG; TEX (T182) closes the
+   third row, so the two round icons share the first row with the two text chips. */
 .ct-row {
+  position: relative; /* the MY SPOT failure note is placed against the row */
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: center;
@@ -181,6 +183,83 @@
   stroke: color-mix(in srgb, var(--color-accent) 55%, transparent);
 }
 
+/* MY SPOT (T180) — a round location icon at the compass's size, the ring's surface + stroke;
+   the glyph ~14 px. `.is-busy` pulses the pin while a geolocation fix is pending. */
+.ct-myspot {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  line-height: 0;
+}
+
+.ct-myspot svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ct-myspot__pin {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.ct-myspot__dot {
+  fill: currentColor;
+}
+
+.ct-myspot:hover {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+.ct-myspot.is-busy {
+  color: var(--color-accent);
+  cursor: progress;
+  animation: ct-myspot-busy 1s ease-in-out infinite alternate;
+}
+
+@keyframes ct-myspot-busy {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-myspot.is-busy {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* The flashed failure line ("LOCATION UNAVAILABLE") — beside the panel, outside the grid flow. */
+.ct-myspot__note {
+  position: absolute;
+  top: 0.35rem;
+  right: calc(100% + 0.6rem);
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+  color: var(--color-warn);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* Chips share the 4-column grid above equally — no fixed min-widths; every cell divides
    whatever width the card gives it. */
 .ct-mode {
@@ -212,7 +291,8 @@
    applied and no pixels to show for it. That has now happened twice: PLC once (recorded in
    DECISIONS), and `.ct-vec` — shipped 2026-08-21 with `ct-vec` appearing nowhere under
    src/styles/**, so the VEC chip has had NO lit state since the day it landed. Both fixed
-   2026-08-22h. */
+   2026-08-22h. TEX (T182, 2026-10-22) joined with its line on day one — pinned by
+   test/components/facadeEditChip.test.ts. */
 .ct-sky.is-on,
 .ct-sat.is-on,
 .ct-pins.is-on,
@@ -220,6 +300,7 @@
 .ct-mdl.is-on,
 .ct-aim.is-on,
 .ct-vec.is-on,
+.ct-tex.is-on,
 .ct-places.is-on {
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);

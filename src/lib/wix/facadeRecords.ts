@@ -217,6 +217,14 @@ export function wrapHeadingDeg(deg: number): number {
   return w === 0 ? 0 : w; // fold -0
 }
 
+/** The facade pose line, one format for MY FACADES and the marker hover card (T183):
+ *  `"N 48.46470 E 35.04620 · 90.0°"` — hemisphere letters, 5 decimals (~1 m), heading to 0.1°. */
+export function facadePoseLine(item: { lat: number; lon: number; headingDeg: number }): string {
+  const ns = `${item.lat >= 0 ? "N" : "S"} ${Math.abs(item.lat).toFixed(5)}`;
+  const ew = `${item.lon >= 0 ? "E" : "W"} ${Math.abs(item.lon).toFixed(5)}`;
+  return `${ns} ${ew} · ${item.headingDeg.toFixed(1)}°`;
+}
+
 const utf8Bytes = (s: string): number => new TextEncoder().encode(s).byteLength;
 
 // ── the pose fields, ONE rule table shared by the save body, the EXIF pose and the PATCH ──────

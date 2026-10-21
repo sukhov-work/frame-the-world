@@ -60,6 +60,115 @@ export function facadeApexDistanceM(apex: Vec3, camera: Vec3): number {
   return Math.hypot(apex[0] - camera[0], apex[1] - camera[1], apex[2] - camera[2]);
 }
 
+// ---- T177 (owner test 2026-10-22): "the texture available should be aware of where I LOOK, not
+// only where I am; with larger distances gracefully degrade and not just clip out". The apex is
+// the wrong thing to test — a photo whose apex sits BEHIND the camera paints the facades in front
+// of it. What the viewer sees is the PAINTED VOLUME: the cone from the apex along the forward
+// axis, as wide as the frustum, as long as the photo's range. Residency ranks by the nearest point
+// of that volume (0 = the camera stands inside it), gates by the volume's bounding sphere against
+// the view cone, and fades a resident slot's strength toward 0 across the last `fadeFrac` of the
+// range before the planner releases it (the planner's hysteresis band sits beyond the fade's end,
+// so a release is invisible). ---------------------------------------------------------------------
+
+/** The painted volume of a facade photo — a right circular cone that CONTAINS the rectangular
+ *  frustum (the half-angle is the corner's), plus its bounding sphere for the in-view test. */
+export interface FacadePaintedVolume {
+  apex: Vec3;
+  /** Unit axis. */
+  forward: Vec3;
+  /** The cone's length (m) = the photo's effective range. */
+  lengthM: number;
+  /** tan of the half-angle to the frustum's CORNER (the cone contains the whole rectangle). */
+  tanHalf: number;
+  /** The bounding sphere: centred on the axis at half the length. */
+  centre: Vec3;
+  radiusM: number;
+}
+
+/** The painted volume from the frustum the marker + the projector share, and the effective range
+ *  (the projector's `effectiveRangeM` — the paint stops there, so should the residency). Pure. */
+export function facadePaintedVolume(geom: FrustumGeometry, rangeM: number): FacadePaintedVolume {
+  const [tl, tr, br, bl] = geom.corners;
+  const halfW = Math.hypot(tl[0] - tr[0], tl[1] - tr[1], tl[2] - tr[2]) / 2;
+  const halfH = Math.hypot(tl[0] - bl[0], tl[1] - bl[1], tl[2] - bl[2]) / 2;
+  const cx = (tl[0] + tr[0] + br[0] + bl[0]) / 4 - geom.apex[0];
+  const cy = (tl[1] + tr[1] + br[1] + bl[1]) / 4 - geom.apex[1];
+  const cz = (tl[2] + tr[2] + br[2] + bl[2]) / 4 - geom.apex[2];
+  const planeDistM = cx * geom.forward[0] + cy * geom.forward[1] + cz * geom.forward[2];
+  const tanHalf = planeDistM > 0 && Number.isFinite(planeDistM) ? Math.hypot(halfW, halfH) / planeDistM : 1;
+  const lengthM = Number.isFinite(rangeM) && rangeM > 0 ? rangeM : 0;
+  const half = lengthM / 2;
+  const centre: Vec3 = [
+    geom.apex[0] + geom.forward[0] * half,
+    geom.apex[1] + geom.forward[1] * half,
+    geom.apex[2] + geom.forward[2] * half,
+  ];
+  // The far rim sits at (lengthM, lengthM·tanHalf) from the apex in (axial, radial); the apex at
+  // (0, 0): both are within hypot(half, lengthM·tanHalf) of the centre.
+  return { apex: geom.apex, forward: geom.forward, lengthM, tanHalf, centre, radiusM: Math.hypot(half, lengthM * tanHalf) };
+}
+
+/** The camera's distance (m) to the nearest point of the painted volume — 0 inside the cone.
+ *  Behind the apex the apex is the nearest point; beside the cone the slant surface is; past the
+ *  far cap the cap's rim or disc is. A ranking metric (exact for the three regions' axes, a
+ *  close lower bound in between), never a render test. Pure. */
+export function facadeVolumeDistanceM(vol: FacadePaintedVolume, camera: Vec3): number {
+  const tx = camera[0] - vol.apex[0];
+  const ty = camera[1] - vol.apex[1];
+  const tz = camera[2] - vol.apex[2];
+  const axial = tx * vol.forward[0] + ty * vol.forward[1] + tz * vol.forward[2];
+  const radial = Math.sqrt(Math.max(0, tx * tx + ty * ty + tz * tz - axial * axial));
+  const L = vol.lengthM;
+  if (L <= 0) return Math.hypot(tx, ty, tz);
+  if (axial <= 0) {
+    // Behind the apex: the tip is the nearest point unless the camera sits inside the mirrored
+    // cone's shadow — the tip is still the nearest point of the cone there. Plain distance.
+    return Math.hypot(tx, ty, tz);
+  }
+  const cosHalf = 1 / Math.hypot(1, vol.tanHalf);
+  if (axial >= L) {
+    // Past the far cap: inside the cap's disc → the axial overshoot; outside → to the rim.
+    const rimR = L * vol.tanHalf;
+    const over = axial - L;
+    return radial <= rimR ? over : Math.hypot(over, radial - rimR);
+  }
+  const coneR = axial * vol.tanHalf;
+  if (radial <= coneR) return 0; // inside the painted volume
+  // Beside the slant surface: the perpendicular distance to the cone's generator line.
+  return (radial - coneR) * cosHalf;
+}
+
+/** Does the painted volume meet the view? Its bounding sphere against the models' `inViewCone`
+ *  (the frame's corner cone widened by `marginRad`) — a LOAD gate, generous on purpose: a camera
+ *  inside the sphere is always in view, so a photo painting the facades in front of a viewer
+ *  who stands near its apex (looking any way) stays live. Pure. */
+export function facadeVolumeInView(
+  vol: FacadePaintedVolume,
+  cameraPos: Vec3,
+  cameraFwd: Vec3,
+  tanHalfV: number,
+  aspect: number,
+  marginRad: number,
+): boolean {
+  const to: Vec3 = [vol.centre[0] - cameraPos[0], vol.centre[1] - cameraPos[1], vol.centre[2] - cameraPos[2]];
+  const distM = Math.hypot(to[0], to[1], to[2]);
+  const cos = distM > 0 ? dot(to, cameraFwd) / distM : 1;
+  return inViewCone(cos, distM, vol.radiusM, tanHalfV, aspect, marginRad);
+}
+
+/** The viewer-distance fade of a resident slot: 1 inside `rangeM · (1 − fadeFrac)`, a smoothstep
+ *  down to 0 at `rangeM`. `fadeFrac` ≤ 0 → a hard edge at `rangeM`; ≥ 1 → the fade spans the whole
+ *  range. Pure. */
+export function facadeSlotFade(distM: number, rangeM: number, fadeFrac: number): number {
+  if (!Number.isFinite(distM) || !(rangeM > 0)) return 0;
+  if (distM >= rangeM) return 0;
+  const frac = Math.min(1, Math.max(0, Number.isFinite(fadeFrac) ? fadeFrac : 0));
+  const start = rangeM * (1 - frac);
+  if (distM <= start) return 1;
+  const t = (distM - start) / (rangeM - start);
+  return 1 - t * t * (3 - 2 * t);
+}
+
 /** Is the apex inside the view? The models' `inViewCone` (the frame's corner cone, widened by
  *  `marginRad`) about a `FACADE_VIEW_RADIUS_M` sphere — a LOAD gate, generous on purpose; the eye
  *  on the apex is always in view. `cameraFwd` is the unit view axis. Pure. */
@@ -79,10 +188,14 @@ export function facadeInView(
 
 export interface FacadeSlotRow {
   id: string;
-  /** Camera → apex (m). */
+  /** Camera → the photo (m): the nearest point of its painted volume since T177 (0 = inside);
+   *  the apex distance before it. */
   distM: number;
-  /** `facadeInView` for this camera. */
+  /** In view for this camera (`facadeVolumeInView` since T177, `facadeInView` before). */
   inView: boolean;
+  /** T177 hysteresis: the in-view test with the KEEP margin (wider) — a resident stays while this
+   *  holds; absent = `inView`. A candidate needs `inView`. */
+  inViewKeep?: boolean;
 }
 
 export interface FacadeSlotConfig {
@@ -108,8 +221,9 @@ const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * The K nearest IN-VIEW rows inside `rangeM`, with hysteresis both ways:
- *   • KEEP — a resident row stays while it is in view and inside `rangeM + swapMarginM`
- *     (out of view or past the band → released; more keepers than K → the nearest K stay);
+ *   • KEEP — a resident row stays while it is in view (`inViewKeep` when given — the wider cone,
+ *     T177) and inside `rangeM + swapMarginM` (out of view or past the band → released; more
+ *     keepers than K → the nearest K stay);
  *   • DISPLACE — a non-resident candidate takes a kept row's slot only when it is nearer than
  *     that row by more than `swapMarginM` (the farthest keeper goes first).
  * Deterministic: distance ties break by id. Rows with a non-finite distance are ignored.
@@ -123,11 +237,12 @@ export function planFacadeSlots(rows: readonly FacadeSlotRow[], resident: readon
   const residentSet = new Set(resident);
   const nearer = (a: FacadeSlotRow, b: FacadeSlotRow) => a.distM - b.distM || byId(a.id, b.id);
 
-  // KEEP: the residents still in view and inside the band, in their current slot order.
+  // KEEP: the residents still in view (the wider KEEP cone when given — T177) and inside the band,
+  // in their current slot order.
   let keepers: FacadeSlotRow[] = [];
   for (const id of resident) {
     const r = byRow.get(id);
-    if (r && r.inView && r.distM <= rangeM + margin) keepers.push(r);
+    if (r && (r.inViewKeep ?? r.inView) && r.distM <= rangeM + margin) keepers.push(r);
   }
   if (keepers.length > k) {
     const nearest = new Set([...keepers].sort(nearer).slice(0, k).map((r) => r.id));

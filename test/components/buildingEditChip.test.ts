@@ -261,6 +261,10 @@ describe("BuildingEditChip — T126 UNDO + DROP SESSION (owner 2026-09-08b, MESH
     expect(pillShows({ kind: "sync", label: "⇅ SYNC 1" }, { undoable: 0, undoLabel: null, sessionEdits: 0 })).toBe(true);
     // …and never over the MODEL chip (the two islands share the slot — seen 2026-09-09, usermodels leg 5).
     expect(pillShows({ kind: "sync", label: "⇅ SYNC 1" }, { undoable: 1, undoLabel: "move", sessionEdits: 1 }, true)).toBe(false);
+    // T175: …nor over the FACADE chip while a facade photo is placed (the same shared slot).
+    expect(pillShows({ kind: "sync", label: "⇅ SYNC 1" }, { undoable: 1, undoLabel: "move", sessionEdits: 1 }, false, true)).toBe(false);
+    expect(pillShows(HIDDEN, { undoable: 1, undoLabel: "move", sessionEdits: 1 }, false, true)).toBe(false);
+    expect(pillShows(HIDDEN, { undoable: 1, undoLabel: "move", sessionEdits: 1 }, false, false)).toBe(true);
     const html = renderToStaticMarkup(
       createElement(SyncPill, { sync: { kind: "sync", label: "⇅ SYNC 2" }, actions, journal: { undoable: 4, undoLabel: "scale", sessionEdits: 2 } }),
     );

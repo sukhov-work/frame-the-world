@@ -28,9 +28,19 @@ describe("the facade panel's harness hooks", () => {
 
   it("keeps the overlay contracts the harness already relies on", () => {
     expect(code).toMatch(/className="uf ff"/);
-    expect(code).toMatch(/data-open-facade/);
+    // the delegation still binds (the verify harnesses dispatch it) — no element ships it now
+    expect(code).toMatch(/closest\?\.\("\[data-open-facade\]"\)/);
     expect(code).toMatch(/className="pd ff-panel"/);
     expect(code).toMatch(/type="file"/);
+  });
+
+  it("T181: the ?facade flag and its nav link retired — the Upload overlay's lower half is the door", () => {
+    expect(code).not.toMatch(/URLSearchParams/);
+    expect(code).not.toMatch(/ff-navlink/);
+    expect(read(CSS)).not.toMatch(/\.ff-navlink/);
+    const upload = stripComments(read("src/components/panels/UploadFlow.tsx"));
+    expect(upload).toMatch(/uf-dropzone uf-dropzone--facade/);
+    expect(upload).toMatch(/facade\.loadFile\(files\[0\]\)/);
   });
 
   it("the chips write the store op; UNDO requests the facade scope on the journal", () => {

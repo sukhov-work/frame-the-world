@@ -16,6 +16,7 @@ import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal, formatAltM, formatEyeM } from "../../lib/format/readout";
 import { saveViewPref } from "../../lib/prefs";
 import { ultraBootSnapshot } from "../../lib/globe/ultraBoot";
+import { useMyLocation } from "./MyLocation";
 import "../../styles/camera-tilt.css";
 import "../../styles/tips.css";
 
@@ -171,6 +172,7 @@ export default function CameraTiltPanel() {
             <circle className="ct-compass__pin" cx="18" cy="18" r="1.4" />
           </svg>
         </button>
+        <MySpotButton />
         <button
           type="button"
           className={`ct-mode tip${is2D ? "" : " is-3d"}`}
@@ -260,6 +262,7 @@ export default function CameraTiltPanel() {
         >
           VEC
         </button>
+        <TexturesChip />
         {/* The two EXPERIMENTAL chips (owner 2026-08-22h) — desktop only, off by default.
             `hqExperimentsAllowed` is the SAME predicate the engine gates on (StylizedTiles
             `hqAllowed`), deliberately duplicated rather than plumbed: a chip that renders but
@@ -423,7 +426,7 @@ function SavePlaceControl() {
         className={`ct-saveplace tip${mode === "saved" ? " is-saved" : ""}`}
         disabled={!ready || mode === "saved"}
         onClick={() => setMode("naming")}
-        data-tip="BOOKMARK THIS EXACT VIEWPOINT — FIND IT UNDER MY PINS · PLACES."
+        data-tip="BOOKMARK THIS EXACT VIEWPOINT — FIND IT UNDER MY CONTENT · PLACES."
         data-tip-pos="left"
       >
         {mode === "saved" ? "✓ PLACE SAVED" : "◎ SAVE PLACE"}
@@ -534,6 +537,60 @@ function PlacesOnMapChip() {
       data-tip-pos="left"
     >
       PLC
+    </button>
+  );
+}
+
+/** MY SPOT (T180, owner 2026-10-22) — the nav's "My spot" link moved into the camera controls
+ *  as a small LOCATION icon beside the compass (no text). The SAME geolocation → point FPV jump
+ *  (`useMyLocation`, MyLocation.tsx — C6: the fix never leaves the browser); `.is-busy` while a
+ *  fix is pending, the failure line flashed beside the panel (absolutely placed, so it never
+ *  takes a grid cell). */
+function MySpotButton() {
+  const { busy, note, locate } = useMyLocation();
+  return (
+    <>
+      <button
+        type="button"
+        className={`ct-myspot tip${busy ? " is-busy" : ""}`}
+        onClick={locate}
+        disabled={busy}
+        aria-busy={busy}
+        aria-label="My spot"
+        data-tip={busy ? "MY SPOT — LOCATING…" : "MY SPOT — walk to where you are (geolocation)"}
+        data-tip-pos="left"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path className="ct-myspot__pin" d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.6 6.5 12.5 6.5 12.5s6.5-7.9 6.5-12.5A6.5 6.5 0 0 0 12 2.5z" />
+          <circle className="ct-myspot__dot" cx="12" cy="9" r="2.3" />
+        </svg>
+      </button>
+      {note && (
+        <span className="ct-myspot__note" role="status">
+          {note}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** TEX (T182, owner 2026-10-22) — the saved facade photos projected onto the buildings, ON by
+ *  default, persisted (the MDL recipe). The engine gates the residency + the projector feed on
+ *  it (the draft under edit always projects while placed; the markers stay). */
+function TexturesChip() {
+  const on = useCameraStore((s) => s.texturesVisible);
+  const setOn = useCameraStore((s) => s.setTexturesVisible);
+  return (
+    <button
+      type="button"
+      className={`ct-mode ct-tex tip${on ? " is-on" : ""}`}
+      onClick={() => setOn(!on)}
+      aria-pressed={on}
+      aria-label={on ? "Hide the facade textures" : "Show the facade textures"}
+      data-tip="FACADE TEXTURES — your saved photos projected onto the buildings (desktop renders them)"
+      data-tip-pos="left"
+    >
+      TEX
     </button>
   );
 }

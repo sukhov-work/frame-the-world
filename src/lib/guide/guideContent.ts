@@ -448,7 +448,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "fpv-enter",
         title: "Enter first-person view",
         where: {
-          desktop: "Double-click the ground, or My spot in the nav",
+          desktop: "Double-click the ground, or My spot — the location icon in the camera controls",
           mobile: "◎ LOOK FROM HERE chip",
         },
         keys: ["street level", "eye height", "ground level", "my spot"],
@@ -460,8 +460,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Then tap the ◎ LOOK FROM HERE chip it arms.",
         ],
         tip:
-          "My spot uses your device location and keeps it in the browser — it is never " +
-          "uploaded or published.",
+          "My spot — the location icon in the camera controls — uses your device location and " +
+          "keeps it in the browser — it is never uploaded or published.",
       },
       {
         id: "fpv-walk",
@@ -699,10 +699,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "my-models",
         title: "Manage your models",
-        where: { desktop: "MY PINS panel · MODELS tab" },
+        where: { desktop: "MY CONTENT panel · MODELS tab" },
         keys: ["my models", "rename model", "hide model", "delete model", "models list", "my uploads", "goto model", "reset model"],
         body:
-          "Every model you stored is listed under MY PINS · MODELS with its size, its triangle count " +
+          "Every model you stored is listed under MY CONTENT · MODELS with its size, its triangle count " +
           "and a badge when another member has edited it. Click a row or GOTO to stand beside the " +
           "model in first-person view, or click an unplaced row to place it. RESET puts a model back " +
           "as uploaded — turn, tilt, size and ground seat — where it stands, even one sunk or lifted by " +
@@ -710,7 +710,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "back, and a second press on ✕ deletes it for good. A hidden or deleted model leaves the " +
           "world, not the link — the file itself stays public by URL.",
         steps: [
-          "Open MY PINS in the top bar and pick the MODELS tab.",
+          "Open MY CONTENT in the top bar and pick the MODELS tab.",
           "Click a row or GOTO to stand beside the model, or click an unplaced row to give it a spot.",
           "Press RESET to undo every turn, tilt, resize and lift at once.",
           "Press the pencil, type a new name and hit Enter.",
@@ -1547,7 +1547,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "save-places",
         title: "Return to a place",
         where: {
-          desktop: "MY PINS panel · PLACES tab",
+          desktop: "MY CONTENT panel · PLACES tab",
           mobile: "▤ SAVED PLACES chip, or the SEARCH tab's idle list",
         },
         keys: ["my places", "saved", "bookmarks", "list", "delete"],

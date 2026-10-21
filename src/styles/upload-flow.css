@@ -145,6 +145,51 @@
 .uf-dropzone--over {
   background: rgba(11, 15, 20, 0.8);
 }
+/* T181 (owner 2026-10-22) — the SPLIT dropzone: the upper half is the pin flow (photo | model),
+   the lower half the facade texture flow. The two halves share the dropstep's height and read as
+   ONE box cut by a thin solid divider (the facade half's top edge); each half owns its dashed
+   frame, its own dragover highlight and its own label. The lower half sits a step dimmer until
+   it is hovered or dragged over — the pin flow stays the primary door. Tokens only. */
+.uf-dropsplit {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+}
+.uf-dropsplit .uf-dropzone {
+  min-height: 0;
+  gap: 14px;
+  padding: 18px 24px;
+}
+.uf-dropzone--pin {
+  flex: 3;
+  border-bottom: none;
+  border-radius: 16px 16px 0 0;
+}
+.uf-dropzone--facade {
+  flex: 2;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 16px 16px;
+  opacity: 0.72;
+  transition: border-color 180ms ease, background 180ms ease, opacity 180ms ease;
+}
+.uf-dropzone--facade:hover,
+.uf-dropzone--facade.uf-dropzone--over {
+  opacity: 1;
+}
+.uf-dropzone--facade .uf-dropzone__title {
+  font-size: 18px;
+}
+.uf-dropzone__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+}
+.uf-dropzone--over .uf-dropzone__label,
+.uf-dropzone:hover .uf-dropzone__label {
+  color: var(--color-accent);
+}
 .uf-dropzone__icon {
   width: 52px;
   height: 52px;

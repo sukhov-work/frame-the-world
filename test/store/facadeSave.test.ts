@@ -410,6 +410,32 @@ describe("deleteFacade", () => {
     expect(f().phase).toBe("placed");
     expect(f().savedFacadeId).toBe("fac_1");
   });
+
+  it("deleteFacadeById (T178 / T179): another row deletes without touching the placed photo", async () => {
+    f().openSaved(FACADE);
+    const phases = recordPhases();
+    await save().deleteFacadeById("fac_other");
+    expect(phases).toEqual(["deleting", "idle"]);
+    expect(media.deleteFacadeRecord).toHaveBeenCalledWith("fac_other");
+    expect(residency.removeMine).toHaveBeenCalledWith("fac_other");
+    expect(f().phase).toBe("placed");
+    expect(f().savedFacadeId).toBe("fac_1");
+  });
+
+  it("deleteFacadeById on the placed row clears it; an empty id is NOT_SAVED; busy is refused", async () => {
+    f().openSaved(FACADE);
+    await save().deleteFacadeById("");
+    expect(save().errorCode).toBe("NOT_SAVED");
+    expect(media.deleteFacadeRecord).not.toHaveBeenCalled();
+    await save().deleteFacadeById("fac_1");
+    expect(media.deleteFacadeRecord).toHaveBeenCalledWith("fac_1");
+    expect(f().phase).toBe("idle");
+    expect(f().savedFacadeId).toBeUndefined();
+    useFacadeSaveStore.setState({ phase: "deleting" });
+    media.deleteFacadeRecord.mockClear();
+    await save().deleteFacadeById("fac_2");
+    expect(media.deleteFacadeRecord).not.toHaveBeenCalled();
+  });
 });
 
 describe("reset", () => {

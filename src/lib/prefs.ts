@@ -38,6 +38,10 @@ export interface ViewPrefs {
   /** MDL chip (MESH SUITE MS5) — everyone's uploaded 3D models on/off (default ON, the BLD
    *  recipe: a plain clause, no re-arm join). */
   modelsVisible?: boolean;
+  /** TEX chip (T182, owner 2026-10-22) — the saved facade photos projected onto the buildings
+   *  (default ON, the MDL recipe: a plain clause, no re-arm join). Desktop renders them; on `/m`
+   *  the toggle is present but INERT (owner ruling 2026-10-22c — no projector until F6). */
+  texturesVisible?: boolean;
   /** TARGET panel SHOW — render the tracked sky target's tracer. (Renamed from the comet-era
    *  `cometVisible` 2026-08-03, phase C; sanitize still READS the old key so saved chip choices
    *  from the comet sessions survive — the next save rewrites them under the new name.) */
@@ -132,6 +136,7 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
     out.fpvBuildingSolidity = Math.max(0, Math.min(1, r.fpvBuildingSolidity));
   if (typeof r.buildings3d === "boolean") out.buildings3d = r.buildings3d;
   if (typeof r.modelsVisible === "boolean") out.modelsVisible = r.modelsVisible;
+  if (typeof r.texturesVisible === "boolean") out.texturesVisible = r.texturesVisible;
   // Sky-target keys, with the comet-era names as read-only fallbacks (new name wins): a blob
   // saved before the 2026-08-03 rename keeps its chip choices without a migration pass.
   const vis = typeof r.skyTargetVisible === "boolean" ? r.skyTargetVisible : r.cometVisible;

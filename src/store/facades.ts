@@ -165,6 +165,40 @@ export interface FacadesState {
   removeMine(id: string): void;
   setEditing(id: string | null): void;
   isMine(id: string): boolean;
+
+  /** T183 — the hovered saved-facade marker + its apex's projected screen point (px), mirrored by
+   *  the orchestrator at low cadence (the `pins.hoverPin` / `hoverScreen` idiom) so
+   *  panels/FacadeHoverCard can float the compact preview. Null = nothing hovered. */
+  hover: FacadeHover | null;
+  /** T178 — the marker context menu (right-click / long-press), a static click point (the
+   *  `modelEdit.menu` idiom). Null = closed. */
+  menu: FacadeMenu | null;
+  /** Orchestrator-only: mirror the hover. A null id (or a null screen) clears it; an identical
+   *  sync (same id, same x / y) is a no-op — no new object, no re-render. */
+  _syncHover(id: string | null, screen: { x: number; y: number } | null): void;
+  /** Open (or, with null, close) the marker menu. Opening clears the hover — the card would
+   *  otherwise sit under the menu. */
+  _setMenu(menu: FacadeMenu | null): void;
+  closeMenu(): void;
+}
+
+export interface FacadeHover {
+  id: string;
+  screen: { x: number; y: number };
+}
+export interface FacadeMenu {
+  id: string;
+  screenX: number;
+  screenY: number;
+}
+
+/** A marker's row: the member's own copy first (the editor's facts — EDIT needs it), else the
+ *  world copy; null when the id is in neither (a row removed under an open hover / menu). */
+export function facadeRowById(
+  state: Pick<FacadesState, "mine" | "world">,
+  id: string,
+): FacadeListItem | FacadeWorldItem | null {
+  return state.mine.find((m) => m.id === id) ?? state.world.find((w) => w.id === id) ?? null;
 }
 
 let lastCover: string[] | null = null;
@@ -229,6 +263,30 @@ export const useFacadesStore = create<FacadesState>((set, get) => ({
   cover: null,
   complete: true,
   editingId: null,
+  hover: null,
+  menu: null,
+
+  _syncHover: (id, screen) => {
+    const cur = get().hover;
+    if (id === null || screen === null) {
+      if (cur !== null) set({ hover: null });
+      return;
+    }
+    if (cur && cur.id === id && cur.screen.x === screen.x && cur.screen.y === screen.y) return;
+    set({ hover: { id, screen: { x: screen.x, y: screen.y } } });
+  },
+
+  _setMenu: (menu) => {
+    if (menu === null) {
+      if (get().menu !== null) set({ menu: null });
+      return;
+    }
+    set({ menu: { id: menu.id, screenX: menu.screenX, screenY: menu.screenY }, hover: null });
+  },
+
+  closeMenu: () => {
+    if (get().menu !== null) set({ menu: null });
+  },
 
   reportViewport: (latDeg, lonDeg, altM, radiusM = PHOTO_PROJECT.coverRadiusM) => {
     lastReport = { latDeg, lonDeg, altM, radiusM };
@@ -344,7 +402,7 @@ useMemberStore.subscribe((s, prev) => {
     lastCover = null;
     querySeq++;
     mineSeq++;
-    useFacadesStore.setState({ world: [], cover: null, worldPhase: "idle", complete: true, mine: [], minePhase: "anonymous", editingId: null });
+    useFacadesStore.setState({ world: [], cover: null, worldPhase: "idle", complete: true, mine: [], minePhase: "anonymous", editingId: null, hover: null, menu: null });
   }
 });
 
@@ -367,6 +425,8 @@ export function _resetFacadesStore(): void {
     cover: null,
     complete: true,
     editingId: null,
+    hover: null,
+    menu: null,
   });
 }
 

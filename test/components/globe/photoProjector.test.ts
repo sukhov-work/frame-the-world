@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   attachPhotoProjector,
   DRAFT_SLOT_ID,
+  POSE_SIGNATURE_LENGTH,
+  poseSignatureChanged,
   projectorMatrix,
   projectorOptics,
   type PhotoProjectorSource,
@@ -253,6 +255,103 @@ describe("attachPhotoProjector — the feed defaults + the K-slot pool (construc
     const s = h.snapshot();
     expect(s.ownLight).toBe(0.9);
     expect(s.slots.map((x) => [x.id, x.ownLight])).toEqual([[DRAFT_SLOT_ID, 0.9], ["f0", 0.1]]);
+    h.dispose();
+  });
+});
+
+describe("T174 — the pose signature sees the far-face CORNERS (owner test 2026-10-22: SCALE left the projection stale)", () => {
+  it("a NaN signature always differs; the same geometry twice does not", () => {
+    const last = new Float64Array(POSE_SIGNATURE_LENGTH).fill(NaN);
+    const g = geomFor(POSES[0]);
+    expect(poseSignatureChanged(g, last)).toBe(true);
+    expect(poseSignatureChanged(g, last)).toBe(false);
+    expect(poseSignatureChanged(geomFor(POSES[0]), last)).toBe(false); // a rebuilt identical geometry
+  });
+
+  it("an H-FOV-only change moves ONLY the corners — the 9-float prototype compare missed it; the 21-float one does not", () => {
+    const a = geomFor({ ...POSES[0], hFov: 69.4 });
+    const b = geomFor({ ...POSES[0], hFov: 92.4 }); // the owner's SCALE drag (69.4° → 92.4°)
+    // The premise: apex / forward / up are byte-identical across the scale.
+    expect(b.apex).toEqual(a.apex);
+    expect(b.forward).toEqual(a.forward);
+    expect(b.up).toEqual(a.up);
+    expect(b.corners).not.toEqual(a.corners);
+    const last = new Float64Array(POSE_SIGNATURE_LENGTH).fill(NaN);
+    poseSignatureChanged(a, last);
+    expect(poseSignatureChanged(b, last)).toBe(true);
+    expect(poseSignatureChanged(b, last)).toBe(false);
+  });
+
+  it("through the pool: a corner-only change re-runs the matrix and schedules a depth render (a stubbed GL + a stubbed decode)", async () => {
+    // A fake decode: fetch → blob → createImageBitmap, all stubbed so the slot owns a texture.
+    const g0 = globalThis as unknown as Record<string, unknown>;
+    const prevFetch = g0.fetch;
+    const prevCib = g0.createImageBitmap;
+    g0.fetch = async () => ({ blob: async () => ({}) });
+    g0.createImageBitmap = async () => ({ width: 64, height: 48, close() {} });
+    const renders: string[] = [];
+    const renderer = {
+      capabilities: { getMaxAnisotropy: () => 16 },
+      autoClear: true,
+      shadowMap: { autoUpdate: true },
+      getRenderTarget: () => null,
+      setRenderTarget: () => {},
+      clear: () => {},
+      render: (_s: unknown, cam: THREE.PerspectiveCamera) => {
+        renders.push(`${cam.fov.toFixed(3)}/${cam.aspect.toFixed(3)}`);
+      },
+    } as unknown as THREE.WebGLRenderer;
+    try {
+      const h = attachPhotoProjector(new THREE.Scene(), { renderer, osmClipPlanes: null });
+      h.setSource({ url: "blob:fake", enabled: true, strength: 1, ownLight: 0.6, rangeM: null });
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.snapshot().textureReady).toBe(true);
+      const a = geomFor({ ...POSES[0], hFov: 69.4 });
+      h.update(a, 0);
+      expect(h.snapshot().depthRenders).toBe(1);
+      const vp0 = h.feed.slots[0].projVP.clone();
+      h.update(a, 16); // the same pose again: no re-render inside the refresh cadence
+      expect(h.snapshot().depthRenders).toBe(1);
+      const b = geomFor({ ...POSES[0], hFov: 92.4 }); // SCALE: the corners only
+      h.update(b, 32);
+      expect(h.snapshot().depthRenders).toBe(2); // the owner's bug: this stayed 1
+      expect(h.snapshot().vFovDeg).toBeCloseTo(verticalFovDeg(92.4, POSES[0].aspect), 6);
+      expect(h.feed.slots[0].projVP.equals(vp0)).toBe(false);
+      expect(renders).toHaveLength(4); // two passes (enriched + OSM) per depth render
+      expect(renders[2]).not.toBe(renders[0]); // the projector camera's optics followed the scale
+      h.dispose();
+    } finally {
+      g0.fetch = prevFetch;
+      g0.createImageBitmap = prevCib;
+    }
+  });
+});
+
+describe("T177 — setFade: the viewer-distance fade multiplies the saved slot's strength; the draft is never faded", () => {
+  const stubRenderer = { capabilities: { getMaxAnisotropy: () => 16 } } as unknown as THREE.WebGLRenderer;
+  const src = (patch: Partial<PhotoProjectorSource> = {}): PhotoProjectorSource => ({ url: null, enabled: true, strength: 0.8, ownLight: 0.6, rangeM: null, ...patch });
+  it("fade × strength lands in slot.x; a later request re-applies the fade; release resets it", () => {
+    const h = attachPhotoProjector(new THREE.Scene(), { renderer: stubRenderer, osmClipPlanes: null });
+    expect(h.request("f0", src())).toBe(true);
+    const sl = h.feed.slots[1];
+    expect(sl.slot.x).toBeCloseTo(0.8, 9);
+    h.setFade("f0", 0.5);
+    expect(sl.slot.x).toBeCloseTo(0.4, 9);
+    expect(h.snapshot().slots.find((x) => x.id === "f0")?.fade).toBe(0.5);
+    h.request("f0", src({ strength: 0.6 })); // the residency's refresh keeps the fade
+    expect(sl.slot.x).toBeCloseTo(0.3, 9);
+    h.setFade("f0", 2); // clamped
+    expect(sl.slot.x).toBeCloseTo(0.6, 9);
+    h.setFade("f0", Number.NaN); // garbage → 1
+    expect(sl.slot.x).toBeCloseTo(0.6, 9);
+    h.setFade("nobody", 0); // ignored
+    h.setFade(DRAFT_SLOT_ID, 0); // the draft is never faded
+    h.setSource(src({ strength: 1 }));
+    expect(h.feed.slots[0].slot.x).toBe(1);
+    h.release("f0");
+    expect(h.request("f1", src({ strength: 1 }))).toBe(true);
+    expect(h.feed.slots[1].slot.x).toBe(1); // the record's fade was reset on release
     h.dispose();
   });
 });

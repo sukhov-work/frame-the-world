@@ -12,9 +12,11 @@ import type { PlaceListItem } from "../../lib/wix/placeRecords";
 import { focalFromVerticalFov } from "../../lib/decode/sensors";
 import { formatFocal } from "../../lib/format/readout";
 import { formatPrice } from "../../lib/market/listing";
-import DragGrip, { usePanelDrag } from "../ui/DragGrip";
+import DragGrip, { ResizeGrip, usePanelDrag, usePanelResize } from "../ui/DragGrip";
 import MyModelsTab from "./MyModelsTab";
+import MyFacadesTab from "./MyFacadesTab";
 import { useUserModelsStore } from "../../store/userModels";
+import { useFacadesStore } from "../../store/facades";
 import "../../styles/my-pins.css";
 import "../../styles/tips.css";
 import { dataFetchInit, fetchErrorMessage, jsonWriteInit } from "../../lib/api/dataFetch";
@@ -33,6 +35,11 @@ import { dataFetchInit, fetchErrorMessage, jsonWriteInit } from "../../lib/api/d
  *
  * MODELS tab (MESH SUITE MS6, 2026-09-02m): the member's uploaded 3D models — `MyModelsTab`
  * (rename · hide/show · delete · stand beside it / place it), fed by `store/userModels`.
+ *
+ * MY CONTENT (T179, owner 2026-10-22): the panel is renamed "My content" (the PINS tab keeps its
+ * MY PINS label), opens as the Guide's CENTRED, RESIZABLE window (`usePanelResize("my-pins")`),
+ * and gains the TEXTURES tab — `MyFacadesTab` (the saved facade photos: OPEN · ✕ → SURE?), fed by
+ * `store/facades` (`mine`, re-asked on every open of the tab).
  */
 
 /** One GET /api/listings row (the endpoint's response shape). */
@@ -48,7 +55,7 @@ interface SalesRow {
 export default function MyPins() {
   const memberPhase = useMemberStore((s) => s.phase);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"pins" | "places" | "sales" | "models">("pins");
+  const [tab, setTab] = useState<"pins" | "places" | "sales" | "models" | "textures">("pins");
   const [photos, setPhotos] = useState<PhotoListItem[] | null>(null);
   const [places, setPlaces] = useState<PlaceListItem[] | null>(null);
   const [sales, setSales] = useState<SalesRow[] | null>(null);
@@ -56,7 +63,10 @@ export default function MyPins() {
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const drag = usePanelDrag("my-pins");
+  // T179: the Guide's centred, resizable window (the `usePanelResize("guide")` twin).
+  const resize = usePanelResize("my-pins");
   const modelCount = useUserModelsStore((s) => s.mine.length);
+  const textureCount = useFacadesStore((s) => s.mine.length);
 
   useEffect(() => {
     if (!open) return;
@@ -66,6 +76,9 @@ export default function MyPins() {
     if (tab === "models") {
       // MS6: the tab reads the store; re-ask the own list on open (the other tabs' fresh-fetch).
       void useUserModelsStore.getState().loadMine();
+    } else if (tab === "textures") {
+      // T179: the TEXTURES tab reads store/facades the same way — re-ask the own rows on open.
+      void useFacadesStore.getState().loadMine();
     } else if (tab === "pins") {
       setPhotos(null);
       fetch("/api/photos", dataFetchInit())
@@ -202,23 +215,38 @@ export default function MyPins() {
     return p.timeMs != null ? `${coords} · ${focal} · ⏱` : `${coords} · ${focal}`;
   };
 
+  // The count rides the ACTIVE tab only (the existing idiom) — TEXTURES counts its own rows there.
   const count =
-    tab === "pins" ? photos?.length : tab === "places" ? places?.length : tab === "sales" ? sales?.length : modelCount;
+    tab === "pins"
+      ? photos?.length
+      : tab === "places"
+        ? places?.length
+        : tab === "sales"
+          ? sales?.length
+          : tab === "models"
+            ? modelCount
+            : textureCount;
 
   return (
     <span className="mp">
       <button
         className="mp-toggle tip"
         aria-expanded={open}
-        data-tip="YOUR SAVED PINS, PLACES & 3D MODELS — CLICK ONE TO FLY THERE."
+        data-tip="YOUR SAVED PINS, PLACES, 3D MODELS & TEXTURES — CLICK ONE TO FLY THERE."
         data-tip-pos="down"
         onClick={() => setOpen((o) => !o)}
       >
-        My pins
+        My content
       </button>
       {open && (
-        <div className="mp-panel" style={drag.style} role="dialog" aria-label="My pins, places and models">
-          <DragGrip drag={drag} label="Move the pins list" tipPos="left" />
+        <div
+          className="mp-panel"
+          style={{ ...drag.style, ...resize.style }}
+          role="dialog"
+          aria-label="My content: pins, places, models and textures"
+        >
+          <DragGrip drag={drag} label="Move the My content window" tipPos="left" />
+          <ResizeGrip resize={resize} label="Resize the My content window" />
           {/* Scrolling lives on this INNER wrapper: an overflow root would clip the drag
               grip's outside-the-window tab (owner 2026-07-14 uniform handles). */}
           <div className="mp-scroll">
@@ -256,6 +284,15 @@ export default function MyPins() {
                 onClick={() => setTab("models")}
               >
                 MODELS{tab === "models" && count != null ? ` · ${count}` : ""}
+              </button>
+              <button
+                className={`mp-tab${tab === "textures" ? " is-active" : ""}`}
+                role="tab"
+                aria-selected={tab === "textures"}
+                data-tab="textures"
+                onClick={() => setTab("textures")}
+              >
+                TEXTURES{tab === "textures" && count != null ? ` · ${count}` : ""}
               </button>
             </div>
             <button className="mp-close" aria-label="Close" onClick={() => setOpen(false)}>
@@ -358,6 +395,7 @@ export default function MyPins() {
             </div>
           )}
           {tab === "models" && <MyModelsTab onClose={() => setOpen(false)} />}
+          {tab === "textures" && <MyFacadesTab onClose={() => setOpen(false)} />}
           {!error && tab === "places" && places && places.length > 0 && (
             <ul className="mp-list">
               {places.map((p) => (

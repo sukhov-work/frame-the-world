@@ -262,3 +262,32 @@ describe("explore seam (Phase 5.5 S4)", () => {
     expect(useCameraStore.getState().exploreActive).toBe(false);
   });
 });
+
+// T182 (owner 2026-10-22) — the TEX chip: facade textures ON by default, a plain setter that
+// persists through the shared view-prefs blob (the MDL recipe).
+describe("textures visibility (T182, TEX chip)", () => {
+  it("defaults ON", () => {
+    expect(useCameraStore.getState().texturesVisible).toBe(true);
+  });
+
+  it("toggles and persists to ftw:view-prefs:v1", () => {
+    const mem = new Map<string, string>();
+    const prev = (globalThis as { localStorage?: unknown }).localStorage;
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k),
+    };
+    try {
+      useCameraStore.getState().setTexturesVisible(false);
+      expect(useCameraStore.getState().texturesVisible).toBe(false);
+      expect(JSON.parse(mem.get("ftw:view-prefs:v1") ?? "{}")).toMatchObject({ prefsRev: 2, texturesVisible: false });
+      useCameraStore.getState().setTexturesVisible(true);
+      expect(useCameraStore.getState().texturesVisible).toBe(true);
+      expect(JSON.parse(mem.get("ftw:view-prefs:v1") ?? "{}").texturesVisible).toBe(true);
+    } finally {
+      (globalThis as { localStorage?: unknown }).localStorage = prev;
+      if (prev === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+});

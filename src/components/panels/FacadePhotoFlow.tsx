@@ -1,14 +1,16 @@
 /**
- * FacadePhotoFlow — the photo flow (b), desktop only (mounted by index.astro's nav).
+ * FacadePhotoFlow — the photo flow (b), desktop only (mounted top-level by index.astro).
  * A street photo of a facade goes through the existing decode pipeline, is placed as a camera
  * pose, and the globe projects it onto the 3D buildings. One island, three surfaces:
- *   (a) the nav link — rendered only with `?facade` in the URL (never surfaces by default);
- *       the `[data-open-facade]` click delegation always binds so harnesses can dispatch it;
+ *   (a) NO nav link since T181 (owner 2026-10-22): the Upload overlay's LOWER dropzone half
+ *       (UploadFlow — `.uf-dropzone--facade`) loads the file into this store and opens the
+ *       overlay; the `?facade` flag retired. The `[data-open-facade]` click delegation still
+ *       binds — any element carrying it opens the overlay (the verify harnesses dispatch it);
  *   (b) the overlay (`.uf.ff` root) — drop (+ MY FACADES for a member) → decoding → review,
  *       the upload overlay's chrome;
  *   (c) the docked tweak panel while placed (+ the click-the-globe hint while placing): the
  *       pose sliders, the GIZMO row + UNDO (F1), the projection, and the SAVE section (F2).
- * (b) and (c) portal to <body>: the nav is a fixed z-index-10 stacking context.
+ * (b) and (c) portal to <body> (they used to mount inside the nav's z-index-10 stacking context).
  * Writes to `store/facadePhoto` + `store/facadeSave` only — the upload/pin flow is untouched.
  * Every `/api` write goes through the store → `lib/save/uploadMedia` wrappers (`jsonWriteInit`);
  * nothing here fetches.
@@ -97,11 +99,6 @@ function poseLine(item: FacadeListItem): string {
 export default function FacadePhotoFlow() {
   const open = useFacadePhotoStore((s) => s.open);
   const phase = useFacadePhotoStore((s) => s.phase);
-  // The flag is read once — without `?facade` the nav shows nothing.
-  const [flagged] = useState(
-    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("facade"),
-  );
-
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       const trigger = (e.target as Element | null)?.closest?.("[data-open-facade]");
@@ -125,8 +122,8 @@ export default function FacadePhotoFlow() {
     };
   }, []);
 
-  // The island mounts inside the nav (a fixed z-index-10 stacking context) — the overlay and
-  // the docked panel portal to <body> so their own z-index layers them like UploadFlow's.
+  // The overlay and the docked panel portal to <body> so their own z-index layers them like
+  // UploadFlow's, wherever the island is mounted.
   const surface = open ? (
     <FacadeOverlay />
   ) : phase === "placed" ? (
@@ -135,22 +132,7 @@ export default function FacadePhotoFlow() {
     <FacadePlacementHint />
   ) : null;
 
-  return (
-    <>
-      {flagged && (
-        <a
-          href="#facade"
-          className="nav-upload ff-navlink tip"
-          data-open-facade
-          data-tip="PROJECT A STREET PHOTO ONTO THE BUILDINGS · PROTOTYPE"
-          data-tip-pos="down"
-        >
-          Facade
-        </a>
-      )}
-      {surface && typeof document !== "undefined" ? createPortal(surface, document.body) : null}
-    </>
-  );
+  return surface && typeof document !== "undefined" ? createPortal(surface, document.body) : null;
 }
 
 function FacadeOverlay() {

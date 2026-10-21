@@ -9,50 +9,35 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-22 (`mem:project/wip-2026-10-21-facade-flow-f1-f3`)
-**THE FULL DESKTOP FACADE FLOW — F1 the gizmo · F2 persist · F3 residency + T171 K slots: BUILT, GATED (vitest 3,626 / 236 · astro 0/0),
-F1 BROWSER-VERIFIED on dev (9/9), the K-slot material 10/10 on the 2026-10-18 harness; RELEASED v1.36.33 (ship `ab4a87b`, behind
-`?facade=1`) and the persistence half PROVEN LIVE — `verify-facades-live.mjs` 11/11 incl. the deployed UI re-opening a saved row
-(DECISIONS 2026-10-22 release records). Not proven live: the residency's pixels (no seams on the prod build) — the owner's read.** The gizmo (`scene/facadeGizmo.ts` + `lib/globe/facadePose.ts`: rotDeg = −heading, gains 0.5 by re-placing the
-rig, every scale box = the H-FOV OVERRIDE `facadePhoto.hFovDeg`, capture-phase listeners on the canvas's parent + `guardRaycast`), the persist
-pair (`FacadePhotos` 36 fields LIVE · `/api/facades` · upload-url kind `facade` · `store/facadeSave.ts` · MY FACADES in the overlay), the
-residency (`store/facades.ts` + `lib/globe/facadeResidency.ts` + `scene/facadeMarkers.ts`; the orchestrator feeds K−1 saved slots to the
-projector's pool, draft first). **T173: `wix dev` cannot elevate (WDE0027 on every ADMIN collection — the app's client-credentials token has
-no permissions; live is fine) — persistence harnesses run on the LIVE site until the owner fixes the OAuth app.** Next: the owner's read of
-the gizmo feel + the live save flow → F4 textures (T170) → F5 alignment (T172) → the mobile twin.
-
-## Status — 2026-10-18 (`mem:project/wip-2026-10-18-photo-projection-prototype`)
-**THE PHOTO PROJECTION PROTOTYPE (the photo flow (b)) — BUILT, GATED, BROWSER-VERIFIED; desktop-only behind `?facade=1`; NOT released (DECISIONS 2026-10-18). Owner 2026-10-21: "looks promising" → the full desktop flow is PLANNED (`rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md`, T169–T172; DECISIONS 2026-10-21). Rulings: release HOLDS until save + edit/remove (F2); desktop may spend 100+ MB of GPU on live photos, mobile/iPhone must not degrade (the projector stays behind `hqAllowed`).**
-A facade photo (`store/facadePhoto` — the technical twin of the upload store, never a pin) is projected onto both building tilesets' shared fill
-material from its pose with occlusion from a depth map rendered at the pose (`scene/photoProjector.ts`; the `uFtwProj*` block in
-`buildingMaterial.ts`; `PHOTO_PROJECT`). **The decisive finding:** three uploads a non-ShaderMaterial's uniforms only on a material/program/
-camera switch — a per-mesh `onBeforeRender` write reaches the first mesh of a run only (T165; the triage's per-draw matrix is impossible) →
-the shipped route is ONE per-PASS matrix VIEW space → photo clip (`bias·P·V × camera.matrixWorld`, float64, in `fillMat.onBeforeRender`) on
-`-vViewPosition`: zero new varyings, 3.2e-7 vs 4.2e-3 uv float32 error (machine-checked). UI: `panels/FacadePhotoFlow.tsx` (the `.uf.ff`
-overlay + the `.pd.ff-panel` panel: heading/pitch/roll/focal/altitude, the N/S/E/W nudge, PROJECT · STRENGTH · OWN LIGHT · PLANE).
-Harness `verify-photo-projection-2026-10-18` **10/10** (the pattern paints with the right orientation; a 2 m nudge → 1.999 m; frame cost p95
-16.7 vs 16.7 ms; the pin flow untouched). Found + recorded: the instant-cut landing lifted to ~23 km by `adjustHeight` on a coarse tile
-(pre-existing on pins — T166; the facade flow got `stepFacadeArrival`). Rulings: the building shade + day/night and the yaw lock are OK.
+## Status — 2026-10-22d (`mem:project/wip-2026-10-22-owner-asks-t174-t183`)
+**THE OWNER'S SEVEN ASKS after v1.36.33 — T174–T183 ALL BUILT, GATED (vitest 3,708 / 243 · astro 0/0), DEV-VERIFIED 10/10
+(`scripts/verify-owner-asks-2026-10-22.mjs`) + the two facade harnesses green; NOT RELEASED (live stays v1.36.33).** T174 the SCALE
+bug (`poseSignatureChanged`, 21 floats incl. the far-face corners) · T177 the residency by the PAINTED VOLUME + a per-frame fade + hysteresis
+(`facadePaintedVolume` / `facadeVolumeDistanceM` / `facadeSlotFade`, `slotRangeM` 2,000 · `slotFadeFrac` 0.35 · `slotKeepMarginDeg` 12) ·
+T176 editing in FPV (one capture-phase path; the controls touched in orbit only; no arrival flight inside FPV) · T175 `FacadeEditChip` ·
+T178/T183 camera-icon marker billboards + `FacadeHoverCard` + `FacadeMarkerMenu` (EDIT / REMOVE → `deleteFacadeById`) · T182 `camera.texturesVisible`
++ the TEX chip (/m inert) · T181 the split Upload dropzone (`?facade` retired) · T180 the MENU pill + dropdown, MY SPOT in the camera controls ·
+T179 MY CONTENT (centred, resizable) + the TEXTURES tab. Tails: T184 (the facade overlay's orphaned idle body) · T185 (nudges / sliders not
+journaled) · T186 (the FPV-at-the-apex entry). **Next: F4 (T170) + F5 (T172) first, then a release so the owner reads the ten live.**
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
-- **2026-10-14 AR CALIBRATION: the drag yaw-only by default · ↕ PITCH frees both axes → v1.36.30 LIVE, farm-verified on the iPhone 17 Pro**
-  (`wip-2026-10-14-ar-calibration-yaw-lock`): `gateAimDelta`, `camera.arCalAxes` reset per visit, the fourth cell at the top of the verdict
-  column; `verify-ar-calibration` 74/74; the farm arms AR with a NATIVE tap (a WebDriver click is no user activation); the owner's read: fine.
-- **2026-10-13 THE STICKY BOX · THE DAYLIGHT PASS · BUILDING COLOUR rung 1 → v1.36.28 LIVE, farm-verified**
-  (`wip-2026-10-13-collision-lighting-building-colour`): `lib/globe/fpvClearance.ts` v2 (the 0.5 × 0.3 × 2 m box, walls block the walk, no
-  bounce), the lighting ledger 36 % near-black → 0 % (sky-lit shadows, the day fill `tokens.buildingDay`), `BUILDINGS.hueVariation` 0.22;
-  the triage `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md` (T158 rung 2 · T159 rung 3 await the owner; T157 BUILT 2026-10-18).
-- **2026-10-10 THE OWNER'S DEVICE FEEDBACK → v1.36.26 LIVE, farm-verified on the iPhone 17 Pro** (`wip-2026-10-10-mobile-fixes-radar-find-keyboard`):
-  the radar on glass (`radarStroke` in screen CSS px; the mini-map store = the glass), FIND THIS ONE + the range chips (`find.soloBody`),
-  the keyboard lift (`mobile/Sheet` rides `bottom: <visualViewport inset>`, POLLED through focus — iOS 26 sends no resize); the farm
-  tests the LIVE site (`--prod`, T155).
-- **2026-09-30 ALIGN out · the pin follows the walker + the re-centre target · user models: the far law + the eye-centred cover →
-  v1.36.23 LIVE** (`wip-2026-09-30-align-minimap-pin-mesh-culling`): `lib/globe/pinFollow`, `MODELS.fpvFetchRadiusM` 16 km,
-  `planResidency` + `apparentFrac` + `inViewCone`; open: the pin follow with the map closed? the far thresholds on the phones (T153)?
+- **2026-10-22 THE FULL DESKTOP FACADE FLOW F1 gizmo · F2 persist · F3 residency + T171 K slots → v1.36.33 LIVE behind `?facade=1`**
+  (`wip-2026-10-21-facade-flow-f1-f3`): `scene/facadeGizmo.ts` (rotDeg = −heading, gains 0.5 by re-placing the rig, SCALE = the H-FOV
+  override, capture-phase listeners + `guardRaycast`), `FacadePhotos` (36 fields) + `/api/facades` + `store/facadeSave.ts`, the K-slot
+  material (4 unrolled blocks) + the projector pool; `verify-facades-live.mjs` 11/11 on the live site. **T173: `wix dev` cannot elevate**
+  (WDE0027 on every ADMIN collection — the app's client-credentials token has no permissions; live is fine) → persistence is verified LIVE.
+- **2026-10-18 THE PHOTO PROJECTION PROTOTYPE (the photo flow (b))** (`wip-2026-10-18-photo-projection-prototype`): a facade photo projected
+  onto both building sets' fill material with a depth map rendered at the pose; THE decisive finding = three uploads a non-ShaderMaterial's
+  uniforms only on a material / program / camera switch (T165) → ONE per-PASS matrix VIEW space → photo clip on `-vViewPosition` (3.2e-7 uv).
+- 2026-10-14 AR calibration: the drag yaw-only by default, ↕ PITCH frees both axes → v1.36.30 (`wip-2026-10-14-ar-calibration-yaw-lock`).
+- 2026-10-13 the sticky box (no bounce) · the daylight pass (36 % near-black → 0 %) · building colour rung 1 → v1.36.28
+  (`wip-2026-10-13-collision-lighting-building-colour`; T158 rung 2 · T159 rung 3 await the owner).
+- 2026-10-10 the owner's device feedback: the radar on glass · FIND THIS ONE · the keyboard lift → v1.36.26 (`wip-2026-10-10-mobile-fixes-radar-find-keyboard`).
+- 2026-09-30 ALIGN out · the pin follows the walker · user models: the far law + the eye-centred cover → v1.36.23 (`wip-2026-09-30-align-minimap-pin-mesh-culling`).
 - Older eras (AR calibration 2026-09-19, the sign-out root cause 2026-09-18, AUDIT #4 triage 2026-09-17 and before): the Era index below.
 
-## Standing facts (2026-09-30)
-- Gates: vitest **3,424 / 227 files** · `astro check` **0/0/27** (the hints are the dated baseline) · knip: only the four
+## Standing facts (2026-10-22)
+- Gates: vitest **3,708 / 243 files** (2026-10-22d) · `astro check` **0/0/28** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
 - `package.json` **1.36.33** (each ship bumps the patch); live **v1.36.33** (2026-10-22, ship `ab4a87b` — the facade flow F1–F3 behind `?facade=1`; before it v1.36.30, 2026-10-14, `e5edaac` PR #143). The release comment is capped at 250 BYTES. Release: `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (~5 min; background it); `release.sh` + the provisioner use the PINNED CLI (`node_modules/.bin/wix` — `npx @wix/cli@latest` refuses Node < 24.18 since 2026-10-22). **`wix dev` cannot elevate (T173, WDE0027 on every ADMIN collection)** — persistence is proven only on the live site (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
@@ -73,21 +58,20 @@ Harness `verify-photo-projection-2026-10-18` **10/10** (the pattern paints with 
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14) and expect to restart TWICE (a lazily imported dep
   chunk 404s once); `Failed to fetch dynamically imported module` — `curl` the module first (500 = a real error).
   CDP harnesses: `~/.nvm/versions/node/v24.10.0/bin/node` (Node 20 lacks the global WebSocket).
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T168**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T186**, every row dated).
 - **Never write a per-draw uniform from `mesh.onBeforeRender`** (2026-10-18, T165): three uploads a non-ShaderMaterial's uniforms per
   material switch, not per draw. Per-PASS values go through `material.onBeforeRender`; per-mesh values are vertex attributes.
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-**The owner tested v1.36.33 (2026-10-22b) → seven asks, T174–T182, BEFORE F4 / F5:** T174 the SCALE gizmo leaves the projection stale
-(`poseChanged` never sees the corners — a bug) → T177 the residency must follow where I LOOK (the painted volume, a distance fade, no hard
-clip) → T176 editing in FPV → T175 quick op buttons by UNDO / DROP → T178 camera-icon markers + an edit / remove menu → T182 the TEX toggle
-(ON by default; the mobile half meets the `hqAllowed` ruling — the owner's F6 call) → T181 the split Upload dropzone (`?facade` retired) →
-T180 the collapsed `Menu` button + My spot into the camera controls → T179 MY PINS → MY CONTENT with a textures tab, bigger window →
-**then F4 textures (T170) + F5 alignment (T172) in the SAME session if they fit (owner 2026-10-22c)**. Rulings 2026-10-22c: the mobile
-TEX toggle is PRESENT BUT INERT until F6; persistence is tested on the LIVE site (accepted; T173 stays the owner's); **T183 (new): camera
-pins get an on-hover compact preview, the photo pins' hover-card idiom, with T178.** Then the mobile twin, T166 · T165 · T167 · T164.
+**F4 textures (T170) + F5 alignment hooks (T172) FIRST (owner 2026-10-22c — they did not fit into 2026-10-22d), then a RELEASE
+(`FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"`) so the owner reads the ten asks on the live site (then `verify-facades-live.mjs` —
+repointed at MENU → MY CONTENT → TEXTURES → OPEN, UNVERIFIED until it runs — + `verify-live-deletes.mjs`), then T186 (open a saved row inside
+FPV → jump the walker to the apex), T184 / T185 (the owner's calls), F6 the mobile twin, T166 · T165 · T167 · T164.** F4's research:
+`DataArrayTexture` + `copyTextureToTexture` per layer on three 0.185 in a browser (→ 2 samplers for any K); KTX2 only if the Worker encode
+proves acceptable UX. F5's cheap route: a ray grid from the apex through the far face against the building meshes (the edit flow's pick) →
+`targetFeatureIds[]` at save; the OSM set's `osm:<id>` needs the b3dm batch table.
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·
@@ -134,6 +118,8 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The sticky box (no bounce) · the daylight pass · building colour triage + rung 1 (10-13) · 10-13-collision-lighting-building-colour
 - The AR calibration drag yaw-only by default · ↕ PITCH frees both axes (10-14) · 10-14-ar-calibration-yaw-lock
 - The photo projection prototype — the photo flow (b), desktop-only behind `?facade=1` (10-18) · 10-18-photo-projection-prototype
+- The full desktop facade flow F1–F3 + K slots → v1.36.33 (10-21/22) · 10-21-facade-flow-f1-f3
+- The owner's seven asks T174–T183 built + dev-verified; F4 / F5 deferred (10-22d) · 10-22-owner-asks-t174-t183
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

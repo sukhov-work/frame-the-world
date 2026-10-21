@@ -1,0 +1,112 @@
+/* NavMenu — the topnav's collapsed MENU (owner 2026-10-22, T180). The button twins the
+   PLAN / FIND IN FRAME / BEST SPOT pill (plan-find-toggle.css `.pft` / `.pft-seg`): mono caps,
+   hairline border, bg-tinted pill. The dropdown CONTAINER is page markup and its load-bearing
+   rules (position, the closed `visibility`, the windows' opt-back-in) live in index.astro's
+   scoped style so they apply before any island hydrates; this file restyles what the islands
+   render INSIDE it (their toggle buttons become menu rows) — island DOM never receives the
+   page's scoped styles. All colour via tokens.css vars. */
+
+.nm {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 62%, transparent);
+  font-family: var(--font-mono);
+}
+
+.nm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.nm-btn:hover {
+  color: var(--color-text);
+}
+.nm-btn.is-on {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.nm-icon {
+  display: block;
+  fill: currentColor;
+}
+
+/* The welcome landing hides the planning pill — the menu pill rides with it. */
+body.welcome-active .nm {
+  display: none;
+}
+
+/* ── The rows the islands render inside the container ─────────────────────────── */
+/* Each island wraps its toggle in an inline-flex span — a row is the full width. */
+.topnav-menu .mp,
+.topnav-menu .mk,
+.topnav-menu .gd {
+  display: flex;
+}
+
+.topnav-menu .mp-toggle,
+.topnav-menu .mk-toggle,
+.topnav-menu .gd-toggle {
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.topnav-menu .mp-toggle:hover,
+.topnav-menu .mk-toggle:hover,
+.topnav-menu .gd-toggle:hover {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+/* The member badge: the account block at the menu's foot, under a hairline. */
+.topnav-menu .mb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 4px;
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--color-border);
+}
+.topnav-menu .mb-in {
+  display: block;
+  margin-top: 4px;
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Row tips open to the RIGHT — a `down` tip under a row would cover the rows below it. Scoped
+   to the row toggles only: the windows those rows open live in this container too, and their
+   own tips must keep their placement. */
+.topnav-menu .mp-toggle.tip::after,
+.topnav-menu .mk-toggle.tip::after,
+.topnav-menu .gd-toggle.tip::after {
+  bottom: auto;
+  right: auto;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translate(-2px, -50%);
+}
+.topnav-menu .mp-toggle.tip:hover::after,
+.topnav-menu .mk-toggle.tip:hover::after,
+.topnav-menu .gd-toggle.tip:hover::after,
+.topnav-menu .mp-toggle.tip:focus-visible::after,
+.topnav-menu .mk-toggle.tip:focus-visible::after,
+.topnav-menu .gd-toggle.tip:focus-visible::after {
+  transform: translate(0, -50%);
+}

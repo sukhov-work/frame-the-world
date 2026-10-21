@@ -27,10 +27,10 @@ import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = Number(process.env.FTW_CDP_PORT ?? 9333);
 const SKIP_SAVE = process.env.FTW_FF_SKIP_SAVE === "1";
-// `?facade=1` renders the nav link; the hash pins the daylight `dnipro-fpv-south` instant over the
-// fixture's GPS point (the 2026-10-18 entry, verbatim).
+// The hash pins the daylight `dnipro-fpv-south` instant over the fixture's GPS point (the 2026-10-18
+// entry, verbatim); the `?facade=1` flag retired on 2026-10-22 (T181 — the Upload split is the entry).
 const URL =
-  process.env.FTW_FF_URL ?? "http://localhost:4321/?facade=1#p=48.4647,35.0462,1500,25,55.0&t=1788701556919";
+  process.env.FTW_FF_URL ?? "http://localhost:4321/#p=48.4647,35.0462,1500,25,55.0&t=1788701556919";
 const APP = new globalThis.URL(URL).origin;
 const SHOTS = "verify-shots/facade-flow";
 const FIXTURE = resolve("test/fixtures/facade-pattern.jpg");
@@ -434,12 +434,29 @@ const navigate = async () => {
   await sleep(300);
   await send("Page.navigate", { url: URL });
 };
+// T181 (2026-10-22): the `?facade` nav link is gone — the facade overlay's IDLE body (MY FACADES +
+// the sign-in note) opens through the store seam; the PRODUCT entry is the Upload dropzone's lower
+// half (`feedFacadeFixture` below).
 const openOverlay = async () => {
   if (await evalJs(`!!document.querySelector(".uf.ff") && ${FS}.open === true`)) return true;
-  const has = await evalJs(`!!document.querySelector("[data-open-facade]")`);
-  if (!has) return false;
-  await evalJs(`document.querySelector("[data-open-facade]").click(), true`);
+  await evalJs(`${FS}.openPanel(), true`);
   return (await waitFor(`!!document.querySelector(".uf.ff") && ${FS}.open === true`, 8000, 120)).ok;
+};
+/** The product path (T181): Upload → the split dropzone's FACADE half → the fixture on ITS file
+ *  input → the Upload overlay closes, the facade overlay opens with the store decoding. */
+const feedFacadeFixture = async () => {
+  // A facade overlay left open (leg 2's idle body) would sit over the Upload one — close it.
+  if (await evalJs(`${FS}.open === true`)) await evalJs(`${FS}.closePanel(), true`);
+  await evalJs(`document.querySelector("[data-open-upload]")?.click(), true`);
+  const half = await waitFor(`!!document.querySelector(".uf-dropzone--facade input[type=file]")`, 8000, 120);
+  if (!half.ok) return { ok: false, detail: "no .uf-dropzone--facade input[type=file] — the split dropzone did not render" };
+  const { root } = await send("DOM.getDocument", { depth: -1 });
+  const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: ".uf-dropzone--facade input[type=file]" });
+  if (!nodeId) return { ok: false, detail: "DOM.querySelector found no facade file input node" };
+  await send("DOM.setFileInputFiles", { files: [FIXTURE], nodeId });
+  const opened = await waitFor(`!!document.querySelector(".uf.ff") && ${FS}.open === true && !document.querySelector(".uf:not(.ff)")`, 8000, 120);
+  if (!opened.ok) return { ok: false, detail: `the facade overlay did not take over from Upload (${JSON.stringify(opened.value)})` };
+  return { ok: true, detail: "Upload → the facade half → .uf.ff open" };
 };
 const listMineServer = async () => {
   const r = await pageApi("/api/facades");
@@ -495,7 +512,7 @@ try {
     const d = await pageApi("/api/facades?id=bogus", { method: "DELETE", headers: { "Content-Type": "application/json" } });
     if (d.status !== 401) fails.push(`DELETE signed out → ${d.status}`);
     const opened = await openOverlay();
-    if (!opened) fails.push("the overlay never opened ([data-open-facade] → .uf.ff)");
+    if (!opened) fails.push("the overlay never opened (openPanel → .uf.ff)");
     // Rendered text, not a property: the note is the MY FACADES body while anonymous (FacadePhotoFlow).
     const note = opened
       ? await waitFor(`(() => { const el = document.querySelector(".uf.ff"); const t = el ? el.innerText : ""; return /SIGN IN TO SEE YOUR FACADE PHOTOS/i.test(t) ? t.length : 0; })()`, 5000, 200)
@@ -530,13 +547,8 @@ try {
   // ═══ 4 · FIXTURE → REVIEW → PLACE ═════════════════════════════════════════════════════════════
   const placedOk = await runLeg(4, "the fixture → review → place → apex seated + the draft slot on", async () => {
     const fails = [];
-    if (!(await openOverlay())) return { pass: false, detail: "the overlay never opened" };
-    const inp = await waitFor(`!!document.querySelector(".ff input[type=file]")`, 8000, 120);
-    if (!inp.ok) return { pass: false, detail: "no .ff input[type=file] in the overlay" };
-    const { root } = await send("DOM.getDocument", { depth: -1 });
-    const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: ".ff input[type=file]" });
-    if (!nodeId) return { pass: false, detail: "DOM.querySelector found no file input node" };
-    await send("DOM.setFileInputFiles", { files: [FIXTURE], nodeId });
+    const fed = await feedFacadeFixture();
+    if (!fed.ok) return { pass: false, detail: fed.detail };
     const rv = await waitFor(`${FS}.phase === "review"`, 15_000, 200);
     if (!rv.ok) return { pass: false, detail: `phase never reached review (${await evalJs(`${FS}.phase`)})` };
     await evalJs(`${FS}.place(), true`);
@@ -622,7 +634,10 @@ try {
     // The handle's own side decides the sign (the +X arrow drags east, the −X arrow west).
     const want = h.eastSign > 0 ? "east" : "west";
     if (!(Math.sign(dLon) === h.eastSign)) fails.push(`placement lon Δ ${dLon.toExponential(3)}° (not ${want} — the ${h.eastSign > 0 ? "+" : "−"}X side was pressed)`);
-    if (!(Math.sign(eastM) === h.eastSign && Math.abs(eastM) > 5)) fails.push(`apex east Δ ${eastM.toFixed(3)} m (want ${want}, > 5 m)`);
+    // > 1 m: at the 66 m frame pose a 120 px drag is ~5 m raw × gain 0.5 ≈ 2.7 m (browser-measured 2026-10-22b);
+    // the first run's 46 m rode a camera the landing corrector had yanked back to the 1 km arrival pose
+    // before the drag (fixed the same day — the RADIAL lift test), so the old 5 m bar was calibrated on that.
+    if (!(Math.sign(eastM) === h.eastSign && Math.abs(eastM) > 1)) fails.push(`apex east Δ ${eastM.toFixed(3)} m (want ${want}, > 1 m)`);
     if (!(dr.camMovedM < 1)) fails.push(`the camera moved ${dr.camMovedM.toFixed(3)} m during the drag (the orbit took it)`);
     if (!mid || mid.dragging !== true) fails.push(`mid-drag dragging=${mid?.dragging} (axis ${mid?.axis})`);
     if (after.dragging !== false) fails.push("still dragging after the release");

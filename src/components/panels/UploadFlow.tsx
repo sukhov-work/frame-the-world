@@ -10,6 +10,12 @@
  * MESH SUITE MS4 (D3, 2026-09-02): the SAME dropzone forks on the file type — a drop that carries
  * a 3D model (`classifyDrop`) goes to `store/modelUpload` and renders `ModelUploadStep`
  * (check → store) instead of the EXIF review; the photo path is byte-identical.
+ *
+ * T181 (owner 2026-10-22): the dropzone is SPLIT — the UPPER half is the pin flow above (photo |
+ * model), the LOWER half is the facade texture flow: its drop / pick hands the file to
+ * `store/facadePhoto` (`loadFile`), closes this overlay and opens the facade overlay. The drop
+ * TARGET decides which store ingests; the two stores never meet (the facade component still never
+ * imports `store/upload` — the fork lives HERE). The `?facade` nav link retired with it.
  */
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
@@ -22,6 +28,7 @@ import {
   type AdjustableKey,
 } from "../../store/upload";
 import { useModelUploadStore } from "../../store/modelUpload";
+import { useFacadePhotoStore } from "../../store/facadePhoto";
 import { useUserModelsStore } from "../../store/userModels";
 import { classifyDrop, MODEL_ACCEPT } from "../../lib/models/modelCaps";
 import { PRIMITIVES } from "../../lib/models/primitives";
@@ -47,7 +54,9 @@ import "../../styles/upload-flow.css";
 import "../../styles/tips.css";
 
 const FORMAT_CHIPS = ["DNG", "ARW", "CR3", "NEF", "RAF", "JPG · PNG · HEIC", "GLB · GLTF · OBJ · FBX"];
+/** Photos only — also the facade half's accept list (FacadePhotoFlow keeps its own twin). */
 const PHOTO_ACCEPT = ".arw,.dng,.cr3,.nef,.raf,.jpg,.jpeg,.png,.webp,.heic,.heif";
+const FACADE_CHIPS = ["RAW", "JPG · PNG · HEIC"];
 const ACCEPT = `${PHOTO_ACCEPT},${MODEL_ACCEPT}`;
 const PHOTO_STEPS = ["1 UPLOAD", "2 REVIEW", "3 PLACE"] as const;
 
@@ -177,47 +186,104 @@ function DropStep() {
     onFiles(e.dataTransfer.files);
   };
 
+  // T181 — the LOWER half: one photo → the facade store; this overlay hands over to its own.
+  const facadeInputRef = useRef<HTMLInputElement>(null);
+  const [facadeOver, setFacadeOver] = useState(false);
+  const onFacadeFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const facade = useFacadePhotoStore.getState();
+    facade.openPanel();
+    void facade.loadFile(files[0]);
+    useUploadStore.getState().closePanel();
+  };
+  const onFacadeDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setFacadeOver(false);
+    onFacadeFiles(e.dataTransfer.files);
+  };
+
   return (
     <section className="uf-dropstep">
-      <div
-        className={`uf-dropzone${dragOver ? " uf-dropzone--over" : ""}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
-      >
-        <div className="uf-dropzone__icon" aria-hidden="true">
-          ↑
-        </div>
-        <div className="uf-dropzone__copy">
-          <span className="uf-dropzone__title">Drop a RAW, an image — or a 3D model</span>
-          <span className="uf-dropzone__sub">
-            Photos: we read the EXIF and place your camera on the globe. Models: checked, packed and stored
-            for placing. <span className="uf-link">Browse files</span>
-          </span>
-        </div>
-        <div className="uf-chips">
-          {FORMAT_CHIPS.map((c) => (
-            <span key={c} className="uf-chip">
-              {c}
+      <div className="uf-dropsplit">
+        <div
+          className={`uf-dropzone uf-dropzone--pin${dragOver ? " uf-dropzone--over" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          onClick={() => inputRef.current?.click()}
+        >
+          <span className="uf-dropzone__label">PIN · A PHOTO OR A 3D MODEL</span>
+          <div className="uf-dropzone__icon" aria-hidden="true">
+            ↑
+          </div>
+          <div className="uf-dropzone__copy">
+            <span className="uf-dropzone__title">Drop a RAW, an image — or a 3D model</span>
+            <span className="uf-dropzone__sub">
+              Photos: we read the EXIF and place your camera on the globe. Models: checked, packed and stored
+              for placing. <span className="uf-link">Browse files</span>
             </span>
-          ))}
+          </div>
+          <div className="uf-chips">
+            {FORMAT_CHIPS.map((c) => (
+              <span key={c} className="uf-chip">
+                {c}
+              </span>
+            ))}
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept={ACCEPT}
+            multiple
+            hidden
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              onFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </div>
+        <div
+          className={`uf-dropzone uf-dropzone--facade${facadeOver ? " uf-dropzone--over" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setFacadeOver(true);
+          }}
+          onDragLeave={() => setFacadeOver(false)}
+          onDrop={onFacadeDrop}
+          onClick={() => facadeInputRef.current?.click()}
+        >
+          <span className="uf-dropzone__label">FACADE TEXTURE — A PHOTO PROJECTED ONTO THE BUILDINGS</span>
+          <div className="uf-dropzone__copy">
+            <span className="uf-dropzone__title">Drop a photo of a facade here</span>
+            <span className="uf-dropzone__sub">
+              We place its camera on the globe and paint the photo onto the 3D buildings it sees.{" "}
+              <span className="uf-link">Browse files</span>
+            </span>
+          </div>
+          <div className="uf-chips">
+            {FACADE_CHIPS.map((c) => (
+              <span key={c} className="uf-chip">
+                {c}
+              </span>
+            ))}
+          </div>
+          <input
+            ref={facadeInputRef}
+            type="file"
+            accept={PHOTO_ACCEPT}
+            hidden
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              onFacadeFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
         </div>
       </div>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPT}
-        multiple
-        hidden
-        onChange={(e) => {
-          onFiles(e.target.files);
-          e.target.value = "";
-        }}
-      />
       {/* Owner 2026-09-19: the quick PRIMITIVES — a predefined mesh through the uploaded model's
           own door (`beginPrimitive`), so it lands on the same CHECK card. OUTSIDE the dropzone:
           its click opens the file picker. One registry entry = one more button. */}

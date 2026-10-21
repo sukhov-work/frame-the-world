@@ -1,7 +1,6 @@
-/* MY PINS — rudimentary owner list dropped from the top nav (stand-in for the gallery phase).
-   Toggle mirrors the static nav-link styling (island DOM can't receive the page's scoped
-   styles); the panel docks top-right under the nav — the photo detail panel lives top-LEFT
-   and the camera controls bottom-right, so this column is free. */
+/* MY CONTENT (was MY PINS until T179) — the owner list opened from the top nav (stand-in for the
+   gallery phase). Toggle mirrors the static nav-link styling (island DOM can't receive the page's
+   scoped styles); the panel opens as a centred, resizable window (the Guide's, T179). */
 
 .mp {
   display: inline-flex;
@@ -24,28 +23,35 @@
   color: var(--color-accent);
 }
 
+/* MY CONTENT (T179, owner 2026-10-22): the Guide's centred, resizable window (guide.css
+   `.gd-panel` twin) — no longer the 320 px top-right dock. The centring translate composes with
+   the drag offsets in ONE transform; `--win-w` / `--win-h` come from `usePanelResize("my-pins")`
+   (border-box px; unset = the defaults below). */
 .mp-panel {
   position: fixed;
-  top: 64px;
-  right: 24px;
-  z-index: 40;
-  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
-  width: 320px;
-  max-height: 60vh;
+  top: 50%;
+  left: 50%;
+  z-index: 42;
+  transform: translate(calc(-50% + var(--drag-x, 0px)), calc(-50% + var(--drag-y, 0px)));
+  box-sizing: border-box;
+  width: var(--win-w, min(52rem, 92vw));
+  height: var(--win-h, min(72vh, 42rem));
   display: flex;
   flex-direction: column;
-  padding: 14px 16px;
+  padding: 16px 20px;
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  background: rgba(11, 15, 20, 0.88);
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
   backdrop-filter: blur(10px);
   color: var(--color-text);
   animation: mp-enter 300ms cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* The scrolling body — an INNER wrapper (owner 2026-07-14): overflow on the root would clip
-   the drag grip's outside-the-window tab; x pinned hidden (overflow-y:auto forces x to auto). */
+   the drag grip's outside-the-window tab; x pinned hidden (overflow-y:auto forces x to auto).
+   It fills the window's height (T179) and scrolls inside it. */
 .mp-scroll {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -55,15 +61,15 @@
 }
 
 @keyframes mp-enter {
-  /* The entry slide composes the drag offset — a remounted panel with a remembered position
-     must not snap when the animation ends (the pd-enter fix, same idiom). */
+  /* The entry slide composes the centring + drag offset — a remounted panel with a remembered
+     position must not snap when the animation ends (the gd-enter idiom). */
   from {
     opacity: 0;
-    transform: translateY(-8px) translate(var(--drag-x, 0px), var(--drag-y, 0px));
+    transform: translate(calc(-50% + var(--drag-x, 0px)), calc(-50% + var(--drag-y, 0px) - 8px));
   }
   to {
     opacity: 1;
-    transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+    transform: translate(calc(-50% + var(--drag-x, 0px)), calc(-50% + var(--drag-y, 0px)));
   }
 }
 
@@ -77,6 +83,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .mp-title {
@@ -91,9 +98,16 @@
 .mp-tabs {
   display: flex;
   gap: 12px;
+  /* T179: five tabs stay on ONE line; a window resized narrower scrolls the strip, never wraps it. */
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .mp-tab {
+  flex: none;
+  white-space: nowrap;
   background: none;
   border: none;
   padding: 0 0 2px;
@@ -116,6 +130,7 @@
 }
 
 .mp-close {
+  flex: none;
   background: none;
   border: none;
   padding: 0 2px;
@@ -330,6 +345,11 @@
 }
 .mp-item--rename {
   cursor: default;
+}
+/* TEXTURES tab (T179): the load-error note carries an inline RETRY. */
+.mp-note .mp-act[data-act="retry"] {
+  margin-left: 6px;
+  padding: 2px 8px;
 }
 .mp-rename {
   display: flex;

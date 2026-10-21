@@ -20,11 +20,11 @@ import { resolve } from "node:path";
 import { trackTarget, finishVerify } from "./verify-cdp-cleanup.mjs";
 
 const PORT = Number(process.env.FTW_CDP_PORT ?? 9333);
-// `?facade=1` renders the nav link. The `#p=…&t=…` hash pins a DAYLIGHT scene time (the
+// The `?facade=1` flag retired on 2026-10-22 (T181). The `#p=…&t=…` hash pins a DAYLIGHT scene time (the
 // `dnipro-fpv-south` catalogue instant, scripts/lib/poses.mjs) over the fixture's own GPS point, so
 // the pixel legs never run on a black night city; place() cuts the camera to the arrival pose anyway.
 const URL =
-  process.env.FTW_PP_URL ?? "http://localhost:4321/?facade=1#p=48.4647,35.0462,1500,25,55.0&t=1788701556919";
+  process.env.FTW_PP_URL ?? "http://localhost:4321/#p=48.4647,35.0462,1500,25,55.0&t=1788701556919";
 const SHOTS = "verify-shots/photo-projection";
 const FIXTURE = resolve("test/fixtures/facade-pattern.jpg");
 const FIX = { lat: 48.4647, lon: 35.0462, heading: 25, w: 1600, h: 1200, focal35: 26 };
@@ -255,23 +255,32 @@ const bootOk = await runLeg(1, "boot + the desktop attach gate", async () => {
 if (!bootOk) aborted = "boot failed";
 
 // ═══ 2 · THE FLAG + THE ENTRY ═══════════════════════════════════════════════════════════════════
-const entryOk = await runLeg(2, "?facade nav link → the overlay opens", async () => {
-  const has = await evalJs(`!!document.querySelector("[data-open-facade]")`);
-  if (!has) return { pass: false, detail: "no [data-open-facade] element — the ?facade flag did not render the nav link" };
-  await evalJs(`document.querySelector("[data-open-facade]").click(), true`);
-  const w = await waitFor(`!!document.querySelector(".uf.ff") && ${FS}.open === true`, 8000, 120);
-  return { pass: w.ok, detail: w.ok ? "nav link → .uf.ff mounted, store open" : `overlay never opened (last ${JSON.stringify(w.value)})` };
+// T181 (2026-10-22): the `?facade` link retired — the entry is the Upload dropzone's LOWER half:
+// the fixture goes on ITS file input, the Upload overlay closes and the facade overlay opens.
+const entryOk = await runLeg(2, "Upload → the split dropzone's facade half → the facade overlay opens", async () => {
+  await evalJs(`document.querySelector("[data-open-upload]")?.click(), true`);
+  const half = await waitFor(`!!document.querySelector(".uf-dropzone--facade input[type=file]")`, 8000, 120);
+  if (!half.ok) return { pass: false, detail: "no .uf-dropzone--facade input[type=file] — the split dropzone did not render" };
+  const { root } = await send("DOM.getDocument", { depth: -1 });
+  const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: ".uf-dropzone--facade input[type=file]" });
+  if (!nodeId) return { pass: false, detail: "DOM.querySelector found no facade file input node" };
+  await send("DOM.setFileInputFiles", { files: [FIXTURE], nodeId });
+  const w = await waitFor(`!!document.querySelector(".uf.ff") && ${FS}.open === true && !document.querySelector(".uf:not(.ff)")`, 8000, 120);
+  return { pass: w.ok, detail: w.ok ? "the facade half → .uf.ff mounted, store open, Upload closed" : `overlay never opened (last ${JSON.stringify(w.value)})` };
 });
 if (!entryOk) aborted = aborted ?? "the facade overlay did not open";
 
 // ═══ 3 · FEED THE FIXTURE ═══════════════════════════════════════════════════════════════════════
 const reviewOk = await runLeg(3, "the fixture decodes to REVIEW with its EXIF", async () => {
-  const inp = await waitFor(`!!document.querySelector(".ff input[type=file]")`, 8000, 120);
-  if (!inp.ok) return { pass: false, detail: "no .ff input[type=file] in the overlay" };
-  const { root } = await send("DOM.getDocument", { depth: -1 });
-  const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: ".ff input[type=file]" });
-  if (!nodeId) return { pass: false, detail: "DOM.querySelector found no file input node" };
-  await send("DOM.setFileInputFiles", { files: [FIXTURE], nodeId });
+  // Leg 2 fed the fixture through the split dropzone; only an idle store (a re-run) feeds it here.
+  if (await evalJs(`${FS}.phase === "idle"`)) {
+    const inp = await waitFor(`!!document.querySelector(".ff input[type=file]")`, 8000, 120);
+    if (!inp.ok) return { pass: false, detail: "no .ff input[type=file] in the overlay" };
+    const { root } = await send("DOM.getDocument", { depth: -1 });
+    const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: ".ff input[type=file]" });
+    if (!nodeId) return { pass: false, detail: "DOM.querySelector found no file input node" };
+    await send("DOM.setFileInputFiles", { files: [FIXTURE], nodeId });
+  }
   const w = await waitFor(`${FS}.phase === "review"`, 15_000, 200);
   const s = await evalJs(`(() => { const s = ${FS}; return {
     phase: s.phase, loadError: s.loadError ?? null, decodeError: s.decodeError ?? null,

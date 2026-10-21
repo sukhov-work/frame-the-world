@@ -6,6 +6,7 @@ import {
   _resetFacadesStore,
   _setFacadesApi,
   FACADE_MINE_MAX_PAGES,
+  facadeRowById,
   FACADE_WORLD_CHUNK_CELLS,
   fetchFacadeWorldCover,
   isNewerOrSame,
@@ -378,5 +379,80 @@ describe("the pure helpers", () => {
     expect(isNewerOrSame(T0, T1)).toBe(false);
     expect(isNewerOrSame("garbage", T1)).toBe(true);
     expect(isNewerOrSame(T0, "garbage")).toBe(false);
+  });
+});
+
+// T178 + T183 (owner asks 2026-10-22): the marker seams — the low-cadence HOVER mirror (the
+// pins.hoverPin idiom) the compact card reads, the context MENU (the modelEdit.menu idiom), and
+// the row resolver (mine first, then world).
+describe("store/facades — the marker hover + menu seams", () => {
+  beforeEach(() => _resetFacadesStore());
+  afterEach(() => _resetFacadesStore());
+
+  it("_syncHover sets id + screen together and clears both together", () => {
+    const s = () => useFacadesStore.getState();
+    expect(s().hover).toBeNull();
+    s()._syncHover("a", { x: 120, y: 340 });
+    expect(s().hover).toEqual({ id: "a", screen: { x: 120, y: 340 } });
+    s()._syncHover(null, { x: 1, y: 2 });
+    expect(s().hover).toBeNull();
+    s()._syncHover("a", { x: 1, y: 2 });
+    s()._syncHover("a", null);
+    expect(s().hover).toBeNull();
+  });
+
+  it("a repeated identical sync keeps the same object (no re-render); a move or a new id replaces it", () => {
+    const s = () => useFacadesStore.getState();
+    s()._syncHover("a", { x: 10, y: 20 });
+    const first = s().hover;
+    let notified = 0;
+    const unsub = useFacadesStore.subscribe(() => notified++);
+    s()._syncHover("a", { x: 10, y: 20 });
+    expect(s().hover).toBe(first);
+    s()._syncHover(null, null);
+    s()._syncHover(null, null); // clearing twice notifies once
+    expect(notified).toBe(1);
+    unsub();
+    s()._syncHover("a", { x: 10, y: 20 });
+    const again = s().hover;
+    s()._syncHover("a", { x: 11, y: 20 });
+    expect(s().hover).not.toBe(again);
+    s()._syncHover("b", { x: 11, y: 20 });
+    expect(s().hover?.id).toBe("b");
+  });
+
+  it("_setMenu opens at the press point and clears the hover; closeMenu / _setMenu(null) close it", () => {
+    const s = () => useFacadesStore.getState();
+    s()._syncHover("a", { x: 10, y: 20 });
+    s()._setMenu({ id: "a", screenX: 300, screenY: 200 });
+    expect(s().menu).toEqual({ id: "a", screenX: 300, screenY: 200 });
+    expect(s().hover).toBeNull();
+    s().closeMenu();
+    expect(s().menu).toBeNull();
+    s()._setMenu({ id: "b", screenX: 1, screenY: 2 });
+    s()._setMenu(null);
+    expect(s().menu).toBeNull();
+  });
+
+  it("facadeRowById: the own row first, else the world row, else null", () => {
+    const own = mine("a", { title: "mine copy" });
+    const st = { mine: [own], world: [world("a", { title: "world copy" }), world("w")] };
+    expect(facadeRowById(st, "a")).toBe(own);
+    expect(facadeRowById(st, "w")?.title).toBe("Facade w");
+    expect(facadeRowById(st, "zz")).toBeNull();
+  });
+
+  it("the reset seam and a sign-out drop the hover and the menu", () => {
+    const s = () => useFacadesStore.getState();
+    useMemberStore.setState({ phase: "member", member: { id: "m1", nickname: null, loginEmail: null } });
+    s()._syncHover("a", { x: 1, y: 1 });
+    useFacadesStore.setState({ menu: { id: "a", screenX: 1, screenY: 1 } });
+    useMemberStore.setState({ phase: "anonymous", member: null });
+    expect(s().hover).toBeNull();
+    expect(s().menu).toBeNull();
+    s()._syncHover("a", { x: 1, y: 1 });
+    _resetFacadesStore();
+    expect(s().hover).toBeNull();
+    useMemberStore.setState({ phase: "unknown", member: null });
   });
 });

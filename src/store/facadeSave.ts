@@ -55,6 +55,10 @@ export interface FacadeSaveState {
   updateFacade: () => Promise<void>;
   /** DELETE that row: record + media server-side, then the residency forgets it and the placed state clears. */
   deleteFacade: () => Promise<void>;
+  /** T178 / T179: DELETE ANY of the member's rows by id (a marker's context menu, the MY CONTENT
+   *  tab) — the same pipeline; when that row is the placed photo, the placed state clears too.
+   *  The two-step confirm is the caller's (the panel's `SURE?` idiom). */
+  deleteFacadeById: (id: string) => Promise<void>;
   /** Back to idle (new file / start over). Keeps the title — the panel re-seeds it per identity. */
   reset: () => void;
 }
@@ -234,14 +238,23 @@ export const useFacadeSaveStore = create<FacadeSaveState>((set, get) => ({
       set(NOT_SAVED);
       return;
     }
-    const facadeId = f.savedFacadeId;
+    await get().deleteFacadeById(f.savedFacadeId);
+  },
+
+  deleteFacadeById: async (id) => {
+    if (isFacadeSaveBusy(get().phase)) return;
+    if (typeof id !== "string" || id.length === 0) {
+      set(NOT_SAVED);
+      return;
+    }
     set({ phase: "deleting", error: undefined, errorCode: undefined, warning: undefined });
     try {
       const media = await import("../lib/save/uploadMedia");
-      await media.deleteFacadeRecord(facadeId);
-      await withResidency((facades) => facades.getState().removeMine(facadeId));
-      useFacadePhotoStore.getState().clear(); // the placed photo no longer exists
-      set({ phase: "idle", facadeId: undefined });
+      await media.deleteFacadeRecord(id);
+      await withResidency((facades) => facades.getState().removeMine(id));
+      const f = useFacadePhotoStore.getState();
+      if (f.savedFacadeId === id) f.clear(); // the placed photo no longer exists
+      set({ phase: "idle", facadeId: get().facadeId === id ? undefined : get().facadeId });
     } catch (e) {
       set({ phase: "error", ...toApiError(e, "delete failed") });
     }

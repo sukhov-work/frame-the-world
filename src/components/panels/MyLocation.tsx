@@ -11,7 +11,10 @@ import { useCameraStore } from "../../store/camera";
 import "../../styles/my-location.css";
 import "../../styles/tips.css";
 
-export default function MyLocation() {
+/** The geolocation → FPV jump, shared by the nav link below and (T180, owner 2026-10-22) the
+ *  camera panel's MY SPOT icon beside the compass (CameraTiltPanel `.ct-myspot`): `busy` while a
+ *  fix is pending, `note` = a flashed 4-s failure line, `locate()` starts a fix. */
+export function useMyLocation(): { busy: boolean; note: string | null; locate: () => void } {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const noteTimer = useRef<number | null>(null);
@@ -52,6 +55,12 @@ export default function MyLocation() {
       { enableHighAccuracy: true, timeout: 10_000 },
     );
   };
+
+  return { busy, note, locate };
+}
+
+export default function MyLocation() {
+  const { busy, note, locate } = useMyLocation();
 
   return (
     <span className="ml">

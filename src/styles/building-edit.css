@@ -347,6 +347,26 @@ body.m .bec-rows {
   }
 }
 
+/* ── T175 (owner 2026-10-22): the FACADE chip — the placed facade photo's quick gizmo ops
+   (OFF · MOVE · ROTATE · SCALE) + UNDO / DROP SESSION, no per-op rows. Desktop-only; it yields
+   the slot to an armed building / model (FacadeEditChip). Only the kind badge and the compact
+   gap are its own — everything else is the shared `.bec-*` chrome. */
+.bldg-edit-chip[data-kind="facade"] {
+  gap: 5px;
+}
+
+.bec-kind {
+  align-self: center;
+  margin-right: 4px;
+  font: 600 0.52rem var(--font-mono);
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+}
+
+.bldg-edit-chip[data-kind="facade"] .bec-op[data-op="none"]:not(.is-on) {
+  color: var(--color-text-muted);
+}
+
 /* ── the building context menu (right-click / long-press) — the .skymenu cut ─────────── */
 .bldg-menu {
   position: fixed;

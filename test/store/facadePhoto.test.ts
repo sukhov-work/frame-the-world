@@ -575,6 +575,21 @@ describe("isolation fences (zero regression to the upload/pin flow)", () => {
     expect(code).toMatch(/className="uf ff"/);
     expect(code).toMatch(/data-open-facade/);
     expect(code).toMatch(/usePanelDrag\("facade-photo"\)/);
+    // T181: no `?facade` flag, no nav link — the island renders only its portalled surfaces
+    expect(code).not.toMatch(/URLSearchParams/);
+    expect(code).not.toMatch(/ff-navlink/);
+  });
+
+  it("T181: the fork lives in the Upload overlay — its LOWER half feeds this store, one-way", () => {
+    const upload = stripComments(read("src/components/panels/UploadFlow.tsx"));
+    expect(upload).toMatch(/from "\.\.\/\.\.\/store\/facadePhoto"/);
+    // the harness hook `.uf-dropzone--facade input[type=file]`: the half + its own input
+    const half = upload.slice(upload.indexOf("uf-dropzone uf-dropzone--facade"));
+    expect(half).toMatch(/ref=\{facadeInputRef\}[\s\S]*?type="file"[\s\S]*?accept=\{PHOTO_ACCEPT\}/);
+    expect(upload).toMatch(/facade\.openPanel\(\);\s*void facade\.loadFile\(files\[0\]\);/);
+    // …and the facade side still never reaches back into store/upload
+    expect(stripComments(read("src/components/panels/FacadePhotoFlow.tsx"))).not.toMatch(/store\/upload["']/);
+    expect(stripComments(read("src/store/facadePhoto.ts"))).not.toMatch(/store\/upload["']|from "\.\/upload"/);
   });
 
   it("is mounted on the desktop shell only", () => {

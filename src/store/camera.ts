@@ -299,6 +299,13 @@ export interface CameraState {
    *  resident model and ends an armed model edit). Persisted. */
   modelsVisible: boolean;
   setModelsVisible: (on: boolean) => void;
+  /** TEX chip (T182, owner 2026-10-22): the saved facade photos projected onto the buildings,
+   *  ON by default — the MDL recipe (the orchestrator gates the residency + the projector feed;
+   *  the draft under edit always projects while placed, the markers stay). On `/m` the toggle is
+   *  PRESENT BUT INERT (owner ruling 2026-10-22c — the engine ignores it there until F6 lands
+   *  with a farm-measured budget). Persisted. */
+  texturesVisible: boolean;
+  setTexturesVisible: (on: boolean) => void;
   /** ULTRA HQ — the DESKTOP-ONLY experimental chip (owner 2026-08-22h).
    *
    *  This is the ONLY flag in this store that defaults to **false**; every other chip above
@@ -449,6 +456,11 @@ export const useCameraStore = create<CameraState>((set) => ({
   setModelsVisible: (on) => {
     saveViewPref("modelsVisible", on);
     set({ modelsVisible: on });
+  },
+  texturesVisible: stored.texturesVisible ?? true,
+  setTexturesVisible: (on) => {
+    saveViewPref("texturesVisible", on);
+    set({ texturesVisible: on });
   },
   // `?? false` on purpose (see the interface docblock) — an opt-in experiment, never a default.
   ultraQuality: stored.ultraQuality ?? false,

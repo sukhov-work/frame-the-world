@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { attachFacadeMarkers, FACADE_MARKER_CAP } from "../../../src/components/globe/scene/facadeMarkers";
 import { PHOTO_PROJECT } from "../../../src/components/globe/tuning";
 import { enuBasis, geodeticToEcef } from "../../../src/lib/geo/projection";
@@ -149,7 +149,7 @@ describe("facadeMarkers — update / pick", () => {
     const { h } = attach();
     const r = row("a");
     h.setRows([r]);
-    const near = cameraOver(r, 300);
+    const near = cameraOver(r, 20);
     h.update(near);
     expect(h.mesh.visible).toBe(true);
     expect(h.mesh.position.distanceTo(near.position)).toBe(0);
@@ -159,8 +159,12 @@ describe("facadeMarkers — update / pick", () => {
     const s = new THREE.Vector3();
     h.mesh.getMatrixAt(0, m);
     m.decompose(p, q, s);
-    // 300 m × 0.006 = 1.8 m → the 2 m floor (4 places: the quaternion → matrix round-trip's float floor is ~1e-8 relative).
+    // 20 m × 0.02 = 0.4 m → the 0.5 m floor (4 places: the quaternion → matrix round-trip's float floor is ~1e-8 relative).
+    expect(20 * PHOTO_PROJECT.markerAngularSize).toBeLessThan(PHOTO_PROJECT.markerMinM); // the premise
     expect(s.x).toBeCloseTo(PHOTO_PROJECT.markerMinM, 4);
+    // T178: the quad is screen-aligned — the instance carries the CAMERA's quaternion (the stock
+    // raycast then sees the same face the eye does).
+    expect(Math.abs(q.dot(near.quaternion))).toBeCloseTo(1, 6);
     const apex = h.apexOf("a")!;
     // `instanceMatrix` is a Float32Array: a 300 m translation quantises at ~2e-5 m — a millimetre is the honest bar.
     expect(p.clone().add(h.mesh.position).distanceTo(new THREE.Vector3(...apex))).toBeLessThan(1e-3);
@@ -183,6 +187,78 @@ describe("facadeMarkers — update / pick", () => {
     h.mesh.getMatrixAt(0, m);
     m.decompose(p, q, s);
     expect(s.x).toBeCloseTo(10_000 * PHOTO_PROJECT.markerAngularSize, 4);
+    // A TURN (no move) recomposes too — the billboard follows the camera.
+    const cam = cameraOver(r, 10_000);
+    h.update(cam);
+    const v1 = h.mesh.instanceMatrix.version;
+    cam.rotateZ(0.3);
+    h.update(cam);
+    expect(h.mesh.instanceMatrix.version).toBe(v1 + 1);
+    h.dispose();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("T183: setHover eases the hovered marker toward white and `markerHoverScale` larger; un-hover eases it back", () => {
+    // The ease reads the wall clock (`performance.now`) — a tight test loop would see dt ≈ 0, so
+    // the clock ticks 16 ms per read (a 60 Hz frame).
+    let clock = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => (clock += 16));
+    const { h } = attach();
+    const a = row("a");
+    h.setRows([a, row("b", { lon: 35.05 })]);
+    const cam = cameraOver(a, 10_000);
+    h.update(cam);
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
+    const c = new THREE.Color();
+    const accent = new THREE.Color(tokens.accent);
+    const base = 10_000 * PHOTO_PROJECT.markerAngularSize;
+    expect(h.hovered()).toBeNull();
+    h.setHover("a");
+    expect(h.hovered()).toBe("a");
+    // The ease runs across update() calls (an exponential with the pins' tau) — drive it to rest.
+    let settled = false;
+    for (let i = 0; i < 400 && !settled; i++) {
+      h.update(cam);
+      h.mesh.getMatrixAt(0, m);
+      m.decompose(p, q, s);
+      settled = Math.abs(s.x - base * PHOTO_PROJECT.markerHoverScale) < 1e-3;
+    }
+    expect(settled).toBe(true);
+    h.mesh.getColorAt(0, c);
+    expect(c.getHex()).toBe(0xffffff); // white at rest
+    h.mesh.getColorAt(1, c);
+    expect(c.getHex()).toBe(accent.getHex()); // the other marker untouched
+    h.mesh.getMatrixAt(1, m);
+    m.decompose(p, q, s);
+    expect(s.x).toBeCloseTo(base, 0); // "b" sits ~4 m farther than "a" (its own angular scale, no hover factor)
+    // Un-hover: back to the accent and the base scale.
+    h.setHover(null);
+    expect(h.hovered()).toBeNull();
+    settled = false;
+    for (let i = 0; i < 400 && !settled; i++) {
+      h.update(cam);
+      h.mesh.getMatrixAt(0, m);
+      m.decompose(p, q, s);
+      settled = Math.abs(s.x - base) < 1e-3;
+    }
+    expect(settled).toBe(true);
+    h.mesh.getColorAt(0, c);
+    expect(c.getHex()).toBe(accent.getHex());
+    // A resident hovered marker rests on white too, and returns to the LIFTED accent.
+    h.setResident(["a"]);
+    h.setHover("a");
+    for (let i = 0; i < 400; i++) h.update(cam);
+    h.mesh.getColorAt(0, c);
+    expect(c.getHex()).toBe(0xffffff);
+    h.setHover(null);
+    for (let i = 0; i < 400; i++) h.update(cam);
+    h.mesh.getColorAt(0, c);
+    expect(c.getHex()).not.toBe(accent.getHex());
+    expect(c.r + c.g + c.b).toBeGreaterThan(accent.r + accent.g + accent.b);
     h.dispose();
   });
 

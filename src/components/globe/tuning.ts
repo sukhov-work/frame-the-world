@@ -3662,17 +3662,41 @@ export const PHOTO_PROJECT = {
   /** F3 residency — a resident slot is kept until a candidate is nearer than it by this many metres
    *  (hysteresis — a pan must not thrash textures) or it leaves the view + range. */
   slotSwapMarginM: 60,
-  /** F3 — a saved photo earns a slot only inside this apex distance (m); beyond it, it is a marker. */
-  slotRangeM: 900,
+  /** F3 / T177 — a saved photo earns a slot only inside this distance (m) from the camera to the
+   *  nearest point of its PAINTED VOLUME (the cone from the apex, as long as the photo's range —
+   *  0 inside it; the apex distance before 2026-10-22); beyond it, it is a marker. Larger than the
+   *  900 m of F3: the strength FADES across the last `slotFadeFrac` of it, so a photo recedes with
+   *  distance instead of clipping out (owner test 2026-10-22: "gracefully degrade"). */
+  slotRangeM: 2_000,
+  /** T177 — the fade band at the slot range's end, as a fraction of `slotRangeM` (0.35 = the last
+   *  700 m): a resident slot's strength runs 1 → 0 over it; the planner's `slotSwapMarginM` band
+   *  lies beyond, so the release lands on an already-invisible slot. */
+  slotFadeFrac: 0.35,
+  /** T177 — the KEEP hysteresis of the in-view gate (deg): a resident stays while its painted
+   *  volume is within the view cone widened by `MODELS.farViewMarginDeg` + this; a candidate needs
+   *  the narrower cone. A turn across the edge of the frame must not drop + reload a texture. */
+  slotKeepMarginDeg: 12,
   /** F3 — the half-side of the world read's square cover (m) and the altitude above which no facade
    *  is read (a facade is sub-pixel from there) — the `planModelCover` law (p5 cells, ≤ `coverMaxCells`). */
   coverRadiusM: 6_000,
   coverMaxAltM: 25_000,
   coverMaxCells: 32,
-  /** F3 — the marker glyph at a saved photo's apex: angular size (× camera distance) clamped to [min, max] m. */
-  markerAngularSize: 0.006,
-  markerMinM: 2,
-  markerMaxM: 400,
+  /** F3 / T178 — the marker at a saved photo's apex (a camera-icon billboard since 2026-10-22,
+   *  owner: "bigger, nicer handles … easily spottable"): the quad's side = angular size (× camera
+   *  distance) clamped to [min, max] m — 0.02 ≈ 20 px of a 1080-px frame at any distance past the
+   *  floor (was 0.006 / 2 m: a dot). */
+  markerAngularSize: 0.02,
+  /** The floor matters only inside 25 m (0.5 / 0.02): a 3 m floor filled the frame at a street
+   *  pose (browser-read 2026-10-22, MY CONTENT's OPEN lands 10 m from the apex). */
+  markerMinM: 0.5,
+  markerMaxM: 600,
+  /** T178 / T183 — the hovered marker grows by this factor and brightens to white, eased with the
+   *  pins' hover tau (ms); a resident one is tinted the lifted accent. */
+  markerHoverScale: 1.4,
+  markerHoverEaseTauMs: 130,
+  /** T178 — the icon's outline (a dark halo, px of the 128-px canvas) so it reads on sky and on
+   *  stone alike. */
+  markerIconOutlinePx: 10,
   /** F1 — the gizmo gains ("a bit less sensitive than the meshes flow", owner 2026-10-21): the drag's
    *  raw delta × gain for move (m) and rotate (deg); scale raises the raw factor to the gain. */
   gizmoGainMove: 0.5,

@@ -260,3 +260,19 @@ describe("view prefs — modelsVisible (MS5)", () => {
     expect("modelsVisible" in sanitizeViewPrefs({})).toBe(false);
   });
 });
+
+// T182 (owner 2026-10-22) — the TEX chip's key rides the same blob (a plain clause, the MDL
+// recipe; default ON is the store's `?? true`, so an absent key never persists an off).
+describe("view prefs — texturesVisible (T182)", () => {
+  it("keeps a boolean texturesVisible and drops anything else", () => {
+    expect(sanitizeViewPrefs({ texturesVisible: false }).texturesVisible).toBe(false);
+    expect(sanitizeViewPrefs({ texturesVisible: true }).texturesVisible).toBe(true);
+    expect("texturesVisible" in sanitizeViewPrefs({ texturesVisible: "no" })).toBe(false);
+    expect("texturesVisible" in sanitizeViewPrefs({ texturesVisible: 0 })).toBe(false);
+    expect("texturesVisible" in sanitizeViewPrefs({})).toBe(false);
+  });
+  it("a persisted OFF survives an un-stamped (pre-rev-2) blob — no re-arm join", () => {
+    expect(sanitizeViewPrefs({ texturesVisible: false }).texturesVisible).toBe(false);
+    expect(sanitizeViewPrefs({ prefsRev: 2, texturesVisible: false }).texturesVisible).toBe(false);
+  });
+});

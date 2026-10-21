@@ -298,6 +298,8 @@ function LayersChip() {
   const setPlacesOn = usePlacesMapStore((s) => s.setOnMap);
   const vectorsVisible = useCameraStore((s) => s.vectorsVisible);
   const setVectorsVisible = useCameraStore((s) => s.setVectorsVisible);
+  const texturesVisible = useCameraStore((s) => s.texturesVisible);
+  const setTexturesVisible = useCameraStore((s) => s.setTexturesVisible);
   const toggleCls = (on: boolean) => (on ? "m-act m-act--accent" : "m-act m-act--quiet");
   return (
     <div className="m-layersrow">
@@ -356,6 +358,17 @@ function LayersChip() {
             onClick={() => setVectorsVisible(!vectorsVisible)}
           >
             ▤ VECTOR
+          </button>
+          {/* T182 (owner 2026-10-22): the desktop TEX chip's twin — the same persisted pref. PRESENT
+              BUT INERT on the phone (owner ruling 2026-10-22c): the engine projects no facade
+              photos on /m until F6 lands with a farm-measured budget. */}
+          <button
+            type="button"
+            className={toggleCls(texturesVisible)}
+            aria-pressed={texturesVisible}
+            onClick={() => setTexturesVisible(!texturesVisible)}
+          >
+            ▣ TEXTURES
           </button>
         </>
       )}

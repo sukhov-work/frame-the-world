@@ -15,7 +15,7 @@
 //   7  GET /api/facades?cells=<gh5 of the pose> lists it (C6-slim row) · a far cell does not
 //   8  PATCH lon + 0.0002 / title → the new lon · poseSource MANUAL · GET reflects it
 //   9  (optional, FTW_LIVE_DOM=1 + a CDP Chrome on FTW_CDP_PORT, default 9333) the deployed UI:
-//      [data-open-facade] → MY FACADES row → the saved panel (UPDATE + DELETE) → screenshot
+//      MENU → MY CONTENT → TEXTURES row → OPEN → the saved panel (UPDATE + DELETE) → screenshot
 //  10  DELETE (JSON content type) → { deleted: true } · again → 404 · GET no longer lists it
 //
 // Usage: node scripts/verify-facades-live.mjs
@@ -409,7 +409,7 @@ try {
   } else {
     await runLeg(
       9,
-      "the deployed UI: [data-open-facade] → MY FACADES row → the saved panel (UPDATE + DELETE)",
+      "the deployed UI: MENU → MY CONTENT → TEXTURES → OPEN → the saved panel (UPDATE + DELETE)",
       async () => {
         const reachable = await fetch(`http://127.0.0.1:${PORT}/json/version`).then((r) => r.ok).catch(() => false);
         if (!reachable) return { pass: true, skip: true, detail: `no CDP Chrome on :${PORT}` };
@@ -435,15 +435,19 @@ try {
             name: "wixSession", value: cookieVal, url: APP + "/", path: "/",
             ...(APP.startsWith("https://") ? { secure: true, sameSite: "None" } : {}),
           });
-          // `?d=1` keeps the desktop shell; `?facade=1` renders the nav link.
-          await s.bootUrl(`${APP}/?facade=1&d=1#p=48.4647,35.0462,1500,25,55.0`);
+          // `?d=1` keeps the desktop shell. T179 / T180 (2026-10-22): the saved rows live under
+          // MENU → MY CONTENT → TEXTURES (the `?facade=1` link + MY FACADES retired).
+          await s.bootUrl(`${APP}/?d=1#p=48.4647,35.0462,1500,25,55.0`);
           const t0 = Date.now();
-          await s.waitFor(`!!document.querySelector("[data-open-facade]")`, 90_000, "the Facade nav link");
-          await s.evalJs(`document.querySelector("[data-open-facade]").click(), true`);
+          await s.waitFor(`!!document.querySelector(".nm-btn") && !!document.querySelector(".mp-toggle")`, 90_000, "the Menu button + MY CONTENT");
+          await s.evalJs(`document.querySelector(".nm-btn").click(), true`);
+          await s.evalJs(`document.querySelector(".mp-toggle").click(), true`);
+          await s.waitFor(`!!document.querySelector('.mp-tab[data-tab="textures"]')`, 15_000, "the TEXTURES tab");
+          await s.evalJs(`document.querySelector('.mp-tab[data-tab="textures"]').click(), true`);
           const rowSel = `document.querySelector('[data-facade-row="${createdId}"]')`;
-          await s.waitFor(`!!(${rowSel}) && (${rowSel}).textContent.includes(${JSON.stringify(TITLE2)})`, 45_000, "the MY FACADES row");
-          await shot("01-my-facades.jpeg");
-          await s.evalJs(`(${rowSel}).click(), true`);
+          await s.waitFor(`!!(${rowSel}) && (${rowSel}).textContent.includes(${JSON.stringify(TITLE2)})`, 45_000, "the MY CONTENT · TEXTURES row");
+          await shot("01-my-content-textures.jpeg");
+          await s.evalJs(`((${rowSel}).querySelector('[data-act="open"]') ?? (${rowSel})).click(), true`);
           await s.waitFor(
             `!!document.querySelector(".pd.ff-panel [data-facade-update]") && !!document.querySelector(".pd.ff-panel [data-facade-delete]")`,
             45_000,

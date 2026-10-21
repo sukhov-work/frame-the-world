@@ -11,6 +11,7 @@ import {
 import { useBldgSyncStore, type BldgSyncResult } from "../../store/bldgSync";
 import { DROP_TITLE_ALL, DROP_TITLE_ONE, undoTitle, useEditJournalStore, type EditScope } from "../../store/editJournal";
 import { useModelEditStore } from "../../store/modelEdit";
+import { useFacadePhotoStore } from "../../store/facadePhoto";
 import { loginUrl, returnHereUrl, useMemberStore } from "../../store/member";
 import type { FeatureTransform } from "../../lib/globe/featureTransform";
 import { formatDims } from "../../lib/format/readout";
@@ -214,6 +215,8 @@ export default function BuildingEditChip() {
   const journal: EditJournalView = { undoable: jUndoable, undoLabel: jUndoLabel, sessionEdits: jSessionEdits };
   // T126: the model chip (its own island) shares this slot — while a MODEL is armed the pill yields.
   const modelArmed = useModelEditStore((s) => s.armed !== null);
+  // T175: …and while a facade photo is placed (the FacadeEditChip owns the slot then).
+  const facadePlaced = useFacadePhotoStore((s) => s.phase === "placed");
   useResultExpiry(result);
   // Resolve the session once there is something to sync (MemberBadge does it on desktop; /m's
   // account sheet only when opened — the pill must not say SIGN IN to a signed-in member).
@@ -237,14 +240,15 @@ export default function BuildingEditChip() {
   };
   // The pill shows while something is PENDING: rows to sync, or session edits to drop (T126) —
   // never for UNDO alone (an emptied journal after a SYNC must not keep a pill on screen).
-  if (!armed) return pillShows(sync, journal, modelArmed) ? <SyncPill sync={sync} actions={actions} journal={journal} /> : null;
+  if (!armed) return pillShows(sync, journal, modelArmed, facadePlaced) ? <SyncPill sync={sync} actions={actions} journal={journal} /> : null;
   return <BuildingEditChipView armed={armed} menu={menu} sync={sync} actions={actions} journal={journal} />;
 }
 
 /** T126: the pill's visibility rule (unit-tested) — pending rows or droppable session edits, and
- *  never while a MODEL is armed (the model chip owns the slot then; it carries its own UNDO / DROP). */
-export function pillShows(sync: SyncButtonState, journal: EditJournalView, modelArmed = false): boolean {
-  if (modelArmed) return false;
+ *  never while a MODEL is armed (the model chip owns the slot then; it carries its own UNDO / DROP)
+ *  nor (T175, 2026-10-22) while a FACADE photo is placed (the facade chip owns it). */
+export function pillShows(sync: SyncButtonState, journal: EditJournalView, modelArmed = false, facadePlaced = false): boolean {
+  if (modelArmed || facadePlaced) return false;
   return sync.kind !== "hidden" || journal.sessionEdits > 0;
 }
 

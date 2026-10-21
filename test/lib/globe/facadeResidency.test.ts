@@ -7,9 +7,14 @@ import {
   facadeAspect,
   facadeFrustumGeometry,
   facadeInView,
+  facadePaintedVolume,
+  facadeSlotFade,
+  facadeVolumeDistanceM,
+  facadeVolumeInView,
   planFacadeSlots,
   type FacadeSlotRow,
 } from "../../../src/lib/globe/facadeResidency";
+import { frustumGeometry } from "../../../src/lib/geo/frustum";
 import type { FacadePose } from "../../../src/lib/wix/facadeRecords";
 
 // F3 residency (T169 / T171, 2026-10-21): the pure slot planner — the K nearest in-view rows
@@ -189,5 +194,120 @@ describe("facadeApexDistanceM / facadeInView — the planner's two numbers per r
     expect(facadeInView(apex, side, east, tanHalfV, 1.5, 0)).toBe(false);
     expect(facadeInView(apex, side, east, tanHalfV, 1.5, Math.PI / 4)).toBe(true);
     expect(FACADE_VIEW_RADIUS_M).toBeGreaterThan(0);
+  });
+});
+
+// ---- T177 (owner test 2026-10-22): residency by the PAINTED VOLUME, a distance fade, hysteresis ----
+describe("facadePaintedVolume / facadeVolumeDistanceM / facadeVolumeInView — where the photo PAINTS, not where its apex is (T177)", () => {
+  const lat = 48.4647;
+  const lon = 35.0462;
+  const { east, north, up } = enuBasis(lat, lon);
+  // A photo at 1.7 m looking due EAST (heading 90°) with a 60° H-FOV at 1.5 aspect, range 600 m.
+  const geom = frustumGeometry({
+    latDeg: lat,
+    lonDeg: lon,
+    altM: 1.7,
+    headingDeg: 90,
+    pitchDeg: 0,
+    rollDeg: 0,
+    hFovDeg: 60,
+    vFovDeg: verticalFovDeg(60, 1.5),
+    planeDistM: 120,
+  });
+  const vol = facadePaintedVolume(geom, 600);
+  const at = (dE: number, dN: number, dU: number): Vec3 => [
+    geom.apex[0] + east[0] * dE + north[0] * dN + up[0] * dU,
+    geom.apex[1] + east[1] * dE + north[1] * dN + up[1] * dU,
+    geom.apex[2] + east[2] * dE + north[2] * dN + up[2] * dU,
+  ];
+  const tanHalfV = Math.tan((60 * Math.PI) / 360);
+  const westward: Vec3 = [-east[0], -east[1], -east[2]];
+
+  it("the cone: length = the range, the half-angle reaches the frustum's CORNER, the sphere holds the apex and the far rim", () => {
+    expect(vol.lengthM).toBe(600);
+    // tan(half-diagonal) at 60° × 1.5: halfW = tan30°, halfH = tan30°/1.5 → hypot.
+    const want = Math.hypot(Math.tan(Math.PI / 6), Math.tan(Math.PI / 6) / 1.5);
+    expect(vol.tanHalf).toBeCloseTo(want, 6);
+    expect(facadeApexDistanceM(vol.centre, geom.apex)).toBeCloseTo(300, 6);
+    const rim = at(600, 600 * vol.tanHalf, 0);
+    expect(facadeApexDistanceM(vol.centre, rim)).toBeLessThanOrEqual(vol.radiusM + 1e-6);
+    expect(facadeApexDistanceM(vol.centre, geom.apex)).toBeLessThanOrEqual(vol.radiusM);
+    // A zero / garbage range collapses the cone to its apex.
+    const flat = facadePaintedVolume(geom, 0);
+    expect(flat.lengthM).toBe(0);
+    expect(flat.radiusM).toBe(0);
+  });
+
+  it("distance: 0 inside the cone, the apex distance behind it, the overshoot past the cap, the slant beside it", () => {
+    expect(facadeVolumeDistanceM(vol, at(200, 0, 0))).toBe(0); // on the axis, inside
+    expect(facadeVolumeDistanceM(vol, at(200, 200 * vol.tanHalf * 0.9, 0))).toBe(0); // inside, near the wall
+    expect(facadeVolumeDistanceM(vol, at(-30, 0, 0))).toBeCloseTo(30, 6); // 30 m BEHIND the apex (the owner's case)
+    expect(facadeVolumeDistanceM(vol, at(700, 0, 0))).toBeCloseTo(100, 6); // 100 m past the cap, on the axis
+    const beside = facadeVolumeDistanceM(vol, at(200, 200 * vol.tanHalf + 50, 0));
+    expect(beside).toBeGreaterThan(0);
+    expect(beside).toBeLessThan(50); // the slant is nearer than the radial gap
+    expect(beside).toBeCloseTo(50 / Math.hypot(1, vol.tanHalf), 6);
+    expect(facadeVolumeDistanceM(facadePaintedVolume(geom, 0), at(10, 0, 0))).toBeCloseTo(10, 6);
+  });
+
+  it("in view: a camera 30 m behind the apex looking AT the facades (the apex behind it) is in view; far behind and looking away is not", () => {
+    const cam = at(-30, 0, 0);
+    expect(facadeVolumeInView(vol, cam, east, tanHalfV, 1.5, 0)).toBe(true); // looking east with the photo
+    // The old apex law said NO here — the apex is behind a camera looking east… wait, the apex is AHEAD
+    // of a camera 30 m west of it looking east; put the camera 30 m EAST of the apex looking east: the apex
+    // is behind it and the painted facades are in front — the owner's "really bad and glitchy" case.
+    const inside = at(30, 0, 0);
+    expect(facadeInView(geom.apex, inside, east, tanHalfV, 1.5, 0)).toBe(false); // the apex law: dropped
+    expect(facadeVolumeInView(vol, inside, east, tanHalfV, 1.5, 0)).toBe(true); // the volume law: kept
+    expect(facadeVolumeDistanceM(vol, inside)).toBe(0);
+    // Turned 180° inside the volume (looking west, at the apex): still in view — the sphere holds the camera.
+    expect(facadeVolumeInView(vol, inside, westward, tanHalfV, 1.5, 0)).toBe(true);
+    // 3 km behind the apex looking further west: the sphere is behind the camera → out.
+    expect(facadeVolumeInView(vol, at(-3000, 0, 0), westward, tanHalfV, 1.5, 0)).toBe(false);
+    // 3 km behind looking east: the sphere is ahead, inside the cone → in.
+    expect(facadeVolumeInView(vol, at(-3000, 0, 0), east, tanHalfV, 1.5, 0)).toBe(true);
+  });
+});
+
+describe("facadeSlotFade — 1 inside the range's head, a smoothstep to 0 at the range (T177: degrade, never clip)", () => {
+  it("the band", () => {
+    expect(facadeSlotFade(0, 2000, 0.35)).toBe(1);
+    expect(facadeSlotFade(1300, 2000, 0.35)).toBe(1); // the fade starts at 65 %
+    expect(facadeSlotFade(1650, 2000, 0.35)).toBeCloseTo(0.5, 9); // the midpoint of the band
+    expect(facadeSlotFade(2000, 2000, 0.35)).toBe(0);
+    expect(facadeSlotFade(2500, 2000, 0.35)).toBe(0);
+    // monotone across the band
+    let prev = 1;
+    for (let d = 1300; d <= 2000; d += 25) {
+      const f = facadeSlotFade(d, 2000, 0.35);
+      expect(f).toBeLessThanOrEqual(prev);
+      prev = f;
+    }
+  });
+  it("edge cases: a hard edge at fadeFrac 0, the whole range at ≥ 1, garbage → 0", () => {
+    expect(facadeSlotFade(1999, 2000, 0)).toBe(1);
+    expect(facadeSlotFade(2000, 2000, 0)).toBe(0);
+    expect(facadeSlotFade(1000, 2000, 1)).toBeCloseTo(0.5, 9);
+    expect(facadeSlotFade(Number.NaN, 2000, 0.35)).toBe(0);
+    expect(facadeSlotFade(10, 0, 0.35)).toBe(0);
+    expect(facadeSlotFade(10, 2000, Number.NaN)).toBe(1);
+  });
+});
+
+describe("planFacadeSlots — the KEEP cone (inViewKeep) is the hysteresis of the in-view gate (T177)", () => {
+  it("a resident that left the narrow cone but is still inside the KEEP cone stays; one outside both is released", () => {
+    const rows: FacadeSlotRow[] = [
+      { id: "a", distM: 100, inView: false, inViewKeep: true },
+      { id: "b", distM: 200, inView: false, inViewKeep: false },
+      { id: "c", distM: 300, inView: false, inViewKeep: true }, // not resident: a candidate needs inView
+    ];
+    const plan = planFacadeSlots(rows, ["a", "b"], CFG);
+    expect(plan.slots).toEqual(["a"]);
+    expect(plan.released).toEqual(["b"]);
+  });
+  it("without inViewKeep the old law holds (inView alone)", () => {
+    const plan = planFacadeSlots([row("a", 100, false)], ["a"], CFG);
+    expect(plan.slots).toEqual([]);
+    expect(plan.released).toEqual(["a"]);
   });
 });

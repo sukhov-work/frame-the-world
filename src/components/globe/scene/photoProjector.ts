@@ -64,6 +64,8 @@ export interface PhotoProjectorSlotSnapshot {
   strength: number;
   ownLight: number;
   rangeM: number;
+  /** T177: the viewer-distance fade applied on top of `strength` (1 = none). */
+  fade: number;
   error: string | null;
 }
 
@@ -110,6 +112,10 @@ export interface PhotoProjectorHandle {
   /** F3: the feed order = priority (front-to-back compositing). Ids not in the pool are ignored;
    *  occupied slots not named keep their relative order after the named ones. */
   setPriority(ids: readonly string[]): void;
+  /** T177: the VIEWER-distance fade of a saved slot (0..1, default 1) — multiplies the source's
+   *  strength in the feed so a photo recedes before the residency releases it (degrade, never
+   *  clip). Per frame from the orchestrator; the draft is never faded. Unknown ids are ignored. */
+  setFade(id: string, fade: number): void;
   /** Advance every slot: pose → matrix, the one depth re-render this frame, the on flags. */
   tick(nowMs: number): void;
   /** A building tile landed or left — every depth map is stale; re-render on the next ticks. */
@@ -170,11 +176,43 @@ export function projectorMatrix(
   return out.copy(BIAS).multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
 }
 
-/** The effective range for a source (null → the tunable), clamped to a sane band. */
-const rangeOf = (src: PhotoProjectorSource): number => {
-  const r = src.rangeM;
-  return typeof r === "number" && Number.isFinite(r) && r > 0 ? Math.min(PHOTO_PROJECT.farM, Math.max(10, r)) : PHOTO_PROJECT.rangeM;
-};
+/** The effective range (m) for a stored / draft `rangeM` (null → the tunable), clamped to a sane
+ *  band — ONE law for the projector's paint and the residency's painted volume (T177). */
+export const effectiveRangeM = (rangeM: number | null | undefined): number =>
+  typeof rangeM === "number" && Number.isFinite(rangeM) && rangeM > 0 ? Math.min(PHOTO_PROJECT.farM, Math.max(10, rangeM)) : PHOTO_PROJECT.rangeM;
+const rangeOf = (src: PhotoProjectorSource): number => effectiveRangeM(src.rangeM);
+
+/** The pose numbers a slot's matrix + depth map depend on — the apex, forward, up AND the four
+ *  far-face corners (21 floats). T174 (owner test 2026-10-22, a bug): the SCALE gizmo changes the
+ *  H-FOV, which moves ONLY the corners, and the prototype's 9-float compare never saw it — the
+ *  projection stayed stale until the apex or the heading moved. `last` is updated in place;
+ *  returns whether anything differed (a NaN-filled `last` always differs). Exported for the twin. */
+export const POSE_SIGNATURE_LENGTH = 21;
+export function poseSignatureChanged(g: FrustumGeometry, last: Float64Array): boolean {
+  let changed = false;
+  const put = (i: number, v: number): void => {
+    if (v !== last[i]) {
+      changed = true;
+      last[i] = v;
+    }
+  };
+  put(0, g.apex[0]);
+  put(1, g.apex[1]);
+  put(2, g.apex[2]);
+  put(3, g.forward[0]);
+  put(4, g.forward[1]);
+  put(5, g.forward[2]);
+  put(6, g.up[0]);
+  put(7, g.up[1]);
+  put(8, g.up[2]);
+  for (let c = 0; c < 4; c++) {
+    const k = g.corners[c];
+    put(9 + c * 3, k[0]);
+    put(10 + c * 3, k[1]);
+    put(11 + c * 3, k[2]);
+  }
+  return changed;
+}
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
@@ -188,6 +226,8 @@ interface SlotRec {
   vFovDeg: number;
   aspect: number;
   lastPose: Float64Array;
+  /** T177: the viewer-distance fade (0..1) folded into `feed.slot.x`. */
+  fade: number;
   rt: THREE.WebGLRenderTarget | null;
   depthTex: THREE.DepthTexture | null;
   depthDirty: boolean;
@@ -249,7 +289,8 @@ export function attachPhotoProjector(
     cam: new THREE.PerspectiveCamera(50, 1.5, PHOTO_PROJECT.nearM, PHOTO_PROJECT.farM),
     vFovDeg: 0,
     aspect: 1.5,
-    lastPose: new Float64Array(9).fill(NaN),
+    lastPose: new Float64Array(POSE_SIGNATURE_LENGTH).fill(NaN),
+    fade: 1,
     rt: null,
     depthTex: null,
     depthDirty: true,
@@ -272,17 +313,7 @@ export function attachPhotoProjector(
 
   const find = (id: string): SlotRec | undefined => pool.find((r) => r.id === id);
 
-  const poseChanged = (r: SlotRec, g: FrustumGeometry): boolean => {
-    let changed = false;
-    const v = [g.apex[0], g.apex[1], g.apex[2], g.forward[0], g.forward[1], g.forward[2], g.up[0], g.up[1], g.up[2]];
-    for (let i = 0; i < 9; i++) {
-      if (v[i] !== r.lastPose[i]) {
-        changed = true;
-        r.lastPose[i] = v[i];
-      }
-    }
-    return changed;
-  };
+  const poseChanged = (r: SlotRec, g: FrustumGeometry): boolean => poseSignatureChanged(g, r.lastPose);
 
   // --- the depth maps (one target per slot, allocated on first need) -----------------------------
   const depthPlain = new THREE.MeshDepthMaterial({ side: THREE.DoubleSide });
@@ -437,7 +468,7 @@ export function attachPhotoProjector(
 
   const applySource = (r: SlotRec, src: PhotoProjectorSource): void => {
     r.source = src;
-    r.feed.slot.x = clamp01(src.strength);
+    r.feed.slot.x = clamp01(src.strength) * r.fade;
     r.feed.slot.w = clamp01(src.ownLight);
     r.feed.slot.z = rangeOf(src);
     syncTexture(r);
@@ -450,6 +481,7 @@ export function attachPhotoProjector(
     r.source = defaultSource();
     r.geom = null;
     r.lastPose.fill(NaN);
+    r.fade = 1;
     r.feed.on = false;
     r.feed.depth = null;
     r.depthDirty = true;
@@ -472,6 +504,7 @@ export function attachPhotoProjector(
     strength: r.feed.slot.x,
     ownLight: r.feed.slot.w,
     rangeM: r.feed.slot.z,
+    fade: r.fade,
     error: r.error,
   });
 
@@ -557,6 +590,15 @@ export function attachPhotoProjector(
     setGeometry(id, geom) {
       const r = find(id);
       if (r) r.geom = geom;
+    },
+    setFade(id, fade) {
+      if (id === DRAFT_SLOT_ID) return;
+      const r = find(id);
+      if (!r) return;
+      const f = Number.isFinite(fade) ? clamp01(fade) : 1;
+      if (f === r.fade) return;
+      r.fade = f;
+      r.feed.slot.x = clamp01(r.source.strength) * f;
     },
     setPriority(ids) {
       const named: SlotRec[] = [];

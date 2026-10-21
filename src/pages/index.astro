@@ -10,9 +10,9 @@ import MemberBadge from "../components/panels/MemberBadge";
 import MyPins from "../components/panels/MyPins";
 import Marketplace from "../components/panels/Marketplace";
 import Guide from "../components/panels/Guide";
-import MyLocation from "../components/panels/MyLocation";
 import LocationFinder from "../components/panels/LocationFinder";
 import PinHoverCard from "../components/panels/PinHoverCard";
+import FacadeHoverCard from "../components/panels/FacadeHoverCard";
 import ExploreMode from "../components/panels/ExploreMode";
 import Welcome from "../components/panels/Welcome";
 import FpvHud from "../components/panels/FpvHud";
@@ -20,12 +20,15 @@ import PlanPanel from "../components/panels/PlanPanel";
 import FindPanel from "../components/panels/FindPanel";
 import BestSpotPanel from "../components/panels/BestSpotPanel";
 import PlanFindToggle from "../components/panels/PlanFindToggle";
+import NavMenu from "../components/panels/NavMenu";
 import TargetPanel from "../components/panels/TargetPanel";
 import MiniMap from "../components/panels/MiniMap";
 import MapWindow from "../components/panels/MapWindow";
 import SkyContextMenu from "../components/panels/SkyContextMenu";
+import FacadeMarkerMenu from "../components/panels/FacadeMarkerMenu";
 import BuildingEditChip from "../components/panels/BuildingEditChip";
 import ModelEditChip from "../components/panels/ModelEditChip";
+import FacadeEditChip from "../components/panels/FacadeEditChip";
 import DebugPanel from "../components/panels/DebugPanel";
 // Hover tips (tips batch 2026-07-11) — imported here so the Astro-rendered nav links get
 // the same glass tip pills the React panels use.
@@ -155,6 +158,10 @@ import { versionLabel } from "../lib/version";
   <!-- Upload flow overlay (design board 05) — opened by any [data-open-upload] element -->
   <UploadFlow client:only="react" />
 
+  <!-- The photo flow (b) — the facade overlay + its docked panel (portals to <body>). No nav
+       link since T181 (owner 2026-10-22): the Upload overlay's LOWER dropzone half opens it. -->
+  <FacadePhotoFlow client:only="react" />
+
   <!-- Scene clock — the exact instant the ephemeris lights the globe with (pre-Phase-4) -->
   <TimeReadout client:only="react" />
 
@@ -169,6 +176,7 @@ import { versionLabel } from "../lib/version";
 
   <!-- Hover details card over a public pin (Phase 5.5 S4) -->
   <PinHoverCard client:only="react" />
+  <FacadeHoverCard client:only="react" />
 
   <!-- Explore ambient pin journey (Phase 5.5 S4) — nav toggle + status chip -->
   <ExploreMode client:only="react" />
@@ -209,11 +217,13 @@ import { versionLabel } from "../lib/version";
   <!-- Sky context menu (QoL-2 ask 7) — right-click the sun / moon / tracked target: track,
        aim, ghosts, rise/set jumps. Fed by the orchestrator's hit test. Top-level island. -->
   <SkyContextMenu client:only="react" />
+  <FacadeMarkerMenu client:only="react" />
 
   <!-- U8 building height edit (owner 2026-08-18) — Δ + RESET chip while a building is armed
        (dbl-click in FPV). Top-level island (same trap); the same island mounts on /m. -->
   <BuildingEditChip client:only="react" />
   <ModelEditChip client:only="react" />
+  <FacadeEditChip client:only="react" />
 
   <!-- DEBUG HUD (owner 2026-09-01) — the DBG chip's floating metrics window. Desktop-only,
        off by default; renders null until the chip flips camera.debugHud. NOT mounted on /m. -->
@@ -235,42 +245,47 @@ import { versionLabel } from "../lib/version";
         href="/"
         data-tip="FRESH START — THE CLEAN GLOBE."
         data-tip-pos="down"><img class="logo-mark" src="/logo/plux-mark.png" alt="" width="96" height="96" />Plux</a>
+      <!-- T180 (owner 2026-10-22): the collapsed MENU — a black pill LEFT of PLAN. The NavMenu
+           island is only the button; the dropdown is THIS container (a React island cannot wrap
+           the other islands), toggled by its `is-open` class through the data-nav-menu hook.
+           Closed = visibility:hidden, never `hidden`: the rows' own fixed windows (MY CONTENT,
+           MARKETPLACE, GUIDE) render inside it and must survive the menu closing. -->
+      <div class="topnav-menuwrap">
+        <NavMenu client:only="react" />
+        <div class="topnav-menu" id="topnav-menu" role="menu" aria-label="PLUX menu" data-nav-menu>
+          <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
+          <a href="#explore" data-explore role="menuitem" class="tip" data-tip="AMBIENT TOUR OF PUBLIC PINS." data-tip-pos="right">Explore</a>
+          <!-- MOBILE_PLAN M0 link (the pose-carrying script below binds every a[href="/m"]) -->
+          <a href="/m" role="menuitem" class="tip" data-tip="PLANNING SHELL FOR YOUR PHONE." data-tip-pos="right">Mobile</a>
+          <!-- SURF-12 (2026-08-22g): the guide as a plain, printable document in its own tab. -->
+          <a
+            href="/guide"
+            target="_blank"
+            rel="noopener"
+            role="menuitem"
+            class="tip"
+            data-tip="THE GUIDE AS A PLAIN, PRINTABLE PAGE."
+            data-tip-pos="right">Docs</a
+          >
+          <!-- Phase 5.1: the member's own content (pins, places, models) — MY CONTENT -->
+          <MyPins client:only="react" />
+          <!-- Phase 6.9: buyer-facing marketplace browse panel. Also hosts the ?purchased=1
+               post-checkout toast (a role=status — it opts back into visibility). -->
+          <Marketplace client:only="react" />
+          <!-- GUIDE — the in-app user guide (guide track G1, 2026-08-15; absorbed the FAQ).
+               Body is open-gated; content = src/lib/guide/guideContent.ts (both shells). -->
+          <Guide client:only="react" />
+          <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge — the menu's foot -->
+          <MemberBadge client:only="react" />
+        </div>
+      </div>
       <!-- owner 2026-08-15: the PLAN/FIND pills became ONE segmented toggle beside the
            wordmark — the shared window opens in the left column (PlanPanel/FindPanel). -->
       <PlanFindToggle client:only="react" />
     </div>
     <nav>
-      <!-- Explore = the ambient pin journey (Phase 5.5 S4; ExploreMode binds data-explore) -->
-      <a href="#explore" data-explore class="tip" data-tip="AMBIENT TOUR OF PUBLIC PINS." data-tip-pos="down">Explore</a>
-      <!-- MOBILE_PLAN M0 link, moved BEFORE Upload (owner 2026-08-15c — planning outranks upload) -->
-      <a href="/m" class="tip" data-tip="PLANNING SHELL FOR YOUR PHONE." data-tip-pos="down">Mobile</a>
-      <!-- SURF-12 (2026-08-22g): /guide was linked from NOWHERE but the guide panel itself —
-           the standalone page was unreachable and unindexable. The panel is still the primary
-           in-app surface (the Guide island below); this is the document, in its own tab. -->
-      <a
-        href="/guide"
-        target="_blank"
-        rel="noopener"
-        class="tip"
-        data-tip="THE GUIDE AS A PLAIN, PRINTABLE PAGE."
-        data-tip-pos="down">Docs</a
-      >
-      <a href="#upload" class="nav-upload tip" data-open-upload data-tip="ADD A PHOTO TO THE GLOBE." data-tip-pos="down">Upload</a>
-      <!-- The photo flow (b) PROTOTYPE: its nav link renders only with ?facade (desktop only). -->
-      <FacadePhotoFlow client:only="react" />
-      <!-- Phase 6.9: buyer-facing marketplace browse panel (owner ruling — its own nav button).
-           Also hosts the ?purchased=1 post-checkout toast. Panel body + fetch are open-gated. -->
-      <Marketplace client:only="react" />
-      <!-- Phase 5.1: rudimentary owner pin list (members only; gallery phase replaces it) -->
-      <MyPins client:only="react" />
-      <!-- GUIDE — the in-app user guide (guide track G1, 2026-08-15; absorbed the FAQ).
-           Body is open-gated; content = src/lib/guide/guideContent.ts (both shells). -->
-      <Guide client:only="react" />
-      <!-- QoL-1 (owner 2026-08-14): geolocation → temp-pin FPV at the visitor's real spot (C6:
-           client-side only). The /m twin is SceneActions' 🧭 chip. -->
-      <MyLocation client:only="react" />
-      <!-- Phase 5: managed Wix login (@wix/astro auth routes) + member badge -->
-      <MemberBadge client:only="react" />
+      <!-- T180: the right side keeps ONLY Upload. MY SPOT moved into the camera controls. -->
+      <a href="#upload" class="nav-upload tip" data-open-upload data-tip="ADD A PHOTO OR A FACADE TEXTURE TO THE GLOBE." data-tip-pos="down">Upload</a>
     </nav>
   </header>
   <script is:inline>
@@ -388,6 +403,50 @@ import { versionLabel } from "../lib/version";
   }
   .topnav a.logo:hover {
     color: var(--color-accent);
+  }
+  /* T180 — the collapsed MENU. The wrapper anchors the dropdown under the NavMenu pill. */
+  .topnav-menuwrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  /* The dropdown container. NO backdrop-filter / filter / transform / opacity here, ever: the
+     rows' own position:fixed windows (MY CONTENT, MARKETPLACE, GUIDE) render INSIDE it, and any
+     of those would become their containing block (the S2 trap) or fade them with the menu. */
+  .topnav-menu {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 13rem;
+    padding: 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-bg) 94%, transparent);
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--color-bg) 60%, transparent);
+  }
+  /* Closed = invisible + inert (visibility removes it from hit-testing, focus and the a11y
+     tree) but still laid out, so the windows the rows opened can opt back in below. NOT the
+     `hidden` attribute: display:none would take those windows down with the menu. */
+  .topnav-menu:not(.is-open) {
+    visibility: hidden;
+  }
+  .topnav-menu :global([role="dialog"]),
+  .topnav-menu :global([role="status"]) {
+    visibility: visible;
+  }
+  /* The static rows (Explore · Mobile · Docs); the island rows are restyled in nav-menu.css. */
+  .topnav-menu > a {
+    display: block;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  .topnav-menu > a:hover {
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
   }
   .topnav nav {
     display: flex;
