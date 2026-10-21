@@ -20,8 +20,8 @@ import {
   bboxToRadians,
   type GeoBbox,
 } from "../../../lib/globe/enrichedMask";
-import { BUILDINGS, EARTH, FOVEATION, LOADING, TILESETS } from "../tuning";
-import { createBuildingMaterials } from "./buildingMaterial";
+import { BUILDINGS, EARTH, FOVEATION, LOADING, PHOTO_PROJECT, TILESETS } from "../tuning";
+import { createBuildingMaterials, type PhotoProjectorFeed } from "./buildingMaterial";
 import { createFastEdgesScratch } from "../../../lib/globe/fastEdges";
 import { createEdgesBuilder, type EdgesBuilder } from "./edgesGeometry";
 import { makeTileCenterReader } from "./tilePriority";
@@ -137,6 +137,12 @@ export interface BuildingsHandle {
     emisK: number,
     edgeK: number,
   ): void;
+  /** PHOTO PROJECTION (2026-10-18): bind the projector feed to the shared fill material (null
+   *  unbinds). Mirrors EnrichedBuildingsHandle.setPhotoProjector — one feed, both sets. */
+  setPhotoProjector(feed: PhotoProjectorFeed | null): void;
+  /** The bbox clip prism this set's materials carry (null = no mask) — the projector's OSM depth
+   *  pass carries the SAME planes so the hole stays a hole in the depth map. */
+  clipPlanes(): THREE.Plane[] | null;
   dispose(): void;
 }
 
@@ -250,7 +256,8 @@ export function attachBuildings(
   // both tilesets use (scene/buildingMaterial.ts). This module owns the OSM instance; the uniform
   // holders are persistent (onBeforeCompile re-binds them across the transparent-toggle recompile,
   // so state survives).
-  const { fillMat: styleMat, edgeMat, uniforms } = createBuildingMaterials();
+  const materialSet = createBuildingMaterials();
+  const { fillMat: styleMat, edgeMat, uniforms } = materialSet;
   const {
     uGhostK,
     uSolidK,
@@ -272,8 +279,9 @@ export function attachBuildings(
   // translated), so the planes are static — built once. `clipShadows` keeps clipped-away buildings
   // from still casting phantom shadows into the hole. The enriched material (its own instance, no
   // planes) is untouched — that's WHY the factory hands out separate instances.
+  let clipPlanes: THREE.Plane[] | null = null;
   if (opts.maskBbox) {
-    const clipPlanes = bboxClipPrismEcef(opts.maskBbox).map(
+    clipPlanes = bboxClipPrismEcef(opts.maskBbox).map(
       (p) => new THREE.Plane(new THREE.Vector3(p.normal[0], p.normal[1], p.normal[2]), p.constant),
     );
     for (const m of [styleMat, edgeMat] as THREE.Material[]) {
@@ -422,6 +430,9 @@ export function attachBuildings(
           uFillBirthMs.value = birthMs;
           uFtwTileSeed.value = tileSeed;
         };
+        // PHOTO PROJECTION: the depth pass selects building meshes by this layer bit (layer 0
+        // stays on — the main camera is unaffected). An evicted tile re-runs this on reload.
+        c.layers.enable(PHOTO_PROJECT.depthLayerOsm);
         // Sun shadows (city scale): buildings cast onto the ground twins and onto each other.
         // Tiles arrive with both flags false — the shadow pass skips everything otherwise.
         c.castShadow = true;
@@ -553,6 +564,10 @@ export function attachBuildings(
       applyEdgeOpacity();
       uniforms.uFtwSunW.value.copy(sunW);
     },
+    setPhotoProjector(feed) {
+      materialSet.setPhotoProjector(feed);
+    },
+    clipPlanes: () => clipPlanes,
     dispose() {
       unregFrameClock();
       loadQueue.clear();

@@ -915,3 +915,27 @@ no sky fill at night).
 A second decorrelated hash picks a point on a warm ↔ cool axis (cream (1.06, 1.0, 0.92) ↔ cool grey (0.94, 0.98, 1.06)) and the
 day fill is pulled toward it by this fraction — low chroma, one family, neighbours differ in warmth. 0 = byte-identical.
 Night-gated with the fill. The rest of the triage: `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md`.
+
+## The `PHOTO_PROJECT` family (added 2026-10-18 — the photo flow (b) prototype, `scene/photoProjector.ts`)
+A facade photo (store/facadePhoto — a technical photo, never a pin) projected onto the two building tilesets' shared fill material from
+its own camera pose, with occlusion from a depth map rendered AT the pose. Knobs: `nearM` / `farM` (the projector's planes — the 24-bit
+depth map resolves ~0.5 m at 3 km), `depthMapPx` (the long edge; the short edge follows the photo's aspect), `depthBiasM` +
+`depthBiasPerM` (a METRIC compare — a window-space bias is ~d² non-linear), `facingLo/Hi` (cos window against the ray to the apex),
+`edgeFeather` (uv), `rangeM` + `rangeFadeFrac` (the paint fades out beyond the range; the depth map still reaches `farM`), `maxTexturePx`
+(the ImageBitmap resize on the long edge), `anisotropy`, `depthRefreshMs` (the live re-render cadence; a pose / photo / tile change
+re-renders at once), `depthLayerOsm` / `depthLayerEnriched` (the `Object3D.layers` bits the two depth passes select on), `strength` /
+`ownLight` / `gain` (the store defaults + the colour gain).
+Three facts the family encodes (all source-verified against three 0.185):
+- **A non-ShaderMaterial's uniforms upload only on a material / program / camera switch** (`WebGLRenderer.js:2522-2541, 2707`) — never
+  write a per-draw uniform from `mesh.onBeforeRender` and expect every mesh to see it (T165). The projector matrix is per PASS, written in
+  `fillMat.onBeforeRender` keyed on `renderer.info.render.frame` + the camera.
+- **The RTC-safe formulation is VIEW space:** `uFtwProjFromView = bias·P·V_photo × camera.matrixWorld` in float64 on the CPU, applied to
+  `-vViewPosition` (built from the float64 `modelViewMatrix`) — the ECEF translations cancel before the float32 cast. Never project
+  `vFtwWPos` (float32 ECEF, ~0.5 m swim). Pinned at 3.2e-7 vs 4.2e-3 uv by `photoProjector.test`.
+- **`scene.overrideMaterial` drops the OSM clip prism** — the OSM depth pass carries the same planes on its own `MeshDepthMaterial`
+  (`clipIntersection`), the enriched pass a plain one, selected by layer; and an extra `render()` re-renders every shadow map unless
+  `shadowMap.autoUpdate` is bracketed off (the A2-2 rule); restore the render target to what you found (null is the mandatory default).
+Traps: an ImageBitmap texture ignores `flipY` (three skips UNPACK_FLIP_Y for bitmaps) — the shader flips v (`uFtwProjK.z`); a disposed
+bitmap left bound in a sampler uniform re-uploads as "source data has been detached" — null the samplers when the projector goes off;
+texture fetches inside per-fragment branches have undefined derivatives — the masks are multiplicative, `textureLod` for the depth and
+`textureGrad` (derivatives taken under the uniform branch) for the photo.

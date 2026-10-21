@@ -9,30 +9,27 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-14 (`mem:project/wip-2026-10-14-ar-calibration-yaw-lock`)
-**AR CALIBRATION: THE DRAG IS YAW-ONLY BY DEFAULT · ↕ PITCH FREES BOTH AXES — LIVE as v1.36.30 (ship `e5edaac` PR #143) and FARM-VERIFIED on the iPhone 17 Pro (DECISIONS 2026-10-14 + 2026-10-14b).**
-`lib/sensors/arCalibration.gateAimDelta` (yaw-only keeps the yaw WHOLE, zeroes the pitch; the pinch never gated) · `camera.arCalAxes` `"yaw" | "free"`
-reset to `"yaw"` on EVERY `setArCam("calibrate")` (per visit, never persisted) + `toggleArCalAxes` · the gate in `stepArCalDraft` (the pad stays dumb) ·
-a FOURTH round cell ↕ PITCH (`data-act="ar-cal-axes"`, `aria-pressed`, accent only while on) at the TOP of the verdict column — ↕ PITCH · CANCEL ·
-RESET · CONFIRM. Twin: a 60 × 30 px diagonal = −5.01° yaw / 0.00° pitch; PITCH on → +2.49°. `verify-ar-calibration` 74/74 · `verify-ar-look` 38/0 ·
-mobile batch 127/127 · 09-18 ALL PASS · `verify-fpv-carry` 27/29 **pre-existing (proven on stashed src) → T164**. The farm
-(`tools/devicefarm/ios-ar-axes-2026-10-14.mjs --prod`): **a NATIVE XCUITest tap arms AR on the farm** (a WebDriver click flashes TAP AGAIN — run 1);
-the native hold opened calibration + the camera sheet; the locked diagonal `YAW −41.7° · PITCH +0.0°`, with ↕ PITCH on `−83.4° · +5.6°`; a second
-hold re-opened LOCKED — 11/12, the one FAIL the harness's own shorthand `borderRadius` read (fixed, not re-run).
-
-## Status — 2026-10-13 (`mem:project/wip-2026-10-13-collision-lighting-building-colour`)
-**THE STICKY BOX · THE DAYLIGHT PASS · BUILDING COLOUR rung 1 — built and gated (DECISIONS 2026-10-13; the release + the farm in 2026-10-13b).**
-(1) `lib/globe/fpvClearance.ts` v2 (`boxClearance` + `stepStickyEye`): a 0.5 × 0.3 × 2 m box (eye 1.7); landing by clamp, a head-only overlap
-= a ceiling stop, hovering re-bases eye-preserving, standing feet follow (eased fall), the walking SWEEP turns an entered solid into a WALL
-(the step undone — no clip — and a glided climb, τ 160 + 4 m/s, with a latch at the top edge). The 2026-09-22 snap threw the eye +19.9 m on a
-slow descent (measured). `verify-fpv-collision-2026-10-13` 27/27, the carry harness 29/29. (2) The lighting ledger
-(`scripts/probe-lighting-2026-10-13.mjs`): 36 % near-black → 0 % at the owner's pose; the hemisphere sky-coloured ×3.75, the sun's ground
-shadow 0.6/0.65 + a sky tint, PCF radius 3, the city's DAY fill `tokens.buildingDay` lerped to the slate by `uFtwNight` (the night kept),
-the golden key tempered, a uniform PMREM on user models; `toneMapBlackOffsetK` wired, unused (T162). (3) `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md`;
-`BUILDINGS.hueVariation` 0.22 shipped; T157 (photo spike) · T158 (rung-2 bake) · T159 (rung-3 licence) await the owner; T160 the box on
-the phones; T163 two pre-existing charter pins.
+## Status — 2026-10-18 (`mem:project/wip-2026-10-18-photo-projection-prototype`)
+**THE PHOTO PROJECTION PROTOTYPE (the photo flow (b)) — BUILT, GATED, BROWSER-VERIFIED; desktop-only behind `?facade=1`; NOT released (DECISIONS 2026-10-18). Owner 2026-10-21: "looks promising" → the full desktop flow is PLANNED (`rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md`, T169–T172; DECISIONS 2026-10-21). Rulings: release HOLDS until save + edit/remove (F2); desktop may spend 100+ MB of GPU on live photos, mobile/iPhone must not degrade (the projector stays behind `hqAllowed`).**
+A facade photo (`store/facadePhoto` — the technical twin of the upload store, never a pin) is projected onto both building tilesets' shared fill
+material from its pose with occlusion from a depth map rendered at the pose (`scene/photoProjector.ts`; the `uFtwProj*` block in
+`buildingMaterial.ts`; `PHOTO_PROJECT`). **The decisive finding:** three uploads a non-ShaderMaterial's uniforms only on a material/program/
+camera switch — a per-mesh `onBeforeRender` write reaches the first mesh of a run only (T165; the triage's per-draw matrix is impossible) →
+the shipped route is ONE per-PASS matrix VIEW space → photo clip (`bias·P·V × camera.matrixWorld`, float64, in `fillMat.onBeforeRender`) on
+`-vViewPosition`: zero new varyings, 3.2e-7 vs 4.2e-3 uv float32 error (machine-checked). UI: `panels/FacadePhotoFlow.tsx` (the `.uf.ff`
+overlay + the `.pd.ff-panel` panel: heading/pitch/roll/focal/altitude, the N/S/E/W nudge, PROJECT · STRENGTH · OWN LIGHT · PLANE).
+Harness `verify-photo-projection-2026-10-18` **10/10** (the pattern paints with the right orientation; a 2 m nudge → 1.999 m; frame cost p95
+16.7 vs 16.7 ms; the pin flow untouched). Found + recorded: the instant-cut landing lifted to ~23 km by `adjustHeight` on a coarse tile
+(pre-existing on pins — T166; the facade flow got `stepFacadeArrival`). Rulings: the building shade + day/night and the yaw lock are OK.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-10-14 AR CALIBRATION: the drag yaw-only by default · ↕ PITCH frees both axes → v1.36.30 LIVE, farm-verified on the iPhone 17 Pro**
+  (`wip-2026-10-14-ar-calibration-yaw-lock`): `gateAimDelta`, `camera.arCalAxes` reset per visit, the fourth cell at the top of the verdict
+  column; `verify-ar-calibration` 74/74; the farm arms AR with a NATIVE tap (a WebDriver click is no user activation); the owner's read: fine.
+- **2026-10-13 THE STICKY BOX · THE DAYLIGHT PASS · BUILDING COLOUR rung 1 → v1.36.28 LIVE, farm-verified**
+  (`wip-2026-10-13-collision-lighting-building-colour`): `lib/globe/fpvClearance.ts` v2 (the 0.5 × 0.3 × 2 m box, walls block the walk, no
+  bounce), the lighting ledger 36 % near-black → 0 % (sky-lit shadows, the day fill `tokens.buildingDay`), `BUILDINGS.hueVariation` 0.22;
+  the triage `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md` (T158 rung 2 · T159 rung 3 await the owner; T157 BUILT 2026-10-18).
 - **2026-10-10 THE OWNER'S DEVICE FEEDBACK → v1.36.26 LIVE, farm-verified on the iPhone 17 Pro** (`wip-2026-10-10-mobile-fixes-radar-find-keyboard`):
   the radar on glass (`radarStroke` in screen CSS px; the mini-map store = the glass), FIND THIS ONE + the range chips (`find.soloBody`),
   the keyboard lift (`mobile/Sheet` rides `bottom: <visualViewport inset>`, POLLED through focus — iOS 26 sends no resize); the farm
@@ -43,7 +40,7 @@ the phones; T163 two pre-existing charter pins.
 - Older eras (AR calibration 2026-09-19, the sign-out root cause 2026-09-18, AUDIT #4 triage 2026-09-17 and before): the Era index below.
 
 ## Standing facts (2026-09-30)
-- Gates: vitest **3,368 / 225 files** · `astro check` **0/0/26** (the hints are the dated baseline) · knip: only the four
+- Gates: vitest **3,424 / 227 files** · `astro check` **0/0/27** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
 - `package.json` **1.36.30** (each ship bumps the patch); live **v1.36.30** (2026-10-14, ship `e5edaac` PR #143 — the AR yaw lock; v1.36.28 = `e706eaa` PR #141 the sticky box + the daylight pass, earlier the same day). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
@@ -64,14 +61,18 @@ the phones; T163 two pre-existing charter pins.
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14) and expect to restart TWICE (a lazily imported dep
   chunk 404s once); `Failed to fetch dynamically imported module` — `curl` the module first (500 = a real error).
   CDP harnesses: `~/.nvm/versions/node/v24.10.0/bin/node` (Node 20 lacks the global WebSocket).
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T164**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T168**, every row dated).
+- **Never write a per-draw uniform from `mesh.onBeforeRender`** (2026-10-18, T165): three uploads a non-ShaderMaterial's uniforms per
+  material switch, not per draw. Per-PASS values go through `material.onBeforeRender`; per-mesh values are vertex attributes.
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-The owner's READ of live v1.36.30 on his phones: the yaw lock's feel and the ↕ PITCH cell's reach (above CANCEL, the top of the column) → T164 (the
-carry harness's leg 3 on master) → the 2026-10-13 tails (the box's feel, the daylight look, T157 / T158 / T159, T163 · T160 · T161 · T162) →
-the older tails (T153 · T149 · T147 · T152 · T154 · T150 · T151 · T146 · T148 · T156) → the pre-audit main plan.
+**The FULL DESKTOP FACADE FLOW (owner 2026-10-21 after his read: "looks promising")** — `rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md`:
+boot with the §5 research fan-out (array textures + depth arrays on three 0.185 · the K-slot shader · Wix Media derivatives + the
+`FacadePhotos` collection · `basis_encoder` speed · the MS2 gizmo mapping), then **F1 + F2 + F3 ALL in that session — shipped + tested
+(owner order 2026-10-21; one build agent per slice, the main session owns the shared material + the K-slot change)** → F4 textures (T170)
+→ F5 alignment hooks (T172) → the mobile twin last. Then T166 · T165 · T167 · T164 · the older tails.
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·
@@ -117,6 +118,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The owner's device feedback: the radar on glass · FIND THIS ONE + the range row · the keyboard lift (10-10) · 10-10-mobile-fixes-radar-find-keyboard
 - The sticky box (no bounce) · the daylight pass · building colour triage + rung 1 (10-13) · 10-13-collision-lighting-building-colour
 - The AR calibration drag yaw-only by default · ↕ PITCH frees both axes (10-14) · 10-14-ar-calibration-yaw-lock
+- The photo projection prototype — the photo flow (b), desktop-only behind `?facade=1` (10-18) · 10-18-photo-projection-prototype
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

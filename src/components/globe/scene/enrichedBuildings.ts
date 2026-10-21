@@ -77,8 +77,8 @@ import {
   metaUrlForGlb,
   parseCellMeta,
 } from "../../../lib/globe/enrichedMeta";
-import { EARTH, ENRICHED, FOVEATION, LOADING, TILESETS, TREES, WGS84_A } from "../tuning";
-import { createBuildingMaterials, FTW_BAYER_GLSL } from "./buildingMaterial";
+import { EARTH, ENRICHED, FOVEATION, LOADING, PHOTO_PROJECT, TILESETS, TREES, WGS84_A } from "../tuning";
+import { createBuildingMaterials, FTW_BAYER_GLSL, type PhotoProjectorFeed } from "./buildingMaterial";
 import { createFastEdgesScratch } from "../../../lib/globe/fastEdges";
 import { buildEdgesGeometry, createEdgesBuilder, type EdgesBuild, type EdgesBuilder } from "./edgesGeometry";
 import { createLoadQueue, type LoadUnit } from "../../../lib/globe/loadQueue";
@@ -248,6 +248,9 @@ export interface EnrichedBuildingsHandle {
     emisK: number,
     edgeK: number,
   ): void;
+  /** PHOTO PROJECTION (2026-10-18): bind the projector feed to this set's fill material (null
+   *  unbinds) — mirrors BuildingsHandle.setPhotoProjector; the orchestrator hands both the ONE feed. */
+  setPhotoProjector(feed: PhotoProjectorFeed | null): void;
   /** /m 2D map mode (UPLIFT U1) — mirrors BuildingsHandle.setActive: `false` removes the group
    *  from the scene graph and freezes update() (no traversal/streaming/re-seat work); loaded
    *  cells stay LRU-cached for an instant re-attach. Desktop never calls this. */
@@ -750,10 +753,11 @@ export function attachEnrichedBuildings(
   // read as ONE city. Its OWN instance though: Slice 2 also puts the bbox clipping-plane hole on the
   // OSM material, and the enriched set lives inside that prism (a literally-shared material would
   // clip it away). Edge tint stays flippable to accent (ENRICHED.debugDistinctEdges) for A/B.
-  const { fillMat: styleMat, edgeMat, uniforms } = createBuildingMaterials({
+  const materialSet = createBuildingMaterials({
     edgeColor: ENRICHED.debugDistinctEdges ? tokens.accent : tokens.landHi,
     edgeOpacity: ENRICHED.edgeOpacity,
   });
+  const { fillMat: styleMat, edgeMat, uniforms } = materialSet;
   /** The as-constructed emissive floor, captured so the dusk trough is a RESTORE rather than a
    *  re-derivation (the same discipline the ULTRA hemisphere restore uses). */
   const ENRICHED_EMISSIVE = styleMat.emissiveIntensity;
@@ -1763,6 +1767,9 @@ export function attachEnrichedBuildings(
           uniforms.uFillBirthMs.value = birthMs;
           uniforms.uFtwTileSeed.value = tileSeed;
         };
+        // PHOTO PROJECTION: the depth pass selects this set's meshes by its own layer bit (the
+        // plain depth material — the OSM pass carries the clip prism). Layer 0 stays on.
+        c.layers.enable(PHOTO_PROJECT.depthLayerEnriched);
         c.castShadow = true;
         c.receiveShadow = true;
         // T106 slice (b) (2026-09-07e): everything else this mesh needs — the crease edges, the
@@ -2953,6 +2960,9 @@ export function attachEnrichedBuildings(
       styleMat.emissiveIntensity = ENRICHED_EMISSIVE * emisK;
       applyEdgeOpacity();
       uniforms.uFtwSunW.value.copy(sunW);
+    },
+    setPhotoProjector(feed) {
+      materialSet.setPhotoProjector(feed);
     },
     seatState: () => ({ epoch: seatEpochN, quietFrames: seatQuietN }),
     // T77 MEASURE (2026-09-05) — the reseat-settle read seam (see the interface doc).

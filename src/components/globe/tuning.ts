@@ -19,7 +19,7 @@
 // ── Sections (in file order) ─────────────────────────────────────────────────────────────────
 //   SUN · SKY · GOLDEN · SCRUB · BLOOM · SHADOWS · RENDERER · POSE · GATES · DRIFT · CONTROLS ·
 //   TILESETS · EARTH · GRATICULE · ATMOSPHERE · STARS · MILKYWAY · BUILDINGS · ENRICHED · GROUND · DRAPE ·
-//   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
+//   LABELS · STREETS · VECTOR · MINIMAP · FRUSTUM · PHOTO_PROJECT · FLIGHT · PINS · EXPLORE · PLACING · FPV · DAYARC ·
 //   AIMCONES · GHOSTS · FINDGHOSTS · ASTERISMS · TEMPPIN · SEARCH · PLAN · BESTSPOT · ORCH · MODELS
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -3600,6 +3600,58 @@ export const FRUSTUM = {
   planeOpacity: 0.7,
   /** Re-seat the placed photo on the terrain every N frames as tiles refine (a raycast). */
   resnapEveryFrames: 120,
+} as const;
+
+/** PHOTO PROJECTION (the photo flow (b), prototype 2026-10-18 — `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md`
+ *  §4): a FACADE photo (store/facadePhoto — technical, never a pin) is projected onto the two building
+ *  tilesets' shared fill material from its own camera pose, with occlusion from a depth map rendered at
+ *  the pose (scene/photoProjector.ts). Desktop-only (the attach is gated on `hqAllowed`); OFF = one dead
+ *  uniform branch per fragment and no extra pass (byte-identical city). The per-pass matrix is
+ *  VIEW-space → photo clip space (camera-relative, float32-safe at ECEF — the RTC discipline); nothing
+ *  is per-draw (three re-uploads a non-ShaderMaterial's uniforms only on a material switch). */
+export const PHOTO_PROJECT = {
+  /** The projector's near plane (m). Street photos: nothing nearer than this is textured. */
+  nearM: 1.0,
+  /** The projector's far plane (m) — how far down a street a photo can reach. The 24-bit depth
+   *  map resolves ~0.5 m at this range with the 1 m near. */
+  farM: 3000,
+  /** The depth map's long edge (px); the short edge follows the photo's aspect. One R8 colour
+   *  attachment rides along (a WebGL2 target needs one). */
+  depthMapPx: 1024,
+  /** Constant depth-compare bias (m) — the shadow-acne guard on the lit face. */
+  depthBiasM: 0.35,
+  /** Slope-scaled bias: added per metre of projector range (the 24-bit map's resolution grows ~d²). */
+  depthBiasPerM: 0.0004,
+  /** Facing window (cos of the angle between the face normal and the ray to the apex): a face
+   *  more grazing than `lo` takes no photo, one steeper than `hi` takes it fully. */
+  facingLo: 0.12,
+  facingHi: 0.32,
+  /** Edge feather inside the photo rectangle (uv units, 0..0.5) — hides the frame's hard cut. */
+  edgeFeather: 0.03,
+  /** How far from the apex the photo papers geometry (m) — a street frame resolves a facade
+   *  across the road, not the skyline behind it (a 1,600 px frame over a 69° field is ~2 px/m
+   *  at 500 m). The depth map still reaches `farM`; this only fades the paint. */
+  rangeM: 600,
+  /** The fade-out band at the range's end, as a fraction of `rangeM` (0.2 = the last 120 m). */
+  rangeFadeFrac: 0.2,
+  /** The photo texture's long edge (px) after the decode — a 4032-px phone frame is resized on
+   *  the ImageBitmap path before upload (GPU memory + mip chain; 2048 ≈ 15 MB RGBA with mips). */
+  maxTexturePx: 2048,
+  /** Anisotropic filtering on the photo — oblique facades stay crisp (clamped to the device max). */
+  anisotropy: 8,
+  /** While a projection is live, the depth map is re-rendered at most this often (ms) to follow
+   *  tile streaming and the enriched seat ease; a pose or photo change re-renders at once. */
+  depthRefreshMs: 500,
+  /** The two `Object3D.layers` bits the depth pass selects on (the main camera never looks at
+   *  them — building meshes keep layer 0 as well). The OSM set draws through a depth material that
+   *  carries the OSM clip prism (the bbox hole), the enriched set through a plain one. */
+  depthLayerOsm: 30,
+  depthLayerEnriched: 31,
+  /** Store defaults for the projection controls (the facade panel's sliders start here). */
+  strength: 1.0,
+  ownLight: 0.6,
+  /** Linear gain on the photo's colour (an exposure match against the scene's tone map). */
+  gain: 1.0,
 } as const;
 
 /** Cinematic flight to a placed photo / searched place (design board motion spec: desktop

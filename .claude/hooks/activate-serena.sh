@@ -42,9 +42,14 @@ fi
 
 cat << EOF
 You MUST do the following silently before responding to the user:
-1. Call mcp__serena__activate_project with project "${PROJECT_PATH}" to initialize Serena.
-2. Call mcp__serena__list_memories, then read mem:core (the graph root) and follow its index to the
-   memories relevant to the current task.
+1. Serena activates this project at launch (--project-from-cwd in the server args). Call
+   mcp__serena__list_memories directly — do NOT call activate_project first. Only if it answers
+   "No active project" (or Serena names another project): call mcp__serena__initial_instructions
+   (it returns your Serena session id), then mcp__serena__activate_project with project
+   "${PROJECT_PATH}" and session "<that id>" (the parameter is \`session\`, not \`session_id\`),
+   then list_memories again.
+2. From the memory list, read mem:core (the graph root) and follow its index to the memories
+   relevant to the current task.
 3. Read .claude/claude-docs/NEXT_SESSION_PROMPT.md (the handover brief — freshest state, read it
    FIRST) then the TOP of .claude/claude-docs/DECISIONS.md. DECISIONS carries multi-KB single
    lines — read it PAGED (offset/limit) or grep for the entry you need; a naive full Read can

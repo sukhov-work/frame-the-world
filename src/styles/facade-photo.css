@@ -1,0 +1,92 @@
+/* FacadePhotoFlow — the photo flow (b) prototype. Only what .uf-* / .pd-* do not cover: the
+   overlay's title strip, the nudge cluster, the step chips row, the toggle, and the 3-button
+   actions row, and the nav link. All colour via tokens.css vars. */
+
+/* The nav link: index.astro's `.topnav a.nav-upload` chip is an Astro SCOPED style, so it never
+   reaches an island-rendered anchor — the chip look is restated here (no hello animation). */
+.ff-navlink {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  margin: -0.3rem 0;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.ff-navlink:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.ff-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 32px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+.ff-title__sub {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+.ff-nudge {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ff-steps {
+  display: inline-flex;
+  gap: 6px;
+}
+.ff-nudge__body {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ff-nudge__pad {
+  display: grid;
+  grid-template-columns: repeat(2, 56px);
+  gap: 6px;
+}
+.ff-nudge__btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 7px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.ff-nudge__btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-secondary);
+}
+.ff-nudge__btn:active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.ff-nudge__coords {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* The PROJECT ON BUILDINGS toggle rides the .pd-tier chip; pressed = accent (is-active). */
+.ff-toggle[aria-pressed="false"] {
+  color: var(--color-text-muted);
+}
+
+/* Three actions in a 360px panel — let them share the row. */
+.ff-panel .pd-actions {
+  flex-wrap: wrap;
+}
+.ff-panel .pd-actions .uf-btn {
+  padding: 10px 12px;
+}

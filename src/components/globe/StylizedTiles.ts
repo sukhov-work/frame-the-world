@@ -35,6 +35,7 @@ import { useFindStore } from "../../store/find";
 import { aimAtSky } from "../../store/skyAim";
 import { tokens } from "../../lib/theme/tokens";
 import { useUploadStore, type AdjustableParams } from "../../store/upload";
+import { useFacadePhotoStore } from "../../store/facadePhoto";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore, type FpvJumpRequest } from "../../store/camera";
 import { revertOp, useBldgEditStore, type BldgEditOp } from "../../store/bldgEdit";
@@ -154,6 +155,7 @@ import { attachStreetNames } from "./scene/streetNames";
 import { attachVectorFeatures } from "./scene/vectorFeatures";
 import { attachVectorTiles } from "./scene/vectorTiles";
 import { attachPhotoFrustum } from "./PhotoFrustum";
+import { attachPhotoProjector } from "./scene/photoProjector";
 import { attachPins } from "./Pins";
 import { usePinsStore } from "../../store/pins";
 import { attachPlaceMarkers } from "./scene/placeMarkers";
@@ -1380,7 +1382,10 @@ export function attachStylizedTiles(opts: {
 
   // The ONE arrival pose for a placed photo (onPlaced flights AND FPV exits): looks at the
   // image-plane centre from behind the photo, FLIGHT.arrivalAltAboveGroundM above the ground.
-  const frameArrivalPose = (geom: FrustumGeometry): FlightTarget => {
+  const frameArrivalPose = (
+    geom: FrustumGeometry,
+    placement: { latDeg: number; lonDeg: number } | undefined = useUploadStore.getState().placement,
+  ): FlightTarget => {
     const apex = new THREE.Vector3(...geom.apex);
     const fwd = new THREE.Vector3(...geom.forward);
     const upLocal = apex.clone().normalize();
@@ -1390,7 +1395,7 @@ export function attachStylizedTiles(opts: {
     approach.addScaledVector(upLocal, -approach.dot(upLocal));
     if (approach.lengthSq() < 1e-6) approach.set(0, 0, 1).addScaledVector(upLocal, -upLocal.z);
     approach.normalize();
-    const p = useUploadStore.getState().placement;
+    const p = placement;
     // Clamp the terrain sample to plausible heights: unloaded/coarse quantized-mesh tiles can
     // return NEGATIVE garbage (browser-verified: Dnipro sampled from Kyiv), which would sink
     // the whole arrival to the lookAt safety floor. Clamp-only-upward discipline.
@@ -1472,6 +1477,79 @@ export function attachStylizedTiles(opts: {
     },
   });
 
+  // --- PHOTO PROJECTION (the photo flow (b) prototype, 2026-10-18 — PHOTO_PROJECT, backlog T157):
+  //     a SECOND frustum instance follows the facade-photo store (the technical twin of the upload
+  //     store — never a pin, never saved); its live geometry feeds scene/photoProjector, which
+  //     renders the depth map at the pose and publishes the ONE feed both building sets read per
+  //     render pass. The arrival flight is the same pose law as a pin's; the pin's arrival
+  //     RE-FRAMING is not armed (it keys on the upload store's params — two frustums must not
+  //     share one framing). Desktop-only: the projector attaches under `hqAllowed` (the /m shell
+  //     and coarse pointers never pay the depth pass; the frustum alone is inert there, and the
+  //     facade UI only mounts in index.astro). -------------------------------------------------
+  const facadeFrustum = attachPhotoFrustum(scene, {
+    source: useFacadePhotoStore,
+    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    onPlaced(geom) {
+      // The landing is a camera take-over: the ambient journey and any slider glide stand
+      // down first (the same hand-off `noteInteract` performs for a grab), else the explore
+      // controller keeps the camera at cruise altitude and the flight never lands.
+      const camS = useCameraStore.getState();
+      if (camS.exploreActive) camS.setExplore(false);
+      camS.clearAllTargets();
+      const pose = frameArrivalPose(geom, useFacadePhotoStore.getState().placement);
+      flight.start(pose, { floorM: flightFloorM(pose.position) });
+      // Arm the landing corrector (below): the cut lands on whatever terrain is loaded, and the
+      // controls' height guard can lift it onto a coarse tile until the fine ones arrive.
+      facadeFramingActive = true;
+      facadeFramingReframes = 0;
+      facadeFramingStableFrames = 0;
+      facadeFramingDeadlineMs = frameNow() + FLIGHT.reframeDeadlineMs;
+      facadeFramingLookAt.copy(pose.lookAt);
+      _facadePrevLook.copy(pose.lookAt);
+    },
+  });
+  // The facade landing corrector's state — the pin flow's arrival re-framing, mirrored for the
+  // second frustum (the pin one keys on the upload store's params and must not be shared).
+  // Browser-measured 2026-10-18: an instant cut from orbit lands at 204 m, the next frame the
+  // controls' height raycast lifts it to ~23 km against a coarse ground tile, and only the pin
+  // flow's re-framing glide brought it back once the fine tiles had landed (~1 s).
+  let facadeFramingActive = false;
+  let facadeFramingReframes = 0;
+  let facadeFramingStableFrames = 0;
+  let facadeFramingDeadlineMs = 0;
+  const facadeFramingLookAt = new THREE.Vector3();
+  const _facadePrevLook = new THREE.Vector3();
+  const _facadeLook = new THREE.Vector3();
+  const _facadeFwd = new THREE.Vector3();
+  const photoProjector = hqAllowed
+    ? attachPhotoProjector(scene, { renderer, osmClipPlanes: buildings.clipPlanes() })
+    : null;
+  buildings.setPhotoProjector(photoProjector?.feed ?? null);
+  enriched?.setPhotoProjector(photoProjector?.feed ?? null);
+  const pushFacadeSource = (): void => {
+    if (!photoProjector) return;
+    const s = useFacadePhotoStore.getState();
+    photoProjector.setSource({
+      url: s.phase === "placed" ? (s.previewUrl ?? null) : null,
+      enabled: s.projection.enabled,
+      strength: s.projection.strength,
+      ownLight: s.projection.ownLight,
+    });
+  };
+  const unsubFacadeSource = useFacadePhotoStore.subscribe((s, prev) => {
+    if (s.phase !== prev.phase || s.previewUrl !== prev.previewUrl || s.projection !== prev.projection)
+      pushFacadeSource();
+  });
+  pushFacadeSource();
+  if (photoProjector) {
+    // A tile landing or leaving under the projector stales the depth map (the LOD swap moves
+    // geometry) — re-render at the next frame rather than wait for the refresh cadence.
+    for (const t of [buildings.tiles, ...(enriched ? [enriched.tiles] : [])]) {
+      t.addEventListener("load-model", photoProjector.markDepthDirty);
+      t.addEventListener("dispose-model", photoProjector.markDepthDirty);
+    }
+  }
+
   // --- Public pins (Phase 5): accent markers fed by store/pins (viewport-queried Wix Data);
   //     clicking one re-opens it as the placed CAMERA VIEW (upload-store openSavedPin → the
   //     frustum rebuilds + PhotoDetailPanel shows + the onPlaced flight frames the photo).
@@ -1534,7 +1612,9 @@ export function attachStylizedTiles(opts: {
   if (_prevMemberPhaseModels === "member") void useUserModelsStore.getState().loadMine();
   /** MS5: a click-to-place is armed for a stored model OR a GPS-less photo — one crosshair. */
   const placingNow = (): boolean =>
-    useUploadStore.getState().phase === "placing" || useUserModelsStore.getState().placing !== null;
+    useUploadStore.getState().phase === "placing" ||
+    useFacadePhotoStore.getState().phase === "placing" ||
+    useUserModelsStore.getState().placing !== null;
 
   // --- Explore ambient pin journey (Phase 5.5 S4, §Item 11): armed by the nav toggle via
   //     camera.exploreActive; the controller owns the camera while cruising (drift + glides
@@ -1641,6 +1721,7 @@ export function attachStylizedTiles(opts: {
     if (fpvActive) return;
     flight.cancel(); // grabbing the globe aborts a flight — the user takes over
     framingActive = false; // …and abandons the arrival re-framing (direct control wins)
+    facadeFramingActive = false; // …and the facade landing's corrector
     const camS = useCameraStore.getState();
     if (camS.exploreActive) camS.setExplore(false); // …and exits the ambient journey
     camS.clearAllTargets(); // …and over any slider glide (tilt/heading/zoom)
@@ -2030,6 +2111,15 @@ export function attachStylizedTiles(opts: {
       useUploadStore.getState().setPlacement(g.latDeg, g.lonDeg);
       return;
     }
+    if (useFacadePhotoStore.getState().phase === "placing") {
+      // The facade photo's click-to-place — the same ground cast; the pin's placing (above) wins
+      // when both are somehow armed.
+      const hit = pickGround(ndcX, ndcY);
+      if (!hit) return;
+      const g = ecefToGeodetic(hit);
+      useFacadePhotoStore.getState().setPlacement(g.latDeg, g.lonDeg);
+      return;
+    }
     // Sky-marker click (phase C) beats pin picking — it only ever fires inside the marker's
     // own ring, which lives in the sky, so ground targets stay reachable.
     if (trySkyMarkerClick(ndcX, ndcY)) return;
@@ -2097,9 +2187,18 @@ export function attachStylizedTiles(opts: {
   dom.addEventListener("pointerleave", noteLeave);
   // Crosshair while the globe waits for the placement click.
   const unsubCursor = useUploadStore.subscribe((s) => {
-    const placing = s.phase === "placing" || useUserModelsStore.getState().placing !== null;
+    const placing =
+      s.phase === "placing" ||
+      useFacadePhotoStore.getState().phase === "placing" ||
+      useUserModelsStore.getState().placing !== null;
     dom.style.cursor = placing ? "crosshair" : "";
     if (!placing) placingMarker.visible = false;
+  });
+  // The facade photo's placing drives the same crosshair + marker.
+  const unsubFacadeCursor = useFacadePhotoStore.subscribe((s, prev) => {
+    if ((s.phase === "placing") === (prev.phase === "placing")) return;
+    dom.style.cursor = placingNow() ? "crosshair" : "";
+    if (!placingNow()) placingMarker.visible = false;
   });
   // MS5: the model placing drives the same crosshair + marker.
   const unsubModelCursor = useUserModelsStore.subscribe((s, prev) => {
@@ -4466,6 +4565,10 @@ export function attachStylizedTiles(opts: {
       groundUniforms: ground.uniforms,
       earthUniforms: earth.uniforms,
       frustum,
+      // PHOTO PROJECTION (2026-10-18): the facade photo's frustum + the projector's live state
+      // (null on a shell the attach gate refused). `verify-photo-projection` reads both.
+      facadeFrustum,
+      photoProjector: () => photoProjector?.snapshot() ?? null,
       flight,
       sky,
       skyTarget,
@@ -8301,6 +8404,59 @@ export function attachStylizedTiles(opts: {
 
   };
 
+  /** PHOTO PROJECTION: re-seat the facade frustum on the same cadence, then hand the projector
+   *  the live geometry (null while nothing is placed) and the frame clock — it re-renders its
+   *  depth map only when due (pose / photo / tile change, else the refresh cadence). */
+  const stepPhotoProjector = () => {
+        if (frameCount % FRUSTUM.resnapEveryFrames === 0) facadeFrustum.resnap();
+        photoProjector?.update(facadeFrustum.current(), frameNow());
+  };
+
+  /** The facade landing corrector (the pin re-framing's twin, same knobs): while armed, resnap
+   *  the facade frustum every frame; once it has SETTLED on the refined terrain, re-cut onto the
+   *  live arrival pose when the committed look point drifted (the terrain lifted the apex) OR
+   *  the camera sits grossly above the pose (the height guard's coarse-tile lift). Any user
+   *  action, FPV, the explore journey, a slider target, the deadline or the count disarm it. */
+  const stepFacadeArrival = () => {
+        if (!facadeFramingActive) return;
+        const gLive = facadeFrustum.current();
+        const camStore = useCameraStore.getState();
+        if (
+          !gLive ||
+          fpvActive ||
+          camStore.targetTiltDeg !== null ||
+          camStore.targetHeadingDeg !== null ||
+          camStore.targetZoomAltM !== null ||
+          camStore.headingRateDegPerS !== null ||
+          camStore.zoomRatePerS !== null ||
+          camStore.exploreActive ||
+          now > facadeFramingDeadlineMs ||
+          facadeFramingReframes >= FLIGHT.reframeMaxCount
+        ) {
+          facadeFramingActive = false;
+          return;
+        }
+        facadeFrustum.resnap();
+        _facadeLook
+          .set(gLive.apex[0], gLive.apex[1], gLive.apex[2])
+          .addScaledVector(_facadeFwd.set(gLive.forward[0], gLive.forward[1], gLive.forward[2]), FRUSTUM.planeDistM);
+        facadeFramingStableFrames =
+          _facadeLook.distanceTo(_facadePrevLook) > FLIGHT.reframeSettleEpsM ? 0 : facadeFramingStableFrames + 1;
+        _facadePrevLook.copy(_facadeLook);
+        if (!flight.active() && facadeFramingStableFrames >= FLIGHT.reframeSettleFrames) {
+          const pose = frameArrivalPose(gLive, useFacadePhotoStore.getState().placement);
+          const drifted = _facadeLook.distanceTo(facadeFramingLookAt) > FLIGHT.reframeMinMoveM;
+          const lifted = camera.position.distanceTo(pose.position) > FLIGHT.arrivalAltAboveGroundM * 3;
+          if (drifted || lifted) {
+            flight.start(pose, { floorM: flightFloorM(pose.position), durationMs: FLIGHT.reframeDurationMs });
+            facadeFramingLookAt.copy(pose.lookAt);
+            facadeFramingReframes++;
+            facadeFramingStableFrames = 0;
+            lastInteract = now;
+          }
+        }
+  };
+
   const stepArrivalReframing = () => {
         // Arrival re-framing: correct the onPlaced jump once the pin's terrain has SETTLED (see
         // the `framingActive` declaration for the full why — the committed flight target was
@@ -9233,8 +9389,10 @@ export function attachStylizedTiles(opts: {
       //   frustum/pins      FrustumResnapAndTick (++frameCount lives INSIDE it, splitting every
       //                     cadence gate into pre/post groups: the FPV-present/mirror band reads
       //                     PRE-increment — fires on frame 0; the pins/marker steps read POST) →
-      //                     ArrivalReframing → PinsUpdate → PinHover → TempPinMarker →
-      //                     PlacementMarker
+      //                     PhotoProjector (the facade frustum's resnap on the same cadence + the
+      //                     projector's depth pass; reads POST) → FacadeArrival (the facade
+      //                     landing's corrector — the pin re-framing's twin) → ArrivalReframing →
+      //                     PinsUpdate → PinHover → TempPinMarker → PlacementMarker
       //   scenery/overlays  GraticuleAndAtmosphere → Stars → DayArcs → AimCones (U4 — needs the
       //                     post-resample tMs + the alt/focus frame) → GeoLabels → StreetNames →
       //                     BldgEdit (U8: RESET consume + pinned label + deadband chip mirror;
@@ -9290,6 +9448,8 @@ export function attachStylizedTiles(opts: {
         stepFindGhosts();
         stepSkyHover();
         stepFrustumResnapAndTick();
+        stepPhotoProjector();
+        stepFacadeArrival();
         stepArrivalReframing();
         stepPinsUpdate();
         stepPinHover();
@@ -9377,6 +9537,16 @@ export function attachStylizedTiles(opts: {
       unsubPlaces();
       placeMarkers.dispose();
       frustum.dispose();
+      unsubFacadeSource();
+      unsubFacadeCursor();
+      if (photoProjector) {
+        for (const t of [buildings.tiles, ...(enriched ? [enriched.tiles] : [])]) {
+          t.removeEventListener("load-model", photoProjector.markDepthDirty);
+          t.removeEventListener("dispose-model", photoProjector.markDepthDirty);
+        }
+        photoProjector.dispose();
+      }
+      facadeFrustum.dispose();
       controls.dispose();
       buildings.dispose();
       enriched?.dispose();

@@ -615,6 +615,31 @@ guides layer on rendered geometry, the long press → the one-row strip + the fo
 persists and HOLDS → reload → CANCEL → RESET; 66). DEV seams: `__globe.arLook()` (`aim`, `trim`, `cal`, `rollDeg`),
 `__globe.arGuides()`. Decisions: `DECISIONS.md` 2026-09-07h, 2026-09-19, 2026-09-22. Guide: `mobile-ar`, `mobile-ar-camera`.
 
+## 7g. PHOTO PROJECTION — the photo flow (b) prototype (as built 2026-10-18) [BROWSER-VERIFIED on desktop; NOT released]
+Design: `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md` §4 (ADR D5's "projective texturing onto tiles" v2 stretch — it ADDS to the v1
+plane, never replaces it). A FACADE photo is a TECHNICAL photo: `store/facadePhoto.ts` is the upload store's twin (the same decode
+pipeline, its own trickle/abort/seq, no pin / save / market / temp-pin coupling; `rollDeg`, `nudgePlacement`, `projection {enabled,
+strength, ownLight}`), never saved or published (C6 holds because nothing leaves the browser). Desktop-only by mounting
+(`panels/FacadePhotoFlow.tsx` in `index.astro` only — the nav link renders with `?facade`; the overlay `.uf.ff` and the docked panel
+`.pd.ff-panel` through a portal) and by the engine gate (the projector attaches under `hqAllowed`; `/m` pays nothing).
+The engine: `PhotoFrustum` takes an injectable `source` (a second instance follows the facade store — the default path is byte-identical);
+`scene/photoProjector.ts` owns the photo texture (an ImageBitmap decode + resize to `PHOTO_PROJECT.maxTexturePx`, sRGB → linear on sample),
+the projector camera (built from the SAME far-face corners the wireframe draws — what you see is what projects) and the depth map (one
+R8 + DEPTH24 target sized to the photo's aspect; two layered `MeshDepthMaterial` passes — the enriched set plain, the OSM set carrying
+its clip prism so the bbox hole stays a hole; re-rendered on a pose / photo / tile change else every `depthRefreshMs`); it publishes ONE
+feed both building sets hold by reference (`setPhotoProjector`). The shared fill material reads the feed PER PASS in
+`fillMat.onBeforeRender` — **a non-ShaderMaterial's uniforms upload only on a material / program / camera switch (three 0.185
+`WebGLRenderer.js:2522-2541, 2707`), so nothing here is per draw** (the pre-existing per-tile birth/seed writes carry that limit — T165).
+The RTC discipline: `uFtwProjFromView = bias·P·V_photo × camera.matrixWorld` in float64, applied to `-vViewPosition` (three's float64-built
+camera-relative position) — zero new varyings, 3.2e-7 uv float32 error vs 4.2e-3 for a world-space matrix (`photoProjector.test`). The
+block at `<normal_fragment_maps>`: in-frustum · edge feather · facing · a METRIC depth compare (`ftwProjLinDepth`, a slope-scaled bias)
+· the range fade · the LIT half into `diffuseColor`; the OWN-LIGHT half at `<opaque_fragment>` between the T125 floor and the haze.
+Off = one dead uniform branch and nulled samplers (byte-identical city). The orchestrator: `stepPhotoProjector` (the facade resnap on
+the frustum cadence + `update`) and `stepFacadeArrival` (the pin re-framing's twin, with a "lifted" trigger — an instant cut from orbit
+is lifted to ~23 km by GlobeControls' `adjustHeight` against a coarse tile; T166) in the frustum band; click-to-place after the pin's.
+Verified: `scripts/verify-photo-projection-2026-10-18.mjs` 10/10 on the test pattern `test/fixtures/facade-pattern.jpg`. Tails: T167
+(orientation / native dims) · T168 (FPV at the apex, more occluders, the edges over the paint, a range control, N photos, the mobile twin).
+
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
 Wix free tier + Cesium ion **Community** (5GB storage / 15GB-mo streaming, non-commercial). Switch ion to
 Commercial ($149/mo) at first real sale or under a >$50K entity. Early-commercial ≈ $178/mo (Wix Premium +

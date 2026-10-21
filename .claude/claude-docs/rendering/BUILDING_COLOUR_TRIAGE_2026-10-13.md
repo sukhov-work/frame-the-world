@@ -1,6 +1,6 @@
 # BUILDING COLOUR — the triage (owner ask 3, 2026-10-13)
 
-**Status: design + rung 1 shipped (2026-10-13); rungs 2–3 and the photo flow are proposals awaiting an owner ruling.**
+**Status: design + rung 1 shipped (2026-10-13); rungs 2–3 await an owner ruling; the photo flow (b) is BUILT as a desktop prototype (2026-10-18, `?facade=1` — DECISIONS 2026-10-18, `mem:project/wip-2026-10-18-photo-projection-prototype`; the owner's read 2026-10-21: "looks promising" → the full desktop flow is planned in `PHOTO_PROJECTION_PLAN_2026-10-21.md`). The §4 "RTC-safe per-draw matrix" turned out impossible in three (a non-ShaderMaterial's uniforms upload per material switch, not per draw — T165); the shipped route is a per-PASS view-space matrix on `-vViewPosition`.**
 Owner's words: *"can we conditionally colour meshes (apart from user meshes) based on the colours on the map tiles below,
 or some other mechanism? Buildings are mostly square primitives and in close views in a big city it is hard to distinguish
 them … colours to distinguish, not textures … no pre-bake unless beneficial (Dnipro's bake exports are what I care about)
@@ -61,7 +61,7 @@ Rung 1 needs the DAY fill from the lighting pass to be visible at all — on the
 invisible. The R3 lesson holds: a FLAT saturated tint reads as paint (owner 2026-07-13); rung 1 is a low-chroma wobble
 around a warm grey, never a palette of colours.
 
-## 4. The photo flow (b) — design, not built
+## 4. The photo flow (b) — design (built 2026-10-18 as the desktop prototype; see the status line)
 
 - **What exists.** A placed photo already carries a full projector basis: `PhotoFrustum.ts` → `{latDeg, lonDeg, altM,
   headingDeg, pitchDeg, rollDeg, hFovDeg, vFovDeg}` and `lib/geo/frustum.ts` returns the apex, forward/up/right and the

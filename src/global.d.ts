@@ -21,6 +21,7 @@ import type { useSkyStore } from "./store/sky";
 import type { usePlacesMapStore } from "./store/places";
 import type { useSaveStore } from "./store/save";
 import type { useUploadStore } from "./store/upload";
+import type { useFacadePhotoStore } from "./store/facadePhoto";
 import type { useMarketStore } from "./store/market";
 import type { useMemberStore } from "./store/member";
 import type { useModelUploadStore } from "./store/modelUpload";
@@ -125,6 +126,8 @@ declare global {
     __placesStore?: typeof usePlacesMapStore;
     __saveStore?: typeof useSaveStore;
     __uploadStore?: typeof useUploadStore;
+    /** The photo flow (b) prototype — the facade-photo store (technical photos, never pins). */
+    __facadeStore?: typeof useFacadePhotoStore;
     /** MESH SUITE MS4 — the model branch of the upload modal (phase, stats, the packed GLB's
      *  size, the stored record); `verify-modelupload.mjs` reads it and drives `upload()`. */
     __modelUploadStore?: typeof useModelUploadStore;

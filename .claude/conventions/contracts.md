@@ -39,6 +39,7 @@ the `/m` redirect; new 2026-08-15).
 
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __pipCache __frameGate __cameraStore __timeStore __uploadStore __pinsStore __memberStore
+- `window.__facadeStore` (2026-10-18) — the facade-photo store (the photo flow (b) prototype); `window.__globe.facadeFrustum` + `__globe.photoProjector()` — the facade frustum handle and the projector's live snapshot (`verify-photo-projection-2026-10-18.mjs`).
 __planStore __saveStore __marketStore __minimapStore __skyStore __findStore __placesStore
 __bldgEditStore __bldgSyncStore __bestSpotStore __modelUploadStore __modelEditStore
 __userModelsStore __debugFeed __editJournalStore __editJournal`

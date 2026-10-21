@@ -3,8 +3,30 @@ import { frustumGeometry, type FrustumGeometry } from "../../lib/geo/frustum";
 import { verticalFovDeg } from "../../lib/decode/sensors";
 import { tokens } from "../../lib/theme/tokens";
 import { derivedFov, paramSource, useUploadStore } from "../../store/upload";
+import type { PhotoExif } from "../../lib/decode/extract";
+import type { AdjustableParams, Placement } from "../../lib/decode/params";
 import { clampGroundM } from "../../lib/geo/terrain";
 import { FRUSTUM } from "./tuning";
+
+/** What a frustum reads from its store — the upload store's own field names, so `useUploadStore`
+ *  satisfies it as-is (the default) and the facade-photo store (the photo flow (b) prototype,
+ *  2026-10-18) satisfies it structurally. `rollDeg` is the facade store's roll nudge; the upload
+ *  store never carries it and keeps reading `exif.rollDeg` — byte-identical to before. */
+export interface FrustumSourceState {
+  phase: string;
+  placement?: Placement;
+  exif?: PhotoExif;
+  params: AdjustableParams;
+  rollDeg?: number;
+  textureWidth?: number;
+  textureHeight?: number;
+  previewUrl?: string;
+  planeOpacity?: number;
+}
+export interface FrustumSource {
+  getState(): FrustumSourceState;
+  subscribe(listener: (state: FrustumSourceState, prev: FrustumSourceState) => void): () => void;
+}
 
 /**
  * PhotoFrustum — the placed photo as an oriented camera frustum + image plane at its capture
@@ -36,8 +58,12 @@ export function attachPhotoFrustum(
      *  The altitude param means "metres above the rendered ground" (D4) — the ground is now REAL
      *  terrain, so the frustum must ride on top of it or it buries at any uphill city. */
     terrainHeightAt?: (latDeg: number, lonDeg: number) => number | null;
+    /** The store this frustum follows — the upload store (pins) by default; the facade-photo
+     *  store for the projection prototype's second instance. */
+    source?: FrustumSource;
   } = {},
 ): PhotoFrustumHandle {
+  const source: FrustumSource = opts.source ?? useUploadStore;
   const group = new THREE.Group();
   group.visible = false;
   scene.add(group);
@@ -104,7 +130,7 @@ export function attachPhotoFrustum(
   }
 
   function rebuild(): void {
-    const s = useUploadStore.getState();
+    const s = source.getState();
     if (s.phase !== "placed" || !s.placement || !s.exif) {
       group.visible = false;
       geom = null;
@@ -143,7 +169,7 @@ export function attachPhotoFrustum(
       altM,
       headingDeg: s.params.headingDeg ?? 0,
       pitchDeg: s.params.pitchDeg ?? 0,
-      rollDeg: s.exif.rollDeg ?? 0,
+      rollDeg: s.rollDeg ?? s.exif.rollDeg ?? 0,
       hFovDeg,
       vFovDeg: verticalFovDeg(hFovDeg, aspect),
       planeDistM: FRUSTUM.planeDistM,
@@ -178,13 +204,14 @@ export function attachPhotoFrustum(
   }
 
   // Vanilla subscription: re-project on any relevant change; announce landings for the flight.
-  const unsubscribe = useUploadStore.subscribe((s, prev) => {
+  const unsubscribe = source.subscribe((s, prev) => {
     const landed =
       s.phase === "placed" && (prev.phase !== "placed" || s.placement !== prev.placement);
     if (
       s.phase !== prev.phase ||
       s.placement !== prev.placement ||
       s.params !== prev.params ||
+      s.rollDeg !== prev.rollDeg ||
       s.previewUrl !== prev.previewUrl ||
       s.textureWidth !== prev.textureWidth ||
       s.textureHeight !== prev.textureHeight ||
@@ -199,7 +226,7 @@ export function attachPhotoFrustum(
   return {
     current: () => geom,
     resnap() {
-      const s = useUploadStore.getState();
+      const s = source.getState();
       if (s.phase !== "placed" || !s.placement) return;
       const th = opts.terrainHeightAt?.(s.placement.latDeg, s.placement.lonDeg);
       if (th != null && Math.abs(clampGroundM(th) - terrainH) > 0.5) rebuild();

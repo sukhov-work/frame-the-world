@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { tokens } from "../../../lib/theme/tokens";
-import { BUILDINGS, ENRICHED, FPV } from "../tuning";
+import { BUILDINGS, ENRICHED, FPV, PHOTO_PROJECT } from "../tuning";
 import { FTW_AERIAL_GLSL, glf } from "./glsl";
 
 /**
@@ -92,12 +92,53 @@ interface BuildingMaterialUniforms {
   uFtwSunW: { value: THREE.Vector3 };
   /** 2026-10-13 — the DAY fill (`tokens.buildingDay`), lerped to the slate `color` by `uFtwNight`. */
   uFtwDayFill: { value: THREE.Color };
+  /** PHOTO PROJECTION (2026-10-18, the photo flow (b) prototype — PHOTO_PROJECT): the per-PASS
+   *  holders the fill material's own onBeforeRender fills from the shared feed (never per draw —
+   *  three re-uploads a non-ShaderMaterial's uniforms only on a material / program / camera
+   *  switch, so a per-mesh write reaches the GPU for the first mesh of a run only). `uFtwProjOn`
+   *  0 = the whole block is one dead uniform branch (byte-identical city). */
+  uFtwProjOn: { value: number };
+  /** VIEW space → photo clip space (bias folded: xyz/w ∈ [0,1] inside the frustum) — computed
+   *  in float64 from `feed.projVP × camera.matrixWorld` per pass, applied to `-vViewPosition`
+   *  (which three builds from the float64 modelViewMatrix): the RTC discipline, no ECEF swim. */
+  uFtwProjFromView: { value: THREE.Matrix4 };
+  /** The projector apex in VIEW space (per pass) — the facing test's ray origin. */
+  uFtwProjApexV: { value: THREE.Vector3 };
+  uFtwProjMap: { value: THREE.Texture | null };
+  uFtwProjDepth: { value: THREE.Texture | null };
+  /** x strength · y ownLight · z flipV (1 = an ImageBitmap source, row 0 at v 0) · w gain */
+  uFtwProjK: { value: THREE.Vector4 };
+  /** x near m · y far m · z bias m · w bias per metre of range */
+  uFtwProjDepthP: { value: THREE.Vector4 };
+  /** x facing lo · y facing hi · z edge feather (uv) · w range (m — beyond it the photo fades out
+   *  over PHOTO_PROJECT.rangeFadeFrac of itself; a street photo must not paper the skyline) */
+  uFtwProjFacing: { value: THREE.Vector4 };
+}
+
+/** PHOTO PROJECTION feed — ONE object owned by scene/photoProjector.ts and handed to BOTH building
+ *  sets by reference (`setPhotoProjector`); the projector mutates it in place, each set's fill
+ *  material copies it into its own uniform holders once per render pass. */
+export interface PhotoProjectorFeed {
+  on: boolean;
+  /** bias · P · V_photo — WORLD (ECEF) → photo clip space with xyz in [0,1] inside the frustum.
+   *  float64 on the CPU; it is never uploaded as-is (its translation is ECEF-sized). */
+  projVP: THREE.Matrix4;
+  /** The apex (ECEF m). */
+  apexW: THREE.Vector3;
+  map: THREE.Texture | null;
+  depth: THREE.Texture | null;
+  k: THREE.Vector4;
+  depthP: THREE.Vector4;
+  facing: THREE.Vector4;
 }
 
 export interface BuildingMaterialSet {
   fillMat: THREE.MeshStandardMaterial;
   edgeMat: THREE.LineBasicMaterial;
   uniforms: BuildingMaterialUniforms;
+  /** PHOTO PROJECTION: bind (or unbind with null) the shared feed. The fill material reads it per
+   *  render pass; nothing else in the set changes. */
+  setPhotoProjector(feed: PhotoProjectorFeed | null): void;
 }
 
 export function createBuildingMaterials(
@@ -159,6 +200,59 @@ export function createBuildingMaterials(
     uFtwAfterglowG: { value: 0 },
     uFtwSunW: { value: new THREE.Vector3(0, 0, 1) },
     uFtwDayFill: { value: new THREE.Color(tokens.buildingDay) },
+    // PHOTO PROJECTION — inert at the defaults: uFtwProjOn 0 short-circuits the fragment block
+    // and the <opaque_fragment> mix (ftwProjK stays 0.0 → mix(x, 0, 0) = x, byte-identical).
+    uFtwProjOn: { value: 0 },
+    uFtwProjFromView: { value: new THREE.Matrix4() },
+    uFtwProjApexV: { value: new THREE.Vector3() },
+    uFtwProjMap: { value: null },
+    uFtwProjDepth: { value: null },
+    uFtwProjK: { value: new THREE.Vector4(PHOTO_PROJECT.strength, PHOTO_PROJECT.ownLight, 0, PHOTO_PROJECT.gain) },
+    uFtwProjDepthP: {
+      value: new THREE.Vector4(PHOTO_PROJECT.nearM, PHOTO_PROJECT.farM, PHOTO_PROJECT.depthBiasM, PHOTO_PROJECT.depthBiasPerM),
+    },
+    uFtwProjFacing: {
+      value: new THREE.Vector4(
+        PHOTO_PROJECT.facingLo,
+        PHOTO_PROJECT.facingHi,
+        PHOTO_PROJECT.edgeFeather,
+        PHOTO_PROJECT.rangeM,
+      ),
+    },
+  };
+
+  // PHOTO PROJECTION — the per-PASS sync. `material.onBeforeRender` runs before the draw's
+  // `setProgram`, and the FIRST draw of this material in a render pass carries `refreshMaterial`
+  // (three resets its current-material id at every `render()`), so writing the holders here is
+  // exactly one upload per pass. Keyed on (render frame, camera): the composer pass, the /m PiP
+  // and a depth pass each get their own camera-relative matrix; consecutive draws cost one compare.
+  let projFeed: PhotoProjectorFeed | null = null;
+  let projLastFrame = -1;
+  let projLastCamera: THREE.Camera | null = null;
+  fillMat.onBeforeRender = (renderer, _scene, camera) => {
+    const frame = renderer.info.render.frame;
+    if (frame === projLastFrame && camera === projLastCamera) return;
+    projLastFrame = frame;
+    projLastCamera = camera;
+    const f = projFeed;
+    if (!f || !f.on || !f.map || !f.depth) {
+      if (uniforms.uFtwProjOn.value !== 0) uniforms.uFtwProjOn.value = 0;
+      // Drop the sampler references too: a disposed photo (its ImageBitmap closed) still bound
+      // here would be re-uploaded by three on the next draw — "source data has been detached".
+      uniforms.uFtwProjMap.value = null;
+      uniforms.uFtwProjDepth.value = null;
+      return;
+    }
+    uniforms.uFtwProjOn.value = 1;
+    // float64 on the CPU: the ECEF-sized translations cancel BEFORE the float32 cast — the
+    // uploaded matrix carries the camera→apex offset (metres to kilometres), never 6.4e6 m.
+    uniforms.uFtwProjFromView.value.multiplyMatrices(f.projVP, camera.matrixWorld);
+    uniforms.uFtwProjApexV.value.copy(f.apexW).applyMatrix4(camera.matrixWorldInverse);
+    uniforms.uFtwProjMap.value = f.map;
+    uniforms.uFtwProjDepth.value = f.depth;
+    uniforms.uFtwProjK.value.copy(f.k);
+    uniforms.uFtwProjDepthP.value.copy(f.depthP);
+    uniforms.uFtwProjFacing.value.copy(f.facing);
   };
 
   fillMat.onBeforeCompile = (shader) => {
@@ -181,6 +275,14 @@ export function createBuildingMaterials(
     shader.uniforms.uFtwAfterglowG = uniforms.uFtwAfterglowG;
     shader.uniforms.uFtwSunW = uniforms.uFtwSunW;
     shader.uniforms.uFtwDayFill = uniforms.uFtwDayFill;
+    shader.uniforms.uFtwProjOn = uniforms.uFtwProjOn;
+    shader.uniforms.uFtwProjFromView = uniforms.uFtwProjFromView;
+    shader.uniforms.uFtwProjApexV = uniforms.uFtwProjApexV;
+    shader.uniforms.uFtwProjMap = uniforms.uFtwProjMap;
+    shader.uniforms.uFtwProjDepth = uniforms.uFtwProjDepth;
+    shader.uniforms.uFtwProjK = uniforms.uFtwProjK;
+    shader.uniforms.uFtwProjDepthP = uniforms.uFtwProjDepthP;
+    shader.uniforms.uFtwProjFacing = uniforms.uFtwProjFacing;
     // Pass 2 R2: carry a stable per-building key to the fragment. The b3dm batch id survives GLTF
     // load as `_batchid` (legacy) or `_feature_id_0` (3D Tiles 1.1 — also what the Slice-1 baker
     // writes per building) — whichever the tile has; the other defaults to 0 (three disables an
@@ -244,6 +346,26 @@ export function createBuildingMaterials(
         uniform float uFtwAfterglowG;
         uniform vec3 uFtwSunW;
         uniform vec3 uFtwDayFill;
+        uniform float uFtwProjOn;
+        uniform mat4 uFtwProjFromView;
+        uniform vec3 uFtwProjApexV;
+        uniform sampler2D uFtwProjMap;
+        uniform highp sampler2D uFtwProjDepth;
+        uniform vec4 uFtwProjK;
+        uniform vec4 uFtwProjDepthP;
+        uniform vec4 uFtwProjFacing;
+        // PHOTO PROJECTION — fragment globals written by the block at <normal_fragment_maps> and read
+        // again at <opaque_fragment> (the own-light mix). Both stay 0 while uFtwProjOn is 0.
+        float ftwProjK = 0.0;
+        vec3 ftwProjRgb = vec3(0.0);
+        // The projector's 24-bit window depth back to metres (its near/far ride in uFtwProjDepthP.xy),
+        // so the occlusion compare + bias happen in METRES — a window-space bias is ~d² non-linear.
+        float ftwProjLinDepth(float d01) {
+          float n = uFtwProjDepthP.x;
+          float f = uFtwProjDepthP.y;
+          float z = d01 * 2.0 - 1.0;
+          return 2.0 * n * f / (f + n - z * (f - n));
+        }
         ${FTW_BAYER_GLSL}
         ${FTW_HASH_GLSL}
         ${FTW_AERIAL_GLSL}
@@ -279,6 +401,11 @@ export function createBuildingMaterials(
           float ftwOvG = ftwOverrideK() * ${glf(ENRICHED.overrideTintGlow)};
           gl_FragColor.rgb = max(gl_FragColor.rgb, uFtwAccent * ftwOvG);
         }
+        // PHOTO PROJECTION — the OWN-LIGHT half: the photo's own colours replace the LIT result by
+        // ownLight × K (the albedo half at <normal_fragment_maps> took 1 − ownLight). In linear
+        // light, after the floor and BEFORE the haze, so a projected facade recedes into the same
+        // air as the city. ftwProjK is 0.0 whenever the projector is off → mix(x, 0, 0) = x.
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, ftwProjRgb, ftwProjK * uFtwProjK.y);
         gl_FragColor.rgb = ftwAerial(gl_FragColor.rgb, vFtwWPos, uFtwSunW, uFtwHaze, uFtwHazeCol,
           uFtwHazeCool, uFtwSkyLevel, uFtwAfterglowG);`,
       )
@@ -334,6 +461,49 @@ export function createBuildingMaterials(
           // the night half is the floor at <opaque_fragment> (T125).
           float ftwOvK = ftwOverrideK();
           diffuseColor.rgb = mix(diffuseColor.rgb, uFtwAccent, ftwOvK);
+        }`,
+      )
+      .replace(
+        // PHOTO PROJECTION (the photo flow (b), 2026-10-18) — after <normal_fragment_begin> has the
+        // flat-shaded VIEW-space `normal` and before <lights_physical_fragment> copies diffuseColor.
+        // Everything is camera-relative: -vViewPosition is the float64-built view position, the
+        // matrix maps it straight into the photo's clip space (xyz/w ∈ [0,1] inside the frustum,
+        // w = the projector's eye depth in metres). The in-frustum / facing / occlusion terms are
+        // multiplicative masks, never branches: the texture fetches stay in uniform control flow
+        // (the only branch is on the uniform), so their derivatives are well defined.
+        "#include <normal_fragment_maps>",
+        /* glsl */ `#include <normal_fragment_maps>
+        if (uFtwProjOn > 0.5) {
+          vec3 ftwPV = -vViewPosition;
+          vec4 ftwC = uFtwProjFromView * vec4(ftwPV, 1.0);
+          float ftwInFront = step(1e-4, ftwC.w);
+          vec3 ftwP = ftwC.xyz / max(ftwC.w, 1e-4);
+          vec2 ftwUv = clamp(ftwP.xy, 0.0, 1.0);
+          vec2 ftwDuvDx = dFdx(ftwUv);
+          vec2 ftwDuvDy = dFdy(ftwUv);
+          vec2 ftwE = min(ftwP.xy, 1.0 - ftwP.xy);
+          float ftwInside = ftwInFront * step(0.0, ftwE.x) * step(0.0, ftwE.y) * step(0.0, ftwP.z) * step(ftwP.z, 1.0);
+          float ftwFeather = smoothstep(0.0, uFtwProjFacing.z, min(ftwE.x, ftwE.y));
+          // Facing: the geometric normal faces the VIEWER (flat shading, derivative-built), the
+          // projector may sit on either side of a one-quad wall — abs() makes the test symmetric;
+          // the depth compare below rejects the far side of a closed box regardless.
+          float ftwFace = abs(dot(normal, normalize(uFtwProjApexV - ftwPV)));
+          float ftwFaceK = smoothstep(uFtwProjFacing.x, uFtwProjFacing.y, ftwFace);
+          float ftwDMe = ftwC.w;
+          float ftwDRef = ftwProjLinDepth(textureLod(uFtwProjDepth, ftwUv, 0.0).r);
+          float ftwBias = uFtwProjDepthP.z * (1.0 + 4.0 * (1.0 - ftwFace)) + uFtwProjDepthP.w * ftwDMe;
+          float ftwLit = step(ftwDMe, ftwDRef + ftwBias);
+          // The range: a photo papers what it can resolve — beyond uFtwProjFacing.w the paint
+          // fades out over a fraction of the range (never a hard cut across a facade).
+          float ftwRange = 1.0 - smoothstep(uFtwProjFacing.w * ${glf(1 - PHOTO_PROJECT.rangeFadeFrac)}, uFtwProjFacing.w, ftwDMe);
+          vec2 ftwSampleUv = vec2(ftwUv.x, mix(ftwUv.y, 1.0 - ftwUv.y, uFtwProjK.z));
+          vec3 ftwPhoto = textureGrad(uFtwProjMap, ftwSampleUv, ftwDuvDx, ftwDuvDy).rgb * uFtwProjK.w;
+          ftwProjK = uFtwProjK.x * ftwInside * ftwFeather * ftwFaceK * ftwLit * ftwRange;
+          ftwProjRgb = ftwPhoto;
+          // The LIT half: the photo becomes the facade's albedo by (1 − ownLight) × K — sun, shadow
+          // and the day/night fill then shade it like any wall. The own-light half is at
+          // <opaque_fragment>.
+          diffuseColor.rgb = mix(diffuseColor.rgb, ftwPhoto, ftwProjK * (1.0 - uFtwProjK.y));
         }`,
       )
       .replace(
@@ -416,5 +586,13 @@ export function createBuildingMaterials(
       );
   };
 
-  return { fillMat, edgeMat, uniforms };
+  return {
+    fillMat,
+    edgeMat,
+    uniforms,
+    setPhotoProjector(feed) {
+      projFeed = feed;
+      projLastFrame = -1; // force the next pass to re-sync (an unbind must zero uFtwProjOn)
+    },
+  };
 }
