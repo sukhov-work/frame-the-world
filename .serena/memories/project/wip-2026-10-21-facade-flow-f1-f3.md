@@ -40,7 +40,11 @@ Release HOLDS until F2's save / edit / remove are verified live-safe (`verify-li
   harness · E the live verifier — all DONE; the `FacadePhotos` collection provisioned LIVE (36 fields).
 - [x] gates: vitest 3,626 / 236 · astro 0/0 · `verify-facade-flow-2026-10-21 --skip-save` 9/9 · `verify-photo-projection-2026-10-18` 10/10.
 - [x] DECISIONS 2026-10-22 line · NEXT_SESSION_PROMPT · backlog T169 BUILT / T171 BUILT / T173 new.
-- [ ] ship → release behind the flag → `verify-facades-live.mjs` + `verify-live-deletes.mjs` → the RELEASE RECORDS line.
+- [x] shipped `ab4a87b` (v1.36.33) → RELEASED 00:37 behind `?facade=1` → `verify-facades-live.mjs` **11/11** on the live site (the API
+  walk + the deployed UI re-opening the row in 5.5 s; every call 385–1,716 ms; the row cleaned up) + `verify-live-deletes.mjs` all PASS
+  → the RELEASE RECORDS line (DECISIONS 2026-10-22). NOT proven live: the residency's pixels (the prod build has no seams).
+- Release lessons: `npx @wix/cli@latest` refuses Node < 24.18 → `release.sh` uses the pinned `node_modules/.bin/wix`; the gates' three
+  MEASURED timing tests flake under load (one red per run, green alone) → `--skip-gates` on a tree the ship just gated green.
 
 ## The numbers (browser, dev, the house Chrome 2026-10-22)
 - F1: MOVE −46.55 m west for a +120 px drag on the −X arrow at gain 0.5 (the camera 0.000 m); UNDO exact to 1e-9°; ROTATE 25° → 30.23°

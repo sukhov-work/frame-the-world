@@ -53,8 +53,18 @@ if [[ -n "$(git status --porcelain)" ]]; then
 else echo "clean · HEAD $(git rev-parse --short HEAD) on $(git branch --show-current)"; fi
 
 step "2/7 auth + env"
-run npx @wix/cli@latest whoami || fail "not logged in — run: npx @wix/cli@latest login"
-run npx @wix/cli@latest env pull --json || fail "env pull"
+# The Wix CLI: the PROJECT's pinned one (`node_modules/.bin/wix`, the version package.json pins — what
+# `wix dev` runs too) over `npx @wix/cli@latest`: on 2026-10-22 the latest CLI began refusing every Node
+# below 24.18 ("not logged in" was the symptom here) while the machine's newest Node is 24.10, and the
+# pinned CLI still builds, releases and mints. Override with WIX_CLI=… when a newer CLI is wanted on purpose.
+WIX_CLI="${WIX_CLI:-}"
+if [[ -z "$WIX_CLI" ]]; then
+  if [[ -x node_modules/.bin/wix ]]; then WIX_CLI="node_modules/.bin/wix"; else WIX_CLI="npx @wix/cli@latest"; fi
+fi
+WIX=(${=WIX_CLI})
+echo "wix cli: $WIX_CLI ($("${WIX[@]}" --version 2>/dev/null | tail -1))"
+run "${WIX[@]}" whoami || fail "not logged in — run: $WIX_CLI login"
+run "${WIX[@]}" env pull --json || fail "env pull"
 [[ $DRY -eq 0 && ! -s .env.local ]] && fail ".env.local is empty after env pull"
 
 step "3/7 the gates"
@@ -69,8 +79,8 @@ fi
 [[ ${#COMMENT} -le 250 ]] || fail "the release comment is ${#COMMENT} characters; wix release accepts at most 250"
 
 step "4/7 build + release"
-run npx @wix/cli@latest build || fail "wix build"
-REL=(npx @wix/cli@latest release -c "$COMMENT"); [[ -n "$VTYPE" ]] && REL+=(-t "$VTYPE")
+run "${WIX[@]}" build || fail "wix build"
+REL=("${WIX[@]}" release -c "$COMMENT"); [[ -n "$VTYPE" ]] && REL+=(-t "$VTYPE")
 run "${REL[@]}" || fail "wix release"
 
 [[ $DRY -eq 1 ]] && { echo "\n(dry run — stopping before the live checks)"; exit 0; }

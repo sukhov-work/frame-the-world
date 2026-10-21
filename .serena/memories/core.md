@@ -11,8 +11,9 @@ leaves and in `DECISIONS.md`; this root only indexes and states the current stat
 
 ## Status — 2026-10-22 (`mem:project/wip-2026-10-21-facade-flow-f1-f3`)
 **THE FULL DESKTOP FACADE FLOW — F1 the gizmo · F2 persist · F3 residency + T171 K slots: BUILT, GATED (vitest 3,626 / 236 · astro 0/0),
-F1 BROWSER-VERIFIED on dev (9/9), the K-slot material 10/10 on the 2026-10-18 harness; F2 / F3 verified LIVE after the release (DECISIONS
-2026-10-22 release records).** The gizmo (`scene/facadeGizmo.ts` + `lib/globe/facadePose.ts`: rotDeg = −heading, gains 0.5 by re-placing the
+F1 BROWSER-VERIFIED on dev (9/9), the K-slot material 10/10 on the 2026-10-18 harness; RELEASED v1.36.33 (ship `ab4a87b`, behind
+`?facade=1`) and the persistence half PROVEN LIVE — `verify-facades-live.mjs` 11/11 incl. the deployed UI re-opening a saved row
+(DECISIONS 2026-10-22 release records). Not proven live: the residency's pixels (no seams on the prod build) — the owner's read.** The gizmo (`scene/facadeGizmo.ts` + `lib/globe/facadePose.ts`: rotDeg = −heading, gains 0.5 by re-placing the
 rig, every scale box = the H-FOV OVERRIDE `facadePhoto.hFovDeg`, capture-phase listeners on the canvas's parent + `guardRaycast`), the persist
 pair (`FacadePhotos` 36 fields LIVE · `/api/facades` · upload-url kind `facade` · `store/facadeSave.ts` · MY FACADES in the overlay), the
 residency (`store/facades.ts` + `lib/globe/facadeResidency.ts` + `scene/facadeMarkers.ts`; the orchestrator feeds K−1 saved slots to the
@@ -54,7 +55,7 @@ Harness `verify-photo-projection-2026-10-18` **10/10** (the pattern paints with 
 - Gates: vitest **3,424 / 227 files** · `astro check` **0/0/27** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.30** (each ship bumps the patch); live **v1.36.30** (2026-10-14, ship `e5edaac` PR #143 — the AR yaw lock; v1.36.28 = `e706eaa` PR #141 the sticky box + the daylight pass, earlier the same day). The release comment is capped at 250 chars. Release: `npm run release:full -- -c "…"` (~5 min; background it).
+- `package.json` **1.36.33** (each ship bumps the patch); live **v1.36.33** (2026-10-22, ship `ab4a87b` — the facade flow F1–F3 behind `?facade=1`; before it v1.36.30, 2026-10-14, `e5edaac` PR #143). The release comment is capped at 250 BYTES. Release: `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (~5 min; background it); `release.sh` + the provisioner use the PINNED CLI (`node_modules/.bin/wix` — `npx @wix/cli@latest` refuses Node < 24.18 since 2026-10-22). **`wix dev` cannot elevate (T173, WDE0027 on every ADMIN collection)** — persistence is proven only on the live site (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
 - **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`; a harness that measures it reads the canvas's own pixels along the gap ring (`verify-mobile-fixes-2026-10-10`). **The house Chrome profile keeps a seeded member cookie across harnesses** (T156) — run the signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page from the dev server, never inject JSON.
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
