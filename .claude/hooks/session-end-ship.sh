@@ -197,15 +197,27 @@ fi
 
 # --- Gate 3: the repo's done-gates --------------------------------------------------------------
 log "running gates: npm test + npx astro check"
-if ! npm test >/dev/null 2>&1; then
-  log "ABORT: vitest FAILED — refusing to automerge red. Ship manually after fixing."
+# The gate output is KEPT (2026-10-22h): three aborts in one day said only "vitest FAILED" while the
+# baseline alone was green — the timing flakes (mem:release-ritual) could not be told from a real red.
+GATE_VITEST="$LOG_DIR/ftw-ship-vitest.log"
+GATE_ASTRO="$LOG_DIR/ftw-ship-astro.log"
+# FTW_SHIP_SKIP_GATES=1 (2026-10-22h, the release's `--skip-gates` twin): ONLY for a foreground ship right
+# after `npm test` + `npx astro check` passed in the caller's shell on this identical tree — the MEASURED
+# timing tests go red under a loaded box (load average 12.8 → a 10 s solve against a 1 s bar) while the
+# baseline alone is green. Say so in DECISIONS when used. Never set it from the SessionEnd hook itself.
+if [ "${FTW_SHIP_SKIP_GATES:-0}" = "1" ]; then
+  log "gates SKIPPED by FTW_SHIP_SKIP_GATES=1 — the caller ran npm test + astro check green on this tree"
+elif ! npm test >"$GATE_VITEST" 2>&1; then
+  log "ABORT: vitest FAILED — refusing to automerge red. Ship manually after fixing. Output: $GATE_VITEST"
+  grep -E "FAIL|×|AssertionError|Test Files|Tests " "$GATE_VITEST" | head -20 | while IFS= read -r l; do log "  $l"; done
   exit 0
-fi
-if ! npx astro check >/dev/null 2>&1; then
-  log "ABORT: astro check FAILED — refusing to automerge red. Ship manually after fixing."
+elif ! npx astro check >"$GATE_ASTRO" 2>&1; then
+  log "ABORT: astro check FAILED — refusing to automerge red. Ship manually after fixing. Output: $GATE_ASTRO"
+  grep -E "error|Result" "$GATE_ASTRO" | head -20 | while IFS= read -r l; do log "  $l"; done
   exit 0
+else
+  log "gates green"
 fi
-log "gates green"
 
 # --- Ship ---------------------------------------------------------------------------------------
 BRANCH="claude/ship-$(date +%Y%m%d-%H%M%S)"

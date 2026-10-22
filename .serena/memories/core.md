@@ -80,9 +80,10 @@ performance") → F5's remainders → T184 / T185 · T166 · T165 · T167 · T16
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-**The owner's five asks IN ORDER — T187 (the fade from 2 km, "if safe": count the slot swaps) · T188 (the facade op chip: why unseen
-LIVE, then the meshes' chip shape — one row per op + G / R / S) · T189 (location-pin icons: MY PLACES billboards with hover + the /m
-MY LOC cell + the minimap re-center, the MY SPOT glyph) · T190 (the PUBLIC, owner-unfiltered facade world read — a ruling; the
+**The owner's five asks IN ORDER — T187 (the fade 2,000 → 3,000 m = `slotRangeM` 3,000 · `slotFadeFrac` 1/3, RULED 10-22h; count
+the slot swaps) · T188 (the facade op chip: why unseen LIVE, then the meshes' chip shape — one row per op + G / R / S) · T189
+(location-pin icons: MY PLACES billboards with hover + the /m MY LOC cell + the minimap re-center, the MY SPOT glyph; a click JUMPS
+INTO FPV at the saved viewpoint — the MobilePlaces order, RULED 10-22h) · T190 (the PUBLIC, owner-unfiltered facade world read — a ruling; the
 anonymous live leg) — then F6 THE MOBILE TWIN, VIEW-ONLY, with T191 (the LAYERS modal) inside it and a MEASURED phone budget (its own
 K 1–2, `layerPx` 1024; a worker-threaded ETC1S → ETC2 encode measurement is worth it there), then F5's remainders (the uv rectangle →
 crop-to-building, the `alignment` pairs + the pure PnP solve), then T184 / T185, T166 · T165 · T167 · T164.** The 2026-10-22e taste
