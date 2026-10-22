@@ -9,18 +9,23 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-22d (`mem:project/wip-2026-10-22-owner-asks-t174-t183`)
-**THE OWNER'S SEVEN ASKS after v1.36.33 — T174–T183 ALL BUILT, GATED (vitest 3,708 / 243 · astro 0/0), DEV-VERIFIED 10/10
-(`scripts/verify-owner-asks-2026-10-22.mjs`) + the two facade harnesses green; NOT RELEASED (live stays v1.36.33).** T174 the SCALE
-bug (`poseSignatureChanged`, 21 floats incl. the far-face corners) · T177 the residency by the PAINTED VOLUME + a per-frame fade + hysteresis
-(`facadePaintedVolume` / `facadeVolumeDistanceM` / `facadeSlotFade`, `slotRangeM` 2,000 · `slotFadeFrac` 0.35 · `slotKeepMarginDeg` 12) ·
-T176 editing in FPV (one capture-phase path; the controls touched in orbit only; no arrival flight inside FPV) · T175 `FacadeEditChip` ·
-T178/T183 camera-icon marker billboards + `FacadeHoverCard` + `FacadeMarkerMenu` (EDIT / REMOVE → `deleteFacadeById`) · T182 `camera.texturesVisible`
-+ the TEX chip (/m inert) · T181 the split Upload dropzone (`?facade` retired) · T180 the MENU pill + dropdown, MY SPOT in the camera controls ·
-T179 MY CONTENT (centred, resizable) + the TEXTURES tab. Tails: T184 (the facade overlay's orphaned idle body) · T185 (nudges / sliders not
-journaled) · T186 (the FPV-at-the-apex entry). **Next: F4 (T170) + F5 (T172) first, then a release so the owner reads the ten live.**
+## Status — 2026-10-22e (`mem:project/wip-2026-10-22-f4-f5-release`)
+**F4 (T170) + F5 (T172) + T186 BUILT, GATED (vitest 3,741 / 245 · astro 0/0), DEV-VERIFIED (four browser suites green), SHIPPED (PR
+#151, master `bb7da92`) and RELEASED as v1.36.38 together with the 2026-10-22d ten asks (shipped as PR #150 after their session-end ship
+had aborted on a timing flake).** F4 = the photo ARRAY texture: `PHOTO_PROJECT.slots` 6 · `layerPx` 2048 (every photo STRETCHED to the
+square layer; 134 MB at K 6 on desktop) · one `sampler2DArray` (`uFtwProjPhotoArr`), `uFtwProjSlot.y` = the LAYER (= the pool index) ·
+units 3 + 1 + K; KTX2 NO-GO for v1 stands. F5 = `targetFeatureIds` read back at save by a 7 × 5 ray grid against the building fills
+(`lib/globe/facadeTargets.ts` + `lib/globe/buildingHit.ts` — the OSM key from the b3dm batch-table hierarchy, `osm:w<elementId>`;
+UPDATE writes only a non-empty set). T186 = a photo placed inside FPV jumps the walker to the apex (the My spot idiom). **Next: the
+owner's LIVE read of v1.36.38 decides the order (`NEXT_SESSION_PROMPT`); then T184 / T185 (owner calls), F6 the mobile twin, F5's next
+rungs (the uv rectangle → crop-to-building, the alignment pairs + PnP), T166 · T165 · T167 · T164.**
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-10-22d THE OWNER'S SEVEN ASKS after v1.36.33 — T174–T183** (`wip-2026-10-22-owner-asks-t174-t183`): T174 the SCALE bug
+  (`poseSignatureChanged`, 21 floats) · T177 the residency by the PAINTED VOLUME + a per-frame fade (`slotRangeM` 2,000 · `slotFadeFrac`
+  0.35 · `slotKeepMarginDeg` 12) · T176 editing in FPV · T175 `FacadeEditChip` · T178/T183 camera-icon markers + hover card + EDIT/REMOVE
+  menu · T182 the TEX chip (/m inert) · T181 the split Upload dropzone (`?facade` retired) · T180 the MENU pill, MY SPOT in the camera
+  controls · T179 MY CONTENT + the TEXTURES tab. Tails T184 · T185 (owner calls).
 - **2026-10-22 THE FULL DESKTOP FACADE FLOW F1 gizmo · F2 persist · F3 residency + T171 K slots → v1.36.33 LIVE behind `?facade=1`**
   (`wip-2026-10-21-facade-flow-f1-f3`): `scene/facadeGizmo.ts` (rotDeg = −heading, gains 0.5 by re-placing the rig, SCALE = the H-FOV
   override, capture-phase listeners + `guardRaycast`), `FacadePhotos` (36 fields) + `/api/facades` + `store/facadeSave.ts`, the K-slot
@@ -29,18 +34,20 @@ journaled) · T186 (the FPV-at-the-apex entry). **Next: F4 (T170) + F5 (T172) fi
 - **2026-10-18 THE PHOTO PROJECTION PROTOTYPE (the photo flow (b))** (`wip-2026-10-18-photo-projection-prototype`): a facade photo projected
   onto both building sets' fill material with a depth map rendered at the pose; THE decisive finding = three uploads a non-ShaderMaterial's
   uniforms only on a material / program / camera switch (T165) → ONE per-PASS matrix VIEW space → photo clip on `-vViewPosition` (3.2e-7 uv).
-- 2026-10-14 AR calibration: the drag yaw-only by default, ↕ PITCH frees both axes → v1.36.30 (`wip-2026-10-14-ar-calibration-yaw-lock`).
-- 2026-10-13 the sticky box (no bounce) · the daylight pass (36 % near-black → 0 %) · building colour rung 1 → v1.36.28
-  (`wip-2026-10-13-collision-lighting-building-colour`; T158 rung 2 · T159 rung 3 await the owner).
-- 2026-10-10 the owner's device feedback: the radar on glass · FIND THIS ONE · the keyboard lift → v1.36.26 (`wip-2026-10-10-mobile-fixes-radar-find-keyboard`).
-- 2026-09-30 ALIGN out · the pin follows the walker · user models: the far law + the eye-centred cover → v1.36.23 (`wip-2026-09-30-align-minimap-pin-mesh-culling`).
-- Older eras (AR calibration 2026-09-19, the sign-out root cause 2026-09-18, AUDIT #4 triage 2026-09-17 and before): the Era index below.
+- Older eras (2026-10-14 AR yaw lock → v1.36.30 · 10-13 the sticky box + daylight + building colour rung 1 (T158 / T159 await the
+  owner) · 10-10 the radar on glass · 09-30 the pin follows the walker + user-model residency · and before): the Era index below.
 
 ## Standing facts (2026-10-22)
-- Gates: vitest **3,708 / 243 files** (2026-10-22d) · `astro check` **0/0/28** (the hints are the dated baseline) · knip: only the four
+- Gates: vitest **3,741 / 245 files** (2026-10-22e) · `astro check` **0/0/28** (the hints are the dated baseline) · knip: only the four
   pre-existing `normalizeModel` exports.
-  Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` **1.36.33** (each ship bumps the patch); live **v1.36.33** (2026-10-22, ship `ab4a87b` — the facade flow F1–F3 behind `?facade=1`; before it v1.36.30, 2026-10-14, `e5edaac` PR #143). The release comment is capped at 250 BYTES. Release: `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (~5 min; background it); `release.sh` + the provisioner use the PINNED CLI (`node_modules/.bin/wix` — `npx @wix/cli@latest` refuses Node < 24.18 since 2026-10-22). **`wix dev` cannot elevate (T173, WDE0027 on every ADMIN collection)** — persistence is proven only on the live site (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
+  Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing; **a session-end
+  ship can abort on them while the next session boots** (2026-10-22e) — read the ship log's tail at boot, ship in the foreground if the
+  baseline alone is green (`FTW_SHIP_DAEMON=1 bash .claude/hooks/session-end-ship.sh`).
+- `package.json` **1.36.38** (each ship bumps the patch); live **v1.36.38** (2026-10-22e, ship `bb7da92` PR #151 — F4 + F5 + T186 and the
+  ten asks T174–T183; before it v1.36.33, 2026-10-22, `ab4a87b`). The release comment is capped at 250 BYTES. Release: `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (~5 min; background it; `--skip-gates` only right after a ship's gates on the identical tree); `release.sh` + the provisioner use the PINNED CLI (`node_modules/.bin/wix` — `npx @wix/cli@latest` refuses Node < 24.18 since 2026-10-22). **`wix dev` cannot elevate (T173, WDE0027 on every ADMIN collection)** — persistence is proven only on the live site (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
+- **The photo ARRAY (2026-10-22e, T170):** mips / filters / anisotropy are three's texture-cache KEY — set before the allocation, never
+  changed after (a change re-creates the GL texture and drops every layer); never `needsUpdate` on the array after the allocation; a
+  layer upload regenerates the whole array's mips (~24 ms); `PHOTO_PROJECT.slots` / `layerPx` are read ONCE at compile.
 - **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`; a harness that measures it reads the canvas's own pixels along the gap ring (`verify-mobile-fixes-2026-10-10`). **The house Chrome profile keeps a seeded member cookie across harnesses** (T156) — run the signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page from the dev server, never inject JSON.
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
@@ -65,13 +72,12 @@ journaled) · T186 (the FPV-at-the-apex entry). **Next: F4 (T170) + F5 (T172) fi
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-**F4 textures (T170) + F5 alignment hooks (T172) FIRST (owner 2026-10-22c — they did not fit into 2026-10-22d), then a RELEASE
-(`FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"`) so the owner reads the ten asks on the live site (then `verify-facades-live.mjs` —
-repointed at MENU → MY CONTENT → TEXTURES → OPEN, UNVERIFIED until it runs — + `verify-live-deletes.mjs`), then T186 (open a saved row inside
-FPV → jump the walker to the apex), T184 / T185 (the owner's calls), F6 the mobile twin, T166 · T165 · T167 · T164.** F4's research:
-`DataArrayTexture` + `copyTextureToTexture` per layer on three 0.185 in a browser (→ 2 samplers for any K); KTX2 only if the Worker encode
-proves acceptable UX. F5's cheap route: a ray grid from the apex through the far face against the building meshes (the edit flow's pick) →
-`targetFeatureIds[]` at save; the OSM set's `osm:<id>` needs the b3dm batch table.
+**The owner's LIVE read of v1.36.38 (the ten asks + F4 + F5 + T186 — their first time live) decides the order; the standing queue:
+T184 / T185 (owner calls) → F6 the mobile twin (its own K 1–2, `layerPx` 1024, farm-measured; KTX2 ETC1S → ETC2 worth a worker-threaded
+encode measurement there) → F5's next rungs (the uv rectangle per building → crop-to-building, the `alignment` pairs + the pure PnP
+solve) → T166 · T165 · T167 · T164.** Taste points awaiting the owner: the marker glyph / hover size, the fade range, the Menu order,
+the split heights, MY CONTENT's defaults, K 6 + the 134 MB array (a 2048×1536 layer + a transpose flag would save 25 %), `· N BLDG`,
+and whether a FRESH upload placed while walking should also jump the eye to the apex (today: yes).
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·
@@ -120,6 +126,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The photo projection prototype — the photo flow (b), desktop-only behind `?facade=1` (10-18) · 10-18-photo-projection-prototype
 - The full desktop facade flow F1–F3 + K slots → v1.36.33 (10-21/22) · 10-21-facade-flow-f1-f3
 - The owner's seven asks T174–T183 built + dev-verified; F4 / F5 deferred (10-22d) · 10-22-owner-asks-t174-t183
+- F4 the photo ARRAY texture · F5 the alignment hook (`targetFeatureIds`) · T186 FPV-at-the-apex → v1.36.38 (10-22e) · 10-22-f4-f5-release
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·
