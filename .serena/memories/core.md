@@ -11,7 +11,7 @@ leaves and in `DECISIONS.md`; this root only indexes and states the current stat
 
 ## Status — 2026-10-24 (`mem:project/wip-2026-10-24-t195-adr-guide-release`)
 **T195 FIXED (the saved-place pins' drift) · the building-textures ADR FINAL · the guide chapter BUILDING TEXTURES verified + re-shot ·
-T193 / T194 ride · the release follows the ship (DECISIONS 2026-10-24b carries the version).** PR #155 MERGED (squash `85982df`) — the
+T193 / T194 · RELEASED v1.36.43 (2026-10-24b; PR #156 `d4c2b52` landed in 60 s; the live facade verifier 12/12).** PR #155 MERGED (squash `85982df`) — the
 checkout re-seated onto master at boot. **T195's cause was the GROUND SEAT, not the billboard:** a dev probe read the drawn tip against the
 anchor's projection every frame of a drag / coast / walk / look — 0 px; the seat latched the first in-range terrain answer (a coarse tile at
 a high boot: depth 11 → 90.9 m) and never refined (depth 18 → 83.9 m) — the tip 6.9 m + the 2 m lift above the street. Now `lib/geo/terrain.ts`
@@ -42,7 +42,8 @@ T196 · T184 / T185 · T166 · T165 · T167 · T164.
 ## Standing facts (2026-10-24)
 - Gates: vitest **~3,805 / 252 files** · `astro check` **0/0/29** (the hints are the dated baseline). Three timing tests flake under load
   (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing; a session-end ship can abort on them (read the ship log's tail at boot).
-- `package.json` bumps per ship; live **v1.36.42** until the 2026-10-24 release (DECISIONS 2026-10-24b names the new version). Release:
+- `package.json` **1.36.43** (each ship bumps the patch); live **v1.36.43** (2026-10-24b, ship `d4c2b52` PR #156 — T195 + T193 / T194 + the guide
+  chapter; before it v1.36.42, 2026-10-23b, PR #155). Release:
   `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (≤ 250 BYTES; `--skip-gates` only right after a ship's gates on the identical tree);
   `release.sh` uses the PINNED CLI (`node_modules/.bin/wix`). **`wix dev` on Node 24.10** (`~/.nvm/versions/node/v24.10.0/bin`), the CDP harnesses too.
   **`wix dev` cannot elevate (T173)** — persistence is proven only live (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
@@ -51,7 +52,8 @@ T196 · T184 / T185 · T166 · T165 · T167 · T164.
 - **The photo ARRAY (2026-10-22e, T170):** mips / filters / anisotropy are three's texture-cache KEY — set before the allocation, never after;
   never `needsUpdate` after the allocation; K per tier through `photoProjectFor(lean)`; both tilesets compile the same K (`customProgramCacheKey`).
 - **The house Chrome's profile carries EXTENSIONS** (`factory is not a function` — harnesses filter `chrome-extension://`); `curl :9333/json/version`
-  before a run; relaunch `verify-chrome.mjs --headless --port 9333 --profile /tmp/ftw-cdp`. Synthetic rows ride in-page fetch stubs.
+  before a run; relaunch `verify-chrome.mjs --headless --port 9333 --profile /tmp/ftw-cdp` — `release.sh`'s step 7 leaves it DEAD (relaunch
+  before the live DOM leg). Synthetic rows ride in-page fetch stubs. The ship hook's `log()` lines go to STDOUT in daemon mode.
 - **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`. **The house Chrome profile keeps a seeded
   member cookie** (T156) — signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page.
 - **The /m seats since 2026-09-25:** the tab row 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem.
