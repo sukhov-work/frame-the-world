@@ -83,6 +83,8 @@ execute → machine-split verify → record). For flagship cross-cutting design 
   "realistic mode" only, off by default, unmodified, with mandatory attribution.
 - **C6 Wartime geo-sensitivity.** Owner is in Dnipro, UA. Public pins default to **reduced precision**
   (exact / ~1km / city); exact GPS is **never** exposed on public low-res pins; moderation gates publication.
+  **Textures (facade photos) are carved out by owner ruling 2026-10-22g (DECISIONS, backlog T190): every visitor sees every
+  member's textures, signed out and unmoderated — the apex pose is exact by necessity; the row never carries the member id.**
 
 ## Platform gotchas (encode these — full list in conventions/wix-headless.md)
 - Media >10MB **must** use `generateFileResumableUploadUrl` (TUS). Uploads are async → `onFileDescriptorFileReady`.

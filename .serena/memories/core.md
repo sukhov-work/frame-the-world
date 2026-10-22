@@ -9,18 +9,26 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-22e (`mem:project/wip-2026-10-22-f4-f5-release`)
-**F4 (T170) + F5 (T172) + T186 BUILT, GATED (vitest 3,741 / 245 · astro 0/0), DEV-VERIFIED (four browser suites green), SHIPPED (PR
-#151, master `bb7da92`) and RELEASED as v1.36.38 together with the 2026-10-22d ten asks (shipped as PR #150 after their session-end ship
-had aborted on a timing flake).** F4 = the photo ARRAY texture: `PHOTO_PROJECT.slots` 6 · `layerPx` 2048 (every photo STRETCHED to the
-square layer; 134 MB at K 6 on desktop) · one `sampler2DArray` (`uFtwProjPhotoArr`), `uFtwProjSlot.y` = the LAYER (= the pool index) ·
-units 3 + 1 + K; KTX2 NO-GO for v1 stands. F5 = `targetFeatureIds` read back at save by a 7 × 5 ray grid against the building fills
-(`lib/globe/facadeTargets.ts` + `lib/globe/buildingHit.ts` — the OSM key from the b3dm batch-table hierarchy, `osm:w<elementId>`;
-UPDATE writes only a non-empty set). T186 = a photo placed inside FPV jumps the walker to the apex (the My spot idiom). **Next: the
-owner's LIVE read of v1.36.38 decides the order (`NEXT_SESSION_PROMPT`); then T184 / T185 (owner calls), F6 the mobile twin, F5's next
-rungs (the uv rectangle → crop-to-building, the alignment pairs + PnP), T166 · T165 · T167 · T164.**
+## Status — 2026-10-22g (`mem:project/wip-2026-10-22-owner-asks-t187-t191`)
+**v1.36.38 stays LIVE (F4 · F5 · T186 + the ten asks). The owner's live read: "ok, fixes look good" + FIVE ASKS + the F6 order,
+RECORDED — nothing built.** T187 the texture fade must BEGIN at ~2 km (today 1,300 → 2,000 m: `slotRangeM` 2,000 × `slotFadeFrac` 0.35;
+"if safe" = the residency lever — `rangeM` 600 is the other fade and costs depth precision) · T188 quick MOVE / ROTATE / SCALE "same as
+with meshes" — a RE-ASK of T175's `FacadeEditChip` (null unless `placed` and nothing armed): find out LIVE why it is unseen, then twin the
+meshes' chip shape · T189 MY PLACES pins → LOCATION-PIN icon billboards (the MY SPOT glyph `CameraTiltPanel.tsx:564`), bigger +
+hover-highlightable (the `facadeMarkers` idiom); the /m MY LOC cell + the FPV minimap's `.mw-recenter` take the icon, no text ·
+**T190 A RULING: every visitor sees every member's textures — signed out, unmoderated, owner-UNFILTERED** (the `/api/world-models`
+posture; `facadeWorldItem` carries no member id; MINE + the writes stay owner-gated; proven LIVE only — T173). Supersedes the
+PRIVATE-rows posture = the owner's explicit waiver of C6's moderation gate for TEXTURES (C6 still governs the pins; a carve-out note is
+in `CLAUDE.md`) · T191 the /m LAYERS row → a semi-transparent modal with a grid of toggleable icon cells (inside F6). **THEN F6 the
+mobile twin VIEW-ONLY** (no upload / editing on /m; the projector + markers under a measured phone budget; "carefully check mobile
+performance") → F5's remainders → T184 / T185 · T166 · T165 · T167 · T164.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-10-22e F4 the photo ARRAY texture · F5 `targetFeatureIds` · T186 → v1.36.38** (`wip-2026-10-22-f4-f5-release`): `slots` 6 ·
+  `layerPx` 2048 (every photo stretched to the square layer; 134 MB at K 6) · one `sampler2DArray` `uFtwProjPhotoArr`, `uFtwProjSlot.y`
+  = the layer, units 3 + 1 + K · `lib/globe/facadeTargets.ts` + `buildingHit.ts` (the 7 × 5 ray grid, `osm:w<id>` from the b3dm
+  batch-table hierarchy; UPDATE writes only a non-empty set) · the FPV jump to the apex · gates 3,741 / 245, four browser suites ·
+  released `--skip-gates` right after the ship's gates; live verifiers 11/11 + 17/17 · KTX2 NO-GO for v1 stands.
 - **2026-10-22d THE OWNER'S SEVEN ASKS after v1.36.33 — T174–T183** (`wip-2026-10-22-owner-asks-t174-t183`): T174 the SCALE bug
   (`poseSignatureChanged`, 21 floats) · T177 the residency by the PAINTED VOLUME + a per-frame fade (`slotRangeM` 2,000 · `slotFadeFrac`
   0.35 · `slotKeepMarginDeg` 12) · T176 editing in FPV · T175 `FacadeEditChip` · T178/T183 camera-icon markers + hover card + EDIT/REMOVE
@@ -72,12 +80,14 @@ rungs (the uv rectangle → crop-to-building, the alignment pairs + PnP), T166 �
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-**The owner's LIVE read of v1.36.38 (the ten asks + F4 + F5 + T186 — their first time live) decides the order; the standing queue:
-T184 / T185 (owner calls) → F6 the mobile twin (its own K 1–2, `layerPx` 1024, farm-measured; KTX2 ETC1S → ETC2 worth a worker-threaded
-encode measurement there) → F5's next rungs (the uv rectangle per building → crop-to-building, the `alignment` pairs + the pure PnP
-solve) → T166 · T165 · T167 · T164.** Taste points awaiting the owner: the marker glyph / hover size, the fade range, the Menu order,
-the split heights, MY CONTENT's defaults, K 6 + the 134 MB array (a 2048×1536 layer + a transpose flag would save 25 %), `· N BLDG`,
-and whether a FRESH upload placed while walking should also jump the eye to the apex (today: yes).
+**The owner's five asks IN ORDER — T187 (the fade from 2 km, "if safe": count the slot swaps) · T188 (the facade op chip: why unseen
+LIVE, then the meshes' chip shape — one row per op + G / R / S) · T189 (location-pin icons: MY PLACES billboards with hover + the /m
+MY LOC cell + the minimap re-center, the MY SPOT glyph) · T190 (the PUBLIC, owner-unfiltered facade world read — a ruling; the
+anonymous live leg) — then F6 THE MOBILE TWIN, VIEW-ONLY, with T191 (the LAYERS modal) inside it and a MEASURED phone budget (its own
+K 1–2, `layerPx` 1024; a worker-threaded ETC1S → ETC2 encode measurement is worth it there), then F5's remainders (the uv rectangle →
+crop-to-building, the `alignment` pairs + the pure PnP solve), then T184 / T185, T166 · T165 · T167 · T164.** The 2026-10-22e taste
+points (K 6 / 134 MB, `· N BLDG`, the FPV jump on a fresh upload, the Menu order, the split heights, MY CONTENT's window) passed
+without comment — "fixes look good".
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·
@@ -127,6 +137,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The full desktop facade flow F1–F3 + K slots → v1.36.33 (10-21/22) · 10-21-facade-flow-f1-f3
 - The owner's seven asks T174–T183 built + dev-verified; F4 / F5 deferred (10-22d) · 10-22-owner-asks-t174-t183
 - F4 the photo ARRAY texture · F5 the alignment hook (`targetFeatureIds`) · T186 FPV-at-the-apex → v1.36.38 (10-22e) · 10-22-f4-f5-release
+- The owner's live read of v1.36.38 → five asks T187–T191 (T190 textures PUBLIC — a ruling) + F6 VIEW-ONLY ordered; nothing built (10-22g) · 10-22-owner-asks-t187-t191
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·
