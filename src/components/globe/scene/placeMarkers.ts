@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { geodeticToEcef } from "../../../lib/geo/projection";
-import { sampleGroundM } from "../../../lib/geo/terrain";
+import { refineGroundSeat, type GroundSeat } from "../../../lib/geo/terrain";
 import { tokens } from "../../../lib/theme/tokens";
 import type { PlaceListItem } from "../../../lib/wix/placeRecords";
 import { PLACEMARKS } from "../tuning";
@@ -35,8 +35,20 @@ import { PLACEMARKS } from "../tuning";
  * camera-relative so the float32 large×large cancellation happens on the CPU in float64.
  *
  * STORE-FREE (the scene fence): rows are pushed (`setPlaces`), visibility (`setVisible`) and the
- * hover (`setHover`) are pushed; the terrain is asked through `terrainHeightAt` (the Pins resnap
- * idiom — a place placed before its tiles answered re-asks at a low cadence).
+ * hover (`setHover`) are pushed; the terrain is asked through `terrainSampleAt` (height + the tile
+ * depth) at a low cadence.
+ *
+ * THE GROUND SEAT REFINES (T195, owner 2026-10-23 — "the pins drift / float when I move the map
+ * around"): the Pins' resnap idiom latched the FIRST in-range answer and never asked again, so a
+ * place loaded while the city was one coarse tile (a 60 km boot: depth 11, the ground 90 m) kept
+ * that height after the descent refined the terrain (depth 18, 86 / 84 m) — the pin stood 4–9 m
+ * above the street, floating in FPV and sliding by parallax in orbit. The photo pins hide the same
+ * latch behind their store's viewport re-query (every re-emit re-seats them); the facade markers sit
+ * at an absolute apex. Here every anchor is re-asked on each `resnap` and `refineGroundSeat` decides:
+ * an unreal seat takes any finite answer, a real seat moves only to a STRICTLY DEEPER tile (a coarser
+ * answer after the fine tile was disposed never regresses it). Seats live by place id, so a re-push
+ * of the rows keeps a fine seat. A re-ask is a memo hit unless a tile arrived under the place — the
+ * ground module invalidates per tile — so the cadence costs ~nothing between arrivals.
  */
 
 /** The spot a marker stands at IS the saved place — the full row rides along for the jump. */
@@ -53,8 +65,11 @@ export interface PlaceMarkersHandle {
   update(camera: THREE.PerspectiveCamera): void;
   /** Master visibility (the PLC / LAYERS "MY PLACES" chips via store/places.onMap). */
   setVisible(on: boolean): void;
-  /** Re-ask the terrain for ground height (cheap, low cadence — the Pins idiom). */
+  /** Re-ask the terrain for every place's ground height (low cadence; a memo hit unless a tile
+   *  arrived) — a seat refines to a finer tile and never regresses to a coarser one (T195). */
   resnap(): void;
+  /** DEV seam: the ground seat a place stands on (height · real · the tile depth), or null. */
+  seatOf(id: string): GroundSeat | null;
   /** The place under an NDC point (−1..1) — the FULL row — or null. */
   pick(ndcX: number, ndcY: number, camera: THREE.PerspectiveCamera): PlaceMarkerSpot | null;
   /** The hovered place (null = none) — eases up + brightens over the next frames. */
@@ -119,7 +134,13 @@ const nowMs = (): number => (typeof performance !== "undefined" ? performance.no
 export function attachPlaceMarkers(
   scene: THREE.Scene,
   opts: {
-    /** Rendered terrain height (m above ellipsoid) at a location — null until tiles cover it. */
+    /** Rendered terrain height (m above ellipsoid) + the answering tile's depth at a location —
+     *  null until tiles cover it (the ground module's `sampleAt`). The house path: the depth is
+     *  what lets a seat refine (T195). */
+    terrainSampleAt?: (latDeg: number, lonDeg: number) => { h: number; depth: number } | null;
+    /** A plain height sampler (depth unknown) — the pre-T195 seam, kept for callers and tests
+     *  that have no depth; a real seat from it never refines (the old latch). `terrainSampleAt`
+     *  wins when both are given. */
     terrainHeightAt?: (latDeg: number, lonDeg: number) => number | null;
   } = {},
 ): PlaceMarkersHandle {
@@ -161,7 +182,8 @@ export function attachPlaceMarkers(
   let spots: PlaceMarkerSpot[] = []; // the drawn rows (instance order; capped)
   let total = 0; // the pushed count (before the cap)
   const positions: THREE.Vector3[] = []; // marker anchor (ground + liftM), ECEF
-  const grounded: boolean[] = []; // true once real terrain height answered (resnap idiom)
+  /** The ground seat per place id (survives a re-push; the T195 refine rule lives in the helper). */
+  const seats = new Map<string, GroundSeat>();
   /** The hover ease 0..1 per place id (the pins' `hoverAmt`) — survives a re-push. */
   const hoverAmt = new Map<string, number>();
   let hoverId: string | null = null;
@@ -184,12 +206,21 @@ export function attachPlaceMarkers(
     mesh.boundingSphere = null; // the trap in the header — after EVERY instance write
   };
 
-  const place = (i: number) => {
+  const askGround = (s: PlaceMarkerSpot): { h: number; depth: number } | number | null =>
+    opts.terrainSampleAt ? opts.terrainSampleAt(s.latDeg, s.lonDeg) : (opts.terrainHeightAt?.(s.latDeg, s.lonDeg) ?? null);
+
+  /** Ask the terrain for place `i`, apply the refine rule to its seat (held by id — a fresh id
+   *  seats from scratch), and re-anchor it when the seat MOVED or when `force` (a row push: the
+   *  index or the lat / lon may be new). Returns whether the seat moved. */
+  const place = (i: number, force = false): boolean => {
     const s = spots[i];
-    const { h, real } = sampleGroundM(opts.terrainHeightAt?.(s.latDeg, s.lonDeg), PLACEMARKS.fallbackGroundM);
-    const [x, y, z] = geodeticToEcef(s.latDeg, s.lonDeg, h + PLACEMARKS.liftM);
-    (positions[i] ??= new THREE.Vector3()).set(x, y, z);
-    grounded[i] = real;
+    const { seat, moved } = refineGroundSeat(seats.get(s.id) ?? null, askGround(s), PLACEMARKS.fallbackGroundM);
+    seats.set(s.id, seat);
+    if (moved || force) {
+      const [x, y, z] = geodeticToEcef(s.latDeg, s.lonDeg, seat.h + PLACEMARKS.liftM);
+      (positions[i] ??= new THREE.Vector3()).set(x, y, z);
+    }
+    return moved;
   };
 
   /** The tint: lavender blended to white by the hover ease. */
@@ -215,12 +246,14 @@ export function attachPlaceMarkers(
       total = next.length;
       spots = next.slice(0, cap);
       positions.length = spots.length;
-      grounded.length = spots.length;
       const seen = new Set<string>();
       for (let i = 0; i < spots.length; i++) {
-        place(i);
+        // A kept seat (a re-push of the same place) is refined, never re-latched from scratch;
+        // the anchor is always re-composed (the index or the lat / lon may be new).
+        place(i, true);
         seen.add(spots[i].id);
       }
+      for (const id of [...seats.keys()]) if (!seen.has(id)) seats.delete(id);
       for (const id of [...hoverAmt.keys()]) if (!seen.has(id)) hoverAmt.delete(id);
       if (hoverId !== null && !seen.has(hoverId)) hoverId = null;
       mesh.count = spots.length;
@@ -294,12 +327,10 @@ export function attachPlaceMarkers(
     },
 
     resnap() {
+      // EVERY place is re-asked (T195): the seat helper refuses what must not move; the ground
+      // module answers from its memo unless a tile arrived under the place.
       let changed = false;
-      for (let i = 0; i < spots.length; i++) {
-        if (grounded[i]) continue;
-        place(i);
-        if (grounded[i]) changed = true;
-      }
+      for (let i = 0; i < spots.length; i++) if (place(i)) changed = true;
       if (changed) {
         dirty = true;
         invalidateBounds(); // the anchors moved — a pick before the next frame must not read the old sphere
@@ -336,6 +367,11 @@ export function attachPlaceMarkers(
       return [p.x, p.y, p.z];
     },
 
+    seatOf(id) {
+      const seat = seats.get(id);
+      return seat ? { ...seat } : null;
+    },
+
     scaleOf(id) {
       const i = indexOf(id);
       if (i < 0 || i >= mesh.count) return null;
@@ -355,6 +391,7 @@ export function attachPlaceMarkers(
       material.dispose();
       map?.dispose();
       hoverAmt.clear();
+      seats.clear();
     },
   };
 }

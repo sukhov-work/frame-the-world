@@ -170,6 +170,35 @@ const RECIPES = {
   },
 };
 
+/** Desktop UPLOAD — the split drop zone (T181, 2026-10-22): the upper half pins a photo or a 3D
+ *  model, the lower half paints a facade texture. The shipped 2026-08 shot predates the split. The
+ *  shot is CLIPPED to the drop step (the overlay's own bounds) and resized to the guide's 720-px
+ *  width; the height follows the aspect — the guide's `media.h` is redeclared from the printed size
+ *  (the 13-image size fence makes a stale declaration red). */
+RECIPES.upload = {
+  out: "public/guide/upload.webp",
+  width: 1440,
+  height: 900,
+  scale: 1,
+  mobile: false,
+  resize: [720],
+  url: `http://localhost:4321/#p=48.4640,35.0460,2500,0,55&t=${NOON_UTC}`,
+  async prepare({ evalJs }) {
+    await evalJs(`window.__uploadStore.getState().openPanel(), true`);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 10_000) {
+      if (await evalJs(`!!document.querySelector(".uf-dropsplit .uf-dropzone--facade")`)) break;
+      await sleep(250);
+    }
+    await sleep(1500); // the overlay's entrance settles
+  },
+  /** The clip: the drop step's box with a 12-px margin, in CSS px. */
+  async clip({ evalJs }) {
+    return evalJs(`(() => { const el = document.querySelector(".uf-dropstep"); if (!el) return null; const r = el.getBoundingClientRect();
+      const m = 12; return { x: Math.max(0, r.left - m), y: Math.max(0, r.top - m), width: r.width + 2 * m, height: r.height + 2 * m, scale: 1 }; })()`);
+  },
+};
+
 const recipe = RECIPES[RECIPE];
 if (!recipe) {
   console.error(`usage: shoot-guide.mjs <${Object.keys(RECIPES).join("|")}> [cdpPort]`);
@@ -248,14 +277,18 @@ for (let pass = 1; pass <= passes; pass++) {
   }
   await sleep(6000);
   await recipe.prepare({ evalJs, send });
-  const shot = await send("Page.captureScreenshot", { format: "png" });
+  const clip = recipe.clip ? await recipe.clip({ evalJs }) : null;
+  if (recipe.clip && !clip) throw new Error(`${RECIPE}: the clip target is not in the DOM`);
+  const shot = await send("Page.captureScreenshot", clip ? { format: "png", clip } : { format: "png" });
   data = shot.data;
 }
 
 mkdirSync("public/guide", { recursive: true });
 const buf = Buffer.from(data, "base64");
 const [w, h] = recipe.resize;
-await sharp(buf).resize(w, h, { fit: "cover", position: "top" }).webp({ quality: 82 }).toFile(recipe.out);
+// A one-element resize keeps the aspect (a clipped shot); the shipped shells are cover-cropped.
+const pipeline = h === undefined ? sharp(buf).resize(w) : sharp(buf).resize(w, h, { fit: "cover", position: "top" });
+await pipeline.webp({ quality: 82 }).toFile(recipe.out);
 const meta = await sharp(recipe.out).metadata();
 console.log(`wrote ${recipe.out} — ${meta.width}×${meta.height} ${meta.format}`);
 ws.close();

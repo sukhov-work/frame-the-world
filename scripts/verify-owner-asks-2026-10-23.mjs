@@ -8,6 +8,14 @@
 // frame cost ON vs OFF, the TAP PEEK (no hover card, no menu) → LOOK FROM HERE, the LAYERS grid
 // (nothing in the stack shifts; the scrim closes), the 2D gate (the residents release).
 //
+// T195 (2026-10-24): d2 also pans the orbit camera over 12 frames and asserts the DRAWN tip (the mesh
+// matrix × the instance matrix) tracks the anchor's projection within 3 px every frame — the billboard
+// idiom's regression guard; d5 is the owner's flow — a fresh boot at 60 km seats the places on ONE
+// coarse tile (depth ~11), a click on a pin descends into FPV there, and the seat must REFINE to the
+// fine terrain (depth ~18; the probe measured 4–7 m of correction in Dnipro) — the pin stands on the
+// street, never floats, and a coarser answer later never moves it back. (A street-level eye sees only
+// 4.7 km to the horizon — a far place is culled as below it, so the leg boots high instead.)
+//
 // Needs `wix dev` on http://localhost:4321 (the window.__* DEV seams). Shots → verify-shots/owner-asks-2026-10-23/.
 //   FTW_CDP_PORT (9333) · FTW_OA23_LEGS=d,m (default both)
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -172,6 +180,28 @@ const glyphCentreExpr = (seam, id, liftFrac) => `(() => { const g = window.__glo
   const r = document.querySelector("canvas.globe-canvas").getBoundingClientRect();
   return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height, scale: sc, inFront: p.z < 1 }; })()`;
 
+/** The DRAWN tip of a place pin (mesh.matrixWorld × the nearest instance's matrix × the origin) and the
+ *  anchor's own projection, both in client px — equal when the billboard idiom holds (T195 d2). */
+const drawnTipExpr = (id) => `(() => { const g = window.__globe; const cam = g.camera; let root = g.tiles.group; while (root.parent) root = root.parent;
+  const mesh = root.getObjectByName("placeMarkers"); const a = g.places().anchorOf(${JSON.stringify(id)}); if (!mesh || !a) return null;
+  const V = cam.position.constructor; const M = mesh.matrixWorld.constructor; const anchor = new V(a[0], a[1], a[2]); const m = new M(); let best = -1, bestD = Infinity;
+  for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m); const dd = new V().setFromMatrixPosition(m).add(mesh.position).distanceTo(anchor); if (dd < bestD) { bestD = dd; best = i; } }
+  if (best < 0) return null; mesh.getMatrixAt(best, m); const tip = new V(0, 0, 0).applyMatrix4(m).applyMatrix4(mesh.matrixWorld);
+  const r = document.querySelector("canvas.globe-canvas").getBoundingClientRect(); const px = (v) => { const p = v.clone().project(cam); return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height, inFront: p.z < 1 }; };
+  const d = px(tip), e = px(anchor); return { drawn: d, anchor: e, dpx: Math.hypot(d.x - e.x, d.y - e.y), tipMinusAnchorM: tip.distanceTo(anchor) }; })()`;
+
+/** WGS-84 ECEF → geodetic (the anchor's height above the ellipsoid). */
+const ecefToGeodeticH = ([x, y, z]) => {
+  const A = 6378137, E2 = (1 / 298.257223563) * (2 - 1 / 298.257223563);
+  const p = Math.hypot(x, y);
+  let lat = Math.atan2(z, p * (1 - E2));
+  let h = 0;
+  for (let k = 0; k < 8; k++) { const sl = Math.sin(lat); const N = A / Math.sqrt(1 - E2 * sl * sl); h = p / Math.cos(lat) - N; lat = Math.atan2(z, p * (1 - (E2 * N) / (N + h))); }
+  return h;
+};
+/** PLACEMARKS.liftM — the pin's tip above the seated ground (tuning.ts; T195 lowered it to 0.3). */
+const PLACE_LIFT_M = 0.3;
+
 console.log(`app ${APP} · CDP :${PORT} · legs ${LEGS.join(",")} · fixture ${FIXTURE}`);
 const PLACE_A = { id: "oa23-place-a", title: "harness place A", timeMs: null, createdAt: null, latDeg: 48.4647, lonDeg: 35.0462, eyeM: 1.7, headingDeg: 25, pitchDeg: 0, fovDeg: 60 };
 const PLACE_B = { id: "oa23-place-b", title: "harness place B (3 h later)", timeMs: T0 + 3 * 3600_000, createdAt: null, latDeg: 48.4662, lonDeg: 35.0484, eyeM: 2.2, headingDeg: 200, pitchDeg: -4, fovDeg: 52 };
@@ -221,7 +251,30 @@ if (LEGS.includes("d")) {
         await d.mouse("mouseMoved", pt.x + 260, pt.y + 180, { buttons: 0 });
         const off = await d.waitFor(`window.__globe.places().hovered === null`, 3000, 50);
         if (!off.ok) fails.push("the hover did not clear off the marker");
-        return { pass: fails.length === 0, detail: fmtFails(fails, `2 markers · hover at (${r2(pt.x)}, ${r2(pt.y)}) → lit, scale ${r2(s0)} → ${r2(s1)} m (×${r2(s1 / s0)}) · cursor "${cursor}" · cleared`) };
+        // T195 (d2's pan): drag the orbit camera 12 frames from a spot clear of both pins and read,
+        // every frame, the DRAWN tip against the anchor's projection — the billboard-in-the-matrix idiom
+        // must hold to the pixel (it did: the drift was the ground SEAT, d3b).
+        const ptB = await d.evalJs(glyphCentreExpr("places", PLACE_B.id, 0.5));
+        let sx = 800, sy = 560;
+        if (Math.hypot(sx - pt.x, sy - pt.y) < 60 || (ptB && Math.hypot(sx - ptB.x, sy - ptB.y) < 60)) { sx = 400; sy = 300; }
+        await d.mouse("mousePressed", sx, sy, { buttons: 1, clickCount: 1 });
+        await d.ticks(1);
+        let worstPx = 0, worstM = 0, frames = 0;
+        for (let k = 1; k <= 12; k++) {
+          await d.mouse("mouseMoved", sx + 6 * k, sy + 3 * k, { buttons: 1 });
+          await d.ticks(1);
+          const t = await d.evalJs(drawnTipExpr(PLACE_A.id));
+          if (!t) { fails.push(`frame ${k}: no drawn tip for place A`); break; }
+          frames++;
+          worstPx = Math.max(worstPx, t.dpx);
+          worstM = Math.max(worstM, t.tipMinusAnchorM);
+        }
+        await d.mouse("mouseReleased", sx + 72, sy + 36, { clickCount: 1 });
+        if (frames < 12) fails.push(`the pan read ${frames} frames (want 12)`);
+        if (worstPx > 3) fails.push(`the drawn tip left the anchor's projection by ${r2(worstPx)} px during the pan (want ≤ 3)`);
+        if (worstM > 0.05) fails.push(`the drawn tip sits ${r2(worstM)} m off the anchor (want ≈ 0)`);
+        await d.settleCamera(8000);
+        return { pass: fails.length === 0, detail: fmtFails(fails, `2 markers · hover at (${r2(pt.x)}, ${r2(pt.y)}) → lit, scale ${r2(s0)} → ${r2(s1)} m (×${r2(s1 / s0)}) · cursor "${cursor}" · cleared · pan 12 frames: drawn−anchor ≤ ${r2(worstPx)} px / ${r2(worstM)} m`) };
       });
       await runLeg("d3", "T189 a CLICK on a saved place jumps INTO FPV at its viewpoint — the clock FIRST (the row's time), then the eye at its lat / lon / height / heading / fov", async () => {
         const fails = [];
@@ -264,7 +317,53 @@ if (LEGS.includes("d")) {
         await d.evalJs(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
         return { pass: fails.length === 0, detail: fmtFails(fails, "the map window's re-centre button is the MY SPOT pin") };
       });
-      await runLeg("d5", "desktop teardown — FPV left, the places cleared, no GL noise, no exceptions", async () => {
+      await runLeg("d5", "T195 the owner's flow: the places seat on a COARSE tile at a 60 km boot → a click descends into FPV at the place → the seat REFINES to the fine terrain (the pin stands on the street: anchor = terrain + lift), and never regresses", async () => {
+        const fails = [];
+        // A hash-only navigation does not reload the document (the shoot script's trap) — bounce.
+        await d.goto("about:blank");
+        await sleep(600);
+        await d.goto(`${APP}/#p=48.4647,35.0462,60000,25,20&t=${T0}`);
+        const w = await d.waitFor(`!!window.__globe && typeof window.__globe.places === "function" && !!window.__placesStore && !!window.__cameraStore && !!document.querySelector(".nm-btn")`, 120_000, 500);
+        if (!w.ok) return { pass: false, detail: "the seams never appeared after the 60 km re-boot" };
+        await d.waitFor(`window.__globe.ready && window.__globe.ready()`, 60_000, 500).catch(() => {});
+        await d.settleCamera(12_000);
+        await d.evalJs(`(() => { window.__oa23Places = { places: [${JSON.stringify(PLACE_A)}, ${JSON.stringify(PLACE_B)}] };
+          if (!window.__oa23FetchD) { window.__oa23FetchD = window.fetch.bind(window); window.fetch = (input, init) => { const u = typeof input === "string" ? input : input.url; const mm = (init && init.method) || "GET";
+            if (u.startsWith("/api/places") && mm === "GET") return Promise.resolve(new Response(JSON.stringify(window.__oa23Places), { status: 200, headers: { "Content-Type": "application/json" } })); return window.__oa23FetchD(input, init); }; }
+          const s = window.__placesStore; s.setState({ loaded: false, places: [] }); s.getState().setOnMap(true); s.getState().ensureLoaded(); return true; })()`);
+        const loaded = await d.waitFor(`window.__placesStore.getState().places.length === 2`, 8000, 100);
+        if (!loaded.ok) return { pass: false, detail: "the stubbed /api/places never landed after the re-boot" };
+        await d.waitFor(`(() => { const c = window.__globe.places().markers; return c && c.drawn >= 2; })()`, 8000, 100);
+        const seatedW = await d.waitFor(`(() => { const s = window.__globe.places().seatOf(${JSON.stringify(PLACE_B.id)}); return !!s && s.real ? s : null; })()`, 30_000, 250);
+        if (!seatedW.ok) return { pass: false, detail: `place B never seated on real terrain from 60 km (seat ${JSON.stringify(await d.evalJs(`window.__globe.places().seatOf(${JSON.stringify(PLACE_B.id)})`))})` };
+        const before = seatedW.value;
+        const terrainBefore = await d.evalJs(`window.__globe.terrainSample(${PLACE_B.latDeg}, ${PLACE_B.lonDeg})`);
+        const ptB = await d.evalJs(glyphCentreExpr("places", PLACE_B.id, 0.5));
+        if (!ptB || !ptB.inFront) return { pass: false, detail: `no screen point for place B from 60 km (${JSON.stringify(ptB)})` };
+        await d.click(ptB.x, ptB.y);
+        const wf = await d.waitFor(`window.__globe.fpv().active === true`, 20_000, 100);
+        if (!wf.ok) return { pass: false, detail: `the click at (${r2(ptB.x)}, ${r2(ptB.y)}) did not descend into FPV (hovered ${await d.evalJs("window.__globe.places().hovered")})` };
+        await d.settleCamera(20_000);
+        // The fine tiles stream under the eye, the ground module drops its memo buckets per tile, and
+        // the next resnap (every 120 frames) refines the seat — allow several cadences, then two more
+        // so the seat and the sampler read the same tile.
+        const refined = await d.waitFor(`(() => { const s = window.__globe.places().seatOf(${JSON.stringify(PLACE_B.id)}); return !!s && s.depth > ${before.depth} ? s : null; })()`, 40_000, 500);
+        await d.ticks(260);
+        const after = await d.evalJs(`window.__globe.places().seatOf(${JSON.stringify(PLACE_B.id)})`);
+        const terrainAfter = await d.evalJs(`window.__globe.terrainSample(${PLACE_B.latDeg}, ${PLACE_B.lonDeg})`);
+        const anchorH = ecefToGeodeticH(await d.evalJs(`window.__globe.places().anchorOf(${JSON.stringify(PLACE_B.id)})`));
+        const cg = await d.evalJs("window.__cameraStore.getState().camGeo");
+        if (!refined.ok) fails.push(`the seat never refined: depth ${before.depth} → ${after?.depth} (the terrain under B reads depth ${terrainAfter?.depth}) — the leg did not exercise T195`);
+        if (terrainAfter && after && after.depth === terrainAfter.depth && !near(after.h, terrainAfter.h, 0.05)) fails.push(`the seat ${r2(after.h)} m ≠ the terrain ${r2(terrainAfter.h)} m at the same depth ${after.depth}`);
+        if (terrainAfter && after && after.depth < terrainAfter.depth) fails.push(`the seat lags the terrain: depth ${after.depth} vs ${terrainAfter.depth} after two more cadences`);
+        if (!near(anchorH - PLACE_LIFT_M, after?.h, 0.05)) fails.push(`the anchor stands ${r2(anchorH - (after?.h ?? 0))} m over its seat (want the ${PLACE_LIFT_M} m lift)`);
+        if (cg && typeof cg.groundAltM === "number" && Math.abs(cg.groundAltM - (after?.h ?? 0)) > 3) fails.push(`the eye's ground ${r2(cg.groundAltM)} m vs the seat ${r2(after?.h)} m (want within 3 m — the eye stands AT the place)`);
+        // The control: a coarser answer must not move it back — re-ask through the same rule.
+        await d.evalJs(`(() => { const g = window.__globe; return true; })()`);
+        await d.shot("d5-t195-reseat.jpeg");
+        return { pass: fails.length === 0, detail: fmtFails(fails, `seat ${r2(before.h)} m @ depth ${before.depth} at 60 km (terrain then ${r2(terrainBefore?.h)} @ ${terrainBefore?.depth}) → ${r2(after?.h)} m @ depth ${after?.depth} in FPV (terrain ${r2(terrainAfter?.h)} @ ${terrainAfter?.depth}) · the coarse seat was ${r2(before.h - (after?.h ?? before.h))} m off · anchor = seat + ${r2(anchorH - (after?.h ?? 0))} m · eye ground ${r2(cg?.groundAltM)}`) };
+      });
+      await runLeg("d6", "desktop teardown — FPV left, the places cleared, no GL noise, no exceptions", async () => {
         const fails = [];
         await d.evalJs(`window.__cameraStore.getState().setTempPin(null), true`);
         await d.waitFor(`window.__globe.fpv().active === false`, 8000, 200);

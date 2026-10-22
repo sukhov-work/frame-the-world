@@ -4312,8 +4312,10 @@ export const ARGUIDES = {
  *  saved view. Deliberately NOT pins: no stems, no clustering, no picking — a wayfinding
  *  layer, not content. Colour = tokens.pinLavender (D14: tuning names tokens only). */
 export const PLACEMARKS = {
-  /** Marker centre above the local ground (m) — just clears the drape. */
-  liftM: 2,
+  /** The pin's TIP above the local ground (m). 2 for the old centred dots ("just clears the drape");
+   *  since T195 (2026-10-24) the glyph stands on its point and the overlay is depth-free, so the tip
+   *  touches the street — a 2 m tip read as floating from an FPV eye at 1.7 m. */
+  liftM: 0.3,
   /** Fallback ground height (m, above ellipsoid) before terrain tiles answer heightAt. */
   fallbackGroundM: 120,
   /** Ring world radius = camera distance × this (angular-constant)… */

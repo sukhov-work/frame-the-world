@@ -274,7 +274,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Space — rise. Shift+Space — sink.",
           "G, R, S and E — pick the [[edit-handles|edit handle]] while a building or a model " +
             "is armed, or G, R and S [[facade-chip|the texture gizmo]] while a texture is placed " +
-            "(the same key again turns it off); S stops walking you back until you disarm.",
+            "(the same key again turns it off); S stops walking you back while either holds.",
           "Ctrl+Z or Cmd+Z — [[edit-undo|take back]] the armed building's or model's last " +
             "edit, or with nothing armed the last mesh edit anywhere.",
           "Escape — unwind one layer: the sky menu, then a building edit, then the MAP " +
@@ -618,9 +618,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
             h: 783,
             caption:
               "The expanded MAP on /m: MAP and ± pills top-left with the scale bar under them, " +
-              "the live 3D window top-right, the lit ⊙ re-centre button on the right edge after a pan (a pin glyph since 2026-10), AIM over " +
-              "WALK on the left rail, your focal cone and radar drawn on the chart, and the " +
-              "time strip above the credit line.",
+              "the live 3D window top-right, the re-centre pin on the right edge, lit after a pan, the AR " +
+              "cell over the eye-altitude arrows on the right rail, your focal cone and radar drawn on " +
+              "the chart, and the time strip above the credit line.",
             shell: "mobile",
           },
         ],
@@ -1618,7 +1618,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     media: {
       src: "/guide/upload.webp",
       w: 720,
-      h: 673,
+      h: 666,
       caption:
         "The upload drop zone and the formats it decodes. The zone is now split: the upper half " +
         "pins a photo or a model, the lower half paints a facade texture.",
@@ -1681,14 +1681,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
 
   // ——————————————————————————————————————————————————— THE PHONE SHELL
   // ————————————————————————————————————————————————————————— BUILDING TEXTURES
-  // DRAFT (2026-10-23, owner order: "keep it but mark as draft"): this chapter and the entry edits
-  // of the same day (move-deck TEX, save-onmap pins, mobile-chips / mobile-map / fpv-enter the pin
-  // cell, fpv-map / fpv-map-controls the re-centre pin, the MENU entry points, start-shells,
-  // trust-privacy, edit-undo, keys, photo-upload) were written from CODE READS, not checked against
-  // the live UI — the guide track's done gate (GUIDE_PLAN). The next session verifies every label
-  // and gesture in the browser, re-shoots `upload.webp` / `shell-m.webp` / `fpv-map.webp`, runs
-  // `scripts/verify-guide.mjs`, and removes this note. The fences (guideContent / guideSearch /
-  // guideSearchGolden / guideParity) pass on this draft.
+  // Written 2026-10-23 from code reads, checked 2026-10-24: every quoted label, key and gesture in
+  // this chapter and in the 17 entries edited with it was matched to the component source (the
+  // chip's key letters, its seat above the time rail, the greyed EDIT / REMOVE on another's marker,
+  // the "PUBLIC · YOURS TO EDIT" copy); `upload.webp` / `shell-m.webp` / `fpv-map.webp` re-shot by
+  // `scripts/shoot-guide.mjs` against the live UI; `scripts/verify-guide.mjs` green.
   {
     id: "facade",
     title: "BUILDING TEXTURES",
@@ -1742,13 +1739,14 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         id: "facade-chip",
         title: "The FACADE chip",
-        where: { desktop: "Under the globe while a texture is placed" },
+        where: { desktop: "Bottom centre, above the time rail, while a texture is placed" },
         keys: ["facade chip", "move rotate scale", "gizmo keys", "revert pose", "drop session texture"],
         body:
-          "The chip reads FACADE · OFF · MOVE · ROTATE · SCALE and switches the gizmo without " +
+          "The chip reads FACADE · OFF · MOVE G · ROTATE R · SCALE S and switches the gizmo without " +
           "the panel. G, R and S on the keyboard pick the same three; the same key again turns the " +
           "gizmo OFF. One row per op shows the current value beside what the photo itself said, and " +
-          "a ↺ on an edited row puts that one op back. ↶ UNDO and DROP SESSION sit at the foot, as " +
+          "a ↺ on an edited row puts that one op back. ↶ UNDO and DROP SESSION sit at the foot once " +
+          "there is an edit to take back, as " +
           "on [[edit-undo|the building and model chips]].",
         list: [
           "MOVE — the arrows slide the camera east, north and up.",
@@ -1767,9 +1765,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         body:
           "Give it a TITLE and press SAVE; the button reads SAVED ✓ when the row is stored. A " +
           "reopened texture shows UPDATE for pose changes and DELETE, which asks SURE? DELETE " +
-          "before it goes. A saved texture is public: every visitor, signed in or not, sees it " +
-          "on the buildings at its exact camera position, with no owner shown. Only you can " +
-          "edit or remove it.",
+          "before it goes. A saved texture is public, and the panel says so — PUBLIC · YOURS TO " +
+          "EDIT: every visitor, signed in or not, sees it on the buildings at its exact camera " +
+          "position, with no owner shown and no moderation step, and only you can edit or remove it.",
         steps: [
           "Type a TITLE, or keep the file name it offers.",
           "Press SAVE and wait for SAVED ✓ — the display copy uploads first, then the row.",
@@ -1789,7 +1787,8 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "it brightens and grows, with a card that shows the thumbnail, the title, the position " +
           "and heading, and the field of view. Click your own marker in orbit to reopen it in the " +
           "panel; right-click any marker for its menu, where EDIT and REMOVE work only on yours — " +
-          "on someone else's they read not yours. REMOVE asks SURE? REMOVE first.",
+          "on someone else's they are greyed out, and their tooltip reads not yours. REMOVE asks " +
+          "SURE? REMOVE first.",
         tip:
           "A saved place pin on the same spot wins the click; move a little and click again.",
       },
@@ -2089,8 +2088,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "the centre of its ~1 km cell, or only the city; exact GPS never leaves your " +
           "private record unless you opt that pin into exact placement. My spot geolocation " +
           "stays in your browser. Originals stay private; only a completed purchase " +
-          "delivers one. A [[facade-save|building texture]] is the one exception: it is public " +
-          "at its exact camera position by design, because the paint needs it, and shows no owner.",
+          "delivers one. A [[facade-save|building texture]] is the one exception, public by design: " +
+          "every visitor sees every member's textures, signed in or not and with no moderation " +
+          "step, at the exact camera position the paint needs, and no texture shows its owner.",
       },
     ],
   },

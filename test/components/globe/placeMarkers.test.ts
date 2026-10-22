@@ -292,14 +292,69 @@ describe("placeMarkers — update / pick", () => {
     expect(after[0]).toBeCloseTo(anchor(a)[0], 6);
     h.update(cam);
     expect(h.pick(0, 0, cam)).toBe(a);
-    // Grounded places are not re-asked (the cheap low-cadence contract).
+    // A grounded place IS re-asked (T195 — the ground module's memo makes it a lookup), but a
+    // plain height sampler carries no depth, so the real seat never moves (the old latch).
     let asks = 0;
-    const { h: h2 } = attach(() => (asks++, GROUND_M));
+    let ground2 = GROUND_M;
+    const { h: h2 } = attach(() => (asks++, ground2));
     h2.setPlaces([a]);
     const asked = asks;
+    const seated = h2.anchorOf("a")!;
+    ground2 = GROUND_M - 20;
     h2.resnap();
-    expect(asks).toBe(asked);
+    expect(asks).toBe(asked + 1);
+    expect(h2.anchorOf("a")).toEqual(seated);
+    expect(h2.seatOf("a")).toEqual({ h: GROUND_M, real: true, depth: -1 });
     h2.dispose();
+    h.dispose();
+  });
+
+  it("T195 — a seat taken on a COARSE tile refines to the finer one on resnap (the anchor moves, the bounds go), a coarser answer later never regresses it, and a re-push keeps the fine seat", () => {
+    // The owner's flow: the places load while the city is one depth-11 tile (ground 90.3), the
+    // camera descends, the terrain refines to depth 18 (85.85) — the pin must come down with it.
+    let sample: { h: number; depth: number } | null = { h: 90.26, depth: 11 };
+    const scene = new THREE.Scene();
+    const h = attachPlaceMarkers(scene, { terrainSampleAt: () => sample });
+    const a = spot("a");
+    h.setPlaces([a]);
+    expect(h.seatOf("a")).toEqual({ h: 90.26, real: true, depth: 11 });
+    const coarse = h.anchorOf("a")!;
+    expect(coarse[0]).toBeCloseTo(anchor(a, 90.26)[0], 6);
+    const cam = cameraOver(a, 400);
+    h.update(cam);
+    h.pick(0, 0, cam); // caches a sphere…
+    expect(h.mesh.boundingSphere).not.toBeNull();
+    sample = { h: 85.85, depth: 18 }; // the fine tile streamed in under the place
+    h.resnap();
+    expect(h.seatOf("a")).toEqual({ h: 85.85, real: true, depth: 18 });
+    const fine = h.anchorOf("a")!;
+    expect(fine).not.toEqual(coarse);
+    expect(fine[0]).toBeCloseTo(anchor(a, 85.85)[0], 6);
+    expect(fine[1]).toBeCloseTo(anchor(a, 85.85)[1], 6);
+    expect(fine[2]).toBeCloseTo(anchor(a, 85.85)[2], 6);
+    expect(h.mesh.boundingSphere).toBeNull(); // …the anchor moved — the stale sphere must go
+    // The camera leaves: the fine tile is disposed and the parent answers again — the seat holds.
+    h.update(cam);
+    h.pick(0, 0, cam);
+    sample = { h: 90.26, depth: 11 };
+    h.resnap();
+    expect(h.seatOf("a")).toEqual({ h: 85.85, real: true, depth: 18 });
+    expect(h.anchorOf("a")).toEqual(fine);
+    expect(h.mesh.boundingSphere).not.toBeNull(); // nothing moved — nothing invalidated
+    // A re-push of the rows (a new array, the same id) keeps the fine seat even while the coarse
+    // tile answers; a NEW id seats from the sampler's current answer.
+    h.setPlaces([{ ...a }, spot("b", { lonDeg: 35.05 })]);
+    expect(h.seatOf("a")).toEqual({ h: 85.85, real: true, depth: 18 });
+    expect(h.anchorOf("a")).toEqual(fine);
+    expect(h.seatOf("b")).toEqual({ h: 90.26, real: true, depth: 11 });
+    // No tile at all → an unreal fallback seat that any later answer replaces.
+    sample = null;
+    h.setPlaces([spot("c", { latDeg: 48.5 })]);
+    expect(h.seatOf("c")).toEqual({ h: PLACEMARKS.fallbackGroundM, real: false, depth: -1 });
+    expect(h.seatOf("a")).toBeNull(); // dropped with its row
+    sample = { h: 70, depth: 9 };
+    h.resnap();
+    expect(h.seatOf("c")).toEqual({ h: 70, real: true, depth: 9 });
     h.dispose();
   });
 

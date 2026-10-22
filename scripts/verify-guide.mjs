@@ -208,7 +208,7 @@ await sleep(600);
   }))()`);
   check(
     "3. SURF-2: the rail expands topics for exactly ONE chapter",
-    r.groups === 12 && r.tiers === 1 && r.topics > 4, // 12 chapters since 2026-08-22 (re-pinned 2026-09-17, audit #4 L1)
+    r.groups === 13 && r.tiers === 1 && r.topics > 4, // 13 chapters since 2026-10-24 (BUILDING TEXTURES; 12 from 2026-08-22, re-pinned 2026-09-17 audit #4 L1)
     `${r.groups} chapters, ${r.tiers} expanded, ${r.topics} topics`,
   );
 }

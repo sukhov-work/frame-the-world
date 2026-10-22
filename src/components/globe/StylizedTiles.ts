@@ -1845,7 +1845,8 @@ export function attachStylizedTiles(opts: {
   //     ever opening (the store itself only loads on map-window open). The PLC / LAYERS
   //     "MY PLACES" chips gate via `onMap`; anonymous resolves to an empty list (401-final).
   const placeMarkers = attachPlaceMarkers(scene, {
-    terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
+    // Height + the tile depth (T195): a seat refines as the terrain under the place streams finer.
+    terrainSampleAt: (latDeg, lonDeg) => ground.sampleAt(latDeg, lonDeg),
   });
   let _prevPlaces = usePlacesMapStore.getState().places;
   placeMarkers.setPlaces(_prevPlaces);
@@ -5081,6 +5082,7 @@ export function attachStylizedTiles(opts: {
         hovered: placeMarkers.hovered(),
         scaleOf: (id: string) => placeMarkers.scaleOf(id),
         anchorOf: (id: string) => placeMarkers.anchorOf(id),
+        seatOf: (id: string) => placeMarkers.seatOf(id), // T195 — the ground seat (h · real · tile depth)
         pick: (ndcX: number, ndcY: number) => placeMarkers.pick(ndcX, ndcY, camera)?.id ?? null,
       }),
       facades: () => ({
