@@ -179,3 +179,27 @@ describe("buildUpdateFacadeBody", () => {
     expect(parsed.body).toEqual(rest);
   });
 });
+
+describe("the target seats (T172 / F5) — the probe's buildings ride the bodies", () => {
+  const ids = ["osm:w132547176", "dnipro-v3|cells/12_34.glb|7"];
+
+  it("the save body carries the probed ids; none (undefined / null) → []", () => {
+    expect(buildSaveFacadeBody({ ...snapshot, targetFeatureIds: ids }, files).targetFeatureIds).toEqual(ids);
+    expect(buildSaveFacadeBody({ ...snapshot, targetFeatureIds: null }, files).targetFeatureIds).toEqual([]);
+    expect(buildSaveFacadeBody(snapshot, files).targetFeatureIds).toEqual([]);
+    const parsed = parseSaveFacadeBody(JSON.parse(JSON.stringify(buildSaveFacadeBody({ ...snapshot, targetFeatureIds: ids }, files))));
+    if ("error" in parsed) throw new Error(parsed.error);
+    expect(parsed.body.targetFeatureIds).toEqual(ids);
+  });
+
+  it("the update body carries them ONLY when non-empty — an empty / null probe keeps the stored set; alignment never", () => {
+    const body = buildUpdateFacadeBody({ ...snapshot, targetFeatureIds: ids }, "f1");
+    expect(body.targetFeatureIds).toEqual(ids);
+    expect("alignment" in body).toBe(false);
+    const parsed = parseUpdateFacadeBody(JSON.parse(JSON.stringify(body)));
+    if ("error" in parsed) throw new Error(parsed.error);
+    expect(parsed.body.targetFeatureIds).toEqual(ids);
+    expect("targetFeatureIds" in buildUpdateFacadeBody({ ...snapshot, targetFeatureIds: [] }, "f1")).toBe(false);
+    expect("targetFeatureIds" in buildUpdateFacadeBody({ ...snapshot, targetFeatureIds: null }, "f1")).toBe(false);
+  });
+});

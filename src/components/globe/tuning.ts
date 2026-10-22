@@ -3634,9 +3634,17 @@ export const PHOTO_PROJECT = {
   rangeM: 600,
   /** The fade-out band at the range's end, as a fraction of `rangeM` (0.2 = the last 120 m). */
   rangeFadeFrac: 0.2,
-  /** The photo texture's long edge (px) after the decode — a 4032-px phone frame is resized on
-   *  the ImageBitmap path before upload (GPU memory + mip chain; 2048 ≈ 15 MB RGBA with mips). */
-  maxTexturePx: 2048,
+  /** T170 (F4, 2026-10-22) — the edge (px) of the SQUARE layers of the ONE `DataArrayTexture` every
+   *  live photo lives in (K layers, one `sampler2DArray`, one texture unit for any K). Each decoded
+   *  photo is STRETCHED to the layer (a non-uniform `createImageBitmap` resize, ~43 ms off-thread
+   *  for a 2048² target on the M3): the fragment addresses the photo in its own normalised frame,
+   *  so the stretch is invisible and no photo loses its long edge (a portrait 1536×2048 keeps all
+   *  2048 rows; a 4:3 landscape is upsampled 4:3 → 1:1 vertically — a resample, never a crop). Cost:
+   *  RGBA8 + mips = 22.4 MB per layer, 134 MB at K 6 — the owner's desktop ruling (2026-10-21:
+   *  "100+ MB of GPU for live photos is acceptable; do not trade sharpness"); the mobile twin (F6)
+   *  sets 1024 (5.6 MB per layer). A layer upload = ~24 ms on the main thread incl. the whole
+   *  array's mip regeneration (measured 2026-10-22) — rare, by the residency's hysteresis. */
+  layerPx: 2048,
   /** Anisotropic filtering on the photo — oblique facades stay crisp (clamped to the device max). */
   anisotropy: 8,
   /** While a projection is live, the depth map is re-rendered at most this often (ms) to follow
@@ -3656,9 +3664,13 @@ export const PHOTO_PROJECT = {
   /** T171 — projector SLOTS compiled into the city material (an unrolled block per slot — a GLSL
    *  sampler array is only indexable by a constant, so the count is baked at compile; changing it
    *  recompiles the material once at boot). Slot 0 is the DRAFT (the photo being placed / edited);
-   *  the rest are the nearest in-view SAVED photos (F3). Plain samplers: 4 + 2·K texture units of the
-   *  WebGL2 minimum 16 under ULTRA's cascades — K ≤ 6 on this route; an array texture (T170) lifts it. */
-  slots: 4,
+   *  the rest are the nearest in-view SAVED photos (F3). Texture units (the WebGL2 minimum is 16):
+   *  3 (the sun + ULTRA's two cascade shadow samplers) + 1 (the photo ARRAY, T170) + K (the depth
+   *  maps — a depth ARRAY target is unsupported by three 0.185's WebGL backend) = 10 at K 6; the
+   *  plain-sampler route before F4 cost 3 + 2·K (K ≤ 6). Per building fragment a live slot costs one
+   *  mat4 × vec4 + (inside its frustum) one depth fetch + one photo fetch — K 6 is the desktop tier;
+   *  the mobile twin (F6) compiles its own K (1–2). */
+  slots: 6,
   /** F3 residency — a resident slot is kept until a candidate is nearer than it by this many metres
    *  (hysteresis — a pan must not thrash textures) or it leaves the view + range. */
   slotSwapMarginM: 60,

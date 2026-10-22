@@ -27,6 +27,7 @@ import { createEdgesBuilder, type EdgesBuilder } from "./edgesGeometry";
 import { makeTileCenterReader } from "./tilePriority";
 import { makeTileFoveation } from "./tileFoveation";
 import { frameHeld, frameNow, noteFrameHold, registerFrameClock } from "../../../lib/globe/frameFreeze";
+import { osmElementOfHit } from "../../../lib/globe/buildingHit";
 
 /**
  * OSM building tiles (Cesium ion, TILESETS.ionAssetId) restyled to the design-board building idiom
@@ -73,6 +74,13 @@ export interface BuildingsHandle {
   };
   /** The phase-2 budget, live (DEV seam `__globe.buildingsLoadBudget(ms)`); returns the value in force. */
   setLoadBudgetMs(ms: number): number;
+  /** F5 (T172, 2026-10-22): the OSM element under a raycast hit on one of this set's fill meshes —
+   *  the vertex's `_batchid` (or `_feature_id_0`) resolved through the tile's b3dm batch table
+   *  (`scene.batchTable`, 3d-tiles-renderer's B3DMLoader); Cesium OSM Buildings carry the facts in
+   *  the `3DTILES_batch_table_hierarchy` extension under the `Building` class (`elementType`
+   *  "way" | "relation" | "node", `elementId` — probed on asset 96188, 2026-10-22). Null = not a
+   *  mesh of this set, no batch id, or no table up the parent chain. */
+  osmIdOfHit(hit: THREE.Intersection): { elementType: string; elementId: number } | null;
   /** FPV ghost mode (Phase 5.5 S2 follow-up): fade ALL buildings so the first-person view is
    *  never lost inside a mesh. Both materials are shared, so this is two uniform writes —
    *  per-tile obstruction testing is impossible without breaking the one-material invariant.
@@ -493,6 +501,11 @@ export function attachBuildings(
     setLoadBudgetMs(ms) {
       loadBudgetMs = Number.isFinite(ms) && ms >= 0 ? ms : BUILDINGS.loadBudgetMs;
       return loadBudgetMs;
+    },
+    osmIdOfHit(hit) {
+      // Only this set's meshes answer (an enriched or scenery hit resolves elsewhere); the read
+      // itself is the pure `lib/globe/buildingHit` law.
+      return osmElementOfHit(hit);
     },
     setActive(on) {
       if (on === active) return;

@@ -172,7 +172,7 @@ describe("attachPhotoProjector — the feed defaults + the K-slot pool (construc
     expect(h.feed.slots).toHaveLength(PHOTO_PROJECT.slots);
     for (const sl of h.feed.slots) {
       expect(sl.on).toBe(false);
-      expect(sl.map).toBeNull();
+      expect(sl.layer).toBe(-1); // T170: no photo uploaded (was `map: null` before F4)
       expect(sl.depth).toBeNull();
       expect(sl.slot.toArray()).toEqual([PHOTO_PROJECT.strength, 0, PHOTO_PROJECT.rangeM, PHOTO_PROJECT.ownLight]);
     }
@@ -181,11 +181,18 @@ describe("attachPhotoProjector — the feed defaults + the K-slot pool (construc
     expect(h.feed.facing.toArray()).toEqual([PHOTO_PROJECT.facingLo, PHOTO_PROJECT.facingHi, PHOTO_PROJECT.edgeFeather, 0]);
     const s = h.snapshot();
     expect(s).toMatchObject({ on: false, enabled: true, url: null, textureReady: false, textureSize: null, flipV: 0, depthRenders: 0, error: null, slotsOn: 0, capacity: PHOTO_PROJECT.slots, depthRendersTotal: 0 });
+    // T170: the photo array is allocated LAZILY — nothing before the first load.
+    expect(s.photoArray).toBeNull();
+    expect(h.feed.photos).toBeNull();
     expect(s.depthSize).toEqual([PHOTO_PROJECT.depthMapPx, PHOTO_PROJECT.depthMapPx]);
     expect(s.strength).toBe(PHOTO_PROJECT.strength);
     expect(s.ownLight).toBe(PHOTO_PROJECT.ownLight);
     expect(s.slots.map((x) => x.id)).toEqual([DRAFT_SLOT_ID]); // the draft occupies the first record from birth
     expect(h.occupied()).toEqual([DRAFT_SLOT_ID]);
+    // Each record's layer IS its pool index (0..K−1), fixed for life.
+    for (let i = 1; i < PHOTO_PROJECT.slots; i++) h.request(`f${i}`, src());
+    expect(h.snapshot().slots.map((x) => x.layer)).toEqual(Array.from({ length: PHOTO_PROJECT.slots }, (_, i) => i));
+    expect(h.snapshot().slots.every((x) => x.textureReady === false)).toBe(true);
     h.dispose();
   });
 
@@ -288,10 +295,14 @@ describe("T174 — the pose signature sees the far-face CORNERS (owner test 2026
     const prevFetch = g0.fetch;
     const prevCib = g0.createImageBitmap;
     g0.fetch = async () => ({ blob: async () => ({}) });
-    g0.createImageBitmap = async () => ({ width: 64, height: 48, close() {} });
+    g0.createImageBitmap = async (_src: unknown, o?: { resizeWidth?: number; resizeHeight?: number }) =>
+      o?.resizeWidth ? { width: o.resizeWidth, height: o.resizeHeight, close() {} } : { width: 64, height: 48, close() {} };
     const renders: string[] = [];
+    const copies: number[] = [];
     const renderer = {
       capabilities: { getMaxAnisotropy: () => 16 },
+      initTexture: () => {},
+      copyTextureToTexture: (_s: unknown, _d: unknown, _r: unknown, pos: THREE.Vector3) => copies.push(pos.z),
       autoClear: true,
       shadowMap: { autoUpdate: true },
       getRenderTarget: () => null,
@@ -306,7 +317,9 @@ describe("T174 — the pose signature sees the far-face CORNERS (owner test 2026
       h.setSource({ url: "blob:fake", enabled: true, strength: 1, ownLight: 0.6, rangeM: null });
       await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
-      expect(h.snapshot().textureReady).toBe(true);
+      expect(h.snapshot().textureReady).toBe(true); // T170: the layer upload ran (no per-slot texture any more)
+      expect(copies).toEqual([0]); // the draft's layer
+      expect(h.feed.slots[0].layer).toBe(0);
       const a = geomFor({ ...POSES[0], hFov: 69.4 });
       h.update(a, 0);
       expect(h.snapshot().depthRenders).toBe(1);
@@ -353,5 +366,151 @@ describe("T177 — setFade: the viewer-distance fade multiplies the saved slot's
     expect(h.request("f1", src({ strength: 1 }))).toBe(true);
     expect(h.feed.slots[1].slot.x).toBe(1); // the record's fade was reset on release
     h.dispose();
+  });
+});
+
+describe("T170 / F4 — the photos live in ONE DataArrayTexture (a layer per pool record, stretched to layerPx²)", () => {
+  type Bmp = { width: number; height: number; closed: number; close(): void };
+  type Copy = { src: THREE.Texture; dst: THREE.Texture; region: unknown; pos: THREE.Vector3; closedAtCopy: number };
+  const src = (patch: Partial<PhotoProjectorSource> = {}): PhotoProjectorSource => ({ url: null, enabled: true, strength: 1, ownLight: 0.6, rangeM: null, ...patch });
+  const flush = async () => {
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+  };
+  /** A stubbed decode (fetch → blob → createImageBitmap honouring resizeWidth/Height) and a
+   *  renderer whose initTexture / copyTextureToTexture RECORD their calls. */
+  const harness = async (body: (x: { renderer: THREE.WebGLRenderer; inits: THREE.Texture[]; copies: Copy[]; bitmaps: Bmp[] }) => Promise<void>) => {
+    const g0 = globalThis as unknown as Record<string, unknown>;
+    const prevFetch = g0.fetch;
+    const prevCib = g0.createImageBitmap;
+    const bitmaps: Bmp[] = [];
+    const mk = (width: number, height: number): Bmp => {
+      const b: Bmp = { width, height, closed: 0, close() { b.closed++; } };
+      bitmaps.push(b);
+      return b;
+    };
+    g0.fetch = async () => ({ blob: async () => ({}) });
+    g0.createImageBitmap = async (_s: unknown, o?: { resizeWidth?: number; resizeHeight?: number }) =>
+      o?.resizeWidth ? mk(o.resizeWidth, o.resizeHeight ?? o.resizeWidth) : mk(640, 480);
+    const inits: THREE.Texture[] = [];
+    const copies: Copy[] = [];
+    const renderer = {
+      capabilities: { getMaxAnisotropy: () => 16 },
+      initTexture: (t: THREE.Texture) => inits.push(t),
+      copyTextureToTexture: (s: THREE.Texture, d: THREE.Texture, region: unknown, pos: THREE.Vector3) =>
+        copies.push({ src: s, dst: d, region, pos: pos.clone(), closedAtCopy: (s.image as Bmp).closed }),
+    } as unknown as THREE.WebGLRenderer;
+    try {
+      await body({ renderer, inits, copies, bitmaps });
+    } finally {
+      g0.fetch = prevFetch;
+      g0.createImageBitmap = prevCib;
+    }
+  };
+
+  it("the first load allocates the array ONCE (two loads → one initTexture); feed.photos is that array; the snapshot reports it", async () => {
+    await harness(async ({ renderer, inits }) => {
+      const h = attachPhotoProjector(new THREE.Scene(), { renderer, osmClipPlanes: null });
+      h.setSource(src({ url: "blob:a" }));
+      await flush();
+      h.request("f0", src({ url: "blob:b" }));
+      await flush();
+      expect(inits).toHaveLength(1);
+      const arr = inits[0];
+      expect(arr).toBeInstanceOf(THREE.DataArrayTexture);
+      expect(h.feed.photos).toBe(arr);
+      const img = (arr as THREE.DataArrayTexture).image;
+      expect([img.width, img.height, img.depth]).toEqual([PHOTO_PROJECT.layerPx, PHOTO_PROJECT.layerPx, PHOTO_PROJECT.slots]);
+      expect(arr.colorSpace).toBe(THREE.SRGBColorSpace);
+      expect(arr.generateMipmaps).toBe(true);
+      expect(arr.minFilter).toBe(THREE.LinearMipmapLinearFilter);
+      expect(arr.anisotropy).toBe(Math.min(PHOTO_PROJECT.anisotropy, 16));
+      const pa = h.snapshot().photoArray;
+      expect(pa).not.toBeNull();
+      expect(pa?.layers).toBe(PHOTO_PROJECT.slots);
+      expect(pa?.layerPx).toBe(PHOTO_PROJECT.layerPx);
+      const want = (PHOTO_PROJECT.layerPx ** 2 * 4 * (4 / 3) * PHOTO_PROJECT.slots) / 1e6;
+      expect(Math.abs((pa?.bytesMB ?? 0) - want)).toBeLessThan(0.06);
+      h.dispose();
+    });
+  });
+
+  it("copyTextureToTexture writes layer = the record's POOL index — the draft 0, a saved slot its record; a setPriority reorder never moves it", async () => {
+    await harness(async ({ renderer, copies }) => {
+      const h = attachPhotoProjector(new THREE.Scene(), { renderer, osmClipPlanes: null });
+      h.setSource(src({ url: "blob:draft" }));
+      await flush();
+      expect(copies.map((c) => c.pos.z)).toEqual([0]);
+      expect(copies[0].pos.x).toBe(0);
+      expect(copies[0].pos.y).toBe(0);
+      expect(copies[0].region).toBeNull();
+      expect(copies[0].dst).toBe(h.feed.photos);
+      h.request("f0", src()); // pool 1, no photo yet
+      h.request("f1", src()); // pool 2
+      h.setPriority(["f1", DRAFT_SLOT_ID]); // feed order: f1, draft, f0
+      expect(h.occupied()).toEqual(["f1", DRAFT_SLOT_ID, "f0"]);
+      h.request("f1", src({ url: "blob:f1" }));
+      await flush();
+      expect(copies.map((c) => c.pos.z)).toEqual([0, 2]);
+      expect(h.feed.slots[0].layer).toBe(2); // feed index 0, layer 2 — the order is not the layer
+      expect(h.feed.slots[0].slot.y).toBe(2);
+      expect(h.snapshot().slots.find((x) => x.id === "f1")?.layer).toBe(2);
+      expect(h.snapshot().slots.find((x) => x.id === "f0")?.layer).toBe(1);
+      expect(h.feed.slots[2].layer).toBe(-1); // f0 has no photo
+      h.dispose();
+    });
+  });
+
+  it("the uploaded bitmap is the layerPx² STRETCH while textureSize reports the DECODED size; both bitmaps are closed (the stretch right after the copy)", async () => {
+    await harness(async ({ renderer, copies, bitmaps }) => {
+      const h = attachPhotoProjector(new THREE.Scene(), { renderer, osmClipPlanes: null });
+      h.setSource(src({ url: "blob:a" }));
+      await flush();
+      expect(copies).toHaveLength(1);
+      const up = copies[0].src.image as Bmp;
+      expect([up.width, up.height]).toEqual([PHOTO_PROJECT.layerPx, PHOTO_PROJECT.layerPx]);
+      expect(copies[0].src.colorSpace).toBe(THREE.SRGBColorSpace);
+      expect(h.snapshot().textureSize).toEqual([640, 480]);
+      expect(h.snapshot().textureReady).toBe(true);
+      expect(copies[0].closedAtCopy).toBe(0); // alive while copied…
+      expect(up.closed).toBe(1); // …closed at once after
+      expect(bitmaps).toHaveLength(2); // the decode + the stretch
+      expect(bitmaps.every((b) => b.closed === 1)).toBe(true);
+      h.dispose();
+    });
+  });
+
+  it("release + a new request reuses the same record and the same layer", async () => {
+    await harness(async ({ renderer, copies }) => {
+      const h = attachPhotoProjector(new THREE.Scene(), { renderer, osmClipPlanes: null });
+      h.request("f0", src({ url: "blob:f0" }));
+      await flush();
+      expect(copies.map((c) => c.pos.z)).toEqual([1]);
+      const rec = h.feed.slots[1];
+      h.release("f0");
+      expect(rec.layer).toBe(-1); // dropped: never sampled
+      expect(h.snapshot().slots.find((x) => x.id === "f0")).toBeUndefined();
+      h.request("g0", src({ url: "blob:g0" }));
+      await flush();
+      expect(h.feed.slots[1]).toBe(rec); // the same record…
+      expect(copies.map((c) => c.pos.z)).toEqual([1, 1]); // …and the same layer
+      expect(h.snapshot().slots.find((x) => x.id === "g0")?.layer).toBe(1);
+      h.dispose();
+    });
+  });
+
+  it("dispose() disposes the array and nulls feed.photos", async () => {
+    await harness(async ({ renderer }) => {
+      const h = attachPhotoProjector(new THREE.Scene(), { renderer, osmClipPlanes: null });
+      h.setSource(src({ url: "blob:a" }));
+      await flush();
+      const arr = h.feed.photos;
+      expect(arr).not.toBeNull();
+      let disposed = 0;
+      arr?.addEventListener("dispose", () => disposed++);
+      h.dispose();
+      expect(disposed).toBe(1);
+      expect(h.feed.photos).toBeNull();
+      expect(h.snapshot().photoArray).toBeNull();
+    });
   });
 });

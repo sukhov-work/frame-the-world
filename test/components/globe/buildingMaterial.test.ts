@@ -106,18 +106,34 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
     expect(declared.length).toBe(9); // positive control: the regex matched the whole set
     expect(new Set(declared).size).toBe(declared.length); // each declared once
     expect(bound).toEqual(declared);
-    // The five per-slot arrays are declared at exactly the compiled slot count.
+    // The four per-slot arrays are declared at exactly the compiled slot count (T170: the photos
+    // left the K arrays — they ride ONE scalar sampler2DArray).
     const arrays = [...f.matchAll(/uniform\s+(?:highp\s+)?\w+\s+(uFtwProj\w+)\s*\[\s*(\d+)\s*\]\s*;/g)].map((m) => [m[1], Number(m[2])]);
     expect(arrays.sort()).toEqual(
       [
         ["uFtwProjApexV", PHOTO_PROJECT_SLOTS],
         ["uFtwProjDepth", PHOTO_PROJECT_SLOTS],
         ["uFtwProjFromView", PHOTO_PROJECT_SLOTS],
-        ["uFtwProjMap", PHOTO_PROJECT_SLOTS],
         ["uFtwProjSlot", PHOTO_PROJECT_SLOTS],
       ].sort(),
     );
     expect(PHOTO_PROJECT_SLOTS).toBe(PHOTO_PROJECT.slots);
+    // T170: the photo array is a SCALAR declaration (no `[ K ]`) — one texture unit for any K.
+    expect(declared).toContain("uFtwProjPhotoArr");
+    expect(f).toMatch(/uniform\s+highp\s+sampler2DArray\s+uFtwProjPhotoArr\s*;/);
+  });
+
+  it("T170 — the fragment declares exactly one sampler2DArray, no per-slot photo sampler, and samples layer ftwS.y", () => {
+    expect(f.match(/\bsampler2DArray\b/g) ?? []).toHaveLength(1);
+    expect(f).not.toContain("uFtwProjMap");
+    expect(block).toContain("vec2 ftwSampleUv = vec2(ftwUv.x, 1.0 - ftwUv.y);"); // the v-flip is a constant
+    const unrollLoopPattern = /#pragma unroll_loop_start\s+for\s*\(\s*int\s+i\s*=\s*(\d+)\s*;\s*i\s*<\s*(\d+)\s*;\s*i\s*\+\+\s*\)\s*{([\s\S]+?)}\s+#pragma unroll_loop_end/g;
+    const unrolled = block.replace(unrollLoopPattern, (_m, start, end, snippet) => {
+      let out = "";
+      for (let i = Number(start); i < Number(end); i++) out += snippet.replace(/\[\s*i\s*\]/g, `[ ${i} ]`).replace(/UNROLLED_LOOP_INDEX/g, String(i));
+      return out;
+    });
+    expect(unrolled.match(/textureGrad\(uFtwProjPhotoArr, vec3\(ftwSampleUv, ftwS\.y\),/g) ?? []).toHaveLength(PHOTO_PROJECT_SLOTS);
   });
 
   it("T171 — the slots are K unrolled blocks in three's exact `unrollLoops` grammar, with no continue / break", () => {
@@ -140,7 +156,7 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
     expect(unrolled).not.toMatch(/\[\s*i\s*\]/);
     expect(unrolled).not.toContain("UNROLLED_LOOP_INDEX");
     for (let i = 0; i < PHOTO_PROJECT_SLOTS; i++) {
-      expect(unrolled).toContain(`textureGrad(uFtwProjMap[ ${i} ],`);
+      expect(unrolled).toContain(`textureGrad(uFtwProjPhotoArr, vec3(`);
       expect(unrolled).toContain(`textureLod(uFtwProjDepth[ ${i} ],`);
       expect(unrolled).toContain(`float( ${i} ) < uFtwProjOn - 0.5`);
     }
@@ -166,7 +182,7 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
 
   it("samples depth with textureLod and the photo with textureGrad (uniform control flow), depth compared in metres", () => {
     expect(block).toContain("textureLod(uFtwProjDepth[ i ],");
-    expect(block).toContain("textureGrad(uFtwProjMap[ i ],");
+    expect(block).toContain("textureGrad(uFtwProjPhotoArr, vec3(");
     expect(block).not.toMatch(/\btexture2D\(|\btexture\(/);
     expect(block).toContain("ftwProjLinDepth(");
     expect(f.match(/float ftwProjLinDepth\(float d01\)/g) ?? []).toHaveLength(1);
@@ -211,9 +227,9 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
   it("the defaults are inert and match PHOTO_PROJECT; the per-slot arrays are exactly K long", () => {
     const { uniforms } = createBuildingMaterials();
     expect(uniforms.uFtwProjOn.value).toBe(0);
-    for (const arr of [uniforms.uFtwProjFromView, uniforms.uFtwProjApexV, uniforms.uFtwProjMap, uniforms.uFtwProjDepth, uniforms.uFtwProjSlot])
+    for (const arr of [uniforms.uFtwProjFromView, uniforms.uFtwProjApexV, uniforms.uFtwProjDepth, uniforms.uFtwProjSlot])
       expect(arr.value).toHaveLength(PHOTO_PROJECT_SLOTS);
-    expect(uniforms.uFtwProjMap.value.every((m) => m === null)).toBe(true);
+    expect(uniforms.uFtwProjPhotoArr.value).toBeNull(); // T170: ONE binding, null while no slot is live
     expect(uniforms.uFtwProjDepth.value.every((d) => d === null)).toBe(true);
     for (const v of uniforms.uFtwProjSlot.value) expect(v.toArray()).toEqual([PHOTO_PROJECT.strength, 0, PHOTO_PROJECT.rangeM, PHOTO_PROJECT.ownLight]);
     expect(uniforms.uFtwProjK.value.toArray()).toEqual([1, 0, 0, PHOTO_PROJECT.gain]);
@@ -245,13 +261,15 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
       on: true,
       projVP: projVP.clone(),
       apexW: apexW.clone(),
-      map: new THREE.Texture(),
+      layer: 0,
       depth: new THREE.DepthTexture(4, 4),
       slot: new THREE.Vector4(0.8, 1, 500, 0.5),
       ...patch,
     });
+    const photos = new THREE.DataArrayTexture(null, 4, 4, PHOTO_PROJECT_SLOTS);
     const mkFeed = (slots: PhotoProjectorSlot[] = [mkSlot()]): PhotoProjectorFeed => ({
       slots,
+      photos,
       k: new THREE.Vector4(1, 0, 0, 1.1),
       depthP: new THREE.Vector4(1, 3000, 0.35, 0.0004),
       facing: new THREE.Vector4(0.1, 0.3, 0.02, 0),
@@ -283,10 +301,12 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
       expect(Math.hypot(...t), `translation ${t.join(", ")}`).toBeLessThan(1e4);
       // the raw projVP translation IS ECEF-sized — the cancellation is real, not vacuous
       expect(Math.hypot(...projVP.elements.slice(12, 15))).toBeGreaterThan(1e6);
-      expect(u.uFtwProjMap.value[0]).toBe(feed.slots[0].map);
+      expect(u.uFtwProjPhotoArr.value).toBe(feed.photos);
       expect(u.uFtwProjDepth.value[0]).toBe(feed.slots[0].depth);
-      expect(u.uFtwProjSlot.value[0].toArray()).toEqual(feed.slots[0].slot.toArray());
-      expect(u.uFtwProjMap.value.slice(1).every((m) => m === null)).toBe(true);
+      const wantSlot = feed.slots[0].slot.clone();
+      wantSlot.y = feed.slots[0].layer;
+      expect(u.uFtwProjSlot.value[0].toArray()).toEqual(wantSlot.toArray());
+      expect(u.uFtwProjDepth.value.slice(1).every((m) => m === null)).toBe(true);
       expect(u.uFtwProjK.value.toArray()).toEqual(feed.k.toArray());
       expect(u.uFtwProjDepthP.value.toArray()).toEqual(feed.depthP.toArray());
       expect(u.uFtwProjFacing.value.toArray()).toEqual(feed.facing.toArray());
@@ -294,31 +314,45 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
 
     it("T171 — packs the LIVE slots in feed order, skips off / textureless ones, nulls the tail, counts them in uFtwProjOn", () => {
       const set = createBuildingMaterials();
-      const a = mkSlot({ slot: new THREE.Vector4(1, 1, 600, 0.6) });
-      const off = mkSlot({ on: false });
-      const noMap = mkSlot({ map: null });
-      const b = mkSlot({ slot: new THREE.Vector4(0.5, 1, 300, 0.2) });
+      const a = mkSlot({ layer: 2, slot: new THREE.Vector4(1, 9, 600, 0.6) });
+      const off = mkSlot({ on: false, layer: 1 });
+      const noMap = mkSlot({ layer: -1 });
+      const b = mkSlot({ layer: 5, depth: new THREE.DepthTexture(4, 4), slot: new THREE.Vector4(0.5, 9, 300, 0.2) });
       set.setPhotoProjector(mkFeed([a, off, noMap, b]));
       pass(set.fillMat, 1);
       const u = set.uniforms;
       expect(u.uFtwProjOn.value).toBe(2);
-      expect(u.uFtwProjMap.value[0]).toBe(a.map);
-      expect(u.uFtwProjMap.value[1]).toBe(b.map);
+      expect(u.uFtwProjPhotoArr.value).toBe(photos);
+      expect(u.uFtwProjDepth.value[0]).toBe(a.depth);
       expect(u.uFtwProjDepth.value[1]).toBe(b.depth);
-      expect(u.uFtwProjSlot.value[0].toArray()).toEqual([1, 1, 600, 0.6]);
-      expect(u.uFtwProjSlot.value[1].toArray()).toEqual([0.5, 1, 300, 0.2]);
-      for (let j = 2; j < PHOTO_PROJECT_SLOTS; j++) {
-        expect(u.uFtwProjMap.value[j]).toBeNull();
-        expect(u.uFtwProjDepth.value[j]).toBeNull();
-      }
+      // The packed index n is NOT the layer: `.y` carries the slot's own layer (the pack overwrites
+      // whatever the feed's slot vector held there).
+      expect(u.uFtwProjSlot.value[0].toArray()).toEqual([1, 2, 600, 0.6]);
+      expect(u.uFtwProjSlot.value[1].toArray()).toEqual([0.5, 5, 300, 0.2]);
+      for (let j = 2; j < PHOTO_PROJECT_SLOTS; j++) expect(u.uFtwProjDepth.value[j]).toBeNull();
       // The arrays never change length (three's flatten reads exactly K entries).
-      expect(u.uFtwProjMap.value).toHaveLength(PHOTO_PROJECT_SLOTS);
+      expect(u.uFtwProjDepth.value).toHaveLength(PHOTO_PROJECT_SLOTS);
       // More live slots than K: the first K win (feed order is priority).
-      const many = Array.from({ length: PHOTO_PROJECT_SLOTS + 2 }, () => mkSlot());
+      const many = Array.from({ length: PHOTO_PROJECT_SLOTS + 2 }, (_, i) => mkSlot({ layer: i, depth: new THREE.DepthTexture(4, 4) }));
       set.setPhotoProjector(mkFeed(many));
       pass(set.fillMat, 2);
       expect(u.uFtwProjOn.value).toBe(PHOTO_PROJECT_SLOTS);
-      expect(u.uFtwProjMap.value[PHOTO_PROJECT_SLOTS - 1]).toBe(many[PHOTO_PROJECT_SLOTS - 1].map);
+      expect(u.uFtwProjDepth.value[PHOTO_PROJECT_SLOTS - 1]).toBe(many[PHOTO_PROJECT_SLOTS - 1].depth);
+      expect(u.uFtwProjSlot.value[PHOTO_PROJECT_SLOTS - 1].y).toBe(PHOTO_PROJECT_SLOTS - 1);
+    });
+
+    it("T170 — the pack writes the slot's LAYER into uFtwProjSlot[n].y (the only live slot has layer 3 → y 3 at n 0)", () => {
+      const set = createBuildingMaterials();
+      set.setPhotoProjector(mkFeed([mkSlot({ on: false, layer: 0 }), mkSlot({ layer: 3, slot: new THREE.Vector4(0.8, 0, 500, 0.5) })]));
+      pass(set.fillMat, 1);
+      expect(set.uniforms.uFtwProjOn.value).toBe(1);
+      expect(set.uniforms.uFtwProjSlot.value[0].y).toBe(3);
+      expect(set.uniforms.uFtwProjPhotoArr.value).toBe(photos);
+      // …and once nothing is live the array binding drops back to null.
+      set.setPhotoProjector(mkFeed([mkSlot({ layer: -1 })]));
+      pass(set.fillMat, 2);
+      expect(set.uniforms.uFtwProjOn.value).toBe(0);
+      expect(set.uniforms.uFtwProjPhotoArr.value).toBeNull();
     });
 
     it("the same frame + camera is a no-op; a new frame or a new camera re-syncs", () => {
@@ -349,12 +383,13 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
     });
 
     it("a feed whose every slot is off, or on without a photo / depth texture, keeps the block dead", () => {
-      for (const patch of [{ on: false }, { map: null }, { depth: null }] as Partial<PhotoProjectorSlot>[]) {
+      for (const patch of [{ on: false }, { layer: -1 }, { depth: null }] as Partial<PhotoProjectorSlot>[]) {
         const set = createBuildingMaterials();
         set.setPhotoProjector(mkFeed([mkSlot(patch), mkSlot(patch)]));
         pass(set.fillMat, 1);
         expect(set.uniforms.uFtwProjOn.value, JSON.stringify(Object.keys(patch))).toBe(0);
-        expect(set.uniforms.uFtwProjMap.value.every((m) => m === null)).toBe(true);
+        expect(set.uniforms.uFtwProjPhotoArr.value).toBeNull();
+        expect(set.uniforms.uFtwProjDepth.value.every((d) => d === null)).toBe(true);
       }
       const empty = createBuildingMaterials();
       empty.setPhotoProjector(mkFeed([]));

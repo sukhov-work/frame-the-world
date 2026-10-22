@@ -4,7 +4,7 @@
 // verify-meshedit way (handlePx / originPx / ringPx + synthetic Input.dispatchMouseEvent presses) and
 // minting the test member the verify-modelupload way.
 //
-//   1 boot + the desktop attach gate (capacity 4) · 2 signed-out guard (401 + the overlay's sign-in
+//   1 boot + the desktop attach gate (capacity 6 since F4) · 2 signed-out guard (401 + the overlay's sign-in
 //   note) · 3 member session · 4 fixture → review → place (apex seated, draft slot on) · 5 the H-FOV
 //   override law (tan ratio, exact restore) · 6 GIZMO MOVE (east, no camera fly, one journal entry)
 //   · 7 UNDO · 8 GIZMO ROTATE (heading only, about the local up) · 9 GIZMO SCALE (= H-FOV, never a
@@ -487,7 +487,7 @@ try {
     const fails = [];
     if (!s || typeof s !== "object") fails.push(`photoProjector() ${JSON.stringify(s)} — the hqAllowed attach gate refused on a desktop run`);
     else {
-      if (s.capacity !== 4) fails.push(`capacity ${s.capacity} ≠ 4`);
+      if (s.capacity !== 6) fails.push(`capacity ${s.capacity} ≠ 6 (PHOTO_PROJECT.slots — 4 before F4 / T170, 2026-10-22)`);
       if (s.on !== false) fails.push(`draft on=${s.on} before any photo`);
       if (s.slotsOn !== 0) fails.push(`slotsOn ${s.slotsOn} ≠ 0 at boot`);
     }

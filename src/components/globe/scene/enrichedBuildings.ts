@@ -340,6 +340,12 @@ export interface EnrichedBuildingsHandle {
    *  old `ENRICHED.overrideMinPickHeightM` height floor on a bake with no sidecar. Null = no
    *  building under the ray. */
   pickBuilding(raycaster: THREE.Raycaster): BuildingPick | null;
+  /** F5 (T172, 2026-10-22): the building feature under ONE raycast hit — the resolve `pickBuilding`
+   *  runs per hit (vertex → `_feature_id_0` run → the sidecar's feature), without the walk. Null
+   *  when the hit is not a registered fill mesh of this set; `pickable` = the RC17 class fence
+   *  (false = scenery that occludes but names no building); `cellUri` is "" on the verbatim dev
+   *  tileset (no stable identity). */
+  featureOfHit(hit: THREE.Intersection): { cellUri: string; featureId: number; osm: string | null; cls: string | null; pickable: boolean } | null;
   /** U8 commit: set a building's height-scale target (1 = original). The next frames ease the
    *  REAL mesh there inside applyFeatureSeats (fill + edge CSR + bounds pad); the committed tint
    *  is written at once by `applyTransformTarget` (`setOverrideTint`, the `_ftw_override` byte),
@@ -1013,6 +1019,20 @@ export function attachEnrichedBuildings(
   // U8 registries: cell identity for the persistence key + mesh → registry for the pick path.
   const cellByUri = new Map<string, CellSeat>();
   const partByMesh = new Map<THREE.Mesh, { cell: CellSeat; part: MeshPart }>();
+  /** The resolve `pickBuilding` and `featureOfHit` (F5) share: a raycast hit on a registered fill
+   *  mesh → its vertex's run → the feature; `pickable` is the RC17 class fence (a bake with no
+   *  sidecar falls back to the old `overrideMinPickHeightM` height floor). */
+  const resolveHit = (hit: THREE.Intersection) => {
+    const reg = partByMesh.get(hit.object as THREE.Mesh);
+    const a = (hit as { face?: { a: number } }).face?.a;
+    if (!reg || typeof a !== "number") return null;
+    const r = runIndexOfVertex(reg.part.runs, a);
+    if (r < 0) return null;
+    const f = reg.part.features[r];
+    const bakedHeightM = f.topY - f.baseY;
+    const pickable = f.cls !== null ? isPickableClass(f.cls) : bakedHeightM >= ENRICHED.overrideMinPickHeightM;
+    return { reg, f, bakedHeightM, pickable };
+  };
   // U8 ghost (at most one — the drag preview). Owns its geometry; material is shared below.
   // MS1: also carries the feature it previews + the live transform it is showing.
   // MS2: the ghost is a RIG — `anchor` (a Group under the cell mesh, ENU frame, carries the
@@ -3015,23 +3035,17 @@ export function attachEnrichedBuildings(
       // Fill meshes keep default raycast; edges/trees/ghost are noop'd — hits here are either
       // registered building fills or upstream scenery, and only the former resolve.
       for (const hit of raycaster.intersectObject(tiles.group, true)) {
-        const reg = partByMesh.get(hit.object as THREE.Mesh);
-        const a = (hit as { face?: { a: number } }).face?.a;
-        if (!reg || typeof a !== "number") continue;
-        const r = runIndexOfVertex(reg.part.runs, a);
-        if (r < 0) continue;
-        const f = reg.part.features[r];
-        const bakedHeightM = f.topY - f.baseY;
+        const res = resolveHit(hit);
+        if (!res) continue;
+        const { reg, f, bakedHeightM, pickable } = res;
         // RC17 — the class fence. `continue`, not `return`: falling through to whatever stands
         // BEHIND the lamp post is the behaviour the height floor had, and it is the right one.
         //
         // The floor it replaces was a geometric proxy for a semantic question and got both
         // directions wrong — a single-storey outbuilding was unpickable, while every street lamp,
         // flagpole and 30 m transmission pylon cleared 2.5 m easily and was fully RESCALABLE. It
-        // survives only as the fallback for a bake that predates the sidecar.
-        if (f.cls !== null) {
-          if (!isPickableClass(f.cls)) continue;
-        } else if (bakedHeightM < ENRICHED.overrideMinPickHeightM) continue;
+        // survives only as the fallback for a bake that predates the sidecar (`resolveHit`).
+        if (!pickable) continue;
         if (!reg.cell.uri) return null; // verbatim dev tileset — no stable identity
         return {
           cellUri: reg.cell.uri,
@@ -3049,6 +3063,11 @@ export function attachEnrichedBuildings(
         };
       }
       return null;
+    },
+    featureOfHit(hit) {
+      const res = resolveHit(hit);
+      if (!res) return null;
+      return { cellUri: res.reg.cell.uri, featureId: res.f.run.id, osm: res.f.osm, cls: res.f.cls, pickable: res.pickable };
     },
     setHeightScale(cellUri, featureId, k) {
       const found = findFeature(cellUri, featureId);

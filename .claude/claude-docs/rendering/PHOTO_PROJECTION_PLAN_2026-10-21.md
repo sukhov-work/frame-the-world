@@ -33,6 +33,13 @@ subagents per slice (see `NEXT_SESSION_PROMPT.md` §THE SESSION'S SCOPE for the 
   real false-positive); trees never (billboards would occlude as solid rectangles).
 
 ## 3. The texture pipeline — "hundreds per city, maybe thousands; not huge, not blurry"
+> **Status 2026-10-22e (F4 BUILT — backlog T170):** lever 1 is live — ONE `DataArrayTexture` (`PHOTO_PROJECT.layerPx` 2048 square
+> layers, every photo STRETCHED to the layer, K = `slots` **6**; 134 MB at K 6 on desktop per the §6 ruling), browser-probed on three
+> 0.185 before the build (storage-only allocation via `source.dataReady = false`; `copyTextureToTexture` per layer ≈ 24 ms incl. the
+> whole array's mips; a depth ARRAY target is unsupported → K depth samplers stay; units 3 + 1 + K). Lever 2 (KTX2) stays NO-GO for
+> v1 (the 2026-10-21 measurement; ETC1S lands as 8-bpp BC7 on desktop) — revisit with F6. Lever 3 waits on F5's uv rectangle.
+> The text below is the plan as written on 2026-10-21.
+
 The ceiling is GPU memory while LIVE, and wire bytes + Media quota while STORED; the two are different problems.
 **Stored (Wix Media, per photo):** the private original (as today for pins) + a **display derivative at 2048 px on the long edge,
 JPEG q 80–84** (a 4:3 phone frame ≈ 350–600 KB; 1,000 photos ≈ 0.5 GB of Media — within the plan; the derivative is made client-side
@@ -57,6 +64,13 @@ prototype paints; 1024 px halves it and reads soft on a near facade (owner: "not
 owner's no for the generic city), storing full-resolution originals as the display texture.
 
 ## 4. Alignment — keep the door open (the data model carries it from F2)
+> **Status 2026-10-22e (F5 BUILT, the association half — backlog T172):** the CPU ray grid won (7 × 5 inset rays, capped at the paint
+> range, against the two building sets' fill layers 30 / 31 — `lib/globe/facadeTargets.ts` + `lib/globe/buildingHit.ts`, the
+> orchestrator's `castFacadeTarget`, pulled by `saveFacade` / `updateFacade` through `probeFacadeTargets`); the OSM set's key is
+> `osm:w<elementId>` from the b3dm batch table's `3DTILES_batch_table_hierarchy.Building` (probed on ion asset 96188), the enriched
+> set's the sidecar's osm id or the override key. The id-map render was not needed. The uv rectangle per building, the `alignment`
+> pairs and the PnP solve stay OFF (fields ride empty). The text below is the plan as written on 2026-10-21.
+
 - **Per-building association:** at save, read back which `_feature_id_0`s the projector paints: cheapest = the depth pass rendered once
   more into a tiny R32 "id map" (a `MeshBasicMaterial` override writing `vFtwFid` — or a CPU raycast grid of the frustum's 5×5 rays
   against the building meshes) → `targetFeatureIds[]` + the uv rectangle per building. This is what a later "crop to the building",

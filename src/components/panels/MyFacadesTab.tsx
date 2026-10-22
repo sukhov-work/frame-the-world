@@ -39,11 +39,14 @@ export interface MyFacadesViewState {
   busyId: string | null;
 }
 
-/** The row's fact line: the saved date + the pose. */
+/** The row's fact line: the saved date + the pose (+ `· N BLDG` once the record knows which
+ *  buildings it paints — T172 / F5). */
 export function facadeRowSub(item: FacadeListItem): string {
   const date = item.createdAt ? item.createdAt.slice(0, 10) : "";
   const pose = facadePoseLine(item);
-  return date ? `${date} · ${pose}` : pose;
+  const line = date ? `${date} · ${pose}` : pose;
+  const n = Array.isArray(item.targetFeatureIds) ? item.targetFeatureIds.length : 0;
+  return n > 0 ? `${line} · ${n} BLDG` : line;
 }
 
 export function MyFacadesTabView({ state, actions }: { state: MyFacadesViewState; actions: MyFacadesActions }) {

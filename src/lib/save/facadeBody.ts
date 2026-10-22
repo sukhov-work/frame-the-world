@@ -32,6 +32,9 @@ export interface FacadeSnapshot {
   exifPose: FacadePose | null;
   /** The custom title; blank / null falls back to the file-name title. */
   title: string | null;
+  /** T172 (F5): the buildings the projector paints at SAVE / UPDATE time (`probeFacadeTargets` —
+   *  the globe's 7×5 ray grid); undefined / null = no probe answer (no globe, tiles not in). */
+  targetFeatureIds?: string[] | null;
 }
 
 /** The Media ids the three uploads handed back — the display JPEG is required (it is what every slot samples). */
@@ -77,8 +80,8 @@ export function buildSaveFacadeBody(s: FacadeSnapshot, files: FacadeFileIds): Sa
     strength: s.projection.strength,
     ownLight: s.projection.ownLight,
     rangeM: s.projection.rangeM,
-    // T172 (F5): born with the record, empty until the id map / a solver lands.
-    targetFeatureIds: [],
+    // T172 (F5): the buildings the projector painted at SAVE (the globe's probe); [] without one.
+    targetFeatureIds: s.targetFeatureIds ?? [],
     alignment: {},
     title: customTitle || titleFromFileName(s.fileName),
     capturedAt: s.exif.capturedAt ?? null,
@@ -96,8 +99,11 @@ export function buildSaveFacadeBody(s: FacadeSnapshot, files: FacadeFileIds): Sa
 
 /**
  * PATCH /api/facades body — the pose + the projection params + the title; NEVER a file field (the
- * edit flow re-uploads nothing), never the alignment seats (a re-save must not wipe what a solver
- * wrote — they are patched by their own flow, T172), never the texture dims (file facts).
+ * edit flow re-uploads nothing), never the texture dims (file facts), never `alignment` (solver-only:
+ * a re-save must not wipe what a solver wrote — it is patched by its own flow, T172).
+ * `targetFeatureIds` come from the POSE (the globe re-probes at UPDATE), so they ride along — but
+ * ONLY as a non-empty set: an empty / null probe (the tiles not streamed in yet, no globe) keeps the
+ * stored set, because a re-save on a half-loaded city must never wipe a good one.
  */
 export function buildUpdateFacadeBody(s: FacadeSnapshot, facadeId: string): UpdateFacadeBody {
   const { textureWidth: _w, textureHeight: _h, ...pose } = poseOf(s);
@@ -108,6 +114,7 @@ export function buildUpdateFacadeBody(s: FacadeSnapshot, facadeId: string): Upda
     strength: s.projection.strength,
     ownLight: s.projection.ownLight,
     rangeM: s.projection.rangeM,
+    ...(Array.isArray(s.targetFeatureIds) && s.targetFeatureIds.length > 0 ? { targetFeatureIds: s.targetFeatureIds } : {}),
     title: customTitle || titleFromFileName(s.fileName),
   };
 }

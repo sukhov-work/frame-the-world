@@ -24,6 +24,16 @@ import { PHOTO_PROJECT_SLOTS, type PhotoProjectorFeed, type PhotoProjectorSlot }
  * `release` / `setGeometry`, and `setPriority` orders the feed (the material composites
  * front-to-back in feed order, so order IS priority: the draft first, then the nearest).
  *
+ * THE PHOTO ARRAY (T170 / F4, 2026-10-22). Every live photo lives in a LAYER of ONE
+ * `DataArrayTexture` (`PHOTO_PROJECT.layerPx` square, K layers; layer = the record's pool index),
+ * stretched to the layer at load, so the city material binds one `sampler2DArray` for any K
+ * (the plain route spent K units on the photos alone — 3 + 2K in all under ULTRA's three shadow
+ * samplers, a ceiling of K ≤ 6; the array makes 3 + 1 + K). The depth maps stay K separate
+ * targets (three 0.185's WebGL backend has no layered depth attachment). A layer upload
+ * regenerates the whole array's mips (~24 ms) — a residency plan filling several slots pays it
+ * once per slot as each decode resolves, never twice in one frame by construction (one load
+ * resolves per task).
+ *
  * Store-free by the scene fence: the orchestrator pushes the store's state in (`setSource` /
  * `request`) and the live frustum per frame (`update` / `setGeometry`). Desktop-only by the attach
  * gate in the orchestrator.
@@ -54,7 +64,10 @@ export interface PhotoProjectorSlotSnapshot {
   enabled: boolean;
   url: string | null;
   textureReady: boolean;
+  /** The DECODED photo's size (px) — before the stretch to the array layer. */
   textureSize: [number, number] | null;
+  /** T170: the slot's layer in the photo array (the pool index; fixed for the slot's life). */
+  layer: number;
   depthSize: [number, number];
   depthRenders: number;
   lastDepthMs: number;
@@ -92,6 +105,9 @@ export interface PhotoProjectorSnapshot {
   slots: PhotoProjectorSlotSnapshot[];
   capacity: number;
   depthRendersTotal: number;
+  /** T170: the photo array once allocated (the first load) — its layer edge, layer count and the
+   *  RGBA8 + mips bytes it holds (computed: WebGL reports no texture memory). */
+  photoArray: { layerPx: number; layers: number; bytesMB: number } | null;
 }
 
 export interface PhotoProjectorHandle {
@@ -233,7 +249,10 @@ interface SlotRec {
   depthDirty: boolean;
   depthRenders: number;
   lastDepthMs: number;
-  texture: THREE.Texture | null;
+  /** T170: the record's layer in the photo array (= its pool index, fixed) and whether it holds
+   *  an uploaded photo (the layer's pixels are stale otherwise — never sampled: `feed.layer` −1). */
+  layer: number;
+  textureReady: boolean;
   textureUrl: string | null;
   textureSize: [number, number] | null;
   flipV: number;
@@ -252,6 +271,7 @@ export function attachPhotoProjector(
   const K = PHOTO_PROJECT_SLOTS;
   const feed: PhotoProjectorFeed = {
     slots: [],
+    photos: null,
     k: new THREE.Vector4(1, 0, 0, PHOTO_PROJECT.gain),
     depthP: new THREE.Vector4(
       PHOTO_PROJECT.nearM,
@@ -274,13 +294,13 @@ export function attachPhotoProjector(
   // `pool` is the fixed K records; `feed.slots` is the SAME records' feed halves in PRIORITY order
   // (the material packs the live ones in that order). The draft is the pool's first record by
   // construction, so with no `setPriority` call the prototype's single-slot behaviour is exact.
-  const pool: SlotRec[] = Array.from({ length: K }, () => ({
+  const pool: SlotRec[] = Array.from({ length: K }, (_, i) => ({
     id: null,
     feed: {
       on: false,
       projVP: new THREE.Matrix4(),
       apexW: new THREE.Vector3(),
-      map: null,
+      layer: -1,
       depth: null,
       slot: new THREE.Vector4(PHOTO_PROJECT.strength, 0, PHOTO_PROJECT.rangeM, PHOTO_PROJECT.ownLight),
     },
@@ -296,7 +316,8 @@ export function attachPhotoProjector(
     depthDirty: true,
     depthRenders: 0,
     lastDepthMs: -Infinity,
-    texture: null,
+    layer: i,
+    textureReady: false,
     textureUrl: null,
     textureSize: null,
     flipV: 0,
@@ -385,17 +406,45 @@ export function attachPhotoProjector(
     depthRendersTotal++;
   };
 
-  // --- the photo textures --------------------------------------------------------------------
+  // --- the photo textures (T170 / F4: ONE array texture, a layer per pool record) -----------------
+  // Allocated LAZILY on the first load, storage only: `source.dataReady = false` makes three's
+  // `texStorage3D` allocate the K layers + the mip chain without a CPU buffer (WebGLTextures.js
+  // :947-949, :1172-1178 on 0.185). Mips, filters and anisotropy are part of three's texture-cache
+  // KEY (:530-546): they are set BEFORE the allocation and NEVER changed after — a change re-creates
+  // the GL texture and silently drops every layer (:739-757). A layer is written with
+  // `renderer.copyTextureToTexture` from a never-registered `THREE.Texture` around the decoded
+  // ImageBitmap — the `texSubImage3D(…, image)` branch (WebGLRenderer.js:3452-3463) — which
+  // regenerates the WHOLE array's mips: ~24 ms for 2048² × 6 on the M3 (measured 2026-10-22), rare
+  // by the residency's hysteresis. The bitmap is closed the moment the copy returns (the pixels
+  // are on the GPU); `needsUpdate` is never set on the array after the allocation.
+  let photos: THREE.DataArrayTexture | null = null;
+  const layerPx = PHOTO_PROJECT.layerPx;
+  const ensurePhotoArray = (): THREE.DataArrayTexture => {
+    if (photos) return photos;
+    const arr = new THREE.DataArrayTexture(null, layerPx, layerPx, K);
+    arr.format = THREE.RGBAFormat;
+    arr.type = THREE.UnsignedByteType;
+    arr.colorSpace = THREE.SRGBColorSpace; // SRGB8_ALPHA8 → the sampler returns linear light
+    arr.generateMipmaps = true;
+    arr.minFilter = THREE.LinearMipmapLinearFilter;
+    arr.magFilter = THREE.LinearFilter;
+    arr.wrapS = THREE.ClampToEdgeWrapping;
+    arr.wrapT = THREE.ClampToEdgeWrapping;
+    arr.anisotropy = Math.min(PHOTO_PROJECT.anisotropy, opts.renderer.capabilities.getMaxAnisotropy());
+    arr.source.dataReady = false; // allocate; transfer nothing
+    arr.needsUpdate = true;
+    opts.renderer.initTexture(arr);
+    photos = arr;
+    feed.photos = arr;
+    return arr;
+  };
+
   const dropTexture = (r: SlotRec): void => {
-    if (r.texture) {
-      const img = r.texture.image as { close?: () => void } | undefined;
-      r.texture.dispose();
-      img?.close?.(); // an ImageBitmap frees its pixels on close
-    }
-    r.texture = null;
+    // The layer stays allocated (the array is one GL object); the next load overwrites it.
+    r.textureReady = false;
     r.textureUrl = null;
     r.textureSize = null;
-    r.feed.map = null;
+    r.feed.layer = -1;
   };
 
   const loadTexture = async (r: SlotRec, url: string, seq: number): Promise<void> => {
@@ -413,38 +462,35 @@ export function attachPhotoProjector(
       full.close();
       return;
     }
+    const decoded: [number, number] = [full.width, full.height];
+    // The STRETCH to the square layer (non-uniform; the fragment addresses the photo in its own
+    // normalised frame, so a 4:3 frame upsampled to 1:1 reads exactly as before — no crop, no
+    // letterbox, no sub-rectangle for a coarse mip to bleed across; the photo keeps its long edge).
     let bmp = full;
-    const long = Math.max(full.width, full.height);
-    if (long > PHOTO_PROJECT.maxTexturePx) {
-      const k = PHOTO_PROJECT.maxTexturePx / long;
-      bmp = await createImageBitmap(full, {
-        resizeWidth: Math.max(1, Math.round(full.width * k)),
-        resizeHeight: Math.max(1, Math.round(full.height * k)),
-        resizeQuality: "high",
-      });
+    if (full.width !== layerPx || full.height !== layerPx) {
+      bmp = await createImageBitmap(full, { resizeWidth: layerPx, resizeHeight: layerPx, resizeQuality: "high", premultiplyAlpha: "none" });
       full.close();
       if (seq !== r.loadSeq) {
         bmp.close();
         return;
       }
     }
-    const tex = new THREE.Texture(bmp);
-    tex.colorSpace = THREE.SRGBColorSpace; // SRGB8_ALPHA8 → the sampler returns linear light
-    tex.flipY = false; // ignored for ImageBitmap anyway; the shader flips v (slot.y)
-    tex.generateMipmaps = true;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.wrapS = THREE.ClampToEdgeWrapping;
-    tex.wrapT = THREE.ClampToEdgeWrapping;
-    tex.anisotropy = Math.min(PHOTO_PROJECT.anisotropy, opts.renderer.capabilities.getMaxAnisotropy());
-    tex.needsUpdate = true;
-    dropTexture(r);
-    r.texture = tex;
+    const arr = ensurePhotoArray();
+    const src = new THREE.Texture(bmp);
+    src.colorSpace = THREE.SRGBColorSpace;
+    src.flipY = false; // ignored for an ImageBitmap anyway; the shader flips v
+    src.premultiplyAlpha = false;
+    try {
+      opts.renderer.copyTextureToTexture(src, arr, null, new THREE.Vector3(0, 0, r.layer));
+    } finally {
+      bmp.close(); // the pixels are on the GPU — the copy is synchronous (a lost context must not leak the bitmap)
+    }
+    r.textureReady = true;
     r.textureUrl = url;
-    r.textureSize = [bmp.width, bmp.height];
-    r.flipV = 1;
-    r.feed.map = tex;
-    r.feed.slot.y = r.flipV;
+    r.textureSize = decoded;
+    r.flipV = 1; // vestigial since F4 (every source is a bitmap, the flip is a shader constant) — the 2026-10-18 harness reads it
+    r.feed.layer = r.layer;
+    r.feed.slot.y = r.layer;
     r.depthDirty = true;
   };
 
@@ -493,8 +539,9 @@ export function attachPhotoProjector(
     on: r.feed.on,
     enabled: r.source.enabled,
     url: r.source.url,
-    textureReady: r.texture !== null,
+    textureReady: r.textureReady,
     textureSize: r.textureSize ? [r.textureSize[0], r.textureSize[1]] : null,
+    layer: r.layer,
     depthSize: r.rt ? [r.rt.width, r.rt.height] : [PHOTO_PROJECT.depthMapPx, PHOTO_PROJECT.depthMapPx],
     depthRenders: r.depthRenders,
     lastDepthMs: r.lastDepthMs,
@@ -514,7 +561,7 @@ export function attachPhotoProjector(
     let stalest: SlotRec | null = null;
     for (const r of order) {
       const g = r.geom;
-      const live = r.id !== null && g !== null && r.source.enabled && r.texture !== null;
+      const live = r.id !== null && g !== null && r.source.enabled && r.textureReady;
       if (!live) {
         if (r.feed.on) r.feed.on = false;
         continue;
@@ -544,7 +591,7 @@ export function attachPhotoProjector(
     }
     // Pass 3: the on flags — a live slot goes on once its depth map exists.
     for (const r of order) {
-      const live = r.id !== null && r.geom !== null && r.source.enabled && r.texture !== null && r.depthRenders > 0 && r.depthTex !== null;
+      const live = r.id !== null && r.geom !== null && r.source.enabled && r.textureReady && r.depthRenders > 0 && r.depthTex !== null;
       if (live) {
         if (r.feed.depth !== r.depthTex) r.feed.depth = r.depthTex;
         if (!r.feed.on) r.feed.on = true;
@@ -639,6 +686,7 @@ export function attachPhotoProjector(
         slots: order.filter((r) => r.id !== null).map(slotSnapshot),
         capacity: K,
         depthRendersTotal,
+        photoArray: photos ? { layerPx, layers: K, bytesMB: Math.round((layerPx * layerPx * 4 * (4 / 3) * K) / 1e5) / 10 } : null,
       };
     },
     dispose() {
@@ -650,6 +698,9 @@ export function attachPhotoProjector(
         r.rt = null;
         r.depthTex = null;
       }
+      photos?.dispose();
+      photos = null;
+      feed.photos = null;
       depthPlain.dispose();
       depthOsm.dispose();
     },

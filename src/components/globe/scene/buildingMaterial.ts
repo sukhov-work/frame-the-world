@@ -109,11 +109,17 @@ interface BuildingMaterialUniforms {
   uFtwProjFromView: { value: THREE.Matrix4[] };
   /** The projector apex in VIEW space (per pass, per slot) — the facing test's ray origin. */
   uFtwProjApexV: { value: THREE.Vector3[] };
-  uFtwProjMap: { value: (THREE.Texture | null)[] };
+  /** T170 (F4): the ONE `DataArrayTexture` every live photo lives in (`PHOTO_PROJECT.layerPx`
+   *  square layers, K of them — layer = the projector's pool index, fixed for a slot's life); a
+   *  `sampler2DArray` costs ONE texture unit for any K where the plain route cost K. Null while no
+   *  slot is live (three binds its empty array texture). */
+  uFtwProjPhotoArr: { value: THREE.DataArrayTexture | null };
   uFtwProjDepth: { value: (THREE.Texture | null)[] };
-  /** Per slot: x strength · y flipV (1 = an ImageBitmap source, row 0 at v 0) · z range (m — beyond
-   *  it the photo fades out over PHOTO_PROJECT.rangeFadeFrac of itself; a street photo must not
-   *  paper the skyline) · w ownLight (0 = lit by the scene, 1 = the photo's own colours). */
+  /** Per slot: x strength · y the photo's LAYER in `uFtwProjPhotoArr` (the pack writes it from the
+   *  slot's `layer`; every source is an ImageBitmap — row 0 at v 0 — so the v-flip is a constant in
+   *  the fragment since F4) · z range (m — beyond it the photo fades out over
+   *  PHOTO_PROJECT.rangeFadeFrac of itself; a street photo must not paper the skyline) · w ownLight
+   *  (0 = lit by the scene, 1 = the photo's own colours). */
   uFtwProjSlot: { value: THREE.Vector4[] };
   /** Shared: x a global strength multiplier (1) · y, z spare · w the colour gain. */
   uFtwProjK: { value: THREE.Vector4 };
@@ -133,9 +139,12 @@ export interface PhotoProjectorSlot {
   projVP: THREE.Matrix4;
   /** The apex (ECEF m). */
   apexW: THREE.Vector3;
-  map: THREE.Texture | null;
+  /** T170: the photo's layer in the feed's `photos` array (−1 = no photo uploaded — the slot is
+   *  skipped exactly as a missing `map` was before F4). */
+  layer: number;
   depth: THREE.Texture | null;
-  /** x strength · y flipV · z rangeM · w ownLight (the `uFtwProjSlot` layout). */
+  /** x strength · y the layer (written by the pack from `layer`) · z rangeM · w ownLight (the
+   *  `uFtwProjSlot` layout). */
   slot: THREE.Vector4;
 }
 
@@ -146,6 +155,8 @@ export interface PhotoProjectorSlot {
  *  holders once per render pass. */
 export interface PhotoProjectorFeed {
   slots: PhotoProjectorSlot[];
+  /** T170: the photo array (allocated by the projector on the first load; null until then). */
+  photos: THREE.DataArrayTexture | null;
   k: THREE.Vector4;
   depthP: THREE.Vector4;
   facing: THREE.Vector4;
@@ -232,7 +243,7 @@ export function createBuildingMaterials(
     uFtwProjOn: { value: 0 },
     uFtwProjFromView: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => new THREE.Matrix4()) },
     uFtwProjApexV: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => new THREE.Vector3()) },
-    uFtwProjMap: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => null) },
+    uFtwProjPhotoArr: { value: null },
     uFtwProjDepth: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => null) },
     uFtwProjSlot: {
       value: Array.from(
@@ -263,35 +274,34 @@ export function createBuildingMaterials(
     projLastFrame = frame;
     projLastCamera = camera;
     const f = projFeed;
-    const maps = uniforms.uFtwProjMap.value;
     const depths = uniforms.uFtwProjDepth.value;
     // Pack the LIVE slots in feed order (the draft first, then the nearest saved photos — the
     // front-to-back compositing in the fragment makes order priority). A slot that is off, or
-    // whose photo / depth is missing, is skipped; the tail beyond the live count drops its
-    // sampler references: a disposed photo (its ImageBitmap closed) still bound here would be
-    // re-uploaded by three on the next draw — "source data has been detached".
+    // whose photo layer / depth is missing, is skipped; the tail beyond the live count drops its
+    // depth references (a disposed target still bound here would be re-uploaded by three on the
+    // next draw — "source data has been detached"). The photos ride ONE array texture (T170): the
+    // packed index n is NOT the layer — the layer travels in `uFtwProjSlot[n].y`.
     let n = 0;
     if (f) {
       for (const s of f.slots) {
         if (n >= PHOTO_PROJECT_SLOTS) break;
-        if (!s.on || !s.map || !s.depth) continue;
+        if (!s.on || s.layer < 0 || !s.depth) continue;
         // float64 on the CPU: the ECEF-sized translations cancel BEFORE the float32 cast — the
         // uploaded matrix carries the camera→apex offset (metres to kilometres), never 6.4e6 m.
         uniforms.uFtwProjFromView.value[n].multiplyMatrices(s.projVP, camera.matrixWorld);
         uniforms.uFtwProjApexV.value[n].copy(s.apexW).applyMatrix4(camera.matrixWorldInverse);
-        maps[n] = s.map;
         depths[n] = s.depth;
         uniforms.uFtwProjSlot.value[n].copy(s.slot);
+        uniforms.uFtwProjSlot.value[n].y = s.layer;
         n++;
       }
       uniforms.uFtwProjK.value.copy(f.k);
       uniforms.uFtwProjDepthP.value.copy(f.depthP);
       uniforms.uFtwProjFacing.value.copy(f.facing);
     }
-    for (let j = n; j < PHOTO_PROJECT_SLOTS; j++) {
-      maps[j] = null;
-      depths[j] = null;
-    }
+    for (let j = n; j < PHOTO_PROJECT_SLOTS; j++) depths[j] = null;
+    const photos = n > 0 && f ? f.photos : null;
+    if (uniforms.uFtwProjPhotoArr.value !== photos) uniforms.uFtwProjPhotoArr.value = photos;
     if (uniforms.uFtwProjOn.value !== n) uniforms.uFtwProjOn.value = n;
   };
 
@@ -318,7 +328,7 @@ export function createBuildingMaterials(
     shader.uniforms.uFtwProjOn = uniforms.uFtwProjOn;
     shader.uniforms.uFtwProjFromView = uniforms.uFtwProjFromView;
     shader.uniforms.uFtwProjApexV = uniforms.uFtwProjApexV;
-    shader.uniforms.uFtwProjMap = uniforms.uFtwProjMap;
+    shader.uniforms.uFtwProjPhotoArr = uniforms.uFtwProjPhotoArr;
     shader.uniforms.uFtwProjDepth = uniforms.uFtwProjDepth;
     shader.uniforms.uFtwProjSlot = uniforms.uFtwProjSlot;
     shader.uniforms.uFtwProjK = uniforms.uFtwProjK;
@@ -390,7 +400,7 @@ export function createBuildingMaterials(
         uniform float uFtwProjOn;
         uniform mat4 uFtwProjFromView[ ${PHOTO_PROJECT_SLOTS} ];
         uniform vec3 uFtwProjApexV[ ${PHOTO_PROJECT_SLOTS} ];
-        uniform sampler2D uFtwProjMap[ ${PHOTO_PROJECT_SLOTS} ];
+        uniform highp sampler2DArray uFtwProjPhotoArr;
         uniform highp sampler2D uFtwProjDepth[ ${PHOTO_PROJECT_SLOTS} ];
         uniform vec4 uFtwProjSlot[ ${PHOTO_PROJECT_SLOTS} ];
         uniform vec4 uFtwProjK;
@@ -557,8 +567,11 @@ export function createBuildingMaterials(
                 // The range: a photo papers what it can resolve — beyond the slot's range the paint
                 // fades out over a fraction of it (never a hard cut across a facade).
                 float ftwRange = 1.0 - smoothstep(ftwS.z * ${glf(1 - PHOTO_PROJECT.rangeFadeFrac)}, ftwS.z, ftwDMe);
-                vec2 ftwSampleUv = vec2(ftwUv.x, mix(ftwUv.y, 1.0 - ftwUv.y, ftwS.y));
-                vec3 ftwPhoto = textureGrad(uFtwProjMap[ i ], ftwSampleUv, ftwDuvDx, ftwDuvDy).rgb * uFtwProjK.w;
+                // T170: the photo lives in layer ftwS.y of the ONE array, stretched to the square
+                // layer (the uv is the photo's own normalised frame — the stretch is invisible); an
+                // ImageBitmap's row 0 sits at v 0, so v is flipped (a constant since F4).
+                vec2 ftwSampleUv = vec2(ftwUv.x, 1.0 - ftwUv.y);
+                vec3 ftwPhoto = textureGrad(uFtwProjPhotoArr, vec3(ftwSampleUv, ftwS.y), ftwDuvDx, ftwDuvDy).rgb * uFtwProjK.w;
                 float ftwKi = uFtwProjK.x * ftwS.x * ftwFeather * ftwFaceK * ftwLit * ftwRange;
                 float ftwW = (1.0 - ftwProjK) * ftwKi;
                 ftwProjRgb += ftwW * ftwPhoto;

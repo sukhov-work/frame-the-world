@@ -17,8 +17,13 @@ import { create } from "zustand";
  * THE APEX HEIGHT), which only the globe knows. The facade store receives it through `_syncApex`
  * a frame or more after the placement; until then a SAVE is refused rather than persisting a
  * number the owner never saw.
+ *
+ * THE TARGETS (T172 / F5): right before each body is built, SAVE and UPDATE pull the globe's
+ * target probe once (`probeFacadeTargets` — which buildings the projector paints); null when no
+ * globe answers. The body builders decide what an empty answer means (`lib/save/facadeBody`).
  */
 
+import { probeFacadeTargets } from "../lib/globe/facadeTargets";
 import { buildSaveFacadeBody, buildUpdateFacadeBody, type FacadeSnapshot } from "../lib/save/facadeBody";
 import { titleFromFileName } from "../lib/save/pinBody";
 import { useFacadePhotoStore, type FacadePhotoStore } from "./facadePhoto";
@@ -186,7 +191,7 @@ export const useFacadeSaveStore = create<FacadeSaveState>((set, get) => ({
       // 4) the record — the private row; the server copies the URLs off the verified descriptors.
       set({ phase: "saving" });
       const res = await media.postFacadeRecord(
-        buildSaveFacadeBody(snapshot, { originalFileId, displayFileId, thumbFileId }),
+        buildSaveFacadeBody({ ...snapshot, targetFeatureIds: probeFacadeTargets() }, { originalFileId, displayFileId, thumbFileId }),
       );
       set({ phase: "saved", facadeId: res.facadeId, warning: warnings.length ? warnings.join(" · ") : undefined });
       useFacadePhotoStore.getState()._markSaved(res.facadeId); // SAVE becomes UPDATE from here on
@@ -223,7 +228,9 @@ export const useFacadeSaveStore = create<FacadeSaveState>((set, get) => ({
     set({ phase: "updating", error: undefined, errorCode: undefined, warning: undefined });
     try {
       const media = await import("../lib/save/uploadMedia");
-      const res = await media.patchFacadeRecord(buildUpdateFacadeBody(snapshot, facadeId));
+      const res = await media.patchFacadeRecord(
+        buildUpdateFacadeBody({ ...snapshot, targetFeatureIds: probeFacadeTargets() }, facadeId),
+      );
       set({ phase: "updated", facadeId: res.facadeId });
       await withResidency((facades) => facades.getState().upsertMine(res.facade));
     } catch (e) {

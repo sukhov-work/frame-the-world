@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useFacadeSaveStore, isFacadeSaveBusy, type FacadeSavePhase } from "../../src/store/facadeSave";
 import { useFacadePhotoStore } from "../../src/store/facadePhoto";
 import type { ExtractedPhoto, PhotoExif } from "../../src/lib/decode/extract";
 import type { FacadeListItem, FacadePose } from "../../src/lib/wix/facadeRecords";
+import { registerFacadeTargetProbe } from "../../src/lib/globe/facadeTargets";
 
 /**
  * F2 (T169) — the facade SAVE / UPDATE / DELETE pipeline against the CONTRACTS of the modules the
@@ -449,5 +450,55 @@ describe("reset", () => {
     expect(save().facadeId).toBeUndefined();
     expect(save().warning).toBeUndefined();
     expect(save().title).toBe("Kept");
+  });
+});
+
+describe("the target probe (T172 / F5) — pulled once per write, right before the body", () => {
+  let unreg: (() => void) | null = null;
+  afterEach(() => {
+    unreg?.();
+    unreg = null;
+  });
+
+  it("SAVE: the probe's ids reach the POST body's snapshot; the probe runs once, in the saving phase", async () => {
+    const seenPhases: FacadeSavePhase[] = [];
+    unreg = registerFacadeTargetProbe(() => {
+      seenPhases.push(save().phase);
+      return ["osm:w132547176", "osm:r1067316"];
+    });
+    placeDraft();
+    await save().saveFacade();
+    expect(save().phase).toBe("saved");
+    expect(seenPhases).toEqual(["saving"]);
+    const snapshot = body.buildSaveFacadeBody.mock.calls[0][0];
+    expect(snapshot.targetFeatureIds).toEqual(["osm:w132547176", "osm:r1067316"]);
+    expect(media.postFacadeRecord.mock.calls[0][0].snapshot.targetFeatureIds).toEqual(["osm:w132547176", "osm:r1067316"]);
+  });
+
+  it("SAVE without a globe (no probe) or with a throwing one still lands — the snapshot carries null", async () => {
+    placeDraft();
+    await save().saveFacade();
+    expect(save().phase).toBe("saved");
+    expect(body.buildSaveFacadeBody.mock.calls[0][0].targetFeatureIds).toBeNull();
+
+    f().clear();
+    save().reset();
+    vi.clearAllMocks();
+    unreg = registerFacadeTargetProbe(() => {
+      throw new Error("no scene");
+    });
+    placeDraft();
+    await save().saveFacade();
+    expect(save().phase).toBe("saved");
+    expect(body.buildSaveFacadeBody.mock.calls[0][0].targetFeatureIds).toBeNull();
+  });
+
+  it("UPDATE: the re-probed ids reach the PATCH body's snapshot", async () => {
+    f().openSaved(FACADE);
+    unreg = registerFacadeTargetProbe(() => ["osm:w1"]);
+    await save().updateFacade();
+    expect(save().phase).toBe("updated");
+    expect(body.buildUpdateFacadeBody.mock.calls[0][0].targetFeatureIds).toEqual(["osm:w1"]);
+    expect(media.patchFacadeRecord.mock.calls[0][0].snapshot.targetFeatureIds).toEqual(["osm:w1"]);
   });
 });

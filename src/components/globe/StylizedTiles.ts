@@ -14,6 +14,7 @@ import {
   enuBasis,
   geodeticToEcef,
   rayEllipsoidIntersect,
+  type Vec3,
 } from "../../lib/geo/projection";
 import { frameMarker } from "../../lib/geo/offscreen";
 import { aimAnchorFor } from "../../lib/geo/aimAnchor";
@@ -156,7 +157,8 @@ import { attachStreetNames } from "./scene/streetNames";
 import { attachVectorFeatures } from "./scene/vectorFeatures";
 import { attachVectorTiles } from "./scene/vectorTiles";
 import { attachPhotoFrustum } from "./PhotoFrustum";
-import { attachPhotoProjector, DRAFT_SLOT_ID, effectiveRangeM } from "./scene/photoProjector";
+import { attachPhotoProjector, DRAFT_SLOT_ID, effectiveRangeM, projectorOptics } from "./scene/photoProjector";
+import { enrichedTargetId, osmTargetId, probeFacadeTargets, registerFacadeTargetProbe, sampleFacadeTargets } from "../../lib/globe/facadeTargets";
 import { attachFacadeGizmo } from "./scene/facadeGizmo";
 import { attachFacadeMarkers } from "./scene/facadeMarkers";
 import {
@@ -1532,10 +1534,32 @@ export function attachStylizedTiles(opts: {
       if (!facadeFlyArmed) return; // a move, not a landing
       facadeFlyArmed = false;
       // T176: inside FPV the orbit arrival flight would carry the eye to the orbit pose and the
-      // walker would re-assert afterwards — the snap the owner must never see. The walker stays;
-      // the frustum + gizmo + panel appear where the photo is (T168's FPV-at-the-apex entry is
-      // the next rung).
-      if (fpvActive) return;
+      // walker would re-assert afterwards — the snap the owner must never see. T186 (2026-10-22,
+      // T168's FPV-at-the-apex entry): the walker JUMPS to the photo's apex instead — the My spot
+      // idiom (`requestFpvJump`): the eye at the apex height over the ground, the heading / pitch
+      // from the frustum's own forward (what projects is what you face) and the photo's H-FOV at
+      // the live aspect, so the facade stands in front of the eye exactly as the camera saw it (the
+      // alignment view). The gizmo's handles project degenerate from the apex itself — a step back
+      // frees them; the chip's ops and the sliders work regardless.
+      if (fpvActive) {
+        const g = ecefToGeodetic(geom.apex);
+        const b = enuBasis(g.latDeg, g.lonDeg);
+        const fwd = geom.forward;
+        const e = fwd[0] * b.east[0] + fwd[1] * b.east[1] + fwd[2] * b.east[2];
+        const n = fwd[0] * b.north[0] + fwd[1] * b.north[1] + fwd[2] * b.north[2];
+        const u = fwd[0] * b.up[0] + fwd[1] * b.up[1] + fwd[2] * b.up[2];
+        const optics = projectorOptics(geom);
+        const groundM = clampGroundM(ground.heightAt(g.latDeg, g.lonDeg) ?? 0);
+        useCameraStore.getState().requestFpvJump({
+          latDeg: g.latDeg,
+          lonDeg: g.lonDeg,
+          eyeM: Math.max(0.5, g.altM - groundM),
+          headingDeg: ((Math.atan2(e, n) * 180) / Math.PI + 360) % 360,
+          pitchDeg: (Math.asin(Math.max(-1, Math.min(1, u))) * 180) / Math.PI,
+          fovDeg: verticalFovDeg(horizontalFovDeg(optics.vFovDeg, optics.aspect), camera.aspect),
+        });
+        return;
+      }
       // The landing is a camera take-over: the ambient journey and any slider glide stand
       // down first (the same hand-off `noteInteract` performs for a grab), else the explore
       // controller keeps the camera at cruise altitude and the flight never lands.
@@ -1596,6 +1620,53 @@ export function attachStylizedTiles(opts: {
       t.addEventListener("dispose-model", photoProjector.markDepthDirty);
     }
   }
+  // F5 (T172, 2026-10-22) — the alignment hook. At SAVE / UPDATE the store pulls WHICH buildings
+  // the draft paints (`lib/globe/facadeTargets.probeFacadeTargets` → the record's
+  // `targetFeatureIds`): a 7 × 5 ray grid from the apex through the far face, capped at the paint
+  // range, against the two building sets' FILL layers (the depth pass's own 30 / 31 — what paints
+  // is what occludes). Per ray the NEAREST building wins; an OSM twin standing inside the enriched
+  // bbox is skipped (three ignores clipping planes — the `_colTargets` precedent); a non-pickable
+  // enriched class (a lamp post, RC17) occludes and yields nothing. The id is `osm:w…` from either
+  // set when the element id is known (the Cesium OSM batch-table hierarchy, probed 2026-10-22),
+  // else the enriched override key. Registered only with a projector: no probe → null → an UPDATE
+  // keeps the stored set (`lib/save/facadeBody.ts`). One-shot at save — never per frame.
+  const _targetRay = new THREE.Raycaster();
+  _targetRay.layers.set(PHOTO_PROJECT.depthLayerOsm);
+  _targetRay.layers.enable(PHOTO_PROJECT.depthLayerEnriched);
+  const _targetOrigin = new THREE.Vector3();
+  const _targetDir = new THREE.Vector3();
+  const _targetRoots: THREE.Object3D[] = [];
+  const castFacadeTarget = (origin: Vec3, dir: Vec3, farM: number): string | null => {
+    _targetRay.set(_targetOrigin.set(origin[0], origin[1], origin[2]), _targetDir.set(dir[0], dir[1], dir[2]));
+    _targetRay.near = 0;
+    _targetRay.far = farM;
+    _targetRoots.length = 0;
+    _targetRoots.push(buildings.tiles.group);
+    if (enriched) _targetRoots.push(enriched.tiles.group);
+    for (const hit of _targetRay.intersectObjects(_targetRoots, true)) {
+      const f = enriched?.featureOfHit(hit) ?? null;
+      if (f) {
+        if (!f.pickable) return null;
+        return enrichedTargetId(enrichedSel.variant ?? null, f.cellUri, f.featureId, f.osm);
+      }
+      const o = buildings.osmIdOfHit(hit);
+      if (o) {
+        if (enrichedBbox) {
+          const g = ecefToGeodetic([hit.point.x, hit.point.y, hit.point.z]);
+          if (bboxContainsDeg(enrichedBbox, g.lonDeg, g.latDeg)) continue;
+        }
+        return osmTargetId(o.elementType, o.elementId);
+      }
+    }
+    return null;
+  };
+  const unregisterFacadeTargets = photoProjector
+    ? registerFacadeTargetProbe(() => {
+        const g = facadeFrustum.current();
+        if (!g) return null;
+        return sampleFacadeTargets(g, effectiveRangeM(useFacadePhotoStore.getState().projection.rangeM ?? null), castFacadeTarget);
+      })
+    : (): void => {};
   // F3 — the saved photos' markers + the residency plan's state (`stepFacadeResidency`).
   const facadeMarkers = hqAllowed
     ? attachFacadeMarkers(scene, { planeDistM: FRUSTUM.planeDistM, fallbackAspect: FRUSTUM.fallbackAspect })
@@ -4852,6 +4923,10 @@ export function attachStylizedTiles(opts: {
       // (null on a shell the attach gate refused). `verify-photo-projection` reads both.
       facadeFrustum,
       photoProjector: () => photoProjector?.snapshot() ?? null,
+      // F5 (T172, 2026-10-22) — what the SAVE would persist as `targetFeatureIds` right now (the
+      // registered probe: the 7 × 5 ray grid against the building fills; null = no projector / no
+      // placed photo). A DEV read for the harness, the store pulls the same probe at save.
+      facadeTargets: () => probeFacadeTargets(),
       // F1 / F3 (2026-10-21): the facade gizmo's live state (the bldgGizmo() projection) and the
       // residency plan — `verify-facade-flow` reads both.
       facadeGizmo: () =>
@@ -10033,6 +10108,7 @@ export function attachStylizedTiles(opts: {
       frustum.dispose();
       unsubFacadeSource();
       unsubFacadeCursor();
+      unregisterFacadeTargets();
       if (photoProjector) {
         for (const t of [buildings.tiles, ...(enriched ? [enriched.tiles] : [])]) {
           t.removeEventListener("load-model", photoProjector.markDepthDirty);

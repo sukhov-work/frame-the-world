@@ -116,6 +116,13 @@ describe("MyFacadesTab (T179)", () => {
     );
   });
 
+  it("facadeRowSub: `· N BLDG` once the record knows the buildings it paints (T172), nothing otherwise", () => {
+    expect(facadeRowSub(item("b", { targetFeatureIds: ["osm:w1", "osm:w2", "v|c|3"] }))).toBe(
+      "2026-10-21 · N 48.46470 E 35.04620 · 90.0° · 3 BLDG",
+    );
+    expect(facadeRowSub(item("e", { targetFeatureIds: [] }))).toBe("2026-10-21 · N 48.46470 E 35.04620 · 90.0°");
+  });
+
   it("the connected tab wires OPEN to openSaved + close, ✕ to deleteFacadeById, RETRY to loadMine", () => {
     const src = read("src/components/panels/MyFacadesTab.tsx");
     expect(src).toMatch(/useFacadePhotoStore\.getState\(\)\.openSaved\(item\);\s*onClose\(\);/);

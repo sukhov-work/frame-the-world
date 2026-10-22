@@ -403,7 +403,9 @@ try {
     const grown = await evalJs(`(() => { const sx = ${FAC}.markerScaleOf(${JSON.stringify(rowId)}); if (sx === null) return null;
       const cam = window.__globe.camera; const V = cam.up.constructor; const a = ${FAC}.apexOf(${JSON.stringify(rowId)}); const d = new V(a[0], a[1], a[2]).distanceTo(cam.position); return { sx, d }; })()`);
     if (grown) {
-      const base = Math.min(600, Math.max(3, grown.d * 0.02));
+      // The marker's base = markerAngularSize × distance, floored at markerMinM (0.5 m since 2026-10-22d —
+      // the 3 m floor filled the frame at a 10 m pose) and capped at markerMaxM; hovered = × 1.4.
+      const base = Math.min(600, Math.max(0.5, grown.d * 0.02));
       if (!(grown.sx > base * 1.3)) fails.push(`the hovered marker did not grow (${r2(grown.sx)} vs base ${r2(base)})`);
     }
     await shot("06a-hover.jpeg");
